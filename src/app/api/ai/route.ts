@@ -1,0 +1,82 @@
+import { z } from "zod";
+import { randomUUID } from "node:crypto";
+import type { AiRequest } from "@/domain/ai";
+import { AI_SCHEMA_ID, type AiEvidenceNode } from "@/server/ai/provider";
+import { buildEvidenceNodes, groundAiResult } from "@/server/ai/grounding";
+import { createLocalAiProvider } from "@/server/ai/local-provider";
+import { apiError, ok, readBoundedJson, runBoundedOperation } from "@/server/http";
+import { requireSameOrigin, requireSession } from "@/server/session";
+import { getFile, WorkspaceError } from "@/server/workspace-store";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+const inputSchema = z.object({
+  task: z.enum(["analyze", "ask", "brief", "semantic-check"]),
+  fileIds: z.array(z.uuid()).min(1).max(5),
+  question: z.string().trim().min(1).max(2_000).optional(),
+}).strict().superRefine((value, context) => {
+  if ((value.task === "ask" || value.task === "semantic-check") && !value.question) {
+    context.addIssue({ code: "custom", path: ["question"], message: "question is required" });
+  }
+});
+
+export async function POST(request: Request) {
+  try {
+    requireSameOrigin(request);
+    const { principalKey } = await requireSession();
+    const parsed = inputSchema.safeParse(await readBoundedJson(request));
+    if (!parsed.success) throw new WorkspaceError("INVALID_REQUEST", "AI 작업의 파일과 질문을 확인하세요.", 400);
+    const files = await Promise.all(parsed.data.fileIds.map((id) => getFile(principalKey, id)));
+    const result = await runBoundedOperation(async () => {
+      const documents = files.map((file) => file.document);
+      const aiRequest = toAiRequest(parsed.data);
+      const provider = createLocalAiProvider();
+      const evidence = boundedEvidence(buildEvidenceNodes(documents));
+      const response = await provider.complete({
+        requestId: randomUUID(),
+        sessionKey: principalKey,
+        task: aiRequest.operation,
+        schemaId: AI_SCHEMA_ID,
+        locale: "ko-KR",
+        sourceTokens: evidence.map((node) => node.propositionToken),
+        context: evidence.map(({ propositionToken, text, proposition }) => ({ propositionToken, text, proposition })),
+        maxOutputTokens: 8_000,
+      }, request.signal);
+      if (response.status === "unavailable") {
+        throw new WorkspaceError("AI_UNAVAILABLE", "Local AI를 사용할 수 없습니다. deterministic 기능은 계속 사용할 수 있습니다.", 503);
+      }
+      return groundAiResult(aiRequest, documents, response.completion);
+    });
+    if (result.rejectedClaimCount > 0) {
+      throw new WorkspaceError("EVIDENCE_VALIDATION_FAILED", "근거가 검증되지 않은 AI 결과를 거부했습니다.", 422);
+    }
+    if (result.operation === "ask" && result.claims.length === 0) {
+      throw new WorkspaceError("INSUFFICIENT_EVIDENCE", "선택한 문서에서 답을 뒷받침할 근거를 찾지 못했습니다.", 422);
+    }
+    return ok({ result });
+  } catch (error) {
+    return apiError(error);
+  }
+}
+
+export function boundedEvidence(nodes: AiEvidenceNode[]): AiEvidenceNode[] {
+  const selected: AiEvidenceNode[] = [];
+  let bytes = 2; // JSON array brackets.
+  for (const node of nodes) {
+    const candidate = { ...node, text: node.text.slice(0, 8_000) };
+    const next = Buffer.byteLength(JSON.stringify(candidate)) + (selected.length > 0 ? 1 : 0);
+    // Leave room for the fixed provider envelope below the 2 MiB wire limit.
+    if (next > 1_500 * 1024 || bytes + next > 1_500 * 1024) continue;
+    selected.push(candidate);
+    bytes += next;
+  }
+  return selected;
+}
+
+function toAiRequest(input: z.infer<typeof inputSchema>): AiRequest {
+  if (input.task === "ask") return { operation: "ask", question: input.question! };
+  if (input.task === "semantic-check") return { operation: "semantic-check", statement: input.question! };
+  if (input.task === "brief") return { operation: "brief", ...(input.question ? { instruction: input.question } : {}) };
+  return { operation: "analyze" };
+}
