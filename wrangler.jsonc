@@ -31,9 +31,6 @@
     }
   ],
   "vars": {
-    "WORKLENS_ALLOW_LOCAL_EPHEMERAL": "true",
-    "WORKLENS_TEMP_DIR": "/tmp/worklens-v1",
-    "WORKLENS_ORIGIN": "https://worklens.puleun58.workers.dev",
-    "WORKLENS_PARSER_MODE": "in-process"
+    "WORKLENS_ORIGIN": "https://worklens.puleun58.workers.dev"
   }
 }

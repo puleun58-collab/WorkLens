@@ -67,7 +67,7 @@ export const parseXlsx = async (input: {
 }): Promise<NormalizedDocument> => {
   try {
     const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.load(Buffer.from(input.bytes) as unknown as Parameters<typeof workbook.xlsx.load>[0]);
+    await workbook.xlsx.load(input.bytes.slice().buffer as unknown as Parameters<typeof workbook.xlsx.load>[0]);
 
     const metadata: DocumentMetadata = {
       fileName: input.fileName,

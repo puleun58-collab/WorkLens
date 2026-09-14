@@ -3,7 +3,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   turbopack: { root: path.resolve(".") },
-  serverExternalPackages: ["pdfjs-dist", "exceljs"],
+  // Parsing and export now run in the browser worker; no server bundling opt-out needed.
   poweredByHeader: false,
   async headers() {
     return [

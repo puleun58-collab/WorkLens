@@ -1,4 +1,4 @@
-import { inflateRawSync } from "node:zlib";
+import { inflateSync } from "fflate";
 
 import { SaxesParser } from "saxes";
 
@@ -59,7 +59,7 @@ const unzip = (input: Uint8Array): Map<string, Uint8Array> => {
     const dataOffset = localOffset + 30 + uint16(input, localOffset + 26) + uint16(input, localOffset + 28);
     if (dataOffset + compressedSize > input.byteLength) throw malformedFileError();
     const compressed = input.subarray(dataOffset, dataOffset + compressedSize);
-    const content = compression === 0 ? compressed : new Uint8Array(inflateRawSync(Buffer.from(compressed), { maxOutputLength: MAX_ENTRY_BYTES }));
+    const content = compression === 0 ? compressed : inflateSync(compressed, { out: new Uint8Array(uncompressedSize) });
     if (content.byteLength !== uncompressedSize) throw malformedFileError();
     totalSize += uncompressedSize;
     files.set(name, content);

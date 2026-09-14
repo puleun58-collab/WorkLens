@@ -163,7 +163,7 @@ export interface DocumentExport {
   format: ExportFormat;
   mimeType: string;
   fileName: string;
-  content: string | Buffer;
+  content: string | Uint8Array;
 }
 
 export type OperationDocument = NormalizedDocument;

@@ -1,0 +1,131 @@
+/// <reference lib="webworker" />
+import "./worker-globals";
+import { buildComparison } from "@/domain/compare";
+import type { NormalizedDocument } from "@/domain/document";
+import { analyzeDocument, checkDocument, extractDocument } from "@/lib/deterministic";
+import { exportDocumentCsv, exportDocumentXlsx } from "@/lib/export";
+import { parseDocument } from "@/lib/parsers";
+import { DocumentError, fileKindOf, safeDisplayName, validateUploadBytes } from "@/lib/upload";
+import type { WorkerEnvelope, WorkerRequest, WorkspaceFile } from "./protocol";
+
+/**
+ * Parsed documents live only here, for the lifetime of this worker. A reload or
+ * tab close destroys the worker and with it every byte of user content.
+ */
+interface StoredDocument {
+  file: WorkspaceFile;
+  document: NormalizedDocument;
+}
+
+const MAX_FILES = 10;
+const documents = new Map<string, StoredDocument>();
+
+function requireDocuments(fileIds: readonly string[]): StoredDocument[] {
+  if (fileIds.length === 0) throw new DocumentError("NO_FILE_SELECTED", "파일을 1개 이상 선택하세요.");
+  return fileIds.map((fileId) => {
+    const stored = documents.get(fileId);
+    if (!stored) throw new DocumentError("FILE_NOT_FOUND", "선택한 파일이 더 이상 메모리에 없습니다. 파일을 다시 추가하세요.");
+    return stored;
+  });
+}
+
+function combineDocuments(selected: readonly StoredDocument[]): NormalizedDocument {
+  const [first] = selected;
+  return {
+    id: `export:${selected.map((entry) => entry.document.id).join(":")}`,
+    fileId: "export",
+    kind: first.document.kind,
+    metadata: { fileName: selected.length === 1 ? first.file.name : "worklens-export.xlsx" },
+    blocks: selected.flatMap((entry) => entry.document.blocks),
+    warnings: selected.flatMap((entry) => entry.document.warnings),
+  };
+}
+
+async function handle(request: WorkerRequest): Promise<unknown> {
+  switch (request.kind) {
+    case "parse": {
+      if (documents.size >= MAX_FILES) {
+        throw new DocumentError("WORKSPACE_FULL", `한 번에 최대 ${MAX_FILES}개 파일까지 다룰 수 있습니다.`);
+      }
+      const fileName = safeDisplayName(request.fileName);
+      const kind = fileKindOf(fileName);
+      const bytes = request.bytes;
+      validateUploadBytes(kind, bytes);
+      const size = bytes.byteLength;
+      const document = await parseDocument({ fileId: request.fileId, fileName, bytes });
+      const file: WorkspaceFile = {
+        id: request.fileId,
+        name: fileName,
+        kind,
+        size,
+        status: "ready",
+        metadata: document.metadata,
+        warnings: document.warnings,
+      };
+      documents.set(request.fileId, { file, document });
+      return file;
+    }
+    case "analyze":
+      return requireDocuments(request.fileIds).map((entry) => ({
+        file: { id: entry.file.id, name: entry.file.name },
+        analysis: analyzeDocument(entry.document),
+      }));
+    case "check":
+      return requireDocuments(request.fileIds).map((entry) => ({
+        file: { id: entry.file.id, name: entry.file.name },
+        check: checkDocument(entry.document),
+      }));
+    case "extract":
+      return requireDocuments(request.fileIds).map((entry) => ({
+        file: { id: entry.file.id, name: entry.file.name },
+        extraction: extractDocument(entry.document),
+      }));
+    case "compare": {
+      if (request.baseFileId === request.targetFileId) {
+        throw new DocumentError("COMPARE_REQUIRES_TWO_FILES", "비교하려면 서로 다른 파일 두 개를 선택하세요.");
+      }
+      const [base, target] = requireDocuments([request.baseFileId, request.targetFileId]);
+      return buildComparison(base.document, target.document);
+    }
+    case "export": {
+      const selected = requireDocuments(request.fileIds);
+      const combined = combineDocuments(selected);
+      const exported = request.format === "csv"
+        ? exportDocumentCsv(combined)
+        : await exportDocumentXlsx(combined);
+      const bytes = typeof exported.content === "string"
+        ? new TextEncoder().encode(`\uFEFF${exported.content}`)
+        : exported.content;
+      return { fileName: exported.fileName, mimeType: exported.mimeType, bytes };
+    }
+    case "documents":
+      return requireDocuments(request.fileIds).map((entry) => entry.document);
+    case "forget": {
+      for (const fileId of request.fileIds) documents.delete(fileId);
+      return { released: documents.size };
+    }
+  }
+}
+
+self.addEventListener("message", (event: MessageEvent<{ id: string; request: WorkerRequest }>) => {
+  const { id, request } = event.data;
+  void handle(request).then(
+    (data) => {
+      const transfer = data instanceof Object && "bytes" in data && data.bytes instanceof Uint8Array
+        ? [data.bytes.buffer as ArrayBuffer]
+        : [];
+      const envelope: WorkerEnvelope = { id, ok: true, data };
+      self.postMessage(envelope, transfer);
+    },
+    (error: unknown) => {
+      const failure = error instanceof DocumentError
+        ? { code: error.code, message: error.message }
+        : {
+            code: "DOCUMENT_FAILED",
+            message: error instanceof Error && error.message ? error.message : "파일을 처리하지 못했습니다.",
+          };
+      const envelope: WorkerEnvelope = { id, ok: false, error: failure };
+      self.postMessage(envelope);
+    },
+  );
+});

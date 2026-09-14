@@ -66,7 +66,7 @@ function worksheetName(preferred: string, used: Set<string>): string {
 }
 
 /** Produces an XLSX workbook with one worksheet per extracted table and a Paragraphs worksheet. */
-export async function exportXlsx(extraction: ExtractResult): Promise<Buffer> {
+export async function exportXlsx(extraction: ExtractResult): Promise<Uint8Array> {
   const workbook = new ExcelJS.Workbook();
   const names = new Set<string>();
   if (extraction.paragraphs.length > 0) {
@@ -94,7 +94,7 @@ export async function exportXlsx(extraction: ExtractResult): Promise<Buffer> {
       });
     });
   });
-  return Buffer.from(await workbook.xlsx.writeBuffer());
+  return new Uint8Array(await workbook.xlsx.writeBuffer() as ArrayBuffer);
 }
 
 export function exportDocumentCsv(document: NormalizedDocument): DocumentExport {

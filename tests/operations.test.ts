@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import ExcelJS from "exceljs";
 import type { NormalizedDocument, SourceRef, TableCell } from "@/domain/document";
-import { analyzeDocument, checkDocument, extractDocument } from "@/server/deterministic";
-import { exportCsv, exportXlsx } from "@/server/export";
+import { analyzeDocument, checkDocument, extractDocument } from "@/lib/deterministic";
+import { exportCsv, exportXlsx } from "@/lib/export";
 
 const source = (nodeId: string, quote: string): SourceRef => ({
   fileId: "file-1",
@@ -130,7 +130,7 @@ describe("deterministic operations", () => {
 
   it("neutralizes formula strings in XLSX exports", async () => {
     const bytes = await exportXlsx(extractDocument(fixture()));
-    expect(bytes.subarray(0, 2).toString()).toBe("PK");
+    expect([bytes[0], bytes[1]]).toEqual([0x50, 0x4b]);
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(bytes as unknown as Parameters<typeof workbook.xlsx.load>[0]);
     const table = workbook.getWorksheet("Table 1");

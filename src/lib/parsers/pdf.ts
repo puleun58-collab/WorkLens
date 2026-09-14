@@ -1,7 +1,20 @@
-import path from "node:path";
-import { pathToFileURL } from "node:url";
-
 import type { NormalizedDocument, ParagraphBlock, SpanBox } from "@/domain/document";
+
+/**
+ * pdf.js needs its worker as a URL in both runtimes. The browser loads the
+ * copy published under `public/`, and Node resolves the same file from disk so
+ * parser behaviour is identical in tests and in the browser worker.
+ */
+const PDF_WORKER_ASSET = "pdf.worker.mjs";
+
+function pdfWorkerSource(): string {
+  const scope = globalThis as { WorkerGlobalScope?: unknown; location?: { origin?: string } };
+  if (typeof window !== "undefined" || scope.WorkerGlobalScope !== undefined) {
+    return new URL(`/${PDF_WORKER_ASSET}`, scope.location?.origin ?? "http://localhost").href;
+  }
+  const cwd = globalThis.process.cwd().replaceAll("\\", "/");
+  return `file:///${cwd.replace(/^\/+/, "")}/public/${PDF_WORKER_ASSET}`;
+}
 
 const malformedFileError = (cause: unknown): Error =>
   new Error("파일을 읽을 수 없습니다. 지원되는 정상 파일인지 확인해 주세요.", { cause });
@@ -52,16 +65,12 @@ export const parsePdf = async (input: {
 }): Promise<NormalizedDocument> => {
   try {
     const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-    pdfjs.GlobalWorkerOptions.workerSrc = pathToFileURL(
-      path.join(process.cwd(), ".worklens", "pdf.worker.mjs"),
-    ).href;
+    pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerSource();
     const loadingTask = pdfjs.getDocument({
       data: input.bytes,
       disableFontFace: true,
       useWorkerFetch: false,
       stopAtErrors: true,
-      standardFontDataUrl:
-        `${path.join(process.cwd(), ".worklens", "standard_fonts").replaceAll("\\", "/")}/`,
     });
 
     const blocks: ParagraphBlock[] = [];

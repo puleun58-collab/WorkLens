@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { sha256Hex } from "@/domain/hash";
 import type { NormalizedDocument, SourceLocator, SourceRef } from "@/domain/document";
 
 import { parseCsv } from "./csv";
@@ -22,7 +22,7 @@ export const parseDocument = async (input: ParseDocumentInput): Promise<Normaliz
   // pdfjs (and potentially other parsers) transfers ownership of the input
   // buffer, zeroing its contents after parse. Compute the content hash before
   // any parser touches the bytes.
-  const contentHash = createHash("sha256").update(input.bytes).digest("hex");
+  const contentHash = sha256Hex(input.bytes);
   let document: NormalizedDocument;
   if (extension === ".xlsx") document = await parseXlsx(input);
   else if (extension === ".csv") document = await parseCsv(input);
@@ -34,14 +34,10 @@ export const parseDocument = async (input: ParseDocumentInput): Promise<Normaliz
 };
 
 function addCanonicalProvenance(document: NormalizedDocument, contentHash: string): NormalizedDocument {
-  const version = createHash("sha256")
-    .update(`${PARSER_REVISION}\0${contentHash}`)
-    .digest("hex");
+  const version = sha256Hex(`${PARSER_REVISION}\0${contentHash}`);
   const warnings = new Set(document.warnings);
   const canonicalNodeId = (structuralPath: string): string =>
-    createHash("sha256")
-      .update(`${version}\0${PARSER_REVISION}\0${structuralPath}`)
-      .digest("hex");
+    sha256Hex(`${version}\0${PARSER_REVISION}\0${structuralPath}`);
   const canonicalIds = new Map<string, string>();
   document.blocks.forEach((block, blockIndex) => {
     const blockPath = `block/${blockIndex + 1}`;
@@ -104,7 +100,7 @@ function addCanonicalProvenance(document: NormalizedDocument, contentHash: strin
       nodeId: canonicalNodeId(structuralPath),
       locator: locatorFor(source),
       quote,
-      quoteHash: createHash("sha256").update(quote).digest("hex"),
+      quoteHash: sha256Hex(quote),
     };
   };
   return {

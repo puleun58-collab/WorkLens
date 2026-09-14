@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { strToU8, zipSync } from "fflate";
-import { parseDocument } from "@/server/parsers";
-import { FORMAT_INPUT_LIMITS, inputLimitFor } from "@/server/parsers/policy";
+import { parseDocument } from "@/lib/parsers";
+import { FORMAT_INPUT_LIMITS, inputLimitFor } from "@/lib/parsers/policy";
 import type { TableBlock } from "@/domain/document";
 import {
   createDocx,

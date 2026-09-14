@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { strToU8, zipSync } from "fflate";
-import { checkDocument } from "@/server/deterministic";
+import { checkDocument } from "@/lib/deterministic";
 import type { NormalizedDocument, SourceRef } from "@/domain/document";
 import type { CheckResult } from "@/domain/operations";
-import { parseDocument } from "@/server/parsers";
+import { parseDocument } from "@/lib/parsers";
 import { createCheckPptx, createPdf, createXlsx } from "./fixtures";
 
 

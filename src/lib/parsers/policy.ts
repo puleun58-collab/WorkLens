@@ -10,7 +10,7 @@ export const FORMAT_INPUT_LIMITS: Readonly<Record<FileKind, number>> = {
   pdf: 50 * MiB,
 };
 
-const configured = Number(process.env.WORKLENS_MAX_FILE_BYTES ?? 50 * MiB);
+const configured = Number(globalThis.process?.env?.WORKLENS_MAX_FILE_BYTES ?? 50 * MiB);
 if (!Number.isSafeInteger(configured) || configured <= 0 || configured > 50 * MiB) {
   throw new Error("WORKLENS_MAX_FILE_BYTES must be a positive integer no greater than 50 MiB.");
 }

@@ -1,8 +1,6 @@
-import path from "node:path";
 import { defineConfig, devices } from "@playwright/test";
 
 const PORT = 3311;
-const TTL_MS = 20_000;
 
 export default defineConfig({
   testDir: "tests/e2e",
@@ -30,12 +28,7 @@ export default defineConfig({
     timeout: 120_000,
     env: {
       NODE_ENV: "production",
-      WORKLENS_SESSION_TTL_MS: String(TTL_MS),
-      WORKLENS_TEMP_DIR: path.join(process.cwd(), ".playwright-tmp"),
-      WORKLENS_ALLOW_LOCAL_EPHEMERAL: "true",
-      WORKLENS_ORIGIN: "http://127.0.0.1:3311",
+      WORKLENS_ORIGIN: `http://127.0.0.1:${PORT}`,
     },
   },
 });
-
-export const E2E = { PORT, TTL_MS, TEMP_DIR: path.join(process.cwd(), ".playwright-tmp") };

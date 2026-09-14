@@ -1,7 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
-import { SessionError } from "@/server/session";
-import { WorkspaceError } from "@/server/workspace-store";
 
 const NO_STORE_HEADERS = {
   "Cache-Control": "private, no-store, max-age=0",
@@ -9,8 +7,23 @@ const NO_STORE_HEADERS = {
   "X-Content-Type-Options": "nosniff",
 };
 
-/** Control-plane JSON bodies are tiny; anything larger is rejected before allocation. */
-const MAX_REQUEST_BODY_BYTES = 64 * 1024;
+/** The only remaining server endpoint is the optional Local AI layer. */
+export class ApiError extends Error {
+  constructor(
+    public readonly code: string,
+    message: string,
+    public readonly status: number,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+/**
+ * Local AI requests carry the documents the browser already parsed, so the
+ * ceiling is sized for evidence rather than a control-plane command.
+ */
+const MAX_REQUEST_BODY_BYTES = 8 * 1024 * 1024;
 
 /**
  * Reads a request body with a hard byte ceiling, checking the declared
@@ -20,7 +33,7 @@ const MAX_REQUEST_BODY_BYTES = 64 * 1024;
 export async function readBoundedJson(request: Request, maxBytes = MAX_REQUEST_BODY_BYTES): Promise<unknown> {
   const declared = Number(request.headers.get("content-length") ?? "");
   if (Number.isFinite(declared) && declared > maxBytes) {
-    throw new WorkspaceError("REQUEST_BODY_TOO_LARGE", "요청 본문이 너무 큽니다.", 413);
+    throw new ApiError("REQUEST_BODY_TOO_LARGE", "요청 본문이 너무 큽니다.", 413);
   }
   if (!request.body) return null;
 
@@ -34,7 +47,7 @@ export async function readBoundedJson(request: Request, maxBytes = MAX_REQUEST_B
     size += value.byteLength;
     if (size > maxBytes) {
       await reader.cancel();
-      throw new WorkspaceError("REQUEST_BODY_TOO_LARGE", "요청 본문이 너무 큽니다.", 413);
+      throw new ApiError("REQUEST_BODY_TOO_LARGE", "요청 본문이 너무 큽니다.", 413);
     }
     chunks.push(value);
   }
@@ -55,8 +68,8 @@ export async function readBoundedJson(request: Request, maxBytes = MAX_REQUEST_B
 }
 
 /**
- * Derived operations amplify: a bounded document can yield a finding per cell.
- * Results are capped before serialization so a response cannot exhaust the heap.
+ * A grounded completion amplifies: one claim per evidence node. Results are
+ * capped before serialization so a response cannot exhaust the worker heap.
  */
 const MAX_RESULT_BYTES = 24 * 1024 * 1024;
 const MAX_CONCURRENT_OPERATIONS = 4;
@@ -67,7 +80,7 @@ export async function runBoundedOperation<T>(
   validateResult = true,
 ): Promise<T> {
   if (activeOperations >= MAX_CONCURRENT_OPERATIONS) {
-    throw new WorkspaceError("OPERATION_CAPACITY", "동시 작업 한도에 도달했습니다. 잠시 후 다시 시도하세요.", 429);
+    throw new ApiError("OPERATION_CAPACITY", "동시 작업 한도에 도달했습니다. 잠시 후 다시 시도하세요.", 429);
   }
   activeOperations += 1;
   try {
@@ -79,21 +92,32 @@ export async function runBoundedOperation<T>(
   }
 }
 
-export function assertBinaryResultWithinLimit(bytes: number): void {
-  if (!Number.isSafeInteger(bytes) || bytes > MAX_RESULT_BYTES) {
-    throw new WorkspaceError("RESULT_TOO_LARGE", "내보내기 결과가 너무 큽니다. 파일 수를 줄여 다시 시도하세요.", 413);
+export function assertResultWithinLimit(result: unknown): void {
+  const size = new TextEncoder().encode(JSON.stringify(result) ?? "").byteLength;
+  if (size > MAX_RESULT_BYTES) {
+    throw new ApiError("RESULT_TOO_LARGE", "결과가 너무 커서 반환할 수 없습니다. 파일 수를 줄여 다시 시도하세요.", 413);
   }
 }
 
-export function assertResultWithinLimit(result: unknown): void {
-  const size = Buffer.byteLength(JSON.stringify(result) ?? "");
-  if (size > MAX_RESULT_BYTES) {
-    throw new WorkspaceError(
-      "RESULT_TOO_LARGE",
-      "결과가 너무 커서 반환할 수 없습니다. 파일 수를 줄여 다시 시도하세요.",
-      413,
-    );
+/**
+ * Rejects cross-site callers. The endpoint is stateless, so there is no cookie
+ * or session to protect; this only keeps other origins from using the
+ * deployment as a free proxy to a user's Local AI provider.
+ */
+export function requireSameOrigin(request: Request): void {
+  if (request.headers.get("sec-fetch-site") === "cross-site") {
+    throw new ApiError("CROSS_SITE_REQUEST", "교차 사이트 요청을 거부했습니다.", 403);
   }
+  const origin = request.headers.get("origin");
+  if (!origin) throw new ApiError("ORIGIN_REQUIRED", "요청 출처가 필요합니다.", 403);
+  let expected: string;
+  try {
+    const configuredOrigin = process.env.WORKLENS_ORIGIN;
+    expected = configuredOrigin ? new URL(configuredOrigin).origin : new URL(request.url).origin;
+  } catch {
+    throw new ApiError("ORIGIN_INVALID", "요청 출처를 확인할 수 없습니다.", 403);
+  }
+  if (origin !== expected) throw new ApiError("ORIGIN_MISMATCH", "요청 출처가 일치하지 않습니다.", 403);
 }
 
 export function ok<T>(data: T, status = 200): NextResponse {
@@ -102,19 +126,15 @@ export function ok<T>(data: T, status = 200): NextResponse {
 }
 
 export function apiError(error: unknown): NextResponse {
-  if (error instanceof SessionError || error instanceof WorkspaceError) {
+  if (error instanceof ApiError) {
     return NextResponse.json(
       { error: { code: error.code, message: error.message, retryable: error.status >= 500 }, requestId: randomUUID() },
       { status: error.status, headers: NO_STORE_HEADERS },
     );
   }
   console.error("WorkLens API unhandled error", error);
-  const message = error instanceof Error && error.message ? error.message : "요청을 처리할 수 없습니다.";
-  const safeMessage = /지원|파일|PDF|Excel|XLSX|세션|크기|형식|문서/.test(message)
-    ? message
-    : "요청 처리 중 오류가 발생했습니다.";
   return NextResponse.json(
-    { error: { code: "INTERNAL_ERROR", message: safeMessage, retryable: true }, requestId: randomUUID() },
+    { error: { code: "INTERNAL_ERROR", message: "요청 처리 중 오류가 발생했습니다.", retryable: true }, requestId: randomUUID() },
     { status: 500, headers: NO_STORE_HEADERS },
   );
 }

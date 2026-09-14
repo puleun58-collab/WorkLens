@@ -1,9 +1,8 @@
-import { mkdir, readdir, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { createCheckPptx, createDocx, createPdf, createPptx, createXlsx, RATE_SHEET_V1, RATE_SHEET_V2 } from "../fixtures";
-import { E2E } from "../../playwright.config";
 
 const FIXTURE_DIR = path.join(process.cwd(), "artifacts", "fixtures");
 const files = {
@@ -154,18 +153,7 @@ test("runs deterministic Analyze, Check, Extract/export and degrades Local AI on
   await page.getByRole("button", { name: "Analyze 실행" }).click();
   await expect(page.getByText("구조 및 수치 분석을 완료했습니다.")).toBeVisible();
   await expect(page.locator(".results-panel")).toContainText("numeric");
-  const uploaded = await page.evaluate(async () => (await (await fetch("/api/files")).json()).data.files[0].id);
-  const noStore = await page.evaluate(async (fileId) => {
-    const csrf = (await (await fetch("/api/session", { method: "POST" })).json()).data.csrfToken;
-    const response = await fetch("/api/analyze", {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-worklens-csrf": csrf },
-      body: JSON.stringify({ fileIds: [fileId] }),
-    });
-    return { status: response.status, cacheControl: response.headers.get("cache-control") };
-  }, uploaded);
-  expect(noStore.status).toBe(200);
-  expect(noStore.cacheControl).toContain("no-store");
+  await expect(page.locator(".results-panel .source-link").first()).toBeVisible();
   await page.locator(".results-panel .source-link").first().click();
   await expect(page.getByLabel("Source detail")).toBeVisible();
   await page.getByLabel("닫기").click();
@@ -229,48 +217,40 @@ test("rejects a disguised file with an actionable message", async ({ page }) => 
   await expect(page.getByText("아직 파일이 없습니다.", { exact: false })).toBeVisible();
 });
 
-test("isolates files between anonymous sessions", async ({ page, browser }) => {
+test("keeps uploaded files inside the tab and never on the server", async ({ page, browser }) => {
+  const apiCalls: string[] = [];
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname.startsWith("/api/")) apiCalls.push(new URL(request.url()).pathname);
+  });
   await page.goto("/");
   await upload(page, files.v1);
+  await page.getByLabel("운임현황_v1.xlsx 선택").check();
+  await page.getByRole("button", { name: "Analyze 실행" }).click();
+  await expect(page.getByText("구조 및 수치 분석을 완료했습니다.")).toBeVisible();
 
-  const ownerFiles = await page.evaluate(async () => {
-    const response = await fetch("/api/files");
-    return { status: response.status, body: await response.json() };
-  });
-  expect(ownerFiles.status).toBe(200);
-  expect(ownerFiles.body.data.files.length).toBe(1);
-  const fileId: string = ownerFiles.body.data.files[0].id;
-  const crossSite = await page.request.post("/api/check", {
-    headers: { origin: "https://attacker.example", "sec-fetch-site": "cross-site" },
-    data: { fileIds: [fileId] },
-  });
-  expect(crossSite.status()).toBe(403);
-  expect(JSON.stringify(await crossSite.json())).not.toContain("운임현황");
+  // Parsing and every deterministic operation run in the browser worker.
+  expect(apiCalls).toEqual([]);
+  const stored = await page.evaluate(() => ({
+    cookies: document.cookie,
+    local: Object.keys(localStorage).length,
+    session: Object.keys(sessionStorage).length,
+  }));
+  expect(stored).toEqual({ cookies: "", local: 0, session: 0 });
 
   const otherContext = await browser.newContext();
   const otherPage = await otherContext.newPage();
   await otherPage.goto("/");
   await expect(otherPage.getByText("아직 파일이 없습니다.", { exact: false })).toBeVisible();
-
-  const stolen = await otherPage.evaluate(async (id) => {
-    const csrf = (await (await fetch("/api/session", { method: "POST" })).json()).data.csrfToken;
-    const response = await fetch("/api/compare", {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-worklens-csrf": csrf },
-      body: JSON.stringify({ baseFileId: id, targetFileId: id }),
-    });
-    return { status: response.status, body: await response.json() };
-  }, fileId);
-  expect([400, 404, 410]).toContain(stolen.status);
-  expect(JSON.stringify(stolen.body)).not.toContain("운임현황");
   await otherContext.close();
 });
 
-test("never caches session responses", async ({ page }) => {
-  const response = await page.request.post("/api/session", {
-    headers: { origin: new URL(page.url() || "http://127.0.0.1:3311").origin },
+test("rejects cross-site calls to the optional Local AI endpoint", async ({ page }) => {
+  const crossSite = await page.request.post("/api/ai", {
+    headers: { origin: "https://attacker.example", "sec-fetch-site": "cross-site" },
+    data: { task: "analyze", documents: [] },
   });
-  expect(response.headers()["cache-control"]).toContain("no-store");
+  expect(crossSite.status()).toBe(403);
+  expect(crossSite.headers()["cache-control"]).toContain("no-store");
 });
 
 test("meets serious accessibility checks and exposes keyboard focus", async ({ page }) => {
@@ -325,104 +305,32 @@ test("meets accessibility and keyboard requirements in the populated compare/sou
   expect(outlineWidth).not.toBe("0px");
 });
 
-test("deletes temporary data when the session expires", async ({ page }) => {
+test("discards every file and result when the tab reloads", async ({ page }) => {
   await page.goto("/");
   await upload(page, files.v1);
-  const before = await readdir(E2E.TEMP_DIR);
-  expect(before.length).toBeGreaterThan(0);
-
   await page.getByLabel("운임현황_v1.xlsx 선택").check();
   await page.getByRole("button", { name: "Analyze 실행" }).click();
   await expect(page.getByText("구조 및 수치 분석을 완료했습니다.")).toBeVisible();
   await page.locator(".results-panel .source-link").first().click();
   await expect(page.getByLabel("Source detail")).toBeVisible();
 
-  // Do not wait for a later 410 — the client tracks the server-issued expiresAt
-  // and must clear sensitive on-screen content proactively when it elapses.
-  await page.evaluate(() => {
-    const heartbeat = (window as unknown as { __worklensHeartbeat?: number }).__worklensHeartbeat;
-    if (heartbeat !== undefined) window.clearInterval(heartbeat);
-  });
+  await page.reload();
 
-  await expect(page.getByRole("heading", { name: "세션이 만료되었습니다" })).toBeVisible({ timeout: E2E.TTL_MS + 5000 });
+  await expect(page.getByText("아직 파일이 없습니다.", { exact: false })).toBeVisible();
   await expect(page.getByText("운임현황_v1.xlsx")).toHaveCount(0);
-  await expect(page.getByLabel("Source detail")).toHaveCount(0);
   await expect(page.locator(".results-panel")).toHaveCount(0);
-
-  const expired = await page.evaluate(async () => {
-    const response = await fetch("/api/files");
-    return { status: response.status, body: await response.json() };
-  });
-  expect(expired.status).toBe(410);
-  expect(expired.body.error.code).toBe("SESSION_EXPIRED");
-  const expiredExport = await page.evaluate(async () => (await fetch("/api/export", {
-    method: "POST",
-    headers: { "content-type": "application/json", "x-worklens-csrf": "expired-session-token" },
-    body: JSON.stringify({ fileIds: ["00000000-0000-4000-8000-000000000000"], format: "csv" }),
-  })).status);
-  expect(expiredExport).toBe(403);
-
-  for (const directory of await readdir(E2E.TEMP_DIR)) {
-    const contents = await readdir(path.join(E2E.TEMP_DIR, directory));
-    expect(contents.filter((entry) => entry.endsWith(".xlsx"))).toEqual([]);
-  }
+  await expect(page.getByLabel("Source detail")).toHaveCount(0);
 });
 
-test("releases the workspace when the tab goes away", async ({ page }) => {
-  let lease: { tabId: string; releaseToken: string; releaseNonce: string } | undefined;
-  page.on("response", async (response) => {
-    if (response.url().endsWith("/api/session/tabs") && response.request().method() === "POST" && response.ok()) {
-      const data = (await response.json()).data;
-      lease ??= { tabId: data.tabId, releaseToken: data.releaseToken, releaseNonce: data.releaseNonce };
-    }
-  });
-  await page.goto("/");
-  await upload(page, files.v1);
-  await expect.poll(() => lease).toBeDefined();
-  await page.evaluate(() => {
-    window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: true }));
-    window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
-  });
-  expect(lease).toBeDefined();
-  const released = await page.evaluate(async (value) => {
-    const response = await fetch("/api/session/release", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ tabId: value.tabId, releaseNonce: value.releaseNonce }),
-    });
-    return { status: response.status, body: await response.text() };
-  }, lease!);
-  expect(released.status, `${JSON.stringify(lease)} ${released.body}`).toBe(200);
-  const resumed = await page.evaluate(async () => (await fetch("/api/files")).status);
-  expect(resumed).toBe(200);
-  const secondLease = await page.evaluate(async () => {
-    const csrf = (await (await fetch("/api/session", { method: "POST" })).json()).data.csrfToken;
-    const data = (await (await fetch("/api/session/tabs", {
-      method: "POST",
-      headers: { "x-worklens-csrf": csrf },
-    })).json()).data;
-    return { tabId: data.tabId, releaseNonce: data.releaseNonce };
-  });
-  await page.evaluate(() => {
-    const heartbeat = (window as unknown as { __worklensHeartbeat?: number }).__worklensHeartbeat;
-    if (heartbeat !== undefined) window.clearInterval(heartbeat);
-  });
-  await page.evaluate(async (value) => fetch("/api/session/release", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(value),
-  }), secondLease);
-  await page.waitForTimeout(16_000);
-  const afterGrace = await page.evaluate(async () => (await fetch("/api/files")).status);
-  expect(afterGrace).toBe(410);
-});
-
-test("explicitly deletes all temporary data and starts a clean session", async ({ page }) => {
+test("explicitly clears the in-browser workspace", async ({ page }) => {
   await page.goto("/");
   await upload(page, files.v1);
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "모두 삭제" }).click();
-  await expect(page.getByRole("heading", { name: "세션이 만료되었습니다" })).toBeVisible();
-  await page.getByRole("button", { name: "새 세션 시작" }).click();
+  await expect(page.getByText("브라우저 메모리에서 파일과 결과를 모두 지웠습니다.")).toBeVisible();
   await expect(page.getByText("아직 파일이 없습니다.", { exact: false })).toBeVisible();
+
+  // The worker was torn down; a new upload must still work in the same tab.
+  await upload(page, files.v2);
+  await expect(fileRow(page, files.v2)).toContainText("시트: 1");
 });

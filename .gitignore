@@ -47,3 +47,6 @@ next-env.d.ts
 /dist/
 .vinext/
 .wrangler/
+
+# generated browser assets
+/public/pdf.worker.mjs

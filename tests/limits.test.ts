@@ -38,7 +38,7 @@ describe("bounded request bodies", () => {
       // @ts-expect-error duplex is required for a streaming request body in Node.
       duplex: "half",
     });
-    await expect(readBoundedJson(request)).rejects.toMatchObject({
+    await expect(readBoundedJson(request, 64 * 1024)).rejects.toMatchObject({
       code: "REQUEST_BODY_TOO_LARGE",
       status: 413,
     });

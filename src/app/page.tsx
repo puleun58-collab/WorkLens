@@ -15,16 +15,8 @@ import {
   type ExtractResult,
 } from "@/domain/operations";
 import { WorkLensLogo } from "./worklens-logo";
-
-type FileSummary = {
-  id: string;
-  name: string;
-  kind: string;
-  size: number;
-  status: string;
-  metadata: DocumentMetadata;
-  warnings: string[];
-};
+import { disposeWorkspace, runInWorker } from "@/client/document-client";
+import type { WorkspaceFile } from "@/client/protocol";
 type ApiError = { code: string; message: string; retryable?: boolean };
 type Notice = { tone: "error" | "success" | "info"; message: string };
 const tabs = ["Analyze", "Ask", "Compare", "Check", "Extract", "Brief"] as const;
@@ -99,27 +91,27 @@ function isSourceRef(value: unknown): value is SourceRef {
 type SourceRole = "base" | "current";
 type DetailInfo = { source: SourceRef; role?: SourceRole };
 
+function aiResultFrom(payload: unknown): unknown {
+  if (!payload || typeof payload !== "object" || !("data" in payload)) return null;
+  const data = payload.data;
+  if (!data || typeof data !== "object" || !("result" in data)) return null;
+  return data.result;
+}
+
 export default function Home() {
-  const [files, setFiles] = useState<FileSummary[]>([]);
+  const [files, setFiles] = useState<WorkspaceFile[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<Tab>("Analyze");
-  const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [expired, setExpired] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [comparison, setComparison] = useState<ComparisonResult | null>(null);
   const [compareIds, setCompareIds] = useState<{ baseFileId: string; targetFileId: string } | null>(null);
   const [operationResult, setOperationResult] = useState<unknown>(null);
   const [detail, setDetail] = useState<DetailInfo | null>(null);
   const [question, setQuestion] = useState("");
-  const [expiresAt, setExpiresAt] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const uploadQueue = useRef<Promise<void>>(Promise.resolve());
-  const sessionReady = useRef<Promise<void> | null>(null);
-  const csrfToken = useRef<string | null>(null);
-  const tabLease = useRef<{ tabId: string; releaseToken: string; releaseNonce: string } | null>(null);
-  const sessionTtlMs = useRef<number | null>(null);
   const detailTrigger = useRef<HTMLElement | null>(null);
 
   const openSource = useCallback((source: SourceRef, role: SourceRole | undefined, trigger: HTMLElement | null) => {
@@ -133,208 +125,36 @@ export default function Home() {
     if (trigger) window.requestAnimationFrame(() => trigger.focus());
   }, []);
 
-  const expireNow = useCallback(() => {
-    sessionReady.current = null;
-    csrfToken.current = null;
-    setExpired(true);
-    setFiles([]);
-    setSelected([]);
+  const clearResults = useCallback(() => {
     setOperationResult(null);
     setComparison(null);
     setCompareIds(null);
     setDetail(null);
   }, []);
 
-  const noteRenewal = useCallback(() => {
-    if (sessionTtlMs.current === null) return;
-    setExpiresAt(Date.now() + sessionTtlMs.current);
-  }, []);
-
-  const mutationHeaders = useCallback((headers?: HeadersInit) => {
-    const token = csrfToken.current;
-    if (!token) throw { code: "CSRF_MISSING", message: "세션 검증 토큰이 없습니다. 다시 시도하세요." } satisfies ApiError;
-    const result = new Headers(headers);
-    result.set("x-worklens-csrf", token);
-    return result;
-  }, []);
-
-  const ensureSession = useCallback(() => {
-    if (!sessionReady.current) {
-      sessionReady.current = (async () => {
-        const response = await fetch("/api/session", { method: "POST", credentials: "same-origin" });
-        const payload = await response.json().catch(() => null);
-        if (!response.ok) {
-          sessionReady.current = null;
-          throw apiError(payload, "작업 공간을 시작하지 못했습니다.");
-        }
-        const remoteExpiresAt = Date.parse((payload as { data?: { expiresAt?: string } })?.data?.expiresAt ?? "");
-        const token = (payload as { data?: { csrfToken?: unknown } })?.data?.csrfToken;
-        if (typeof token !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(token)) {
-          sessionReady.current = null;
-          throw { code: "CSRF_MISSING", message: "세션 검증 토큰을 받지 못했습니다." } satisfies ApiError;
-        }
-        csrfToken.current = token;
-        if (Number.isFinite(remoteExpiresAt)) {
-          sessionTtlMs.current = remoteExpiresAt - Date.now();
-          setExpiresAt(remoteExpiresAt);
-        }
-      })();
-    }
-    return sessionReady.current;
-  }, []);
-
-  const request = useCallback(async (input: RequestInfo, init?: RequestInit): Promise<unknown> => {
-    const send = async (retry: boolean): Promise<unknown> => {
-      await ensureSession();
-      const method = init?.method?.toUpperCase() ?? "GET";
-      const response = await fetch(input, {
-        ...init,
-        credentials: "same-origin",
-        ...(method === "GET" || method === "HEAD" ? {} : { headers: mutationHeaders(init?.headers) }),
-      });
-      if (response.status === 401 && retry) {
-        sessionReady.current = null;
-        csrfToken.current = null;
-        return send(false);
-      }
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) {
-        const error = apiError(payload, "요청을 처리하지 못했습니다.");
-        if (response.status === 410) expireNow();
-        throw error;
-      }
-      noteRenewal();
-      return payload;
-    };
-    return send(true);
-  }, [ensureSession, expireNow, mutationHeaders, noteRenewal]);
-
-  const loadFiles = useCallback(async () => {
-    const payload = await request("/api/files");
-    setFiles((payload as { data?: { files?: FileSummary[] } }).data?.files ?? []);
-  }, [request]);
-
-  useEffect(() => {
-    let mounted = true;
-    const registerLease = async () => {
-      const tabResponse = await fetch("/api/session/tabs", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: mutationHeaders(),
-      });
-      if (!tabResponse.ok) throw apiError(await tabResponse.json().catch(() => null), "탭 세션을 시작하지 못했습니다.");
-      const tabData = (await tabResponse.json() as { data: { tabId: string; releaseToken: string; releaseNonce: string } }).data;
-      const lease = { tabId: tabData.tabId, releaseToken: tabData.releaseToken, releaseNonce: tabData.releaseNonce };
-      tabLease.current = lease;
-      noteRenewal();
-    };
-    const renewLease = async () => {
-      const lease = tabLease.current;
-      if (!lease) return registerLease();
-      const response = await fetch("/api/session/tabs", {
-        method: "PUT",
-        credentials: "same-origin",
-        headers: mutationHeaders({ "content-type": "application/json" }),
-        body: JSON.stringify({ tabId: lease.tabId, releaseToken: lease.releaseToken }),
-      });
-      if (response.status === 409) return registerLease();
-      if (!response.ok) throw apiError(await response.json().catch(() => null), "탭 세션을 갱신하지 못했습니다.");
-      noteRenewal();
-    };
-    void (async () => {
-      try {
-        await ensureSession();
-        await registerLease();
-        await loadFiles();
-      } catch (error) {
-        if (mounted) setNotice({ tone: "error", message: (error as ApiError).message ?? "작업 공간을 시작하지 못했습니다." });
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    })();
-    const release = (event: PageTransitionEvent) => {
-      if (event.persisted) return;
-      const lease = tabLease.current;
-      if (!lease) return;
-      navigator.sendBeacon(
-        "/api/session/release",
-        new Blob([JSON.stringify({ tabId: lease.tabId, releaseNonce: lease.releaseNonce })], { type: "text/plain" }),
-      );
-    };
-    const heartbeat = window.setInterval(() => {
-      if (document.visibilityState === "visible" && tabLease.current) {
-        void renewLease().catch(() => undefined);
-      }
-    }, 30_000);
-    (window as typeof window & { __worklensHeartbeat?: number }).__worklensHeartbeat = heartbeat;
-    const revalidate = (event: PageTransitionEvent) => {
-      if (!event.persisted) return;
-      setLoading(true);
-      setComparison(null);
-      setOperationResult(null);
-      setDetail(null);
-      void renewLease()
-        .then(loadFiles)
-        .catch((error: ApiError) => {
-          setFiles([]);
-          setNotice({ tone: "error", message: error.message ?? "세션을 다시 확인하지 못했습니다." });
-        })
-        .finally(() => setLoading(false));
-    };
-    const resumeVisible = () => {
-      if (document.visibilityState === "visible") void renewLease().catch(() => undefined);
-    };
-    window.addEventListener("pagehide", release);
-    window.addEventListener("pageshow", revalidate);
-    document.addEventListener("visibilitychange", resumeVisible);
-    return () => {
-      mounted = false;
-      window.clearInterval(heartbeat);
-      delete (window as typeof window & { __worklensHeartbeat?: number }).__worklensHeartbeat;
-      window.removeEventListener("pagehide", release);
-      window.removeEventListener("pageshow", revalidate);
-      document.removeEventListener("visibilitychange", resumeVisible);
-    };
-  }, [ensureSession, loadFiles, mutationHeaders, noteRenewal]);
-
-  useEffect(() => {
-    if (expiresAt === null || expired) return;
-    const remaining = Math.max(0, expiresAt - Date.now());
-    const timer = window.setTimeout(expireNow, remaining);
-    return () => window.clearTimeout(timer);
-  }, [expiresAt, expired, expireNow]);
+  // Every document lives in the worker owned by this tab; unloading the page
+  // is the deletion mechanism, so nothing needs to be released server-side.
+  useEffect(() => disposeWorkspace, []);
 
   const upload = async (file: File) => {
-    const extension = file.name.toLowerCase().split(".").pop();
-    if (!extension || !["xlsx", "csv", "pdf", "docx", "pptx"].includes(extension)) {
-      setNotice({ tone: "error", message: "XLSX, CSV, PDF, DOCX 또는 PPTX 파일만 업로드할 수 있습니다." });
-      return;
-    }
     setUploading(true);
     setNotice({ tone: "info", message: `${file.name}을(를) 분석 중입니다.` });
     try {
-      const payload = await request("/api/files", {
-        method: "POST",
-        headers: {
-          "x-file-name": encodeURIComponent(file.name),
-          "content-type": file.type || "application/octet-stream",
-          "content-length": String(file.size),
-        },
-        body: file,
-      });
-      const saved = (payload as { data?: { file?: FileSummary } }).data?.file;
-      if (saved) setFiles((current) => [...current, saved]);
-      else await loadFiles();
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const summary = await runInWorker(
+        { kind: "parse", fileId: crypto.randomUUID(), fileName: file.name, bytes },
+        [bytes.buffer],
+      );
+      setFiles((current) => [...current, summary]);
       setNotice({ tone: "success", message: `${file.name} 분석이 완료되었습니다.` });
     } catch (error) {
-      setNotice({ tone: "error", message: (error as ApiError).message ?? "업로드에 실패했습니다." });
+      setNotice({ tone: "error", message: (error as ApiError).message ?? "파일을 처리하지 못했습니다." });
     } finally {
       setUploading(false);
     }
   };
 
   const enqueueUploads = (list: FileList | null) => {
-    if (expired) return;
     for (const file of Array.from(list ?? [])) uploadQueue.current = uploadQueue.current.then(() => upload(file));
   };
   const onDrop = (event: DragEvent<HTMLDivElement>) => {
@@ -343,19 +163,23 @@ export default function Home() {
   };
   const toggleFile = (id: string) => {
     setSelected((current) => current.includes(id) ? current.filter((fileId) => fileId !== id) : current.length < 10 ? [...current, id] : current);
-    setOperationResult(null);
-    setComparison(null);
-    setCompareIds(null);
-    setDetail(null);
+    clearResults();
   };
 
-  const runJsonOperation = async (route: string, body: object, success: string) => {
+  const runDeterministic = async (
+    kind: "analyze" | "check" | "extract",
+    success: string,
+  ) => {
     setBusy(true);
     setNotice(null);
     setDetail(null);
     try {
-      const payload = await request(route, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-      setOperationResult((payload as { data?: { result?: unknown } }).data?.result ?? null);
+      const result = kind === "analyze"
+        ? await runInWorker({ kind: "analyze", fileIds: selected })
+        : kind === "check"
+          ? await runInWorker({ kind: "check", fileIds: selected })
+          : await runInWorker({ kind: "extract", fileIds: selected });
+      setOperationResult(result);
       setNotice({ tone: "success", message: success });
     } catch (error) {
       setOperationResult(null);
@@ -365,17 +189,44 @@ export default function Home() {
     }
   };
 
+  /** The only network call left: the optional Local AI layer. */
+  const runLocalAi = async (task: "analyze" | "ask" | "brief" | "semantic-check", askedQuestion: string | undefined, success: string) => {
+    if (selected.length > 5) {
+      setNotice({ tone: "error", message: "Local AI 작업은 최대 5개 파일만 선택할 수 있습니다." });
+      return;
+    }
+    setBusy(true);
+    setNotice(null);
+    setDetail(null);
+    try {
+      const documents = await runInWorker({ kind: "documents", fileIds: selected });
+      const response = await fetch("/api/ai", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ task, documents, ...(askedQuestion ? { question: askedQuestion } : {}) }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw apiError(payload, "Local AI 작업에 실패했습니다.");
+      setOperationResult(aiResultFrom(payload));
+      setNotice({ tone: "success", message: success });
+    } catch (error) {
+      setOperationResult(null);
+      setNotice({ tone: "error", message: (error as ApiError).message ?? "Local AI 작업에 실패했습니다." });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const runActive = async () => {
-    if (!selected.length || expired) return;
+    if (!selected.length) return;
     if (activeTab === "Compare") {
       if (selected.length !== 2) return;
       setBusy(true);
       setNotice(null);
       try {
-        const baseFileId = selected[0];
-        const targetFileId = selected[1];
-        const payload = await request("/api/compare", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ baseFileId, targetFileId }) });
-        setComparison((payload as { data?: { comparison?: ComparisonResult } }).data?.comparison ?? null);
+        const [baseFileId, targetFileId] = selected;
+        const result = await runInWorker({ kind: "compare", baseFileId, targetFileId });
+        setComparison(result);
         setCompareIds({ baseFileId, targetFileId });
         setNotice({ tone: "success", message: "비교 결과를 준비했습니다." });
       } catch (error) {
@@ -385,47 +236,30 @@ export default function Home() {
       }
       return;
     }
-    if (activeTab === "Analyze") return runJsonOperation("/api/analyze", { fileIds: selected }, "구조 및 수치 분석을 완료했습니다.");
-    if (activeTab === "Check") return runJsonOperation("/api/check", { fileIds: selected }, "콘텐츠 및 개인정보 점검을 완료했습니다.");
-    if (activeTab === "Extract") return runJsonOperation("/api/extract", { fileIds: selected }, "구조화 추출을 완료했습니다.");
-    if (selected.length > 5) {
-      setNotice({ tone: "error", message: "Local AI 작업은 최대 5개 파일만 선택할 수 있습니다." });
-      return;
-    }
+    if (activeTab === "Analyze") return runDeterministic("analyze", "구조 및 수치 분석을 완료했습니다.");
+    if (activeTab === "Check") return runDeterministic("check", "콘텐츠 및 개인정보 점검을 완료했습니다.");
+    if (activeTab === "Extract") return runDeterministic("extract", "구조화 추출을 완료했습니다.");
     const task = activeTab === "Ask" ? "ask" : "brief";
-    return runJsonOperation("/api/ai", { task, fileIds: selected, ...(question.trim() ? { question: question.trim() } : {}) }, `${activeTab} 결과를 준비했습니다.`);
+    return runLocalAi(task, question.trim() || undefined, `${activeTab} 결과를 준비했습니다.`);
   };
 
   const runAiAssist = () => {
-    if (selected.length > 5) {
-      setNotice({ tone: "error", message: "Local AI 작업은 최대 5개 파일만 선택할 수 있습니다." });
-      return;
-    }
-    if (activeTab === "Analyze") {
-      return runJsonOperation("/api/ai", { task: "analyze", fileIds: selected }, "Local AI 분석 결과를 준비했습니다.");
-    }
-    const question = activeTab === "Compare"
+    if (activeTab === "Analyze") return runLocalAi("analyze", undefined, "Local AI 분석 결과를 준비했습니다.");
+    const statement = activeTab === "Compare"
       ? "선택한 문서 사이의 중요한 의미 변화를 근거와 함께 점검하세요."
       : "선택한 문서의 한글 맞춤법, 띄어쓰기, 조사, 어색한 표현과 용어 일관성을 보수적으로 점검하세요. 확신이 낮은 항목은 제안으로만 표시하세요.";
-    return runJsonOperation("/api/ai", { task: "semantic-check", fileIds: selected, question }, "Local AI 보조 점검 결과를 준비했습니다.");
+    return runLocalAi("semantic-check", statement, "Local AI 보조 점검 결과를 준비했습니다.");
   };
 
   const exportFiles = async (format: "csv" | "xlsx") => {
     if (!selected.length) return;
     setBusy(true);
     try {
-      await ensureSession();
-      const response = await fetch("/api/export", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: mutationHeaders({ "content-type": "application/json" }),
-        body: JSON.stringify({ fileIds: selected, format }),
-      });
-      if (!response.ok) throw apiError(await response.json().catch(() => null), "내보내기에 실패했습니다.");
-      const url = URL.createObjectURL(await response.blob());
+      const exported = await runInWorker({ kind: "export", fileIds: selected, format });
+      const url = URL.createObjectURL(new Blob([exported.bytes as BlobPart], { type: exported.mimeType }));
       const anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download = `worklens-export.${format}`;
+      anchor.download = exported.fileName;
       anchor.click();
       URL.revokeObjectURL(url);
       setNotice({ tone: "success", message: `${format.toUpperCase()} 파일을 다운로드했습니다. 다운로드된 복사본은 사용자 기기에서 직접 관리하세요.` });
@@ -436,35 +270,16 @@ export default function Home() {
     }
   };
 
-  const deleteAll = async () => {
-    if (!window.confirm("현재 세션의 원본과 결과를 모두 삭제하시겠습니까?")) return;
-    setBusy(true);
-    try {
-      await ensureSession();
-      const response = await fetch("/api/session", {
-        method: "DELETE",
-        credentials: "same-origin",
-        headers: mutationHeaders(),
-      });
-      if (!response.ok) throw apiError(await response.json().catch(() => null), "삭제에 실패했습니다.");
-      sessionReady.current = null;
-      csrfToken.current = null;
-      setFiles([]);
-      setSelected([]);
-      setComparison(null);
-      setCompareIds(null);
-      setOperationResult(null);
-      setDetail(null);
-      setExpired(true);
-      setNotice(null);
-    } catch (error) {
-      setNotice({ tone: "error", message: (error as ApiError).message ?? "삭제에 실패했습니다." });
-    } finally {
-      setBusy(false);
-    }
+  const deleteAll = () => {
+    if (!window.confirm("이 탭에서 처리한 파일과 결과를 모두 지우시겠습니까?")) return;
+    disposeWorkspace();
+    setFiles([]);
+    setSelected([]);
+    clearResults();
+    setNotice({ tone: "info", message: "브라우저 메모리에서 파일과 결과를 모두 지웠습니다." });
   };
 
-  const actionDisabled = busy || expired || selected.length === 0 || (activeTab === "Compare" && selected.length !== 2) || (activeTab === "Ask" && !question.trim());
+  const actionDisabled = busy || selected.length === 0 || (activeTab === "Compare" && selected.length !== 2) || (activeTab === "Ask" && !question.trim());
   const fileNames = new Map(files.map((file) => [file.id, file.name]));
 
   return (
@@ -476,11 +291,11 @@ export default function Home() {
         </div>
         <p>Analyze. Compare. Verify.</p>
         <div className="session-meta">
-          <span className={`session-state${expired ? " is-expired" : ""}`}>
+          <span className="session-state">
             <span className="state-dot" aria-hidden="true" />
-            {expired ? "Session expired" : "Private session · 2시간 임시 보관"}
+            In-browser session · 서버 저장 없음
           </span>
-          {!expired ? <button type="button" className="delete-all" onClick={deleteAll} disabled={busy}>모두 삭제</button> : null}
+          <button type="button" className="delete-all" onClick={deleteAll} disabled={busy}>모두 삭제</button>
         </div>
       </header>
       <nav className="tabs" aria-label="Workspace views">
@@ -507,20 +322,11 @@ export default function Home() {
       <section className="workspace" id="workspace-content" aria-busy={busy || uploading}>
         <div className="context-strip">
           <p className="privacy-note">
-            <strong>Temporary workspace</strong>
-            원본과 결과는 마지막 활동 후 2시간 뒤 삭제됩니다. 다운로드한 파일은 사용자 기기에서 관리하세요.
+            <strong>In-browser workspace</strong>
+            파일과 분석 결과는 이 탭의 메모리에만 있습니다. 새로고침하거나 탭을 닫으면 즉시 사라집니다.
           </p>
           <span className="selection-count">{selected.length} selected</span>
         </div>
-        {expired ? (
-          <div className="state-card error-state">
-            <span className="state-code">SESSION EXPIRED</span>
-            <h1>세션이 만료되었습니다</h1>
-            <p>보안을 위해 이 세션의 임시 파일과 결과를 삭제했습니다.</p>
-            <p className="state-guidance">새 작업을 계속하려면 빈 세션을 시작하세요.</p>
-            <button type="button" onClick={() => window.location.reload()}>새 세션 시작</button>
-          </div>
-        ) : null}
         {notice ? (
           <div className={`notice ${notice.tone}`} role={notice.tone === "error" ? "alert" : "status"} aria-live={notice.tone === "error" ? "assertive" : "polite"}>
             <span className="notice-marker" aria-hidden="true" />
@@ -531,8 +337,7 @@ export default function Home() {
             </div>
           </div>
         ) : null}
-        {!expired ? (
-          <>
+        <>
             <section className="panel file-panel" aria-labelledby="files-heading">
               <div className="panel-heading">
                 <div>
@@ -552,11 +357,7 @@ export default function Home() {
                   {uploading ? "분석 중…" : "파일 선택"}
                 </button>
               </div>
-              {loading ? (
-                <div className="loading-state" role="status" aria-label="파일 작업 공간을 불러오는 중">
-                  <span /><span /><span />
-                </div>
-              ) : files.length === 0 ? (
+              {files.length === 0 ? (
                 <div className="empty-state">
                   <span className="state-code">NO FILES</span>
                   <strong>아직 파일이 없습니다.</strong>
@@ -601,7 +402,7 @@ export default function Home() {
                 </label>
               ) : null}
               <div className="operation-actions">
-                {(activeTab === "Analyze" || activeTab === "Compare" || activeTab === "Check") ? <button type="button" className="secondary-action" onClick={runAiAssist} disabled={busy || expired || selected.length === 0}>{activeTab === "Check" ? "Local AI 문장 검수" : "Local AI 보조"}</button> : null}
+                {(activeTab === "Analyze" || activeTab === "Compare" || activeTab === "Check") ? <button type="button" className="secondary-action" onClick={runAiAssist} disabled={busy || selected.length === 0}>{activeTab === "Check" ? "Local AI 문장 검수" : "Local AI 보조"}</button> : null}
                 <button type="button" onClick={runActive} disabled={actionDisabled}>{busy ? "처리 중…" : `${activeTab} 실행`}</button>
               </div>
             </section>
@@ -616,8 +417,7 @@ export default function Home() {
             {activeTab === "Compare"
               ? <ComparisonView comparison={comparison} compareIds={compareIds} fileNames={fileNames} detail={detail} onSource={openSource} onCloseSource={closeSource} />
               : <ResultView tab={activeTab} result={operationResult} fileNames={fileNames} detail={detail} onSource={openSource} onCloseSource={closeSource} />}
-          </>
-        ) : null}
+        </>
       </section>
     </main>
   );

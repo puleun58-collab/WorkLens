@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildComparison } from "@/domain/compare";
-import { parseDocument } from "@/server/parsers";
+import { parseDocument } from "@/lib/parsers";
 import { createPdf, createXlsx, RATE_SHEET_V1, RATE_SHEET_V2 } from "./fixtures";
 
 async function compareRateSheets() {
