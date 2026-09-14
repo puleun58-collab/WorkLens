@@ -1,10 +1,11 @@
 import { fork } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import { createHash } from "node:crypto";
 import type { NormalizedDocument } from "@/domain/document";
 import type { FileKind } from "@/domain/document";
-import type { ParseDocumentInput } from "./index";
+import { parseDocument, type ParseDocumentInput } from "./index";
 
 const WALL_TIMEOUT_MS = 120_000;
 const MAX_MESSAGE_BYTES = 20 * 1024 * 1024 + 1024;
@@ -27,6 +28,23 @@ export async function parseDocumentIsolated(
 ): Promise<{ document: NormalizedDocument; normalizedSize: number }> {
   const inputBytes = "bytes" in input ? input.bytes.byteLength : input.size;
   await acquireParserSlot(inputBytes, signal);
+  const isCloudflareWorker = "WebSocketPair" in globalThis;
+  if (
+    process.env.WORKLENS_PARSER_MODE === "in-process" ||
+    process.env.WORKLENS_CLOUDFLARE === "true" ||
+    isCloudflareWorker
+  ) {
+    try {
+      if (signal?.aborted) throw new Error("PARSER_CANCELLED");
+      const bytes = "bytes" in input ? input.bytes : new Uint8Array(await readFile(input.filePath));
+      const document = await parseDocument({ fileId: input.fileId, fileName: input.fileName, bytes });
+      const normalizedSize = Buffer.byteLength(JSON.stringify(document));
+      if (normalizedSize > MAX_MESSAGE_BYTES) throw new Error("PARSER_OUTPUT_LIMIT");
+      return { document, normalizedSize };
+    } finally {
+      releaseParserSlot(inputBytes);
+    }
+  }
   const runner = path.join(/* turbopackIgnore: true */ process.cwd(), ".worklens", "parser-runner.mjs");
   const tempRoot = path.resolve(
     /* turbopackIgnore: true */ process.env.WORKLENS_TEMP_DIR ?? path.join(os.tmpdir(), "worklens-v1"),

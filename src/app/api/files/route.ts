@@ -37,6 +37,7 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const cloudflareRuntime = process.env.WORKLENS_CLOUDFLARE === "true";
   let filePath: string | undefined;
   let allocationId: string | undefined;
   let principalKey: string | undefined;
@@ -53,9 +54,10 @@ export async function POST(request: Request) {
     const allocation = await allocateUpload(principalKey, kind);
     allocationId = allocation.id;
     filePath = allocation.filePath;
-    const file = await open(/* turbopackIgnore: true */ filePath, "wx", 0o600);
     const hasher = createHash("sha256");
+    const chunks: Uint8Array[] = [];
     let size = 0;
+    const file = cloudflareRuntime ? undefined : await open(/* turbopackIgnore: true */ filePath, "wx", 0o600);
     try {
       const reader = request.body.getReader();
       while (true) {
@@ -69,22 +71,24 @@ export async function POST(request: Request) {
         }
         hasher.update(value);
         await reserveUploadBytes(principalKey, allocation.id, size);
-        await file.write(value);
+        if (file) await file.write(value);
+        else chunks.push(value);
       }
     } finally {
-      await file.close();
+      await file?.close();
     }
     if (size === 0) throw new WorkspaceError("EMPTY_FILE", "업로드할 파일이 비어 있습니다.", 400);
     const contentHash = hasher.digest("hex");
 
-    await validateStoredUpload(filePath, kind);
-    const { document, normalizedSize } = await parseDocumentIsolated({
-      fileId: allocation.id,
-      fileName: displayName,
-      filePath,
-      size,
-      contentHash,
-    }, request.signal);
+    const cloudflareBytes = cloudflareRuntime ? concatenateChunks(chunks, size) : undefined;
+    if (cloudflareBytes) validateUploadBytes(cloudflareBytes, kind);
+    else await validateStoredUpload(filePath, kind);
+    const { document, normalizedSize } = await parseDocumentIsolated(
+      cloudflareBytes
+        ? { fileId: allocation.id, fileName: displayName, bytes: cloudflareBytes }
+        : { fileId: allocation.id, fileName: displayName, filePath, size, contentHash },
+      request.signal,
+    );
     if (request.signal.aborted) throw new WorkspaceError("PARSER_CANCELLED", "업로드가 취소되었습니다.", 499);
     const summary = await registerFile(principalKey, {
       id: allocation.id,
@@ -99,7 +103,9 @@ export async function POST(request: Request) {
     allocationId = undefined;
     return ok({ file: summary }, 201);
   } catch (error) {
-    if (filePath && principalKey && allocationId) {
+    if (cloudflareRuntime && principalKey && allocationId) {
+      await cancelUpload(principalKey, allocationId).catch(() => undefined);
+    } else if (filePath && principalKey && allocationId) {
       await cleanupFailedUpload(principalKey, allocationId, filePath).catch(() => undefined);
     } else {
       if (filePath) await rm(filePath, { force: true }).catch(() => undefined);
@@ -107,6 +113,16 @@ export async function POST(request: Request) {
     }
     return apiError(error);
   }
+}
+
+function concatenateChunks(chunks: Uint8Array[], size: number): Uint8Array {
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
 }
 
 function safeDisplayName(header: string | null): string {
@@ -214,6 +230,10 @@ function validateZipStructure(kind: "xlsx" | "docx" | "pptx", bytes: Uint8Array)
 
 async function validateStoredUpload(filePath: string, kind: FileKind): Promise<void> {
   const bytes = new Uint8Array(await readFile(filePath));
+  validateUploadBytes(bytes, kind);
+}
+
+function validateUploadBytes(bytes: Uint8Array, kind: FileKind): void {
   validateMagic(kind, bytes);
   if (kind === "xlsx" || kind === "docx" || kind === "pptx") validateZipStructure(kind, bytes);
 }

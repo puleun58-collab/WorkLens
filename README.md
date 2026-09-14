@@ -100,6 +100,36 @@ bun run ephemeral:down
 
 현재 애플리케이션의 단일 프로세스 저장 구현은 OS 임시 디렉터리를 사용합니다. `valkey-s3` profile은 운영 adapter가 충족해야 하는 capability와 설정 경계를 정의합니다. 실제 운영 배포에서는 해당 adapter 구현과 사설 TLS·인증·네트워크 정책을 함께 제공해야 합니다.
 
+### Cloudflare Workers 배포
+
+Cloudflare 배포는 Vinext, Wrangler, Workers KV를 사용합니다. 최초 한 번 로그인합니다.
+
+```bash
+bunx wrangler login
+```
+
+현재 `wrangler.jsonc`에는 WorkLens의 `VINEXT_KV_CACHE` namespace가 연결되어 있습니다. 다른 Cloudflare 계정으로 복제한 경우 새 namespace를 만들고 반환된 ID로 설정을 교체합니다.
+
+```bash
+bunx wrangler kv namespace create VINEXT_KV_CACHE
+```
+
+이후 빌드와 배포는 다음 명령 한 번으로 수행합니다.
+
+```bash
+npm run deploy
+```
+
+명령은 기존 `dist/`를 제거하고 Vinext Worker bundle을 새로 빌드한 뒤 Wrangler로 production Worker를 배포합니다.
+
+현재 배포 URL:
+
+```text
+https://worklens.puleun58.workers.dev
+```
+
+Workers에서는 `child_process`를 사용할 수 없으므로 업로드 parser가 동일 요청 안에서 in-process 모드로 실행됩니다. 입력 크기와 parser/result resource ceiling은 그대로 적용되지만, 강한 프로세스 격리가 필요한 내부 운영 배포는 Node parser worker 또는 격리 컨테이너 profile을 사용해야 합니다.
+
 ## 3. 환경 변수
 
 ### 기본 서버

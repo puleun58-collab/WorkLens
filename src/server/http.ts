@@ -108,6 +108,7 @@ export function apiError(error: unknown): NextResponse {
       { status: error.status, headers: NO_STORE_HEADERS },
     );
   }
+  console.error("WorkLens API unhandled error", error);
   const message = error instanceof Error && error.message ? error.message : "요청을 처리할 수 없습니다.";
   const safeMessage = /지원|파일|PDF|Excel|XLSX|세션|크기|형식|문서/.test(message)
     ? message
