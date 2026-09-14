@@ -35,6 +35,26 @@ export function createDocx(): Uint8Array {
   });
 }
 
+function createPptxSlides(slides: readonly string[][]): Uint8Array {
+  const files: Record<string, Uint8Array> = {
+    "[Content_Types].xml": strToU8(
+      `<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/>${slides.map((_, index) => `<Override PartName="/ppt/slides/slide${index + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>`).join("")}</Types>`,
+    ),
+    "ppt/presentation.xml": strToU8(
+      `<?xml version="1.0"?><p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:sldIdLst>${slides.map((_, index) => `<p:sldId id="${256 + index}" r:id="rId${index + 1}"/>`).join("")}</p:sldIdLst></p:presentation>`,
+    ),
+    "ppt/_rels/presentation.xml.rels": strToU8(
+      `<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${slides.map((_, index) => `<Relationship Id="rId${index + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide${index + 1}.xml"/>`).join("")}</Relationships>`,
+    ),
+  };
+  slides.forEach((texts, slideIndex) => {
+    files[`ppt/slides/slide${slideIndex + 1}.xml`] = strToU8(
+      `<?xml version="1.0"?><p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree>${texts.map((text) => `<p:sp><p:txBody><a:p><a:r><a:t>${text}</a:t></a:r></a:p></p:txBody></p:sp>`).join("")}</p:spTree></p:cSld></p:sld>`,
+    );
+  });
+  return zipSync(files);
+}
+
 export function createPptx(): Uint8Array {
   return zipSync({
     "[Content_Types].xml": strToU8(
@@ -50,6 +70,13 @@ export function createPptx(): Uint8Array {
       '<?xml version="1.0"?><p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>2026 운영 계획</a:t></a:r></a:p></p:txBody></p:sp><a:graphic><a:graphicData><a:tbl><a:tr><a:tc><a:p><a:r><a:t>지역</a:t></a:r></a:p></a:tc><a:tc><a:p><a:r><a:t>예산</a:t></a:r></a:p></a:tc></a:tr><a:tr><a:tc><a:p><a:r><a:t>서울</a:t></a:r></a:p></a:tc><a:tc><a:p><a:r><a:t>5000</a:t></a:r></a:p></a:tc></a:tr></a:tbl></a:graphicData></a:graphic></p:spTree></p:cSld></p:sld>',
     ),
   });
+}
+
+export function createCheckPptx(): Uint8Array {
+  return createPptxSlides([
+    ["운영 현황", "향후 13주 유가 전먕", "WorkLens", "기준일 2026.09.14", "매출 1,200백만원", "거리 10 km", "TODO"],
+    ["운영 현황", "향후 13주 유가 전망", "Work Lens", "기준일 2026-09-15", "매출 1,250백만원", "거리 10 KM"],
+  ]);
 }
 
 export function createDocxWithMergedTable(): Uint8Array {

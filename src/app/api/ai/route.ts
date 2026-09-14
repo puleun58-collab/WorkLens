@@ -44,7 +44,7 @@ export async function POST(request: Request) {
         maxOutputTokens: 8_000,
       }, request.signal);
       if (response.status === "unavailable") {
-        throw new WorkspaceError("AI_UNAVAILABLE", "Local AI를 사용할 수 없습니다. deterministic 기능은 계속 사용할 수 있습니다.", 503);
+        throw new WorkspaceError("AI_UNAVAILABLE", "Local AI를 사용할 수 없습니다. 문장/맞춤법 기반 고급 검수는 현재 사용할 수 없습니다. 숫자, 중복, 개인정보 등 deterministic 검수는 계속 사용할 수 있습니다.", 503);
       }
       return groundAiResult(aiRequest, documents, response.completion);
     });

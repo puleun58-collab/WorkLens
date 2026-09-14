@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="190" height="40" viewBox="0 0 190 40" role="img" aria-labelledby="title">
+  <title id="title">WorkLens</title>
+  <g transform="translate(4 4)">
+    <path fill="#0f62a8" d="M2 9V2h7v2H4v5Zm21-7h7v7h-2V4h-5ZM2 23h2v5h5v2H2Zm26 0h2v7h-7v-2h5Z"/>
+    <path fill="none" stroke="#161616" stroke-width="3.2" stroke-linecap="square" stroke-linejoin="miter" d="m9.5 10.5 3.5 12 3-9 3 9 3.5-12"/>
+  </g>
+  <text x="44" y="27" fill="#161616" font-family="Geist, sans-serif" font-size="25" font-weight="680" letter-spacing="-1">WorkLens</text>
+</svg>

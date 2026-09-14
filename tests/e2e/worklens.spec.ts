@@ -2,7 +2,7 @@ import { mkdir, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { createDocx, createPdf, createPptx, createXlsx, RATE_SHEET_V1, RATE_SHEET_V2 } from "../fixtures";
+import { createCheckPptx, createDocx, createPdf, createPptx, createXlsx, RATE_SHEET_V1, RATE_SHEET_V2 } from "../fixtures";
 import { E2E } from "../../playwright.config";
 
 const FIXTURE_DIR = path.join(process.cwd(), "artifacts", "fixtures");
@@ -14,6 +14,7 @@ const files = {
   csv: path.join(FIXTURE_DIR, "운임.csv"),
   docx: path.join(FIXTURE_DIR, "계약.docx"),
   pptx: path.join(FIXTURE_DIR, "계획.pptx"),
+  checkPptx: path.join(FIXTURE_DIR, "최종검수.pptx"),
   fake: path.join(FIXTURE_DIR, "위장파일.xlsx"),
 };
 
@@ -26,6 +27,7 @@ test.beforeAll(async () => {
   await writeFile(files.csv, "지역,금액\r\n서울,145000\r\n부산,90000\r\n");
   await writeFile(files.docx, createDocx());
   await writeFile(files.pptx, createPptx());
+  await writeFile(files.checkPptx, createCheckPptx());
   await writeFile(files.fake, "이 파일은 XLSX가 아닙니다");
 });
 
@@ -191,6 +193,33 @@ test("runs deterministic Analyze, Check, Extract/export and degrades Local AI on
   await page.getByRole("button", { name: "Analyze", exact: true }).click();
   await page.getByRole("button", { name: "Analyze 실행" }).click();
   await expect(page.getByText("구조 및 수치 분석을 완료했습니다.")).toBeVisible();
+});
+
+test("reviews PPTX writing, consistency and data findings with filters and exact slide evidence", async ({ page }) => {
+  await page.goto("/");
+  await upload(page, files.checkPptx);
+  await page.getByLabel("최종검수.pptx 선택").check();
+  await page.getByRole("button", { name: "Check", exact: true }).click();
+  await page.getByRole("button", { name: "Check 실행" }).click();
+
+  await expect(page.getByRole("heading", { name: "문서 제출 전 최종 검수" })).toBeVisible();
+  const typo = page.locator(".check-issue").filter({ hasText: "문맥상 명백한 오타 가능성" });
+  await expect(typo).toContainText("Spelling");
+  await expect(typo).toContainText("최종검수.pptx · Slide 1");
+  await typo.getByRole("button", { name: /문맥상 명백한 오타 가능성/ }).click();
+  await expect(typo).toContainText("향후 13주 유가 전먕");
+  await expect(typo).toContainText("향후 13주 유가 전망");
+
+  await page.getByRole("button", { name: /Consistency/ }).click();
+  await expect(page.locator(".check-issue").filter({ hasText: "용어 일관성" })).toHaveCount(1);
+  await expect(page.locator(".check-issue").filter({ hasText: "문맥상 명백한 오타 가능성" })).toHaveCount(0);
+  await page.getByRole("button", { name: /^All/ }).last().click();
+  await page.getByRole("button", { name: /Warning/ }).click();
+  await expect(page.locator(".check-issue").first()).toBeVisible();
+  await expect(page.locator(".check-issue.severity-suggestion")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Local AI 문장 검수" }).click();
+  await expect(page.locator(".notice.error")).toContainText("문장/맞춤법 기반 고급 검수는 현재 사용할 수 없습니다");
 });
 
 test("rejects a disguised file with an actionable message", async ({ page }) => {

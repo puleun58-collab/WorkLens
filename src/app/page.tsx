@@ -4,7 +4,17 @@ import { ChangeEvent, DragEvent, useCallback, useEffect, useRef, useState } from
 import type { AiAvailableResult, EvidenceBinding, GroundedClaim } from "@/domain/ai";
 import type { ComparisonItem, ComparisonResult } from "@/domain/compare";
 import type { DocumentMetadata, SourceRef } from "@/domain/document";
-import type { AnalyzeResult, CheckFinding, CheckResult, ExtractResult } from "@/domain/operations";
+import {
+  checkCategoryGroup,
+  type AnalyzeResult,
+  type CheckCategory,
+  type CheckCategoryGroup,
+  type CheckFinding,
+  type CheckResult,
+  type CheckSeverity,
+  type ExtractResult,
+} from "@/domain/operations";
+import { WorkLensLogo } from "./worklens-logo";
 
 type FileSummary = {
   id: string;
@@ -39,6 +49,27 @@ const severityLabels: Record<CheckFinding["severity"], string> = {
   warning: "Warning",
   suggestion: "Suggestion",
 };
+const checkCategoryLabels: Record<CheckCategory, string> = {
+  spelling: "Spelling",
+  grammar: "Grammar",
+  wording: "Wording",
+  terminology: "Terminology",
+  duplication: "Duplication",
+  formatting: "Formatting",
+  numeric: "Numeric",
+  date: "Date",
+  unit: "Unit",
+  total: "Total",
+  privacy: "Privacy",
+  structure: "Structure",
+  placeholder: "Placeholder",
+};
+const checkGroupLabels: Record<CheckCategoryGroup, string> = {
+  writing: "Writing",
+  consistency: "Consistency",
+  data: "Data",
+  privacy: "Privacy",
+};
 
 function formatBytes(size: number) {
   if (size < 1024) return `${size} B`;
@@ -49,7 +80,7 @@ function apiError(payload: unknown, fallback: string): ApiError {
   return (payload as { error?: ApiError })?.error ?? { code: "REQUEST_FAILED", message: fallback, retryable: true };
 }
 function displayValue(value: string | number | boolean | null | undefined) {
-  if (value === null || value === undefined || value === "") return "—";
+  if (value === null || value === undefined || value === "") return "없음";
   if (typeof value === "number") return Number.isInteger(value) ? String(value) : value.toFixed(2);
   return String(value);
 }
@@ -375,7 +406,7 @@ export default function Home() {
     }
     const question = activeTab === "Compare"
       ? "선택한 문서 사이의 중요한 의미 변화를 근거와 함께 점검하세요."
-      : "선택한 문서의 표현, 일관성, 의미상 위험을 근거와 함께 점검하세요.";
+      : "선택한 문서의 한글 맞춤법, 띄어쓰기, 조사, 어색한 표현과 용어 일관성을 보수적으로 점검하세요. 확신이 낮은 항목은 제안으로만 표시하세요.";
     return runJsonOperation("/api/ai", { task: "semantic-check", fileIds: selected, question }, "Local AI 보조 점검 결과를 준비했습니다.");
   };
 
@@ -440,9 +471,8 @@ export default function Home() {
     <main className="workspace-shell">
       <a className="skip-link" href="#workspace-content">본문으로 건너뛰기</a>
       <header className="topbar">
-        <div className="brand" aria-label="WorkLens">
-          <span className="brand-mark" aria-hidden="true">W</span>
-          <span>WorkLens</span>
+        <div className="brand">
+          <WorkLensLogo size={26} />
         </div>
         <p>Analyze. Compare. Verify.</p>
         <div className="session-meta">
@@ -523,7 +553,7 @@ export default function Home() {
                 </button>
               </div>
               {loading ? (
-                <div className="loading-state" aria-label="파일 작업 공간을 불러오는 중">
+                <div className="loading-state" role="status" aria-label="파일 작업 공간을 불러오는 중">
                   <span /><span /><span />
                 </div>
               ) : files.length === 0 ? (
@@ -550,7 +580,7 @@ export default function Home() {
                         </div>
                         <span className={`status status-${file.status.toLowerCase()}`}><span aria-hidden="true" />{file.status}</span>
                         <div className="structure-counts">{counts.length ? counts.map((count) => <span key={count.label}>{count.label}: <b>{count.value}</b></span>) : <span>순서 기반 구조 준비됨</span>}</div>
-                        {file.warnings.length ? <span className="warning" title={file.warnings.join("\n")}>주의 {file.warnings.length}</span> : <span className="muted">—</span>}
+                        {file.warnings.length ? <span className="warning" title={file.warnings.join("\n")}>주의 {file.warnings.length}</span> : <span className="muted">없음</span>}
                       </article>
                     );
                   })}
@@ -561,7 +591,7 @@ export default function Home() {
               <div className="operation-context">
                 <p className="eyebrow">Current task</p>
                 <strong>{activeTab}</strong>
-                <span>{activeTab === "Compare" ? "기준과 현재 파일을 순서대로 두 개 선택하세요." : (activeTab === "Ask" || activeTab === "Brief") ? "Local AI는 최대 5개 파일에서 근거를 확인합니다." : "최대 10개 파일을 함께 처리할 수 있습니다."}</span>
+                <span>{activeTab === "Compare" ? "기준과 현재 파일을 순서대로 두 개 선택하세요." : activeTab === "Check" ? "Writing, Consistency, Data, Privacy 영역을 한 번에 검수합니다." : (activeTab === "Ask" || activeTab === "Brief") ? "Local AI는 최대 5개 파일에서 근거를 확인합니다." : "최대 10개 파일을 함께 처리할 수 있습니다."}</span>
               </div>
               {(activeTab === "Ask" || activeTab === "Brief") ? (
                 <label className="question-field">
@@ -571,7 +601,7 @@ export default function Home() {
                 </label>
               ) : null}
               <div className="operation-actions">
-                {(activeTab === "Analyze" || activeTab === "Compare" || activeTab === "Check") ? <button type="button" className="secondary-action" onClick={runAiAssist} disabled={busy || expired || selected.length === 0}>Local AI 보조</button> : null}
+                {(activeTab === "Analyze" || activeTab === "Compare" || activeTab === "Check") ? <button type="button" className="secondary-action" onClick={runAiAssist} disabled={busy || expired || selected.length === 0}>{activeTab === "Check" ? "Local AI 문장 검수" : "Local AI 보조"}</button> : null}
                 <button type="button" onClick={runActive} disabled={actionDisabled}>{busy ? "처리 중…" : `${activeTab} 실행`}</button>
               </div>
             </section>
@@ -599,8 +629,13 @@ function sourceLabel(source: SourceRef, fileNames: Map<string, string>, role?: S
   const revision = source.documentVersion
     ? `버전 ${source.documentVersion.slice(0, 8)}`
     : `파일 ${source.fileId.slice(0, 8)}`;
-  const parts = [fileName, revision, roleLabel].filter((part): part is string => Boolean(part));
-  return parts.length ? `${source.label} (${parts.join(" · ")})` : source.label;
+  const locator = source.locator?.kind === "pptx"
+    ? `Slide ${source.locator.slide}`
+    : source.locator?.kind === "pdf"
+      ? `Page ${source.locator.page}`
+      : source.label;
+  const suffix = [revision, roleLabel].filter((part): part is string => Boolean(part)).join(" · ");
+  return fileName ? `${fileName} · ${locator} (${suffix})` : `${locator} (${suffix})`;
 }
 
 type AnalyzeEntry = { file: { id: string; name: string }; analysis: AnalyzeResult };
@@ -613,7 +648,7 @@ function ResultView({ tab, result, fileNames, detail, onSource, onCloseSource }:
     const copy: Record<Exclude<Tab, "Compare">, { code: string; title: string; body: string }> = {
       Analyze: { code: "READY TO ANALYZE", title: "분석 준비됨", body: "문서 구조, 수치 범위, 명시된 합계를 근거와 함께 확인합니다." },
       Ask: { code: "ASK THIS FILE", title: "질문 준비됨", body: "선택한 파일 안에서 답을 찾고 원문 또는 계산 근거를 연결합니다." },
-      Check: { code: "READY TO CHECK", title: "검수 준비됨", body: "개인정보, 중복, 빈 값, 형식 불일치와 계산 오류를 점검합니다." },
+      Check: { code: "READY TO CHECK", title: "최종 검수 준비됨", body: "오타, 표현, 용어, 수치, 날짜, 단위, 개인정보와 문서 구조를 근거와 함께 점검합니다." },
       Extract: { code: "READY TO EXTRACT", title: "추출 준비됨", body: "표와 문단을 구조화해 확인하고 CSV 또는 XLSX로 내보냅니다." },
       Brief: { code: "READY TO BRIEF", title: "브리프 준비됨", body: "파일의 핵심 내용을 업무 문서 형식으로 요약하고 근거를 표시합니다." },
     };
@@ -625,7 +660,7 @@ function ResultView({ tab, result, fileNames, detail, onSource, onCloseSource }:
   if (tab === "Analyze" && Array.isArray(result)) content = <AnalyzeResults entries={result as AnalyzeEntry[]} fileNames={fileNames} onSource={onSource} />;
   else if (tab === "Check" && Array.isArray(result)) content = <CheckResults entries={result as CheckEntry[]} fileNames={fileNames} onSource={onSource} />;
   else if (tab === "Extract" && Array.isArray(result)) content = <ExtractResults entries={result as ExtractEntry[]} fileNames={fileNames} onSource={onSource} />;
-  else if ((tab === "Ask" || tab === "Brief") && isAiAvailableResult(result)) content = <AiResults result={result} fileNames={fileNames} onSource={onSource} />;
+  else if (isAiAvailableResult(result)) content = <AiResults result={result} fileNames={fileNames} onSource={onSource} />;
   else content = <JsonValue value={result} fileNames={fileNames} onSource={onSource} />;
 
   return (
@@ -696,38 +731,123 @@ function AnalyzeResults({ entries, fileNames, onSource }: { entries: AnalyzeEntr
 }
 
 function CheckResults({ entries, fileNames, onSource }: { entries: CheckEntry[]; fileNames: Map<string, string>; onSource: SourceHandler }) {
-  const findings = entries.flatMap((entry) => entry.check.findings);
-  const counts = {
+  const [severityFilter, setSeverityFilter] = useState<"all" | CheckSeverity>("all");
+  const [groupFilter, setGroupFilter] = useState<"all" | CheckCategoryGroup>("all");
+  const [expandedFindingId, setExpandedFindingId] = useState<string | null>(null);
+  const indexed = entries.flatMap((entry) => entry.check.findings.map((finding) => ({ finding, file: entry.file })));
+  const findings = indexed.map(({ finding }) => finding);
+  const counts: Record<CheckSeverity, number> = {
     critical: findings.filter((finding) => finding.severity === "critical").length,
     warning: findings.filter((finding) => finding.severity === "warning").length,
     suggestion: findings.filter((finding) => finding.severity === "suggestion").length,
   };
+  const groupCounts: Record<CheckCategoryGroup, number> = {
+    writing: findings.filter((finding) => checkCategoryGroup(finding.category) === "writing").length,
+    consistency: findings.filter((finding) => checkCategoryGroup(finding.category) === "consistency").length,
+    data: findings.filter((finding) => checkCategoryGroup(finding.category) === "data").length,
+    privacy: findings.filter((finding) => checkCategoryGroup(finding.category) === "privacy").length,
+  };
+  const filtered = indexed.filter(({ finding }) =>
+    (severityFilter === "all" || finding.severity === severityFilter)
+    && (groupFilter === "all" || checkCategoryGroup(finding.category) === groupFilter));
+  const byId = new Map(findings.map((finding) => [finding.id, finding]));
+
   return (
-    <div className="result-sections">
-      <section className="qa-summary" aria-label="QA summary">
-        <div><span className="severity-mark critical" aria-hidden="true" /><span>Critical</span><strong>{counts.critical}</strong></div>
-        <div><span className="severity-mark warning" aria-hidden="true" /><span>Warning</span><strong>{counts.warning}</strong></div>
-        <div><span className="severity-mark suggestion" aria-hidden="true" /><span>Suggestion</span><strong>{counts.suggestion}</strong></div>
+    <div className="result-sections check-results">
+      <section className="qa-overview" aria-label="Check summary">
+        <div className="qa-intro">
+          <span className="result-type">PRE-SHARE REVIEW</span>
+          <h3>문서 제출 전 최종 검수</h3>
+          <p>확실한 문제는 Warning 또는 Critical로, 문맥 판단이 필요한 항목은 Suggestion으로 구분했습니다.</p>
+          <small>문장과 맞춤법의 고급 검수는 Local AI 문장 검수에서 별도로 실행할 수 있습니다.</small>
+        </div>
+        <dl className="qa-summary">
+          {(["critical", "warning", "suggestion"] as const).map((severity) => (
+            <div key={severity}>
+              <span className={`severity-mark ${severity}`} aria-hidden="true" />
+              <dt>{severityLabels[severity]}</dt>
+              <dd>{counts[severity]}</dd>
+            </div>
+          ))}
+        </dl>
       </section>
+
       {findings.length === 0 ? (
-        <div className="empty-state success-state"><span className="state-code">NO ISSUE</span><strong>확인된 문제가 없습니다.</strong><p>현재 규칙 범위에서 개인정보, 중복, 빈 값, 형식 및 합계 오류를 찾지 못했습니다.</p></div>
-      ) : entries.map(({ file, check }) => (
-        <article className="document-result" key={file.id}>
-          <header className="document-result-heading"><div><span>QA RESULT</span><h3 title={file.name}>{file.name}</h3></div><small>{check.findings.length} issues</small></header>
-          <div className="issue-list">
-            {check.findings.map((finding, index) => (
-              <article className={`issue-row severity-${finding.severity}`} key={`${finding.code}-${index}`}>
-                <div className="issue-severity"><span className={`severity-mark ${finding.severity}`} aria-hidden="true" /><strong>{severityLabels[finding.severity]}</strong><code>{finding.code}</code></div>
-                <div className="issue-content">
-                  <h4>{finding.message}</h4>
-                  <dl><div><dt>Reason</dt><dd>{finding.reason}</dd></div><div><dt>Recommendation</dt><dd>{finding.recommendation}</dd></div></dl>
-                </div>
-                <div className="issue-sources"><span>Source</span>{finding.sources.map((source, sourceIndex) => <SourceButton key={`${source.nodeId}-${sourceIndex}`} source={source} fileNames={fileNames} onSource={onSource} compact />)}</div>
-              </article>
-            ))}
-          </div>
-        </article>
-      ))}
+        <div className="empty-state success-state"><span className="state-code">REVIEW CLEAR</span><strong>확인된 문제가 없습니다.</strong><p>현재 규칙 범위에서 작성, 일관성, 데이터와 개인정보 문제를 찾지 못했습니다.</p></div>
+      ) : (
+        <>
+          <section className="check-filters" aria-label="Check result filters">
+            <fieldset>
+              <legend>Severity</legend>
+              <div>
+                <button type="button" aria-pressed={severityFilter === "all"} onClick={() => setSeverityFilter("all")}>All <b>{findings.length}</b></button>
+                {(["critical", "warning", "suggestion"] as const).map((severity) => (
+                  <button type="button" key={severity} aria-pressed={severityFilter === severity} onClick={() => setSeverityFilter(severity)}>
+                    {severityLabels[severity]} <b>{counts[severity]}</b>
+                  </button>
+                ))}
+              </div>
+            </fieldset>
+            <fieldset>
+              <legend>Category</legend>
+              <div>
+                <button type="button" aria-pressed={groupFilter === "all"} onClick={() => setGroupFilter("all")}>All <b>{findings.length}</b></button>
+                {(Object.keys(checkGroupLabels) as CheckCategoryGroup[]).map((group) => (
+                  <button type="button" key={group} aria-pressed={groupFilter === group} onClick={() => setGroupFilter(group)}>
+                    {checkGroupLabels[group]} <b>{groupCounts[group]}</b>
+                  </button>
+                ))}
+              </div>
+            </fieldset>
+          </section>
+
+          {filtered.length ? (
+            <section className="check-table" role="table" aria-label="문서 검수 결과">
+              <div className="check-table-head" role="row">
+                <span role="columnheader">Severity</span>
+                <span role="columnheader">Category</span>
+                <span role="columnheader">Issue</span>
+                <span role="columnheader">Source</span>
+                <span role="columnheader">Recommendation</span>
+              </div>
+              <div className="check-table-body">
+                {filtered.map(({ finding, file }) => {
+                  const expanded = expandedFindingId === finding.id;
+                  return (
+                    <article className={`check-issue severity-${finding.severity}${expanded ? " expanded" : ""}`} key={finding.id}>
+                      <div className="check-issue-row" role="row">
+                        <span role="cell" className="check-severity"><i className={`severity-mark ${finding.severity}`} aria-hidden="true" />{severityLabels[finding.severity]}</span>
+                        <span role="cell" className="check-category">{checkCategoryLabels[finding.category]}</span>
+                        <span role="cell" className="check-issue-name">
+                          <small title={file.name}>{file.name}</small>
+                          <button type="button" aria-expanded={expanded} onClick={() => setExpandedFindingId(expanded ? null : finding.id)}>{finding.issue}<span>{expanded ? "닫기" : "상세"}</span></button>
+                          <em>{finding.message}</em>
+                        </span>
+                        <span role="cell" className="check-source"><SourceButton source={finding.source} fileNames={fileNames} onSource={onSource} compact /></span>
+                        <span role="cell" className="check-recommendation">{finding.recommendation}</span>
+                      </div>
+                      {expanded ? (
+                        <div className="check-issue-detail">
+                          <div><span>Reason</span><p>{finding.reason}</p></div>
+                          {finding.originalText ? <div><span>Original</span><blockquote>{finding.originalText}</blockquote></div> : null}
+                          {finding.suggestedText ? <div className="suggested-copy"><span>Suggested</span><blockquote>{finding.suggestedText}</blockquote></div> : null}
+                          <div className="detail-sources"><span>Sources</span><div>{finding.sources.map((source, index) => <SourceButton key={`${source.nodeId}-${index}`} source={source} fileNames={fileNames} onSource={onSource} compact />)}</div></div>
+                          {finding.relatedFindingIds?.length ? (
+                            <div className="related-findings"><span>Related</span><div>{finding.relatedFindingIds.map((id) => {
+                              const related = byId.get(id);
+                              return related ? <button type="button" key={id} onClick={() => setExpandedFindingId(id)}>{related.issue}</button> : null;
+                            })}</div></div>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </article>
+                  );
+                })}
+              </div>
+            </section>
+          ) : <div className="filter-empty"><strong>필터 조건에 맞는 Finding이 없습니다.</strong><button type="button" onClick={() => { setSeverityFilter("all"); setGroupFilter("all"); }}>필터 초기화</button></div>}
+        </>
+      )}
     </div>
   );
 }
@@ -743,7 +863,7 @@ function ExtractResults({ entries, fileNames, onSource }: { entries: ExtractEntr
               <div className="subsection-heading"><h4>표 {tableIndex + 1}</h4><SourceButton source={table.source} fileNames={fileNames} onSource={onSource} compact /></div>
               <div className="extract-table-wrap">
                 <table className="extract-table">
-                  <tbody>{table.rows.map((row, rowIndex) => <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={`${rowIndex}-${cellIndex}`} title={cell.display}>{cell.display || "—"}</td>)}</tr>)}</tbody>
+                  <tbody>{table.rows.map((row, rowIndex) => <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={`${rowIndex}-${cellIndex}`} title={cell.display}>{cell.display || "없음"}</td>)}</tr>)}</tbody>
                 </table>
               </div>
             </section>
@@ -819,8 +939,8 @@ function ComparisonView({ comparison, compareIds, fileNames, detail, onSource, o
       <div className="panel-heading result-heading">
         <div><p className="eyebrow">Executive summary</p><h2>파일 비교 결과</h2></div>
         <div className="compare-files">
-          <span><b>기준</b>{compareIds ? fileNames.get(compareIds.baseFileId) : "—"}</span>
-          <span><b>현재</b>{compareIds ? fileNames.get(compareIds.targetFileId) : "—"}</span>
+          <span><b>기준</b>{compareIds ? fileNames.get(compareIds.baseFileId) : "미선택"}</span>
+          <span><b>현재</b>{compareIds ? fileNames.get(compareIds.targetFileId) : "미선택"}</span>
         </div>
       </div>
       <dl className="summary executive-summary">{summaryItems.map((item) => <div key={item.key} className={`summary-${item.key}`}><dt>{item.label}</dt><dd>{item.value.toLocaleString("ko-KR")}</dd></div>)}</dl>
@@ -840,8 +960,8 @@ function ComparisonView({ comparison, compareIds, fileNames, detail, onSource, o
                 <span role="cell" className="numeric">{displayValue(item.previous)}</span>
                 <span role="cell" className="numeric">{displayValue(item.current)}</span>
                 <span role="cell" className="numeric difference">{displayValue(item.difference)}</span>
-                <span role="cell" className="numeric">{item.changePercent === null ? "—" : `${item.changePercent > 0 ? "+" : ""}${item.changePercent.toFixed(2)}%`}</span>
-                <div role="cell" className="source-actions">{item.sources.length ? item.sources.map((source, index) => <SourceButton compact source={source} fileNames={fileNames} role={roleOf(source)} onSource={onSource} key={`${source.nodeId}-${index}`} />) : <span className="muted">—</span>}</div>
+                <span role="cell" className="numeric">{item.changePercent === null ? "해당 없음" : `${item.changePercent > 0 ? "+" : ""}${item.changePercent.toFixed(2)}%`}</span>
+                <div role="cell" className="source-actions">{item.sources.length ? item.sources.map((source, index) => <SourceButton compact source={source} fileNames={fileNames} role={roleOf(source)} onSource={onSource} key={`${source.nodeId}-${index}`} />) : <span className="muted">없음</span>}</div>
               </div>
             ))}
           </div>

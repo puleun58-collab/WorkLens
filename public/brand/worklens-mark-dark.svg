@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" role="img" aria-labelledby="title">
+  <title id="title">WorkLens monochrome dark</title>
+  <path fill="#161616" d="M2 9V2h7v2H4v5Zm21-7h7v7h-2V4h-5ZM2 23h2v5h5v2H2Zm26 0h2v7h-7v-2h5Z"/>
+  <path fill="none" stroke="#161616" stroke-width="3.2" stroke-linecap="square" stroke-linejoin="miter" d="m9.5 10.5 3.5 12 3-9 3 9 3.5-12"/>
+</svg>
