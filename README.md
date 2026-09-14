@@ -1,5 +1,3 @@
-**배포 주소:** https://worklens.puleun58.workers.dev
-
 # WorkLens
 
 WorkLens는 XLSX, CSV, PDF, DOCX, PPTX 파일을 브라우저에서 분석·비교·검사·추출하는 임시 문서 작업 공간입니다.
@@ -12,6 +10,9 @@ WorkLens는 XLSX, CSV, PDF, DOCX, PPTX 파일을 브라우저에서 분석·비�
 - 결과의 파일, 문서 버전, 노드, 원문 위치를 `SourceRef`로 보존
 
 > WorkLens 서버의 데이터는 임시 데이터입니다. 다운로드한 파일은 사용자 기기에서 별도로 관리해야 합니다.
+
+## 배포주소
+**프로덕션:** https://worklens.puleun58.workers.dev
 
 ## 1. 설치 방법
 
