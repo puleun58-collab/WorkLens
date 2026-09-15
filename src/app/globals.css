@@ -4992,3 +4992,65 @@ body {
 .empty-state p {
   font-size: var(--font-size-sm);
 }
+
+/* ── Left rail: one inset for brand, section label, navigation, utilities ── */
+:root {
+  --rail-inset: 10px;
+  --rail-item-inset: 12px;
+  --rail-icon-column: 18px;
+}
+
+.rail {
+  padding: 0 var(--rail-inset) 18px;
+}
+
+.rail-brand {
+  padding-left: var(--rail-item-inset);
+}
+
+.rail-group-label {
+  margin: 10px 0 4px;
+  padding-left: var(--rail-item-inset);
+}
+
+.rail-item {
+  padding: 0 var(--rail-item-inset);
+}
+
+/* Fixed icon column keeps every label on the same start line. */
+.rail-item > svg {
+  flex: 0 0 var(--rail-icon-column);
+  width: var(--rail-icon-column);
+  height: var(--rail-icon-column);
+}
+
+/* Accent sits inside the item so active and idle share the same outer inset. */
+.rail-item.active {
+  box-shadow: inset 2px 0 0 var(--blue);
+}
+
+.rail-item.active::before {
+  content: none;
+}
+
+@media (max-width: 900px) {
+  .rail {
+    padding: 8px var(--rail-inset);
+  }
+
+  .rail-item.active {
+    box-shadow: none;
+  }
+}
+
+/* Without a question field the context column takes the free track, so the
+ * one-line description never wraps and the bar keeps its single-row height. */
+.operation-bar:not(:has(.question-field)) {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+@media (max-width: 700px) {
+  .operation-bar:not(:has(.question-field)) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

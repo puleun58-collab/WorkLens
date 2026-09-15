@@ -598,7 +598,7 @@ export default function Home() {
               <section className="operation-bar" aria-label={`${activeTab} action`}>
                 <div className="operation-context">
                   <strong>{activeTab}</strong>
-                  <span>{activeTab === "Compare" ? "기준과 현재 파일을 순서대로 두 개 선택하세요." : activeTab === "Check" ? "Writing, Consistency, Data, Privacy 영역을 한 번에 검수합니다." : (activeTab === "Ask" || activeTab === "Brief") ? "Local AI는 최대 5개 파일에서 근거를 확인합니다." : "최대 10개 파일을 함께 처리할 수 있습니다."}</span>
+                  <span>{activeTab === "Compare" ? "기준과 현재 파일을 순서대로 두 개 선택하세요." : activeTab === "Check" ? "Writing · Consistency · Data · Privacy를 한 번에 검수합니다." : (activeTab === "Ask" || activeTab === "Brief") ? "Local AI는 최대 5개 파일에서 근거를 확인합니다." : "최대 10개 파일을 함께 처리할 수 있습니다."}</span>
                 </div>
                 {(activeTab === "Ask" || activeTab === "Brief") ? (
                   <label className="question-field">
