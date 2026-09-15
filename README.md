@@ -101,7 +101,7 @@ bun run deploy      # vinext 빌드 후 wrangler deploy
 
 - ES module Web Worker 지원 브라우저(최신 Chrome, Edge, Firefox, Safari)
 - 파일 크기가 클수록 탭 메모리를 사용합니다. 50 MiB 상한은 브라우저 메모리를 기준으로 정해져 있습니다.
-- 본문 폰트는 self-hosted Pretendard Variable(`public/fonts/pretendard/PretendardVariable.woff2`, SIL OFL 1.1)이며 외부 CDN을 사용하지 않습니다.
+- 본문 폰트는 self-hosted Pretendard Variable(`public/fonts/pretendard/ + unicode-range 동적 서브셋`, SIL OFL 1.1)이며 외부 CDN을 사용하지 않습니다.
 
 ## 9. Testing
 

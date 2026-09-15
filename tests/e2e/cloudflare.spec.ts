@@ -60,9 +60,8 @@ test.describe("Cloudflare Worker production build", () => {
     expect(icon.headers()["content-type"]).toMatch(/image\/svg\+xml/i);
     expect(favicon.status()).toBe(200);
     expect(favicon.headers()["content-type"]).toMatch(/(?:image\/x-icon|image\/vnd\.microsoft\.icon|image\/icon)/i);
-    const font = await page.request.get("/fonts/pretendard/PretendardVariable.woff2");
-    expect(font.status()).toBe(200);
-    expect(font.headers()["content-type"]).toMatch(/font\/woff2|application\/octet-stream/i);
+    const subset = await page.request.get("/fonts/pretendard/woff2-dynamic-subset/PretendardVariable.subset.0.woff2");
+    expect(subset.status()).toBe(200);
     await expect(page.evaluate(() => document.fonts.check('16px "Pretendard Variable"'))).resolves.toBe(true);
 
     await upload(page, files.v1);

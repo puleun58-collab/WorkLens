@@ -10,16 +10,6 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="ko" className="h-full antialiased">
-      <head>
-        {/* Single self-hosted variable font; preloaded because every surface depends on it. */}
-        <link
-          rel="preload"
-          href="/fonts/pretendard/PretendardVariable.woff2"
-          as="font"
-          type="font/woff2"
-          crossOrigin="anonymous"
-        />
-      </head>
       <body className="min-h-full flex flex-col">{children}</body>
     </html>
   );
