@@ -30,6 +30,14 @@
       "id": "b14d2e47bfbb4ea7ae3475b772dceecf"
     }
   ],
+  "d1_databases": [
+    {
+      "binding": "WORKLENS_CONFIG_DB",
+      "database_name": "worklens-config",
+      "database_id": "d3be8da1-440f-450a-9ae0-cde929f0cfe9",
+      "migrations_dir": "migrations"
+    }
+  ],
   "vars": {
     "WORKLENS_ORIGIN": "https://worklens.puleun58.workers.dev"
   }

@@ -50,7 +50,7 @@ test.describe("Cloudflare Worker production build", () => {
     const documentResponse = await page.goto("/");
     expect(documentResponse?.status()).toBe(200);
     await expect(page).toHaveTitle(/WorkLens/);
-    await expect(page.getByRole("heading", { name: "분석 파일" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "작업 파일" })).toBeVisible();
 
     await expect.poll(() => responses.filter(isMainAsset).length).toBeGreaterThan(0);
     for (const response of responses.filter(isMainAsset)) await expectSaneStaticAsset(response);
@@ -64,7 +64,28 @@ test.describe("Cloudflare Worker production build", () => {
     expect(subset.status()).toBe(200);
     await expect(page.evaluate(() => document.fonts.check('16px "Pretendard Variable"'))).resolves.toBe(true);
 
+    // No files: upload owns the workspace and the context bar has no Add files.
+    await expect(page.locator(".dropzone")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Add files" })).toHaveCount(0);
+
+    // Central company dictionary is readable by every user.
+    const companyTerms = await page.request.get("/api/company-terms");
+    expect(companyTerms.status()).toBe(200);
+    const termsPayload = await companyTerms.json();
+    expect(Array.isArray(termsPayload.data.terms)).toBe(true);
+    expect(termsPayload.data.terms.length).toBeGreaterThan(0);
+
+    // Admin mutations require a session, not just a hidden UI.
+    const unauthorized = await page.request.post("/api/admin/company-terms", {
+      data: { term: "Unauthorized" },
+      headers: { origin: new URL(page.url()).origin },
+    });
+    expect(unauthorized.status()).toBe(401);
+
     await upload(page, files.v1);
+    // With files present the workspace leads and Add files moves to the bar.
+    await expect(page.locator(".dropzone")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Add files" })).toBeVisible();
     await page.getByLabel("cloudflare-rate-v1.xlsx 선택").check();
     await page.getByRole("button", { name: "Analyze", exact: true }).click();
     await page.getByRole("button", { name: "Analyze 실행" }).click();

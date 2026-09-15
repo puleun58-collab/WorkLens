@@ -50,3 +50,7 @@ next-env.d.ts
 
 # generated browser assets
 /public/pdf.worker.mjs
+
+# Local-only secrets for wrangler dev
+.dev.vars
+.dev.vars.*

@@ -69,8 +69,18 @@ export function buildDictionary(providers: readonly TermDictionaryProvider[]): T
   };
 }
 
-export function createDictionary(userTerms: readonly string[] = []): TermDictionary {
-  return buildDictionary([companyTermProvider, createUserTermProvider(userTerms)]);
+/**
+ * Company terms come from the central D1 dictionary at runtime; the static file
+ * is the seed and the fallback when that read fails.
+ */
+export function createDictionary(
+  userTerms: readonly string[] = [],
+  companyTerms?: readonly string[],
+): TermDictionary {
+  const company: TermDictionaryProvider = companyTerms
+    ? { scope: "company", terms: () => companyTerms }
+    : companyTermProvider;
+  return buildDictionary([company, createUserTermProvider(userTerms)]);
 }
 
 const ACRONYM = /^[A-Z][A-Z0-9&.]{1,7}$/u;

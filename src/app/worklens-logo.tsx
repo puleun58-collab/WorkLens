@@ -15,7 +15,7 @@ const FRAME_PATH = "M3 12V5.5A2.5 2.5 0 0 1 5.5 3H12v3H6v6ZM20 3h6.5A2.5 2.5 0 0
 /** Geometric W, solid so small sizes never thin out. */
 const W_PATH = "M8.4 10.6h3.3l1.7 7.2 2.1-7.2h1l2.1 7.2 1.7-7.2h3.3l-3.2 11.8h-3.1L16 16.4l-1.3 6h-3.1Z";
 
-export function WorkLensMark({ size = 28, tone = "default", title }: WorkLensMarkProps) {
+export function WorkLensMark({ size = 33, tone = "default", title }: WorkLensMarkProps) {
   return (
     <svg
       className="worklens-mark"
@@ -35,7 +35,7 @@ export function WorkLensMark({ size = 28, tone = "default", title }: WorkLensMar
   );
 }
 
-export function WorkLensLogo({ size = 28, tone = "default", showWordmark = true }: WorkLensLogoProps) {
+export function WorkLensLogo({ size = 33, tone = "default", showWordmark = true }: WorkLensLogoProps) {
   return (
     <span className="worklens-logo" data-tone={tone} role="img" aria-label="WorkLens">
       <WorkLensMark size={size} tone={tone} />

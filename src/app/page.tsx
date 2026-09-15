@@ -31,7 +31,8 @@ import { sortFindings } from "@/lib/check/merge";
 import { mergeSemanticFindings, semanticFindings } from "@/lib/check/writing/semantic-review";
 import {
   BarChart3,
-  BookMarked,  GitCompareArrows,
+  BookMarked,
+  GitCompareArrows,
   MessageSquareText,
   ScrollText,
   ShieldCheck,
@@ -40,6 +41,7 @@ import {
 } from "lucide-react";
 
 type ShellView = Tab | "Dictionary" | "Settings";
+export interface CompanyTermEntry { id: number; term: string; description: string | null; active: boolean }
 const tabIcons: Record<Tab, typeof BarChart3> = {
   Analyze: BarChart3,
   Ask: MessageSquareText,
@@ -141,6 +143,8 @@ export default function Home() {
   const [selected, setSelected] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<Tab>("Analyze");
   const [shellView, setShellView] = useState<ShellView>("Analyze");
+  const [companyTerms, setCompanyTerms] = useState<CompanyTermEntry[]>([]);
+  const [companyTermsSource, setCompanyTermsSource] = useState<"d1" | "seed" | "pending">("pending");
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
@@ -168,6 +172,24 @@ export default function Home() {
 
   // Personal dictionary and ignored rules live in this browser only. Read lazily
   // so the server render stays empty and hydration has nothing to reconcile.
+  // Company terms are central configuration served by /api/company-terms.
+  // A failed read degrades to the seed list; Check keeps running either way.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch("/api/company-terms", { cache: "no-store" });
+        const payload: unknown = await response.json();
+        const data = payload && typeof payload === "object" && "data" in payload ? payload.data : null;
+        if (cancelled || !data || typeof data !== "object" || !("terms" in data) || !Array.isArray(data.terms)) return;
+        setCompanyTerms(data.terms as CompanyTermEntry[]);
+        setCompanyTermsSource("source" in data && data.source === "d1" ? "d1" : "seed");
+      } catch {
+        if (!cancelled) setCompanyTermsSource("seed");
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
   const addTerm = useCallback((term: string) => setUserTerms(addUserTerm(term)), []);
   const removeTerm = useCallback((term: string) => setUserTerms(removeUserTerm(term)), []);
   const clearTerms = useCallback(() => setUserTerms(clearUserTerms()), []);
@@ -225,7 +247,7 @@ export default function Home() {
       const result = kind === "analyze"
         ? await runInWorker({ kind: "analyze", fileIds: selected })
         : kind === "check"
-          ? await runInWorker({ kind: "check", fileIds: selected, userTerms })
+          ? await runInWorker({ kind: "check", fileIds: selected, userTerms, companyTerms: companyTermNames })
           : await runInWorker({ kind: "extract", fileIds: selected });
       setOperationResult(result);
       setNotice({ tone: "success", message: success });
@@ -306,7 +328,7 @@ export default function Home() {
     try {
       const base = isCheckEntries(operationResult)
         ? operationResult
-        : await runInWorker({ kind: "check", fileIds: selected, userTerms });
+        : await runInWorker({ kind: "check", fileIds: selected, userTerms, companyTerms: companyTermNames });
       const documents = await runInWorker({ kind: "documents", fileIds: selected });
       const response = await fetch("/api/ai", {
         method: "POST",
@@ -397,6 +419,7 @@ export default function Home() {
 
   const actionDisabled = busy || selected.length === 0 || (activeTab === "Compare" && selected.length !== 2) || (activeTab === "Ask" && !question.trim());
   const fileNames = new Map(files.map((file) => [file.id, file.name]));
+  const companyTermNames = companyTerms.filter((entry) => entry.active).map((entry) => entry.term);
   const selectedNames = files.filter((file) => selected.includes(file.id)).map((file) => file.name).join(", ");
 
   return (
@@ -404,7 +427,7 @@ export default function Home() {
       <a className="skip-link" href="#workspace-content">본문으로 건너뛰기</a>
       <nav className="rail" aria-label="Workspace views">
         <div className="rail-brand">
-          <WorkLensLogo size={22} />
+          <WorkLensLogo size={33} />
         </div>
         <p className="rail-group-label">Workspace</p>
         <ul className="rail-list">
@@ -454,7 +477,7 @@ export default function Home() {
       <div className="shell-main">
         <header className="context-bar">
           <div className="context-files">
-            <h1 id="files-heading">분석 파일</h1>
+            <h1 id="files-heading">작업 파일</h1>
             <span className="context-counts">
               <b>{files.length}</b> files
               <i aria-hidden="true" />
@@ -469,29 +492,41 @@ export default function Home() {
               <span className="state-dot" aria-hidden="true" />
               In-browser session · 서버 저장 없음
             </span>
-            <button type="button" className="secondary-action" onClick={() => inputRef.current?.click()} disabled={uploading}>
-              {uploading ? "분석 중…" : "Add files"}
-            </button>
+            {files.length > 0 ? (
+              <button type="button" className="secondary-action" onClick={() => inputRef.current?.click()} disabled={uploading}>
+                {uploading ? "분석 중…" : "Add files"}
+              </button>
+            ) : null}
             <button type="button" className="delete-all" onClick={deleteAll} disabled={busy}>모두 삭제</button>
           </div>
         </header>
 
         <section className="workspace" id="workspace-content" aria-busy={busy || uploading}>
-          <div
-            className={`dropzone${uploading ? " busy" : ""}${files.length ? " compact" : ""}`}
-            onDragOver={(event) => event.preventDefault()}
-            onDrop={onDrop}
-          >
-            <input ref={inputRef} type="file" multiple accept=".xlsx,.csv,.pdf,.docx,.pptx" aria-label="분석 파일 선택" onChange={(event: ChangeEvent<HTMLInputElement>) => { enqueueUploads(event.target.files); event.target.value = ""; }} />
-            <div>
-              <strong>{uploading ? "파일을 읽고 구조를 분석하는 중" : "업무 파일 추가"}</strong>
-              <span>XLSX, CSV, PDF, DOCX, PPTX · 파일당 최대 50 MB · 임시 처리</span>
+          <input
+            ref={inputRef}
+            className="file-input"
+            type="file"
+            multiple
+            accept=".xlsx,.csv,.pdf,.docx,.pptx"
+            aria-label="작업 파일 선택"
+            onChange={(event: ChangeEvent<HTMLInputElement>) => { enqueueUploads(event.target.files); event.target.value = ""; }}
+          />
+          {files.length === 0 ? (
+            <div
+              className={`dropzone${uploading ? " busy" : ""}`}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={onDrop}
+            >
+              <div>
+                <strong>{uploading ? "파일을 읽고 구조를 분석하는 중" : "업무 파일 추가"}</strong>
+                <span>XLSX, CSV, PDF, DOCX, PPTX · 파일당 최대 50 MB · 임시 처리</span>
+              </div>
+              <span className="drop-hint">여기로 끌어놓기</span>
+              <button type="button" onClick={() => inputRef.current?.click()} disabled={uploading}>
+                {uploading ? "분석 중…" : "파일 선택"}
+              </button>
             </div>
-            <span className="drop-hint">여기로 끌어놓기</span>
-            <button type="button" onClick={() => inputRef.current?.click()} disabled={uploading}>
-              {uploading ? "분석 중…" : "파일 선택"}
-            </button>
-          </div>
+          ) : null}
 
           {notice ? (
             <div className={`notice ${notice.tone}`} role={notice.tone === "error" ? "alert" : "status"} aria-live={notice.tone === "error" ? "assertive" : "polite"}>
@@ -507,6 +542,8 @@ export default function Home() {
           {shellView === "Dictionary" || shellView === "Settings" ? (
             <SettingsView
               view={shellView}
+              companyTerms={companyTerms}
+              companyTermsSource={companyTermsSource}
               userTerms={userTerms}
               ignoredRules={ignoredRules}
               onAddTerm={addTerm}
@@ -600,8 +637,10 @@ export default function Home() {
 }
 
 /** Dictionary and Settings share one surface; both are browser-local by design. */
-function SettingsView({ view, userTerms, ignoredRules, onAddTerm, onRemoveTerm, onClearTerms, onToggleRule }: {
+function SettingsView({ view, companyTerms, companyTermsSource, userTerms, ignoredRules, onAddTerm, onRemoveTerm, onClearTerms, onToggleRule }: {
   view: "Dictionary" | "Settings";
+  companyTerms: CompanyTermEntry[];
+  companyTermsSource: "d1" | "seed" | "pending";
   userTerms: string[];
   ignoredRules: string[];
   onAddTerm: (term: string) => void;
@@ -610,6 +649,7 @@ function SettingsView({ view, userTerms, ignoredRules, onAddTerm, onRemoveTerm, 
   onToggleRule: (ruleId: string) => void;
 }) {
   const [draft, setDraft] = useState("");
+  const [search, setSearch] = useState("");
   if (view === "Settings") {
     return (
       <section className="settings-surface" aria-label="Settings">
@@ -635,10 +675,20 @@ function SettingsView({ view, userTerms, ignoredRules, onAddTerm, onRemoveTerm, 
     <section className="settings-surface" aria-label="Dictionary">
       <div className="section-header"><h2>용어 사전</h2><p>사전은 맞춤법과 용어 오탐만 억제합니다.</p></div>
       <div className="dictionary-section">
-        <h4>Company Terms <span>{companyTermFile.terms.length}</span></h4>
-        <p className="dictionary-note">회사 공용 사전은 읽기 전용입니다.</p>
+        <h4>Company Terms <span>{companyTerms.length}</span></h4>
+        <p className="dictionary-note">
+          회사 공통 용어입니다. 읽기 전용이며 관리자만 수정할 수 있습니다.
+          {companyTermsSource === "seed" ? " 공용 사전 저장소에 연결하지 못해 기본 목록을 표시합니다." : null}
+        </p>
+        <form onSubmit={(event) => event.preventDefault()}>
+          <input value={search} placeholder="용어 검색" aria-label="공용 용어 검색" onChange={(event) => setSearch(event.target.value)} />
+        </form>
         <div className="dictionary-term-list">
-          {companyTermFile.terms.map((term) => <span className="dictionary-term" key={term}>{term}</span>)}
+          {companyTerms
+            .filter((entry) => !search.trim() || entry.term.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()))
+            .map((entry) => (
+              <span className="dictionary-term" key={entry.id} title={entry.description ?? undefined}>{entry.term}</span>
+            ))}
         </div>
       </div>
       <div className="dictionary-section">

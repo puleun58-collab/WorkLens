@@ -45,7 +45,7 @@ async function upload(page: Page, filePath: string) {
 
 test("uploads XLSX files, compares them and shows source evidence", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "분석 파일" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "작업 파일" })).toBeVisible();
   await expect(page.getByText("아직 파일이 없습니다.", { exact: false })).toBeVisible();
 
   await upload(page, files.v1);
@@ -256,6 +256,24 @@ test("keeps the personal dictionary, ignore actions and confidence filter inside
 });
 
 
+test("moves upload out of the workspace once files exist", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator(".dropzone")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Add files" })).toHaveCount(0);
+
+  await upload(page, files.v1);
+  await expect(page.locator(".dropzone")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Add files" })).toBeVisible();
+
+  // Adding another file still works from the context bar action.
+  await upload(page, files.v2);
+  await expect(page.locator(".file-row")).toHaveCount(2);
+
+  await page.reload();
+  await expect(page.locator(".dropzone")).toBeVisible();
+  await expect(page.getByText("아직 파일이 없습니다.", { exact: false })).toBeVisible();
+});
+
 test("rejects a disguised file with an actionable message", async ({ page }) => {
   await page.goto("/");
   await sendFile(page, files.fake);
@@ -274,8 +292,10 @@ test("keeps uploaded files inside the tab and never on the server", async ({ pag
   await page.getByRole("button", { name: "Analyze 실행" }).click();
   await expect(page.getByText("구조 및 수치 분석을 완료했습니다.")).toBeVisible();
 
-  // Parsing and every deterministic operation run in the browser worker.
-  expect(apiCalls).toEqual([]);
+  // Parsing and every deterministic operation run in the browser worker. The
+  // only server call is the read-only company dictionary, which carries no
+  // document content in either direction.
+  expect([...new Set(apiCalls)]).toEqual(["/api/company-terms"]);
   const stored = await page.evaluate(() => ({
     cookies: document.cookie,
     local: Object.keys(localStorage).length,

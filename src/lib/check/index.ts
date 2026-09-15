@@ -14,6 +14,8 @@ import { writingFindingsForDocument, writingFindingsForUnit } from "./writing";
 export interface CheckOptions {
   /** Personal dictionary terms from the current browser. Never leaves the device. */
   userTerms?: readonly string[];
+  /** Central company dictionary; omit to fall back to the versioned seed file. */
+  companyTerms?: readonly string[];
   /** Display cap; the summary always reports the pre-cap total. */
   limit?: number;
 }
@@ -29,7 +31,7 @@ export { mergeSemanticFindings, semanticFindings } from "./writing";
  */
 export function checkDocument(document: NormalizedDocument, options: CheckOptions = {}): CheckResult {
   const units = collectTextUnits(document);
-  const context: RuleContext = { dictionary: createDictionary(options.userTerms ?? []) };
+  const context: RuleContext = { dictionary: createDictionary(options.userTerms ?? [], options.companyTerms) };
   const findings: CheckFinding[] = [];
 
   for (const unit of units) {

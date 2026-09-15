@@ -138,3 +138,19 @@ export function apiError(error: unknown): NextResponse {
     { status: 500, headers: NO_STORE_HEADERS },
   );
 }
+
+/**
+ * Cookie-authenticated endpoints compare against the request's own origin
+ * rather than the configured public origin, so local Worker runs and preview
+ * deployments are not rejected while cross-site callers still are.
+ */
+export function requireSameSite(request: Request): void {
+  if (request.headers.get("sec-fetch-site") === "cross-site") {
+    throw new ApiError("CROSS_SITE_REQUEST", "교차 사이트 요청을 거부했습니다.", 403);
+  }
+  const origin = request.headers.get("origin");
+  if (!origin) throw new ApiError("ORIGIN_REQUIRED", "요청 출처가 필요합니다.", 403);
+  if (origin !== new URL(request.url).origin) {
+    throw new ApiError("ORIGIN_MISMATCH", "요청 출처가 일치하지 않습니다.", 403);
+  }
+}

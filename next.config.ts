@@ -1,8 +1,17 @@
 import path from "node:path";
 import type { NextConfig } from "next";
 
+const isCloudflareBuild = (process.env.npm_lifecycle_event ?? "").includes("vinext")
+  || process.env.npm_lifecycle_event === "deploy"
+  || process.env.VINEXT === "1";
+
 const nextConfig: NextConfig = {
-  turbopack: { root: path.resolve(".") },
+  // The Cloudflare build resolves "cloudflare:workers" natively; plain Node
+  // builds (next dev/build/start) get a process-env stub instead.
+  turbopack: {
+    root: path.resolve("."),
+    ...(isCloudflareBuild ? {} : { resolveAlias: { "cloudflare:workers": "./src/server/cf-env-node.ts" } }),
+  },
   // Parsing and export now run in the browser worker; no server bundling opt-out needed.
   poweredByHeader: false,
   async headers() {
