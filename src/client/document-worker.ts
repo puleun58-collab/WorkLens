@@ -73,7 +73,7 @@ async function handle(request: WorkerRequest): Promise<unknown> {
     case "check":
       return requireDocuments(request.fileIds).map((entry) => ({
         file: { id: entry.file.id, name: entry.file.name },
-        check: checkDocument(entry.document),
+        check: checkDocument(entry.document, { userTerms: request.userTerms ?? [] }),
       }));
     case "extract":
       return requireDocuments(request.fileIds).map((entry) => ({

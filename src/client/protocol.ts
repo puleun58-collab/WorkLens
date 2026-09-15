@@ -26,7 +26,7 @@ export interface ExportedDocument {
 export type WorkerRequest =
   | { kind: "parse"; fileId: string; fileName: string; bytes: Uint8Array }
   | { kind: "analyze"; fileIds: string[] }
-  | { kind: "check"; fileIds: string[] }
+  | { kind: "check"; fileIds: string[]; userTerms?: string[] }
   | { kind: "extract"; fileIds: string[] }
   | { kind: "compare"; baseFileId: string; targetFileId: string }
   | { kind: "export"; fileIds: string[]; format: ExportFormat }

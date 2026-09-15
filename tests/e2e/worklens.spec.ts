@@ -191,16 +191,17 @@ test("reviews PPTX writing, consistency and data findings with filters and exact
   await page.getByRole("button", { name: "Check 실행" }).click();
 
   await expect(page.getByRole("heading", { name: "문서 제출 전 최종 검수" })).toBeVisible();
-  const typo = page.locator(".check-issue").filter({ hasText: "문맥상 명백한 오타 가능성" });
+  const typo = page.locator(".check-issue").filter({ hasText: "한글 맞춤법 오류 가능성" });
   await expect(typo).toContainText("Spelling");
+  await expect(typo).toContainText("HIGH");
   await expect(typo).toContainText("최종검수.pptx · Slide 1");
-  await typo.getByRole("button", { name: /문맥상 명백한 오타 가능성/ }).click();
+  await typo.getByRole("button", { name: /한글 맞춤법 오류 가능성/ }).click();
   await expect(typo).toContainText("향후 13주 유가 전먕");
   await expect(typo).toContainText("향후 13주 유가 전망");
 
   await page.getByRole("button", { name: /Consistency/ }).click();
   await expect(page.locator(".check-issue").filter({ hasText: "용어 일관성" })).toHaveCount(1);
-  await expect(page.locator(".check-issue").filter({ hasText: "문맥상 명백한 오타 가능성" })).toHaveCount(0);
+  await expect(page.locator(".check-issue").filter({ hasText: "한글 맞춤법 오류 가능성" })).toHaveCount(0);
   await page.getByRole("button", { name: /^All/ }).last().click();
   await page.getByRole("button", { name: /Warning/ }).click();
   await expect(page.locator(".check-issue").first()).toBeVisible();
@@ -209,6 +210,51 @@ test("reviews PPTX writing, consistency and data findings with filters and exact
   await page.getByRole("button", { name: "Local AI 문장 검수" }).click();
   await expect(page.locator(".notice.error")).toContainText("문장/맞춤법 기반 고급 검수는 현재 사용할 수 없습니다");
 });
+test("keeps the personal dictionary, ignore actions and confidence filter inside this browser", async ({ page, browser }) => {
+  await page.goto("/");
+  await upload(page, files.checkPptx);
+  await page.getByLabel("최종검수.pptx 선택").check();
+  await page.getByRole("button", { name: "Check", exact: true }).click();
+  await page.getByRole("button", { name: "Check 실행" }).click();
+  await expect(page.locator(".check-issue").first()).toBeVisible();
+
+  const before = await page.locator(".check-issue").count();
+  const typo = page.locator(".check-issue").filter({ hasText: "한글 맞춤법 오류 가능성" });
+  await typo.getByRole("button", { name: /한글 맞춤법 오류 가능성/ }).click();
+  await typo.getByRole("button", { name: "내 용어에 추가" }).click();
+  await expect(page.locator(".check-issue").filter({ hasText: "한글 맞춤법 오류 가능성" })).toHaveCount(0);
+  await expect(page.locator(".check-issue")).toHaveCount(before - 1);
+
+  // Only the term strings are persisted; no document text ever reaches storage.
+  const storage = await page.evaluate(() => Object.fromEntries(Object.entries(window.localStorage)));
+  expect(Object.keys(storage)).toEqual(["worklens:user-dictionary:v1"]);
+  expect(JSON.parse(storage["worklens:user-dictionary:v1"])).toContain("전먕");
+  expect(JSON.stringify(storage)).not.toContain("향후 13주");
+
+  await page.getByRole("button", { name: "용어 사전" }).click();
+  await expect(page.locator(".dictionary-panel")).toContainText("개인 사전은 이 브라우저에만 저장됩니다.");
+  await expect(page.locator(".dictionary-panel")).toContainText("WorkLens");
+  await page.getByRole("button", { name: "용어 사전" }).click();
+
+  // Ignoring a rule removes the whole family from the current result.
+  const remaining = page.locator(".check-issue").first();
+  await remaining.locator(".check-issue-name > button").click();
+  const ignoredIssue = await remaining.locator(".check-issue-name > button").innerText();
+  await remaining.getByRole("button", { name: "동일 규칙 무시" }).click();
+  await expect(page.locator(".check-issue").filter({ hasText: ignoredIssue.split("\n")[0] })).toHaveCount(0);
+
+  // The dictionary survives a reload of the same browser profile.
+  await page.reload();
+  await expect(page.evaluate(() => JSON.parse(window.localStorage.getItem("worklens:user-dictionary:v1") ?? "[]"))).resolves.toContain("전먕");
+
+  // A separate browser context starts with an empty personal dictionary.
+  const isolated = await browser.newContext();
+  const otherPage = await isolated.newPage();
+  await otherPage.goto(page.url());
+  await expect(otherPage.evaluate(() => window.localStorage.getItem("worklens:user-dictionary:v1"))).resolves.toBeNull();
+  await isolated.close();
+});
+
 
 test("rejects a disguised file with an actionable message", async ({ page }) => {
   await page.goto("/");

@@ -14,6 +14,8 @@ const eslintConfig = defineConfig([
     "dist/**",
     ".worklens/**",
     "next-env.d.ts",
+    // Vendored pdfjs worker copied into public/ by `bun run assets:pdf`.
+    "public/pdf.worker.mjs",
   ]),
 ]);
 

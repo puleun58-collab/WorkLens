@@ -15,7 +15,10 @@
     "build:vinext": "bun run assets:pdf && node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && vinext build",
     "start:vinext": "wrangler dev --config dist/server/wrangler.json",
     "deploy:vinext": "vinext-cloudflare deploy --config dist/server/wrangler.json",
-    "deploy": "bun run build:vinext && wrangler deploy --config dist/server/wrangler.json"
+    "deploy": "bun run build:vinext && wrangler deploy --config dist/server/wrangler.json",
+    "test:e2e:cloudflare": "bun run build:vinext && playwright test --config playwright.cloudflare.config.ts",
+    "test:e2e:cloudflare:run": "playwright test --config playwright.cloudflare.config.ts",
+    "test:smoke": "playwright test --config playwright.smoke.config.ts"
   },
   "dependencies": {
     "exceljs": "^4.4.0",

@@ -30,5 +30,7 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules"]
+  // `vinext build` and `next build` emit different `.next/types/routes` shapes,
+  // so the generated route validator is not a stable typecheck input.
+  "exclude": ["node_modules", ".next/types/validator.ts"]
 }

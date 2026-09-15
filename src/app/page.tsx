@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, DragEvent, useCallback, useEffect, useRef, useState } from "react";
+import { ChangeEvent, DragEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AiAvailableResult, EvidenceBinding, GroundedClaim } from "@/domain/ai";
 import type { ComparisonItem, ComparisonResult } from "@/domain/compare";
 import type { DocumentMetadata, SourceRef } from "@/domain/document";
@@ -9,6 +9,7 @@ import {
   type AnalyzeResult,
   type CheckCategory,
   type CheckCategoryGroup,
+  type CheckConfidence,
   type CheckFinding,
   type CheckResult,
   type CheckSeverity,
@@ -16,7 +17,18 @@ import {
 } from "@/domain/operations";
 import { WorkLensLogo } from "./worklens-logo";
 import { disposeWorkspace, runInWorker } from "@/client/document-client";
-import type { WorkspaceFile } from "@/client/protocol";
+import type { CheckEntry as WorkerCheckEntry, WorkspaceFile } from "@/client/protocol";
+import {
+  addUserTerm,
+  clearUserTerms,
+  readIgnoredRules,
+  readUserTerms,
+  removeUserTerm,
+  toggleIgnoredRule,
+} from "@/client/user-dictionary";
+import companyTermFile from "@/config/company-terms.json";
+import { sortFindings } from "@/lib/check/merge";
+import { mergeSemanticFindings, semanticFindings } from "@/lib/check/writing/semantic-review";
 type ApiError = { code: string; message: string; retryable?: boolean };
 type Notice = { tone: "error" | "success" | "info"; message: string };
 const tabs = ["Analyze", "Ask", "Compare", "Check", "Extract", "Brief"] as const;
@@ -98,6 +110,13 @@ function aiResultFrom(payload: unknown): unknown {
   return data.result;
 }
 
+function isCheckEntries(value: unknown): value is WorkerCheckEntry[] {
+  return Array.isArray(value) && value.length > 0 && value.every((entry) =>
+    typeof entry === "object" && entry !== null
+    && Array.isArray((entry as WorkerCheckEntry).check?.findings)
+    && typeof (entry as WorkerCheckEntry).check?.summary?.totalFound === "number");
+}
+
 export default function Home() {
   const [files, setFiles] = useState<WorkspaceFile[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
@@ -110,6 +129,8 @@ export default function Home() {
   const [operationResult, setOperationResult] = useState<unknown>(null);
   const [detail, setDetail] = useState<DetailInfo | null>(null);
   const [question, setQuestion] = useState("");
+  const [userTerms, setUserTerms] = useState<string[]>(readUserTerms);
+  const [ignoredRules, setIgnoredRules] = useState<string[]>(readIgnoredRules);
   const inputRef = useRef<HTMLInputElement>(null);
   const uploadQueue = useRef<Promise<void>>(Promise.resolve());
   const detailTrigger = useRef<HTMLElement | null>(null);
@@ -124,6 +145,13 @@ export default function Home() {
     setDetail(null);
     if (trigger) window.requestAnimationFrame(() => trigger.focus());
   }, []);
+
+  // Personal dictionary and ignored rules live in this browser only. Read lazily
+  // so the server render stays empty and hydration has nothing to reconcile.
+  const addTerm = useCallback((term: string) => setUserTerms(addUserTerm(term)), []);
+  const removeTerm = useCallback((term: string) => setUserTerms(removeUserTerm(term)), []);
+  const clearTerms = useCallback(() => setUserTerms(clearUserTerms()), []);
+  const toggleRule = useCallback((ruleId: string) => setIgnoredRules(toggleIgnoredRule(ruleId)), []);
 
   const clearResults = useCallback(() => {
     setOperationResult(null);
@@ -177,7 +205,7 @@ export default function Home() {
       const result = kind === "analyze"
         ? await runInWorker({ kind: "analyze", fileIds: selected })
         : kind === "check"
-          ? await runInWorker({ kind: "check", fileIds: selected })
+          ? await runInWorker({ kind: "check", fileIds: selected, userTerms })
           : await runInWorker({ kind: "extract", fileIds: selected });
       setOperationResult(result);
       setNotice({ tone: "success", message: success });
@@ -243,12 +271,80 @@ export default function Home() {
     return runLocalAi(task, question.trim() || undefined, `${activeTab} 결과를 준비했습니다.`);
   };
 
+  /**
+   * Local Semantic Layer for Check: the deterministic result stays authoritative
+   * and model suggestions are folded in as low-confidence items.
+   */
+  const runSemanticCheck = async () => {
+    if (selected.length > 5) {
+      setNotice({ tone: "error", message: "Local AI 작업은 최대 5개 파일만 선택할 수 있습니다." });
+      return;
+    }
+    setBusy(true);
+    setNotice(null);
+    setDetail(null);
+    try {
+      const base = isCheckEntries(operationResult)
+        ? operationResult
+        : await runInWorker({ kind: "check", fileIds: selected, userTerms });
+      const documents = await runInWorker({ kind: "documents", fileIds: selected });
+      const response = await fetch("/api/ai", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          task: "semantic-check",
+          documents,
+          question: "선택한 문서의 한글 맞춤법, 띄어쓰기, 조사, 어색한 표현과 용어 일관성을 보수적으로 점검하세요. 확신이 낮은 항목은 제안으로만 표시하세요.",
+        }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw apiError(payload, "Local AI 문장 검수에 실패했습니다.");
+      const aiResult = aiResultFrom(payload);
+      const claims = isAiAvailableResult(aiResult) ? aiResult.claims : [];
+      const merged = base.map((entry) => {
+        const forFile = claims.filter((claim) => claim.evidence.some((binding) => binding.source.fileId === entry.file.id));
+        const findings = sortFindings(mergeSemanticFindings(entry.check.findings, semanticFindings(forFile)), new Map());
+        const added = findings.length - entry.check.findings.length;
+        const summary = entry.check.summary;
+        return {
+          ...entry,
+          check: {
+            ...entry.check,
+            findings,
+            summary: {
+              ...summary,
+              totalFound: summary.totalFound + added,
+              returned: findings.length,
+              bySeverity: { ...summary.bySeverity, suggestion: summary.bySeverity.suggestion + added },
+              byGroup: { ...summary.byGroup, writing: summary.byGroup.writing + added },
+              byConfidence: { ...summary.byConfidence, low: summary.byConfidence.low + added },
+            },
+          },
+        };
+      });
+      setOperationResult(merged);
+      const total = merged.reduce((sum, entry) => sum + entry.check.findings.length, 0) - base.reduce((sum, entry) => sum + entry.check.findings.length, 0);
+      setNotice({
+        tone: "success",
+        message: total > 0
+          ? `Local AI 문장 검수 ${total}건을 낮은 확신 제안으로 추가했습니다. "낮은 확신 포함"을 켜면 볼 수 있습니다.`
+          : "Local AI 문장 검수에서 추가할 제안이 없었습니다.",
+      });
+    } catch (error) {
+      setNotice({ tone: "error", message: (error as ApiError).message ?? "Local AI 문장 검수에 실패했습니다." });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const runAiAssist = () => {
     if (activeTab === "Analyze") return runLocalAi("analyze", undefined, "Local AI 분석 결과를 준비했습니다.");
-    const statement = activeTab === "Compare"
-      ? "선택한 문서 사이의 중요한 의미 변화를 근거와 함께 점검하세요."
-      : "선택한 문서의 한글 맞춤법, 띄어쓰기, 조사, 어색한 표현과 용어 일관성을 보수적으로 점검하세요. 확신이 낮은 항목은 제안으로만 표시하세요.";
-    return runLocalAi("semantic-check", statement, "Local AI 보조 점검 결과를 준비했습니다.");
+    if (activeTab === "Check") return runSemanticCheck();
+    return runLocalAi(
+      "semantic-check",
+      "선택한 문서 사이의 중요한 의미 변화를 근거와 함께 점검하세요.",
+      "Local AI 보조 점검 결과를 준비했습니다.",
+    );
   };
 
   const exportFiles = async (format: "csv" | "xlsx") => {
@@ -416,7 +512,15 @@ export default function Home() {
             ) : null}
             {activeTab === "Compare"
               ? <ComparisonView comparison={comparison} compareIds={compareIds} fileNames={fileNames} detail={detail} onSource={openSource} onCloseSource={closeSource} />
-              : <ResultView tab={activeTab} result={operationResult} fileNames={fileNames} detail={detail} onSource={openSource} onCloseSource={closeSource} />}
+              : <ResultView
+                tab={activeTab}
+                result={operationResult}
+                fileNames={fileNames}
+                detail={detail}
+                onSource={openSource}
+                onCloseSource={closeSource}
+                dictionary={{ userTerms, ignoredRules, onAddTerm: addTerm, onRemoveTerm: removeTerm, onClearTerms: clearTerms, onToggleRule: toggleRule }}
+              />}
         </>
       </section>
     </main>
@@ -443,7 +547,17 @@ type CheckEntry = { file: { id: string; name: string }; check: CheckResult };
 type ExtractEntry = { file: { id: string; name: string }; extraction: ExtractResult };
 type SourceHandler = (source: SourceRef, role: SourceRole | undefined, trigger: HTMLElement | null) => void;
 
-function ResultView({ tab, result, fileNames, detail, onSource, onCloseSource }: { tab: Tab; result: unknown; fileNames: Map<string, string>; detail: DetailInfo | null; onSource: SourceHandler; onCloseSource: () => void }) {
+interface ResultViewProps {
+  tab: Tab;
+  result: unknown;
+  fileNames: Map<string, string>;
+  detail: DetailInfo | null;
+  onSource: SourceHandler;
+  onCloseSource: () => void;
+  dictionary: Omit<CheckViewProps, "entries" | "fileNames" | "onSource">;
+}
+
+function ResultView({ tab, result, fileNames, detail, onSource, onCloseSource, dictionary }: ResultViewProps) {
   if (!result) {
     const copy: Record<Exclude<Tab, "Compare">, { code: string; title: string; body: string }> = {
       Analyze: { code: "READY TO ANALYZE", title: "분석 준비됨", body: "문서 구조, 수치 범위, 명시된 합계를 근거와 함께 확인합니다." },
@@ -458,7 +572,7 @@ function ResultView({ tab, result, fileNames, detail, onSource, onCloseSource }:
 
   let content: React.ReactNode;
   if (tab === "Analyze" && Array.isArray(result)) content = <AnalyzeResults entries={result as AnalyzeEntry[]} fileNames={fileNames} onSource={onSource} />;
-  else if (tab === "Check" && Array.isArray(result)) content = <CheckResults entries={result as CheckEntry[]} fileNames={fileNames} onSource={onSource} />;
+  else if (tab === "Check" && Array.isArray(result)) content = <CheckResults entries={result as CheckEntry[]} fileNames={fileNames} onSource={onSource} {...dictionary} />;
   else if (tab === "Extract" && Array.isArray(result)) content = <ExtractResults entries={result as ExtractEntry[]} fileNames={fileNames} onSource={onSource} />;
   else if (isAiAvailableResult(result)) content = <AiResults result={result} fileNames={fileNames} onSource={onSource} />;
   else content = <JsonValue value={result} fileNames={fileNames} onSource={onSource} />;
@@ -530,27 +644,95 @@ function AnalyzeResults({ entries, fileNames, onSource }: { entries: AnalyzeEntr
   );
 }
 
-function CheckResults({ entries, fileNames, onSource }: { entries: CheckEntry[]; fileNames: Map<string, string>; onSource: SourceHandler }) {
+const PAGE_SIZE = 50;
+const confidenceLabels: Record<CheckConfidence, string> = { high: "HIGH", medium: "MED", low: "LOW" };
+
+interface CheckViewProps {
+  entries: CheckEntry[];
+  fileNames: Map<string, string>;
+  onSource: SourceHandler;
+  userTerms: string[];
+  ignoredRules: string[];
+  onAddTerm: (term: string) => void;
+  onRemoveTerm: (term: string) => void;
+  onClearTerms: () => void;
+  onToggleRule: (ruleId: string) => void;
+}
+
+function CheckResults({ entries, fileNames, onSource, userTerms, ignoredRules, onAddTerm, onRemoveTerm, onClearTerms, onToggleRule }: CheckViewProps) {
   const [severityFilter, setSeverityFilter] = useState<"all" | CheckSeverity>("all");
   const [groupFilter, setGroupFilter] = useState<"all" | CheckCategoryGroup>("all");
+  const [showLowConfidence, setShowLowConfidence] = useState(false);
   const [expandedFindingId, setExpandedFindingId] = useState<string | null>(null);
-  const indexed = entries.flatMap((entry) => entry.check.findings.map((finding) => ({ finding, file: entry.file })));
-  const findings = indexed.map(({ finding }) => finding);
-  const counts: Record<CheckSeverity, number> = {
-    critical: findings.filter((finding) => finding.severity === "critical").length,
-    warning: findings.filter((finding) => finding.severity === "warning").length,
-    suggestion: findings.filter((finding) => finding.severity === "suggestion").length,
-  };
-  const groupCounts: Record<CheckCategoryGroup, number> = {
-    writing: findings.filter((finding) => checkCategoryGroup(finding.category) === "writing").length,
-    consistency: findings.filter((finding) => checkCategoryGroup(finding.category) === "consistency").length,
-    data: findings.filter((finding) => checkCategoryGroup(finding.category) === "data").length,
-    privacy: findings.filter((finding) => checkCategoryGroup(finding.category) === "privacy").length,
-  };
-  const filtered = indexed.filter(({ finding }) =>
+  const [ignoredIds, setIgnoredIds] = useState<string[]>([]);
+  const [dictionaryOpen, setDictionaryOpen] = useState(false);
+  const [page, setPage] = useState(0);
+  const [termDraft, setTermDraft] = useState("");
+
+  const indexed = useMemo(
+    () => entries.flatMap((entry) => entry.check.findings.map((finding) => ({ finding, file: entry.file }))),
+    [entries],
+  );
+  const totals = useMemo(() => entries.reduce((accumulator, entry) => {
+    const summary = entry.check.summary;
+    accumulator.totalFound += summary.totalFound;
+    accumulator.returned += summary.returned;
+    accumulator.truncated = accumulator.truncated || summary.truncated;
+    for (const severity of ["critical", "warning", "suggestion"] as const) accumulator.bySeverity[severity] += summary.bySeverity[severity];
+    for (const group of ["writing", "consistency", "data", "privacy"] as const) accumulator.byGroup[group] += summary.byGroup[group];
+    accumulator.lowConfidence += summary.byConfidence.low;
+    return accumulator;
+  }, {
+    totalFound: 0,
+    returned: 0,
+    truncated: false,
+    lowConfidence: 0,
+    bySeverity: { critical: 0, warning: 0, suggestion: 0 } as Record<CheckSeverity, number>,
+    byGroup: { writing: 0, consistency: 0, data: 0, privacy: 0 } as Record<CheckCategoryGroup, number>,
+  }), [entries]);
+
+  // A term added to the personal dictionary must disappear from the current
+  // result immediately, without re-parsing the document.
+  const suppressed = useMemo(() => new Set(userTerms.map((term) => term.trim().toLocaleLowerCase())), [userTerms]);
+  const active = useMemo(() => indexed.filter(({ finding }) =>
+    !ignoredIds.includes(finding.id)
+    && !ignoredRules.includes(finding.ruleId)
+    && !(finding.normalizedToken && suppressed.has(finding.normalizedToken.trim().toLocaleLowerCase()))
+    && (showLowConfidence || finding.confidence !== "low")), [indexed, ignoredIds, ignoredRules, suppressed, showLowConfidence]);
+
+  const counts = useMemo(() => ({
+    critical: active.filter(({ finding }) => finding.severity === "critical").length,
+    warning: active.filter(({ finding }) => finding.severity === "warning").length,
+    suggestion: active.filter(({ finding }) => finding.severity === "suggestion").length,
+  }), [active]);
+  const groupCounts = useMemo(() => ({
+    writing: active.filter(({ finding }) => checkCategoryGroup(finding.category) === "writing").length,
+    consistency: active.filter(({ finding }) => checkCategoryGroup(finding.category) === "consistency").length,
+    data: active.filter(({ finding }) => checkCategoryGroup(finding.category) === "data").length,
+    privacy: active.filter(({ finding }) => checkCategoryGroup(finding.category) === "privacy").length,
+  }), [active]);
+
+  const filtered = useMemo(() => active.filter(({ finding }) =>
     (severityFilter === "all" || finding.severity === severityFilter)
-    && (groupFilter === "all" || checkCategoryGroup(finding.category) === groupFilter));
-  const byId = new Map(findings.map((finding) => [finding.id, finding]));
+    && (groupFilter === "all" || checkCategoryGroup(finding.category) === groupFilter)), [active, severityFilter, groupFilter]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount - 1);
+  const visible = useMemo(
+    () => filtered.slice(currentPage * PAGE_SIZE, currentPage * PAGE_SIZE + PAGE_SIZE),
+    [filtered, currentPage],
+  );
+  const byId = useMemo(() => new Map(indexed.map(({ finding }) => [finding.id, finding])), [indexed]);
+
+  const resetPage = () => setPage(0);
+  const ignoreFinding = (id: string) => {
+    setIgnoredIds((current) => [...current, id]);
+    setExpandedFindingId(null);
+  };
+  const addTerm = (term: string) => {
+    onAddTerm(term);
+    setExpandedFindingId(null);
+  };
 
   return (
     <div className="result-sections check-results">
@@ -558,8 +740,21 @@ function CheckResults({ entries, fileNames, onSource }: { entries: CheckEntry[];
         <div className="qa-intro">
           <span className="result-type">PRE-SHARE REVIEW</span>
           <h3>문서 제출 전 최종 검수</h3>
-          <p>확실한 문제는 Warning 또는 Critical로, 문맥 판단이 필요한 항목은 Suggestion으로 구분했습니다.</p>
-          <small>문장과 맞춤법의 고급 검수는 Local AI 문장 검수에서 별도로 실행할 수 있습니다.</small>
+          <p className="check-summary-line">
+            <span className="metric"><b>{counts.critical}</b> Critical</span>
+            <span className="metric"><b>{counts.warning}</b> Warning</span>
+            <span className="metric"><b>{counts.suggestion}</b> Suggestion</span>
+            <span className="metric"><b>{groupCounts.writing}</b> Writing</span>
+            <span className="metric"><b>{groupCounts.consistency}</b> Consistency</span>
+            <span className="metric"><b>{groupCounts.data}</b> Data</span>
+            <span className="metric"><b>{groupCounts.privacy}</b> Privacy</span>
+          </p>
+          {totals.truncated ? (
+            <small className="check-truncation" data-testid="check-truncation">
+              전체 {totals.totalFound.toLocaleString("ko-KR")}건 중 우선순위가 높은 {totals.returned.toLocaleString("ko-KR")}건을 표시합니다.
+            </small>
+          ) : null}
+          <small>Severity는 문제의 중요도, Confidence는 판단의 확실성입니다. 문장 단위 추가 검수는 Local AI 문장 검수로 실행합니다.</small>
         </div>
         <dl className="qa-summary">
           {(["critical", "warning", "suggestion"] as const).map((severity) => (
@@ -572,80 +767,149 @@ function CheckResults({ entries, fileNames, onSource }: { entries: CheckEntry[];
         </dl>
       </section>
 
-      {findings.length === 0 ? (
+      {indexed.length === 0 ? (
         <div className="empty-state success-state"><span className="state-code">REVIEW CLEAR</span><strong>확인된 문제가 없습니다.</strong><p>현재 규칙 범위에서 작성, 일관성, 데이터와 개인정보 문제를 찾지 못했습니다.</p></div>
       ) : (
         <>
-          <section className="check-filters" aria-label="Check result filters">
-            <fieldset>
-              <legend>Severity</legend>
-              <div>
-                <button type="button" aria-pressed={severityFilter === "all"} onClick={() => setSeverityFilter("all")}>All <b>{findings.length}</b></button>
-                {(["critical", "warning", "suggestion"] as const).map((severity) => (
-                  <button type="button" key={severity} aria-pressed={severityFilter === severity} onClick={() => setSeverityFilter(severity)}>
-                    {severityLabels[severity]} <b>{counts[severity]}</b>
-                  </button>
-                ))}
+          <div className="check-toolbar">
+            <section className="check-filters" aria-label="Check result filters">
+              <fieldset>
+                <legend>Severity</legend>
+                <div>
+                  <button type="button" aria-pressed={severityFilter === "all"} onClick={() => { setSeverityFilter("all"); resetPage(); }}>All <b>{active.length}</b></button>
+                  {(["critical", "warning", "suggestion"] as const).map((severity) => (
+                    <button type="button" key={severity} aria-pressed={severityFilter === severity} onClick={() => { setSeverityFilter(severity); resetPage(); }}>
+                      {severityLabels[severity]} <b>{counts[severity]}</b>
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+              <fieldset>
+                <legend>Category</legend>
+                <div>
+                  <button type="button" aria-pressed={groupFilter === "all"} onClick={() => { setGroupFilter("all"); resetPage(); }}>All <b>{active.length}</b></button>
+                  {(Object.keys(checkGroupLabels) as CheckCategoryGroup[]).map((group) => (
+                    <button type="button" key={group} aria-pressed={groupFilter === group} onClick={() => { setGroupFilter(group); resetPage(); }}>
+                      {checkGroupLabels[group]} <b>{groupCounts[group]}</b>
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+            </section>
+            <div className="check-toolbar-actions">
+              <label className="low-confidence-toggle">
+                <input type="checkbox" checked={showLowConfidence} onChange={(event) => { setShowLowConfidence(event.target.checked); resetPage(); }} />
+                낮은 확신 포함 <b>{totals.lowConfidence}</b>
+              </label>
+              <div className="dictionary-anchor">
+                <button type="button" className="dictionary-trigger" aria-expanded={dictionaryOpen} onClick={() => setDictionaryOpen((open) => !open)}>용어 사전</button>
+                {dictionaryOpen ? (
+                  <div className="dictionary-panel" role="dialog" aria-label="용어 사전">
+                    <section className="dictionary-section">
+                      <h4>Company Terms <span>{companyTermFile.terms.length}</span></h4>
+                      <p className="dictionary-note">회사 공용 사전은 읽기 전용입니다.</p>
+                      <div className="dictionary-term-list">
+                        {companyTermFile.terms.slice(0, 12).map((term) => <span className="dictionary-term" key={term}>{term}</span>)}
+                        {companyTermFile.terms.length > 12 ? <span className="dictionary-term muted">외 {companyTermFile.terms.length - 12}개</span> : null}
+                      </div>
+                    </section>
+                    <section className="dictionary-section">
+                      <h4>My Terms <span>{userTerms.length}</span></h4>
+                      <form onSubmit={(event) => { event.preventDefault(); onAddTerm(termDraft); setTermDraft(""); }}>
+                        <input value={termDraft} maxLength={64} placeholder="용어 추가" aria-label="개인 용어 추가" onChange={(event) => setTermDraft(event.target.value)} />
+                        <button type="submit" disabled={!termDraft.trim()}>추가</button>
+                      </form>
+                      {userTerms.length ? (
+                        <div className="dictionary-term-list">
+                          {userTerms.map((term) => (
+                            <span className="dictionary-term" key={term}>
+                              {term}
+                              <button type="button" aria-label={`${term} 삭제`} onClick={() => onRemoveTerm(term)}>×</button>
+                            </span>
+                          ))}
+                        </div>
+                      ) : <p className="dictionary-empty">등록한 개인 용어가 없습니다.</p>}
+                      <div className="dictionary-actions">
+                        <button type="button" onClick={onClearTerms} disabled={!userTerms.length}>전체 초기화</button>
+                      </div>
+                      <p className="dictionary-note">개인 사전은 이 브라우저에만 저장됩니다.</p>
+                    </section>
+                  </div>
+                ) : null}
               </div>
-            </fieldset>
-            <fieldset>
-              <legend>Category</legend>
-              <div>
-                <button type="button" aria-pressed={groupFilter === "all"} onClick={() => setGroupFilter("all")}>All <b>{findings.length}</b></button>
-                {(Object.keys(checkGroupLabels) as CheckCategoryGroup[]).map((group) => (
-                  <button type="button" key={group} aria-pressed={groupFilter === group} onClick={() => setGroupFilter(group)}>
-                    {checkGroupLabels[group]} <b>{groupCounts[group]}</b>
-                  </button>
-                ))}
-              </div>
-            </fieldset>
-          </section>
+            </div>
+          </div>
 
           {filtered.length ? (
-            <section className="check-table" role="table" aria-label="문서 검수 결과">
-              <div className="check-table-head" role="row">
-                <span role="columnheader">Severity</span>
-                <span role="columnheader">Category</span>
-                <span role="columnheader">Issue</span>
-                <span role="columnheader">Source</span>
-                <span role="columnheader">Recommendation</span>
-              </div>
-              <div className="check-table-body">
-                {filtered.map(({ finding, file }) => {
-                  const expanded = expandedFindingId === finding.id;
-                  return (
-                    <article className={`check-issue severity-${finding.severity}${expanded ? " expanded" : ""}`} key={finding.id}>
-                      <div className="check-issue-row" role="row">
-                        <span role="cell" className="check-severity"><i className={`severity-mark ${finding.severity}`} aria-hidden="true" />{severityLabels[finding.severity]}</span>
-                        <span role="cell" className="check-category">{checkCategoryLabels[finding.category]}</span>
-                        <span role="cell" className="check-issue-name">
-                          <small title={file.name}>{file.name}</small>
-                          <button type="button" aria-expanded={expanded} onClick={() => setExpandedFindingId(expanded ? null : finding.id)}>{finding.issue}<span>{expanded ? "닫기" : "상세"}</span></button>
-                          <em>{finding.message}</em>
-                        </span>
-                        <span role="cell" className="check-source"><SourceButton source={finding.source} fileNames={fileNames} onSource={onSource} compact /></span>
-                        <span role="cell" className="check-recommendation">{finding.recommendation}</span>
-                      </div>
-                      {expanded ? (
-                        <div className="check-issue-detail">
-                          <div><span>Reason</span><p>{finding.reason}</p></div>
-                          {finding.originalText ? <div><span>Original</span><blockquote>{finding.originalText}</blockquote></div> : null}
-                          {finding.suggestedText ? <div className="suggested-copy"><span>Suggested</span><blockquote>{finding.suggestedText}</blockquote></div> : null}
-                          <div className="detail-sources"><span>Sources</span><div>{finding.sources.map((source, index) => <SourceButton key={`${source.nodeId}-${index}`} source={source} fileNames={fileNames} onSource={onSource} compact />)}</div></div>
-                          {finding.relatedFindingIds?.length ? (
-                            <div className="related-findings"><span>Related</span><div>{finding.relatedFindingIds.map((id) => {
-                              const related = byId.get(id);
-                              return related ? <button type="button" key={id} onClick={() => setExpandedFindingId(id)}>{related.issue}</button> : null;
-                            })}</div></div>
-                          ) : null}
+            <>
+              <section className="check-table" role="table" aria-label="문서 검수 결과">
+                <div className="check-table-head" role="row">
+                  <span role="columnheader">Severity</span>
+                  <span role="columnheader">Category</span>
+                  <span role="columnheader">Issue</span>
+                  <span role="columnheader">Source</span>
+                  <span role="columnheader">Recommendation</span>
+                </div>
+                <div className="check-table-body">
+                  {visible.map(({ finding, file }) => {
+                    const expanded = expandedFindingId === finding.id;
+                    return (
+                      <article className={`check-issue severity-${finding.severity}${expanded ? " expanded" : ""}`} key={finding.id} data-confidence={finding.confidence}>
+                        <div className="check-issue-row" role="row">
+                          <span role="cell" className="check-severity"><i className={`severity-mark ${finding.severity}`} aria-hidden="true" />{severityLabels[finding.severity]}</span>
+                          <span role="cell" className="check-category">
+                            {checkCategoryLabels[finding.category]}
+                            <b className={`confidence-badge ${finding.confidence}`} title={`Confidence: ${finding.confidence}`}>{confidenceLabels[finding.confidence]}</b>
+                          </span>
+                          <span role="cell" className="check-issue-name">
+                            <small title={file.name}>{file.name}</small>
+                            <button type="button" aria-expanded={expanded} onClick={() => setExpandedFindingId(expanded ? null : finding.id)}>{finding.issue}<span>{expanded ? "닫기" : "상세"}</span></button>
+                            <em>{finding.message}</em>
+                          </span>
+                          <span role="cell" className="check-source"><SourceButton source={finding.source} fileNames={fileNames} onSource={onSource} compact /></span>
+                          <span role="cell" className="check-recommendation">{finding.recommendation}</span>
                         </div>
-                      ) : null}
-                    </article>
-                  );
-                })}
-              </div>
-            </section>
-          ) : <div className="filter-empty"><strong>필터 조건에 맞는 Finding이 없습니다.</strong><button type="button" onClick={() => { setSeverityFilter("all"); setGroupFilter("all"); }}>필터 초기화</button></div>}
+                        {expanded ? (
+                          <div className="check-issue-detail">
+                            <div><span>Reason</span><p>{finding.reason}</p></div>
+                            {finding.originalText ? <div><span>Original</span><blockquote>{finding.originalText}</blockquote></div> : null}
+                            {finding.suggestedText ? <div className="suggested-copy"><span>Suggested</span><blockquote>{finding.suggestedText}</blockquote></div> : null}
+                            <div className="detail-sources"><span>Sources</span><div>{finding.sources.map((source, index) => <SourceButton key={`${source.nodeId}-${index}`} source={source} fileNames={fileNames} onSource={onSource} compact />)}</div></div>
+                            {finding.relatedFindingIds?.length ? (
+                              <div className="related-findings"><span>Related</span><div>{finding.relatedFindingIds.map((id) => {
+                                const related = byId.get(id);
+                                return related ? <button type="button" key={id} onClick={() => setExpandedFindingId(id)}>{related.issue}</button> : null;
+                              })}</div></div>
+                            ) : null}
+                            <div className="finding-actions">
+                              <span>Actions</span>
+                              <button type="button" onClick={() => ignoreFinding(finding.id)}>이번 항목 무시</button>
+                              <button type="button" onClick={() => onToggleRule(finding.ruleId)}>동일 규칙 무시</button>
+                              {finding.dictionaryEligible && finding.normalizedToken
+                                ? <button type="button" onClick={() => addTerm(finding.normalizedToken!)}>내 용어에 추가</button>
+                                : null}
+                            </div>
+                          </div>
+                        ) : null}
+                      </article>
+                    );
+                  })}
+                </div>
+              </section>
+              {pageCount > 1 ? (
+                <nav className="check-pagination" aria-label="Check result pages">
+                  <button type="button" onClick={() => setPage(currentPage - 1)} disabled={currentPage === 0}>이전</button>
+                  <span>{currentPage * PAGE_SIZE + 1}-{currentPage * PAGE_SIZE + visible.length} / {filtered.length.toLocaleString("ko-KR")}</span>
+                  <button type="button" onClick={() => setPage(currentPage + 1)} disabled={currentPage >= pageCount - 1}>다음</button>
+                </nav>
+              ) : null}
+            </>
+          ) : (
+            <div className="filter-empty">
+              <strong>필터 조건에 맞는 Finding이 없습니다.</strong>
+              <button type="button" onClick={() => { setSeverityFilter("all"); setGroupFilter("all"); setIgnoredIds([]); resetPage(); }}>필터 초기화</button>
+            </div>
+          )}
         </>
       )}
     </div>

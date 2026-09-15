@@ -80,7 +80,7 @@ describe("document submission Check", () => {
     const result = checkDocument(document);
 
     expect(result.findings.map((item) => item.code)).toEqual(expect.arrayContaining([
-      "suspected-typo",
+      "korean-spacing",
       "duplicate-sentence",
       "heading-hierarchy",
       "heading-numbering-inconsistency",

@@ -55,6 +55,9 @@ export type CheckCode =
   | "repeated-punctuation"
   | "english-spelling"
   | "suspected-typo"
+  | "korean-spacing"
+  | "stray-jamo"
+  | "punctuation-spacing"
   | "long-sentence"
   | "sentence-ending-inconsistency"
   | "duplicate-sentence"
@@ -105,11 +108,17 @@ export type CheckCategory =
   | "placeholder";
 export type CheckCategoryGroup = "writing" | "consistency" | "data" | "privacy";
 
+export type CheckConfidence = "high" | "medium" | "low";
+
 export interface CheckFinding {
   id: string;
   code: CheckCode;
+  /** Stable rule identity, e.g. `writing/korean/spelling:역활`. Survives message rewording. */
+  ruleId: string;
   issue: string;
   severity: CheckSeverity;
+  /** How certain the rule is about the judgement. Orthogonal to severity. */
+  confidence: CheckConfidence;
   category: CheckCategory;
   message: string;
   reason: string;
@@ -118,12 +127,28 @@ export interface CheckFinding {
   sources: SourceRef[];
   originalText?: string;
   suggestedText?: string;
+  /** Term this finding hangs on; present only when adding it to a dictionary would suppress the finding. */
+  normalizedToken?: string;
+  dictionaryEligible?: boolean;
   relatedFindingIds?: string[];
+}
+
+export interface CheckSummary {
+  /** Findings after dedupe, before the display cap. */
+  totalFound: number;
+  /** Findings actually present in `findings`. */
+  returned: number;
+  truncated: boolean;
+  /** Counts over every found finding, not only the returned page. */
+  bySeverity: Record<CheckSeverity, number>;
+  byGroup: Record<CheckCategoryGroup, number>;
+  byConfidence: Record<CheckConfidence, number>;
 }
 
 export interface CheckResult {
   documentId: string;
   findings: CheckFinding[];
+  summary: CheckSummary;
 }
 
 export function checkCategoryGroup(category: CheckCategory): CheckCategoryGroup {
