@@ -5128,3 +5128,158 @@ body {
   font-family: var(--font-mono);
   font-size: var(--font-size-xs);
 }
+
+/* ── Result hierarchy: one reading order on every result surface ──────────
+ * Primary result → detail → source → recommendation → metadata.
+ * Every result screen (Analyze, Ask, Compare, Check, Extract, Brief) uses the
+ * same strength for the same role, so no screen invents its own emphasis.
+ */
+
+/* 1. Titles: primary result strongest, section titles one step down. */
+.document-result-heading h3,
+.answer-document p,
+.check-issue-name > button,
+.change-label {
+  color: var(--ink);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+}
+
+.answer-document p {
+  font-weight: var(--font-weight-regular);
+  line-height: var(--leading-relaxed);
+}
+
+.subsection-heading h3,
+.subsection-heading h4 {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0;
+}
+
+/* 2. Descriptions and recommendations: readable, clearly below the title. */
+.check-issue-name em,
+.check-recommendation,
+.paragraph-list p,
+.claim-row > p {
+  color: var(--ink-soft);
+  font-size: var(--font-size-sm);
+  line-height: 1.55;
+}
+
+.check-recommendation {
+  color: var(--muted);
+}
+
+/* 3. Source: identical link treatment everywhere, compact inside cells. */
+.check-source .source-link,
+.source-actions .source-link,
+.data-row .source-link,
+.paragraph-list .source-link,
+.claim-evidence .source-link,
+.source-evidence-list .source-link {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: var(--font-size-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 4. Metadata: weakest layer, and never a pill. */
+.check-category {
+  color: var(--muted);
+  font-weight: var(--font-weight-medium);
+}
+
+.confidence-badge {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted-light);
+  font-weight: var(--font-weight-medium);
+}
+
+.confidence-badge.high,
+.confidence-badge.medium,
+.confidence-badge.low {
+  border: 0;
+  background: none;
+}
+
+.confidence-badge.high {
+  color: var(--ink-soft);
+}
+
+.confidence-badge.low {
+  color: var(--muted-light);
+}
+
+.check-category .confidence-badge {
+  display: block;
+  margin-top: 3px;
+}
+
+.claim-kind span,
+.claim-kind span.inference {
+  padding-left: 0;
+  border-left: 0;
+  color: var(--muted);
+  font-weight: var(--font-weight-semibold);
+}
+
+/* 5. Filters: group labels on one line, empty buckets one step quieter. */
+.check-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3) var(--space-6);
+}
+
+.check-filters fieldset {
+  display: grid;
+  gap: 6px;
+}
+
+.check-filters legend {
+  float: none;
+  width: auto;
+  padding: 0;
+  white-space: nowrap;
+}
+
+.check-filters button {
+  color: var(--ink);
+}
+
+.check-filters button[data-empty="true"] {
+  color: var(--muted-light);
+}
+
+.check-filters button[data-empty="true"] b {
+  color: var(--muted-light);
+}
+
+/* 6. Column widths follow importance: result and recommendation win space. */
+.check-table-head,
+.check-issue-row {
+  grid-template-columns: 108px 112px minmax(240px, 1.3fr) minmax(160px, 0.62fr) minmax(230px, 1fr);
+}
+
+.change-head,
+.change-row {
+  grid-template-columns: 96px minmax(200px, 1.4fr) minmax(100px, 0.7fr) minmax(100px, 0.7fr) 100px 90px minmax(240px, 1.2fr);
+}
+
+@media (max-width: 1180px) {
+  .check-table-head,
+  .check-issue-row {
+    grid-template-columns: 100px 104px minmax(210px, 1.25fr) minmax(150px, 0.6fr) minmax(190px, 0.95fr);
+  }
+}
+
+/* 7. Empty results read the same on every screen. */
+.inline-empty,
+.dictionary-empty,
+.filter-empty strong {
+  color: var(--muted);
+  font-size: var(--font-size-sm);
+}

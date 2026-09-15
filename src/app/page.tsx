@@ -605,7 +605,7 @@ export default function Home() {
                           <span>{file.kind.toUpperCase()} · {formatBytes(file.size)}</span>
                         </div>
                         <span className={`status status-${file.status.toLowerCase()}`}><span aria-hidden="true" />{file.status}</span>
-                        <div className="structure-counts">{counts.length ? counts.map((count) => <span key={count.label}>{count.label}: <b>{count.value}</b></span>) : <span>순서 기반 구조 준비됨</span>}</div>
+                        <div className="structure-counts">{counts.length ? counts.map((count) => <span key={count.label}>{count.label}: <b>{count.value}</b></span>) : <span>순서 기반 구조</span>}</div>
                         {file.warnings.length ? <span className="warning" title={file.warnings.join("\n")}>주의 {file.warnings.length}</span> : <span className="muted">없음</span>}
                       </article>
                     );
@@ -648,13 +648,12 @@ export default function Home() {
               ) : null}
 
               {activeTab === "Compare"
-                ? <ComparisonView comparison={comparison} compareIds={compareIds} fileNames={fileNames} detail={null} selectedCount={selected.length} onSource={openSource} onCloseSource={closeSource} />
+                ? <ComparisonView comparison={comparison} compareIds={compareIds} fileNames={fileNames} detail={null} onSource={openSource} onCloseSource={closeSource} />
                 : <ResultView
                   tab={activeTab}
                   result={operationResult}
                   fileNames={fileNames}
                   detail={null}
-                  selectedCount={selected.length}
                   onSource={openSource}
                   onCloseSource={closeSource}
                   dictionary={{ userTerms, ignoredRules, onAddTerm: addTerm, onRemoveTerm: removeTerm, onClearTerms: clearTerms, onToggleRule: toggleRule }}
@@ -828,39 +827,23 @@ interface ResultViewProps {
   result: unknown;
   fileNames: Map<string, string>;
   detail: DetailInfo | null;
-  selectedCount: number;
   onSource: SourceHandler;
   onCloseSource: () => void;
   dictionary: Omit<CheckViewProps, "entries" | "fileNames" | "onSource">;
 }
 
-/** Idle copy stays at one title plus one line; selecting files only swaps the line. */
-const placeholderCopy: Record<Exclude<Tab, "Compare">, { idle: [string, string]; ready: [string, string] }> = {
-  Analyze: {
-    idle: ["분석 준비됨", "파일을 선택하면 문서 구조와 주요 수치를 분석합니다."],
-    ready: ["분석할 준비가 되었습니다", "Analyze 실행을 눌러 분석을 시작하세요."],
-  },
-  Ask: {
-    idle: ["질문 준비됨", "파일을 선택하면 문서 안에서 답과 근거를 찾습니다."],
-    ready: ["질문할 준비가 되었습니다", "질문을 입력하고 Ask 실행을 누르세요."],
-  },
-  Check: {
-    idle: ["검수 준비됨", "파일을 선택하면 표현, 수치, 개인정보를 함께 점검합니다."],
-    ready: ["검수할 준비가 되었습니다", "Check 실행을 눌러 검수를 시작하세요."],
-  },
-  Extract: {
-    idle: ["추출 준비됨", "파일을 선택하면 표와 문단을 구조화해 정리합니다."],
-    ready: ["추출할 준비가 되었습니다", "Extract 실행을 눌러 추출을 시작하세요."],
-  },
-  Brief: {
-    idle: ["브리프 준비됨", "파일을 선택하면 핵심 내용을 업무 문서 형식으로 정리합니다."],
-    ready: ["브리프를 만들 준비가 되었습니다", "Brief 실행을 눌러 정리를 시작하세요."],
-  },
+/** One line of work name plus one line of scope; no state wording, no eyebrow. */
+const placeholderCopy: Record<Exclude<Tab, "Compare">, [string, string]> = {
+  Analyze: ["문서 분석", "파일을 선택하면 문서 구조와 주요 수치를 분석합니다."],
+  Ask: ["질문하기", "선택한 파일을 근거로 질문에 답합니다."],
+  Check: ["문서 검수", "파일을 선택하면 문장·일관성·데이터·개인정보를 검수합니다."],
+  Extract: ["정보 추출", "파일을 선택하면 표·날짜·금액·인물·할 일을 추출합니다."],
+  Brief: ["브리프 작성", "파일을 선택하면 핵심 내용을 업무 문서 형식으로 정리합니다."],
 };
 
-function ResultView({ tab, result, fileNames, detail, selectedCount, onSource, onCloseSource, dictionary }: ResultViewProps) {
+function ResultView({ tab, result, fileNames, detail, onSource, onCloseSource, dictionary }: ResultViewProps) {
   if (!result) {
-    const [title, body] = placeholderCopy[tab as Exclude<Tab, "Compare">][selectedCount > 0 ? "ready" : "idle"];
+    const [title, body] = placeholderCopy[tab as Exclude<Tab, "Compare">];
     return <section className="state-card result-placeholder"><h2>{title}</h2><p>{body}</p></section>;
   }
 
@@ -1070,9 +1053,9 @@ function CheckResults({ entries, fileNames, onSource, userTerms, ignoredRules, o
               <fieldset>
                 <legend>Severity</legend>
                 <div>
-                  <button type="button" aria-pressed={severityFilter === "all"} onClick={() => { setSeverityFilter("all"); resetPage(); }}>All <b>{active.length}</b></button>
+                  <button type="button" data-empty={active.length === 0} aria-pressed={severityFilter === "all"} onClick={() => { setSeverityFilter("all"); resetPage(); }}>All <b>{active.length}</b></button>
                   {(["critical", "warning", "suggestion"] as const).map((severity) => (
-                    <button type="button" key={severity} aria-pressed={severityFilter === severity} onClick={() => { setSeverityFilter(severity); resetPage(); }}>
+                    <button type="button" key={severity} data-empty={counts[severity] === 0} aria-pressed={severityFilter === severity} onClick={() => { setSeverityFilter(severity); resetPage(); }}>
                       {severityLabels[severity]} <b>{counts[severity]}</b>
                     </button>
                   ))}
@@ -1081,9 +1064,9 @@ function CheckResults({ entries, fileNames, onSource, userTerms, ignoredRules, o
               <fieldset>
                 <legend>Category</legend>
                 <div>
-                  <button type="button" aria-pressed={groupFilter === "all"} onClick={() => { setGroupFilter("all"); resetPage(); }}>All <b>{active.length}</b></button>
+                  <button type="button" data-empty={active.length === 0} aria-pressed={groupFilter === "all"} onClick={() => { setGroupFilter("all"); resetPage(); }}>All <b>{active.length}</b></button>
                   {(Object.keys(checkGroupLabels) as CheckCategoryGroup[]).map((group) => (
-                    <button type="button" key={group} aria-pressed={groupFilter === group} onClick={() => { setGroupFilter(group); resetPage(); }}>
+                    <button type="button" key={group} data-empty={groupCounts[group] === 0} aria-pressed={groupFilter === group} onClick={() => { setGroupFilter(group); resetPage(); }}>
                       {checkGroupLabels[group]} <b>{groupCounts[group]}</b>
                     </button>
                   ))}
@@ -1276,10 +1259,10 @@ function JsonValue({ value, fileNames, onSource, depth = 0 }: { value: unknown; 
   return <span>{displayValue(value as string | number | boolean | null | undefined)}</span>;
 }
 
-function ComparisonView({ comparison, compareIds, fileNames, detail, selectedCount, onSource, onCloseSource }: { comparison: ComparisonResult | null; compareIds: { baseFileId: string; targetFileId: string } | null; fileNames: Map<string, string>; detail: DetailInfo | null; selectedCount: number; onSource: SourceHandler; onCloseSource: () => void }) {
-  if (!comparison) return selectedCount === 2
-    ? <section className="state-card result-placeholder"><h2>비교할 준비가 되었습니다</h2><p>Compare 실행을 눌러 두 파일의 차이를 확인하세요.</p></section>
-    : <section className="state-card result-placeholder"><h2>비교 준비됨</h2><p>기준 파일과 현재 파일을 순서대로 선택하면 차이를 구분해 표시합니다.</p></section>;
+function ComparisonView({ comparison, compareIds, fileNames, detail, onSource, onCloseSource }: { comparison: ComparisonResult | null; compareIds: { baseFileId: string; targetFileId: string } | null; fileNames: Map<string, string>; detail: DetailInfo | null; onSource: SourceHandler; onCloseSource: () => void }) {
+  if (!comparison) {
+    return <section className="state-card result-placeholder"><h2>파일 비교</h2><p>비교할 파일을 선택하면 변경 사항과 차이를 확인합니다.</p></section>;
+  }
   const roleOf = (source: SourceRef): SourceRole | undefined => {
     if (!compareIds) return undefined;
     if (source.fileId === compareIds.baseFileId) return "base";
