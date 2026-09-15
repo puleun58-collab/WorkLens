@@ -420,6 +420,7 @@ export default function Home() {
   const actionDisabled = busy || selected.length === 0 || (activeTab === "Compare" && selected.length !== 2) || (activeTab === "Ask" && !question.trim());
   const fileNames = new Map(files.map((file) => [file.id, file.name]));
   const companyTermNames = companyTerms.filter((entry) => entry.active).map((entry) => entry.term);
+  const isUtilityView = shellView === "Dictionary" || shellView === "Settings";
   const selectedNames = files.filter((file) => selected.includes(file.id)).map((file) => file.name).join(", ");
 
   return (
@@ -475,31 +476,42 @@ export default function Home() {
       </nav>
 
       <div className="shell-main">
-        <header className="context-bar">
-          <div className="context-files">
-            <h1 id="files-heading">작업 파일</h1>
-            <span className="context-counts">
-              <b>{files.length}</b> files
-              <i aria-hidden="true" />
-              <b>{selected.length}</b> selected
+        {isUtilityView ? (
+          <header className="context-bar utility-bar">
+            <h1>{shellView === "Dictionary" ? "용어 사전" : "설정"}</h1>
+            <span className="context-names">
+              {shellView === "Dictionary"
+                ? "맞춤법과 용어 오탐을 줄이기 위한 사전입니다."
+                : "이 브라우저에만 적용되는 항목입니다."}
             </span>
-            <span className="context-names" title={selectedNames || undefined}>
-              {selectedNames || "선택한 파일 없음"}
-            </span>
-          </div>
-          <div className="context-actions">
-            <span className="session-state">
-              <span className="state-dot" aria-hidden="true" />
-              In-browser session · 서버 저장 없음
-            </span>
-            {files.length > 0 ? (
-              <button type="button" className="secondary-action" onClick={() => inputRef.current?.click()} disabled={uploading}>
-                {uploading ? "분석 중…" : "Add files"}
-              </button>
-            ) : null}
-            <button type="button" className="delete-all" onClick={deleteAll} disabled={busy}>모두 삭제</button>
-          </div>
-        </header>
+          </header>
+        ) : (
+          <header className="context-bar">
+            <div className="context-files">
+              <h1 id="files-heading">작업 파일</h1>
+              <span className="context-counts">
+                <b>{files.length}</b>개
+                <i aria-hidden="true" />
+                선택 <b>{selected.length}</b>개
+              </span>
+              <span className="context-names" title={selectedNames || undefined}>
+                {selectedNames || "선택 없음"}
+              </span>
+            </div>
+            <div className="context-actions">
+              <span className="session-state">
+                <span className="state-dot" aria-hidden="true" />
+                In-browser session · 서버 저장 없음
+              </span>
+              {files.length > 0 ? (
+                <button type="button" className="secondary-action" onClick={() => inputRef.current?.click()} disabled={uploading}>
+                  {uploading ? "분석 중…" : "Add files"}
+                </button>
+              ) : null}
+              <button type="button" className="delete-all" onClick={deleteAll} disabled={busy}>모두 삭제</button>
+            </div>
+          </header>
+        )}
 
         <section className="workspace" id="workspace-content" aria-busy={busy || uploading}>
           <input
@@ -511,7 +523,7 @@ export default function Home() {
             aria-label="작업 파일 선택"
             onChange={(event: ChangeEvent<HTMLInputElement>) => { enqueueUploads(event.target.files); event.target.value = ""; }}
           />
-          {files.length === 0 ? (
+          {files.length === 0 && !isUtilityView ? (
             <div
               className={`dropzone${uploading ? " busy" : ""}`}
               onDragOver={(event) => event.preventDefault()}
@@ -539,7 +551,7 @@ export default function Home() {
             </div>
           ) : null}
 
-          {shellView === "Dictionary" || shellView === "Settings" ? (
+          {isUtilityView ? (
             <SettingsView
               view={shellView}
               companyTerms={companyTerms}
@@ -650,10 +662,12 @@ function SettingsView({ view, companyTerms, companyTermsSource, userTerms, ignor
 }) {
   const [draft, setDraft] = useState("");
   const [search, setSearch] = useState("");
+  const [expandCompany, setExpandCompany] = useState(false);
+  const matchedCompanyTerms = companyTerms.filter((entry) =>
+    !search.trim() || entry.term.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()));
   if (view === "Settings") {
     return (
       <section className="settings-surface" aria-label="Settings">
-        <div className="section-header"><h2>설정</h2><p>이 브라우저에만 적용되는 항목입니다.</p></div>
         <dl className="settings-list">
           <div><dt>저장 위치</dt><dd>파일과 분석 결과는 이 탭의 메모리에만 있습니다. 새로고침하면 사라집니다.</dd></div>
           <div><dt>localStorage</dt><dd>개인 사전 단어와 무시한 규칙 ID만 저장합니다. 문서 본문과 근거는 저장하지 않습니다.</dd></div>
@@ -673,23 +687,26 @@ function SettingsView({ view, companyTerms, companyTermsSource, userTerms, ignor
   }
   return (
     <section className="settings-surface" aria-label="Dictionary">
-      <div className="section-header"><h2>용어 사전</h2><p>사전은 맞춤법과 용어 오탐만 억제합니다.</p></div>
       <div className="dictionary-section">
         <h4>Company Terms <span>{companyTerms.length}</span></h4>
         <p className="dictionary-note">
-          회사 공통 용어입니다. 읽기 전용이며 관리자만 수정할 수 있습니다.
+          회사 공통 용어입니다. 관리자만 수정할 수 있습니다.
           {companyTermsSource === "seed" ? " 공용 사전 저장소에 연결하지 못해 기본 목록을 표시합니다." : null}
         </p>
         <form onSubmit={(event) => event.preventDefault()}>
           <input value={search} placeholder="용어 검색" aria-label="공용 용어 검색" onChange={(event) => setSearch(event.target.value)} />
         </form>
-        <div className="dictionary-term-list">
-          {companyTerms
-            .filter((entry) => !search.trim() || entry.term.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()))
-            .map((entry) => (
-              <span className="dictionary-term" key={entry.id} title={entry.description ?? undefined}>{entry.term}</span>
-            ))}
+        <div className={expandCompany || search.trim() ? "dictionary-term-list" : "dictionary-term-list collapsed"}>
+          {matchedCompanyTerms.map((entry) => (
+            <span className="dictionary-term quiet" key={entry.id} title={entry.description ?? undefined}>{entry.term}</span>
+          ))}
+          {matchedCompanyTerms.length === 0 ? <span className="dictionary-empty">일치하는 공용 용어가 없습니다.</span> : null}
         </div>
+        {!search.trim() && companyTerms.length > 0 ? (
+          <button type="button" className="dictionary-more" onClick={() => setExpandCompany((open) => !open)}>
+            {expandCompany ? "접기" : `전체 보기 (${companyTerms.length}개)`}
+          </button>
+        ) : null}
       </div>
       <div className="dictionary-section">
         <h4>My Terms <span>{userTerms.length}</span></h4>
@@ -703,7 +720,7 @@ function SettingsView({ view, companyTerms, companyTermsSource, userTerms, ignor
               <button type="button" aria-label={`${term} 삭제`} onClick={() => onRemoveTerm(term)}>×</button>
             </span>
           ))}</div>
-          : <p className="dictionary-empty">등록한 개인 용어가 없습니다.</p>}
+          : <p className="dictionary-empty">등록된 개인 용어가 없습니다.</p>}
         <div className="dictionary-actions">
           <button type="button" onClick={onClearTerms} disabled={!userTerms.length}>전체 초기화</button>
         </div>

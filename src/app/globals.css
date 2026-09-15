@@ -3560,6 +3560,8 @@ body {
   font-size: 18px;
   font-weight: 700;
   letter-spacing: -0.015em;
+  line-height: 1;
+  transform: translateY(1px);
 }
 
 .worklens-wordmark em {
@@ -4782,4 +4784,42 @@ body {
   height: 1px;
   opacity: 0;
   pointer-events: none;
+}
+
+/* Dictionary as a navigation destination: quiet reference data, not badges. */
+.context-bar.utility-bar {
+  gap: 12px;
+}
+
+.context-bar.utility-bar h1 {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: var(--tracking-display);
+}
+
+.dictionary-term-list.collapsed {
+  max-height: 76px;
+  overflow: hidden;
+}
+
+.dictionary-term.quiet {
+  border-color: var(--border-subtle);
+  background: var(--layer);
+  color: var(--ink-soft);
+  font-weight: var(--font-weight-regular);
+}
+
+.dictionary-more {
+  margin-top: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--blue-hover);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+}
+
+.dictionary-more:hover {
+  text-decoration: underline;
 }

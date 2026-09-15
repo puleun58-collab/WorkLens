@@ -274,6 +274,26 @@ test("moves upload out of the workspace once files exist", async ({ page }) => {
   await expect(page.getByText("아직 파일이 없습니다.", { exact: false })).toBeVisible();
 });
 
+test("keeps file context and upload controls out of utility destinations", async ({ page }) => {
+  await page.goto("/");
+  await upload(page, files.v1);
+  await page.getByRole("button", { name: "Dictionary" }).click();
+
+  await expect(page.getByRole("heading", { name: "용어 사전", exact: true })).toBeVisible();
+  await expect(page.locator(".context-files")).toHaveCount(0);
+  await expect(page.locator(".dropzone")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Add files" })).toHaveCount(0);
+  await expect(page.getByText("회사 공통 용어입니다. 관리자만 수정할 수 있습니다.", { exact: false })).toBeVisible();
+  await expect(page.getByLabel("공용 용어 검색")).toBeVisible();
+  await expect(page.getByText("등록된 개인 용어가 없습니다.")).toBeVisible();
+
+  await page.getByRole("button", { name: "Settings" }).click();
+  await expect(page.getByRole("heading", { name: "설정", exact: true })).toBeVisible();
+  await expect(page.locator(".context-files")).toHaveCount(0);
+  await expect(page.locator(".dropzone")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Add files" })).toHaveCount(0);
+});
+
 test("rejects a disguised file with an actionable message", async ({ page }) => {
   await page.goto("/");
   await sendFile(page, files.fake);
