@@ -145,7 +145,15 @@ test("uploads and normalizes all five formats", async ({ page }) => {
   await expect(fileRow(page, files.v1)).toContainText("시트: 1");
 });
 
-test("runs deterministic Analyze, Check, Extract/export and degrades Local AI only", async ({ page }) => {
+/** Headless browsers have no usable WebGPU adapter here, so the AI layer must degrade quietly. */
+async function withoutWebGpu(page: Page) {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "gpu", { configurable: true, get: () => undefined });
+  });
+}
+
+test("runs deterministic Analyze, Check, Extract/export and degrades browser AI only", async ({ page }) => {
+  await withoutWebGpu(page);
   await page.goto("/");
   await upload(page, files.v1);
   await page.getByLabel("운임현황_v1.xlsx 선택").check();
@@ -171,12 +179,13 @@ test("runs deterministic Analyze, Check, Extract/export and degrades Local AI on
 
   await page.getByRole("button", { name: "Ask", exact: true }).click();
   await page.getByPlaceholder("선택한 문서에서 확인할 내용을 입력하세요").fill("서울 운임은 얼마인가요?");
-  await page.getByRole("button", { name: "Ask 실행" }).click();
-  await expect(page.locator(".notice.error")).toContainText("Local AI를 사용할 수 없습니다");
+  await expect(page.locator(".ai-status")).toContainText("브라우저 AI를 사용할 수 없습니다");
+  await expect(page.getByRole("button", { name: "Ask 실행" })).toBeDisabled();
+  await expect(page.locator(".notice.error")).toHaveCount(0);
 
   await page.getByRole("button", { name: "Brief", exact: true }).click();
-  await page.getByRole("button", { name: "Brief 실행" }).click();
-  await expect(page.locator(".notice.error")).toContainText("Local AI를 사용할 수 없습니다");
+  await expect(page.locator(".ai-status")).toContainText("WebGPU");
+  await expect(page.getByRole("button", { name: "Brief 실행" })).toBeDisabled();
 
   await page.getByRole("button", { name: "Analyze", exact: true }).click();
   await page.getByRole("button", { name: "Analyze 실행" }).click();
@@ -207,8 +216,7 @@ test("reviews PPTX writing, consistency and data findings with filters and exact
   await expect(page.locator(".check-issue").first()).toBeVisible();
   await expect(page.locator(".check-issue.severity-suggestion")).toHaveCount(0);
 
-  await page.getByRole("button", { name: "Local AI 문장 검수" }).click();
-  await expect(page.locator(".notice.error")).toContainText("문장/맞춤법 기반 고급 검수는 현재 사용할 수 없습니다");
+  await expect(page.getByRole("button", { name: "브라우저 AI 문장 검수" })).toBeVisible();
 });
 test("keeps the personal dictionary, ignore actions and confidence filter inside this browser", async ({ page, browser }) => {
   await page.goto("/");
@@ -330,13 +338,20 @@ test("keeps uploaded files inside the tab and never on the server", async ({ pag
   await otherContext.close();
 });
 
-test("rejects cross-site calls to the optional Local AI endpoint", async ({ page }) => {
-  const crossSite = await page.request.post("/api/ai", {
-    headers: { origin: "https://attacker.example", "sec-fetch-site": "cross-site" },
-    data: { task: "analyze", documents: [] },
-  });
-  expect(crossSite.status()).toBe(403);
-  expect(crossSite.headers()["cache-control"]).toContain("no-store");
+test("never fetches model weights or any third-party host during deterministic work", async ({ page }) => {
+  const hosts: string[] = [];
+  page.on("request", (request) => hosts.push(new URL(request.url()).host));
+  await page.goto("/");
+  await upload(page, files.v1);
+  await page.getByLabel("운임현황_v1.xlsx 선택").check();
+  await page.getByRole("button", { name: "Check", exact: true }).click();
+  await page.getByRole("button", { name: "Check 실행" }).click();
+  await expect(page.getByText("콘텐츠 및 개인정보 점검을 완료했습니다.")).toBeVisible();
+
+  // The model is downloaded lazily on the first AI request only, so a session
+  // that never asks the model must stay on its own origin.
+  const origin = new URL(page.url()).host;
+  expect([...new Set(hosts)]).toEqual([origin]);
 });
 
 test("meets serious accessibility checks and exposes keyboard focus", async ({ page }) => {

@@ -6,7 +6,7 @@ WorkLens는 XLSX, CSV, PDF, DOCX, PPTX 파일을 **브라우저 안에서** 분�
 - 새로고침하거나 탭을 닫으면 모든 작업 데이터가 즉시 사라집니다.
 - 로그인, 서버 세션, 쿠키, IndexedDB를 사용하지 않습니다. localStorage에는 사용자가 직접 등록한 개인 사전 단어와 무시한 규칙 ID만 저장하며, 문서 본문·파싱 결과·Finding·근거는 저장하지 않습니다.
 - Analyze, Compare, Check, Extract, 내보내기는 Web Worker에서 AI 없이 동작합니다.
-- Local AI는 선택 계층입니다. 외부 유료 AI API는 호출하지 않으며, 사용할 수 없으면 deterministic 기능만 계속 동작합니다.
+- Ask / Brief / AI 문장 검수는 선택 계층이며 **브라우저 안의 AI 워커**에서 실행됩니다. 외부 유료 AI API도, 별도 AI 서버도 호출하지 않습니다.
 - 모든 결과는 파일, 문서 버전, 노드, 원문 위치를 `SourceRef`로 보존합니다.
 
 **프로덕션:** https://worklens.puleun58.workers.dev
@@ -19,12 +19,16 @@ WorkLens는 XLSX, CSV, PDF, DOCX, PPTX 파일을 **브라우저 안에서** 분�
 | 파싱(XLSX·CSV·PDF·DOCX·PPTX) | 브라우저 Web Worker | `src/lib/parsers/*` |
 | Analyze / Check / Extract / Compare | 브라우저 Web Worker | `src/lib/deterministic.ts`, `src/lib/check/`, `src/domain/compare.ts` |
 | CSV·XLSX 내보내기 | 브라우저 Web Worker | `src/lib/export.ts` |
-| Ask / Brief / Local AI 보조 | `POST /api/ai` (stateless) | 브라우저가 문서를 함께 보냄, 저장 없음 |
+| Ask / Brief / AI 문장 검수 | 브라우저 AI Web Worker (WebLLM + WebGPU) | `src/client/browser-ai-worker.ts`, 모델 `Qwen2.5-1.5B-Instruct-q4f16_1-MLC` |
 | 정적 호스팅 | Cloudflare Workers + Assets | KV·R2에 사용자 데이터 저장 없음 |
 
 - 문서 처리기는 `src/client/document-worker.ts` 하나이며, 메인 스레드는 `src/client/document-client.ts`로만 통신합니다.
 - 파싱된 문서는 워커 메모리의 `Map`에만 있고, "모두 삭제"는 워커를 종료(`terminate`)해 즉시 폐기합니다.
-- `/api/ai`는 세션·쿠키·CSRF를 사용하지 않고, same-origin 검사와 8 MiB 본문 상한만 적용합니다. 모든 주장(claim)은 서버에서 문서 근거와 대조해 검증되며, 검증되지 않으면 결과 전체를 거부합니다.
+- AI 워커는 문서 처리기와 분리되어 있습니다. 모델 로딩 중에도 Analyze·Compare·Check·Extract는 그대로 동작하고, "모두 삭제"는 두 워커를 함께 종료합니다.
+- 문서 본문과 질문은 브라우저를 벗어나지 않습니다. 근거 색인은 AI 워커가 직접 만들고, 모델에는 위치 정보 대신 짧은 핸들(`E1`, `E2` …)만 전달합니다(`src/lib/ai/prompt.ts`).
+- 모델이 만든 모든 주장은 브라우저에서 근거 토큰과 대조해 검증하며(`src/lib/ai/grounding.ts`), 하나라도 검증되지 않으면 결과 전체를 거부합니다.
+- 브라우저 캐시에는 모델 weight·런타임 asset만 남고, 업무 문서·파싱 결과·질문·Finding·근거는 어디에도 저장하지 않습니다.
+- WebGPU를 지원하지 않는 브라우저·장치에서는 AI 기능만 조용히 비활성화되고 deterministic 기능은 정상 동작합니다.
 
 ## 2. 설치
 
@@ -72,22 +76,19 @@ Check는 제출 전 최종 검수 도구입니다. 네 영역을 한 번에 점�
 - **공용 사전**: `src/config/company-terms.json`. Git으로 관리되는 읽기 전용 정적 파일이며 DB를 사용하지 않습니다. 사내 약어·제품명을 spelling/terminology 오탐에서 제외합니다.
 - **개인 사전**: 브라우저 `localStorage`(`worklens:user-dictionary:v1`)에만 저장되고 서버로 전송되지 않으며 다른 브라우저와 동기화되지 않습니다. Finding 상세의 "내 용어에 추가"로 등록하면 같은 단어 기반 Finding이 즉시 사라집니다.
 - 사전은 spelling/terminology 오탐 억제에만 사용합니다. 사전에 있는 단어라도 중복 단어, 개인정보, 수치 오류는 계속 검출합니다.
-- 규칙 계층: deterministic 규칙(`src/lib/check/{writing,terminology,data,privacy,structure}`) → 기본 언어 사전 → 공용 사전 → 개인 사전 → Local Semantic Layer.
+- 규칙 계층: deterministic 규칙(`src/lib/check/{writing,terminology,data,privacy,structure}`) → 기본 언어 사전 → 공용 사전 → 개인 사전 → Browser Semantic Layer.
 
-Local AI를 사용할 수 없으면 "문장/맞춤법 기반 고급 검수는 현재 사용할 수 없습니다"를 표시하고 deterministic 검수는 정상 수행합니다. 사용할 수 있으면 "Local AI 문장 검수" 결과가 Check 목록에 Low confidence 제안으로 합쳐집니다.
+브라우저 AI를 사용할 수 없으면 상태 박스에 사유만 표시하고 deterministic 검수는 정상 수행합니다. 사용할 수 있으면 "브라우저 AI 문장 검수" 결과가 Check 목록에 Suggestion으로 합쳐지며, 모델이 보고한 확신도(High/Medium/Low)를 그대로 사용합니다.
 
 ## 6. 환경 변수
 
 | 변수 | 기본값 | 설명 |
 | --- | --- | --- |
-| `WORKLENS_ORIGIN` | 요청 origin | `/api/ai`의 same-origin 검사 기준 |
+| `WORKLENS_ORIGIN` | 요청 origin | 관리자 API의 origin 검사 기준 |
 | `WORKLENS_MAX_FILE_BYTES` | `52428800` | 파일당 상한. 형식별 상한(CSV 10 MiB, DOCX·PPTX 20 MiB, XLSX·PDF 50 MiB)과 함께 적용 |
-| `WORKLENS_AI_URL` | 미설정 | Local AI 엔드포인트. loopback 또는 사설 대역만 허용 |
-| `WORKLENS_AI_HOSTS` | 미설정 | 추가 허용 호스트 |
-| `WORKLENS_AI_SERVICE_IDENTITY` | 미설정 | Local AI 상호 인증 식별자 |
-| `WORKLENS_AI_MTLS_CERT_PEM` / `WORKLENS_AI_MTLS_KEY_PEM` | 미설정 | Local AI mTLS 자격 증명 |
+| `WORKLENS_ADMIN_PASSWORD` | 미설정 | 공용 용어 사전 관리자 로그인 |
 
-Local AI 변수가 없으면 Ask/Brief/AI 보조는 503으로 degrade하고 나머지 기능은 그대로 동작합니다.
+AI 전용 환경 변수는 없습니다. Ask/Brief/문장 검수는 브라우저에서 실행되므로 엔드포인트·mTLS 설정이 필요하지 않습니다.
 
 ## 7. Cloudflare 배포
 
@@ -95,7 +96,7 @@ Local AI 변수가 없으면 Ask/Brief/AI 보조는 503으로 degrade하고 나�
 bun run deploy      # vinext 빌드 후 wrangler deploy
 ```
 
-`wrangler.jsonc`는 정적 asset과 `/api/ai` 라우팅만 설정합니다. 사용자 파일·세션·작업 상태를 저장하는 바인딩은 사용하지 않습니다.
+`wrangler.jsonc`는 정적 asset과 공용 용어 사전용 D1 바인딩만 설정합니다. 사용자 파일·세션·작업 상태를 저장하는 바인딩은 사용하지 않습니다.
 
 ## 8. 브라우저 요구 사항
 

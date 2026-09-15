@@ -3554,7 +3554,9 @@ body {
   font-weight: 700;
   letter-spacing: -0.015em;
   line-height: 1;
-  transform: translateY(1px);
+  /* Optical nudge without a transform: a transform would create a stacking
+   * context and break automated contrast checks against the navy rail. */
+  margin-top: 2px;
 }
 
 .worklens-wordmark em {
@@ -5053,4 +5055,76 @@ body {
   .operation-bar:not(:has(.question-field)) {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+/* ── Browser AI status: a quiet capability box, never an error surface ───── */
+.ai-status {
+  margin-top: var(--space-3);
+  padding: var(--space-3) var(--panel-inset);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-panel);
+  background: var(--paper);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+}
+
+.ai-status strong {
+  color: var(--ink);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+}
+
+.ai-status p {
+  flex: 1 1 320px;
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-size-sm);
+}
+
+.ai-status.loading {
+  border-color: #b6d0e6;
+  background: var(--blue-pale);
+}
+
+.ai-status.ready strong {
+  color: var(--success);
+}
+
+.ai-status.failed strong {
+  color: var(--warning);
+}
+
+.ai-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--ink-soft);
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.ai-progress progress {
+  width: 160px;
+  height: 6px;
+  accent-color: var(--blue);
+}
+
+.ai-status .secondary-action {
+  min-height: var(--control-height-md);
+  padding: 0 13px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--paper);
+  color: var(--ink-soft);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+}
+
+.ai-detail {
+  flex-basis: 100%;
+  color: var(--muted-light);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
 }

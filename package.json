@@ -21,6 +21,7 @@
     "test:smoke": "playwright test --config playwright.smoke.config.ts"
   },
   "dependencies": {
+    "@mlc-ai/web-llm": "0.2.85",
     "exceljs": "^4.4.0",
     "lucide-react": "^1.46.0",
     "next": "16.3.4",
@@ -29,7 +30,6 @@
     "react-dom": "19.2.8",
     "react-server-dom-webpack": "^19.3.0",
     "saxes": "6.0.0",
-    "undici": "^8.10.2",
     "zod": "^4.5.4"
   },
   "devDependencies": {

@@ -39,10 +39,14 @@ export interface DirectFact {
   evidence: [EvidenceBinding, ...EvidenceBinding[]];
 }
 
+export type AiConfidence = "high" | "medium" | "low";
+
 export interface InferenceClaim {
   id: string;
   kind: "inference";
   text: string;
+  /** Model-reported certainty. Absent means the caller must treat it as low. */
+  confidence?: AiConfidence;
   evidence: [EvidenceBinding, ...EvidenceBinding[]];
 }
 
@@ -63,6 +67,6 @@ export interface BriefResult extends GroundedResult { operation: "brief"; brief:
 export interface SemanticCheckResult extends GroundedResult { operation: "semantic-check"; findings: GroundedClaim[]; rejectedClaimCount: number; }
 export type AiAvailableResult = AnalyzeResult | AskResult | BriefResult | SemanticCheckResult;
 
-export type AiUnavailableReason = "not-configured" | "unhealthy" | "timed-out" | "cancelled";
+export type AiUnavailableReason = "no-webgpu" | "load-failed" | "cancelled" | "no-evidence";
 export interface AiUnavailableResult { operation: AiOperation; status: "unavailable"; reason: AiUnavailableReason; }
 export type AiResult = AiAvailableResult | AiUnavailableResult;

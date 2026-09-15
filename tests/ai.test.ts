@@ -1,9 +1,14 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { NormalizedDocument } from "@/domain/document";
-import { buildEvidenceNodes, groundProviderCompletion } from "@/server/ai/grounding";
-import { createLocalAiProvider } from "@/server/ai/local-provider";
-import { AI_SCHEMA_ID, type AiProviderCompletion, type AiProviderRequest } from "@/server/ai/provider";
-import { boundedEvidence } from "@/app/api/ai/route";
+import { AI_SCHEMA_ID, type AiProviderCompletion } from "@/lib/ai/contract";
+import { buildEvidenceNodes, groundAiResult, groundProviderCompletion } from "@/lib/ai/grounding";
+import {
+  MAX_EVIDENCE_CHARS,
+  MAX_EVIDENCE_ITEMS,
+  buildMessages,
+  evidenceWindow,
+  parseModelCompletion,
+} from "@/lib/ai/prompt";
 
 const document: NormalizedDocument = {
   id: "document:file-1",
@@ -25,17 +30,21 @@ const document: NormalizedDocument = {
   }],
 };
 
-function providerRequest(): AiProviderRequest {
-  const evidence = buildEvidenceNodes([document]);
+function paragraphDocument(count: number, text: string): NormalizedDocument {
   return {
-    requestId: "request-1",
-    sessionKey: "session-1",
-    task: "analyze",
-    schemaId: AI_SCHEMA_ID,
-    locale: "ko-KR",
-    sourceTokens: evidence.map((node) => node.propositionToken),
-    context: evidence.map(({ propositionToken, text, proposition }) => ({ propositionToken, text, proposition })),
-    maxOutputTokens: 8_000,
+    ...document,
+    blocks: Array.from({ length: count }, (_, index) => ({
+      type: "paragraph" as const,
+      id: `pdf:p1:paragraph:${index + 1}`,
+      text,
+      source: {
+        fileId: "file-1",
+        nodeId: `pdf:p1:paragraph:${index + 1}`,
+        label: `페이지 1 문단 ${index + 1}`,
+        page: 1,
+        quote: text,
+      },
+    })),
   };
 }
 
@@ -54,103 +63,75 @@ function directCompletion(token = buildEvidenceNodes([document])[0].propositionT
   };
 }
 
-function configureProvider(): void {
-  vi.stubEnv("WORKLENS_AI_SERVICE_IDENTITY", "test-identity");
-  vi.stubEnv("WORKLENS_AI_MTLS_CERT_PEM", "test-cert");
-  vi.stubEnv("WORKLENS_AI_MTLS_KEY_PEM", "test-key");
-}
-
-afterEach(() => {
-  vi.unstubAllEnvs();
-  vi.restoreAllMocks();
-});
-
-describe("local-only AI boundary", () => {
-  it("budgets complete serialized evidence nodes including proposition values", () => {
-    const node = buildEvidenceNodes([document])[0];
-    const oversized = {
-      ...node,
-      text: "small",
-      proposition: { ...node.proposition, object: "x".repeat(1_600 * 1024) },
-    };
-    expect(boundedEvidence([oversized])).toEqual([]);
-    expect(boundedEvidence([node])).toHaveLength(1);
+describe("browser AI prompt boundary", () => {
+  it("hands the model short handles and never a locator, file id or token", () => {
+    const window = evidenceWindow(buildEvidenceNodes([document]));
+    const prompt = buildMessages({ operation: "ask", question: "매출이 줄었나요?" }, window)
+      .map((message) => message.content)
+      .join("\n");
+    expect(prompt).toContain("E1:");
+    expect(prompt).toContain("매출이 줄었나요?");
+    expect(prompt).not.toContain("file-1");
+    expect(prompt).not.toContain("pdf:p1:paragraph:1");
+    expect(prompt).not.toContain(window.items[0].node.propositionToken);
   });
 
-  it("never calls an unconfigured external or paid fallback", async () => {
-    const fetcher = vi.fn<typeof fetch>();
-    const provider = createLocalAiProvider({ fetch: fetcher });
-    await expect(provider.health()).resolves.toEqual({ available: false, reason: "not-configured" });
-    await expect(provider.complete(providerRequest())).resolves.toEqual({ status: "unavailable", reason: "not-configured" });
-    expect(fetcher).not.toHaveBeenCalled();
+  it("bounds the evidence window by item count and characters", () => {
+    const many = evidenceWindow(buildEvidenceNodes([paragraphDocument(80, "매출 추이 설명 문단")]));
+    expect(many.items).toHaveLength(MAX_EVIDENCE_ITEMS);
+
+    const long = evidenceWindow(buildEvidenceNodes([paragraphDocument(40, "가".repeat(300))]));
+    const characters = long.items.reduce((sum, item) => sum + Math.min(item.node.text.length, 320), 0);
+    expect(characters).toBeLessThanOrEqual(MAX_EVIDENCE_CHARS);
+    expect(long.items.length).toBeLessThan(40);
   });
 
-  it("rejects public provider URLs before any network request", async () => {
-    configureProvider();
-    const fetcher = vi.fn<typeof fetch>();
-    const provider = createLocalAiProvider({ url: "https://api.openai.com", fetch: fetcher });
-    await expect(provider.health()).resolves.toEqual({ available: false, reason: "not-configured" });
-    expect(fetcher).not.toHaveBeenCalled();
+  it("drops model claims that cite a handle outside the evidence window", () => {
+    const window = evidenceWindow(buildEvidenceNodes([document]));
+    const completion = parseModelCompletion(
+      JSON.stringify({ claims: [
+        { text: "매출이 줄었습니다.", sources: ["E99"] },
+        { text: "근거 없는 주장", sources: [] },
+        { text: "분기 매출이 120에서 100으로 줄었습니다.", sources: ["E1"], confidence: "high" },
+      ] }),
+      window,
+    );
+    expect(completion.claims).toEqual([{
+      type: "inference",
+      text: "분기 매출이 120에서 100으로 줄었습니다.",
+      sourceTokens: [window.items[0].node.propositionToken],
+      confidence: "high",
+    }]);
   });
 
-  it("sends the exact provider wire to a configured loopback provider", async () => {
-    configureProvider();
-    const completion = directCompletion();
-    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify(completion), { status: 200 }));
-    const provider = createLocalAiProvider({ url: "https://127.0.0.1", fetch: fetcher });
-    await expect(provider.health()).resolves.toMatchObject({ available: true });
-    await expect(provider.complete(providerRequest())).resolves.toEqual({ status: "ok", completion });
-    expect(fetcher).toHaveBeenCalledTimes(1);
-    const [, init] = fetcher.mock.calls[0];
-    expect(init).toMatchObject({ redirect: "error", credentials: "omit" });
-    expect(JSON.parse(String(init?.body))).toEqual({
-      requestId: "request-1",
-      task: "analyze",
-      schemaId: AI_SCHEMA_ID,
-      locale: "ko-KR",
-      sourceTokens: providerRequest().sourceTokens,
-      context: providerRequest().context,
-      maxOutputTokens: 8_000,
+  it("treats an unreported or malformed confidence as low", () => {
+    const window = evidenceWindow(buildEvidenceNodes([document]));
+    const completion = parseModelCompletion(
+      '```json\n{"claims":[{"text":"매출 감소","sources":["e1"],"confidence":"certain"}]}\n```',
+      window,
+    );
+    expect(completion.claims[0]).toMatchObject({ confidence: "low" });
+  });
+
+  it("yields no claims when the model answers with prose instead of JSON", () => {
+    const window = evidenceWindow(buildEvidenceNodes([document]));
+    expect(parseModelCompletion("죄송하지만 답변할 수 없습니다.", window).claims).toEqual([]);
+  });
+
+  it("grounds a parsed completion back onto the original source location", () => {
+    const window = evidenceWindow(buildEvidenceNodes([document]));
+    const completion = parseModelCompletion(
+      JSON.stringify({ claims: [{ text: "분기 매출이 감소했습니다.", sources: ["E1"], confidence: "medium" }] }),
+      window,
+    );
+    const result = groundAiResult({ operation: "ask", question: "매출이 줄었나요?" }, [document], completion);
+    expect(result.rejectedClaimCount).toBe(0);
+    expect(result.claims[0]).toMatchObject({
+      kind: "inference",
+      confidence: "medium",
+      evidence: [{ source: { fileId: "file-1", nodeId: "pdf:p1:paragraph:1", page: 1 }, support: "context" }],
     });
-  });
-
-  it("refuses redirected provider responses", async () => {
-    configureProvider();
-    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response("redirect", { status: 302 }));
-    const provider = createLocalAiProvider({ url: "https://127.0.0.1", fetch: fetcher });
-    await expect(provider.complete(providerRequest())).resolves.toEqual({ status: "unavailable", reason: "unhealthy" });
-    expect(fetcher.mock.calls[0][1]).toMatchObject({ redirect: "error", credentials: "omit" });
-  });
-
-  it("degrades instead of accepting an oversized local-model response", async () => {
-    configureProvider();
-    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response("{}", { status: 200, headers: { "content-length": String(2 * 1024 * 1024 + 1) } }));
-    const provider = createLocalAiProvider({ url: "https://127.0.0.1", fetch: fetcher });
-    await expect(provider.complete(providerRequest())).resolves.toEqual({ status: "unavailable", reason: "unhealthy" });
-  });
-
-  it("degrades on malformed or partial local-model output", async () => {
-    for (const content of [
-      "not-json",
-      "{}",
-      JSON.stringify({ schemaId: AI_SCHEMA_ID, claims: [{ type: "direct", propositionToken: "x" }] }),
-      JSON.stringify({ schemaId: AI_SCHEMA_ID, claims: [{ type: "inference", text: "x", sourceTokens: [], extra: true }] }),
-      JSON.stringify({ schemaId: AI_SCHEMA_ID, claims: [{ type: "direct", propositionToken: "x", subject: 1, predicate: "equals", object: "x", polarity: "affirmed" }] }),
-    ]) {
-      configureProvider();
-      const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(content, { status: 200 }));
-      const provider = createLocalAiProvider({ url: "https://127.0.0.1", fetch: fetcher });
-      await expect(provider.complete(providerRequest())).resolves.toEqual({ status: "unavailable", reason: "unhealthy" });
-    }
-  });
-
-  it("rejects an approved hostname that resolves to a public address", async () => {
-    configureProvider();
-    vi.stubEnv("WORKLENS_AI_HOSTS", "example.com");
-    const fetcher = vi.fn<typeof fetch>();
-    const provider = createLocalAiProvider({ url: "https://example.com", fetch: fetcher });
-    await expect(provider.health()).resolves.toEqual({ available: false, reason: "unhealthy" });
-    expect(fetcher).not.toHaveBeenCalled();
+    expect(result.operation === "ask" && result.answer).toContain("분기 매출이 감소했습니다.");
   });
 });
 

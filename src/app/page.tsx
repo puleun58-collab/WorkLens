@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, DragEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, DragEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { AiAvailableResult, EvidenceBinding, GroundedClaim } from "@/domain/ai";
 import type { ComparisonItem, ComparisonResult } from "@/domain/compare";
 import type { DocumentMetadata, SourceRef } from "@/domain/document";
@@ -17,6 +17,23 @@ import {
 } from "@/domain/operations";
 import { WorkLensLogo } from "./worklens-logo";
 import { disposeWorkspace, runInWorker } from "@/client/document-client";
+import {
+  browserAiState,
+  browserAiSupported,
+  cancelBrowserAi,
+  disposeBrowserAi,
+  runBrowserAi,
+  subscribeBrowserAi,
+  type BrowserAiFailure,
+} from "@/client/browser-ai-client";
+import {
+  BROWSER_AI_MAX_FILES,
+  BROWSER_AI_MESSAGES,
+  BROWSER_AI_MODEL_LABEL,
+  BROWSER_AI_MODEL_MB,
+  type BrowserAiState,
+  type BrowserAiTask,
+} from "@/client/browser-ai-protocol";
 import type { CheckEntry as WorkerCheckEntry, WorkspaceFile } from "@/client/protocol";
 import {
   addUserTerm,
@@ -96,13 +113,16 @@ const checkGroupLabels: Record<CheckCategoryGroup, string> = {
   privacy: "Privacy",
 };
 
+/** Server render has no WebGPU and no model: AI actions stay enabled until the
+ * client snapshot proves otherwise, and the status box starts silent. */
+const serverAiState: () => BrowserAiState = () => ({ phase: "idle" });
+const serverAiCapable = () => true;
+const subscribeNever = () => () => {};
+
 function formatBytes(size: number) {
   if (size < 1024) return `${size} B`;
   if (size < 1024 ** 2) return `${(size / 1024).toFixed(1)} KB`;
   return `${(size / 1024 ** 2).toFixed(1)} MB`;
-}
-function apiError(payload: unknown, fallback: string): ApiError {
-  return (payload as { error?: ApiError })?.error ?? { code: "REQUEST_FAILED", message: fallback, retryable: true };
 }
 function displayValue(value: string | number | boolean | null | undefined) {
   if (value === null || value === undefined || value === "") return "없음";
@@ -123,13 +143,6 @@ function isSourceRef(value: unknown): value is SourceRef {
 }
 type SourceRole = "base" | "current";
 type DetailInfo = { source: SourceRef; role?: SourceRole };
-
-function aiResultFrom(payload: unknown): unknown {
-  if (!payload || typeof payload !== "object" || !("data" in payload)) return null;
-  const data = payload.data;
-  if (!data || typeof data !== "object" || !("result" in data)) return null;
-  return data.result;
-}
 
 function isCheckEntries(value: unknown): value is WorkerCheckEntry[] {
   return Array.isArray(value) && value.length > 0 && value.every((entry) =>
@@ -155,6 +168,10 @@ export default function Home() {
   const [question, setQuestion] = useState("");
   const [userTerms, setUserTerms] = useState<string[]>(readUserTerms);
   const [ignoredRules, setIgnoredRules] = useState<string[]>(readIgnoredRules);
+  // The AI layer is an external system: state and capability are read through
+  // the store instead of mirrored into React state inside an effect.
+  const aiState = useSyncExternalStore(subscribeBrowserAi, browserAiState, serverAiState);
+  const aiCapable = useSyncExternalStore(subscribeNever, browserAiSupported, serverAiCapable);
   const inputRef = useRef<HTMLInputElement>(null);
   const uploadQueue = useRef<Promise<void>>(Promise.resolve());
   const detailTrigger = useRef<HTMLElement | null>(null);
@@ -202,9 +219,12 @@ export default function Home() {
     setDetail(null);
   }, []);
 
-  // Every document lives in the worker owned by this tab; unloading the page
-  // is the deletion mechanism, so nothing needs to be released server-side.
-  useEffect(() => disposeWorkspace, []);
+  // Both workers belong to this tab: documents live in the parser worker, the
+  // model lives in the AI worker. Unloading the page releases both.
+  useEffect(() => () => {
+    disposeWorkspace();
+    disposeBrowserAi();
+  }, []);
 
   const upload = async (file: File) => {
     setUploading(true);
@@ -259,10 +279,14 @@ export default function Home() {
     }
   };
 
-  /** The only network call left: the optional Local AI layer. */
-  const runLocalAi = async (task: "analyze" | "ask" | "brief" | "semantic-check", askedQuestion: string | undefined, success: string) => {
-    if (selected.length > 5) {
-      setNotice({ tone: "error", message: "Local AI 작업은 최대 5개 파일만 선택할 수 있습니다." });
+  /**
+   * Browser-local AI. Documents stay in this tab: they go from the document
+   * worker straight into the AI worker, never over the network. A model or
+   * WebGPU problem is reported in the AI status box, not as a workspace error.
+   */
+  const runBrowserTask = async (task: BrowserAiTask, success: string) => {
+    if (selected.length > BROWSER_AI_MAX_FILES) {
+      setNotice({ tone: "error", message: `브라우저 AI 작업은 최대 ${BROWSER_AI_MAX_FILES}개 파일만 선택할 수 있습니다.` });
       return;
     }
     setBusy(true);
@@ -270,18 +294,14 @@ export default function Home() {
     setDetail(null);
     try {
       const documents = await runInWorker({ kind: "documents", fileIds: selected });
-      const response = await fetch("/api/ai", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ task, documents, ...(askedQuestion ? { question: askedQuestion } : {}) }),
-      });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) throw apiError(payload, "Local AI 작업에 실패했습니다.");
-      setOperationResult(aiResultFrom(payload));
+      setOperationResult(await runBrowserAi(task, documents));
       setNotice({ tone: "success", message: success });
     } catch (error) {
       setOperationResult(null);
-      setNotice({ tone: "error", message: (error as ApiError).message ?? "Local AI 작업에 실패했습니다." });
+      const failure = error as BrowserAiFailure;
+      if (failure.code === "NO_WEBGPU" || failure.code === "LOAD_FAILED") setNotice(null);
+      else if (failure.code === "CANCELLED") setNotice({ tone: "info", message: BROWSER_AI_MESSAGES.CANCELLED });
+      else setNotice({ tone: "error", message: failure.message ?? "브라우저 AI 작업에 실패했습니다." });
     } finally {
       setBusy(false);
     }
@@ -309,17 +329,19 @@ export default function Home() {
     if (activeTab === "Analyze") return runDeterministic("analyze", "구조 및 수치 분석을 완료했습니다.");
     if (activeTab === "Check") return runDeterministic("check", "콘텐츠 및 개인정보 점검을 완료했습니다.");
     if (activeTab === "Extract") return runDeterministic("extract", "구조화 추출을 완료했습니다.");
-    const task = activeTab === "Ask" ? "ask" : "brief";
-    return runLocalAi(task, question.trim() || undefined, `${activeTab} 결과를 준비했습니다.`);
+    const typed = question.trim();
+    return activeTab === "Ask"
+      ? runBrowserTask({ kind: "ask", question: typed }, "Ask 결과를 준비했습니다.")
+      : runBrowserTask({ kind: "brief", ...(typed ? { instruction: typed } : {}) }, "Brief 결과를 준비했습니다.");
   };
 
   /**
-   * Local Semantic Layer for Check: the deterministic result stays authoritative
-   * and model suggestions are folded in as low-confidence items.
+   * Browser semantic layer for Check: the deterministic result stays
+   * authoritative and model suggestions are folded in as suggestions only.
    */
   const runSemanticCheck = async () => {
-    if (selected.length > 5) {
-      setNotice({ tone: "error", message: "Local AI 작업은 최대 5개 파일만 선택할 수 있습니다." });
+    if (selected.length > BROWSER_AI_MAX_FILES) {
+      setNotice({ tone: "error", message: `브라우저 AI 작업은 최대 ${BROWSER_AI_MAX_FILES}개 파일만 선택할 수 있습니다.` });
       return;
     }
     setBusy(true);
@@ -330,19 +352,11 @@ export default function Home() {
         ? operationResult
         : await runInWorker({ kind: "check", fileIds: selected, userTerms, companyTerms: companyTermNames });
       const documents = await runInWorker({ kind: "documents", fileIds: selected });
-      const response = await fetch("/api/ai", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          task: "semantic-check",
-          documents,
-          question: "선택한 문서의 한글 맞춤법, 띄어쓰기, 조사, 어색한 표현과 용어 일관성을 보수적으로 점검하세요. 확신이 낮은 항목은 제안으로만 표시하세요.",
-        }),
-      });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) throw apiError(payload, "Local AI 문장 검수에 실패했습니다.");
-      const aiResult = aiResultFrom(payload);
-      const claims = isAiAvailableResult(aiResult) ? aiResult.claims : [];
+      const aiResult = await runBrowserAi({
+        kind: "semantic-check",
+        statement: "선택한 문서의 한글 맞춤법, 띄어쓰기, 조사, 어색한 표현과 용어 일관성을 보수적으로 점검하세요. 확신이 낮은 항목은 제안으로만 표시하세요.",
+      }, documents);
+      const claims = aiResult.claims;
       const merged = base.map((entry) => {
         const forFile = claims.filter((claim) => claim.evidence.some((binding) => binding.source.fileId === entry.file.id));
         const findings = sortFindings(mergeSemanticFindings(entry.check.findings, semanticFindings(forFile)), new Map());
@@ -369,23 +383,25 @@ export default function Home() {
       setNotice({
         tone: "success",
         message: total > 0
-          ? `Local AI 문장 검수 ${total}건을 낮은 확신 제안으로 추가했습니다. "낮은 확신 포함"을 켜면 볼 수 있습니다.`
-          : "Local AI 문장 검수에서 추가할 제안이 없었습니다.",
+          ? `브라우저 AI 문장 검수 ${total}건을 제안으로 추가했습니다. "낮은 확신 포함"을 켜면 모두 볼 수 있습니다.`
+          : "브라우저 AI 문장 검수에서 추가할 제안이 없었습니다.",
       });
     } catch (error) {
-      setNotice({ tone: "error", message: (error as ApiError).message ?? "Local AI 문장 검수에 실패했습니다." });
+      const failure = error as BrowserAiFailure;
+      if (failure.code === "NO_WEBGPU" || failure.code === "LOAD_FAILED") setNotice(null);
+      else if (failure.code === "CANCELLED") setNotice({ tone: "info", message: BROWSER_AI_MESSAGES.CANCELLED });
+      else setNotice({ tone: "error", message: failure.message ?? "브라우저 AI 문장 검수에 실패했습니다." });
     } finally {
       setBusy(false);
     }
   };
 
   const runAiAssist = () => {
-    if (activeTab === "Analyze") return runLocalAi("analyze", undefined, "Local AI 분석 결과를 준비했습니다.");
+    if (activeTab === "Analyze") return runBrowserTask({ kind: "analyze" }, "브라우저 AI 분석 결과를 준비했습니다.");
     if (activeTab === "Check") return runSemanticCheck();
-    return runLocalAi(
-      "semantic-check",
-      "선택한 문서 사이의 중요한 의미 변화를 근거와 함께 점검하세요.",
-      "Local AI 보조 점검 결과를 준비했습니다.",
+    return runBrowserTask(
+      { kind: "semantic-check", statement: "선택한 문서 사이의 중요한 의미 변화를 근거와 함께 점검하세요." },
+      "브라우저 AI 보조 점검 결과를 준비했습니다.",
     );
   };
 
@@ -411,13 +427,15 @@ export default function Home() {
   const deleteAll = () => {
     if (!window.confirm("이 탭에서 처리한 파일과 결과를 모두 지우시겠습니까?")) return;
     disposeWorkspace();
+    disposeBrowserAi();
     setFiles([]);
     setSelected([]);
     clearResults();
     setNotice({ tone: "info", message: "브라우저 메모리에서 파일과 결과를 모두 지웠습니다." });
   };
 
-  const actionDisabled = busy || selected.length === 0 || (activeTab === "Compare" && selected.length !== 2) || (activeTab === "Ask" && !question.trim());
+  const aiTab = activeTab === "Ask" || activeTab === "Brief";
+  const actionDisabled = busy || selected.length === 0 || (activeTab === "Compare" && selected.length !== 2) || (activeTab === "Ask" && !question.trim()) || (aiTab && !aiCapable);
   const fileNames = new Map(files.map((file) => [file.id, file.name]));
   const companyTermNames = companyTerms.filter((entry) => entry.active).map((entry) => entry.term);
   const isUtilityView = shellView === "Dictionary" || shellView === "Settings";
@@ -546,7 +564,7 @@ export default function Home() {
               <div>
                 <strong>{notice.tone === "error" ? "작업을 완료하지 못했습니다" : notice.tone === "success" ? "작업 완료" : "처리 상태"}</strong>
                 <p>{notice.message}</p>
-                {notice.tone === "error" ? <small>{notice.message.includes("Local AI") ? "Analyze, Compare, Check, Extract는 Local AI 없이 계속 사용할 수 있습니다." : "파일 형식과 선택 상태를 확인한 뒤 다시 시도하세요."}</small> : null}
+                {notice.tone === "error" ? <small>{notice.message.includes("브라우저 AI") ? "Analyze, Compare, Check, Extract는 브라우저 AI 없이 계속 사용할 수 있습니다." : "파일 형식과 선택 상태를 확인한 뒤 다시 시도하세요."}</small> : null}
               </div>
             </div>
           ) : null}
@@ -598,7 +616,7 @@ export default function Home() {
               <section className="operation-bar" aria-label={`${activeTab} action`}>
                 <div className="operation-context">
                   <strong>{activeTab}</strong>
-                  <span>{activeTab === "Compare" ? "기준과 현재 파일을 순서대로 두 개 선택하세요." : activeTab === "Check" ? "Writing · Consistency · Data · Privacy를 한 번에 검수합니다." : (activeTab === "Ask" || activeTab === "Brief") ? "Local AI는 최대 5개 파일에서 근거를 확인합니다." : "최대 10개 파일을 함께 처리할 수 있습니다."}</span>
+                  <span>{activeTab === "Compare" ? "기준과 현재 파일을 순서대로 두 개 선택하세요." : activeTab === "Check" ? "Writing · Consistency · Data · Privacy를 한 번에 검수합니다." : aiTab ? `브라우저 AI는 최대 ${BROWSER_AI_MAX_FILES}개 파일에서 근거를 확인합니다.` : "최대 10개 파일을 함께 처리할 수 있습니다."}</span>
                 </div>
                 {(activeTab === "Ask" || activeTab === "Brief") ? (
                   <label className="question-field">
@@ -613,10 +631,12 @@ export default function Home() {
                   </label>
                 ) : null}
                 <div className="operation-actions">
-                  {(activeTab === "Analyze" || activeTab === "Compare" || activeTab === "Check") ? <button type="button" className="secondary-action" onClick={runAiAssist} disabled={busy || selected.length === 0}>{activeTab === "Check" ? "Local AI 문장 검수" : "Local AI 보조"}</button> : null}
+                  {(activeTab === "Analyze" || activeTab === "Compare" || activeTab === "Check") ? <button type="button" className="secondary-action" onClick={runAiAssist} disabled={busy || selected.length === 0 || !aiCapable}>{activeTab === "Check" ? "브라우저 AI 문장 검수" : "브라우저 AI 보조"}</button> : null}
                   <button type="button" onClick={runActive} disabled={actionDisabled}>{busy ? "처리 중…" : `${activeTab} 실행`}</button>
                 </div>
               </section>
+
+              <BrowserAiStatus state={aiState} capable={aiCapable} onCancel={cancelBrowserAi} />
 
               {busy ? <div className="processing-bar" role="status"><span aria-hidden="true" /><strong>{activeTab} 처리 중</strong><small>선택한 파일의 구조와 근거를 확인하고 있습니다.</small></div> : null}
               {activeTab === "Extract" && operationResult ? (
@@ -653,6 +673,54 @@ export default function Home() {
   );
 }
 
+/**
+ * Model lifecycle for the browser AI layer. A missing WebGPU or a failed
+ * download is a capability notice, never a workspace error: deterministic
+ * Analyze/Compare/Check/Extract keep working underneath it.
+ */
+function BrowserAiStatus({ state, capable, onCancel }: { state: BrowserAiState; capable: boolean; onCancel: () => void }) {
+  if (!capable || state.phase === "unsupported") {
+    return (
+      <div className="ai-status" role="status">
+        <strong>브라우저 AI를 사용할 수 없습니다.</strong>
+        <p>{BROWSER_AI_MESSAGES.NO_WEBGPU}</p>
+      </div>
+    );
+  }
+  if (state.phase === "loading") {
+    const percent = Math.round(Math.min(Math.max(state.progress, 0), 1) * 100);
+    return (
+      <div className="ai-status loading" role="status" aria-live="polite">
+        <strong>브라우저 AI 준비 중</strong>
+        <p>처음 사용할 때 AI 모델을 한 번 다운로드합니다. 그동안 Analyze·Compare·Check·Extract는 그대로 사용할 수 있습니다.</p>
+        <span className="ai-progress">
+          <progress max={100} value={percent} />
+          모델 다운로드 {percent}%
+        </span>
+        <button type="button" className="secondary-action" onClick={onCancel}>취소</button>
+      </div>
+    );
+  }
+  if (state.phase === "ready") {
+    return (
+      <div className="ai-status ready" role="status">
+        <strong>브라우저 AI 준비 완료</strong>
+        <p>{BROWSER_AI_MODEL_LABEL} 모델이 이 브라우저에 있습니다.</p>
+      </div>
+    );
+  }
+  if (state.phase === "failed") {
+    return (
+      <div className="ai-status failed" role="status">
+        <strong>브라우저 AI 준비 실패</strong>
+        <p>{state.message}</p>
+        {state.detail ? <small className="ai-detail">{state.detail}</small> : null}
+      </div>
+    );
+  }
+  return null;
+}
+
 /** Dictionary and Settings share one surface; both are browser-local by design. */
 function SettingsView({ view, companyTerms, companyTermsSource, userTerms, ignoredRules, onAddTerm, onRemoveTerm, onClearTerms, onToggleRule }: {
   view: "Dictionary" | "Settings";
@@ -685,7 +753,7 @@ function SettingsView({ view, companyTerms, companyTermsSource, userTerms, ignor
               ))}</div>
               : "없음"}
           </dd></div>
-          <div><dt>Local AI</dt><dd>구성되지 않으면 Ask, Brief, 문장 검수만 중단되고 나머지 기능은 그대로 동작합니다.</dd></div>
+          <div><dt>브라우저 AI</dt><dd>Ask, Brief, 문장 검수는 이 브라우저에서 실행됩니다. 처음 사용할 때 모델을 한 번 내려받고(약 {BROWSER_AI_MODEL_MB.toLocaleString("ko-KR")} MB, WebGPU 필요) 모델 파일만 브라우저 캐시에 남습니다. 문서와 질문은 어디에도 전송·저장하지 않습니다.</dd></div>
         </dl>
       </section>
     );
@@ -980,7 +1048,7 @@ function CheckResults({ entries, fileNames, onSource, userTerms, ignoredRules, o
               전체 {totals.totalFound.toLocaleString("ko-KR")}건 중 우선순위가 높은 {totals.returned.toLocaleString("ko-KR")}건을 표시합니다.
             </small>
           ) : null}
-          <small>Severity는 문제의 중요도, Confidence는 판단의 확실성입니다. 문장 단위 추가 검수는 Local AI 문장 검수로 실행합니다.</small>
+          <small>Severity는 문제의 중요도, Confidence는 판단의 확실성입니다. 문장 단위 추가 검수는 브라우저 AI 문장 검수로 실행합니다.</small>
         </div>
         <dl className="qa-summary">
           {(["critical", "warning", "suggestion"] as const).map((severity) => (

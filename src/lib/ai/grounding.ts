@@ -1,6 +1,6 @@
-import { createHash } from "node:crypto";
 import type {
   AiAvailableResult,
+  AiConfidence,
   AiRequest,
   DirectProposition,
   EvidenceBinding,
@@ -8,7 +8,8 @@ import type {
   Scalar,
 } from "@/domain/ai";
 import type { NormalizedDocument, SourceRef } from "@/domain/document";
-import { AI_SCHEMA_ID, type AiEvidenceNode, type AiProviderClaim, type AiProviderCompletion } from "@/server/ai/provider";
+import { sha256Base64Url } from "@/domain/hash";
+import { AI_SCHEMA_ID, type AiEvidenceNode, type AiProviderClaim, type AiProviderCompletion } from "@/lib/ai/contract";
 
 type CanonicalEvidence = AiEvidenceNode;
 
@@ -108,7 +109,13 @@ function groundClaim(candidate: AiProviderClaim, evidence: ReadonlyMap<string, C
     if (looksLikePromptInjection(canonical.text)) return undefined;
     bindings.push({ source: { ...canonical.source }, support: "context" });
   }
-  return { id: claimId("inference", candidate.sourceTokens.join("|"), text), kind: "inference", text: `추론: ${text}`, evidence: bindings as [EvidenceBinding, ...EvidenceBinding[]] };
+  return {
+    id: claimId("inference", candidate.sourceTokens.join("|"), text),
+    kind: "inference",
+    text: `추론: ${text}`,
+    ...(candidate.confidence ? { confidence: candidate.confidence } : {}),
+    evidence: bindings as [EvidenceBinding, ...EvidenceBinding[]],
+  };
 }
 
 function collectEvidence(documents: readonly NormalizedDocument[]): CanonicalEvidence[] {
@@ -151,9 +158,7 @@ function makeEvidence(document: NormalizedDocument, nodeId: string, text: string
     quote,
     quoteHash: quoteHash(quote),
   };
-  const propositionToken = createHash("sha256")
-    .update(JSON.stringify([document.fileId, document.id, document.version ?? "", nodeId, proposition, canonicalSource.quoteHash]))
-    .digest("base64url");
+  const propositionToken = sha256Base64Url(JSON.stringify([document.fileId, document.id, document.version ?? "", nodeId, proposition, canonicalSource.quoteHash]));
   return { fileId: document.fileId, nodeId, source: canonicalSource, text: cleaned, propositionToken, proposition };
 }
 
@@ -182,7 +187,13 @@ function isProviderClaim(value: unknown): value is AiProviderClaim {
       ...(value.qualifiers === undefined ? {} : { qualifiers: value.qualifiers }),
     });
   }
-  return value.type === "inference" && Object.keys(value).length === 3 && typeof value.text === "string" && Array.isArray(value.sourceTokens) && value.sourceTokens.every((token) => typeof token === "string");
+  if (value.type !== "inference") return false;
+  const allowed = new Set(["type", "text", "sourceTokens", "confidence"]);
+  return Object.keys(value).every((key) => allowed.has(key))
+    && typeof value.text === "string"
+    && Array.isArray(value.sourceTokens)
+    && value.sourceTokens.every((token) => typeof token === "string")
+    && (value.confidence === undefined || isConfidence(value.confidence));
 }
 
 function isProposition(value: unknown): value is DirectProposition {
@@ -237,9 +248,10 @@ function formatObject(value: unknown): string {
   return String(value);
 }
 function predicateLabel(predicate: DirectProposition["predicate"]): string { return predicate.replaceAll("_", " "); }
-function quoteHash(value: string): string { return createHash("sha256").update(value).digest("base64url"); }
-function claimId(...values: string[]): string { return createHash("sha256").update(values.join("\0")).digest("base64url"); }
+function quoteHash(value: string): string { return sha256Base64Url(value); }
+function claimId(...values: string[]): string { return sha256Base64Url(values.join("\0")); }
 function cleanText(value: string | undefined): string { return typeof value === "string" ? value.trim().slice(0, 8_000) : ""; }
 function normalize(value: string): string { return value.normalize("NFKC").replace(/\r\n?/g, "\n").replace(/\s+/gu, " ").trim(); }
 function looksLikePromptInjection(value: string): boolean { return /ignore (?:all |the )?(?:previous|prior|above) instructions|system prompt|developer message|지시(?:를|사항을)? 무시|프롬프트/ui.test(normalize(value)); }
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
+function isConfidence(value: unknown): value is AiConfidence { return value === "high" || value === "medium" || value === "low"; }
