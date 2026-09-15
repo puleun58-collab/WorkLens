@@ -428,7 +428,7 @@ export default function Home() {
       <a className="skip-link" href="#workspace-content">본문으로 건너뛰기</a>
       <nav className="rail" aria-label="Workspace views">
         <div className="rail-brand">
-          <WorkLensLogo size={33} />
+          <WorkLensLogo size={36} />
         </div>
         <p className="rail-group-label">Workspace</p>
         <ul className="rail-list">
@@ -448,7 +448,7 @@ export default function Home() {
                     clearResults();
                   }}
                 >
-                  <Icon size={16} strokeWidth={1.75} aria-hidden="true" />
+                  <Icon size={18} strokeWidth={1.75} aria-hidden="true" />
                   <span>{tabMeta[tab].label}</span>
                 </button>
               </li>
@@ -467,7 +467,7 @@ export default function Home() {
                 aria-label={view}
                 onClick={() => setShellView(view)}
               >
-                <Icon size={16} strokeWidth={1.75} aria-hidden="true" />
+                <Icon size={18} strokeWidth={1.75} aria-hidden="true" />
                 <span>{view === "Dictionary" ? "용어 사전" : "설정"}</span>
               </button>
             );
@@ -567,7 +567,6 @@ export default function Home() {
             <>
               {files.length === 0 ? (
                 <div className="empty-state">
-                  <span className="state-code">NO FILES</span>
                   <strong>아직 파일이 없습니다.</strong>
                   <p>파일을 추가하면 구조를 확인하고 분석·비교·검수할 수 있습니다.</p>
                 </div>
@@ -603,8 +602,13 @@ export default function Home() {
                 </div>
                 {(activeTab === "Ask" || activeTab === "Brief") ? (
                   <label className="question-field">
-                    <span>{activeTab === "Ask" ? "Ask this file" : "Brief focus · 선택 사항"}</span>
-                    <input value={question} maxLength={2000} onChange={(event) => setQuestion(event.target.value)} placeholder={activeTab === "Ask" ? "선택한 문서에서 확인할 내용을 입력하세요" : "브리프의 초점을 입력하세요"} />
+                    <input
+                      value={question}
+                      maxLength={2000}
+                      aria-label={activeTab === "Ask" ? "질문 입력" : "브리프 중점 입력"}
+                      onChange={(event) => setQuestion(event.target.value)}
+                      placeholder={activeTab === "Ask" ? "선택한 문서에서 확인할 내용을 입력하세요" : "중점적으로 정리할 내용을 입력하세요 (선택)"}
+                    />
                     <small>{question.length.toLocaleString("ko-KR")} / 2,000</small>
                   </label>
                 ) : null}
@@ -624,12 +628,13 @@ export default function Home() {
               ) : null}
 
               {activeTab === "Compare"
-                ? <ComparisonView comparison={comparison} compareIds={compareIds} fileNames={fileNames} detail={null} onSource={openSource} onCloseSource={closeSource} />
+                ? <ComparisonView comparison={comparison} compareIds={compareIds} fileNames={fileNames} detail={null} selectedCount={selected.length} onSource={openSource} onCloseSource={closeSource} />
                 : <ResultView
                   tab={activeTab}
                   result={operationResult}
                   fileNames={fileNames}
                   detail={null}
+                  selectedCount={selected.length}
                   onSource={openSource}
                   onCloseSource={closeSource}
                   dictionary={{ userTerms, ignoredRules, onAddTerm: addTerm, onRemoveTerm: removeTerm, onClearTerms: clearTerms, onToggleRule: toggleRule }}
@@ -755,22 +760,40 @@ interface ResultViewProps {
   result: unknown;
   fileNames: Map<string, string>;
   detail: DetailInfo | null;
+  selectedCount: number;
   onSource: SourceHandler;
   onCloseSource: () => void;
   dictionary: Omit<CheckViewProps, "entries" | "fileNames" | "onSource">;
 }
 
-function ResultView({ tab, result, fileNames, detail, onSource, onCloseSource, dictionary }: ResultViewProps) {
+/** Idle copy stays at one title plus one line; selecting files only swaps the line. */
+const placeholderCopy: Record<Exclude<Tab, "Compare">, { idle: [string, string]; ready: [string, string] }> = {
+  Analyze: {
+    idle: ["분석 준비됨", "파일을 선택하면 문서 구조와 주요 수치를 분석합니다."],
+    ready: ["분석할 준비가 되었습니다", "Analyze 실행을 눌러 분석을 시작하세요."],
+  },
+  Ask: {
+    idle: ["질문 준비됨", "파일을 선택하면 문서 안에서 답과 근거를 찾습니다."],
+    ready: ["질문할 준비가 되었습니다", "질문을 입력하고 Ask 실행을 누르세요."],
+  },
+  Check: {
+    idle: ["검수 준비됨", "파일을 선택하면 표현, 수치, 개인정보를 함께 점검합니다."],
+    ready: ["검수할 준비가 되었습니다", "Check 실행을 눌러 검수를 시작하세요."],
+  },
+  Extract: {
+    idle: ["추출 준비됨", "파일을 선택하면 표와 문단을 구조화해 정리합니다."],
+    ready: ["추출할 준비가 되었습니다", "Extract 실행을 눌러 추출을 시작하세요."],
+  },
+  Brief: {
+    idle: ["브리프 준비됨", "파일을 선택하면 핵심 내용을 업무 문서 형식으로 정리합니다."],
+    ready: ["브리프를 만들 준비가 되었습니다", "Brief 실행을 눌러 정리를 시작하세요."],
+  },
+};
+
+function ResultView({ tab, result, fileNames, detail, selectedCount, onSource, onCloseSource, dictionary }: ResultViewProps) {
   if (!result) {
-    const copy: Record<Exclude<Tab, "Compare">, { code: string; title: string; body: string }> = {
-      Analyze: { code: "READY TO ANALYZE", title: "분석 준비됨", body: "문서 구조, 수치 범위, 명시된 합계를 근거와 함께 확인합니다." },
-      Ask: { code: "ASK THIS FILE", title: "질문 준비됨", body: "선택한 파일 안에서 답을 찾고 원문 또는 계산 근거를 연결합니다." },
-      Check: { code: "READY TO CHECK", title: "최종 검수 준비됨", body: "오타, 표현, 용어, 수치, 날짜, 단위, 개인정보와 문서 구조를 근거와 함께 점검합니다." },
-      Extract: { code: "READY TO EXTRACT", title: "추출 준비됨", body: "표와 문단을 구조화해 확인하고 CSV 또는 XLSX로 내보냅니다." },
-      Brief: { code: "READY TO BRIEF", title: "브리프 준비됨", body: "파일의 핵심 내용을 업무 문서 형식으로 요약하고 근거를 표시합니다." },
-    };
-    const state = copy[tab as Exclude<Tab, "Compare">];
-    return <section className="state-card result-placeholder"><span className="state-code">{state.code}</span><h2>{state.title}</h2><p>{state.body}</p><small>위에서 파일을 선택한 뒤 {tab} 실행을 누르세요.</small></section>;
+    const [title, body] = placeholderCopy[tab as Exclude<Tab, "Compare">][selectedCount > 0 ? "ready" : "idle"];
+    return <section className="state-card result-placeholder"><h2>{title}</h2><p>{body}</p></section>;
   }
 
   let content: React.ReactNode;
@@ -971,7 +994,7 @@ function CheckResults({ entries, fileNames, onSource, userTerms, ignoredRules, o
       </section>
 
       {indexed.length === 0 ? (
-        <div className="empty-state success-state"><span className="state-code">REVIEW CLEAR</span><strong>확인된 문제가 없습니다.</strong><p>현재 규칙 범위에서 작성, 일관성, 데이터와 개인정보 문제를 찾지 못했습니다.</p></div>
+        <div className="empty-state success-state"><strong>확인된 문제가 없습니다.</strong><p>현재 규칙 범위에서 작성, 일관성, 데이터와 개인정보 문제를 찾지 못했습니다.</p></div>
       ) : (
         <>
           <div className="check-toolbar">
@@ -1185,8 +1208,10 @@ function JsonValue({ value, fileNames, onSource, depth = 0 }: { value: unknown; 
   return <span>{displayValue(value as string | number | boolean | null | undefined)}</span>;
 }
 
-function ComparisonView({ comparison, compareIds, fileNames, detail, onSource, onCloseSource }: { comparison: ComparisonResult | null; compareIds: { baseFileId: string; targetFileId: string } | null; fileNames: Map<string, string>; detail: DetailInfo | null; onSource: SourceHandler; onCloseSource: () => void }) {
-  if (!comparison) return <section className="state-card result-placeholder"><span className="state-code">READY TO COMPARE</span><h2>비교 준비됨</h2><p>기준 파일과 현재 파일을 순서대로 선택하면 내용, 수치, 구조의 차이를 구분해 표시합니다.</p><small>두 파일을 선택한 뒤 Compare 실행을 누르세요.</small></section>;
+function ComparisonView({ comparison, compareIds, fileNames, detail, selectedCount, onSource, onCloseSource }: { comparison: ComparisonResult | null; compareIds: { baseFileId: string; targetFileId: string } | null; fileNames: Map<string, string>; detail: DetailInfo | null; selectedCount: number; onSource: SourceHandler; onCloseSource: () => void }) {
+  if (!comparison) return selectedCount === 2
+    ? <section className="state-card result-placeholder"><h2>비교할 준비가 되었습니다</h2><p>Compare 실행을 눌러 두 파일의 차이를 확인하세요.</p></section>
+    : <section className="state-card result-placeholder"><h2>비교 준비됨</h2><p>기준 파일과 현재 파일을 순서대로 선택하면 차이를 구분해 표시합니다.</p></section>;
   const roleOf = (source: SourceRef): SourceRole | undefined => {
     if (!compareIds) return undefined;
     if (source.fileId === compareIds.baseFileId) return "base";
@@ -1212,7 +1237,7 @@ function ComparisonView({ comparison, compareIds, fileNames, detail, onSource, o
       </div>
       <dl className="summary executive-summary">{summaryItems.map((item) => <div key={item.key} className={`summary-${item.key}`}><dt>{item.label}</dt><dd>{item.value.toLocaleString("ko-KR")}</dd></div>)}</dl>
       {comparison.items.length === 0 ? (
-        <div className="empty-state success-state"><span className="state-code">NO DIFFERENCE</span><strong>비교된 변경 사항이 없습니다.</strong><p>지원되는 내용, 수치 및 구조 범위에서 두 파일이 같습니다.</p></div>
+        <div className="empty-state success-state"><strong>비교된 변경 사항이 없습니다.</strong><p>지원되는 내용, 수치 및 구조 범위에서 두 파일이 같습니다.</p></div>
       ) : (
         <div className="comparison-content">
           <div className="comparison-index" aria-label="변경 유형 요약">

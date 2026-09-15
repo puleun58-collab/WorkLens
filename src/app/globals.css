@@ -970,12 +970,15 @@ http://scripts.sil.org/OFL
   --space-8: 64px;
   --font-sans: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", sans-serif;
   --font-mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", "Segoe UI Mono", Consolas, "Pretendard Variable", monospace;
-  --font-size-xs: 0.6875rem;
-  --font-size-sm: 0.75rem;
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.8125rem;
   --font-size-md: 0.875rem;
-  --font-size-lg: 1rem;
-  --font-size-xl: 1.125rem;
-  --font-size-2xl: 1.4375rem;
+  --font-size-lg: 1.0625rem;
+  --font-size-xl: 1.25rem;
+  --font-size-2xl: 1.5rem;
+  --control-height-sm: 32px;
+  --control-height-md: 34px;
+  --control-height-lg: 36px;
   --font-weight-regular: 400;
   --font-weight-medium: 500;
   --font-weight-semibold: 600;
@@ -1366,7 +1369,6 @@ input:disabled,
 }
 
 .eyebrow,
-.state-code,
 .document-result-heading span,
 .result-type {
   margin: 0;
@@ -1481,10 +1483,6 @@ input:disabled,
   max-width: 580px;
   margin: 5px 0 0;
   font-size: 12px;
-}
-
-.success-state .state-code {
-  color: var(--success);
 }
 
 .file-list-head,
@@ -1875,10 +1873,6 @@ input:disabled,
 
 .error-state {
   border-left: 4px solid var(--critical);
-}
-
-.error-state .state-code {
-  color: var(--critical);
 }
 
 .state-guidance {
@@ -3086,8 +3080,7 @@ body {
 }
 
 .eyebrow,
-.result-type,
-.state-code {
+.result-type {
   color: var(--muted-light);
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-semibold);
@@ -3155,8 +3148,8 @@ body {
 /* ── App shell: rail, file context bar, workspace, docked inspector ─────── */
 
 :root {
-  --rail-width: 172px;
-  --topbar-height: 60px;
+  --rail-width: 176px;
+  --topbar-height: 64px;
   --inspector-width: 352px;
   --border-subtle: #edf0f3;
   --border-default: var(--line-soft);
@@ -3541,7 +3534,7 @@ body {
 .worklens-logo {
   display: inline-flex;
   align-items: center;
-  gap: 11px;
+  gap: 12px;
   line-height: 1;
 }
 
@@ -3557,7 +3550,7 @@ body {
 
 .worklens-wordmark {
   color: var(--ink);
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 700;
   letter-spacing: -0.015em;
   line-height: 1;
@@ -3947,7 +3940,6 @@ body {
 }
 
 .eyebrow,
-.state-code,
 .document-result-heading span,
 .result-type {
   font-size: var(--text-xs);
@@ -4430,7 +4422,7 @@ body {
 
 @media (max-width: 1180px) {
   :root {
-    --rail-width: 148px;
+    --rail-width: 160px;
     --inspector-width: 300px;
   }
 }
@@ -4822,4 +4814,181 @@ body {
 
 .dictionary-more:hover {
   text-decoration: underline;
+}
+
+/* ── UI scale calibration ──────────────────────────────────────────────────
+ * Desktop density is designed for browser zoom 100%: control heights and
+ * workspace rhythm come from tokens, never from zoom or transform scaling.
+ */
+.rail {
+  padding: 0 12px 18px;
+}
+
+.rail-item {
+  min-height: var(--control-height-lg);
+  padding: 0 11px;
+  gap: 11px;
+}
+
+.rail-item.active::before {
+  left: -12px;
+}
+
+.context-bar {
+  padding: 0 28px;
+}
+
+.context-actions .secondary-action,
+.delete-all {
+  min-height: var(--control-height-md);
+  padding: 0 13px;
+}
+
+.workspace {
+  max-width: 1280px;
+  padding: 24px 28px 72px;
+}
+
+.file-list-head {
+  min-height: 34px;
+}
+
+.file-row {
+  min-height: 62px;
+}
+
+.file-info strong,
+.change-row {
+  font-size: var(--font-size-md);
+}
+
+.change-row {
+  min-height: 62px;
+}
+
+.dropzone:not(.compact) {
+  min-height: 104px;
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+
+.dropzone > div strong {
+  font-size: var(--font-size-md);
+}
+
+.dropzone button,
+.operation-bar button,
+.export-actions button,
+.state-card button {
+  min-height: var(--control-height-lg);
+  font-size: var(--font-size-md);
+}
+
+.question-field input {
+  height: var(--control-height-lg);
+  font-size: var(--font-size-md);
+}
+
+.dictionary-section form input,
+.dictionary-section form button,
+.dictionary-actions button,
+.check-filters button,
+.check-pagination button,
+.admin-row input,
+.admin-actions button {
+  min-height: var(--control-height-md);
+}
+
+.admin-login input,
+.admin-login button {
+  min-height: var(--control-height-lg);
+}
+
+/* Admin surfaces keep a smaller mark, so the wordmark tracks that size. */
+.admin-bar .worklens-wordmark {
+  font-size: 16px;
+}
+
+.admin-login .worklens-wordmark {
+  font-size: 17px;
+}
+
+@media (max-width: 1180px) {
+  .workspace {
+    padding-right: 24px;
+    padding-left: 24px;
+  }
+}
+
+@media (max-width: 900px) {
+  .rail {
+    padding: 8px 16px;
+  }
+
+  .context-bar {
+    padding: 10px 16px;
+  }
+
+  .workspace {
+    padding: 16px 16px 56px;
+  }
+}
+
+/* ── Content baseline: one inset for every stacked workspace surface ────── */
+:root {
+  --panel-inset: 20px;
+}
+
+.dropzone,
+.file-list-head,
+.file-row,
+.operation-bar,
+.export-actions,
+.processing-bar,
+.panel-heading,
+.state-card,
+.empty-state {
+  padding-right: var(--panel-inset);
+  padding-left: var(--panel-inset);
+}
+
+.operation-bar {
+  padding-top: 14px;
+  padding-bottom: 14px;
+}
+
+.state-card {
+  padding-top: var(--space-5);
+  padding-bottom: var(--space-5);
+}
+
+.state-card.result-placeholder h2 {
+  margin: 0;
+}
+
+.state-card.result-placeholder p {
+  margin: 6px 0 0;
+}
+
+@media (max-width: 700px) {
+  :root {
+    --panel-inset: 14px;
+  }
+}
+
+.empty-state {
+  min-height: 96px;
+  padding-top: var(--space-4);
+  padding-bottom: var(--space-4);
+  align-items: flex-start;
+  text-align: left;
+}
+
+.empty-state strong {
+  margin-top: 0;
+  font-size: var(--font-size-lg);
+}
+
+.empty-state p {
+  font-size: var(--font-size-sm);
 }
