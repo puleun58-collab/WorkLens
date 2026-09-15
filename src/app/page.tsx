@@ -29,6 +29,25 @@ import {
 import companyTermFile from "@/config/company-terms.json";
 import { sortFindings } from "@/lib/check/merge";
 import { mergeSemanticFindings, semanticFindings } from "@/lib/check/writing/semantic-review";
+import {
+  BarChart3,
+  BookMarked,  GitCompareArrows,
+  MessageSquareText,
+  ScrollText,
+  ShieldCheck,
+  SlidersHorizontal,
+  Table2,
+} from "lucide-react";
+
+type ShellView = Tab | "Dictionary" | "Settings";
+const tabIcons: Record<Tab, typeof BarChart3> = {
+  Analyze: BarChart3,
+  Ask: MessageSquareText,
+  Compare: GitCompareArrows,
+  Check: ShieldCheck,
+  Extract: Table2,
+  Brief: ScrollText,
+};
 type ApiError = { code: string; message: string; retryable?: boolean };
 type Notice = { tone: "error" | "success" | "info"; message: string };
 const tabs = ["Analyze", "Ask", "Compare", "Check", "Extract", "Brief"] as const;
@@ -121,6 +140,7 @@ export default function Home() {
   const [files, setFiles] = useState<WorkspaceFile[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<Tab>("Analyze");
+  const [shellView, setShellView] = useState<ShellView>("Analyze");
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
@@ -377,82 +397,125 @@ export default function Home() {
 
   const actionDisabled = busy || selected.length === 0 || (activeTab === "Compare" && selected.length !== 2) || (activeTab === "Ask" && !question.trim());
   const fileNames = new Map(files.map((file) => [file.id, file.name]));
+  const selectedNames = files.filter((file) => selected.includes(file.id)).map((file) => file.name).join(", ");
 
   return (
-    <main className="workspace-shell">
+    <div className="app-shell">
       <a className="skip-link" href="#workspace-content">본문으로 건너뛰기</a>
-      <header className="topbar">
-        <div className="brand">
-          <WorkLensLogo size={26} />
+      <nav className="rail" aria-label="Workspace views">
+        <div className="rail-brand">
+          <WorkLensLogo size={22} />
         </div>
-        <p>Analyze. Compare. Verify.</p>
-        <div className="session-meta">
-          <span className="session-state">
-            <span className="state-dot" aria-hidden="true" />
-            In-browser session · 서버 저장 없음
-          </span>
-          <button type="button" className="delete-all" onClick={deleteAll} disabled={busy}>모두 삭제</button>
-        </div>
-      </header>
-      <nav className="tabs" aria-label="Workspace views">
-        {tabs.map((tab) => (
-          <button
-            key={tab}
-            type="button"
-            className={activeTab === tab ? "active" : ""}
-            aria-current={activeTab === tab ? "page" : undefined}
-            aria-label={tab}
-            onClick={() => {
-              setActiveTab(tab);
-              setOperationResult(null);
-              setComparison(null);
-              setCompareIds(null);
-              setDetail(null);
-            }}
-          >
-            <span>{tabMeta[tab].label}</span>
-            <small aria-hidden="true">{tabMeta[tab].description}</small>
-          </button>
-        ))}
-      </nav>
-      <section className="workspace" id="workspace-content" aria-busy={busy || uploading}>
-        <div className="context-strip">
-          <p className="privacy-note">
-            <strong>In-browser workspace</strong>
-            파일과 분석 결과는 이 탭의 메모리에만 있습니다. 새로고침하거나 탭을 닫으면 즉시 사라집니다.
-          </p>
-          <span className="selection-count">{selected.length} selected</span>
-        </div>
-        {notice ? (
-          <div className={`notice ${notice.tone}`} role={notice.tone === "error" ? "alert" : "status"} aria-live={notice.tone === "error" ? "assertive" : "polite"}>
-            <span className="notice-marker" aria-hidden="true" />
-            <div>
-              <strong>{notice.tone === "error" ? "작업을 완료하지 못했습니다" : notice.tone === "success" ? "작업 완료" : "처리 상태"}</strong>
-              <p>{notice.message}</p>
-              {notice.tone === "error" ? <small>{notice.message.includes("Local AI") ? "Analyze, Compare, Check, Extract는 Local AI 없이 계속 사용할 수 있습니다." : "파일 형식과 선택 상태를 확인한 뒤 다시 시도하세요."}</small> : null}
-            </div>
-          </div>
-        ) : null}
-        <>
-            <section className="panel file-panel" aria-labelledby="files-heading">
-              <div className="panel-heading">
-                <div>
-                  <p className="eyebrow">File context</p>
-                  <h1 id="files-heading">분석 파일</h1>
-                </div>
-                <span><strong>{files.length}</strong> files</span>
-              </div>
-              <div className={`dropzone${uploading ? " busy" : ""}`} onDragOver={(event) => event.preventDefault()} onDrop={onDrop}>
-                <input ref={inputRef} type="file" multiple accept=".xlsx,.csv,.pdf,.docx,.pptx" aria-label="분석 파일 선택" onChange={(event: ChangeEvent<HTMLInputElement>) => { enqueueUploads(event.target.files); event.target.value = ""; }} />
-                <div>
-                  <strong>{uploading ? "파일을 읽고 구조를 분석하는 중" : "업무 파일 추가"}</strong>
-                  <span>XLSX, CSV, PDF, DOCX, PPTX · 파일당 최대 50 MB · 임시 처리</span>
-                </div>
-                <span className="drop-hint">여기로 끌어놓기</span>
-                <button type="button" onClick={() => inputRef.current?.click()} disabled={uploading}>
-                  {uploading ? "분석 중…" : "파일 선택"}
+        <p className="rail-group-label">Workspace</p>
+        <ul className="rail-list">
+          {tabs.map((tab) => {
+            const Icon = tabIcons[tab];
+            const active = shellView === tab;
+            return (
+              <li key={tab}>
+                <button
+                  type="button"
+                  className={active ? "rail-item active" : "rail-item"}
+                  aria-current={active ? "page" : undefined}
+                  aria-label={tab}
+                  onClick={() => {
+                    setShellView(tab);
+                    setActiveTab(tab);
+                    clearResults();
+                  }}
+                >
+                  <Icon size={16} strokeWidth={1.75} aria-hidden="true" />
+                  <span>{tabMeta[tab].label}</span>
                 </button>
+              </li>
+            );
+          })}
+        </ul>
+        <div className="rail-footer">
+          {(["Dictionary", "Settings"] as const).map((view) => {
+            const Icon = view === "Dictionary" ? BookMarked : SlidersHorizontal;
+            return (
+              <button
+                key={view}
+                type="button"
+                className={shellView === view ? "rail-item active" : "rail-item"}
+                aria-current={shellView === view ? "page" : undefined}
+                aria-label={view}
+                onClick={() => setShellView(view)}
+              >
+                <Icon size={16} strokeWidth={1.75} aria-hidden="true" />
+                <span>{view === "Dictionary" ? "용어 사전" : "설정"}</span>
+              </button>
+            );
+          })}
+        </div>
+      </nav>
+
+      <div className="shell-main">
+        <header className="context-bar">
+          <div className="context-files">
+            <h1 id="files-heading">분석 파일</h1>
+            <span className="context-counts">
+              <b>{files.length}</b> files
+              <i aria-hidden="true" />
+              <b>{selected.length}</b> selected
+            </span>
+            <span className="context-names" title={selectedNames || undefined}>
+              {selectedNames || "선택한 파일 없음"}
+            </span>
+          </div>
+          <div className="context-actions">
+            <span className="session-state">
+              <span className="state-dot" aria-hidden="true" />
+              In-browser session · 서버 저장 없음
+            </span>
+            <button type="button" className="secondary-action" onClick={() => inputRef.current?.click()} disabled={uploading}>
+              {uploading ? "분석 중…" : "Add files"}
+            </button>
+            <button type="button" className="delete-all" onClick={deleteAll} disabled={busy}>모두 삭제</button>
+          </div>
+        </header>
+
+        <section className="workspace" id="workspace-content" aria-busy={busy || uploading}>
+          <div
+            className={`dropzone${uploading ? " busy" : ""}${files.length ? " compact" : ""}`}
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={onDrop}
+          >
+            <input ref={inputRef} type="file" multiple accept=".xlsx,.csv,.pdf,.docx,.pptx" aria-label="분석 파일 선택" onChange={(event: ChangeEvent<HTMLInputElement>) => { enqueueUploads(event.target.files); event.target.value = ""; }} />
+            <div>
+              <strong>{uploading ? "파일을 읽고 구조를 분석하는 중" : "업무 파일 추가"}</strong>
+              <span>XLSX, CSV, PDF, DOCX, PPTX · 파일당 최대 50 MB · 임시 처리</span>
+            </div>
+            <span className="drop-hint">여기로 끌어놓기</span>
+            <button type="button" onClick={() => inputRef.current?.click()} disabled={uploading}>
+              {uploading ? "분석 중…" : "파일 선택"}
+            </button>
+          </div>
+
+          {notice ? (
+            <div className={`notice ${notice.tone}`} role={notice.tone === "error" ? "alert" : "status"} aria-live={notice.tone === "error" ? "assertive" : "polite"}>
+              <span className="notice-marker" aria-hidden="true" />
+              <div>
+                <strong>{notice.tone === "error" ? "작업을 완료하지 못했습니다" : notice.tone === "success" ? "작업 완료" : "처리 상태"}</strong>
+                <p>{notice.message}</p>
+                {notice.tone === "error" ? <small>{notice.message.includes("Local AI") ? "Analyze, Compare, Check, Extract는 Local AI 없이 계속 사용할 수 있습니다." : "파일 형식과 선택 상태를 확인한 뒤 다시 시도하세요."}</small> : null}
               </div>
+            </div>
+          ) : null}
+
+          {shellView === "Dictionary" || shellView === "Settings" ? (
+            <SettingsView
+              view={shellView}
+              userTerms={userTerms}
+              ignoredRules={ignoredRules}
+              onAddTerm={addTerm}
+              onRemoveTerm={removeTerm}
+              onClearTerms={clearTerms}
+              onToggleRule={toggleRule}
+            />
+          ) : (
+            <>
               {files.length === 0 ? (
                 <div className="empty-state">
                   <span className="state-code">NO FILES</span>
@@ -460,7 +523,7 @@ export default function Home() {
                   <p>파일을 추가하면 구조를 확인하고 분석·비교·검수할 수 있습니다.</p>
                 </div>
               ) : (
-                <div className="file-list">
+                <section className="file-list" aria-labelledby="files-heading">
                   <div className="file-list-head" aria-hidden="true"><span>선택</span><span>파일</span><span>상태</span><span>구조</span><span>주의</span></div>
                   {files.map((file) => {
                     const checked = selected.includes(file.id);
@@ -481,49 +544,122 @@ export default function Home() {
                       </article>
                     );
                   })}
-                </div>
+                </section>
               )}
-            </section>
-            <section className="operation-bar" aria-label={`${activeTab} action`}>
-              <div className="operation-context">
-                <p className="eyebrow">Current task</p>
-                <strong>{activeTab}</strong>
-                <span>{activeTab === "Compare" ? "기준과 현재 파일을 순서대로 두 개 선택하세요." : activeTab === "Check" ? "Writing, Consistency, Data, Privacy 영역을 한 번에 검수합니다." : (activeTab === "Ask" || activeTab === "Brief") ? "Local AI는 최대 5개 파일에서 근거를 확인합니다." : "최대 10개 파일을 함께 처리할 수 있습니다."}</span>
-              </div>
-              {(activeTab === "Ask" || activeTab === "Brief") ? (
-                <label className="question-field">
-                  <span>{activeTab === "Ask" ? "Ask this file" : "Brief focus · 선택 사항"}</span>
-                  <input value={question} maxLength={2000} onChange={(event) => setQuestion(event.target.value)} placeholder={activeTab === "Ask" ? "선택한 문서에서 확인할 내용을 입력하세요" : "브리프의 초점을 입력하세요"} />
-                  <small>{question.length.toLocaleString("ko-KR")} / 2,000</small>
-                </label>
+
+              <section className="operation-bar" aria-label={`${activeTab} action`}>
+                <div className="operation-context">
+                  <strong>{activeTab}</strong>
+                  <span>{activeTab === "Compare" ? "기준과 현재 파일을 순서대로 두 개 선택하세요." : activeTab === "Check" ? "Writing, Consistency, Data, Privacy 영역을 한 번에 검수합니다." : (activeTab === "Ask" || activeTab === "Brief") ? "Local AI는 최대 5개 파일에서 근거를 확인합니다." : "최대 10개 파일을 함께 처리할 수 있습니다."}</span>
+                </div>
+                {(activeTab === "Ask" || activeTab === "Brief") ? (
+                  <label className="question-field">
+                    <span>{activeTab === "Ask" ? "Ask this file" : "Brief focus · 선택 사항"}</span>
+                    <input value={question} maxLength={2000} onChange={(event) => setQuestion(event.target.value)} placeholder={activeTab === "Ask" ? "선택한 문서에서 확인할 내용을 입력하세요" : "브리프의 초점을 입력하세요"} />
+                    <small>{question.length.toLocaleString("ko-KR")} / 2,000</small>
+                  </label>
+                ) : null}
+                <div className="operation-actions">
+                  {(activeTab === "Analyze" || activeTab === "Compare" || activeTab === "Check") ? <button type="button" className="secondary-action" onClick={runAiAssist} disabled={busy || selected.length === 0}>{activeTab === "Check" ? "Local AI 문장 검수" : "Local AI 보조"}</button> : null}
+                  <button type="button" onClick={runActive} disabled={actionDisabled}>{busy ? "처리 중…" : `${activeTab} 실행`}</button>
+                </div>
+              </section>
+
+              {busy ? <div className="processing-bar" role="status"><span aria-hidden="true" /><strong>{activeTab} 처리 중</strong><small>선택한 파일의 구조와 근거를 확인하고 있습니다.</small></div> : null}
+              {activeTab === "Extract" && operationResult ? (
+                <div className="export-actions">
+                  <span>전체 추출 결과를 파일로 저장합니다.</span>
+                  <button type="button" className="secondary-action" onClick={() => exportFiles("csv")} disabled={busy}>CSV 다운로드</button>
+                  <button type="button" onClick={() => exportFiles("xlsx")} disabled={busy}>XLSX 다운로드</button>
+                </div>
               ) : null}
-              <div className="operation-actions">
-                {(activeTab === "Analyze" || activeTab === "Compare" || activeTab === "Check") ? <button type="button" className="secondary-action" onClick={runAiAssist} disabled={busy || selected.length === 0}>{activeTab === "Check" ? "Local AI 문장 검수" : "Local AI 보조"}</button> : null}
-                <button type="button" onClick={runActive} disabled={actionDisabled}>{busy ? "처리 중…" : `${activeTab} 실행`}</button>
-              </div>
-            </section>
-            {busy ? <div className="processing-bar" role="status"><span aria-hidden="true" /><strong>{activeTab} 처리 중</strong><small>선택한 파일의 구조와 근거를 확인하고 있습니다.</small></div> : null}
-            {activeTab === "Extract" && operationResult ? (
-              <div className="export-actions">
-                <span>전체 추출 결과를 파일로 저장합니다.</span>
-                <button type="button" className="secondary-action" onClick={() => exportFiles("csv")} disabled={busy}>CSV 다운로드</button>
-                <button type="button" onClick={() => exportFiles("xlsx")} disabled={busy}>XLSX 다운로드</button>
-              </div>
-            ) : null}
-            {activeTab === "Compare"
-              ? <ComparisonView comparison={comparison} compareIds={compareIds} fileNames={fileNames} detail={detail} onSource={openSource} onCloseSource={closeSource} />
-              : <ResultView
-                tab={activeTab}
-                result={operationResult}
-                fileNames={fileNames}
-                detail={detail}
-                onSource={openSource}
-                onCloseSource={closeSource}
-                dictionary={{ userTerms, ignoredRules, onAddTerm: addTerm, onRemoveTerm: removeTerm, onClearTerms: clearTerms, onToggleRule: toggleRule }}
-              />}
-        </>
+
+              {activeTab === "Compare"
+                ? <ComparisonView comparison={comparison} compareIds={compareIds} fileNames={fileNames} detail={null} onSource={openSource} onCloseSource={closeSource} />
+                : <ResultView
+                  tab={activeTab}
+                  result={operationResult}
+                  fileNames={fileNames}
+                  detail={null}
+                  onSource={openSource}
+                  onCloseSource={closeSource}
+                  dictionary={{ userTerms, ignoredRules, onAddTerm: addTerm, onRemoveTerm: removeTerm, onClearTerms: clearTerms, onToggleRule: toggleRule }}
+                />}
+            </>
+          )}
+        </section>
+      </div>
+
+      {detail ? (
+        <aside className="evidence-inspector">
+          <SourceDetail source={detail.source} label={sourceLabel(detail.source, fileNames, detail.role)} onClose={closeSource} />
+        </aside>
+      ) : null}
+    </div>
+  );
+}
+
+/** Dictionary and Settings share one surface; both are browser-local by design. */
+function SettingsView({ view, userTerms, ignoredRules, onAddTerm, onRemoveTerm, onClearTerms, onToggleRule }: {
+  view: "Dictionary" | "Settings";
+  userTerms: string[];
+  ignoredRules: string[];
+  onAddTerm: (term: string) => void;
+  onRemoveTerm: (term: string) => void;
+  onClearTerms: () => void;
+  onToggleRule: (ruleId: string) => void;
+}) {
+  const [draft, setDraft] = useState("");
+  if (view === "Settings") {
+    return (
+      <section className="settings-surface" aria-label="Settings">
+        <div className="section-header"><h2>설정</h2><p>이 브라우저에만 적용되는 항목입니다.</p></div>
+        <dl className="settings-list">
+          <div><dt>저장 위치</dt><dd>파일과 분석 결과는 이 탭의 메모리에만 있습니다. 새로고침하면 사라집니다.</dd></div>
+          <div><dt>localStorage</dt><dd>개인 사전 단어와 무시한 규칙 ID만 저장합니다. 문서 본문과 근거는 저장하지 않습니다.</dd></div>
+          <div><dt>무시한 규칙</dt><dd>
+            {ignoredRules.length
+              ? <div className="dictionary-term-list">{ignoredRules.map((rule) => (
+                <span className="dictionary-term" key={rule}>{rule}
+                  <button type="button" aria-label={`${rule} 복원`} onClick={() => onToggleRule(rule)}>×</button>
+                </span>
+              ))}</div>
+              : "없음"}
+          </dd></div>
+          <div><dt>Local AI</dt><dd>구성되지 않으면 Ask, Brief, 문장 검수만 중단되고 나머지 기능은 그대로 동작합니다.</dd></div>
+        </dl>
       </section>
-    </main>
+    );
+  }
+  return (
+    <section className="settings-surface" aria-label="Dictionary">
+      <div className="section-header"><h2>용어 사전</h2><p>사전은 맞춤법과 용어 오탐만 억제합니다.</p></div>
+      <div className="dictionary-section">
+        <h4>Company Terms <span>{companyTermFile.terms.length}</span></h4>
+        <p className="dictionary-note">회사 공용 사전은 읽기 전용입니다.</p>
+        <div className="dictionary-term-list">
+          {companyTermFile.terms.map((term) => <span className="dictionary-term" key={term}>{term}</span>)}
+        </div>
+      </div>
+      <div className="dictionary-section">
+        <h4>My Terms <span>{userTerms.length}</span></h4>
+        <form onSubmit={(event) => { event.preventDefault(); onAddTerm(draft); setDraft(""); }}>
+          <input value={draft} maxLength={64} placeholder="용어 추가" aria-label="개인 용어 추가" onChange={(event) => setDraft(event.target.value)} />
+          <button type="submit" disabled={!draft.trim()}>추가</button>
+        </form>
+        {userTerms.length
+          ? <div className="dictionary-term-list">{userTerms.map((term) => (
+            <span className="dictionary-term" key={term}>{term}
+              <button type="button" aria-label={`${term} 삭제`} onClick={() => onRemoveTerm(term)}>×</button>
+            </span>
+          ))}</div>
+          : <p className="dictionary-empty">등록한 개인 용어가 없습니다.</p>}
+        <div className="dictionary-actions">
+          <button type="button" onClick={onClearTerms} disabled={!userTerms.length}>전체 초기화</button>
+        </div>
+        <p className="dictionary-note">개인 사전은 이 브라우저에만 저장됩니다.</p>
+      </div>
+    </section>
   );
 }
 
