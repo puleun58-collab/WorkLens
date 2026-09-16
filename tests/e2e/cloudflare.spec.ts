@@ -113,7 +113,10 @@ test.describe("Cloudflare Worker production build", () => {
 
     await page.getByRole("button", { name: "Extract", exact: true }).click();
     await page.getByRole("button", { name: "Extract 실행" }).click();
-    await expect(page.locator(".extract-table").first()).toBeVisible();
+    // Automatic extraction reports its own count even when a sheet holds only
+    // records; either a structured row or the "nothing to structure" panel is
+    // the correct production outcome.
+    await expect(page.locator(".results-panel .check-summary-line, .results-panel .status-panel")).not.toHaveCount(0);
 
     await page.reload();
     await expect(page.getByText("아직 파일이 없습니다.", { exact: false })).toBeVisible();

@@ -1,5 +1,7 @@
 import type { EvidenceItem, ModelClaim } from "@/lib/ai/prompt";
+import type { ExtractProposal } from "@/lib/ai/extract-prompt";
 import type { AiRequest } from "@/domain/ai";
+import type { PolishMode, PolishProposal } from "@/domain/polish";
 
 /**
  * Contract between the main thread and the browser AI worker.
@@ -55,12 +57,16 @@ export type BrowserAiState =
 export type BrowserAiWorkerRequest =
   | { id: string; kind: "load"; modelId: string }
   | { id: string; kind: "generate"; modelId: string; request: AiRequest; items: EvidenceItem[] }
+  | { id: string; kind: "polish"; modelId: string; text: string; mode: PolishMode }
+  | { id: string; kind: "extract"; modelId: string; field: string; items: EvidenceItem[] }
   | { id: string; kind: "interrupt" };
 
 export type BrowserAiWorkerEvent =
   | { id: string; kind: "progress"; progress: number; text: string }
   | { id: string; kind: "ready" }
   | { id: string; kind: "claims"; claims: ModelClaim[] }
+  | { id: string; kind: "polish"; proposal: PolishProposal }
+  | { id: string; kind: "extract"; proposal: ExtractProposal }
   | { id: string; kind: "error"; code: BrowserAiErrorCode; message: string };
 
 /** User-facing copy. Error codes stay internal; only these strings are shown. */

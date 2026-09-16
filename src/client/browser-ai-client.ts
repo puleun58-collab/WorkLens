@@ -1,4 +1,6 @@
 import type { AiRequest } from "@/domain/ai";
+import type { PolishMode, PolishProposal } from "@/domain/polish";
+import type { ExtractProposal } from "@/lib/ai/extract-prompt";
 import type { EvidenceItem, ModelClaim } from "@/lib/ai/prompt";
 import {
   BROWSER_AI_BASELINE_MODEL_ID,
@@ -25,13 +27,15 @@ export interface BrowserAiFailure {
   message: string;
 }
 
-type Pending = {
-  id: string;
-  /** `load` settles on ready; `generate` settles on claims. */
-  kind: "load" | "generate";
-  resolve: (claims: ModelClaim[]) => void;
-  reject: (failure: BrowserAiFailure) => void;
-};
+/**
+ * One request at a time. `load` settles on ready, `generate` on claims, and
+ * `polish` on a single rewrite proposal, so each kind carries its own resolve
+ * type instead of a shared any-shaped payload.
+ */
+type Pending =
+  | { id: string; kind: "load" | "generate"; resolve: (claims: ModelClaim[]) => void; reject: (failure: BrowserAiFailure) => void }
+  | { id: string; kind: "polish"; resolve: (proposal: PolishProposal) => void; reject: (failure: BrowserAiFailure) => void }
+  | { id: string; kind: "extract"; resolve: (proposal: ExtractProposal) => void; reject: (failure: BrowserAiFailure) => void };
 
 let worker: Worker | undefined;
 let pending: Pending | undefined;
@@ -156,7 +160,21 @@ function ensureWorker(): Worker {
         const entry = pending;
         pending = undefined;
         publish({ phase: "ready" });
-        entry.resolve(message.claims);
+        if (entry.kind === "load" || entry.kind === "generate") entry.resolve(message.claims);
+        return;
+      }
+      case "polish": {
+        const entry = pending;
+        pending = undefined;
+        publish({ phase: "ready" });
+        if (entry.kind === "polish") entry.resolve(message.proposal);
+        return;
+      }
+      case "extract": {
+        const entry = pending;
+        pending = undefined;
+        publish({ phase: "ready" });
+        if (entry.kind === "extract") entry.resolve(message.proposal);
         return;
       }
       case "error": {
@@ -181,17 +199,39 @@ function ensureWorker(): Worker {
   return created;
 }
 
+/** Busy check plus the loading phase every request shares. */
+function begin(): { id: string; target: Worker } {
+  const id = crypto.randomUUID();
+  const target = ensureWorker();
+  if (state.phase !== "ready") publish({ phase: "loading", progress: 0, text: "브라우저 AI를 준비하는 중" });
+  return { id, target };
+}
+
 function send(kind: "load" | "generate", payload?: { request: AiRequest; items: EvidenceItem[] }): Promise<ModelClaim[]> {
   if (pending) {
     return Promise.reject<ModelClaim[]>({ code: "BUSY", message: BROWSER_AI_MESSAGES.BUSY } satisfies BrowserAiFailure);
   }
-  const id = crypto.randomUUID();
-  const target = ensureWorker();
-  if (state.phase !== "ready") publish({ phase: "loading", progress: 0, text: "브라우저 AI를 준비하는 중" });
+  const { id, target } = begin();
   return new Promise<ModelClaim[]>((resolve, reject) => {
     pending = { id, kind, resolve, reject };
     const modelId = selectedModelId();
     target.postMessage(payload ? { id, kind, modelId, ...payload } : { id, kind, modelId });
+  });
+}
+
+/**
+ * Rewrites one prose segment. Polish runs segment by segment through the same
+ * single-request lifecycle as every other AI task: no parallel generations,
+ * and the caller's cancel applies to the segment in flight.
+ */
+export function polishBrowserAi(text: string, mode: PolishMode): Promise<PolishProposal> {
+  if (pending) {
+    return Promise.reject<PolishProposal>({ code: "BUSY", message: BROWSER_AI_MESSAGES.BUSY } satisfies BrowserAiFailure);
+  }
+  const { id, target } = begin();
+  return new Promise<PolishProposal>((resolve, reject) => {
+    pending = { id, kind: "polish", resolve, reject };
+    target.postMessage({ id, kind: "polish", modelId: selectedModelId(), text, mode });
   });
 }
 
@@ -206,6 +246,21 @@ export async function loadBrowserAi(): Promise<void> {
  */
 export function generateBrowserAi(request: AiRequest, items: EvidenceItem[]): Promise<ModelClaim[]> {
   return send("generate", { request, items });
+}
+
+/**
+ * Resolves one requested field against one bounded evidence window. The window
+ * is built by the document worker, so this call carries handles and text only.
+ */
+export function extractBrowserAi(field: string, items: EvidenceItem[]): Promise<ExtractProposal> {
+  if (pending) {
+    return Promise.reject<ExtractProposal>({ code: "BUSY", message: BROWSER_AI_MESSAGES.BUSY } satisfies BrowserAiFailure);
+  }
+  const { id, target } = begin();
+  return new Promise<ExtractProposal>((resolve, reject) => {
+    pending = { id, kind: "extract", resolve, reject };
+    target.postMessage({ id, kind: "extract", modelId: selectedModelId(), field, items });
+  });
 }
 
 /** Stops generation in place; the loaded model stays in memory. */

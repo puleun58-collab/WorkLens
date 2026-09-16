@@ -1,12 +1,12 @@
 # WorkLens
 
-WorkLens는 XLSX, CSV, PDF, DOCX, PPTX 파일을 **브라우저 안에서** 분석·비교·검수·추출하는 임시 문서 작업 공간입니다.
+WorkLens는 XLSX, CSV, PDF, DOCX, PPTX 파일을 **브라우저 안에서** 분석·비교·검수·윤문·추출하는 임시 문서 작업 공간입니다.
 
 - 파일 원본과 파싱 결과는 탭의 메모리에만 존재하며 서버로 업로드되지 않습니다.
 - 새로고침하거나 탭을 닫으면 모든 작업 데이터가 즉시 사라집니다.
 - 로그인, 서버 세션, 쿠키, IndexedDB를 사용하지 않습니다. localStorage에는 사용자가 직접 등록한 개인 사전 단어, 무시한 규칙 ID, 브라우저 AI 모델 다운로드 동의 여부만 저장하며, 문서 본문·파싱 결과·Finding·근거·질문·답변은 저장하지 않습니다.
-- Analyze, Compare, Check, Extract, 내보내기는 Web Worker에서 AI 없이 동작합니다.
-- Ask / Brief / AI 문장 검수는 선택 계층이며 **브라우저 안의 AI 워커**에서 실행됩니다. 외부 유료 AI API도, 별도 AI 서버도 호출하지 않습니다.
+- Analyze, Compare, Check, Extract(자동/항목 지정 중 문서에 명시된 부분), 내보내기는 Web Worker에서 AI 없이 동작합니다.
+- Ask / Brief / Polish / AI 문장 검수 / Extract 의미 기반 항목 탐색은 선택 계층이며 **브라우저 안의 AI 워커**에서 실행됩니다. 외부 유료 AI API도, 별도 AI 서버도 호출하지 않습니다.
 - 모든 결과는 파일, 문서 버전, 노드, 원문 위치를 `SourceRef`로 보존합니다.
 
 **프로덕션:** https://worklens.puleun58.workers.dev
@@ -17,9 +17,9 @@ WorkLens는 XLSX, CSV, PDF, DOCX, PPTX 파일을 **브라우저 안에서** 분�
 | --- | --- | --- |
 | 파일 검증(확장자/매직/ZIP 구조) | 브라우저 Web Worker | `src/lib/upload.ts` |
 | 파싱(XLSX·CSV·PDF·DOCX·PPTX) | 브라우저 Web Worker | `src/lib/parsers/*` |
-| Analyze / Check / Extract / Compare | 브라우저 Web Worker | `src/lib/deterministic.ts`, `src/lib/check/`, `src/domain/compare.ts` |
-| CSV·XLSX 내보내기 | 브라우저 Web Worker | `src/lib/export.ts` |
-| Ask / Brief / AI 문장 검수 | 브라우저 AI Web Worker (WebLLM + WebGPU) | `src/client/browser-ai-worker.ts`, 모델 `Qwen3-1.7B-q4f16_1-MLC` (최초 1회 약 990 MB 다운로드, 이후 브라우저 캐시 재사용) |
+| Analyze / Check / Extract / Compare | 브라우저 Web Worker | `src/lib/deterministic.ts`, `src/lib/check/`, `src/lib/extract/`, `src/domain/compare.ts` |
+| CSV·XLSX 내보내기 | 브라우저 Web Worker | `src/lib/export.ts`, `src/lib/extract/export.ts` |
+| Ask / Brief / Polish / AI 문장 검수 / Extract 항목 탐색 | 브라우저 AI Web Worker (WebLLM + WebGPU) | `src/client/browser-ai-worker.ts`, 모델 `Qwen3-1.7B-q4f16_1-MLC` (최초 1회 약 990 MB 다운로드, 이후 브라우저 캐시 재사용) |
 | 정적 호스팅 | Cloudflare Workers + Assets | KV·R2에 사용자 데이터 저장 없음 |
 
 - 문서 처리기는 `src/client/document-worker.ts` 하나이며, 메인 스레드는 `src/client/document-client.ts`로만 통신합니다.
@@ -91,7 +91,29 @@ Check는 제출 전 최종 검수 도구입니다. 네 영역을 한 번에 점�
 
 브라우저 AI를 사용할 수 없으면 상태 박스에 사유만 표시하고 deterministic 검수는 정상 수행합니다. 사용할 수 있으면 "브라우저 AI 문장 검수" 결과가 Check 목록에 Suggestion으로 합쳐지며, 모델이 보고한 확신도(High/Medium/Low)를 그대로 사용합니다.
 
-## 6. 환경 변수
+## 6. Polish 기능
+
+Polish는 제출 전 문장을 다듬는 기능입니다. Check가 문제를 찾고, Polish가 문장을 고칩니다.
+
+- 모드 3종: **기본 윤문**(최소 수정) · **간결하게**(중복·우회 표현 축소) · **업무 문체**(보고서·공지·메일 문장). 세 모드 모두 사실 보존 규칙은 같습니다.
+- 문서 전체를 한 번에 재작성하지 않습니다. 문서 워커가 산문 노드만 골라내고(`src/lib/polish/candidates.ts`), 문장·문단 단위로 한 건씩 브라우저 AI에 보냅니다.
+- 모든 결과는 `src/lib/polish/protect.ts`가 다시 검증합니다. 숫자·금액·비율·날짜·시간·단위·이메일·URL·코드가 달라지거나, 직접 인용이 바뀌거나, 가능성/의무/요청/예정/부정의 강도가 달라지거나, 원문이 절반 이상 사라지면 결과를 적용하지 않고 원문을 유지합니다.
+- `changed: false`는 정상 결과입니다. 이미 자연스러운 문장은 그대로 둡니다.
+- Ask·Brief 답변, Check 수정안, Extract 문단에서도 같은 엔진을 쓰는 `윤문` 인라인 액션을 제공합니다. SourceRef와 EvidenceBinding은 그대로 유지됩니다.
+- 규칙 출처와 라이선스 고지는 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)에 있습니다.
+
+## 7. Extract 기능
+
+Extract는 문서에서 필요한 정보를 필드/값으로 구조화해 표로 만드는 기능입니다.
+
+- **자동 추출**: 문서가 명시한 라벨/값(문단의 `라벨: 값`, 2열 표)과 반복 표를 찾아 `FIELD / VALUE / TYPE / SOURCE`로 정리합니다. 반복 표는 필드로 쪼개지 않고 표 구조를 유지합니다.
+- **항목 지정 추출**: 원하는 항목명을 직접 입력하면 같은 스키마로 여러 파일을 취합합니다. 결과는 한 파일 = 한 행 구조이며 XLSX에서 그대로 사용할 수 있습니다.
+- **전체 텍스트 내보내기**: 기존의 문단·표 전체 덤프는 이 보조 모드로 이동했습니다.
+- deterministic 우선: 문서가 명시한 값은 모델 없이 추출하고, 답이 없는 항목만 항목별 bounded 근거 창으로 브라우저 AI에 질의합니다. 근거 창에 없는 값은 버리고 `찾지 못함`으로 남깁니다.
+- 원문 표기를 유지하고(`displayValue`), 해석이 확실한 경우에만 `normalizedValue`를 덧붙입니다. 만원·억원처럼 단위 해석이 필요한 금액은 변환하지 않습니다.
+- XLSX는 `Extracted Data` + `Evidence`(+ 반복 표가 있으면 `Records`) 시트로 내보내고, CSV는 같은 표에 SOURCE 열을 포함합니다. 구조화 결과가 생성된 뒤에만 다운로드가 활성화됩니다.
+
+## 8. 환경 변수
 
 | 변수 | 기본값 | 설명 |
 | --- | --- | --- |
@@ -112,7 +134,7 @@ AI 전용 환경 변수는 없습니다. Ask/Brief/문장 검수는 브라우저
 | 브라우저 AI 동의 | 브라우저 `localStorage` (`worklens:browser-ai-consent:v1:<model-id>`) | 모델별 다운로드 허용 여부만. 동의가 있어도 모델 캐시 존재를 가정하지 않고 항상 로드를 시도 |
 | AI 모델 weight·런타임 asset | 브라우저 캐시 | 모델 파일만, 업무 데이터 없음 |
 
-## 7. Cloudflare 배포
+## 9. Cloudflare 배포
 
 ```bash
 bun run deploy      # vinext 빌드 후 wrangler deploy
@@ -120,13 +142,13 @@ bun run deploy      # vinext 빌드 후 wrangler deploy
 
 `wrangler.jsonc`는 정적 asset과 공용 용어 사전용 D1 바인딩만 설정합니다. 사용자 파일·세션·작업 상태를 저장하는 바인딩은 사용하지 않습니다.
 
-## 8. 브라우저 요구 사항
+## 10. 브라우저 요구 사항
 
 - ES module Web Worker 지원 브라우저(최신 Chrome, Edge, Firefox, Safari)
 - 파일 크기가 클수록 탭 메모리를 사용합니다. 파일당 100 MiB, 작업 공간 합계 300 MiB 상한은 브라우저 메모리를 기준으로 정해져 있습니다.
 - 본문 폰트는 self-hosted Pretendard Variable(`public/fonts/pretendard/ + unicode-range 동적 서브셋`, SIL OFL 1.1)이며 외부 CDN을 사용하지 않습니다.
 
-## 9. Testing
+## 11. Testing
 
 ```bash
 bun run test:e2e:cloudflare  # vinext build + local Wrangler Worker E2E

@@ -1,13 +1,16 @@
 /// <reference lib="webworker" />
 import "./worker-globals";
 import { buildComparison } from "@/domain/compare";
-import type { NormalizedDocument } from "@/domain/document";
+import type { NormalizedDocument, SourceRef } from "@/domain/document";
 import { analyzeDocument, checkDocument, extractDocument } from "@/lib/deterministic";
 import { exportDocumentCsv, exportDocumentXlsx } from "@/lib/export";
 import { parseDocument } from "@/lib/parsers";
 import { buildEvidenceNodes, groundAiResult } from "@/lib/ai/grounding";
 import { evidenceWindow, resolveClaims, type EvidenceWindow } from "@/lib/ai/prompt";
 import { askRelevance, selectEvidence } from "@/lib/ai/retrieval";
+import { collectPolishCandidates } from "@/lib/polish/candidates";
+import { autoExtract } from "@/lib/extract/auto";
+import { extractRequestedFields } from "@/lib/extract/fields";
 import {
   DocumentError,
   assertWorkspaceWithinLimit,
@@ -120,6 +123,57 @@ async function handle(request: WorkerRequest): Promise<unknown> {
         ? new TextEncoder().encode(`\uFEFF${exported.content}`)
         : exported.content;
       return { fileName: exported.fileName, mimeType: exported.mimeType, bytes };
+    }
+    case "polish-candidates": {
+      // Prose selection happens where the documents live; only the chosen
+      // sentences and their canonical sources cross to the main thread.
+      return requireDocuments(request.fileIds).map((entry) => ({
+        file: { id: entry.file.id, name: entry.file.name },
+        candidates: collectPolishCandidates(entry.document),
+      }));
+    }
+    case "extract-structured": {
+      // Deterministic pass only: the worker owns the documents, and whatever
+      // it can read from structure never needs a model.
+      const requested = request.fields ?? [];
+      const files = requireDocuments(request.fileIds).map((entry) => {
+        const file = { id: entry.file.id, name: entry.file.name };
+        if (requested.length === 0) return autoExtract(entry.document, file);
+        const plan = extractRequestedFields(entry.document, file, requested);
+        return { ...plan.extraction, missing: plan.unresolved };
+      });
+      return {
+        mode: requested.length === 0 ? "auto" : "fields",
+        requestedFields: requested,
+        files,
+        summary: {
+          fields: files.reduce((sum, entry) => sum + entry.fields.length, 0),
+          missing: files.reduce((sum, entry) => sum + entry.missing.length, 0),
+          records: files.reduce((sum, entry) => sum + entry.records.length, 0),
+          lowConfidence: 0,
+        },
+      };
+    }
+    case "field-evidence": {
+      // One field, one file: the model only ever sees the window that the
+      // field's own wording retrieved.
+      const [entry] = requireDocuments([request.fileId]);
+      const candidates = buildEvidenceNodes([entry.document]);
+      const window = evidenceWindow(selectEvidence(candidates, { operation: "ask", question: request.field }, { limit: 12 }));
+      if (window.items.length === 0) {
+        throw new DocumentError("NO_EVIDENCE", "해당 항목과 관련된 근거를 찾지 못했습니다.");
+      }
+      const windowId = crypto.randomUUID();
+      evidenceWindows.set(windowId, { window, documents: [entry.document] });
+      return { windowId, items: window.items, candidates: candidates.length };
+    }
+    case "field-source": {
+      const retained = evidenceWindows.get(request.windowId);
+      if (!retained) throw new DocumentError("EVIDENCE_EXPIRED", "AI 근거 창이 만료되었습니다. 다시 실행하세요.");
+      const sources = request.handles
+        .map((handle) => retained.window.nodes.get(handle.toUpperCase())?.source)
+        .filter((source): source is SourceRef => Boolean(source));
+      return { sources };
     }
     case "evidence": {
       const selected = requireDocuments(request.fileIds).map((entry) => entry.document);

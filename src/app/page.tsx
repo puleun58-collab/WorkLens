@@ -24,7 +24,9 @@ import {
   disposeBrowserAi,
   generateBrowserAi,
   interruptBrowserAi,
+  extractBrowserAi,
   loadBrowserAi,
+  polishBrowserAi,
   probeBrowserAi,
   subscribeBrowserAi,
   type BrowserAiFailure,
@@ -37,6 +39,26 @@ import {
   type BrowserAiState,
 } from "@/client/browser-ai-protocol";
 import type { CheckEntry as WorkerCheckEntry, WorkspaceFile } from "@/client/protocol";
+import {
+  EXTRACT_MODE_LABELS,
+  EXTRACT_TYPE_LABELS,
+  type ExtractMode,
+  type StructuredExtract,
+} from "@/domain/extract";
+import { structuredCsvExport, structuredXlsxExport } from "@/lib/extract/export";
+import { modelField } from "@/lib/extract/fields";
+import { withResolvedField } from "@/lib/extract/merge";
+import {
+  POLISH_MODES,
+  POLISH_MODE_LABELS,
+  POLISH_REJECTION_LABELS,
+  type PolishCandidate,
+  type PolishMode,
+  type PolishOutcome,
+  type PolishResult,
+} from "@/domain/polish";
+import { polishClipboardText, polishResult, reviewProposal, summarizePolish } from "@/lib/polish/engine";
+import { isProse } from "@/lib/polish/candidates";
 import {
   addUserTerm,
   clearUserTerms,
@@ -53,6 +75,7 @@ import {
   BookMarked,
   GitCompareArrows,
   MessageSquareText,
+  PenLine,
   ScrollText,
   ShieldCheck,
   SlidersHorizontal,
@@ -66,6 +89,7 @@ const tabIcons: Record<Tab, typeof BarChart3> = {
   Ask: MessageSquareText,
   Compare: GitCompareArrows,
   Check: ShieldCheck,
+  Polish: PenLine,
   Extract: Table2,
   Brief: ScrollText,
 };
@@ -78,13 +102,14 @@ type ApiError = { code: string; message: string; retryable?: boolean };
  */
 type NoticeScope = "workspace" | ShellView;
 type Notice = { tone: "error" | "success" | "info"; message: string; scope: NoticeScope };
-const tabs = ["Analyze", "Ask", "Compare", "Check", "Extract", "Brief"] as const;
+const tabs = ["Analyze", "Ask", "Compare", "Check", "Polish", "Extract", "Brief"] as const;
 type Tab = (typeof tabs)[number];
 const tabMeta: Record<Tab, { label: string; description: string }> = {
   Analyze: { label: "Analyze", description: "구조와 수치" },
   Ask: { label: "Ask", description: "파일에 질문" },
   Compare: { label: "Compare", description: "버전 차이" },
   Check: { label: "Check", description: "품질과 위험" },
+  Polish: { label: "Polish", description: "문장 윤문" },
   Extract: { label: "Extract", description: "데이터 추출" },
   Brief: { label: "Brief", description: "업무 요약" },
 };
@@ -149,7 +174,12 @@ function isSourceRef(value: unknown): value is SourceRef {
   return typeof value === "object" && value !== null && typeof (value as SourceRef).fileId === "string" && typeof (value as SourceRef).nodeId === "string" && typeof (value as SourceRef).label === "string";
 }
 type SourceRole = "base" | "current";
-type DetailInfo = { source: SourceRef; role?: SourceRole };
+/**
+ * The inspector always receives the full set a result row summarised, each
+ * source with its own role so a comparison stays readable entry by entry.
+ */
+type DetailEntry = { source: SourceRef; role?: SourceRole };
+type DetailInfo = { entries: readonly DetailEntry[] };
 
 function isCheckEntries(value: unknown): value is WorkerCheckEntry[] {
   return Array.isArray(value) && value.length > 0 && value.every((entry) =>
@@ -170,6 +200,11 @@ export default function Home() {
   const [notice, setNotice] = useState<Notice | null>(null);
   const [comparison, setComparison] = useState<ComparisonResult | null>(null);
   const [compareIds, setCompareIds] = useState<{ baseFileId: string; targetFileId: string } | null>(null);
+  const [extractMode, setExtractMode] = useState<ExtractMode>("auto");
+  const [extractFields, setExtractFields] = useState<string[]>([]);
+  const [structured, setStructured] = useState<StructuredExtract | null>(null);
+  const [extractProgress, setExtractProgress] = useState<{ done: number; total: number } | null>(null);
+  const extractCancelled = useRef(false);
   const [operationResult, setOperationResult] = useState<unknown>(null);
   const [detail, setDetail] = useState<DetailInfo | null>(null);
   const [question, setQuestion] = useState("");
@@ -178,6 +213,10 @@ export default function Home() {
   // The AI layer is an external system: state and capability are read through
   // the store instead of mirrored into React state inside an effect.
   const aiState = useSyncExternalStore(subscribeBrowserAi, browserAiState, serverAiState);
+  const [polishMode, setPolishMode] = useState<PolishMode>("default");
+  const [polish, setPolish] = useState<PolishResult | null>(null);
+  const [polishProgress, setPolishProgress] = useState<{ done: number; total: number } | null>(null);
+  const polishCancelled = useRef(false);
   const aiUnsupported = aiState.phase === "unsupported";
   // Analyze, Compare and Check are deterministic by default: their AI layer,
   // and therefore its status box, only appears once the user asks for it.
@@ -186,9 +225,9 @@ export default function Home() {
   const uploadQueue = useRef<Promise<void>>(Promise.resolve());
   const detailTrigger = useRef<HTMLElement | null>(null);
 
-  const openSource = useCallback((source: SourceRef, role: SourceRole | undefined, trigger: HTMLElement | null) => {
+  const openSource = useCallback((entries: readonly DetailEntry[], trigger: HTMLElement | null) => {
     detailTrigger.current = trigger;
-    setDetail({ source, role });
+    setDetail({ entries });
   }, []);
   const closeSource = useCallback(() => {
     const trigger = detailTrigger.current;
@@ -248,7 +287,7 @@ export default function Home() {
   // Capability is probed when the user actually moves to an AI destination, so
   // the landing view stays silent and nothing is downloaded up front.
   useEffect(() => {
-    if (activeTab === "Ask" || activeTab === "Brief") void probeBrowserAi();
+    if (activeTab === "Ask" || activeTab === "Brief" || activeTab === "Polish") void probeBrowserAi();
   }, [activeTab]);
 
   const upload = async (file: File) => {
@@ -353,6 +392,54 @@ export default function Home() {
     else notifyView("error", failure.message ?? "브라우저 AI 작업에 실패했습니다.");
   };
 
+  /**
+   * Polish pipeline. The document worker selects prose and keeps the document;
+   * the main thread walks the candidates one at a time through the AI worker,
+   * verifies every proposal deterministically, and pairs the survivors back
+   * with their canonical SourceRef. The document is never regenerated as a
+   * whole, and only one generation runs at a time.
+   */
+  const runPolish = async () => {
+    if (!selected.length) return;
+    if (selected.length > BROWSER_AI_MAX_FILES) {
+      notifyView("error", `브라우저 AI 작업은 최대 ${BROWSER_AI_MAX_FILES}개 파일만 선택할 수 있습니다.`);
+      return;
+    }
+    const capability = await probeBrowserAi();
+    if (capability.phase === "unsupported" || capability.phase === "awaiting-confirmation") return;
+    setBusy(true);
+    setNotice(null);
+    setPolish(null);
+    polishCancelled.current = false;
+    try {
+      const entries = await runInWorker({ kind: "polish-candidates", fileIds: selected });
+      const candidates = entries.flatMap((entry) => entry.candidates);
+      if (candidates.length === 0) {
+        notifyView("info", "윤문할 문장을 찾지 못했습니다. 표와 수치 위주의 문서일 수 있습니다.");
+        return;
+      }
+      setPolishProgress({ done: 0, total: candidates.length });
+      const outcomes: PolishOutcome[] = [];
+      for (const candidate of candidates) {
+        if (polishCancelled.current) break;
+        const proposal = await polishBrowserAi(candidate.text, polishMode);
+        outcomes.push(reviewProposal(candidate, proposal));
+        setPolishProgress({ done: outcomes.length, total: candidates.length });
+        setPolish(polishResult(polishMode, outcomes));
+      }
+      const summary = summarizePolish(outcomes);
+      notifyView(
+        "success",
+        `윤문 완료 · 변경 제안 ${summary.changed}건 · 변경 없음 ${summary.unchanged}건 · 보호 정보 검증 차단 ${summary.rejected}건`,
+      );
+    } catch (error) {
+      reportAiFailure(error);
+    } finally {
+      setBusy(false);
+      setPolishProgress(null);
+    }
+  };
+
   const runActive = async () => {
     if (!selected.length) return;
     if (activeTab === "Compare") {
@@ -374,7 +461,8 @@ export default function Home() {
     }
     if (activeTab === "Analyze") return runDeterministic("analyze", "구조 및 수치 분석을 완료했습니다.");
     if (activeTab === "Check") return runDeterministic("check", "콘텐츠 및 개인정보 점검을 완료했습니다.");
-    if (activeTab === "Extract") return runDeterministic("extract", "구조화 추출을 완료했습니다.");
+    if (activeTab === "Extract") return runExtract();
+    if (activeTab === "Polish") return runPolish();
     const typed = question.trim();
     return activeTab === "Ask"
       ? runBrowserTask({ operation: "ask", question: typed }, "Ask 결과를 준비했습니다.")
@@ -477,6 +565,96 @@ export default function Home() {
     }
   };
 
+  /**
+   * Structured extraction. The deterministic pass runs in the document worker;
+   * fields it could not answer are then resolved one at a time through the AI
+   * worker, each against its own bounded evidence window, and a value that is
+   * not in that window is dropped rather than shown.
+   */
+  const runExtract = async () => {
+    if (!selected.length) return;
+    if (extractMode === "text") return runDeterministic("extract", "전체 텍스트를 준비했습니다.");
+    const fields = extractMode === "fields" ? extractFields.map((entry) => entry.trim()).filter(Boolean) : [];
+    if (extractMode === "fields" && fields.length === 0) {
+      notifyView("error", "추출할 항목을 한 개 이상 입력하세요.");
+      return;
+    }
+    setBusy(true);
+    setNotice(null);
+    setStructured(null);
+    extractCancelled.current = false;
+    try {
+      const deterministic = await runInWorker({ kind: "extract-structured", fileIds: selected, ...(fields.length ? { fields } : {}) });
+      setStructured(deterministic);
+      const pending = deterministic.files.flatMap((file) => file.missing.map((field) => ({ fileId: file.file.id, field })));
+      if (pending.length === 0) {
+        notifyView("success", `추출 항목 ${deterministic.summary.fields}개 · 확인 필요 ${deterministic.summary.missing}개`);
+        return;
+      }
+      const capability = await probeBrowserAi();
+      if (capability.phase === "unsupported" || capability.phase === "awaiting-confirmation") {
+        notifyView("info", `문서에 명시된 항목 ${deterministic.summary.fields}개를 추출했습니다. 나머지 ${pending.length}개는 브라우저 AI가 준비되면 확인할 수 있습니다.`);
+        return;
+      }
+      let resolved = deterministic;
+      setExtractProgress({ done: 0, total: pending.length });
+      for (const [index, task] of pending.entries()) {
+        if (extractCancelled.current) break;
+        resolved = await resolveFieldWithAi(resolved, task.fileId, task.field);
+        setStructured(resolved);
+        setExtractProgress({ done: index + 1, total: pending.length });
+      }
+      notifyView("success", `추출 항목 ${resolved.summary.fields}개 · 확인 필요 ${resolved.summary.missing}개`);
+    } catch (error) {
+      reportAiFailure(error);
+    } finally {
+      setBusy(false);
+      setExtractProgress(null);
+    }
+  };
+
+  /** One field, one file, one bounded window; sources come back canonical. */
+  const resolveFieldWithAi = async (current: StructuredExtract, fileId: string, field: string): Promise<StructuredExtract> => {
+    let windowId: string | undefined;
+    try {
+      const window = await runInWorker({ kind: "field-evidence", fileId, field });
+      windowId = window.windowId;
+      const proposal = await extractBrowserAi(field, window.items);
+      if (proposal.value === null) return current;
+      const { sources } = await runInWorker({ kind: "field-source", windowId, handles: proposal.handles });
+      if (sources.length === 0) return current;
+      const quote = window.items.find((item) => proposal.handles.includes(item.handle))?.text;
+      return withResolvedField(current, fileId, modelField(field, proposal.value, sources, proposal.confidence, quote));
+    } catch {
+      // A field the model cannot answer stays in 확인 필요; nothing is invented.
+      return current;
+    } finally {
+      if (windowId) void runInWorker({ kind: "release-evidence", windowId });
+    }
+  };
+
+  const exportStructured = async (format: "csv" | "xlsx") => {
+    if (!structured) return;
+    setBusy(true);
+    try {
+      const exported = format === "csv" ? structuredCsvExport(structured) : await structuredXlsxExport(structured);
+      const payload = typeof exported.content === "string"
+        ? new TextEncoder().encode(`\uFEFF${exported.content}`)
+        : exported.content;
+      const url = URL.createObjectURL(new Blob([payload as BlobPart], { type: exported.mimeType }));
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = exported.fileName;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      notifyView("success", `${format.toUpperCase()} 파일을 다운로드했습니다. 다운로드된 복사본은 사용자 기기에서 직접 관리하세요.`);
+    } catch (error) {
+      notifyView("error", (error as ApiError).message ?? "내보내기에 실패했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const deleteAll = () => {
     if (!window.confirm("이 탭에서 처리한 파일과 결과를 모두 지우시겠습니까?")) return;
     disposeWorkspace();
@@ -487,15 +665,22 @@ export default function Home() {
     notifyWorkspace("info", "브라우저 메모리에서 파일과 결과를 모두 지웠습니다.");
   };
 
-  const aiTab = activeTab === "Ask" || activeTab === "Brief";
+  // Ask, Brief and Polish run the model themselves, so they own its
+  // preparation flow; Analyze, Compare and Check only ask for it on request
+  // and Extract never does.
+  const aiTab = activeTab === "Ask" || activeTab === "Brief" || activeTab === "Polish";
   const actionDisabled = busy || selected.length === 0 || (activeTab === "Compare" && selected.length !== 2) || (activeTab === "Ask" && !question.trim()) || (aiTab && aiUnsupported);
   const fileNames = new Map(files.map((file) => [file.id, file.name]));
   const companyTermNames = companyTerms.filter((entry) => entry.active).map((entry) => entry.term);
+  /**
+   * One split, used everywhere: the seven document features share the
+   * workspace file state and its actions, the two utility destinations show
+   * neither — while the files themselves stay in memory untouched.
+   */
   const isUtilityView = shellView === "Dictionary" || shellView === "Settings";
+  const isDocumentWorkspaceView = !isUtilityView;
   const selectedNames = files.filter((file) => selected.includes(file.id)).map((file) => file.name).join(", ");
-  // Ask and Brief are AI features, so they own the preparation flow. Extract
-  // never uses the model, and the other tabs only show it on request. A ready
-  // model needs no box at all: the action buttons already say so.
+  // A ready model needs no box at all: the action buttons already say so.
   const aiStatusVisible = activeTab !== "Extract"
     && (aiTab || aiAssistRequested)
     && aiState.phase !== "ready"
@@ -602,7 +787,7 @@ export default function Home() {
             aria-label="작업 파일 선택"
             onChange={(event: ChangeEvent<HTMLInputElement>) => { enqueueUploads(event.target.files); event.target.value = ""; }}
           />
-          {files.length === 0 && !isUtilityView ? (
+          {files.length === 0 && isDocumentWorkspaceView ? (
             <div
               className={`dropzone${uploading ? " busy" : ""}`}
               onDragOver={(event) => event.preventDefault()}
@@ -632,7 +817,7 @@ export default function Home() {
             </StatusPanel>
           ) : null}
 
-          {isUtilityView ? (
+          {!isDocumentWorkspaceView ? (
             <SettingsView
               view={shellView}
               companyTerms={companyTerms}
@@ -678,8 +863,7 @@ export default function Home() {
 
               <section className="operation-bar" aria-label={`${activeTab} action`}>
                 <div className="operation-context">
-                  <strong>{activeTab}</strong>
-                  <span>{activeTab === "Compare" ? "기준과 현재 파일을 순서대로 두 개 선택하세요." : activeTab === "Check" ? "Writing · Consistency · Data · Privacy를 한 번에 검수합니다." : aiTab ? `브라우저 AI는 최대 ${BROWSER_AI_MAX_FILES}개 파일에서 근거를 확인합니다.` : "최대 10개 파일을 함께 처리할 수 있습니다."}</span>
+                  <span>{activeTab === "Compare" ? "기준과 현재 파일을 순서대로 두 개 선택하세요." : activeTab === "Check" ? "Writing · Consistency · Data · Privacy를 한 번에 검수합니다." : activeTab === "Polish" ? "문장 단위로 다듬고 숫자·날짜·인용은 그대로 유지합니다." : activeTab === "Extract" ? "문서에서 필요한 항목을 찾아 표로 만듭니다. 여러 파일을 선택하면 같은 항목으로 취합합니다." : aiTab ? `브라우저 AI는 최대 ${BROWSER_AI_MAX_FILES}개 파일에서 근거를 확인합니다.` : "최대 10개 파일을 함께 처리할 수 있습니다."}</span>
                 </div>
                 {(activeTab === "Ask" || activeTab === "Brief") ? (
                   <label className="question-field">
@@ -692,6 +876,33 @@ export default function Home() {
                     />
                     <small>{question.length.toLocaleString("ko-KR")} / 2,000</small>
                   </label>
+                ) : null}
+                {activeTab === "Extract" ? (
+                  <ExtractControls
+                    mode={extractMode}
+                    fields={extractFields}
+                    busy={busy}
+                    onMode={setExtractMode}
+                    onFields={setExtractFields}
+                  />
+                ) : null}
+                {activeTab === "Polish" ? (
+                  <fieldset className="polish-modes">
+                    <legend>윤문 모드</legend>
+                    {POLISH_MODES.map((mode) => (
+                      <label key={mode}>
+                        <input
+                          type="radio"
+                          name="polish-mode"
+                          value={mode}
+                          checked={polishMode === mode}
+                          disabled={busy}
+                          onChange={() => setPolishMode(mode)}
+                        />
+                        <span>{POLISH_MODE_LABELS[mode]}</span>
+                      </label>
+                    ))}
+                  </fieldset>
                 ) : null}
                 <div className="operation-actions">
                   {(activeTab === "Analyze" || activeTab === "Compare" || activeTab === "Check") ? <button type="button" className="secondary-action" onClick={runAiAssist} disabled={busy || selected.length === 0}>{activeTab === "Check" ? "브라우저 AI 문장 검수" : "브라우저 AI 보조"}</button> : null}
@@ -707,27 +918,52 @@ export default function Home() {
                   onInterrupt={interruptBrowserAi}
                 />
               ) : null}
-
-              {busy ? <StatusPanel variant="info" className="processing-bar" live="polite" title={`${activeTab} 처리 중`}><small>선택한 파일의 구조와 근거를 확인하고 있습니다.</small></StatusPanel> : null}
-              {activeTab === "Extract" && operationResult ? (
+              {busy && polishProgress ? (
+                <StatusPanel variant="info" className="processing-bar" live="polite" title={`윤문 처리 중 ${polishProgress.done}/${polishProgress.total}`}>
+                  <small>문장 단위로 한 번에 하나씩 처리합니다.</small>
+                  <div className="ai-status-actions">
+                    <button type="button" className="secondary-action" onClick={() => { polishCancelled.current = true; interruptBrowserAi(); }}>생성 중지</button>
+                  </div>
+                </StatusPanel>
+              ) : busy && extractProgress ? (
+                <StatusPanel variant="info" className="processing-bar" live="polite" title={`항목 확인 중 ${extractProgress.done}/${extractProgress.total}`}>
+                  <small>항목별로 관련 근거만 확인합니다.</small>
+                  <div className="ai-status-actions">
+                    <button type="button" className="secondary-action" onClick={() => { extractCancelled.current = true; interruptBrowserAi(); }}>생성 중지</button>
+                  </div>
+                </StatusPanel>
+              ) : busy ? <StatusPanel variant="info" className="processing-bar" live="polite" title={`${activeTab} 처리 중`}><small>선택한 파일의 구조와 근거를 확인하고 있습니다.</small></StatusPanel> : null}
+              {activeTab === "Extract" && extractMode === "text" && operationResult ? (
                 <div className="export-actions">
-                  <span>전체 추출 결과를 파일로 저장합니다.</span>
+                  <span>문단과 표 전체 텍스트를 파일로 저장합니다.</span>
                   <button type="button" className="secondary-action" onClick={() => exportFiles("csv")} disabled={busy}>CSV 다운로드</button>
                   <button type="button" onClick={() => exportFiles("xlsx")} disabled={busy}>XLSX 다운로드</button>
+                </div>
+              ) : null}
+              {activeTab === "Extract" && extractMode !== "text" && structured && structured.summary.fields > 0 ? (
+                <div className="export-actions">
+                  <span>추출한 표와 근거 시트를 파일로 저장합니다.</span>
+                  <button type="button" className="secondary-action" onClick={() => exportStructured("csv")} disabled={busy}>CSV 다운로드</button>
+                  <button type="button" onClick={() => exportStructured("xlsx")} disabled={busy}>XLSX 다운로드</button>
                 </div>
               ) : null}
 
               {activeTab === "Compare"
                 ? <ComparisonView comparison={comparison} compareIds={compareIds} fileNames={fileNames} detail={null} onSource={openSource} onCloseSource={closeSource} />
-                : <ResultView
-                  tab={activeTab}
-                  result={operationResult}
-                  fileNames={fileNames}
-                  detail={null}
-                  onSource={openSource}
-                  onCloseSource={closeSource}
-                  dictionary={{ userTerms, ignoredRules, onAddTerm: addTerm, onRemoveTerm: removeTerm, onClearTerms: clearTerms, onToggleRule: toggleRule }}
-                />}
+                : activeTab === "Polish"
+                  ? <PolishResults result={polish} fileNames={fileNames} onSource={openSource} />
+                  : activeTab === "Extract" && extractMode !== "text"
+                    ? <StructuredExtractResults result={structured} fileNames={fileNames} onSource={openSource} />
+                    : <ResultView
+                    tab={activeTab}
+                    result={operationResult}
+                    fileNames={fileNames}
+                    detail={null}
+                    onSource={openSource}
+                    onCloseSource={closeSource}
+                    polishMode={polishMode}
+                    dictionary={{ userTerms, ignoredRules, onAddTerm: addTerm, onRemoveTerm: removeTerm, onClearTerms: clearTerms, onToggleRule: toggleRule }}
+                  />}
             </>
           )}
         </section>
@@ -735,7 +971,7 @@ export default function Home() {
 
       {detail ? (
         <aside className="evidence-inspector">
-          <SourceDetail source={detail.source} label={sourceLabel(detail.source, fileNames, detail.role)} onClose={closeSource} />
+          <SourceDetail entries={detail.entries} fileNames={fileNames} onClose={closeSource} />
         </aside>
       ) : null}
     </div>
@@ -801,13 +1037,13 @@ function BrowserAiStatus({ state, onConfirm, onCancelLoad, onInterrupt }: {
     );
   }
   if (state.phase === "awaiting-confirmation") {
+    // A work surface only needs the decision: what it costs once, and that it
+    // is reused afterwards. Model name, feature list and the privacy and cache
+    // policy live in 설정 > 브라우저 AI, not on top of the user's task.
     return (
       <StatusPanel variant="info" className="ai-status confirm" tone="group" label="브라우저 AI 준비" title="브라우저 AI 준비">
         <p className="ai-copy">
-          Ask, Brief, 문장 검수는 브라우저에서 {BROWSER_AI_MODEL_LABEL} 모델로 실행되며, 최초 1회 약 {BROWSER_AI_MODEL_MB}MB 모델을 내려받은 뒤 브라우저 캐시를 재사용합니다.
-        </p>
-        <p className="ai-copy">
-          문서와 질문은 외부로 전송되거나 저장되지 않으며, 캐시에는 모델 파일만 남습니다.
+          최초 1회 약 {BROWSER_AI_MODEL_MB}MB 모델을 내려받으며 이후 브라우저 캐시를 재사용합니다.
         </p>
         <div className="ai-status-actions">
           <button type="button" className="ai-confirm" onClick={onConfirm}>AI 준비</button>
@@ -977,7 +1213,7 @@ function sourceLabel(source: SourceRef, fileNames: Map<string, string>, role?: S
 type AnalyzeEntry = { file: { id: string; name: string }; analysis: AnalyzeResult };
 type CheckEntry = { file: { id: string; name: string }; check: CheckResult };
 type ExtractEntry = { file: { id: string; name: string }; extraction: ExtractResult };
-type SourceHandler = (source: SourceRef, role: SourceRole | undefined, trigger: HTMLElement | null) => void;
+type SourceHandler = (entries: readonly DetailEntry[], trigger: HTMLElement | null) => void;
 
 interface ResultViewProps {
   tab: Tab;
@@ -986,7 +1222,8 @@ interface ResultViewProps {
   detail: DetailInfo | null;
   onSource: SourceHandler;
   onCloseSource: () => void;
-  dictionary: Omit<CheckViewProps, "entries" | "fileNames" | "onSource">;
+  polishMode: PolishMode;
+  dictionary: Omit<CheckViewProps, "entries" | "fileNames" | "onSource" | "polishMode">;
 }
 
 /** One line of work name plus one line of scope; no state wording, no eyebrow. */
@@ -994,11 +1231,12 @@ const placeholderCopy: Record<Exclude<Tab, "Compare">, [string, string]> = {
   Analyze: ["문서 분석", "파일을 선택하면 문서 구조와 주요 수치를 분석합니다."],
   Ask: ["질문하기", "선택한 파일을 근거로 질문에 답합니다."],
   Check: ["문서 검수", "파일을 선택하면 문장·일관성·데이터·개인정보를 검수합니다."],
+  Polish: ["문장 윤문", "파일을 선택하면 번역투와 중복 표현을 문장 단위로 다듬습니다."],
   Extract: ["정보 추출", "파일을 선택하면 표·날짜·금액·인물·할 일을 추출합니다."],
   Brief: ["브리프 작성", "파일을 선택하면 핵심 내용을 업무 문서 형식으로 정리합니다."],
 };
 
-function ResultView({ tab, result, fileNames, detail, onSource, onCloseSource, dictionary }: ResultViewProps) {
+function ResultView({ tab, result, fileNames, detail, onSource, onCloseSource, dictionary, polishMode }: ResultViewProps) {
   if (!result) {
     const [title, body] = placeholderCopy[tab as Exclude<Tab, "Compare">];
     return <section className="state-card result-placeholder"><h2>{title}</h2><p>{body}</p></section>;
@@ -1006,9 +1244,9 @@ function ResultView({ tab, result, fileNames, detail, onSource, onCloseSource, d
 
   let content: React.ReactNode;
   if (tab === "Analyze" && Array.isArray(result)) content = <AnalyzeResults entries={result as AnalyzeEntry[]} fileNames={fileNames} onSource={onSource} />;
-  else if (tab === "Check" && Array.isArray(result)) content = <CheckResults entries={result as CheckEntry[]} fileNames={fileNames} onSource={onSource} {...dictionary} />;
-  else if (tab === "Extract" && Array.isArray(result)) content = <ExtractResults entries={result as ExtractEntry[]} fileNames={fileNames} onSource={onSource} />;
-  else if (isAiAvailableResult(result)) content = <AiResults result={result} fileNames={fileNames} onSource={onSource} />;
+  else if (tab === "Check" && Array.isArray(result)) content = <CheckResults entries={result as CheckEntry[]} fileNames={fileNames} onSource={onSource} polishMode={polishMode} {...dictionary} />;
+  else if (tab === "Extract" && Array.isArray(result)) content = <ExtractResults entries={result as ExtractEntry[]} fileNames={fileNames} onSource={onSource} polishMode={polishMode} />;
+  else if (isAiAvailableResult(result)) content = <AiResults result={result} fileNames={fileNames} onSource={onSource} polishMode={polishMode} />;
   else content = <JsonValue value={result} fileNames={fileNames} onSource={onSource} />;
 
   return (
@@ -1018,7 +1256,7 @@ function ResultView({ tab, result, fileNames, detail, onSource, onCloseSource, d
         <span className="result-provenance">근거 연결 결과</span>
       </div>
       {content}
-      {detail ? <SourceDetail source={detail.source} label={sourceLabel(detail.source, fileNames, detail.role)} onClose={onCloseSource} /> : null}
+      {detail ? <SourceDetail entries={detail.entries} fileNames={fileNames} onClose={onCloseSource} /> : null}
     </section>
   );
 }
@@ -1028,13 +1266,339 @@ function isAiAvailableResult(value: unknown): value is AiAvailableResult {
 }
 
 /**
+ * Extract controls: which way of extracting, and — in field mode — which
+ * fields. The field list is the schema, reused for every selected file, so ten
+ * monthly reports become ten rows of the same columns.
+ */
+function ExtractControls({ mode, fields, busy, onMode, onFields }: {
+  mode: ExtractMode;
+  fields: string[];
+  busy: boolean;
+  onMode: (mode: ExtractMode) => void;
+  onFields: (fields: string[]) => void;
+}) {
+  const [draft, setDraft] = useState("");
+  const add = () => {
+    const value = draft.trim();
+    if (!value || fields.includes(value)) { setDraft(""); return; }
+    onFields([...fields, value]);
+    setDraft("");
+  };
+  return (
+    <div className="extract-controls">
+      <fieldset className="extract-modes">
+        <legend>추출 방식</legend>
+        {(["auto", "fields", "text"] as const).map((entry) => (
+          <label key={entry}>
+            <input type="radio" name="extract-mode" value={entry} checked={mode === entry} disabled={busy} onChange={() => onMode(entry)} />
+            <span>{EXTRACT_MODE_LABELS[entry]}</span>
+          </label>
+        ))}
+      </fieldset>
+      {mode === "fields" ? (
+        <div className="extract-fields">
+          {fields.map((field) => (
+            <span className="extract-field" key={field}>
+              {field}
+              <button type="button" aria-label={`${field} 삭제`} disabled={busy} onClick={() => onFields(fields.filter((entry) => entry !== field))}>×</button>
+            </span>
+          ))}
+          <input
+            value={draft}
+            aria-label="추출할 항목"
+            placeholder="항목명 입력 (예: 회의일시)"
+            maxLength={40}
+            disabled={busy}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); add(); } }}
+          />
+          <button type="button" className="secondary-action" disabled={busy || !draft.trim()} onClick={add}>항목 추가</button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Structured extraction result. Several files with one schema read as a table;
+ * a single file reads as a field list. Both keep the value's own wording and
+ * its source, and a field the document does not state stays visibly missing.
+ */
+function StructuredExtractResults({ result, fileNames, onSource }: {
+  result: StructuredExtract | null;
+  fileNames: Map<string, string>;
+  onSource: SourceHandler;
+}) {
+  const [view, setView] = useState<"fields" | "table">("table");
+  if (!result) {
+    return <section className="state-card result-placeholder"><h2>정보 추출</h2><p>자동 추출은 문서에 적힌 항목과 값을 찾아 표로 만듭니다. 필요한 항목이 정해져 있으면 항목 지정 추출을 사용하세요.</p></section>;
+  }
+  if (result.summary.fields === 0 && result.summary.records === 0) {
+    return (
+      <section className="panel results-panel">
+        <div className="panel-heading result-heading">
+          <div><p className="eyebrow">Extract result</p><h2>정보 추출</h2></div>
+        </div>
+        <StatusPanel variant="info" className="result-clear" title="추출 가능한 구조화 항목을 찾지 못했습니다.">
+          <p>필요한 항목이 정해져 있다면 항목 지정 추출을 사용해 보세요. 원문 전체가 필요하면 전체 텍스트 내보내기를 선택하세요.</p>
+        </StatusPanel>
+      </section>
+    );
+  }
+
+  const multiFile = result.files.length > 1;
+  const asTable = result.mode === "fields" ? view === "table" || multiFile : view === "table";
+  const columns = result.mode === "fields"
+    ? result.requestedFields
+    : [...new Set(result.files.flatMap((file) => file.fields.map((field) => field.field)))];
+
+  return (
+    <section className="panel results-panel">
+      <div className="panel-heading result-heading">
+        <div><p className="eyebrow">Extract result</p><h2>{result.mode === "fields" ? "항목 지정 추출" : "자동 추출"}</h2></div>
+        <div className="extract-view-toggle">
+          <button type="button" aria-pressed={asTable} onClick={() => setView("table")}>표 보기</button>
+          <button type="button" aria-pressed={!asTable} onClick={() => setView("fields")}>항목 보기</button>
+        </div>
+      </div>
+      <p className="check-summary-line">
+        <span className="metric">추출 항목 <b>{result.summary.fields}</b></span>
+        <span className="metric">확인 필요 <b>{result.summary.missing}</b></span>
+        {result.summary.records ? <span className="metric">반복 표 <b>{result.summary.records}</b></span> : null}
+        {result.summary.lowConfidence ? <span className="metric">낮은 확신 <b>{result.summary.lowConfidence}</b></span> : null}
+      </p>
+
+      {asTable && result.mode === "fields" ? (
+        <div className="extract-table-wrap">
+          <table className="extract-table">
+            <thead><tr><th>파일</th>{columns.map((column) => <th key={column}>{column}</th>)}</tr></thead>
+            <tbody>
+              {result.files.map((file) => (
+                <tr key={file.file.id}>
+                  <td title={file.file.name}>{file.file.name}</td>
+                  {columns.map((column) => {
+                    const field = file.fields.find((entry) => entry.field === column);
+                    return (
+                      <td key={column} title={field?.displayValue}>
+                        {field ? field.displayValue : <span className="muted">찾지 못함</span>}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+
+      {asTable && result.mode === "auto" ? (
+        <div className="data-table extract-auto-table" role="table" aria-label="자동 추출 결과">
+          <div className="data-head" role="row"><span role="columnheader">파일</span><span role="columnheader">항목</span><span role="columnheader">값</span><span role="columnheader">형식</span><span role="columnheader">근거</span></div>
+          {result.files.flatMap((file) => file.fields.map((field) => (
+            <div className="data-row" role="row" key={`${file.file.id}-${field.field}-${field.displayValue}`}>
+              <span role="cell" title={file.file.name}>{file.file.name}</span>
+              <span role="cell">{field.field}</span>
+              <span role="cell" title={field.normalizedValue ? `정규화: ${field.normalizedValue}` : undefined}>{field.displayValue}</span>
+              <span role="cell">{EXTRACT_TYPE_LABELS[field.type]}{field.confidence ? ` · ${field.confidence.toUpperCase()}` : ""}</span>
+              <span role="cell"><ResultSource sources={field.sources} fileNames={fileNames} onSource={onSource} /></span>
+            </div>
+          )))}
+        </div>
+      ) : null}
+
+      {!asTable ? result.files.map((file) => (
+        <article className="document-result" key={file.file.id}>
+          <header className="document-result-heading"><div><span>추출 결과</span><h3 title={file.file.name}>{file.file.name}</h3></div><small>항목 {file.fields.length}개</small></header>
+          <dl className="extract-field-list">
+            {file.fields.map((field) => (
+              <div key={`${field.field}-${field.displayValue}`}>
+                <dt>{field.field}</dt>
+                <dd>
+                  <strong>{field.displayValue}</strong>
+                  <span className="extract-field-meta">{EXTRACT_TYPE_LABELS[field.type]}{field.confidence ? ` · 확신 ${field.confidence}` : ""}</span>
+                  <ResultSource sources={field.sources} fileNames={fileNames} onSource={onSource} />
+                </dd>
+              </div>
+            ))}
+            {file.missing.map((field) => (
+              <div key={`missing-${field}`}>
+                <dt>{field}</dt>
+                <dd><span className="muted">찾지 못함</span></dd>
+              </div>
+            ))}
+          </dl>
+        </article>
+      )) : null}
+
+      {result.files.flatMap((file) => file.records.map((record) => (
+        <section className="result-subsection" key={`${file.file.id}-${record.id}`}>
+          <div className="subsection-heading"><h4>{file.file.name} · {record.title}</h4><ResultSource sources={[record.source]} fileNames={fileNames} onSource={onSource} /></div>
+          <div className="extract-table-wrap">
+            <table className="extract-table">
+              <thead><tr>{record.columns.map((column, index) => <th key={`${column}-${index}`}>{column}</th>)}</tr></thead>
+              <tbody>
+                {record.rows.map((row, index) => (
+                  <tr key={index}>{row.cells.map((cell, cellIndex) => <td key={cellIndex} title={cell}>{cell || "없음"}</td>)}</tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )))}
+    </section>
+  );
+}
+
+/**
+ * Polish result list. Rewrites first, everything the run left alone folded
+ * away: a review is read by what changed, not by what did not.
+ */
+function PolishResults({ result, fileNames, onSource }: {
+  result: PolishResult | null;
+  fileNames: Map<string, string>;
+  onSource: SourceHandler;
+}) {
+  const [showUnchanged, setShowUnchanged] = useState(false);
+  if (!result) {
+    return <section className="state-card result-placeholder"><h2>문장 윤문</h2><p>파일을 선택하고 윤문 모드를 고르면 번역투·중복 표현을 문장 단위로 다듬습니다. 숫자·날짜·인용은 그대로 유지합니다.</p></section>;
+  }
+  const changed = result.outcomes.filter((entry) => entry.status === "changed");
+  const unchanged = result.outcomes.filter((entry) => entry.status === "unchanged");
+  const rejected = result.outcomes.filter((entry) => entry.status === "rejected");
+
+  return (
+    <section className="panel results-panel">
+      <div className="panel-heading result-heading">
+        <div><p className="eyebrow">Polish result</p><h2>문장 윤문</h2></div>
+        <span className="result-provenance">{POLISH_MODE_LABELS[result.mode]}</span>
+      </div>
+      <p className="check-summary-line">
+        <span className="metric">변경 제안 <b>{result.summary.changed}</b></span>
+        <span className="metric">변경 없음 <b>{result.summary.unchanged}</b></span>
+        <span className="metric">보호 검증 차단 <b>{result.summary.rejected}</b></span>
+        {changed.length ? (
+          <button type="button" className="secondary-action" onClick={() => void navigator.clipboard?.writeText(polishClipboardText(result.outcomes))}>전체 복사</button>
+        ) : null}
+      </p>
+
+      {changed.length === 0 && rejected.length === 0 ? (
+        <StatusPanel variant="success" className="result-clear" title="다듬을 문장을 찾지 못했습니다."><p>선택한 문서의 문장은 이미 자연스럽습니다.</p></StatusPanel>
+      ) : null}
+
+      {changed.map((entry) => (
+        <article className="polish-row" key={entry.id}>
+          <div className="polish-text">
+            <span className="polish-label">원문</span>
+            <p>{entry.originalText}</p>
+            <span className="polish-label">윤문</span>
+            <p className="polish-revised">{entry.revisedText}</p>
+            {entry.reasons.length ? <em>{entry.reasons.join(" · ")}</em> : null}
+          </div>
+          <div className="polish-actions">
+            {entry.source ? <ResultSource sources={[entry.source]} fileNames={fileNames} onSource={onSource} /> : null}
+            <button type="button" className="secondary-action" onClick={() => void navigator.clipboard?.writeText(entry.revisedText)}>복사</button>
+          </div>
+        </article>
+      ))}
+
+      {rejected.map((entry) => (
+        <article className="polish-row rejected" key={entry.id}>
+          <div className="polish-text">
+            <span className="polish-label">원문 유지</span>
+            <p>{entry.originalText}</p>
+            <em>{entry.rejection ? POLISH_REJECTION_LABELS[entry.rejection] : "윤문 결과를 적용하지 않았습니다."}</em>
+          </div>
+          <div className="polish-actions">
+            {entry.source ? <ResultSource sources={[entry.source]} fileNames={fileNames} onSource={onSource} /> : null}
+          </div>
+        </article>
+      ))}
+
+      {unchanged.length ? (
+        <div className="polish-unchanged">
+          <button type="button" aria-expanded={showUnchanged} onClick={() => setShowUnchanged(!showUnchanged)}>
+            변경 없음 {unchanged.length}건 {showUnchanged ? "접기" : "보기"}
+          </button>
+          {showUnchanged ? (
+            <ul>
+              {unchanged.map((entry) => (
+                <li key={entry.id}>
+                  <p>{entry.originalText}</p>
+                  {entry.source ? <ResultSource sources={[entry.source]} fileNames={fileNames} onSource={onSource} /> : null}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+/**
+ * The inline 윤문 action other features use. One prose string, the shared
+ * engine, the same deterministic guard: Ask and Brief claims, Check
+ * recommendations and Extract paragraphs all polish through this.
+ */
+function PolishAction({ text, label, origin, source, mode }: {
+  text: string;
+  /** Spoken context for the action, e.g. "Ask 답변". */
+  label: string;
+  origin: PolishCandidate["origin"];
+  source?: SourceRef;
+  mode: PolishMode;
+}) {
+  const [outcome, setOutcome] = useState<PolishOutcome | null>(null);
+  const [running, setRunning] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
+  const run = async () => {
+    setRunning(true);
+    setFailure(null);
+    try {
+      const candidate: PolishCandidate = {
+        id: source?.nodeId ?? label,
+        text,
+        source: source ?? { fileId: "", nodeId: label, label },
+        origin,
+      };
+      setOutcome(reviewProposal(candidate, await polishBrowserAi(text, mode)));
+    } catch (error) {
+      setFailure((error as BrowserAiFailure).message ?? "윤문에 실패했습니다.");
+    } finally {
+      setRunning(false);
+    }
+  };
+  return (
+    <span className="polish-inline">
+      <button type="button" className="secondary-action" aria-label={`${label} 윤문`} disabled={running} onClick={() => void run()}>
+        {running ? "윤문 중…" : "윤문"}
+      </button>
+      {failure ? <em className="polish-inline-note">{failure}</em> : null}
+      {outcome?.status === "changed" ? (
+        <span className="polish-inline-result">
+          <span className="polish-label">윤문</span>
+          <p>{outcome.revisedText}</p>
+          {outcome.reasons.length ? <em>{outcome.reasons.join(" · ")}</em> : null}
+          <button type="button" className="secondary-action" onClick={() => void navigator.clipboard?.writeText(outcome.revisedText)}>복사</button>
+        </span>
+      ) : null}
+      {outcome?.status === "unchanged" ? <em className="polish-inline-note">이미 자연스러운 문장입니다.</em> : null}
+      {outcome?.status === "rejected" ? (
+        <em className="polish-inline-note">{outcome.rejection ? POLISH_REJECTION_LABELS[outcome.rejection] : "윤문 결과를 적용하지 않았습니다."}</em>
+      ) : null}
+    </span>
+  );
+}
+
+/**
  * The single source presentation for every result type: Analyze insight,
  * Ask/Brief claim, Compare change, Check finding, Extract value.
  *
- * Reading order is locator then action. The file name only appears when the
- * item itself spans files, because otherwise the surrounding section already
- * names it. Multiple sources are all listed: none is hidden behind a
- * representative one, and each opens the evidence inspector on its own node.
+ * A result row answers "where" and "how many", not "list them all": repeated
+ * locators collapse to `· N건`, several locators to `대표 외 N곳`, and one
+ * action opens the evidence inspector on the whole set. Nothing is dropped —
+ * every SourceRef reaches the inspector, which lists them one by one — so
+ * this is presentation only and grounding is untouched.
  */
 function ResultSource({ sources, fileNames, onSource, roleOf, emptyLabel = "근거 위치 없음" }: {
   sources: readonly SourceRef[];
@@ -1045,47 +1609,42 @@ function ResultSource({ sources, fileNames, onSource, roleOf, emptyLabel = "근�
 }) {
   if (sources.length === 0) return <span className="source-empty">{emptyLabel}</span>;
   const acrossFiles = new Set(sources.map((source) => source.fileId)).size > 1;
-  const entries = sources.map((source, index) => {
-    const role = roleOf?.(source);
-    const fileName = fileNames.get(source.fileId);
-    const locator = locatorText(source);
+  const describe = (source: SourceRef): string => {
     // 기준/현재 already identifies the file in a comparison, and the panel
     // header spells both names out; only an unlabelled cross-file item needs
-    // the name inline, and even then the tooltip carries the full string.
-    const prefix = roleText(role) ?? (acrossFiles ? fileName : undefined);
-    return { key: `${source.nodeId}-${index}`, source, role, fileName, locator, prefix };
-  });
+    // the name inline.
+    const prefix = roleText(roleOf?.(source)) ?? (acrossFiles ? fileNames.get(source.fileId) : undefined);
+    return prefix ? `${prefix} · ${locatorText(source)}` : locatorText(source);
+  };
 
-  if (entries.length === 1) {
-    const [entry] = entries;
-    return (
-      <span className="result-source">
-        <span className="source-locator" title={entry.fileName ? `${entry.fileName} · ${entry.locator}` : entry.locator}>
-          {entry.prefix ? <em>{entry.prefix}</em> : null}{entry.locator}
-        </span>
-        <button
-          type="button"
-          className="source-action"
-          aria-label={`${entry.prefix ? `${entry.prefix} ` : ""}${entry.locator} 근거 보기`}
-          onClick={(event) => onSource(entry.source, entry.role, event.currentTarget)}
-        >근거 보기</button>
-      </span>
-    );
+  // Document order decides the representative: the list is never re-sorted.
+  const groups: { label: string; count: number }[] = [];
+  for (const source of sources) {
+    const label = describe(source);
+    const existing = groups.find((entry) => entry.label === label);
+    if (existing) existing.count += 1;
+    else groups.push({ label, count: 1 });
   }
+  const [lead] = groups;
+  const summary = groups.length > 1
+    ? `${lead.label} 외 ${groups.length - 1}곳`
+    : lead.count > 1 ? `${lead.label} · ${lead.count}건` : lead.label;
+  const action = groups.length > 1 ? `근거 ${sources.length}곳 보기` : "근거 보기";
+  const ariaLabel = groups.length > 1
+    ? `${lead.label} 외 ${groups.length - 1}곳, 근거 ${sources.length}곳 보기`
+    : lead.count > 1 ? `${lead.label} 근거 ${lead.count}건 보기` : `${lead.label} 근거 보기`;
 
   return (
-    <span className="result-source multi" aria-label={`관련 근거 ${entries.length}곳 보기`}>
-      <span className="source-count">근거 {entries.length}곳</span>
-      {entries.map((entry) => (
-        <button
-          key={entry.key}
-          type="button"
-          className="source-action locator"
-          title={entry.fileName ? `${entry.fileName} · ${entry.locator}` : entry.locator}
-          aria-label={`${entry.prefix ? `${entry.prefix} ` : ""}${entry.locator} 근거 보기`}
-          onClick={(event) => onSource(entry.source, entry.role, event.currentTarget)}
-        >{entry.prefix ? <em>{entry.prefix}</em> : null}{entry.locator}</button>
-      ))}
+    <span className="result-source">
+      <span className="source-locator" title={groups.map((entry) => entry.count > 1 ? `${entry.label} · ${entry.count}건` : entry.label).join("\n")}>
+        {summary}
+      </span>
+      <button
+        type="button"
+        className="source-action"
+        aria-label={ariaLabel}
+        onClick={(event) => onSource(sources.map((source) => ({ source, role: roleOf?.(source) })), event.currentTarget)}
+      >{action}</button>
     </span>
   );
 }
@@ -1144,6 +1703,7 @@ interface CheckViewProps {
   entries: CheckEntry[];
   fileNames: Map<string, string>;
   onSource: SourceHandler;
+  polishMode: PolishMode;
   userTerms: string[];
   ignoredRules: string[];
   onAddTerm: (term: string) => void;
@@ -1152,7 +1712,7 @@ interface CheckViewProps {
   onToggleRule: (ruleId: string) => void;
 }
 
-function CheckResults({ entries, fileNames, onSource, userTerms, ignoredRules, onAddTerm, onRemoveTerm, onClearTerms, onToggleRule }: CheckViewProps) {
+function CheckResults({ entries, fileNames, onSource, polishMode, userTerms, ignoredRules, onAddTerm, onRemoveTerm, onClearTerms, onToggleRule }: CheckViewProps) {
   const [severityFilter, setSeverityFilter] = useState<"all" | CheckSeverity>("all");
   const [groupFilter, setGroupFilter] = useState<"all" | CheckCategoryGroup>("all");
   const [showLowConfidence, setShowLowConfidence] = useState(false);
@@ -1373,7 +1933,14 @@ function CheckResults({ entries, fileNames, onSource, userTerms, ignoredRules, o
                           <div className="check-issue-detail">
                             <div><span>Reason</span><p>{finding.reason}</p></div>
                             {finding.originalText ? <div><span>Original</span><blockquote>{finding.originalText}</blockquote></div> : null}
-                            {finding.suggestedText ? <div className="suggested-copy"><span>Suggested</span><blockquote>{finding.suggestedText}</blockquote></div> : null}
+                            {finding.suggestedText ? (
+                              <div className="suggested-copy">
+                                <span>Suggested</span>
+                                <blockquote>{finding.suggestedText}</blockquote>
+                                {/* Prose in a finding: the detection stays with Check, the rewrite goes through Polish. */}
+                                <PolishAction text={finding.suggestedText} label={`${finding.issue} 수정안`} origin="suggestion" source={finding.source} mode={polishMode} />
+                              </div>
+                            ) : null}
                             {finding.relatedFindingIds?.length ? (
                               <div className="related-findings"><span>Related</span><div>{finding.relatedFindingIds.map((id) => {
                                 const related = byId.get(id);
@@ -1415,7 +1982,7 @@ function CheckResults({ entries, fileNames, onSource, userTerms, ignoredRules, o
   );
 }
 
-function ExtractResults({ entries, fileNames, onSource }: { entries: ExtractEntry[]; fileNames: Map<string, string>; onSource: SourceHandler }) {
+function ExtractResults({ entries, fileNames, onSource, polishMode }: { entries: ExtractEntry[]; fileNames: Map<string, string>; onSource: SourceHandler; polishMode: PolishMode }) {
   return (
     <div className="result-sections">
       {entries.map(({ file, extraction }) => (
@@ -1434,7 +2001,13 @@ function ExtractResults({ entries, fileNames, onSource }: { entries: ExtractEntr
           {extraction.paragraphs.length ? (
             <section className="result-subsection">
               <div className="subsection-heading"><h4>문단</h4><span>{extraction.paragraphs.length}개</span></div>
-              <div className="paragraph-list">{extraction.paragraphs.map((paragraph) => <div key={paragraph.blockId}><p>{paragraph.text}</p><ResultSource sources={[paragraph.source]} fileNames={fileNames} onSource={onSource} /></div>)}</div>
+              <div className="paragraph-list">{extraction.paragraphs.map((paragraph) => (
+                <div key={paragraph.blockId}>
+                  <p>{paragraph.text}</p>
+                  <ResultSource sources={[paragraph.source]} fileNames={fileNames} onSource={onSource} />
+                  {isProse(paragraph.text) ? <PolishAction text={paragraph.text} label={`${locatorText(paragraph.source)} 문단`} origin="paragraph" source={paragraph.source} mode={polishMode} /> : null}
+                </div>
+              ))}</div>
             </section>
           ) : null}
         </article>
@@ -1443,24 +2016,40 @@ function ExtractResults({ entries, fileNames, onSource }: { entries: ExtractEntr
   );
 }
 
-function AiResults({ result, fileNames, onSource }: { result: AiAvailableResult; fileNames: Map<string, string>; onSource: SourceHandler }) {
+function AiResults({ result, fileNames, onSource, polishMode }: {
+  result: AiAvailableResult;
+  fileNames: Map<string, string>;
+  onSource: SourceHandler;
+  polishMode: PolishMode;
+}) {
   const lead = result.operation === "ask" ? result.answer : result.operation === "brief" ? result.brief : undefined;
+  const polishLabel = result.operation === "ask" ? "Ask 답변" : result.operation === "brief" ? "Brief 요약" : "AI 결과";
   return (
     <div className="ai-result">
-      {lead ? <section className="answer-document"><span className="result-type">AI INTERPRETATION · 근거 검증됨</span><p>{lead}</p></section> : null}
+      {lead ? <section className="answer-document"><span className="result-type">AI INTERPRETATION · 근거 검증됨</span><p>{lead}</p><PolishAction text={lead} label={polishLabel} origin="claim" mode={polishMode} /></section> : null}
       <section className="claim-list">
         <div className="subsection-heading"><h3>근거별 주장</h3><span>{result.claims.length} claims</span></div>
-        {result.claims.map((claim) => <ClaimRow key={claim.id} claim={claim} fileNames={fileNames} onSource={onSource} />)}
+        {result.claims.map((claim) => <ClaimRow key={claim.id} claim={claim} fileNames={fileNames} onSource={onSource} polishMode={polishMode} polishLabel={polishLabel} />)}
       </section>
       {result.warnings.length ? <StatusPanel variant="warning" className="result-warnings" title="부분 결과 및 주의">{result.warnings.map((warning) => <p key={warning.code}><strong>{warning.code}</strong>{warning.message}</p>)}</StatusPanel> : null}
     </div>
   );
 }
 
-function ClaimRow({ claim, fileNames, onSource }: { claim: GroundedClaim; fileNames: Map<string, string>; onSource: SourceHandler }) {
+function ClaimRow({ claim, fileNames, onSource, polishMode, polishLabel }: {
+  claim: GroundedClaim;
+  fileNames: Map<string, string>;
+  onSource: SourceHandler;
+  polishMode: PolishMode;
+  polishLabel: string;
+}) {
   return (
     <article className="claim-row">
-      <div className="claim-kind"><span className={claim.kind === "fact" ? "fact" : "inference"}>{claim.kind === "fact" ? "FILE FACT" : "AI INTERPRETATION"}</span></div>
+      <div className="claim-kind">
+        <span className={claim.kind === "fact" ? "fact" : "inference"}>{claim.kind === "fact" ? "FILE FACT" : "AI INTERPRETATION"}</span>
+        {/* Prose, so it can be polished; the evidence binding below is untouched. */}
+        <PolishAction text={claim.text} label={polishLabel} origin="claim" source={claim.evidence[0]?.source} mode={polishMode} />
+      </div>
       <p>{claim.text}</p>
       <div className="claim-evidence">
         {claim.evidence.map((binding: EvidenceBinding, index) => (
@@ -1532,22 +2121,40 @@ function ComparisonView({ comparison, compareIds, fileNames, detail, onSource, o
           </div>
         </div>
       )}
-      {detail ? <SourceDetail source={detail.source} label={sourceLabel(detail.source, fileNames, detail.role)} onClose={onCloseSource} /> : null}
+      {detail ? <SourceDetail entries={detail.entries} fileNames={fileNames} onClose={onCloseSource} /> : null}
     </section>
   );
 }
 
-function SourceDetail({ source, label, onClose }: { source: SourceRef; label: string; onClose: () => void }) {
+/**
+ * The inspector is where the full set lives. A row may summarise several
+ * sources into one line, but each evidence node is listed here separately —
+ * including two nodes that share a locator — so nothing is merged away.
+ */
+function SourceDetail({ entries, fileNames, onClose }: {
+  entries: readonly DetailEntry[];
+  fileNames: Map<string, string>;
+  onClose: () => void;
+}) {
   const panelRef = useRef<HTMLElement>(null);
   useEffect(() => {
     panelRef.current?.focus();
   }, []);
+  const [lead] = entries;
+  const heading = entries.length > 1
+    ? `근거 ${entries.length}곳`
+    : sourceLabel(lead.source, fileNames, lead.role);
   return (
     <aside ref={panelRef} className="source-detail" aria-label="Source detail" tabIndex={-1}>
-      <header><div><p className="eyebrow">Source evidence</p><h2 title={label}>{label}</h2></div><button type="button" onClick={onClose} aria-label="닫기">×</button></header>
+      <header><div><p className="eyebrow">Source evidence</p><h2 title={heading}>{heading}</h2></div><button type="button" onClick={onClose} aria-label="닫기">×</button></header>
       <div className="evidence-type"><span>FILE FACT</span><p>원문에서 확인된 근거</p></div>
-      <blockquote>{source.quote ?? "인용문이 제공되지 않았습니다."}</blockquote>
-      <dl>{source.page !== undefined ? <div><dt>Page / Slide</dt><dd>{source.page}</dd></div> : null}{source.sheet ? <div><dt>Sheet</dt><dd>{source.sheet}</dd></div> : null}{source.cellRange ? <div><dt>Range</dt><dd>{source.cellRange}</dd></div> : null}</dl>
+      {entries.map(({ source, role }, index) => (
+        <section className="evidence-entry" key={`${source.nodeId}-${index}`}>
+          {entries.length > 1 ? <h3>근거 {index + 1} · {sourceLabel(source, fileNames, role)}</h3> : null}
+          <blockquote>{source.quote ?? "인용문이 제공되지 않았습니다."}</blockquote>
+          <dl>{source.page !== undefined ? <div><dt>Page / Slide</dt><dd>{source.page}</dd></div> : null}{source.sheet ? <div><dt>Sheet</dt><dd>{source.sheet}</dd></div> : null}{source.cellRange ? <div><dt>Range</dt><dd>{source.cellRange}</dd></div> : null}</dl>
+        </section>
+      ))}
     </aside>
   );
 }

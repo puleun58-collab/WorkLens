@@ -79,6 +79,27 @@ export function createCheckPptx(): Uint8Array {
   ]);
 }
 
+/**
+ * Meeting deck shaped like a real one: labelled pairs on the cover slide and
+ * an action line on the second. Used by the extraction tests.
+ */
+export function createExtractPptx(): Uint8Array {
+  return createPptxSlides([
+    [
+      "9월 안전보건협의체",
+      "회의일시: 2026.09.15 13:00",
+      "작성부서: 경영지원팀",
+      "참석인원: 12명",
+      "문서번호: SOP-Q3",
+    ],
+    [
+      "조치사항",
+      "조치기한: 2026.09.30",
+      "담당자: 김OO",
+    ],
+  ]);
+}
+
 export function createDocxWithMergedTable(): Uint8Array {
   return zipSync({
     "[Content_Types].xml": strToU8(

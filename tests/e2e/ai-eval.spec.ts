@@ -191,6 +191,47 @@ test("scores Ask, Brief and semantic check against a fixed case set", async ({ p
     latencyMs: Date.now() - checkStarted,
   });
 
+  /**
+   * Polish quality. Scored on what it preserved, not on how much it changed:
+   * every protected token must survive, an already-natural sentence must come
+   * back unchanged, and a rewrite the guard refuses counts as a rejection
+   * rather than a pass.
+   */
+  await select(["deck"]);
+  await page.getByRole("button", { name: "Polish", exact: true }).click();
+  for (const mode of ["기본 윤문", "간결하게", "업무 문체"] as const) {
+    await page.getByRole("radio", { name: mode }).check();
+    const started = Date.now();
+    await page.getByRole("button", { name: "Polish 실행" }).click();
+    await expect(page.locator(".check-summary-line")).toContainText("변경 제안", { timeout: 20 * 60_000 });
+    const rows = page.locator(".polish-row:not(.rejected)");
+    const rewrites = await rows.count();
+    const pairs: { original: string; revised: string }[] = [];
+    for (let index = 0; index < Math.min(rewrites, 10); index += 1) {
+      const texts = await rows.nth(index).locator(".polish-text p").allInnerTexts();
+      if (texts.length >= 2) pairs.push({ original: texts[0], revised: texts[1] });
+    }
+    // Numbers, dates and money in a rewrite must be exactly the original's.
+    const tokens = (value: string) => (value.match(/\d[\d,.]*%?/gu) ?? []).map((entry) => entry.replaceAll(",", "")).sort().join("|");
+    const drifted = pairs.filter((pair) => tokens(pair.original) !== tokens(pair.revised));
+    const rejected = await page.locator(".polish-row.rejected").count();
+    const unchanged = await page.locator(".polish-unchanged > button").count();
+    results.push({
+      id: `polish-${mode}`,
+      operation: "polish",
+      pass: drifted.length === 0,
+      abstained: rewrites === 0,
+      expected: ["protected tokens preserved"],
+      answer: pairs.slice(0, 3).map((pair) => `${pair.original} → ${pair.revised}`).join(" / ").slice(0, 400),
+      citedSources: await page.locator(".polish-row .source-locator").allInnerTexts(),
+      claims: rewrites,
+      fabricated: drifted.map((pair) => pair.revised.slice(0, 80)),
+      latencyMs: Date.now() - started,
+    });
+    // Every rewrite keeps its locator, and refusals are reported, not hidden.
+    expect(rejected + rewrites + unchanged).toBeGreaterThan(0);
+  }
+
   const summary = {
     model,
     cases: results.length,

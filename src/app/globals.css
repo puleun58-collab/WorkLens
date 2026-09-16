@@ -2665,6 +2665,282 @@ input:disabled,
   color: var(--warning);
 }
 
+/* ── Extract: fields and values, dense table first ─────────────────────── */
+.extract-controls {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.extract-modes {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+}
+
+.extract-modes legend {
+  float: left;
+  width: 78px;
+  padding: 2px 10px 0 0;
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+}
+
+.extract-modes label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--ink-soft);
+  font-size: var(--font-size-sm);
+}
+
+.extract-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.extract-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 4px 3px 8px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
+  background: var(--paper);
+  color: var(--ink-soft);
+  font-size: var(--font-size-xs);
+}
+
+.extract-field button {
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--font-size-sm);
+}
+
+.extract-fields > input {
+  min-width: 180px;
+  min-height: 30px;
+  padding: 4px 8px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
+  font-size: var(--font-size-sm);
+}
+
+.extract-view-toggle {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.extract-view-toggle button {
+  min-height: 28px;
+  padding: 4px 10px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
+  background: var(--paper);
+  color: var(--ink-soft);
+  font-size: var(--font-size-xs);
+}
+
+.extract-view-toggle button[aria-pressed="true"] {
+  border-color: #9bc2e5;
+  background: var(--blue-soft);
+  color: var(--blue-active);
+}
+
+.extract-auto-table .data-head,
+.extract-auto-table .data-row {
+  grid-template-columns: minmax(120px, 0.9fr) minmax(100px, 0.8fr) minmax(140px, 1.2fr) 120px minmax(150px, 0.9fr);
+}
+
+.extract-field-list {
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.extract-field-list > div {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.32fr) minmax(0, 1fr);
+  gap: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.extract-field-list dt {
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+}
+
+.extract-field-list dd {
+  margin: 0;
+  display: grid;
+  gap: 3px;
+  justify-items: start;
+}
+
+.extract-field-list dd strong {
+  color: var(--ink);
+  font-size: var(--font-size-sm);
+}
+
+.extract-field-meta {
+  color: var(--muted-light);
+  font-size: var(--font-size-xs);
+}
+
+/* ── Polish: original above rewrite, dense rows, no cards ───────────────── */
+.polish-modes {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+}
+
+.polish-modes legend {
+  float: left;
+  width: 78px;
+  padding: 2px 10px 0 0;
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+}
+
+.polish-modes label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--ink-soft);
+  font-size: var(--font-size-sm);
+}
+
+.polish-row {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line-soft);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(170px, 0.34fr);
+  align-items: start;
+  column-gap: 16px;
+}
+
+.polish-row.rejected {
+  background: var(--warning-soft);
+}
+
+.polish-text {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.polish-label {
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--tracking-label);
+}
+
+.polish-text p {
+  margin: 0 0 6px;
+  color: var(--ink-soft);
+  font-size: var(--font-size-sm);
+  line-height: 1.55;
+}
+
+/* The rewrite is the answer, so it reads at full strength. */
+.polish-text p.polish-revised {
+  color: var(--ink);
+}
+
+.polish-text em {
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+  font-style: normal;
+}
+
+.polish-actions {
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+}
+
+.polish-unchanged {
+  padding: 12px 18px;
+}
+
+.polish-unchanged > button {
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid #7fb0da;
+  background: transparent;
+  color: var(--blue);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+}
+
+.polish-unchanged ul {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+
+.polish-unchanged li {
+  display: grid;
+  gap: 3px;
+}
+
+.polish-unchanged li p {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+}
+
+/* Inline action in other features: quiet until it has something to show. */
+.polish-inline {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.polish-inline-result {
+  flex: 1 1 100%;
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  border-left: 3px solid var(--blue);
+  background: var(--blue-pale);
+}
+
+.polish-inline-result p {
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--font-size-sm);
+  line-height: 1.55;
+}
+
+.polish-inline-note {
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+  font-style: normal;
+}
+
 .claim-row > p {
   margin: 0;
   font-size: 12px;
@@ -3144,14 +3420,15 @@ body {
 /* ── App shell: rail, file context bar, workspace, docked inspector ─────── */
 
 :root {
-  --rail-width: 192px;
   /*
-   * Rail horizontal grid, defined once: the rail inset frames every item box
-   * symmetrically, and the item inset — slightly tighter than the outer one —
-   * is where the icon column starts. Changing these two values moves brand,
-   * section label, navigation and footer together.
+   * Rail width and its horizontal grid, defined once. The rail is 12px wider
+   * than it was so the wordmark and the longest label stop touching the right
+   * edge; the extra space goes to the outer inset, so every item box gains
+   * the same breathing room on both sides and the icon/label start line is
+   * unchanged.
    */
-  --rail-inline-padding: 12px;
+  --rail-width: 204px;
+  --rail-inline-padding: 16px;
   --rail-item-inline-padding: 9px;
   --rail-icon-column: 20px;
   --topbar-height: 70px;
@@ -3159,6 +3436,8 @@ body {
   /* Check table column system: shared by the header row and every body row. */
   --check-row-inset: 18px;
   --check-column-gap: 12px;
+  /* One label→control gap for every Check filter group. */
+  --check-filter-label-gap: 10px;
   --border-subtle: #edf0f3;
   --border-default: var(--line-soft);
   --border-strong: var(--line);
@@ -3422,7 +3701,7 @@ body {
 }
 
 .settings-surface {
-  padding: 20px 24px 24px;
+  padding: 14px 24px 24px;
 }
 
 .section-header {
@@ -3476,8 +3755,18 @@ body {
   margin-top: 2px;
 }
 
+/*
+ * Section rhythm on the utility surface: the first section starts right under
+ * the container edge, and only the gap *between* sections carries space. The
+ * inner rhythm of a section — label, search, tags — is untouched.
+ */
 .settings-surface .dictionary-section {
-  margin-top: var(--space-5);
+  margin-top: var(--space-4);
+}
+
+.settings-surface > .dictionary-section:first-child,
+.settings-surface .dictionary-section:first-of-type {
+  margin-top: 0;
 }
 
 .settings-surface .dictionary-section form {
@@ -4075,8 +4364,7 @@ body {
   background: var(--layer);
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2) var(--space-4);
+  align-items: start;
 }
 
 .check-toolbar .check-filters {
@@ -4149,8 +4437,7 @@ body {
 }
 
 .low-confidence-toggle {
-  min-height: 30px;
-  margin-left: auto;
+  min-height: 0;
   color: var(--ink-soft);
   display: inline-flex;
   align-items: center;
@@ -4425,7 +4712,7 @@ body {
 
 @media (max-width: 1180px) {
   :root {
-    --rail-width: 176px;
+    --rail-width: 186px;
     --inspector-width: 300px;
   }
 }
@@ -5188,16 +5475,28 @@ body {
   font-weight: var(--font-weight-semibold);
 }
 
-/* 5. Filters: group labels on one line, empty buckets one step quieter. */
+/*
+ * 5. Filters: group labels on one line, empty buckets one step quieter.
+ * Severity, Category and the low-confidence group share one label→control
+ * gap, so the three read on the same vertical rhythm without any of them
+ * carrying its own margin.
+ */
 .check-filters {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-3) var(--space-6);
 }
 
-.check-filters fieldset {
+.check-filters fieldset,
+.check-toolbar-actions {
   display: grid;
-  gap: 6px;
+  gap: var(--check-filter-label-gap);
+  align-content: start;
+  justify-items: start;
+}
+
+.check-toolbar-actions {
+  margin-left: auto;
 }
 
 .check-filters legend {

@@ -1,5 +1,7 @@
 import { CreateMLCEngine, type InitProgressReport, type MLCEngine } from "@mlc-ai/web-llm";
 import { CLAIM_RESPONSE_SCHEMA, buildMessages, parseModelResponse } from "@/lib/ai/prompt";
+import { POLISH_RESPONSE_SCHEMA, buildPolishMessages, parsePolishResponse } from "@/lib/ai/polish-prompt";
+import { EXTRACT_RESPONSE_SCHEMA, buildExtractMessages, parseExtractResponse } from "@/lib/ai/extract-prompt";
 import type {
   BrowserAiErrorCode,
   BrowserAiWorkerEvent,
@@ -100,6 +102,50 @@ self.addEventListener("message", (event: MessageEvent<BrowserAiWorkerRequest>) =
     return;
   }
   generating = true;
+  if (request.kind === "polish") {
+    // Polish sends one prose segment at a time: no evidence window, no
+    // locators, and the answer is a single rewrite proposal.
+    void (async () => {
+      const active = await loadEngine(request.id, request.modelId);
+      const completion = await active.chat.completions.create({
+        messages: buildPolishMessages(request.text, request.mode),
+        ...SAMPLING,
+        max_tokens: MAX_OUTPUT_TOKENS,
+        response_format: { type: "json_object", schema: JSON.stringify(POLISH_RESPONSE_SCHEMA) },
+        extra_body: { enable_thinking: false },
+      });
+      const raw = completion.choices[0]?.message?.content ?? "";
+      post({ id: request.id, kind: "polish", proposal: parsePolishResponse(raw, request.text) });
+    })().catch((error: unknown) => {
+      const { code, message } = classify(error);
+      fail(request.id, code === "MODEL_LOAD_FAILED" && engine ? "INFERENCE_FAILED" : code, message);
+    }).finally(() => {
+      generating = false;
+    });
+    return;
+  }
+  if (request.kind === "extract") {
+    // One field against one bounded evidence window; the answer is a value
+    // copied from that window or nothing at all.
+    void (async () => {
+      const active = await loadEngine(request.id, request.modelId);
+      const completion = await active.chat.completions.create({
+        messages: buildExtractMessages(request.field, request.items),
+        ...SAMPLING,
+        max_tokens: MAX_OUTPUT_TOKENS,
+        response_format: { type: "json_object", schema: JSON.stringify(EXTRACT_RESPONSE_SCHEMA) },
+        extra_body: { enable_thinking: false },
+      });
+      const raw = completion.choices[0]?.message?.content ?? "";
+      post({ id: request.id, kind: "extract", proposal: parseExtractResponse(raw, request.field, request.items) });
+    })().catch((error: unknown) => {
+      const { code, message } = classify(error);
+      fail(request.id, code === "MODEL_LOAD_FAILED" && engine ? "INFERENCE_FAILED" : code, message);
+    }).finally(() => {
+      generating = false;
+    });
+    return;
+  }
   void (async () => {
     const active = await loadEngine(request.id, request.modelId);
     const completion = await active.chat.completions.create({

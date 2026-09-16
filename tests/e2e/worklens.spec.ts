@@ -2,7 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { createCheckPptx, createDocx, createPdf, createPptx, createXlsx, RATE_SHEET_V1, RATE_SHEET_V2 } from "../fixtures";
+import { createCheckPptx, createDocx, createExtractPptx, createPdf, createPptx, createXlsx, RATE_SHEET_V1, RATE_SHEET_V2 } from "../fixtures";
 
 const FIXTURE_DIR = path.join(process.cwd(), "artifacts", "fixtures");
 const files = {
@@ -14,6 +14,7 @@ const files = {
   docx: path.join(FIXTURE_DIR, "계약.docx"),
   pptx: path.join(FIXTURE_DIR, "계획.pptx"),
   checkPptx: path.join(FIXTURE_DIR, "최종검수.pptx"),
+  extractPptx: path.join(FIXTURE_DIR, "회의자료.pptx"),
   fake: path.join(FIXTURE_DIR, "위장파일.xlsx"),
 };
 
@@ -27,6 +28,7 @@ test.beforeAll(async () => {
   await writeFile(files.docx, createDocx());
   await writeFile(files.pptx, createPptx());
   await writeFile(files.checkPptx, createCheckPptx());
+  await writeFile(files.extractPptx, createExtractPptx());
   await writeFile(files.fake, "이 파일은 XLSX가 아닙니다");
 });
 
@@ -99,20 +101,24 @@ test("renders distinguishable evidence for two files sharing an identical cell l
   await expect(sections.nth(0).locator(".document-result-heading h3")).toHaveText("운임현황_v1.xlsx");
   await expect(sections.nth(1).locator(".document-result-heading h3")).toHaveText("운임현황_v1_사본.xlsx");
 
-  // Numeric evidence lists render every hit, so the locator may live in the
-  // list button; either way it is locator text with no file name in it.
-  const locators = page.locator(".results-panel :is(.source-locator, .source-action.locator)");
+  // A row summarises its sources; no file name appears inside a locator.
+  const locators = page.locator(".results-panel .source-locator");
   await expect(locators.filter({ hasText: "운송단가" }).first()).toBeVisible();
   for (const text of await locators.allTextContents()) {
     expect(text).not.toContain(".xlsx");
   }
 
+  // The inspector is where the full set lives, and it names file and version.
   const inspectorLabels: string[] = [];
   for (const index of [0, 1]) {
     await sections.nth(index).locator(".source-action").first().click();
     const detail = page.getByLabel("Source detail");
     await expect(detail).toBeVisible();
-    inspectorLabels.push(await detail.locator("h2").innerText());
+    const entries = detail.locator(".evidence-entry h3");
+    const heading = await entries.count() > 0
+      ? await entries.first().innerText()
+      : await detail.locator("h2").innerText();
+    inspectorLabels.push(heading);
     await page.getByLabel("닫기").click();
   }
   expect(inspectorLabels[0]).toContain("운임현황_v1.xlsx");
@@ -139,22 +145,21 @@ test("distinguishes same-named uploaded revisions by document version", async ({
   const row = page.getByTestId("change-row").first();
   await expect(row).toBeVisible();
 
-  // The row itself stays locator-first; 기준/현재 tells the two revisions
-  // apart, and the document version lives in the evidence inspector.
-  const roles = await row.locator(".source-action em").allTextContents();
-  expect(roles.some((text) => text.startsWith("기준"))).toBe(true);
-  expect(roles.some((text) => text.startsWith("현재"))).toBe(true);
+  // The row stays locator-first and summarises both revisions; 기준/현재 tells
+  // them apart, and the document version lives in the evidence inspector.
+  const summary = await row.locator(".source-locator").innerText();
+  expect(summary).toContain("기준");
+  expect(summary).toContain("외 1곳");
 
-  const versions: string[] = [];
-  const actions = row.locator(".source-action");
-  for (const index of [0, 1]) {
-    await actions.nth(index).click();
-    const detail = page.getByLabel("Source detail");
-    await expect(detail).toBeVisible();
-    const version = /버전 ([a-f0-9]{8})/.exec(await detail.locator("h2").innerText())?.[1];
-    if (version) versions.push(version);
-    await page.getByLabel("닫기").click();
-  }
+  await row.locator(".source-action").click();
+  const detail = page.getByLabel("Source detail");
+  await expect(detail).toBeVisible();
+  const headings = await detail.locator(".evidence-entry h3").allInnerTexts();
+  const versions = headings
+    .map((heading) => /버전 ([a-f0-9]{8})/.exec(heading)?.[1])
+    .filter((version): version is string => Boolean(version));
+  expect(headings.some((heading) => heading.includes("기준"))).toBe(true);
+  expect(headings.some((heading) => heading.includes("현재"))).toBe(true);
   expect(new Set(versions).size).toBeGreaterThanOrEqual(2);
 });
 
@@ -182,8 +187,11 @@ test("uploads and normalizes all five formats", async ({ page }) => {
     const name = path.basename(file);
     await fileRow(page, file).getByRole("checkbox").check();
     await page.getByRole("button", { name: "Extract", exact: true }).click();
+    // The full-text mode lists every paragraph and table, so every format's
+    // locator vocabulary is visible here.
+    await page.getByRole("radio", { name: "전체 텍스트 내보내기" }).check();
     await page.getByRole("button", { name: "Extract 실행" }).click();
-    await expect(page.getByText("구조화 추출을 완료했습니다.")).toBeVisible();
+    await expect(page.getByText("전체 텍스트를 준비했습니다.")).toBeVisible();
     const locator = page.locator(".results-panel .source-locator").first();
     await expect(locator).toBeVisible();
     const text = await locator.innerText();
@@ -221,10 +229,18 @@ test("runs deterministic Analyze, Check, Extract/export and degrades browser AI 
 
   await page.getByRole("button", { name: "Extract", exact: true }).click();
   await page.getByRole("button", { name: "Extract 실행" }).click();
-  await expect(page.getByText("구조화 추출을 완료했습니다.")).toBeVisible();
-  const download = page.waitForEvent("download");
+  await expect(page.getByText(/추출 항목 \d+개/)).toBeVisible();
+  const structuredDownload = page.waitForEvent("download");
   await page.getByRole("button", { name: "CSV 다운로드" }).click();
-  expect((await download).suggestedFilename()).toContain(".csv");
+  expect((await structuredDownload).suggestedFilename()).toContain(".csv");
+
+  // The old paragraph/table dump is still available as the secondary mode.
+  await page.getByRole("radio", { name: "전체 텍스트 내보내기" }).check();
+  await page.getByRole("button", { name: "Extract 실행" }).click();
+  await expect(page.getByText("전체 텍스트를 준비했습니다.")).toBeVisible();
+  const textDownload = page.waitForEvent("download");
+  await page.getByRole("button", { name: "XLSX 다운로드" }).click();
+  expect((await textDownload).suggestedFilename()).toContain(".xlsx");
 
   await page.getByRole("button", { name: "Ask", exact: true }).click();
   await page.getByPlaceholder("선택한 문서에서 확인할 내용을 입력하세요").fill("서울 운임은 얼마인가요?");
@@ -239,6 +255,61 @@ test("runs deterministic Analyze, Check, Extract/export and degrades browser AI 
   await page.getByRole("button", { name: "Analyze", exact: true }).click();
   await page.getByRole("button", { name: "Analyze 실행" }).click();
   await expect(page.getByText("구조 및 수치 분석을 완료했습니다.")).toBeVisible();
+});
+
+test("extracts fields and records without a model and exports the structured table", async ({ page }) => {
+  await withoutWebGpu(page);
+  await page.goto("/");
+  await upload(page, files.extractPptx);
+  await page.getByLabel("회의자료.pptx 선택").check();
+  await page.getByRole("button", { name: "Extract", exact: true }).click();
+
+  // Automatic mode: labelled pairs become FIELD/VALUE rows with a locator.
+  await page.getByRole("button", { name: "Extract 실행" }).click();
+  await expect(page.locator(".check-summary-line")).toContainText("추출 항목");
+  const autoTable = page.locator(".extract-auto-table");
+  await expect(autoTable).toBeVisible();
+  await expect(autoTable.locator(".data-row").first().locator(".source-locator")).toBeVisible();
+  // A value is the document's own wording, never a rewritten one.
+  await expect(autoTable).toContainText("경영지원팀");
+
+  // Field mode: the requested names become the columns, one row per file.
+  await page.getByRole("radio", { name: "항목 지정" }).check();
+  const field = page.getByLabel("추출할 항목");
+  await field.fill("작성부서");
+  await page.getByRole("button", { name: "항목 추가" }).click();
+  await field.fill("존재하지 않는 항목");
+  await page.getByRole("button", { name: "항목 추가" }).click();
+  await page.getByRole("button", { name: "Extract 실행" }).click();
+  await expect(page.locator(".check-summary-line")).toContainText("확인 필요");
+  const table = page.locator(".results-panel table.extract-table").first();
+  await expect(table.locator("th").nth(1)).toHaveText("작성부서");
+  // A field the document does not state is reported, never invented.
+  await expect(table).toContainText("찾지 못함");
+
+  const download = page.waitForEvent("download");
+  await page.getByRole("button", { name: "XLSX 다운로드" }).click();
+  expect((await download).suggestedFilename()).toContain(".xlsx");
+});
+
+test("keeps Polish available only through the browser AI layer", async ({ page }) => {
+  await withoutWebGpu(page);
+  await page.goto("/");
+  await upload(page, files.checkPptx);
+  await page.getByLabel("최종검수.pptx 선택").check();
+  await page.getByRole("button", { name: "Polish", exact: true }).click();
+
+  // Polish is an AI feature: without an adapter it says so quietly and the
+  // deterministic features keep working.
+  await expect(page.locator(".ai-status")).toContainText("브라우저 AI를 사용할 수 없습니다");
+  await expect(page.getByRole("button", { name: "Polish 실행" })).toBeDisabled();
+  await expect(page.locator(".notice.error")).toHaveCount(0);
+  await expect(page.getByRole("radio", { name: "간결하게" })).toBeVisible();
+  await expect(page.getByRole("radio", { name: "업무 문체" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Check", exact: true }).click();
+  await page.getByRole("button", { name: "Check 실행" }).click();
+  await expect(page.getByText("콘텐츠 및 개인정보 점검을 완료했습니다.")).toBeVisible();
 });
 
 test("shows the browser AI panel only where the feature asks for it", async ({ page }) => {
@@ -276,7 +347,7 @@ test("shows the browser AI panel only where the feature asks for it", async ({ p
   await page.getByRole("button", { name: "Extract", exact: true }).click();
   await expect(page.locator(".ai-status")).toHaveCount(0);
   await page.getByRole("button", { name: "Extract 실행" }).click();
-  await expect(page.getByText("구조화 추출을 완료했습니다.")).toBeVisible();
+  await expect(page.getByText(/추출 항목 \d+개/)).toBeVisible();
   await expect(page.locator(".ai-status")).toHaveCount(0);
 });
 
@@ -326,7 +397,7 @@ test("keeps the personal dictionary, ignore actions and confidence filter inside
 
   const before = await page.locator(".check-issue").count();
   const typo = page.locator(".check-issue").filter({ hasText: "한글 맞춤법 오류 가능성" });
-  await typo.getByRole("button", { name: /한글 맞춤법 오류 가능성/ }).click();
+  await typo.getByRole("button", { name: /한글 맞춤법 오류 가능성 상세 보기/ }).click();
   await typo.getByRole("button", { name: "내 용어에 추가" }).click();
   await expect(page.locator(".check-issue").filter({ hasText: "한글 맞춤법 오류 가능성" })).toHaveCount(0);
   await expect(page.locator(".check-issue")).toHaveCount(before - 1);
@@ -344,10 +415,10 @@ test("keeps the personal dictionary, ignore actions and confidence filter inside
 
   // Ignoring a rule removes the whole family from the current result.
   const remaining = page.locator(".check-issue").first();
-  await remaining.locator(".check-issue-name > button").click();
-  const ignoredIssue = await remaining.locator(".check-issue-name > button").innerText();
+  const ignoredIssue = await remaining.locator(".check-issue-name > strong").innerText();
+  await remaining.locator(".issue-detail-toggle").click();
   await remaining.getByRole("button", { name: "동일 규칙 무시" }).click();
-  await expect(page.locator(".check-issue").filter({ hasText: ignoredIssue.split("\n")[0] })).toHaveCount(0);
+  await expect(page.locator(".check-issue").filter({ hasText: ignoredIssue })).toHaveCount(0);
 
   // The dictionary survives a reload of the same browser profile.
   await page.reload();
