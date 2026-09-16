@@ -1460,7 +1460,14 @@ function PolishResults({ result, fileNames, onSource }: {
 }) {
   const [showUnchanged, setShowUnchanged] = useState(false);
   if (!result) {
-    return <section className="state-card result-placeholder"><h2>문장 윤문</h2><p>파일을 선택하고 윤문 모드를 고르면 번역투·중복 표현을 문장 단위로 다듬습니다. 숫자·날짜·인용은 그대로 유지합니다.</p></section>;
+    // Two sentences, two lines: neither breaks in the middle of a clause.
+    return (
+      <section className="state-card result-placeholder">
+        <h2>문장 윤문</h2>
+        <p>파일을 선택하고 윤문 모드를 고르면 번역투·중복 표현을 문장 단위로 다듬습니다.</p>
+        <p>숫자·날짜·인용은 그대로 유지합니다.</p>
+      </section>
+    );
   }
   const changed = result.outcomes.filter((entry) => entry.status === "changed");
   const unchanged = result.outcomes.filter((entry) => entry.status === "unchanged");
