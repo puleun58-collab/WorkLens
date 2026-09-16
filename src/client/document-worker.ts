@@ -8,7 +8,13 @@ import { parseDocument } from "@/lib/parsers";
 import { buildEvidenceNodes, groundAiResult } from "@/lib/ai/grounding";
 import { evidenceWindow, resolveClaims, type EvidenceWindow } from "@/lib/ai/prompt";
 import { selectEvidence } from "@/lib/ai/retrieval";
-import { DocumentError, fileKindOf, safeDisplayName, validateUploadBytes } from "@/lib/upload";
+import {
+  DocumentError,
+  assertWorkspaceWithinLimit,
+  fileKindOf,
+  safeDisplayName,
+  validateUploadBytes,
+} from "@/lib/upload";
 import type { WorkerEnvelope, WorkerRequest, WorkspaceFile } from "./protocol";
 
 /**
@@ -28,6 +34,13 @@ const documents = new Map<string, StoredDocument>();
  * result is grounded or the caller releases them.
  */
 const evidenceWindows = new Map<string, { window: EvidenceWindow; documents: NormalizedDocument[] }>();
+
+/** Admitted input bytes currently held, used for the workspace budget. */
+function workspaceBytes(): number {
+  let total = 0;
+  for (const entry of documents.values()) total += entry.file.size;
+  return total;
+}
 
 function requireDocuments(fileIds: readonly string[]): StoredDocument[] {
   if (fileIds.length === 0) throw new DocumentError("NO_FILE_SELECTED", "파일을 1개 이상 선택하세요.");
@@ -60,6 +73,7 @@ async function handle(request: WorkerRequest): Promise<unknown> {
       const kind = fileKindOf(fileName);
       const bytes = request.bytes;
       validateUploadBytes(kind, bytes);
+      assertWorkspaceWithinLimit(workspaceBytes(), bytes.byteLength);
       const size = bytes.byteLength;
       const document = await parseDocument({ fileId: request.fileId, fileName, bytes });
       const file: WorkspaceFile = {

@@ -73,11 +73,10 @@ test("uploads XLSX files, compares them and shows source evidence", async ({ pag
   const jeju = rows.filter({ hasText: "JEJU" }).first();
   await expect(jeju).toBeVisible();
 
-  await seoul.locator(".source-actions button").first().click();
+  await seoul.locator(".source-action").first().click();
   const detail = page.getByLabel("Source detail");
   await expect(detail).toBeVisible();
-  await expect(detail).toContainText("운송단가!B2");
-  await expect(detail).toContainText("145000");
+  await expect(detail).toContainText("운송단가 · B2");
   await page.screenshot({ path: "artifacts/compare-evidence.png", fullPage: true });
 });
 
@@ -88,24 +87,38 @@ test("renders distinguishable evidence for two files sharing an identical cell l
 
   await page.getByLabel("운임현황_v1.xlsx 선택").check();
   await page.getByLabel("운임현황_v1_사본.xlsx 선택").check();
-  await page.getByRole("button", { name: "Compare", exact: true }).click();
-  await page.getByRole("button", { name: "Compare 실행" }).click();
 
-  // Identical rate sheets produce no diff rows, but Analyze on the pair still
-  // surfaces the shared locator (운송단가!B2) from each file; the UI must
-  // disambiguate the two source buttons with filename + role rather than
-  // rendering two indistinguishable "운송단가!B2" buttons.
+  // Two files hold the same cell. The result rows stay locator-only — the file
+  // name belongs to the section header — and the evidence inspector is what
+  // names the file and its version, so the two are never confused.
   await page.getByRole("button", { name: "Analyze", exact: true }).click();
   await page.getByRole("button", { name: "Analyze 실행" }).click();
   await expect(page.getByText("구조 및 수치 분석을 완료했습니다.")).toBeVisible();
-  const sourceButtons = page.locator(".results-panel .source-link", { hasText: "운송단가!B2" });
-  await expect(sourceButtons.first()).toBeVisible();
-  const labels = await sourceButtons.allTextContents();
-  const distinctLabels = new Set(labels);
-  expect(distinctLabels.size).toBeGreaterThan(1);
-  expect(labels.some((label) => label.includes("운임현황_v1.xlsx"))).toBe(true);
-  expect(labels.some((label) => label.includes("운임현황_v1_사본.xlsx"))).toBe(true);
-  expect(labels.every((label) => label.includes("버전 "))).toBe(true);
+  const sections = page.locator(".results-panel .document-result");
+  await expect(sections).toHaveCount(2);
+  await expect(sections.nth(0).locator(".document-result-heading h3")).toHaveText("운임현황_v1.xlsx");
+  await expect(sections.nth(1).locator(".document-result-heading h3")).toHaveText("운임현황_v1_사본.xlsx");
+
+  // Numeric evidence lists render every hit, so the locator may live in the
+  // list button; either way it is locator text with no file name in it.
+  const locators = page.locator(".results-panel :is(.source-locator, .source-action.locator)");
+  await expect(locators.filter({ hasText: "운송단가" }).first()).toBeVisible();
+  for (const text of await locators.allTextContents()) {
+    expect(text).not.toContain(".xlsx");
+  }
+
+  const inspectorLabels: string[] = [];
+  for (const index of [0, 1]) {
+    await sections.nth(index).locator(".source-action").first().click();
+    const detail = page.getByLabel("Source detail");
+    await expect(detail).toBeVisible();
+    inspectorLabels.push(await detail.locator("h2").innerText());
+    await page.getByLabel("닫기").click();
+  }
+  expect(inspectorLabels[0]).toContain("운임현황_v1.xlsx");
+  expect(inspectorLabels[1]).toContain("운임현황_v1_사본.xlsx");
+  expect(inspectorLabels.every((label) => label.includes("버전 "))).toBe(true);
+  expect(new Set(inspectorLabels).size).toBe(2);
 });
 
 test("distinguishes same-named uploaded revisions by document version", async ({ page }) => {
@@ -123,11 +136,25 @@ test("distinguishes same-named uploaded revisions by document version", async ({
   await sameRows.nth(1).getByRole("checkbox").check();
   await page.getByRole("button", { name: "Compare", exact: true }).click();
   await page.getByRole("button", { name: "Compare 실행" }).click();
-  await expect(page.getByTestId("change-row").first()).toBeVisible();
-  const sourceLabels = await page.locator(".source-actions button").allTextContents();
-  const versions = sourceLabels
-    .map((label) => /버전 ([a-f0-9]{8})/.exec(label)?.[1])
-    .filter((version): version is string => Boolean(version));
+  const row = page.getByTestId("change-row").first();
+  await expect(row).toBeVisible();
+
+  // The row itself stays locator-first; 기준/현재 tells the two revisions
+  // apart, and the document version lives in the evidence inspector.
+  const roles = await row.locator(".source-action em").allTextContents();
+  expect(roles.some((text) => text.startsWith("기준"))).toBe(true);
+  expect(roles.some((text) => text.startsWith("현재"))).toBe(true);
+
+  const versions: string[] = [];
+  const actions = row.locator(".source-action");
+  for (const index of [0, 1]) {
+    await actions.nth(index).click();
+    const detail = page.getByLabel("Source detail");
+    await expect(detail).toBeVisible();
+    const version = /버전 ([a-f0-9]{8})/.exec(await detail.locator("h2").innerText())?.[1];
+    if (version) versions.push(version);
+    await page.getByLabel("닫기").click();
+  }
   expect(new Set(versions).size).toBeGreaterThanOrEqual(2);
 });
 
@@ -143,6 +170,28 @@ test("uploads and normalizes all five formats", async ({ page }) => {
   await expect(fileRow(page, files.docx)).toContainText("docx");
   await expect(fileRow(page, files.pptx)).toContainText("페이지/슬라이드: 1");
   await expect(fileRow(page, files.v1)).toContainText("시트: 1");
+
+  // One locator vocabulary across formats, and no file name inside a source.
+  for (const [file, pattern] of [
+    [files.csv, /^Row \d+$/],
+    [files.pdf, /^Page \d+$/],
+    [files.docx, /^Paragraph \d+$/],
+    [files.pptx, /^Slide \d+ · (본문|표)$/],
+    [files.v1, /^.+ · [A-Z]+\d+(:[A-Z]+\d+)?$/],
+  ] as const) {
+    const name = path.basename(file);
+    await fileRow(page, file).getByRole("checkbox").check();
+    await page.getByRole("button", { name: "Extract", exact: true }).click();
+    await page.getByRole("button", { name: "Extract 실행" }).click();
+    await expect(page.getByText("구조화 추출을 완료했습니다.")).toBeVisible();
+    const locator = page.locator(".results-panel .source-locator").first();
+    await expect(locator).toBeVisible();
+    const text = await locator.innerText();
+    expect(text, `${name} locator`).toMatch(pattern);
+    expect(text).not.toContain(name);
+    await expect(page.locator(".results-panel .source-action").first()).toHaveText("근거 보기");
+    await fileRow(page, file).getByRole("checkbox").uncheck();
+  }
 });
 
 /** Headless browsers have no usable WebGPU adapter here, so the AI layer must degrade quietly. */
@@ -161,8 +210,8 @@ test("runs deterministic Analyze, Check, Extract/export and degrades browser AI 
   await page.getByRole("button", { name: "Analyze 실행" }).click();
   await expect(page.getByText("구조 및 수치 분석을 완료했습니다.")).toBeVisible();
   await expect(page.locator(".results-panel")).toContainText("numeric");
-  await expect(page.locator(".results-panel .source-link").first()).toBeVisible();
-  await page.locator(".results-panel .source-link").first().click();
+  await expect(page.locator(".results-panel .source-action").first()).toBeVisible();
+  await page.locator(".results-panel .source-action").first().click();
   await expect(page.getByLabel("Source detail")).toBeVisible();
   await page.getByLabel("닫기").click();
 
@@ -242,7 +291,10 @@ test("reviews PPTX writing, consistency and data findings with filters and exact
   const typo = page.locator(".check-issue").filter({ hasText: "한글 맞춤법 오류 가능성" });
   await expect(typo).toContainText("Spelling");
   await expect(typo).toContainText("HIGH");
-  await expect(typo).toContainText("최종검수.pptx · Slide 1");
+  await expect(typo.locator(".source-locator")).toHaveText("Slide 1 · 본문");
+  await expect(typo.getByRole("button", { name: "Slide 1 · 본문 근거 보기" })).toBeVisible();
+  // The file is named once per row, never again inside the source cell.
+  expect((await typo.innerText()).split("최종검수.pptx").length - 1).toBe(1);
   await typo.getByRole("button", { name: /한글 맞춤법 오류 가능성/ }).click();
   await expect(typo).toContainText("향후 13주 유가 전먕");
   await expect(typo).toContainText("향후 13주 유가 전망");
@@ -423,7 +475,7 @@ test("meets accessibility and keyboard requirements in the populated compare/sou
 
   // Keyboard-only: open Source detail and confirm focus moves into the panel,
   // then close it and confirm focus returns to the invoking control.
-  const sourceButton = page.locator(".source-actions button").first();
+  const sourceButton = page.locator(".source-action").first();
   await sourceButton.focus();
   await page.keyboard.press("Enter");
   const detail = page.getByLabel("Source detail");
@@ -451,7 +503,7 @@ test("discards every file and result when the tab reloads", async ({ page }) => 
   await page.getByLabel("운임현황_v1.xlsx 선택").check();
   await page.getByRole("button", { name: "Analyze 실행" }).click();
   await expect(page.getByText("구조 및 수치 분석을 완료했습니다.")).toBeVisible();
-  await page.locator(".results-panel .source-link").first().click();
+  await page.locator(".results-panel .source-action").first().click();
   await expect(page.getByLabel("Source detail")).toBeVisible();
 
   await page.reload();

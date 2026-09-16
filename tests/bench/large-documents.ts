@@ -1,12 +1,15 @@
 /**
- * Large-document benchmark.
+ * Large-document benchmark. Manual only: never wired into lint, typecheck,
+ * unit tests, E2E or CI, because a single case can hold gigabytes.
  *
- * Generates documents near the practical upload ceiling, then times each stage
- * separately so a slow run can be attributed to parsing, evidence building,
- * retrieval or a deterministic operation. Nothing is committed to the
- * repository and nothing is uploaded: fixtures are generated in memory.
+ * Every case runs in its own child process, so a hard wall-clock timeout can
+ * kill it outright and its memory is reclaimed before the next case starts.
+ * Stages are timed separately, so a slow run can be attributed to parsing,
+ * evidence building, retrieval or a deterministic operation. Nothing is
+ * committed and nothing is uploaded: fixtures are generated in memory.
  *
- *   bun run bench:large
+ *   bun run bench:large    # low-load fixtures, the default sweep
+ *   bun run bench:stress   # 50/75/100 MiB inputs, run deliberately
  */
 import { strToU8, zipSync } from "fflate";
 import type { NormalizedDocument } from "@/domain/document";
@@ -16,14 +19,47 @@ import { selectEvidence } from "@/lib/ai/retrieval";
 import { buildComparison } from "@/domain/compare";
 import { analyzeDocument, checkDocument, extractDocument } from "@/lib/deterministic";
 import { parseDocument } from "@/lib/parsers";
+import { fileKindOf, validateUploadBytes } from "@/lib/upload";
 import { createPdf, createXlsx, type SheetRow } from "../fixtures";
 
 interface Stage { name: string; ms: number }
 
+/**
+ * Per-stage budget inside a case. Asynchronous stages are raced against a real
+ * timer; synchronous ones cannot be interrupted mid-CPU, so they fail
+ * immediately after they overrun and the parent's hard timeout is the backstop.
+ */
+const STAGE_BUDGET_MS = Number(process.env.WORKLENS_BENCH_STAGE_MS ?? 120_000);
+
+/** Hard wall-clock ceiling per case, enforced by the parent with SIGKILL. */
+const CASE_TIMEOUT_MS = Number(process.env.WORKLENS_BENCH_CASE_MS ?? 300_000);
+
+/** A case that grows past this resident size is abandoned, not benchmarked. */
+const MEMORY_BUDGET_MIB = Number(process.env.WORKLENS_BENCH_MEMORY_MIB ?? 2_048);
+
+async function withTimeout<T>(name: string, work: Promise<T> | T, budgetMs: number): Promise<T> {
+  if (!(work instanceof Promise)) return work;
+  let timer: Timer | undefined;
+  const guard = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${name} exceeded ${budgetMs}ms`)), budgetMs);
+  });
+  try {
+    return await Promise.race([work, guard]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function timed<T>(name: string, run: () => Promise<T> | T, stages: Stage[]): Promise<T> {
   const started = performance.now();
-  const value = await run();
-  stages.push({ name, ms: Math.round(performance.now() - started) });
+  const value = await withTimeout(name, run(), STAGE_BUDGET_MS);
+  const ms = Math.round(performance.now() - started);
+  stages.push({ name, ms });
+  const rssMiB = Math.round((process.memoryUsage?.().rss ?? 0) / MiB);
+  // Progress goes to stderr: stdout carries only the machine-read result line.
+  console.error(`    ${name.padEnd(16)} ${String(ms).padStart(7)}ms  rss ${String(rssMiB).padStart(5)} MiB`);
+  if (ms > STAGE_BUDGET_MS) throw new Error(`${name} exceeded ${STAGE_BUDGET_MS}ms (took ${ms}ms)`);
+  if (rssMiB > MEMORY_BUDGET_MIB) throw new Error(`${name} exceeded ${MEMORY_BUDGET_MIB} MiB rss (used ${rssMiB} MiB)`);
   return value;
 }
 
@@ -39,15 +75,8 @@ function bigWorkbook(rows: number, sheets: number): Record<string, SheetRow[]> {
   return workbook;
 }
 
-function bigCsv(rows: number): Uint8Array {
-  const lines = ["지역,날짜,금액,코드"];
-  for (let row = 0; row < rows; row += 1) {
-    lines.push(`${["서울", "부산", "대구", "인천"][row % 4]},2026-${String((row % 12) + 1).padStart(2, "0")}-15,${120000 + row},WL-${row}`);
-  }
-  return new TextEncoder().encode(lines.join("\r\n"));
-}
 
-function bigPptx(slides: number): Uint8Array {
+function pptxParts(slides: number): Record<string, Uint8Array> {
   const files: Record<string, Uint8Array> = {
     "[Content_Types].xml": strToU8(
       `<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/>${Array.from({ length: slides }, (_, index) => `<Override PartName="/ppt/slides/slide${index + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>`).join("")}</Types>`,
@@ -64,32 +93,81 @@ function bigPptx(slides: number): Uint8Array {
       `<?xml version="1.0"?><p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>운영 현황 ${index + 1}</a:t></a:r></a:p></p:txBody></p:sp><p:sp><p:txBody><a:p><a:r><a:t>주간 배송 건수는 ${1200 + index}건이고 매출은 ${150000 + index * 37}원입니다.</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>`,
     );
   }
-  return zipSync(files);
+  return files;
 }
 
-function bigDocx(paragraphs: number): Uint8Array {
+function docxParts(paragraphs: number): Record<string, Uint8Array> {
   const body = Array.from({ length: paragraphs }, (_, index) =>
     `<w:p><w:r><w:t>운영 항목 ${index + 1}: 2026-${String((index % 12) + 1).padStart(2, "0")}-15 기준 금액은 ${130000 + index}원입니다.</w:t></w:r></w:p>`).join("");
-  return zipSync({
+  return {
     "[Content_Types].xml": strToU8(
       '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>',
     ),
     "word/document.xml": strToU8(
       `<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${body}</w:body></w:document>`,
     ),
-  });
+  };
 }
 
 interface Measurement {
   label: string;
-  bytesKiB: number;
+  bytesMiB: number;
   stages: Stage[];
   blocks: number;
   evidence: number;
+  rssDeltaMiB: number;
+  admitted: boolean;
+}
+
+const MiB = 1024 * 1024;
+
+/**
+ * Incompressible padding entries stand in for the media that makes a real
+ * 100 MiB deck or document large. They are stored, not deflated, so the
+ * archive reaches the target size without tripping a ratio guard.
+ */
+function mediaPadding(targetBytes: number, chunks: number): Record<string, [Uint8Array, { level: 0 }]> {
+  const files: Record<string, [Uint8Array, { level: 0 }]> = {};
+  const size = Math.max(1, Math.floor(targetBytes / chunks));
+  for (let index = 0; index < chunks; index += 1) {
+    const blob = new Uint8Array(size);
+    crypto.getRandomValues(blob.subarray(0, Math.min(size, 65_536)));
+    for (let offset = 65_536; offset < size; offset += 65_536) {
+      blob.copyWithin(offset, 0, Math.min(65_536, size - offset));
+      blob[offset] = index & 0xff;
+    }
+    files[`media/image${index + 1}.bin`] = [blob, { level: 0 }];
+  }
+  return files;
+}
+
+function wideCsv(targetBytes: number, rows: number): Uint8Array {
+  const columns = Math.max(4, Math.round(targetBytes / rows / 24));
+  const header = ["지역", "날짜", "금액", "코드", ...Array.from({ length: columns - 4 }, (_, index) => `항목${index + 1}`)];
+  const lines = [header.join(",")];
+  for (let row = 0; row < rows; row += 1) {
+    const cells = [
+      ["서울", "부산", "대구", "인천"][row % 4],
+      `2026-${String((row % 12) + 1).padStart(2, "0")}-15`,
+      String(120_000 + row),
+      `WL-${row}`,
+      ...Array.from({ length: columns - 4 }, (_, index) => `${row}-${index}-운영항목값`),
+    ];
+    lines.push(cells.join(","));
+  }
+  return new TextEncoder().encode(lines.join("\r\n"));
 }
 
 async function measure(label: string, bytes: Uint8Array, fileName: string): Promise<Measurement> {
   const stages: Stage[] = [];
+  const before = process.memoryUsage?.().rss ?? 0;
+  const kind = fileKindOf(fileName);
+  let admitted = true;
+  try {
+    validateUploadBytes(kind, bytes);
+  } catch {
+    admitted = false;
+  }
   const document = await timed("parse", () => parseDocument({ fileId: `bench-${label}`, fileName, bytes }), stages);
   const nodes = await timed("evidence", () => buildEvidenceNodes([document]), stages);
   await timed("retrieval(ask)", () => evidenceWindow(selectEvidence(nodes, { operation: "ask", question: "8월 서울 금액은 얼마인가요?" })), stages);
@@ -97,29 +175,164 @@ async function measure(label: string, bytes: Uint8Array, fileName: string): Prom
   await timed("analyze", () => analyzeDocument(document), stages);
   await timed("check", () => checkDocument(document, { userTerms: [], companyTerms: [] }), stages);
   await timed("extract", () => extractDocument(document), stages);
-  return { label, bytesKiB: Math.round(bytes.byteLength / 1024), stages, blocks: document.blocks.length, evidence: nodes.length };
+  const after = process.memoryUsage?.().rss ?? 0;
+  return {
+    label,
+    bytesMiB: Math.round((bytes.byteLength / MiB) * 10) / 10,
+    stages,
+    blocks: document.blocks.length,
+    evidence: nodes.length,
+    rssDeltaMiB: Math.round((after - before) / MiB),
+    admitted,
+  };
+}
+
+/** A fixture is only built when its case runs: 100 MiB inputs are expensive. */
+interface BenchCase {
+  label: string;
+  fileName: string;
+  build: () => Promise<Uint8Array> | Uint8Array;
+}
+
+/** Low-load sweep: shapes real documents have, sizes a laptop shrugs off. */
+function baseCases(): BenchCase[] {
+  return [
+    { label: "csv-20k-rows", fileName: "대용량로그.csv", build: () => wideCsv(2 * MiB, 20_000) },
+    { label: "xlsx-20k-cells", fileName: "대용량실적.xlsx", build: () => createXlsx(bigWorkbook(2_000, 3)) },
+    {
+      label: "pdf-120-pages",
+      fileName: "대용량보고서.pdf",
+      build: () => createPdf(Array.from({ length: 120 }, (_, index) => `Page ${index + 1}: operational summary with amount ${130000 + index} and date 2026-0${(index % 9) + 1}-15.`)),
+    },
+    { label: "pptx-120-slides", fileName: "대용량발표.pptx", build: () => zipSync(pptxParts(120)) },
+    { label: "docx-3k-para", fileName: "대용량문서.docx", build: () => zipSync(docxParts(3_000)) },
+  ];
+}
+
+/** Ceiling sweep. Gigabytes of transient memory: never part of verification. */
+function stressCases(): BenchCase[] {
+  const cases: BenchCase[] = [];
+  // CSV grows by bytes: the row cap is fixed, so the sweep widens each row.
+  for (const target of [50, 75, 100]) {
+    cases.push({ label: `csv-${target}mib`, fileName: `대용량로그-${target}.csv`, build: () => wideCsv(target * MiB, 90_000) });
+  }
+  // OOXML reaches these sizes the way real files do: stored media beside XML.
+  for (const target of [50, 100]) {
+    cases.push({
+      label: `pptx-200-slides-${target}mib`,
+      fileName: `대용량발표-${target}.pptx`,
+      build: () => zipSync({ ...pptxParts(200), ...mediaPadding(target * MiB, 40) }),
+    });
+  }
+  for (const target of [50, 100]) {
+    cases.push({
+      label: `docx-20k-para-${target}mib`,
+      fileName: `대용량문서-${target}.docx`,
+      build: () => zipSync({ ...docxParts(20_000), ...mediaPadding(target * MiB, 40) }),
+    });
+  }
+  cases.push({ label: "xlsx-50k-rows", fileName: "대용량실적-50k.xlsx", build: () => createXlsx(bigWorkbook(50_000, 1)) });
+  cases.push({
+    label: "pdf-500-pages",
+    fileName: "대용량보고서-500.pdf",
+    build: () => createPdf(Array.from({ length: 500 }, (_, index) => `Page ${index + 1}: operational summary with amount ${130000 + index} and date 2026-0${(index % 9) + 1}-15.`)),
+  });
+  return cases;
+}
+
+const RESULT_PREFIX = "RESULT ";
+
+/** Child role: build and measure exactly one case, then hand back the row. */
+async function runOneCase(label: string, cases: BenchCase[]): Promise<void> {
+  const benchCase = cases.find((entry) => entry.label === label);
+  if (!benchCase) throw new Error(`unknown case ${label}`);
+  const buildStarted = performance.now();
+  const bytes = await withTimeout(`${label} build`, benchCase.build(), STAGE_BUDGET_MS);
+  console.error(`    fixture          ${String(Math.round(performance.now() - buildStarted)).padStart(7)}ms  ${Math.round((bytes.byteLength / MiB) * 10) / 10} MiB`);
+  const row = await measure(label, bytes, benchCase.fileName);
+  console.info(`${RESULT_PREFIX}${JSON.stringify(row)}`);
+}
+
+/** Child role: the one comparison case, which needs two parsed documents. */
+async function runCompareCase(): Promise<void> {
+  const stages: Stage[] = [];
+  const base = await parseDocument({ fileId: "bench-compare-a", fileName: "a.xlsx", bytes: await createXlsx(bigWorkbook(1_000, 1)) });
+  const target = await parseDocument({ fileId: "bench-compare-b", fileName: "b.xlsx", bytes: await createXlsx(bigWorkbook(1_000, 1)) });
+  await timed("compare", () => buildComparison(base as NormalizedDocument, target as NormalizedDocument), stages);
+  const row: Measurement = {
+    label: "compare-2x1000-rows",
+    bytesMiB: 0,
+    stages,
+    blocks: base.blocks.length + target.blocks.length,
+    evidence: 0,
+    rssDeltaMiB: 0,
+    admitted: true,
+  };
+  console.info(`${RESULT_PREFIX}${JSON.stringify(row)}`);
+}
+
+/**
+ * Parent role: one child per case. A child that outlives its budget is killed,
+ * not awaited, and a child that dies takes its memory with it.
+ */
+async function runCaseInChild(label: string, stress: boolean): Promise<Measurement | undefined> {
+  const child = Bun.spawn({
+    cmd: [process.execPath, import.meta.path, "--case", label, ...(stress ? ["--stress"] : [])],
+    stdout: "pipe",
+    stderr: "inherit",
+    env: process.env,
+  });
+  const killer = setTimeout(() => child.kill("SIGKILL"), CASE_TIMEOUT_MS);
+  let stdout = "";
+  try {
+    stdout = await new Response(child.stdout).text();
+    await child.exited;
+  } finally {
+    clearTimeout(killer);
+  }
+  if (child.exitCode !== 0) {
+    console.error(`    ${label} aborted (exit ${child.exitCode ?? "killed"}, hard timeout ${CASE_TIMEOUT_MS}ms)`);
+    return undefined;
+  }
+  const line = stdout.split("\n").find((entry) => entry.startsWith(RESULT_PREFIX));
+  if (!line) {
+    console.error(`    ${label} produced no measurement`);
+    return undefined;
+  }
+  return JSON.parse(line.slice(RESULT_PREFIX.length)) as Measurement;
 }
 
 async function main(): Promise<void> {
+  const stress = process.argv.includes("--stress");
+  const cases = stress ? stressCases() : baseCases();
+  const caseFlag = process.argv.indexOf("--case");
+  if (caseFlag >= 0) {
+    const label = process.argv[caseFlag + 1];
+    if (label === "compare") await runCompareCase();
+    else await runOneCase(label, cases);
+    return;
+  }
+
+  const labels = [...cases.map((entry) => entry.label), ...(stress ? [] : ["compare"])];
+  console.info(`bench ${stress ? "stress" : "large"}: ${labels.length} cases · stage ${STAGE_BUDGET_MS}ms · case ${CASE_TIMEOUT_MS}ms · rss ${MEMORY_BUDGET_MIB} MiB`);
   const rows: Measurement[] = [];
-  rows.push(await measure("xlsx-20k-cells", await createXlsx(bigWorkbook(2_000, 3)), "대용량실적.xlsx"));
-  rows.push(await measure("csv-20k-rows", bigCsv(20_000), "대용량로그.csv"));
-  rows.push(await measure("pdf-120-pages", await createPdf(Array.from({ length: 120 }, (_, index) => `Page ${index + 1}: operational summary with amount ${130000 + index} and date 2026-0${(index % 9) + 1}-15.`)), "대용량보고서.pdf"));
-  rows.push(await measure("pptx-120-slides", bigPptx(120), "대용량발표.pptx"));
-  rows.push(await measure("docx-3k-paragraphs", bigDocx(3_000), "대용량문서.docx"));
+  let aborted = 0;
+  for (const [index, label] of labels.entries()) {
+    console.info(`[${index + 1}/${labels.length}] ${label}`);
+    const row = await runCaseInChild(label, stress);
+    if (row) rows.push(row);
+    else aborted += 1;
+  }
 
-  const compareStages: Stage[] = [];
-  const base = await parseDocument({ fileId: "bench-compare-a", fileName: "a.xlsx", bytes: await createXlsx(bigWorkbook(1_000, 1)) });
-  const target = await parseDocument({ fileId: "bench-compare-b", fileName: "b.xlsx", bytes: await createXlsx(bigWorkbook(1_000, 1)) });
-  await timed("compare", () => buildComparison(base as NormalizedDocument, target as NormalizedDocument), compareStages);
-
+  console.info("");
   for (const row of rows) {
     const timings = row.stages.map((stage) => `${stage.name} ${stage.ms}ms`).join(" · ");
-    console.info(`${row.label.padEnd(20)} ${String(row.bytesKiB).padStart(6)} KiB  blocks ${String(row.blocks).padStart(5)}  evidence ${String(row.evidence).padStart(5)}  ${timings}`);
+    console.info(`${row.label.padEnd(26)} ${String(row.bytesMiB).padStart(6)} MiB  admitted ${row.admitted ? "yes" : "no "}  blocks ${String(row.blocks).padStart(6)}  evidence ${String(row.evidence).padStart(6)}  rssΔ ${String(row.rssDeltaMiB).padStart(4)} MiB  ${timings}`);
   }
-  console.info(`compare(2 × 1000 rows)  ${compareStages[0].ms}ms`);
-  const memory = process.memoryUsage?.();
-  if (memory) console.info(`heapUsed ${Math.round(memory.heapUsed / 1024 / 1024)} MiB  rss ${Math.round(memory.rss / 1024 / 1024)} MiB`);
+  if (aborted > 0) console.info(`${aborted} case(s) aborted on timeout or memory budget`);
 }
 
 await main();
+// pdf-lib and ExcelJS leave timers and streams behind; the run is over, so the
+// process must not linger waiting on them.
+process.exit(0);

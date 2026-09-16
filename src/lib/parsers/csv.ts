@@ -4,7 +4,7 @@ import type {
   TableCell,
   TableBlock,
 } from "@/domain/document";
-import { FORMAT_INPUT_LIMITS } from "./policy";
+import { FORMAT_INPUT_LIMITS, StructureLimitError } from "./policy";
 
 const MAX_ROWS = 100_000;
 const MAX_COLUMNS = 1_000;
@@ -12,6 +12,9 @@ const MAX_CELL_LENGTH = 1_000_000;
 
 const malformedFileError = (): Error =>
   new Error("파일을 읽을 수 없습니다. 지원되는 정상 파일인지 확인해 주세요.");
+
+/** Size is admissible but the row/column/cell budget is not. */
+const structureLimitError = (): Error => new StructureLimitError();
 
 const detectDelimiter = (text: string): "," | ";" | "\t" => {
   const counts = new Map<"," | ";" | "\t", number>([[",", 0], [";", 0], ["\t", 0]]);
@@ -44,7 +47,7 @@ const parseRows = (text: string, delimiter: "," | ";" | "\t"): string[][] => {
 
   const pushCell = (): void => {
     if (cell.length > MAX_CELL_LENGTH || row.length >= MAX_COLUMNS) {
-      throw malformedFileError();
+      throw structureLimitError();
     }
     row.push(cell);
     cell = "";
@@ -53,7 +56,7 @@ const parseRows = (text: string, delimiter: "," | ";" | "\t"): string[][] => {
   const pushRow = (): void => {
     pushCell();
     if (rows.length >= MAX_ROWS) {
-      throw malformedFileError();
+      throw structureLimitError();
     }
     rows.push(row);
     row = [];
@@ -157,6 +160,7 @@ export const parseCsv = async (input: {
       warnings: [],
     };
   } catch (error) {
+    if (error instanceof StructureLimitError) throw error;
     if (error instanceof Error && error.message === "CSV_DIALECT_AMBIGUOUS") {
       throw new Error("CSV 구분자를 명확히 판별할 수 없습니다. CSV_DIALECT_AMBIGUOUS");
     }

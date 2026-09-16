@@ -1,12 +1,13 @@
 import { defineConfig, devices } from "@playwright/test";
 
 /**
- * Optional browser-AI smoke run. It downloads a ~1.6 GB model and needs a real
+ * Optional browser-AI smoke run. It downloads a ~990 MB model and needs a real
  * WebGPU adapter, so it is never part of the default CI matrix — the
  * deterministic suites in `playwright.config.ts` stay the blocking ones.
  *
  *   bun run test:ai:smoke                       # local Chrome/Edge with WebGPU
  *   WORKLENS_AI_SMOKE_URL=https://… bun run test:ai:smoke   # against a deployment
+ *   WORKLENS_AI_MODEL=Qwen2.5-1.5B-Instruct-q4f16_1-MLC bun run test:ai:smoke  # A/B baseline
  */
 const PORT = 3321;
 const externalUrl = process.env.WORKLENS_AI_SMOKE_URL;

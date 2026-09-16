@@ -32,6 +32,7 @@ import {
 import {
   BROWSER_AI_MAX_FILES,
   BROWSER_AI_MESSAGES,
+  BROWSER_AI_MODEL_LABEL,
   BROWSER_AI_MODEL_MB,
   type BrowserAiState,
 } from "@/client/browser-ai-protocol";
@@ -593,7 +594,7 @@ export default function Home() {
             >
               <div>
                 <strong>{uploading ? "파일을 읽고 구조를 분석하는 중" : "업무 파일 추가"}</strong>
-                <span>XLSX, CSV, PDF, DOCX, PPTX · 파일당 최대 50 MB · 임시 처리</span>
+                <span>XLSX, CSV, PDF, DOCX, PPTX · 파일당 최대 100 MiB · 작업 공간 합계 300 MiB · 임시 처리</span>
               </div>
               <span className="drop-hint">여기로 끌어놓기</span>
               <button type="button" onClick={() => inputRef.current?.click()} disabled={uploading}>
@@ -603,14 +604,16 @@ export default function Home() {
           ) : null}
 
           {notice ? (
-            <div className={`notice ${notice.tone}`} role={notice.tone === "error" ? "alert" : "status"} aria-live={notice.tone === "error" ? "assertive" : "polite"}>
-              <span className="notice-marker" aria-hidden="true" />
-              <div>
-                <strong>{notice.tone === "error" ? "작업을 완료하지 못했습니다" : notice.tone === "success" ? "작업 완료" : "처리 상태"}</strong>
-                <p>{notice.message}</p>
-                {notice.tone === "error" ? <small>{notice.message.includes("브라우저 AI") ? "Analyze, Compare, Check, Extract는 브라우저 AI 없이 계속 사용할 수 있습니다." : "파일 형식과 선택 상태를 확인한 뒤 다시 시도하세요."}</small> : null}
-              </div>
-            </div>
+            <StatusPanel
+              className={`notice ${notice.tone}`}
+              variant={notice.tone === "error" ? "error" : notice.tone === "success" ? "success" : "info"}
+              tone={notice.tone === "error" ? "alert" : "status"}
+              live={notice.tone === "error" ? "assertive" : "polite"}
+              title={notice.tone === "error" ? "작업을 완료하지 못했습니다" : notice.tone === "success" ? "작업 완료" : "처리 상태"}
+            >
+              <p>{notice.message}</p>
+              {notice.tone === "error" ? <small>{notice.message.includes("브라우저 AI") ? "Analyze, Compare, Check, Extract는 브라우저 AI 없이 계속 사용할 수 있습니다." : "파일 형식과 선택 상태를 확인한 뒤 다시 시도하세요."}</small> : null}
+            </StatusPanel>
           ) : null}
 
           {isUtilityView ? (
@@ -690,7 +693,7 @@ export default function Home() {
                 />
               ) : null}
 
-              {busy ? <div className="processing-bar" role="status"><span aria-hidden="true" /><strong>{activeTab} 처리 중</strong><small>선택한 파일의 구조와 근거를 확인하고 있습니다.</small></div> : null}
+              {busy ? <StatusPanel variant="info" className="processing-bar" live="polite" title={`${activeTab} 처리 중`}><small>선택한 파일의 구조와 근거를 확인하고 있습니다.</small></StatusPanel> : null}
               {activeTab === "Extract" && operationResult ? (
                 <div className="export-actions">
                   <span>전체 추출 결과를 파일로 저장합니다.</span>
@@ -725,6 +728,38 @@ export default function Home() {
 }
 
 /**
+ * Every box that reports a state — done, running, advisory, failed — reads the
+ * same way: an accent rule on the left, a restrained tint, a title, then the
+ * text. Only the variant changes between features, so Analyze, Ask, Compare,
+ * Check, Extract, Brief and the dictionary surfaces cannot drift apart.
+ *
+ * Plain containers, empty states and drop zones deliberately do not use it.
+ */
+type StatusVariant = "success" | "info" | "warning" | "error" | "neutral";
+
+function StatusPanel({ variant, title, children, tone, live, className, label }: {
+  variant: StatusVariant;
+  title: string;
+  children?: React.ReactNode;
+  tone?: "status" | "alert" | "group";
+  live?: "polite" | "assertive";
+  className?: string;
+  label?: string;
+}) {
+  return (
+    <div
+      className={`status-panel ${variant}${className ? ` ${className}` : ""}`}
+      role={tone ?? "status"}
+      aria-live={live}
+      aria-label={label}
+    >
+      <strong>{title}</strong>
+      {children}
+    </div>
+  );
+}
+
+/**
  * Model lifecycle for the browser AI layer. A missing adapter or a failed
  * download is a capability notice, never a workspace error: deterministic
  * Analyze/Compare/Check/Extract keep working underneath it. The first download
@@ -745,40 +780,36 @@ function BrowserAiStatus({ state, context, onConfirm, onCancelLoad, onInterrupt 
       : "브라우저 AI 보조를";
   if (state.phase === "unsupported") {
     return (
-      <div className="ai-status" role="status">
-        <strong>브라우저 AI를 사용할 수 없습니다</strong>
+      <StatusPanel variant="neutral" className="ai-status" title="브라우저 AI를 사용할 수 없습니다">
         <p>{BROWSER_AI_MESSAGES[state.code]}</p>
-      </div>
+      </StatusPanel>
     );
   }
   if (state.phase === "checking") {
     return (
-      <div className="ai-status" role="status">
-        <strong>브라우저 AI 확인 중</strong>
+      <StatusPanel variant="neutral" className="ai-status" title="브라우저 AI 확인 중">
         <p>이 장치에서 AI를 실행할 수 있는지 확인하고 있습니다.</p>
-      </div>
+      </StatusPanel>
     );
   }
   if (state.phase === "awaiting-confirmation") {
     return (
-      <div className="ai-status confirm" role="group" aria-label="브라우저 AI 준비">
-        <strong>브라우저 AI 준비</strong>
+      <StatusPanel variant="info" className="ai-status confirm" tone="group" label="브라우저 AI 준비" title="브라우저 AI 준비">
         <p>
           {purpose} 사용하려면 AI 모델을 이 브라우저에 한 번 준비해야 합니다.
-          약 {(BROWSER_AI_MODEL_MB / 1_000).toFixed(1)} GB · WebGPU 필요 · 문서는 외부로 전송되지 않습니다.
+          최초 1회 약 {(BROWSER_AI_MODEL_MB / 1_000).toFixed(2)} GB 다운로드 · 이후 브라우저 캐시 재사용 · WebGPU 필요 · 문서는 외부로 전송되지 않습니다.
         </p>
         <div className="ai-status-actions">
           <button type="button" className="ai-confirm" onClick={onConfirm}>AI 준비</button>
           <button type="button" className="secondary-action" onClick={onCancelLoad}>취소</button>
         </div>
-      </div>
+      </StatusPanel>
     );
   }
   if (state.phase === "loading") {
     const percent = Math.round(Math.min(Math.max(state.progress, 0), 1) * 100);
     return (
-      <div className="ai-status loading" role="status" aria-live="polite">
-        <strong>브라우저 AI 준비 중</strong>
+      <StatusPanel variant="info" className="ai-status loading" live="polite" title="브라우저 AI 준비 중">
         <p>모델 다운로드 중에도 Analyze · Compare · Check · Extract는 계속 사용할 수 있습니다.</p>
         <span className="ai-progress">
           <progress max={100} value={percent} />
@@ -788,7 +819,7 @@ function BrowserAiStatus({ state, context, onConfirm, onCancelLoad, onInterrupt 
           <button type="button" className="secondary-action" onClick={onCancelLoad}>다운로드 취소</button>
           <button type="button" className="secondary-action" onClick={onInterrupt}>생성 중지</button>
         </div>
-      </div>
+      </StatusPanel>
     );
   }
   if (state.phase === "ready") {
@@ -797,11 +828,10 @@ function BrowserAiStatus({ state, context, onConfirm, onCancelLoad, onInterrupt 
   }
   if (state.phase === "failed") {
     return (
-      <div className="ai-status failed" role="status">
-        <strong>브라우저 AI 준비 실패</strong>
+      <StatusPanel variant="warning" className="ai-status failed" title="브라우저 AI 준비 실패">
         <p>{state.message}</p>
         {state.detail ? <small className="ai-detail">{state.detail}</small> : null}
-      </div>
+      </StatusPanel>
     );
   }
   return null;
@@ -839,7 +869,10 @@ function SettingsView({ view, companyTerms, companyTermsSource, userTerms, ignor
               ))}</div>
               : "없음"}
           </dd></div>
-          <div><dt>브라우저 AI</dt><dd>Ask, Brief, 문장 검수는 이 브라우저에서 실행됩니다. 처음 사용할 때 모델을 한 번 내려받고(약 {BROWSER_AI_MODEL_MB.toLocaleString("ko-KR")} MB, WebGPU 필요) 모델 파일만 브라우저 캐시에 남습니다. 문서와 질문은 어디에도 전송·저장하지 않습니다.</dd></div>
+          <div><dt>브라우저 AI</dt><dd>
+            Ask, Brief, 문장 검수는 이 브라우저에서 {BROWSER_AI_MODEL_LABEL} 모델로 실행됩니다. 처음 사용할 때 모델을 한 번 내려받고(약 {BROWSER_AI_MODEL_MB.toLocaleString("ko-KR")} MB, WebGPU 필요) 이후에는 브라우저 캐시를 재사용하며, 캐시에는 모델 파일만 남습니다.
+            <span className="settings-note">문서와 질문은 어디에도 전송·저장하지 않습니다.</span>
+          </dd></div>
         </dl>
       </section>
     );
@@ -889,18 +922,45 @@ function SettingsView({ view, companyTerms, companyTermsSource, userTerms, ignor
   );
 }
 
+/**
+ * The one place that turns a SourceRef into words. Locator first: a result row
+ * already sits under its file, so "어디인지" is the scarce information and the
+ * file name is repetition. Only data the parser actually produced is used —
+ * a missing locator degrades to the canonical label, never to a guessed one.
+ */
+function locatorText(source: SourceRef): string {
+  const locator = source.locator;
+  if (!locator) return source.label;
+  switch (locator.kind) {
+    case "pptx":
+      return `Slide ${locator.slide} · ${locator.tableCell ? "표" : "본문"}`;
+    case "pdf":
+      return `Page ${locator.page}`;
+    case "xlsx":
+      return `${locator.sheet} · ${locator.range}`;
+    case "docx": {
+      const part = locator.part === "header" ? "머리글" : locator.part === "footer" ? "바닥글" : undefined;
+      const position = locator.tableCell
+        ? `표 · Row ${locator.tableCell.row + 1}`
+        : `Paragraph ${locator.block + 1}`;
+      return part ? `${part} · ${position}` : position;
+    }
+    case "csv":
+      return `Row ${locator.record}`;
+  }
+}
+
+const roleText = (role: SourceRole | undefined): string | undefined =>
+  role === "base" ? "기준" : role === "current" ? "현재" : undefined;
+
+/** The evidence inspector is the one surface that must name the file. */
 function sourceLabel(source: SourceRef, fileNames: Map<string, string>, role?: SourceRole): string {
   const fileName = fileNames.get(source.fileId);
-  const roleLabel = role === "base" ? "기준" : role === "current" ? "현재" : undefined;
   const revision = source.documentVersion
     ? `버전 ${source.documentVersion.slice(0, 8)}`
     : `파일 ${source.fileId.slice(0, 8)}`;
-  const locator = source.locator?.kind === "pptx"
-    ? `Slide ${source.locator.slide}`
-    : source.locator?.kind === "pdf"
-      ? `Page ${source.locator.page}`
-      : source.label;
-  const suffix = [revision, roleLabel].filter((part): part is string => Boolean(part)).join(" · ");
+  const suffix = [revision, roleText(role)].filter((part): part is string => Boolean(part)).join(" · ");
+  const locator = locatorText(source);
   return fileName ? `${fileName} · ${locator} (${suffix})` : `${locator} (${suffix})`;
 }
 
@@ -957,8 +1017,67 @@ function isAiAvailableResult(value: unknown): value is AiAvailableResult {
   return typeof value === "object" && value !== null && Array.isArray((value as AiAvailableResult).claims) && typeof (value as AiAvailableResult).operation === "string";
 }
 
-function SourceButton({ source, fileNames, onSource, role, compact = false }: { source: SourceRef; fileNames: Map<string, string>; onSource: SourceHandler; role?: SourceRole; compact?: boolean }) {
-  return <button type="button" className={compact ? "source-link compact" : "source-link"} onClick={(event) => onSource(source, role, event.currentTarget)}>{sourceLabel(source, fileNames, role)}</button>;
+/**
+ * The single source presentation for every result type: Analyze insight,
+ * Ask/Brief claim, Compare change, Check finding, Extract value.
+ *
+ * Reading order is locator then action. The file name only appears when the
+ * item itself spans files, because otherwise the surrounding section already
+ * names it. Multiple sources are all listed: none is hidden behind a
+ * representative one, and each opens the evidence inspector on its own node.
+ */
+function ResultSource({ sources, fileNames, onSource, roleOf, emptyLabel = "근거 위치 없음" }: {
+  sources: readonly SourceRef[];
+  fileNames: Map<string, string>;
+  onSource: SourceHandler;
+  roleOf?: (source: SourceRef) => SourceRole | undefined;
+  emptyLabel?: string;
+}) {
+  if (sources.length === 0) return <span className="source-empty">{emptyLabel}</span>;
+  const acrossFiles = new Set(sources.map((source) => source.fileId)).size > 1;
+  const entries = sources.map((source, index) => {
+    const role = roleOf?.(source);
+    const fileName = fileNames.get(source.fileId);
+    const locator = locatorText(source);
+    // 기준/현재 already identifies the file in a comparison, and the panel
+    // header spells both names out; only an unlabelled cross-file item needs
+    // the name inline, and even then the tooltip carries the full string.
+    const prefix = roleText(role) ?? (acrossFiles ? fileName : undefined);
+    return { key: `${source.nodeId}-${index}`, source, role, fileName, locator, prefix };
+  });
+
+  if (entries.length === 1) {
+    const [entry] = entries;
+    return (
+      <span className="result-source">
+        <span className="source-locator" title={entry.fileName ? `${entry.fileName} · ${entry.locator}` : entry.locator}>
+          {entry.prefix ? <em>{entry.prefix}</em> : null}{entry.locator}
+        </span>
+        <button
+          type="button"
+          className="source-action"
+          aria-label={`${entry.prefix ? `${entry.prefix} ` : ""}${entry.locator} 근거 보기`}
+          onClick={(event) => onSource(entry.source, entry.role, event.currentTarget)}
+        >근거 보기</button>
+      </span>
+    );
+  }
+
+  return (
+    <span className="result-source multi" aria-label={`관련 근거 ${entries.length}곳 보기`}>
+      <span className="source-count">근거 {entries.length}곳</span>
+      {entries.map((entry) => (
+        <button
+          key={entry.key}
+          type="button"
+          className="source-action locator"
+          title={entry.fileName ? `${entry.fileName} · ${entry.locator}` : entry.locator}
+          aria-label={`${entry.prefix ? `${entry.prefix} ` : ""}${entry.locator} 근거 보기`}
+          onClick={(event) => onSource(entry.source, entry.role, event.currentTarget)}
+        >{entry.prefix ? <em>{entry.prefix}</em> : null}{entry.locator}</button>
+      ))}
+    </span>
+  );
 }
 
 function AnalyzeResults({ entries, fileNames, onSource }: { entries: AnalyzeEntry[]; fileNames: Map<string, string>; onSource: SourceHandler }) {
@@ -977,16 +1096,16 @@ function AnalyzeResults({ entries, fileNames, onSource }: { entries: AnalyzeEntr
           </dl>
           {analysis.numeric.sources.length ? (
             <section className="numeric-evidence">
-              <div><strong>Numeric source evidence</strong><span>{analysis.numeric.sources.length} locations</span></div>
-              <div className="source-evidence-list">{analysis.numeric.sources.map((source, index) => <SourceButton key={`${source.nodeId}-${index}`} source={source} fileNames={fileNames} onSource={onSource} compact />)}</div>
+              <div><strong>숫자 근거 위치</strong></div>
+              <div className="source-evidence-list"><ResultSource sources={analysis.numeric.sources} fileNames={fileNames} onSource={onSource} /></div>
             </section>
           ) : null}
           <section className="result-subsection">
             <div className="subsection-heading"><h4>구조</h4><span>{analysis.structure.tables.length}개 표</span></div>
             {analysis.structure.tables.length ? (
               <div className="data-table analyze-table" role="table" aria-label={`${file.name} 표 구조`}>
-                <div className="data-head" role="row"><span role="columnheader">위치</span><span role="columnheader">행</span><span role="columnheader">열</span><span role="columnheader">Source</span></div>
-                {analysis.structure.tables.map((table) => <div className="data-row" role="row" key={table.blockId}><span role="cell" title={table.source.label}>{table.source.label}</span><span role="cell" className="numeric">{table.rowCount.toLocaleString("ko-KR")}</span><span role="cell" className="numeric">{table.columnCount.toLocaleString("ko-KR")}</span><span role="cell"><SourceButton source={table.source} fileNames={fileNames} onSource={onSource} compact /></span></div>)}
+                <div className="data-head" role="row"><span role="columnheader">위치</span><span role="columnheader">행</span><span role="columnheader">열</span><span role="columnheader">근거</span></div>
+                {analysis.structure.tables.map((table) => <div className="data-row" role="row" key={table.blockId}><span role="cell" title={table.source.label}>{table.source.label}</span><span role="cell" className="numeric">{table.rowCount.toLocaleString("ko-KR")}</span><span role="cell" className="numeric">{table.columnCount.toLocaleString("ko-KR")}</span><span role="cell"><ResultSource sources={[table.source]} fileNames={fileNames} onSource={onSource} /></span></div>)}
               </div>
             ) : <p className="inline-empty">표가 없습니다. 문단 {analysis.text.paragraphCount.toLocaleString("ko-KR")}개를 분석했습니다.</p>}
           </section>
@@ -998,7 +1117,7 @@ function AnalyzeResults({ entries, fileNames, onSource }: { entries: AnalyzeEntr
                 <span>표시값 <b className="numeric">{total.actual.toLocaleString("ko-KR")}</b></span>
                 <span>계산값 <b className="numeric">{total.expected.toLocaleString("ko-KR")}</b></span>
                 <span className="verification-label">{total.actual === total.expected ? "일치" : "불일치"}</span>
-                <SourceButton source={total.source} fileNames={fileNames} onSource={onSource} compact />
+                <ResultSource sources={[total.source]} fileNames={fileNames} onSource={onSource} />
               </div>
             )) : <p className="inline-empty">검증할 명시적 합계가 없습니다.</p>}
           </section>
@@ -1132,7 +1251,7 @@ function CheckResults({ entries, fileNames, onSource, userTerms, ignoredRules, o
       </section>
 
       {indexed.length === 0 ? (
-        <div className="empty-state success-state"><strong>확인된 문제가 없습니다.</strong><p>현재 규칙 범위에서 작성, 일관성, 데이터와 개인정보 문제를 찾지 못했습니다.</p></div>
+        <StatusPanel variant="success" className="result-clear" title="확인된 문제가 없습니다."><p>현재 규칙 범위에서 작성, 일관성, 데이터와 개인정보 문제를 찾지 못했습니다.</p></StatusPanel>
       ) : (
         <>
           <div className="check-toolbar">
@@ -1211,7 +1330,7 @@ function CheckResults({ entries, fileNames, onSource, userTerms, ignoredRules, o
                   <span role="columnheader">Severity</span>
                   <span role="columnheader">Category</span>
                   <span role="columnheader">Issue</span>
-                  <span role="columnheader">Source</span>
+                  <span role="columnheader">근거</span>
                   <span role="columnheader">Recommendation</span>
                 </div>
                 <div className="check-table-body">
@@ -1227,10 +1346,10 @@ function CheckResults({ entries, fileNames, onSource, userTerms, ignoredRules, o
                           </span>
                           <span role="cell" className="check-issue-name">
                             <small title={file.name}>{file.name}</small>
-                            <button type="button" aria-expanded={expanded} onClick={() => setExpandedFindingId(expanded ? null : finding.id)}>{finding.issue}<span>{expanded ? "닫기" : "상세"}</span></button>
+                            <button type="button" aria-expanded={expanded} onClick={() => setExpandedFindingId(expanded ? null : finding.id)}>{finding.issue}<span>{expanded ? "닫기" : "설명 보기"}</span></button>
                             <em>{finding.message}</em>
                           </span>
-                          <span role="cell" className="check-source"><SourceButton source={finding.source} fileNames={fileNames} onSource={onSource} compact /></span>
+                          <span role="cell" className="check-source"><ResultSource sources={[finding.source]} fileNames={fileNames} onSource={onSource} /></span>
                           <span role="cell" className="check-recommendation">{finding.recommendation}</span>
                         </div>
                         {expanded ? (
@@ -1238,7 +1357,7 @@ function CheckResults({ entries, fileNames, onSource, userTerms, ignoredRules, o
                             <div><span>Reason</span><p>{finding.reason}</p></div>
                             {finding.originalText ? <div><span>Original</span><blockquote>{finding.originalText}</blockquote></div> : null}
                             {finding.suggestedText ? <div className="suggested-copy"><span>Suggested</span><blockquote>{finding.suggestedText}</blockquote></div> : null}
-                            <div className="detail-sources"><span>Sources</span><div>{finding.sources.map((source, index) => <SourceButton key={`${source.nodeId}-${index}`} source={source} fileNames={fileNames} onSource={onSource} compact />)}</div></div>
+                            <div className="detail-sources"><span>근거</span><div><ResultSource sources={finding.sources} fileNames={fileNames} onSource={onSource} /></div></div>
                             {finding.relatedFindingIds?.length ? (
                               <div className="related-findings"><span>Related</span><div>{finding.relatedFindingIds.map((id) => {
                                 const related = byId.get(id);
@@ -1288,7 +1407,7 @@ function ExtractResults({ entries, fileNames, onSource }: { entries: ExtractEntr
           <header className="document-result-heading"><div><span>STRUCTURED EXTRACT</span><h3 title={file.name}>{file.name}</h3></div><small>{extraction.tables.length} tables · {extraction.paragraphs.length} paragraphs</small></header>
           {extraction.tables.map((table, tableIndex) => (
             <section className="result-subsection" key={table.blockId}>
-              <div className="subsection-heading"><h4>표 {tableIndex + 1}</h4><SourceButton source={table.source} fileNames={fileNames} onSource={onSource} compact /></div>
+              <div className="subsection-heading"><h4>표 {tableIndex + 1}</h4><ResultSource sources={[table.source]} fileNames={fileNames} onSource={onSource} /></div>
               <div className="extract-table-wrap">
                 <table className="extract-table">
                   <tbody>{table.rows.map((row, rowIndex) => <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={`${rowIndex}-${cellIndex}`} title={cell.display}>{cell.display || "없음"}</td>)}</tr>)}</tbody>
@@ -1299,7 +1418,7 @@ function ExtractResults({ entries, fileNames, onSource }: { entries: ExtractEntr
           {extraction.paragraphs.length ? (
             <section className="result-subsection">
               <div className="subsection-heading"><h4>문단</h4><span>{extraction.paragraphs.length}개</span></div>
-              <div className="paragraph-list">{extraction.paragraphs.map((paragraph) => <div key={paragraph.blockId}><p>{paragraph.text}</p><SourceButton source={paragraph.source} fileNames={fileNames} onSource={onSource} compact /></div>)}</div>
+              <div className="paragraph-list">{extraction.paragraphs.map((paragraph) => <div key={paragraph.blockId}><p>{paragraph.text}</p><ResultSource sources={[paragraph.source]} fileNames={fileNames} onSource={onSource} /></div>)}</div>
             </section>
           ) : null}
         </article>
@@ -1317,7 +1436,7 @@ function AiResults({ result, fileNames, onSource }: { result: AiAvailableResult;
         <div className="subsection-heading"><h3>근거별 주장</h3><span>{result.claims.length} claims</span></div>
         {result.claims.map((claim) => <ClaimRow key={claim.id} claim={claim} fileNames={fileNames} onSource={onSource} />)}
       </section>
-      {result.warnings.length ? <section className="result-warnings"><h3>부분 결과 및 주의</h3>{result.warnings.map((warning) => <p key={warning.code}><strong>{warning.code}</strong>{warning.message}</p>)}</section> : null}
+      {result.warnings.length ? <StatusPanel variant="warning" className="result-warnings" title="부분 결과 및 주의">{result.warnings.map((warning) => <p key={warning.code}><strong>{warning.code}</strong>{warning.message}</p>)}</StatusPanel> : null}
     </div>
   );
 }
@@ -1331,7 +1450,7 @@ function ClaimRow({ claim, fileNames, onSource }: { claim: GroundedClaim; fileNa
         {claim.evidence.map((binding: EvidenceBinding, index) => (
           <div key={`${binding.source.nodeId}-${index}`}>
             <span>{binding.support === "direct" ? "원문" : binding.support === "computed" ? "계산 결과" : "문맥"}</span>
-            <SourceButton source={binding.source} fileNames={fileNames} onSource={onSource} compact />
+            <ResultSource sources={[binding.source]} fileNames={fileNames} onSource={onSource} />
           </div>
         ))}
       </div>
@@ -1340,7 +1459,7 @@ function ClaimRow({ claim, fileNames, onSource }: { claim: GroundedClaim; fileNa
 }
 
 function JsonValue({ value, fileNames, onSource, depth = 0 }: { value: unknown; fileNames: Map<string, string>; onSource: SourceHandler; depth?: number }): React.ReactNode {
-  if (isSourceRef(value)) return <SourceButton source={value} fileNames={fileNames} onSource={onSource} />;
+  if (isSourceRef(value)) return <ResultSource sources={[value]} fileNames={fileNames} onSource={onSource} />;
   if (Array.isArray(value)) return value.length ? <div className={`result-list depth-${Math.min(depth, 2)}`}>{value.map((item, index) => <div className="result-entry" key={index}><JsonValue value={item} fileNames={fileNames} onSource={onSource} depth={depth + 1} /></div>)}</div> : <span className="muted">항목 없음</span>;
   if (typeof value === "object" && value !== null) return <dl className="result-object">{Object.entries(value).map(([key, item]) => <div key={key}><dt>{key}</dt><dd><JsonValue value={item} fileNames={fileNames} onSource={onSource} depth={depth + 1} /></dd></div>)}</dl>;
   return <span>{displayValue(value as string | number | boolean | null | undefined)}</span>;
@@ -1375,14 +1494,14 @@ function ComparisonView({ comparison, compareIds, fileNames, detail, onSource, o
       </div>
       <dl className="summary executive-summary">{summaryItems.map((item) => <div key={item.key} className={`summary-${item.key}`}><dt>{item.label}</dt><dd>{item.value.toLocaleString("ko-KR")}</dd></div>)}</dl>
       {comparison.items.length === 0 ? (
-        <div className="empty-state success-state"><strong>비교된 변경 사항이 없습니다.</strong><p>지원되는 내용, 수치 및 구조 범위에서 두 파일이 같습니다.</p></div>
+        <StatusPanel variant="success" className="result-clear" title="비교된 변경 사항이 없습니다."><p>지원되는 내용, 수치 및 구조 범위에서 두 파일이 같습니다.</p></StatusPanel>
       ) : (
         <div className="comparison-content">
           <div className="comparison-index" aria-label="변경 유형 요약">
             {summaryItems.slice(1).map((item) => <span key={item.key}><i className={`category-dot ${item.key}`} aria-hidden="true" />{item.label}<b>{item.value}</b></span>)}
           </div>
           <div className="change-table" role="table" aria-label="파일 변경 상세">
-            <div className="change-head" role="row"><span role="columnheader">구분</span><span role="columnheader">항목</span><span role="columnheader">Previous</span><span role="columnheader">Current</span><span role="columnheader">Difference</span><span role="columnheader">Change %</span><span role="columnheader">Source evidence</span></div>
+            <div className="change-head" role="row"><span role="columnheader">구분</span><span role="columnheader">항목</span><span role="columnheader">Previous</span><span role="columnheader">Current</span><span role="columnheader">Difference</span><span role="columnheader">Change %</span><span role="columnheader">근거</span></div>
             {comparison.items.map((item: ComparisonItem) => (
               <div className="change-row" role="row" key={item.id} data-testid="change-row" data-category={item.category}>
                 <span role="cell"><strong className={`category-label category-${item.category.toLowerCase().replaceAll(" ", "-")}`}>{categoryLabels[item.category]}</strong></span>
@@ -1391,7 +1510,7 @@ function ComparisonView({ comparison, compareIds, fileNames, detail, onSource, o
                 <span role="cell" className="numeric">{displayValue(item.current)}</span>
                 <span role="cell" className="numeric difference">{displayValue(item.difference)}</span>
                 <span role="cell" className="numeric">{item.changePercent === null ? "해당 없음" : `${item.changePercent > 0 ? "+" : ""}${item.changePercent.toFixed(2)}%`}</span>
-                <div role="cell" className="source-actions">{item.sources.length ? item.sources.map((source, index) => <SourceButton compact source={source} fileNames={fileNames} role={roleOf(source)} onSource={onSource} key={`${source.nodeId}-${index}`} />) : <span className="muted">없음</span>}</div>
+                <div role="cell" className="source-actions"><ResultSource sources={item.sources} fileNames={fileNames} onSource={onSource} roleOf={roleOf} emptyLabel="근거 없음" /></div>
               </div>
             ))}
           </div>

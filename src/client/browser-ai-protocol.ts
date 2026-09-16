@@ -9,10 +9,19 @@ import type { AiRequest } from "@/domain/ai";
  * only document data that crosses this boundary is the bounded evidence window
  * (`handle` + `text`) built by the document worker.
  */
-export const BROWSER_AI_MODEL_ID = "Qwen2.5-1.5B-Instruct-q4f16_1-MLC";
-export const BROWSER_AI_MODEL_LABEL = "Qwen2.5 1.5B Instruct (q4f16)";
-/** Weight download size, used only for the first-run confirmation. */
-export const BROWSER_AI_MODEL_MB = 1_630;
+export const BROWSER_AI_MODEL_ID = "Qwen3-1.7B-q4f16_1-MLC";
+export const BROWSER_AI_MODEL_LABEL = "Qwen3 1.7B (q4f16)";
+/**
+ * First-run download, measured from the published MLC repository:
+ * 984 MB of weights and config plus the 5.6 MB WebGPU runtime library.
+ */
+export const BROWSER_AI_MODEL_MB = 990;
+/**
+ * Previous default. Kept as the A/B baseline for the real-WebGPU smoke run and
+ * selected only through the `window.__worklensAiModel` test seam; the product
+ * UI never offers a model choice.
+ */
+export const BROWSER_AI_BASELINE_MODEL_ID = "Qwen2.5-1.5B-Instruct-q4f16_1-MLC";
 export const BROWSER_AI_MAX_FILES = 5;
 
 export type BrowserAiErrorCode =
@@ -44,8 +53,8 @@ export type BrowserAiState =
   | { phase: "failed"; code: BrowserAiErrorCode; message: string; detail?: string };
 
 export type BrowserAiWorkerRequest =
-  | { id: string; kind: "load" }
-  | { id: string; kind: "generate"; request: AiRequest; items: EvidenceItem[] }
+  | { id: string; kind: "load"; modelId: string }
+  | { id: string; kind: "generate"; modelId: string; request: AiRequest; items: EvidenceItem[] }
   | { id: string; kind: "interrupt" };
 
 export type BrowserAiWorkerEvent =

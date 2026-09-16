@@ -1,5 +1,5 @@
 import type { FileKind } from "@/domain/document";
-import { inputLimitFor } from "./parsers/policy";
+import { MAX_WORKSPACE_INPUT_BYTES, inputLimitFor } from "./parsers/policy";
 
 /** Every rejection a user can hit while admitting a file, raised in the browser. */
 export class DocumentError extends Error {
@@ -38,7 +38,21 @@ export function assertSizeWithinLimit(kind: FileKind, size: number): void {
   if (size > limit) {
     throw new DocumentError(
       "FILE_TOO_LARGE",
-      `${kind.toUpperCase()} 파일은 ${Math.floor(limit / 1024 / 1024)} MiB 이하만 처리할 수 있습니다.`,
+      `이 파일은 최대 ${Math.floor(limit / 1024 / 1024)} MiB까지 처리할 수 있습니다.`,
+    );
+  }
+}
+
+/**
+ * The per-file ceiling says nothing about how much the tab is already holding,
+ * so admission also checks the workspace budget. The two failures are reported
+ * separately: one is about this file, the other about everything kept open.
+ */
+export function assertWorkspaceWithinLimit(currentBytes: number, incomingBytes: number): void {
+  if (currentBytes + incomingBytes > MAX_WORKSPACE_INPUT_BYTES) {
+    throw new DocumentError(
+      "WORKSPACE_SIZE_LIMIT",
+      `현재 작업 공간에 추가할 수 있는 총 파일 용량(${Math.floor(MAX_WORKSPACE_INPUT_BYTES / 1024 / 1024)} MiB)을 초과합니다. 사용하지 않는 파일을 삭제한 뒤 다시 시도하세요.`,
     );
   }
 }

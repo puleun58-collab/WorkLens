@@ -1,10 +1,9 @@
 import { CreateMLCEngine, type InitProgressReport, type MLCEngine } from "@mlc-ai/web-llm";
-import { CLAIM_RESPONSE_SCHEMA, buildMessages, parseModelClaims } from "@/lib/ai/prompt";
-import {
-  BROWSER_AI_MODEL_ID,
-  type BrowserAiErrorCode,
-  type BrowserAiWorkerEvent,
-  type BrowserAiWorkerRequest,
+import { CLAIM_RESPONSE_SCHEMA, buildMessages, parseModelResponse } from "@/lib/ai/prompt";
+import type {
+  BrowserAiErrorCode,
+  BrowserAiWorkerEvent,
+  BrowserAiWorkerRequest,
 } from "./browser-ai-protocol";
 
 /**
@@ -16,10 +15,18 @@ import {
  * tokens never enter this thread.
  */
 let engine: MLCEngine | undefined;
+let loadedModel: string | undefined;
 let loading: Promise<MLCEngine> | undefined;
 let generating = false;
 
 const MAX_OUTPUT_TOKENS = 700;
+/**
+ * Review work needs reproducible, literal answers rather than variety, so the
+ * sampler stays near-greedy and the seed is fixed. `enable_thinking: false` is
+ * WebLLM's supported switch for Qwen3: it seeds an empty `<think></think>`
+ * block so no reasoning text can ever reach the response.
+ */
+const SAMPLING = { temperature: 0.2, top_p: 0.8, seed: 1 } as const;
 
 function post(event: BrowserAiWorkerEvent): void {
   self.postMessage(event);
@@ -45,9 +52,16 @@ function classify(error: unknown): { code: BrowserAiErrorCode; message: string }
   return { code: "MODEL_LOAD_FAILED", message };
 }
 
-async function loadEngine(id: string): Promise<MLCEngine> {
-  if (engine) return engine;
-  loading ??= CreateMLCEngine(BROWSER_AI_MODEL_ID, {
+async function loadEngine(id: string, modelId: string): Promise<MLCEngine> {
+  if (engine && loadedModel === modelId) return engine;
+  if (engine && loadedModel !== modelId) {
+    const previous = engine;
+    engine = undefined;
+    loading = undefined;
+    await previous.unload();
+  }
+  loadedModel = modelId;
+  loading ??= CreateMLCEngine(modelId, {
     initProgressCallback: (report: InitProgressReport) => {
       post({ id, kind: "progress", progress: report.progress, text: report.text });
     },
@@ -56,6 +70,7 @@ async function loadEngine(id: string): Promise<MLCEngine> {
     return created;
   }).catch((error: unknown) => {
     loading = undefined;
+    loadedModel = undefined;
     throw error;
   });
   return loading;
@@ -70,7 +85,7 @@ self.addEventListener("message", (event: MessageEvent<BrowserAiWorkerRequest>) =
     return;
   }
   if (request.kind === "load") {
-    void loadEngine(request.id).then(
+    void loadEngine(request.id, request.modelId).then(
       () => post({ id: request.id, kind: "ready" }),
       (error: unknown) => {
         const { code, message } = classify(error);
@@ -86,17 +101,20 @@ self.addEventListener("message", (event: MessageEvent<BrowserAiWorkerRequest>) =
   }
   generating = true;
   void (async () => {
-    const active = await loadEngine(request.id);
+    const active = await loadEngine(request.id, request.modelId);
     const completion = await active.chat.completions.create({
       messages: buildMessages(request.request, request.items),
-      temperature: 0.2,
+      ...SAMPLING,
       max_tokens: MAX_OUTPUT_TOKENS,
       response_format: { type: "json_object", schema: JSON.stringify(CLAIM_RESPONSE_SCHEMA) },
+      extra_body: { enable_thinking: false },
     });
     const raw = completion.choices[0]?.message?.content ?? "";
-    const claims = parseModelClaims(raw);
+    const { envelope, claims } = parseModelResponse(raw);
     if (claims.length === 0) {
-      fail(request.id, "INVALID_OUTPUT", "모델이 근거를 인용한 항목을 만들지 못했습니다.");
+      // A well-formed but empty answer is abstention, not a broken contract.
+      if (envelope) fail(request.id, "NO_EVIDENCE", "모델이 근거로 뒷받침할 수 있는 항목을 찾지 못했습니다.");
+      else fail(request.id, "INVALID_OUTPUT", "모델이 근거를 인용한 항목을 만들지 못했습니다.");
       return;
     }
     post({ id: request.id, kind: "claims", claims });

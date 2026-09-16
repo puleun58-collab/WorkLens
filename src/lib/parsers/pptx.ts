@@ -9,14 +9,22 @@ import type {
   TableCell,
   TableBlock,
 } from "@/domain/document";
-import { FORMAT_INPUT_LIMITS } from "./policy";
+import { FORMAT_INPUT_LIMITS, StructureLimitError } from "./policy";
 
-const MAX_ZIP_ENTRIES = 200;
+/**
+ * Structural limits bound expansion work, not file size: only XML parts are
+ * inflated and counted, so a 100 MiB media-heavy deck stays admissible while
+ * zip-bomb defence is unchanged.
+ */
+const MAX_ZIP_ENTRIES = 2_000;
 const MAX_ENTRY_BYTES = 5 * 1024 * 1024;
 const MAX_TOTAL_UNCOMPRESSED_BYTES = 30 * 1024 * 1024;
+const isReadablePart = (name: string): boolean => name.endsWith(".xml") || name.endsWith(".rels");
 
 const malformedFileError = (): Error =>
   new Error("파일을 읽을 수 없습니다. 지원되는 정상 파일인지 확인해 주세요.");
+
+const structureLimitError = (): Error => new StructureLimitError();
 
 const uint16 = (bytes: Uint8Array, offset: number): number => {
   if (offset < 0 || offset + 2 > bytes.byteLength) throw malformedFileError();
@@ -37,7 +45,8 @@ const unzip = (input: Uint8Array): Map<string, Uint8Array> => {
   const count = uint16(input, end + 10);
   const centralSize = uint32(input, end + 12);
   const centralOffset = uint32(input, end + 16);
-  if (count > MAX_ZIP_ENTRIES || centralOffset + centralSize > end) throw malformedFileError();
+  if (count > MAX_ZIP_ENTRIES) throw structureLimitError();
+  if (centralOffset + centralSize > end) throw malformedFileError();
   const files = new Map<string, Uint8Array>();
   let offset = centralOffset;
   let totalSize = 0;
@@ -52,17 +61,24 @@ const unzip = (input: Uint8Array): Map<string, Uint8Array> => {
     const commentLength = uint16(input, offset + 32);
     const localOffset = uint32(input, offset + 42);
     const nextOffset = offset + 46 + nameLength + extraLength + commentLength;
-    if ((flags & 1) !== 0 || compression !== 0 && compression !== 8 || uncompressedSize > MAX_ENTRY_BYTES || totalSize + uncompressedSize > MAX_TOTAL_UNCOMPRESSED_BYTES || nextOffset > centralOffset + centralSize || compressedSize === 0xffffffff || uncompressedSize === 0xffffffff || localOffset === 0xffffffff) throw malformedFileError();
+    if ((flags & 1) !== 0 || compression !== 0 && compression !== 8 || nextOffset > centralOffset + centralSize || compressedSize === 0xffffffff || uncompressedSize === 0xffffffff || localOffset === 0xffffffff) throw malformedFileError();
     const name = new TextDecoder("utf-8", { fatal: true }).decode(input.subarray(offset + 46, offset + 46 + nameLength));
     if (name === "" || name.includes("\\") || name.includes("..") || files.has(name)) throw malformedFileError();
     if (uint32(input, localOffset) !== 0x04034b50) throw malformedFileError();
     const dataOffset = localOffset + 30 + uint16(input, localOffset + 26) + uint16(input, localOffset + 28);
     if (dataOffset + compressedSize > input.byteLength) throw malformedFileError();
-    const compressed = input.subarray(dataOffset, dataOffset + compressedSize);
-    const content = compression === 0 ? compressed : inflateSync(compressed, { out: new Uint8Array(uncompressedSize) });
-    if (content.byteLength !== uncompressedSize) throw malformedFileError();
-    totalSize += uncompressedSize;
-    files.set(name, content);
+    // Slide media is never read, so it is walked past instead of inflated: a
+    // picture-heavy deck costs no expansion budget.
+    if (isReadablePart(name)) {
+      if (uncompressedSize > MAX_ENTRY_BYTES || totalSize + uncompressedSize > MAX_TOTAL_UNCOMPRESSED_BYTES) throw structureLimitError();
+      const compressed = input.subarray(dataOffset, dataOffset + compressedSize);
+      const content = compression === 0 ? compressed : inflateSync(compressed, { out: new Uint8Array(uncompressedSize) });
+      if (content.byteLength !== uncompressedSize) throw malformedFileError();
+      totalSize += uncompressedSize;
+      files.set(name, content);
+    } else {
+      files.set(name, new Uint8Array(0));
+    }
     offset = nextOffset;
   }
   if (offset !== centralOffset + centralSize) throw malformedFileError();
@@ -277,7 +293,8 @@ export const parsePptx = async (input: { fileId: string; fileName: string; bytes
       else if (name.startsWith("ppt/notesSlides/")) warnings.add("PPTX_SPEAKER_NOTES_OMITTED");
     }
     return { id: `document:${input.fileId}`, fileId: input.fileId, kind: "pptx", metadata: { fileName: input.fileName, pageCount: paths.length }, blocks, warnings: [...warnings] };
-  } catch {
+  } catch (error) {
+    if (error instanceof StructureLimitError) throw error;
     throw malformedFileError();
   }
 };

@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { strToU8, zipSync } from "fflate";
 import { parseDocument } from "@/lib/parsers";
-import { FORMAT_INPUT_LIMITS, inputLimitFor } from "@/lib/parsers/policy";
+import { FORMAT_INPUT_LIMITS, MAX_CONFIGURED_FILE_BYTES, MAX_WORKSPACE_INPUT_BYTES, inputLimitFor } from "@/lib/parsers/policy";
+import { assertSizeWithinLimit, assertWorkspaceWithinLimit } from "@/lib/upload";
 import type { TableBlock } from "@/domain/document";
 import {
   createDocx,
@@ -22,6 +23,35 @@ describe("parseDocument", () => {
     expect(inputLimitFor("csv")).toBe(FORMAT_INPUT_LIMITS.csv);
     expect(inputLimitFor("docx")).toBe(FORMAT_INPUT_LIMITS.docx);
     expect(inputLimitFor("pptx")).toBe(FORMAT_INPUT_LIMITS.pptx);
+    expect(inputLimitFor("xlsx")).toBe(100 * 1024 * 1024);
+  });
+
+  it("admits a file at the ceiling and rejects the byte past it", () => {
+    expect(() => assertSizeWithinLimit("pdf", MAX_CONFIGURED_FILE_BYTES)).not.toThrow();
+    expect(() => assertSizeWithinLimit("pdf", MAX_CONFIGURED_FILE_BYTES + 1)).toThrow(/100 MiB/);
+  });
+
+  it("budgets the workspace separately from the per-file ceiling", () => {
+    const held = MAX_WORKSPACE_INPUT_BYTES - 1024;
+    expect(() => assertWorkspaceWithinLimit(held, 1024)).not.toThrow();
+    expect(() => assertWorkspaceWithinLimit(held, 1025)).toThrow(/작업 공간/);
+  });
+
+  it("reports a structure limit, not a corrupt file, when a CSV exceeds the row cap", async () => {
+    const rows = Array.from({ length: 100_002 }, (_, index) => `행${index},1`).join("\n");
+    await expect(parseDocument({ fileId: "file-rows", fileName: "big.csv", bytes: new TextEncoder().encode(rows) }))
+      .rejects.toThrow(/문서 구조가 안전 처리 한도/);
+  });
+
+  it("lets media-heavy OOXML through: only XML parts spend the expansion budget", async () => {
+    const media = new Uint8Array(8 * 1024 * 1024).fill(7);
+    const bytes = zipSync({
+      "[Content_Types].xml": strToU8('<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>'),
+      "word/document.xml": strToU8('<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>미디어 포함 문서</w:t></w:r></w:p></w:body></w:document>'),
+      "word/media/image1.png": [media, { level: 0 }],
+    });
+    const document = await parseDocument({ fileId: "file-media", fileName: "media.docx", bytes });
+    expect(document.blocks[0]).toMatchObject({ type: "paragraph", text: "미디어 포함 문서" });
   });
   it("normalizes an XLSX workbook with sheet, row and cell locators", async () => {
     const bytes = await createXlsx(RATE_SHEET_V1);

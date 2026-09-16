@@ -1,11 +1,24 @@
 import type { AiRequest } from "@/domain/ai";
 import type { EvidenceItem, ModelClaim } from "@/lib/ai/prompt";
 import {
+  BROWSER_AI_BASELINE_MODEL_ID,
   BROWSER_AI_MESSAGES,
+  BROWSER_AI_MODEL_ID,
   type BrowserAiErrorCode,
   type BrowserAiState,
   type BrowserAiWorkerEvent,
 } from "./browser-ai-protocol";
+
+/**
+ * The product ships one model. `window.__worklensAiModel` exists only so the
+ * real-WebGPU smoke run can replay the same flow on the previous default for
+ * an A/B comparison; anything else falls back to the shipped model.
+ */
+function selectedModelId(): string {
+  const scope: object = globalThis;
+  const baseline = "__worklensAiModel" in scope && scope.__worklensAiModel === BROWSER_AI_BASELINE_MODEL_ID;
+  return baseline ? BROWSER_AI_BASELINE_MODEL_ID : BROWSER_AI_MODEL_ID;
+}
 
 export interface BrowserAiFailure {
   code: BrowserAiErrorCode;
@@ -146,7 +159,8 @@ function send(kind: "load" | "generate", payload?: { request: AiRequest; items: 
   if (state.phase !== "ready") publish({ phase: "loading", progress: 0, text: "브라우저 AI를 준비하는 중" });
   return new Promise<ModelClaim[]>((resolve, reject) => {
     pending = { id, kind, resolve, reject };
-    target.postMessage(payload ? { id, kind, ...payload } : { id, kind });
+    const modelId = selectedModelId();
+    target.postMessage(payload ? { id, kind, modelId, ...payload } : { id, kind, modelId });
   });
 }
 

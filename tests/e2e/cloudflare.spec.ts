@@ -98,7 +98,7 @@ test.describe("Cloudflare Worker production build", () => {
     await page.getByRole("button", { name: "Check 실행" }).click();
     const finding = page.locator(".check-issue").first();
     await expect(finding).toBeVisible();
-    const source = finding.locator(".source-link").first();
+    const source = finding.locator(".source-action").first();
     await expect(source).toBeVisible();
     await source.click();
     await expect(page.getByLabel("Source detail")).toBeVisible();

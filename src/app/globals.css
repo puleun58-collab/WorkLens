@@ -1319,8 +1319,7 @@ input:disabled,
 .panel,
 .operation-bar,
 .export-actions,
-.state-card,
-.processing-bar {
+.state-card {
   border: 1px solid var(--line-soft);
   border-radius: var(--radius-panel);
   background: var(--paper);
@@ -1713,32 +1712,68 @@ input:disabled,
   background: var(--blue-pale);
 }
 
-.processing-bar {
+/*
+ * Status surfaces: one geometry for every feature. An accent rule on the left
+ * carries the meaning, the tint stays quiet, and only the variant changes.
+ */
+.status-panel {
   min-height: 44px;
   margin-top: 10px;
-  padding: 8px 13px;
+  padding: 9px 12px;
+  border: 1px solid var(--status-border, var(--line-soft));
+  border-left: 3px solid var(--status-accent, var(--line-strong));
+  border-radius: var(--radius-control);
+  background: var(--status-surface, var(--paper));
   display: flex;
-  align-items: center;
-  gap: 9px;
-  color: var(--blue);
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
 }
 
-.processing-bar > span {
-  width: 8px;
-  height: 8px;
-  border: 0;
-  border-radius: 50%;
-  background: var(--blue);
-  box-shadow: 0 0 0 3px #d7e8f6;
-}
-
-.processing-bar strong {
+.status-panel > strong {
+  color: var(--ink);
   font-size: 12px;
 }
 
-.processing-bar small {
+.status-panel p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.status-panel small {
   color: var(--muted);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-xs);
+}
+
+.status-panel.success {
+  --status-accent: var(--success);
+  --status-surface: var(--success-soft);
+  --status-border: #a8d3b8;
+}
+
+.status-panel.info {
+  --status-accent: var(--blue);
+  --status-surface: var(--blue-pale);
+  --status-border: #b6d0e6;
+}
+
+.status-panel.warning {
+  --status-accent: var(--warning);
+  --status-surface: var(--warning-soft);
+  --status-border: #e2c48a;
+}
+
+.status-panel.error {
+  --status-accent: var(--critical);
+  --status-surface: var(--critical-soft);
+  --status-border: #e3aaa5;
+}
+
+.status-panel.neutral {
+  --status-accent: var(--line-strong);
+  --status-surface: var(--layer);
+  --status-border: var(--line-soft);
 }
 
 
@@ -1759,72 +1794,8 @@ input:disabled,
 }
 
 .notice {
-  min-height: 54px;
+  margin-top: 0;
   margin-bottom: 12px;
-  padding: 9px 12px;
-  border: 1px solid;
-  border-radius: var(--radius-control);
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-}
-
-.notice-marker {
-  width: 4px;
-  align-self: stretch;
-  flex: 0 0 auto;
-}
-
-.notice > div {
-  min-width: 0;
-}
-
-.notice strong {
-  display: block;
-  color: var(--ink);
-  font-size: 12px;
-}
-
-.notice p {
-  margin: 1px 0 0;
-  font-size: 12px;
-}
-
-.notice small {
-  display: block;
-  margin-top: 3px;
-  color: var(--muted);
-  font-size: var(--font-size-xs);
-}
-
-.notice.error {
-  border-color: #e3aaa5;
-  background: var(--critical-soft);
-  color: var(--critical);
-}
-
-.notice.error .notice-marker {
-  background: var(--critical);
-}
-
-.notice.success {
-  border-color: #a8d3b8;
-  background: var(--success-soft);
-  color: var(--success);
-}
-
-.notice.success .notice-marker {
-  background: var(--success);
-}
-
-.notice.info {
-  border-color: #b6d0e6;
-  background: var(--blue-pale);
-  color: var(--blue);
-}
-
-.notice.info .notice-marker {
-  background: var(--blue);
 }
 
 .state-card {
@@ -2119,28 +2090,69 @@ input:disabled,
   color: var(--critical);
 }
 
-.source-link,
-.source-actions button {
+/*
+ * One source presentation for every feature: locator first, action second.
+ * The file name is not part of this block; a result already sits under it.
+ */
+.result-source {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  min-width: 0;
   max-width: 100%;
-  padding: 3px 5px;
+}
+
+.source-locator {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--ink-soft);
+  font-size: var(--font-size-xs);
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-locator em,
+.source-action em {
+  margin-right: 4px;
+  color: var(--muted);
+  font-style: normal;
+}
+
+.source-action {
+  max-width: 100%;
+  padding: 2px 4px;
   border: 0;
   border-bottom: 1px solid #7fb0da;
   border-radius: 0;
   background: transparent;
   color: var(--blue);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-xs);
   line-height: 1.35;
   text-align: left;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
 }
 
-.source-link:hover,
-.source-actions button:hover {
+.source-action.locator {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.source-action:hover {
   border-bottom-color: var(--blue);
   background: var(--blue-pale);
 }
 
-.source-link.compact {
+.result-source.multi {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.source-count,
+.source-empty {
+  color: var(--muted);
   font-size: var(--font-size-xs);
 }
 
@@ -2652,22 +2664,10 @@ input:disabled,
   font-weight: var(--font-weight-semibold);
 }
 
+/* Only the code chip is specific; the box geometry is .status-panel. */
 .result-warnings {
   margin-top: 12px;
-  padding: 12px;
-  border-left: 3px solid var(--warning);
-  background: var(--warning-soft);
-}
-
-.result-warnings h3 {
-  margin: 0 0 5px;
-  font-size: 12px;
-}
-
-.result-warnings p {
-  margin: 3px 0 0;
-  color: var(--ink-soft);
-  font-size: var(--font-size-sm);
+  gap: 3px;
 }
 
 .result-warnings p strong {
@@ -3021,8 +3021,7 @@ body {
 .panel,
 .operation-bar,
 .export-actions,
-.state-card,
-.processing-bar {
+.state-card {
   box-shadow: var(--shadow-panel);
 }
 
@@ -3138,12 +3137,20 @@ body {
   grid-template-columns: var(--rail-width) minmax(0, 1fr) var(--inspector-width);
 }
 
+/*
+ * Rail geometry has exactly one horizontal source of truth:
+ * rail outer inset → item frame → icon column → gap → text.
+ * Brand, section label, navigation and footer all use the same inset, so no
+ * element carries its own padding-left and the active background is symmetric
+ * by construction.
+ */
 .rail {
   position: sticky;
   top: 0;
   align-self: start;
   height: 100dvh;
-  padding: 0 10px 16px;
+  padding-block: 0 20px;
+  padding-inline: var(--rail-inline-padding);
   border-right: 1px solid var(--border-default);
   background: var(--paper);
   display: flex;
@@ -3151,15 +3158,20 @@ body {
   gap: 4px;
 }
 
+.rail-brand,
+.rail-group-label,
+.rail-item {
+  padding-inline: var(--rail-inline-padding);
+}
+
 .rail-brand {
   height: var(--topbar-height);
-  padding-left: 6px;
   display: flex;
   align-items: center;
 }
 
 .rail-group-label {
-  margin: 8px 0 4px 8px;
+  margin: 10px 0 4px;
   color: var(--muted-light);
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-semibold);
@@ -3176,6 +3188,7 @@ body {
   gap: 2px;
 }
 
+/* The divider spans the rail content box, which is exactly the item width. */
 .rail-footer {
   margin-top: auto;
   padding-top: 10px;
@@ -3186,10 +3199,8 @@ body {
 }
 
 .rail-item {
-  position: relative;
   width: 100%;
-  min-height: 32px;
-  padding: 0 10px;
+  min-height: var(--control-height-lg);
   border: 0;
   border-radius: var(--radius-control);
   background: transparent;
@@ -3199,8 +3210,15 @@ body {
   text-align: left;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   transition: background var(--motion-fast) var(--motion-ease), color var(--motion-fast) var(--motion-ease);
+}
+
+/* One icon column keeps every label — top and bottom — on the same start line. */
+.rail-item > svg {
+  flex: 0 0 var(--rail-icon-column);
+  width: var(--rail-icon-column);
+  height: var(--rail-icon-column);
 }
 
 .rail-item:hover:not(.active) {
@@ -3208,20 +3226,12 @@ body {
   color: var(--ink);
 }
 
+/* The accent lives inside the item, so idle and active share the outer inset. */
 .rail-item.active {
   background: var(--blue-soft);
+  box-shadow: inset 2px 0 0 var(--blue);
   color: var(--blue-active);
   font-weight: var(--font-weight-semibold);
-}
-
-.rail-item.active::before {
-  content: "";
-  position: absolute;
-  left: -10px;
-  top: 4px;
-  bottom: 4px;
-  width: 2px;
-  background: var(--blue);
 }
 
 .shell-main {
@@ -3422,6 +3432,12 @@ body {
   font-size: var(--font-size-sm);
 }
 
+/* The privacy sentence reads as its own statement, never a wrapped tail. */
+.settings-list dd .settings-note {
+  display: block;
+  margin-top: 2px;
+}
+
 .settings-surface .dictionary-section {
   margin-top: var(--space-5);
 }
@@ -3479,8 +3495,8 @@ body {
   color: #fff;
 }
 
-.rail-item.active::before {
-  background: var(--blue-500, #3b82f6);
+.rail-item.active {
+  box-shadow: inset 2px 0 0 var(--blue-500, #3b82f6);
 }
 
 .rail .worklens-logo,
@@ -3980,22 +3996,7 @@ body {
   transform: translateY(-1px);
 }
 
-.processing-bar {
-  border-color: #b6d0e6;
-  background: var(--blue-pale);
-}
-
-.processing-bar > span {
-  width: 8px;
-  height: 8px;
-  border: 0;
-  border-radius: 50%;
-  background: var(--blue);
-  box-shadow: 0 0 0 3px #d7e8f6;
-  animation: none;
-}
-
-.notice {
+.status-panel {
   animation: notice-enter var(--motion-standard) var(--motion-ease) both;
 }
 
@@ -4010,9 +4011,9 @@ body {
   }
 }
 
-.notice.error {
-  border-color: #d98e87;
-  box-shadow: inset 3px 0 0 var(--critical);
+/* Error keeps the strongest accent of the family; nothing else changes. */
+.status-panel.error {
+  --status-border: #d98e87;
 }
 
 .empty-state {
@@ -4428,10 +4429,6 @@ body {
     width: auto;
   }
 
-  .rail-item.active::before {
-    display: none;
-  }
-
   .rail-footer {
     margin: 0 0 0 auto;
     padding-top: 0;
@@ -4786,15 +4783,6 @@ body {
  * Desktop density is designed for browser zoom 100%: control heights and
  * workspace rhythm come from tokens, never from zoom or transform scaling.
  */
-.rail {
-  padding-bottom: 20px;
-}
-
-.rail-item {
-  min-height: var(--control-height-lg);
-  gap: 12px;
-}
-
 .context-bar {
   padding: 0 30px;
 }
@@ -4882,10 +4870,6 @@ body {
 }
 
 @media (max-width: 900px) {
-  .rail {
-    padding: 8px 16px;
-  }
-
   .context-bar {
     padding: 10px 16px;
   }
@@ -4905,7 +4889,7 @@ body {
 .file-row,
 .operation-bar,
 .export-actions,
-.processing-bar,
+.status-panel,
 .panel-heading,
 .state-card,
 .empty-state {
@@ -4954,49 +4938,18 @@ body {
   font-size: var(--font-size-sm);
 }
 
-/* ── Left rail: one inset for brand, section label, navigation, utilities ── */
+/* ── Left rail geometry tokens ─────────────────────────────────────────────
+ * One inset drives the rail's outer padding and every item's frame, so brand,
+ * section label, navigation and footer share a single horizontal grid.
+ */
 :root {
-  --rail-inset: 11px;
-  --rail-item-inset: 13px;
+  --rail-inline-padding: 12px;
   --rail-icon-column: 20px;
-}
-
-.rail {
-  padding: 0 var(--rail-inset) 20px;
-}
-
-.rail-brand {
-  padding-left: var(--rail-item-inset);
-}
-
-.rail-group-label {
-  margin: 10px 0 4px;
-  padding-left: var(--rail-item-inset);
-}
-
-.rail-item {
-  padding: 0 var(--rail-item-inset);
-}
-
-/* Fixed icon column keeps every label on the same start line. */
-.rail-item > svg {
-  flex: 0 0 var(--rail-icon-column);
-  width: var(--rail-icon-column);
-  height: var(--rail-icon-column);
-}
-
-/* Accent sits inside the item so active and idle share the same outer inset. */
-.rail-item.active {
-  box-shadow: inset 2px 0 0 var(--blue);
-}
-
-.rail-item.active::before {
-  content: none;
 }
 
 @media (max-width: 900px) {
   .rail {
-    padding: 8px var(--rail-inset);
+    padding-block: 8px;
   }
 
   .rail-item.active {
@@ -5016,43 +4969,27 @@ body {
   }
 }
 
-/* ── Browser AI status: a quiet capability box, never an error surface ───── */
+/*
+ * Browser AI status reuses .status-panel wholesale; only the horizontal flow
+ * of its actions and progress row is specific. It is a capability box, never
+ * an error surface, so it never invents its own frame or colour.
+ */
 .ai-status {
   margin-top: var(--space-3);
-  padding: var(--space-3) var(--panel-inset);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-panel);
-  background: var(--paper);
-  display: flex;
-  flex-wrap: wrap;
+  flex-flow: row wrap;
   align-items: center;
   gap: var(--space-2) var(--space-4);
 }
 
-.ai-status strong {
-  color: var(--ink);
+.ai-status > strong {
   font-size: var(--font-size-md);
   font-weight: var(--font-weight-semibold);
 }
 
 .ai-status p {
   flex: 1 1 320px;
-  margin: 0;
   color: var(--muted);
   font-size: var(--font-size-sm);
-}
-
-.ai-status.loading {
-  border-color: #b6d0e6;
-  background: var(--blue-pale);
-}
-
-.ai-status.ready strong {
-  color: var(--success);
-}
-
-.ai-status.failed strong {
-  color: var(--warning);
 }
 
 .ai-progress {
@@ -5088,10 +5025,6 @@ body {
 }
 
 /* Opt-in download: one primary action, one quiet escape, no modal. */
-.ai-status.confirm {
-  border-color: var(--border-strong);
-}
-
 .ai-status .ai-confirm {
   min-height: var(--control-height-md);
   padding: 0 14px;
@@ -5157,18 +5090,15 @@ body {
   color: var(--muted);
 }
 
-/* 3. Source: identical link treatment everywhere, compact inside cells. */
-.check-source .source-link,
-.source-actions .source-link,
-.data-row .source-link,
-.paragraph-list .source-link,
-.claim-evidence .source-link,
-.source-evidence-list .source-link {
+/* 3. Source: one locator-plus-action block, identical in every result view. */
+.check-source .result-source,
+.source-actions .result-source,
+.data-row .result-source,
+.paragraph-list .result-source,
+.claim-evidence .result-source,
+.source-evidence-list .result-source {
   max-width: 100%;
-  overflow: hidden;
   font-size: var(--font-size-xs);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* 4. Metadata: weakest layer, and never a pill. */
@@ -5244,21 +5174,25 @@ body {
   color: var(--muted-light);
 }
 
-/* 6. Column widths follow importance: result and recommendation win space. */
+/*
+ * 6. Column widths follow importance. The source column holds a locator and
+ * one action now, not a wrapped file name, so the space it used to need goes
+ * to the result text and the recommendation.
+ */
 .check-table-head,
 .check-issue-row {
-  grid-template-columns: 108px 112px minmax(240px, 1.3fr) minmax(160px, 0.62fr) minmax(230px, 1fr);
+  grid-template-columns: 108px 112px minmax(260px, 1.45fr) minmax(128px, 0.46fr) minmax(250px, 1.1fr);
 }
 
 .change-head,
 .change-row {
-  grid-template-columns: 96px minmax(200px, 1.4fr) minmax(100px, 0.7fr) minmax(100px, 0.7fr) 100px 90px minmax(240px, 1.2fr);
+  grid-template-columns: 96px minmax(220px, 1.6fr) minmax(100px, 0.7fr) minmax(100px, 0.7fr) 100px 90px minmax(150px, 0.8fr);
 }
 
 @media (max-width: 1180px) {
   .check-table-head,
   .check-issue-row {
-    grid-template-columns: 100px 104px minmax(210px, 1.25fr) minmax(150px, 0.6fr) minmax(190px, 0.95fr);
+    grid-template-columns: 100px 104px minmax(220px, 1.35fr) minmax(120px, 0.44fr) minmax(200px, 1fr);
   }
 }
 
@@ -5289,8 +5223,7 @@ body {
   background: #fafbfd;
 }
 
-.source-link:focus-visible,
-.source-actions button:focus-visible {
+.source-action:focus-visible {
   outline-offset: 1px;
 }
 

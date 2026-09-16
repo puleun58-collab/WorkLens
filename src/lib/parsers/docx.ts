@@ -9,14 +9,23 @@ import type {
   TableCell,
   TableBlock,
 } from "@/domain/document";
-import { FORMAT_INPUT_LIMITS } from "./policy";
+import { FORMAT_INPUT_LIMITS, StructureLimitError } from "./policy";
 
-const MAX_ZIP_ENTRIES = 200;
+/**
+ * Structural limits are about expansion work, not file size. A 100 MiB DOCX is
+ * almost always media, which this parser never reads: only XML parts are
+ * inflated, and only they count against the uncompressed budget. Media stays
+ * compressed bytes we walk past, so zip-bomb defence is unchanged.
+ */
+const MAX_ZIP_ENTRIES = 2_000;
 const MAX_ENTRY_BYTES = 5 * 1024 * 1024;
 const MAX_TOTAL_UNCOMPRESSED_BYTES = 30 * 1024 * 1024;
+const isReadablePart = (name: string): boolean => name.endsWith(".xml") || name.endsWith(".rels");
 
 const malformedFileError = (): Error =>
   new Error("파일을 읽을 수 없습니다. 지원되는 정상 파일인지 확인해 주세요.");
+
+const structureLimitError = (): Error => new StructureLimitError();
 
 const readUint16 = (bytes: Uint8Array, offset: number): number => {
   if (offset < 0 || offset + 2 > bytes.byteLength) throw malformedFileError();
@@ -37,7 +46,8 @@ const unzip = (input: Uint8Array): Map<string, Uint8Array> => {
   const count = readUint16(input, end + 10);
   const centralSize = readUint32(input, end + 12);
   const centralOffset = readUint32(input, end + 16);
-  if (count > MAX_ZIP_ENTRIES || centralOffset + centralSize > end) throw malformedFileError();
+  if (count > MAX_ZIP_ENTRIES) throw structureLimitError();
+  if (centralOffset + centralSize > end) throw malformedFileError();
   const files = new Map<string, Uint8Array>();
   let offset = centralOffset;
   let totalSize = 0;
@@ -52,7 +62,7 @@ const unzip = (input: Uint8Array): Map<string, Uint8Array> => {
     const commentLength = readUint16(input, offset + 32);
     const localOffset = readUint32(input, offset + 42);
     const nextOffset = offset + 46 + nameLength + extraLength + commentLength;
-    if ((flags & 1) !== 0 || compression !== 0 && compression !== 8 || uncompressedSize > MAX_ENTRY_BYTES || totalSize + uncompressedSize > MAX_TOTAL_UNCOMPRESSED_BYTES || nextOffset > centralOffset + centralSize || compressedSize === 0xffffffff || uncompressedSize === 0xffffffff || localOffset === 0xffffffff) throw malformedFileError();
+    if ((flags & 1) !== 0 || compression !== 0 && compression !== 8 || nextOffset > centralOffset + centralSize || compressedSize === 0xffffffff || uncompressedSize === 0xffffffff || localOffset === 0xffffffff) throw malformedFileError();
     const name = new TextDecoder("utf-8", { fatal: true }).decode(input.subarray(offset + 46, offset + 46 + nameLength));
     if (name === "" || name.includes("\\") || name.includes("..") || files.has(name)) throw malformedFileError();
     if (readUint32(input, localOffset) !== 0x04034b50) throw malformedFileError();
@@ -60,11 +70,18 @@ const unzip = (input: Uint8Array): Map<string, Uint8Array> => {
     const localExtraLength = readUint16(input, localOffset + 28);
     const dataOffset = localOffset + 30 + localNameLength + localExtraLength;
     if (dataOffset + compressedSize > input.byteLength) throw malformedFileError();
-    const compressed = input.subarray(dataOffset, dataOffset + compressedSize);
-    const content = compression === 0 ? compressed : inflateSync(compressed, { out: new Uint8Array(uncompressedSize) });
-    if (content.byteLength !== uncompressedSize) throw malformedFileError();
-    totalSize += uncompressedSize;
-    files.set(name, content);
+    // Media, fonts and embeddings are never read, so they are walked past
+    // instead of inflated: a picture-heavy document costs no expansion budget.
+    if (isReadablePart(name)) {
+      if (uncompressedSize > MAX_ENTRY_BYTES || totalSize + uncompressedSize > MAX_TOTAL_UNCOMPRESSED_BYTES) throw structureLimitError();
+      const compressed = input.subarray(dataOffset, dataOffset + compressedSize);
+      const content = compression === 0 ? compressed : inflateSync(compressed, { out: new Uint8Array(uncompressedSize) });
+      if (content.byteLength !== uncompressedSize) throw malformedFileError();
+      totalSize += uncompressedSize;
+      files.set(name, content);
+    } else {
+      files.set(name, new Uint8Array(0));
+    }
     offset = nextOffset;
   }
   if (offset !== centralOffset + centralSize) throw malformedFileError();
@@ -272,7 +289,8 @@ export const parseDocx = async (input: {
     parser.write(`<root>${parts.map((part) => `<part kind="${part.kind}">${part.content}</part>`).join("")}</root>`).close();
     if (failure !== undefined || tableDepth !== 0 || currentParagraph !== undefined) throw malformedFileError();
     return { id: `document:${input.fileId}`, fileId: input.fileId, kind: "docx", metadata: { fileName: input.fileName }, blocks, warnings: [...warnings] };
-  } catch {
+  } catch (error) {
+    if (error instanceof StructureLimitError) throw error;
     throw malformedFileError();
   }
 };

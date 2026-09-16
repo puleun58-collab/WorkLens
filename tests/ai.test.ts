@@ -7,7 +7,7 @@ import {
   MAX_EVIDENCE_ITEMS,
   buildMessages,
   evidenceWindow,
-  parseModelClaims,
+  parseModelResponse,
   resolveClaims,
 } from "@/lib/ai/prompt";
 
@@ -89,11 +89,11 @@ describe("browser AI prompt boundary", () => {
 
   it("drops model claims that cite a handle outside the evidence window", () => {
     const window = evidenceWindow(buildEvidenceNodes([document]));
-    const completion = resolveClaims(window, parseModelClaims(JSON.stringify({ claims: [
+    const completion = resolveClaims(window, parseModelResponse(JSON.stringify({ claims: [
       { text: "매출이 줄었습니다.", sources: ["E99"] },
       { text: "근거 없는 주장", sources: [] },
       { text: "분기 매출이 120에서 100으로 줄었습니다.", sources: ["E1"], confidence: "high" },
-    ] })));
+    ] })).claims);
     expect(completion.claims).toEqual([{
       type: "inference",
       text: "분기 매출이 120에서 100으로 줄었습니다.",
@@ -103,19 +103,20 @@ describe("browser AI prompt boundary", () => {
   });
 
   it("treats an unreported or malformed confidence as low", () => {
-    const claims = parseModelClaims('```json\n{"claims":[{"text":"매출 감소","sources":["e1"],"confidence":"certain"}]}\n```');
+    const { claims } = parseModelResponse('```json\n{"claims":[{"text":"매출 감소","sources":["e1"],"confidence":"certain"}]}\n```');
     expect(claims[0]).toMatchObject({ confidence: "low", handles: ["E1"] });
   });
 
-  it("yields no claims when the model answers with prose instead of JSON", () => {
-    expect(parseModelClaims("죄송하지만 답변할 수 없습니다.")).toEqual([]);
+  it("separates a broken answer from a deliberate abstention", () => {
+    expect(parseModelResponse("죄송하지만 답변할 수 없습니다.")).toEqual({ envelope: false, claims: [] });
+    expect(parseModelResponse('{"claims":[]}')).toEqual({ envelope: true, claims: [] });
   });
 
   it("grounds a resolved completion back onto the original source location", () => {
     const window = evidenceWindow(buildEvidenceNodes([document]));
-    const completion = resolveClaims(window, parseModelClaims(
+    const completion = resolveClaims(window, parseModelResponse(
       JSON.stringify({ claims: [{ text: "분기 매출이 감소했습니다.", sources: ["E1"], confidence: "medium" }] }),
-    ));
+    ).claims);
     const result = groundAiResult({ operation: "ask", question: "매출이 줄었나요?" }, [document], completion);
     expect(result.rejectedClaimCount).toBe(0);
     expect(result.claims[0]).toMatchObject({

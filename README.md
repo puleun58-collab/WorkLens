@@ -19,7 +19,7 @@ WorkLens는 XLSX, CSV, PDF, DOCX, PPTX 파일을 **브라우저 안에서** 분�
 | 파싱(XLSX·CSV·PDF·DOCX·PPTX) | 브라우저 Web Worker | `src/lib/parsers/*` |
 | Analyze / Check / Extract / Compare | 브라우저 Web Worker | `src/lib/deterministic.ts`, `src/lib/check/`, `src/domain/compare.ts` |
 | CSV·XLSX 내보내기 | 브라우저 Web Worker | `src/lib/export.ts` |
-| Ask / Brief / AI 문장 검수 | 브라우저 AI Web Worker (WebLLM + WebGPU) | `src/client/browser-ai-worker.ts`, 모델 `Qwen2.5-1.5B-Instruct-q4f16_1-MLC` |
+| Ask / Brief / AI 문장 검수 | 브라우저 AI Web Worker (WebLLM + WebGPU) | `src/client/browser-ai-worker.ts`, 모델 `Qwen3-1.7B-q4f16_1-MLC` (최초 1회 약 990 MB 다운로드, 이후 브라우저 캐시 재사용) |
 | 정적 호스팅 | Cloudflare Workers + Assets | KV·R2에 사용자 데이터 저장 없음 |
 
 - 문서 처리기는 `src/client/document-worker.ts` 하나이며, 메인 스레드는 `src/client/document-client.ts`로만 통신합니다.
@@ -92,7 +92,7 @@ Check는 제출 전 최종 검수 도구입니다. 네 영역을 한 번에 점�
 | 변수 | 기본값 | 설명 |
 | --- | --- | --- |
 | `WORKLENS_ORIGIN` | 요청 origin | 관리자 API의 origin 검사 기준 |
-| `WORKLENS_MAX_FILE_BYTES` | `52428800` | 파일당 상한. 형식별 상한(CSV 10 MiB, DOCX·PPTX 20 MiB, XLSX·PDF 50 MiB)과 함께 적용 |
+| `WORKLENS_MAX_FILE_BYTES` | `104857600` | 파일당 상한(최대 100 MiB). 모든 형식에 동일하게 적용되며, 행·ZIP 엔트리·압축 해제 XML 같은 구조 한도는 별도로 강제 |
 | `WORKLENS_ADMIN_PASSWORD` | 미설정 | 공용 용어 사전 관리자 로그인 |
 | `WORKLENS_ADMIN_SESSION_SECRET` | 미설정 | 관리자 세션 서명 키 |
 
@@ -118,7 +118,7 @@ bun run deploy      # vinext 빌드 후 wrangler deploy
 ## 8. 브라우저 요구 사항
 
 - ES module Web Worker 지원 브라우저(최신 Chrome, Edge, Firefox, Safari)
-- 파일 크기가 클수록 탭 메모리를 사용합니다. 50 MiB 상한은 브라우저 메모리를 기준으로 정해져 있습니다.
+- 파일 크기가 클수록 탭 메모리를 사용합니다. 파일당 100 MiB, 작업 공간 합계 300 MiB 상한은 브라우저 메모리를 기준으로 정해져 있습니다.
 - 본문 폰트는 self-hosted Pretendard Variable(`public/fonts/pretendard/ + unicode-range 동적 서브셋`, SIL OFL 1.1)이며 외부 CDN을 사용하지 않습니다.
 
 ## 9. Testing

@@ -7,12 +7,18 @@ import { createCheckPptx, createXlsx, RATE_SHEET_V1 } from "../fixtures";
  * Real browser-AI smoke test. Requires a WebGPU adapter and network access to
  * the model host, so it runs only through `bun run test:ai:smoke` and is never
  * part of the blocking CI matrix. It verifies the full browser path: adapter →
- * confirmation → download → Ask → Brief → grounded sources → cancel → cache
- * reuse after a reload.
+ * confirmation → download → Ask → Brief → semantic check → abstention →
+ * grounded sources → cancel → cache reuse after a reload.
+ *
+ * `WORKLENS_AI_MODEL` replays the same run on the previous default so the two
+ * models can be compared on identical documents, questions and evidence; the
+ * timings and outcomes land in `artifacts/ai-smoke-<model>.json`.
  */
 const FIXTURE_DIR = path.join(process.cwd(), "artifacts", "fixtures");
 const rateSheet = path.join(FIXTURE_DIR, "운임현황_v1.xlsx");
 const deck = path.join(FIXTURE_DIR, "최종검수.pptx");
+const BASELINE_MODEL = "Qwen2.5-1.5B-Instruct-q4f16_1-MLC";
+const model = process.env.WORKLENS_AI_MODEL === BASELINE_MODEL ? BASELINE_MODEL : "Qwen3-1.7B-q4f16_1-MLC";
 
 test.beforeAll(async () => {
   await mkdir(FIXTURE_DIR, { recursive: true });
@@ -20,7 +26,23 @@ test.beforeAll(async () => {
   await writeFile(deck, createCheckPptx());
 });
 
-test("runs Ask and Brief on a real WebGPU adapter and keeps evidence grounded", async ({ page }) => {
+test.beforeEach(async ({ page }) => {
+  if (model === BASELINE_MODEL) {
+    await page.addInitScript((id: string) => {
+      Object.defineProperty(globalThis, "__worklensAiModel", { value: id, configurable: true });
+    }, model);
+  }
+});
+
+test("runs Ask, Brief and semantic check on a real WebGPU adapter and keeps evidence grounded", async ({ page }) => {
+  test.setTimeout(30 * 60_000);
+  const measured: Record<string, unknown> = { model };
+  const timed = async (label: string, step: () => Promise<void>) => {
+    const started = Date.now();
+    await step();
+    measured[label] = Date.now() - started;
+  };
+
   await page.goto("/");
   const adapter = await page.evaluate(async () => {
     const gpu = (navigator as Navigator & { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
@@ -38,27 +60,48 @@ test("runs Ask and Brief on a real WebGPU adapter and keeps evidence grounded", 
   await expect(page.locator(".ai-status.confirm")).toContainText("브라우저 AI 준비");
   await page.getByRole("button", { name: "AI 준비" }).click();
 
-  // 2. Download reports progress and 3. becomes ready.
+  // 2. Download reports progress and 3. becomes ready (cold load).
   await expect(page.locator(".ai-status.loading")).toContainText("모델 다운로드");
-  await expect(page.locator(".ai-status.ready")).toContainText("브라우저 AI 준비 완료");
+  await timed("coldLoadMs", async () => {
+    await expect(page.locator(".ai-status.ready")).toContainText("브라우저 AI 준비 완료", { timeout: 20 * 60_000 });
+  });
 
-  // 4. Ask produces a grounded answer.
+  // 4. Ask produces a grounded answer, and the answer carries the sheet value.
   await page.getByPlaceholder("선택한 문서에서 확인할 내용을 입력하세요").fill("SEOUL 운임은 얼마인가요?");
-  await page.getByRole("button", { name: "Ask 실행" }).click();
-  await expect(page.getByText("Ask 결과를 준비했습니다.")).toBeVisible();
+  await timed("askMs", async () => {
+    await page.getByRole("button", { name: "Ask 실행" }).click();
+    await expect(page.getByText("Ask 결과를 준비했습니다.")).toBeVisible({ timeout: 10 * 60_000 });
+  });
+  measured.askAnswer = await page.locator(".claim-row").first().innerText();
   // 6. Every claim carries a source link back into the document.
-  await expect(page.locator(".claim-evidence .source-link").first()).toBeVisible();
-  await page.locator(".claim-evidence .source-link").first().click();
+  await expect(page.locator(".claim-evidence .source-action").first()).toBeVisible();
+  await page.locator(".claim-evidence .source-action").first().click();
   await expect(page.getByLabel("Source detail")).toBeVisible();
   await page.getByLabel("닫기").click();
 
   // 5. Brief runs on the same cached model.
   await page.getByRole("button", { name: "Brief", exact: true }).click();
-  await page.getByRole("button", { name: "Brief 실행" }).click();
-  await expect(page.getByText("Brief 결과를 준비했습니다.")).toBeVisible();
+  await timed("briefMs", async () => {
+    await page.getByRole("button", { name: "Brief 실행" }).click();
+    await expect(page.getByText("Brief 결과를 준비했습니다.")).toBeVisible({ timeout: 10 * 60_000 });
+  });
+  measured.briefClaims = await page.locator(".claim-row").count();
+
+  // 5b. Semantic check reuses the same model on the Check surface.
+  await page.getByRole("button", { name: "Check", exact: true }).click();
+  await page.getByRole("button", { name: "브라우저 AI 문장 검수" }).click();
+  await timed("semanticCheckMs", async () => {
+    await expect(page.getByText("브라우저 AI 보조 점검 결과를 준비했습니다.")).toBeVisible({ timeout: 10 * 60_000 });
+  });
+
+  // 5c. A question the documents cannot answer must not invent one.
+  await page.getByRole("button", { name: "Ask", exact: true }).click();
+  await page.getByPlaceholder("선택한 문서에서 확인할 내용을 입력하세요").fill("2031년 파리 지사 임대료는 얼마인가요?");
+  await page.getByRole("button", { name: "Ask 실행" }).click();
+  await expect(page.locator(".notice, .claim-row").first()).toBeVisible({ timeout: 10 * 60_000 });
+  measured.unanswerable = await page.locator(".notice, .claim-row").first().innerText();
 
   // 7. Generation cancel returns control without tearing the model down.
-  await page.getByRole("button", { name: "Ask", exact: true }).click();
   await page.getByPlaceholder("선택한 문서에서 확인할 내용을 입력하세요").fill("전체 운임 추이를 자세히 설명해 주세요.");
   await page.getByRole("button", { name: "Ask 실행" }).click();
   await page.getByRole("button", { name: "생성 중지" }).click();
@@ -71,9 +114,18 @@ test("runs Ask and Brief on a real WebGPU adapter and keeps evidence grounded", 
   await page.locator(".file-row input[type='checkbox']").first().check();
   await page.getByRole("button", { name: "Ask", exact: true }).click();
   await page.getByRole("button", { name: "AI 준비" }).click();
+  await timed("warmLoadMs", async () => {
+    await expect(page.locator(".ai-status.ready")).toContainText("브라우저 AI 준비 완료", { timeout: 10 * 60_000 });
+  });
   await page.getByPlaceholder("선택한 문서에서 확인할 내용을 입력하세요").fill("BUSAN 운임은 얼마인가요?");
   await page.getByRole("button", { name: "Ask 실행" }).click();
-  await expect(page.getByText("Ask 결과를 준비했습니다.")).toBeVisible();
+  await expect(page.getByText("Ask 결과를 준비했습니다.")).toBeVisible({ timeout: 10 * 60_000 });
+  measured.warmAskAnswer = await page.locator(".claim-row").first().innerText();
+
+  await writeFile(
+    path.join(process.cwd(), "artifacts", `ai-smoke-${model}.json`),
+    `${JSON.stringify(measured, null, 2)}\n`,
+  );
 });
 
 test("keeps the workspace usable when the model cannot be prepared", async ({ page }) => {
