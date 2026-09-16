@@ -28,7 +28,7 @@ describe("parseDocument", () => {
 
   it("admits a file at the ceiling and rejects the byte past it", () => {
     expect(() => assertSizeWithinLimit("pdf", MAX_CONFIGURED_FILE_BYTES)).not.toThrow();
-    expect(() => assertSizeWithinLimit("pdf", MAX_CONFIGURED_FILE_BYTES + 1)).toThrow(/100 MiB/);
+    expect(() => assertSizeWithinLimit("pdf", MAX_CONFIGURED_FILE_BYTES + 1)).toThrow(/100 MB/);
   });
 
   it("budgets the workspace separately from the per-file ceiling", () => {

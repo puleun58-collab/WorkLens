@@ -1635,7 +1635,8 @@ input:disabled,
   padding: 12px 16px;
   display: grid;
   grid-template-columns: minmax(210px, 0.6fr) minmax(300px, 1.5fr) auto;
-  align-items: end;
+  /* Left copy and right controls share one centre line in every feature. */
+  align-items: center;
   gap: 20px;
 }
 
@@ -2023,10 +2024,20 @@ input:disabled,
   background: var(--blue-pale);
 }
 
+/*
+ * Result cells start on the panel's own content line, so a header label, a
+ * value and a 근거 보기 link all share one left edge instead of sitting
+ * against the panel border.
+ */
 .data-head > span,
 .data-row > span {
   min-width: 0;
   padding: 7px 10px;
+}
+
+.data-head > span:first-child,
+.data-row > span:first-child {
+  padding-inline-start: var(--panel-inset);
 }
 
 .data-row > span:first-child {
@@ -2358,15 +2369,15 @@ input:disabled,
 }
 
 /*
- * The evidence column is ruled off in both rows, so the rule is one line. The
- * inset past the rule is one shared value: the locator never sits against the
- * vertical line, and no row carries its own margin to fake the gap.
+ * The evidence column carries a locator and one action, and no rule divides
+ * it: the column's own left edge is the alignment line for the header and for
+ * every row, so no cell carries its own margin.
  */
 .check-table-head > span:nth-child(4),
 .check-source {
-  margin-inline-start: calc(var(--check-column-gap) * -1);
-  padding-inline-start: calc(var(--check-column-gap) + var(--source-cell-inset));
-  border-inline-start: 1px solid var(--line-soft);
+  margin-inline-start: 0;
+  padding-inline-start: 0;
+  border-inline-start: 0;
 }
 
 /*
@@ -2693,14 +2704,6 @@ input:disabled,
   gap: 4px 12px;
 }
 
-.extract-modes legend {
-  float: left;
-  width: 78px;
-  padding: 2px 10px 0 0;
-  color: var(--muted);
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-semibold);
-}
 
 .extract-modes label {
   display: inline-flex;
@@ -2739,11 +2742,16 @@ input:disabled,
 
 .extract-fields > input {
   min-width: 180px;
-  min-height: 30px;
-  padding: 4px 8px;
+  min-height: var(--control-height-md);
+  padding: 4px 10px;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-control);
   font-size: var(--font-size-sm);
+}
+
+/* The draft input and its 항목 추가 button read as one control pair. */
+.extract-fields > .secondary-action {
+  min-height: var(--control-height-md);
 }
 
 .extract-view-toggle {
@@ -2774,6 +2782,7 @@ input:disabled,
 
 .extract-field-list {
   margin: 0;
+  padding-inline: var(--panel-inset);
   display: grid;
   gap: 8px;
 }
@@ -3578,10 +3587,8 @@ body {
   /* Check table column system: shared by the header row and every body row. */
   --check-row-inset: 18px;
   --check-column-gap: 12px;
-  /* Space between the evidence column rule and its content. */
-  --source-cell-inset: 10px;
   /* One label→control gap for every Check filter group. */
-  --check-filter-label-gap: 10px;
+  --check-filter-label-gap: 6px;
   --border-subtle: #edf0f3;
   /* Content inset shared by every block inside the evidence inspector. */
   --inspector-inset: 18px;
@@ -4510,7 +4517,8 @@ body {
   background: var(--layer);
   display: flex;
   flex-wrap: wrap;
-  align-items: start;
+  /* The 용어 사전 action sits on the filter buttons' line, not above them. */
+  align-items: end;
 }
 
 .check-toolbar .check-filters {
@@ -5256,6 +5264,20 @@ body {
   padding: 0 30px;
 }
 
+/*
+ * Every run/export control centres its label on both axes from one rule, so
+ * no button needs a nudge to look vertically centred.
+ */
+.operation-actions button,
+.export-actions button,
+.extract-fields > .secondary-action,
+.dictionary-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
 .context-actions .secondary-action,
 .delete-all {
   min-height: var(--control-height-md);
@@ -5422,10 +5444,25 @@ body {
   }
 }
 
-/* Without a question field the context column takes the free track, so the
- * one-line description never wraps and the bar keeps its single-row height. */
+/*
+ * Without a question field the bar is two columns: the description on the
+ * left, and every control the feature owns — mode switches plus the run
+ * action — stacked on the right. The description spans both rows, so it is
+ * centred against the whole control block instead of only its first row.
+ */
 .operation-bar:not(:has(.question-field)) {
   grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.operation-bar:not(:has(.question-field)) .operation-context {
+  grid-column: 1;
+  grid-row: 1 / -1;
+  align-self: center;
+}
+
+.operation-bar:not(:has(.question-field)) .operation-actions {
+  grid-column: 2;
+  justify-content: flex-end;
 }
 
 /* The paste area is the input, so it takes the whole bar instead of sharing a
@@ -5436,7 +5473,10 @@ body {
   gap: 12px;
 }
 
+.operation-bar:has(.polish-paste) .operation-context,
 .operation-bar:has(.polish-paste) .operation-actions {
+  grid-column: 1;
+  grid-row: auto;
   justify-content: flex-start;
 }
 

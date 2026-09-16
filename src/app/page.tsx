@@ -119,6 +119,16 @@ const tabMeta: Record<Tab, { label: string; description: string }> = {
   Extract: { label: "Extract", description: "데이터 추출" },
   Brief: { label: "Brief", description: "업무 요약" },
 };
+/** The run action is named after the work, not after the destination. */
+const RUN_LABELS: Record<Tab, string> = {
+  Analyze: "Analyze 실행",
+  Ask: "Ask 실행",
+  Compare: "Compare 실행",
+  Check: "Check 실행",
+  Polish: "윤문 실행",
+  Extract: "추출 실행",
+  Brief: "Brief 실행",
+};
 const categoryLabels: Record<ComparisonItem["category"], string> = {
   Added: "추가",
   Removed: "삭제",
@@ -585,7 +595,7 @@ export default function Home() {
       notifyView(
         "success",
         total > 0
-          ? `브라우저 AI 문장 검수 ${total}건을 제안으로 추가했습니다. "낮은 확신 포함"을 켜면 모두 볼 수 있습니다.`
+          ? `브라우저 AI 문장 검수 ${total}건을 제안으로 추가했습니다.`
           : "브라우저 AI 문장 검수에서 추가할 제안이 없었습니다.",
       );
     } catch (error) {
@@ -873,8 +883,8 @@ export default function Home() {
               onDrop={onDrop}
             >
               <div>
-                <strong>{uploading ? "파일을 읽고 구조를 분석하는 중" : "업무 파일 추가"}</strong>
-                <span>XLSX, CSV, PDF, DOCX, PPTX · 파일당 최대 100 MiB · 작업 공간 합계 300 MiB · 임시 처리</span>
+                <strong>{uploading ? "파일을 읽고 구조를 분석하는 중" : "파일 추가"}</strong>
+                <span>XLSX, CSV, PDF, DOCX, PPTX · 파일당 최대 100 MB · 작업 공간 합계 300 MB · 임시 처리</span>
               </div>
               <span className="drop-hint">여기로 끌어놓기</span>
               <button type="button" onClick={() => inputRef.current?.click()} disabled={uploading}>
@@ -913,7 +923,7 @@ export default function Home() {
               {polishTextMode ? null : files.length === 0 ? (
                 <div className="empty-state">
                   <strong>아직 파일이 없습니다.</strong>
-                  <p>파일을 추가하면 구조를 확인하고 분석·비교·검수할 수 있습니다.</p>
+                  <p>파일을 추가하면 문서 분석을 시작할 수 있습니다.</p>
                 </div>
               ) : (
                 <section className="file-list" aria-labelledby="files-heading">
@@ -942,7 +952,7 @@ export default function Home() {
 
               <section className="operation-bar" aria-label={`${activeTab} action`}>
                 <div className="operation-context">
-                  <span>{activeTab === "Compare" ? "기준과 현재 파일을 순서대로 두 개 선택하세요." : activeTab === "Check" ? "Writing · Consistency · Data · Privacy를 한 번에 검수합니다." : polishTextMode ? "붙여넣은 텍스트를 문장 단위로 다듬습니다. 숫자·날짜·인용은 그대로 유지합니다." : activeTab === "Polish" ? "문장 단위로 다듬고 숫자·날짜·인용은 그대로 유지합니다." : activeTab === "Extract" ? "문서에서 필요한 항목을 찾아 표로 만듭니다. 여러 파일을 선택하면 같은 항목으로 취합합니다." : aiTab ? `브라우저 AI는 최대 ${BROWSER_AI_MAX_FILES}개 파일에서 근거를 확인합니다.` : "최대 10개 파일을 함께 처리할 수 있습니다."}</span>
+                  <span>{activeTab === "Compare" ? "기준과 현재 파일을 순서대로 두 개 선택하세요." : activeTab === "Check" ? "작성·일관성·데이터·개인정보 항목을 한 번에 검수합니다. 문장 단위 추가 검수는 브라우저 AI 문장 검수로 실행합니다." : polishTextMode ? "붙여넣은 텍스트를 문장 단위로 다듬습니다. 숫자·날짜·인용은 그대로 유지합니다." : activeTab === "Polish" ? "문장 단위로 다듬고 숫자·날짜·인용은 그대로 유지합니다." : activeTab === "Extract" ? "문서에서 필요한 항목을 찾아 표로 정리합니다. 여러 파일을 선택하면 같은 항목으로 함께 취합합니다." : aiTab ? `브라우저 AI는 최대 ${BROWSER_AI_MAX_FILES}개 파일에서 근거를 확인합니다.` : "최대 10개 파일을 함께 처리할 수 있습니다."}</span>
                 </div>
                 {(activeTab === "Ask" || activeTab === "Brief") ? (
                   <label className="question-field">
@@ -983,8 +993,7 @@ export default function Home() {
                         </label>
                       ))}
                     </fieldset>
-                    <fieldset className="polish-modes">
-                      <legend>윤문 모드</legend>
+                    <fieldset className="polish-modes" aria-label="윤문 모드">
                       {POLISH_MODES.map((mode) => (
                         <label key={mode}>
                           <input
@@ -1021,7 +1030,7 @@ export default function Home() {
                 ) : null}
                 <div className="operation-actions">
                   {(activeTab === "Analyze" || activeTab === "Compare" || activeTab === "Check") ? <button type="button" className="secondary-action" onClick={runAiAssist} disabled={busy || selected.length === 0}>{activeTab === "Check" ? "브라우저 AI 문장 검수" : "브라우저 AI 보조"}</button> : null}
-                  <button type="button" onClick={runActive} disabled={actionDisabled}>{busy ? "처리 중…" : `${activeTab} 실행`}</button>
+                  <button type="button" onClick={runActive} disabled={actionDisabled}>{busy ? "처리 중…" : RUN_LABELS[activeTab]}</button>
                 </div>
               </section>
 
@@ -1057,7 +1066,7 @@ export default function Home() {
               ) : null}
               {activeTab === "Extract" && extractMode !== "text" && structured && structured.summary.fields > 0 ? (
                 <div className="export-actions">
-                  <span>추출한 표와 근거 시트를 파일로 저장합니다.</span>
+                  <span>추출 결과와 근거 시트를 파일로 저장합니다.</span>
                   <button type="button" className="secondary-action" onClick={() => exportStructured("csv")} disabled={busy}>CSV 다운로드</button>
                   <button type="button" onClick={() => exportStructured("xlsx")} disabled={busy}>XLSX 다운로드</button>
                 </div>
@@ -1404,8 +1413,7 @@ function ExtractControls({ mode, fields, busy, onMode, onFields }: {
   };
   return (
     <div className="extract-controls">
-      <fieldset className="extract-modes">
-        <legend>추출 방식</legend>
+      <fieldset className="extract-modes" aria-label="추출 방식">
         {(["auto", "fields", "text"] as const).map((entry) => (
           <label key={entry}>
             <input type="radio" name="extract-mode" value={entry} checked={mode === entry} disabled={busy} onChange={() => onMode(entry)} />
@@ -1941,7 +1949,7 @@ interface CheckViewProps {
 function CheckResults({ entries, fileNames, onSource, polishMode, userTerms, ignoredRules, onAddTerm, onRemoveTerm, onClearTerms, onToggleRule }: CheckViewProps) {
   const [severityFilter, setSeverityFilter] = useState<"all" | CheckSeverity>("all");
   const [groupFilter, setGroupFilter] = useState<"all" | CheckCategoryGroup>("all");
-  const [showLowConfidence, setShowLowConfidence] = useState(false);
+  const [showLowConfidence] = useState(false);
   const [expandedFindingId, setExpandedFindingId] = useState<string | null>(null);
   const [ignoredIds, setIgnoredIds] = useState<string[]>([]);
   const [dictionaryOpen, setDictionaryOpen] = useState(false);
@@ -2019,10 +2027,8 @@ function CheckResults({ entries, fileNames, onSource, polishMode, userTerms, ign
         <div className="qa-intro">
           <span className="result-type">PRE-SHARE REVIEW</span>
           <h3>문서 제출 전 최종 검수</h3>
+          {/* Left reads the review areas, the panel on the right reads severity. */}
           <p className="check-summary-line">
-            <span className="metric"><b>{counts.critical}</b> Critical</span>
-            <span className="metric"><b>{counts.warning}</b> Warning</span>
-            <span className="metric"><b>{counts.suggestion}</b> Suggestion</span>
             <span className="metric"><b>{groupCounts.writing}</b> Writing</span>
             <span className="metric"><b>{groupCounts.consistency}</b> Consistency</span>
             <span className="metric"><b>{groupCounts.data}</b> Data</span>
@@ -2033,7 +2039,7 @@ function CheckResults({ entries, fileNames, onSource, polishMode, userTerms, ign
               전체 {totals.totalFound.toLocaleString("ko-KR")}건 중 우선순위가 높은 {totals.returned.toLocaleString("ko-KR")}건을 표시합니다.
             </small>
           ) : null}
-          <small>Severity는 문제의 중요도, Confidence는 판단의 확실성입니다. 문장 단위 추가 검수는 브라우저 AI 문장 검수로 실행합니다.</small>
+          <small>Severity는 문제의 중요도, Confidence는 판단의 확실성입니다.</small>
         </div>
         <dl className="qa-summary">
           {(["critical", "warning", "suggestion"] as const).map((severity) => (
@@ -2075,11 +2081,12 @@ function CheckResults({ entries, fileNames, onSource, polishMode, userTerms, ign
                 </div>
               </fieldset>
             </section>
+            {/*
+             * Low-confidence findings stay hidden here; the filter itself is
+             * kept in state so a 보기 옵션 can expose it without changing how
+             * confidence is computed.
+             */}
             <div className="check-toolbar-actions">
-              <label className="low-confidence-toggle">
-                <input type="checkbox" checked={showLowConfidence} onChange={(event) => { setShowLowConfidence(event.target.checked); resetPage(); }} />
-                낮은 확신 포함 <b>{totals.lowConfidence}</b>
-              </label>
               <div className="dictionary-anchor">
                 <button type="button" className="dictionary-trigger" aria-expanded={dictionaryOpen} onClick={() => setDictionaryOpen((open) => !open)}>용어 사전</button>
                 {dictionaryOpen ? (

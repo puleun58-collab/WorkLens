@@ -203,7 +203,7 @@ test("scores Ask, Brief and semantic check against a fixed case set", async ({ p
   for (const mode of ["기본 윤문", "간결하게", "업무 문체"] as const) {
     await page.getByRole("radio", { name: mode }).check();
     const started = Date.now();
-    await page.getByRole("button", { name: "Polish 실행" }).click();
+    await page.getByRole("button", { name: "윤문 실행" }).click();
     await expect(page.locator(".check-summary-line")).toContainText("변경 제안", { timeout: 20 * 60_000 });
     const rows = page.locator(".polish-row:not(.rejected)");
     const rewrites = await rows.count();
@@ -243,7 +243,7 @@ test("scores Ask, Brief and semantic check against a fixed case set", async ({ p
     const started = Date.now();
     await page.getByRole("radio", { name: "기본 윤문" }).check();
     await page.getByLabel("윤문할 텍스트 입력").fill(polishCase.text);
-    await page.getByRole("button", { name: "Polish 실행" }).click();
+    await page.getByRole("button", { name: "윤문 실행" }).click();
     await expect(page.locator(".polish-text-run")).toBeVisible({ timeout: 20 * 60_000 });
     await expect(page.locator(".check-summary-line")).toContainText("변경 제안", { timeout: 20 * 60_000 });
     const blocks = await page.locator(".polish-text-run .polish-block").allInnerTexts();

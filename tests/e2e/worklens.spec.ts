@@ -191,7 +191,7 @@ test("uploads and normalizes all five formats", async ({ page }) => {
     // The full-text mode lists every paragraph and table, so every format's
     // locator vocabulary is visible here.
     await page.getByRole("radio", { name: "전체 텍스트 내보내기" }).check();
-    await page.getByRole("button", { name: "Extract 실행" }).click();
+    await page.getByRole("button", { name: "추출 실행" }).click();
     await expect(page.getByText("전체 텍스트를 준비했습니다.")).toBeVisible();
     const locator = page.locator(".results-panel .source-locator").first();
     await expect(locator).toBeVisible();
@@ -229,7 +229,7 @@ test("runs deterministic Analyze, Check, Extract/export and degrades browser AI 
   await expect(page.getByText("콘텐츠 및 개인정보 점검을 완료했습니다.")).toBeVisible();
 
   await page.getByRole("button", { name: "Extract", exact: true }).click();
-  await page.getByRole("button", { name: "Extract 실행" }).click();
+  await page.getByRole("button", { name: "추출 실행" }).click();
   await expect(page.getByText(/추출 항목 \d+개/)).toBeVisible();
   const structuredDownload = page.waitForEvent("download");
   await page.getByRole("button", { name: "CSV 다운로드" }).click();
@@ -237,7 +237,7 @@ test("runs deterministic Analyze, Check, Extract/export and degrades browser AI 
 
   // The old paragraph/table dump is still available as the secondary mode.
   await page.getByRole("radio", { name: "전체 텍스트 내보내기" }).check();
-  await page.getByRole("button", { name: "Extract 실행" }).click();
+  await page.getByRole("button", { name: "추출 실행" }).click();
   await expect(page.getByText("전체 텍스트를 준비했습니다.")).toBeVisible();
   const textDownload = page.waitForEvent("download");
   await page.getByRole("button", { name: "XLSX 다운로드" }).click();
@@ -266,7 +266,7 @@ test("extracts fields and records without a model and exports the structured tab
   await page.getByRole("button", { name: "Extract", exact: true }).click();
 
   // Automatic mode: labelled pairs become FIELD/VALUE rows with a locator.
-  await page.getByRole("button", { name: "Extract 실행" }).click();
+  await page.getByRole("button", { name: "추출 실행" }).click();
   await expect(page.locator(".check-summary-line")).toContainText("추출 항목");
   const autoTable = page.locator(".extract-auto-table");
   await expect(autoTable).toBeVisible();
@@ -281,7 +281,7 @@ test("extracts fields and records without a model and exports the structured tab
   await page.getByRole("button", { name: "항목 추가" }).click();
   await field.fill("존재하지 않는 항목");
   await page.getByRole("button", { name: "항목 추가" }).click();
-  await page.getByRole("button", { name: "Extract 실행" }).click();
+  await page.getByRole("button", { name: "추출 실행" }).click();
   await expect(page.locator(".check-summary-line")).toContainText("확인 필요");
   const table = page.locator(".results-panel table.extract-table").first();
   await expect(table.locator("th").nth(1)).toHaveText("작성부서");
@@ -303,7 +303,7 @@ test("keeps Polish available only through the browser AI layer", async ({ page }
   // Polish is an AI feature: without an adapter it says so quietly and the
   // deterministic features keep working.
   await expect(page.locator(".ai-status")).toContainText("브라우저 AI를 사용할 수 없습니다");
-  await expect(page.getByRole("button", { name: "Polish 실행" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "윤문 실행" })).toBeDisabled();
   await expect(page.locator(".notice.error")).toHaveCount(0);
   await expect(page.getByRole("radio", { name: "간결하게" })).toBeVisible();
   await expect(page.getByRole("radio", { name: "업무 문체" })).toBeVisible();
@@ -334,7 +334,7 @@ test("offers file and pasted-text polish without touching the workspace", async 
   await expect(page.getByRole("radio", { name: "업무 문체" })).toBeVisible();
 
   // The action follows the textarea, not the file selection.
-  await expect(page.getByRole("button", { name: "Polish 실행" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "윤문 실행" })).toBeDisabled();
   await paste.fill("안녕하세요.\n- 3분기 운영 보고 관련하여 검토 부탁드리고자 합니다.\n1. 매출은 1,250만원입니다.");
   await expect(page.locator(".polish-paste small")).toContainText("/ 5,000자");
   // No adapter here, so the AI gate still holds and no fake result appears.
@@ -394,7 +394,7 @@ test("shows the browser AI panel only where the feature asks for it", async ({ p
   // Extract never mentions the model, even after another tab requested it.
   await page.getByRole("button", { name: "Extract", exact: true }).click();
   await expect(page.locator(".ai-status")).toHaveCount(0);
-  await page.getByRole("button", { name: "Extract 실행" }).click();
+  await page.getByRole("button", { name: "추출 실행" }).click();
   await expect(page.getByText(/추출 항목 \d+개/)).toBeVisible();
   await expect(page.locator(".ai-status")).toHaveCount(0);
 });
@@ -406,7 +406,15 @@ test("reviews PPTX writing, consistency and data findings with filters and exact
   await page.getByRole("button", { name: "Check", exact: true }).click();
   await page.getByRole("button", { name: "Check 실행" }).click();
 
-  await expect(page.getByRole("heading", { name: "문서 제출 전 최종 검수" })).toBeVisible();
+  // Left summary reads the review areas, the panel on the right the severity.
+  const overview = page.locator(".qa-overview");
+  await expect(overview.getByRole("heading", { name: "문서 제출 전 최종 검수" })).toBeVisible();
+  await expect(overview.locator(".check-summary-line")).toContainText("Writing");
+  await expect(overview.locator(".check-summary-line")).not.toContainText("Critical");
+  await expect(overview.locator(".qa-summary")).toContainText("Critical");
+  // Low-confidence findings stay hidden: the toggle is not in the main filters.
+  await expect(page.getByText("낮은 확신 포함")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "용어 사전" })).toBeVisible();
   const typo = page.locator(".check-issue").filter({ hasText: "한글 맞춤법 오류 가능성" });
   await expect(typo).toContainText("Spelling");
   await expect(typo).toContainText("HIGH");
@@ -435,7 +443,8 @@ test("reviews PPTX writing, consistency and data findings with filters and exact
 
   await expect(page.getByRole("button", { name: "브라우저 AI 문장 검수" })).toBeVisible();
 });
-test("keeps the personal dictionary, ignore actions and confidence filter inside this browser", async ({ page, browser }) => {
+
+test("keeps the personal dictionary and ignore actions inside this browser", async ({ page, browser }) => {
   await page.goto("/");
   await upload(page, files.checkPptx);
   await page.getByLabel("최종검수.pptx 선택").check();

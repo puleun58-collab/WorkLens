@@ -112,7 +112,7 @@ test.describe("Cloudflare Worker production build", () => {
     await expect(page.getByTestId("change-row").first()).toBeVisible();
 
     await page.getByRole("button", { name: "Extract", exact: true }).click();
-    await page.getByRole("button", { name: "Extract 실행" }).click();
+    await page.getByRole("button", { name: "추출 실행" }).click();
     // Automatic extraction reports its own count even when a sheet holds only
     // records; either a structured row or the "nothing to structure" panel is
     // the correct production outcome.

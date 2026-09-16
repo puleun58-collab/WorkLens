@@ -38,7 +38,7 @@ export function assertSizeWithinLimit(kind: FileKind, size: number): void {
   if (size > limit) {
     throw new DocumentError(
       "FILE_TOO_LARGE",
-      `이 파일은 최대 ${Math.floor(limit / 1024 / 1024)} MiB까지 처리할 수 있습니다.`,
+      `이 파일은 최대 ${Math.floor(limit / 1024 / 1024)} MB까지 처리할 수 있습니다.`,
     );
   }
 }
@@ -52,7 +52,7 @@ export function assertWorkspaceWithinLimit(currentBytes: number, incomingBytes: 
   if (currentBytes + incomingBytes > MAX_WORKSPACE_INPUT_BYTES) {
     throw new DocumentError(
       "WORKSPACE_SIZE_LIMIT",
-      `현재 작업 공간에 추가할 수 있는 총 파일 용량(${Math.floor(MAX_WORKSPACE_INPUT_BYTES / 1024 / 1024)} MiB)을 초과합니다. 사용하지 않는 파일을 삭제한 뒤 다시 시도하세요.`,
+      `현재 작업 공간에 추가할 수 있는 총 파일 용량(${Math.floor(MAX_WORKSPACE_INPUT_BYTES / 1024 / 1024)} MB)을 초과합니다. 사용하지 않는 파일을 삭제한 뒤 다시 시도하세요.`,
     );
   }
 }
