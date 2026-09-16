@@ -10,7 +10,7 @@ import { POLISH_TEXT_CASES } from "../eval/cases";
  * The smoke run (`playwright.ai.config.ts`) proves the AI path works. This run
  * scores how good the answers are on a fixed case set, on the same documents,
  * the same questions and the same retrieval window for every model, so
- * Qwen3 1.7B and the Qwen2.5 baseline are directly comparable.
+ * Qwen3.5 4B and the Qwen2.5 baseline are directly comparable.
  *
  * Scoring is deterministic: numbers, dates, money, cited handles, abstention
  * and expected keywords are checked in code. No model judges another model.
@@ -23,7 +23,7 @@ const FIXTURE_DIR = path.join(process.cwd(), "artifacts", "fixtures");
 const rateSheet = path.join(FIXTURE_DIR, "운임현황_v1.xlsx");
 const deck = path.join(FIXTURE_DIR, "최종검수.pptx");
 const BASELINE_MODEL = "Qwen2.5-1.5B-Instruct-q4f16_1-MLC";
-const model = process.env.WORKLENS_AI_MODEL === BASELINE_MODEL ? BASELINE_MODEL : "Qwen3-1.7B-q4f16_1-MLC";
+const model = process.env.WORKLENS_AI_MODEL === BASELINE_MODEL ? BASELINE_MODEL : "Qwen3.5-4B-q4f16_1-MLC";
 
 interface AskCase {
   id: string;
@@ -111,7 +111,7 @@ test("scores Ask, Brief and semantic check against a fixed case set", async ({ p
   // One consent, one download, then every case reuses the loaded model.
   await select(["sheet"]);
   await page.getByRole("button", { name: "Ask", exact: true }).click();
-  const confirm = page.getByRole("button", { name: "AI 준비" });
+  const confirm = page.getByRole("button", { name: "사용 시작" });
   if (await confirm.count()) await confirm.click();
   await expect(page.locator(".ai-status.loading")).toHaveCount(0, { timeout: 25 * 60_000 });
 
@@ -174,7 +174,7 @@ test("scores Ask, Brief and semantic check against a fixed case set", async ({ p
   // Semantic check: every AI finding must point at text the deck contains.
   await page.getByRole("button", { name: "Check", exact: true }).click();
   const checkStarted = Date.now();
-  await page.getByRole("button", { name: "브라우저 AI 문장 검수" }).click();
+  await page.getByRole("button", { name: "AI 문장 검수" }).click();
   await expect(page.getByText("브라우저 AI 보조 점검 결과를 준비했습니다.")).toBeVisible({ timeout: 10 * 60_000 });
   const aiFindings = page.locator(".check-issue").filter({ hasText: "브라우저 AI" });
   const findingCount = await aiFindings.count();

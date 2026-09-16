@@ -19,7 +19,7 @@ WorkLens는 XLSX, CSV, PDF, DOCX, PPTX 파일을 **브라우저 안에서** 분�
 | 파싱(XLSX·CSV·PDF·DOCX·PPTX) | 브라우저 Web Worker | `src/lib/parsers/*` |
 | Analyze / Check / Extract / Compare | 브라우저 Web Worker | `src/lib/deterministic.ts`, `src/lib/check/`, `src/lib/extract/`, `src/domain/compare.ts` |
 | CSV·XLSX 내보내기 | 브라우저 Web Worker | `src/lib/export.ts`, `src/lib/extract/export.ts` |
-| Ask / Brief / Polish / AI 문장 검수 / Extract 항목 탐색 | 브라우저 AI Web Worker (WebLLM + WebGPU) | `src/client/browser-ai-worker.ts`, 모델 `Qwen3-1.7B-q4f16_1-MLC` (최초 1회 약 990 MB 다운로드, 이후 브라우저 캐시 재사용) |
+| Ask / Brief / Polish / AI 문장 검수 / Extract 항목 탐색 | 브라우저 AI Web Worker (WebLLM + WebGPU) | `src/client/browser-ai-worker.ts`, 모델 `Qwen3.5-4B-q4f16_1-MLC` (최초 1회 약 2,290 MB 다운로드, 이후 브라우저 캐시 재사용) |
 | 정적 호스팅 | Cloudflare Workers + Assets | KV·R2에 사용자 데이터 저장 없음 |
 
 - 문서 처리기는 `src/client/document-worker.ts` 하나이며, 메인 스레드는 `src/client/document-client.ts`로만 통신합니다.
@@ -89,7 +89,7 @@ Check는 제출 전 최종 검수 도구입니다. 네 영역을 한 번에 점�
 - 사전은 spelling/terminology 오탐 억제에만 사용합니다. 사전에 있는 단어라도 중복 단어, 개인정보, 수치 오류는 계속 검출합니다.
 - 규칙 계층: deterministic 규칙(`src/lib/check/{writing,terminology,data,privacy,structure}`) → 기본 언어 사전 → 공용 사전 → 개인 사전 → Browser Semantic Layer.
 
-브라우저 AI를 사용할 수 없으면 상태 박스에 사유만 표시하고 deterministic 검수는 정상 수행합니다. 사용할 수 있으면 "브라우저 AI 문장 검수" 결과가 Check 목록에 Suggestion으로 합쳐지며, 모델이 보고한 확신도(High/Medium/Low)를 그대로 사용합니다.
+브라우저 AI를 사용할 수 없으면 상태 박스에 사유만 표시하고 deterministic 검수는 정상 수행합니다. 사용할 수 있으면 "AI 문장 검수" 결과가 Check 목록에 Suggestion으로 합쳐지며, 모델이 보고한 확신도(High/Medium/Low)를 그대로 사용합니다.
 
 ## 6. Polish 기능
 

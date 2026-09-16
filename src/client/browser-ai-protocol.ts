@@ -11,13 +11,16 @@ import type { PolishMode, PolishProposal } from "@/domain/polish";
  * only document data that crosses this boundary is the bounded evidence window
  * (`handle` + `text`) built by the document worker.
  */
-export const BROWSER_AI_MODEL_ID = "Qwen3-1.7B-q4f16_1-MLC";
-export const BROWSER_AI_MODEL_LABEL = "Qwen3 1.7B";
+export const BROWSER_AI_MODEL_ID = "Qwen3.5-4B-q4f16_1-MLC";
+export const BROWSER_AI_MODEL_LABEL = "Qwen3.5 4B";
 /**
- * First-run download, measured from the published MLC repository:
- * 984 MB of weights and config plus the 5.6 MB WebGPU runtime library.
+ * First-run download, measured from the published MLC repository
+ * (`mlc-ai/Qwen3.5-4B-q4f16_1-MLC`): 2,280 MB of weights and config plus the
+ * WebGPU runtime library. The engine reports ~3.9 GB of device memory for this
+ * model, so a machine that cannot allocate it fails as OUT_OF_MEMORY and the
+ * deterministic features keep working.
  */
-export const BROWSER_AI_MODEL_MB = 990;
+export const BROWSER_AI_MODEL_MB = 2_290;
 /**
  * Previous default. Kept as the A/B baseline for the real-WebGPU smoke run and
  * selected only through the `window.__worklensAiModel` test seam; the product

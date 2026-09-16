@@ -18,7 +18,7 @@ const FIXTURE_DIR = path.join(process.cwd(), "artifacts", "fixtures");
 const rateSheet = path.join(FIXTURE_DIR, "운임현황_v1.xlsx");
 const deck = path.join(FIXTURE_DIR, "최종검수.pptx");
 const BASELINE_MODEL = "Qwen2.5-1.5B-Instruct-q4f16_1-MLC";
-const model = process.env.WORKLENS_AI_MODEL === BASELINE_MODEL ? BASELINE_MODEL : "Qwen3-1.7B-q4f16_1-MLC";
+const model = process.env.WORKLENS_AI_MODEL === BASELINE_MODEL ? BASELINE_MODEL : "Qwen3.5-4B-q4f16_1-MLC";
 
 test.beforeAll(async () => {
   await mkdir(FIXTURE_DIR, { recursive: true });
@@ -57,8 +57,8 @@ test("runs Ask, Brief and semantic check on a real WebGPU adapter and keeps evid
 
   // 1. Capability check surfaces the opt-in download, nothing downloads yet.
   await page.getByRole("button", { name: "Ask", exact: true }).click();
-  await expect(page.locator(".ai-status.confirm")).toContainText("브라우저 AI 준비");
-  await page.getByRole("button", { name: "AI 준비" }).click();
+  await expect(page.locator(".ai-status.confirm")).toContainText("AI 모델 사용");
+  await page.getByRole("button", { name: "사용 시작" }).click();
   // 2. Download reports progress and 3. the model becomes usable. There is no
   // ready panel by design, so readiness is the observable contract: the
   // loading panel is gone and the AI action is live again.
@@ -91,7 +91,7 @@ test("runs Ask, Brief and semantic check on a real WebGPU adapter and keeps evid
 
   // 5b. Semantic check reuses the same model on the Check surface.
   await page.getByRole("button", { name: "Check", exact: true }).click();
-  await page.getByRole("button", { name: "브라우저 AI 문장 검수" }).click();
+  await page.getByRole("button", { name: "AI 문장 검수" }).click();
   await timed("semanticCheckMs", async () => {
     await expect(page.getByText("브라우저 AI 보조 점검 결과를 준비했습니다.")).toBeVisible({ timeout: 10 * 60_000 });
   });
@@ -141,7 +141,7 @@ test("keeps the workspace usable when the model cannot be prepared", async ({ pa
   await page.locator(".file-row input[type='checkbox']").first().check();
 
   await page.getByRole("button", { name: "Ask", exact: true }).click();
-  const confirm = page.getByRole("button", { name: "AI 준비" });
+  const confirm = page.getByRole("button", { name: "사용 시작" });
   if (await confirm.count()) await confirm.click();
   await expect(page.locator(".ai-status.failed")).toBeVisible();
   await expect(page.locator(".notice.error")).toHaveCount(0);

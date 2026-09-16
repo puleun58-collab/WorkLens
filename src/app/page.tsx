@@ -592,8 +592,8 @@ export default function Home() {
       notifyView(
         "success",
         total > 0
-          ? `브라우저 AI 문장 검수 ${total}건을 제안으로 추가했습니다.`
-          : "브라우저 AI 문장 검수에서 추가할 제안이 없었습니다.",
+          ? `AI 문장 검수 ${total}건을 제안으로 추가했습니다.`
+          : "AI 문장 검수에서 추가할 제안이 없었습니다.",
       );
     } catch (error) {
       reportAiFailure(error);
@@ -949,7 +949,7 @@ export default function Home() {
 
               <section className="operation-bar" aria-label={`${activeTab} action`}>
                 <div className="operation-context">
-                  <span>{activeTab === "Compare" ? "기준과 현재 파일을 순서대로 두 개 선택하세요." : activeTab === "Check" ? "작성·일관성·데이터·개인정보 항목을 한 번에 검수합니다. 문장 단위 추가 검수는 브라우저 AI 문장 검수로 실행합니다." : polishTextMode ? "붙여넣은 텍스트를 문장 단위로 다듬습니다. 숫자·날짜·인용은 그대로 유지합니다." : activeTab === "Polish" ? "문장 단위로 다듬고 숫자·날짜·인용은 그대로 유지합니다." : activeTab === "Extract" ? "문서에서 필요한 항목을 찾아 표로 정리합니다. 여러 파일을 선택하면 같은 항목으로 함께 취합합니다." : aiTab ? `브라우저 AI는 최대 ${BROWSER_AI_MAX_FILES}개 파일에서 근거를 확인합니다.` : "최대 10개 파일을 함께 처리할 수 있습니다."}</span>
+                  <span>{activeTab === "Compare" ? "기준과 현재 파일을 순서대로 두 개 선택하세요." : activeTab === "Check" ? "작성·일관성·데이터·개인정보 항목을 한 번에 검수합니다. 문장 단위 추가 검수는 AI 문장 검수로 실행합니다." : polishTextMode ? "붙여넣은 텍스트를 문장 단위로 다듬습니다. 숫자·날짜·인용은 그대로 유지합니다." : activeTab === "Polish" ? "문장 단위로 다듬고 숫자·날짜·인용은 그대로 유지합니다." : activeTab === "Extract" ? "문서에서 필요한 항목을 찾아 표로 정리합니다. 여러 파일을 선택하면 같은 항목으로 함께 취합합니다." : aiTab ? `브라우저 AI는 최대 ${BROWSER_AI_MAX_FILES}개 파일에서 근거를 확인합니다.` : "최대 10개 파일을 함께 처리할 수 있습니다."}</span>
                 </div>
                 {(activeTab === "Ask" || activeTab === "Brief") ? (
                   <label className="question-field">
@@ -974,8 +974,7 @@ export default function Home() {
                 ) : null}
                 {activeTab === "Polish" ? (
                   <div className="polish-controls">
-                    <fieldset className="polish-input-modes">
-                      <legend>입력 방식</legend>
+                    <fieldset className="segmented polish-input-modes" aria-label="윤문 입력 방식">
                       {(["file", "text"] as const).map((input) => (
                         <label key={input}>
                           <input
@@ -990,7 +989,7 @@ export default function Home() {
                         </label>
                       ))}
                     </fieldset>
-                    <fieldset className="polish-modes" aria-label="윤문 모드">
+                    <fieldset className="segmented polish-modes" aria-label="윤문 방식">
                       {POLISH_MODES.map((mode) => (
                         <label key={mode}>
                           <input
@@ -1026,7 +1025,7 @@ export default function Home() {
                   </div>
                 ) : null}
                 <div className="operation-actions">
-                  {(activeTab === "Analyze" || activeTab === "Compare" || activeTab === "Check") ? <button type="button" className="secondary-action" onClick={runAiAssist} disabled={busy || selected.length === 0}>{activeTab === "Check" ? "브라우저 AI 문장 검수" : "브라우저 AI 보조"}</button> : null}
+                  {(activeTab === "Analyze" || activeTab === "Compare" || activeTab === "Check") ? <button type="button" className="secondary-action" onClick={runAiAssist} disabled={busy || selected.length === 0}>{activeTab === "Check" ? "AI 문장 검수" : "브라우저 AI 보조"}</button> : null}
                   <button type="button" onClick={runActive} disabled={actionDisabled} aria-label={`${activeTab} ${RUN_LABEL}`}>{busy ? "처리 중…" : RUN_LABEL}</button>
                 </div>
               </section>
@@ -1164,12 +1163,12 @@ function BrowserAiStatus({ state, onConfirm, onCancelLoad, onInterrupt }: {
     // is reused afterwards. Model name, feature list and the privacy and cache
     // policy live in 설정 > 브라우저 AI, not on top of the user's task.
     return (
-      <StatusPanel variant="info" className="ai-status confirm" tone="group" label="브라우저 AI 준비" title="브라우저 AI 준비">
+      <StatusPanel variant="info" className="ai-status confirm" tone="group" label="AI 모델 사용" title="AI 모델 사용">
         <p className="ai-copy">
-          최초 1회 약 {BROWSER_AI_MODEL_MB}MB 모델을 내려받으며 이후 브라우저 캐시를 재사용합니다.
+          최초 1회 약 {BROWSER_AI_MODEL_MB.toLocaleString("ko-KR")}MB 모델을 내려받으며 이후 브라우저 캐시를 재사용합니다.
         </p>
         <div className="ai-status-actions">
-          <button type="button" className="ai-confirm" onClick={onConfirm}>AI 준비</button>
+          <button type="button" className="ai-confirm" onClick={onConfirm}>사용 시작</button>
           <button type="button" className="secondary-action" onClick={onCancelLoad}>취소</button>
         </div>
       </StatusPanel>
@@ -1178,7 +1177,7 @@ function BrowserAiStatus({ state, onConfirm, onCancelLoad, onInterrupt }: {
   if (state.phase === "loading") {
     const percent = Math.round(Math.min(Math.max(state.progress, 0), 1) * 100);
     return (
-      <StatusPanel variant="info" className="ai-status loading" live="polite" title="브라우저 AI 준비 중">
+      <StatusPanel variant="info" className="ai-status loading" live="polite" title="AI 모델 준비 중">
         <p>모델 다운로드 중에도 Analyze · Compare · Check · Extract는 계속 사용할 수 있습니다.</p>
         <span className="ai-progress">
           <progress max={100} value={percent} />
@@ -1197,7 +1196,7 @@ function BrowserAiStatus({ state, onConfirm, onCancelLoad, onInterrupt }: {
   }
   if (state.phase === "failed") {
     return (
-      <StatusPanel variant="warning" className="ai-status failed" title="브라우저 AI 준비 실패">
+      <StatusPanel variant="warning" className="ai-status failed" title="AI 모델 준비 실패">
         <p>{state.message}</p>
         {state.detail ? <small className="ai-detail">{state.detail}</small> : null}
       </StatusPanel>
@@ -1239,7 +1238,7 @@ function SettingsView({ view, companyTerms, companyTermsSource, userTerms, ignor
               : "없음"}
           </dd></div>
           <div><dt>브라우저 AI</dt><dd>
-            Ask, Brief, 문장 검수는 브라우저에서 {BROWSER_AI_MODEL_LABEL} 모델로 실행되며, 최초 1회 약 {BROWSER_AI_MODEL_MB}MB 모델을 내려받은 뒤 브라우저 캐시를 재사용합니다.
+            Ask, Brief, 문장 검수는 브라우저에서 {BROWSER_AI_MODEL_LABEL} 모델로 실행되며, 최초 1회 약 {BROWSER_AI_MODEL_MB.toLocaleString("ko-KR")}MB 모델을 내려받은 뒤 브라우저 캐시를 재사용합니다.
             <span className="settings-note">문서와 질문은 외부로 전송되거나 저장되지 않으며, 캐시에는 모델 파일만 남습니다.</span>
           </dd></div>
         </dl>
@@ -1410,7 +1409,7 @@ function ExtractControls({ mode, fields, busy, onMode, onFields }: {
   };
   return (
     <div className="extract-controls">
-      <fieldset className="extract-modes" aria-label="추출 방식">
+      <fieldset className="segmented extract-modes" aria-label="추출 방식">
         {(["auto", "fields", "text"] as const).map((entry) => (
           <label key={entry}>
             <input type="radio" name="extract-mode" value={entry} checked={mode === entry} disabled={busy} onChange={() => onMode(entry)} />

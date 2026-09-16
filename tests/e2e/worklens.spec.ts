@@ -388,7 +388,7 @@ test("shows the browser AI panel only where the feature asks for it", async ({ p
 
   await page.getByRole("button", { name: "Check", exact: true }).click();
   await expect(page.locator(".ai-status")).toHaveCount(0);
-  await page.getByRole("button", { name: "브라우저 AI 문장 검수" }).click();
+  await page.getByRole("button", { name: "AI 문장 검수" }).click();
   await expect(page.locator(".ai-status")).toHaveCount(1);
 
   // Extract never mentions the model, even after another tab requested it.
@@ -441,7 +441,7 @@ test("reviews PPTX writing, consistency and data findings with filters and exact
   await expect(page.locator(".check-issue").first()).toBeVisible();
   await expect(page.locator(".check-issue.severity-suggestion")).toHaveCount(0);
 
-  await expect(page.getByRole("button", { name: "브라우저 AI 문장 검수" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "AI 문장 검수" })).toBeVisible();
 });
 
 test("keeps the personal dictionary and ignore actions inside this browser", async ({ page, browser }) => {

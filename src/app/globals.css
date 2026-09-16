@@ -2693,24 +2693,8 @@ input:disabled,
   gap: 8px;
 }
 
-.extract-modes {
-  min-width: 0;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 12px;
-}
-
-
-.extract-modes label {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  color: var(--ink-soft);
-  font-size: var(--font-size-sm);
+.extract-controls > .segmented {
+  justify-self: start;
 }
 
 .extract-fields {
@@ -2819,32 +2803,80 @@ input:disabled,
 }
 
 /* ── Polish: original above rewrite, dense rows, no cards ───────────────── */
-.polish-modes {
+/*
+ * Segmented control: one bordered group of mutually exclusive options, used
+ * by Polish's input and mode choices and by Extract's mode choice. The radios
+ * stay in the DOM — keyboard and screen-reader behaviour is a radio group —
+ * and only their painting changes. Heights, radius and type come from the
+ * shared control tokens, so a segment matches a button in the same bar.
+ */
+.segmented {
   min-width: 0;
   margin: 0;
   padding: 0;
-  border: 0;
-  display: flex;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
+  background: var(--paper);
+  display: inline-flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 12px;
+  overflow: hidden;
 }
 
-.polish-modes legend {
-  float: left;
-  width: 78px;
-  padding: 2px 10px 0 0;
-  color: var(--muted);
-  font-size: var(--font-size-xs);
+.segmented label {
+  position: relative;
+  min-height: var(--control-height-md);
+  padding: 0 12px;
+  border-inline-start: 1px solid var(--border-default);
+  display: inline-flex;
+  align-items: center;
+  color: var(--ink-soft);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: background-color var(--motion-fast) var(--motion-ease);
+}
+
+.segmented label:first-of-type {
+  border-inline-start: 0;
+}
+
+/*
+ * The radio stays the hit target: it covers its segment and is invisible, so
+ * a pointer, a keyboard and an automated click all land on the control rather
+ * than on the label text.
+ */
+.segmented input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  appearance: none;
+  opacity: 0;
+  cursor: inherit;
+}
+
+.segmented label span {
+  pointer-events: none;
+}
+
+.segmented label:hover:not(:has(input:checked)) {
+  background: var(--layer-hover);
+}
+
+.segmented label:has(input:checked) {
+  background: var(--blue-soft);
+  color: var(--blue-active);
   font-weight: var(--font-weight-semibold);
 }
 
-.polish-modes label {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  color: var(--ink-soft);
-  font-size: var(--font-size-sm);
+.segmented label:has(input:focus-visible) {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.segmented label:has(input:disabled) {
+  color: var(--muted-light);
+  cursor: not-allowed;
 }
 
 /*
@@ -2854,35 +2886,8 @@ input:disabled,
 .polish-controls {
   min-width: 0;
   display: grid;
+  justify-items: start;
   gap: 10px;
-}
-
-.polish-input-modes {
-  min-width: 0;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 12px;
-}
-
-.polish-input-modes legend {
-  float: left;
-  width: 78px;
-  padding: 2px 10px 0 0;
-  color: var(--muted);
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-semibold);
-}
-
-.polish-input-modes label {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  color: var(--ink-soft);
-  font-size: var(--font-size-sm);
 }
 
 .polish-paste {
@@ -3588,7 +3593,7 @@ body {
   --check-row-inset: 18px;
   --check-column-gap: 12px;
   /* One label→control gap for every Check filter group. */
-  --check-filter-label-gap: 6px;
+  --check-filter-label-gap: 8px;
   --border-subtle: #edf0f3;
   /* Content inset shared by every block inside the evidence inspector. */
   --inspector-inset: 18px;
@@ -4517,8 +4522,8 @@ body {
   background: var(--layer);
   display: flex;
   flex-wrap: wrap;
-  /* The 용어 사전 action sits on the filter buttons' line, not above them. */
-  align-items: end;
+  /* The 용어 사전 action balances the whole filter block, so it centres on it. */
+  align-items: center;
 }
 
 .check-toolbar .check-filters {
@@ -5375,6 +5380,11 @@ body {
   --panel-inset: 22px;
 }
 
+/*
+ * One content inset per panel: the heading, the metric line, a document
+ * heading and the first cell of a result row all start on the same vertical
+ * line, so a result reads as one column of information.
+ */
 .dropzone,
 .file-list-head,
 .file-row,
@@ -5382,10 +5392,17 @@ body {
 .export-actions,
 .status-panel,
 .panel-heading,
+.check-summary-line,
+.document-result-heading,
 .state-card,
 .empty-state {
   padding-right: var(--panel-inset);
   padding-left: var(--panel-inset);
+}
+
+.check-summary-line {
+  padding-top: var(--space-3);
+  padding-bottom: var(--space-2);
 }
 
 .operation-bar {
