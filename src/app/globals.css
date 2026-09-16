@@ -970,15 +970,15 @@ http://scripts.sil.org/OFL
   --space-8: 64px;
   --font-sans: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", sans-serif;
   --font-mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", "Segoe UI Mono", Consolas, "Pretendard Variable", monospace;
-  --font-size-xs: 0.75rem;
-  --font-size-sm: 0.8125rem;
-  --font-size-md: 0.875rem;
-  --font-size-lg: 1.0625rem;
-  --font-size-xl: 1.25rem;
-  --font-size-2xl: 1.5rem;
-  --control-height-sm: 32px;
-  --control-height-md: 34px;
-  --control-height-lg: 36px;
+  --font-size-xs: 0.8125rem;
+  --font-size-sm: 0.875rem;
+  --font-size-md: 0.9375rem;
+  --font-size-lg: 1.1875rem;
+  --font-size-xl: 1.375rem;
+  --font-size-2xl: 1.625rem;
+  --control-height-sm: 35px;
+  --control-height-md: 38px;
+  --control-height-lg: 40px;
   --font-weight-regular: 400;
   --font-weight-medium: 500;
   --font-weight-semibold: 600;
@@ -2369,7 +2369,7 @@ input:disabled,
 
 .check-issue-row > [role="cell"] {
   min-width: 0;
-  padding: 16px 10px 17px 0;
+  padding: 18px 11px 19px 0;
 }
 
 .check-severity {
@@ -3119,8 +3119,8 @@ body {
 /* ── App shell: rail, file context bar, workspace, docked inspector ─────── */
 
 :root {
-  --rail-width: 176px;
-  --topbar-height: 64px;
+  --rail-width: 192px;
+  --topbar-height: 70px;
   --inspector-width: 352px;
   --border-subtle: #edf0f3;
   --border-default: var(--line-soft);
@@ -3505,7 +3505,7 @@ body {
 .worklens-logo {
   display: inline-flex;
   align-items: center;
-  gap: 12px;
+  gap: 13px;
   line-height: 1;
 }
 
@@ -3521,7 +3521,7 @@ body {
 
 .worklens-wordmark {
   color: var(--ink);
-  font-size: 20px;
+  font-size: 22px;
   font-weight: 700;
   letter-spacing: -0.015em;
   line-height: 1;
@@ -4388,7 +4388,7 @@ body {
 
 @media (max-width: 1180px) {
   :root {
-    --rail-width: 160px;
+    --rail-width: 176px;
     --inspector-width: 300px;
   }
 }
@@ -4787,40 +4787,35 @@ body {
  * workspace rhythm come from tokens, never from zoom or transform scaling.
  */
 .rail {
-  padding: 0 12px 18px;
+  padding-bottom: 20px;
 }
 
 .rail-item {
   min-height: var(--control-height-lg);
-  padding: 0 11px;
-  gap: 11px;
-}
-
-.rail-item.active::before {
-  left: -12px;
+  gap: 12px;
 }
 
 .context-bar {
-  padding: 0 28px;
+  padding: 0 30px;
 }
 
 .context-actions .secondary-action,
 .delete-all {
   min-height: var(--control-height-md);
-  padding: 0 13px;
+  padding: 0 14px;
 }
 
 .workspace {
-  max-width: 1280px;
-  padding: 24px 28px 72px;
+  max-width: 1400px;
+  padding: 26px 30px 78px;
 }
 
 .file-list-head {
-  min-height: 34px;
+  min-height: 37px;
 }
 
 .file-row {
-  min-height: 62px;
+  min-height: 68px;
 }
 
 .file-info strong,
@@ -4829,13 +4824,13 @@ body {
 }
 
 .change-row {
-  min-height: 62px;
+  min-height: 68px;
 }
 
 .dropzone:not(.compact) {
-  min-height: 104px;
-  padding-top: 12px;
-  padding-bottom: 12px;
+  min-height: 114px;
+  padding-top: 13px;
+  padding-bottom: 13px;
 }
 
 .dropzone > div strong {
@@ -4902,7 +4897,7 @@ body {
 
 /* ── Content baseline: one inset for every stacked workspace surface ────── */
 :root {
-  --panel-inset: 20px;
+  --panel-inset: 22px;
 }
 
 .dropzone,
@@ -4938,12 +4933,12 @@ body {
 
 @media (max-width: 700px) {
   :root {
-    --panel-inset: 14px;
+    --panel-inset: 16px;
   }
 }
 
 .empty-state {
-  min-height: 96px;
+  min-height: 106px;
   padding-top: var(--space-4);
   padding-bottom: var(--space-4);
   align-items: flex-start;
@@ -4961,13 +4956,13 @@ body {
 
 /* ── Left rail: one inset for brand, section label, navigation, utilities ── */
 :root {
-  --rail-inset: 10px;
-  --rail-item-inset: 12px;
-  --rail-icon-column: 18px;
+  --rail-inset: 11px;
+  --rail-item-inset: 13px;
+  --rail-icon-column: 20px;
 }
 
 .rail {
-  padding: 0 var(--rail-inset) 18px;
+  padding: 0 var(--rail-inset) 20px;
 }
 
 .rail-brand {

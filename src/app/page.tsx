@@ -478,7 +478,7 @@ export default function Home() {
       <a className="skip-link" href="#workspace-content">본문으로 건너뛰기</a>
       <nav className="rail" aria-label="Workspace views">
         <div className="rail-brand">
-          <WorkLensLogo size={36} />
+          <WorkLensLogo size={40} />
         </div>
         <p className="rail-group-label">Workspace</p>
         <ul className="rail-list">
@@ -498,7 +498,7 @@ export default function Home() {
                     clearResults();
                   }}
                 >
-                  <Icon size={18} strokeWidth={1.75} aria-hidden="true" />
+                  <Icon size={20} strokeWidth={1.75} aria-hidden="true" />
                   <span>{tabMeta[tab].label}</span>
                 </button>
               </li>
@@ -517,7 +517,7 @@ export default function Home() {
                 aria-label={view}
                 onClick={() => setShellView(view)}
               >
-                <Icon size={18} strokeWidth={1.75} aria-hidden="true" />
+                <Icon size={20} strokeWidth={1.75} aria-hidden="true" />
                 <span>{view === "Dictionary" ? "용어 사전" : "설정"}</span>
               </button>
             );
