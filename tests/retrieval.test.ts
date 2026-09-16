@@ -125,7 +125,7 @@ describe("browser evidence retrieval", () => {
     ]);
     const nodes = buildEvidenceNodes([document]);
     const selected = selectEvidence(nodes, { operation: "ask", question: "운송단가 시트의 SEOUL 값" }, { limit: 8 });
-    expect(selected.some((node) => node.source.sheet === "운송단가" && node.text === "145000")).toBe(true);
+    expect(selected.some((node) => node.source.sheet === "운송단가" && node.text.includes("145000"))).toBe(true);
   });
 
   it("finds a slide by its title wording", () => {

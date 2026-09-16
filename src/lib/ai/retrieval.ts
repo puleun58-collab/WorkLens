@@ -205,13 +205,31 @@ export function selectEvidence(
   }));
   const sorted = [...ranked].sort((left, right) => right.score - left.score || left.order - right.order);
 
-  // A question ranks by relevance first; a whole-document task (Brief, Analyze)
-  // is balanced across sections from the start.
-  const wantsBalance = !query || request.operation === "brief" || request.operation === "analyze";
-  const head = wantsBalance ? [] : sorted.slice(0, Math.ceil(limit * 0.6));
-  const chosen = new Set(head);
-  const remaining = balanceBySource(sorted.filter((entry) => !chosen.has(entry)), limit - head.length);
-  return [...head, ...remaining]
+  // A question is answered by the strongest matches, with a per-section cap so
+  // one dense sheet cannot own the window; a whole-document task (Brief,
+  // Analyze) is balanced across sections from the start.
+  if (!query || request.operation === "brief" || request.operation === "analyze") {
+    return balanceBySource(sorted, limit)
+      .sort((left, right) => left.order - right.order)
+      .map((entry) => entry.node);
+  }
+  const perGroupCap = Math.max(3, Math.ceil(limit / 3));
+  const used = new Map<string, number>();
+  const picked: RankedEvidence[] = [];
+  const overflow: RankedEvidence[] = [];
+  for (const entry of sorted) {
+    if (picked.length >= limit) break;
+    const key = groupKey(entry.node, entry.order);
+    const count = used.get(key) ?? 0;
+    if (count >= perGroupCap) { overflow.push(entry); continue; }
+    used.set(key, count + 1);
+    picked.push(entry);
+  }
+  for (const entry of overflow) {
+    if (picked.length >= limit) break;
+    picked.push(entry);
+  }
+  return picked
     .sort((left, right) => left.order - right.order)
     .map((entry) => entry.node);
 }

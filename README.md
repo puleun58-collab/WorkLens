@@ -57,10 +57,15 @@ bun run start
 ```bash
 bun run typecheck
 bun run lint
-bun run test         # vitest: 파서, 도메인, Check, AI grounding, 근거 검색
-bun run test:e2e     # Playwright: 업로드 → Analyze/Compare/Check/Extract → 근거 → 새로고침 폐기
-bun run test:ai:smoke  # 선택: 실제 WebGPU 브라우저에서 모델 다운로드 → Ask/Brief/취소/캐시 확인
+bun run test                 # vitest: 파서, 도메인, Check, AI grounding, 근거 검색
+bun run test:eval:retrieval  # 고정 평가셋 Recall@5/10/20, 답변 불가 질문 누출 검사
+bun run test:eval:grounding  # 근거 복원·숫자/날짜 정확도·허위 답변 거부율
+bun run test:e2e             # Playwright: 업로드 → Analyze/Compare/Check/Extract → 근거 → 새로고침 폐기
+bun run bench:large          # 대용량 문서 단계별 시간(파싱/근거/검색/연산) 측정
+bun run test:ai:smoke        # 선택: 실제 WebGPU 브라우저에서 모델 다운로드 → Ask/Brief/취소/캐시 확인
 ```
+
+평가셋은 `tests/eval/`에 있습니다. XLSX·CSV·PDF·DOCX·PPTX 5종의 업무 문서 fixture와 79개 고정 케이스(사실·숫자·날짜·백분율·시트/슬라이드/제목 지정·교차 구간·답변 불가)를 사용하며, 정답 근거의 위치와 값을 코드로 명시해 모델 판단 없이 채점합니다. 실제 모델 생성 품질은 WebGPU가 필요하므로 `test:eval:ai`(= `test:ai:smoke`)로 분리되어 있고 기본 CI에는 포함하지 않습니다.
 
 ## 5. Check 기능
 

@@ -19,6 +19,10 @@
     "test:e2e:cloudflare": "bun run build:vinext && playwright test --config playwright.cloudflare.config.ts",
     "test:e2e:cloudflare:run": "playwright test --config playwright.cloudflare.config.ts",
     "test:smoke": "playwright test --config playwright.smoke.config.ts",
+    "test:eval:retrieval": "vitest run tests/eval-retrieval.test.ts",
+    "test:eval:grounding": "vitest run tests/eval-grounding.test.ts",
+    "test:eval:ai": "playwright test --config playwright.ai.config.ts",
+    "bench:large": "bun tests/bench/large-documents.ts",
     "test:ai:smoke": "playwright test --config playwright.ai.config.ts"
   },
   "dependencies": {

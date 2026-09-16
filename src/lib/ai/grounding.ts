@@ -118,26 +118,61 @@ function groundClaim(candidate: AiProviderClaim, evidence: ReadonlyMap<string, C
   };
 }
 
+/**
+ * Evidence text carries the context a reader needs to recognise the value:
+ * a table cell without its row and column header, or a slide line without its
+ * slide title, is unsearchable and unreadable on its own. The canonical quote,
+ * proposition and token stay bound to the raw cell so grounding is unchanged.
+ */
 function collectEvidence(documents: readonly NormalizedDocument[]): CanonicalEvidence[] {
   const evidence: CanonicalEvidence[] = [];
   let characters = 0;
   for (const document of documents) {
+    let slideTitle = "";
+    let slideKey = "";
     for (const block of document.blocks) {
       if (evidence.length >= 5_000 || characters >= 200_000) return evidence;
       if (block.type === "paragraph") {
-        const node = makeEvidence(document, block.id, block.text, block.source, propositionFromText(block.text, block.source));
+        const locator = block.source.locator;
+        const key = locator?.kind === "pptx" ? `slide:${locator.slide}` : "";
+        if (key && key !== slideKey) {
+          slideKey = key;
+          slideTitle = cleanText(block.text).slice(0, 60);
+        }
+        const context = key && cleanText(block.text) !== slideTitle ? slideTitle : "";
+        const node = makeEvidence(
+          document,
+          block.id,
+          withContext(context, block.text),
+          block.source,
+          propositionFromText(block.text, block.source),
+          block.source.quote ?? block.text,
+        );
         if (node) { evidence.push(node); characters += node.text.length; }
       } else {
-        for (const row of block.rows) for (const cell of row) {
-          if (evidence.length >= 5_000 || characters >= 200_000) return evidence;
-          const nodeId = cell.source.nodeId || block.id;
-          const node = makeEvidence(document, nodeId, cell.display, cell.source, {
-            subject: cell.source.label,
-            predicate: "has_value",
-            object: cell.value,
-            polarity: "affirmed",
-          });
-          if (node) { evidence.push(node); characters += node.text.length; }
+        const header = block.rows[0] ?? [];
+        for (const [rowIndex, row] of block.rows.entries()) {
+          const rowLabel = cleanText(row[0]?.display).slice(0, 40);
+          // A row's own date identifies the record far better than its first
+          // column alone, which repeats across every month of a log table.
+          const rowDate = rowIndex === 0
+            ? ""
+            : row.map((entry) => cleanText(entry.display)).find((value) => ROW_DATE_PATTERN.test(value)) ?? "";
+          for (const [columnIndex, cell] of row.entries()) {
+            if (evidence.length >= 5_000 || characters >= 200_000) return evidence;
+            const nodeId = cell.source.nodeId || block.id;
+            const columnHeader = rowIndex === 0 ? "" : cleanText(header[columnIndex]?.display).slice(0, 40);
+            const context = [rowLabel, rowDate, columnHeader]
+              .filter((part, index, parts) => part && part !== cell.display && parts.indexOf(part) === index)
+              .join(" ");
+            const node = makeEvidence(document, nodeId, withContext(context, cell.display), cell.source, {
+              subject: cell.source.label,
+              predicate: "has_value",
+              object: cell.value,
+              polarity: "affirmed",
+            }, cell.source.quote ?? cell.display);
+            if (node) { evidence.push(node); characters += node.text.length; }
+          }
         }
       }
     }
@@ -145,10 +180,24 @@ function collectEvidence(documents: readonly NormalizedDocument[]): CanonicalEvi
   return evidence;
 }
 
-function makeEvidence(document: NormalizedDocument, nodeId: string, text: string, source: SourceRef, proposition: DirectProposition): CanonicalEvidence | undefined {
+function withContext(context: string, text: string): string {
+  const value = cleanText(text);
+  return context && value ? `${context} · ${value}` : value;
+}
+
+const ROW_DATE_PATTERN = /^\s*(?:[0-9]{4}[-./][0-9]{1,2}(?:[-./][0-9]{1,2})?|[0-9]{1,2}\s*월(?:\s*[0-9]{1,2}\s*일)?)\s*$/u;
+
+function makeEvidence(
+  document: NormalizedDocument,
+  nodeId: string,
+  text: string,
+  source: SourceRef,
+  proposition: DirectProposition,
+  rawQuote: string,
+): CanonicalEvidence | undefined {
   const cleaned = cleanText(text);
   if (!cleaned || source.fileId !== document.fileId || source.nodeId !== nodeId || !isProposition(proposition)) return undefined;
-  const quote = source.quote ?? text;
+  const quote = source.quote ?? rawQuote;
   const canonicalSource: SourceRef = {
     ...source,
     fileId: document.fileId,
