@@ -2370,18 +2370,28 @@ input:disabled,
   border-inline-start: 1px solid var(--line-soft);
 }
 
+/*
+ * Each finding is a row, not a card: one 1px rule in a mid grey separates
+ * them, the block padding above and below it is symmetric so the rule reads
+ * as the boundary between two items, and the severity accent stops at that
+ * rule so the row's extent is visible on the left edge too.
+ */
 .check-issue {
   position: relative;
-  border-bottom: 1px solid var(--line-soft);
+  border-bottom: 1px solid var(--line);
   background: var(--paper);
   transition:
     background-color var(--motion-standard) var(--motion-ease),
     transform var(--motion-standard) var(--motion-ease);
 }
 
+.check-issue:last-child {
+  border-bottom: 0;
+}
+
 .check-issue::before {
   position: absolute;
-  inset: 0 auto 0 0;
+  inset: 0 auto 1px 0;
   width: 3px;
   background: var(--blue);
   content: "";
@@ -2395,13 +2405,14 @@ input:disabled,
   background: var(--warning);
 }
 
+/* Hover names the current row; it never becomes a highlight. */
 .check-issue:hover,
 .check-issue.expanded {
-  background: #fbfdff;
+  background: #f7fafd;
 }
 
 .check-issue-row > [role="cell"] {
-  padding-block: 18px 19px;
+  padding-block: 16px;
 }
 
 /* The dot rides with the first line, so every column starts on one baseline. */
@@ -5577,7 +5588,7 @@ body {
  * holds focus, so keyboard users never lose their place in a long table. */
 .check-issue:focus-within,
 .file-row:focus-within {
-  background: #fbfdff;
+  background: #f7fafd;
 }
 
 button:disabled,
