@@ -4,7 +4,7 @@ WorkLens는 XLSX, CSV, PDF, DOCX, PPTX 파일을 **브라우저 안에서** 분�
 
 - 파일 원본과 파싱 결과는 탭의 메모리에만 존재하며 서버로 업로드되지 않습니다.
 - 새로고침하거나 탭을 닫으면 모든 작업 데이터가 즉시 사라집니다.
-- 로그인, 서버 세션, 쿠키, IndexedDB를 사용하지 않습니다. localStorage에는 사용자가 직접 등록한 개인 사전 단어와 무시한 규칙 ID만 저장하며, 문서 본문·파싱 결과·Finding·근거는 저장하지 않습니다.
+- 로그인, 서버 세션, 쿠키, IndexedDB를 사용하지 않습니다. localStorage에는 사용자가 직접 등록한 개인 사전 단어, 무시한 규칙 ID, 브라우저 AI 모델 다운로드 동의 여부만 저장하며, 문서 본문·파싱 결과·Finding·근거·질문·답변은 저장하지 않습니다.
 - Analyze, Compare, Check, Extract, 내보내기는 Web Worker에서 AI 없이 동작합니다.
 - Ask / Brief / AI 문장 검수는 선택 계층이며 **브라우저 안의 AI 워커**에서 실행됩니다. 외부 유료 AI API도, 별도 AI 서버도 호출하지 않습니다.
 - 모든 결과는 파일, 문서 버전, 노드, 원문 위치를 `SourceRef`로 보존합니다.
@@ -61,11 +61,15 @@ bun run test                 # vitest: 파서, 도메인, Check, AI grounding, �
 bun run test:eval:retrieval  # 고정 평가셋 Recall@5/10/20, 답변 불가 질문 누출 검사
 bun run test:eval:grounding  # 근거 복원·숫자/날짜 정확도·허위 답변 거부율
 bun run test:e2e             # Playwright: 업로드 → Analyze/Compare/Check/Extract → 근거 → 새로고침 폐기
-bun run bench:large          # 대용량 문서 단계별 시간(파싱/근거/검색/연산) 측정
-bun run test:ai:smoke        # 선택: 실제 WebGPU 브라우저에서 모델 다운로드 → Ask/Brief/취소/캐시 확인
+bun run bench:large          # 저부하 문서 단계별 시간(파싱/근거/검색/연산) 측정, 케이스별 자식 프로세스
+bun run bench:stress -- --format=xlsx --size=50   # 수동 전용 상한 벤치(50/75/100 MiB). 인자 없이 실행하면 사용법만 출력
+bun run test:ai:smoke        # 선택: 실제 WebGPU에서 동의 → 모델 로드 → Ask/Brief/문장 검수/취소/캐시 재사용
+bun run test:eval:ai         # 선택: 실제 WebGPU에서 고정 품질 평가셋 채점 → artifacts/ai-eval-<model>.json
 ```
 
-평가셋은 `tests/eval/`에 있습니다. XLSX·CSV·PDF·DOCX·PPTX 5종의 업무 문서 fixture와 79개 고정 케이스(사실·숫자·날짜·백분율·시트/슬라이드/제목 지정·교차 구간·답변 불가)를 사용하며, 정답 근거의 위치와 값을 코드로 명시해 모델 판단 없이 채점합니다. 실제 모델 생성 품질은 WebGPU가 필요하므로 `test:eval:ai`(= `test:ai:smoke`)로 분리되어 있고 기본 CI에는 포함하지 않습니다.
+`bench:stress`는 어떤 CI·검증 명령에도 연결되어 있지 않습니다. 한 케이스가 수 GiB를 점유할 수 있어 `--format`/`--size`로 하나씩 실행하거나 `--all`을 명시해야만 동작하고, 픽스처 생성 직후와 각 단계마다 RSS를 확인해 예산을 넘으면 즉시 중단합니다.
+
+평가셋은 `tests/eval/`에 있습니다. XLSX·CSV·PDF·DOCX·PPTX 5종의 업무 문서 fixture와 79개 고정 케이스(사실·숫자·날짜·백분율·시트/슬라이드/제목 지정·교차 구간·답변 불가)를 사용하며, 정답 근거의 위치와 값을 코드로 명시해 모델 판단 없이 채점합니다. Ask는 모델 호출 전에 관련성 게이트(`askRelevance`)를 통과해야 하며, 임계값은 이 평가셋에서 answerable recall을 100%로 유지하는 값으로 맞췄습니다. 실제 모델 품질 평가(`test:eval:ai`)와 기능 점검(`test:ai:smoke`)은 서로 다른 spec/config를 사용하고 WebGPU가 필요하므로 기본 CI에는 포함하지 않습니다.
 
 ## 5. Check 기능
 
@@ -105,6 +109,7 @@ AI 전용 환경 변수는 없습니다. Ask/Brief/문장 검수는 브라우저
 | 업무 문서 원본·파싱 결과·근거 | 탭의 Web Worker 메모리 | 서버·D1·KV·R2·localStorage·IndexedDB에 저장하지 않음 |
 | 공용 용어 | Cloudflare D1 (+ JSON seed fallback) | 용어 문자열만, 문서 내용 없음 |
 | 개인 용어·무시한 규칙 ID | 브라우저 `localStorage` | 이 브라우저 전용, 동기화 없음 |
+| 브라우저 AI 동의 | 브라우저 `localStorage` (`worklens:browser-ai-consent:v1:<model-id>`) | 모델별 다운로드 허용 여부만. 동의가 있어도 모델 캐시 존재를 가정하지 않고 항상 로드를 시도 |
 | AI 모델 weight·런타임 asset | 브라우저 캐시 | 모델 파일만, 업무 데이터 없음 |
 
 ## 7. Cloudflare 배포

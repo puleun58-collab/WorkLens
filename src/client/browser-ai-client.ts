@@ -35,7 +35,6 @@ type Pending = {
 
 let worker: Worker | undefined;
 let pending: Pending | undefined;
-let confirmed = false;
 let state: BrowserAiState = { phase: "idle" };
 const listeners = new Set<(next: BrowserAiState) => void>();
 
@@ -87,18 +86,50 @@ export async function probeBrowserAi(): Promise<BrowserAiState> {
     publish({ phase: "unsupported", code: "ADAPTER_FAILED" });
     return state;
   }
-  publish(confirmed ? { phase: "idle" } : { phase: "awaiting-confirmation" });
+  publish(browserAiConfirmed() ? { phase: "idle" } : { phase: "awaiting-confirmation" });
   return state;
 }
 
-/** The user accepted the one-time model download. */
-export function confirmBrowserAi(): void {
-  confirmed = true;
-  if (state.phase === "awaiting-confirmation") publish({ phase: "idle" });
+/**
+ * Consent is per model and survives a reload, because the weights survive one
+ * too: WebLLM keeps them in the browser cache. Only the fact that this user
+ * allowed the download is stored — never a document, question, answer or
+ * source — and consent is not a claim that the cache is populated. The load
+ * still runs; WebLLM serves it from cache on a hit and downloads on a miss.
+ */
+const CONSENT_SCHEMA_VERSION = 1;
+const CONSENT_KEY_PREFIX = `worklens:browser-ai-consent:v${CONSENT_SCHEMA_VERSION}:`;
+
+interface ConsentRecord {
+  version: number;
+  model: string;
+  consented: boolean;
 }
 
 export function browserAiConfirmed(): boolean {
-  return confirmed;
+  if (typeof window === "undefined") return false;
+  try {
+    const raw = window.localStorage.getItem(`${CONSENT_KEY_PREFIX}${selectedModelId()}`);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw) as Partial<ConsentRecord>;
+    return parsed.version === CONSENT_SCHEMA_VERSION && parsed.model === selectedModelId() && parsed.consented === true;
+  } catch {
+    return false;
+  }
+}
+
+/** The user accepted the one-time model download for the selected model. */
+export function confirmBrowserAi(): void {
+  const model = selectedModelId();
+  const record: ConsentRecord = { version: CONSENT_SCHEMA_VERSION, model, consented: true };
+  if (typeof window !== "undefined") {
+    try {
+      window.localStorage.setItem(`${CONSENT_KEY_PREFIX}${model}`, JSON.stringify(record));
+    } catch {
+      // Private mode or a full quota only costs a repeated confirmation.
+    }
+  }
+  if (state.phase === "awaiting-confirmation") publish({ phase: "idle" });
 }
 
 function ensureWorker(): Worker {
@@ -195,11 +226,14 @@ export function cancelBrowserAiLoad(): void {
   publish({ phase: "idle" });
 }
 
-/** Releases the model and every in-flight request, mirroring 모두 삭제. */
+/**
+ * Releases the model and every in-flight request, mirroring 모두 삭제. Runtime
+ * state only: the stored consent is a user decision, not workspace data, so
+ * clearing the workspace does not revoke it.
+ */
 export function disposeBrowserAi(): void {
   settle("CANCELLED");
   worker?.terminate();
   worker = undefined;
-  confirmed = false;
   publish({ phase: "idle" });
 }

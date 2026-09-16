@@ -75,6 +75,27 @@ function groupKey(node: AiEvidenceNode, order: number): string {
   return `${node.fileId}|block:${Math.floor(order / 20)}`;
 }
 
+/**
+ * The BM25 ceiling for this query: what a node would score if it matched
+ * every query term once. Raw scores grow with corpus size, so the gate needs
+ * this to express a match as a share of what the question could earn.
+ */
+function queryIdfCeiling(nodes: readonly AiEvidenceNode[], query: string): number {
+  const queryTerms = [...new Set(evidenceTokens(query))].filter((term) => term.length > 1 || /^[0-9]/.test(term));
+  const documentFrequency = new Map<string, number>();
+  for (const node of nodes) {
+    for (const term of new Set(evidenceTokens(`${node.text} ${node.source.label}`))) {
+      documentFrequency.set(term, (documentFrequency.get(term) ?? 0) + 1);
+    }
+  }
+  let ceiling = 0;
+  for (const term of queryTerms) {
+    const df = documentFrequency.get(term) ?? 0;
+    ceiling += Math.log(1 + (nodes.length - df + 0.5) / (df + 0.5));
+  }
+  return ceiling;
+}
+
 function relevanceScores(nodes: readonly AiEvidenceNode[], query: string): number[] {
   const normalizedQuery = normalizeText(query);
   const queryTerms = [...new Set(evidenceTokens(query))].filter((term) => term.length > 1 || /^[0-9]/.test(term));
@@ -194,8 +215,12 @@ export function selectEvidence(
   options: SelectEvidenceOptions = {},
 ): AiEvidenceNode[] {
   const limit = options.limit ?? 40;
-  if (nodes.length <= limit) return [...nodes];
   const query = queryOf(request).trim();
+  const scoreAsk = request.operation === "ask" && query.length > 0;
+  // A short document is not automatically a relevant one: Ask still scores
+  // every candidate so unrelated rows never ride into the prompt just because
+  // they fit. Whole-document tasks keep taking everything that fits.
+  if (nodes.length <= limit && !scoreAsk) return [...nodes];
   const relevance = query ? relevanceScores(nodes, query) : undefined;
   const importance = importanceScores(nodes);
   const ranked: RankedEvidence[] = nodes.map((node, order) => ({
@@ -203,6 +228,7 @@ export function selectEvidence(
     order,
     score: relevance ? relevance[order] + importance[order] * 0.15 : importance[order],
   }));
+
   const sorted = [...ranked].sort((left, right) => right.score - left.score || left.order - right.order);
 
   // A question is answered by the strongest matches, with a per-section cap so
@@ -213,11 +239,17 @@ export function selectEvidence(
       .sort((left, right) => left.order - right.order)
       .map((entry) => entry.node);
   }
+
+  // Ask drops candidates the question does not touch at all, but only when
+  // something clearly does: with no strong match the window is left intact so
+  // a weak-wording question cannot lose its own answer.
+  const askFloor = scoreAsk && relevance && relevance.some((value) => value >= ASK_MIN_MATCH);
+  const considered = askFloor ? sorted.filter((entry) => relevance[entry.order] > 0) : sorted;
   const perGroupCap = Math.max(3, Math.ceil(limit / 3));
   const used = new Map<string, number>();
   const picked: RankedEvidence[] = [];
   const overflow: RankedEvidence[] = [];
-  for (const entry of sorted) {
+  for (const entry of considered) {
     if (picked.length >= limit) break;
     const key = groupKey(entry.node, entry.order);
     const count = used.get(key) ?? 0;
@@ -232,4 +264,64 @@ export function selectEvidence(
   return picked
     .sort((left, right) => left.order - right.order)
     .map((entry) => entry.node);
+}
+/**
+ * Ask-only answerability gate.
+ *
+ * A question is not answerable merely because a document exists, so Ask
+ * decides before the model runs.
+ *
+ *  - `match` is the best candidate's score divided by what this question
+ *    could earn if every one of its terms hit. Raw BM25 grows with corpus
+ *    size — a three-paragraph invoice can never reach the score a 5,000-cell
+ *    workbook does — so only the normalized share is comparable, and it is
+ *    what the threshold is set on.
+ *  - `coverage`, the share of question tokens present anywhere, is reported
+ *    for diagnosis but never gates: answerable title and date questions
+ *    legitimately reach zero coverage.
+ *
+ * Document-level questions ("이 자료의 제목은?") share no wording with their
+ * answer by nature. They ask about the document, which is exactly the window
+ * a whole-document task would get, so they bypass the threshold the way Brief
+ * and Analyze do.
+ *
+ * Threshold, measured over the fixed eval set plus the small-document cases
+ * in `tests/eval-retrieval.test.ts`: the weakest answerable question scores
+ * 0.052 and the strongest rejected unanswerable one 0.032, so 0.04 sits
+ * between them. It abstains on 8 of the 9 unanswerable eval cases; the ninth
+ * shares real wording with the document and is left for the model to refuse.
+ */
+export const ASK_MIN_MATCH = 0.04;
+
+/** Asks about the document itself rather than a value inside it. */
+const DOCUMENT_LEVEL_QUESTION = /(제목|타이틀|무슨\s*문서|어떤\s*문서|문서\s*종류|전체\s*요약|요약해|title|summary|summarize|what\s+is\s+this\s+document)/u;
+
+export interface AskRelevance {
+  /** Best single-candidate relevance score, in raw BM25-plus-shape points. */
+  topScore: number;
+  /** `topScore` as a share of this question's ceiling; the gated signal. */
+  match: number;
+  /** Share of question tokens found in the candidates; diagnostic only. */
+  coverage: number;
+  /** False means: answering from this evidence would be a guess. */
+  supported: boolean;
+}
+
+export function askRelevance(nodes: readonly AiEvidenceNode[], question: string): AskRelevance {
+  const query = question.trim();
+  if (nodes.length === 0) return { topScore: 0, match: 0, coverage: 0, supported: false };
+  // No question carries no claim to check; the window stays as it is.
+  if (query.length === 0) return { topScore: 0, match: 1, coverage: 1, supported: true };
+
+  const normalizedQuery = normalizeText(query);
+  const topScore = relevanceScores(nodes, query).reduce((best, value) => Math.max(best, value), 0);
+  const ceiling = queryIdfCeiling(nodes, query);
+  const match = ceiling > 0 ? topScore / ceiling : 0;
+  const terms = [...new Set((normalizedQuery.match(TOKEN_PATTERN) ?? [])
+    .filter((term) => term.length > 1 || /^[0-9]/.test(term)))];
+  const corpus = nodes.map((node) => normalizeText(`${node.text} ${node.source.label}`));
+  const matched = terms.filter((term) => corpus.some((text) => text.includes(term))).length;
+  const coverage = terms.length === 0 ? 1 : matched / terms.length;
+  const documentLevel = DOCUMENT_LEVEL_QUESTION.test(normalizedQuery);
+  return { topScore, match, coverage, supported: documentLevel || match >= ASK_MIN_MATCH };
 }

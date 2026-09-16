@@ -70,7 +70,14 @@ const tabIcons: Record<Tab, typeof BarChart3> = {
   Brief: ScrollText,
 };
 type ApiError = { code: string; message: string; retryable?: boolean };
-type Notice = { tone: "error" | "success" | "info"; message: string };
+/**
+ * A status message belongs to whatever produced it. `workspace` messages
+ * concern the tab as a whole — an upload, a workspace-wide failure — and are
+ * shown everywhere; anything else is owned by the view that raised it and is
+ * never carried into another feature, the dictionary or the settings page.
+ */
+type NoticeScope = "workspace" | ShellView;
+type Notice = { tone: "error" | "success" | "info"; message: string; scope: NoticeScope };
 const tabs = ["Analyze", "Ask", "Compare", "Check", "Extract", "Brief"] as const;
 type Tab = (typeof tabs)[number];
 const tabMeta: Record<Tab, { label: string; description: string }> = {
@@ -215,11 +222,20 @@ export default function Home() {
   const clearTerms = useCallback(() => setUserTerms(clearUserTerms()), []);
   const toggleRule = useCallback((ruleId: string) => setIgnoredRules(toggleIgnoredRule(ruleId)), []);
 
+  /** Owned by the current view: navigating away retires it. */
+  const notifyView = (tone: Notice["tone"], message: string) => setNotice({ tone, message, scope: shellView });
+  /** Affects the whole tab — an upload or a workspace reset — so it follows. */
+  const notifyWorkspace = (tone: Notice["tone"], message: string) => setNotice({ tone, message, scope: "workspace" });
+
   const clearResults = useCallback(() => {
     setOperationResult(null);
     setComparison(null);
     setCompareIds(null);
     setDetail(null);
+    // Results and the message that announced them are one unit, so a
+    // navigation or a change of selection retires both. A workspace-level
+    // message outlives them: it is about the tab, not about this result.
+    setNotice((current) => current?.scope === "workspace" ? current : null);
   }, []);
 
   // Both workers belong to this tab: documents live in the parser worker, the
@@ -237,7 +253,7 @@ export default function Home() {
 
   const upload = async (file: File) => {
     setUploading(true);
-    setNotice({ tone: "info", message: `${file.name}을(를) 분석 중입니다.` });
+    notifyWorkspace("info", `${file.name}을(를) 분석 중입니다.`);
     try {
       const bytes = new Uint8Array(await file.arrayBuffer());
       const summary = await runInWorker(
@@ -245,9 +261,9 @@ export default function Home() {
         [bytes.buffer],
       );
       setFiles((current) => [...current, summary]);
-      setNotice({ tone: "success", message: `${file.name} 분석이 완료되었습니다.` });
+      notifyWorkspace("success", `${file.name} 분석이 완료되었습니다.`);
     } catch (error) {
-      setNotice({ tone: "error", message: (error as ApiError).message ?? "파일을 처리하지 못했습니다." });
+      notifyWorkspace("error", (error as ApiError).message ?? "파일을 처리하지 못했습니다.");
     } finally {
       setUploading(false);
     }
@@ -279,10 +295,10 @@ export default function Home() {
           ? await runInWorker({ kind: "check", fileIds: selected, userTerms, companyTerms: companyTermNames })
           : await runInWorker({ kind: "extract", fileIds: selected });
       setOperationResult(result);
-      setNotice({ tone: "success", message: success });
+      notifyView("success", success);
     } catch (error) {
       setOperationResult(null);
-      setNotice({ tone: "error", message: (error as ApiError).message ?? "작업에 실패했습니다." });
+      notifyView("error", (error as ApiError).message ?? "작업에 실패했습니다.");
     } finally {
       setBusy(false);
     }
@@ -296,7 +312,7 @@ export default function Home() {
    */
   const runBrowserTask = async (request: AiRequest, success: string) => {
     if (selected.length > BROWSER_AI_MAX_FILES) {
-      setNotice({ tone: "error", message: `브라우저 AI 작업은 최대 ${BROWSER_AI_MAX_FILES}개 파일만 선택할 수 있습니다.` });
+      notifyView("error", `브라우저 AI 작업은 최대 ${BROWSER_AI_MAX_FILES}개 파일만 선택할 수 있습니다.`);
       return;
     }
     const capability = await probeBrowserAi();
@@ -315,7 +331,7 @@ export default function Home() {
         throw { code: "GROUNDING_REJECTED", message: BROWSER_AI_MESSAGES.GROUNDING_REJECTED } satisfies BrowserAiFailure;
       }
       setOperationResult(result);
-      setNotice({ tone: "success", message: success });
+      notifyView("success", success);
       return result;
     } catch (error) {
       setOperationResult(null);
@@ -333,8 +349,8 @@ export default function Home() {
       || failure.code === "MODEL_LOAD_FAILED" || failure.code === "MODEL_DOWNLOAD_FAILED"
       || failure.code === "OUT_OF_MEMORY";
     if (silent) setNotice(null);
-    else if (failure.code === "CANCELLED") setNotice({ tone: "info", message: BROWSER_AI_MESSAGES.CANCELLED });
-    else setNotice({ tone: "error", message: failure.message ?? "브라우저 AI 작업에 실패했습니다." });
+    else if (failure.code === "CANCELLED") notifyView("info", BROWSER_AI_MESSAGES.CANCELLED);
+    else notifyView("error", failure.message ?? "브라우저 AI 작업에 실패했습니다.");
   };
 
   const runActive = async () => {
@@ -348,9 +364,9 @@ export default function Home() {
         const result = await runInWorker({ kind: "compare", baseFileId, targetFileId });
         setComparison(result);
         setCompareIds({ baseFileId, targetFileId });
-        setNotice({ tone: "success", message: "비교 결과를 준비했습니다." });
+        notifyView("success", "비교 결과를 준비했습니다.");
       } catch (error) {
-        setNotice({ tone: "error", message: (error as ApiError).message ?? "비교에 실패했습니다." });
+        notifyView("error", (error as ApiError).message ?? "비교에 실패했습니다.");
       } finally {
         setBusy(false);
       }
@@ -371,7 +387,7 @@ export default function Home() {
    */
   const runSemanticCheck = async () => {
     if (selected.length > BROWSER_AI_MAX_FILES) {
-      setNotice({ tone: "error", message: `브라우저 AI 작업은 최대 ${BROWSER_AI_MAX_FILES}개 파일만 선택할 수 있습니다.` });
+      notifyView("error", `브라우저 AI 작업은 최대 ${BROWSER_AI_MAX_FILES}개 파일만 선택할 수 있습니다.`);
       return;
     }
     const capability = await probeBrowserAi();
@@ -417,12 +433,12 @@ export default function Home() {
       });
       setOperationResult(merged);
       const total = merged.reduce((sum, entry) => sum + entry.check.findings.length, 0) - base.reduce((sum, entry) => sum + entry.check.findings.length, 0);
-      setNotice({
-        tone: "success",
-        message: total > 0
+      notifyView(
+        "success",
+        total > 0
           ? `브라우저 AI 문장 검수 ${total}건을 제안으로 추가했습니다. "낮은 확신 포함"을 켜면 모두 볼 수 있습니다.`
           : "브라우저 AI 문장 검수에서 추가할 제안이 없었습니다.",
-      });
+      );
     } catch (error) {
       reportAiFailure(error);
     } finally {
@@ -453,9 +469,9 @@ export default function Home() {
       anchor.download = exported.fileName;
       anchor.click();
       URL.revokeObjectURL(url);
-      setNotice({ tone: "success", message: `${format.toUpperCase()} 파일을 다운로드했습니다. 다운로드된 복사본은 사용자 기기에서 직접 관리하세요.` });
+      notifyView("success", `${format.toUpperCase()} 파일을 다운로드했습니다. 다운로드된 복사본은 사용자 기기에서 직접 관리하세요.`);
     } catch (error) {
-      setNotice({ tone: "error", message: (error as ApiError).message ?? "내보내기에 실패했습니다." });
+      notifyView("error", (error as ApiError).message ?? "내보내기에 실패했습니다.");
     } finally {
       setBusy(false);
     }
@@ -468,7 +484,7 @@ export default function Home() {
     setFiles([]);
     setSelected([]);
     clearResults();
-    setNotice({ tone: "info", message: "브라우저 메모리에서 파일과 결과를 모두 지웠습니다." });
+    notifyWorkspace("info", "브라우저 메모리에서 파일과 결과를 모두 지웠습니다.");
   };
 
   const aiTab = activeTab === "Ask" || activeTab === "Brief";
@@ -528,7 +544,7 @@ export default function Home() {
                 className={shellView === view ? "rail-item active" : "rail-item"}
                 aria-current={shellView === view ? "page" : undefined}
                 aria-label={view}
-                onClick={() => setShellView(view)}
+                onClick={() => { setShellView(view); clearResults(); }}
               >
                 <Icon size={20} strokeWidth={1.75} aria-hidden="true" />
                 <span>{view === "Dictionary" ? "용어 사전" : "설정"}</span>
@@ -603,7 +619,7 @@ export default function Home() {
             </div>
           ) : null}
 
-          {notice ? (
+          {notice && (notice.scope === "workspace" || notice.scope === shellView) ? (
             <StatusPanel
               className={`notice ${notice.tone}`}
               variant={notice.tone === "error" ? "error" : notice.tone === "success" ? "success" : "info"}
@@ -686,7 +702,6 @@ export default function Home() {
               {aiStatusVisible ? (
                 <BrowserAiStatus
                   state={aiState}
-                  context={aiTab ? "primary" : activeTab}
                   onConfirm={() => { confirmBrowserAi(); void loadBrowserAi().catch(reportAiFailure); }}
                   onCancelLoad={() => { cancelBrowserAiLoad(); setAiAssistRequested(false); }}
                   onInterrupt={interruptBrowserAi}
@@ -765,19 +780,12 @@ function StatusPanel({ variant, title, children, tone, live, className, label }:
  * Analyze/Compare/Check/Extract keep working underneath it. The first download
  * is opt-in, and a download and a running generation cancel differently.
  */
-function BrowserAiStatus({ state, context, onConfirm, onCancelLoad, onInterrupt }: {
+function BrowserAiStatus({ state, onConfirm, onCancelLoad, onInterrupt }: {
   state: BrowserAiState;
-  /** Which feature asked for the model; only the copy changes. */
-  context: "primary" | "Analyze" | "Compare" | "Check" | Tab;
   onConfirm: () => void;
   onCancelLoad: () => void;
   onInterrupt: () => void;
 }) {
-  const purpose = context === "Check"
-    ? "브라우저 AI 문장 검수를"
-    : context === "primary"
-      ? "Ask와 Brief를"
-      : "브라우저 AI 보조를";
   if (state.phase === "unsupported") {
     return (
       <StatusPanel variant="neutral" className="ai-status" title="브라우저 AI를 사용할 수 없습니다">
@@ -795,9 +803,11 @@ function BrowserAiStatus({ state, context, onConfirm, onCancelLoad, onInterrupt 
   if (state.phase === "awaiting-confirmation") {
     return (
       <StatusPanel variant="info" className="ai-status confirm" tone="group" label="브라우저 AI 준비" title="브라우저 AI 준비">
-        <p>
-          {purpose} 사용하려면 AI 모델을 이 브라우저에 한 번 준비해야 합니다.
-          최초 1회 약 {(BROWSER_AI_MODEL_MB / 1_000).toFixed(2)} GB 다운로드 · 이후 브라우저 캐시 재사용 · WebGPU 필요 · 문서는 외부로 전송되지 않습니다.
+        <p className="ai-copy">
+          Ask, Brief, 문장 검수는 브라우저에서 {BROWSER_AI_MODEL_LABEL} 모델로 실행되며, 최초 1회 약 {BROWSER_AI_MODEL_MB}MB 모델을 내려받은 뒤 브라우저 캐시를 재사용합니다.
+        </p>
+        <p className="ai-copy">
+          문서와 질문은 외부로 전송되거나 저장되지 않으며, 캐시에는 모델 파일만 남습니다.
         </p>
         <div className="ai-status-actions">
           <button type="button" className="ai-confirm" onClick={onConfirm}>AI 준비</button>
@@ -859,7 +869,7 @@ function SettingsView({ view, companyTerms, companyTermsSource, userTerms, ignor
       <section className="settings-surface" aria-label="Settings">
         <dl className="settings-list">
           <div><dt>저장 위치</dt><dd>파일과 분석 결과는 이 탭의 메모리에만 있습니다. 새로고침하면 사라집니다.</dd></div>
-          <div><dt>localStorage</dt><dd>개인 사전 단어와 무시한 규칙 ID만 저장합니다. 문서 본문과 근거는 저장하지 않습니다.</dd></div>
+          <div><dt>localStorage</dt><dd>개인 사전 단어, 무시한 규칙 ID, 브라우저 AI 다운로드 동의 여부만 저장합니다. 문서 본문과 근거, 질문과 답변은 저장하지 않습니다.</dd></div>
           <div><dt>무시한 규칙</dt><dd>
             {ignoredRules.length
               ? <div className="dictionary-term-list">{ignoredRules.map((rule) => (
@@ -870,8 +880,8 @@ function SettingsView({ view, companyTerms, companyTermsSource, userTerms, ignor
               : "없음"}
           </dd></div>
           <div><dt>브라우저 AI</dt><dd>
-            Ask, Brief, 문장 검수는 이 브라우저에서 {BROWSER_AI_MODEL_LABEL} 모델로 실행됩니다. 처음 사용할 때 모델을 한 번 내려받고(약 {BROWSER_AI_MODEL_MB.toLocaleString("ko-KR")} MB, WebGPU 필요) 이후에는 브라우저 캐시를 재사용하며, 캐시에는 모델 파일만 남습니다.
-            <span className="settings-note">문서와 질문은 어디에도 전송·저장하지 않습니다.</span>
+            Ask, Brief, 문장 검수는 브라우저에서 {BROWSER_AI_MODEL_LABEL} 모델로 실행되며, 최초 1회 약 {BROWSER_AI_MODEL_MB}MB 모델을 내려받은 뒤 브라우저 캐시를 재사용합니다.
+            <span className="settings-note">문서와 질문은 외부로 전송되거나 저장되지 않으며, 캐시에는 모델 파일만 남습니다.</span>
           </dd></div>
         </dl>
       </section>
@@ -1346,10 +1356,17 @@ function CheckResults({ entries, fileNames, onSource, userTerms, ignoredRules, o
                           </span>
                           <span role="cell" className="check-issue-name">
                             <small title={file.name}>{file.name}</small>
-                            <button type="button" aria-expanded={expanded} onClick={() => setExpandedFindingId(expanded ? null : finding.id)}>{finding.issue}<span>{expanded ? "닫기" : "설명 보기"}</span></button>
+                            <strong>{finding.issue}</strong>
                             <em>{finding.message}</em>
+                            <button
+                              type="button"
+                              className="issue-detail-toggle"
+                              aria-expanded={expanded}
+                              aria-label={`${finding.issue} ${expanded ? "닫기" : "상세 보기"}`}
+                              onClick={() => setExpandedFindingId(expanded ? null : finding.id)}
+                            >{expanded ? "닫기" : "상세 보기"}</button>
                           </span>
-                          <span role="cell" className="check-source"><ResultSource sources={[finding.source]} fileNames={fileNames} onSource={onSource} /></span>
+                          <span role="cell" className="check-source"><ResultSource sources={finding.sources.length ? finding.sources : [finding.source]} fileNames={fileNames} onSource={onSource} /></span>
                           <span role="cell" className="check-recommendation">{finding.recommendation}</span>
                         </div>
                         {expanded ? (
@@ -1357,7 +1374,6 @@ function CheckResults({ entries, fileNames, onSource, userTerms, ignoredRules, o
                             <div><span>Reason</span><p>{finding.reason}</p></div>
                             {finding.originalText ? <div><span>Original</span><blockquote>{finding.originalText}</blockquote></div> : null}
                             {finding.suggestedText ? <div className="suggested-copy"><span>Suggested</span><blockquote>{finding.suggestedText}</blockquote></div> : null}
-                            <div className="detail-sources"><span>근거</span><div><ResultSource sources={finding.sources} fileNames={fileNames} onSource={onSource} /></div></div>
                             {finding.relatedFindingIds?.length ? (
                               <div className="related-findings"><span>Related</span><div>{finding.relatedFindingIds.map((id) => {
                                 const related = byId.get(id);

@@ -295,9 +295,16 @@ test("reviews PPTX writing, consistency and data findings with filters and exact
   await expect(typo.getByRole("button", { name: "Slide 1 · 본문 근거 보기" })).toBeVisible();
   // The file is named once per row, never again inside the source cell.
   expect((await typo.innerText()).split("최종검수.pptx").length - 1).toBe(1);
-  await typo.getByRole("button", { name: /한글 맞춤법 오류 가능성/ }).click();
+  // 상세 보기 belongs to the issue, 근거 보기 to the evidence column.
+  await expect(typo.locator(".check-issue-name .issue-detail-toggle")).toHaveText("상세 보기");
+  await expect(typo.locator(".check-source .issue-detail-toggle")).toHaveCount(0);
+  await typo.getByRole("button", { name: /한글 맞춤법 오류 가능성 상세 보기/ }).click();
   await expect(typo).toContainText("향후 13주 유가 전먕");
   await expect(typo).toContainText("향후 13주 유가 전망");
+  // The expanded panel explains the finding; it never repeats the source list.
+  await expect(typo.locator(".check-issue-detail .result-source")).toHaveCount(0);
+  await expect(typo.locator(".check-issue-detail")).toContainText("Actions");
+  await expect(typo.locator(".result-source")).toHaveCount(1);
 
   await page.getByRole("button", { name: /Consistency/ }).click();
   await expect(page.locator(".check-issue").filter({ hasText: "용어 일관성" })).toHaveCount(1);
@@ -391,6 +398,28 @@ test("keeps file context and upload controls out of utility destinations", async
   await expect(page.locator(".context-files")).toHaveCount(0);
   await expect(page.locator(".dropzone")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Add files" })).toHaveCount(0);
+});
+
+test("keeps a feature's completion notice inside that feature", async ({ page }) => {
+  await page.goto("/");
+  await upload(page, files.v1);
+  await page.getByLabel("운임현황_v1.xlsx 선택").check();
+  await page.getByRole("button", { name: "Analyze 실행" }).click();
+  await expect(page.getByText("구조 및 수치 분석을 완료했습니다.")).toBeVisible();
+
+  // Another feature, the dictionary and the settings page own their own
+  // status, so an Analyze result never announces itself there.
+  for (const destination of ["Check", "Dictionary", "Settings"]) {
+    await page.getByRole("button", { name: destination, exact: true }).click();
+    await expect(page.locator(".notice")).toHaveCount(0);
+  }
+
+  // A workspace-level message is different: it concerns the whole tab.
+  await page.getByRole("button", { name: "Analyze", exact: true }).click();
+  await sendFile(page, files.fake);
+  await expect(page.locator(".notice.error")).toBeVisible();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await expect(page.locator(".notice.error")).toBeVisible();
 });
 
 test("rejects a disguised file with an actionable message", async ({ page }) => {

@@ -59,11 +59,13 @@ test("runs Ask, Brief and semantic check on a real WebGPU adapter and keeps evid
   await page.getByRole("button", { name: "Ask", exact: true }).click();
   await expect(page.locator(".ai-status.confirm")).toContainText("브라우저 AI 준비");
   await page.getByRole("button", { name: "AI 준비" }).click();
-
-  // 2. Download reports progress and 3. becomes ready (cold load).
+  // 2. Download reports progress and 3. the model becomes usable. There is no
+  // ready panel by design, so readiness is the observable contract: the
+  // loading panel is gone and the AI action is live again.
   await expect(page.locator(".ai-status.loading")).toContainText("모델 다운로드");
   await timed("coldLoadMs", async () => {
-    await expect(page.locator(".ai-status.ready")).toContainText("브라우저 AI 준비 완료", { timeout: 20 * 60_000 });
+    await expect(page.locator(".ai-status.loading")).toHaveCount(0, { timeout: 20 * 60_000 });
+    await expect(page.getByRole("button", { name: "Ask 실행" })).toBeEnabled({ timeout: 60_000 });
   });
 
   // 4. Ask produces a grounded answer, and the answer carries the sheet value.
@@ -107,18 +109,20 @@ test("runs Ask, Brief and semantic check on a real WebGPU adapter and keeps evid
   await page.getByRole("button", { name: "생성 중지" }).click();
   await expect(page.locator(".notice")).toContainText("브라우저 AI 작업을 취소했습니다.");
 
-  // 8 + 9. After a reload the weights come from cache: ready without a download.
+  // 8 + 9. After a reload the weights come from the browser cache and the
+  // consent is remembered, so no confirmation returns and the warm load is
+  // whatever the first request has to wait for.
   await page.reload();
   await page.locator('input[type="file"]').setInputFiles([rateSheet]);
   await expect(page.locator(".file-row")).toHaveCount(1);
   await page.locator(".file-row input[type='checkbox']").first().check();
   await page.getByRole("button", { name: "Ask", exact: true }).click();
-  await page.getByRole("button", { name: "AI 준비" }).click();
-  await timed("warmLoadMs", async () => {
-    await expect(page.locator(".ai-status.ready")).toContainText("브라우저 AI 준비 완료", { timeout: 10 * 60_000 });
-  });
+  await expect(page.locator(".ai-status.confirm")).toHaveCount(0);
   await page.getByPlaceholder("선택한 문서에서 확인할 내용을 입력하세요").fill("BUSAN 운임은 얼마인가요?");
-  await page.getByRole("button", { name: "Ask 실행" }).click();
+  await timed("warmLoadMs", async () => {
+    await page.getByRole("button", { name: "Ask 실행" }).click();
+    await expect(page.locator(".ai-status.loading")).toHaveCount(0, { timeout: 10 * 60_000 });
+  });
   await expect(page.getByText("Ask 결과를 준비했습니다.")).toBeVisible({ timeout: 10 * 60_000 });
   measured.warmAskAnswer = await page.locator(".claim-row").first().innerText();
 

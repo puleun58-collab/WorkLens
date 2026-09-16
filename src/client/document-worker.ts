@@ -7,7 +7,7 @@ import { exportDocumentCsv, exportDocumentXlsx } from "@/lib/export";
 import { parseDocument } from "@/lib/parsers";
 import { buildEvidenceNodes, groundAiResult } from "@/lib/ai/grounding";
 import { evidenceWindow, resolveClaims, type EvidenceWindow } from "@/lib/ai/prompt";
-import { selectEvidence } from "@/lib/ai/retrieval";
+import { askRelevance, selectEvidence } from "@/lib/ai/retrieval";
 import {
   DocumentError,
   assertWorkspaceWithinLimit,
@@ -124,6 +124,13 @@ async function handle(request: WorkerRequest): Promise<unknown> {
     case "evidence": {
       const selected = requireDocuments(request.fileIds).map((entry) => entry.document);
       const candidates = buildEvidenceNodes(selected);
+      // Ask carries a claim to check, so answerability is decided here, before
+      // the model sees anything: unrelated evidence is never sent, and the
+      // caller gets a clear "no supporting evidence" instead of a guess.
+      // Brief and Analyze summarise a whole document and keep their own path.
+      if (request.request.operation === "ask" && !askRelevance(candidates, request.request.question).supported) {
+        throw new DocumentError("NO_EVIDENCE", "질문을 뒷받침할 근거를 선택한 문서에서 찾지 못했습니다.");
+      }
       const window = evidenceWindow(selectEvidence(candidates, request.request));
       if (window.items.length === 0) {
         throw new DocumentError("NO_EVIDENCE", "선택한 문서에서 사용할 수 있는 근거를 찾지 못했습니다.");

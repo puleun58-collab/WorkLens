@@ -209,35 +209,100 @@ function baseCases(): BenchCase[] {
   ];
 }
 
-/** Ceiling sweep. Gigabytes of transient memory: never part of verification. */
-function stressCases(): BenchCase[] {
+/**
+ * Ceiling cases, addressed individually by format and size. Nothing here runs
+ * unless it is asked for by name: one 100 MiB case can hold several GiB of
+ * transient memory while its fixture is built.
+ */
+const STRESS_FORMATS = ["csv", "xlsx", "pdf", "pptx", "docx"] as const;
+const STRESS_SIZES = [50, 75, 100] as const;
+
+type StressFormat = (typeof STRESS_FORMATS)[number];
+
+function stressCase(format: StressFormat, size: number): BenchCase {
+  const label = `${format}-${size}mib`;
+  switch (format) {
+    case "csv":
+      return { label, fileName: `대용량로그-${size}.csv`, build: () => wideCsv(size * MiB, 90_000) };
+    case "xlsx":
+      // ExcelJS writes a compressed workbook, so rows — not bytes — are the
+      // dial; each step tracks the byte target it stands in for.
+      return { label, fileName: `대용량실적-${size}.xlsx`, build: () => createXlsx(bigWorkbook(size * 1_000, 1)) };
+    case "pdf":
+      return {
+        label,
+        fileName: `대용량보고서-${size}.pdf`,
+        build: () => createPdf(Array.from({ length: size * 10 }, (_, index) => `Page ${index + 1}: operational summary with amount ${130000 + index} and date 2026-0${(index % 9) + 1}-15.`)),
+      };
+    case "pptx":
+      return {
+        label,
+        fileName: `대용량발표-${size}.pptx`,
+        build: () => zipSync({ ...pptxParts(200), ...mediaPadding(size * MiB, 40) }),
+      };
+    case "docx":
+      return {
+        label,
+        fileName: `대용량문서-${size}.docx`,
+        build: () => zipSync({ ...docxParts(20_000), ...mediaPadding(size * MiB, 40) }),
+      };
+  }
+}
+
+export interface StressSelection {
+  cases: BenchCase[];
+  /** What the caller asked for, echoed in the run header. */
+  description: string;
+  usage?: undefined;
+}
+
+export interface StressUsage {
+  usage: string;
+  cases?: undefined;
+}
+
+/**
+ * Parses the stress CLI. The default is deliberately not a sweep: with no
+ * arguments the caller gets usage text and nothing runs, so a mistyped
+ * command cannot start a multi-gigabyte run on a small machine.
+ */
+export function selectStressCases(argv: readonly string[]): StressSelection | StressUsage {
+  const value = (name: string): string | undefined => {
+    const inline = argv.find((entry) => entry.startsWith(`--${name}=`));
+    if (inline) return inline.slice(name.length + 3);
+    const index = argv.indexOf(`--${name}`);
+    return index >= 0 ? argv[index + 1] : undefined;
+  };
+  const all = argv.includes("--all");
+  const format = value("format");
+  const size = value("size");
+
+  if (!all && !format && !size) {
+    return {
+      usage: [
+        "bench:stress runs ceiling cases one at a time. Pick a format and a size:",
+        "",
+        `  bun run bench:stress -- --format=${STRESS_FORMATS.join("|")} --size=${STRESS_SIZES.join("|")}`,
+        "  bun run bench:stress -- --all      # every format at every size (slow, memory heavy)",
+        "",
+        `Budgets: case ${CASE_TIMEOUT_MS}ms · rss ${MEMORY_BUDGET_MIB} MiB (WORKLENS_BENCH_CASE_MS, WORKLENS_BENCH_MEMORY_MIB)`,
+      ].join("\n"),
+    };
+  }
+
+  const formats = all || !format
+    ? [...STRESS_FORMATS]
+    : format.split(",").map((entry) => entry.trim()).filter((entry): entry is StressFormat =>
+      (STRESS_FORMATS as readonly string[]).includes(entry));
+  const sizes = all || !size
+    ? [...STRESS_SIZES]
+    : size.split(",").map((entry) => Number(entry.trim())).filter((entry) => (STRESS_SIZES as readonly number[]).includes(entry));
+  if (formats.length === 0) return { usage: `unknown --format; expected one of ${STRESS_FORMATS.join(", ")}` };
+  if (sizes.length === 0) return { usage: `unknown --size; expected one of ${STRESS_SIZES.join(", ")}` };
+
   const cases: BenchCase[] = [];
-  // CSV grows by bytes: the row cap is fixed, so the sweep widens each row.
-  for (const target of [50, 75, 100]) {
-    cases.push({ label: `csv-${target}mib`, fileName: `대용량로그-${target}.csv`, build: () => wideCsv(target * MiB, 90_000) });
-  }
-  // OOXML reaches these sizes the way real files do: stored media beside XML.
-  for (const target of [50, 100]) {
-    cases.push({
-      label: `pptx-200-slides-${target}mib`,
-      fileName: `대용량발표-${target}.pptx`,
-      build: () => zipSync({ ...pptxParts(200), ...mediaPadding(target * MiB, 40) }),
-    });
-  }
-  for (const target of [50, 100]) {
-    cases.push({
-      label: `docx-20k-para-${target}mib`,
-      fileName: `대용량문서-${target}.docx`,
-      build: () => zipSync({ ...docxParts(20_000), ...mediaPadding(target * MiB, 40) }),
-    });
-  }
-  cases.push({ label: "xlsx-50k-rows", fileName: "대용량실적-50k.xlsx", build: () => createXlsx(bigWorkbook(50_000, 1)) });
-  cases.push({
-    label: "pdf-500-pages",
-    fileName: "대용량보고서-500.pdf",
-    build: () => createPdf(Array.from({ length: 500 }, (_, index) => `Page ${index + 1}: operational summary with amount ${130000 + index} and date 2026-0${(index % 9) + 1}-15.`)),
-  });
-  return cases;
+  for (const entry of formats) for (const bytes of sizes) cases.push(stressCase(entry, bytes));
+  return { cases, description: `format=${formats.join(",")} size=${sizes.join(",")}MiB` };
 }
 
 const RESULT_PREFIX = "RESULT ";
@@ -246,9 +311,16 @@ const RESULT_PREFIX = "RESULT ";
 async function runOneCase(label: string, cases: BenchCase[]): Promise<void> {
   const benchCase = cases.find((entry) => entry.label === label);
   if (!benchCase) throw new Error(`unknown case ${label}`);
+  console.error(`[stress] ${label} fixture build started`);
   const buildStarted = performance.now();
   const bytes = await withTimeout(`${label} build`, benchCase.build(), STAGE_BUDGET_MS);
-  console.error(`    fixture          ${String(Math.round(performance.now() - buildStarted)).padStart(7)}ms  ${Math.round((bytes.byteLength / MiB) * 10) / 10} MiB`);
+  const rssMiB = Math.round((process.memoryUsage?.().rss ?? 0) / MiB);
+  console.error(`    fixture          ${String(Math.round(performance.now() - buildStarted)).padStart(7)}ms  ${Math.round((bytes.byteLength / MiB) * 10) / 10} MiB  rss ${rssMiB} MiB`);
+  // Building the input alone can exhaust the budget. Stop here rather than
+  // entering a parse that would push the machine into swap.
+  if (rssMiB > MEMORY_BUDGET_MIB) {
+    throw new Error(`${label} fixture build exceeded ${MEMORY_BUDGET_MIB} MiB rss (used ${rssMiB} MiB)`);
+  }
   const row = await measure(label, bytes, benchCase.fileName);
   console.info(`${RESULT_PREFIX}${JSON.stringify(row)}`);
 }
@@ -275,9 +347,9 @@ async function runCompareCase(): Promise<void> {
  * Parent role: one child per case. A child that outlives its budget is killed,
  * not awaited, and a child that dies takes its memory with it.
  */
-async function runCaseInChild(label: string, stress: boolean): Promise<Measurement | undefined> {
+async function runCaseInChild(label: string, stressArgs: readonly string[]): Promise<Measurement | undefined> {
   const child = Bun.spawn({
-    cmd: [process.execPath, import.meta.path, "--case", label, ...(stress ? ["--stress"] : [])],
+    cmd: [process.execPath, import.meta.path, "--case", label, ...stressArgs],
     stdout: "pipe",
     stderr: "inherit",
     env: process.env,
@@ -303,11 +375,25 @@ async function runCaseInChild(label: string, stress: boolean): Promise<Measureme
 }
 
 async function main(): Promise<void> {
-  const stress = process.argv.includes("--stress");
-  const cases = stress ? stressCases() : baseCases();
-  const caseFlag = process.argv.indexOf("--case");
+  const argv = process.argv.slice(2);
+  const stress = argv.includes("--stress");
+  let cases = baseCases();
+  let stressArgs: string[] = [];
+  if (stress) {
+    const selection = selectStressCases(argv);
+    if (selection.usage !== undefined) {
+      console.info(selection.usage);
+      return;
+    }
+    cases = selection.cases;
+    // The child re-derives the same selection from the same flags.
+    stressArgs = argv.filter((entry, index) => entry !== "--case" && argv[index - 1] !== "--case");
+    console.info(`[stress] ${selection.description} · ${cases.length} case(s)`);
+  }
+
+  const caseFlag = argv.indexOf("--case");
   if (caseFlag >= 0) {
-    const label = process.argv[caseFlag + 1];
+    const label = argv[caseFlag + 1];
     if (label === "compare") await runCompareCase();
     else await runOneCase(label, cases);
     return;
@@ -319,7 +405,7 @@ async function main(): Promise<void> {
   let aborted = 0;
   for (const [index, label] of labels.entries()) {
     console.info(`[${index + 1}/${labels.length}] ${label}`);
-    const row = await runCaseInChild(label, stress);
+    const row = await runCaseInChild(label, stressArgs);
     if (row) rows.push(row);
     else aborted += 1;
   }
@@ -332,7 +418,9 @@ async function main(): Promise<void> {
   if (aborted > 0) console.info(`${aborted} case(s) aborted on timeout or memory budget`);
 }
 
-await main();
-// pdf-lib and ExcelJS leave timers and streams behind; the run is over, so the
-// process must not linger waiting on them.
-process.exit(0);
+// Importable for unit tests: the sweep only runs when this file is the entry
+// point. pdf-lib and ExcelJS leave timers behind, so the run exits explicitly.
+if (import.meta.main) {
+  await main();
+  process.exit(0);
+}

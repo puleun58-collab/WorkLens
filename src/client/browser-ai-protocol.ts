@@ -10,7 +10,7 @@ import type { AiRequest } from "@/domain/ai";
  * (`handle` + `text`) built by the document worker.
  */
 export const BROWSER_AI_MODEL_ID = "Qwen3-1.7B-q4f16_1-MLC";
-export const BROWSER_AI_MODEL_LABEL = "Qwen3 1.7B (q4f16)";
+export const BROWSER_AI_MODEL_LABEL = "Qwen3 1.7B";
 /**
  * First-run download, measured from the published MLC repository:
  * 984 MB of weights and config plus the 5.6 MB WebGPU runtime library.

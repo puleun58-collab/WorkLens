@@ -2326,16 +2326,29 @@ input:disabled,
   min-width: 0;
 }
 
+/*
+ * Head and body share one column system: the same track list, the same row
+ * inset and the same gap, and no cell carries its own inline padding. A
+ * column's left edge is therefore the same line in the header and in every
+ * row, with nothing corrected by hand afterwards.
+ */
 .check-table-head,
 .check-issue-row {
   display: grid;
-  grid-template-columns: 104px 112px minmax(250px, 1.15fr) minmax(190px, 0.8fr) minmax(250px, 1fr);
+  grid-template-columns: 108px 112px minmax(260px, 1.45fr) minmax(128px, 0.46fr) minmax(250px, 1.1fr);
+  column-gap: var(--check-column-gap);
   align-items: start;
+  padding-inline: var(--check-row-inset);
+}
+
+.check-table-head > span,
+.check-issue-row > [role="cell"] {
+  min-width: 0;
+  padding-inline: 0;
 }
 
 .check-table-head {
   min-height: 34px;
-  padding: 0 18px;
   border-bottom: 1px solid var(--line-strong);
   background: var(--paper);
   color: var(--muted);
@@ -2346,7 +2359,15 @@ input:disabled,
 }
 
 .check-table-head > span {
-  padding: 10px 10px 8px 0;
+  padding-block: 10px 8px;
+}
+
+/* The evidence column is ruled off in both rows, so the rule is one line. */
+.check-table-head > span:nth-child(4),
+.check-source {
+  margin-inline-start: calc(var(--check-column-gap) * -1);
+  padding-inline-start: var(--check-column-gap);
+  border-inline-start: 1px solid var(--line-soft);
 }
 
 .check-issue {
@@ -2380,14 +2401,13 @@ input:disabled,
 }
 
 .check-issue-row > [role="cell"] {
-  min-width: 0;
-  padding: 18px 11px 19px 0;
+  padding-block: 18px 19px;
 }
 
+/* The dot rides with the first line, so every column starts on one baseline. */
 .check-severity {
-  padding-left: 18px !important;
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 8px;
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-bold);
@@ -2412,25 +2432,12 @@ input:disabled,
   white-space: nowrap;
 }
 
-.check-issue-name > button {
-  width: 100%;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
+/* Title, description, then the action: the whole block stays inside Issue. */
+.check-issue-name > strong {
+  display: block;
   color: var(--ink);
   font-size: 12px;
   font-weight: var(--font-weight-bold);
-  text-align: left;
-}
-
-.check-issue-name > button span {
-  color: var(--blue);
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-semibold);
 }
 
 .check-issue-name em {
@@ -2440,6 +2447,27 @@ input:disabled,
   font-size: var(--font-size-xs);
   font-style: normal;
   line-height: 1.5;
+}
+
+/*
+ * The detail action belongs to the finding, the source action to the
+ * evidence: keeping this one left-aligned under the text stops the two from
+ * reading as one control pair at the column boundary.
+ */
+.issue-detail-toggle {
+  margin-top: 7px;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid #7fb0da;
+  background: transparent;
+  color: var(--blue);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  text-align: left;
+}
+
+.issue-detail-toggle:hover {
+  border-bottom-color: var(--blue);
 }
 
 .check-source {
@@ -2511,12 +2539,10 @@ input:disabled,
   color: var(--ink);
 }
 
-.detail-sources,
 .related-findings {
   grid-column: 1 / -1;
 }
 
-.detail-sources > div,
 .related-findings > div {
   display: flex;
   flex-wrap: wrap;
@@ -3119,8 +3145,20 @@ body {
 
 :root {
   --rail-width: 192px;
+  /*
+   * Rail horizontal grid, defined once: the rail inset frames every item box
+   * symmetrically, and the item inset — slightly tighter than the outer one —
+   * is where the icon column starts. Changing these two values moves brand,
+   * section label, navigation and footer together.
+   */
+  --rail-inline-padding: 12px;
+  --rail-item-inline-padding: 9px;
+  --rail-icon-column: 20px;
   --topbar-height: 70px;
   --inspector-width: 352px;
+  /* Check table column system: shared by the header row and every body row. */
+  --check-row-inset: 18px;
+  --check-column-gap: 12px;
   --border-subtle: #edf0f3;
   --border-default: var(--line-soft);
   --border-strong: var(--line);
@@ -3161,7 +3199,7 @@ body {
 .rail-brand,
 .rail-group-label,
 .rail-item {
-  padding-inline: var(--rail-inline-padding);
+  padding-inline: var(--rail-item-inline-padding);
 }
 
 .rail-brand {
@@ -3492,11 +3530,8 @@ body {
 
 .rail-item.active {
   background: var(--navy-800);
-  color: #fff;
-}
-
-.rail-item.active {
   box-shadow: inset 2px 0 0 var(--blue-500, #3b82f6);
+  color: #fff;
 }
 
 .rail .worklens-logo,
@@ -3607,11 +3642,6 @@ body {
   .qa-summary {
     border-top: 1px solid var(--line);
     border-left: 0;
-  }
-
-  .check-table-head,
-  .check-issue-row {
-    grid-template-columns: 94px 102px minmax(220px, 1fr) minmax(170px, 0.72fr) minmax(210px, 0.9fr);
   }
 
   .claim-row {
@@ -3818,6 +3848,13 @@ body {
     grid-column: 2;
   }
 
+  /* Stacked rows read top to bottom; a left rule would fake a column here. */
+  .check-source {
+    margin-inline-start: 0;
+    padding-inline-start: 0;
+    border-inline-start: 0;
+  }
+
   .check-issue-detail {
     margin-right: 14px;
     margin-left: 14px;
@@ -3825,7 +3862,6 @@ body {
     grid-template-columns: 1fr;
   }
 
-  .detail-sources,
   .related-findings {
     grid-column: 1;
   }
@@ -4938,15 +4974,6 @@ body {
   font-size: var(--font-size-sm);
 }
 
-/* ── Left rail geometry tokens ─────────────────────────────────────────────
- * One inset drives the rail's outer padding and every item's frame, so brand,
- * section label, navigation and footer share a single horizontal grid.
- */
-:root {
-  --rail-inline-padding: 12px;
-  --rail-icon-column: 20px;
-}
-
 @media (max-width: 900px) {
   .rail {
     padding-block: 8px;
@@ -4979,6 +5006,24 @@ body {
   flex-flow: row wrap;
   align-items: center;
   gap: var(--space-2) var(--space-4);
+}
+
+/*
+ * Two sentences, two lines: each one owns the full panel width so it never
+ * breaks mid-clause, and the actions drop to their own row beside them.
+ */
+.ai-status .ai-copy {
+  flex: 1 1 100%;
+  max-width: none;
+}
+
+.ai-status.confirm {
+  align-items: flex-start;
+  gap: var(--space-1) var(--space-4);
+}
+
+.ai-status.confirm .ai-status-actions {
+  margin-top: var(--space-2);
 }
 
 .ai-status > strong {
@@ -5057,7 +5102,7 @@ body {
 /* 1. Titles: primary result strongest, section titles one step down. */
 .document-result-heading h3,
 .answer-document p,
-.check-issue-name > button,
+.check-issue-name > strong,
 .change-label {
   color: var(--ink);
   font-size: var(--font-size-md);
@@ -5175,14 +5220,11 @@ body {
 }
 
 /*
- * 6. Column widths follow importance. The source column holds a locator and
- * one action now, not a wrapped file name, so the space it used to need goes
- * to the result text and the recommendation.
+ * 6. Column widths follow importance: the evidence column holds a locator and
+ * one action, so its width goes to the result text and the recommendation.
+ * The Check track list lives with the table's column system; only the change
+ * table and the narrow-desktop override are tuned here.
  */
-.check-table-head,
-.check-issue-row {
-  grid-template-columns: 108px 112px minmax(260px, 1.45fr) minmax(128px, 0.46fr) minmax(250px, 1.1fr);
-}
 
 .change-head,
 .change-row {
