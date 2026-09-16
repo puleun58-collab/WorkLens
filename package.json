@@ -18,7 +18,8 @@
     "deploy": "bun run build:vinext && wrangler deploy --config dist/server/wrangler.json",
     "test:e2e:cloudflare": "bun run build:vinext && playwright test --config playwright.cloudflare.config.ts",
     "test:e2e:cloudflare:run": "playwright test --config playwright.cloudflare.config.ts",
-    "test:smoke": "playwright test --config playwright.smoke.config.ts"
+    "test:smoke": "playwright test --config playwright.smoke.config.ts",
+    "test:ai:smoke": "playwright test --config playwright.ai.config.ts"
   },
   "dependencies": {
     "@mlc-ai/web-llm": "0.2.85",

@@ -5,6 +5,9 @@ import type { NormalizedDocument } from "@/domain/document";
 import { analyzeDocument, checkDocument, extractDocument } from "@/lib/deterministic";
 import { exportDocumentCsv, exportDocumentXlsx } from "@/lib/export";
 import { parseDocument } from "@/lib/parsers";
+import { buildEvidenceNodes, groundAiResult } from "@/lib/ai/grounding";
+import { evidenceWindow, resolveClaims, type EvidenceWindow } from "@/lib/ai/prompt";
+import { selectEvidence } from "@/lib/ai/retrieval";
 import { DocumentError, fileKindOf, safeDisplayName, validateUploadBytes } from "@/lib/upload";
 import type { WorkerEnvelope, WorkerRequest, WorkspaceFile } from "./protocol";
 
@@ -19,6 +22,12 @@ interface StoredDocument {
 
 const MAX_FILES = 10;
 const documents = new Map<string, StoredDocument>();
+/**
+ * Prompt windows retained between `evidence` and `ground`. They hold canonical
+ * evidence, so they stay in this worker and are dropped as soon as the AI
+ * result is grounded or the caller releases them.
+ */
+const evidenceWindows = new Map<string, { window: EvidenceWindow; documents: NormalizedDocument[] }>();
 
 function requireDocuments(fileIds: readonly string[]): StoredDocument[] {
   if (fileIds.length === 0) throw new DocumentError("NO_FILE_SELECTED", "파일을 1개 이상 선택하세요.");
@@ -98,8 +107,27 @@ async function handle(request: WorkerRequest): Promise<unknown> {
         : exported.content;
       return { fileName: exported.fileName, mimeType: exported.mimeType, bytes };
     }
-    case "documents":
-      return requireDocuments(request.fileIds).map((entry) => entry.document);
+    case "evidence": {
+      const selected = requireDocuments(request.fileIds).map((entry) => entry.document);
+      const candidates = buildEvidenceNodes(selected);
+      const window = evidenceWindow(selectEvidence(candidates, request.request));
+      if (window.items.length === 0) {
+        throw new DocumentError("NO_EVIDENCE", "선택한 문서에서 사용할 수 있는 근거를 찾지 못했습니다.");
+      }
+      const windowId = crypto.randomUUID();
+      evidenceWindows.set(windowId, { window, documents: selected });
+      return { windowId, items: window.items, candidates: candidates.length };
+    }
+    case "ground": {
+      const retained = evidenceWindows.get(request.windowId);
+      if (!retained) throw new DocumentError("EVIDENCE_EXPIRED", "AI 근거 창이 만료되었습니다. 다시 실행하세요.");
+      evidenceWindows.delete(request.windowId);
+      return groundAiResult(request.request, retained.documents, resolveClaims(retained.window, request.claims));
+    }
+    case "release-evidence": {
+      evidenceWindows.delete(request.windowId);
+      return { released: evidenceWindows.size };
+    }
     case "forget": {
       for (const fileId of request.fileIds) documents.delete(fileId);
       return { released: documents.size };

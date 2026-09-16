@@ -1085,10 +1085,6 @@ input:disabled,
   transform: translateY(0);
 }
 
-.workspace-shell {
-  min-height: 100dvh;
-}
-
 .topbar {
   position: sticky;
   top: 0;
@@ -1100,11 +1096,6 @@ input:disabled,
   display: flex;
   align-items: center;
   gap: 24px;
-}
-
-.brand {
-  display: flex;
-  align-items: center;
 }
 
 .worklens-logo {
@@ -1446,18 +1437,6 @@ input:disabled,
 .state-card button:hover:not(:disabled) {
   border-color: var(--blue-hover);
   background: var(--blue-hover);
-}
-
-.loading-state {
-  padding: 12px 18px;
-}
-
-.loading-state span {
-  display: block;
-  height: 44px;
-  margin: 6px 0;
-  background: var(--layer);
-  animation: none;
 }
 
 
@@ -1869,14 +1848,6 @@ input:disabled,
 
 .state-card button {
   margin-top: 18px;
-}
-
-.error-state {
-  border-left: 4px solid var(--critical);
-}
-
-.state-guidance {
-  color: var(--ink-soft) !important;
 }
 
 .results-panel {
@@ -4009,13 +3980,6 @@ body {
   transform: translateY(-1px);
 }
 
-.loading-state span {
-  background: var(--layer);
-  background-image: linear-gradient(100deg, var(--layer), #e5edf4, var(--layer));
-  background-size: 100% 100%;
-  animation: none;
-}
-
 .processing-bar {
   border-color: #b6d0e6;
   background: var(--blue-pale);
@@ -5120,6 +5084,33 @@ body {
   color: var(--ink-soft);
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-semibold);
+}
+
+.ai-status-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* Opt-in download: one primary action, one quiet escape, no modal. */
+.ai-status.confirm {
+  border-color: var(--border-strong);
+}
+
+.ai-status .ai-confirm {
+  min-height: var(--control-height-md);
+  padding: 0 14px;
+  border: 1px solid var(--blue-hover);
+  border-radius: var(--radius-control);
+  background: var(--blue);
+  color: #fff;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  transition: background var(--motion-fast) var(--motion-ease);
+}
+
+.ai-status .ai-confirm:hover:not(:disabled) {
+  background: var(--blue-hover);
 }
 
 .ai-detail {

@@ -1,7 +1,7 @@
 "use client";
 
 import { ChangeEvent, DragEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import type { AiAvailableResult, EvidenceBinding, GroundedClaim } from "@/domain/ai";
+import type { AiAvailableResult, AiRequest, EvidenceBinding, GroundedClaim } from "@/domain/ai";
 import type { ComparisonItem, ComparisonResult } from "@/domain/compare";
 import type { DocumentMetadata, SourceRef } from "@/domain/document";
 import {
@@ -19,10 +19,13 @@ import { WorkLensLogo } from "./worklens-logo";
 import { disposeWorkspace, runInWorker } from "@/client/document-client";
 import {
   browserAiState,
-  browserAiSupported,
-  cancelBrowserAi,
+  cancelBrowserAiLoad,
+  confirmBrowserAi,
   disposeBrowserAi,
-  runBrowserAi,
+  generateBrowserAi,
+  interruptBrowserAi,
+  loadBrowserAi,
+  probeBrowserAi,
   subscribeBrowserAi,
   type BrowserAiFailure,
 } from "@/client/browser-ai-client";
@@ -32,7 +35,6 @@ import {
   BROWSER_AI_MODEL_LABEL,
   BROWSER_AI_MODEL_MB,
   type BrowserAiState,
-  type BrowserAiTask,
 } from "@/client/browser-ai-protocol";
 import type { CheckEntry as WorkerCheckEntry, WorkspaceFile } from "@/client/protocol";
 import {
@@ -116,8 +118,6 @@ const checkGroupLabels: Record<CheckCategoryGroup, string> = {
 /** Server render has no WebGPU and no model: AI actions stay enabled until the
  * client snapshot proves otherwise, and the status box starts silent. */
 const serverAiState: () => BrowserAiState = () => ({ phase: "idle" });
-const serverAiCapable = () => true;
-const subscribeNever = () => () => {};
 
 function formatBytes(size: number) {
   if (size < 1024) return `${size} B`;
@@ -171,7 +171,7 @@ export default function Home() {
   // The AI layer is an external system: state and capability are read through
   // the store instead of mirrored into React state inside an effect.
   const aiState = useSyncExternalStore(subscribeBrowserAi, browserAiState, serverAiState);
-  const aiCapable = useSyncExternalStore(subscribeNever, browserAiSupported, serverAiCapable);
+  const aiUnsupported = aiState.phase === "unsupported";
   const inputRef = useRef<HTMLInputElement>(null);
   const uploadQueue = useRef<Promise<void>>(Promise.resolve());
   const detailTrigger = useRef<HTMLElement | null>(null);
@@ -225,6 +225,12 @@ export default function Home() {
     disposeWorkspace();
     disposeBrowserAi();
   }, []);
+
+  // Capability is probed when the user actually moves to an AI destination, so
+  // the landing view stays silent and nothing is downloaded up front.
+  useEffect(() => {
+    if (activeTab === "Ask" || activeTab === "Brief") void probeBrowserAi();
+  }, [activeTab]);
 
   const upload = async (file: File) => {
     setUploading(true);
@@ -280,31 +286,52 @@ export default function Home() {
   };
 
   /**
-   * Browser-local AI. Documents stay in this tab: they go from the document
-   * worker straight into the AI worker, never over the network. A model or
-   * WebGPU problem is reported in the AI status box, not as a workspace error.
+   * Browser-local AI orchestration. The main thread only routes ids: the
+   * document worker ranks and bounds the evidence, the AI worker sees just that
+   * window, and grounding happens back in the document worker where the
+   * canonical sources live. No document text is ever held in React state.
    */
-  const runBrowserTask = async (task: BrowserAiTask, success: string) => {
+  const runBrowserTask = async (request: AiRequest, success: string) => {
     if (selected.length > BROWSER_AI_MAX_FILES) {
       setNotice({ tone: "error", message: `브라우저 AI 작업은 최대 ${BROWSER_AI_MAX_FILES}개 파일만 선택할 수 있습니다.` });
       return;
     }
+    const capability = await probeBrowserAi();
+    if (capability.phase === "unsupported" || capability.phase === "awaiting-confirmation") return;
     setBusy(true);
     setNotice(null);
     setDetail(null);
+    let windowId: string | undefined;
     try {
-      const documents = await runInWorker({ kind: "documents", fileIds: selected });
-      setOperationResult(await runBrowserAi(task, documents));
+      const evidence = await runInWorker({ kind: "evidence", fileIds: selected, request });
+      windowId = evidence.windowId;
+      const claims = await generateBrowserAi(request, evidence.items);
+      const result = await runInWorker({ kind: "ground", windowId, request, claims });
+      windowId = undefined;
+      if (result.rejectedClaimCount > 0 || result.claims.length === 0) {
+        throw { code: "GROUNDING_REJECTED", message: BROWSER_AI_MESSAGES.GROUNDING_REJECTED } satisfies BrowserAiFailure;
+      }
+      setOperationResult(result);
       setNotice({ tone: "success", message: success });
+      return result;
     } catch (error) {
       setOperationResult(null);
-      const failure = error as BrowserAiFailure;
-      if (failure.code === "NO_WEBGPU" || failure.code === "LOAD_FAILED") setNotice(null);
-      else if (failure.code === "CANCELLED") setNotice({ tone: "info", message: BROWSER_AI_MESSAGES.CANCELLED });
-      else setNotice({ tone: "error", message: failure.message ?? "브라우저 AI 작업에 실패했습니다." });
+      reportAiFailure(error);
     } finally {
+      if (windowId) void runInWorker({ kind: "release-evidence", windowId });
       setBusy(false);
     }
+  };
+
+  /** Capability problems belong in the AI status box, never in the error notice. */
+  const reportAiFailure = (error: unknown) => {
+    const failure = error as BrowserAiFailure;
+    const silent = failure.code === "NO_WEBGPU" || failure.code === "ADAPTER_FAILED"
+      || failure.code === "MODEL_LOAD_FAILED" || failure.code === "MODEL_DOWNLOAD_FAILED"
+      || failure.code === "OUT_OF_MEMORY";
+    if (silent) setNotice(null);
+    else if (failure.code === "CANCELLED") setNotice({ tone: "info", message: BROWSER_AI_MESSAGES.CANCELLED });
+    else setNotice({ tone: "error", message: failure.message ?? "브라우저 AI 작업에 실패했습니다." });
   };
 
   const runActive = async () => {
@@ -331,8 +358,8 @@ export default function Home() {
     if (activeTab === "Extract") return runDeterministic("extract", "구조화 추출을 완료했습니다.");
     const typed = question.trim();
     return activeTab === "Ask"
-      ? runBrowserTask({ kind: "ask", question: typed }, "Ask 결과를 준비했습니다.")
-      : runBrowserTask({ kind: "brief", ...(typed ? { instruction: typed } : {}) }, "Brief 결과를 준비했습니다.");
+      ? runBrowserTask({ operation: "ask", question: typed }, "Ask 결과를 준비했습니다.")
+      : runBrowserTask({ operation: "brief", ...(typed ? { instruction: typed } : {}) }, "Brief 결과를 준비했습니다.");
   };
 
   /**
@@ -344,18 +371,25 @@ export default function Home() {
       setNotice({ tone: "error", message: `브라우저 AI 작업은 최대 ${BROWSER_AI_MAX_FILES}개 파일만 선택할 수 있습니다.` });
       return;
     }
+    const capability = await probeBrowserAi();
+    if (capability.phase === "unsupported" || capability.phase === "awaiting-confirmation") return;
     setBusy(true);
     setNotice(null);
     setDetail(null);
+    const request: AiRequest = {
+      operation: "semantic-check",
+      statement: "선택한 문서의 한글 맞춤법, 띄어쓰기, 조사, 어색한 표현과 용어 일관성을 보수적으로 점검하세요. 확신이 낮은 항목은 제안으로만 표시하세요.",
+    };
+    let windowId: string | undefined;
     try {
       const base = isCheckEntries(operationResult)
         ? operationResult
         : await runInWorker({ kind: "check", fileIds: selected, userTerms, companyTerms: companyTermNames });
-      const documents = await runInWorker({ kind: "documents", fileIds: selected });
-      const aiResult = await runBrowserAi({
-        kind: "semantic-check",
-        statement: "선택한 문서의 한글 맞춤법, 띄어쓰기, 조사, 어색한 표현과 용어 일관성을 보수적으로 점검하세요. 확신이 낮은 항목은 제안으로만 표시하세요.",
-      }, documents);
+      const evidence = await runInWorker({ kind: "evidence", fileIds: selected, request });
+      windowId = evidence.windowId;
+      const modelClaims = await generateBrowserAi(request, evidence.items);
+      const aiResult = await runInWorker({ kind: "ground", windowId, request, claims: modelClaims });
+      windowId = undefined;
       const claims = aiResult.claims;
       const merged = base.map((entry) => {
         const forFile = claims.filter((claim) => claim.evidence.some((binding) => binding.source.fileId === entry.file.id));
@@ -387,20 +421,18 @@ export default function Home() {
           : "브라우저 AI 문장 검수에서 추가할 제안이 없었습니다.",
       });
     } catch (error) {
-      const failure = error as BrowserAiFailure;
-      if (failure.code === "NO_WEBGPU" || failure.code === "LOAD_FAILED") setNotice(null);
-      else if (failure.code === "CANCELLED") setNotice({ tone: "info", message: BROWSER_AI_MESSAGES.CANCELLED });
-      else setNotice({ tone: "error", message: failure.message ?? "브라우저 AI 문장 검수에 실패했습니다." });
+      reportAiFailure(error);
     } finally {
+      if (windowId) void runInWorker({ kind: "release-evidence", windowId });
       setBusy(false);
     }
   };
 
   const runAiAssist = () => {
-    if (activeTab === "Analyze") return runBrowserTask({ kind: "analyze" }, "브라우저 AI 분석 결과를 준비했습니다.");
+    if (activeTab === "Analyze") return runBrowserTask({ operation: "analyze" }, "브라우저 AI 분석 결과를 준비했습니다.");
     if (activeTab === "Check") return runSemanticCheck();
     return runBrowserTask(
-      { kind: "semantic-check", statement: "선택한 문서 사이의 중요한 의미 변화를 근거와 함께 점검하세요." },
+      { operation: "semantic-check", statement: "선택한 문서 사이의 중요한 의미 변화를 근거와 함께 점검하세요." },
       "브라우저 AI 보조 점검 결과를 준비했습니다.",
     );
   };
@@ -435,7 +467,7 @@ export default function Home() {
   };
 
   const aiTab = activeTab === "Ask" || activeTab === "Brief";
-  const actionDisabled = busy || selected.length === 0 || (activeTab === "Compare" && selected.length !== 2) || (activeTab === "Ask" && !question.trim()) || (aiTab && !aiCapable);
+  const actionDisabled = busy || selected.length === 0 || (activeTab === "Compare" && selected.length !== 2) || (activeTab === "Ask" && !question.trim()) || (aiTab && aiUnsupported);
   const fileNames = new Map(files.map((file) => [file.id, file.name]));
   const companyTermNames = companyTerms.filter((entry) => entry.active).map((entry) => entry.term);
   const isUtilityView = shellView === "Dictionary" || shellView === "Settings";
@@ -631,12 +663,17 @@ export default function Home() {
                   </label>
                 ) : null}
                 <div className="operation-actions">
-                  {(activeTab === "Analyze" || activeTab === "Compare" || activeTab === "Check") ? <button type="button" className="secondary-action" onClick={runAiAssist} disabled={busy || selected.length === 0 || !aiCapable}>{activeTab === "Check" ? "브라우저 AI 문장 검수" : "브라우저 AI 보조"}</button> : null}
+                  {(activeTab === "Analyze" || activeTab === "Compare" || activeTab === "Check") ? <button type="button" className="secondary-action" onClick={runAiAssist} disabled={busy || selected.length === 0 || aiUnsupported}>{activeTab === "Check" ? "브라우저 AI 문장 검수" : "브라우저 AI 보조"}</button> : null}
                   <button type="button" onClick={runActive} disabled={actionDisabled}>{busy ? "처리 중…" : `${activeTab} 실행`}</button>
                 </div>
               </section>
 
-              <BrowserAiStatus state={aiState} capable={aiCapable} onCancel={cancelBrowserAi} />
+              <BrowserAiStatus
+                state={aiState}
+                onConfirm={() => { confirmBrowserAi(); void loadBrowserAi().catch(reportAiFailure); }}
+                onCancelLoad={cancelBrowserAiLoad}
+                onInterrupt={interruptBrowserAi}
+              />
 
               {busy ? <div className="processing-bar" role="status"><span aria-hidden="true" /><strong>{activeTab} 처리 중</strong><small>선택한 파일의 구조와 근거를 확인하고 있습니다.</small></div> : null}
               {activeTab === "Extract" && operationResult ? (
@@ -673,16 +710,45 @@ export default function Home() {
 }
 
 /**
- * Model lifecycle for the browser AI layer. A missing WebGPU or a failed
+ * Model lifecycle for the browser AI layer. A missing adapter or a failed
  * download is a capability notice, never a workspace error: deterministic
- * Analyze/Compare/Check/Extract keep working underneath it.
+ * Analyze/Compare/Check/Extract keep working underneath it. The first download
+ * is opt-in, and a download and a running generation cancel differently.
  */
-function BrowserAiStatus({ state, capable, onCancel }: { state: BrowserAiState; capable: boolean; onCancel: () => void }) {
-  if (!capable || state.phase === "unsupported") {
+function BrowserAiStatus({ state, onConfirm, onCancelLoad, onInterrupt }: {
+  state: BrowserAiState;
+  onConfirm: () => void;
+  onCancelLoad: () => void;
+  onInterrupt: () => void;
+}) {
+  if (state.phase === "unsupported") {
     return (
       <div className="ai-status" role="status">
-        <strong>브라우저 AI를 사용할 수 없습니다.</strong>
-        <p>{BROWSER_AI_MESSAGES.NO_WEBGPU}</p>
+        <strong>브라우저 AI를 사용할 수 없습니다</strong>
+        <p>{BROWSER_AI_MESSAGES[state.code]}</p>
+      </div>
+    );
+  }
+  if (state.phase === "checking") {
+    return (
+      <div className="ai-status" role="status">
+        <strong>브라우저 AI 확인 중</strong>
+        <p>이 장치에서 AI를 실행할 수 있는지 확인하고 있습니다.</p>
+      </div>
+    );
+  }
+  if (state.phase === "awaiting-confirmation") {
+    return (
+      <div className="ai-status confirm" role="group" aria-label="브라우저 AI 준비">
+        <strong>브라우저 AI 준비</strong>
+        <p>
+          Ask와 Brief를 사용하려면 AI 모델을 이 브라우저에 한 번 다운로드해야 합니다.
+          약 {(BROWSER_AI_MODEL_MB / 1_000).toFixed(1)} GB · WebGPU 필요 · 문서는 외부로 전송되지 않습니다.
+        </p>
+        <div className="ai-status-actions">
+          <button type="button" className="ai-confirm" onClick={onConfirm}>AI 준비</button>
+          <button type="button" className="secondary-action" onClick={onCancelLoad}>취소</button>
+        </div>
       </div>
     );
   }
@@ -691,12 +757,15 @@ function BrowserAiStatus({ state, capable, onCancel }: { state: BrowserAiState; 
     return (
       <div className="ai-status loading" role="status" aria-live="polite">
         <strong>브라우저 AI 준비 중</strong>
-        <p>처음 사용할 때 AI 모델을 한 번 다운로드합니다. 그동안 Analyze·Compare·Check·Extract는 그대로 사용할 수 있습니다.</p>
+        <p>모델 다운로드 중에도 Analyze · Compare · Check · Extract는 계속 사용할 수 있습니다.</p>
         <span className="ai-progress">
           <progress max={100} value={percent} />
           모델 다운로드 {percent}%
         </span>
-        <button type="button" className="secondary-action" onClick={onCancel}>취소</button>
+        <div className="ai-status-actions">
+          <button type="button" className="secondary-action" onClick={onCancelLoad}>다운로드 취소</button>
+          <button type="button" className="secondary-action" onClick={onInterrupt}>생성 중지</button>
+        </div>
       </div>
     );
   }

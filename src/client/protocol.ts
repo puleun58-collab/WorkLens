@@ -1,5 +1,7 @@
+import type { AiAvailableResult, AiRequest } from "@/domain/ai";
 import type { ComparisonResult } from "@/domain/compare";
-import type { DocumentMetadata, FileKind, NormalizedDocument } from "@/domain/document";
+import type { DocumentMetadata, FileKind } from "@/domain/document";
+import type { EvidenceItem, ModelClaim } from "@/lib/ai/prompt";
 import type { AnalyzeResult, CheckResult, ExportFormat, ExtractResult } from "@/domain/operations";
 
 /** Everything the UI knows about a file. The bytes never leave the worker. */
@@ -23,6 +25,12 @@ export interface ExportedDocument {
   bytes: Uint8Array;
 }
 
+/**
+ * `evidence` ranks and bounds the prompt window inside the worker that already
+ * owns the documents, so only a compact handle/text payload crosses threads.
+ * `ground` takes the model's handle-level claims back and rebuilds canonical
+ * SourceRefs from the retained window.
+ */
 export type WorkerRequest =
   | { kind: "parse"; fileId: string; fileName: string; bytes: Uint8Array }
   | { kind: "analyze"; fileIds: string[] }
@@ -30,8 +38,17 @@ export type WorkerRequest =
   | { kind: "extract"; fileIds: string[] }
   | { kind: "compare"; baseFileId: string; targetFileId: string }
   | { kind: "export"; fileIds: string[]; format: ExportFormat }
-  | { kind: "documents"; fileIds: string[] }
+  | { kind: "evidence"; fileIds: string[]; request: AiRequest }
+  | { kind: "ground"; windowId: string; request: AiRequest; claims: ModelClaim[] }
+  | { kind: "release-evidence"; windowId: string }
   | { kind: "forget"; fileIds: string[] };
+
+export interface EvidencePayload {
+  windowId: string;
+  items: EvidenceItem[];
+  /** Candidates considered before ranking; surfaced for diagnostics only. */
+  candidates: number;
+}
 
 export interface WorkerResultMap {
   parse: WorkspaceFile;
@@ -40,7 +57,9 @@ export interface WorkerResultMap {
   extract: ExtractEntry[];
   compare: ComparisonResult;
   export: ExportedDocument;
-  documents: NormalizedDocument[];
+  evidence: EvidencePayload;
+  ground: AiAvailableResult;
+  "release-evidence": { released: number };
   forget: { released: number };
 }
 

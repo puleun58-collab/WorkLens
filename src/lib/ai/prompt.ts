@@ -1,4 +1,4 @@
-import type { AiRequest } from "@/domain/ai";
+import type { AiConfidence, AiRequest } from "@/domain/ai";
 import { AI_SCHEMA_ID, type AiEvidenceNode, type AiProviderClaim, type AiProviderCompletion } from "@/lib/ai/contract";
 
 /**
@@ -6,36 +6,44 @@ import { AI_SCHEMA_ID, type AiEvidenceNode, type AiProviderClaim, type AiProvide
  *
  * Two hard rules live here:
  *  1. The model never sees source locators, file ids or proposition tokens. It
- *     only sees short handles (`E1`, `E2`, …) that this module maps back to the
- *     canonical evidence before grounding runs.
- *  2. The context window is bounded by item count and characters, because a
- *     1.5B class model on WebGPU has a 4k token window.
+ *     only sees short handles (`E1`, `E2`, …); the handle table stays in the
+ *     document worker, which is also where claims are resolved back to
+ *     canonical evidence.
+ *  2. The prompt is bounded by item count and characters, because a 1.5B class
+ *     model on WebGPU has a 4k token window.
  */
 export const MAX_EVIDENCE_ITEMS = 40;
 export const MAX_EVIDENCE_CHARS = 5_000;
 export const MAX_EVIDENCE_ITEM_CHARS = 320;
 
-export interface EvidenceWindow {
-  items: Array<{ handle: string; node: AiEvidenceNode }>;
-  byHandle: Map<string, AiEvidenceNode>;
+/** The only evidence shape that crosses into the AI worker. */
+export interface EvidenceItem {
+  handle: string;
+  text: string;
 }
 
-/** Keeps the longest-signal evidence first, then bounds items and characters. */
+export interface EvidenceWindow {
+  items: EvidenceItem[];
+  /** Handle → canonical evidence. Never leaves the document worker. */
+  nodes: Map<string, AiEvidenceNode>;
+}
+
+/** Bounds an already ranked list; ranking happens in `@/lib/ai/retrieval`. */
 export function evidenceWindow(nodes: readonly AiEvidenceNode[]): EvidenceWindow {
-  const items: EvidenceWindow["items"] = [];
+  const items: EvidenceItem[] = [];
   const byHandle = new Map<string, AiEvidenceNode>();
   let characters = 0;
   for (const node of nodes) {
     if (items.length >= MAX_EVIDENCE_ITEMS) break;
-    const text = node.text.slice(0, MAX_EVIDENCE_ITEM_CHARS);
-    if (!text.trim()) continue;
+    const text = node.text.slice(0, MAX_EVIDENCE_ITEM_CHARS).replace(/\s+/gu, " ").trim();
+    if (!text) continue;
     if (characters + text.length > MAX_EVIDENCE_CHARS) break;
     const handle = `E${items.length + 1}`;
-    items.push({ handle, node });
+    items.push({ handle, text });
     byHandle.set(handle, node);
     characters += text.length;
   }
-  return { items, byHandle };
+  return { items, nodes: byHandle };
 }
 
 /** JSON schema handed to the runtime so the model can only emit claim objects. */
@@ -67,10 +75,11 @@ const SYSTEM_PROMPT = [
   'JSON만 출력하세요: {"claims":[{"text":"...","sources":["E1"],"confidence":"medium"}]}',
 ].join(" ");
 
-export function buildMessages(request: AiRequest, window: EvidenceWindow): Array<{ role: "system" | "user"; content: string }> {
-  const evidence = window.items
-    .map(({ handle, node }) => `${handle}: ${node.text.slice(0, MAX_EVIDENCE_ITEM_CHARS).replace(/\s+/gu, " ")}`)
-    .join("\n");
+export function buildMessages(
+  request: AiRequest,
+  items: readonly EvidenceItem[],
+): Array<{ role: "system" | "user"; content: string }> {
+  const evidence = items.map((item) => `${item.handle}: ${item.text}`).join("\n");
   return [
     { role: "system", content: SYSTEM_PROMPT },
     { role: "user", content: `${taskInstruction(request)}\n\n[근거]\n${evidence}` },
@@ -93,40 +102,54 @@ function taskInstruction(request: AiRequest): string {
 const MAX_CLAIMS = 8;
 const MAX_CLAIM_CHARS = 400;
 
-/**
- * Parses a model response into provider claims. Anything the model invents —
- * malformed JSON, unknown handles, empty text — is dropped here so grounding
- * only ever sees claims that still point at canonical evidence.
- */
-export function parseModelCompletion(raw: string, window: EvidenceWindow): AiProviderCompletion {
-  const payload = extractJson(raw);
-  const claims: AiProviderClaim[] = [];
-  if (payload && Array.isArray(payload.claims)) {
-    for (const candidate of payload.claims) {
-      if (claims.length >= MAX_CLAIMS) break;
-      const claim = toProviderClaim(candidate, window);
-      if (claim) claims.push(claim);
-    }
-  }
-  return { schemaId: AI_SCHEMA_ID, claims };
+/** Claim exactly as the model phrased it: text plus the handles it cited. */
+export interface ModelClaim {
+  text: string;
+  handles: string[];
+  confidence: AiConfidence;
 }
 
-function toProviderClaim(candidate: unknown, window: EvidenceWindow): AiProviderClaim | undefined {
-  if (typeof candidate !== "object" || candidate === null) return undefined;
-  const record = candidate as { text?: unknown; sources?: unknown; confidence?: unknown };
-  const text = typeof record.text === "string" ? record.text.trim().slice(0, MAX_CLAIM_CHARS) : "";
-  if (!text) return undefined;
-  const handles = Array.isArray(record.sources) ? record.sources : [];
-  const sourceTokens: string[] = [];
-  for (const handle of handles) {
-    if (typeof handle !== "string") continue;
-    const node = window.byHandle.get(handle.trim().toUpperCase());
-    if (!node || sourceTokens.includes(node.propositionToken)) continue;
-    sourceTokens.push(node.propositionToken);
+/**
+ * Parses a model response into handle-level claims. Malformed JSON, empty text
+ * and missing citations are dropped here, before anything touches evidence.
+ */
+export function parseModelClaims(raw: string): ModelClaim[] {
+  const payload = extractJson(raw);
+  const claims: ModelClaim[] = [];
+  if (!payload || !Array.isArray(payload.claims)) return claims;
+  for (const candidate of payload.claims) {
+    if (claims.length >= MAX_CLAIMS) break;
+    if (typeof candidate !== "object" || candidate === null) continue;
+    const record = candidate as { text?: unknown; sources?: unknown; confidence?: unknown };
+    const text = typeof record.text === "string" ? record.text.trim().slice(0, MAX_CLAIM_CHARS) : "";
+    if (!text) continue;
+    const handles = (Array.isArray(record.sources) ? record.sources : [])
+      .filter((handle): handle is string => typeof handle === "string")
+      .map((handle) => handle.trim().toUpperCase());
+    if (handles.length === 0) continue;
+    const confidence = record.confidence === "high" || record.confidence === "medium" ? record.confidence : "low";
+    claims.push({ text, handles, confidence });
   }
-  if (sourceTokens.length === 0) return undefined;
-  const confidence = record.confidence === "high" || record.confidence === "medium" ? record.confidence : "low";
-  return { type: "inference", text, sourceTokens, confidence };
+  return claims;
+}
+
+/**
+ * Maps model handles back onto canonical evidence tokens. Unknown handles are
+ * dropped so grounding only ever sees claims that still point at real evidence.
+ */
+export function resolveClaims(window: EvidenceWindow, claims: readonly ModelClaim[]): AiProviderCompletion {
+  const resolved: AiProviderClaim[] = [];
+  for (const claim of claims) {
+    const sourceTokens: string[] = [];
+    for (const handle of claim.handles) {
+      const node = window.nodes.get(handle);
+      if (!node || sourceTokens.includes(node.propositionToken)) continue;
+      sourceTokens.push(node.propositionToken);
+    }
+    if (sourceTokens.length === 0) continue;
+    resolved.push({ type: "inference", text: claim.text, sourceTokens, confidence: claim.confidence });
+  }
+  return { schemaId: AI_SCHEMA_ID, claims: resolved };
 }
 
 function extractJson(raw: string): { claims?: unknown } | undefined {

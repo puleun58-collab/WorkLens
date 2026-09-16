@@ -1,10 +1,9 @@
-import type { AiAvailableResult } from "@/domain/ai";
-import type { NormalizedDocument } from "@/domain/document";
+import type { AiRequest } from "@/domain/ai";
+import type { EvidenceItem, ModelClaim } from "@/lib/ai/prompt";
 import {
   BROWSER_AI_MESSAGES,
   type BrowserAiErrorCode,
   type BrowserAiState,
-  type BrowserAiTask,
   type BrowserAiWorkerEvent,
 } from "./browser-ai-protocol";
 
@@ -15,22 +14,17 @@ export interface BrowserAiFailure {
 
 type Pending = {
   id: string;
-  resolve: (result: AiAvailableResult) => void;
+  /** `load` settles on ready; `generate` settles on claims. */
+  kind: "load" | "generate";
+  resolve: (claims: ModelClaim[]) => void;
   reject: (failure: BrowserAiFailure) => void;
 };
 
 let worker: Worker | undefined;
 let pending: Pending | undefined;
+let confirmed = false;
 let state: BrowserAiState = { phase: "idle" };
 const listeners = new Set<(next: BrowserAiState) => void>();
-
-/**
- * WebGPU is the hard requirement for in-browser inference. Everything
- * deterministic keeps working without it, so callers only disable AI actions.
- */
-export function browserAiSupported(): boolean {
-  return typeof navigator !== "undefined" && Boolean((navigator as Navigator & { gpu?: unknown }).gpu);
-}
 
 export function browserAiState(): BrowserAiState {
   return state;
@@ -49,10 +43,49 @@ function publish(next: BrowserAiState): void {
   for (const listener of listeners) listener(next);
 }
 
-function settleWithFailure(code: BrowserAiErrorCode, message?: string): void {
+function settle(code: BrowserAiErrorCode, message?: string): void {
   const entry = pending;
   pending = undefined;
   entry?.reject({ code, message: message || BROWSER_AI_MESSAGES[code] });
+}
+
+/**
+ * WebGPU presence is not enough: a device can expose `navigator.gpu` and still
+ * fail to hand out an adapter, which is the difference between "unsupported"
+ * and "model failed" in the UI.
+ */
+export async function probeBrowserAi(): Promise<BrowserAiState> {
+  if (state.phase === "ready" || state.phase === "loading") return state;
+  const gpu = typeof navigator === "undefined"
+    ? undefined
+    : (navigator as Navigator & { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
+  if (!gpu) {
+    publish({ phase: "unsupported", code: "NO_WEBGPU" });
+    return state;
+  }
+  publish({ phase: "checking" });
+  try {
+    const adapter = await gpu.requestAdapter();
+    if (!adapter) {
+      publish({ phase: "unsupported", code: "ADAPTER_FAILED" });
+      return state;
+    }
+  } catch {
+    publish({ phase: "unsupported", code: "ADAPTER_FAILED" });
+    return state;
+  }
+  publish(confirmed ? { phase: "idle" } : { phase: "awaiting-confirmation" });
+  return state;
+}
+
+/** The user accepted the one-time model download. */
+export function confirmBrowserAi(): void {
+  confirmed = true;
+  if (state.phase === "awaiting-confirmation") publish({ phase: "idle" });
+}
+
+export function browserAiConfirmed(): boolean {
+  return confirmed;
 }
 
 function ensureWorker(): Worker {
@@ -60,37 +93,43 @@ function ensureWorker(): Worker {
   const created = new Worker(new URL("./browser-ai-worker.ts", import.meta.url), { type: "module" });
   created.addEventListener("message", (event: MessageEvent<BrowserAiWorkerEvent>) => {
     const message = event.data;
-    if (pending && message.id !== pending.id && message.kind !== "progress") return;
+    if (message.kind === "progress") {
+      if (pending) publish({ phase: "loading", progress: message.progress, text: message.text });
+      return;
+    }
+    if (!pending || pending.id !== message.id) return;
     switch (message.kind) {
-      case "progress":
-        publish({ phase: "loading", progress: message.progress, text: message.text });
-        return;
-      case "ready":
+      case "ready": {
+        const entry = pending;
         publish({ phase: "ready" });
+        if (entry.kind === "load") {
+          pending = undefined;
+          entry.resolve([]);
+        }
         return;
-      case "result": {
+      }
+      case "claims": {
         const entry = pending;
         pending = undefined;
         publish({ phase: "ready" });
-        entry?.resolve(message.result);
+        entry.resolve(message.claims);
         return;
       }
-      case "error":
-        // A late failure for a request the user already cancelled must not
-        // resurface as a model error.
-        if (!pending) {
-          if (state.phase === "loading") publish({ phase: "idle" });
-          return;
+      case "error": {
+        if (message.code === "MODEL_DOWNLOAD_FAILED" || message.code === "MODEL_LOAD_FAILED"
+          || message.code === "ADAPTER_FAILED" || message.code === "OUT_OF_MEMORY") {
+          publish({ phase: "failed", code: message.code, message: BROWSER_AI_MESSAGES[message.code], detail: message.message });
+        } else if (state.phase === "loading") {
+          publish({ phase: "ready" });
         }
-        if (message.code === "LOAD_FAILED") publish({ phase: "failed", message: BROWSER_AI_MESSAGES.LOAD_FAILED, detail: message.message });
-        else if (state.phase === "loading") publish({ phase: "ready" });
-        settleWithFailure(message.code, message.message);
+        settle(message.code, BROWSER_AI_MESSAGES[message.code]);
         return;
+      }
     }
   });
   created.addEventListener("error", () => {
-    settleWithFailure("WORKER_FAILED");
-    publish({ phase: "failed", message: BROWSER_AI_MESSAGES.WORKER_FAILED });
+    settle("WORKER_FAILED");
+    publish({ phase: "failed", code: "WORKER_FAILED", message: BROWSER_AI_MESSAGES.WORKER_FAILED });
     created.terminate();
     worker = undefined;
   });
@@ -98,40 +137,55 @@ function ensureWorker(): Worker {
   return created;
 }
 
-/**
- * Lazy by contract: the model is downloaded on the first AI request, never on
- * page load, and only one request runs at a time so the tab keeps one model in
- * memory alongside the document worker.
- */
-export function runBrowserAi(task: BrowserAiTask, documents: NormalizedDocument[]): Promise<AiAvailableResult> {
-  if (!browserAiSupported()) {
-    publish({ phase: "unsupported" });
-    return Promise.reject<AiAvailableResult>({ code: "NO_WEBGPU", message: BROWSER_AI_MESSAGES.NO_WEBGPU } satisfies BrowserAiFailure);
-  }
+function send(kind: "load" | "generate", payload?: { request: AiRequest; items: EvidenceItem[] }): Promise<ModelClaim[]> {
   if (pending) {
-    return Promise.reject<AiAvailableResult>({ code: "BUSY", message: BROWSER_AI_MESSAGES.BUSY } satisfies BrowserAiFailure);
+    return Promise.reject<ModelClaim[]>({ code: "BUSY", message: BROWSER_AI_MESSAGES.BUSY } satisfies BrowserAiFailure);
   }
   const id = crypto.randomUUID();
   const target = ensureWorker();
   if (state.phase !== "ready") publish({ phase: "loading", progress: 0, text: "브라우저 AI를 준비하는 중" });
-  return new Promise<AiAvailableResult>((resolve, reject) => {
-    pending = { id, resolve, reject };
-    target.postMessage({ id, kind: "run", task, documents });
+  return new Promise<ModelClaim[]>((resolve, reject) => {
+    pending = { id, kind, resolve, reject };
+    target.postMessage(payload ? { id, kind, ...payload } : { id, kind });
   });
 }
 
-/** Settles the caller immediately so the UI never waits on a stopped model. */
-export function cancelBrowserAi(): void {
-  if (!worker || !pending) return;
-  worker.postMessage({ id: pending.id, kind: "cancel" });
-  settleWithFailure("CANCELLED");
-  if (state.phase === "loading") publish({ phase: "idle" });
+/** Downloads and initializes the model without running a task. */
+export async function loadBrowserAi(): Promise<void> {
+  await send("load");
+}
+
+/**
+ * Runs one task. Lazy by contract: the model is only fetched on the first AI
+ * request, never on page load, and one request runs at a time.
+ */
+export function generateBrowserAi(request: AiRequest, items: EvidenceItem[]): Promise<ModelClaim[]> {
+  return send("generate", { request, items });
+}
+
+/** Stops generation in place; the loaded model stays in memory. */
+export function interruptBrowserAi(): void {
+  if (!worker || !pending || pending.kind !== "generate") return;
+  worker.postMessage({ id: pending.id, kind: "interrupt" });
+  settle("CANCELLED");
+}
+
+/**
+ * Cancels a download. WebLLM has no abort for an in-flight load, so the worker
+ * is terminated and recreated on the next request.
+ */
+export function cancelBrowserAiLoad(): void {
+  settle("CANCELLED");
+  worker?.terminate();
+  worker = undefined;
+  publish({ phase: "idle" });
 }
 
 /** Releases the model and every in-flight request, mirroring 모두 삭제. */
 export function disposeBrowserAi(): void {
-  settleWithFailure("CANCELLED");
+  settle("CANCELLED");
   worker?.terminate();
   worker = undefined;
+  confirmed = false;
   publish({ phase: "idle" });
 }
