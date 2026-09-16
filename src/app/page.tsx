@@ -119,16 +119,13 @@ const tabMeta: Record<Tab, { label: string; description: string }> = {
   Extract: { label: "Extract", description: "데이터 추출" },
   Brief: { label: "Brief", description: "업무 요약" },
 };
-/** The run action is named after the work, not after the destination. */
-const RUN_LABELS: Record<Tab, string> = {
-  Analyze: "Analyze 실행",
-  Ask: "Ask 실행",
-  Compare: "Compare 실행",
-  Check: "Check 실행",
-  Polish: "윤문 실행",
-  Extract: "추출 실행",
-  Brief: "Brief 실행",
-};
+/*
+ * One label for the primary action in every feature. The visible word is
+ * always 실행 — the destination already says what runs — and the accessible
+ * name keeps the feature so a screen reader is not left with seven identical
+ * buttons.
+ */
+const RUN_LABEL = "실행";
 const categoryLabels: Record<ComparisonItem["category"], string> = {
   Added: "추가",
   Removed: "삭제",
@@ -1030,7 +1027,7 @@ export default function Home() {
                 ) : null}
                 <div className="operation-actions">
                   {(activeTab === "Analyze" || activeTab === "Compare" || activeTab === "Check") ? <button type="button" className="secondary-action" onClick={runAiAssist} disabled={busy || selected.length === 0}>{activeTab === "Check" ? "브라우저 AI 문장 검수" : "브라우저 AI 보조"}</button> : null}
-                  <button type="button" onClick={runActive} disabled={actionDisabled}>{busy ? "처리 중…" : RUN_LABELS[activeTab]}</button>
+                  <button type="button" onClick={runActive} disabled={actionDisabled} aria-label={`${activeTab} ${RUN_LABEL}`}>{busy ? "처리 중…" : RUN_LABEL}</button>
                 </div>
               </section>
 
