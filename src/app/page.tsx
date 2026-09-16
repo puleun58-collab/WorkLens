@@ -32,7 +32,6 @@ import {
 import {
   BROWSER_AI_MAX_FILES,
   BROWSER_AI_MESSAGES,
-  BROWSER_AI_MODEL_LABEL,
   BROWSER_AI_MODEL_MB,
   type BrowserAiState,
 } from "@/client/browser-ai-protocol";
@@ -172,6 +171,9 @@ export default function Home() {
   // the store instead of mirrored into React state inside an effect.
   const aiState = useSyncExternalStore(subscribeBrowserAi, browserAiState, serverAiState);
   const aiUnsupported = aiState.phase === "unsupported";
+  // Analyze, Compare and Check are deterministic by default: their AI layer,
+  // and therefore its status box, only appears once the user asks for it.
+  const [aiAssistRequested, setAiAssistRequested] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const uploadQueue = useRef<Promise<void>>(Promise.resolve());
   const detailTrigger = useRef<HTMLElement | null>(null);
@@ -428,7 +430,9 @@ export default function Home() {
     }
   };
 
-  const runAiAssist = () => {
+  const runAiAssist = async () => {
+    setAiAssistRequested(true);
+    await probeBrowserAi();
     if (activeTab === "Analyze") return runBrowserTask({ operation: "analyze" }, "브라우저 AI 분석 결과를 준비했습니다.");
     if (activeTab === "Check") return runSemanticCheck();
     return runBrowserTask(
@@ -472,6 +476,13 @@ export default function Home() {
   const companyTermNames = companyTerms.filter((entry) => entry.active).map((entry) => entry.term);
   const isUtilityView = shellView === "Dictionary" || shellView === "Settings";
   const selectedNames = files.filter((file) => selected.includes(file.id)).map((file) => file.name).join(", ");
+  // Ask and Brief are AI features, so they own the preparation flow. Extract
+  // never uses the model, and the other tabs only show it on request. A ready
+  // model needs no box at all: the action buttons already say so.
+  const aiStatusVisible = activeTab !== "Extract"
+    && (aiTab || aiAssistRequested)
+    && aiState.phase !== "ready"
+    && aiState.phase !== "idle";
 
   return (
     <div className="app-shell">
@@ -495,6 +506,7 @@ export default function Home() {
                   onClick={() => {
                     setShellView(tab);
                     setActiveTab(tab);
+                    setAiAssistRequested(false);
                     clearResults();
                   }}
                 >
@@ -663,17 +675,20 @@ export default function Home() {
                   </label>
                 ) : null}
                 <div className="operation-actions">
-                  {(activeTab === "Analyze" || activeTab === "Compare" || activeTab === "Check") ? <button type="button" className="secondary-action" onClick={runAiAssist} disabled={busy || selected.length === 0 || aiUnsupported}>{activeTab === "Check" ? "브라우저 AI 문장 검수" : "브라우저 AI 보조"}</button> : null}
+                  {(activeTab === "Analyze" || activeTab === "Compare" || activeTab === "Check") ? <button type="button" className="secondary-action" onClick={runAiAssist} disabled={busy || selected.length === 0}>{activeTab === "Check" ? "브라우저 AI 문장 검수" : "브라우저 AI 보조"}</button> : null}
                   <button type="button" onClick={runActive} disabled={actionDisabled}>{busy ? "처리 중…" : `${activeTab} 실행`}</button>
                 </div>
               </section>
 
-              <BrowserAiStatus
-                state={aiState}
-                onConfirm={() => { confirmBrowserAi(); void loadBrowserAi().catch(reportAiFailure); }}
-                onCancelLoad={cancelBrowserAiLoad}
-                onInterrupt={interruptBrowserAi}
-              />
+              {aiStatusVisible ? (
+                <BrowserAiStatus
+                  state={aiState}
+                  context={aiTab ? "primary" : activeTab}
+                  onConfirm={() => { confirmBrowserAi(); void loadBrowserAi().catch(reportAiFailure); }}
+                  onCancelLoad={() => { cancelBrowserAiLoad(); setAiAssistRequested(false); }}
+                  onInterrupt={interruptBrowserAi}
+                />
+              ) : null}
 
               {busy ? <div className="processing-bar" role="status"><span aria-hidden="true" /><strong>{activeTab} 처리 중</strong><small>선택한 파일의 구조와 근거를 확인하고 있습니다.</small></div> : null}
               {activeTab === "Extract" && operationResult ? (
@@ -715,12 +730,19 @@ export default function Home() {
  * Analyze/Compare/Check/Extract keep working underneath it. The first download
  * is opt-in, and a download and a running generation cancel differently.
  */
-function BrowserAiStatus({ state, onConfirm, onCancelLoad, onInterrupt }: {
+function BrowserAiStatus({ state, context, onConfirm, onCancelLoad, onInterrupt }: {
   state: BrowserAiState;
+  /** Which feature asked for the model; only the copy changes. */
+  context: "primary" | "Analyze" | "Compare" | "Check" | Tab;
   onConfirm: () => void;
   onCancelLoad: () => void;
   onInterrupt: () => void;
 }) {
+  const purpose = context === "Check"
+    ? "브라우저 AI 문장 검수를"
+    : context === "primary"
+      ? "Ask와 Brief를"
+      : "브라우저 AI 보조를";
   if (state.phase === "unsupported") {
     return (
       <div className="ai-status" role="status">
@@ -742,7 +764,7 @@ function BrowserAiStatus({ state, onConfirm, onCancelLoad, onInterrupt }: {
       <div className="ai-status confirm" role="group" aria-label="브라우저 AI 준비">
         <strong>브라우저 AI 준비</strong>
         <p>
-          Ask와 Brief를 사용하려면 AI 모델을 이 브라우저에 한 번 다운로드해야 합니다.
+          {purpose} 사용하려면 AI 모델을 이 브라우저에 한 번 준비해야 합니다.
           약 {(BROWSER_AI_MODEL_MB / 1_000).toFixed(1)} GB · WebGPU 필요 · 문서는 외부로 전송되지 않습니다.
         </p>
         <div className="ai-status-actions">
@@ -770,12 +792,8 @@ function BrowserAiStatus({ state, onConfirm, onCancelLoad, onInterrupt }: {
     );
   }
   if (state.phase === "ready") {
-    return (
-      <div className="ai-status ready" role="status">
-        <strong>브라우저 AI 준비 완료</strong>
-        <p>{BROWSER_AI_MODEL_LABEL} 모델이 이 브라우저에 있습니다.</p>
-      </div>
-    );
+    // A prepared model needs no panel; the action buttons carry the state.
+    return null;
   }
   if (state.phase === "failed") {
     return (

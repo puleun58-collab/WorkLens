@@ -192,6 +192,45 @@ test("runs deterministic Analyze, Check, Extract/export and degrades browser AI 
   await expect(page.getByText("구조 및 수치 분석을 완료했습니다.")).toBeVisible();
 });
 
+test("shows the browser AI panel only where the feature asks for it", async ({ page }) => {
+  await withoutWebGpu(page);
+  await page.goto("/");
+  await upload(page, files.v1);
+  await upload(page, files.v2);
+  await page.getByLabel("운임현황_v1.xlsx 선택").check();
+
+  // Deterministic destinations stay silent until the user requests the AI layer.
+  for (const tab of ["Analyze", "Compare", "Check", "Extract"] as const) {
+    await page.getByRole("button", { name: tab, exact: true }).click();
+    await expect(page.locator(".ai-status")).toHaveCount(0);
+  }
+
+  // Ask and Brief own the preparation flow, so entering them reports capability.
+  await page.getByRole("button", { name: "Ask", exact: true }).click();
+  await expect(page.locator(".ai-status")).toContainText("브라우저 AI를 사용할 수 없습니다");
+  await page.getByRole("button", { name: "Brief", exact: true }).click();
+  await expect(page.locator(".ai-status")).toHaveCount(1);
+
+  // Requesting the optional layer surfaces the same panel, and only then.
+  await page.getByRole("button", { name: "Analyze", exact: true }).click();
+  await expect(page.locator(".ai-status")).toHaveCount(0);
+  await page.getByRole("button", { name: "브라우저 AI 보조" }).click();
+  await expect(page.locator(".ai-status")).toHaveCount(1);
+  await expect(page.locator(".notice.error")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Check", exact: true }).click();
+  await expect(page.locator(".ai-status")).toHaveCount(0);
+  await page.getByRole("button", { name: "브라우저 AI 문장 검수" }).click();
+  await expect(page.locator(".ai-status")).toHaveCount(1);
+
+  // Extract never mentions the model, even after another tab requested it.
+  await page.getByRole("button", { name: "Extract", exact: true }).click();
+  await expect(page.locator(".ai-status")).toHaveCount(0);
+  await page.getByRole("button", { name: "Extract 실행" }).click();
+  await expect(page.getByText("구조화 추출을 완료했습니다.")).toBeVisible();
+  await expect(page.locator(".ai-status")).toHaveCount(0);
+});
+
 test("reviews PPTX writing, consistency and data findings with filters and exact slide evidence", async ({ page }) => {
   await page.goto("/");
   await upload(page, files.checkPptx);

@@ -5269,3 +5269,43 @@ body {
   color: var(--muted);
   font-size: var(--font-size-sm);
 }
+
+/* ── Interaction states: the same feedback everywhere, nothing decorative ──
+ * Keyboard focus has to be visible on both surfaces (navy rail, light
+ * workspace), hover is a one-step tint, and disabled reads as unavailable
+ * rather than faded away.
+ */
+.rail-item:focus-visible,
+.rail .worklens-logo:focus-visible {
+  outline: 2px solid #8ab5d8;
+  outline-offset: -2px;
+}
+
+.data-row {
+  transition: background var(--motion-fast) var(--motion-ease);
+}
+
+.data-row:hover {
+  background: #fafbfd;
+}
+
+.source-link:focus-visible,
+.source-actions button:focus-visible {
+  outline-offset: 1px;
+}
+
+/* A row being read keeps its own quiet highlight while a control inside it
+ * holds focus, so keyboard users never lose their place in a long table. */
+.check-issue:focus-within,
+.file-row:focus-within {
+  background: #fbfdff;
+}
+
+button:disabled,
+input:disabled {
+  opacity: 0.55;
+}
+
+.operation-actions button:disabled {
+  box-shadow: none;
+}
