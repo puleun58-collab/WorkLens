@@ -13,9 +13,13 @@ export const POLISH_MODES: readonly PolishMode[] = ["default", "concise", "busin
 export interface PolishCandidate {
   id: string;
   text: string;
-  source: SourceRef;
+  /**
+   * Absent for pasted text: that entry point has no document, and a
+   * fabricated locator would be worse than none.
+   */
+  source?: SourceRef;
   /** Where the prose came from, used for the accessible action label. */
-  origin: "paragraph" | "cell" | "claim" | "recommendation" | "suggestion";
+  origin: "paragraph" | "cell" | "claim" | "recommendation" | "suggestion" | "pasted";
 }
 
 /** What the model answered, before any of it is trusted. */
@@ -55,6 +59,18 @@ export interface PolishSummary {
 
 export interface PolishResult {
   mode: PolishMode;
+  outcomes: PolishOutcome[];
+  summary: PolishSummary;
+}
+
+/**
+ * A pasted-text run. Same outcomes as a file run; the assembled text exists
+ * because the user pastes one block and expects one block back.
+ */
+export interface PolishTextResult {
+  mode: PolishMode;
+  originalText: string;
+  revisedText: string;
   outcomes: PolishOutcome[];
   summary: PolishSummary;
 }

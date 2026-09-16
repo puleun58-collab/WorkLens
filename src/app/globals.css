@@ -2091,14 +2091,14 @@ input:disabled,
 }
 
 /*
- * One source presentation for every feature: locator first, action second.
- * The file name is not part of this block; a result already sits under it.
+ * Two lines, always: the locator summary, then the one action that opens the
+ * inspector. A row answers "where", never "list them all".
  */
 .result-source {
   display: inline-flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 2px 8px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
   min-width: 0;
   max-width: 100%;
 }
@@ -2122,7 +2122,7 @@ input:disabled,
 
 .source-action {
   max-width: 100%;
-  padding: 2px 4px;
+  padding: 2px 4px 2px 0;
   border: 0;
   border-bottom: 1px solid #7fb0da;
   border-radius: 0;
@@ -2144,11 +2144,6 @@ input:disabled,
   background: var(--blue-pale);
 }
 
-.result-source.multi {
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-}
 
 .source-count,
 .source-empty {
@@ -2362,11 +2357,15 @@ input:disabled,
   padding-block: 10px 8px;
 }
 
-/* The evidence column is ruled off in both rows, so the rule is one line. */
+/*
+ * The evidence column is ruled off in both rows, so the rule is one line. The
+ * inset past the rule is one shared value: the locator never sits against the
+ * vertical line, and no row carries its own margin to fake the gap.
+ */
 .check-table-head > span:nth-child(4),
 .check-source {
   margin-inline-start: calc(var(--check-column-gap) * -1);
-  padding-inline-start: var(--check-column-gap);
+  padding-inline-start: calc(var(--check-column-gap) + var(--source-cell-inset));
   border-inline-start: 1px solid var(--line-soft);
 }
 
@@ -2839,6 +2838,87 @@ input:disabled,
   font-size: var(--font-size-sm);
 }
 
+/*
+ * The two entry points sit above the modes: choosing between a file and
+ * pasted text is the first decision, the mode the second.
+ */
+.polish-controls {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.polish-input-modes {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+}
+
+.polish-input-modes legend {
+  float: left;
+  width: 78px;
+  padding: 2px 10px 0 0;
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+}
+
+.polish-input-modes label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--ink-soft);
+  font-size: var(--font-size-sm);
+}
+
+.polish-paste {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.polish-paste > span {
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+}
+
+.polish-paste textarea {
+  width: 100%;
+  min-height: 148px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--paper);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.polish-paste textarea:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.polish-paste small {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  text-align: right;
+}
+
+.polish-paste small[data-over="true"] {
+  color: var(--critical);
+  font-weight: var(--font-weight-semibold);
+}
+
 .polish-row {
   padding: 14px 18px;
   border-bottom: 1px solid var(--line-soft);
@@ -2950,6 +3030,19 @@ input:disabled,
   color: var(--muted);
   font-size: var(--font-size-xs);
   font-style: normal;
+}
+
+/* A pasted block keeps its own line breaks and list markers on the way back. */
+.polish-text p.polish-block {
+  white-space: pre-wrap;
+}
+
+.polish-reasons {
+  margin: 0 0 6px;
+  padding-left: 16px;
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+  line-height: 1.55;
 }
 
 .claim-row > p {
@@ -3155,9 +3248,14 @@ input:disabled,
   outline-offset: 2px;
 }
 
+/*
+ * One content inset for the whole inspector: header, evidence label, every
+ * evidence block, its quote and its meta line all start on the same vertical
+ * line, a clear step in from the panel edge.
+ */
 .source-detail header {
   min-height: 58px;
-  padding: 11px 12px 9px;
+  padding: 12px var(--inspector-inset) 10px;
   border-bottom: 1px solid #c5d9e9;
   display: flex;
   align-items: flex-start;
@@ -3196,7 +3294,7 @@ input:disabled,
 }
 
 .evidence-type {
-  padding: 9px 12px 0;
+  padding: 10px var(--inspector-inset) 0;
   display: flex;
   align-items: center;
   gap: 9px;
@@ -3215,9 +3313,27 @@ input:disabled,
   font-size: var(--font-size-xs);
 }
 
+/* Evidence blocks: numbered header, then the quote, then the weakest meta. */
+.evidence-entry {
+  padding-top: 4px;
+}
+
+.evidence-entry + .evidence-entry {
+  margin-top: 4px;
+  border-top: 1px solid #d7e5f1;
+}
+
+.evidence-entry h3 {
+  margin: 10px var(--inspector-inset) 0;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+}
+
 .source-detail blockquote {
-  margin: 8px 12px 12px;
-  padding: 10px 12px;
+  margin: 8px var(--inspector-inset) 10px;
+  padding: 10px 14px;
   border: 0;
   border-left: 2px solid #8ab5d8;
   background: var(--paper);
@@ -3229,13 +3345,28 @@ input:disabled,
 
 .source-detail dl {
   margin: 0;
-  padding: 0 12px 12px;
+  padding: 0 var(--inspector-inset) 12px;
   display: flex;
-  gap: 24px;
+  flex-wrap: wrap;
+  gap: 4px 22px;
+}
+
+.source-detail dl > div {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.source-detail dt {
+  color: var(--muted-light);
+  font-size: var(--font-size-xs);
 }
 
 .source-detail dd {
-  font-size: 12px;
+  margin: 0;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
 }
 
 .result-object {
@@ -3447,9 +3578,13 @@ body {
   /* Check table column system: shared by the header row and every body row. */
   --check-row-inset: 18px;
   --check-column-gap: 12px;
+  /* Space between the evidence column rule and its content. */
+  --source-cell-inset: 10px;
   /* One label→control gap for every Check filter group. */
   --check-filter-label-gap: 10px;
   --border-subtle: #edf0f3;
+  /* Content inset shared by every block inside the evidence inspector. */
+  --inspector-inset: 18px;
   --border-default: var(--line-soft);
   --border-strong: var(--line);
 }
@@ -5291,6 +5426,18 @@ body {
  * one-line description never wraps and the bar keeps its single-row height. */
 .operation-bar:not(:has(.question-field)) {
   grid-template-columns: minmax(0, 1fr) auto;
+}
+
+/* The paste area is the input, so it takes the whole bar instead of sharing a
+ * row with the description and leaving a dead column beside it. */
+.operation-bar:has(.polish-paste) {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+  gap: 12px;
+}
+
+.operation-bar:has(.polish-paste) .operation-actions {
+  justify-content: flex-start;
 }
 
 @media (max-width: 700px) {

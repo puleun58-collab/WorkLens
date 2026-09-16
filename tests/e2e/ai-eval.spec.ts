@@ -2,6 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 import { createCheckPptx, createXlsx, RATE_SHEET_V1 } from "../fixtures";
+import { POLISH_TEXT_CASES } from "../eval/cases";
 
 /**
  * Browser-AI quality evaluation.
@@ -230,6 +231,40 @@ test("scores Ask, Brief and semantic check against a fixed case set", async ({ p
     });
     // Every rewrite keeps its locator, and refusals are reported, not hidden.
     expect(rejected + rewrites + unchanged).toBeGreaterThan(0);
+  }
+
+  /**
+   * Pasted-text polish. Same engine, no document: scored on protected tokens,
+   * on the line structure the user pasted, and on leaving an already-natural
+   * sentence alone.
+   */
+  await page.getByRole("radio", { name: "텍스트 윤문" }).check();
+  for (const polishCase of POLISH_TEXT_CASES) {
+    const started = Date.now();
+    await page.getByRole("radio", { name: "기본 윤문" }).check();
+    await page.getByLabel("윤문할 텍스트 입력").fill(polishCase.text);
+    await page.getByRole("button", { name: "Polish 실행" }).click();
+    await expect(page.locator(".polish-text-run")).toBeVisible({ timeout: 20 * 60_000 });
+    await expect(page.locator(".check-summary-line")).toContainText("변경 제안", { timeout: 20 * 60_000 });
+    const blocks = await page.locator(".polish-text-run .polish-block").allInnerTexts();
+    const [original = "", revised = ""] = blocks;
+    const missing = polishCase.keep.filter((token) => !revised.includes(token));
+    const structureKept = original.split("\n").length === revised.split("\n").length;
+    const changedUnnecessarily = polishCase.expectUnchanged === true && revised.trim() !== polishCase.text.trim();
+    results.push({
+      id: polishCase.id,
+      operation: "polish-text",
+      pass: missing.length === 0 && structureKept && !changedUnnecessarily,
+      abstained: revised.trim() === polishCase.text.trim(),
+      expected: polishCase.keep.length ? polishCase.keep : ["structure preserved"],
+      answer: revised.slice(0, 400),
+      citedSources: [],
+      claims: 1,
+      fabricated: missing,
+      latencyMs: Date.now() - started,
+    });
+    // A pasted run never invents a document location.
+    await expect(page.locator(".polish-text-run .source-locator")).toHaveCount(0);
   }
 
   const summary = {

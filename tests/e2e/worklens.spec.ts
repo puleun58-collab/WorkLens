@@ -108,7 +108,8 @@ test("renders distinguishable evidence for two files sharing an identical cell l
     expect(text).not.toContain(".xlsx");
   }
 
-  // The inspector is where the full set lives, and it names file and version.
+  // The inspector is where the full set lives, and it names the file. The
+  // document version stays internal, so no hash reaches the screen.
   const inspectorLabels: string[] = [];
   for (const index of [0, 1]) {
     await sections.nth(index).locator(".source-action").first().click();
@@ -123,11 +124,11 @@ test("renders distinguishable evidence for two files sharing an identical cell l
   }
   expect(inspectorLabels[0]).toContain("운임현황_v1.xlsx");
   expect(inspectorLabels[1]).toContain("운임현황_v1_사본.xlsx");
-  expect(inspectorLabels.every((label) => label.includes("버전 "))).toBe(true);
+  expect(inspectorLabels.every((label) => label.includes("버전"))).toBe(false);
   expect(new Set(inspectorLabels).size).toBe(2);
 });
 
-test("distinguishes same-named uploaded revisions by document version", async ({ page }) => {
+test("distinguishes same-named uploaded revisions in the evidence inspector", async ({ page }) => {
   await page.goto("/");
   const first = await createXlsx(RATE_SHEET_V1);
   const second = await createXlsx(RATE_SHEET_V2);
@@ -146,7 +147,8 @@ test("distinguishes same-named uploaded revisions by document version", async ({
   await expect(row).toBeVisible();
 
   // The row stays locator-first and summarises both revisions; 기준/현재 tells
-  // them apart, and the document version lives in the evidence inspector.
+  // them apart in the row, and the inspector names each file separately —
+  // upload order, not a version hash, is what the user reads.
   const summary = await row.locator(".source-locator").innerText();
   expect(summary).toContain("기준");
   expect(summary).toContain("외 1곳");
@@ -155,12 +157,11 @@ test("distinguishes same-named uploaded revisions by document version", async ({
   const detail = page.getByLabel("Source detail");
   await expect(detail).toBeVisible();
   const headings = await detail.locator(".evidence-entry h3").allInnerTexts();
-  const versions = headings
-    .map((heading) => /버전 ([a-f0-9]{8})/.exec(heading)?.[1])
-    .filter((version): version is string => Boolean(version));
   expect(headings.some((heading) => heading.includes("기준"))).toBe(true);
   expect(headings.some((heading) => heading.includes("현재"))).toBe(true);
-  expect(new Set(versions).size).toBeGreaterThanOrEqual(2);
+  expect(headings.some((heading) => heading.includes("동일이름.xlsx (2)"))).toBe(true);
+  expect(headings.every((heading) => !/[a-f0-9]{8}/.test(heading))).toBe(true);
+  expect(new Set(headings).size).toBeGreaterThanOrEqual(2);
 });
 
 test("uploads and normalizes all five formats", async ({ page }) => {
@@ -310,6 +311,53 @@ test("keeps Polish available only through the browser AI layer", async ({ page }
   await page.getByRole("button", { name: "Check", exact: true }).click();
   await page.getByRole("button", { name: "Check 실행" }).click();
   await expect(page.getByText("콘텐츠 및 개인정보 점검을 완료했습니다.")).toBeVisible();
+});
+
+test("offers file and pasted-text polish without touching the workspace", async ({ page }) => {
+  await withoutWebGpu(page);
+  await page.goto("/");
+  await upload(page, files.checkPptx);
+  await page.getByLabel("최종검수.pptx 선택").check();
+  await page.getByRole("button", { name: "Polish", exact: true }).click();
+
+  // File polish is the default and keeps the workspace list in view.
+  await expect(page.getByRole("radio", { name: "파일 윤문" })).toBeChecked();
+  await expect(page.locator(".file-row")).toHaveCount(1);
+  await expect(page.getByLabel("윤문할 텍스트 입력")).toHaveCount(0);
+
+  // Pasted text replaces the file picker with the paste area.
+  await page.getByRole("radio", { name: "텍스트 윤문" }).check();
+  const paste = page.getByLabel("윤문할 텍스트 입력");
+  await expect(paste).toBeVisible();
+  await expect(page.locator(".file-row")).toHaveCount(0);
+  await expect(page.getByRole("radio", { name: "간결하게" })).toBeVisible();
+  await expect(page.getByRole("radio", { name: "업무 문체" })).toBeVisible();
+
+  // The action follows the textarea, not the file selection.
+  await expect(page.getByRole("button", { name: "Polish 실행" })).toBeDisabled();
+  await paste.fill("안녕하세요.\n- 3분기 운영 보고 관련하여 검토 부탁드리고자 합니다.\n1. 매출은 1,250만원입니다.");
+  await expect(page.locator(".polish-paste small")).toContainText("/ 5,000자");
+  // No adapter here, so the AI gate still holds and no fake result appears.
+  await expect(page.locator(".ai-status")).toContainText("브라우저 AI를 사용할 수 없습니다");
+  await expect(page.locator(".source-locator")).toHaveCount(0);
+
+  // Switching back restores the workspace file and its selection.
+  await page.getByRole("radio", { name: "파일 윤문" }).check();
+  await expect(page.locator(".file-row")).toHaveCount(1);
+  await expect(page.getByLabel("최종검수.pptx 선택")).toBeChecked();
+  await page.getByRole("radio", { name: "텍스트 윤문" }).check();
+  await expect(page.getByLabel("윤문할 텍스트 입력")).toHaveValue(/3분기 운영 보고/);
+
+  // Nothing about the pasted text is persisted.
+  const stored = await page.evaluate(() => ({
+    local: JSON.stringify(Object.entries(localStorage)),
+    session: Object.keys(sessionStorage).length,
+  }));
+  expect(stored.local).not.toContain("3분기 운영 보고");
+  expect(stored.session).toBe(0);
+  await page.reload();
+  await page.getByRole("button", { name: "Polish", exact: true }).click();
+  await expect(page.getByRole("radio", { name: "파일 윤문" })).toBeChecked();
 });
 
 test("shows the browser AI panel only where the feature asks for it", async ({ page }) => {

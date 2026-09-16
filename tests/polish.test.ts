@@ -48,7 +48,7 @@ describe("polish prose selection", () => {
 
   it("carries the canonical source of every candidate", () => {
     const [entry] = collectPolishCandidates(document(["운영 효율을 개선하기 위한 조치를 검토했습니다."]));
-    expect(entry.source.nodeId).toBe("p0");
+    expect(entry.source?.nodeId).toBe("p0");
     expect(entry.origin).toBe("paragraph");
   });
 });

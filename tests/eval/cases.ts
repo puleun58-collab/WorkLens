@@ -191,3 +191,70 @@ export const EVAL_CASES: EvalCase[] = [
   ...docxCases(),
   ...pptxCases(),
 ];
+
+/**
+ * Pasted-text polish cases. Scored on preservation, not on how much changed:
+ * every protected token has to survive verbatim, the pasted line structure has
+ * to come back identical, and an already-natural sentence has to come back
+ * unchanged rather than rewritten for its own sake.
+ */
+export interface PolishTextCase {
+  id: string;
+  text: string;
+  /** Substrings that must appear unchanged in the polished text. */
+  keep: string[];
+  /** True when the input is already natural and must not be rewritten. */
+  expectUnchanged?: boolean;
+}
+
+export const POLISH_TEXT_CASES: PolishTextCase[] = [
+  {
+    id: "polish-text-sentence",
+    text: "본 사안에 대해서는 관련 부서와의 협의를 통해 진행하고자 하는 방향으로 검토가 이루어지고 있습니다.",
+    keep: [],
+  },
+  {
+    id: "polish-text-multi-sentence",
+    text: "3분기 운영 실적에 대한 검토가 진행되었습니다. 결론적으로 말씀드리면 주요 지표는 계획 대비 안정적인 수준을 유지하고 있는 상황입니다.",
+    keep: ["3분기"],
+  },
+  {
+    id: "polish-text-paragraphs",
+    text: [
+      "안녕하세요. 물류운영팀 김도현입니다.",
+      "",
+      "9월 운영 보고와 관련하여 아래와 같이 공유드리고자 합니다. 확인 후 회신 부탁드립니다.",
+    ].join("\n"),
+    keep: ["김도현", "9월"],
+  },
+  {
+    id: "polish-text-email",
+    text: "말씀해 주신 부분에 대하여 내부적으로 검토를 진행한 결과, 2026-09-20까지 회신을 드릴 수 있을 것으로 예상됩니다.",
+    keep: ["2026-09-20"],
+  },
+  {
+    id: "polish-text-report",
+    text: "매출은 1,250만원으로 집계되었으며, 전월 대비 8.9% 증가한 것으로 확인되고 있는 상황입니다.",
+    keep: ["1,250만원", "8.9%"],
+  },
+  {
+    id: "polish-text-notice",
+    text: "사내 시스템 점검이 예정되어 있어 해당 시간 동안에는 서비스 이용이 제한될 수 있다는 점을 안내드리고자 합니다.",
+    keep: [],
+  },
+  {
+    id: "polish-text-bullets",
+    text: [
+      "- 운영 지표는 계획 대비 안정적으로 유지되고 있는 것으로 파악됩니다.",
+      "- 상세 내용은 https://intra.example.com/report 에서 확인이 가능합니다.",
+      "1. 다음 회의는 2026-09-25에 진행될 예정입니다.",
+    ].join("\n"),
+    keep: ["https://intra.example.com/report", "2026-09-25"],
+  },
+  {
+    id: "polish-text-natural",
+    text: "오늘 회의에서 합의한 일정대로 진행하겠습니다.",
+    keep: ["오늘 회의에서 합의한 일정대로 진행하겠습니다."],
+    expectUnchanged: true,
+  },
+];

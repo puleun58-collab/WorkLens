@@ -11,7 +11,8 @@ import type { PolishCandidate } from "@/domain/polish";
 
 /** Below this a line is a label, not a sentence worth rewriting. */
 const MIN_LENGTH = 12;
-const MAX_LENGTH = 600;
+/** One prose unit the model rewrites in a single request. */
+export const POLISH_SEGMENT_MAX_CHARS = 600;
 /** A single pass stays bounded: long documents are reviewed, not regenerated. */
 export const MAX_POLISH_CANDIDATES = 200;
 
@@ -22,7 +23,7 @@ const URL_OR_EMAIL_ONLY = /^(?:https?:\/\/\S+|www\.\S+|[\w.+-]+@[\w-]+\.[\w.-]+)
 
 export function isProse(text: string): boolean {
   const value = text.trim();
-  if (value.length < MIN_LENGTH || value.length > MAX_LENGTH) return false;
+  if (value.length < MIN_LENGTH || value.length > POLISH_SEGMENT_MAX_CHARS) return false;
   if (CODE_LIKE.test(value)) return false;
   if (IDENTIFIER_LIKE.test(value)) return false;
   if (URL_OR_EMAIL_ONLY.test(value)) return false;

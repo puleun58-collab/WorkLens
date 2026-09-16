@@ -56,9 +56,15 @@ import {
   type PolishMode,
   type PolishOutcome,
   type PolishResult,
+  type PolishTextResult,
 } from "@/domain/polish";
-import { polishClipboardText, polishResult, reviewProposal, summarizePolish } from "@/lib/polish/engine";
+import { polishClipboardText, polishResult, polishTextResult, reviewProposal, summarizePolish } from "@/lib/polish/engine";
 import { isProse } from "@/lib/polish/candidates";
+import {
+  POLISH_TEXT_MAX_CHARS,
+  POLISH_TEXT_TOO_LONG_MESSAGE,
+  splitPolishText,
+} from "@/lib/polish/text-input";
 import {
   addUserTerm,
   clearUserTerms,
@@ -216,6 +222,9 @@ export default function Home() {
   const [polishMode, setPolishMode] = useState<PolishMode>("default");
   const [polish, setPolish] = useState<PolishResult | null>(null);
   const [polishProgress, setPolishProgress] = useState<{ done: number; total: number } | null>(null);
+  const [polishInput, setPolishInput] = useState<"file" | "text">("file");
+  const [polishText, setPolishText] = useState("");
+  const [polishTextRun, setPolishTextRun] = useState<PolishTextResult | null>(null);
   const polishCancelled = useRef(false);
   const aiUnsupported = aiState.phase === "unsupported";
   // Analyze, Compare and Check are deterministic by default: their AI layer,
@@ -440,7 +449,59 @@ export default function Home() {
     }
   };
 
+  /**
+   * Pasted-text polish. Same engine, same guard, same modes as the file run —
+   * only the input differs, so no SourceRef exists and none is invented. The
+   * text is split outside the prompt and reassembled from the original, so
+   * line breaks, bullets and numbering survive a partial or cancelled run.
+   */
+  const runTextPolish = async () => {
+    const input = polishText;
+    if (!input.trim()) {
+      notifyView("error", "윤문할 텍스트를 붙여넣으세요.");
+      return;
+    }
+    if (input.length > POLISH_TEXT_MAX_CHARS) {
+      notifyView("error", POLISH_TEXT_TOO_LONG_MESSAGE);
+      return;
+    }
+    const capability = await probeBrowserAi();
+    if (capability.phase === "unsupported" || capability.phase === "awaiting-confirmation") return;
+    setBusy(true);
+    setNotice(null);
+    setPolishTextRun(null);
+    polishCancelled.current = false;
+    try {
+      const segments = splitPolishText(input);
+      const targets = segments.filter((segment) => segment.polishable);
+      if (targets.length === 0) {
+        notifyView("info", "윤문할 문장을 찾지 못했습니다. 문장 형태의 텍스트를 붙여넣어 주세요.");
+        return;
+      }
+      setPolishProgress({ done: 0, total: targets.length });
+      const outcomes: PolishOutcome[] = [];
+      for (const segment of targets) {
+        if (polishCancelled.current) break;
+        const proposal = await polishBrowserAi(segment.text, polishMode);
+        outcomes.push(reviewProposal({ id: segment.id, text: segment.text, origin: "pasted" }, proposal));
+        setPolishProgress({ done: outcomes.length, total: targets.length });
+        setPolishTextRun(polishTextResult(polishMode, input, segments, outcomes));
+      }
+      const summary = summarizePolish(outcomes);
+      notifyView(
+        "success",
+        `윤문 완료 · 변경 제안 ${summary.changed}건 · 변경 없음 ${summary.unchanged}건 · 보호 정보 검증 차단 ${summary.rejected}건`,
+      );
+    } catch (error) {
+      reportAiFailure(error);
+    } finally {
+      setBusy(false);
+      setPolishProgress(null);
+    }
+  };
+
   const runActive = async () => {
+    if (activeTab === "Polish" && polishInput === "text") return runTextPolish();
     if (!selected.length) return;
     if (activeTab === "Compare") {
       if (selected.length !== 2) return;
@@ -669,8 +730,26 @@ export default function Home() {
   // preparation flow; Analyze, Compare and Check only ask for it on request
   // and Extract never does.
   const aiTab = activeTab === "Ask" || activeTab === "Brief" || activeTab === "Polish";
-  const actionDisabled = busy || selected.length === 0 || (activeTab === "Compare" && selected.length !== 2) || (activeTab === "Ask" && !question.trim()) || (aiTab && aiUnsupported);
-  const fileNames = new Map(files.map((file) => [file.id, file.name]));
+  // Pasted text is its own input: the Polish action then depends on the
+  // textarea, not on the workspace selection, which stays untouched.
+  const polishTextMode = activeTab === "Polish" && polishInput === "text";
+  const actionDisabled = busy
+    || (aiTab && aiUnsupported)
+    || (polishTextMode
+      ? polishText.trim().length === 0
+      : selected.length === 0 || (activeTab === "Compare" && selected.length !== 2) || (activeTab === "Ask" && !question.trim()));
+  /**
+   * Evidence names files, so two uploads of the same name must still be told
+   * apart. Upload order does it in words — the document version stays in the
+   * SourceRef for code, out of the user's way.
+   */
+  const fileNames = new Map<string, string>();
+  const nameSeen = new Map<string, number>();
+  for (const file of files) {
+    const seen = (nameSeen.get(file.name) ?? 0) + 1;
+    nameSeen.set(file.name, seen);
+    fileNames.set(file.id, seen > 1 ? `${file.name} (${seen})` : file.name);
+  }
   const companyTermNames = companyTerms.filter((entry) => entry.active).map((entry) => entry.term);
   /**
    * One split, used everywhere: the seven document features share the
@@ -831,7 +910,7 @@ export default function Home() {
             />
           ) : (
             <>
-              {files.length === 0 ? (
+              {polishTextMode ? null : files.length === 0 ? (
                 <div className="empty-state">
                   <strong>아직 파일이 없습니다.</strong>
                   <p>파일을 추가하면 구조를 확인하고 분석·비교·검수할 수 있습니다.</p>
@@ -863,7 +942,7 @@ export default function Home() {
 
               <section className="operation-bar" aria-label={`${activeTab} action`}>
                 <div className="operation-context">
-                  <span>{activeTab === "Compare" ? "기준과 현재 파일을 순서대로 두 개 선택하세요." : activeTab === "Check" ? "Writing · Consistency · Data · Privacy를 한 번에 검수합니다." : activeTab === "Polish" ? "문장 단위로 다듬고 숫자·날짜·인용은 그대로 유지합니다." : activeTab === "Extract" ? "문서에서 필요한 항목을 찾아 표로 만듭니다. 여러 파일을 선택하면 같은 항목으로 취합합니다." : aiTab ? `브라우저 AI는 최대 ${BROWSER_AI_MAX_FILES}개 파일에서 근거를 확인합니다.` : "최대 10개 파일을 함께 처리할 수 있습니다."}</span>
+                  <span>{activeTab === "Compare" ? "기준과 현재 파일을 순서대로 두 개 선택하세요." : activeTab === "Check" ? "Writing · Consistency · Data · Privacy를 한 번에 검수합니다." : polishTextMode ? "붙여넣은 텍스트를 문장 단위로 다듬습니다. 숫자·날짜·인용은 그대로 유지합니다." : activeTab === "Polish" ? "문장 단위로 다듬고 숫자·날짜·인용은 그대로 유지합니다." : activeTab === "Extract" ? "문서에서 필요한 항목을 찾아 표로 만듭니다. 여러 파일을 선택하면 같은 항목으로 취합합니다." : aiTab ? `브라우저 AI는 최대 ${BROWSER_AI_MAX_FILES}개 파일에서 근거를 확인합니다.` : "최대 10개 파일을 함께 처리할 수 있습니다."}</span>
                 </div>
                 {(activeTab === "Ask" || activeTab === "Brief") ? (
                   <label className="question-field">
@@ -887,22 +966,58 @@ export default function Home() {
                   />
                 ) : null}
                 {activeTab === "Polish" ? (
-                  <fieldset className="polish-modes">
-                    <legend>윤문 모드</legend>
-                    {POLISH_MODES.map((mode) => (
-                      <label key={mode}>
-                        <input
-                          type="radio"
-                          name="polish-mode"
-                          value={mode}
-                          checked={polishMode === mode}
+                  <div className="polish-controls">
+                    <fieldset className="polish-input-modes">
+                      <legend>입력 방식</legend>
+                      {(["file", "text"] as const).map((input) => (
+                        <label key={input}>
+                          <input
+                            type="radio"
+                            name="polish-input"
+                            value={input}
+                            checked={polishInput === input}
+                            disabled={busy}
+                            onChange={() => setPolishInput(input)}
+                          />
+                          <span>{input === "file" ? "파일 윤문" : "텍스트 윤문"}</span>
+                        </label>
+                      ))}
+                    </fieldset>
+                    <fieldset className="polish-modes">
+                      <legend>윤문 모드</legend>
+                      {POLISH_MODES.map((mode) => (
+                        <label key={mode}>
+                          <input
+                            type="radio"
+                            name="polish-mode"
+                            value={mode}
+                            checked={polishMode === mode}
+                            disabled={busy}
+                            onChange={() => setPolishMode(mode)}
+                          />
+                          <span>{POLISH_MODE_LABELS[mode]}</span>
+                        </label>
+                      ))}
+                    </fieldset>
+                    {polishTextMode ? (
+                      <label className="polish-paste">
+                        <span>윤문할 내용을 붙여넣으세요.</span>
+                        <textarea
+                          value={polishText}
+                          rows={8}
+                          // No hard maxLength: a long paste is accepted and
+                          // then explained, rather than silently truncated.
+                          aria-label="윤문할 텍스트 입력"
                           disabled={busy}
-                          onChange={() => setPolishMode(mode)}
+                          onChange={(event) => setPolishText(event.target.value)}
+                          placeholder={"메일, 보고서, 공지 등에서 복사한 내용을 그대로 붙여넣으세요.\n줄바꿈과 목록 구조는 그대로 유지됩니다."}
                         />
-                        <span>{POLISH_MODE_LABELS[mode]}</span>
+                        <small data-over={polishText.length > POLISH_TEXT_MAX_CHARS ? "true" : undefined}>
+                          {polishText.length.toLocaleString("ko-KR")} / {POLISH_TEXT_MAX_CHARS.toLocaleString("ko-KR")}자
+                        </small>
                       </label>
-                    ))}
-                  </fieldset>
+                    ) : null}
+                  </div>
                 ) : null}
                 <div className="operation-actions">
                   {(activeTab === "Analyze" || activeTab === "Compare" || activeTab === "Check") ? <button type="button" className="secondary-action" onClick={runAiAssist} disabled={busy || selected.length === 0}>{activeTab === "Check" ? "브라우저 AI 문장 검수" : "브라우저 AI 보조"}</button> : null}
@@ -950,7 +1065,9 @@ export default function Home() {
 
               {activeTab === "Compare"
                 ? <ComparisonView comparison={comparison} compareIds={compareIds} fileNames={fileNames} detail={null} onSource={openSource} onCloseSource={closeSource} />
-                : activeTab === "Polish"
+                : polishTextMode
+                  ? <PolishTextResults result={polishTextRun} />
+                  : activeTab === "Polish"
                   ? <PolishResults result={polish} fileNames={fileNames} onSource={openSource} />
                   : activeTab === "Extract" && extractMode !== "text"
                     ? <StructuredExtractResults result={structured} fileNames={fileNames} onSource={openSource} />
@@ -1199,15 +1316,16 @@ function locatorText(source: SourceRef): string {
 const roleText = (role: SourceRole | undefined): string | undefined =>
   role === "base" ? "기준" : role === "current" ? "현재" : undefined;
 
-/** The evidence inspector is the one surface that must name the file. */
+/**
+ * The evidence inspector is the one surface that must name the file. The
+ * document version stays in the SourceRef — it is how two same-named
+ * revisions are told apart in code — but it is not shown: a user reads a file
+ * name and a locator, not a hash.
+ */
 function sourceLabel(source: SourceRef, fileNames: Map<string, string>, role?: SourceRole): string {
   const fileName = fileNames.get(source.fileId);
-  const revision = source.documentVersion
-    ? `버전 ${source.documentVersion.slice(0, 8)}`
-    : `파일 ${source.fileId.slice(0, 8)}`;
-  const suffix = [revision, roleText(role)].filter((part): part is string => Boolean(part)).join(" · ");
-  const locator = locatorText(source);
-  return fileName ? `${fileName} · ${locator} (${suffix})` : `${locator} (${suffix})`;
+  const parts = [fileName, locatorText(source), roleText(role)].filter((part): part is string => Boolean(part));
+  return parts.join(" · ");
 }
 
 type AnalyzeEntry = { file: { id: string; name: string }; analysis: AnalyzeResult };
@@ -1543,6 +1661,104 @@ function PolishResults({ result, fileNames, onSource }: {
 }
 
 /**
+ * Clipboard with a fallback: a denied Clipboard API permission still has to
+ * copy, and the confirmation stays inline instead of raising a page notice.
+ */
+function CopyButton({ text, label }: { text: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const holder = document.createElement("textarea");
+      holder.value = text;
+      holder.setAttribute("readonly", "");
+      holder.style.position = "fixed";
+      holder.style.opacity = "0";
+      document.body.append(holder);
+      holder.select();
+      document.execCommand("copy");
+      holder.remove();
+    }
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1_600);
+  };
+  return (
+    <button type="button" className="secondary-action" onClick={() => void copy()}>
+      {copied ? "복사됨" : label}
+    </button>
+  );
+}
+
+/**
+ * Pasted-text result. One block in, one block out: the original, the polished
+ * text reassembled with its own line breaks and list markers, and the reasons.
+ * No locator and no evidence inspector — the pasted text is the source, and a
+ * fabricated SourceRef would claim a document that does not exist.
+ */
+function PolishTextResults({ result }: { result: PolishTextResult | null }) {
+  if (!result) {
+    return (
+      <section className="state-card result-placeholder">
+        <h2>텍스트 윤문</h2>
+        <p>메일·보고서·공지에서 복사한 내용을 붙여넣고 윤문 모드를 고르면 문장 단위로 다듬습니다.</p>
+        <p>숫자·날짜·인용은 그대로 유지하고, 붙여넣은 줄바꿈과 목록 구조도 유지합니다.</p>
+      </section>
+    );
+  }
+  const reasons = [...new Set(result.outcomes.flatMap((entry) => entry.reasons))].slice(0, 6);
+  const rejected = result.outcomes.filter((entry) => entry.status === "rejected");
+  const changed = result.summary.changed > 0;
+
+  return (
+    <section className="panel results-panel">
+      <div className="panel-heading result-heading">
+        <div><p className="eyebrow">Polish result</p><h2>텍스트 윤문</h2></div>
+        <span className="result-provenance">{POLISH_MODE_LABELS[result.mode]}</span>
+      </div>
+      <p className="check-summary-line">
+        <span className="metric">변경 제안 <b>{result.summary.changed}</b></span>
+        <span className="metric">변경 없음 <b>{result.summary.unchanged}</b></span>
+        <span className="metric">보호 검증 차단 <b>{result.summary.rejected}</b></span>
+      </p>
+
+      {changed ? null : (
+        <StatusPanel variant="success" className="result-clear" title="변경 없음">
+          <p>현재 문장은 별도 수정이 필요하지 않습니다.</p>
+        </StatusPanel>
+      )}
+
+      <article className="polish-row polish-text-run">
+        <div className="polish-text">
+          <span className="polish-label">원문</span>
+          <p className="polish-block">{result.originalText}</p>
+          <span className="polish-label">윤문</span>
+          <p className="polish-block polish-revised">{result.revisedText}</p>
+          {reasons.length ? (
+            <>
+              <span className="polish-label">변경 이유</span>
+              <ul className="polish-reasons">{reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>
+            </>
+          ) : null}
+        </div>
+        <div className="polish-actions">
+          <CopyButton text={result.revisedText} label="윤문 결과 복사" />
+          <CopyButton text={result.originalText} label="원문 복사" />
+        </div>
+      </article>
+
+      {rejected.length ? (
+        <StatusPanel variant="warning" className="result-warnings" title={`보호 정보 검증으로 ${rejected.length}개 문장을 원문 그대로 유지했습니다.`}>
+          {[...new Set(rejected.map((entry) => entry.rejection ? POLISH_REJECTION_LABELS[entry.rejection] : "윤문 결과를 적용하지 않았습니다."))].map((message) => (
+            <p key={message}>{message}</p>
+          ))}
+        </StatusPanel>
+      ) : null}
+    </section>
+  );
+}
+
+/**
  * The inline 윤문 action other features use. One prose string, the shared
  * engine, the same deterministic guard: Ask and Brief claims, Check
  * recommendations and Extract paragraphs all polish through this.
@@ -1562,10 +1778,12 @@ function PolishAction({ text, label, origin, source, mode }: {
     setRunning(true);
     setFailure(null);
     try {
+      // No document source, no source: a placeholder locator would name a
+      // node that does not exist.
       const candidate: PolishCandidate = {
         id: source?.nodeId ?? label,
         text,
-        source: source ?? { fileId: "", nodeId: label, label },
+        ...(source ? { source } : {}),
         origin,
       };
       setOutcome(reviewProposal(candidate, await polishBrowserAi(text, mode)));
@@ -1636,9 +1854,10 @@ function ResultSource({ sources, fileNames, onSource, roleOf, emptyLabel = "근�
   const summary = groups.length > 1
     ? `${lead.label} 외 ${groups.length - 1}곳`
     : lead.count > 1 ? `${lead.label} · ${lead.count}건` : lead.label;
-  const action = groups.length > 1 ? `근거 ${sources.length}곳 보기` : "근거 보기";
+  // One action name everywhere: the count belongs to the locator summary, not
+  // to the button, so a row never reads as a different kind of action.
   const ariaLabel = groups.length > 1
-    ? `${lead.label} 외 ${groups.length - 1}곳, 근거 ${sources.length}곳 보기`
+    ? `${lead.label} 외 ${groups.length - 1}곳 근거 보기`
     : lead.count > 1 ? `${lead.label} 근거 ${lead.count}건 보기` : `${lead.label} 근거 보기`;
 
   return (
@@ -1651,7 +1870,7 @@ function ResultSource({ sources, fileNames, onSource, roleOf, emptyLabel = "근�
         className="source-action"
         aria-label={ariaLabel}
         onClick={(event) => onSource(sources.map((source) => ({ source, role: roleOf?.(source) })), event.currentTarget)}
-      >{action}</button>
+      >근거 보기</button>
     </span>
   );
 }

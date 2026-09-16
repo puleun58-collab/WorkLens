@@ -5,8 +5,10 @@ import type {
   PolishResult,
   PolishMode,
   PolishSummary,
+  PolishTextResult,
 } from "@/domain/polish";
 import { verifyPolish } from "./protect";
+import { assemblePolishText, type PolishTextSegment } from "./text-input";
 
 /**
  * The single polish pipeline.
@@ -59,6 +61,29 @@ export function summarizePolish(outcomes: readonly PolishOutcome[]): PolishSumma
 
 export function polishResult(mode: PolishMode, outcomes: readonly PolishOutcome[]): PolishResult {
   return { mode, outcomes: [...outcomes], summary: summarizePolish(outcomes) };
+}
+
+/**
+ * A pasted-text run. The verified rewrites are placed back into the text the
+ * user pasted, so the returned block keeps its line breaks, bullets and
+ * numbering even when a segment was left unchanged or refused.
+ */
+export function polishTextResult(
+  mode: PolishMode,
+  originalText: string,
+  segments: readonly PolishTextSegment[],
+  outcomes: readonly PolishOutcome[],
+): PolishTextResult {
+  const revisedById = new Map(
+    outcomes.filter((entry) => entry.status === "changed").map((entry) => [entry.id, entry.revisedText]),
+  );
+  return {
+    mode,
+    originalText,
+    revisedText: assemblePolishText(segments, revisedById),
+    outcomes: [...outcomes],
+    summary: summarizePolish(outcomes),
+  };
 }
 
 /** Copy text for one outcome, and for a whole run. */
