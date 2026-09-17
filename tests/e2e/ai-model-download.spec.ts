@@ -8,6 +8,7 @@ import {
   model,
   profileDir,
   probeWebGpu,
+  requireWebGpu,
   test,
   TIMEOUTS,
   waitForHydration,
@@ -49,7 +50,7 @@ test("downloads the model once and then serves it from the browser cache", async
     return result;
   });
   measured.webgpu = probe;
-  test.skip(probe.device !== "ok", `no usable WebGPU device: ${probe.device}`);
+  requireWebGpu(probe, tracker);
 
   await tracker.run("3. upload and parse", async () => {
     await page.locator('input[type="file"]').setInputFiles([fixtures.rateSheet]);
@@ -64,7 +65,8 @@ test("downloads the model once and then serves it from the browser cache", async
     // Nothing is downloaded before the user accepts, and the prompt is drawn
     // only once the WebGPU probe resolves.
     expect(await acceptConsent(page, tracker)).toBe(true);
-    await expect(page.locator(".ai-status.loading")).toContainText("모델 다운로드", { timeout: TIMEOUTS.document });
+    // The download really started: the phase says so, not the sentence.
+    await expect(page.locator(".app-shell")).toHaveAttribute("data-ai-state", "loading", { timeout: TIMEOUTS.document });
   });
 
   measured.downloadMs = await tracker.run("5. model ready (cold download)", () =>
@@ -77,7 +79,7 @@ test("downloads the model once and then serves it from the browser cache", async
     await page.locator(".file-row input[type='checkbox']").first().check();
     await page.getByRole("button", { name: "Ask", exact: true }).click();
     // Consent survives a reload, so the second run goes straight to loading.
-    await expect(page.locator(".ai-status.confirm")).toHaveCount(0, { timeout: TIMEOUTS.document });
+    expect(await acceptConsent(page, tracker, 3_000)).toBe(false);
     await page.getByPlaceholder("선택한 문서에서 확인할 내용을 입력하세요").fill("SEOUL 운임은 얼마인가요?");
     await page.getByRole("button", { name: "Ask 실행" }).click();
     return waitForModelReady(page, tracker, TIMEOUTS.ready);

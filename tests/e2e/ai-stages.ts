@@ -2,6 +2,7 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium, test as base, type Page, type TestInfo } from "@playwright/test";
 import { createCheckPptx, createXlsx, RATE_SHEET_V1 } from "../fixtures";
+import { BROWSER_AI_BASELINE_MODEL_ID, BROWSER_AI_MODEL_ID } from "@/client/browser-ai-protocol";
 
 /**
  * Shared harness for the two real-WebGPU runs: the one-time model download
@@ -14,9 +15,27 @@ import { createCheckPptx, createXlsx, RATE_SHEET_V1 } from "../fixtures";
  * a run that cannot prepare the model says which stage it died in and exits.
  */
 
-export const BASELINE_MODEL = "Qwen2.5-1.5B-Instruct-q4f16_1-MLC";
-export const SHIPPED_MODEL = "Qwen3.5-4B-q4f16_1-MLC";
-export const model = process.env.WORKLENS_AI_MODEL === BASELINE_MODEL ? BASELINE_MODEL : SHIPPED_MODEL;
+/**
+ * The product defines both ids; this only decides which one a run uses. An
+ * unsupported value fails here rather than running a different model than the
+ * one the operator asked for.
+ */
+export const SHIPPED_MODEL = BROWSER_AI_MODEL_ID;
+export const BASELINE_MODEL = BROWSER_AI_BASELINE_MODEL_ID;
+const SUPPORTED_MODELS = [SHIPPED_MODEL, BASELINE_MODEL];
+
+function selectedModel(): string {
+  const requested = process.env.WORKLENS_AI_MODEL;
+  if (!requested) return SHIPPED_MODEL;
+  if (!SUPPORTED_MODELS.includes(requested)) {
+    throw new Error(
+      `Unsupported WORKLENS_AI_MODEL: ${requested}. Supported: ${SUPPORTED_MODELS.join(", ")}`,
+    );
+  }
+  return requested;
+}
+
+export const model = selectedModel();
 
 /** Every wait is overridable, because a cold download and a cached load differ by minutes. */
 function envMs(name: string, fallback: number): number {
@@ -136,16 +155,39 @@ export async function probeWebGpu(page: Page): Promise<WebGpuProbe> {
 }
 
 /**
- * The upload input is server-rendered, so setting files on it before React has
- * hydrated drops the change event and nothing is ever parsed. A cold load of a
- * deployment is slow enough for that race to be the normal case, so every run
- * waits for the handler to exist rather than for the markup.
+ * These runs exist to exercise a real adapter, so a machine without one is a
+ * failure, not a pass: a silent skip reads as "the AI works". The only
+ * exception is an environment that never had WebGPU — CI, or an explicit
+ * `WORKLENS_AI_ALLOW_NO_WEBGPU=1` — where the run skips and says so.
+ */
+export function requireWebGpu(probe: WebGpuProbe, tracker: StageTracker): void {
+  if (probe.device === "ok") return;
+  const report = [
+    `navigator.gpu: ${probe.navigatorGpu ? "present" : "missing"}`,
+    `adapter: ${probe.adapter ? "acquired" : "not acquired"}`,
+    `device: ${probe.device}`,
+    `failed stage: ${!probe.navigatorGpu ? "navigator.gpu" : !probe.adapter ? "requestAdapter" : "requestDevice"}`,
+  ].join(" · ");
+  const skippable = Boolean(process.env.CI) || process.env.WORKLENS_AI_ALLOW_NO_WEBGPU === "1";
+  if (skippable) {
+    tracker.log(`   no WebGPU, skipping by policy — ${report}`);
+    base.skip(true, `no usable WebGPU device (${report})`);
+    return;
+  }
+  throw new Error(
+    `this run requires a real WebGPU device — ${report}. `
+    + "Set WORKLENS_AI_ALLOW_NO_WEBGPU=1 (or run in CI) to skip instead of failing.",
+  );
+}
+
+/**
+ * The upload input is server-rendered, so setting files on it before the page
+ * hydrated drops the change event and nothing is ever parsed. The app marks
+ * that point itself with `data-hydrated`, set in an effect that runs after the
+ * commit which attached the handlers — no React internals are inspected.
  */
 export async function waitForHydration(page: Page, timeoutMs: number): Promise<void> {
-  await page.waitForFunction(() => {
-    const input = document.querySelector("input.file-input");
-    return Boolean(input) && Object.keys(input ?? {}).some((key) => key.startsWith("__react"));
-  }, undefined, { timeout: timeoutMs });
+  await page.locator('.app-shell[data-hydrated="true"]').waitFor({ state: "attached", timeout: timeoutMs });
 }
 
 /** The completion line a feature writes when its run finishes. */
@@ -198,13 +240,26 @@ export async function acceptConsent(page: Page, tracker: StageTracker, timeoutMs
   return true;
 }
 
-/** The status box wording for a state the run cannot recover from. */
-const FATAL_STATUS = /못했습니다|어렵습니다|사용할 수 없습니다/;
+/** The phases the app publishes on `data-ai-state`. */
+export type AiPhase = "idle" | "checking" | "awaiting-confirmation" | "loading" | "ready" | "failed" | "unsupported";
+
+export async function aiState(page: Page): Promise<{ phase: AiPhase; code: string | null }> {
+  const shell = page.locator(".app-shell");
+  const phase = await shell.getAttribute("data-ai-state");
+  return { phase: (phase ?? "idle") as AiPhase, code: await shell.getAttribute("data-ai-error") };
+}
+
+/** Progress copy, logged for diagnosis only — never used to decide the outcome. */
+async function statusLine(page: Page): Promise<string> {
+  const panels = await page.locator(".ai-status").allInnerTexts();
+  return panels.join(" | ").replaceAll("\n", " ").replace(/\s+/g, " ").trim();
+}
 
 /**
- * Waits for the model to become usable. There is no ready panel by design, so
- * readiness is the absence of a status panel; a failure panel ends the wait
- * immediately, and a timeout reports the last progress line it saw.
+ * Waits for the model to become usable, deciding on `data-ai-state` rather
+ * than on Korean copy: the wording is a product decision that changes, the
+ * phase is the contract. A failed or unsupported phase ends the wait at once
+ * and reports its error code plus the last progress line it saw.
  */
 export async function waitForModelReady(
   page: Page,
@@ -214,20 +269,20 @@ export async function waitForModelReady(
   const started = Date.now();
   let last = "";
   for (;;) {
-    const panels = await page.locator(".ai-status").allInnerTexts();
-    const text = panels.join(" | ").replaceAll("\n", " ").replace(/\s+/g, " ").trim();
+    const { phase, code } = await aiState(page);
+    const text = await statusLine(page);
     if (text && text !== last) {
-      tracker.log(`   status: ${text.slice(0, 160)}`);
+      tracker.log(`   [${phase}] ${text.slice(0, 150)}`);
       last = text;
     }
-    if (FATAL_STATUS.test(text)) {
-      throw new Error(`model preparation reported a failure: ${text.slice(0, 300)}`);
+    if (phase === "failed" || phase === "unsupported") {
+      throw new Error(`model preparation ended in ${phase} (${code ?? "no code"}); status: ${text.slice(0, 200) || "none"}`);
     }
-    if (panels.length === 0) return Date.now() - started;
+    if (phase === "ready") return Date.now() - started;
     if (Date.now() - started > timeoutMs) {
-      throw new Error(`model not ready within ${timeoutMs}ms; last status: ${last || "none"}`);
+      throw new Error(`model not ready within ${timeoutMs}ms; phase=${phase}; last status: ${last || "none"}`);
     }
-    await page.waitForTimeout(1_000);
+    await page.waitForTimeout(500);
   }
 }
 

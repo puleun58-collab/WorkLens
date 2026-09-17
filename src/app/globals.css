@@ -2890,7 +2890,17 @@ input:disabled,
   gap: 10px;
 }
 
+/*
+ * The paste area is the input for text polish, so it takes a reading measure
+ * of its own: `justify-items: start` on the control stack sized it to its
+ * content, which left a ~200px box to paste a report into. 720px is the
+ * desktop measure, 760px the ceiling, and it collapses to the bar's own width
+ * below that.
+ */
 .polish-paste {
+  justify-self: stretch;
+  width: min(100%, 720px);
+  max-width: 760px;
   min-width: 0;
   display: grid;
   gap: 5px;

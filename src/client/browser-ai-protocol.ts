@@ -73,11 +73,16 @@ export type BrowserAiWorkerEvent =
   | { id: string; kind: "extract"; proposal: ExtractProposal }
   | { id: string; kind: "error"; code: BrowserAiErrorCode; message: string };
 
-/** User-facing copy. Error codes stay internal; only these strings are shown. */
+/**
+ * User-facing copy. Error codes stay internal; only these strings are shown.
+ * These are the full sentences the notice shows. The AI status box says the
+ * same thing in fewer words — see `BROWSER_AI_STATUS_MESSAGES` — so one
+ * failure never reads as two different problems.
+ */
 export const BROWSER_AI_MESSAGES: Record<BrowserAiErrorCode, string> = {
-  NO_WEBGPU: "이 브라우저 또는 장치가 WebGPU를 지원하지 않아 브라우저 AI를 사용할 수 없습니다. Analyze · Compare · Check · Extract는 계속 사용할 수 있습니다.",
-  ADAPTER_FAILED: "이 장치의 그래픽 어댑터에서 브라우저 AI를 초기화할 수 없습니다. 회사 브라우저 정책에서 WebGPU가 제한되었을 수도 있습니다. Analyze · Compare · Check · Extract는 계속 사용할 수 있습니다.",
-  DEVICE_FAILED: "그래픽 장치를 초기화하지 못했습니다. 다른 프로그램이 GPU를 점유하고 있거나 드라이버 업데이트가 필요할 수 있습니다. Analyze · Compare · Check · Extract는 계속 사용할 수 있습니다.",
+  NO_WEBGPU: "이 브라우저 또는 장치가 WebGPU를 지원하지 않아 브라우저 AI를 사용할 수 없습니다. AI 기능을 제외한 나머지 기능은 계속 사용할 수 있습니다.",
+  ADAPTER_FAILED: "이 장치의 그래픽 어댑터에서 브라우저 AI를 시작할 수 없습니다. 회사 브라우저 정책에서 WebGPU가 제한되었을 수도 있습니다. AI 기능을 제외한 나머지 기능은 계속 사용할 수 있습니다.",
+  DEVICE_FAILED: "그래픽 장치를 준비하지 못했습니다. 다른 프로그램이 GPU를 점유하고 있거나 드라이버 업데이트가 필요할 수 있습니다. AI 기능을 제외한 나머지 기능은 계속 사용할 수 있습니다.",
   MODEL_DOWNLOAD_FAILED: "모델 데이터를 불러오지 못했습니다. 네트워크를 확인한 뒤 다시 시도해 주세요.",
   MODEL_LOAD_FAILED: "AI 모델을 준비하지 못했습니다. 잠시 후 다시 시도해 주세요.",
   OUT_OF_MEMORY: "이 장치의 메모리에서 AI 모델을 실행하기 어렵습니다.",
@@ -87,5 +92,14 @@ export const BROWSER_AI_MESSAGES: Record<BrowserAiErrorCode, string> = {
   NO_EVIDENCE: "선택한 문서에서 질문을 뒷받침할 근거를 찾지 못했습니다.",
   CANCELLED: "브라우저 AI 작업을 취소했습니다.",
   BUSY: "브라우저 AI 작업이 이미 실행 중입니다.",
-  WORKER_FAILED: "브라우저 AI 처리기를 실행하지 못했습니다. 페이지를 새로고침하세요.",
+  WORKER_FAILED: "브라우저 AI를 시작하지 못했습니다. 페이지를 새로고침한 후 다시 시도해 주세요.",
+};
+
+/**
+ * The AI status box reports the current state, not the whole story, so it uses
+ * a shorter line where the full sentence would repeat what the notice above it
+ * already said. Codes without an entry here read the same in both places.
+ */
+export const BROWSER_AI_STATUS_MESSAGES: Partial<Record<BrowserAiErrorCode, string>> = {
+  WORKER_FAILED: "브라우저 AI를 시작하지 못했습니다. 새로고침 후 다시 시도해 주세요.",
 };

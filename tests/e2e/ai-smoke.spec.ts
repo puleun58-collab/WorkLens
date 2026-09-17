@@ -2,12 +2,14 @@ import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   acceptConsent,
+  aiState,
   expect,
   fixtures,
   model,
   noticeText,
   profileDir,
   probeWebGpu,
+  requireWebGpu,
   test,
   TIMEOUTS,
   waitForHydration,
@@ -48,7 +50,7 @@ test("answers, briefs and reviews on a cached model and keeps evidence grounded"
     return result;
   });
   measured.webgpu = probe;
-  test.skip(probe.device !== "ok", `no usable WebGPU device: ${probe.device}`);
+  requireWebGpu(probe, tracker);
 
   await tracker.run("3. upload and parse", async () => {
     await page.locator('input[type="file"]').setInputFiles([fixtures.rateSheet, fixtures.deck]);
@@ -66,7 +68,7 @@ test("answers, briefs and reviews on a cached model and keeps evidence grounded"
     await page.getByPlaceholder("선택한 문서에서 확인할 내용을 입력하세요").fill("SEOUL 운임은 얼마인가요?");
     await page.getByRole("button", { name: "Ask 실행" }).click();
     const ms = await waitForModelReady(page, tracker, TIMEOUTS.ready);
-    await expect(page.locator(".ai-status.failed")).toHaveCount(0);
+    expect((await aiState(page)).phase).toBe("ready");
     return ms;
   });
 
@@ -120,8 +122,8 @@ test("answers, briefs and reviews on a cached model and keeps evidence grounded"
     await page.getByRole("button", { name: "Ask 실행" }).click();
     const notice = await waitForNewNotice(page, tracker, before, TIMEOUTS.generate);
     expect(notice).toContain("Ask 결과를 준비했습니다.");
-    // No download panel: the weights never left memory.
-    await expect(page.locator(".ai-status.loading")).toHaveCount(0);
+    // Still ready, never re-downloaded: the weights never left memory.
+    expect((await aiState(page)).phase).toBe("ready");
     measured.warmAskAnswer = await page.locator(".claim-row").first().innerText();
     return Date.now() - started;
   });
@@ -148,7 +150,7 @@ test("keeps the workspace usable when the model cannot be prepared", async ({ pa
   });
 
   const probe = await tracker.run("2. WebGPU init", () => probeWebGpu(page));
-  test.skip(probe.device !== "ok", `no usable WebGPU device: ${probe.device}`);
+  requireWebGpu(probe, tracker);
 
   await tracker.run("3. upload and parse", async () => {
     await page.locator('input[type="file"]').setInputFiles([fixtures.rateSheet]);
@@ -161,9 +163,11 @@ test("keeps the workspace usable when the model cannot be prepared", async ({ pa
     // An ephemeral context has no stored consent, so the prompt is required
     // here: accepting it is what starts the download that must fail.
     expect(await acceptConsent(page, tracker)).toBe(true);
-    // A blocked host is a download failure, not a dead worker.
-    const failure = page.locator(".ai-status.failed");
-    await expect(failure).toContainText("모델 데이터를 불러오지 못했습니다", { timeout: TIMEOUTS.ready });
+    // The state says which failure it is; the copy test below is what the user reads.
+    const shell = page.locator(".app-shell");
+    await expect(shell).toHaveAttribute("data-ai-state", "failed", { timeout: TIMEOUTS.ready });
+    await expect(shell).toHaveAttribute("data-ai-error", "MODEL_DOWNLOAD_FAILED");
+    await expect(page.locator(".ai-status.failed")).toContainText("모델 데이터를 불러오지 못했습니다");
     await expect(page.locator(".notice.error")).toHaveCount(0);
   });
 

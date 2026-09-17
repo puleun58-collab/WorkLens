@@ -337,10 +337,12 @@ test("starts the browser AI worker instead of failing to run it", async ({ page 
   await page.getByPlaceholder("선택한 문서에서 확인할 내용을 입력하세요").fill("기준일은 언제인가요?");
   await page.getByRole("button", { name: "Ask 실행" }).click();
 
-  const status = page.locator(".ai-status.failed");
-  await expect(status).toBeVisible({ timeout: 60_000 });
-  await expect(status).not.toContainText("처리기를 실행하지 못했습니다");
-  await expect(status).toContainText("모델 데이터를 불러오지 못했습니다");
+  // The distinction is the state, not the sentence: a blocked host is a
+  // download failure, and the worker did start.
+  const shell = page.locator(".app-shell");
+  await expect(shell).toHaveAttribute("data-ai-state", "failed", { timeout: 60_000 });
+  await expect(shell).toHaveAttribute("data-ai-error", "MODEL_DOWNLOAD_FAILED");
+  await expect(page.locator(".ai-status.failed")).toBeVisible();
 
   // The deterministic side is untouched by an AI failure.
   await page.getByRole("button", { name: "Check", exact: true }).click();

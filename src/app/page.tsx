@@ -36,6 +36,8 @@ import {
   BROWSER_AI_MESSAGES,
   BROWSER_AI_MODEL_LABEL,
   BROWSER_AI_MODEL_MB,
+  BROWSER_AI_STATUS_MESSAGES,
+  type BrowserAiErrorCode,
   type BrowserAiState,
 } from "@/client/browser-ai-protocol";
 import type { CheckEntry as WorkerCheckEntry, WorkspaceFile } from "@/client/protocol";
@@ -107,7 +109,24 @@ type ApiError = { code: string; message: string; retryable?: boolean };
  * never carried into another feature, the dictionary or the settings page.
  */
 type NoticeScope = "workspace" | ShellView;
-type Notice = { tone: "error" | "success" | "info"; message: string; scope: NoticeScope };
+/**
+ * `code` is carried only so the notice can choose its own wording: an AI
+ * start-up failure is a different sentence from a task that failed, and
+ * matching on message text to tell them apart is guesswork.
+ */
+type Notice = { tone: "error" | "success" | "info"; message: string; scope: NoticeScope; code?: BrowserAiErrorCode };
+
+/**
+ * A browser AI that never started is not "a task that failed": it is the AI
+ * itself being unavailable, and the status box below says the same thing in
+ * fewer words.
+ */
+function noticeTitle(notice: Notice): string {
+  if (notice.tone === "success") return "작업 완료";
+  if (notice.tone !== "error") return "처리 상태";
+  return notice.code === "WORKER_FAILED" ? "AI 기능을 준비하지 못했습니다" : "작업을 완료하지 못했습니다";
+}
+
 const tabs = ["Analyze", "Ask", "Compare", "Check", "Polish", "Extract", "Brief"] as const;
 type Tab = (typeof tabs)[number];
 const tabMeta: Record<Tab, { label: string; description: string }> = {
@@ -163,6 +182,17 @@ const checkGroupLabels: Record<CheckCategoryGroup, string> = {
 /** Server render has no WebGPU and no model: AI actions stay enabled until the
  * client snapshot proves otherwise, and the status box starts silent. */
 const serverAiState: () => BrowserAiState = () => ({ phase: "idle" });
+
+/**
+ * Hydration as a read, not as state written from an effect: the store never
+ * changes, so the only transition is the server snapshot giving way to the
+ * client one when this tree becomes interactive. The three callbacks are
+ * module constants because `useSyncExternalStore` compares them by identity —
+ * inline literals would resubscribe on every render.
+ */
+const subscribeNothing = () => () => undefined;
+const clientHydrated = () => true;
+const serverHydrated = () => false;
 
 function formatBytes(size: number) {
   if (size < 1024) return `${size} B`;
@@ -226,6 +256,13 @@ export default function Home() {
   // The AI layer is an external system: state and capability are read through
   // the store instead of mirrored into React state inside an effect.
   const aiState = useSyncExternalStore(subscribeBrowserAi, browserAiState, serverAiState);
+  /**
+   * Hydration signal. The markup is server-rendered, so a file set on the
+   * upload input before the client takes over drops its change event and
+   * nothing is parsed. The server snapshot is `false` and the client snapshot
+   * `true`, so `data-hydrated` flips exactly when this tree is interactive.
+   */
+  const hydrated = useSyncExternalStore(subscribeNothing, clientHydrated, serverHydrated);
   const [polishMode, setPolishMode] = useState<PolishMode>("default");
   const [polish, setPolish] = useState<PolishResult | null>(null);
   const [polishProgress, setPolishProgress] = useState<{ done: number; total: number } | null>(null);
@@ -278,7 +315,8 @@ export default function Home() {
   const toggleRule = useCallback((ruleId: string) => setIgnoredRules(toggleIgnoredRule(ruleId)), []);
 
   /** Owned by the current view: navigating away retires it. */
-  const notifyView = (tone: Notice["tone"], message: string) => setNotice({ tone, message, scope: shellView });
+  const notifyView = (tone: Notice["tone"], message: string, code?: BrowserAiErrorCode) =>
+    setNotice({ tone, message, scope: shellView, ...(code ? { code } : {}) });
   /** Affects the whole tab — an upload or a workspace reset — so it follows. */
   const notifyWorkspace = (tone: Notice["tone"], message: string) => setNotice({ tone, message, scope: "workspace" });
 
@@ -405,7 +443,7 @@ export default function Home() {
       || failure.code === "OUT_OF_MEMORY";
     if (silent) setNotice(null);
     else if (failure.code === "CANCELLED") notifyView("info", BROWSER_AI_MESSAGES.CANCELLED);
-    else notifyView("error", failure.message ?? "브라우저 AI 작업에 실패했습니다.");
+    else notifyView("error", failure.message ?? "브라우저 AI 작업에 실패했습니다.", failure.code);
   };
 
   /**
@@ -773,7 +811,15 @@ export default function Home() {
     && aiState.phase !== "idle";
 
   return (
-    <div className="app-shell">
+    // Observable state for tests and diagnostics: the AI phase and the
+    // hydration signal, read from the values the app already has. The user
+    // sees the sentences in the panels; nothing here is rendered.
+    <div
+      className="app-shell"
+      data-hydrated={hydrated ? "true" : "false"}
+      data-ai-state={aiState.phase}
+      {...(aiState.phase === "failed" || aiState.phase === "unsupported" ? { "data-ai-error": aiState.code } : {})}
+    >
       <a className="skip-link" href="#workspace-content">본문으로 건너뛰기</a>
       <nav className="rail" aria-label="Workspace views">
         <div className="rail-brand">
@@ -896,10 +942,10 @@ export default function Home() {
               variant={notice.tone === "error" ? "error" : notice.tone === "success" ? "success" : "info"}
               tone={notice.tone === "error" ? "alert" : "status"}
               live={notice.tone === "error" ? "assertive" : "polite"}
-              title={notice.tone === "error" ? "작업을 완료하지 못했습니다" : notice.tone === "success" ? "작업 완료" : "처리 상태"}
+              title={noticeTitle(notice)}
             >
               <p>{notice.message}</p>
-              {notice.tone === "error" ? <small>{notice.message.includes("브라우저 AI") ? "Analyze, Compare, Check, Extract는 브라우저 AI 없이 계속 사용할 수 있습니다." : "파일 형식과 선택 상태를 확인한 뒤 다시 시도하세요."}</small> : null}
+              {notice.tone === "error" ? <small>{notice.code ? "AI 기능을 제외한 나머지 기능은 계속 사용할 수 있습니다." : "파일 형식과 선택 상태를 확인한 뒤 다시 시도하세요."}</small> : null}
             </StatusPanel>
           ) : null}
 
@@ -1196,8 +1242,9 @@ function BrowserAiStatus({ state, onConfirm, onCancelLoad, onInterrupt }: {
   }
   if (state.phase === "failed") {
     return (
-      <StatusPanel variant="warning" className="ai-status failed" title="AI 모델 준비 실패">
-        <p>{state.message}</p>
+      <StatusPanel variant="warning" className="ai-status failed" title="AI 준비 실패">
+        {/* The box reports state; the notice above carries the full guidance. */}
+        <p>{BROWSER_AI_STATUS_MESSAGES[state.code] ?? state.message}</p>
         {state.detail ? <small className="ai-detail">{state.detail}</small> : null}
       </StatusPanel>
     );
