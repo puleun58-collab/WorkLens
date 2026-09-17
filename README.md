@@ -19,7 +19,7 @@ WorkLens는 XLSX, CSV, PDF, DOCX, PPTX 파일을 **브라우저 안에서** 분�
 | 파싱(XLSX·CSV·PDF·DOCX·PPTX) | 브라우저 Web Worker | `src/lib/parsers/*` |
 | Analyze / Check / Extract / Compare | 브라우저 Web Worker | `src/lib/deterministic.ts`, `src/lib/check/`, `src/lib/extract/`, `src/domain/compare.ts` |
 | CSV·XLSX 내보내기 | 브라우저 Web Worker | `src/lib/export.ts`, `src/lib/extract/export.ts` |
-| Ask / Brief / Polish / AI 문장 검수 / Extract 항목 탐색 | 브라우저 AI Web Worker (WebLLM + WebGPU) | `src/client/browser-ai-worker.ts`, 모델 `Qwen3.5-4B-q4f16_1-MLC` (최초 1회 약 2,290 MB 다운로드, 이후 브라우저 캐시 재사용) |
+| Ask / Brief / Polish / AI 문장 검수 / Extract 항목 탐색 | 브라우저 AI Web Worker (WebLLM + WebGPU) | `src/client/browser-ai-worker.ts`, 모델은 장치 메모리에 따라 `Qwen3.5-4B-q4f16_1-MLC`(약 2,290 MB) 또는 `Qwen3.5-2B-q4f16_1-MLC`(약 1,320 MB), 최초 1회 다운로드 후 브라우저 캐시 재사용 |
 | 정적 호스팅 | Cloudflare Workers + Assets | KV·R2에 사용자 데이터 저장 없음 |
 
 - 문서 처리기는 `src/client/document-worker.ts` 하나이며, 메인 스레드는 `src/client/document-client.ts`로만 통신합니다.
@@ -77,6 +77,18 @@ bun run test:eval:ai         # 선택: 실제 WebGPU에서 고정 품질 평가�
 테스트는 사용자 문구가 아니라 앱이 노출하는 상태값으로 AI를 판정합니다. 최상위 `.app-shell`이 `data-ai-state`(`idle`·`checking`·`awaiting-confirmation`·`loading`·`ready`·`failed`·`unsupported`)와 실패 시 `data-ai-error`(내부 오류 코드), 그리고 하이드레이션 완료 시 `data-hydrated="true"`를 표시합니다. 문구 assertion은 사용자에게 실제로 보여야 하는 메시지를 확인하는 테스트에만 남겨 두었습니다.
 
 WebGPU가 없으면 AI 검증 명령은 **실패**합니다(navigator.gpu·adapter·device 획득 여부와 실패 단계를 출력). WebGPU가 원래 없는 환경은 `CI` 환경변수 또는 `WORKLENS_AI_ALLOW_NO_WEBGPU=1`이 있을 때만 skip으로 처리합니다. `WORKLENS_AI_MODEL`은 지원 모델(`Qwen3.5-4B-q4f16_1-MLC`, `Qwen2.5-1.5B-Instruct-q4f16_1-MLC`)만 허용하며, 그 외 값은 조용히 기본 모델로 대체되지 않고 즉시 오류로 끝납니다.
+
+브라우저 AI는 장치가 감당할 수 있는 모델을 **로드 전에** 고릅니다(`src/client/browser-ai-capability.ts`). 큰 모델을 먼저 올려 보고 실패하면 줄이는 방식은 쓰지 않습니다 — 내장 GPU 환경에서는 그 시점에 이미 브라우저가 아니라 PC 전체가 멈춥니다. 판단 근거는 `navigator.deviceMemory`와 WebGPU adapter limits이며, `deviceMemory`는 2의 거듭제곱으로 반올림되고 일부 브라우저에서 8 GiB로 상한이 걸리므로 "작다"는 신호만 신뢰하고 "크다"는 값은 상한을 넘겼을 때만 인정합니다.
+
+| 장치 신호 | 사용 모델 | 최초 다운로드 |
+| --- | --- | --- |
+| 보고값 > 8 GiB (여유 확인됨) | `Qwen3.5-4B-q4f16_1-MLC` 표준 | 약 2,290 MB |
+| 보고값 ≤ 8 GiB 또는 미보고 | `Qwen3.5-2B-q4f16_1-MLC` 경량 | 약 1,320 MB |
+| WebGPU 사용 불가 | AI 비활성화 | 없음 |
+
+두 모델 모두 `context_window_size: 2048`로 로드합니다(prebuilt 기본값 4,096). KV 캐시는 엔진 생성 시점에 이 값으로 할당되고, WorkLens는 문서 전체가 아니라 근거 창(최대 40개 · 5,000자)만 모델에 넣기 때문에 2,048로 충분합니다. 8 GiB로 보고되는 장치에서는 표준 모델이 선택 목록에도 오르지 않으며, 그 외 환경에서는 최초 사용 화면에서 경량/표준을 직접 고를 수 있습니다. 선택은 모델 ID별 consent·캐시 키와 함께 저장되므로 경량으로 전환한 장치가 이전에 받아 둔 4B 캐시를 자동으로 다시 로드하지 않습니다.
+
+모델 로드는 단계별로 기록됩니다(`[AI][Load][download|cache|shader|gpu-allocate|ready]`). "다운로드 완료"와 "GPU 메모리 할당"이 분리되어 있어, 다운로드가 끝난 뒤 멈추는 증상이 어느 단계에서 발생하는지 로그로 구분할 수 있습니다.
 
 평가셋은 `tests/eval/`에 있습니다. XLSX·CSV·PDF·DOCX·PPTX 5종의 업무 문서 fixture와 79개 고정 케이스(사실·숫자·날짜·백분율·시트/슬라이드/제목 지정·교차 구간·답변 불가)를 사용하며, 정답 근거의 위치와 값을 코드로 명시해 모델 판단 없이 채점합니다. Ask는 모델 호출 전에 관련성 게이트(`askRelevance`)를 통과해야 하며, 임계값은 이 평가셋에서 answerable recall을 100%로 유지하는 값으로 맞췄습니다. 실제 모델 품질 평가(`test:eval:ai`)와 기능 점검(`test:ai:smoke`)은 서로 다른 spec/config를 사용하고 WebGPU가 필요하므로 기본 CI에는 포함하지 않습니다.
 

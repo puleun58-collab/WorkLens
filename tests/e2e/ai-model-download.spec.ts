@@ -8,8 +8,11 @@ import {
   model,
   profileDir,
   probeWebGpu,
+  readModelDiagnostics,
   requireWebGpu,
+  selectTier,
   test,
+  tier,
   TIMEOUTS,
   waitForHydration,
   waitForModelReady,
@@ -62,6 +65,12 @@ test("downloads the model once and then serves it from the browser cache", async
 
   await tracker.run("4. consent prompt", async () => {
     await page.getByRole("button", { name: "Ask", exact: true }).click();
+    // The tier is settled before a byte is fetched: WORKLENS_AI_TIER names it,
+    // otherwise the app's own conservative decision stands.
+    if (tier) await selectTier(page, tier);
+    const diagnostics = await readModelDiagnostics(page);
+    measured.decision = diagnostics;
+    tracker.log(`   model ${diagnostics?.modelId} context=${diagnostics?.contextWindowSize} — ${diagnostics?.reason}`);
     // Nothing is downloaded before the user accepts, and the prompt is drawn
     // only once the WebGPU probe resolves.
     expect(await acceptConsent(page, tracker)).toBe(true);

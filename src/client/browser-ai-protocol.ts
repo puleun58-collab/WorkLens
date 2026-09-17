@@ -11,20 +11,57 @@ import type { PolishMode, PolishProposal } from "@/domain/polish";
  * only document data that crosses this boundary is the bounded evidence window
  * (`handle` + `text`) built by the document worker.
  */
-export const BROWSER_AI_MODEL_ID = "Qwen3.5-4B-q4f16_1-MLC";
-export const BROWSER_AI_MODEL_LABEL = "Qwen3.5 4B";
 /**
- * First-run download, measured from the published MLC repository
- * (`mlc-ai/Qwen3.5-4B-q4f16_1-MLC`): 2,280 MB of weights and config plus the
- * WebGPU runtime library. The engine reports ~3.9 GB of device memory for this
- * model, so a machine that cannot allocate it fails as OUT_OF_MEMORY and the
- * deterministic features keep working.
+ * The two models this product ships, and the only two it will load.
+ *
+ * `vramRequiredMb` and `downloadMb` are the published MLC figures for these
+ * exact repositories — `tests/browser-ai-model.test.ts` pins them against the
+ * installed `prebuiltAppConfig`, so a WebLLM upgrade that moves them fails in
+ * unit tests rather than on a user's machine.
+ *
+ * `contextWindowSize` is deliberately below the prebuilt 4,096: the KV cache
+ * is allocated up front and scales with it, and WorkLens never feeds a whole
+ * document to the model — the document worker hands over a bounded evidence
+ * window (40 items, 5,000 characters), which fits well inside 2,048 tokens.
  */
-export const BROWSER_AI_MODEL_MB = 2_290;
+export type BrowserAiTier = "standard" | "light";
+
+export interface BrowserAiModelProfile {
+  tier: BrowserAiTier;
+  id: string;
+  label: string;
+  /** First-run download: weights and config plus the WebGPU runtime library. */
+  downloadMb: number;
+  /** Device memory the engine reserves once loaded. */
+  vramRequiredMb: number;
+  contextWindowSize: number;
+}
+
+export const BROWSER_AI_MODELS: Record<BrowserAiTier, BrowserAiModelProfile> = {
+  standard: {
+    tier: "standard",
+    id: "Qwen3.5-4B-q4f16_1-MLC",
+    label: "표준 AI 모델",
+    downloadMb: 2_290,
+    vramRequiredMb: 3_868,
+    contextWindowSize: 2_048,
+  },
+  light: {
+    tier: "light",
+    id: "Qwen3.5-2B-q4f16_1-MLC",
+    label: "경량 AI 모델",
+    downloadMb: 1_320,
+    vramRequiredMb: 2_245,
+    contextWindowSize: 2_048,
+  },
+};
+
+export const BROWSER_AI_MODEL_ID = BROWSER_AI_MODELS.standard.id;
+export const BROWSER_AI_MODEL_LABEL = "Qwen3.5 4B";
+export const BROWSER_AI_MODEL_MB = BROWSER_AI_MODELS.standard.downloadMb;
 /**
- * Previous default. Kept as the A/B baseline for the real-WebGPU smoke run and
- * selected only through the `window.__worklensAiModel` test seam; the product
- * UI never offers a model choice.
+ * Previous default, kept as the A/B baseline for the real-WebGPU runs and
+ * selected only through the `window.__worklensAiModel` test seam.
  */
 export const BROWSER_AI_BASELINE_MODEL_ID = "Qwen2.5-1.5B-Instruct-q4f16_1-MLC";
 export const BROWSER_AI_MAX_FILES = 5;
@@ -58,11 +95,21 @@ export type BrowserAiState =
   | { phase: "ready" }
   | { phase: "failed"; code: BrowserAiErrorCode; message: string; detail?: string };
 
+/**
+ * Every request names the model and the context it must be loaded with: the
+ * KV cache is allocated when the engine is created, so the context size is
+ * part of choosing a model, not a later setting.
+ */
+export interface BrowserAiModelRequest {
+  modelId: string;
+  contextWindowSize: number;
+}
+
 export type BrowserAiWorkerRequest =
-  | { id: string; kind: "load"; modelId: string }
-  | { id: string; kind: "generate"; modelId: string; request: AiRequest; items: EvidenceItem[] }
-  | { id: string; kind: "polish"; modelId: string; text: string; mode: PolishMode }
-  | { id: string; kind: "extract"; modelId: string; field: string; items: EvidenceItem[] }
+  | ({ id: string; kind: "load" } & BrowserAiModelRequest)
+  | ({ id: string; kind: "generate"; request: AiRequest; items: EvidenceItem[] } & BrowserAiModelRequest)
+  | ({ id: string; kind: "polish"; text: string; mode: PolishMode } & BrowserAiModelRequest)
+  | ({ id: string; kind: "extract"; field: string; items: EvidenceItem[] } & BrowserAiModelRequest)
   | { id: string; kind: "interrupt" };
 
 export type BrowserAiWorkerEvent =

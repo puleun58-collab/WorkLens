@@ -54,6 +54,20 @@ export const TIMEOUTS = {
   document: envMs("WORKLENS_AI_DOCUMENT_TIMEOUT_MS", 60_000),
 } as const;
 
+/**
+ * Which model tier a run exercises. Absent means the app's own decision
+ * stands, which is the conservative one; `standard` is how an operator who
+ * knows their machine tests the large model.
+ */
+export const tier = ((): "standard" | "light" | undefined => {
+  const requested = process.env.WORKLENS_AI_TIER;
+  if (!requested) return undefined;
+  if (requested !== "standard" && requested !== "light") {
+    throw new Error(`Unsupported WORKLENS_AI_TIER: ${requested}. Supported: standard, light`);
+  }
+  return requested;
+})();
+
 const FIXTURE_DIR = path.join(process.cwd(), "artifacts", "fixtures");
 export const fixtures = {
   rateSheet: path.join(FIXTURE_DIR, "운임현황_v1.xlsx"),
@@ -178,6 +192,38 @@ export function requireWebGpu(probe: WebGpuProbe, tracker: StageTracker): void {
     `this run requires a real WebGPU device — ${report}. `
     + "Set WORKLENS_AI_ALLOW_NO_WEBGPU=1 (or run in CI) to skip instead of failing.",
   );
+}
+
+/**
+ * What the app decided to load, and the signals it decided from. Recorded in
+ * the run artifact so a machine that freezes can be told apart from one that
+ * was handed a model it could never hold.
+ */
+export interface AiModelDiagnostics {
+  modelId: string;
+  label: string;
+  tier: string;
+  contextWindowSize: number;
+  downloadMb: number;
+  reason: string;
+  source: string;
+  standardBlocked: boolean;
+  signals: Record<string, number | undefined>;
+}
+
+export async function readModelDiagnostics(page: Page): Promise<AiModelDiagnostics | null> {
+  return page.evaluate(() => {
+    const reader: unknown = Reflect.get(window, "__worklensAiDiagnostics");
+    return typeof reader === "function" ? (reader() as AiModelDiagnostics) : null;
+  });
+}
+
+/** Asks the app to use a tier before any download starts. */
+export async function selectTier(page: Page, tier: "standard" | "light"): Promise<void> {
+  await page.evaluate((value) => {
+    const select: unknown = Reflect.get(window, "__worklensAiSelectTier");
+    if (typeof select === "function") select(value);
+  }, tier);
 }
 
 /**

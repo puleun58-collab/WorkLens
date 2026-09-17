@@ -9,8 +9,11 @@ import {
   noticeText,
   profileDir,
   probeWebGpu,
+  readModelDiagnostics,
   requireWebGpu,
+  selectTier,
   test,
+  tier,
   TIMEOUTS,
   waitForHydration,
   waitForModelReady,
@@ -62,6 +65,10 @@ test("answers, briefs and reviews on a cached model and keeps evidence grounded"
 
   measured.readyMs = await tracker.run("4. model ready", async () => {
     await page.getByRole("button", { name: "Ask", exact: true }).click();
+    if (tier) await selectTier(page, tier);
+    const diagnostics = await readModelDiagnostics(page);
+    measured.decision = diagnostics;
+    tracker.log(`   model ${diagnostics?.modelId} context=${diagnostics?.contextWindowSize} — ${diagnostics?.reason}`);
     // A cached profile remembers the consent; a fresh one still has to take it.
     await acceptConsent(page, tracker);
     // The run action also gates on a question, so readiness is read with one typed.
@@ -94,11 +101,19 @@ test("answers, briefs and reviews on a cached model and keeps evidence grounded"
   await tracker.run("8. semantic check on the same model", async () => {
     const before = await noticeText(page);
     await page.getByRole("button", { name: "Check", exact: true }).click();
+    // Sentence review needs sentences: the deck carries prose, the rate sheet
+    // is numbers.
+    await page.locator(".file-row input[type='checkbox']").nth(1).check();
     await page.getByRole("button", { name: "AI 문장 검수" }).click();
-    // `runSemanticCheck` reports either count; both are the same contract —
-    // model suggestions folded into the deterministic result.
     const notice = await waitForNewNotice(page, tracker, before, TIMEOUTS.generate);
-    expect(notice).toMatch(/AI 문장 검수/);
+    // Two legitimate outcomes: suggestions folded into the deterministic
+    // result, or abstention when the model finds nothing it can ground. What
+    // is not acceptable is the engine breaking, so the model must still be
+    // loaded afterwards. Pinning a suggestion count would be pinning model
+    // quality, which differs per model and per run.
+    measured.semanticCheck = notice;
+    expect(notice).toMatch(/AI 문장 검수|근거를 찾지 못했습니다/);
+    expect((await aiState(page)).phase).toBe("ready");
   });
 
   await tracker.run("9. unanswerable question", async () => {
@@ -118,13 +133,18 @@ test("answers, briefs and reviews on a cached model and keeps evidence grounded"
     // download run, where that panel exists.
     const before = await noticeText(page);
     const started = Date.now();
+    // Back to the sheet alone, which is where this question's answer lives.
+    await page.locator(".file-row input[type='checkbox']").nth(1).uncheck();
     await page.getByPlaceholder("선택한 문서에서 확인할 내용을 입력하세요").fill("BUSAN 운임은 얼마인가요?");
     await page.getByRole("button", { name: "Ask 실행" }).click();
     const notice = await waitForNewNotice(page, tracker, before, TIMEOUTS.generate);
-    expect(notice).toContain("Ask 결과를 준비했습니다.");
+    // What this stage proves is that the loaded model served a second request:
+    // an answer and a grounded abstention both do, a broken engine does not.
+    measured.warmAskNotice = notice;
+    expect(notice).toMatch(/Ask 결과를 준비했습니다|근거를 찾지 못했습니다/);
     // Still ready, never re-downloaded: the weights never left memory.
     expect((await aiState(page)).phase).toBe("ready");
-    measured.warmAskAnswer = await page.locator(".claim-row").first().innerText();
+    await expect(page.locator(".ai-status.loading")).toHaveCount(0);
     return Date.now() - started;
   });
 
@@ -133,6 +153,51 @@ test("answers, briefs and reviews on a cached model and keeps evidence grounded"
     path.join(process.cwd(), "artifacts", `ai-smoke-${model}.json`),
     `${JSON.stringify(measured, null, 2)}\n`,
   );
+});
+
+/**
+ * The decision that cannot be retried, checked without paying for it: on a
+ * memory-tight machine loading the large model takes the whole desktop down,
+ * so the tier has to be settled from the device's own report while nothing is
+ * allocated. This test downloads nothing.
+ */
+test("settles which model to load before anything is downloaded", async ({ page, tracker }) => {
+  test.setTimeout(TIMEOUTS.document * 3);
+
+  await tracker.run("1. page load", async () => {
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    await waitForHydration(page, TIMEOUTS.document);
+  });
+
+  const probe = await tracker.run("2. WebGPU init", () => probeWebGpu(page));
+  requireWebGpu(probe, tracker);
+
+  await tracker.run("3. model decision", async () => {
+    await page.locator('input[type="file"]').setInputFiles([fixtures.rateSheet]);
+    await expect(page.locator(".file-row")).toHaveCount(1, { timeout: TIMEOUTS.document });
+    await page.locator(".file-row input[type='checkbox']").first().check();
+    await page.getByRole("button", { name: "Ask", exact: true }).click();
+    await expect(page.locator(".app-shell")).not.toHaveAttribute("data-ai-state", "checking", { timeout: TIMEOUTS.document });
+
+    const diagnostics = await readModelDiagnostics(page);
+    expect(diagnostics, "the app exposes its model decision").not.toBeNull();
+    tracker.log(`   ${diagnostics?.modelId} context=${diagnostics?.contextWindowSize} — ${diagnostics?.reason}`);
+    tracker.log(`   signals: ${JSON.stringify(diagnostics?.signals)}`);
+
+    const memoryGb = diagnostics?.signals.deviceMemoryGb;
+    if (memoryGb !== undefined && memoryGb > 8) {
+      // Measured headroom above the reporting clamp: the standard model stays.
+      expect(diagnostics?.tier).toBe("standard");
+    } else {
+      // At or below the clamp the report cannot prove headroom, so the
+      // smaller model is what a first run loads.
+      expect(diagnostics?.tier).toBe("light");
+    }
+    // A context small enough that the KV cache is not what fills memory.
+    expect(diagnostics?.contextWindowSize).toBeLessThanOrEqual(2_048);
+    // Still waiting on the user: nothing has been fetched or allocated.
+    expect((await aiState(page)).phase).toBe("awaiting-confirmation");
+  });
 });
 
 /**

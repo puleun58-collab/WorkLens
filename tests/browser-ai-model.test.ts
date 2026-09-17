@@ -5,9 +5,7 @@ import { securityHeaders } from "@/config/security-headers";
 import { noReferrerFetch } from "@/client/no-referrer-fetch";
 import {
   BROWSER_AI_BASELINE_MODEL_ID,
-  BROWSER_AI_MODEL_ID,
-  BROWSER_AI_MODEL_LABEL,
-  BROWSER_AI_MODEL_MB,
+  BROWSER_AI_MODELS,
 } from "@/client/browser-ai-protocol";
 
 /**
@@ -21,26 +19,45 @@ function modelEntry(id: string) {
 }
 
 describe("browser AI model selection", () => {
-  it("ships a model the installed runtime can serve", () => {
-    const entry = modelEntry(BROWSER_AI_MODEL_ID);
-    expect(entry, BROWSER_AI_MODEL_ID).toBeDefined();
-    expect(entry?.model).toContain(BROWSER_AI_MODEL_ID);
+  it("ships only models the installed runtime can serve", () => {
+    for (const profile of Object.values(BROWSER_AI_MODELS)) {
+      const entry = modelEntry(profile.id);
+      expect(entry, profile.id).toBeDefined();
+      expect(entry?.model).toContain(profile.id);
+    }
   });
 
   it("keeps the A/B baseline resolvable", () => {
     expect(modelEntry(BROWSER_AI_BASELINE_MODEL_ID)).toBeDefined();
   });
 
-  it("advertises a download size that matches the model's footprint", () => {
-    const vram = modelEntry(BROWSER_AI_MODEL_ID)?.vram_required_MB ?? 0;
-    expect(vram).toBeGreaterThan(0);
-    // Weights dominate the download; device memory adds runtime buffers on top.
-    expect(BROWSER_AI_MODEL_MB).toBeLessThan(vram);
-    expect(BROWSER_AI_MODEL_MB).toBeGreaterThan(vram / 2);
+  it("states each model's working set as the runtime reports it", () => {
+    // The memory figures decide which model a device may load, so a WebLLM
+    // upgrade that moves them has to fail here rather than on a user's machine.
+    for (const profile of Object.values(BROWSER_AI_MODELS)) {
+      const vram = modelEntry(profile.id)?.vram_required_MB ?? 0;
+      expect(vram, profile.id).toBeGreaterThan(0);
+      expect(Math.abs(profile.vramRequiredMb - vram), profile.id).toBeLessThan(2);
+      // Weights dominate the download; device memory adds runtime buffers on top.
+      expect(profile.downloadMb, profile.id).toBeLessThan(vram);
+      expect(profile.downloadMb, profile.id).toBeGreaterThan(vram / 2);
+    }
   });
 
-  it("names the model the way the runtime id reads", () => {
-    expect(BROWSER_AI_MODEL_ID.startsWith(BROWSER_AI_MODEL_LABEL.replace(" ", "-"))).toBe(true);
+  it("keeps the light model smaller than the standard one", () => {
+    // The fallback only helps if it actually asks for less memory.
+    expect(BROWSER_AI_MODELS.light.vramRequiredMb).toBeLessThan(BROWSER_AI_MODELS.standard.vramRequiredMb);
+    expect(BROWSER_AI_MODELS.light.downloadMb).toBeLessThan(BROWSER_AI_MODELS.standard.downloadMb);
+  });
+
+  it("loads each model with a context the runtime supports", () => {
+    // WebLLM validates `context_window_size` against the model library, and
+    // the prebuilt record states what that library was built for.
+    for (const profile of Object.values(BROWSER_AI_MODELS)) {
+      const prebuilt = modelEntry(profile.id)?.overrides?.context_window_size ?? 0;
+      expect(prebuilt, profile.id).toBeGreaterThan(0);
+      expect(profile.contextWindowSize, profile.id).toBeLessThanOrEqual(prebuilt);
+    }
   });
 });
 
@@ -85,7 +102,7 @@ describe("browser AI content security policy", () => {
 
   it("permits the hosts the shipped model is downloaded from", async () => {
     const connect = (await contentSecurityPolicy())["connect-src"] ?? [];
-    for (const id of [BROWSER_AI_MODEL_ID, BROWSER_AI_BASELINE_MODEL_ID]) {
+    for (const id of [...Object.values(BROWSER_AI_MODELS).map((profile) => profile.id), BROWSER_AI_BASELINE_MODEL_ID]) {
       const entry = modelEntry(id);
       expect(entry, id).toBeDefined();
       // Weights and the compiled WebGPU library live on different hosts.

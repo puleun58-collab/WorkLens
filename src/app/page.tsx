@@ -18,6 +18,8 @@ import {
 import { WorkLensLogo } from "./worklens-logo";
 import { disposeWorkspace, runInWorker } from "@/client/document-client";
 import {
+  browserAiDecision,
+  browserAiModel,
   browserAiState,
   cancelBrowserAiLoad,
   confirmBrowserAi,
@@ -28,17 +30,17 @@ import {
   loadBrowserAi,
   polishBrowserAi,
   probeBrowserAi,
+  selectBrowserAiTier,
   subscribeBrowserAi,
   type BrowserAiFailure,
 } from "@/client/browser-ai-client";
 import {
   BROWSER_AI_MAX_FILES,
   BROWSER_AI_MESSAGES,
-  BROWSER_AI_MODEL_LABEL,
-  BROWSER_AI_MODEL_MB,
   BROWSER_AI_STATUS_MESSAGES,
   type BrowserAiErrorCode,
   type BrowserAiState,
+  type BrowserAiTier,
 } from "@/client/browser-ai-protocol";
 import type { CheckEntry as WorkerCheckEntry, WorkspaceFile } from "@/client/protocol";
 import {
@@ -263,6 +265,14 @@ export default function Home() {
    * `true`, so `data-hydrated` flips exactly when this tree is interactive.
    */
   const hydrated = useSyncExternalStore(subscribeNothing, clientHydrated, serverHydrated);
+  /**
+   * The model decision is owned by the AI client and settled before any
+   * download, so it is read during render rather than mirrored into state.
+   * The counter exists only to re-render after the user picks a tier.
+   */
+  const [, setAiTierEpoch] = useState(0);
+  const aiModel = browserAiModel();
+  const aiDecision = browserAiDecision();
   const [polishMode, setPolishMode] = useState<PolishMode>("default");
   const [polish, setPolish] = useState<PolishResult | null>(null);
   const [polishProgress, setPolishProgress] = useState<{ done: number; total: number } | null>(null);
@@ -1079,9 +1089,12 @@ export default function Home() {
               {aiStatusVisible ? (
                 <BrowserAiStatus
                   state={aiState}
+                  model={aiModel}
+                  standardBlocked={aiDecision.standardBlocked}
                   onConfirm={() => { confirmBrowserAi(); void loadBrowserAi().catch(reportAiFailure); }}
                   onCancelLoad={() => { cancelBrowserAiLoad(); setAiAssistRequested(false); }}
                   onInterrupt={interruptBrowserAi}
+                  onTier={(tier) => { selectBrowserAiTier(tier); setAiTierEpoch((epoch) => epoch + 1); }}
                 />
               ) : null}
               {busy && polishProgress ? (
@@ -1184,11 +1197,14 @@ function StatusPanel({ variant, title, children, tone, live, className, label }:
  * Analyze/Compare/Check/Extract keep working underneath it. The first download
  * is opt-in, and a download and a running generation cancel differently.
  */
-function BrowserAiStatus({ state, onConfirm, onCancelLoad, onInterrupt }: {
+function BrowserAiStatus({ state, model, standardBlocked, onConfirm, onCancelLoad, onInterrupt, onTier }: {
   state: BrowserAiState;
+  model: { label: string; downloadMb: number; tier: BrowserAiTier };
+  standardBlocked: boolean;
   onConfirm: () => void;
   onCancelLoad: () => void;
   onInterrupt: () => void;
+  onTier: (tier: BrowserAiTier) => void;
 }) {
   if (state.phase === "unsupported") {
     return (
@@ -1205,14 +1221,32 @@ function BrowserAiStatus({ state, onConfirm, onCancelLoad, onInterrupt }: {
     );
   }
   if (state.phase === "awaiting-confirmation") {
-    // A work surface only needs the decision: what it costs once, and that it
-    // is reused afterwards. Model name, feature list and the privacy and cache
-    // policy live in 설정 > 브라우저 AI, not on top of the user's task.
+    // A work surface only needs the decision: which model, what it costs once,
+    // and that it is reused afterwards. The device cannot report how much RAM
+    // it has (browsers cap the signal at 8 GiB), so the lighter model is the
+    // default and the standard one is offered as a choice — never as a load
+    // that freezes the machine and then falls back.
     return (
       <StatusPanel variant="info" className="ai-status confirm" tone="group" label="AI 모델 사용" title="AI 모델 사용">
         <p className="ai-copy">
-          최초 1회 약 {BROWSER_AI_MODEL_MB.toLocaleString("ko-KR")}MB 모델을 내려받으며 이후 브라우저 캐시를 재사용합니다.
+          이 PC에서는 {model.label}을 사용합니다. 최초 1회 약 {model.downloadMb.toLocaleString("ko-KR")}MB를 내려받으며 이후 브라우저 캐시를 재사용합니다.
         </p>
+        {standardBlocked ? null : (
+          <fieldset className="segmented ai-model-tiers" aria-label="AI 모델 선택">
+            {(["light", "standard"] as const).map((tier) => (
+              <label key={tier}>
+                <input
+                  type="radio"
+                  name="ai-model-tier"
+                  value={tier}
+                  checked={model.tier === tier}
+                  onChange={() => onTier(tier)}
+                />
+                <span>{tier === "light" ? "경량 (메모리 적게)" : "표준 (품질 높게)"}</span>
+              </label>
+            ))}
+          </fieldset>
+        )}
         <div className="ai-status-actions">
           <button type="button" className="ai-confirm" onClick={onConfirm}>사용 시작</button>
           <button type="button" className="secondary-action" onClick={onCancelLoad}>취소</button>
@@ -1223,8 +1257,8 @@ function BrowserAiStatus({ state, onConfirm, onCancelLoad, onInterrupt }: {
   if (state.phase === "loading") {
     const percent = Math.round(Math.min(Math.max(state.progress, 0), 1) * 100);
     return (
-      <StatusPanel variant="info" className="ai-status loading" live="polite" title="AI 모델 준비 중">
-        <p>모델 다운로드 중에도 Analyze · Compare · Check · Extract는 계속 사용할 수 있습니다.</p>
+      <StatusPanel variant="info" className="ai-status loading" live="polite" title={`${model.label} 준비 중`}>
+        <p>모델을 준비하는 동안에도 AI 기능을 제외한 나머지 기능은 계속 사용할 수 있습니다.</p>
         <span className="ai-progress">
           <progress max={100} value={percent} />
           모델 다운로드 {percent}%
@@ -1285,7 +1319,7 @@ function SettingsView({ view, companyTerms, companyTermsSource, userTerms, ignor
               : "없음"}
           </dd></div>
           <div><dt>브라우저 AI</dt><dd>
-            Ask, Brief, 문장 검수는 브라우저에서 {BROWSER_AI_MODEL_LABEL} 모델로 실행되며, 최초 1회 약 {BROWSER_AI_MODEL_MB.toLocaleString("ko-KR")}MB 모델을 내려받은 뒤 브라우저 캐시를 재사용합니다.
+            Ask, Brief, 문장 검수는 브라우저에서 실행됩니다. 이 PC에서는 {browserAiModel().label}을 사용하며, 최초 1회 약 {browserAiModel().downloadMb.toLocaleString("ko-KR")}MB 모델을 내려받은 뒤 브라우저 캐시를 재사용합니다.
             <span className="settings-note">문서와 질문은 외부로 전송되거나 저장되지 않으며, 캐시에는 모델 파일만 남습니다.</span>
           </dd></div>
         </dl>

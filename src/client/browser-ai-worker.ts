@@ -74,7 +74,25 @@ function classify(error: unknown, stage: string): { code: BrowserAiErrorCode; me
   return { code: "MODEL_LOAD_FAILED", message };
 }
 
-async function loadEngine(id: string, modelId: string): Promise<MLCEngine> {
+/**
+ * Load stages, named separately in the console.
+ *
+ * "Download finished" and "the engine allocated the weights" are different
+ * events with different failure modes: on a memory-tight machine the download
+ * completes and the renderer dies while the engine reserves device memory. The
+ * progress text WebLLM reports names the phase it is in, so each transition is
+ * logged with the time it took to get there.
+ */
+function loadStage(text: string): string {
+  const lowered = text.toLowerCase();
+  if (lowered.includes("fetch")) return "download";
+  if (lowered.includes("cache")) return "cache";
+  if (lowered.includes("shader") || lowered.includes("compil")) return "shader";
+  if (lowered.includes("gpu") || lowered.includes("load")) return "gpu-allocate";
+  return "init";
+}
+
+async function loadEngine(id: string, modelId: string, contextWindowSize: number): Promise<MLCEngine> {
   if (engine && loadedModel === modelId) return engine;
   if (engine && loadedModel !== modelId) {
     const previous = engine;
@@ -83,14 +101,30 @@ async function loadEngine(id: string, modelId: string): Promise<MLCEngine> {
     await previous.unload();
   }
   loadedModel = modelId;
-  loading ??= CreateMLCEngine(modelId, {
-    initProgressCallback: (report: InitProgressReport) => {
-      post({ id, kind: "progress", progress: report.progress, text: report.text });
+  const started = Date.now();
+  let stage = "";
+  console.info(`[AI][Load] ${modelId} with context_window_size=${contextWindowSize}`);
+  loading ??= CreateMLCEngine(
+    modelId,
+    {
+      initProgressCallback: (report: InitProgressReport) => {
+        const current = loadStage(report.text);
+        if (current !== stage) {
+          stage = current;
+          console.info(`[AI][Load][${current}] +${Date.now() - started}ms ${report.text.slice(0, 120)}`);
+        }
+        post({ id, kind: "progress", progress: report.progress, text: report.text });
+      },
     },
-  }).then((created) => {
+    // The KV cache is sized from this at engine creation, so it is the one
+    // knob that changes how much device memory a given model reserves.
+    { context_window_size: contextWindowSize },
+  ).then((created) => {
+    console.info(`[AI][Load][ready] +${Date.now() - started}ms ${modelId}`);
     engine = created;
     return created;
   }).catch((error: unknown) => {
+    console.error(`[AI][Load][failed] +${Date.now() - started}ms during ${stage || "init"}`, error);
     loading = undefined;
     loadedModel = undefined;
     throw error;
@@ -107,7 +141,7 @@ self.addEventListener("message", (event: MessageEvent<BrowserAiWorkerRequest>) =
     return;
   }
   if (request.kind === "load") {
-    void loadEngine(request.id, request.modelId).then(
+    void loadEngine(request.id, request.modelId, request.contextWindowSize).then(
       () => post({ id: request.id, kind: "ready" }),
       (error: unknown) => {
         const { code, message } = classify(error, "Model Load");
@@ -126,7 +160,7 @@ self.addEventListener("message", (event: MessageEvent<BrowserAiWorkerRequest>) =
     // Polish sends one prose segment at a time: no evidence window, no
     // locators, and the answer is a single rewrite proposal.
     void (async () => {
-      const active = await loadEngine(request.id, request.modelId);
+      const active = await loadEngine(request.id, request.modelId, request.contextWindowSize);
       const completion = await active.chat.completions.create({
         messages: buildPolishMessages(request.text, request.mode),
         ...SAMPLING,
@@ -148,7 +182,7 @@ self.addEventListener("message", (event: MessageEvent<BrowserAiWorkerRequest>) =
     // One field against one bounded evidence window; the answer is a value
     // copied from that window or nothing at all.
     void (async () => {
-      const active = await loadEngine(request.id, request.modelId);
+      const active = await loadEngine(request.id, request.modelId, request.contextWindowSize);
       const completion = await active.chat.completions.create({
         messages: buildExtractMessages(request.field, request.items),
         ...SAMPLING,
@@ -167,7 +201,7 @@ self.addEventListener("message", (event: MessageEvent<BrowserAiWorkerRequest>) =
     return;
   }
   void (async () => {
-    const active = await loadEngine(request.id, request.modelId);
+    const active = await loadEngine(request.id, request.modelId, request.contextWindowSize);
     const completion = await active.chat.completions.create({
       messages: buildMessages(request.request, request.items),
       ...SAMPLING,

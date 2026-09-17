@@ -3,23 +3,103 @@ import type { PolishMode, PolishProposal } from "@/domain/polish";
 import type { ExtractProposal } from "@/lib/ai/extract-prompt";
 import type { EvidenceItem, ModelClaim } from "@/lib/ai/prompt";
 import {
+  resolveBrowserAiModel,
+  type BrowserAiModelDecision,
+  type DeviceSignals,
+} from "./browser-ai-capability";
+import {
   BROWSER_AI_BASELINE_MODEL_ID,
   BROWSER_AI_MESSAGES,
-  BROWSER_AI_MODEL_ID,
   type BrowserAiErrorCode,
   type BrowserAiState,
+  type BrowserAiTier,
   type BrowserAiWorkerEvent,
 } from "./browser-ai-protocol";
 
 /**
- * The product ships one model. `window.__worklensAiModel` exists only so the
- * real-WebGPU smoke run can replay the same flow on the previous default for
- * an A/B comparison; anything else falls back to the shipped model.
+ * Which model this browser may load, and the operator's answer when the
+ * browser cannot tell. The decision is made here, before a download or an
+ * allocation, because a machine killed by the large model cannot fall back.
+ *
+ * `window.__worklensAiModel` stays the A/B seam for the real-WebGPU runs:
+ * it names the previous default, which is loaded as-is.
  */
-function selectedModelId(): string {
+const TIER_STORAGE_KEY = "worklens:browser-ai-tier:v1";
+let signals: DeviceSignals = {};
+let decision: BrowserAiModelDecision = resolveBrowserAiModel(signals, readTierPreference());
+
+function readTierPreference(): BrowserAiTier | undefined {
+  if (typeof window === "undefined") return undefined;
+  try {
+    const stored = window.localStorage.getItem(TIER_STORAGE_KEY);
+    return stored === "standard" || stored === "light" ? stored : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function baselineOverride(): string | undefined {
   const scope: object = globalThis;
-  const baseline = "__worklensAiModel" in scope && scope.__worklensAiModel === BROWSER_AI_BASELINE_MODEL_ID;
-  return baseline ? BROWSER_AI_BASELINE_MODEL_ID : BROWSER_AI_MODEL_ID;
+  return "__worklensAiModel" in scope && scope.__worklensAiModel === BROWSER_AI_BASELINE_MODEL_ID
+    ? BROWSER_AI_BASELINE_MODEL_ID
+    : undefined;
+}
+
+/** The model the next load will use, and the context it will be loaded with. */
+export function browserAiModel(): { id: string; label: string; downloadMb: number; contextWindowSize: number; tier: BrowserAiTier } {
+  const override = baselineOverride();
+  const { profile } = decision;
+  return override
+    ? { id: override, label: profile.label, downloadMb: profile.downloadMb, contextWindowSize: profile.contextWindowSize, tier: profile.tier }
+    : { id: profile.id, label: profile.label, downloadMb: profile.downloadMb, contextWindowSize: profile.contextWindowSize, tier: profile.tier };
+}
+
+export function browserAiDecision(): BrowserAiModelDecision & { signals: DeviceSignals } {
+  return { ...decision, signals };
+}
+
+/** The operator answering the question the browser cannot: remembered per browser. */
+export function selectBrowserAiTier(tier: BrowserAiTier): void {
+  if (typeof window !== "undefined") {
+    try {
+      window.localStorage.setItem(TIER_STORAGE_KEY, tier);
+    } catch {
+      // A refused write only costs the choice being asked again.
+    }
+  }
+  decision = resolveBrowserAiModel(signals, tier);
+  console.info(`[AI][Model] ${decision.profile.id} — ${decision.reason}`);
+  if (state.phase === "awaiting-confirmation" || state.phase === "idle") {
+    publish(browserAiConfirmed() ? { phase: "idle" } : { phase: "awaiting-confirmation" });
+  }
+}
+
+function selectedModelId(): string {
+  return browserAiModel().id;
+}
+
+/**
+ * Seams for the real-WebGPU runs, alongside `__worklensAiModel`: the decision
+ * is made in this module before anything is allocated, so a run can read what
+ * was chosen and why, and can ask for a tier without clicking through the
+ * panel. Neither is used by the product.
+ */
+if (typeof window !== "undefined") {
+  Reflect.set(window, "__worklensAiDiagnostics", () => {
+    const model = browserAiModel();
+    return {
+      modelId: model.id,
+      label: model.label,
+      tier: model.tier,
+      contextWindowSize: model.contextWindowSize,
+      downloadMb: model.downloadMb,
+      reason: decision.reason,
+      source: decision.source,
+      standardBlocked: decision.standardBlocked,
+      signals,
+    };
+  });
+  Reflect.set(window, "__worklensAiSelectTier", (tier: BrowserAiTier) => selectBrowserAiTier(tier));
 }
 
 export interface BrowserAiFailure {
@@ -70,7 +150,8 @@ function settle(code: BrowserAiErrorCode, message?: string): void {
  * the probe only needs an adapter and a device.
  */
 interface ProbeDevice { destroy(): void }
-interface ProbeAdapter { requestDevice(): Promise<ProbeDevice> }
+interface ProbeAdapterLimits { maxBufferSize?: number; maxStorageBufferBindingSize?: number }
+interface ProbeAdapter { requestDevice(): Promise<ProbeDevice>; limits?: ProbeAdapterLimits }
 interface ProbeGpu { requestAdapter(): Promise<ProbeAdapter | null> }
 
 /**
@@ -113,6 +194,22 @@ export async function probeBrowserAi(): Promise<BrowserAiState> {
     publish({ phase: "unsupported", code: "DEVICE_FAILED" });
     return state;
   }
+  // Everything the browser will say about capacity, read once, while nothing
+  // is allocated yet. The model is chosen from this and never revised by
+  // trying the large one and watching the machine die.
+  const memory: unknown = Reflect.get(navigator, "deviceMemory");
+  signals = {
+    ...(typeof memory === "number" ? { deviceMemoryGb: memory } : {}),
+    ...(adapter.limits?.maxBufferSize === undefined ? {} : { maxBufferSize: adapter.limits.maxBufferSize }),
+    ...(adapter.limits?.maxStorageBufferBindingSize === undefined
+      ? {}
+      : { maxStorageBufferBindingSize: adapter.limits.maxStorageBufferBindingSize }),
+  };
+  decision = resolveBrowserAiModel(signals, readTierPreference());
+  console.info(
+    `[AI][Model] ${decision.profile.id} (context ${decision.profile.contextWindowSize}) — ${decision.reason}`,
+    signals,
+  );
   publish(browserAiConfirmed() ? { phase: "idle" } : { phase: "awaiting-confirmation" });
   return state;
 }
@@ -242,8 +339,10 @@ function send(kind: "load" | "generate", payload?: { request: AiRequest; items: 
   const { id, target } = begin();
   return new Promise<ModelClaim[]>((resolve, reject) => {
     pending = { id, kind, resolve, reject };
-    const modelId = selectedModelId();
-    target.postMessage(payload ? { id, kind, modelId, ...payload } : { id, kind, modelId });
+    const { id: modelId, contextWindowSize } = browserAiModel();
+    target.postMessage(payload
+      ? { id, kind, modelId, contextWindowSize, ...payload }
+      : { id, kind, modelId, contextWindowSize });
   });
 }
 
@@ -259,7 +358,8 @@ export function polishBrowserAi(text: string, mode: PolishMode): Promise<PolishP
   const { id, target } = begin();
   return new Promise<PolishProposal>((resolve, reject) => {
     pending = { id, kind: "polish", resolve, reject };
-    target.postMessage({ id, kind: "polish", modelId: selectedModelId(), text, mode });
+    const { id: modelId, contextWindowSize } = browserAiModel();
+    target.postMessage({ id, kind: "polish", modelId, contextWindowSize, text, mode });
   });
 }
 
@@ -287,7 +387,8 @@ export function extractBrowserAi(field: string, items: EvidenceItem[]): Promise<
   const { id, target } = begin();
   return new Promise<ExtractProposal>((resolve, reject) => {
     pending = { id, kind: "extract", resolve, reject };
-    target.postMessage({ id, kind: "extract", modelId: selectedModelId(), field, items });
+    const { id: modelId, contextWindowSize } = browserAiModel();
+    target.postMessage({ id, kind: "extract", modelId, contextWindowSize, field, items });
   });
 }
 
