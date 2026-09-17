@@ -95,4 +95,12 @@ describe("browser AI content security policy", () => {
   it("keeps both browser workers same-origin", async () => {
     expect((await contentSecurityPolicy())["worker-src"]).toEqual(["'self'"]);
   });
+
+  it("applies the policy to the application page itself", async () => {
+    const rules = await nextConfig.headers?.() ?? [];
+    // The Cloudflare runtime does not match "/" against "/:path*", so the page
+    // that loads both workers went out with no security header at all.
+    const root = rules.find((rule) => rule.source === "/");
+    expect(root?.headers.map((entry) => entry.key)).toContain("Content-Security-Policy");
+  });
 });

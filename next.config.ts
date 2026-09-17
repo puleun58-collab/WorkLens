@@ -53,17 +53,15 @@ const nextConfig: NextConfig = {
   // Parsing and export now run in the browser worker; no server bundling opt-out needed.
   poweredByHeader: false,
   async headers() {
-    return [
-      {
-        source: "/:path*",
-        headers: [
-          { key: "X-Content-Type-Options", value: "nosniff" },
-          { key: "X-Frame-Options", value: "DENY" },
-          { key: "Referrer-Policy", value: "no-referrer" },
-          { key: "Content-Security-Policy", value: CSP },
-        ],
-      },
+    const security = [
+      { key: "X-Content-Type-Options", value: "nosniff" },
+      { key: "X-Frame-Options", value: "DENY" },
+      { key: "Referrer-Policy", value: "no-referrer" },
+      { key: "Content-Security-Policy", value: CSP },
     ];
+    // `/:path*` alone leaves the root uncovered on the Cloudflare runtime, which
+    // served the application page itself without a single security header.
+    return [{ source: "/", headers: security }, { source: "/:path*", headers: security }];
   },
 };
 
