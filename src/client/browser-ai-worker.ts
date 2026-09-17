@@ -1,3 +1,8 @@
+// Must evaluate before WebLLM: its browser bundle reads `window` at module
+// scope, and a worker only has `self`. Without this the worker dies with
+// "window is not defined" before it can report anything, which the client can
+// only see as a bare `error` event.
+import "./worker-globals";
 import { CreateMLCEngine, type InitProgressReport, type MLCEngine } from "@mlc-ai/web-llm";
 import { CLAIM_RESPONSE_SCHEMA, buildMessages, parseModelResponse } from "@/lib/ai/prompt";
 import { POLISH_RESPONSE_SCHEMA, buildPolishMessages, parsePolishResponse } from "@/lib/ai/polish-prompt";
@@ -38,15 +43,23 @@ function fail(id: string, code: BrowserAiErrorCode, message: string): void {
   post({ id, kind: "error", code, message });
 }
 
-/** Splits a runtime failure into the codes the UI treats differently. */
-function classify(error: unknown): { code: BrowserAiErrorCode; message: string } {
+/**
+ * Splits a runtime failure into the codes the UI treats differently, and keeps
+ * the original error in the worker console under a stage tag so a failure can
+ * be located without decoding the user-facing sentence.
+ */
+function classify(error: unknown, stage: string): { code: BrowserAiErrorCode; message: string } {
   const message = error instanceof Error ? error.message : String(error);
+  console.error(`[AI][${stage}]`, error);
   const lowered = message.toLowerCase();
   if (lowered.includes("out of memory") || lowered.includes("oom") || lowered.includes("allocation")) {
     return { code: "OUT_OF_MEMORY", message };
   }
   if (lowered.includes("failed to fetch") || lowered.includes("network") || lowered.includes("404")) {
     return { code: "MODEL_DOWNLOAD_FAILED", message };
+  }
+  if (lowered.includes("webassembly") || lowered.includes("wasm") || lowered.includes("compile")) {
+    return { code: "MODEL_LOAD_FAILED", message };
   }
   if (lowered.includes("adapter") || lowered.includes("device") || lowered.includes("webgpu")) {
     return { code: "ADAPTER_FAILED", message };
@@ -90,7 +103,7 @@ self.addEventListener("message", (event: MessageEvent<BrowserAiWorkerRequest>) =
     void loadEngine(request.id, request.modelId).then(
       () => post({ id: request.id, kind: "ready" }),
       (error: unknown) => {
-        const { code, message } = classify(error);
+        const { code, message } = classify(error, "Model Load");
         fail(request.id, code, message);
       },
     );
@@ -117,7 +130,7 @@ self.addEventListener("message", (event: MessageEvent<BrowserAiWorkerRequest>) =
       const raw = completion.choices[0]?.message?.content ?? "";
       post({ id: request.id, kind: "polish", proposal: parsePolishResponse(raw, request.text) });
     })().catch((error: unknown) => {
-      const { code, message } = classify(error);
+      const { code, message } = classify(error, "Polish");
       fail(request.id, code === "MODEL_LOAD_FAILED" && engine ? "INFERENCE_FAILED" : code, message);
     }).finally(() => {
       generating = false;
@@ -139,7 +152,7 @@ self.addEventListener("message", (event: MessageEvent<BrowserAiWorkerRequest>) =
       const raw = completion.choices[0]?.message?.content ?? "";
       post({ id: request.id, kind: "extract", proposal: parseExtractResponse(raw, request.field, request.items) });
     })().catch((error: unknown) => {
-      const { code, message } = classify(error);
+      const { code, message } = classify(error, "Extract");
       fail(request.id, code === "MODEL_LOAD_FAILED" && engine ? "INFERENCE_FAILED" : code, message);
     }).finally(() => {
       generating = false;
@@ -165,7 +178,7 @@ self.addEventListener("message", (event: MessageEvent<BrowserAiWorkerRequest>) =
     }
     post({ id: request.id, kind: "claims", claims });
   })().catch((error: unknown) => {
-    const { code, message } = classify(error);
+    const { code, message } = classify(error, "Inference");
     fail(request.id, code === "MODEL_LOAD_FAILED" && engine ? "INFERENCE_FAILED" : code, message);
   }).finally(() => {
     generating = false;

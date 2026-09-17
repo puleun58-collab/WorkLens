@@ -30,6 +30,7 @@ WorkLens는 XLSX, CSV, PDF, DOCX, PPTX 파일을 **브라우저 안에서** 분�
 - 모델은 `E1`, `E2` 같은 핸들만 보고, 모델 응답의 핸들은 문서 워커에서 canonical 근거 토큰으로 되돌린 뒤 검증합니다(`src/lib/ai/grounding.ts`). 하나라도 검증되지 않으면 결과 전체를 거부합니다.
 - 브라우저 캐시에는 모델 weight·런타임 asset만 남고, 업무 문서·파싱 결과·질문·Finding·근거는 어디에도 저장하지 않습니다.
 - 최초 실행은 opt-in입니다. WebGPU 어댑터를 실제로 요청해 확인한 뒤 다운로드 동의를 받고, 다운로드 취소(워커 종료)와 생성 중지(`interruptGenerate`)를 구분합니다. WebGPU가 없으면 AI만 조용히 비활성화되고 deterministic 기능은 정상 동작합니다.
+- 응답 헤더의 CSP(`next.config.ts`)는 브라우저 AI의 전제 조건입니다. MLC 런타임은 `WebAssembly.instantiate`로 컴파일되므로 `script-src`에 `'wasm-unsafe-eval'`이 필요하고, weight와 `model_lib` WASM은 `huggingface.co`(LFS/Xet CDN 리다이렉트 포함)와 `raw.githubusercontent.com`에서 받으므로 `connect-src`에 해당 호스트가 필요합니다. 두 directive 중 하나라도 빠지면 WebGPU가 정상이어도 모델 로드가 시작 전에 실패합니다(`tests/browser-ai-model.test.ts`가 고정).
 
 ## 2. 설치
 

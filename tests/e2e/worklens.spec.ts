@@ -313,6 +313,41 @@ test("keeps Polish available only through the browser AI layer", async ({ page }
   await expect(page.getByText("콘텐츠 및 개인정보 점검을 완료했습니다.")).toBeVisible();
 });
 
+/**
+ * The AI worker bundle used to die while evaluating ("window is not defined"),
+ * which the client can only see as a bare `error` event — on a machine that
+ * does have WebGPU every AI feature then failed with "처리기를 실행하지
+ * 못했습니다". Here WebGPU is faked so the flow reaches the worker, and the
+ * model hosts are blocked so nothing is downloaded: the worker has to start
+ * and report its own download failure instead of failing to run at all.
+ */
+test("starts the browser AI worker instead of failing to run it", async ({ page }) => {
+  await page.route(/huggingface\.co|hf\.co|raw\.githubusercontent\.com/, (route) => route.abort());
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "gpu", {
+      configurable: true,
+      value: { requestAdapter: async () => ({ requestDevice: async () => ({ destroy: () => undefined }) }) },
+    });
+  });
+  await page.goto("/");
+  await upload(page, files.checkPptx);
+  await page.getByLabel("최종검수.pptx 선택").check();
+  await page.getByRole("button", { name: "Ask", exact: true }).click();
+  await page.getByRole("button", { name: "사용 시작" }).click();
+  await page.getByPlaceholder("선택한 문서에서 확인할 내용을 입력하세요").fill("기준일은 언제인가요?");
+  await page.getByRole("button", { name: "Ask 실행" }).click();
+
+  const status = page.locator(".ai-status.failed");
+  await expect(status).toBeVisible({ timeout: 60_000 });
+  await expect(status).not.toContainText("처리기를 실행하지 못했습니다");
+  await expect(status).toContainText("모델 데이터를 불러오지 못했습니다");
+
+  // The deterministic side is untouched by an AI failure.
+  await page.getByRole("button", { name: "Check", exact: true }).click();
+  await page.getByRole("button", { name: "Check 실행" }).click();
+  await expect(page.getByText("콘텐츠 및 개인정보 점검을 완료했습니다.")).toBeVisible();
+});
+
 test("offers file and pasted-text polish without touching the workspace", async ({ page }) => {
   await withoutWebGpu(page);
   await page.goto("/");

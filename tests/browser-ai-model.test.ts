@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { prebuiltAppConfig } from "@mlc-ai/web-llm";
+import nextConfig from "../next.config";
 import {
   BROWSER_AI_BASELINE_MODEL_ID,
   BROWSER_AI_MODEL_ID,
@@ -38,5 +39,60 @@ describe("browser AI model selection", () => {
 
   it("names the model the way the runtime id reads", () => {
     expect(BROWSER_AI_MODEL_ID.startsWith(BROWSER_AI_MODEL_LABEL.replace(" ", "-"))).toBe(true);
+  });
+});
+
+/**
+ * The response policy is what the browser enforces on the AI worker, and a
+ * policy that forbids WebAssembly compilation or the model hosts made every
+ * model load fail before it started — on every machine, from the first run,
+ * with WebGPU fully working. These assertions read the shipped headers.
+ */
+async function contentSecurityPolicy(): Promise<Record<string, string[]>> {
+  const rules = await nextConfig.headers?.() ?? [];
+  const header = rules
+    .flatMap((rule) => rule.headers)
+    .find((entry) => entry.key === "Content-Security-Policy");
+  expect(header, "Content-Security-Policy header").toBeDefined();
+  const directives: Record<string, string[]> = {};
+  for (const directive of (header?.value ?? "").split(";")) {
+    const [name, ...values] = directive.trim().split(/\s+/);
+    if (name) directives[name] = values;
+  }
+  return directives;
+}
+
+/** CSP source matching for the host forms this policy uses. */
+function allows(sources: string[], url: string): boolean {
+  const { origin, host, protocol } = new URL(url);
+  return sources.some((source) => {
+    if (source === origin) return true;
+    const [sourceProtocol, sourceHost] = source.split("://");
+    if (!sourceHost || `${sourceProtocol}:` !== protocol) return false;
+    return sourceHost.startsWith("*.")
+      ? host === sourceHost.slice(2) || host.endsWith(sourceHost.slice(1))
+      : host === sourceHost;
+  });
+}
+
+describe("browser AI content security policy", () => {
+  it("permits the WebAssembly compilation the MLC runtime needs", async () => {
+    const directives = await contentSecurityPolicy();
+    expect(directives["script-src"]).toContain("'wasm-unsafe-eval'");
+  });
+
+  it("permits the hosts the shipped model is downloaded from", async () => {
+    const connect = (await contentSecurityPolicy())["connect-src"] ?? [];
+    for (const id of [BROWSER_AI_MODEL_ID, BROWSER_AI_BASELINE_MODEL_ID]) {
+      const entry = modelEntry(id);
+      expect(entry, id).toBeDefined();
+      // Weights and the compiled WebGPU library live on different hosts.
+      expect(allows(connect, entry?.model ?? ""), `${id} weights`).toBe(true);
+      expect(allows(connect, entry?.model_lib ?? ""), `${id} model_lib`).toBe(true);
+    }
+  });
+
+  it("keeps both browser workers same-origin", async () => {
+    expect((await contentSecurityPolicy())["worker-src"]).toEqual(["'self'"]);
   });
 });

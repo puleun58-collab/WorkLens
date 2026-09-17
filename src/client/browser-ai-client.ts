@@ -66,28 +66,51 @@ function settle(code: BrowserAiErrorCode, message?: string): void {
 }
 
 /**
- * WebGPU presence is not enough: a device can expose `navigator.gpu` and still
- * fail to hand out an adapter, which is the difference between "unsupported"
- * and "model failed" in the UI.
+ * Minimal WebGPU surface. The project does not depend on `@webgpu/types`, and
+ * the probe only needs an adapter and a device.
+ */
+interface ProbeDevice { destroy(): void }
+interface ProbeAdapter { requestDevice(): Promise<ProbeDevice> }
+interface ProbeGpu { requestAdapter(): Promise<ProbeAdapter | null> }
+
+/**
+ * Environment check before any download starts, one stage at a time: WebGPU
+ * presence, an adapter, then a device. A machine can expose `navigator.gpu`
+ * and still refuse an adapter, and it can hand out an adapter and still fail
+ * to create a device, so each failure is reported as itself and logged under
+ * its own tag for the console.
  */
 export async function probeBrowserAi(): Promise<BrowserAiState> {
   if (state.phase === "ready" || state.phase === "loading") return state;
-  const gpu = typeof navigator === "undefined"
-    ? undefined
-    : (navigator as Navigator & { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
+  const scope = typeof navigator === "undefined" ? undefined : (navigator as Navigator & { gpu?: ProbeGpu });
+  const gpu = scope?.gpu;
   if (!gpu) {
+    console.info("[AI][WebGPU] navigator.gpu is unavailable in this browser");
     publish({ phase: "unsupported", code: "NO_WEBGPU" });
     return state;
   }
   publish({ phase: "checking" });
+  let adapter: ProbeAdapter | null = null;
   try {
-    const adapter = await gpu.requestAdapter();
-    if (!adapter) {
-      publish({ phase: "unsupported", code: "ADAPTER_FAILED" });
-      return state;
-    }
-  } catch {
+    adapter = await gpu.requestAdapter();
+  } catch (error) {
+    console.error("[AI][Adapter] requestAdapter threw", error);
     publish({ phase: "unsupported", code: "ADAPTER_FAILED" });
+    return state;
+  }
+  if (!adapter) {
+    console.error("[AI][Adapter] requestAdapter returned null");
+    publish({ phase: "unsupported", code: "ADAPTER_FAILED" });
+    return state;
+  }
+  try {
+    // A device is what WebLLM actually needs; asking for it here means a
+    // driver or policy refusal is reported before a 2 GB download starts.
+    const device = await adapter.requestDevice();
+    device.destroy();
+  } catch (error) {
+    console.error("[AI][Device] requestDevice failed", error);
+    publish({ phase: "unsupported", code: "DEVICE_FAILED" });
     return state;
   }
   publish(browserAiConfirmed() ? { phase: "idle" } : { phase: "awaiting-confirmation" });
@@ -189,7 +212,12 @@ function ensureWorker(): Worker {
       }
     }
   });
-  created.addEventListener("error", () => {
+
+  created.addEventListener("error", (event) => {
+    // A module worker that dies while evaluating reports only this event, so
+    // the console keeps whatever the browser gave us and the UI keeps one
+    // sentence.
+    console.error("[AI][Worker] failed to start", event.message || event, event.filename, event.lineno);
     settle("WORKER_FAILED");
     publish({ phase: "failed", code: "WORKER_FAILED", message: BROWSER_AI_MESSAGES.WORKER_FAILED });
     created.terminate();

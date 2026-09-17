@@ -32,6 +32,7 @@ export const BROWSER_AI_MAX_FILES = 5;
 export type BrowserAiErrorCode =
   | "NO_WEBGPU"
   | "ADAPTER_FAILED"
+  | "DEVICE_FAILED"
   | "MODEL_DOWNLOAD_FAILED"
   | "MODEL_LOAD_FAILED"
   | "OUT_OF_MEMORY"
@@ -52,7 +53,7 @@ export type BrowserAiState =
   | { phase: "idle" }
   | { phase: "checking" }
   | { phase: "awaiting-confirmation" }
-  | { phase: "unsupported"; code: "NO_WEBGPU" | "ADAPTER_FAILED" }
+  | { phase: "unsupported"; code: "NO_WEBGPU" | "ADAPTER_FAILED" | "DEVICE_FAILED" }
   | { phase: "loading"; progress: number; text: string }
   | { phase: "ready" }
   | { phase: "failed"; code: BrowserAiErrorCode; message: string; detail?: string };
@@ -75,8 +76,9 @@ export type BrowserAiWorkerEvent =
 /** User-facing copy. Error codes stay internal; only these strings are shown. */
 export const BROWSER_AI_MESSAGES: Record<BrowserAiErrorCode, string> = {
   NO_WEBGPU: "이 브라우저 또는 장치가 WebGPU를 지원하지 않아 브라우저 AI를 사용할 수 없습니다. Analyze · Compare · Check · Extract는 계속 사용할 수 있습니다.",
-  ADAPTER_FAILED: "이 장치의 그래픽 어댑터에서 브라우저 AI를 초기화할 수 없습니다. Analyze · Compare · Check · Extract는 계속 사용할 수 있습니다.",
-  MODEL_DOWNLOAD_FAILED: "AI 모델을 내려받지 못했습니다. 네트워크를 확인한 뒤 다시 시도해 주세요.",
+  ADAPTER_FAILED: "이 장치의 그래픽 어댑터에서 브라우저 AI를 초기화할 수 없습니다. 회사 브라우저 정책에서 WebGPU가 제한되었을 수도 있습니다. Analyze · Compare · Check · Extract는 계속 사용할 수 있습니다.",
+  DEVICE_FAILED: "그래픽 장치를 초기화하지 못했습니다. 다른 프로그램이 GPU를 점유하고 있거나 드라이버 업데이트가 필요할 수 있습니다. Analyze · Compare · Check · Extract는 계속 사용할 수 있습니다.",
+  MODEL_DOWNLOAD_FAILED: "모델 데이터를 불러오지 못했습니다. 네트워크를 확인한 뒤 다시 시도해 주세요.",
   MODEL_LOAD_FAILED: "AI 모델을 준비하지 못했습니다. 잠시 후 다시 시도해 주세요.",
   OUT_OF_MEMORY: "이 장치의 메모리에서 AI 모델을 실행하기 어렵습니다.",
   INFERENCE_FAILED: "AI 실행 중 문제가 발생했습니다. 다시 시도해 주세요.",
