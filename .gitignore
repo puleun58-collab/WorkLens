@@ -15,6 +15,7 @@
 /coverage
 /artifacts
 /.playwright-tmp
+/test-results
 /.production-boundary-test
 /.worklens
 

@@ -19,7 +19,7 @@ export interface PolishCandidate {
    */
   source?: SourceRef;
   /** Where the prose came from, used for the accessible action label. */
-  origin: "paragraph" | "cell" | "claim" | "recommendation" | "suggestion" | "pasted";
+  origin: "paragraph" | "cell" | "claim" | "recommendation" | "pasted";
 }
 
 /** What the model answered, before any of it is trusted. */

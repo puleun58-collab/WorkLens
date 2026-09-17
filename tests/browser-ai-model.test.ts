@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { prebuiltAppConfig } from "@mlc-ai/web-llm";
 import nextConfig from "../next.config";
+import { securityHeaders } from "@/config/security-headers";
+import { noReferrerFetch } from "@/client/no-referrer-fetch";
 import {
   BROWSER_AI_BASELINE_MODEL_ID,
   BROWSER_AI_MODEL_ID,
@@ -102,5 +104,36 @@ describe("browser AI content security policy", () => {
     // that loads both workers went out with no security header at all.
     const root = rules.find((rule) => rule.source === "/");
     expect(root?.headers.map((entry) => entry.key)).toContain("Content-Security-Policy");
+  });
+
+  it("sends no referrer, which the model host requires", async () => {
+    // huggingface.co answers 404 to a request carrying a Referer, and a 404
+    // has no Access-Control-Allow-Origin, so the browser reports a CORS
+    // failure and no weight is ever downloaded. Both the page and the asset
+    // responses that serve the workers must carry this.
+    for (const headers of [(await nextConfig.headers?.() ?? []).flatMap((rule) => rule.headers), securityHeaders(false)]) {
+      expect(headers).toContainEqual({ key: "Referrer-Policy", value: "no-referrer" });
+    }
+  });
+});
+
+describe("browser AI model requests", () => {
+  it("drops the referrer the model host rejects, whatever the caller asks for", async () => {
+    const seen: RequestInit[] = [];
+    const base = ((_input: RequestInfo | URL, init?: RequestInit) => {
+      seen.push(init ?? {});
+      return Promise.resolve(new Response("{}"));
+    }) as typeof fetch;
+
+    const pinned = noReferrerFetch(base);
+    await pinned("https://huggingface.co/mlc-ai/model/resolve/main/mlc-chat-config.json");
+    await pinned("https://huggingface.co/mlc-ai/model/resolve/main/params_shard_0.bin", {
+      headers: { Range: "bytes=0-1" },
+      referrerPolicy: "strict-origin-when-cross-origin",
+    });
+
+    expect(seen.map((init) => init.referrerPolicy)).toEqual(["no-referrer", "no-referrer"]);
+    // The caller's own request options survive.
+    expect(seen[1]?.headers).toEqual({ Range: "bytes=0-1" });
   });
 });

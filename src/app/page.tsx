@@ -1346,7 +1346,7 @@ interface ResultViewProps {
   onSource: SourceHandler;
   onCloseSource: () => void;
   polishMode: PolishMode;
-  dictionary: Omit<CheckViewProps, "entries" | "fileNames" | "onSource" | "polishMode">;
+  dictionary: Omit<CheckViewProps, "entries" | "fileNames" | "onSource">;
 }
 
 /** One line of work name plus one line of scope; no state wording, no eyebrow. */
@@ -1367,7 +1367,7 @@ function ResultView({ tab, result, fileNames, detail, onSource, onCloseSource, d
 
   let content: React.ReactNode;
   if (tab === "Analyze" && Array.isArray(result)) content = <AnalyzeResults entries={result as AnalyzeEntry[]} fileNames={fileNames} onSource={onSource} />;
-  else if (tab === "Check" && Array.isArray(result)) content = <CheckResults entries={result as CheckEntry[]} fileNames={fileNames} onSource={onSource} polishMode={polishMode} {...dictionary} />;
+  else if (tab === "Check" && Array.isArray(result)) content = <CheckResults entries={result as CheckEntry[]} fileNames={fileNames} onSource={onSource} {...dictionary} />;
   else if (tab === "Extract" && Array.isArray(result)) content = <ExtractResults entries={result as ExtractEntry[]} fileNames={fileNames} onSource={onSource} polishMode={polishMode} />;
   else if (isAiAvailableResult(result)) content = <AiResults result={result} fileNames={fileNames} onSource={onSource} polishMode={polishMode} />;
   else content = <JsonValue value={result} fileNames={fileNames} onSource={onSource} />;
@@ -1933,7 +1933,6 @@ interface CheckViewProps {
   entries: CheckEntry[];
   fileNames: Map<string, string>;
   onSource: SourceHandler;
-  polishMode: PolishMode;
   userTerms: string[];
   ignoredRules: string[];
   onAddTerm: (term: string) => void;
@@ -1942,7 +1941,7 @@ interface CheckViewProps {
   onToggleRule: (ruleId: string) => void;
 }
 
-function CheckResults({ entries, fileNames, onSource, polishMode, userTerms, ignoredRules, onAddTerm, onRemoveTerm, onClearTerms, onToggleRule }: CheckViewProps) {
+function CheckResults({ entries, fileNames, onSource, userTerms, ignoredRules, onAddTerm, onRemoveTerm, onClearTerms, onToggleRule }: CheckViewProps) {
   const [severityFilter, setSeverityFilter] = useState<"all" | CheckSeverity>("all");
   const [groupFilter, setGroupFilter] = useState<"all" | CheckCategoryGroup>("all");
   const [showLowConfidence] = useState(false);
@@ -2166,8 +2165,6 @@ function CheckResults({ entries, fileNames, onSource, polishMode, userTerms, ign
                               <div className="suggested-copy">
                                 <span>Suggested</span>
                                 <blockquote>{finding.suggestedText}</blockquote>
-                                {/* Prose in a finding: the detection stays with Check, the rewrite goes through Polish. */}
-                                <PolishAction text={finding.suggestedText} label={`${finding.issue} 수정안`} origin="suggestion" source={finding.source} mode={polishMode} />
                               </div>
                             ) : null}
                             {finding.relatedFindingIds?.length ? (

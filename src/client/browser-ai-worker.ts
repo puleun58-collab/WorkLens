@@ -12,6 +12,13 @@ import type {
   BrowserAiWorkerEvent,
   BrowserAiWorkerRequest,
 } from "./browser-ai-protocol";
+import { noReferrerFetch } from "./no-referrer-fetch";
+
+// Every model request leaves this worker without a Referer: the model host
+// answers 404 to a request that carries one, which the browser can only report
+// as a CORS failure. `Object.assign` keeps whatever statics the platform's
+// `fetch` carries (Bun exposes `preconnect`); only the call is wrapped.
+self.fetch = Object.assign(noReferrerFetch(self.fetch.bind(self)), self.fetch);
 
 /**
  * Browser AI worker.

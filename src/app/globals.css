@@ -5349,13 +5349,19 @@ body {
   min-height: var(--control-height-lg);
 }
 
-/* Admin surfaces keep a smaller mark, so the wordmark tracks that size. */
+/* The admin bar keeps a smaller mark, so its wordmark tracks that size. The
+ * login card uses the product logo at full size, like the workspace rail. */
 .admin-bar .worklens-wordmark {
   font-size: 16px;
 }
 
-.admin-login .worklens-wordmark {
-  font-size: 17px;
+/*
+ * The submit button is a button, not a full-bleed bar: it keeps the password
+ * field's measure as its ceiling and sits centred under it.
+ */
+.admin-login button[type="submit"] {
+  justify-self: center;
+  width: min(100%, 220px);
 }
 
 @media (max-width: 1180px) {
@@ -5403,6 +5409,16 @@ body {
 .check-summary-line {
   padding-top: var(--space-3);
   padding-bottom: var(--space-2);
+}
+
+/*
+ * Inside the Check overview the metric row is not a panel-level row: `.qa-intro`
+ * already carries the inset, so the shared padding pushed Writing · Consistency
+ * · Data · Privacy one step to the right of the heading and the note under it.
+ */
+.qa-intro .check-summary-line {
+  padding-right: 0;
+  padding-left: 0;
 }
 
 .operation-bar {
@@ -5495,6 +5511,20 @@ body {
   grid-column: 1;
   grid-row: auto;
   justify-content: flex-start;
+}
+
+/*
+ * Polish stacks three control rows on the right — input source, mode, run —
+ * and the description answers the first of them, so it is centred against the
+ * input-mode box instead of against the whole stack, where it read as sitting
+ * too high. The height is that box's: one segment plus its border.
+ */
+.operation-bar:has(.polish-input-modes):not(:has(.polish-paste)) .operation-context {
+  grid-row: 1;
+  align-self: start;
+  min-height: calc(var(--control-height-md) + 2px);
+  display: flex;
+  align-items: center;
 }
 
 @media (max-width: 700px) {

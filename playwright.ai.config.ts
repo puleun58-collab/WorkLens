@@ -26,6 +26,9 @@ export default defineConfig({
     trace: "off",
     screenshot: "only-on-failure",
     viewport: { width: 1440, height: 900 },
+    // Headless Chromium hands out no WebGPU adapter here, and both tests then
+    // skip instead of exercising anything, so this run is always headed.
+    headless: false,
     launchOptions: {
       args: ["--enable-unsafe-webgpu", "--enable-features=Vulkan"],
     },

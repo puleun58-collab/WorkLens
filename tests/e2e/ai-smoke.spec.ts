@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { createCheckPptx, createXlsx, RATE_SHEET_V1 } from "../fixtures";
 
 /**
@@ -34,6 +34,19 @@ test.beforeEach(async ({ page }) => {
   }
 });
 
+/**
+ * Both tests assert failure modes that only exist once a real adapter is
+ * present: without one the UI reports `unsupported` instead, so the run has to
+ * skip rather than wait for a panel that will never appear.
+ */
+async function hasWebGpuAdapter(page: Page): Promise<boolean> {
+  return page.evaluate(async () => {
+    const gpu: { requestAdapter(): Promise<unknown> } | undefined = Reflect.get(navigator, "gpu");
+    if (!gpu) return false;
+    return Boolean(await gpu.requestAdapter());
+  });
+}
+
 test("runs Ask, Brief and semantic check on a real WebGPU adapter and keeps evidence grounded", async ({ page }) => {
   test.setTimeout(30 * 60_000);
   const measured: Record<string, unknown> = { model };
@@ -44,12 +57,7 @@ test("runs Ask, Brief and semantic check on a real WebGPU adapter and keeps evid
   };
 
   await page.goto("/");
-  const adapter = await page.evaluate(async () => {
-    const gpu = (navigator as Navigator & { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
-    if (!gpu) return false;
-    return Boolean(await gpu.requestAdapter());
-  });
-  test.skip(!adapter, "no WebGPU adapter in this browser");
+  test.skip(!(await hasWebGpuAdapter(page)), "no WebGPU adapter in this browser");
 
   await page.locator('input[type="file"]').setInputFiles([rateSheet, deck]);
   await expect(page.locator(".file-row")).toHaveCount(2);
@@ -136,6 +144,8 @@ test("keeps the workspace usable when the model cannot be prepared", async ({ pa
   // 10. A blocked model host must degrade to the quiet status box only.
   await page.route(/huggingface\.co|raw\.githubusercontent\.com/, (route) => route.abort());
   await page.goto("/");
+  test.skip(!(await hasWebGpuAdapter(page)), "no WebGPU adapter in this browser");
+
   await page.locator('input[type="file"]').setInputFiles([rateSheet]);
   await expect(page.locator(".file-row")).toHaveCount(1);
   await page.locator(".file-row input[type='checkbox']").first().check();
@@ -143,7 +153,8 @@ test("keeps the workspace usable when the model cannot be prepared", async ({ pa
   await page.getByRole("button", { name: "Ask", exact: true }).click();
   const confirm = page.getByRole("button", { name: "사용 시작" });
   if (await confirm.count()) await confirm.click();
-  await expect(page.locator(".ai-status.failed")).toBeVisible();
+  // A blocked host is a download failure, not a dead worker.
+  await expect(page.locator(".ai-status.failed")).toContainText("모델 데이터를 불러오지 못했습니다");
   await expect(page.locator(".notice.error")).toHaveCount(0);
 
   await page.getByRole("button", { name: "Check", exact: true }).click();

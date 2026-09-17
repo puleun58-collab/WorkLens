@@ -12,7 +12,7 @@
     "test": "bun run assets:pdf && vitest run",
     "test:e2e": "playwright test",
     "dev:vinext": "vinext dev --port 3001",
-    "build:vinext": "bun run assets:pdf && node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && vinext build",
+    "build:vinext": "bun run assets:pdf && node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && vinext build && bun scripts/write-asset-headers.ts",
     "start:vinext": "wrangler dev --config dist/server/wrangler.json",
     "deploy:vinext": "vinext-cloudflare deploy --config dist/server/wrangler.json",
     "deploy": "bun run build:vinext && wrangler deploy --config dist/server/wrangler.json",

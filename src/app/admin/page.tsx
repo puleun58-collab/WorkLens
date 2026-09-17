@@ -119,7 +119,8 @@ export default function AdminPage() {
     return (
       <main className="admin-shell admin-login">
         <form onSubmit={login} aria-label="관리자 로그인">
-          <WorkLensLogo size={26} tone="dark" />
+          {/* Same call as the workspace rail brand, so both surfaces read as one product. */}
+          <WorkLensLogo size={40} />
           <h1>WorkLens Admin</h1>
           <p>공용 용어 사전을 관리하려면 관리자 비밀번호가 필요합니다.</p>
           <label>
