@@ -64,11 +64,14 @@ bun run test:eval:grounding  # 근거 복원·숫자/날짜 정확도·허위 �
 bun run test:e2e             # Playwright: 업로드 → Analyze/Compare/Check/Extract → 근거 → 새로고침 폐기
 bun run bench:large          # 저부하 문서 단계별 시간(파싱/근거/검색/연산) 측정, 케이스별 자식 프로세스
 bun run bench:stress -- --format=xlsx --size=50   # 수동 전용 상한 벤치(50/75/100 MiB). 인자 없이 실행하면 사용법만 출력
-bun run test:ai:smoke        # 선택: 실제 WebGPU에서 동의 → 모델 로드 → Ask/Brief/문장 검수/취소/캐시 재사용
+bun run test:ai:model        # 선택: 실제 WebGPU에서 동의 → 최초 모델 다운로드 → 캐시 재사용까지 단계별 계측
+bun run test:ai:smoke        # 선택: 캐시된 모델로 Ask/Brief/문장 검수/근거/답변 불가/재사용 단계별 검증
 bun run test:eval:ai         # 선택: 실제 WebGPU에서 고정 품질 평가셋 채점 → artifacts/ai-eval-<model>.json
 ```
 
 `bench:stress`는 어떤 CI·검증 명령에도 연결되어 있지 않습니다. 한 케이스가 수 GiB를 점유할 수 있어 `--format`/`--size`로 하나씩 실행하거나 `--all`을 명시해야만 동작하고, 픽스처 생성 직후와 각 단계마다 RSS를 확인해 예산을 넘으면 즉시 중단합니다.
+
+브라우저 AI 실행 검증은 두 명령으로 나뉩니다. `test:ai:model`은 빈 브라우저 프로필에서 시작해 최초 다운로드 비용을 한 번만 지불하고, `test:ai:smoke`는 그 프로필에 남은 캐시된 모델로 기능만 확인합니다. 두 명령 모두 단계(페이지 로드 · WebGPU 초기화 · 업로드/파싱 · 모델 ready · 생성 · 결과)마다 시작·소요 시간을 출력하고, 대기마다 개별 상한(`WORKLENS_AI_DOWNLOAD_TIMEOUT_MS`, `WORKLENS_AI_READY_TIMEOUT_MS`, `WORKLENS_AI_GENERATE_TIMEOUT_MS`)을 둡니다. 모델이 ready가 되지 않으면 어느 단계에서 어떤 상태 문구로 멈췄는지 출력하고 즉시 종료합니다.
 
 평가셋은 `tests/eval/`에 있습니다. XLSX·CSV·PDF·DOCX·PPTX 5종의 업무 문서 fixture와 79개 고정 케이스(사실·숫자·날짜·백분율·시트/슬라이드/제목 지정·교차 구간·답변 불가)를 사용하며, 정답 근거의 위치와 값을 코드로 명시해 모델 판단 없이 채점합니다. Ask는 모델 호출 전에 관련성 게이트(`askRelevance`)를 통과해야 하며, 임계값은 이 평가셋에서 answerable recall을 100%로 유지하는 값으로 맞췄습니다. 실제 모델 품질 평가(`test:eval:ai`)와 기능 점검(`test:ai:smoke`)은 서로 다른 spec/config를 사용하고 WebGPU가 필요하므로 기본 CI에는 포함하지 않습니다.
 

@@ -24,7 +24,8 @@
     "test:eval:ai": "playwright test --config playwright.eval.config.ts",
     "bench:large": "bun tests/bench/large-documents.ts",
     "bench:stress": "bun tests/bench/large-documents.ts --stress",
-    "test:ai:smoke": "playwright test --config playwright.ai.config.ts"
+    "test:ai:model": "playwright test --config playwright.ai.config.ts tests/e2e/ai-model-download.spec.ts",
+    "test:ai:smoke": "playwright test --config playwright.ai.config.ts tests/e2e/ai-smoke.spec.ts"
   },
   "dependencies": {
     "@mlc-ai/web-llm": "0.2.85",
