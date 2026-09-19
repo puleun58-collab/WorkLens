@@ -583,8 +583,8 @@ export default function Home() {
       notifyView(
         "success",
         total > 0
-          ? `AI 문장 검수 ${total}건을 제안으로 추가했습니다.`
-          : "AI 문장 검수에서 추가할 제안이 없었습니다.",
+          ? `문장 검수 ${total}건을 제안으로 추가했습니다.`
+          : "문장 검수에서 추가할 제안이 없었습니다.",
       );
     } catch (error) {
       reportAiFailure(error);
@@ -595,11 +595,11 @@ export default function Home() {
   };
 
   const runAiAssist = async () => {
-    if (activeTab === "Analyze") return runServerTask({ operation: "analyze" }, "AI 분석 결과를 준비했습니다.");
+    if (activeTab === "Analyze") return runServerTask({ operation: "analyze" }, "심층 분석 결과를 준비했습니다.");
     if (activeTab === "Check") return runSemanticCheck();
     return runServerTask(
       { operation: "semantic-check", statement: "선택한 문서 사이의 중요한 의미 변화를 근거와 함께 점검하세요." },
-      "AI 보조 점검 결과를 준비했습니다.",
+      "의미 비교 결과를 준비했습니다.",
     );
   };
 
@@ -871,7 +871,7 @@ export default function Home() {
             </div>
           ) : null}
 
-          {notice && (notice.scope === "workspace" || notice.scope === shellView) ? (
+          {isDocumentWorkspaceView && notice && (notice.scope === "workspace" || notice.scope === shellView) ? (
             <StatusPanel
               className={`notice ${notice.tone}`}
               variant={notice.tone === "error" ? "error" : notice.tone === "success" ? "success" : "info"}
@@ -1008,7 +1008,7 @@ export default function Home() {
                   </div>
                 ) : null}
                 <div className="operation-actions">
-                  {(activeTab === "Analyze" || activeTab === "Compare" || activeTab === "Check") ? <button type="button" className="secondary-action" onClick={runAiAssist} disabled={busy || selected.length === 0}>{activeTab === "Check" ? "AI 문장 검수" : "AI 보조"}</button> : null}
+                  {(activeTab === "Analyze" || activeTab === "Compare" || activeTab === "Check") ? <button type="button" className="secondary-action" onClick={runAiAssist} disabled={busy || selected.length === 0}>{activeTab === "Analyze" ? "심층 분석" : activeTab === "Compare" ? "의미 비교" : "문장 검수"}</button> : null}
                   <button type="button" onClick={runActive} disabled={actionDisabled} aria-label={`${activeTab} ${RUN_LABEL}`}>{busy ? "처리 중…" : RUN_LABEL}</button>
                 </div>
               </section>
@@ -1140,10 +1140,7 @@ function SettingsView({ view, companyTerms, companyTermsSource, userTerms, ignor
               ))}</div>
               : "없음"}
           </dd></div>
-          <div><dt>서버 AI</dt><dd>
-            Ask, Brief, 윤문, 문장 검수와 보조 추출은 서버의 Groq 모델을 사용합니다. 작업에 필요한 질문, 문장 또는 선택된 근거 창만 전송합니다.
-            <span className="settings-note">WorkLens는 전송 내용을 저장하지 않습니다. Groq는 기본적으로 추론 내용을 영구 보관하지 않지만 안정성·오남용 탐지를 위해 최대 30일 임시 보관할 수 있습니다. 운영 계정에서 Zero Data Retention을 적용하면 추론 내용은 보관되지 않습니다.</span>
-          </dd></div>
+          <div><dt>서버 AI</dt><dd>AI 기능은 필요한 질문·문장·근거만 서버 AI로 전송해 처리합니다. 원본 파일은 전송하지 않습니다.</dd></div>
         </dl>
       </section>
     );
@@ -2133,10 +2130,10 @@ function AiResults({ result, fileNames, onSource, polishMode }: {
   polishMode: PolishMode;
 }) {
   const lead = result.operation === "ask" ? result.answer : result.operation === "brief" ? result.brief : undefined;
-  const polishLabel = result.operation === "ask" ? "Ask 답변" : result.operation === "brief" ? "Brief 요약" : "AI 결과";
+  const polishLabel = result.operation === "ask" ? "Ask 답변" : result.operation === "brief" ? "Brief 요약" : "해석 결과";
   return (
     <div className="ai-result">
-      {lead ? <section className="answer-document"><span className="result-type">AI INTERPRETATION · 근거 검증됨</span><p>{lead}</p><PolishAction text={lead} label={polishLabel} origin="claim" mode={polishMode} /></section> : null}
+      {lead ? <section className="answer-document"><span className="result-type">해석 · 근거 검증됨</span><p>{lead}</p><PolishAction text={lead} label={polishLabel} origin="claim" mode={polishMode} /></section> : null}
       <section className="claim-list">
         <div className="subsection-heading"><h3>근거별 주장</h3><span>{result.claims.length} claims</span></div>
         {result.claims.map((claim) => <ClaimRow key={claim.id} claim={claim} fileNames={fileNames} onSource={onSource} polishMode={polishMode} polishLabel={polishLabel} />)}
@@ -2156,7 +2153,7 @@ function ClaimRow({ claim, fileNames, onSource, polishMode, polishLabel }: {
   return (
     <article className="claim-row">
       <div className="claim-kind">
-        <span className={claim.kind === "fact" ? "fact" : "inference"}>{claim.kind === "fact" ? "FILE FACT" : "AI INTERPRETATION"}</span>
+        <span className={claim.kind === "fact" ? "fact" : "inference"}>{claim.kind === "fact" ? "FILE FACT" : "해석"}</span>
         {/* Prose, so it can be polished; the evidence binding below is untouched. */}
         <PolishAction text={claim.text} label={polishLabel} origin="claim" source={claim.evidence[0]?.source} mode={polishMode} />
       </div>

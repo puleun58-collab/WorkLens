@@ -22,11 +22,11 @@ export function semanticFindings(claims: readonly GroundedClaim[]): CheckFinding
       category: "wording",
       severity: "suggestion",
       confidence: claim.kind === "inference" ? claim.confidence ?? "low" : "low",
-      issue: "AI 문장 검토 의견",
+      issue: "문장 검토 의견",
       message: text,
       reason: claim.kind === "fact"
-        ? "AI가 원문에서 직접 확인한 문장 문제입니다."
-        : "AI의 문맥 판단이며 확정된 오류가 아닙니다.",
+        ? "원문에서 직접 확인한 문장 문제입니다."
+        : "문맥 기반 판단이며 확정된 오류가 아닙니다.",
       recommendation: "제안 내용을 원문과 대조한 뒤 필요할 때만 반영하세요.",
       sources,
       originalText: claim.evidence[0]?.source.quote || undefined,

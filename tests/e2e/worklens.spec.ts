@@ -373,8 +373,8 @@ test("runs Ask, Brief, Polish, Check and Extract through the server AI boundary"
   await expect(page.getByText(/윤문 완료 · 변경 제안 0건 · 변경 없음 1건/)).toBeVisible();
 
   await page.getByRole("button", { name: "Check", exact: true }).click();
-  await page.getByRole("button", { name: "AI 문장 검수" }).click();
-  await expect(page.getByText(/AI 문장 검수 .*제안/)).toBeVisible();
+  await page.getByRole("button", { name: "문장 검수", exact: true }).click();
+  await expect(page.getByText(/문장 검수 .*제안/)).toBeVisible();
 
   await page.getByRole("button", { name: "Extract", exact: true }).click();
   await page.getByRole("radio", { name: "항목 지정" }).check();
@@ -429,7 +429,7 @@ test("reviews PPTX writing, consistency and data findings with filters and exact
   await expect(page.locator(".check-issue").first()).toBeVisible();
   await expect(page.locator(".check-issue.severity-suggestion")).toHaveCount(0);
 
-  await expect(page.getByRole("button", { name: "AI 문장 검수" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "문장 검수", exact: true })).toBeVisible();
 });
 
 test("keeps the personal dictionary and ignore actions inside this browser", async ({ page, browser }) => {
@@ -502,6 +502,7 @@ test("keeps file context and upload controls out of utility destinations", async
   await page.getByRole("button", { name: "Dictionary" }).click();
 
   await expect(page.getByRole("heading", { name: "용어 사전", exact: true })).toBeVisible();
+  await expect(page.locator(".notice")).toHaveCount(0);
   await expect(page.locator(".context-files")).toHaveCount(0);
   await expect(page.locator(".dropzone")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "파일 추가" })).toHaveCount(0);
@@ -511,9 +512,38 @@ test("keeps file context and upload controls out of utility destinations", async
 
   await page.getByRole("button", { name: "Settings" }).click();
   await expect(page.getByRole("heading", { name: "설정", exact: true })).toBeVisible();
+  await expect(page.locator(".notice")).toHaveCount(0);
   await expect(page.locator(".context-files")).toHaveCount(0);
   await expect(page.locator(".dropzone")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "파일 추가" })).toHaveCount(0);
+  await expect(page.locator(".settings-list").getByText("AI 기능은 필요한 질문·문장·근거만 서버 AI로 전송해 처리합니다. 원본 파일은 전송하지 않습니다.", { exact: true })).toBeVisible();
+  await expect(page.locator(".settings-list")).not.toContainText("Groq");
+  await expect(page.locator(".settings-list")).not.toContainText("Zero Data Retention");
+  await expect(page.locator(".settings-list")).not.toContainText("30일");
+});
+
+test("uses task-focused labels and concise execution buttons", async ({ page }) => {
+  await page.goto("/");
+  await upload(page, files.v1);
+  await page.getByLabel("운임현황_v1.xlsx 선택").check();
+
+  const labels: Array<{ tab: string; secondary?: string }> = [
+    { tab: "Analyze", secondary: "심층 분석" },
+    { tab: "Ask" },
+    { tab: "Compare", secondary: "의미 비교" },
+    { tab: "Check", secondary: "문장 검수" },
+    { tab: "Polish" },
+    { tab: "Extract" },
+    { tab: "Brief" },
+  ];
+  for (const { tab, secondary } of labels) {
+    await page.getByRole("button", { name: tab, exact: true }).click();
+    const run = page.getByRole("button", { name: `${tab} 실행`, exact: true });
+    await expect(run).toBeVisible();
+    await expect(run).toHaveText("실행");
+    if (secondary) await expect(page.getByRole("button", { name: secondary, exact: true })).toBeVisible();
+    await expect(page.locator(".operation-actions").getByRole("button", { name: /^AI/u })).toHaveCount(0);
+  }
 });
 
 test("keeps a feature's completion notice inside that feature", async ({ page }) => {
@@ -530,12 +560,15 @@ test("keeps a feature's completion notice inside that feature", async ({ page })
     await expect(page.locator(".notice")).toHaveCount(0);
   }
 
-  // A workspace-level message is different: it concerns the whole tab.
+  // Workspace-wide upload errors also stay in document work views.
   await page.getByRole("button", { name: "Analyze", exact: true }).click();
   await sendFile(page, files.fake);
   await expect(page.locator(".notice.error")).toBeVisible();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await expect(page.locator(".notice.error")).toBeVisible();
+  await expect(page.locator(".notice")).toHaveCount(0);
+
+  await page.goto("/admin");
+  await expect(page.locator(".notice")).toHaveCount(0);
 });
 
 test("rejects a disguised file with an actionable message", async ({ page }) => {
@@ -670,4 +703,103 @@ test("explicitly clears the in-browser workspace", async ({ page }) => {
   // The worker was torn down; a new upload must still work in the same tab.
   await upload(page, files.v2);
   await expect(fileRow(page, files.v2)).toContainText("시트: 1");
+});
+
+test("keeps the complete mobile workflow inside the viewport", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium-desktop", "One Chromium run covers the explicit mobile viewports.");
+
+  const expectNoPageOverflow = async () => {
+    const width = await page.evaluate(() => ({
+      client: document.documentElement.clientWidth,
+      scroll: document.documentElement.scrollWidth,
+    }));
+    expect(width.scroll).toBeLessThanOrEqual(width.client);
+  };
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  await upload(page, files.v1);
+  await upload(page, files.v2);
+  await upload(page, files.checkPptx);
+
+  const firstRow = fileRow(page, files.v1);
+  await expect(firstRow.locator(".status")).toBeVisible();
+  await expect(firstRow.locator(".structure-counts")).toBeVisible();
+  await expect(firstRow.locator(".muted").last()).toBeVisible();
+  await expectNoPageOverflow();
+  await page.screenshot({ path: "artifacts/mobile-file-workflow-390.png", fullPage: true });
+
+  await page.getByLabel("운임현황_v1.xlsx 선택").check();
+  await page.getByLabel("운임현황_v2.xlsx 선택").check();
+  await page.getByRole("button", { name: "Compare", exact: true }).click();
+  await page.getByRole("button", { name: "Compare 실행" }).click();
+  await expect(page.getByTestId("change-row").first()).toBeVisible();
+  const comparisonWidths = await page.locator(".change-table").evaluate((element) => ({
+    client: element.clientWidth,
+    scroll: element.scrollWidth,
+  }));
+  expect(comparisonWidths.scroll).toBeGreaterThan(comparisonWidths.client);
+  await expectNoPageOverflow();
+
+  await page.getByLabel("운임현황_v1.xlsx 선택").uncheck();
+  await page.getByLabel("운임현황_v2.xlsx 선택").uncheck();
+  await page.getByLabel("최종검수.pptx 선택").check();
+  await page.getByRole("button", { name: "Check", exact: true }).click();
+  await page.getByRole("button", { name: "Check 실행" }).click();
+  const mobileFinding = page.locator(".check-issue").first();
+  await expect(mobileFinding).toBeVisible();
+  await expect(mobileFinding.locator(".check-issue-name")).toBeVisible();
+  await expect(mobileFinding.locator(".check-source")).toBeVisible();
+  await expectNoPageOverflow();
+  await page.screenshot({ path: "artifacts/mobile-check-390.png", fullPage: true });
+
+  await page.getByRole("button", { name: "Ask", exact: true }).click();
+  const askInput = page.getByLabel("질문 입력");
+  const askAction = page.getByRole("button", { name: "Ask 실행" });
+  const [askBox, actionBox] = await Promise.all([askInput.boundingBox(), askAction.boundingBox()]);
+  expect(askBox).not.toBeNull();
+  expect(actionBox).not.toBeNull();
+  expect(actionBox!.y).toBeGreaterThan(askBox!.y + askBox!.height);
+
+  await page.getByRole("button", { name: "Polish", exact: true }).click();
+  await page.getByRole("radio", { name: "텍스트 윤문" }).check();
+  const paste = page.getByLabel("윤문할 텍스트 입력");
+  await expect(paste).toBeVisible();
+  expect((await paste.boundingBox())!.width).toBeLessThanOrEqual(358);
+
+  await page.getByRole("button", { name: "Extract", exact: true }).click();
+  await page.getByRole("radio", { name: "항목 지정" }).check();
+  await expect(page.getByLabel("추출할 항목")).toBeVisible();
+  await expectNoPageOverflow();
+
+  await page.getByRole("button", { name: "Brief", exact: true }).click();
+  const briefInput = page.getByLabel("브리프 중점 입력");
+  const briefAction = page.getByRole("button", { name: "Brief 실행" });
+  const [briefBox, briefActionBox] = await Promise.all([briefInput.boundingBox(), briefAction.boundingBox()]);
+  expect(briefActionBox!.y).toBeGreaterThan(briefBox!.y + briefBox!.height);
+
+  await page.getByRole("button", { name: "Dictionary", exact: true }).click();
+  await expect(page.locator(".settings-surface[aria-label='Dictionary']")).toBeVisible();
+  await expectNoPageOverflow();
+
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  const settingsRow = page.locator(".settings-list > div").first();
+  const [settingsLabel, settingsDescription] = await Promise.all([
+    settingsRow.locator("dt").boundingBox(),
+    settingsRow.locator("dd").boundingBox(),
+  ]);
+  expect(settingsDescription!.y).toBeGreaterThanOrEqual(settingsLabel!.y + settingsLabel!.height);
+  await expect(page.locator(".notice")).toHaveCount(0);
+
+  for (const width of [360, 390, 430]) {
+    await page.setViewportSize({ width, height: 844 });
+    await expectNoPageOverflow();
+    for (const destination of ["Analyze", "Ask", "Compare", "Check", "Polish", "Extract", "Brief", "Dictionary", "Settings"]) {
+      await page.getByRole("button", { name: destination, exact: true }).click();
+      await expectNoPageOverflow();
+    }
+    const clippedNavItems = await page.locator(".rail-item").evaluateAll((items) =>
+      items.filter((item) => item.scrollWidth > item.clientWidth || item.scrollHeight > item.clientHeight).length);
+    expect(clippedNavItems).toBe(0);
+  }
 });

@@ -3593,7 +3593,7 @@ body {
    * the same breathing room on both sides and the icon/label start line is
    * unchanged.
    */
-  --rail-width: 204px;
+  --rail-width: 208px;
   --rail-inline-padding: 16px;
   --rail-item-inline-padding: 9px;
   --rail-icon-column: 20px;
@@ -4110,296 +4110,6 @@ body {
   }
 }
 
-@media (max-width: 700px) {
-  .topbar,
-  .workspace {
-    padding-left: 14px;
-    padding-right: 14px;
-  }
-
-  .topbar {
-    height: 52px;
-    gap: 12px;
-  }
-
-  .topbar > p,
-  .session-state {
-    display: none;
-  }
-
-  .session-meta {
-    margin-left: auto;
-  }
-
-  .tabs {
-    height: 54px;
-    padding: 0;
-  }
-
-  .tabs button {
-    min-width: 88px;
-    padding: 9px 12px 8px;
-  }
-
-  .tabs small {
-    display: none;
-  }
-
-  .workspace {
-    padding-top: 14px;
-  }
-
-  .context-strip {
-    align-items: flex-start;
-    padding-top: 8px;
-    padding-bottom: 8px;
-  }
-
-  .privacy-note strong {
-    display: block;
-    margin: 0 0 2px;
-  }
-
-  .selection-count {
-    display: none;
-  }
-
-  .panel-heading {
-    padding-right: 14px;
-    padding-left: 14px;
-  }
-
-  .dropzone {
-    padding: 12px 14px;
-    grid-template-columns: 1fr auto;
-    gap: 12px;
-  }
-
-  .drop-hint {
-    display: none;
-  }
-
-  .file-list-head {
-    display: none;
-  }
-
-  .file-row {
-    grid-template-columns: 28px minmax(0, 1fr) auto;
-    padding-right: 14px;
-    padding-left: 14px;
-  }
-
-  .structure-counts {
-    grid-column: 2 / -1;
-  }
-
-  .operation-bar {
-    grid-template-columns: 1fr;
-    gap: 12px;
-  }
-
-  .question-field,
-  .operation-actions {
-    grid-column: 1;
-  }
-
-  .operation-actions {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .operation-actions > button:only-child {
-    grid-column: 1 / -1;
-  }
-
-  .export-actions {
-    flex-wrap: wrap;
-  }
-
-  .export-actions > span {
-    flex-basis: 100%;
-  }
-
-  .summary {
-    grid-template-columns: repeat(6, 126px);
-  }
-
-  .document-result-heading {
-    padding-right: 14px;
-    padding-left: 14px;
-  }
-
-  .result-subsection {
-    padding-right: 14px;
-    padding-left: 14px;
-    overflow-x: auto;
-  }
-
-  .total-row {
-    min-width: 780px;
-  }
-
-  .qa-overview {
-    padding: 22px 14px 24px;
-  }
-
-  .qa-summary {
-    width: 100%;
-    grid-template-columns: repeat(3, minmax(88px, 1fr));
-  }
-
-  .qa-summary > div {
-    min-height: 70px;
-    padding-right: 9px;
-    padding-left: 9px;
-  }
-
-  .qa-summary dd {
-    font-size: 24px;
-  }
-
-  .check-filters {
-    padding-right: 14px;
-    padding-left: 14px;
-    grid-template-columns: 1fr;
-    gap: 10px;
-  }
-
-  .check-filters legend {
-    float: none;
-    width: auto;
-    padding: 0 0 5px;
-  }
-
-  .check-table-head {
-    display: none;
-  }
-
-  .check-issue-row {
-    padding: 2px 14px 13px;
-    grid-template-columns: 90px minmax(0, 1fr);
-  }
-
-  .check-issue-row > [role="cell"] {
-    padding: 10px 0 0;
-  }
-
-  .check-severity {
-    grid-column: 1;
-    grid-row: 1;
-    padding-left: 0 !important;
-  }
-
-  .check-category {
-    grid-column: 1;
-    grid-row: 2;
-  }
-
-  .check-issue-name {
-    grid-column: 2;
-    grid-row: 1 / span 2;
-  }
-
-  .check-source,
-  .check-recommendation {
-    grid-column: 2;
-  }
-
-  /* Stacked rows read top to bottom; a left rule would fake a column here. */
-  .check-source {
-    margin-inline-start: 0;
-    padding-inline-start: 0;
-    border-inline-start: 0;
-  }
-
-  .check-issue-detail {
-    margin-right: 14px;
-    margin-left: 14px;
-    padding: 16px;
-    grid-template-columns: 1fr;
-  }
-
-  .related-findings {
-    grid-column: 1;
-  }
-
-  .paragraph-list > div {
-    grid-template-columns: 1fr;
-    gap: 5px;
-  }
-
-  .ai-result {
-    padding-right: 14px;
-    padding-left: 14px;
-  }
-
-  .claim-row {
-    grid-template-columns: 1fr;
-    gap: 8px;
-  }
-
-  .claim-evidence {
-    grid-column: 1;
-  }
-
-  .compare-files {
-    display: none;
-  }
-
-  .comparison-index {
-    padding-right: 14px;
-    padding-left: 14px;
-  }
-
-  .source-detail {
-    margin-right: 14px;
-    margin-left: 14px;
-  }
-
-  .result-object > div {
-    grid-template-columns: 1fr;
-    gap: 4px;
-  }
-}
-
-@media (max-width: 430px) {
-  .brand {
-    font-size: 16px;
-  }
-
-  .delete-all {
-    padding: 0 8px;
-  }
-
-  .dropzone {
-    grid-template-columns: 1fr;
-  }
-
-  .dropzone button {
-    width: 100%;
-  }
-
-  .operation-actions {
-    grid-template-columns: 1fr;
-  }
-
-  .qa-summary {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .qa-summary > div {
-    padding-right: 7px;
-    padding-left: 7px;
-  }
-
-  .qa-summary dt {
-    font-size: var(--font-size-xs);
-  }
-
-  .check-issue-row {
-    grid-template-columns: 76px minmax(0, 1fr);
-  }
-}
 
 /* Refinements: preserve the compact review-workspace geometry while tightening its shared system. */
 .panel,
@@ -4828,46 +4538,6 @@ body {
   text-align: center;
 }
 
-@media (max-width: 700px) {
-  .check-toolbar {
-    padding: var(--space-3) 14px;
-    align-items: stretch;
-  }
-
-  .check-toolbar .check-filters {
-    flex-basis: 100%;
-  }
-
-  .low-confidence-toggle {
-    margin-left: 0;
-  }
-
-  .dictionary-trigger {
-    margin-left: auto;
-  }
-
-  .dictionary-panel {
-    position: static;
-    width: 100%;
-    max-width: none;
-    margin-top: var(--space-1);
-    box-shadow: none;
-  }
-
-  .check-summary-line {
-    gap: 3px var(--space-2);
-  }
-
-  .finding-actions {
-    gap: 4px var(--space-2);
-  }
-
-  .check-pagination {
-    padding-right: 14px;
-    padding-left: 14px;
-    justify-content: space-between;
-  }
-}
 
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -5300,7 +4970,7 @@ body {
 }
 
 .workspace {
-  max-width: 1400px;
+  max-width: 1480px;
   padding: 26px 30px 78px;
 }
 
@@ -5454,11 +5124,6 @@ body {
   margin-top: 2px;
 }
 
-@media (max-width: 700px) {
-  :root {
-    --panel-inset: 16px;
-  }
-}
 
 .empty-state {
   min-height: 106px;
@@ -5544,11 +5209,6 @@ body {
   align-items: center;
 }
 
-@media (max-width: 700px) {
-  .operation-bar:not(:has(.question-field)) {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
 
 
 .ai-status-actions {
@@ -5839,16 +5499,6 @@ input:disabled {
   justify-content: flex-start;
 }
 
-@media (max-width: 700px) {
-  .operation-bar:has(.question-field) {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .operation-bar:has(.question-field) .operation-actions {
-    grid-column: 1;
-    justify-content: flex-start;
-  }
-}
 
 /* File status and management actions share one quiet, aligned control row. */
 .context-actions {
@@ -5960,26 +5610,594 @@ input:disabled {
   margin-top: var(--space-2);
 }
 
+
+/* ── Mobile workflow: one vertical reading order, one spacing system ───── */
 @media (max-width: 700px) {
+  :root {
+    --panel-inset: 16px;
+  }
+
+  .app-shell,
+  .shell-main,
+  .workspace,
+  .workspace > *,
+  .operation-bar > *,
+  .results-panel,
+  .settings-surface {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  /*
+   * The existing rail becomes a compact navigation header. Four equal tracks
+   * keep every destination visible without turning the page into a horizontal
+   * menu, while the brand and utility destinations remain in their DOM order.
+   */
+  .rail {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-2);
+    padding: 10px 12px 12px;
+  }
+
+  .rail-brand {
+    height: 32px;
+    padding-inline: 4px;
+  }
+
+  .rail-list {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 4px;
+  }
+
+  .rail-footer {
+    width: 100%;
+    margin: 0;
+    padding-top: var(--space-2);
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4px;
+  }
+
+  .rail-item {
+    width: 100%;
+    min-width: 0;
+    min-height: 44px;
+    padding: 4px 6px;
+    flex-direction: column;
+    gap: 2px;
+    font-size: var(--font-size-xs);
+    justify-content: center;
+    text-align: center;
+  }
+
+  .rail-item > svg {
+    flex-basis: 18px;
+    width: 18px;
+    height: 18px;
+  }
+
+  .rail-item > span {
+    max-width: 100%;
+    white-space: nowrap;
+  }
+
+  /* File context: counts first, selected name second, actions last. */
+  .context-bar {
+    position: static;
+    gap: var(--space-2);
+    padding: 10px 16px;
+  }
+
+  .context-files {
+    width: 100%;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 4px 10px;
+    align-items: baseline;
+  }
+
+  .context-files h1 {
+    grid-column: 1;
+  }
+
+  .context-counts {
+    grid-column: 2;
+  }
+
+  .context-names {
+    grid-column: 1 / -1;
+    margin-left: 0;
+  }
+
+  .context-actions {
+    width: 100%;
+    margin-left: 0;
+    justify-content: flex-end;
+    gap: var(--space-2);
+  }
+
+  .context-actions .session-state {
+    display: none;
+  }
+
+  .file-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .file-actions:not(:has(.file-add)) .delete-all {
+    display: none;
+  }
+
+  .file-add,
+  .delete-all {
+    min-height: 40px;
+  }
+
+  .utility-bar .context-names {
+    display: block;
+  }
+
+  .workspace {
+    padding: 16px 16px 56px;
+  }
+
+  .dropzone {
+    padding: 14px 16px;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-3);
+  }
+
+  .drop-hint {
+    display: none;
+  }
+
+  .dropzone > div span {
+    line-height: var(--leading-relaxed);
+  }
+
+  .dropzone button {
+    width: 100%;
+    min-height: 44px;
+  }
+
+  /*
+   * A file is a three-line record on mobile: identity and warning, status,
+   * then structure. No desktop column is hidden.
+   */
+  .file-list-head {
+    display: none;
+  }
+
+  .file-row {
+    min-height: 0;
+    padding: 14px 16px;
+    grid-template-columns: 28px minmax(0, 1fr) auto;
+    grid-template-rows: auto auto auto;
+    column-gap: 10px;
+    row-gap: 5px;
+    align-items: start;
+  }
+
+  .select-file {
+    grid-column: 1;
+    grid-row: 1 / -1;
+    align-self: start;
+  }
+
+  .file-info {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .file-info strong {
+    max-width: 100%;
+  }
+
+  .file-row > .warning,
+  .file-row > .muted:last-child {
+    grid-column: 3;
+    grid-row: 1;
+    display: block;
+    white-space: nowrap;
+  }
+
+  .file-row > .status {
+    grid-column: 2;
+    grid-row: 2;
+    justify-self: start;
+  }
+
+  .structure-counts {
+    grid-column: 2 / -1;
+    grid-row: 3;
+    gap: 4px 12px;
+    font-size: var(--font-size-sm);
+  }
+
+  .structure-counts b {
+    font-size: var(--font-size-sm);
+  }
+
+  /* Every category now reads heading → controls → action → state → result. */
+  .work-section-heading {
+    margin-top: var(--space-5);
+    padding-inline: 0;
+  }
+
+  .work-section-heading p {
+    margin-top: var(--space-1);
+  }
+
+  .workspace > .operation-bar {
+    margin-top: var(--space-3);
+  }
+
+  .operation-bar,
+  .operation-bar:has(.question-field),
+  .operation-bar:not(:has(.question-field)),
+  .operation-bar:has(.polish-paste) {
+    width: 100%;
+    padding: 0;
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: stretch;
+    align-items: stretch;
+    gap: var(--space-3);
+  }
+
+  .operation-bar:has(.polish-paste) .polish-controls,
+  .operation-bar:has(.polish-paste) .operation-actions,
+  .question-field,
+  .polish-controls,
+  .extract-controls {
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  .operation-actions,
+  .operation-bar:has(.question-field) .operation-actions,
+  .operation-bar:not(:has(.question-field)) .operation-actions {
+    width: 100%;
+    grid-column: 1;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+    gap: var(--space-2);
+    justify-content: stretch;
+  }
+
+  .operation-actions button,
+  .export-actions button,
+  .extract-fields > .secondary-action {
+    min-height: 44px;
+  }
+
+  .question-field input {
+    width: 100%;
+    height: 44px;
+    font-size: 16px;
+  }
+
+  .segmented {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  }
+
+  .segmented label {
+    min-width: 0;
+    min-height: 44px;
+    padding-inline: 8px;
+    justify-content: center;
+  }
+
+  .polish-controls {
+    justify-items: stretch;
+  }
+
+  .polish-paste textarea {
+    min-height: 176px;
+    font-size: 16px;
+  }
+
+  .extract-controls > .segmented {
+    justify-self: stretch;
+  }
+
+  .extract-fields {
+    width: 100%;
+  }
+
+  .extract-fields > input {
+    flex: 1 1 100%;
+    width: 100%;
+    min-width: 0;
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  .export-actions {
+    padding-inline: 0;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .export-actions > span {
+    flex-basis: 100%;
+    margin-right: 0;
+  }
+
+  /* Status text may wrap; it never sets the width of its workspace. */
+  .status-panel {
+    width: 100%;
+    overflow-wrap: anywhere;
+  }
+
+  .status-panel > strong,
+  .status-panel p,
+  .status-panel small {
+    max-width: 100%;
+  }
+
+  /* Dense data scrolls inside its own result region, never at page level. */
+  .summary,
+  .data-table,
+  .change-table,
+  .extract-table-wrap {
+    max-width: 100%;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+  }
+
+  .result-subsection {
+    max-width: 100%;
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+
+  .panel-heading,
+  .document-result-heading,
+  .subsection-heading {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .result-provenance,
+  .document-result-heading small {
+    white-space: normal;
+  }
+
+  .numeric-evidence {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-2);
+  }
+
+  .total-row {
+    min-width: 720px;
+  }
+
+  .claim-row,
+  .polish-row,
+  .extract-field-list > div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-2);
+  }
+
+  .claim-evidence,
+  .polish-actions {
+    grid-column: 1;
+  }
+
+  .compare-files {
+    display: none;
+  }
+
+  .comparison-index {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+
+  /* Check findings become one deliberate top-to-bottom reading sequence. */
+  .qa-overview {
+    padding: 20px 16px;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+    gap: var(--space-5);
+  }
+
+  .qa-summary {
+    width: 100%;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    border-top: 1px solid var(--line);
+    border-left: 0;
+  }
+
+  .qa-summary > div {
+    min-height: 68px;
+    padding-right: 8px;
+    padding-left: 8px;
+  }
+
+  .qa-summary dd {
+    font-size: 24px;
+  }
+
+  .check-toolbar {
+    padding: var(--space-3) 16px;
+    align-items: stretch;
+    gap: var(--space-3);
+  }
+
+  .check-toolbar .check-filters,
+  .check-toolbar-actions {
+    flex-basis: 100%;
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .check-filters {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-3);
+  }
+
+  .check-filters fieldset > div {
+    gap: var(--space-2);
+  }
+
+  .check-filters button,
+  .dictionary-trigger,
+  .check-pagination button {
+    min-height: 40px;
+  }
+
+  .dictionary-trigger {
+    justify-self: start;
+  }
+
+  .dictionary-panel {
+    position: static;
+    width: 100%;
+    max-width: none;
+    margin-top: var(--space-1);
+    box-shadow: none;
+  }
+
+  .check-table-head {
+    display: none;
+  }
+
+  .check-issue-row {
+    padding: 12px 16px 16px;
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: var(--space-2);
+  }
+
+  .check-issue-row > [role="cell"] {
+    grid-column: 1;
+    padding-block: 0;
+  }
+
+  .check-issue-name {
+    grid-row: 1;
+  }
+
+  .check-severity {
+    grid-row: 2;
+  }
+
+  .check-category {
+    grid-row: 3;
+  }
+
+  .check-source {
+    grid-row: 4;
+  }
+
+  .check-recommendation {
+    grid-row: 5;
+  }
+
+  .check-issue-detail {
+    margin: 0 16px 16px;
+    padding: 16px;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .related-findings {
+    grid-column: 1;
+  }
+
+  .check-pagination {
+    padding-right: 16px;
+    padding-left: 16px;
+    justify-content: space-between;
+  }
+
+  .paragraph-list > div,
+  .result-object > div,
+  .claim-evidence > div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-1);
+  }
+
+  .source-detail {
+    max-width: calc(100% - 32px);
+    margin-right: 16px;
+    margin-left: 16px;
+    overflow-wrap: anywhere;
+  }
+
+  .evidence-inspector .source-detail {
+    max-width: 100%;
+    margin: 0;
+  }
+
+  /* Utility destinations keep one card, but their content is one column. */
+  .settings-surface {
+    padding: 16px;
+  }
+
+  .settings-list > div {
+    padding: 14px 0;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+  }
+
   .settings-surface[aria-label="Dictionary"] {
-    padding: var(--space-4);
+    padding: 16px;
   }
 
   .settings-surface[aria-label="Dictionary"] .dictionary-section form {
     width: 100%;
   }
+
+  .dictionary-section form input,
+  .dictionary-section form button,
+  .dictionary-actions button {
+    min-height: 44px;
+  }
+
+  .admin-surface {
+    width: auto;
+    margin: 16px;
+    padding: 16px;
+  }
+
+  .admin-toolbar input,
+  .admin-add,
+  .admin-add input {
+    width: 100%;
+  }
+
+  .admin-toolbar input,
+  .admin-toolbar button,
+  .admin-add button,
+  .admin-row input,
+  .admin-actions button {
+    min-height: 44px;
+  }
 }
 
-@media (max-width: 380px) {
-  .settings-surface[aria-label="Dictionary"] .dictionary-section form {
+@media (max-width: 430px) {
+  .dictionary-section form {
     flex-wrap: wrap;
   }
 
-  .settings-surface[aria-label="Dictionary"] .dictionary-section form input {
+  .dictionary-section form input {
     flex-basis: 100%;
   }
 
-  .settings-surface[aria-label="Dictionary"] .dictionary-section form button {
+  .dictionary-section form button {
     margin-left: auto;
+  }
+
+  .operation-actions {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
