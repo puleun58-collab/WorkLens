@@ -101,14 +101,17 @@ function groundClaim(candidate: AiProviderClaim, evidence: ReadonlyMap<string, C
   const text = cleanText(candidate.text);
   if (!text || candidate.sourceTokens.length === 0) return undefined;
   const bindings: EvidenceBinding[] = [];
+  const evidenceText: string[] = [];
   const seen = new Set<string>();
   for (const token of candidate.sourceTokens) {
     const canonical = evidence.get(token);
     if (!canonical || seen.has(token)) return undefined;
     seen.add(token);
     if (looksLikePromptInjection(canonical.text)) return undefined;
+    evidenceText.push(canonical.text);
     bindings.push({ source: { ...canonical.source }, support: "context" });
   }
+  if (!claimLiteralsAppearInEvidence(text, evidenceText)) return undefined;
   return {
     id: claimId("inference", candidate.sourceTokens.join("|"), text),
     kind: "inference",
@@ -300,6 +303,18 @@ function predicateLabel(predicate: DirectProposition["predicate"]): string { ret
 function quoteHash(value: string): string { return sha256Base64Url(value); }
 function claimId(...values: string[]): string { return sha256Base64Url(values.join("\0")); }
 function cleanText(value: string | undefined): string { return typeof value === "string" ? value.trim().slice(0, 8_000) : ""; }
+const CHECKED_LITERAL_PATTERN = /(?:[A-Za-z가-힣]{1,12}[-_/])?\d[\dA-Za-z가-힣.,:/%+\-₩$]*/gu;
+
+function claimLiteralsAppearInEvidence(claim: string, evidence: readonly string[]): boolean {
+  const source = normalize(evidence.join(" ")).toLocaleLowerCase("ko-KR");
+  const literals = claim.match(CHECKED_LITERAL_PATTERN) ?? [];
+  return literals.every((literal) => {
+    const normalized = normalize(literal)
+      .toLocaleLowerCase("ko-KR")
+      .replace(/[.,:;!?]+$/u, "");
+    return normalized.length === 0 || source.includes(normalized);
+  });
+}
 function normalize(value: string): string { return value.normalize("NFKC").replace(/\r\n?/g, "\n").replace(/\s+/gu, " ").trim(); }
 function looksLikePromptInjection(value: string): boolean { return /ignore (?:all |the )?(?:previous|prior|above) instructions|system prompt|developer message|지시(?:를|사항을)? 무시|프롬프트/ui.test(normalize(value)); }
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }

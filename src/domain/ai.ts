@@ -67,6 +67,3 @@ export interface BriefResult extends GroundedResult { operation: "brief"; brief:
 export interface SemanticCheckResult extends GroundedResult { operation: "semantic-check"; findings: GroundedClaim[]; rejectedClaimCount: number; }
 export type AiAvailableResult = AnalyzeResult | AskResult | BriefResult | SemanticCheckResult;
 
-export type AiUnavailableReason = "no-webgpu" | "load-failed" | "cancelled" | "no-evidence";
-export interface AiUnavailableResult { operation: AiOperation; status: "unavailable"; reason: AiUnavailableReason; }
-export type AiResult = AiAvailableResult | AiUnavailableResult;

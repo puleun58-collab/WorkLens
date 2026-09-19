@@ -956,8 +956,8 @@ http://scripts.sil.org/OFL
   --critical-soft: #fff1f0;
   --warning: #9a6700;
   --warning-soft: #fff8e1;
-  --success: #14753f;
-  --success-soft: #edf8f1;
+  --success: var(--muted);
+  --success-soft: var(--layer);
   --radius-control: 4px;
   --radius-panel: 4px;
   --space-1: 4px;
@@ -1580,14 +1580,14 @@ input:disabled,
 .status-ready,
 .status-complete,
 .status-parsed {
-  border-color: #9dceb0;
-  color: var(--success);
+  border-color: var(--line);
+  color: var(--muted);
 }
 
 .status-ready > span,
 .status-complete > span,
 .status-parsed > span {
-  background: var(--success);
+  background: var(--muted-light);
 }
 
 .status-error,
@@ -1604,18 +1604,25 @@ input:disabled,
 .structure-counts {
   min-width: 0;
   display: flex;
+  align-items: baseline;
   flex-wrap: wrap;
   gap: 6px 15px;
   color: var(--muted);
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-tight);
 }
 
 .structure-counts span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1);
   white-space: nowrap;
 }
 
 .structure-counts b {
-  color: var(--ink);
+  color: var(--ink-soft);
   font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
   font-weight: var(--font-weight-semibold);
 }
 
@@ -1747,13 +1754,14 @@ input:disabled,
   font-size: var(--font-size-xs);
 }
 
-.status-panel.success {
-  --status-accent: var(--success);
-  --status-surface: var(--success-soft);
-  --status-border: #a8d3b8;
+.status-panel.success,
+.status-panel.info {
+  --status-accent: var(--line-strong);
+  --status-surface: var(--layer);
+  --status-border: var(--line-soft);
 }
 
-.status-panel.info {
+.processing-bar {
   --status-accent: var(--blue);
   --status-surface: var(--blue-pale);
   --status-border: #b6d0e6;
@@ -1924,7 +1932,7 @@ input:disabled,
 }
 
 .summary-important dd {
-  color: var(--critical);
+  color: var(--warning);
 }
 
 .numeric-evidence {
@@ -2094,11 +2102,11 @@ input:disabled,
 }
 
 .total-row.verified .verification-label {
-  color: var(--success);
+  color: var(--ink-soft);
 }
 
 .total-row.mismatch .verification-label {
-  color: var(--critical);
+  color: var(--warning);
 }
 
 /*
@@ -2403,7 +2411,7 @@ input:disabled,
   position: absolute;
   inset: 0 auto 1px 0;
   width: 3px;
-  background: var(--blue);
+  background: var(--line-strong);
   content: "";
 }
 
@@ -2556,7 +2564,7 @@ input:disabled,
 }
 
 .check-issue-detail .suggested-copy blockquote {
-  border-left-color: var(--success);
+  border-left-color: var(--line-strong);
   color: var(--ink);
 }
 
@@ -2886,21 +2894,19 @@ input:disabled,
 .polish-controls {
   min-width: 0;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   justify-items: start;
   gap: 10px;
 }
 
 /*
- * The paste area is the input for text polish, so it takes a reading measure
- * of its own: `justify-items: start` on the control stack sized it to its
- * content, which left a ~200px box to paste a report into. 720px is the
- * desktop measure, 760px the ceiling, and it collapses to the bar's own width
- * below that.
+ * The paste area follows the shared text-polish content measure. Its textarea
+ * fills that measure without expanding to the full workspace width.
  */
 .polish-paste {
   justify-self: stretch;
-  width: min(100%, 720px);
-  max-width: 760px;
+  width: 100%;
+  max-width: 100%;
   min-width: 0;
   display: grid;
   gap: 5px;
@@ -3160,18 +3166,15 @@ input:disabled,
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--blue);
+  background: var(--line-strong);
 }
 
-.category-dot.added {
-  background: var(--success);
+.category-dot.added,
+.category-dot.removed {
+  background: var(--muted);
 }
 
-.category-dot.removed,
-.category-dot.important {
-  background: var(--critical);
-}
-
+.category-dot.important,
 .category-dot.structural {
   background: var(--warning);
 }
@@ -3228,21 +3231,18 @@ input:disabled,
 
 .category-label {
   padding-left: 7px;
-  border-left: 3px solid var(--blue);
+  border-left: 3px solid var(--line-strong);
   color: var(--ink-soft);
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-semibold);
 }
 
-.category-added {
-  border-color: var(--success);
+.category-added,
+.category-removed {
+  border-color: var(--line-strong);
 }
 
-.category-removed,
-.category-important-change {
-  border-color: var(--critical);
-}
-
+.category-important-change,
 .category-structural-change {
   border-color: var(--warning);
 }
@@ -3262,7 +3262,7 @@ input:disabled,
 .source-detail {
   margin: 16px 18px 18px;
   border: 1px solid #8ab5d8;
-  border-left: 4px solid var(--blue);
+  border-left: 3px solid var(--blue);
   border-radius: var(--radius-panel);
   background: var(--blue-pale);
 }
@@ -5508,16 +5508,23 @@ body {
   justify-content: flex-end;
 }
 
-/* The paste area is the input, so it takes the whole bar instead of sharing a
- * row with the description and leaving a dead column beside it. */
+/*
+ * Pasted-text polish is one centred reading column. Description, segmented
+ * controls, textarea, count and action all share the same 880px measure.
+ */
 .operation-bar:has(.polish-paste) {
   grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
   align-items: stretch;
   gap: 12px;
 }
 
 .operation-bar:has(.polish-paste) .operation-context,
+.operation-bar:has(.polish-paste) .polish-controls,
 .operation-bar:has(.polish-paste) .operation-actions {
+  width: min(100%, 880px);
+  max-width: 880px;
+  min-width: 0;
   grid-column: 1;
   grid-row: auto;
   justify-content: flex-start;
@@ -5543,72 +5550,6 @@ body {
   }
 }
 
-/*
- * Browser AI status reuses .status-panel wholesale; only the horizontal flow
- * of its actions and progress row is specific. It is a capability box, never
- * an error surface, so it never invents its own frame or colour.
- */
-.ai-status {
-  margin-top: var(--space-3);
-  flex-flow: row wrap;
-  align-items: center;
-  gap: var(--space-2) var(--space-4);
-}
-
-/*
- * Two sentences, two lines: each one owns the full panel width so it never
- * breaks mid-clause, and the actions drop to their own row beside them.
- */
-.ai-status .ai-copy {
-  flex: 1 1 100%;
-  max-width: none;
-}
-
-.ai-status.confirm {
-  align-items: flex-start;
-  gap: var(--space-1) var(--space-4);
-}
-
-.ai-status.confirm .ai-status-actions {
-  margin-top: var(--space-2);
-}
-
-.ai-status > strong {
-  font-size: var(--font-size-md);
-  font-weight: var(--font-weight-semibold);
-}
-
-.ai-status p {
-  flex: 1 1 320px;
-  color: var(--muted);
-  font-size: var(--font-size-sm);
-}
-
-.ai-progress {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  color: var(--ink-soft);
-  font-size: var(--font-size-sm);
-  font-variant-numeric: tabular-nums;
-}
-
-.ai-progress progress {
-  width: 160px;
-  height: 6px;
-  accent-color: var(--blue);
-}
-
-.ai-status .secondary-action {
-  min-height: var(--control-height-md);
-  padding: 0 13px;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-control);
-  background: var(--paper);
-  color: var(--ink-soft);
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-semibold);
-}
 
 .ai-status-actions {
   display: inline-flex;
@@ -5616,29 +5557,6 @@ body {
   gap: var(--space-2);
 }
 
-/* Opt-in download: one primary action, one quiet escape, no modal. */
-.ai-status .ai-confirm {
-  min-height: var(--control-height-md);
-  padding: 0 14px;
-  border: 1px solid var(--blue-hover);
-  border-radius: var(--radius-control);
-  background: var(--blue);
-  color: #fff;
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-semibold);
-  transition: background var(--motion-fast) var(--motion-ease);
-}
-
-.ai-status .ai-confirm:hover:not(:disabled) {
-  background: var(--blue-hover);
-}
-
-.ai-detail {
-  flex-basis: 100%;
-  color: var(--muted-light);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
-}
 
 /* ── Result hierarchy: one reading order on every result surface ──────────
  * Primary result → detail → source → recommendation → metadata.
@@ -5842,4 +5760,226 @@ input:disabled {
 
 .operation-actions button:disabled {
   box-shadow: none;
+}
+
+/* ── Category work sections: hierarchy from type and spacing, not cards ─── */
+.work-section-heading {
+  margin-top: var(--space-6);
+  padding: 0 var(--panel-inset);
+}
+
+.work-section-heading h2 {
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--text-xl);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--leading-tight);
+  letter-spacing: var(--tracking-display);
+}
+
+.work-section-heading p {
+  max-width: 68ch;
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: var(--font-size-sm);
+  line-height: var(--leading-relaxed);
+}
+
+.workspace > .operation-bar {
+  min-height: 0;
+  margin-top: var(--space-4);
+  padding-top: 0;
+  padding-bottom: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.workspace > .results-panel {
+  margin-top: var(--space-6);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
+}
+
+.results-panel > .panel-heading {
+  min-height: 0;
+  padding-top: 0;
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--line-soft);
+  background: transparent;
+}
+
+.workspace > .export-actions {
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.operation-bar:has(.question-field) {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.operation-bar:has(.question-field) .operation-actions {
+  grid-column: 2;
+  justify-content: flex-end;
+}
+
+.operation-bar:not(:has(.question-field)):not(:has(.polish-controls)):not(:has(.extract-controls)) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.operation-bar:not(:has(.question-field)):not(:has(.polish-controls)):not(:has(.extract-controls)) .operation-actions {
+  grid-column: 1;
+  justify-content: flex-start;
+}
+
+@media (max-width: 700px) {
+  .operation-bar:has(.question-field) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .operation-bar:has(.question-field) .operation-actions {
+    grid-column: 1;
+    justify-content: flex-start;
+  }
+}
+
+/* File status and management actions share one quiet, aligned control row. */
+.context-actions {
+  gap: 24px;
+}
+
+.file-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.file-add,
+.delete-all {
+  min-height: var(--control-height-md);
+  padding: 0 14px;
+  border-radius: var(--radius-control);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.file-add {
+  border: 1px solid var(--blue-hover);
+  background: var(--blue);
+  color: #fff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+.file-add:hover:not(:disabled) {
+  border-color: var(--blue-active);
+  background: var(--blue-hover);
+}
+
+.delete-all {
+  border-color: var(--line);
+  background: transparent;
+  color: var(--critical);
+  box-shadow: none;
+}
+
+@media (max-width: 900px) {
+  .context-actions {
+    width: 100%;
+    margin-left: 0;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .context-actions .session-state {
+    display: inline-flex;
+    white-space: nowrap;
+  }
+}
+
+/* Dictionary destination: one compact management card on the gray workspace. */
+.settings-surface[aria-label="Dictionary"] {
+  align-self: start;
+  padding: var(--space-4) var(--space-5);
+}
+
+.settings-surface[aria-label="Dictionary"] .dictionary-section {
+  margin-top: 0;
+}
+
+.settings-surface[aria-label="Dictionary"] .dictionary-section + .dictionary-section {
+  margin-top: var(--space-5);
+  padding-top: var(--space-5);
+  border-top-color: var(--border-subtle);
+}
+
+.settings-surface[aria-label="Dictionary"] .dictionary-section > h4 + .dictionary-note {
+  margin-top: var(--space-1);
+}
+
+.settings-surface[aria-label="Dictionary"] .dictionary-section form {
+  width: min(100%, 560px);
+  max-width: none;
+  margin: var(--space-3) 0;
+}
+
+.settings-surface[aria-label="Dictionary"] .dictionary-section form input,
+.settings-surface[aria-label="Dictionary"] .dictionary-section form button {
+  min-height: var(--control-height-md);
+}
+
+.settings-surface[aria-label="Dictionary"] .dictionary-term-list {
+  gap: 6px var(--space-2);
+}
+
+.settings-surface[aria-label="Dictionary"] .dictionary-actions {
+  margin-top: var(--space-3);
+}
+
+.settings-surface[aria-label="Dictionary"] .dictionary-actions .dictionary-reset {
+  border-color: #e3aaa5;
+  background: transparent;
+  color: var(--critical);
+}
+
+.settings-surface[aria-label="Dictionary"] .dictionary-actions .dictionary-reset:hover:not(:disabled) {
+  border-color: var(--critical);
+  background: var(--critical-soft);
+  color: var(--critical);
+}
+
+.settings-surface[aria-label="Dictionary"] .dictionary-section > .dictionary-note:last-child {
+  margin-top: var(--space-2);
+}
+
+@media (max-width: 700px) {
+  .settings-surface[aria-label="Dictionary"] {
+    padding: var(--space-4);
+  }
+
+  .settings-surface[aria-label="Dictionary"] .dictionary-section form {
+    width: 100%;
+  }
+}
+
+@media (max-width: 380px) {
+  .settings-surface[aria-label="Dictionary"] .dictionary-section form {
+    flex-wrap: wrap;
+  }
+
+  .settings-surface[aria-label="Dictionary"] .dictionary-section form input {
+    flex-basis: 100%;
+  }
+
+  .settings-surface[aria-label="Dictionary"] .dictionary-section form button {
+    margin-left: auto;
+  }
 }

@@ -13,7 +13,7 @@
     "test:e2e": "playwright test",
     "dev:vinext": "vinext dev --port 3001",
     "build:vinext": "bun run assets:pdf && node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && vinext build && bun scripts/write-asset-headers.ts",
-    "start:vinext": "wrangler dev --config dist/server/wrangler.json",
+    "start:vinext": "wrangler dev --config dist/server/wrangler.json --env-file .dev.vars",
     "deploy:vinext": "vinext-cloudflare deploy --config dist/server/wrangler.json",
     "deploy": "bun run build:vinext && wrangler deploy --config dist/server/wrangler.json",
     "test:e2e:cloudflare": "bun run build:vinext && playwright test --config playwright.cloudflare.config.ts",
@@ -21,15 +21,10 @@
     "test:smoke": "playwright test --config playwright.smoke.config.ts",
     "test:eval:retrieval": "vitest run tests/eval-retrieval.test.ts",
     "test:eval:grounding": "vitest run tests/eval-grounding.test.ts",
-    "test:eval:ai": "playwright test --config playwright.eval.config.ts",
     "bench:large": "bun tests/bench/large-documents.ts",
-    "bench:stress": "bun tests/bench/large-documents.ts --stress",
-    "test:ai:model": "playwright test --config playwright.ai.config.ts tests/e2e/ai-model-download.spec.ts",
-    "test:ai:smoke": "playwright test --config playwright.ai.config.ts tests/e2e/ai-smoke.spec.ts",
-    "test:ai:all": "bun run test:ai:model && bun run test:ai:smoke"
+    "bench:stress": "bun tests/bench/large-documents.ts --stress"
   },
   "dependencies": {
-    "@mlc-ai/web-llm": "0.2.85",
     "exceljs": "^4.4.0",
     "lucide-react": "^1.46.0",
     "next": "16.3.4",

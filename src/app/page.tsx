@@ -18,30 +18,14 @@ import {
 import { WorkLensLogo } from "./worklens-logo";
 import { disposeWorkspace, runInWorker } from "@/client/document-client";
 import {
-  browserAiDecision,
-  browserAiModel,
-  browserAiState,
-  cancelBrowserAiLoad,
-  confirmBrowserAi,
-  disposeBrowserAi,
-  generateBrowserAi,
-  interruptBrowserAi,
-  extractBrowserAi,
-  loadBrowserAi,
-  polishBrowserAi,
-  probeBrowserAi,
-  selectBrowserAiTier,
-  subscribeBrowserAi,
-  type BrowserAiFailure,
-} from "@/client/browser-ai-client";
-import {
-  BROWSER_AI_MAX_FILES,
-  BROWSER_AI_MESSAGES,
-  BROWSER_AI_STATUS_MESSAGES,
-  type BrowserAiErrorCode,
-  type BrowserAiState,
-  type BrowserAiTier,
-} from "@/client/browser-ai-protocol";
+  extractServerAi,
+  generateServerAi,
+  interruptServerAi,
+  polishServerAi,
+  SERVER_AI_MESSAGES,
+  type ServerAiFailure,
+} from "@/client/server-ai-client";
+import { SERVER_AI_MAX_FILES, type ServerAiErrorCode } from "@/lib/ai/api";
 import type { CheckEntry as WorkerCheckEntry, WorkspaceFile } from "@/client/protocol";
 import {
   EXTRACT_MODE_LABELS,
@@ -116,17 +100,12 @@ type NoticeScope = "workspace" | ShellView;
  * start-up failure is a different sentence from a task that failed, and
  * matching on message text to tell them apart is guesswork.
  */
-type Notice = { tone: "error" | "success" | "info"; message: string; scope: NoticeScope; code?: BrowserAiErrorCode };
+type Notice = { tone: "error" | "success" | "info"; message: string; scope: NoticeScope; code?: ServerAiErrorCode };
 
-/**
- * A browser AI that never started is not "a task that failed": it is the AI
- * itself being unavailable, and the status box below says the same thing in
- * fewer words.
- */
 function noticeTitle(notice: Notice): string {
   if (notice.tone === "success") return "작업 완료";
   if (notice.tone !== "error") return "처리 상태";
-  return notice.code === "WORKER_FAILED" ? "AI 기능을 준비하지 못했습니다" : "작업을 완료하지 못했습니다";
+  return "작업을 완료하지 못했습니다";
 }
 
 const tabs = ["Analyze", "Ask", "Compare", "Check", "Polish", "Extract", "Brief"] as const;
@@ -181,9 +160,6 @@ const checkGroupLabels: Record<CheckCategoryGroup, string> = {
   privacy: "Privacy",
 };
 
-/** Server render has no WebGPU and no model: AI actions stay enabled until the
- * client snapshot proves otherwise, and the status box starts silent. */
-const serverAiState: () => BrowserAiState = () => ({ phase: "idle" });
 
 /**
  * Hydration as a read, not as state written from an effect: the store never
@@ -255,9 +231,6 @@ export default function Home() {
   const [question, setQuestion] = useState("");
   const [userTerms, setUserTerms] = useState<string[]>(readUserTerms);
   const [ignoredRules, setIgnoredRules] = useState<string[]>(readIgnoredRules);
-  // The AI layer is an external system: state and capability are read through
-  // the store instead of mirrored into React state inside an effect.
-  const aiState = useSyncExternalStore(subscribeBrowserAi, browserAiState, serverAiState);
   /**
    * Hydration signal. The markup is server-rendered, so a file set on the
    * upload input before the client takes over drops its change event and
@@ -265,14 +238,6 @@ export default function Home() {
    * `true`, so `data-hydrated` flips exactly when this tree is interactive.
    */
   const hydrated = useSyncExternalStore(subscribeNothing, clientHydrated, serverHydrated);
-  /**
-   * The model decision is owned by the AI client and settled before any
-   * download, so it is read during render rather than mirrored into state.
-   * The counter exists only to re-render after the user picks a tier.
-   */
-  const [, setAiTierEpoch] = useState(0);
-  const aiModel = browserAiModel();
-  const aiDecision = browserAiDecision();
   const [polishMode, setPolishMode] = useState<PolishMode>("default");
   const [polish, setPolish] = useState<PolishResult | null>(null);
   const [polishProgress, setPolishProgress] = useState<{ done: number; total: number } | null>(null);
@@ -280,10 +245,6 @@ export default function Home() {
   const [polishText, setPolishText] = useState("");
   const [polishTextRun, setPolishTextRun] = useState<PolishTextResult | null>(null);
   const polishCancelled = useRef(false);
-  const aiUnsupported = aiState.phase === "unsupported";
-  // Analyze, Compare and Check are deterministic by default: their AI layer,
-  // and therefore its status box, only appears once the user asks for it.
-  const [aiAssistRequested, setAiAssistRequested] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const uploadQueue = useRef<Promise<void>>(Promise.resolve());
   const detailTrigger = useRef<HTMLElement | null>(null);
@@ -325,7 +286,7 @@ export default function Home() {
   const toggleRule = useCallback((ruleId: string) => setIgnoredRules(toggleIgnoredRule(ruleId)), []);
 
   /** Owned by the current view: navigating away retires it. */
-  const notifyView = (tone: Notice["tone"], message: string, code?: BrowserAiErrorCode) =>
+  const notifyView = (tone: Notice["tone"], message: string, code?: ServerAiErrorCode) =>
     setNotice({ tone, message, scope: shellView, ...(code ? { code } : {}) });
   /** Affects the whole tab — an upload or a workspace reset — so it follows. */
   const notifyWorkspace = (tone: Notice["tone"], message: string) => setNotice({ tone, message, scope: "workspace" });
@@ -341,18 +302,10 @@ export default function Home() {
     setNotice((current) => current?.scope === "workspace" ? current : null);
   }, []);
 
-  // Both workers belong to this tab: documents live in the parser worker, the
-  // model lives in the AI worker. Unloading the page releases both.
   useEffect(() => () => {
     disposeWorkspace();
-    disposeBrowserAi();
+    interruptServerAi();
   }, []);
-
-  // Capability is probed when the user actually moves to an AI destination, so
-  // the landing view stays silent and nothing is downloaded up front.
-  useEffect(() => {
-    if (activeTab === "Ask" || activeTab === "Brief" || activeTab === "Polish") void probeBrowserAi();
-  }, [activeTab]);
 
   const upload = async (file: File) => {
     setUploading(true);
@@ -408,18 +361,15 @@ export default function Home() {
   };
 
   /**
-   * Browser-local AI orchestration. The main thread only routes ids: the
-   * document worker ranks and bounds the evidence, the AI worker sees just that
-   * window, and grounding happens back in the document worker where the
-   * canonical sources live. No document text is ever held in React state.
+   * Server AI orchestration. The document worker ranks and bounds the evidence;
+   * only that compact window crosses the same-origin API, then grounding runs
+   * back in the document worker where canonical sources remain.
    */
-  const runBrowserTask = async (request: AiRequest, success: string) => {
-    if (selected.length > BROWSER_AI_MAX_FILES) {
-      notifyView("error", `브라우저 AI 작업은 최대 ${BROWSER_AI_MAX_FILES}개 파일만 선택할 수 있습니다.`);
+  const runServerTask = async (request: AiRequest, success: string) => {
+    if (selected.length > SERVER_AI_MAX_FILES) {
+      notifyView("error", `AI 작업은 최대 ${SERVER_AI_MAX_FILES}개 파일만 선택할 수 있습니다.`);
       return;
     }
-    const capability = await probeBrowserAi();
-    if (capability.phase === "unsupported" || capability.phase === "awaiting-confirmation") return;
     setBusy(true);
     setNotice(null);
     setDetail(null);
@@ -427,11 +377,14 @@ export default function Home() {
     try {
       const evidence = await runInWorker({ kind: "evidence", fileIds: selected, request });
       windowId = evidence.windowId;
-      const claims = await generateBrowserAi(request, evidence.items);
+      const claims = await generateServerAi(request, evidence.items);
       const result = await runInWorker({ kind: "ground", windowId, request, claims });
       windowId = undefined;
-      if (result.rejectedClaimCount > 0 || result.claims.length === 0) {
-        throw { code: "GROUNDING_REJECTED", message: BROWSER_AI_MESSAGES.GROUNDING_REJECTED } satisfies BrowserAiFailure;
+      if (result.rejectedClaimCount > 0) {
+        throw { code: "GROUNDING_REJECTED", message: SERVER_AI_MESSAGES.GROUNDING_REJECTED } satisfies ServerAiFailure;
+      }
+      if (result.claims.length === 0) {
+        throw { code: "NO_EVIDENCE", message: SERVER_AI_MESSAGES.NO_EVIDENCE } satisfies ServerAiFailure;
       }
       setOperationResult(result);
       notifyView("success", success);
@@ -445,32 +398,26 @@ export default function Home() {
     }
   };
 
-  /** Capability problems belong in the AI status box, never in the error notice. */
   const reportAiFailure = (error: unknown) => {
-    const failure = error as BrowserAiFailure;
-    const silent = failure.code === "NO_WEBGPU" || failure.code === "ADAPTER_FAILED"
-      || failure.code === "MODEL_LOAD_FAILED" || failure.code === "MODEL_DOWNLOAD_FAILED"
-      || failure.code === "OUT_OF_MEMORY";
-    if (silent) setNotice(null);
-    else if (failure.code === "CANCELLED") notifyView("info", BROWSER_AI_MESSAGES.CANCELLED);
-    else notifyView("error", failure.message ?? "브라우저 AI 작업에 실패했습니다.", failure.code);
+    const failure = error as Partial<ServerAiFailure>;
+    if (failure.code === "CANCELLED") {
+      notifyView("info", SERVER_AI_MESSAGES.CANCELLED);
+      return;
+    }
+    notifyView("error", failure.message ?? "AI 작업에 실패했습니다.");
   };
 
   /**
    * Polish pipeline. The document worker selects prose and keeps the document;
-   * the main thread walks the candidates one at a time through the AI worker,
-   * verifies every proposal deterministically, and pairs the survivors back
-   * with their canonical SourceRef. The document is never regenerated as a
-   * whole, and only one generation runs at a time.
+   * the main thread sends one bounded candidate at a time to the server and
+   * verifies every proposal deterministically before pairing canonical sources.
    */
   const runPolish = async () => {
     if (!selected.length) return;
-    if (selected.length > BROWSER_AI_MAX_FILES) {
-      notifyView("error", `브라우저 AI 작업은 최대 ${BROWSER_AI_MAX_FILES}개 파일만 선택할 수 있습니다.`);
+    if (selected.length > SERVER_AI_MAX_FILES) {
+      notifyView("error", `AI 작업은 최대 ${SERVER_AI_MAX_FILES}개 파일만 선택할 수 있습니다.`);
       return;
     }
-    const capability = await probeBrowserAi();
-    if (capability.phase === "unsupported" || capability.phase === "awaiting-confirmation") return;
     setBusy(true);
     setNotice(null);
     setPolish(null);
@@ -486,7 +433,7 @@ export default function Home() {
       const outcomes: PolishOutcome[] = [];
       for (const candidate of candidates) {
         if (polishCancelled.current) break;
-        const proposal = await polishBrowserAi(candidate.text, polishMode);
+        const proposal = await polishServerAi(candidate.text, polishMode);
         outcomes.push(reviewProposal(candidate, proposal));
         setPolishProgress({ done: outcomes.length, total: candidates.length });
         setPolish(polishResult(polishMode, outcomes));
@@ -520,8 +467,6 @@ export default function Home() {
       notifyView("error", POLISH_TEXT_TOO_LONG_MESSAGE);
       return;
     }
-    const capability = await probeBrowserAi();
-    if (capability.phase === "unsupported" || capability.phase === "awaiting-confirmation") return;
     setBusy(true);
     setNotice(null);
     setPolishTextRun(null);
@@ -537,7 +482,7 @@ export default function Home() {
       const outcomes: PolishOutcome[] = [];
       for (const segment of targets) {
         if (polishCancelled.current) break;
-        const proposal = await polishBrowserAi(segment.text, polishMode);
+        const proposal = await polishServerAi(segment.text, polishMode);
         outcomes.push(reviewProposal({ id: segment.id, text: segment.text, origin: "pasted" }, proposal));
         setPolishProgress({ done: outcomes.length, total: targets.length });
         setPolishTextRun(polishTextResult(polishMode, input, segments, outcomes));
@@ -581,21 +526,19 @@ export default function Home() {
     if (activeTab === "Polish") return runPolish();
     const typed = question.trim();
     return activeTab === "Ask"
-      ? runBrowserTask({ operation: "ask", question: typed }, "Ask 결과를 준비했습니다.")
-      : runBrowserTask({ operation: "brief", ...(typed ? { instruction: typed } : {}) }, "Brief 결과를 준비했습니다.");
+      ? runServerTask({ operation: "ask", question: typed }, "Ask 결과를 준비했습니다.")
+      : runServerTask({ operation: "brief", ...(typed ? { instruction: typed } : {}) }, "Brief 결과를 준비했습니다.");
   };
 
   /**
-   * Browser semantic layer for Check: the deterministic result stays
+   * Server semantic layer for Check: the deterministic result stays
    * authoritative and model suggestions are folded in as suggestions only.
    */
   const runSemanticCheck = async () => {
-    if (selected.length > BROWSER_AI_MAX_FILES) {
-      notifyView("error", `브라우저 AI 작업은 최대 ${BROWSER_AI_MAX_FILES}개 파일만 선택할 수 있습니다.`);
+    if (selected.length > SERVER_AI_MAX_FILES) {
+      notifyView("error", `AI 작업은 최대 ${SERVER_AI_MAX_FILES}개 파일만 선택할 수 있습니다.`);
       return;
     }
-    const capability = await probeBrowserAi();
-    if (capability.phase === "unsupported" || capability.phase === "awaiting-confirmation") return;
     setBusy(true);
     setNotice(null);
     setDetail(null);
@@ -610,7 +553,7 @@ export default function Home() {
         : await runInWorker({ kind: "check", fileIds: selected, userTerms, companyTerms: companyTermNames });
       const evidence = await runInWorker({ kind: "evidence", fileIds: selected, request });
       windowId = evidence.windowId;
-      const modelClaims = await generateBrowserAi(request, evidence.items);
+      const modelClaims = await generateServerAi(request, evidence.items);
       const aiResult = await runInWorker({ kind: "ground", windowId, request, claims: modelClaims });
       windowId = undefined;
       const claims = aiResult.claims;
@@ -652,13 +595,11 @@ export default function Home() {
   };
 
   const runAiAssist = async () => {
-    setAiAssistRequested(true);
-    await probeBrowserAi();
-    if (activeTab === "Analyze") return runBrowserTask({ operation: "analyze" }, "브라우저 AI 분석 결과를 준비했습니다.");
+    if (activeTab === "Analyze") return runServerTask({ operation: "analyze" }, "AI 분석 결과를 준비했습니다.");
     if (activeTab === "Check") return runSemanticCheck();
-    return runBrowserTask(
+    return runServerTask(
       { operation: "semantic-check", statement: "선택한 문서 사이의 중요한 의미 변화를 근거와 함께 점검하세요." },
-      "브라우저 AI 보조 점검 결과를 준비했습니다.",
+      "AI 보조 점검 결과를 준비했습니다.",
     );
   };
 
@@ -683,9 +624,8 @@ export default function Home() {
 
   /**
    * Structured extraction. The deterministic pass runs in the document worker;
-   * fields it could not answer are then resolved one at a time through the AI
-   * worker, each against its own bounded evidence window, and a value that is
-   * not in that window is dropped rather than shown.
+   * unresolved fields are sent one at a time with their bounded evidence.
+   * Values absent from the cited window are dropped rather than shown.
    */
   const runExtract = async () => {
     if (!selected.length) return;
@@ -705,11 +645,6 @@ export default function Home() {
       const pending = deterministic.files.flatMap((file) => file.missing.map((field) => ({ fileId: file.file.id, field })));
       if (pending.length === 0) {
         notifyView("success", `추출 항목 ${deterministic.summary.fields}개 · 확인 필요 ${deterministic.summary.missing}개`);
-        return;
-      }
-      const capability = await probeBrowserAi();
-      if (capability.phase === "unsupported" || capability.phase === "awaiting-confirmation") {
-        notifyView("info", `문서에 명시된 항목 ${deterministic.summary.fields}개를 추출했습니다. 나머지 ${pending.length}개는 브라우저 AI가 준비되면 확인할 수 있습니다.`);
         return;
       }
       let resolved = deterministic;
@@ -735,15 +670,15 @@ export default function Home() {
     try {
       const window = await runInWorker({ kind: "field-evidence", fileId, field });
       windowId = window.windowId;
-      const proposal = await extractBrowserAi(field, window.items);
+      const proposal = await extractServerAi(field, window.items);
       if (proposal.value === null) return current;
       const { sources } = await runInWorker({ kind: "field-source", windowId, handles: proposal.handles });
       if (sources.length === 0) return current;
       const quote = window.items.find((item) => proposal.handles.includes(item.handle))?.text;
       return withResolvedField(current, fileId, modelField(field, proposal.value, sources, proposal.confidence, quote));
-    } catch {
-      // A field the model cannot answer stays in 확인 필요; nothing is invented.
-      return current;
+    } catch (error) {
+      if ((error as Partial<ServerAiFailure>).code === "NO_EVIDENCE") return current;
+      throw error;
     } finally {
       if (windowId) void runInWorker({ kind: "release-evidence", windowId });
     }
@@ -774,22 +709,20 @@ export default function Home() {
   const deleteAll = () => {
     if (!window.confirm("이 탭에서 처리한 파일과 결과를 모두 지우시겠습니까?")) return;
     disposeWorkspace();
-    disposeBrowserAi();
+    interruptServerAi();
     setFiles([]);
     setSelected([]);
     clearResults();
     notifyWorkspace("info", "브라우저 메모리에서 파일과 결과를 모두 지웠습니다.");
   };
 
-  // Ask, Brief and Polish run the model themselves, so they own its
-  // preparation flow; Analyze, Compare and Check only ask for it on request
-  // and Extract never does.
-  const aiTab = activeTab === "Ask" || activeTab === "Brief" || activeTab === "Polish";
   // Pasted text is its own input: the Polish action then depends on the
   // textarea, not on the workspace selection, which stays untouched.
   const polishTextMode = activeTab === "Polish" && polishInput === "text";
+  const [workSectionTitle, workSectionDescription] = polishTextMode
+    ? ["텍스트 윤문", "붙여넣은 내용을 문장 단위로 다듬고 숫자·날짜·인용과 문서 구조를 유지합니다."]
+    : workSectionCopy[activeTab];
   const actionDisabled = busy
-    || (aiTab && aiUnsupported)
     || (polishTextMode
       ? polishText.trim().length === 0
       : selected.length === 0 || (activeTab === "Compare" && selected.length !== 2) || (activeTab === "Ask" && !question.trim()));
@@ -814,21 +747,12 @@ export default function Home() {
   const isUtilityView = shellView === "Dictionary" || shellView === "Settings";
   const isDocumentWorkspaceView = !isUtilityView;
   const selectedNames = files.filter((file) => selected.includes(file.id)).map((file) => file.name).join(", ");
-  // A ready model needs no box at all: the action buttons already say so.
-  const aiStatusVisible = activeTab !== "Extract"
-    && (aiTab || aiAssistRequested)
-    && aiState.phase !== "ready"
-    && aiState.phase !== "idle";
 
   return (
-    // Observable state for tests and diagnostics: the AI phase and the
-    // hydration signal, read from the values the app already has. The user
-    // sees the sentences in the panels; nothing here is rendered.
+    // Hydration state lets file-input automation wait until change events bind.
     <div
       className="app-shell"
       data-hydrated={hydrated ? "true" : "false"}
-      data-ai-state={aiState.phase}
-      {...(aiState.phase === "failed" || aiState.phase === "unsupported" ? { "data-ai-error": aiState.code } : {})}
     >
       <a className="skip-link" href="#workspace-content">본문으로 건너뛰기</a>
       <nav className="rail" aria-label="Workspace views">
@@ -850,7 +774,6 @@ export default function Home() {
                   onClick={() => {
                     setShellView(tab);
                     setActiveTab(tab);
-                    setAiAssistRequested(false);
                     clearResults();
                   }}
                 >
@@ -907,14 +830,16 @@ export default function Home() {
             <div className="context-actions">
               <span className="session-state">
                 <span className="state-dot" aria-hidden="true" />
-                In-browser session · 서버 저장 없음
+                파일은 브라우저에서 처리
               </span>
-              {files.length > 0 ? (
-                <button type="button" className="secondary-action" onClick={() => inputRef.current?.click()} disabled={uploading}>
-                  {uploading ? "분석 중…" : "Add files"}
-                </button>
-              ) : null}
-              <button type="button" className="delete-all" onClick={deleteAll} disabled={busy}>모두 삭제</button>
+              <div className="file-actions">
+                {files.length > 0 ? (
+                  <button type="button" className="file-add" onClick={() => inputRef.current?.click()} disabled={uploading}>
+                    {uploading ? "분석 중…" : "파일 추가"}
+                  </button>
+                ) : null}
+                <button type="button" className="delete-all" onClick={deleteAll} disabled={busy}>모두 삭제</button>
+              </div>
             </div>
           </header>
         )}
@@ -1003,10 +928,12 @@ export default function Home() {
                 </section>
               )}
 
+              <header className="work-section-heading">
+                <h2>{workSectionTitle}</h2>
+                <p>{workSectionDescription}</p>
+              </header>
+
               <section className="operation-bar" aria-label={`${activeTab} action`}>
-                <div className="operation-context">
-                  <span>{activeTab === "Compare" ? "기준과 현재 파일을 순서대로 두 개 선택하세요." : activeTab === "Check" ? "작성·일관성·데이터·개인정보 항목을 한 번에 검수합니다. 문장 단위 추가 검수는 AI 문장 검수로 실행합니다." : polishTextMode ? "붙여넣은 텍스트를 문장 단위로 다듬습니다. 숫자·날짜·인용은 그대로 유지합니다." : activeTab === "Polish" ? "문장 단위로 다듬고 숫자·날짜·인용은 그대로 유지합니다." : activeTab === "Extract" ? "문서에서 필요한 항목을 찾아 표로 정리합니다. 여러 파일을 선택하면 같은 항목으로 함께 취합합니다." : aiTab ? `브라우저 AI는 최대 ${BROWSER_AI_MAX_FILES}개 파일에서 근거를 확인합니다.` : "최대 10개 파일을 함께 처리할 수 있습니다."}</span>
-                </div>
                 {(activeTab === "Ask" || activeTab === "Brief") ? (
                   <label className="question-field">
                     <input
@@ -1081,34 +1008,23 @@ export default function Home() {
                   </div>
                 ) : null}
                 <div className="operation-actions">
-                  {(activeTab === "Analyze" || activeTab === "Compare" || activeTab === "Check") ? <button type="button" className="secondary-action" onClick={runAiAssist} disabled={busy || selected.length === 0}>{activeTab === "Check" ? "AI 문장 검수" : "브라우저 AI 보조"}</button> : null}
+                  {(activeTab === "Analyze" || activeTab === "Compare" || activeTab === "Check") ? <button type="button" className="secondary-action" onClick={runAiAssist} disabled={busy || selected.length === 0}>{activeTab === "Check" ? "AI 문장 검수" : "AI 보조"}</button> : null}
                   <button type="button" onClick={runActive} disabled={actionDisabled} aria-label={`${activeTab} ${RUN_LABEL}`}>{busy ? "처리 중…" : RUN_LABEL}</button>
                 </div>
               </section>
 
-              {aiStatusVisible ? (
-                <BrowserAiStatus
-                  state={aiState}
-                  model={aiModel}
-                  standardBlocked={aiDecision.standardBlocked}
-                  onConfirm={() => { confirmBrowserAi(); void loadBrowserAi().catch(reportAiFailure); }}
-                  onCancelLoad={() => { cancelBrowserAiLoad(); setAiAssistRequested(false); }}
-                  onInterrupt={interruptBrowserAi}
-                  onTier={(tier) => { selectBrowserAiTier(tier); setAiTierEpoch((epoch) => epoch + 1); }}
-                />
-              ) : null}
               {busy && polishProgress ? (
                 <StatusPanel variant="info" className="processing-bar" live="polite" title={`윤문 처리 중 ${polishProgress.done}/${polishProgress.total}`}>
                   <small>문장 단위로 한 번에 하나씩 처리합니다.</small>
                   <div className="ai-status-actions">
-                    <button type="button" className="secondary-action" onClick={() => { polishCancelled.current = true; interruptBrowserAi(); }}>생성 중지</button>
+                    <button type="button" className="secondary-action" onClick={() => { polishCancelled.current = true; interruptServerAi(); }}>생성 중지</button>
                   </div>
                 </StatusPanel>
               ) : busy && extractProgress ? (
                 <StatusPanel variant="info" className="processing-bar" live="polite" title={`항목 확인 중 ${extractProgress.done}/${extractProgress.total}`}>
                   <small>항목별로 관련 근거만 확인합니다.</small>
                   <div className="ai-status-actions">
-                    <button type="button" className="secondary-action" onClick={() => { extractCancelled.current = true; interruptBrowserAi(); }}>생성 중지</button>
+                    <button type="button" className="secondary-action" onClick={() => { extractCancelled.current = true; interruptServerAi(); }}>생성 중지</button>
                   </div>
                 </StatusPanel>
               ) : busy ? <StatusPanel variant="info" className="processing-bar" live="polite" title={`${activeTab} 처리 중`}><small>선택한 파일의 구조와 근거를 확인하고 있습니다.</small></StatusPanel> : null}
@@ -1191,102 +1107,8 @@ function StatusPanel({ variant, title, children, tone, live, className, label }:
   );
 }
 
-/**
- * Model lifecycle for the browser AI layer. A missing adapter or a failed
- * download is a capability notice, never a workspace error: deterministic
- * Analyze/Compare/Check/Extract keep working underneath it. The first download
- * is opt-in, and a download and a running generation cancel differently.
- */
-function BrowserAiStatus({ state, model, standardBlocked, onConfirm, onCancelLoad, onInterrupt, onTier }: {
-  state: BrowserAiState;
-  model: { label: string; downloadMb: number; tier: BrowserAiTier };
-  standardBlocked: boolean;
-  onConfirm: () => void;
-  onCancelLoad: () => void;
-  onInterrupt: () => void;
-  onTier: (tier: BrowserAiTier) => void;
-}) {
-  if (state.phase === "unsupported") {
-    return (
-      <StatusPanel variant="neutral" className="ai-status" title="브라우저 AI를 사용할 수 없습니다">
-        <p>{BROWSER_AI_MESSAGES[state.code]}</p>
-      </StatusPanel>
-    );
-  }
-  if (state.phase === "checking") {
-    return (
-      <StatusPanel variant="neutral" className="ai-status" title="브라우저 AI 확인 중">
-        <p>이 장치에서 AI를 실행할 수 있는지 확인하고 있습니다.</p>
-      </StatusPanel>
-    );
-  }
-  if (state.phase === "awaiting-confirmation") {
-    // A work surface only needs the decision: which model, what it costs once,
-    // and that it is reused afterwards. The device cannot report how much RAM
-    // it has (browsers cap the signal at 8 GiB), so the lighter model is the
-    // default and the standard one is offered as a choice — never as a load
-    // that freezes the machine and then falls back.
-    return (
-      <StatusPanel variant="info" className="ai-status confirm" tone="group" label="AI 모델 사용" title="AI 모델 사용">
-        <p className="ai-copy">
-          이 PC에서는 {model.label}을 사용합니다. 최초 1회 약 {model.downloadMb.toLocaleString("ko-KR")}MB를 내려받으며 이후 브라우저 캐시를 재사용합니다.
-        </p>
-        {standardBlocked ? null : (
-          <fieldset className="segmented ai-model-tiers" aria-label="AI 모델 선택">
-            {(["light", "standard"] as const).map((tier) => (
-              <label key={tier}>
-                <input
-                  type="radio"
-                  name="ai-model-tier"
-                  value={tier}
-                  checked={model.tier === tier}
-                  onChange={() => onTier(tier)}
-                />
-                <span>{tier === "light" ? "경량 (메모리 적게)" : "표준 (품질 높게)"}</span>
-              </label>
-            ))}
-          </fieldset>
-        )}
-        <div className="ai-status-actions">
-          <button type="button" className="ai-confirm" onClick={onConfirm}>사용 시작</button>
-          <button type="button" className="secondary-action" onClick={onCancelLoad}>취소</button>
-        </div>
-      </StatusPanel>
-    );
-  }
-  if (state.phase === "loading") {
-    const percent = Math.round(Math.min(Math.max(state.progress, 0), 1) * 100);
-    return (
-      <StatusPanel variant="info" className="ai-status loading" live="polite" title={`${model.label} 준비 중`}>
-        <p>모델을 준비하는 동안에도 AI 기능을 제외한 나머지 기능은 계속 사용할 수 있습니다.</p>
-        <span className="ai-progress">
-          <progress max={100} value={percent} />
-          모델 다운로드 {percent}%
-        </span>
-        <div className="ai-status-actions">
-          <button type="button" className="secondary-action" onClick={onCancelLoad}>다운로드 취소</button>
-          <button type="button" className="secondary-action" onClick={onInterrupt}>생성 중지</button>
-        </div>
-      </StatusPanel>
-    );
-  }
-  if (state.phase === "ready") {
-    // A prepared model needs no panel; the action buttons carry the state.
-    return null;
-  }
-  if (state.phase === "failed") {
-    return (
-      <StatusPanel variant="warning" className="ai-status failed" title="AI 준비 실패">
-        {/* The box reports state; the notice above carries the full guidance. */}
-        <p>{BROWSER_AI_STATUS_MESSAGES[state.code] ?? state.message}</p>
-        {state.detail ? <small className="ai-detail">{state.detail}</small> : null}
-      </StatusPanel>
-    );
-  }
-  return null;
-}
 
-/** Dictionary and Settings share one surface; both are browser-local by design. */
+/** Dictionary and Settings share one utility surface and preserve local preferences. */
 function SettingsView({ view, companyTerms, companyTermsSource, userTerms, ignoredRules, onAddTerm, onRemoveTerm, onClearTerms, onToggleRule }: {
   view: "Dictionary" | "Settings";
   companyTerms: CompanyTermEntry[];
@@ -1308,7 +1130,7 @@ function SettingsView({ view, companyTerms, companyTermsSource, userTerms, ignor
       <section className="settings-surface" aria-label="Settings">
         <dl className="settings-list">
           <div><dt>저장 위치</dt><dd>파일과 분석 결과는 이 탭의 메모리에만 있습니다. 새로고침하면 사라집니다.</dd></div>
-          <div><dt>localStorage</dt><dd>개인 사전 단어, 무시한 규칙 ID, 브라우저 AI 다운로드 동의 여부만 저장합니다. 문서 본문과 근거, 질문과 답변은 저장하지 않습니다.</dd></div>
+          <div><dt>localStorage</dt><dd>개인 사전 단어와 무시한 규칙 ID만 저장합니다. 문서 본문, 근거, 질문과 답변은 브라우저 저장소에 저장하지 않습니다.</dd></div>
           <div><dt>무시한 규칙</dt><dd>
             {ignoredRules.length
               ? <div className="dictionary-term-list">{ignoredRules.map((rule) => (
@@ -1318,9 +1140,9 @@ function SettingsView({ view, companyTerms, companyTermsSource, userTerms, ignor
               ))}</div>
               : "없음"}
           </dd></div>
-          <div><dt>브라우저 AI</dt><dd>
-            Ask, Brief, 문장 검수는 브라우저에서 실행됩니다. 이 PC에서는 {browserAiModel().label}을 사용하며, 최초 1회 약 {browserAiModel().downloadMb.toLocaleString("ko-KR")}MB 모델을 내려받은 뒤 브라우저 캐시를 재사용합니다.
-            <span className="settings-note">문서와 질문은 외부로 전송되거나 저장되지 않으며, 캐시에는 모델 파일만 남습니다.</span>
+          <div><dt>서버 AI</dt><dd>
+            Ask, Brief, 윤문, 문장 검수와 보조 추출은 서버의 Groq 모델을 사용합니다. 작업에 필요한 질문, 문장 또는 선택된 근거 창만 전송합니다.
+            <span className="settings-note">WorkLens는 전송 내용을 저장하지 않습니다. Groq는 기본적으로 추론 내용을 영구 보관하지 않지만 안정성·오남용 탐지를 위해 최대 30일 임시 보관할 수 있습니다. 운영 계정에서 Zero Data Retention을 적용하면 추론 내용은 보관되지 않습니다.</span>
           </dd></div>
         </dl>
       </section>
@@ -1329,7 +1151,7 @@ function SettingsView({ view, companyTerms, companyTermsSource, userTerms, ignor
   return (
     <section className="settings-surface" aria-label="Dictionary">
       <div className="dictionary-section">
-        <h4>Company Terms <span>{companyTerms.length}</span></h4>
+        <h4>COMPANY TERMS <span>{companyTerms.length}</span></h4>
         <p className="dictionary-note">
           회사 공통 용어입니다. 관리자만 수정할 수 있습니다.
           {companyTermsSource === "seed" ? " 공용 사전 저장소에 연결하지 못해 기본 목록을 표시합니다." : null}
@@ -1350,7 +1172,7 @@ function SettingsView({ view, companyTerms, companyTermsSource, userTerms, ignor
         ) : null}
       </div>
       <div className="dictionary-section">
-        <h4>My Terms <span>{userTerms.length}</span></h4>
+        <h4>MY TERMS <span>{userTerms.length}</span></h4>
         <form onSubmit={(event) => { event.preventDefault(); onAddTerm(draft); setDraft(""); }}>
           <input value={draft} maxLength={64} placeholder="용어 추가" aria-label="개인 용어 추가" onChange={(event) => setDraft(event.target.value)} />
           <button type="submit" disabled={!draft.trim()}>추가</button>
@@ -1362,9 +1184,11 @@ function SettingsView({ view, companyTerms, companyTermsSource, userTerms, ignor
             </span>
           ))}</div>
           : <p className="dictionary-empty">등록된 개인 용어가 없습니다.</p>}
-        <div className="dictionary-actions">
-          <button type="button" onClick={onClearTerms} disabled={!userTerms.length}>전체 초기화</button>
-        </div>
+        {userTerms.length ? (
+          <div className="dictionary-actions">
+            <button type="button" className="dictionary-reset" onClick={onClearTerms}>전체 초기화</button>
+          </div>
+        ) : null}
         <p className="dictionary-note">개인 사전은 이 브라우저에만 저장됩니다.</p>
       </div>
     </section>
@@ -1430,21 +1254,19 @@ interface ResultViewProps {
   dictionary: Omit<CheckViewProps, "entries" | "fileNames" | "onSource">;
 }
 
-/** One line of work name plus one line of scope; no state wording, no eyebrow. */
-const placeholderCopy: Record<Exclude<Tab, "Compare">, [string, string]> = {
-  Analyze: ["문서 분석", "파일을 선택하면 문서 구조와 주요 수치를 분석합니다."],
+/** Shared heading copy for every category's lower work section. */
+const workSectionCopy: Record<Tab, [string, string]> = {
+  Analyze: ["문서 분석", "선택한 파일의 구조와 주요 수치를 분석합니다."],
   Ask: ["질문하기", "선택한 파일을 근거로 질문에 답합니다."],
-  Check: ["문서 검수", "파일을 선택하면 문장·일관성·데이터·개인정보를 검수합니다."],
-  Polish: ["문장 윤문", "파일을 선택하면 번역투와 중복 표현을 문장 단위로 다듬습니다."],
-  Extract: ["정보 추출", "파일을 선택하면 표·날짜·금액·인물·할 일을 추출합니다."],
-  Brief: ["브리프 작성", "파일을 선택하면 핵심 내용을 업무 문서 형식으로 정리합니다."],
+  Compare: ["파일 비교", "선택한 파일 간 주요 변경 사항과 차이를 비교합니다."],
+  Check: ["문서 검수", "선택한 파일의 문장·일관성·데이터·개인정보를 검수합니다."],
+  Polish: ["문장 윤문", "선택한 파일의 번역투와 중복 표현을 문장 단위로 다듬습니다."],
+  Extract: ["정보 추출", "선택한 파일에서 필요한 항목과 값을 찾아 정리합니다."],
+  Brief: ["브리프 작성", "선택한 파일의 핵심 내용을 업무 문서 형식으로 정리합니다."],
 };
 
 function ResultView({ tab, result, fileNames, detail, onSource, onCloseSource, dictionary, polishMode }: ResultViewProps) {
-  if (!result) {
-    const [title, body] = placeholderCopy[tab as Exclude<Tab, "Compare">];
-    return <section className="state-card result-placeholder"><h2>{title}</h2><p>{body}</p></section>;
-  }
+  if (!result) return null;
 
   let content: React.ReactNode;
   if (tab === "Analyze" && Array.isArray(result)) content = <AnalyzeResults entries={result as AnalyzeEntry[]} fileNames={fileNames} onSource={onSource} />;
@@ -1533,9 +1355,7 @@ function StructuredExtractResults({ result, fileNames, onSource }: {
   onSource: SourceHandler;
 }) {
   const [view, setView] = useState<"fields" | "table">("table");
-  if (!result) {
-    return <section className="state-card result-placeholder"><h2>정보 추출</h2><p>자동 추출은 문서에 적힌 항목과 값을 찾아 표로 만듭니다. 필요한 항목이 정해져 있으면 항목 지정 추출을 사용하세요.</p></section>;
-  }
+  if (!result) return null;
   if (result.summary.fields === 0 && result.summary.records === 0) {
     return (
       <section className="panel results-panel">
@@ -1662,16 +1482,7 @@ function PolishResults({ result, fileNames, onSource }: {
   onSource: SourceHandler;
 }) {
   const [showUnchanged, setShowUnchanged] = useState(false);
-  if (!result) {
-    // Two sentences, two lines: neither breaks in the middle of a clause.
-    return (
-      <section className="state-card result-placeholder">
-        <h2>문장 윤문</h2>
-        <p>파일을 선택하고 윤문 모드를 고르면 번역투·중복 표현을 문장 단위로 다듬습니다.</p>
-        <p>숫자·날짜·인용은 그대로 유지합니다.</p>
-      </section>
-    );
-  }
+  if (!result) return null;
   const changed = result.outcomes.filter((entry) => entry.status === "changed");
   const unchanged = result.outcomes.filter((entry) => entry.status === "unchanged");
   const rejected = result.outcomes.filter((entry) => entry.status === "rejected");
@@ -1782,15 +1593,7 @@ function CopyButton({ text, label }: { text: string; label: string }) {
  * fabricated SourceRef would claim a document that does not exist.
  */
 function PolishTextResults({ result }: { result: PolishTextResult | null }) {
-  if (!result) {
-    return (
-      <section className="state-card result-placeholder">
-        <h2>텍스트 윤문</h2>
-        <p>메일·보고서·공지에서 복사한 내용을 붙여넣고 윤문 모드를 고르면 문장 단위로 다듬습니다.</p>
-        <p>숫자·날짜·인용은 그대로 유지하고, 붙여넣은 줄바꿈과 목록 구조도 유지합니다.</p>
-      </section>
-    );
-  }
+  if (!result) return null;
   const reasons = [...new Set(result.outcomes.flatMap((entry) => entry.reasons))].slice(0, 6);
   const rejected = result.outcomes.filter((entry) => entry.status === "rejected");
   const changed = result.summary.changed > 0;
@@ -1871,9 +1674,9 @@ function PolishAction({ text, label, origin, source, mode }: {
         ...(source ? { source } : {}),
         origin,
       };
-      setOutcome(reviewProposal(candidate, await polishBrowserAi(text, mode)));
+      setOutcome(reviewProposal(candidate, await polishServerAi(text, mode)));
     } catch (error) {
-      setFailure((error as BrowserAiFailure).message ?? "윤문에 실패했습니다.");
+      setFailure((error as ServerAiFailure).message ?? "윤문에 실패했습니다.");
     } finally {
       setRunning(false);
     }
@@ -2378,9 +2181,7 @@ function JsonValue({ value, fileNames, onSource, depth = 0 }: { value: unknown; 
 }
 
 function ComparisonView({ comparison, compareIds, fileNames, detail, onSource, onCloseSource }: { comparison: ComparisonResult | null; compareIds: { baseFileId: string; targetFileId: string } | null; fileNames: Map<string, string>; detail: DetailInfo | null; onSource: SourceHandler; onCloseSource: () => void }) {
-  if (!comparison) {
-    return <section className="state-card result-placeholder"><h2>파일 비교</h2><p>비교할 파일을 선택하면 변경 사항과 차이를 확인합니다.</p></section>;
-  }
+  if (!comparison) return null;
   const roleOf = (source: SourceRef): SourceRole | undefined => {
     if (!compareIds) return undefined;
     if (source.fileId === compareIds.baseFileId) return "base";

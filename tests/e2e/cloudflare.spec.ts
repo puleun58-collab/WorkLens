@@ -64,9 +64,9 @@ test.describe("Cloudflare Worker production build", () => {
     expect(subset.status()).toBe(200);
     await expect(page.evaluate(() => document.fonts.check('16px "Pretendard Variable"'))).resolves.toBe(true);
 
-    // No files: upload owns the workspace and the context bar has no Add files.
+    // No files: upload owns the workspace and the context bar has no add action.
     await expect(page.locator(".dropzone")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Add files" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "파일 추가" })).toHaveCount(0);
 
     // Central company dictionary is readable by every user.
     const companyTerms = await page.request.get("/api/company-terms");
@@ -83,9 +83,9 @@ test.describe("Cloudflare Worker production build", () => {
     expect(unauthorized.status()).toBe(401);
 
     await upload(page, files.v1);
-    // With files present the workspace leads and Add files moves to the bar.
+    // With files present the workspace leads and the add action moves to the bar.
     await expect(page.locator(".dropzone")).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Add files" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "파일 추가" })).toBeVisible();
     await page.getByLabel("cloudflare-rate-v1.xlsx 선택").check();
     await page.getByRole("button", { name: "Analyze", exact: true }).click();
     await page.getByRole("button", { name: "Analyze 실행" }).click();

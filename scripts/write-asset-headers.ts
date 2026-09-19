@@ -4,11 +4,8 @@ import { securityHeaders } from "../src/config/security-headers";
 
 /**
  * Cloudflare serves `dist/client` through the asset binding, which never runs
- * `next.config.ts` headers. Without this file the browser AI worker script
- * arrived with no `Referrer-Policy`, so the worker used the default policy,
- * sent `Referer` to huggingface.co and got a 404 on every model request.
- *
- * `_headers` is read by Workers Assets from the root of the asset directory.
+ * `next.config.ts` headers. `_headers` keeps static assets on the same policy
+ * as worker-rendered responses.
  */
 const target = path.join(process.cwd(), "dist", "client", "_headers");
 const rules = securityHeaders(false)

@@ -64,7 +64,7 @@ function directCompletion(token = buildEvidenceNodes([document])[0].propositionT
   };
 }
 
-describe("browser AI prompt boundary", () => {
+describe("server AI prompt boundary", () => {
   it("hands the model short handles and never a locator, file id or token", () => {
     const window = evidenceWindow(buildEvidenceNodes([document]));
     const prompt = buildMessages({ operation: "ask", question: "매출이 줄었나요?" }, window.items)
@@ -172,6 +172,38 @@ describe("canonical evidence grounding", () => {
     const duplicate: AiProviderCompletion = { schemaId: AI_SCHEMA_ID, claims: [{ type: "inference", text: "분기 매출은 감소했습니다.", sourceTokens: [token, token] }] };
     expect(groundProviderCompletion([document], accepted)).toMatchObject({ rejectedClaimCount: 0, claims: [{ kind: "inference", evidence: [{ source: { fileId: "file-1" }, support: "context" }] }] });
     expect(groundProviderCompletion([document], duplicate)).toEqual({ claims: [], rejectedClaimCount: 1 });
+  });
+
+  it("rejects numeric, date, money, and identifier literals absent from cited evidence", () => {
+    const baseBlock = document.blocks[0];
+    if (baseBlock.type !== "paragraph") throw new Error("Expected a paragraph fixture.");
+    const text = "계약 금액은 10억원이며 문서 ID는 ABC-123, 기한은 2026.09.30입니다.";
+    const protectedDocument: NormalizedDocument = {
+      ...document,
+      blocks: [{
+        ...baseBlock,
+        text,
+        source: {
+          ...baseBlock.source,
+          quote: text,
+        },
+      }],
+    };
+    const token = buildEvidenceNodes([protectedDocument])[0].propositionToken;
+    const completion = (text: string): AiProviderCompletion => ({
+      schemaId: AI_SCHEMA_ID,
+      claims: [{ type: "inference", text, sourceTokens: [token] }],
+    });
+    expect(groundProviderCompletion([protectedDocument], completion(
+      "계약 금액은 10억원이며 문서 ID는 ABC-123, 기한은 2026.09.30입니다.",
+    )).rejectedClaimCount).toBe(0);
+    for (const invented of [
+      "계약 금액은 11억원입니다.",
+      "문서 ID는 ABC-999입니다.",
+      "기한은 2027.09.30입니다.",
+    ]) {
+      expect(groundProviderCompletion([protectedDocument], completion(invented))).toEqual({ claims: [], rejectedClaimCount: 1 });
+    }
   });
 
   it("does not treat prompt injection text as instructions", () => {

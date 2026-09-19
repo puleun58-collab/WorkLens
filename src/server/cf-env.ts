@@ -23,6 +23,7 @@ export interface WorkerEnv {
   WORKLENS_CONFIG_DB?: D1DatabaseLike;
   WORKLENS_ADMIN_PASSWORD?: string;
   WORKLENS_ADMIN_SESSION_SECRET?: string;
+  GROQ_API_KEY?: string;
 }
 
 export function workerEnv(): WorkerEnv {
@@ -30,10 +31,12 @@ export function workerEnv(): WorkerEnv {
   const database = source.WORKLENS_CONFIG_DB;
   const password = source.WORKLENS_ADMIN_PASSWORD;
   const secret = source.WORKLENS_ADMIN_SESSION_SECRET;
+  const groqApiKey = source.GROQ_API_KEY;
   return {
     ...(database && typeof database === "object" ? { WORKLENS_CONFIG_DB: database as D1DatabaseLike } : {}),
     ...(typeof password === "string" ? { WORKLENS_ADMIN_PASSWORD: password } : {}),
     ...(typeof secret === "string" ? { WORKLENS_ADMIN_SESSION_SECRET: secret } : {}),
+    ...(typeof groqApiKey === "string" ? { GROQ_API_KEY: groqApiKey } : {}),
   };
 }
 

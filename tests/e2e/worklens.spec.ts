@@ -203,15 +203,8 @@ test("uploads and normalizes all five formats", async ({ page }) => {
   }
 });
 
-/** Headless browsers have no usable WebGPU adapter here, so the AI layer must degrade quietly. */
-async function withoutWebGpu(page: Page) {
-  await page.addInitScript(() => {
-    Object.defineProperty(navigator, "gpu", { configurable: true, get: () => undefined });
-  });
-}
 
-test("runs deterministic Analyze, Check, Extract/export and degrades browser AI only", async ({ page }) => {
-  await withoutWebGpu(page);
+test("runs deterministic Analyze, Check, Extract and export paths", async ({ page }) => {
   await page.goto("/");
   await upload(page, files.v1);
   await page.getByLabel("운임현황_v1.xlsx 선택").check();
@@ -243,23 +236,9 @@ test("runs deterministic Analyze, Check, Extract/export and degrades browser AI 
   await page.getByRole("button", { name: "XLSX 다운로드" }).click();
   expect((await textDownload).suggestedFilename()).toContain(".xlsx");
 
-  await page.getByRole("button", { name: "Ask", exact: true }).click();
-  await page.getByPlaceholder("선택한 문서에서 확인할 내용을 입력하세요").fill("서울 운임은 얼마인가요?");
-  await expect(page.locator(".ai-status")).toContainText("브라우저 AI를 사용할 수 없습니다");
-  await expect(page.getByRole("button", { name: "Ask 실행" })).toBeDisabled();
-  await expect(page.locator(".notice.error")).toHaveCount(0);
-
-  await page.getByRole("button", { name: "Brief", exact: true }).click();
-  await expect(page.locator(".ai-status")).toContainText("WebGPU");
-  await expect(page.getByRole("button", { name: "Brief 실행" })).toBeDisabled();
-
-  await page.getByRole("button", { name: "Analyze", exact: true }).click();
-  await page.getByRole("button", { name: "Analyze 실행" }).click();
-  await expect(page.getByText("구조 및 수치 분석을 완료했습니다.")).toBeVisible();
 });
 
 test("extracts fields and records without a model and exports the structured table", async ({ page }) => {
-  await withoutWebGpu(page);
   await page.goto("/");
   await upload(page, files.extractPptx);
   await page.getByLabel("회의자료.pptx 선택").check();
@@ -274,84 +253,23 @@ test("extracts fields and records without a model and exports the structured tab
   // A value is the document's own wording, never a rewritten one.
   await expect(autoTable).toContainText("경영지원팀");
 
-  // Field mode: the requested names become the columns, one row per file.
+  // Field mode: a value explicitly present in the document needs no model.
   await page.getByRole("radio", { name: "항목 지정" }).check();
   const field = page.getByLabel("추출할 항목");
   await field.fill("작성부서");
   await page.getByRole("button", { name: "항목 추가" }).click();
-  await field.fill("존재하지 않는 항목");
-  await page.getByRole("button", { name: "항목 추가" }).click();
   await page.getByRole("button", { name: "Extract 실행" }).click();
-  await expect(page.locator(".check-summary-line")).toContainText("확인 필요");
   const table = page.locator(".results-panel table.extract-table").first();
   await expect(table.locator("th").nth(1)).toHaveText("작성부서");
-  // A field the document does not state is reported, never invented.
-  await expect(table).toContainText("찾지 못함");
+  await expect(table).toContainText("경영지원팀");
 
   const download = page.waitForEvent("download");
   await page.getByRole("button", { name: "XLSX 다운로드" }).click();
   expect((await download).suggestedFilename()).toContain(".xlsx");
 });
 
-test("keeps Polish available only through the browser AI layer", async ({ page }) => {
-  await withoutWebGpu(page);
-  await page.goto("/");
-  await upload(page, files.checkPptx);
-  await page.getByLabel("최종검수.pptx 선택").check();
-  await page.getByRole("button", { name: "Polish", exact: true }).click();
-
-  // Polish is an AI feature: without an adapter it says so quietly and the
-  // deterministic features keep working.
-  await expect(page.locator(".ai-status")).toContainText("브라우저 AI를 사용할 수 없습니다");
-  await expect(page.getByRole("button", { name: "Polish 실행" })).toBeDisabled();
-  await expect(page.locator(".notice.error")).toHaveCount(0);
-  await expect(page.getByRole("radio", { name: "간결하게" })).toBeVisible();
-  await expect(page.getByRole("radio", { name: "업무 문체" })).toBeVisible();
-
-  await page.getByRole("button", { name: "Check", exact: true }).click();
-  await page.getByRole("button", { name: "Check 실행" }).click();
-  await expect(page.getByText("콘텐츠 및 개인정보 점검을 완료했습니다.")).toBeVisible();
-});
-
-/**
- * The AI worker bundle used to die while evaluating ("window is not defined"),
- * which the client can only see as a bare `error` event — on a machine that
- * does have WebGPU every AI feature then failed with "처리기를 실행하지
- * 못했습니다". Here WebGPU is faked so the flow reaches the worker, and the
- * model hosts are blocked so nothing is downloaded: the worker has to start
- * and report its own download failure instead of failing to run at all.
- */
-test("starts the browser AI worker instead of failing to run it", async ({ page }) => {
-  await page.route(/huggingface\.co|hf\.co|raw\.githubusercontent\.com/, (route) => route.abort());
-  await page.addInitScript(() => {
-    Object.defineProperty(navigator, "gpu", {
-      configurable: true,
-      value: { requestAdapter: async () => ({ requestDevice: async () => ({ destroy: () => undefined }) }) },
-    });
-  });
-  await page.goto("/");
-  await upload(page, files.checkPptx);
-  await page.getByLabel("최종검수.pptx 선택").check();
-  await page.getByRole("button", { name: "Ask", exact: true }).click();
-  await page.getByRole("button", { name: "사용 시작" }).click();
-  await page.getByPlaceholder("선택한 문서에서 확인할 내용을 입력하세요").fill("기준일은 언제인가요?");
-  await page.getByRole("button", { name: "Ask 실행" }).click();
-
-  // The distinction is the state, not the sentence: a blocked host is a
-  // download failure, and the worker did start.
-  const shell = page.locator(".app-shell");
-  await expect(shell).toHaveAttribute("data-ai-state", "failed", { timeout: 60_000 });
-  await expect(shell).toHaveAttribute("data-ai-error", "MODEL_DOWNLOAD_FAILED");
-  await expect(page.locator(".ai-status.failed")).toBeVisible();
-
-  // The deterministic side is untouched by an AI failure.
-  await page.getByRole("button", { name: "Check", exact: true }).click();
-  await page.getByRole("button", { name: "Check 실행" }).click();
-  await expect(page.getByText("콘텐츠 및 개인정보 점검을 완료했습니다.")).toBeVisible();
-});
 
 test("offers file and pasted-text polish without touching the workspace", async ({ page }) => {
-  await withoutWebGpu(page);
   await page.goto("/");
   await upload(page, files.checkPptx);
   await page.getByLabel("최종검수.pptx 선택").check();
@@ -374,8 +292,7 @@ test("offers file and pasted-text polish without touching the workspace", async 
   await expect(page.getByRole("button", { name: "Polish 실행" })).toBeDisabled();
   await paste.fill("안녕하세요.\n- 3분기 운영 보고 관련하여 검토 부탁드리고자 합니다.\n1. 매출은 1,250만원입니다.");
   await expect(page.locator(".polish-paste small")).toContainText("/ 5,000자");
-  // No adapter here, so the AI gate still holds and no fake result appears.
-  await expect(page.locator(".ai-status")).toContainText("브라우저 AI를 사용할 수 없습니다");
+  await expect(page.getByRole("button", { name: "Polish 실행" })).toBeEnabled();
   await expect(page.locator(".source-locator")).toHaveCount(0);
 
   // Switching back restores the workspace file and its selection.
@@ -397,44 +314,78 @@ test("offers file and pasted-text polish without touching the workspace", async 
   await expect(page.getByRole("radio", { name: "파일 윤문" })).toBeChecked();
 });
 
-test("shows the browser AI panel only where the feature asks for it", async ({ page }) => {
-  await withoutWebGpu(page);
+test("runs Ask, Brief, Polish, Check and Extract through the server AI boundary", async ({ page }) => {
+  const seen = new Set<string>();
+  await page.route("**/api/ai", async (route) => {
+    const request = route.request().postDataJSON() as {
+      kind: "claims" | "polish" | "extract";
+      request?: { operation: string };
+      items?: Array<{ handle: string; text: string }>;
+      text?: string;
+      field?: string;
+    };
+    let data: object;
+    if (request.kind === "claims") {
+      const evidence = request.items?.[0];
+      if (!evidence || !request.request) throw new Error("Mocked claims request is missing evidence.");
+      seen.add(request.request.operation);
+      data = {
+        kind: "claims",
+        claims: [{ text: evidence.text, handles: [evidence.handle], confidence: "high" }],
+      };
+    } else if (request.kind === "polish") {
+      seen.add("polish");
+      data = {
+        kind: "polish",
+        proposal: { changed: false, revisedText: request.text ?? "", reasons: [] },
+      };
+    } else {
+      seen.add("extract");
+      data = {
+        kind: "extract",
+        proposal: { field: request.field ?? "", value: null, handles: [], confidence: "low" },
+      };
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ data }),
+    });
+  });
+
   await page.goto("/");
   await upload(page, files.v1);
-  await upload(page, files.v2);
   await page.getByLabel("운임현황_v1.xlsx 선택").check();
 
-  // Deterministic destinations stay silent until the user requests the AI layer.
-  for (const tab of ["Analyze", "Compare", "Check", "Extract"] as const) {
-    await page.getByRole("button", { name: tab, exact: true }).click();
-    await expect(page.locator(".ai-status")).toHaveCount(0);
-  }
-
-  // Ask and Brief own the preparation flow, so entering them reports capability.
   await page.getByRole("button", { name: "Ask", exact: true }).click();
-  await expect(page.locator(".ai-status")).toContainText("브라우저 AI를 사용할 수 없습니다");
-  await page.getByRole("button", { name: "Brief", exact: true }).click();
-  await expect(page.locator(".ai-status")).toHaveCount(1);
+  await page.getByPlaceholder("선택한 문서에서 확인할 내용을 입력하세요").fill("SEOUL 단가는 얼마인가요?");
+  await page.getByRole("button", { name: "Ask 실행" }).click();
+  await expect(page.getByText("Ask 결과를 준비했습니다.")).toBeVisible();
 
-  // Requesting the optional layer surfaces the same panel, and only then.
-  await page.getByRole("button", { name: "Analyze", exact: true }).click();
-  await expect(page.locator(".ai-status")).toHaveCount(0);
-  await page.getByRole("button", { name: "브라우저 AI 보조" }).click();
-  await expect(page.locator(".ai-status")).toHaveCount(1);
-  await expect(page.locator(".notice.error")).toHaveCount(0);
+  await page.getByRole("button", { name: "Brief", exact: true }).click();
+  await page.getByRole("button", { name: "Brief 실행" }).click();
+  await expect(page.getByText("Brief 결과를 준비했습니다.")).toBeVisible();
+
+  await page.getByRole("button", { name: "Polish", exact: true }).click();
+  await page.getByRole("radio", { name: "텍스트 윤문" }).check();
+  await page.getByLabel("윤문할 텍스트 입력").fill("운임 현황을 검토 부탁드립니다.");
+  await page.getByRole("button", { name: "Polish 실행" }).click();
+  await expect(page.getByText(/윤문 완료 · 변경 제안 0건 · 변경 없음 1건/)).toBeVisible();
 
   await page.getByRole("button", { name: "Check", exact: true }).click();
-  await expect(page.locator(".ai-status")).toHaveCount(0);
   await page.getByRole("button", { name: "AI 문장 검수" }).click();
-  await expect(page.locator(".ai-status")).toHaveCount(1);
+  await expect(page.getByText(/AI 문장 검수 .*제안/)).toBeVisible();
 
-  // Extract never mentions the model, even after another tab requested it.
   await page.getByRole("button", { name: "Extract", exact: true }).click();
-  await expect(page.locator(".ai-status")).toHaveCount(0);
+  await page.getByRole("radio", { name: "항목 지정" }).check();
+  await page.getByLabel("추출할 항목").fill("존재하지 않는 항목");
+  await page.getByRole("button", { name: "항목 추가" }).click();
   await page.getByRole("button", { name: "Extract 실행" }).click();
-  await expect(page.getByText(/추출 항목 \d+개/)).toBeVisible();
-  await expect(page.locator(".ai-status")).toHaveCount(0);
+  await expect(page.getByText("추출 항목 0개 · 확인 필요 1개")).toBeVisible();
+
+  expect([...seen].sort()).toEqual(["ask", "brief", "extract", "polish", "semantic-check"]);
 });
+
 
 test("reviews PPTX writing, consistency and data findings with filters and exact slide evidence", async ({ page }) => {
   await page.goto("/");
@@ -530,11 +481,11 @@ test("keeps the personal dictionary and ignore actions inside this browser", asy
 test("moves upload out of the workspace once files exist", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".dropzone")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Add files" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "파일 추가" })).toHaveCount(0);
 
   await upload(page, files.v1);
   await expect(page.locator(".dropzone")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Add files" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "파일 추가" })).toBeVisible();
 
   // Adding another file still works from the context bar action.
   await upload(page, files.v2);
@@ -553,7 +504,7 @@ test("keeps file context and upload controls out of utility destinations", async
   await expect(page.getByRole("heading", { name: "용어 사전", exact: true })).toBeVisible();
   await expect(page.locator(".context-files")).toHaveCount(0);
   await expect(page.locator(".dropzone")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Add files" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "파일 추가" })).toHaveCount(0);
   await expect(page.getByText("회사 공통 용어입니다. 관리자만 수정할 수 있습니다.", { exact: false })).toBeVisible();
   await expect(page.getByLabel("공용 용어 검색")).toBeVisible();
   await expect(page.getByText("등록된 개인 용어가 없습니다.")).toBeVisible();
@@ -562,7 +513,7 @@ test("keeps file context and upload controls out of utility destinations", async
   await expect(page.getByRole("heading", { name: "설정", exact: true })).toBeVisible();
   await expect(page.locator(".context-files")).toHaveCount(0);
   await expect(page.locator(".dropzone")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Add files" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "파일 추가" })).toHaveCount(0);
 });
 
 test("keeps a feature's completion notice inside that feature", async ({ page }) => {
