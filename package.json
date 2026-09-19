@@ -13,7 +13,7 @@
     "test:e2e": "playwright test",
     "dev:vinext": "vinext dev --port 3001",
     "build:vinext": "bun run assets:pdf && node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && vinext build && bun scripts/write-asset-headers.ts",
-    "start:vinext": "wrangler dev --config dist/server/wrangler.json --env-file .dev.vars",
+    "start:vinext": "bun scripts/start-worker.ts",
     "deploy:vinext": "vinext-cloudflare deploy --config dist/server/wrangler.json",
     "deploy": "bun run build:vinext && wrangler deploy --config dist/server/wrangler.json",
     "test:e2e:cloudflare": "bun run build:vinext && playwright test --config playwright.cloudflare.config.ts",

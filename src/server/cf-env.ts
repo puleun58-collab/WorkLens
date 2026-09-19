@@ -29,9 +29,9 @@ export interface WorkerEnv {
 export function workerEnv(): WorkerEnv {
   const source: Record<string, unknown> = platformEnv ?? {};
   const database = source.WORKLENS_CONFIG_DB;
-  const password = source.WORKLENS_ADMIN_PASSWORD;
-  const secret = source.WORKLENS_ADMIN_SESSION_SECRET;
-  const groqApiKey = source.GROQ_API_KEY;
+  const password = source.WORKLENS_ADMIN_PASSWORD ?? process.env.WORKLENS_ADMIN_PASSWORD;
+  const secret = source.WORKLENS_ADMIN_SESSION_SECRET ?? process.env.WORKLENS_ADMIN_SESSION_SECRET;
+  const groqApiKey = source.GROQ_API_KEY ?? process.env.GROQ_API_KEY;
   return {
     ...(database && typeof database === "object" ? { WORKLENS_CONFIG_DB: database as D1DatabaseLike } : {}),
     ...(typeof password === "string" ? { WORKLENS_ADMIN_PASSWORD: password } : {}),
