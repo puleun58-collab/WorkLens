@@ -45,6 +45,16 @@ async function upload(page: Page, filePath: string) {
   await expect(fileRow(page, filePath)).toBeVisible();
 }
 
+async function mockEmptyClaims(page: Page) {
+  await page.route("**/api/ai", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ data: { kind: "claims", claims: [] } }),
+    });
+  });
+}
+
 test("uploads XLSX files, compares them and shows source evidence", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "작업 파일" })).toBeVisible();
@@ -154,10 +164,11 @@ test("distinguishes same-named uploaded revisions in the evidence inspector", as
   const detail = page.getByLabel("근거 상세");
   await expect(detail).toBeVisible();
   const headings = await detail.locator(".evidence-entry h3").allInnerTexts();
-  expect(headings.some((heading) => heading.includes("기준"))).toBe(true);
-  expect(headings.some((heading) => heading.includes("현재"))).toBe(true);
+  const locations = await detail.locator(".evidence-location-list li").allInnerTexts();
+  expect(locations.some((location) => location.includes("기준"))).toBe(true);
+  expect(locations.some((location) => location.includes("현재"))).toBe(true);
   expect(headings.some((heading) => heading.includes("동일이름.xlsx (2)"))).toBe(true);
-  expect(headings.every((heading) => !/[a-f0-9]{8}/.test(heading))).toBe(true);
+  expect([...headings, ...locations].every((text) => !/[a-f0-9]{8}/.test(text))).toBe(true);
   expect(new Set(headings).size).toBeGreaterThanOrEqual(2);
 });
 
@@ -229,6 +240,9 @@ test("runs deterministic Analyze, Check, Extract and export paths", async ({ pag
   await page.getByRole("radio", { name: "전체 텍스트" }).check();
   await page.getByRole("button", { name: "추출 실행" }).click();
   await expect(page.locator(".results-panel .result-status")).toHaveText("추출 완료");
+  const textExtractPanel = page.locator(".results-panel");
+  await expect(textExtractPanel.locator(".document-result").first()).toBeVisible();
+  await expect(textExtractPanel.getByRole("button", { name: /윤문/ })).toHaveCount(0);
   const textDownload = page.waitForEvent("download");
   await page.getByRole("button", { name: "XLSX 다운로드" }).click();
   expect((await textDownload).suggestedFilename()).toContain(".xlsx");
@@ -256,13 +270,87 @@ test("extracts fields and records without a model and exports the structured tab
   await field.fill("작성부서");
   await page.getByRole("button", { name: "항목 추가" }).click();
   await page.getByRole("button", { name: "추출 실행" }).click();
-  const table = page.locator(".results-panel table.extract-table").first();
-  await expect(table.locator("th").first()).toHaveText("작성부서");
+  const table = page.locator(".results-panel .extract-fields-table");
+  await expect(table.locator('[role="columnheader"]').nth(0)).toHaveText("항목");
   await expect(table).toContainText("경영지원팀");
 
   const download = page.waitForEvent("download");
   await page.getByRole("button", { name: "XLSX 다운로드" }).click();
   expect((await download).suggestedFilename()).toContain(".xlsx");
+});
+
+test("makes missing and low-confidence Extract values explicit", async ({ page }, testInfo) => {
+  const consoleErrors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") consoleErrors.push(message.text());
+  });
+  await page.route("**/api/ai", async (route) => {
+    const request = route.request().postDataJSON() as {
+      kind: string;
+      field?: string;
+      items: Array<{ handle: string; text: string }>;
+    };
+    const evidence = request.items.find((item) => item.text.includes("경영지원팀"));
+    const proposal = request.field === "검토부서" && evidence
+      ? { field: request.field, value: "경영지원팀", handles: [evidence.handle], confidence: "low" }
+      : { field: request.field ?? "", value: null, handles: [], confidence: "low" };
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ data: { kind: "extract", proposal } }),
+    });
+  });
+
+  await page.goto("/");
+  await upload(page, files.extractPptx);
+  await page.getByLabel("회의자료.pptx 선택").check();
+  await page.getByRole("button", { name: "추출", exact: true }).click();
+  await page.getByRole("radio", { name: "항목 지정" }).check();
+  const field = page.getByLabel("추출할 항목");
+  for (const name of ["검토부서", "존재하지 않는 항목"]) {
+    await field.fill(name);
+    await page.getByRole("button", { name: "항목 추가" }).click();
+  }
+  await page.getByRole("button", { name: "추출 실행" }).click();
+
+  const panel = page.locator(".extract-results");
+  await expect(panel.locator(".check-summary-line")).toContainText("확인 필요 1");
+  await expect(panel.locator(".check-summary-line")).toContainText("낮은 확신 1");
+  await expect(panel.getByRole("button", { name: "표 보기" })).toHaveCount(0);
+  await expect(panel.getByRole("button", { name: "항목 보기" })).toHaveCount(0);
+  const table = panel.locator(".extract-fields-table");
+  await expect(table).toBeVisible();
+  await expect(table.locator(".data-row")).toHaveCount(2);
+  await expect(table).toContainText("경영지원팀");
+  await expect(table).toContainText("확신 낮음");
+  await expect(table).toContainText("문서에서 찾지 못함");
+
+  const exports = panel.locator(".extract-export-actions");
+  const csv = exports.getByRole("button", { name: "CSV 다운로드" });
+  const xlsx = exports.getByRole("button", { name: "XLSX 다운로드" });
+  await expect(exports.getByRole("button")).toHaveText(["CSV 다운로드", "XLSX 다운로드"]);
+  const [summaryBox, csvBox, xlsxBox, tableBox] = await Promise.all([
+    panel.locator(".check-summary-line").boundingBox(),
+    csv.boundingBox(),
+    xlsx.boundingBox(),
+    table.boundingBox(),
+  ]);
+  expect(summaryBox).not.toBeNull();
+  expect(csvBox).not.toBeNull();
+  expect(xlsxBox).not.toBeNull();
+  expect(tableBox).not.toBeNull();
+  expect(csvBox!.y).toBeLessThan(tableBox!.y);
+  expect(xlsxBox!.x).toBeGreaterThan(csvBox!.x);
+  const hierarchy = await exports.locator("button").evaluateAll((buttons) => buttons.map((button) => {
+    const style = getComputedStyle(button);
+    return { background: style.backgroundColor, color: style.color, border: style.borderStyle };
+  }));
+  expect(hierarchy[0].background).toBe("rgb(255, 255, 255)");
+  expect(hierarchy[1].background).toBe("rgb(37, 99, 235)");
+  expect(hierarchy[0].border).not.toBe("none");
+  expect(hierarchy[1].border).not.toBe("none");
+  await page.screenshot({ path: "artifacts/inspo-extract-desktop-1440.png", fullPage: true });
+  if (testInfo.project.name === "chromium-desktop") expect(consoleErrors).toEqual([]);
 });
 
 
@@ -358,20 +446,24 @@ test("runs Ask, Brief, Polish, Check and Extract through the server AI boundary"
   await page.getByPlaceholder("선택한 문서에서 확인할 내용을 입력하세요").fill("SEOUL 단가는 얼마인가요?");
   await page.getByRole("button", { name: "질문 실행" }).click();
   await expect(page.locator(".results-panel .result-status")).toHaveText("답변 완료");
+  expect([...seen]).toEqual(["ask"]);
 
   await page.getByRole("button", { name: "요약", exact: true }).click();
   await page.getByRole("button", { name: "요약 실행" }).click();
-  await expect(page.locator(".results-panel .result-status")).toHaveText("브리프 완료");
+  await expect(page.locator(".results-panel .result-status")).toHaveText("요약 완료");
+  expect([...seen].sort()).toEqual(["ask", "brief"]);
 
   await page.getByRole("button", { name: "윤문", exact: true }).click();
   await page.getByRole("radio", { name: "텍스트 윤문" }).check();
   await page.getByLabel("윤문할 텍스트 입력").fill("운임 현황을 검토 부탁드립니다.");
   await page.getByRole("button", { name: "윤문 실행" }).click();
   await expect(page.locator(".results-panel .result-status")).toHaveText("윤문 완료");
+  expect([...seen].sort()).toEqual(["ask", "brief", "polish"]);
 
   await page.getByRole("button", { name: "검수", exact: true }).click();
   await page.getByRole("button", { name: "검수 실행", exact: true }).click();
   await expect(page.locator(".results-panel .result-status")).toHaveText("검수 완료");
+  expect([...seen].sort()).toEqual(["ask", "brief", "polish", "semantic-check"]);
 
   await page.getByRole("button", { name: "추출", exact: true }).click();
   await page.getByRole("radio", { name: "항목 지정" }).check();
@@ -518,10 +610,13 @@ test("presents Ask as one answer followed by compact clickable evidence", async 
   await expect(page.locator(".notice.success")).toHaveCount(0);
   await expect(panel).not.toContainText("ASK RESULT");
   await expect(panel).not.toContainText("추론:");
-  await expect(panel).not.toContainText("해석문");
+  await expect(panel).not.toContainText("해석 · 근거 검증됨");
+  await expect(panel).not.toContainText("FILE FACT");
+  await expect(panel).not.toContainText("해석");
   await expect(panel).not.toContainText("근거별 주장");
   await expect(panel).not.toContainText("claims");
   await expect(panel).not.toContainText("근거 연결 결과");
+  await expect(panel.getByRole("button", { name: /윤문/ })).toHaveCount(0);
 
   const answer = panel.locator(".ask-answer");
   const evidence = panel.locator(".ask-evidence");
@@ -536,16 +631,15 @@ test("presents Ask as one answer followed by compact clickable evidence", async 
   expect(answerText).not.toContain("추론:");
   await expect(panel.getByText(answerText, { exact: true })).toHaveCount(1);
 
-  const sourceLinks = evidence.locator(".ask-source-link");
-  const sourceCount = await sourceLinks.count();
-  expect(sourceCount).toBeGreaterThan(0);
-  await expect(evidence.locator(".subsection-heading > span")).toHaveText(`${sourceCount}곳`);
+  const sourceBlock = evidence.locator(".result-source");
+  await expect(sourceBlock).toBeVisible();
+  await expect(evidence.locator(".subsection-heading > span")).toHaveText(/\d+곳/);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(answer).toBeVisible();
   await expect(evidence).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  await sourceLinks.first().click();
+  await sourceBlock.locator(".source-action").click();
   await expect(page.locator(".evidence-inspector")).toBeVisible();
 
 });
@@ -568,7 +662,7 @@ test("keeps an unanswerable Ask as a grounded error without invented sources", a
 
   await expect(page.locator(".notice.error")).toContainText("선택한 문서에서 답변에 필요한 근거를 찾지 못했습니다.");
   await expect(page.locator(".results-panel")).toHaveCount(0);
-  await expect(page.locator(".ask-source-link")).toHaveCount(0);
+  await expect(page.locator(".ask-evidence .result-source")).toHaveCount(0);
 });
 
 test("keeps grounded Ask and Brief content when another claim is rejected", async ({ page }) => {
@@ -610,11 +704,87 @@ test("keeps grounded Ask and Brief content when another claim is rejected", asyn
   await page.getByRole("button", { name: "요약", exact: true }).click();
   await page.getByRole("button", { name: "요약 실행" }).click();
   const briefPanel = page.locator(".results-panel");
-  await expect(briefPanel.locator(".result-status")).toHaveText("브리프 완료");
+  await expect(briefPanel.getByRole("heading", { name: "핵심 요약", exact: true })).toBeVisible();
+  await expect(briefPanel.locator(".result-status")).toHaveText("요약 완료");
   await expect(briefPanel.locator(".result-inline-warning")).toHaveText("일부 내용은 문서 근거와 연결되지 않아 결과에서 제외했습니다.");
-  await expect(briefPanel.locator(".claim-row")).toHaveCount(1);
+  await expect(briefPanel.locator(".brief-body")).toBeVisible();
+  await expect(briefPanel.getByRole("heading", { name: "주요 근거", exact: true })).toBeVisible();
+  const briefSource = briefPanel.locator(".brief-evidence-item .source-summary-link").first();
+  await expect(briefSource).toBeVisible();
+  await expect(briefPanel.locator(".claim-row")).toHaveCount(0);
   await expect(briefPanel).not.toContainText("문서에 없는 내용");
+  await expect(briefPanel).not.toContainText("해석 · 근거 검증됨");
+  await expect(briefPanel).not.toContainText("FILE FACT");
+  await expect(briefPanel).not.toContainText("근거별 주장");
+  await expect(briefPanel).not.toContainText("claims");
+  await expect(briefPanel).not.toContainText("BRIEF RESULT");
+  await expect(briefPanel).not.toContainText("근거 연결 결과");
+  const briefOrder = await briefPanel.locator(".brief-body, .brief-evidence").evaluateAll((nodes) => nodes.map((node) => node.className));
+  expect(briefOrder).toEqual(["ask-answer brief-body", "ask-evidence brief-evidence"]);
+  await briefSource.click();
+  const briefDetail = page.getByRole("complementary", { name: "근거 상세" });
+  await expect(briefDetail).toBeVisible();
+  await briefDetail.getByRole("button", { name: "닫기" }).click();
+  await expect(briefSource).toBeFocused();
+  await expect(briefPanel.getByRole("button", { name: /윤문/ })).toHaveCount(0);
   await expect(page.locator(".notice.error, .notice.warning")).toHaveCount(0);
+});
+
+test("groups repeated Summary sources without losing drawer coverage", async ({ page }) => {
+  await page.route("**/api/ai", async (route) => {
+    const request = route.request().postDataJSON() as {
+      kind: "claims";
+      items: Array<{ handle: string; text: string }>;
+    };
+    const byText = new Map<string, Array<{ handle: string; text: string }>>();
+    for (const item of request.items) {
+      const group = byText.get(item.text) ?? [];
+      group.push(item);
+      byText.set(item.text, group);
+    }
+    const repeated = [...byText.values()].find((group) => group.length > 1 && group[0].text.trim());
+    if (!repeated) throw new Error("Mocked summary request is missing repeated cross-file evidence.");
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: {
+          kind: "claims",
+          claims: [{ text: repeated[0].text, handles: repeated.slice(0, 2).map((item) => item.handle), confidence: "high" }],
+        },
+      }),
+    });
+  });
+
+  await page.goto("/");
+  await upload(page, files.v1);
+  await upload(page, files.v1Copy);
+  await page.getByLabel("운임현황_v1.xlsx 선택").check();
+  await page.getByLabel("운임현황_v1_사본.xlsx 선택").check();
+  await page.getByRole("button", { name: "요약", exact: true }).click();
+  await page.getByRole("button", { name: "요약 실행" }).click();
+
+  const panel = page.locator(".results-panel");
+  await expect(panel.getByRole("heading", { name: "핵심 요약", exact: true })).toBeVisible();
+  await expect(panel.locator(".result-status")).toHaveText("요약 완료");
+  const item = panel.locator(".brief-evidence-item").first();
+  const source = item.locator(".source-summary-link");
+  await expect(source).toContainText("외 1곳");
+  await expect(item).not.toContainText("근거 보기");
+  await page.screenshot({ path: "artifacts/inspo-summary-desktop-1440.png", fullPage: true });
+
+  await source.click();
+  const detail = page.getByLabel("근거 상세");
+  await expect(detail.locator(".evidence-entry")).toHaveCount(2);
+  await expect(detail.locator(".evidence-file-list")).toContainText("운임현황_v1.xlsx");
+  await expect(detail.locator(".evidence-file-list")).toContainText("운임현황_v1_사본.xlsx");
+  await detail.getByRole("button", { name: "닫기" }).click();
+  await expect(source).toBeFocused();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await item.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(/\s+/).length)).toBe(1);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  await page.screenshot({ path: "artifacts/inspo-summary-mobile-390.png", fullPage: true });
 });
 
 test("shows a Brief-specific error when no grounded content remains", async ({ page }) => {
@@ -633,7 +803,7 @@ test("shows a Brief-specific error when no grounded content remains", async ({ p
   await page.getByRole("button", { name: "요약 실행" }).click();
 
   const error = page.locator(".notice.error");
-  await expect(error).toContainText("선택한 문서에서 브리프에 필요한 근거를 찾지 못했습니다.");
+  await expect(error).toContainText("선택한 문서에서 요약에 필요한 근거를 찾지 못했습니다.");
   await expect(error).not.toContainText("파일 형식과 선택 상태");
   await expect(page.locator(".results-panel")).toHaveCount(0);
 });
@@ -727,7 +897,12 @@ test("integrates enrichment behind one action and preserves every deterministic 
 });
 
 
-test("reviews PPTX writing, consistency and data findings with filters and exact slide evidence", async ({ page }) => {
+test("reviews PPTX writing, consistency and data findings with filters and exact slide evidence", async ({ page }, testInfo) => {
+  const consoleErrors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") consoleErrors.push(message.text());
+  });
+  await mockEmptyClaims(page);
   await page.goto("/");
   await upload(page, files.checkPptx);
   await page.getByLabel("최종검수.pptx 선택").check();
@@ -740,6 +915,7 @@ test("reviews PPTX writing, consistency and data findings with filters and exact
   await expect(overview.locator(".qa-summary")).toContainText("Warning");
   await expect(page.getByText("낮은 확신 포함")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "용어 사전" })).toBeVisible();
+  await expect(page.locator(".check-filter-status")).toHaveText("8건 표시");
 
   const typo = page.locator(".check-issue").filter({ hasText: "한글 맞춤법 오류 가능성" });
   await expect(typo).toContainText("문장");
@@ -755,6 +931,23 @@ test("reviews PPTX writing, consistency and data findings with filters and exact
   await expect(typo.locator(".check-issue-detail .result-source")).toHaveCount(0);
   await expect(typo.locator(".check-issue-detail")).toContainText("이유");
   await expect(typo.locator(".result-source")).toHaveCount(1);
+  const detailStyle = await typo.locator(".check-issue-detail").evaluate((element) => {
+    const original = element.querySelector(".original-copy blockquote");
+    const suggested = element.querySelector(".suggested-copy blockquote");
+    return {
+      original: original ? getComputedStyle(original).borderLeftColor : "",
+      suggested: suggested ? getComputedStyle(suggested).borderLeftColor : "",
+    };
+  });
+  expect(detailStyle.original).not.toBe(detailStyle.suggested);
+
+  await typo.locator(".source-action").click();
+  const evidence = page.getByLabel("근거 상세");
+  await expect(evidence).toBeVisible();
+  await expect(evidence.locator(".evidence-location-list")).toContainText("Slide 1 · 본문");
+  await expect(evidence.getByRole("button", { name: "닫기" })).toBeVisible();
+  await page.screenshot({ path: "artifacts/inspo-evidence-desktop-1440.png" });
+  await evidence.getByRole("button", { name: "닫기" }).click();
 
   await page.getByRole("button", { name: /일관성 2/ }).click();
   await expect(page.locator(".check-issue").filter({ hasText: "용어 일관성" })).toHaveCount(1);
@@ -763,6 +956,8 @@ test("reviews PPTX writing, consistency and data findings with filters and exact
   await expect(page.locator(".check-issue").first()).toBeVisible();
 
   await expect(page.getByRole("button", { name: "문장 검수", exact: true })).toHaveCount(0);
+  await page.screenshot({ path: "artifacts/inspo-check-desktop-1440.png", fullPage: true });
+  if (testInfo.project.name === "chromium-desktop") expect(consoleErrors).toEqual([]);
 });
 
 test("keeps the personal dictionary and ignore actions inside this browser", async ({ page, browser }) => {
@@ -938,7 +1133,7 @@ test("uses task-focused labels and concise execution buttons", async ({ page }) 
     ["검수", "문서 검수"],
     ["윤문", "문서 윤문"],
     ["추출", "정보 추출"],
-    ["요약", "핵심 요약"],
+    ["요약", "요약"],
   ] as const;
   await expect(page.locator(".rail-list .rail-item span")).toHaveText(labels.map(([label]) => label));
   for (const [tab, title] of labels) {
@@ -1104,7 +1299,11 @@ test("explicitly clears the in-browser workspace", async ({ page }) => {
   await upload(page, files.v1);
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "모두 삭제" }).click();
-  await expect(page.getByText("브라우저 메모리에서 파일과 결과를 모두 지웠습니다.")).toBeVisible();
+  const clearedStatus = page.getByText("브라우저 메모리에서 파일과 결과를 모두 지웠습니다.", { exact: true });
+  await expect(clearedStatus).toBeVisible();
+  await expect(clearedStatus).toHaveClass(/notice-inline/);
+  await expect(page.locator(".status-panel")).toHaveCount(0);
+  await expect(page.getByText("처리 상태", { exact: true })).toHaveCount(0);
   await expect(page.locator(".dropzone")).toBeVisible();
 
   // The worker was torn down; a new upload must still work in the same tab.
@@ -1114,6 +1313,10 @@ test("explicitly clears the in-browser workspace", async ({ page }) => {
 
 test("keeps the complete mobile workflow inside the viewport", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "chromium-desktop", "One Chromium run covers the explicit mobile viewports.");
+  const consoleErrors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") consoleErrors.push(message.text());
+  });
 
   const expectNoPageOverflow = async () => {
     const width = await page.evaluate(() => ({
@@ -1122,12 +1325,14 @@ test("keeps the complete mobile workflow inside the viewport", async ({ page }, 
     }));
     expect(width.scroll).toBeLessThanOrEqual(width.client);
   };
+  await mockEmptyClaims(page);
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
   await upload(page, files.v1);
   await upload(page, files.v2);
   await upload(page, files.checkPptx);
+  await upload(page, files.extractPptx);
 
   const firstRow = fileRow(page, files.v1);
   await expect(firstRow.locator(".status")).toBeVisible();
@@ -1159,6 +1364,20 @@ test("keeps the complete mobile workflow inside the viewport", async ({ page }, 
   await expect(mobileFinding.locator(".check-source")).toBeVisible();
   await expectNoPageOverflow();
   await page.screenshot({ path: "artifacts/mobile-check-390.png", fullPage: true });
+  await mobileFinding.locator(".source-action").click();
+  const mobileEvidence = page.getByLabel("근거 상세");
+  await expect(mobileEvidence).toBeVisible();
+  const evidenceShell = page.locator(".evidence-inspector");
+  expect(await evidenceShell.evaluate((element) => getComputedStyle(element).position)).toBe("fixed");
+  const evidenceBox = await evidenceShell.boundingBox();
+  expect(evidenceBox).not.toBeNull();
+  expect(evidenceBox!.width).toBeLessThanOrEqual(390);
+  await expect(mobileEvidence.locator(".evidence-location-list")).toBeVisible();
+  await expect(mobileEvidence.getByRole("button", { name: "닫기" })).toBeVisible();
+  await page.screenshot({ path: "artifacts/inspo-evidence-mobile-390.png" });
+  await mobileEvidence.getByRole("button", { name: "닫기" }).click();
+  await expect(mobileFinding.locator(".source-action")).toBeFocused();
+  await expectNoPageOverflow();
 
   await page.getByRole("button", { name: "질문", exact: true }).click();
   const askInput = page.getByLabel("질문 입력");
@@ -1175,12 +1394,32 @@ test("keeps the complete mobile workflow inside the viewport", async ({ page }, 
   expect((await paste.boundingBox())!.width).toBeLessThanOrEqual(358);
 
   await page.getByRole("button", { name: "추출", exact: true }).click();
-  await page.getByRole("radio", { name: "항목 지정" }).check();
-  await expect(page.getByLabel("추출할 항목")).toBeVisible();
+  await page.getByLabel("최종검수.pptx 선택").uncheck();
+  await page.getByLabel("회의자료.pptx 선택").check();
+  await page.getByRole("button", { name: "추출 실행" }).click();
+  const mobileExtract = page.locator(".extract-results");
+  const mobileExtractTable = mobileExtract.locator(".extract-auto-table");
+  await expect(mobileExtractTable).toBeVisible();
+  await expect(mobileExtract.getByRole("button", { name: "표 보기" })).toHaveCount(0);
+  await expect(mobileExtract.getByRole("button", { name: "항목 보기" })).toHaveCount(0);
+  const mobileExtractRow = mobileExtractTable.locator(".data-row").first();
+  expect(await mobileExtractRow.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(/\s+/).length)).toBe(1);
+  const mobileExports = mobileExtract.locator(".extract-export-actions");
+  await expect(mobileExports.getByRole("button")).toHaveText(["CSV 다운로드", "XLSX 다운로드"]);
+  const [csvStyle, xlsxStyle] = await mobileExports.locator("button").evaluateAll((buttons) => buttons.map((button) => {
+    const style = getComputedStyle(button);
+    const box = button.getBoundingClientRect();
+    return { background: style.backgroundColor, left: box.left, right: box.right };
+  }));
+  expect(csvStyle.background).toBe("rgb(255, 255, 255)");
+  expect(xlsxStyle.background).toBe("rgb(37, 99, 235)");
+  expect(csvStyle.left).toBeGreaterThanOrEqual(0);
+  expect(xlsxStyle.right).toBeLessThanOrEqual(390);
   await expectNoPageOverflow();
+  await page.screenshot({ path: "artifacts/inspo-extract-mobile-390.png", fullPage: true });
 
   await page.getByRole("button", { name: "요약", exact: true }).click();
-  const briefInput = page.getByLabel("브리프 중점 입력");
+  const briefInput = page.getByLabel("요약 중점 입력");
   const briefAction = page.getByRole("button", { name: "요약 실행" });
   const [briefBox, briefActionBox] = await Promise.all([briefInput.boundingBox(), briefAction.boundingBox()]);
   expect(briefActionBox!.y).toBeGreaterThan(briefBox!.y + briefBox!.height);
@@ -1209,4 +1448,5 @@ test("keeps the complete mobile workflow inside the viewport", async ({ page }, 
       items.filter((item) => item.scrollWidth > item.clientWidth || item.scrollHeight > item.clientHeight).length);
     expect(clippedNavItems).toBe(0);
   }
+  expect(consoleErrors).toEqual([]);
 });

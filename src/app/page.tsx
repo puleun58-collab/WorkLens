@@ -1,7 +1,7 @@
 "use client";
 
 import { ChangeEvent, DragEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import type { AiAvailableResult, AiRequest, EvidenceBinding, GroundedClaim } from "@/domain/ai";
+import type { AiAvailableResult, AiRequest, GroundedClaim } from "@/domain/ai";
 import type { ComparisonItem, ComparisonResult } from "@/domain/compare";
 import type { DocumentMetadata, SourceRef } from "@/domain/document";
 import {
@@ -29,6 +29,7 @@ import type { CheckEntry as WorkerCheckEntry, WorkspaceFile } from "@/client/pro
 import {
   EXTRACT_MODE_LABELS,
   EXTRACT_TYPE_LABELS,
+  type ExtractConfidence,
   type ExtractMode,
   type StructuredExtract,
 } from "@/domain/extract";
@@ -45,8 +46,7 @@ import {
   type PolishResult,
   type PolishTextResult,
 } from "@/domain/polish";
-import { polishClipboardText, polishResult, polishTextResult, reviewProposal, summarizePolish } from "@/lib/polish/engine";
-import { isProse } from "@/lib/polish/candidates";
+import { polishClipboardText, polishResult, polishTextResult, reviewProposal } from "@/lib/polish/engine";
 import {
   POLISH_TEXT_MAX_CHARS,
   POLISH_TEXT_TOO_LONG_MESSAGE,
@@ -102,10 +102,8 @@ type NoticeScope = "workspace" | ShellView;
  */
 type Notice = { tone: "error" | "success" | "info" | "warning"; message: string; scope: NoticeScope; code?: ServerAiErrorCode };
 
-function noticeTitle(notice: Notice): string {
-  if (notice.tone === "success") return "작업 완료";
+function noticePanelTitle(notice: Notice): string {
   if (notice.tone === "warning") return "기본 결과를 유지했습니다";
-  if (notice.tone !== "error") return "처리 상태";
   return notice.code ? "추가 처리를 완료하지 못했습니다" : "작업을 완료하지 못했습니다";
 }
 
@@ -127,7 +125,7 @@ const completionLabels: Record<Tab, string> = {
   Check: "검수 완료",
   Polish: "윤문 완료",
   Extract: "추출 완료",
-  Brief: "브리프 완료",
+  Brief: "요약 완료",
 };
 type ResultStatus = { tone: "success" | "warning"; label: string; message?: string };
 /*
@@ -148,6 +146,11 @@ const severityLabels: Record<CheckFinding["severity"], string> = {
   critical: "Critical",
   warning: "Warning",
   suggestion: "Suggestion",
+};
+const extractConfidenceLabels: Record<ExtractConfidence, string> = {
+  high: "높음",
+  medium: "보통",
+  low: "낮음",
 };
 const checkCategoryLabels: Record<CheckCategory, string> = {
   spelling: "맞춤법",
@@ -419,7 +422,7 @@ export default function Home() {
     const noEvidenceMessage = request.operation === "ask"
       ? "선택한 문서에서 답변에 필요한 근거를 찾지 못했습니다."
       : request.operation === "brief"
-        ? "선택한 문서에서 브리프에 필요한 근거를 찾지 못했습니다."
+        ? "선택한 문서에서 요약에 필요한 근거를 찾지 못했습니다."
         : SERVER_AI_MESSAGES.NO_EVIDENCE;
     try {
       const evidence = await runInWorker({ kind: "evidence", fileIds: selected, request });
@@ -818,7 +821,7 @@ export default function Home() {
       setStructured(deterministic);
       const pending = deterministic.files.flatMap((file) => file.missing.map((field) => ({ fileId: file.file.id, field })));
       if (pending.length === 0) {
-        notifyView("success", `추출 항목 ${deterministic.summary.fields}개 · 확인 필요 ${deterministic.summary.missing}개`);
+        notifyView("success", `추출 항목 ${deterministic.summary.fields}개 · 찾지 못함 ${deterministic.summary.missing}개`);
         return;
       }
       let resolved = deterministic;
@@ -829,7 +832,7 @@ export default function Home() {
         setStructured(resolved);
         setExtractProgress({ done: index + 1, total: pending.length });
       }
-      notifyView("success", `추출 항목 ${resolved.summary.fields}개 · 확인 필요 ${resolved.summary.missing}개`);
+      notifyView("success", `추출 항목 ${resolved.summary.fields}개 · 찾지 못함 ${resolved.summary.missing}개`);
     } catch (error) {
       if (deterministic) {
         reportPartialAiFailure(error, "기본 추출은 완료했습니다. 추가 항목 확인은 이번 실행에서 제외되었습니다.");
@@ -1082,24 +1085,22 @@ export default function Home() {
           ) : null}
 
           {isDocumentWorkspaceView && notice && !inlineResultNotice && (notice.scope === "workspace" || notice.scope === shellView) ? (
-            <StatusPanel
-              className={`notice ${notice.tone}`}
-              variant={notice.tone === "error"
-                ? "error"
-                : notice.tone === "success"
-                  ? "success"
-                  : notice.tone === "warning"
-                    ? "warning"
-                    : "info"}
-              tone={notice.tone === "error" ? "alert" : "status"}
-              live={notice.tone === "error" ? "assertive" : "polite"}
-              title={noticeTitle(notice)}
-            >
-              <p>{notice.message}</p>
-              {notice.tone === "error" && !notice.code && notice.scope === "workspace"
-                ? <small>파일 형식과 선택 상태를 확인한 뒤 다시 시도하세요.</small>
-                : null}
-            </StatusPanel>
+            notice.tone === "error" || notice.tone === "warning" ? (
+              <StatusPanel
+                className={`notice ${notice.tone}`}
+                variant={notice.tone}
+                tone={notice.tone === "error" ? "alert" : "status"}
+                live={notice.tone === "error" ? "assertive" : "polite"}
+                title={noticePanelTitle(notice)}
+              >
+                <p>{notice.message}</p>
+                {notice.tone === "error" && !notice.code && notice.scope === "workspace"
+                  ? <small>파일 형식과 선택 상태를 확인한 뒤 다시 시도하세요.</small>
+                  : null}
+              </StatusPanel>
+            ) : (
+              <p className={`notice-inline ${notice.tone}`} role="status" aria-live="polite">{notice.message}</p>
+            )
           ) : null}
 
           {!isDocumentWorkspaceView ? (
@@ -1152,7 +1153,7 @@ export default function Home() {
                     <input
                       value={question}
                       maxLength={2000}
-                      aria-label={activeTab === "Ask" ? "질문 입력" : "브리프 중점 입력"}
+                      aria-label={activeTab === "Ask" ? "질문 입력" : "요약 중점 입력"}
                       onChange={(event) => setQuestion(event.target.value)}
                       placeholder={activeTab === "Ask" ? "선택한 문서에서 확인할 내용을 입력하세요" : "중점적으로 정리할 내용을 입력하세요 (선택)"}
                     />
@@ -1262,14 +1263,13 @@ export default function Home() {
                     detail={null}
                     onSource={openSource}
                     onCloseSource={closeSource}
-                    polishMode={polishMode}
                     resultActions={activeTab === "Extract" && extractMode === "text"
                       ? <ExtractExportButtons busy={busy} onExport={exportFiles} />
                       : undefined}
                     dictionary={{ userTerms, ignoredRules, onAddTerm: addTerm, onRemoveTerm: removeTerm, onClearTerms: clearTerms, onToggleRule: toggleRule }}
                   />}
               {enrichmentResult && activeTab !== "Analyze"
-                ? <EnrichmentResultView tab={activeTab} result={enrichmentResult} fileNames={fileNames} onSource={openSource} polishMode={polishMode} />
+                ? <EnrichmentResultView tab={activeTab} result={enrichmentResult} fileNames={fileNames} onSource={openSource} />
                 : null}
             </>
           )}
@@ -1430,20 +1430,13 @@ function locatorText(source: SourceRef): string {
   }
 }
 
+function summaryLocatorText(source: SourceRef): string {
+  return source.locator?.kind === "pptx" ? `Slide ${source.locator.slide}` : locatorText(source);
+}
+
 const roleText = (role: SourceRole | undefined): string | undefined =>
   role === "base" ? "기준" : role === "current" ? "현재" : undefined;
 
-/**
- * The evidence inspector is the one surface that must name the file. The
- * document version stays in the SourceRef — it is how two same-named
- * revisions are told apart in code — but it is not shown: a user reads a file
- * name and a locator, not a hash.
- */
-function sourceLabel(source: SourceRef, fileNames: Map<string, string>, role?: SourceRole): string {
-  const fileName = fileNames.get(source.fileId);
-  const parts = [fileName, locatorText(source), roleText(role)].filter((part): part is string => Boolean(part));
-  return parts.join(" · ");
-}
 
 type AnalyzeEntry = { file: { id: string; name: string }; analysis: AnalyzeResult };
 type CheckEntry = { file: { id: string; name: string }; check: CheckResult };
@@ -1459,7 +1452,6 @@ interface ResultViewProps {
   detail: DetailInfo | null;
   onSource: SourceHandler;
   onCloseSource: () => void;
-  polishMode: PolishMode;
   dictionary: Omit<CheckViewProps, "entries" | "fileNames" | "onSource">;
   resultActions?: React.ReactNode;
 }
@@ -1472,7 +1464,7 @@ const workSectionCopy: Record<Tab, [string, string]> = {
   Check: ["문서 검수", "선택한 파일의 문장·일관성·데이터·개인정보를 검수합니다."],
   Polish: ["문서 윤문", "선택한 파일의 번역투와 중복 표현을 문장 단위로 다듬습니다."],
   Extract: ["정보 추출", "선택한 파일에서 필요한 항목과 값을 찾아 정리합니다."],
-  Brief: ["핵심 요약", "선택한 파일의 핵심 내용을 업무 문서 형식으로 정리합니다."],
+  Brief: ["요약", "선택한 파일의 핵심 내용을 업무 문서 형식으로 정리합니다."],
 };
 
 function ResultHeader({ eyebrow, title, status, meta }: {
@@ -1496,20 +1488,22 @@ function ResultHeader({ eyebrow, title, status, meta }: {
 }
 
 
-function ResultView({ tab, result, enrichment, status, fileNames, detail, onSource, onCloseSource, dictionary, polishMode, resultActions }: ResultViewProps) {
+function ResultView({ tab, result, enrichment, status, fileNames, detail, onSource, onCloseSource, dictionary, resultActions }: ResultViewProps) {
   if (!result) return null;
 
   let content: React.ReactNode;
   if (tab === "Analyze" && Array.isArray(result)) {
-    content = <AnalyzeResults entries={result as AnalyzeEntry[]} enrichment={enrichment} fileNames={fileNames} onSource={onSource} polishMode={polishMode} />;
+    content = <AnalyzeResults entries={result as AnalyzeEntry[]} enrichment={enrichment} fileNames={fileNames} onSource={onSource} />;
   } else if (tab === "Check" && Array.isArray(result)) {
     content = <CheckResults entries={result as CheckEntry[]} fileNames={fileNames} onSource={onSource} {...dictionary} />;
   } else if (tab === "Extract" && Array.isArray(result)) {
-    content = <ExtractResults entries={result as ExtractEntry[]} fileNames={fileNames} onSource={onSource} polishMode={polishMode} />;
+    content = <ExtractResults entries={result as ExtractEntry[]} fileNames={fileNames} onSource={onSource} />;
   } else if (isAiAvailableResult(result)) {
     content = tab === "Ask"
-      ? <AskResults result={result} fileNames={fileNames} onSource={onSource} polishMode={polishMode} />
-      : <AiResults result={result} fileNames={fileNames} onSource={onSource} polishMode={polishMode} />;
+      ? <AskResults result={result} fileNames={fileNames} onSource={onSource} />
+      : tab === "Brief"
+        ? <BriefResults result={result} fileNames={fileNames} onSource={onSource} />
+        : <AiResults result={result} fileNames={fileNames} onSource={onSource} />;
   } else {
     content = <JsonValue value={result} fileNames={fileNames} onSource={onSource} />;
   }
@@ -1517,12 +1511,12 @@ function ResultView({ tab, result, enrichment, status, fileNames, detail, onSour
   return (
     <section className="panel results-panel">
       <ResultHeader
-        {...(tab === "Ask" || tab === "Check" || tab === "Extract" ? {} : { eyebrow: `${tab.toUpperCase()} RESULT` })}
+        {...(tab === "Ask" || tab === "Brief" || tab === "Check" || tab === "Extract" ? {} : { eyebrow: `${tab.toUpperCase()} RESULT` })}
         title={tab === "Ask" ? "파일 답변" : tab === "Check" ? "검수 결과" : tab === "Extract" ? "추출 결과" : tab === "Brief" ? "핵심 요약" : "작업 결과"}
         status={status}
         {...(tab === "Extract"
           ? { meta: resultActions }
-          : tab === "Ask" || tab === "Check" ? {} : { meta: <span className="result-provenance">근거 연결 결과</span> })}
+          : tab === "Ask" || tab === "Brief" || tab === "Check" ? {} : { meta: <span className="result-provenance">근거 연결 결과</span> })}
       />
       {content}
       {detail ? <SourceDetail entries={detail.entries} fileNames={fileNames} onClose={onCloseSource} /> : null}
@@ -1531,12 +1525,11 @@ function ResultView({ tab, result, enrichment, status, fileNames, detail, onSour
 }
 
 
-function EnrichmentResultView({ tab, result, fileNames, onSource, polishMode }: {
+function EnrichmentResultView({ tab, result, fileNames, onSource }: {
   tab: Tab;
   result: AiAvailableResult;
   fileNames: Map<string, string>;
   onSource: SourceHandler;
-  polishMode: PolishMode;
 }) {
   return (
     <section className="panel results-panel enrichment-results">
@@ -1547,7 +1540,7 @@ function EnrichmentResultView({ tab, result, fileNames, onSource, polishMode }: 
         </div>
         <span className="result-provenance">근거 연결 결과</span>
       </div>
-      <AiResults result={result} fileNames={fileNames} onSource={onSource} polishMode={polishMode} />
+      <AiResults result={result} fileNames={fileNames} onSource={onSource} />
     </section>
   );
 }
@@ -1618,9 +1611,9 @@ function ExtractExportButtons({ busy, onExport }: {
   onExport: (format: "csv" | "xlsx") => void | Promise<void>;
 }) {
   return (
-    <div className="extract-export-actions">
+    <div className="extract-export-actions" aria-label="추출 결과 다운로드">
       <button type="button" className="secondary-action" onClick={() => void onExport("csv")} disabled={busy}>CSV 다운로드</button>
-      <button type="button" className="secondary-action" onClick={() => void onExport("xlsx")} disabled={busy}>XLSX 다운로드</button>
+      <button type="button" className="extract-download-primary" onClick={() => void onExport("xlsx")} disabled={busy}>XLSX 다운로드</button>
     </div>
   );
 }
@@ -1638,16 +1631,12 @@ function StructuredExtractResults({ result, fileNames, onSource, status, busy, o
   busy: boolean;
   onExport: (format: "csv" | "xlsx") => void | Promise<void>;
 }) {
-  const [view, setView] = useState<"fields" | "table">("table");
   if (!result) return null;
 
   const multiFile = result.files.length > 1;
-  const asTable = view === "table";
   const columns = result.mode === "fields"
     ? result.requestedFields
     : [...new Set(result.files.flatMap((file) => file.fields.map((field) => field.field)))];
-  const types = new Set(result.files.flatMap((file) => file.fields.map((field) => field.type)));
-  const showType = [...types].some((type) => type !== "Text");
   const isEmpty = result.summary.fields === 0 && result.summary.records === 0;
 
   return (
@@ -1660,15 +1649,9 @@ function StructuredExtractResults({ result, fileNames, onSource, status, busy, o
           {result.summary.records ? <span className="metric">반복 표 <b>{result.summary.records}</b></span> : null}
           {result.summary.lowConfidence ? <span className="metric needs-review">낮은 확신 <b>{result.summary.lowConfidence}</b></span> : null}
         </p>
-        {!isEmpty ? (
-          <div className="extract-result-actions">
-            <div className="extract-view-toggle">
-              <button type="button" aria-pressed={asTable} onClick={() => setView("table")}>표 보기</button>
-              <button type="button" aria-pressed={!asTable} onClick={() => setView("fields")}>항목 보기</button>
-            </div>
-            {result.summary.fields > 0 ? <ExtractExportButtons busy={busy} onExport={onExport} /> : null}
-          </div>
-        ) : null}
+        {!isEmpty && result.summary.fields > 0
+          ? <ExtractExportButtons busy={busy} onExport={onExport} />
+          : null}
       </div>
 
       {isEmpty ? (
@@ -1683,78 +1666,61 @@ function StructuredExtractResults({ result, fileNames, onSource, status, busy, o
         </StatusPanel>
       ) : null}
 
-      {!isEmpty && asTable && result.mode === "fields" ? (
-        <div className="extract-table-wrap requested-fields-table">
-          <table className="extract-table">
-            <thead><tr>{multiFile ? <th>파일</th> : null}{columns.map((column) => <th key={column}>{column}</th>)}</tr></thead>
-            <tbody>
-              {result.files.map((file) => (
-                <tr key={file.file.id}>
-                  {multiFile ? <td data-label="파일" title={file.file.name}>{file.file.name}</td> : null}
-                  {columns.map((column) => {
-                    const field = file.fields.find((entry) => entry.field === column);
-                    return (
-                      <td key={column} data-label={column}>
-                        {field ? (
-                          <div className="extract-value-cell">
-                            <span>{field.displayValue}</span>
-                            <CompactResultSource sources={field.sources} fileNames={fileNames} onSource={onSource} />
-                          </div>
-                        ) : <span className="extract-missing">확인 필요</span>}
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : null}
-
-      {!isEmpty && asTable && result.mode === "auto" ? (
-        <div className={`data-table extract-auto-table${multiFile ? " multi-file" : ""}${showType ? " with-type" : ""}`} role="table" aria-label="자동 추출 결과">
+      {!isEmpty && result.mode === "fields" ? (
+        <div className={`data-table extract-fields-table${multiFile ? " multi-file" : ""}`} role="table" aria-label="지정 항목 추출 결과">
           <div className="data-head" role="row">
             {multiFile ? <span role="columnheader">파일</span> : null}
             <span role="columnheader">항목</span>
             <span role="columnheader">값</span>
-            {showType ? <span role="columnheader">형식</span> : null}
+            <span role="columnheader">근거</span>
+          </div>
+          {result.files.flatMap((file) => columns.map((column) => {
+            const field = file.fields.find((entry) => entry.field === column);
+            return (
+              <div className="data-row" role="row" key={`${file.file.id}-${column}`}>
+                {multiFile ? <span role="cell" data-label="파일" title={file.file.name}>{file.file.name}</span> : null}
+                <span role="cell" data-label="항목" className="extract-field-name">{column}</span>
+                {field ? (
+                  <span role="cell" data-label="값" className="extract-field-value" title={field.normalizedValue ? `정규화: ${field.normalizedValue}` : undefined}>
+                    <span>{field.displayValue}</span>
+                    {field.type !== "Text" || field.confidence
+                      ? <small>{EXTRACT_TYPE_LABELS[field.type]}{field.confidence ? ` · 확신 ${extractConfidenceLabels[field.confidence]}` : ""}</small>
+                      : null}
+                  </span>
+                ) : <span role="cell" data-label="값" className="extract-missing">문서에서 찾지 못함</span>}
+                <span role="cell" data-label="근거">
+                  {field ? <CompactResultSource sources={field.sources} fileNames={fileNames} onSource={onSource} /> : <span className="source-empty">근거 없음</span>}
+                </span>
+              </div>
+            );
+          }))}
+        </div>
+      ) : null}
+
+      {!isEmpty && result.mode === "auto" ? (
+        <div className={`data-table extract-auto-table${multiFile ? " multi-file" : ""}`} role="table" aria-label="자동 추출 결과">
+          <div className="data-head" role="row">
+            {multiFile ? <span role="columnheader">파일</span> : null}
+            <span role="columnheader">항목</span>
+            <span role="columnheader">값</span>
             <span role="columnheader">근거</span>
           </div>
           {result.files.flatMap((file) => file.fields.map((field) => (
             <div className="data-row" role="row" key={`${file.file.id}-${field.field}-${field.displayValue}`}>
               {multiFile ? <span role="cell" data-label="파일" title={file.file.name}>{file.file.name}</span> : null}
               <span role="cell" data-label="항목" className="extract-field-name">{field.field}</span>
-              <span role="cell" data-label="값" className="extract-field-value" title={field.normalizedValue ? `정규화: ${field.normalizedValue}` : undefined}>{field.displayValue}</span>
-              {showType ? <span role="cell" data-label="형식" className="extract-field-type">{EXTRACT_TYPE_LABELS[field.type]}{field.confidence ? ` · 확신 ${field.confidence}` : ""}</span> : null}
+              <span role="cell" data-label="값" className="extract-field-value" title={field.normalizedValue ? `정규화: ${field.normalizedValue}` : undefined}>
+                <span>{field.displayValue}</span>
+                {field.type !== "Text" || field.confidence
+                  ? <small>{EXTRACT_TYPE_LABELS[field.type]}{field.confidence ? ` · 확신 ${extractConfidenceLabels[field.confidence]}` : ""}</small>
+                  : null}
+              </span>
               <span role="cell" data-label="근거"><CompactResultSource sources={field.sources} fileNames={fileNames} onSource={onSource} /></span>
             </div>
           )))}
         </div>
       ) : null}
 
-      {!isEmpty && !asTable ? result.files.map((file) => (
-        <article className="document-result extract-item-view" key={file.file.id}>
-          <header className="document-result-heading"><div><span>추출 파일</span><h3 title={file.file.name}>{file.file.name}</h3></div><small>항목 {file.fields.length}개</small></header>
-          <dl className="extract-field-list">
-            {file.fields.map((field) => (
-              <div key={`${field.field}-${field.displayValue}`}>
-                <dt>{field.field}</dt>
-                <dd>
-                  <strong>{field.displayValue}</strong>
-                  {showType ? <span className="extract-field-meta">{EXTRACT_TYPE_LABELS[field.type]}{field.confidence ? ` · 확신 ${field.confidence}` : ""}</span> : null}
-                  <CompactResultSource sources={field.sources} fileNames={fileNames} onSource={onSource} />
-                </dd>
-              </div>
-            ))}
-            {file.missing.map((field) => (
-              <div className="extract-missing-row" key={`missing-${field}`}>
-                <dt>{field}</dt>
-                <dd><span className="extract-missing">확인 필요</span></dd>
-              </div>
-            ))}
-          </dl>
-        </article>
-      )) : null}
 
       {!isEmpty ? result.files.flatMap((file) => file.records.map((record) => (
         <section className="result-subsection" key={`${file.file.id}-${record.id}`}>
@@ -1954,62 +1920,6 @@ function PolishTextResults({ result, status }: { result: PolishTextResult | null
   );
 }
 
-/**
- * The inline 윤문 action other features use. One prose string, the shared
- * engine, the same deterministic guard: Ask and Brief claims, Check
- * recommendations and Extract paragraphs all polish through this.
- */
-function PolishAction({ text, label, origin, source, mode }: {
-  text: string;
-  /** Spoken context for the action, e.g. "Ask 답변". */
-  label: string;
-  origin: PolishCandidate["origin"];
-  source?: SourceRef;
-  mode: PolishMode;
-}) {
-  const [outcome, setOutcome] = useState<PolishOutcome | null>(null);
-  const [running, setRunning] = useState(false);
-  const [failure, setFailure] = useState<string | null>(null);
-  const run = async () => {
-    setRunning(true);
-    setFailure(null);
-    try {
-      // No document source, no source: a placeholder locator would name a
-      // node that does not exist.
-      const candidate: PolishCandidate = {
-        id: source?.nodeId ?? label,
-        text,
-        ...(source ? { source } : {}),
-        origin,
-      };
-      setOutcome(reviewProposal(candidate, await polishServerAi(text, mode)));
-    } catch (error) {
-      setFailure((error as ServerAiFailure).message ?? "윤문에 실패했습니다.");
-    } finally {
-      setRunning(false);
-    }
-  };
-  return (
-    <span className="polish-inline">
-      <button type="button" className="secondary-action" aria-label={`${label} 윤문`} disabled={running} onClick={() => void run()}>
-        {running ? "윤문 중…" : "윤문"}
-      </button>
-      {failure ? <em className="polish-inline-note">{failure}</em> : null}
-      {outcome?.status === "changed" ? (
-        <span className="polish-inline-result">
-          <span className="polish-label">윤문</span>
-          <p>{outcome.revisedText}</p>
-          {outcome.reasons.length ? <em>{outcome.reasons.join(" · ")}</em> : null}
-          <button type="button" className="secondary-action" onClick={() => void navigator.clipboard?.writeText(outcome.revisedText)}>복사</button>
-        </span>
-      ) : null}
-      {outcome?.status === "unchanged" ? <em className="polish-inline-note">이미 자연스러운 문장입니다.</em> : null}
-      {outcome?.status === "rejected" ? (
-        <em className="polish-inline-note">{outcome.rejection ? POLISH_REJECTION_LABELS[outcome.rejection] : "윤문 결과를 적용하지 않았습니다."}</em>
-      ) : null}
-    </span>
-  );
-}
 
 /**
  * The single source presentation for every result type: Analyze insight,
@@ -2071,16 +1981,17 @@ function ResultSource({ sources, fileNames, onSource, roleOf, emptyLabel = "근�
     </span>
   );
 }
-function CompactResultSource({ sources, fileNames, onSource }: {
+function CompactResultSource({ sources, fileNames, onSource, locatorOf = locatorText }: {
   sources: readonly SourceRef[];
   fileNames: Map<string, string>;
   onSource: SourceHandler;
+  locatorOf?: (source: SourceRef) => string;
 }) {
   if (sources.length === 0) return <span className="source-empty">근거 위치 없음</span>;
   const acrossFiles = new Set(sources.map((source) => source.fileId)).size > 1;
   const groups: { label: string; count: number }[] = [];
   for (const source of sources) {
-    const locator = locatorText(source);
+    const locator = locatorOf(source);
     const fileName = acrossFiles ? fileNames.get(source.fileId) : undefined;
     const label = fileName ? `${fileName} · ${locator}` : locator;
     const existing = groups.find((entry) => entry.label === label);
@@ -2102,12 +2013,11 @@ function CompactResultSource({ sources, fileNames, onSource }: {
   );
 }
 
-function AnalyzeResults({ entries, enrichment, fileNames, onSource, polishMode }: {
+function AnalyzeResults({ entries, enrichment, fileNames, onSource }: {
   entries: AnalyzeEntry[];
   enrichment: AiAvailableResult | null;
   fileNames: Map<string, string>;
   onSource: SourceHandler;
-  polishMode: PolishMode;
 }) {
   const presentation = analysisClaimPresentation(enrichment);
   const fallbackMetrics = entries.flatMap(({ file, analysis }) => analysis.numeric.count > 0 ? [
@@ -2120,12 +2030,11 @@ function AnalyzeResults({ entries, enrichment, fileNames, onSource, polishMode }
   const mismatches = entries.flatMap(({ file, analysis }) =>
     analysis.totals.filter((total) => total.actual !== total.expected).map((total) => ({ file, total })));
   const sourcesOf = (claim: GroundedClaim) => claim.evidence.map((binding) => binding.source);
-  const renderClaim = (claim: GroundedClaim, allowPolish = false) => (
+  const renderClaim = (claim: GroundedClaim) => (
     <article className="analysis-reading-row" key={claim.id}>
       <p>{claimDisplayText(claim)}</p>
       <div className="analysis-reading-actions">
         <ResultSource sources={sourcesOf(claim)} fileNames={fileNames} onSource={onSource} />
-        {allowPolish ? <PolishAction text={claim.text} label="분석 내용" origin="claim" source={claim.evidence[0]?.source} mode={polishMode} /> : null}
       </div>
     </article>
   );
@@ -2182,12 +2091,12 @@ function AnalyzeResults({ entries, enrichment, fileNames, onSource, polishMode }
         <section className="analysis-report-section" aria-labelledby="analysis-content-title">
           <div className="subsection-heading"><h3 id="analysis-content-title">주요 내용</h3><span>{presentation.content.length}건</span></div>
           <div className="analysis-reading-list">
-            {presentation.content.slice(0, 6).map((claim) => renderClaim(claim, true))}
+            {presentation.content.slice(0, 6).map((claim) => renderClaim(claim))}
           </div>
           {presentation.content.length > 6 ? (
             <details className="analysis-more">
               <summary>상세 내용 {presentation.content.length - 6}건 보기</summary>
-              <div className="analysis-reading-list">{presentation.content.slice(6).map((claim) => renderClaim(claim, true))}</div>
+              <div className="analysis-reading-list">{presentation.content.slice(6).map((claim) => renderClaim(claim))}</div>
             </details>
           ) : null}
         </section>
@@ -2253,7 +2162,7 @@ function AnalyzeResults({ entries, enrichment, fileNames, onSource, polishMode }
 }
 
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 20;
 
 interface CheckViewProps {
   entries: CheckEntry[];
@@ -2383,6 +2292,7 @@ function CheckResults({ entries, fileNames, onSource, userTerms, ignoredRules, o
               </fieldset>
             </section>
             <div className="check-toolbar-actions">
+              <p className="check-filter-status" role="status">{filtered.length.toLocaleString("ko-KR")}건 표시{filtered.length !== active.length ? ` · 전체 ${active.length.toLocaleString("ko-KR")}건` : ""}</p>
               <div className="dictionary-anchor">
                 <button type="button" className="dictionary-trigger" aria-expanded={dictionaryOpen} onClick={() => setDictionaryOpen((open) => !open)}>용어 사전</button>
                 {dictionaryOpen ? (
@@ -2464,7 +2374,7 @@ function CheckResults({ entries, fileNames, onSource, userTerms, ignoredRules, o
                       {expanded ? (
                         <div className="check-issue-detail">
                           <div><span>이유</span><p>{finding.reason}</p></div>
-                          {finding.originalText ? <div><span>원문</span><blockquote>{finding.originalText}</blockquote></div> : null}
+                          {finding.originalText ? <div className="original-copy"><span>원문</span><blockquote>{finding.originalText}</blockquote></div> : null}
                           {finding.suggestedText ? (
                             <div className="suggested-copy">
                               <span>제안</span>
@@ -2511,7 +2421,7 @@ function CheckResults({ entries, fileNames, onSource, userTerms, ignoredRules, o
   );
 }
 
-function ExtractResults({ entries, fileNames, onSource, polishMode }: { entries: ExtractEntry[]; fileNames: Map<string, string>; onSource: SourceHandler; polishMode: PolishMode }) {
+function ExtractResults({ entries, fileNames, onSource }: { entries: ExtractEntry[]; fileNames: Map<string, string>; onSource: SourceHandler }) {
   return (
     <div className="result-sections">
       {entries.map(({ file, extraction }) => (
@@ -2534,7 +2444,6 @@ function ExtractResults({ entries, fileNames, onSource, polishMode }: { entries:
                 <div key={paragraph.blockId}>
                   <p>{paragraph.text}</p>
                   <CompactResultSource sources={[paragraph.source]} fileNames={fileNames} onSource={onSource} />
-                  {isProse(paragraph.text) ? <PolishAction text={paragraph.text} label={`${locatorText(paragraph.source)} 문단`} origin="paragraph" source={paragraph.source} mode={polishMode} /> : null}
                 </div>
               ))}</div>
 
@@ -2545,26 +2454,14 @@ function ExtractResults({ entries, fileNames, onSource, polishMode }: { entries:
     </div>
   );
 }
-function AskResults({ result, fileNames, onSource, polishMode }: {
+function AskResults({ result, fileNames, onSource }: {
   result: AiAvailableResult;
   fileNames: Map<string, string>;
   onSource: SourceHandler;
-  polishMode: PolishMode;
 }) {
   if (result.operation !== "ask") return null;
   const answer = result.claims.map(claimDisplayText).filter(Boolean).join("\n");
-  const sourceEntries: SourceRef[] = [];
-  const seen = new Set<string>();
-  for (const claim of result.claims) {
-    for (const binding of claim.evidence) {
-      const key = `${binding.source.fileId}\0${binding.source.nodeId}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      sourceEntries.push(binding.source);
-    }
-  }
-  const acrossFiles = new Set(sourceEntries.map((source) => source.fileId)).size > 1;
-  const sourceText = (source: SourceRef) => acrossFiles ? sourceLabel(source, fileNames) : locatorText(source);
+  const sourceEntries = uniqueClaimSources(result.claims);
 
   return (
     <div className="ask-result">
@@ -2572,7 +2469,6 @@ function AskResults({ result, fileNames, onSource, polishMode }: {
         <section className="ask-answer" aria-labelledby="ask-answer-title">
           <h3 id="ask-answer-title">답변</h3>
           <p>{answer}</p>
-          <PolishAction text={answer} label="답변" origin="claim" source={result.claims[0]?.evidence[0]?.source} mode={polishMode} />
         </section>
       ) : (
         <p className="ask-result-info" role="status">선택한 파일에서 답변에 필요한 근거를 찾지 못했습니다.</p>
@@ -2580,72 +2476,79 @@ function AskResults({ result, fileNames, onSource, polishMode }: {
       {sourceEntries.length ? (
         <section className="ask-evidence" aria-labelledby="ask-evidence-title">
           <div className="subsection-heading"><h3 id="ask-evidence-title">근거</h3><span>{sourceEntries.length}곳</span></div>
-          <ul className="ask-evidence-list">
-            {sourceEntries.map((source) => {
-              const label = sourceText(source);
-              return (
-                <li key={`${source.fileId}-${source.nodeId}`}>
-                  <button
-                    type="button"
-                    className="ask-source-link"
-                    aria-label={`${label} 상세 근거 보기`}
-                    onClick={(event) => onSource([{ source }], event.currentTarget)}
-                  >{label}</button>
-                </li>
-              );
-            })}
-          </ul>
+          <ResultSource sources={sourceEntries} fileNames={fileNames} onSource={onSource} />
         </section>
       ) : null}
     </div>
   );
 }
 
-function AiResults({ result, fileNames, onSource, polishMode }: {
+function BriefResults({ result, fileNames, onSource }: {
   result: AiAvailableResult;
   fileNames: Map<string, string>;
   onSource: SourceHandler;
-  polishMode: PolishMode;
 }) {
-  const lead = result.operation === "ask" ? result.answer : result.operation === "brief" ? result.brief : undefined;
-  const polishLabel = result.operation === "ask" ? "Ask 답변" : result.operation === "brief" ? "Brief 요약" : "분석 결과";
-  const leadLabel = result.operation === "ask" ? "답변 · 근거 검증됨" : result.operation === "brief" ? "요약 · 근거 검증됨" : "분석 · 근거 검증됨";
+  if (result.operation !== "brief") return null;
+  const claimsWithSources = result.claims.filter((claim) => claim.evidence.length > 0);
   return (
-    <div className="ai-result">
-      {lead ? <section className="answer-document"><span className="result-type">{leadLabel}</span><p>{lead}</p><PolishAction text={lead} label={polishLabel} origin="claim" mode={polishMode} /></section> : null}
-      <section className="claim-list">
-        <div className="subsection-heading"><h3>주요 근거</h3><span>{result.claims.length}건</span></div>
-        {result.claims.map((claim) => <ClaimRow key={claim.id} claim={claim} fileNames={fileNames} onSource={onSource} polishMode={polishMode} polishLabel={polishLabel} />)}
+    <div className="ask-result brief-result">
+      <section className="ask-answer brief-body" aria-label="요약 본문">
+        <p>{result.brief}</p>
       </section>
-      {result.operation !== "brief" && result.warnings.length ? <StatusPanel variant="warning" className="result-warnings" title="일부 결과 안내">{result.warnings.map((warning) => <p key={warning.code}>{warning.message}</p>)}</StatusPanel> : null}
+      {claimsWithSources.length ? (
+        <section className="ask-evidence brief-evidence" aria-labelledby="brief-evidence-title">
+          <div className="subsection-heading"><h3 id="brief-evidence-title">주요 근거</h3><span>{claimsWithSources.length}건</span></div>
+          <div className="brief-evidence-list">
+            {claimsWithSources.map((claim) => (
+              <article className="brief-evidence-item" key={claim.id}>
+                <p>{claimDisplayText(claim)}</p>
+                <CompactResultSource
+                  sources={claim.evidence.map((binding) => binding.source)}
+                  fileNames={fileNames}
+                  onSource={onSource}
+                  locatorOf={summaryLocatorText}
+                />
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
     </div>
   );
 }
 
-function ClaimRow({ claim, fileNames, onSource, polishMode, polishLabel }: {
-  claim: GroundedClaim;
+function uniqueClaimSources(claims: readonly GroundedClaim[]): SourceRef[] {
+  const sources: SourceRef[] = [];
+  const seen = new Set<string>();
+  for (const claim of claims) {
+    for (const binding of claim.evidence) {
+      const key = `${binding.source.fileId}\0${binding.source.nodeId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      sources.push(binding.source);
+    }
+  }
+  return sources;
+}
+
+function AiResults({ result, fileNames, onSource }: {
+  result: AiAvailableResult;
   fileNames: Map<string, string>;
   onSource: SourceHandler;
-  polishMode: PolishMode;
-  polishLabel: string;
 }) {
   return (
-    <article className="claim-row">
-      <div className="claim-kind">
-        <span className={claim.kind === "fact" ? "fact" : "inference"}>{claim.kind === "fact" ? "문서 사실" : "분석 내용"}</span>
-        {/* Prose, so it can be polished; the evidence binding below is untouched. */}
-        <PolishAction text={claim.text} label={polishLabel} origin="claim" source={claim.evidence[0]?.source} mode={polishMode} />
-      </div>
-      <p>{claimDisplayText(claim)}</p>
-      <div className="claim-evidence">
-        {claim.evidence.map((binding: EvidenceBinding, index) => (
-          <div key={`${binding.source.nodeId}-${index}`}>
-            <span>{binding.support === "direct" ? "원문" : binding.support === "computed" ? "계산 결과" : "문맥"}</span>
-            <ResultSource sources={[binding.source]} fileNames={fileNames} onSource={onSource} />
-          </div>
+    <div className="ai-result">
+      <section className="claim-list">
+        <div className="subsection-heading"><h3>주요 내용</h3><span>{result.claims.length}건</span></div>
+        {result.claims.map((claim) => (
+          <article className="claim-row" key={claim.id}>
+            <p>{claimDisplayText(claim)}</p>
+            <ResultSource sources={claim.evidence.map((binding) => binding.source)} fileNames={fileNames} onSource={onSource} />
+          </article>
         ))}
-      </div>
-    </article>
+      </section>
+      {result.warnings.length ? <StatusPanel variant="warning" className="result-warnings" title="일부 결과 안내">{result.warnings.map((warning) => <p key={warning.code}>{warning.message}</p>)}</StatusPanel> : null}
+    </div>
   );
 }
 
@@ -2751,9 +2654,9 @@ function SourceDetail({ entries, fileNames, onClose }: {
           <h2>근거 상세</h2>
           {fileHeading ? <p className="evidence-file-list" title={fileHeading}>{fileHeading}</p> : null}
         </div>
-        <button type="button" onClick={onClose} aria-label="닫기">×</button>
+        <button type="button" onClick={onClose} aria-label="닫기">닫기</button>
       </header>
-      <div className="evidence-type"><span>원문</span><p>문서에서 확인된 근거</p></div>
+      <div className="evidence-type"><span>원문</span><p>문서에서 확인된 근거 · {entries.length.toLocaleString("ko-KR")}곳</p></div>
       {groups.map((group, index) => {
         const [lead] = group.entries;
         const locations = [...new Set(group.entries.map(({ source, role }) => {
@@ -2765,8 +2668,11 @@ function SourceDetail({ entries, fileNames, onClose }: {
           <section className="evidence-entry" key={group.key}>
             <h3>
               <span>근거 {index + 1}{fileName ? ` · ${fileName}` : ""}</span>
-              {locations.join(" · ")}
+              {locations.length.toLocaleString("ko-KR")}개 위치
             </h3>
+            <ul className="evidence-location-list" aria-label={`근거 ${index + 1} 위치`}>
+              {locations.map((location) => <li key={location}>{location}</li>)}
+            </ul>
             <blockquote>{lead.source.quote ?? "인용문이 제공되지 않았습니다."}</blockquote>
           </section>
         );
