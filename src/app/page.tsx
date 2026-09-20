@@ -1087,6 +1087,12 @@ export default function Home() {
     nameSeen.set(file.name, seen);
     fileNames.set(file.id, seen > 1 ? `${file.name} (${seen})` : file.name);
   }
+  const comparisonDirection = selected.length === 2
+    ? {
+      base: fileNames.get(selected[0]) ?? selected[0],
+      current: fileNames.get(selected[1]) ?? selected[1],
+    }
+    : null;
   const companyTermNames = companyTerms.filter((entry) => entry.active).map((entry) => entry.term);
   /**
    * One split, used everywhere: the seven document features share the
@@ -1317,7 +1323,7 @@ export default function Home() {
                   <CompareControls
                     mode={compareMode}
                     busy={busy}
-                    canSwap={compareMode === "version" && selected.length === 2}
+                    direction={compareMode === "version" ? comparisonDirection : null}
                     onSwap={swapComparisonDirection}
                     onMode={(mode) => {
                       setCompareMode(mode);
@@ -1707,10 +1713,10 @@ function isAiAvailableResult(value: unknown): value is AiAvailableResult {
  * fields. The field list is the schema, reused for every selected file, so ten
  * monthly reports become ten rows of the same columns.
  */
-function CompareControls({ mode, busy, canSwap, onMode, onSwap }: {
+function CompareControls({ mode, busy, direction, onMode, onSwap }: {
   mode: "version" | "value-check";
   busy: boolean;
-  canSwap: boolean;
+  direction: { base: string; current: string } | null;
   onMode: (mode: "version" | "value-check") => void;
   onSwap: () => void;
 }) {
@@ -1735,10 +1741,18 @@ function CompareControls({ mode, busy, canSwap, onMode, onSwap }: {
         <p>{mode === "version"
           ? "두 파일의 추가·삭제·변경된 내용을 비교합니다."
           : "여러 파일의 동일 항목과 값 차이를 확인합니다."}</p>
-        {mode === "version" ? (
-          <div className="compare-role-order">
-            <small>첫 번째로 선택한 파일이 기준 파일입니다.</small>
-            {canSwap ? <button type="button" className="secondary-action compare-swap-action" disabled={busy} onClick={onSwap}>기준/대상 바꾸기</button> : null}
+        {mode === "version" && direction ? (
+          <div className="compare-current-direction" aria-label="현재 비교 방향">
+            <div className="compare-direction-file">
+              <span>기준 파일</span>
+              <strong title={direction.base} tabIndex={0}>{direction.base}</strong>
+            </div>
+            <span className="compare-direction-arrow" aria-hidden="true">→</span>
+            <div className="compare-direction-file">
+              <span>대상 파일</span>
+              <strong title={direction.current} tabIndex={0}>{direction.current}</strong>
+            </div>
+            <button type="button" className="secondary-action compare-swap-action" disabled={busy} onClick={onSwap}>기준/대상 바꾸기</button>
           </div>
         ) : null}
       </div>

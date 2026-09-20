@@ -3361,40 +3361,77 @@ input:disabled,
 
 .compare-controls {
   min-width: 0;
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px 14px;
+  display: grid;
+  justify-items: start;
+  gap: var(--space-2);
 }
 
 .compare-mode-copy {
-  min-width: 220px;
+  min-width: 0;
   display: grid;
-  gap: 2px;
+  gap: var(--space-2);
 }
 
-.compare-mode-copy p,
-.compare-mode-copy small {
+.compare-mode-copy > p {
   margin: 0;
   color: var(--muted);
   font-size: var(--font-size-sm);
 }
 
-.compare-mode-copy small {
-  font-size: var(--font-size-xs);
-}
-
-.compare-role-order {
+.compare-current-direction {
+  min-width: 0;
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 4px 10px;
+  gap: var(--space-2);
 }
 
-.compare-swap-action {
+.compare-direction-file {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.compare-direction-file span {
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+}
+
+.compare-direction-file strong {
+  max-width: min(28vw, 320px);
+  overflow: hidden;
+  color: var(--ink);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compare-direction-file strong:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.compare-direction-arrow {
+  flex: 0 0 auto;
+  color: var(--blue);
+  font-size: var(--font-size-md);
+}
+
+.operation-bar .compare-swap-action {
+  min-height: 32px;
   padding-inline: 9px;
+  border-color: var(--line-strong);
+  background: var(--paper);
+  box-shadow: none;
+  color: var(--blue);
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-semibold);
+}
+
+.operation-bar .compare-swap-action:hover:not(:disabled) {
+  border-color: var(--blue);
+  background: var(--blue-pale);
 }
 
 .value-check-toolbar {
@@ -7431,6 +7468,35 @@ input:disabled {
 
   .compare-controls p {
     min-width: 0;
+  }
+
+  .compare-current-direction {
+    width: 100%;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: start;
+    gap: var(--space-2);
+  }
+
+  .compare-direction-file {
+    width: 100%;
+  }
+
+  .compare-direction-file strong {
+    max-width: 100%;
+    display: -webkit-box;
+    white-space: normal;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .compare-direction-arrow {
+    justify-self: center;
+    transform: rotate(90deg);
+  }
+
+  .operation-bar .compare-swap-action {
+    min-height: 36px;
   }
 
   .comparison-file-map {

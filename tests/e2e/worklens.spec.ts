@@ -8,6 +8,7 @@ const FIXTURE_DIR = path.join(process.cwd(), "artifacts", "fixtures");
 const files = {
   v1: path.join(FIXTURE_DIR, "운임현황_v1.xlsx"),
   v1Copy: path.join(FIXTURE_DIR, "운임현황_v1_사본.xlsx"),
+  longV1: path.join(FIXTURE_DIR, "2026년_서울권역_운송단가_최종검토본_매우긴파일명_v1.xlsx"),
   v2: path.join(FIXTURE_DIR, "운임현황_v2.xlsx"),
   pdf: path.join(FIXTURE_DIR, "계약서.pdf"),
   csv: path.join(FIXTURE_DIR, "운임.csv"),
@@ -26,6 +27,7 @@ test.beforeAll(async () => {
   await mkdir(FIXTURE_DIR, { recursive: true });
   await writeFile(files.v1, await createXlsx(RATE_SHEET_V1));
   await writeFile(files.v1Copy, await createXlsx(RATE_SHEET_V1));
+  await writeFile(files.longV1, await createXlsx(RATE_SHEET_V1));
   await writeFile(files.v2, await createXlsx(RATE_SHEET_V2));
   await writeFile(files.pdf, await createPdf(["WorkLens contract page one", "WorkLens contract page two"]));
   await writeFile(files.csv, "지역,금액\r\n서울,145000\r\n부산,90000\r\n");
@@ -106,16 +108,25 @@ test("uploads XLSX files, compares them and shows source evidence", async ({ pag
   await page.getByLabel("운임현황_v2.xlsx 선택").check();
   await page.getByRole("button", { name: "비교", exact: true }).click();
   await expect(page.getByText("두 파일의 추가·삭제·변경된 내용을 비교합니다.", { exact: true })).toBeVisible();
-  await expect(page.getByText("첫 번째로 선택한 파일이 기준 파일입니다.", { exact: true })).toBeVisible();
-  const swap = page.getByRole("button", { name: "기준/대상 바꾸기" });
+  await expect(page.getByText("첫 번째로 선택한 파일이 기준 파일입니다.", { exact: true })).toHaveCount(0);
+  const controlDirection = page.getByLabel("현재 비교 방향");
+  await expect(controlDirection).toContainText("기준 파일");
+  await expect(controlDirection).toContainText("운임현황_v1.xlsx");
+  await expect(controlDirection).toContainText("대상 파일");
+  await expect(controlDirection).toContainText("운임현황_v2.xlsx");
+  const swap = controlDirection.getByRole("button", { name: "기준/대상 바꾸기" });
   await expect(swap).toBeVisible();
   await swap.click();
   await expect(fileRow(page, files.v1).locator(".compare-selection-role")).toHaveText("2 · 대상 파일");
   await expect(fileRow(page, files.v2).locator(".compare-selection-role")).toHaveText("1 · 기준 파일");
+  await expect(controlDirection.locator(".compare-direction-file").nth(0)).toContainText("운임현황_v2.xlsx");
+  await expect(controlDirection.locator(".compare-direction-file").nth(1)).toContainText("운임현황_v1.xlsx");
   await expect(page.locator(".comparison-panel")).toHaveCount(0);
   await swap.click();
   await expect(fileRow(page, files.v1).locator(".compare-selection-role")).toHaveText("1 · 기준 파일");
   await expect(fileRow(page, files.v2).locator(".compare-selection-role")).toHaveText("2 · 대상 파일");
+  await expect(controlDirection.locator(".compare-direction-file").nth(0)).toContainText("운임현황_v1.xlsx");
+  await expect(controlDirection.locator(".compare-direction-file").nth(1)).toContainText("운임현황_v2.xlsx");
   await page.getByRole("button", { name: "비교 실행" }).click();
 
   const panel = page.locator(".comparison-panel");
@@ -159,11 +170,42 @@ test("uploads XLSX files, compares them and shows source evidence", async ({ pag
   await expect(panel).toHaveCount(0);
   await expect(fileRow(page, files.v1).locator(".compare-selection-role")).toHaveText("2 · 대상 파일");
   await expect(fileRow(page, files.v2).locator(".compare-selection-role")).toHaveText("1 · 기준 파일");
+  await expect(controlDirection.locator(".compare-direction-file").nth(0)).toContainText("운임현황_v2.xlsx");
+  await expect(controlDirection.locator(".compare-direction-file").nth(1)).toContainText("운임현황_v1.xlsx");
   await page.getByRole("button", { name: "비교 실행" }).click();
   const reversedMap = page.locator(".comparison-file-map");
   await expect(reversedMap.locator("> div").nth(0)).toContainText("운임현황_v2.xlsx");
   await expect(reversedMap.locator("> div").nth(1)).toContainText("운임현황_v1.xlsx");
   await page.screenshot({ path: "artifacts/compare-evidence.png", fullPage: true });
+});
+
+test("shows comparison direction only for exactly two version files", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "비교", exact: true }).click();
+  await expect(page.getByLabel("현재 비교 방향")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "기준/대상 바꾸기" })).toHaveCount(0);
+
+  await upload(page, files.longV1);
+  await page.getByLabel(`${path.basename(files.longV1)} 선택`).check();
+  await expect(page.getByLabel("현재 비교 방향")).toHaveCount(0);
+
+  await upload(page, files.v2);
+  await page.getByLabel("운임현황_v2.xlsx 선택").check();
+  const direction = page.getByLabel("현재 비교 방향");
+  await expect(direction).toBeVisible();
+  const baseName = direction.locator(".compare-direction-file strong").nth(0);
+  await expect(baseName).toHaveAttribute("title", path.basename(files.longV1));
+  await expect(direction.locator(".compare-direction-file strong").nth(1)).toHaveAttribute("title", "운임현황_v2.xlsx");
+
+  await page.getByRole("radio", { name: "값 일치 확인" }).check();
+  await expect(direction).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "기준/대상 바꾸기" })).toHaveCount(0);
+  await expect(page.getByText("여러 파일의 동일 항목과 값 차이를 확인합니다.", { exact: true })).toBeVisible();
+
+  await page.getByRole("radio", { name: "버전 비교" }).check();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByLabel("현재 비교 방향")).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 });
 
 test("keeps multi-file Analyze summaries and confirmed metrics separated by file", async ({ page }) => {
