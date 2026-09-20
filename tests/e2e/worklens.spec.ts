@@ -399,6 +399,107 @@ test("offers file and pasted-text polish without touching the workspace", async 
   await expect(page.getByRole("radio", { name: "파일 윤문" })).toBeChecked();
 });
 
+test("presents text Polish as an immediate original-to-revision workflow", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: async (text: string) => {
+          (window as Window & { __copiedText?: string }).__copiedText = text;
+        },
+      },
+    });
+  });
+  await page.route("**/api/ai", async (route) => {
+    const request = route.request().postDataJSON() as { kind: string; text?: string };
+    const text = request.text ?? "";
+    const proposal = text.includes("pc반환")
+      ? {
+          changed: true,
+          revisedText: "김영삼 차장님이 PC 반납을 요청했습니다.",
+          reasons: ["오타 수정", "표현 정리"],
+        }
+      : text.includes("1,250")
+        ? {
+            changed: true,
+            revisedText: "이번 매출은 1,500만원으로 집계되었습니다.",
+            reasons: ["수치 표현 정리"],
+          }
+        : { changed: false, revisedText: text, reasons: [] };
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ data: { kind: "polish", proposal } }),
+    });
+  });
+
+  await page.goto("/");
+  await upload(page, files.checkPptx);
+  await page.getByLabel("최종검수.pptx 선택").check();
+  await page.getByRole("button", { name: "윤문", exact: true }).click();
+  await page.getByRole("radio", { name: "텍스트 윤문" }).check();
+  await page.getByRole("radio", { name: "업무 문체" }).check();
+  const paste = page.getByLabel("윤문할 텍스트 입력");
+  await paste.fill("김영삼 차장님이 pc반환 요청했습니다.");
+  await page.getByRole("button", { name: "윤문 실행" }).click();
+
+  const result = page.locator(".polish-text-results");
+  await expect(result.getByRole("heading", { name: "윤문 결과", exact: true })).toBeVisible();
+  await expect(result.getByText("POLISH RESULT", { exact: true })).toHaveCount(0);
+  await expect(result.getByRole("heading", { name: "텍스트 윤문", exact: true })).toHaveCount(0);
+  await expect(result.locator(".result-heading-meta")).toContainText("업무 문체");
+  await expect(result.locator(".result-heading-meta")).toContainText("윤문 완료");
+  await expect(result.locator(".polish-summary-line")).toContainText("변경 1");
+  await expect(result.locator(".polish-summary-line")).toContainText("변경 없음 0");
+  await expect(result).not.toContainText("보호 검증 차단");
+  await expect(result.locator(".polish-protection-metric")).toHaveCount(0);
+  await expect(result.locator(".polish-label")).toHaveText(["원문", "수정안", "변경 이유"]);
+
+  const original = result.locator(".polish-copy-block").filter({ hasText: "원문" });
+  const revision = result.locator(".polish-copy-block").filter({ hasText: "수정안" });
+
+  const [inputBox, resultBox, emphasis] = await Promise.all([
+    paste.boundingBox(),
+    result.boundingBox(),
+    result.locator(".polish-copy-line > p").evaluateAll((paragraphs) =>
+      paragraphs.map((paragraph) => Number.parseInt(getComputedStyle(paragraph).fontWeight, 10))),
+  ]);
+  expect(inputBox).not.toBeNull();
+  expect(resultBox).not.toBeNull();
+  expect(resultBox!.width).toBeLessThanOrEqual(inputBox!.width + 46);
+  expect(emphasis[1]).toBeGreaterThan(emphasis[0]);
+  await page.screenshot({ path: "artifacts/polish-result-desktop-1440.png", fullPage: true });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(result).toBeVisible();
+  await expect(revision.locator(".polish-copy-line")).toHaveCSS("flex-direction", "column");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: "artifacts/polish-result-mobile-390.png", fullPage: true });
+  await original.getByRole("button", { name: "원문 복사" }).click();
+  expect(await page.evaluate(() => (window as Window & { __copiedText?: string }).__copiedText))
+    .toBe("김영삼 차장님이 pc반환 요청했습니다.");
+  await revision.getByRole("button", { name: "복사", exact: true }).click();
+  expect(await page.evaluate(() => (window as Window & { __copiedText?: string }).__copiedText))
+    .toBe("김영삼 차장님이 PC 반납을 요청했습니다.");
+
+  await paste.fill("현재 문장은 자연스럽습니다.");
+  await page.getByRole("button", { name: "윤문 실행" }).click();
+  await expect(result.getByText("현재 문장은 별도 수정이 필요하지 않습니다.", { exact: true })).toBeVisible();
+  await expect(result.locator(".polish-row")).toHaveCount(0);
+
+  await paste.fill("이번 매출은 1,250만원으로 집계되었습니다.");
+  await page.getByRole("button", { name: "윤문 실행" }).click();
+  await expect(result.locator(".polish-protection-metric")).toHaveText("보호 항목 1건 확인 필요");
+  await expect(result).not.toContainText("보호 검증 차단");
+
+  await page.getByRole("radio", { name: "파일 윤문" }).check();
+  await page.getByRole("button", { name: "윤문 실행" }).click();
+  const fileResult = page.locator(".polish-results:not(.polish-text-results)");
+  await expect(fileResult.getByRole("heading", { name: "윤문 결과", exact: true })).toBeVisible();
+  await expect(fileResult).not.toContainText("POLISH RESULT");
+  await expect(fileResult).not.toContainText("문장 윤문");
+});
+
 test("runs Ask, Brief, Polish, Check and Extract through the server AI boundary", async ({ page }) => {
   const seen = new Set<string>();
   await page.route("**/api/ai", async (route) => {
@@ -562,20 +663,41 @@ test("keeps compact counted progress for Polish and Extract", async ({ page }) =
   await page.getByRole("button", { name: "윤문", exact: true }).click();
   await page.getByRole("radio", { name: "텍스트 윤문" }).check();
   await page.getByLabel("윤문할 텍스트 입력").fill("운임 현황을 검토 부탁드립니다.");
-  await page.getByRole("button", { name: "윤문 실행" }).click();
-  await expect(page.locator(".compact-progress")).toContainText(/윤문 처리 중 0\/\d+/);
-  await expect(page.getByRole("button", { name: "윤문 실행" })).toBeEnabled({ timeout: 15_000 });
+  const polishAction = page.getByRole("button", { name: "윤문 실행" });
+  await polishAction.click();
+  await expect(polishAction).toHaveText("처리 중…");
+  await expect(polishAction).toBeDisabled();
+  const polishProgress = page.locator(".compact-progress");
+  await expect(polishProgress).toContainText(/윤문 처리 중 0\/\d+/);
+  await expect(polishProgress).toContainText("문장 단위로 처리하고 있습니다.");
+  await expect(polishProgress.getByRole("button", { name: "중지", exact: true })).toBeVisible();
+  await expect(polishProgress).not.toHaveClass(/status-panel/);
+  await expect(polishProgress).toHaveCSS("border-width", "0px");
+  await expect(polishAction).toHaveText("실행", { timeout: 15_000 });
+  await expect(polishAction).toBeEnabled();
+  await expect(polishProgress).toHaveCount(0);
 
   await page.getByRole("button", { name: "추출", exact: true }).click();
   await page.getByRole("radio", { name: "항목 지정" }).check();
   await page.getByLabel("추출할 항목").fill("존재하지 않는 항목");
   await page.getByRole("button", { name: "항목 추가" }).click();
-  await page.getByRole("button", { name: "추출 실행" }).click();
-  await expect(page.locator(".compact-progress")).toContainText("항목 확인 중 0/1");
+  const extractAction = page.getByRole("button", { name: "추출 실행" });
+  await extractAction.click();
+  await expect(extractAction).toHaveText("처리 중…");
+  await expect(extractAction).toBeDisabled();
+  const extractProgress = page.locator(".compact-progress");
+  await expect(extractProgress).toContainText("항목 확인 중 0/1");
+  await expect(extractProgress).toContainText("관련 근거를 확인하고 있습니다.");
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(page.locator(".compact-progress")).toBeVisible();
+  await expect(extractProgress).toBeVisible();
+  const stop = extractProgress.getByRole("button", { name: "중지", exact: true });
+  await expect(stop).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  await expect(page.getByRole("button", { name: "추출 실행" })).toBeEnabled({ timeout: 15_000 });
+  await stop.click();
+  await expect(extractProgress).toHaveCount(0);
+  await expect(extractAction).toHaveText("실행");
+  await expect(extractAction).toBeEnabled();
+  await expect(page.locator(".notice.error")).toHaveCount(0);
 });
 
 test("presents Ask as one answer followed by compact clickable evidence", async ({ page }) => {

@@ -3180,23 +3180,63 @@ input:disabled,
   font-weight: var(--font-weight-semibold);
 }
 
+.polish-results {
+  width: min(100%, calc(960px + var(--panel-inset) + var(--panel-inset)));
+}
+
+.polish-mode-meta {
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  white-space: nowrap;
+}
+
+.polish-summary-line {
+  padding: 10px var(--panel-inset);
+  border-bottom: 1px solid var(--line-soft);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+}
+
+.polish-summary-line > p {
+  min-width: 0;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 7px;
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+}
+
+.polish-summary-line .metric {
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.polish-protection-metric {
+  color: var(--warning);
+  font-weight: var(--font-weight-semibold);
+}
+
 .polish-row {
-  padding: 14px 18px;
+  padding: 16px var(--panel-inset);
   border-bottom: 1px solid var(--line-soft);
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(170px, 0.34fr);
-  align-items: start;
-  column-gap: 16px;
+  gap: 14px;
 }
 
 .polish-row.rejected {
   background: var(--warning-soft);
 }
 
-.polish-text {
+.polish-copy-block {
   min-width: 0;
   display: grid;
-  gap: 2px;
+  gap: 5px;
 }
 
 .polish-label {
@@ -3206,32 +3246,60 @@ input:disabled,
   letter-spacing: var(--tracking-label);
 }
 
-.polish-text p {
-  margin: 0 0 6px;
+.polish-copy-line {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 12px;
+}
+
+.polish-copy-line > p {
+  max-width: 72ch;
+  flex: 0 1 auto;
+  margin: 0;
   color: var(--ink-soft);
   font-size: var(--font-size-sm);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.polish-copy-line > .secondary-action {
+  flex: none;
+}
+
+.polish-copy-line > p.polish-revised {
+  color: var(--ink);
+  font-weight: var(--font-weight-semibold);
+}
+
+.polish-reason {
+  display: grid;
+  gap: 4px;
+}
+
+.polish-reason > p,
+.polish-rejection-reason {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-size-xs);
   line-height: 1.55;
 }
 
-/* The rewrite is the answer, so it reads at full strength. */
-.polish-text p.polish-revised {
-  color: var(--ink);
+.polish-source {
+  margin-top: -2px;
 }
 
-.polish-text em {
-  color: var(--muted);
-  font-size: var(--font-size-xs);
-  font-style: normal;
-}
-
-.polish-actions {
-  display: grid;
-  gap: 6px;
-  justify-items: start;
+.polish-unchanged-message {
+  margin: 0;
+  padding: 14px var(--panel-inset) 16px;
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--ink-soft);
+  font-size: var(--font-size-sm);
 }
 
 .polish-unchanged {
-  padding: 12px 18px;
+  padding: 12px var(--panel-inset);
 }
 
 .polish-unchanged > button {
@@ -3263,18 +3331,9 @@ input:disabled,
   font-size: var(--font-size-xs);
 }
 
-
 /* A pasted block keeps its own line breaks and list markers on the way back. */
-.polish-text p.polish-block {
+.polish-copy-line > p.polish-block {
   white-space: pre-wrap;
-}
-
-.polish-reasons {
-  margin: 0 0 6px;
-  padding-left: 16px;
-  color: var(--muted);
-  font-size: var(--font-size-xs);
-  line-height: 1.55;
 }
 
 .claim-row > p {
@@ -6206,9 +6265,6 @@ input:disabled {
     gap: var(--space-2);
   }
 
-  .polish-actions {
-    grid-column: 1;
-  }
   .ask-result {
     max-width: 100%;
     padding-right: 16px;
@@ -6973,11 +7029,25 @@ input:disabled {
 
 /* Real batch progress stays compact; single-request operations report only on the action button. */
 .compact-progress {
+  box-sizing: border-box;
+  width: min(100%, calc(960px + var(--panel-inset) + var(--panel-inset)));
   min-height: 0;
-  padding: 7px 10px;
+  padding: 7px var(--panel-inset);
+  display: grid;
   grid-template-columns: max-content minmax(0, 1fr) max-content;
   align-items: center;
-  gap: 6px 10px;
+  gap: 6px 12px;
+  color: var(--ink-soft);
+}
+
+.compact-progress > strong {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+}
+
+.compact-progress > small {
+  color: var(--muted);
+  font-size: var(--font-size-xs);
 }
 
 .compact-progress > strong,
@@ -6992,10 +7062,22 @@ input:disabled {
 @media (max-width: 640px) {
   .compact-progress {
     grid-template-columns: minmax(0, 1fr) max-content;
-    padding: 7px 8px;
+    padding: 7px 0;
   }
 
   .compact-progress > small {
-    display: none;
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .polish-summary-line {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .polish-copy-line {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 7px;
   }
 }

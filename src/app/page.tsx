@@ -925,7 +925,7 @@ export default function Home() {
       label: inlineResultNotice.tone === "warning"
         ? activeTab === "Ask" || activeTab === "Brief"
           ? completionLabels[activeTab]
-          : activeTab === "Check" ? "검수 완료 · 일부 제외" : activeTab === "Polish" ? "윤문 완료 · 확인 필요" : `${tabMeta[activeTab].label} 부분 완료`
+          : activeTab === "Check" ? "검수 완료 · 일부 제외" : activeTab === "Polish" ? completionLabels[activeTab] : `${tabMeta[activeTab].label} 부분 완료`
         : completionLabels[activeTab],
       ...(inlineResultNotice.tone === "warning" ? { message: inlineResultNotice.message } : {}),
     }
@@ -1231,19 +1231,21 @@ export default function Home() {
               </section>
 
               {busy && polishProgress ? (
-                <StatusPanel variant="info" className="processing-bar compact-progress" live="polite" title={`윤문 처리 중 ${polishProgress.done}/${polishProgress.total}`}>
+                <div className="processing-bar compact-progress" role="status" aria-live="polite">
+                  <strong>{`윤문 처리 중 ${polishProgress.done}/${polishProgress.total}`}</strong>
                   <small>문장 단위로 처리하고 있습니다.</small>
                   <div className="ai-status-actions">
-                    <button type="button" className="secondary-action" onClick={() => { polishCancelled.current = true; interruptServerAi(); }}>생성 중지</button>
+                    <button type="button" className="secondary-action" onClick={() => { polishCancelled.current = true; interruptServerAi(); }}>중지</button>
                   </div>
-                </StatusPanel>
+                </div>
               ) : busy && extractProgress ? (
-                <StatusPanel variant="info" className="processing-bar compact-progress" live="polite" title={`항목 확인 중 ${extractProgress.done}/${extractProgress.total}`}>
-                  <small>항목별 근거를 확인하고 있습니다.</small>
+                <div className="processing-bar compact-progress" role="status" aria-live="polite">
+                  <strong>{`항목 확인 중 ${extractProgress.done}/${extractProgress.total}`}</strong>
+                  <small>관련 근거를 확인하고 있습니다.</small>
                   <div className="ai-status-actions">
-                    <button type="button" className="secondary-action" onClick={() => { extractCancelled.current = true; interruptServerAi(); }}>생성 중지</button>
+                    <button type="button" className="secondary-action" onClick={() => { extractCancelled.current = true; interruptServerAi(); }}>중지</button>
                   </div>
-                </StatusPanel>
+                </div>
               ) : null}
 
               {activeTab === "Compare"
@@ -1758,56 +1760,74 @@ function PolishResults({ result, fileNames, onSource, status }: {
   const rejected = result.outcomes.filter((entry) => entry.status === "rejected");
 
   return (
-    <section className="panel results-panel">
+    <section className="panel results-panel polish-results">
       <ResultHeader
-        eyebrow="POLISH RESULT"
-        title="문장 윤문"
+        title="윤문 결과"
         status={status}
-        meta={<span className="result-provenance">{POLISH_MODE_LABELS[result.mode]}</span>}
+        meta={<span className="polish-mode-meta">{POLISH_MODE_LABELS[result.mode]}</span>}
       />
-      <p className="check-summary-line">
-        <span className="metric">변경 제안 <b>{result.summary.changed}</b></span>
-        <span className="metric">변경 없음 <b>{result.summary.unchanged}</b></span>
-        <span className="metric">보호 검증 차단 <b>{result.summary.rejected}</b></span>
-        {changed.length ? (
-          <button type="button" className="secondary-action" onClick={() => void navigator.clipboard?.writeText(polishClipboardText(result.outcomes))}>전체 복사</button>
-        ) : null}
-      </p>
+      <div className="polish-summary-line">
+        <p>
+          <span className="metric">변경 <b>{result.summary.changed}</b></span>
+          <span aria-hidden="true">·</span>
+          <span className="metric">변경 없음 <b>{result.summary.unchanged}</b></span>
+          {result.summary.rejected > 0 ? (
+            <>
+              <span aria-hidden="true">·</span>
+              <span className="polish-protection-metric">보호 항목 {result.summary.rejected}건 확인 필요</span>
+            </>
+          ) : null}
+        </p>
+        {changed.length ? <CopyButton text={polishClipboardText(result.outcomes)} label="수정안 전체 복사" /> : null}
+      </div>
 
       {changed.length === 0 && rejected.length === 0 ? (
-        <StatusPanel variant="success" className="result-clear" title="다듬을 문장을 찾지 못했습니다."><p>선택한 문서의 문장은 이미 자연스럽습니다.</p></StatusPanel>
+        <p className="polish-unchanged-message">현재 문서는 별도 수정이 필요하지 않습니다.</p>
       ) : null}
 
       {changed.map((entry) => (
         <article className="polish-row" key={entry.id}>
-          <div className="polish-text">
+          <div className="polish-copy-block">
             <span className="polish-label">원문</span>
-            <p>{entry.originalText}</p>
-            <span className="polish-label">윤문</span>
-            <p className="polish-revised">{entry.revisedText}</p>
-            {entry.reasons.length ? <em>{entry.reasons.join(" · ")}</em> : null}
+            <div className="polish-copy-line">
+              <p>{entry.originalText}</p>
+              <CopyButton text={entry.originalText} label="원문 복사" />
+            </div>
           </div>
-          <div className="polish-actions">
-            {entry.source ? <ResultSource sources={[entry.source]} fileNames={fileNames} onSource={onSource} /> : null}
-            <button type="button" className="secondary-action" onClick={() => void navigator.clipboard?.writeText(entry.revisedText)}>복사</button>
+          <div className="polish-copy-block revised">
+            <span className="polish-label">수정안</span>
+            <div className="polish-copy-line">
+              <p className="polish-revised">{entry.revisedText}</p>
+              <CopyButton text={entry.revisedText} label="복사" />
+            </div>
           </div>
+          {entry.reasons.length ? (
+            <div className="polish-reason">
+              <span className="polish-label">변경 이유</span>
+              <p>{entry.reasons.join(" · ")}</p>
+            </div>
+          ) : null}
+          {entry.source ? <div className="polish-source"><ResultSource sources={[entry.source]} fileNames={fileNames} onSource={onSource} /></div> : null}
         </article>
       ))}
 
       {rejected.map((entry) => (
         <article className="polish-row rejected" key={entry.id}>
-          <div className="polish-text">
+          <div className="polish-copy-block">
             <span className="polish-label">원문 유지</span>
-            <p>{entry.originalText}</p>
-            <em>{entry.rejection ? POLISH_REJECTION_LABELS[entry.rejection] : "윤문 결과를 적용하지 않았습니다."}</em>
+            <div className="polish-copy-line">
+              <p>{entry.originalText}</p>
+              <CopyButton text={entry.originalText} label="원문 복사" />
+            </div>
           </div>
-          <div className="polish-actions">
-            {entry.source ? <ResultSource sources={[entry.source]} fileNames={fileNames} onSource={onSource} /> : null}
-          </div>
+          <p className="polish-rejection-reason">
+            {entry.rejection ? POLISH_REJECTION_LABELS[entry.rejection] : "수정안을 적용하지 않았습니다."}
+          </p>
+          {entry.source ? <div className="polish-source"><ResultSource sources={[entry.source]} fileNames={fileNames} onSource={onSource} /></div> : null}
         </article>
       ))}
 
-      {unchanged.length ? (
+      {unchanged.length && (changed.length > 0 || rejected.length > 0) ? (
         <div className="polish-unchanged">
           <button type="button" aria-expanded={showUnchanged} onClick={() => setShowUnchanged(!showUnchanged)}>
             변경 없음 {unchanged.length}건 {showUnchanged ? "접기" : "보기"}
@@ -1869,53 +1889,60 @@ function PolishTextResults({ result, status }: { result: PolishTextResult | null
   const reasons = [...new Set(result.outcomes.flatMap((entry) => entry.reasons))].slice(0, 6);
   const rejected = result.outcomes.filter((entry) => entry.status === "rejected");
   const changed = result.summary.changed > 0;
+  const showComparison = changed || rejected.length > 0;
 
   return (
-    <section className="panel results-panel">
+    <section className="panel results-panel polish-results polish-text-results">
       <ResultHeader
-        eyebrow="POLISH RESULT"
-        title="텍스트 윤문"
+        title="윤문 결과"
         status={status}
-        meta={<span className="result-provenance">{POLISH_MODE_LABELS[result.mode]}</span>}
+        meta={<span className="polish-mode-meta">{POLISH_MODE_LABELS[result.mode]}</span>}
       />
-      <p className="check-summary-line">
-        <span className="metric">변경 제안 <b>{result.summary.changed}</b></span>
-        <span className="metric">변경 없음 <b>{result.summary.unchanged}</b></span>
-        <span className="metric">보호 검증 차단 <b>{result.summary.rejected}</b></span>
-      </p>
-
-      {changed ? null : (
-        <StatusPanel variant="success" className="result-clear" title="변경 없음">
-          <p>현재 문장은 별도 수정이 필요하지 않습니다.</p>
-        </StatusPanel>
-      )}
-
-      <article className="polish-row polish-text-run">
-        <div className="polish-text">
-          <span className="polish-label">원문</span>
-          <p className="polish-block">{result.originalText}</p>
-          <span className="polish-label">윤문</span>
-          <p className="polish-block polish-revised">{result.revisedText}</p>
-          {reasons.length ? (
+      <div className="polish-summary-line">
+        <p>
+          <span className="metric">변경 <b>{result.summary.changed}</b></span>
+          <span aria-hidden="true">·</span>
+          <span className="metric">변경 없음 <b>{result.summary.unchanged}</b></span>
+          {result.summary.rejected > 0 ? (
             <>
-              <span className="polish-label">변경 이유</span>
-              <ul className="polish-reasons">{reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>
+              <span aria-hidden="true">·</span>
+              <span className="polish-protection-metric">보호 항목 {result.summary.rejected}건 확인 필요</span>
             </>
           ) : null}
-        </div>
-        <div className="polish-actions">
-          <CopyButton text={result.revisedText} label="윤문 결과 복사" />
-          <CopyButton text={result.originalText} label="원문 복사" />
-        </div>
-      </article>
+        </p>
+      </div>
 
-      {rejected.length ? (
-        <StatusPanel variant="warning" className="result-warnings" title={`보호 정보 검증으로 ${rejected.length}개 문장을 원문 그대로 유지했습니다.`}>
-          {[...new Set(rejected.map((entry) => entry.rejection ? POLISH_REJECTION_LABELS[entry.rejection] : "윤문 결과를 적용하지 않았습니다."))].map((message) => (
-            <p key={message}>{message}</p>
-          ))}
-        </StatusPanel>
-      ) : null}
+      {!showComparison ? (
+        <p className="polish-unchanged-message">현재 문장은 별도 수정이 필요하지 않습니다.</p>
+      ) : (
+        <article className="polish-row polish-text-run">
+          <div className="polish-copy-block">
+            <span className="polish-label">원문</span>
+            <div className="polish-copy-line">
+              <p className="polish-block">{result.originalText}</p>
+              <CopyButton text={result.originalText} label="원문 복사" />
+            </div>
+          </div>
+          <div className="polish-copy-block revised">
+            <span className="polish-label">수정안</span>
+            <div className="polish-copy-line">
+              <p className="polish-block polish-revised">{result.revisedText}</p>
+              <CopyButton text={result.revisedText} label="복사" />
+            </div>
+          </div>
+          {reasons.length ? (
+            <div className="polish-reason">
+              <span className="polish-label">변경 이유</span>
+              <p>{reasons.join(" · ")}</p>
+            </div>
+          ) : null}
+          {rejected.length ? (
+            <p className="polish-rejection-reason">
+              {[...new Set(rejected.map((entry) => entry.rejection ? POLISH_REJECTION_LABELS[entry.rejection] : "수정안을 적용하지 않았습니다."))].join(" · ")}
+            </p>
+          ) : null}
+        </article>
+      )}
     </section>
   );
 }
