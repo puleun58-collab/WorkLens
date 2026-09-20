@@ -87,15 +87,15 @@ test.describe("Cloudflare Worker production build", () => {
     await expect(page.locator(".dropzone")).toHaveCount(0);
     await expect(page.getByRole("button", { name: "파일 추가" })).toBeVisible();
     await page.getByLabel("cloudflare-rate-v1.xlsx 선택").check();
-    await page.getByRole("button", { name: "Analyze", exact: true }).click();
-    await page.getByRole("button", { name: "Analyze 실행" }).click();
-    await expect(page.getByText("구조 및 수치 분석을 완료했습니다.")).toBeVisible();
+    await page.getByRole("button", { name: "분석", exact: true }).click();
+    await page.getByRole("button", { name: "분석 실행" }).click();
+    await expect(page.getByText(/(?:기본 분석|문서 분석을 완료)/)).toBeVisible();
     await expect(page.locator(".results-panel .numeric").first()).toBeVisible();
 
     await upload(page, files.check);
     await page.getByLabel("cloudflare-check.pptx 선택").check();
-    await page.getByRole("button", { name: "Check", exact: true }).click();
-    await page.getByRole("button", { name: "Check 실행" }).click();
+    await page.getByRole("button", { name: "검수", exact: true }).click();
+    await page.getByRole("button", { name: "검수 실행" }).click();
     const finding = page.locator(".check-issue").first();
     await expect(finding).toBeVisible();
     const source = finding.locator(".source-action").first();
@@ -107,12 +107,12 @@ test.describe("Cloudflare Worker production build", () => {
     await page.getByLabel("cloudflare-check.pptx 선택").uncheck();
     await upload(page, files.v2);
     await page.getByLabel("cloudflare-rate-v2.xlsx 선택").check();
-    await page.getByRole("button", { name: "Compare", exact: true }).click();
-    await page.getByRole("button", { name: "Compare 실행" }).click();
+    await page.getByRole("button", { name: "비교", exact: true }).click();
+    await page.getByRole("button", { name: "비교 실행" }).click();
     await expect(page.getByTestId("change-row").first()).toBeVisible();
 
-    await page.getByRole("button", { name: "Extract", exact: true }).click();
-    await page.getByRole("button", { name: "Extract 실행" }).click();
+    await page.getByRole("button", { name: "추출", exact: true }).click();
+    await page.getByRole("button", { name: "추출 실행" }).click();
     // Automatic extraction reports its own count even when a sheet holds only
     // records; either a structured row or the "nothing to structure" panel is
     // the correct production outcome.

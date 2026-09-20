@@ -36,7 +36,7 @@ export type PolishRejection =
   | "over-edit"
   | "empty";
 
-export type PolishStatus = "changed" | "unchanged" | "rejected";
+export type PolishStatus = "changed" | "unchanged" | "rejected" | "failed";
 
 export interface PolishOutcome {
   id: string;
@@ -47,6 +47,8 @@ export interface PolishOutcome {
   reasons: string[];
   rejection?: PolishRejection;
   source?: SourceRef;
+  /** Provider/request failure. The original text remains authoritative. */
+  failure?: { code?: string; message: string };
   origin?: PolishCandidate["origin"];
 }
 
@@ -55,6 +57,7 @@ export interface PolishSummary {
   changed: number;
   unchanged: number;
   rejected: number;
+  failed: number;
 }
 
 export interface PolishResult {
@@ -76,7 +79,7 @@ export interface PolishTextResult {
 }
 
 export const POLISH_MODE_LABELS: Record<PolishMode, string> = {
-  default: "기본 윤문",
+  default: "기본",
   concise: "간결하게",
   business: "업무 문체",
 };

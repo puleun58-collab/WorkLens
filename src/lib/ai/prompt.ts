@@ -146,20 +146,29 @@ export function parseModelResponse(raw: string): ModelResponse {
 }
 
 /**
- * Maps model handles back onto canonical evidence tokens. Unknown handles are
- * dropped so grounding only ever sees claims that still point at real evidence.
+ * Maps model handles back onto canonical evidence tokens. A claim with any
+ * unknown or duplicate handle stays in the completion with no source tokens so
+ * grounding can reject and count that candidate without affecting valid peers.
  */
 export function resolveClaims(window: EvidenceWindow, claims: readonly ModelClaim[]): AiProviderCompletion {
   const resolved: AiProviderClaim[] = [];
   for (const claim of claims) {
     const sourceTokens: string[] = [];
+    let handlesAreValid = true;
     for (const handle of claim.handles) {
       const node = window.nodes.get(handle);
-      if (!node || sourceTokens.includes(node.propositionToken)) continue;
+      if (!node || sourceTokens.includes(node.propositionToken)) {
+        handlesAreValid = false;
+        continue;
+      }
       sourceTokens.push(node.propositionToken);
     }
-    if (sourceTokens.length === 0) continue;
-    resolved.push({ type: "inference", text: claim.text, sourceTokens, confidence: claim.confidence });
+    resolved.push({
+      type: "inference",
+      text: claim.text,
+      sourceTokens: handlesAreValid ? sourceTokens : [],
+      confidence: claim.confidence,
+    });
   }
   return { schemaId: AI_SCHEMA_ID, claims: resolved };
 }

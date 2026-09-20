@@ -35,7 +35,7 @@ test("loads the deployed workspace and runs browser-only Check", async ({ page }
   });
   await expect(page.locator(".file-row").filter({ hasText: "smoke-check.pptx" })).toBeVisible();
   await page.getByLabel("smoke-check.pptx 선택").check();
-  await page.getByRole("button", { name: "Check", exact: true }).click();
-  await page.getByRole("button", { name: "Check 실행" }).click();
+  await page.getByRole("button", { name: "검수", exact: true }).click();
+  await page.getByRole("button", { name: "검수 실행" }).click();
   await expect(page.locator(".check-issue").first()).toBeVisible();
 });

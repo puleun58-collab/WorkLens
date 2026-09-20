@@ -23,8 +23,9 @@ export function buildEvidenceNodes(documents: readonly NormalizedDocument[]): Ai
 }
 
 /**
- * Rebuilds every displayed fact from a one-request token index. Any invalid
- * candidate rejects the entire completion; callers must never release a subset.
+ * Rebuilds each displayed fact from a one-request token index. Invalid
+ * candidates are counted and omitted; valid candidates keep their canonical
+ * evidence bindings.
  */
 export function groundProviderCompletion(
   documents: readonly NormalizedDocument[],
@@ -36,13 +37,17 @@ export function groundProviderCompletion(
   const evidence = collectEvidence(documents);
   const byToken = new Map(evidence.map((node) => [node.propositionToken, node]));
   const claims: GroundedClaim[] = [];
+  let rejectedClaimCount = 0;
 
   for (const candidate of completion.claims) {
     const claim = groundClaim(candidate, byToken);
-    if (!claim) return { claims: [], rejectedClaimCount: completion.claims.length || 1 };
+    if (!claim) {
+      rejectedClaimCount += 1;
+      continue;
+    }
     claims.push(claim);
   }
-  return { claims, rejectedClaimCount: 0 };
+  return { claims, rejectedClaimCount };
 }
 
 export function groundAiResult(
@@ -51,14 +56,14 @@ export function groundAiResult(
   completion: AiProviderCompletion,
 ): AiAvailableResult {
   const grounded = groundProviderCompletion(documents, completion);
-  const warnings = grounded.rejectedClaimCount ? [{ code: "EVIDENCE_VALIDATION_FAILED", message: "근거 검증에 실패했습니다." }] : [];
+  const warnings = grounded.rejectedClaimCount ? [{ code: "EVIDENCE_VALIDATION_FAILED", message: "일부 내용은 문서 근거와 연결되지 않아 결과에서 제외했습니다." }] : [];
   switch (request.operation) {
     case "analyze":
       return { operation: "analyze", claims: grounded.claims, warnings, rejectedClaimCount: grounded.rejectedClaimCount };
     case "ask":
       return {
         operation: "ask",
-        answer: grounded.claims.map((claim) => claim.text).join("\n"),
+        answer: grounded.claims.map((claim) => claim.text.replace(/^추론:\s*/u, "")).join("\n"),
         claims: grounded.claims,
         warnings,
         rejectedClaimCount: grounded.rejectedClaimCount,
@@ -66,7 +71,7 @@ export function groundAiResult(
     case "brief":
       return {
         operation: "brief",
-        brief: grounded.claims.map((claim) => claim.text).join("\n").slice(0, 800),
+        brief: grounded.claims.map((claim) => claim.text.replace(/^추론:\s*/u, "")).join("\n").slice(0, 800),
         claims: grounded.claims,
         warnings,
         rejectedClaimCount: grounded.rejectedClaimCount,

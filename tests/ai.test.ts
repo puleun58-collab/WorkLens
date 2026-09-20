@@ -87,19 +87,26 @@ describe("server AI prompt boundary", () => {
     expect(long.items.length).toBeLessThan(40);
   });
 
-  it("drops model claims that cite a handle outside the evidence window", () => {
+  it("keeps unknown-handle claims for grounding rejection and preserves valid peers", () => {
     const window = evidenceWindow(buildEvidenceNodes([document]));
     const completion = resolveClaims(window, parseModelResponse(JSON.stringify({ claims: [
       { text: "매출이 줄었습니다.", sources: ["E99"] },
       { text: "근거 없는 주장", sources: [] },
       { text: "분기 매출이 120에서 100으로 줄었습니다.", sources: ["E1"], confidence: "high" },
     ] })).claims);
-    expect(completion.claims).toEqual([{
-      type: "inference",
-      text: "분기 매출이 120에서 100으로 줄었습니다.",
-      sourceTokens: [window.nodes.get("E1")!.propositionToken],
-      confidence: "high",
-    }]);
+    expect(completion.claims).toEqual([
+      { type: "inference", text: "매출이 줄었습니다.", sourceTokens: [], confidence: "low" },
+      {
+        type: "inference",
+        text: "분기 매출이 120에서 100으로 줄었습니다.",
+        sourceTokens: [window.nodes.get("E1")!.propositionToken],
+        confidence: "high",
+      },
+    ]);
+    expect(groundProviderCompletion([document], completion)).toMatchObject({
+      rejectedClaimCount: 1,
+      claims: [{ text: "추론: 분기 매출이 120에서 100으로 줄었습니다." }],
+    });
   });
 
   it("treats an unreported or malformed confidence as low", () => {
@@ -221,12 +228,21 @@ describe("canonical evidence grounding", () => {
     expect(groundProviderCompletion([injected], completion)).toEqual({ claims: [], rejectedClaimCount: 1 });
   });
 
-  it("atomically rejects a completion containing both a valid and invalid claim", () => {
+  it("keeps valid claims when another claim fails grounding", () => {
     const valid = directCompletion();
     const completion: AiProviderCompletion = {
       ...valid,
       claims: [...valid.claims, { type: "inference", text: "unverified", sourceTokens: ["forged-token"] }],
     };
-    expect(groundProviderCompletion([document], completion)).toEqual({ claims: [], rejectedClaimCount: 2 });
+    const grounded = groundProviderCompletion([document], completion);
+    expect(grounded.claims).toHaveLength(1);
+    expect(grounded.rejectedClaimCount).toBe(1);
+
+    const ask = groundAiResult({ operation: "ask", question: "매출은 어떻게 변했나요?" }, [document], completion);
+    const brief = groundAiResult({ operation: "brief" }, [document], completion);
+    expect(ask).toMatchObject({ operation: "ask", rejectedClaimCount: 1 });
+    expect(ask.operation === "ask" ? ask.answer : "").toBe(ask.claims[0].text);
+    expect(brief).toMatchObject({ operation: "brief", rejectedClaimCount: 1 });
+    expect(brief.operation === "brief" ? brief.brief : "").toBe(brief.claims[0].text);
   });
 });

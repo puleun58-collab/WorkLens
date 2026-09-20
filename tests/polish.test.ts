@@ -163,7 +163,7 @@ describe("polish engine", () => {
       reviewProposal(candidate("9월 운임은 전월 대비 상승했습니다."), { changed: false, revisedText: "", reasons: [] }),
       reviewProposal(candidate("매출은 1,250만원입니다."), { changed: true, revisedText: "매출은 1,350만원입니다.", reasons: [] }),
     ];
-    expect(summarizePolish(outcomes)).toEqual({ candidates: 3, changed: 1, unchanged: 1, rejected: 1 });
+    expect(summarizePolish(outcomes)).toEqual({ candidates: 3, changed: 1, unchanged: 1, rejected: 1, failed: 0 });
     expect(polishClipboardText(outcomes)).toBe("AI로 효율을 높일 수 있습니다.");
   });
 });

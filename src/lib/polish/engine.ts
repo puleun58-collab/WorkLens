@@ -56,6 +56,7 @@ export function summarizePolish(outcomes: readonly PolishOutcome[]): PolishSumma
     changed: outcomes.filter((entry) => entry.status === "changed").length,
     unchanged: outcomes.filter((entry) => entry.status === "unchanged").length,
     rejected: outcomes.filter((entry) => entry.status === "rejected").length,
+    failed: outcomes.filter((entry) => entry.status === "failed").length,
   };
 }
 
