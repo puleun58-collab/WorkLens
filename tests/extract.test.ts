@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import ExcelJS from "exceljs";
 import { autoExtract } from "@/lib/extract/auto";
+import { buildValueCheck } from "@/domain/value-check";
 import { extractRequestedFields, labelMatches, modelField } from "@/lib/extract/fields";
 import { withResolvedField } from "@/lib/extract/merge";
 import { structuredCsv, structuredXlsx } from "@/lib/extract/export";
@@ -14,21 +16,21 @@ import type { EvidenceItem } from "@/lib/ai/prompt";
  * contract under test is fidelity: the document's own wording, its source, and
  * nothing invented where the document says nothing.
  */
-function source(nodeId: string, label: string): SourceRef {
-  return { fileId: "file-1", nodeId, label };
+function source(nodeId: string, label: string, fileId = "file-1"): SourceRef {
+  return { fileId, nodeId, label };
 }
 
-function paragraphs(lines: readonly string[]): NormalizedDocument {
+function paragraphs(lines: readonly string[], fileId = "file-1"): NormalizedDocument {
   return {
-    id: "document:file-1",
-    fileId: "file-1",
+    id: `document:${fileId}`,
+    fileId,
     kind: "pptx",
-    metadata: { fileName: "회의자료.pptx" },
+    metadata: { fileName: `${fileId}.pptx` },
     blocks: lines.map((text, index) => ({
       type: "paragraph" as const,
       id: `p${index}`,
       text,
-      source: source(`p${index}`, `Slide ${index + 1}`),
+      source: source(`p${index}`, `Slide ${index + 1}`, fileId),
     })),
     warnings: [],
   };
@@ -77,6 +79,13 @@ describe("value typing", () => {
     expect(normalizeValue("1,250만원", "Money")).toBeUndefined();
     expect(normalizeValue("12명", "Number")).toBeUndefined();
   });
+
+  it("recognizes scaled money without inventing a normalized amount", () => {
+    for (const value of ["2,258억 원", "120억", "6억 원", "1.2조 원", "50,000달러"]) {
+      expect(classifyValue(value)).toBe("Money");
+      expect(normalizeValue(value, "Money")).toBeUndefined();
+    }
+  });
 });
 
 describe("automatic extraction", () => {
@@ -94,22 +103,67 @@ describe("automatic extraction", () => {
     expect(result.fields[0].sources[0].nodeId).toBe("p0");
   });
 
-  it("does not turn running prose into fields", () => {
+  it("extracts trusted delimiterless labels only when the value has a safe type", () => {
+    const result = autoExtract(paragraphs([
+      "목표주가 64,550원",
+      "상승여력 232.4%",
+      "시가총액 2,258억 원",
+      "기준일 2025.05.02",
+      "인원 75명",
+      "수량 12개",
+      "종목코드 SOP-Q3",
+      "단위 백만 원",
+    ]), file);
+    expect(result.fields.map((entry) => [entry.field, entry.displayValue, entry.type])).toEqual([
+      ["목표주가", "64,550원", "Money"],
+      ["상승여력", "232.4%", "Percent"],
+      ["시가총액", "2,258억 원", "Money"],
+      ["기준일", "2025.05.02", "Date"],
+      ["인원", "75명", "Number"],
+      ["수량", "12개", "Number"],
+      ["종목코드", "SOP-Q3", "Code"],
+      ["단위", "백만 원", "Text"],
+    ]);
+    expect(result.fields[3].normalizedValue).toBe("2025-05-02");
+    expect(result.fields[2].normalizedValue).toBeUndefined();
+  });
+
+  it("allows a trusted dash boundary without making hyphens a general splitter", () => {
+    const result = autoExtract(paragraphs([
+      "목표주가 - 64,550원",
+      "Equity Research - 64,550원",
+      "회사-64,550원",
+    ]), file);
+    expect(result.fields.map((entry) => [entry.field, entry.displayValue])).toEqual([
+      ["목표주가", "64,550원"],
+    ]);
+  });
+
+  it("does not turn running prose or unlabeled numbers into fields", () => {
     const result = autoExtract(paragraphs([
       "이번 분기에는 운영 프로세스를 개선하여 처리 지연을 줄였고 관련 부서와 협의를 계속 진행하고 있습니다.",
       "안전 점검은 매월 시행합니다.",
+      "64,550원",
+      "232.4%",
+      "2025.05.02",
+      "목표주가는 시장 상황에 따라 달라질 수 있습니다.",
+      "매출 성장이 예상됩니다.",
+      "시가총액 기준을 재검토합니다.",
     ]), file);
     expect(result.fields).toEqual([]);
   });
 
-  it("merges the same pair repeated across a document", () => {
+  it("merges normalized duplicate labels and values while retaining every source", () => {
     const result = autoExtract(paragraphs([
       "작성부서: 경영지원팀",
-      "작성부서: 경영지원팀",
-      "작성부서: 경영지원팀",
+      "작성 부서: 경영지원팀",
+      "단위 백만 원",
+      "단위 백만 원",
     ]), file);
-    expect(result.fields).toHaveLength(1);
-    expect(result.fields[0].sources).toHaveLength(3);
+    expect(result.fields).toHaveLength(2);
+    expect(result.fields.map((entry) => entry.field)).toEqual(["작성부서", "단위"]);
+    expect(result.fields[0].sources).toHaveLength(2);
+    expect(result.fields[1].sources).toHaveLength(2);
   });
 
   it("groups repeated structural Source lines instead of inventing business fields", () => {
@@ -124,7 +178,8 @@ describe("automatic extraction", () => {
     expect(result.records).toHaveLength(1);
     expect(result.records[0]).toMatchObject({
       title: "Source",
-      columns: ["Source"],
+      displayTitle: "참고 출처",
+      columns: ["참고 출처"],
       rows: [{ cells: ["회사 공시"] }, { cells: ["거래소 데이터"] }],
     });
     expect(result.records[0].rows.map((row) => row.source.nodeId)).toEqual(["p0", "p1"]);
@@ -150,6 +205,18 @@ describe("automatic extraction", () => {
     expect(result.fields.map((entry) => entry.displayValue)).toEqual(["64,550원", "62,000원"]);
     expect(result.fields[0].sources).toHaveLength(2);
     expect(result.fields[1].sources).toHaveLength(1);
+  });
+
+  it("feeds delimiterless deterministic values into value comparison", () => {
+    const first = autoExtract(paragraphs(["목표주가 64,550원"], "a"), { id: "a", name: "a.pptx" });
+    const second = autoExtract(paragraphs(["목표주가 62,000원"], "b"), { id: "b", name: "b.pptx" });
+    const result = buildValueCheck([first, second]);
+    expect(result.groups).toHaveLength(1);
+    expect(result.groups[0]).toMatchObject({
+      field: "목표주가",
+      status: "different",
+      distinctValueCount: 2,
+    });
   });
 
   it("keeps a repeating table as a table, not as pairs", () => {
@@ -306,7 +373,8 @@ describe("structured export", () => {
         records: [{
           id: "sources",
           title: "Source",
-          columns: ["Source"],
+          displayTitle: "참고 출처",
+          columns: ["참고 출처"],
           rows: [{ cells: ["회사 공시"], source: source("p1", "Slide 1") }],
           source: source("p1", "Slide 1"),
         }],
@@ -315,7 +383,35 @@ describe("structured export", () => {
       summary: { fields: 0, missing: 0, records: 1, lowConfidence: 0 },
     };
     const csv = structuredCsv(auto);
-    expect(csv).toContain("Source,회사 공시,Record,Slide 1");
+    expect(csv).toContain("참고 출처,회사 공시,Record,Slide 1");
+  });
+
+  it("keeps automatic record content aligned across CSV and XLSX", async () => {
+    const auto: StructuredExtract = {
+      mode: "auto",
+      requestedFields: [],
+      files: [{
+        file,
+        fields: [],
+        records: [{
+          id: "sources",
+          title: "Source",
+          displayTitle: "참고 출처",
+          columns: ["참고 출처"],
+          rows: [{ cells: ["회사 공시"], source: source("p1", "Slide 1") }],
+          source: source("p1", "Slide 1"),
+        }],
+        missing: [],
+      }],
+      summary: { fields: 0, missing: 0, records: 1, lowConfidence: 0 },
+    };
+    expect(structuredCsv(auto)).toContain("참고 출처,회사 공시,Record,Slide 1");
+    const workbook = new ExcelJS.Workbook();
+    const bytes = await structuredXlsx(auto);
+    await workbook.xlsx.load(bytes as unknown as Parameters<typeof workbook.xlsx.load>[0]);
+    expect(workbook.getWorksheet("Records")?.getRow(2).values).toEqual(
+      expect.arrayContaining(["회의자료.pptx", "참고 출처", "회사 공시", "Slide 1"]),
+    );
   });
 
   it("produces a workbook with a data sheet and an evidence sheet", async () => {

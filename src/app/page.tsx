@@ -7,7 +7,6 @@ import type { ValueCheckResult, ValueCheckStatus } from "@/domain/value-check";
 import type { DocumentMetadata, SourceRef } from "@/domain/document";
 import {
   checkCategoryGroup,
-  type AnalyzeResult,
   type CheckCategory,
   type CheckCategoryGroup,
   type CheckFinding,
@@ -26,7 +25,7 @@ import {
   type ServerAiFailure,
 } from "@/client/server-ai-client";
 import { SERVER_AI_MAX_FILES, type ServerAiErrorCode } from "@/lib/ai/api";
-import type { CheckEntry as WorkerCheckEntry, WorkspaceFile } from "@/client/protocol";
+import type { AnalyzeEntry as WorkerAnalyzeEntry, CheckEntry as WorkerCheckEntry, WorkspaceFile } from "@/client/protocol";
 import {
   EXTRACT_MODE_LABELS,
   EXTRACT_TYPE_LABELS,
@@ -65,7 +64,12 @@ import {
 import companyTermFile from "@/config/company-terms.json";
 import { sortFindings } from "@/lib/check/merge";
 import { mergeSemanticFindings, semanticFindings } from "@/lib/check/writing/semantic-review";
-import { analysisClaimPresentation, claimDisplayText } from "@/lib/analysis-presentation";
+import {
+  analysisClaimPresentation,
+  claimDisplayText,
+  confirmedAnalysisMetrics,
+  deterministicAnalysisSummary,
+} from "@/lib/analysis-presentation";
 import {
   BarChart3,
   BookMarked,
@@ -146,7 +150,7 @@ const categoryLabels: Record<ComparisonItem["category"], string> = {
 };
 const valueCheckStatusLabels: Record<ValueCheckStatus, string> = {
   different: "값 차이",
-  partial: "일부 확인",
+  partial: "일부 파일만 확인",
   consistent: "일치",
 };
 type ValueCheckFilter = "all" | ValueCheckStatus;
@@ -445,6 +449,27 @@ export default function Home() {
     );
   };
 
+  const reportAnalyzePartialAiFailure = (error: unknown) => {
+    const failure = error as Partial<ServerAiFailure>;
+    const detail = failure.code === "GROUNDING_REJECTED"
+      ? "근거 연결 실패"
+      : failure.code === "NO_EVIDENCE"
+        ? "추가 해석 근거 없음"
+        : failure.code === "TIMEOUT"
+          ? "응답 지연"
+          : failure.code === "RATE_LIMITED" || failure.code === "OPERATION_CAPACITY"
+            ? "사용 한도"
+            : failure.code === "CONFIGURATION"
+              ? "AI 설정 오류"
+              : "AI 연결 오류";
+    notifyView(
+      failure.code === "CANCELLED" ? "info" : "warning",
+      "기본 분석 완료 · 추가 해석은 이번 실행에서 제외되었습니다.",
+      failure.code,
+      detail,
+    );
+  };
+
   /**
    * The worker selects and bounds evidence; grounding remains authoritative in
    * the worker after the same-origin server returns model claims.
@@ -667,7 +692,7 @@ export default function Home() {
       }
 
       if (selected.length > SERVER_AI_MAX_FILES) {
-        notifyView("warning", `기본 분석을 완료했습니다. 추가 해석은 파일 ${SERVER_AI_MAX_FILES}개 이하에서 실행됩니다.`);
+        notifyView("warning", `기본 분석 완료 · 추가 해석은 파일 ${SERVER_AI_MAX_FILES}개 이하에서 실행됩니다.`);
         return deterministic;
       }
       try {
@@ -675,7 +700,7 @@ export default function Home() {
         setEnrichmentResult(enriched);
         notifyView("success", "문서 분석을 완료했습니다. 추가 해석도 반영했습니다.");
       } catch (error) {
-        reportPartialAiFailure(error, "기본 분석은 완료했습니다. 추가 해석은 이번 실행에서 제외되었습니다.");
+        reportAnalyzePartialAiFailure(error);
       }
       return deterministic;
     } finally {
@@ -729,7 +754,24 @@ export default function Home() {
         setEnrichmentResult(enriched);
         notifyView("success", "파일 비교를 완료했습니다. 의미 차이 확인도 반영했습니다.");
       } catch (error) {
-        reportPartialAiFailure(error, "기본 비교는 완료했습니다. 의미 차이 확인은 이번 실행에서 제외되었습니다.");
+        const failure = error as Partial<ServerAiFailure>;
+        const detail = failure.code === "GROUNDING_REJECTED"
+          ? "근거 연결 실패"
+          : failure.code === "NO_EVIDENCE"
+            ? "의미 차이 근거 없음"
+            : failure.code === "TIMEOUT"
+              ? "응답 지연"
+              : failure.code === "RATE_LIMITED" || failure.code === "OPERATION_CAPACITY"
+                ? "사용 한도"
+                : failure.code === "CONFIGURATION"
+                  ? "AI 설정 오류"
+                  : "AI 연결 오류";
+        notifyView(
+          "warning",
+          "기본 비교 완료 · 의미 차이 확인은 이번 실행에서 제외되었습니다.",
+          failure.code,
+          detail,
+        );
       }
       return deterministic;
     } finally {
@@ -995,7 +1037,7 @@ export default function Home() {
     : null;
   const resultStatus: ResultStatus | null = inlineResultNotice
     ? {
-      tone: inlineResultNotice.tone === "warning" ? "warning" : "success",
+      tone: activeTab === "Brief" || activeTab === "Analyze" || (activeTab === "Compare" && comparison !== null) ? "success" : inlineResultNotice.tone === "warning" ? "warning" : "success",
       label: activeTab === "Compare" && compareMode === "value-check" && inlineResultNotice.tone !== "warning"
         ? "확인 완료"
         : completionLabels[activeTab],
@@ -1199,14 +1241,21 @@ export default function Home() {
                   {files.map((file) => {
                     const checked = selected.includes(file.id);
                     const counts = structureCounts(file.metadata);
+                    const comparisonSelectionIndex = activeTab === "Compare" && compareMode === "version" && checked
+                      ? selected.indexOf(file.id)
+                      : -1;
+                    const comparisonRole = comparisonSelectionIndex === 0
+                      ? "1 · 기준 파일"
+                      : comparisonSelectionIndex === 1 ? "2 · 대상 파일" : null;
                     return (
-                      <article className={`file-row${checked ? " selected" : ""}`} key={file.id}>
+                      <article className={`file-row${checked ? " selected" : ""}${comparisonRole ? " compare-selected-file" : ""}`} key={file.id}>
                         <label className="select-file">
                           <input type="checkbox" checked={checked} disabled={!checked && selected.length === 10} onChange={() => toggleFile(file.id)} aria-label={`${file.name} 선택`} />
                           <span />
                         </label>
                         <div className="file-info">
-                          <strong title={file.name}>{file.name}</strong>
+                          {comparisonRole ? <span className="compare-selection-role">{comparisonRole}</span> : null}
+                          <strong title={file.name} tabIndex={comparisonRole ? 0 : undefined}>{file.name}</strong>
                           <span>{file.kind.toUpperCase()} · {formatBytes(file.size)}</span>
                         </div>
                         <span className={`status status-${file.status.toLowerCase()}`}><span aria-hidden="true" />{file.status}</span>
@@ -1226,13 +1275,12 @@ export default function Home() {
               <section className="operation-bar" aria-label={`${tabMeta[activeTab].label} 작업`}>
                 {(activeTab === "Ask" || activeTab === "Brief") ? (
                   <label className={`question-field${activeTab === "Brief" ? " brief-scope-field" : ""}`}>
-                    {activeTab === "Brief" ? <span>중점적으로 정리할 내용 (선택)</span> : null}
                     <input
                       value={question}
                       maxLength={2000}
                       aria-label={activeTab === "Ask" ? "질문 입력" : "요약 중점 입력"}
                       onChange={(event) => setQuestion(event.target.value)}
-                      placeholder={activeTab === "Ask" ? "선택한 문서에서 확인할 내용을 입력하세요" : "예: 시가총액, 주요 일정, 비용 관련 내용"}
+                      placeholder={activeTab === "Ask" ? "선택한 문서에서 확인할 내용을 입력하세요" : "중점적으로 정리할 내용 (선택)"}
                     />
                     <small>{question.length.toLocaleString("ko-KR")} / 2,000</small>
                   </label>
@@ -1526,10 +1574,10 @@ function summaryLocatorText(source: SourceRef): string {
 }
 
 const roleText = (role: SourceRole | undefined): string | undefined =>
-  role === "base" ? "기준" : role === "current" ? "현재" : undefined;
+  role === "base" ? "기준 파일" : role === "current" ? "대상 파일" : undefined;
 
 
-type AnalyzeEntry = { file: { id: string; name: string }; analysis: AnalyzeResult };
+type AnalyzeEntry = WorkerAnalyzeEntry;
 type CheckEntry = { file: { id: string; name: string }; check: CheckResult };
 type ExtractEntry = { file: { id: string; name: string }; extraction: ExtractResult };
 type SourceHandler = (entries: readonly DetailEntry[], trigger: HTMLElement | null) => void;
@@ -1549,7 +1597,7 @@ interface ResultViewProps {
 
 /** Shared heading copy for every category's lower work section. */
 const workSectionCopy: Record<Tab, [string, string]> = {
-  Analyze: ["문서 분석", "선택한 파일의 구조와 주요 수치를 분석합니다."],
+  Analyze: ["문서 분석", "선택한 파일의 핵심 항목과 확인된 수치를 분석합니다."],
   Ask: ["질문하기", "선택한 파일을 근거로 질문에 답합니다."],
   Compare: ["파일 비교", "선택한 파일의 변경 사항이나 주요 값 차이를 확인합니다."],
   Check: ["문서 검수", "선택한 파일의 문장·일관성·데이터·개인정보를 검수합니다."],
@@ -1613,7 +1661,7 @@ function ResultView({ tab, result, enrichment, status, fileNames, detail, onSour
         {...(tab === "Extract"
           ? { meta: resultActions }
           : tab === "Brief" && isAiAvailableResult(result) && result.operation === "brief"
-            ? { meta: <CopyButton text={briefClipboardText(result.claims)} label="요약 복사" /> }
+            ? { meta: <CopyButton text={briefClipboardText(result.claims)} label="요약 복사" className="result-copy-action" /> }
             : tab === "Ask" || tab === "Check" || tab === "Analyze" ? {} : { meta: <span className="result-provenance">근거 연결 결과</span> })}
       />
       {content}
@@ -1673,9 +1721,12 @@ function CompareControls({ mode, busy, onMode }: {
           </label>
         ))}
       </fieldset>
-      <p>{mode === "version"
-        ? "두 파일의 변경 사항을 비교합니다."
-        : "두 개 이상 파일의 주요 값이 서로 일치하는지 확인합니다."}</p>
+      <div className="compare-mode-copy">
+        <p>{mode === "version"
+          ? "두 파일의 추가·삭제·변경된 내용을 비교합니다."
+          : "여러 파일의 동일 항목과 값 차이를 확인합니다."}</p>
+        {mode === "version" ? <small>첫 번째로 선택한 파일이 기준 파일입니다.</small> : null}
+      </div>
     </div>
   );
 }
@@ -1765,7 +1816,11 @@ function StructuredExtractResults({ result, fileNames, onSource, status, busy, o
     ? result.requestedFields
     : [...new Set(result.files.flatMap((file) => file.fields.map((field) => field.field)))];
   const isEmpty = result.summary.fields === 0 && result.summary.records === 0;
-  const confirmCount = result.summary.missing + result.summary.lowConfidence;
+  const emptyTitle = result.mode === "fields"
+    ? result.requestedFields.length === 1
+      ? `'${result.requestedFields[0]}'을(를) 찾지 못했습니다.`
+      : "요청한 항목을 찾지 못했습니다."
+    : "자동으로 추출할 수 있는 구조화된 항목을 찾지 못했습니다.";
 
   return (
     <section className="panel results-panel extract-results">
@@ -1773,10 +1828,11 @@ function StructuredExtractResults({ result, fileNames, onSource, status, busy, o
       <div className="extract-result-toolbar">
         <p className="check-summary-line">
           <span className="metric">추출 항목 <b>{result.summary.fields}</b></span>
-          {confirmCount ? <span className="metric needs-review">확인 필요 <b>{confirmCount}</b></span> : null}
-          {result.summary.records ? <span className="metric">반복 표 <b>{result.summary.records}</b></span> : null}
+          {result.summary.missing ? <span className="metric needs-review">찾지 못함 <b>{result.summary.missing}</b></span> : null}
+          {result.summary.lowConfidence ? <span className="metric needs-review">확인 필요 <b>{result.summary.lowConfidence}</b></span> : null}
+          {result.summary.records ? <span className="metric">목록 <b>{result.summary.records}</b></span> : null}
         </p>
-        {!isEmpty && result.summary.fields > 0
+        {!isEmpty
           ? <ExtractExportButtons busy={busy} onExport={onExport} />
           : null}
       </div>
@@ -1785,11 +1841,11 @@ function StructuredExtractResults({ result, fileNames, onSource, status, busy, o
         <StatusPanel
           variant="info"
           className="result-clear"
-          title={result.mode === "fields" && result.summary.missing
-            ? "선택한 파일에서 지정한 항목을 찾지 못했습니다."
-            : "추출된 항목이 없습니다."}
+          title={emptyTitle}
         >
-          <p>필요한 항목이 정해져 있다면 항목 지정 추출을 사용해 보세요. 원문 전체가 필요하면 전체 텍스트 내보내기를 선택하세요.</p>
+          <p>{result.mode === "fields"
+            ? "선택한 문서에서 해당 항목이나 값을 확인할 수 없습니다."
+            : "필요한 항목이 정해져 있다면 항목 지정을 사용할 수 있습니다."}</p>
         </StatusPanel>
       ) : null}
 
@@ -1857,7 +1913,7 @@ function StructuredExtractResults({ result, fileNames, onSource, status, busy, o
 
       {!isEmpty ? result.files.flatMap((file) => file.records.map((record) => (
         <section className="result-subsection" key={`${file.file.id}-${record.id}`}>
-          <div className="subsection-heading"><h4>{file.file.name} · {record.title}</h4><CompactResultSource sources={[record.source]} fileNames={fileNames} onSource={onSource} /></div>
+          <div className="subsection-heading"><h4>{file.file.name} · {record.displayTitle ?? record.title}</h4><CompactResultSource sources={[record.source]} fileNames={fileNames} onSource={onSource} /></div>
           <div className="extract-table-wrap">
             <table className="extract-table">
               <thead><tr>{record.columns.map((column, index) => <th key={`${column}-${index}`}>{column}</th>)}</tr></thead>
@@ -1983,7 +2039,7 @@ function PolishResults({ result, fileNames, onSource, status }: {
  * Clipboard with a fallback: a denied Clipboard API permission still has to
  * copy, and the confirmation stays inline instead of raising a page notice.
  */
-function CopyButton({ text, label }: { text: string; label: string }) {
+function CopyButton({ text, label, className }: { text: string; label: string; className?: string }) {
   const [copied, setCopied] = useState(false);
   const copy = async () => {
     try {
@@ -2003,7 +2059,7 @@ function CopyButton({ text, label }: { text: string; label: string }) {
     window.setTimeout(() => setCopied(false), 1_600);
   };
   return (
-    <button type="button" className="secondary-action" onClick={() => void copy()}>
+    <button type="button" className={["secondary-action", className].filter(Boolean).join(" ")} onClick={() => void copy()}>
       {copied ? "복사됨" : label}
     </button>
   );
@@ -2161,14 +2217,17 @@ function CompactResultSource({ sources, fileNames, onSource, locatorOf = locator
   const summary = groups.length > 1
     ? `${lead.label} 외 ${groups.length - 1}곳`
     : lead.count > 1 ? `${lead.label} · ${lead.count}건` : lead.label;
+  const title = groups.map((entry) => entry.count > 1 ? `${entry.label} · ${entry.count}건` : entry.label).join("\n");
   return (
-    <button
-      type="button"
-      className="source-summary-link"
-      title={groups.map((entry) => entry.count > 1 ? `${entry.label} · ${entry.count}건` : entry.label).join("\n")}
-      aria-label={`${summary} 근거 상세 보기`}
-      onClick={(event) => onSource(sources.map((source) => ({ source })), event.currentTarget)}
-    >{summary}</button>
+    <span className="result-source">
+      <span className="source-locator" title={title}>{summary}</span>
+      <button
+        type="button"
+        className="source-action"
+        aria-label={`${summary} 근거 보기`}
+        onClick={(event) => onSource(sources.map((source) => ({ source })), event.currentTarget)}
+      >근거 보기</button>
+    </span>
   );
 }
 
@@ -2178,32 +2237,23 @@ function AnalyzeResults({ entries, enrichment, fileNames, onSource }: {
   fileNames: Map<string, string>;
   onSource: SourceHandler;
 }) {
-  const presentation = analysisClaimPresentation(enrichment);
-  const verifiedTotals = entries.flatMap(({ file, analysis }) =>
-    analysis.totals.filter((total) => total.actual === total.expected).map((total) => ({
-      id: `${file.id}-${total.source.nodeId}`,
-      label: `${file.name} · ${total.label}`,
-      value: total.actual.toLocaleString("ko-KR"),
-      sources: [total.source],
-    })));
-  const metrics = presentation.metrics.length ? presentation.metrics : verifiedTotals;
+  const confirmedFields = entries.flatMap((entry) => entry.extraction.fields);
+  const presentation = analysisClaimPresentation(enrichment, confirmedFields);
+  const deterministicSummary = deterministicAnalysisSummary(entries);
+  const metrics = confirmedAnalysisMetrics(entries);
   const mismatches = entries.flatMap(({ file, analysis }) =>
     analysis.totals.filter((total) => total.actual !== total.expected).map((total) => ({ file, total })));
   const sourcesOf = (claim: GroundedClaim) => claim.evidence.map((binding) => binding.source);
-  const renderClaim = (claim: GroundedClaim, concern = false) => (
-    <article className={`analysis-reading-row${concern ? " concern" : ""}`} key={claim.id}>
+  const renderClaim = (claim: GroundedClaim) => (
+    <article className="analysis-reading-row" key={claim.id}>
       <p>{claimDisplayText(claim)}</p>
       <div className="analysis-reading-actions">
         <ResultSource sources={sourcesOf(claim)} fileNames={fileNames} onSource={onSource} />
       </div>
     </article>
   );
-  const useFallback = presentation.summary.length === 0;
-  const summaryCount = presentation.summary.length
-    + (useFallback ? entries.length : 0)
-    + presentation.concerns.length
-    + presentation.warnings.length
-    + mismatches.length;
+  const summaryCount = deterministicSummary.length + presentation.summary.length;
+  const multipleFiles = entries.length > 1;
 
   return (
     <div className="analysis-report">
@@ -2213,52 +2263,56 @@ function AnalyzeResults({ entries, enrichment, fileNames, onSource }: {
           <span>{summaryCount}건</span>
         </div>
         <div className="analysis-reading-list">
-          {presentation.summary.map((claim) => renderClaim(claim))}
-          {useFallback ? entries.map(({ file, analysis }) => {
-            const hasTables = analysis.structure.tableCount > 0;
-            const hasParagraphs = analysis.structure.paragraphCount > 0;
-            const description = hasTables && hasParagraphs
-              ? "표와 서술형 문단을 함께 포함한 혼합형 문서입니다."
-              : hasTables
-                ? "표 중심의 문서로, 구조화된 데이터와 명시된 합계 항목을 확인할 수 있습니다."
-                : "서술형 문단 중심의 문서입니다.";
-            const sources = analysis.structure.tables.map((table) => table.source);
-            return (
-              <article className="analysis-reading-row" key={file.id}>
-                <p><strong>{file.name}</strong>은 {description}</p>
-                {sources.length ? <ResultSource sources={sources} fileNames={fileNames} onSource={onSource} /> : null}
-              </article>
-            );
-          }) : null}
-          {presentation.concerns.map((claim) => renderClaim(claim, true))}
-          {presentation.warnings.map((warning) => (
-            <p className="analysis-warning-line" key={`${warning.code}-${warning.message}`}>{warning.message}</p>
-          ))}
-          {mismatches.map(({ file, total }) => (
-            <article className="analysis-reading-row concern" key={`${file.id}-${total.source.nodeId}`}>
-              <p><strong>{file.name}</strong>의 {total.label} 표시값 {total.actual.toLocaleString("ko-KR")}과 계산값 {total.expected.toLocaleString("ko-KR")}이 일치하지 않습니다.</p>
-              <ResultSource sources={[total.source]} fileNames={fileNames} onSource={onSource} />
+          {deterministicSummary.map((item) => (
+            <article className="analysis-reading-row" key={item.id}>
+              <p>{item.text}</p>
+              <div className="analysis-reading-actions">
+                <ResultSource sources={item.sources} fileNames={fileNames} onSource={onSource} />
+              </div>
             </article>
           ))}
+          {presentation.summary.map((claim) => renderClaim(claim))}
+          {summaryCount === 0 ? (
+            <p className="analysis-empty">문서에서 구조화된 핵심 항목을 확인하지 못했습니다.</p>
+          ) : null}
         </div>
       </section>
 
       {metrics.length ? (
         <section className="analysis-report-section" aria-labelledby="analysis-metrics-title">
-          <div className="subsection-heading"><h3 id="analysis-metrics-title">주요 수치</h3><span>{metrics.length}건</span></div>
+          <div className="subsection-heading"><h3 id="analysis-metrics-title">확인된 수치</h3><span>{metrics.length}건</span></div>
           <div className="analysis-metric-wrap">
-            <table className="analysis-metric-table">
-              <thead><tr><th>항목</th><th>값</th><th>근거</th></tr></thead>
+            <table className={`analysis-metric-table${multipleFiles ? " multi-file" : ""}`}>
+              <thead>
+                <tr>{multipleFiles ? <th>파일</th> : null}<th>항목</th><th>값</th><th>근거</th></tr>
+              </thead>
               <tbody>
                 {metrics.map((metric) => (
                   <tr key={metric.id}>
-                    <th scope="row">{metric.label}</th>
-                    <td className="numeric">{metric.value}</td>
-                    <td>{metric.sources.length ? <ResultSource sources={metric.sources} fileNames={fileNames} onSource={onSource} /> : <span className="source-empty">근거 위치 없음</span>}</td>
+                    {multipleFiles ? <td className="analysis-metric-file" data-label="파일">{fileNames.get(metric.fileId) ?? metric.fileName}</td> : null}
+                    <th scope="row" data-label="항목">{metric.label}</th>
+                    <td className="numeric" data-label="값">{metric.value}</td>
+                    <td data-label="근거"><ResultSource sources={metric.sources} fileNames={fileNames} onSource={onSource} /></td>
                   </tr>
                 ))}
               </tbody>
             </table>
+          </div>
+        </section>
+      ) : null}
+
+      {mismatches.length ? (
+        <section className="analysis-report-section" aria-labelledby="analysis-review-title">
+          <div className="subsection-heading"><h3 id="analysis-review-title">확인 필요</h3><span>{mismatches.length}건</span></div>
+          <div className="analysis-reading-list">
+            {mismatches.map(({ file, total }) => (
+              <article className="analysis-reading-row concern" key={`${file.id}-${total.source.nodeId}`}>
+                <p><strong>{file.name}</strong>의 {total.label} 표시값 {total.actual.toLocaleString("ko-KR")}과 계산값 {total.expected.toLocaleString("ko-KR")}이 일치하지 않습니다.</p>
+                <div className="analysis-reading-actions">
+                  <ResultSource sources={[total.source, ...total.contributingSources]} fileNames={fileNames} onSource={onSource} />
+                </div>
+              </article>
+            ))}
           </div>
         </section>
       ) : null}
@@ -2652,6 +2706,8 @@ function ComparisonView({ comparison, compareIds, fileNames, detail, onSource, o
     if (source.fileId === compareIds.targetFileId) return "current";
     return undefined;
   };
+  const baseName = compareIds ? fileNames.get(compareIds.baseFileId) ?? "미선택" : "미선택";
+  const targetName = compareIds ? fileNames.get(compareIds.targetFileId) ?? "미선택" : "미선택";
   const summaryItems = [
     { key: "total", label: "전체 변경", value: comparison.summary.total },
     { key: "changed", label: "변경", value: comparison.summary.changed },
@@ -2660,38 +2716,42 @@ function ComparisonView({ comparison, compareIds, fileNames, detail, onSource, o
     { key: "structural", label: "구조 변경", value: comparison.summary.structural },
     { key: "important", label: "중요 변경", value: comparison.summary.important },
   ];
+  const compareValue = (value: string | null): string => value === null || value === "" ? "—" : value;
+  const signedNumber = (value: number): string =>
+    `${value > 0 ? "+" : ""}${value.toLocaleString("ko-KR", { maximumFractionDigits: 2 })}`;
   return (
     <section className="panel results-panel comparison-panel">
-      <ResultHeader
-        eyebrow="COMPARE RESULT"
-        title="파일 비교 결과"
-        status={status}
-        meta={(
-          <div className="compare-files">
-            <span><b>기준</b>{compareIds ? fileNames.get(compareIds.baseFileId) : "미선택"}</span>
-            <span><b>현재</b>{compareIds ? fileNames.get(compareIds.targetFileId) : "미선택"}</span>
-          </div>
-        )}
-      />
-      <dl className="summary executive-summary">{summaryItems.map((item) => <div key={item.key} className={`summary-${item.key}`}><dt>{item.label}</dt><dd>{item.value.toLocaleString("ko-KR")}</dd></div>)}</dl>
+      <ResultHeader title="버전 비교 결과" status={status} />
+      <div className="comparison-file-map" aria-label="비교 파일 방향">
+        <div>
+          <span>기준 파일</span>
+          <strong title={baseName} tabIndex={0}>{baseName}</strong>
+        </div>
+        <span className="comparison-direction" aria-hidden="true">→</span>
+        <div>
+          <span>대상 파일</span>
+          <strong title={targetName} tabIndex={0}>{targetName}</strong>
+        </div>
+      </div>
+      <dl className="summary executive-summary">{summaryItems.map((item) => <div key={item.key} className={`summary-${item.key}`} data-empty={item.value === 0}><dt>{item.label}</dt><dd>{item.value.toLocaleString("ko-KR")}</dd></div>)}</dl>
       {comparison.items.length === 0 ? (
         <StatusPanel variant="success" className="result-clear" title="비교된 변경 사항이 없습니다."><p>지원되는 내용, 수치 및 구조 범위에서 두 파일이 같습니다.</p></StatusPanel>
       ) : (
         <div className="comparison-content">
           <div className="comparison-index" aria-label="변경 유형 요약">
-            {summaryItems.slice(1).map((item) => <span key={item.key}><i className={`category-dot ${item.key}`} aria-hidden="true" />{item.label}<b>{item.value}</b></span>)}
+            {summaryItems.slice(1).filter((item) => item.value > 0).map((item) => <span key={item.key}><i className={`category-dot ${item.key}`} aria-hidden="true" />{item.label}<b>{item.value}</b></span>)}
           </div>
-          <div className="change-table" role="table" aria-label="파일 변경 상세">
-            <div className="change-head" role="row"><span role="columnheader">구분</span><span role="columnheader">항목</span><span role="columnheader">Previous</span><span role="columnheader">Current</span><span role="columnheader">Difference</span><span role="columnheader">Change %</span><span role="columnheader">근거</span></div>
+          <div className="change-table" role="table" aria-label="버전 비교 변경 상세">
+            <div className="change-head" role="row"><span role="columnheader">변경 유형</span><span role="columnheader">항목</span><span role="columnheader">기준 파일 값</span><span role="columnheader">대상 파일 값</span><span role="columnheader">차이</span><span role="columnheader">변화율</span><span role="columnheader">근거</span></div>
             {comparison.items.map((item: ComparisonItem) => (
               <div className="change-row" role="row" key={item.id} data-testid="change-row" data-category={item.category}>
-                <span role="cell"><strong className={`category-label category-${item.category.toLowerCase().replaceAll(" ", "-")}`}>{categoryLabels[item.category]}</strong></span>
-                <span role="cell" className="change-label" title={item.label}>{item.label}</span>
-                <span role="cell" className="numeric">{displayValue(item.previous)}</span>
-                <span role="cell" className="numeric">{displayValue(item.current)}</span>
-                <span role="cell" className="numeric difference">{displayValue(item.difference)}</span>
-                <span role="cell" className="numeric">{item.changePercent === null ? "해당 없음" : `${item.changePercent > 0 ? "+" : ""}${item.changePercent.toFixed(2)}%`}</span>
-                <div role="cell" className="source-actions"><ResultSource sources={item.sources} fileNames={fileNames} onSource={onSource} roleOf={roleOf} emptyLabel="근거 없음" /></div>
+                <span role="cell" className="change-category-cell"><strong className={`category-label category-${item.category.toLowerCase().replaceAll(" ", "-")}`}>{categoryLabels[item.category]}</strong></span>
+                <span role="cell" data-label="항목" className="change-label" title={item.label}>{item.label}</span>
+                <span role="cell" data-label="기준 파일 값" className="numeric">{compareValue(item.previous)}</span>
+                <span role="cell" data-label="대상 파일 값" className="numeric">{compareValue(item.current)}</span>
+                <span role="cell" data-label="차이" className={`numeric difference${item.difference === null ? " change-empty" : ""}`}>{item.difference === null ? null : signedNumber(item.difference)}</span>
+                <span role="cell" data-label="변화율" className={`numeric${item.changePercent === null ? " change-empty" : ""}`}>{item.changePercent === null ? null : `${item.changePercent > 0 ? "+" : ""}${item.changePercent.toFixed(2)}%`}</span>
+                <div role="cell" data-label="근거" className="source-actions"><ResultSource sources={item.sources} fileNames={fileNames} onSource={onSource} roleOf={roleOf} emptyLabel="근거 없음" /></div>
               </div>
             ))}
           </div>
@@ -2720,8 +2780,10 @@ function ValueCheckView({ result, fileNames, onSource, status, busy, onExport }:
     { key: "all", label: "전체", count: result.summary.total },
     { key: "different", label: "값 차이", count: result.summary.different },
     { key: "consistent", label: "일치", count: result.summary.consistent },
-    { key: "partial", label: "일부 확인", count: result.summary.partial },
+    { key: "partial", label: valueCheckStatusLabels.partial, count: result.summary.partial },
   ];
+  const twoFiles = result.fileIds.length === 2;
+  const comparedFileNames = result.fileIds.map((fileId) => fileNames.get(fileId) ?? fileId);
 
   return (
     <section className="panel results-panel value-check-panel">
@@ -2735,7 +2797,7 @@ function ValueCheckView({ result, fileNames, onSource, status, busy, onExport }:
           <span className="metric">비교 항목 <b>{result.summary.total}</b></span>
           <span className={`metric${result.summary.different ? " needs-review" : ""}`}>값 차이 <b>{result.summary.different}</b></span>
           <span className="metric">일치 <b>{result.summary.consistent}</b></span>
-          <span className="metric">일부 확인 <b>{result.summary.partial}</b></span>
+          <span className="metric">{valueCheckStatusLabels.partial} <b>{result.summary.partial}</b></span>
         </p>
         {result.groups.length ? (
           <fieldset className="segmented value-check-filters" aria-label="값 일치 결과 필터">
@@ -2761,6 +2823,35 @@ function ValueCheckView({ result, fileNames, onSource, status, busy, onExport }:
         </StatusPanel>
       ) : visible.length === 0 ? (
         <p className="value-check-filter-empty">이 상태에 해당하는 항목이 없습니다.</p>
+      ) : twoFiles ? (
+        <div className="value-check-matrix" role="table" aria-label="두 파일 값 일치 확인">
+          <div className="value-check-matrix-head" role="row">
+            <span role="columnheader">항목</span>
+            {comparedFileNames.map((name, index) => <span role="columnheader" key={result.fileIds[index]} title={name} tabIndex={0}>{name}</span>)}
+            <span role="columnheader">판정</span>
+          </div>
+          {visible.map((group) => (
+            <div className="value-check-matrix-row" role="row" key={group.id} data-testid="value-check-group" data-status={group.status}>
+              <strong role="rowheader" data-label="항목">{group.field}</strong>
+              {result.fileIds.map((fileId, fileIndex) => {
+                const occurrences = group.occurrences.filter((entry) => entry.fileId === fileId);
+                return (
+                  <div role="cell" className="value-check-matrix-value" data-label={comparedFileNames[fileIndex]} key={fileId}>
+                    {occurrences.length ? occurrences.map((entry) => (
+                      <div className="value-check-cell-entry" key={entry.id}>
+                        <span>{entry.displayValue}</span>
+                        <ResultSource sources={entry.sources} fileNames={fileNames} onSource={onSource} />
+                      </div>
+                    )) : <span className="value-check-no-value">—</span>}
+                  </div>
+                );
+              })}
+              <span role="cell" className="value-check-verdict" data-label="판정">
+                <span className={`value-check-status status-${group.status}`}>{valueCheckStatusLabels[group.status]}</span>
+              </span>
+            </div>
+          ))}
+        </div>
       ) : (
         <div className="value-check-list" aria-label="값 일치 확인 항목">
           {visible.map((group) => {
@@ -2774,21 +2865,19 @@ function ValueCheckView({ result, fileNames, onSource, status, busy, onExport }:
                   <span className={`value-check-status status-${group.status}`}>{valueCheckStatusLabels[group.status]}</span>
                 </header>
                 {group.missingFileIds.length ? (
-                  <p className="value-check-missing">확인되지 않음: {group.missingFileIds.map((fileId) => fileNames.get(fileId) ?? fileId).join(" · ")}</p>
+                  <p className="value-check-missing">{valueCheckStatusLabels.partial}: {group.missingFileIds.map((fileId) => fileNames.get(fileId) ?? fileId).join(" · ")}</p>
                 ) : null}
                 <div className="value-check-occurrences">
                   {collapsed ? (
                     <div className="value-check-occurrence">
                       <span data-label="파일">{group.occurrences.map((entry) => fileNames.get(entry.fileId) ?? entry.fileName).join(" · ")}</span>
                       <strong data-label="값">{values.join(" · ")}</strong>
-                      <span data-label="타입">{EXTRACT_TYPE_LABELS[group.type]}</span>
                       <div data-label="근거"><ResultSource sources={sources} fileNames={fileNames} onSource={onSource} /></div>
                     </div>
                   ) : group.occurrences.map((entry) => (
                     <div className="value-check-occurrence" key={entry.id}>
                       <span data-label="파일" title={entry.fileName}>{fileNames.get(entry.fileId) ?? entry.fileName}</span>
                       <strong data-label="값">{entry.displayValue}</strong>
-                      <span data-label="타입">{EXTRACT_TYPE_LABELS[entry.type]}</span>
                       <div data-label="근거"><ResultSource sources={entry.sources} fileNames={fileNames} onSource={onSource} /></div>
                     </div>
                   ))}

@@ -1,5 +1,5 @@
 import type { NormalizedDocument, SourceRef, TableBlock } from "@/domain/document";
-import type { ExtractedField, ExtractedRecords, FileExtraction } from "@/domain/extract";
+import type { ExtractedField, ExtractedRecords, ExtractValueType, FileExtraction } from "@/domain/extract";
 import { classifyValue, normalizeValue } from "./values";
 
 /**
@@ -21,7 +21,16 @@ const GENERIC_LABELS = new Set([
   "source", "sources", "출처", "참고", "참고자료", "비고",
   "note", "notes", "reference", "references",
 ]);
-const BUSINESS_LABEL = /(회사명|종목명|종목코드|기준일|목표주가|시가총액|단위|매출|비용|기간|담당자|부서|일시|인원|금액|수량|수익|손익|예산|일정)/u;
+const DELIMITERLESS_LABELS = [
+  "영업이익", "목표주가", "현재주가", "시가총액", "상승여력", "종목코드", "매출액",
+  "담당부서", "회사명", "법인명", "종목명", "기준일", "작성일", "시행일", "만료일",
+  "순이익", "담당자", "매출", "비용", "금액", "예산", "인원", "수량", "기간",
+  "일정", "일시", "부서", "단위",
+].sort((left, right) => right.length - left.length);
+const BUSINESS_LABEL = new RegExp(`(${DELIMITERLESS_LABELS.join("|")})`, "u");
+const DELIMITERLESS_TYPES = new Set<ExtractValueType>([
+  "Money", "Percent", "Date", "DateTime", "Period", "Number", "Email", "Phone", "Url", "Code",
+]);
 
 interface AutoExtractOptions {
   /** Requested-field mode may explicitly ask for an otherwise structural name. */
@@ -37,6 +46,10 @@ interface GenericCandidate {
 
 function labelKey(label: string): string {
   return label.normalize("NFKC").trim().toLocaleLowerCase("ko-KR").replace(/[\s._-]+/gu, "");
+}
+
+function valueKey(value: string): string {
+  return value.normalize("NFKC").trim();
 }
 
 function isGenericLabel(label: string): boolean {
@@ -62,12 +75,35 @@ function isUsefulValue(value: string): boolean {
   return text.split(/\s+/u).length <= 12;
 }
 
+function isSafeUnitValue(label: string, value: string): boolean {
+  return label === "단위"
+    && /^(?:천|만|백만|천만|억|조)?\s*(?:원|달러|유로|엔|USD|KRW|명|개|건)$/iu.test(value.trim());
+}
+
+/**
+ * A delimiterless pair is accepted only at the start of one compact text
+ * block, after the longest known business label, and only when the remainder
+ * has a deterministic non-Text type. This never joins separate slide boxes.
+ */
+function delimiterlessPair(text: string): { label: string; value: string } | undefined {
+  const candidate = text.trim();
+  for (const label of DELIMITERLESS_LABELS) {
+    if (!candidate.startsWith(label)) continue;
+    const boundary = /^\s+(?:[-–—]\s*)?(.+?)\s*$/u.exec(candidate.slice(label.length));
+    if (!boundary) continue;
+    const value = boundary[1];
+    const type = classifyValue(value);
+    if (DELIMITERLESS_TYPES.has(type) || isSafeUnitValue(label, value)) return { label, value };
+  }
+  return undefined;
+}
+
 function push(fields: ExtractedField[], field: string, value: string, source: SourceRef, quote?: string): void {
   if (fields.length >= MAX_FIELDS) return;
   const type = classifyValue(value);
   const normalized = normalizeValue(value, type);
   // The same pair repeated across a deck is one field with several sources.
-  const existing = fields.find((entry) => entry.field === field && entry.displayValue === value);
+  const existing = fields.find((entry) => labelKey(entry.field) === labelKey(field) && valueKey(entry.displayValue) === valueKey(value));
   if (existing) {
     if (!existing.sources.some((entry) => entry.nodeId === source.nodeId)) existing.sources.push(source);
     return;
@@ -130,10 +166,14 @@ export function autoExtract(
 
   for (const block of document.blocks) {
     if (block.type === "paragraph") {
-      const match = LABEL_VALUE.exec(block.text);
-      if (!match) continue;
-      const [, label, delimiter, value] = match;
-      addCandidate(label, value, block.source, block.text, delimiter);
+      const explicit = LABEL_VALUE.exec(block.text);
+      if (explicit) {
+        const [, label, delimiter, value] = explicit;
+        addCandidate(label, value, block.source, block.text, delimiter);
+        continue;
+      }
+      const implicit = delimiterlessPair(block.text);
+      if (implicit) addCandidate(implicit.label, implicit.value, block.source, block.text);
       continue;
     }
 
@@ -157,10 +197,14 @@ export function autoExtract(
   for (const candidates of generic.values()) {
     if (candidates.length < 2) continue;
     const [first] = candidates;
+    const displayTitle = /^(?:sources?|references?)$/u.test(labelKey(first.label)) || labelKey(first.label) === "출처"
+      ? "참고 출처"
+      : "참고 목록";
     records.push({
       id: `generic:${records.length}:${labelKey(first.label)}`,
       title: first.label,
-      columns: [first.label],
+      displayTitle,
+      columns: [displayTitle],
       rows: candidates.map((candidate) => ({ cells: [candidate.value], source: candidate.source })),
       source: first.source,
     });

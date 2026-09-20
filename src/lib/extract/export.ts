@@ -42,6 +42,9 @@ function fieldValue(fields: readonly ExtractedField[], name: string): string {
   return fields.filter((entry) => entry.field === name).map((entry) => entry.displayValue).join(" | ");
 }
 
+const recordTitle = (record: StructuredExtract["files"][number]["records"][number]): string =>
+  record.displayTitle ?? record.title;
+
 export function structuredCsv(extract: StructuredExtract): string {
   const rows: Array<Array<string | number | null>> = [];
   if (extract.mode === "fields") {
@@ -61,7 +64,7 @@ export function structuredCsv(extract: StructuredExtract): string {
       }
       for (const record of file.records) {
         for (const row of record.rows) {
-          rows.push([file.file.name, record.title, row.cells.join(" | "), "Record", sourceText(row.source)]);
+          rows.push([file.file.name, recordTitle(record), row.cells.join(" | "), "Record", sourceText(row.source)]);
         }
       }
     }
@@ -102,9 +105,9 @@ export async function structuredXlsx(extract: StructuredExtract): Promise<Uint8A
     const sheet = workbook.addWorksheet("Records");
     for (const file of withRecords) {
       for (const record of file.records) {
-        sheet.addRow([file.file.name, record.title, ...record.columns, "SOURCE"]);
+        sheet.addRow([file.file.name, recordTitle(record), ...record.columns, "SOURCE"]);
         for (const row of record.rows) {
-          sheet.addRow([file.file.name, record.title, ...row.cells, sourceText(row.source)]);
+          sheet.addRow([file.file.name, recordTitle(record), ...row.cells, sourceText(row.source)]);
         }
       }
     }

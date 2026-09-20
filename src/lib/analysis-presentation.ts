@@ -1,23 +1,36 @@
 import type { AiAvailableResult, GroundedClaim, ResultWarning } from "@/domain/ai";
 import type { SourceRef } from "@/domain/document";
+import type { ExtractedField, ExtractValueType, FileExtraction } from "@/domain/extract";
 
-const STRUCTURED_VALUE_PATTERN = /(?:[A-Za-z][A-Za-z0-9]*-[A-Za-z0-9-]*\d[A-Za-z0-9-]*|\d{4}[./-]\d{1,2}(?:[./-]\d{1,2})?|(?:₩|\$)?-?\d[\d,]*(?:\.\d+)?(?:\s?(?:%|억\s?원|만\s?원|원|개|건|명|주|대|배|년|월|일))?)/gu;
-const NARRATIVE_SIGNAL_PATTERN = /(증가|감소|변화|추세|상승|하락|비교|차이|영향|원인|위험|가능성|전망|불일치|초과|미달|대비|전년|전월|때문|따라)/u;
-const SIMPLE_NUMERIC_VALUE_PATTERN = /^(?:(?:₩|\$)?-?\d)/u;
+const NARRATIVE_SIGNAL_PATTERN = /(관계|의미|특징|주의|증가|감소|변화|추세|상승|하락|비교|차이|영향|원인|위험|가능성|전망|불일치|초과|미달|대비|전년|전월|때문|따라)/u;
+const CONFIRMED_METRIC_TYPES = new Set<ExtractValueType>(["Money", "Percent", "Number"]);
+const GENERIC_LABELS = new Set(["source", "sources", "출처", "참고", "참고자료", "비고", "note", "notes", "reference", "references"]);
+const SUMMARY_LABEL_LIMIT = 6;
 
 export interface AnalysisMetric {
   id: string;
+  fileId: string;
+  fileName: string;
   label: string;
   value: string;
   sources: SourceRef[];
 }
 
+export interface DeterministicAnalysisSummary {
+  id: string;
+  text: string;
+  sources: SourceRef[];
+}
+
 export interface AnalysisClaimPresentation {
   summary: GroundedClaim[];
-  metrics: AnalysisMetric[];
-  content: GroundedClaim[];
   concerns: GroundedClaim[];
   warnings: ResultWarning[];
+}
+
+interface AnalysisExtractionEntry {
+  file: { id: string; name: string };
+  extraction: FileExtraction;
 }
 
 export function claimDisplayText(claim: GroundedClaim): string {
@@ -51,61 +64,100 @@ function uniqueClaims(claims: readonly GroundedClaim[]): GroundedClaim[] {
   return unique;
 }
 
-function structuredValues(text: string): string[] {
-  const seen = new Set<string>();
-  const values: string[] = [];
-  for (const match of text.matchAll(STRUCTURED_VALUE_PATTERN)) {
-    const value = match[0].trim();
-    if (!value || seen.has(value)) continue;
-    seen.add(value);
-    values.push(value);
-  }
-  return values;
+function normalizedFactPart(value: string): string {
+  return value.normalize("NFKC").toLocaleLowerCase("ko-KR").replace(/[\s,.:：·()[\]{}'"“”‘’_-]+/gu, "");
 }
 
-function metricLabel(text: string, values: readonly string[]): string {
-  let label = text;
-  for (const value of values) label = label.replace(value, " ");
-  label = label
-    .replace(/\s*(?:입니다|이다|임)\.?\s*$/u, "")
-    .replace(/[은는이가]\s*$/u, "")
-    .replace(/[\s:：·-]+$/u, "")
-    .trim();
-  return label || text;
+function repeatsConfirmedMetric(claim: GroundedClaim, fields: readonly ExtractedField[]): boolean {
+  const text = claimDisplayText(claim);
+  if (NARRATIVE_SIGNAL_PATTERN.test(text)) return false;
+  const normalizedText = normalizedFactPart(text);
+  return fields.some((field) => {
+    if (!CONFIRMED_METRIC_TYPES.has(field.type)) return false;
+    const label = normalizedFactPart(field.field);
+    const value = normalizedFactPart(field.displayValue);
+    return label.length > 0 && value.length > 0 && normalizedText.includes(label) && normalizedText.includes(value);
+  });
 }
 
-export function analysisClaimPresentation(result: AiAvailableResult | null): AnalysisClaimPresentation {
+export function analysisClaimPresentation(
+  result: AiAvailableResult | null,
+  confirmedFields: readonly ExtractedField[] = [],
+): AnalysisClaimPresentation {
   if (!result || result.operation !== "analyze") {
-    return { summary: [], metrics: [], content: [], concerns: [], warnings: [] };
+    return { summary: [], concerns: [], warnings: [] };
   }
 
   const claims = uniqueClaims(result.claims);
   const concerns = claims.filter((claim) => claim.kind === "inference" && (claim.confidence ?? "low") === "low");
   const concernIds = new Set(concerns.map((claim) => claim.id));
-  const readable = claims.filter((claim) => !concernIds.has(claim.id));
-  const metrics: AnalysisMetric[] = [];
-  const summary: GroundedClaim[] = [];
+  const summary = claims.filter((claim) =>
+    !concernIds.has(claim.id) && !repeatsConfirmedMetric(claim, confirmedFields));
+  return { summary, concerns, warnings: result.warnings };
+}
 
-  for (const claim of readable) {
-    const text = claimDisplayText(claim);
-    const values = structuredValues(text);
-    const simpleMetric = values.length > 0
-      && values.every((value) => SIMPLE_NUMERIC_VALUE_PATTERN.test(value))
-      && !NARRATIVE_SIGNAL_PATTERN.test(text);
-    if (!simpleMetric) {
-      summary.push(claim);
-      continue;
-    }
-    metrics.push({
-      id: claim.id,
-      label: metricLabel(text, values),
-      value: values.join(" · "),
-      sources: claim.evidence.map((binding) => binding.source),
-    });
+function labelKey(label: string): string {
+  return label.normalize("NFKC").trim().toLocaleLowerCase("ko-KR").replace(/[\s._-]+/gu, "");
+}
+
+function meaningfulLabels(fields: readonly ExtractedField[]): string[] {
+  const labels: string[] = [];
+  const seen = new Set<string>();
+  for (const field of fields) {
+    const key = labelKey(field.field);
+    if (!key || GENERIC_LABELS.has(key) || seen.has(key)) continue;
+    seen.add(key);
+    labels.push(field.field.trim());
   }
+  return labels;
+}
 
-  // `content` remains in the presentation contract for callers outside this
-  // view, but Analyze now has one interpretation stream instead of a second
-  // "주요 내용" dump.
-  return { summary, metrics, content: [], concerns, warnings: result.warnings };
+function uniqueSources(fields: readonly ExtractedField[]): SourceRef[] {
+  const sources: SourceRef[] = [];
+  const seen = new Set<string>();
+  for (const field of fields) {
+    for (const source of field.sources) {
+      const key = `${source.fileId}\0${source.nodeId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      sources.push(source);
+    }
+  }
+  return sources;
+}
+
+export function deterministicAnalysisSummary(
+  entries: readonly AnalysisExtractionEntry[],
+): DeterministicAnalysisSummary[] {
+  const includeFileName = entries.length > 1;
+  return entries.flatMap(({ file, extraction }) => {
+    const labels = meaningfulLabels(extraction.fields);
+    if (labels.length === 0) return [];
+    const shown = labels.slice(0, SUMMARY_LABEL_LIMIT);
+    const remaining = labels.length - shown.length;
+    const subject = includeFileName ? `${file.name}에서` : "문서에서";
+    const suffix = remaining > 0 ? ` 외 ${remaining}개` : "";
+    return [{
+      id: `deterministic-summary:${file.id}`,
+      text: `${subject} ${shown.join(", ")}${suffix} 항목이 확인됩니다.`,
+      sources: uniqueSources(extraction.fields),
+    }];
+  });
+}
+
+export function confirmedAnalysisMetrics(
+  entries: readonly AnalysisExtractionEntry[],
+): AnalysisMetric[] {
+  return entries.flatMap(({ file, extraction }) =>
+    extraction.fields.flatMap((field, index) =>
+      CONFIRMED_METRIC_TYPES.has(field.type)
+        ? [{
+          id: `${file.id}:${field.sources[0]?.nodeId ?? index}:${index}`,
+          fileId: file.id,
+          fileName: file.name,
+          label: field.field,
+          value: field.displayValue,
+          sources: field.sources,
+        }]
+        : []));
 }

@@ -43,6 +43,8 @@ export interface ExtractedField {
 export interface ExtractedRecords {
   id: string;
   title: string;
+  /** User-facing name when a structural parser label is too implementation-like. */
+  displayTitle?: string;
   columns: string[];
   rows: { cells: string[]; source: SourceRef }[];
   source: SourceRef;

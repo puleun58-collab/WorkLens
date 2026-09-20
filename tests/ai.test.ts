@@ -91,6 +91,18 @@ describe("server AI prompt boundary", () => {
     expect(broad).not.toContain("이 범위와 직접 관련된 근거만");
   });
 
+  it("limits Analyze enrichment to grounded interpretation instead of restating extracted values", () => {
+    const prompt = buildMessages({ operation: "analyze" }, [
+      { handle: "E1", text: "목표주가 64,550원" },
+      { handle: "E2", text: "상승여력 232.4%" },
+    ])[1].content;
+
+    expect(prompt).toContain("관계, 변화, 의미, 특징, 주의할 점");
+    expect(prompt).toContain("단순 field/value와 문서 구조를 반복하지 말고");
+    expect(prompt).toContain("숫자나 날짜를 새로 만들지 마세요");
+    expect(prompt).toContain("claims를 빈 배열로 두세요");
+  });
+
   it("bounds the evidence window by item count and characters", () => {
     const many = evidenceWindow(buildEvidenceNodes([paragraphDocument(80, "매출 추이 설명 문단")]));
     expect(many.items).toHaveLength(MAX_EVIDENCE_ITEMS);

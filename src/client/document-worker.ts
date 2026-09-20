@@ -96,6 +96,7 @@ async function handle(request: WorkerRequest): Promise<unknown> {
       return requireDocuments(request.fileIds).map((entry) => ({
         file: { id: entry.file.id, name: entry.file.name },
         analysis: analyzeDocument(entry.document),
+        extraction: autoExtract(entry.document, { id: entry.file.id, name: entry.file.name }),
       }));
     case "check":
       return requireDocuments(request.fileIds).map((entry) => ({

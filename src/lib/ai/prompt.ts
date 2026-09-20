@@ -100,7 +100,7 @@ function taskInstruction(request: AiRequest): string {
     case "semantic-check":
       return `${request.statement}\n명확한 오류만 지적하세요: 맞춤법, 조사, 어색한 표현, 용어 불일치. 문제가 없으면 claims를 빈 배열로 두고, 취향에 가까운 문체 제안과 숫자 검증은 하지 마세요. 5개 이하로 쓰세요.`;
     case "analyze":
-      return "근거에서 읽을 수 있는 구조와 수치의 특징을 5개 이하 항목으로 정리하세요.";
+      return "근거에서 드러나는 관계, 변화, 의미, 특징, 주의할 점만 5개 이하로 해석하세요. 단순 field/value와 문서 구조를 반복하지 말고, 숫자나 날짜를 새로 만들지 마세요. 해석할 근거가 부족하면 claims를 빈 배열로 두세요.";
   }
 }
 

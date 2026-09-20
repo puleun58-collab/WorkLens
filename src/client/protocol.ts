@@ -1,7 +1,7 @@
 import type { AiAvailableResult, AiRequest } from "@/domain/ai";
 import type { ComparisonResult } from "@/domain/compare";
 import type { DocumentMetadata, FileKind, SourceRef } from "@/domain/document";
-import type { StructuredExtract } from "@/domain/extract";
+import type { FileExtraction, StructuredExtract } from "@/domain/extract";
 import type { ValueCheckResult } from "@/domain/value-check";
 import type { PolishCandidate } from "@/domain/polish";
 import type { EvidenceItem, ModelClaim } from "@/lib/ai/prompt";
@@ -18,7 +18,7 @@ export interface WorkspaceFile {
   warnings: string[];
 }
 
-export interface AnalyzeEntry { file: { id: string; name: string }; analysis: AnalyzeResult }
+export interface AnalyzeEntry { file: { id: string; name: string }; analysis: AnalyzeResult; extraction: FileExtraction }
 export interface CheckEntry { file: { id: string; name: string }; check: CheckResult }
 export interface ExtractEntry { file: { id: string; name: string }; extraction: ExtractResult }
 

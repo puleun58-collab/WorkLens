@@ -163,27 +163,32 @@ describe("browser evidence retrieval", () => {
     const document = pdfDocument([
       "시가총액은 3,420억원입니다.",
       "목표주가는 64,550원입니다.",
-      "연간 주요 일정은 9월과 12월입니다.",
+      "분기 운영 비용은 52억원입니다.",
     ]);
     const nodes = buildEvidenceNodes([document]);
-    const selected = selectEvidence(nodes, { operation: "brief", instruction: "시가총액" }, { limit: MAX_EVIDENCE_ITEMS });
-    expect(selected.map((node) => node.text)).toEqual(["시가총액은 3,420억원입니다."]);
+    const marketCap = selectEvidence(nodes, { operation: "brief", instruction: "시가총액" }, { limit: MAX_EVIDENCE_ITEMS });
+    const marketCapQuestion = selectEvidence(nodes, { operation: "brief", instruction: "시가총액은 얼마인가요?" }, { limit: MAX_EVIDENCE_ITEMS });
+    const cost = selectEvidence(nodes, { operation: "brief", instruction: "비용" }, { limit: MAX_EVIDENCE_ITEMS });
+    expect(marketCap.map((node) => node.text)).toEqual(["시가총액은 3,420억원입니다."]);
+    expect(marketCapQuestion.map((node) => node.text)).toEqual(["시가총액은 3,420억원입니다."]);
+    expect(cost.map((node) => node.text)).toEqual(["분기 운영 비용은 52억원입니다."]);
     expect(briefRelevance(nodes, "시가총액").supported).toBe(true);
-    expect(briefRelevance(nodes, "해외 법인 감사 일정").supported).toBe(false);
+    expect(briefRelevance(nodes, "비용").supported).toBe(true);
+    expect(briefRelevance(nodes, "주요 일정").supported).toBe(false);
   });
 
   it("keeps broad document coverage when Brief has no focus instruction", () => {
     const document = pdfDocument([
       "시가총액은 3,420억원입니다.",
       "목표주가는 64,550원입니다.",
-      "연간 주요 일정은 9월과 12월입니다.",
+      "분기 운영 비용은 52억원입니다.",
     ]);
     const nodes = buildEvidenceNodes([document]);
     const selected = selectEvidence(nodes, { operation: "brief" }, { limit: MAX_EVIDENCE_ITEMS });
     expect(selected.map((node) => node.text)).toEqual([
       "시가총액은 3,420억원입니다.",
       "목표주가는 64,550원입니다.",
-      "연간 주요 일정은 9월과 12월입니다.",
+      "분기 운영 비용은 52억원입니다.",
     ]);
   });
 
