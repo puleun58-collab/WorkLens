@@ -89,11 +89,44 @@ describe("server AI browser client", () => {
   it("maps safe configuration errors without exposing provider details", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
       error: { code: "AI_NOT_CONFIGURED", message: "provider detail must not be used" },
+      requestId: "req-config",
     }), { status: 503, headers: { "Content-Type": "application/json" } })));
 
     await expect(polishServerAi("원문입니다.", "default")).rejects.toMatchObject({
       code: "CONFIGURATION",
-      message: "AI 서비스가 구성되지 않았습니다.",
+      message: "AI 서비스 설정을 확인할 수 없습니다.",
+      operation: "polish",
+      requestId: "req-config",
+      serverCode: "AI_NOT_CONFIGURED",
+      occurredAt: expect.any(String),
+    });
+  });
+
+  it("keeps concrete capacity and provider-rejection codes ahead of HTTP status fallbacks", async () => {
+    const providerFetch = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        error: { code: "OPERATION_CAPACITY" },
+        requestId: "req-capacity",
+      }), { status: 429, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        error: { code: "AI_PROVIDER_REJECTED" },
+        requestId: "req-rejected",
+      }), { status: 502, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", providerFetch);
+
+    await expect(polishServerAi("원문입니다.", "default")).rejects.toMatchObject({
+      code: "OPERATION_CAPACITY",
+      message: "AI 작업이 많습니다. 잠시 후 다시 시도하세요.",
+      operation: "polish",
+      requestId: "req-capacity",
+      serverCode: "OPERATION_CAPACITY",
+    });
+    await expect(polishServerAi("원문입니다.", "default")).rejects.toMatchObject({
+      code: "PROVIDER_REJECTED",
+      message: "AI 서비스가 요청을 처리하지 못했습니다.",
+      operation: "polish",
+      requestId: "req-rejected",
+      serverCode: "AI_PROVIDER_REJECTED",
     });
   });
 

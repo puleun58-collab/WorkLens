@@ -1,13 +1,14 @@
 /// <reference lib="webworker" />
 import "./worker-globals";
 import { buildComparison } from "@/domain/compare";
+import { buildValueCheck } from "@/domain/value-check";
 import type { NormalizedDocument, SourceRef } from "@/domain/document";
 import { analyzeDocument, checkDocument, extractDocument } from "@/lib/deterministic";
 import { exportDocumentCsv, exportDocumentXlsx } from "@/lib/export";
 import { parseDocument } from "@/lib/parsers";
 import { buildEvidenceNodes, groundAiResult } from "@/lib/ai/grounding";
+import { askRelevance, briefRelevance, selectEvidence } from "@/lib/ai/retrieval";
 import { evidenceWindow, resolveClaims, type EvidenceWindow } from "@/lib/ai/prompt";
-import { askRelevance, selectEvidence } from "@/lib/ai/retrieval";
 import { collectPolishCandidates } from "@/lib/polish/candidates";
 import { autoExtract } from "@/lib/extract/auto";
 import { extractRequestedFields } from "@/lib/extract/fields";
@@ -113,6 +114,14 @@ async function handle(request: WorkerRequest): Promise<unknown> {
       const [base, target] = requireDocuments([request.baseFileId, request.targetFileId]);
       return buildComparison(base.document, target.document);
     }
+    case "value-check": {
+      if (request.fileIds.length < 2) {
+        throw new DocumentError("VALUE_CHECK_REQUIRES_FILES", "값 일치 확인에는 파일을 두 개 이상 선택하세요.");
+      }
+      const files = requireDocuments(request.fileIds).map((entry) =>
+        autoExtract(entry.document, { id: entry.file.id, name: entry.file.name }));
+      return buildValueCheck(files);
+    }
     case "export": {
       const selected = requireDocuments(request.fileIds);
       const combined = combineDocuments(selected);
@@ -178,12 +187,15 @@ async function handle(request: WorkerRequest): Promise<unknown> {
     case "evidence": {
       const selected = requireDocuments(request.fileIds).map((entry) => entry.document);
       const candidates = buildEvidenceNodes(selected);
-      // Ask carries a claim to check, so answerability is decided here, before
-      // the model sees anything: unrelated evidence is never sent, and the
-      // caller gets a clear "no supporting evidence" instead of a guess.
-      // Brief and Analyze summarise a whole document and keep their own path.
+      // Ask and a focused Brief carry a scope to check before inference:
+      // unrelated evidence is never sent and never falls back to a broad task.
       if (request.request.operation === "ask" && !askRelevance(candidates, request.request.question).supported) {
         throw new DocumentError("NO_EVIDENCE", "질문을 뒷받침할 근거를 선택한 문서에서 찾지 못했습니다.");
+      }
+      if (request.request.operation === "brief"
+        && request.request.instruction
+        && !briefRelevance(candidates, request.request.instruction).supported) {
+        throw new DocumentError("NO_EVIDENCE", "요약 범위와 직접 관련된 근거를 선택한 문서에서 찾지 못했습니다.");
       }
       const window = evidenceWindow(selectEvidence(candidates, request.request));
       if (window.items.length === 0) {

@@ -3,6 +3,7 @@
 import { ChangeEvent, DragEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { AiAvailableResult, AiRequest, GroundedClaim } from "@/domain/ai";
 import type { ComparisonItem, ComparisonResult } from "@/domain/compare";
+import type { ValueCheckResult, ValueCheckStatus } from "@/domain/value-check";
 import type { DocumentMetadata, SourceRef } from "@/domain/document";
 import {
   checkCategoryGroup,
@@ -34,6 +35,7 @@ import {
   type StructuredExtract,
 } from "@/domain/extract";
 import { structuredCsvExport, structuredXlsxExport } from "@/lib/extract/export";
+import { valueCheckCsvExport, valueCheckXlsxExport } from "@/lib/value-check-export";
 import { modelField } from "@/lib/extract/fields";
 import { withResolvedField } from "@/lib/extract/merge";
 import {
@@ -100,7 +102,7 @@ type NoticeScope = "workspace" | ShellView;
  * start-up failure is a different sentence from a task that failed, and
  * matching on message text to tell them apart is guesswork.
  */
-type Notice = { tone: "error" | "success" | "info" | "warning"; message: string; scope: NoticeScope; code?: ServerAiErrorCode };
+type Notice = { tone: "error" | "success" | "info" | "warning"; message: string; scope: NoticeScope; code?: ServerAiErrorCode; detail?: string };
 
 function noticePanelTitle(notice: Notice): string {
   if (notice.tone === "warning") return "기본 결과를 유지했습니다";
@@ -127,7 +129,7 @@ const completionLabels: Record<Tab, string> = {
   Extract: "추출 완료",
   Brief: "요약 완료",
 };
-type ResultStatus = { tone: "success" | "warning"; label: string; message?: string };
+type ResultStatus = { tone: "success" | "warning"; label: string; message?: string; detail?: string };
 /*
  * One label for the primary action in every feature. The visible word is
  * always 실행 — the destination already says what runs — and the accessible
@@ -142,10 +144,16 @@ const categoryLabels: Record<ComparisonItem["category"], string> = {
   "Structural Change": "구조 변경",
   "Important Change": "중요 변경",
 };
+const valueCheckStatusLabels: Record<ValueCheckStatus, string> = {
+  different: "값 차이",
+  partial: "일부 확인",
+  consistent: "일치",
+};
+type ValueCheckFilter = "all" | ValueCheckStatus;
 const severityLabels: Record<CheckFinding["severity"], string> = {
-  critical: "Critical",
-  warning: "Warning",
-  suggestion: "Suggestion",
+  critical: "중요",
+  warning: "주의",
+  suggestion: "제안",
 };
 const extractConfidenceLabels: Record<ExtractConfidence, string> = {
   high: "높음",
@@ -241,7 +249,11 @@ type SourceRole = "base" | "current";
  * The inspector always receives the full set a result row summarised, each
  * source with its own role so a comparison stays readable entry by entry.
  */
-type DetailEntry = { source: SourceRef; role?: SourceRole };
+type DetailEntry = {
+  source: SourceRef;
+  role?: SourceRole;
+  context?: { issue: string; recommendation: string };
+};
 type DetailInfo = { entries: readonly DetailEntry[] };
 
 
@@ -258,6 +270,8 @@ export default function Home() {
   const [notice, setNotice] = useState<Notice | null>(null);
   const [comparison, setComparison] = useState<ComparisonResult | null>(null);
   const [compareIds, setCompareIds] = useState<{ baseFileId: string; targetFileId: string } | null>(null);
+  const [compareMode, setCompareMode] = useState<"version" | "value-check">("version");
+  const [valueCheck, setValueCheck] = useState<ValueCheckResult | null>(null);
   const [enrichmentResult, setEnrichmentResult] = useState<AiAvailableResult | null>(null);
   const [extractMode, setExtractMode] = useState<ExtractMode>("auto");
   const [extractFields, setExtractFields] = useState<string[]>([]);
@@ -325,8 +339,8 @@ export default function Home() {
   const toggleRule = useCallback((ruleId: string) => setIgnoredRules(toggleIgnoredRule(ruleId)), []);
 
   /** Owned by the current view: navigating away retires it. */
-  const notifyView = (tone: Notice["tone"], message: string, code?: ServerAiErrorCode) =>
-    setNotice({ tone, message, scope: shellView, ...(code ? { code } : {}) });
+  const notifyView = (tone: Notice["tone"], message: string, code?: ServerAiErrorCode, detail?: string) =>
+    setNotice({ tone, message, scope: shellView, ...(code ? { code } : {}), ...(detail ? { detail } : {}) });
   /** Affects the whole tab — an upload or a workspace reset — so it follows. */
   const notifyWorkspace = (tone: Notice["tone"], message: string) => setNotice({ tone, message, scope: "workspace" });
 
@@ -334,6 +348,7 @@ export default function Home() {
     setOperationResult(null);
     setComparison(null);
     setCompareIds(null);
+    setValueCheck(null);
     setEnrichmentResult(null);
     setDetail(null);
     // Results and the message that announced them are one unit, so a
@@ -413,6 +428,23 @@ export default function Home() {
     );
   };
 
+  const reportCheckPartialAiFailure = (error: unknown) => {
+    const failure = error as Partial<ServerAiFailure>;
+    const category = failure.code === "TIMEOUT"
+      ? "응답 지연"
+      : failure.code === "RATE_LIMITED" || failure.code === "OPERATION_CAPACITY"
+        ? "사용 한도"
+        : failure.code === "CONFIGURATION"
+          ? "AI 설정 오류"
+          : "AI 연결 오류";
+    notifyView(
+      failure.code === "CANCELLED" ? "info" : "warning",
+      "기본 검수 완료 · 추가 문장 제안은 이번 실행에서 제외되었습니다.",
+      failure.code,
+      category,
+    );
+  };
+
   /**
    * The worker selects and bounds evidence; grounding remains authoritative in
    * the worker after the same-origin server returns model claims.
@@ -422,7 +454,9 @@ export default function Home() {
     const noEvidenceMessage = request.operation === "ask"
       ? "선택한 문서에서 답변에 필요한 근거를 찾지 못했습니다."
       : request.operation === "brief"
-        ? "선택한 문서에서 요약에 필요한 근거를 찾지 못했습니다."
+        ? request.instruction?.trim()
+          ? `선택한 문서에서 '${request.instruction.trim().slice(0, 80)}' 관련 내용을 찾지 못했습니다.`
+          : "선택한 문서에서 요약에 필요한 근거를 찾지 못했습니다."
         : SERVER_AI_MESSAGES.NO_EVIDENCE;
     try {
       const evidence = await runInWorker({ kind: "evidence", fileIds: selected, request });
@@ -651,19 +685,35 @@ export default function Home() {
   };
 
   const runCompare = async () => {
-    if (primaryRunInFlight.current || selected.length !== 2) return;
+    if (primaryRunInFlight.current || selected.length < 2 || (compareMode === "version" && selected.length !== 2)) return;
     primaryRunInFlight.current = true;
     setBusy(true);
     setNotice(null);
     setDetail(null);
     setEnrichmentResult(null);
     try {
+      if (compareMode === "value-check") {
+        try {
+          const result = await runInWorker({ kind: "value-check", fileIds: selected });
+          setValueCheck(result);
+          setComparison(null);
+          setCompareIds(null);
+          notifyView("success", "주요 값 일치 여부를 확인했습니다.");
+          return result;
+        } catch (error) {
+          setValueCheck(null);
+          notifyView("error", (error as ApiError).message ?? "값 일치 확인에 실패했습니다.");
+          return;
+        }
+      }
+
       const [baseFileId, targetFileId] = selected;
       let deterministic: ComparisonResult;
       try {
         deterministic = await runInWorker({ kind: "compare", baseFileId, targetFileId });
         setComparison(deterministic);
         setCompareIds({ baseFileId, targetFileId });
+        setValueCheck(null);
       } catch (error) {
         setComparison(null);
         setCompareIds(null);
@@ -756,7 +806,7 @@ export default function Home() {
         );
         return merged;
       } catch (error) {
-        reportPartialAiFailure(error, "기본 검수는 완료했습니다. 추가 문장 확인은 이번 실행에서 제외되었습니다.");
+        reportCheckPartialAiFailure(error);
         return base;
       }
     } finally {
@@ -887,6 +937,28 @@ export default function Home() {
     }
   };
 
+  const exportValueCheck = async (format: "csv" | "xlsx") => {
+    if (!valueCheck) return;
+    setBusy(true);
+    try {
+      const exported = format === "csv" ? valueCheckCsvExport(valueCheck) : await valueCheckXlsxExport(valueCheck);
+      const payload = typeof exported.content === "string"
+        ? new TextEncoder().encode(`\uFEFF${exported.content}`)
+        : exported.content;
+      const url = URL.createObjectURL(new Blob([payload as BlobPart], { type: exported.mimeType }));
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = exported.fileName;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      notifyView("success", `${format.toUpperCase()} 파일을 다운로드했습니다. 다운로드된 복사본은 사용자 기기에서 직접 관리하세요.`);
+    } catch (error) {
+      notifyView("error", (error as ApiError).message ?? "내보내기에 실패했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const deleteAll = () => {
     if (!window.confirm("이 탭에서 처리한 파일과 결과를 모두 지우시겠습니까?")) return;
     disposeWorkspace();
@@ -906,9 +978,11 @@ export default function Home() {
   const actionDisabled = busy
     || (polishTextMode
       ? polishText.trim().length === 0
-      : selected.length === 0 || (activeTab === "Compare" && selected.length !== 2) || (activeTab === "Ask" && !question.trim()));
+      : selected.length === 0
+        || (activeTab === "Compare" && (selected.length < 2 || (compareMode === "version" && selected.length !== 2)))
+        || (activeTab === "Ask" && !question.trim()));
   const hasCategoryResult = activeTab === "Compare"
-    ? comparison !== null
+    ? (compareMode === "version" ? comparison !== null : valueCheck !== null)
     : activeTab === "Polish"
       ? (polishTextMode ? polishTextRun !== null : polish !== null)
       : activeTab === "Extract" && extractMode !== "text"
@@ -922,12 +996,13 @@ export default function Home() {
   const resultStatus: ResultStatus | null = inlineResultNotice
     ? {
       tone: inlineResultNotice.tone === "warning" ? "warning" : "success",
-      label: inlineResultNotice.tone === "warning"
-        ? activeTab === "Ask" || activeTab === "Brief"
-          ? completionLabels[activeTab]
-          : activeTab === "Check" ? "검수 완료 · 일부 제외" : activeTab === "Polish" ? completionLabels[activeTab] : `${tabMeta[activeTab].label} 부분 완료`
+      label: activeTab === "Compare" && compareMode === "value-check" && inlineResultNotice.tone !== "warning"
+        ? "확인 완료"
         : completionLabels[activeTab],
-      ...(inlineResultNotice.tone === "warning" ? { message: inlineResultNotice.message } : {}),
+      ...(inlineResultNotice.tone === "warning" ? {
+        message: inlineResultNotice.message,
+        ...(inlineResultNotice.detail ? { detail: inlineResultNotice.detail } : {}),
+      } : {}),
     }
     : null;
   /**
@@ -1094,6 +1169,7 @@ export default function Home() {
                 title={noticePanelTitle(notice)}
               >
                 <p>{notice.message}</p>
+                {notice.detail ? <small>{notice.detail}</small> : null}
                 {notice.tone === "error" && !notice.code && notice.scope === "workspace"
                   ? <small>파일 형식과 선택 상태를 확인한 뒤 다시 시도하세요.</small>
                   : null}
@@ -1149,16 +1225,27 @@ export default function Home() {
 
               <section className="operation-bar" aria-label={`${tabMeta[activeTab].label} 작업`}>
                 {(activeTab === "Ask" || activeTab === "Brief") ? (
-                  <label className="question-field">
+                  <label className={`question-field${activeTab === "Brief" ? " brief-scope-field" : ""}`}>
+                    {activeTab === "Brief" ? <span>중점적으로 정리할 내용 (선택)</span> : null}
                     <input
                       value={question}
                       maxLength={2000}
                       aria-label={activeTab === "Ask" ? "질문 입력" : "요약 중점 입력"}
                       onChange={(event) => setQuestion(event.target.value)}
-                      placeholder={activeTab === "Ask" ? "선택한 문서에서 확인할 내용을 입력하세요" : "중점적으로 정리할 내용을 입력하세요 (선택)"}
+                      placeholder={activeTab === "Ask" ? "선택한 문서에서 확인할 내용을 입력하세요" : "예: 시가총액, 주요 일정, 비용 관련 내용"}
                     />
                     <small>{question.length.toLocaleString("ko-KR")} / 2,000</small>
                   </label>
+                ) : null}
+                {activeTab === "Compare" ? (
+                  <CompareControls
+                    mode={compareMode}
+                    busy={busy}
+                    onMode={(mode) => {
+                      setCompareMode(mode);
+                      clearResults();
+                    }}
+                  />
                 ) : null}
                 {activeTab === "Extract" ? (
                   <ExtractControls
@@ -1249,7 +1336,9 @@ export default function Home() {
               ) : null}
 
               {activeTab === "Compare"
-                ? <ComparisonView comparison={comparison} compareIds={compareIds} fileNames={fileNames} detail={null} onSource={openSource} onCloseSource={closeSource} status={resultStatus} />
+                ? compareMode === "version"
+                  ? <ComparisonView comparison={comparison} compareIds={compareIds} fileNames={fileNames} detail={null} onSource={openSource} onCloseSource={closeSource} status={resultStatus} />
+                  : <ValueCheckView result={valueCheck} fileNames={fileNames} onSource={openSource} status={resultStatus} busy={busy} onExport={exportValueCheck} />
                 : polishTextMode
                   ? <PolishTextResults result={polishTextRun} status={resultStatus} />
                   : activeTab === "Polish"
@@ -1415,7 +1504,7 @@ function locatorText(source: SourceRef): string {
   if (!locator) return source.label;
   switch (locator.kind) {
     case "pptx":
-      return `Slide ${locator.slide} · ${locator.tableCell ? "표" : "본문"}`;
+      return locator.tableCell ? `Slide ${locator.slide} · 표` : `Slide ${locator.slide}`;
     case "pdf":
       return `Page ${locator.page}`;
     case "xlsx":
@@ -1462,7 +1551,7 @@ interface ResultViewProps {
 const workSectionCopy: Record<Tab, [string, string]> = {
   Analyze: ["문서 분석", "선택한 파일의 구조와 주요 수치를 분석합니다."],
   Ask: ["질문하기", "선택한 파일을 근거로 질문에 답합니다."],
-  Compare: ["파일 비교", "선택한 파일 간 주요 변경 사항과 차이를 비교합니다."],
+  Compare: ["파일 비교", "선택한 파일의 변경 사항이나 주요 값 차이를 확인합니다."],
   Check: ["문서 검수", "선택한 파일의 문장·일관성·데이터·개인정보를 검수합니다."],
   Polish: ["문서 윤문", "선택한 파일의 번역투와 중복 표현을 문장 단위로 다듬습니다."],
   Extract: ["정보 추출", "선택한 파일에서 필요한 항목과 값을 찾아 정리합니다."],
@@ -1484,7 +1573,12 @@ function ResultHeader({ eyebrow, title, status, meta }: {
           {status ? <span className={`result-status ${status.tone}`} role="status">{status.label}</span> : null}
         </div>
       </div>
-      {status?.message ? <p className="result-inline-warning" role="status">{status.message}</p> : null}
+      {status?.message ? (
+        <p className="result-inline-warning" role="status">
+          <span>{status.message}</span>
+          {status.detail ? <small>{status.detail}</small> : null}
+        </p>
+      ) : null}
     </>
   );
 }
@@ -1513,12 +1607,14 @@ function ResultView({ tab, result, enrichment, status, fileNames, detail, onSour
   return (
     <section className="panel results-panel">
       <ResultHeader
-        {...(tab === "Ask" || tab === "Brief" || tab === "Check" || tab === "Extract" ? {} : { eyebrow: `${tab.toUpperCase()} RESULT` })}
-        title={tab === "Ask" ? "파일 답변" : tab === "Check" ? "검수 결과" : tab === "Extract" ? "추출 결과" : tab === "Brief" ? "핵심 요약" : "작업 결과"}
+        {...(tab === "Ask" || tab === "Brief" || tab === "Check" || tab === "Extract" || tab === "Analyze" ? {} : { eyebrow: `${tab.toUpperCase()} RESULT` })}
+        title={tab === "Analyze" ? "분석 결과" : tab === "Ask" ? "파일 답변" : tab === "Check" ? "검수 결과" : tab === "Extract" ? "추출 결과" : tab === "Brief" ? "핵심 요약" : "작업 결과"}
         status={status}
         {...(tab === "Extract"
           ? { meta: resultActions }
-          : tab === "Ask" || tab === "Brief" || tab === "Check" ? {} : { meta: <span className="result-provenance">근거 연결 결과</span> })}
+          : tab === "Brief" && isAiAvailableResult(result) && result.operation === "brief"
+            ? { meta: <CopyButton text={briefClipboardText(result.claims)} label="요약 복사" /> }
+            : tab === "Ask" || tab === "Check" || tab === "Analyze" ? {} : { meta: <span className="result-provenance">근거 연결 결과</span> })}
       />
       {content}
       {detail ? <SourceDetail entries={detail.entries} fileNames={fileNames} onClose={onCloseSource} /> : null}
@@ -1555,6 +1651,35 @@ function isAiAvailableResult(value: unknown): value is AiAvailableResult {
  * fields. The field list is the schema, reused for every selected file, so ten
  * monthly reports become ten rows of the same columns.
  */
+function CompareControls({ mode, busy, onMode }: {
+  mode: "version" | "value-check";
+  busy: boolean;
+  onMode: (mode: "version" | "value-check") => void;
+}) {
+  return (
+    <div className="compare-controls">
+      <fieldset className="segmented compare-modes" aria-label="비교 방식">
+        {(["version", "value-check"] as const).map((entry) => (
+          <label key={entry}>
+            <input
+              type="radio"
+              name="compare-mode"
+              value={entry}
+              checked={mode === entry}
+              disabled={busy}
+              onChange={() => onMode(entry)}
+            />
+            <span>{entry === "version" ? "버전 비교" : "값 일치 확인"}</span>
+          </label>
+        ))}
+      </fieldset>
+      <p>{mode === "version"
+        ? "두 파일의 변경 사항을 비교합니다."
+        : "두 개 이상 파일의 주요 값이 서로 일치하는지 확인합니다."}</p>
+    </div>
+  );
+}
+
 function ExtractControls({ mode, fields, busy, runDisabled, onMode, onFields, onRun }: {
   mode: ExtractMode;
   fields: string[];
@@ -1640,6 +1765,7 @@ function StructuredExtractResults({ result, fileNames, onSource, status, busy, o
     ? result.requestedFields
     : [...new Set(result.files.flatMap((file) => file.fields.map((field) => field.field)))];
   const isEmpty = result.summary.fields === 0 && result.summary.records === 0;
+  const confirmCount = result.summary.missing + result.summary.lowConfidence;
 
   return (
     <section className="panel results-panel extract-results">
@@ -1647,9 +1773,8 @@ function StructuredExtractResults({ result, fileNames, onSource, status, busy, o
       <div className="extract-result-toolbar">
         <p className="check-summary-line">
           <span className="metric">추출 항목 <b>{result.summary.fields}</b></span>
-          <span className={`metric${result.summary.missing ? " needs-review" : ""}`}>확인 필요 <b>{result.summary.missing}</b></span>
+          {confirmCount ? <span className="metric needs-review">확인 필요 <b>{confirmCount}</b></span> : null}
           {result.summary.records ? <span className="metric">반복 표 <b>{result.summary.records}</b></span> : null}
-          {result.summary.lowConfidence ? <span className="metric needs-review">낮은 확신 <b>{result.summary.lowConfidence}</b></span> : null}
         </p>
         {!isEmpty && result.summary.fields > 0
           ? <ExtractExportButtons busy={busy} onExport={onExport} />
@@ -1677,21 +1802,27 @@ function StructuredExtractResults({ result, fileNames, onSource, status, busy, o
             <span role="columnheader">근거</span>
           </div>
           {result.files.flatMap((file) => columns.map((column) => {
-            const field = file.fields.find((entry) => entry.field === column);
+            const matches = file.fields.filter((entry) => entry.field === column);
+            const distinctValues = new Set(matches.map((entry) => entry.displayValue)).size;
             return (
               <div className="data-row" role="row" key={`${file.file.id}-${column}`}>
                 {multiFile ? <span role="cell" data-label="파일" title={file.file.name}>{file.file.name}</span> : null}
                 <span role="cell" data-label="항목" className="extract-field-name">{column}</span>
-                {field ? (
-                  <span role="cell" data-label="값" className="extract-field-value" title={field.normalizedValue ? `정규화: ${field.normalizedValue}` : undefined}>
-                    <span>{field.displayValue}</span>
-                    {field.type !== "Text" || field.confidence
-                      ? <small>{EXTRACT_TYPE_LABELS[field.type]}{field.confidence ? ` · 확신 ${extractConfidenceLabels[field.confidence]}` : ""}</small>
-                      : null}
+                {matches.length ? (
+                  <span role="cell" data-label="값" className="extract-field-value">
+                    {matches.map((field, index) => (
+                      <span key={`${field.displayValue}-${index}`} title={field.normalizedValue ? `정규화: ${field.normalizedValue}` : undefined}>
+                        {field.displayValue}
+                        {field.type !== "Text" || field.confidence
+                          ? <small>{EXTRACT_TYPE_LABELS[field.type]}{field.confidence ? ` · 확신 ${extractConfidenceLabels[field.confidence]}` : ""}</small>
+                          : null}
+                      </span>
+                    ))}
+                    {distinctValues > 1 ? <small className="extract-conflict">서로 다른 값 {distinctValues}개</small> : null}
                   </span>
                 ) : <span role="cell" data-label="값" className="extract-missing">문서에서 찾지 못함</span>}
                 <span role="cell" data-label="근거">
-                  {field ? <CompactResultSource sources={field.sources} fileNames={fileNames} onSource={onSource} /> : <span className="source-empty">근거 없음</span>}
+                  {matches.length ? <CompactResultSource sources={matches.flatMap((field) => field.sources)} fileNames={fileNames} onSource={onSource} /> : <span className="source-empty">근거 없음</span>}
                 </span>
               </div>
             );
@@ -1958,12 +2089,13 @@ function PolishTextResults({ result, status }: { result: PolishTextResult | null
  * every SourceRef reaches the inspector, which lists them one by one — so
  * this is presentation only and grounding is untouched.
  */
-function ResultSource({ sources, fileNames, onSource, roleOf, emptyLabel = "근거 위치 없음" }: {
+function ResultSource({ sources, fileNames, onSource, roleOf, emptyLabel = "근거 위치 없음", context }: {
   sources: readonly SourceRef[];
   fileNames: Map<string, string>;
   onSource: SourceHandler;
   roleOf?: (source: SourceRef) => SourceRole | undefined;
   emptyLabel?: string;
+  context?: DetailEntry["context"];
 }) {
   if (sources.length === 0) return <span className="source-empty">{emptyLabel}</span>;
   const acrossFiles = new Set(sources.map((source) => source.fileId)).size > 1;
@@ -2003,7 +2135,7 @@ function ResultSource({ sources, fileNames, onSource, roleOf, emptyLabel = "근�
         type="button"
         className="source-action"
         aria-label={ariaLabel}
-        onClick={(event) => onSource(sources.map((source) => ({ source, role: roleOf?.(source) })), event.currentTarget)}
+        onClick={(event) => onSource(sources.map((source) => ({ source, role: roleOf?.(source), context })), event.currentTarget)}
       >근거 보기</button>
     </span>
   );
@@ -2047,51 +2179,68 @@ function AnalyzeResults({ entries, enrichment, fileNames, onSource }: {
   onSource: SourceHandler;
 }) {
   const presentation = analysisClaimPresentation(enrichment);
-  const fallbackMetrics = entries.flatMap(({ file, analysis }) => analysis.numeric.count > 0 ? [
-    { id: `${file.id}-count`, label: `${file.name} · 숫자 값`, value: analysis.numeric.count.toLocaleString("ko-KR"), sources: analysis.numeric.sources },
-    { id: `${file.id}-sum`, label: `${file.name} · 합계`, value: analysis.numeric.sum.toLocaleString("ko-KR"), sources: analysis.numeric.sources },
-    { id: `${file.id}-average`, label: `${file.name} · 평균`, value: analysis.numeric.average.toLocaleString("ko-KR", { maximumFractionDigits: 2 }), sources: analysis.numeric.sources },
-    { id: `${file.id}-range`, label: `${file.name} · 범위`, value: `${analysis.numeric.minimum.toLocaleString("ko-KR")} ~ ${analysis.numeric.maximum.toLocaleString("ko-KR")}`, sources: analysis.numeric.sources },
-  ] : []);
-  const metrics = presentation.metrics.length ? presentation.metrics : fallbackMetrics;
+  const verifiedTotals = entries.flatMap(({ file, analysis }) =>
+    analysis.totals.filter((total) => total.actual === total.expected).map((total) => ({
+      id: `${file.id}-${total.source.nodeId}`,
+      label: `${file.name} · ${total.label}`,
+      value: total.actual.toLocaleString("ko-KR"),
+      sources: [total.source],
+    })));
+  const metrics = presentation.metrics.length ? presentation.metrics : verifiedTotals;
   const mismatches = entries.flatMap(({ file, analysis }) =>
     analysis.totals.filter((total) => total.actual !== total.expected).map((total) => ({ file, total })));
   const sourcesOf = (claim: GroundedClaim) => claim.evidence.map((binding) => binding.source);
-  const renderClaim = (claim: GroundedClaim) => (
-    <article className="analysis-reading-row" key={claim.id}>
+  const renderClaim = (claim: GroundedClaim, concern = false) => (
+    <article className={`analysis-reading-row${concern ? " concern" : ""}`} key={claim.id}>
       <p>{claimDisplayText(claim)}</p>
       <div className="analysis-reading-actions">
         <ResultSource sources={sourcesOf(claim)} fileNames={fileNames} onSource={onSource} />
       </div>
     </article>
   );
+  const useFallback = presentation.summary.length === 0;
+  const summaryCount = presentation.summary.length
+    + (useFallback ? entries.length : 0)
+    + presentation.concerns.length
+    + presentation.warnings.length
+    + mismatches.length;
 
   return (
     <div className="analysis-report">
       <section className="analysis-report-section analysis-summary-section" aria-labelledby="analysis-summary-title">
         <div className="subsection-heading">
           <h3 id="analysis-summary-title">핵심 요약</h3>
-          <span>{presentation.summary.length || entries.length}건</span>
+          <span>{summaryCount}건</span>
         </div>
-        {presentation.summary.length ? (
-          <div className="analysis-reading-list">{presentation.summary.map((claim) => renderClaim(claim))}</div>
-        ) : (
-          <div className="analysis-reading-list">
-            {entries.map(({ file, analysis }) => {
-              const sources = analysis.structure.tables.map((table) => table.source);
-              return (
-                <article className="analysis-reading-row" key={file.id}>
-                  <p>
-                    <strong>{file.name}</strong>에서 표 {analysis.structure.tableCount.toLocaleString("ko-KR")}개,
-                    문단 {analysis.structure.paragraphCount.toLocaleString("ko-KR")}개,
-                    숫자 값 {analysis.numeric.count.toLocaleString("ko-KR")}개를 확인했습니다.
-                  </p>
-                  {sources.length ? <ResultSource sources={sources} fileNames={fileNames} onSource={onSource} /> : null}
-                </article>
-              );
-            })}
-          </div>
-        )}
+        <div className="analysis-reading-list">
+          {presentation.summary.map((claim) => renderClaim(claim))}
+          {useFallback ? entries.map(({ file, analysis }) => {
+            const hasTables = analysis.structure.tableCount > 0;
+            const hasParagraphs = analysis.structure.paragraphCount > 0;
+            const description = hasTables && hasParagraphs
+              ? "표와 서술형 문단을 함께 포함한 혼합형 문서입니다."
+              : hasTables
+                ? "표 중심의 문서로, 구조화된 데이터와 명시된 합계 항목을 확인할 수 있습니다."
+                : "서술형 문단 중심의 문서입니다.";
+            const sources = analysis.structure.tables.map((table) => table.source);
+            return (
+              <article className="analysis-reading-row" key={file.id}>
+                <p><strong>{file.name}</strong>은 {description}</p>
+                {sources.length ? <ResultSource sources={sources} fileNames={fileNames} onSource={onSource} /> : null}
+              </article>
+            );
+          }) : null}
+          {presentation.concerns.map((claim) => renderClaim(claim, true))}
+          {presentation.warnings.map((warning) => (
+            <p className="analysis-warning-line" key={`${warning.code}-${warning.message}`}>{warning.message}</p>
+          ))}
+          {mismatches.map(({ file, total }) => (
+            <article className="analysis-reading-row concern" key={`${file.id}-${total.source.nodeId}`}>
+              <p><strong>{file.name}</strong>의 {total.label} 표시값 {total.actual.toLocaleString("ko-KR")}과 계산값 {total.expected.toLocaleString("ko-KR")}이 일치하지 않습니다.</p>
+              <ResultSource sources={[total.source]} fileNames={fileNames} onSource={onSource} />
+            </article>
+          ))}
+        </div>
       </section>
 
       {metrics.length ? (
@@ -2113,77 +2262,6 @@ function AnalyzeResults({ entries, enrichment, fileNames, onSource }: {
           </div>
         </section>
       ) : null}
-
-      {presentation.content.length ? (
-        <section className="analysis-report-section" aria-labelledby="analysis-content-title">
-          <div className="subsection-heading"><h3 id="analysis-content-title">주요 내용</h3><span>{presentation.content.length}건</span></div>
-          <div className="analysis-reading-list">
-            {presentation.content.slice(0, 6).map((claim) => renderClaim(claim))}
-          </div>
-          {presentation.content.length > 6 ? (
-            <details className="analysis-more">
-              <summary>상세 내용 {presentation.content.length - 6}건 보기</summary>
-              <div className="analysis-reading-list">{presentation.content.slice(6).map((claim) => renderClaim(claim))}</div>
-            </details>
-          ) : null}
-        </section>
-      ) : null}
-
-      {presentation.concerns.length || presentation.warnings.length || mismatches.length ? (
-        <section className="analysis-report-section analysis-concerns" aria-labelledby="analysis-concerns-title">
-          <div className="subsection-heading"><h3 id="analysis-concerns-title">주의 / 확인 필요</h3></div>
-          {presentation.concerns.map((claim) => renderClaim(claim))}
-          {presentation.warnings.map((warning) => <p className="analysis-warning-line" key={warning.code}><strong>{warning.code}</strong>{warning.message}</p>)}
-          {mismatches.map(({ file, total }) => (
-            <article className="analysis-reading-row" key={`${file.id}-${total.source.nodeId}`}>
-              <p><strong>{file.name}</strong>의 {total.label} 표시값 {total.actual.toLocaleString("ko-KR")}과 계산값 {total.expected.toLocaleString("ko-KR")}이 일치하지 않습니다.</p>
-              <ResultSource sources={[total.source]} fileNames={fileNames} onSource={onSource} />
-            </article>
-          ))}
-        </section>
-      ) : null}
-
-      <details className="analysis-details">
-        <summary>기본 분석 세부 정보</summary>
-        <div className="result-sections">
-          {entries.map(({ file, analysis }) => (
-            <article className="document-result" key={file.id}>
-              <header className="document-result-heading"><div><span>FILE ANALYSIS</span><h3 title={file.name}>{file.name}</h3></div><small>{analysis.structure.tableCount} tables · {analysis.structure.paragraphCount} paragraphs</small></header>
-              <dl className="summary executive-summary">
-                <div><dt>numeric values</dt><dd>{analysis.numeric.count.toLocaleString("ko-KR")}</dd></div>
-                <div><dt>Sum</dt><dd>{analysis.numeric.sum.toLocaleString("ko-KR")}</dd></div>
-                <div><dt>Average</dt><dd>{analysis.numeric.average.toLocaleString("ko-KR", { maximumFractionDigits: 2 })}</dd></div>
-                <div><dt>Minimum</dt><dd>{analysis.numeric.minimum.toLocaleString("ko-KR")}</dd></div>
-                <div><dt>Maximum</dt><dd>{analysis.numeric.maximum.toLocaleString("ko-KR")}</dd></div>
-                <div><dt>Characters</dt><dd>{analysis.text.characterCount.toLocaleString("ko-KR")}</dd></div>
-              </dl>
-              {analysis.structure.tables.length ? (
-                <section className="result-subsection">
-                  <div className="subsection-heading"><h4>구조</h4><span>{analysis.structure.tables.length}개 표</span></div>
-                  <div className="data-table analyze-table" role="table" aria-label={`${file.name} 표 구조`}>
-                    <div className="data-head" role="row"><span role="columnheader">위치</span><span role="columnheader">행</span><span role="columnheader">열</span><span role="columnheader">근거</span></div>
-                    {analysis.structure.tables.map((table) => <div className="data-row" role="row" key={table.blockId}><span role="cell" title={table.source.label}>{table.source.label}</span><span role="cell" className="numeric">{table.rowCount.toLocaleString("ko-KR")}</span><span role="cell" className="numeric">{table.columnCount.toLocaleString("ko-KR")}</span><span role="cell"><ResultSource sources={[table.source]} fileNames={fileNames} onSource={onSource} /></span></div>)}
-                  </div>
-                </section>
-              ) : null}
-              {analysis.totals.length ? (
-                <section className="result-subsection">
-                  <div className="subsection-heading"><h4>명시된 합계 검증</h4><span>{analysis.totals.length}건</span></div>
-                  {analysis.totals.map((total) => (
-                    <div className={`total-row${total.actual === total.expected ? " verified" : " mismatch"}`} key={`${total.label}-${total.source.nodeId}`}>
-                      <strong title={total.label}>{total.label}</strong>
-                      <span>표시값 <b className="numeric">{total.actual.toLocaleString("ko-KR")}</b></span>
-                      <span>계산값 <b className="numeric">{total.expected.toLocaleString("ko-KR")}</b></span>
-                      <span className="verification-label">{total.actual === total.expected ? "일치" : "불일치"}</span>
-                      <ResultSource sources={[total.source]} fileNames={fileNames} onSource={onSource} />
-                    </div>
-                  ))}
-                </section>
-              ) : null}
-            </article>
-          ))}
-        </div>
-      </details>
     </div>
   );
 }
@@ -2207,7 +2285,6 @@ function CheckResults({ entries, fileNames, onSource, userTerms, ignoredRules, o
 
   const [groupFilter, setGroupFilter] = useState<"all" | CheckCategoryGroup>("all");
   const [showLowConfidence] = useState(false);
-  const [expandedFindingId, setExpandedFindingId] = useState<string | null>(null);
   const [ignoredIds, setIgnoredIds] = useState<string[]>([]);
   const [dictionaryOpen, setDictionaryOpen] = useState(false);
   const [page, setPage] = useState(0);
@@ -2265,23 +2342,18 @@ function CheckResults({ entries, fileNames, onSource, userTerms, ignoredRules, o
     () => filtered.slice(currentPage * PAGE_SIZE, currentPage * PAGE_SIZE + PAGE_SIZE),
     [filtered, currentPage],
   );
-  const byId = useMemo(() => new Map(indexed.map(({ finding }) => [finding.id, finding])), [indexed]);
-
   const resetPage = () => setPage(0);
   const ignoreFinding = (id: string) => {
     setIgnoredIds((current) => [...current, id]);
-    setExpandedFindingId(null);
   };
   const addTerm = (term: string) => {
     onAddTerm(term);
-    setExpandedFindingId(null);
   };
 
   return (
     <div className="result-sections check-results">
       <section className="qa-overview" aria-label="검수 요약">
         <div className="qa-intro">
-          <h3>문서 품질 검수</h3>
           <p>문장·일관성·데이터·개인정보를 확인한 결과입니다.</p>
           {totals.truncated ? (
             <small className="check-truncation" data-testid="check-truncation">
@@ -2291,7 +2363,7 @@ function CheckResults({ entries, fileNames, onSource, userTerms, ignoredRules, o
         </div>
         <dl className="qa-summary" aria-label="심각도 요약">
           {(["critical", "warning", "suggestion"] as const).map((severity) => (
-            <div key={severity}>
+            <div key={severity} data-empty={counts[severity] === 0}>
               <span className={`severity-mark ${severity}`} aria-hidden="true" />
               <dt>{severityLabels[severity]}</dt>
               <dd>{counts[severity]}</dd>
@@ -2363,11 +2435,10 @@ function CheckResults({ entries, fileNames, onSource, userTerms, ignoredRules, o
             <>
               <section className="check-list" aria-label="문서 검수 이슈">
                 {visible.map(({ finding, file }) => {
-                  const expanded = expandedFindingId === finding.id;
                   const sources = finding.sources.length ? finding.sources : [finding.source];
                   const group = checkCategoryGroup(finding.category);
                   return (
-                    <article className={`check-issue severity-${finding.severity}${expanded ? " expanded" : ""}`} key={finding.id} data-confidence={finding.confidence}>
+                    <article className={`check-issue severity-${finding.severity}`} key={finding.id} data-confidence={finding.confidence}>
                       <div className="check-issue-row">
                         <div className="check-issue-meta">
                           <span className="check-severity"><i className={`severity-mark ${finding.severity}`} aria-hidden="true" />{severityLabels[finding.severity]}</span>
@@ -2383,47 +2454,26 @@ function CheckResults({ entries, fileNames, onSource, userTerms, ignoredRules, o
                         <div className="check-issue-support">
                           <div className="check-source">
                             <span className="check-field-label">근거</span>
-                            <ResultSource sources={sources} fileNames={fileNames} onSource={onSource} />
+                            <ResultSource
+                              sources={sources}
+                              fileNames={fileNames}
+                              onSource={onSource}
+                              context={{ issue: finding.issue, recommendation: finding.recommendation }}
+                            />
                           </div>
                           <div className="check-recommendation">
                             <span className="check-field-label">권고</span>
                             <p>{finding.recommendation}</p>
                           </div>
                         </div>
-                        <button
-                          type="button"
-                          className="issue-detail-toggle"
-                          aria-expanded={expanded}
-                          aria-label={`${finding.issue} ${expanded ? "닫기" : "상세 보기"}`}
-                          onClick={() => setExpandedFindingId(expanded ? null : finding.id)}
-                        >{expanded ? "닫기" : "상세 보기"}</button>
-                      </div>
-                      {expanded ? (
-                        <div className="check-issue-detail">
-                          <div><span>이유</span><p>{finding.reason}</p></div>
-                          {finding.originalText ? <div className="original-copy"><span>원문</span><blockquote>{finding.originalText}</blockquote></div> : null}
-                          {finding.suggestedText ? (
-                            <div className="suggested-copy">
-                              <span>제안</span>
-                              <blockquote>{finding.suggestedText}</blockquote>
-                            </div>
-                          ) : null}
-                          {finding.relatedFindingIds?.length ? (
-                            <div className="related-findings"><span>관련 이슈</span><div>{finding.relatedFindingIds.map((id) => {
-                              const related = byId.get(id);
-                              return related ? <button type="button" key={id} onClick={() => setExpandedFindingId(id)}>{related.issue}</button> : null;
-                            })}</div></div>
-                          ) : null}
-                          <div className="finding-actions">
-                            <span>작업</span>
-                            <button type="button" onClick={() => ignoreFinding(finding.id)}>이번 항목 무시</button>
-                            <button type="button" onClick={() => onToggleRule(finding.ruleId)}>동일 규칙 무시</button>
-                            {finding.dictionaryEligible && finding.normalizedToken
-                              ? <button type="button" onClick={() => addTerm(finding.normalizedToken!)}>내 용어에 추가</button>
-                              : null}
-                          </div>
+                        <div className="finding-actions" aria-label={`${finding.issue} 작업`}>
+                          <button type="button" onClick={() => ignoreFinding(finding.id)}>이번 항목 제외</button>
+                          <button type="button" onClick={() => onToggleRule(finding.ruleId)}>동일 규칙 무시</button>
+                          {finding.dictionaryEligible && finding.normalizedToken
+                            ? <button type="button" onClick={() => addTerm(finding.normalizedToken!)}>내 용어에 추가</button>
+                            : null}
                         </div>
-                      ) : null}
+                      </div>
                     </article>
                   );
                 })}
@@ -2510,6 +2560,11 @@ function AskResults({ result, fileNames, onSource }: {
   );
 }
 
+function briefClipboardText(claims: readonly GroundedClaim[]): string {
+  const lines = claims.map(claimDisplayText).filter(Boolean);
+  return lines.length <= 1 ? (lines[0] ?? "") : lines.map((line) => `- ${line}`).join("\n");
+}
+
 function BriefResults({ result, fileNames, onSource }: {
   result: AiAvailableResult;
   fileNames: Map<string, string>;
@@ -2517,10 +2572,13 @@ function BriefResults({ result, fileNames, onSource }: {
 }) {
   if (result.operation !== "brief") return null;
   const claimsWithSources = result.claims.filter((claim) => claim.evidence.length > 0);
+  const summary = result.claims.map(claimDisplayText).filter(Boolean);
   return (
     <div className="ask-result brief-result">
       <section className="ask-answer brief-body" aria-label="요약 본문">
-        <p>{result.brief}</p>
+        {summary.length === 1 ? <p>{summary[0]}</p> : (
+          <ul>{summary.map((line, index) => <li key={`${index}-${line}`}>{line}</li>)}</ul>
+        )}
       </section>
       {claimsWithSources.length ? (
         <section className="ask-evidence brief-evidence" aria-labelledby="brief-evidence-title">
@@ -2644,6 +2702,106 @@ function ComparisonView({ comparison, compareIds, fileNames, detail, onSource, o
   );
 }
 
+function ValueCheckView({ result, fileNames, onSource, status, busy, onExport }: {
+  result: ValueCheckResult | null;
+  fileNames: Map<string, string>;
+  onSource: SourceHandler;
+  status: ResultStatus | null;
+  busy: boolean;
+  onExport: (format: "csv" | "xlsx") => void | Promise<void>;
+}) {
+  const [filter, setFilter] = useState<ValueCheckFilter>("all");
+  if (!result) return null;
+
+  const visible = filter === "all"
+    ? result.groups
+    : result.groups.filter((group) => group.status === filter);
+  const filters: Array<{ key: ValueCheckFilter; label: string; count: number }> = [
+    { key: "all", label: "전체", count: result.summary.total },
+    { key: "different", label: "값 차이", count: result.summary.different },
+    { key: "consistent", label: "일치", count: result.summary.consistent },
+    { key: "partial", label: "일부 확인", count: result.summary.partial },
+  ];
+
+  return (
+    <section className="panel results-panel value-check-panel">
+      <ResultHeader
+        title="값 일치 확인 결과"
+        status={status}
+        meta={result.groups.length ? <ExtractExportButtons busy={busy} onExport={onExport} /> : undefined}
+      />
+      <div className="value-check-toolbar">
+        <p className="check-summary-line">
+          <span className="metric">비교 항목 <b>{result.summary.total}</b></span>
+          <span className={`metric${result.summary.different ? " needs-review" : ""}`}>값 차이 <b>{result.summary.different}</b></span>
+          <span className="metric">일치 <b>{result.summary.consistent}</b></span>
+          <span className="metric">일부 확인 <b>{result.summary.partial}</b></span>
+        </p>
+        {result.groups.length ? (
+          <fieldset className="segmented value-check-filters" aria-label="값 일치 결과 필터">
+            {filters.map((entry) => (
+              <label key={entry.key}>
+                <input
+                  type="radio"
+                  name="value-check-filter"
+                  value={entry.key}
+                  checked={filter === entry.key}
+                  onChange={() => setFilter(entry.key)}
+                />
+                <span>{entry.label} {entry.count}</span>
+              </label>
+            ))}
+          </fieldset>
+        ) : null}
+      </div>
+
+      {result.groups.length === 0 ? (
+        <StatusPanel variant="info" className="result-clear" title="공통으로 비교할 수 있는 항목이 없습니다.">
+          <p>선택한 파일에서 같은 항목명이 두 개 이상 확인되면 값 일치 여부를 보여 줍니다.</p>
+        </StatusPanel>
+      ) : visible.length === 0 ? (
+        <p className="value-check-filter-empty">이 상태에 해당하는 항목이 없습니다.</p>
+      ) : (
+        <div className="value-check-list" aria-label="값 일치 확인 항목">
+          {visible.map((group) => {
+            const collapsed = group.status === "consistent";
+            const values = [...new Set(group.occurrences.map((entry) => entry.displayValue))];
+            const sources = group.occurrences.flatMap((entry) => entry.sources);
+            return (
+              <article className="value-check-group" key={group.id} data-testid="value-check-group" data-status={group.status}>
+                <header>
+                  <h3>{group.field}</h3>
+                  <span className={`value-check-status status-${group.status}`}>{valueCheckStatusLabels[group.status]}</span>
+                </header>
+                {group.missingFileIds.length ? (
+                  <p className="value-check-missing">확인되지 않음: {group.missingFileIds.map((fileId) => fileNames.get(fileId) ?? fileId).join(" · ")}</p>
+                ) : null}
+                <div className="value-check-occurrences">
+                  {collapsed ? (
+                    <div className="value-check-occurrence">
+                      <span data-label="파일">{group.occurrences.map((entry) => fileNames.get(entry.fileId) ?? entry.fileName).join(" · ")}</span>
+                      <strong data-label="값">{values.join(" · ")}</strong>
+                      <span data-label="타입">{EXTRACT_TYPE_LABELS[group.type]}</span>
+                      <div data-label="근거"><ResultSource sources={sources} fileNames={fileNames} onSource={onSource} /></div>
+                    </div>
+                  ) : group.occurrences.map((entry) => (
+                    <div className="value-check-occurrence" key={entry.id}>
+                      <span data-label="파일" title={entry.fileName}>{fileNames.get(entry.fileId) ?? entry.fileName}</span>
+                      <strong data-label="값">{entry.displayValue}</strong>
+                      <span data-label="타입">{EXTRACT_TYPE_LABELS[entry.type]}</span>
+                      <div data-label="근거"><ResultSource sources={entry.sources} fileNames={fileNames} onSource={onSource} /></div>
+                    </div>
+                  ))}
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
 /**
  * The inspector groups only byte-identical quotes from the same file. Every
  * SourceRef remains in the group so location coverage is preserved.
@@ -2684,6 +2842,14 @@ function SourceDetail({ entries, fileNames, onClose }: {
         <button type="button" onClick={onClose} aria-label="닫기">닫기</button>
       </header>
       <div className="evidence-type"><span>원문</span><p>문서에서 확인된 근거 · {entries.length.toLocaleString("ko-KR")}곳</p></div>
+      {[...new Map(entries.flatMap((entry) => entry.context
+        ? [[`${entry.context.issue}\0${entry.context.recommendation}`, entry.context] as const]
+        : [])).values()].map((context) => (
+        <section className="evidence-context" key={`${context.issue}\0${context.recommendation}`}>
+          <div><span>이슈</span><p>{context.issue}</p></div>
+          <div><span>권고</span><p>{context.recommendation}</p></div>
+        </section>
+      ))}
       {groups.map((group, index) => {
         const [lead] = group.entries;
         const locations = [...new Set(group.entries.map(({ source, role }) => {

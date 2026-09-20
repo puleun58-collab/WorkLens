@@ -27,6 +27,22 @@ const DATE_PATTERN = /(?:[0-9]{4}[-./][0-9]{1,2}(?:[-./][0-9]{1,2})?|[0-9]{1,2}\
 const CURRENCY_PATTERN = /(?:₩|\$|€|¥|원|달러|만원|억원)/gu;
 /** Same alternation without `g`, because a global regex keeps `lastIndex`. */
 const HAS_CURRENCY = /(?:₩|\$|€|¥|원|달러|만원|억원)/u;
+const BRIEF_SCOPE_STOPWORDS = new Set(["관련", "내용", "정리", "중점", "요약", "대해", "대한", "관한", "사항", "정보"]);
+
+function briefScopeTerms(instruction: string): string[] {
+  const terms = normalizeText(instruction).match(TOKEN_PATTERN) ?? [];
+  return [...new Set(terms
+    .map((term) => /^[가-힣]+$/u.test(term) && term.length > 2 ? term.replace(/[은는이가을를와과의에]$/u, "") : term)
+    .filter((term) => (term.length > 1 || /^[0-9]/u.test(term)) && !BRIEF_SCOPE_STOPWORDS.has(term)))];
+}
+
+function briefScopeCoverage(nodes: readonly AiEvidenceNode[], instruction: string): number {
+  const terms = briefScopeTerms(instruction);
+  if (terms.length === 0) return 0;
+  const corpus = nodes.map((node) => normalizeText(`${node.text} ${node.source.label}`));
+  const matched = terms.filter((term) => corpus.some((text) => text.includes(term))).length;
+  return matched / terms.length;
+}
 
 export function normalizeText(value: string): string {
   return value.normalize("NFKC").toLocaleLowerCase("ko-KR").replace(/\s+/gu, " ").trim();
@@ -217,10 +233,10 @@ export function selectEvidence(
   const limit = options.limit ?? 40;
   const query = queryOf(request).trim();
   const scoreAsk = request.operation === "ask" && query.length > 0;
-  // A short document is not automatically a relevant one: Ask still scores
-  // every candidate so unrelated rows never ride into the prompt just because
-  // they fit. Whole-document tasks keep taking everything that fits.
-  if (nodes.length <= limit && !scoreAsk) return [...nodes];
+  const scoreFocusedBrief = request.operation === "brief" && query.length > 0;
+  // Short focused tasks still rank and filter: fitting in the window does not
+  // make unrelated evidence relevant. Whole-document tasks keep everything.
+  if (nodes.length <= limit && !scoreAsk && !scoreFocusedBrief) return [...nodes];
   const relevance = query ? relevanceScores(nodes, query) : undefined;
   const importance = importanceScores(nodes);
   const ranked: RankedEvidence[] = nodes.map((node, order) => ({
@@ -231,10 +247,19 @@ export function selectEvidence(
 
   const sorted = [...ranked].sort((left, right) => right.score - left.score || left.order - right.order);
 
-  // A question is answered by the strongest matches, with a per-section cap so
-  // one dense sheet cannot own the window; a whole-document task (Brief,
-  // Analyze) is balanced across sections from the start.
-  if (!query || request.operation === "brief" || request.operation === "analyze") {
+  // A focused Brief is a scope, not a whole-document importance hint. Only
+  // candidates touched by that scope enter the bounded prompt window.
+  if (scoreFocusedBrief && relevance) {
+    const requiredCoverage = briefScopeTerms(query).length > 1 ? 0.5 : 1;
+    return sorted
+      .filter((entry) => relevance[entry.order] > 0 && briefScopeCoverage([entry.node], query) >= requiredCoverage)
+      .slice(0, limit)
+      .sort((left, right) => left.order - right.order)
+      .map((entry) => entry.node);
+  }
+
+  // Whole-document Brief and Analyze balance importance across sections.
+  if (!query || request.operation === "analyze") {
     return balanceBySource(sorted, limit)
       .sort((left, right) => left.order - right.order)
       .map((entry) => entry.node);
@@ -324,4 +349,17 @@ export function askRelevance(nodes: readonly AiEvidenceNode[], question: string)
   const coverage = terms.length === 0 ? 1 : matched / terms.length;
   const documentLevel = DOCUMENT_LEVEL_QUESTION.test(normalizedQuery);
   return { topScore, match, coverage, supported: documentLevel || match >= ASK_MIN_MATCH };
+}
+
+/** A focused Brief must have real lexical/label support before model inference. */
+export function briefRelevance(nodes: readonly AiEvidenceNode[], instruction: string): AskRelevance {
+  const result = askRelevance(nodes, instruction);
+  const scopeTerms = briefScopeTerms(instruction);
+  const requiredCoverage = scopeTerms.length > 1 ? 0.5 : 1;
+  const coverage = briefScopeCoverage(nodes, instruction);
+  return {
+    ...result,
+    coverage,
+    supported: instruction.trim().length > 0 && result.match >= ASK_MIN_MATCH && coverage >= requiredCoverage,
+  };
 }

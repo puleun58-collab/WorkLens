@@ -34,16 +34,16 @@ export function extractRequestedFields(
   file: { id: string; name: string },
   requested: readonly string[],
 ): FieldExtractionPlan {
-  const available = autoExtract(document, file);
+  const available = autoExtract(document, file, { includeGenericLabels: true });
   const fields: ExtractedField[] = [];
   const unresolved: string[] = [];
 
   for (const request of requested) {
-    const hit = available.fields.find((entry) => labelMatches(request, entry.field));
-    if (hit) {
-      // The user's field name becomes the column; the document's wording stays
-      // the value, and the deterministic hit carries no confidence badge.
-      fields.push({ ...hit, field: request });
+    const hits = available.fields.filter((entry) => labelMatches(request, entry.field));
+    if (hits.length > 0) {
+      // The user's field name becomes the column. Every distinct occurrence is
+      // kept; choosing the first would silently discard a conflicting value.
+      fields.push(...hits.map((hit) => ({ ...hit, field: request })));
       continue;
     }
     unresolved.push(request);

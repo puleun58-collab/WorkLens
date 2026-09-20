@@ -2,6 +2,7 @@ import type { AiAvailableResult, AiRequest } from "@/domain/ai";
 import type { ComparisonResult } from "@/domain/compare";
 import type { DocumentMetadata, FileKind, SourceRef } from "@/domain/document";
 import type { StructuredExtract } from "@/domain/extract";
+import type { ValueCheckResult } from "@/domain/value-check";
 import type { PolishCandidate } from "@/domain/polish";
 import type { EvidenceItem, ModelClaim } from "@/lib/ai/prompt";
 import type { AnalyzeResult, CheckResult, ExportFormat, ExtractResult } from "@/domain/operations";
@@ -39,6 +40,7 @@ export type WorkerRequest =
   | { kind: "check"; fileIds: string[]; userTerms?: string[]; companyTerms?: string[] }
   | { kind: "extract"; fileIds: string[] }
   | { kind: "compare"; baseFileId: string; targetFileId: string }
+  | { kind: "value-check"; fileIds: string[] }
   | { kind: "export"; fileIds: string[]; format: ExportFormat }
   | { kind: "polish-candidates"; fileIds: string[] }
   /** Deterministic structured extraction; `fields` switches to request mode. */
@@ -72,6 +74,7 @@ export interface WorkerResultMap {
   extract: ExtractEntry[];
   export: ExportedDocument;
   compare: ComparisonResult;
+  "value-check": ValueCheckResult;
   "polish-candidates": PolishCandidateEntry[];
   "extract-structured": StructuredExtract;
   "field-evidence": EvidencePayload;

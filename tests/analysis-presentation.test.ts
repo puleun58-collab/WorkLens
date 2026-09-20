@@ -36,6 +36,7 @@ describe("analysisClaimPresentation", () => {
         inference("price-1", "목표주가는 64,550원이다", "high", [first]),
         inference("price-2", "목표주가는 64,550원이다", "high", [duplicate]),
         inference("product", "주요 제품은 HT-X1 MAX이다", "medium", [product]),
+        inference("trend", "매출은 120에서 100으로 감소했다", "high", [first]),
         inference("uncertain", "추가 확인이 필요한 값은 12.5%이다", "low", [lowConfidence]),
       ],
       warnings: [{ code: "SOURCE_LIMIT", message: "일부 근거만 확인했습니다." }],
@@ -45,22 +46,15 @@ describe("analysisClaimPresentation", () => {
     const presentation = analysisClaimPresentation(result);
 
     expect(presentation.summary.map(claimDisplayText)).toEqual([
-      "목표주가는 64,550원이다",
       "주요 제품은 HT-X1 MAX이다",
+      "매출은 120에서 100으로 감소했다",
     ]);
-    expect(presentation.summary[0].evidence.map((binding) => binding.source)).toEqual([first, duplicate]);
     expect(presentation.metrics).toEqual([
       {
         id: "price-1",
-        label: "목표주가는 64,550원이다",
+        label: "목표주가",
         value: "64,550원",
         sources: [first, duplicate],
-      },
-      {
-        id: "product",
-        label: "주요 제품은 HT-X1 MAX이다",
-        value: "HT-X1",
-        sources: [product],
       },
     ]);
     expect(presentation.concerns.map(claimDisplayText)).toEqual(["추가 확인이 필요한 값은 12.5%이다"]);

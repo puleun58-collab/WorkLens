@@ -112,6 +112,46 @@ describe("automatic extraction", () => {
     expect(result.fields[0].sources).toHaveLength(3);
   });
 
+  it("groups repeated structural Source lines instead of inventing business fields", () => {
+    const result = autoExtract(paragraphs([
+      "Source: 회사 공시",
+      "Source: 거래소 데이터",
+      "목표주가 | 64,550원",
+    ]), file);
+    expect(result.fields.map((entry) => [entry.field, entry.displayValue])).toEqual([
+      ["목표주가", "64,550원"],
+    ]);
+    expect(result.records).toHaveLength(1);
+    expect(result.records[0]).toMatchObject({
+      title: "Source",
+      columns: ["Source"],
+      rows: [{ cells: ["회사 공시"] }, { cells: ["거래소 데이터"] }],
+    });
+    expect(result.records[0].rows.map((row) => row.source.nodeId)).toEqual(["p0", "p1"]);
+  });
+
+  it("rejects ambiguous layout pipes while keeping explicit business pairs", () => {
+    const result = autoExtract(paragraphs([
+      "Equity Research | 토모큐브",
+      "SMIC 4팀 | 정기 보고",
+      "목표주가 | 64,550원",
+    ]), file);
+    expect(result.fields.map((entry) => [entry.field, entry.displayValue])).toEqual([
+      ["목표주가", "64,550원"],
+    ]);
+  });
+
+  it("keeps different values for the same field as separate occurrences", () => {
+    const result = autoExtract(paragraphs([
+      "목표주가: 64,550원",
+      "목표주가: 62,000원",
+      "목표주가: 64,550원",
+    ]), file);
+    expect(result.fields.map((entry) => entry.displayValue)).toEqual(["64,550원", "62,000원"]);
+    expect(result.fields[0].sources).toHaveLength(2);
+    expect(result.fields[1].sources).toHaveLength(1);
+  });
+
   it("keeps a repeating table as a table, not as pairs", () => {
     const result = autoExtract(table([
       ["담당자", "조치사항", "기한"],
@@ -152,6 +192,16 @@ describe("requested fields", () => {
     expect(plan.extraction.fields.map((entry) => entry.field)).toEqual(["회의일시"]);
     expect(plan.extraction.fields[0].confidence).toBeUndefined();
     expect(plan.unresolved).toEqual(["조치기한"]);
+  });
+
+  it("retains structural labels when the user explicitly requests them", () => {
+    const plan = extractRequestedFields(
+      paragraphs(["Source: 회사 공시", "Source: 거래소 데이터"]),
+      file,
+      ["Source"],
+    );
+    expect(plan.unresolved).toEqual([]);
+    expect(plan.extraction.fields.map((entry) => entry.displayValue)).toEqual(["회사 공시", "거래소 데이터"]);
   });
 });
 
@@ -244,6 +294,28 @@ describe("structured export", () => {
     const csv = structuredCsv(auto);
     expect(csv.trim().split("\r\n")[0]).toBe("FILE,FIELD,VALUE,TYPE,SOURCE");
     expect(csv).toContain("경영지원팀");
+  });
+
+  it("exports refined record rows with their original source", () => {
+    const auto: StructuredExtract = {
+      mode: "auto",
+      requestedFields: [],
+      files: [{
+        file,
+        fields: [],
+        records: [{
+          id: "sources",
+          title: "Source",
+          columns: ["Source"],
+          rows: [{ cells: ["회사 공시"], source: source("p1", "Slide 1") }],
+          source: source("p1", "Slide 1"),
+        }],
+        missing: [],
+      }],
+      summary: { fields: 0, missing: 0, records: 1, lowConfidence: 0 },
+    };
+    const csv = structuredCsv(auto);
+    expect(csv).toContain("Source,회사 공시,Record,Slide 1");
   });
 
   it("produces a workbook with a data sheet and an evidence sheet", async () => {

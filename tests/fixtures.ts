@@ -100,6 +100,13 @@ export function createExtractPptx(): Uint8Array {
   ]);
 }
 
+export function createBriefPptx(): Uint8Array {
+  return createPptxSlides([
+    ["기업 개요", "시가총액: 3,420억원", "목표주가: 64,550원"],
+    ["주요 일정", "정기 주주총회는 2026년 9월입니다."],
+  ]);
+}
+
 export function createDocxWithMergedTable(): Uint8Array {
   return zipSync({
     "[Content_Types].xml": strToU8(

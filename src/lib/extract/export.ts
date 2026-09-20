@@ -27,7 +27,7 @@ export function sourceText(source: SourceRef): string {
   const locator = source.locator;
   if (!locator) return source.label;
   switch (locator.kind) {
-    case "pptx": return `Slide ${locator.slide} · ${locator.tableCell ? "표" : "본문"}`;
+    case "pptx": return locator.tableCell ? `Slide ${locator.slide} · 표` : `Slide ${locator.slide}`;
     case "pdf": return `Page ${locator.page}`;
     case "xlsx": return `${locator.sheet} · ${locator.range}`;
     case "docx": return locator.tableCell ? `표 · Row ${locator.tableCell.row + 1}` : `Paragraph ${locator.block + 1}`;
@@ -39,7 +39,7 @@ const sourcesText = (field: ExtractedField): string => field.sources.map(sourceT
 
 /** Values are left empty when a field is not stated: no "없음" placeholders. */
 function fieldValue(fields: readonly ExtractedField[], name: string): string {
-  return fields.find((entry) => entry.field === name)?.displayValue ?? "";
+  return fields.filter((entry) => entry.field === name).map((entry) => entry.displayValue).join(" | ");
 }
 
 export function structuredCsv(extract: StructuredExtract): string {
@@ -58,6 +58,11 @@ export function structuredCsv(extract: StructuredExtract): string {
     for (const file of extract.files) {
       for (const field of file.fields) {
         rows.push([file.file.name, field.field, field.displayValue, field.type, sourcesText(field)]);
+      }
+      for (const record of file.records) {
+        for (const row of record.rows) {
+          rows.push([file.file.name, record.title, row.cells.join(" | "), "Record", sourceText(row.source)]);
+        }
       }
     }
   }
@@ -97,8 +102,10 @@ export async function structuredXlsx(extract: StructuredExtract): Promise<Uint8A
     const sheet = workbook.addWorksheet("Records");
     for (const file of withRecords) {
       for (const record of file.records) {
-        sheet.addRow([file.file.name, record.title, ...record.columns]);
-        for (const row of record.rows) sheet.addRow([file.file.name, record.title, ...row.cells]);
+        sheet.addRow([file.file.name, record.title, ...record.columns, "SOURCE"]);
+        for (const row of record.rows) {
+          sheet.addRow([file.file.name, record.title, ...row.cells, sourceText(row.source)]);
+        }
       }
     }
   }

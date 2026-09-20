@@ -22,6 +22,8 @@ export type ServerAiErrorCode =
   | "CONFIGURATION"
   | "RATE_LIMITED"
   | "PROVIDER_UNAVAILABLE"
+  | "PROVIDER_REJECTED"
+  | "OPERATION_CAPACITY"
   | "INVALID_OUTPUT"
   | "INVALID_REQUEST"
   | "GROUNDING_REJECTED"
@@ -30,4 +32,8 @@ export type ServerAiErrorCode =
 export interface ServerAiFailure {
   code: ServerAiErrorCode;
   message: string;
+  operation?: AiApiRequest["kind"];
+  occurredAt?: string;
+  requestId?: string;
+  serverCode?: string;
 }

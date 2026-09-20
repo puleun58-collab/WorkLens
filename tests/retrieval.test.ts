@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { NormalizedDocument, SourceRef, TableCell } from "@/domain/document";
 import { buildEvidenceNodes } from "@/lib/ai/grounding";
 import { evidenceWindow, MAX_EVIDENCE_ITEMS } from "@/lib/ai/prompt";
-import { selectEvidence } from "@/lib/ai/retrieval";
+import { briefRelevance, selectEvidence } from "@/lib/ai/retrieval";
 
 function paragraph(index: number, text: string, page = Math.floor(index / 10) + 1) {
   const nodeId = `pdf:p${page}:paragraph:${index}`;
@@ -157,6 +157,34 @@ describe("browser evidence retrieval", () => {
     expect(pages.size).toBeGreaterThanOrEqual(6);
     const firstPageShare = selected.filter((node) => node.source.page === 1).length / selected.length;
     expect(firstPageShare).toBeLessThan(0.4);
+  });
+
+  it("scopes a focused Brief to directly relevant evidence", () => {
+    const document = pdfDocument([
+      "시가총액은 3,420억원입니다.",
+      "목표주가는 64,550원입니다.",
+      "연간 주요 일정은 9월과 12월입니다.",
+    ]);
+    const nodes = buildEvidenceNodes([document]);
+    const selected = selectEvidence(nodes, { operation: "brief", instruction: "시가총액" }, { limit: MAX_EVIDENCE_ITEMS });
+    expect(selected.map((node) => node.text)).toEqual(["시가총액은 3,420억원입니다."]);
+    expect(briefRelevance(nodes, "시가총액").supported).toBe(true);
+    expect(briefRelevance(nodes, "해외 법인 감사 일정").supported).toBe(false);
+  });
+
+  it("keeps broad document coverage when Brief has no focus instruction", () => {
+    const document = pdfDocument([
+      "시가총액은 3,420억원입니다.",
+      "목표주가는 64,550원입니다.",
+      "연간 주요 일정은 9월과 12월입니다.",
+    ]);
+    const nodes = buildEvidenceNodes([document]);
+    const selected = selectEvidence(nodes, { operation: "brief" }, { limit: MAX_EVIDENCE_ITEMS });
+    expect(selected.map((node) => node.text)).toEqual([
+      "시가총액은 3,420억원입니다.",
+      "목표주가는 64,550원입니다.",
+      "연간 주요 일정은 9월과 12월입니다.",
+    ]);
   });
 
   it("breaks score ties by document order, so the window is deterministic", () => {
