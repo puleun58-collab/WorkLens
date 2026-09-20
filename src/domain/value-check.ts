@@ -43,11 +43,12 @@ const STATUS_ORDER: Record<ValueCheckStatus, number> = {
 };
 
 const SUFFIX_UNITS = [
-  "억원", "만원", "달러", "유로", "개월", "시간", "퍼센트", "KRW", "USD",
+  "억원", "만원", "조원", "달러", "유로", "개월", "시간", "퍼센트", "KRW", "USD",
   "원", "엔", "건", "명", "개", "분", "초", "일", "주", "년", "회", "배",
   "km", "kg", "톤", "GB", "MB", "t", "%",
 ] as const;
 const PREFIX_UNITS = ["₩", "$", "€", "¥"] as const;
+const SUFFIX_UNIT_SPACING = new RegExp(`\\s+(?=(?:${SUFFIX_UNITS.join("|")})$)`, "iu");
 
 function normalizedText(value: string): string {
   return value.normalize("NFKC").trim().replace(/\s+/gu, " ").toLocaleLowerCase();
@@ -59,7 +60,9 @@ function fieldIdentity(field: string): string {
 }
 
 function splitNumberAndUnit(value: string): { number: string; unit: string } | null {
-  const text = value.normalize("NFKC").trim();
+  const text = value.normalize("NFKC").trim()
+    .replace(/(만|억|조)\s*원$/u, "$1원")
+    .replace(SUFFIX_UNIT_SPACING, "");
   for (const unit of PREFIX_UNITS) {
     if (text.startsWith(unit)) return { number: text.slice(unit.length).trim(), unit };
   }
@@ -77,7 +80,7 @@ function splitNumberAndUnit(value: string): { number: string; unit: string } | n
 }
 
 function canonicalNumber(value: string): string | null {
-  const compact = value.replace(/\s+/gu, "");
+  const compact = value.trim();
   const ungrouped = /^[+-]?\d{1,3}(?:,\d{3})+(?:\.\d+)?$/u.test(compact)
     ? compact.replaceAll(",", "")
     : compact;

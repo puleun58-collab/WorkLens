@@ -77,6 +77,20 @@ async function mockEmptyClaims(page: Page) {
 }
 
 test("uploads XLSX files, compares them and shows source evidence", async ({ page }) => {
+  await page.route("**/api/ai", async (route) => {
+    const request = route.request().postDataJSON() as { items: Array<{ handle: string; text: string }> };
+    const evidence = request.items[0];
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: {
+          kind: "claims",
+          claims: evidence ? [{ text: evidence.text, handles: [evidence.handle], confidence: "high" }] : [],
+        },
+      }),
+    });
+  });
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "작업 파일" })).toBeVisible();
   await expect(page.locator(".dropzone")).toBeVisible();
@@ -93,6 +107,15 @@ test("uploads XLSX files, compares them and shows source evidence", async ({ pag
   await page.getByRole("button", { name: "비교", exact: true }).click();
   await expect(page.getByText("두 파일의 추가·삭제·변경된 내용을 비교합니다.", { exact: true })).toBeVisible();
   await expect(page.getByText("첫 번째로 선택한 파일이 기준 파일입니다.", { exact: true })).toBeVisible();
+  const swap = page.getByRole("button", { name: "기준/대상 바꾸기" });
+  await expect(swap).toBeVisible();
+  await swap.click();
+  await expect(fileRow(page, files.v1).locator(".compare-selection-role")).toHaveText("2 · 대상 파일");
+  await expect(fileRow(page, files.v2).locator(".compare-selection-role")).toHaveText("1 · 기준 파일");
+  await expect(page.locator(".comparison-panel")).toHaveCount(0);
+  await swap.click();
+  await expect(fileRow(page, files.v1).locator(".compare-selection-role")).toHaveText("1 · 기준 파일");
+  await expect(fileRow(page, files.v2).locator(".compare-selection-role")).toHaveText("2 · 대상 파일");
   await page.getByRole("button", { name: "비교 실행" }).click();
 
   const panel = page.locator(".comparison-panel");
@@ -118,10 +141,22 @@ test("uploads XLSX files, compares them and shows source evidence", async ({ pag
   const jeju = rows.filter({ hasText: "JEJU" }).first();
   await expect(jeju).toBeVisible();
 
+  await expect(panel.getByRole("heading", { name: "의미 변화", exact: true })).toBeVisible();
+  await expect(panel.locator(".comparison-semantic-section .analysis-reading-row")).toHaveCount(1);
+  await expect(page.locator(".enrichment-results")).toHaveCount(0);
+  await expect(page.getByText(/비교 추가 결과|근거 연결 결과|semantic-check/)).toHaveCount(0);
   await seoul.locator(".source-action").first().click();
   const detail = page.getByLabel("근거 상세");
-  await expect(detail).toBeVisible();
   await expect(detail).toContainText("운송단가 · B2");
+  await detail.getByRole("button", { name: "닫기" }).click();
+  await swap.click();
+  await expect(panel).toHaveCount(0);
+  await expect(fileRow(page, files.v1).locator(".compare-selection-role")).toHaveText("2 · 대상 파일");
+  await expect(fileRow(page, files.v2).locator(".compare-selection-role")).toHaveText("1 · 기준 파일");
+  await page.getByRole("button", { name: "비교 실행" }).click();
+  const reversedMap = page.locator(".comparison-file-map");
+  await expect(reversedMap.locator("> div").nth(0)).toContainText("운임현황_v2.xlsx");
+  await expect(reversedMap.locator("> div").nth(1)).toContainText("운임현황_v1.xlsx");
   await page.screenshot({ path: "artifacts/compare-evidence.png", fullPage: true });
 });
 
@@ -142,10 +177,11 @@ test("keeps multi-file Analyze summaries and confirmed metrics separated by file
   await expect(panel.locator(".result-status")).toHaveClass(/success/);
   await expect(panel).not.toContainText("ANALYZE RESULT");
   await expect(panel).not.toContainText(/서술형 문단 중심|표 중심의 문서|혼합형 문서|주요 수치/);
-  const summaries = panel.locator(".analysis-summary-section .analysis-reading-row");
+  const summaries = panel.locator(".analysis-core-items-section .analysis-reading-row");
+  await expect(panel.locator(".analysis-summary-section")).toHaveCount(0);
   await expect(summaries).toHaveCount(2);
-  await expect(summaries.nth(0)).toContainText("주요값_A.xlsx에서");
-  await expect(summaries.nth(1)).toContainText("주요값_B.xlsx에서");
+  await expect(summaries.nth(0)).toContainText("주요값_A.xlsx:");
+  await expect(summaries.nth(1)).toContainText("주요값_B.xlsx:");
 
   await expect(panel.getByRole("heading", { name: "확인된 수치", exact: true })).toBeVisible();
   await expect(panel.locator(".analysis-metric-table thead th")).toHaveText(["파일", "항목", "값", "근거"]);
@@ -189,7 +225,7 @@ test("keeps deterministic Analyze output stable across grounding rejection and e
       });
       return;
     }
-    const evidence = request.items.find((item) => item.text.includes("목표주가")) ?? request.items[0];
+    const evidence = request.items.find((item) => item.text.includes("함께 검토해야 합니다")) ?? request.items[0];
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -216,10 +252,11 @@ test("keeps deterministic Analyze output stable across grounding rejection and e
   const panel = page.locator(".results-panel");
   await expect(panel.locator(".result-status")).toHaveText("분석 완료");
   await expect(panel.locator(".result-status")).toHaveClass(/success/);
-  await expect(panel.locator(".result-inline-warning > span")).toHaveText("기본 분석 완료 · 추가 해석은 이번 실행에서 제외되었습니다.");
+  await expect(panel.locator(".result-inline-warning > span")).toHaveText("추가 해석은 이번 실행에서 제외되었습니다.");
   await expect(panel.locator(".result-inline-warning small")).toHaveText("근거 연결 실패");
   await expect(panel).not.toContainText(/서술형 문단 중심|표 중심의 문서|혼합형 문서|주요 수치/);
-  const base = panel.locator(".analysis-summary-section .analysis-reading-row").first().locator("p");
+  await expect(panel.locator(".analysis-summary-section")).toHaveCount(0);
+  const base = panel.locator(".analysis-core-items-section .analysis-reading-row").first().locator("p");
   const baseText = await base.innerText();
   const metricRows = panel.locator(".analysis-metric-table tbody tr");
   const firstMetrics = await metricRows.allInnerTexts();
@@ -1327,7 +1364,7 @@ test("integrates enrichment behind one action and preserves every deterministic 
   await page.getByRole("button", { name: "분석", exact: true }).click();
   await page.getByRole("button", { name: "분석 실행" }).click();
   await expect(page.locator(".results-panel .analysis-reading-row")).toHaveCount(1);
-  await expect(page.locator(".result-inline-warning > span")).toHaveText("기본 분석 완료 · 추가 해석은 이번 실행에서 제외되었습니다.");
+  await expect(page.locator(".result-inline-warning > span")).toHaveText("추가 해석은 이번 실행에서 제외되었습니다.");
   await expect(page.locator(".result-inline-warning small")).toHaveText("AI 연결 오류");
   await expect(page.locator(".results-panel .result-status")).toHaveClass(/success/);
 
@@ -1336,6 +1373,8 @@ test("integrates enrichment behind one action and preserves every deterministic 
   await page.getByRole("button", { name: "비교 실행" }).click();
   await expect(page.getByTestId("change-row").first()).toBeVisible();
   await expect(page.locator(".result-inline-warning")).toContainText("기본 비교 완료 · 의미 차이 확인은 이번 실행에서 제외되었습니다.");
+  await expect(page.locator(".comparison-semantic-section")).toHaveCount(0);
+  await expect(page.locator(".enrichment-results")).toHaveCount(0);
   await expect(page.locator(".results-panel .result-status")).toHaveText("비교 완료");
   await expect(page.locator(".notice.error")).toHaveCount(0);
 

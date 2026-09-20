@@ -46,6 +46,13 @@ test.describe("Cloudflare Worker production build", () => {
       responses.push(response);
       if (response.status() >= 400) failedResponses.push(`${response.status()} ${response.url()}`);
     });
+    await page.route("**/api/ai", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ data: { kind: "claims", claims: [] } }),
+      });
+    });
 
     const documentResponse = await page.goto("/");
     expect(documentResponse?.status()).toBe(200);
@@ -64,9 +71,10 @@ test.describe("Cloudflare Worker production build", () => {
     expect(subset.status()).toBe(200);
     await expect(page.evaluate(() => document.fonts.check('16px "Pretendard Variable"'))).resolves.toBe(true);
 
-    // No files: upload owns the workspace and the context bar has no add action.
+    // No files: upload owns the workspace; the only add action lives inside it.
     await expect(page.locator(".dropzone")).toBeVisible();
-    await expect(page.getByRole("button", { name: "파일 추가" })).toHaveCount(0);
+    await expect(page.locator(".dropzone").getByRole("button", { name: "파일 추가" })).toHaveCount(1);
+    await expect(page.locator(".context-actions").getByRole("button", { name: "파일 추가" })).toHaveCount(0);
 
     // Central company dictionary is readable by every user.
     const companyTerms = await page.request.get("/api/company-terms");
@@ -89,7 +97,7 @@ test.describe("Cloudflare Worker production build", () => {
     await page.getByLabel("cloudflare-rate-v1.xlsx 선택").check();
     await page.getByRole("button", { name: "분석", exact: true }).click();
     await page.getByRole("button", { name: "분석 실행" }).click();
-    await expect(page.getByText(/(?:기본 분석|문서 분석을 완료)/)).toBeVisible();
+    await expect(page.locator(".results-panel .result-status")).toHaveText("분석 완료");
     await expect(page.locator(".results-panel .numeric").first()).toBeVisible();
 
     await upload(page, files.check);
@@ -101,7 +109,7 @@ test.describe("Cloudflare Worker production build", () => {
     const source = finding.locator(".source-action").first();
     await expect(source).toBeVisible();
     await source.click();
-    await expect(page.getByLabel("Source detail")).toBeVisible();
+    await expect(page.getByLabel("근거 상세")).toBeVisible();
     await page.getByLabel("닫기").click();
 
     await page.getByLabel("cloudflare-check.pptx 선택").uncheck();
@@ -119,7 +127,8 @@ test.describe("Cloudflare Worker production build", () => {
     await expect(page.locator(".results-panel .check-summary-line, .results-panel .status-panel")).not.toHaveCount(0);
 
     await page.reload();
-    await expect(page.getByText("아직 파일이 없습니다.", { exact: false })).toBeVisible();
+    await expect(page.locator(".dropzone")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "작업 파일" }).locator("..")).toContainText("0");
     await expect(page.locator(".results-panel")).toHaveCount(0);
     expect(failedResponses).toEqual([]);
   });

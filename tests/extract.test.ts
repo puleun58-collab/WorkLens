@@ -101,6 +101,11 @@ describe("automatic extraction", () => {
       ["참석인원", "12명", "Number"],
     ]);
     expect(result.fields[0].sources[0].nodeId).toBe("p0");
+    expect(result.fields.map((entry) => entry.origin)).toEqual([
+      "explicit-delimiter",
+      "explicit-delimiter",
+      "explicit-delimiter",
+    ]);
   });
 
   it("extracts trusted delimiterless labels only when the value has a safe type", () => {
@@ -126,6 +131,7 @@ describe("automatic extraction", () => {
     ]);
     expect(result.fields[3].normalizedValue).toBe("2025-05-02");
     expect(result.fields[2].normalizedValue).toBeUndefined();
+    expect(result.fields.every((entry) => entry.origin === "business-label")).toBe(true);
   });
 
   it("allows a trusted dash boundary without making hyphens a general splitter", () => {
@@ -241,6 +247,7 @@ describe("automatic extraction", () => {
       ["담당부서", "영업팀"],
     ]);
     expect(result.records).toEqual([]);
+    expect(result.fields.map((entry) => entry.origin)).toEqual(["key-value-table", "key-value-table"]);
   });
 });
 
@@ -303,6 +310,7 @@ describe("model-extracted values", () => {
     };
     const resolved = withResolvedField(current, "file-1", modelField("조치기한", "2026.09.30", [source("p3", "Slide 4")], "medium"));
     expect(resolved.files[0].fields[0].displayValue).toBe("2026.09.30");
+    expect(resolved.files[0].fields[0].origin).toBe("requested-ai");
     // The wording stays; the normalised form is added beside it.
     expect(resolved.files[0].fields[0].normalizedValue).toBe("2026-09-30");
     expect(resolved.files[0].missing).toEqual(["회의일시"]);
@@ -352,7 +360,13 @@ describe("structured export", () => {
       requestedFields: [],
       files: [{
         file,
-        fields: [{ field: "작성부서", displayValue: "경영지원팀", type: "Text", sources: [source("p1", "Slide 1")] }],
+        fields: [{
+          field: "작성부서",
+          displayValue: "경영지원팀",
+          type: "Text",
+          sources: [source("p1", "Slide 1")],
+          origin: "business-label",
+        }],
         records: [],
         missing: [],
       }],
@@ -361,6 +375,7 @@ describe("structured export", () => {
     const csv = structuredCsv(auto);
     expect(csv.trim().split("\r\n")[0]).toBe("FILE,FIELD,VALUE,TYPE,SOURCE");
     expect(csv).toContain("경영지원팀");
+    expect(csv).not.toContain("business-label");
   });
 
   it("exports refined record rows with their original source", () => {

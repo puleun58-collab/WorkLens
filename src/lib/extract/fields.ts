@@ -71,6 +71,7 @@ export function modelField(
     ...(normalized ? { normalizedValue: normalized } : {}),
     type,
     sources: [...sources],
+    origin: "requested-ai",
     confidence,
     ...(quote ? { quote } : {}),
   };

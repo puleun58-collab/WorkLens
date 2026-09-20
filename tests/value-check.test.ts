@@ -48,6 +48,39 @@ describe("buildValueCheck", () => {
     expect(result.groups[0].occurrences.map((entry) => entry.displayValue)).toEqual(["64,550원", "64,550 원"]);
   });
 
+  it.each([
+    ["money unit spacing", "2,258억 원", "2,258억원", "consistent"],
+    ["numeric comma formatting", "2,258억 원", "2258억 원", "consistent"],
+    ["different money values", "2,258억 원", "2,200억 원", "different"],
+    ["different money scales", "2,258억 원", "2,258만 원", "different"],
+  ] as const)("compares %s without converting scale units", (_case, left, right, status) => {
+    const result = buildValueCheck([
+      file("a", [{ name: "시가총액", value: left, type: "Money" }]),
+      file("b", [{ name: "시가총액", value: right, type: "Money" }]),
+    ]);
+
+    expect(result.groups[0]).toMatchObject({ status });
+    expect(result.groups[0].occurrences.map((entry) => entry.displayValue)).toEqual([left, right]);
+  });
+
+  it("keeps safe percent and counter spacing comparisons consistent", () => {
+    const result = buildValueCheck([
+      file("a", [
+        { name: "상승여력", value: "232.4%", type: "Percent" },
+        { name: "참석인원", value: "75명", type: "Number" },
+      ]),
+      file("b", [
+        { name: "상승여력", value: "232.4 %", type: "Percent" },
+        { name: "참석인원", value: "75 명", type: "Number" },
+      ]),
+    ]);
+
+    expect(result.groups.map((group) => [group.field, group.status])).toEqual([
+      ["상승여력", "consistent"],
+      ["참석인원", "consistent"],
+    ]);
+  });
+
   it("marks a comparable field missing from one selected file as partial, not different", () => {
     const result = buildValueCheck([
       file("a", [{ name: "인원", value: "12명", type: "Number" }]),

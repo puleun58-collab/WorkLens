@@ -5,8 +5,8 @@ import type { ExtractedField, FileExtraction } from "@/domain/extract";
 import {
   analysisClaimPresentation,
   claimDisplayText,
+  confirmedAnalysisItems,
   confirmedAnalysisMetrics,
-  deterministicAnalysisSummary,
 } from "@/lib/analysis-presentation";
 import { autoExtract } from "@/lib/extract/auto";
 
@@ -86,9 +86,9 @@ describe("analysisClaimPresentation", () => {
     ];
     const entries = [{ file: { id: "file-1", name: "기업요약.pptx" }, extraction: extraction("file-1", "기업요약.pptx", fields) }];
 
-    expect(deterministicAnalysisSummary(entries)).toEqual([{
-      id: "deterministic-summary:file-1",
-      text: "문서에서 목표주가, 시가총액, 상승여력, 기준일, 담당자 항목이 확인됩니다.",
+    expect(confirmedAnalysisItems(entries)).toEqual([{
+      id: "confirmed-items:file-1",
+      text: "목표주가 · 시가총액 · 상승여력 · 기준일 · 담당자",
       sources: [first, repeated, conflict],
     }]);
     expect(confirmedAnalysisMetrics(entries).map(({ label, value, sources }) => ({ label, value, sources }))).toEqual([
@@ -113,14 +113,34 @@ describe("analysisClaimPresentation", () => {
       },
     ];
 
-    expect(deterministicAnalysisSummary(entries).map((item) => item.text)).toEqual([
-      "A.xlsx에서 서울 단가 항목이 확인됩니다.",
-      "B.xlsx에서 서울 단가 항목이 확인됩니다.",
+    expect(confirmedAnalysisItems(entries).map((item) => item.text)).toEqual([
+      "A.xlsx: 서울 단가",
+      "B.xlsx: 서울 단가",
     ]);
     expect(confirmedAnalysisMetrics(entries).map((metric) => [metric.fileName, metric.value])).toEqual([
       ["A.xlsx", "130,000원"],
       ["B.xlsx", "135,000원"],
     ]);
+  });
+
+  it("links confirmed core items only to the labels shown on screen", () => {
+    const sources = Array.from({ length: 7 }, (_, index) => source(`field-${index}`, index + 1));
+    const fields = sources.map((item, index): ExtractedField => ({
+      field: `항목 ${index + 1}`,
+      displayValue: `값 ${index + 1}`,
+      type: "Text",
+      sources: [item],
+    }));
+    const entries = [{
+      file: { id: "file-1", name: "항목.pptx" },
+      extraction: extraction("file-1", "항목.pptx", fields),
+    }];
+
+    expect(confirmedAnalysisItems(entries)).toEqual([{
+      id: "confirmed-items:file-1",
+      text: "항목 1 · 항목 2 · 항목 3 · 항목 4 · 항목 5 · 항목 6 · 외 1개",
+      sources: sources.slice(0, 6),
+    }]);
   });
 
   it("does not create a confirmed metric from a number embedded in prose", () => {

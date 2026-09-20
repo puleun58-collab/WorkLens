@@ -67,8 +67,8 @@ import { mergeSemanticFindings, semanticFindings } from "@/lib/check/writing/sem
 import {
   analysisClaimPresentation,
   claimDisplayText,
+  confirmedAnalysisItems,
   confirmedAnalysisMetrics,
-  deterministicAnalysisSummary,
 } from "@/lib/analysis-presentation";
 import {
   BarChart3,
@@ -396,6 +396,11 @@ export default function Home() {
     setSelected((current) => current.includes(id) ? current.filter((fileId) => fileId !== id) : current.length < 10 ? [...current, id] : current);
     clearResults();
   };
+  const swapComparisonDirection = () => {
+    if (busy || compareMode !== "version" || selected.length !== 2) return;
+    setSelected((current) => current.length === 2 ? [current[1], current[0]] : current);
+    clearResults();
+  };
 
   const runTextExtract = async () => {
     setBusy(true);
@@ -464,7 +469,7 @@ export default function Home() {
               : "AI 연결 오류";
     notifyView(
       failure.code === "CANCELLED" ? "info" : "warning",
-      "기본 분석 완료 · 추가 해석은 이번 실행에서 제외되었습니다.",
+      "추가 해석은 이번 실행에서 제외되었습니다.",
       failure.code,
       detail,
     );
@@ -692,7 +697,7 @@ export default function Home() {
       }
 
       if (selected.length > SERVER_AI_MAX_FILES) {
-        notifyView("warning", `기본 분석 완료 · 추가 해석은 파일 ${SERVER_AI_MAX_FILES}개 이하에서 실행됩니다.`);
+        notifyView("warning", `추가 해석은 파일 ${SERVER_AI_MAX_FILES}개 이하에서 실행됩니다.`);
         return deterministic;
       }
       try {
@@ -1289,6 +1294,8 @@ export default function Home() {
                   <CompareControls
                     mode={compareMode}
                     busy={busy}
+                    canSwap={compareMode === "version" && selected.length === 2}
+                    onSwap={swapComparisonDirection}
                     onMode={(mode) => {
                       setCompareMode(mode);
                       clearResults();
@@ -1385,7 +1392,7 @@ export default function Home() {
 
               {activeTab === "Compare"
                 ? compareMode === "version"
-                  ? <ComparisonView comparison={comparison} compareIds={compareIds} fileNames={fileNames} detail={null} onSource={openSource} onCloseSource={closeSource} status={resultStatus} />
+                  ? <ComparisonView comparison={comparison} compareIds={compareIds} enrichment={enrichmentResult} fileNames={fileNames} detail={null} onSource={openSource} onCloseSource={closeSource} status={resultStatus} />
                   : <ValueCheckView result={valueCheck} fileNames={fileNames} onSource={openSource} status={resultStatus} busy={busy} onExport={exportValueCheck} />
                 : polishTextMode
                   ? <PolishTextResults result={polishTextRun} status={resultStatus} />
@@ -1407,9 +1414,6 @@ export default function Home() {
                       : undefined}
                     dictionary={{ userTerms, ignoredRules, onAddTerm: addTerm, onRemoveTerm: removeTerm, onClearTerms: clearTerms, onToggleRule: toggleRule }}
                   />}
-              {enrichmentResult && activeTab !== "Analyze"
-                ? <EnrichmentResultView tab={activeTab} result={enrichmentResult} fileNames={fileNames} onSource={openSource} />
-                : null}
             </>
           )}
         </section>
@@ -1671,25 +1675,6 @@ function ResultView({ tab, result, enrichment, status, fileNames, detail, onSour
 }
 
 
-function EnrichmentResultView({ tab, result, fileNames, onSource }: {
-  tab: Tab;
-  result: AiAvailableResult;
-  fileNames: Map<string, string>;
-  onSource: SourceHandler;
-}) {
-  return (
-    <section className="panel results-panel enrichment-results">
-      <div className="panel-heading result-heading">
-        <div>
-          <p className="eyebrow">{tabMeta[tab].label} 추가 결과</p>
-          <h2>{tab === "Compare" ? "의미 차이" : "추가 해석"}</h2>
-        </div>
-        <span className="result-provenance">근거 연결 결과</span>
-      </div>
-      <AiResults result={result} fileNames={fileNames} onSource={onSource} />
-    </section>
-  );
-}
 function isAiAvailableResult(value: unknown): value is AiAvailableResult {
   return typeof value === "object" && value !== null && Array.isArray((value as AiAvailableResult).claims) && typeof (value as AiAvailableResult).operation === "string";
 }
@@ -1699,10 +1684,12 @@ function isAiAvailableResult(value: unknown): value is AiAvailableResult {
  * fields. The field list is the schema, reused for every selected file, so ten
  * monthly reports become ten rows of the same columns.
  */
-function CompareControls({ mode, busy, onMode }: {
+function CompareControls({ mode, busy, canSwap, onMode, onSwap }: {
   mode: "version" | "value-check";
   busy: boolean;
+  canSwap: boolean;
   onMode: (mode: "version" | "value-check") => void;
+  onSwap: () => void;
 }) {
   return (
     <div className="compare-controls">
@@ -1725,7 +1712,12 @@ function CompareControls({ mode, busy, onMode }: {
         <p>{mode === "version"
           ? "두 파일의 추가·삭제·변경된 내용을 비교합니다."
           : "여러 파일의 동일 항목과 값 차이를 확인합니다."}</p>
-        {mode === "version" ? <small>첫 번째로 선택한 파일이 기준 파일입니다.</small> : null}
+        {mode === "version" ? (
+          <div className="compare-role-order">
+            <small>첫 번째로 선택한 파일이 기준 파일입니다.</small>
+            {canSwap ? <button type="button" className="secondary-action compare-swap-action" disabled={busy} onClick={onSwap}>기준/대상 바꾸기</button> : null}
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -2239,7 +2231,7 @@ function AnalyzeResults({ entries, enrichment, fileNames, onSource }: {
 }) {
   const confirmedFields = entries.flatMap((entry) => entry.extraction.fields);
   const presentation = analysisClaimPresentation(enrichment, confirmedFields);
-  const deterministicSummary = deterministicAnalysisSummary(entries);
+  const coreItems = confirmedAnalysisItems(entries);
   const metrics = confirmedAnalysisMetrics(entries);
   const mismatches = entries.flatMap(({ file, analysis }) =>
     analysis.totals.filter((total) => total.actual !== total.expected).map((total) => ({ file, total })));
@@ -2252,31 +2244,40 @@ function AnalyzeResults({ entries, enrichment, fileNames, onSource }: {
       </div>
     </article>
   );
-  const summaryCount = deterministicSummary.length + presentation.summary.length;
   const multipleFiles = entries.length > 1;
 
   return (
     <div className="analysis-report">
-      <section className="analysis-report-section analysis-summary-section" aria-labelledby="analysis-summary-title">
-        <div className="subsection-heading">
-          <h3 id="analysis-summary-title">핵심 요약</h3>
-          <span>{summaryCount}건</span>
-        </div>
-        <div className="analysis-reading-list">
-          {deterministicSummary.map((item) => (
-            <article className="analysis-reading-row" key={item.id}>
-              <p>{item.text}</p>
-              <div className="analysis-reading-actions">
-                <ResultSource sources={item.sources} fileNames={fileNames} onSource={onSource} />
-              </div>
-            </article>
-          ))}
-          {presentation.summary.map((claim) => renderClaim(claim))}
-          {summaryCount === 0 ? (
-            <p className="analysis-empty">문서에서 구조화된 핵심 항목을 확인하지 못했습니다.</p>
-          ) : null}
-        </div>
-      </section>
+      {presentation.summary.length ? (
+        <section className="analysis-report-section analysis-summary-section" aria-labelledby="analysis-summary-title">
+          <div className="subsection-heading">
+            <h3 id="analysis-summary-title">핵심 요약</h3>
+            <span>{presentation.summary.length}건</span>
+          </div>
+          <div className="analysis-reading-list">
+            {presentation.summary.map((claim) => renderClaim(claim))}
+          </div>
+        </section>
+      ) : null}
+
+      {coreItems.length ? (
+        <section className="analysis-report-section analysis-core-items-section" aria-labelledby="analysis-core-items-title">
+          <div className="subsection-heading">
+            <h3 id="analysis-core-items-title">확인된 핵심 항목</h3>
+            <span>{coreItems.length}건</span>
+          </div>
+          <div className="analysis-reading-list">
+            {coreItems.map((item) => (
+              <article className="analysis-reading-row analysis-core-item-row" key={item.id}>
+                <p>{item.text}</p>
+                <div className="analysis-reading-actions">
+                  <ResultSource sources={item.sources} fileNames={fileNames} onSource={onSource} />
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       {metrics.length ? (
         <section className="analysis-report-section" aria-labelledby="analysis-metrics-title">
@@ -2698,7 +2699,16 @@ function JsonValue({ value, fileNames, onSource, depth = 0 }: { value: unknown; 
   return <span>{displayValue(value as string | number | boolean | null | undefined)}</span>;
 }
 
-function ComparisonView({ comparison, compareIds, fileNames, detail, onSource, onCloseSource, status }: { comparison: ComparisonResult | null; compareIds: { baseFileId: string; targetFileId: string } | null; fileNames: Map<string, string>; detail: DetailInfo | null; onSource: SourceHandler; onCloseSource: () => void; status: ResultStatus | null }) {
+function ComparisonView({ comparison, compareIds, enrichment, fileNames, detail, onSource, onCloseSource, status }: {
+  comparison: ComparisonResult | null;
+  compareIds: { baseFileId: string; targetFileId: string } | null;
+  enrichment: AiAvailableResult | null;
+  fileNames: Map<string, string>;
+  detail: DetailInfo | null;
+  onSource: SourceHandler;
+  onCloseSource: () => void;
+  status: ResultStatus | null;
+}) {
   if (!comparison) return null;
   const roleOf = (source: SourceRef): SourceRole | undefined => {
     if (!compareIds) return undefined;
@@ -2708,6 +2718,7 @@ function ComparisonView({ comparison, compareIds, fileNames, detail, onSource, o
   };
   const baseName = compareIds ? fileNames.get(compareIds.baseFileId) ?? "미선택" : "미선택";
   const targetName = compareIds ? fileNames.get(compareIds.targetFileId) ?? "미선택" : "미선택";
+  const semanticClaims = enrichment?.operation === "semantic-check" ? enrichment.claims : [];
   const summaryItems = [
     { key: "total", label: "전체 변경", value: comparison.summary.total },
     { key: "changed", label: "변경", value: comparison.summary.changed },
@@ -2757,6 +2768,29 @@ function ComparisonView({ comparison, compareIds, fileNames, detail, onSource, o
           </div>
         </div>
       )}
+      {semanticClaims.length ? (
+        <section className="result-subsection comparison-semantic-section" aria-labelledby="comparison-semantic-title">
+          <div className="subsection-heading">
+            <h3 id="comparison-semantic-title">의미 변화</h3>
+            <span>{semanticClaims.length}건</span>
+          </div>
+          <div className="analysis-reading-list">
+            {semanticClaims.map((claim) => (
+              <article className="analysis-reading-row" key={claim.id}>
+                <p>{claimDisplayText(claim)}</p>
+                <div className="analysis-reading-actions">
+                  <ResultSource
+                    sources={claim.evidence.map((binding) => binding.source)}
+                    fileNames={fileNames}
+                    onSource={onSource}
+                    roleOf={roleOf}
+                  />
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
       {detail ? <SourceDetail entries={detail.entries} fileNames={fileNames} onClose={onCloseSource} /> : null}
     </section>
   );

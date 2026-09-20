@@ -2125,6 +2125,14 @@ input:disabled,
   padding-top: 22px;
 }
 
+.analysis-core-item-row {
+  padding-block: 9px;
+}
+
+.analysis-core-item-row > p {
+  color: var(--ink-soft);
+}
+
 .analysis-reading-list {
   display: grid;
 }
@@ -3374,6 +3382,19 @@ input:disabled,
 
 .compare-mode-copy small {
   font-size: var(--font-size-xs);
+}
+
+.compare-role-order {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+
+.compare-swap-action {
+  padding-inline: 9px;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
 }
 
 .value-check-toolbar {

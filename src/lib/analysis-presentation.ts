@@ -16,7 +16,7 @@ export interface AnalysisMetric {
   sources: SourceRef[];
 }
 
-export interface DeterministicAnalysisSummary {
+export interface ConfirmedAnalysisItems {
   id: string;
   text: string;
   sources: SourceRef[];
@@ -100,16 +100,21 @@ function labelKey(label: string): string {
   return label.normalize("NFKC").trim().toLocaleLowerCase("ko-KR").replace(/[\s._-]+/gu, "");
 }
 
-function meaningfulLabels(fields: readonly ExtractedField[]): string[] {
-  const labels: string[] = [];
-  const seen = new Set<string>();
+function meaningfulFieldGroups(fields: readonly ExtractedField[]): Array<{ label: string; fields: ExtractedField[] }> {
+  const groups: Array<{ label: string; fields: ExtractedField[] }> = [];
+  const indexByKey = new Map<string, number>();
   for (const field of fields) {
     const key = labelKey(field.field);
-    if (!key || GENERIC_LABELS.has(key) || seen.has(key)) continue;
-    seen.add(key);
-    labels.push(field.field.trim());
+    if (!key || GENERIC_LABELS.has(key)) continue;
+    const existingIndex = indexByKey.get(key);
+    if (existingIndex !== undefined) {
+      groups[existingIndex].fields.push(field);
+      continue;
+    }
+    indexByKey.set(key, groups.length);
+    groups.push({ label: field.field.trim(), fields: [field] });
   }
-  return labels;
+  return groups;
 }
 
 function uniqueSources(fields: readonly ExtractedField[]): SourceRef[] {
@@ -126,21 +131,23 @@ function uniqueSources(fields: readonly ExtractedField[]): SourceRef[] {
   return sources;
 }
 
-export function deterministicAnalysisSummary(
+export function confirmedAnalysisItems(
   entries: readonly AnalysisExtractionEntry[],
-): DeterministicAnalysisSummary[] {
+): ConfirmedAnalysisItems[] {
   const includeFileName = entries.length > 1;
   return entries.flatMap(({ file, extraction }) => {
-    const labels = meaningfulLabels(extraction.fields);
-    if (labels.length === 0) return [];
-    const shown = labels.slice(0, SUMMARY_LABEL_LIMIT);
-    const remaining = labels.length - shown.length;
-    const subject = includeFileName ? `${file.name}에서` : "문서에서";
-    const suffix = remaining > 0 ? ` 외 ${remaining}개` : "";
+    const groups = meaningfulFieldGroups(extraction.fields);
+    if (groups.length === 0) return [];
+    const shown = groups.slice(0, SUMMARY_LABEL_LIMIT);
+    const shownFields: ExtractedField[] = [];
+    for (const group of shown) shownFields.push(...group.fields);
+    const remaining = groups.length - shown.length;
+    const prefix = includeFileName ? `${file.name}: ` : "";
+    const suffix = remaining > 0 ? ` · 외 ${remaining}개` : "";
     return [{
-      id: `deterministic-summary:${file.id}`,
-      text: `${subject} ${shown.join(", ")}${suffix} 항목이 확인됩니다.`,
-      sources: uniqueSources(extraction.fields),
+      id: `confirmed-items:${file.id}`,
+      text: `${prefix}${shown.map((group) => group.label).join(" · ")}${suffix}`,
+      sources: uniqueSources(shownFields),
     }];
   });
 }

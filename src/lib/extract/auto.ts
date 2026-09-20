@@ -1,5 +1,5 @@
 import type { NormalizedDocument, SourceRef, TableBlock } from "@/domain/document";
-import type { ExtractedField, ExtractedRecords, ExtractValueType, FileExtraction } from "@/domain/extract";
+import type { ExtractedField, ExtractedRecords, ExtractOrigin, ExtractValueType, FileExtraction } from "@/domain/extract";
 import { classifyValue, normalizeValue } from "./values";
 
 /**
@@ -98,7 +98,7 @@ function delimiterlessPair(text: string): { label: string; value: string } | und
   return undefined;
 }
 
-function push(fields: ExtractedField[], field: string, value: string, source: SourceRef, quote?: string): void {
+function push(fields: ExtractedField[], field: string, value: string, source: SourceRef, origin: ExtractOrigin, quote?: string): void {
   if (fields.length >= MAX_FIELDS) return;
   const type = classifyValue(value);
   const normalized = normalizeValue(value, type);
@@ -114,6 +114,7 @@ function push(fields: ExtractedField[], field: string, value: string, source: So
     ...(normalized ? { normalizedValue: normalized } : {}),
     type,
     sources: [source],
+    origin,
     ...(quote ? { quote } : {}),
   });
 }
@@ -148,6 +149,7 @@ export function autoExtract(
     value: string,
     source: SourceRef,
     quote: string,
+    origin: ExtractOrigin,
     delimiter?: string,
   ) => {
     if (!isUsefulLabel(label) || !isUsefulValue(value)) return;
@@ -161,7 +163,7 @@ export function autoExtract(
       generic.set(key, candidates);
       return;
     }
-    push(fields, label.trim(), value.trim(), source, quote);
+    push(fields, label.trim(), value.trim(), source, origin, quote);
   };
 
   for (const block of document.blocks) {
@@ -169,11 +171,11 @@ export function autoExtract(
       const explicit = LABEL_VALUE.exec(block.text);
       if (explicit) {
         const [, label, delimiter, value] = explicit;
-        addCandidate(label, value, block.source, block.text, delimiter);
+        addCandidate(label, value, block.source, block.text, "explicit-delimiter", delimiter);
         continue;
       }
       const implicit = delimiterlessPair(block.text);
-      if (implicit) addCandidate(implicit.label, implicit.value, block.source, block.text);
+      if (implicit) addCandidate(implicit.label, implicit.value, block.source, block.text, "business-label");
       continue;
     }
 
@@ -188,7 +190,7 @@ export function autoExtract(
       if (row.length < 2) continue;
       const label = row[0].display.trim();
       const value = row[1].display.trim();
-      addCandidate(label, value, row[1].source, `${label}: ${value}`);
+      addCandidate(label, value, row[1].source, `${label}: ${value}`, "key-value-table");
     }
   }
 

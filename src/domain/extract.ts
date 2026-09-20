@@ -25,6 +25,12 @@ export type ExtractValueType =
 
 export type ExtractConfidence = "high" | "medium" | "low";
 
+export type ExtractOrigin =
+  | "explicit-delimiter"
+  | "business-label"
+  | "key-value-table"
+  | "requested-ai";
+
 export interface ExtractedField {
   field: string;
   /** The document's own wording. Never replaced by a normalised form. */
@@ -36,6 +42,8 @@ export interface ExtractedField {
   sources: SourceRef[];
   /** Set only for model-derived values; deterministic hits carry none. */
   confidence?: ExtractConfidence;
+  /** Internal rule that produced the field; intentionally omitted from the UI and exports. */
+  origin?: ExtractOrigin;
   quote?: string;
 }
 
