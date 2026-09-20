@@ -35,6 +35,7 @@ import {
 } from "@/domain/extract";
 import { structuredCsvExport, structuredXlsxExport } from "@/lib/extract/export";
 import { valueCheckCsvExport, valueCheckXlsxExport } from "@/lib/value-check-export";
+import { comparisonCsvExport, comparisonXlsxExport } from "@/lib/comparison-export";
 import { modelField } from "@/lib/extract/fields";
 import { withResolvedField } from "@/lib/extract/merge";
 import {
@@ -1006,6 +1007,28 @@ export default function Home() {
     }
   };
 
+  const exportComparison = async (format: "csv" | "xlsx") => {
+    if (!comparison) return;
+    setBusy(true);
+    try {
+      const exported = format === "csv" ? comparisonCsvExport(comparison) : await comparisonXlsxExport(comparison);
+      const payload = typeof exported.content === "string"
+        ? new TextEncoder().encode(`\uFEFF${exported.content}`)
+        : exported.content;
+      const url = URL.createObjectURL(new Blob([payload as BlobPart], { type: exported.mimeType }));
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = exported.fileName;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      notifyView("success", `${format.toUpperCase()} 파일을 다운로드했습니다. 다운로드된 복사본은 사용자 기기에서 직접 관리하세요.`);
+    } catch (error) {
+      notifyView("error", (error as ApiError).message ?? "내보내기에 실패했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const deleteAll = () => {
     if (!window.confirm("이 탭에서 처리한 파일과 결과를 모두 지우시겠습니까?")) return;
     disposeWorkspace();
@@ -1392,7 +1415,7 @@ export default function Home() {
 
               {activeTab === "Compare"
                 ? compareMode === "version"
-                  ? <ComparisonView comparison={comparison} compareIds={compareIds} enrichment={enrichmentResult} fileNames={fileNames} detail={null} onSource={openSource} onCloseSource={closeSource} status={resultStatus} />
+                  ? <ComparisonView comparison={comparison} compareIds={compareIds} enrichment={enrichmentResult} fileNames={fileNames} detail={null} onSource={openSource} onCloseSource={closeSource} status={resultStatus} busy={busy} onExport={exportComparison} />
                   : <ValueCheckView result={valueCheck} fileNames={fileNames} onSource={openSource} status={resultStatus} busy={busy} onExport={exportValueCheck} />
                 : polishTextMode
                   ? <PolishTextResults result={polishTextRun} status={resultStatus} />
@@ -2699,7 +2722,7 @@ function JsonValue({ value, fileNames, onSource, depth = 0 }: { value: unknown; 
   return <span>{displayValue(value as string | number | boolean | null | undefined)}</span>;
 }
 
-function ComparisonView({ comparison, compareIds, enrichment, fileNames, detail, onSource, onCloseSource, status }: {
+function ComparisonView({ comparison, compareIds, enrichment, fileNames, detail, onSource, onCloseSource, status, busy, onExport }: {
   comparison: ComparisonResult | null;
   compareIds: { baseFileId: string; targetFileId: string } | null;
   enrichment: AiAvailableResult | null;
@@ -2708,6 +2731,8 @@ function ComparisonView({ comparison, compareIds, enrichment, fileNames, detail,
   onSource: SourceHandler;
   onCloseSource: () => void;
   status: ResultStatus | null;
+  busy: boolean;
+  onExport: (format: "csv" | "xlsx") => void | Promise<void>;
 }) {
   if (!comparison) return null;
   const roleOf = (source: SourceRef): SourceRole | undefined => {
@@ -2732,7 +2757,11 @@ function ComparisonView({ comparison, compareIds, enrichment, fileNames, detail,
     `${value > 0 ? "+" : ""}${value.toLocaleString("ko-KR", { maximumFractionDigits: 2 })}`;
   return (
     <section className="panel results-panel comparison-panel">
-      <ResultHeader title="버전 비교 결과" status={status} />
+      <ResultHeader
+        title="버전 비교 결과"
+        status={status}
+        meta={<ExtractExportButtons busy={busy} onExport={onExport} />}
+      />
       <div className="comparison-file-map" aria-label="비교 파일 방향">
         <div>
           <span>기준 파일</span>

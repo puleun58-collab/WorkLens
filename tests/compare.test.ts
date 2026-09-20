@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildComparison } from "@/domain/compare";
 import { parseDocument } from "@/lib/parsers";
-import { createPdf, createXlsx, RATE_SHEET_V1, RATE_SHEET_V2 } from "./fixtures";
+import { createDocxParagraphs, createPdf, createPptxSlides, createXlsx, RATE_SHEET_V1, RATE_SHEET_V2 } from "./fixtures";
 
 async function compareRateSheets() {
   const [baseBytes, targetBytes] = await Promise.all([
@@ -114,6 +114,121 @@ describe("buildComparison", () => {
     const result = buildComparison(base, target);
     expect(result.items).toHaveLength(1);
     expect(result.items[0]).toMatchObject({ category: "Removed", previous: "Preamble clause" });
+  });
+
+  it("pairs adjacent PPTX edits by slide and shape without global fuzzy matching", async () => {
+    const [base, target] = await Promise.all([
+      parseDocument({
+        fileId: "base",
+        fileName: "v1.pptx",
+        bytes: createPptxSlides([[
+          "서울 운임은 130,000원입니다.",
+          "부산 운임은 220,000원입니다.",
+          "운영 인원은 75명입니다.",
+        ]]),
+      }),
+      parseDocument({
+        fileId: "target",
+        fileName: "v2.pptx",
+        bytes: createPptxSlides([[
+          "서울 운임은 135,000원입니다.",
+          "부산 운임은 225,000원입니다.",
+          "운영 인원은 78명입니다.",
+        ]]),
+      }),
+    ]);
+    const first = buildComparison(base, target);
+    const second = buildComparison(base, target);
+
+    expect(first).toEqual(second);
+    expect(first.summary).toMatchObject({ total: 3, added: 0, removed: 0, important: 3 });
+    expect(first.items[0]).toMatchObject({
+      previous: "서울 운임은 130,000원입니다.",
+      current: "서울 운임은 135,000원입니다.",
+      difference: 5000,
+    });
+    expect(first.items[0].sources.map((source) => source.locator)).toEqual([
+      expect.objectContaining({ kind: "pptx", slide: 1, shape: 1 }),
+      expect.objectContaining({ kind: "pptx", slide: 1, shape: 1 }),
+    ]);
+  });
+
+  it("leaves incompatible text at the same PPTX shape as Removed and Added", async () => {
+    const [base, target] = await Promise.all([
+      parseDocument({
+        fileId: "base",
+        fileName: "v1.pptx",
+        bytes: createPptxSlides([["서울 운임을 안내합니다."]]),
+      }),
+      parseDocument({
+        fileId: "target",
+        fileName: "v2.pptx",
+        bytes: createPptxSlides([["회사 연혁을 소개합니다."]]),
+      }),
+    ]);
+    const result = buildComparison(base, target);
+
+    expect(result.summary).toMatchObject({ changed: 0, important: 0, added: 1, removed: 1 });
+  });
+
+  it("keeps DOCX block changes, additions, deletions, dates, and money deterministic", async () => {
+    const [base, target] = await Promise.all([
+      parseDocument({
+        fileId: "base",
+        fileName: "v1.docx",
+        bytes: createDocxParagraphs([
+          "2026년 운영 보고서",
+          "기준일 2026.09.20",
+          "운영 비용은 6억 원입니다.",
+          "삭제할 문단입니다.",
+          "중간 고정 문단입니다.",
+          "변경하지 않는 결론입니다.",
+        ]),
+      }),
+      parseDocument({
+        fileId: "target",
+        fileName: "v2.docx",
+        bytes: createDocxParagraphs([
+          "2026년 운영 보고서",
+          "기준일 2026.09.21",
+          "운영 비용은 7억 원입니다.",
+          "중간 고정 문단입니다.",
+          "추가한 문단입니다.",
+          "변경하지 않는 결론입니다.",
+        ]),
+      }),
+    ]);
+    const result = buildComparison(base, target);
+    expect(result.summary).toMatchObject({ total: 4, added: 1, removed: 1, changed: 1, important: 1 });
+    expect(result.items).toContainEqual(expect.objectContaining({
+      category: "Changed",
+      previous: "기준일 2026.09.20",
+      current: "기준일 2026.09.21",
+    }));
+    expect(result.items.filter((item) => item.category === "Important Change")).toEqual([
+      expect.objectContaining({ previous: "운영 비용은 6억 원입니다.", current: "운영 비용은 7억 원입니다.", difference: 1 }),
+    ]);
+    const dateChange = result.items.find((item) => item.previous === "기준일 2026.09.20");
+    expect(dateChange?.sources[0].locator).toEqual(expect.objectContaining({ kind: "docx", block: 2 }));
+  });
+
+  it("keeps PDF page sources and repeated output stable", async () => {
+    const [baseBytes, targetBytes] = await Promise.all([
+      createPdf(["Quarterly report amount 100", "Stable appendix"]),
+      createPdf(["Quarterly report amount 120", "Stable appendix", "New final page"]),
+    ]);
+    const [base, target] = await Promise.all([
+      parseDocument({ fileId: "base", fileName: "v1.pdf", bytes: baseBytes }),
+      parseDocument({ fileId: "target", fileName: "v2.pdf", bytes: targetBytes }),
+    ]);
+    const result = buildComparison(base, target);
+
+    expect(result).toEqual(buildComparison(base, target));
+    expect(result.summary).toMatchObject({ total: 2, added: 1, removed: 0, important: 1 });
+    expect(result.items[0].sources.map((source) => source.locator)).toEqual([
+      expect.objectContaining({ kind: "pdf", page: 1 }),
+      expect.objectContaining({ kind: "pdf", page: 1 }),
+    ]);
   });
 
   it("refuses to guess alignment for duplicate row keys", async () => {

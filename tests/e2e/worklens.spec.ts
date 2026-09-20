@@ -128,6 +128,12 @@ test("uploads XLSX files, compares them and shows source evidence", async ({ pag
   await expect(fileMap).toContainText("대상 파일");
   await expect(fileMap).toContainText("운임현황_v2.xlsx");
   await expect(panel.locator(".change-head [role='columnheader']")).toHaveText(["변경 유형", "항목", "기준 파일 값", "대상 파일 값", "차이", "변화율", "근거"]);
+  const csvDownload = page.waitForEvent("download");
+  await panel.getByRole("button", { name: "CSV 다운로드" }).click();
+  expect((await csvDownload).suggestedFilename()).toBe("worklens-version-compare.csv");
+  const xlsxDownload = page.waitForEvent("download");
+  await panel.getByRole("button", { name: "XLSX 다운로드" }).click();
+  expect((await xlsxDownload).suggestedFilename()).toBe("worklens-version-compare.xlsx");
   await expect(panel).not.toContainText(/Previous|Current|Difference|Change %/);
   const rows = page.getByTestId("change-row");
   await expect(rows.first()).toBeVisible();

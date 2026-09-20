@@ -150,11 +150,13 @@ const numericValue = (cell: TableCell): number | undefined => {
  *
  * Positional pairing turns a single insertion into a cascade of false `Changed`
  * rows plus a trailing `Added`; aligning first keeps unchanged content unchanged.
+ * A caller may conservatively pair edited neighbors inside one unmatched run.
  */
 const alignByText = <T>(
   base: readonly T[],
   current: readonly T[],
   text: (item: T) => string,
+  compatible?: (base: T, current: T) => boolean,
 ): Array<{ base?: T; current?: T }> => {
   const rows = base.length;
   const columns = current.length;
@@ -198,33 +200,151 @@ const alignByText = <T>(
     pairs.push({ current: current[column] });
     column += 1;
   }
-  return pairUnmatchedNeighbors(pairs);
+  return pairUnmatchedRuns(pairs, compatible);
 };
 
 /**
- * LCS reports an edited item as a delete followed by an insert. A run of one
- * unmatched base and one unmatched current is really a modification, so pair
- * them back up; longer or unbalanced runs stay genuine Removed/Added.
+ * Re-aligns an unmatched run only with a caller-provided, local compatibility
+ * rule. The dynamic program preserves source order and leaves incompatible
+ * blocks as Removed/Added instead of forcing a fuzzy pair.
  */
-const pairUnmatchedNeighbors = <T>(
+const pairUnmatchedRuns = <T>(
   pairs: Array<{ base?: T; current?: T }>,
+  compatible?: (base: T, current: T) => boolean,
 ): Array<{ base?: T; current?: T }> => {
   const merged: Array<{ base?: T; current?: T }> = [];
-  for (let index = 0; index < pairs.length; index += 1) {
-    const pair = pairs[index];
-    const next = pairs[index + 1];
-    const isLoneRemoval = pair.base !== undefined && pair.current === undefined;
-    const isLoneAddition = next?.base === undefined && next?.current !== undefined;
-    const followedByMatch = pairs[index + 2]?.base !== undefined && pairs[index + 2]?.current !== undefined;
-
-    if (isLoneRemoval && isLoneAddition && (index + 2 >= pairs.length || followedByMatch)) {
-      merged.push({ base: pair.base, current: next.current });
+  let index = 0;
+  while (index < pairs.length) {
+    if (pairs[index].base !== undefined && pairs[index].current !== undefined) {
+      merged.push(pairs[index]);
       index += 1;
       continue;
     }
-    merged.push(pair);
+    const run: Array<{ base?: T; current?: T }> = [];
+    while (
+      index < pairs.length &&
+      !(pairs[index].base !== undefined && pairs[index].current !== undefined)
+    ) {
+      run.push(pairs[index]);
+      index += 1;
+    }
+    const removed = run.flatMap((pair) => pair.base === undefined ? [] : [pair.base]);
+    const added = run.flatMap((pair) => pair.current === undefined ? [] : [pair.current]);
+    if (!compatible) {
+      if (removed.length === 1 && added.length === 1) {
+        merged.push({ base: removed[0], current: added[0] });
+      } else {
+        merged.push(...run);
+      }
+      continue;
+    }
+
+    const scores: number[][] = Array.from({ length: removed.length + 1 }, () =>
+      new Array<number>(added.length + 1).fill(0),
+    );
+    for (let row = removed.length - 1; row >= 0; row -= 1) {
+      for (let column = added.length - 1; column >= 0; column -= 1) {
+        scores[row][column] = compatible(removed[row], added[column])
+          ? scores[row + 1][column + 1] + 1
+          : Math.max(scores[row + 1][column], scores[row][column + 1]);
+      }
+    }
+    let row = 0;
+    let column = 0;
+    while (row < removed.length && column < added.length) {
+      if (
+        compatible(removed[row], added[column]) &&
+        scores[row][column] === scores[row + 1][column + 1] + 1
+      ) {
+        merged.push({ base: removed[row], current: added[column] });
+        row += 1;
+        column += 1;
+      } else if (scores[row + 1][column] >= scores[row][column + 1]) {
+        merged.push({ base: removed[row] });
+        row += 1;
+      } else {
+        merged.push({ current: added[column] });
+        column += 1;
+      }
+    }
+    while (row < removed.length) {
+      merged.push({ base: removed[row] });
+      row += 1;
+    }
+    while (column < added.length) {
+      merged.push({ current: added[column] });
+      column += 1;
+    }
   }
   return merged;
+};
+
+const structuralLocation = (source: SourceRef): string | undefined => {
+  const locator = source.locator;
+  if (!locator) return undefined;
+  switch (locator.kind) {
+    case "pptx":
+      return `pptx:${locator.slide}:${locator.shape}:${locator.tableCell?.row ?? ""}:${locator.tableCell?.column ?? ""}`;
+    case "docx":
+      return `docx:${locator.part}:${locator.block}:${locator.tableCell?.row ?? ""}:${locator.tableCell?.column ?? ""}`;
+    case "pdf":
+      return `pdf:${locator.page}`;
+    case "xlsx":
+      return `xlsx:${locator.sheet}:${locator.range}`;
+    case "csv":
+      return `csv:${locator.record}:${locator.column}`;
+  }
+};
+
+const structuralRegion = (source: SourceRef): string | undefined => {
+  const locator = source.locator;
+  if (!locator) return undefined;
+  switch (locator.kind) {
+    case "pptx": return `pptx:${locator.slide}`;
+    case "docx": return `docx:${locator.part}`;
+    case "pdf": return `pdf:${locator.page}`;
+    case "xlsx": return `xlsx:${locator.sheet}`;
+    case "csv": return "csv";
+  }
+};
+
+const numberSkeleton = (value: string): string =>
+  value.toLocaleLowerCase().replace(/[+-]?\d[\d,.]*/gu, "#").replace(/\s+/gu, " ").trim();
+
+const textBigrams = (value: string): Set<string> => {
+  const compact = value.toLocaleLowerCase().replace(/[\s\d,.\-+%]/gu, "");
+  const grams = new Set<string>();
+  for (let index = 0; index < compact.length - 1; index += 1) grams.add(compact.slice(index, index + 2));
+  return grams;
+};
+
+const textSimilarity = (left: string, right: string): number => {
+  if (numberSkeleton(left) === numberSkeleton(right)) return 1;
+  const a = textBigrams(left);
+  const b = textBigrams(right);
+  if (a.size === 0 || b.size === 0) return 0;
+  let overlap = 0;
+  for (const gram of a) if (b.has(gram)) overlap += 1;
+  return (2 * overlap) / (a.size + b.size);
+};
+
+const compatibleTextBlocks = (base: DocumentBlock, current: DocumentBlock): boolean => {
+  const baseLocation = structuralLocation(blockSource(base));
+  const currentLocation = structuralLocation(blockSource(current));
+  const sameLocation = baseLocation !== undefined && baseLocation === currentLocation;
+  const sameRegion =
+    structuralRegion(blockSource(base)) !== undefined &&
+    structuralRegion(blockSource(base)) === structuralRegion(blockSource(current));
+  if (!sameLocation && !sameRegion) return false;
+  const similarity = textSimilarity(blockText(base), blockText(current));
+  return similarity >= (sameLocation ? 0.45 : 0.62);
+};
+
+const embeddedNumber = (text: string): number | undefined => {
+  const matches = text.match(/[+-]?(?:\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)/gu);
+  if (matches?.length !== 1) return undefined;
+  const value = Number(matches[0].replaceAll(",", ""));
+  return Number.isFinite(value) ? value : undefined;
 };
 
 const compareTable = (
@@ -494,7 +614,12 @@ export const compareDocuments = (
     }
   }
 
-  const alignedText = alignByText(textBlocks(base), textBlocks(current), blockText);
+  const alignedText = alignByText(
+    textBlocks(base),
+    textBlocks(current),
+    blockText,
+    compatibleTextBlocks,
+  );
   alignedText.forEach((pair, index) => {
     const previousBlock = pair.base;
     const currentBlock = pair.current;
@@ -517,18 +642,40 @@ export const compareDocuments = (
         sources: { base: blockSource(previousBlock) },
       });
     } else if (previousBlock !== undefined && currentBlock !== undefined) {
-      results.push({
-        category: "Changed",
+      const previousNumber = embeddedNumber(previous);
+      const currentNumber = embeddedNumber(next);
+      const numericChange =
+        previousNumber !== undefined &&
+        currentNumber !== undefined &&
+        numberSkeleton(previous) === numberSkeleton(next);
+      const difference = numericChange ? currentNumber - previousNumber : null;
+      const common = {
         label: `Text ${index + 1}`,
         previous,
         current: next,
-        difference: null,
-        changePercent: null,
         sources: {
           base: blockSource(previousBlock),
           current: blockSource(currentBlock),
         },
-      });
+      };
+      if (numericChange && difference !== null && difference !== 0) {
+        results.push({
+          category: "Important Change",
+          ...common,
+          difference,
+          changePercent: previousNumber === 0 ? null : (difference / previousNumber) * 100,
+        });
+      } else {
+        results.push({
+          category: "Changed",
+          ...common,
+          difference,
+          changePercent:
+            numericChange && previousNumber !== 0 && difference !== null
+              ? (difference / previousNumber) * 100
+              : null,
+        });
+      }
     }
   });
 
