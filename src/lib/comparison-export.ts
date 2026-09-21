@@ -6,7 +6,7 @@ import { sourceText } from "@/lib/extract/export";
 
 const CSV_MIME_TYPE = "text/csv; charset=utf-8";
 const XLSX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-const HEADERS = ["변경 유형", "항목", "기준 파일 값", "대상 파일 값", "차이", "변화율", "기준 근거", "대상 근거"];
+const HEADERS = ["변경 유형", "기준 파일 값", "대상 파일 값", "차이", "변화율", "기준 근거", "대상 근거"];
 
 const CATEGORY_LABELS: Record<ComparisonCategory, string> = {
   Added: "추가",
@@ -36,7 +36,6 @@ function rows(result: ComparisonResult): string[][] {
     const sources = sourcePair(item);
     return [
       CATEGORY_LABELS[item.category],
-      item.label,
       item.previous ?? "",
       item.current ?? "",
       numberText(item.difference),

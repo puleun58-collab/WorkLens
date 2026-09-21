@@ -135,23 +135,36 @@ describe("document submission Check", () => {
     expect(result.findings.filter((item) => item.originalText === "향후 전먕")).toHaveLength(1);
   });
 
-  it("detects only strong expanded privacy patterns and keeps every source actionable", () => {
+  it("detects supported 개인정보·보안정보 patterns without flagging ordinary business numbers", () => {
     const result = checkDocument(paragraphDocument([
       "API Key: sk_live_1234567890abcdefgh",
+      "주민등록번호 900101-1234567",
+      "담당자 mail@example.com",
+      "연락처 010-1234-5678",
       "계좌번호 123-456-789012",
       "사번 WL-2048",
       "내부 시스템 http://10.20.30.40/admin",
+      "접속 IP 203.0.113.20",
+      "기준일 2026-09-15",
+      "예산 123,456원",
       "외부 참고 번호 12345",
     ]));
     const codes = result.findings.map((item) => item.code);
     expect(codes).toEqual(expect.arrayContaining([
       "privacy-secret",
+      "privacy-resident-registration",
+      "privacy-email",
+      "privacy-phone",
       "privacy-account-number",
       "privacy-employee-id",
       "privacy-internal-url",
+      "privacy-ip-address",
     ]));
     expect(codes).not.toContain("privacy-sensitive-id");
     expect(result.findings.find((item) => item.code === "privacy-secret")).toMatchObject({ severity: "critical", category: "privacy" });
+    expect(result.findings.find((item) => item.code === "privacy-resident-registration")).toMatchObject({ severity: "critical" });
+    expect(result.findings.find((item) => item.code === "privacy-account-number")).toMatchObject({ severity: "warning" });
+    expect(result.findings.find((item) => item.code === "privacy-employee-id")).toMatchObject({ severity: "suggestion" });
     expect(result.findings.every((item) => item.source.nodeId.length > 0)).toBe(true);
   });
 

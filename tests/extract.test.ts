@@ -232,6 +232,36 @@ describe("automatic extraction", () => {
     expect(result.records[0].rows).toHaveLength(2);
   });
 
+  it("rejects a table-like header from key-value extraction", () => {
+    const result = autoExtract(table([
+      ["항목", "값"],
+      ["작성부서", "경영지원팀"],
+    ]), { id: "file-2", name: "실적.docx" });
+    expect(result.fields.map((entry) => [entry.field, entry.displayValue])).toEqual([
+      ["작성부서", "경영지원팀"],
+    ]);
+  });
+
+  it("requires at least two populated body rows for a record table", () => {
+    const result = autoExtract(table([
+      ["담당자", "조치사항", "기한"],
+      ["김OO", "안전표지 설치", "9/30"],
+      ["", "", ""],
+    ]), { id: "file-2", name: "실적.docx" });
+    expect(result.records).toEqual([]);
+  });
+
+  it("deduplicates equivalent normalized dates while retaining every source", () => {
+    const result = autoExtract(paragraphs([
+      "기준일: 2026.09.15",
+      "기준일: 2026-09-15",
+    ]), file);
+    expect(result.fields).toHaveLength(1);
+    expect(result.fields[0].displayValue).toBe("2026.09.15");
+    expect(result.fields[0].normalizedValue).toBe("2026-09-15");
+    expect(result.fields[0].sources).toHaveLength(2);
+  });
+
   it("reads a two-column table as label and value", () => {
     const result = autoExtract(table([
       ["보고기간", "2026년 9월"],

@@ -77,17 +77,18 @@ describe("server AI prompt boundary", () => {
     expect(prompt).not.toContain(window.nodes.get("E1")!.propositionToken);
   });
 
-  it("treats Brief focus as emphasis while preserving the whole document", () => {
+  it("separates summary formatting instructions from document evidence", () => {
     const items = [
       { handle: "E1", text: "시가총액은 3,420억원입니다." },
       { handle: "E2", text: "목표주가는 64,550원입니다." },
     ];
-    const focused = buildMessages({ operation: "brief", instruction: "시가총액" }, items)[1].content;
+    const instructed = buildMessages({ operation: "brief", summaryInstruction: "임원 보고용으로 핵심만 5줄" }, items)[1].content;
     const broad = buildMessages({ operation: "brief" }, items)[1].content;
-    expect(focused).toContain("문서 전체의 핵심 내용을 요약");
-    expect(focused).toContain("중점 내용 \"시가총액\"");
-    expect(focused).toContain("관련 근거가 없으면 이를 추측하지 말고");
-    expect(focused).not.toContain("직접 관련된 근거만");
+    expect(instructed).toContain("[사용자 요약 지시사항]");
+    expect(instructed).toContain("임원 보고용으로 핵심만 5줄");
+    expect(instructed.indexOf("[사용자 요약 지시사항]")).toBeLessThan(instructed.indexOf("[근거]"));
+    expect(instructed).toContain("검색 키워드로 취급하거나 근거를 임의로 좁히지 말고");
+    expect(broad).not.toContain("[사용자 요약 지시사항]");
     expect(broad).toContain("문서 전체에서");
   });
 

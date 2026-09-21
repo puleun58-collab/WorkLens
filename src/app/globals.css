@@ -1732,6 +1732,13 @@ input:disabled,
   font-size: var(--font-size-xs);
 }
 
+.brief-scope-field em {
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+  font-style: normal;
+  line-height: 1.45;
+}
+
 .operation-actions {
   display: flex;
   gap: 8px;
@@ -3777,11 +3784,11 @@ input:disabled,
   font-weight: var(--font-weight-semibold);
 }
 
-/* Both comparison modes use the same quiet white table-header surface. */
+/* Comparison modes share the same restrained table surface. */
 .change-head,
 .value-check-matrix-head {
   border-bottom: 1px solid var(--line);
-  background: var(--paper);
+  background: #f7f8fa;
   color: var(--ink-soft);
   font-weight: var(--font-weight-semibold);
   box-shadow: none;
@@ -3790,11 +3797,12 @@ input:disabled,
 .change-row {
   min-height: 59px;
   border-top: 1px solid var(--line-soft);
+  background: var(--paper);
   font-size: var(--font-size-sm);
 }
 
 .change-row:hover {
-  background: var(--blue-pale);
+  background: #fafbfd;
 }
 
 .change-head > span,
@@ -6153,6 +6161,7 @@ input:disabled {
 }
 
 .file-add,
+.delete-selected,
 .delete-all {
   min-height: var(--control-height-md);
   padding: 0 14px;
@@ -6173,6 +6182,19 @@ input:disabled {
 .file-add:hover:not(:disabled) {
   border-color: var(--blue-active);
   background: var(--blue-hover);
+}
+
+.delete-selected {
+  border: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--ink-soft);
+  box-shadow: none;
+}
+
+.delete-selected:hover:not(:disabled) {
+  border-color: var(--blue);
+  background: var(--blue-pale);
+  color: var(--blue);
 }
 
 .delete-all {
@@ -6387,6 +6409,7 @@ input:disabled {
   }
 
   .file-add,
+  .delete-selected,
   .delete-all {
     min-height: 40px;
   }
@@ -7059,7 +7082,7 @@ input:disabled {
   flex: 0 0 auto;
   color: var(--muted);
   font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-semibold);
+  font-weight: var(--font-weight-regular);
 }
 
 .check-results .check-source,
@@ -7082,6 +7105,11 @@ input:disabled {
   font-size: var(--font-size-sm);
   line-height: 1.5;
   overflow-wrap: anywhere;
+}
+
+.check-results .check-recommendation strong {
+  color: var(--ink);
+  font-weight: var(--font-weight-semibold);
 }
 
 .check-results .qa-overview {
@@ -7296,7 +7324,33 @@ input:disabled {
   color: var(--warning);
 }
 
+/* Extraction follows the same quiet table surface as Compare and Value Check. */
+.extract-auto-table,
+.extract-fields-table {
+  border-top-color: var(--line-soft);
+  background: transparent;
+  box-shadow: none;
+}
 
+.extract-auto-table .data-head,
+.extract-fields-table .data-head {
+  border-bottom: 1px solid var(--line);
+  background: #f7f8fa;
+  color: var(--ink-soft);
+  font-weight: var(--font-weight-semibold);
+  box-shadow: none;
+}
+
+.extract-auto-table .data-row,
+.extract-fields-table .data-row {
+  border-bottom: 1px solid var(--line-soft);
+  background: var(--paper);
+}
+
+.extract-auto-table .data-row:hover,
+.extract-fields-table .data-row:hover {
+  background: #fafbfd;
+}
 .extract-auto-table:not(.multi-file) .data-head,
 .extract-auto-table:not(.multi-file) .data-row,
 .extract-fields-table:not(.multi-file) .data-head,

@@ -57,7 +57,7 @@ export interface GroundedResult { claims: GroundedClaim[]; warnings: ResultWarni
 
 export interface AnalyzeRequest { operation: "analyze"; }
 export interface AskRequest { operation: "ask"; question: string; }
-export interface BriefRequest { operation: "brief"; instruction?: string; }
+export interface BriefRequest { operation: "brief"; summaryInstruction?: string; }
 export interface SemanticCheckRequest { operation: "semantic-check"; statement: string; }
 export type AiRequest = AnalyzeRequest | AskRequest | BriefRequest | SemanticCheckRequest;
 

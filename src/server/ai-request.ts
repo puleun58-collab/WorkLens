@@ -24,7 +24,7 @@ const evidenceItemsSchema = z.array(z.object({
 const taskSchema = z.discriminatedUnion("operation", [
   z.object({ operation: z.literal("analyze") }).strict(),
   z.object({ operation: z.literal("ask"), question: boundedText(MAX_INSTRUCTION_CHARS) }).strict(),
-  z.object({ operation: z.literal("brief"), instruction: boundedText(MAX_INSTRUCTION_CHARS).optional() }).strict(),
+  z.object({ operation: z.literal("brief"), summaryInstruction: boundedText(MAX_INSTRUCTION_CHARS).optional() }).strict(),
   z.object({ operation: z.literal("semantic-check"), statement: boundedText(MAX_INSTRUCTION_CHARS) }).strict(),
 ]);
 

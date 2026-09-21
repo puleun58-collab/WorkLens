@@ -17,7 +17,6 @@ import {
 import { WorkLensLogo } from "./worklens-logo";
 import { disposeWorkspace, runInWorker } from "@/client/document-client";
 import {
-  aiFailureDetail,
   extractServerAi,
   generateServerAi,
   interruptServerAi,
@@ -112,8 +111,9 @@ type NoticeScope = "workspace" | ShellView;
 type Notice = { tone: "error" | "success" | "info" | "warning"; message: string; scope: NoticeScope; code?: ServerAiErrorCode; detail?: string };
 
 function noticePanelTitle(notice: Notice): string {
-  if (notice.tone === "warning") return "기본 결과를 유지했습니다";
-  return notice.code ? "추가 처리를 완료하지 못했습니다" : "작업을 완료하지 못했습니다";
+  if (notice.tone === "warning") return "추가 처리를 완료하지 못했습니다";
+  if (notice.tone === "error" && notice.code) return "요청을 처리하지 못했습니다";
+  return notice.message;
 }
 
 const tabs = ["Analyze", "Ask", "Compare", "Check", "Polish", "Extract", "Brief"] as const;
@@ -178,7 +178,7 @@ const checkCategoryLabels: Record<CheckCategory, string> = {
   date: "날짜",
   unit: "단위",
   total: "합계",
-  privacy: "개인정보",
+  privacy: "개인정보·보안정보",
   structure: "구조",
   placeholder: "미완성 문구",
 };
@@ -186,7 +186,7 @@ const checkGroupLabels: Record<CheckCategoryGroup, string> = {
   writing: "문장",
   consistency: "일관성",
   data: "데이터",
-  privacy: "개인정보",
+  privacy: "개인정보·보안정보",
 };
 
 
@@ -210,6 +210,13 @@ function displayValue(value: string | number | boolean | null | undefined) {
   if (value === null || value === undefined || value === "") return "없음";
   if (typeof value === "number") return Number.isInteger(value) ? String(value) : value.toFixed(2);
   return String(value);
+}
+function RecommendationText({ text, suggestedText }: { text: string; suggestedText?: string }) {
+  const core = suggestedText?.trim();
+  if (!core) return text;
+  const index = text.indexOf(core);
+  if (index < 0) return text;
+  return <>{text.slice(0, index)}<strong>{core}</strong>{text.slice(index + core.length)}</>;
 }
 function structureCounts(metadata: DocumentMetadata): { label: string; value: string }[] {
   const counts: { label: string; value: string }[] = [];
@@ -240,16 +247,6 @@ function failedPolishOutcome(candidate: PolishCandidate, error: unknown): Polish
   };
 }
 
-function partialPolishMessage(error: unknown, count: number): string {
-  const failure = error as Partial<ServerAiFailure>;
-  if (failure.code === "RATE_LIMITED") {
-    return `윤문 결과는 준비되었습니다. ${count}개 문장은 AI 사용량 제한으로 원문을 유지했습니다.`;
-  }
-  if (failure.code === "CANCELLED") {
-    return `윤문 결과는 준비되었습니다. ${count}개 문장은 처리하지 않았습니다.`;
-  }
-  return `윤문 결과는 준비되었습니다. ${count}개 문장은 처리하지 못해 원문을 유지했습니다.`;
-}
 
 type SourceRole = "base" | "current";
 /**
@@ -425,37 +422,38 @@ export default function Home() {
     const failure = error as Partial<ServerAiFailure>;
     logAiFailure(error);
     if (failure.code === "CANCELLED") {
-      notifyView("info", SERVER_AI_MESSAGES.CANCELLED, failure.code, aiFailureDetail(error));
+      notifyView("info", "작업을 취소했습니다.");
       return;
     }
     notifyView(
       "error",
-      failure.message ?? "AI 처리를 완료하지 못했습니다.",
+      failure.code === "TIMEOUT" || failure.code === "RATE_LIMITED" || failure.code === "PROVIDER_UNAVAILABLE" || failure.code === "OPERATION_CAPACITY"
+        ? "잠시 후 다시 시도하세요."
+        : (failure.message ?? "입력과 파일 선택 상태를 확인한 뒤 다시 시도하세요."),
       failure.code,
-      aiFailureDetail(error),
     );
   };
 
-  const reportPartialAiFailure = (error: unknown, completedMessage: string) => {
+  const reportPartialAiFailure = (error: unknown) => {
     const failure = error as Partial<ServerAiFailure>;
     logAiFailure(error);
+    if (failure.code === "CANCELLED") {
+      notifyView("info", "작업을 취소했습니다.");
+      return;
+    }
     notifyView(
-      failure.code === "CANCELLED" ? "info" : "warning",
-      completedMessage,
+      "warning",
+      "기본 결과는 정상적으로 유지됩니다.",
       failure.code,
-      aiFailureDetail(error),
     );
   };
 
   const reportCheckPartialAiFailure = (error: unknown) => {
-    reportPartialAiFailure(
-      error,
-      "기본 검수 완료 · 추가 문장 제안은 이번 실행에서 제외되었습니다.",
-    );
+    reportPartialAiFailure(error);
   };
 
   const reportAnalyzePartialAiFailure = (error: unknown) => {
-    reportPartialAiFailure(error, "추가 해석은 이번 실행에서 제외되었습니다.");
+    reportPartialAiFailure(error);
   };
 
   /**
@@ -467,9 +465,7 @@ export default function Home() {
     const noEvidenceMessage = request.operation === "ask"
       ? "선택한 문서에서 답변에 필요한 근거를 찾지 못했습니다."
       : request.operation === "brief"
-        ? request.instruction?.trim()
-          ? `선택한 문서에서 '${request.instruction.trim().slice(0, 80)}' 관련 내용을 찾지 못했습니다.`
-          : "선택한 문서에서 요약에 필요한 근거를 찾지 못했습니다."
+        ? "선택한 문서에서 요약에 필요한 근거를 찾지 못했습니다."
         : SERVER_AI_MESSAGES.NO_EVIDENCE;
     try {
       const evidence = await runInWorker({ kind: "evidence", fileIds: selected, request });
@@ -596,13 +592,7 @@ export default function Home() {
       const result = polishResult(polishMode, outcomes);
       setPolish(result);
       if (partialFailure) {
-        logAiFailure(partialFailure);
-        notifyView(
-          "warning",
-          partialPolishMessage(partialFailure, result.summary.failed),
-          (partialFailure as Partial<ServerAiFailure>).code,
-          aiFailureDetail(partialFailure),
-        );
+        reportPartialAiFailure(partialFailure);
       } else if (result.summary.rejected > 0) {
         notifyView("warning", `윤문 결과는 준비되었습니다. 보호 항목 ${result.summary.rejected}건은 원문을 유지했습니다.`);
       } else {
@@ -674,13 +664,7 @@ export default function Home() {
       const result = polishTextResult(polishMode, input, segments, outcomes);
       setPolishTextRun(result);
       if (partialFailure) {
-        logAiFailure(partialFailure);
-        notifyView(
-          "warning",
-          partialPolishMessage(partialFailure, result.summary.failed),
-          (partialFailure as Partial<ServerAiFailure>).code,
-          aiFailureDetail(partialFailure),
-        );
+        reportPartialAiFailure(partialFailure);
       } else if (result.summary.rejected > 0) {
         notifyView("warning", `윤문 결과는 준비되었습니다. 보호 항목 ${result.summary.rejected}건은 원문을 유지했습니다.`);
       } else {
@@ -776,10 +760,7 @@ export default function Home() {
         setEnrichmentResult(enriched);
         notifyView("success", "파일 비교를 완료했습니다. 의미 차이 확인도 반영했습니다.");
       } catch (error) {
-        reportPartialAiFailure(
-          error,
-          "기본 비교 완료 · 의미 차이 확인은 이번 실행에서 제외되었습니다.",
-        );
+        reportPartialAiFailure(error);
       }
       return deterministic;
     } finally {
@@ -876,7 +857,7 @@ export default function Home() {
     const typed = question.trim();
     return activeTab === "Ask"
       ? runServerTask({ operation: "ask", question: typed }, "질문 결과를 준비했습니다.")
-      : runServerTask({ operation: "brief", ...(typed ? { instruction: typed } : {}) }, "핵심 요약을 준비했습니다.");
+      : runServerTask({ operation: "brief", ...(typed ? { summaryInstruction: typed } : {}) }, "핵심 요약을 준비했습니다.");
   };
 
   const exportFiles = async (format: "csv" | "xlsx") => {
@@ -935,7 +916,7 @@ export default function Home() {
       notifyView("success", `추출 항목 ${resolved.summary.fields}개 · 찾지 못함 ${resolved.summary.missing}개`);
     } catch (error) {
       if (deterministic) {
-        reportPartialAiFailure(error, "기본 추출은 완료했습니다. 추가 항목 확인은 이번 실행에서 제외되었습니다.");
+        reportPartialAiFailure(error);
       } else {
         reportAiFailure(error);
       }
@@ -1039,6 +1020,20 @@ export default function Home() {
     setSelected([]);
     clearResults();
     notifyWorkspace("info", "브라우저 메모리에서 파일과 결과를 모두 지웠습니다.");
+  };
+
+  const deleteSelected = async () => {
+    if (busy || selected.length === 0) return;
+    const removing = new Set(selected);
+    await runInWorker({ kind: "forget", fileIds: selected });
+    interruptServerAi();
+    setFiles((current) => current.filter((file) => !removing.has(file.id)));
+    setSelected([]);
+    clearResults();
+    setStructured(null);
+    setPolish(null);
+    setPolishTextRun(null);
+    notifyWorkspace("info", "선택한 파일과 결과를 지웠습니다.");
   };
 
   // Pasted text is its own input: the Polish action then depends on the
@@ -1196,6 +1191,7 @@ export default function Home() {
                   <button type="button" className="file-add" onClick={() => inputRef.current?.click()} disabled={uploading}>
                     {uploading ? "분석 중…" : "파일 추가"}
                   </button>
+                  <button type="button" className="delete-selected" onClick={() => void deleteSelected()} disabled={busy || selected.length === 0}>선택 삭제</button>
                   <button type="button" className="delete-all" onClick={deleteAll} disabled={busy}>모두 삭제</button>
                 </div>
               ) : null}
@@ -1313,11 +1309,12 @@ export default function Home() {
                     <input
                       value={question}
                       maxLength={2000}
-                      aria-label={activeTab === "Ask" ? "질문 입력" : "요약 중점 입력"}
+                      aria-label={activeTab === "Ask" ? "질문 입력" : "요약 방식 입력"}
                       onChange={(event) => setQuestion(event.target.value)}
-                      placeholder={activeTab === "Ask" ? "선택한 문서에서 확인할 내용을 입력하세요" : "중점적으로 정리할 내용 (선택)"}
+                      placeholder={activeTab === "Ask" ? "선택한 문서에서 확인할 내용을 입력하세요" : "어떤 형태로 요약할까요? (선택)"}
                     />
                     <small>{question.length.toLocaleString("ko-KR")} / 2,000</small>
+                    {activeTab === "Brief" ? <em>핵심만 5줄 / 보고서 형식 / 항목별 정리 / 결론과 액션 아이템 중심</em> : null}
                   </label>
                 ) : null}
                 {activeTab === "Compare" ? (
@@ -1634,10 +1631,10 @@ const workSectionCopy: Record<Tab, [string, string]> = {
   Analyze: ["문서 분석", "선택한 파일의 핵심 항목과 확인된 수치를 분석합니다."],
   Ask: ["질문하기", "선택한 파일을 근거로 질문에 답합니다."],
   Compare: ["파일 비교", "선택한 파일의 변경 사항이나 주요 값 차이를 확인합니다."],
-  Check: ["문서 검수", "선택한 파일의 문장·일관성·데이터·개인정보를 검수합니다."],
+  Check: ["문서 검수", "선택한 파일의 문장·일관성·데이터·개인정보·보안정보를 검수합니다."],
   Polish: ["문서 윤문", "선택한 파일의 번역투와 중복 표현을 문장 단위로 다듬습니다."],
   Extract: ["정보 추출", "선택한 파일에서 필요한 항목과 값을 찾아 정리합니다."],
-  Brief: ["요약", "선택한 파일의 핵심 내용을 업무 문서 형식으로 정리합니다."],
+  Brief: ["요약", "선택한 파일의 핵심 내용을 정리합니다. 원하는 요약 방식이 있다면 입력하세요."],
 };
 
 function ResultHeader({ eyebrow, title, status, meta }: {
@@ -1781,15 +1778,18 @@ function ExtractControls({ mode, fields, busy, runDisabled, onMode, onFields, on
     <div className="extract-controls">
       <div className="extract-control-row">
         <fieldset className="segmented extract-modes" aria-label="추출 방식">
-          {(["auto", "fields", "text"] as const).map((entry) => (
+          {(["auto", "fields"] as const).map((entry) => (
             <label key={entry}>
               <input type="radio" name="extract-mode" value={entry} checked={mode === entry} disabled={busy} onChange={() => onMode(entry)} />
-              <span>{entry === "text" ? "전체 텍스트" : EXTRACT_MODE_LABELS[entry]}</span>
+              <span>{EXTRACT_MODE_LABELS[entry]}</span>
             </label>
           ))}
         </fieldset>
         <button type="button" className="extract-run" disabled={runDisabled} aria-label="추출 실행" onClick={onRun}>{busy ? "처리 중…" : RUN_LABEL}</button>
       </div>
+      <p className="extract-mode-description">{mode === "auto"
+        ? "문서에 명시된 구조화 항목과 반복 표를 자동으로 찾습니다."
+        : "필요한 항목명을 지정해 파일별 값을 같은 열로 정리합니다."}</p>
       {mode === "fields" ? (
         <div className="extract-fields">
           {fields.map((field) => (
@@ -2527,7 +2527,7 @@ function CheckResults({ entries, fileNames, onSource, userTerms, ignoredRules, o
           {filtered.length ? (
             <>
               <section className="check-list" aria-label="문서 검수 이슈">
-                {visible.map(({ finding, file }) => {
+                {visible.map(({ finding }) => {
                   const sources = finding.sources.length ? finding.sources : [finding.source];
                   const group = checkCategoryGroup(finding.category);
                   return (
@@ -2541,7 +2541,6 @@ function CheckResults({ entries, fileNames, onSource, userTerms, ignoredRules, o
                             <span className="check-category-detail">{checkCategoryLabels[finding.category]}</span>
                           </div>
                           <div className="check-issue-name">
-                            <small title={file.name}>{file.name}</small>
                             <strong>{finding.issue}</strong>
                             <p>{finding.message}</p>
                           </div>
@@ -2549,7 +2548,7 @@ function CheckResults({ entries, fileNames, onSource, userTerms, ignoredRules, o
                         <div className="check-issue-support">
                           <div className="check-recommendation">
                             <span className="check-field-label">수정 제안</span>
-                            <p>{finding.recommendation}</p>
+                            <p><RecommendationText text={finding.recommendation} suggestedText={finding.suggestedText} /></p>
                           </div>
                           <div className="check-source">
                             <ResultSource
@@ -3004,12 +3003,11 @@ function SourceDetail({ entries, fileNames, onClose }: {
     <aside ref={panelRef} className="source-detail" aria-label="근거 상세" tabIndex={-1}>
       <header>
         <div>
-          <p className="eyebrow">근거</p>
           <h2>근거 상세</h2>
-          {fileHeading ? <p className="evidence-file-list" title={fileHeading}>{fileHeading}</p> : null}
         </div>
         <button type="button" onClick={onClose} aria-label="닫기">닫기</button>
       </header>
+      {fileHeading ? <p className="evidence-file-list" title={fileHeading}>{fileHeading}</p> : null}
       <div className="evidence-type"><span>원문</span><p>문서에서 확인된 근거 · {entries.length.toLocaleString("ko-KR")}곳</p></div>
       {[...new Map(entries.flatMap((entry) => entry.context
         ? [[`${entry.context.issue}\0${entry.context.recommendation}`, entry.context] as const]

@@ -93,10 +93,12 @@ function taskInstruction(request: AiRequest): string {
   switch (request.operation) {
     case "ask":
       return `질문: ${request.question}\n근거로 답할 수 있는 내용만 3개 이하 항목으로 정리하세요. 근거에 답이 없으면 claims를 빈 배열로 두세요.`;
-    case "brief":
-      return request.instruction
-        ? `문서 전체의 핵심 내용을 요약하되 중점 내용 "${request.instruction}"과 관련된 사항을 우선 포함하고 더 구체적으로 설명하세요. 중점 내용과 직접 관련되지 않아도 문서 전체 이해에 필요한 핵심 사실은 제외하지 마세요. 관련 근거가 없으면 이를 추측하지 말고 전체 문서 기준으로 요약하세요. 수치와 날짜는 근거 그대로 쓰고 5개 이하 항목으로 정리하세요.`
-        : "문서 전체에서 업무적으로 중요한 핵심 사실, 주요 수치, 필요한 후속 조치를 5개 이하 항목으로 정리하세요. 여러 근거에 걸쳐 고르게 다루고 수치와 날짜는 근거 그대로 쓰세요.";
+    case "brief": {
+      const base = "문서 전체에서 업무적으로 중요한 핵심 사실, 주요 수치, 필요한 후속 조치를 5개 이하 항목으로 정리하세요. 여러 근거에 걸쳐 고르게 다루고 수치와 날짜는 근거 그대로 쓰세요.";
+      return request.summaryInstruction
+        ? `${base}\n\n[사용자 요약 지시사항]\n${request.summaryInstruction}\n\n이 내용은 요약의 형식, 길이, 구조, 독자, 강조점 또는 명시적 범위를 정하는 지시입니다. 검색 키워드로 취급하거나 근거를 임의로 좁히지 말고, 명시된 형식과 범위만 따르세요.`
+        : base;
+    }
     case "semantic-check":
       return `${request.statement}\n명확한 오류만 지적하세요: 맞춤법, 조사, 어색한 표현, 용어 불일치. 문제가 없으면 claims를 빈 배열로 두고, 취향에 가까운 문체 제안과 숫자 검증은 하지 마세요. 5개 이하로 쓰세요.`;
     case "analyze":

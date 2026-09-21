@@ -52,6 +52,14 @@ export function evidenceTokens(value: string): string[] {
   return tokens;
 }
 
+function briefMinimumPage(instruction: string | undefined): number | undefined {
+  if (!instruction) return undefined;
+  const match = /(\d+)\s*(?:페이지|쪽|슬라이드)\s*(?:이후|부터)/u.exec(instruction);
+  if (!match) return undefined;
+  const page = Number(match[1]);
+  return Number.isInteger(page) && page > 0 ? page : undefined;
+}
+
 function queryOf(request: AiRequest): string {
   switch (request.operation) {
     case "ask":
@@ -59,7 +67,6 @@ function queryOf(request: AiRequest): string {
     case "semantic-check":
       return request.statement;
     case "brief":
-      return request.instruction ?? "";
     case "analyze":
       return "";
   }
@@ -215,20 +222,23 @@ export function selectEvidence(
   options: SelectEvidenceOptions = {},
 ): AiEvidenceNode[] {
   const limit = options.limit ?? 40;
+  const minimumPage = request.operation === "brief" ? briefMinimumPage(request.summaryInstruction) : undefined;
+  const candidates = minimumPage === undefined
+    ? nodes
+    : nodes.filter((node) => {
+      const page = node.source.page ?? (node.source.locator?.kind === "pptx" ? node.source.locator.slide : undefined);
+      return page !== undefined && page >= minimumPage;
+    });
   const query = queryOf(request).trim();
   const scoreAsk = request.operation === "ask" && query.length > 0;
-  const scoreFocusedBrief = request.operation === "brief" && query.length > 0;
-  // Whole-document tasks keep every candidate when they already fit. A focus
-  // instruction still ranks them so relevance can boost, never exclude.
-  if (nodes.length <= limit && !scoreAsk && !scoreFocusedBrief) return [...nodes];
-  const relevance = query ? relevanceScores(nodes, query) : undefined;
-  const importance = importanceScores(nodes);
-  const ranked: RankedEvidence[] = nodes.map((node, order) => ({
+  // Formatting, audience and emphasis instructions do not alter retrieval.
+  if (candidates.length <= limit && !scoreAsk) return [...candidates];
+  const relevance = query ? relevanceScores(candidates, query) : undefined;
+  const importance = importanceScores(candidates);
+  const ranked: RankedEvidence[] = candidates.map((node, order) => ({
     node,
     order,
-    score: scoreFocusedBrief && relevance
-      ? importance[order] + relevance[order] * 1.5
-      : relevance ? relevance[order] + importance[order] * 0.15 : importance[order],
+    score: relevance ? relevance[order] + importance[order] * 0.15 : importance[order],
   }));
 
   const sorted = [...ranked].sort((left, right) => right.score - left.score || left.order - right.order);

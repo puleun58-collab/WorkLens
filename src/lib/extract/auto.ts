@@ -23,7 +23,9 @@ const GENERIC_LABELS = new Set([
 ]);
 const DELIMITERLESS_LABELS = [
   "영업이익", "목표주가", "현재주가", "시가총액", "상승여력", "종목코드", "매출액",
-  "담당부서", "회사명", "법인명", "종목명", "기준일", "작성일", "시행일", "만료일",
+  "담당부서", "작성부서", "검토부서", "주관부서", "회사명", "법인명", "종목명",
+  "문서번호", "프로젝트명", "계약명", "회의명", "회의일시", "작성자", "검토자", "승인자",
+  "기준일", "작성일", "시행일", "만료일", "조치기한", "완료기한", "납기일",
   "순이익", "담당자", "매출", "비용", "금액", "예산", "인원", "수량", "기간",
   "일정", "일시", "부서", "단위",
 ].sort((left, right) => right.length - left.length);
@@ -43,8 +45,12 @@ function labelKey(label: string): string {
 }
 
 function valueKey(value: string): string {
-  return value.normalize("NFKC").trim();
+  const type = classifyValue(value);
+  return normalizeValue(value, type)?.normalize("NFKC").trim().toLocaleLowerCase("ko-KR")
+    ?? value.normalize("NFKC").trim().toLocaleLowerCase("ko-KR").replace(/\s+/gu, " ");
 }
+
+const BUSINESS_LABELS = new Set(DELIMITERLESS_LABELS.map(labelKey));
 
 function isGenericLabel(label: string): boolean {
   return GENERIC_LABELS.has(labelKey(label));
@@ -113,17 +119,26 @@ function push(fields: ExtractedField[], field: string, value: string, source: So
   });
 }
 
-function tableRecords(block: TableBlock, index: number): ExtractedRecords | undefined {
+function looksLikeHeaderRow(label: string, value: string): boolean {
+  const left = labelKey(label);
+  const right = labelKey(value);
+  return /^(항목|구분|필드|label|key)$/u.test(left)
+    && /^(값|내용|설명|value|description)$/u.test(right);
+}
+
+function tableRecords(block: TableBlock, index: number, displayTitle?: string): ExtractedRecords | undefined {
   const [header, ...body] = block.rows;
-  if (!header || body.length < RECORD_MIN_ROWS || header.length < 2) return undefined;
+  if (!header || body.length < RECORD_MIN_ROWS || header.length < 3) return undefined;
   const columns = header.map((cell, column) => cell.display.trim() || `열 ${column + 1}`);
-  // A two-column table is a label/value list; wider ones are records.
-  if (columns.length < 3) return undefined;
+  if (new Set(columns.map(labelKey)).size !== columns.length) return undefined;
+  const validRows = body.filter((row) => row.filter((cell) => cell.display.trim() !== "").length >= 2);
+  if (validRows.length < RECORD_MIN_ROWS) return undefined;
   return {
     id: block.id,
     title: `표 ${index + 1}`,
+    ...(displayTitle ? { displayTitle } : {}),
     columns,
-    rows: body.map((row) => ({ cells: row.map((cell) => cell.display), source: row[0]?.source ?? block.source })),
+    rows: validRows.map((row) => ({ cells: columns.map((_, column) => row[column]?.display ?? ""), source: row[0]?.source ?? block.source })),
     source: block.source,
   };
 }
@@ -136,6 +151,7 @@ export function autoExtract(
   const fields: ExtractedField[] = [];
   const records: ExtractedRecords[] = [];
   let tableIndex = 0;
+  let currentHeading: string | undefined;
 
   const addCandidate = (
     label: string,
@@ -153,8 +169,29 @@ export function autoExtract(
     push(fields, label.trim(), value.trim(), source, origin, quote);
   };
 
+  if (document.kind === "pptx") {
+    const shapeParagraphs = new Map<string, Array<{ text: string; source: SourceRef; role?: string }>>();
+    for (const block of document.blocks) {
+      if (block.type !== "paragraph" || block.source.locator?.kind !== "pptx") continue;
+      const key = `${block.source.locator.slide}:${block.source.locator.shape}`;
+      const entries = shapeParagraphs.get(key) ?? [];
+      entries.push({ text: block.text.trim(), source: block.source, role: block.role });
+      shapeParagraphs.set(key, entries);
+    }
+    for (const entries of shapeParagraphs.values()) {
+      if (entries.length !== 2 || entries[0].role === "heading") continue;
+      const [label, value] = entries;
+      if (!BUSINESS_LABELS.has(labelKey(label.text))) continue;
+      addCandidate(label.text, value.text, value.source, `${label.text}: ${value.text}`, "business-label");
+    }
+  }
+
   for (const block of document.blocks) {
     if (block.type === "paragraph") {
+      if (block.role === "heading") {
+        currentHeading = block.text.trim() || currentHeading;
+        continue;
+      }
       const explicit = LABEL_VALUE.exec(block.text);
       if (explicit) {
         const [, label, delimiter, value] = explicit;
@@ -166,7 +203,7 @@ export function autoExtract(
       continue;
     }
 
-    const asRecords = tableRecords(block, tableIndex);
+    const asRecords = tableRecords(block, tableIndex, currentHeading);
     tableIndex += 1;
     if (asRecords) {
       records.push(asRecords);
@@ -177,6 +214,7 @@ export function autoExtract(
       if (row.length < 2) continue;
       const label = row[0].display.trim();
       const value = row[1].display.trim();
+      if (looksLikeHeaderRow(label, value)) continue;
       addCandidate(label, value, row[1].source, `${label}: ${value}`, "key-value-table");
     }
   }

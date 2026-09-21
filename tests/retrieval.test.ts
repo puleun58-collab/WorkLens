@@ -159,38 +159,29 @@ describe("browser evidence retrieval", () => {
     expect(firstPageShare).toBeLessThan(0.4);
   });
 
-  it("boosts a concentrated Brief focus without letting one slide own the window", () => {
-    const slides = Array.from({ length: 14 }, (_, index) =>
-      Array.from({ length: 4 }, (__, item) => ({
-        slide: index + 1,
-        text: index === 9
-          ? `위험요소 ${item + 1}: 고소 작업과 장비 충돌 대응 조치`
-          : `Slide ${index + 1} 핵심 ${item + 1}: 회의 결정과 후속 조치 ${index + 1}-${item + 1}`,
-      }))).flat();
-    const nodes = buildEvidenceNodes([pptxDocument(slides)]);
-    const selected = selectEvidence(nodes, { operation: "brief", instruction: "위험요소" }, { limit: MAX_EVIDENCE_ITEMS });
-    const selectedSlides = new Set(selected.map((node) =>
-      node.source.locator?.kind === "pptx" ? node.source.locator.slide : undefined));
-
-    expect(selected.some((node) => node.text.includes("위험요소"))).toBe(true);
-    expect(selectedSlides.size).toBeGreaterThanOrEqual(10);
-    expect(selected.filter((node) => node.source.locator?.kind === "pptx" && node.source.locator.slide === 10).length)
-      .toBeLessThan(selected.length / 2);
-  });
-
-  it("keeps global coverage when focus evidence is sparse or absent", () => {
+  it("does not treat summary formatting or emphasis instructions as retrieval queries", () => {
     const document = pptxDocument(Array.from({ length: 14 }, (_, index) => ({
       slide: index + 1,
       text: index === 9 ? "위험요소: 고소 작업 추락 방지 조치" : `회의 핵심 ${index + 1}: 안전 규정과 후속 조치`,
     })));
     const nodes = buildEvidenceNodes([document]);
-    const sparse = selectEvidence(nodes, { operation: "brief", instruction: "위험요소" }, { limit: MAX_EVIDENCE_ITEMS });
-    const absent = selectEvidence(nodes, { operation: "brief", instruction: "매출 전망" }, { limit: MAX_EVIDENCE_ITEMS });
+    const formatted = selectEvidence(nodes, { operation: "brief", summaryInstruction: "임원 보고용으로 핵심만 5줄" }, { limit: MAX_EVIDENCE_ITEMS });
+    const emphasized = selectEvidence(nodes, { operation: "brief", summaryInstruction: "위험요소를 강조" }, { limit: MAX_EVIDENCE_ITEMS });
 
-    expect(sparse.some((node) => node.text.includes("위험요소"))).toBe(true);
-    expect(new Set(sparse.map((node) => node.source.label)).size).toBe(14);
-    expect(absent).toHaveLength(nodes.length);
-    expect(absent.some((node) => node.text.includes("매출"))).toBe(false);
+    expect(formatted).toEqual(nodes);
+    expect(emphasized).toEqual(nodes);
+  });
+
+  it("applies an explicit page range before balancing Brief evidence", () => {
+    const nodes = buildEvidenceNodes([pptxDocument(Array.from({ length: 8 }, (_, index) => ({
+      slide: index + 1,
+      text: `슬라이드 ${index + 1} 핵심 내용`,
+    })))]);
+    const selected = selectEvidence(nodes, { operation: "brief", summaryInstruction: "3페이지 이후만 요약" }, { limit: MAX_EVIDENCE_ITEMS });
+
+    expect(selected.length).toBeGreaterThan(0);
+    expect(selected.every((node) => node.source.locator?.kind === "pptx" && node.source.locator.slide >= 3)).toBe(true);
+    expect(selected.some((node) => node.source.locator?.kind === "pptx" && node.source.locator.slide === 3)).toBe(true);
   });
 
   it("keeps broad document coverage when Brief has no focus instruction", () => {

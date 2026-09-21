@@ -2,9 +2,30 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import "./globals.css";
 
+const origin = new URL(process.env.WORKLENS_ORIGIN ?? "https://worklens.puleun58.workers.dev");
+const title = "WorkLens | 업무 문서 분석·비교·검수";
+const description = "문서를 분석하고 비교·검수·윤문·추출·요약하는 업무 문서 작업 공간";
+
 export const metadata: Metadata = {
-  title: "WorkLens | Analyze. Compare. Verify.",
-  description: "WorkLens 파일 분석 및 비교 작업 공간",
+  metadataBase: origin,
+  title,
+  description,
+  alternates: { canonical: "/" },
+  openGraph: {
+    title,
+    description,
+    siteName: "WorkLens",
+    type: "website",
+    locale: "ko_KR",
+    url: "/",
+    images: [{ url: "/opengraph-image", width: 1200, height: 630, alt: "WorkLens 업무 문서 작업 공간" }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title,
+    description,
+    images: ["/opengraph-image"],
+  },
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

@@ -46,11 +46,14 @@ describe("comparison exports", () => {
   it("writes deterministic CSV columns, empty added/removed cells, and split sources", () => {
     const csv = comparisonCsv(result);
 
-    expect(csv).toContain("변경 유형,항목,기준 파일 값,대상 파일 값,차이,변화율,기준 근거,대상 근거");
-    expect(csv).toContain("중요 변경,서울 단가,\"130,000원\",\"135,000원\",5000,3.85%,Slide 2,Slide 2");
-    expect(csv).toContain("추가,신규 항목,,추가 값,,,,Sheet1 · B4");
-    expect(csv).toContain("삭제,삭제 항목,이전 값,,,,Page 3,");
+    expect(csv).toContain("변경 유형,기준 파일 값,대상 파일 값,차이,변화율,기준 근거,대상 근거");
+    expect(csv).toContain("중요 변경,\"130,000원\",\"135,000원\",5000,3.85%,Slide 2,Slide 2");
+    expect(csv).toContain("추가,,추가 값,,,,Sheet1 · B4");
+    expect(csv).toContain("삭제,이전 값,,,,Page 3,");
     expect(csv).not.toContain("해당 없음");
+    expect(csv).not.toContain("서울 단가");
+    expect(csv).not.toContain("신규 항목");
+    expect(csv).not.toContain("삭제 항목");
     expect(comparisonCsvExport(result).fileName).toBe("worklens-version-compare.csv");
   });
 
@@ -60,9 +63,10 @@ describe("comparison exports", () => {
     await workbook.xlsx.load(bytes as unknown as Parameters<typeof workbook.xlsx.load>[0]);
     const sheet = workbook.getWorksheet("버전 비교");
 
-    expect(sheet?.getRow(1).values).toEqual([undefined, "변경 유형", "항목", "기준 파일 값", "대상 파일 값", "차이", "변화율", "기준 근거", "대상 근거"]);
-    expect(sheet?.getRow(2).values).toEqual([undefined, "중요 변경", "서울 단가", "130,000원", "135,000원", "5000", "3.85%", "Slide 2", "Slide 2"]);
-    expect(sheet?.getRow(3).getCell(3).value).toBe("");
+    expect(sheet?.getRow(1).values).toEqual([undefined, "변경 유형", "기준 파일 값", "대상 파일 값", "차이", "변화율", "기준 근거", "대상 근거"]);
+    expect(sheet?.getRow(2).values).toEqual([undefined, "중요 변경", "130,000원", "135,000원", "5000", "3.85%", "Slide 2", "Slide 2"]);
+    expect(sheet?.getRow(3).getCell(2).value).toBe("");
+    expect(sheet?.getRow(2).values).not.toContain("서울 단가");
     expect((await comparisonXlsxExport(result)).fileName).toBe("worklens-version-compare.xlsx");
   });
 });
