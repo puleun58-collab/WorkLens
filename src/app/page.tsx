@@ -1306,14 +1306,16 @@ export default function Home() {
               <section className="operation-bar" aria-label={`${tabMeta[activeTab].label} 작업`}>
                 {(activeTab === "Ask" || activeTab === "Brief") ? (
                   <label className={`question-field${activeTab === "Brief" ? " brief-scope-field" : ""}`}>
-                    <input
-                      value={question}
-                      maxLength={2000}
-                      aria-label={activeTab === "Ask" ? "질문 입력" : "요약 방식 입력"}
-                      onChange={(event) => setQuestion(event.target.value)}
-                      placeholder={activeTab === "Ask" ? "선택한 문서에서 확인할 내용을 입력하세요" : "어떤 형태로 요약할까요? (선택)"}
-                    />
-                    <small>{question.length.toLocaleString("ko-KR")} / 2,000</small>
+                    <span className="question-input-wrap">
+                      <input
+                        value={question}
+                        maxLength={2000}
+                        aria-label={activeTab === "Ask" ? "질문 입력" : "요약 방식 입력"}
+                        onChange={(event) => setQuestion(event.target.value)}
+                        placeholder={activeTab === "Ask" ? "선택한 문서에서 확인할 내용을 입력하세요" : "어떤 형태로 요약할까요? (선택)"}
+                      />
+                      <small>{question.length.toLocaleString("ko-KR")} / 2,000</small>
+                    </span>
                     {activeTab === "Brief" ? <em>핵심만 5줄 / 보고서 형식 / 항목별 정리 / 결론과 액션 아이템 중심</em> : null}
                   </label>
                 ) : null}
