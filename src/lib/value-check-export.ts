@@ -3,6 +3,7 @@ import type { DocumentExport } from "@/domain/operations";
 import type { ValueCheckResult, ValueCheckStatus } from "@/domain/value-check";
 import { EXTRACT_TYPE_LABELS } from "@/domain/extract";
 import { sourceText } from "@/lib/extract/export";
+import { formatWorksheet } from "@/lib/xlsx-format";
 
 const CSV_MIME_TYPE = "text/csv; charset=utf-8";
 const XLSX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -39,6 +40,7 @@ export async function valueCheckXlsx(result: ValueCheckResult): Promise<Uint8Arr
   const sheet = workbook.addWorksheet("값 일치 확인");
   sheet.addRow(["항목", "상태", "파일", "값", "타입", "근거 위치"]);
   for (const row of rows(result)) sheet.addRow(row);
+  formatWorksheet(sheet, { freezeHeader: true, autoFilter: true });
   const buffer = await workbook.xlsx.writeBuffer();
   return new Uint8Array(buffer);
 }

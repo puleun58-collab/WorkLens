@@ -71,6 +71,15 @@ describe("value typing", () => {
     expect(classifyValue("경영지원팀")).toBe("Text");
   });
 
+  it("classifies only complete scalar values as numeric types", () => {
+    expect(classifyValue("2,258,000원")).toBe("Money");
+    expect(classifyValue("2026.09.21")).toBe("Date");
+    expect(classifyValue("2026.09.30 14:00")).toBe("DateTime");
+    expect(classifyValue("75명")).toBe("Number");
+    expect(classifyValue("전 직원 75명")).toBe("Text");
+    expect(classifyValue("출석률 95% 미만 부서는 보강교육을 진행합니다.")).toBe("Text");
+  });
+
   it("normalises only what can be read without guessing", () => {
     expect(normalizeValue("2026-09-30", "Date")).toBe("2026-09-30");
     expect(normalizeValue("2026.09.15 13:00", "DateTime")).toBe("2026-09-15T13:00");
@@ -367,6 +376,63 @@ describe("structured export", () => {
     summary: { fields: 3, missing: 1, records: 0, lowConfidence: 0 },
   };
 
+  const automaticMultiFile: StructuredExtract = {
+    mode: "auto",
+    requestedFields: [],
+    files: [
+      {
+        file: { id: "sep", name: "WL_교육운영_9월_긴파일명_취합본.pptx" },
+        fields: [
+          { field: "기준일", displayValue: "2026.09.21", type: "Date", sources: [source("d1", "Slide 1", "sep")] },
+          { field: "담당부서", displayValue: "인재개발팀", type: "Text", sources: [source("d2", "Slide 1", "sep")] },
+          { field: "교육명", displayValue: "하반기 전사 보안교육", type: "Text", sources: [source("d3", "Slide 1", "sep")] },
+          { field: "교육대상", displayValue: "전 직원 75명", type: "Text", sources: [source("d4", "Slide 1", "sep")] },
+          {
+            field: "조사사항",
+            displayValue: "출석률 95% 미만 부서는 보강교육을 진행하며 담당 부서가 완료 여부를 별도로 확인합니다.",
+            type: "Text",
+            sources: [source("d5", "Slide 2", "sep")],
+            quote: "출석률 95% 미만 부서는 보강교육을 진행합니다.",
+          },
+        ],
+        records: [{
+          id: "schedule-sep",
+          title: "표 1",
+          displayTitle: "교육 세부 일정",
+          columns: ["시간", "주제", "담당자", "산출물"],
+          rows: [
+            { cells: ["09:00", "정보보호 기본", "김OO", "출석부"], source: source("r1", "Slide 5", "sep") },
+            { cells: ["10:00", "사고 대응", "이OO", "확인서"], source: source("r2", "Slide 5", "sep") },
+          ],
+          source: source("schedule", "Slide 5", "sep"),
+        }],
+        missing: [],
+      },
+      {
+        file: { id: "oct", name: "WL_교육운영_10월.pptx" },
+        fields: [
+          { field: "기준일", displayValue: "2026.10.19", type: "Date", sources: [source("d1", "Slide 1", "oct")] },
+          { field: "담당부서", displayValue: "안전관리팀", type: "Text", sources: [source("d2", "Slide 1", "oct")] },
+          { field: "교육명", displayValue: "현장 안전교육", type: "Text", sources: [source("d3", "Slide 1", "oct")] },
+          { field: "교육일시", displayValue: "2026.10.30 14:00", type: "DateTime", sources: [source("d4", "Slide 1", "oct")] },
+        ],
+        records: [{
+          id: "schedule-oct",
+          title: "표 1",
+          displayTitle: "교육 세부 일정",
+          columns: ["시간", "주제", "담당자", "산출물"],
+          rows: [
+            { cells: ["14:00", "위험성 평가", "박OO", "점검표"], source: source("r1", "Slide 5", "oct") },
+            { cells: ["15:00", "보호구 착용", "최OO", "확인서"], source: source("r2", "Slide 5", "oct") },
+          ],
+          source: source("schedule", "Slide 5", "oct"),
+        }],
+        missing: [],
+      },
+    ],
+    summary: { fields: 9, missing: 0, records: 2, lowConfidence: 0 },
+  };
+
   it("writes one row per file with the requested fields as columns", () => {
     const csv = structuredCsv(multiFile);
     const [header, first, second] = csv.trim().split("\r\n");
@@ -379,28 +445,59 @@ describe("structured export", () => {
     expect(second).not.toContain("없음");
   });
 
-  it("writes one row per item in automatic mode", () => {
-    const auto: StructuredExtract = {
-      mode: "auto",
-      requestedFields: [],
-      files: [{
-        file,
-        fields: [{
-          field: "작성부서",
-          displayValue: "경영지원팀",
-          type: "Text",
-          sources: [source("p1", "Slide 1")],
-          origin: "business-label",
-        }],
-        records: [],
-        missing: [],
-      }],
-      summary: { fields: 1, missing: 0, records: 0, lowConfidence: 0 },
-    };
-    const csv = structuredCsv(auto);
+  it("keeps automatic CSV detail rows unchanged", () => {
+    const csv = structuredCsv(automaticMultiFile);
     expect(csv.trim().split("\r\n")[0]).toBe("FILE,FIELD,VALUE,TYPE,SOURCE");
-    expect(csv).toContain("경영지원팀");
+    expect(csv).toContain("인재개발팀");
+    expect(csv).toContain("교육 세부 일정");
     expect(csv).not.toContain("business-label");
+  });
+
+  it("writes automatic XLSX as a horizontal main sheet with retained details, evidence, and records", async () => {
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(await structuredXlsx(automaticMultiFile) as unknown as Parameters<typeof workbook.xlsx.load>[0]);
+
+    expect(workbook.worksheets.map((sheet) => sheet.name)).toEqual([
+      "Extracted Data",
+      "Details",
+      "Evidence",
+      "Records",
+    ]);
+    const data = workbook.getWorksheet("Extracted Data")!;
+    expect(data.getRow(1).values).toEqual([
+      undefined,
+      "FILE",
+      "기준일",
+      "담당부서",
+      "교육명",
+      "교육대상",
+      "조사사항",
+      "교육일시",
+    ]);
+    expect(data.rowCount).toBe(3);
+    expect(data.getRow(2).getCell(7).value).toBe("");
+    expect(data.getRow(3).getCell(5).value).toBe("");
+    expect(data.views[0]).toMatchObject({ state: "frozen", ySplit: 1 });
+    expect(data.autoFilter).toBe("A1:G1");
+    expect(data.getRow(1).getCell(1).font.bold).toBe(true);
+    expect(data.getColumn(1).width).toBeGreaterThanOrEqual(10);
+    expect(data.getColumn(1).width).toBeLessThanOrEqual(48);
+    expect(data.getRow(2).getCell(6).alignment.wrapText).toBe(true);
+
+    const details = workbook.getWorksheet("Details")!;
+    expect(details.getRow(1).values).toEqual([undefined, "FILE", "FIELD", "VALUE", "TYPE", "SOURCE"]);
+    expect(details.getRow(2).values).toEqual(expect.arrayContaining(["기준일", "2026.09.21", "Date", "Slide 1"]));
+    expect(workbook.getWorksheet("Evidence")?.getRow(2).values).toEqual(
+      expect.arrayContaining(["WL_교육운영_9월_긴파일명_취합본.pptx", "기준일", "2026.09.21", "Slide 1"]),
+    );
+    const records = workbook.getWorksheet("Records")!;
+    expect(records.getRow(1).values).toEqual(
+      expect.arrayContaining(["WL_교육운영_9월_긴파일명_취합본.pptx", "교육 세부 일정", "시간", "주제", "담당자", "산출물", "SOURCE"]),
+    );
+    expect(records.getRow(4).values).toEqual(
+      expect.arrayContaining(["WL_교육운영_10월.pptx", "교육 세부 일정", "시간", "주제", "담당자", "산출물", "SOURCE"]),
+    );
+    expect(records.autoFilter).toBeUndefined();
   });
 
   it("does not export generic source labels excluded by automatic extraction", () => {
@@ -439,17 +536,25 @@ describe("structured export", () => {
     const bytes = await structuredXlsx(auto);
     await workbook.xlsx.load(bytes as unknown as Parameters<typeof workbook.xlsx.load>[0]);
     expect(workbook.getWorksheet("Records")).toBeUndefined();
+    expect(workbook.getWorksheet("Extracted Data")?.getRow(1).values).toEqual(
+      expect.arrayContaining(["FILE", "작성부서"]),
+    );
     expect(workbook.getWorksheet("Extracted Data")?.getRow(2).values).toEqual(
-      expect.arrayContaining(["회의자료.pptx", "작성부서", "경영지원팀"]),
+      expect.arrayContaining(["회의자료.pptx", "경영지원팀"]),
     );
   });
 
-  it("produces a workbook with a data sheet and an evidence sheet", async () => {
+  it("keeps requested-field XLSX horizontal and applies the shared workbook format", async () => {
+    const workbook = new ExcelJS.Workbook();
     const bytes = await structuredXlsx(multiFile);
     expect(bytes.byteLength).toBeGreaterThan(1000);
-    const text = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
-    // Sheet names live in the zip's central directory as part names.
-    expect(text).toContain("xl/worksheets/sheet1.xml");
-    expect(text).toContain("xl/worksheets/sheet2.xml");
+    await workbook.xlsx.load(bytes as unknown as Parameters<typeof workbook.xlsx.load>[0]);
+    expect(workbook.worksheets.map((sheet) => sheet.name)).toEqual(["Extracted Data", "Evidence"]);
+    const data = workbook.getWorksheet("Extracted Data")!;
+    expect(data.getRow(1).values).toEqual([undefined, "FILE", "보고월", "매출"]);
+    expect(data.getRow(2).values).toEqual([undefined, "7월 보고서.docx", "2026-07", "1,250만원"]);
+    expect(data.getRow(3).values).toEqual([undefined, "8월 보고서.docx", "2026-08", ""]);
+    expect(data.views[0]).toMatchObject({ state: "frozen", ySplit: 1 });
+    expect(data.autoFilter).toBe("A1:C1");
   });
 });

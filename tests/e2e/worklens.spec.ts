@@ -2,7 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { createBriefPptx, createCheckPptx, createDocx, createExtractPptx, createNarrativePptx, createPdf, createPptx, createXlsx, RATE_SHEET_V1, RATE_SHEET_V2 } from "../fixtures";
+import { createBriefPptx, createCheckPptx, createDocx, createExtractPptx, createNarrativePptx, createPdf, createPptx, createTrainingPptx, createXlsx, RATE_SHEET_V1, RATE_SHEET_V2 } from "../fixtures";
 
 const FIXTURE_DIR = path.join(process.cwd(), "artifacts", "fixtures");
 const files = {
@@ -17,6 +17,8 @@ const files = {
   checkPptx: path.join(FIXTURE_DIR, "최종검수.pptx"),
   extractPptx: path.join(FIXTURE_DIR, "회의자료.pptx"),
   narrativePptx: path.join(FIXTURE_DIR, "서술형_안전보건협의체.pptx"),
+  trainingSepPptx: path.join(FIXTURE_DIR, "WL_교육운영_9월.pptx"),
+  trainingOctPptx: path.join(FIXTURE_DIR, "WL_교육운영_10월.pptx"),
   fake: path.join(FIXTURE_DIR, "위장파일.xlsx"),
   valueA: path.join(FIXTURE_DIR, "주요값_A.xlsx"),
   valueB: path.join(FIXTURE_DIR, "주요값_B.xlsx"),
@@ -37,6 +39,8 @@ test.beforeAll(async () => {
   await writeFile(files.checkPptx, createCheckPptx());
   await writeFile(files.extractPptx, createExtractPptx());
   await writeFile(files.narrativePptx, createNarrativePptx());
+  await writeFile(files.trainingSepPptx, createTrainingPptx("9월"));
+  await writeFile(files.trainingOctPptx, createTrainingPptx("10월"));
   await writeFile(files.valueA, await createXlsx({ 주요값: [
     ["목표주가", "64,550원"],
     ["기준일", "2026.09.15"],
@@ -615,6 +619,44 @@ test("extracts fields and records without a model and exports the structured tab
   await page.getByRole("button", { name: "XLSX 다운로드" }).click();
   expect((await download).suggestedFilename()).toContain(".xlsx");
   expect(aiRequests).toBe(0);
+});
+
+test("keeps multi-file training records folded below automatic fields", async ({ page }) => {
+  let aiRequests = 0;
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/api/ai") aiRequests += 1;
+  });
+  await page.goto("/");
+  await upload(page, files.trainingSepPptx);
+  await upload(page, files.trainingOctPptx);
+  await page.getByLabel("WL_교육운영_9월.pptx 선택").check();
+  await page.getByLabel("WL_교육운영_10월.pptx 선택").check();
+  await page.getByRole("button", { name: "추출", exact: true }).click();
+  await page.getByRole("button", { name: "추출 실행" }).click();
+
+  const results = page.locator(".extract-results");
+  const autoTable = results.locator(".extract-auto-table");
+  await expect(autoTable).toContainText("전 직원 75명");
+  await expect(autoTable.locator(".data-row").filter({ hasText: "전 직원 75명" }).locator("small")).toHaveCount(0);
+  await expect(autoTable.locator(".data-row").filter({ hasText: "출석률 95% 미만" }).locator("small")).toHaveCount(0);
+  await expect(autoTable.locator(".data-row").filter({ hasText: "2,258,000원" }).locator("small")).toHaveText("금액");
+
+  const toggle = results.getByRole("button", { name: "세부 표 2개", exact: true });
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(results.locator(".extract-table")).toHaveCount(0);
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await expect(results.locator(".extract-table")).toHaveCount(2);
+  await expect(results.locator(".subsection-heading h4")).toHaveText([
+    "WL_교육운영_9월.pptx · 교육 세부 일정",
+    "WL_교육운영_10월.pptx · 교육 세부 일정",
+  ]);
+  await expect(results.locator(".subsection-heading .source-locator")).toHaveText(["Slide 2", "Slide 2"]);
+  await expect(results.locator(".extract-table").first().locator("th")).toHaveText(["시간", "주제", "담당자", "산출물"]);
+  expect(aiRequests).toBe(0);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 });
 
 test("makes missing and low-confidence Extract values explicit", async ({ page }, testInfo) => {
@@ -1503,6 +1545,37 @@ test("reviews PPTX writing, consistency and data findings with filters and exact
   expect(await typo.locator(".check-recommendation, .check-source").evaluateAll((nodes) =>
     nodes.map((node) => node.className))).toEqual(["check-recommendation", "check-source"]);
   await expect(typo.locator(".check-recommendation")).toContainText("수정 제안");
+  const suggestionHierarchy = await typo.evaluate((issue) => {
+    const recommendation = issue.querySelector<HTMLElement>(".check-recommendation")!;
+    const label = recommendation.querySelector<HTMLElement>(".check-field-label")!;
+    const suggestion = recommendation.querySelector<HTMLElement>("p")!;
+    const description = issue.querySelector<HTMLElement>(".check-issue-name > p")!;
+    const source = issue.querySelector<HTMLElement>(".source-locator")!;
+    const recommendationStyle = getComputedStyle(recommendation);
+    return {
+      background: recommendationStyle.backgroundColor,
+      borderWidth: recommendationStyle.borderWidth,
+      boxShadow: recommendationStyle.boxShadow,
+      paddingLeft: recommendationStyle.paddingLeft,
+      labelWeight: getComputedStyle(label).fontWeight,
+      suggestionSize: getComputedStyle(suggestion).fontSize,
+      descriptionSize: getComputedStyle(description).fontSize,
+      suggestionColor: getComputedStyle(suggestion).color,
+      descriptionColor: getComputedStyle(description).color,
+      sourceSize: getComputedStyle(source).fontSize,
+    };
+  });
+  expect(suggestionHierarchy).toMatchObject({
+    background: "rgb(244, 247, 251)",
+    borderWidth: "0px",
+    boxShadow: "none",
+    paddingLeft: "10px",
+    labelWeight: "600",
+    suggestionSize: "15px",
+    descriptionSize: "15px",
+    sourceSize: "13px",
+  });
+  expect(suggestionHierarchy.suggestionColor).not.toBe(suggestionHierarchy.descriptionColor);
   await expect(typo.locator(".check-source .check-field-label")).toHaveCount(0);
   await expect(typo.locator(".issue-detail-toggle")).toHaveCount(0);
   expect((await typo.innerText()).split("최종검수.pptx").length - 1).toBe(0);

@@ -67,6 +67,10 @@ describe("comparison exports", () => {
     expect(sheet?.getRow(2).values).toEqual([undefined, "중요 변경", "130,000원", "135,000원", "5000", "3.85%", "Slide 2", "Slide 2"]);
     expect(sheet?.getRow(3).getCell(2).value).toBe("");
     expect(sheet?.getRow(2).values).not.toContain("서울 단가");
+    expect(sheet?.views[0]).toMatchObject({ state: "frozen", ySplit: 1 });
+    expect(sheet?.autoFilter).toBe("A1:G1");
+    expect(sheet?.getRow(1).getCell(1).font.bold).toBe(true);
+    expect(sheet?.columns.every((column) => (column.width ?? 0) >= 10 && (column.width ?? 0) <= 48)).toBe(true);
     expect((await comparisonXlsxExport(result)).fileName).toBe("worklens-version-compare.xlsx");
   });
 });

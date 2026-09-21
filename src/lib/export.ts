@@ -2,6 +2,7 @@ import ExcelJS from "exceljs";
 import type { DocumentExport, ExtractResult } from "@/domain/operations";
 import type { NormalizedDocument, SourceRef } from "@/domain/document";
 import { extractDocument } from "./deterministic";
+import { formatWorksheet } from "@/lib/xlsx-format";
 
 const CSV_MIME_TYPE = "text/csv; charset=utf-8";
 const XLSX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -75,6 +76,7 @@ export async function exportXlsx(extraction: ExtractResult): Promise<Uint8Array>
     for (const paragraph of extraction.paragraphs) {
       sheet.addRow([paragraph.blockId, paragraph.text, ...sourceFields(paragraph.source)]);
     }
+    formatWorksheet(sheet, { freezeHeader: true, autoFilter: true });
   }
   extraction.tables.forEach((table, index) => {
     const sheet = workbook.addWorksheet(worksheetName(`Table ${index + 1}`, names));
@@ -84,6 +86,7 @@ export async function exportXlsx(extraction: ExtractResult): Promise<Uint8Array>
         return typeof value === "string" && /^\s*[=+\-@]/.test(value) ? `'${value}` : value;
       }));
     }
+    formatWorksheet(sheet, { freezeHeader: true, autoFilter: true });
     // Machine-usable provenance for every exported cell, kept on a paired sheet so
     // the table sheet itself stays a faithful reproduction of the source grid.
     const provenance = workbook.addWorksheet(worksheetName(`Table ${index + 1} Source`, names));
@@ -93,6 +96,7 @@ export async function exportXlsx(extraction: ExtractResult): Promise<Uint8Array>
         provenance.addRow([rowIndex + 1, columnIndex + 1, ...sourceFields(cell.source)]);
       });
     });
+    formatWorksheet(provenance, { freezeHeader: true, autoFilter: true });
   });
   return new Uint8Array(await workbook.xlsx.writeBuffer() as ArrayBuffer);
 }

@@ -3,6 +3,7 @@ import type { ComparisonCategory, ComparisonItem, ComparisonResult } from "@/dom
 import type { SourceRef } from "@/domain/document";
 import type { DocumentExport } from "@/domain/operations";
 import { sourceText } from "@/lib/extract/export";
+import { formatWorksheet } from "@/lib/xlsx-format";
 
 const CSV_MIME_TYPE = "text/csv; charset=utf-8";
 const XLSX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -55,6 +56,7 @@ export async function comparisonXlsx(result: ComparisonResult): Promise<Uint8Arr
   const sheet = workbook.addWorksheet("버전 비교");
   sheet.addRow(HEADERS);
   for (const row of rows(result)) sheet.addRow(row);
+  formatWorksheet(sheet, { freezeHeader: true, autoFilter: true });
   const buffer = await workbook.xlsx.writeBuffer();
   return new Uint8Array(buffer);
 }

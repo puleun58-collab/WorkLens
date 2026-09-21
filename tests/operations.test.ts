@@ -137,6 +137,11 @@ describe("deterministic operations", () => {
     expect(table?.getCell("C2").value).toBe("'=1+1");
     expect(table?.getCell("C3").value).toBe("'+SUM(A1:A2)");
     expect(table?.getCell("C5").value).toBe("'@cmd");
+    expect(table?.getCell("B2").value).toBe(100);
+    expect(table?.views[0]).toMatchObject({ state: "frozen", ySplit: 1 });
+    expect(table?.autoFilter).toBe("A1:C1");
+    expect(table?.getRow(1).getCell(1).font.bold).toBe(true);
+    expect(table?.columns.every((column) => (column.width ?? 0) >= 10 && (column.width ?? 0) <= 48)).toBe(true);
     expect(typeof table?.getCell("C2").value).toBe("string");
   });
 });

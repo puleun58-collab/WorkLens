@@ -1841,12 +1841,16 @@ function StructuredExtractResults({ result, fileNames, onSource, status, busy, o
   busy: boolean;
   onExport: (format: "csv" | "xlsx") => void | Promise<void>;
 }) {
+  const [recordsExpanded, setRecordsExpanded] = useState(false);
+  useEffect(() => setRecordsExpanded(false), [result]);
   if (!result) return null;
 
   const multiFile = result.files.length > 1;
   const columns = result.mode === "fields"
     ? result.requestedFields
     : [...new Set(result.files.flatMap((file) => file.fields.map((field) => field.field)))];
+  const recordEntries = result.files.flatMap((file) =>
+    file.records.map((record) => ({ file, record })));
   const isEmpty = result.summary.fields === 0 && result.summary.records === 0;
   const emptyTitle = result.mode === "fields"
     ? result.requestedFields.length === 1
@@ -1862,7 +1866,7 @@ function StructuredExtractResults({ result, fileNames, onSource, status, busy, o
           <span className="metric">추출 항목 <b>{result.summary.fields}</b></span>
           {result.summary.missing ? <span className="metric needs-review">찾지 못함 <b>{result.summary.missing}</b></span> : null}
           {result.summary.lowConfidence ? <span className="metric needs-review">확인 필요 <b>{result.summary.lowConfidence}</b></span> : null}
-          {result.summary.records ? <span className="metric">목록 <b>{result.summary.records}</b></span> : null}
+          {result.summary.records ? <span className="metric">세부 표 <b>{result.summary.records}</b></span> : null}
         </p>
         {!isEmpty
           ? <ExtractExportButtons busy={busy} onExport={onExport} />
@@ -1942,10 +1946,48 @@ function StructuredExtractResults({ result, fileNames, onSource, status, busy, o
         </div>
       ) : null}
 
+      {!isEmpty && result.mode === "auto" && recordEntries.length ? (
+        <section className="extract-records">
+          <button
+            type="button"
+            className="extract-records-toggle"
+            aria-expanded={recordsExpanded}
+            onClick={() => setRecordsExpanded((expanded) => !expanded)}
+          >
+            <span>세부 표 {recordEntries.length}개</span>
+            <span aria-hidden="true">{recordsExpanded ? "접기 ▴" : "펼치기 ▾"}</span>
+          </button>
+          {recordsExpanded ? (
+            <div className="extract-record-list">
+              {recordEntries.map(({ file, record }) => (
+                <section className="result-subsection" key={`${file.file.id}-${record.id}`}>
+                  <div className="subsection-heading">
+                    <h4>{file.file.name} · {record.displayTitle ?? record.title}</h4>
+                    <CompactResultSource sources={[record.source]} fileNames={fileNames} onSource={onSource} />
+                  </div>
+                  <div className="extract-table-wrap">
+                    <table className="extract-table">
+                      <thead><tr>{record.columns.map((column, index) => <th key={`${column}-${index}`}>{column}</th>)}</tr></thead>
+                      <tbody>
+                        {record.rows.map((row, index) => (
+                          <tr key={index}>{row.cells.map((cell, cellIndex) => <td key={cellIndex} title={cell}>{cell || "없음"}</td>)}</tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              ))}
+            </div>
+          ) : null}
+        </section>
+      ) : null}
 
-      {!isEmpty ? result.files.flatMap((file) => file.records.map((record) => (
+      {!isEmpty && result.mode === "fields" ? recordEntries.map(({ file, record }) => (
         <section className="result-subsection" key={`${file.file.id}-${record.id}`}>
-          <div className="subsection-heading"><h4>{file.file.name} · {record.displayTitle ?? record.title}</h4><CompactResultSource sources={[record.source]} fileNames={fileNames} onSource={onSource} /></div>
+          <div className="subsection-heading">
+            <h4>{file.file.name} · {record.displayTitle ?? record.title}</h4>
+            <CompactResultSource sources={[record.source]} fileNames={fileNames} onSource={onSource} />
+          </div>
           <div className="extract-table-wrap">
             <table className="extract-table">
               <thead><tr>{record.columns.map((column, index) => <th key={`${column}-${index}`}>{column}</th>)}</tr></thead>
@@ -1957,7 +1999,7 @@ function StructuredExtractResults({ result, fileNames, onSource, status, busy, o
             </table>
           </div>
         </section>
-      ))) : null}
+      )) : null}
     </section>
   );
 }

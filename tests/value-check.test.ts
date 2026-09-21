@@ -169,5 +169,9 @@ describe("value-check exports", () => {
     const sheet = workbook.getWorksheet("값 일치 확인");
     expect(sheet?.getRow(1).values).toEqual([undefined, "항목", "상태", "파일", "값", "타입", "근거 위치"]);
     expect(sheet?.rowCount).toBe(3);
+    expect(sheet?.views[0]).toMatchObject({ state: "frozen", ySplit: 1 });
+    expect(sheet?.autoFilter).toBe("A1:F1");
+    expect(sheet?.getRow(1).getCell(1).font.bold).toBe(true);
+    expect(sheet?.columns.every((column) => (column.width ?? 0) >= 10 && (column.width ?? 0) <= 48)).toBe(true);
   });
 });

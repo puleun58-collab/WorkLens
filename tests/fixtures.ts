@@ -240,6 +240,64 @@ export function createPptxWithOmissions(): Uint8Array {
   });
 }
 
+export function createTrainingPptx(month: "9월" | "10월"): Uint8Array {
+  const september = month === "9월";
+  const fields = september
+    ? [
+        "기준일: 2026.09.21",
+        "담당부서: 인재개발팀",
+        "교육명: 하반기 전사 보안교육",
+        "교육일시: 2026.09.30 14:00",
+        "교육장소: 본사 대강당",
+        "교육대상: 전 직원 75명",
+        "예산: 2,258,000원",
+        "조사사항: 출석률 95% 미만 부서는 보강교육을 진행합니다.",
+      ]
+    : [
+        "기준일: 2026.10.19",
+        "담당부서: 안전관리팀",
+        "교육명: 현장 안전교육",
+        "교육일시: 2026.10.30 14:00",
+        "교육대상: 협력사 직원 42명",
+        "담당자: 박OO",
+        "협조부서: 시설관리팀",
+        "승인자: 이OO",
+      ];
+  const schedule = september
+    ? [
+        ["시간", "주제", "담당자", "산출물"],
+        ["09:00", "정보보호 기본", "김OO", "출석부"],
+        ["10:00", "사고 대응", "이OO", "확인서"],
+      ]
+    : [
+        ["시간", "주제", "담당자", "산출물"],
+        ["14:00", "위험성 평가", "박OO", "점검표"],
+        ["15:00", "보호구 착용", "최OO", "확인서"],
+      ];
+  const textShape = (text: string, index: number, title = false) =>
+    `<p:sp>${title ? `<p:nvSpPr><p:cNvPr id=\"${index + 1}\" name=\"Title\"/><p:cNvSpPr/><p:nvPr><p:ph type=\"title\"/></p:nvPr></p:nvSpPr>` : ""}<p:txBody><a:p><a:r><a:t>${text}</a:t></a:r></a:p></p:txBody></p:sp>`;
+  const table = `<a:graphic><a:graphicData><a:tbl>${schedule.map((row) =>
+    `<a:tr>${row.map((cell) => `<a:tc><a:txBody><a:p><a:r><a:t>${cell}</a:t></a:r></a:p></a:txBody></a:tc>`).join("")}</a:tr>`).join("")}</a:tbl></a:graphicData></a:graphic>`;
+
+  return zipSync({
+    "[Content_Types].xml": strToU8(
+      '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/><Override PartName="/ppt/slides/slide2.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/></Types>',
+    ),
+    "ppt/presentation.xml": strToU8(
+      '<?xml version="1.0"?><p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:sldIdLst><p:sldId id="256" r:id="rId1"/><p:sldId id="257" r:id="rId2"/></p:sldIdLst></p:presentation>',
+    ),
+    "ppt/_rels/presentation.xml.rels": strToU8(
+      '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide2.xml"/></Relationships>',
+    ),
+    "ppt/slides/slide1.xml": strToU8(
+      `<?xml version="1.0"?><p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree>${[`${month} 교육 운영 계획`, ...fields].map((text, index) => textShape(text, index, index === 0)).join("")}</p:spTree></p:cSld></p:sld>`,
+    ),
+    "ppt/slides/slide2.xml": strToU8(
+      `<?xml version="1.0"?><p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree>${textShape("교육 세부 일정", 0, true)}${table}</p:spTree></p:cSld></p:sld>`,
+    ),
+  });
+}
+
 export async function createXlsxWithHiddenSheetAndFormula(): Promise<Uint8Array> {
   const workbook = new ExcelJS.Workbook();
   const visible = workbook.addWorksheet("집계");

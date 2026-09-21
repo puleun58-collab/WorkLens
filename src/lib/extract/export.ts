@@ -2,6 +2,7 @@ import ExcelJS from "exceljs";
 import type { SourceRef } from "@/domain/document";
 import type { DocumentExport } from "@/domain/operations";
 import type { ExtractedField, StructuredExtract } from "@/domain/extract";
+import { formatWorksheet } from "@/lib/xlsx-format";
 
 /**
  * Export of structured extraction.
@@ -40,6 +41,20 @@ const sourcesText = (field: ExtractedField): string => field.sources.map(sourceT
 /** Values are left empty when a field is not stated: no "없음" placeholders. */
 function fieldValue(fields: readonly ExtractedField[], name: string): string {
   return fields.filter((entry) => entry.field === name).map((entry) => entry.displayValue).join(" | ");
+}
+
+/** Stable union in source order; no alphabetic reordering of document fields. */
+function automaticFields(extract: StructuredExtract): string[] {
+  const fields: string[] = [];
+  const seen = new Set<string>();
+  for (const file of extract.files) {
+    for (const field of file.fields) {
+      if (seen.has(field.field)) continue;
+      seen.add(field.field);
+      fields.push(field.field);
+    }
+  }
+  return fields;
 }
 
 const recordTitle = (record: StructuredExtract["files"][number]["records"][number]): string =>
@@ -81,13 +96,22 @@ export async function structuredXlsx(extract: StructuredExtract): Promise<Uint8A
       data.addRow([file.file.name, ...extract.requestedFields.map((name) => fieldValue(file.fields, name))]);
     }
   } else {
-    data.addRow(["FILE", "FIELD", "VALUE", "TYPE", "SOURCE"]);
+    const fields = automaticFields(extract);
+    data.addRow(["FILE", ...fields]);
+    for (const file of extract.files) {
+      data.addRow([file.file.name, ...fields.map((name) => fieldValue(file.fields, name))]);
+    }
+
+    const details = workbook.addWorksheet("Details");
+    details.addRow(["FILE", "FIELD", "VALUE", "TYPE", "SOURCE"]);
     for (const file of extract.files) {
       for (const field of file.fields) {
-        data.addRow([file.file.name, field.field, field.displayValue, field.type, sourcesText(field)]);
+        details.addRow([file.file.name, field.field, field.displayValue, field.type, sourcesText(field)]);
       }
     }
+    formatWorksheet(details, { freezeHeader: true, autoFilter: true });
   }
+  formatWorksheet(data, { freezeHeader: true, autoFilter: true });
 
   const evidence = workbook.addWorksheet("Evidence");
   evidence.addRow(["FILE", "FIELD", "VALUE", "SOURCE", "QUOTE"]);
@@ -98,19 +122,23 @@ export async function structuredXlsx(extract: StructuredExtract): Promise<Uint8A
       }
     }
   }
+  formatWorksheet(evidence, { freezeHeader: true });
 
   // Repeating structures stay tables instead of being split into pairs.
   const withRecords = extract.files.filter((file) => file.records.length > 0);
   if (withRecords.length > 0) {
     const sheet = workbook.addWorksheet("Records");
+    const headerRows: number[] = [];
     for (const file of withRecords) {
       for (const record of file.records) {
+        headerRows.push(sheet.rowCount + 1);
         sheet.addRow([file.file.name, recordTitle(record), ...record.columns, "SOURCE"]);
         for (const row of record.rows) {
           sheet.addRow([file.file.name, recordTitle(record), ...row.cells, sourceText(row.source)]);
         }
       }
     }
+    formatWorksheet(sheet, { headerRows });
   }
 
   const buffer = await workbook.xlsx.writeBuffer();
