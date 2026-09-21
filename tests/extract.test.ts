@@ -172,23 +172,18 @@ describe("automatic extraction", () => {
     expect(result.fields[1].sources).toHaveLength(2);
   });
 
-  it("groups repeated structural Source lines instead of inventing business fields", () => {
+  it("excludes repeated structural Source lines from automatic extraction", () => {
     const result = autoExtract(paragraphs([
       "Source: 회사 공시",
       "Source: 거래소 데이터",
+      "Source: 산업 보고서",
+      "Source: 인터뷰",
       "목표주가 | 64,550원",
     ]), file);
     expect(result.fields.map((entry) => [entry.field, entry.displayValue])).toEqual([
       ["목표주가", "64,550원"],
     ]);
-    expect(result.records).toHaveLength(1);
-    expect(result.records[0]).toMatchObject({
-      title: "Source",
-      displayTitle: "참고 출처",
-      columns: ["참고 출처"],
-      rows: [{ cells: ["회사 공시"] }, { cells: ["거래소 데이터"] }],
-    });
-    expect(result.records[0].rows.map((row) => row.source.nodeId)).toEqual(["p0", "p1"]);
+    expect(result.records).toEqual([]);
   });
 
   it("rejects ambiguous layout pipes while keeping explicit business pairs", () => {
@@ -378,54 +373,44 @@ describe("structured export", () => {
     expect(csv).not.toContain("business-label");
   });
 
-  it("exports refined record rows with their original source", () => {
+  it("does not export generic source labels excluded by automatic extraction", () => {
+    const extraction = autoExtract(paragraphs([
+      "Source: 회사 공시",
+      "Source: 거래소 데이터",
+      "작성부서: 경영지원팀",
+    ]), file);
     const auto: StructuredExtract = {
       mode: "auto",
       requestedFields: [],
-      files: [{
-        file,
-        fields: [],
-        records: [{
-          id: "sources",
-          title: "Source",
-          displayTitle: "참고 출처",
-          columns: ["참고 출처"],
-          rows: [{ cells: ["회사 공시"], source: source("p1", "Slide 1") }],
-          source: source("p1", "Slide 1"),
-        }],
-        missing: [],
-      }],
-      summary: { fields: 0, missing: 0, records: 1, lowConfidence: 0 },
+      files: [extraction],
+      summary: { fields: extraction.fields.length, missing: 0, records: extraction.records.length, lowConfidence: 0 },
     };
     const csv = structuredCsv(auto);
-    expect(csv).toContain("참고 출처,회사 공시,Record,Slide 1");
+    expect(csv).toContain("작성부서,경영지원팀");
+    expect(csv).not.toContain("회사 공시");
+    expect(csv).not.toContain("거래소 데이터");
+    expect(csv).not.toContain("참고 출처");
   });
 
-  it("keeps automatic record content aligned across CSV and XLSX", async () => {
+  it("keeps automatic generic source exclusions aligned across CSV and XLSX", async () => {
+    const extraction = autoExtract(paragraphs([
+      "Source: 회사 공시",
+      "Source: 거래소 데이터",
+      "작성부서: 경영지원팀",
+    ]), file);
     const auto: StructuredExtract = {
       mode: "auto",
       requestedFields: [],
-      files: [{
-        file,
-        fields: [],
-        records: [{
-          id: "sources",
-          title: "Source",
-          displayTitle: "참고 출처",
-          columns: ["참고 출처"],
-          rows: [{ cells: ["회사 공시"], source: source("p1", "Slide 1") }],
-          source: source("p1", "Slide 1"),
-        }],
-        missing: [],
-      }],
-      summary: { fields: 0, missing: 0, records: 1, lowConfidence: 0 },
+      files: [extraction],
+      summary: { fields: extraction.fields.length, missing: 0, records: extraction.records.length, lowConfidence: 0 },
     };
-    expect(structuredCsv(auto)).toContain("참고 출처,회사 공시,Record,Slide 1");
+    expect(structuredCsv(auto)).not.toContain("참고 출처");
     const workbook = new ExcelJS.Workbook();
     const bytes = await structuredXlsx(auto);
     await workbook.xlsx.load(bytes as unknown as Parameters<typeof workbook.xlsx.load>[0]);
-    expect(workbook.getWorksheet("Records")?.getRow(2).values).toEqual(
-      expect.arrayContaining(["회의자료.pptx", "참고 출처", "회사 공시", "Slide 1"]),
+    expect(workbook.getWorksheet("Records")).toBeUndefined();
+    expect(workbook.getWorksheet("Extracted Data")?.getRow(2).values).toEqual(
+      expect.arrayContaining(["회의자료.pptx", "작성부서", "경영지원팀"]),
     );
   });
 

@@ -58,6 +58,42 @@ const MESSAGES: Record<ServerAiErrorCode, string> = {
 };
 
 export { MESSAGES as SERVER_AI_MESSAGES };
+
+const FAILURE_DETAIL: Record<ServerAiErrorCode, string> = {
+  CONFIGURATION: "AI 설정 오류",
+  RATE_LIMITED: "사용 한도",
+  OPERATION_CAPACITY: "작업 대기 필요",
+  TIMEOUT: "응답 지연",
+  PROVIDER_UNAVAILABLE: "AI 서비스 일시 오류",
+  PROVIDER_REJECTED: "AI 요청 처리 실패",
+  INVALID_OUTPUT: "AI 응답 형식 오류",
+  INVALID_REQUEST: "AI 요청 오류",
+  GROUNDING_REJECTED: "근거 연결 실패",
+  NO_EVIDENCE: "관련 근거 없음",
+  BUSY: "다른 AI 작업 진행 중",
+  CANCELLED: "작업 중지됨",
+};
+
+/** Stable, user-facing reason shared by every feature that invokes server AI. */
+export function aiFailureDetail(error: unknown): string {
+  const code = typeof error === "object" && error !== null && "code" in error
+    ? error.code
+    : undefined;
+  return typeof code === "string" && Object.hasOwn(FAILURE_DETAIL, code)
+    ? FAILURE_DETAIL[code as ServerAiErrorCode]
+    : "AI 처리 오류";
+}
+
+export function logAiFailure(error: unknown): void {
+  const failure = error as Partial<ServerAiFailure>;
+  console.warn("[worklens] AI failure", {
+    operation: failure.operation,
+    code: failure.code,
+    serverCode: failure.serverCode,
+    requestId: failure.requestId,
+    occurredAt: failure.occurredAt,
+  });
+}
 export type { ServerAiFailure };
 
 export async function generateServerAi(request: AiRequest, items: EvidenceItem[]): Promise<ModelClaim[]> {

@@ -37,12 +37,6 @@ interface AutoExtractOptions {
   includeGenericLabels?: boolean;
 }
 
-interface GenericCandidate {
-  label: string;
-  value: string;
-  source: SourceRef;
-  quote: string;
-}
 
 function labelKey(label: string): string {
   return label.normalize("NFKC").trim().toLocaleLowerCase("ko-KR").replace(/[\s._-]+/gu, "");
@@ -141,7 +135,6 @@ export function autoExtract(
 ): FileExtraction {
   const fields: ExtractedField[] = [];
   const records: ExtractedRecords[] = [];
-  const generic = new Map<string, GenericCandidate[]>();
   let tableIndex = 0;
 
   const addCandidate = (
@@ -156,13 +149,7 @@ export function autoExtract(
     // A vertical bar commonly separates layout fragments. Accept it only when
     // the left side reads as an explicit compact business label.
     if (delimiter === "|" && !isExplicitPipeLabel(label)) return;
-    if (!options.includeGenericLabels && isGenericLabel(label)) {
-      const key = labelKey(label);
-      const candidates = generic.get(key) ?? [];
-      candidates.push({ label: label.trim(), value: value.trim(), source, quote });
-      generic.set(key, candidates);
-      return;
-    }
+    if (!options.includeGenericLabels && isGenericLabel(label)) return;
     push(fields, label.trim(), value.trim(), source, origin, quote);
   };
 
@@ -194,23 +181,6 @@ export function autoExtract(
     }
   }
 
-  // Repeated structural labels describe a list, not several business fields.
-  // A lone generic note is omitted; two or more become one source-backed record.
-  for (const candidates of generic.values()) {
-    if (candidates.length < 2) continue;
-    const [first] = candidates;
-    const displayTitle = /^(?:sources?|references?)$/u.test(labelKey(first.label)) || labelKey(first.label) === "출처"
-      ? "참고 출처"
-      : "참고 목록";
-    records.push({
-      id: `generic:${records.length}:${labelKey(first.label)}`,
-      title: first.label,
-      displayTitle,
-      columns: [displayTitle],
-      rows: candidates.map((candidate) => ({ cells: [candidate.value], source: candidate.source })),
-      source: first.source,
-    });
-  }
 
   return { file, fields, records, missing: [] };
 }

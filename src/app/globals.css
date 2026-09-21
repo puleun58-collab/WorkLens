@@ -2688,7 +2688,7 @@ input:disabled,
   position: absolute;
   inset: 0 auto 1px 0;
   width: 3px;
-  background: var(--line-strong);
+  background: var(--blue);
   content: "";
 }
 
@@ -3760,9 +3760,9 @@ input:disabled,
 
 .change-head,
 .change-row {
-  min-width: 1040px;
+  min-width: 900px;
   display: grid;
-  grid-template-columns: 104px minmax(180px, 1.4fr) minmax(135px, 0.85fr) minmax(135px, 0.85fr) 90px 80px minmax(180px, 1fr);
+  grid-template-columns: 104px minmax(220px, 1.25fr) minmax(220px, 1.25fr) minmax(110px, 0.45fr) minmax(180px, 0.8fr);
   align-items: center;
 }
 
@@ -3793,8 +3793,19 @@ input:disabled,
   padding: 8px 10px;
 }
 
-.change-head > span:nth-child(n+3):nth-child(-n+6) {
+.change-head > span:nth-child(n+2):nth-child(-n+4) {
   text-align: right;
+}
+
+.change-delta {
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+}
+
+.change-delta small {
+  color: var(--muted);
+  font-size: var(--font-size-xs);
 }
 
 .change-label {
@@ -5663,13 +5674,12 @@ body {
   font-size: 16px;
 }
 
-/*
- * The submit button is a button, not a full-bleed bar: it keeps the password
- * field's measure as its ceiling and sits centred under it.
- */
+/* Login action shares the password field's full measure and center line. */
 .admin-login button[type="submit"] {
-  justify-self: center;
-  width: min(100%, 220px);
+  width: 100%;
+  justify-self: stretch;
+  justify-content: center;
+  line-height: 1;
 }
 
 @media (max-width: 1180px) {
@@ -5985,7 +5995,7 @@ body {
 
 .change-head,
 .change-row {
-  grid-template-columns: 104px minmax(180px, 1.4fr) minmax(135px, 0.85fr) minmax(135px, 0.85fr) 90px 80px minmax(180px, 1fr);
+  grid-template-columns: 104px minmax(220px, 1.25fr) minmax(220px, 1.25fr) minmax(110px, 0.45fr) minmax(180px, 0.8fr);
 }
 
 @media (max-width: 1180px) {
@@ -6955,11 +6965,15 @@ input:disabled {
 }
 
 .check-results .check-issue-row {
-  min-width: 0;
-  padding: 18px 24px 16px;
+  padding: 20px 22px 18px;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 10px;
+  gap: 12px;
+}
+
+.check-results .check-issue + .check-issue {
+  margin-top: 8px;
+  border-top: 1px solid var(--line-strong);
 }
 
 .check-issue-meta {
@@ -7007,12 +7021,12 @@ input:disabled {
 
 .check-issue-support {
   min-width: 0;
-  margin-top: 2px;
-  padding-top: 12px;
-  border-top: 1px solid var(--line-soft);
+  margin-top: 4px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
   display: grid;
-  grid-template-columns: minmax(200px, 0.55fr) minmax(280px, 1fr);
-  gap: 14px 28px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
 }
 
 .check-field-label {
@@ -7087,6 +7101,12 @@ input:disabled {
 
 .check-results .finding-actions {
   border-top-color: var(--line-soft);
+}
+
+.check-results .finding-actions button {
+  border-bottom-color: var(--line-strong);
+  color: var(--muted);
+  font-weight: var(--font-weight-medium);
 }
 
 .evidence-inspector .source-detail {

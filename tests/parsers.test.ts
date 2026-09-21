@@ -167,6 +167,7 @@ describe("parseDocument", () => {
     expect(document.metadata.pageCount).toBe(1);
     expect(document.blocks.map((block) => block.type)).toEqual(["paragraph", "table"]);
     expect(document.blocks[0].source).toMatchObject({ page: 1, quote: "2026 운영 계획" });
+    expect(document.blocks[0]).toMatchObject({ type: "paragraph", role: "heading", headingLevel: 1 });
     const table = document.blocks[1] as TableBlock;
     expect(table.rows[1][1].source).toMatchObject({ page: 1, row: 2, column: 2, quote: "5000" });
   });

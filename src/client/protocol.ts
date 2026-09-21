@@ -5,7 +5,7 @@ import type { FileExtraction, StructuredExtract } from "@/domain/extract";
 import type { ValueCheckResult } from "@/domain/value-check";
 import type { PolishCandidate } from "@/domain/polish";
 import type { EvidenceItem, ModelClaim } from "@/lib/ai/prompt";
-import type { AnalyzeResult, CheckResult, ExportFormat, ExtractResult } from "@/domain/operations";
+import type { AnalyzeResult, CheckResult, DocumentTopic, ExportFormat, ExtractResult } from "@/domain/operations";
 
 /** Everything the UI knows about a file. The bytes never leave the worker. */
 export interface WorkspaceFile {
@@ -18,7 +18,7 @@ export interface WorkspaceFile {
   warnings: string[];
 }
 
-export interface AnalyzeEntry { file: { id: string; name: string }; analysis: AnalyzeResult; extraction: FileExtraction }
+export interface AnalyzeEntry { file: { id: string; name: string }; analysis: AnalyzeResult; extraction: FileExtraction; topics: DocumentTopic[] }
 export interface CheckEntry { file: { id: string; name: string }; check: CheckResult }
 export interface ExtractEntry { file: { id: string; name: string }; extraction: ExtractResult }
 

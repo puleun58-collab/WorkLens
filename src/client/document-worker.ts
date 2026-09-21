@@ -12,6 +12,7 @@ import { evidenceWindow, resolveClaims, type EvidenceWindow } from "@/lib/ai/pro
 import { collectPolishCandidates } from "@/lib/polish/candidates";
 import { autoExtract } from "@/lib/extract/auto";
 import { extractRequestedFields } from "@/lib/extract/fields";
+import { documentAnalysisTopics } from "@/lib/analysis-presentation";
 import {
   DocumentError,
   assertWorkspaceWithinLimit,
@@ -97,6 +98,7 @@ async function handle(request: WorkerRequest): Promise<unknown> {
         file: { id: entry.file.id, name: entry.file.name },
         analysis: analyzeDocument(entry.document),
         extraction: autoExtract(entry.document, { id: entry.file.id, name: entry.file.name }),
+        topics: documentAnalysisTopics(entry.document),
       }));
     case "check":
       return requireDocuments(request.fileIds).map((entry) => ({

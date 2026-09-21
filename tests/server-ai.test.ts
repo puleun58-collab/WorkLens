@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parseAiApiRequest } from "@/server/ai-request";
 import { runGroqAi } from "@/server/groq";
 import { POST } from "@/app/api/ai/route";
-import { interruptServerAi, polishServerAi } from "@/client/server-ai-client";
+import { aiFailureDetail, interruptServerAi, logAiFailure, polishServerAi } from "@/client/server-ai-client";
 
 const evidence = [{ handle: "E1", text: "2025년 매출은 10억원입니다." }];
 
@@ -138,6 +138,42 @@ describe("server AI browser client", () => {
     const pending = polishServerAi("원문입니다.", "default");
     interruptServerAi();
     await expect(pending).rejects.toMatchObject({ code: "CANCELLED" });
+  });
+
+  it("classifies every client failure and logs metadata without document content", () => {
+    expect([
+      ["CONFIGURATION", "AI 설정 오류"],
+      ["RATE_LIMITED", "사용 한도"],
+      ["OPERATION_CAPACITY", "작업 대기 필요"],
+      ["TIMEOUT", "응답 지연"],
+      ["PROVIDER_UNAVAILABLE", "AI 서비스 일시 오류"],
+      ["PROVIDER_REJECTED", "AI 요청 처리 실패"],
+      ["INVALID_OUTPUT", "AI 응답 형식 오류"],
+      ["INVALID_REQUEST", "AI 요청 오류"],
+      ["GROUNDING_REJECTED", "근거 연결 실패"],
+      ["NO_EVIDENCE", "관련 근거 없음"],
+      ["BUSY", "다른 AI 작업 진행 중"],
+      ["CANCELLED", "작업 중지됨"],
+    ].map(([code, detail]) => aiFailureDetail({ code }) === detail)).toEqual(Array(12).fill(true));
+    expect(aiFailureDetail({ code: "UNKNOWN" })).toBe("AI 처리 오류");
+
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    logAiFailure({
+      code: "TIMEOUT",
+      message: "기밀 문서 본문",
+      operation: "claims",
+      serverCode: "UPSTREAM_TIMEOUT",
+      requestId: "req-1",
+      occurredAt: "2026-01-01T00:00:00.000Z",
+    });
+    expect(warning).toHaveBeenCalledWith("[worklens] AI failure", {
+      operation: "claims",
+      code: "TIMEOUT",
+      serverCode: "UPSTREAM_TIMEOUT",
+      requestId: "req-1",
+      occurredAt: "2026-01-01T00:00:00.000Z",
+    });
+    expect(JSON.stringify(warning.mock.calls)).not.toContain("기밀 문서 본문");
   });
 });
 

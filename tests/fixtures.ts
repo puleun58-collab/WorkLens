@@ -46,7 +46,7 @@ export function createDocxParagraphs(paragraphs: readonly string[]): Uint8Array 
   });
 }
 
-export function createPptxSlides(slides: readonly string[][]): Uint8Array {
+export function createPptxSlides(slides: readonly string[][], untitledSlides: readonly number[] = []): Uint8Array {
   const files: Record<string, Uint8Array> = {
     "[Content_Types].xml": strToU8(
       `<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/>${slides.map((_, index) => `<Override PartName="/ppt/slides/slide${index + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>`).join("")}</Types>`,
@@ -58,9 +58,10 @@ export function createPptxSlides(slides: readonly string[][]): Uint8Array {
       `<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${slides.map((_, index) => `<Relationship Id="rId${index + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide${index + 1}.xml"/>`).join("")}</Relationships>`,
     ),
   };
+  const untitled = new Set(untitledSlides);
   slides.forEach((texts, slideIndex) => {
     files[`ppt/slides/slide${slideIndex + 1}.xml`] = strToU8(
-      `<?xml version="1.0"?><p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree>${texts.map((text) => `<p:sp><p:txBody><a:p><a:r><a:t>${text}</a:t></a:r></a:p></p:txBody></p:sp>`).join("")}</p:spTree></p:cSld></p:sld>`,
+      `<?xml version="1.0"?><p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree>${texts.map((text, textIndex) => `<p:sp>${textIndex === 0 && !untitled.has(slideIndex + 1) ? '<p:nvSpPr><p:cNvPr id="1" name="Title"/><p:cNvSpPr/><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr>' : ""}<p:txBody><a:p><a:r><a:t>${text}</a:t></a:r></a:p></p:txBody></p:sp>`).join("")}</p:spTree></p:cSld></p:sld>`,
     );
   });
   return zipSync(files);
@@ -78,7 +79,7 @@ export function createPptx(): Uint8Array {
       '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/></Relationships>',
     ),
     "ppt/slides/slide1.xml": strToU8(
-      '<?xml version="1.0"?><p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>2026 운영 계획</a:t></a:r></a:p></p:txBody></p:sp><a:graphic><a:graphicData><a:tbl><a:tr><a:tc><a:p><a:r><a:t>지역</a:t></a:r></a:p></a:tc><a:tc><a:p><a:r><a:t>예산</a:t></a:r></a:p></a:tc></a:tr><a:tr><a:tc><a:p><a:r><a:t>서울</a:t></a:r></a:p></a:tc><a:tc><a:p><a:r><a:t>5000</a:t></a:r></a:p></a:tc></a:tr></a:tbl></a:graphicData></a:graphic></p:spTree></p:cSld></p:sld>',
+      '<?xml version="1.0"?><p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="1" name="Title"/><p:cNvSpPr/><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr><p:txBody><a:p><a:r><a:t>2026 운영 계획</a:t></a:r></a:p></p:txBody></p:sp><a:graphic><a:graphicData><a:tbl><a:tr><a:tc><a:p><a:r><a:t>지역</a:t></a:r></a:p></a:tc><a:tc><a:p><a:r><a:t>예산</a:t></a:r></a:p></a:tc></a:tr><a:tr><a:tc><a:p><a:r><a:t>서울</a:t></a:r></a:p></a:tc><a:tc><a:p><a:r><a:t>5000</a:t></a:r></a:p></a:tc></a:tr></a:tbl></a:graphicData></a:graphic></p:spTree></p:cSld></p:sld>',
     ),
   });
 }
@@ -121,6 +122,25 @@ export function createExtractPptx(): Uint8Array {
       "Source: 거래소 데이터",
     ],
   ]);
+}
+
+export function createNarrativePptx(): Uint8Array {
+  return createPptxSlides([
+    ["안전보건협의체", "협의체 운영 목적과 참석 범위를 설명합니다."],
+    ["회의 개요", "이번 회의의 일정과 안건을 공유합니다."],
+    ["법적 요구 사항", "산업안전보건 관련 의무를 검토합니다."],
+    ["업체별 위험요소", "협력업체 작업별 위험 요인을 정리합니다."],
+    ["안전 규정", "현장 출입과 보호구 규정을 안내합니다."],
+    ["작업 전 점검", "작업 시작 전 확인 절차를 설명합니다."],
+    ["비상 대응", "사고 발생 시 보고 체계를 정리합니다."],
+    ["교육 계획", "정기 안전교육 일정을 공유합니다."],
+    ["현장 개선", "통로와 표지 개선 사항을 제안합니다."],
+    ["이 문장은 제목 placeholder가 없는 본문입니다.", "임의 제목으로 승격하면 안 됩니다."],
+    ["업체별 위험요소", "추가 협력업체의 위험 요인을 정리합니다."],
+    ["강평", "점검 결과에 대한 의견을 공유합니다."],
+    ["건의사항", "참석자 제안 사항을 정리합니다."],
+    ["후속 조치", "담당자별 후속 업무를 확인합니다."],
+  ], [10]);
 }
 
 export function createBriefPptx(): Uint8Array {

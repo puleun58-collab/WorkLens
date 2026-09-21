@@ -134,6 +134,7 @@ const parseSlide = (input: { fileId: string; slide: number; xml: string }): Docu
   let paragraphIndex = 0;
   let shapeOrdinal = 0;
   let currentShape: number | undefined;
+  let currentShapeRole: "heading" | undefined;
   let tableIndex = 0;
   let tableDepth = 0;
   let currentParagraph: string | undefined;
@@ -147,6 +148,12 @@ const parseSlide = (input: { fileId: string; slide: number; xml: string }): Docu
     if (tag.name === "p:sp" || tag.name === "p:graphicFrame") {
       shapeOrdinal += 1;
       currentShape = shapeOrdinal;
+      currentShapeRole = undefined;
+    } else if (
+      tag.name === "p:ph"
+      && (attribute(tag, "type") === "title" || attribute(tag, "type") === "ctrTitle")
+    ) {
+      currentShapeRole = "heading";
     }
     if (tag.name === "a:tbl") {
       tableDepth += 1;
@@ -208,6 +215,7 @@ const parseSlide = (input: { fileId: string; slide: number; xml: string }): Docu
           type: "paragraph",
           id,
           text,
+          ...(currentShapeRole ? { role: currentShapeRole, headingLevel: 1 } : {}),
           source: {
             fileId: input.fileId,
             nodeId: id,

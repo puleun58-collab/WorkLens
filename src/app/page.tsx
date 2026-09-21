@@ -17,9 +17,11 @@ import {
 import { WorkLensLogo } from "./worklens-logo";
 import { disposeWorkspace, runInWorker } from "@/client/document-client";
 import {
+  aiFailureDetail,
   extractServerAi,
   generateServerAi,
   interruptServerAi,
+  logAiFailure,
   polishServerAi,
   SERVER_AI_MESSAGES,
   type ServerAiFailure,
@@ -421,59 +423,39 @@ export default function Home() {
 
   const reportAiFailure = (error: unknown) => {
     const failure = error as Partial<ServerAiFailure>;
+    logAiFailure(error);
     if (failure.code === "CANCELLED") {
-      notifyView("info", SERVER_AI_MESSAGES.CANCELLED, failure.code);
+      notifyView("info", SERVER_AI_MESSAGES.CANCELLED, failure.code, aiFailureDetail(error));
       return;
     }
-    notifyView("error", failure.message ?? "추가 처리를 완료하지 못했습니다.", failure.code);
+    notifyView(
+      "error",
+      failure.message ?? "AI 처리를 완료하지 못했습니다.",
+      failure.code,
+      aiFailureDetail(error),
+    );
   };
 
   const reportPartialAiFailure = (error: unknown, completedMessage: string) => {
     const failure = error as Partial<ServerAiFailure>;
-    const reason = failure.message ?? "추가 처리를 완료하지 못했습니다.";
+    logAiFailure(error);
     notifyView(
       failure.code === "CANCELLED" ? "info" : "warning",
-      `${completedMessage} ${reason}`,
+      completedMessage,
       failure.code,
+      aiFailureDetail(error),
     );
   };
 
   const reportCheckPartialAiFailure = (error: unknown) => {
-    const failure = error as Partial<ServerAiFailure>;
-    const category = failure.code === "TIMEOUT"
-      ? "응답 지연"
-      : failure.code === "RATE_LIMITED" || failure.code === "OPERATION_CAPACITY"
-        ? "사용 한도"
-        : failure.code === "CONFIGURATION"
-          ? "AI 설정 오류"
-          : "AI 연결 오류";
-    notifyView(
-      failure.code === "CANCELLED" ? "info" : "warning",
+    reportPartialAiFailure(
+      error,
       "기본 검수 완료 · 추가 문장 제안은 이번 실행에서 제외되었습니다.",
-      failure.code,
-      category,
     );
   };
 
   const reportAnalyzePartialAiFailure = (error: unknown) => {
-    const failure = error as Partial<ServerAiFailure>;
-    const detail = failure.code === "GROUNDING_REJECTED"
-      ? "근거 연결 실패"
-      : failure.code === "NO_EVIDENCE"
-        ? "추가 해석 근거 없음"
-        : failure.code === "TIMEOUT"
-          ? "응답 지연"
-          : failure.code === "RATE_LIMITED" || failure.code === "OPERATION_CAPACITY"
-            ? "사용 한도"
-            : failure.code === "CONFIGURATION"
-              ? "AI 설정 오류"
-              : "AI 연결 오류";
-    notifyView(
-      failure.code === "CANCELLED" ? "info" : "warning",
-      "추가 해석은 이번 실행에서 제외되었습니다.",
-      failure.code,
-      detail,
-    );
+    reportPartialAiFailure(error, "추가 해석은 이번 실행에서 제외되었습니다.");
   };
 
   /**
@@ -493,22 +475,44 @@ export default function Home() {
       const evidence = await runInWorker({ kind: "evidence", fileIds: selected, request });
       windowId = evidence.windowId;
       if (evidence.items.length === 0) {
-        throw { code: "NO_EVIDENCE", message: noEvidenceMessage } satisfies ServerAiFailure;
+        throw {
+          code: "NO_EVIDENCE",
+          message: noEvidenceMessage,
+          operation: "claims",
+          occurredAt: new Date().toISOString(),
+        } satisfies ServerAiFailure;
       }
       const claims = await generateServerAi(request, evidence.items);
       const result = await runInWorker({ kind: "ground", windowId, request, claims });
       windowId = undefined;
       const allowPartialGrounding = request.operation === "ask" || request.operation === "brief";
       if (result.rejectedClaimCount > 0 && !allowPartialGrounding) {
-        throw { code: "GROUNDING_REJECTED", message: SERVER_AI_MESSAGES.GROUNDING_REJECTED } satisfies ServerAiFailure;
+        throw {
+          code: "GROUNDING_REJECTED",
+          message: SERVER_AI_MESSAGES.GROUNDING_REJECTED,
+          operation: "claims",
+          occurredAt: new Date().toISOString(),
+        } satisfies ServerAiFailure;
       }
       if (result.claims.length === 0) {
-        throw { code: "NO_EVIDENCE", message: noEvidenceMessage } satisfies ServerAiFailure;
+        throw {
+          code: "NO_EVIDENCE",
+          message: noEvidenceMessage,
+          operation: "claims",
+          occurredAt: new Date().toISOString(),
+        } satisfies ServerAiFailure;
       }
       return result;
     } catch (error) {
       if ((error as Partial<ApiError>).code === "NO_EVIDENCE") {
-        throw { code: "NO_EVIDENCE", message: noEvidenceMessage } satisfies ServerAiFailure;
+        const failure = error as Partial<ServerAiFailure>;
+        throw {
+          ...failure,
+          code: "NO_EVIDENCE",
+          message: noEvidenceMessage,
+          operation: failure.operation ?? "claims",
+          occurredAt: failure.occurredAt ?? new Date().toISOString(),
+        } satisfies ServerAiFailure;
       }
       throw error;
     } finally {
@@ -592,7 +596,13 @@ export default function Home() {
       const result = polishResult(polishMode, outcomes);
       setPolish(result);
       if (partialFailure) {
-        notifyView("warning", partialPolishMessage(partialFailure, result.summary.failed), (partialFailure as Partial<ServerAiFailure>).code);
+        logAiFailure(partialFailure);
+        notifyView(
+          "warning",
+          partialPolishMessage(partialFailure, result.summary.failed),
+          (partialFailure as Partial<ServerAiFailure>).code,
+          aiFailureDetail(partialFailure),
+        );
       } else if (result.summary.rejected > 0) {
         notifyView("warning", `윤문 결과는 준비되었습니다. 보호 항목 ${result.summary.rejected}건은 원문을 유지했습니다.`);
       } else {
@@ -664,7 +674,13 @@ export default function Home() {
       const result = polishTextResult(polishMode, input, segments, outcomes);
       setPolishTextRun(result);
       if (partialFailure) {
-        notifyView("warning", partialPolishMessage(partialFailure, result.summary.failed), (partialFailure as Partial<ServerAiFailure>).code);
+        logAiFailure(partialFailure);
+        notifyView(
+          "warning",
+          partialPolishMessage(partialFailure, result.summary.failed),
+          (partialFailure as Partial<ServerAiFailure>).code,
+          aiFailureDetail(partialFailure),
+        );
       } else if (result.summary.rejected > 0) {
         notifyView("warning", `윤문 결과는 준비되었습니다. 보호 항목 ${result.summary.rejected}건은 원문을 유지했습니다.`);
       } else {
@@ -760,23 +776,9 @@ export default function Home() {
         setEnrichmentResult(enriched);
         notifyView("success", "파일 비교를 완료했습니다. 의미 차이 확인도 반영했습니다.");
       } catch (error) {
-        const failure = error as Partial<ServerAiFailure>;
-        const detail = failure.code === "GROUNDING_REJECTED"
-          ? "근거 연결 실패"
-          : failure.code === "NO_EVIDENCE"
-            ? "의미 차이 근거 없음"
-            : failure.code === "TIMEOUT"
-              ? "응답 지연"
-              : failure.code === "RATE_LIMITED" || failure.code === "OPERATION_CAPACITY"
-                ? "사용 한도"
-                : failure.code === "CONFIGURATION"
-                  ? "AI 설정 오류"
-                  : "AI 연결 오류";
-        notifyView(
-          "warning",
+        reportPartialAiFailure(
+          error,
           "기본 비교 완료 · 의미 차이 확인은 이번 실행에서 제외되었습니다.",
-          failure.code,
-          detail,
         );
       }
       return deterministic;
@@ -1189,7 +1191,6 @@ export default function Home() {
               ) : null}
             </div>
             <div className="context-actions">
-              <span className="session-state">파일은 브라우저에서 처리</span>
               {files.length > 0 ? (
                 <div className="file-actions">
                   <button type="button" className="file-add" onClick={() => inputRef.current?.click()} disabled={uploading}>
@@ -1744,15 +1745,15 @@ function CompareControls({ mode, busy, direction, onMode, onSwap }: {
         {mode === "version" && direction ? (
           <div className="compare-current-direction" aria-label="현재 비교 방향">
             <div className="compare-direction-file">
-              <span>기준 파일</span>
+              <span>기준</span>
               <strong title={direction.base} tabIndex={0}>{direction.base}</strong>
             </div>
             <span className="compare-direction-arrow" aria-hidden="true">→</span>
             <div className="compare-direction-file">
-              <span>대상 파일</span>
+              <span>대상</span>
               <strong title={direction.current} tabIndex={0}>{direction.current}</strong>
             </div>
-            <button type="button" className="secondary-action compare-swap-action" disabled={busy} onClick={onSwap}>기준/대상 바꾸기</button>
+            <button type="button" className="secondary-action compare-swap-action" disabled={busy} onClick={onSwap}>기준 ↔ 대상 바꾸기</button>
           </div>
         ) : null}
       </div>
@@ -2300,7 +2301,7 @@ function AnalyzeResults({ entries, enrichment, fileNames, onSource }: {
       {coreItems.length ? (
         <section className="analysis-report-section analysis-core-items-section" aria-labelledby="analysis-core-items-title">
           <div className="subsection-heading">
-            <h3 id="analysis-core-items-title">확인된 핵심 항목</h3>
+            <h3 id="analysis-core-items-title">문서 주요 내용</h3>
             <span>{coreItems.length}건</span>
           </div>
           <div className="analysis-reading-list">
@@ -2544,6 +2545,10 @@ function CheckResults({ entries, fileNames, onSource, userTerms, ignoredRules, o
                           <p>{finding.message}</p>
                         </div>
                         <div className="check-issue-support">
+                          <div className="check-recommendation">
+                            <span className="check-field-label">권고</span>
+                            <p>{finding.recommendation}</p>
+                          </div>
                           <div className="check-source">
                             <span className="check-field-label">근거</span>
                             <ResultSource
@@ -2552,10 +2557,6 @@ function CheckResults({ entries, fileNames, onSource, userTerms, ignoredRules, o
                               onSource={onSource}
                               context={{ issue: finding.issue, recommendation: finding.recommendation }}
                             />
-                          </div>
-                          <div className="check-recommendation">
-                            <span className="check-field-label">권고</span>
-                            <p>{finding.recommendation}</p>
                           </div>
                         </div>
                         <div className="finding-actions" aria-label={`${finding.issue} 작업`}>
@@ -2796,15 +2797,16 @@ function ComparisonView({ comparison, compareIds, enrichment, fileNames, detail,
             {summaryItems.slice(1).filter((item) => item.value > 0).map((item) => <span key={item.key}><i className={`category-dot ${item.key}`} aria-hidden="true" />{item.label}<b>{item.value}</b></span>)}
           </div>
           <div className="change-table" role="table" aria-label="버전 비교 변경 상세">
-            <div className="change-head" role="row"><span role="columnheader">변경 유형</span><span role="columnheader">항목</span><span role="columnheader">기준 파일 값</span><span role="columnheader">대상 파일 값</span><span role="columnheader">차이</span><span role="columnheader">변화율</span><span role="columnheader">근거</span></div>
+            <div className="change-head" role="row"><span role="columnheader">변경 유형</span><span role="columnheader">기준 파일 값</span><span role="columnheader">대상 파일 값</span><span role="columnheader">변동</span><span role="columnheader">근거</span></div>
             {comparison.items.map((item: ComparisonItem) => (
               <div className="change-row" role="row" key={item.id} data-testid="change-row" data-category={item.category}>
                 <span role="cell" className="change-category-cell"><strong className={`category-label category-${item.category.toLowerCase().replaceAll(" ", "-")}`}>{categoryLabels[item.category]}</strong></span>
-                <span role="cell" data-label="항목" className="change-label" title={item.label}>{item.label}</span>
                 <span role="cell" data-label="기준 파일 값" className="numeric">{compareValue(item.previous)}</span>
                 <span role="cell" data-label="대상 파일 값" className="numeric">{compareValue(item.current)}</span>
-                <span role="cell" data-label="차이" className={`numeric difference${item.difference === null ? " change-empty" : ""}`}>{item.difference === null ? null : signedNumber(item.difference)}</span>
-                <span role="cell" data-label="변화율" className={`numeric${item.changePercent === null ? " change-empty" : ""}`}>{item.changePercent === null ? null : `${item.changePercent > 0 ? "+" : ""}${item.changePercent.toFixed(2)}%`}</span>
+                <span role="cell" data-label="변동" className={`numeric change-delta${item.difference === null && item.changePercent === null ? " change-empty" : ""}`}>
+                  {item.difference === null ? null : signedNumber(item.difference)}
+                  {item.changePercent === null ? null : <small>{item.changePercent > 0 ? "+" : ""}{item.changePercent.toFixed(2)}%</small>}
+                </span>
                 <div role="cell" data-label="근거" className="source-actions"><ResultSource sources={item.sources} fileNames={fileNames} onSource={onSource} roleOf={roleOf} emptyLabel="근거 없음" /></div>
               </div>
             ))}

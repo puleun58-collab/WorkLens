@@ -43,6 +43,12 @@ export interface AnalyzeResult {
   totals: ExplicitTotal[];
 }
 
+export interface DocumentTopic {
+  id: string;
+  text: string;
+  sources: SourceRef[];
+}
+
 export type CheckCode =
   | "empty-cell"
   | "empty-row"

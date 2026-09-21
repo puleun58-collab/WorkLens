@@ -1,11 +1,12 @@
 import type { AiAvailableResult, GroundedClaim, ResultWarning } from "@/domain/ai";
-import type { SourceRef } from "@/domain/document";
+import type { NormalizedDocument, SourceRef } from "@/domain/document";
 import type { ExtractedField, ExtractValueType, FileExtraction } from "@/domain/extract";
+import type { DocumentTopic } from "@/domain/operations";
 
 const NARRATIVE_SIGNAL_PATTERN = /(관계|의미|특징|주의|증가|감소|변화|추세|상승|하락|비교|차이|영향|원인|위험|가능성|전망|불일치|초과|미달|대비|전년|전월|때문|따라)/u;
 const CONFIRMED_METRIC_TYPES = new Set<ExtractValueType>(["Money", "Percent", "Number"]);
-const GENERIC_LABELS = new Set(["source", "sources", "출처", "참고", "참고자료", "비고", "note", "notes", "reference", "references"]);
-const SUMMARY_LABEL_LIMIT = 6;
+const TOPIC_LIMIT = 8;
+const GENERIC_TOPICS = new Set(["목차", "차례", "contents", "agenda"]);
 
 export interface AnalysisMetric {
   id: string;
@@ -16,11 +17,6 @@ export interface AnalysisMetric {
   sources: SourceRef[];
 }
 
-export interface ConfirmedAnalysisItems {
-  id: string;
-  text: string;
-  sources: SourceRef[];
-}
 
 export interface AnalysisClaimPresentation {
   summary: GroundedClaim[];
@@ -31,6 +27,7 @@ export interface AnalysisClaimPresentation {
 interface AnalysisExtractionEntry {
   file: { id: string; name: string };
   extraction: FileExtraction;
+  topics: readonly DocumentTopic[];
 }
 
 export function claimDisplayText(claim: GroundedClaim): string {
@@ -96,60 +93,48 @@ export function analysisClaimPresentation(
   return { summary, concerns, warnings: result.warnings };
 }
 
-function labelKey(label: string): string {
-  return label.normalize("NFKC").trim().toLocaleLowerCase("ko-KR").replace(/[\s._-]+/gu, "");
+function topicKey(text: string): string {
+  return text.normalize("NFKC").trim().toLocaleLowerCase("ko-KR").replace(/\s+/gu, " ");
 }
 
-function meaningfulFieldGroups(fields: readonly ExtractedField[]): Array<{ label: string; fields: ExtractedField[] }> {
-  const groups: Array<{ label: string; fields: ExtractedField[] }> = [];
+export function documentAnalysisTopics(document: NormalizedDocument): DocumentTopic[] {
+  const topics: DocumentTopic[] = [];
   const indexByKey = new Map<string, number>();
-  for (const field of fields) {
-    const key = labelKey(field.field);
-    if (!key || GENERIC_LABELS.has(key)) continue;
+  for (const block of document.blocks) {
+    if (block.type !== "paragraph" || block.role !== "heading") continue;
+    const text = block.text.trim();
+    const key = topicKey(text);
+    if (!key || GENERIC_TOPICS.has(key)) continue;
     const existingIndex = indexByKey.get(key);
-    if (existingIndex !== undefined) {
-      groups[existingIndex].fields.push(field);
+    if (existingIndex === undefined) {
+      indexByKey.set(key, topics.length);
+      topics.push({ id: `topic:${block.id}`, text, sources: [block.source] });
       continue;
     }
-    indexByKey.set(key, groups.length);
-    groups.push({ label: field.field.trim(), fields: [field] });
-  }
-  return groups;
-}
-
-function uniqueSources(fields: readonly ExtractedField[]): SourceRef[] {
-  const sources: SourceRef[] = [];
-  const seen = new Set<string>();
-  for (const field of fields) {
-    for (const source of field.sources) {
-      const key = `${source.fileId}\0${source.nodeId}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      sources.push(source);
+    const existing = topics[existingIndex];
+    if (!existing.sources.some((source) => source.nodeId === block.source.nodeId)) {
+      existing.sources.push(block.source);
     }
   }
-  return sources;
+  if (topics.length <= TOPIC_LIMIT) return topics;
+  const shown = topics.slice(0, TOPIC_LIMIT);
+  const remaining = topics.slice(TOPIC_LIMIT);
+  return [...shown, {
+    id: `topic:remaining:${document.fileId}`,
+    text: `외 ${remaining.length}개`,
+    sources: remaining.flatMap((topic) => topic.sources),
+  }];
 }
 
 export function confirmedAnalysisItems(
   entries: readonly AnalysisExtractionEntry[],
-): ConfirmedAnalysisItems[] {
+): DocumentTopic[] {
   const includeFileName = entries.length > 1;
-  return entries.flatMap(({ file, extraction }) => {
-    const groups = meaningfulFieldGroups(extraction.fields);
-    if (groups.length === 0) return [];
-    const shown = groups.slice(0, SUMMARY_LABEL_LIMIT);
-    const shownFields: ExtractedField[] = [];
-    for (const group of shown) shownFields.push(...group.fields);
-    const remaining = groups.length - shown.length;
-    const prefix = includeFileName ? `${file.name}: ` : "";
-    const suffix = remaining > 0 ? ` · 외 ${remaining}개` : "";
-    return [{
-      id: `confirmed-items:${file.id}`,
-      text: `${prefix}${shown.map((group) => group.label).join(" · ")}${suffix}`,
-      sources: uniqueSources(shownFields),
-    }];
-  });
+  return entries.flatMap(({ file, topics }) => topics.map((topic) => ({
+    ...topic,
+    id: `${file.id}:${topic.id}`,
+    text: includeFileName ? `${file.name}: ${topic.text}` : topic.text,
+  })));
 }
 
 export function confirmedAnalysisMetrics(
