@@ -1753,7 +1753,7 @@ function CompareControls({ mode, busy, direction, onMode, onSwap }: {
               <span>대상</span>
               <strong title={direction.current} tabIndex={0}>{direction.current}</strong>
             </div>
-            <button type="button" className="secondary-action compare-swap-action" disabled={busy} onClick={onSwap}>기준 ↔ 대상 바꾸기</button>
+            <button type="button" className="secondary-action compare-swap-action" disabled={busy} onClick={onSwap}>기준/대상 변경</button>
           </div>
         ) : null}
       </div>

@@ -117,8 +117,11 @@ test("uploads XLSX files, compares them and shows source evidence", async ({ pag
   await expect(controlDirection).toContainText("운임현황_v1.xlsx");
   await expect(controlDirection).toContainText("대상");
   await expect(controlDirection).toContainText("운임현황_v2.xlsx");
-  const swap = controlDirection.getByRole("button", { name: "기준 ↔ 대상 바꾸기" });
+  const swap = controlDirection.getByRole("button", { name: "기준/대상 변경" });
   await expect(swap).toBeVisible();
+  expect(await controlDirection.evaluate((element) => getComputedStyle(element).flexWrap)).toBe("nowrap");
+  expect(await controlDirection.locator(".compare-direction-file").evaluateAll((elements) =>
+    elements.map((element) => getComputedStyle(element).display))).toEqual(["flex", "flex"]);
   await swap.click();
   await expect(fileRow(page, files.v1).locator(".compare-selection-role")).toHaveText("2 · 대상 파일");
   await expect(fileRow(page, files.v2).locator(".compare-selection-role")).toHaveText("1 · 기준 파일");
@@ -142,6 +145,12 @@ test("uploads XLSX files, compares them and shows source evidence", async ({ pag
   await expect(fileMap).toContainText("대상 파일");
   await expect(fileMap).toContainText("운임현황_v2.xlsx");
   await expect(panel.locator(".change-head [role='columnheader']")).toHaveText(["변경 유형", "기준 파일 값", "대상 파일 값", "변동", "근거"]);
+  expect(await fileMap.locator("> div").evaluateAll((elements) =>
+    elements.map((element) => getComputedStyle(element).backgroundColor))).toEqual([
+    "rgb(255, 255, 255)",
+    "rgb(255, 255, 255)",
+  ]);
+  expect(await panel.locator(".change-head").evaluate((element) => getComputedStyle(element).backgroundColor)).toBe("rgb(255, 255, 255)");
   const csvDownload = page.waitForEvent("download");
   await panel.getByRole("button", { name: "CSV 다운로드" }).click();
   expect((await csvDownload).suggestedFilename()).toBe("worklens-version-compare.csv");
@@ -186,7 +195,7 @@ test("shows comparison direction only for exactly two version files", async ({ p
   await page.goto("/");
   await page.getByRole("button", { name: "비교", exact: true }).click();
   await expect(page.getByLabel("현재 비교 방향")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "기준 ↔ 대상 바꾸기" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "기준/대상 변경" })).toHaveCount(0);
 
   await upload(page, files.longV1);
   await page.getByLabel(`${path.basename(files.longV1)} 선택`).check();
@@ -199,15 +208,20 @@ test("shows comparison direction only for exactly two version files", async ({ p
   const baseName = direction.locator(".compare-direction-file strong").nth(0);
   await expect(baseName).toHaveAttribute("title", path.basename(files.longV1));
   await expect(direction.locator(".compare-direction-file strong").nth(1)).toHaveAttribute("title", "운임현황_v2.xlsx");
+  expect(await direction.evaluate((element) => getComputedStyle(element).flexWrap)).toBe("nowrap");
+  expect(await direction.locator(".compare-direction-file").evaluateAll((elements) =>
+    elements.map((element) => getComputedStyle(element).display))).toEqual(["flex", "flex"]);
 
   await page.getByRole("radio", { name: "값 일치 확인" }).check();
   await expect(direction).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "기준 ↔ 대상 바꾸기" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "기준/대상 변경" })).toHaveCount(0);
   await expect(page.getByText("여러 파일의 동일 항목과 값 차이를 확인합니다.", { exact: true })).toBeVisible();
 
   await page.getByRole("radio", { name: "버전 비교" }).check();
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.getByLabel("현재 비교 방향")).toBeVisible();
+  expect(await page.getByLabel("현재 비교 방향").locator(".compare-direction-file").evaluateAll((elements) =>
+    elements.map((element) => getComputedStyle(element).display))).toEqual(["grid", "grid"]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 });
 
@@ -388,6 +402,7 @@ test("checks shared values locally, keeps evidence, and exports both formats", a
   await expect(panel.locator(".check-summary-line")).toContainText("비교 항목 3");
   await expect(panel.locator(".check-summary-line")).toContainText("값 차이 1");
   await expect(panel.locator(".check-summary-line")).toContainText("일치 2");
+  expect(await panel.locator(".value-check-matrix-head").evaluate((element) => getComputedStyle(element).backgroundColor)).toBe("rgb(255, 255, 255)");
   const different = panel.getByTestId("value-check-group").filter({ hasText: "목표주가" });
   await expect(different).toContainText("64,550원");
   await expect(different).toContainText("62,000원");

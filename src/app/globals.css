@@ -3387,8 +3387,9 @@ input:disabled,
 
 .compare-direction-file {
   min-width: 0;
-  display: grid;
-  gap: 1px;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
 }
 
 .compare-direction-file span {
@@ -3672,7 +3673,7 @@ input:disabled,
   padding: 10px 12px;
   border: 1px solid var(--line-soft);
   border-radius: var(--radius-control);
-  background: var(--layer);
+  background: var(--paper);
   display: grid;
   gap: 3px;
 }
@@ -3774,6 +3775,16 @@ input:disabled,
   color: var(--muted);
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-semibold);
+}
+
+/* Both comparison modes use the same quiet white table-header surface. */
+.change-head,
+.value-check-matrix-head {
+  border-bottom: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--ink-soft);
+  font-weight: var(--font-weight-semibold);
+  box-shadow: none;
 }
 
 .change-row {
@@ -7500,6 +7511,9 @@ input:disabled {
 
   .compare-direction-file {
     width: 100%;
+    display: grid;
+    align-items: start;
+    gap: 1px;
   }
 
   .compare-direction-file strong {
