@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { parseAiApiRequest } from "@/server/ai-request";
 import { runGroqAi } from "@/server/groq";
 import { ApiError, apiError, ok, readBoundedJson, requireSameSite, runBoundedOperation } from "@/server/http";
@@ -11,6 +12,7 @@ const RATE_LIMIT = 120;
 const requestsByClient = new Map<string, { startedAt: number; count: number }>();
 
 export async function POST(request: Request) {
+  const requestId = randomUUID();
   try {
     requireSameSite(request);
     if (!request.headers.get("content-type")?.toLowerCase().startsWith("application/json")) {
@@ -18,10 +20,10 @@ export async function POST(request: Request) {
     }
     enforceRateLimit(request);
     const input = parseAiApiRequest(await readBoundedJson(request, MAX_AI_BODY_BYTES));
-    const result = await runBoundedOperation(() => runGroqAi(input));
-    return ok(result);
+    const result = await runBoundedOperation(() => runGroqAi(input, { requestId }));
+    return ok(result, 200, requestId);
   } catch (error) {
-    return apiError(error);
+    return apiError(error, requestId);
   }
 }
 

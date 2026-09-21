@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { NormalizedDocument, SourceRef, TableCell } from "@/domain/document";
 import { buildEvidenceNodes } from "@/lib/ai/grounding";
 import { evidenceWindow, MAX_EVIDENCE_ITEMS } from "@/lib/ai/prompt";
-import { briefRelevance, selectEvidence } from "@/lib/ai/retrieval";
+import { selectEvidence } from "@/lib/ai/retrieval";
 
 function paragraph(index: number, text: string, page = Math.floor(index / 10) + 1) {
   const nodeId = `pdf:p${page}:paragraph:${index}`;
@@ -159,22 +159,38 @@ describe("browser evidence retrieval", () => {
     expect(firstPageShare).toBeLessThan(0.4);
   });
 
-  it("scopes a focused Brief to directly relevant evidence", () => {
-    const document = pdfDocument([
-      "시가총액은 3,420억원입니다.",
-      "목표주가는 64,550원입니다.",
-      "분기 운영 비용은 52억원입니다.",
-    ]);
+  it("boosts a concentrated Brief focus without letting one slide own the window", () => {
+    const slides = Array.from({ length: 14 }, (_, index) =>
+      Array.from({ length: 4 }, (__, item) => ({
+        slide: index + 1,
+        text: index === 9
+          ? `위험요소 ${item + 1}: 고소 작업과 장비 충돌 대응 조치`
+          : `Slide ${index + 1} 핵심 ${item + 1}: 회의 결정과 후속 조치 ${index + 1}-${item + 1}`,
+      }))).flat();
+    const nodes = buildEvidenceNodes([pptxDocument(slides)]);
+    const selected = selectEvidence(nodes, { operation: "brief", instruction: "위험요소" }, { limit: MAX_EVIDENCE_ITEMS });
+    const selectedSlides = new Set(selected.map((node) =>
+      node.source.locator?.kind === "pptx" ? node.source.locator.slide : undefined));
+
+    expect(selected.some((node) => node.text.includes("위험요소"))).toBe(true);
+    expect(selectedSlides.size).toBeGreaterThanOrEqual(10);
+    expect(selected.filter((node) => node.source.locator?.kind === "pptx" && node.source.locator.slide === 10).length)
+      .toBeLessThan(selected.length / 2);
+  });
+
+  it("keeps global coverage when focus evidence is sparse or absent", () => {
+    const document = pptxDocument(Array.from({ length: 14 }, (_, index) => ({
+      slide: index + 1,
+      text: index === 9 ? "위험요소: 고소 작업 추락 방지 조치" : `회의 핵심 ${index + 1}: 안전 규정과 후속 조치`,
+    })));
     const nodes = buildEvidenceNodes([document]);
-    const marketCap = selectEvidence(nodes, { operation: "brief", instruction: "시가총액" }, { limit: MAX_EVIDENCE_ITEMS });
-    const marketCapQuestion = selectEvidence(nodes, { operation: "brief", instruction: "시가총액은 얼마인가요?" }, { limit: MAX_EVIDENCE_ITEMS });
-    const cost = selectEvidence(nodes, { operation: "brief", instruction: "비용" }, { limit: MAX_EVIDENCE_ITEMS });
-    expect(marketCap.map((node) => node.text)).toEqual(["시가총액은 3,420억원입니다."]);
-    expect(marketCapQuestion.map((node) => node.text)).toEqual(["시가총액은 3,420억원입니다."]);
-    expect(cost.map((node) => node.text)).toEqual(["분기 운영 비용은 52억원입니다."]);
-    expect(briefRelevance(nodes, "시가총액").supported).toBe(true);
-    expect(briefRelevance(nodes, "비용").supported).toBe(true);
-    expect(briefRelevance(nodes, "주요 일정").supported).toBe(false);
+    const sparse = selectEvidence(nodes, { operation: "brief", instruction: "위험요소" }, { limit: MAX_EVIDENCE_ITEMS });
+    const absent = selectEvidence(nodes, { operation: "brief", instruction: "매출 전망" }, { limit: MAX_EVIDENCE_ITEMS });
+
+    expect(sparse.some((node) => node.text.includes("위험요소"))).toBe(true);
+    expect(new Set(sparse.map((node) => node.source.label)).size).toBe(14);
+    expect(absent).toHaveLength(nodes.length);
+    expect(absent.some((node) => node.text.includes("매출"))).toBe(false);
   });
 
   it("keeps broad document coverage when Brief has no focus instruction", () => {

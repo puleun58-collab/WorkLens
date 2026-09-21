@@ -77,18 +77,18 @@ describe("server AI prompt boundary", () => {
     expect(prompt).not.toContain(window.nodes.get("E1")!.propositionToken);
   });
 
-  it("makes a focused Brief exclusive while leaving whole-document Brief broad", () => {
+  it("treats Brief focus as emphasis while preserving the whole document", () => {
     const items = [
       { handle: "E1", text: "시가총액은 3,420억원입니다." },
       { handle: "E2", text: "목표주가는 64,550원입니다." },
     ];
     const focused = buildMessages({ operation: "brief", instruction: "시가총액" }, items)[1].content;
     const broad = buildMessages({ operation: "brief" }, items)[1].content;
-    expect(focused).toContain("이 범위와 직접 관련된 근거만 요약하세요");
-    expect(focused).toContain("관련성이 낮은 일반 정보는 포함하지 말고");
-    expect(focused).toContain("claims를 빈 배열로 두세요");
+    expect(focused).toContain("문서 전체의 핵심 내용을 요약");
+    expect(focused).toContain("중점 내용 \"시가총액\"");
+    expect(focused).toContain("관련 근거가 없으면 이를 추측하지 말고");
+    expect(focused).not.toContain("직접 관련된 근거만");
     expect(broad).toContain("문서 전체에서");
-    expect(broad).not.toContain("이 범위와 직접 관련된 근거만");
   });
 
   it("limits Analyze enrichment to grounded interpretation instead of restating extracted values", () => {

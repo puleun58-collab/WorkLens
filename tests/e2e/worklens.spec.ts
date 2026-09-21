@@ -1298,7 +1298,7 @@ test("shows a Brief-specific error when no grounded content remains", async ({ p
 });
 
 
-test("scopes Brief evidence, keeps the input compact, copies grounded text, and abstains before AI", async ({ page }) => {
+test("uses Brief focus as emphasis, keeps full evidence, copies text, and opens sources", async ({ page }) => {
   await page.addInitScript(() => {
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
@@ -1357,12 +1357,11 @@ test("scopes Brief evidence, keeps the input compact, copies grounded text, and 
   await run.click();
   await expect.poll(() => requests.length).toBe(2);
   expect(requests[1].instruction).toBe("시가총액");
-  expect(requests[1].items.length).toBeGreaterThan(0);
-  expect(requests[1].items.every((item) => item.text.includes("시가총액"))).toBe(true);
-  expect(requests[1].items.some((item) => item.text.includes("목표주가") || item.text.includes("비용"))).toBe(false);
+  expect(requests[1].items.some((item) => item.text.includes("시가총액"))).toBe(true);
+  expect(requests[1].items.some((item) => item.text.includes("목표주가"))).toBe(true);
+  expect(requests[1].items.some((item) => item.text.includes("비용"))).toBe(true);
   await expect(panel.getByRole("heading", { name: "핵심 요약", exact: true })).toBeVisible();
   await expect(panel.locator(".brief-body > p")).toHaveCount(1);
-  await expect(panel.locator(".brief-body")).not.toContainText("목표주가");
   const copy = panel.getByRole("button", { name: "요약 복사" });
   await expect(copy).toHaveClass(/result-copy-action/);
   await copy.click();
@@ -1378,16 +1377,22 @@ test("scopes Brief evidence, keeps the input compact, copies grounded text, and 
   await run.click();
   await expect.poll(() => requests.length).toBe(3);
   expect(requests[2].instruction).toBe("비용");
-  expect(requests[2].items.length).toBeGreaterThan(0);
-  expect(requests[2].items.every((item) => item.text.includes("비용"))).toBe(true);
-  expect(requests[2].items.some((item) => item.text.includes("시가총액") || item.text.includes("목표주가"))).toBe(false);
-  await expect(panel.locator(".brief-body")).toContainText("분기 운영 비용: 52억원");
-  await expect(panel.locator(".brief-body")).not.toContainText("시가총액");
+  expect(requests[2].items.some((item) => item.text.includes("비용"))).toBe(true);
+  expect(requests[2].items.some((item) => item.text.includes("시가총액"))).toBe(true);
+  expect(requests[2].items.some((item) => item.text.includes("목표주가"))).toBe(true);
+  await expect(panel.locator(".brief-body")).toContainText("시가총액");
 
   await scope.fill("주요 일정");
   await run.click();
-  await expect(page.locator(".notice.error")).toContainText("선택한 문서에서 '주요 일정' 관련 내용을 찾지 못했습니다.");
-  expect(requests).toHaveLength(3);
+  await expect.poll(() => requests.length).toBe(4);
+  expect(requests[3].instruction).toBe("주요 일정");
+  expect(requests[3].items.some((item) => item.text.includes("시가총액"))).toBe(true);
+  expect(requests[3].items.some((item) => item.text.includes("비용"))).toBe(true);
+  await expect(page.locator(".notice.error")).toHaveCount(0);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(panel).toBeVisible();
+  await expect(panel.getByRole("heading", { name: "핵심 요약", exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
 test("integrates enrichment behind one action and preserves every deterministic result on failure", async ({ page }) => {

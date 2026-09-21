@@ -99,21 +99,21 @@ export function assertResultWithinLimit(result: unknown): void {
   }
 }
 
-export function ok<T>(data: T, status = 200): NextResponse {
+export function ok<T>(data: T, status = 200, requestId = randomUUID()): NextResponse {
   assertResultWithinLimit(data);
-  return NextResponse.json({ data, requestId: randomUUID() }, { status, headers: NO_STORE_HEADERS });
+  return NextResponse.json({ data, requestId }, { status, headers: NO_STORE_HEADERS });
 }
 
-export function apiError(error: unknown): NextResponse {
+export function apiError(error: unknown, requestId = randomUUID()): NextResponse {
   if (error instanceof ApiError) {
     return NextResponse.json(
-      { error: { code: error.code, message: error.message, retryable: error.status >= 500 }, requestId: randomUUID() },
+      { error: { code: error.code, message: error.message, retryable: error.status >= 500 }, requestId },
       { status: error.status, headers: NO_STORE_HEADERS },
     );
   }
-  console.error("WorkLens API unhandled error", error);
+  console.error("WorkLens API unhandled error", { requestId, error });
   return NextResponse.json(
-    { error: { code: "INTERNAL_ERROR", message: "요청 처리 중 오류가 발생했습니다.", retryable: true }, requestId: randomUUID() },
+    { error: { code: "INTERNAL_ERROR", message: "요청 처리 중 오류가 발생했습니다.", retryable: true }, requestId },
     { status: 500, headers: NO_STORE_HEADERS },
   );
 }

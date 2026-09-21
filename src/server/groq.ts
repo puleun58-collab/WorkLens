@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { AiApiRequest, AiApiResult } from "@/lib/ai/api";
 import { buildExtractMessages, EXTRACT_RESPONSE_SCHEMA, parseExtractResponse } from "@/lib/ai/extract-prompt";
@@ -12,6 +13,17 @@ const REQUEST_TIMEOUT_MS = 30_000;
 
 type Message = { role: "system" | "user"; content: string };
 type JsonSchema = Record<string, unknown>;
+
+export interface GroqRequestContext {
+  requestId: string;
+}
+
+interface ProviderErrorMetadata {
+  providerCode?: string;
+  providerType?: string;
+  providerRequestId?: string;
+  providerReason?: "unsupported_parameter" | "unsupported_response_format" | "invalid_request" | "model_restriction" | "payload_constraint" | "provider_rejected";
+}
 
 const claimContentSchema = z.object({
   claims: z.array(z.object({
@@ -32,10 +44,16 @@ const extractContentSchema = z.object({
   confidence: z.enum(["high", "medium", "low"]),
 }).strict();
 
-export async function runGroqAi(request: AiApiRequest): Promise<AiApiResult> {
+export async function runGroqAi(
+  request: AiApiRequest,
+  context: GroqRequestContext = { requestId: randomUUID() },
+): Promise<AiApiResult> {
   const started = Date.now();
   const specification = requestSpecification(request);
-  const raw = await complete(specification.messages, specification.schema, specification.schemaName, specification.maxTokens);
+  const raw = await complete(specification.messages, specification.schema, specification.schemaName, specification.maxTokens, {
+    requestId: context.requestId,
+    operation: request.kind === "claims" ? request.request.operation : request.kind,
+  });
   const result = parseResult(request, raw.choices[0].message.content);
   console.info("[AI][Groq]", {
     kind: request.kind,
@@ -92,7 +110,13 @@ function parseResult(request: AiApiRequest, content: string): AiApiResult {
   }
 }
 
-async function complete(messages: Message[], schema: JsonSchema, schemaName: string, maxTokens: number): Promise<GroqCompletion> {
+async function complete(
+  messages: Message[],
+  schema: JsonSchema,
+  schemaName: string,
+  maxTokens: number,
+  context: GroqRequestContext & { operation: string },
+): Promise<GroqCompletion> {
   const apiKey = workerEnv().GROQ_API_KEY;
   if (!apiKey) throw new ApiError("AI_NOT_CONFIGURED", "AI 서비스가 구성되지 않았습니다.", 503);
   const body = JSON.stringify({
@@ -125,7 +149,7 @@ async function complete(messages: Message[], schema: JsonSchema, schemaName: str
           continue;
         }
       }
-      throw providerError(response.status);
+      throw await providerError(response, context);
     } catch (error) {
       if (error instanceof ApiError) throw error;
       if (error instanceof Error && error.name === "AbortError") {
@@ -164,11 +188,68 @@ function parseCompletion(value: unknown): GroqCompletion {
   return parsed.data;
 }
 
-function providerError(status: number): ApiError {
-  if (status === 429) return new ApiError("AI_RATE_LIMITED", "AI 사용 한도에 도달했습니다. 잠시 후 다시 시도하세요.", 429);
-  if (status === 401 || status === 403) return new ApiError("AI_NOT_CONFIGURED", "AI 서비스 인증 구성이 올바르지 않습니다.", 503);
-  if (status >= 500) return new ApiError("AI_PROVIDER_UNAVAILABLE", "AI 서비스가 일시적으로 응답하지 않습니다.", 503);
+const groqErrorSchema = z.object({
+  error: z.object({
+    message: z.string().optional(),
+    type: z.string().optional(),
+    code: z.union([z.string(), z.number()]).optional(),
+  }).passthrough(),
+}).passthrough();
+
+async function providerError(
+  response: Response,
+  context: GroqRequestContext & { operation: string },
+): Promise<ApiError> {
+  const metadata = await providerErrorMetadata(response);
+  console.error("[AI][Groq] provider rejected request", {
+    status: response.status,
+    providerCode: metadata.providerCode,
+    providerType: metadata.providerType,
+    providerRequestId: metadata.providerRequestId,
+    providerReason: metadata.providerReason,
+    requestId: context.requestId,
+    operation: context.operation,
+    timestamp: new Date().toISOString(),
+  });
+  if (response.status === 429) return new ApiError("AI_RATE_LIMITED", "AI 사용 한도에 도달했습니다. 잠시 후 다시 시도하세요.", 429);
+  if (response.status === 401 || response.status === 403) return new ApiError("AI_NOT_CONFIGURED", "AI 서비스 인증 구성이 올바르지 않습니다.", 503);
+  if (response.status >= 500) return new ApiError("AI_PROVIDER_UNAVAILABLE", "AI 서비스가 일시적으로 응답하지 않습니다.", 503);
   return new ApiError("AI_PROVIDER_REJECTED", "AI 서비스가 요청을 처리하지 못했습니다.", 502);
+}
+
+async function providerErrorMetadata(response: Response): Promise<ProviderErrorMetadata> {
+  const providerRequestId = response.headers.get("x-request-id")
+    ?? response.headers.get("x-groq-request-id")
+    ?? response.headers.get("request-id")
+    ?? undefined;
+  try {
+    const parsed = groqErrorSchema.safeParse(JSON.parse(await response.text()));
+    if (!parsed.success) return { providerRequestId };
+    const providerCode = parsed.data.error.code === undefined ? undefined : String(parsed.data.error.code).slice(0, 120);
+    const providerType = parsed.data.error.type?.slice(0, 120);
+    return {
+      providerCode,
+      providerType,
+      providerRequestId,
+      providerReason: classifyProviderReason(parsed.data.error.message, providerCode, providerType),
+    };
+  } catch {
+    return { providerRequestId };
+  }
+}
+
+function classifyProviderReason(
+  message?: string,
+  code?: string,
+  type?: string,
+): ProviderErrorMetadata["providerReason"] {
+  const diagnostic = `${code ?? ""} ${type ?? ""} ${message ?? ""}`.toLocaleLowerCase("en-US");
+  if (/(response[_ -]?format|json[_ -]?schema|structured output)/u.test(diagnostic)) return "unsupported_response_format";
+  if (/(unsupported|unknown|unrecognized).{0,40}(parameter|argument|field)/u.test(diagnostic)) return "unsupported_parameter";
+  if (/(model).{0,60}(not supported|not allowed|restricted|permission|access)/u.test(diagnostic)) return "model_restriction";
+  if (/(payload|request body|too large|maximum context|context length|token limit)/u.test(diagnostic)) return "payload_constraint";
+  if (/(invalid_request|invalid request|bad request|validation)/u.test(diagnostic)) return "invalid_request";
+  return "provider_rejected";
 }
 
 function retryDelay(value: string | null): number {

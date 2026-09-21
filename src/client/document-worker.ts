@@ -7,7 +7,7 @@ import { analyzeDocument, checkDocument, extractDocument } from "@/lib/determini
 import { exportDocumentCsv, exportDocumentXlsx } from "@/lib/export";
 import { parseDocument } from "@/lib/parsers";
 import { buildEvidenceNodes, groundAiResult } from "@/lib/ai/grounding";
-import { askRelevance, briefRelevance, selectEvidence } from "@/lib/ai/retrieval";
+import { askRelevance, selectEvidence } from "@/lib/ai/retrieval";
 import { evidenceWindow, resolveClaims, type EvidenceWindow } from "@/lib/ai/prompt";
 import { collectPolishCandidates } from "@/lib/polish/candidates";
 import { autoExtract } from "@/lib/extract/auto";
@@ -190,15 +190,10 @@ async function handle(request: WorkerRequest): Promise<unknown> {
     case "evidence": {
       const selected = requireDocuments(request.fileIds).map((entry) => entry.document);
       const candidates = buildEvidenceNodes(selected);
-      // Ask and a focused Brief carry a scope to check before inference:
-      // unrelated evidence is never sent and never falls back to a broad task.
+      // Ask carries a strict answerability scope. Brief focus text is only a
+      // ranking hint, so a missing focus match still produces a global summary.
       if (request.request.operation === "ask" && !askRelevance(candidates, request.request.question).supported) {
         throw new DocumentError("NO_EVIDENCE", "질문을 뒷받침할 근거를 선택한 문서에서 찾지 못했습니다.");
-      }
-      if (request.request.operation === "brief"
-        && request.request.instruction
-        && !briefRelevance(candidates, request.request.instruction).supported) {
-        throw new DocumentError("NO_EVIDENCE", "요약 범위와 직접 관련된 근거를 선택한 문서에서 찾지 못했습니다.");
       }
       const window = evidenceWindow(selectEvidence(candidates, request.request));
       if (window.items.length === 0) {

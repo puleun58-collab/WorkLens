@@ -215,6 +215,61 @@ describe("Groq provider adapter", () => {
     });
   });
 
+  it("logs sanitized provider rejection metadata tied to the API request ID", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      error: {
+        message: "Unsupported response_format json_schema for secret document body",
+        type: "invalid_request_error",
+        code: "json_schema_not_supported",
+      },
+    }), {
+      status: 400,
+      headers: { "Content-Type": "application/json", "x-request-id": "groq-request-1" },
+    })));
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const response = await POST(apiRequest(JSON.stringify({
+      kind: "polish",
+      text: "기밀 문서 본문",
+      mode: "default",
+    })));
+    const body = await response.json();
+
+    expect(response.status).toBe(502);
+    expect(body).toMatchObject({
+      error: { code: "AI_PROVIDER_REJECTED", message: "AI 서비스가 요청을 처리하지 못했습니다." },
+      requestId: expect.any(String),
+    });
+    expect(log).toHaveBeenCalledWith("[AI][Groq] provider rejected request", {
+      status: 400,
+      providerCode: "json_schema_not_supported",
+      providerType: "invalid_request_error",
+      providerRequestId: "groq-request-1",
+      providerReason: "unsupported_response_format",
+      requestId: body.requestId,
+      operation: "polish",
+      timestamp: expect.any(String),
+    });
+    expect(JSON.stringify(log.mock.calls)).not.toContain("기밀 문서 본문");
+    expect(JSON.stringify(log.mock.calls)).not.toContain("secret document body");
+    expect(JSON.stringify(body)).not.toContain("json_schema_not_supported");
+  });
+
+  it("keeps minimum rejection diagnostics when the provider body is malformed", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("not-json", { status: 422 })));
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await expect(runGroqAi(
+      { kind: "extract", field: "매출", items: evidence },
+      { requestId: "worklens-request-2" },
+    )).rejects.toMatchObject({ code: "AI_PROVIDER_REJECTED", status: 502 });
+    expect(log).toHaveBeenCalledWith("[AI][Groq] provider rejected request", expect.objectContaining({
+      status: 422,
+      requestId: "worklens-request-2",
+      operation: "extract",
+    }));
+  });
+
 
   it("retries a transient provider failure once", async () => {
     const providerFetch = vi.fn()
