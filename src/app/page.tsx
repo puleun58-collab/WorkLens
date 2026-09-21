@@ -2533,24 +2533,25 @@ function CheckResults({ entries, fileNames, onSource, userTerms, ignoredRules, o
                   return (
                     <article className={`check-issue severity-${finding.severity}`} key={finding.id} data-confidence={finding.confidence}>
                       <div className="check-issue-row">
-                        <div className="check-issue-meta">
-                          <span className="check-severity"><i className={`severity-mark ${finding.severity}`} aria-hidden="true" />{severityLabels[finding.severity]}</span>
-                          <span aria-hidden="true">·</span>
-                          <span className="check-category">{checkGroupLabels[group]}</span>
-                          <span className="check-category-detail">{checkCategoryLabels[finding.category]}</span>
-                        </div>
-                        <div className="check-issue-name">
-                          <small title={file.name}>{file.name}</small>
-                          <strong>{finding.issue}</strong>
-                          <p>{finding.message}</p>
+                        <div className="check-issue-summary">
+                          <div className="check-issue-meta">
+                            <span className="check-severity"><i className={`severity-mark ${finding.severity}`} aria-hidden="true" />{severityLabels[finding.severity]}</span>
+                            <span aria-hidden="true">·</span>
+                            <span className="check-category">{checkGroupLabels[group]}</span>
+                            <span className="check-category-detail">{checkCategoryLabels[finding.category]}</span>
+                          </div>
+                          <div className="check-issue-name">
+                            <small title={file.name}>{file.name}</small>
+                            <strong>{finding.issue}</strong>
+                            <p>{finding.message}</p>
+                          </div>
                         </div>
                         <div className="check-issue-support">
                           <div className="check-recommendation">
-                            <span className="check-field-label">권고</span>
+                            <span className="check-field-label">수정 제안</span>
                             <p>{finding.recommendation}</p>
                           </div>
                           <div className="check-source">
-                            <span className="check-field-label">근거</span>
                             <ResultSource
                               sources={sources}
                               fileNames={fileNames}
@@ -3015,7 +3016,7 @@ function SourceDetail({ entries, fileNames, onClose }: {
         : [])).values()].map((context) => (
         <section className="evidence-context" key={`${context.issue}\0${context.recommendation}`}>
           <div><span>이슈</span><p>{context.issue}</p></div>
-          <div><span>권고</span><p>{context.recommendation}</p></div>
+          <div><span>수정 제안</span><p>{context.recommendation}</p></div>
         </section>
       ))}
       {groups.map((group, index) => {

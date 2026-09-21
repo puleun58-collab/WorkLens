@@ -1523,16 +1523,30 @@ test("reviews PPTX writing, consistency and data findings with filters and exact
   await expect(typo.getByRole("button", { name: "Slide 1 근거 보기" })).toBeVisible();
   expect(await typo.locator(".check-recommendation, .check-source").evaluateAll((nodes) =>
     nodes.map((node) => node.className))).toEqual(["check-recommendation", "check-source"]);
-  await expect(typo.locator(".check-recommendation")).toBeVisible();
+  await expect(typo.locator(".check-recommendation")).toContainText("수정 제안");
+  await expect(typo.locator(".check-source .check-field-label")).toHaveCount(0);
   await expect(typo.locator(".issue-detail-toggle")).toHaveCount(0);
   expect((await typo.innerText()).split("최종검수.pptx").length - 1).toBe(1);
+  const rowTops = await typo.locator(".check-issue-summary, .check-recommendation, .check-source").evaluateAll((nodes) =>
+    nodes.map((node) => Math.round(node.getBoundingClientRect().top)));
+  expect(rowTops[0]).toBeLessThan(rowTops[1]);
+  expect(rowTops[1]).toBeLessThan(rowTops[2]);
+  const findingActions = typo.locator(".finding-actions");
+  const desktopActionBoxes = await findingActions.getByRole("button").evaluateAll((buttons) =>
+    buttons.map((button) => {
+      const box = button.getBoundingClientRect();
+      return { top: Math.round(box.top), right: Math.round(box.right) };
+    }));
+  expect(new Set(desktopActionBoxes.map((box) => box.top)).size).toBe(1);
+  const [issueBox, actionsBox] = await Promise.all([typo.boundingBox(), findingActions.boundingBox()]);
+  expect(Math.abs(issueBox!.x + issueBox!.width - (actionsBox!.x + actionsBox!.width))).toBeLessThanOrEqual(24);
 
   await typo.locator(".source-action").click();
   const evidence = page.getByLabel("근거 상세");
   await expect(evidence).toBeVisible();
   await expect(evidence.locator(".evidence-location-list")).toContainText("Slide 1");
   await expect(evidence.locator(".evidence-context")).toContainText("한글 맞춤법 오류 가능성");
-  await expect(evidence.locator(".evidence-context")).toContainText("권고");
+  await expect(evidence.locator(".evidence-context")).toContainText("수정 제안");
   await expect(evidence.getByRole("button", { name: "닫기" })).toBeVisible();
   await page.screenshot({ path: "artifacts/inspo-evidence-desktop-1440.png" });
   await evidence.getByRole("button", { name: "닫기" }).click();
@@ -1546,6 +1560,10 @@ test("reviews PPTX writing, consistency and data findings with filters and exact
   await expect(page.getByRole("button", { name: "문장 검수", exact: true })).toHaveCount(0);
   await page.screenshot({ path: "artifacts/inspo-check-desktop-1440.png", fullPage: true });
   if (testInfo.project.name === "chromium-desktop") expect(consoleErrors).toEqual([]);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(typo).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  expect(await findingActions.evaluate((element) => getComputedStyle(element).justifyContent)).toBe("flex-start");
 });
 
 test("keeps the personal dictionary and ignore actions inside this browser", async ({ page, browser }) => {

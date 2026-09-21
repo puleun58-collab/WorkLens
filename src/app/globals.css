@@ -6976,10 +6976,10 @@ input:disabled {
 }
 
 .check-results .check-issue-row {
-  padding: 20px 22px 18px;
+  padding: 14px 22px 12px;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 12px;
+  gap: 7px;
 }
 
 .check-results .check-issue + .check-issue {
@@ -6987,8 +6987,15 @@ input:disabled {
   border-top: 1px solid var(--line-strong);
 }
 
-.check-issue-meta {
+.check-issue-summary {
   min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.check-issue-meta {
+  min-width: fit-content;
   display: flex;
   align-items: center;
   gap: 7px;
@@ -7010,34 +7017,42 @@ input:disabled {
 
 .check-results .check-issue-name {
   min-width: 0;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 3px 8px;
 }
 
 .check-results .check-issue-name small {
-  max-width: 100%;
-  margin-bottom: 5px;
+  flex: 0 1 auto;
+  max-width: 24ch;
+  margin-bottom: 0;
 }
 
 .check-results .check-issue-name > strong {
+  flex: 0 0 auto;
   font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
   line-height: 1.45;
 }
 
 .check-results .check-issue-name > p {
-  max-width: 76ch;
-  margin: 4px 0 0;
+  min-width: 0;
+  margin: 0;
   color: var(--ink-soft);
   font-size: var(--font-size-sm);
-  line-height: 1.6;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 .check-issue-support {
   min-width: 0;
-  margin-top: 4px;
-  padding-top: 14px;
-  border-top: 1px solid var(--line);
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 12px;
+  gap: 5px;
 }
 
 .check-field-label {
@@ -7051,8 +7066,9 @@ input:disabled {
 .check-results .check-recommendation {
   min-width: 0;
   display: flex;
-  align-items: flex-start;
-  gap: 10px;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
 }
 
 .check-results .check-source .result-source {
@@ -7060,10 +7076,12 @@ input:disabled {
 }
 
 .check-results .check-recommendation p {
+  min-width: 0;
   margin: 0;
   color: var(--ink-soft);
   font-size: var(--font-size-sm);
-  line-height: 1.6;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 .check-results .qa-overview {
@@ -7111,6 +7129,7 @@ input:disabled {
 }
 
 .check-results .finding-actions {
+  justify-content: flex-end;
   border-top-color: var(--line-soft);
 }
 
@@ -7165,8 +7184,22 @@ input:disabled {
     padding: 16px;
   }
 
+  .check-issue-summary {
+    display: grid;
+    gap: 5px;
+  }
+
+  .check-results .check-issue-name {
+    display: grid;
+    gap: 3px;
+  }
+
   .check-issue-meta {
     flex-wrap: wrap;
+  }
+
+  .check-results .finding-actions {
+    justify-content: flex-start;
   }
 
   .check-issue-support {
