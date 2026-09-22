@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { NormalizedDocument } from "@/domain/document";
 import { parseDocument } from "@/lib/parsers";
 import { buildAggregation } from "@/lib/aggregation/engine";
+import { aggregationXlsxExport } from "@/lib/aggregation/export";
 import { fileKindOf, validateUploadBytes } from "@/lib/upload";
 
 async function workbookBytes(configure: (sheet: ExcelJS.Worksheet) => void): Promise<Record<string, Uint8Array>> {
@@ -79,5 +80,21 @@ describe("workbooks with macros or external links", () => {
     await parseDocument({ fileId: "offline", fileName: "가격.xlsx", bytes });
     expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
+  });
+
+  it("exports data only: no macro project and no external link survives the round trip", async () => {
+    const linked = await parseDocument({ fileId: "linked", fileName: "가격.xlsx", bytes: await externalLinkWorkbook(125_000) });
+    const macro = await parseDocument({ fileId: "macro", fileName: "관리.xlsm", bytes: await macroWorkbook() });
+    const draft = buildAggregation([linked, macro]);
+    const exported = await aggregationXlsxExport(draft, {
+      sheetIds: draft.workbooks.flatMap((workbook) => workbook.sheets.map((sheet) => sheet.id)),
+      mappings: draft.mappings,
+    });
+
+    const parts = Object.keys(unzipSync(exported.content));
+    expect(parts.some((part) => part.toLowerCase().includes("vbaproject"))).toBe(false);
+    expect(parts.some((part) => part.toLowerCase().includes("externallink"))).toBe(false);
+    // The stored value still travels, so the export carries data, not links.
+    expect(new TextDecoder().decode(unzipSync(exported.content)["xl/worksheets/sheet1.xml"])).toContain("125000");
   });
 });
