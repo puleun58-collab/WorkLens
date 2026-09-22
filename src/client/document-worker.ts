@@ -24,7 +24,7 @@ import {
   safeDisplayName,
   validateUploadBytes,
 } from "@/lib/upload";
-import type { WorkerEnvelope, WorkerRequest, WorkspaceFile } from "./protocol";
+import type { WorkerEnvelope, WorkerFailure, WorkerRequest, WorkspaceFile } from "./protocol";
 
 /**
  * Parsed documents live only here, for the lifetime of this worker. A reload or
@@ -81,10 +81,15 @@ async function handle(request: WorkerRequest): Promise<unknown> {
       const fileName = safeDisplayName(request.fileName);
       const kind = fileKindOf(fileName);
       const bytes = request.bytes;
-      validateUploadBytes(kind, bytes);
+      const admissionWarnings = validateUploadBytes(kind, bytes);
       assertWorkspaceWithinLimit(workspaceBytes(), bytes.byteLength);
       const size = bytes.byteLength;
-      const document = await parseDocument({ fileId: request.fileId, fileName, bytes });
+      const parsed = await parseDocument({ fileId: request.fileId, fileName, bytes });
+      // Macro and external-link caveats are decided while the file is still
+      // bytes, so they join whatever the parser itself observed.
+      const document: NormalizedDocument = admissionWarnings.length
+        ? { ...parsed, warnings: [...new Set([...parsed.warnings, ...admissionWarnings])] }
+        : parsed;
       const file: WorkspaceFile = {
         id: request.fileId,
         name: fileName,
@@ -258,8 +263,8 @@ self.addEventListener("message", (event: MessageEvent<{ id: string; request: Wor
       self.postMessage(envelope, transfer);
     },
     (error: unknown) => {
-      const failure = error instanceof DocumentError
-        ? { code: error.code, message: error.message }
+      const failure: WorkerFailure = error instanceof DocumentError
+        ? { code: error.code, message: error.message, ...(error.detail ? { detail: error.detail } : {}) }
         : {
             code: "DOCUMENT_FAILED",
             message: error instanceof Error && error.message ? error.message : "파일을 처리하지 못했습니다.",

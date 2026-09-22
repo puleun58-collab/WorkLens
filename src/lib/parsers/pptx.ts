@@ -12,6 +12,8 @@ import type {
 } from "@/domain/document";
 import { FORMAT_INPUT_LIMITS, StructureLimitError } from "./policy";
 
+import { DocumentError } from "@/lib/upload";
+
 /**
  * Structural limits bound expansion work, not file size: only XML parts are
  * inflated and counted, so a 100 MiB media-heavy deck stays admissible while
@@ -26,7 +28,7 @@ const isXmlPart = (name: string): boolean => name.endsWith(".xml") || name.endsW
 const isMediaPart = (name: string): boolean => name.startsWith("ppt/media/");
 
 const malformedFileError = (): Error =>
-  new Error("파일을 읽을 수 없습니다. 지원되는 정상 파일인지 확인해 주세요.");
+  new DocumentError("DOCUMENT_UNREADABLE", "파일을 읽지 못했습니다.", "지원되는 PowerPoint 파일인지 확인한 뒤 다시 시도해 주세요.");
 
 const structureLimitError = (): Error => new StructureLimitError();
 

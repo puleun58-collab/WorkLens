@@ -114,6 +114,24 @@ describe("server AI prompt boundary", () => {
     expect(prompt).toContain("claims를 빈 배열로 두세요");
   });
 
+  it("states the output language per operation and follows the question's own language for Ask", () => {
+    const items = [{ handle: "E1", text: "Forecast is averaged over the last 8 weeks." }];
+    const analyze = buildMessages({ operation: "analyze" }, items);
+    const korean = buildMessages({ operation: "ask", question: "주차별 예측값은 어떻게 산정하나요?" }, items)[1].content;
+    const english = buildMessages({ operation: "ask", question: "How are the weekly forecast values calculated?" }, items)[1].content;
+    const brief = buildMessages({ operation: "brief" }, items)[1].content;
+    const comparison = buildMessages({ operation: "semantic-check", statement: "변화를 점검하세요.", scope: "comparison" }, items)[1].content;
+    const writing = buildMessages({ operation: "semantic-check", statement: "문장을 점검하세요." }, items)[1].content;
+
+    expect(analyze[1].content).toContain("한국어로 작성");
+    expect(analyze[0].content).toContain("고유명사");
+    expect(korean).toContain("답변 언어: 한국어");
+    expect(english).toContain("답변 언어: 영어");
+    expect(brief).toContain("다른 언어를 명시하지 않았다면");
+    expect(comparison).toContain("주요 변화 설명은 한국어로 작성하세요.");
+    expect(writing).toContain("문제 설명과 수정 제안은 한국어로 작성하세요.");
+  });
+
   it("bounds the evidence window by item count and characters", () => {
     const many = evidenceWindow(buildEvidenceNodes([paragraphDocument(80, "매출 추이 설명 문단")]));
     expect(many.items).toHaveLength(MAX_EVIDENCE_ITEMS);

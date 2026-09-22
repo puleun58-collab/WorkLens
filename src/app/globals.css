@@ -8105,13 +8105,25 @@ input:disabled {
   color: var(--muted);
 }
 
-/* Compare tables: tinted headers, white rows, divider-only structure. */
+/*
+ * Compare and Value Check are one result category: both tables use a white
+ * header separated by a single divider, one header/row geometry, and the same
+ * quiet hover. Structure comes from dividers and spacing, never from fills.
+ */
 .change-head,
 .value-check-matrix-head {
-  background: #f1f4f7;
-  color: var(--ink);
-  font-weight: var(--font-weight-semibold);
+  min-height: 38px;
   border-bottom: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--ink);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  box-shadow: none;
+}
+
+.change-head > span,
+.value-check-matrix-head > span {
+  padding: 8px 12px;
 }
 
 .change-row,
@@ -8122,12 +8134,136 @@ input:disabled {
 
 .change-row,
 .value-check-matrix-row {
+  min-height: 48px;
   border-bottom: 1px solid var(--line-soft);
+}
+
+.change-row > span,
+.change-row > div,
+.value-check-matrix-row > strong,
+.value-check-matrix-row > div,
+.value-check-matrix-row > .value-check-verdict {
+  padding: 7px 12px;
 }
 
 .change-row:hover,
 .value-check-matrix-row:hover {
   background: #f8fafc;
+}
+
+/* Prose values read from the left; numbers, dates and deltas stay aligned. */
+.change-value {
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.change-head > span[data-align="end"] {
+  text-align: right;
+}
+
+.change-head > span[data-align="start"] {
+  text-align: left;
+}
+
+/* The evidence column gets the width its one-line locator + action needs. */
+@media (min-width: 701px) {
+  .change-head,
+  .change-row {
+    grid-template-columns: 96px minmax(180px, 1.1fr) minmax(180px, 1.1fr) minmax(96px, 0.42fr) minmax(250px, 1.05fr);
+  }
+}
+
+/* One evidence line: locator then action, wrapping only when it must. */
+.comparison-panel .result-source,
+.value-check-panel .result-source {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+.comparison-panel .source-locator,
+.value-check-panel .source-locator {
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+/*
+ * Executive summary: the total leads through size and weight, not a blue
+ * fill that would compete with the download action next to it.
+ */
+.comparison-panel .executive-summary > div {
+  min-height: 56px;
+  padding: 9px 14px;
+  background: var(--paper);
+  border-right: 1px solid var(--line-soft);
+}
+
+.comparison-panel .executive-summary > .summary-total,
+.comparison-panel .executive-summary > .summary-total[data-empty="true"] {
+  background: var(--paper);
+}
+
+.comparison-panel .executive-summary > .summary-total dd {
+  color: var(--ink);
+  font-size: 22px;
+  font-weight: var(--font-weight-bold);
+}
+
+.comparison-panel .executive-summary > .summary-important dd {
+  color: var(--warning);
+}
+
+.comparison-panel .executive-summary > div[data-empty="true"] dd {
+  color: var(--muted-light);
+  font-weight: var(--font-weight-medium);
+}
+
+/* Value Check filter carries the counts, so it owns the same hierarchy. */
+.value-check-toolbar {
+  padding: 10px var(--panel-inset);
+}
+
+.value-check-filters b {
+  margin-left: 3px;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--font-weight-semibold);
+}
+
+.value-check-filters label[data-key="all"] b {
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-bold);
+}
+
+.value-check-filters label[data-empty="true"] span,
+.value-check-filters label[data-empty="true"] b {
+  color: var(--muted-light);
+}
+
+.value-check-matrix-head > span,
+.value-check-matrix-row > strong,
+.value-check-matrix-row > div,
+.value-check-matrix-row > .value-check-verdict {
+  align-content: start;
+}
+
+/*
+ * Verdicts keep their meaning through colour, not through a filled pill:
+ * the row's values are the content, the verdict only labels them.
+ */
+.value-check-status {
+  width: max-content;
+  justify-self: start;
+  padding: 2px 7px;
+  background: none;
+}
+
+.value-check-status.status-different,
+.value-check-status.status-consistent,
+.value-check-status.status-partial {
+  background: none;
 }
 
 /*
@@ -8201,35 +8337,6 @@ input:disabled {
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-regular);
   line-height: var(--leading-relaxed);
-}
-
-/*
- * Comparison summary: one white band between the file map and the table, read
- * by dividers and one tinted emphasis, not by six boxes on grey.
- */
-.comparison-panel .executive-summary > div {
-  background: var(--paper);
-  border-right: 1px solid var(--line-soft);
-}
-
-.comparison-panel .executive-summary > .summary-total {
-  background: color-mix(in srgb, var(--blue-soft) 55%, var(--paper));
-}
-
-.comparison-panel .executive-summary > .summary-total dd {
-  color: var(--blue);
-}
-
-.comparison-panel .executive-summary > .summary-important dd {
-  color: var(--warning);
-}
-
-.comparison-panel .executive-summary > div[data-empty="true"] {
-  background: var(--paper);
-}
-
-.comparison-panel .executive-summary > .summary-total[data-empty="true"] {
-  background: color-mix(in srgb, var(--blue-soft) 55%, var(--paper));
 }
 
 /*

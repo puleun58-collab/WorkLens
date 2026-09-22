@@ -94,6 +94,8 @@ export interface WorkerResultMap {
 export interface WorkerFailure {
   code: string;
   message: string;
+  /** One next step, shown under the message; never a restatement of it. */
+  detail?: string;
 }
 
 export type WorkerEnvelope =

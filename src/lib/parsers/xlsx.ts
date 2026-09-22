@@ -9,8 +9,10 @@ import type {
   WorkbookSheet,
 } from "@/domain/document";
 
+import { DocumentError } from "@/lib/upload";
+
 const malformedFileError = (): Error =>
-  new Error("파일을 읽을 수 없습니다. 지원되는 정상 파일인지 확인해 주세요.");
+  new DocumentError("DOCUMENT_UNREADABLE", "파일을 읽지 못했습니다.", "지원되는 Excel 파일인지 확인한 뒤 다시 시도해 주세요.");
 
 const cellAddress = (column: number, row: number): string => {
   let value = column;
@@ -186,7 +188,15 @@ export const parseXlsx = async (input: {
               && typeof cell.value.formula === "string"
               ? cell.value.formula
               : undefined;
-            if (formula) warnings.add("XLSX_FORMULA_VALUE_ONLY");
+            if (formula) {
+              warnings.add("XLSX_FORMULA_VALUE_ONLY");
+              // Nothing here calculates: an external reference is usable only
+              // when Excel already stored its result in this file.
+              const stored = scalarValue(cell.value);
+              if (/\[[^\]]+\]/u.test(formula)) {
+                warnings.add(stored === null ? "XLSX_EXTERNAL_REFERENCE_NO_CACHE" : "XLSX_EXTERNAL_REFERENCE_VALUE_ONLY");
+              }
+            }
             const tableCell: TableCell = {
               value: isMergedChild ? null : scalarValue(cell.value),
               display: isMergedChild ? "" : text,

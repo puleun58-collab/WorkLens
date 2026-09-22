@@ -6,6 +6,7 @@ import { parseDocx } from "./docx";
 import { parsePdf } from "./pdf";
 import { parsePptx } from "./pptx";
 import { parseXlsx } from "./xlsx";
+import { DocumentError } from "@/lib/upload";
 
 export interface ParseDocumentInput {
   fileId: string;
@@ -15,7 +16,11 @@ export interface ParseDocumentInput {
 
 const PARSER_REVISION = "worklens-parser-v2";
 const unsupportedFileError = (): Error =>
-  new Error("지원하지 않는 파일 형식입니다. CSV, DOCX, PPTX, XLSX 또는 PDF 파일만 업로드할 수 있습니다.");
+  new DocumentError(
+    "FILE_TYPE_UNSUPPORTED",
+    "현재 이 파일 형식은 지원하지 않습니다.",
+    "CSV, DOCX, PPTX, XLSX 또는 PDF 형식으로 저장한 뒤 다시 업로드해 주세요.",
+  );
 
 export const parseDocument = async (input: ParseDocumentInput): Promise<NormalizedDocument> => {
   const extension = input.fileName.slice(input.fileName.lastIndexOf(".")).toLowerCase();
@@ -24,7 +29,9 @@ export const parseDocument = async (input: ParseDocumentInput): Promise<Normaliz
   // any parser touches the bytes.
   const contentHash = sha256Hex(input.bytes);
   let document: NormalizedDocument;
-  if (extension === ".xlsx") document = await parseXlsx(input);
+  // A macro-enabled workbook is the same OOXML package; the macro part is
+  // never read, so the ordinary workbook parser applies.
+  if (extension === ".xlsx" || extension === ".xlsm") document = await parseXlsx(input);
   else if (extension === ".csv") document = await parseCsv(input);
   else if (extension === ".docx") document = await parseDocx(input);
   else if (extension === ".pptx") document = await parsePptx(input);

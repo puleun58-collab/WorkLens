@@ -145,7 +145,7 @@ test("uploads XLSX files, compares them and shows source evidence", async ({ pag
     "rgb(255, 255, 255)",
     "rgb(255, 255, 255)",
   ]);
-  expect(await panel.locator(".change-head").evaluate((element) => getComputedStyle(element).backgroundColor)).toBe("rgb(241, 244, 247)");
+  expect(await panel.locator(".change-head").evaluate((element) => getComputedStyle(element).backgroundColor)).toBe("rgb(255, 255, 255)");
   const csvDownload = page.waitForEvent("download");
   await panel.getByRole("button", { name: "CSV 다운로드" }).click();
   expect((await csvDownload).suggestedFilename()).toBe("worklens-version-compare.csv");
@@ -385,10 +385,11 @@ test("checks shared values locally, keeps evidence, and exports both formats", a
   const panel = page.locator(".value-check-panel");
   await expect(panel.getByRole("heading", { name: "값 일치 확인 결과" })).toBeVisible();
   await expect(panel.locator(".result-status")).toHaveText("확인 완료");
-  await expect(panel.locator(".check-summary-line")).toContainText("비교 항목 3");
-  await expect(panel.locator(".check-summary-line")).toContainText("값 차이 1");
-  await expect(panel.locator(".check-summary-line")).toContainText("일치 2");
-  expect(await panel.locator(".value-check-matrix-head").evaluate((element) => getComputedStyle(element).backgroundColor)).toBe("rgb(241, 244, 247)");
+  await expect(panel.locator(".value-check-filters")).toContainText("전체 3");
+  await expect(panel.locator(".value-check-filters")).toContainText("값 차이 1");
+  await expect(panel.locator(".value-check-filters")).toContainText("일치 2");
+  await expect(panel.locator(".check-summary-line")).toHaveCount(0);
+  expect(await panel.locator(".value-check-matrix-head").evaluate((element) => getComputedStyle(element).backgroundColor)).toBe("rgb(255, 255, 255)");
   expect(await panel.locator(".value-check-matrix-row").first().evaluate((element) => getComputedStyle(element).backgroundColor)).toBe("rgb(255, 255, 255)");
   const different = panel.getByTestId("value-check-group").filter({ hasText: "목표주가" });
   await expect(different).toContainText("64,550원");
@@ -1152,7 +1153,8 @@ test("keeps an unanswerable Ask as a grounded error without invented sources", a
   await page.getByLabel("질문 입력").fill("문서에 없는 값을 알려주세요.");
   await page.getByRole("button", { name: "질문 실행" }).click();
 
-  await expect(page.locator(".notice.error")).toContainText("선택한 문서에서 질문에 답할 수 있는 내용을 찾지 못했습니다.");
+  await expect(page.locator(".notice.warning")).toContainText("질문에 답할 내용을 찾지 못했습니다.");
+  await expect(page.locator(".notice.error")).toHaveCount(0);
   await expect(page.locator(".results-panel")).toHaveCount(0);
   await expect(page.locator(".ask-evidence .result-source")).toHaveCount(0);
 });
@@ -1280,7 +1282,7 @@ test("groups repeated Summary sources without losing drawer coverage", async ({ 
   await page.screenshot({ path: "artifacts/inspo-summary-mobile-390.png", fullPage: true });
 });
 
-test("shows a Brief-specific error when no grounded content remains", async ({ page }) => {
+test("presents an empty Brief as a reviewable state, not a system error", async ({ page }) => {
   await page.route("**/api/ai", async (route) => {
     await route.fulfill({
       status: 200,
@@ -1295,9 +1297,12 @@ test("shows a Brief-specific error when no grounded content remains", async ({ p
   await page.getByRole("button", { name: "요약", exact: true }).click();
   await page.getByRole("button", { name: "요약 실행" }).click();
 
-  const error = page.locator(".notice.error");
-  await expect(error).toContainText("선택한 문서에서 요약할 내용을 찾지 못했습니다.");
-  await expect(error).not.toContainText("파일 형식과 선택 상태");
+  const notice = page.locator(".notice.warning");
+  await expect(notice).toContainText("요약할 내용을 찾지 못했습니다.");
+  await expect(notice).toContainText("선택한 파일의 내용을 확인해 주세요.");
+  await expect(page.locator(".notice.error")).toHaveCount(0);
+  // One statement only: the panel never repeats its title in the body.
+  expect((await notice.innerText()).split("요약할 내용을 찾지 못했습니다.").length - 1).toBe(1);
   await expect(page.locator(".results-panel")).toHaveCount(0);
 });
 

@@ -1,5 +1,7 @@
 import type { NormalizedDocument, ParagraphBlock, SpanBox } from "@/domain/document";
 
+import { DocumentError } from "@/lib/upload";
+
 /**
  * pdf.js needs its worker as a URL in both runtimes. The browser loads the
  * copy published under `public/`, and Node resolves the same file from disk so
@@ -16,8 +18,11 @@ function pdfWorkerSource(): string {
   return `file:///${cwd.replace(/^\/+/, "")}/public/${PDF_WORKER_ASSET}`;
 }
 
-const malformedFileError = (cause: unknown): Error =>
-  new Error("파일을 읽을 수 없습니다. 지원되는 정상 파일인지 확인해 주세요.", { cause });
+const malformedFileError = (cause: unknown): Error => {
+  const error = new DocumentError("DOCUMENT_UNREADABLE", "파일을 읽지 못했습니다.", "지원되는 PDF 파일인지 확인한 뒤 다시 시도해 주세요.");
+  error.cause = cause;
+  return error;
+};
 
 const paragraphText = (
   items: ReadonlyArray<{ str?: unknown; hasEOL?: unknown; transform?: unknown; width?: unknown; height?: unknown }>,

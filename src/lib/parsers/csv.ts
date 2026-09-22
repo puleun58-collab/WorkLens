@@ -6,12 +6,14 @@ import type {
 } from "@/domain/document";
 import { FORMAT_INPUT_LIMITS, StructureLimitError } from "./policy";
 
+import { DocumentError } from "@/lib/upload";
+
 const MAX_ROWS = 100_000;
 const MAX_COLUMNS = 1_000;
 const MAX_CELL_LENGTH = 1_000_000;
 
 const malformedFileError = (): Error =>
-  new Error("파일을 읽을 수 없습니다. 지원되는 정상 파일인지 확인해 주세요.");
+  new DocumentError("DOCUMENT_UNREADABLE", "파일을 읽지 못했습니다.", "지원되는 CSV 파일인지 확인한 뒤 다시 시도해 주세요.");
 
 /** Size is admissible but the row/column/cell budget is not. */
 const structureLimitError = (): Error => new StructureLimitError();

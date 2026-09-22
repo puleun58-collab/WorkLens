@@ -99,7 +99,25 @@ const tabIcons: Record<Tab, typeof BarChart3> = {
   Brief: ScrollText,
   Aggregate: Layers3,
 };
-type ApiError = { code: string; message: string; retryable?: boolean };
+type ApiError = { code: string; message: string; detail?: string; retryable?: boolean };
+/**
+ * Warning codes are how the pipeline talks to itself. What a reader needs is
+ * the consequence: which parts of the file were read, and which were left out.
+ */
+const WARNING_MESSAGES: Record<string, string> = {
+  XLSX_MACRO_IGNORED: "외부 연결 또는 매크로는 실행하지 않고 저장된 값만 사용합니다.",
+  XLSX_EXTERNAL_REFERENCE_VALUE_ONLY: "외부 연결 또는 매크로는 실행하지 않고 저장된 값만 사용합니다.",
+  XLSX_EXTERNAL_REFERENCE_NO_CACHE: "일부 연결된 값은 파일에 저장된 결과가 없어 제외되었습니다.",
+  XLSX_FORMULA_VALUE_ONLY: "수식은 계산하지 않고 파일에 저장된 결과만 사용합니다.",
+  XLSX_HIDDEN_SHEET_OMITTED: "숨김 시트는 분석 대상에서 제외했습니다.",
+  DOCX_IMAGE_OMITTED: "이미지 안의 내용은 읽지 않습니다.",
+  PPTX_IMAGE_OMITTED: "이미지 안의 내용은 읽지 않습니다.",
+  PPTX_CHART_OMITTED: "차트 안의 값은 읽지 않습니다.",
+  PPTX_SPEAKER_NOTES_OMITTED: "발표자 노트는 읽지 않습니다.",
+  PDF_SCANNED_PAGE: "스캔된 페이지의 글자는 읽지 않습니다.",
+};
+const warningText = (codes: readonly string[]): string =>
+  [...new Set(codes.map((code) => WARNING_MESSAGES[code] ?? "일부 내용은 분석 대상에서 제외했습니다."))].join("\n");
 /**
  * A status message belongs to whatever produced it. `workspace` messages
  * concern the tab as a whole — an upload, a workspace-wide failure — and are
@@ -114,12 +132,11 @@ type NoticeScope = "workspace" | ShellView;
  */
 type Notice = { tone: "error" | "success" | "info" | "warning"; message: string; scope: NoticeScope; code?: ServerAiErrorCode; detail?: string };
 
-function noticePanelTitle(notice: Notice): string {
-  if (notice.tone === "warning") return "일부 항목을 처리하지 못했습니다";
-  if (notice.tone === "error" && notice.code) return "요청을 처리하지 못했습니다";
-  return notice.message;
-}
-
+/*
+ * A notice already says what happened in the words of the feature that raised
+ * it, so the panel never adds a second sentence with the same meaning: the
+ * title carries the state and the body only appears when there is a next step.
+ */
 const tabs = ["Analyze", "Ask", "Compare", "Check", "Polish", "Extract", "Aggregate", "Brief"] as const;
 type Tab = (typeof tabs)[number];
 const tabMeta: Record<Tab, { label: string; description: string }> = {
@@ -354,7 +371,8 @@ export default function Home() {
   const notifyView = (tone: Notice["tone"], message: string, code?: ServerAiErrorCode, detail?: string) =>
     setNotice({ tone, message, scope: shellView, ...(code ? { code } : {}), ...(detail ? { detail } : {}) });
   /** Affects the whole tab — an upload or a workspace reset — so it follows. */
-  const notifyWorkspace = (tone: Notice["tone"], message: string) => setNotice({ tone, message, scope: "workspace" });
+  const notifyWorkspace = (tone: Notice["tone"], message: string, detail?: string) =>
+    setNotice({ tone, message, scope: "workspace", ...(detail ? { detail } : {}) });
 
   const clearResults = useCallback(() => {
     setOperationResult(null);
@@ -388,7 +406,8 @@ export default function Home() {
       setFiles((current) => [...current, summary]);
       notifyWorkspace("success", `${file.name} 분석이 완료되었습니다.`);
     } catch (error) {
-      notifyWorkspace("error", (error as ApiError).message ?? "파일을 처리하지 못했습니다.");
+      const failure = error as ApiError;
+      notifyWorkspace("error", failure.message ?? "파일을 처리하지 못했습니다.", failure.detail);
     } finally {
       setUploading(false);
     }
@@ -445,12 +464,14 @@ export default function Home() {
       notifyView("info", "작업을 취소했습니다.");
       return;
     }
+    // Retrying only helps for transient provider states, so the second line
+    // exists only then; every other failure stays a single sentence.
     const retryable = failure.code === "TIMEOUT"
       || failure.code === "RATE_LIMITED"
       || failure.code === "PROVIDER_UNAVAILABLE"
       || failure.code === "OPERATION_CAPACITY"
       || failure.code === "BUSY";
-    notifyView("error", retryable ? `${fallback} 잠시 후 다시 시도해 주세요.` : fallback, failure.code);
+    notifyView("error", fallback, failure.code, retryable ? "잠시 후 다시 시도해 주세요." : undefined);
   };
 
   /**
@@ -498,14 +519,19 @@ export default function Home() {
     }
   };
 
-  /** Ask and Brief are the answer: an empty grounded result is not a success. */
+  /**
+   * Ask and Brief are the answer, so an empty grounded result is not a
+   * success — but it is also not a system error: the model found nothing to
+   * say about this document, which the user resolves by checking the file,
+   * not by retrying.
+   */
   const runServerTask = async (request: AiRequest, success: string) => {
-    const emptyMessage = request.operation === "ask"
-      ? "선택한 문서에서 질문에 답할 수 있는 내용을 찾지 못했습니다."
-      : "선택한 문서에서 요약할 내용을 찾지 못했습니다.";
+    const empty = request.operation === "ask"
+      ? { message: "질문에 답할 내용을 찾지 못했습니다.", detail: "선택한 파일의 내용을 확인해 주세요." }
+      : { message: "요약할 내용을 찾지 못했습니다.", detail: "선택한 파일의 내용을 확인해 주세요." };
     const failureMessage = request.operation === "ask"
       ? "질문을 처리하지 못했습니다."
-      : "요약을 생성하지 못했습니다.";
+      : "요약을 완료하지 못했습니다.";
     if (selected.length > SERVER_AI_MAX_FILES) {
       notifyView("error", `한 번에 최대 ${SERVER_AI_MAX_FILES}개 파일까지 처리할 수 있습니다.`);
       return;
@@ -517,7 +543,7 @@ export default function Home() {
       const result = await generateGroundedResult(request);
       if (result.claims.length === 0) {
         setOperationResult(null);
-        notifyView("error", emptyMessage);
+        notifyView("warning", empty.message, undefined, empty.detail);
         return;
       }
       setOperationResult(result);
@@ -526,7 +552,12 @@ export default function Home() {
     } catch (error) {
       setOperationResult(null);
       const code = (error as Partial<ServerAiFailure>).code;
-      reportAiFailure(error, code === "NO_EVIDENCE" || code === "GROUNDING_REJECTED" ? emptyMessage : failureMessage);
+      if (code === "NO_EVIDENCE" || code === "GROUNDING_REJECTED") {
+        logAiFailure(error);
+        notifyView("warning", empty.message, undefined, empty.detail);
+        return;
+      }
+      reportAiFailure(error, failureMessage);
     } finally {
       setBusy(false);
     }
@@ -1275,13 +1306,9 @@ export default function Home() {
                 variant={notice.tone}
                 tone={notice.tone === "error" ? "alert" : "status"}
                 live={notice.tone === "error" ? "assertive" : "polite"}
-                title={noticePanelTitle(notice)}
+                title={notice.message}
               >
-                <p>{notice.message}</p>
-                {notice.detail ? <small>{notice.detail}</small> : null}
-                {notice.tone === "error" && !notice.code && notice.scope === "workspace"
-                  ? <small>파일 형식과 선택 상태를 확인한 뒤 다시 시도하세요.</small>
-                  : null}
+                {notice.detail ? <p>{notice.detail}</p> : null}
               </StatusPanel>
             ) : (
               <p className={`notice-inline ${notice.tone}`} role="status" aria-live="polite">{notice.message}</p>
@@ -1327,7 +1354,7 @@ export default function Home() {
                         </div>
                         <span className={`status status-${file.status.toLowerCase()}`}><span aria-hidden="true" />{file.status}</span>
                         <div className="structure-counts">{counts.length ? counts.map((count) => <span key={count.label}>{count.label}: <b>{count.value}</b></span>) : <span>순서 기반 구조</span>}</div>
-                        {file.warnings.length ? <span className="warning" title={file.warnings.join("\n")}>주의 {file.warnings.length}</span> : <span className="muted">없음</span>}
+                        {file.warnings.length ? <span className="warning" title={warningText(file.warnings)}>주의 {file.warnings.length}</span> : <span className="muted">없음</span>}
                       </article>
                     );
                   })}
@@ -2257,11 +2284,12 @@ function ResultSource({ sources, fileNames, onSource, roleOf, emptyLabel = "근�
 }) {
   if (sources.length === 0) return <span className="source-empty">{emptyLabel}</span>;
   const acrossFiles = new Set(sources.map((source) => source.fileId)).size > 1;
+  // 기준/대상 only earns its place when one row actually mixes both sides;
+  // a row that cites a single side already says so through its own column.
+  const mixedRoles = roleOf ? new Set(sources.map((source) => roleOf(source))).size > 1 : false;
   const describe = (source: SourceRef): string => {
-    // 기준/현재 already identifies the file in a comparison, and the panel
-    // header spells both names out; only an unlabelled cross-file item needs
-    // the name inline.
-    const prefix = roleText(roleOf?.(source)) ?? (acrossFiles ? fileNames.get(source.fileId) : undefined);
+    const prefix = (mixedRoles ? roleText(roleOf?.(source)) : undefined)
+      ?? (acrossFiles && !roleOf ? fileNames.get(source.fileId) : undefined);
     return prefix ? `${prefix} · ${locatorText(source)}` : locatorText(source);
   };
 
@@ -2856,6 +2884,16 @@ function ComparisonView({ comparison, compareIds, enrichment, fileNames, detail,
     { key: "important", label: "중요 변경", value: comparison.summary.important },
   ];
   const compareValue = (value: string | null): string => value === null || value === "" ? "—" : value;
+  /** Numbers, amounts, percentages and dates keep their aligned reading; prose does not. */
+  const NUMERIC_TEXT = /^[+-]?[\d,]+(\.\d+)?\s*(%|원|건|개|명|배|배수|kg|km|톤|시간|분|일|주|개월|월|년)?$/u;
+  const DATE_TEXT = /^\d{2,4}[-./]\d{1,2}([-./]\d{1,2})?\.?$/u;
+  const alignedValue = (value: string | null): boolean => {
+    const text = (value ?? "").trim();
+    return text.length > 0 && (NUMERIC_TEXT.test(text) || DATE_TEXT.test(text));
+  };
+  /** A column reads as numbers only when most of its values are numbers. */
+  const columnAlign = (side: "previous" | "current"): "start" | "end" =>
+    comparison.items.filter((item) => alignedValue(item[side])).length * 2 >= comparison.items.length ? "end" : "start";
   const signedNumber = (value: number): string =>
     `${value > 0 ? "+" : ""}${value.toLocaleString("ko-KR", { maximumFractionDigits: 2 })}`;
   return (
@@ -2882,13 +2920,20 @@ function ComparisonView({ comparison, compareIds, enrichment, fileNames, detail,
       ) : (
         <div className="comparison-content">
           <div className="change-table" role="table" aria-label="버전 비교 변경 상세">
-            <div className="change-head" role="row"><span role="columnheader">변경 유형</span><span role="columnheader">기준 파일 값</span><span role="columnheader">대상 파일 값</span><span role="columnheader">변동</span><span role="columnheader">근거</span></div>
+            <div className="change-head" role="row">
+              <span role="columnheader">변경 유형</span>
+              <span role="columnheader" data-align={columnAlign("previous")}>기준 파일 값</span>
+              <span role="columnheader" data-align={columnAlign("current")}>대상 파일 값</span>
+              <span role="columnheader" data-align="end">변동</span>
+              <span role="columnheader">근거</span>
+            </div>
             {comparison.items.map((item: ComparisonItem) => (
               <div className="change-row" role="row" key={item.id} data-testid="change-row" data-category={item.category}>
                 <span role="cell" className="change-category-cell"><strong className={`category-label category-${item.category.toLowerCase().replaceAll(" ", "-")}`}>{categoryLabels[item.category]}</strong></span>
-                <span role="cell" data-label="기준 파일 값" className="numeric">{compareValue(item.previous)}</span>
-                <span role="cell" data-label="대상 파일 값" className="numeric">{compareValue(item.current)}</span>
+                <span role="cell" data-label="기준 파일 값" className={alignedValue(item.previous) ? "numeric" : "change-value"}>{compareValue(item.previous)}</span>
+                <span role="cell" data-label="대상 파일 값" className={alignedValue(item.current) ? "numeric" : "change-value"}>{compareValue(item.current)}</span>
                 <span role="cell" data-label="변동" className={`numeric change-delta${item.difference === null && item.changePercent === null ? " change-empty" : ""}`}>
+                  {item.difference === null && item.changePercent === null ? "—" : null}
                   {item.difference === null ? null : signedNumber(item.difference)}
                   {item.changePercent === null ? null : <small>{item.changePercent > 0 ? "+" : ""}{item.changePercent.toFixed(2)}%</small>}
                 </span>
@@ -2956,17 +3001,15 @@ function ValueCheckView({ result, fileNames, onSource, status, busy, onExport }:
         status={status}
         meta={result.groups.length ? <ExtractExportButtons busy={busy} onExport={onExport} /> : undefined}
       />
+      {/*
+        * The filter row already carries every count, so a second summary line
+        * would only repeat 전체 · 값 차이 · 일치 · 일부 파일만 확인 twice.
+        */}
       <div className="value-check-toolbar">
-        <p className="check-summary-line">
-          <span className="metric">비교 항목 <b>{result.summary.total}</b></span>
-          <span className={`metric${result.summary.different ? " needs-review" : ""}`}>값 차이 <b>{result.summary.different}</b></span>
-          <span className="metric">일치 <b>{result.summary.consistent}</b></span>
-          <span className="metric">{valueCheckStatusLabels.partial} <b>{result.summary.partial}</b></span>
-        </p>
         {result.groups.length ? (
           <fieldset className="segmented value-check-filters" aria-label="값 일치 결과 필터">
             {filters.map((entry) => (
-              <label key={entry.key}>
+              <label key={entry.key} data-empty={entry.count === 0} data-key={entry.key}>
                 <input
                   type="radio"
                   name="value-check-filter"
@@ -2974,7 +3017,7 @@ function ValueCheckView({ result, fileNames, onSource, status, busy, onExport }:
                   checked={filter === entry.key}
                   onChange={() => setFilter(entry.key)}
                 />
-                <span>{entry.label} {entry.count}</span>
+                <span>{entry.label} <b>{entry.count}</b></span>
               </label>
             ))}
           </fieldset>

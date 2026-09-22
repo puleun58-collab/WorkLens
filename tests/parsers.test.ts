@@ -104,13 +104,13 @@ describe("parseDocument", () => {
   it("rejects unsupported extensions", async () => {
     await expect(
       parseDocument({ fileId: "x", fileName: "note.txt", bytes: new Uint8Array([1, 2, 3]) }),
-    ).rejects.toThrow(/지원하지 않는 파일 형식/);
+    ).rejects.toThrow(/현재 이 파일 형식은 지원하지 않습니다/);
   });
 
   it("rejects malformed content with a safe message", async () => {
     await expect(
       parseDocument({ fileId: "x", fileName: "broken.xlsx", bytes: new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0, 0]) }),
-    ).rejects.toThrow(/파일을 읽을 수 없습니다/);
+    ).rejects.toThrow(/파일을 읽지 못했습니다/);
   });
 
   it("accepts uppercase extensions", async () => {
@@ -181,12 +181,12 @@ describe("parseDocument", () => {
       fileId: "bad-docx",
       fileName: "악성.docx",
       bytes: traversal,
-    })).rejects.toThrow(/파일을 읽을 수 없습니다/);
+    })).rejects.toThrow(/파일을 읽지 못했습니다/);
     await expect(parseDocument({
       fileId: "bad-csv",
       fileName: "깨짐.csv",
       bytes: new Uint8Array([0xff, 0xfe, 0xfd]),
-    })).rejects.toThrow(/파일을 읽을 수 없습니다/);
+    })).rejects.toThrow(/파일을 읽지 못했습니다/);
   });
 
   it("sets rowSpan/colSpan on the anchor DOCX cell and empties continuation cells", async () => {

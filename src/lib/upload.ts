@@ -83,12 +83,21 @@ function validateMagic(kind: FileKind, bytes: Uint8Array): void {
   }
 }
 
+/** Codes a safely readable archive can carry out of admission. */
+export const XLSX_MACRO_IGNORED = "XLSX_MACRO_IGNORED";
+export const XLSX_EXTERNAL_REFERENCE_VALUE_ONLY = "XLSX_EXTERNAL_REFERENCE_VALUE_ONLY";
+
 /**
  * Walks the ZIP central directory before any parser touches the archive so a
- * zip bomb, ZIP64 archive, traversal path, macro project or external link is
- * rejected while the file is still just bytes in memory.
+ * zip bomb, ZIP64 archive or traversal path is rejected while the file is
+ * still just bytes in memory.
+ *
+ * A macro project or an external-link part is not a reason to refuse the file:
+ * nothing in WorkLens executes VBA or resolves an external workbook, so the
+ * archive is admitted and the caller is told which stored-values-only caveats
+ * apply.
  */
-function validateZipStructure(kind: "xlsx" | "docx" | "pptx", bytes: Uint8Array): void {
+function validateZipStructure(kind: "xlsx" | "docx" | "pptx", bytes: Uint8Array): string[] {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   let end = -1;
   for (let offset = bytes.byteLength - 22; offset >= Math.max(0, bytes.byteLength - 65_557); offset -= 1) {
@@ -139,13 +148,15 @@ function validateZipStructure(kind: "xlsx" | "docx" | "pptx", bytes: Uint8Array)
   if (!names.includes(required)) {
     throw new DocumentError("FILE_SIGNATURE_MISMATCH", "파일 확장자와 실제 문서 형식이 일치하지 않습니다.");
   }
-  if (names.some((name) => name.endsWith("vbaproject.bin") || name.includes("/externallinks/"))) {
-    throw new DocumentError("SECURITY_REJECTED", "매크로 또는 외부 연결이 포함된 문서는 처리할 수 없습니다.");
-  }
+  const warnings: string[] = [];
+  if (names.some((name) => name.endsWith("vbaproject.bin"))) warnings.push(XLSX_MACRO_IGNORED);
+  if (names.some((name) => name.includes("/externallinks/"))) warnings.push(XLSX_EXTERNAL_REFERENCE_VALUE_ONLY);
+  return warnings;
 }
 
-export function validateUploadBytes(kind: FileKind, bytes: Uint8Array): void {
+/** Returns the stored-values-only caveats that apply to an admitted file. */
+export function validateUploadBytes(kind: FileKind, bytes: Uint8Array): string[] {
   assertSizeWithinLimit(kind, bytes.byteLength);
   validateMagic(kind, bytes);
-  if (kind === "xlsx" || kind === "docx" || kind === "pptx") validateZipStructure(kind, bytes);
+  return kind === "xlsx" || kind === "docx" || kind === "pptx" ? validateZipStructure(kind, bytes) : [];
 }

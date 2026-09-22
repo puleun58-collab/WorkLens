@@ -11,6 +11,8 @@ import type {
 } from "@/domain/document";
 import { FORMAT_INPUT_LIMITS, StructureLimitError } from "./policy";
 
+import { DocumentError } from "@/lib/upload";
+
 /**
  * Structural limits are about expansion work, not file size. A 100 MiB DOCX is
  * almost always media, which this parser never reads: only XML parts are
@@ -23,7 +25,7 @@ const MAX_TOTAL_UNCOMPRESSED_BYTES = 30 * 1024 * 1024;
 const isReadablePart = (name: string): boolean => name.endsWith(".xml") || name.endsWith(".rels");
 
 const malformedFileError = (): Error =>
-  new Error("파일을 읽을 수 없습니다. 지원되는 정상 파일인지 확인해 주세요.");
+  new DocumentError("DOCUMENT_UNREADABLE", "파일을 읽지 못했습니다.", "지원되는 Word 파일인지 확인한 뒤 다시 시도해 주세요.");
 
 const structureLimitError = (): Error => new StructureLimitError();
 
