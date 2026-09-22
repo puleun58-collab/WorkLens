@@ -10,6 +10,7 @@ import type {
 } from "@/domain/document";
 
 import { DocumentError } from "@/lib/upload";
+import { isDateNumberFormat, serialToDate } from "@/lib/xlsx-values";
 
 const malformedFileError = (): Error =>
   new DocumentError("DOCUMENT_UNREADABLE", "파일을 읽지 못했습니다.", "지원되는 Excel 파일인지 확인한 뒤 다시 시도해 주세요.");
@@ -42,6 +43,21 @@ const rangeBounds = (
   };
 };
 
+/**
+ * Rich text, hyperlinks and cached formula results are objects in ExcelJS.
+ * Reducing them to their readable text keeps `String(value)` — and with it
+ * `[object Object]` — out of every downstream reader.
+ */
+const richTextOf = (value: object): string | undefined => {
+  if (!("richText" in value)) return undefined;
+  const runs = value.richText;
+  if (!Array.isArray(runs)) return undefined;
+  return runs.map((run: unknown) => {
+    if (typeof run !== "object" || run === null || !("text" in run)) return "";
+    return typeof run.text === "string" ? run.text : "";
+  }).join("");
+};
+
 const scalarValue = (value: unknown): string | number | boolean | null => {
   if (
     typeof value === "string" ||
@@ -53,12 +69,12 @@ const scalarValue = (value: unknown): string | number | boolean | null => {
   if (value instanceof Date) {
     return value.toISOString();
   }
-  if (
-    typeof value === "object" &&
-    value !== null &&
-    "result" in value
-  ) {
-    return scalarValue(value.result);
+  if (typeof value === "object" && value !== null) {
+    const rich = richTextOf(value);
+    if (rich !== undefined) return rich;
+    if ("error" in value) return null;
+    if ("result" in value) return scalarValue(value.result);
+    if ("text" in value) return scalarValue(value.text);
   }
   return null;
 };
@@ -74,9 +90,29 @@ const imageMimeType = (extension: string): string => {
   }
 };
 
-const cellValueType = (cell: ExcelJS.Cell): TableCell["valueType"] => {
+/** A serial number is a calendar value only when its number format says so. */
+
+const numericOf = (value: unknown): number | undefined => {
+  if (typeof value === "number") return value;
+  if (typeof value === "object" && value !== null && "result" in value) {
+    return numericOf(value.result);
+  }
+  return undefined;
+};
+
+const cellDate = (cell: ExcelJS.Cell): Date | undefined => {
+  const raw = cell.value;
+  if (raw instanceof Date) return raw;
+  if (typeof raw === "object" && raw !== null && "result" in raw && raw.result instanceof Date) {
+    return raw.result;
+  }
+  const numeric = numericOf(raw);
+  return numeric !== undefined && isDateNumberFormat(cell.numFmt) ? serialToDate(numeric) : undefined;
+};
+
+const cellValueType = (cell: ExcelJS.Cell, date: Date | undefined): TableCell["valueType"] => {
+  if (date !== undefined) return "date";
   if (cell.type === ExcelJS.ValueType.Formula) return "formula";
-  if (cell.value instanceof Date) return "date";
   if (typeof cell.value === "number") return "number";
   if (typeof cell.value === "boolean") return "boolean";
   if (cell.value === null || cell.value === undefined || cell.text === "") return "blank";
@@ -101,8 +137,35 @@ const formatCellDate = (date: Date): string => {
   return hasTimeOfDay ? `${isoDate} ${time}` : isoDate;
 };
 
-const cellText = (cell: ExcelJS.Cell): string =>
-  cell.type === ExcelJS.ValueType.Date && cell.value instanceof Date ? formatCellDate(cell.value) : cell.text;
+const percentText = (cell: ExcelJS.Cell): string | undefined => {
+  const format = cell.numFmt;
+  const value = numericOf(cell.value);
+  if (value === undefined || !format) return undefined;
+  const tokens = format.replace(/\\./gu, "").replace(/"[^"]*"/gu, "").replace(/\[[^\]]*\]/gu, "");
+  if (!tokens.includes("%")) return undefined;
+  const decimals = /\.(0+)/u.exec(tokens)?.[1].length ?? 0;
+  return `${(value * 100).toFixed(decimals)}%`;
+};
+
+/** The text a person reads in the cell, never an object's default stringification. */
+const cellText = (cell: ExcelJS.Cell, date: Date | undefined): string => {
+  if (date !== undefined) return formatCellDate(date);
+  const raw = cell.value;
+  if (typeof raw === "object" && raw !== null && !(raw instanceof Date)) {
+    const rich = richTextOf(raw);
+    if (rich !== undefined) return rich;
+    if ("error" in raw) return typeof raw.error === "string" ? raw.error : "";
+    if ("text" in raw && typeof raw.text === "string") {
+      return raw.text;
+    }
+  }
+  // ExcelJS returns the stored fraction for a percentage cell; the workbook
+  // shows `7.5%`, and every reader downstream compares what the workbook shows.
+  const percent = percentText(cell);
+  if (percent !== undefined) return percent;
+  const text = cell.text;
+  return typeof text === "string" && !text.startsWith("[object ") ? text : "";
+};
 
 export const parseXlsx = async (input: {
   fileId: string;
@@ -169,7 +232,8 @@ export const parseXlsx = async (input: {
             const address = cellAddress(column, row);
             const merge = mergedCells.get(address);
             const cell = worksheet.getCell(row, column);
-            const text = cellText(cell);
+            const date = cellDate(cell);
+            const text = cellText(cell, date);
             const isMergedChild = merge !== undefined && !merge.isAnchor;
             const source: SourceRef = {
               fileId: input.fileId,
@@ -198,10 +262,10 @@ export const parseXlsx = async (input: {
               }
             }
             const tableCell: TableCell = {
-              value: isMergedChild ? null : scalarValue(cell.value),
+              value: isMergedChild ? null : date !== undefined ? date.toISOString() : scalarValue(cell.value),
               display: isMergedChild ? "" : text,
               source,
-              valueType: isMergedChild ? "blank" : cellValueType(cell),
+              valueType: isMergedChild ? "blank" : cellValueType(cell, date),
               ...(formula ? { formula } : {}),
               ...(cell.numFmt ? { numberFormat: cell.numFmt } : {}),
             };

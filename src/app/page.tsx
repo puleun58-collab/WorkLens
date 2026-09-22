@@ -73,7 +73,6 @@ import {
   confirmedAnalysisItems,
   confirmedAnalysisMetrics,
 } from "@/lib/analysis-presentation";
-import { improvementProfileStatus } from "@/lib/aggregation/improvement-profile";
 import {
   BarChart3,
   BookMarked,
@@ -867,6 +866,13 @@ export default function Home() {
   };
 
   const runAggregate = async () => {
+    // Excel-family tables and slide decks produce different result files, so a
+    // mixed selection has no single answer to give.
+    const kinds = new Set(files.filter((file) => selected.includes(file.id)).map((file) => file.kind === "pptx" ? "pptx" : "sheet"));
+    if (kinds.size > 1) {
+      notifyView("error", "같은 형식의 파일끼리 선택해 주세요.", undefined, "Excel 계열 파일과 PPTX 파일은 각각 별도로 취합할 수 있습니다.");
+      return;
+    }
     setBusy(true);
     setAggregation(null);
     setAggregationSelection(null);
@@ -877,7 +883,9 @@ export default function Home() {
         sheetIds: draft.workbooks.flatMap((workbook) => workbook.sheets.filter((sheet) => sheet.selectedByDefault).map((sheet) => sheet.id)),
         mappings: draft.mappings.map(({ id, targetField, sourceFields, included }) => ({ id, targetField, sourceFields, included })),
       });
-      notifyView("success", `시트 ${draft.workbooks.reduce((sum, workbook) => sum + workbook.sheets.length, 0)}개 · 레코드 ${draft.records.length}건을 분석했습니다.`);
+      notifyView("success", draft.output === "pptx"
+        ? `슬라이드 ${draft.decks.reduce((sum, deck) => sum + deck.slideCount, 0)}장을 취합할 수 있습니다.`
+        : `시트 ${draft.workbooks.reduce((sum, workbook) => sum + workbook.sheets.length, 0)}개 · 레코드 ${draft.records.length}건을 분석했습니다.`);
     } catch (error) {
       notifyView("error", (error as ApiError).message ?? "문서 취합 구조를 분석하지 못했습니다.");
     } finally {
@@ -885,13 +893,11 @@ export default function Home() {
     }
   };
 
-  const exportAggregation = async (kind: "generic" | "bank" | "backdata") => {
+  const exportAggregation = async (format: "xlsx" | "pptx") => {
     if (!aggregationSelection) return;
     setBusy(true);
     try {
-      const exported = kind === "generic"
-        ? await runInWorker({ kind: "aggregate-export", fileIds: selected, selection: aggregationSelection })
-        : await runInWorker({ kind: "aggregate-profile-export", fileIds: selected, selection: aggregationSelection, format: kind === "bank" ? "xlsx" : "pptx" });
+      const exported = await runInWorker({ kind: "aggregate-export", fileIds: selected, selection: aggregationSelection, format });
       const url = URL.createObjectURL(new Blob([exported.bytes as BlobPart], { type: exported.mimeType }));
       const anchor = document.createElement("a");
       anchor.href = url;
@@ -1698,7 +1704,7 @@ const workSectionCopy: Record<Tab, [string, string]> = {
   Polish: ["문서 윤문", "선택한 파일의 번역투와 중복 표현을 문장 단위로 다듬습니다."],
   Extract: ["정보 추출", "선택한 파일에서 필요한 항목과 값을 찾아 정리합니다."],
   Brief: ["요약", "선택한 파일의 핵심 내용을 정리합니다. 원하는 요약 방식이 있다면 입력하세요."],
-  Aggregate: ["문서 취합", "선택한 파일과 모든 시트를 분석해 호환되는 레코드만 함께 정리합니다."],
+  Aggregate: ["문서 취합", "선택한 파일의 호환되는 내용을 하나의 결과 파일로 정리합니다."],
 };
 
 function ResultHeader({ eyebrow, title, status, meta }: {
@@ -2889,11 +2895,7 @@ function ComparisonView({ comparison, compareIds, enrichment, fileNames, detail,
     const text = (value ?? "").trim();
     return text.length > 0 && (NUMERIC_TEXT.test(text) || DATE_TEXT.test(text));
   };
-  /** A column reads as numbers only when most of its values are numbers. */
-  const columnAlign = (side: "previous" | "current"): "start" | "end" =>
-    comparison.items.filter((item) => alignedValue(item[side])).length * 2 >= comparison.items.length ? "end" : "start";
-  const signedNumber = (value: number): string =>
-    `${value > 0 ? "+" : ""}${value.toLocaleString("ko-KR", { maximumFractionDigits: 2 })}`;
+  /** Only a numbers-only column reads from the right; values and prose read from the left. */
   return (
     <section className="panel results-panel comparison-panel">
       <ResultHeader
@@ -2919,21 +2921,20 @@ function ComparisonView({ comparison, compareIds, enrichment, fileNames, detail,
         <div className="comparison-content">
           <div className="change-table" role="table" aria-label="버전 비교 변경 상세">
             <div className="change-head" role="row">
-              <span role="columnheader">변경 유형</span>
-              <span role="columnheader" data-align={columnAlign("previous")}>기준 파일 값</span>
-              <span role="columnheader" data-align={columnAlign("current")}>대상 파일 값</span>
+              <span role="columnheader" data-align="start">변경 유형</span>
+              <span role="columnheader" data-align="start">기준 파일 값</span>
+              <span role="columnheader" data-align="start">대상 파일 값</span>
               <span role="columnheader" data-align="end">변동</span>
-              <span role="columnheader">근거</span>
+              <span role="columnheader" data-align="start">근거</span>
             </div>
             {comparison.items.map((item: ComparisonItem) => (
               <div className="change-row" role="row" key={item.id} data-testid="change-row" data-category={item.category}>
                 <span role="cell" className="change-category-cell"><strong className={`category-label category-${item.category.toLowerCase().replaceAll(" ", "-")}`}>{categoryLabels[item.category]}</strong></span>
-                <span role="cell" data-label="기준 파일 값" className={alignedValue(item.previous) ? "numeric" : "change-value"}>{compareValue(item.previous)}</span>
-                <span role="cell" data-label="대상 파일 값" className={alignedValue(item.current) ? "numeric" : "change-value"}>{compareValue(item.current)}</span>
-                <span role="cell" data-label="변동" className={`numeric change-delta${item.difference === null && item.changePercent === null ? " change-empty" : ""}`}>
-                  {item.difference === null && item.changePercent === null ? "—" : null}
-                  {item.difference === null ? null : signedNumber(item.difference)}
-                  {item.changePercent === null ? null : <small>{item.changePercent > 0 ? "+" : ""}{item.changePercent.toFixed(2)}%</small>}
+                <span role="cell" data-label="기준 파일 값" className={alignedValue(item.previous) ? "numeric change-value" : "change-value"}>{compareValue(item.previous)}</span>
+                <span role="cell" data-label="대상 파일 값" className={alignedValue(item.current) ? "numeric change-value" : "change-value"}>{compareValue(item.current)}</span>
+                <span role="cell" data-label="변동" className={`numeric change-delta${item.deltaText === null ? " change-empty" : ""}`}>
+                  {item.deltaText === null ? "—" : item.deltaText}
+                  {item.deltaText === null || item.changePercent === null ? null : <small>{item.changePercent > 0 ? "+" : ""}{item.changePercent.toFixed(2)}%</small>}
                 </span>
                 <div role="cell" data-label="근거" className="source-actions"><ResultSource sources={item.sources} fileNames={fileNames} onSource={onSource} roleOf={roleOf} emptyLabel="근거 없음" /></div>
               </div>
@@ -3101,16 +3102,56 @@ function AggregationResults({ draft, selection, busy, onSelection, onExport }: {
   selection: AggregationSelection | null;
   busy: boolean;
   onSelection: (selection: AggregationSelection) => void;
-  onExport: (kind: "generic" | "bank" | "backdata") => void | Promise<void>;
+  onExport: (format: "xlsx" | "pptx") => void | Promise<void>;
 }) {
+  const [allMappings, setAllMappings] = useState(false);
   // Nothing analysed yet is nothing to show: the section heading and the run
   // action already say what this destination does.
   if (!draft || !selection) return null;
+
+  if (draft.output === "mixed" || draft.output === "none") {
+    return (
+      <section className="panel results-panel aggregation-results">
+        <ResultHeader title="취합 결과" status={null} />
+        <StatusPanel variant="info" className="result-clear" title="같은 형식의 파일끼리 선택해 주세요.">
+          <p>Excel 계열 파일과 PPTX 파일은 각각 별도로 취합할 수 있습니다.</p>
+        </StatusPanel>
+      </section>
+    );
+  }
+
+  if (draft.output === "pptx") {
+    const slideTotal = draft.decks.reduce((sum, deck) => sum + deck.slideCount, 0);
+    return (
+      <section className="panel results-panel aggregation-results">
+        <ResultHeader
+          title="취합 결과"
+          status={{ tone: "success", label: "취합 완료" }}
+          meta={<button type="button" className="extract-download-primary" disabled={busy} onClick={() => void onExport("pptx")}>PPTX 다운로드</button>}
+        />
+        <p className="check-summary-line">
+          <span className="metric">파일 <b>{draft.decks.length}</b></span>
+          <span className="metric">슬라이드 <b>{slideTotal}</b></span>
+        </p>
+        <section className="aggregation-section" aria-labelledby="aggregation-order">
+          <div className="aggregation-section-heading"><div><h3 id="aggregation-order">취합 순서</h3><p>선택한 파일 순서와 각 파일의 슬라이드 순서를 그대로 유지합니다.</p></div></div>
+          <ol className="aggregation-deck-order">
+            {draft.decks.map((deck) => (
+              <li key={deck.fileId}><strong>{deck.fileName}</strong><span>{deck.slideCount}장</span></li>
+            ))}
+          </ol>
+        </section>
+      </section>
+    );
+  }
+
   const selectedSheets = new Set(selection.sheetIds);
   const selectedRecords = draft.records.filter((record) => selectedSheets.has(record.sheetId));
-  const profile = improvementProfileStatus(selectedRecords);
-  const selectedMappingIds = new Set(selection.mappings.filter((mapping) => mapping.included).map((mapping) => mapping.id));
-  const previewMappings = selection.mappings.filter((mapping) => selectedMappingIds.has(mapping.id)).slice(0, 6);
+  const includedMappings = selection.mappings.filter((mapping) => mapping.included);
+  const statusOf = (id: string) => draft.mappings.find((entry) => entry.id === id)?.status ?? "confirmed";
+  const reviewMappings = selection.mappings.filter((mapping) => statusOf(mapping.id) !== "confirmed");
+  const visibleMappings = allMappings ? selection.mappings : reviewMappings;
+  const resultSheets = draft.groups.filter((group) => group.sheetIds.some((id) => selectedSheets.has(id)));
   const toggleSheet = (sheetId: string) => onSelection({
     ...selection,
     sheetIds: selectedSheets.has(sheetId) ? selection.sheetIds.filter((id) => id !== sheetId) : [...selection.sheetIds, sheetId],
@@ -3126,24 +3167,22 @@ function AggregationResults({ draft, selection, busy, onSelection, onExport }: {
 
   return (
     <section className="panel results-panel aggregation-results">
-      <ResultHeader title="취합 구조" status={null} />
-      <div className="aggregation-toolbar">
-        <p className="check-summary-line">
-          <span className="metric">파일 <b>{draft.workbooks.length}</b></span>
-          <span className="metric">시트 <b>{draft.workbooks.reduce((sum, workbook) => sum + workbook.sheets.length, 0)}</b></span>
-          <span className="metric">선택 레코드 <b>{selectedRecords.length}</b></span>
-          <span className="metric">스키마 그룹 <b>{draft.groups.length}</b></span>
-        </p>
-        <div className="aggregation-export-actions">
-          <button type="button" className="extract-download-primary" disabled={busy || selectedRecords.length === 0} onClick={() => void onExport("generic")}>취합 XLSX</button>
-          <button type="button" className="secondary-action" disabled={busy || !profile.available} title={profile.available ? undefined : `필수 항목 없음: ${profile.missing.join(", ")}`} onClick={() => void onExport("bank")}>개선 Bank XLSX</button>
-          <button type="button" className="secondary-action" disabled={busy || !profile.available} title={profile.available ? undefined : `필수 항목 없음: ${profile.missing.join(", ")}`} onClick={() => void onExport("backdata")}>Backdata PPTX</button>
-        </div>
-      </div>
+      <ResultHeader
+        title="취합 결과"
+        status={{ tone: "success", label: "취합 완료" }}
+        meta={<button type="button" className="extract-download-primary" disabled={busy || selectedRecords.length === 0} onClick={() => void onExport("xlsx")}>XLSX 다운로드</button>}
+      />
+      <p className="check-summary-line">
+        <span className="metric">파일 <b>{draft.workbooks.length}</b></span>
+        <span className="metric">선택 시트 <b>{selection.sheetIds.length}</b></span>
+        <span className="metric">결과 시트 <b>{resultSheets.length}</b></span>
+        <span className="metric">취합 레코드 <b>{selectedRecords.length}</b></span>
+        <span className="metric" data-empty={reviewMappings.length === 0}>확인 필요 <b>{reviewMappings.length}</b></span>
+      </p>
 
       <section className="aggregation-section" aria-labelledby="aggregation-sheets">
         <div className="aggregation-section-heading">
-          <div><h3 id="aggregation-sheets">워크북과 시트</h3><p>숨김·참조·빈 시트는 자동 포함하지 않습니다. 필요한 시트만 직접 포함하세요.</p></div>
+          <div><h3 id="aggregation-sheets">취합할 시트</h3><p>숨김·참조·빈 시트는 자동 포함하지 않습니다. 필요한 시트만 직접 포함하세요.</p></div>
         </div>
         <div className="aggregation-workbooks">
           {draft.workbooks.map((workbook) => (
@@ -3162,41 +3201,61 @@ function AggregationResults({ draft, selection, busy, onSelection, onExport }: {
         </div>
       </section>
 
-      <section className="aggregation-section" aria-labelledby="aggregation-groups">
-        <div className="aggregation-section-heading"><div><h3 id="aggregation-groups">호환 그룹</h3><p>필드 구조가 다른 시트는 같은 표에 합치지 않고 별도 결과 시트로 유지합니다.</p></div></div>
-        <div className="aggregation-groups">
-          {draft.groups.map((group) => <article key={group.id}><strong>{group.name}</strong><span>{group.recordCount}건 · 시트 {group.sheetIds.length}개</span><p>{group.fields.join(" · ")}</p></article>)}
-        </div>
+      <section className="aggregation-section" aria-labelledby="aggregation-result-sheets">
+        <div className="aggregation-section-heading"><div><h3 id="aggregation-result-sheets">결과 시트 {resultSheets.length}개</h3><p>표 구조가 다른 내용은 합치지 않고 각각의 시트로 유지합니다.</p></div></div>
+        <ul className="aggregation-result-sheets">
+          {resultSheets.map((group) => (
+            <li key={group.id}><strong>{group.name}</strong><span>{draft.records.filter((record) => group.sheetIds.includes(record.sheetId) && selectedSheets.has(record.sheetId)).length}건</span></li>
+          ))}
+        </ul>
       </section>
 
-      <section className="aggregation-section" aria-labelledby="aggregation-mappings">
-        <div className="aggregation-section-heading"><div><h3 id="aggregation-mappings">필드 매핑 확인</h3><p>원본 파일·시트별 필드가 어느 출력 열로 들어가는지 확인하고 이름을 조정하세요.</p></div></div>
-        <div className="aggregation-mappings">
-          {selection.mappings.map((mapping) => {
-            const suggested = draft.mappings.find((entry) => entry.id === mapping.id);
-            return (
+      {reviewMappings.length || allMappings ? (
+        <section className="aggregation-section" aria-labelledby="aggregation-mappings">
+          <div className="aggregation-section-heading">
+            <div><h3 id="aggregation-mappings">확인이 필요한 항목</h3><p>이름이 다른 항목을 같은 열로 묶은 경우만 표시합니다. 나머지는 자동으로 확정했습니다.</p></div>
+            <button type="button" className="secondary-action" onClick={() => setAllMappings((value) => !value)}>{allMappings ? "확인 항목만 보기" : "전체 매핑 보기"}</button>
+          </div>
+          <div className="aggregation-mappings">
+            {visibleMappings.map((mapping) => (
               <div className="aggregation-mapping" key={mapping.id}>
                 <label><input type="checkbox" checked={mapping.included} onChange={(event) => updateMapping(mapping.id, { included: event.target.checked })} /><span>포함</span></label>
-                <input value={mapping.targetField} aria-label={`${mapping.targetField} 출력 필드명`} onChange={(event) => updateMapping(mapping.id, { targetField: event.target.value })} />
+                <input value={mapping.targetField} aria-label={`${mapping.targetField} 출력 항목명`} onChange={(event) => updateMapping(mapping.id, { targetField: event.target.value })} />
                 <div>{mapping.sourceFields.map((source) => {
                   const sheet = draft.workbooks.flatMap((workbook) => workbook.sheets).find((entry) => entry.id === source.sheetId);
                   return <span key={`${source.sheetId}:${source.field}`}>{sheet?.fileName} · {sheet?.name} · {source.field}</span>;
                 })}</div>
-                <em data-status={suggested?.status}>{suggested?.status === "confirmed" ? "확정" : suggested?.status === "suggested" ? "제안" : "확인"}</em>
+                <em data-status={statusOf(mapping.id)}>{statusOf(mapping.id) === "confirmed" ? "확정" : "확인"}</em>
               </div>
-            );
-          })}
-        </div>
-      </section>
+            ))}
+          </div>
+        </section>
+      ) : (
+        <section className="aggregation-section" aria-labelledby="aggregation-mappings">
+          <div className="aggregation-section-heading">
+            <div><h3 id="aggregation-mappings">확인이 필요한 항목</h3><p>모든 항목을 자동으로 확정했습니다.</p></div>
+            <button type="button" className="secondary-action" onClick={() => setAllMappings(true)}>전체 매핑 보기</button>
+          </div>
+        </section>
+      )}
 
       <section className="aggregation-section" aria-labelledby="aggregation-preview">
-        <div className="aggregation-section-heading"><div><h3 id="aggregation-preview">레코드 검토</h3><p>최대 50건을 미리 표시합니다. 중복은 삭제하지 않고 표시만 유지합니다.</p></div></div>
-        <div className="aggregation-preview-wrap">
-          <table className="aggregation-preview">
-            <thead><tr>{previewMappings.map((mapping) => <th key={mapping.id}>{mapping.targetField}</th>)}<th>출처</th><th>상태</th></tr></thead>
-            <tbody>{selectedRecords.slice(0, 50).map((record) => <tr key={record.id}>{previewMappings.map((mapping) => <td key={mapping.id}>{previewValue(record, mapping)}</td>)}<td>{record.source.sheet} · {record.source.cellRange ?? record.source.label}</td><td>{record.duplicateOf ? "중복 후보" : record.media.length ? `이미지 ${record.media.length}` : "확인"}</td></tr>)}</tbody>
-          </table>
-        </div>
+        <div className="aggregation-section-heading"><div><h3 id="aggregation-preview">결과 미리보기</h3><p>다운로드할 결과 시트와 같은 항목 기준으로 시트당 최대 20건을 표시합니다.</p></div></div>
+        {resultSheets.map((group) => {
+          const groupSheetIds = group.sheetIds.filter((id) => selectedSheets.has(id));
+          const groupMappings = includedMappings.filter((mapping) => mapping.sourceFields.some((source) => groupSheetIds.includes(source.sheetId)));
+          const groupRecords = selectedRecords.filter((record) => groupSheetIds.includes(record.sheetId));
+          if (groupRecords.length === 0 || groupMappings.length === 0) return null;
+          return (
+            <div className="aggregation-preview-wrap" key={group.id}>
+              <h4>{group.name}</h4>
+              <table className="aggregation-preview">
+                <thead><tr>{groupMappings.map((mapping) => <th key={mapping.id}>{mapping.targetField}</th>)}<th>출처</th><th>상태</th></tr></thead>
+                <tbody>{groupRecords.slice(0, 20).map((record) => <tr key={record.id}>{groupMappings.map((mapping) => <td key={mapping.id}>{previewValue(record, mapping)}</td>)}<td>{record.source.sheet} · {record.source.cellRange ?? record.source.label}</td><td>{record.duplicateOf ? "중복 후보" : record.media.length ? `이미지 ${record.media.length}` : "확인"}</td></tr>)}</tbody>
+              </table>
+            </div>
+          );
+        })}
       </section>
     </section>
   );

@@ -224,7 +224,10 @@ describe("buildComparison", () => {
     const result = buildComparison(base, target);
 
     expect(result).toEqual(buildComparison(base, target));
-    expect(result.summary).toMatchObject({ total: 2, added: 1, removed: 0, important: 1 });
+    // "amount 100 → 120" carries no unit, so the change is reported without an
+    // invented difference.
+    expect(result.summary).toMatchObject({ total: 2, added: 1, removed: 0, changed: 1, important: 0 });
+    expect(result.items[0]).toMatchObject({ deltaText: null, changePercent: null });
     expect(result.items[0].sources.map((source) => source.locator)).toEqual([
       expect.objectContaining({ kind: "pdf", page: 1 }),
       expect.objectContaining({ kind: "pdf", page: 1 }),
@@ -243,7 +246,7 @@ describe("buildComparison", () => {
     const result = buildComparison(base, target);
     expect(result.items).toContainEqual(expect.objectContaining({
       category: "Structural Change",
-      label: expect.stringContaining("ambiguous duplicate key SEOUL"),
+      label: "SEOUL · 중복 행",
     }));
     expect(result.items.filter((item) => item.category === "Important Change")).toEqual([]);
   });
@@ -261,7 +264,7 @@ describe("buildComparison", () => {
     const result = buildComparison(base, target);
     expect(result.items).toContainEqual(expect.objectContaining({
       category: "Structural Change",
-      label: expect.stringContaining("merge geometry"),
+      label: "Seoul · 셀 병합",
     }));
   });
 

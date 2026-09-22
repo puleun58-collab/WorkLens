@@ -155,23 +155,41 @@ describe("buildValueCheck", () => {
 });
 
 describe("value-check exports", () => {
-  it("writes one occurrence per row with required Korean columns", async () => {
+  it("puts one item on one row with the compared files side by side", async () => {
     const result = buildValueCheck([
       file("a", [{ name: "목표주가", value: "64,550원", type: "Money" }]),
       file("b", [{ name: "목표주가", value: "70,000원", type: "Money" }]),
     ]);
     const csv = valueCheckCsv(result);
-    expect(csv.split("\r\n")[0]).toBe("항목,상태,파일,값,타입,근거 위치");
-    expect(csv).toContain("목표주가,값 차이,a.xlsx,\"64,550원\",금액,기본 · B2");
+    expect(csv.split("\r\n")[0]).toBe("항목,기준 파일 값,대상 파일 값,판정,기준 근거,대상 근거");
+    expect(csv.split("\r\n")).toHaveLength(3);
+    expect(csv).toContain("목표주가,\"64,550원\",\"70,000원\",값 차이,기본 · B2,기본 · B2");
 
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(await valueCheckXlsx(result) as unknown as Parameters<typeof workbook.xlsx.load>[0]);
-    const sheet = workbook.getWorksheet("값 일치 확인");
-    expect(sheet?.getRow(1).values).toEqual([undefined, "항목", "상태", "파일", "값", "타입", "근거 위치"]);
-    expect(sheet?.rowCount).toBe(3);
+    const sheet = workbook.getWorksheet("비교 결과");
+    expect(sheet?.getRow(1).values).toEqual([undefined, "항목", "기준 파일 값", "대상 파일 값", "판정", "기준 근거", "대상 근거"]);
+    expect(sheet?.rowCount).toBe(2);
     expect(sheet?.views[0]).toMatchObject({ state: "frozen", ySplit: 1 });
     expect(sheet?.autoFilter).toBe("A1:F1");
     expect(sheet?.getRow(1).getCell(1).font.bold).toBe(true);
     expect(sheet?.columns.every((column) => (column.width ?? 0) >= 10 && (column.width ?? 0) <= 48)).toBe(true);
+    expect(workbook.getWorksheet("근거 상세")).toBeUndefined();
+  });
+
+  it("keeps one row per item across more files and moves evidence to its own sheet", async () => {
+    const result = buildValueCheck([
+      file("a", [{ name: "목표주가", value: "64,550원", type: "Money" }]),
+      file("b", [{ name: "목표주가", value: "70,000원", type: "Money" }]),
+      file("c", [{ name: "목표주가", value: "70,000원", type: "Money" }]),
+    ]);
+    const csv = valueCheckCsv(result);
+    expect(csv.split("\r\n")[0]).toBe("항목,a.xlsx,b.xlsx,c.xlsx,판정");
+    expect(csv.split("\r\n")).toHaveLength(3);
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(await valueCheckXlsx(result) as unknown as Parameters<typeof workbook.xlsx.load>[0]);
+    expect(workbook.getWorksheet("비교 결과")?.rowCount).toBe(2);
+    expect(workbook.getWorksheet("근거 상세")?.rowCount).toBe(4);
   });
 });

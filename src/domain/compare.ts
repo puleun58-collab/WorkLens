@@ -6,6 +6,8 @@ import type {
   TableCell,
 } from "./document";
 import { parseCanonicalNumber } from "./numeric";
+import type { Measure } from "./measure";
+import { measureDelta, numberSkeleton, parseMeasure, sentenceDelta } from "./measure";
 
 export type ComparisonCategory =
   | "Added"
@@ -41,6 +43,8 @@ export interface Changed extends ComparisonBase {
   current: string;
   difference?: number | null;
   changePercent?: number | null;
+  /** The difference as the reader sees it, unit included. */
+  deltaText?: string | null;
 }
 
 export interface StructuralChange extends ComparisonBase {
@@ -55,6 +59,7 @@ export interface ImportantChange extends ComparisonBase {
   current: string;
   difference: number;
   changePercent: number | null;
+  deltaText: string;
 }
 
 export type Comparison =
@@ -72,6 +77,7 @@ export interface ComparisonItem {
   current: string | null;
   difference: number | null;
   changePercent: number | null;
+  deltaText: string | null;
   sources: SourceRef[];
 }
 
@@ -138,13 +144,49 @@ const blockSource = (block: DocumentBlock): SourceRef => block.source;
 const tableLabel = (table: TableBlock): string =>
   table.source.sheet === undefined ? table.source.label : table.source.sheet;
 
-const numericValue = (cell: TableCell): number | undefined => {
+/**
+ * A cell is a measurement only when its own type says so. A date cell and a
+ * code cell both hold digits and neither has a difference worth computing.
+ * Written numerals must also survive the canonical parser, which refuses
+ * readings like `1,234` that could be either grouping or a decimal mark.
+ */
+const cellMeasure = (cell: TableCell): Measure | undefined => {
+  if (cell.valueType === "date") return undefined;
+  const text = cellText(cell);
+  const written = parseMeasure(text);
   if (typeof cell.value === "number" && Number.isFinite(cell.value)) {
-    return cell.value;
+    return written ?? { value: cell.value, unit: "", kind: "plain", prefixed: false, numberText: text };
   }
-  return parseCanonicalNumber(cellText(cell))?.value;
+  return written && parseCanonicalNumber(written.numberText) !== undefined ? written : undefined;
 };
 
+/**
+ * The item name a reader recognises: the row's own key and, when the table
+ * carries one, its column heading. Internal block names never surface.
+ */
+const headerRows = new WeakMap<TableBlock, string[]>();
+const headerRowOf = (table: TableBlock): string[] => {
+  const cached = headerRows.get(table);
+  if (cached) return cached;
+  const labels = (table.rows[0] ?? []).map(cellText);
+  const resolved = labels.filter(Boolean).length >= 2 ? labels : [];
+  headerRows.set(table, resolved);
+  return resolved;
+};
+const columnLabel = (table: TableBlock, key: string, index: number): string => {
+  const header = headerRowOf(table)[index] ?? "";
+  return header && header !== key ? `${key} · ${header}` : key;
+};
+
+/** `담당부서: 인재개발팀` is a named item, not one sentence. */
+const LABELLED_TEXT = /^([^:：]{1,24})\s*[:：]\s*(.+)$/u;
+const labelledText = (text: string): { label: string; value: string } | undefined => {
+  const match = LABELLED_TEXT.exec(text.trim());
+  if (!match) return undefined;
+  const label = match[1].trim();
+  const value = match[2].trim();
+  return label && value && !/\d{1,2}$/u.test(label) ? { label, value } : undefined;
+};
 /**
  * Longest-common-subsequence alignment over normalized text.
  *
@@ -308,8 +350,6 @@ const structuralRegion = (source: SourceRef): string | undefined => {
   }
 };
 
-const numberSkeleton = (value: string): string =>
-  value.toLocaleLowerCase().replace(/[+-]?\d[\d,.]*/gu, "#").replace(/\s+/gu, " ").trim();
 
 const textBigrams = (value: string): Set<string> => {
   const compact = value.toLocaleLowerCase().replace(/[\s\d,.\-+%]/gu, "");
@@ -340,13 +380,6 @@ const compatibleTextBlocks = (base: DocumentBlock, current: DocumentBlock): bool
   return similarity >= (sameLocation ? 0.45 : 0.62);
 };
 
-const embeddedNumber = (text: string): number | undefined => {
-  const matches = text.match(/[+-]?(?:\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)/gu);
-  if (matches?.length !== 1) return undefined;
-  const value = Number(matches[0].replaceAll(",", ""));
-  return Number.isFinite(value) ? value : undefined;
-};
-
 const compareTable = (
   base: TableBlock,
   current: TableBlock,
@@ -363,7 +396,7 @@ const compareTable = (
   if (baseColumnCount !== currentColumnCount) {
     results.push({
       category: "Structural Change",
-      label: `${tableLabel(current)} columns`,
+      label: "열 수",
       previous: String(baseColumnCount),
       current: String(currentColumnCount),
       sources: { base: base.source, current: current.source },
@@ -385,7 +418,7 @@ const compareTable = (
   for (const key of ambiguous) {
     results.push({
       category: "Structural Change",
-      label: `${tableLabel(current)}: ambiguous duplicate key ${key}`,
+      label: `${key} · 중복 행`,
       previous: String(baseGroups.get(key)?.length ?? 0),
       current: String(currentGroups.get(key)?.length ?? 0),
       sources: {
@@ -406,7 +439,7 @@ const compareTable = (
     if (baseRow === undefined) {
       results.push({
         category: "Added",
-        label: `${tableLabel(current)}: ${key}`,
+        label: key,
         current: key,
         sources: { current: currentRow.cells[0]?.source ?? current.source },
       });
@@ -427,7 +460,7 @@ const compareTable = (
       ) {
         results.push({
           category: "Structural Change",
-          label: `${tableLabel(current)}: ${key}, merge geometry`,
+          label: `${key} · 셀 병합`,
           previous: `${previousCell.rowSpan ?? 1}x${previousCell.colSpan ?? 1}`,
           current: `${currentCell.rowSpan ?? 1}x${currentCell.colSpan ?? 1}`,
           sources: { base: previousCell.source, current: currentCell.source },
@@ -440,7 +473,7 @@ const compareTable = (
       if (previousCell === undefined || currentCell === undefined) {
         results.push({
           category: "Structural Change",
-          label: `${tableLabel(current)}: ${key}, column ${index + 1}`,
+          label: columnLabel(current, key, index),
           previous,
           current: next,
           sources: {
@@ -451,23 +484,19 @@ const compareTable = (
         continue;
       }
 
-      const previousNumber = numericValue(previousCell);
-      const currentNumber = numericValue(currentCell);
+      const delta = measureDelta(cellMeasure(previousCell), cellMeasure(currentCell));
       const common = {
-        label: `${tableLabel(current)}: ${key}, column ${index + 1}`,
+        label: columnLabel(current, key, index),
         previous,
         current: next,
         sources: { base: previousCell.source, current: currentCell.source },
       };
 
-      if (previousNumber !== undefined && currentNumber !== undefined) {
-        const difference = currentNumber - previousNumber;
-        const changePercent =
-          previousNumber === 0 ? null : (difference / previousNumber) * 100;
+      if (delta) {
         results.push(
-          difference === 0
-            ? { category: "Changed", ...common, difference, changePercent }
-            : { category: "Important Change", ...common, difference, changePercent },
+          delta.difference === 0
+            ? { category: "Changed", ...common, difference: delta.difference, changePercent: delta.changePercent, deltaText: delta.text }
+            : { category: "Important Change", ...common, difference: delta.difference, changePercent: delta.changePercent, deltaText: delta.text },
         );
       } else {
         results.push({
@@ -475,6 +504,7 @@ const compareTable = (
           ...common,
           difference: null,
           changePercent: null,
+          deltaText: null,
         });
       }
     }
@@ -484,7 +514,7 @@ const compareTable = (
     if (!currentRows.has(key)) {
       results.push({
         category: "Removed",
-        label: `${tableLabel(base)}: ${key}`,
+        label: key,
         previous: key,
         sources: { base: baseRow.cells[0]?.source ?? base.source },
       });
@@ -517,6 +547,7 @@ export const buildComparison = (
       current: "current" in comparison ? comparison.current : null,
       difference: "difference" in comparison ? comparison.difference ?? null : null,
       changePercent: "changePercent" in comparison ? comparison.changePercent ?? null : null,
+      deltaText: "deltaText" in comparison ? comparison.deltaText ?? null : null,
       sources,
     };
   });
@@ -546,7 +577,7 @@ export const compareDocuments = (
       results.push({
         category: "Removed",
         label: tableLabel(baseTable),
-        previous: "Table removed",
+        previous: "표 삭제",
         sources: { base: baseTable.source },
       });
       continue;
@@ -559,7 +590,7 @@ export const compareDocuments = (
     results.push({
       category: "Added",
       label: tableLabel(currentTable),
-      current: "Table added",
+      current: "표 추가",
       sources: { current: currentTable.source },
     });
   }
@@ -601,14 +632,14 @@ export const compareDocuments = (
       results.push({
         category: "Removed",
         label: tableLabel(pair.base),
-        previous: "Table removed",
+        previous: "표 삭제",
         sources: { base: pair.base.source },
       });
     } else if (pair.current !== undefined) {
       results.push({
         category: "Added",
         label: tableLabel(pair.current),
-        current: "Table added",
+        current: "표 추가",
         sources: { current: pair.current.source },
       });
     }
@@ -620,37 +651,41 @@ export const compareDocuments = (
     blockText,
     compatibleTextBlocks,
   );
-  alignedText.forEach((pair, index) => {
+  alignedText.forEach((pair) => {
     const previousBlock = pair.base;
     const currentBlock = pair.current;
-    const previous = previousBlock === undefined ? "" : blockText(previousBlock);
-    const next = currentBlock === undefined ? "" : blockText(currentBlock);
-    if (previous === next) return;
+    const previousText = previousBlock === undefined ? "" : blockText(previousBlock);
+    const currentText = currentBlock === undefined ? "" : blockText(currentBlock);
+    if (previousText === currentText) return;
+    const previousPair = labelledText(previousText);
+    const currentPair = labelledText(currentText);
+    // "담당부서: 인재개발팀" names its own item; the label becomes the item and
+    // the value becomes what changed.
+    const paired = previousBlock !== undefined && currentBlock !== undefined
+      && previousPair !== undefined && currentPair !== undefined
+      && previousPair.label === currentPair.label;
+    const label = paired ? previousPair.label : previousBlock === undefined ? currentPair?.label ?? "" : previousPair?.label ?? "";
+    const previous = paired ? previousPair.value : previousPair && previousBlock !== undefined && currentBlock === undefined ? previousPair.value : previousText;
+    const next = paired ? currentPair.value : currentPair && currentBlock !== undefined && previousBlock === undefined ? currentPair.value : currentText;
 
     if (previousBlock === undefined && currentBlock !== undefined) {
       results.push({
         category: "Added",
-        label: `Text ${index + 1}`,
+        label,
         current: next,
         sources: { current: blockSource(currentBlock) },
       });
     } else if (previousBlock !== undefined && currentBlock === undefined) {
       results.push({
         category: "Removed",
-        label: `Text ${index + 1}`,
+        label,
         previous,
         sources: { base: blockSource(previousBlock) },
       });
     } else if (previousBlock !== undefined && currentBlock !== undefined) {
-      const previousNumber = embeddedNumber(previous);
-      const currentNumber = embeddedNumber(next);
-      const numericChange =
-        previousNumber !== undefined &&
-        currentNumber !== undefined &&
-        numberSkeleton(previous) === numberSkeleton(next);
-      const difference = numericChange ? currentNumber - previousNumber : null;
+      const delta = sentenceDelta(previous, next);
       const common = {
-        label: `Text ${index + 1}`,
+        label,
         previous,
         current: next,
         sources: {
@@ -658,22 +693,21 @@ export const compareDocuments = (
           current: blockSource(currentBlock),
         },
       };
-      if (numericChange && difference !== null && difference !== 0) {
+      if (delta && delta.difference !== 0) {
         results.push({
           category: "Important Change",
           ...common,
-          difference,
-          changePercent: previousNumber === 0 ? null : (difference / previousNumber) * 100,
+          difference: delta.difference,
+          changePercent: delta.changePercent,
+          deltaText: delta.text,
         });
       } else {
         results.push({
           category: "Changed",
           ...common,
-          difference,
-          changePercent:
-            numericChange && previousNumber !== 0 && difference !== null
-              ? (difference / previousNumber) * 100
-              : null,
+          difference: delta?.difference ?? null,
+          changePercent: delta?.changePercent ?? null,
+          deltaText: delta?.text ?? null,
         });
       }
     }

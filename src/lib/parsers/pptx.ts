@@ -1,6 +1,6 @@
-import { inflateSync } from "fflate";
-
 import { SaxesParser } from "saxes";
+
+import { unzipOoxml } from "./ooxml-zip";
 
 import type {
   DocumentBlock,
@@ -14,87 +14,18 @@ import { FORMAT_INPUT_LIMITS, StructureLimitError } from "./policy";
 
 import { DocumentError } from "@/lib/upload";
 
-/**
- * Structural limits bound expansion work, not file size: only XML parts are
- * inflated and counted, so a 100 MiB media-heavy deck stays admissible while
- * zip-bomb defence is unchanged.
- */
-const MAX_ZIP_ENTRIES = 2_000;
-const MAX_ENTRY_BYTES = 5 * 1024 * 1024;
-const MAX_TOTAL_UNCOMPRESSED_BYTES = 30 * 1024 * 1024;
-const MAX_TOTAL_MEDIA_BYTES = 200 * 1024 * 1024;
-const MAX_MEDIA_BYTES = 25 * 1024 * 1024;
-const isXmlPart = (name: string): boolean => name.endsWith(".xml") || name.endsWith(".rels");
-const isMediaPart = (name: string): boolean => name.startsWith("ppt/media/");
 
 const malformedFileError = (): Error =>
   new DocumentError("DOCUMENT_UNREADABLE", "파일을 읽지 못했습니다.", "지원되는 PowerPoint 파일인지 확인한 뒤 다시 시도해 주세요.");
 
 const structureLimitError = (): Error => new StructureLimitError();
 
-const uint16 = (bytes: Uint8Array, offset: number): number => {
-  if (offset < 0 || offset + 2 > bytes.byteLength) throw malformedFileError();
-  return bytes[offset] | (bytes[offset + 1] << 8);
-};
-const uint32 = (bytes: Uint8Array, offset: number): number => {
-  if (offset < 0 || offset + 4 > bytes.byteLength) throw malformedFileError();
-  return (bytes[offset] | (bytes[offset + 1] << 8) | (bytes[offset + 2] << 16) | (bytes[offset + 3] << 24)) >>> 0;
-};
-
-const unzip = (input: Uint8Array): Map<string, Uint8Array> => {
-  if (input.byteLength > FORMAT_INPUT_LIMITS.pptx || input.byteLength < 22) throw malformedFileError();
-  let end = -1;
-  for (let offset = input.byteLength - 22; offset >= Math.max(0, input.byteLength - 65_557); offset -= 1) {
-    if (uint32(input, offset) === 0x06054b50) { end = offset; break; }
-  }
-  if (end < 0 || uint16(input, end + 4) !== 0 || uint16(input, end + 6) !== 0) throw malformedFileError();
-  const count = uint16(input, end + 10);
-  const centralSize = uint32(input, end + 12);
-  const centralOffset = uint32(input, end + 16);
-  if (count > MAX_ZIP_ENTRIES) throw structureLimitError();
-  if (centralOffset + centralSize > end) throw malformedFileError();
-  const files = new Map<string, Uint8Array>();
-  let offset = centralOffset;
-  let totalSize = 0;
-  let totalMediaSize = 0;
-  for (let index = 0; index < count; index += 1) {
-    if (uint32(input, offset) !== 0x02014b50) throw malformedFileError();
-    const flags = uint16(input, offset + 8);
-    const compression = uint16(input, offset + 10);
-    const compressedSize = uint32(input, offset + 20);
-    const uncompressedSize = uint32(input, offset + 24);
-    const nameLength = uint16(input, offset + 28);
-    const extraLength = uint16(input, offset + 30);
-    const commentLength = uint16(input, offset + 32);
-    const localOffset = uint32(input, offset + 42);
-    const nextOffset = offset + 46 + nameLength + extraLength + commentLength;
-    if ((flags & 1) !== 0 || compression !== 0 && compression !== 8 || nextOffset > centralOffset + centralSize || compressedSize === 0xffffffff || uncompressedSize === 0xffffffff || localOffset === 0xffffffff) throw malformedFileError();
-    const name = new TextDecoder("utf-8", { fatal: true }).decode(input.subarray(offset + 46, offset + 46 + nameLength));
-    if (name === "" || name.includes("\\") || name.includes("..") || files.has(name)) throw malformedFileError();
-    if (uint32(input, localOffset) !== 0x04034b50) throw malformedFileError();
-    const dataOffset = localOffset + 30 + uint16(input, localOffset + 26) + uint16(input, localOffset + 28);
-    if (dataOffset + compressedSize > input.byteLength) throw malformedFileError();
-    const compressed = input.subarray(dataOffset, dataOffset + compressedSize);
-    if (isXmlPart(name)) {
-      if (uncompressedSize > MAX_ENTRY_BYTES || totalSize + uncompressedSize > MAX_TOTAL_UNCOMPRESSED_BYTES) throw structureLimitError();
-      const content = compression === 0 ? compressed : inflateSync(compressed, { out: new Uint8Array(uncompressedSize) });
-      if (content.byteLength !== uncompressedSize) throw malformedFileError();
-      totalSize += uncompressedSize;
-      files.set(name, content);
-    } else if (isMediaPart(name)) {
-      if (uncompressedSize > MAX_MEDIA_BYTES || totalMediaSize + uncompressedSize > MAX_TOTAL_MEDIA_BYTES) throw structureLimitError();
-      const content = compression === 0 ? compressed.slice() : inflateSync(compressed, { out: new Uint8Array(uncompressedSize) });
-      if (content.byteLength !== uncompressedSize) throw malformedFileError();
-      totalMediaSize += uncompressedSize;
-      files.set(name, content);
-    } else {
-      files.set(name, new Uint8Array(0));
-    }
-    offset = nextOffset;
-  }
-  if (offset !== centralOffset + centralSize) throw malformedFileError();
-  return files;
-};
+const unzip = (input: Uint8Array): Map<string, Uint8Array> => unzipOoxml(input, {
+  maxInputBytes: FORMAT_INPUT_LIMITS.pptx,
+  keepOtherParts: false,
+  malformed: malformedFileError,
+  limitExceeded: structureLimitError,
+});
 
 const xml = (bytes: Uint8Array): string => new TextDecoder("utf-8", { fatal: true }).decode(bytes);
 const attribute = (tag: { attributes: Record<string, string> | Record<string, { value: string }> }, name: string): string | undefined => {

@@ -23,6 +23,29 @@ function displayWidth(value: string): number {
 }
 
 /**
+ * A number format decides how wide a value reads: `#,##0"원"` turns 2258000
+ * into `2,258,000원`, and a column measured on the raw digits shows `########`.
+ * ExcelJS never renders formats, so the rendered width is estimated here.
+ */
+function formattedWidth(cell: ExcelJS.Cell): number {
+  const format = cell.numFmt;
+  if (!format) return 0;
+  const tokens = format.replace(/\\./gu, "").replace(/\[[^\]]*\]/gu, "");
+  const literals = [...tokens.matchAll(/"([^"]*)"/gu)].map((match) => match[1]).join("");
+  if (cell.value instanceof Date) {
+    return displayWidth(tokens.replace(/"[^"]*"/gu, literals)) + 1;
+  }
+  if (typeof cell.value !== "number") return 0;
+  const percent = tokens.includes("%");
+  const magnitude = Math.abs(percent ? cell.value * 100 : cell.value);
+  const digits = magnitude < 1 ? 1 : Math.floor(Math.log10(magnitude)) + 1;
+  const decimals = /\.(0+)/u.exec(tokens)?.[1].length ?? 0;
+  const grouping = tokens.includes("#,#") ? Math.floor((digits - 1) / 3) : 0;
+  const signs = (cell.value < 0 ? 1 : 0) + (percent ? 1 : 0);
+  return digits + grouping + (decimals > 0 ? decimals + 1 : 0) + signs + displayWidth(literals) + 1;
+}
+
+/**
  * Applies WorkLens' restrained workbook presentation without changing values.
  * Widths are content-aware but bounded; only text that no longer fits is
  * wrapped, leaving numeric and date cell types and their native alignment intact.
@@ -58,6 +81,7 @@ export function formatWorksheet(
     column.eachCell({ includeEmpty: false }, (cell) => {
       const lines = cell.text.split(/\r?\n/u);
       for (const line of lines) measured = Math.max(measured, displayWidth(line) + 2);
+      measured = Math.max(measured, formattedWidth(cell) + 2);
     });
     column.width = Math.min(maxWidth, measured);
   }

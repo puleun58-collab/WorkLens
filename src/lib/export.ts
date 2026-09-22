@@ -2,17 +2,12 @@ import ExcelJS from "exceljs";
 import type { DocumentExport, ExtractResult } from "@/domain/operations";
 import type { NormalizedDocument, SourceRef } from "@/domain/document";
 import { extractDocument } from "./deterministic";
+import { csvField, safeCellText } from "@/lib/csv";
 import { formatWorksheet } from "@/lib/xlsx-format";
 
 const CSV_MIME_TYPE = "text/csv; charset=utf-8";
 const XLSX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
-function csvField(value: string | number | boolean | null): string {
-  let text = value === null ? "" : String(value);
-  // Spreadsheet applications evaluate fields beginning with these characters as formulas.
-  if (/^\s*[=+\-@]/.test(text)) text = `'${text}`;
-  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-}
 
 /**
  * Provenance columns carried by every exported record. Display labels alone are
@@ -83,7 +78,7 @@ export async function exportXlsx(extraction: ExtractResult): Promise<Uint8Array>
     for (const row of table.rows) {
       sheet.addRow(row.map((cell) => {
         const value = cell.value ?? cell.display;
-        return typeof value === "string" && /^\s*[=+\-@]/.test(value) ? `'${value}` : value;
+        return typeof value === "string" ? safeCellText(value) : value;
       }));
     }
     formatWorksheet(sheet, { freezeHeader: true, autoFilter: true });

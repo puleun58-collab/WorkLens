@@ -2157,6 +2157,23 @@ test("keeps compare column rules aligned between header and rows", async ({ page
   expect(rules.headBorders).toEqual(["1px", "1px", "1px", "1px", "0px"]);
   expect(rules.rowBorders).toEqual(["1px", "1px", "1px", "1px", "0px"]);
 
+  // Only the numbers-only column reads from the right, and the header follows
+  // whatever its column's cells do.
+  const alignment = await page.evaluate(() => {
+    // `start` and `left` are the same reading direction here.
+    const read = (cells: Element[]) => cells.map((cell) => {
+      const value = getComputedStyle(cell as HTMLElement).textAlign;
+      return value === "start" ? "left" : value === "end" ? "right" : value;
+    });
+    return {
+      head: read([...document.querySelectorAll(".change-head > span")]),
+      row: read([...document.querySelectorAll('[data-testid="change-row"]')[0].children]),
+    };
+  });
+  expect(alignment.head).toEqual(["left", "left", "left", "right", "left"]);
+  expect(alignment.row).toEqual(["left", "left", "left", "right", "left"]);
+  expect(await page.locator(".change-row > .change-delta").first().evaluate((element) => getComputedStyle(element).justifyItems)).toBe("end");
+
   // The reading order is file pair, then summary, then table: each band keeps
   // its own tone instead of one flat white sheet.
   const tones = await page.evaluate(() => {
@@ -2171,4 +2188,73 @@ test("keeps compare column rules aligned between header and rows", async ({ page
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   expect(await page.getByTestId("change-row").first().locator("> span").first()
     .evaluate((element) => getComputedStyle(element).borderRightWidth)).toBe("0px");
+});
+
+test("aggregates workbooks into one XLSX result without profile-specific actions", async ({ page }) => {
+  await mockEmptyClaims(page);
+  await page.goto("/");
+  await upload(page, files.v1);
+  await upload(page, files.v2);
+  await page.getByLabel("운임현황_v1.xlsx 선택").check();
+  await page.getByLabel("운임현황_v2.xlsx 선택").check();
+  await page.getByRole("button", { name: "취합", exact: true }).click();
+  await page.getByRole("button", { name: "취합 실행" }).click();
+
+  const panel = page.locator(".aggregation-results");
+  await expect(panel.locator(".result-status")).toHaveText("취합 완료");
+  await expect(panel.getByRole("button", { name: "XLSX 다운로드" })).toBeVisible();
+  await expect(panel.getByRole("button", { name: /PPTX 다운로드/ })).toHaveCount(0);
+  await expect(panel).not.toContainText("개선 Bank");
+  await expect(panel).not.toContainText("Backdata");
+  await expect(panel).not.toContainText("스키마 그룹");
+  await expect(panel).not.toContainText("호환 그룹");
+  await expect(panel.getByRole("heading", { name: /결과 시트 \d+개/ })).toBeVisible();
+  await expect(panel.locator(".aggregation-result-sheets li strong")).toHaveText(["운송단가"]);
+  await expect(panel).toContainText("모든 항목을 자동으로 확정했습니다.");
+  await expect(panel.locator(".aggregation-preview thead th").first()).toHaveText("지역");
+  await expect(panel.locator(".aggregation-preview")).not.toContainText("[object");
+
+  const download = page.waitForEvent("download");
+  await panel.getByRole("button", { name: "XLSX 다운로드" }).click();
+  expect((await download).suggestedFilename()).toBe("worklens-aggregation.xlsx");
+});
+
+test("aggregates decks into one PPTX result without workbook controls", async ({ page }) => {
+  await mockEmptyClaims(page);
+  await page.goto("/");
+  await upload(page, files.trainingSepPptx);
+  await upload(page, files.trainingOctPptx);
+  await page.getByLabel("WL_교육운영_9월.pptx 선택").check();
+  await page.getByLabel("WL_교육운영_10월.pptx 선택").check();
+  await page.getByRole("button", { name: "취합", exact: true }).click();
+  await page.getByRole("button", { name: "취합 실행" }).click();
+
+  const panel = page.locator(".aggregation-results");
+  await expect(panel.locator(".result-status")).toHaveText("취합 완료");
+  await expect(panel.getByRole("button", { name: "PPTX 다운로드" })).toBeVisible();
+  await expect(panel.getByRole("button", { name: /XLSX 다운로드/ })).toHaveCount(0);
+  await expect(panel).not.toContainText("필드 매핑");
+  await expect(panel).not.toContainText("워크북");
+  await expect(panel.locator(".aggregation-deck-order li")).toHaveText([
+    "WL_교육운영_9월.pptx2장",
+    "WL_교육운영_10월.pptx2장",
+  ]);
+
+  const download = page.waitForEvent("download");
+  await panel.getByRole("button", { name: "PPTX 다운로드" }).click();
+  expect((await download).suggestedFilename()).toBe("worklens-aggregation.pptx");
+});
+
+test("asks for one file family instead of converting between result formats", async ({ page }) => {
+  await mockEmptyClaims(page);
+  await page.goto("/");
+  await upload(page, files.v1);
+  await upload(page, files.trainingSepPptx);
+  await page.getByLabel("운임현황_v1.xlsx 선택").check();
+  await page.getByLabel("WL_교육운영_9월.pptx 선택").check();
+  await page.getByRole("button", { name: "취합", exact: true }).click();
+  await page.getByRole("button", { name: "취합 실행" }).click();
+
+  await expect(page.locator(".notice.error")).toContainText("같은 형식의 파일끼리 선택해 주세요.");
+  await expect(page.locator(".aggregation-results")).toHaveCount(0);
 });

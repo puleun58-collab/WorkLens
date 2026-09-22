@@ -1,10 +1,48 @@
 import ExcelJS from "exceljs";
 import { describe, expect, it } from "vitest";
+import type { AggregationDraft } from "@/domain/aggregation";
 import { buildAggregation } from "@/lib/aggregation/engine";
 import { aggregationXlsxExport } from "@/lib/aggregation/export";
-import { improvementBankExport } from "@/lib/aggregation/improvement-export";
-import { improvementBackdataExport } from "@/lib/aggregation/pptx-export";
+import { mergePresentations } from "@/lib/aggregation/pptx-merge";
 import { parseDocument } from "@/lib/parsers";
+import { strToU8, unzipSync, zipSync } from "fflate";
+import { createPptxSlides } from "./fixtures";
+
+const RELS = (entries: string) =>
+  `<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${entries}</Relationships>`;
+const REL_BASE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+
+/**
+ * A deck shaped like PowerPoint's own output: master, layout, theme, an image
+ * and a notes slide. Merging has to carry the first four and leave the notes.
+ */
+function createAuthoredPptx(titles: readonly string[], image: Uint8Array): Uint8Array {
+  const slideOverrides = titles.map((_, index) =>
+    `<Override PartName="/ppt/slides/slide${index + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>`).join("");
+  const files: Record<string, Uint8Array> = {
+    "[Content_Types].xml": strToU8(`<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/><Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/><Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/><Override PartName="/ppt/notesSlides/notesSlide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.notesSlide+xml"/>${slideOverrides}</Types>`),
+    "_rels/.rels": strToU8(RELS(`<Relationship Id="rId1" Type="${REL_BASE}/officeDocument" Target="ppt/presentation.xml"/>`)),
+    "ppt/presentation.xml": strToU8(`<?xml version="1.0"?><p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="${REL_BASE}"><p:sldMasterIdLst><p:sldMasterId id="2147483648" r:id="rId1"/></p:sldMasterIdLst><p:sldIdLst>${titles.map((_, index) => `<p:sldId id="${256 + index}" r:id="rId${index + 2}"/>`).join("")}</p:sldIdLst><p:sldSz cx="12192000" cy="6858000"/></p:presentation>`),
+    "ppt/_rels/presentation.xml.rels": strToU8(RELS(`<Relationship Id="rId1" Type="${REL_BASE}/slideMaster" Target="slideMasters/slideMaster1.xml"/>${titles.map((_, index) => `<Relationship Id="rId${index + 2}" Type="${REL_BASE}/slide" Target="slides/slide${index + 1}.xml"/>`).join("")}`)),
+    "ppt/slideMasters/slideMaster1.xml": strToU8(`<?xml version="1.0"?><p:sldMaster xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="${REL_BASE}"><p:cSld><p:spTree/></p:cSld><p:sldLayoutIdLst><p:sldLayoutId id="2147483649" r:id="rId1"/></p:sldLayoutIdLst></p:sldMaster>`),
+    "ppt/slideMasters/_rels/slideMaster1.xml.rels": strToU8(RELS(`<Relationship Id="rId1" Type="${REL_BASE}/slideLayout" Target="../slideLayouts/slideLayout1.xml"/><Relationship Id="rId2" Type="${REL_BASE}/theme" Target="../theme/theme1.xml"/>`)),
+    "ppt/slideLayouts/slideLayout1.xml": strToU8(`<?xml version="1.0"?><p:sldLayout xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree/></p:cSld></p:sldLayout>`),
+    "ppt/slideLayouts/_rels/slideLayout1.xml.rels": strToU8(RELS(`<Relationship Id="rId1" Type="${REL_BASE}/slideMaster" Target="../slideMasters/slideMaster1.xml"/>`)),
+    "ppt/theme/theme1.xml": strToU8(`<?xml version="1.0"?><a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="Authored"/>`),
+    "ppt/notesSlides/notesSlide1.xml": strToU8(`<?xml version="1.0"?><p:notes xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld><p:spTree/></p:cSld></p:notes>`),
+    "ppt/media/image1.png": image,
+  };
+  titles.forEach((title, index) => {
+    files[`ppt/slides/slide${index + 1}.xml`] = strToU8(`<?xml version="1.0"?><p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="${REL_BASE}"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="1" name="Title"/><p:cNvSpPr/><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr><p:txBody><a:p><a:r><a:t>${title}</a:t></a:r></a:p></p:txBody></p:sp><p:pic><p:nvPicPr><p:cNvPr id="2" name="Picture"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="rId2"/></p:blipFill><p:spPr><a:xfrm><a:off x="914400" y="914400"/><a:ext cx="1828800" cy="914400"/></a:xfrm></p:spPr></p:pic></p:spTree></p:cSld></p:sld>`);
+    files[`ppt/slides/_rels/slide${index + 1}.xml.rels`] = strToU8(RELS(`<Relationship Id="rId1" Type="${REL_BASE}/slideLayout" Target="../slideLayouts/slideLayout1.xml"/><Relationship Id="rId2" Type="${REL_BASE}/image" Target="../media/image1.png"/><Relationship Id="rId3" Type="${REL_BASE}/notesSlide" Target="../notesSlides/notesSlide1.xml"/>`));
+  });
+  return zipSync(files);
+}
+
+const PIXEL_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZsXcAAAAASUVORK5CYII=",
+  "base64",
+);
 
 async function workbookBytes(configure: (workbook: ExcelJS.Workbook) => void): Promise<Uint8Array> {
   const workbook = new ExcelJS.Workbook();
@@ -12,9 +50,23 @@ async function workbookBytes(configure: (workbook: ExcelJS.Workbook) => void): P
   return new Uint8Array(await workbook.xlsx.writeBuffer() as ArrayBuffer);
 }
 
+async function documentOf(configure: (workbook: ExcelJS.Workbook) => void, fileId = "book-a") {
+  return parseDocument({ fileId, fileName: `${fileId}.xlsx`, bytes: await workbookBytes(configure) });
+}
+
 async function aggregate(configure: (workbook: ExcelJS.Workbook) => void, fileId = "book-a") {
-  const document = await parseDocument({ fileId, fileName: `${fileId}.xlsx`, bytes: await workbookBytes(configure) });
-  return buildAggregation([document]);
+  return buildAggregation([await documentOf(configure, fileId)]);
+}
+
+const defaultSelection = (draft: AggregationDraft) => ({
+  sheetIds: draft.workbooks.flatMap((workbook) => workbook.sheets.filter((sheet) => sheet.selectedByDefault).map((sheet) => sheet.id)),
+  mappings: draft.mappings,
+});
+
+async function reopen(bytes: Uint8Array): Promise<ExcelJS.Workbook> {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(bytes as unknown as ExcelJS.Buffer);
+  return workbook;
 }
 
 describe("generic aggregation", () => {
@@ -26,6 +78,7 @@ describe("generic aggregation", () => {
       warehouse.addRows([["인원", "담당부서", "매출액"], [4, "운영", 800], [2, "지원", 400]]);
     });
 
+    expect(draft.output).toBe("xlsx");
     expect(draft.groups).toHaveLength(1);
     expect(draft.groups[0]).toMatchObject({ recordCount: 4, fields: expect.arrayContaining(["부서", "매출", "인원"]) });
     expect(draft.records).toHaveLength(4);
@@ -88,58 +141,179 @@ describe("generic aggregation", () => {
     expect(draft.records.filter((record) => record.duplicateOf)).toHaveLength(1);
   });
 
-  it("reopens safe multi-sheet exports with provenance columns", async () => {
+  it("reads rich text, hyperlink and error cells as their displayed text", async () => {
+    const draft = await aggregate((workbook) => {
+      const sheet = workbook.addWorksheet("표");
+      sheet.addRow([]);
+      sheet.getCell("A1").value = { richText: [{ text: "구분" }, { text: " 코드" }] };
+      sheet.getCell("B1").value = "담당";
+      sheet.getCell("C1").value = { richText: [{ text: "비고" }] };
+      sheet.getCell("A2").value = "SAFETY";
+      sheet.getCell("B2").value = { text: "담당자", hyperlink: "https://example.com" };
+      sheet.getCell("C2").value = { error: "#REF!" };
+      sheet.getCell("A3").value = "QUALITY";
+      sheet.getCell("B3").value = "김담당";
+      sheet.getCell("C3").value = "확인";
+    });
+
+    const headers = draft.workbooks[0].sheets[0].regions[0].headers;
+    expect(headers).toEqual(["구분 코드", "담당", "비고"]);
+    const values = draft.records.flatMap((record) => record.fields.map((field) => field.value.displayValue));
+    expect(values).toContain("담당자");
+    expect(values.join(" ")).not.toContain("[object");
+  });
+
+  it("treats a serial number as a date only when its number format says so", async () => {
+    const draft = await aggregate((workbook) => {
+      const sheet = workbook.addWorksheet("KPI");
+      sheet.addRow(["부서", "기준일", "건수"]);
+      sheet.addRow(["운영", 45658, 45658]);
+      sheet.getCell("B2").numFmt = "yyyy-mm-dd";
+      sheet.getCell("C2").numFmt = "#,##0";
+      sheet.addRow(["지원", 45659, 12]);
+      sheet.getCell("B3").numFmt = "yyyy-mm-dd";
+    });
+
+    const [first] = draft.records;
+    expect(first.fields.find((field) => field.label === "기준일")?.value).toMatchObject({
+      type: "Date",
+      normalizedValue: "2025-01-01",
+      displayValue: "2025-01-01",
+    });
+    expect(first.fields.find((field) => field.label === "건수")?.value).toMatchObject({ type: "Number", value: 45658 });
+  });
+
+  it("maps the same calendar day written differently onto one field", async () => {
+    const draft = await aggregate((workbook) => {
+      const left = workbook.addWorksheet("KPI-A");
+      left.addRows([["부서", "2026-01-01", "2026-02-01"], ["운영", 3, 4], ["지원", 5, 6]]);
+      const right = workbook.addWorksheet("KPI-B");
+      right.addRows([["부서", "2026.1.1", "2026.2.1"], ["물류", 7, 8], ["영업", 9, 10]]);
+    });
+
+    const dateMappings = draft.mappings.filter((mapping) => /^\d{4}\./u.test(mapping.targetField));
+    expect(dateMappings.map((mapping) => mapping.targetField)).toEqual(["2026.01.01", "2026.02.01"]);
+    expect(dateMappings.every((mapping) => mapping.status === "confirmed")).toBe(true);
+    expect(dateMappings[0].sourceFields).toHaveLength(2);
+  });
+
+  it("names result sheets after their source sheets and keeps typed values", async () => {
     const draft = await aggregate((workbook) => {
       const costs = workbook.addWorksheet("비용");
-      costs.addRows([["부서", "비용", "기준일"], ["운영", 300, "2026-08-01"], ["지원", 200, "2026-08-02"]]);
+      costs.addRow(["부서", "비용", "기준일"]);
+      costs.addRow(["운영", 300, new Date("2026-08-01")]);
+      costs.addRow(["지원", 200, new Date("2026-08-02")]);
       const stock = workbook.addWorksheet("재고");
       stock.addRows([["품목", "입고", "출고"], ["A", 4, 3], ["B", 2, 1]]);
     });
-    const exported = await aggregationXlsxExport(draft, {
-      sheetIds: draft.workbooks[0].sheets.filter((sheet) => sheet.selectedByDefault).map((sheet) => sheet.id),
-      mappings: draft.mappings,
-    });
-    const reopened = new ExcelJS.Workbook();
-    await reopened.xlsx.load(exported.content as unknown as ExcelJS.Buffer);
+    const exported = await aggregationXlsxExport(draft, defaultSelection(draft));
+    const reopened = await reopen(exported.content);
 
-    expect(reopened.worksheets).toHaveLength(2);
-    expect(reopened.worksheets.every((sheet) => (sheet.getRow(1).values as ExcelJS.CellValue[]).includes("_출처 범위"))).toBe(true);
-    expect(reopened.worksheets.flatMap((sheet) => sheet.getColumn(1).values).filter(Boolean).length).toBeGreaterThan(2);
+    expect(exported.fileName).toBe("worklens-aggregation.xlsx");
+    expect(reopened.worksheets.map((sheet) => sheet.name)).toEqual(["비용", "재고"]);
+    const costSheet = reopened.getWorksheet("비용")!;
+    expect((costSheet.getRow(1).values as ExcelJS.CellValue[]).filter(Boolean)).toEqual(["부서", "비용", "기준일", "출처 파일", "출처 시트", "출처 범위"]);
+    expect(costSheet.getCell("C2").value).toBeInstanceOf(Date);
+    expect(costSheet.getCell("C2").numFmt).toBe("yyyy.mm.dd");
+    expect(costSheet.getCell("B2").value).toBe(300);
+    expect(costSheet.getCell("E2").value).toBe("비용");
+    expect(costSheet.views[0]).toMatchObject({ state: "frozen", ySplit: 1 });
+    expect(costSheet.autoFilter).toBeTruthy();
+    expect(reopened.worksheets.every((sheet) => sheet.getImages().length === 0)).toBe(true);
+    expect(reopened.worksheets.some((sheet) => sheet.name === "이미지" || sheet.name === "첨부 이미지")).toBe(false);
   });
 
-  it("reopens improvement Bank and Backdata profile outputs", async () => {
-    const sourceBytes = await workbookBytes((workbook) => {
-      const sheet = workbook.addWorksheet("개선 Bank");
-      sheet.addRows([
-        ["공장", "구분", "현상 파악", "개선 결과", "진행 현황 등록", "진행 현황 종료"],
-        ["BU", "S", "통로 적치물이 통행을 방해함", "적치 위치를 구획 밖으로 이동함", new Date("2026-08-01"), new Date("2026-08-02")],
-        ["W-H", "Q", "표시가 불명확함", "표시판을 교체함", new Date("2026-08-03"), new Date("2026-08-04")],
-      ]);
-    });
-    const document = await parseDocument({ fileId: "profile", fileName: "profile.xlsx", bytes: sourceBytes });
-    document.media = [{
-      id: "profile-image",
-      kind: "image",
-      mimeType: "image/png",
-      extension: "png",
-      data: new Uint8Array(Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZsXcAAAAASUVORK5CYII=", "base64")),
-      source: { fileId: document.fileId, nodeId: "profile-image", label: "개선 Bank!E2 이미지", sheet: "개선 Bank", row: 2, column: 5, cellRange: "E2" },
-      anchor: { x: 4, y: 1, width: 1, height: 1, unit: "cell" },
-    }];
+  it("carries record images into the generic export and lists unlinked ones", async () => {
+    const document = await documentOf((workbook) => {
+      const sheet = workbook.addWorksheet("점검");
+      sheet.addRows([["구분", "현상", "조치"], ["안전", "통로 적치", "이동"], ["품질", "표시 불명확", "교체"]]);
+      const linked = workbook.addImage({ buffer: PIXEL_PNG as unknown as ExcelJS.Buffer, extension: "png" });
+      sheet.addImage(linked, { tl: { col: 3, row: 1 }, ext: { width: 60, height: 40 } });
+      const loose = workbook.addImage({ buffer: PIXEL_PNG as unknown as ExcelJS.Buffer, extension: "png" });
+      sheet.addImage(loose, { tl: { col: 6, row: 40 }, ext: { width: 60, height: 40 } });
+    }, "images");
     const draft = buildAggregation([document]);
-    const selection = { sheetIds: draft.workbooks[0].sheets.map((sheet) => sheet.id), mappings: draft.mappings };
+    const exported = await aggregationXlsxExport(draft, defaultSelection(draft), [document]);
+    const reopened = await reopen(exported.content);
 
-    const bank = await improvementBankExport(draft, selection, [document]);
-    const reopenedBank = new ExcelJS.Workbook();
-    await reopenedBank.xlsx.load(bank.content as unknown as ExcelJS.Buffer);
-    expect(reopenedBank.getWorksheet("개선 Bank")?.rowCount).toBe(6);
-    expect(reopenedBank.getWorksheet("개선 Bank")?.getImages()).toHaveLength(1);
-    expect(reopenedBank.getWorksheet("개선 Bank")?.getCell("G5").text).toContain("통로 적치물");
+    const records = reopened.getWorksheet("점검")!;
+    expect((records.getRow(1).values as ExcelJS.CellValue[]).filter(Boolean)).toContain("이미지");
+    expect(records.getImages()).toHaveLength(1);
+    const attachments = reopened.getWorksheet("첨부 이미지");
+    expect(attachments?.getImages()).toHaveLength(1);
+    expect(attachments?.getCell("B2").value).toBe("점검");
+  });
 
-    const backdata = improvementBackdataExport(draft, selection, [document]);
-    const reopenedSlides = await parseDocument({ fileId: "profile-ppt", fileName: backdata.fileName, bytes: backdata.content });
-    expect(reopenedSlides.metadata.pageCount).toBe(3);
-    expect(reopenedSlides.media).toHaveLength(1);
-    expect(reopenedSlides.blocks.some((block) => block.type === "paragraph" && block.text.includes("통로 적치물"))).toBe(true);
+  it("merges presentations in the selected order without rebuilding slides", async () => {
+    const first = createPptxSlides([["9월 교육 운영", "담당: 김하나"], ["일정", "09-30"]]);
+    const second = createPptxSlides([["10월 교육 운영", "담당: 박민수"]]);
+    const merged = mergePresentations([
+      { fileId: "deck-1", fileName: "9월.pptx", bytes: first },
+      { fileId: "deck-2", fileName: "10월.pptx", bytes: second },
+    ]);
+
+    expect(merged.fileName).toBe("worklens-aggregation.pptx");
+    expect(merged.slideCount).toBe(3);
+    const reparsed = await parseDocument({ fileId: "merged", fileName: merged.fileName, bytes: merged.content });
+    expect(reparsed.metadata.pageCount).toBe(3);
+    const bySlide = reparsed.blocks.flatMap((block) => block.type === "paragraph"
+      ? [{ slide: block.source.page, text: block.text }]
+      : []);
+    expect(bySlide.filter((entry) => entry.slide === 1).map((entry) => entry.text)).toEqual(["9월 교육 운영", "담당: 김하나"]);
+    expect(bySlide.filter((entry) => entry.slide === 3).map((entry) => entry.text)).toEqual(["10월 교육 운영", "담당: 박민수"]);
+  });
+
+  it("carries layouts, masters, themes and images across decks and leaves notes behind", async () => {
+    const merged = mergePresentations([
+      { fileId: "deck-1", fileName: "1분기.pptx", bytes: createAuthoredPptx(["1분기 실적", "1분기 과제"], PIXEL_PNG) },
+      { fileId: "deck-2", fileName: "2분기.pptx", bytes: createAuthoredPptx(["2분기 실적"], PIXEL_PNG) },
+    ]);
+    const parts = unzipSync(merged.content);
+    const names = Object.keys(parts);
+    const contentTypes = new TextDecoder().decode(parts["[Content_Types].xml"]);
+    const presentation = new TextDecoder().decode(parts["ppt/presentation.xml"]);
+
+    expect(merged.slideCount).toBe(3);
+    expect(merged.droppedNotes).toBe(1);
+    expect(names.filter((name) => /^ppt\/slides\/slide|^ppt\/slides\/wl/u.test(name))).toHaveLength(3);
+    expect(names).toContain("ppt/slideLayouts/wl2_slideLayout1.xml");
+    expect(names).toContain("ppt/slideMasters/wl2_slideMaster1.xml");
+    expect(names).toContain("ppt/theme/wl2_theme1.xml");
+    expect(names).toContain("ppt/media/wl2_image1.png");
+    expect(names.filter((name) => name.includes("notesSlides"))).toEqual(["ppt/notesSlides/notesSlide1.xml"]);
+    expect(contentTypes).toContain('PartName="/ppt/slideLayouts/wl2_slideLayout1.xml"');
+    expect((presentation.match(/<p:sldId\b/gu) ?? [])).toHaveLength(3);
+    expect((presentation.match(/<p:sldMasterId\b/gu) ?? [])).toHaveLength(2);
+
+    const copiedRels = new TextDecoder().decode(parts["ppt/slides/_rels/wl2_slide1.xml.rels"]);
+    expect(copiedRels).toContain("../media/wl2_image1.png");
+    expect(copiedRels).toContain("../slideLayouts/wl2_slideLayout1.xml");
+    expect(copiedRels).not.toContain("notesSlide");
+
+    const reparsed = await parseDocument({ fileId: "merged", fileName: merged.fileName, bytes: merged.content });
+    expect(reparsed.metadata.pageCount).toBe(3);
+    expect(reparsed.media).toHaveLength(3);
+  });
+
+  it("sizes number-formatted columns to what the workbook renders", async () => {
+    const draft = await aggregate((workbook) => {
+      const sheet = workbook.addWorksheet("실적");
+      sheet.addRow(["부서", "금액", "비율"]);
+      sheet.addRow(["운영", 2258000, 0.075]);
+      sheet.getCell("B2").numFmt = '#,##0"원"';
+      sheet.getCell("C2").numFmt = "0.0%";
+      sheet.addRow(["지원", 1680000, 0.05]);
+      sheet.getCell("B3").numFmt = '#,##0"원"';
+      sheet.getCell("C3").numFmt = "0.0%";
+    });
+    const exported = await aggregationXlsxExport(draft, defaultSelection(draft));
+    const sheet = (await reopen(exported.content)).getWorksheet("실적")!;
+
+    // `2,258,000원` needs eleven characters plus the Korean unit; a column
+    // measured on the raw digits renders `########` in Excel.
+    expect(sheet.getColumn(2).width ?? 0).toBeGreaterThanOrEqual(13);
+    expect(sheet.getCell("B2").value).toBe(2258000);
+    expect(sheet.getCell("B2").numFmt).toBe('#,##0"원"');
+    expect(sheet.getCell("C2").numFmt).toBe("0.0%");
   });
 });

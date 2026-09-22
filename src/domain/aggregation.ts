@@ -1,15 +1,21 @@
-import type { SourceRef } from "@/domain/document";
+import type { SourceRef, TableCell } from "@/domain/document";
 import type { ExtractValueType } from "@/domain/extract";
 
 export type AggregationValueType = ExtractValueType | "Boolean" | "List" | "Image";
 export type AggregationSheetRole = "records" | "reference" | "empty" | "review";
 export type AggregationMappingStatus = "confirmed" | "suggested" | "review";
+/** Which single result file the selected inputs produce. */
+export type AggregationOutputFormat = "xlsx" | "pptx" | "mixed" | "none";
 
 export interface AggregationValue {
   displayValue: string;
   value: string | number | boolean | null;
   normalizedValue?: string;
   type: AggregationValueType;
+  /** Semantic cell type from the source parser, kept apart from display text. */
+  cellType?: TableCell["valueType"];
+  /** Original number format, reused so exported values keep their meaning. */
+  numberFormat?: string;
   sources: SourceRef[];
 }
 
@@ -95,8 +101,18 @@ export interface AggregationIssue {
   message: string;
 }
 
+/** Slide inventory for presentation inputs, which merge instead of tabulating. */
+export interface AggregationDeck {
+  fileId: string;
+  fileName: string;
+  slideCount: number;
+}
+
 export interface AggregationDraft {
+  /** The single result file these inputs produce, or why they produce none. */
+  output: AggregationOutputFormat;
   workbooks: AggregationWorkbook[];
+  decks: AggregationDeck[];
   groups: AggregationSchemaGroup[];
   mappings: AggregationFieldMapping[];
   records: AggregationRecord[];
@@ -106,20 +122,4 @@ export interface AggregationDraft {
 export interface AggregationSelection {
   sheetIds: string[];
   mappings: Array<Pick<AggregationFieldMapping, "id" | "targetField" | "sourceFields" | "included">>;
-}
-
-export interface OutputSheetMapping {
-  targetSheet: string;
-  sourceGroup?: string;
-  sourceSelector?: Record<string, string>;
-  fieldMappings: Record<string, string>;
-  purpose: "records" | "summary" | "reference";
-}
-
-export interface AggregationOutputProfile {
-  id: string;
-  label: string;
-  requiredFields: string[];
-  sheetMappings: OutputSheetMapping[];
-  formats: Array<"xlsx" | "pptx">;
 }

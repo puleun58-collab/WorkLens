@@ -44,8 +44,7 @@ export type WorkerRequest =
   | { kind: "value-check"; fileIds: string[] }
   | { kind: "export"; fileIds: string[]; format: ExportFormat }
   | { kind: "aggregate"; fileIds: string[] }
-  | { kind: "aggregate-export"; fileIds: string[]; selection: AggregationSelection }
-  | { kind: "aggregate-profile-export"; fileIds: string[]; selection: AggregationSelection; format: "xlsx" | "pptx" }
+  | { kind: "aggregate-export"; fileIds: string[]; selection: AggregationSelection; format: "xlsx" | "pptx" }
   | { kind: "polish-candidates"; fileIds: string[] }
   /** Deterministic structured extraction; `fields` switches to request mode. */
   | { kind: "extract-structured"; fileIds: string[]; fields?: string[] }
@@ -78,7 +77,6 @@ export interface WorkerResultMap {
   export: ExportedDocument;
   aggregate: AggregationDraft;
   "aggregate-export": ExportedDocument;
-  "aggregate-profile-export": ExportedDocument;
   compare: ComparisonResult;
   "value-check": ValueCheckResult;
   "polish-candidates": PolishCandidateEntry[];

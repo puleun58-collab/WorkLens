@@ -1,7 +1,9 @@
 import type {
+  AggregationDeck,
   AggregationDraft,
   AggregationField,
   AggregationFieldMapping,
+  AggregationOutputFormat,
   AggregationRecord,
   AggregationRegion,
   AggregationSchemaGroup,
@@ -14,8 +16,10 @@ import { classifyValue, normalizeValue } from "@/lib/extract/values";
 const MAX_HEADER_SCAN_ROWS = 24;
 const MIN_RECORD_CELLS = 2;
 const MAX_REGIONS_PER_SHEET = 12;
-const DATE_LIKE = /^\s*(?:\d{2,4}[-./년]\s*)?\d{1,2}[-./월]\s*\d{1,2}/u;
-const PERIOD_LIKE = /(?:\d{2,4}[-./년]\s*)?\d{1,2}[-./월]\s*\d{1,2}\s*(?:~|부터|[-–—])\s*(?:\d{2,4}[-./년]\s*)?\d{1,2}[-./월]\s*\d{1,2}/u;
+/** Values a reader must never see; they mean a cell failed to render, not a value. */
+const UNREADABLE_TEXT = /^(?:\[object\s[^\]]*\]|undefined|null|NaN)$/u;
+const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?/u;
+const LOOSE_DATE = /^(\d{4})[-./](\d{1,2})[-./](\d{1,2})\.?$/u;
 
 const FIELD_ALIASES: Record<string, readonly string[]> = {
   "부서": ["부서", "부서명", "담당부서", "소속", "조직"],
@@ -30,7 +34,27 @@ function fieldKey(value: string): string {
   return value.normalize("NFKC").toLocaleLowerCase("ko-KR").replace(/[\s._/\\:：()[\]{}-]+/gu, "");
 }
 
+const pad = (value: number): string => String(value).padStart(2, "0");
+
+/**
+ * One calendar day has one field name. KPI workbooks label columns with dates
+ * written several ways, and unless they collapse to one canonical label the
+ * same day becomes several fields the user then has to reconcile by hand.
+ */
+function canonicalDateLabel(value: string): string | undefined {
+  const text = value.trim();
+  const iso = ISO_DATE.exec(text);
+  if (iso) {
+    const day = `${iso[1]}.${iso[2]}.${iso[3]}`;
+    return iso[4] ? `${day} ${iso[4]}:${iso[5]}` : day;
+  }
+  const loose = LOOSE_DATE.exec(text);
+  return loose ? `${loose[1]}.${pad(Number(loose[2]))}.${pad(Number(loose[3]))}` : undefined;
+}
+
 function canonicalField(value: string): string {
+  const date = canonicalDateLabel(value);
+  if (date) return date;
   const key = fieldKey(value);
   for (const [canonical, aliases] of Object.entries(FIELD_ALIASES)) {
     if (aliases.some((alias) => fieldKey(alias) === key)) return canonical;
@@ -49,8 +73,14 @@ function columnName(column: number): string {
   return result || "A";
 }
 
+/** Only what the cell actually displays; an unrendered object is no text at all. */
 function cellText(cell: TableCell | undefined): string {
-  return cell?.display.trim() || (cell?.value === null || cell?.value === undefined ? "" : String(cell.value).trim());
+  const display = cell?.display.trim() ?? "";
+  if (display && !UNREADABLE_TEXT.test(display)) return display;
+  const value = cell?.value;
+  if (typeof value === "string") return UNREADABLE_TEXT.test(value.trim()) ? "" : value.trim();
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return "";
 }
 
 function nonEmptyCount(row: readonly TableCell[]): number {
@@ -90,7 +120,7 @@ function headerScore(rows: readonly TableCell[][], rowIndex: number, end: number
   const row = rows[rowIndex] ?? [];
   const labels = row.map(cellText).filter(Boolean);
   if (labels.length < 2) return -1;
-  const textLabels = labels.filter((value) => /[A-Za-z가-힣]/u.test(value) && value.length <= 40).length;
+  const textLabels = labels.filter((value) => /[A-Za-z가-힣]/u.test(value) || canonicalDateLabel(value) !== undefined).length;
   const nextRows = rows.slice(rowIndex + 1, Math.min(end + 1, rowIndex + 6));
   const populated = nextRows.filter((candidate) => nonEmptyCount(candidate) >= MIN_RECORD_CELLS).length;
   if (populated === 0) return -1;
@@ -112,6 +142,13 @@ function detectHeader(rows: readonly TableCell[][], start: number, end: number):
   return { row: best.row, depth };
 }
 
+/** A header is the text a person reads, canonicalised only for dates. */
+function headerLabel(cell: TableCell | undefined): string {
+  const text = cellText(cell);
+  if (!text) return "";
+  return canonicalDateLabel(text) ?? text.replace(/\s+/gu, " ").trim();
+}
+
 function headersFor(rows: readonly TableCell[][], headerRow: number, depth: number): Array<{ column: number; label: string }> {
   const first = rows[headerRow] ?? [];
   const second = depth === 2 ? rows[headerRow + 1] ?? [] : [];
@@ -119,9 +156,9 @@ function headersFor(rows: readonly TableCell[][], headerRow: number, depth: numb
   const headers: Array<{ column: number; label: string }> = [];
   const width = Math.max(first.length, second.length);
   for (let column = 0; column < width; column += 1) {
-    const parent = cellText(first[column]);
+    const parent = headerLabel(first[column]);
     if (parent) carried = parent;
-    const child = cellText(second[column]);
+    const child = headerLabel(second[column]);
     const label = child && carried && fieldKey(child) !== fieldKey(carried) ? `${carried} ${child}` : parent || child;
     if (label) headers.push({ column, label: label.trim() });
   }
@@ -130,9 +167,15 @@ function headersFor(rows: readonly TableCell[][], headerRow: number, depth: numb
 
 function typedField(label: string, cell: TableCell): AggregationField {
   const displayValue = cellText(cell);
-  const inferred = cell.valueType === "date" ? "Date" : classifyValue(displayValue);
-  const normalized = cell.valueType === "date" && typeof cell.value === "string"
-    ? cell.value.slice(0, 10)
+  const isoDate = cell.valueType === "date" && typeof cell.value === "string" ? ISO_DATE.exec(cell.value) : null;
+  // Midnight is how a plain calendar day serializes; only a real time of day
+  // makes the value a date-time.
+  const hasTimeOfDay = Boolean(isoDate?.[4]) && !(isoDate?.[4] === "00" && isoDate?.[5] === "00");
+  const inferred = cell.valueType === "date"
+    ? (hasTimeOfDay ? "DateTime" : "Date")
+    : classifyValue(displayValue);
+  const normalized = isoDate
+    ? (hasTimeOfDay ? `${isoDate[1]}-${isoDate[2]}-${isoDate[3]}T${isoDate[4]}:${isoDate[5]}` : `${isoDate[1]}-${isoDate[2]}-${isoDate[3]}`)
     : normalizeValue(displayValue, inferred);
   return {
     key: fieldKey(label),
@@ -142,6 +185,8 @@ function typedField(label: string, cell: TableCell): AggregationField {
       value: cell.value,
       ...(normalized ? { normalizedValue: normalized } : {}),
       type: inferred,
+      ...(cell.valueType ? { cellType: cell.valueType } : {}),
+      ...(cell.numberFormat ? { numberFormat: cell.numberFormat } : {}),
       sources: [cell.source],
     },
   };
@@ -223,7 +268,6 @@ function workbookSheet(document: NormalizedDocument, sheet: WorkbookSheet): Aggr
   };
 }
 
-
 function safeWorkbookSheet(document: NormalizedDocument, sheet: WorkbookSheet): AggregationSheet {
   try {
     return workbookSheet(document, sheet);
@@ -246,73 +290,43 @@ function safeWorkbookSheet(document: NormalizedDocument, sheet: WorkbookSheet): 
     };
   }
 }
-function slideSheets(document: NormalizedDocument): AggregationSheet[] {
-  const bySlide = new Map<number, typeof document.blocks>();
-  for (const block of document.blocks) {
-    const slide = block.source.locator?.kind === "pptx" ? block.source.locator.slide : undefined;
-    if (!slide) continue;
-    const list = bySlide.get(slide) ?? [];
-    list.push(block);
-    bySlide.set(slide, list);
-  }
-  const shortFrequency = new Map<string, number>();
-  for (const blocks of bySlide.values()) {
-    for (const block of blocks) {
-      if (block.type !== "paragraph") continue;
-      const text = block.text.trim();
-      if (text.length > 0 && text.length <= 24) shortFrequency.set(fieldKey(text), (shortFrequency.get(fieldKey(text)) ?? 0) + 1);
-    }
-  }
-  return [...bySlide.entries()].map(([slide, blocks]) => {
-    const id = `${document.fileId}:slide:${slide}`;
-    const paragraphs = blocks.filter((block) => block.type === "paragraph");
-    const heading = paragraphs.find((block) => block.role === "heading");
-    const body = paragraphs.filter((block) => block !== heading && block.text.trim());
-    const fields: AggregationField[] = [];
-    if (heading) fields.push(typedField("구역", { value: heading.text, display: heading.text, source: heading.source, valueType: "text" }));
-    if (body[0]) fields.push(typedField("제목", { value: body[0].text, display: body[0].text, source: body[0].source, valueType: "text" }));
-    let cursor = 1;
-    if (body[cursor] && (DATE_LIKE.test(body[cursor].text) || PERIOD_LIKE.test(body[cursor].text))) {
-      fields.push(typedField("기간", { value: body[cursor].text, display: body[cursor].text, source: body[cursor].source, valueType: "text" }));
-      cursor += 1;
-    }
-    while (cursor < body.length) {
-      const label = body[cursor];
-      const isRepeatedLabel = (shortFrequency.get(fieldKey(label.text)) ?? 0) >= 2 && label.text.length <= 24;
-      if (!isRepeatedLabel) { cursor += 1; continue; }
-      const values: typeof body = [];
-      cursor += 1;
-      while (cursor < body.length && !((shortFrequency.get(fieldKey(body[cursor].text)) ?? 0) >= 2 && body[cursor].text.length <= 24)) {
-        values.push(body[cursor]);
-        cursor += 1;
-      }
-      const text = values.map((entry) => entry.text.trim()).filter(Boolean).join("\n");
-      if (text) fields.push({
-        key: fieldKey(label.text),
-        label: label.text.trim(),
-        value: { displayValue: text, value: text, type: classifyValue(text), sources: values.map((entry) => entry.source) },
-      });
-    }
-    const media = (document.media ?? []).filter((item) => item.source.page === slide).map((item) => ({ id: item.id, source: item.source }));
-    const source = heading?.source ?? body[0]?.source ?? blocks[0]?.source;
-    const records: AggregationRecord[] = source && fields.length >= 2 ? [{ id: `${id}:record:1`, documentId: document.id, sheetId: id, regionId: `${id}:region:1`, fields, media, source }] : [];
-    const regions: AggregationRegion[] = source && records.length ? [{ id: `${id}:region:1`, headers: fields.map((field) => field.label), records, source, status: "ready" }] : [];
-    return { id, documentId: document.id, fileId: document.fileId, fileName: document.metadata.fileName, name: `Slide ${slide}`, index: slide, visibility: "visible" as const, role: regions.length ? "records" as const : "reference" as const, selectedByDefault: regions.length > 0, regions, media, source: source ?? { fileId: document.fileId, nodeId: id, label: `Slide ${slide}`, page: slide }, ...(regions.length ? {} : { reason: "반복 필드 구조를 확정하지 못했습니다." }) };
-  });
-}
 
 function documentWorkbook(document: NormalizedDocument): AggregationWorkbook {
   const sheets = document.kind === "xlsx" && document.workbookSheets
     ? document.workbookSheets.map((sheet) => safeWorkbookSheet(document, sheet))
-    : document.kind === "pptx"
-      ? slideSheets(document)
-      : document.blocks.filter((block): block is TableBlock => block.type === "table").map((table, index) =>
-        safeWorkbookSheet(document, { index: index + 1, name: table.source.sheet ?? `Table ${index + 1}`, visibility: "visible", table }));
+    : document.blocks.filter((block): block is TableBlock => block.type === "table").map((table, index) =>
+      safeWorkbookSheet(document, { index: index + 1, name: table.source.sheet ?? `Table ${index + 1}`, visibility: "visible", table }));
   return { id: `aggregation:${document.id}`, fileId: document.fileId, fileName: document.metadata.fileName, kind: document.kind, sheets };
 }
 
+function deckOf(document: NormalizedDocument): AggregationDeck {
+  const slides = new Set(document.blocks.flatMap((block) =>
+    block.source.locator?.kind === "pptx" ? [block.source.locator.slide] : []));
+  return {
+    fileId: document.fileId,
+    fileName: document.metadata.fileName,
+    slideCount: document.metadata.pageCount ?? slides.size,
+  };
+}
+
+/**
+ * A result sheet is named after the data it holds. The shared source sheet name
+ * is the only name the reader already recognises, so it wins over any label the
+ * aggregation could invent.
+ */
+function groupName(sheets: readonly AggregationSheet[], ordinal: number): string {
+  const counts = new Map<string, number>();
+  for (const sheet of sheets) {
+    const name = sheet.name.trim();
+    if (name) counts.set(name, (counts.get(name) ?? 0) + 1);
+  }
+  let best: { name: string; count: number } | undefined;
+  for (const [name, count] of counts) if (!best || count > best.count) best = { name, count };
+  return best?.name ?? `취합 결과 ${ordinal}`;
+}
+
 function schemaGroups(workbooks: readonly AggregationWorkbook[]): AggregationSchemaGroup[] {
-  const groups: AggregationSchemaGroup[] = [];
+  const groups: Array<AggregationSchemaGroup & { sheets: AggregationSheet[] }> = [];
   for (const sheet of workbooks.flatMap((workbook) => workbook.sheets).filter((entry) => entry.regions.length > 0)) {
     const fields = [...new Set(sheet.regions.flatMap((region) => region.headers.map(canonicalField)))];
     const keySet = new Set(fields.map(fieldKey));
@@ -322,17 +336,22 @@ function schemaGroups(workbooks: readonly AggregationWorkbook[]): AggregationSch
       return shared / Math.max(keySet.size, candidateSet.size) >= 0.7;
     });
     if (!group) {
-      group = { id: `group:${groups.length + 1}`, name: `취합결과_${groups.length + 1}`, sheetIds: [], fields, recordCount: 0 };
+      group = { id: `group:${groups.length + 1}`, name: "", sheetIds: [], fields, recordCount: 0, sheets: [] };
       groups.push(group);
     }
     group.sheetIds.push(sheet.id);
+    group.sheets.push(sheet);
     group.recordCount += sheet.regions.reduce((sum, region) => sum + region.records.length, 0);
     for (const field of fields) if (!group.fields.some((entry) => fieldKey(entry) === fieldKey(field))) group.fields.push(field);
   }
-  if (groups.length === 1) groups[0].name = "취합결과";
-  return groups;
+  return groups.map(({ sheets, ...group }, index) => ({ ...group, name: groupName(sheets, index + 1) }));
 }
 
+/**
+ * Identical headers — including the same calendar day written differently —
+ * are settled automatically. Only a mapping that merges genuinely different
+ * wording is left for the user to confirm.
+ */
 function fieldMappings(workbooks: readonly AggregationWorkbook[]): AggregationFieldMapping[] {
   const mappings: AggregationFieldMapping[] = [];
   for (const sheet of workbooks.flatMap((workbook) => workbook.sheets)) {
@@ -340,7 +359,7 @@ function fieldMappings(workbooks: readonly AggregationWorkbook[]): AggregationFi
       const target = canonicalField(label);
       let mapping = mappings.find((entry) => fieldKey(entry.targetField) === fieldKey(target));
       if (!mapping) {
-        mapping = { id: `mapping:${mappings.length + 1}`, targetField: target, sourceFields: [], status: fieldKey(target) === fieldKey(label) ? "confirmed" : "suggested", included: true };
+        mapping = { id: `mapping:${mappings.length + 1}`, targetField: target, sourceFields: [], status: "confirmed", included: true };
         mappings.push(mapping);
       }
       if (!mapping.sourceFields.some((entry) => entry.sheetId === sheet.id && fieldKey(entry.field) === fieldKey(label))) mapping.sourceFields.push({ sheetId: sheet.id, field: label });
@@ -362,10 +381,25 @@ function markDuplicates(records: AggregationRecord[]): void {
   }
 }
 
+function outputFormat(workbooks: readonly AggregationWorkbook[], decks: readonly AggregationDeck[]): AggregationOutputFormat {
+  if (workbooks.length > 0 && decks.length > 0) return "mixed";
+  if (decks.length > 0) return "pptx";
+  return workbooks.length > 0 ? "xlsx" : "none";
+}
+
 export function buildAggregation(documents: readonly NormalizedDocument[]): AggregationDraft {
-  const workbooks = documents.map(documentWorkbook);
+  const decks = documents.filter((document) => document.kind === "pptx").map(deckOf);
+  const workbooks = documents.filter((document) => document.kind !== "pptx").map(documentWorkbook);
   const records = workbooks.flatMap((workbook) => workbook.sheets.flatMap((sheet) => sheet.regions.flatMap((region) => region.records)));
   markDuplicates(records);
   const issues = workbooks.flatMap((workbook) => workbook.sheets.filter((sheet) => sheet.role === "review" || sheet.role === "reference").map((sheet) => ({ scope: "sheet" as const, id: sheet.id, fileName: workbook.fileName, sheetName: sheet.name, message: sheet.reason ?? "확인이 필요한 구조입니다." })));
-  return { workbooks, groups: schemaGroups(workbooks), mappings: fieldMappings(workbooks), records, issues };
+  return {
+    output: outputFormat(workbooks, decks),
+    workbooks,
+    decks,
+    groups: schemaGroups(workbooks),
+    mappings: fieldMappings(workbooks),
+    records,
+    issues,
+  };
 }

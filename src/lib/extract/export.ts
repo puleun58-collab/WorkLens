@@ -2,6 +2,7 @@ import ExcelJS from "exceljs";
 import type { SourceRef } from "@/domain/document";
 import type { DocumentExport } from "@/domain/operations";
 import type { ExtractedField, StructuredExtract } from "@/domain/extract";
+import { csvField } from "@/lib/csv";
 import { formatWorksheet } from "@/lib/xlsx-format";
 
 /**
@@ -16,12 +17,6 @@ import { formatWorksheet } from "@/lib/xlsx-format";
 const CSV_MIME_TYPE = "text/csv; charset=utf-8";
 const XLSX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
-function csvField(value: string | number | null): string {
-  let text = value === null ? "" : String(value);
-  // Spreadsheets evaluate a leading =, +, - or @ as a formula.
-  if (/^\s*[=+\-@]/.test(text)) text = `'${text}`;
-  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-}
 
 /** Human-readable locator, the same wording the result rows show. */
 export function sourceText(source: SourceRef): string {
