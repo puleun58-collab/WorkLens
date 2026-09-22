@@ -167,7 +167,7 @@ function taskInstruction(request: AiRequest): string {
       // Nothing was asked for, so nothing is narrowed: the default summary
       // covers the document. A five-line summary is a format the user picks.
       const budget = mode === "lines"
-        ? "한 줄에 핵심 하나씩 최대 5개 claim으로 제한하세요."
+        ? "한 줄에 핵심 하나씩 최대 5개 claim으로 제한하되, 근거가 뒷받침하는 서로 다른 핵심이 더 있으면 5개를 채우세요."
         : "서로 다른 핵심 주제 수와 근거가 뒷받침하는 만큼만 최대 8개 claim으로 정리하고, 개수를 채우려고 항목을 만들지 마세요.";
       const base = [
         `문서 전체에서 목적·주제, 정의, 핵심 규칙·기준, 주요 프로세스·흐름, 중요한 조건·예외, 주요 변화·전환, 중요한 수치, 결론·주의사항, 원문에 명시된 후속 조치 순으로 중요도를 판단해 ${budget}`,
