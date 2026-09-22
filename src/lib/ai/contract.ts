@@ -1,4 +1,4 @@
-import type { AiConfidence, AiOperation, DirectProposition } from "@/domain/ai";
+import type { AiConfidence, AiOperation, BriefClaimPresentation, DirectProposition } from "@/domain/ai";
 import type { SourceRef } from "@/domain/document";
 
 export const AI_SCHEMA_ID = "worklens.grounded-claims.v1";
@@ -32,6 +32,7 @@ export interface AiProviderInferenceClaim {
   text: string;
   sourceTokens: string[];
   confidence?: AiConfidence;
+  presentation?: BriefClaimPresentation;
 }
 
 export type AiProviderClaim = AiProviderDirectClaim | AiProviderInferenceClaim;

@@ -47,10 +47,18 @@ export interface InferenceClaim {
   text: string;
   /** Model-reported certainty. Absent means the caller must treat it as low. */
   confidence?: AiConfidence;
+  /** Brief-only display hints. They never contribute facts or evidence. */
+  presentation?: BriefClaimPresentation;
   evidence: [EvidenceBinding, ...EvidenceBinding[]];
 }
 
 export type GroundedClaim = DirectFact | InferenceClaim;
+export type BriefPresentationMode = "bullets" | "lines" | "report" | "sections" | "actions";
+export type BriefClaimRole = "summary" | "action";
+export interface BriefClaimPresentation {
+  section?: string;
+  role: BriefClaimRole;
+}
 export type AiClaim = GroundedClaim;
 export interface ResultWarning { code: string; message: string; }
 export interface GroundedResult { claims: GroundedClaim[]; warnings: ResultWarning[]; }
@@ -63,7 +71,12 @@ export type AiRequest = AnalyzeRequest | AskRequest | BriefRequest | SemanticChe
 
 export interface AnalyzeResult extends GroundedResult { operation: "analyze"; rejectedClaimCount: number; }
 export interface AskResult extends GroundedResult { operation: "ask"; answer: string; rejectedClaimCount: number; }
-export interface BriefResult extends GroundedResult { operation: "brief"; brief: string; rejectedClaimCount: number; }
+export interface BriefResult extends GroundedResult {
+  operation: "brief";
+  brief: string;
+  presentation: { mode: BriefPresentationMode };
+  rejectedClaimCount: number;
+}
 export interface SemanticCheckResult extends GroundedResult { operation: "semantic-check"; findings: GroundedClaim[]; rejectedClaimCount: number; }
 export type AiAvailableResult = AnalyzeResult | AskResult | BriefResult | SemanticCheckResult;
 

@@ -116,27 +116,18 @@ test("uploads XLSX files, compares them and shows source evidence", async ({ pag
   await page.getByRole("button", { name: "비교", exact: true }).click();
   await expect(page.getByText("두 파일의 추가·삭제·변경된 내용을 비교합니다.", { exact: true })).toBeVisible();
   await expect(page.getByText("첫 번째로 선택한 파일이 기준 파일입니다.", { exact: true })).toHaveCount(0);
-  const controlDirection = page.getByLabel("현재 비교 방향");
-  await expect(controlDirection).toContainText("기준");
-  await expect(controlDirection).toContainText("운임현황_v1.xlsx");
-  await expect(controlDirection).toContainText("대상");
-  await expect(controlDirection).toContainText("운임현황_v2.xlsx");
-  const swap = controlDirection.getByRole("button", { name: "기준/대상 변경" });
+  await expect(page.getByLabel("현재 비교 방향")).toHaveCount(0);
+  const swap = page.getByRole("button", { name: "기준/대상 변경" });
   await expect(swap).toBeVisible();
-  expect(await controlDirection.evaluate((element) => getComputedStyle(element).flexWrap)).toBe("nowrap");
-  expect(await controlDirection.locator(".compare-direction-file").evaluateAll((elements) =>
-    elements.map((element) => getComputedStyle(element).display))).toEqual(["flex", "flex"]);
+  await expect(page.getByText("기준 운임현황_v1.xlsx", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("대상 운임현황_v2.xlsx", { exact: true })).toHaveCount(0);
   await swap.click();
   await expect(fileRow(page, files.v1).locator(".compare-selection-role")).toHaveText("2 · 대상 파일");
   await expect(fileRow(page, files.v2).locator(".compare-selection-role")).toHaveText("1 · 기준 파일");
-  await expect(controlDirection.locator(".compare-direction-file").nth(0)).toContainText("운임현황_v2.xlsx");
-  await expect(controlDirection.locator(".compare-direction-file").nth(1)).toContainText("운임현황_v1.xlsx");
   await expect(page.locator(".comparison-panel")).toHaveCount(0);
   await swap.click();
   await expect(fileRow(page, files.v1).locator(".compare-selection-role")).toHaveText("1 · 기준 파일");
   await expect(fileRow(page, files.v2).locator(".compare-selection-role")).toHaveText("2 · 대상 파일");
-  await expect(controlDirection.locator(".compare-direction-file").nth(0)).toContainText("운임현황_v1.xlsx");
-  await expect(controlDirection.locator(".compare-direction-file").nth(1)).toContainText("운임현황_v2.xlsx");
   await page.getByRole("button", { name: "비교 실행" }).click();
 
   const panel = page.locator(".comparison-panel");
@@ -154,7 +145,7 @@ test("uploads XLSX files, compares them and shows source evidence", async ({ pag
     "rgb(255, 255, 255)",
     "rgb(255, 255, 255)",
   ]);
-  expect(await panel.locator(".change-head").evaluate((element) => getComputedStyle(element).backgroundColor)).toBe("rgb(247, 248, 250)");
+  expect(await panel.locator(".change-head").evaluate((element) => getComputedStyle(element).backgroundColor)).toBe("rgb(241, 244, 247)");
   const csvDownload = page.waitForEvent("download");
   await panel.getByRole("button", { name: "CSV 다운로드" }).click();
   expect((await csvDownload).suggestedFilename()).toBe("worklens-version-compare.csv");
@@ -186,8 +177,6 @@ test("uploads XLSX files, compares them and shows source evidence", async ({ pag
   await expect(panel).toHaveCount(0);
   await expect(fileRow(page, files.v1).locator(".compare-selection-role")).toHaveText("2 · 대상 파일");
   await expect(fileRow(page, files.v2).locator(".compare-selection-role")).toHaveText("1 · 기준 파일");
-  await expect(controlDirection.locator(".compare-direction-file").nth(0)).toContainText("운임현황_v2.xlsx");
-  await expect(controlDirection.locator(".compare-direction-file").nth(1)).toContainText("운임현황_v1.xlsx");
   await page.getByRole("button", { name: "비교 실행" }).click();
   const reversedMap = page.locator(".comparison-file-map");
   await expect(reversedMap.locator("> div").nth(0)).toContainText("운임현황_v2.xlsx");
@@ -195,7 +184,7 @@ test("uploads XLSX files, compares them and shows source evidence", async ({ pag
   await page.screenshot({ path: "artifacts/compare-evidence.png", fullPage: true });
 });
 
-test("shows comparison direction only for exactly two version files", async ({ page }) => {
+test("shows the swap action only for exactly two version files", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "비교", exact: true }).click();
   await expect(page.getByLabel("현재 비교 방향")).toHaveCount(0);
@@ -203,29 +192,22 @@ test("shows comparison direction only for exactly two version files", async ({ p
 
   await upload(page, files.longV1);
   await page.getByLabel(`${path.basename(files.longV1)} 선택`).check();
-  await expect(page.getByLabel("현재 비교 방향")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "기준/대상 변경" })).toHaveCount(0);
 
   await upload(page, files.v2);
   await page.getByLabel("운임현황_v2.xlsx 선택").check();
-  const direction = page.getByLabel("현재 비교 방향");
-  await expect(direction).toBeVisible();
-  const baseName = direction.locator(".compare-direction-file strong").nth(0);
-  await expect(baseName).toHaveAttribute("title", path.basename(files.longV1));
-  await expect(direction.locator(".compare-direction-file strong").nth(1)).toHaveAttribute("title", "운임현황_v2.xlsx");
-  expect(await direction.evaluate((element) => getComputedStyle(element).flexWrap)).toBe("nowrap");
-  expect(await direction.locator(".compare-direction-file").evaluateAll((elements) =>
-    elements.map((element) => getComputedStyle(element).display))).toEqual(["flex", "flex"]);
+  const swap = page.getByRole("button", { name: "기준/대상 변경" });
+  await expect(swap).toBeVisible();
+  await expect(page.getByLabel("현재 비교 방향")).toHaveCount(0);
 
   await page.getByRole("radio", { name: "값 일치 확인" }).check();
-  await expect(direction).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "기준/대상 변경" })).toHaveCount(0);
+  await expect(swap).toHaveCount(0);
   await expect(page.getByText("여러 파일의 동일 항목과 값 차이를 확인합니다.", { exact: true })).toBeVisible();
 
   await page.getByRole("radio", { name: "버전 비교" }).check();
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(page.getByLabel("현재 비교 방향")).toBeVisible();
-  expect(await page.getByLabel("현재 비교 방향").locator(".compare-direction-file").evaluateAll((elements) =>
-    elements.map((element) => getComputedStyle(element).display))).toEqual(["grid", "grid"]);
+  await expect(page.getByRole("button", { name: "기준/대상 변경" })).toBeVisible();
+  expect(await page.locator(".compare-mode-row").evaluate((element) => getComputedStyle(element).flexWrap)).toBe("wrap");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 });
 
@@ -406,7 +388,8 @@ test("checks shared values locally, keeps evidence, and exports both formats", a
   await expect(panel.locator(".check-summary-line")).toContainText("비교 항목 3");
   await expect(panel.locator(".check-summary-line")).toContainText("값 차이 1");
   await expect(panel.locator(".check-summary-line")).toContainText("일치 2");
-  expect(await panel.locator(".value-check-matrix-head").evaluate((element) => getComputedStyle(element).backgroundColor)).toBe("rgb(247, 248, 250)");
+  expect(await panel.locator(".value-check-matrix-head").evaluate((element) => getComputedStyle(element).backgroundColor)).toBe("rgb(241, 244, 247)");
+  expect(await panel.locator(".value-check-matrix-row").first().evaluate((element) => getComputedStyle(element).backgroundColor)).toBe("rgb(255, 255, 255)");
   const different = panel.getByTestId("value-check-group").filter({ hasText: "목표주가" });
   await expect(different).toContainText("64,550원");
   await expect(different).toContainText("62,000원");
@@ -1382,7 +1365,7 @@ test("applies Brief instructions without narrowing evidence, copies text, and op
   expect(requests[1].items.some((item) => item.text.includes("목표주가"))).toBe(true);
   expect(requests[1].items.some((item) => item.text.includes("비용"))).toBe(true);
   await expect(panel.getByRole("heading", { name: "핵심 요약", exact: true })).toBeVisible();
-  await expect(panel.locator(".brief-body > p")).toHaveCount(1);
+  await expect(panel.locator(".brief-body .brief-lines > p")).toHaveCount(1);
   const copy = panel.getByRole("button", { name: "요약 복사" });
   await expect(copy).toHaveClass(/result-copy-action/);
   await copy.click();
@@ -1409,6 +1392,7 @@ test("applies Brief instructions without narrowing evidence, copies text, and op
   expect(requests[3].summaryInstruction).toBe("보고서 형식");
   expect(requests[3].items.some((item) => item.text.includes("시가총액"))).toBe(true);
   expect(requests[3].items.some((item) => item.text.includes("비용"))).toBe(true);
+  await expect(panel.locator(".brief-body .brief-report section h3")).toHaveCount(1);
   await expect(page.locator(".notice.error")).toHaveCount(0);
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(panel).toBeVisible();
@@ -1668,7 +1652,7 @@ test("keeps empty upload actions singular and restores header actions after uplo
   const dropzone = page.locator(".dropzone");
 
   await expect(page.locator(".rail-group-label")).toHaveText("WORKSPACE");
-  await expect(page.locator(".rail-list .rail-item span")).toHaveText(["분석", "질문", "비교", "검수", "윤문", "추출", "요약"]);
+  await expect(page.locator(".rail-list .rail-item span")).toHaveText(["분석", "질문", "비교", "검수", "윤문", "추출", "취합", "요약"]);
   await expect(context.locator(".context-files")).toContainText("작업 파일");
   await expect(context.locator(".context-counts")).toHaveText("0개");
   await expect(context).not.toContainText("선택 0개");
@@ -1789,6 +1773,7 @@ test("uses task-focused labels and concise execution buttons", async ({ page }) 
     ["검수", "문서 검수"],
     ["윤문", "문서 윤문"],
     ["추출", "정보 추출"],
+    ["취합", "문서 취합"],
     ["요약", "요약"],
   ] as const;
   await expect(page.locator(".rail-list .rail-item span")).toHaveText(labels.map(([label]) => label));

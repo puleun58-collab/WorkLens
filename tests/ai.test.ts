@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { NormalizedDocument } from "@/domain/document";
 import { AI_SCHEMA_ID, type AiProviderCompletion } from "@/lib/ai/contract";
 import { buildEvidenceNodes, groundAiResult, groundProviderCompletion } from "@/lib/ai/grounding";
+import { briefPresentationMode, briefScope } from "@/lib/ai/brief";
 import {
   MAX_EVIDENCE_CHARS,
   MAX_EVIDENCE_ITEMS,
@@ -90,6 +91,15 @@ describe("server AI prompt boundary", () => {
     expect(instructed).toContain("검색 키워드로 취급하거나 근거를 임의로 좁히지 말고");
     expect(broad).not.toContain("[사용자 요약 지시사항]");
     expect(broad).toContain("문서 전체에서");
+  });
+
+  it("separates summary presentation modes from explicit evidence scope", () => {
+    expect(briefPresentationMode("핵심만 5줄")).toBe("lines");
+    expect(briefPresentationMode("보고서 형식")).toBe("report");
+    expect(briefPresentationMode("항목별 정리")).toBe("sections");
+    expect(briefPresentationMode("결론과 액션 아이템 중심")).toBe("actions");
+    expect(briefScope("임원 보고용으로 핵심만 5줄")).toEqual({});
+    expect(briefScope("3페이지 이후 위험요소 관련 내용만 요약")).toEqual({ minimumPage: 3, focus: "위험요소" });
   });
 
   it("limits Analyze enrichment to grounded interpretation instead of restating extracted values", () => {

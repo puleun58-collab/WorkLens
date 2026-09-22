@@ -1,4 +1,5 @@
 import type { AiAvailableResult, AiRequest } from "@/domain/ai";
+import type { AggregationDraft, AggregationSelection } from "@/domain/aggregation";
 import type { ComparisonResult } from "@/domain/compare";
 import type { DocumentMetadata, FileKind, SourceRef } from "@/domain/document";
 import type { FileExtraction, StructuredExtract } from "@/domain/extract";
@@ -42,6 +43,9 @@ export type WorkerRequest =
   | { kind: "compare"; baseFileId: string; targetFileId: string }
   | { kind: "value-check"; fileIds: string[] }
   | { kind: "export"; fileIds: string[]; format: ExportFormat }
+  | { kind: "aggregate"; fileIds: string[] }
+  | { kind: "aggregate-export"; fileIds: string[]; selection: AggregationSelection }
+  | { kind: "aggregate-profile-export"; fileIds: string[]; selection: AggregationSelection; format: "xlsx" | "pptx" }
   | { kind: "polish-candidates"; fileIds: string[] }
   /** Deterministic structured extraction; `fields` switches to request mode. */
   | { kind: "extract-structured"; fileIds: string[]; fields?: string[] }
@@ -73,6 +77,9 @@ export interface WorkerResultMap {
   check: CheckEntry[];
   extract: ExtractEntry[];
   export: ExportedDocument;
+  aggregate: AggregationDraft;
+  "aggregate-export": ExportedDocument;
+  "aggregate-profile-export": ExportedDocument;
   compare: ComparisonResult;
   "value-check": ValueCheckResult;
   "polish-candidates": PolishCandidateEntry[];

@@ -1,11 +1,12 @@
 import ExcelJS from "exceljs";
 
 import type {
+  DocumentMedia,
   DocumentMetadata,
   NormalizedDocument,
   SourceRef,
   TableCell,
-  TableBlock,
+  WorkbookSheet,
 } from "@/domain/document";
 
 const malformedFileError = (): Error =>
@@ -60,6 +61,26 @@ const scalarValue = (value: unknown): string | number | boolean | null => {
   return null;
 };
 
+const imageMimeType = (extension: string): string => {
+  switch (extension.toLowerCase()) {
+    case "png": return "image/png";
+    case "jpg":
+    case "jpeg": return "image/jpeg";
+    case "gif": return "image/gif";
+    case "svg": return "image/svg+xml";
+    default: return "application/octet-stream";
+  }
+};
+
+const cellValueType = (cell: ExcelJS.Cell): TableCell["valueType"] => {
+  if (cell.type === ExcelJS.ValueType.Formula) return "formula";
+  if (cell.value instanceof Date) return "date";
+  if (typeof cell.value === "number") return "number";
+  if (typeof cell.value === "boolean") return "boolean";
+  if (cell.value === null || cell.value === undefined || cell.text === "") return "blank";
+  return "text";
+};
+
 export const parseXlsx = async (input: {
   fileId: string;
   fileName: string;
@@ -83,9 +104,7 @@ export const parseXlsx = async (input: {
       warnings.add("XLSX_HIDDEN_SHEET_OMITTED");
     }
 
-    const blocks: TableBlock[] = workbook.worksheets
-      .filter((worksheet) => worksheet.state !== "hidden" && worksheet.state !== "veryHidden")
-      .map(
+    const workbookSheets: WorkbookSheet[] = workbook.worksheets.map(
       (worksheet, sheetIndex) => {
         const tableId = `xlsx:${sheetIndex + 1}:table`;
         const tableSource: SourceRef = {
@@ -127,6 +146,7 @@ export const parseXlsx = async (input: {
             const address = cellAddress(column, row);
             const merge = mergedCells.get(address);
             const cell = worksheet.getCell(row, column);
+            const isMergedChild = merge !== undefined && !merge.isAnchor;
             const source: SourceRef = {
               fileId: input.fileId,
               nodeId: `xlsx:${sheetIndex + 1}:r${row}:c${column}`,
@@ -137,12 +157,21 @@ export const parseXlsx = async (input: {
               column,
               quote: cell.text,
             };
-            const isMergedChild = merge !== undefined && !merge.isAnchor;
-            if (cell.type === ExcelJS.ValueType.Formula) warnings.add("XLSX_FORMULA_VALUE_ONLY");
+            const formula = cell.type === ExcelJS.ValueType.Formula
+              && typeof cell.value === "object"
+              && cell.value !== null
+              && "formula" in cell.value
+              && typeof cell.value.formula === "string"
+              ? cell.value.formula
+              : undefined;
+            if (formula) warnings.add("XLSX_FORMULA_VALUE_ONLY");
             const tableCell: TableCell = {
               value: isMergedChild ? null : scalarValue(cell.value),
               display: isMergedChild ? "" : cell.text,
               source,
+              valueType: isMergedChild ? "blank" : cellValueType(cell),
+              ...(formula ? { formula } : {}),
+              ...(cell.numFmt ? { numberFormat: cell.numFmt } : {}),
             };
             if (merge?.isAnchor) {
               tableCell.rowSpan = merge.rowSpan;
@@ -152,9 +181,53 @@ export const parseXlsx = async (input: {
           }
           rows.push(cells);
         }
-        return { type: "table", id: tableId, source: tableSource, rows };
+        const table = { type: "table" as const, id: tableId, source: tableSource, rows };
+        return { index: sheetIndex + 1, name: worksheet.name, visibility: worksheet.state, table };
       },
     );
+    const blocks = workbookSheets
+      .filter((sheet) => sheet.visibility === "visible")
+      .map((sheet) => sheet.table);
+
+    const media: DocumentMedia[] = [];
+    for (const sheet of workbookSheets) {
+      const worksheet = workbook.worksheets[sheet.index - 1];
+      worksheet.getImages().forEach((placement, placementIndex) => {
+        const image = workbook.getImage(Number(placement.imageId));
+        if (!image?.buffer || !image.extension) return;
+        const startColumn = Math.floor(placement.range.tl.nativeCol) + 1;
+        const startRow = Math.floor(placement.range.tl.nativeRow) + 1;
+        const bottomRight = placement.range.br;
+        const endColumn = bottomRight ? Math.max(startColumn, Math.floor(bottomRight.nativeCol) + 1) : startColumn;
+        const endRow = bottomRight ? Math.max(startRow, Math.floor(bottomRight.nativeRow) + 1) : startRow;
+        const range = `${cellAddress(startColumn, startRow)}:${cellAddress(endColumn, endRow)}`;
+        const id = `xlsx:${sheet.index}:image:${placementIndex + 1}`;
+        media.push({
+          id,
+          kind: "image",
+          mimeType: imageMimeType(image.extension),
+          extension: image.extension,
+          data: new Uint8Array(image.buffer),
+          source: {
+            fileId: input.fileId,
+            nodeId: id,
+            label: `${sheet.name}!${range} 이미지`,
+            sheet: sheet.name,
+            cellRange: range,
+            row: startRow,
+            column: startColumn,
+            quote: "",
+          },
+          anchor: {
+            x: placement.range.tl.nativeCol,
+            y: placement.range.tl.nativeRow,
+            width: bottomRight ? bottomRight.nativeCol - placement.range.tl.nativeCol : 1,
+            height: bottomRight ? bottomRight.nativeRow - placement.range.tl.nativeRow : 1,
+            unit: "cell",
+          },
+        });
+      });
+    }
 
     return {
       id: `document:${input.fileId}`,
@@ -162,6 +235,8 @@ export const parseXlsx = async (input: {
       kind: "xlsx",
       metadata,
       blocks,
+      media,
+      workbookSheets,
       warnings: [...warnings],
     };
   } catch {

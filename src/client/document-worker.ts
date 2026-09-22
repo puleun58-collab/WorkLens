@@ -1,6 +1,10 @@
 /// <reference lib="webworker" />
 import "./worker-globals";
 import { buildComparison } from "@/domain/compare";
+import { buildAggregation } from "@/lib/aggregation/engine";
+import { aggregationXlsxExport } from "@/lib/aggregation/export";
+import { improvementBankExport } from "@/lib/aggregation/improvement-export";
+import { improvementBackdataExport } from "@/lib/aggregation/pptx-export";
 import { buildValueCheck } from "@/domain/value-check";
 import type { NormalizedDocument, SourceRef } from "@/domain/document";
 import { analyzeDocument, checkDocument, extractDocument } from "@/lib/deterministic";
@@ -124,6 +128,21 @@ async function handle(request: WorkerRequest): Promise<unknown> {
       const files = requireDocuments(request.fileIds).map((entry) =>
         autoExtract(entry.document, { id: entry.file.id, name: entry.file.name }));
       return buildValueCheck(files);
+    }
+    case "aggregate":
+      return buildAggregation(requireDocuments(request.fileIds).map((entry) => entry.document));
+    case "aggregate-export": {
+      const draft = buildAggregation(requireDocuments(request.fileIds).map((entry) => entry.document));
+      const exported = await aggregationXlsxExport(draft, request.selection);
+      return { fileName: exported.fileName, mimeType: exported.mimeType, bytes: exported.content };
+    }
+    case "aggregate-profile-export": {
+      const documents = requireDocuments(request.fileIds).map((entry) => entry.document);
+      const draft = buildAggregation(documents);
+      const exported = request.format === "xlsx"
+        ? await improvementBankExport(draft, request.selection, documents)
+        : improvementBackdataExport(draft, request.selection, documents);
+      return { fileName: exported.fileName, mimeType: exported.mimeType, bytes: exported.content };
     }
     case "export": {
       const selected = requireDocuments(request.fileIds);

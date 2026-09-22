@@ -4,6 +4,7 @@ import { SaxesParser } from "saxes";
 
 import type {
   DocumentBlock,
+  DocumentMedia,
   NormalizedDocument,
   SourceRef,
   TableCell,
@@ -19,7 +20,10 @@ import { FORMAT_INPUT_LIMITS, StructureLimitError } from "./policy";
 const MAX_ZIP_ENTRIES = 2_000;
 const MAX_ENTRY_BYTES = 5 * 1024 * 1024;
 const MAX_TOTAL_UNCOMPRESSED_BYTES = 30 * 1024 * 1024;
-const isReadablePart = (name: string): boolean => name.endsWith(".xml") || name.endsWith(".rels");
+const MAX_TOTAL_MEDIA_BYTES = 200 * 1024 * 1024;
+const MAX_MEDIA_BYTES = 25 * 1024 * 1024;
+const isXmlPart = (name: string): boolean => name.endsWith(".xml") || name.endsWith(".rels");
+const isMediaPart = (name: string): boolean => name.startsWith("ppt/media/");
 
 const malformedFileError = (): Error =>
   new Error("파일을 읽을 수 없습니다. 지원되는 정상 파일인지 확인해 주세요.");
@@ -50,6 +54,7 @@ const unzip = (input: Uint8Array): Map<string, Uint8Array> => {
   const files = new Map<string, Uint8Array>();
   let offset = centralOffset;
   let totalSize = 0;
+  let totalMediaSize = 0;
   for (let index = 0; index < count; index += 1) {
     if (uint32(input, offset) !== 0x02014b50) throw malformedFileError();
     const flags = uint16(input, offset + 8);
@@ -67,14 +72,18 @@ const unzip = (input: Uint8Array): Map<string, Uint8Array> => {
     if (uint32(input, localOffset) !== 0x04034b50) throw malformedFileError();
     const dataOffset = localOffset + 30 + uint16(input, localOffset + 26) + uint16(input, localOffset + 28);
     if (dataOffset + compressedSize > input.byteLength) throw malformedFileError();
-    // Slide media is never read, so it is walked past instead of inflated: a
-    // picture-heavy deck costs no expansion budget.
-    if (isReadablePart(name)) {
+    const compressed = input.subarray(dataOffset, dataOffset + compressedSize);
+    if (isXmlPart(name)) {
       if (uncompressedSize > MAX_ENTRY_BYTES || totalSize + uncompressedSize > MAX_TOTAL_UNCOMPRESSED_BYTES) throw structureLimitError();
-      const compressed = input.subarray(dataOffset, dataOffset + compressedSize);
       const content = compression === 0 ? compressed : inflateSync(compressed, { out: new Uint8Array(uncompressedSize) });
       if (content.byteLength !== uncompressedSize) throw malformedFileError();
       totalSize += uncompressedSize;
+      files.set(name, content);
+    } else if (isMediaPart(name)) {
+      if (uncompressedSize > MAX_MEDIA_BYTES || totalMediaSize + uncompressedSize > MAX_TOTAL_MEDIA_BYTES) throw structureLimitError();
+      const content = compression === 0 ? compressed.slice() : inflateSync(compressed, { out: new Uint8Array(uncompressedSize) });
+      if (content.byteLength !== uncompressedSize) throw malformedFileError();
+      totalMediaSize += uncompressedSize;
       files.set(name, content);
     } else {
       files.set(name, new Uint8Array(0));
@@ -289,18 +298,86 @@ const parseSlide = (input: { fileId: string; slide: number; xml: string }): Docu
   return blocks;
 };
 
+const mediaMimeType = (extension: string): string => {
+  switch (extension.toLowerCase()) {
+    case "png": return "image/png";
+    case "jpg":
+    case "jpeg": return "image/jpeg";
+    case "gif": return "image/gif";
+    case "svg": return "image/svg+xml";
+    case "emf": return "image/x-emf";
+    case "wmf": return "image/x-wmf";
+    default: return "application/octet-stream";
+  }
+};
+
+function slideMedia(
+  input: { fileId: string; slide: number; path: string; xml: string },
+  files: Map<string, Uint8Array>,
+): DocumentMedia[] {
+  const fileName = input.path.slice(input.path.lastIndexOf("/") + 1);
+  const relationships = files.get(`ppt/slides/_rels/${fileName}.rels`);
+  if (!relationships) return [];
+  const targets = new Map<string, string>();
+  const parser = new SaxesParser({ xmlns: false });
+  parser.on("opentag", (tag) => {
+    if (tag.name !== "Relationship" || !attribute(tag, "Type")?.endsWith("/image")) return;
+    const id = attribute(tag, "Id");
+    const target = attribute(tag, "Target");
+    if (!id || !target || !target.startsWith("../media/") || target.includes("..", 3)) return;
+    targets.set(id, `ppt/media/${target.slice("../media/".length)}`);
+  });
+  parser.write(xml(relationships)).close();
+
+  const media: DocumentMedia[] = [];
+  const pictures = input.xml.matchAll(/<p:pic>[\s\S]*?<p:cNvPr[^>]*name="([^"]*)"[\s\S]*?<a:blip[^>]*r:embed="([^"]+)"[\s\S]*?<a:xfrm>[\s\S]*?<a:off[^>]*x="(\d+)"[^>]*y="(\d+)"[\s\S]*?<a:ext[^>]*cx="(\d+)"[^>]*cy="(\d+)"[\s\S]*?<\/p:pic>/gu);
+  for (const [index, match] of [...pictures].entries()) {
+    const path = targets.get(match[2]);
+    const data = path ? files.get(path) : undefined;
+    if (!path || !data?.byteLength) continue;
+    const extension = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
+    const id = `pptx:s${input.slide}:image:${index + 1}`;
+    media.push({
+      id,
+      kind: "image",
+      mimeType: mediaMimeType(extension),
+      extension,
+      data,
+      source: {
+        fileId: input.fileId,
+        nodeId: id,
+        label: `슬라이드 ${input.slide} · ${match[1] || `이미지 ${index + 1}`}`,
+        page: input.slide,
+        locator: { kind: "pptx", slide: input.slide, shape: 1000 + index },
+        quote: "",
+      },
+      anchor: {
+        x: Number(match[3]),
+        y: Number(match[4]),
+        width: Number(match[5]),
+        height: Number(match[6]),
+        unit: "emu",
+      },
+    });
+  }
+  return media;
+}
+
 export const parsePptx = async (input: { fileId: string; fileName: string; bytes: Uint8Array }): Promise<NormalizedDocument> => {
   try {
     const files = unzip(input.bytes);
     const paths = slidePaths(files);
     const blocks = paths.flatMap((path, index) => parseSlide({ fileId: input.fileId, slide: index + 1, xml: xml(files.get(path)!) }));
+    const media = paths.flatMap((path, index) =>
+      slideMedia({ fileId: input.fileId, slide: index + 1, path, xml: xml(files.get(path)!) }, files));
     const warnings = new Set<string>();
+    const archivedImageCount = [...files.keys()].filter((name) => name.startsWith("ppt/media/")).length;
+    if (archivedImageCount > media.length) warnings.add("PPTX_IMAGE_OMITTED");
     for (const name of files.keys()) {
-      if (name.startsWith("ppt/media/")) warnings.add("PPTX_IMAGE_OMITTED");
-      else if (name.startsWith("ppt/charts/")) warnings.add("PPTX_CHART_OMITTED");
+      if (name.startsWith("ppt/charts/")) warnings.add("PPTX_CHART_OMITTED");
       else if (name.startsWith("ppt/notesSlides/")) warnings.add("PPTX_SPEAKER_NOTES_OMITTED");
     }
-    return { id: `document:${input.fileId}`, fileId: input.fileId, kind: "pptx", metadata: { fileName: input.fileName, pageCount: paths.length }, blocks, warnings: [...warnings] };
+    return { id: `document:${input.fileId}`, fileId: input.fileId, kind: "pptx", metadata: { fileName: input.fileName, pageCount: paths.length }, blocks, media, warnings: [...warnings] };
   } catch (error) {
     if (error instanceof StructureLimitError) throw error;
     throw malformedFileError();

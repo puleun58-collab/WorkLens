@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { AiApiRequest, AiApiResult } from "@/lib/ai/api";
 import { buildExtractMessages, EXTRACT_RESPONSE_SCHEMA, parseExtractResponse } from "@/lib/ai/extract-prompt";
 import { buildPolishMessages, parsePolishResponse, POLISH_RESPONSE_SCHEMA } from "@/lib/ai/polish-prompt";
-import { buildMessages, CLAIM_RESPONSE_SCHEMA, parseModelResponse } from "@/lib/ai/prompt";
+import { BRIEF_RESPONSE_SCHEMA, buildMessages, CLAIM_RESPONSE_SCHEMA, parseModelResponse } from "@/lib/ai/prompt";
 import { workerEnv } from "@/server/cf-env";
 import { ApiError } from "@/server/http";
 
@@ -30,6 +30,15 @@ const claimContentSchema = z.object({
     text: z.string(),
     sources: z.array(z.string()),
     confidence: z.enum(["high", "medium", "low"]),
+  }).strict()),
+}).strict();
+const briefContentSchema = z.object({
+  claims: z.array(z.object({
+    text: z.string(),
+    sources: z.array(z.string()),
+    confidence: z.enum(["high", "medium", "low"]),
+    section: z.string(),
+    role: z.enum(["summary", "action"]),
   }).strict()),
 }).strict();
 const polishContentSchema = z.object({
@@ -74,7 +83,9 @@ function requestSpecification(request: AiApiRequest): {
 } {
   switch (request.kind) {
     case "claims":
-      return { messages: buildMessages(request.request, request.items), schema: CLAIM_RESPONSE_SCHEMA, schemaName: "worklens_claims", maxTokens: 1_200 };
+      return request.request.operation === "brief"
+        ? { messages: buildMessages(request.request, request.items), schema: BRIEF_RESPONSE_SCHEMA, schemaName: "worklens_brief", maxTokens: 1_200 }
+        : { messages: buildMessages(request.request, request.items), schema: CLAIM_RESPONSE_SCHEMA, schemaName: "worklens_claims", maxTokens: 1_200 };
     case "polish":
       return { messages: buildPolishMessages(request.text, request.mode), schema: POLISH_RESPONSE_SCHEMA, schemaName: "worklens_polish", maxTokens: 900 };
     case "extract":
@@ -91,7 +102,7 @@ function parseResult(request: AiApiRequest, content: string): AiApiResult {
   }
   switch (request.kind) {
     case "claims": {
-      const validated = claimContentSchema.safeParse(payload);
+      const validated = (request.request.operation === "brief" ? briefContentSchema : claimContentSchema).safeParse(payload);
       if (!validated.success) throw new ApiError("INVALID_PROVIDER_OUTPUT", "AI 응답 형식이 올바르지 않습니다.", 502);
       const parsed = parseModelResponse(JSON.stringify(validated.data));
       if (!parsed.envelope) throw new ApiError("INVALID_PROVIDER_OUTPUT", "AI 응답 형식이 올바르지 않습니다.", 502);

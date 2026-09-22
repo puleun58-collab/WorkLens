@@ -1,5 +1,6 @@
 import type { AiRequest } from "@/domain/ai";
 import type { AiEvidenceNode } from "@/lib/ai/contract";
+import { briefScope } from "@/lib/ai/brief";
 
 /**
  * Browser-local evidence retrieval.
@@ -52,13 +53,6 @@ export function evidenceTokens(value: string): string[] {
   return tokens;
 }
 
-function briefMinimumPage(instruction: string | undefined): number | undefined {
-  if (!instruction) return undefined;
-  const match = /(\d+)\s*(?:페이지|쪽|슬라이드)\s*(?:이후|부터)/u.exec(instruction);
-  if (!match) return undefined;
-  const page = Number(match[1]);
-  return Number.isInteger(page) && page > 0 ? page : undefined;
-}
 
 function queryOf(request: AiRequest): string {
   switch (request.operation) {
@@ -161,12 +155,14 @@ function importanceScores(nodes: readonly AiEvidenceNode[]): number[] {
   return nodes.map((node) => {
     const text = normalizeText(node.text);
     let score = 0;
-    if ((text.match(NUMERIC_PATTERN) ?? []).length > 0) score += 1.2;
-    if ((text.match(DATE_PATTERN) ?? []).length > 0) score += 1;
-    if ((text.match(CURRENCY_PATTERN) ?? []).length > 0) score += 0.8;
-    if (/(?:결론|요약|조치|해야|예정|계획|목표|리스크|이슈|action|summary|todo)/u.test(text)) score += 1.1;
+    const numericCount = (text.match(NUMERIC_PATTERN) ?? []).length;
+    if (numericCount > 0) score += numericCount === 1 ? 0.7 : 0.45;
+    if ((text.match(DATE_PATTERN) ?? []).length > 0) score += 0.45;
+    if ((text.match(CURRENCY_PATTERN) ?? []).length > 0) score += 0.35;
+    if (/(?:목적|개요|기준|규칙|순서|절차|흐름|조건|예외|전환|재계산|산정|적용|주의|결론|요약|조치|계획|목표|리스크|이슈|action|summary|todo)/u.test(text)) score += 1.3;
+    if (/(?:예시|예를\s*들|표시\s*예)/u.test(text) && numericCount >= 2) score -= 0.8;
     if (text.length <= 40) score += 0.5;
-    if (node.proposition.predicate === "has_value") score += 0.4;
+    if (node.proposition.predicate === "has_value") score += 0.25;
     const repeats = [...new Set(evidenceTokens(node.text))]
       .filter((term) => term.length > 1 && (frequency.get(term) ?? 0) >= 3).length;
     return score + Math.min(repeats, 4) * 0.2;
@@ -222,16 +218,22 @@ export function selectEvidence(
   options: SelectEvidenceOptions = {},
 ): AiEvidenceNode[] {
   const limit = options.limit ?? 40;
-  const minimumPage = request.operation === "brief" ? briefMinimumPage(request.summaryInstruction) : undefined;
-  const candidates = minimumPage === undefined
-    ? nodes
+  const scope = request.operation === "brief" ? briefScope(request.summaryInstruction) : {};
+  const pageCandidates = scope.minimumPage === undefined
+    ? [...nodes]
     : nodes.filter((node) => {
       const page = node.source.page ?? (node.source.locator?.kind === "pptx" ? node.source.locator.slide : undefined);
-      return page !== undefined && page >= minimumPage;
+      return page !== undefined && page >= scope.minimumPage!;
     });
-  const query = queryOf(request).trim();
+  const focusRelevance = scope.focus ? relevanceScores(pageCandidates, scope.focus) : undefined;
+  const focused = focusRelevance
+    ? pageCandidates.filter((_, index) => focusRelevance[index] > 0)
+    : pageCandidates;
+  const candidates = focusRelevance && focused.length > 0 ? focused : pageCandidates;
+  const query = request.operation === "brief" ? (scope.focus ?? "") : queryOf(request).trim();
   const scoreAsk = request.operation === "ask" && query.length > 0;
-  // Formatting, audience and emphasis instructions do not alter retrieval.
+  // Formatting and audience instructions never alter retrieval; explicit
+  // page/topic restrictions do.
   if (candidates.length <= limit && !scoreAsk) return [...candidates];
   const relevance = query ? relevanceScores(candidates, query) : undefined;
   const importance = importanceScores(candidates);

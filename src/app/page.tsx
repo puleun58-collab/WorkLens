@@ -3,6 +3,7 @@
 import { ChangeEvent, DragEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { AiAvailableResult, AiRequest, GroundedClaim } from "@/domain/ai";
 import type { ComparisonItem, ComparisonResult } from "@/domain/compare";
+import type { AggregationDraft, AggregationSelection } from "@/domain/aggregation";
 import type { ValueCheckResult, ValueCheckStatus } from "@/domain/value-check";
 import type { DocumentMetadata, SourceRef } from "@/domain/document";
 import {
@@ -72,10 +73,12 @@ import {
   confirmedAnalysisItems,
   confirmedAnalysisMetrics,
 } from "@/lib/analysis-presentation";
+import { improvementProfileStatus } from "@/lib/aggregation/improvement-profile";
 import {
   BarChart3,
   BookMarked,
   GitCompareArrows,
+  Layers3,
   MessageSquareText,
   PenLine,
   ScrollText,
@@ -94,6 +97,7 @@ const tabIcons: Record<Tab, typeof BarChart3> = {
   Polish: PenLine,
   Extract: Table2,
   Brief: ScrollText,
+  Aggregate: Layers3,
 };
 type ApiError = { code: string; message: string; retryable?: boolean };
 /**
@@ -116,7 +120,7 @@ function noticePanelTitle(notice: Notice): string {
   return notice.message;
 }
 
-const tabs = ["Analyze", "Ask", "Compare", "Check", "Polish", "Extract", "Brief"] as const;
+const tabs = ["Analyze", "Ask", "Compare", "Check", "Polish", "Extract", "Aggregate", "Brief"] as const;
 type Tab = (typeof tabs)[number];
 const tabMeta: Record<Tab, { label: string; description: string }> = {
   Analyze: { label: "분석", description: "구조와 수치" },
@@ -126,6 +130,7 @@ const tabMeta: Record<Tab, { label: string; description: string }> = {
   Polish: { label: "윤문", description: "문장 윤문" },
   Extract: { label: "추출", description: "데이터 추출" },
   Brief: { label: "요약", description: "업무 요약" },
+  Aggregate: { label: "취합", description: "다중 파일 취합" },
 };
 const completionLabels: Record<Tab, string> = {
   Analyze: "분석 완료",
@@ -135,6 +140,7 @@ const completionLabels: Record<Tab, string> = {
   Polish: "윤문 완료",
   Extract: "추출 완료",
   Brief: "요약 완료",
+  Aggregate: "취합 완료",
 };
 type ResultStatus = { tone: "success" | "warning"; label: string; message?: string; detail?: string };
 /*
@@ -281,6 +287,8 @@ export default function Home() {
   const [extractFields, setExtractFields] = useState<string[]>([]);
   const [structured, setStructured] = useState<StructuredExtract | null>(null);
   const [extractProgress, setExtractProgress] = useState<{ done: number; total: number } | null>(null);
+  const [aggregation, setAggregation] = useState<AggregationDraft | null>(null);
+  const [aggregationSelection, setAggregationSelection] = useState<AggregationSelection | null>(null);
   const extractCancelled = useRef(false);
   const [operationResult, setOperationResult] = useState<unknown>(null);
   const [detail, setDetail] = useState<DetailInfo | null>(null);
@@ -354,6 +362,8 @@ export default function Home() {
     setCompareIds(null);
     setValueCheck(null);
     setEnrichmentResult(null);
+    setAggregation(null);
+    setAggregationSelection(null);
     setDetail(null);
     // Results and the message that announced them are one unit, so a
     // navigation or a change of selection retires both. A workspace-level
@@ -846,6 +856,46 @@ export default function Home() {
     }
   };
 
+  const runAggregate = async () => {
+    setBusy(true);
+    setAggregation(null);
+    setAggregationSelection(null);
+    try {
+      const draft = await runInWorker({ kind: "aggregate", fileIds: selected });
+      setAggregation(draft);
+      setAggregationSelection({
+        sheetIds: draft.workbooks.flatMap((workbook) => workbook.sheets.filter((sheet) => sheet.selectedByDefault).map((sheet) => sheet.id)),
+        mappings: draft.mappings.map(({ id, targetField, sourceFields, included }) => ({ id, targetField, sourceFields, included })),
+      });
+      notifyView("success", `시트 ${draft.workbooks.reduce((sum, workbook) => sum + workbook.sheets.length, 0)}개 · 레코드 ${draft.records.length}건을 분석했습니다.`);
+    } catch (error) {
+      notifyView("error", (error as ApiError).message ?? "문서 취합 구조를 분석하지 못했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const exportAggregation = async (kind: "generic" | "bank" | "backdata") => {
+    if (!aggregationSelection) return;
+    setBusy(true);
+    try {
+      const exported = kind === "generic"
+        ? await runInWorker({ kind: "aggregate-export", fileIds: selected, selection: aggregationSelection })
+        : await runInWorker({ kind: "aggregate-profile-export", fileIds: selected, selection: aggregationSelection, format: kind === "bank" ? "xlsx" : "pptx" });
+      const url = URL.createObjectURL(new Blob([exported.bytes as BlobPart], { type: exported.mimeType }));
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = exported.fileName;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      notifyView("success", `${exported.fileName}을(를) 다운로드했습니다.`);
+    } catch (error) {
+      notifyView("error", (error as ApiError).message ?? "취합 결과를 내보내지 못했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const runActive = async () => {
     if (activeTab === "Polish" && polishInput === "text") return runTextPolish();
     if (!selected.length) return;
@@ -853,6 +903,7 @@ export default function Home() {
     if (activeTab === "Analyze") return runAnalyze();
     if (activeTab === "Check") return runCheck();
     if (activeTab === "Extract") return runExtract();
+    if (activeTab === "Aggregate") return runAggregate();
     if (activeTab === "Polish") return runPolish();
     const typed = question.trim();
     return activeTab === "Ask"
@@ -1054,7 +1105,9 @@ export default function Home() {
       ? (polishTextMode ? polishTextRun !== null : polish !== null)
       : activeTab === "Extract" && extractMode !== "text"
         ? structured !== null
-        : operationResult !== null;
+        : activeTab === "Aggregate"
+          ? aggregation !== null
+          : operationResult !== null;
   const inlineResultNotice = hasCategoryResult
     && notice?.scope === activeTab
     && (notice.tone === "success" || notice.tone === "warning")
@@ -1427,6 +1480,8 @@ export default function Home() {
                   ? <PolishTextResults result={polishTextRun} status={resultStatus} />
                   : activeTab === "Polish"
                   ? <PolishResults result={polish} fileNames={fileNames} onSource={openSource} status={resultStatus} />
+                  : activeTab === "Aggregate"
+                    ? <AggregationResults draft={aggregation} selection={aggregationSelection} busy={busy} onSelection={setAggregationSelection} onExport={exportAggregation} />
                   : activeTab === "Extract" && extractMode !== "text"
                     ? <StructuredExtractResults result={structured} fileNames={fileNames} onSource={openSource} status={resultStatus} busy={busy} onExport={exportStructured} />
                     : <ResultView
@@ -1637,6 +1692,7 @@ const workSectionCopy: Record<Tab, [string, string]> = {
   Polish: ["문서 윤문", "선택한 파일의 번역투와 중복 표현을 문장 단위로 다듬습니다."],
   Extract: ["정보 추출", "선택한 파일에서 필요한 항목과 값을 찾아 정리합니다."],
   Brief: ["요약", "선택한 파일의 핵심 내용을 정리합니다. 원하는 요약 방식이 있다면 입력하세요."],
+  Aggregate: ["문서 취합", "선택한 파일과 모든 시트를 분석해 호환되는 레코드만 함께 정리합니다."],
 };
 
 function ResultHeader({ eyebrow, title, status, meta }: {
@@ -1722,40 +1778,29 @@ function CompareControls({ mode, busy, direction, onMode, onSwap }: {
 }) {
   return (
     <div className="compare-controls">
-      <fieldset className="segmented compare-modes" aria-label="비교 방식">
-        {(["version", "value-check"] as const).map((entry) => (
-          <label key={entry}>
-            <input
-              type="radio"
-              name="compare-mode"
-              value={entry}
-              checked={mode === entry}
-              disabled={busy}
-              onChange={() => onMode(entry)}
-            />
-            <span>{entry === "version" ? "버전 비교" : "값 일치 확인"}</span>
-          </label>
-        ))}
-      </fieldset>
-      <div className="compare-mode-copy">
-        <p>{mode === "version"
-          ? "두 파일의 추가·삭제·변경된 내용을 비교합니다."
-          : "여러 파일의 동일 항목과 값 차이를 확인합니다."}</p>
+      <div className="compare-mode-row">
+        <fieldset className="segmented compare-modes" aria-label="비교 방식">
+          {(["version", "value-check"] as const).map((entry) => (
+            <label key={entry}>
+              <input
+                type="radio"
+                name="compare-mode"
+                value={entry}
+                checked={mode === entry}
+                disabled={busy}
+                onChange={() => onMode(entry)}
+              />
+              <span>{entry === "version" ? "버전 비교" : "값 일치 확인"}</span>
+            </label>
+          ))}
+        </fieldset>
         {mode === "version" && direction ? (
-          <div className="compare-current-direction" aria-label="현재 비교 방향">
-            <div className="compare-direction-file">
-              <span>기준</span>
-              <strong title={direction.base} tabIndex={0}>{direction.base}</strong>
-            </div>
-            <span className="compare-direction-arrow" aria-hidden="true">→</span>
-            <div className="compare-direction-file">
-              <span>대상</span>
-              <strong title={direction.current} tabIndex={0}>{direction.current}</strong>
-            </div>
-            <button type="button" className="secondary-action compare-swap-action" disabled={busy} onClick={onSwap}>기준/대상 변경</button>
-          </div>
+          <button type="button" className="secondary-action compare-swap-action" disabled={busy} onClick={onSwap}>기준/대상 변경</button>
         ) : null}
       </div>
+      <p>{mode === "version"
+        ? "두 파일의 추가·삭제·변경된 내용을 비교합니다."
+        : "여러 파일의 동일 항목과 값 차이를 확인합니다."}</p>
     </div>
   );
 }
@@ -1841,8 +1886,8 @@ function StructuredExtractResults({ result, fileNames, onSource, status, busy, o
   busy: boolean;
   onExport: (format: "csv" | "xlsx") => void | Promise<void>;
 }) {
-  const [recordsExpanded, setRecordsExpanded] = useState(false);
-  useEffect(() => setRecordsExpanded(false), [result]);
+  const [expandedResult, setExpandedResult] = useState<StructuredExtract | null>(null);
+  const recordsExpanded = expandedResult === result;
   if (!result) return null;
 
   const multiFile = result.files.length > 1;
@@ -1952,7 +1997,7 @@ function StructuredExtractResults({ result, fileNames, onSource, status, busy, o
             type="button"
             className="extract-records-toggle"
             aria-expanded={recordsExpanded}
-            onClick={() => setRecordsExpanded((expanded) => !expanded)}
+            onClick={() => setExpandedResult(recordsExpanded ? null : result)}
           >
             <span>세부 표 {recordEntries.length}개</span>
             <span aria-hidden="true">{recordsExpanded ? "접기 ▴" : "펼치기 ▾"}</span>
@@ -2709,13 +2754,36 @@ function BriefResults({ result, fileNames, onSource }: {
 }) {
   if (result.operation !== "brief") return null;
   const claimsWithSources = result.claims.filter((claim) => claim.evidence.length > 0);
-  const summary = result.claims.map(claimDisplayText).filter(Boolean);
+  const entries = result.claims.map((claim) => ({
+    claim,
+    text: claimDisplayText(claim),
+    section: claim.kind === "inference" ? claim.presentation?.section : undefined,
+    role: claim.kind === "inference" ? claim.presentation?.role : "summary",
+  })).filter((entry) => Boolean(entry.text));
+  const sections = new Map<string, typeof entries>();
+  for (const entry of entries) {
+    const name = entry.section?.trim() || "핵심 내용";
+    const list = sections.get(name) ?? [];
+    list.push(entry);
+    sections.set(name, list);
+  }
+  const summaryEntries = entries.filter((entry) => entry.role !== "action");
+  const actionEntries = entries.filter((entry) => entry.role === "action");
+  const body = result.presentation.mode === "report"
+    ? <div className="brief-report">{[...sections].map(([section, items]) => <section key={section}><h3>{section}</h3>{items.map((entry) => <p key={entry.claim.id}>{entry.text}</p>)}</section>)}</div>
+    : result.presentation.mode === "sections"
+      ? <div className="brief-sections">{[...sections].map(([section, items]) => <section key={section}><h3>{section}</h3><ul>{items.map((entry) => <li key={entry.claim.id}>{entry.text}</li>)}</ul></section>)}</div>
+      : result.presentation.mode === "actions"
+        ? <div className="brief-actions">{summaryEntries.length ? <section><h3>결론</h3><ul>{summaryEntries.map((entry) => <li key={entry.claim.id}>{entry.text}</li>)}</ul></section> : null}{actionEntries.length ? <section><h3>액션 아이템</h3><ul>{actionEntries.map((entry) => <li key={entry.claim.id}>{entry.text}</li>)}</ul></section> : <p className="brief-no-actions">원문에 명시된 액션 아이템이 없습니다.</p>}</div>
+        : result.presentation.mode === "lines"
+          ? <div className="brief-lines">{entries.slice(0, 5).map((entry) => <p key={entry.claim.id}>{entry.text}</p>)}</div>
+          : entries.length === 1
+            ? <p>{entries[0].text}</p>
+            : <ul>{entries.map((entry) => <li key={entry.claim.id}>{entry.text}</li>)}</ul>;
   return (
     <div className="ask-result brief-result">
       <section className="ask-answer brief-body" aria-label="요약 본문">
-        {summary.length === 1 ? <p>{summary[0]}</p> : (
-          <ul>{summary.map((line, index) => <li key={`${index}-${line}`}>{line}</li>)}</ul>
-        )}
+        {body}
       </section>
       {claimsWithSources.length ? (
         <section className="ask-evidence brief-evidence" aria-labelledby="brief-evidence-title">
@@ -2998,6 +3066,7 @@ function ValueCheckView({ result, fileNames, onSource, status, busy, onExport }:
                       <div data-label="근거"><ResultSource sources={sources} fileNames={fileNames} onSource={onSource} /></div>
                     </div>
                   ) : group.occurrences.map((entry) => (
+
                     <div className="value-check-occurrence" key={entry.id}>
                       <span data-label="파일" title={entry.fileName}>{fileNames.get(entry.fileId) ?? entry.fileName}</span>
                       <strong data-label="값">{entry.displayValue}</strong>
@@ -3010,6 +3079,111 @@ function ValueCheckView({ result, fileNames, onSource, status, busy, onExport }:
           })}
         </div>
       )}
+    </section>
+  );
+}
+function AggregationResults({ draft, selection, busy, onSelection, onExport }: {
+  draft: AggregationDraft | null;
+  selection: AggregationSelection | null;
+  busy: boolean;
+  onSelection: (selection: AggregationSelection) => void;
+  onExport: (kind: "generic" | "bank" | "backdata") => void | Promise<void>;
+}) {
+  if (!draft || !selection) {
+    return <section className="panel results-panel aggregation-results"><div className="empty-result"><strong>취합 전</strong><p>파일을 선택하고 실행하면 워크북·시트·표 구조를 먼저 분석합니다.</p></div></section>;
+  }
+  const selectedSheets = new Set(selection.sheetIds);
+  const selectedRecords = draft.records.filter((record) => selectedSheets.has(record.sheetId));
+  const profile = improvementProfileStatus(selectedRecords);
+  const selectedMappingIds = new Set(selection.mappings.filter((mapping) => mapping.included).map((mapping) => mapping.id));
+  const previewMappings = selection.mappings.filter((mapping) => selectedMappingIds.has(mapping.id)).slice(0, 6);
+  const toggleSheet = (sheetId: string) => onSelection({
+    ...selection,
+    sheetIds: selectedSheets.has(sheetId) ? selection.sheetIds.filter((id) => id !== sheetId) : [...selection.sheetIds, sheetId],
+  });
+  const updateMapping = (id: string, patch: Partial<AggregationSelection["mappings"][number]>) => onSelection({
+    ...selection,
+    mappings: selection.mappings.map((mapping) => mapping.id === id ? { ...mapping, ...patch } : mapping),
+  });
+  const previewValue = (record: AggregationDraft["records"][number], mapping: AggregationSelection["mappings"][number]) => {
+    const sourceFields = new Set(mapping.sourceFields.filter((source) => source.sheetId === record.sheetId).map((source) => source.field));
+    return record.fields.filter((field) => sourceFields.has(field.label)).map((field) => field.value.displayValue).join(" | ") || "—";
+  };
+
+  return (
+    <section className="panel results-panel aggregation-results">
+      <ResultHeader title="취합 구조" status={null} />
+      <div className="aggregation-toolbar">
+        <p className="check-summary-line">
+          <span className="metric">파일 <b>{draft.workbooks.length}</b></span>
+          <span className="metric">시트 <b>{draft.workbooks.reduce((sum, workbook) => sum + workbook.sheets.length, 0)}</b></span>
+          <span className="metric">선택 레코드 <b>{selectedRecords.length}</b></span>
+          <span className="metric">스키마 그룹 <b>{draft.groups.length}</b></span>
+        </p>
+        <div className="aggregation-export-actions">
+          <button type="button" className="extract-download-primary" disabled={busy || selectedRecords.length === 0} onClick={() => void onExport("generic")}>취합 XLSX</button>
+          <button type="button" className="secondary-action" disabled={busy || !profile.available} title={profile.available ? undefined : `필수 항목 없음: ${profile.missing.join(", ")}`} onClick={() => void onExport("bank")}>개선 Bank XLSX</button>
+          <button type="button" className="secondary-action" disabled={busy || !profile.available} title={profile.available ? undefined : `필수 항목 없음: ${profile.missing.join(", ")}`} onClick={() => void onExport("backdata")}>Backdata PPTX</button>
+        </div>
+      </div>
+
+      <section className="aggregation-section" aria-labelledby="aggregation-sheets">
+        <div className="aggregation-section-heading">
+          <div><h3 id="aggregation-sheets">워크북과 시트</h3><p>숨김·참조·빈 시트는 자동 포함하지 않습니다. 필요한 시트만 직접 포함하세요.</p></div>
+        </div>
+        <div className="aggregation-workbooks">
+          {draft.workbooks.map((workbook) => (
+            <section className="aggregation-workbook" key={workbook.id}>
+              <h4>{workbook.fileName}</h4>
+              {workbook.sheets.map((sheet) => (
+                <label className="aggregation-sheet" key={sheet.id} data-role={sheet.role}>
+                  <input type="checkbox" checked={selectedSheets.has(sheet.id)} disabled={sheet.role === "empty"} onChange={() => toggleSheet(sheet.id)} />
+                  <span><strong>{sheet.name}</strong><small>{sheet.visibility !== "visible" ? `${sheet.visibility} · ` : ""}{sheet.role === "records" ? "레코드" : sheet.role === "reference" ? "참조 후보" : sheet.role === "review" ? "확인 필요" : "빈 시트"}</small></span>
+                  <span>{sheet.regions.length ? sheet.regions.map((region) => region.recordRange ?? region.headerRange).filter(Boolean).join(", ") : sheet.reason}</span>
+                  <b>{sheet.regions.reduce((sum, region) => sum + region.records.length, 0)}건</b>
+                </label>
+              ))}
+            </section>
+          ))}
+        </div>
+      </section>
+
+      <section className="aggregation-section" aria-labelledby="aggregation-groups">
+        <div className="aggregation-section-heading"><div><h3 id="aggregation-groups">호환 그룹</h3><p>필드 구조가 다른 시트는 같은 표에 합치지 않고 별도 결과 시트로 유지합니다.</p></div></div>
+        <div className="aggregation-groups">
+          {draft.groups.map((group) => <article key={group.id}><strong>{group.name}</strong><span>{group.recordCount}건 · 시트 {group.sheetIds.length}개</span><p>{group.fields.join(" · ")}</p></article>)}
+        </div>
+      </section>
+
+      <section className="aggregation-section" aria-labelledby="aggregation-mappings">
+        <div className="aggregation-section-heading"><div><h3 id="aggregation-mappings">필드 매핑 확인</h3><p>원본 파일·시트별 필드가 어느 출력 열로 들어가는지 확인하고 이름을 조정하세요.</p></div></div>
+        <div className="aggregation-mappings">
+          {selection.mappings.map((mapping) => {
+            const suggested = draft.mappings.find((entry) => entry.id === mapping.id);
+            return (
+              <div className="aggregation-mapping" key={mapping.id}>
+                <label><input type="checkbox" checked={mapping.included} onChange={(event) => updateMapping(mapping.id, { included: event.target.checked })} /><span>포함</span></label>
+                <input value={mapping.targetField} aria-label={`${mapping.targetField} 출력 필드명`} onChange={(event) => updateMapping(mapping.id, { targetField: event.target.value })} />
+                <div>{mapping.sourceFields.map((source) => {
+                  const sheet = draft.workbooks.flatMap((workbook) => workbook.sheets).find((entry) => entry.id === source.sheetId);
+                  return <span key={`${source.sheetId}:${source.field}`}>{sheet?.fileName} · {sheet?.name} · {source.field}</span>;
+                })}</div>
+                <em data-status={suggested?.status}>{suggested?.status === "confirmed" ? "확정" : suggested?.status === "suggested" ? "제안" : "확인"}</em>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      <section className="aggregation-section" aria-labelledby="aggregation-preview">
+        <div className="aggregation-section-heading"><div><h3 id="aggregation-preview">레코드 검토</h3><p>최대 50건을 미리 표시합니다. 중복은 삭제하지 않고 표시만 유지합니다.</p></div></div>
+        <div className="aggregation-preview-wrap">
+          <table className="aggregation-preview">
+            <thead><tr>{previewMappings.map((mapping) => <th key={mapping.id}>{mapping.targetField}</th>)}<th>출처</th><th>상태</th></tr></thead>
+            <tbody>{selectedRecords.slice(0, 50).map((record) => <tr key={record.id}>{previewMappings.map((mapping) => <td key={mapping.id}>{previewValue(record, mapping)}</td>)}<td>{record.source.sheet} · {record.source.cellRange ?? record.source.label}</td><td>{record.duplicateOf ? "중복 후보" : record.media.length ? `이미지 ${record.media.length}` : "확인"}</td></tr>)}</tbody>
+          </table>
+        </div>
+      </section>
     </section>
   );
 }

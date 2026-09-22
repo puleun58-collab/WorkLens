@@ -103,34 +103,65 @@ function addCanonicalProvenance(document: NormalizedDocument, contentHash: strin
       quoteHash: sha256Hex(quote),
     };
   };
+  const canonicalBlocks = document.blocks.map((block, blockIndex) => {
+    if (block.type === "paragraph") {
+      const source = enrich(block.source, `block/${blockIndex + 1}/paragraph`, block.text);
+      return { ...block, id: source.nodeId, source };
+    }
+    const source = enrich(
+      block.source,
+      `block/${blockIndex + 1}/table`,
+      block.rows.map((row) => row.map((cell) => cell.display).join("\t")).join("\n"),
+    );
+    return {
+      ...block,
+      id: source.nodeId,
+      source,
+      rows: block.rows.map((row, rowIndex) => row.map((cell, columnIndex) => ({
+        ...cell,
+        source: enrich(
+          cell.source,
+          `block/${blockIndex + 1}/table/cell/${rowIndex + 1}/${columnIndex + 1}`,
+          cell.display,
+        ),
+      }))),
+    };
+  });
+  const workbookSheets = document.workbookSheets?.map((sheet) => {
+    const visible = canonicalBlocks.find((block) => block.type === "table" && block.source.sheet === sheet.name);
+    if (visible?.type === "table") return { ...sheet, table: visible };
+    const base = `workbook/sheet/${sheet.index}`;
+    const source = enrich(
+      sheet.table.source,
+      `${base}/table`,
+      sheet.table.rows.map((row) => row.map((cell) => cell.display).join("\t")).join("\n"),
+    );
+    return {
+      ...sheet,
+      table: {
+        ...sheet.table,
+        id: source.nodeId,
+        source,
+        rows: sheet.table.rows.map((row, rowIndex) => row.map((cell, columnIndex) => ({
+          ...cell,
+          source: enrich(cell.source, `${base}/table/cell/${rowIndex + 1}/${columnIndex + 1}`, cell.display),
+        }))),
+      },
+    };
+  });
   return {
     ...document,
     version,
     parserRevision: PARSER_REVISION,
-    blocks: document.blocks.map((block, blockIndex) => {
-      if (block.type === "paragraph") {
-        const source = enrich(block.source, `block/${blockIndex + 1}/paragraph`, block.text);
-        return { ...block, id: source.nodeId, source };
-      }
-      const source = enrich(
-        block.source,
-        `block/${blockIndex + 1}/table`,
-        block.rows.map((row) => row.map((cell) => cell.display).join("\t")).join("\n"),
-      );
-      return {
-        ...block,
-        id: source.nodeId,
-        source,
-        rows: block.rows.map((row, rowIndex) => row.map((cell, columnIndex) => ({
-          ...cell,
-          source: enrich(
-            cell.source,
-            `block/${blockIndex + 1}/table/cell/${rowIndex + 1}/${columnIndex + 1}`,
-            cell.display,
-          ),
-        }))),
-      };
-    }),
+    blocks: canonicalBlocks,
+    ...(workbookSheets ? { workbookSheets } : {}),
+    ...(document.media ? {
+      media: document.media.map((media, index) => ({
+        ...media,
+        id: canonicalNodeId(`media/${index + 1}`),
+        source: enrich(media.source, `media/${index + 1}`, media.source.quote ?? ""),
+      })),
+    } : {}),
     warnings: [...warnings],
   };
 }

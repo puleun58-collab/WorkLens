@@ -24,6 +24,24 @@ export type SourceLocator =
     tableCell?: { row: number; column: number; anchorCellId?: string };
   };
 
+export interface MediaAnchor {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  unit: "cell" | "emu";
+}
+
+export interface DocumentMedia {
+  id: string;
+  kind: "image";
+  mimeType: string;
+  extension: string;
+  data: Uint8Array;
+  source: SourceRef;
+  anchor: MediaAnchor;
+}
+
 export interface SourceRef {
   fileId: string;
   /**
@@ -72,6 +90,11 @@ export interface TableCell {
   source: SourceRef;
   rowSpan?: number;
   colSpan?: number;
+  /** Exact XLSX semantic type retained separately from display text. */
+  valueType?: "text" | "number" | "date" | "boolean" | "formula" | "blank";
+  /** Original formula without the leading equals sign. Cached value remains in `value`. */
+  formula?: string;
+  numberFormat?: string;
 }
 
 export interface TableBlock {
@@ -79,6 +102,13 @@ export interface TableBlock {
   id: string;
   source: SourceRef;
   rows: TableCell[][];
+}
+
+export interface WorkbookSheet {
+  index: number;
+  name: string;
+  visibility: SheetMetadata["visibility"];
+  table: TableBlock;
 }
 
 export type DocumentBlock = ParagraphBlock | TableBlock;
@@ -91,5 +121,8 @@ export interface NormalizedDocument {
   kind: FileKind;
   metadata: DocumentMetadata;
   blocks: DocumentBlock[];
+  media?: DocumentMedia[];
+  /** XLSX-only workbook hierarchy, including hidden and empty worksheets. */
+  workbookSheets?: WorkbookSheet[];
   warnings: string[];
 }

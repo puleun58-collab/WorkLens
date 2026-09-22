@@ -10,6 +10,7 @@ import type {
 import type { NormalizedDocument, SourceRef } from "@/domain/document";
 import { sha256Base64Url } from "@/domain/hash";
 import { AI_SCHEMA_ID, type AiEvidenceNode, type AiProviderClaim, type AiProviderCompletion } from "@/lib/ai/contract";
+import { briefPresentationMode } from "@/lib/ai/brief";
 
 type CanonicalEvidence = AiEvidenceNode;
 
@@ -68,14 +69,22 @@ export function groundAiResult(
         warnings,
         rejectedClaimCount: grounded.rejectedClaimCount,
       };
-    case "brief":
+    case "brief": {
+      const accepted = grounded.claims.filter((claim) => !unsupportedBriefDirective(claim));
+      const unsupported = grounded.claims.length - accepted.length;
+      const rejectedClaimCount = grounded.rejectedClaimCount + unsupported;
+      const briefWarnings = rejectedClaimCount
+        ? [{ code: "EVIDENCE_VALIDATION_FAILED", message: "일부 내용은 문서 근거와 연결되지 않아 결과에서 제외했습니다." }]
+        : [];
       return {
         operation: "brief",
-        brief: grounded.claims.map((claim) => claim.text.replace(/^추론:\s*/u, "")).join("\n").slice(0, 800),
-        claims: grounded.claims,
-        warnings,
-        rejectedClaimCount: grounded.rejectedClaimCount,
+        brief: accepted.map((claim) => claim.text.replace(/^추론:\s*/u, "")).join("\n").slice(0, 800),
+        presentation: { mode: briefPresentationMode(request.summaryInstruction) },
+        claims: accepted,
+        warnings: briefWarnings,
+        rejectedClaimCount,
       };
+    }
     case "semantic-check":
       return { operation: "semantic-check", findings: grounded.claims, claims: grounded.claims, warnings, rejectedClaimCount: grounded.rejectedClaimCount };
   }
@@ -122,8 +131,18 @@ function groundClaim(candidate: AiProviderClaim, evidence: ReadonlyMap<string, C
     kind: "inference",
     text: `추론: ${text}`,
     ...(candidate.confidence ? { confidence: candidate.confidence } : {}),
+    ...(candidate.presentation ? { presentation: candidate.presentation } : {}),
     evidence: bindings as [EvidenceBinding, ...EvidenceBinding[]],
   };
+}
+
+const DIRECTIVE_PATTERN = /(?:해야\\s*한다|하여야\\s*한다|마련해야|검토해야|추진해야|관리해야|확인해야|필요하다|권고한다|요구한다)/u;
+const SOURCE_DIRECTIVE_PATTERN = /(?:해야|하여야|필요|권고|요구|조치|계획|예정|바랍니다|하도록)/u;
+
+/** Brief may quote a directive, but it may not turn a neutral mechanism into one. */
+function unsupportedBriefDirective(claim: GroundedClaim): boolean {
+  if (claim.kind !== "inference" || !DIRECTIVE_PATTERN.test(claim.text)) return false;
+  return !claim.evidence.some((binding) => SOURCE_DIRECTIVE_PATTERN.test(binding.source.quote ?? ""));
 }
 
 /**
@@ -244,13 +263,18 @@ function isProviderClaim(value: unknown): value is AiProviderClaim {
       ...(value.qualifiers === undefined ? {} : { qualifiers: value.qualifiers }),
     });
   }
-  if (value.type !== "inference") return false;
-  const allowed = new Set(["type", "text", "sourceTokens", "confidence"]);
+  const allowed = new Set(["type", "text", "sourceTokens", "confidence", "presentation"]);
   return Object.keys(value).every((key) => allowed.has(key))
     && typeof value.text === "string"
     && Array.isArray(value.sourceTokens)
     && value.sourceTokens.every((token) => typeof token === "string")
-    && (value.confidence === undefined || isConfidence(value.confidence));
+    && (value.confidence === undefined || isConfidence(value.confidence))
+    && (value.presentation === undefined || (
+      isRecord(value.presentation)
+      && Object.keys(value.presentation).every((key) => key === "section" || key === "role")
+      && (value.presentation.role === "summary" || value.presentation.role === "action")
+      && (value.presentation.section === undefined || typeof value.presentation.section === "string")
+    ));
 }
 
 function isProposition(value: unknown): value is DirectProposition {
