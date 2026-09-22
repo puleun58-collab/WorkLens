@@ -81,6 +81,27 @@ const cellValueType = (cell: ExcelJS.Cell): TableCell["valueType"] => {
   return "text";
 };
 
+/**
+ * ExcelJS's `cell.text` calls the native `Date.prototype.toString()` for date
+ * cells, which leaks the process's local timezone and weekday name (e.g.
+ * "Mon Jul 13 2026 09:00:00 GMT+0900 (한국 표준시)") instead of the calendar
+ * date the workbook actually stores. Render the UTC calendar date instead,
+ * matching the ISO convention `scalarValue` already uses for `value`. Excel
+ * time-only cells serialize against the 1899/1900 epoch, so a year that old
+ * means only the time of day was ever meaningful.
+ */
+const formatCellDate = (date: Date): string => {
+  const pad = (part: number): string => String(part).padStart(2, "0");
+  const time = `${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}`;
+  if (date.getUTCFullYear() <= 1900) return time;
+  const isoDate = `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}`;
+  const hasTimeOfDay = date.getUTCHours() !== 0 || date.getUTCMinutes() !== 0 || date.getUTCSeconds() !== 0;
+  return hasTimeOfDay ? `${isoDate} ${time}` : isoDate;
+};
+
+const cellText = (cell: ExcelJS.Cell): string =>
+  cell.type === ExcelJS.ValueType.Date && cell.value instanceof Date ? formatCellDate(cell.value) : cell.text;
+
 export const parseXlsx = async (input: {
   fileId: string;
   fileName: string;
@@ -146,6 +167,7 @@ export const parseXlsx = async (input: {
             const address = cellAddress(column, row);
             const merge = mergedCells.get(address);
             const cell = worksheet.getCell(row, column);
+            const text = cellText(cell);
             const isMergedChild = merge !== undefined && !merge.isAnchor;
             const source: SourceRef = {
               fileId: input.fileId,
@@ -155,7 +177,7 @@ export const parseXlsx = async (input: {
               cellRange: address,
               row,
               column,
-              quote: cell.text,
+              quote: text,
             };
             const formula = cell.type === ExcelJS.ValueType.Formula
               && typeof cell.value === "object"
@@ -167,7 +189,7 @@ export const parseXlsx = async (input: {
             if (formula) warnings.add("XLSX_FORMULA_VALUE_ONLY");
             const tableCell: TableCell = {
               value: isMergedChild ? null : scalarValue(cell.value),
-              display: isMergedChild ? "" : cell.text,
+              display: isMergedChild ? "" : text,
               source,
               valueType: isMergedChild ? "blank" : cellValueType(cell),
               ...(formula ? { formula } : {}),

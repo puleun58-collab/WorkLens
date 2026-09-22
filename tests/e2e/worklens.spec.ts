@@ -1511,15 +1511,15 @@ test("reviews PPTX writing, consistency and data findings with filters and exact
   const overview = page.locator(".qa-overview");
   await expect(panel.getByRole("heading", { name: "검수 결과", exact: true })).toHaveCount(1);
   await expect(panel).not.toContainText("문서 품질 검수");
-  await expect(overview.locator(".qa-summary")).toContainText("중요");
-  await expect(overview.locator(".qa-summary")).toContainText("주의");
-  await expect(overview.locator(".qa-summary")).toContainText("제안");
-  const emptySeverities = overview.locator('.qa-summary > div[data-empty="true"]');
+  await expect(overview.locator(".qa-summary-line")).toContainText("중요");
+  await expect(overview.locator(".qa-summary-line")).toContainText("주의");
+  await expect(overview.locator(".qa-summary-line")).toContainText("제안");
+  const emptySeverities = overview.locator(".qa-summary-line span.muted");
   expect(await emptySeverities.count()).toBeGreaterThan(0);
-  expect(await emptySeverities.first().evaluate((element) => getComputedStyle(element).opacity)).toBe("0.45");
+  expect(await emptySeverities.first().evaluate((element) => getComputedStyle(element).color)).toBe(await emptySeverities.first().locator("b").evaluate((element) => getComputedStyle(element).color));
   await expect(page.getByText("낮은 확신 포함")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "용어 사전" })).toBeVisible();
-  await expect(page.locator(".check-filter-status")).toHaveText("8건 표시");
+  await expect(page.locator(".check-filter-status")).toHaveCount(0);
 
   const typo = page.locator(".check-issue").filter({ hasText: "한글 맞춤법 오류 가능성" });
   await expect(typo).toContainText("문장");
@@ -1581,8 +1581,8 @@ test("reviews PPTX writing, consistency and data findings with filters and exact
   const evidence = page.getByLabel("근거 상세");
   await expect(evidence).toBeVisible();
   await expect(evidence.locator(".evidence-location-list")).toContainText("Slide 1");
-  await expect(evidence.locator(".evidence-context")).toContainText("한글 맞춤법 오류 가능성");
-  await expect(evidence.locator(".evidence-context")).toContainText("수정 제안");
+  await expect(evidence.locator(".evidence-context")).toHaveCount(0);
+  await expect(evidence).not.toContainText("수정 제안");
   await expect(evidence.getByRole("button", { name: "닫기" })).toBeVisible();
   await page.screenshot({ path: "artifacts/inspo-evidence-desktop-1440.png" });
   await evidence.getByRole("button", { name: "닫기" }).click();

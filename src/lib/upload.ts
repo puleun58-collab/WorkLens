@@ -3,20 +3,28 @@ import { MAX_WORKSPACE_INPUT_BYTES, inputLimitFor } from "./parsers/policy";
 
 /** Every rejection a user can hit while admitting a file, raised in the browser. */
 export class DocumentError extends Error {
-  constructor(public readonly code: string, message: string) {
+  constructor(public readonly code: string, message: string, public readonly detail?: string) {
     super(message);
     this.name = "DocumentError";
   }
 }
 
 const SUPPORTED: readonly FileKind[] = ["xlsx", "csv", "pdf", "docx", "pptx"];
+/** Macro-enabled workbooks are the same OOXML package; the macro is never run. */
+const EXTENSION_KINDS: Record<string, FileKind> = { xlsm: "xlsx" };
 const MAX_ZIP_ENTRIES = 10_000;
 const MAX_TOTAL_UNCOMPRESSED_BYTES = 500 * 1024 * 1024;
 
 export function fileKindOf(fileName: string): FileKind {
   const extension = fileName.slice(fileName.lastIndexOf(".") + 1).toLowerCase();
+  const mapped = EXTENSION_KINDS[extension];
+  if (mapped) return mapped;
   if (!SUPPORTED.includes(extension as FileKind)) {
-    throw new DocumentError("FILE_TYPE_UNSUPPORTED", "XLSX, CSV, PDF, DOCX 또는 PPTX 파일만 업로드할 수 있습니다.");
+    throw new DocumentError(
+      "FILE_TYPE_UNSUPPORTED",
+      "지원하지 않는 파일 형식입니다.",
+      "XLSX, XLSM, CSV, PDF, DOCX, PPTX 파일을 업로드해 주세요.",
+    );
   }
   return extension as FileKind;
 }

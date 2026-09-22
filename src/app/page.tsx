@@ -2514,49 +2514,42 @@ function CheckResults({ entries, fileNames, onSource, userTerms, ignoredRules, o
   const addTerm = (term: string) => {
     onAddTerm(term);
   };
+  const filterItems: Array<{ key: "all" | CheckCategoryGroup; label: string; count: number }> = [
+    { key: "all", label: "전체", count: active.length },
+    ...(Object.keys(checkGroupLabels) as CheckCategoryGroup[]).map((group) => ({ key: group, label: checkGroupLabels[group], count: groupCounts[group] })),
+  ];
 
   return (
     <div className="result-sections check-results">
       <section className="qa-overview" aria-label="검수 요약">
-        <div className="qa-intro">
-          <p>문장·일관성·데이터·개인정보를 확인한 결과입니다.</p>
-          {totals.truncated ? (
-            <small className="check-truncation" data-testid="check-truncation">
-              전체 {totals.totalFound.toLocaleString("ko-KR")}건 중 우선순위가 높은 {totals.returned.toLocaleString("ko-KR")}건을 표시합니다.
-            </small>
-          ) : null}
-        </div>
-        <dl className="qa-summary" aria-label="심각도 요약">
+        <p className="qa-summary-line" aria-label="심각도 요약">
           {(["critical", "warning", "suggestion"] as const).map((severity) => (
-            <div key={severity} data-empty={counts[severity] === 0}>
-              <span className={`severity-mark ${severity}`} aria-hidden="true" />
-              <dt>{severityLabels[severity]}</dt>
-              <dd>{counts[severity]}</dd>
-            </div>
+            <span key={severity} className={counts[severity] === 0 ? "muted" : undefined}>
+              {severityLabels[severity]} <b>{counts[severity]}</b>
+            </span>
           ))}
-        </dl>
+        </p>
+        {totals.truncated ? (
+          <small className="check-truncation" data-testid="check-truncation">
+            전체 {totals.totalFound.toLocaleString("ko-KR")}건 중 우선순위가 높은 {totals.returned.toLocaleString("ko-KR")}건을 표시합니다.
+          </small>
+        ) : null}
       </section>
 
       {indexed.length === 0 ? (
         <StatusPanel variant="success" className="result-clear" title="확인된 문제가 없습니다."><p>현재 규칙 범위에서 문장, 일관성, 데이터와 개인정보 문제를 찾지 못했습니다.</p></StatusPanel>
       ) : (
         <>
-          <div className="check-toolbar">
-            <section className="check-filters" aria-label="검수 분류 필터">
-              <fieldset>
-                <legend>분류</legend>
-                <div>
-                  <button type="button" data-empty={active.length === 0} aria-pressed={groupFilter === "all"} onClick={() => { setGroupFilter("all"); resetPage(); }}>전체 <b>{active.length}</b></button>
-                  {(Object.keys(checkGroupLabels) as CheckCategoryGroup[]).map((group) => (
-                    <button type="button" key={group} data-empty={groupCounts[group] === 0} aria-pressed={groupFilter === group} onClick={() => { setGroupFilter(group); resetPage(); }}>
-                      {checkGroupLabels[group]} <b>{groupCounts[group]}</b>
-                    </button>
-                  ))}
-                </div>
-              </fieldset>
-            </section>
+          <div className="check-toolbar check-toolbar-compact">
+            <div className="check-filters-compact" role="group" aria-label="검수 분류 필터">
+              {filterItems.flatMap((item, index) => [
+                index > 0 ? <span className="check-filter-sep" aria-hidden="true" key={`sep-${item.key}`}>·</span> : null,
+                <button type="button" key={item.key} data-empty={item.count === 0} aria-pressed={groupFilter === item.key} onClick={() => { setGroupFilter(item.key); resetPage(); }}>
+                  {item.label} <b>{item.count}</b>
+                </button>,
+              ])}
+            </div>
             <div className="check-toolbar-actions">
-              <p className="check-filter-status" role="status">{filtered.length.toLocaleString("ko-KR")}건 표시{filtered.length !== active.length ? ` · 전체 ${active.length.toLocaleString("ko-KR")}건` : ""}</p>
               <div className="dictionary-anchor">
                 <button type="button" className="dictionary-trigger" aria-expanded={dictionaryOpen} onClick={() => setDictionaryOpen((open) => !open)}>용어 사전</button>
                 {dictionaryOpen ? (
@@ -3207,14 +3200,6 @@ function SourceDetail({ entries, fileNames, onClose }: {
       </header>
       {fileHeading ? <p className="evidence-file-list" title={fileHeading}>{fileHeading}</p> : null}
       <div className="evidence-type"><span>원문</span><p>문서에서 확인된 근거 · {entries.length.toLocaleString("ko-KR")}곳</p></div>
-      {[...new Map(entries.flatMap((entry) => entry.context
-        ? [[`${entry.context.issue}\0${entry.context.recommendation}`, entry.context] as const]
-        : [])).values()].map((context) => (
-        <section className="evidence-context" key={`${context.issue}\0${context.recommendation}`}>
-          <div><span>이슈</span><p>{context.issue}</p></div>
-          <div><span>수정 제안</span><p>{context.recommendation}</p></div>
-        </section>
-      ))}
       {groups.map((group, index) => {
         const [lead] = group.entries;
         const locations = [...new Set(group.entries.map(({ source, role }) => {
