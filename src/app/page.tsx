@@ -3069,9 +3069,9 @@ function AggregationResults({ draft, selection, busy, onSelection, onExport }: {
   onSelection: (selection: AggregationSelection) => void;
   onExport: (kind: "generic" | "bank" | "backdata") => void | Promise<void>;
 }) {
-  if (!draft || !selection) {
-    return <section className="panel results-panel aggregation-results"><div className="empty-result"><strong>취합 전</strong><p>파일을 선택하고 실행하면 워크북·시트·표 구조를 먼저 분석합니다.</p></div></section>;
-  }
+  // Nothing analysed yet is nothing to show: the section heading and the run
+  // action already say what this destination does.
+  if (!draft || !selection) return null;
   const selectedSheets = new Set(selection.sheetIds);
   const selectedRecords = draft.records.filter((record) => selectedSheets.has(record.sheetId));
   const profile = improvementProfileStatus(selectedRecords);
