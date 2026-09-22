@@ -108,9 +108,9 @@ describe("server AI prompt boundary", () => {
       { handle: "E2", text: "상승여력 232.4%" },
     ])[1].content;
 
-    expect(prompt).toContain("관계, 변화, 의미, 특징, 주의할 점");
+    expect(prompt).toContain("관계, 변화, 조건, 특징, 주의할 점");
     expect(prompt).toContain("단순 field/value와 문서 구조를 반복하지 말고");
-    expect(prompt).toContain("숫자나 날짜를 새로 만들지 마세요");
+    expect(prompt).toContain("근거에 적힌 표기를 그대로 사용하고 새로 만들지 마세요");
     expect(prompt).toContain("claims를 빈 배열로 두세요");
   });
 
@@ -281,5 +281,50 @@ describe("canonical evidence grounding", () => {
     expect(ask.operation === "ask" ? ask.answer : "").toBe(ask.claims[0].text);
     expect(brief).toMatchObject({ operation: "brief", rejectedClaimCount: 1 });
     expect(brief.operation === "brief" ? brief.brief : "").toBe(brief.claims[0].text);
+  });
+
+  it("keeps verified claims for analyze and comparison review, not only for ask and brief", () => {
+    const valid = directCompletion();
+    const completion: AiProviderCompletion = {
+      ...valid,
+      claims: [...valid.claims, { type: "inference", text: "unverified", sourceTokens: ["forged-token"] }],
+    };
+    const analyze = groundAiResult({ operation: "analyze" }, [document], completion);
+    const review = groundAiResult({ operation: "semantic-check", statement: "변화를 점검하세요.", scope: "comparison" }, [document], completion);
+    expect(analyze).toMatchObject({ operation: "analyze", rejectedClaimCount: 1 });
+    expect(analyze.claims).toHaveLength(1);
+    expect(review.operation === "semantic-check" ? review.findings : []).toHaveLength(1);
+  });
+
+  it("accepts digit grouping and unit spacing but never a different value", () => {
+    const text = "총 인원은 75 명이고 달성률은 95 %이며 단가는 1,843.33원입니다.";
+    const formatted: NormalizedDocument = {
+      ...document,
+      blocks: [{ type: "paragraph", id: "pdf:p1:paragraph:1", text, source: { ...document.blocks[0].source, quote: text } }],
+    };
+    const token = buildEvidenceNodes([formatted])[0].propositionToken;
+    const completion = (claim: string): AiProviderCompletion => ({
+      schemaId: AI_SCHEMA_ID,
+      claims: [{ type: "inference", text: claim, sourceTokens: [token] }],
+    });
+    for (const same of ["인원 75명 규모입니다.", "달성률 95% 수준입니다.", "단가 1843.33원 수준입니다."]) {
+      expect(groundProviderCompletion([formatted], completion(same)).rejectedClaimCount).toBe(0);
+    }
+    for (const different of ["인원 76명 규모입니다.", "달성률 96% 수준입니다.", "단가 1,843.33달러 수준입니다."]) {
+      expect(groundProviderCompletion([formatted], completion(different))).toEqual({ claims: [], rejectedClaimCount: 1 });
+    }
+  });
+
+  it("hands version comparison the base and target roles without any file identity", () => {
+    const base = evidenceWindow(buildEvidenceNodes([document]), new Map([["file-1", "base" as const]]));
+    const prompt = buildMessages({ operation: "semantic-check", statement: "변화를 점검하세요.", scope: "comparison" }, [
+      { handle: "E1", text: "운임은 100원입니다.", role: "base" },
+      { handle: "E2", text: "운임은 120원입니다.", role: "target" },
+    ])[1].content;
+    expect(base.items[0]).toMatchObject({ handle: "E1", role: "base" });
+    expect(prompt).toContain("E1 [기준]: 운임은 100원입니다.");
+    expect(prompt).toContain("E2 [대상]: 운임은 120원입니다.");
+    expect(prompt).not.toContain("file-1");
+    expect(prompt).toContain("실제로 의미가 달라진 부분만");
   });
 });

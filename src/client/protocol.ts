@@ -51,9 +51,8 @@ export type WorkerRequest =
   | { kind: "extract-structured"; fileIds: string[]; fields?: string[] }
   /** Bounded evidence window for one requested field of one file. */
   | { kind: "field-evidence"; fileId: string; field: string }
-  /** Resolves a model-found value back onto canonical sources. */
+  | { kind: "evidence"; fileIds: string[]; request: AiRequest; compare?: { baseFileId: string; targetFileId: string } }
   | { kind: "field-source"; windowId: string; handles: string[] }
-  | { kind: "evidence"; fileIds: string[]; request: AiRequest }
   | { kind: "ground"; windowId: string; request: AiRequest; claims: ModelClaim[] }
   | { kind: "release-evidence"; windowId: string }
   | { kind: "forget"; fileIds: string[] };

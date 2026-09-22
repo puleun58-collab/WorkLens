@@ -11,6 +11,7 @@ const boundedText = (maximum: number) => z.string().trim().min(1).max(maximum);
 const evidenceItemsSchema = z.array(z.object({
   handle: z.string().trim().toUpperCase().regex(/^E[1-9][0-9]?$/u),
   text: boundedText(MAX_EVIDENCE_ITEM_CHARS),
+  role: z.enum(["base", "target"]).optional(),
 }).strict()).min(1).max(MAX_EVIDENCE_ITEMS).superRefine((items, context) => {
   const handles = new Set(items.map((item) => item.handle));
   if (handles.size !== items.length) {
@@ -25,7 +26,7 @@ const taskSchema = z.discriminatedUnion("operation", [
   z.object({ operation: z.literal("analyze") }).strict(),
   z.object({ operation: z.literal("ask"), question: boundedText(MAX_INSTRUCTION_CHARS) }).strict(),
   z.object({ operation: z.literal("brief"), summaryInstruction: boundedText(MAX_INSTRUCTION_CHARS).optional() }).strict(),
-  z.object({ operation: z.literal("semantic-check"), statement: boundedText(MAX_INSTRUCTION_CHARS) }).strict(),
+  z.object({ operation: z.literal("semantic-check"), statement: boundedText(MAX_INSTRUCTION_CHARS), scope: z.literal("comparison").optional() }).strict(),
 ]);
 
 const aiApiRequestSchema = z.discriminatedUnion("kind", [

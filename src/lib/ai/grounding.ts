@@ -334,15 +334,30 @@ function claimId(...values: string[]): string { return sha256Base64Url(values.jo
 function cleanText(value: string | undefined): string { return typeof value === "string" ? value.trim().slice(0, 8_000) : ""; }
 const CHECKED_LITERAL_PATTERN = /(?:[A-Za-z가-힣]{1,12}[-_/])?\d[\dA-Za-z가-힣.,:/%+\-₩$]*/gu;
 
+/**
+ * A claim may only repeat literals the evidence states. Digit grouping and a
+ * space before a unit are typography, not different values, so both sides are
+ * compacted the same way; anything that changes a digit, a unit or a date
+ * still fails.
+ */
 function claimLiteralsAppearInEvidence(claim: string, evidence: readonly string[]): boolean {
-  const source = normalize(evidence.join(" ")).toLocaleLowerCase("ko-KR");
+  const joined = normalize(evidence.join(" ")).toLocaleLowerCase("ko-KR");
+  const source = compactNumerics(joined);
   const literals = claim.match(CHECKED_LITERAL_PATTERN) ?? [];
   return literals.every((literal) => {
     const normalized = normalize(literal)
       .toLocaleLowerCase("ko-KR")
       .replace(/[.,:;!?]+$/u, "");
-    return normalized.length === 0 || source.includes(normalized);
+    if (normalized.length === 0 || joined.includes(normalized)) return true;
+    return source.includes(compactNumerics(normalized));
   });
+}
+
+/** `1,843.33` → `1843.33`, `75 명` → `75명`, `95 %` → `95%`. Nothing else changes. */
+function compactNumerics(value: string): string {
+  return value
+    .replace(/(\d),(?=\d{3}(?!\d))/gu, "$1")
+    .replace(/(\d)\s+(?=[%℃가-힣$₩])/gu, "$1");
 }
 function normalize(value: string): string { return value.normalize("NFKC").replace(/\r\n?/g, "\n").replace(/\s+/gu, " ").trim(); }
 function looksLikePromptInjection(value: string): boolean { return /ignore (?:all |the )?(?:previous|prior|above) instructions|system prompt|developer message|지시(?:를|사항을)? 무시|프롬프트/ui.test(normalize(value)); }

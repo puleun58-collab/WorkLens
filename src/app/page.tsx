@@ -115,7 +115,7 @@ type NoticeScope = "workspace" | ShellView;
 type Notice = { tone: "error" | "success" | "info" | "warning"; message: string; scope: NoticeScope; code?: ServerAiErrorCode; detail?: string };
 
 function noticePanelTitle(notice: Notice): string {
-  if (notice.tone === "warning") return "추가 처리를 완료하지 못했습니다";
+  if (notice.tone === "warning") return "일부 항목을 처리하지 못했습니다";
   if (notice.tone === "error" && notice.code) return "요청을 처리하지 못했습니다";
   return notice.message;
 }
@@ -428,62 +428,50 @@ export default function Home() {
     }
   };
 
-  const reportAiFailure = (error: unknown) => {
+  /**
+   * Provider and grounding problems are implementation detail. The user is
+   * told what happened to their work — not which stage of the pipeline failed
+   * — while the diagnostic log keeps the exact code, operation and counts.
+   */
+  const noteAiDiagnostics = (error: unknown) => {
+    logAiFailure(error);
+    if ((error as Partial<ServerAiFailure>).code === "CANCELLED") notifyView("info", "작업을 취소했습니다.");
+  };
+
+  const reportAiFailure = (error: unknown, fallback: string) => {
     const failure = error as Partial<ServerAiFailure>;
     logAiFailure(error);
     if (failure.code === "CANCELLED") {
       notifyView("info", "작업을 취소했습니다.");
       return;
     }
-    notifyView(
-      "error",
-      failure.code === "TIMEOUT" || failure.code === "RATE_LIMITED" || failure.code === "PROVIDER_UNAVAILABLE" || failure.code === "OPERATION_CAPACITY"
-        ? "잠시 후 다시 시도하세요."
-        : (failure.message ?? "입력과 파일 선택 상태를 확인한 뒤 다시 시도하세요."),
-      failure.code,
-    );
-  };
-
-  const reportPartialAiFailure = (error: unknown) => {
-    const failure = error as Partial<ServerAiFailure>;
-    logAiFailure(error);
-    if (failure.code === "CANCELLED") {
-      notifyView("info", "작업을 취소했습니다.");
-      return;
-    }
-    notifyView(
-      "warning",
-      "기본 결과는 정상적으로 유지됩니다.",
-      failure.code,
-    );
-  };
-
-  const reportCheckPartialAiFailure = (error: unknown) => {
-    reportPartialAiFailure(error);
-  };
-
-  const reportAnalyzePartialAiFailure = (error: unknown) => {
-    reportPartialAiFailure(error);
+    const retryable = failure.code === "TIMEOUT"
+      || failure.code === "RATE_LIMITED"
+      || failure.code === "PROVIDER_UNAVAILABLE"
+      || failure.code === "OPERATION_CAPACITY"
+      || failure.code === "BUSY";
+    notifyView("error", retryable ? `${fallback} 잠시 후 다시 시도해 주세요.` : fallback, failure.code);
   };
 
   /**
    * The worker selects and bounds evidence; grounding remains authoritative in
    * the worker after the same-origin server returns model claims.
+   *
+   * Grounding is per claim, so the result of a run is per claim too: every
+   * verified claim is kept and every unverifiable one is dropped. Only a model
+   * answer where nothing at all could be grounded is a grounding failure; an
+   * answer with no claims at all is the model abstaining, and each feature
+   * decides what that means for its own result.
    */
-  const generateGroundedResult = async (request: AiRequest): Promise<AiAvailableResult> => {
+  const generateGroundedResult = async (request: AiRequest, compare?: { baseFileId: string; targetFileId: string }): Promise<AiAvailableResult> => {
     let windowId: string | undefined;
-    const noEvidenceMessage = request.operation === "ask"
-      ? "선택한 문서에서 답변에 필요한 근거를 찾지 못했습니다."
-      : request.operation === "brief"
-        ? "선택한 문서에서 요약에 필요한 근거를 찾지 못했습니다."
-        : SERVER_AI_MESSAGES.NO_EVIDENCE;
     try {
-      const evidence = await runInWorker({ kind: "evidence", fileIds: selected, request });
+      const evidence = await runInWorker({ kind: "evidence", fileIds: selected, request, ...(compare ? { compare } : {}) });
       windowId = evidence.windowId;
       if (evidence.items.length === 0) {
         throw {
           code: "NO_EVIDENCE",
-          message: noEvidenceMessage,
+          message: SERVER_AI_MESSAGES.NO_EVIDENCE,
           operation: "claims",
           occurredAt: new Date().toISOString(),
         } satisfies ServerAiFailure;
@@ -491,8 +479,12 @@ export default function Home() {
       const claims = await generateServerAi(request, evidence.items);
       const result = await runInWorker({ kind: "ground", windowId, request, claims });
       windowId = undefined;
-      const allowPartialGrounding = request.operation === "ask" || request.operation === "brief";
-      if (result.rejectedClaimCount > 0 && !allowPartialGrounding) {
+      console.info("[worklens] grounding", {
+        operation: request.operation,
+        acceptedClaimCount: result.claims.length,
+        rejectedClaimCount: result.rejectedClaimCount,
+      });
+      if (result.claims.length === 0 && result.rejectedClaimCount > 0) {
         throw {
           code: "GROUNDING_REJECTED",
           message: SERVER_AI_MESSAGES.GROUNDING_REJECTED,
@@ -500,35 +492,22 @@ export default function Home() {
           occurredAt: new Date().toISOString(),
         } satisfies ServerAiFailure;
       }
-      if (result.claims.length === 0) {
-        throw {
-          code: "NO_EVIDENCE",
-          message: noEvidenceMessage,
-          operation: "claims",
-          occurredAt: new Date().toISOString(),
-        } satisfies ServerAiFailure;
-      }
       return result;
-    } catch (error) {
-      if ((error as Partial<ApiError>).code === "NO_EVIDENCE") {
-        const failure = error as Partial<ServerAiFailure>;
-        throw {
-          ...failure,
-          code: "NO_EVIDENCE",
-          message: noEvidenceMessage,
-          operation: failure.operation ?? "claims",
-          occurredAt: failure.occurredAt ?? new Date().toISOString(),
-        } satisfies ServerAiFailure;
-      }
-      throw error;
     } finally {
       if (windowId) void runInWorker({ kind: "release-evidence", windowId });
     }
   };
 
+  /** Ask and Brief are the answer: an empty grounded result is not a success. */
   const runServerTask = async (request: AiRequest, success: string) => {
+    const emptyMessage = request.operation === "ask"
+      ? "선택한 문서에서 질문에 답할 수 있는 내용을 찾지 못했습니다."
+      : "선택한 문서에서 요약할 내용을 찾지 못했습니다.";
+    const failureMessage = request.operation === "ask"
+      ? "질문을 처리하지 못했습니다."
+      : "요약을 생성하지 못했습니다.";
     if (selected.length > SERVER_AI_MAX_FILES) {
-      notifyView("error", `추가 처리는 최대 ${SERVER_AI_MAX_FILES}개 파일만 선택할 수 있습니다.`);
+      notifyView("error", `한 번에 최대 ${SERVER_AI_MAX_FILES}개 파일까지 처리할 수 있습니다.`);
       return;
     }
     setBusy(true);
@@ -536,16 +515,18 @@ export default function Home() {
     setDetail(null);
     try {
       const result = await generateGroundedResult(request);
-      setOperationResult(result);
-      if ((request.operation === "ask" || request.operation === "brief") && result.rejectedClaimCount > 0) {
-        notifyView("warning", "일부 내용은 문서 근거와 연결되지 않아 결과에서 제외했습니다.");
-      } else {
-        notifyView("success", success);
+      if (result.claims.length === 0) {
+        setOperationResult(null);
+        notifyView("error", emptyMessage);
+        return;
       }
+      setOperationResult(result);
+      notifyView("success", success);
       return result;
     } catch (error) {
       setOperationResult(null);
-      reportAiFailure(error);
+      const code = (error as Partial<ServerAiFailure>).code;
+      reportAiFailure(error, code === "NO_EVIDENCE" || code === "GROUNDING_REJECTED" ? emptyMessage : failureMessage);
     } finally {
       setBusy(false);
     }
@@ -559,7 +540,7 @@ export default function Home() {
   const runPolish = async () => {
     if (!selected.length) return;
     if (selected.length > SERVER_AI_MAX_FILES) {
-      notifyView("error", `AI 작업은 최대 ${SERVER_AI_MAX_FILES}개 파일만 선택할 수 있습니다.`);
+      notifyView("error", `한 번에 최대 ${SERVER_AI_MAX_FILES}개 파일까지 처리할 수 있습니다.`);
       return;
     }
     setBusy(true);
@@ -596,13 +577,15 @@ export default function Home() {
       const completed = outcomes.some((entry) => entry.status !== "failed");
       if (partialFailure && !completed) {
         setPolish(null);
-        reportAiFailure(partialFailure);
+        reportAiFailure(partialFailure, "윤문을 완료하지 못했습니다.");
         return;
       }
       const result = polishResult(polishMode, outcomes);
       setPolish(result);
       if (partialFailure) {
-        reportPartialAiFailure(partialFailure);
+        noteAiDiagnostics(partialFailure);
+        const unfinished = outcomes.filter((entry) => entry.status === "failed").length;
+        if (unfinished > 0) notifyView("warning", `일부 문장을 처리하지 못했습니다. 확인된 ${outcomes.length - unfinished}문장은 그대로 유지했습니다.`);
       } else if (result.summary.rejected > 0) {
         notifyView("warning", `윤문 결과는 준비되었습니다. 보호 항목 ${result.summary.rejected}건은 원문을 유지했습니다.`);
       } else {
@@ -668,13 +651,15 @@ export default function Home() {
       const completed = outcomes.some((entry) => entry.status !== "failed");
       if (partialFailure && !completed) {
         setPolishTextRun(null);
-        reportAiFailure(partialFailure);
+        reportAiFailure(partialFailure, "윤문을 완료하지 못했습니다.");
         return;
       }
       const result = polishTextResult(polishMode, input, segments, outcomes);
       setPolishTextRun(result);
       if (partialFailure) {
-        reportPartialAiFailure(partialFailure);
+        noteAiDiagnostics(partialFailure);
+        const unfinished = outcomes.filter((entry) => entry.status === "failed").length;
+        if (unfinished > 0) notifyView("warning", `일부 문장을 처리하지 못했습니다. 확인된 ${outcomes.length - unfinished}문장은 그대로 유지했습니다.`);
       } else if (result.summary.rejected > 0) {
         notifyView("warning", `윤문 결과는 준비되었습니다. 보호 항목 ${result.summary.rejected}건은 원문을 유지했습니다.`);
       } else {
@@ -707,17 +692,17 @@ export default function Home() {
         return;
       }
 
-      if (selected.length > SERVER_AI_MAX_FILES) {
-        notifyView("warning", `추가 해석은 파일 ${SERVER_AI_MAX_FILES}개 이하에서 실행됩니다.`);
-        return deterministic;
+      // Interpretation is an addition to the deterministic analysis, never a
+      // precondition for it: without it the analysis is still complete.
+      if (selected.length <= SERVER_AI_MAX_FILES) {
+        try {
+          const enriched = await generateGroundedResult({ operation: "analyze" });
+          if (enriched.claims.length > 0) setEnrichmentResult(enriched);
+        } catch (error) {
+          noteAiDiagnostics(error);
+        }
       }
-      try {
-        const enriched = await generateGroundedResult({ operation: "analyze" });
-        setEnrichmentResult(enriched);
-        notifyView("success", "문서 분석을 완료했습니다. 추가 해석도 반영했습니다.");
-      } catch (error) {
-        reportAnalyzePartialAiFailure(error);
-      }
+      notifyView("success", "문서 분석을 완료했습니다.");
       return deterministic;
     } finally {
       setBusy(false);
@@ -762,16 +747,19 @@ export default function Home() {
         return;
       }
 
+      // The comparison itself is deterministic. Grounded meaning changes are an
+      // extra section when they exist, and silence when they do not.
       try {
         const enriched = await generateGroundedResult({
           operation: "semantic-check",
-          statement: "선택한 문서 사이의 중요한 의미 변화를 근거와 함께 점검하세요.",
-        });
-        setEnrichmentResult(enriched);
-        notifyView("success", "파일 비교를 완료했습니다. 의미 차이 확인도 반영했습니다.");
+          scope: "comparison",
+          statement: "기준 파일과 대상 파일 사이에서 표현이 아니라 실제 의미가 달라진 부분만 점검하세요.",
+        }, { baseFileId, targetFileId });
+        if (enriched.claims.length > 0) setEnrichmentResult(enriched);
       } catch (error) {
-        reportPartialAiFailure(error);
+        noteAiDiagnostics(error);
       }
+      notifyView("success", "파일 비교를 완료했습니다.");
       return deterministic;
     } finally {
       setBusy(false);
@@ -801,55 +789,46 @@ export default function Home() {
         return;
       }
 
-      if (selected.length > SERVER_AI_MAX_FILES) {
-        notifyView("warning", `기본 검수를 완료했습니다. 추가 문장 확인은 파일 ${SERVER_AI_MAX_FILES}개 이하에서 실행됩니다.`);
-        return base;
-      }
-      const request: AiRequest = {
-        operation: "semantic-check",
-        statement: "선택한 문서의 한글 맞춤법, 띄어쓰기, 조사, 어색한 표현과 용어 일관성을 보수적으로 점검하세요. 확신이 낮은 항목은 제안으로만 표시하세요.",
-      };
-      try {
-        const aiResult = await generateGroundedResult(request);
-        const merged = base.map((entry) => {
-          const forFile = aiResult.claims.filter((claim) =>
-            claim.evidence.some((binding) => binding.source.fileId === entry.file.id));
-          const findings = sortFindings(
-            mergeSemanticFindings(entry.check.findings, semanticFindings(forFile)),
-            new Map(),
-          );
-          const added = findings.length - entry.check.findings.length;
-          const summary = entry.check.summary;
-          return {
-            ...entry,
-            check: {
-              ...entry.check,
-              findings,
-              summary: {
-                ...summary,
-                totalFound: summary.totalFound + added,
-                returned: findings.length,
-                bySeverity: { ...summary.bySeverity, suggestion: summary.bySeverity.suggestion + added },
-                byGroup: { ...summary.byGroup, writing: summary.byGroup.writing + added },
-                byConfidence: { ...summary.byConfidence, low: summary.byConfidence.low + added },
+      let merged = base;
+      if (selected.length <= SERVER_AI_MAX_FILES) {
+        const request: AiRequest = {
+          operation: "semantic-check",
+          statement: "선택한 문서의 한글 맞춤법, 띄어쓰기, 조사, 어색한 표현과 용어 일관성을 보수적으로 점검하세요. 확신이 낮은 항목은 제안으로만 표시하세요.",
+        };
+        try {
+          const aiResult = await generateGroundedResult(request);
+          merged = base.map((entry) => {
+            const forFile = aiResult.claims.filter((claim) =>
+              claim.evidence.some((binding) => binding.source.fileId === entry.file.id));
+            const findings = sortFindings(
+              mergeSemanticFindings(entry.check.findings, semanticFindings(forFile)),
+              new Map(),
+            );
+            const added = findings.length - entry.check.findings.length;
+            const summary = entry.check.summary;
+            return {
+              ...entry,
+              check: {
+                ...entry.check,
+                findings,
+                summary: {
+                  ...summary,
+                  totalFound: summary.totalFound + added,
+                  returned: findings.length,
+                  bySeverity: { ...summary.bySeverity, suggestion: summary.bySeverity.suggestion + added },
+                  byGroup: { ...summary.byGroup, writing: summary.byGroup.writing + added },
+                  byConfidence: { ...summary.byConfidence, low: summary.byConfidence.low + added },
+                },
               },
-            },
-          };
-        });
-        setOperationResult(merged);
-        const total = merged.reduce((sum, entry) => sum + entry.check.findings.length, 0)
-          - base.reduce((sum, entry) => sum + entry.check.findings.length, 0);
-        notifyView(
-          "success",
-          total > 0
-            ? `문서 검수를 완료했습니다. 추가 문장 제안 ${total}건을 반영했습니다.`
-            : "문서 검수를 완료했습니다. 추가할 문장 제안이 없었습니다.",
-        );
-        return merged;
-      } catch (error) {
-        reportCheckPartialAiFailure(error);
-        return base;
+            };
+          });
+          setOperationResult(merged);
+        } catch (error) {
+          noteAiDiagnostics(error);
+        }
       }
+      notifyView("success", "문서 검수를 완료했습니다.");
+      return merged;
     } finally {
       setBusy(false);
       primaryRunInFlight.current = false;
@@ -960,17 +939,21 @@ export default function Home() {
       setExtractProgress({ done: 0, total: pending.length });
       for (const [index, task] of pending.entries()) {
         if (extractCancelled.current) break;
-        resolved = await resolveFieldWithAi(resolved, task.fileId, task.field);
+        try {
+          resolved = await resolveFieldWithAi(resolved, task.fileId, task.field);
+        } catch (error) {
+          // A field nothing could resolve stays "찾지 못함"; the values already
+          // read from the documents are unaffected, so the run still completes.
+          noteAiDiagnostics(error);
+          break;
+        }
         setStructured(resolved);
         setExtractProgress({ done: index + 1, total: pending.length });
       }
       notifyView("success", `추출 항목 ${resolved.summary.fields}개 · 찾지 못함 ${resolved.summary.missing}개`);
     } catch (error) {
-      if (deterministic) {
-        reportPartialAiFailure(error);
-      } else {
-        reportAiFailure(error);
-      }
+      setStructured(null);
+      reportAiFailure(error, "정보 추출을 완료하지 못했습니다.");
     } finally {
       setBusy(false);
       setExtractProgress(null);
@@ -2928,7 +2911,7 @@ function ComparisonView({ comparison, compareIds, enrichment, fileNames, detail,
       {semanticClaims.length ? (
         <section className="result-subsection comparison-semantic-section" aria-labelledby="comparison-semantic-title">
           <div className="subsection-heading">
-            <h3 id="comparison-semantic-title">의미 변화</h3>
+            <h3 id="comparison-semantic-title">주요 변화</h3>
             <span>{semanticClaims.length}건</span>
           </div>
           <div className="analysis-reading-list">

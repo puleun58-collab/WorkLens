@@ -8175,3 +8175,76 @@ input:disabled {
 .value-check-matrix-row:hover {
   background: #f8fafc;
 }
+
+/*
+ * Empty-state upload: a white drop target on the grey canvas. The dashed
+ * outline says "drop here", the filled button stays the only primary action,
+ * and hover/drag states change tint only — no shadow, no motion.
+ */
+.dropzone:not(.compact) {
+  padding: var(--space-5) var(--panel-inset);
+  border: 1px dashed #c8d1dc;
+  border-radius: var(--radius-panel);
+  background: var(--paper);
+  transition: border-color var(--motion-fast) var(--motion-ease), background var(--motion-fast) var(--motion-ease);
+}
+
+.dropzone:not(.compact):hover {
+  border-color: #aebbcb;
+  background: #fcfdfe;
+}
+
+.dropzone:not(.compact).drag-active {
+  border-color: var(--blue);
+  border-style: dashed;
+  background: var(--blue-soft);
+}
+
+.dropzone:not(.compact).busy {
+  border-color: var(--blue-line, var(--blue));
+  background: var(--blue-pale);
+}
+
+.dropzone:not(.compact) > div strong {
+  color: var(--ink);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+}
+
+.dropzone:not(.compact) > div span {
+  color: var(--ink-soft);
+}
+
+.dropzone:not(.compact) .drop-hint {
+  color: var(--muted);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+}
+
+.dropzone:not(.compact).drag-active .drop-hint {
+  color: var(--blue-active);
+}
+
+@media (max-width: 760px) {
+  .dropzone:not(.compact) {
+    padding: var(--space-4) 16px;
+  }
+
+  .dropzone:not(.compact) .drop-hint {
+    white-space: normal;
+  }
+}
+
+/*
+ * The mode description under the Extract controls is the same kind of text as
+ * the section description above them, so it is set the same way.
+ */
+.extract-mode-description {
+  max-width: 68ch;
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--leading-relaxed);
+}

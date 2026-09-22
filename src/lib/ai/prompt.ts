@@ -17,6 +17,11 @@ export const MAX_EVIDENCE_ITEM_CHARS = 320;
 export interface EvidenceItem {
   handle: string;
   text: string;
+  /**
+   * Version comparison only: which side of the comparison this evidence came
+   * from. The model needs the direction; it never needs the file name or id.
+   */
+  role?: "base" | "target";
 }
 
 export interface EvidenceWindow {
@@ -26,7 +31,10 @@ export interface EvidenceWindow {
 }
 
 /** Bounds an already ranked list; ranking happens in `@/lib/ai/retrieval`. */
-export function evidenceWindow(nodes: readonly AiEvidenceNode[]): EvidenceWindow {
+export function evidenceWindow(
+  nodes: readonly AiEvidenceNode[],
+  roles?: ReadonlyMap<string, "base" | "target">,
+): EvidenceWindow {
   const items: EvidenceItem[] = [];
   const byHandle = new Map<string, AiEvidenceNode>();
   let characters = 0;
@@ -36,7 +44,8 @@ export function evidenceWindow(nodes: readonly AiEvidenceNode[]): EvidenceWindow
     if (!text) continue;
     if (characters + text.length > MAX_EVIDENCE_CHARS) break;
     const handle = `E${items.length + 1}`;
-    items.push({ handle, text });
+    const role = roles?.get(node.fileId);
+    items.push({ handle, text, ...(role ? { role } : {}) });
     byHandle.set(handle, node);
     characters += text.length;
   }
@@ -107,7 +116,9 @@ export function buildMessages(
   request: AiRequest,
   items: readonly EvidenceItem[],
 ): Array<{ role: "system" | "user"; content: string }> {
-  const evidence = items.map((item) => `${item.handle}: ${item.text}`).join("\n");
+  const evidence = items
+    .map((item) => `${item.handle}${item.role ? ` [${item.role === "base" ? "기준" : "대상"}]` : ""}: ${item.text}`)
+    .join("\n");
   return [
     { role: "system", content: SYSTEM_PROMPT },
     { role: "user", content: `${taskInstruction(request)}\n\n[근거]\n${evidence}` },
@@ -130,9 +141,18 @@ function taskInstruction(request: AiRequest): string {
         : base;
     }
     case "semantic-check":
-      return `${request.statement}\n명확한 오류만 지적하세요: 맞춤법, 조사, 어색한 표현, 용어 불일치. 문제가 없으면 claims를 빈 배열로 두고, 취향에 가까운 문체 제안과 숫자 검증은 하지 마세요. 5개 이하로 쓰세요.`;
+      return request.scope === "comparison"
+        ? [
+          `${request.statement}`,
+          "근거는 [기준]과 [대상] 두 파일에서 왔습니다. 두 역할을 반드시 구분하고, 어느 쪽이 이전 내용이고 어느 쪽이 새 내용인지 틀리지 마세요.",
+          "표현만 달라지고 뜻이 같은 변경은 claim으로 만들지 마세요. 실제로 의미가 달라진 부분만 5개 이하로 쓰세요.",
+          "근거에 없는 사실, 숫자, 날짜, 금액을 새로 만들지 말고 원인이나 영향을 추측하지 마세요.",
+          "수치·날짜·고유명사는 근거에 적힌 표기를 그대로 사용하고, 가능하면 기준과 대상 근거를 함께 sources에 넣으세요.",
+          "의미 차이가 없으면 claims를 빈 배열로 두세요.",
+        ].join(" ")
+        : `${request.statement}\n명확한 오류만 지적하세요: 맞춤법, 조사, 어색한 표현, 용어 불일치. 문제가 없으면 claims를 빈 배열로 두고, 취향에 가까운 문체 제안과 숫자 검증은 하지 마세요. 5개 이하로 쓰세요.`;
     case "analyze":
-      return "근거에서 드러나는 관계, 변화, 의미, 특징, 주의할 점만 5개 이하로 해석하세요. 단순 field/value와 문서 구조를 반복하지 말고, 숫자나 날짜를 새로 만들지 마세요. 해석할 근거가 부족하면 claims를 빈 배열로 두세요.";
+      return "근거에서 드러나는 관계, 변화, 조건, 특징, 주의할 점만 5개 이하로 해석하세요. 단순 field/value와 문서 구조를 반복하지 말고, 문서에 없는 권고나 일반 배경지식을 더하지 마세요. 숫자·날짜·비율·금액·고유 용어는 근거에 적힌 표기를 그대로 사용하고 새로 만들지 마세요. 해석할 근거가 부족하면 claims를 빈 배열로 두세요.";
   }
 }
 

@@ -214,7 +214,15 @@ async function handle(request: WorkerRequest): Promise<unknown> {
       if (request.request.operation === "ask" && !askRelevance(candidates, request.request.question).supported) {
         throw new DocumentError("NO_EVIDENCE", "질문을 뒷받침할 근거를 선택한 문서에서 찾지 못했습니다.");
       }
-      const window = evidenceWindow(selectEvidence(candidates, request.request));
+      // Version comparison needs direction, not identity: the window carries a
+      // base/target role per file, and file names never leave this worker.
+      const roles = request.compare
+        ? new Map<string, "base" | "target">([
+          [request.compare.baseFileId, "base"],
+          [request.compare.targetFileId, "target"],
+        ])
+        : undefined;
+      const window = evidenceWindow(selectEvidence(candidates, request.request), roles);
       if (window.items.length === 0) {
         throw new DocumentError("NO_EVIDENCE", "선택한 문서에서 사용할 수 있는 근거를 찾지 못했습니다.");
       }

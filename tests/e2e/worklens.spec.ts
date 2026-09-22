@@ -165,7 +165,7 @@ test("uploads XLSX files, compares them and shows source evidence", async ({ pag
   const jeju = rows.filter({ hasText: "5000" }).first();
   await expect(jeju).toBeVisible();
 
-  await expect(panel.getByRole("heading", { name: "의미 변화", exact: true })).toBeVisible();
+  await expect(panel.getByRole("heading", { name: "주요 변화", exact: true })).toBeVisible();
   await expect(panel.locator(".comparison-semantic-section .analysis-reading-row")).toHaveCount(1);
   await expect(page.locator(".enrichment-results")).toHaveCount(0);
   await expect(page.getByText(/비교 추가 결과|근거 연결 결과|semantic-check/)).toHaveCount(0);
@@ -291,8 +291,8 @@ test("keeps deterministic Analyze output stable across grounding rejection and e
   const panel = page.locator(".results-panel");
   await expect(panel.locator(".result-status")).toHaveText("분석 완료");
   await expect(panel.locator(".result-status")).toHaveClass(/success/);
-  await expect(panel.locator(".result-inline-warning > span")).toHaveText("기본 결과는 정상적으로 유지됩니다.");
-  await expect(panel.locator(".result-inline-warning small")).toHaveCount(0);
+  await expect(panel.locator(".result-inline-warning")).toHaveCount(0);
+  await expect(page.locator(".notice.warning, .notice.error")).toHaveCount(0);
   await expect(panel).not.toContainText(/서술형 문단 중심|표 중심의 문서|혼합형 문서|주요 수치/);
   await expect(panel.locator(".analysis-summary-section")).toHaveCount(0);
   const topics = panel.locator(".analysis-core-items-section .analysis-reading-row");
@@ -357,8 +357,8 @@ test("keeps narrative PPT topics useful when Analyze AI is unavailable", async (
   }
   await expect(topics).toHaveCount(9);
   await expect(panel).not.toContainText("이 문장은 제목 placeholder가 없는 본문입니다.");
-  await expect(panel.locator(".result-inline-warning > span")).toHaveText("기본 결과는 정상적으로 유지됩니다.");
-  await expect(panel.locator(".result-inline-warning small")).toHaveCount(0);
+  await expect(panel.locator(".result-inline-warning")).toHaveCount(0);
+  await expect(panel.locator(".analysis-summary-section")).toHaveCount(0);
 
   const repeated = topics.filter({ hasText: "업체별 위험요소" });
   await expect(repeated.locator(".source-locator")).toContainText("외 1곳");
@@ -1152,7 +1152,7 @@ test("keeps an unanswerable Ask as a grounded error without invented sources", a
   await page.getByLabel("질문 입력").fill("문서에 없는 값을 알려주세요.");
   await page.getByRole("button", { name: "질문 실행" }).click();
 
-  await expect(page.locator(".notice.error")).toContainText("선택한 문서에서 답변에 필요한 근거를 찾지 못했습니다.");
+  await expect(page.locator(".notice.error")).toContainText("선택한 문서에서 질문에 답할 수 있는 내용을 찾지 못했습니다.");
   await expect(page.locator(".results-panel")).toHaveCount(0);
   await expect(page.locator(".ask-evidence .result-source")).toHaveCount(0);
 });
@@ -1189,7 +1189,7 @@ test("keeps grounded Ask and Brief content when another claim is rejected", asyn
   await page.getByRole("button", { name: "질문 실행" }).click();
   const askPanel = page.locator(".results-panel");
   await expect(askPanel.locator(".result-status")).toHaveText("답변 완료");
-  await expect(askPanel.locator(".result-inline-warning")).toHaveText("일부 내용은 문서 근거와 연결되지 않아 결과에서 제외했습니다.");
+  await expect(askPanel.locator(".result-inline-warning")).toHaveCount(0);
   await expect(askPanel).not.toContainText("문서에 없는 내용");
   await expect(page.locator(".notice.error, .notice.warning")).toHaveCount(0);
 
@@ -1199,7 +1199,7 @@ test("keeps grounded Ask and Brief content when another claim is rejected", asyn
   await expect(briefPanel.getByRole("heading", { name: "핵심 요약", exact: true })).toBeVisible();
   await expect(briefPanel.locator(".result-status")).toHaveText("요약 완료");
   await expect(briefPanel.locator(".result-status")).toHaveClass(/success/);
-  await expect(briefPanel.locator(".result-inline-warning")).toHaveText("일부 내용은 문서 근거와 연결되지 않아 결과에서 제외했습니다.");
+  await expect(briefPanel.locator(".result-inline-warning")).toHaveCount(0);
   await expect(briefPanel.locator(".brief-body")).toBeVisible();
   await expect(briefPanel.getByRole("heading", { name: "주요 근거", exact: true })).toBeVisible();
   const briefSource = briefPanel.locator(".brief-evidence-item .source-action").first();
@@ -1296,7 +1296,7 @@ test("shows a Brief-specific error when no grounded content remains", async ({ p
   await page.getByRole("button", { name: "요약 실행" }).click();
 
   const error = page.locator(".notice.error");
-  await expect(error).toContainText("선택한 문서에서 요약에 필요한 근거를 찾지 못했습니다.");
+  await expect(error).toContainText("선택한 문서에서 요약할 내용을 찾지 못했습니다.");
   await expect(error).not.toContainText("파일 형식과 선택 상태");
   await expect(page.locator(".results-panel")).toHaveCount(0);
 });
@@ -1460,8 +1460,8 @@ test("integrates enrichment behind one action and preserves every deterministic 
   await page.getByRole("button", { name: "검수 실행" }).click();
   await expect(page.locator(".check-issue").first()).toBeVisible();
   await expect(page.locator(".results-panel .result-status")).toHaveText("검수 완료");
-  await expect(page.locator(".result-inline-warning")).toHaveText("기본 결과는 정상적으로 유지됩니다.");
-  await expect(page.locator(".result-inline-warning")).not.toContainText("AI 서비스");
+  await expect(page.locator(".result-inline-warning")).toHaveCount(0);
+  await expect(page.locator(".notice.warning")).toHaveCount(0);
   await expect(page.locator(".notice.error")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "검수 실행" })).toBeEnabled();
 
@@ -1470,15 +1470,15 @@ test("integrates enrichment behind one action and preserves every deterministic 
   await page.getByRole("button", { name: "분석", exact: true }).click();
   await page.getByRole("button", { name: "분석 실행" }).click();
   await expect(page.locator(".results-panel .analysis-reading-row")).toHaveCount(0);
-  await expect(page.locator(".result-inline-warning")).toHaveText("기본 결과는 정상적으로 유지됩니다.");
-  await expect(page.locator(".result-inline-warning small")).toHaveCount(0);
+  await expect(page.locator(".result-inline-warning")).toHaveCount(0);
+  await expect(page.locator(".results-panel .result-status")).toHaveText("분석 완료");
   await expect(page.locator(".results-panel .result-status")).toHaveClass(/success/);
 
   await page.getByLabel("운임현황_v2.xlsx 선택").check();
   await page.getByRole("button", { name: "비교", exact: true }).click();
   await page.getByRole("button", { name: "비교 실행" }).click();
   await expect(page.getByTestId("change-row").first()).toBeVisible();
-  await expect(page.locator(".result-inline-warning")).toHaveText("기본 결과는 정상적으로 유지됩니다.");
+  await expect(page.locator(".result-inline-warning")).toHaveCount(0);
   await expect(page.locator(".comparison-semantic-section")).toHaveCount(0);
   await expect(page.locator(".enrichment-results")).toHaveCount(0);
   await expect(page.locator(".results-panel .result-status")).toHaveText("비교 완료");
@@ -1881,7 +1881,7 @@ test("keeps browser requests on the same origin during integrated work", async (
   await page.getByLabel("운임현황_v1.xlsx 선택").check();
   await page.getByRole("button", { name: "검수", exact: true }).click();
   await page.getByRole("button", { name: "검수 실행" }).click();
-  await expect(page.locator(".result-inline-warning")).toHaveText("기본 결과는 정상적으로 유지됩니다.");
+  await expect(page.locator(".results-panel .result-status")).toHaveText("검수 완료");
 
   // Enrichment uses only the same-origin server route; the browser never
   // fetches model assets or contacts a third-party host.
