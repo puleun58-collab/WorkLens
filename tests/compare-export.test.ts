@@ -98,6 +98,18 @@ describe("comparison exports", () => {
     };
     expect(comparisonCsv(unlabelled).split("\r\n")[0]).toBe("변경 유형,기준 파일 값,대상 파일 값,차이,변화율,기준 근거,대상 근거");
   });
+
+  it("writes the same cells to CSV and XLSX", async () => {
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(await comparisonXlsx(result) as unknown as Parameters<typeof workbook.xlsx.load>[0]);
+    const sheet = workbook.getWorksheet("버전 비교")!;
+    const fromSheet: string[][] = [];
+    sheet.eachRow((row) => fromSheet.push((row.values as ExcelJS.CellValue[]).slice(1).map((value) => String(value ?? ""))));
+    const fromCsv = comparisonCsv(result).trimEnd().split("\r\n")
+      .map((line) => line.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/u).map((cell) => cell.replace(/^"|"$/gu, "").replaceAll('""', '"')));
+
+    expect(fromCsv).toEqual(fromSheet);
+  });
 });
 
 describe("comparison deltas", () => {

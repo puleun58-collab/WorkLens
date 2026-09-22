@@ -3134,7 +3134,7 @@ function AggregationResults({ draft, selection, busy, onSelection, onExport }: {
           <span className="metric">슬라이드 <b>{slideTotal}</b></span>
         </p>
         <section className="aggregation-section" aria-labelledby="aggregation-order">
-          <div className="aggregation-section-heading"><div><h3 id="aggregation-order">취합 순서</h3><p>선택한 파일 순서와 각 파일의 슬라이드 순서를 그대로 유지합니다.</p></div></div>
+          <div className="aggregation-section-heading"><div><h3 id="aggregation-order">취합 순서</h3><p>선택한 파일 순서와 각 파일의 슬라이드 순서를 그대로 유지합니다. 슬라이드의 텍스트·이미지·표·레이아웃은 원본 그대로 옮기고, 발표자 노트는 옮기지 않습니다.</p></div></div>
           <ol className="aggregation-deck-order">
             {draft.decks.map((deck) => (
               <li key={deck.fileId}><strong>{deck.fileName}</strong><span>{deck.slideCount}장</span></li>
@@ -3188,6 +3188,7 @@ function AggregationResults({ draft, selection, busy, onSelection, onExport }: {
           {draft.workbooks.map((workbook) => (
             <section className="aggregation-workbook" key={workbook.id}>
               <h4>{workbook.fileName}</h4>
+              {workbook.sheets.length === 0 ? <p className="aggregation-sheet-empty">취합할 표를 찾지 못했습니다. 표 형태의 내용이 있는 파일을 선택하세요.</p> : null}
               {workbook.sheets.map((sheet) => (
                 <label className="aggregation-sheet" key={sheet.id} data-role={sheet.role}>
                   <input type="checkbox" checked={selectedSheets.has(sheet.id)} disabled={sheet.role === "empty"} onChange={() => toggleSheet(sheet.id)} />
@@ -3247,12 +3248,14 @@ function AggregationResults({ draft, selection, busy, onSelection, onExport }: {
           const groupRecords = selectedRecords.filter((record) => groupSheetIds.includes(record.sheetId));
           if (groupRecords.length === 0 || groupMappings.length === 0) return null;
           return (
-            <div className="aggregation-preview-wrap" key={group.id}>
+            <div className="aggregation-preview-group" key={group.id}>
               <h4>{group.name}</h4>
-              <table className="aggregation-preview">
-                <thead><tr>{groupMappings.map((mapping) => <th key={mapping.id}>{mapping.targetField}</th>)}<th>출처</th><th>상태</th></tr></thead>
-                <tbody>{groupRecords.slice(0, 20).map((record) => <tr key={record.id}>{groupMappings.map((mapping) => <td key={mapping.id}>{previewValue(record, mapping)}</td>)}<td>{record.source.sheet} · {record.source.cellRange ?? record.source.label}</td><td>{record.duplicateOf ? "중복 후보" : record.media.length ? `이미지 ${record.media.length}` : "확인"}</td></tr>)}</tbody>
-              </table>
+              <div className="aggregation-preview-wrap">
+                <table className="aggregation-preview">
+                  <thead><tr>{groupMappings.map((mapping) => <th key={mapping.id}>{mapping.targetField}</th>)}<th>출처</th><th>상태</th></tr></thead>
+                  <tbody>{groupRecords.slice(0, 20).map((record) => <tr key={record.id}>{groupMappings.map((mapping) => <td key={mapping.id}>{previewValue(record, mapping)}</td>)}<td>{[record.source.sheet, record.source.cellRange ?? record.source.label].filter(Boolean).join(" · ")}</td><td>{record.duplicateOf ? "중복 후보" : record.media.length ? `이미지 ${record.media.length}` : "확인"}</td></tr>)}</tbody>
+                </table>
+              </div>
             </div>
           );
         })}

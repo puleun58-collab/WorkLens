@@ -6,7 +6,7 @@ import { aggregationXlsxExport } from "@/lib/aggregation/export";
 import { mergePresentations } from "@/lib/aggregation/pptx-merge";
 import { parseDocument } from "@/lib/parsers";
 import { strToU8, unzipSync, zipSync } from "fflate";
-import { createPptxSlides } from "./fixtures";
+import { createDocx, createPptxSlides } from "./fixtures";
 
 const RELS = (entries: string) =>
   `<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${entries}</Relationships>`;
@@ -293,6 +293,17 @@ describe("generic aggregation", () => {
     const reparsed = await parseDocument({ fileId: "merged", fileName: merged.fileName, bytes: merged.content });
     expect(reparsed.metadata.pageCount).toBe(3);
     expect(reparsed.media).toHaveLength(3);
+  });
+
+  it("names a document's table after the document, not its position", async () => {
+    const document = await parseDocument({ fileId: "contract", fileName: "계약.docx", bytes: createDocx() });
+    const draft = buildAggregation([document]);
+
+    expect(draft.output).toBe("xlsx");
+    expect(draft.workbooks[0].sheets.map((sheet) => sheet.name)).toEqual(["계약"]);
+    expect(draft.groups.map((group) => group.name)).toEqual(["계약"]);
+    const exported = await aggregationXlsxExport(draft, defaultSelection(draft), [document]);
+    expect((await reopen(exported.content)).worksheets.map((sheet) => sheet.name)).toEqual(["계약"]);
   });
 
   it("sizes number-formatted columns to what the workbook renders", async () => {

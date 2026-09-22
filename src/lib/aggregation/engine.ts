@@ -292,11 +292,20 @@ function safeWorkbookSheet(document: NormalizedDocument, sheet: WorkbookSheet): 
 }
 
 function documentWorkbook(document: NormalizedDocument): AggregationWorkbook {
+  const fileName = document.metadata.fileName;
+  // A document without worksheets still needs a name a reader recognises, so
+  // its tables are named after the file rather than after their position.
+  const baseName = fileName.replace(/\.[^.]+$/u, "") || fileName;
+  const tables = document.blocks.filter((block): block is TableBlock => block.type === "table");
   const sheets = document.kind === "xlsx" && document.workbookSheets
     ? document.workbookSheets.map((sheet) => safeWorkbookSheet(document, sheet))
-    : document.blocks.filter((block): block is TableBlock => block.type === "table").map((table, index) =>
-      safeWorkbookSheet(document, { index: index + 1, name: table.source.sheet ?? `Table ${index + 1}`, visibility: "visible", table }));
-  return { id: `aggregation:${document.id}`, fileId: document.fileId, fileName: document.metadata.fileName, kind: document.kind, sheets };
+    : tables.map((table, index) => safeWorkbookSheet(document, {
+      index: index + 1,
+      name: table.source.sheet ?? (tables.length === 1 ? baseName : `${baseName} ${index + 1}`),
+      visibility: "visible",
+      table,
+    }));
+  return { id: `aggregation:${document.id}`, fileId: document.fileId, fileName, kind: document.kind, sheets };
 }
 
 function deckOf(document: NormalizedDocument): AggregationDeck {
