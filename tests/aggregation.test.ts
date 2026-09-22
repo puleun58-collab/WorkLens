@@ -13,14 +13,15 @@ const RELS = (entries: string) =>
 const REL_BASE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 
 /**
- * A deck shaped like PowerPoint's own output: master, layout, theme, an image
- * and a notes slide. Merging has to carry the first four and leave the notes.
+ * A deck shaped like PowerPoint's own output: master, layout, theme, an image,
+ * a chart with its embedded workbook, and a notes slide. Merging has to carry
+ * every dependency and leave the notes.
  */
 function createAuthoredPptx(titles: readonly string[], image: Uint8Array): Uint8Array {
   const slideOverrides = titles.map((_, index) =>
     `<Override PartName="/ppt/slides/slide${index + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>`).join("");
   const files: Record<string, Uint8Array> = {
-    "[Content_Types].xml": strToU8(`<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/><Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/><Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/><Override PartName="/ppt/notesSlides/notesSlide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.notesSlide+xml"/>${slideOverrides}</Types>`),
+    "[Content_Types].xml": strToU8(`<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Default Extension="xlsx" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/><Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/><Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/><Override PartName="/ppt/notesSlides/notesSlide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.notesSlide+xml"/><Override PartName="/ppt/charts/chart1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/>${slideOverrides}</Types>`),
     "_rels/.rels": strToU8(RELS(`<Relationship Id="rId1" Type="${REL_BASE}/officeDocument" Target="ppt/presentation.xml"/>`)),
     "ppt/presentation.xml": strToU8(`<?xml version="1.0"?><p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="${REL_BASE}"><p:sldMasterIdLst><p:sldMasterId id="2147483648" r:id="rId1"/></p:sldMasterIdLst><p:sldIdLst>${titles.map((_, index) => `<p:sldId id="${256 + index}" r:id="rId${index + 2}"/>`).join("")}</p:sldIdLst><p:sldSz cx="12192000" cy="6858000"/></p:presentation>`),
     "ppt/_rels/presentation.xml.rels": strToU8(RELS(`<Relationship Id="rId1" Type="${REL_BASE}/slideMaster" Target="slideMasters/slideMaster1.xml"/>${titles.map((_, index) => `<Relationship Id="rId${index + 2}" Type="${REL_BASE}/slide" Target="slides/slide${index + 1}.xml"/>`).join("")}`)),
@@ -30,11 +31,14 @@ function createAuthoredPptx(titles: readonly string[], image: Uint8Array): Uint8
     "ppt/slideLayouts/_rels/slideLayout1.xml.rels": strToU8(RELS(`<Relationship Id="rId1" Type="${REL_BASE}/slideMaster" Target="../slideMasters/slideMaster1.xml"/>`)),
     "ppt/theme/theme1.xml": strToU8(`<?xml version="1.0"?><a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="Authored"/>`),
     "ppt/notesSlides/notesSlide1.xml": strToU8(`<?xml version="1.0"?><p:notes xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld><p:spTree/></p:cSld></p:notes>`),
+    "ppt/charts/chart1.xml": strToU8(`<?xml version="1.0"?><c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart/></c:chartSpace>`),
+    "ppt/charts/_rels/chart1.xml.rels": strToU8(RELS(`<Relationship Id="rId1" Type="${REL_BASE}/package" Target="../embeddings/Microsoft_Excel_Worksheet.xlsx"/>`)),
+    "ppt/embeddings/Microsoft_Excel_Worksheet.xlsx": strToU8("workbook"),
     "ppt/media/image1.png": image,
   };
   titles.forEach((title, index) => {
     files[`ppt/slides/slide${index + 1}.xml`] = strToU8(`<?xml version="1.0"?><p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="${REL_BASE}"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="1" name="Title"/><p:cNvSpPr/><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr><p:txBody><a:p><a:r><a:t>${title}</a:t></a:r></a:p></p:txBody></p:sp><p:pic><p:nvPicPr><p:cNvPr id="2" name="Picture"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="rId2"/></p:blipFill><p:spPr><a:xfrm><a:off x="914400" y="914400"/><a:ext cx="1828800" cy="914400"/></a:xfrm></p:spPr></p:pic></p:spTree></p:cSld></p:sld>`);
-    files[`ppt/slides/_rels/slide${index + 1}.xml.rels`] = strToU8(RELS(`<Relationship Id="rId1" Type="${REL_BASE}/slideLayout" Target="../slideLayouts/slideLayout1.xml"/><Relationship Id="rId2" Type="${REL_BASE}/image" Target="../media/image1.png"/><Relationship Id="rId3" Type="${REL_BASE}/notesSlide" Target="../notesSlides/notesSlide1.xml"/>`));
+    files[`ppt/slides/_rels/slide${index + 1}.xml.rels`] = strToU8(RELS(`<Relationship Id="rId1" Type="${REL_BASE}/slideLayout" Target="../slideLayouts/slideLayout1.xml"/><Relationship Id="rId2" Type="${REL_BASE}/image" Target="../media/image1.png"/><Relationship Id="rId3" Type="${REL_BASE}/notesSlide" Target="../notesSlides/notesSlide1.xml"/><Relationship Id="rId4" Type="${REL_BASE}/chart" Target="../charts/chart1.xml"/>`));
   });
   return zipSync(files);
 }
@@ -280,6 +284,8 @@ describe("generic aggregation", () => {
     expect(names).toContain("ppt/slideMasters/wl2_slideMaster1.xml");
     expect(names).toContain("ppt/theme/wl2_theme1.xml");
     expect(names).toContain("ppt/media/wl2_image1.png");
+    expect(names).toContain("ppt/charts/wl2_chart1.xml");
+    expect(names).toContain("ppt/embeddings/wl2_Microsoft_Excel_Worksheet.xlsx");
     expect(names.filter((name) => name.includes("notesSlides"))).toEqual(["ppt/notesSlides/notesSlide1.xml"]);
     expect(contentTypes).toContain('PartName="/ppt/slideLayouts/wl2_slideLayout1.xml"');
     expect((presentation.match(/<p:sldId\b/gu) ?? [])).toHaveLength(3);
@@ -289,6 +295,10 @@ describe("generic aggregation", () => {
     expect(copiedRels).toContain("../media/wl2_image1.png");
     expect(copiedRels).toContain("../slideLayouts/wl2_slideLayout1.xml");
     expect(copiedRels).not.toContain("notesSlide");
+    expect(copiedRels).toContain("../charts/wl2_chart1.xml");
+    expect(new TextDecoder().decode(parts["ppt/charts/_rels/wl2_chart1.xml.rels"]))
+      .toContain("../embeddings/wl2_Microsoft_Excel_Worksheet.xlsx");
+    expect(contentTypes).toContain('PartName="/ppt/charts/wl2_chart1.xml"');
 
     const reparsed = await parseDocument({ fileId: "merged", fileName: merged.fileName, bytes: merged.content });
     expect(reparsed.metadata.pageCount).toBe(3);

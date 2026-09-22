@@ -6,7 +6,11 @@ import type { DocumentTopic } from "@/domain/operations";
 const NARRATIVE_SIGNAL_PATTERN = /(관계|의미|특징|주의|증가|감소|변화|추세|상승|하락|비교|차이|영향|원인|위험|가능성|전망|불일치|초과|미달|대비|전년|전월|때문|따라)/u;
 const CONFIRMED_METRIC_TYPES = new Set<ExtractValueType>(["Money", "Percent", "Number"]);
 const TOPIC_LIMIT = 8;
-const GENERIC_TOPICS = new Set(["목차", "차례", "contents", "agenda"]);
+const GENERIC_TOPICS = new Set(["목차", "차례", "contents", "agenda", "chapter", "index", "개정이력"]);
+/** A table-of-contents entry or a running head carries its page number with it. */
+const TRAILING_PAGE_NUMBER = /\s\d{1,3}$/u;
+const COVER_PAGE = 1;
+const COVER_SKIP_THRESHOLD = 3;
 
 export interface AnalysisMetric {
   id: string;
@@ -97,14 +101,38 @@ function topicKey(text: string): string {
   return text.normalize("NFKC").trim().toLocaleLowerCase("ko-KR").replace(/\s+/gu, " ");
 }
 
+const compactKey = (text: string): string => topicKey(text).replace(/\s+/gu, "");
+
+const pageOf = (source: { page?: number }): number | undefined => source.page;
+
+/**
+ * The document's own section headings, minus the parts of a document that
+ * describe the file rather than its content: a cover, a table of contents,
+ * running heads and a colophon repeat the title instead of adding a subject.
+ * Slides have no cover page — every slide titles itself — so that rule
+ * applies only to paginated documents.
+ */
 export function documentAnalysisTopics(document: NormalizedDocument): DocumentTopic[] {
+  const headings = document.blocks.flatMap((block) =>
+    block.type === "paragraph" && block.role === "heading" && block.text.trim() ? [block] : []);
+  const paginated = document.kind === "pdf" || document.kind === "docx";
+  const titleKey = paginated ? compactKey(headings[0]?.text ?? "") : "";
+  const beyondCover = headings.filter((block) => pageOf(block.source) !== COVER_PAGE).length;
+  const skipCover = paginated && beyondCover >= COVER_SKIP_THRESHOLD;
+
   const topics: DocumentTopic[] = [];
   const indexByKey = new Map<string, number>();
-  for (const block of document.blocks) {
-    if (block.type !== "paragraph" || block.role !== "heading") continue;
-    const text = block.text.trim();
+  for (const block of headings) {
+    const text = block.text.replace(/\s+/gu, " ").trim();
     const key = topicKey(text);
-    if (!key || GENERIC_TOPICS.has(key)) continue;
+    const compact = compactKey(text);
+    if (!key || GENERIC_TOPICS.has(key) || GENERIC_TOPICS.has(compact)) continue;
+    if (TRAILING_PAGE_NUMBER.test(text)) continue;
+    if (skipCover && pageOf(block.source) === COVER_PAGE) continue;
+    // The colophon and the cover restate the title; the title identifies the
+    // document, it is not one of its subjects.
+    if (titleKey && compact !== titleKey && (compact.includes(titleKey) || titleKey.includes(compact))) continue;
+    if (titleKey && compact === titleKey && skipCover) continue;
     const existingIndex = indexByKey.get(key);
     if (existingIndex === undefined) {
       indexByKey.set(key, topics.length);

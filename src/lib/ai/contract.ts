@@ -15,6 +15,8 @@ export interface AiEvidenceNode {
   text: string;
   propositionToken: string;
   proposition: DirectProposition;
+  /** Structural role from the parser: a heading names a section, it is not prose. */
+  role?: "heading";
 }
 
 export interface AiProviderDirectClaim {

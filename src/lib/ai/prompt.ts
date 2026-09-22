@@ -1,5 +1,6 @@
 import type { AiConfidence, AiRequest, BriefClaimPresentation } from "@/domain/ai";
 import { AI_SCHEMA_ID, type AiEvidenceNode, type AiProviderClaim, type AiProviderCompletion } from "@/lib/ai/contract";
+import { briefPresentationMode } from "@/lib/ai/brief";
 
 /**
  * Prompt boundary for the server model.
@@ -162,15 +163,23 @@ function taskInstruction(request: AiRequest): string {
     case "ask":
       return `질문: ${request.question}\n답변 언어: ${answerLanguage(request.question)}\n근거로 답할 수 있는 내용만 3개 이하 항목으로 정리하세요. 근거에 답이 없으면 claims를 빈 배열로 두세요.`;
     case "brief": {
+      const mode = briefPresentationMode(request.summaryInstruction);
+      // Nothing was asked for, so nothing is narrowed: the default summary
+      // covers the document. A five-line summary is a format the user picks.
+      const budget = mode === "lines"
+        ? "한 줄에 핵심 하나씩 최대 5개 claim으로 제한하세요."
+        : "서로 다른 핵심 주제 수와 근거가 뒷받침하는 만큼만 최대 8개 claim으로 정리하고, 개수를 채우려고 항목을 만들지 마세요.";
       const base = [
-        "문서 전체에서 목적·주제, 핵심 규칙·기준, 주요 프로세스·흐름, 중요한 수치, 결론·주의사항, 원문에 명시된 후속 조치 순으로 중요도를 판단해 5개 이하 claim으로 정리하세요.",
+        `문서 전체에서 목적·주제, 정의, 핵심 규칙·기준, 주요 프로세스·흐름, 중요한 조건·예외, 주요 변화·전환, 중요한 수치, 결론·주의사항, 원문에 명시된 후속 조치 순으로 중요도를 판단해 ${budget}`,
+        "문서 제목이나 표지·목차 문구만 담은 claim은 만들지 말고, 같은 내용을 표현만 바꿔 두 번 쓰지 마세요. 동작 시점이나 의미가 다르면 나누어 쓰세요.",
         "숫자가 있다는 이유만으로 예시 값을 핵심 규칙보다 우선하지 말고, 예시 수치는 이해에 꼭 필요한 대표 값만 포함하세요.",
+        "한 페이지나 한 절의 내용이 결과 대부분을 차지하지 않게 문서 전체를 고르게 다루세요.",
         "각 claim에는 항목별 정리에 쓸 짧은 section 이름을 넣으세요. 실제 문서에 없는 분류는 만들지 말고 적절한 이름이 없으면 빈 문자열로 두세요.",
         "원문에 명시된 조치·요구사항·계획만 role을 action으로 두고, 시스템 동작 설명과 그 밖의 내용은 summary로 두세요.",
         "사용자가 다른 언어를 명시하지 않았다면 text와 section은 한국어로 작성하세요.",
       ].join(" ");
       return request.summaryInstruction
-        ? `${base}\n\n[사용자 요약 지시사항]\n${request.summaryInstruction}\n\n이 지시는 결과의 형식, 길이, 구조, 독자, 강조점, 출력 언어 또는 명시적 범위만 정합니다. 형식·문체 지시는 검색 키워드로 취급하거나 근거를 임의로 좁히지 말고 문서 전체를 유지하세요. 보고서 형식은 목적 → 핵심 기준 → 주요 흐름·결론 순서의 2~4개 짧은 문단이 되게 하고, 핵심만 5줄은 한 줄에 핵심 하나씩 최대 5개로 제한하세요. 지시에 다른 출력 언어가 명시된 경우에만 그 언어를 따르세요. 결론·액션 중심 요청에서도 원문에 action이 없으면 action을 만들지 마세요.`
+        ? `${base}\n\n[사용자 요약 지시사항]\n${request.summaryInstruction}\n\n이 지시는 결과의 형식, 길이, 구조, 독자, 강조점, 출력 언어 또는 명시적 범위만 정합니다. 형식·문체 지시는 검색 키워드로 취급하거나 근거를 임의로 좁히지 말고 문서 전체를 유지하세요. 강조점 요청은 해당 내용을 먼저 배치하되 문서의 다른 핵심을 빼지 마세요. 보고서 형식은 목적 → 핵심 기준 → 주요 흐름·결론 순서의 2~4개 짧은 문단이 되게 하고, 항목별 정리는 실제 문서의 주요 주제를 section으로 사용하세요. 지시에 다른 출력 언어가 명시된 경우에만 그 언어를 따르세요. 결론·액션 중심 요청에서도 원문에 action이 없으면 action을 만들지 마세요.`
         : base;
     }
     case "semantic-check":
@@ -186,7 +195,7 @@ function taskInstruction(request: AiRequest): string {
         ].join(" ")
         : `${request.statement}\n명확한 오류만 지적하세요: 맞춤법, 조사, 어색한 표현, 용어 불일치. 문제 설명과 수정 제안은 한국어로 작성하세요. 문제가 없으면 claims를 빈 배열로 두고, 취향에 가까운 문체 제안과 숫자 검증은 하지 마세요. 5개 이하로 쓰세요.`;
     case "analyze":
-      return "근거에서 드러나는 관계, 변화, 조건, 특징, 주의할 점만 5개 이하로 해석하세요. 결과의 설명 문장(text)은 한국어로 작성하고, 근거가 영어여도 해석은 한국어로 쓰세요. 단순 field/value와 문서 구조를 반복하지 말고, 문서에 없는 권고나 일반 배경지식을 더하지 마세요. 숫자·날짜·비율·금액·고유 용어는 근거에 적힌 표기를 그대로 사용하고 새로 만들지 마세요. 해석할 근거가 부족하면 claims를 빈 배열로 두세요.";
+      return "근거에서 드러나는 관계, 변화, 조건, 흐름, 원문에 명시된 원인과 결과, 비교, 주의할 점만 해석하세요. 서로 다른 해석이 있는 만큼만 최대 8개까지 쓰고, 개수를 채우려고 항목을 만들지 마세요. 결과의 설명 문장(text)은 한국어로 작성하고, 근거가 영어여도 해석은 한국어로 쓰세요. 문서의 소제목이나 단순 field/value를 문장으로 다시 옮기지 말고, 문서에 없는 권고나 일반 배경지식을 더하지 마세요. 숫자·날짜·비율·금액·고유 용어는 근거에 적힌 표기를 그대로 사용하고 새로 만들지 마세요. 해석할 근거가 부족하면 claims를 빈 배열로 두세요.";
   }
 }
 

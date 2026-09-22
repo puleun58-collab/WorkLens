@@ -140,17 +140,26 @@ function relevanceScores(nodes: readonly AiEvidenceNode[], query: string): numbe
   });
 }
 
+const TOC_LINE = /\s\d{1,3}$/u;
+const STRUCTURAL_LINE = /^[\s\d.,:;()[\]/·—–-]*$/u;
+const FRONT_MATTER = /(?:지은이|펴낸곳|초판|\d+\s*쇄|조판|서체|목차|차례|contents|copyright|all rights reserved)/u;
+const RULE_SIGNAL = /(?:목적|개요|기준|규칙|순서|절차|흐름|조건|예외|전환|재계산|산정|적용|주의|결론|요약|조치|계획|목표|리스크|이슈|정의|반영|선택|우선|action|summary|todo)/u;
+
 /**
- * Brief has no question, so importance stands in for relevance: structured
- * values, dates, money and short heading-like lines carry a document.
+ * Brief has no question, so importance stands in for relevance: definitions,
+ * rules, order and process carry a document, while its cover, contents,
+ * running heads and example rows describe the file rather than its subject.
  */
 function importanceScores(nodes: readonly AiEvidenceNode[]): number[] {
   const frequency = new Map<string, number>();
+  const textCount = new Map<string, number>();
   for (const node of nodes) {
     for (const term of new Set(evidenceTokens(node.text))) {
       if (term.length < 2) continue;
       frequency.set(term, (frequency.get(term) ?? 0) + 1);
     }
+    const key = normalizeText(node.text).replace(/\d+/gu, "");
+    textCount.set(key, (textCount.get(key) ?? 0) + 1);
   }
   return nodes.map((node) => {
     const text = normalizeText(node.text);
@@ -159,10 +168,21 @@ function importanceScores(nodes: readonly AiEvidenceNode[]): number[] {
     if (numericCount > 0) score += numericCount === 1 ? 0.7 : 0.45;
     if ((text.match(DATE_PATTERN) ?? []).length > 0) score += 0.45;
     if ((text.match(CURRENCY_PATTERN) ?? []).length > 0) score += 0.35;
-    if (/(?:목적|개요|기준|규칙|순서|절차|흐름|조건|예외|전환|재계산|산정|적용|주의|결론|요약|조치|계획|목표|리스크|이슈|action|summary|todo)/u.test(text)) score += 1.3;
+    if (RULE_SIGNAL.test(text)) score += 1.3;
     if (/(?:예시|예를\s*들|표시\s*예)/u.test(text) && numericCount >= 2) score -= 0.8;
-    if (text.length <= 40) score += 0.5;
+    // A short line of mostly numbers is a table row: it illustrates a rule
+    // instead of stating one.
+    if (numericCount >= 2 && text.length <= 32) score -= 0.5;
+    // The section name is worth carrying; its own body still scores on merit.
+    if (node.role === "heading") score += 0.9;
+    else if (text.length <= 40) score += 0.2;
     if (node.proposition.predicate === "has_value") score += 0.25;
+    // Front matter, contents entries and running heads repeat the document's
+    // identity on every page; they are not what the document says.
+    if (STRUCTURAL_LINE.test(node.text)) score -= 1.2;
+    if (TOC_LINE.test(node.text.trim())) score -= 1.0;
+    if (FRONT_MATTER.test(text)) score -= 1.0;
+    if ((textCount.get(text.replace(/\d+/gu, "")) ?? 0) >= 2) score -= 1.2;
     const repeats = [...new Set(evidenceTokens(node.text))]
       .filter((term) => term.length > 1 && (frequency.get(term) ?? 0) >= 3).length;
     return score + Math.min(repeats, 4) * 0.2;
@@ -170,37 +190,66 @@ function importanceScores(nodes: readonly AiEvidenceNode[]): number[] {
 }
 
 /**
- * Spreads the winners over sheets, slides, pages and block ranges so one dense
- * section cannot own the whole prompt window.
+ * Caps how much of the window any one sheet, slide, page or block range can
+ * own, then fills the rest by score. A strict round-robin gave a cover page
+ * and a table of contents the same share as the chapter that carries the
+ * document; a cap keeps dense sections from taking over without promoting
+ * pages that have nothing to say.
  */
 function balanceBySource(ranked: readonly RankedEvidence[], limit: number): RankedEvidence[] {
-  const groups = new Map<string, RankedEvidence[]>();
-  for (const entry of ranked) {
-    const key = groupKey(entry.node, entry.order);
-    const bucket = groups.get(key);
-    if (bucket) bucket.push(entry);
-    else groups.set(key, [entry]);
-  }
-  const ordered = [...groups.values()].sort((left, right) =>
-    right[0].score - left[0].score || left[0].order - right[0].order);
+  const groupCount = new Set(ranked.map((entry) => groupKey(entry.node, entry.order))).size;
+  const cap = Math.max(PER_GROUP_ROUND, Math.ceil(limit / Math.max(1, groupCount)) + 1);
+  const used = new Map<string, number>();
   const selected: RankedEvidence[] = [];
-  const cursors = new Map<RankedEvidence[], number>();
-  while (selected.length < limit) {
-    let added = false;
-    for (const bucket of ordered) {
-      const cursor = cursors.get(bucket) ?? 0;
-      for (let taken = 0; taken < PER_GROUP_ROUND && cursor + taken < bucket.length; taken += 1) {
-        if (selected.length >= limit) break;
-        selected.push(bucket[cursor + taken]);
-        added = true;
-      }
-      cursors.set(bucket, cursor + PER_GROUP_ROUND);
-      if (selected.length >= limit) break;
-    }
-    if (!added) break;
+  const overflow: RankedEvidence[] = [];
+  for (const entry of ranked) {
+    if (selected.length >= limit) break;
+    const key = groupKey(entry.node, entry.order);
+    const count = used.get(key) ?? 0;
+    if (count >= cap) { overflow.push(entry); continue; }
+    used.set(key, count + 1);
+    selected.push(entry);
+  }
+  for (const entry of overflow) {
+    if (selected.length >= limit) break;
+    selected.push(entry);
   }
   return selected;
 }
+
+/**
+ * A section name without its section says nothing: "Forecast 값은 왜 계속
+ * 바뀌나요?" is a question, and the answer is the paragraph under it. Each
+ * selected heading pulls its following paragraph in, displacing the weakest
+ * non-heading pick when the window is already full.
+ */
+function withSectionBodies(
+  selected: readonly RankedEvidence[],
+  ranked: readonly RankedEvidence[],
+  limit: number,
+): RankedEvidence[] {
+  const byOrder = new Map(ranked.map((entry) => [entry.order, entry]));
+  const chosen = new Map(selected.map((entry) => [entry.order, entry]));
+  const pinned = new Set(selected.filter((entry) => entry.node.role === "heading").map((entry) => entry.order));
+  for (const entry of selected) {
+    if (entry.node.role !== "heading") continue;
+    const body = byOrder.get(entry.order + 1);
+    if (!body || body.node.role === "heading" || chosen.has(body.order)) continue;
+    if (chosen.size >= limit) {
+      const weakest = [...chosen.values()]
+        .filter((candidate) => !pinned.has(candidate.order) && candidate.node.role !== "heading")
+        .sort((left, right) => left.score - right.score || right.order - left.order)[0];
+      // The section's own text outranks a loose paragraph the window kept:
+      // without it the heading is a question with no answer attached.
+      if (!weakest) continue;
+      chosen.delete(weakest.order);
+    }
+    chosen.set(body.order, body);
+    pinned.add(body.order);
+  }
+  return [...chosen.values()];
+}
+
 
 export interface SelectEvidenceOptions {
   /** Ranked candidates kept before the prompt window trims by characters. */
@@ -225,6 +274,8 @@ export function selectEvidence(
       const page = node.source.page ?? (node.source.locator?.kind === "pptx" ? node.source.locator.slide : undefined);
       return page !== undefined && page >= scope.minimumPage!;
     });
+  // An explicit "~만" restriction removes evidence; a plain emphasis only
+  // reorders it, so the document's other key points stay in the window.
   const focusRelevance = scope.focus ? relevanceScores(pageCandidates, scope.focus) : undefined;
   const focused = focusRelevance
     ? pageCandidates.filter((_, index) => focusRelevance[index] > 0)
@@ -236,20 +287,23 @@ export function selectEvidence(
   // page/topic restrictions do.
   if (candidates.length <= limit && !scoreAsk) return [...candidates];
   const relevance = query ? relevanceScores(candidates, query) : undefined;
+  const emphasis = request.operation === "brief" && !scope.focus && scope.emphasis
+    ? relevanceScores(candidates, scope.emphasis)
+    : undefined;
   const importance = importanceScores(candidates);
   const ranked: RankedEvidence[] = candidates.map((node, order) => ({
     node,
     order,
-    score: relevance ? relevance[order] + importance[order] * 0.15 : importance[order],
+    score: (relevance ? relevance[order] + importance[order] * 0.15 : importance[order])
+      + (emphasis ? Math.min(emphasis[order], 4) * 0.6 : 0),
   }));
 
   const sorted = [...ranked].sort((left, right) => right.score - left.score || left.order - right.order);
 
-
-  // Brief always balances across source sections. Focus relevance changes the
-  // group order, while unrelated but important sections remain in the window.
+  // Brief and Analyze balance across source sections. Focus relevance changes
+  // the group order, while unrelated but important sections remain.
   if (request.operation === "brief" || request.operation === "analyze") {
-    return balanceBySource(sorted, limit)
+    return withSectionBodies(balanceBySource(sorted, limit), ranked, limit)
       .sort((left, right) => left.order - right.order)
       .map((entry) => entry.node);
   }

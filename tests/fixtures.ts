@@ -24,6 +24,31 @@ export async function createPdf(pages: string[]): Promise<Uint8Array> {
   return pdf.save();
 }
 
+export interface PdfLineSpec {
+  text: string;
+  /** Point size; a heading is simply set in a different size than the body. */
+  size?: number;
+}
+
+/**
+ * A PDF laid out like a real one: a cover, a heading in display type, body
+ * lines that wrap, and a running footer on every page.
+ */
+export async function createStructuredPdf(pages: readonly PdfLineSpec[][]): Promise<Uint8Array> {
+  const pdf = await PDFDocument.create();
+  const font = await pdf.embedFont(StandardFonts.Helvetica);
+  for (const lines of pages) {
+    const page = pdf.addPage([595, 842]);
+    let y = 760;
+    for (const line of lines) {
+      const size = line.size ?? 11;
+      page.drawText(line.text, { x: 56, y, size, font });
+      y -= size * 1.7;
+    }
+  }
+  return pdf.save();
+}
+
 export function createDocx(): Uint8Array {
   return zipSync({
     "[Content_Types].xml": strToU8(

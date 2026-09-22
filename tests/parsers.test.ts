@@ -10,6 +10,7 @@ import {
   createDocxWithNestedTable,
   createDocxWithOmissions,
   createPdf,
+  createStructuredPdf,
   createPptx,
   createPptxWithMergedTable,
   createPptxWithOmissions,
@@ -99,6 +100,41 @@ describe("parseDocument", () => {
     expect(document.blocks[0]).toMatchObject({ type: "paragraph" });
     expect(document.blocks[0].source).toMatchObject({ page: 1, label: "페이지 1" });
     expect(document.blocks.at(-1)?.source.page).toBe(2);
+  });
+
+  it("recovers PDF sections and wrapped paragraphs from the page layout", async () => {
+    const footer = "CH 01 Forecast guide";
+    const bytes = await createStructuredPdf([
+      [{ text: "Forecast Guide", size: 22 }, { text: "written by WorkLens", size: 9 }],
+      [
+        { text: "How is the weekly value calculated?", size: 14 },
+        { text: "The weekly forecast uses the average of the last eight weeks and the" },
+        { text: "average weekly change, applied to each future week in order." },
+        { text: "When a new Actual arrives", size: 14 },
+        { text: "Every remaining future week is recalculated from the newest data." },
+        { text: footer, size: 8 },
+      ],
+      [
+        { text: "Value selection order", size: 14 },
+        { text: "Each future week picks the weekly forecast first and the monthly" },
+        { text: "forecast next, then keeps the previous forecast value." },
+        { text: footer, size: 8 },
+      ],
+    ]);
+    const document = await parseDocument({ fileId: "file-3", fileName: "guide.pdf", bytes });
+    const headings = document.blocks.flatMap((block) =>
+      block.type === "paragraph" && block.role === "heading" ? [block.text] : []);
+    const paragraphs = document.blocks.flatMap((block) =>
+      block.type === "paragraph" && block.role !== "heading" ? [block.text] : []);
+
+    expect(headings).toContain("How is the weekly value calculated?");
+    expect(headings).toContain("When a new Actual arrives");
+    expect(headings).toContain("Value selection order");
+    // A running footer repeats on every page; it is not a section.
+    expect(headings).not.toContain(footer);
+    // Wrapped lines of one paragraph come back as one block.
+    expect(paragraphs).toContain("The weekly forecast uses the average of the last eight weeks and the average weekly change, applied to each future week in order.");
+    expect(document.blocks.every((block) => block.source.locator?.kind === "pdf")).toBe(true);
   });
 
   it("rejects unsupported extensions", async () => {

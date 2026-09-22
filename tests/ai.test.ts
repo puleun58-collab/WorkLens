@@ -108,10 +108,23 @@ describe("server AI prompt boundary", () => {
       { handle: "E2", text: "상승여력 232.4%" },
     ])[1].content;
 
-    expect(prompt).toContain("관계, 변화, 조건, 특징, 주의할 점");
-    expect(prompt).toContain("단순 field/value와 문서 구조를 반복하지 말고");
+    expect(prompt).toContain("관계, 변화, 조건, 흐름");
+    expect(prompt).toContain("최대 8개까지");
+    expect(prompt).toContain("문서의 소제목이나 단순 field/value를 문장으로 다시 옮기지 말고");
     expect(prompt).toContain("근거에 적힌 표기를 그대로 사용하고 새로 만들지 마세요");
     expect(prompt).toContain("claims를 빈 배열로 두세요");
+  });
+
+  it("caps a summary at five lines only when the user asks for five lines", () => {
+    const items = [{ handle: "E1", text: "주간 Forecast 는 최근 8개 주간 평균으로 산정합니다." }];
+    const balanced = buildMessages({ operation: "brief" }, items)[1].content;
+    const lines = buildMessages({ operation: "brief", summaryInstruction: "핵심만 5줄" }, items)[1].content;
+
+    expect(balanced).toContain("최대 8개 claim");
+    expect(balanced).not.toContain("최대 5개");
+    expect(balanced).toContain("문서 제목이나 표지·목차 문구만 담은 claim은 만들지 말고");
+    expect(lines).toContain("한 줄에 핵심 하나씩 최대 5개 claim");
+    expect(lines).not.toContain("최대 8개 claim");
   });
 
   it("states the output language per operation and follows the question's own language for Ask", () => {

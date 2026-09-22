@@ -3134,7 +3134,7 @@ function AggregationResults({ draft, selection, busy, onSelection, onExport }: {
           <span className="metric">슬라이드 <b>{slideTotal}</b></span>
         </p>
         <section className="aggregation-section" aria-labelledby="aggregation-order">
-          <div className="aggregation-section-heading"><div><h3 id="aggregation-order">취합 순서</h3><p>선택한 파일 순서와 각 파일의 슬라이드 순서를 그대로 유지합니다. 슬라이드의 텍스트·이미지·표·레이아웃은 원본 그대로 옮기고, 발표자 노트는 옮기지 않습니다.</p></div></div>
+          <div className="aggregation-section-heading"><div><h3 id="aggregation-order">취합 순서</h3><p>선택한 파일 순서와 각 파일의 슬라이드 순서를 그대로 유지합니다. 텍스트·이미지·표·차트·애니메이션과 레이아웃은 원본 그대로 옮기고, 발표자 노트는 옮기지 않습니다.</p></div></div>
           <ol className="aggregation-deck-order">
             {draft.decks.map((deck) => (
               <li key={deck.fileId}><strong>{deck.fileName}</strong><span>{deck.slideCount}장</span></li>

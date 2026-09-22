@@ -175,7 +175,7 @@ function collectEvidence(documents: readonly NormalizedDocument[]): CanonicalEvi
           propositionFromText(block.text, block.source),
           block.source.quote ?? block.text,
         );
-        if (node) { evidence.push(node); characters += node.text.length; }
+        if (node) { evidence.push(block.role === "heading" ? { ...node, role: "heading" } : node); characters += node.text.length; }
       } else {
         const header = block.rows[0] ?? [];
         for (const [rowIndex, row] of block.rows.entries()) {

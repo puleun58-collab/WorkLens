@@ -216,4 +216,60 @@ describe("browser evidence retrieval", () => {
     expect(window.items.some((item) => item.text.includes("1,512원"))).toBe(true);
     expect(window.items.length).toBeLessThanOrEqual(MAX_EVIDENCE_ITEMS);
   });
+
+  it("ranks an emphasis higher without dropping the rest of the document", () => {
+    const document = pptxDocument(Array.from({ length: 30 }, (_, index) => ({
+      slide: index + 1,
+      text: index === 20
+        ? "Actual 이 확보되면 해당 주차는 Actual 로 전환됩니다."
+        : `슬라이드 ${index + 1}: 주간 운영 일정과 후속 조치를 공유합니다.`,
+    })));
+    const nodes = buildEvidenceNodes([document]);
+    const emphasized = selectEvidence(nodes, { operation: "brief", summaryInstruction: "Actual 중심" }, { limit: 10 });
+    const restricted = selectEvidence(nodes, { operation: "brief", summaryInstruction: "Actual 관련 내용만" }, { limit: 10 });
+
+    expect(emphasized.some((node) => node.text.includes("Actual 로 전환"))).toBe(true);
+    expect(emphasized.some((node) => !node.text.includes("Actual"))).toBe(true);
+    expect(restricted.every((node) => node.text.includes("Actual"))).toBe(true);
+  });
+
+  it("keeps a section heading with the paragraph that answers it", () => {
+    const blocks = Array.from({ length: 40 }, (_, index) => {
+      const node = paragraph(index + 1, `${index + 1}번 문단: 운영 일정과 회의 기록을 정리합니다.`);
+      return index === 25
+        ? { ...node, text: "Forecast 값은 왜 계속 바뀌나요?", role: "heading" as const, headingLevel: 1 }
+        : index === 26
+          ? { ...node, text: "새로운 Actual 데이터가 들어오면 향후 Forecast 를 다시 계산합니다." }
+          : node;
+    });
+    const document: NormalizedDocument = { ...pdfDocument([]), blocks };
+    const nodes = buildEvidenceNodes([document]);
+    const selected = selectEvidence(nodes, { operation: "brief" }, { limit: 8 });
+    const texts = selected.map((node) => node.text);
+
+    expect(texts).toContain("Forecast 값은 왜 계속 바뀌나요?");
+    expect(texts).toContain("새로운 Actual 데이터가 들어오면 향후 Forecast 를 다시 계산합니다.");
+  });
+
+  it("ranks a document's rules above its cover, contents and running heads", () => {
+    const document = pdfDocument([
+      "주차별 예측값 산정 가이드",
+      "지은이 정하건",
+      "차례",
+      "값 선택 순서 3",
+      "CH 01 산정과 변경 가이드 2",
+      "CH 01 산정과 변경 가이드 3",
+      "주간 Forecast 는 최근 8개 주간 평균 유가와 평균 증감폭을 기준으로 산정합니다.",
+      "각 미래 주차는 주간 Forecast, 월간 Forecast, 직전 Forecast 순서로 값을 선택합니다.",
+      "새로운 Actual 이 반영되면 향후 Forecast 를 다시 계산합니다.",
+      "8월 4주차 1,843.33원/L",
+    ]);
+    const nodes = buildEvidenceNodes([document]);
+    const selected = selectEvidence(nodes, { operation: "brief" }, { limit: 4 }).map((node) => node.text);
+
+    expect(selected).toContain("주간 Forecast 는 최근 8개 주간 평균 유가와 평균 증감폭을 기준으로 산정합니다.");
+    expect(selected).toContain("각 미래 주차는 주간 Forecast, 월간 Forecast, 직전 Forecast 순서로 값을 선택합니다.");
+    expect(selected).not.toContain("지은이 정하건");
+    expect(selected).not.toContain("CH 01 산정과 변경 가이드 2");
+  });
 });

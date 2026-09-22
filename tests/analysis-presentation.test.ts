@@ -127,6 +127,49 @@ describe("analysisClaimPresentation", () => {
     }]);
   });
 
+  it("keeps the document's sections and drops the parts that only name the file", () => {
+    const page = (nodeId: string, pageNumber: number): SourceRef => ({
+      fileId: "file-1",
+      nodeId,
+      label: `페이지 ${pageNumber}`,
+      page: pageNumber,
+      locator: { kind: "pdf", page: pageNumber, spans: [] },
+    });
+    const heading = (id: string, text: string, pageNumber: number) => ({
+      id,
+      type: "paragraph" as const,
+      text,
+      role: "heading" as const,
+      headingLevel: 1,
+      source: page(id, pageNumber),
+    });
+    const document: NormalizedDocument = {
+      id: "document-file-1",
+      fileId: "file-1",
+      kind: "pdf",
+      metadata: { fileName: "가이드.pdf", pageCount: 5 },
+      blocks: [
+        heading("cover", "예측값 산정 가이드", 1),
+        heading("author", "정하건 지음", 1),
+        heading("toc", "차례", 2),
+        heading("toc-entry", "값 선택 순서 3", 2),
+        heading("chapter", "C H A P T E R", 3),
+        heading("definition", "예측값은 무엇인가요?", 3),
+        heading("basis", "값은 어떻게 산정되나요?", 4),
+        heading("order", "값 선택 순서", 4),
+        { id: "body", type: "paragraph" as const, text: "최근 평균으로 계산합니다.", source: page("body", 4) },
+        heading("colophon", "예측값 산정 가이드 — 안내서", 5),
+      ],
+      warnings: [],
+    };
+
+    expect(documentAnalysisTopics(document).map((topic) => topic.text)).toEqual([
+      "예측값은 무엇인가요?",
+      "값은 어떻게 산정되나요?",
+      "값 선택 순서",
+    ]);
+  });
+
   it("keeps equal labels from different files separate and names each deterministic summary", () => {
     const first = source("a", 1, "file-a");
     const second = source("b", 1, "file-b");
