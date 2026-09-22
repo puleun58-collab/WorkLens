@@ -145,7 +145,7 @@ test("uploads XLSX files, compares them and shows source evidence", async ({ pag
     "rgb(255, 255, 255)",
     "rgb(255, 255, 255)",
   ]);
-  expect(await panel.locator(".change-head").evaluate((element) => getComputedStyle(element).backgroundColor)).toBe("rgb(255, 255, 255)");
+  expect(await panel.locator(".change-head").evaluate((element) => getComputedStyle(element).backgroundColor)).toBe("rgb(238, 242, 247)");
   const csvDownload = page.waitForEvent("download");
   await panel.getByRole("button", { name: "CSV 다운로드" }).click();
   expect((await csvDownload).suggestedFilename()).toBe("worklens-version-compare.csv");
@@ -389,7 +389,7 @@ test("checks shared values locally, keeps evidence, and exports both formats", a
   await expect(panel.locator(".value-check-filters")).toContainText("값 차이 1");
   await expect(panel.locator(".value-check-filters")).toContainText("일치 2");
   await expect(panel.locator(".check-summary-line")).toHaveCount(0);
-  expect(await panel.locator(".value-check-matrix-head").evaluate((element) => getComputedStyle(element).backgroundColor)).toBe("rgb(255, 255, 255)");
+  expect(await panel.locator(".value-check-matrix-head").evaluate((element) => getComputedStyle(element).backgroundColor)).toBe("rgb(238, 242, 247)");
   expect(await panel.locator(".value-check-matrix-row").first().evaluate((element) => getComputedStyle(element).backgroundColor)).toBe("rgb(255, 255, 255)");
   const different = panel.getByTestId("value-check-group").filter({ hasText: "목표주가" });
   await expect(different).toContainText("64,550원");
@@ -1202,9 +1202,11 @@ test("keeps grounded Ask and Brief content when another claim is rejected", asyn
   await expect(briefPanel.locator(".result-status")).toHaveText("요약 완료");
   await expect(briefPanel.locator(".result-status")).toHaveClass(/success/);
   await expect(briefPanel.locator(".result-inline-warning")).toHaveCount(0);
-  await expect(briefPanel.locator(".brief-body")).toBeVisible();
-  await expect(briefPanel.getByRole("heading", { name: "주요 근거", exact: true })).toBeVisible();
-  const briefSource = briefPanel.locator(".brief-evidence-item .source-action").first();
+  await expect(briefPanel.locator(".analysis-reading-row")).not.toHaveCount(0);
+  // The summary is read one statement at a time with its own evidence; there
+  // is no second list repeating the same sentences underneath.
+  await expect(briefPanel.getByRole("heading", { name: "주요 근거", exact: true })).toHaveCount(0);
+  const briefSource = briefPanel.locator(".analysis-reading-row .source-action").first();
   await expect(briefSource).toBeVisible();
   await expect(briefPanel.locator(".claim-row")).toHaveCount(0);
   await expect(briefPanel).not.toContainText("문서에 없는 내용");
@@ -1214,8 +1216,6 @@ test("keeps grounded Ask and Brief content when another claim is rejected", asyn
   await expect(briefPanel).not.toContainText("claims");
   await expect(briefPanel).not.toContainText("BRIEF RESULT");
   await expect(briefPanel).not.toContainText("근거 연결 결과");
-  const briefOrder = await briefPanel.locator(".brief-body, .brief-evidence").evaluateAll((nodes) => nodes.map((node) => node.className));
-  expect(briefOrder).toEqual(["ask-answer brief-body", "ask-evidence brief-evidence"]);
   await briefSource.click();
   const briefDetail = page.getByRole("complementary", { name: "근거 상세" });
   await expect(briefDetail).toBeVisible();
@@ -1262,7 +1262,7 @@ test("groups repeated Summary sources without losing drawer coverage", async ({ 
   const panel = page.locator(".results-panel");
   await expect(panel.getByRole("heading", { name: "핵심 요약", exact: true })).toBeVisible();
   await expect(panel.locator(".result-status")).toHaveText("요약 완료");
-  const item = panel.locator(".brief-evidence-item").first();
+  const item = panel.locator(".analysis-reading-row").first();
   const source = item.locator(".source-action");
   await expect(item.locator(".source-locator")).toContainText("외 1곳");
   await expect(source).toHaveText("근거 보기");
@@ -1370,13 +1370,13 @@ test("applies Brief instructions without narrowing evidence, copies text, and op
   expect(requests[1].items.some((item) => item.text.includes("목표주가"))).toBe(true);
   expect(requests[1].items.some((item) => item.text.includes("비용"))).toBe(true);
   await expect(panel.getByRole("heading", { name: "핵심 요약", exact: true })).toBeVisible();
-  await expect(panel.locator(".brief-body .brief-lines > p")).toHaveCount(1);
+  await expect(panel.locator(".brief-result .analysis-reading-row")).toHaveCount(1);
   const copy = panel.getByRole("button", { name: "요약 복사" });
   await expect(copy).toHaveClass(/result-copy-action/);
   await copy.click();
   await expect.poll(() => page.evaluate(() => (window as Window & { __copiedText?: string }).__copiedText))
     .toBe("기업 개요 · 시가총액: 3,420억원");
-  const source = panel.locator(".brief-evidence-item .source-action").first();
+  const source = panel.locator(".analysis-reading-row .source-action").first();
   await source.click();
   const detail = page.getByRole("complementary", { name: "근거 상세" });
   await expect(detail).toBeVisible();
@@ -1389,7 +1389,7 @@ test("applies Brief instructions without narrowing evidence, copies text, and op
   expect(requests[2].items.some((item) => item.text.includes("비용"))).toBe(true);
   expect(requests[2].items.some((item) => item.text.includes("시가총액"))).toBe(true);
   expect(requests[2].items.some((item) => item.text.includes("목표주가"))).toBe(true);
-  await expect(panel.locator(".brief-body")).toContainText("시가총액");
+  await expect(panel.locator(".brief-result")).toContainText("시가총액");
 
   await scope.fill("보고서 형식");
   await run.click();
@@ -1397,7 +1397,7 @@ test("applies Brief instructions without narrowing evidence, copies text, and op
   expect(requests[3].summaryInstruction).toBe("보고서 형식");
   expect(requests[3].items.some((item) => item.text.includes("시가총액"))).toBe(true);
   expect(requests[3].items.some((item) => item.text.includes("비용"))).toBe(true);
-  await expect(panel.locator(".brief-body .brief-report section h3")).toHaveCount(1);
+  await expect(panel.locator(".brief-result .analysis-report-section h3")).toHaveCount(1);
   await expect(page.locator(".notice.error")).toHaveCount(0);
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(panel).toBeVisible();
@@ -1919,6 +1919,10 @@ test("meets accessibility and keyboard requirements in the populated compare/sou
   await expect(changeTable.locator('[role="columnheader"]').first()).toBeVisible();
   await expect(changeTable.locator('[role="cell"]').first()).toBeVisible();
 
+  // Enrichment keeps the run controls busy for a moment after the table
+  // appears; scanning mid-run measures a transient state, not the UI.
+  await expect(page.getByRole("button", { name: "비교 실행" })).toBeEnabled();
+
   const results = await new AxeBuilder({ page }).include(".workspace").analyze();
   expect(results.violations.filter((violation) => violation.impact === "serious" || violation.impact === "critical")).toEqual([]);
 
@@ -2122,4 +2126,49 @@ test("keeps the complete mobile workflow inside the viewport", async ({ page }, 
     expect(clippedNavItems).toBe(0);
   }
   expect(consoleErrors).toEqual([]);
+});
+
+test("keeps compare column rules aligned between header and rows", async ({ page }) => {
+  await mockEmptyClaims(page);
+  await page.goto("/");
+  await upload(page, files.v1);
+  await upload(page, files.v2);
+  await page.getByLabel("운임현황_v1.xlsx 선택").check();
+  await page.getByLabel("운임현황_v2.xlsx 선택").check();
+  await page.getByRole("button", { name: "비교", exact: true }).click();
+  await page.getByRole("button", { name: "비교 실행" }).click();
+  await expect(page.getByTestId("change-row").first()).toBeVisible();
+
+  // A rule that drifts by a pixel between header and body reads as a broken
+  // column, so the two share one grid definition and are checked together.
+  const rules = await page.evaluate(() => {
+    const edges = (cells: HTMLElement[]) => cells.slice(0, -1).map((cell) => Math.round(cell.getBoundingClientRect().right));
+    const headCells = [...document.querySelectorAll<HTMLElement>(".change-head > span")];
+    const rowCells = [...document.querySelectorAll<HTMLElement>('[data-testid="change-row"]')[0].children] as HTMLElement[];
+    return {
+      head: edges(headCells),
+      row: edges(rowCells),
+      headBorders: headCells.map((cell) => getComputedStyle(cell).borderRightWidth),
+      rowBorders: rowCells.map((cell) => getComputedStyle(cell).borderRightWidth),
+    };
+  });
+  expect(rules.head).toHaveLength(4);
+  expect(rules.row).toEqual(rules.head);
+  expect(rules.headBorders).toEqual(["1px", "1px", "1px", "1px", "0px"]);
+  expect(rules.rowBorders).toEqual(["1px", "1px", "1px", "1px", "0px"]);
+
+  // The reading order is file pair, then summary, then table: each band keeps
+  // its own tone instead of one flat white sheet.
+  const tones = await page.evaluate(() => {
+    const read = (selector: string) => getComputedStyle(document.querySelector(selector)!).backgroundColor;
+    return [read(".comparison-file-map > div"), read(".executive-summary"), read(".summary-total"), read(".change-head"), read(".change-row")];
+  });
+  expect(new Set(tones).size).toBe(4);
+  expect(tones[0]).toBe("rgb(255, 255, 255)");
+  expect(tones[4]).toBe("rgb(255, 255, 255)");
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  expect(await page.getByTestId("change-row").first().locator("> span").first()
+    .evaluate((element) => getComputedStyle(element).borderRightWidth)).toBe("0px");
 });

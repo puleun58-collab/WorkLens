@@ -74,7 +74,15 @@ export const CLAIM_RESPONSE_SCHEMA = {
   required: ["claims"],
 } as const;
 
-/** Brief alone carries the minimum metadata needed for non-list presentation. */
+/**
+ * Brief alone carries the minimum metadata needed for non-list presentation.
+ *
+ * `role` is a plain string here on purpose: the provider validates its own
+ * strict schema against the model's output, and an enum on a presentation
+ * field turned a usable summary into `json_validate_failed`. The allowed
+ * values are stated in the prompt and enforced when the response is parsed,
+ * so a stray label costs one claim's role, never the whole summary.
+ */
 export const BRIEF_RESPONSE_SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -87,9 +95,9 @@ export const BRIEF_RESPONSE_SCHEMA = {
         properties: {
           text: { type: "string" },
           sources: { type: "array", items: { type: "string" } },
-          confidence: { type: "string", enum: ["high", "medium", "low"] },
+          confidence: { type: "string" },
           section: { type: "string" },
-          role: { type: "string", enum: ["summary", "action"] },
+          role: { type: "string" },
         },
         required: ["text", "sources", "confidence", "section", "role"],
       },
@@ -221,7 +229,10 @@ export function parseModelResponse(raw: string): ModelResponse {
       .map((handle) => handle.trim().toUpperCase());
     if (handles.length === 0) continue;
     const confidence = record.confidence === "high" || record.confidence === "medium" ? record.confidence : "low";
-    const role = record.role === "action" ? "action" : record.role === "summary" ? "summary" : undefined;
+    // Presentation is metadata: a label outside the contract falls back to the
+    // neutral role rather than costing the claim its section grouping.
+    const rawRole = typeof record.role === "string" ? record.role.trim().toLowerCase() : undefined;
+    const role = rawRole === undefined ? undefined : rawRole === "action" ? "action" : "summary";
     const section = typeof record.section === "string" ? record.section.trim().slice(0, 60) : "";
     claims.push({
       text,

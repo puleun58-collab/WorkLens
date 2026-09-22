@@ -2943,73 +2943,6 @@ input:disabled,
   max-width: 720px;
   margin-bottom: 4px;
 }
-.brief-body {
-  padding-bottom: 22px;
-}
-
-.brief-body > p {
-  margin-top: 0;
-}
-
-.brief-body > ul {
-  max-width: 68ch;
-  margin: 0;
-  padding-left: 20px;
-  display: grid;
-  gap: 8px;
-}
-
-.brief-body > ul li {
-  padding-left: 2px;
-  color: var(--ink);
-  font-size: var(--font-size-sm);
-  line-height: var(--leading-relaxed);
-}
-
-.brief-evidence .subsection-heading {
-  margin-bottom: 0;
-}
-
-.brief-evidence-list {
-  max-width: 760px;
-}
-
-.brief-evidence-item {
-  padding: 12px 0;
-  border-top: 1px solid var(--line-soft);
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) max-content;
-  align-items: start;
-  gap: 8px 24px;
-}
-
-.brief-evidence-item:first-child {
-  border-top: 0;
-}
-
-.brief-evidence-item p {
-  min-width: 0;
-  margin: 0;
-  color: var(--ink-soft);
-  font-size: var(--font-size-sm);
-  line-height: 1.6;
-}
-
-.brief-evidence-item .result-source {
-  max-width: 260px;
-}
-
-@media (max-width: 700px) {
-  .brief-evidence-item {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 6px;
-  }
-
-  .brief-evidence-item .result-source {
-    max-width: 100%;
-  }
-}
-
 
 .ask-result-info {
   max-width: 720px;
@@ -8027,94 +7960,26 @@ input:disabled {
   margin-left: 0;
 }
 
-.brief-report,
-.brief-sections,
-.brief-actions,
-.brief-lines {
-  max-width: 76ch;
-}
-
-.brief-report,
-.brief-sections,
-.brief-actions {
-  display: grid;
-  gap: 18px;
-}
-
-.brief-report section,
-.brief-sections section,
-.brief-actions section {
-  display: grid;
-  gap: 8px;
-}
-
-.brief-report h3,
-.brief-sections h3,
-.brief-actions h3 {
-  margin: 0;
-  color: var(--ink);
-  font-size: 14px;
-  font-weight: 700;
-}
-
-.brief-report p,
-.brief-lines p,
+/* Brief reuses the Analyze reading rows; only its no-action note is its own. */
 .brief-no-actions {
   margin: 0;
-  color: var(--ink);
+  padding: 12px 0;
+  color: var(--muted);
   font-size: var(--font-size-sm);
   line-height: 1.75;
 }
 
-.brief-report section + section,
-.brief-sections section + section,
-.brief-actions section + section {
-  padding-top: 16px;
-  border-top: 1px solid var(--line-soft);
-}
-
-.brief-sections ul,
-.brief-actions ul {
-  margin: 0;
-  padding-left: 20px;
-}
-
-.brief-sections li,
-.brief-actions li {
-  margin: 4px 0;
-  color: var(--ink);
-  line-height: 1.65;
-}
-
-.brief-lines {
-  counter-reset: brief-line;
-  display: grid;
-  gap: 0;
-}
-
-.brief-lines p {
-  padding: 9px 0;
-  border-bottom: 1px solid var(--line-soft);
-}
-
-.brief-lines p:last-child {
-  border-bottom: 0;
-}
-
-.brief-no-actions {
-  color: var(--muted);
-}
-
 /*
- * Compare and Value Check are one result category: both tables use a white
- * header separated by a single divider, one header/row geometry, and the same
- * quiet hover. Structure comes from dividers and spacing, never from fills.
+ * Compare reads as three bands, not one white sheet: the file pair sits on
+ * paper, the summary on a faint blue-grey strip, and the table opens with a
+ * tinted header over white rows. Depth comes from those tones and 1px rules —
+ * no cards, no shadows, no stripes.
  */
 .change-head,
 .value-check-matrix-head {
   min-height: 38px;
   border-bottom: 1px solid var(--line);
-  background: var(--paper);
+  background: #eef2f7;
   color: var(--ink);
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-semibold);
@@ -8123,7 +7988,7 @@ input:disabled {
 
 .change-head > span,
 .value-check-matrix-head > span {
-  padding: 8px 12px;
+  padding: 8px 14px;
 }
 
 .change-row,
@@ -8136,6 +8001,7 @@ input:disabled {
 .value-check-matrix-row {
   min-height: 48px;
   border-bottom: 1px solid var(--line-soft);
+  align-items: stretch;
 }
 
 .change-row > span,
@@ -8143,7 +8009,25 @@ input:disabled {
 .value-check-matrix-row > strong,
 .value-check-matrix-row > div,
 .value-check-matrix-row > .value-check-verdict {
-  padding: 7px 12px;
+  padding: 9px 14px;
+}
+
+/*
+ * Column rules come from the cells themselves, so header and body share the
+ * one grid definition and stay aligned however long a value runs.
+ */
+.change-head > span:not(:last-child),
+.change-row > span:not(:last-child),
+.change-row > div:not(:last-child) {
+  border-right: 1px solid var(--line-soft);
+}
+
+.change-row > span,
+.change-row > div {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  min-width: 0;
 }
 
 .change-row:hover,
@@ -8151,10 +8035,11 @@ input:disabled {
   background: #f8fafc;
 }
 
-/* Prose values read from the left; numbers, dates and deltas stay aligned. */
+/* Prose values read from the left and wrap on word boundaries. */
 .change-value {
   text-align: left;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
+  word-break: keep-all;
 }
 
 .change-head > span[data-align="end"] {
@@ -8165,11 +8050,17 @@ input:disabled {
   text-align: left;
 }
 
+.change-row > .change-delta {
+  align-items: flex-end;
+  gap: 3px;
+  padding-inline: 16px;
+}
+
 /* The evidence column gets the width its one-line locator + action needs. */
 @media (min-width: 701px) {
   .change-head,
   .change-row {
-    grid-template-columns: 96px minmax(180px, 1.1fr) minmax(180px, 1.1fr) minmax(96px, 0.42fr) minmax(250px, 1.05fr);
+    grid-template-columns: 104px minmax(180px, 1.15fr) minmax(180px, 1.15fr) minmax(104px, 0.4fr) minmax(240px, 1fr);
   }
 }
 
@@ -8184,31 +8075,43 @@ input:disabled {
 
 .comparison-panel .source-locator,
 .value-check-panel .source-locator {
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
   text-overflow: clip;
   white-space: normal;
 }
 
 /*
- * Executive summary: the total leads through size and weight, not a blue
- * fill that would compete with the download action next to it.
+ * Executive summary: one tinted strip divided by hairlines. The total is the
+ * figure a reader looks for first, so it takes a stronger tint and the brand
+ * blue — still a reading surface, never a button.
  */
+.comparison-panel .executive-summary {
+  margin-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+  background: #f4f7fb;
+}
+
 .comparison-panel .executive-summary > div {
   min-height: 56px;
   padding: 9px 14px;
-  background: var(--paper);
+  background: transparent;
   border-right: 1px solid var(--line-soft);
 }
 
 .comparison-panel .executive-summary > .summary-total,
 .comparison-panel .executive-summary > .summary-total[data-empty="true"] {
-  background: var(--paper);
+  background: #e7eefb;
 }
 
 .comparison-panel .executive-summary > .summary-total dd {
-  color: var(--ink);
-  font-size: 22px;
+  color: var(--blue);
+  font-size: 24px;
   font-weight: var(--font-weight-bold);
+}
+
+/* The stronger tint needs a darker label to stay above the contrast floor. */
+.comparison-panel .executive-summary > .summary-total dt {
+  color: var(--blue-active);
 }
 
 .comparison-panel .executive-summary > .summary-important dd {
@@ -8218,6 +8121,36 @@ input:disabled {
 .comparison-panel .executive-summary > div[data-empty="true"] dd {
   color: var(--muted-light);
   font-weight: var(--font-weight-medium);
+}
+
+.comparison-panel .executive-summary > .summary-total[data-empty="true"] dd {
+  color: var(--blue);
+  font-weight: var(--font-weight-bold);
+}
+
+.comparison-panel .comparison-content {
+  padding-top: 10px;
+}
+
+/* The badge labels the row; it never stretches to the cell's width. */
+.change-row .category-label {
+  align-self: flex-start;
+  width: max-content;
+  max-width: 100%;
+}
+
+/* Stacked rows carry their own labels, so column rules would only add noise. */
+@media (max-width: 700px) {
+  .change-head > span:not(:last-child),
+  .change-row > span:not(:last-child),
+  .change-row > div:not(:last-child) {
+    border-right: 0;
+  }
+
+  .change-row > .change-delta {
+    align-items: stretch;
+    padding-inline: 0;
+  }
 }
 
 /* Value Check filter carries the counts, so it owns the same hierarchy. */

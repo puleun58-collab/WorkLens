@@ -32,13 +32,18 @@ const claimContentSchema = z.object({
     confidence: z.enum(["high", "medium", "low"]),
   }).strict()),
 }).strict();
+/**
+ * Same fields the provider schema requires. `confidence` and `role` are read
+ * as strings and normalised when parsed, so a label the model invents degrades
+ * that one claim's presentation instead of failing the whole response.
+ */
 const briefContentSchema = z.object({
   claims: z.array(z.object({
     text: z.string(),
     sources: z.array(z.string()),
-    confidence: z.enum(["high", "medium", "low"]),
+    confidence: z.string(),
     section: z.string(),
-    role: z.enum(["summary", "action"]),
+    role: z.string(),
   }).strict()),
 }).strict();
 const polishContentSchema = z.object({
@@ -83,8 +88,12 @@ function requestSpecification(request: AiApiRequest): {
 } {
   switch (request.kind) {
     case "claims":
+      // Brief writes the longest object of any operation — five claims with a
+      // section each — and this model spends completion tokens on reasoning
+      // before it emits any of it. A budget that fits Ask truncates Brief mid
+      // object, which the provider reports as a schema validation failure.
       return request.request.operation === "brief"
-        ? { messages: buildMessages(request.request, request.items), schema: BRIEF_RESPONSE_SCHEMA, schemaName: "worklens_brief", maxTokens: 1_200 }
+        ? { messages: buildMessages(request.request, request.items), schema: BRIEF_RESPONSE_SCHEMA, schemaName: "worklens_brief", maxTokens: 3_000 }
         : { messages: buildMessages(request.request, request.items), schema: CLAIM_RESPONSE_SCHEMA, schemaName: "worklens_claims", maxTokens: 1_200 };
     case "polish":
       return { messages: buildPolishMessages(request.text, request.mode), schema: POLISH_RESPONSE_SCHEMA, schemaName: "worklens_polish", maxTokens: 900 };

@@ -1667,10 +1667,6 @@ function locatorText(source: SourceRef): string {
   }
 }
 
-function summaryLocatorText(source: SourceRef): string {
-  return source.locator?.kind === "pptx" ? `Slide ${source.locator.slide}` : locatorText(source);
-}
-
 const roleText = (role: SourceRole | undefined): string | undefined =>
   role === "base" ? "기준 파일" : role === "current" ? "대상 파일" : undefined;
 
@@ -2751,64 +2747,66 @@ function briefClipboardText(claims: readonly GroundedClaim[]): string {
   return lines.length <= 1 ? (lines[0] ?? "") : lines.map((line) => `- ${line}`).join("\n");
 }
 
+/**
+ * Brief reads the way Analyze does: one row per statement with its evidence on
+ * the same line. The summary decides *what* each row says — a paragraph, a
+ * line, an action — while reading a result and opening its sources stays one
+ * pattern across the product, so there is no second evidence list repeating
+ * the body underneath.
+ */
 function BriefResults({ result, fileNames, onSource }: {
   result: AiAvailableResult;
   fileNames: Map<string, string>;
   onSource: SourceHandler;
 }) {
   if (result.operation !== "brief") return null;
-  const claimsWithSources = result.claims.filter((claim) => claim.evidence.length > 0);
   const entries = result.claims.map((claim) => ({
     claim,
     text: claimDisplayText(claim),
     section: claim.kind === "inference" ? claim.presentation?.section : undefined,
     role: claim.kind === "inference" ? claim.presentation?.role : "summary",
   })).filter((entry) => Boolean(entry.text));
-  const sections = new Map<string, typeof entries>();
+  if (entries.length === 0) return null;
+
+  const row = (entry: (typeof entries)[number]) => (
+    <article className="analysis-reading-row" key={entry.claim.id}>
+      <p>{entry.text}</p>
+      <div className="analysis-reading-actions">
+        <ResultSource sources={entry.claim.evidence.map((binding) => binding.source)} fileNames={fileNames} onSource={onSource} emptyLabel="근거 없음" />
+      </div>
+    </article>
+  );
+  const section = (name: string, items: typeof entries, key: string) => (
+    <section className="analysis-report-section" aria-label={name} key={key}>
+      <div className="subsection-heading"><h3>{name}</h3><span>{items.length}건</span></div>
+      <div className="analysis-reading-list">{items.map(row)}</div>
+    </section>
+  );
+
+  const grouped = new Map<string, typeof entries>();
   for (const entry of entries) {
     const name = entry.section?.trim() || "핵심 내용";
-    const list = sections.get(name) ?? [];
-    list.push(entry);
-    sections.set(name, list);
+    grouped.set(name, [...(grouped.get(name) ?? []), entry]);
   }
   const summaryEntries = entries.filter((entry) => entry.role !== "action");
   const actionEntries = entries.filter((entry) => entry.role === "action");
-  const body = result.presentation.mode === "report"
-    ? <div className="brief-report">{[...sections].map(([section, items]) => <section key={section}><h3>{section}</h3>{items.map((entry) => <p key={entry.claim.id}>{entry.text}</p>)}</section>)}</div>
-    : result.presentation.mode === "sections"
-      ? <div className="brief-sections">{[...sections].map(([section, items]) => <section key={section}><h3>{section}</h3><ul>{items.map((entry) => <li key={entry.claim.id}>{entry.text}</li>)}</ul></section>)}</div>
-      : result.presentation.mode === "actions"
-        ? <div className="brief-actions">{summaryEntries.length ? <section><h3>결론</h3><ul>{summaryEntries.map((entry) => <li key={entry.claim.id}>{entry.text}</li>)}</ul></section> : null}{actionEntries.length ? <section><h3>액션 아이템</h3><ul>{actionEntries.map((entry) => <li key={entry.claim.id}>{entry.text}</li>)}</ul></section> : <p className="brief-no-actions">원문에 명시된 액션 아이템이 없습니다.</p>}</div>
-        : result.presentation.mode === "lines"
-          ? <div className="brief-lines">{entries.slice(0, 5).map((entry) => <p key={entry.claim.id}>{entry.text}</p>)}</div>
-          : entries.length === 1
-            ? <p>{entries[0].text}</p>
-            : <ul>{entries.map((entry) => <li key={entry.claim.id}>{entry.text}</li>)}</ul>;
-  return (
-    <div className="ask-result brief-result">
-      <section className="ask-answer brief-body" aria-label="요약 본문">
-        {body}
-      </section>
-      {claimsWithSources.length ? (
-        <section className="ask-evidence brief-evidence" aria-labelledby="brief-evidence-title">
-          <div className="subsection-heading"><h3 id="brief-evidence-title">주요 근거</h3><span>{claimsWithSources.length}건</span></div>
-          <div className="brief-evidence-list">
-            {claimsWithSources.map((claim) => (
-              <article className="brief-evidence-item" key={claim.id}>
-                <p>{claimDisplayText(claim)}</p>
-                <CompactResultSource
-                  sources={claim.evidence.map((binding) => binding.source)}
-                  fileNames={fileNames}
-                  onSource={onSource}
-                  locatorOf={summaryLocatorText}
-                />
-              </article>
-            ))}
-          </div>
-        </section>
-      ) : null}
-    </div>
-  );
+
+  const body = result.presentation.mode === "report" || result.presentation.mode === "sections"
+    ? [...grouped].map(([name, items]) => section(name, items, name))
+    : result.presentation.mode === "actions"
+      ? [
+        summaryEntries.length ? section("결론", summaryEntries, "conclusion") : null,
+        actionEntries.length
+          ? section("액션 아이템", actionEntries, "actions")
+          : <p className="brief-no-actions" key="no-actions">원문에 명시된 액션 아이템이 없습니다.</p>,
+      ]
+      : (
+        <div className="analysis-reading-list">
+          {(result.presentation.mode === "lines" ? entries.slice(0, 5) : entries).map(row)}
+        </div>
+      );
+
+  return <div className="analysis-report brief-result">{body}</div>;
 }
 
 function uniqueClaimSources(claims: readonly GroundedClaim[]): SourceRef[] {
