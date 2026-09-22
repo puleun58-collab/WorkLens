@@ -3,7 +3,6 @@ import "./worker-globals";
 import { buildComparison } from "@/domain/compare";
 import { buildAggregation } from "@/lib/aggregation/engine";
 import { aggregationXlsxExport } from "@/lib/aggregation/export";
-import { mergePresentations } from "@/lib/aggregation/pptx-merge";
 import { buildValueCheck } from "@/domain/value-check";
 import type { NormalizedDocument, SourceRef } from "@/domain/document";
 import { analyzeDocument, checkDocument, extractDocument } from "@/lib/deterministic";
@@ -32,11 +31,6 @@ import type { WorkerEnvelope, WorkerFailure, WorkerRequest, WorkspaceFile } from
 interface StoredDocument {
   file: WorkspaceFile;
   document: NormalizedDocument;
-  /**
-   * Presentation bytes stay only for presentation inputs: merging slides
-   * copies original package parts, which no parsed model can reconstruct.
-   */
-  deckBytes?: Uint8Array;
 }
 
 const MAX_FILES = 10;
@@ -85,8 +79,6 @@ async function handle(request: WorkerRequest): Promise<unknown> {
       const fileName = safeDisplayName(request.fileName);
       const kind = fileKindOf(fileName);
       const bytes = request.bytes;
-      // Parsers may transfer or zero the input buffer, so the deck copy is taken first.
-      const deckBytes = kind === "pptx" ? bytes.slice() : undefined;
       const admissionWarnings = validateUploadBytes(kind, bytes);
       assertWorkspaceWithinLimit(workspaceBytes(), bytes.byteLength);
       const size = bytes.byteLength;
@@ -105,7 +97,7 @@ async function handle(request: WorkerRequest): Promise<unknown> {
         metadata: document.metadata,
         warnings: document.warnings,
       };
-      documents.set(request.fileId, { file, document, ...(deckBytes ? { deckBytes } : {}) });
+      documents.set(request.fileId, { file, document });
       return file;
     }
     case "analyze":
@@ -143,21 +135,7 @@ async function handle(request: WorkerRequest): Promise<unknown> {
     case "aggregate":
       return buildAggregation(requireDocuments(request.fileIds).map((entry) => entry.document));
     case "aggregate-export": {
-      const stored = requireDocuments(request.fileIds);
-      const parsed = stored.map((entry) => entry.document);
-      if (request.format === "pptx") {
-        const decks = stored.flatMap((entry) => entry.deckBytes
-          ? [{ fileId: entry.file.id, fileName: entry.file.name, bytes: entry.deckBytes }]
-          : []);
-        if (decks.length !== stored.length) {
-          throw new DocumentError("AGGREGATE_FORMAT_MISMATCH", "같은 형식의 파일끼리 선택해 주세요.", "Excel 계열 파일과 PPTX 파일은 각각 별도로 취합할 수 있습니다.");
-        }
-        const merged = mergePresentations(decks);
-        return { fileName: merged.fileName, mimeType: merged.mimeType, bytes: merged.content };
-      }
-      if (stored.some((entry) => entry.file.kind === "pptx")) {
-        throw new DocumentError("AGGREGATE_FORMAT_MISMATCH", "같은 형식의 파일끼리 선택해 주세요.", "Excel 계열 파일과 PPTX 파일은 각각 별도로 취합할 수 있습니다.");
-      }
+      const parsed = requireDocuments(request.fileIds).map((entry) => entry.document);
       const draft = buildAggregation(parsed);
       const exported = await aggregationXlsxExport(draft, request.selection, parsed);
       return { fileName: exported.fileName, mimeType: exported.mimeType, bytes: exported.content };

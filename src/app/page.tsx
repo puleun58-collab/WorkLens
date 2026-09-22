@@ -3,7 +3,7 @@
 import { ChangeEvent, DragEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { AiAvailableResult, AiRequest, GroundedClaim } from "@/domain/ai";
 import type { ComparisonItem, ComparisonResult } from "@/domain/compare";
-import type { AggregationDraft, AggregationSelection } from "@/domain/aggregation";
+import { isAggregationFileKind, type AggregationDraft, type AggregationSelection } from "@/domain/aggregation";
 import type { ValueCheckResult, ValueCheckStatus } from "@/domain/value-check";
 import type { DocumentMetadata, SourceRef } from "@/domain/document";
 import {
@@ -286,6 +286,7 @@ type DetailInfo = { entries: readonly DetailEntry[] };
 export default function Home() {
   const [files, setFiles] = useState<WorkspaceFile[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
+  const selectAllRef = useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTab] = useState<Tab>("Analyze");
   const [shellView, setShellView] = useState<ShellView>("Analyze");
   const [companyTerms, setCompanyTerms] = useState<CompanyTermEntry[]>([]);
@@ -422,6 +423,15 @@ export default function Home() {
   };
   const toggleFile = (id: string) => {
     setSelected((current) => current.includes(id) ? current.filter((fileId) => fileId !== id) : current.length < 10 ? [...current, id] : current);
+    clearResults();
+  };
+  const allFilesSelected = files.length > 0 && selected.length === files.length;
+  const someFilesSelected = selected.length > 0 && !allFilesSelected;
+  useEffect(() => {
+    if (selectAllRef.current) selectAllRef.current.indeterminate = someFilesSelected;
+  }, [someFilesSelected]);
+  const toggleAllFiles = () => {
+    setSelected(allFilesSelected ? [] : files.map((file) => file.id));
     clearResults();
   };
   const swapComparisonDirection = () => {
@@ -866,11 +876,9 @@ export default function Home() {
   };
 
   const runAggregate = async () => {
-    // Excel-family tables and slide decks produce different result files, so a
-    // mixed selection has no single answer to give.
-    const kinds = new Set(files.filter((file) => selected.includes(file.id)).map((file) => file.kind === "pptx" ? "pptx" : "sheet"));
-    if (kinds.size > 1) {
-      notifyView("error", "같은 형식의 파일끼리 선택해 주세요.", undefined, "Excel 계열 파일과 PPTX 파일은 각각 별도로 취합할 수 있습니다.");
+    const selectedFiles = files.filter((file) => selected.includes(file.id));
+    if (selectedFiles.some((file) => !isAggregationFileKind(file.kind))) {
+      notifyView("error", "취합할 수 없는 파일이 포함되어 있습니다.", undefined, "취합은 Excel·CSV 형식의 표 데이터 파일만 지원합니다. 지원하지 않는 파일을 선택 해제한 뒤 다시 실행해 주세요.");
       return;
     }
     setBusy(true);
@@ -883,9 +891,7 @@ export default function Home() {
         sheetIds: draft.workbooks.flatMap((workbook) => workbook.sheets.filter((sheet) => sheet.selectedByDefault).map((sheet) => sheet.id)),
         mappings: draft.mappings.map(({ id, targetField, sourceFields, included }) => ({ id, targetField, sourceFields, included })),
       });
-      notifyView("success", draft.output === "pptx"
-        ? `슬라이드 ${draft.decks.reduce((sum, deck) => sum + deck.slideCount, 0)}장을 취합할 수 있습니다.`
-        : `시트 ${draft.workbooks.reduce((sum, workbook) => sum + workbook.sheets.length, 0)}개 · 레코드 ${draft.records.length}건을 분석했습니다.`);
+      notifyView("success", `시트 ${draft.workbooks.reduce((sum, workbook) => sum + workbook.sheets.length, 0)}개 · 레코드 ${draft.records.length}건을 분석했습니다.`);
     } catch (error) {
       notifyView("error", (error as ApiError).message ?? "문서 취합 구조를 분석하지 못했습니다.");
     } finally {
@@ -893,11 +899,11 @@ export default function Home() {
     }
   };
 
-  const exportAggregation = async (format: "xlsx" | "pptx") => {
+  const exportAggregation = async () => {
     if (!aggregationSelection) return;
     setBusy(true);
     try {
-      const exported = await runInWorker({ kind: "aggregate-export", fileIds: selected, selection: aggregationSelection, format });
+      const exported = await runInWorker({ kind: "aggregate-export", fileIds: selected, selection: aggregationSelection });
       const url = URL.createObjectURL(new Blob([exported.bytes as BlobPart], { type: exported.mimeType }));
       const anchor = document.createElement("a");
       anchor.href = url;
@@ -1113,10 +1119,13 @@ export default function Home() {
   const [workSectionTitle, workSectionDescription] = polishTextMode
     ? ["텍스트 윤문", "붙여넣은 내용을 문장 단위로 다듬고 숫자·날짜·인용과 문서 구조를 유지합니다."]
     : workSectionCopy[activeTab];
+  const aggregationHasUnsupportedFiles = activeTab === "Aggregate"
+    && files.some((file) => selected.includes(file.id) && !isAggregationFileKind(file.kind));
   const actionDisabled = busy
     || (polishTextMode
       ? polishText.trim().length === 0
       : selected.length === 0
+        || (activeTab === "Aggregate" && aggregationHasUnsupportedFiles)
         || (activeTab === "Compare" && (selected.length < 2 || (compareMode === "version" && selected.length !== 2)))
         || (activeTab === "Ask" && !question.trim()));
   const hasCategoryResult = activeTab === "Compare"
@@ -1337,7 +1346,19 @@ export default function Home() {
             <>
               {polishTextMode || files.length === 0 ? null : (
                 <section className="file-list" aria-labelledby="files-heading">
-                  <div className="file-list-head" aria-hidden="true"><span>선택</span><span>파일</span><span>상태</span><span>구조</span><span>주의</span></div>
+                  <div className="file-list-head">
+                    <label className="select-all-files">
+                      <input
+                        ref={selectAllRef}
+                        type="checkbox"
+                        checked={allFilesSelected}
+                        onChange={toggleAllFiles}
+                        aria-label={allFilesSelected ? "전체 선택 해제" : "전체 선택"}
+                      />
+                      <span>선택</span>
+                    </label>
+                    <span>파일</span><span>상태</span><span>구조</span><span>주의</span>
+                  </div>
                   {files.map((file) => {
                     const checked = selected.includes(file.id);
                     const counts = structureCounts(file.metadata);
@@ -1462,6 +1483,12 @@ export default function Home() {
                       </label>
                     ) : null}
                   </div>
+                ) : null}
+                {activeTab === "Aggregate" && aggregationHasUnsupportedFiles ? (
+                  <p className="aggregation-selection-error" role="status">
+                    <strong>취합할 수 없는 파일이 포함되어 있습니다.</strong>
+                    <span>취합은 Excel·CSV 형식의 표 데이터 파일만 지원합니다. 지원하지 않는 파일을 선택 해제한 뒤 다시 실행해 주세요.</span>
+                  </p>
                 ) : null}
                 {activeTab !== "Extract" ? (
                   <div className="operation-actions">
@@ -1704,7 +1731,7 @@ const workSectionCopy: Record<Tab, [string, string]> = {
   Polish: ["문서 윤문", "선택한 파일의 번역투와 중복 표현을 문장 단위로 다듬습니다."],
   Extract: ["정보 추출", "선택한 파일에서 필요한 항목과 값을 찾아 정리합니다."],
   Brief: ["요약", "선택한 파일의 핵심 내용을 정리합니다. 원하는 요약 방식이 있다면 입력하세요."],
-  Aggregate: ["문서 취합", "선택한 파일의 호환되는 내용을 하나의 결과 파일로 정리합니다."],
+  Aggregate: ["문서 취합", "여러 파일의 표 데이터를 하나의 Excel 파일로 정리합니다."],
 };
 
 function ResultHeader({ eyebrow, title, status, meta }: {
@@ -1735,7 +1762,6 @@ function ResultHeader({ eyebrow, title, status, meta }: {
 
 function ResultView({ tab, result, enrichment, status, fileNames, detail, onSource, onCloseSource, dictionary, resultActions }: ResultViewProps) {
   if (!result) return null;
-
   let content: React.ReactNode;
   if (tab === "Analyze" && Array.isArray(result)) {
     content = <AnalyzeResults entries={result as AnalyzeEntry[]} enrichment={enrichment} fileNames={fileNames} onSource={onSource} />;
@@ -1757,7 +1783,7 @@ function ResultView({ tab, result, enrichment, status, fileNames, detail, onSour
     <section className="panel results-panel">
       <ResultHeader
         {...(tab === "Ask" || tab === "Brief" || tab === "Check" || tab === "Extract" || tab === "Analyze" ? {} : { eyebrow: `${tab.toUpperCase()} RESULT` })}
-        title={tab === "Analyze" ? "분석 결과" : tab === "Ask" ? "파일 답변" : tab === "Check" ? "검수 결과" : tab === "Extract" ? "추출 결과" : tab === "Brief" ? "핵심 요약" : "작업 결과"}
+        title={tab === "Analyze" ? "분석 결과" : tab === "Ask" ? "답변" : tab === "Check" ? "검수 결과" : tab === "Extract" ? "추출 결과" : tab === "Brief" ? "핵심 요약" : "작업 결과"}
         status={status}
         {...(tab === "Extract"
           ? { meta: resultActions }
@@ -2725,25 +2751,39 @@ function AskResults({ result, fileNames, onSource }: {
   onSource: SourceHandler;
 }) {
   if (result.operation !== "ask") return null;
-  const answer = result.claims.map(claimDisplayText).filter(Boolean).join("\n");
-  const sourceEntries = uniqueClaimSources(result.claims);
+  const fileOrder = new Map([...fileNames.keys()].map((fileId, index) => [fileId, index]));
+  const claims = result.claims
+    .map((claim, index) => ({ claim, index }))
+    .sort((left, right) => {
+      const position = (claim: GroundedClaim) => Math.min(...claim.evidence.map(({ source }) => fileOrder.get(source.fileId) ?? Number.MAX_SAFE_INTEGER));
+      return position(left.claim) - position(right.claim) || left.index - right.index;
+    })
+    .map(({ claim }) => claim);
 
   return (
     <div className="ask-result">
-      {answer ? (
-        <section className="ask-answer" aria-labelledby="ask-answer-title">
-          <h3 id="ask-answer-title">답변</h3>
-          <p>{answer}</p>
+      {claims.length ? (
+        <section className="ask-answer" aria-label="답변 목록">
+          <div className="ask-answer-list">
+            {claims.map((claim) => {
+              const sources = claim.evidence.map((binding) => binding.source);
+              const sourceFileIds = [...new Set(sources.map((source) => source.fileId))];
+              const sourceFiles = sourceFileIds.map((fileId) => fileNames.get(fileId) ?? fileId);
+              return (
+                <article className="ask-answer-row" key={claim.id}>
+                  <span className="ask-answer-files" title={sourceFiles.join(" · ")}>{sourceFiles.join(" · ")}</span>
+                  <div className="ask-answer-content">
+                    <p>{claimDisplayText(claim)}</p>
+                    <ResultSource sources={sources} fileNames={fileNames} onSource={onSource} />
+                  </div>
+                </article>
+              );
+            })}
+          </div>
         </section>
       ) : (
         <p className="ask-result-info" role="status">선택한 파일에서 답변에 필요한 근거를 찾지 못했습니다.</p>
       )}
-      {sourceEntries.length ? (
-        <section className="ask-evidence" aria-labelledby="ask-evidence-title">
-          <div className="subsection-heading"><h3 id="ask-evidence-title">근거</h3><span>{sourceEntries.length}곳</span></div>
-          <ResultSource sources={sourceEntries} fileNames={fileNames} onSource={onSource} />
-        </section>
-      ) : null}
     </div>
   );
 }
@@ -3102,48 +3142,13 @@ function AggregationResults({ draft, selection, busy, onSelection, onExport }: {
   selection: AggregationSelection | null;
   busy: boolean;
   onSelection: (selection: AggregationSelection) => void;
-  onExport: (format: "xlsx" | "pptx") => void | Promise<void>;
+  onExport: () => void | Promise<void>;
 }) {
   const [allMappings, setAllMappings] = useState(false);
   // Nothing analysed yet is nothing to show: the section heading and the run
   // action already say what this destination does.
   if (!draft || !selection) return null;
 
-  if (draft.output === "mixed" || draft.output === "none") {
-    return (
-      <section className="panel results-panel aggregation-results">
-        <ResultHeader title="취합 결과" status={null} />
-        <StatusPanel variant="info" className="result-clear" title="같은 형식의 파일끼리 선택해 주세요.">
-          <p>Excel 계열 파일과 PPTX 파일은 각각 별도로 취합할 수 있습니다.</p>
-        </StatusPanel>
-      </section>
-    );
-  }
-
-  if (draft.output === "pptx") {
-    const slideTotal = draft.decks.reduce((sum, deck) => sum + deck.slideCount, 0);
-    return (
-      <section className="panel results-panel aggregation-results">
-        <ResultHeader
-          title="취합 결과"
-          status={{ tone: "success", label: "취합 완료" }}
-          meta={<button type="button" className="extract-download-primary" disabled={busy} onClick={() => void onExport("pptx")}>PPTX 다운로드</button>}
-        />
-        <p className="check-summary-line">
-          <span className="metric">파일 <b>{draft.decks.length}</b></span>
-          <span className="metric">슬라이드 <b>{slideTotal}</b></span>
-        </p>
-        <section className="aggregation-section" aria-labelledby="aggregation-order">
-          <div className="aggregation-section-heading"><div><h3 id="aggregation-order">취합 순서</h3><p>선택한 파일 순서와 각 파일의 슬라이드 순서를 그대로 유지합니다. 텍스트·이미지·표·차트·애니메이션과 레이아웃은 원본 그대로 옮기고, 발표자 노트는 옮기지 않습니다.</p></div></div>
-          <ol className="aggregation-deck-order">
-            {draft.decks.map((deck) => (
-              <li key={deck.fileId}><strong>{deck.fileName}</strong><span>{deck.slideCount}장</span></li>
-            ))}
-          </ol>
-        </section>
-      </section>
-    );
-  }
 
   const selectedSheets = new Set(selection.sheetIds);
   const selectedRecords = draft.records.filter((record) => selectedSheets.has(record.sheetId));
@@ -3170,7 +3175,7 @@ function AggregationResults({ draft, selection, busy, onSelection, onExport }: {
       <ResultHeader
         title="취합 결과"
         status={{ tone: "success", label: "취합 완료" }}
-        meta={<button type="button" className="extract-download-primary" disabled={busy || selectedRecords.length === 0} onClick={() => void onExport("xlsx")}>XLSX 다운로드</button>}
+        meta={<button type="button" className="extract-download-primary" disabled={busy || selectedRecords.length === 0} onClick={() => void onExport()}>XLSX 다운로드</button>}
       />
       <p className="check-summary-line">
         <span className="metric">파일 <b>{draft.workbooks.length}</b></span>

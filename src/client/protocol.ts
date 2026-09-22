@@ -44,7 +44,7 @@ export type WorkerRequest =
   | { kind: "value-check"; fileIds: string[] }
   | { kind: "export"; fileIds: string[]; format: ExportFormat }
   | { kind: "aggregate"; fileIds: string[] }
-  | { kind: "aggregate-export"; fileIds: string[]; selection: AggregationSelection; format: "xlsx" | "pptx" }
+  | { kind: "aggregate-export"; fileIds: string[]; selection: AggregationSelection }
   | { kind: "polish-candidates"; fileIds: string[] }
   /** Deterministic structured extraction; `fields` switches to request mode. */
   | { kind: "extract-structured"; fileIds: string[]; fields?: string[] }

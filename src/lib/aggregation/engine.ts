@@ -1,17 +1,17 @@
 import type {
-  AggregationDeck,
   AggregationDraft,
   AggregationField,
   AggregationFieldMapping,
-  AggregationOutputFormat,
   AggregationRecord,
   AggregationRegion,
   AggregationSchemaGroup,
   AggregationSheet,
   AggregationWorkbook,
 } from "@/domain/aggregation";
+import { isAggregationFileKind } from "@/domain/aggregation";
 import type { NormalizedDocument, SourceRef, TableBlock, TableCell, WorkbookSheet } from "@/domain/document";
 import { classifyValue, normalizeValue } from "@/lib/extract/values";
+import { DocumentError } from "@/lib/upload";
 
 const MAX_HEADER_SCAN_ROWS = 24;
 const MIN_RECORD_CELLS = 2;
@@ -291,7 +291,7 @@ function safeWorkbookSheet(document: NormalizedDocument, sheet: WorkbookSheet): 
   }
 }
 
-function documentWorkbook(document: NormalizedDocument): AggregationWorkbook {
+function documentWorkbook(document: NormalizedDocument & { kind: "xlsx" | "csv" }): AggregationWorkbook {
   const fileName = document.metadata.fileName;
   // A document without worksheets still needs a name a reader recognises, so
   // its tables are named after the file rather than after their position.
@@ -308,15 +308,6 @@ function documentWorkbook(document: NormalizedDocument): AggregationWorkbook {
   return { id: `aggregation:${document.id}`, fileId: document.fileId, fileName, kind: document.kind, sheets };
 }
 
-function deckOf(document: NormalizedDocument): AggregationDeck {
-  const slides = new Set(document.blocks.flatMap((block) =>
-    block.source.locator?.kind === "pptx" ? [block.source.locator.slide] : []));
-  return {
-    fileId: document.fileId,
-    fileName: document.metadata.fileName,
-    slideCount: document.metadata.pageCount ?? slides.size,
-  };
-}
 
 /**
  * A result sheet is named after the data it holds. The shared source sheet name
@@ -390,22 +381,24 @@ function markDuplicates(records: AggregationRecord[]): void {
   }
 }
 
-function outputFormat(workbooks: readonly AggregationWorkbook[], decks: readonly AggregationDeck[]): AggregationOutputFormat {
-  if (workbooks.length > 0 && decks.length > 0) return "mixed";
-  if (decks.length > 0) return "pptx";
-  return workbooks.length > 0 ? "xlsx" : "none";
-}
 
 export function buildAggregation(documents: readonly NormalizedDocument[]): AggregationDraft {
-  const decks = documents.filter((document) => document.kind === "pptx").map(deckOf);
-  const workbooks = documents.filter((document) => document.kind !== "pptx").map(documentWorkbook);
+  const unsupported = documents.filter((document) => !isAggregationFileKind(document.kind));
+  if (unsupported.length > 0) {
+    throw new DocumentError(
+      "AGGREGATE_FORMAT_UNSUPPORTED",
+      "취합할 수 없는 파일이 포함되어 있습니다.",
+      "취합은 Excel·CSV 형식의 표 데이터 파일만 지원합니다. 지원하지 않는 파일을 선택 해제한 뒤 다시 실행해 주세요.",
+    );
+  }
+  const workbooks = documents
+    .filter((document): document is NormalizedDocument & { kind: "xlsx" | "csv" } => isAggregationFileKind(document.kind))
+    .map(documentWorkbook);
   const records = workbooks.flatMap((workbook) => workbook.sheets.flatMap((sheet) => sheet.regions.flatMap((region) => region.records)));
   markDuplicates(records);
   const issues = workbooks.flatMap((workbook) => workbook.sheets.filter((sheet) => sheet.role === "review" || sheet.role === "reference").map((sheet) => ({ scope: "sheet" as const, id: sheet.id, fileName: workbook.fileName, sheetName: sheet.name, message: sheet.reason ?? "확인이 필요한 구조입니다." })));
   return {
-    output: outputFormat(workbooks, decks),
     workbooks,
-    decks,
     groups: schemaGroups(workbooks),
     mappings: fieldMappings(workbooks),
     records,

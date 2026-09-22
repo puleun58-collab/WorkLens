@@ -3,50 +3,13 @@ import { describe, expect, it } from "vitest";
 import type { AggregationDraft } from "@/domain/aggregation";
 import { buildAggregation } from "@/lib/aggregation/engine";
 import { aggregationXlsxExport } from "@/lib/aggregation/export";
-import { mergePresentations } from "@/lib/aggregation/pptx-merge";
 import { parseDocument } from "@/lib/parsers";
-import { strToU8, unzipSync, zipSync } from "fflate";
-import { createDocx, createPptxSlides } from "./fixtures";
-
-const RELS = (entries: string) =>
-  `<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${entries}</Relationships>`;
-const REL_BASE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
-
-/**
- * A deck shaped like PowerPoint's own output: master, layout, theme, an image,
- * a chart with its embedded workbook, and a notes slide. Merging has to carry
- * every dependency and leave the notes.
- */
-function createAuthoredPptx(titles: readonly string[], image: Uint8Array): Uint8Array {
-  const slideOverrides = titles.map((_, index) =>
-    `<Override PartName="/ppt/slides/slide${index + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>`).join("");
-  const files: Record<string, Uint8Array> = {
-    "[Content_Types].xml": strToU8(`<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Default Extension="xlsx" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/><Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/><Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/><Override PartName="/ppt/notesSlides/notesSlide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.notesSlide+xml"/><Override PartName="/ppt/charts/chart1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/>${slideOverrides}</Types>`),
-    "_rels/.rels": strToU8(RELS(`<Relationship Id="rId1" Type="${REL_BASE}/officeDocument" Target="ppt/presentation.xml"/>`)),
-    "ppt/presentation.xml": strToU8(`<?xml version="1.0"?><p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="${REL_BASE}"><p:sldMasterIdLst><p:sldMasterId id="2147483648" r:id="rId1"/></p:sldMasterIdLst><p:sldIdLst>${titles.map((_, index) => `<p:sldId id="${256 + index}" r:id="rId${index + 2}"/>`).join("")}</p:sldIdLst><p:sldSz cx="12192000" cy="6858000"/></p:presentation>`),
-    "ppt/_rels/presentation.xml.rels": strToU8(RELS(`<Relationship Id="rId1" Type="${REL_BASE}/slideMaster" Target="slideMasters/slideMaster1.xml"/>${titles.map((_, index) => `<Relationship Id="rId${index + 2}" Type="${REL_BASE}/slide" Target="slides/slide${index + 1}.xml"/>`).join("")}`)),
-    "ppt/slideMasters/slideMaster1.xml": strToU8(`<?xml version="1.0"?><p:sldMaster xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="${REL_BASE}"><p:cSld><p:spTree/></p:cSld><p:sldLayoutIdLst><p:sldLayoutId id="2147483649" r:id="rId1"/></p:sldLayoutIdLst></p:sldMaster>`),
-    "ppt/slideMasters/_rels/slideMaster1.xml.rels": strToU8(RELS(`<Relationship Id="rId1" Type="${REL_BASE}/slideLayout" Target="../slideLayouts/slideLayout1.xml"/><Relationship Id="rId2" Type="${REL_BASE}/theme" Target="../theme/theme1.xml"/>`)),
-    "ppt/slideLayouts/slideLayout1.xml": strToU8(`<?xml version="1.0"?><p:sldLayout xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree/></p:cSld></p:sldLayout>`),
-    "ppt/slideLayouts/_rels/slideLayout1.xml.rels": strToU8(RELS(`<Relationship Id="rId1" Type="${REL_BASE}/slideMaster" Target="../slideMasters/slideMaster1.xml"/>`)),
-    "ppt/theme/theme1.xml": strToU8(`<?xml version="1.0"?><a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="Authored"/>`),
-    "ppt/notesSlides/notesSlide1.xml": strToU8(`<?xml version="1.0"?><p:notes xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld><p:spTree/></p:cSld></p:notes>`),
-    "ppt/charts/chart1.xml": strToU8(`<?xml version="1.0"?><c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart/></c:chartSpace>`),
-    "ppt/charts/_rels/chart1.xml.rels": strToU8(RELS(`<Relationship Id="rId1" Type="${REL_BASE}/package" Target="../embeddings/Microsoft_Excel_Worksheet.xlsx"/>`)),
-    "ppt/embeddings/Microsoft_Excel_Worksheet.xlsx": strToU8("workbook"),
-    "ppt/media/image1.png": image,
-  };
-  titles.forEach((title, index) => {
-    files[`ppt/slides/slide${index + 1}.xml`] = strToU8(`<?xml version="1.0"?><p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="${REL_BASE}"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="1" name="Title"/><p:cNvSpPr/><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr><p:txBody><a:p><a:r><a:t>${title}</a:t></a:r></a:p></p:txBody></p:sp><p:pic><p:nvPicPr><p:cNvPr id="2" name="Picture"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="rId2"/></p:blipFill><p:spPr><a:xfrm><a:off x="914400" y="914400"/><a:ext cx="1828800" cy="914400"/></a:xfrm></p:spPr></p:pic></p:spTree></p:cSld></p:sld>`);
-    files[`ppt/slides/_rels/slide${index + 1}.xml.rels`] = strToU8(RELS(`<Relationship Id="rId1" Type="${REL_BASE}/slideLayout" Target="../slideLayouts/slideLayout1.xml"/><Relationship Id="rId2" Type="${REL_BASE}/image" Target="../media/image1.png"/><Relationship Id="rId3" Type="${REL_BASE}/notesSlide" Target="../notesSlides/notesSlide1.xml"/><Relationship Id="rId4" Type="${REL_BASE}/chart" Target="../charts/chart1.xml"/>`));
-  });
-  return zipSync(files);
-}
 
 const PIXEL_PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZsXcAAAAASUVORK5CYII=",
   "base64",
 );
+
 
 async function workbookBytes(configure: (workbook: ExcelJS.Workbook) => void): Promise<Uint8Array> {
   const workbook = new ExcelJS.Workbook();
@@ -73,6 +36,37 @@ async function reopen(bytes: Uint8Array): Promise<ExcelJS.Workbook> {
   return workbook;
 }
 
+  it("combines compatible XLSX and CSV records", async () => {
+    const workbook = await documentOf((source) => {
+      const sheet = source.addWorksheet("매출");
+      sheet.addRows([["부서", "매출", "기준일"], ["영업", 1200, "2026-08-01"], ["물류", 900, "2026-08-02"]]);
+    }, "xlsx-source");
+    const csv = await parseDocument({
+      fileId: "csv-source",
+      fileName: "매출.csv",
+      bytes: new TextEncoder().encode("담당부서,매출액,기준일\r\n운영,800,2026-08-03\r\n지원,400,2026-08-04\r\n"),
+    });
+
+    const draft = buildAggregation([workbook, csv]);
+
+    expect(draft.workbooks.map((entry) => entry.kind)).toEqual(["xlsx", "csv"]);
+    expect(draft.groups).toHaveLength(1);
+    expect(draft.records).toHaveLength(4);
+  });
+
+  it.each(["pptx", "pdf", "docx"] as const)("rejects %s instead of silently aggregating it", (kind) => {
+    const document = {
+      id: `${kind}:document`,
+      fileId: `${kind}:file`,
+      kind,
+      metadata: { fileName: `자료.${kind}` },
+      blocks: [],
+      warnings: [],
+    };
+
+    expect(() => buildAggregation([document])).toThrow("취합할 수 없는 파일이 포함되어 있습니다.");
+  });
+
 describe("generic aggregation", () => {
   it("groups compatible sheets regardless of column order and keeps sheet sources", async () => {
     const draft = await aggregate((workbook) => {
@@ -82,7 +76,6 @@ describe("generic aggregation", () => {
       warehouse.addRows([["인원", "담당부서", "매출액"], [4, "운영", 800], [2, "지원", 400]]);
     });
 
-    expect(draft.output).toBe("xlsx");
     expect(draft.groups).toHaveLength(1);
     expect(draft.groups[0]).toMatchObject({ recordCount: 4, fields: expect.arrayContaining(["부서", "매출", "인원"]) });
     expect(draft.records).toHaveLength(4);
@@ -248,73 +241,6 @@ describe("generic aggregation", () => {
     expect(attachments?.getCell("B2").value).toBe("점검");
   });
 
-  it("merges presentations in the selected order without rebuilding slides", async () => {
-    const first = createPptxSlides([["9월 교육 운영", "담당: 김하나"], ["일정", "09-30"]]);
-    const second = createPptxSlides([["10월 교육 운영", "담당: 박민수"]]);
-    const merged = mergePresentations([
-      { fileId: "deck-1", fileName: "9월.pptx", bytes: first },
-      { fileId: "deck-2", fileName: "10월.pptx", bytes: second },
-    ]);
-
-    expect(merged.fileName).toBe("worklens-aggregation.pptx");
-    expect(merged.slideCount).toBe(3);
-    const reparsed = await parseDocument({ fileId: "merged", fileName: merged.fileName, bytes: merged.content });
-    expect(reparsed.metadata.pageCount).toBe(3);
-    const bySlide = reparsed.blocks.flatMap((block) => block.type === "paragraph"
-      ? [{ slide: block.source.page, text: block.text }]
-      : []);
-    expect(bySlide.filter((entry) => entry.slide === 1).map((entry) => entry.text)).toEqual(["9월 교육 운영", "담당: 김하나"]);
-    expect(bySlide.filter((entry) => entry.slide === 3).map((entry) => entry.text)).toEqual(["10월 교육 운영", "담당: 박민수"]);
-  });
-
-  it("carries layouts, masters, themes and images across decks and leaves notes behind", async () => {
-    const merged = mergePresentations([
-      { fileId: "deck-1", fileName: "1분기.pptx", bytes: createAuthoredPptx(["1분기 실적", "1분기 과제"], PIXEL_PNG) },
-      { fileId: "deck-2", fileName: "2분기.pptx", bytes: createAuthoredPptx(["2분기 실적"], PIXEL_PNG) },
-    ]);
-    const parts = unzipSync(merged.content);
-    const names = Object.keys(parts);
-    const contentTypes = new TextDecoder().decode(parts["[Content_Types].xml"]);
-    const presentation = new TextDecoder().decode(parts["ppt/presentation.xml"]);
-
-    expect(merged.slideCount).toBe(3);
-    expect(merged.droppedNotes).toBe(1);
-    expect(names.filter((name) => /^ppt\/slides\/slide|^ppt\/slides\/wl/u.test(name))).toHaveLength(3);
-    expect(names).toContain("ppt/slideLayouts/wl2_slideLayout1.xml");
-    expect(names).toContain("ppt/slideMasters/wl2_slideMaster1.xml");
-    expect(names).toContain("ppt/theme/wl2_theme1.xml");
-    expect(names).toContain("ppt/media/wl2_image1.png");
-    expect(names).toContain("ppt/charts/wl2_chart1.xml");
-    expect(names).toContain("ppt/embeddings/wl2_Microsoft_Excel_Worksheet.xlsx");
-    expect(names.filter((name) => name.includes("notesSlides"))).toEqual(["ppt/notesSlides/notesSlide1.xml"]);
-    expect(contentTypes).toContain('PartName="/ppt/slideLayouts/wl2_slideLayout1.xml"');
-    expect((presentation.match(/<p:sldId\b/gu) ?? [])).toHaveLength(3);
-    expect((presentation.match(/<p:sldMasterId\b/gu) ?? [])).toHaveLength(2);
-
-    const copiedRels = new TextDecoder().decode(parts["ppt/slides/_rels/wl2_slide1.xml.rels"]);
-    expect(copiedRels).toContain("../media/wl2_image1.png");
-    expect(copiedRels).toContain("../slideLayouts/wl2_slideLayout1.xml");
-    expect(copiedRels).not.toContain("notesSlide");
-    expect(copiedRels).toContain("../charts/wl2_chart1.xml");
-    expect(new TextDecoder().decode(parts["ppt/charts/_rels/wl2_chart1.xml.rels"]))
-      .toContain("../embeddings/wl2_Microsoft_Excel_Worksheet.xlsx");
-    expect(contentTypes).toContain('PartName="/ppt/charts/wl2_chart1.xml"');
-
-    const reparsed = await parseDocument({ fileId: "merged", fileName: merged.fileName, bytes: merged.content });
-    expect(reparsed.metadata.pageCount).toBe(3);
-    expect(reparsed.media).toHaveLength(3);
-  });
-
-  it("names a document's table after the document, not its position", async () => {
-    const document = await parseDocument({ fileId: "contract", fileName: "계약.docx", bytes: createDocx() });
-    const draft = buildAggregation([document]);
-
-    expect(draft.output).toBe("xlsx");
-    expect(draft.workbooks[0].sheets.map((sheet) => sheet.name)).toEqual(["계약"]);
-    expect(draft.groups.map((group) => group.name)).toEqual(["계약"]);
-    const exported = await aggregationXlsxExport(draft, defaultSelection(draft), [document]);
-    expect((await reopen(exported.content)).worksheets.map((sheet) => sheet.name)).toEqual(["계약"]);
-  });
 
   it("sizes number-formatted columns to what the workbook renders", async () => {
     const draft = await aggregate((workbook) => {

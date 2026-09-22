@@ -1,11 +1,14 @@
-import type { SourceRef, TableCell } from "@/domain/document";
+import type { FileKind, SourceRef, TableCell } from "@/domain/document";
 import type { ExtractValueType } from "@/domain/extract";
 
 export type AggregationValueType = ExtractValueType | "Boolean" | "List" | "Image";
 export type AggregationSheetRole = "records" | "reference" | "empty" | "review";
 export type AggregationMappingStatus = "confirmed" | "suggested" | "review";
-/** Which single result file the selected inputs produce. */
-export type AggregationOutputFormat = "xlsx" | "pptx" | "mixed" | "none";
+export const AGGREGATION_FILE_KINDS = ["xlsx", "csv"] as const satisfies readonly FileKind[];
+
+export function isAggregationFileKind(kind: FileKind): kind is "xlsx" | "csv" {
+  return AGGREGATION_FILE_KINDS.includes(kind as "xlsx" | "csv");
+}
 
 export interface AggregationValue {
   displayValue: string;
@@ -73,7 +76,7 @@ export interface AggregationWorkbook {
   id: string;
   fileId: string;
   fileName: string;
-  kind: "xlsx" | "csv" | "pdf" | "docx" | "pptx";
+  kind: "xlsx" | "csv";
   sheets: AggregationSheet[];
 }
 
@@ -101,18 +104,9 @@ export interface AggregationIssue {
   message: string;
 }
 
-/** Slide inventory for presentation inputs, which merge instead of tabulating. */
-export interface AggregationDeck {
-  fileId: string;
-  fileName: string;
-  slideCount: number;
-}
 
 export interface AggregationDraft {
-  /** The single result file these inputs produce, or why they produce none. */
-  output: AggregationOutputFormat;
   workbooks: AggregationWorkbook[];
-  decks: AggregationDeck[];
   groups: AggregationSchemaGroup[];
   mappings: AggregationFieldMapping[];
   records: AggregationRecord[];

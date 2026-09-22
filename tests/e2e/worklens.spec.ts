@@ -491,6 +491,32 @@ test("uploads and normalizes all five formats", async ({ page }) => {
 
 });
 
+test("selects, clears, and reports all work files from the table header", async ({ page }) => {
+  await page.goto("/");
+  await upload(page, files.v1);
+  await upload(page, files.v2);
+  const selectAll = page.getByRole("checkbox", { name: "전체 선택" });
+
+  await selectAll.check();
+  await expect(page.getByLabel("운임현황_v1.xlsx 선택")).toBeChecked();
+  await expect(page.getByLabel("운임현황_v2.xlsx 선택")).toBeChecked();
+  await expect(page.locator(".context-counts")).toContainText("선택 2개");
+
+  await page.getByLabel("운임현황_v1.xlsx 선택").uncheck();
+  await expect(selectAll).toHaveJSProperty("indeterminate", true);
+  await expect(page.locator(".context-counts")).toContainText("선택 1개");
+
+  await page.getByRole("checkbox", { name: "전체 선택" }).check();
+  await page.getByRole("checkbox", { name: "전체 선택 해제" }).uncheck();
+  await expect(page.getByLabel("운임현황_v1.xlsx 선택")).not.toBeChecked();
+  await expect(page.getByLabel("운임현황_v2.xlsx 선택")).not.toBeChecked();
+  await expect(page.locator(".context-counts")).toContainText("선택 0개");
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByRole("checkbox", { name: "전체 선택" })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+});
+
 test("deletes every selected file in one secondary action", async ({ page }) => {
   await page.goto("/");
   await upload(page, files.v1);
@@ -1071,7 +1097,7 @@ test("keeps compact counted progress for Polish and Extract", async ({ page }) =
   await expect(page.locator(".notice.error")).toHaveCount(0);
 });
 
-test("presents Ask as one answer followed by compact clickable evidence", async ({ page }) => {
+test("connects each Ask answer directly to its file and evidence", async ({ page }) => {
   await page.route("**/api/ai", async (route) => {
     const request = route.request().postDataJSON() as {
       kind: "claims";
@@ -1098,7 +1124,7 @@ test("presents Ask as one answer followed by compact clickable evidence", async 
   await page.getByRole("button", { name: "질문 실행" }).click();
 
   const panel = page.locator(".results-panel");
-  await expect(panel.getByRole("heading", { name: "파일 답변", exact: true })).toBeVisible();
+  await expect(panel.getByRole("heading", { name: "답변", exact: true })).toBeVisible();
   await expect(panel.locator(".result-status")).toHaveText("답변 완료");
   await expect(page.locator(".notice.success")).toHaveCount(0);
   await expect(panel).not.toContainText("ASK RESULT");
@@ -1112,29 +1138,24 @@ test("presents Ask as one answer followed by compact clickable evidence", async 
   await expect(panel.getByRole("button", { name: /윤문/ })).toHaveCount(0);
 
   const answer = panel.locator(".ask-answer");
-  const evidence = panel.locator(".ask-evidence");
+  const rows = panel.locator(".ask-answer-row");
   await expect(answer).toBeVisible();
-  await expect(evidence).toBeVisible();
-  expect(await panel.locator(".ask-answer, .ask-evidence").evaluateAll((nodes) =>
-    nodes.map((node) => node.className),
-  )).toEqual(["ask-answer", "ask-evidence"]);
+  await expect(rows).toHaveCount(2);
+  await expect(panel.locator(".ask-evidence")).toHaveCount(0);
+  await expect(rows.locator(".ask-answer-files")).toHaveText(["운임현황_v1.xlsx", "운임현황_v1.xlsx"]);
 
-
-  const answerText = (await answer.locator("p").innerText()).trim();
+  const answerText = (await rows.first().locator("p").innerText()).trim();
   expect(answerText).not.toContain("추론:");
   await expect(panel.getByText(answerText, { exact: true })).toHaveCount(1);
-
-  const sourceBlock = evidence.locator(".result-source");
-  await expect(sourceBlock).toBeVisible();
-  await expect(evidence.locator(".subsection-heading > span")).toHaveText(/\d+곳/);
+  await expect(rows.first().locator(".result-source")).toBeVisible();
+  await expect(rows.first().locator(".source-action")).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(answer).toBeVisible();
-  await expect(evidence).toBeVisible();
+  await expect(rows.first()).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  await sourceBlock.locator(".source-action").click();
+  await rows.first().locator(".source-action").click();
   await expect(page.locator(".evidence-inspector")).toBeVisible();
-
 });
 
 test("keeps an unanswerable Ask as a grounded error without invented sources", async ({ page }) => {
@@ -2214,38 +2235,30 @@ test("aggregates workbooks into one XLSX result without profile-specific actions
   await expect(panel.locator(".aggregation-preview thead th").first()).toHaveText("지역");
   await expect(panel.locator(".aggregation-preview")).not.toContainText("[object");
 
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(panel.getByRole("button", { name: "XLSX 다운로드" })).toBeVisible();
+  await expect(panel.locator(".aggregation-workbooks")).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+
   const download = page.waitForEvent("download");
   await panel.getByRole("button", { name: "XLSX 다운로드" }).click();
   expect((await download).suggestedFilename()).toBe("worklens-aggregation.xlsx");
 });
 
-test("aggregates decks into one PPTX result without workbook controls", async ({ page }) => {
+test("blocks unsupported files from aggregation without offering PPTX export", async ({ page }) => {
   await mockEmptyClaims(page);
   await page.goto("/");
   await upload(page, files.trainingSepPptx);
-  await upload(page, files.trainingOctPptx);
   await page.getByLabel("WL_교육운영_9월.pptx 선택").check();
-  await page.getByLabel("WL_교육운영_10월.pptx 선택").check();
   await page.getByRole("button", { name: "취합", exact: true }).click();
-  await page.getByRole("button", { name: "취합 실행" }).click();
 
-  const panel = page.locator(".aggregation-results");
-  await expect(panel.locator(".result-status")).toHaveText("취합 완료");
-  await expect(panel.getByRole("button", { name: "PPTX 다운로드" })).toBeVisible();
-  await expect(panel.getByRole("button", { name: /XLSX 다운로드/ })).toHaveCount(0);
-  await expect(panel).not.toContainText("필드 매핑");
-  await expect(panel).not.toContainText("워크북");
-  await expect(panel.locator(".aggregation-deck-order li")).toHaveText([
-    "WL_교육운영_9월.pptx2장",
-    "WL_교육운영_10월.pptx2장",
-  ]);
-
-  const download = page.waitForEvent("download");
-  await panel.getByRole("button", { name: "PPTX 다운로드" }).click();
-  expect((await download).suggestedFilename()).toBe("worklens-aggregation.pptx");
+  await expect(page.getByRole("button", { name: "취합 실행" })).toBeDisabled();
+  await expect(page.getByText("취합할 수 없는 파일이 포함되어 있습니다.", { exact: true })).toBeVisible();
+  await expect(page.getByText(/Excel·CSV 형식의 표 데이터 파일만 지원합니다/)).toBeVisible();
+  await expect(page.getByRole("button", { name: /PPTX 다운로드/ })).toHaveCount(0);
 });
 
-test("asks for one file family instead of converting between result formats", async ({ page }) => {
+test("does not silently aggregate supported files from a mixed selection", async ({ page }) => {
   await mockEmptyClaims(page);
   await page.goto("/");
   await upload(page, files.v1);
@@ -2253,8 +2266,21 @@ test("asks for one file family instead of converting between result formats", as
   await page.getByLabel("운임현황_v1.xlsx 선택").check();
   await page.getByLabel("WL_교육운영_9월.pptx 선택").check();
   await page.getByRole("button", { name: "취합", exact: true }).click();
-  await page.getByRole("button", { name: "취합 실행" }).click();
 
-  await expect(page.locator(".notice.error")).toContainText("같은 형식의 파일끼리 선택해 주세요.");
+  await expect(page.getByRole("button", { name: "취합 실행" })).toBeDisabled();
+  await expect(page.getByText("취합할 수 없는 파일이 포함되어 있습니다.", { exact: true })).toBeVisible();
   await expect(page.locator(".aggregation-results")).toHaveCount(0);
 });
+
+for (const [format, file] of [["PDF", files.pdf], ["DOCX", files.docx]] as const) {
+  test(`blocks ${format} files from aggregation`, async ({ page }) => {
+    await mockEmptyClaims(page);
+    await page.goto("/");
+    await upload(page, file);
+    await page.getByLabel(`${path.basename(file)} 선택`).check();
+    await page.getByRole("button", { name: "취합", exact: true }).click();
+
+    await expect(page.getByRole("button", { name: "취합 실행" })).toBeDisabled();
+    await expect(page.getByText("취합할 수 없는 파일이 포함되어 있습니다.", { exact: true })).toBeVisible();
+  });
+}
