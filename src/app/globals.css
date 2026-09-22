@@ -3733,46 +3733,6 @@ input:disabled,
   font-weight: var(--font-weight-medium);
 }
 
-.comparison-index {
-  min-height: 42px;
-  padding: 7px 18px;
-  border-bottom: 1px solid var(--line);
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px 22px;
-}
-
-.comparison-index > span {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--muted);
-  font-size: var(--font-size-xs);
-}
-
-.comparison-index b {
-  color: var(--ink);
-  font-family: var(--font-mono);
-}
-
-.category-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--line-strong);
-}
-
-.category-dot.added,
-.category-dot.removed {
-  background: var(--muted);
-}
-
-.category-dot.important,
-.category-dot.structural {
-  background: var(--warning);
-}
-
 .change-table {
   width: 100%;
   overflow-x: auto;
@@ -6734,11 +6694,6 @@ input:disabled {
     margin: 0;
   }
 
-  .comparison-index {
-    padding-right: 16px;
-    padding-left: 16px;
-  }
-
   /* Check findings become one deliberate top-to-bottom reading sequence. */
   .qa-overview {
     padding: 20px 16px;
@@ -7644,10 +7599,6 @@ input:disabled {
     transform: rotate(90deg);
   }
 
-  .comparison-index {
-    gap: 6px 14px;
-  }
-
   .change-table {
     overflow: visible;
   }
@@ -8247,4 +8198,33 @@ input:disabled {
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-regular);
   line-height: var(--leading-relaxed);
+}
+
+/*
+ * Comparison summary: one white band between the file map and the table, read
+ * by dividers and one tinted emphasis, not by six boxes on grey.
+ */
+.comparison-panel .executive-summary > div {
+  background: var(--paper);
+  border-right: 1px solid var(--line-soft);
+}
+
+.comparison-panel .executive-summary > .summary-total {
+  background: color-mix(in srgb, var(--blue-soft) 55%, var(--paper));
+}
+
+.comparison-panel .executive-summary > .summary-total dd {
+  color: var(--blue);
+}
+
+.comparison-panel .executive-summary > .summary-important dd {
+  color: var(--warning);
+}
+
+.comparison-panel .executive-summary > div[data-empty="true"] {
+  background: var(--paper);
+}
+
+.comparison-panel .executive-summary > .summary-total[data-empty="true"] {
+  background: color-mix(in srgb, var(--blue-soft) 55%, var(--paper));
 }

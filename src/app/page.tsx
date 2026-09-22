@@ -2888,9 +2888,6 @@ function ComparisonView({ comparison, compareIds, enrichment, fileNames, detail,
         <StatusPanel variant="success" className="result-clear" title="비교된 변경 사항이 없습니다."><p>지원되는 내용, 수치 및 구조 범위에서 두 파일이 같습니다.</p></StatusPanel>
       ) : (
         <div className="comparison-content">
-          <div className="comparison-index" aria-label="변경 유형 요약">
-            {summaryItems.slice(1).filter((item) => item.value > 0).map((item) => <span key={item.key}><i className={`category-dot ${item.key}`} aria-hidden="true" />{item.label}<b>{item.value}</b></span>)}
-          </div>
           <div className="change-table" role="table" aria-label="버전 비교 변경 상세">
             <div className="change-head" role="row"><span role="columnheader">변경 유형</span><span role="columnheader">기준 파일 값</span><span role="columnheader">대상 파일 값</span><span role="columnheader">변동</span><span role="columnheader">근거</span></div>
             {comparison.items.map((item: ComparisonItem) => (
