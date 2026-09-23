@@ -293,13 +293,23 @@ function withSectionBodies(
  */
 function headingAffinity(nodes: readonly AiEvidenceNode[], relevance: readonly number[]): number[] {
   const affinity = new Array<number>(nodes.length).fill(0);
+  // A paginated file's first heading is its title: it names the whole
+  // document, so sharing a word with it says nothing about which section
+  // answers. Slides title every page, so the rule stays with pages.
+  const titles = new Set<number>();
+  const seenFiles = new Set<string>();
+  for (const [index, node] of nodes.entries()) {
+    if (node.role !== "heading" || seenFiles.has(node.fileId)) continue;
+    seenFiles.add(node.fileId);
+    if (typeof node.source.page === "number") titles.add(index);
+  }
   const best = nodes.reduce(
-    (top, node, index) => (node.role === "heading" ? Math.max(top, relevance[index]) : top),
+    (top, node, index) => (node.role === "heading" && !titles.has(index) ? Math.max(top, relevance[index]) : top),
     0,
   );
   if (best <= 0) return affinity;
   for (const [index, node] of nodes.entries()) {
-    if (node.role !== "heading") continue;
+    if (node.role !== "heading" || titles.has(index)) continue;
     const share = relevance[index] / best;
     if (share <= 0) continue;
     affinity[index] += HEADING_TITLE_BOOST * share;
