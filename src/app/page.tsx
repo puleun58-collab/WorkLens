@@ -2950,7 +2950,7 @@ function ComparisonView({ comparison, compareIds, enrichment, fileNames, detail,
               <span role="columnheader" data-align="start">변경 유형</span>
               <span role="columnheader" data-align="start">기준 파일 값</span>
               <span role="columnheader" data-align="start">대상 파일 값</span>
-              <span role="columnheader" data-align="end">변동</span>
+              <span role="columnheader" data-align="start">변동</span>
               <span role="columnheader" data-align="start">근거</span>
             </div>
             {comparison.items.map((item: ComparisonItem) => (

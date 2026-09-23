@@ -2270,21 +2270,45 @@ test("keeps compare column rules aligned and numeric values right-aligned", asyn
   expect(rules.headBorders).toEqual(["1px", "1px", "1px", "1px", "0px"]);
   expect(rules.rowBorders).toEqual(["1px", "1px", "1px", "1px", "0px"]);
 
-  // Mixed-value headers stay left; numeric cells and the numeric-only delta
-  // column read from the right.
+  // Headers and evidence are prose. Numeric values and the delta body alone
+  // read from the right.
   const alignment = await page.evaluate(() => {
-    // `start` and `left` are the same reading direction here.
-    const read = (cells: Element[]) => cells.map((cell) => {
+    const cells = [
+      [...document.querySelectorAll(".change-head > span")],
+      [...document.querySelectorAll('[data-testid="change-row"]')[0].children],
+    ];
+    const [head, row] = cells.map((group) => group.map((cell) => {
       const value = getComputedStyle(cell as HTMLElement).textAlign;
       return value === "start" ? "left" : value === "end" ? "right" : value;
-    });
+    }));
+    const sourceCell = document.querySelector<HTMLElement>('[data-testid="change-row"] > .source-actions')!;
+    const sourceGroup = sourceCell.querySelector<HTMLElement>(".result-source")!;
+    const locator = sourceGroup.querySelector<HTMLElement>(".source-locator")!.getBoundingClientRect();
+    const action = sourceGroup.querySelector<HTMLElement>(".source-action")!.getBoundingClientRect();
+    const sameLine = Math.abs(locator.top - action.top) <= 2;
     return {
-      head: read([...document.querySelectorAll(".change-head > span")]),
-      row: read([...document.querySelectorAll('[data-testid="change-row"]')[0].children]),
+      head,
+      row,
+      source: {
+        cellAlign: getComputedStyle(sourceCell).alignItems,
+        cellText: getComputedStyle(sourceCell).textAlign,
+        groupAlign: getComputedStyle(sourceGroup).alignSelf,
+        groupJustify: getComputedStyle(sourceGroup).justifyContent,
+        actionFollowsLocator: sameLine
+          ? action.left >= locator.right - 1
+          : Math.abs(action.left - locator.left) <= 1,
+      },
     };
   });
-  expect(alignment.head).toEqual(["left", "left", "left", "right", "left"]);
+  expect(alignment.head).toEqual(["left", "left", "left", "left", "left"]);
   expect(alignment.row).toEqual(["left", "right", "right", "right", "left"]);
+  expect(alignment.source).toEqual({
+    cellAlign: "flex-start",
+    cellText: "left",
+    groupAlign: "flex-start",
+    groupJustify: "flex-start",
+    actionFollowsLocator: true,
+  });
   expect(await page.locator(".change-row > .change-delta").first().evaluate((element) => getComputedStyle(element).justifyItems)).toBe("end");
 
   // The reading order is file pair, then summary, then table: each band keeps

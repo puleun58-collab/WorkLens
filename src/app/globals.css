@@ -3791,10 +3791,6 @@ input:disabled,
   padding: 8px 10px;
 }
 
-/* Only the numbers-only column reads from the right; values and prose read from the left. */
-.change-head > span:nth-child(4) {
-  text-align: right;
-}
 
 .change-delta {
   display: grid;
@@ -8224,6 +8220,30 @@ input:disabled {
   flex-wrap: wrap;
   align-items: center;
   gap: 4px 8px;
+}
+
+/*
+ * Comparison headers and evidence are prose. Keep their own left edge even
+ * when shared numeric or flex rules are added elsewhere.
+ */
+.comparison-panel .change-head > span {
+  text-align: left;
+}
+
+.comparison-panel .change-row > .source-actions {
+  align-items: flex-start;
+  text-align: left;
+}
+
+.comparison-panel .source-actions .result-source {
+  align-self: flex-start;
+  width: auto;
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.comparison-panel .source-actions :is(.source-locator, .source-action) {
+  align-self: flex-start;
 }
 
 .comparison-panel .source-locator,
