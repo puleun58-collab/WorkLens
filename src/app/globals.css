@@ -8608,26 +8608,47 @@ input:disabled {
 }
 
 /*
- * Check reads on one content column: the severity bar, the category line and
- * every finding share the same left and right edge.
+ * Check reads on one content column. One inset places the severity bar, the
+ * category line and every finding card, so their left edges — and the
+ * dictionary button's right edge against the cards' — cannot drift apart.
  */
-.check-results .check-issue-row {
-  padding-inline: 24px;
+.check-results {
+  --check-inset: 24px;
+}
+
+.check-results .qa-overview {
+  width: fit-content;
+  max-width: calc(100% - var(--check-inset) * 2);
+  margin: var(--space-3) var(--check-inset) var(--space-2);
+}
+
+.check-results .check-toolbar.check-toolbar-compact {
+  padding: var(--space-1) var(--check-inset) var(--space-3);
 }
 
 .check-results .check-list {
-  padding-top: 4px;
+  padding: var(--space-3) var(--check-inset) 0;
+}
+
+/* The first category's text, not its hover box, starts on the content line. */
+.check-results .check-filters-compact > button:first-child {
+  margin-left: -5px;
+}
+
+.check-results .check-issue-row {
+  padding-inline: 18px;
 }
 
 /*
- * Polish results are discrete blocks. The panel stays white, so each result
- * needs its own hairline and breathing room instead of running together.
+ * Polish surfaces step down one tone at a time: grey page, white panel, a
+ * faint blue-grey card per result, then the sky-blue revision. Each result is
+ * its own card, so none of them read as one long white sheet.
  */
 .polish-row {
   padding: 16px 18px 18px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-soft);
   border-radius: var(--radius-control);
-  background: #fff;
+  background: #f2f5f9;
 }
 
 .polish-row + .polish-row,
@@ -8647,7 +8668,7 @@ input:disabled {
   border-top: 1px solid var(--line-soft);
 }
 
-/* Locator and its action belong on one line. */
+/* Locator and its action belong on one line, centred on each other. */
 .polish-source .result-source {
   flex-direction: row;
   flex-wrap: wrap;
@@ -8662,8 +8683,12 @@ input:disabled {
 }
 
 @media (max-width: 700px) {
+  .check-results {
+    --check-inset: 16px;
+  }
+
   .check-results .check-issue-row {
-    padding-inline: 16px;
+    padding-inline: 14px;
   }
 
   .polish-row {

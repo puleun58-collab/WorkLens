@@ -887,10 +887,14 @@ test("presents text Polish as an immediate original-to-revision workflow", async
     result.evaluate((element) => {
       const resultStyle = getComputedStyle(element);
       const revisionStyle = getComputedStyle(element.querySelector(".polish-copy-block.revised")!);
+      const cardStyle = getComputedStyle(element.querySelector(".polish-row")!);
       return {
+        page: getComputedStyle(document.body).backgroundColor,
         resultBackground: resultStyle.backgroundColor,
         resultBorder: resultStyle.borderTopWidth,
         resultShadow: resultStyle.boxShadow,
+        cardBackground: cardStyle.backgroundColor,
+        cardBorder: cardStyle.borderTopWidth,
         revisionBackground: revisionStyle.backgroundColor,
         revisionBorder: revisionStyle.borderTopWidth,
       };
@@ -902,10 +906,15 @@ test("presents text Polish as an immediate original-to-revision workflow", async
   expect(boundaryBox).not.toBeNull();
   expect(Math.abs(resultBox!.width - boundaryBox!.width)).toBeLessThanOrEqual(1);
   expect(emphasis[1]).toBeGreaterThan(emphasis[0]);
-  expect(surface).toEqual({
+  // Grey page, white panel, faint blue-grey card, sky-blue revision: four
+  // distinct tones, none of them repeated.
+  expect(new Set([surface.page, surface.resultBackground, surface.cardBackground, surface.revisionBackground]).size).toBe(4);
+  expect(surface).toMatchObject({
     resultBackground: "rgb(255, 255, 255)",
     resultBorder: "1px",
     resultShadow: "none",
+    cardBackground: "rgb(242, 245, 249)",
+    cardBorder: "1px",
     revisionBackground: "rgb(237, 248, 255)",
     revisionBorder: "1px",
   });
@@ -1610,6 +1619,30 @@ test("reviews PPTX writing, consistency and data findings with filters and exact
   await expect(page.getByRole("button", { name: "용어 사전" })).toBeVisible();
   expect(await page.getByRole("button", { name: "용어 사전" }).evaluate((element) => getComputedStyle(element).borderTopWidth)).toBe("1px");
   await expect(page.locator(".check-filter-status")).toHaveCount(0);
+
+  // Severity bar, category line and finding cards share one left edge; the
+  // dictionary button ends where the cards end; the bar is only as wide as
+  // its own content.
+  const edges = await page.evaluate(() => {
+    const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
+    const summary = box(".qa-overview");
+    const line = box(".qa-summary-line");
+    const filters = box(".check-filters-compact > button");
+    const card = box(".check-issue");
+    const dictionary = box(".dictionary-trigger");
+    return {
+      summaryLeft: Math.round(summary.left),
+      filterLeft: Math.round(filters.left + Number.parseFloat(getComputedStyle(document.querySelector(".check-filters-compact > button")!).paddingLeft)),
+      cardLeft: Math.round(card.left),
+      dictionaryRight: Math.round(dictionary.right),
+      cardRight: Math.round(card.right),
+      slack: Math.round(summary.right - line.right),
+    };
+  });
+  expect(edges.filterLeft).toBe(edges.summaryLeft);
+  expect(edges.cardLeft).toBe(edges.summaryLeft);
+  expect(edges.dictionaryRight).toBe(edges.cardRight);
+  expect(edges.slack).toBeLessThanOrEqual(16);
 
   const typo = page.locator(".check-issue").filter({ hasText: "한글 맞춤법 오류 가능성" });
   await expect(typo).toContainText("문장");
