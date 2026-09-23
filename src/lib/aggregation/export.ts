@@ -189,17 +189,6 @@ const styleCopy = (style: XlsxStyleSnapshot | undefined): Partial<ExcelJS.Style>
 const columnNumber = (letters: string): number =>
   letters.toUpperCase().split("").reduce((total, letter) => total * 26 + letter.charCodeAt(0) - 64, 0);
 
-const columnLetters = (column: number): string => {
-  let value = column;
-  let letters = "";
-  while (value > 0) {
-    value -= 1;
-    letters = String.fromCharCode(65 + value % 26) + letters;
-    value = Math.floor(value / 26);
-  }
-  return letters;
-};
-
 const rangeBounds = (
   range: string | undefined,
 ): { startRow: number; endRow: number; startColumn: number; endColumn: number } | undefined => {

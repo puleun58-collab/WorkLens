@@ -27,11 +27,17 @@ async function externalLinkWorkbook(cachedResult: number | undefined): Promise<U
   return zipSync(files);
 }
 
-async function macroWorkbook(): Promise<Uint8Array> {
+async function macroWorkbook(headerFill?: string): Promise<Uint8Array> {
   const files = await workbookBytes((sheet) => {
     sheet.addRow(["부서", "인원", "기준일"]);
     sheet.addRow(["운영", 12, "2026-08-01"]);
     sheet.addRow(["지원", 8, "2026-08-02"]);
+    if (headerFill) {
+      sheet.getRow(1).eachCell((cell) => {
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: headerFill } };
+      });
+      sheet.getColumn(1).width = 21;
+    }
   });
   files["xl/vbaProject.bin"] = new Uint8Array([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1, 0, 0, 0, 0]);
   return zipSync(files);
@@ -96,5 +102,35 @@ describe("workbooks with macros or external links", () => {
     expect(parts.some((part) => part.toLowerCase().includes("externallink"))).toBe(false);
     // The stored value still travels, so the export carries data, not links.
     expect(new TextDecoder().decode(unzipSync(exported.content)["xl/worksheets/sheet1.xml"])).toContain("125000");
+  });
+
+  it("uses a styled XLSM chosen first as the template without carrying its macro", async () => {
+    const macro = await parseDocument({ fileId: "macro", fileName: "관리.xlsm", bytes: await macroWorkbook("FF7C3AED") });
+    const plainBook = new ExcelJS.Workbook();
+    const plainSheet = plainBook.addWorksheet("Sheet1");
+    plainSheet.addRows([["부서", "인원", "기준일"], ["영업", 5, "2026-08-03"]]);
+    plainSheet.getRow(1).eachCell((cell) => {
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF16A34A" } };
+    });
+    const plain = await parseDocument({
+      fileId: "plain",
+      fileName: "영업.xlsx",
+      bytes: new Uint8Array(await plainBook.xlsx.writeBuffer() as ArrayBuffer),
+    });
+    const documents = [macro, plain];
+    const draft = buildAggregation(documents);
+    const exported = await aggregationXlsxExport(draft, {
+      sheetIds: draft.workbooks.flatMap((workbook) => workbook.sheets.map((sheet) => sheet.id)),
+      mappings: draft.mappings,
+    }, documents);
+
+    expect(Object.keys(unzipSync(exported.content)).some((part) => part.toLowerCase().includes("vbaproject"))).toBe(false);
+    const output = new ExcelJS.Workbook();
+    await output.xlsx.load(exported.content as unknown as ExcelJS.Buffer);
+    const sheet = output.worksheets[0];
+    const header = sheet.getCell("A1");
+    expect(header.fill.type === "pattern" ? header.fill.fgColor?.argb : undefined).toBe("FF7C3AED");
+    expect(sheet.getColumn(1).width).toBe(21);
+    expect([2, 3, 4].map((row) => sheet.getCell(row, 1).value)).toEqual(["운영", "지원", "영업"]);
   });
 });

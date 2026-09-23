@@ -2841,20 +2841,6 @@ function BriefResults({ result, fileNames, onSource }: {
   return <div className="analysis-report brief-result">{body}</div>;
 }
 
-function uniqueClaimSources(claims: readonly GroundedClaim[]): SourceRef[] {
-  const sources: SourceRef[] = [];
-  const seen = new Set<string>();
-  for (const claim of claims) {
-    for (const binding of claim.evidence) {
-      const key = `${binding.source.fileId}\0${binding.source.nodeId}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      sources.push(binding.source);
-    }
-  }
-  return sources;
-}
-
 function AiResults({ result, fileNames, onSource }: {
   result: AiAvailableResult;
   fileNames: Map<string, string>;
