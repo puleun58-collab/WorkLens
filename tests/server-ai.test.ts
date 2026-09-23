@@ -215,6 +215,17 @@ describe("Groq provider adapter", () => {
     });
   });
 
+  it("rejects an empty changed Polish proposal instead of reporting unchanged", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: JSON.stringify({ changed: true, revisedText: " ", reasons: [] }) } }],
+    }), { status: 200, headers: { "Content-Type": "application/json" } })));
+
+    await expect(runGroqAi({ kind: "polish", text: "원문입니다.", mode: "business" })).rejects.toMatchObject({
+      code: "INVALID_PROVIDER_OUTPUT",
+      status: 502,
+    });
+  });
+
   it("logs sanitized provider rejection metadata tied to the API request ID", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
       error: {

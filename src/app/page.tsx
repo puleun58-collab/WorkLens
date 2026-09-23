@@ -18,6 +18,7 @@ import {
 import { WorkLensLogo } from "./worklens-logo";
 import { disposeWorkspace, runInWorker } from "@/client/document-client";
 import {
+  aiFailureDetail,
   extractServerAi,
   generateServerAi,
   interruptServerAi,
@@ -48,6 +49,7 @@ import {
   type PolishMode,
   type PolishOutcome,
   type PolishResult,
+  type PolishSummary,
   type PolishTextResult,
 } from "@/domain/polish";
 import { polishResult, polishTextResult, reviewProposal } from "@/lib/polish/engine";
@@ -495,11 +497,12 @@ export default function Home() {
    * answer with no claims at all is the model abstaining, and each feature
    * decides what that means for its own result.
    */
-  const generateGroundedResult = async (request: AiRequest, compare?: { baseFileId: string; targetFileId: string }): Promise<AiAvailableResult> => {
+  const generateGroundedResult = async (request: AiRequest, compare?: { baseFileId: string; targetFileId: string }, onStage?: (stage: "evidence" | "provider" | "ground", count: number, secondary?: number) => void): Promise<AiAvailableResult> => {
     let windowId: string | undefined;
     try {
       const evidence = await runInWorker({ kind: "evidence", fileIds: selected, request, ...(compare ? { compare } : {}) });
       windowId = evidence.windowId;
+      onStage?.("evidence", evidence.candidates, evidence.items.length);
       if (evidence.items.length === 0) {
         throw {
           code: "NO_EVIDENCE",
@@ -509,9 +512,11 @@ export default function Home() {
         } satisfies ServerAiFailure;
       }
       const claims = await generateServerAi(request, evidence.items);
+      onStage?.("provider", claims.length);
       const result = await runInWorker({ kind: "ground", windowId, request, claims });
       windowId = undefined;
-      console.info("[worklens] grounding", {
+      onStage?.("ground", result.claims.length, result.rejectedClaimCount);
+      if (process.env.NODE_ENV !== "production") console.info("[worklens] grounding", {
         operation: request.operation,
         acceptedClaimCount: result.claims.length,
         rejectedClaimCount: result.rejectedClaimCount,
@@ -626,8 +631,8 @@ export default function Home() {
       setPolish(result);
       if (partialFailure) {
         noteAiDiagnostics(partialFailure);
-        const unfinished = outcomes.filter((entry) => entry.status === "failed").length;
-        if (unfinished > 0) notifyView("warning", `일부 문장을 처리하지 못했습니다. 확인된 ${outcomes.length - unfinished}문장은 그대로 유지했습니다.`);
+        const unfinished = result.summary.failed;
+        notifyView("warning", "일부 문장을 처리하지 못했습니다.", undefined, `처리 완료 ${result.summary.candidates - unfinished}건 · 처리 실패 ${unfinished}건`);
       } else if (result.summary.rejected > 0) {
         notifyView("warning", `윤문 결과는 준비되었습니다. 보호 항목 ${result.summary.rejected}건은 원문을 유지했습니다.`);
       } else {
@@ -700,8 +705,8 @@ export default function Home() {
       setPolishTextRun(result);
       if (partialFailure) {
         noteAiDiagnostics(partialFailure);
-        const unfinished = outcomes.filter((entry) => entry.status === "failed").length;
-        if (unfinished > 0) notifyView("warning", `일부 문장을 처리하지 못했습니다. 확인된 ${outcomes.length - unfinished}문장은 그대로 유지했습니다.`);
+        const unfinished = result.summary.failed;
+        notifyView("warning", "일부 문장을 처리하지 못했습니다.", undefined, `처리 완료 ${result.summary.candidates - unfinished}건 · 처리 실패 ${unfinished}건`);
       } else if (result.summary.rejected > 0) {
         notifyView("warning", `윤문 결과는 준비되었습니다. 보호 항목 ${result.summary.rejected}건은 원문을 유지했습니다.`);
       } else {
@@ -724,7 +729,7 @@ export default function Home() {
     setDetail(null);
     setEnrichmentResult(null);
     try {
-      let deterministic: unknown;
+      let deterministic: AnalyzeEntry[];
       try {
         deterministic = await runInWorker({ kind: "analyze", fileIds: selected });
         setOperationResult(deterministic);
@@ -737,11 +742,24 @@ export default function Home() {
       // Interpretation is an addition to the deterministic analysis, never a
       // precondition for it: without it the analysis is still complete.
       if (selected.length <= SERVER_AI_MAX_FILES) {
+        const stages = { candidates: 0, selected: 0, provider: 0, grounded: 0, rejected: 0 };
+        const onStage = (stage: "evidence" | "provider" | "ground", count: number, secondary = 0) => {
+          if (stage === "evidence") { stages.candidates = count; stages.selected = secondary; }
+          else if (stage === "provider") stages.provider = count;
+          else { stages.grounded = count; stages.rejected = secondary; }
+        };
         try {
-          const enriched = await generateGroundedResult({ operation: "analyze" });
+          const enriched = await generateGroundedResult({ operation: "analyze" }, undefined, onStage);
           if (enriched.claims.length > 0) setEnrichmentResult(enriched);
+          if (process.env.NODE_ENV !== "production") {
+            const presented = analysisClaimPresentation(enriched, deterministic.flatMap((entry) => entry.extraction.fields), confirmedAnalysisItems(deterministic));
+            console.info("[worklens] analyze stages", { ...stages, presented: presented.summary.length, concerns: presented.concerns.length, presentationFiltered: stages.grounded - presented.summary.length - presented.concerns.length });
+          }
         } catch (error) {
           noteAiDiagnostics(error);
+          if (process.env.NODE_ENV !== "production") console.info("[worklens] analyze stages", { ...stages, failure: (error as Partial<ServerAiFailure>).code ?? "UNKNOWN" });
+          notifyView("warning", "분석 인사이트는 이번 실행에서 제외되었습니다.", undefined, aiFailureDetail(error));
+          return deterministic;
         }
       }
       notifyView("success", "문서 분석을 완료했습니다.");
@@ -1146,10 +1164,14 @@ export default function Home() {
     : null;
   const resultStatus: ResultStatus | null = inlineResultNotice
     ? {
-      tone: activeTab === "Brief" || activeTab === "Analyze" || (activeTab === "Compare" && comparison !== null) ? "success" : inlineResultNotice.tone === "warning" ? "warning" : "success",
+      tone: activeTab === "Brief" || (activeTab === "Compare" && comparison !== null) ? "success" : inlineResultNotice.tone === "warning" ? "warning" : "success",
       label: activeTab === "Compare" && compareMode === "value-check" && inlineResultNotice.tone !== "warning"
         ? "확인 완료"
-        : completionLabels[activeTab],
+        : activeTab === "Analyze" && inlineResultNotice.tone === "warning"
+          ? "기본 분석 완료"
+          : activeTab === "Polish" && (polishTextMode ? polishTextRun?.summary.failed : polish?.summary.failed)
+            ? "일부 처리"
+            : completionLabels[activeTab],
       ...(inlineResultNotice.tone === "warning" ? {
         message: inlineResultNotice.message,
         ...(inlineResultNotice.detail ? { detail: inlineResultNotice.detail } : {}),
@@ -1370,15 +1392,16 @@ export default function Home() {
                     const comparisonRole = comparisonSelectionIndex === 0
                       ? "1 · 기준 파일"
                       : comparisonSelectionIndex === 1 ? "2 · 대상 파일" : null;
+                    const selectionRole = comparisonRole ?? (activeTab === "Aggregate" && checked && selected[0] === file.id ? "기준 파일" : null);
                     return (
-                      <article className={`file-row${checked ? " selected" : ""}${comparisonRole ? " compare-selected-file" : ""}`} key={file.id}>
+                      <article className={`file-row${checked ? " selected" : ""}${selectionRole ? " compare-selected-file" : ""}`} key={file.id}>
                         <label className="select-file">
                           <input type="checkbox" checked={checked} disabled={!checked && selected.length === 10} onChange={() => toggleFile(file.id)} aria-label={`${file.name} 선택`} />
                           <span />
                         </label>
                         <div className="file-info">
-                          {comparisonRole ? <span className="compare-selection-role">{comparisonRole}</span> : null}
-                          <strong title={file.name} tabIndex={comparisonRole ? 0 : undefined}>{file.name}</strong>
+                          {selectionRole ? <span className="compare-selection-role">{selectionRole}</span> : null}
+                          <strong title={file.name} tabIndex={selectionRole ? 0 : undefined}>{file.name}</strong>
                           <span>{file.kind.toUpperCase()} · {formatBytes(file.size)}</span>
                         </div>
                         <span className={`status status-${file.status.toLowerCase()}`}><span aria-hidden="true" />{file.status}</span>
@@ -1445,7 +1468,12 @@ export default function Home() {
                             value={input}
                             checked={polishInput === input}
                             disabled={busy}
-                            onChange={() => setPolishInput(input)}
+                            onChange={() => {
+                              setPolishInput(input);
+                              setPolish(null);
+                              setPolishTextRun(null);
+                              setNotice(null);
+                            }}
                           />
                           <span>{input === "file" ? "파일 윤문" : "텍스트 윤문"}</span>
                         </label>
@@ -1460,7 +1488,12 @@ export default function Home() {
                             value={mode}
                             checked={polishMode === mode}
                             disabled={busy}
-                            onChange={() => setPolishMode(mode)}
+                            onChange={() => {
+                              setPolishMode(mode);
+                              setPolish(null);
+                              setPolishTextRun(null);
+                              setNotice(null);
+                            }}
                           />
                           <span>{POLISH_MODE_LABELS[mode]}</span>
                         </label>
@@ -2112,6 +2145,44 @@ function PolishCopyBlock({ label, text, revised = false }: {
     </div>
   );
 }
+function PolishSummaryLine({ summary }: { summary: PolishSummary }) {
+  return (
+    <div className="polish-summary-line">
+      <p>
+        <span className="metric changed">변경 <b>{summary.changed}</b></span>
+        <span aria-hidden="true">·</span>
+        <span className="metric unchanged">변경 없음 <b>{summary.unchanged}</b></span>
+        {summary.rejected > 0 ? (
+          <>
+            <span aria-hidden="true">·</span>
+            <span className="polish-protection-metric">보호 항목 {summary.rejected}건 확인 필요</span>
+          </>
+        ) : null}
+        {summary.failed > 0 ? (
+          <>
+            <span aria-hidden="true">·</span>
+            <span className="polish-protection-metric">처리 실패 {summary.failed}</span>
+          </>
+        ) : null}
+      </p>
+    </div>
+  );
+}
+
+function PolishFailedItems({ outcomes }: { outcomes: readonly PolishOutcome[] }) {
+  const [expanded, setExpanded] = useState(false);
+  const failed = outcomes.filter((entry) => entry.status === "failed");
+  if (!failed.length) return null;
+  return (
+    <div className="polish-unchanged">
+      <button type="button" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
+        처리되지 않은 문장 {failed.length}건 {expanded ? "접기" : "보기"}
+      </button>
+      {expanded ? <ul>{failed.map((entry) => <li key={entry.id}><p>{entry.originalText}</p></li>)}</ul> : null}
+    </div>
+  );
+}
+
 function PolishResults({ result, fileNames, onSource, status }: {
   result: PolishResult | null;
   fileNames: Map<string, string>;
@@ -2131,22 +2202,10 @@ function PolishResults({ result, fileNames, onSource, status }: {
         status={status}
         meta={<span className="polish-mode-meta">{POLISH_MODE_LABELS[result.mode]}</span>}
       />
-      <div className="polish-summary-line">
-        <p>
-          <span className="metric changed">변경 <b>{result.summary.changed}</b></span>
-          <span aria-hidden="true">·</span>
-          <span className="metric unchanged">변경 없음 <b>{result.summary.unchanged}</b></span>
-          {result.summary.rejected > 0 ? (
-            <>
-              <span aria-hidden="true">·</span>
-              <span className="polish-protection-metric">보호 항목 {result.summary.rejected}건 확인 필요</span>
-            </>
-          ) : null}
-        </p>
-      </div>
+      <PolishSummaryLine summary={result.summary} />
 
-      {changed.length === 0 && rejected.length === 0 ? (
-        <p className="polish-unchanged-message">현재 문서는 별도 수정이 필요하지 않습니다.</p>
+      {changed.length === 0 && rejected.length === 0 && result.summary.failed === 0 ? (
+        <p className="polish-unchanged-message">현재 문서는 {POLISH_MODE_LABELS[result.mode]} 기준에서 별도 수정이 필요하지 않습니다.</p>
       ) : null}
 
       {changed.map((entry) => (
@@ -2173,7 +2232,7 @@ function PolishResults({ result, fileNames, onSource, status }: {
         </article>
       ))}
 
-      {unchanged.length && (changed.length > 0 || rejected.length > 0) ? (
+      {unchanged.length && (changed.length > 0 || rejected.length > 0 || result.summary.failed > 0) ? (
         <div className="polish-unchanged">
           <button type="button" aria-expanded={showUnchanged} onClick={() => setShowUnchanged(!showUnchanged)}>
             변경 없음 {unchanged.length}건 {showUnchanged ? "접기" : "보기"}
@@ -2190,6 +2249,7 @@ function PolishResults({ result, fileNames, onSource, status }: {
           ) : null}
         </div>
       ) : null}
+      <PolishFailedItems outcomes={result.outcomes} />
     </section>
   );
 }
@@ -2244,23 +2304,11 @@ function PolishTextResults({ result, status }: { result: PolishTextResult | null
         status={status}
         meta={<span className="polish-mode-meta">{POLISH_MODE_LABELS[result.mode]}</span>}
       />
-      <div className="polish-summary-line">
-        <p>
-          <span className="metric changed">변경 <b>{result.summary.changed}</b></span>
-          <span aria-hidden="true">·</span>
-          <span className="metric unchanged">변경 없음 <b>{result.summary.unchanged}</b></span>
-          {result.summary.rejected > 0 ? (
-            <>
-              <span aria-hidden="true">·</span>
-              <span className="polish-protection-metric">보호 항목 {result.summary.rejected}건 확인 필요</span>
-            </>
-          ) : null}
-        </p>
-      </div>
+      <PolishSummaryLine summary={result.summary} />
 
-      {!showComparison ? (
-        <p className="polish-unchanged-message">현재 문장은 별도 수정이 필요하지 않습니다.</p>
-      ) : (
+      {!showComparison && result.summary.failed === 0 ? (
+        <p className="polish-unchanged-message">현재 문장은 {POLISH_MODE_LABELS[result.mode]} 기준에서 별도 수정이 필요하지 않습니다.</p>
+      ) : showComparison ? (
         <article className="polish-row polish-text-run">
           <PolishCopyBlock label="원문" text={result.originalText} />
           <PolishCopyBlock label="수정안" text={result.revisedText} revised />
@@ -2276,7 +2324,8 @@ function PolishTextResults({ result, status }: { result: PolishTextResult | null
             </p>
           ) : null}
         </article>
-      )}
+      ) : null}
+      <PolishFailedItems outcomes={result.outcomes} />
     </section>
   );
 }

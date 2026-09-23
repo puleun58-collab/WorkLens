@@ -2156,6 +2156,9 @@ input:disabled,
   padding: 20px var(--panel-inset) 22px;
   border-bottom: 1px solid var(--line-soft);
 }
+.analysis-report .analysis-report-section {
+  padding-inline: 0;
+}
 
 .analysis-summary-section {
   padding-top: 22px;
@@ -2194,7 +2197,7 @@ input:disabled,
   border-top: 1px solid var(--line-soft);
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(150px, max-content);
-  align-items: start;
+  align-items: center;
   gap: var(--space-5);
 }
 
@@ -2219,7 +2222,7 @@ input:disabled,
 
 .analysis-reading-actions {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: flex-end;
   gap: var(--space-3);
 }

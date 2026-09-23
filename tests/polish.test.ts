@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { collectPolishCandidates, isProse } from "@/lib/polish/candidates";
-import { reviewProposal, summarizePolish } from "@/lib/polish/engine";
+import { polishResult, polishTextResult, reviewProposal, summarizePolish } from "@/lib/polish/engine";
 import { verifyPolish } from "@/lib/polish/protect";
-import { parsePolishResponse } from "@/lib/ai/polish-prompt";
+import { buildPolishMessages, parsePolishResponse, POLISH_RESPONSE_SCHEMA } from "@/lib/ai/polish-prompt";
 import type { NormalizedDocument, SourceRef } from "@/domain/document";
-import type { PolishCandidate } from "@/domain/polish";
+import type { PolishCandidate, PolishMode, PolishOutcome } from "@/domain/polish";
 
 /**
  * Polish is the one AI feature that rewrites the user's own words, so the
@@ -50,6 +50,43 @@ describe("polish prose selection", () => {
     const [entry] = collectPolishCandidates(document(["운영 효율을 개선하기 위한 조치를 검토했습니다."]));
     expect(entry.source?.nodeId).toBe("p0");
     expect(entry.origin).toBe("paragraph");
+  });
+});
+
+describe("polish mode prompts", () => {
+  const natural = "9월 운임은 전월 대비 상승했습니다.";
+  const verbose = "사업 추진과 관련하여 향후 운영 효율성 향상을 위하여 다양한 방안에 대한 검토를 진행하고자 합니다.";
+  const business = "교육 참여를 통해 구성원들이 보다 효과적으로 안전의식을 높일 수 있도록 하고자 합니다.";
+
+  it("keeps one protective system contract and distinct mode goals for both input paths", () => {
+    const instructions = (["default", "concise", "business"] as const).map((mode) => {
+      const [system, user] = buildPolishMessages(verbose, mode);
+      expect(system.content).toMatch(/숫자.*금액.*비율.*날짜.*이메일.*URL.*코드.*고유명사/u);
+      expect(system.content).toContain("직접 인용");
+      expect(system.content).toContain("가능성·예정·권고·요청·의무·부정");
+      expect(system.content).toContain("입력 문장의 언어를 그대로 유지");
+      expect(system.content).toContain("문서 구조");
+      expect(user.content).toContain(verbose);
+      expect(user.content).toMatch(/changed를 false/u);
+      return user.content;
+    });
+    expect(new Set(instructions).size).toBe(3);
+    expect(instructions[0]).toMatch(/문체, 격식과 길이.*최대한 유지/u);
+    expect(instructions[1]).toMatch(/더 짧고 직접적으로.*중복|같은 의미를 더 짧고 직접적으로/u);
+    expect(instructions[1]).toContain("관련하여");
+    expect(instructions[2]).toContain("보고서·공지·업무 메일");
+    expect(instructions[2]).toContain("주체, 요청, 조치, 결과");
+    expect(POLISH_RESPONSE_SCHEMA.required).toEqual(["changed", "revisedText", "reasons"]);
+    expect(POLISH_RESPONSE_SCHEMA.additionalProperties).toBe(false);
+  });
+
+  it("permits unchanged natural prose in every mode while prompting substantive style distinctions", () => {
+    for (const mode of ["default", "concise", "business"] as PolishMode[]) {
+      expect(buildPolishMessages(natural, mode)[0].content).toContain("이미 자연스러운 문장");
+      expect(reviewProposal(candidate(natural), { changed: false, revisedText: natural, reasons: [] }).status).toBe("unchanged");
+    }
+    expect(buildPolishMessages(verbose, "concise")[1].content).toContain("장황한 명사화");
+    expect(buildPolishMessages(business, "business")[1].content).toContain("문장 목적과 결론");
   });
 });
 
@@ -116,6 +153,13 @@ describe("polish protection", () => {
     expect(verdict.ok).toBe(false);
     expect(verdict.rejection).toBe("over-edit");
   });
+  it("keeps the same over-edit threshold but accepts a shorter meaning-preserving rewrite", () => {
+    const original = "사업 추진과 관련하여 향후 운영 효율성 향상을 위하여 다양한 방안에 대한 검토를 진행하고자 합니다.";
+    const concise = "사업 추진과 관련하여 향후 운영 효율성 향상을 위해 다양한 방안을 검토하고자 합니다.";
+    expect(verifyPolish(original, concise)).toEqual({ ok: true });
+    expect(reviewProposal(candidate(original), { changed: true, revisedText: concise, reasons: ["중복 표현 축소"] }).status).toBe("changed");
+  });
+
 });
 
 describe("polish engine", () => {
@@ -165,6 +209,25 @@ describe("polish engine", () => {
     ];
     expect(summarizePolish(outcomes)).toEqual({ candidates: 3, changed: 1, unchanged: 1, rejected: 1, failed: 0 });
   });
+  it("separates a protected proposal and a failed candidate from successful unchanged processing", () => {
+    const changed = reviewProposal(candidate("AI 기술을 통해 효율을 높일 수 있습니다."), { changed: true, revisedText: "AI로 효율을 높일 수 있습니다.", reasons: [] });
+    const unchanged = reviewProposal(candidate("9월 운임은 전월 대비 상승했습니다."), { changed: false, revisedText: "", reasons: [] });
+    const rejected = reviewProposal(candidate("매출은 1,250만원입니다."), { changed: true, revisedText: "매출은 1,350만원입니다.", reasons: [] });
+    const failed: PolishOutcome = { id: "failed", status: "failed", originalText: "확인할 문장입니다.", revisedText: "확인할 문장입니다.", reasons: [] };
+    const outcomes = [changed, unchanged, rejected, failed];
+    expect(polishResult("business", outcomes).summary).toEqual({ candidates: 4, changed: 1, unchanged: 1, rejected: 1, failed: 1 });
+    expect(rejected.status).toBe("rejected");
+    const text = "AI 기술을 통해 효율을 높일 수 있습니다.\n확인할 문장입니다.";
+    const segments = [
+      { id: changed.id, prefix: "", text: changed.originalText, joiner: "\n" as const, polishable: true },
+      { id: failed.id, prefix: "", text: failed.originalText, joiner: "\n" as const, polishable: true },
+    ];
+    const pasted = polishTextResult("concise", text, segments, [changed, failed]);
+    expect(pasted.summary).toEqual({ candidates: 2, changed: 1, unchanged: 0, rejected: 0, failed: 1 });
+    expect(pasted.revisedText).toBe("AI로 효율을 높일 수 있습니다.\n확인할 문장입니다.");
+    expect(summarizePolish([failed, { ...failed, id: "other" }])).toEqual({ candidates: 2, changed: 0, unchanged: 0, rejected: 0, failed: 2 });
+  });
+
 });
 
 describe("polish response parsing", () => {

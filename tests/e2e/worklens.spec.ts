@@ -315,10 +315,10 @@ test("keeps deterministic Analyze output stable across grounding rejection and e
 
   await run.click();
   const panel = page.locator(".results-panel");
-  await expect(panel.locator(".result-status")).toHaveText("분석 완료");
-  await expect(panel.locator(".result-status")).toHaveClass(/success/);
-  await expect(panel.locator(".result-inline-warning")).toHaveCount(0);
-  await expect(page.locator(".notice.warning, .notice.error")).toHaveCount(0);
+  await expect(panel.locator(".result-status")).toHaveText("기본 분석 완료");
+  await expect(panel.locator(".result-status")).toHaveClass(/warning/);
+  await expect(panel.locator(".result-inline-warning")).toContainText("분석 인사이트는 이번 실행에서 제외되었습니다.");
+  await expect(panel.locator(".result-inline-warning")).toContainText("근거 연결 실패");
   await expect(panel).not.toContainText(/서술형 문단 중심|표 중심의 문서|혼합형 문서|주요 수치/);
   await expect(panel.locator(".analysis-summary-section")).toHaveCount(0);
   const topics = panel.locator(".analysis-core-items-section .analysis-reading-row");
@@ -356,6 +356,76 @@ test("keeps deterministic Analyze output stable across grounding rejection and e
   expect(await targetMetric.evaluate((element) => getComputedStyle(element).display)).toBe("block");
 });
 
+test("surfaces FSC Analyze failure and then grounded relational insights with aligned sources", async ({ page }) => {
+  let calls = 0;
+  await page.route("**/api/ai", async (route) => {
+    const request = route.request().postDataJSON() as {
+      request: { operation: string };
+      items: Array<{ handle: string; text: string }>;
+    };
+    expect(request.request.operation).toBe("analyze");
+    calls += 1;
+    if (calls === 1) {
+      await route.fulfill({ status: 429, contentType: "application/json", body: JSON.stringify({ error: { code: "AI_RATE_LIMITED" } }) });
+      return;
+    }
+    const handleFor = (pattern: RegExp) => {
+      const handle = request.items.find((item) => pattern.test(item.text))?.handle;
+      if (!handle) throw new Error("FSC relation missing from provider evidence");
+      return handle;
+    };
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ data: { kind: "claims", claims: [
+        { text: "새로운 Actual이 반영되면 향후 Forecast를 다시 계산합니다", handles: [handleFor(/재계산/u), handleFor(/Actual/u)], confidence: "high" },
+        { text: "주간 Forecast가 없으면 월간 Forecast 대체값을 사용합니다", handles: [handleFor(/대체값/u)], confidence: "high" },
+        { text: "두바이유와 환율은 Forecast에 보조적으로 반영됩니다", handles: [handleFor(/보조적으로/u)], confidence: "high" },
+      ] } }),
+    });
+  });
+
+  const pdf = path.join(process.cwd(), "tests/data/fsc-forecast-guide.pdf");
+  await page.goto("/");
+  await upload(page, pdf);
+  await fileRow(page, pdf).getByRole("checkbox").check();
+  await page.getByRole("button", { name: "분석", exact: true }).click();
+  const run = page.getByRole("button", { name: "분석 실행" });
+  const panel = page.locator(".results-panel");
+  await run.click();
+  await expect(panel.locator(".result-status")).toHaveText("기본 분석 완료");
+  await expect(panel.locator(".result-inline-warning")).toContainText("사용 한도");
+  await expect(panel.getByRole("heading", { name: "문서 주요 내용" })).toBeVisible();
+  await expect(panel.locator(".analysis-core-items-section .subsection-heading")).toContainText("13건");
+  await expect(panel.locator(".analysis-summary-section")).toHaveCount(0);
+
+  await run.click();
+  await expect(panel.locator(".result-status")).toHaveText("분석 완료");
+  await expect(panel.locator(".analysis-summary-section .analysis-reading-row")).toHaveCount(3);
+  await expect(panel.locator(".analysis-summary-section")).toContainText("다시 계산합니다");
+  await expect(panel.locator(".analysis-summary-section")).toContainText("대체값");
+  await expect(panel.locator(".analysis-summary-section")).toContainText("보조적으로");
+  await expect(panel.locator(".analysis-core-items-section .subsection-heading")).toContainText("13건");
+  const aligned = await panel.evaluate((root) => {
+    const left = (selector: string) => root.querySelector(selector)!.getBoundingClientRect().left;
+    const right = (selector: string) => root.querySelector(selector)!.getBoundingClientRect().right;
+    return {
+      leftDrift: Math.abs(left(".result-heading h2") - left(".analysis-summary-section h3")),
+      topicDrift: Math.abs(left(".analysis-summary-section h3") - left(".analysis-core-items-section h3")),
+      countDrift: Math.abs(right(".result-status") - right(".analysis-summary-section .subsection-heading span")),
+      sourceDrift: Math.abs(right(".analysis-summary-section .source-action") - right(".analysis-core-items-section .source-action")),
+    };
+  });
+  expect(Object.values(aligned).every((drift) => drift <= 1)).toBe(true);
+  await panel.locator(".analysis-summary-section .source-action").first().click();
+  await expect(page.getByLabel("근거 상세")).toBeVisible();
+  await page.getByLabel("근거 상세").getByRole("button", { name: "닫기" }).click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await expect(panel.locator(".analysis-summary-section .source-action").first()).toBeVisible();
+  expect(calls).toBe(2);
+});
+
 test("keeps narrative PPT topics useful when Analyze AI is unavailable", async ({ page }) => {
   await page.route("**/api/ai", async (route) => {
     await route.fulfill({
@@ -374,7 +444,7 @@ test("keeps narrative PPT topics useful when Analyze AI is unavailable", async (
   await page.getByRole("button", { name: "분석 실행" }).click();
 
   const panel = page.locator(".results-panel");
-  await expect(panel.locator(".result-status")).toHaveText("분석 완료");
+  await expect(panel.locator(".result-status")).toHaveText("기본 분석 완료");
   await expect(panel.locator(".analysis-summary-section")).toHaveCount(0);
   await expect(panel.getByRole("heading", { name: "문서 주요 내용", exact: true })).toBeVisible();
   const topics = panel.locator(".analysis-core-items-section .analysis-reading-row");
@@ -387,7 +457,7 @@ test("keeps narrative PPT topics useful when Analyze AI is unavailable", async (
   await expect(topics.filter({ hasText: /^외 \d+개/ })).toHaveCount(0);
   await expect(panel.locator(".analysis-topic-more")).toHaveCount(0);
   await expect(panel).not.toContainText("이 문장은 제목 placeholder가 없는 본문입니다.");
-  await expect(panel.locator(".result-inline-warning")).toHaveCount(0);
+  await expect(panel.locator(".result-inline-warning")).toContainText("AI 서비스 일시 오류");
   await expect(panel.locator(".analysis-summary-section")).toHaveCount(0);
 
   const repeated = topics.filter({ hasText: "업체별 위험요소" });
@@ -594,6 +664,7 @@ test("deletes every selected file in one secondary action", async ({ page }) => 
 
 
 test("runs deterministic Analyze, Check, Extract and export paths", async ({ page }) => {
+  await mockEmptyClaims(page);
   await page.goto("/");
   await upload(page, files.v1);
   await page.getByLabel("운임현황_v1.xlsx 선택").check();
@@ -977,7 +1048,7 @@ test("presents text Polish as an immediate original-to-revision workflow", async
 
   await paste.fill("현재 문장은 자연스럽습니다.");
   await page.getByRole("button", { name: "윤문 실행" }).click();
-  await expect(result.getByText("현재 문장은 별도 수정이 필요하지 않습니다.", { exact: true })).toBeVisible();
+  await expect(result.getByText("현재 문장은 업무 문체 기준에서 별도 수정이 필요하지 않습니다.", { exact: true })).toBeVisible();
   await expect(result.locator(".polish-row")).toHaveCount(0);
 
   await paste.fill("이번 매출은 1,250만원으로 집계되었습니다.");
@@ -991,6 +1062,48 @@ test("presents text Polish as an immediate original-to-revision workflow", async
   await expect(fileResult.getByRole("heading", { name: "윤문 결과", exact: true })).toBeVisible();
   await expect(fileResult).not.toContainText("POLISH RESULT");
   await expect(fileResult).not.toContainText("문장 윤문");
+});
+
+test("distinguishes partial Polish failure from unchanged text and clears stale mode results", async ({ page }) => {
+  let failAll = false;
+  await page.route("**/api/ai", async (route) => {
+    const request = route.request().postDataJSON() as { text: string };
+    if (failAll || !request.text.includes("pc반환")) {
+      await route.fulfill({ status: 429, contentType: "application/json", body: JSON.stringify({ error: { code: "AI_RATE_LIMITED" } }) });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ data: { kind: "polish", proposal: {
+        changed: true,
+        revisedText: "김영삼 차장님이 PC 반납을 요청했습니다.",
+        reasons: ["표현 정리"],
+      } } }),
+    });
+  });
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "윤문", exact: true }).click();
+  await page.getByRole("radio", { name: "텍스트 윤문" }).check();
+  const paste = page.getByLabel("윤문할 텍스트 입력");
+  await paste.fill("김영삼 차장님이 pc반환 요청했습니다.\n이번 내용은 확인했습니다.");
+  await page.getByRole("button", { name: "윤문 실행" }).click();
+  const result = page.locator(".polish-text-results");
+  await expect(result.locator(".result-status")).toHaveText("일부 처리");
+  await expect(result.locator(".polish-summary-line")).toContainText("변경 1");
+  await expect(result.locator(".polish-summary-line")).toContainText("처리 실패 1");
+  await expect(result).not.toContainText("별도 수정이 필요하지 않습니다.");
+  await result.getByRole("button", { name: "처리되지 않은 문장 1건 보기" }).click();
+  await expect(result).toContainText("이번 내용은 확인했습니다.");
+
+  await page.getByRole("radio", { name: "간결하게" }).check();
+  await expect(result).toHaveCount(0);
+  failAll = true;
+  await page.getByRole("button", { name: "윤문 실행" }).click();
+  await expect(result).toHaveCount(0);
+  await expect(page.locator(".notice.error")).toContainText("윤문을 완료하지 못했습니다.");
+  await expect(page.locator(".notice.error")).not.toContainText("별도 수정이 필요하지 않습니다.");
 });
 
 test("runs Ask, Brief, Polish, Check and Extract through the server AI boundary", async ({ page }) => {
@@ -1592,9 +1705,9 @@ test("integrates enrichment behind one action and preserves every deterministic 
   await page.getByRole("button", { name: "분석", exact: true }).click();
   await page.getByRole("button", { name: "분석 실행" }).click();
   await expect(page.locator(".results-panel .analysis-reading-row")).toHaveCount(0);
-  await expect(page.locator(".result-inline-warning")).toHaveCount(0);
-  await expect(page.locator(".results-panel .result-status")).toHaveText("분석 완료");
-  await expect(page.locator(".results-panel .result-status")).toHaveClass(/success/);
+  await expect(page.locator(".result-inline-warning")).toContainText("AI 서비스 일시 오류");
+  await expect(page.locator(".results-panel .result-status")).toHaveText("기본 분석 완료");
+  await expect(page.locator(".results-panel .result-status")).toHaveClass(/warning/);
 
   await page.getByLabel("운임현황_v2.xlsx 선택").check();
   await page.getByRole("button", { name: "비교", exact: true }).click();
@@ -2474,7 +2587,21 @@ test("aggregates workbooks into one XLSX result without profile-specific actions
   await upload(page, files.v2);
   await page.getByLabel("운임현황_v1.xlsx 선택").check();
   await page.getByLabel("운임현황_v2.xlsx 선택").check();
+  await page.getByRole("button", { name: "비교", exact: true }).click();
+  const comparisonBadge = fileRow(page, files.v1).locator(".compare-selection-role");
+  const appearance = (element: Element) => {
+    const style = getComputedStyle(element);
+    return [style.backgroundColor, style.border, style.borderRadius, style.color, style.fontFamily, style.fontSize, style.padding];
+  };
+  const expectedAppearance = await comparisonBadge.evaluate(appearance);
   await page.getByRole("button", { name: "취합", exact: true }).click();
+  const first = fileRow(page, files.v1);
+  const second = fileRow(page, files.v2);
+  await expect(first.locator(".compare-selection-role")).toHaveText("기준 파일");
+  expect(await first.locator(".compare-selection-role").evaluate(appearance)).toEqual(expectedAppearance);
+  await expect(second.locator(".compare-selection-role")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "기준/대상 변경" })).toHaveCount(0);
+  await expect(first).not.toContainText("1 ·");
   await page.getByRole("button", { name: "취합 실행" }).click();
 
   const panel = page.locator(".aggregation-results");
@@ -2500,6 +2627,15 @@ test("aggregates workbooks into one XLSX result without profile-specific actions
   const download = page.waitForEvent("download");
   await panel.getByRole("button", { name: "XLSX 다운로드" }).click();
   expect((await download).suggestedFilename()).toBe("worklens-aggregation.xlsx");
+  await page.getByLabel("운임현황_v1.xlsx 선택").uncheck();
+  await expect(second.locator(".compare-selection-role")).toHaveText("기준 파일");
+  await expect(first.locator(".compare-selection-role")).toHaveCount(0);
+  await page.getByLabel("전체 선택", { exact: true }).check();
+  await page.getByLabel("전체 선택 해제", { exact: true }).uncheck();
+  await expect(page.locator(".file-row .compare-selection-role")).toHaveCount(0);
+  await page.getByLabel("전체 선택", { exact: true }).check();
+  await expect(first.locator(".compare-selection-role")).toHaveText("기준 파일");
+  await expect(second.locator(".compare-selection-role")).toHaveCount(0);
 });
 
 test("blocks unsupported files from aggregation without offering PPTX export", async ({ page }) => {

@@ -120,6 +120,9 @@ function parseResult(request: AiApiRequest, content: string): AiApiResult {
     case "polish": {
       const validated = polishContentSchema.safeParse(payload);
       if (!validated.success) throw new ApiError("INVALID_PROVIDER_OUTPUT", "AI 응답 형식이 올바르지 않습니다.", 502);
+      if (validated.data.changed && !validated.data.revisedText.trim()) {
+        throw new ApiError("INVALID_PROVIDER_OUTPUT", "AI 응답 형식이 올바르지 않습니다.", 502);
+      }
       return { kind: "polish", proposal: parsePolishResponse(JSON.stringify(validated.data), request.text) };
     }
     case "extract": {

@@ -2,9 +2,10 @@ import { readFile } from "node:fs/promises";
 import { beforeAll, describe, expect, it } from "vitest";
 import type { NormalizedDocument } from "@/domain/document";
 import type { AiEvidenceNode } from "@/lib/ai/contract";
-import { buildEvidenceNodes } from "@/lib/ai/grounding";
+import { buildEvidenceNodes, groundAiResult } from "@/lib/ai/grounding";
+import { evidenceWindow, resolveClaims } from "@/lib/ai/prompt";
 import { selectEvidence } from "@/lib/ai/retrieval";
-import { documentAnalysisTopics } from "@/lib/analysis-presentation";
+import { analysisClaimPresentation, documentAnalysisTopics } from "@/lib/analysis-presentation";
 import { parseDocument } from "@/lib/parsers";
 
 /**
@@ -55,5 +56,25 @@ describe("FSC Forecast guide", () => {
     expect(selected.filter((node) => node.role === "heading")).toHaveLength(0);
     expect(selected.some((node) => /재계산/u.test(node.text))).toBe(true);
     expect(selected.some((node) => /대체값/u.test(node.text))).toBe(true);
+  });
+
+  it("carries real-file relationship insights through grounding and final presentation", () => {
+    const window = evidenceWindow(selectEvidence(nodes, { operation: "analyze" }));
+    const handleFor = (pattern: RegExp) => {
+      const handle = window.items.find((item) => pattern.test(item.text))?.handle;
+      if (!handle) throw new Error("FSC relation missing from the Analyze evidence window");
+      return handle;
+    };
+    const claims = [
+      { text: "새로운 Actual이 반영되면 향후 Forecast를 다시 계산합니다", handles: [handleFor(/재계산/u), handleFor(/Actual/u)], confidence: "high" as const },
+      { text: "주간 Forecast가 없으면 월간 Forecast 대체값을 사용합니다", handles: [handleFor(/대체값/u)], confidence: "high" as const },
+      { text: "두바이유와 환율은 Forecast에 보조적으로 반영됩니다", handles: [handleFor(/보조적으로/u)], confidence: "high" as const },
+    ];
+    const grounded = groundAiResult({ operation: "analyze" }, [document], resolveClaims(window, claims));
+    const presented = analysisClaimPresentation(grounded, [], documentAnalysisTopics(document));
+
+    expect(grounded.rejectedClaimCount).toBe(0);
+    expect(presented.summary).toHaveLength(claims.length);
+    expect(presented.summary.every((claim) => claim.evidence.length > 0 && claim.evidence.every((binding) => binding.source.fileId === document.fileId))).toBe(true);
   });
 });
