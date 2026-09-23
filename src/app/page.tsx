@@ -2928,12 +2928,12 @@ function ComparisonView({ comparison, compareIds, enrichment, fileNames, detail,
     { key: "important", label: "중요 변경", value: comparison.summary.important },
   ];
   const compareValue = (value: string | null): string => value === null || value === "" ? "—" : value;
-  /** Numbers, amounts, percentages and dates keep their aligned reading; prose does not. */
+  /** Pure numeric measures align right; calendar values remain left-aligned text. */
   const NUMERIC_TEXT = /^[+-]?[\d,]+(\.\d+)?\s*(%|원|건|개|명|배|배수|kg|km|톤|시간|분|일|주|개월|월|년)?$/u;
-  const DATE_TEXT = /^\d{2,4}[-./]\d{1,2}([-./]\d{1,2})?\.?$/u;
+  const CALENDAR_TEXT = /^(?:\d{2,4}[-./]\d{1,2}(?:[-./]\d{1,2})?\.?|\d{4}년(?:\s*\d{1,2}월(?:\s*\d{1,2}일)?)?)$/u;
   const alignedValue = (value: string | null): boolean => {
     const text = (value ?? "").trim();
-    return text.length > 0 && (NUMERIC_TEXT.test(text) || DATE_TEXT.test(text));
+    return text.length > 0 && !CALENDAR_TEXT.test(text) && NUMERIC_TEXT.test(text);
   };
   /** Only a numbers-only column reads from the right; values and prose read from the left. */
   return (
@@ -3317,10 +3317,7 @@ function SourceDetail({ entries, fileNames, onClose }: {
         const fileName = multipleFiles ? fileNames.get(lead.source.fileId) : undefined;
         return (
           <section className="evidence-entry" key={group.key}>
-            <h3>
-              <span>근거 {index + 1}{fileName ? ` · ${fileName}` : ""}</span>
-              {locations.length.toLocaleString("ko-KR")}개 위치
-            </h3>
+            <h3>근거 {index + 1}{fileName ? ` · ${fileName}` : ""}</h3>
             <ul className="evidence-location-list" aria-label={`근거 ${index + 1} 위치`}>
               {locations.map((location) => <li key={location}>{location}</li>)}
             </ul>

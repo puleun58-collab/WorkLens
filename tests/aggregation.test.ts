@@ -36,6 +36,56 @@ async function reopen(bytes: Uint8Array): Promise<ExcelJS.Workbook> {
   return workbook;
 }
 
+function fillArgb(cell: ExcelJS.Cell): string | undefined {
+  return cell.fill.type === "pattern" ? cell.fill.fgColor?.argb : undefined;
+}
+
+async function styledTemplateDocument(
+  fileId: string,
+  headerColor: string,
+  dataColor: string,
+  departments: readonly string[],
+  withDecoration = false,
+) {
+  return documentOf((workbook) => {
+    const sheet = workbook.addWorksheet("실적", { views: [{ state: "frozen", ySplit: 2 }] });
+    sheet.mergeCells("A1:D1");
+    sheet.getCell("A1").value = `${fileId} 월간 실적`;
+    sheet.getCell("A1").font = { name: "맑은 고딕", size: 16, bold: true, color: { argb: "FF303640" } };
+    sheet.getCell("A1").alignment = { horizontal: "center", vertical: "middle" };
+    sheet.getRow(1).height = 30;
+    sheet.addRow(["담당부서", "비용", "달성률", "기준일"]);
+    sheet.getRow(2).eachCell({ includeEmpty: true }, (cell) => {
+      cell.font = { name: "맑은 고딕", size: 11, bold: true, color: { argb: "FFFFFFFF" } };
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: headerColor } };
+      cell.border = { bottom: { style: "medium", color: { argb: "FF6B7280" } } };
+      cell.alignment = { horizontal: "center", vertical: "middle" };
+    });
+    sheet.getRow(2).height = 26;
+    departments.forEach((department, index) => {
+      const row = sheet.addRow([department, 1_200_000 + index * 50_000, 0.075 + index * 0.01, new Date(Date.UTC(2026, 7, index + 1))]);
+      row.height = index === 0 ? 24 : 31;
+      row.eachCell({ includeEmpty: true }, (cell) => {
+        cell.font = { name: "Arial", size: 10, color: { argb: "FF20242B" } };
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: dataColor } };
+        cell.border = { bottom: { style: "thin", color: { argb: "FFD1D5DB" } } };
+        cell.alignment = { vertical: "middle" };
+      });
+      row.getCell(2).numFmt = '#,##0"원"';
+      row.getCell(3).numFmt = "0.0%";
+      row.getCell(4).numFmt = "yyyy-mm-dd";
+    });
+    [18, 16, 13, 15].forEach((width, index) => {
+      sheet.getColumn(index + 1).width = width;
+    });
+    sheet.autoFilter = `A2:D${sheet.rowCount}`;
+    if (withDecoration) {
+      const image = workbook.addImage({ buffer: PIXEL_PNG as unknown as ExcelJS.Buffer, extension: "png" });
+      sheet.addImage(image, { tl: { col: 0.1, row: 0.1 }, ext: { width: 12, height: 12 } });
+    }
+  }, fileId);
+}
+
   it("combines compatible XLSX and CSV records", async () => {
     const workbook = await documentOf((source) => {
       const sheet = source.addWorksheet("매출");
@@ -262,5 +312,68 @@ describe("generic aggregation", () => {
     expect(sheet.getCell("B2").value).toBe(2258000);
     expect(sheet.getCell("B2").numFmt).toBe('#,##0"원"');
     expect(sheet.getCell("C2").numFmt).toBe("0.0%");
+  });
+
+  it("uses the first compatible XLSX as the template and reverses cleanly with selection order", async () => {
+    const orange = await styledTemplateDocument("A", "FFF28C28", "FFFFF3E0", ["A-운영", "A-지원"], true);
+    const blue = await styledTemplateDocument("B", "FF2563EB", "FFEFF6FF", ["B-영업", "B-물류"]);
+    const fill = fillArgb;
+
+    const exportInOrder = async (documents: Parameters<typeof buildAggregation>[0]) => {
+      const draft = buildAggregation(documents);
+      return reopen((await aggregationXlsxExport(draft, defaultSelection(draft), documents)).content);
+    };
+    const orangeFirst = (await exportInOrder([orange, blue])).getWorksheet("실적")!;
+
+    expect(orangeFirst.getCell("A1").value).toBe("A 월간 실적");
+    expect(orangeFirst.model.merges).toContain("A1:D1");
+    expect(fill(orangeFirst.getCell("A2"))).toBe("FFF28C28");
+    expect(fill(orangeFirst.getCell("A6"))).toBe("FFFFF3E0");
+    expect(orangeFirst.getColumn(1).width).toBe(18);
+    expect(orangeFirst.getRow(2).height).toBe(26);
+    expect(orangeFirst.getRow(6).height).toBe(24);
+    expect(orangeFirst.views[0]).toMatchObject({ state: "frozen", ySplit: 2 });
+    expect(orangeFirst.autoFilter).toBe("A2:D6");
+    expect([3, 4, 5, 6].map((row) => orangeFirst.getCell(row, 1).value)).toEqual(["A-운영", "A-지원", "B-영업", "B-물류"]);
+    expect(orangeFirst.getCell("B6").value).toBe(1_250_000);
+    expect(orangeFirst.getCell("B6").numFmt).toBe('#,##0"원"');
+    expect(orangeFirst.getCell("C6").numFmt).toBe("0.0%");
+    expect(orangeFirst.getCell("D6").value).toBeInstanceOf(Date);
+    expect(orangeFirst.getCell("D6").numFmt).toBe("yyyy-mm-dd");
+    expect(orangeFirst.getImages()).toHaveLength(1);
+    expect(fill(orangeFirst.getCell("E2"))).not.toBe("FFF28C28");
+
+    const blueFirst = (await exportInOrder([blue, orange])).getWorksheet("실적")!;
+    expect(blueFirst.getCell("A1").value).toBe("B 월간 실적");
+    expect(fill(blueFirst.getCell("A2"))).toBe("FF2563EB");
+    expect(fill(blueFirst.getCell("A6"))).toBe("FFEFF6FF");
+    expect([3, 4, 5, 6].map((row) => blueFirst.getCell(row, 1).value)).toEqual(["B-영업", "B-물류", "A-운영", "A-지원"]);
+  });
+
+  it("chooses a separate first template for every incompatible schema group", async () => {
+    const orange = await styledTemplateDocument("A", "FFF28C28", "FFFFF3E0", ["A-운영", "A-지원"]);
+    const inventory = await documentOf((workbook) => {
+      const sheet = workbook.addWorksheet("재고", { views: [{ state: "frozen", ySplit: 1 }] });
+      sheet.addRows([["품목", "입고", "출고"], ["볼트", 10, 3], ["너트", 12, 4]]);
+      sheet.getRow(1).eachCell((cell) => {
+        cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF16803C" } };
+      });
+      sheet.getRow(2).eachCell((cell) => {
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFECFDF3" } };
+      });
+      sheet.autoFilter = "A1:C3";
+    }, "C");
+    const blue = await styledTemplateDocument("B", "FF2563EB", "FFEFF6FF", ["B-영업", "B-물류"]);
+    const documents = [orange, inventory, blue];
+    const draft = buildAggregation(documents);
+    const output = await reopen((await aggregationXlsxExport(draft, defaultSelection(draft), documents)).content);
+    const fill = fillArgb;
+
+    expect(output.getWorksheet("실적")).toBeTruthy();
+    expect(output.getWorksheet("재고")).toBeTruthy();
+    expect(fill(output.getWorksheet("실적")!.getCell("A2"))).toBe("FFF28C28");
+    expect(fill(output.getWorksheet("재고")!.getCell("A1"))).toBe("FF16803C");
+    expect(output.getWorksheet("재고")!.getCell("A3").value).toBe("너트");
   });
 });

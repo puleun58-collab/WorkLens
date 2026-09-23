@@ -8104,6 +8104,7 @@ input:disabled {
   flex-direction: column;
   justify-content: flex-start;
   min-width: 0;
+  text-align: left;
 }
 
 .change-row:hover,
@@ -8126,7 +8127,25 @@ input:disabled {
   text-align: left;
 }
 
+.change-row > .change-value.numeric {
+  align-items: flex-end;
+  text-align: right;
+}
+
+@media (max-width: 700px) {
+  .change-row > .change-value.numeric {
+    align-items: initial;
+    text-align: right;
+  }
+
+  .change-row > .change-value.numeric::before {
+    justify-self: start;
+    text-align: left;
+  }
+}
+
 .change-row > .change-delta {
+  text-align: right;
   align-items: flex-end;
   gap: 3px;
   padding-inline: 16px;
@@ -8349,32 +8368,49 @@ input:disabled {
 }
 
 /*
- * Check overview compacted to two text lines: severity counts, then the
- * category filter with the dictionary trigger demoted to a quiet text action.
- * No boxed summary card — the result list starts right after.
+ * Severity is a compact status object, not a page-width section. Category
+ * controls remain the flat navigation line directly below it.
  */
 .check-results .qa-overview {
-  display: block;
+  width: min(420px, calc(100% - 48px));
   min-height: 0;
-  padding: 14px 24px 2px;
-  border-bottom: 0;
+  margin: 14px 24px 8px;
+  padding: 9px 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-control);
+  background: var(--paper);
+  box-shadow: none;
+  display: block;
   grid-template-columns: none;
 }
 
 .qa-summary-line {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: baseline;
-  gap: 4px 20px;
   margin: 0;
   color: var(--ink);
   font-size: var(--font-size-sm);
 }
 
 .qa-summary-line span {
+  min-width: 0;
+  padding: 0 14px;
   display: inline-flex;
   align-items: baseline;
   gap: 5px;
+}
+
+.qa-summary-line span:first-child {
+  padding-left: 0;
+}
+
+.qa-summary-line span:last-child {
+  padding-right: 0;
+}
+
+.qa-summary-line span + span {
+  border-left: 1px solid var(--line-soft);
 }
 
 .qa-summary-line span.muted {
@@ -8397,7 +8433,7 @@ input:disabled {
   min-height: 0;
   padding: 6px 24px 14px;
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: space-between;
   gap: 8px 16px;
@@ -8406,12 +8442,15 @@ input:disabled {
 }
 
 .check-filters-compact {
+  min-width: 0;
   display: flex;
-  flex-wrap: wrap;
+  flex: 1 1 auto;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 1px;
-  min-width: 0;
+  overflow-x: auto;
   font-size: var(--font-size-sm);
+  white-space: nowrap;
 }
 
 .check-filters-compact button {
@@ -8458,23 +8497,30 @@ input:disabled {
 }
 
 .check-toolbar-compact .dictionary-trigger {
-  min-height: auto;
-  padding: 2px 4px;
-  border: 0;
-  background: none;
-  color: var(--muted);
-  font-weight: var(--font-weight-regular, 400);
+  min-height: 28px;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--ink-soft);
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
 }
 
 .check-toolbar-compact .dictionary-trigger:hover:not(:disabled) {
-  border-color: transparent;
-  background: none;
+  border-color: var(--blue);
+  background: var(--blue-pale);
   color: var(--blue);
 }
 
 @media (max-width: 700px) {
+  .check-results .qa-overview {
+    width: calc(100% - 32px);
+    margin: 12px 16px 8px;
+  }
+
   .check-results .check-toolbar.check-toolbar-compact {
-    align-items: flex-start;
+    padding-inline: 16px;
+    align-items: center;
   }
 }
 

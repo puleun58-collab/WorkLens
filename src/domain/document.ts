@@ -62,6 +62,20 @@ export interface SourceRef {
   quoteHash?: string;
 }
 
+/** Serializable subset of an XLSX cell/row/column style retained for safe reconstruction. */
+export type XlsxStyleSnapshot = Record<string, unknown>;
+
+export interface XlsxWorksheetTemplate {
+  columns: Array<{ index: number; width?: number; hidden?: boolean; style?: XlsxStyleSnapshot }>;
+  rows: Array<{ number: number; height?: number; hidden?: boolean }>;
+  merges: string[];
+  views: Array<Record<string, unknown>>;
+  autoFilter?: {
+    from: { row: number; column: number };
+    to: { row: number; column: number };
+  };
+}
+
 export interface SheetMetadata {
   name: string;
   visibility: "visible" | "hidden" | "veryHidden";
@@ -95,6 +109,8 @@ export interface TableCell {
   /** Original formula without the leading equals sign. Cached value remains in `value`. */
   formula?: string;
   numberFormat?: string;
+  /** XLSX-only static presentation metadata; no formulas, links, or package parts. */
+  style?: XlsxStyleSnapshot;
 }
 
 export interface TableBlock {
@@ -109,6 +125,8 @@ export interface WorkbookSheet {
   name: string;
   visibility: SheetMetadata["visibility"];
   table: TableBlock;
+  /** Safe worksheet presentation only; macros, external links and named ranges are excluded. */
+  template?: XlsxWorksheetTemplate;
 }
 
 export type DocumentBlock = ParagraphBlock | TableBlock;

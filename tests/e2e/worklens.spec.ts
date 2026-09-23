@@ -140,6 +140,8 @@ test("uploads XLSX files, compares them and shows source evidence", async ({ pag
   await expect(fileMap).toContainText("대상 파일");
   await expect(fileMap).toContainText("운임현황_v2.xlsx");
   await expect(panel.locator(".change-head [role='columnheader']")).toHaveText(["변경 유형", "기준 파일 값", "대상 파일 값", "변동", "근거"]);
+  expect(await panel.locator(".change-head [role='columnheader']").evaluateAll((headers) =>
+    headers.map((header) => getComputedStyle(header).textAlign))).toEqual(["left", "left", "left", "right", "left"]);
   expect(await fileMap.locator("> div").evaluateAll((elements) =>
     elements.map((element) => getComputedStyle(element).backgroundColor))).toEqual([
     "rgb(255, 255, 255)",
@@ -158,6 +160,8 @@ test("uploads XLSX files, compares them and shows source evidence", async ({ pag
   const seoul = rows.filter({ hasText: "145000" }).first();
   await expect(seoul).toContainText("158000");
   await expect(seoul).toContainText("+13,000");
+  expect(await seoul.locator(":scope > span, :scope > div").evaluateAll((cells) =>
+    cells.map((cell) => getComputedStyle(cell).textAlign))).toEqual(["left", "right", "right", "right", "left"]);
   await expect(seoul).toContainText("+8.97%");
   await expect(page.locator('[data-category="Important Change"]').first()).toBeVisible();
   await expect(page.locator('[data-category="Added"]').first()).toBeVisible();
@@ -1543,8 +1547,21 @@ test("reviews PPTX writing, consistency and data findings with filters and exact
   const emptySeverities = overview.locator(".qa-summary-line span.muted");
   expect(await emptySeverities.count()).toBeGreaterThan(0);
   expect(await emptySeverities.first().evaluate((element) => getComputedStyle(element).color)).toBe(await emptySeverities.first().locator("b").evaluate((element) => getComputedStyle(element).color));
+  const overviewStyle = await overview.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return {
+      width: element.getBoundingClientRect().width,
+      background: style.backgroundColor,
+      borderWidth: style.borderTopWidth,
+      boxShadow: style.boxShadow,
+    };
+  });
+  expect(overviewStyle.width).toBeLessThanOrEqual(450);
+  expect(overviewStyle).toMatchObject({ background: "rgb(255, 255, 255)", borderWidth: "1px", boxShadow: "none" });
+  expect(await overview.locator(".qa-summary-line span").nth(1).evaluate((element) => getComputedStyle(element).borderLeftWidth)).toBe("1px");
   await expect(page.getByText("낮은 확신 포함")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "용어 사전" })).toBeVisible();
+  expect(await page.getByRole("button", { name: "용어 사전" }).evaluate((element) => getComputedStyle(element).borderTopWidth)).toBe("1px");
   await expect(page.locator(".check-filter-status")).toHaveCount(0);
 
   const typo = page.locator(".check-issue").filter({ hasText: "한글 맞춤법 오류 가능성" });
@@ -1607,6 +1624,8 @@ test("reviews PPTX writing, consistency and data findings with filters and exact
   const evidence = page.getByLabel("근거 상세");
   await expect(evidence).toBeVisible();
   await expect(evidence.locator(".evidence-location-list")).toContainText("Slide 1");
+  await expect(evidence).toContainText(/문서에서 확인된 근거 · \d+곳/u);
+  await expect(evidence).not.toContainText(/\d+개 위치/u);
   await expect(evidence.locator(".evidence-context")).toHaveCount(0);
   await expect(evidence).not.toContainText("수정 제안");
   await expect(evidence.getByRole("button", { name: "닫기" })).toBeVisible();
@@ -2149,7 +2168,7 @@ test("keeps the complete mobile workflow inside the viewport", async ({ page }, 
   expect(consoleErrors).toEqual([]);
 });
 
-test("keeps compare column rules aligned between header and rows", async ({ page }) => {
+test("keeps compare column rules aligned and numeric values right-aligned", async ({ page }) => {
   await mockEmptyClaims(page);
   await page.goto("/");
   await upload(page, files.v1);
@@ -2178,8 +2197,8 @@ test("keeps compare column rules aligned between header and rows", async ({ page
   expect(rules.headBorders).toEqual(["1px", "1px", "1px", "1px", "0px"]);
   expect(rules.rowBorders).toEqual(["1px", "1px", "1px", "1px", "0px"]);
 
-  // Only the numbers-only column reads from the right, and the header follows
-  // whatever its column's cells do.
+  // Mixed-value headers stay left; numeric cells and the numeric-only delta
+  // column read from the right.
   const alignment = await page.evaluate(() => {
     // `start` and `left` are the same reading direction here.
     const read = (cells: Element[]) => cells.map((cell) => {
@@ -2192,7 +2211,7 @@ test("keeps compare column rules aligned between header and rows", async ({ page
     };
   });
   expect(alignment.head).toEqual(["left", "left", "left", "right", "left"]);
-  expect(alignment.row).toEqual(["left", "left", "left", "right", "left"]);
+  expect(alignment.row).toEqual(["left", "right", "right", "right", "left"]);
   expect(await page.locator(".change-row > .change-delta").first().evaluate((element) => getComputedStyle(element).justifyItems)).toBe("end");
 
   // The reading order is file pair, then summary, then table: each band keeps

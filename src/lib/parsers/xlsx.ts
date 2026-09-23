@@ -7,6 +7,8 @@ import type {
   SourceRef,
   TableCell,
   WorkbookSheet,
+  XlsxStyleSnapshot,
+  XlsxWorksheetTemplate,
 } from "@/domain/document";
 
 import { DocumentError } from "@/lib/upload";
@@ -41,6 +43,44 @@ const rangeBounds = (
     endColumn: column(match[3]),
     endRow: Number(match[4]),
   };
+};
+
+const snapshot = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+
+const styleSnapshot = (style: Partial<ExcelJS.Style>): XlsxStyleSnapshot | undefined => {
+  const cloned = snapshot(style) as XlsxStyleSnapshot;
+  return Object.keys(cloned).length > 0 ? cloned : undefined;
+};
+
+const cellPosition = (value: unknown): { row: number; column: number } | undefined => {
+  if (typeof value === "string") {
+    const match = /^([A-Z]+)(\d+)$/iu.exec(value);
+    if (!match) return undefined;
+    return {
+      row: Number(match[2]),
+      column: match[1].toUpperCase().split("").reduce((total, letter) => total * 26 + letter.charCodeAt(0) - 64, 0),
+    };
+  }
+  if (typeof value !== "object" || value === null) return undefined;
+  const candidate = value as { row?: unknown; column?: unknown };
+  return typeof candidate.row === "number" && typeof candidate.column === "number"
+    ? { row: candidate.row, column: candidate.column }
+    : undefined;
+};
+
+const autoFilterSnapshot = (value: unknown): XlsxWorksheetTemplate["autoFilter"] => {
+  if (typeof value === "string") {
+    const bounds = rangeBounds(value);
+    return bounds ? {
+      from: { row: bounds.startRow, column: bounds.startColumn },
+      to: { row: bounds.endRow, column: bounds.endColumn },
+    } : undefined;
+  }
+  if (typeof value !== "object" || value === null) return undefined;
+  const candidate = value as { from?: unknown; to?: unknown };
+  const from = cellPosition(candidate.from);
+  const to = cellPosition(candidate.to);
+  return from && to ? { from, to } : undefined;
 };
 
 /**
@@ -261,6 +301,7 @@ export const parseXlsx = async (input: {
                 warnings.add(stored === null ? "XLSX_EXTERNAL_REFERENCE_NO_CACHE" : "XLSX_EXTERNAL_REFERENCE_VALUE_ONLY");
               }
             }
+            const style = isMergedChild ? undefined : styleSnapshot(cell.style);
             const tableCell: TableCell = {
               value: isMergedChild ? null : date !== undefined ? date.toISOString() : scalarValue(cell.value),
               display: isMergedChild ? "" : text,
@@ -268,6 +309,7 @@ export const parseXlsx = async (input: {
               valueType: isMergedChild ? "blank" : cellValueType(cell, date),
               ...(formula ? { formula } : {}),
               ...(cell.numFmt ? { numberFormat: cell.numFmt } : {}),
+              ...(style ? { style } : {}),
             };
             if (merge?.isAnchor) {
               tableCell.rowSpan = merge.rowSpan;
@@ -278,7 +320,31 @@ export const parseXlsx = async (input: {
           rows.push(cells);
         }
         const table = { type: "table" as const, id: tableId, source: tableSource, rows };
-        return { index: sheetIndex + 1, name: worksheet.name, visibility: worksheet.state, table };
+        const autoFilter = autoFilterSnapshot(worksheet.autoFilter);
+        const template: XlsxWorksheetTemplate = {
+          columns: Array.from({ length: worksheet.columnCount }, (_, columnIndex) => {
+            const column = worksheet.getColumn(columnIndex + 1);
+            const style = styleSnapshot(column.style);
+            return {
+              index: columnIndex + 1,
+              ...(column.width !== undefined ? { width: column.width } : {}),
+              ...(column.hidden ? { hidden: true } : {}),
+              ...(style ? { style } : {}),
+            };
+          }),
+          rows: Array.from({ length: worksheet.rowCount }, (_, rowIndex) => {
+            const row = worksheet.getRow(rowIndex + 1);
+            return {
+              number: rowIndex + 1,
+              ...(row.height !== undefined ? { height: row.height } : {}),
+              ...(row.hidden ? { hidden: true } : {}),
+            };
+          }),
+          merges: [...worksheet.model.merges],
+          views: Array.isArray(worksheet.views) ? snapshot(worksheet.views) as Array<Record<string, unknown>> : [],
+          ...(autoFilter ? { autoFilter } : {}),
+        };
+        return { index: sheetIndex + 1, name: worksheet.name, visibility: worksheet.state, table, template };
       },
     );
     const blocks = workbookSheets
