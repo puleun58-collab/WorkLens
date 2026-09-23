@@ -8227,11 +8227,19 @@ input:disabled {
  * when shared numeric or flex rules are added elsewhere.
  */
 .comparison-panel .change-head > span {
+  align-self: center;
   text-align: left;
+  vertical-align: middle;
+}
+
+.comparison-panel .change-row > :is(span, div) {
+  justify-content: center;
+  vertical-align: middle;
 }
 
 .comparison-panel .change-row > .source-actions {
   align-items: flex-start;
+  justify-content: center;
   text-align: left;
 }
 
@@ -8242,9 +8250,6 @@ input:disabled {
   text-align: left;
 }
 
-.comparison-panel .source-actions :is(.source-locator, .source-action) {
-  align-self: flex-start;
-}
 
 .comparison-panel .source-locator,
 .value-check-panel .source-locator {

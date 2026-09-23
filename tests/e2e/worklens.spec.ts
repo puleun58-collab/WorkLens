@@ -2285,7 +2285,9 @@ test("keeps compare column rules aligned and numeric values right-aligned", asyn
     const sourceGroup = sourceCell.querySelector<HTMLElement>(".result-source")!;
     const locator = sourceGroup.querySelector<HTMLElement>(".source-locator")!.getBoundingClientRect();
     const action = sourceGroup.querySelector<HTMLElement>(".source-action")!.getBoundingClientRect();
-    const sameLine = Math.abs(locator.top - action.top) <= 2;
+    const sameLine = Math.abs((locator.top + locator.bottom) / 2 - (action.top + action.bottom) / 2) <= 2;
+    const headerCells = [...document.querySelectorAll<HTMLElement>(".change-head > span")];
+    const bodyCells = [...document.querySelectorAll<HTMLElement>('[data-testid="change-row"]')[0].children];
     return {
       head,
       row,
@@ -2294,9 +2296,20 @@ test("keeps compare column rules aligned and numeric values right-aligned", asyn
         cellText: getComputedStyle(sourceCell).textAlign,
         groupAlign: getComputedStyle(sourceGroup).alignSelf,
         groupJustify: getComputedStyle(sourceGroup).justifyContent,
+        cellJustify: getComputedStyle(sourceCell).justifyContent,
+        groupItems: getComputedStyle(sourceGroup).alignItems,
+        childAlign: [
+          getComputedStyle(sourceGroup.querySelector<HTMLElement>(".source-locator")!).alignSelf,
+          getComputedStyle(sourceGroup.querySelector<HTMLElement>(".source-action")!).alignSelf,
+        ],
         actionFollowsLocator: sameLine
           ? action.left >= locator.right - 1
           : Math.abs(action.left - locator.left) <= 1,
+      },
+      vertical: {
+        headerAlign: headerCells.map((cell) => getComputedStyle(cell).alignSelf),
+        headerMiddle: headerCells.map((cell) => getComputedStyle(cell).verticalAlign),
+        bodyJustify: bodyCells.map((cell) => getComputedStyle(cell).justifyContent),
       },
     };
   });
@@ -2305,9 +2318,17 @@ test("keeps compare column rules aligned and numeric values right-aligned", asyn
   expect(alignment.source).toEqual({
     cellAlign: "flex-start",
     cellText: "left",
+    cellJustify: "center",
+    groupItems: "center",
+    childAlign: ["auto", "auto"],
     groupAlign: "flex-start",
     groupJustify: "flex-start",
     actionFollowsLocator: true,
+  });
+  expect(alignment.vertical).toEqual({
+    headerAlign: ["center", "center", "center", "center", "center"],
+    headerMiddle: ["middle", "middle", "middle", "middle", "middle"],
+    bodyJustify: ["center", "center", "center", "center", "center"],
   });
   expect(await page.locator(".change-row > .change-delta").first().evaluate((element) => getComputedStyle(element).justifyItems)).toBe("end");
 
