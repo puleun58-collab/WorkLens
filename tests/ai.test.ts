@@ -102,16 +102,29 @@ describe("server AI prompt boundary", () => {
     expect(briefScope("3페이지 이후 위험요소 관련 내용만 요약")).toEqual({ minimumPage: 3, focus: "위험요소" });
   });
 
-  it("limits Analyze enrichment to grounded interpretation instead of restating extracted values", () => {
+  it("asks Analyze for interpretation instead of a second summary", () => {
     const prompt = buildMessages({ operation: "analyze" }, [
       { handle: "E1", text: "목표주가 64,550원" },
       { handle: "E2", text: "상승여력 232.4%" },
     ])[1].content;
 
-    expect(prompt).toContain("관계, 변화, 조건, 흐름");
+    expect(prompt).toContain("요약이 아니라 해석");
+    expect(prompt).toContain("관계");
+    expect(prompt).toContain("조건");
     expect(prompt).toContain("최대 8개까지");
-    expect(prompt).toContain("문서의 소제목이나 단순 field/value를 문장으로 다시 옮기지 말고");
+    expect(prompt).toContain("확인된 수치를 문장으로 다시 쓰지 마세요");
     expect(prompt).toContain("근거에 적힌 표기를 그대로 사용하고 새로 만들지 마세요");
+    expect(prompt).toContain("claims를 빈 배열로 두세요");
+  });
+
+  it("orders Ask by directness, not by how much is related", () => {
+    const prompt = buildMessages({ operation: "ask", question: "산정 방식" }, [
+      { handle: "E1", text: "주간 Forecast 는 최근 8개 주간 평균으로 산정합니다." },
+    ])[1].content;
+
+    expect(prompt).toContain("첫 번째 claim은 질문에 가장 직접적으로 답하는 내용");
+    expect(prompt).toContain("직접 답변 대신 쓰지 마세요");
+    expect(prompt).toContain("최대 3개");
     expect(prompt).toContain("claims를 빈 배열로 두세요");
   });
 

@@ -21,6 +21,14 @@ export interface RankedEvidence {
 const K1 = 1.2;
 const B = 0.6;
 const PER_GROUP_ROUND = 2;
+/**
+ * Weights sit above a single shared term's BM25 contribution and below an
+ * exact full-question match, so a titled section outranks an adjacent
+ * procedure without overruling a literal hit.
+ */
+const HEADING_TITLE_BOOST = 2.2;
+const HEADING_BODY_BOOST = 1.8;
+const HEADING_BODY_REACH = 3;
 
 const TOKEN_PATTERN = /[0-9]+(?:[.,][0-9]+)*%?|[a-z]+|[가-힣]+/g;
 const NUMERIC_PATTERN = /[0-9]+(?:[.,][0-9]+)*%?/g;
@@ -230,17 +238,32 @@ function withSectionBodies(
 ): RankedEvidence[] {
   const byOrder = new Map(ranked.map((entry) => [entry.order, entry]));
   const chosen = new Map(selected.map((entry) => [entry.order, entry]));
-  const pinned = new Set(selected.filter((entry) => entry.node.role === "heading").map((entry) => entry.order));
-  for (const entry of selected) {
-    if (entry.node.role !== "heading") continue;
+  /** Section bodies pulled in here: never given up to complete a weaker section. */
+  const pinned = new Set<number>();
+  // Strongest section first: in a tight window the best-matching title must
+  // secure its own body before a weaker section claims the last slot.
+  const headings = selected
+    .filter((entry) => entry.node.role === "heading")
+    .sort((left, right) => right.score - left.score || left.order - right.order);
+  for (const entry of headings) {
+    // A weaker title may already have lost its slot to a stronger section's
+    // body; it no longer has a section in the window to complete.
+    if (!chosen.has(entry.order)) continue;
     const body = byOrder.get(entry.order + 1);
     if (!body || body.node.role === "heading" || chosen.has(body.order)) continue;
     if (chosen.size >= limit) {
-      const weakest = [...chosen.values()]
-        .filter((candidate) => !pinned.has(candidate.order) && candidate.node.role !== "heading")
-        .sort((left, right) => left.score - right.score || right.order - left.order)[0];
+      const loose = [...chosen.values()]
+        .filter((candidate) => !pinned.has(candidate.order) && candidate.node.role !== "heading");
       // The section's own text outranks a loose paragraph the window kept:
-      // without it the heading is a question with no answer attached.
+      // without it the heading is a question with no answer attached. In a
+      // tight window there may be no loose paragraph left, and then a weaker
+      // section's bare title is worth less than this section's answer.
+      const weakest = (loose.length > 0
+        ? loose
+        : [...chosen.values()].filter((candidate) => candidate.order !== entry.order
+          && !pinned.has(candidate.order)
+          && candidate.score < entry.score))
+        .sort((left, right) => left.score - right.score || right.order - left.order)[0];
       if (!weakest) continue;
       chosen.delete(weakest.order);
     }
@@ -249,6 +272,36 @@ function withSectionBodies(
   }
   return [...chosen.values()];
 }
+/**
+ * Ask answers a question, and a document answers questions in its sections.
+ * A short question ("산정 방식") shares vocabulary with several neighbouring
+ * procedures, so the section whose own title scores best on the question wins
+ * over a paragraph that merely reuses the words — and its body inherits that
+ * standing, because the title asks and the body answers. The share is taken
+ * from the lexical score so rare question words still decide, rather than
+ * from raw token overlap, where a shared particle would count as a match.
+ */
+function headingAffinity(nodes: readonly AiEvidenceNode[], relevance: readonly number[]): number[] {
+  const affinity = new Array<number>(nodes.length).fill(0);
+  const best = nodes.reduce(
+    (top, node, index) => (node.role === "heading" ? Math.max(top, relevance[index]) : top),
+    0,
+  );
+  if (best <= 0) return affinity;
+  for (const [index, node] of nodes.entries()) {
+    if (node.role !== "heading") continue;
+    const share = relevance[index] / best;
+    if (share <= 0) continue;
+    affinity[index] += HEADING_TITLE_BOOST * share;
+    // Only this section's own text, never the next section's title.
+    for (let body = index + 1; body < nodes.length && nodes[body].role !== "heading"; body += 1) {
+      affinity[body] += HEADING_BODY_BOOST * share;
+      if (body - index >= HEADING_BODY_REACH) break;
+    }
+  }
+  return affinity;
+}
+
 
 
 export interface SelectEvidenceOptions {
@@ -291,11 +344,13 @@ export function selectEvidence(
     ? relevanceScores(candidates, scope.emphasis)
     : undefined;
   const importance = importanceScores(candidates);
+  const affinity = scoreAsk && relevance ? headingAffinity(candidates, relevance) : undefined;
   const ranked: RankedEvidence[] = candidates.map((node, order) => ({
     node,
     order,
     score: (relevance ? relevance[order] + importance[order] * 0.15 : importance[order])
-      + (emphasis ? Math.min(emphasis[order], 4) * 0.6 : 0),
+      + (emphasis ? Math.min(emphasis[order], 4) * 0.6 : 0)
+      + (affinity ? affinity[order] : 0),
   }));
 
   const sorted = [...ranked].sort((left, right) => right.score - left.score || left.order - right.order);
@@ -329,7 +384,9 @@ export function selectEvidence(
     if (picked.length >= limit) break;
     picked.push(entry);
   }
-  return picked
+  // A matched section title alone is a question, not an answer: its body
+  // travels with it here exactly as it does for whole-document tasks.
+  return withSectionBodies(picked, ranked, limit)
     .sort((left, right) => left.order - right.order)
     .map((entry) => entry.node);
 }

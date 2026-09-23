@@ -272,4 +272,38 @@ describe("browser evidence retrieval", () => {
     expect(selected).not.toContain("지은이 정하건");
     expect(selected).not.toContain("CH 01 산정과 변경 가이드 2");
   });
+
+  /**
+   * Three neighbouring sections share the same vocabulary, so a short
+   * question is only answered correctly when the section whose own title
+   * carries the question wins over the ones next to it.
+   */
+  it("answers a short question from its own section, not the adjacent one", () => {
+    const sections = [
+      { heading: "주차별 Forecast 값은 어떻게 산정되나요?", body: "주간 Forecast 는 최근 8개 주간 평균 유가와 평균 증감폭을 기준으로 계산해 향후 주차에 순차 적용합니다." },
+      { heading: "주차별 상세 데이터의 값 선택 순서", body: "미래 주차는 주간 Forecast, 월간 Forecast, 직전 Forecast, 현재 적용유가, 기준유가 순서로 값을 선택합니다." },
+      { heading: "Forecast 값은 왜 계속 바뀌나요?", body: "새로운 Actual 과 시장지표가 반영되면 향후 Forecast 를 다시 계산합니다." },
+    ];
+    const blocks = [
+      ...FILLER.slice(0, 20).map((text, index) => paragraph(index + 1, text)),
+      ...sections.flatMap((section, index) => [
+        { ...paragraph(40 + index * 2, section.heading), role: "heading" as const, headingLevel: 2 },
+        paragraph(41 + index * 2, section.body),
+      ]),
+    ];
+    const document: NormalizedDocument = { ...pdfDocument([]), blocks };
+    const nodes = buildEvidenceNodes([document]);
+    const direct = selectEvidence(nodes, { operation: "ask", question: "산정 방식" }, { limit: 2 }).map((node) => node.text);
+    expect(direct).toContain(sections[0].body);
+    expect(direct).not.toContain(sections[1].body);
+    expect(direct).not.toContain(sections[2].body);
+
+    const order = selectEvidence(nodes, { operation: "ask", question: "값 선택 순서" }, { limit: 2 }).map((node) => node.text);
+    expect(order).toContain(sections[1].body);
+    expect(order).not.toContain(sections[0].body);
+
+    const change = selectEvidence(nodes, { operation: "ask", question: "Forecast 는 왜 바뀌나요?" }, { limit: 2 }).map((node) => node.text);
+    expect(change).toContain(sections[2].body);
+    expect(change).not.toContain(sections[1].body);
+  });
 });

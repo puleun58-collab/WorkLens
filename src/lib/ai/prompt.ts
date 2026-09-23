@@ -161,7 +161,15 @@ export function buildMessages(
 function taskInstruction(request: AiRequest): string {
   switch (request.operation) {
     case "ask":
-      return `질문: ${request.question}\n답변 언어: ${answerLanguage(request.question)}\n근거로 답할 수 있는 내용만 3개 이하 항목으로 정리하세요. 근거에 답이 없으면 claims를 빈 배열로 두세요.`;
+      return [
+        `질문: ${request.question}`,
+        `답변 언어: ${answerLanguage(request.question)}`,
+        "첫 번째 claim은 질문에 가장 직접적으로 답하는 내용이어야 합니다.",
+        "질문과 관련은 있지만 다른 절차, 조건, 예외, 재계산 규칙을 직접 답변 대신 쓰지 마세요.",
+        "보충 설명은 직접 답변 뒤에 꼭 필요한 경우에만 덧붙이고, 3개를 채우려고 관련 문장을 추가하지 마세요.",
+        "한 문장으로 답이 끝나면 claim 하나만 쓰세요. 최대 3개입니다.",
+        "근거에 질문의 답이 없으면 claims를 빈 배열로 두세요.",
+      ].join(" ");
     case "brief": {
       const mode = briefPresentationMode(request.summaryInstruction);
       // Nothing was asked for, so nothing is narrowed: the default summary
@@ -195,7 +203,15 @@ function taskInstruction(request: AiRequest): string {
         ].join(" ")
         : `${request.statement}\n명확한 오류만 지적하세요: 맞춤법, 조사, 어색한 표현, 용어 불일치. 문제 설명과 수정 제안은 한국어로 작성하세요. 문제가 없으면 claims를 빈 배열로 두고, 취향에 가까운 문체 제안과 숫자 검증은 하지 마세요. 5개 이하로 쓰세요.`;
     case "analyze":
-      return "근거에서 드러나는 관계, 변화, 조건, 흐름, 원문에 명시된 원인과 결과, 비교, 주의할 점만 해석하세요. 서로 다른 해석이 있는 만큼만 최대 8개까지 쓰고, 개수를 채우려고 항목을 만들지 마세요. 결과의 설명 문장(text)은 한국어로 작성하고, 근거가 영어여도 해석은 한국어로 쓰세요. 문서의 소제목이나 단순 field/value를 문장으로 다시 옮기지 말고, 문서에 없는 권고나 일반 배경지식을 더하지 마세요. 숫자·날짜·비율·금액·고유 용어는 근거에 적힌 표기를 그대로 사용하고 새로 만들지 마세요. 해석할 근거가 부족하면 claims를 빈 배열로 두세요.";
+      return [
+        "이 작업은 요약이 아니라 해석입니다. 근거에 적힌 사실을 다시 나열하지 말고, 그 사실들 사이의 관계, 조건, 변화, 전환, 흐름, 상호 영향, 원문에 명시된 원인과 결과, 비교, 주의할 점을 설명하세요.",
+        "정의를 그대로 옮기거나 문서의 소제목, 단순 field/value, 확인된 수치를 문장으로 다시 쓰지 마세요. 같은 근거에서 한 단계 더 나아간 의미만 쓰세요.",
+        "서로 다른 해석이 있는 만큼만 최대 8개까지 쓰고, 개수를 채우려고 항목을 만들지 마세요.",
+        "결과의 설명 문장(text)은 한국어로 작성하고, 근거가 영어여도 해석은 한국어로 쓰세요.",
+        "문서에 없는 권고, 영향 추정, 일반 배경지식을 더하지 마세요.",
+        "숫자·날짜·비율·금액·고유 용어는 근거에 적힌 표기를 그대로 사용하고 새로 만들지 마세요.",
+        "해석할 관계나 조건이 근거에 없으면 claims를 빈 배열로 두세요.",
+      ].join(" ");
   }
 }
 

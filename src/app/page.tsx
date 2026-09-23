@@ -2401,9 +2401,9 @@ function AnalyzeResults({ entries, enrichment, fileNames, onSource }: {
   return (
     <div className="analysis-report">
       {presentation.summary.length ? (
-        <section className="analysis-report-section analysis-summary-section" aria-labelledby="analysis-summary-title">
+        <section className="analysis-report-section analysis-summary-section" aria-labelledby="analysis-insight-title">
           <div className="subsection-heading">
-            <h3 id="analysis-summary-title">핵심 요약</h3>
+            <h3 id="analysis-insight-title">분석 인사이트</h3>
             <span>{presentation.summary.length}건</span>
           </div>
           <div className="analysis-reading-list">

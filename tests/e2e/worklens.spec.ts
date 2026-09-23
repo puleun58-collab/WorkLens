@@ -159,7 +159,7 @@ test("uploads XLSX files, compares them and shows source evidence", async ({ pag
   await expect(fileMap).toContainText("운임현황_v2.xlsx");
   await expect(panel.locator(".change-head [role='columnheader']")).toHaveText(["변경 유형", "기준 파일 값", "대상 파일 값", "변동", "근거"]);
   expect(await panel.locator(".change-head [role='columnheader']").evaluateAll((headers) =>
-    headers.map((header) => getComputedStyle(header).textAlign))).toEqual(["left", "left", "left", "right", "left"]);
+    headers.map((header) => getComputedStyle(header).textAlign))).toEqual(["left", "left", "left", "left", "left"]);
   expect(await fileMap.locator("> div").evaluateAll((elements) =>
     elements.map((element) => getComputedStyle(element).backgroundColor))).toEqual([
     "rgb(255, 255, 255)",
