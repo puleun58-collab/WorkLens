@@ -9,7 +9,7 @@ import type {
   AggregationWorkbook,
 } from "@/domain/aggregation";
 import { AGGREGATION_UNSUPPORTED_DETAIL, AGGREGATION_UNSUPPORTED_TITLE, isAggregationFileKind } from "@/domain/aggregation";
-import type { NormalizedDocument, SourceRef, TableBlock, TableCell, WorkbookSheet } from "@/domain/document";
+import type { DocumentMedia, NormalizedDocument, SourceRef, TableBlock, TableCell, WorkbookSheet } from "@/domain/document";
 import { classifyValue, normalizeValue } from "@/lib/extract/values";
 import { DocumentError } from "@/lib/upload";
 
@@ -18,17 +18,18 @@ const MIN_RECORD_CELLS = 2;
 const MAX_REGIONS_PER_SHEET = 12;
 /** Values a reader must never see; they mean a cell failed to render, not a value. */
 const UNREADABLE_TEXT = /^(?:\[object\s[^\]]*\]|undefined|null|NaN)$/u;
-const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?/u;
+const ISO_DATE = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?)?$/u;
 const LOOSE_DATE = /^(\d{4})[-./](\d{1,2})[-./](\d{1,2})\.?$/u;
-
-const FIELD_ALIASES: Record<string, readonly string[]> = {
-  "부서": ["부서", "부서명", "담당부서", "소속", "조직"],
-  "매출": ["매출", "매출액", "매출금액"],
-  "비용": ["비용", "비용액", "지출", "지출액"],
-  "인원": ["인원", "인원수", "참석인원", "대상인원"],
-  "기준일": ["기준일", "작성일", "등록일"],
-  "제목": ["제목", "건명", "주제"],
+const MONTH_PERIOD = /^(\d{4})\s*(?:년\s*(\d{1,2})\s*월?|[-./]\s*(\d{1,2})\.?)$/u;
+const MONTH_ONLY = /^(\d{1,2})\s*월$/u;
+/** Only established business synonyms; never infer a relationship from spelling similarity. */
+const SAFE_ALIASES: Readonly<Record<string, readonly string[]>> = {
+  부서: ["부서명", "담당부서"],
+  매출: ["매출액", "매출금액"],
+  비용: ["비용액", "지출액"],
+  인원: ["인원수"],
 };
+
 
 function fieldKey(value: string): string {
   return value.normalize("NFKC").toLocaleLowerCase("ko-KR").replace(/[\s._/\\:：()[\]{}-]+/gu, "");
@@ -43,23 +44,35 @@ const pad = (value: number): string => String(value).padStart(2, "0");
  */
 function canonicalDateLabel(value: string): string | undefined {
   const text = value.trim();
-  const iso = ISO_DATE.exec(text);
-  if (iso) {
-    const day = `${iso[1]}.${iso[2]}.${iso[3]}`;
-    return iso[4] ? `${day} ${iso[4]}:${iso[5]}` : day;
+  const date = ISO_DATE.exec(text) ?? LOOSE_DATE.exec(text);
+  if (date) {
+    const year = Number(date[1]);
+    const month = Number(date[2]);
+    const day = Number(date[3]);
+    if (month < 1 || month > 12 || day < 1 || day > new Date(Date.UTC(year, month, 0)).getUTCDate()) return undefined;
+    const label = `${date[1]}.${pad(month)}.${pad(day)}`;
+    return date[4] && (date[4] !== "00" || date[5] !== "00")
+      ? `${label} ${date[4]}:${date[5]}`
+      : label;
   }
-  const loose = LOOSE_DATE.exec(text);
-  return loose ? `${loose[1]}.${pad(Number(loose[2]))}.${pad(Number(loose[3]))}` : undefined;
+  const period = MONTH_PERIOD.exec(text);
+  if (period) {
+    const month = Number(period[2] ?? period[3]);
+    return month >= 1 && month <= 12 ? `${period[1]}.${pad(month)}` : undefined;
+  }
+  const month = MONTH_ONLY.exec(text);
+  return month && Number(month[1]) >= 1 && Number(month[1]) <= 12 ? `${pad(Number(month[1]))}월` : undefined;
 }
 
 function canonicalField(value: string): string {
-  const date = canonicalDateLabel(value);
-  if (date) return date;
-  const key = fieldKey(value);
-  for (const [canonical, aliases] of Object.entries(FIELD_ALIASES)) {
-    if (aliases.some((alias) => fieldKey(alias) === key)) return canonical;
-  }
-  return value.trim();
+  return value.split(" > ").map((part) => {
+    const label = canonicalDateLabel(part) ?? part.trim();
+    const key = fieldKey(label);
+    for (const [canonical, aliases] of Object.entries(SAFE_ALIASES)) {
+      if (aliases.some((alias) => fieldKey(alias) === key)) return canonical;
+    }
+    return label;
+  }).join(" > ");
 }
 
 function columnName(column: number): string {
@@ -125,7 +138,9 @@ function headerScore(rows: readonly TableCell[][], rowIndex: number, end: number
   const populated = nextRows.filter((candidate) => nonEmptyCount(candidate) >= MIN_RECORD_CELLS).length;
   if (populated === 0) return -1;
   const unique = new Set(labels.map(fieldKey)).size;
-  return textLabels * 2 + populated + unique / Math.max(1, labels.length) - rowIndex * 0.01;
+  const tiered = row.some((cell, column) => (cell.colSpan ?? 1) > 1
+    && Array.from({ length: cell.colSpan! }, (_, offset) => headerLabel(rows[rowIndex + 1]?.[column + offset])).filter(Boolean).length >= 2);
+  return textLabels * 2 + populated + unique / Math.max(1, labels.length) + (tiered ? 8 : 0) - rowIndex * 0.01;
 }
 
 function detectHeader(rows: readonly TableCell[][], start: number, end: number): { row: number; depth: number } | undefined {
@@ -135,11 +150,11 @@ function detectHeader(rows: readonly TableCell[][], start: number, end: number):
     if (!best || score > best.score) best = { row, score };
   }
   if (!best || best.score < 4) return undefined;
-  const firstCount = nonEmptyCount(rows[best.row] ?? []);
-  const secondCount = nonEmptyCount(rows[best.row + 1] ?? []);
-  const thirdCount = nonEmptyCount(rows[best.row + 2] ?? []);
-  const depth = secondCount > 0 && secondCount < firstCount && thirdCount >= MIN_RECORD_CELLS ? 2 : 1;
-  return { row: best.row, depth };
+  const first = rows[best.row] ?? [];
+  const second = rows[best.row + 1] ?? [];
+  const tiered = first.some((cell, column) => (cell.colSpan ?? 1) > 1
+    && Array.from({ length: cell.colSpan! }, (_, offset) => headerLabel(second[column + offset])).filter(Boolean).length >= 2);
+  return { row: best.row, depth: tiered && best.row + 2 <= end ? 2 : 1 };
 }
 
 /** A header is the text a person reads, canonicalised only for dates. */
@@ -152,15 +167,25 @@ function headerLabel(cell: TableCell | undefined): string {
 function headersFor(rows: readonly TableCell[][], headerRow: number, depth: number): Array<{ column: number; label: string }> {
   const first = rows[headerRow] ?? [];
   const second = depth === 2 ? rows[headerRow + 1] ?? [] : [];
-  let carried = "";
   const headers: Array<{ column: number; label: string }> = [];
   const width = Math.max(first.length, second.length);
   for (let column = 0; column < width; column += 1) {
-    const parent = headerLabel(first[column]);
-    if (parent) carried = parent;
+    // Merged children are blank in the parser. A heading belongs only to its
+    // actual span, never every column until the next nonempty heading.
+    let parent = headerLabel(first[column]);
+    if (!parent && depth === 2) {
+      for (let anchor = column - 1; anchor >= 0; anchor -= 1) {
+        const span = first[anchor]?.colSpan ?? 1;
+        if (anchor + span <= column) break;
+        parent = headerLabel(first[anchor]);
+        if (parent) break;
+      }
+    }
     const child = headerLabel(second[column]);
-    const label = child && carried && fieldKey(child) !== fieldKey(carried) ? `${carried} ${child}` : parent || child;
-    if (label) headers.push({ column, label: label.trim() });
+    const label = child && parent && fieldKey(child) !== fieldKey(parent)
+      ? `${parent} > ${child}`
+      : parent || child;
+    if (label) headers.push({ column, label });
   }
   return headers;
 }
@@ -192,18 +217,57 @@ function typedField(label: string, cell: TableCell): AggregationField {
   };
 }
 
-function recordMedia(document: NormalizedDocument, source: SourceRef): AggregationRecord["media"] {
-  return (document.media ?? []).filter((media) => {
-    if (source.sheet && media.source.sheet === source.sheet && source.row && media.source.row) {
-      return Math.floor(media.anchor.y) + 1 === source.row;
+function associateRecordMedia(
+  mediaItems: readonly DocumentMedia[],
+  sheet: string | undefined,
+  headers: readonly { column: number; label: string }[],
+  records: AggregationRecord[],
+  linked: Set<string>,
+): void {
+  for (const media of mediaItems) {
+    if (media.source.sheet !== sheet || linked.has(media.id) || media.anchor.unit !== "cell") continue;
+    const { x, y } = media.anchor;
+    const width = Math.max(media.anchor.width, 0.01);
+    const height = Math.max(media.anchor.height, 0.01);
+    // A large drawing across the table is not evidence that it belongs to a
+    // particular record or column (logos and other decorative art remain on
+    // the sheet, not inside a record).
+    if (width > 4 || height > 3) continue;
+    const covered = headers.filter(({ column }) => Math.min(x + width, column + 1) > Math.max(x, column));
+    if (covered.length === 0) continue;
+    const centered = covered.find(({ column }) => x + width / 2 >= column && x + width / 2 < column + 1);
+    const anchored = covered.find(({ column }) => column + 1 === media.source.column);
+    const semantic = centered ?? anchored ?? covered.reduce((best, header) => {
+      const overlap = Math.min(x + width, header.column + 1) - Math.max(x, header.column);
+      const bestOverlap = Math.min(x + width, best.column + 1) - Math.max(x, best.column);
+      return overlap > bestOverlap ? header : best;
+    });
+    const center = y + height / 2;
+    let best: { record: AggregationRecord; overlap: number; distance: number } | undefined;
+    let ambiguous = false;
+    for (const record of records) {
+      if (record.source.row === undefined) continue;
+      const rowStart = record.source.row - 1;
+      const overlap = Math.min(y + height, rowStart + 1) - Math.max(y, rowStart);
+      if (overlap <= 0) continue;
+      const distance = Math.abs(center - (rowStart + 0.5));
+      if (!best || overlap > best.overlap + 1e-6 || (Math.abs(overlap - best.overlap) <= 1e-6 && distance < best.distance - 1e-6)) {
+        best = { record, overlap, distance };
+        ambiguous = false;
+      } else if (Math.abs(overlap - best.overlap) <= 1e-6 && Math.abs(distance - best.distance) <= 1e-6) {
+        ambiguous = true;
+      }
     }
-    return source.page !== undefined && media.source.page === source.page;
-  }).map((media) => ({ id: media.id, source: media.source }));
+    if (!best || ambiguous) continue;
+    best.record.media.push({ id: media.id, source: media.source, role: semantic.label });
+    linked.add(media.id);
+  }
 }
 
 function regionsForTable(document: NormalizedDocument, sheetId: string, table: TableBlock): AggregationRegion[] {
   const regions: AggregationRegion[] = [];
   const bands = rowBands(table.rows);
+  const linkedMedia = new Set<string>();
   for (const band of bands) {
     if (regions.length >= MAX_REGIONS_PER_SHEET || band.end - band.start < 1) continue;
     const header = detectHeader(table.rows, band.start, band.end);
@@ -230,7 +294,7 @@ function regionsForTable(document: NormalizedDocument, sheetId: string, table: T
         sheetId,
         regionId: `${sheetId}:region:${regions.length + 1}`,
         fields,
-        media: recordMedia(document, source),
+        media: [],
         source,
       });
     }
@@ -241,6 +305,7 @@ function regionsForTable(document: NormalizedDocument, sheetId: string, table: T
     const recordRange = `${columnName(firstColumn)}${dataStart + 1}:${columnName(lastColumn)}${band.end + 1}`;
     const id = `${sheetId}:region:${regions.length + 1}`;
     records.forEach((record) => { record.regionId = id; });
+    associateRecordMedia(document.media ?? [], table.source.sheet, headers, records, linkedMedia);
     regions.push({ id, headerRange, recordRange, headers: headers.map((entry) => entry.label), records, source: sourceRange(table.source, `${headerRange},${recordRange}`), status: "ready" });
   }
   return regions;
@@ -317,18 +382,66 @@ function groupName(sheets: readonly AggregationSheet[], ordinal: number): string
   return best?.name ?? `취합 결과 ${ordinal}`;
 }
 
+function sheetFields(sheet: AggregationSheet): string[] {
+  const fields: string[] = [];
+  for (const label of sheet.regions.flatMap((region) => region.headers)) {
+    const canonical = canonicalField(label);
+    if (!fields.some((field) => fieldKey(field) === fieldKey(canonical))) fields.push(canonical);
+  }
+  return fields;
+}
+
+function valueShape(sheet: AggregationSheet, key: string): string | undefined {
+  const shapes = new Set(sheet.regions.flatMap((region) => region.records)
+    .flatMap((record) => record.fields)
+    .filter((field) => fieldKey(canonicalField(field.label)) === key)
+    .map((field) => {
+      switch (field.value.type) {
+        case "Date":
+        case "DateTime":
+        case "Period": return "time";
+        case "Number":
+        case "Money":
+        case "Percent": return "number";
+        case "Boolean": return "boolean";
+        case "Image": return "image";
+        default: return "text";
+      }
+    }));
+  return shapes.size === 1 ? [...shapes][0] : undefined;
+}
+
+function compatibleSheets(left: AggregationSheet, right: AggregationSheet): boolean {
+  const leftFields = sheetFields(left);
+  const rightFields = sheetFields(right);
+  const a = new Set(leftFields.filter((field) => !canonicalDateLabel(field)).map(fieldKey));
+  const b = new Set(rightFields.filter((field) => !canonicalDateLabel(field)).map(fieldKey));
+  const common = [...a].filter((key) => b.has(key));
+  const aDynamic = leftFields.length - a.size;
+  const bDynamic = rightFields.length - b.size;
+  if (common.length === 0) return false;
+  // Calendar headings come and go. Stable identity and measurements, not
+  // the number of monthly columns, define a report's schema.
+  const strong = common.length >= 2 && common.length / Math.max(a.size, b.size) >= 0.8;
+  const datedIdentity = common.length === 1 && a.size === 1 && b.size === 1
+    && aDynamic >= 2 && bDynamic >= 2
+    && fieldKey(left.name) === fieldKey(right.name);
+  if (!strong && !datedIdentity) return false;
+  if ((aDynamic > 0) !== (bDynamic > 0) && (aDynamic >= 2 || bDynamic >= 2)) return false;
+  return common.every((key) => {
+    const leftShape = valueShape(left, key);
+    const rightShape = valueShape(right, key);
+    return !leftShape || !rightShape || leftShape === rightShape;
+  });
+}
+
 function schemaGroups(workbooks: readonly AggregationWorkbook[]): AggregationSchemaGroup[] {
   const groups: Array<AggregationSchemaGroup & { sheets: AggregationSheet[] }> = [];
   for (const sheet of workbooks.flatMap((workbook) => workbook.sheets).filter((entry) => entry.regions.length > 0)) {
-    const fields = [...new Set(sheet.regions.flatMap((region) => region.headers.map(canonicalField)))];
-    const keySet = new Set(fields.map(fieldKey));
-    let group = groups.find((candidate) => {
-      const candidateSet = new Set(candidate.fields.map(fieldKey));
-      const shared = [...keySet].filter((key) => candidateSet.has(key)).length;
-      return shared / Math.max(keySet.size, candidateSet.size) >= 0.7;
-    });
+    const fields = sheetFields(sheet);
+    let group = groups.find((candidate) => candidate.sheets.every((entry) => compatibleSheets(entry, sheet)));
     if (!group) {
-      group = { id: `group:${groups.length + 1}`, name: "", sheetIds: [], fields, recordCount: 0, sheets: [] };
+      group = { id: `group:${groups.length + 1}`, name: "", sheetIds: [], fields: [], recordCount: 0, sheets: [] };
       groups.push(group);
     }
     group.sheetIds.push(sheet.id);
@@ -339,23 +452,28 @@ function schemaGroups(workbooks: readonly AggregationWorkbook[]): AggregationSch
   return groups.map(({ sheets, ...group }, index) => ({ ...group, name: groupName(sheets, index + 1) }));
 }
 
-/**
- * Identical headers — including the same calendar day written differently —
- * are settled automatically. Only a mapping that merges genuinely different
- * wording is left for the user to confirm.
- */
+/** Only identical normalized paths and calendar spellings map automatically. */
 function fieldMappings(workbooks: readonly AggregationWorkbook[]): AggregationFieldMapping[] {
   const mappings: AggregationFieldMapping[] = [];
   for (const sheet of workbooks.flatMap((workbook) => workbook.sheets)) {
     for (const label of new Set(sheet.regions.flatMap((region) => region.headers))) {
       const target = canonicalField(label);
-      let mapping = mappings.find((entry) => fieldKey(entry.targetField) === fieldKey(target));
+      const key = fieldKey(target);
+      const collisions = mappings.filter((entry) => fieldKey(entry.targetField) === key);
+      // Once a key is ambiguous, a later sheet cannot tell us which of the
+      // competing source columns it meant.
+      let mapping = collisions.length <= 1
+        ? collisions.find((entry) => !entry.sourceFields.some((source) => source.sheetId === sheet.id && source.field !== label))
+        : undefined;
       if (!mapping) {
-        mapping = { id: `mapping:${mappings.length + 1}`, targetField: target, sourceFields: [], status: "confirmed", included: true };
+        for (const collision of collisions) collision.status = "review";
+        mapping = { id: `mapping:${mappings.length + 1}`, targetField: target, sourceFields: [], status: collisions.length ? "review" : "confirmed", included: true };
         mappings.push(mapping);
       }
-      if (!mapping.sourceFields.some((entry) => entry.sheetId === sheet.id && fieldKey(entry.field) === fieldKey(label))) mapping.sourceFields.push({ sheetId: sheet.id, field: label });
-      if (fieldKey(target) !== fieldKey(label)) mapping.status = "suggested";
+      if (!mapping.sourceFields.some((entry) => entry.sheetId === sheet.id && entry.field === label)) {
+        mapping.sourceFields.push({ sheetId: sheet.id, field: label });
+      }
+      if (fieldKey(label) !== fieldKey(target) && mapping.status === "confirmed") mapping.status = "suggested";
     }
   }
   return mappings;

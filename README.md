@@ -130,7 +130,16 @@ Extract는 문서에서 필요한 정보를 필드/값으로 구조화해 표로
 - 원문 표기를 유지하고(`displayValue`), 해석이 확실한 경우에만 `normalizedValue`를 덧붙입니다. 만원·억원처럼 단위 해석이 필요한 금액은 변환하지 않습니다.
 - XLSX는 `Extracted Data` + `Evidence`(+ 반복 표가 있으면 `Records`) 시트로 내보내고, CSV는 같은 표에 SOURCE 열을 포함합니다. 구조화 결과가 생성된 뒤에만 다운로드가 활성화됩니다.
 
-## 8. 환경 변수
+## 8. 취합 기능
+
+취합은 선택한 XLSX·XLSM 파일의 반복 표를 같은 업무 구조별로 묶어 하나의 XLSX로 만듭니다. CSV·PDF·DOCX·PPTX는 취합 입력에서 제외하며, 다른 기능의 파일 지원은 그대로입니다.
+
+- 병합된 다단 헤더는 `Figure > Before`처럼 부모·자식 항목을 구분합니다. 월·날짜 열만 달라지는 동일 표는 한 결과 시트에서 기간 열을 합치고, 구조가 다른 표는 분리합니다. 이름이 다른 확실한 매칭과 구조 충돌은 결과 화면에서 확인할 수 있습니다.
+- 각 결과 시트는 선택 순서에서 처음 만난 호환 파일의 양식을 따릅니다. 본문에 출처·상태·이미지 전용 열을 추가하지 않고, 연결된 이미지는 해당 레코드의 원래 업무 열에 둡니다. 연결할 위치가 불명확한 이미지만 `첨부 이미지` 시트에 표시합니다.
+- 날짜 형식이 확인된 값은 실제 Excel 날짜로 내보내고 첫 양식의 표시 형식(`m/d` 등)을 유지합니다. 일반 숫자는 날짜로 변환하지 않습니다. PNG·JPEG·GIF 이외의 이미지가 포함되면 누락된 결과를 다운로드시키지 않고 오류를 표시합니다.
+- 원본 패키지를 복사하거나 매크로·외부 링크를 실행하지 않습니다. 저장된 값과 안전한 서식·이미지만 새 통합 문서에 재구성하며 취합 과정에 AI를 호출하지 않습니다.
+
+## 9. 환경 변수
 
 | 변수 | 기본값 | 설명 |
 | --- | --- | --- |
@@ -153,7 +162,7 @@ Extract는 문서에서 필요한 정보를 필드/값으로 구조화해 표로
 
 Groq는 추론 입력·출력을 기본적으로 영구 보관하지 않지만 서비스 안정성·오남용 탐지를 위해 최대 30일 임시 보관할 수 있습니다. Chat Completions는 Zero Data Retention 대상입니다. 운영 전 Groq Console의 Data Controls에서 실제 계정 설정을 확인합니다.
 
-## 9. Cloudflare 배포
+## 10. Cloudflare 배포
 
 ```bash
 bun run build:vinext
@@ -163,13 +172,13 @@ bunx wrangler deploy --config dist/server/wrangler.json
 
 이후에는 `bun run deploy`로 같은 Worker를 갱신합니다. `wrangler.jsonc`는 정적 asset, 공용 용어 D1, 비민감 origin 값만 선언합니다. 사용자 파일·세션·작업 상태를 저장하는 바인딩은 사용하지 않습니다.
 
-## 10. 브라우저 요구 사항
+## 11. 브라우저 요구 사항
 
 - ES module Web Worker 지원 브라우저(최신 Chrome, Edge, Firefox, Safari)
 - 파일 크기가 클수록 탭 메모리를 사용합니다. 파일당 100 MiB, 작업 공간 합계 300 MiB 상한은 브라우저 메모리를 기준으로 정해져 있습니다.
 - 본문 폰트는 self-hosted Pretendard Variable(`public/fonts/pretendard/ + unicode-range 동적 서브셋`, SIL OFL 1.1)이며 외부 CDN을 사용하지 않습니다.
 
-## 11. Testing
+## 12. Testing
 
 ```bash
 bun run test:e2e:cloudflare  # vinext build + local Wrangler Worker E2E

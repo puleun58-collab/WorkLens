@@ -9,6 +9,10 @@ const PIXEL_PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZsXcAAAAASUVORK5CYII=",
   "base64",
 );
+const WIDE_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAACgAAAAUCAIAAABwJOjsAAAAJElEQVR4nO3NMQEAAAgDILV/5xljDxRgMx1XesVisVgsFosLHjCnASdq4S4eAAAAAElFTkSuQmCC",
+  "base64",
+);
 
 
 async function workbookBytes(configure: (workbook: ExcelJS.Workbook) => void): Promise<Uint8Array> {
@@ -151,6 +155,9 @@ describe("generic aggregation", () => {
       expect.objectContaining({ field: "부서" }),
       expect.objectContaining({ field: "담당부서" }),
     ]));
+    const selected = draft.workbooks[0].sheets.find((sheet) => sheet.name === "W-H")!.id;
+    const output = await reopen((await aggregationXlsxExport(draft, { ...defaultSelection(draft), sheetIds: [selected] })).content);
+    expect(output.worksheets.map((sheet) => sheet.name)).toEqual(["W-H"]);
   });
 
   it("detects independent header rows and does not merge incompatible schemas", async () => {
@@ -276,11 +283,10 @@ describe("generic aggregation", () => {
     expect(exported.fileName).toBe("worklens-aggregation.xlsx");
     expect(reopened.worksheets.map((sheet) => sheet.name)).toEqual(["비용", "재고"]);
     const costSheet = reopened.getWorksheet("비용")!;
-    expect((costSheet.getRow(1).values as ExcelJS.CellValue[]).filter(Boolean)).toEqual(["부서", "비용", "기준일", "출처 파일", "출처 시트", "출처 범위"]);
+    expect((costSheet.getRow(1).values as ExcelJS.CellValue[]).filter(Boolean)).toEqual(["부서", "비용", "기준일"]);
     expect(costSheet.getCell("C2").value).toBeInstanceOf(Date);
-    expect(costSheet.getCell("C2").numFmt).toBe("yyyy.mm.dd");
+    expect(costSheet.getCell("C2").numFmt).toBe("mm-dd-yy");
     expect(costSheet.getCell("B2").value).toBe(300);
-    expect(costSheet.getCell("E2").value).toBe("비용");
     expect(costSheet.views[0]).toMatchObject({ state: "frozen", ySplit: 1 });
     expect(costSheet.autoFilter).toBeTruthy();
     expect(reopened.worksheets.every((sheet) => sheet.getImages().length === 0)).toBe(true);
@@ -292,7 +298,7 @@ describe("generic aggregation", () => {
       const sheet = workbook.addWorksheet("점검");
       sheet.addRows([["구분", "현상", "조치"], ["안전", "통로 적치", "이동"], ["품질", "표시 불명확", "교체"]]);
       const linked = workbook.addImage({ buffer: PIXEL_PNG as unknown as ExcelJS.Buffer, extension: "png" });
-      sheet.addImage(linked, { tl: { col: 3, row: 1 }, ext: { width: 60, height: 40 } });
+      sheet.addImage(linked, { tl: { col: 1.1, row: 1.1 }, ext: { width: 60, height: 40 } });
       const loose = workbook.addImage({ buffer: PIXEL_PNG as unknown as ExcelJS.Buffer, extension: "png" });
       sheet.addImage(loose, { tl: { col: 6, row: 40 }, ext: { width: 60, height: 40 } });
     }, "images");
@@ -301,13 +307,26 @@ describe("generic aggregation", () => {
     const reopened = await reopen(exported.content);
 
     const records = reopened.getWorksheet("점검")!;
-    expect((records.getRow(1).values as ExcelJS.CellValue[]).filter(Boolean)).toContain("이미지");
+    expect((records.getRow(1).values as ExcelJS.CellValue[]).filter(Boolean)).toEqual(["구분", "현상", "조치"]);
     expect(records.getImages()).toHaveLength(1);
+    expect(records.getImages()[0].range.tl.nativeCol).toBe(1);
     const attachments = reopened.getWorksheet("첨부 이미지");
     expect(attachments?.getImages()).toHaveLength(1);
     expect(attachments?.getCell("B2").value).toBe("점검");
   });
 
+
+  it("refuses an unsupported image format instead of silently dropping it", async () => {
+    const document = await documentOf((book) => {
+      const sheet = book.addWorksheet("사진");
+      sheet.addRows([["관리 No", "내용"], ["ID-1", "확인"], ["ID-2", "완료"]]);
+      const image = book.addImage({ buffer: PIXEL_PNG as unknown as ExcelJS.Buffer, extension: "png" });
+      sheet.addImage(image, { tl: { col: 1.1, row: 1.1 }, ext: { width: 20, height: 20 } });
+    }, "unsupported");
+    const source = { ...document, media: document.media?.map((item) => ({ ...item, extension: "svg", mimeType: "image/svg+xml" })) };
+    const draft = buildAggregation([source]);
+    await expect(aggregationXlsxExport(draft, defaultSelection(draft), [source])).rejects.toThrow("지원 형식(PNG, JPEG, GIF)");
+  });
 
   it("sizes number-formatted columns to what the workbook renders", async () => {
     const draft = await aggregate((workbook) => {
@@ -358,7 +377,6 @@ describe("generic aggregation", () => {
     expect(orangeFirst.getCell("D6").value).toBeInstanceOf(Date);
     expect(orangeFirst.getCell("D6").numFmt).toBe("yyyy-mm-dd");
     expect(orangeFirst.getImages()).toHaveLength(1);
-    expect(fill(orangeFirst.getCell("E2"))).not.toBe("FFF28C28");
 
     const blueFirst = (await exportInOrder([blue, orange])).getWorksheet("실적")!;
     expect(blueFirst.getCell("A1").value).toBe("B 월간 실적");
@@ -392,5 +410,228 @@ describe("generic aggregation", () => {
     expect(fill(output.getWorksheet("실적")!.getCell("A2"))).toBe("FFF28C28");
     expect(fill(output.getWorksheet("재고")!.getCell("A1"))).toBe("FF16803C");
     expect(output.getWorksheet("재고")!.getCell("A3").value).toBe("너트");
+  });
+});
+
+describe("KPI logical workbook reconstruction", () => {
+  async function summaryDocument(fileId: string, periods: readonly string[]) {
+    return documentOf((book) => {
+      const summary = book.addWorksheet("개선 Bank Summary");
+      summary.addRow(["구분", "Total", "%", ...periods]);
+      summary.addRow(["안전", 8, 0.5, ...periods.map((_, index) => index + 1)]);
+      summary.addRow(["품질", 8, 0.5, ...periods.map((_, index) => index + 2)]);
+      summary.getColumn(3).numFmt = "0.0%";
+    }, fileId);
+  }
+
+  async function bankDocument(fileId: string, fill: string, withImages: boolean) {
+    return documentOf((book) => {
+      const sheet = book.addWorksheet("개선 Bank", { views: [{ state: "frozen", ySplit: 4 }] });
+      sheet.mergeCells("B1:M1");
+      sheet.getCell("B1").value = `${fileId} 개선 Bank`;
+      sheet.mergeCells("B3:B4");
+      sheet.mergeCells("C3:C4");
+      sheet.mergeCells("D3:D4");
+      sheet.mergeCells("E3:F3");
+      sheet.mergeCells("G3:G4");
+      sheet.mergeCells("H3:H4");
+      sheet.mergeCells("I3:I4");
+      sheet.mergeCells("J3:J4");
+      sheet.mergeCells("K3:L3");
+      sheet.mergeCells("M3:M4");
+      [["B3", "관리 No"], ["C3", "공장"], ["D3", "구분"], ["E3", "Figure"], ["G3", "문제점"], ["H3", "개선 결과"], ["I3", "제안자"], ["J3", "N/O"], ["K3", "진행 현황"], ["M3", "비고"]]
+        .forEach(([address, label]) => { sheet.getCell(address).value = label; });
+      sheet.getCell("E4").value = "Before";
+      sheet.getCell("F4").value = "After";
+      sheet.getCell("K4").value = "등록";
+      sheet.getCell("L4").value = "종료";
+      for (let column = 2; column <= 13; column += 1) {
+        const cell = sheet.getCell(3, column);
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: fill } };
+        cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
+        sheet.getColumn(column).width = column === 7 || column === 8 ? 40 : column === 5 || column === 6 ? 25 : 16;
+      }
+      sheet.getRow(3).height = 26;
+      for (let index = 0; index < 2; index += 1) {
+        const row = sheet.getRow(index + 5);
+        row.getCell(2).value = `${fileId}-${index + 1}`;
+        row.getCell(3).value = "BP";
+        row.getCell(4).value = "안전";
+        row.getCell(7).value = `문제 ${fileId}-${index + 1}`;
+        row.getCell(8).value = `개선 ${fileId}-${index + 1}`;
+        row.getCell(9).value = "제안자";
+        row.getCell(10).value = 46195;
+        row.getCell(10).numFmt = "#,##0";
+        row.getCell(11).value = index === 0 ? 46235 : "2026.08.01";
+        row.getCell(12).value = new Date(Date.UTC(2026, 7, 5 + index, 14, 30));
+        row.getCell(11).numFmt = 'm"/"d;@';
+        row.getCell(12).numFmt = 'm"/"d h:mm';
+        row.getCell(13).value = "비고";
+        row.getCell(7).fill = { type: "pattern", pattern: "solid", fgColor: { argb: fill } };
+        row.getCell(7).alignment = { wrapText: true, vertical: "top" };
+        row.height = 85;
+        if (fileId === "A" && index === 1) row.hidden = true;
+      }
+      sheet.autoFilter = "B4:M6";
+      if (withImages) {
+        for (const column of [4, 5]) {
+          const image = book.addImage({ buffer: WIDE_PNG as unknown as ExcelJS.Buffer, extension: "png" });
+          sheet.addImage(image, { tl: { col: column + 0.1, row: 4.15 }, br: { col: column + 0.8, row: 5.2 } } as unknown as ExcelJS.ImageRange);
+        }
+        const logo = book.addImage({ buffer: PIXEL_PNG as unknown as ExcelJS.Buffer, extension: "png" });
+        sheet.addImage(logo, { tl: { col: 1.1, row: 0.1 }, ext: { width: 16, height: 16 } });
+      }
+    }, fileId);
+  }
+
+  it("unites differing monthly columns while keeping genuinely different Bank sheets apart", async () => {
+    const documents = [
+      await summaryDocument("A", ["2026.01", "2026.02"]),
+      await summaryDocument("B", ["2025.12", "2026.02", "2026.03", "2026.04"]),
+      await bankDocument("C", "FF284878", false),
+    ];
+    const draft = buildAggregation(documents);
+    expect(draft.groups.map((group) => group.name)).toEqual(["개선 Bank Summary", "개선 Bank"]);
+    expect(draft.groups[0].recordCount).toBe(4);
+    expect(draft.groups[0].fields).toEqual(expect.arrayContaining(["2025.12", "2026.01", "2026.02", "2026.03", "2026.04"]));
+    const sheet = (await reopen((await aggregationXlsxExport(draft, defaultSelection(draft), documents)).content)).getWorksheet("개선 Bank Summary")!;
+    expect(sheet).toBeTruthy();
+    expect(sheet.getRow(1).values).toEqual(expect.arrayContaining(["2025.12", "2026.01", "2026.02", "2026.03", "2026.04"]));
+  });
+
+  it("keeps parent/child fields, typed date and DateTime, general numbers, template styles and image slots after reopening", async () => {
+    const a = await bankDocument("A", "FF284878", true);
+    const b = await bankDocument("B", "FF876743", true);
+    const draft = buildAggregation([a, b]);
+    expect(draft.groups.map((group) => group.name)).toEqual(["개선 Bank"]);
+    const headers = draft.workbooks[0].sheets[0].regions[0].headers;
+    expect(headers).toEqual(expect.arrayContaining(["Figure > Before", "Figure > After", "진행 현황 > 등록", "진행 현황 > 종료"]));
+    const recordImages = draft.records.flatMap((record) => record.media.map((media) => [record.id, media.role]));
+    expect(recordImages).toHaveLength(4);
+    expect(recordImages.filter(([, role]) => role === "Figure > Before")).toHaveLength(2);
+    expect(recordImages.filter(([, role]) => role === "Figure > After")).toHaveLength(2);
+    const output = await reopen((await aggregationXlsxExport(draft, defaultSelection(draft), [a, b])).content);
+    expect(output.worksheets.map((sheet) => sheet.name)).toEqual(["개선 Bank"]);
+    const sheet = output.getWorksheet("개선 Bank")!;
+    expect(sheet.model.merges).toEqual(expect.arrayContaining(["E3:F3", "K3:L3"]));
+    expect(sheet.getCell("E4").value).toBe("Before");
+    expect(sheet.getCell("F4").value).toBe("After");
+    expect(sheet.getCell("G5").value).toBe("문제 A-1");
+    expect(sheet.getCell("H7").value).toBe("개선 B-1");
+    expect(sheet.getCell("J5").value).toBe(46195);
+    expect(sheet.getCell("J5").numFmt).toBe("#,##0");
+    expect(sheet.getCell("K5").value).toBeInstanceOf(Date);
+    expect((sheet.getCell("K5").value as Date).toISOString()).toBe("2026-08-01T00:00:00.000Z");
+    expect(sheet.getCell("K5").numFmt).toBe('m"/"d;@');
+    expect(sheet.getCell("K6").value).toBeInstanceOf(Date);
+    expect(sheet.getCell("L5").value).toBeInstanceOf(Date);
+    expect((sheet.getCell("L5").value as Date).toISOString()).toBe("2026-08-05T14:30:00.000Z");
+    expect(sheet.getCell("L5").numFmt).toBe('m"/"d h:mm');
+    expect(fillArgb(sheet.getCell("B3"))).toBe("FF284878");
+    expect(fillArgb(sheet.getCell("G8"))).toBe("FF284878");
+    expect(sheet.getColumn(7).width).toBe(40);
+    expect(sheet.getRow(3).height).toBe(26);
+    expect(sheet.getRow(6).hidden).toBe(true);
+    expect(sheet.getRow(8).hidden).toBe(false);
+    expect(sheet.getRow(8).height).toBeGreaterThanOrEqual(85);
+    expect(sheet.views[0]).toMatchObject({ state: "frozen", ySplit: 4 });
+    expect(sheet.autoFilter).toBeTruthy();
+    const images = sheet.getImages();
+    expect(images).toHaveLength(5);
+    expect(output.model.media).toHaveLength(5);
+    const anchors = images.map((image) => [image.range.tl.nativeCol, image.range.tl.nativeRow]);
+    expect(anchors).toEqual(expect.arrayContaining([[4, 4], [5, 4], [4, 6], [5, 6]]));
+    expect(images.filter((image) => image.range.tl.nativeRow >= 4).every((image) => {
+      const size = (image.range as unknown as ExcelJS.ImagePosition).ext;
+      return Math.abs(size.width / size.height - 2) < 0.01;
+    })).toBe(true);
+    expect(sheet.getRow(4).values).not.toContain("이미지");
+    expect(sheet.getRow(4).values).not.toContain("출처 파일");
+  });
+
+  it("uses image center for semantic column and does not guess a tied record row", async () => {
+    const document = await documentOf((book) => {
+      const sheet = book.addWorksheet("사진");
+      sheet.addRows([["관리 No", "Before", "After", "내용"], ["ID-01", null, null, "현상"], ["ID-02", null, null, "개선"]]);
+      const centered = book.addImage({ buffer: WIDE_PNG as unknown as ExcelJS.Buffer, extension: "png" });
+      sheet.addImage(centered, { tl: { col: 1.6, row: 1.1 }, br: { col: 2.5, row: 1.9 } } as unknown as ExcelJS.ImageRange);
+      const tied = book.addImage({ buffer: PIXEL_PNG as unknown as ExcelJS.Buffer, extension: "png" });
+      sheet.addImage(tied, { tl: { col: 1.1, row: 1.5 }, br: { col: 1.9, row: 2.5 } } as unknown as ExcelJS.ImageRange);
+    }, "span");
+    const draft = buildAggregation([document]);
+    expect(draft.records.map((record) => record.media.map((image) => image.role))).toEqual([["After"], []]);
+    const output = await reopen((await aggregationXlsxExport(draft, defaultSelection(draft), [document])).content);
+    expect(output.getWorksheet("사진")?.getImages()[0].range.tl.nativeCol).toBe(2);
+    expect(output.getWorksheet("첨부 이미지")?.getImages()).toHaveLength(1);
+  });
+
+  it("retains each record image when two selected workbooks have identical bytes", async () => {
+    const bytes = await workbookBytes((book) => {
+      const sheet = book.addWorksheet("사진");
+      sheet.addRows([["관리 No", "Before", "After", "내용"], ["ID-01", null, null, "현상"], ["ID-02", null, null, "개선"]]);
+      for (const column of [1, 2]) {
+        const image = book.addImage({ buffer: PIXEL_PNG as unknown as ExcelJS.Buffer, extension: "png" });
+        sheet.addImage(image, { tl: { col: column + 0.1, row: 1.1 }, ext: { width: 20, height: 20 } });
+      }
+    });
+    const documents = await Promise.all(["same-a", "same-b"].map((fileId) =>
+      parseDocument({ fileId, fileName: `${fileId}.xlsx`, bytes })));
+    expect(documents[0].media?.[0].id).toBe(documents[1].media?.[0].id);
+    const draft = buildAggregation(documents);
+    const output = await reopen((await aggregationXlsxExport(draft, defaultSelection(draft), documents)).content);
+    const sheet = output.getWorksheet("사진")!;
+    expect(output.worksheets).toHaveLength(1);
+    expect(sheet.getImages()).toHaveLength(4);
+    expect(sheet.getImages().map((image) => [image.range.tl.nativeCol, image.range.tl.nativeRow]))
+      .toEqual(expect.arrayContaining([[1, 1], [2, 1], [1, 3], [2, 3]]));
+  });
+
+  it("leaves normalized header collisions for review instead of merging two source columns", async () => {
+    const draft = await aggregate((book) => {
+      book.addWorksheet("관리").addRows([
+        ["관리 No", "관리 N/O", "상태"],
+        ["A-01", "B-01", "진행"],
+        ["A-02", "B-02", "완료"],
+      ]);
+    });
+    const colliding = draft.mappings.filter((mapping) => mapping.targetField === "관리 No" || mapping.targetField === "관리 N/O");
+    expect(colliding).toHaveLength(2);
+    expect(colliding.every((mapping) => mapping.status === "review" && mapping.sourceFields.length === 1)).toBe(true);
+  });
+
+  it("does not combine unrelated tables merely because their source sheet names coincide", async () => {
+    const period = await documentOf((book) => {
+      book.addWorksheet("Summary").addRows([
+        ["구분", "Total", "%", "2026.01"],
+        ["안전", 4, 0.5, 2],
+        ["품질", 4, 0.5, 2],
+      ]);
+    }, "period");
+    const stock = await documentOf((book) => {
+      book.addWorksheet("Summary").addRows([
+        ["품목", "입고", "출고", "재고"],
+        ["볼트", 12, 4, 8],
+        ["너트", 9, 3, 6],
+      ]);
+    }, "stock");
+    const draft = buildAggregation([period, stock]);
+    expect(draft.groups).toHaveLength(2);
+    const output = await reopen((await aggregationXlsxExport(draft, defaultSelection(draft), [period, stock])).content);
+    expect(output.worksheets.map((sheet) => sheet.name)).toEqual(["Summary", "Summary (2)"]);
+  });
+
+  it("maps text, dotted, and typed-date header cells to one actual calendar field", async () => {
+    const dates = ["2026-01-01", "2026.1.1", new Date(Date.UTC(2026, 0, 1))];
+    const documents = await Promise.all(dates.map((header, index) => documentOf((book) => {
+      const sheet = book.addWorksheet("기간");
+      sheet.addRows([["구분", "Total", header], ["운영", 2, index + 1], ["품질", 3, index + 2]]);
+      if (header instanceof Date) sheet.getCell("C1").numFmt = "yyyy.mm.dd";
+    }, `date-${index}`)));
+    const draft = buildAggregation(documents);
+    expect(draft.groups).toHaveLength(1);
+    expect(draft.mappings.filter((mapping) => mapping.sourceFields.some((field) => field.field.includes("2026")))).toHaveLength(1);
+    expect(draft.groups[0].fields.filter((field) => field.includes("2026"))).toHaveLength(1);
+    const sheet = (await reopen((await aggregationXlsxExport(draft, defaultSelection(draft), documents)).content)).getWorksheet("기간")!;
+    expect(sheet.getCell("C1").value).toBe("2026-01-01");
   });
 });

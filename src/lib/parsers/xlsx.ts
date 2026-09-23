@@ -140,11 +140,31 @@ const numericOf = (value: unknown): number | undefined => {
   return undefined;
 };
 
+/** Text dates are promoted only with an explicit calendar value AND a date cell format. */
+const explicitDate = (value: unknown): Date | undefined => {
+  const raw = typeof value === "string" ? value : undefined;
+  const match = raw?.trim().match(/^(\d{4})[-./](\d{1,2})[-./](\d{1,2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?\.?$/u);
+  if (!match) return undefined;
+  const [, year, month, day, hour = "0", minute = "0", second = "0"] = match;
+  const date = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second)));
+  return date.getUTCFullYear() === Number(year)
+    && date.getUTCMonth() + 1 === Number(month)
+    && date.getUTCDate() === Number(day)
+    && date.getUTCHours() === Number(hour)
+    && date.getUTCMinutes() === Number(minute)
+    && date.getUTCSeconds() === Number(second)
+    ? date : undefined;
+};
+
 const cellDate = (cell: ExcelJS.Cell): Date | undefined => {
   const raw = cell.value;
   if (raw instanceof Date) return raw;
   if (typeof raw === "object" && raw !== null && "result" in raw && raw.result instanceof Date) {
     return raw.result;
+  }
+  if (isDateNumberFormat(cell.numFmt)) {
+    const explicit = explicitDate(typeof raw === "object" && raw !== null && "result" in raw ? raw.result : raw);
+    if (explicit) return explicit;
   }
   const numeric = numericOf(raw);
   return numeric !== undefined && isDateNumberFormat(cell.numFmt) ? serialToDate(numeric) : undefined;
@@ -381,10 +401,10 @@ export const parseXlsx = async (input: {
             quote: "",
           },
           anchor: {
-            x: placement.range.tl.nativeCol,
-            y: placement.range.tl.nativeRow,
-            width: bottomRight ? bottomRight.nativeCol - placement.range.tl.nativeCol : 1,
-            height: bottomRight ? bottomRight.nativeRow - placement.range.tl.nativeRow : 1,
+            x: placement.range.tl.col,
+            y: placement.range.tl.row,
+            width: bottomRight ? bottomRight.col - placement.range.tl.col : 1,
+            height: bottomRight ? bottomRight.row - placement.range.tl.row : 1,
             unit: "cell",
           },
         });

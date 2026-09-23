@@ -25,11 +25,10 @@ import {
 
 const XLSX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 const IMAGE_COLUMN = "이미지";
-const PROVENANCE_COLUMNS = ["출처 파일", "출처 시트", "출처 범위"] as const;
-const EMBEDDABLE = new Set(["png", "jpeg", "jpg", "gif"]);
-const MAX_IMAGES_PER_RECORD = 3;
+const EMBEDDABLE: Record<string, true> = { png: true, jpeg: true, jpg: true, gif: true };
 const IMAGE_BOX_HEIGHT = 96;
 const IMAGE_BOX_WIDTH = 168;
+const IMAGE_PADDING = 3;
 const UNREADABLE_TEXT = /^(?:\[object\s[^\]]*\]|undefined|null|NaN)$/u;
 
 export interface AggregationExport {
@@ -98,12 +97,12 @@ function exportCell(field: AggregationField): ExportedCell {
   const display = value.displayValue.trim();
   if (!display || UNREADABLE_TEXT.test(display)) return { value: null };
 
-  if (value.type === "Date" || value.type === "DateTime" || value.cellType === "date") {
+  if (value.cellType === "date" || isDateNumberFormat(value.numberFormat)) {
     const date = isoDate(value.normalizedValue ?? (typeof value.value === "string" ? value.value : ""));
     if (date) {
-      // A source format is reused only when it states a four-digit year; the
-      // writer's implicit `mm-dd-yy` would otherwise reformat every date.
-      const sourceFormat = isDateNumberFormat(value.numberFormat) && /yyyy/iu.test(value.numberFormat ?? "")
+      // The worksheet template takes precedence when present; otherwise retain
+      // the source's own date display, including formats such as m/d.
+      const sourceFormat = isDateNumberFormat(value.numberFormat)
         ? value.numberFormat
         : undefined;
       const fallback = value.type === "DateTime" ? DATETIME_NUMBER_FORMAT : DATE_NUMBER_FORMAT;
@@ -120,16 +119,14 @@ function exportCell(field: AggregationField): ExportedCell {
   return { value: display };
 }
 
-function provenance(record: AggregationRecord): string[] {
-  return [
-    record.source.label.split(" · ")[0]?.split("!")[0] ?? record.source.fileId,
-    record.source.sheet ?? "",
-    record.source.cellRange ?? "",
-  ];
-}
 
 function embeddable(media: DocumentMedia | undefined): media is DocumentMedia {
-  return Boolean(media && EMBEDDABLE.has(media.extension.toLowerCase()));
+  return Boolean(media && Object.hasOwn(EMBEDDABLE, media.extension.toLowerCase()));
+}
+
+/** Canonical media IDs repeat for byte-identical uploads; file identity does not. */
+function mediaKey(media: { id: string; source: { fileId: string } }): string {
+  return `${media.source.fileId}\u0000${media.id}`;
 }
 
 function imageExtension(extension: string): ImageExtension {
@@ -137,14 +134,19 @@ function imageExtension(extension: string): ImageExtension {
   return kind === "jpg" ? "jpeg" : kind === "gif" ? "gif" : kind === "jpeg" ? "jpeg" : "png";
 }
 
-/** Fits the picture inside one cell-sized box without cropping or distorting it. */
-function fittedSize(media: DocumentMedia): { width: number; height: number } {
+/** Fits a picture inside its actual column without cropping or distortion. */
+function fittedSize(media: DocumentMedia, maxWidth: number, maxHeight = IMAGE_BOX_HEIGHT): { width: number; height: number } {
   const natural = imagePixelSize(media.data, media.extension);
   if (!natural || natural.width <= 0 || natural.height <= 0) {
-    return { width: IMAGE_BOX_WIDTH, height: IMAGE_BOX_HEIGHT };
+    return { width: Math.min(maxWidth, IMAGE_BOX_WIDTH), height: Math.min(maxHeight, IMAGE_BOX_HEIGHT) };
   }
-  const scale = Math.min(IMAGE_BOX_WIDTH / natural.width, IMAGE_BOX_HEIGHT / natural.height, 1);
-  return { width: Math.max(16, Math.round(natural.width * scale)), height: Math.max(16, Math.round(natural.height * scale)) };
+  const scale = Math.min(maxWidth / natural.width, maxHeight / natural.height, 1);
+  return { width: Math.max(1, natural.width * scale), height: Math.max(1, natural.height * scale) };
+}
+
+/** Excel column widths are measured in character units; image anchors use pixels. */
+function columnPixels(column: ExcelJS.Column): number {
+  return Math.max(12, Math.floor((column.width ?? 8.43) * 7 + 5));
 }
 
 function placeImages(
@@ -153,28 +155,27 @@ function placeImages(
   rowNumber: number,
   column: number,
   media: readonly DocumentMedia[],
-): number {
-  let offset = 0;
-  let tallest = 0;
-  for (const item of media.slice(0, MAX_IMAGES_PER_RECORD)) {
-    const size = fittedSize(item);
+): void {
+  if (media.length === 0) return;
+  const width = columnPixels(sheet.getColumn(column));
+  const available = Math.max(8, width - IMAGE_PADDING * 2);
+  const sizes = media.map((item) => fittedSize(item, available));
+  const neededPixels = sizes.reduce((height, size) => height + size.height + IMAGE_PADDING, IMAGE_PADDING);
+  const row = sheet.getRow(rowNumber);
+  row.height = Math.max(row.height ?? 0, neededPixels * 0.75);
+  let y = IMAGE_PADDING;
+  for (const [index, item] of media.entries()) {
     const imageId = workbook.addImage({
       buffer: item.data.slice().buffer as ArrayBuffer,
       extension: imageExtension(item.extension),
     });
     sheet.addImage(imageId, {
-      tl: { col: column - 1 + offset, row: rowNumber - 1 },
-      ext: size,
+      tl: { col: column - 1 + IMAGE_PADDING / width, row: rowNumber - 1 + y / (row.height! * 4 / 3) },
+      ext: sizes[index],
       editAs: "oneCell",
     });
-    offset += size.width / (IMAGE_BOX_WIDTH + 8);
-    tallest = Math.max(tallest, size.height);
+    y += sizes[index].height + IMAGE_PADDING;
   }
-  if (tallest > 0) {
-    const row = sheet.getRow(rowNumber);
-    row.height = Math.max(row.height ?? 0, tallest * 0.78);
-  }
-  return offset;
 }
 
 type TemplateSource = {
@@ -233,6 +234,52 @@ function templateColumn(
     const column = field?.value.sources[0]?.column;
     if (column !== undefined) return column;
   }
+  // Empty record cells have no field source, so locate them through the
+  // detected header paths and their actual physical spans. A simple array
+  // offset is wrong when an intervening worksheet column has no header.
+  const rows = template.workbookSheet?.table.rows;
+  if (!rows) return undefined;
+  for (const region of template.aggregationSheet.regions) {
+    const bounds = rangeBounds(region.headerRange);
+    if (!bounds) continue;
+    const first = rows[bounds.startRow - 1] ?? [];
+    const tiered = bounds.endRow > bounds.startRow;
+    const second = tiered ? rows[bounds.startRow] ?? [] : [];
+    const columns: number[] = [];
+    for (let column = bounds.startColumn; column <= bounds.endColumn; column += 1) {
+      let parent = first[column - 1]?.display.trim() ?? "";
+      if (!parent && tiered) {
+        for (let anchor = column - 1; anchor >= bounds.startColumn; anchor -= 1) {
+          const cell = first[anchor - 1];
+          if (anchor + (cell?.colSpan ?? 1) <= column) break;
+          parent = cell?.display.trim() ?? "";
+          if (parent) break;
+        }
+      }
+      const child = tiered ? second[column - 1]?.display.trim() ?? "" : "";
+      if ((parent && !UNREADABLE_TEXT.test(parent)) || (child && !UNREADABLE_TEXT.test(child))) {
+        columns.push(column);
+      }
+    }
+    if (columns.length === region.headers.length) {
+      const index = region.headers.findIndex((label) => sourceLabels.has(label));
+      if (index >= 0) return columns[index];
+    }
+    // Older parsed headers may not retain spans; only a unique exact leaf is
+    // safe to use without a trustworthy canonical column-by-column path.
+    let direct: number | undefined;
+    let ambiguous = false;
+    for (const column of columns) {
+      for (let rowNumber = bounds.startRow; rowNumber <= bounds.endRow; rowNumber += 1) {
+        const label = rows[rowNumber - 1]?.[column - 1]?.display.replace(/\s+/gu, " ").trim();
+        if (!label || !sourceLabels.has(label)) continue;
+        if (direct !== undefined && direct !== column) ambiguous = true;
+        direct = column;
+        break;
+      }
+    }
+    if (!ambiguous && direct !== undefined) return direct;
+  }
   return undefined;
 }
 
@@ -251,15 +298,6 @@ function neutralHeader(cell: ExcelJS.Cell): void {
     right: { style: "thin", color: { argb: "FFD7DEE7" } },
   };
   cell.alignment = { horizontal: "left", vertical: "middle", wrapText: true };
-}
-
-function neutralBody(cell: ExcelJS.Cell): void {
-  cell.font = { ...cell.font, color: { argb: "FF596579" } };
-  cell.border = {
-    top: { style: "hair", color: { argb: "FFE5E9EF" } },
-    bottom: { style: "hair", color: { argb: "FFE5E9EF" } },
-  };
-  cell.alignment = { horizontal: "left", vertical: "top", wrapText: true };
 }
 
 function templateCellValue(cell: TableCell | undefined): ExcelJS.CellValue {
@@ -297,7 +335,7 @@ function addRecordSheet(
   name: string,
   records: readonly AggregationRecord[],
   mappings: readonly AggregationFieldMapping[],
-  mediaFor: (record: AggregationRecord) => DocumentMedia[],
+  mediaById: ReadonlyMap<string, DocumentMedia>,
   used: Set<string>,
   template: TemplateSource | undefined,
   placed: Set<string>,
@@ -306,167 +344,111 @@ function addRecordSheet(
   const sourceSheet = template?.workbookSheet;
   const sourceRegion = template?.aggregationSheet.regions[0];
   const header = rangeBounds(sourceRegion?.headerRange);
-  const templateEnabled = Boolean(sourceSheet?.template && header);
+  // A parsed sheet's table is itself a usable layout, even if older parser
+  // output has no separate presentation snapshot.
+  const templateEnabled = Boolean(sourceSheet && header);
   const headerRow = templateEnabled ? header!.endRow : 1;
   const firstDataRow = headerRow + 1;
+  const physicalColumns = templateEnabled
+    ? Math.max(
+      header!.endColumn,
+      sourceSheet!.table.rows.slice(0, headerRow).reduce((width, row) => Math.max(width, row.length), 0),
+      sourceSheet!.template?.columns.length ?? 0,
+    )
+    : 0;
   const sourceColumns = new Map<string, number>();
+  const occupied = new Set<number>();
+  let nextColumn = physicalColumns;
   for (const mapping of mappings) {
-    const sourceColumn = template ? templateColumn(mapping, template) : undefined;
-    if (sourceColumn !== undefined) sourceColumns.set(mapping.id, sourceColumn);
+    const original = templateEnabled ? templateColumn(mapping, template!) : undefined;
+    const column = original !== undefined && !occupied.has(original) ? original : ++nextColumn;
+    sourceColumns.set(mapping.id, column);
+    occupied.add(column);
   }
-  const sourceToOutput = new Map<number, number>();
-  mappings.forEach((mapping, index) => {
-    const sourceColumn = sourceColumns.get(mapping.id);
-    if (sourceColumn !== undefined) sourceToOutput.set(sourceColumn, index + 1);
-  });
 
   if (templateEnabled) {
     for (let rowNumber = 1; rowNumber <= headerRow; rowNumber += 1) {
       const outputRow = sheet.getRow(rowNumber);
-      const sourceRowMeta = sourceSheet!.template!.rows.find((row) => row.number === rowNumber);
+      const sourceRowMeta = sourceSheet!.template?.rows.find((row) => row.number === rowNumber);
       if (sourceRowMeta?.height !== undefined) outputRow.height = sourceRowMeta.height;
       if (sourceRowMeta?.hidden) outputRow.hidden = true;
-      mappings.forEach((mapping, outputIndex) => {
-        const sourceColumn = sourceColumns.get(mapping.id);
-        const outputCell = outputRow.getCell(outputIndex + 1);
-        if (sourceColumn === undefined) {
-          if (rowNumber === headerRow) {
-            outputCell.value = mapping.targetField;
-            neutralHeader(outputCell);
-          }
-          return;
-        }
-        const sourceCell = sourceSheet!.table.rows[rowNumber - 1]?.[sourceColumn - 1];
+      for (let column = 1; column <= physicalColumns; column += 1) {
+        const sourceCell = sourceSheet!.table.rows[rowNumber - 1]?.[column - 1];
+        const outputCell = outputRow.getCell(column);
         outputCell.value = templateCellValue(sourceCell);
         applyTemplateStyle(outputCell, sourceCell);
-      });
+      }
     }
-    for (const merge of sourceSheet!.template!.merges) {
+    for (const merge of sourceSheet!.template?.merges ?? []) {
       const bounds = rangeBounds(merge);
-      if (!bounds || bounds.endRow > headerRow) continue;
-      const mappedColumns = Array.from(
-        { length: bounds.endColumn - bounds.startColumn + 1 },
-        (_, index) => sourceToOutput.get(bounds.startColumn + index),
-      );
-      if (mappedColumns.some((column) => column === undefined)) continue;
-      const concrete = mappedColumns as number[];
-      if (!concrete.every((column, index) => index === 0 || column === concrete[index - 1] + 1)) continue;
-      sheet.mergeCells(
-        bounds.startRow,
-        concrete[0],
-        bounds.endRow,
-        concrete[concrete.length - 1],
-      );
+      if (bounds && bounds.endRow <= headerRow) {
+        sheet.mergeCells(bounds.startRow, bounds.startColumn, bounds.endRow, bounds.endColumn);
+      }
     }
-    mappings.forEach((mapping, outputIndex) => {
-      const sourceColumn = sourceColumns.get(mapping.id);
-      const sourceColumnMeta = sourceSheet!.template!.columns.find((column) => column.index === sourceColumn);
-      const outputColumn = sheet.getColumn(outputIndex + 1);
-      if (sourceColumnMeta?.width !== undefined) outputColumn.width = sourceColumnMeta.width;
-      if (sourceColumnMeta?.hidden) outputColumn.hidden = true;
-      const columnStyle = styleCopy(sourceColumnMeta?.style);
-      if (columnStyle) outputColumn.style = columnStyle;
-    });
-    sheet.views = sourceSheet!.template!.views.length
-      ? JSON.parse(JSON.stringify(sourceSheet!.template!.views)) as ExcelJS.WorksheetView[]
-      : [];
+    for (const columnMeta of sourceSheet!.template?.columns ?? []) {
+      const outputColumn = sheet.getColumn(columnMeta.index);
+      if (columnMeta.width !== undefined) outputColumn.width = columnMeta.width;
+      if (columnMeta.hidden) outputColumn.hidden = true;
+      const style = styleCopy(columnMeta.style);
+      if (style) outputColumn.style = style;
+    }
+    sheet.views = sourceSheet!.template?.views.length
+      ? JSON.parse(JSON.stringify(sourceSheet!.template.views)) as ExcelJS.WorksheetView[]
+      : [{ state: "frozen", ySplit: headerRow }];
+    for (const mapping of mappings) {
+      const column = sourceColumns.get(mapping.id)!;
+      if (column <= physicalColumns) continue;
+      const cell = sheet.getCell(headerRow, column);
+      cell.value = mapping.targetField;
+      neutralHeader(cell);
+    }
   } else {
     const headerCells = sheet.addRow(mappings.map((mapping) => mapping.targetField));
     headerCells.eachCell(neutralHeader);
   }
 
-  const recordMedia = new Map(records.map((record) => [record.id, mediaFor(record)]));
-  const withImages = [...recordMedia.values()].some((media) => media.length > 0);
-  const imageColumn = withImages ? mappings.length + 1 : 0;
-  const provenanceStart = mappings.length + (withImages ? 2 : 1);
-  if (withImages) {
-    const cell = sheet.getCell(headerRow, imageColumn);
-    cell.value = IMAGE_COLUMN;
-    neutralHeader(cell);
-  }
-  PROVENANCE_COLUMNS.forEach((label, index) => {
-    const cell = sheet.getCell(headerRow, provenanceStart + index);
-    cell.value = label;
-    neutralHeader(cell);
-  });
-
   const representativeRow = rangeBounds(sourceRegion?.recordRange)?.startRow;
-  const representativeHeight = representativeRow
-    ? sourceSheet?.template?.rows.find((row) => row.number === representativeRow)?.height
-    : undefined;
-  let widestImageRow = 0;
   for (const [index, record] of records.entries()) {
     const rowNumber = firstDataRow + index;
     const row = sheet.getRow(rowNumber);
-    if (representativeHeight !== undefined) row.height = representativeHeight;
-    mappings.forEach((mapping, columnIndex) => {
-      const cell = row.getCell(columnIndex + 1);
+    const styleRow = record.regionId === sourceRegion?.id && record.sheetId === template?.aggregationSheet.id
+      ? record.source.row ?? representativeRow
+      : representativeRow;
+    const sourceRowMeta = styleRow
+      ? sourceSheet?.template?.rows.find((entry) => entry.number === styleRow)
+      : undefined;
+    if (sourceRowMeta?.height !== undefined) row.height = sourceRowMeta.height;
+    if (record.sheetId === template?.aggregationSheet.id && sourceRowMeta?.hidden) row.hidden = true;
+    for (const mapping of mappings) {
+      const column = sourceColumns.get(mapping.id)!;
+      const cell = row.getCell(column);
       const fields = mappedFields(record, mapping);
-      const sourceColumn = sourceColumns.get(mapping.id);
-      const representativeCell = representativeRow && sourceColumn
-        ? sourceSheet?.table.rows[representativeRow - 1]?.[sourceColumn - 1]
+      const representativeCell = styleRow && column <= physicalColumns
+        ? sourceSheet?.table.rows[styleRow - 1]?.[column - 1]
         : undefined;
       if (fields.length === 0) {
         applyTemplateStyle(cell, representativeCell);
-        return;
-      }
-      if (fields.length > 1) {
+      } else if (fields.length > 1) {
         cell.value = fields.map((field) => field.value.displayValue).join(" | ");
         applyTemplateStyle(cell, representativeCell);
-        return;
+      } else {
+        const exported = exportCell(fields[0]);
+        cell.value = exported.value;
+        applyRecordStyle(cell, representativeCell, exported);
       }
-      const exported = exportCell(fields[0]);
-      cell.value = exported.value;
-      applyRecordStyle(cell, representativeCell, exported);
-    });
-    if (withImages) {
-      const media = recordMedia.get(record.id) ?? [];
-      widestImageRow = Math.max(widestImageRow, placeImages(workbook, sheet, rowNumber, imageColumn, media));
-    }
-    provenance(record).forEach((value, provenanceIndex) => {
-      const cell = row.getCell(provenanceStart + provenanceIndex);
-      cell.value = value;
-      neutralBody(cell);
-    });
-  }
-
-  if (templateEnabled && template?.document) {
-    const decorationMedia = (template.document.media ?? []).filter((media) =>
-      embeddable(media)
-      && media.source.sheet === template.aggregationSheet.name
-      && media.anchor.y < headerRow
-      && !placed.has(media.id));
-    for (const media of decorationMedia) {
-      const imageId = workbook.addImage({
-        buffer: media.data.slice().buffer as ArrayBuffer,
-        extension: imageExtension(media.extension),
-      });
-      sheet.addImage(imageId, {
-        tl: { col: media.anchor.x, row: media.anchor.y },
-        ext: fittedSize(media),
-        editAs: "oneCell",
-      });
-      placed.add(media.id);
     }
   }
 
   if (templateEnabled) {
-    const templateFilter = sourceSheet!.template!.autoFilter;
-    sheet.autoFilter = templateFilter
-      ? {
-        from: { row: templateFilter.from.row, column: sourceToOutput.get(templateFilter.from.column) ?? 1 },
-        to: { row: Math.max(headerRow, firstDataRow + records.length - 1), column: sourceToOutput.get(templateFilter.to.column) ?? mappings.length },
-      }
-      : {
-        from: { row: headerRow, column: 1 },
-        to: { row: Math.max(headerRow, firstDataRow + records.length - 1), column: provenanceStart + PROVENANCE_COLUMNS.length - 1 },
-      };
-    if (sheet.views.length === 0) sheet.views = [{ state: "frozen", ySplit: headerRow }];
+    const filter = sourceSheet!.template?.autoFilter;
+    if (filter) sheet.autoFilter = {
+      from: filter.from,
+      to: { row: Math.max(filter.to.row, firstDataRow + records.length - 1), column: filter.to.column },
+    };
   } else {
     formatWorksheet(sheet, { freezeHeader: true, autoFilter: true });
   }
-
-  for (let column = 1; column <= mappings.length; column += 1) {
+  for (const column of sourceColumns.values()) {
     if (sheet.getColumn(column).width !== undefined) continue;
     const maxLength = Math.max(
       12,
@@ -474,12 +456,67 @@ function addRecordSheet(
     );
     sheet.getColumn(column).width = Math.min(48, maxLength);
   }
-  if (withImages) {
-    sheet.getColumn(imageColumn).width = Math.max(24, Math.ceil(((IMAGE_BOX_WIDTH + 8) * Math.max(1, widestImageRow)) / 7));
+
+  // Place all images after column widths are final. Group by cell and stack
+  // vertically so multiple pictures in one semantic field never overlap.
+  for (const [index, record] of records.entries()) {
+    const imagesByColumn = new Map<number, DocumentMedia[]>();
+    for (const ref of record.media) {
+      const media = mediaById.get(mediaKey(ref));
+      if (!embeddable(media) || placed.has(mediaKey(media))) continue;
+      const mapping = ref.role && mappings.find((candidate) =>
+        candidate.targetField === ref.role
+        || candidate.sourceFields.some((source) => source.sheetId === record.sheetId && source.field === ref.role));
+      const column = mapping ? sourceColumns.get(mapping.id) : (
+        templateEnabled
+        && record.sheetId === template!.aggregationSheet.id
+        && ref.source.column !== undefined
+        && ref.source.column >= 1
+        && ref.source.column <= physicalColumns
+          ? ref.source.column
+          : undefined
+      );
+      if (column === undefined) continue;
+      const group = imagesByColumn.get(column) ?? [];
+      group.push(media);
+      imagesByColumn.set(column, group);
+      placed.add(mediaKey(media));
+    }
+    const targetRow = sheet.getRow(firstDataRow + index);
+    for (const [column, images] of imagesByColumn) {
+      const available = Math.max(8, columnPixels(sheet.getColumn(column)) - IMAGE_PADDING * 2);
+      const needed = images.reduce(
+        (height, image) => height + fittedSize(image, available).height + IMAGE_PADDING,
+        IMAGE_PADDING,
+      );
+      targetRow.height = Math.max(targetRow.height ?? 0, needed * 0.75);
+    }
+    for (const [column, images] of imagesByColumn) {
+      placeImages(workbook, sheet, firstDataRow + index, column, images);
+    }
   }
-  PROVENANCE_COLUMNS.forEach((_, index) => {
-    sheet.getColumn(provenanceStart + index).width = index === 0 ? 22 : 16;
-  });
+
+  // Only the first workbook supplies sheet decoration; never copy raw package
+  // content or decorations from every contributing workbook.
+  if (templateEnabled && template?.document) {
+    const decorationMedia = (template.document.media ?? []).filter((media) =>
+      embeddable(media)
+      && media.source.sheet === template.aggregationSheet.name
+      && media.anchor.y < headerRow
+      && !placed.has(mediaKey(media)));
+    for (const media of decorationMedia) {
+      const imageId = workbook.addImage({
+        buffer: media.data.slice().buffer as ArrayBuffer,
+        extension: imageExtension(media.extension),
+      });
+      sheet.addImage(imageId, {
+        tl: { col: media.anchor.x, row: media.anchor.y },
+        ext: fittedSize(media, IMAGE_BOX_WIDTH),
+        editAs: "oneCell",
+      });
+      placed.add(mediaKey(media));
+    }
+  }
 }
 
 function addAttachmentSheet(
@@ -490,6 +527,7 @@ function addAttachmentSheet(
 ): void {
   const sheet = workbook.addWorksheet(safeSheetName("첨부 이미지", used));
   sheet.addRow(["출처 파일", "출처 시트", "출처 범위", IMAGE_COLUMN]);
+  sheet.getColumn(4).width = Math.ceil((IMAGE_BOX_WIDTH + 8) / 7);
   for (const [index, item] of media.entries()) {
     const rowNumber = index + 2;
     sheet.addRow([
@@ -515,45 +553,54 @@ export async function aggregationXlsxExport(
   documents: readonly NormalizedDocument[] = [],
 ): Promise<AggregationExport> {
   const selectedSheets = new Set(selection.sheetIds);
+  const selectedSheetsByKey = new Map(draft.workbooks
+    .flatMap((entry) => entry.sheets)
+    .filter((sheet) => selectedSheets.has(sheet.id))
+    .map((sheet) => [`${sheet.fileId}\u0000${sheet.name}`, sheet] as const));
   const mappings = selectedMappings(draft, selection);
   const workbook = new ExcelJS.Workbook();
   const used = new Set<string>();
-  const mediaById = new Map((documents.flatMap((document) => document.media ?? [])).map((media) => [media.id, media]));
+  const mediaById = new Map((documents.flatMap((document) => document.media ?? [])).map((media) => [mediaKey(media), media]));
+  const unsupported = [...mediaById.values()].filter((media) =>
+    selectedSheetsByKey.has(`${media.source.fileId}\u0000${media.source.sheet ?? ""}`) && !embeddable(media));
+  if (unsupported.length) {
+    throw new Error(`포함된 이미지 ${unsupported.length}건은 Excel 결과에 넣을 수 없는 형식입니다. 이미지가 누락되지 않도록 지원 형식(PNG, JPEG, GIF)으로 바꾼 뒤 다시 시도해 주세요.`);
+  }
   const fileNames = new Map(documents.map((document) => [document.fileId, document.metadata.fileName]));
   const placed = new Set<string>();
-  const mediaFor = (record: AggregationRecord): DocumentMedia[] => {
-    const media = record.media.map((ref) => mediaById.get(ref.id)).filter(embeddable);
-    for (const item of media.slice(0, MAX_IMAGES_PER_RECORD)) placed.add(item.id);
-    return media;
-  };
 
   for (const group of draft.groups) {
     const sheetIds = group.sheetIds.filter((id) => selectedSheets.has(id));
     if (sheetIds.length === 0) continue;
     const groupMappings = mappings.filter((mapping) => mapping.sourceFields.some((source) => sheetIds.includes(source.sheetId)));
     const records = draft.records.filter((record) => sheetIds.includes(record.sheetId));
+    const template = templateSource(draft, group, selectedSheets, documents);
     if (records.length > 0 && groupMappings.length > 0) {
       addRecordSheet(
         workbook,
-        group.name,
+        template?.aggregationSheet.name || group.name,
         records,
         groupMappings,
-        mediaFor,
+        mediaById,
         used,
-        templateSource(draft, group, selectedSheets, documents),
+        template,
         placed,
       );
     }
   }
 
-  const selectedSheetKeys = new Set(draft.workbooks
-    .flatMap((entry) => entry.sheets)
-    .filter((sheet) => selectedSheets.has(sheet.id))
-    .map((sheet) => `${sheet.fileId}\u0000${sheet.name}`));
-  const unplaced = [...mediaById.values()].filter((media) =>
-    embeddable(media)
-    && !placed.has(media.id)
-    && selectedSheetKeys.has(`${media.source.fileId}\u0000${media.source.sheet ?? ""}`));
+  const linked = new Set(draft.records
+    .filter((record) => selectedSheets.has(record.sheetId))
+    .flatMap((record) => record.media.map(mediaKey)));
+  const unplaced = [...mediaById.values()].filter((media) => {
+    if (!embeddable(media) || placed.has(mediaKey(media))) return false;
+    const sourceSheet = selectedSheetsByKey.get(`${media.source.fileId}\u0000${media.source.sheet ?? ""}`);
+    if (!sourceSheet) return false;
+    const headerRow = rangeBounds(sourceSheet.regions[0]?.headerRange)?.endRow;
+    // Logos and other unlinked header decoration belong only to the first
+    // template, not a second workbook's fallback attachments.
+    return linked.has(mediaKey(media)) || headerRow === undefined || media.anchor.y >= headerRow;
+  });
   if (unplaced.length > 0) addAttachmentSheet(workbook, unplaced, fileNames, used);
 
   if (workbook.worksheets.length === 0) {

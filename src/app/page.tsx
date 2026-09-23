@@ -1539,7 +1539,7 @@ export default function Home() {
                     onSource={openSource}
                     onCloseSource={closeSource}
                     resultActions={activeTab === "Extract" && extractMode === "text"
-                      ? <ExtractExportButtons busy={busy} onExport={exportFiles} />
+                      ? <ResultExportButtons busy={busy} onExport={exportFiles} />
                       : undefined}
                     dictionary={{ userTerms, ignoredRules, onAddTerm: addTerm, onRemoveTerm: removeTerm, onClearTerms: clearTerms, onToggleRule: toggleRule }}
                   />}
@@ -1901,14 +1901,17 @@ function ExtractControls({ mode, fields, busy, runDisabled, onMode, onFields, on
   );
 }
 
-function ExtractExportButtons({ busy, onExport }: {
+function ResultExportButtons({ busy, onExport, xlsxOnly = false, disabled = false, label = "추출 결과 다운로드" }: {
   busy: boolean;
   onExport: (format: "csv" | "xlsx") => void | Promise<void>;
+  xlsxOnly?: boolean;
+  disabled?: boolean;
+  label?: string;
 }) {
   return (
-    <div className="extract-export-actions" aria-label="추출 결과 다운로드">
-      <button type="button" className="secondary-action" onClick={() => void onExport("csv")} disabled={busy}>CSV 다운로드</button>
-      <button type="button" className="extract-download-primary" onClick={() => void onExport("xlsx")} disabled={busy}>XLSX 다운로드</button>
+    <div className="extract-export-actions" aria-label={label}>
+      {!xlsxOnly ? <button type="button" className="secondary-action" onClick={() => void onExport("csv")} disabled={busy || disabled}>CSV 다운로드</button> : null}
+      <button type="button" className="extract-download-primary" onClick={() => void onExport("xlsx")} disabled={busy || disabled}>XLSX 다운로드</button>
     </div>
   );
 }
@@ -1954,7 +1957,7 @@ function StructuredExtractResults({ result, fileNames, onSource, status, busy, o
           {result.summary.records ? <span className="metric">세부 표 <b>{result.summary.records}</b></span> : null}
         </p>
         {!isEmpty
-          ? <ExtractExportButtons busy={busy} onExport={onExport} />
+          ? <ResultExportButtons busy={busy} onExport={onExport} />
           : null}
       </div>
 
@@ -2923,7 +2926,7 @@ function ComparisonView({ comparison, compareIds, enrichment, fileNames, detail,
       <ResultHeader
         title="버전 비교 결과"
         status={status}
-        meta={<ExtractExportButtons busy={busy} onExport={onExport} />}
+        meta={<ResultExportButtons busy={busy} onExport={onExport} />}
       />
       <div className="comparison-file-map" aria-label="비교 파일 방향">
         <div>
@@ -3020,7 +3023,7 @@ function ValueCheckView({ result, fileNames, onSource, status, busy, onExport }:
       <ResultHeader
         title="값 일치 확인 결과"
         status={status}
-        meta={result.groups.length ? <ExtractExportButtons busy={busy} onExport={onExport} /> : undefined}
+        meta={result.groups.length ? <ResultExportButtons busy={busy} onExport={onExport} /> : undefined}
       />
       {/*
         * The filter row already carries every count, so a second summary line
@@ -3119,6 +3122,22 @@ function ValueCheckView({ result, fileNames, onSource, status, busy, onExport }:
     </section>
   );
 }
+function aggregationPreviewDate(value: AggregationDraft["records"][number]["fields"][number]["value"]): string {
+  const format = value.numberFormat?.replace(/"([^"]*)"/gu, "$1").trim() ?? "";
+  if (!/^m\/d(?:\s|;|$)/iu.test(format) || (value.cellType !== "date" && typeof value.value !== "number")) return value.displayValue;
+  const dateText = value.normalizedValue ?? (typeof value.value === "string" ? value.value : "");
+  const iso = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}))?/u.exec(dateText);
+  if (iso) {
+    const day = `${Number(iso[2])}/${Number(iso[3])}`;
+    return /\bh:/iu.test(format) && iso[4] ? `${day} ${Number(iso[4])}:${iso[5]}` : day;
+  }
+  if (typeof value.value === "number" && Number.isFinite(value.value)) {
+    const date = new Date(Date.UTC(1899, 11, 30) + Math.round(value.value * 86_400_000));
+    return `${date.getUTCMonth() + 1}/${date.getUTCDate()}`;
+  }
+  return value.displayValue;
+}
+
 function AggregationResults({ draft, selection, busy, onSelection, onExport }: {
   draft: AggregationDraft | null;
   selection: AggregationSelection | null;
@@ -3139,6 +3158,27 @@ function AggregationResults({ draft, selection, busy, onSelection, onExport }: {
   const reviewMappings = selection.mappings.filter((mapping) => statusOf(mapping.id) !== "confirmed");
   const visibleMappings = allMappings ? selection.mappings : reviewMappings;
   const resultSheets = draft.groups.filter((group) => group.sheetIds.some((id) => selectedSheets.has(id)));
+  const usedResultNames = new Set<string>();
+  const resultNames = new Map(resultSheets.map((group) => {
+    const preferred = draft.workbooks.flatMap((workbook) => workbook.sheets)
+      .find((sheet) => selectedSheets.has(sheet.id) && group.sheetIds.includes(sheet.id))?.name ?? group.name;
+    const base = preferred.replace(/[\\/?*[\]:]/gu, " ").replace(/\s+/gu, " ").trim() || "취합 결과";
+    let name = base.slice(0, 31);
+    for (let suffix = 2; usedResultNames.has(name.toLocaleLowerCase()); suffix += 1) {
+      const marker = ` (${suffix})`;
+      name = `${base.slice(0, 31 - marker.length)}${marker}`;
+    }
+    usedResultNames.add(name.toLocaleLowerCase());
+    return [group.id, name] as const;
+  }));
+  const linkedImages = new Set(selectedRecords.flatMap((record) => record.media.map((media) => `${media.source.fileId}\0${media.id}`)));
+  const unlinkedImages = draft.workbooks.flatMap((workbook) => workbook.sheets)
+    .filter((sheet) => selectedSheets.has(sheet.id))
+    .flatMap((sheet) => {
+      const headerEnd = Number(/:[A-Z]+(\d+)$/iu.exec(sheet.regions[0]?.headerRange ?? "")?.[1] ?? 0);
+      return sheet.media.filter((media) => !linkedImages.has(`${media.source.fileId}\0${media.id}`) && (media.source.row ?? Infinity) > headerEnd);
+    }).length;
+  const reviewCount = reviewMappings.length + unlinkedImages;
   const toggleSheet = (sheetId: string) => onSelection({
     ...selection,
     sheetIds: selectedSheets.has(sheetId) ? selection.sheetIds.filter((id) => id !== sheetId) : [...selection.sheetIds, sheetId],
@@ -3149,23 +3189,24 @@ function AggregationResults({ draft, selection, busy, onSelection, onExport }: {
   });
   const previewValue = (record: AggregationDraft["records"][number], mapping: AggregationSelection["mappings"][number]) => {
     const sourceFields = new Set(mapping.sourceFields.filter((source) => source.sheetId === record.sheetId).map((source) => source.field));
-    return record.fields.filter((field) => sourceFields.has(field.label)).map((field) => field.value.displayValue).join(" | ") || "—";
+    const text = record.fields.filter((field) => sourceFields.has(field.label)).map((field) => aggregationPreviewDate(field.value)).filter(Boolean).join(" | ");
+    const images = record.media.filter((media) => media.role && (media.role === mapping.targetField || sourceFields.has(media.role))).length;
+    return <>{text || (!images ? "—" : null)}{images ? <small className="aggregation-image-count">{text ? " · " : ""}이미지 {images}개</small> : null}</>;
   };
 
   return (
     <section className="panel results-panel aggregation-results">
-      <ResultHeader
-        title="취합 결과"
-        status={{ tone: "success", label: "취합 완료" }}
-        meta={<button type="button" className="extract-download-primary" disabled={busy || selectedRecords.length === 0} onClick={() => void onExport()}>XLSX 다운로드</button>}
-      />
-      <p className="check-summary-line">
-        <span className="metric">파일 <b>{draft.workbooks.length}</b></span>
-        <span className="metric">선택 시트 <b>{selection.sheetIds.length}</b></span>
-        <span className="metric">결과 시트 <b>{resultSheets.length}</b></span>
-        <span className="metric">취합 레코드 <b>{selectedRecords.length}</b></span>
-        <span className="metric" data-empty={reviewMappings.length === 0}>확인 필요 <b>{reviewMappings.length}</b></span>
-      </p>
+      <ResultHeader title="취합 결과" status={{ tone: "success", label: "취합 완료" }} />
+      <div className="extract-result-toolbar aggregation-result-toolbar">
+        <p className="check-summary-line">
+          <span className="metric">파일 <b>{draft.workbooks.length}</b></span>
+          <span className="metric">선택 시트 <b>{selection.sheetIds.length}</b></span>
+          <span className="metric">결과 시트 <b>{resultSheets.length}</b></span>
+          <span className="metric">취합 레코드 <b>{selectedRecords.length}</b></span>
+          <span className="metric" data-empty={reviewCount === 0}>확인 필요 <b>{reviewCount}</b></span>
+        </p>
+        <ResultExportButtons busy={busy} disabled={selectedRecords.length === 0 || includedMappings.length === 0} label="취합 결과 다운로드" xlsxOnly onExport={() => onExport()} />
+      </div>
 
       <section className="aggregation-section" aria-labelledby="aggregation-sheets">
         <div className="aggregation-section-heading">
@@ -3193,17 +3234,23 @@ function AggregationResults({ draft, selection, busy, onSelection, onExport }: {
         <div className="aggregation-section-heading"><div><h3 id="aggregation-result-sheets">결과 시트 {resultSheets.length}개</h3><p>표 구조가 다른 내용은 합치지 않고 각각의 시트로 유지합니다.</p></div></div>
         <ul className="aggregation-result-sheets">
           {resultSheets.map((group) => (
-            <li key={group.id}><strong>{group.name}</strong><span>{draft.records.filter((record) => group.sheetIds.includes(record.sheetId) && selectedSheets.has(record.sheetId)).length}건</span></li>
+            <li key={group.id}><strong>{resultNames.get(group.id)}</strong><span>{draft.records.filter((record) => group.sheetIds.includes(record.sheetId) && selectedSheets.has(record.sheetId)).length}건</span></li>
           ))}
         </ul>
       </section>
 
-      {reviewMappings.length || allMappings ? (
-        <section className="aggregation-section" aria-labelledby="aggregation-mappings">
-          <div className="aggregation-section-heading">
-            <div><h3 id="aggregation-mappings">확인이 필요한 항목</h3><p>이름이 다른 항목을 같은 열로 묶은 경우만 표시합니다. 나머지는 자동으로 확정했습니다.</p></div>
-            <button type="button" className="secondary-action" onClick={() => setAllMappings((value) => !value)}>{allMappings ? "확인 항목만 보기" : "전체 매핑 보기"}</button>
+      <section className="aggregation-section" aria-labelledby="aggregation-mappings">
+        <div className="aggregation-section-heading">
+          <div>
+            <h3 id="aggregation-mappings">확인이 필요한 항목</h3>
+            <p>{reviewMappings.length ? `자동으로 묶인 항목 ${reviewMappings.length}개를 확인하세요. 나머지는 확정했습니다.` : unlinkedImages ? "이미지를 연결할 레코드를 확인하세요." : "모든 항목을 자동으로 확정했습니다."}</p>
           </div>
+          <button type="button" className="secondary-action" aria-expanded={allMappings} onClick={() => setAllMappings((value) => !value)}>
+            {allMappings ? "확인 항목만 보기" : "전체 매핑 보기"}
+          </button>
+        </div>
+        {unlinkedImages > 0 ? <p className="aggregation-unlinked" role="status">미연결 이미지 {unlinkedImages}건 · 첨부 이미지 시트에서 출처와 위치를 확인하세요.</p> : null}
+        {visibleMappings.length ? (
           <div className="aggregation-mappings">
             {visibleMappings.map((mapping) => (
               <div className="aggregation-mapping" key={mapping.id}>
@@ -3217,15 +3264,8 @@ function AggregationResults({ draft, selection, busy, onSelection, onExport }: {
               </div>
             ))}
           </div>
-        </section>
-      ) : (
-        <section className="aggregation-section" aria-labelledby="aggregation-mappings">
-          <div className="aggregation-section-heading">
-            <div><h3 id="aggregation-mappings">확인이 필요한 항목</h3><p>모든 항목을 자동으로 확정했습니다.</p></div>
-            <button type="button" className="secondary-action" onClick={() => setAllMappings(true)}>전체 매핑 보기</button>
-          </div>
-        </section>
-      )}
+        ) : null}
+      </section>
 
       <section className="aggregation-section" aria-labelledby="aggregation-preview">
         <div className="aggregation-section-heading"><div><h3 id="aggregation-preview">결과 미리보기</h3><p>다운로드할 결과 시트와 같은 항목 기준으로 시트당 최대 20건을 표시합니다.</p></div></div>
@@ -3233,19 +3273,25 @@ function AggregationResults({ draft, selection, busy, onSelection, onExport }: {
           const groupSheetIds = group.sheetIds.filter((id) => selectedSheets.has(id));
           const groupMappings = includedMappings.filter((mapping) => mapping.sourceFields.some((source) => groupSheetIds.includes(source.sheetId)));
           const groupRecords = selectedRecords.filter((record) => groupSheetIds.includes(record.sheetId));
-          if (groupRecords.length === 0 || groupMappings.length === 0) return null;
+          if (groupRecords.length === 0 || groupMappings.length === 0) {
+            return <p className="aggregation-preview-empty" key={group.id}>{resultNames.get(group.id)}: {groupRecords.length ? "포함된 항목이 없습니다." : "표시할 레코드가 없습니다."}</p>;
+          }
           return (
-            <div className="aggregation-preview-group" key={group.id}>
-              <h4>{group.name}</h4>
-              <div className="aggregation-preview-wrap">
-                <table className="aggregation-preview">
-                  <thead><tr>{groupMappings.map((mapping) => <th key={mapping.id}>{mapping.targetField}</th>)}<th>출처</th><th>상태</th></tr></thead>
-                  <tbody>{groupRecords.slice(0, 20).map((record) => <tr key={record.id}>{groupMappings.map((mapping) => <td key={mapping.id}>{previewValue(record, mapping)}</td>)}<td>{[record.source.sheet, record.source.cellRange ?? record.source.label].filter(Boolean).join(" · ")}</td><td>{record.duplicateOf ? "중복 후보" : record.media.length ? `이미지 ${record.media.length}` : "확인"}</td></tr>)}</tbody>
+            <section className="aggregation-preview-group" key={group.id} aria-label={`${resultNames.get(group.id)} 미리보기`}>
+              <div className="aggregation-preview-heading"><h4>{resultNames.get(group.id)}</h4><span>{Math.min(groupRecords.length, 20)} / {groupRecords.length}건</span></div>
+              <div className="aggregation-preview-wrap" role="region" aria-label={`${resultNames.get(group.id)} 표, 가로로 스크롤 가능`} tabIndex={0}>
+                <table className="aggregation-preview" style={{ minWidth: Math.max(760, groupMappings.length * 150) }}>
+                  <thead><tr>{groupMappings.map((mapping) => <th scope="col" key={mapping.id}>{mapping.targetField}</th>)}</tr></thead>
+                  <tbody>{groupRecords.slice(0, 20).map((record) => (
+                    <tr key={record.id}>{groupMappings.map((mapping) => <td key={mapping.id}>{previewValue(record, mapping)}</td>)}</tr>
+                  ))}</tbody>
                 </table>
               </div>
-            </div>
+              <p className="aggregation-preview-provenance">출처: {draft.workbooks.filter((workbook) => workbook.sheets.some((sheet) => groupSheetIds.includes(sheet.id))).map((workbook) => workbook.fileName).join(", ")}{groupRecords.some((record) => record.duplicateOf) ? " · 중복 후보 포함" : ""}</p>
+            </section>
           );
         })}
+        {resultSheets.length === 0 ? <p className="aggregation-preview-empty">시트를 선택하면 결과를 미리 볼 수 있습니다.</p> : null}
       </section>
     </section>
   );
