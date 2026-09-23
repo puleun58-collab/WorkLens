@@ -3,7 +3,7 @@
 import { ChangeEvent, DragEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { AiAvailableResult, AiRequest, GroundedClaim } from "@/domain/ai";
 import type { ComparisonItem, ComparisonResult } from "@/domain/compare";
-import { isAggregationFileKind, type AggregationDraft, type AggregationSelection } from "@/domain/aggregation";
+import { AGGREGATION_UNSUPPORTED_DETAIL, AGGREGATION_UNSUPPORTED_TITLE, isAggregationFileKind, type AggregationDraft, type AggregationSelection } from "@/domain/aggregation";
 import type { ValueCheckResult, ValueCheckStatus } from "@/domain/value-check";
 import type { DocumentMetadata, SourceRef } from "@/domain/document";
 import {
@@ -878,7 +878,7 @@ export default function Home() {
   const runAggregate = async () => {
     const selectedFiles = files.filter((file) => selected.includes(file.id));
     if (selectedFiles.some((file) => !isAggregationFileKind(file.kind))) {
-      notifyView("error", "취합할 수 없는 파일이 포함되어 있습니다.", undefined, "취합은 Excel·CSV 형식의 표 데이터 파일만 지원합니다. 지원하지 않는 파일을 선택 해제한 뒤 다시 실행해 주세요.");
+      notifyView("error", AGGREGATION_UNSUPPORTED_TITLE, undefined, AGGREGATION_UNSUPPORTED_DETAIL);
       return;
     }
     setBusy(true);
@@ -1486,8 +1486,8 @@ export default function Home() {
                 ) : null}
                 {activeTab === "Aggregate" && aggregationHasUnsupportedFiles ? (
                   <p className="aggregation-selection-error" role="status">
-                    <strong>취합할 수 없는 파일이 포함되어 있습니다.</strong>
-                    <span>취합은 Excel·CSV 형식의 표 데이터 파일만 지원합니다. 지원하지 않는 파일을 선택 해제한 뒤 다시 실행해 주세요.</span>
+                    <strong>{AGGREGATION_UNSUPPORTED_TITLE}</strong>
+                    <span>{AGGREGATION_UNSUPPORTED_DETAIL}</span>
                   </p>
                 ) : null}
                 {activeTab !== "Extract" ? (
@@ -1731,7 +1731,7 @@ const workSectionCopy: Record<Tab, [string, string]> = {
   Polish: ["문서 윤문", "선택한 파일의 번역투와 중복 표현을 문장 단위로 다듬습니다."],
   Extract: ["정보 추출", "선택한 파일에서 필요한 항목과 값을 찾아 정리합니다."],
   Brief: ["요약", "선택한 파일의 핵심 내용을 정리합니다. 원하는 요약 방식이 있다면 입력하세요."],
-  Aggregate: ["문서 취합", "여러 파일의 표 데이터를 하나의 Excel 파일로 정리합니다."],
+  Aggregate: ["문서 취합", "여러 Excel 파일의 표 데이터를 첫 번째 파일의 서식을 유지해 하나의 Excel 파일로 정리합니다."],
 };
 
 function ResultHeader({ eyebrow, title, status, meta }: {

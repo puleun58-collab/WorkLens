@@ -4,11 +4,16 @@ import type { ExtractValueType } from "@/domain/extract";
 export type AggregationValueType = ExtractValueType | "Boolean" | "List" | "Image";
 export type AggregationSheetRole = "records" | "reference" | "empty" | "review";
 export type AggregationMappingStatus = "confirmed" | "suggested" | "review";
-export const AGGREGATION_FILE_KINDS = ["xlsx", "csv"] as const satisfies readonly FileKind[];
-
-export function isAggregationFileKind(kind: FileKind): kind is "xlsx" | "csv" {
-  return AGGREGATION_FILE_KINDS.includes(kind as "xlsx" | "csv");
+/**
+ * Aggregation keeps the first selected workbook's layout, so only a real Excel
+ * workbook can take part. XLSM is parsed as `xlsx` (its macro is never read).
+ */
+export function isAggregationFileKind(kind: FileKind): kind is "xlsx" {
+  return kind === "xlsx";
 }
+
+export const AGGREGATION_UNSUPPORTED_TITLE = "취합할 수 없는 파일이 포함되어 있습니다.";
+export const AGGREGATION_UNSUPPORTED_DETAIL = "취합은 Excel 파일만 지원합니다. 지원하지 않는 파일을 선택 해제한 뒤 다시 실행해 주세요.";
 
 export interface AggregationValue {
   displayValue: string;
@@ -76,7 +81,7 @@ export interface AggregationWorkbook {
   id: string;
   fileId: string;
   fileName: string;
-  kind: "xlsx" | "csv";
+  kind: "xlsx";
   sheets: AggregationSheet[];
 }
 

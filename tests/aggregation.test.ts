@@ -86,22 +86,38 @@ async function styledTemplateDocument(
   }, fileId);
 }
 
-  it("combines compatible XLSX and CSV records", async () => {
+const salesCsv = () => parseDocument({
+  fileId: "csv-source",
+  fileName: "매출.csv",
+  bytes: new TextEncoder().encode("부서,매출,기준일\r\n운영,800,2026-08-03\r\n지원,400,2026-08-04\r\n"),
+});
+
+describe("Excel-only aggregation input", () => {
+  it("rejects a CSV on its own: it has no layout to use as the template", async () => {
+    const csv = await salesCsv();
+
+    expect(() => buildAggregation([csv])).toThrow("취합할 수 없는 파일이 포함되어 있습니다.");
+  });
+
+  it("refuses a workbook mixed with a CSV instead of silently dropping the CSV", async () => {
     const workbook = await documentOf((source) => {
-      const sheet = source.addWorksheet("매출");
-      sheet.addRows([["부서", "매출", "기준일"], ["영업", 1200, "2026-08-01"], ["물류", 900, "2026-08-02"]]);
+      source.addWorksheet("매출").addRows([["부서", "매출", "기준일"], ["영업", 1200, "2026-08-01"]]);
     }, "xlsx-source");
-    const csv = await parseDocument({
-      fileId: "csv-source",
-      fileName: "매출.csv",
-      bytes: new TextEncoder().encode("담당부서,매출액,기준일\r\n운영,800,2026-08-03\r\n지원,400,2026-08-04\r\n"),
-    });
+    const csv = await salesCsv();
 
-    const draft = buildAggregation([workbook, csv]);
-
-    expect(draft.workbooks.map((entry) => entry.kind)).toEqual(["xlsx", "csv"]);
-    expect(draft.groups).toHaveLength(1);
-    expect(draft.records).toHaveLength(4);
+    for (const documents of [[workbook, csv], [csv, workbook]]) {
+      let error: unknown;
+      try {
+        buildAggregation(documents);
+      } catch (caught) {
+        error = caught;
+      }
+      expect(error).toMatchObject({
+        code: "AGGREGATE_FORMAT_UNSUPPORTED",
+        message: "취합할 수 없는 파일이 포함되어 있습니다.",
+        detail: "취합은 Excel 파일만 지원합니다. 지원하지 않는 파일을 선택 해제한 뒤 다시 실행해 주세요.",
+      });
+    }
   });
 
   it.each(["pptx", "pdf", "docx"] as const)("rejects %s instead of silently aggregating it", (kind) => {
@@ -116,6 +132,7 @@ async function styledTemplateDocument(
 
     expect(() => buildAggregation([document])).toThrow("취합할 수 없는 파일이 포함되어 있습니다.");
   });
+});
 
 describe("generic aggregation", () => {
   it("groups compatible sheets regardless of column order and keeps sheet sources", async () => {

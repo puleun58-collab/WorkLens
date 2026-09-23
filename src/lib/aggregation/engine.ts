@@ -8,7 +8,7 @@ import type {
   AggregationSheet,
   AggregationWorkbook,
 } from "@/domain/aggregation";
-import { isAggregationFileKind } from "@/domain/aggregation";
+import { AGGREGATION_UNSUPPORTED_DETAIL, AGGREGATION_UNSUPPORTED_TITLE, isAggregationFileKind } from "@/domain/aggregation";
 import type { NormalizedDocument, SourceRef, TableBlock, TableCell, WorkbookSheet } from "@/domain/document";
 import { classifyValue, normalizeValue } from "@/lib/extract/values";
 import { DocumentError } from "@/lib/upload";
@@ -291,21 +291,13 @@ function safeWorkbookSheet(document: NormalizedDocument, sheet: WorkbookSheet): 
   }
 }
 
-function documentWorkbook(document: NormalizedDocument & { kind: "xlsx" | "csv" }): AggregationWorkbook {
-  const fileName = document.metadata.fileName;
-  // A document without worksheets still needs a name a reader recognises, so
-  // its tables are named after the file rather than after their position.
-  const baseName = fileName.replace(/\.[^.]+$/u, "") || fileName;
-  const tables = document.blocks.filter((block): block is TableBlock => block.type === "table");
-  const sheets = document.kind === "xlsx" && document.workbookSheets
-    ? document.workbookSheets.map((sheet) => safeWorkbookSheet(document, sheet))
-    : tables.map((table, index) => safeWorkbookSheet(document, {
-      index: index + 1,
-      name: table.source.sheet ?? (tables.length === 1 ? baseName : `${baseName} ${index + 1}`),
-      visibility: "visible",
-      table,
-    }));
-  return { id: `aggregation:${document.id}`, fileId: document.fileId, fileName, kind: document.kind, sheets };
+/**
+ * Excel's own sheet hierarchy is the aggregation unit: visibility, header
+ * region, style template and media all hang off a real worksheet.
+ */
+function documentWorkbook(document: NormalizedDocument & { kind: "xlsx" }): AggregationWorkbook {
+  const sheets = (document.workbookSheets ?? []).map((sheet) => safeWorkbookSheet(document, sheet));
+  return { id: `aggregation:${document.id}`, fileId: document.fileId, fileName: document.metadata.fileName, kind: "xlsx", sheets };
 }
 
 
@@ -383,16 +375,11 @@ function markDuplicates(records: AggregationRecord[]): void {
 
 
 export function buildAggregation(documents: readonly NormalizedDocument[]): AggregationDraft {
-  const unsupported = documents.filter((document) => !isAggregationFileKind(document.kind));
-  if (unsupported.length > 0) {
-    throw new DocumentError(
-      "AGGREGATE_FORMAT_UNSUPPORTED",
-      "취합할 수 없는 파일이 포함되어 있습니다.",
-      "취합은 Excel·CSV 형식의 표 데이터 파일만 지원합니다. 지원하지 않는 파일을 선택 해제한 뒤 다시 실행해 주세요.",
-    );
+  if (documents.some((document) => !isAggregationFileKind(document.kind))) {
+    throw new DocumentError("AGGREGATE_FORMAT_UNSUPPORTED", AGGREGATION_UNSUPPORTED_TITLE, AGGREGATION_UNSUPPORTED_DETAIL);
   }
   const workbooks = documents
-    .filter((document): document is NormalizedDocument & { kind: "xlsx" | "csv" } => isAggregationFileKind(document.kind))
+    .filter((document): document is NormalizedDocument & { kind: "xlsx" } => isAggregationFileKind(document.kind))
     .map(documentWorkbook);
   const records = workbooks.flatMap((workbook) => workbook.sheets.flatMap((sheet) => sheet.regions.flatMap((region) => region.records)));
   markDuplicates(records);
