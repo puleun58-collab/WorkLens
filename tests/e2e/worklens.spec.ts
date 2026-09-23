@@ -915,7 +915,12 @@ test("presents text Polish as an immediate original-to-revision workflow", async
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(result).toBeVisible();
   expect(await revision.evaluate((element) => Math.round(element.getBoundingClientRect().width)))
-    .toBe(await result.locator(".polish-row").evaluate((element) => Math.round(element.getBoundingClientRect().width)));
+    .toBe(await result.locator(".polish-row").evaluate((element) => {
+      const style = getComputedStyle(element);
+      return Math.round(element.getBoundingClientRect().width
+        - Number.parseFloat(style.paddingLeft) - Number.parseFloat(style.paddingRight)
+        - Number.parseFloat(style.borderLeftWidth) - Number.parseFloat(style.borderRightWidth));
+    }));
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: "artifacts/polish-result-mobile-390.png", fullPage: true });
   await original.getByRole("button", { name: "원문 복사" }).click();

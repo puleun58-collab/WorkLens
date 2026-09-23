@@ -8607,3 +8607,67 @@ input:disabled {
   }
 }
 
+/*
+ * Check reads on one content column: the severity bar, the category line and
+ * every finding share the same left and right edge.
+ */
+.check-results .check-issue-row {
+  padding-inline: 24px;
+}
+
+.check-results .check-list {
+  padding-top: 4px;
+}
+
+/*
+ * Polish results are discrete blocks. The panel stays white, so each result
+ * needs its own hairline and breathing room instead of running together.
+ */
+.polish-row {
+  padding: 16px 18px 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: #fff;
+}
+
+.polish-row + .polish-row,
+.polish-summary-line + .polish-row {
+  margin-top: 16px;
+}
+
+.polish-results .polish-row:last-of-type {
+  margin-bottom: 18px;
+}
+
+/* Divider, not decoration: each section boundary gets one hairline. */
+.polish-reason,
+.polish-source,
+.polish-rejection-reason {
+  padding-top: 12px;
+  border-top: 1px solid var(--line-soft);
+}
+
+/* Locator and its action belong on one line. */
+.polish-source .result-source {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+}
+
+.polish-source .source-locator {
+  overflow-wrap: break-word;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+@media (max-width: 700px) {
+  .check-results .check-issue-row {
+    padding-inline: 16px;
+  }
+
+  .polish-row {
+    padding: 14px 14px 16px;
+  }
+}
+
