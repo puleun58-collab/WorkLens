@@ -7891,13 +7891,14 @@ input:disabled {
 .workspace > .aggregation-results {
   --aggregation-line: #e5eaf2;
   --aggregation-header: #f1f3f5;
-  background: #fff;
+  background: transparent;
 }
 
+/* Title, status and summary sit flat on the page canvas; the result surface starts at the data. */
 .aggregation-results > .result-heading {
-  padding: 12px var(--panel-inset);
-  border-bottom: 1px solid var(--aggregation-line);
-  background: #fff;
+  padding: 0 var(--panel-inset) var(--space-2);
+  border-bottom: 0;
+  background: transparent;
 }
 
 .aggregation-results > .result-heading h2 {
@@ -7905,20 +7906,44 @@ input:disabled {
 }
 
 .aggregation-result-toolbar {
-  border-color: var(--aggregation-line);
+  padding-top: 0;
+  padding-bottom: var(--space-4);
+  border-bottom: 0;
+  background: transparent;
 }
-.aggregation-result-toolbar .metric[data-empty="false"] {
+
+.aggregation-result-toolbar .metric {
+  color: var(--muted);
+}
+
+.aggregation-result-toolbar .metric b {
+  color: var(--ink);
+  font-weight: var(--font-weight-semibold);
+}
+
+.aggregation-result-toolbar .metric[data-empty="true"] b {
+  color: var(--muted);
+}
+
+.aggregation-result-toolbar .metric[data-empty="false"],
+.aggregation-result-toolbar .metric[data-empty="false"] b {
   color: var(--warning);
 }
 
 .aggregation-section {
   padding: 18px var(--panel-inset);
-  border-bottom: 1px solid var(--aggregation-line);
+  border: 1px solid var(--border-default);
+  border-top: 0;
   background: #fff;
 }
 
+.aggregation-result-toolbar + .aggregation-section {
+  border-top: 1px solid var(--border-default);
+  border-radius: var(--radius-panel) var(--radius-panel) 0 0;
+}
+
 .aggregation-section:last-child {
-  border-bottom: 0;
+  border-radius: 0 0 var(--radius-panel) var(--radius-panel);
 }
 
 .aggregation-section-heading h3,
@@ -8057,6 +8082,15 @@ input:disabled {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
+}
+
+/* A target field keeps the target workbook's own header, so it is shown, not edited. */
+.aggregation-mapping > .aggregation-mapping-target {
+  min-width: 0;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: var(--font-weight-semibold);
+  overflow-wrap: anywhere;
 }
 
 .aggregation-mapping > input {

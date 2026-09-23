@@ -2,16 +2,24 @@ import type {
   AggregationDraft,
   AggregationField,
   AggregationFieldMapping,
+  AggregationHelperColumn,
+  AggregationIssue,
+  AggregationMappingStatus,
   AggregationRecord,
   AggregationRegion,
-  AggregationSchemaGroup,
   AggregationSheet,
+  AggregationTarget,
+  AggregationTargetKind,
+  AggregationTargetType,
   AggregationWorkbook,
 } from "@/domain/aggregation";
 import { AGGREGATION_UNSUPPORTED_DETAIL, AGGREGATION_UNSUPPORTED_TITLE, isAggregationFileKind } from "@/domain/aggregation";
 import type { DocumentMedia, NormalizedDocument, SourceRef, TableBlock, TableCell, WorkbookSheet } from "@/domain/document";
 import { classifyValue, normalizeValue } from "@/lib/extract/values";
 import { DocumentError } from "@/lib/upload";
+import { isDateNumberFormat } from "@/lib/xlsx-values";
+import { isExternalFormula, rowTemplate } from "./formula";
+import { primaryRegion } from "./values";
 
 const MAX_HEADER_SCAN_ROWS = 24;
 const MIN_RECORD_CELLS = 2;
@@ -22,13 +30,18 @@ const ISO_DATE = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))
 const LOOSE_DATE = /^(\d{4})[-./](\d{1,2})[-./](\d{1,2})\.?$/u;
 const MONTH_PERIOD = /^(\d{4})\s*(?:년\s*(\d{1,2})\s*월?|[-./]\s*(\d{1,2})\.?)$/u;
 const MONTH_ONLY = /^(\d{1,2})\s*월$/u;
-/** Only established business synonyms; never infer a relationship from spelling similarity. */
-const SAFE_ALIASES: Readonly<Record<string, readonly string[]>> = {
-  부서: ["부서명", "담당부서"],
-  매출: ["매출액", "매출금액"],
-  비용: ["비용액", "지출액"],
-  인원: ["인원수"],
-};
+/**
+ * Established business synonyms only; the first label of a group is the
+ * canonical name. Spelling similarity alone never relates two fields.
+ */
+const ALIAS_GROUPS: readonly (readonly string[])[] = [
+  ["부서", "부서명", "담당부서"],
+  ["매출", "매출액", "매출금액"],
+  ["비용", "비용액", "지출액"],
+  ["인원", "인원수"],
+  ["문제점", "현상 파악", "문제 현상"],
+  ["관리 No", "관리번호", "관리 번호"],
+];
 
 
 function fieldKey(value: string): string {
@@ -68,7 +81,7 @@ function canonicalField(value: string): string {
   return value.split(" > ").map((part) => {
     const label = canonicalDateLabel(part) ?? part.trim();
     const key = fieldKey(label);
-    for (const [canonical, aliases] of Object.entries(SAFE_ALIASES)) {
+    for (const [canonical, ...aliases] of ALIAS_GROUPS) {
       if (aliases.some((alias) => fieldKey(alias) === key)) return canonical;
     }
     return label;
@@ -306,9 +319,33 @@ function regionsForTable(document: NormalizedDocument, sheetId: string, table: T
     const id = `${sheetId}:region:${regions.length + 1}`;
     records.forEach((record) => { record.regionId = id; });
     associateRecordMedia(document.media ?? [], table.source.sheet, headers, records, linkedMedia);
-    regions.push({ id, headerRange, recordRange, headers: headers.map((entry) => entry.label), records, source: sourceRange(table.source, `${headerRange},${recordRange}`), status: "ready" });
+    regions.push({
+      id,
+      headerRange,
+      recordRange,
+      headers: headers.map((entry) => entry.label),
+      headerColumns: headers.map((entry) => entry.column + 1),
+      records,
+      source: sourceRange(table.source, `${headerRange},${recordRange}`),
+      status: "ready",
+    });
   }
   return regions;
+}
+/** Internal formulas among a region's filled record cells, as a share. */
+function formulaShare(table: TableBlock, region: AggregationRegion): number {
+  let filled = 0;
+  let formulas = 0;
+  for (const record of region.records) {
+    const row = table.rows[(record.source.row ?? 0) - 1] ?? [];
+    for (const column of region.headerColumns) {
+      const cell = row[column - 1];
+      if (!cell || (!cellText(cell) && !cell.formula)) continue;
+      filled += 1;
+      if (cell.formula && !isExternalFormula(cell.formula)) formulas += 1;
+    }
+  }
+  return filled ? formulas / filled : 0;
 }
 
 function workbookSheet(document: NormalizedDocument, sheet: WorkbookSheet): AggregationSheet {
@@ -316,6 +353,7 @@ function workbookSheet(document: NormalizedDocument, sheet: WorkbookSheet): Aggr
   const regions = regionsForTable(document, id, sheet.table);
   const hasValues = sheet.table.rows.some((row) => nonEmptyCount(row) > 0);
   const role = !hasValues ? "empty" : regions.length ? (sheet.visibility === "visible" ? "records" : "review") : "reference";
+  const primary = primaryRegion({ regions });
   return {
     id,
     documentId: document.id,
@@ -325,10 +363,12 @@ function workbookSheet(document: NormalizedDocument, sheet: WorkbookSheet): Aggr
     index: sheet.index,
     visibility: sheet.visibility,
     role,
-    selectedByDefault: role === "records" && sheet.visibility === "visible",
+    selectedByDefault: false,
     regions,
     media: (document.media ?? []).filter((media) => media.source.sheet === sheet.name).map((media) => ({ id: media.id, source: media.source })),
     source: sheet.table.source,
+    calculated: primary ? formulaShare(sheet.table, primary) >= 0.5 : false,
+    plan: { kind: "ignored" },
     ...(!hasValues ? { reason: "빈 시트" } : regions.length === 0 ? { reason: "반복 레코드 구조를 확정하지 못했습니다." } : sheet.visibility !== "visible" ? { reason: "숨김 시트는 확인 후 포함할 수 있습니다." } : {}),
   };
 }
@@ -351,6 +391,8 @@ function safeWorkbookSheet(document: NormalizedDocument, sheet: WorkbookSheet): 
       regions: [],
       media: [],
       source: sheet.table.source,
+      calculated: false,
+      plan: { kind: "ignored" },
       reason: error instanceof Error && error.message ? `시트 분석 실패: ${error.message}` : "시트 분석에 실패했습니다.",
     };
   }
@@ -365,118 +407,334 @@ function documentWorkbook(document: NormalizedDocument & { kind: "xlsx" }): Aggr
   return { id: `aggregation:${document.id}`, fileId: document.fileId, fileName: document.metadata.fileName, kind: "xlsx", sheets };
 }
 
+interface FieldPair {
+  target: number;
+  status: AggregationMappingStatus;
+}
+
+const STATUS_RANK: Record<AggregationMappingStatus, number> = { confirmed: 0, suggested: 1, review: 2 };
+const worse = (left: AggregationMappingStatus, right: AggregationMappingStatus): AggregationMappingStatus =>
+  STATUS_RANK[left] >= STATUS_RANK[right] ? left : right;
+const fieldIdentity = (label: string): string => fieldKey(canonicalField(label));
+const leafOf = (label: string): string => fieldKey(label.split(" > ").pop() ?? label);
 
 /**
- * A result sheet is named after the data it holds. The shared source sheet name
- * is the only name the reader already recognises, so it wins over any label the
- * aggregation could invent.
+ * Maps source headers onto target headers by meaning, never by column letter.
+ * Exact and established-synonym names map first, then a unique leaf under a
+ * renamed parent. With `positional`, a single unmatched source field between
+ * the same matched neighbours as a single unmatched target field is paired for
+ * the user to confirm.
  */
-function groupName(sheets: readonly AggregationSheet[], ordinal: number): string {
-  const counts = new Map<string, number>();
-  for (const sheet of sheets) {
-    const name = sheet.name.trim();
-    if (name) counts.set(name, (counts.get(name) ?? 0) + 1);
+function matchFields(sourceLabels: readonly string[], targetLabels: readonly string[], positional: boolean): Map<number, FieldPair> {
+  const pairs = new Map<number, FieldPair>();
+  const taken = new Set<number>();
+  const targetKeys = targetLabels.map(fieldIdentity);
+  const ambiguous = new Set(targetKeys.filter((key, index) => targetKeys.indexOf(key) !== index));
+  sourceLabels.forEach((label, index) => {
+    const key = fieldIdentity(label);
+    if (ambiguous.has(key)) return;
+    const target = targetKeys.indexOf(key);
+    if (target < 0 || taken.has(target)) return;
+    taken.add(target);
+    pairs.set(index, { target, status: fieldKey(label) === fieldKey(targetLabels[target]) ? "confirmed" : "suggested" });
+  });
+
+  const targetLeaves = targetLabels.map(leafOf);
+  const sourceLeaves = sourceLabels.map(leafOf);
+  sourceLabels.forEach((label, index) => {
+    if (pairs.has(index) || !label.includes(" > ")) return;
+    const leaf = sourceLeaves[index];
+    if (sourceLeaves.filter((entry) => entry === leaf).length !== 1) return;
+    const candidates = targetLeaves.flatMap((entry, target) => entry === leaf && targetLabels[target].includes(" > ") ? [target] : []);
+    if (candidates.length !== 1 || taken.has(candidates[0])) return;
+    taken.add(candidates[0]);
+    pairs.set(index, { target: candidates[0], status: "suggested" });
+  });
+  if (!positional) return pairs;
+
+  sourceLabels.forEach((label, index) => {
+    if (pairs.has(index) || canonicalDateLabel(label)) return;
+    let previous = index - 1;
+    while (previous >= 0 && !pairs.has(previous)) previous -= 1;
+    let next = index + 1;
+    while (next < sourceLabels.length && !pairs.has(next)) next += 1;
+    const low = previous >= 0 ? pairs.get(previous)!.target : -1;
+    const high = next < sourceLabels.length ? pairs.get(next)!.target : targetLabels.length;
+    if (next - previous - 1 !== 1 || high - low - 1 !== 1) return;
+    const candidate = low + 1;
+    if (taken.has(candidate) || canonicalDateLabel(targetLabels[candidate])) return;
+    taken.add(candidate);
+    pairs.set(index, { target: candidate, status: "review" });
+  });
+  return pairs;
+}
+
+
+/**
+ * How well a source sheet fits a target sheet, or undefined when it is not
+ * the same table. Stable fields decide; monthly columns come and go, and a
+ * type or column-letter difference is never a reason to split a table.
+ */
+function sheetFit(source: AggregationSheet, target: AggregationSheet): number | undefined {
+  const sourceRegion = primaryRegion(source);
+  const targetRegion = primaryRegion(target);
+  if (!sourceRegion || !targetRegion) return undefined;
+  const sourceStable = sourceRegion.headers.filter((label) => !canonicalDateLabel(label));
+  const targetStable = targetRegion.headers.filter((label) => !canonicalDateLabel(label));
+  const common = matchFields(sourceStable, targetStable, false).size;
+  const ratio = common / Math.max(1, sourceStable.length, targetStable.length);
+  const sameName = fieldKey(source.name) === fieldKey(target.name);
+  const dated = common === 1 && sourceStable.length === 1 && targetStable.length === 1
+    && sourceRegion.headers.length - sourceStable.length >= 2 && targetRegion.headers.length - targetStable.length >= 2;
+  const fits = sameName ? common >= 1 && (ratio >= 0.4 || dated) : common >= 2 && ratio >= 0.6;
+  return fits ? ratio + (sameName ? 0.5 : 0) : undefined;
+}
+
+function isNumericCell(cell: TableCell): boolean {
+  return typeof cell.value === "number" && cell.valueType !== "date";
+}
+
+/** The meaning of a column as its own sheet stores it: dates, numbers or text. */
+function columnSemantics(
+  table: TableBlock | undefined,
+  region: AggregationRegion,
+  column: number,
+): { targetType: AggregationTargetType; targetFormat?: string } {
+  const cells = region.records
+    .map((record) => table?.rows[(record.source.row ?? 0) - 1]?.[column - 1])
+    .filter((cell): cell is TableCell => Boolean(cell));
+  const format = cells.find((cell) => cell.numberFormat && cell.numberFormat !== "General")?.numberFormat;
+  const filled = cells.filter((cell) => cellText(cell));
+  const dates = filled.filter((cell) => cell.valueType === "date");
+  const timed = dates.some((cell) => typeof cell.value === "string" && /T(?!00:00)\d{2}:\d{2}/u.test(cell.value));
+  const withFormat = format ? { targetFormat: format } : {};
+  if (dates.length > 0) return { targetType: timed || /h/iu.test(format ?? "") ? "datetime" : "date", ...withFormat };
+  if (isDateNumberFormat(format) && filled.every((cell) => isNumericCell(cell) || !cellText(cell))) {
+    return { targetType: /h/iu.test(format ?? "") ? "datetime" : "date", ...withFormat };
   }
-  let best: { name: string; count: number } | undefined;
-  for (const [name, count] of counts) if (!best || count > best.count) best = { name, count };
-  return best?.name ?? `취합 결과 ${ordinal}`;
+  if (filled.length > 0 && filled.every(isNumericCell)) return { targetType: "number", ...withFormat };
+  return { targetType: "text", ...withFormat };
 }
 
-function sheetFields(sheet: AggregationSheet): string[] {
-  const fields: string[] = [];
-  for (const label of sheet.regions.flatMap((region) => region.headers)) {
-    const canonical = canonicalField(label);
-    if (!fields.some((field) => fieldKey(field) === fieldKey(canonical))) fields.push(canonical);
-  }
-  return fields;
+interface PlanContext {
+  tables: ReadonlyMap<string, TableBlock>;
+  targets: AggregationTarget[];
+  mappings: AggregationFieldMapping[];
+  /** Target mappings parallel to the template sheet's primary headers. */
+  columns: Map<string, AggregationFieldMapping[]>;
+  issues: AggregationIssue[];
 }
 
-function valueShape(sheet: AggregationSheet, key: string): string | undefined {
-  const shapes = new Set(sheet.regions.flatMap((region) => region.records)
-    .flatMap((record) => record.fields)
-    .filter((field) => fieldKey(canonicalField(field.label)) === key)
-    .map((field) => {
-      switch (field.value.type) {
-        case "Date":
-        case "DateTime":
-        case "Period": return "time";
-        case "Number":
-        case "Money":
-        case "Percent": return "number";
-        case "Boolean": return "boolean";
-        case "Image": return "image";
-        default: return "text";
-      }
-    }));
-  return shapes.size === 1 ? [...shapes][0] : undefined;
+function newMapping(context: PlanContext, mapping: Omit<AggregationFieldMapping, "id">): AggregationFieldMapping {
+  const created = { id: `mapping:${context.mappings.length + 1}`, ...mapping };
+  context.mappings.push(created);
+  return created;
 }
 
-function compatibleSheets(left: AggregationSheet, right: AggregationSheet): boolean {
-  const leftFields = sheetFields(left);
-  const rightFields = sheetFields(right);
-  const a = new Set(leftFields.filter((field) => !canonicalDateLabel(field)).map(fieldKey));
-  const b = new Set(rightFields.filter((field) => !canonicalDateLabel(field)).map(fieldKey));
-  const common = [...a].filter((key) => b.has(key));
-  const aDynamic = leftFields.length - a.size;
-  const bDynamic = rightFields.length - b.size;
-  if (common.length === 0) return false;
-  // Calendar headings come and go. Stable identity and measurements, not
-  // the number of monthly columns, define a report's schema.
-  const strong = common.length >= 2 && common.length / Math.max(a.size, b.size) >= 0.8;
-  const datedIdentity = common.length === 1 && a.size === 1 && b.size === 1
-    && aDynamic >= 2 && bDynamic >= 2
-    && fieldKey(left.name) === fieldKey(right.name);
-  if (!strong && !datedIdentity) return false;
-  if ((aDynamic > 0) !== (bDynamic > 0) && (aDynamic >= 2 || bDynamic >= 2)) return false;
-  return common.every((key) => {
-    const leftShape = valueShape(left, key);
-    const rightShape = valueShape(right, key);
-    return !leftShape || !rightShape || leftShape === rightShape;
+function addTemplateMappings(context: PlanContext, target: AggregationTarget, sheet: AggregationSheet): void {
+  const region = primaryRegion(sheet);
+  if (!region) return;
+  const table = context.tables.get(sheet.id);
+  const keys = region.headers.map(fieldIdentity);
+  context.columns.set(target.id, region.headers.map((label, index) => newMapping(context, {
+    targetId: target.id,
+    targetField: label,
+    targetColumn: region.headerColumns[index],
+    ...columnSemantics(table, region, region.headerColumns[index]),
+    sourceFields: [{ sheetId: sheet.id, field: label }],
+    // Two template headers with one normalized name cannot tell a source which it meant.
+    status: keys.indexOf(keys[index]) !== keys.lastIndexOf(keys[index]) ? "review" : "confirmed",
+    included: true,
+  })));
+}
+
+function appendSourceMappings(context: PlanContext, target: AggregationTarget, template: AggregationSheet, source: AggregationSheet): void {
+  const targetRegion = primaryRegion(template);
+  const sourceRegion = primaryRegion(source);
+  const columns = context.columns.get(target.id);
+  if (!targetRegion || !sourceRegion || !columns) return;
+  const table = context.tables.get(source.id);
+  const pairs = matchFields(sourceRegion.headers, targetRegion.headers, true);
+  sourceRegion.headers.forEach((label, index) => {
+    const pair = pairs.get(index);
+    if (pair) {
+      const mapping = columns[pair.target];
+      mapping.sourceFields.push({ sheetId: source.id, field: label });
+      mapping.status = worse(mapping.status, pair.status);
+      return;
+    }
+    const period = canonicalDateLabel(label);
+    const identity = fieldIdentity(label);
+    const existing = context.mappings.find((mapping) =>
+      mapping.targetId === target.id && mapping.targetColumn === undefined && fieldIdentity(mapping.targetField) === identity);
+    if (existing) {
+      existing.sourceFields.push({ sheetId: source.id, field: label });
+      return;
+    }
+    // A reporting period the target does not list yet extends the target's
+    // period columns; any other field waits for the user instead of growing
+    // the target layout.
+    newMapping(context, {
+      targetId: target.id,
+      targetField: period ?? label,
+      ...columnSemantics(table, sourceRegion, sourceRegion.headerColumns[index]),
+      sourceFields: [{ sheetId: source.id, field: label }],
+      status: period ? "confirmed" : "review",
+      included: Boolean(period),
+    });
   });
 }
 
-function schemaGroups(workbooks: readonly AggregationWorkbook[]): AggregationSchemaGroup[] {
-  const groups: Array<AggregationSchemaGroup & { sheets: AggregationSheet[] }> = [];
-  for (const sheet of workbooks.flatMap((workbook) => workbook.sheets).filter((entry) => entry.regions.length > 0)) {
-    const fields = sheetFields(sheet);
-    let group = groups.find((candidate) => candidate.sheets.every((entry) => compatibleSheets(entry, sheet)));
-    if (!group) {
-      group = { id: `group:${groups.length + 1}`, name: "", sheetIds: [], fields: [], recordCount: 0, sheets: [] };
-      groups.push(group);
+/**
+ * Target columns outside the header span that the target's own records fill,
+ * such as a month helper a summary counts. An appended row takes the target's
+ * own row formula, otherwise a row formula a source keeps at the same place
+ * relative to its table (re-expressed in target columns), otherwise the
+ * source's value there.
+ */
+function helperColumns(context: PlanContext, target: AggregationTarget, template: AggregationSheet, sources: readonly AggregationSheet[]): AggregationHelperColumn[] {
+  const region = primaryRegion(template);
+  const table = context.tables.get(template.id);
+  if (!region || !table) return [];
+  const first = Math.min(...region.headerColumns);
+  const inside = new Set(region.headerColumns);
+  const rows = region.records.map((record) => record.source.row ?? 0);
+  const width = Math.max(0, ...rows.map((row) => table.rows[row - 1]?.length ?? 0));
+  const helpers: AggregationHelperColumn[] = [];
+  for (let column = 1; column <= width; column += 1) {
+    if (inside.has(column)) continue;
+    const cells = rows.map((row) => ({ row, cell: table.rows[row - 1]?.[column - 1] }));
+    if (!cells.some(({ cell }) => cell && (cellText(cell) || cell.formula))) continue;
+    const own = cells.find(({ cell }) => cell?.formula);
+    let formula = own?.cell?.formula ? rowTemplate(own.cell.formula, own.row, (source) => source) : undefined;
+    let hasValue = false;
+    for (const source of sources) {
+      if (formula) break;
+      const sourceRegion = primaryRegion(source);
+      const sourceTable = context.tables.get(source.id);
+      if (!sourceRegion || !sourceTable) continue;
+      const sourceColumn = Math.min(...sourceRegion.headerColumns) + column - first;
+      if (sourceColumn < 1) continue;
+      const targetOf = (sourceCol: number): number | undefined => {
+        const label = sourceRegion.headers[sourceRegion.headerColumns.indexOf(sourceCol)];
+        return label === undefined ? undefined : context.mappings.find((mapping) =>
+          mapping.targetId === target.id && mapping.sourceFields.some((field) => field.sheetId === source.id && field.field === label))?.targetColumn;
+      };
+      for (const record of sourceRegion.records) {
+        const cell = sourceTable.rows[(record.source.row ?? 0) - 1]?.[sourceColumn - 1];
+        if (cell && cellText(cell)) hasValue = true;
+        if (cell?.formula) {
+          formula = rowTemplate(cell.formula, record.source.row ?? 0, targetOf);
+          if (formula) break;
+        }
+      }
     }
-    group.sheetIds.push(sheet.id);
-    group.sheets.push(sheet);
-    group.recordCount += sheet.regions.reduce((sum, region) => sum + region.records.length, 0);
-    for (const field of fields) if (!group.fields.some((entry) => fieldKey(entry) === fieldKey(field))) group.fields.push(field);
+    helpers.push(formula ? { column, fill: "formula", formula } : { column, fill: hasValue ? "value" : "none" });
+    if (!formula && !hasValue && sources.length > 0) {
+      context.issues.push({
+        scope: "sheet",
+        id: template.id,
+        fileName: template.fileName,
+        sheetName: template.name,
+        message: `표 밖 ${columnName(column)}열 값은 추가된 행에서 채울 근거가 없어 비워 둡니다.`,
+      });
+    }
   }
-  return groups.map(({ sheets, ...group }, index) => ({ ...group, name: groupName(sheets, index + 1) }));
+  return helpers;
 }
 
-/** Only identical normalized paths and calendar spellings map automatically. */
-function fieldMappings(workbooks: readonly AggregationWorkbook[]): AggregationFieldMapping[] {
-  const mappings: AggregationFieldMapping[] = [];
-  for (const sheet of workbooks.flatMap((workbook) => workbook.sheets)) {
-    for (const label of new Set(sheet.regions.flatMap((region) => region.headers))) {
-      const target = canonicalField(label);
-      const key = fieldKey(target);
-      const collisions = mappings.filter((entry) => fieldKey(entry.targetField) === key);
-      // Once a key is ambiguous, a later sheet cannot tell us which of the
-      // competing source columns it meant.
-      let mapping = collisions.length <= 1
-        ? collisions.find((entry) => !entry.sourceFields.some((source) => source.sheetId === sheet.id && source.field !== label))
-        : undefined;
-      if (!mapping) {
-        for (const collision of collisions) collision.status = "review";
-        mapping = { id: `mapping:${mappings.length + 1}`, targetField: target, sourceFields: [], status: collisions.length ? "review" : "confirmed", included: true };
-        mappings.push(mapping);
+function targetKind(sheet: AggregationSheet): AggregationTargetKind {
+  return sheet.calculated ? "calculated" : sheet.regions.length ? "records" : "static";
+}
+
+function newTarget(sheet: AggregationSheet, kind: AggregationTargetKind): AggregationTarget {
+  return {
+    id: `target:${sheet.id}`,
+    name: sheet.name,
+    kind,
+    sheetId: sheet.id,
+    sheetIds: [sheet.id],
+    fields: primaryRegion(sheet)?.headers ?? [],
+    recordCount: primaryRegion(sheet)?.records.length ?? 0,
+    helpers: [],
+  };
+}
+
+/**
+ * The first workbook is the result. Every later sheet is placed into the
+ * target sheet that holds the same table (its rows appended), superseded by a
+ * target summary that recalculates from the final data, or left for review.
+ */
+function planAggregation(workbooks: readonly AggregationWorkbook[], documents: readonly NormalizedDocument[]): Pick<AggregationDraft, "targets" | "mappings" | "issues"> {
+  const tables = new Map(documents.flatMap((document) => (document.workbookSheets ?? [])
+    .map((sheet) => [`${document.fileId}:sheet:${sheet.index}`, sheet.table] as const)));
+  const context: PlanContext = { tables, targets: [], mappings: [], columns: new Map(), issues: [] };
+  const [first, ...rest] = workbooks;
+  if (!first) return { targets: [], mappings: [], issues: [] };
+  const templates = new Map<string, AggregationSheet>();
+  const appended = new Map<string, AggregationSheet[]>();
+
+  for (const sheet of first.sheets) {
+    const target = newTarget(sheet, targetKind(sheet));
+    context.targets.push(target);
+    templates.set(target.id, sheet);
+    sheet.plan = { kind: "target", targetId: target.id };
+    sheet.selectedByDefault = sheet.visibility === "visible" && sheet.role !== "empty";
+    if (target.kind === "records") addTemplateMappings(context, target, sheet);
+  }
+  const absorbing = context.targets.filter((target) => target.kind === "records" || target.kind === "calculated");
+
+  for (const workbook of rest) {
+    for (const sheet of workbook.sheets) {
+      if (sheet.regions.length === 0) {
+        // A source's own summary with nothing to read is still that file's
+        // copy of a target summary, not a separate structure to review.
+        const namesake = context.targets.find((target) => target.kind === "calculated" && fieldKey(target.name) === fieldKey(sheet.name));
+        sheet.plan = namesake ? { kind: "summarized", targetId: namesake.id } : { kind: "ignored" };
+        if (namesake) sheet.reason = "기준 파일의 요약 수식이 최종 취합 데이터로 다시 계산합니다.";
+        continue;
       }
-      if (!mapping.sourceFields.some((entry) => entry.sheetId === sheet.id && entry.field === label)) {
-        mapping.sourceFields.push({ sheetId: sheet.id, field: label });
+      let best: { target: AggregationTarget; fit: number } | undefined;
+      for (const target of absorbing) {
+        const fit = sheetFit(sheet, templates.get(target.id)!);
+        if (fit !== undefined && (!best || fit > best.fit)) best = { target, fit };
       }
-      if (fieldKey(label) !== fieldKey(target) && mapping.status === "confirmed") mapping.status = "suggested";
+      if (best?.target.kind === "calculated") {
+        sheet.plan = { kind: "summarized", targetId: best.target.id };
+        sheet.reason = "기준 파일의 요약 수식이 최종 취합 데이터로 다시 계산합니다.";
+        continue;
+      }
+      if (best) {
+        const target = best.target;
+        sheet.plan = { kind: "append", targetId: target.id };
+        sheet.selectedByDefault = sheet.visibility === "visible" && sheet.role === "records";
+        target.sheetIds.push(sheet.id);
+        target.recordCount += primaryRegion(sheet)?.records.length ?? 0;
+        appended.set(target.id, [...(appended.get(target.id) ?? []), sheet]);
+        appendSourceMappings(context, target, templates.get(target.id)!, sheet);
+        continue;
+      }
+      const own = newTarget(sheet, "source");
+      context.targets.push(own);
+      addTemplateMappings(context, own, sheet);
+      sheet.plan = { kind: "unmatched", targetId: own.id };
+      sheet.reason = "기준 파일에 대응하는 시트가 없습니다. 필요하면 직접 포함하세요.";
+      context.issues.push({ scope: "sheet", id: sheet.id, fileName: workbook.fileName, sheetName: sheet.name, message: sheet.reason });
     }
   }
-  return mappings;
+
+  for (const target of context.targets) {
+    const sources = appended.get(target.id) ?? [];
+    if (target.kind === "records" && sources.length > 0) target.helpers = helperColumns(context, target, templates.get(target.id)!, sources);
+  }
+
+  // A column that carries pictures is an image field, whichever file supplied them.
+  const roles = new Set(workbooks.flatMap((workbook) => workbook.sheets.flatMap((sheet) => sheet.regions.flatMap((region) =>
+    region.records.flatMap((record) => record.media.map((media) => `${record.sheetId}\u0000${media.role ?? ""}`))))));
+  for (const mapping of context.mappings) {
+    if (mapping.sourceFields.some((field) => roles.has(`${field.sheetId}\u0000${field.field}`))) mapping.targetType = "image";
+  }
+  return { targets: context.targets, mappings: context.mappings, issues: context.issues };
 }
 
 function markDuplicates(records: AggregationRecord[]): void {
@@ -491,22 +749,25 @@ function markDuplicates(records: AggregationRecord[]): void {
   }
 }
 
-
 export function buildAggregation(documents: readonly NormalizedDocument[]): AggregationDraft {
   if (documents.some((document) => !isAggregationFileKind(document.kind))) {
     throw new DocumentError("AGGREGATE_FORMAT_UNSUPPORTED", AGGREGATION_UNSUPPORTED_TITLE, AGGREGATION_UNSUPPORTED_DETAIL);
   }
-  const workbooks = documents
-    .filter((document): document is NormalizedDocument & { kind: "xlsx" } => isAggregationFileKind(document.kind))
-    .map(documentWorkbook);
+  const xlsx = documents.filter((document): document is NormalizedDocument & { kind: "xlsx" } => isAggregationFileKind(document.kind));
+  const workbooks = xlsx.map(documentWorkbook);
+  const plan = planAggregation(workbooks, xlsx);
   const records = workbooks.flatMap((workbook) => workbook.sheets.flatMap((sheet) => sheet.regions.flatMap((region) => region.records)));
   markDuplicates(records);
-  const issues = workbooks.flatMap((workbook) => workbook.sheets.filter((sheet) => sheet.role === "review" || sheet.role === "reference").map((sheet) => ({ scope: "sheet" as const, id: sheet.id, fileName: workbook.fileName, sheetName: sheet.name, message: sheet.reason ?? "확인이 필요한 구조입니다." })));
+  const structureIssues = workbooks.flatMap((workbook) => workbook.sheets
+    .filter((sheet) => (sheet.role === "review" || sheet.role === "reference") && sheet.plan.kind !== "unmatched" && sheet.plan.kind !== "summarized")
+    .map((sheet) => ({ scope: "sheet" as const, id: sheet.id, fileName: workbook.fileName, sheetName: sheet.name, message: sheet.reason ?? "확인이 필요한 구조입니다." })));
   return {
+    ...(xlsx[0] ? { targetFileId: xlsx[0].fileId } : {}),
     workbooks,
-    groups: schemaGroups(workbooks),
-    mappings: fieldMappings(workbooks),
+    targets: plan.targets,
+    mappings: plan.mappings,
     records,
-    issues,
+    issues: [...structureIssues, ...plan.issues],
   };
 }
+

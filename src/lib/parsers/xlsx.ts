@@ -13,6 +13,22 @@ import type {
 
 import { DocumentError } from "@/lib/upload";
 import { isDateNumberFormat, serialToDate } from "@/lib/xlsx-values";
+import { readCellImages, type CellImage } from "./xlsx-cell-images";
+
+const nativeAnchor = (anchor: { nativeCol: number; nativeColOff: number; nativeRow: number; nativeRowOff: number }) => ({
+  nativeCol: anchor.nativeCol,
+  nativeColOff: anchor.nativeColOff,
+  nativeRow: anchor.nativeRow,
+  nativeRowOff: anchor.nativeRowOff,
+});
+
+/** One-cell anchors carry a pixel extent that ExcelJS's range type omits. */
+const extentOf = (range: unknown): { width: number; height: number } | undefined => {
+  if (typeof range !== "object" || range === null || !("ext" in range)) return undefined;
+  const ext = range.ext;
+  if (typeof ext !== "object" || ext === null || !("width" in ext) || !("height" in ext)) return undefined;
+  return typeof ext.width === "number" && typeof ext.height === "number" ? { width: ext.width, height: ext.height } : undefined;
+};
 
 const malformedFileError = (): Error =>
   new DocumentError("DOCUMENT_UNREADABLE", "파일을 읽지 못했습니다.", "지원되는 Excel 파일인지 확인한 뒤 다시 시도해 주세요.");
@@ -249,6 +265,15 @@ export const parseXlsx = async (input: {
     if (workbook.worksheets.some((worksheet) => worksheet.state === "hidden" || worksheet.state === "veryHidden")) {
       warnings.add("XLSX_HIDDEN_SHEET_OMITTED");
     }
+    // In-cell pictures are an addition; a rich-data layout this reader does
+    // not understand must never make the workbook itself unreadable.
+    let cellImages: CellImage[] = [];
+    try {
+      cellImages = readCellImages(input.bytes);
+    } catch {
+      cellImages = [];
+    }
+    const pictureCells = new Set(cellImages.map((image) => `${image.sheet}\u0000${image.row}:${image.column}`));
 
     const workbookSheets: WorkbookSheet[] = workbook.worksheets.map(
       (worksheet, sheetIndex) => {
@@ -295,6 +320,8 @@ export const parseXlsx = async (input: {
             const date = cellDate(cell);
             const text = cellText(cell, date);
             const isMergedChild = merge !== undefined && !merge.isAnchor;
+            // A picture placed in the cell is its value; ExcelJS reports it as `#VALUE!`.
+            const isPicture = pictureCells.has(`${worksheet.name}\u0000${row}:${column}`);
             const source: SourceRef = {
               fileId: input.fileId,
               nodeId: `xlsx:${sheetIndex + 1}:r${row}:c${column}`,
@@ -303,14 +330,12 @@ export const parseXlsx = async (input: {
               cellRange: address,
               row,
               column,
-              quote: text,
+              quote: isPicture ? "" : text,
             };
-            const formula = cell.type === ExcelJS.ValueType.Formula
-              && typeof cell.value === "object"
-              && cell.value !== null
-              && "formula" in cell.value
-              && typeof cell.value.formula === "string"
-              ? cell.value.formula
+            // `cell.formula` also resolves a shared formula into this cell's own
+            // references, which `cell.value.formula` only holds for the master cell.
+            const formula = cell.type === ExcelJS.ValueType.Formula && typeof cell.formula === "string" && cell.formula
+              ? cell.formula
               : undefined;
             if (formula) {
               warnings.add("XLSX_FORMULA_VALUE_ONLY");
@@ -321,12 +346,14 @@ export const parseXlsx = async (input: {
                 warnings.add(stored === null ? "XLSX_EXTERNAL_REFERENCE_NO_CACHE" : "XLSX_EXTERNAL_REFERENCE_VALUE_ONLY");
               }
             }
-            const style = isMergedChild ? undefined : styleSnapshot(cell.style);
+            // Merged children keep their own border and fill: a merged header's
+            // outer edge is drawn by the child cells, not by the anchor.
+            const style = styleSnapshot(cell.style);
             const tableCell: TableCell = {
-              value: isMergedChild ? null : date !== undefined ? date.toISOString() : scalarValue(cell.value),
-              display: isMergedChild ? "" : text,
+              value: isMergedChild || isPicture ? null : date !== undefined ? date.toISOString() : scalarValue(cell.value),
+              display: isMergedChild || isPicture ? "" : text,
               source,
-              valueType: isMergedChild ? "blank" : cellValueType(cell, date),
+              valueType: isMergedChild || isPicture ? "blank" : cellValueType(cell, date),
               ...(formula ? { formula } : {}),
               ...(cell.numFmt ? { numberFormat: cell.numFmt } : {}),
               ...(style ? { style } : {}),
@@ -406,7 +433,34 @@ export const parseXlsx = async (input: {
             width: bottomRight ? bottomRight.col - placement.range.tl.col : 1,
             height: bottomRight ? bottomRight.row - placement.range.tl.row : 1,
             unit: "cell",
+            native: {
+              tl: nativeAnchor(placement.range.tl),
+              ...(bottomRight ? { br: nativeAnchor(bottomRight) } : {}),
+              ...(extentOf(placement.range) ? { ext: extentOf(placement.range)! } : {}),
+            },
           },
+        });
+      });
+      cellImages.filter((image) => image.sheet === sheet.name).forEach((image, imageIndex) => {
+        const address = cellAddress(image.column, image.row);
+        const id = `xlsx:${sheet.index}:cell-image:${imageIndex + 1}`;
+        media.push({
+          id,
+          kind: "image",
+          mimeType: imageMimeType(image.extension),
+          extension: image.extension,
+          data: image.data,
+          source: {
+            fileId: input.fileId,
+            nodeId: id,
+            label: `${sheet.name}!${address} 이미지`,
+            sheet: sheet.name,
+            cellRange: `${address}:${address}`,
+            row: image.row,
+            column: image.column,
+            quote: "",
+          },
+          anchor: { x: image.column - 1, y: image.row - 1, width: 1, height: 1, unit: "cell", inCell: true },
         });
       });
     }

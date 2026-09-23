@@ -2615,7 +2615,7 @@ test("aggregates workbooks into one XLSX result without profile-specific actions
   await expect(panel).not.toContainText("호환 그룹");
   await expect(panel.getByRole("heading", { name: /결과 시트 \d+개/ })).toBeVisible();
   await expect(panel.locator(".aggregation-result-sheets li strong")).toHaveText(["운송단가"]);
-  await expect(panel).toContainText("모든 항목을 자동으로 확정했습니다.");
+  await expect(panel).toContainText("모든 항목을 기준 파일 항목에 자동으로 연결했습니다.");
   await expect(panel.locator(".aggregation-preview thead th").first()).toHaveText("지역");
   await expect(panel.locator(".aggregation-preview")).not.toContainText("[object");
 

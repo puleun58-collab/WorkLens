@@ -55,11 +55,25 @@ export interface AggregationRegion {
   headerRange?: string;
   recordRange?: string;
   headers: string[];
+  /** Physical 1-based worksheet column of each header, parallel to `headers`. */
+  headerColumns: number[];
   records: AggregationRecord[];
   source: SourceRef;
   status: "ready" | "review";
   reason?: string;
 }
+
+/**
+ * What a sheet contributes to the result. The first selected workbook is the
+ * target: its sheets are the result sheets, and every other workbook's sheets
+ * either feed one of them or wait for review.
+ */
+export type AggregationSheetPlan =
+  | { kind: "target"; targetId: string }
+  | { kind: "append"; targetId: string }
+  | { kind: "summarized"; targetId: string }
+  | { kind: "unmatched"; targetId?: string }
+  | { kind: "ignored" };
 
 export interface AggregationSheet {
   id: string;
@@ -74,6 +88,9 @@ export interface AggregationSheet {
   regions: AggregationRegion[];
   media: AggregationMediaRef[];
   source: SourceRef;
+  /** Its records are mostly workbook formulas: a calculated view, not data to append. */
+  calculated: boolean;
+  plan: AggregationSheetPlan;
   reason?: string;
 }
 
@@ -85,20 +102,47 @@ export interface AggregationWorkbook {
   sheets: AggregationSheet[];
 }
 
+export type AggregationTargetType = "date" | "datetime" | "number" | "text" | "image";
+
 export interface AggregationFieldMapping {
   id: string;
+  /** Result sheet this field belongs to. */
+  targetId: string;
+  /** The target workbook's own header, which the result keeps. */
   targetField: string;
+  /** Target template column; absent when the field is not part of the target layout. */
+  targetColumn?: number;
+  /** Semantics of the target column: a serial number becomes a date only in a date column. */
+  targetType: AggregationTargetType;
+  targetFormat?: string;
   sourceFields: Array<{ sheetId: string; field: string }>;
   status: AggregationMappingStatus;
   included: boolean;
 }
 
-export interface AggregationSchemaGroup {
+/**
+ * A target column outside the header span (for example a month helper a
+ * summary counts). `formula` holds `{ROW}` where the appended row belongs.
+ */
+export interface AggregationHelperColumn {
+  column: number;
+  fill: "formula" | "value" | "none";
+  formula?: string;
+}
+
+export type AggregationTargetKind = "records" | "calculated" | "static" | "source";
+
+export interface AggregationTarget {
   id: string;
   name: string;
+  kind: AggregationTargetKind;
+  /** Template sheet: a target workbook sheet, or an unmatched source sheet kept on its own. */
+  sheetId: string;
+  /** Template first, then appended source sheets in selection order. */
   sheetIds: string[];
   fields: string[];
   recordCount: number;
+  helpers: AggregationHelperColumn[];
 }
 
 export interface AggregationIssue {
@@ -111,8 +155,10 @@ export interface AggregationIssue {
 
 
 export interface AggregationDraft {
+  /** First selected workbook: the result's structure, fields, formats and style. */
+  targetFileId?: string;
   workbooks: AggregationWorkbook[];
-  groups: AggregationSchemaGroup[];
+  targets: AggregationTarget[];
   mappings: AggregationFieldMapping[];
   records: AggregationRecord[];
   issues: AggregationIssue[];

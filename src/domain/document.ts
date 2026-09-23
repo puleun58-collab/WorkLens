@@ -24,12 +24,23 @@ export type SourceLocator =
     tableCell?: { row: number; column: number; anchorCellId?: string };
   };
 
+export interface NativeCellAnchor {
+  nativeCol: number;
+  nativeColOff: number;
+  nativeRow: number;
+  nativeRowOff: number;
+}
+
 export interface MediaAnchor {
   x: number;
   y: number;
   width: number;
   height: number;
   unit: "cell" | "emu";
+  /** XLSX drawing anchor exactly as stored, so a template picture can be re-placed unchanged. */
+  native?: { tl: NativeCellAnchor; br?: NativeCellAnchor; ext?: { width: number; height: number } };
+  /** The picture is the cell's value ("Place in Cell"), not a floating drawing. */
+  inCell?: boolean;
 }
 
 export interface DocumentMedia {

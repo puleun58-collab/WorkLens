@@ -3,7 +3,18 @@
 import { ChangeEvent, DragEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { AiAvailableResult, AiRequest, GroundedClaim } from "@/domain/ai";
 import type { ComparisonItem, ComparisonResult } from "@/domain/compare";
-import { AGGREGATION_UNSUPPORTED_DETAIL, AGGREGATION_UNSUPPORTED_TITLE, isAggregationFileKind, type AggregationDraft, type AggregationSelection } from "@/domain/aggregation";
+import {
+  AGGREGATION_UNSUPPORTED_DETAIL,
+  AGGREGATION_UNSUPPORTED_TITLE,
+  isAggregationFileKind,
+  type AggregationDraft,
+  type AggregationFieldMapping,
+  type AggregationRecord,
+  type AggregationSelection,
+  type AggregationSheet,
+  type AggregationTarget,
+} from "@/domain/aggregation";
+import { mappedFields, mappedImageCount, primaryRegion, targetCell } from "@/lib/aggregation/values";
 import type { ValueCheckResult, ValueCheckStatus } from "@/domain/value-check";
 import type { DocumentMetadata, SourceRef } from "@/domain/document";
 import {
@@ -3170,21 +3181,13 @@ function ValueCheckView({ result, fileNames, onSource, status, busy, onExport }:
     </section>
   );
 }
-function aggregationPreviewDate(value: AggregationDraft["records"][number]["fields"][number]["value"]): string {
-  const format = value.numberFormat?.replace(/"([^"]*)"/gu, "$1").trim() ?? "";
-  if (!/^m\/d(?:\s|;|$)/iu.test(format) || (value.cellType !== "date" && typeof value.value !== "number")) return value.displayValue;
-  const dateText = value.normalizedValue ?? (typeof value.value === "string" ? value.value : "");
-  const iso = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}))?/u.exec(dateText);
-  if (iso) {
-    const day = `${Number(iso[2])}/${Number(iso[3])}`;
-    return /\bh:/iu.test(format) && iso[4] ? `${day} ${Number(iso[4])}:${iso[5]}` : day;
-  }
-  if (typeof value.value === "number" && Number.isFinite(value.value)) {
-    const date = new Date(Date.UTC(1899, 11, 30) + Math.round(value.value * 86_400_000));
-    return `${date.getUTCMonth() + 1}/${date.getUTCDate()}`;
-  }
-  return value.displayValue;
-}
+const SHEET_PLAN_LABELS: Record<AggregationSheet["plan"]["kind"], string> = {
+  target: "기준 시트",
+  append: "기준 시트에 추가",
+  summarized: "기준 요약으로 재계산",
+  unmatched: "대응 시트 없음",
+  ignored: "취합 대상 아님",
+};
 
 function AggregationResults({ draft, selection, busy, onSelection, onExport }: {
   draft: AggregationDraft | null;
@@ -3198,32 +3201,39 @@ function AggregationResults({ draft, selection, busy, onSelection, onExport }: {
   // action already say what this destination does.
   if (!draft || !selection) return null;
 
-
   const selectedSheets = new Set(selection.sheetIds);
-  const selectedRecords = draft.records.filter((record) => selectedSheets.has(record.sheetId));
-  const includedMappings = selection.mappings.filter((mapping) => mapping.included);
-  const statusOf = (id: string) => draft.mappings.find((entry) => entry.id === id)?.status ?? "confirmed";
-  const reviewMappings = selection.mappings.filter((mapping) => statusOf(mapping.id) !== "confirmed");
-  const visibleMappings = allMappings ? selection.mappings : reviewMappings;
-  const resultSheets = draft.groups.filter((group) => group.sheetIds.some((id) => selectedSheets.has(id)));
-  const usedResultNames = new Set<string>();
-  const resultNames = new Map(resultSheets.map((group) => {
-    const preferred = draft.workbooks.flatMap((workbook) => workbook.sheets)
-      .find((sheet) => selectedSheets.has(sheet.id) && group.sheetIds.includes(sheet.id))?.name ?? group.name;
-    const base = preferred.replace(/[\\/?*[\]:]/gu, " ").replace(/\s+/gu, " ").trim() || "취합 결과";
-    let name = base.slice(0, 31);
-    for (let suffix = 2; usedResultNames.has(name.toLocaleLowerCase()); suffix += 1) {
-      const marker = ` (${suffix})`;
-      name = `${base.slice(0, 31 - marker.length)}${marker}`;
-    }
-    usedResultNames.add(name.toLocaleLowerCase());
-    return [group.id, name] as const;
-  }));
+  const sheets = draft.workbooks.flatMap((workbook) => workbook.sheets);
+  const sheetById = new Map(sheets.map((sheet) => [sheet.id, sheet]));
+  const targetById = new Map(draft.targets.map((target) => [target.id, target]));
+  const overrides = new Map(selection.mappings.map((mapping) => [mapping.id, mapping]));
+  const mappings = draft.mappings.map((mapping) => ({ ...mapping, ...overrides.get(mapping.id) }));
+  const resultTargets = draft.targets.filter((target) => selectedSheets.has(target.sheetId));
+  // The same record set the XLSX writes: template rows, then each selected
+  // source sheet's own table in selection order.
+  const recordsOf = (target: AggregationTarget) => {
+    const regions = new Map(target.sheetIds.filter((id) => selectedSheets.has(id)).map((id) => {
+      const sheet = sheetById.get(id);
+      return [id, sheet ? primaryRegion(sheet)?.id : undefined] as const;
+    }));
+    return draft.records.filter((record) => regions.has(record.sheetId) && (record.sheetId === target.sheetId || regions.get(record.sheetId) === record.regionId));
+  };
+  const tableTargets = resultTargets.filter((target) => target.kind === "records" || target.kind === "source");
+  const recordsByTarget = new Map(tableTargets.map((target) => [target.id, recordsOf(target)]));
+  const selectedRecords = [...recordsByTarget.values()].flat();
+  const columnsOf = (target: AggregationTarget) => mappings
+    .filter((mapping) => mapping.targetId === target.id && mapping.included)
+    .sort((left, right) => (left.targetColumn ?? Number.MAX_SAFE_INTEGER) - (right.targetColumn ?? Number.MAX_SAFE_INTEGER));
+  const relevant = mappings.filter((mapping) => {
+    const target = targetById.get(mapping.targetId);
+    return target && selectedSheets.has(target.sheetId) && mapping.sourceFields.some((field) => field.sheetId !== target.sheetId && selectedSheets.has(field.sheetId));
+  });
+  const reviewMappings = relevant.filter((mapping) => mapping.status === "review");
+  const visibleMappings = allMappings ? relevant : reviewMappings;
   const linkedImages = new Set(selectedRecords.flatMap((record) => record.media.map((media) => `${media.source.fileId}\0${media.id}`)));
-  const unlinkedImages = draft.workbooks.flatMap((workbook) => workbook.sheets)
-    .filter((sheet) => selectedSheets.has(sheet.id))
+  const unlinkedImages = sheets
+    .filter((sheet) => selectedSheets.has(sheet.id) && sheet.plan.kind !== "target")
     .flatMap((sheet) => {
-      const headerEnd = Number(/:[A-Z]+(\d+)$/iu.exec(sheet.regions[0]?.headerRange ?? "")?.[1] ?? 0);
+      const headerEnd = Number(/:[A-Z]+(\d+)$/iu.exec(primaryRegion(sheet)?.headerRange ?? "")?.[1] ?? 0);
       return sheet.media.filter((media) => !linkedImages.has(`${media.source.fileId}\0${media.id}`) && (media.source.row ?? Infinity) > headerEnd);
     }).length;
   const reviewCount = reviewMappings.length + unlinkedImages;
@@ -3235,12 +3245,12 @@ function AggregationResults({ draft, selection, busy, onSelection, onExport }: {
     ...selection,
     mappings: selection.mappings.map((mapping) => mapping.id === id ? { ...mapping, ...patch } : mapping),
   });
-  const previewValue = (record: AggregationDraft["records"][number], mapping: AggregationSelection["mappings"][number]) => {
-    const sourceFields = new Set(mapping.sourceFields.filter((source) => source.sheetId === record.sheetId).map((source) => source.field));
-    const text = record.fields.filter((field) => sourceFields.has(field.label)).map((field) => aggregationPreviewDate(field.value)).filter(Boolean).join(" | ");
-    const images = record.media.filter((media) => media.role && (media.role === mapping.targetField || sourceFields.has(media.role))).length;
+  const previewValue = (record: AggregationRecord, mapping: AggregationFieldMapping) => {
+    const text = targetCell(mappedFields(record, mapping), mapping).display;
+    const images = mappedImageCount(record, mapping);
     return <>{text || (!images ? "—" : null)}{images ? <small className="aggregation-image-count">{text ? " · " : ""}이미지 {images}개</small> : null}</>;
   };
+  const planTarget = (sheet: AggregationSheet) => "targetId" in sheet.plan && sheet.plan.targetId ? targetById.get(sheet.plan.targetId) : undefined;
 
   return (
     <section className="panel results-panel aggregation-results">
@@ -3249,40 +3259,47 @@ function AggregationResults({ draft, selection, busy, onSelection, onExport }: {
         <p className="check-summary-line">
           <span className="metric">파일 <b>{draft.workbooks.length}</b></span>
           <span className="metric">선택 시트 <b>{selection.sheetIds.length}</b></span>
-          <span className="metric">결과 시트 <b>{resultSheets.length}</b></span>
+          <span className="metric">결과 시트 <b>{resultTargets.length}</b></span>
           <span className="metric">취합 레코드 <b>{selectedRecords.length}</b></span>
           <span className="metric" data-empty={reviewCount === 0}>확인 필요 <b>{reviewCount}</b></span>
         </p>
-        <ResultExportButtons busy={busy} disabled={selectedRecords.length === 0 || includedMappings.length === 0} label="취합 결과 다운로드" xlsxOnly onExport={() => onExport()} />
+        <ResultExportButtons busy={busy} disabled={resultTargets.length === 0} label="취합 결과 다운로드" xlsxOnly onExport={() => onExport()} />
       </div>
 
       <section className="aggregation-section" aria-labelledby="aggregation-sheets">
         <div className="aggregation-section-heading">
-          <div><h3 id="aggregation-sheets">취합할 시트</h3><p>숨김·참조·빈 시트는 자동 포함하지 않습니다. 필요한 시트만 직접 포함하세요.</p></div>
+          <div><h3 id="aggregation-sheets">취합할 시트</h3><p>첫 번째 파일의 시트 구성을 결과로 사용하고, 나머지 파일의 같은 표는 그 아래에 이어 붙입니다.</p></div>
         </div>
         <div className="aggregation-workbooks">
           {draft.workbooks.map((workbook) => (
             <section className="aggregation-workbook" key={workbook.id}>
               <h4>{workbook.fileName}</h4>
               {workbook.sheets.length === 0 ? <p className="aggregation-sheet-empty">취합할 표를 찾지 못했습니다. 표 형태의 내용이 있는 파일을 선택하세요.</p> : null}
-              {workbook.sheets.map((sheet) => (
-                <label className="aggregation-sheet" key={sheet.id} data-role={sheet.role}>
-                  <input type="checkbox" checked={selectedSheets.has(sheet.id)} disabled={sheet.role === "empty"} onChange={() => toggleSheet(sheet.id)} />
-                  <span><strong>{sheet.name}</strong><small>{sheet.visibility !== "visible" ? `${sheet.visibility} · ` : ""}{sheet.role === "records" ? "레코드" : sheet.role === "reference" ? "참조 후보" : sheet.role === "review" ? "확인 필요" : "빈 시트"}</small></span>
-                  <span>{sheet.regions.length ? sheet.regions.map((region) => region.recordRange ?? region.headerRange).filter(Boolean).join(", ") : sheet.reason}</span>
-                  <b>{sheet.regions.reduce((sum, region) => sum + region.records.length, 0)}건</b>
-                </label>
-              ))}
+              {workbook.sheets.map((sheet) => {
+                const target = planTarget(sheet);
+                const fixed = sheet.role === "empty" || sheet.plan.kind === "summarized" || sheet.plan.kind === "ignored";
+                return (
+                  <label className="aggregation-sheet" key={sheet.id} data-role={sheet.plan.kind === "unmatched" ? "review" : sheet.role}>
+                    <input type="checkbox" checked={selectedSheets.has(sheet.id)} disabled={fixed} onChange={() => toggleSheet(sheet.id)} />
+                    <span><strong>{sheet.name}</strong><small>{sheet.visibility !== "visible" ? `${sheet.visibility} · ` : ""}{SHEET_PLAN_LABELS[sheet.plan.kind]}{sheet.plan.kind === "append" && target ? ` · ${target.name}` : ""}</small></span>
+                    <span>{sheet.plan.kind === "summarized" || sheet.plan.kind === "unmatched" ? sheet.reason : sheet.regions.length ? sheet.regions.map((region) => region.recordRange ?? region.headerRange).filter(Boolean).join(", ") : sheet.reason}</span>
+                    <b>{primaryRegion(sheet)?.records.length ?? 0}건</b>
+                  </label>
+                );
+              })}
             </section>
           ))}
         </div>
       </section>
 
       <section className="aggregation-section" aria-labelledby="aggregation-result-sheets">
-        <div className="aggregation-section-heading"><div><h3 id="aggregation-result-sheets">결과 시트 {resultSheets.length}개</h3><p>표 구조가 다른 내용은 합치지 않고 각각의 시트로 유지합니다.</p></div></div>
+        <div className="aggregation-section-heading"><div><h3 id="aggregation-result-sheets">결과 시트 {resultTargets.length}개</h3><p>기준 파일의 시트 이름과 구성을 그대로 유지합니다.</p></div></div>
         <ul className="aggregation-result-sheets">
-          {resultSheets.map((group) => (
-            <li key={group.id}><strong>{resultNames.get(group.id)}</strong><span>{draft.records.filter((record) => group.sheetIds.includes(record.sheetId) && selectedSheets.has(record.sheetId)).length}건</span></li>
+          {resultTargets.map((target) => (
+            <li key={target.id}>
+              <strong>{target.name}</strong>
+              <span>{target.kind === "calculated" ? "기준 수식으로 재계산" : target.kind === "static" ? "기준 시트 유지" : `${recordsByTarget.get(target.id)?.length ?? 0}건`}</span>
+            </li>
           ))}
         </ul>
       </section>
@@ -3291,7 +3308,7 @@ function AggregationResults({ draft, selection, busy, onSelection, onExport }: {
         <div className="aggregation-section-heading">
           <div>
             <h3 id="aggregation-mappings">확인이 필요한 항목</h3>
-            <p>{reviewMappings.length ? `자동으로 묶인 항목 ${reviewMappings.length}개를 확인하세요. 나머지는 확정했습니다.` : unlinkedImages ? "이미지를 연결할 레코드를 확인하세요." : "모든 항목을 자동으로 확정했습니다."}</p>
+            <p>{reviewMappings.length ? `기준 파일 항목과 이름이 달라 확인이 필요한 항목 ${reviewMappings.length}개가 있습니다.` : unlinkedImages ? "이미지를 연결할 레코드를 확인하세요." : "모든 항목을 기준 파일 항목에 자동으로 연결했습니다."}</p>
           </div>
           <button type="button" className="secondary-action" aria-expanded={allMappings} onClick={() => setAllMappings((value) => !value)}>
             {allMappings ? "확인 항목만 보기" : "전체 매핑 보기"}
@@ -3300,46 +3317,51 @@ function AggregationResults({ draft, selection, busy, onSelection, onExport }: {
         {unlinkedImages > 0 ? <p className="aggregation-unlinked" role="status">미연결 이미지 {unlinkedImages}건 · 첨부 이미지 시트에서 출처와 위치를 확인하세요.</p> : null}
         {visibleMappings.length ? (
           <div className="aggregation-mappings">
-            {visibleMappings.map((mapping) => (
-              <div className="aggregation-mapping" key={mapping.id}>
-                <label><input type="checkbox" checked={mapping.included} onChange={(event) => updateMapping(mapping.id, { included: event.target.checked })} /><span>포함</span></label>
-                <input value={mapping.targetField} aria-label={`${mapping.targetField} 출력 항목명`} onChange={(event) => updateMapping(mapping.id, { targetField: event.target.value })} />
-                <div>{mapping.sourceFields.map((source) => {
-                  const sheet = draft.workbooks.flatMap((workbook) => workbook.sheets).find((entry) => entry.id === source.sheetId);
-                  return <span key={`${source.sheetId}:${source.field}`}>{sheet?.fileName} · {sheet?.name} · {source.field}</span>;
-                })}</div>
-                <em data-status={statusOf(mapping.id)}>{statusOf(mapping.id) === "confirmed" ? "확정" : "확인"}</em>
-              </div>
-            ))}
+            {visibleMappings.map((mapping) => {
+              const target = targetById.get(mapping.targetId);
+              return (
+                <div className="aggregation-mapping" key={mapping.id}>
+                  <label><input type="checkbox" checked={mapping.included} onChange={(event) => updateMapping(mapping.id, { included: event.target.checked })} /><span>포함</span></label>
+                  {mapping.targetColumn === undefined
+                    ? <input value={mapping.targetField} aria-label={`${mapping.targetField} 출력 항목명`} onChange={(event) => updateMapping(mapping.id, { targetField: event.target.value })} />
+                    : <strong className="aggregation-mapping-target">{mapping.targetField}</strong>}
+                  <div>{mapping.sourceFields.filter((source) => source.sheetId !== target?.sheetId).map((source) => {
+                    const sheet = sheetById.get(source.sheetId);
+                    return <span key={`${source.sheetId}:${source.field}`}>{sheet?.fileName} · {sheet?.name} · {source.field}</span>;
+                  })}</div>
+                  <em data-status={mapping.status}>{mapping.status === "review" ? mapping.targetColumn === undefined ? "대응 없음" : "확인" : "연결"}</em>
+                </div>
+              );
+            })}
           </div>
         ) : null}
       </section>
 
       <section className="aggregation-section" aria-labelledby="aggregation-preview">
-        <div className="aggregation-section-heading"><div><h3 id="aggregation-preview">결과 미리보기</h3><p>다운로드할 결과 시트와 같은 항목 기준으로 시트당 최대 20건을 표시합니다.</p></div></div>
-        {resultSheets.map((group) => {
-          const groupSheetIds = group.sheetIds.filter((id) => selectedSheets.has(id));
-          const groupMappings = includedMappings.filter((mapping) => mapping.sourceFields.some((source) => groupSheetIds.includes(source.sheetId)));
-          const groupRecords = selectedRecords.filter((record) => groupSheetIds.includes(record.sheetId));
-          if (groupRecords.length === 0 || groupMappings.length === 0) {
-            return <p className="aggregation-preview-empty" key={group.id}>{resultNames.get(group.id)}: {groupRecords.length ? "포함된 항목이 없습니다." : "표시할 레코드가 없습니다."}</p>;
+        <div className="aggregation-section-heading"><div><h3 id="aggregation-preview">결과 미리보기</h3><p>다운로드할 결과 시트와 같은 기준 항목으로 시트당 최대 20건을 표시합니다.</p></div></div>
+        {tableTargets.map((target) => {
+          const columns = columnsOf(target);
+          const records = recordsByTarget.get(target.id) ?? [];
+          if (records.length === 0 || columns.length === 0) {
+            return <p className="aggregation-preview-empty" key={target.id}>{target.name}: {records.length ? "포함된 항목이 없습니다." : "표시할 레코드가 없습니다."}</p>;
           }
+          const files = draft.workbooks.filter((workbook) => workbook.sheets.some((sheet) => target.sheetIds.includes(sheet.id) && selectedSheets.has(sheet.id)));
           return (
-            <section className="aggregation-preview-group" key={group.id} aria-label={`${resultNames.get(group.id)} 미리보기`}>
-              <div className="aggregation-preview-heading"><h4>{resultNames.get(group.id)}</h4><span>{Math.min(groupRecords.length, 20)} / {groupRecords.length}건</span></div>
-              <div className="aggregation-preview-wrap" role="region" aria-label={`${resultNames.get(group.id)} 표, 가로로 스크롤 가능`} tabIndex={0}>
-                <table className="aggregation-preview" style={{ minWidth: Math.max(760, groupMappings.length * 150) }}>
-                  <thead><tr>{groupMappings.map((mapping) => <th scope="col" key={mapping.id}>{mapping.targetField}</th>)}</tr></thead>
-                  <tbody>{groupRecords.slice(0, 20).map((record) => (
-                    <tr key={record.id}>{groupMappings.map((mapping) => <td key={mapping.id}>{previewValue(record, mapping)}</td>)}</tr>
+            <section className="aggregation-preview-group" key={target.id} aria-label={`${target.name} 미리보기`}>
+              <div className="aggregation-preview-heading"><h4>{target.name}</h4><span>{Math.min(records.length, 20)} / {records.length}건</span></div>
+              <div className="aggregation-preview-wrap" role="region" aria-label={`${target.name} 표, 가로로 스크롤 가능`} tabIndex={0}>
+                <table className="aggregation-preview" style={{ minWidth: Math.max(760, columns.length * 150) }}>
+                  <thead><tr>{columns.map((mapping) => <th scope="col" key={mapping.id}>{mapping.targetField}</th>)}</tr></thead>
+                  <tbody>{records.slice(0, 20).map((record) => (
+                    <tr key={record.id}>{columns.map((mapping) => <td key={mapping.id}>{previewValue(record, mapping)}</td>)}</tr>
                   ))}</tbody>
                 </table>
               </div>
-              <p className="aggregation-preview-provenance">출처: {draft.workbooks.filter((workbook) => workbook.sheets.some((sheet) => groupSheetIds.includes(sheet.id))).map((workbook) => workbook.fileName).join(", ")}{groupRecords.some((record) => record.duplicateOf) ? " · 중복 후보 포함" : ""}</p>
+              <p className="aggregation-preview-provenance">출처: {files.map((workbook) => workbook.fileName).join(", ")}{records.some((record) => record.duplicateOf) ? " · 중복 후보 포함" : ""}</p>
             </section>
           );
         })}
-        {resultSheets.length === 0 ? <p className="aggregation-preview-empty">시트를 선택하면 결과를 미리 볼 수 있습니다.</p> : null}
+        {resultTargets.length === 0 ? <p className="aggregation-preview-empty">시트를 선택하면 결과를 미리 볼 수 있습니다.</p> : null}
       </section>
     </section>
   );
