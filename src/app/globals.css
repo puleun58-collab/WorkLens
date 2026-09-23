@@ -7310,7 +7310,7 @@ input:disabled {
 }
 
 .extract-result-toolbar {
-  padding: 12px var(--panel-inset);
+  padding: 12px 0;
   border-bottom: 1px solid var(--line);
   display: flex;
   align-items: center;
@@ -7477,8 +7477,6 @@ input:disabled {
   }
 
   .extract-result-toolbar {
-    padding-right: 16px;
-    padding-left: 16px;
     align-items: flex-start;
     flex-direction: column;
   }
@@ -7895,7 +7893,7 @@ input:disabled {
 
 /* Title, status and summary sit flat on the page canvas; the result surface starts at the data. */
 .aggregation-results > .result-heading {
-  padding: 0 var(--panel-inset) var(--space-2);
+  padding: 0 0 var(--space-2);
   border-bottom: 0;
   background: transparent;
 }
@@ -7930,9 +7928,9 @@ input:disabled {
 }
 
 .aggregation-section {
-  padding: 18px var(--panel-inset);
-  border: 1px solid var(--border-default);
+  padding: 18px 0;
   border-top: 0;
+  border-bottom: 1px solid var(--border-default);
   background: #fff;
 }
 

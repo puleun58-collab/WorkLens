@@ -876,6 +876,12 @@ test("makes missing and low-confidence Extract values explicit", async ({ page }
   expect(tableBox).not.toBeNull();
   expect(csvBox!.y).toBeLessThan(tableBox!.y);
   expect(xlsxBox!.x).toBeGreaterThan(csvBox!.x);
+  const fileBox = await page.locator(".file-list").boundingBox();
+  expect(fileBox).not.toBeNull();
+  expect(summaryBox!.x).toBe(fileBox!.x);
+  expect(xlsxBox!.x + xlsxBox!.width).toBe(fileBox!.x + fileBox!.width);
+  expect(tableBox!.x).toBe(fileBox!.x);
+  expect(tableBox!.width).toBe(fileBox!.width);
   const hierarchy = await exports.locator("button").evaluateAll((buttons) => buttons.map((button) => {
     const style = getComputedStyle(button);
     return { background: style.backgroundColor, color: style.color, border: style.borderStyle };
@@ -2580,6 +2586,21 @@ test("aggregates workbooks into one XLSX result without profile-specific actions
   await expect(panel).toContainText("모든 항목을 기준 파일 항목에 자동으로 연결했습니다.");
   await expect(panel.locator(".aggregation-preview thead th").first()).toHaveText("지역");
   await expect(panel.locator(".aggregation-preview")).not.toContainText("[object");
+  const fileBox = await page.locator(".file-list").boundingBox();
+  const summaryBox = await panel.locator(".check-summary-line").boundingBox();
+  const downloadBox = await panel.getByRole("button", { name: "XLSX 다운로드" }).boundingBox();
+  const sectionBox = await panel.locator(".aggregation-section").first().boundingBox();
+  const headingBox = await panel.getByRole("heading", { name: "취합할 시트" }).boundingBox();
+  const descriptionBox = await panel.getByText("첫 번째 파일의 시트 구성을 결과로 사용하고").boundingBox();
+  const listBox = await panel.locator(".aggregation-workbooks").boundingBox();
+  expect(fileBox && summaryBox && downloadBox && sectionBox && headingBox && descriptionBox && listBox).toBeTruthy();
+  expect(summaryBox!.x).toBe(fileBox!.x);
+  expect(downloadBox!.x + downloadBox!.width).toBe(fileBox!.x + fileBox!.width);
+  expect(sectionBox!.x).toBe(fileBox!.x);
+  expect(sectionBox!.width).toBe(fileBox!.width);
+  expect(headingBox!.x).toBe(fileBox!.x);
+  expect(descriptionBox!.x).toBe(fileBox!.x);
+  expect(listBox!.x).toBe(fileBox!.x);
 
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(panel.getByRole("button", { name: "XLSX 다운로드" })).toBeVisible();
