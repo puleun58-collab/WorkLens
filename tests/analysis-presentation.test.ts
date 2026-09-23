@@ -72,6 +72,28 @@ describe("analysisClaimPresentation", () => {
     expect(presentation.warnings).toEqual(result.warnings);
   });
 
+  it("drops a claim that only restates a section title and merges a near-duplicate", () => {
+    const heading = source("heading", 2);
+    const body = source("body", 2);
+    const result: AnalyzeResult = {
+      operation: "analyze",
+      claims: [
+        inference("title", "주차별 Forecast 값은 어떻게 산정되나요", "high", [heading]),
+        inference("short", "Actual이 반영되면 향후 Forecast를 다시 계산합니다", "high", [body]),
+        inference("full", "새로운 Actual이 반영되면 최근 8주 기준이 바뀌어 향후 Forecast를 다시 계산합니다", "high", [body]),
+        inference("other", "주간 Forecast가 없으면 월간 Forecast를 사용합니다", "high", [source("fallback", 3)]),
+      ],
+      warnings: [],
+      rejectedClaimCount: 0,
+    };
+    const topics = [{ id: "topic:heading", text: "주차별 Forecast 값은 어떻게 산정되나요?", sources: [heading] }];
+
+    expect(analysisClaimPresentation(result, [], topics).summary.map(claimDisplayText)).toEqual([
+      "새로운 Actual이 반영되면 최근 8주 기준이 바뀌어 향후 Forecast를 다시 계산합니다",
+      "주간 Forecast가 없으면 월간 Forecast를 사용합니다",
+    ]);
+  });
+
   it("builds an ordered deterministic summary and confirmed metrics from extraction only", () => {
     const first = source("slide-1", 1);
     const repeated = source("slide-2", 2);
@@ -168,6 +190,33 @@ describe("analysisClaimPresentation", () => {
       "값은 어떻게 산정되나요?",
       "값 선택 순서",
     ]);
+  });
+
+  it("returns every real topic and never a synthetic overflow row", () => {
+    const blocks = Array.from({ length: 14 }, (_, index) => ({
+      id: `slide-${index + 1}`,
+      type: "paragraph" as const,
+      text: `주제 ${String.fromCharCode(0xac00 + index * 28)} 운영 기준`,
+      role: "heading" as const,
+      headingLevel: 1,
+      source: source(`slide-${index + 1}`, index + 1),
+    }));
+    const outline = [
+      { id: "chapter", type: "paragraph" as const, text: "제3장", role: "heading" as const, headingLevel: 1, source: source("chapter", 15) },
+      { id: "number", type: "paragraph" as const, text: "4.1", role: "heading" as const, headingLevel: 2, source: source("number", 16) },
+    ];
+    const document: NormalizedDocument = {
+      id: "document-file-1",
+      fileId: "file-1",
+      kind: "pptx",
+      metadata: { fileName: "운영.pptx", pageCount: 16 },
+      blocks: [...blocks, ...outline],
+      warnings: [],
+    };
+
+    const topics = documentAnalysisTopics(document);
+    expect(topics.map((topic) => topic.text)).toEqual(blocks.map((block) => block.text));
+    expect(topics.some((topic) => /^외\s*\d+개$/u.test(topic.text))).toBe(false);
   });
 
   it("keeps equal labels from different files separate and names each deterministic summary", () => {

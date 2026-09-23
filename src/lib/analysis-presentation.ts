@@ -5,8 +5,15 @@ import type { DocumentTopic } from "@/domain/operations";
 
 const NARRATIVE_SIGNAL_PATTERN = /(관계|의미|특징|주의|증가|감소|변화|추세|상승|하락|비교|차이|영향|원인|위험|가능성|전망|불일치|초과|미달|대비|전년|전월|때문|따라)/u;
 const CONFIRMED_METRIC_TYPES = new Set<ExtractValueType>(["Money", "Percent", "Number"]);
-const TOPIC_LIMIT = 8;
+/**
+ * A short outline is read in full; only a long one folds, and the fold is a
+ * control in the view, never a pretend topic in the data.
+ */
+export const TOPIC_FOLD_THRESHOLD = 12;
+export const TOPIC_FOLDED_COUNT = 8;
 const GENERIC_TOPICS = new Set(["목차", "차례", "contents", "agenda", "chapter", "index", "개정이력"]);
+/** "CH 01", "Chapter 2", "제3장", "4.1": a position in the outline, not a subject. */
+const OUTLINE_NUMBER_ONLY = /^(?:(?:ch(?:apter)?|part|section)\.?\s*\d+|제?\s*\d+\s*[장절부]|\d+(?:\.\d+)*\.?)$/iu;
 /** A table-of-contents entry or a running head carries its page number with it. */
 const TRAILING_PAGE_NUMBER = /\s\d{1,3}$/u;
 const COVER_PAGE = 1;
@@ -81,15 +88,72 @@ function repeatsConfirmedMetric(claim: GroundedClaim, fields: readonly Extracted
   });
 }
 
+/** Korean-aware character bigrams: particles and spacing differ, the wording does not. */
+function bigrams(text: string): Set<string> {
+  const compact = normalizedFactPart(text);
+  const grams = new Set<string>();
+  for (let index = 0; index + 2 <= compact.length; index += 1) grams.add(compact.slice(index, index + 2));
+  return grams;
+}
+
+/** Share of `inner`'s bigrams that also appear in `outer`. */
+function containment(inner: Set<string>, outer: Set<string>): number {
+  if (inner.size === 0) return 0;
+  let shared = 0;
+  for (const gram of inner) if (outer.has(gram)) shared += 1;
+  return shared / inner.size;
+}
+
+/**
+ * An insight explains how parts of the document relate. A claim whose wording
+ * is essentially one of the document's own section titles restates the outline
+ * the reader already sees under 문서 주요 내용.
+ */
+const RESTATES_HEADING = 0.8;
+/**
+ * Two claims citing the same evidence, one worded almost entirely inside the
+ * other, say the same thing; the fuller one explains more and is kept.
+ */
+const NEAR_DUPLICATE = 0.7;
+
+function withoutNearDuplicates(claims: readonly GroundedClaim[]): GroundedClaim[] {
+  const kept: Array<{ claim: GroundedClaim; grams: Set<string>; nodes: Set<string> }> = [];
+  for (const claim of claims) {
+    const grams = bigrams(claimDisplayText(claim));
+    const nodes = new Set(claim.evidence.map((binding) => `${binding.source.fileId}\0${binding.source.nodeId}`));
+    const twin = kept.find((entry) => {
+      if (![...nodes].some((node) => entry.nodes.has(node))) return false;
+      const [shorter, longer] = grams.size <= entry.grams.size ? [grams, entry.grams] : [entry.grams, grams];
+      return containment(shorter, longer) >= NEAR_DUPLICATE;
+    });
+    if (!twin) {
+      kept.push({ claim, grams, nodes });
+      continue;
+    }
+    if (grams.size > twin.grams.size) {
+      twin.claim = claim;
+      twin.grams = grams;
+    }
+    for (const node of nodes) twin.nodes.add(node);
+  }
+  return kept.map((entry) => entry.claim);
+}
+
 export function analysisClaimPresentation(
   result: AiAvailableResult | null,
   confirmedFields: readonly ExtractedField[] = [],
+  topics: readonly DocumentTopic[] = [],
 ): AnalysisClaimPresentation {
   if (!result || result.operation !== "analyze") {
     return { summary: [], concerns: [], warnings: [] };
   }
 
-  const claims = uniqueClaims(result.claims);
+  const headingGrams = topics.map((topic) => bigrams(topic.text));
+  const restatesHeading = (claim: GroundedClaim) => {
+    const grams = bigrams(claimDisplayText(claim));
+    return headingGrams.some((heading) => heading.size > 0 && containment(grams, heading) >= RESTATES_HEADING);
+  };
+  const claims = withoutNearDuplicates(uniqueClaims(result.claims)).filter((claim) => !restatesHeading(claim));
   const concerns = claims.filter((claim) => claim.kind === "inference" && (claim.confidence ?? "low") === "low");
   const concernIds = new Set(concerns.map((claim) => claim.id));
   const summary = claims.filter((claim) =>
@@ -127,7 +191,7 @@ export function documentAnalysisTopics(document: NormalizedDocument): DocumentTo
     const key = topicKey(text);
     const compact = compactKey(text);
     if (!key || GENERIC_TOPICS.has(key) || GENERIC_TOPICS.has(compact)) continue;
-    if (TRAILING_PAGE_NUMBER.test(text)) continue;
+    if (TRAILING_PAGE_NUMBER.test(text) || OUTLINE_NUMBER_ONLY.test(text)) continue;
     if (skipCover && pageOf(block.source) === COVER_PAGE) continue;
     // The colophon and the cover restate the title; the title identifies the
     // document, it is not one of its subjects.
@@ -144,14 +208,7 @@ export function documentAnalysisTopics(document: NormalizedDocument): DocumentTo
       existing.sources.push(block.source);
     }
   }
-  if (topics.length <= TOPIC_LIMIT) return topics;
-  const shown = topics.slice(0, TOPIC_LIMIT);
-  const remaining = topics.slice(TOPIC_LIMIT);
-  return [...shown, {
-    id: `topic:remaining:${document.fileId}`,
-    text: `외 ${remaining.length}개`,
-    sources: remaining.flatMap((topic) => topic.sources),
-  }];
+  return topics;
 }
 
 export function confirmedAnalysisItems(

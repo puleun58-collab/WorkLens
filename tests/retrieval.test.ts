@@ -251,6 +251,26 @@ describe("browser evidence retrieval", () => {
     expect(texts).toContain("새로운 Actual 데이터가 들어오면 향후 Forecast 를 다시 계산합니다.");
   });
 
+  /**
+   * Analyze relates facts, so a tight window must spend its slots on the
+   * sentences that state a relation, not on the titles that only name them.
+   */
+  it("gives Analyze the relational sentences before bare section titles", () => {
+    const titles = ["Forecast 개요", "산정 기준", "값 선택", "적용 순서", "변경 기준", "Actual 기준"];
+    const blocks = [
+      ...titles.map((title, index) => ({ ...paragraph(index + 1, title), role: "heading" as const, headingLevel: 2 })),
+      ...Array.from({ length: 30 }, (_, index) => paragraph(10 + index, `${index + 1}번 운영 일정 문단입니다.`)),
+      paragraph(50, "주간 Forecast 가 없으면 월간 Forecast 를 대신 사용합니다."),
+      paragraph(51, "새로운 Actual 이 반영되면 향후 Forecast 를 다시 계산합니다."),
+    ];
+    const document: NormalizedDocument = { ...pdfDocument([]), blocks };
+    const nodes = buildEvidenceNodes([document]);
+    const selected = selectEvidence(nodes, { operation: "analyze" }, { limit: 4 }).map((node) => node.text);
+
+    expect(selected).toContain("주간 Forecast 가 없으면 월간 Forecast 를 대신 사용합니다.");
+    expect(selected).toContain("새로운 Actual 이 반영되면 향후 Forecast 를 다시 계산합니다.");
+  });
+
   it("ranks a document's rules above its cover, contents and running heads", () => {
     const document = pdfDocument([
       "주차별 예측값 산정 가이드",

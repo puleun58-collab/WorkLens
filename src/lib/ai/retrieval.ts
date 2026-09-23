@@ -152,13 +152,20 @@ const TOC_LINE = /\s\d{1,3}$/u;
 const STRUCTURAL_LINE = /^[\s\d.,:;()[\]/·—–-]*$/u;
 const FRONT_MATTER = /(?:지은이|펴낸곳|초판|\d+\s*쇄|조판|서체|목차|차례|contents|copyright|all rights reserved)/u;
 const RULE_SIGNAL = /(?:목적|개요|기준|규칙|순서|절차|흐름|조건|예외|전환|재계산|산정|적용|주의|결론|요약|조치|계획|목표|리스크|이슈|정의|반영|선택|우선|action|summary|todo)/u;
+/**
+ * Analyze interprets how facts relate, so it favours sentences that carry a
+ * relation — a condition and its result, an order of precedence, a fallback,
+ * a recalculation, a transition — over the section titles that merely name
+ * them. Brief keeps plain importance: it restates facts, it does not relate them.
+ */
+const RELATION_SIGNAL = /(?:(?:이|가|하)?면\s|경우|따라|때문|없으면|없을\s*때|대신|순서로|순으로|우선|다시|재계산|재산출|전환|바뀌|변경되|반영되|기준으로|보정|조정|제한|이내|→|->|then|if\s|unless|instead)/u;
 
 /**
  * Brief has no question, so importance stands in for relevance: definitions,
  * rules, order and process carry a document, while its cover, contents,
  * running heads and example rows describe the file rather than its subject.
  */
-function importanceScores(nodes: readonly AiEvidenceNode[]): number[] {
+function importanceScores(nodes: readonly AiEvidenceNode[], operation: AiRequest["operation"]): number[] {
   const frequency = new Map<string, number>();
   const textCount = new Map<string, number>();
   for (const node of nodes) {
@@ -182,8 +189,11 @@ function importanceScores(nodes: readonly AiEvidenceNode[]): number[] {
     // instead of stating one.
     if (numericCount >= 2 && text.length <= 32) score -= 0.5;
     // The section name is worth carrying; its own body still scores on merit.
-    if (node.role === "heading") score += 0.9;
+    // Analyze needs the body's relation, not the title, so a title is only
+    // context there and cannot take a window slot on its bonus alone.
+    if (node.role === "heading") score += operation === "analyze" ? 0.2 : 0.9;
     else if (text.length <= 40) score += 0.2;
+    if (operation === "analyze" && node.role !== "heading" && RELATION_SIGNAL.test(text)) score += 1.1;
     if (node.proposition.predicate === "has_value") score += 0.25;
     // Front matter, contents entries and running heads repeat the document's
     // identity on every page; they are not what the document says.
@@ -343,7 +353,7 @@ export function selectEvidence(
   const emphasis = request.operation === "brief" && !scope.focus && scope.emphasis
     ? relevanceScores(candidates, scope.emphasis)
     : undefined;
-  const importance = importanceScores(candidates);
+  const importance = importanceScores(candidates, request.operation);
   const affinity = scoreAsk && relevance ? headingAffinity(candidates, relevance) : undefined;
   const ranked: RankedEvidence[] = candidates.map((node, order) => ({
     node,

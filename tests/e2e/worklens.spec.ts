@@ -2,7 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { createBriefPptx, createCheckPptx, createDocx, createExtractPptx, createNarrativePptx, createPdf, createPptx, createTrainingPptx, createXlsx, RATE_SHEET_V1, RATE_SHEET_V2 } from "../fixtures";
+import { createBriefPptx, createCheckPptx, createDocx, createExtractPptx, createNarrativePptx, createPdf, createPptx, createPptxSlides, createTrainingPptx, createXlsx, RATE_SHEET_V1, RATE_SHEET_V2 } from "../fixtures";
 
 const FIXTURE_DIR = path.join(process.cwd(), "artifacts", "fixtures");
 const files = {
@@ -26,10 +26,14 @@ const files = {
   briefPptx: path.join(FIXTURE_DIR, "기업요약.pptx"),
   alignmentA: path.join(FIXTURE_DIR, "정렬기준_A.xlsx"),
   alignmentB: path.join(FIXTURE_DIR, "정렬기준_B.xlsx"),
+  longOutlinePptx: path.join(FIXTURE_DIR, "긴목차_운영가이드.pptx"),
 };
 
 test.beforeAll(async () => {
   await mkdir(FIXTURE_DIR, { recursive: true });
+  // Letters, not numbers: a title ending in a number reads as a contents entry.
+  await writeFile(files.longOutlinePptx, createPptxSlides(Array.from({ length: 14 }, (_, index) =>
+    [`운영 주제 ${String.fromCharCode(65 + index)}`, `운영 주제 ${String.fromCharCode(65 + index)}의 처리 기준과 담당 범위를 설명합니다.`])));
   await writeFile(files.v1, await createXlsx(RATE_SHEET_V1));
   await writeFile(files.v1Copy, await createXlsx(RATE_SHEET_V1));
   await writeFile(files.longV1, await createXlsx(RATE_SHEET_V1));
@@ -377,7 +381,11 @@ test("keeps narrative PPT topics useful when Analyze AI is unavailable", async (
   for (const heading of ["안전보건협의체", "회의 개요", "법적 요구 사항", "업체별 위험요소", "안전 규정"]) {
     await expect(topics.filter({ hasText: heading })).toHaveCount(1);
   }
-  await expect(topics).toHaveCount(9);
+  // Twelve real slide titles: all of them, and no synthetic "외 N개" row.
+  await expect(topics).toHaveCount(12);
+  await expect(panel.locator(".analysis-core-items-section .subsection-heading span")).toHaveText("12건");
+  await expect(topics.filter({ hasText: /^외 \d+개/ })).toHaveCount(0);
+  await expect(panel.locator(".analysis-topic-more")).toHaveCount(0);
   await expect(panel).not.toContainText("이 문장은 제목 placeholder가 없는 본문입니다.");
   await expect(panel.locator(".result-inline-warning")).toHaveCount(0);
   await expect(panel.locator(".analysis-summary-section")).toHaveCount(0);
@@ -387,6 +395,35 @@ test("keeps narrative PPT topics useful when Analyze AI is unavailable", async (
   await repeated.locator(".source-action").click();
   await expect(page.getByLabel("근거 상세")).toContainText("Slide 4");
   await expect(page.getByLabel("근거 상세")).toContainText("Slide 11");
+});
+
+test("shows a short outline in full and folds a long one behind a real control", async ({ page }) => {
+  await page.route("**/api/ai", async (route) => {
+    await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: { code: "AI_PROVIDER_UNAVAILABLE" }, requestId: "req-outline" }) });
+  });
+  await page.goto("/");
+  await upload(page, files.longOutlinePptx);
+  await page.getByLabel("긴목차_운영가이드.pptx 선택").check();
+  await page.getByRole("button", { name: "분석", exact: true }).click();
+  await page.getByRole("button", { name: "분석 실행" }).click();
+
+  const section = page.locator(".analysis-core-items-section");
+  const topics = section.locator(".analysis-reading-row");
+  // The count is the document's real outline; the fold never counts as a topic.
+  await expect(section.locator(".subsection-heading span")).toHaveText("14건");
+  await expect(topics).toHaveCount(8);
+  await expect(section).not.toContainText(/외 \d+개/);
+  const more = section.getByRole("button", { name: "6개 더 보기" });
+  await expect(more).toBeVisible();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  await page.setViewportSize({ width: 1440, height: 900 });
+
+  await more.click();
+  await expect(topics).toHaveCount(14);
+  await expect(topics.last()).toContainText("운영 주제 N");
+  await expect(more).toHaveCount(0);
 });
 
 test("checks shared values locally, keeps evidence, and exports both formats", async ({ page }) => {
