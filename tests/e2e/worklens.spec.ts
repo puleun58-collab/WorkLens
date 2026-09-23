@@ -1,7 +1,8 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import ExcelJS from "exceljs";
 import { createAnalyzePptx, createCheckPptx, createDocx, createExtractPptx, createNarrativePptx, createPdf, createPptx, createPptxSlides, createTrainingPptx, createXlsx, RATE_SHEET_V1, RATE_SHEET_V2 } from "../fixtures";
 
 const FIXTURE_DIR = path.join(process.cwd(), "artifacts", "fixtures");
@@ -2546,6 +2547,33 @@ test("aligns mixed comparison values by their actual type", async ({ page }) => 
 
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
+test("shows the same continued R sequence in preview and the downloaded workbook", async ({ page }) => {
+  await page.goto("/");
+  for (const [name, numbers] of [
+    ["기준.xlsx", ["BP-08-01", "BP-08-02", "BP-08-03"]],
+    ["추가.xlsx", ["BP-08-01", "", "BP-08-02"]],
+  ] as const) {
+    const bytes = await createXlsx({ "개선 Bank": [
+      ["R", "내용", "상태"],
+      ...numbers.map((number, index) => [number, `${name} ${index + 1}`, "진행"]),
+    ] });
+    await page.locator('input[type="file"]').setInputFiles({ name, mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", buffer: Buffer.from(bytes) });
+    await expect(page.locator(".file-row").filter({ hasText: name })).toBeVisible();
+    await page.getByLabel(`${name} 선택`).check();
+  }
+  await page.getByRole("button", { name: "취합", exact: true }).click();
+  await page.getByRole("button", { name: "취합 실행" }).click();
+  const preview = page.getByRole("region", { name: "개선 Bank 미리보기" }).locator(".aggregation-preview tbody tr td:first-child");
+  const expected = ["BP-08-01", "BP-08-02", "BP-08-03", "BP-08-04", "BP-08-05", "BP-08-06"];
+  await expect(preview).toHaveText(expected);
+  await page.screenshot({ path: "artifacts/aggregation-sequence-preview.png", fullPage: true });
+  const download = page.waitForEvent("download");
+  await page.locator(".aggregation-results").getByRole("button", { name: "XLSX 다운로드" }).click();
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(new Uint8Array(await readFile(await (await download).path())) as unknown as ExcelJS.Buffer);
+  expect(expected.map((_, index) => workbook.getWorksheet("개선 Bank")!.getCell(index + 2, 1).value)).toEqual(expected);
 });
 
 test("aggregates workbooks into one XLSX result without profile-specific actions", async ({ page }) => {

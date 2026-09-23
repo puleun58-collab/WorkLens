@@ -13,7 +13,7 @@ import type { DocumentMedia, NativeCellAnchor, NormalizedDocument, TableCell, Wo
 import { formatWorksheet } from "@/lib/xlsx-format";
 import { imagePixelSize, isDateNumberFormat } from "@/lib/xlsx-values";
 import { followGrowth, isExternalFormula, sheetKey, type SheetGrowth } from "./formula";
-import { mappedFields, primaryRegion, targetCell, type TargetCell } from "./values";
+import { mappedFields, primaryRegion, sequenceCells, targetCell, type TargetCell } from "./values";
 
 const XLSX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 const IMAGE_COLUMN = "이미지";
@@ -391,28 +391,6 @@ function terminalBorder(table: WorkbookSheet["table"], region: AggregationRegion
   return edges.map(({ column, inner, outer }) => ({ column, inner: inner?.bottom, outer: outer!.bottom! }));
 }
 
-/** Identifies a template's running-number column; arbitrary business IDs stay untouched. */
-function sequenceColumn(table: WorkbookSheet["table"], region: AggregationRegion, mappings: readonly AggregationFieldMapping[]): { column: number; start: number; prefix: string; digits: number; numeric: boolean } | undefined {
-  for (const mapping of mappings) {
-    if (!mapping.included || mapping.targetColumn === undefined || !/^(?:순번|연번|일련번호|번호|관리\s*(?:no\.?|번호))$/iu.test(mapping.targetField)) continue;
-    const samples = region.records.map((record) => table.rows[(record.source.row ?? 0) - 1]?.[mapping.targetColumn! - 1]?.value);
-    const parsed = samples.map((value) => {
-      if (typeof value === "number") return Number.isSafeInteger(value) && value >= 0 ? { prefix: "", digits: 0, number: value, numeric: true } : undefined;
-      if (typeof value !== "string") return undefined;
-      const match = /^(.*?)(\d+)$/u.exec(value.trim());
-      return match ? { prefix: match[1], digits: match[2].length, number: Number(match[2]), numeric: false } : undefined;
-    });
-    const firstIndex = parsed.findIndex(Boolean);
-    const first = parsed[firstIndex];
-    if (!first || !Number.isSafeInteger(first.number) || parsed.some((part) => part && (part.prefix !== first.prefix || part.numeric !== first.numeric || part.digits !== first.digits))) continue;
-    const numbered = parsed.filter((part): part is NonNullable<typeof part> => Boolean(part));
-    if (numbered.length < 2 || numbered.some((part, index) => part.number !== first.number + index)) continue;
-    const start = first.number - firstIndex;
-    if (start < 0) continue;
-    return { column: mapping.targetColumn, start, prefix: first.prefix, digits: first.digits, numeric: first.numeric };
-  }
-}
-
 /** A result sheet from a template with header and records: the target's own rows, then appended rows. */
 function writeRecordSheet(context: ExportContext, target: AggregationTarget, template: Template, records: readonly AggregationRecord[]): void {
   const output = context.workbook.addWorksheet(safeSheetName(target.name, context.used));
@@ -493,13 +471,10 @@ function writeRecordSheet(context: ExportContext, target: AggregationTarget, tem
       const final = output.getCell(lastRow + added, column);
       final.border = { ...final.border, bottom: structuredClone(outer) };
     }
-    const sequence = sequenceColumn(template.workbookSheet.table, region, mappings);
+    const sequence = sequenceCells(records, mappings, template.sheet.id);
     if (sequence) {
-      placements.forEach(({ row }, index) => {
-        const number = sequence.start + index;
-        output.getCell(row, sequence.column).value = sequence.numeric
-          ? number : `${sequence.prefix}${String(number).padStart(sequence.digits, "0")}`;
-      });
+      const column = mappings.find((mapping) => mapping.id === sequence.mappingId)!.targetColumn!;
+      for (const { record, row } of placements) output.getCell(row, column).value = sequence.cells.get(record.id)!.value;
     }
   }
 

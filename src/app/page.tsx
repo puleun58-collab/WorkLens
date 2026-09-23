@@ -14,7 +14,7 @@ import {
   type AggregationSheet,
   type AggregationTarget,
 } from "@/domain/aggregation";
-import { mappedFields, mappedImageCount, primaryRegion, targetCell } from "@/lib/aggregation/values";
+import { mappedFields, mappedImageCount, primaryRegion, sequenceCells, targetCell, type SequenceCells } from "@/lib/aggregation/values";
 import type { ValueCheckResult, ValueCheckStatus } from "@/domain/value-check";
 import type { DocumentMetadata, SourceRef } from "@/domain/document";
 import {
@@ -3144,6 +3144,7 @@ function AggregationResults({ draft, selection, busy, onSelection, onExport }: {
   };
   const tableTargets = resultTargets.filter((target) => target.kind === "records" || target.kind === "source");
   const recordsByTarget = new Map(tableTargets.map((target) => [target.id, recordsOf(target)]));
+  const sequences = new Map(tableTargets.map((target) => [target.id, sequenceCells(recordsByTarget.get(target.id) ?? [], mappings.filter((mapping) => mapping.targetId === target.id), target.sheetId)]));
   const selectedRecords = [...recordsByTarget.values()].flat();
   const columnsOf = (target: AggregationTarget) => mappings
     .filter((mapping) => mapping.targetId === target.id && mapping.included)
@@ -3170,8 +3171,8 @@ function AggregationResults({ draft, selection, busy, onSelection, onExport }: {
     ...selection,
     mappings: selection.mappings.map((mapping) => mapping.id === id ? { ...mapping, ...patch } : mapping),
   });
-  const previewValue = (record: AggregationRecord, mapping: AggregationFieldMapping) => {
-    const text = targetCell(mappedFields(record, mapping), mapping).display;
+  const previewValue = (record: AggregationRecord, mapping: AggregationFieldMapping, sequence: SequenceCells | undefined) => {
+    const text = sequence?.mappingId === mapping.id ? sequence.cells.get(record.id)?.display ?? "" : targetCell(mappedFields(record, mapping), mapping).display;
     const images = mappedImageCount(record, mapping);
     return <>{text || (!images ? "—" : null)}{images ? <small className="aggregation-image-count">{text ? " · " : ""}이미지 {images}개</small> : null}</>;
   };
@@ -3278,7 +3279,7 @@ function AggregationResults({ draft, selection, busy, onSelection, onExport }: {
                 <table className="aggregation-preview" style={{ minWidth: Math.max(760, columns.length * 150) }}>
                   <thead><tr>{columns.map((mapping) => <th scope="col" key={mapping.id}>{mapping.targetField}</th>)}</tr></thead>
                   <tbody>{records.slice(0, 20).map((record) => (
-                    <tr key={record.id}>{columns.map((mapping) => <td key={mapping.id}>{previewValue(record, mapping)}</td>)}</tr>
+                    <tr key={record.id}>{columns.map((mapping) => <td key={mapping.id}>{previewValue(record, mapping, sequences.get(target.id))}</td>)}</tr>
                   ))}</tbody>
                 </table>
               </div>

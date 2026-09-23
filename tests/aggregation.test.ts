@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { AggregationDraft } from "@/domain/aggregation";
 import { buildAggregation } from "@/lib/aggregation/engine";
 import { aggregationXlsxExport } from "@/lib/aggregation/export";
-import { mappedFields, targetCell } from "@/lib/aggregation/values";
+import { mappedFields, sequenceCells, targetCell } from "@/lib/aggregation/values";
 import { parseDocument } from "@/lib/parsers";
 
 const PIXEL_PNG = Buffer.from(
@@ -688,6 +688,7 @@ describe("first selected workbook as the target", () => {
     serialDates: boolean;
     fill: string;
     images: Array<{ record: number; field: "Before" | "After"; count?: number }>;
+    keyPrefix?: string;
     summary?: boolean;
   }
 
@@ -734,7 +735,7 @@ describe("first selected workbook as the target", () => {
         const row = sheet.getRow(rowNumber);
         row.height = 90;
         const values: Array<[number, ExcelJS.CellValue]> = [
-          [0, `${options.fileId}-${index + 1}`],
+          [0, options.keyPrefix ? `${options.keyPrefix}-${String(index + 1).padStart(2, "0")}` : `${options.fileId}-${index + 1}`],
           [1, "BP"],
           [2, index % 2 === 0 ? "S" : "Q"],
           [5, `${options.fileId} 문제 ${index + 1}`],
@@ -786,6 +787,27 @@ describe("first selected workbook as the target", () => {
     const exported = await aggregationXlsxExport(draft, defaultSelection(draft), documents);
     return { draft, documents, exported, output: await reopen(exported.content) };
   }
+
+  it("continues BP-08 numbering in the KPI-shaped R column without disturbing images or summary sheets", async () => {
+    const target = await improvementBank({
+      fileId: "T", start: 2, records: 3, keyLabel: "R", keyPrefix: "BP-08", problemLabel: "문제점",
+      serialDates: false, fill: TARGET_FILL, images: [{ record: 1, field: "Before" }], summary: true,
+    });
+    const source = await improvementBank({
+      fileId: "S", start: 3, records: 6, keyLabel: "관리 No", keyPrefix: "BP-08", problemLabel: "현상 파악",
+      serialDates: true, fill: SOURCE_FILL, images: [{ record: 1, field: "Before" }, { record: 1, field: "After" }], summary: true,
+    });
+    const documents = [target, source];
+    const draft = buildAggregation(documents);
+    const output = await reopen((await aggregationXlsxExport(draft, defaultSelection(draft), documents)).content);
+    const bank = output.getWorksheet("개선 Bank")!;
+    expect(Array.from({ length: 9 }, (_, index) => bank.getCell(index + 5, 2).value)).toEqual(
+      Array.from({ length: 9 }, (_, index) => `BP-08-${String(index + 1).padStart(2, "0")}`),
+    );
+    expect(bank.getImages()).toHaveLength(3);
+    expect(bank.getImages()[0].range.br.nativeColOff).toBe(0);
+    expect(output.getWorksheet("개선 Bank Summary")!.getCell("C8").value).toMatchObject({ formula: "COUNTA('개선 Bank'!$B$5:$B$13)" });
+  });
 
   it("appends the source's six records under the target's three in one sheet with the target's headers", async () => {
     const { draft, output } = await targetAndSource();
@@ -1006,5 +1028,91 @@ describe("first selected workbook as the target", () => {
     expect(positions[2].br.nativeColOff).toBe(0);
     expect(positions[2].br.nativeRow).toBe(2);
     expect(positions[0].br.nativeColOff).toBe(positions[1].tl.nativeColOff);
+  });
+});
+
+describe("combined sequence numbers", () => {
+  async function combine(header: string, baseline: readonly ExcelJS.CellValue[], incoming: readonly ExcelJS.CellValue[], format?: string) {
+    const documents = await Promise.all([baseline, incoming].map((numbers, fileIndex) =>
+      documentOf((book) => {
+        const sheet = book.addWorksheet("개선 Bank");
+        sheet.addRow([header, "내용", "상태"]);
+        numbers.forEach((number, index) => {
+          const row = sheet.addRow([number, `${fileIndex ? "추가" : "기준"} ${index + 1}`, "진행"]);
+          if (format) row.getCell(1).numFmt = format;
+        });
+      }, `sequence-${fileIndex}`)));
+    const draft = buildAggregation(documents);
+    const target = draft.targets[0];
+    const mapping = draft.mappings.find((entry) => entry.targetId === target.id && entry.targetColumn === 1)!;
+    const records = draft.records.filter((record) => target.sheetIds.includes(record.sheetId));
+    const preview = sequenceCells(records, draft.mappings.filter((entry) => entry.targetId === target.id), target.sheetId);
+    const output = await reopen((await aggregationXlsxExport(draft, defaultSelection(draft), documents)).content);
+    const values = Array.from({ length: baseline.length + incoming.length }, (_, index) => output.getWorksheet("개선 Bank")!.getCell(index + 2, 1).value);
+    return { draft, mapping, records, preview, values };
+  }
+
+  it("continues BP-08 under an R header despite restarted and missing source numbers", async () => {
+    const { records, mapping, preview, values } = await combine("R",
+      ["BP-08-01", "BP-08-02", "BP-08-03"],
+      ["BP-08-01", null, "BP-08-02"]);
+    const expected = ["BP-08-01", "BP-08-02", "BP-08-03", "BP-08-04", "BP-08-05", "BP-08-06"];
+    expect(values).toEqual(expected);
+    expect(records.map((record) => preview?.mappingId === mapping.id ? preview.cells.get(record.id)?.display : targetCell(mappedFields(record, mapping), mapping).display)).toEqual(expected);
+  });
+
+  it.each([
+    { baseline: [1, 2, 3], incoming: [1, null, 2], expected: [1, 2, 3, 4, 5, 6] },
+    { baseline: ["001", "002", "003"], incoming: ["001", null, "002"], expected: ["001", "002", "003", "004", "005", "006"] },
+  ])("continues numeric and zero-padded R values through blank source records: $baseline", async ({ baseline, incoming, expected }) => {
+    const { values, preview, records } = await combine("R", baseline, incoming);
+    expect(values).toEqual(expected);
+    expect(records.map((record) => preview?.cells.get(record.id)?.display)).toEqual(expected.map(String));
+  });
+  it("retains named numbering with an ordinary thousands display format", async () => {
+    const { values } = await combine("No.", [1, 2, 3], [1, 2], "#,##0");
+    expect(values).toEqual([1, 2, 3, 4, 5]);
+  });
+
+
+  it.each([
+    { header: "R", baseline: ["ABC-01", "ABC-04", "ABC-09"], incoming: ["ABC-01", null] },
+    { header: "R", baseline: ["BP-08-01", "BP-08-03", "BP-08-08"], incoming: ["BP-08-01", null] },
+    { header: "R", baseline: [2024, 2025, 2026], incoming: [2024, 2025] },
+    { header: "R", baseline: [100, 200, 300], incoming: [100, 200] },
+    { header: "R", baseline: ["2026-08-01", "2026-08-02", "2026-08-03"], incoming: ["2026-08-01", null] },
+    { header: "고유 ID", baseline: ["A-100", "A-101", "A-102"], incoming: ["A-100", null] },
+    { header: "R", baseline: ["A100", "A101", "A102"], incoming: ["A100", null] },
+    { header: "수량", baseline: [1, 2, 3], incoming: [1, 2] },
+    { header: "금액", baseline: [1, 2, 3], incoming: [1, 2] },
+    { header: "비율", baseline: [1, 2, 3], incoming: [1, 2] },
+    { header: "R", baseline: [100, 101, 102], incoming: [100, 101], format: '#,##0"원"' },
+    { header: "R", baseline: [1, 2, 3], incoming: [1, 2], format: "0%" },
+    { header: "R", baseline: [1, 2, 3], incoming: [1, 2], format: "yyyy-mm-dd" },
+  ])("does not mistake $header / $baseline for a sequence", async ({ header, baseline, incoming, format }) => {
+    const { preview, values } = await combine(header, baseline, incoming, format);
+    expect(preview).toBeUndefined();
+    if (format === "yyyy-mm-dd") {
+      expect(values.slice(baseline.length).every((value) => value instanceof Date)).toBe(true);
+    } else {
+      expect(values.slice(baseline.length)).toEqual(incoming);
+    }
+  });
+
+  it("does not renumber formula results even when the cached values increase by one", async () => {
+    const formula = await documentOf((book) => {
+      const sheet = book.addWorksheet("개선 Bank");
+      sheet.addRows([["R", "내용", "상태"], [{ formula: "1", result: 1 }, "첫째", "진행"], [{ formula: "2", result: 2 }, "둘째", "진행"], [{ formula: "3", result: 3 }, "셋째", "진행"]]);
+    }, "sequence-formulas");
+    const source = await documentOf((book) => {
+      book.addWorksheet("개선 Bank").addRows([["R", "내용", "상태"], [1, "추가", "진행"]]);
+    }, "sequence-source");
+    const documents = [formula, source];
+    const draft = buildAggregation(documents);
+    const target = draft.targets[0];
+    const records = draft.records.filter((record) => target.sheetIds.includes(record.sheetId));
+    expect(sequenceCells(records, draft.mappings, target.sheetId)).toBeUndefined();
+    const output = await reopen((await aggregationXlsxExport(draft, defaultSelection(draft), documents)).content);
+    expect(output.getWorksheet("개선 Bank")!.getCell("A5").value).toBe(1);
   });
 });

@@ -128,6 +128,68 @@ export function mappedFields(record: AggregationRecord, mapping: Pick<Aggregatio
   const allowed = new Set(mapping.sourceFields.filter((source) => source.sheetId === record.sheetId).map((source) => source.field));
   return record.fields.filter((field) => allowed.has(field.label));
 }
+export interface SequenceCells {
+  mappingId: string;
+  cells: ReadonlyMap<string, TargetCell>;
+}
+
+/** Numbering is a property of the combined rows, not a source file's stored IDs. */
+export function sequenceCells(records: readonly AggregationRecord[], mappings: readonly AggregationFieldMapping[], templateSheetId: string): SequenceCells | undefined {
+  if (!records.some((record) => record.sheetId !== templateSheetId)) return undefined;
+  const own = records.filter((record) => record.sheetId === templateSheetId);
+  const strongHeader = /^(?:순번|연번|일련번호|번호|관리\s*(?:no\.?|번호)|no\.?)$/iu;
+  const nonSequenceHeader = /(?:날짜|일자|연도|년도|금액|비율|수량|단가|합계|건수|인원|식별|고유|date|amount|qty|rate|percent|^id$)/iu;
+  const parse = (field: AggregationField | undefined, named: boolean) => {
+    if (!field || field.value.cellType === "date" || field.value.cellType === "formula"
+      || field.value.type === "Date" || field.value.type === "DateTime"
+      || isDateNumberFormat(field.value.numberFormat)) return undefined;
+    const value = field.value.value;
+    const format = field.value.numberFormat ?? "";
+    if (/[%₩$€¥]|원|개|건|명|kg|g\b|톤/u.test(format) || !named && /#,##/u.test(format)) return undefined;
+    if (typeof value === "number") {
+      if (!Number.isSafeInteger(value) || value < 0 || value >= 1900 && value <= 2100) return undefined;
+      return { prefix: "", digits: 0, number: value, numeric: true };
+    }
+    if (typeof value !== "string") return undefined;
+    const text = value.trim();
+    if (/^\d+$/u.test(text)) {
+      const number = Number(text);
+      if (!Number.isSafeInteger(number) || number >= 1900 && number <= 2100) return undefined;
+      return { prefix: "", digits: text.length, number, numeric: false };
+    }
+    const match = /^(.+[-_/])(\d{2,})$/u.exec(text);
+    if (!match || !/[A-Za-z가-힣]/u.test(match[1])) return undefined;
+    const number = Number(match[2]);
+    return Number.isSafeInteger(number) ? { prefix: match[1], digits: match[2].length, number, numeric: false } : undefined;
+  };
+  for (const mapping of mappings) {
+    if (!mapping.included || mapping.targetColumn === undefined || mapping.targetType === "date" || mapping.targetType === "datetime"
+      || isDateNumberFormat(mapping.targetFormat) || nonSequenceHeader.test(mapping.targetField)) continue;
+    const named = strongHeader.test(mapping.targetField);
+    const parsed = own.map((record) => parse(mappedFields(record, mapping)[0], named));
+    const firstIndex = parsed.findIndex(Boolean);
+    const first = parsed[firstIndex];
+    if (!first || parsed.some((entry) => entry && (entry.prefix !== first.prefix || entry.numeric !== first.numeric || entry.digits !== first.digits))) continue;
+    const numbered = parsed.filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
+    if (numbered.length < 2 || numbered.some((entry, index) => entry.number !== first.number + index)) continue;
+    const start = first.number - firstIndex;
+    if (start < 0) continue;
+    const sourceRestarts = records.some((record) => {
+      if (record.sheetId === templateSheetId) return false;
+      const source = parse(mappedFields(record, mapping)[0], named);
+      return source?.number === first.number && source.prefix === first.prefix && source.numeric === first.numeric;
+    });
+    if (!named && (first.prefix ? !first.prefix.slice(0, -1).includes("-") && !sourceRestarts && numbered.length < 3 : mapping.targetField !== "R" && !sourceRestarts)) continue;
+    const cells = new Map(records.map((record, index) => {
+      const number = start + index;
+      const value = first.numeric ? number : `${first.prefix}${String(number).padStart(first.digits, "0")}`;
+      const display = first.numeric && /^0+$/u.test(mapping.targetFormat ?? "")
+        ? String(number).padStart(mapping.targetFormat!.length, "0") : String(value);
+      return [record.id, { value, display }] as const;
+    }));
+    return { mappingId: mapping.id, cells };
+  }
+}
 
 /** Images a record holds in the given target field. */
 export function mappedImageCount(record: AggregationRecord, mapping: Pick<AggregationFieldMapping, "sourceFields" | "targetField">): number {
