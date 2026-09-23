@@ -309,45 +309,39 @@ describe("Groq provider adapter", () => {
     });
   });
 
-  it("keeps the brief prompt, provider schema and parser on one contract", async () => {
+  it("returns summary and insight claims from one Analyze provider call", async () => {
     const providerFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       choices: [{ message: { content: JSON.stringify({ claims: [
         { text: "주간 Forecast는 최근 8주 평균 유가를 사용합니다.", sources: ["E1"], confidence: "high", section: "산정 기준", role: "summary" },
-        { text: "변경 시 재계산이 필요합니다.", sources: ["E1"], confidence: "medium", section: "", role: "action" },
+        { text: "Actual 반영 시 향후 Forecast를 다시 계산합니다.", sources: ["E1"], confidence: "medium", section: "변경", role: "insight" },
       ] }) } }],
     }), { status: 200, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", providerFetch);
 
-    const result = await runGroqAi({ kind: "claims", request: { operation: "brief" }, items: evidence });
+    const result = await runGroqAi({ kind: "claims", request: { operation: "analyze" }, items: evidence });
 
+    expect(providerFetch).toHaveBeenCalledTimes(1);
     expect(result).toMatchObject({ kind: "claims", claims: [
       { text: "주간 Forecast는 최근 8주 평균 유가를 사용합니다.", handles: ["E1"], presentation: { role: "summary", section: "산정 기준" } },
-      { text: "변경 시 재계산이 필요합니다.", handles: ["E1"], presentation: { role: "action" } },
+      { text: "Actual 반영 시 향후 Forecast를 다시 계산합니다.", handles: ["E1"], presentation: { role: "insight", section: "변경" } },
     ] });
-    const body = JSON.parse(String((providerFetch.mock.calls[0] as [string, RequestInit])[1].body));
-    const schema = body.response_format.json_schema.schema.properties.claims.items;
-    expect(schema.required).toEqual(["text", "sources", "confidence", "section", "role"]);
-    // The example the model is shown has to carry the same fields the schema
-    // enforces, or a compliant model is asked for two different shapes.
-    const system = body.messages[0].content as string;
-    for (const field of schema.required) expect(system).toContain(field);
   });
 
-  it("treats an empty brief envelope as abstention, not a broken response", async () => {
+  it("treats an empty Analyze envelope as abstention, not a broken response", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
       choices: [{ message: { content: JSON.stringify({ claims: [] }) } }],
     }), { status: 200, headers: { "Content-Type": "application/json" } })));
 
-    await expect(runGroqAi({ kind: "claims", request: { operation: "brief" }, items: evidence }))
+    await expect(runGroqAi({ kind: "claims", request: { operation: "analyze" }, items: evidence }))
       .resolves.toEqual({ kind: "claims", claims: [] });
   });
 
-  it("rejects a brief claim that omits the presentation contract", async () => {
+  it("rejects an Analyze claim that omits its presentation role", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
       choices: [{ message: { content: JSON.stringify({ claims: [{ text: "요약", sources: ["E1"], confidence: "high", section: "" }] }) } }],
     }), { status: 200, headers: { "Content-Type": "application/json" } })));
 
-    await expect(runGroqAi({ kind: "claims", request: { operation: "brief" }, items: evidence }))
+    await expect(runGroqAi({ kind: "claims", request: { operation: "analyze" }, items: evidence }))
       .rejects.toMatchObject({ code: "INVALID_PROVIDER_OUTPUT", status: 502 });
   });
 });

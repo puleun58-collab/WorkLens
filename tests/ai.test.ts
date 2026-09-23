@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import type { NormalizedDocument } from "@/domain/document";
 import { AI_SCHEMA_ID, type AiProviderCompletion } from "@/lib/ai/contract";
 import { buildEvidenceNodes, groundAiResult, groundProviderCompletion } from "@/lib/ai/grounding";
-import { briefPresentationMode, briefScope } from "@/lib/ai/brief";
 import {
   MAX_EVIDENCE_CHARS,
   MAX_EVIDENCE_ITEMS,
@@ -78,43 +77,18 @@ describe("server AI prompt boundary", () => {
     expect(prompt).not.toContain(window.nodes.get("E1")!.propositionToken);
   });
 
-  it("separates summary formatting instructions from document evidence", () => {
-    const items = [
-      { handle: "E1", text: "시가총액은 3,420억원입니다." },
-      { handle: "E2", text: "목표주가는 64,550원입니다." },
-    ];
-    const instructed = buildMessages({ operation: "brief", summaryInstruction: "임원 보고용으로 핵심만 5줄" }, items)[1].content;
-    const broad = buildMessages({ operation: "brief" }, items)[1].content;
-    expect(instructed).toContain("[사용자 요약 지시사항]");
-    expect(instructed).toContain("임원 보고용으로 핵심만 5줄");
-    expect(instructed.indexOf("[사용자 요약 지시사항]")).toBeLessThan(instructed.indexOf("[근거]"));
-    expect(instructed).toContain("검색 키워드로 취급하거나 근거를 임의로 좁히지 말고");
-    expect(broad).not.toContain("[사용자 요약 지시사항]");
-    expect(broad).toContain("문서 전체에서");
-  });
 
-  it("separates summary presentation modes from explicit evidence scope", () => {
-    expect(briefPresentationMode("핵심만 5줄")).toBe("lines");
-    expect(briefPresentationMode("보고서 형식")).toBe("report");
-    expect(briefPresentationMode("항목별 정리")).toBe("sections");
-    expect(briefPresentationMode("결론과 액션 아이템 중심")).toBe("actions");
-    expect(briefScope("임원 보고용으로 핵심만 5줄")).toEqual({});
-    expect(briefScope("3페이지 이후 위험요소 관련 내용만 요약")).toEqual({ minimumPage: 3, focus: "위험요소" });
-  });
-
-  it("asks Analyze for interpretation instead of a second summary", () => {
+  it("asks Analyze for a grounded summary and distinct relational insights", () => {
     const prompt = buildMessages({ operation: "analyze" }, [
       { handle: "E1", text: "목표주가 64,550원" },
       { handle: "E2", text: "상승여력 232.4%" },
     ])[1].content;
 
-    expect(prompt).toContain("요약이 아니라 해석");
+    expect(prompt).toContain("summary");
+    expect(prompt).toContain("insight");
     expect(prompt).toContain("관계");
-    expect(prompt).toContain("조건");
-    expect(prompt).toContain("최대 8개까지");
-    expect(prompt).toContain("확인된 수치를 문장으로 다시 쓰지 마세요");
-    expect(prompt).toContain("근거에 적힌 표기를 그대로 사용하고 새로 만들지 마세요");
-    expect(prompt).toContain("claims를 빈 배열로 두세요");
+    expect(prompt).toContain("근거");
+    expect(prompt).toContain("claims");
   });
 
   it("orders Ask by directness, not by how much is related", () => {
@@ -128,32 +102,19 @@ describe("server AI prompt boundary", () => {
     expect(prompt).toContain("claims를 빈 배열로 두세요");
   });
 
-  it("caps a summary at five lines only when the user asks for five lines", () => {
-    const items = [{ handle: "E1", text: "주간 Forecast 는 최근 8개 주간 평균으로 산정합니다." }];
-    const balanced = buildMessages({ operation: "brief" }, items)[1].content;
-    const lines = buildMessages({ operation: "brief", summaryInstruction: "핵심만 5줄" }, items)[1].content;
-
-    expect(balanced).toContain("최대 8개 claim");
-    expect(balanced).not.toContain("최대 5개");
-    expect(balanced).toContain("문서 제목이나 표지·목차 문구만 담은 claim은 만들지 말고");
-    expect(lines).toContain("한 줄에 핵심 하나씩 최대 5개 claim");
-    expect(lines).not.toContain("최대 8개 claim");
-  });
 
   it("states the output language per operation and follows the question's own language for Ask", () => {
     const items = [{ handle: "E1", text: "Forecast is averaged over the last 8 weeks." }];
     const analyze = buildMessages({ operation: "analyze" }, items);
     const korean = buildMessages({ operation: "ask", question: "주차별 예측값은 어떻게 산정하나요?" }, items)[1].content;
     const english = buildMessages({ operation: "ask", question: "How are the weekly forecast values calculated?" }, items)[1].content;
-    const brief = buildMessages({ operation: "brief" }, items)[1].content;
     const comparison = buildMessages({ operation: "semantic-check", statement: "변화를 점검하세요.", scope: "comparison" }, items)[1].content;
     const writing = buildMessages({ operation: "semantic-check", statement: "문장을 점검하세요." }, items)[1].content;
 
-    expect(analyze[1].content).toContain("한국어로 작성");
+    expect(analyze[1].content).toContain("근거 문서의 주된 서술 언어를 유지");
     expect(analyze[0].content).toContain("고유명사");
     expect(korean).toContain("답변 언어: 한국어");
     expect(english).toContain("답변 언어: 영어");
-    expect(brief).toContain("다른 언어를 명시하지 않았다면");
     expect(comparison).toContain("주요 변화 설명은 한국어로 작성하세요.");
     expect(writing).toContain("문제 설명과 수정 제안은 한국어로 작성하세요.");
   });
@@ -188,6 +149,30 @@ describe("server AI prompt boundary", () => {
       rejectedClaimCount: 1,
       claims: [{ text: "추론: 분기 매출이 120에서 100으로 줄었습니다." }],
     });
+  });
+
+  it("does not relabel an invalid Analyze role as a summary", () => {
+    const window = evidenceWindow(buildEvidenceNodes([document]));
+    const completion = resolveClaims(window, parseModelResponse(JSON.stringify({ claims: [
+      { text: "분기 매출은 120에서 100으로 감소했습니다.", sources: ["E1"], confidence: "high", role: "action", section: "" },
+      { text: "분기 매출은 120에서 100으로 감소했습니다.", sources: ["E1"], confidence: "high", role: "summary", section: "" },
+    ] })).claims);
+    const result = groundAiResult({ operation: "analyze" }, [document], completion);
+    expect(result.rejectedClaimCount).toBe(1);
+    expect(result.claims).toHaveLength(1);
+    expect(result.claims[0]).toMatchObject({ kind: "inference", presentation: { role: "summary" } });
+  });
+
+  it("preserves Analyze roles and canonical source bindings from one mixed response", () => {
+    const window = evidenceWindow(buildEvidenceNodes([document]));
+    const completion = resolveClaims(window, parseModelResponse(JSON.stringify({ claims: [
+      { text: "분기 매출은 120에서 100으로 감소했습니다.", sources: ["E1"], confidence: "high", section: "매출", role: "summary" },
+      { text: "분기 매출은 감소했습니다.", sources: ["E1"], confidence: "medium", section: "변화", role: "insight" },
+    ] })).claims);
+    const result = groundAiResult({ operation: "analyze" }, [document], completion);
+    expect(result.rejectedClaimCount).toBe(0);
+    expect(result.claims.map((claim) => claim.kind === "inference" && claim.presentation?.role)).toEqual(["summary", "insight"]);
+    expect(result.claims.map((claim) => claim.evidence[0].source.nodeId)).toEqual(["pdf:p1:paragraph:1", "pdf:p1:paragraph:1"]);
   });
 
   it("treats an unreported or malformed confidence as low", () => {
@@ -318,26 +303,46 @@ describe("canonical evidence grounding", () => {
     const grounded = groundProviderCompletion([document], completion);
     expect(grounded.claims).toHaveLength(1);
     expect(grounded.rejectedClaimCount).toBe(1);
-
     const ask = groundAiResult({ operation: "ask", question: "매출은 어떻게 변했나요?" }, [document], completion);
-    const brief = groundAiResult({ operation: "brief" }, [document], completion);
+
     expect(ask).toMatchObject({ operation: "ask", rejectedClaimCount: 1 });
     expect(ask.operation === "ask" ? ask.answer : "").toBe(ask.claims[0].text);
-    expect(brief).toMatchObject({ operation: "brief", rejectedClaimCount: 1 });
-    expect(brief.operation === "brief" ? brief.brief : "").toBe(brief.claims[0].text);
   });
 
-  it("keeps verified claims for analyze and comparison review, not only for ask and brief", () => {
-    const valid = directCompletion();
+  it("grounds tagged Analyze claims and rejects unsupported peers without discarding supported sources", () => {
+    const token = buildEvidenceNodes([document])[0].propositionToken;
     const completion: AiProviderCompletion = {
-      ...valid,
-      claims: [...valid.claims, { type: "inference", text: "unverified", sourceTokens: ["forged-token"] }],
+      schemaId: AI_SCHEMA_ID,
+      claims: [
+        { type: "inference", text: "분기 매출은 120에서 100으로 감소했습니다.", sourceTokens: [token], confidence: "high", presentation: { role: "summary" } },
+        { type: "inference", text: "분기 매출은 감소했습니다.", sourceTokens: [token], confidence: "high", presentation: { role: "insight" } },
+        { type: "inference", text: "문서에 없는 999원", sourceTokens: [token], confidence: "high", presentation: { role: "summary" } },
+      ],
     };
     const analyze = groundAiResult({ operation: "analyze" }, [document], completion);
-    const review = groundAiResult({ operation: "semantic-check", statement: "변화를 점검하세요.", scope: "comparison" }, [document], completion);
     expect(analyze).toMatchObject({ operation: "analyze", rejectedClaimCount: 1 });
-    expect(analyze.claims).toHaveLength(1);
-    expect(review.operation === "semantic-check" ? review.findings : []).toHaveLength(1);
+    expect(analyze.claims).toHaveLength(2);
+    expect(analyze.claims.map((claim) => claim.kind === "inference" ? claim.presentation?.role : null)).toEqual(["summary", "insight"]);
+    expect(analyze.claims.every((claim) => claim.evidence[0].source.nodeId === "pdf:p1:paragraph:1")).toBe(true);
+  });
+
+  it("summarizes a short single-fact document without inventing an insight", () => {
+    const token = buildEvidenceNodes([document])[0].propositionToken;
+    const result = groundAiResult({ operation: "analyze" }, [document], {
+      schemaId: AI_SCHEMA_ID,
+      claims: [{ type: "inference", text: "분기 매출은 120에서 100으로 감소했습니다.", sourceTokens: [token], confidence: "high", presentation: { role: "summary" } }],
+    });
+    expect(result.rejectedClaimCount).toBe(0);
+    expect(result.claims).toMatchObject([{
+      presentation: { role: "summary" },
+      evidence: [{ source: { fileId: "file-1", nodeId: "pdf:p1:paragraph:1" } }],
+    }]);
+  });
+
+  it("does not reinterpret an untagged claim as an Analyze insight", () => {
+    const analyze = groundAiResult({ operation: "analyze" }, [document], directCompletion());
+    expect(analyze.claims).toEqual([]);
+    expect(analyze.rejectedClaimCount).toBe(1);
   });
 
   it("accepts digit grouping and unit spacing but never a different value", () => {

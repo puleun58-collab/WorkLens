@@ -22,12 +22,19 @@ function source(nodeId: string, slide: number, fileId = "file-1"): SourceRef {
   };
 }
 
-function inference(id: string, text: string, confidence: "high" | "medium" | "low", evidence: SourceRef[]): GroundedClaim {
+function inference(
+  id: string,
+  text: string,
+  confidence: "high" | "medium" | "low",
+  evidence: SourceRef[],
+  role: "summary" | "insight",
+): GroundedClaim {
   return {
     id,
     kind: "inference",
     text: `추론: ${text}`,
     confidence,
+    presentation: { role },
     evidence: evidence.map((item) => ({ source: item, support: "context" })) as GroundedClaim["evidence"],
   };
 }
@@ -37,7 +44,7 @@ function extraction(fileId: string, fileName: string, fields: ExtractedField[]):
 }
 
 describe("analysisClaimPresentation", () => {
-  it("keeps narrative interpretation, merges duplicate evidence, and omits repeated confirmed facts", () => {
+  it("keeps separate summary and insight roles, merges duplicate evidence, and omits repeated confirmed facts", () => {
     const first = source("slide-1", 1);
     const duplicate = source("slide-2", 2);
     const product = source("slide-3", 3);
@@ -45,11 +52,11 @@ describe("analysisClaimPresentation", () => {
     const result: AnalyzeResult = {
       operation: "analyze",
       claims: [
-        inference("price", "목표주가는 64,550원이다", "high", [first]),
-        inference("product-1", "주요 제품은 HT-X1 MAX이다", "medium", [product]),
-        inference("product-2", "주요 제품은 HT-X1 MAX이다", "medium", [duplicate]),
-        inference("trend", "매출은 120에서 100으로 감소했다", "high", [first]),
-        inference("uncertain", "추가 확인이 필요한 값은 12.5%이다", "low", [lowConfidence]),
+        inference("price", "목표주가는 64,550원이다", "high", [first], "summary"),
+        inference("product-1", "주요 제품은 HT-X1 MAX이다", "medium", [product], "summary"),
+        inference("product-2", "주요 제품은 HT-X1 MAX이다", "medium", [duplicate], "summary"),
+        inference("trend", "매출은 120에서 100으로 감소했다", "high", [first], "insight"),
+        inference("uncertain", "추가 확인이 필요한 값은 12.5%이다", "low", [lowConfidence], "insight"),
       ],
       warnings: [{ code: "SOURCE_LIMIT", message: "일부 근거만 확인했습니다." }],
       rejectedClaimCount: 0,
@@ -63,11 +70,9 @@ describe("analysisClaimPresentation", () => {
 
     const presentation = analysisClaimPresentation(result, fields);
 
-    expect(presentation.summary.map(claimDisplayText)).toEqual([
-      "주요 제품은 HT-X1 MAX이다",
-      "매출은 120에서 100으로 감소했다",
-    ]);
+    expect(presentation.summary.map(claimDisplayText)).toEqual(["주요 제품은 HT-X1 MAX이다"]);
     expect(presentation.summary[0].evidence.map((binding) => binding.source)).toEqual([product, duplicate]);
+    expect(presentation.insights.map(claimDisplayText)).toEqual(["매출은 120에서 100으로 감소했다"]);
     expect(presentation.concerns.map(claimDisplayText)).toEqual(["추가 확인이 필요한 값은 12.5%이다"]);
     expect(presentation.warnings).toEqual(result.warnings);
   });
@@ -78,17 +83,17 @@ describe("analysisClaimPresentation", () => {
     const result: AnalyzeResult = {
       operation: "analyze",
       claims: [
-        inference("title", "주차별 Forecast 값은 어떻게 산정되나요", "high", [heading]),
-        inference("short", "Actual이 반영되면 향후 Forecast를 다시 계산합니다", "high", [body]),
-        inference("full", "새로운 Actual이 반영되면 최근 8주 기준이 바뀌어 향후 Forecast를 다시 계산합니다", "high", [body]),
-        inference("other", "주간 Forecast가 없으면 월간 Forecast를 사용합니다", "high", [source("fallback", 3)]),
+        inference("title", "주차별 Forecast 값은 어떻게 산정되나요", "high", [heading], "insight"),
+        inference("short", "Actual이 반영되면 향후 Forecast를 다시 계산합니다", "high", [body], "insight"),
+        inference("full", "새로운 Actual이 반영되면 최근 8주 기준이 바뀌어 향후 Forecast를 다시 계산합니다", "high", [body], "insight"),
+        inference("other", "주간 Forecast가 없으면 월간 Forecast를 사용합니다", "high", [source("fallback", 3)], "insight"),
       ],
       warnings: [],
       rejectedClaimCount: 0,
     };
     const topics = [{ id: "topic:heading", text: "주차별 Forecast 값은 어떻게 산정되나요?", sources: [heading] }];
 
-    expect(analysisClaimPresentation(result, [], topics).summary.map(claimDisplayText)).toEqual([
+    expect(analysisClaimPresentation(result, [], topics).insights.map(claimDisplayText)).toEqual([
       "새로운 Actual이 반영되면 최근 8주 기준이 바뀌어 향후 Forecast를 다시 계산합니다",
       "주간 Forecast가 없으면 월간 Forecast를 사용합니다",
     ]);
@@ -287,6 +292,7 @@ describe("analysisClaimPresentation", () => {
   it("returns no invented sections without an Analyze result", () => {
     expect(analysisClaimPresentation(null)).toEqual({
       summary: [],
+      insights: [],
       concerns: [],
       warnings: [],
     });

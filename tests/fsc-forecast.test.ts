@@ -66,15 +66,18 @@ describe("FSC Forecast guide", () => {
       return handle;
     };
     const claims = [
-      { text: "새로운 Actual이 반영되면 향후 Forecast를 다시 계산합니다", handles: [handleFor(/재계산/u), handleFor(/Actual/u)], confidence: "high" as const },
-      { text: "주간 Forecast가 없으면 월간 Forecast 대체값을 사용합니다", handles: [handleFor(/대체값/u)], confidence: "high" as const },
-      { text: "두바이유와 환율은 Forecast에 보조적으로 반영됩니다", handles: [handleFor(/보조적으로/u)], confidence: "high" as const },
+      { text: "주간 Forecast는 최근 8개 주간 평균 유가로 산정합니다", handles: [handleFor(/8\s*개 주간 평균 유가/u)], confidence: "high" as const, presentation: { role: "summary" as const } },
+      { text: "새로운 Actual이 반영되면 향후 Forecast를 다시 계산합니다", handles: [handleFor(/재계산/u), handleFor(/Actual/u)], confidence: "high" as const, presentation: { role: "insight" as const } },
+      { text: "주간 Forecast가 없으면 월간 Forecast 대체값을 사용합니다", handles: [handleFor(/대체값/u)], confidence: "high" as const, presentation: { role: "insight" as const } },
+      { text: "두바이유와 환율은 Forecast에 보조적으로 반영됩니다", handles: [handleFor(/보조적으로/u)], confidence: "high" as const, presentation: { role: "insight" as const } },
     ];
     const grounded = groundAiResult({ operation: "analyze" }, [document], resolveClaims(window, claims));
     const presented = analysisClaimPresentation(grounded, [], documentAnalysisTopics(document));
 
     expect(grounded.rejectedClaimCount).toBe(0);
-    expect(presented.summary).toHaveLength(claims.length);
-    expect(presented.summary.every((claim) => claim.evidence.length > 0 && claim.evidence.every((binding) => binding.source.fileId === document.fileId))).toBe(true);
+    expect(presented.summary).toHaveLength(1);
+    expect(presented.insights).toHaveLength(3);
+    expect([...presented.summary, ...presented.insights].every((claim) =>
+      claim.evidence.length > 0 && claim.evidence.every((binding) => binding.source.fileId === document.fileId))).toBe(true);
   });
 });

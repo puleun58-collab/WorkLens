@@ -6,7 +6,7 @@ WorkLens는 XLSX, CSV, PDF, DOCX, PPTX 파일을 브라우저에서 파싱하고
 - 새로고침하거나 탭을 닫으면 모든 작업 데이터가 즉시 사라집니다.
 - `localStorage`에는 개인 사전 단어와 무시한 규칙 ID만 저장합니다. 문서 본문·파싱 결과·Finding·근거·질문·답변은 저장하지 않습니다.
 - Analyze, Compare, Check, Extract의 deterministic 경로와 내보내기는 브라우저 Web Worker에서 AI 없이 동작합니다.
-- Ask / Brief / Polish / AI 문장 검수 / Extract 의미 기반 항목 탐색은 서버의 Groq `openai/gpt-oss-20b`를 사용합니다. 문서 전체가 아니라 기능별 질문·문장 또는 최대 40개·5,000자의 검색된 근거 창만 전송합니다.
+- Analyze의 deterministic 결과는 브라우저 Web Worker에서 계산하고, 핵심 요약·관계형 인사이트는 필요한 경우 한 번의 서버 Groq `openai/gpt-oss-20b` 요청으로 보강합니다. Ask / Polish / AI 문장 검수 / Extract 의미 기반 항목 탐색도 서버 AI를 사용합니다. 문서 전체가 아니라 기능별 질문·문장 또는 최대 40개·5,000자의 검색된 근거 창만 전송합니다.
 - 모든 근거 기반 결과는 파일, 문서 버전, 노드, 원문 위치를 `SourceRef`로 보존합니다.
 
 **프로덕션:** https://worklens.puleun58.workers.dev
@@ -20,7 +20,7 @@ WorkLens는 XLSX, CSV, PDF, DOCX, PPTX 파일을 브라우저에서 파싱하고
 | Analyze / Check / Extract / Compare | 브라우저 Web Worker | `src/lib/deterministic.ts`, `src/lib/check/`, `src/lib/extract/`, `src/domain/compare.ts` |
 | CSV·XLSX 내보내기 | 브라우저 Web Worker | `src/lib/export.ts`, `src/lib/extract/export.ts` |
 | 근거 검색·canonical grounding | 브라우저 Web Worker | `src/client/document-worker.ts`, `src/lib/ai/{retrieval,grounding}.ts` |
-| Ask / Brief / Polish / AI 문장 검수 / Extract 보조 탐색 | 동일 origin API → Groq | `src/app/api/ai/route.ts`, `src/server/groq.ts`, 고정 모델 `openai/gpt-oss-20b` |
+| Analyze 보강 / Ask / Polish / AI 문장 검수 / Extract 보조 탐색 | 동일 origin API → Groq | `src/app/api/ai/route.ts`, `src/server/groq.ts`, 고정 모델 `openai/gpt-oss-20b` |
 | 호스팅 | Cloudflare Workers + Assets | D1은 공용 용어만 저장. 사용자 작업 데이터 저장 없음 |
 
 - 파싱된 문서는 문서 워커 메모리의 `Map`에만 있고, "모두 삭제"는 워커를 종료해 즉시 폐기합니다.
@@ -29,6 +29,8 @@ WorkLens는 XLSX, CSV, PDF, DOCX, PPTX 파일을 브라우저에서 파싱하고
 - 모델 응답의 핸들은 문서 워커에서 canonical 근거 토큰으로 되돌린 뒤 검증합니다. 알 수 없는·중복 근거, 프롬프트 주입 문구, 근거에 없는 숫자·날짜·금액·식별자가 하나라도 있으면 결과 전체를 거부합니다.
 - `/api/ai`는 same-origin, JSON content type, 24 KiB 본문, 기능별 strict 요청 스키마, 프로세스 동시 작업 4개, IP별 분당 120회 한도를 강제합니다. 클라이언트는 provider URL·모델·임의 메시지를 지정할 수 없습니다.
 - Groq 요청은 서버에서만 생성되고 API 키는 응답·클라이언트 번들·로그에 포함되지 않습니다. 로그에는 작업 종류, 지연 시간, 토큰 수만 기록합니다.
+
+분석은 한 번 실행하면 근거가 연결된 **핵심 요약 → 문서 주요 내용·확인된 수치 → 분석 인사이트** 순서로 결과를 보여줍니다. 관계가 확인되지 않으면 인사이트 영역을 표시하지 않습니다. AI가 실패해도 deterministic 결과는 유지하며 `기본 분석 완료`로 상태를 표시합니다. 별도의 요약 메뉴나 요약 방식 선택은 없습니다.
 
 ## 2. 설치
 
@@ -116,7 +118,7 @@ Polish는 제출 전 문장을 다듬는 기능입니다. Check가 문제를 찾
 - 문서 전체를 한 번에 재작성하지 않습니다. 문서 워커가 산문 노드만 골라내고(`src/lib/polish/candidates.ts`), 문장·문단 단위로 한 건씩 서버 AI에 보냅니다.
 - 모든 결과는 `src/lib/polish/protect.ts`가 다시 검증합니다. 숫자·금액·비율·날짜·시간·단위·이메일·URL·코드가 달라지거나, 직접 인용이 바뀌거나, 가능성/의무/요청/예정/부정의 강도가 달라지거나, 원문이 절반 이상 사라지면 결과를 적용하지 않고 원문을 유지합니다.
 - `changed: false`는 정상 결과입니다. 이미 자연스러운 문장은 그대로 둡니다.
-- Ask·Brief 답변, Check 수정안, Extract 문단에서도 같은 엔진을 쓰는 `윤문` 인라인 액션을 제공합니다. SourceRef와 EvidenceBinding은 그대로 유지됩니다.
+- Ask 답변, Analyze의 핵심 요약·인사이트, Check 수정안, Extract 문단에서도 같은 엔진을 쓰는 `윤문` 인라인 액션을 제공합니다. SourceRef와 EvidenceBinding은 그대로 유지됩니다.
 - 규칙 출처와 라이선스 고지는 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)에 있습니다.
 
 ## 7. Extract 기능

@@ -1,15 +1,12 @@
 import type { AiRequest } from "@/domain/ai";
 import type { AiEvidenceNode } from "@/lib/ai/contract";
-import { briefScope } from "@/lib/ai/brief";
 
 /**
  * Browser-local evidence retrieval.
  *
- * No embedding service and no vector store: a BM25-lite lexical score plus a
- * few document-shape signals (numbers, dates, money, sheet/slide/page labels)
- * is enough to beat "take the first N blocks", which is what Ask and Brief used
- * to do. Ranking always runs on the full candidate set and only the winners are
- * cut down to the prompt window, never the other way around.
+ * A BM25-lite lexical score plus document-shape signals (numbers, dates,
+ * money, sheet/slide/page labels) beats taking the first N blocks. Ranking
+ * covers the full candidate set before the prompt window cuts the winners.
  */
 export interface RankedEvidence {
   node: AiEvidenceNode;
@@ -68,13 +65,12 @@ function queryOf(request: AiRequest): string {
       return request.question;
     case "semantic-check":
       return request.statement;
-    case "brief":
     case "analyze":
       return "";
   }
 }
 
-/** Sheet, slide, page or block bucket: the unit Brief must spread across. */
+/** Sheet, slide, page or block bucket: whole-document coverage spans these. */
 function groupKey(node: AiEvidenceNode, order: number): string {
   const { source } = node;
   if (source.sheet) return `${node.fileId}|sheet:${source.sheet}`;
@@ -152,18 +148,12 @@ const TOC_LINE = /\s\d{1,3}$/u;
 const STRUCTURAL_LINE = /^[\s\d.,:;()[\]/·—–-]*$/u;
 const FRONT_MATTER = /(?:지은이|펴낸곳|초판|\d+\s*쇄|조판|서체|목차|차례|contents|copyright|all rights reserved)/u;
 const RULE_SIGNAL = /(?:목적|개요|기준|규칙|순서|절차|흐름|조건|예외|전환|재계산|산정|적용|주의|결론|요약|조치|계획|목표|리스크|이슈|정의|반영|선택|우선|action|summary|todo)/u;
-/**
- * Analyze interprets how facts relate, so it favours sentences that carry a
- * relation — a condition and its result, an order of precedence, a fallback,
- * a recalculation, a transition — over the section titles that merely name
- * them. Brief keeps plain importance: it restates facts, it does not relate them.
- */
+/** Relation-bearing sentences can support an optional Analyze insight. */
 const RELATION_SIGNAL = /(?:(?:이|가|하)?면\s|경우|따라|때문|없으면|없을\s*때|대신|순서로|순으로|우선|다시|재계산|재산출|전환|바뀌|변경되|반영되|기준으로|보정|조정|제한|이내|→|->|then|if\s|unless|instead)/u;
 
 /**
- * Brief has no question, so importance stands in for relevance: definitions,
- * rules, order and process carry a document, while its cover, contents,
- * running heads and example rows describe the file rather than its subject.
+ * Whole-document importance favours rules and process over cover text,
+ * contents entries, running heads and example rows.
  */
 function importanceScores(nodes: readonly AiEvidenceNode[], operation: AiRequest["operation"]): number[] {
   const frequency = new Map<string, number>();
@@ -340,44 +330,24 @@ export function selectEvidence(
   options: SelectEvidenceOptions = {},
 ): AiEvidenceNode[] {
   const limit = options.limit ?? 40;
-  const scope = request.operation === "brief" ? briefScope(request.summaryInstruction) : {};
-  const pageCandidates = scope.minimumPage === undefined
-    ? [...nodes]
-    : nodes.filter((node) => {
-      const page = node.source.page ?? (node.source.locator?.kind === "pptx" ? node.source.locator.slide : undefined);
-      return page !== undefined && page >= scope.minimumPage!;
-    });
-  // An explicit "~만" restriction removes evidence; a plain emphasis only
-  // reorders it, so the document's other key points stay in the window.
-  const focusRelevance = scope.focus ? relevanceScores(pageCandidates, scope.focus) : undefined;
-  const focused = focusRelevance
-    ? pageCandidates.filter((_, index) => focusRelevance[index] > 0)
-    : pageCandidates;
-  const candidates = focusRelevance && focused.length > 0 ? focused : pageCandidates;
-  const query = request.operation === "brief" ? (scope.focus ?? "") : queryOf(request).trim();
+  const candidates = nodes;
+  const query = queryOf(request).trim();
   const scoreAsk = request.operation === "ask" && query.length > 0;
-  // Formatting and audience instructions never alter retrieval; explicit
-  // page/topic restrictions do.
   if (candidates.length <= limit && !scoreAsk) return [...candidates];
   const relevance = query ? relevanceScores(candidates, query) : undefined;
-  const emphasis = request.operation === "brief" && !scope.focus && scope.emphasis
-    ? relevanceScores(candidates, scope.emphasis)
-    : undefined;
   const importance = importanceScores(candidates, request.operation);
   const affinity = scoreAsk && relevance ? headingAffinity(candidates, relevance) : undefined;
   const ranked: RankedEvidence[] = candidates.map((node, order) => ({
     node,
     order,
     score: (relevance ? relevance[order] + importance[order] * 0.15 : importance[order])
-      + (emphasis ? Math.min(emphasis[order], 4) * 0.6 : 0)
       + (affinity ? affinity[order] : 0),
   }));
 
   const sorted = [...ranked].sort((left, right) => right.score - left.score || left.order - right.order);
 
-  // Brief and Analyze balance across source sections. Focus relevance changes
-  // the group order, while unrelated but important sections remain.
-  if (request.operation === "brief" || request.operation === "analyze") {
+  // Analyze balances the entire document across source sections.
+  if (request.operation === "analyze") {
     return withSectionBodies(balanceBySource(sorted, limit), ranked, limit)
       .sort((left, right) => left.order - right.order)
       .map((entry) => entry.node);
@@ -426,9 +396,8 @@ export function selectEvidence(
  *    legitimately reach zero coverage.
  *
  * Document-level questions ("이 자료의 제목은?") share no wording with their
- * answer by nature. They ask about the document, which is exactly the window
- * a whole-document task would get, so they bypass the threshold the way Brief
- * and Analyze do.
+ * answer by nature. They ask about the document itself, so they bypass the
+ * threshold as Analyze does.
  *
  * Threshold, measured over the fixed eval set plus the small-document cases
  * in `tests/eval-retrieval.test.ts`: the weakest answerable question scores

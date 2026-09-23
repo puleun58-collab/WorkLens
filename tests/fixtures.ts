@@ -168,10 +168,11 @@ export function createNarrativePptx(): Uint8Array {
   ], [10]);
 }
 
-export function createBriefPptx(): Uint8Array {
+export function createAnalyzePptx(): Uint8Array {
   return createPptxSlides([
     ["기업 개요", "시가총액: 3,420억원", "목표주가: 64,550원"],
     ["비용 현황", "분기 운영 비용: 52억원"],
+    ["운영 판단", "비용이 늘어나면 예산을 다시 검토합니다."],
   ]);
 }
 

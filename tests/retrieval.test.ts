@@ -149,49 +149,25 @@ describe("browser evidence retrieval", () => {
     expect(selectTexts(document, "상승률 8.97%", 5)).toContain("전월 대비 상승률은 8.97% 입니다.");
   });
 
-  it("spreads Brief evidence across the whole document instead of the first page", () => {
+  it("spreads Analyze evidence across the whole document instead of the first page", () => {
     const texts = Array.from({ length: 120 }, (_, index) => `${index + 1}번 항목: 매출 ${1000 + index}원, 2026-0${(index % 9) + 1}-01 기준입니다.`);
     const nodes = buildEvidenceNodes([pdfDocument(texts)]);
-    const selected = selectEvidence(nodes, { operation: "brief" }, { limit: MAX_EVIDENCE_ITEMS });
+    const selected = selectEvidence(nodes, { operation: "analyze" }, { limit: MAX_EVIDENCE_ITEMS });
     const pages = new Set(selected.map((node) => node.source.page));
     expect(pages.size).toBeGreaterThanOrEqual(6);
     const firstPageShare = selected.filter((node) => node.source.page === 1).length / selected.length;
     expect(firstPageShare).toBeLessThan(0.4);
   });
 
-  it("does not treat summary formatting or emphasis instructions as retrieval queries", () => {
-    const document = pptxDocument(Array.from({ length: 14 }, (_, index) => ({
-      slide: index + 1,
-      text: index === 9 ? "위험요소: 고소 작업 추락 방지 조치" : `회의 핵심 ${index + 1}: 안전 규정과 후속 조치`,
-    })));
-    const nodes = buildEvidenceNodes([document]);
-    const formatted = selectEvidence(nodes, { operation: "brief", summaryInstruction: "임원 보고용으로 핵심만 5줄" }, { limit: MAX_EVIDENCE_ITEMS });
-    const emphasized = selectEvidence(nodes, { operation: "brief", summaryInstruction: "위험요소를 강조" }, { limit: MAX_EVIDENCE_ITEMS });
 
-    expect(formatted).toEqual(nodes);
-    expect(emphasized).toEqual(nodes);
-  });
-
-  it("applies an explicit page range before balancing Brief evidence", () => {
-    const nodes = buildEvidenceNodes([pptxDocument(Array.from({ length: 8 }, (_, index) => ({
-      slide: index + 1,
-      text: `슬라이드 ${index + 1} 핵심 내용`,
-    })))]);
-    const selected = selectEvidence(nodes, { operation: "brief", summaryInstruction: "3페이지 이후만 요약" }, { limit: MAX_EVIDENCE_ITEMS });
-
-    expect(selected.length).toBeGreaterThan(0);
-    expect(selected.every((node) => node.source.locator?.kind === "pptx" && node.source.locator.slide >= 3)).toBe(true);
-    expect(selected.some((node) => node.source.locator?.kind === "pptx" && node.source.locator.slide === 3)).toBe(true);
-  });
-
-  it("keeps broad document coverage when Brief has no focus instruction", () => {
+  it("keeps broad document coverage for short Analyze inputs", () => {
     const document = pdfDocument([
       "시가총액은 3,420억원입니다.",
       "목표주가는 64,550원입니다.",
       "분기 운영 비용은 52억원입니다.",
     ]);
     const nodes = buildEvidenceNodes([document]);
-    const selected = selectEvidence(nodes, { operation: "brief" }, { limit: MAX_EVIDENCE_ITEMS });
+    const selected = selectEvidence(nodes, { operation: "analyze" }, { limit: MAX_EVIDENCE_ITEMS });
     expect(selected.map((node) => node.text)).toEqual([
       "시가총액은 3,420억원입니다.",
       "목표주가는 64,550원입니다.",
@@ -215,40 +191,6 @@ describe("browser evidence retrieval", () => {
     const window = evidenceWindow(selectEvidence(nodes, { operation: "ask", question: "9월 경유 단가" }));
     expect(window.items.some((item) => item.text.includes("1,512원"))).toBe(true);
     expect(window.items.length).toBeLessThanOrEqual(MAX_EVIDENCE_ITEMS);
-  });
-
-  it("ranks an emphasis higher without dropping the rest of the document", () => {
-    const document = pptxDocument(Array.from({ length: 30 }, (_, index) => ({
-      slide: index + 1,
-      text: index === 20
-        ? "Actual 이 확보되면 해당 주차는 Actual 로 전환됩니다."
-        : `슬라이드 ${index + 1}: 주간 운영 일정과 후속 조치를 공유합니다.`,
-    })));
-    const nodes = buildEvidenceNodes([document]);
-    const emphasized = selectEvidence(nodes, { operation: "brief", summaryInstruction: "Actual 중심" }, { limit: 10 });
-    const restricted = selectEvidence(nodes, { operation: "brief", summaryInstruction: "Actual 관련 내용만" }, { limit: 10 });
-
-    expect(emphasized.some((node) => node.text.includes("Actual 로 전환"))).toBe(true);
-    expect(emphasized.some((node) => !node.text.includes("Actual"))).toBe(true);
-    expect(restricted.every((node) => node.text.includes("Actual"))).toBe(true);
-  });
-
-  it("keeps a section heading with the paragraph that answers it", () => {
-    const blocks = Array.from({ length: 40 }, (_, index) => {
-      const node = paragraph(index + 1, `${index + 1}번 문단: 운영 일정과 회의 기록을 정리합니다.`);
-      return index === 25
-        ? { ...node, text: "Forecast 값은 왜 계속 바뀌나요?", role: "heading" as const, headingLevel: 1 }
-        : index === 26
-          ? { ...node, text: "새로운 Actual 데이터가 들어오면 향후 Forecast 를 다시 계산합니다." }
-          : node;
-    });
-    const document: NormalizedDocument = { ...pdfDocument([]), blocks };
-    const nodes = buildEvidenceNodes([document]);
-    const selected = selectEvidence(nodes, { operation: "brief" }, { limit: 8 });
-    const texts = selected.map((node) => node.text);
-
-    expect(texts).toContain("Forecast 값은 왜 계속 바뀌나요?");
-    expect(texts).toContain("새로운 Actual 데이터가 들어오면 향후 Forecast 를 다시 계산합니다.");
   });
 
   /**
@@ -285,7 +227,7 @@ describe("browser evidence retrieval", () => {
       "8월 4주차 1,843.33원/L",
     ]);
     const nodes = buildEvidenceNodes([document]);
-    const selected = selectEvidence(nodes, { operation: "brief" }, { limit: 4 }).map((node) => node.text);
+    const selected = selectEvidence(nodes, { operation: "analyze" }, { limit: 4 }).map((node) => node.text);
 
     expect(selected).toContain("주간 Forecast 는 최근 8개 주간 평균 유가와 평균 증감폭을 기준으로 산정합니다.");
     expect(selected).toContain("각 미래 주차는 주간 Forecast, 월간 Forecast, 직전 Forecast 순서로 값을 선택합니다.");

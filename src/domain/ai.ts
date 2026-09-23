@@ -1,6 +1,6 @@
 import type { SourceRef } from "@/domain/document";
 
-export type AiOperation = "analyze" | "ask" | "brief" | "semantic-check";
+export type AiOperation = "analyze" | "ask" | "semantic-check";
 export type Scalar = string | number | boolean | null;
 export type DirectPredicate =
   | "has_value"
@@ -47,17 +47,15 @@ export interface InferenceClaim {
   text: string;
   /** Model-reported certainty. Absent means the caller must treat it as low. */
   confidence?: AiConfidence;
-  /** Brief-only display hints. They never contribute facts or evidence. */
-  presentation?: BriefClaimPresentation;
+  /** Analyze display role only; never contributes facts or evidence. */
+  presentation?: AnalyzeClaimPresentation;
   evidence: [EvidenceBinding, ...EvidenceBinding[]];
 }
 
 export type GroundedClaim = DirectFact | InferenceClaim;
-export type BriefPresentationMode = "bullets" | "lines" | "report" | "sections" | "actions";
-export type BriefClaimRole = "summary" | "action";
-export interface BriefClaimPresentation {
+export interface AnalyzeClaimPresentation {
+  role: "summary" | "insight";
   section?: string;
-  role: BriefClaimRole;
 }
 export type AiClaim = GroundedClaim;
 export interface ResultWarning { code: string; message: string; }
@@ -65,19 +63,12 @@ export interface GroundedResult { claims: GroundedClaim[]; warnings: ResultWarni
 
 export interface AnalyzeRequest { operation: "analyze"; }
 export interface AskRequest { operation: "ask"; question: string; }
-export interface BriefRequest { operation: "brief"; summaryInstruction?: string; }
 /** `scope` distinguishes version comparison from writing review; both ground identically. */
 export interface SemanticCheckRequest { operation: "semantic-check"; statement: string; scope?: "comparison" }
-export type AiRequest = AnalyzeRequest | AskRequest | BriefRequest | SemanticCheckRequest;
+export type AiRequest = AnalyzeRequest | AskRequest | SemanticCheckRequest;
 
 export interface AnalyzeResult extends GroundedResult { operation: "analyze"; rejectedClaimCount: number; }
 export interface AskResult extends GroundedResult { operation: "ask"; answer: string; rejectedClaimCount: number; }
-export interface BriefResult extends GroundedResult {
-  operation: "brief";
-  brief: string;
-  presentation: { mode: BriefPresentationMode };
-  rejectedClaimCount: number;
-}
 export interface SemanticCheckResult extends GroundedResult { operation: "semantic-check"; findings: GroundedClaim[]; rejectedClaimCount: number; }
-export type AiAvailableResult = AnalyzeResult | AskResult | BriefResult | SemanticCheckResult;
+export type AiAvailableResult = AnalyzeResult | AskResult | SemanticCheckResult;
 

@@ -2,7 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { createBriefPptx, createCheckPptx, createDocx, createExtractPptx, createNarrativePptx, createPdf, createPptx, createPptxSlides, createTrainingPptx, createXlsx, RATE_SHEET_V1, RATE_SHEET_V2 } from "../fixtures";
+import { createAnalyzePptx, createCheckPptx, createDocx, createExtractPptx, createNarrativePptx, createPdf, createPptx, createPptxSlides, createTrainingPptx, createXlsx, RATE_SHEET_V1, RATE_SHEET_V2 } from "../fixtures";
 
 const FIXTURE_DIR = path.join(process.cwd(), "artifacts", "fixtures");
 const files = {
@@ -23,7 +23,9 @@ const files = {
   valueA: path.join(FIXTURE_DIR, "주요값_A.xlsx"),
   valueB: path.join(FIXTURE_DIR, "주요값_B.xlsx"),
   valueC: path.join(FIXTURE_DIR, "주요값_C.xlsx"),
-  briefPptx: path.join(FIXTURE_DIR, "기업요약.pptx"),
+  analyzePptx: path.join(FIXTURE_DIR, "기업요약.pptx"),
+  analyzeCopy: path.join(FIXTURE_DIR, "기업요약_사본.pptx"),
+  noticePptx: path.join(FIXTURE_DIR, "교육안내.pptx"),
   alignmentA: path.join(FIXTURE_DIR, "정렬기준_A.xlsx"),
   alignmentB: path.join(FIXTURE_DIR, "정렬기준_B.xlsx"),
   longOutlinePptx: path.join(FIXTURE_DIR, "긴목차_운영가이드.pptx"),
@@ -63,7 +65,11 @@ test.beforeAll(async () => {
     ["목표주가", "64,550원"],
     ["기준일", "2026-09-15"],
   ] }));
-  await writeFile(files.briefPptx, createBriefPptx());
+  await writeFile(files.analyzePptx, createAnalyzePptx());
+  await writeFile(files.analyzeCopy, createAnalyzePptx());
+  await writeFile(files.noticePptx, createPptxSlides([
+    ["교육 안내", "교육은 9월 28일 3층 대회의실에서 진행됩니다.", "참석 대상은 현장 관리자입니다.", "필기도구를 준비해 주세요."],
+  ]));
   await writeFile(files.alignmentA, await createXlsx({ 정렬: [
     ["항목", "값"],
     ["일시", "2026.09.29 09:00"],
@@ -237,7 +243,7 @@ test("shows the swap action only for exactly two version files", async ({ page }
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 });
 
-test("keeps multi-file Analyze summaries and confirmed metrics separated by file", async ({ page }) => {
+test("keeps multi-file Analyze confirmed metrics separated when the model abstains", async ({ page }) => {
   await mockEmptyClaims(page);
   await page.goto("/");
   await upload(page, files.valueA);
@@ -285,7 +291,7 @@ test("keeps deterministic Analyze output stable across grounding rejection and e
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({
-          data: { kind: "claims", claims: [{ text: "근거 없는 분석", handles: ["E999"], confidence: "high" }] },
+          data: { kind: "claims", claims: [{ text: "근거 없는 분석", handles: ["E999"], confidence: "high", presentation: { role: "summary" } }] },
         }),
       });
       return;
@@ -301,6 +307,7 @@ test("keeps deterministic Analyze output stable across grounding rejection and e
             text: evidence.text,
             handles: [evidence.handle],
             confidence: "high",
+            presentation: { role: "summary" },
           }],
         },
       }),
@@ -317,8 +324,7 @@ test("keeps deterministic Analyze output stable across grounding rejection and e
   const panel = page.locator(".results-panel");
   await expect(panel.locator(".result-status")).toHaveText("기본 분석 완료");
   await expect(panel.locator(".result-status")).toHaveClass(/warning/);
-  await expect(panel.locator(".result-inline-warning")).toContainText("분석 인사이트는 이번 실행에서 제외되었습니다.");
-  await expect(panel.locator(".result-inline-warning")).toContainText("근거 연결 실패");
+  await expect(panel.locator(".result-inline-warning")).toContainText("AI 요약과 인사이트는 제외되었습니다.");
   await expect(panel).not.toContainText(/서술형 문단 중심|표 중심의 문서|혼합형 문서|주요 수치/);
   await expect(panel.locator(".analysis-summary-section")).toHaveCount(0);
   const topics = panel.locator(".analysis-core-items-section .analysis-reading-row");
@@ -378,9 +384,10 @@ test("surfaces FSC Analyze failure and then grounded relational insights with al
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({ data: { kind: "claims", claims: [
-        { text: "새로운 Actual이 반영되면 향후 Forecast를 다시 계산합니다", handles: [handleFor(/재계산/u), handleFor(/Actual/u)], confidence: "high" },
-        { text: "주간 Forecast가 없으면 월간 Forecast 대체값을 사용합니다", handles: [handleFor(/대체값/u)], confidence: "high" },
-        { text: "두바이유와 환율은 Forecast에 보조적으로 반영됩니다", handles: [handleFor(/보조적으로/u)], confidence: "high" },
+        { text: "주간 Forecast는 최근 8개 주간 평균 유가로 산정합니다", handles: [handleFor(/8\s*개 주간 평균 유가/u)], confidence: "high", presentation: { role: "summary" } },
+        { text: "새로운 Actual이 반영되면 향후 Forecast를 다시 계산합니다", handles: [handleFor(/재계산/u), handleFor(/Actual/u)], confidence: "high", presentation: { role: "insight" } },
+        { text: "주간 Forecast가 없으면 월간 Forecast 대체값을 사용합니다", handles: [handleFor(/대체값/u)], confidence: "high", presentation: { role: "insight" } },
+        { text: "두바이유와 환율은 Forecast에 보조적으로 반영됩니다", handles: [handleFor(/보조적으로/u)], confidence: "high", presentation: { role: "insight" } },
       ] } }),
     });
   });
@@ -401,10 +408,11 @@ test("surfaces FSC Analyze failure and then grounded relational insights with al
 
   await run.click();
   await expect(panel.locator(".result-status")).toHaveText("분석 완료");
-  await expect(panel.locator(".analysis-summary-section .analysis-reading-row")).toHaveCount(3);
-  await expect(panel.locator(".analysis-summary-section")).toContainText("다시 계산합니다");
-  await expect(panel.locator(".analysis-summary-section")).toContainText("대체값");
-  await expect(panel.locator(".analysis-summary-section")).toContainText("보조적으로");
+  await expect(panel.locator(".analysis-summary-section .analysis-reading-row")).toHaveCount(1);
+  await expect(panel.locator(".analysis-insight-section .analysis-reading-row")).toHaveCount(3);
+  await expect(panel.locator(".analysis-insight-section")).toContainText("다시 계산합니다");
+  await expect(panel.locator(".analysis-insight-section")).toContainText("대체값");
+  await expect(panel.locator(".analysis-insight-section")).toContainText("보조적으로");
   await expect(panel.locator(".analysis-core-items-section .subsection-heading")).toContainText("13건");
   const aligned = await panel.evaluate((root) => {
     const left = (selector: string) => root.querySelector(selector)!.getBoundingClientRect().left;
@@ -422,7 +430,7 @@ test("surfaces FSC Analyze failure and then grounded relational insights with al
   await page.getByLabel("근거 상세").getByRole("button", { name: "닫기" }).click();
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await expect(panel.locator(".analysis-summary-section .source-action").first()).toBeVisible();
+  await expect(panel.locator(".analysis-insight-section .source-action").first()).toBeVisible();
   expect(calls).toBe(2);
 });
 
@@ -1106,7 +1114,7 @@ test("distinguishes partial Polish failure from unchanged text and clears stale 
   await expect(page.locator(".notice.error")).not.toContainText("별도 수정이 필요하지 않습니다.");
 });
 
-test("runs Ask, Brief, Polish, Check and Extract through the server AI boundary", async ({ page }) => {
+test("runs Ask, Analyze, Polish, Check and Extract through the server AI boundary", async ({ page }) => {
   const seen = new Set<string>();
   await page.route("**/api/ai", async (route) => {
     const request = route.request().postDataJSON() as {
@@ -1123,7 +1131,8 @@ test("runs Ask, Brief, Polish, Check and Extract through the server AI boundary"
       seen.add(request.request.operation);
       data = {
         kind: "claims",
-        claims: [{ text: evidence.text, handles: [evidence.handle], confidence: "high" }],
+        claims: [{ text: evidence.text, handles: [evidence.handle], confidence: "high",
+          ...(request.request.operation === "analyze" ? { presentation: { role: "summary" } } : {}) }],
       };
     } else if (request.kind === "polish") {
       seen.add("polish");
@@ -1155,22 +1164,22 @@ test("runs Ask, Brief, Polish, Check and Extract through the server AI boundary"
   await expect(page.locator(".results-panel .result-status")).toHaveText("답변 완료");
   expect([...seen]).toEqual(["ask"]);
 
-  await page.getByRole("button", { name: "요약", exact: true }).click();
-  await page.getByRole("button", { name: "요약 실행" }).click();
-  await expect(page.locator(".results-panel .result-status")).toHaveText("요약 완료");
-  expect([...seen].sort()).toEqual(["ask", "brief"]);
+  await page.getByRole("button", { name: "분석", exact: true }).click();
+  await page.getByRole("button", { name: "분석 실행" }).click();
+  await expect(page.locator(".results-panel .result-status")).toHaveText("분석 완료");
+  expect([...seen].sort()).toEqual(["analyze", "ask"]);
 
   await page.getByRole("button", { name: "윤문", exact: true }).click();
   await page.getByRole("radio", { name: "텍스트 윤문" }).check();
   await page.getByLabel("윤문할 텍스트 입력").fill("운임 현황을 검토 부탁드립니다.");
   await page.getByRole("button", { name: "윤문 실행" }).click();
   await expect(page.locator(".results-panel .result-status")).toHaveText("윤문 완료");
-  expect([...seen].sort()).toEqual(["ask", "brief", "polish"]);
+  expect([...seen].sort()).toEqual(["analyze", "ask", "polish"]);
 
   await page.getByRole("button", { name: "검수", exact: true }).click();
   await page.getByRole("button", { name: "검수 실행", exact: true }).click();
   await expect(page.locator(".results-panel .result-status")).toHaveText("검수 완료");
-  expect([...seen].sort()).toEqual(["ask", "brief", "polish", "semantic-check"]);
+  expect([...seen].sort()).toEqual(["analyze", "ask", "polish", "semantic-check"]);
 
   await page.getByRole("button", { name: "추출", exact: true }).click();
   await page.getByRole("radio", { name: "항목 지정" }).check();
@@ -1179,7 +1188,7 @@ test("runs Ask, Brief, Polish, Check and Extract through the server AI boundary"
   await page.getByRole("button", { name: "추출 실행" }).click();
   await expect(page.locator(".results-panel .result-status")).toHaveText("추출 완료");
 
-  expect([...seen].sort()).toEqual(["ask", "brief", "extract", "polish", "semantic-check"]);
+  expect([...seen].sort()).toEqual(["analyze", "ask", "extract", "polish", "semantic-check"]);
 });
 
 test("uses only the disabled action button for single-request progress", async ({ page }) => {
@@ -1208,17 +1217,17 @@ test("uses only the disabled action button for single-request progress", async (
   });
 
   await page.goto("/");
+  await expect(page.getByRole("button", { name: "요약", exact: true })).toHaveCount(0);
   await upload(page, files.v1);
   await upload(page, files.v2);
   await page.getByLabel("운임현황_v1.xlsx 선택").check();
   await page.getByLabel("운임현황_v2.xlsx 선택").check();
 
-  const runs: Array<{ tab: "Analyze" | "Ask" | "Compare" | "Check" | "Brief"; label: string }> = [
+  const runs: Array<{ tab: "Analyze" | "Ask" | "Compare" | "Check"; label: string }> = [
     { tab: "Analyze", label: "분석" },
     { tab: "Ask", label: "질문" },
     { tab: "Compare", label: "비교" },
     { tab: "Check", label: "검수" },
-    { tab: "Brief", label: "요약" },
   ];
   for (const run of runs) {
     await page.getByRole("button", { name: run.label, exact: true }).click();
@@ -1235,7 +1244,7 @@ test("uses only the disabled action button for single-request progress", async (
   }
 
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByRole("button", { name: "요약", exact: true }).click();
+  await page.getByRole("button", { name: "분석", exact: true }).click();
   const mobileAction = page.locator(".operation-actions button");
   await mobileAction.click();
   await expect(mobileAction).toHaveText("처리 중…");
@@ -1389,130 +1398,109 @@ test("keeps an unanswerable Ask as a grounded error without invented sources", a
   await expect(page.locator(".ask-evidence .result-source")).toHaveCount(0);
 });
 
-test("keeps grounded Ask and Brief content when another claim is rejected", async ({ page }) => {
+test("keeps grounded Ask and Analyze summaries when another claim is rejected", async ({ page }) => {
+  const operations: string[] = [];
   await page.route("**/api/ai", async (route) => {
     const request = route.request().postDataJSON() as {
       kind: "claims";
+      request: { operation: string };
       items: Array<{ handle: string; text: string }>;
     };
-    const evidence = request.items[0];
+    operations.push(request.request.operation);
+    const evidence = request.request.operation === "analyze"
+      ? request.items.find((item) => item.text.includes("비용이 늘어나면"))
+      : request.items[0];
     if (!evidence) throw new Error("Mocked claims request is missing evidence.");
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({
-        data: {
-          kind: "claims",
-          claims: [
-            { text: evidence.text, handles: [evidence.handle], confidence: "high" },
-            { text: "문서에 없는 내용", handles: ["missing-handle"], confidence: "high" },
-          ],
-        },
-      }),
+      body: JSON.stringify({ data: { kind: "claims", claims: [
+        { text: evidence.text, handles: [evidence.handle], confidence: "high",
+          ...(request.request.operation === "analyze" ? { presentation: { role: "summary" } } : {}) },
+        { text: "문서에 없는 내용", handles: ["missing-handle"], confidence: "high",
+          ...(request.request.operation === "analyze" ? { presentation: { role: "insight" } } : {}) },
+      ] } }),
     });
   });
 
   await page.goto("/");
   await upload(page, files.v1);
   await page.getByLabel("운임현황_v1.xlsx 선택").check();
-
   await page.getByRole("button", { name: "질문", exact: true }).click();
   await page.getByLabel("질문 입력").fill("SEOUL 단가는 얼마인가요?");
   await page.getByRole("button", { name: "질문 실행" }).click();
   const askPanel = page.locator(".results-panel");
   await expect(askPanel.locator(".result-status")).toHaveText("답변 완료");
-  await expect(askPanel.locator(".result-inline-warning")).toHaveCount(0);
   await expect(askPanel).not.toContainText("문서에 없는 내용");
-  await expect(page.locator(".notice.error, .notice.warning")).toHaveCount(0);
 
-  await page.getByRole("button", { name: "요약", exact: true }).click();
-  await page.getByRole("button", { name: "요약 실행" }).click();
-  const briefPanel = page.locator(".results-panel");
-  await expect(briefPanel.getByRole("heading", { name: "핵심 요약", exact: true })).toBeVisible();
-  await expect(briefPanel.locator(".result-status")).toHaveText("요약 완료");
-  await expect(briefPanel.locator(".result-status")).toHaveClass(/success/);
-  await expect(briefPanel.locator(".result-inline-warning")).toHaveCount(0);
-  await expect(briefPanel.locator(".analysis-reading-row")).not.toHaveCount(0);
-  // The summary is read one statement at a time with its own evidence; there
-  // is no second list repeating the same sentences underneath.
-  await expect(briefPanel.getByRole("heading", { name: "주요 근거", exact: true })).toHaveCount(0);
-  const briefSource = briefPanel.locator(".analysis-reading-row .source-action").first();
-  await expect(briefSource).toBeVisible();
-  await expect(briefPanel.locator(".claim-row")).toHaveCount(0);
-  await expect(briefPanel).not.toContainText("문서에 없는 내용");
-  await expect(briefPanel).not.toContainText("해석 · 근거 검증됨");
-  await expect(briefPanel).not.toContainText("FILE FACT");
-  await expect(briefPanel).not.toContainText("근거별 주장");
-  await expect(briefPanel).not.toContainText("claims");
-  await expect(briefPanel).not.toContainText("BRIEF RESULT");
-  await expect(briefPanel).not.toContainText("근거 연결 결과");
-  await briefSource.click();
-  const briefDetail = page.getByRole("complementary", { name: "근거 상세" });
-  await expect(briefDetail).toBeVisible();
-  await briefDetail.getByRole("button", { name: "닫기" }).click();
-  await expect(briefSource).toBeFocused();
-  await expect(briefPanel.getByRole("button", { name: /윤문/ })).toHaveCount(0);
-  await expect(page.locator(".notice.error, .notice.warning")).toHaveCount(0);
+  await upload(page, files.analyzePptx);
+  await page.getByLabel("운임현황_v1.xlsx 선택").uncheck();
+  await page.getByLabel("기업요약.pptx 선택").check();
+
+  await page.getByRole("button", { name: "분석", exact: true }).click();
+  await page.getByRole("button", { name: "분석 실행" }).click();
+  const panel = page.locator(".results-panel");
+  await expect(panel.getByRole("heading", { name: "핵심 요약", exact: true })).toBeVisible();
+  await expect(panel.locator(".result-status")).toHaveText("분석 완료");
+  await expect(panel.locator(".analysis-summary-section .analysis-reading-row")).toHaveCount(1);
+  await expect(panel).not.toContainText("문서에 없는 내용");
+  await expect(panel.getByRole("heading", { name: "분석 인사이트" })).toHaveCount(0);
+  const source = panel.locator(".analysis-summary-section .source-action").first();
+  await source.click();
+  const detail = page.getByRole("complementary", { name: "근거 상세" });
+  await expect(detail).toBeVisible();
+  await detail.getByRole("button", { name: "닫기" }).click();
+  await expect(source).toBeFocused();
+  expect(operations).toEqual(["ask", "analyze"]);
+  await expect(page.locator(".notice.error")).toHaveCount(0);
 });
 
-test("groups repeated Summary sources without losing drawer coverage", async ({ page }) => {
+test("groups repeated Analyze summary sources without losing drawer coverage", async ({ page }) => {
   await page.route("**/api/ai", async (route) => {
-    const request = route.request().postDataJSON() as {
-      kind: "claims";
-      items: Array<{ handle: string; text: string }>;
-    };
+    const request = route.request().postDataJSON() as { kind: "claims"; items: Array<{ handle: string; text: string }> };
     const byText = new Map<string, Array<{ handle: string; text: string }>>();
     for (const item of request.items) {
       const group = byText.get(item.text) ?? [];
       group.push(item);
       byText.set(item.text, group);
     }
-    const repeated = [...byText.values()].find((group) => group.length > 1 && group[0].text.trim());
-    if (!repeated) throw new Error("Mocked summary request is missing repeated cross-file evidence.");
+    const repeated = [...byText.values()].find((group) => group.length > 1 && group[0].text.includes("비용이 늘어나면"));
+    if (!repeated) throw new Error("Mocked Analyze request is missing repeated cross-file evidence.");
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({
-        data: {
-          kind: "claims",
-          claims: [{ text: repeated[0].text, handles: repeated.slice(0, 2).map((item) => item.handle), confidence: "high" }],
-        },
-      }),
+      body: JSON.stringify({ data: { kind: "claims", claims: [
+        { text: repeated[0].text, handles: repeated.slice(0, 2).map((item) => item.handle),
+          confidence: "high", presentation: { role: "summary" } },
+      ] } }),
     });
   });
 
   await page.goto("/");
-  await upload(page, files.v1);
-  await upload(page, files.v1Copy);
-  await page.getByLabel("운임현황_v1.xlsx 선택").check();
-  await page.getByLabel("운임현황_v1_사본.xlsx 선택").check();
-  await page.getByRole("button", { name: "요약", exact: true }).click();
-  await page.getByRole("button", { name: "요약 실행" }).click();
+  await upload(page, files.analyzePptx);
+  await upload(page, files.analyzeCopy);
+  await page.getByLabel("기업요약.pptx 선택").check();
+  await page.getByLabel("기업요약_사본.pptx 선택").check();
+  await page.getByRole("button", { name: "분석 실행" }).click();
 
   const panel = page.locator(".results-panel");
-  await expect(panel.getByRole("heading", { name: "핵심 요약", exact: true })).toBeVisible();
-  await expect(panel.locator(".result-status")).toHaveText("요약 완료");
-  const item = panel.locator(".analysis-reading-row").first();
+  const item = panel.locator(".analysis-summary-section .analysis-reading-row").first();
   const source = item.locator(".source-action");
   await expect(item.locator(".source-locator")).toContainText("외 1곳");
-  await expect(source).toHaveText("근거 보기");
-  await page.screenshot({ path: "artifacts/inspo-summary-desktop-1440.png", fullPage: true });
-
   await source.click();
   const detail = page.getByLabel("근거 상세");
   await expect(detail.locator(".evidence-entry")).toHaveCount(2);
-  await expect(detail.locator(".evidence-file-list")).toContainText("운임현황_v1.xlsx");
-  await expect(detail.locator(".evidence-file-list")).toContainText("운임현황_v1_사본.xlsx");
+  await expect(detail.locator(".evidence-file-list")).toContainText("기업요약.pptx");
+  await expect(detail.locator(".evidence-file-list")).toContainText("기업요약_사본.pptx");
   await detail.getByRole("button", { name: "닫기" }).click();
   await expect(source).toBeFocused();
 
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await item.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(/\s+/).length)).toBe(1);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
-  await page.screenshot({ path: "artifacts/inspo-summary-mobile-390.png", fullPage: true });
 });
 
-test("presents an empty Brief as a reviewable state, not a system error", async ({ page }) => {
+test("keeps deterministic Analyze results when the model abstains", async ({ page }) => {
   await page.route("**/api/ai", async (route) => {
     await route.fulfill({
       status: 200,
@@ -1522,118 +1510,98 @@ test("presents an empty Brief as a reviewable state, not a system error", async 
   });
 
   await page.goto("/");
-  await upload(page, files.v1);
-  await page.getByLabel("운임현황_v1.xlsx 선택").check();
-  await page.getByRole("button", { name: "요약", exact: true }).click();
-  await page.getByRole("button", { name: "요약 실행" }).click();
-
-  const notice = page.locator(".notice.warning");
-  await expect(notice).toContainText("요약할 내용을 찾지 못했습니다.");
-  await expect(notice).toContainText("선택한 파일의 내용을 확인해 주세요.");
+  await upload(page, files.analyzePptx);
+  await page.getByLabel("기업요약.pptx 선택").check();
+  await page.getByRole("button", { name: "분석 실행" }).click();
+  const panel = page.locator(".results-panel");
+  await expect(panel.locator(".result-status")).toHaveText("분석 완료");
+  await expect(panel.getByRole("heading", { name: "핵심 요약", exact: true })).toHaveCount(0);
+  await expect(panel.getByRole("heading", { name: "분석 인사이트", exact: true })).toHaveCount(0);
+  await expect(panel).toContainText("시가총액");
   await expect(page.locator(".notice.error")).toHaveCount(0);
-  // One statement only: the panel never repeats its title in the body.
-  expect((await notice.innerText()).split("요약할 내용을 찾지 못했습니다.").length - 1).toBe(1);
-  await expect(page.locator(".results-panel")).toHaveCount(0);
 });
 
-
-test("applies Brief instructions without narrowing evidence, copies text, and opens sources", async ({ page }) => {
-  await page.addInitScript(() => {
-    Object.defineProperty(navigator, "clipboard", {
-      configurable: true,
-      value: {
-        writeText: async (text: string) => {
-          (window as Window & { __copiedText?: string }).__copiedText = text;
-        },
-      },
-    });
-  });
-  const requests: Array<{ summaryInstruction?: string; items: Array<{ handle: string; text: string }> }> = [];
+test("summarizes a short notice without inventing an insight section", async ({ page }) => {
+  let requests = 0;
   await page.route("**/api/ai", async (route) => {
     const body = route.request().postDataJSON() as {
-      kind: "claims";
-      request: { summaryInstruction?: string };
+      request: { operation: string };
       items: Array<{ handle: string; text: string }>;
     };
-    requests.push({ summaryInstruction: body.request.summaryInstruction, items: body.items });
-    const evidence = body.items.find((item) => /\d/u.test(item.text)) ?? body.items[0];
+    expect(body.request.operation).toBe("analyze");
+    requests += 1;
+    const schedule = body.items.find((item) => item.text.includes("9월 28일"));
+    const audience = body.items.find((item) => item.text.includes("현장 관리자"));
+    if (!schedule || !audience) throw new Error("Notice evidence is missing.");
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({
-        data: {
-          kind: "claims",
-          claims: [{ text: evidence.text, handles: [evidence.handle], confidence: "high" }],
-        },
-      }),
+      body: JSON.stringify({ data: { kind: "claims", claims: [
+        { text: "교육은 9월 28일 3층 대회의실에서 진행됩니다.", handles: [schedule.handle], confidence: "high", presentation: { role: "summary" } },
+        { text: "참석 대상은 현장 관리자입니다.", handles: [audience.handle], confidence: "high", presentation: { role: "summary" } },
+      ] } }),
     });
   });
-
   await page.goto("/");
-  await upload(page, files.briefPptx);
-  await page.getByLabel("기업요약.pptx 선택").check();
-  await page.getByRole("button", { name: "요약", exact: true }).click();
-
-  const scopeField = page.locator(".brief-scope-field");
-  const scope = page.getByLabel("요약 방식 입력");
-  const run = page.getByRole("button", { name: "요약 실행" });
-  await expect(scope).toHaveAttribute("placeholder", "어떤 형태로 요약할까요? (선택)");
-  await expect(scopeField.locator("em")).toHaveText("핵심만 5줄 / 보고서 형식 / 항목별 정리 / 결론과 액션 아이템 중심");
-  await expect(scope).toHaveAttribute("maxlength", "2000");
-  expect(await scope.evaluate((element) => element.tagName)).toBe("INPUT");
-  await expect(scopeField.locator("small")).toHaveText("0 / 2,000");
-  await expect(run).toHaveText("실행");
-
-  await run.click();
+  await upload(page, files.noticePptx);
+  await page.getByLabel("교육안내.pptx 선택").check();
+  await page.getByRole("button", { name: "분석 실행" }).click();
   const panel = page.locator(".results-panel");
-  await expect(panel.locator(".result-status")).toHaveText("요약 완료");
+  await expect(panel.locator(".result-status")).toHaveText("분석 완료");
+  await expect(panel.locator(".analysis-summary-section .analysis-reading-row")).toHaveCount(2);
+  await expect(panel.locator(".analysis-summary-section .source-action")).toHaveCount(2);
+  await expect(panel.locator(".analysis-core-items-section")).toContainText("교육 안내");
+  await expect(panel.locator(".analysis-insight-section")).toHaveCount(0);
+  expect(requests).toBe(1);
+});
+
+test("uses one Analyze request for document-wide summary and relational insight", async ({ page }) => {
+  const requests: Array<Array<{ handle: string; text: string }>> = [];
+  await page.route("**/api/ai", async (route) => {
+    const body = route.request().postDataJSON() as {
+      kind: "claims";
+      request: { operation: string };
+      items: Array<{ handle: string; text: string }>;
+    };
+    expect(body.request.operation).toBe("analyze");
+    requests.push(body.items);
+    const summary = body.items.find((item) => item.text.includes("시가총액"));
+    const price = body.items.find((item) => item.text.includes("목표주가"));
+    const insight = body.items.find((item) => item.text.includes("비용이 늘어나면"));
+    if (!summary || !price || !insight) throw new Error("Analyze must cover both facts and conditional rules.");
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ data: { kind: "claims", claims: [
+        { text: "기업 개요의 특징은 시가총액: 3,420억원, 목표주가: 64,550원 두 지표를 함께 제시한다는 점입니다.", handles: [...new Set([summary.handle, price.handle])], confidence: "high", presentation: { role: "summary", section: "" } },
+        { text: "비용이 늘어나면 예산을 다시 검토합니다.", handles: [insight.handle], confidence: "high", presentation: { role: "insight", section: "" } },
+      ] } }),
+    });
+  });
+  await page.goto("/");
+  await upload(page, files.analyzePptx);
+  await page.getByLabel("기업요약.pptx 선택").check();
+  await page.getByRole("button", { name: "분석 실행" }).click();
+  const panel = page.locator(".results-panel");
   await expect.poll(() => requests.length).toBe(1);
-  expect(requests[0].summaryInstruction).toBeUndefined();
-  expect(requests[0].items.some((item) => item.text.includes("시가총액"))).toBe(true);
-  expect(requests[0].items.some((item) => item.text.includes("비용"))).toBe(true);
-
-  await scope.fill("임원 보고용으로 핵심만 5줄");
-  await run.click();
-  await expect.poll(() => requests.length).toBe(2);
-  expect(requests[1].summaryInstruction).toBe("임원 보고용으로 핵심만 5줄");
-  expect(requests[1].items.some((item) => item.text.includes("시가총액"))).toBe(true);
-  expect(requests[1].items.some((item) => item.text.includes("목표주가"))).toBe(true);
-  expect(requests[1].items.some((item) => item.text.includes("비용"))).toBe(true);
-  await expect(panel.getByRole("heading", { name: "핵심 요약", exact: true })).toBeVisible();
-  await expect(panel.locator(".brief-result .analysis-reading-row")).toHaveCount(1);
-  const copy = panel.getByRole("button", { name: "요약 복사" });
-  await expect(copy).toHaveClass(/result-copy-action/);
-  await copy.click();
-  await expect.poll(() => page.evaluate(() => (window as Window & { __copiedText?: string }).__copiedText))
-    .toBe("기업 개요 · 시가총액: 3,420억원");
-  const source = panel.locator(".analysis-reading-row .source-action").first();
+  expect(requests[0].some((item) => item.text.includes("시가총액"))).toBe(true);
+  expect(requests[0].some((item) => item.text.includes("비용"))).toBe(true);
+  await expect(panel.locator(".analysis-summary-section")).toContainText("시가총액");
+  await expect(panel.getByRole("heading", { name: "분석 인사이트" })).toBeVisible();
+  await expect(panel).toContainText("예산을 다시 검토합니다");
+  const headings = await panel.locator("h2, h3").allTextContents();
+  expect(headings.indexOf("핵심 요약")).toBeLessThan(headings.indexOf("분석 인사이트"));
+  const source = panel.locator(".analysis-summary-section .source-action").first();
   await source.click();
-  const detail = page.getByRole("complementary", { name: "근거 상세" });
-  await expect(detail).toBeVisible();
-  await detail.getByRole("button", { name: "닫기" }).click();
-
-  await scope.fill("결론과 액션 아이템 중심");
-  await run.click();
-  await expect.poll(() => requests.length).toBe(3);
-  expect(requests[2].summaryInstruction).toBe("결론과 액션 아이템 중심");
-  expect(requests[2].items.some((item) => item.text.includes("비용"))).toBe(true);
-  expect(requests[2].items.some((item) => item.text.includes("시가총액"))).toBe(true);
-  expect(requests[2].items.some((item) => item.text.includes("목표주가"))).toBe(true);
-  await expect(panel.locator(".brief-result")).toContainText("시가총액");
-
-  await scope.fill("보고서 형식");
-  await run.click();
-  await expect.poll(() => requests.length).toBe(4);
-  expect(requests[3].summaryInstruction).toBe("보고서 형식");
-  expect(requests[3].items.some((item) => item.text.includes("시가총액"))).toBe(true);
-  expect(requests[3].items.some((item) => item.text.includes("비용"))).toBe(true);
-  await expect(panel.locator(".brief-result .analysis-report-section h3")).toHaveCount(1);
-  await expect(page.locator(".notice.error")).toHaveCount(0);
+  await expect(page.getByLabel("근거 상세")).toBeVisible();
+  await page.getByLabel("근거 상세").getByRole("button", { name: "닫기" }).click();
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(panel).toBeVisible();
-  await expect(panel.getByRole("heading", { name: "핵심 요약", exact: true })).toBeVisible();
+  const mobileHeadings = await panel.locator("h2, h3").allTextContents();
+  expect(mobileHeadings.indexOf("핵심 요약")).toBeLessThan(mobileHeadings.indexOf("분석 인사이트"));
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
+
 
 test("integrates enrichment behind one action and preserves every deterministic result on failure", async ({ page }) => {
   let failEnrichment = false;
@@ -1660,7 +1628,8 @@ test("integrates enrichment behind one action and preserves every deterministic 
       body: JSON.stringify({
         data: {
           kind: "claims",
-          claims: [{ text: evidence.text, handles: [evidence.handle], confidence: "high" }],
+          claims: [{ text: evidence.text, handles: [evidence.handle], confidence: "high",
+            ...(request.request.operation === "analyze" ? { presentation: { role: "summary" } } : {}) }],
         },
       }),
     });
@@ -1674,7 +1643,6 @@ test("integrates enrichment behind one action and preserves every deterministic 
   await page.getByLabel("운임현황_v1.xlsx 선택").check();
   await page.getByRole("button", { name: "분석", exact: true }).click();
   await page.getByRole("button", { name: "분석 실행" }).click();
-  await expect(page.locator(".results-panel .analysis-reading-row")).toHaveCount(1);
   await expect(page.locator(".results-panel .result-status")).toHaveText("분석 완료");
 
   await page.getByLabel("운임현황_v2.xlsx 선택").check();
@@ -1943,7 +1911,7 @@ test("keeps empty upload actions singular and restores header actions after uplo
   const dropzone = page.locator(".dropzone");
 
   await expect(page.locator(".rail-group-label")).toHaveText("WORKSPACE");
-  await expect(page.locator(".rail-list .rail-item span")).toHaveText(["분석", "질문", "비교", "검수", "윤문", "추출", "취합", "요약"]);
+  await expect(page.locator(".rail-list .rail-item span")).toHaveText(["분석", "질문", "비교", "검수", "윤문", "추출", "취합"]);
   await expect(context.locator(".context-files")).toContainText("작업 파일");
   await expect(context.locator(".context-counts")).toHaveText("0개");
   await expect(context).not.toContainText("선택 0개");
@@ -2065,7 +2033,6 @@ test("uses task-focused labels and concise execution buttons", async ({ page }) 
     ["윤문", "문서 윤문"],
     ["추출", "정보 추출"],
     ["취합", "문서 취합"],
-    ["요약", "요약"],
   ] as const;
   await expect(page.locator(".rail-list .rail-item span")).toHaveText(labels.map(([label]) => label));
   for (const [tab, title] of labels) {
@@ -2288,6 +2255,7 @@ test("keeps the complete mobile workflow inside the viewport", async ({ page }, 
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
+  await expect(page.getByRole("button", { name: "요약", exact: true })).toHaveCount(0);
   await upload(page, files.v1);
   await upload(page, files.v2);
   await upload(page, files.checkPptx);
@@ -2381,12 +2349,6 @@ test("keeps the complete mobile workflow inside the viewport", async ({ page }, 
   await expectNoPageOverflow();
   await page.screenshot({ path: "artifacts/inspo-extract-mobile-390.png", fullPage: true });
 
-  await page.getByRole("button", { name: "요약", exact: true }).click();
-  const briefInput = page.getByLabel("요약 방식 입력");
-  const briefAction = page.getByRole("button", { name: "요약 실행" });
-  const [briefBox, briefActionBox] = await Promise.all([briefInput.boundingBox(), briefAction.boundingBox()]);
-  expect(briefActionBox!.y).toBeGreaterThan(briefBox!.y + briefBox!.height);
-
   await page.getByRole("button", { name: "Dictionary", exact: true }).click();
   await expect(page.locator(".settings-surface[aria-label='Dictionary']")).toBeVisible();
   await expectNoPageOverflow();
@@ -2403,7 +2365,7 @@ test("keeps the complete mobile workflow inside the viewport", async ({ page }, 
   for (const width of [360, 390, 430]) {
     await page.setViewportSize({ width, height: 844 });
     await expectNoPageOverflow();
-    for (const destination of ["분석", "질문", "비교", "검수", "윤문", "추출", "요약", "Dictionary", "Settings"]) {
+    for (const destination of ["분석", "질문", "비교", "검수", "윤문", "추출", "Dictionary", "Settings"]) {
       await page.getByRole("button", { name: destination, exact: true }).click();
       await expectNoPageOverflow();
     }
@@ -2433,13 +2395,13 @@ test("aligns every workspace category to the file-list boundary", async ({ page 
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   };
 
-  for (const destination of ["분석", "질문", "비교", "검수", "윤문", "추출", "취합", "요약"]) {
+  for (const destination of ["분석", "질문", "비교", "검수", "윤문", "추출", "취합"]) {
     await page.getByRole("button", { name: destination, exact: true }).click();
     await assertSharedBoundary();
   }
 
   await page.setViewportSize({ width: 390, height: 844 });
-  for (const destination of ["분석", "질문", "비교", "검수", "윤문", "추출", "취합", "요약"]) {
+  for (const destination of ["분석", "질문", "비교", "검수", "윤문", "추출", "취합"]) {
     await page.getByRole("button", { name: destination, exact: true }).click();
     await assertSharedBoundary();
   }

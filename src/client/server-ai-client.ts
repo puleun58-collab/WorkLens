@@ -16,6 +16,10 @@ const aiResultSchema = z.discriminatedUnion("kind", [
       text: z.string(),
       handles: z.array(z.string()),
       confidence: confidenceSchema,
+      presentation: z.object({
+        role: z.enum(["summary", "insight"]),
+        section: z.string().optional(),
+      }).optional(),
     })),
   }),
   z.object({

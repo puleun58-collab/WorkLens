@@ -31,6 +31,7 @@ export interface AnalysisMetric {
 
 export interface AnalysisClaimPresentation {
   summary: GroundedClaim[];
+  insights: GroundedClaim[];
   concerns: GroundedClaim[];
   warnings: ResultWarning[];
 }
@@ -45,12 +46,13 @@ export function claimDisplayText(claim: GroundedClaim): string {
   return claim.text.replace(/^추론:\s*/u, "").trim();
 }
 
+const CONFIDENCE_RANK = { low: 0, medium: 1, high: 2 } as const;
 function uniqueClaims(claims: readonly GroundedClaim[]): GroundedClaim[] {
   const unique: GroundedClaim[] = [];
   const indexByKey = new Map<string, number>();
   for (const claim of claims) {
     const text = claimDisplayText(claim).normalize("NFKC").toLocaleLowerCase();
-    const key = `${claim.kind}\0${text}`;
+    const key = `${claim.kind}\0${claim.kind === "inference" ? claim.presentation?.role : ""}\0${claim.evidence[0]?.source.fileId ?? ""}\0${text}`;
     if (!text) continue;
     const previousIndex = indexByKey.get(key);
     if (previousIndex === undefined) {
@@ -59,15 +61,18 @@ function uniqueClaims(claims: readonly GroundedClaim[]): GroundedClaim[] {
       continue;
     }
     const previous = unique[previousIndex];
-    const evidence = [...previous.evidence];
+    const preferred = claim.kind === "inference" && previous.kind === "inference"
+      && CONFIDENCE_RANK[claim.confidence ?? "low"] > CONFIDENCE_RANK[previous.confidence ?? "low"]
+      ? claim : previous;
+    const evidence = [...preferred.evidence];
     const seenSources = new Set(evidence.map((binding) => `${binding.source.fileId}\0${binding.source.nodeId}\0${binding.support}`));
-    for (const binding of claim.evidence) {
+    for (const binding of (preferred === claim ? previous : claim).evidence) {
       const sourceKey = `${binding.source.fileId}\0${binding.source.nodeId}\0${binding.support}`;
       if (seenSources.has(sourceKey)) continue;
       seenSources.add(sourceKey);
       evidence.push(binding);
     }
-    unique[previousIndex] = { ...previous, evidence: evidence as GroundedClaim["evidence"] };
+    unique[previousIndex] = { ...preferred, evidence: evidence as GroundedClaim["evidence"] } as GroundedClaim;
   }
   return unique;
 }
@@ -81,11 +86,20 @@ function repeatsConfirmedMetric(claim: GroundedClaim, fields: readonly Extracted
   if (NARRATIVE_SIGNAL_PATTERN.test(text)) return false;
   const normalizedText = normalizedFactPart(text);
   return fields.some((field) => {
-    if (!CONFIRMED_METRIC_TYPES.has(field.type)) return false;
+    if (!CONFIRMED_METRIC_TYPES.has(field.type) || !sharesSource(claim.evidence.map((binding) => binding.source), field.sources)) return false;
     const label = normalizedFactPart(field.field);
     const value = normalizedFactPart(field.displayValue);
     return label.length > 0 && value.length > 0 && normalizedText.includes(label) && normalizedText.includes(value);
   });
+}
+
+function sharesSource(left: readonly SourceRef[], right: readonly SourceRef[]): boolean {
+  return left.some((a) => right.some((b) =>
+    a.fileId === b.fileId && (
+      a.nodeId === b.nodeId
+      || (a.page !== undefined && a.page === b.page)
+      || (a.sheet !== undefined && a.sheet === b.sheet && a.cellRange !== undefined && a.cellRange === b.cellRange)
+    )));
 }
 
 /** Korean-aware character bigrams: particles and spacing differ, the wording does not. */
@@ -116,25 +130,41 @@ const RESTATES_HEADING = 0.8;
  */
 const NEAR_DUPLICATE = 0.7;
 
+/** A similar sentence with a different value or direction is not a duplicate. */
+function sameMeaningMarkers(left: string, right: string): boolean {
+  const leftNumbers = (left.match(/\d+(?:[.,]\d+)*/gu) ?? []).sort().join("\0");
+  const rightNumbers = (right.match(/\d+(?:[.,]\d+)*/gu) ?? []).sort().join("\0");
+  const leftDirections = (left.match(/불일치|일치|증가|감소|상승|하락|초과|미달|개선|악화/gu) ?? []).sort().join("\0");
+  const rightDirections = (right.match(/불일치|일치|증가|감소|상승|하락|초과|미달|개선|악화/gu) ?? []).sort().join("\0");
+  return (!leftNumbers || !rightNumbers || leftNumbers === rightNumbers) && leftDirections === rightDirections;
+}
+
 function withoutNearDuplicates(claims: readonly GroundedClaim[]): GroundedClaim[] {
-  const kept: Array<{ claim: GroundedClaim; grams: Set<string>; nodes: Set<string> }> = [];
+  const kept: Array<{ claim: GroundedClaim; grams: Set<string>; sources: SourceRef[] }> = [];
   for (const claim of claims) {
     const grams = bigrams(claimDisplayText(claim));
-    const nodes = new Set(claim.evidence.map((binding) => `${binding.source.fileId}\0${binding.source.nodeId}`));
+    const sources = claim.evidence.map((binding) => binding.source);
     const twin = kept.find((entry) => {
-      if (![...nodes].some((node) => entry.nodes.has(node))) return false;
+      if (!sharesSource(sources, entry.sources)) return false;
       const [shorter, longer] = grams.size <= entry.grams.size ? [grams, entry.grams] : [entry.grams, grams];
-      return containment(shorter, longer) >= NEAR_DUPLICATE;
+      return sameMeaningMarkers(claimDisplayText(claim), claimDisplayText(entry.claim))
+        && containment(shorter, longer) >= NEAR_DUPLICATE;
     });
     if (!twin) {
-      kept.push({ claim, grams, nodes });
+      kept.push({ claim, grams, sources });
       continue;
     }
-    if (grams.size > twin.grams.size) {
-      twin.claim = claim;
-      twin.grams = grams;
+    const preferred = grams.size > twin.grams.size ? claim : twin.claim;
+    const other = preferred === claim ? twin.claim : claim;
+    const evidence = [...preferred.evidence];
+    const seen = new Set(evidence.map((binding) => `${binding.source.fileId}\0${binding.source.nodeId}\0${binding.support}`));
+    for (const binding of other.evidence) {
+      const key = `${binding.source.fileId}\0${binding.source.nodeId}\0${binding.support}`;
+      if (!seen.has(key)) { seen.add(key); evidence.push(binding); }
     }
-    for (const node of nodes) twin.nodes.add(node);
+    twin.claim = { ...preferred, evidence: evidence as GroundedClaim["evidence"] } as GroundedClaim;
+    twin.grams = bigrams(claimDisplayText(preferred));
+    twin.sources = evidence.map((binding) => binding.source);
   }
   return kept.map((entry) => entry.claim);
 }
@@ -145,20 +175,35 @@ export function analysisClaimPresentation(
   topics: readonly DocumentTopic[] = [],
 ): AnalysisClaimPresentation {
   if (!result || result.operation !== "analyze") {
-    return { summary: [], concerns: [], warnings: [] };
+    return { summary: [], insights: [], concerns: [], warnings: [] };
   }
 
-  const headingGrams = topics.map((topic) => bigrams(topic.text));
-  const restatesHeading = (claim: GroundedClaim) => {
+  const repeatsCore = (claim: GroundedClaim) => {
     const grams = bigrams(claimDisplayText(claim));
-    return headingGrams.some((heading) => heading.size > 0 && containment(grams, heading) >= RESTATES_HEADING);
+    const sources = claim.evidence.map((binding) => binding.source);
+    return topics.some((topic) =>
+      sharesSource(sources, topic.sources)
+      && containment(grams, bigrams(topic.text)) >= RESTATES_HEADING);
   };
-  const claims = withoutNearDuplicates(uniqueClaims(result.claims)).filter((claim) => !restatesHeading(claim));
-  const concerns = claims.filter((claim) => claim.kind === "inference" && (claim.confidence ?? "low") === "low");
-  const concernIds = new Set(concerns.map((claim) => claim.id));
-  const summary = claims.filter((claim) =>
-    !concernIds.has(claim.id) && !repeatsConfirmedMetric(claim, confirmedFields));
-  return { summary, concerns, warnings: result.warnings };
+  const claims = uniqueClaims(result.claims).filter((claim): claim is Extract<GroundedClaim, { kind: "inference" }> =>
+    claim.kind === "inference" && Boolean(claim.presentation) && !repeatsCore(claim)
+    && !repeatsConfirmedMetric(claim, confirmedFields));
+  const concerns = claims.filter((claim) => (claim.confidence ?? "low") === "low");
+  const confident = claims.filter((claim) => (claim.confidence ?? "low") !== "low");
+  const summary = withoutNearDuplicates(confident.filter((claim) =>
+    claim.kind === "inference" && claim.presentation?.role === "summary"));
+  const insights = withoutNearDuplicates(confident.filter((claim) =>
+    claim.kind === "inference" && claim.presentation?.role === "insight")).filter((claim) => {
+      const grams = bigrams(claimDisplayText(claim));
+      return !summary.some((entry) => {
+        if (!sharesSource(claim.evidence.map((binding) => binding.source), entry.evidence.map((binding) => binding.source))) return false;
+        const entryGrams = bigrams(claimDisplayText(entry));
+        const [shorter, longer] = grams.size <= entryGrams.size ? [grams, entryGrams] : [entryGrams, grams];
+        return sameMeaningMarkers(claimDisplayText(claim), claimDisplayText(entry))
+          && containment(shorter, longer) >= NEAR_DUPLICATE;
+      });
+    });
+  return { summary, insights, concerns, warnings: result.warnings };
 }
 
 function topicKey(text: string): string {

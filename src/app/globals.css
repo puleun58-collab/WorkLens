@@ -1761,12 +1761,6 @@ input:disabled,
   transform: translateY(-50%);
 }
 
-.brief-scope-field em {
-  color: var(--muted);
-  font-size: var(--font-size-xs);
-  font-style: normal;
-  line-height: 1.45;
-}
 
 .operation-actions {
   display: flex;
@@ -2217,6 +2211,7 @@ input:disabled,
   margin: 0;
   color: var(--ink);
   font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
   line-height: var(--leading-relaxed);
 }
 
@@ -5868,7 +5863,7 @@ body {
 
 /* ── Result hierarchy: one reading order on every result surface ──────────
  * Primary result → detail → source → recommendation → metadata.
- * Every result screen (Analyze, Ask, Compare, Check, Extract, Brief) uses the
+ * Every result screen (Analyze, Ask, Compare, Check, Extract) uses the
  * same strength for the same role, so no screen invents its own emphasis.
  */
 
@@ -6711,6 +6706,10 @@ input:disabled {
     justify-content: flex-start;
     flex-wrap: wrap;
   }
+  .analysis-report .result-source {
+    flex-wrap: wrap;
+  }
+
 
 
   .result-provenance,
@@ -8259,14 +8258,6 @@ input:disabled {
   margin-left: 0;
 }
 
-/* Brief reuses the Analyze reading rows; only its no-action note is its own. */
-.brief-no-actions {
-  margin: 0;
-  padding: 12px 0;
-  color: var(--muted);
-  font-size: var(--font-size-sm);
-  line-height: 1.75;
-}
 
 /*
  * Compare reads as three bands, not one white sheet: the file pair sits on

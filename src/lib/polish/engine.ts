@@ -13,8 +13,8 @@ import { assemblePolishText, type PolishTextSegment } from "./text-input";
 /**
  * The single polish pipeline.
  *
- * Every entry point — the Polish view and the inline 윤문 action in Ask,
- * Brief, Check and Extract — turns its text into a `PolishCandidate`, sends it
+ * Every entry point — the Polish view and the inline 윤문 action in Analyze,
+ * Ask, Check and Extract — turns its text into a `PolishCandidate`, sends it
  * through the same model contract, and accepts the answer only if
  * `verifyPolish` agrees. There is no second implementation and no per-feature
  * prompt: a rule added here applies everywhere at once.

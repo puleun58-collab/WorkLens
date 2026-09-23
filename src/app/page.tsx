@@ -95,7 +95,6 @@ import {
   Layers3,
   MessageSquareText,
   PenLine,
-  ScrollText,
   ShieldCheck,
   SlidersHorizontal,
   Table2,
@@ -110,7 +109,6 @@ const tabIcons: Record<Tab, typeof BarChart3> = {
   Check: ShieldCheck,
   Polish: PenLine,
   Extract: Table2,
-  Brief: ScrollText,
   Aggregate: Layers3,
 };
 type ApiError = { code: string; message: string; detail?: string; retryable?: boolean };
@@ -151,7 +149,7 @@ type Notice = { tone: "error" | "success" | "info" | "warning"; message: string;
  * it, so the panel never adds a second sentence with the same meaning: the
  * title carries the state and the body only appears when there is a next step.
  */
-const tabs = ["Analyze", "Ask", "Compare", "Check", "Polish", "Extract", "Aggregate", "Brief"] as const;
+const tabs = ["Analyze", "Ask", "Compare", "Check", "Polish", "Extract", "Aggregate"] as const;
 type Tab = (typeof tabs)[number];
 const tabMeta: Record<Tab, { label: string; description: string }> = {
   Analyze: { label: "분석", description: "구조와 수치" },
@@ -160,7 +158,6 @@ const tabMeta: Record<Tab, { label: string; description: string }> = {
   Check: { label: "검수", description: "품질과 위험" },
   Polish: { label: "윤문", description: "문장 윤문" },
   Extract: { label: "추출", description: "데이터 추출" },
-  Brief: { label: "요약", description: "업무 요약" },
   Aggregate: { label: "취합", description: "다중 파일 취합" },
 };
 const completionLabels: Record<Tab, string> = {
@@ -170,7 +167,6 @@ const completionLabels: Record<Tab, string> = {
   Check: "검수 완료",
   Polish: "윤문 완료",
   Extract: "추출 완료",
-  Brief: "요약 완료",
   Aggregate: "취합 완료",
 };
 type ResultStatus = { tone: "success" | "warning"; label: string; message?: string; detail?: string };
@@ -546,19 +542,9 @@ export default function Home() {
     }
   };
 
-  /**
-   * Ask and Brief are the answer, so an empty grounded result is not a
-   * success — but it is also not a system error: the model found nothing to
-   * say about this document, which the user resolves by checking the file,
-   * not by retrying.
-   */
-  const runServerTask = async (request: AiRequest, success: string) => {
-    const empty = request.operation === "ask"
-      ? { message: "질문에 답할 내용을 찾지 못했습니다.", detail: "선택한 파일의 내용을 확인해 주세요." }
-      : { message: "요약할 내용을 찾지 못했습니다.", detail: "선택한 파일의 내용을 확인해 주세요." };
-    const failureMessage = request.operation === "ask"
-      ? "질문을 처리하지 못했습니다."
-      : "요약을 완료하지 못했습니다.";
+  /** Ask needs a grounded answer; an empty answer is not a system error. */
+  const runAsk = async () => {
+    const empty = { message: "질문에 답할 내용을 찾지 못했습니다.", detail: "선택한 파일의 내용을 확인해 주세요." };
     if (selected.length > SERVER_AI_MAX_FILES) {
       notifyView("error", `한 번에 최대 ${SERVER_AI_MAX_FILES}개 파일까지 처리할 수 있습니다.`);
       return;
@@ -567,14 +553,14 @@ export default function Home() {
     setNotice(null);
     setDetail(null);
     try {
-      const result = await generateGroundedResult(request);
+      const result = await generateGroundedResult({ operation: "ask", question: question.trim() });
       if (result.claims.length === 0) {
         setOperationResult(null);
         notifyView("warning", empty.message, undefined, empty.detail);
         return;
       }
       setOperationResult(result);
-      notifyView("success", success);
+      notifyView("success", "질문 결과를 준비했습니다.");
       return result;
     } catch (error) {
       setOperationResult(null);
@@ -584,7 +570,7 @@ export default function Home() {
         notifyView("warning", empty.message, undefined, empty.detail);
         return;
       }
-      reportAiFailure(error, failureMessage);
+      reportAiFailure(error, "질문을 처리하지 못했습니다.");
     } finally {
       setBusy(false);
     }
@@ -761,15 +747,15 @@ export default function Home() {
         };
         try {
           const enriched = await generateGroundedResult({ operation: "analyze" }, undefined, onStage);
-          if (enriched.claims.length > 0) setEnrichmentResult(enriched);
+          setEnrichmentResult(enriched);
           if (process.env.NODE_ENV !== "production") {
             const presented = analysisClaimPresentation(enriched, deterministic.flatMap((entry) => entry.extraction.fields), confirmedAnalysisItems(deterministic));
-            console.info("[worklens] analyze stages", { ...stages, presented: presented.summary.length, concerns: presented.concerns.length, presentationFiltered: stages.grounded - presented.summary.length - presented.concerns.length });
+            console.info("[worklens] analyze stages", { ...stages, presented: presented.summary.length, insights: presented.insights.length, concerns: presented.concerns.length, presentationFiltered: stages.grounded - presented.summary.length - presented.insights.length - presented.concerns.length });
           }
         } catch (error) {
           noteAiDiagnostics(error);
           if (process.env.NODE_ENV !== "production") console.info("[worklens] analyze stages", { ...stages, failure: (error as Partial<ServerAiFailure>).code ?? "UNKNOWN" });
-          notifyView("warning", "분석 인사이트는 이번 실행에서 제외되었습니다.", undefined, aiFailureDetail(error));
+          notifyView("warning", "문서 분석은 완료했지만 이번 실행에서 AI 요약과 인사이트는 제외되었습니다.", undefined, aiFailureDetail(error));
           return deterministic;
         }
       }
@@ -958,10 +944,7 @@ export default function Home() {
     if (activeTab === "Extract") return runExtract();
     if (activeTab === "Aggregate") return runAggregate();
     if (activeTab === "Polish") return runPolish();
-    const typed = question.trim();
-    return activeTab === "Ask"
-      ? runServerTask({ operation: "ask", question: typed }, "질문 결과를 준비했습니다.")
-      : runServerTask({ operation: "brief", ...(typed ? { summaryInstruction: typed } : {}) }, "핵심 요약을 준비했습니다.");
+    if (activeTab === "Ask") return runAsk();
   };
 
   const exportFiles = async (format: "csv" | "xlsx") => {
@@ -1175,7 +1158,7 @@ export default function Home() {
     : null;
   const resultStatus: ResultStatus | null = inlineResultNotice
     ? {
-      tone: activeTab === "Brief" || (activeTab === "Compare" && comparison !== null) ? "success" : inlineResultNotice.tone === "warning" ? "warning" : "success",
+      tone: activeTab === "Compare" && comparison !== null ? "success" : inlineResultNotice.tone === "warning" ? "warning" : "success",
       label: activeTab === "Compare" && compareMode === "value-check" && inlineResultNotice.tone !== "warning"
         ? "확인 완료"
         : activeTab === "Analyze" && inlineResultNotice.tone === "warning"
@@ -1209,9 +1192,8 @@ export default function Home() {
     : null;
   const companyTermNames = companyTerms.filter((entry) => entry.active).map((entry) => entry.term);
   /**
-   * One split, used everywhere: the seven document features share the
-   * workspace file state and its actions, the two utility destinations show
-   * neither — while the files themselves stay in memory untouched.
+   * Document features share one workspace; utility views leave its files in
+   * memory while hiding document controls.
    */
   const isUtilityView = shellView === "Dictionary" || shellView === "Settings";
   const isDocumentWorkspaceView = !isUtilityView;
@@ -1430,19 +1412,18 @@ export default function Home() {
               </header>
 
               <section className="operation-bar" aria-label={`${tabMeta[activeTab].label} 작업`}>
-                {(activeTab === "Ask" || activeTab === "Brief") ? (
-                  <label className={`question-field${activeTab === "Brief" ? " brief-scope-field" : ""}`}>
+                {activeTab === "Ask" ? (
+                  <label className="question-field">
                     <span className="question-input-wrap">
                       <input
                         value={question}
                         maxLength={2000}
-                        aria-label={activeTab === "Ask" ? "질문 입력" : "요약 방식 입력"}
+                        aria-label="질문 입력"
                         onChange={(event) => setQuestion(event.target.value)}
-                        placeholder={activeTab === "Ask" ? "선택한 문서에서 확인할 내용을 입력하세요" : "어떤 형태로 요약할까요? (선택)"}
+                        placeholder="선택한 문서에서 확인할 내용을 입력하세요"
                       />
                       <small>{question.length.toLocaleString("ko-KR")} / 2,000</small>
                     </span>
-                    {activeTab === "Brief" ? <em>핵심만 5줄 / 보고서 형식 / 항목별 정리 / 결론과 액션 아이템 중심</em> : null}
                   </label>
                 ) : null}
                 {activeTab === "Compare" ? (
@@ -1605,8 +1586,7 @@ export default function Home() {
  * Every box that reports a state — done, running, advisory, failed — reads the
  * same way: an accent rule on the left, a restrained tint, a title, then the
  * text. Only the variant changes between features, so Analyze, Ask, Compare,
- * Check, Extract, Brief and the dictionary surfaces cannot drift apart.
- *
+ * Check, Extract and the dictionary surfaces cannot drift apart.
  * Plain containers, empty states and drop zones deliberately do not use it.
  */
 type StatusVariant = "success" | "info" | "warning" | "error" | "neutral";
@@ -1770,13 +1750,12 @@ interface ResultViewProps {
 
 /** Shared heading copy for every category's lower work section. */
 const workSectionCopy: Record<Tab, [string, string]> = {
-  Analyze: ["문서 분석", "선택한 파일의 핵심 항목과 확인된 수치를 분석합니다."],
+  Analyze: ["문서 분석", "선택한 파일의 핵심 요약과 확인된 항목·수치를 분석합니다."],
   Ask: ["질문하기", "선택한 파일을 근거로 질문에 답합니다."],
   Compare: ["파일 비교", "선택한 파일의 변경 사항이나 주요 값 차이를 확인합니다."],
   Check: ["문서 검수", "선택한 파일의 문장·일관성·데이터·개인정보·보안정보를 검수합니다."],
   Polish: ["문서 윤문", "선택한 파일의 번역투와 중복 표현을 문장 단위로 다듬습니다."],
   Extract: ["정보 추출", "선택한 파일에서 필요한 항목과 값을 찾아 정리합니다."],
-  Brief: ["요약", "선택한 파일의 핵심 내용을 정리합니다. 원하는 요약 방식이 있다면 입력하세요."],
   Aggregate: ["문서 취합", "여러 Excel 파일의 표 데이터를 첫 번째 파일의 서식을 유지해 하나의 Excel 파일로 정리합니다."],
 };
 
@@ -1818,9 +1797,7 @@ function ResultView({ tab, result, enrichment, status, fileNames, detail, onSour
   } else if (isAiAvailableResult(result)) {
     content = tab === "Ask"
       ? <AskResults result={result} fileNames={fileNames} onSource={onSource} />
-      : tab === "Brief"
-        ? <BriefResults result={result} fileNames={fileNames} onSource={onSource} />
-        : <AiResults result={result} fileNames={fileNames} onSource={onSource} />;
+      : <AiResults result={result} fileNames={fileNames} onSource={onSource} />;
   } else {
     content = <JsonValue value={result} fileNames={fileNames} onSource={onSource} />;
   }
@@ -1828,14 +1805,12 @@ function ResultView({ tab, result, enrichment, status, fileNames, detail, onSour
   return (
     <section className="panel results-panel">
       <ResultHeader
-        {...(tab === "Ask" || tab === "Brief" || tab === "Check" || tab === "Extract" || tab === "Analyze" ? {} : { eyebrow: `${tab.toUpperCase()} RESULT` })}
-        title={tab === "Analyze" ? "분석 결과" : tab === "Ask" ? "답변" : tab === "Check" ? "검수 결과" : tab === "Extract" ? "추출 결과" : tab === "Brief" ? "핵심 요약" : "작업 결과"}
+        {...(tab === "Ask" || tab === "Check" || tab === "Extract" || tab === "Analyze" ? {} : { eyebrow: `${tab.toUpperCase()} RESULT` })}
+        title={tab === "Analyze" ? "분석 결과" : tab === "Ask" ? "답변" : tab === "Check" ? "검수 결과" : tab === "Extract" ? "추출 결과" : "작업 결과"}
         status={status}
         {...(tab === "Extract"
           ? { meta: resultActions }
-          : tab === "Brief" && isAiAvailableResult(result) && result.operation === "brief"
-            ? { meta: <CopyButton text={briefClipboardText(result.claims)} label="요약 복사" className="result-copy-action" /> }
-            : tab === "Ask" || tab === "Check" || tab === "Analyze" ? {} : { meta: <span className="result-provenance">근거 연결 결과</span> })}
+          : tab === "Ask" || tab === "Check" || tab === "Analyze" ? {} : { meta: <span className="result-provenance">근거 연결 결과</span> })}
       />
       {content}
       {detail ? <SourceDetail entries={detail.entries} fileNames={fileNames} onClose={onCloseSource} /> : null}
@@ -2343,8 +2318,8 @@ function PolishTextResults({ result, status }: { result: PolishTextResult | null
 
 
 /**
- * The single source presentation for every result type: Analyze insight,
- * Ask/Brief claim, Compare change, Check finding, Extract value.
+ * The single source presentation for Analyze summaries and insights,
+ * Ask claims, Compare changes, Check findings and Extract values.
  *
  * A result row answers "where" and "how many", not "list them all": repeated
  * locators collapse to `· N건`, several locators to `대표 외 N곳`, and one
@@ -2468,9 +2443,9 @@ function AnalyzeResults({ entries, enrichment, fileNames, onSource }: {
   return (
     <div className="analysis-report">
       {presentation.summary.length ? (
-        <section className="analysis-report-section analysis-summary-section" aria-labelledby="analysis-insight-title">
+        <section className="analysis-report-section analysis-summary-section" aria-labelledby="analysis-summary-title">
           <div className="subsection-heading">
-            <h3 id="analysis-insight-title">분석 인사이트</h3>
+            <h3 id="analysis-summary-title">핵심 요약</h3>
             <span>{presentation.summary.length}건</span>
           </div>
           <div className="analysis-reading-list">
@@ -2540,6 +2515,22 @@ function AnalyzeResults({ entries, enrichment, fileNames, onSource }: {
             ))}
           </div>
         </section>
+      ) : null}
+      {presentation.insights.length ? (
+        <section className="analysis-report-section analysis-insight-section" aria-labelledby="analysis-insight-title">
+          <div className="subsection-heading">
+            <h3 id="analysis-insight-title">분석 인사이트</h3>
+            <span>{presentation.insights.length}건</span>
+          </div>
+          <div className="analysis-reading-list">
+            {presentation.insights.map((claim) => renderClaim(claim))}
+          </div>
+        </section>
+      ) : null}
+      {presentation.warnings.length ? (
+        <StatusPanel variant="warning" className="result-warnings" title="일부 결과 안내">
+          {presentation.warnings.map((warning) => <p key={warning.code}>{warning.message}</p>)}
+        </StatusPanel>
       ) : null}
     </div>
   );
@@ -2846,72 +2837,6 @@ function AskResults({ result, fileNames, onSource }: {
   );
 }
 
-function briefClipboardText(claims: readonly GroundedClaim[]): string {
-  const lines = claims.map(claimDisplayText).filter(Boolean);
-  return lines.length <= 1 ? (lines[0] ?? "") : lines.map((line) => `- ${line}`).join("\n");
-}
-
-/**
- * Brief reads the way Analyze does: one row per statement with its evidence on
- * the same line. The summary decides *what* each row says — a paragraph, a
- * line, an action — while reading a result and opening its sources stays one
- * pattern across the product, so there is no second evidence list repeating
- * the body underneath.
- */
-function BriefResults({ result, fileNames, onSource }: {
-  result: AiAvailableResult;
-  fileNames: Map<string, string>;
-  onSource: SourceHandler;
-}) {
-  if (result.operation !== "brief") return null;
-  const entries = result.claims.map((claim) => ({
-    claim,
-    text: claimDisplayText(claim),
-    section: claim.kind === "inference" ? claim.presentation?.section : undefined,
-    role: claim.kind === "inference" ? claim.presentation?.role : "summary",
-  })).filter((entry) => Boolean(entry.text));
-  if (entries.length === 0) return null;
-
-  const row = (entry: (typeof entries)[number]) => (
-    <article className="analysis-reading-row" key={entry.claim.id}>
-      <p>{entry.text}</p>
-      <div className="analysis-reading-actions">
-        <ResultSource sources={entry.claim.evidence.map((binding) => binding.source)} fileNames={fileNames} onSource={onSource} emptyLabel="근거 없음" />
-      </div>
-    </article>
-  );
-  const section = (name: string, items: typeof entries, key: string) => (
-    <section className="analysis-report-section" aria-label={name} key={key}>
-      <div className="subsection-heading"><h3>{name}</h3><span>{items.length}건</span></div>
-      <div className="analysis-reading-list">{items.map(row)}</div>
-    </section>
-  );
-
-  const grouped = new Map<string, typeof entries>();
-  for (const entry of entries) {
-    const name = entry.section?.trim() || "핵심 내용";
-    grouped.set(name, [...(grouped.get(name) ?? []), entry]);
-  }
-  const summaryEntries = entries.filter((entry) => entry.role !== "action");
-  const actionEntries = entries.filter((entry) => entry.role === "action");
-
-  const body = result.presentation.mode === "report" || result.presentation.mode === "sections"
-    ? [...grouped].map(([name, items]) => section(name, items, name))
-    : result.presentation.mode === "actions"
-      ? [
-        summaryEntries.length ? section("결론", summaryEntries, "conclusion") : null,
-        actionEntries.length
-          ? section("액션 아이템", actionEntries, "actions")
-          : <p className="brief-no-actions" key="no-actions">원문에 명시된 액션 아이템이 없습니다.</p>,
-      ]
-      : (
-        <div className="analysis-reading-list">
-          {(result.presentation.mode === "lines" ? entries.slice(0, 5) : entries).map(row)}
-        </div>
-      );
-
-  return <div className="analysis-report brief-result">{body}</div>;
-}
 
 function AiResults({ result, fileNames, onSource }: {
   result: AiAvailableResult;

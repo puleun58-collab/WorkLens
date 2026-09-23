@@ -205,8 +205,8 @@ async function handle(request: WorkerRequest): Promise<unknown> {
     case "evidence": {
       const selected = requireDocuments(request.fileIds).map((entry) => entry.document);
       const candidates = buildEvidenceNodes(selected);
-      // Ask carries a strict answerability scope. Brief focus text is only a
-      // ranking hint, so a missing focus match still produces a global summary.
+      // Ask alone gates answerability; Analyze covers the whole selected
+      // document even when there is no question or matching topic.
       if (request.request.operation === "ask" && !askRelevance(candidates, request.request.question).supported) {
         throw new DocumentError("NO_EVIDENCE", "질문을 뒷받침할 근거를 선택한 문서에서 찾지 못했습니다.");
       }

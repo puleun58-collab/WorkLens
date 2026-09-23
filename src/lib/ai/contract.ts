@@ -1,4 +1,4 @@
-import type { AiConfidence, AiOperation, BriefClaimPresentation, DirectProposition } from "@/domain/ai";
+import type { AiConfidence, AiOperation, AnalyzeClaimPresentation, DirectProposition } from "@/domain/ai";
 import type { SourceRef } from "@/domain/document";
 
 export const AI_SCHEMA_ID = "worklens.grounded-claims.v1";
@@ -34,10 +34,10 @@ export interface AiProviderInferenceClaim {
   text: string;
   sourceTokens: string[];
   confidence?: AiConfidence;
-  presentation?: BriefClaimPresentation;
+  presentation?: AnalyzeClaimPresentation;
 }
 
 export type AiProviderClaim = AiProviderDirectClaim | AiProviderInferenceClaim;
 export interface AiProviderCompletion { schemaId: typeof AI_SCHEMA_ID; claims: AiProviderClaim[]; }
 
-export const AI_OPERATIONS: readonly AiOperation[] = ["analyze", "ask", "brief", "semantic-check"];
+export const AI_OPERATIONS: readonly AiOperation[] = ["analyze", "ask", "semantic-check"];
