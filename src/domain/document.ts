@@ -81,6 +81,7 @@ export interface XlsxWorksheetTemplate {
   rows: Array<{ number: number; height?: number; hidden?: boolean }>;
   merges: string[];
   views: Array<Record<string, unknown>>;
+  conditionalFormats?: Array<{ ref: string; rules: Array<Record<string, unknown>> }>;
   autoFilter?: {
     from: { row: number; column: number };
     to: { row: number; column: number };

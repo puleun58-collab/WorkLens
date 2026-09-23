@@ -227,6 +227,7 @@ const percentText = (cell: ExcelJS.Cell): string | undefined => {
 const cellText = (cell: ExcelJS.Cell, date: Date | undefined): string => {
   if (date !== undefined) return formatCellDate(date);
   const raw = cell.value;
+  if (raw === null) return "";
   if (typeof raw === "object" && raw !== null && !(raw instanceof Date)) {
     const rich = richTextOf(raw);
     if (rich !== undefined) return rich;
@@ -368,6 +369,7 @@ export const parseXlsx = async (input: {
         }
         const table = { type: "table" as const, id: tableId, source: tableSource, rows };
         const autoFilter = autoFilterSnapshot(worksheet.autoFilter);
+        const conditionalFormats = (worksheet.model as ExcelJS.WorksheetModel & { conditionalFormattings?: ExcelJS.ConditionalFormattingOptions[] }).conditionalFormattings;
         const template: XlsxWorksheetTemplate = {
           columns: Array.from({ length: worksheet.columnCount }, (_, columnIndex) => {
             const column = worksheet.getColumn(columnIndex + 1);
@@ -389,6 +391,9 @@ export const parseXlsx = async (input: {
           }),
           merges: [...worksheet.model.merges],
           views: Array.isArray(worksheet.views) ? snapshot(worksheet.views) as Array<Record<string, unknown>> : [],
+          ...(conditionalFormats?.length
+            ? { conditionalFormats: snapshot(conditionalFormats) as unknown as XlsxWorksheetTemplate["conditionalFormats"] }
+            : {}),
           ...(autoFilter ? { autoFilter } : {}),
         };
         return { index: sheetIndex + 1, name: worksheet.name, visibility: worksheet.state, table, template };

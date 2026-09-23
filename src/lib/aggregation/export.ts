@@ -23,9 +23,6 @@ const ATTACHMENT_BOX_WIDTH = 168;
 const ATTACHMENT_PADDING = 3;
 const EMU_PER_PIXEL = 9_525;
 const EMU_PER_POINT = 12_700;
-/** Keeps a picture off the cell border it sits inside. */
-const IMAGE_INSET_PX = 2;
-const TILE_GAP_PX = 2;
 /** Below this a picture cannot be read; only then does a row grow. */
 const MIN_IMAGE_ROW_POINTS = 36;
 
@@ -126,6 +123,16 @@ const rangeBounds = (range: string | undefined): { startRow: number; endRow: num
 
 const styleCopy = (style: XlsxStyleSnapshot | undefined): Partial<ExcelJS.Style> | undefined =>
   style ? JSON.parse(JSON.stringify(style)) as Partial<ExcelJS.Style> : undefined;
+/** Formatting ranges follow the inserted record rows, including disjoint ranges. */
+function formattingRef(ref: string, lastRow: number, added: number): string {
+  if (!added) return ref;
+  return ref.replace(/(\$?[A-Z]{1,3}\$?)(\d+)(?::(\$?[A-Z]{1,3}\$?)(\d+))?/gu, (match, from: string, startText: string, to?: string, endText?: string) => {
+    const start = Number(startText);
+    if (!to || !endText) return `${from}${start > lastRow ? start + added : start}`;
+    const end = Number(endText);
+    return `${from}${start > lastRow ? start + added : start}:${to}${end >= lastRow ? end + added : end}`;
+  });
+}
 
 function templateOf(draft: AggregationDraft, sheetId: string, documents: readonly NormalizedDocument[]): Template | undefined {
   const sheet = draft.workbooks.flatMap((workbook) => workbook.sheets).find((entry) => entry.id === sheetId);
@@ -253,6 +260,17 @@ function copyTemplate(
       to: { row: filter.to.row >= lastRow ? filter.to.row + added : filter.to.row, column: filter.to.column },
     };
   }
+  for (const formatting of template.template?.conditionalFormats ?? []) {
+    const rules = JSON.parse(JSON.stringify(formatting.rules)) as ExcelJS.ConditionalFormattingRule[];
+    for (const rule of rules) {
+      if ("formulae" in rule && rule.formulae) {
+        rule.formulae = rule.formulae.map((formula) => typeof formula === "string"
+          ? followGrowth(formula, template.name, context.growth)
+          : formula);
+      }
+    }
+    output.addConditionalFormatting({ ref: formattingRef(formatting.ref, lastRow, added), rules });
+  }
   return merges;
 }
 
@@ -289,10 +307,7 @@ function placeCover(context: ExportContext, sheet: ExcelJS.Worksheet, box: Merge
   let columns = Math.ceil(Math.sqrt(images.length));
   let rows = Math.ceil(images.length / columns);
   if (boxHeight > boxWidth && columns !== rows) [columns, rows] = [rows, columns];
-  const inset = IMAGE_INSET_PX * EMU_PER_PIXEL;
-  const gap = TILE_GAP_PX * EMU_PER_PIXEL;
-  const tileWidth = (boxWidth - inset * 2 - gap * (columns - 1)) / columns;
-  const tileHeight = (boxHeight - inset * 2 - gap * (rows - 1)) / rows;
+  const tileHeight = boxHeight / rows;
   const locate = (offset: number, sizes: readonly number[], origin: number): { index: number; offset: number } => {
     let index = 0;
     let rest = offset;
@@ -303,14 +318,17 @@ function placeCover(context: ExportContext, sheet: ExcelJS.Worksheet, box: Merge
     return { index: origin - 1 + index, offset: Math.round(Math.min(rest, sizes[index] - 1)) };
   };
   const anchor = (x: number, y: number): NativeCellAnchor => {
-    const column = locate(x, widths, box.left);
-    const row = locate(y, heights, box.top);
+    const column = x >= boxWidth ? { index: box.right, offset: 0 } : locate(x, widths, box.left);
+    const row = y >= boxHeight ? { index: box.bottom, offset: 0 } : locate(y, heights, box.top);
     return { nativeCol: column.index, nativeColOff: column.offset, nativeRow: row.index, nativeRowOff: row.offset };
   };
   const crops = cropsOf(context, sheet);
   images.forEach((media, index) => {
-    const x = inset + (index % columns) * (tileWidth + gap);
-    const y = inset + Math.floor(index / columns) * (tileHeight + gap);
+    const tileRow = Math.floor(index / columns);
+    const rowColumns = Math.min(columns, images.length - tileRow * columns);
+    const tileWidth = boxWidth / rowColumns;
+    const x = (index % columns) * tileWidth;
+    const y = tileRow * tileHeight;
     sheet.addImage(imageId(context, media), {
       tl: anchor(x, y),
       br: anchor(x + tileWidth, y + tileHeight),
@@ -355,6 +373,44 @@ function sourceTables(context: ExportContext): (sheetId: string) => SourceTable 
     }
     return cache.get(sheetId);
   };
+}
+
+/** Only a stronger, full-width final edge is a movable table boundary. */
+function terminalBorder(table: WorkbookSheet["table"], region: AggregationRegion, lastRow: number): Array<{ column: number; inner?: Partial<ExcelJS.Border>; outer: Partial<ExcelJS.Border> }> {
+  const prior = region.records.at(-2)?.source.row;
+  if (!prior || prior >= lastRow) return [];
+  const columns = Array.from({ length: Math.max(...region.headerColumns) - Math.min(...region.headerColumns) + 1 }, (_, index) => Math.min(...region.headerColumns) + index);
+  const edges = columns.map((column) => ({
+    column,
+    inner: table.rows[prior - 1]?.[column - 1]?.style?.border as Partial<ExcelJS.Borders> | undefined,
+    outer: table.rows[lastRow - 1]?.[column - 1]?.style?.border as Partial<ExcelJS.Borders> | undefined,
+  }));
+  const lastStyle = edges[0]?.outer?.bottom?.style;
+  if (!lastStyle || !["medium", "thick", "double"].includes(lastStyle)
+    || edges.some(({ inner, outer }) => outer?.bottom?.style !== lastStyle || inner?.bottom?.style === lastStyle)) return [];
+  return edges.map(({ column, inner, outer }) => ({ column, inner: inner?.bottom, outer: outer!.bottom! }));
+}
+
+/** Identifies a template's running-number column; arbitrary business IDs stay untouched. */
+function sequenceColumn(table: WorkbookSheet["table"], region: AggregationRegion, mappings: readonly AggregationFieldMapping[]): { column: number; start: number; prefix: string; digits: number; numeric: boolean } | undefined {
+  for (const mapping of mappings) {
+    if (!mapping.included || mapping.targetColumn === undefined || !/^(?:순번|연번|일련번호|번호|관리\s*(?:no\.?|번호))$/iu.test(mapping.targetField)) continue;
+    const samples = region.records.map((record) => table.rows[(record.source.row ?? 0) - 1]?.[mapping.targetColumn! - 1]?.value);
+    const parsed = samples.map((value) => {
+      if (typeof value === "number") return Number.isSafeInteger(value) && value >= 0 ? { prefix: "", digits: 0, number: value, numeric: true } : undefined;
+      if (typeof value !== "string") return undefined;
+      const match = /^(.*?)(\d+)$/u.exec(value.trim());
+      return match ? { prefix: match[1], digits: match[2].length, number: Number(match[2]), numeric: false } : undefined;
+    });
+    const firstIndex = parsed.findIndex(Boolean);
+    const first = parsed[firstIndex];
+    if (!first || !Number.isSafeInteger(first.number) || parsed.some((part) => part && (part.prefix !== first.prefix || part.numeric !== first.numeric || part.digits !== first.digits))) continue;
+    const numbered = parsed.filter((part): part is NonNullable<typeof part> => Boolean(part));
+    if (numbered.length < 2 || numbered.some((part, index) => part.number !== first.number + index)) continue;
+    const start = first.number - firstIndex;
+    if (start < 0) continue;
+    return { column: mapping.targetColumn, start, prefix: first.prefix, digits: first.digits, numeric: first.numeric };
+  }
 }
 
 /** A result sheet from a template with header and records: the target's own rows, then appended rows. */
@@ -427,6 +483,26 @@ function writeRecordSheet(context: ExportContext, target: AggregationTarget, tem
     }
     placements.push({ record, row: rowNumber });
   });
+  if (added) {
+    for (const { column, inner, outer } of terminalBorder(template.workbookSheet.table, region, lastRow)) {
+      const original = output.getCell(lastRow, column);
+      const border = { ...original.border };
+      if (inner) border.bottom = structuredClone(inner);
+      else delete border.bottom;
+      original.border = border;
+      const final = output.getCell(lastRow + added, column);
+      final.border = { ...final.border, bottom: structuredClone(outer) };
+    }
+    const sequence = sequenceColumn(template.workbookSheet.table, region, mappings);
+    if (sequence) {
+      placements.forEach(({ row }, index) => {
+        const number = sequence.start + index;
+        output.getCell(row, sequence.column).value = sequence.numeric
+          ? number : `${sequence.prefix}${String(number).padStart(sequence.digits, "0")}`;
+      });
+    }
+  }
+
 
   // Pictures go into the record's own target cell, in the order their rows appear.
   for (const { record, row } of placements) {
