@@ -3206,7 +3206,9 @@ input:disabled,
   width: min(100%, calc(960px + var(--panel-inset) + var(--panel-inset)));
   overflow: hidden;
   border: 1px solid var(--line);
-  background: var(--paper);
+  border-radius: var(--radius-panel);
+  background: #fff;
+  box-shadow: none;
 }
 
 .polish-mode-meta {
@@ -3217,7 +3219,7 @@ input:disabled,
 }
 
 .polish-summary-line {
-  padding: 12px var(--panel-inset);
+  padding: 10px var(--panel-inset) 12px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -3228,21 +3230,30 @@ input:disabled,
   min-width: 0;
   width: fit-content;
   margin: 0;
-  padding: 6px 10px;
+  padding: 7px 11px;
   border: 1px solid var(--line-soft);
-  background: var(--surface-subtle);
+  border-radius: var(--radius-control);
+  background: #fafbfd;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 4px 7px;
-  color: var(--muted);
+  color: var(--muted-light);
   font-size: var(--font-size-xs);
 }
 
 .polish-summary-line .metric {
-  color: var(--ink-soft);
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
+}
+
+.polish-summary-line .metric.changed {
+  color: var(--ink);
+  font-weight: var(--font-weight-semibold);
+}
+
+.polish-summary-line .metric.unchanged {
+  color: var(--muted-light);
 }
 
 .polish-protection-metric {
@@ -3252,32 +3263,35 @@ input:disabled,
 
 .polish-row {
   margin: 0 var(--panel-inset);
-  padding: 20px 0 22px;
+  padding: 22px 0 24px;
   border-top: 1px solid var(--line-soft);
   display: grid;
   gap: 16px;
 }
 
 .polish-row.rejected {
-  background: var(--warning-soft);
+  background: transparent;
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--warning) 60%, transparent);
 }
 
 .polish-copy-block {
   min-width: 0;
+  width: 100%;
   display: grid;
-  gap: 5px;
+  gap: 8px;
 }
 
 .polish-copy-block.revised {
   width: 100%;
-  padding: 13px 14px;
-  border: 1px solid color-mix(in srgb, var(--blue) 22%, var(--line));
+  padding: 14px 15px 15px;
+  border: 1px solid #b8dcf7;
   border-left: 3px solid var(--blue);
-  background: var(--blue-pale);
+  border-radius: var(--radius-control);
+  background: #edf8ff;
 }
 
 .polish-copy-block.revised .polish-label {
-  color: var(--blue);
+  color: var(--blue-active);
 }
 
 .polish-label {
@@ -3287,34 +3301,38 @@ input:disabled,
   letter-spacing: var(--tracking-label);
 }
 
-.polish-copy-line {
+.polish-copy-heading {
   min-width: 0;
   display: flex;
-  align-items: flex-start;
-  justify-content: flex-start;
+  align-items: center;
+  justify-content: space-between;
   gap: 12px;
 }
 
-.polish-copy-line > p {
+.polish-copy-heading > .secondary-action {
+  flex: none;
+  min-width: 72px;
+  min-height: 30px;
+  padding-inline: 10px;
+}
+
+.polish-copy-block > p {
   max-width: 72ch;
   min-width: 0;
-  flex: 1 1 auto;
   margin: 0;
   color: var(--ink-soft);
   font-size: var(--font-size-sm);
-  line-height: 1.6;
+  line-height: 1.65;
   overflow-wrap: anywhere;
 }
 
-.polish-copy-line > .secondary-action {
-  flex: none;
-  min-height: 30px;
-  margin-left: auto;
-}
-
-.polish-copy-line > p.polish-revised {
+.polish-copy-block > p.polish-revised {
   color: var(--ink);
   font-weight: var(--font-weight-semibold);
+}
+
+.polish-text-results .polish-copy-block > p {
+  white-space: pre-wrap;
 }
 
 .polish-reason {
@@ -3331,7 +3349,8 @@ input:disabled,
 }
 
 .polish-source {
-  padding-top: 2px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line-soft);
 }
 
 .polish-unchanged-message {
@@ -3375,10 +3394,6 @@ input:disabled,
   font-size: var(--font-size-xs);
 }
 
-/* A pasted block keeps its own line breaks and list markers on the way back. */
-.polish-copy-line > p.polish-block {
-  white-space: pre-wrap;
-}
 
 .claim-row > p {
   margin: 0;
@@ -6124,6 +6139,48 @@ input:disabled {
   gap: 24px;
 }
 
+/*
+ * The file list is the workspace's outer grid. Every feature surface occupies
+ * that same track; readable text may remain narrower inside its own panel.
+ */
+.workspace > :is(
+  .dropzone,
+  .file-list,
+  .work-section-heading,
+  .operation-bar,
+  .processing-bar,
+  .results-panel,
+  .export-actions,
+  .status-panel,
+  .notice,
+  .notice-inline
+) {
+  width: 100%;
+  max-width: none;
+  margin-right: 0;
+  margin-left: 0;
+}
+
+.workspace > .work-section-heading,
+.workspace > .operation-bar,
+.workspace > .results-panel > .panel-heading {
+  padding-right: 0;
+  padding-left: 0;
+}
+
+/* Polish is the one result surface that intentionally remains white. */
+.workspace > .polish-results {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: #fff;
+  box-shadow: none;
+  overflow: hidden;
+}
+
+.workspace > .polish-results > .panel-heading {
+  padding: var(--space-4) var(--panel-inset) var(--space-3);
+}
+
 .file-actions {
   display: inline-flex;
   align-items: center;
@@ -7538,15 +7595,16 @@ input:disabled {
     width: 100%;
   }
 
-  .polish-copy-line {
-    align-items: stretch;
-    flex-direction: column;
-    gap: 8px;
+  .polish-copy-heading {
+    flex-wrap: wrap;
   }
 
-  .polish-copy-line > .secondary-action {
+  .polish-copy-heading > .secondary-action {
     width: fit-content;
-    margin-left: 0;
+  }
+
+  .polish-row {
+    margin-inline: 16px;
   }
 
   .ask-answer-content {

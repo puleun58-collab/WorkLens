@@ -2091,6 +2091,22 @@ function StructuredExtractResults({ result, fileNames, onSource, status, busy, o
  * Polish result list. Rewrites first, everything the run left alone folded
  * away: a review is read by what changed, not by what did not.
  */
+
+function PolishCopyBlock({ label, text, revised = false }: {
+  label: "원문" | "원문 유지" | "수정안";
+  text: string;
+  revised?: boolean;
+}) {
+  return (
+    <div className={`polish-copy-block${revised ? " revised" : ""}`}>
+      <div className="polish-copy-heading">
+        <span className="polish-label">{label}</span>
+        <CopyButton text={text} label={revised ? "복사" : "원문 복사"} />
+      </div>
+      <p className={revised ? "polish-revised" : undefined}>{text}</p>
+    </div>
+  );
+}
 function PolishResults({ result, fileNames, onSource, status }: {
   result: PolishResult | null;
   fileNames: Map<string, string>;
@@ -2112,9 +2128,9 @@ function PolishResults({ result, fileNames, onSource, status }: {
       />
       <div className="polish-summary-line">
         <p>
-          <span className="metric">변경 <b>{result.summary.changed}</b></span>
+          <span className="metric changed">변경 <b>{result.summary.changed}</b></span>
           <span aria-hidden="true">·</span>
-          <span className="metric">변경 없음 <b>{result.summary.unchanged}</b></span>
+          <span className="metric unchanged">변경 없음 <b>{result.summary.unchanged}</b></span>
           {result.summary.rejected > 0 ? (
             <>
               <span aria-hidden="true">·</span>
@@ -2131,20 +2147,8 @@ function PolishResults({ result, fileNames, onSource, status }: {
 
       {changed.map((entry) => (
         <article className="polish-row" key={entry.id}>
-          <div className="polish-copy-block">
-            <span className="polish-label">원문</span>
-            <div className="polish-copy-line">
-              <p>{entry.originalText}</p>
-              <CopyButton text={entry.originalText} label="원문 복사" />
-            </div>
-          </div>
-          <div className="polish-copy-block revised">
-            <span className="polish-label">수정안</span>
-            <div className="polish-copy-line">
-              <p className="polish-revised">{entry.revisedText}</p>
-              <CopyButton text={entry.revisedText} label="복사" />
-            </div>
-          </div>
+          <PolishCopyBlock label="원문" text={entry.originalText} />
+          <PolishCopyBlock label="수정안" text={entry.revisedText} revised />
           {entry.reasons.length ? (
             <div className="polish-reason">
               <span className="polish-label">변경 이유</span>
@@ -2157,13 +2161,7 @@ function PolishResults({ result, fileNames, onSource, status }: {
 
       {rejected.map((entry) => (
         <article className="polish-row rejected" key={entry.id}>
-          <div className="polish-copy-block">
-            <span className="polish-label">원문 유지</span>
-            <div className="polish-copy-line">
-              <p>{entry.originalText}</p>
-              <CopyButton text={entry.originalText} label="원문 복사" />
-            </div>
-          </div>
+          <PolishCopyBlock label="원문 유지" text={entry.originalText} />
           <p className="polish-rejection-reason">
             {entry.rejection ? POLISH_REJECTION_LABELS[entry.rejection] : "수정안을 적용하지 않았습니다."}
           </p>
@@ -2244,9 +2242,9 @@ function PolishTextResults({ result, status }: { result: PolishTextResult | null
       />
       <div className="polish-summary-line">
         <p>
-          <span className="metric">변경 <b>{result.summary.changed}</b></span>
+          <span className="metric changed">변경 <b>{result.summary.changed}</b></span>
           <span aria-hidden="true">·</span>
-          <span className="metric">변경 없음 <b>{result.summary.unchanged}</b></span>
+          <span className="metric unchanged">변경 없음 <b>{result.summary.unchanged}</b></span>
           {result.summary.rejected > 0 ? (
             <>
               <span aria-hidden="true">·</span>
@@ -2260,20 +2258,8 @@ function PolishTextResults({ result, status }: { result: PolishTextResult | null
         <p className="polish-unchanged-message">현재 문장은 별도 수정이 필요하지 않습니다.</p>
       ) : (
         <article className="polish-row polish-text-run">
-          <div className="polish-copy-block">
-            <span className="polish-label">원문</span>
-            <div className="polish-copy-line">
-              <p className="polish-block">{result.originalText}</p>
-              <CopyButton text={result.originalText} label="원문 복사" />
-            </div>
-          </div>
-          <div className="polish-copy-block revised">
-            <span className="polish-label">수정안</span>
-            <div className="polish-copy-line">
-              <p className="polish-block polish-revised">{result.revisedText}</p>
-              <CopyButton text={result.revisedText} label="복사" />
-            </div>
-          </div>
+          <PolishCopyBlock label="원문" text={result.originalText} />
+          <PolishCopyBlock label="수정안" text={result.revisedText} revised />
           {reasons.length ? (
             <div className="polish-reason">
               <span className="polish-label">변경 이유</span>

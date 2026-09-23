@@ -24,6 +24,8 @@ const files = {
   valueB: path.join(FIXTURE_DIR, "주요값_B.xlsx"),
   valueC: path.join(FIXTURE_DIR, "주요값_C.xlsx"),
   briefPptx: path.join(FIXTURE_DIR, "기업요약.pptx"),
+  alignmentA: path.join(FIXTURE_DIR, "정렬기준_A.xlsx"),
+  alignmentB: path.join(FIXTURE_DIR, "정렬기준_B.xlsx"),
 };
 
 test.beforeAll(async () => {
@@ -58,6 +60,22 @@ test.beforeAll(async () => {
     ["기준일", "2026-09-15"],
   ] }));
   await writeFile(files.briefPptx, createBriefPptx());
+  await writeFile(files.alignmentA, await createXlsx({ 정렬: [
+    ["항목", "값"],
+    ["일시", "2026.09.29 09:00"],
+    ["장소", "2층 회의실"],
+    ["담당자", "김하나"],
+    ["금액", "1,680,000원"],
+    ["인원", "60명"],
+  ] }));
+  await writeFile(files.alignmentB, await createXlsx({ 정렬: [
+    ["항목", "값"],
+    ["일시", "2026.09.30 14:00"],
+    ["장소", "3층 대회의실"],
+    ["담당자", "이도윤"],
+    ["금액", "2,258,000원"],
+    ["인원", "75명"],
+  ] }));
   await writeFile(files.fake, "이 파일은 XLSX가 아닙니다");
 });
 
@@ -859,21 +877,45 @@ test("presents text Polish as an immediate original-to-revision workflow", async
   const original = result.locator(".polish-copy-block").filter({ hasText: "원문" });
   const revision = result.locator(".polish-copy-block").filter({ hasText: "수정안" });
 
-  const [inputBox, resultBox, emphasis] = await Promise.all([
+  const [inputBox, resultBox, emphasis, surface] = await Promise.all([
     paste.boundingBox(),
     result.boundingBox(),
-    result.locator(".polish-copy-line > p").evaluateAll((paragraphs) =>
-      paragraphs.map((paragraph) => Number.parseInt(getComputedStyle(paragraph).fontWeight, 10))),
+    Promise.all([
+      original.evaluate((block) => Number.parseInt(getComputedStyle(block.querySelector("p")!).fontWeight, 10)),
+      revision.evaluate((block) => Number.parseInt(getComputedStyle(block.querySelector("p")!).fontWeight, 10)),
+    ]),
+    result.evaluate((element) => {
+      const resultStyle = getComputedStyle(element);
+      const revisionStyle = getComputedStyle(element.querySelector(".polish-copy-block.revised")!);
+      return {
+        resultBackground: resultStyle.backgroundColor,
+        resultBorder: resultStyle.borderTopWidth,
+        resultShadow: resultStyle.boxShadow,
+        revisionBackground: revisionStyle.backgroundColor,
+        revisionBorder: revisionStyle.borderTopWidth,
+      };
+    }),
   ]);
+  const boundaryBox = await page.locator(".work-section-heading").boundingBox();
   expect(inputBox).not.toBeNull();
   expect(resultBox).not.toBeNull();
-  expect(resultBox!.width).toBeLessThanOrEqual(inputBox!.width + 46);
+  expect(boundaryBox).not.toBeNull();
+  expect(Math.abs(resultBox!.width - boundaryBox!.width)).toBeLessThanOrEqual(1);
   expect(emphasis[1]).toBeGreaterThan(emphasis[0]);
+  expect(surface).toEqual({
+    resultBackground: "rgb(255, 255, 255)",
+    resultBorder: "1px",
+    resultShadow: "none",
+    revisionBackground: "rgb(237, 248, 255)",
+    revisionBorder: "1px",
+  });
+  expect(await original.locator(".polish-copy-heading").evaluate((element) => getComputedStyle(element).justifyContent)).toBe("space-between");
   await page.screenshot({ path: "artifacts/polish-result-desktop-1440.png", fullPage: true });
 
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(result).toBeVisible();
-  await expect(revision.locator(".polish-copy-line")).toHaveCSS("flex-direction", "column");
+  expect(await revision.evaluate((element) => Math.round(element.getBoundingClientRect().width)))
+    .toBe(await result.locator(".polish-row").evaluate((element) => Math.round(element.getBoundingClientRect().width)));
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: "artifacts/polish-result-mobile-390.png", fullPage: true });
   await original.getByRole("button", { name: "원문 복사" }).click();
@@ -2168,6 +2210,37 @@ test("keeps the complete mobile workflow inside the viewport", async ({ page }, 
   expect(consoleErrors).toEqual([]);
 });
 
+test("aligns every workspace category to the file-list boundary", async ({ page }) => {
+  await page.goto("/");
+  await upload(page, files.v1);
+  await upload(page, files.v2);
+  await page.getByLabel("운임현황_v1.xlsx 선택").check();
+  await page.getByLabel("운임현황_v2.xlsx 선택").check();
+
+  const assertSharedBoundary = async () => {
+    const boxes = await page.locator(".file-list, .work-section-heading, .operation-bar").evaluateAll((elements) =>
+      elements.slice(0, 3).map((element) => {
+        const box = element.getBoundingClientRect();
+        return { left: Math.round(box.left), right: Math.round(box.right) };
+      }));
+    expect(boxes).toHaveLength(3);
+    expect(boxes.every((box) => box.left === boxes[0].left)).toBe(true);
+    expect(boxes.every((box) => box.right === boxes[0].right)).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  };
+
+  for (const destination of ["분석", "질문", "비교", "검수", "윤문", "추출", "취합", "요약"]) {
+    await page.getByRole("button", { name: destination, exact: true }).click();
+    await assertSharedBoundary();
+  }
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  for (const destination of ["분석", "질문", "비교", "검수", "윤문", "추출", "취합", "요약"]) {
+    await page.getByRole("button", { name: destination, exact: true }).click();
+    await assertSharedBoundary();
+  }
+});
+
 test("keeps compare column rules aligned and numeric values right-aligned", async ({ page }) => {
   await mockEmptyClaims(page);
   await page.goto("/");
@@ -2229,6 +2302,34 @@ test("keeps compare column rules aligned and numeric values right-aligned", asyn
   expect(await page.getByTestId("change-row").first().locator("> span").first()
     .evaluate((element) => getComputedStyle(element).borderRightWidth)).toBe("0px");
 });
+test("aligns mixed comparison values by their actual type", async ({ page }) => {
+  await mockEmptyClaims(page);
+  await page.goto("/");
+  await upload(page, files.alignmentA);
+  await upload(page, files.alignmentB);
+  await page.getByLabel("정렬기준_A.xlsx 선택").check();
+  await page.getByLabel("정렬기준_B.xlsx 선택").check();
+  await page.getByRole("button", { name: "비교", exact: true }).click();
+  await page.getByRole("button", { name: "비교 실행" }).click();
+  await expect(page.getByTestId("change-row").first()).toBeVisible();
+
+  const alignmentFor = async (text: string) => {
+    const row = page.getByTestId("change-row").filter({ hasText: text }).first();
+    await expect(row).toBeVisible();
+    return row.locator('[data-label="대상 파일 값"]').evaluate((cell) => getComputedStyle(cell).textAlign);
+  };
+
+  expect(await alignmentFor("2026.09.30 14:00")).toBe("left");
+  expect(await alignmentFor("3층 대회의실")).toBe("left");
+  expect(await alignmentFor("이도윤")).toBe("left");
+  expect(await alignmentFor("2,258,000원")).toBe("right");
+  expect(await alignmentFor("75명")).toBe("right");
+  expect(await page.locator(".change-row > .change-delta").evaluateAll((cells) =>
+    cells.every((cell) => getComputedStyle(cell).textAlign === "right"))).toBe(true);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
 
 test("aggregates workbooks into one XLSX result without profile-specific actions", async ({ page }) => {
   await mockEmptyClaims(page);
@@ -2241,6 +2342,7 @@ test("aggregates workbooks into one XLSX result without profile-specific actions
   await page.getByRole("button", { name: "취합 실행" }).click();
 
   const panel = page.locator(".aggregation-results");
+
   await expect(panel.locator(".result-status")).toHaveText("취합 완료");
   await expect(panel.getByRole("button", { name: "XLSX 다운로드" })).toBeVisible();
   await expect(panel.getByRole("button", { name: /PPTX 다운로드/ })).toHaveCount(0);
