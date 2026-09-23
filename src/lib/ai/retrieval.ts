@@ -1,5 +1,6 @@
 import type { AiRequest } from "@/domain/ai";
 import type { AiEvidenceNode } from "@/lib/ai/contract";
+import { evidenceCharBudget, evidenceItemText, MAX_EVIDENCE_ITEMS } from "@/lib/ai/prompt";
 
 /**
  * Browser-local evidence retrieval.
@@ -26,6 +27,117 @@ const PER_GROUP_ROUND = 2;
 const HEADING_TITLE_BOOST = 2.2;
 const HEADING_BODY_BOOST = 1.8;
 const HEADING_BODY_REACH = 3;
+/** Live canonical candidates, regardless of document length or node count. */
+export const MAX_EVIDENCE_CANDIDATES = 320;
+/** Source position survives shortlist pruning for section-body adjacency. */
+const sourceOrder = new WeakMap<AiEvidenceNode, number>();
+
+interface StreamingCandidate {
+  node: AiEvidenceNode;
+  score: number;
+  order: number;
+  file: number;
+}
+
+function retainStrongest(pool: StreamingCandidate[], candidate: StreamingCandidate, limit: number): void {
+  if (limit === 0) return;
+  if (pool.length < limit) { pool.push(candidate); return; }
+  let weakest = 0;
+  for (let index = 1; index < pool.length; index += 1) {
+    if (pool[index].score < pool[weakest].score
+      || (pool[index].score === pool[weakest].score && pool[index].order > pool[weakest].order)) weakest = index;
+  }
+  if (candidate.score > pool[weakest].score) pool[weakest] = candidate;
+}
+
+/**
+ * Global top-ranked shortlist with a modest per-file floor and a whole-run
+ * Analyze reservoir. A dense, useful file competes for all remaining slots;
+ * a tiny later file does not steal half the capacity merely by existing.
+ * Documents of at most 320 nodes retain every node in exact source order.
+ */
+export function boundedEvidenceCandidates(
+  files: readonly Iterable<AiEvidenceNode>[],
+  request: AiRequest,
+): AiEvidenceNode[] {
+  const query = queryOf(request).trim();
+  const queryTerms = [...new Set(evidenceTokens(query).filter((term) => term.length > 1 || /^[0-9]/u.test(term)))];
+  const normalizedQuery = normalizeText(query);
+  const sampleLimit = request.operation === "analyze" ? 64 : 0;
+  const reserveEach = Math.min(3, Math.floor((MAX_EVIDENCE_CANDIDATES - sampleLimit) / Math.max(1, files.length)));
+  const bestLimit = MAX_EVIDENCE_CANDIDATES - sampleLimit - reserveEach * files.length;
+  const buffer: StreamingCandidate[] = [];
+  const best: StreamingCandidate[] = [];
+  const sample: StreamingCandidate[] = [];
+  const reserved: StreamingCandidate[][] = files.map(() => []);
+  let sampleSeen = 0;
+  let overLimit = false;
+  let order = 0;
+  const offer = (entry: StreamingCandidate) => {
+    retainStrongest(best, entry, bestLimit);
+    retainStrongest(reserved[entry.file], entry, reserveEach);
+    if (sampleLimit === 0) return;
+    sampleSeen += 1;
+    if (sample.length < sampleLimit) { sample.push(entry); return; }
+    let hash = Math.imul(sampleSeen ^ 0x9e3779b9, 0x85ebca6b);
+    hash = Math.imul(hash ^ (hash >>> 13), 0xc2b2ae35);
+    const slot = (hash ^ (hash >>> 16)) >>> 0;
+    if (slot % sampleSeen < sampleLimit) sample[slot % sampleLimit] = entry;
+  };
+
+  for (const [fileIndex, file] of files.entries()) {
+    let headingScore = 0;
+    let headingReach = 0;
+    for (const node of file) {
+      order += 1;
+      const text = normalizeText(`${node.text} ${node.source.label}`);
+      const terms = queryTerms.length ? new Set(evidenceTokens(text)) : undefined;
+      let score = 0;
+      if (terms) {
+        const labelTerms = new Set(evidenceTokens(node.source.label));
+        const withoutCommas = text.replaceAll(",", "");
+        for (const term of queryTerms) {
+          if (terms.has(term)) score += term.length >= 3 ? 1 : 0.45;
+        }
+        if (normalizedQuery.length > 3 && text.includes(normalizedQuery)) score += 5;
+        for (const term of queryTerms) {
+          if (/^[0-9]/u.test(term) && withoutCommas.includes(term)) score += 1.4;
+          if (labelTerms.has(term)) score += 0.8;
+        }
+      }
+      if (RULE_SIGNAL.test(text)) score += request.operation === "analyze" ? 1.3 : 0.2;
+      if (request.operation === "analyze" && node.role !== "heading" && RELATION_SIGNAL.test(text)) score += 1.1;
+      if (node.role === "heading") {
+        headingScore = queryTerms.length ? score : 0;
+        headingReach = HEADING_BODY_REACH;
+        score += request.operation === "analyze" ? 0.2 : 0.9;
+      } else if (headingReach > 0) {
+        if (queryTerms.length) score += Math.min(HEADING_BODY_BOOST, headingScore * 0.5);
+        headingReach -= 1;
+      }
+      if (FRONT_MATTER.test(text) || TOC_LINE.test(text)) score -= 1;
+      const entry = { node, score, order, file: fileIndex };
+      if (overLimit) offer(entry);
+      else if (buffer.length < MAX_EVIDENCE_CANDIDATES) buffer.push(entry);
+      else {
+        overLimit = true;
+        for (const buffered of buffer) offer(buffered);
+        buffer.length = 0;
+        offer(entry);
+      }
+    }
+  }
+  if (!overLimit) {
+    for (const entry of buffer) sourceOrder.set(entry.node, entry.order);
+    return buffer.map((entry) => entry.node);
+  }
+  const chosen = new Map<number, AiEvidenceNode>();
+  for (const entry of best) chosen.set(entry.order, entry.node);
+  for (const group of reserved) for (const entry of group) chosen.set(entry.order, entry.node);
+  for (const entry of sample) chosen.set(entry.order, entry.node);
+  for (const [position, node] of chosen) sourceOrder.set(node, position);
+  return [...chosen].sort(([left], [right]) => left - right).map(([, node]) => node);
+}
 
 const TOKEN_PATTERN = /[0-9]+(?:[.,][0-9]+)*%?|[a-z]+|[가-힣]+/g;
 const NUMERIC_PATTERN = /[0-9]+(?:[.,][0-9]+)*%?/g;
@@ -77,7 +189,7 @@ function groupKey(node: AiEvidenceNode, order: number): string {
   if (source.locator?.kind === "pptx") return `${node.fileId}|slide:${source.locator.slide}`;
   if (source.locator?.kind === "docx") return `${node.fileId}|part:${source.locator.part}:${Math.floor(source.locator.block / 20)}`;
   if (typeof source.page === "number") return `${node.fileId}|page:${source.page}`;
-  return `${node.fileId}|block:${Math.floor(order / 20)}`;
+  return `${node.fileId}|block:${Math.floor((sourceOrder.get(node) ?? order) / 20)}`;
 }
 
 /**
@@ -204,23 +316,29 @@ function importanceScores(nodes: readonly AiEvidenceNode[], operation: AiRequest
  * document; a cap keeps dense sections from taking over without promoting
  * pages that have nothing to say.
  */
-function balanceBySource(ranked: readonly RankedEvidence[], limit: number): RankedEvidence[] {
+function balanceBySource(ranked: readonly RankedEvidence[], limit: number, charBudget: number, ask: boolean): RankedEvidence[] {
   const groupCount = new Set(ranked.map((entry) => groupKey(entry.node, entry.order))).size;
-  const cap = Math.max(PER_GROUP_ROUND, Math.ceil(limit / Math.max(1, groupCount)) + 1);
+  const cap = ask ? Math.max(3, Math.ceil(limit / 3)) : Math.max(PER_GROUP_ROUND, Math.ceil(limit / Math.max(1, groupCount)) + 1);
   const used = new Map<string, number>();
   const selected: RankedEvidence[] = [];
   const overflow: RankedEvidence[] = [];
+  let characters = 0;
   for (const entry of ranked) {
-    if (selected.length >= limit) break;
+    const size = evidenceItemText(entry.node).length;
+    if (!size || characters + size > charBudget) continue;
     const key = groupKey(entry.node, entry.order);
     const count = used.get(key) ?? 0;
-    if (count >= cap) { overflow.push(entry); continue; }
+    if (selected.length >= limit || count >= cap) { overflow.push(entry); continue; }
     used.set(key, count + 1);
     selected.push(entry);
+    characters += size;
   }
   for (const entry of overflow) {
     if (selected.length >= limit) break;
+    const size = evidenceItemText(entry.node).length;
+    if (characters + size > charBudget) continue;
     selected.push(entry);
+    characters += size;
   }
   return selected;
 }
@@ -235,39 +353,38 @@ function withSectionBodies(
   selected: readonly RankedEvidence[],
   ranked: readonly RankedEvidence[],
   limit: number,
+  charBudget: number,
 ): RankedEvidence[] {
-  const byOrder = new Map(ranked.map((entry) => [entry.order, entry]));
+  const byOrder = new Map(ranked.map((entry) => [sourceOrder.get(entry.node) ?? entry.order, entry]));
   const chosen = new Map(selected.map((entry) => [entry.order, entry]));
+  let characters = selected.reduce((sum, entry) => sum + evidenceItemText(entry.node).length, 0);
   /** Section bodies pulled in here: never given up to complete a weaker section. */
   const pinned = new Set<number>();
-  // Strongest section first: in a tight window the best-matching title must
-  // secure its own body before a weaker section claims the last slot.
   const headings = selected
     .filter((entry) => entry.node.role === "heading")
     .sort((left, right) => right.score - left.score || left.order - right.order);
   for (const entry of headings) {
-    // A weaker title may already have lost its slot to a stronger section's
-    // body; it no longer has a section in the window to complete.
     if (!chosen.has(entry.order)) continue;
-    const body = byOrder.get(entry.order + 1);
-    if (!body || body.node.role === "heading" || chosen.has(body.order)) continue;
-    if (chosen.size >= limit) {
+    const body = byOrder.get((sourceOrder.get(entry.node) ?? entry.order) + 1);
+    if (!body || body.node.fileId !== entry.node.fileId || body.node.role === "heading" || chosen.has(body.order)) continue;
+    const size = evidenceItemText(body.node).length;
+    if (!size || size > charBudget) continue;
+    while (chosen.size >= limit || characters + size > charBudget) {
       const loose = [...chosen.values()]
         .filter((candidate) => !pinned.has(candidate.order) && candidate.node.role !== "heading");
-      // The section's own text outranks a loose paragraph the window kept:
-      // without it the heading is a question with no answer attached. In a
-      // tight window there may be no loose paragraph left, and then a weaker
-      // section's bare title is worth less than this section's answer.
       const weakest = (loose.length > 0
         ? loose
         : [...chosen.values()].filter((candidate) => candidate.order !== entry.order
           && !pinned.has(candidate.order)
           && candidate.score < entry.score))
         .sort((left, right) => left.score - right.score || right.order - left.order)[0];
-      if (!weakest) continue;
+      if (!weakest) break;
       chosen.delete(weakest.order);
+      characters -= evidenceItemText(weakest.node).length;
     }
+    if (chosen.size >= limit || characters + size > charBudget) continue;
     chosen.set(body.order, body);
+    characters += size;
     pinned.add(body.order);
   }
   return [...chosen.values()];
@@ -304,7 +421,10 @@ function headingAffinity(nodes: readonly AiEvidenceNode[], relevance: readonly n
     if (share <= 0) continue;
     affinity[index] += HEADING_TITLE_BOOST * share;
     // Only this section's own text, never the next section's title.
-    for (let body = index + 1; body < nodes.length && nodes[body].role !== "heading"; body += 1) {
+    for (let body = index + 1; body < nodes.length
+      && nodes[body].fileId === node.fileId
+      && nodes[body].role !== "heading"
+      && (sourceOrder.get(nodes[body]) ?? body) === (sourceOrder.get(nodes[body - 1]) ?? body - 1) + 1; body += 1) {
       affinity[body] += HEADING_BODY_BOOST * share;
       if (body - index >= HEADING_BODY_REACH) break;
     }
@@ -315,7 +435,7 @@ function headingAffinity(nodes: readonly AiEvidenceNode[], relevance: readonly n
 
 
 export interface SelectEvidenceOptions {
-  /** Ranked candidates kept before the prompt window trims by characters. */
+  /** Maximum item count; never exceeds the model's 40-item envelope. */
   limit?: number;
 }
 
@@ -329,11 +449,13 @@ export function selectEvidence(
   request: AiRequest,
   options: SelectEvidenceOptions = {},
 ): AiEvidenceNode[] {
-  const limit = options.limit ?? 40;
+  const limit = Math.min(options.limit ?? MAX_EVIDENCE_ITEMS, MAX_EVIDENCE_ITEMS);
+  const charBudget = evidenceCharBudget(request.operation);
   const candidates = nodes;
   const query = queryOf(request).trim();
   const scoreAsk = request.operation === "ask" && query.length > 0;
-  if (candidates.length <= limit && !scoreAsk) return [...candidates];
+  if (candidates.length <= limit && !scoreAsk
+    && candidates.reduce((sum, node) => sum + evidenceItemText(node).length, 0) <= charBudget) return [...candidates];
   const relevance = query ? relevanceScores(candidates, query) : undefined;
   const importance = importanceScores(candidates, request.operation);
   const affinity = scoreAsk && relevance ? headingAffinity(candidates, relevance) : undefined;
@@ -348,7 +470,7 @@ export function selectEvidence(
 
   // Analyze balances the entire document across source sections.
   if (request.operation === "analyze") {
-    return withSectionBodies(balanceBySource(sorted, limit), ranked, limit)
+    return withSectionBodies(balanceBySource(sorted, limit, charBudget, false), ranked, limit, charBudget)
       .sort((left, right) => left.order - right.order)
       .map((entry) => entry.node);
   }
@@ -358,25 +480,10 @@ export function selectEvidence(
   // a weak-wording question cannot lose its own answer.
   const askFloor = scoreAsk && relevance && relevance.some((value) => value >= ASK_MIN_MATCH);
   const considered = askFloor ? sorted.filter((entry) => relevance[entry.order] > 0) : sorted;
-  const perGroupCap = Math.max(3, Math.ceil(limit / 3));
-  const used = new Map<string, number>();
-  const picked: RankedEvidence[] = [];
-  const overflow: RankedEvidence[] = [];
-  for (const entry of considered) {
-    if (picked.length >= limit) break;
-    const key = groupKey(entry.node, entry.order);
-    const count = used.get(key) ?? 0;
-    if (count >= perGroupCap) { overflow.push(entry); continue; }
-    used.set(key, count + 1);
-    picked.push(entry);
-  }
-  for (const entry of overflow) {
-    if (picked.length >= limit) break;
-    picked.push(entry);
-  }
-  // A matched section title alone is a question, not an answer: its body
-  // travels with it here exactly as it does for whole-document tasks.
-  return withSectionBodies(picked, ranked, limit)
+  // Score and source balance first, then spend the operation's character
+  // budget while candidates are still ranked. Document order is presentation
+  // only; it must never re-cut a later high-priority answer.
+  return withSectionBodies(balanceBySource(considered, limit, charBudget, true), ranked, limit, charBudget)
     .sort((left, right) => left.order - right.order)
     .map((entry) => entry.node);
 }

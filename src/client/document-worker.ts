@@ -185,8 +185,9 @@ async function handle(request: WorkerRequest): Promise<unknown> {
       // One field, one file: the model only ever sees the window that the
       // field's own wording retrieved.
       const [entry] = requireDocuments([request.fileId]);
-      const candidates = buildEvidenceNodes([entry.document]);
-      const window = evidenceWindow(selectEvidence(candidates, { operation: "ask", question: request.field }, { limit: 12 }));
+      const task = { operation: "ask" as const, question: request.field };
+      const candidates = buildEvidenceNodes([entry.document], task);
+      const window = evidenceWindow(selectEvidence(candidates, task, { limit: 12 }), undefined, task.operation);
       if (window.items.length === 0) {
         throw new DocumentError("NO_EVIDENCE", "해당 항목과 관련된 근거를 찾지 못했습니다.");
       }
@@ -204,7 +205,7 @@ async function handle(request: WorkerRequest): Promise<unknown> {
     }
     case "evidence": {
       const selected = requireDocuments(request.fileIds).map((entry) => entry.document);
-      const candidates = buildEvidenceNodes(selected);
+      const candidates = buildEvidenceNodes(selected, request.request);
       // Ask alone gates answerability; Analyze covers the whole selected
       // document even when there is no question or matching topic.
       if (request.request.operation === "ask" && !askRelevance(candidates, request.request.question).supported) {
@@ -218,7 +219,7 @@ async function handle(request: WorkerRequest): Promise<unknown> {
           [request.compare.targetFileId, "target"],
         ])
         : undefined;
-      const window = evidenceWindow(selectEvidence(candidates, request.request), roles);
+      const window = evidenceWindow(selectEvidence(candidates, request.request), roles, request.request.operation);
       if (window.items.length === 0) {
         throw new DocumentError("NO_EVIDENCE", "선택한 문서에서 사용할 수 있는 근거를 찾지 못했습니다.");
       }

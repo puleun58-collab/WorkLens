@@ -40,7 +40,7 @@ export async function runRetrieval(evalCase: EvalCase, limit = 20): Promise<Retr
   const documents = await evalDocuments();
   const document = documents.get(evalCase.format);
   if (!document) throw new Error(`missing eval fixture for ${evalCase.format}`);
-  const candidates = buildEvidenceNodes([document]);
+  const candidates = buildEvidenceNodes([document], evalCase.request);
   const selected = selectEvidence(candidates, evalCase.request, { limit });
   return {
     case: evalCase,
@@ -71,7 +71,7 @@ export interface GroundingOutcome {
 export async function runGrounding(evalCase: EvalCase): Promise<GroundingOutcome> {
   const documents = await evalDocuments();
   const document = documents.get(evalCase.format) as NormalizedDocument;
-  const window = evidenceWindow(selectEvidence(buildEvidenceNodes([document]), evalCase.request));
+  const window = evidenceWindow(selectEvidence(buildEvidenceNodes([document], evalCase.request), evalCase.request), undefined, evalCase.request.operation);
   const supporting = window.items.find((item) => {
     const node = window.nodes.get(item.handle);
     return node ? isCorrect(evalCase, node) : false;

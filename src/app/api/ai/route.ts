@@ -6,7 +6,7 @@ import { ApiError, apiError, ok, readBoundedJson, requireSameSite, runBoundedOpe
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const MAX_AI_BODY_BYTES = 24 * 1024;
+const MAX_AI_BODY_BYTES = 64 * 1024;
 const RATE_WINDOW_MS = 60_000;
 const RATE_LIMIT = 120;
 const requestsByClient = new Map<string, { startedAt: number; count: number }>();

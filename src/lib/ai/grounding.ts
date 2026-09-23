@@ -9,6 +9,7 @@ import type {
 } from "@/domain/ai";
 import type { NormalizedDocument, SourceRef } from "@/domain/document";
 import { sha256Base64Url } from "@/domain/hash";
+import { boundedEvidenceCandidates } from "@/lib/ai/retrieval";
 import { AI_SCHEMA_ID, type AiEvidenceNode, type AiProviderClaim, type AiProviderCompletion } from "@/lib/ai/contract";
 
 type CanonicalEvidence = AiEvidenceNode;
@@ -18,8 +19,8 @@ export interface GroundedCompletion {
   rejectedClaimCount: number;
 }
 
-export function buildEvidenceNodes(documents: readonly NormalizedDocument[]): AiEvidenceNode[] {
-  return collectEvidence(documents);
+export function buildEvidenceNodes(documents: readonly NormalizedDocument[], request: AiRequest = { operation: "analyze" }): AiEvidenceNode[] {
+  return boundedEvidenceCandidates(documents.map((document) => evidenceNodes(document)), request);
 }
 
 /**
@@ -34,8 +35,22 @@ export function groundProviderCompletion(
   if (completion.schemaId !== AI_SCHEMA_ID || !Array.isArray(completion.claims)) {
     return { claims: [], rejectedClaimCount: 1 };
   }
-  const evidence = collectEvidence(documents);
-  const byToken = new Map(evidence.map((node) => [node.propositionToken, node]));
+  const requiredTokens = new Set<string>();
+  for (const claim of completion.claims) {
+    if (claim.type === "direct") requiredTokens.add(claim.propositionToken);
+    else if (claim.type === "inference" && Array.isArray(claim.sourceTokens)) {
+      for (const token of claim.sourceTokens) if (typeof token === "string") requiredTokens.add(token);
+    }
+  }
+  const byToken = new Map<string, CanonicalEvidence>();
+  if (requiredTokens.size > 0) {
+    scan: for (const document of documents) {
+      for (const node of evidenceNodes(document)) {
+        if (requiredTokens.has(node.propositionToken)) byToken.set(node.propositionToken, node);
+        if (byToken.size === requiredTokens.size) break scan;
+      }
+    }
+  }
   const claims: GroundedClaim[] = [];
   let rejectedClaimCount = 0;
 
@@ -142,65 +157,56 @@ function unsupportedDirective(claim: GroundedClaim): boolean {
 }
 
 /**
- * Evidence text carries the context a reader needs to recognise the value:
- * a table cell without its row and column header, or a slide line without its
- * slide title, is unsearchable and unreadable on its own. The canonical quote,
- * proposition and token stay bound to the raw cell so grounding is unchanged.
+ * Stream all canonical locations. Retrieval retains only a bounded selection;
+ * grounding independently rebuilds only tokens the provider actually cited.
  */
-function collectEvidence(documents: readonly NormalizedDocument[]): CanonicalEvidence[] {
-  const evidence: CanonicalEvidence[] = [];
-  let characters = 0;
-  for (const document of documents) {
-    let slideTitle = "";
-    let slideKey = "";
-    for (const block of document.blocks) {
-      if (evidence.length >= 5_000 || characters >= 200_000) return evidence;
-      if (block.type === "paragraph") {
-        const locator = block.source.locator;
-        const key = locator?.kind === "pptx" ? `slide:${locator.slide}` : "";
-        if (key && key !== slideKey) {
-          slideKey = key;
-          slideTitle = cleanText(block.text).slice(0, 60);
-        }
-        const context = key && cleanText(block.text) !== slideTitle ? slideTitle : "";
-        const node = makeEvidence(
-          document,
-          block.id,
-          withContext(context, block.text),
-          block.source,
-          propositionFromText(block.text, block.source),
-          block.source.quote ?? block.text,
-        );
-        if (node) { evidence.push(block.role === "heading" ? { ...node, role: "heading" } : node); characters += node.text.length; }
-      } else {
-        const header = block.rows[0] ?? [];
-        for (const [rowIndex, row] of block.rows.entries()) {
-          const rowLabel = cleanText(row[0]?.display).slice(0, 40);
-          // A row's own date identifies the record far better than its first
-          // column alone, which repeats across every month of a log table.
-          const rowDate = rowIndex === 0
-            ? ""
-            : row.map((entry) => cleanText(entry.display)).find((value) => ROW_DATE_PATTERN.test(value)) ?? "";
-          for (const [columnIndex, cell] of row.entries()) {
-            if (evidence.length >= 5_000 || characters >= 200_000) return evidence;
-            const nodeId = cell.source.nodeId || block.id;
-            const columnHeader = rowIndex === 0 ? "" : cleanText(header[columnIndex]?.display).slice(0, 40);
-            const context = [rowLabel, rowDate, columnHeader]
-              .filter((part, index, parts) => part && part !== cell.display && parts.indexOf(part) === index)
-              .join(" ");
-            const node = makeEvidence(document, nodeId, withContext(context, cell.display), cell.source, {
-              subject: cell.source.label,
-              predicate: "has_value",
-              object: cell.value,
-              polarity: "affirmed",
-            }, cell.source.quote ?? cell.display);
-            if (node) { evidence.push(node); characters += node.text.length; }
-          }
+function* evidenceNodes(document: NormalizedDocument): Generator<CanonicalEvidence> {
+  let slideTitle = "";
+  let slideKey = "";
+  for (const block of document.blocks) {
+    if (block.type === "paragraph") {
+      const locator = block.source.locator;
+      const key = locator?.kind === "pptx" ? `slide:${locator.slide}` : "";
+      if (key && key !== slideKey) {
+        slideKey = key;
+        slideTitle = cleanText(block.text).slice(0, 60);
+      }
+      const context = key && cleanText(block.text) !== slideTitle ? slideTitle : "";
+      const node = makeEvidence(
+        document,
+        block.id,
+        withContext(context, block.text),
+        block.source,
+        propositionFromText(block.text, block.source),
+        block.source.quote ?? block.text,
+      );
+      if (node) yield block.role === "heading" ? { ...node, role: "heading" } : node;
+    } else {
+      const header = block.rows[0] ?? [];
+      for (const [rowIndex, row] of block.rows.entries()) {
+        const rowLabel = cleanText(row[0]?.display).slice(0, 40);
+        // A row's own date identifies the record far better than its first
+        // column alone, which repeats across every month of a log table.
+        const rowDate = rowIndex === 0
+          ? ""
+          : row.map((entry) => cleanText(entry.display)).find((value) => ROW_DATE_PATTERN.test(value)) ?? "";
+        for (const [columnIndex, cell] of row.entries()) {
+          const nodeId = cell.source.nodeId || block.id;
+          const columnHeader = rowIndex === 0 ? "" : cleanText(header[columnIndex]?.display).slice(0, 40);
+          const context = [rowLabel, rowDate, columnHeader]
+            .filter((part, index, parts) => part && part !== cell.display && parts.indexOf(part) === index)
+            .join(" ");
+          const node = makeEvidence(document, nodeId, withContext(context, cell.display), cell.source, {
+            subject: cell.source.label,
+            predicate: "has_value",
+            object: cell.value,
+            polarity: "affirmed",
+          }, cell.source.quote ?? cell.display);
+          if (node) yield node;
         }
       }
     }
   }
-  return evidence;
 }
 
 function withContext(context: string, text: string): string {

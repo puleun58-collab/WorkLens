@@ -59,7 +59,7 @@ describe("FSC Forecast guide", () => {
   });
 
   it("carries real-file relationship insights through grounding and final presentation", () => {
-    const window = evidenceWindow(selectEvidence(nodes, { operation: "analyze" }));
+    const window = evidenceWindow(selectEvidence(nodes, { operation: "analyze" }), undefined, "analyze");
     const handleFor = (pattern: RegExp) => {
       const handle = window.items.find((item) => pattern.test(item.text))?.handle;
       if (!handle) throw new Error("FSC relation missing from the Analyze evidence window");

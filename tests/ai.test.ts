@@ -10,6 +10,7 @@ import {
   parseModelResponse,
   resolveClaims,
 } from "@/lib/ai/prompt";
+import { parseAiApiRequest } from "@/server/ai-request";
 
 const document: NormalizedDocument = {
   id: "document:file-1",
@@ -129,6 +130,27 @@ describe("server AI prompt boundary", () => {
     expect(long.items.length).toBeLessThan(40);
   });
 
+  it("accepts Analyze's 10k window but keeps Ask, semantic-check and extract at 5k", () => {
+    const items = Array.from({ length: 21 }, (_, index) => ({ handle: `E${index + 1}`, text: "가".repeat(250) }));
+    const claims = (operation: "ask" | "analyze" | "semantic-check") => ({
+      kind: "claims",
+      request: operation === "ask"
+        ? { operation, question: "질문" }
+        : operation === "analyze"
+          ? { operation }
+          : { operation, statement: "문장" },
+      items,
+    });
+    expect(parseAiApiRequest(claims("analyze"))).toMatchObject({ kind: "claims", items });
+    for (const operation of ["ask", "semantic-check"] as const) {
+      expect(() => parseAiApiRequest(claims(operation))).toThrow();
+    }
+    expect(() => parseAiApiRequest({ kind: "extract", field: "항목", items })).toThrow();
+    expect(() => parseAiApiRequest({
+      ...claims("analyze"),
+      items: Array.from({ length: 40 }, (_, index) => ({ handle: `E${index + 1}`, text: "가".repeat(251) })),
+    })).toThrow();
+  });
   it("keeps unknown-handle claims for grounding rejection and preserves valid peers", () => {
     const window = evidenceWindow(buildEvidenceNodes([document]));
     const completion = resolveClaims(window, parseModelResponse(JSON.stringify({ claims: [

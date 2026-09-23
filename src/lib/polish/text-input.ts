@@ -1,4 +1,3 @@
-import { MAX_EVIDENCE_CHARS } from "@/lib/ai/prompt";
 import { POLISH_SEGMENT_MAX_CHARS, isProse } from "./candidates";
 
 /**
@@ -11,12 +10,8 @@ import { POLISH_SEGMENT_MAX_CHARS, isProse } from "./candidates";
  * is restored from the original text rather than from the model's answer.
  */
 
-/**
- * One request's context budget, the same window the AI eval already scores for
- * the model that ships (`MAX_EVIDENCE_CHARS`). A longer paste is split across
- * several requests, so this bounds a whole run, not one segment.
- */
-export const POLISH_TEXT_MAX_CHARS = MAX_EVIDENCE_CHARS;
+/** A pasted-text run may span requests; each model request remains 600 chars. */
+export const POLISH_TEXT_MAX_CHARS = 10_000;
 
 export const POLISH_TEXT_TOO_LONG_MESSAGE =
   `한 번에 처리할 수 있는 텍스트 길이를 초과했습니다. ${POLISH_TEXT_MAX_CHARS.toLocaleString("ko-KR")}자 이하로 나눠서 윤문해 주세요.`;
@@ -29,8 +24,8 @@ export interface PolishTextSegment {
   /** Bullet, number or indentation prefix, re-attached on reassembly. */
   prefix: string;
   text: string;
-  /** How this segment joins the previous one: a new line, or the same line. */
-  joiner: "\n" | " ";
+  /** Exact separator before this segment: a line break, whitespace, or nothing. */
+  joiner: string;
   /** Only prose is sent to the model; blank lines and values pass through. */
   polishable: boolean;
 }
@@ -42,7 +37,7 @@ function sentenceChunks(text: string): string[] {
   let current = "";
   for (const sentence of sentences) {
     if (current && current.length + sentence.length > POLISH_SEGMENT_MAX_CHARS) {
-      chunks.push(current.trimEnd());
+      chunks.push(current);
       current = "";
     }
     current += sentence;
@@ -51,7 +46,7 @@ function sentenceChunks(text: string): string[] {
       current = current.slice(POLISH_SEGMENT_MAX_CHARS);
     }
   }
-  if (current.trim()) chunks.push(current.trimEnd());
+  if (current) chunks.push(current);
   return chunks;
 }
 
@@ -61,6 +56,9 @@ function sentenceChunks(text: string): string[] {
  * paragraph break, and an over-long line is cut at sentence boundaries.
  */
 export function splitPolishText(input: string): PolishTextSegment[] {
+  if (input.length > POLISH_TEXT_MAX_CHARS) {
+    throw new RangeError(POLISH_TEXT_TOO_LONG_MESSAGE);
+  }
   const segments: PolishTextSegment[] = [];
   const lines = input.replace(/\r\n?/gu, "\n").split("\n");
   lines.forEach((line, lineIndex) => {
@@ -69,12 +67,13 @@ export function splitPolishText(input: string): PolishTextSegment[] {
     const body = line.slice(prefix.length);
     const chunks = body.trim() ? sentenceChunks(body) : [body];
     chunks.forEach((chunk, chunkIndex) => {
+      const text = chunkIndex < chunks.length - 1 ? chunk.trimEnd() : chunk;
       segments.push({
         id: `paste:${lineIndex + 1}:${chunkIndex + 1}`,
         prefix: chunkIndex === 0 ? prefix : "",
-        text: chunk,
-        joiner: chunkIndex === 0 ? "\n" : " ",
-        polishable: isProse(chunk),
+        text,
+        joiner: chunkIndex === 0 ? "\n" : chunks[chunkIndex - 1].match(/\s+$/u)?.[0] ?? "",
+        polishable: isProse(text),
       });
     });
   });
@@ -91,7 +90,7 @@ export function assemblePolishText(
       const text = revisedById.get(segment.id) ?? segment.text;
       const body = `${segment.prefix}${text}`;
       if (index === 0) return body;
-      return segment.joiner === "\n" ? `\n${body}` : ` ${body}`;
+      return `${segment.joiner}${body}`;
     })
     .join("");
 }

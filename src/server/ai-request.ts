@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { AiApiRequest } from "@/lib/ai/api";
-import { MAX_EVIDENCE_CHARS, MAX_EVIDENCE_ITEM_CHARS, MAX_EVIDENCE_ITEMS } from "@/lib/ai/prompt";
+import { evidenceCharBudget, MAX_EVIDENCE_CHARS, MAX_EVIDENCE_ITEM_CHARS, MAX_EVIDENCE_ITEMS } from "@/lib/ai/prompt";
 import { POLISH_SEGMENT_MAX_CHARS } from "@/lib/polish/candidates";
 import { ApiError } from "@/server/http";
 
@@ -17,6 +17,9 @@ const evidenceItemsSchema = z.array(z.object({
   if (handles.size !== items.length) {
     context.addIssue({ code: "custom", message: "근거 식별자는 중복될 수 없습니다." });
   }
+});
+
+const extractEvidenceSchema = evidenceItemsSchema.superRefine((items, context) => {
   if (items.reduce((total, item) => total + item.text.length, 0) > MAX_EVIDENCE_CHARS) {
     context.addIssue({ code: "custom", message: "근거 텍스트가 허용 길이를 초과했습니다." });
   }
@@ -38,9 +41,14 @@ const aiApiRequestSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("extract"),
     field: boundedText(MAX_FIELD_CHARS),
-    items: evidenceItemsSchema,
+    items: extractEvidenceSchema,
   }).strict(),
-]);
+]).superRefine((value, context) => {
+  if (value.kind === "claims"
+    && value.items.reduce((total, item) => total + item.text.length, 0) > evidenceCharBudget(value.request.operation)) {
+    context.addIssue({ code: "custom", message: "근거 텍스트가 허용 길이를 초과했습니다." });
+  }
+});
 
 export function parseAiApiRequest(value: unknown): AiApiRequest {
   const parsed = aiApiRequestSchema.safeParse(value);

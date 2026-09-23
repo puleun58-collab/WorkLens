@@ -11,6 +11,7 @@ import { AI_SCHEMA_ID, type AiEvidenceNode, type AiProviderClaim, type AiProvide
  */
 export const MAX_EVIDENCE_ITEMS = 40;
 export const MAX_EVIDENCE_CHARS = 5_000;
+export const MAX_ANALYZE_EVIDENCE_CHARS = 10_000;
 export const MAX_EVIDENCE_ITEM_CHARS = 320;
 
 /** The only evidence shape that crosses the server AI boundary. */
@@ -30,19 +31,29 @@ export interface EvidenceWindow {
   nodes: Map<string, AiEvidenceNode>;
 }
 
-/** Bounds an already ranked list; ranking happens in `@/lib/ai/retrieval`. */
+export function evidenceCharBudget(operation: AiRequest["operation"]): number {
+  return operation === "analyze" ? MAX_ANALYZE_EVIDENCE_CHARS : MAX_EVIDENCE_CHARS;
+}
+
+export function evidenceItemText(node: AiEvidenceNode): string {
+  return node.text.slice(0, MAX_EVIDENCE_ITEM_CHARS).replace(/\s+/gu, " ").trim();
+}
+
+/** Selection has already applied both the item and operation's char budget. */
 export function evidenceWindow(
   nodes: readonly AiEvidenceNode[],
   roles?: ReadonlyMap<string, "base" | "target">,
+  operation: AiRequest["operation"] = "ask",
 ): EvidenceWindow {
   const items: EvidenceItem[] = [];
   const byHandle = new Map<string, AiEvidenceNode>();
+  const budget = evidenceCharBudget(operation);
   let characters = 0;
   for (const node of nodes) {
     if (items.length >= MAX_EVIDENCE_ITEMS) break;
-    const text = node.text.slice(0, MAX_EVIDENCE_ITEM_CHARS).replace(/\s+/gu, " ").trim();
+    const text = evidenceItemText(node);
     if (!text) continue;
-    if (characters + text.length > MAX_EVIDENCE_CHARS) break;
+    if (characters + text.length > budget) continue;
     const handle = `E${items.length + 1}`;
     const role = roles?.get(node.fileId);
     items.push({ handle, text, ...(role ? { role } : {}) });

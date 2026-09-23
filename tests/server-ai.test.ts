@@ -75,13 +75,29 @@ describe("server AI route boundary", () => {
     expect(wrongType.status).toBe(415);
     await expect(wrongType.json()).resolves.toMatchObject({ error: { code: "CONTENT_TYPE_REQUIRED" } });
 
-    const oversized = await POST(apiRequest("{}", { "Content-Length": String(24 * 1024 + 1) }));
+    const oversized = await POST(apiRequest("{}", { "Content-Length": String(64 * 1024 + 1) }));
     expect(oversized.status).toBe(413);
     await expect(oversized.json()).resolves.toMatchObject({ error: { code: "REQUEST_BODY_TOO_LARGE" } });
 
     const malformed = await POST(apiRequest(JSON.stringify({ kind: "claims", model: "attacker/model" })));
     expect(malformed.status).toBe(400);
     await expect(malformed.json()).resolves.toMatchObject({ error: { code: "INVALID_AI_REQUEST" } });
+  });
+
+  it("accepts a full Korean Analyze window without exceeding the route's byte ceiling", async () => {
+    const providerFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: JSON.stringify({ claims: [] }) } }],
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", providerFetch);
+    const body = JSON.stringify({
+      kind: "claims",
+      request: { operation: "analyze" },
+      items: Array.from({ length: 40 }, (_, index) => ({ handle: `E${index + 1}`, text: "근".repeat(250) })),
+    });
+    expect(new TextEncoder().encode(body).length).toBeGreaterThan(24 * 1024);
+    const response = await POST(apiRequest(body));
+    expect(response.status).toBe(200);
+    expect(providerFetch).toHaveBeenCalledTimes(1);
   });
 });
 

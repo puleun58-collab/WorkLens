@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { NormalizedDocument, SourceRef, TableCell } from "@/domain/document";
-import { buildEvidenceNodes } from "@/lib/ai/grounding";
-import { evidenceWindow, MAX_EVIDENCE_ITEMS } from "@/lib/ai/prompt";
-import { selectEvidence } from "@/lib/ai/retrieval";
+import { buildEvidenceNodes, groundAiResult } from "@/lib/ai/grounding";
+import { buildMessages, evidenceWindow, MAX_ANALYZE_EVIDENCE_CHARS, MAX_EVIDENCE_CHARS, MAX_EVIDENCE_ITEMS, resolveClaims } from "@/lib/ai/prompt";
+import { MAX_EVIDENCE_CANDIDATES, selectEvidence } from "@/lib/ai/retrieval";
 
 function paragraph(index: number, text: string, page = Math.floor(index / 10) + 1) {
   const nodeId = `pdf:p${page}:paragraph:${index}`;
@@ -267,5 +267,85 @@ describe("browser evidence retrieval", () => {
     const change = selectEvidence(nodes, { operation: "ask", question: "Forecast 는 왜 바뀌나요?" }, { limit: 2 }).map((node) => node.text);
     expect(change).toContain(sections[2].body);
     expect(change).not.toContain(sections[1].body);
+  });
+  it("retrieves a late-page answer beyond both former prefix limits and grounds its real locator", () => {
+    const answer = "심해 조사비는 7,430원으로 확정되었습니다.";
+    const document = pdfDocument([
+      ...Array.from({ length: 5_100 }, (_, index) => `${index}번째 행정 기록을 검토합니다. ${"일반 보고 내용 ".repeat(4)}`),
+      answer,
+    ]);
+    const task = { operation: "ask" as const, question: "심해 조사비는 얼마인가요?" };
+    const candidates = buildEvidenceNodes([document], task);
+    expect(candidates.length).toBeLessThanOrEqual(MAX_EVIDENCE_CANDIDATES);
+    const window = evidenceWindow(selectEvidence(candidates, task), undefined, task.operation);
+    const found = window.items.find((item) => item.text.includes(answer));
+    expect(found).toBeDefined();
+    expect(buildMessages(task, window.items)[1].content).toContain(answer);
+    const grounded = groundAiResult(task, [document], resolveClaims(window, [
+      { text: answer, handles: [found!.handle], confidence: "high" },
+    ]));
+    expect(grounded.rejectedClaimCount).toBe(0);
+    expect(grounded.claims[0].evidence[0].source).toMatchObject({
+      fileId: "file-1",
+      page: 511,
+      nodeId: "pdf:p511:paragraph:5101",
+      quote: answer,
+    });
+  });
+
+  it("covers a late Analyze relation and later selected file after a 5,000-node first file", () => {
+    const relation = "환율이 상승하면 구매 한도를 다시 계산합니다.";
+    const latePageRelation = "기준유가가 바뀌면 주간 단가를 다시 계산합니다.";
+    const first = pdfDocument([
+      ...Array.from({ length: 5_100 }, (_, index) => `${index}번 운영 현황을 기록했습니다. ${"기본 보고 내용 ".repeat(4)}`),
+      latePageRelation,
+    ]);
+    const second = { ...pdfDocument([relation]), id: "document:file-late", fileId: "file-late",
+      blocks: [paragraph(1, relation, 70)].map((block) => ({
+        ...block, source: { ...block.source, fileId: "file-late" },
+      })) };
+    const task = { operation: "analyze" as const };
+    const candidates = buildEvidenceNodes([first, second], task);
+    expect(candidates.filter((node) => node.fileId === "file-1").length).toBeGreaterThan(200);
+    expect(candidates.filter((node) => node.fileId === "file-late")).toHaveLength(1);
+    expect(candidates.length).toBeLessThanOrEqual(MAX_EVIDENCE_CANDIDATES);
+    const window = evidenceWindow(selectEvidence(candidates, task), undefined, task.operation);
+    const found = window.items.find((item) => item.text === relation);
+    const latePage = window.items.find((item) => item.text === latePageRelation);
+    expect(found).toBeDefined();
+    expect(latePage).toBeDefined();
+    expect(buildMessages(task, window.items)[1].content).toContain(relation);
+    expect(buildMessages(task, window.items)[1].content).toContain(latePageRelation);
+    expect(window.items.some((item) => item.text.includes("운영 현황"))).toBe(true);
+    const grounded = groundAiResult(task, [first, second], resolveClaims(window, [
+      { text: latePageRelation, handles: [latePage!.handle], confidence: "high", presentation: { role: "insight" } },
+      { text: relation, handles: [found!.handle], confidence: "high", presentation: { role: "insight" } },
+    ]));
+    expect(grounded.rejectedClaimCount).toBe(0);
+    expect(grounded.claims[0].evidence[0].source).toMatchObject({ fileId: "file-1", page: 511, quote: latePageRelation });
+    expect(grounded.claims[1].evidence[0].source).toMatchObject({ fileId: "file-late", page: 70, quote: relation });
+  });
+
+  it("spends the 5k/10k character budgets before restoring document order", () => {
+    const long = "경유 단가 관련 문장 " + "운송 계획 ".repeat(42);
+    const answer = "경유 단가 예외 조건에 따르면 심해 운송은 8,321원입니다.";
+    const document = pdfDocument([...Array.from({ length: 30 }, () => long), answer]);
+    const task = { operation: "ask" as const, question: "경유 단가 예외 조건 심해 운송" };
+    const window = evidenceWindow(selectEvidence(buildEvidenceNodes([document], task), task), undefined, task.operation);
+    expect(window.items.some((item) => item.text === answer)).toBe(true);
+    expect(window.items.reduce((sum, item) => sum + item.text.length, 0)).toBeLessThanOrEqual(MAX_EVIDENCE_CHARS);
+
+    const many = pdfDocument(Array.from({ length: 40 }, (_, index) => `작업 ${index} ${"운영 내용 ".repeat(45)}`));
+    const analyzeTask = { operation: "analyze" as const };
+    const analyzeWindow = evidenceWindow(selectEvidence(buildEvidenceNodes([many], analyzeTask), analyzeTask), undefined, "analyze");
+    const askTask = { operation: "ask" as const, question: "작업 운영" };
+    const askWindow = evidenceWindow(selectEvidence(buildEvidenceNodes([many], askTask), askTask), undefined, "ask");
+    const analyzeChars = analyzeWindow.items.reduce((sum, item) => sum + item.text.length, 0);
+    const askChars = askWindow.items.reduce((sum, item) => sum + item.text.length, 0);
+    expect(analyzeChars).toBeGreaterThan(MAX_EVIDENCE_CHARS);
+    expect(analyzeChars).toBeLessThanOrEqual(MAX_ANALYZE_EVIDENCE_CHARS);
+    expect(askChars).toBeLessThanOrEqual(MAX_EVIDENCE_CHARS);
+    expect(analyzeWindow.items.length).toBeGreaterThan(askWindow.items.length);
+    expect(analyzeWindow.items.length).toBeLessThanOrEqual(MAX_EVIDENCE_ITEMS);
   });
 });

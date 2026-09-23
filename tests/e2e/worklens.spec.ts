@@ -918,9 +918,20 @@ test("offers file and pasted-text polish without touching the workspace", async 
   // The action follows the textarea, not the file selection.
   await expect(page.getByRole("button", { name: "윤문 실행" })).toBeDisabled();
   await paste.fill("안녕하세요.\n- 3분기 운영 보고 관련하여 검토 부탁드리고자 합니다.\n1. 매출은 1,250만원입니다.");
-  await expect(page.locator(".polish-paste small")).toContainText("/ 5,000자");
+  await expect(page.locator(".polish-paste small")).toContainText("/ 10,000자");
   await expect(page.getByRole("button", { name: "윤문 실행" })).toBeEnabled();
   await expect(page.locator(".source-locator")).toHaveCount(0);
+  const prose = "운영 개선 방안을 함께 검토 부탁드립니다. ".repeat(500);
+  for (const length of [9_999, 10_000]) {
+    await paste.fill(prose.slice(0, length));
+    await expect(page.locator(".polish-paste small")).toContainText(`${length.toLocaleString("ko-KR")} / 10,000자`);
+    await expect(page.locator(".polish-paste small")).not.toHaveAttribute("data-over", "true");
+  }
+  await paste.fill(prose.slice(0, 10_001));
+  await expect(page.locator(".polish-paste small")).toHaveAttribute("data-over", "true");
+  await page.getByRole("button", { name: "윤문 실행" }).click();
+  await expect(page.locator(".status-panel.error")).toContainText("10,000자 이하");
+  await paste.fill("안녕하세요.\n- 3분기 운영 보고 관련하여 검토 부탁드리고자 합니다.\n1. 매출은 1,250만원입니다.");
 
   // Switching back restores the workspace file and its selection.
   await page.getByRole("radio", { name: "파일 윤문" }).check();

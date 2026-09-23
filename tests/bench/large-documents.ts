@@ -169,9 +169,11 @@ async function measure(label: string, bytes: Uint8Array, fileName: string): Prom
     admitted = false;
   }
   const document = await timed("parse", () => parseDocument({ fileId: `bench-${label}`, fileName, bytes }), stages);
-  const nodes = await timed("evidence", () => buildEvidenceNodes([document]), stages);
-  await timed("retrieval(ask)", () => evidenceWindow(selectEvidence(nodes, { operation: "ask", question: "8월 서울 금액은 얼마인가요?" })), stages);
-  await timed("retrieval(analyze)", () => evidenceWindow(selectEvidence(nodes, { operation: "analyze" })), stages);
+  const askTask = { operation: "ask" as const, question: "8월 서울 금액은 얼마인가요?" };
+  const askNodes = await timed("evidence(ask)", () => buildEvidenceNodes([document], askTask), stages);
+  await timed("retrieval(ask)", () => evidenceWindow(selectEvidence(askNodes, askTask)), stages);
+  const analyzeNodes = await timed("evidence(analyze)", () => buildEvidenceNodes([document]), stages);
+  await timed("retrieval(analyze)", () => evidenceWindow(selectEvidence(analyzeNodes, { operation: "analyze" }), undefined, "analyze"), stages);
   await timed("analyze", () => analyzeDocument(document), stages);
   await timed("check", () => checkDocument(document, { userTerms: [], companyTerms: [] }), stages);
   await timed("extract", () => extractDocument(document), stages);
@@ -181,7 +183,7 @@ async function measure(label: string, bytes: Uint8Array, fileName: string): Prom
     bytesMiB: Math.round((bytes.byteLength / MiB) * 10) / 10,
     stages,
     blocks: document.blocks.length,
-    evidence: nodes.length,
+    evidence: analyzeNodes.length,
     rssDeltaMiB: Math.round((after - before) / MiB),
     admitted,
   };

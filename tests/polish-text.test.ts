@@ -3,6 +3,7 @@ import { POLISH_SEGMENT_MAX_CHARS } from "@/lib/polish/candidates";
 import { polishTextResult, reviewProposal } from "@/lib/polish/engine";
 import {
   POLISH_TEXT_MAX_CHARS,
+  POLISH_TEXT_TOO_LONG_MESSAGE,
   assemblePolishText,
   splitPolishText,
 } from "@/lib/polish/text-input";
@@ -88,11 +89,39 @@ describe("pasted text segmentation", () => {
     }
   });
 
-  it("keeps a run bounded by the same context budget the model already handles", () => {
-    expect(POLISH_TEXT_MAX_CHARS).toBe(5_000);
-    const segments = splitPolishText("첫 줄입니다. 내용을 확인해 주세요.\n둘째 줄입니다. 함께 검토 부탁드립니다.");
-    expect(assemblePolishText(segments, new Map())).toBe(
-      "첫 줄입니다. 내용을 확인해 주세요.\n둘째 줄입니다. 함께 검토 부탁드립니다.",
-    );
+  it("accepts 9,999 and 10,000 characters but rejects 10,001", () => {
+    const sentence = "운영 개선 방안을 함께 검토 부탁드립니다. ";
+    for (const length of [9_999, 10_000]) {
+      const input = sentence.repeat(Math.ceil(length / sentence.length)).slice(0, length);
+      expect(splitPolishText(input).length).toBeGreaterThan(1);
+    }
+    const tooLong = sentence.repeat(Math.ceil(10_001 / sentence.length)).slice(0, 10_001);
+    expect(() => splitPolishText(tooLong)).toThrow(POLISH_TEXT_TOO_LONG_MESSAGE);
+    expect(POLISH_TEXT_MAX_CHARS).toBe(10_000);
+  });
+
+  it("bounds each near-10k request to 600 characters and restores lists and paragraph breaks", () => {
+    expect(POLISH_SEGMENT_MAX_CHARS).toBe(600);
+    const opening = "보고 내용을 검토 부탁드립니다.\n\n- ";
+    const ending = "\n1. 다음 회의에서 내용을 확인 부탁드립니다.\n\n검토 결과를 공유하겠습니다.";
+    const bodyLength = POLISH_TEXT_MAX_CHARS - opening.length - ending.length;
+    const sentence = "운영 개선 방안을 함께 검토 부탁드립니다. ";
+    const body = sentence.repeat(Math.ceil(bodyLength / sentence.length)).slice(0, bodyLength);
+    const input = `${opening}${body}${ending}`;
+    const { segments, result } = run(input, unchanged);
+    expect(input.length).toBe(10_000);
+    expect(segments.filter((segment) => segment.polishable).length).toBeGreaterThan(15);
+    expect(segments.every((segment) => segment.text.length <= POLISH_SEGMENT_MAX_CHARS)).toBe(true);
+    expect(result.revisedText).toBe(input);
+    expect(result.summary.failed).toBe(0);
+  });
+
+  it("does not invent spaces when a single sentence exceeds a segment", () => {
+    const input = `운영 개선 방안을 ${"검토".repeat(400)} 부탁드립니다.`;
+    const segments = splitPolishText(input);
+    expect(segments.length).toBeGreaterThan(1);
+    expect(segments.some((segment) => segment.joiner === "")).toBe(true);
+    expect(segments.every((segment) => segment.text.length <= 600)).toBe(true);
+    expect(assemblePolishText(segments, new Map())).toBe(input);
   });
 });
