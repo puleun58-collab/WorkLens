@@ -87,10 +87,3 @@ export function polishTextResult(
   };
 }
 
-/** Copy text for one outcome, and for a whole run. */
-export function polishClipboardText(outcomes: readonly PolishOutcome[]): string {
-  return outcomes
-    .filter((entry) => entry.status === "changed")
-    .map((entry) => entry.revisedText)
-    .join("\n\n");
-}

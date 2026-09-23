@@ -50,7 +50,7 @@ import {
   type PolishResult,
   type PolishTextResult,
 } from "@/domain/polish";
-import { polishClipboardText, polishResult, polishTextResult, reviewProposal } from "@/lib/polish/engine";
+import { polishResult, polishTextResult, reviewProposal } from "@/lib/polish/engine";
 import {
   POLISH_TEXT_MAX_CHARS,
   POLISH_TEXT_TOO_LONG_MESSAGE,
@@ -2143,7 +2143,6 @@ function PolishResults({ result, fileNames, onSource, status }: {
             </>
           ) : null}
         </p>
-        {changed.length ? <CopyButton text={polishClipboardText(result.outcomes)} label="수정안 전체 복사" /> : null}
       </div>
 
       {changed.length === 0 && rejected.length === 0 ? (

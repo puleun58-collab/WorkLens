@@ -3229,7 +3229,6 @@ input:disabled,
   padding: 10px var(--panel-inset) 12px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 10px 16px;
 }
 
@@ -3277,7 +3276,6 @@ input:disabled,
 }
 
 .polish-row.rejected {
-  background: transparent;
   box-shadow: inset 2px 0 0 color-mix(in srgb, var(--warning) 60%, transparent);
 }
 
@@ -3294,7 +3292,7 @@ input:disabled,
   border: 1px solid #b8dcf7;
   border-left: 3px solid var(--blue);
   border-radius: var(--radius-control);
-  background: #edf8ff;
+  background: var(--blue-soft);
 }
 
 .polish-copy-block.revised .polish-label {
@@ -8701,6 +8699,8 @@ input:disabled {
 
 .check-toolbar-compact .check-toolbar-actions {
   margin-left: 0;
+  flex: 0 0 auto;
+  width: auto;
 }
 
 .check-toolbar-compact .dictionary-trigger {
@@ -8732,26 +8732,23 @@ input:disabled {
 }
 
 /*
- * Check reads on one content column. One inset places the severity bar, the
- * category line and every finding card, so their left edges — and the
- * dictionary button's right edge against the cards' — cannot drift apart.
+ * Check follows the same outer workspace track as its result heading and file
+ * list. Only finding contents are inset; summary, filters and issue edges are
+ * not nested inside a second content column.
  */
-.check-results {
-  --check-inset: 24px;
-}
 
 .check-results .qa-overview {
   width: fit-content;
-  max-width: calc(100% - var(--check-inset) * 2);
-  margin: var(--space-3) var(--check-inset) var(--space-2);
+  max-width: 100%;
+  margin: var(--space-3) 0 var(--space-2);
 }
 
 .check-results .check-toolbar.check-toolbar-compact {
-  padding: var(--space-1) var(--check-inset) var(--space-3);
+  padding: var(--space-1) 0 var(--space-3);
 }
 
 .check-results .check-list {
-  padding: var(--space-3) var(--check-inset) 0;
+  padding: var(--space-3) 0 0;
 }
 
 /* The first category's text, not its hover box, starts on the content line. */
@@ -8764,15 +8761,14 @@ input:disabled {
 }
 
 /*
- * Polish surfaces step down one tone at a time: grey page, white panel, a
- * faint blue-grey card per result, then the sky-blue revision. Each result is
- * its own card, so none of them read as one long white sheet.
+ * White result surface, restrained blue-gray items and a blue revision:
+ * preserve the existing hierarchy without a heavy item background.
  */
 .polish-row {
   padding: 16px 18px 18px;
   border: 1px solid var(--line-soft);
   border-radius: var(--radius-control);
-  background: #f2f5f9;
+  background: #f7f9fc;
 }
 
 .polish-row + .polish-row,
@@ -8807,10 +8803,6 @@ input:disabled {
 }
 
 @media (max-width: 700px) {
-  .check-results {
-    --check-inset: 16px;
-  }
-
   .check-results .check-issue-row {
     padding-inline: 14px;
   }

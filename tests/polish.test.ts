@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { collectPolishCandidates, isProse } from "@/lib/polish/candidates";
-import { polishClipboardText, reviewProposal, summarizePolish } from "@/lib/polish/engine";
+import { reviewProposal, summarizePolish } from "@/lib/polish/engine";
 import { verifyPolish } from "@/lib/polish/protect";
 import { parsePolishResponse } from "@/lib/ai/polish-prompt";
 import type { NormalizedDocument, SourceRef } from "@/domain/document";
@@ -157,14 +157,13 @@ describe("polish engine", () => {
     expect(outcome.revisedText).toBe(entry.text);
   });
 
-  it("summarises a run and copies only the rewrites", () => {
+  it("summarises changed, unchanged and rejected outcomes", () => {
     const outcomes = [
       reviewProposal(candidate("AI 기술을 통해 효율을 높일 수 있습니다."), { changed: true, revisedText: "AI로 효율을 높일 수 있습니다.", reasons: [] }),
       reviewProposal(candidate("9월 운임은 전월 대비 상승했습니다."), { changed: false, revisedText: "", reasons: [] }),
       reviewProposal(candidate("매출은 1,250만원입니다."), { changed: true, revisedText: "매출은 1,350만원입니다.", reasons: [] }),
     ];
     expect(summarizePolish(outcomes)).toEqual({ candidates: 3, changed: 1, unchanged: 1, rejected: 1, failed: 0 });
-    expect(polishClipboardText(outcomes)).toBe("AI로 효율을 높일 수 있습니다.");
   });
 });
 

@@ -943,16 +943,15 @@ test("presents text Polish as an immediate original-to-revision workflow", async
   expect(boundaryBox).not.toBeNull();
   expect(Math.abs(resultBox!.width - boundaryBox!.width)).toBeLessThanOrEqual(1);
   expect(emphasis[1]).toBeGreaterThan(emphasis[0]);
-  // Grey page, white panel, faint blue-grey card, sky-blue revision: four
-  // distinct tones, none of them repeated.
+  // Canvas, white panel, light blue-gray item and blue revision remain distinct.
   expect(new Set([surface.page, surface.resultBackground, surface.cardBackground, surface.revisionBackground]).size).toBe(4);
   expect(surface).toMatchObject({
     resultBackground: "rgb(255, 255, 255)",
     resultBorder: "1px",
     resultShadow: "none",
-    cardBackground: "rgb(242, 245, 249)",
+    cardBackground: "rgb(247, 249, 252)",
     cardBorder: "1px",
-    revisionBackground: "rgb(237, 248, 255)",
+    revisionBackground: "rgb(239, 246, 255)",
     revisionBorder: "1px",
   });
   expect(await original.locator(".polish-copy-heading").evaluate((element) => getComputedStyle(element).justifyContent)).toBe("space-between");
@@ -1657,17 +1656,22 @@ test("reviews PPTX writing, consistency and data findings with filters and exact
   expect(await page.getByRole("button", { name: "용어 사전" }).evaluate((element) => getComputedStyle(element).borderTopWidth)).toBe("1px");
   await expect(page.locator(".check-filter-status")).toHaveCount(0);
 
-  // Severity bar, category line and finding cards share one left edge; the
-  // dictionary button ends where the cards end; the bar is only as wide as
-  // its own content.
+  // The result heading and file area define the outer grid. Summary, filter
+  // text, issue accent and dictionary share those edges without extra inset.
   const edges = await page.evaluate(() => {
     const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
+    const heading = box(".result-heading");
+    const fileArea = box(".file-list");
     const summary = box(".qa-overview");
     const line = box(".qa-summary-line");
     const filters = box(".check-filters-compact > button");
     const card = box(".check-issue");
     const dictionary = box(".dictionary-trigger");
     return {
+      headingLeft: Math.round(heading.left),
+      headingRight: Math.round(heading.right),
+      fileLeft: Math.round(fileArea.left),
+      fileRight: Math.round(fileArea.right),
       summaryLeft: Math.round(summary.left),
       filterLeft: Math.round(filters.left + Number.parseFloat(getComputedStyle(document.querySelector(".check-filters-compact > button")!).paddingLeft)),
       cardLeft: Math.round(card.left),
@@ -1676,9 +1680,13 @@ test("reviews PPTX writing, consistency and data findings with filters and exact
       slack: Math.round(summary.right - line.right),
     };
   });
-  expect(edges.filterLeft).toBe(edges.summaryLeft);
-  expect(edges.cardLeft).toBe(edges.summaryLeft);
-  expect(edges.dictionaryRight).toBe(edges.cardRight);
+  expect(edges.summaryLeft).toBe(edges.headingLeft);
+  expect(edges.filterLeft).toBe(edges.headingLeft);
+  expect(edges.cardLeft).toBe(edges.headingLeft);
+  expect(edges.fileLeft).toBe(edges.headingLeft);
+  expect(edges.dictionaryRight).toBe(edges.headingRight);
+  expect(edges.cardRight).toBe(edges.headingRight);
+  expect(edges.fileRight).toBe(edges.headingRight);
   expect(edges.slack).toBeLessThanOrEqual(16);
 
   const typo = page.locator(".check-issue").filter({ hasText: "한글 맞춤법 오류 가능성" });
@@ -1761,6 +1769,14 @@ test("reviews PPTX writing, consistency and data findings with filters and exact
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(typo).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  const mobileEdges = await page.evaluate(() => ({
+    heading: document.querySelector(".result-heading")!.getBoundingClientRect().right,
+    dictionary: document.querySelector(".dictionary-trigger")!.getBoundingClientRect().right,
+    filters: document.querySelector(".check-filters-compact")!.scrollWidth,
+    visibleFilters: document.querySelector(".check-filters-compact")!.clientWidth,
+  }));
+  expect(Math.abs(mobileEdges.dictionary - mobileEdges.heading)).toBeLessThanOrEqual(1);
+  expect(mobileEdges.filters).toBeGreaterThan(mobileEdges.visibleFilters);
   expect(await findingActions.evaluate((element) => getComputedStyle(element).justifyContent)).toBe("flex-start");
 });
 
