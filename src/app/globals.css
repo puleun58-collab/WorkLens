@@ -4476,7 +4476,7 @@ body {
   min-height: 48px;
   margin-bottom: var(--space-4);
   padding: 8px 16px;
-  border: 1px dashed var(--border-strong);
+  border: 1px dashed var(--dropzone-border);
   border-radius: var(--radius-panel);
   background: transparent;
 }
@@ -4492,7 +4492,7 @@ body {
 .dropzone:not(.compact) {
   min-height: 88px;
   margin-bottom: var(--space-4);
-  border: 1px dashed var(--border-default);
+  border: 1px dashed var(--dropzone-border);
   border-radius: var(--radius-panel);
 }
 
@@ -4616,6 +4616,8 @@ body {
   --border-default: #d9e0ea;
   --border-subtle: #e8ecf2;
   --line-soft: #d9e0ea;
+  /* Every file drop/select zone shares one dashed outline; hover and drag-over use --blue. */
+  --dropzone-border: #cbd5e1;
 }
 
 .rail {
@@ -8584,14 +8586,14 @@ input:disabled {
  */
 .dropzone:not(.compact) {
   padding: var(--space-5) var(--panel-inset);
-  border: 1px dashed #c8d1dc;
+  border: 1px dashed var(--dropzone-border);
   border-radius: var(--radius-panel);
   background: var(--paper);
   transition: border-color var(--motion-fast) var(--motion-ease), background var(--motion-fast) var(--motion-ease);
 }
 
 .dropzone:not(.compact):hover {
-  border-color: #aebbcb;
+  border-color: var(--blue);
   background: #fcfdfe;
 }
 
