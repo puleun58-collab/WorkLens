@@ -13,6 +13,11 @@ function isMainAsset(response: Response) {
 test("loads the deployed workspace and runs browser-only Check", async ({ page }) => {
   const responses: Response[] = [];
   page.on("response", (response) => responses.push(response));
+  await page.route("**/api/ai", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ data: { kind: "claims", claims: [] } }),
+  }));
 
   const documentResponse = await page.goto("/");
   expect(documentResponse?.status()).toBe(200);
@@ -38,4 +43,13 @@ test("loads the deployed workspace and runs browser-only Check", async ({ page }
   await page.getByRole("button", { name: "검수", exact: true }).click();
   await page.getByRole("button", { name: "검수 실행" }).click();
   await expect(page.locator(".check-issue").first()).toBeVisible();
+  const finding = page.locator(".check-issue").first();
+  expect(await finding.evaluate((element) => getComputedStyle(element).backgroundColor)).toBe("rgb(255, 255, 255)");
+  expect(await finding.locator(".check-recommendation").evaluate((element) =>
+    getComputedStyle(element).backgroundColor)).toBe("rgb(255, 248, 225)");
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  const order = await finding.locator(".check-recommendation, .check-source").evaluateAll((nodes) =>
+    nodes.map((node) => node.getBoundingClientRect().top));
+  expect(order[0]).toBeLessThan(order[1]);
 });
