@@ -1,6 +1,7 @@
 "use client";
 
 import { ChangeEvent, DragEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import dynamic from "next/dynamic";
 import type { AiAvailableResult, AiRequest, GroundedClaim } from "@/domain/ai";
 import type { ComparisonItem, ComparisonResult } from "@/domain/compare";
 import {
@@ -88,7 +89,9 @@ import {
 import {
   BarChart3,
   BookMarked,
+  FileText,
   GitCompareArrows,
+  Image as ImageIcon,
   Layers3,
   MessageSquareText,
   PenLine,
@@ -97,7 +100,15 @@ import {
   Table2,
 } from "lucide-react";
 
-type ShellView = Tab | "Dictionary" | "Settings";
+const PdfTool = dynamic(() => import("@/components/tools/PdfTool").then((module) => module.PdfTool), {
+  loading: () => <p role="status">PDF 도구를 불러오는 중…</p>,
+});
+const ImageTool = dynamic(() => import("@/components/tools/ImageTool").then((module) => module.ImageTool), {
+  loading: () => <p role="status">이미지 도구를 불러오는 중…</p>,
+});
+
+type ToolView = "PdfTools" | "ImageTools";
+type ShellView = Tab | ToolView | "Dictionary" | "Settings";
 export interface CompanyTermEntry { id: number; term: string; description: string | null; active: boolean }
 const tabIcons: Record<Tab, typeof BarChart3> = {
   Analyze: BarChart3,
@@ -1192,8 +1203,9 @@ export default function Home() {
    * Document features share one workspace; utility views leave its files in
    * memory while hiding document controls.
    */
+  const isToolView = shellView === "PdfTools" || shellView === "ImageTools";
   const isUtilityView = shellView === "Dictionary" || shellView === "Settings";
-  const isDocumentWorkspaceView = !isUtilityView;
+  const isDocumentWorkspaceView = !isUtilityView && !isToolView;
   const selectedNames = files.filter((file) => selected.includes(file.id)).map((file) => file.name).join(", ");
 
   return (
@@ -1232,6 +1244,26 @@ export default function Home() {
             );
           })}
         </ul>
+        <p className="rail-group-label rail-tools-label">TOOLS</p>
+        <ul className="rail-list rail-tools-list">
+          {([
+            { view: "PdfTools", label: "PDF 도구", Icon: FileText },
+            { view: "ImageTools", label: "이미지 도구", Icon: ImageIcon },
+          ] as const).map(({ view, label, Icon }) => (
+            <li key={view}>
+              <button
+                type="button"
+                className={shellView === view ? "rail-item active" : "rail-item"}
+                aria-current={shellView === view ? "page" : undefined}
+                aria-label={label}
+                onClick={() => { setDetail(null); detailTrigger.current = null; setShellView(view); }}
+              >
+                <Icon size={20} strokeWidth={1.75} aria-hidden="true" />
+                <span>{label}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
         <div className="rail-footer">
           {(["Dictionary", "Settings"] as const).map((view) => {
             const Icon = view === "Dictionary" ? BookMarked : SlidersHorizontal;
@@ -1253,13 +1285,17 @@ export default function Home() {
       </nav>
 
       <div className="shell-main">
-        {isUtilityView ? (
+        {isUtilityView || isToolView ? (
           <header className="context-bar utility-bar">
-            <h1>{shellView === "Dictionary" ? "용어 사전" : "설정"}</h1>
+            <h1>{shellView === "Dictionary" ? "용어 사전" : shellView === "Settings" ? "설정" : shellView === "PdfTools" ? "PDF 도구" : "이미지 도구"}</h1>
             <span className="context-names">
               {shellView === "Dictionary"
                 ? "맞춤법과 용어 오탐을 줄이기 위한 사전입니다."
-                : "이 브라우저에만 적용되는 항목입니다."}
+                : shellView === "Settings"
+                  ? "이 브라우저에만 적용되는 항목입니다."
+                  : shellView === "PdfTools"
+                    ? "PDF 페이지를 정리하고 원하는 형식으로 내보낼 수 있습니다."
+                    : "이미지를 편집하고 원하는 형식으로 내보낼 수 있습니다."}
             </span>
           </header>
         ) : (
@@ -1295,16 +1331,18 @@ export default function Home() {
           </header>
         )}
 
-        <section className="workspace" id="workspace-content" aria-busy={busy || uploading}>
-          <input
-            ref={inputRef}
-            className="file-input"
-            type="file"
-            multiple
-            accept=".xlsx,.csv,.pdf,.docx,.pptx"
-            aria-label="작업 파일 선택"
-            onChange={(event: ChangeEvent<HTMLInputElement>) => { enqueueUploads(event.target.files); event.target.value = ""; }}
-          />
+        <section className="workspace" id="workspace-content" aria-busy={isDocumentWorkspaceView && (busy || uploading)}>
+          {isDocumentWorkspaceView ? (
+            <input
+              ref={inputRef}
+              className="file-input"
+              type="file"
+              multiple
+              accept=".xlsx,.csv,.pdf,.docx,.pptx"
+              aria-label="작업 파일 선택"
+              onChange={(event: ChangeEvent<HTMLInputElement>) => { enqueueUploads(event.target.files); event.target.value = ""; }}
+            />
+          ) : null}
           {files.length === 0 && isDocumentWorkspaceView ? (
             <div
               className={`dropzone${uploading ? " busy" : ""}${dropActive ? " drag-active" : ""}`}
@@ -1344,7 +1382,7 @@ export default function Home() {
             )
           ) : null}
 
-          {!isDocumentWorkspaceView ? (
+          {isUtilityView ? (
             <SettingsView
               view={shellView}
               companyTerms={companyTerms}
@@ -1356,6 +1394,8 @@ export default function Home() {
               onClearTerms={clearTerms}
               onToggleRule={toggleRule}
             />
+          ) : isToolView ? (
+            shellView === "PdfTools" ? <PdfTool /> : <ImageTool />
           ) : (
             <>
               {polishTextMode || files.length === 0 ? null : (

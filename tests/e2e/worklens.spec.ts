@@ -1949,8 +1949,9 @@ test("keeps empty upload actions singular and restores header actions after uplo
   const context = page.locator(".context-bar");
   const dropzone = page.locator(".dropzone");
 
-  await expect(page.locator(".rail-group-label")).toHaveText("WORKSPACE");
-  await expect(page.locator(".rail-list .rail-item span")).toHaveText(["분석", "질문", "비교", "검수", "윤문", "추출", "취합"]);
+  await expect(page.locator(".rail-group-label")).toHaveText(["WORKSPACE", "TOOLS"]);
+  await expect(page.locator(".rail-list:not(.rail-tools-list) .rail-item span")).toHaveText(["분석", "질문", "비교", "검수", "윤문", "추출", "취합"]);
+  await expect(page.locator(".rail-tools-list .rail-item span")).toHaveText(["PDF 도구", "이미지 도구"]);
   await expect(context.locator(".context-files")).toContainText("작업 파일");
   await expect(context.locator(".context-counts")).toHaveText("0개");
   await expect(context).not.toContainText("선택 0개");
@@ -2073,7 +2074,7 @@ test("uses task-focused labels and concise execution buttons", async ({ page }) 
     ["추출", "정보 추출"],
     ["취합", "문서 취합"],
   ] as const;
-  await expect(page.locator(".rail-list .rail-item span")).toHaveText(labels.map(([label]) => label));
+  await expect(page.locator(".rail-list:not(.rail-tools-list) .rail-item span")).toHaveText(labels.map(([label]) => label));
   for (const [tab, title] of labels) {
     await page.getByRole("button", { name: tab, exact: true }).click();
     await expect(page.getByRole("heading", { name: title, exact: true })).toBeVisible();

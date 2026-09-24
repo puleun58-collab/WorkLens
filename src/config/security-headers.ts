@@ -8,7 +8,7 @@ export function contentSecurityPolicy(development: boolean): string {
     "default-src 'self'",
     `script-src 'self' 'unsafe-inline'${development ? " 'unsafe-eval'" : ""}`,
     "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data:",
+    "img-src 'self' data: blob:",
     "worker-src 'self'",
     `connect-src 'self'${development ? " ws: http://127.0.0.1:* http://localhost:*" : ""}`,
     "object-src 'none'",

@@ -4300,6 +4300,10 @@ body {
   text-transform: uppercase;
 }
 
+.rail-tools-label {
+  margin-top: 20px;
+}
+
 .rail-list {
   margin: 0;
   padding: 0;
@@ -5211,6 +5215,15 @@ body {
 
   .rail-group-label {
     display: none;
+  }
+  .rail-tools-label {
+    display: block;
+    flex: 0 0 100%;
+    margin: 8px 0 0;
+  }
+
+  .rail-tools-list {
+    width: 100%;
   }
 
   .rail-list {
@@ -6333,6 +6346,10 @@ input:disabled {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 4px;
+  }
+
+  .rail-tools-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .rail-footer {

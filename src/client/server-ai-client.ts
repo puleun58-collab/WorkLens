@@ -5,6 +5,10 @@ import type { AiApiRequest, AiApiResult, ServerAiErrorCode, ServerAiFailure } fr
 import type { ExtractProposal } from "@/lib/ai/extract-prompt";
 import type { EvidenceItem, ModelClaim } from "@/lib/ai/prompt";
 
+// The production CSP forbids eval; without this, zod probes `new Function` when
+// building object schemas and Firefox reports the blocked probe as a console error.
+z.config({ jitless: true });
+
 const CLIENT_TIMEOUT_MS = 35_000;
 let activeController: AbortController | undefined;
 
