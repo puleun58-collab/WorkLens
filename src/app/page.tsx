@@ -2706,10 +2706,12 @@ function CheckResults({ entries, fileNames, onSource, userTerms, ignoredRules, o
                           </div>
                         </div>
                         <div className="check-issue-support">
-                          <div className="check-recommendation">
-                            <span className="check-field-label">수정 제안</span>
-                            <p><RecommendationText text={finding.recommendation} suggestedText={finding.suggestedText} /></p>
-                          </div>
+                          {finding.recommendation.trim() ? (
+                            <div className="check-recommendation">
+                              <span className="check-field-label">수정 제안</span>
+                              <p><RecommendationText text={finding.recommendation} suggestedText={finding.suggestedText} /></p>
+                            </div>
+                          ) : null}
                           <div className="check-source">
                             <ResultSource
                               sources={sources}

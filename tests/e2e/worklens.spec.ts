@@ -1805,7 +1805,7 @@ test("reviews PPTX writing, consistency and data findings with filters and exact
     };
   });
   expect(suggestionHierarchy).toMatchObject({
-    background: "rgb(244, 247, 251)",
+    background: "rgb(255, 248, 225)",
     borderWidth: "0px",
     boxShadow: "none",
     paddingLeft: "10px",
@@ -1815,6 +1815,9 @@ test("reviews PPTX writing, consistency and data findings with filters and exact
     sourceSize: "13px",
   });
   expect(suggestionHierarchy.suggestionColor).not.toBe(suggestionHierarchy.descriptionColor);
+  expect(await typo.evaluate((issue) => getComputedStyle(issue).backgroundColor)).toBe("rgb(255, 255, 255)");
+  expect(await page.locator(".check-issue .check-recommendation").evaluateAll((recommendations) =>
+    recommendations.every((recommendation) => getComputedStyle(recommendation).backgroundColor === "rgb(255, 248, 225)"))).toBe(true);
   await expect(typo.locator(".check-source .check-field-label")).toHaveCount(0);
   await expect(typo.locator(".issue-detail-toggle")).toHaveCount(0);
   expect((await typo.innerText()).split("최종검수.pptx").length - 1).toBe(0);
@@ -1864,6 +1867,23 @@ test("reviews PPTX writing, consistency and data findings with filters and exact
   }));
   expect(Math.abs(mobileEdges.dictionary - mobileEdges.heading)).toBeLessThanOrEqual(1);
   expect(mobileEdges.filters).toBeGreaterThan(mobileEdges.visibleFilters);
+  const mobileOrder = await typo.locator(".check-recommendation, .check-source").evaluateAll((nodes) =>
+    nodes.map((node) => node.getBoundingClientRect().top));
+  expect(mobileOrder[0]).toBeLessThan(mobileOrder[1]);
+  await page.screenshot({ path: "artifacts/check-suggestion-mobile-390.png", fullPage: true });
+  const longSuggestion = await typo.locator(".check-recommendation p").evaluate((paragraph) => {
+    paragraph.textContent = `https://example.com/${"long-segment-".repeat(24)}`;
+    const bounds = paragraph.getBoundingClientRect();
+    return {
+      height: bounds.height,
+      lineHeight: Number.parseFloat(getComputedStyle(paragraph).lineHeight),
+      width: bounds.width,
+      parentWidth: paragraph.parentElement!.clientWidth,
+    };
+  });
+  expect(longSuggestion.height).toBeGreaterThan(longSuggestion.lineHeight);
+  expect(longSuggestion.width).toBeLessThanOrEqual(longSuggestion.parentWidth);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   expect(await findingActions.evaluate((element) => getComputedStyle(element).justifyContent)).toBe("flex-start");
 });
 
@@ -1897,6 +1917,10 @@ test("keeps the personal dictionary and ignore actions inside this browser", asy
   const ignoredIssue = await remaining.locator(".check-issue-name > strong").innerText();
   await remaining.getByRole("button", { name: "동일 규칙 무시" }).click();
   await expect(page.locator(".check-issue").filter({ hasText: ignoredIssue })).toHaveCount(0);
+  const exclusionCount = await page.locator(".check-issue").count();
+  const excluded = page.locator(".check-issue").first();
+  await excluded.getByRole("button", { name: "이번 항목 제외" }).click();
+  await expect(page.locator(".check-issue")).toHaveCount(exclusionCount - 1);
 
   // The dictionary survives a reload of the same browser profile.
   await page.reload();

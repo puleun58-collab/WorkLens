@@ -6832,11 +6832,11 @@ input:disabled {
   }
 
   .check-source {
-    grid-row: 4;
+    grid-row: 5;
   }
 
   .check-recommendation {
-    grid-row: 5;
+    grid-row: 4;
   }
 
   .check-issue-detail {
@@ -7117,7 +7117,7 @@ input:disabled {
 .check-results .check-recommendation {
   padding: 8px 10px;
   border: 0;
-  background: #f4f7fb;
+  background: var(--warning-soft);
   box-shadow: none;
 }
 
