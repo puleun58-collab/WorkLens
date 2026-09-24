@@ -72,6 +72,18 @@ describe("POST /api/law", () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 
+  it("refuses form and plain-text submissions before any upstream call", async () => {
+    const fetcher = vi.fn();
+    vi.stubGlobal("fetch", fetcher);
+    for (const type of ["text/plain", "application/x-www-form-urlencoded"]) {
+      const response = await POST(new Request("https://worklens.test/api/law", {
+        method: "POST", headers: { "Content-Type": type, Origin: "https://worklens.test" }, body: "query=근로기준법",
+      }));
+      expect([response.status, (await response.json()).error.code]).toEqual([415, "CONTENT_TYPE_REQUIRED"]);
+    }
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
   it("refuses to call out when the key or URL is not configured", async () => {
     const fetcher = vi.fn();
     vi.stubGlobal("fetch", fetcher);

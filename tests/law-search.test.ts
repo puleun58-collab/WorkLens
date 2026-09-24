@@ -61,6 +61,9 @@ describe("law text outcome", () => {
     expect(lawTextOutcome(true, { data: { found: true, mode: "toc", text: "raw", articles: [{ jo: 74, title: "title" }] } })).toEqual({ kind: "error", message: LAW_TEXT_FALLBACK_ERROR });
     expect(lawTextOutcome(false, { data: { found: false, marker: "NOT_FOUND" }, error: { message: "원문 서비스 오류" } })).toEqual({ kind: "error", message: "원문 서비스 오류" });
     expect(lawTextOutcome(false, null)).toEqual({ kind: "error", message: LAW_TEXT_FALLBACK_ERROR });
+    expect(lawTextOutcome(false, { error: { message: 503 } })).toEqual({ kind: "error", message: LAW_TEXT_FALLBACK_ERROR });
+    expect(lawTextOutcome(true, { data: null })).toEqual({ kind: "error", message: LAW_TEXT_FALLBACK_ERROR });
+    expect(lawTextOutcome(true, { data: "raw text" })).toEqual({ kind: "error", message: LAW_TEXT_FALLBACK_ERROR });
   });
 
   it("rejects malformed metadata and TOC entries instead of rendering untrusted response shapes", () => {

@@ -101,6 +101,24 @@ describe("fixed decision MCP routes", () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 
+  it("rejects cross-site, origin-less, empty and malformed JSON calls before contacting the MCP", async () => {
+    const fetcher = vi.fn();
+    vi.stubGlobal("fetch", fetcher);
+    const raw = (kind: "search" | "text", body: string | null, headers: Record<string, string>) => (kind === "search" ? search : detail)(
+      new Request(`https://worklens.test/api/law/decisions/${kind}`, { method: "POST", headers: { "Content-Type": "application/json", ...headers }, body }));
+    for (const kind of ["search", "text"] as const) {
+      const crossSite = await raw(kind, "{}", { Origin: "https://worklens.test", "Sec-Fetch-Site": "cross-site" });
+      expect([crossSite.status, (await crossSite.json()).error.code]).toEqual([403, "CROSS_SITE_REQUEST"]);
+      const originless = await raw(kind, "{}", {});
+      expect([originless.status, (await originless.json()).error.code]).toEqual([403, "ORIGIN_REQUIRED"]);
+      for (const body of [null, "", "{\"domain\":", "\uFFFE"]) {
+        const invalid = await raw(kind, body, { Origin: "https://worklens.test" });
+        expect([invalid.status, (await invalid.json()).error.code]).toEqual([400, "LAW_INVALID_REQUEST"]);
+      }
+    }
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
   it("retrieves compact detail by default and requests full only after an explicit full=true", async () => {
     const fetcher = vi.fn().mockResolvedValueOnce(toolText(COMPACT)).mockResolvedValueOnce(toolText(FULL));
     vi.stubGlobal("fetch", fetcher);
