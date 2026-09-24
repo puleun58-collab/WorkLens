@@ -4,9 +4,9 @@ import { ApiError } from "@/server/http";
 
 /**
  * Server-only client for the public Korean Law MCP (Streamable HTTP, stateless).
- * Exactly one tool is reachable: `search_law`. The MCP URL and the 법제처 key come
- * from server configuration only; the key travels in the `apikey` header, never in
- * the URL, a log line or a response.
+ * Only the fixed `search_law` and `get_law_text` tools are reachable. The MCP URL
+ * and 법제처 key come from server configuration; the key travels in the `apikey`
+ * header, never in the URL, a log line or a response.
  */
 export const LAW_QUERY_MAX_CHARS = 200;
 const REQUEST_TIMEOUT_MS = 20_000;
@@ -27,6 +27,25 @@ export type LawSearchResult =
   /** The MCP explicitly reported no data; never an outage and never invented content. */
   | { found: false; marker: "NOT_FOUND"; text: string };
 
+export interface LawTextArticle {
+  jo: string;
+  title: string;
+}
+
+export type LawTextResult =
+  | {
+    found: true;
+    mode: "toc" | "article" | "full";
+    text: string;
+    name?: string;
+    promulgationDate?: string;
+    effectiveDate?: string;
+    articles?: LawTextArticle[];
+  }
+  | { found: false; marker: "NOT_FOUND"; text: string };
+
+type LawContext = { requestId: string; signal?: AbortSignal };
+
 const rpcResponseSchema = z.object({
   jsonrpc: z.literal("2.0").optional(),
   result: z.object({
@@ -36,7 +55,55 @@ const rpcResponseSchema = z.object({
   error: z.object({ code: z.number().optional(), message: z.string().optional() }).passthrough().optional(),
 }).passthrough();
 
-export async function searchLaw(query: string, context: { requestId: string; signal?: AbortSignal }): Promise<LawSearchResult> {
+export async function searchLaw(query: string, context: LawContext): Promise<LawSearchResult> {
+  const { text, isError } = await callLawTool("search_law", { query }, context);
+  const trimmed = text.trim();
+  if (/^\s*\[NOT_FOUND\]/u.test(trimmed)) return { found: false, marker: "NOT_FOUND", text: trimmed };
+  if (isError || !trimmed) throw new ApiError("LAW_MCP_ERROR", "법령 검색 서비스가 요청을 처리하지 못했습니다.", 502);
+  return { found: true, laws: parseLawEntries(trimmed), text: trimmed };
+}
+
+export async function getLawText(
+  identifier: { mst: string } | { lawId: string },
+  jo: string | undefined,
+  context: LawContext,
+): Promise<LawTextResult> {
+  const { text, isError } = await callLawTool("get_law_text", jo === undefined ? identifier : { ...identifier, jo }, context);
+  if (/^[ \t]*\[NOT_FOUND\](?=\s|$)/mu.test(text)) return { found: false, marker: "NOT_FOUND", text };
+  if (isError || !text.trim()) throw new ApiError("LAW_MCP_ERROR", "법령 검색 서비스가 요청을 처리하지 못했습니다.", 502);
+
+  const metadata: Pick<Extract<LawTextResult, { found: true }>, "name" | "promulgationDate" | "effectiveDate"> = {};
+  const lines = text.split(/\r?\n/u);
+  for (const line of lines) {
+    if (!line.trim()) break;
+    const field = /^(법령명|공포일|시행일):\s*(.+?)\s*$/u.exec(line);
+    if (!field) continue;
+    if (field[1] === "법령명") metadata.name = field[2];
+    else if (field[1] === "공포일" && /^\d{8}$/u.test(field[2])) metadata.promulgationDate = field[2];
+    else if (field[1] === "시행일" && /^\d{8}$/u.test(field[2])) metadata.effectiveDate = field[2];
+  }
+
+  if (jo !== undefined) return { found: true, mode: "article", text, ...metadata };
+  const tocIndex = lines.findIndex((line) => /^\s*목차\s*\(총\s*[\d,]+\s*개\s*조문\)\s*$/u.test(line));
+  if (tocIndex < 0) return { found: true, mode: "full", text, ...metadata };
+
+  const articles: LawTextArticle[] = [];
+  for (let index = tocIndex + 1; index < lines.length; index++) {
+    const line = lines[index];
+    if (!line.trim()) continue;
+    const article = /^\s*(제[1-9]\d{0,3}조(?:의[1-9]\d?)?)(?:\s+(.+?))?\s*$/u.exec(line);
+    if (!article) break;
+    articles.push({ jo: article[1], title: article[2] ?? "" });
+  }
+  return { found: true, mode: "toc", text, ...metadata, articles };
+}
+
+/** The tool name is fixed by each server entry point, never supplied by the caller. */
+async function callLawTool(
+  tool: "search_law" | "get_law_text",
+  args: { query: string } | { mst: string; jo?: string } | { lawId: string; jo?: string },
+  context: LawContext,
+): Promise<{ text: string; isError: boolean }> {
   const { LAW_OC: key, LAW_MCP_URL: endpoint } = workerEnv();
   if (!key || !endpoint) throw new ApiError("LAW_NOT_CONFIGURED", "법령 검색 서비스가 구성되지 않았습니다.", 503);
   let url: URL;
@@ -52,6 +119,7 @@ export async function searchLaw(query: string, context: { requestId: string; sig
   const timer = setTimeout(() => controller.abort(new DOMException("timeout", "TimeoutError")), REQUEST_TIMEOUT_MS);
   const onClientAbort = () => controller.abort(new DOMException("client aborted", "AbortError"));
   context.signal?.addEventListener("abort", onClientAbort, { once: true });
+  if (context.signal?.aborted) onClientAbort();
   let upstreamStatus: number | undefined;
   try {
     let response: Response;
@@ -59,7 +127,7 @@ export async function searchLaw(query: string, context: { requestId: string; sig
       response = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream", apikey: key },
-        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "search_law", arguments: { query } } }),
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: tool, arguments: args } }),
         signal: controller.signal,
       });
     } catch (error) {
@@ -75,19 +143,27 @@ export async function searchLaw(query: string, context: { requestId: string; sig
     if (response.status === 429) throw new ApiError("LAW_RATE_LIMITED", "법령 검색 요청이 많습니다. 잠시 후 다시 시도하세요.", 429);
     if (!response.ok) throw new ApiError("LAW_UPSTREAM_UNAVAILABLE", "법령 검색 서비스가 일시적으로 응답하지 않습니다.", 503);
 
-    const body = await readLimited(response);
+    let body: string;
+    try {
+      body = await readLimited(response);
+    } catch (error) {
+      if (error instanceof ApiError) throw error;
+      if (controller.signal.reason instanceof DOMException && controller.signal.reason.name === "TimeoutError") {
+        throw new ApiError("LAW_UPSTREAM_TIMEOUT", "법령 검색 응답 시간이 초과되었습니다. 다시 시도하세요.", 504);
+      }
+      if (context.signal?.aborted) throw new ApiError("LAW_REQUEST_ABORTED", "요청이 취소되었습니다.", 499);
+      throw new ApiError("LAW_UPSTREAM_UNAVAILABLE", "법령 검색 서비스에 연결할 수 없습니다.", 503);
+    }
     const parsed = rpcResponseSchema.safeParse(parseEnvelope(body, response.headers.get("content-type") ?? ""));
     if (!parsed.success) throw new ApiError("LAW_MCP_ERROR", "법령 검색 응답 형식이 올바르지 않습니다.", 502);
     if (parsed.data.error || !parsed.data.result) throw new ApiError("LAW_MCP_ERROR", "법령 검색 서비스가 요청을 처리하지 못했습니다.", 502);
-    const text = redact(parsed.data.result.content.map((part) => part.type === "text" ? part.text ?? "" : "").join("\n").trim(), key);
-    if (/^\s*\[NOT_FOUND\]/u.test(text)) return { found: false, marker: "NOT_FOUND", text };
-    if (parsed.data.result.isError || !text) throw new ApiError("LAW_MCP_ERROR", "법령 검색 서비스가 요청을 처리하지 못했습니다.", 502);
-    return { found: true, laws: parseLawEntries(text), text };
+    const text = redact(parsed.data.result.content.map((part) => part.type === "text" ? part.text ?? "" : "").join("\n"), key);
+    return { text, isError: parsed.data.result.isError === true };
   } finally {
     clearTimeout(timer);
     context.signal?.removeEventListener("abort", onClientAbort);
     // Operational metadata only: no key, headers, query text or response body.
-    console.info("[LAW][MCP]", { requestId: context.requestId, operation: "search_law", upstreamStatus, latencyMs: Date.now() - started });
+    console.info("[LAW][MCP]", { requestId: context.requestId, operation: tool, upstreamStatus, latencyMs: Date.now() - started });
   }
 }
 
@@ -131,7 +207,7 @@ function parseEnvelope(body: string, contentType: string): unknown {
 }
 
 function redact(text: string, key: string): string {
-  return key.length >= 4 ? text.split(key).join("[REDACTED]") : text;
+  return key && text.includes(key) ? text.split(key).join("[REDACTED]") : text;
 }
 
 /** Reads the MCP's numbered list; the original text is still returned so nothing is lost. */

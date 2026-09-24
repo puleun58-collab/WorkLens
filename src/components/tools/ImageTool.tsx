@@ -11,6 +11,7 @@ import {
 } from "@/lib/tools/image-editor";
 import { moveItem } from "@/lib/tools/reorder";
 import { useReorder } from "./useReorder";
+import "./tool-layout.css";
 import "./image-tool.css";
 import "./reorder.css";
 
@@ -377,8 +378,8 @@ export function ImageTool() {
 
   return (
     <div className="image-tool" aria-label="이미지 편집 도구">
-      <header className="image-tool-intro">
-        <div><p className="image-tool-eyebrow">이미지 작업공간</p><h2>이미지 편집</h2><p>크기와 영역을 다듬고, 여러 장을 원하는 순서대로 결합하세요.</p></div>
+      <header className="tool-intro image-tool-intro">
+        <div><p className="tool-eyebrow">이미지 작업공간</p><h2>이미지 편집</h2><p>크기와 영역을 다듬고, 여러 장을 원하는 순서대로 결합하세요.</p></div>
       </header>
       <div className="image-tool-layout">
         <aside className="image-tool-library" aria-label="이미지 목록">
@@ -464,16 +465,16 @@ export function ImageTool() {
           <section className="image-tool-control-section image-tool-merge"><h4>이미지 결합 <small>선택 {selectedItems.length}장</small></h4><label className="image-tool-check"><input type="checkbox" checked={merge} disabled={selectedItems.length < 2 || busy} onChange={(event) => { setMerge(event.target.checked); setMode(null); }} /> 선택 이미지 한 장으로 결합</label>{merge && <div className="image-tool-merge-options"><label>배치<select value={mergeOptions.layout} disabled={busy} onChange={(event) => setMergeOptions((option) => ({ ...option, layout: event.target.value as MergeLayout }))}><option value="horizontal">가로</option><option value="vertical">세로</option><option value="grid">격자</option></select></label><label>간격 px<input type="number" min="0" max="1000" value={mergeOptions.gap} disabled={busy} onChange={(event) => { const gap = Number(event.target.value); if (Number.isSafeInteger(gap) && gap >= 0 && gap <= 1000) setMergeOptions((option) => ({ ...option, gap })); }} /></label><label>배경<input type="color" value={mergeOptions.background} disabled={busy} onChange={(event) => setMergeOptions((option) => ({ ...option, background: event.target.value }))} /></label></div>}</section>
         </aside>
       </div>
-      <div className="image-tool-export">
-        <div className="image-tool-export-title">
+      <div className="tool-export image-tool-export">
+        <div className="tool-export-title">
           <span>04 / EXPORT</span>
           <strong>결과 내보내기</strong>
           <small>{mergeActive ? "결합 이미지 1개" : `${selectedItems.length}개 선택됨`}</small>
         </div>
-        <div className="image-tool-export-settings">
+        <div className="tool-export-settings">
           <label>형식
             <select value={format} disabled={busy} onChange={(event) => setFormat(event.target.value as ImageFormat)}>
-              <option value="jpg">JPG (JPEG)</option><option value="png">PNG</option>
+              <option value="jpg">JPG</option><option value="png">PNG</option>
               <option value="webp">WebP</option><option value="pdf">PDF</option>
             </select>
           </label>
@@ -484,7 +485,7 @@ export function ImageTool() {
               </select>
             </label>
           )}
-          <button className="image-tool-export-button" type="button" disabled={!selectedItems.length || busy || importing} onClick={() => void exportFiles()}>
+          <button className="tool-export-button" type="button" disabled={!selectedItems.length || busy || importing} onClick={() => void exportFiles()}>
             {busy ? "처리 중…" : selectedItems.length > 1 && !mergeActive && format !== "pdf" ? "ZIP 다운로드 ↗" : "파일 다운로드 ↗"}
           </button>
         </div>

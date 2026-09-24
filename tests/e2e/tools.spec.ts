@@ -84,6 +84,78 @@ test("RESEARCH law search sends only the query and separates results, no result 
   expect(errors.filter((text) => !/504/.test(text))).toEqual([]);
 });
 
+test("RESEARCH law detail browses raw TOC and articles, recovers, and preserves results", async ({ page }) => {
+  const requests: unknown[] = [];
+  let retryCount = 0;
+  await page.route("**/api/law", async (route) => {
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { found: true, laws: [
+      { name: "근로기준법", mst: "283457", lawId: "001872", effectiveDate: "20260820" },
+      { name: "시행령", lawId: "003058" },
+      { name: "식별자 없는 법" },
+    ] } }) });
+  });
+  await page.route("**/api/law/text", async (route) => {
+    const request = route.request().postDataJSON();
+    requests.push(request);
+    const jo = request.jo;
+    const status = jo === "제10조의2" && retryCount++ === 0 ? 503 : 200;
+    const data = jo === "제9999조"
+      ? { found: false, marker: "NOT_FOUND", text: "[NOT_FOUND] 조문 내용을 찾을 수 없습니다." }
+      : jo
+        ? { found: true, mode: "article", text: `${jo} 임산부의 보호\n${jo}(임산부의 보호)\n① 원문 그대로` }
+        : { found: true, mode: "toc", text: `법령명: 근로기준법\n공포일: 20260219\n시행일: 20260820\n\n목차 (총 132개 조문)\n\n제74조 ${"긴원문".repeat(150)}`, name: "근로기준법", promulgationDate: "20260219", effectiveDate: "20260820", articles: [{ jo: "제74조", title: "임산부의 보호" }] };
+    await route.fulfill({ status, contentType: "application/json", body: JSON.stringify(status === 503 ? { error: { message: "원문 서비스 오류" } } : { data }) });
+  });
+
+  await page.goto("/");
+  await expect(page.locator(".app-shell")).toHaveAttribute("data-hydrated", "true");
+  await page.getByRole("button", { name: "법령", exact: true }).click();
+  await page.getByRole("searchbox").fill("근로기준법");
+  await page.getByRole("button", { name: "검색", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "검색 결과 · 3건" })).toBeVisible();
+  await expect(page.locator(".law-search-unavailable")).toContainText("원문 조회 불가");
+  await expect(page.locator(".law-search-list button")).toHaveCount(2);
+
+  await page.locator(".law-search-list button").first().click();
+  await expect(page.getByRole("heading", { name: "근로기준법" })).toBeVisible();
+  await expect(page.locator(".law-detail-raw")).toContainText("목차 (총 132개 조문)");
+  await page.getByText("원문 보기", { exact: true }).click();
+  await expect(page.locator(".law-detail-raw")).toBeVisible();
+  await page.getByText("원문 보기", { exact: true }).click();
+  await expect(page.getByText("공포일 2026.02.19")).toBeVisible();
+  expect(requests).toEqual([{ mst: "283457" }]);
+  await page.getByRole("navigation", { name: "조문 목차" }).getByRole("button", { name: "제74조 임산부의 보호" }).click();
+  await expect(page.locator(".law-detail-raw")).toHaveText("제74조 임산부의 보호\n제74조(임산부의 보호)\n① 원문 그대로");
+  await page.getByRole("button", { name: "← 목차로" }).click();
+  await expect(page.locator(".law-detail-raw")).toContainText("목차 (총 132개 조문)");
+  expect(requests).toEqual([{ mst: "283457" }, { mst: "283457", jo: "제74조" }]);
+
+  const article = page.getByLabel("조문 번호로 찾기");
+  await article.fill("74");
+  await page.getByRole("button", { name: "조문 보기" }).click();
+  await expect(page.locator(".law-article-form [role=alert]")).toContainText("제74조 또는 제10조의2");
+  expect(requests).toHaveLength(2);
+  await article.fill("제9999조");
+  await page.getByRole("button", { name: "조문 보기" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "조문을 찾을 수 없습니다." })).toBeVisible();
+  await expect(page.locator(".law-detail-raw")).toHaveCount(0);
+  await article.fill("제10조의2");
+  await page.getByRole("button", { name: "조문 보기" }).click();
+  await expect(page.locator(".law-detail-feedback[role=alert]")).toContainText("원문 서비스 오류");
+  await page.getByRole("button", { name: "다시 시도" }).click();
+  await expect(page.locator(".law-detail-raw")).toContainText("제10조의2(임산부의 보호)");
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole("button", { name: "← 목차로" }).click();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.getByRole("button", { name: "← 검색 결과로" }).click();
+  await expect(page.getByRole("searchbox")).toHaveValue("근로기준법");
+  await expect(page.getByRole("heading", { name: "검색 결과 · 3건" })).toBeVisible();
+  await page.locator(".law-search-list button").nth(1).click();
+  await expect(page.locator(".law-detail-raw")).toContainText("목차 (총 132개 조문)");
+  expect(requests.at(-1)).toEqual({ lawId: "003058" });
+});
+
 async function downloadBytes(page: Page, click: () => Promise<void>) {
   const pending = page.waitForEvent("download");
   await click();
@@ -131,6 +203,59 @@ async function imagePixel(page: Page, bytes: Uint8Array, x: number, y: number) {
     return [...context.getImageData(x, y, 1, 1).data];
   }, { image: [...bytes], x, y });
 }
+
+test("PDF and image tools align their workspace and share a responsive export pattern", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
+  await page.goto("/");
+  await expect(page.locator(".app-shell")).toHaveAttribute("data-hydrated", "true");
+  const geometry = () => page.evaluate(() => {
+    const root = document.querySelector(".pdf-tool, .image-tool")!;
+    const selectors = [".tool-eyebrow", ".tool-intro h2", ".tool-intro p:not(.tool-eyebrow)", ".pdf-tool-upload, .image-tool-layout"];
+    const boxes = selectors.map((selector) => {
+      const box = root.querySelector(selector)!.getBoundingClientRect();
+      return { x: box.x, y: box.y };
+    });
+    const button = root.querySelector(".tool-export-button") as HTMLButtonElement;
+    const style = getComputedStyle(button);
+    return { boxes, button: { height: button.getBoundingClientRect().height, background: style.backgroundColor, radius: style.borderRadius, font: style.font, opacity: style.opacity }, overflow: document.documentElement.scrollWidth > innerWidth };
+  });
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 1366, height: 768 }, { width: 900, height: 768 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    await page.getByRole("button", { name: "PDF 도구" }).click();
+    await expect(page.locator(".pdf-tool")).toBeVisible();
+    await page.evaluate(() => scrollTo(0, 0));
+    const pdf = await geometry();
+    const toolbar = page.locator(".pdf-tool-export");
+    await expect(toolbar).toContainText(`${0}페이지`);
+    await expect(toolbar.getByLabel("형식").locator("option")).toHaveText(["PDF", "JPG", "PNG"]);
+    await expect(toolbar.getByLabel("페이지").locator("option")).toHaveText(["전체 (0)", "선택 (0)"]);
+    await expect(toolbar.getByLabel("압축")).toHaveValue("balanced");
+    await toolbar.getByLabel("형식").selectOption("png");
+    await expect(toolbar.getByLabel("압축")).toHaveCount(0);
+    await toolbar.getByLabel("형식").selectOption("pdf");
+    await expect(toolbar.getByLabel("압축")).toHaveValue("balanced");
+    if (viewport.width >= 1366) {
+      const rows = await toolbar.locator(".tool-export-settings select, .tool-export-button").evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().bottom));
+      expect(Math.max(...rows) - Math.min(...rows)).toBeLessThan(3);
+    }
+    if (viewport.width === 390) {
+      const rows = await toolbar.locator(".tool-export-settings > label, .pdf-tool-export-actions").evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().y));
+      expect(rows.every((row, index) => index === 0 || row > rows[index - 1])).toBe(true);
+    }
+    await page.getByRole("button", { name: "이미지 도구" }).click();
+    await expect(page.locator(".image-tool")).toBeVisible();
+    await page.evaluate(() => scrollTo(0, 0));
+    const image = await geometry();
+    for (let index = 0; index < pdf.boxes.length; index++) {
+      expect(Math.abs(pdf.boxes[index].x - image.boxes[index].x)).toBeLessThan(1);
+      expect(Math.abs(pdf.boxes[index].y - image.boxes[index].y)).toBeLessThan(1);
+    }
+    expect(pdf.button).toEqual(image.button);
+    expect(pdf.overflow || image.overflow).toBe(false);
+  }
+  expect(errors).toEqual([]);
+});
 
 test("PDF editor composes reordered, rotated and deleted pages into real files", async ({ page }) => {
   const posted: string[] = [];
@@ -187,16 +312,16 @@ test("PDF editor composes reordered, rotated and deleted pages into real files",
     expect(labels.join(" ")).not.toContain("THIRD");
   } finally { await task.destroy(); }
 
-  await page.getByLabel("저장 형식").selectOption("png");
-  const pngZip = await downloadBytes(page, () => page.getByRole("button", { name: /파일 다운로드/ }).click());
+  await page.getByLabel("형식").selectOption("png");
+  const pngZip = await downloadBytes(page, () => page.getByRole("button", { name: /다운로드/ }).click());
   expect(Object.keys(unzipSync(pngZip.bytes)).sort()).toEqual(["page-001.png", "page-002.png", "page-003.png"]);
   const pngPages = unzipSync(pngZip.bytes);
   const firstPng = await imageDimensions(page, pngPages["page-001.png"], "image/png");
   const rotatedPng = await imageDimensions(page, pngPages["page-003.png"], "image/png");
   expect(firstPng.width).toBeLessThan(firstPng.height);
   expect(rotatedPng.width).toBeGreaterThan(rotatedPng.height);
-  await page.getByLabel("저장 형식").selectOption("jpg");
-  const jpgZip = await downloadBytes(page, () => page.getByRole("button", { name: /파일 다운로드/ }).click());
+  await page.getByLabel("형식").selectOption("jpg");
+  const jpgZip = await downloadBytes(page, () => page.getByRole("button", { name: /다운로드/ }).click());
   expect(Object.keys(unzipSync(jpgZip.bytes)).sort()).toEqual(["page-001.jpg", "page-002.jpg", "page-003.jpg"]);
   const jpgPages = unzipSync(jpgZip.bytes);
   const rotatedJpg = await imageDimensions(page, jpgPages["page-003.jpg"], "image/jpeg");
@@ -251,10 +376,9 @@ test("PDF compression is one level select defaulting to balanced, and each level
   await expect(page.getByText(/브라우저 작업공간|브라우저 내 처리|서버 전송 없음/)).toHaveCount(0);
   await expect(page.getByText("고급 옵션")).toHaveCount(0);
   await expect(page.getByRole("radio")).toHaveCount(0);
-  const level = page.getByLabel("압축 수준");
+  const level = page.getByLabel("압축");
   await expect(level).toHaveValue("balanced");
   await expect(level.locator("option")).toHaveText(["고화질", "균형 (권장)", "강력 압축"]);
-  await expect(page.locator(".pdf-tool-compression-detail")).toHaveText("품질과 파일 크기를 균형 있게 조정합니다.");
 
   const textOf = async (bytes: Uint8Array) => {
     pdfjs.GlobalWorkerOptions.workerSrc = new URL("../../public/pdf.worker.mjs", import.meta.url).href;
@@ -275,7 +399,6 @@ test("PDF compression is one level select defaulting to balanced, and each level
   await expect(page.locator(".pdf-tool-outcome")).toContainText(/감소/);
 
   await level.selectOption("size");
-  await expect(page.locator(".pdf-tool-compression-detail")).toHaveText("파일 크기를 더 줄이며 이미지 품질이 낮아질 수 있습니다.");
   expect(await save()).toBeLessThan(balanced);
 
   await level.selectOption("quality");

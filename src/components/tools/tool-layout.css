@@ -1,0 +1,29 @@
+.tool-intro { display: flex; align-items: flex-start; gap: 28px; }
+.tool-intro .tool-eyebrow, .tool-export-title > span { color: var(--blue); font-family: var(--font-mono); font-size: 12px; font-weight: 700; letter-spacing: .105em; }
+.tool-intro .tool-eyebrow { margin: 0; }
+.tool-intro h2 { font-size: clamp(22px, 2vw, 26px); letter-spacing: -.035em; line-height: 1.2; margin: 7px 0 9px; font-weight: 700; }
+.tool-intro p:not(.tool-eyebrow) { color: var(--muted); margin: 0; font-size: 14px; line-height: 1.6; }
+
+.tool-export { min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 16px 26px; padding: 18px 22px; border: 1px solid var(--border-default, #d9e0ea); border-radius: var(--radius-panel, 4px); background: var(--paper); box-shadow: var(--shadow-surface); }
+.tool-export-title { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 142px; }
+.tool-export-title strong { font-size: 15px; letter-spacing: -.02em; }
+.tool-export-title small { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.tool-export-settings { display: flex; align-items: flex-end; gap: 10px; margin-left: auto; }
+.tool-export-settings label { min-width: 128px; color: var(--muted); font-size: 12px; font-weight: 600; }
+.tool-export-settings select { display: block; width: 100%; min-width: 128px; height: var(--control-height-sm); margin-top: 5px; padding: 0 9px; border: 1px solid var(--border-default, #d9e0ea); border-radius: 4px; color: var(--ink); background: #fff; font-size: 13px; }
+.tool-export-button { min-height: var(--control-height-md); padding: 7px 17px; border: 1px solid var(--blue); border-radius: 4px; background: var(--blue); color: #fff; font-size: 13px !important; font-weight: 650 !important; white-space: nowrap; cursor: pointer; }
+.tool-export-button:hover:not(:disabled) { background: var(--blue-hover); }
+.tool-export .tool-export-button:disabled { cursor: not-allowed; opacity: .48; }
+.pdf-tool .tool-export :is(button, select):focus-visible, .image-tool .tool-export :is(button, select):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+@media (max-width: 760px) {
+  .tool-export { align-items: stretch; }
+  .tool-export-settings { margin: 0; width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tool-export-settings label { min-width: 0; }
+  .tool-export-settings select { min-width: 0; }
+  .tool-export-settings > .tool-export-button, .tool-export-settings > .pdf-tool-export-actions { grid-column: 1 / -1; }
+}
+@media (max-width: 520px) {
+  .tool-export-settings { grid-template-columns: minmax(0, 1fr); }
+  .tool-intro p:not(.tool-eyebrow) { min-height: 3.2em; }
+}
