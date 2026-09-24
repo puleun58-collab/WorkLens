@@ -457,6 +457,7 @@ function writeRecordSheet(context: ExportContext, target: AggregationTarget, tem
         const offset = helper.column - Math.min(...region.headerColumns);
         const value = storedValue(source.table.rows[(record.source.row ?? 0) - 1]?.[Math.min(...source.region.headerColumns) + offset - 1]);
         if (value !== null) cell.value = value;
+        else if (helper.formula) cell.value = { formula: helper.formula.replaceAll("{ROW}", String(rowNumber)) } as ExcelJS.CellFormulaValue;
       }
     }
     placements.push({ record, row: rowNumber });

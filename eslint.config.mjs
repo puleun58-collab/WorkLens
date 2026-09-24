@@ -16,6 +16,9 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     // Vendored pdfjs worker copied into public/ by `bun run assets:pdf`.
     "public/pdf.worker.mjs",
+    // Test reports, traces and probes written at run time (gitignored).
+    "artifacts/**",
+    "coverage/**",
   ]),
   {
     // Playwright fixtures hand control to the test through a `use` callback.

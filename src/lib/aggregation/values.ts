@@ -22,6 +22,7 @@ const LOOSE = /^(\d{4})\s*[-./]\s*(\d{1,2})\s*[-./]\s*(\d{1,2})\.?(?:\s+(\d{1,2}
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 function calendar(year: number, month: number, day: number, hour = 0, minute = 0, second = 0): Date | undefined {
   const date = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
@@ -70,7 +71,8 @@ export function formatExcelDate(date: Date, format: string | undefined): string 
     else if (lower === "mmm") output = MONTHS[date.getUTCMonth()];
     else if (lower === "mm") output = pad(date.getUTCMonth() + 1);
     else if (lower === "m") output = String(date.getUTCMonth() + 1);
-    else if (lower === "dddd" || lower === "ddd") output = DAYS[date.getUTCDay()];
+    else if (lower === "dddd") output = DAY_NAMES[date.getUTCDay()];
+    else if (lower === "ddd") output = DAYS[date.getUTCDay()];
     else if (lower === "dd") output = pad(date.getUTCDate());
     else if (lower === "d") output = String(date.getUTCDate());
     else if (lower === "hh" || lower === "h") {

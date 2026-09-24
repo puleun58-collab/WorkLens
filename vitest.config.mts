@@ -16,7 +16,8 @@ export default defineConfig({
     coverage: {
       include: ["src/**/*.{ts,tsx}"],
       exclude: ["src/**/*.d.ts"],
-      reporter: ["text-summary", "json-summary"],
+      // json-summary for the gate, json for per-line branch diagnosis in the CI artifact.
+      reporter: ["text-summary", "json-summary", "json"],
       thresholds: { branches: 58 },
     },
     hookTimeout: 30_000,

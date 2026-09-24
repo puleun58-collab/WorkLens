@@ -657,8 +657,13 @@ function helperColumns(context: PlanContext, target: AggregationTarget, template
         }
       }
     }
-    if (!formula && !hasValue) formula = monthHelperFormula(context, target, region, sources, cells);
-    helpers.push(formula ? { column, fill: "formula", formula } : { column, fill: hasValue ? "value" : "none" });
+    // A partly filled source helper keeps its own values; the derived month
+    // formula only fills the rows whose source helper is blank.
+    const derived = formula ? undefined : monthHelperFormula(context, target, region, sources, cells);
+    if (!formula && !hasValue) formula = derived;
+    helpers.push(formula
+      ? { column, fill: "formula", formula }
+      : hasValue ? { column, fill: "value", ...(derived ? { formula: derived } : {}) } : { column, fill: "none" });
     if (!formula && !hasValue && sources.length > 0) {
       context.issues.push({
         scope: "sheet",

@@ -122,7 +122,8 @@ export interface AggregationFieldMapping {
 
 /**
  * A target column outside the header span (for example a month helper a
- * summary counts). `formula` holds `{ROW}` where the appended row belongs.
+ * summary counts). `formula` holds `{ROW}` where the appended row belongs; with
+ * `fill: "value"` it is the fallback for rows whose source value is blank.
  */
 export interface AggregationHelperColumn {
   column: number;
