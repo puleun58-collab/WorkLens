@@ -182,17 +182,23 @@ function* evidenceNodes(document: NormalizedDocument): Generator<CanonicalEviden
       );
       if (node) yield block.role === "heading" ? { ...node, role: "heading" } : node;
     } else {
-      const header = block.rows[0] ?? [];
+      // Real sheets often open with a one-cell title and blank spacer rows, so
+      // the column header is the first row with more than one populated cell.
+      const found = block.rows.findIndex((row) => row.filter((cell) => cleanText(cell.display)).length > 1);
+      const headerIndex = found === -1 ? 0 : found;
+      const header = block.rows[headerIndex] ?? [];
       for (const [rowIndex, row] of block.rows.entries()) {
-        const rowLabel = cleanText(row[0]?.display).slice(0, 40);
+        // The record's name is its first textual cell: a leading blank or a bare
+        // sequence/month number ("8") does not identify the row.
+        const rowLabel = row.map((entry) => cleanText(entry.display)).find((value) => value && !BARE_NUMBER_PATTERN.test(value))?.slice(0, 40) ?? "";
         // A row's own date identifies the record far better than its first
         // column alone, which repeats across every month of a log table.
-        const rowDate = rowIndex === 0
+        const rowDate = rowIndex <= headerIndex
           ? ""
           : row.map((entry) => cleanText(entry.display)).find((value) => ROW_DATE_PATTERN.test(value)) ?? "";
         for (const [columnIndex, cell] of row.entries()) {
           const nodeId = cell.source.nodeId || block.id;
-          const columnHeader = rowIndex === 0 ? "" : cleanText(header[columnIndex]?.display).slice(0, 40);
+          const columnHeader = rowIndex <= headerIndex ? "" : cleanText(header[columnIndex]?.display).slice(0, 40);
           const context = [rowLabel, rowDate, columnHeader]
             .filter((part, index, parts) => part && part !== cell.display && parts.indexOf(part) === index)
             .join(" ");
@@ -215,6 +221,7 @@ function withContext(context: string, text: string): string {
 }
 
 const ROW_DATE_PATTERN = /^\s*(?:[0-9]{4}[-./][0-9]{1,2}(?:[-./][0-9]{1,2})?|[0-9]{1,2}\s*월(?:\s*[0-9]{1,2}\s*일)?)\s*$/u;
+const BARE_NUMBER_PATTERN = /^[0-9.,\s]+$/u;
 
 function makeEvidence(
   document: NormalizedDocument,
@@ -335,6 +342,8 @@ function quoteHash(value: string): string { return sha256Base64Url(value); }
 function claimId(...values: string[]): string { return sha256Base64Url(values.join("\0")); }
 function cleanText(value: string | undefined): string { return typeof value === "string" ? value.trim().slice(0, 8_000) : ""; }
 const CHECKED_LITERAL_PATTERN = /(?:[A-Za-z가-힣]{1,12}[-_/])?\d[\dA-Za-z가-힣.,:/%+\-₩$]*/gu;
+/** Josa and copula endings a sentence attaches to a quoted value ("67%이다", "BP-08-01은"). */
+const TRAILING_PARTICLE_PATTERN = /(?:이었다|였다|입니다|이다|이며|이고|으로|에서|까지|부터|로|은|는|이|가|을|를|의|에|와|과|도|만)$/u;
 
 /**
  * A claim may only repeat literals the evidence states. Digit grouping and a
@@ -350,8 +359,10 @@ function claimLiteralsAppearInEvidence(claim: string, evidence: readonly string[
     const normalized = normalize(literal)
       .toLocaleLowerCase("ko-KR")
       .replace(/[.,:;!?]+$/u, "");
-    if (normalized.length === 0 || joined.includes(normalized)) return true;
-    return source.includes(compactNumerics(normalized));
+    if (normalized.length === 0 || joined.includes(normalized) || source.includes(compactNumerics(normalized))) return true;
+    // Only grammatical endings are dropped; a unit such as 원 or 명 stays checked.
+    const value = normalized.replace(TRAILING_PARTICLE_PATTERN, "");
+    return value !== normalized && /\d/u.test(value) && (joined.includes(value) || source.includes(compactNumerics(value)));
   });
 }
 

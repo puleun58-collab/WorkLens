@@ -128,6 +128,31 @@ describe("browser evidence retrieval", () => {
     expect(selected.some((node) => node.source.sheet === "운송단가" && node.text.includes("145000"))).toBe(true);
   });
 
+  it("labels cells of a titled sheet by its real header row and record name", () => {
+    // Layout of a real KPI workbook: title, spacer, header, then rows whose first
+    // column is a bare month number and whose record id sits in the next column.
+    const document = sheetDocument([{ name: "개선 Bank", rows: [
+      ["", "□ 2026 개선 Bank", "", ""],
+      ["", "", "", ""],
+      ["", "구분", "문제점", "%"],
+      ["8", "BP-08-01", "노후 대차 재도색 실시", "67%"],
+    ] }]);
+    const task = { operation: "analyze" as const };
+    const window = evidenceWindow(selectEvidence(buildEvidenceNodes([document], task), task), undefined, "analyze");
+    const cause = window.items.find((item) => item.text.endsWith("노후 대차 재도색 실시"));
+    const ratio = window.items.find((item) => item.text.endsWith("67%"));
+    expect(cause?.text).toBe("BP-08-01 문제점 · 노후 대차 재도색 실시");
+    expect(ratio?.text).toBe("BP-08-01 % · 67%");
+    const grounded = groundAiResult(task, [document], resolveClaims(window, [
+      { text: "BP-08-01은 노후 대차를 재도색했다.", handles: [cause!.handle], confidence: "medium", presentation: { role: "summary" } },
+      { text: "BP-08-01의 비율은 67%이다.", handles: [ratio!.handle], confidence: "medium", presentation: { role: "insight" } },
+      // Dropping a particle must not let a changed unit through.
+      { text: "BP-08-01의 비율은 67원이다.", handles: [ratio!.handle], confidence: "medium", presentation: { role: "insight" } },
+    ]));
+    expect(grounded.claims.map((claim) => claim.text)).toEqual(["추론: BP-08-01은 노후 대차를 재도색했다.", "추론: BP-08-01의 비율은 67%이다."]);
+    expect(grounded.rejectedClaimCount).toBe(1);
+  });
+
   it("finds a slide by its title wording", () => {
     const slides = [
       ...Array.from({ length: 30 }, (_, index) => ({ slide: index + 1, text: `일반 운영 현황 ${index + 1}` })),
