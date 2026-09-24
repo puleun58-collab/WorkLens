@@ -37,7 +37,16 @@
 .legal-analysis-verdict.is-critical .legal-analysis-status { color: #b42318; }
 .legal-analysis-verdict.is-unknown .legal-analysis-status { color: #8a5a00; }
 .legal-analysis-note { margin: 0; color: var(--muted); font-size: var(--font-size-xs, 12px); }
+.legal-research-options { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.legal-analysis-fields select, .legal-analysis-form select { box-sizing: border-box; width: 100%; min-width: 0; min-height: var(--control-height-md); padding: 0 12px; border: 1px solid var(--border-default, var(--line)); border-radius: var(--radius-control, 6px); background: var(--paper); color: var(--ink); font: inherit; }
+.legal-research-single { display: grid; gap: 8px; color: var(--muted); font-size: var(--font-size-sm); }
+.legal-research-dates { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.legal-research-dates .law-search-error { grid-column: 1 / -1; }
+.legal-research-check { margin: 4px 0; }
+.legal-research-partial { margin: 0; color: #8a5a00; font-size: var(--font-size-sm); }
+.legal-analysis-section.is-unavailable h3 { color: #8a5a00; }
 @media (max-width: 640px) {
+  .legal-research-options, .legal-research-dates { grid-template-columns: minmax(0, 1fr); }
   .legal-analysis-fields { grid-template-columns: minmax(0, 1fr); }
   .legal-analysis-citations > li, .legal-analysis-axes > li, .legal-analysis-verdict { grid-template-columns: minmax(0, 1fr); }
   .legal-analysis-actions .law-search-button { flex: 1; }

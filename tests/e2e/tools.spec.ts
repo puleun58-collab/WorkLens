@@ -52,8 +52,8 @@ test("RESEARCH law search sends only the query and separates results, no result 
   await page.getByRole("button", { name: "법령", exact: true }).click();
   await expect(page.getByRole("button", { name: "법령", exact: true })).toHaveAttribute("aria-current", "page");
   await expect(page.locator(".context-bar h1")).toHaveText("법령");
-  await expect(page.getByRole("heading", { name: "검색 결과", exact: true })).toBeVisible();
-  await expect(page.locator(".law-search-results").locator(".law-search-note, .law-search-list")).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: /^검색 결과/ })).toHaveCount(0);
+  await expect(page.locator(".law-search-results")).toHaveCount(0);
   await expect(page.getByText("법령명 또는 키워드로 현행 법령을 검색하세요.")).toHaveCount(0);
 
   const input = page.getByRole("searchbox");
@@ -123,7 +123,7 @@ test("RESEARCH law detail browses raw TOC and articles, recovers, and preserves 
   await expect(page.locator(".law-detail-raw")).toContainText("목차 (총 132개 조문)");
   await page.getByText("원문 보기", { exact: true }).click();
   await expect(page.locator(".law-detail-raw")).toBeVisible();
-  await page.getByText("원문 보기", { exact: true }).click();
+  await page.getByText("원문 접기", { exact: true }).click();
   await expect(page.getByText("공포일 2026.02.19")).toBeVisible();
   expect(requests).toEqual([{ mst: "283457" }]);
   await page.getByRole("navigation", { name: "조문 목차" }).getByRole("button", { name: "제74조 임산부의 보호" }).click();
@@ -189,7 +189,7 @@ test("RESEARCH decision search keeps identifiers and results across detail and f
   await page.getByRole("button", { name: "법령", exact: true }).click();
   await page.getByRole("button", { name: "판례·결정례", exact: true }).click();
   await expect(page.getByRole("combobox", { name: /자료 유형/ })).toHaveValue("precedent");
-  await page.getByLabel("검색어").fill("부당해고");
+  await page.getByLabel("검색어", { exact: true }).fill("부당해고");
   await page.getByRole("button", { name: "검색", exact: true }).click();
   await expect(page.getByRole("button", { name: /부당해고 사건/ })).toBeVisible();
   expect(searches).toEqual([{ domain: "precedent", query: "부당해고", page: 1 }]);
@@ -208,7 +208,7 @@ test("RESEARCH decision search keeps identifiers and results across detail and f
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.getByRole("button", { name: "← 검색 결과로" }).click();
-  await expect(page.getByLabel("검색어")).toHaveValue("부당해고");
+  await expect(page.getByLabel("검색어", { exact: true })).toHaveValue("부당해고");
   await expect(page.getByRole("button", { name: /부당해고 사건/ })).toBeVisible();
   expect(searches).toHaveLength(1);
   await page.getByRole("combobox", { name: /자료 유형/ }).selectOption("constitutional");
@@ -249,8 +249,8 @@ test("law article opens deterministic related decisions and returns without refe
   await expect(page.locator(".law-detail-raw")).toContainText("조문 본문");
   await page.getByRole("button", { name: "관련 판례·결정례" }).click();
   await expect(page.getByRole("combobox", { name: /자료 유형/ })).toHaveValue("precedent");
-  await expect(page.getByLabel("검색어")).toHaveValue("근로기준법 제74조");
-  await expect(page.getByLabel("검색어")).toBeFocused();
+  await expect(page.getByLabel("검색어", { exact: true })).toHaveValue("근로기준법 제74조");
+  await expect(page.getByLabel("검색어", { exact: true })).toBeFocused();
   await expect(page.getByRole("button", { name: "관련 판결" })).toBeVisible();
   expect(decisionQueries).toEqual([{ domain: "precedent", query: "근로기준법 제74조", page: 1 }]);
   await page.getByRole("button", { name: "관련 판결" }).click();
@@ -412,7 +412,7 @@ test("law article and precedent detail open analyses with their structured ident
   ]);
 
   await page.locator(".law-view-switch").getByRole("button", { name: "판례·결정례" }).click();
-  await page.getByLabel("검색어").fill("손해배상");
+  await page.getByLabel("검색어", { exact: true }).fill("손해배상");
   await page.getByRole("button", { name: "검색", exact: true }).click();
   await page.getByRole("button", { name: /손해배상\(기\)/ }).click();
   await expect(page.locator(".decision-detail-raw")).toContainText("판결문 원문");
@@ -433,6 +433,113 @@ test("law article and precedent detail open analyses with their structured ident
   await page.setViewportSize({ width: 390, height: 844 });
   await page.locator(".law-view-switch").getByRole("button", { name: "검증·분석" }).click();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route with task-specific inputs", async ({ page }) => {
+  const bodies: Array<Record<string, unknown>> = [];
+  const outside: string[] = [];
+  const errors: string[] = [];
+  page.on("console", (message) => { if (message.type() === "error" && !message.text().includes("status of 503")) errors.push(message.text()); });
+  page.on("request", (request) => { if (!request.url().startsWith("http://127.0.0.1")) outside.push(request.url()); });
+  let failNext = true;
+  await page.route("**/api/law/research", async (route) => {
+    const body = route.request().postDataJSON() as Record<string, unknown>;
+    bodies.push(body);
+    if (failNext) {
+      failNext = false;
+      await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: { code: "LAW_UPSTREAM_UNAVAILABLE", message: "법령 검색 서비스가 일시적으로 응답하지 않습니다.", retryable: true } }) });
+      return;
+    }
+    const text = body.task === "document_review"
+      ? "═══ 문서 종합 검토 ═══\n\n▶ 문서 리스크 분석\n발견 리스크: 1건\n\n▶ 관련 판례\n[1] 2015다1234"
+      : `═══ 리서치: ${String(body.query)} ═══\n\n▶ 관련 법령\n근로기준법 제76조의2\n\n▶ 법령 해석례 [NOT_FOUND / FAILED]\n   사유: 조회 실패`;
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { found: true, task: body.task, text, markers: text.includes("NOT_FOUND") ? ["NOT_FOUND"] : [] } }) });
+  });
+  await page.goto("/");
+  await expect(page.locator(".app-shell")).toHaveAttribute("data-hydrated", "true");
+  await page.getByRole("button", { name: "법령", exact: true }).click();
+  await page.locator(".law-research > .law-view-switch").getByRole("button", { name: "종합 리서치" }).click();
+  const form = page.getByRole("form", { name: "종합 리서치 입력" });
+  const task = form.getByLabel("리서치 유형");
+  await expect(task.locator("option")).toHaveText(["종합 리서치", "법체계 확인", "처분·허가 근거", "분쟁·불복 자료", "개정 추적", "조례 비교", "절차·서식", "문서 검토"]);
+  await expect(page.getByRole("heading", { name: "리서치 결과" })).toHaveCount(0);
+
+  const query = form.getByLabel("질문 또는 검색어");
+  await query.fill("직장 내 괴롭힘 판단 기준");
+  await form.getByRole("button", { name: "리서치 실행" }).click();
+  await expect(page.locator(".legal-analysis-result [role='alert']")).toContainText("일시적으로 응답하지 않습니다");
+  await page.getByRole("button", { name: "다시 시도" }).click();
+  await expect(page.getByRole("heading", { name: "리서치 결과" })).toBeVisible();
+  await expect(page.locator(".legal-research-partial")).toContainText("결과 없음과 다릅니다");
+  await expect(page.locator(".legal-analysis-section.is-unavailable")).toHaveCount(1);
+  await expect(page.locator(".legal-analysis-note")).toContainText("데이터 출처: 법제처 국가법령정보센터 OPEN API");
+  expect(bodies).toEqual([{ task: "full_research", query: "직장 내 괴롭힘 판단 기준" }, { task: "full_research", query: "직장 내 괴롭힘 판단 기준" }]);
+
+  await task.selectOption("dispute_prep");
+  await expect(page.getByRole("heading", { name: "리서치 결과" })).toHaveCount(0);
+  await form.getByLabel("분야").selectOption("labor");
+  await form.getByRole("button", { name: "리서치 실행" }).click();
+  await expect(page.getByRole("heading", { name: "리서치 결과" })).toBeVisible();
+
+  await task.selectOption("amendment_track");
+  await expect(form.getByLabel("분야")).toHaveCount(0);
+  await expect(form.getByLabel("시작일")).toHaveCount(0);
+  await form.getByLabel("추적 방식").selectOption("time_travel");
+  await form.getByLabel("시작일").fill("2026-01-02");
+  await form.getByLabel("종료일").fill("2026-01-01");
+  await expect(form.getByRole("alert")).toHaveText("시작일은 종료일보다 늦을 수 없습니다.");
+  await expect(form.getByRole("button", { name: "리서치 실행" })).toBeDisabled();
+  await form.getByLabel("시작일").fill("2022-01-01");
+  await expect(form.getByLabel("전체 개정 이력 포함")).not.toBeChecked();
+  await form.getByRole("button", { name: "리서치 실행" }).click();
+  await expect(page.getByRole("heading", { name: "리서치 결과" })).toBeVisible();
+
+  await task.selectOption("law_system");
+  await form.getByLabel("관련 조문 (선택)").fill("38, 제39조");
+  await form.getByRole("button", { name: "리서치 실행" }).click();
+  await task.selectOption("ordinance_compare");
+  await form.getByLabel("상위 법령 (선택)").fill("주차장법");
+  await form.getByRole("button", { name: "리서치 실행" }).click();
+  for (const value of ["action_basis", "procedure_detail"]) {
+    await task.selectOption(value);
+    await form.getByRole("button", { name: "리서치 실행" }).click();
+    await expect(page.getByRole("heading", { name: "리서치 결과" })).toBeVisible();
+  }
+
+  await task.selectOption("document_review");
+  await expect(form.getByLabel("질문 또는 검색어")).toHaveCount(0);
+  const documentText = form.getByLabel("검토할 문서 내용");
+  await expect(form).toContainText("외부 법령 MCP 서버(Korean Law MCP)로 전송");
+  await expect(form.getByRole("button", { name: "문서 검토" })).toBeDisabled();
+  const sample = "제1조 갑은 계약 체결 즉시 대금 전액을 지급한다.\n제2조 을은 어떠한 경우에도 계약을 해지할 수 없다.";
+  await documentText.fill(sample);
+  await form.getByRole("button", { name: "문서 검토" }).click();
+  await expect(page.getByRole("heading", { name: "검토 결과" })).toBeVisible();
+  await expect(page.locator(".legal-analysis-output")).toContainText("문서 리스크 분석");
+
+  expect(bodies.slice(2)).toEqual([
+    { task: "dispute_prep", query: "직장 내 괴롭힘 판단 기준", domain: "labor" },
+    { task: "amendment_track", query: "직장 내 괴롭힘 판단 기준", scenario: "time_travel", fromDate: "2022-01-01", toDate: "2026-01-01" },
+    { task: "law_system", query: "직장 내 괴롭힘 판단 기준", articles: ["제38조", "제39조"] },
+    { task: "ordinance_compare", query: "직장 내 괴롭힘 판단 기준", parentLaw: "주차장법" },
+    { task: "action_basis", query: "직장 내 괴롭힘 판단 기준" },
+    { task: "procedure_detail", query: "직장 내 괴롭힘 판단 기준" },
+    { task: "document_review", text: sample },
+  ]);
+
+  // Previous task results and other research views survive switching.
+  await task.selectOption("full_research");
+  await expect(page.locator(".legal-research-partial")).toBeVisible();
+  await page.locator(".law-research > .law-view-switch").getByRole("button", { name: "법령 검색" }).click();
+  await page.locator(".law-research > .law-view-switch").getByRole("button", { name: "종합 리서치" }).click();
+  await expect(query).toHaveValue("직장 내 괴롭힘 판단 기준");
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await task.selectOption("document_review");
+  await documentText.fill(`${sample}\n`.repeat(200));
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect(outside).toEqual([]);
+  expect(errors).toEqual([]);
 });
 
 test("law views use the shared tool content width with one left and right edge", async ({ page }) => {
@@ -521,14 +628,14 @@ test("PDF and image tools align their workspace and share a responsive export pa
   await expect(page.locator(".app-shell")).toHaveAttribute("data-hydrated", "true");
   const geometry = () => page.evaluate(() => {
     const root = document.querySelector(".pdf-tool, .image-tool")!;
-    const selectors = [".tool-eyebrow", ".tool-intro h2", ".tool-intro p:not(.tool-eyebrow)", ".pdf-tool-upload, .image-tool-layout"];
+    const selectors = [".tool-eyebrow", ".tool-intro h2", ".tool-intro p:not(.tool-eyebrow)", ".pdf-tool-upload, .image-tool-upload"];
     const boxes = selectors.map((selector) => {
       const box = root.querySelector(selector)!.getBoundingClientRect();
       return { x: box.x, y: box.y };
     });
-    const button = root.querySelector(".tool-export-button") as HTMLButtonElement;
-    const style = getComputedStyle(button);
-    return { boxes, button: { height: button.getBoundingClientRect().height, background: style.backgroundColor, radius: style.borderRadius, font: style.font, opacity: style.opacity }, overflow: document.documentElement.scrollWidth > innerWidth };
+    const button = root.querySelector(".tool-export-button") as HTMLButtonElement | null;
+    const style = button && getComputedStyle(button);
+    return { boxes, button: button && style ? { height: button.getBoundingClientRect().height, background: style.backgroundColor, radius: style.borderRadius, font: style.font, opacity: style.opacity } : null, overflow: document.documentElement.scrollWidth > innerWidth };
   });
   for (const viewport of [{ width: 1440, height: 900 }, { width: 1366, height: 768 }, { width: 900, height: 768 }, { width: 390, height: 844 }]) {
     await page.setViewportSize(viewport);
@@ -561,7 +668,9 @@ test("PDF and image tools align their workspace and share a responsive export pa
       expect(Math.abs(pdf.boxes[index].x - image.boxes[index].x)).toBeLessThan(1);
       expect(Math.abs(pdf.boxes[index].y - image.boxes[index].y)).toBeLessThan(1);
     }
-    expect(pdf.button).toEqual(image.button);
+    // An empty image tool shows only its upload zone; export appears once images exist.
+    expect(image.button).toBeNull();
+    await expect(page.locator(".image-tool-layout, .image-tool-export")).toHaveCount(0);
     expect(pdf.overflow || image.overflow).toBe(false);
   }
   expect(errors).toEqual([]);
@@ -746,6 +855,7 @@ test("image editor chains resize, rotation, crop and merge with browser-only exp
   await expect(page.locator(".image-tool-preview canvas")).toHaveAttribute("width", "300");
   await page.locator(".image-tool-control-section").filter({ hasText: "영역 자르기" }).getByRole("button", { name: "영역 지정" }).click();
   const target = page.locator(".image-tool-pointer");
+  await target.scrollIntoViewIfNeeded();
   const box = await target.boundingBox();
   expect(box).not.toBeNull();
   await page.mouse.move(box!.x + box!.width * 0.25, box!.y + box!.height * 0.25);
@@ -801,42 +911,31 @@ test("image editor chains resize, rotation, crop and merge with browser-only exp
   expect(errors).toEqual([]);
 });
 
-test("image FILES is a medium panel that scrolls its list without resizing PREVIEW", async ({ page }) => {
+test("image tool shows one upload zone when empty and a balanced three-column workspace once images exist", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".app-shell")).toHaveAttribute("data-hydrated", "true");
   await page.getByRole("button", { name: "이미지 도구" }).click();
-  const library = page.locator(".image-tool-library");
-  await expect(library).toBeVisible();
+  const upload = page.locator(".image-tool-upload");
+  await expect(upload).toBeVisible();
+  await expect(page.locator(".image-tool-layout, .image-tool-export")).toHaveCount(0);
+  const intro = (await page.locator(".image-tool-intro").boundingBox())!;
+  const zone = (await upload.boundingBox())!;
+  expect(Math.abs(zone.x - intro.x)).toBeLessThan(1);
+  expect(zone.height).toBeLessThan(420);
+  expect(await upload.evaluate((node) => getComputedStyle(node).borderTopStyle)).toBe("dashed");
+
   const geometry = () => page.evaluate(() => {
     const box = (selector: string) => {
       const rect = document.querySelector(selector)!.getBoundingClientRect();
-      return { top: rect.top, left: rect.left, width: rect.width, height: rect.height };
+      return { top: rect.top, left: rect.left, width: rect.width, height: rect.height, right: rect.right };
     };
-    const list = document.querySelector(".image-tool-file-list");
-    const empty = document.querySelector(".image-tool-files-empty");
-    const files = box(".image-tool-library");
+    const list = document.querySelector(".image-tool-file-list")!;
     return {
-      files, preview: box(".image-tool-stage"), adjust: box(".image-tool-controls"),
-      emptyAt: empty ? (() => {
-        // Centre of the icon + message block, relative to the whole panel.
-        const parts = [...empty.children].map((child) => child.getBoundingClientRect());
-        return ((parts[0].top + parts[parts.length - 1].bottom) / 2 - files.top) / files.height;
-      })() : null,
-      listScrolls: list ? list.scrollHeight > list.clientHeight : null,
-      overflow: document.documentElement.scrollWidth > innerWidth,
+      files: box(".image-tool-library"), preview: box(".image-tool-stage"), adjust: box(".image-tool-controls"),
+      layout: box(".image-tool-layout"), exported: box(".image-tool-export"),
+      listScrolls: list.scrollHeight > list.clientHeight, overflow: document.documentElement.scrollWidth > innerWidth,
     };
   });
-  const empty = await geometry();
-  // A work panel, not a floating summary card, and never stretched to PREVIEW.
-  expect(empty.files.height).toBeGreaterThanOrEqual(320);
-  expect(empty.files.height).toBeLessThan(empty.preview.height);
-  expect(empty.emptyAt).toBeGreaterThan(0.25);
-  expect(empty.emptyAt).toBeLessThan(0.45);
-  await expect(library.getByRole("button")).toHaveCount(0);
-  expect(empty.files.top).toBe(empty.preview.top);
-  if (page.viewportSize()!.width > 1190) expect(empty.files.top).toBe(empty.adjust.top);
-  else expect(empty.adjust.top).toBeGreaterThan(empty.preview.top + empty.preview.height);
-
   const png = await page.evaluate(() => {
     const canvas = document.createElement("canvas");
     canvas.width = canvas.height = 16;
@@ -846,29 +945,34 @@ test("image FILES is a medium panel that scrolls its list without resizing PREVI
   const add = (names: string[]) => page.getByLabel("이미지 파일 선택").setInputFiles(names.map((name) => ({ name, mimeType: "image/png", buffer: Buffer.from(png, "base64") })));
   await add(["a.png", "b.png", "c.png"]);
   await expect(page.locator(".image-tool-file")).toHaveCount(3);
-  await expect(library.getByRole("button", { name: "+ 파일 추가" })).toBeVisible();
+  await expect(upload).toHaveCount(0);
+  await expect(page.locator(".image-tool-library").getByRole("button", { name: "+ 파일 추가" })).toBeVisible();
   const populated = await geometry();
-  expect(populated.files).toEqual(empty.files);
-  expect(populated.preview).toEqual(empty.preview);
-  expect(populated.adjust).toEqual(empty.adjust);
+  if (page.viewportSize()!.width > 1190) {
+    // Settings are wider than the file list; the preview stays the widest column.
+    expect(populated.adjust.width).toBeGreaterThan(populated.files.width);
+    expect(populated.preview.width).toBeGreaterThan(populated.adjust.width);
+    expect(populated.adjust.width).toBeGreaterThanOrEqual(280);
+  }
+  expect(populated.files.height).toBeLessThan(populated.preview.height);
+  expect(Math.abs(populated.exported.left - populated.layout.left)).toBeLessThan(1);
+  expect(Math.abs(populated.exported.right - populated.layout.right)).toBeLessThan(1);
 
   await add(Array.from({ length: 12 }, (_, index) => `more-${index + 1}.png`));
   await expect(page.locator(".image-tool-file")).toHaveCount(15);
   const long = await geometry();
   expect(long.listScrolls).toBe(true);
-  expect(long.files.height).toBeLessThanOrEqual(long.preview.height);
-  expect(long.files.width).toBe(empty.files.width);
-  expect(long.preview).toEqual(empty.preview);
-  expect(long.adjust.height).toBe(empty.adjust.height);
+  expect(long.preview).toEqual(populated.preview);
 
   while (await page.locator(".image-tool-file").count()) await page.locator(".image-tool-order button").first().click();
-  await expect(library.getByText("추가된 이미지가 없습니다.", { exact: true })).toBeVisible();
-  expect((await geometry()).files.height).toBe(empty.files.height);
+  await expect(upload).toBeVisible();
+  await expect(page.locator(".image-tool-layout")).toHaveCount(0);
 
   await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await add(["a.png"]);
   const mobile = await geometry();
   expect(mobile.files.width).toBe(mobile.preview.width);
-  expect(mobile.files.height).toBeLessThan(220);
   expect(mobile.overflow).toBe(false);
 });
 
@@ -877,14 +981,13 @@ test("image tool starts from the preview and exports in the dragged order with i
   page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
   await page.goto("/");
   await page.getByRole("button", { name: "이미지 도구" }).click();
+  const upload = page.locator(".image-tool-upload");
+  await expect(page.locator(".image-tool-library, .image-tool-stage, .image-tool-controls")).toHaveCount(0);
+  await expect(page.getByText("추가된 이미지가 없습니다.")).toHaveCount(0);
+  await expect(upload.getByText("이미지를 추가해 편집을 시작하세요", { exact: true })).toHaveCount(1);
+  await expect(upload.getByText("한 장씩 편집하거나 여러 이미지를 결합할 수 있습니다.", { exact: true })).toBeVisible();
+  await expect(upload.getByRole("button", { name: "이미지 선택" })).toBeVisible();
   const library = page.locator(".image-tool-library");
-  await expect(library.getByText("추가된 이미지가 없습니다.", { exact: true })).toBeVisible();
-  await expect(library.getByRole("button", { name: "+ 파일 추가" })).toHaveCount(0);
-  await expect(page.getByText("이미지를 이곳에 놓으세요")).toHaveCount(0);
-  const preview = page.locator(".image-tool-preview");
-  await expect(preview.getByText("이미지를 추가해 편집을 시작하세요", { exact: true })).toBeVisible();
-  await expect(preview.getByText("한 장씩 편집하거나 여러 이미지를 결합할 수 있습니다.", { exact: true })).toBeVisible();
-  await expect(preview.getByRole("button", { name: "이미지 선택" })).toBeVisible();
 
   // Solid swatches of distinct widths make every output order observable.
   const swatches = await page.evaluate(() => [["a.png", "#ff0000", 100], ["b.png", "#00ff00", 120], ["c.png", "#0000ff", 140]].map(([name, color, width]) => {
@@ -897,7 +1000,7 @@ test("image tool starts from the preview and exports in the dragged order with i
     return { name: String(name), data: canvas.toDataURL("image/png").split(",")[1] };
   }));
   const fileChooser = page.waitForEvent("filechooser");
-  await preview.getByRole("button", { name: "이미지 선택" }).click();
+  await upload.getByRole("button", { name: "이미지 선택" }).click();
   await (await fileChooser).setFiles(swatches.map(({ name, data }) => ({ name, mimeType: "image/png", buffer: Buffer.from(data, "base64") })));
   const files = page.locator(".image-tool-file strong");
   await expect(files).toHaveText(["a.png", "b.png", "c.png"]);

@@ -240,10 +240,10 @@ export function DecisionSearch({ linkedRequest, onReturnToLaw, onCiteCheck }: De
         <button type="submit" className="law-search-button" disabled={searchLoading || !query.trim()}>{searchLoading ? "검색 중…" : "검색"}</button>
       </div>
     </form>
-    <section className="decision-search-results" aria-labelledby="decision-results-heading" aria-busy={searchLoading}>
-      <h2 id="decision-results-heading">검색 결과{outcome?.kind === "found" && outcome.data.totalCount !== undefined ? ` · ${outcome.data.totalCount}건` : ""}</h2>
+    {(searchLoading || outcome) && <section className="decision-search-results" aria-labelledby="decision-results-heading" aria-busy={searchLoading}>
+      <h2 id="decision-results-heading">검색 결과{outcome?.kind === "found" && outcome.data.totalCount !== undefined ? ` · ${outcome.data.totalCount}건` : outcome?.kind === "missing" ? " · 0건" : ""}</h2>
       {searchLoading ? <p className="law-search-note" role="status">검색 중…</p>
-        : !outcome ? <p className="law-search-note">자료 유형과 검색어를 선택해 검색하세요.</p>
+        : !outcome ? null
         : outcome.kind === "error" ? <p className="law-search-error" role="alert">{outcome.message}</p>
         : outcome.kind === "missing" ? <p className="law-search-note" role="status">검색 결과가 없습니다. 다른 검색어로 검색해보세요.</p>
         : <>
@@ -266,6 +266,6 @@ export function DecisionSearch({ linkedRequest, onReturnToLaw, onCiteCheck }: De
             {outcome.data.hasNext === true && <button type="button" className="law-search-link" onClick={() => void runSearch(searchedQuery, domain, page + 1)}>다음 →</button>}
           </div>
         </>}
-    </section>
+    </section>}
   </div>;
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { ChangeEvent, DragEvent, PointerEvent, useEffect, useMemo, useRef, useState } from "react";
-import { GripVertical, Images } from "lucide-react";
+import { GripVertical, Images, RotateCcw, RotateCw } from "lucide-react";
 import {
   cropWithinPreview, effectiveCrop, encodeCanvas, encodePdf, fileBase, initialImageEdits,
   MAX_PIXELS, MAX_SIDE, mergeDimensions, outputSize, packageImages, renderImage,
@@ -45,6 +45,7 @@ export function ImageTool() {
   const [quality, setQuality] = useState<keyof typeof QUALITY>("balanced");
   const [busy, setBusy] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [dropActive, setDropActive] = useState(false);
   const [progress, setProgress] = useState("");
   const [notice, setNotice] = useState<{ tone: "error" | "success" | "info"; text: string } | null>(null);
   const [previewFailure, setPreviewFailure] = useState<{ current: ImageItem; selected: ImageItem[]; merge: boolean; options: MergeOptions; text: string } | null>(null);
@@ -381,12 +382,29 @@ export function ImageTool() {
       <header className="tool-intro image-tool-intro">
         <div><p className="tool-eyebrow">이미지 작업공간</p><h2>이미지 편집</h2><p>크기와 영역을 다듬고, 여러 장을 원하는 순서대로 결합하세요.</p></div>
       </header>
+      <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" multiple hidden onChange={handleFileInput} aria-label="이미지 파일 선택" />
+      {items.length === 0 ? (
+        <section
+          className="image-tool-upload"
+          aria-label="이미지 추가"
+          data-drag-active={dropActive}
+          onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) { event.preventDefault(); setDropActive(true); } }}
+          onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDropActive(false); }}
+          onDrop={(event) => { setDropActive(false); handleDrop(event); }}
+        >
+          <Images aria-hidden="true" />
+          <strong>이미지를 추가해 편집을 시작하세요</strong>
+          <span>한 장씩 편집하거나 여러 이미지를 결합할 수 있습니다.</span>
+          <button type="button" onClick={() => fileInput.current?.click()} disabled={importing}>이미지 선택</button>
+          <small>{importing ? "이미지를 읽는 중…" : "또는 이미지를 여기로 끌어오세요"}</small>
+          {notice && <p className={`image-tool-notice is-${notice.tone}`} role={notice.tone === "error" ? "alert" : "status"}>{notice.text}</p>}
+        </section>
+      ) : <>
       <div className="image-tool-layout">
         <aside className="image-tool-library" aria-label="이미지 목록">
-          <div className="image-tool-section-heading"><div><span>01 / FILES</span><h3>작업 이미지 <small>{items.length}</small></h3></div>{items.length > 0 && <button type="button" onClick={() => fileInput.current?.click()} disabled={busy || importing}>+ 파일 추가</button>}</div>
-          <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" multiple hidden onChange={handleFileInput} aria-label="이미지 파일 선택" />
+          <div className="image-tool-section-heading"><div><span>01 / FILES</span><h3>작업 이미지 <small>{items.length}</small></h3></div><button type="button" onClick={() => fileInput.current?.click()} disabled={busy || importing}>+ 파일 추가</button></div>
           {importing && <p className="image-tool-hint" role="status">이미지를 읽는 중…</p>}
-          {items.length === 0 ? <div className="image-tool-files-empty"><Images aria-hidden="true" /><p>추가된 이미지가 없습니다.</p></div> : <div ref={fileList} className="image-tool-file-list" onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }} onDrop={handleDrop}>
+          <div ref={fileList} className="image-tool-file-list" onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }} onDrop={handleDrop}>
             <p className="tool-reorder-live" aria-live="polite">{reorder.announcement}</p>
             {items.map((item) => <div key={item.id} className={`image-tool-file tool-reorder-y${item.id === currentId ? " is-current" : ""}`} {...reorder.itemProps(item.id)}>
               <button {...reorder.handleProps(item.id, item.file.name)}><GripVertical aria-hidden="true" /></button>
@@ -400,11 +418,11 @@ export function ImageTool() {
               </button>
               <div className="image-tool-order"><button type="button" aria-label={`${item.file.name} 제거`} disabled={busy} onClick={() => removeItem(item.id)}>×</button></div>
             </div>)}
-          </div>}
+          </div>
         </aside>
         <main className="image-tool-stage">
           <div className="image-tool-section-heading"><div><span>02 / PREVIEW</span><h3>{mergeActive ? "결합 결과 미리보기" : current ? fileBase(current.file.name) : "미리보기"}</h3></div><span className="image-tool-dimensions">{mergeActive ? `${mergedDimensions?.width} × ${mergedDimensions?.height}px` : dimensions ? `${dimensions.width} × ${dimensions.height}px` : "—"}</span></div>
-          <div className="image-tool-preview" onDragOver={(event) => { if (!current && event.dataTransfer.types.includes("Files")) event.preventDefault(); }} onDrop={(event) => { if (!current) handleDrop(event); }}>
+          <div className="image-tool-preview">
             {current ? (
               <>
                 {previewError && <p role="alert" className="image-tool-preview-error">{previewError}</p>}
@@ -430,21 +448,14 @@ export function ImageTool() {
                   </div>
                 </div>
               </>
-            ) : (
-              <div className="image-tool-empty">
-                <strong>이미지를 추가해 편집을 시작하세요</strong>
-                <span>한 장씩 편집하거나 여러 이미지를 결합할 수 있습니다.</span>
-                <button type="button" onClick={() => fileInput.current?.click()} disabled={importing}>이미지 선택</button>
-                <small>또는 이미지를 여기로 끌어오세요</small>
-              </div>
-            )}
+            ) : null}
           </div>
           <p className="image-tool-stage-caption">{mode && !mergeActive ? `${mode === "crop" ? "자르기" : "모자이크"} 영역을 이미지 위에서 드래그하세요 · 터치 가능` : mergeActive ? "선택된 이미지의 편집 상태가 순서대로 적용된 결과입니다." : "원본은 유지됩니다. 내보낼 때 편집한 복사본만 생성합니다."}</p>
         </main>
         <aside className="image-tool-controls" aria-label="이미지 편집 설정">
           <div className="image-tool-section-heading"><div><span>03 / ADJUST</span><h3>편집 설정</h3></div></div>
           <fieldset disabled={!current || busy || mergeActive} className="image-tool-fieldset">
-            <section className="image-tool-control-section"><h4>크기 · 회전</h4><div className="image-tool-size-grid"><label>너비 px<input type="number" min="1" max={MAX_SIDE} value={widthDraft} onChange={(event) => setWidthDraft(event.target.value)} onBlur={() => commitDimension("width")} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} /></label><label>높이 px<input type="number" min="1" max={MAX_SIDE} value={heightDraft} onChange={(event) => setHeightDraft(event.target.value)} onBlur={() => commitDimension("height")} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} /></label></div><label className="image-tool-check"><input type="checkbox" checked={aspectLocked} onChange={(event) => setAspectLocked(event.target.checked)} /> 비율 유지</label><div className="image-tool-button-row"><button type="button" className="is-edit" onClick={() => editCurrent((item) => rotateEdits(item.edits, item.width, item.height, -1))}>↶ 왼쪽 90°</button><button type="button" className="is-edit" onClick={() => editCurrent((item) => rotateEdits(item.edits, item.width, item.height, 1))}>오른쪽 90° ↷</button></div></section>
+            <section className="image-tool-control-section"><h4>크기 · 회전</h4><div className="image-tool-size-grid"><label>너비 px<input type="number" min="1" max={MAX_SIDE} value={widthDraft} onChange={(event) => setWidthDraft(event.target.value)} onBlur={() => commitDimension("width")} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} /></label><label>높이 px<input type="number" min="1" max={MAX_SIDE} value={heightDraft} onChange={(event) => setHeightDraft(event.target.value)} onBlur={() => commitDimension("height")} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} /></label></div><label className="image-tool-check"><input type="checkbox" checked={aspectLocked} onChange={(event) => setAspectLocked(event.target.checked)} /> 비율 유지</label><div className="image-tool-button-row"><button type="button" className="is-edit tool-rotate-button" onClick={() => editCurrent((item) => rotateEdits(item.edits, item.width, item.height, -1))}><RotateCcw aria-hidden="true" />왼쪽 90°</button><button type="button" className="is-edit tool-rotate-button" onClick={() => editCurrent((item) => rotateEdits(item.edits, item.width, item.height, 1))}>오른쪽 90°<RotateCw aria-hidden="true" /></button></div></section>
             <section className="image-tool-control-section">
               <h4>영역 자르기</h4>
               <label>선택 비율
@@ -492,6 +503,7 @@ export function ImageTool() {
         {busy && <p className="image-tool-progress" role="status">{progress || "준비 중…"}</p>}
         {notice && <p className={`image-tool-notice is-${notice.tone}`} role={notice.tone === "error" ? "alert" : "status"}>{notice.text}</p>}
       </div>
+      </>}
     </div>
   );
 }

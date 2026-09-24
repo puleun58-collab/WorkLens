@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
-import { GripVertical } from "lucide-react";
+import { GripVertical, RotateCcw, RotateCw } from "lucide-react";
 import type { PDFDocumentLoadingTask } from "pdfjs-dist";
 import {
   exportPdfPages,
@@ -283,8 +283,8 @@ export function PdfTool() {
         <div className="pdf-tool-toolbar">
           <label className="pdf-tool-select-all"><input type="checkbox" checked={pages.every((page) => page.selected)} onChange={(event) => setPages((current) => current.map((page) => ({ ...page, selected: event.target.checked })))} disabled={busy} /> 전체 선택</label>
           <span className="pdf-tool-toolbar-divider" />
-          <button type="button" disabled={!selectedCount || busy} onClick={() => { setPages((current) => current.map((page) => page.selected ? { ...page, rotation: normalizeRotation(page.rotation - 90) } : page)); setOutcome(null); }}>↶ 왼쪽 90°</button>
-          <button type="button" disabled={!selectedCount || busy} onClick={() => { setPages((current) => current.map((page) => page.selected ? { ...page, rotation: normalizeRotation(page.rotation + 90) } : page)); setOutcome(null); }}>↷ 오른쪽 90°</button>
+          <button type="button" className="tool-rotate-button" disabled={!selectedCount || busy} onClick={() => { setPages((current) => current.map((page) => page.selected ? { ...page, rotation: normalizeRotation(page.rotation - 90) } : page)); setOutcome(null); }}><RotateCcw aria-hidden="true" />왼쪽 90°</button>
+          <button type="button" className="tool-rotate-button" disabled={!selectedCount || busy} onClick={() => { setPages((current) => current.map((page) => page.selected ? { ...page, rotation: normalizeRotation(page.rotation + 90) } : page)); setOutcome(null); }}>오른쪽 90°<RotateCw aria-hidden="true" /></button>
           <button type="button" className="pdf-tool-delete" disabled={!selectedCount || busy} onClick={removeSelected}>선택 삭제</button>
         </div>
         <div className="pdf-tool-pages">

@@ -11,6 +11,7 @@ import {
   type AnalysisSection,
 } from "@/lib/law-analysis-parse";
 import "./legal-analysis.css";
+import { SourceToggleSummary } from "./SourceToggleSummary";
 
 /** A request opened from a law article or a decision detail; `origin` drives the return action. */
 export type LinkedAnalysis =
@@ -153,10 +154,9 @@ export function LegalAnalysis({ linkedRequest, onReturn }: LegalAnalysisProps) {
       </div>
     </form>
 
-    <section className="legal-analysis-result" aria-labelledby="analysis-result-heading" aria-busy={loading}>
-      <h2 id="analysis-result-heading">결과</h2>
-      {!current ? <p className="law-search-note">입력 후 실행하면 결과가 여기에 표시됩니다.</p>
-        : current.loading ? <p className="law-search-note" role="status">법제처 자료를 조회하는 중… 조회 범위에 따라 시간이 걸릴 수 있습니다.</p>
+    {current && <section className="legal-analysis-result" aria-labelledby="analysis-result-heading" aria-busy={loading}>
+      <h2 id="analysis-result-heading">{mode === "verify_citations" || mode === "cite_check" ? "검증 결과" : "분석 결과"}</h2>
+      {current.loading ? <p className="law-search-note" role="status">법제처 자료를 조회하는 중… 조회 범위에 따라 시간이 걸릴 수 있습니다.</p>
         : current.outcome?.kind === "error" ? <div className="decision-feedback" role="alert">
           <p className="law-search-error">{current.outcome.message}</p>
           <button type="button" className="law-search-link" onClick={() => void run(current.request)}>다시 시도</button>
@@ -167,7 +167,7 @@ export function LegalAnalysis({ linkedRequest, onReturn }: LegalAnalysisProps) {
         </div>
         : current.outcome?.kind === "found" ? <AnalysisResult data={current.outcome.data} />
         : null}
-    </section>
+    </section>}
   </div>;
 }
 
@@ -248,7 +248,7 @@ function AnalysisResult({ data }: { data: LawAnalysisData }) {
   return <div className="legal-analysis-output" data-mode={data.mode} data-markers={data.markers.join(" ")}>
     {body}
     <details className="law-detail-source">
-      <summary>원문 보기</summary>
+      <SourceToggleSummary />
       <pre className="legal-analysis-raw">{data.text}</pre>
     </details>
     <p className="legal-analysis-note">{note ? `${note} ` : ""}{RESULT_NOTE}</p>

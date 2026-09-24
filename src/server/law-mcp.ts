@@ -12,6 +12,8 @@ export const LAW_QUERY_MAX_CHARS = 200;
 const REQUEST_TIMEOUT_MS = 20_000;
 /** `legal_analysis` fans out to many 법제처 requests (citations, citing precedents, five impact axes). */
 const ANALYSIS_TIMEOUT_MS = 45_000;
+/** MCP chains stop after 45s plus assembly/transfer; document_review has no chain deadline, but remains bounded. */
+const RESEARCH_TIMEOUT_MS = 60_000;
 const MAX_RESPONSE_BYTES = 512 * 1024;
 
 export interface LawSearchEntry {
@@ -102,13 +104,20 @@ export async function getLawText(
 
 /** Tool names and arguments are fixed by server entry points, never supplied by the caller. */
 export async function callLawTool(
-  tool: "search_law" | "get_law_text" | "search_decisions" | "get_decision_text" | "legal_analysis",
+  tool: "search_law" | "get_law_text" | "search_decisions" | "get_decision_text" | "legal_analysis" | "legal_research",
   args: { query: string } | { mst: string; jo?: string } | { lawId: string; jo?: string } |
     { domain: string; query: string; display: 20; page: number } | { domain: string; id: string; full?: true } |
     { mode: "verify_citations"; text: string; maxCitations: 15 } |
     { mode: "cite_check"; caseNumber: string; display: 20; deepScan: true } |
     { mode: "applicable_law"; lawName: string; date: string; jo?: string } |
-    { mode: "impact_map"; lawName: string; jo: string; includeOrdinances: true; includeMermaid: false },
+    { mode: "impact_map"; lawName: string; jo: string; includeOrdinances: true; includeMermaid: false } |
+    { task: "full_research" | "action_basis" | "procedure_detail"; query: string } |
+    { task: "law_system"; query: string; articles?: string[] } |
+    { task: "dispute_prep"; query: string; domain?: "tax" | "labor" | "privacy" | "competition" | "general" } |
+    { task: "amendment_track"; query: string; scenario?: "timeline" | "time_travel"; mst?: string; lawId?: string;
+      fromDate?: string; toDate?: string; includeHistory: boolean } |
+    { task: "ordinance_compare"; query: string; parentLaw?: string } |
+    { task: "document_review"; text: string; maxClauses: number },
   context: LawContext,
 ): Promise<{ text: string; isError: boolean }> {
   const { LAW_OC: key, LAW_MCP_URL: endpoint } = workerEnv();
@@ -123,7 +132,8 @@ export async function callLawTool(
 
   const started = Date.now();
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(new DOMException("timeout", "TimeoutError")), tool === "legal_analysis" ? ANALYSIS_TIMEOUT_MS : REQUEST_TIMEOUT_MS);
+  const timeoutMs = tool === "legal_analysis" ? ANALYSIS_TIMEOUT_MS : tool === "legal_research" ? RESEARCH_TIMEOUT_MS : REQUEST_TIMEOUT_MS;
+  const timer = setTimeout(() => controller.abort(new DOMException("timeout", "TimeoutError")), timeoutMs);
   const onClientAbort = () => controller.abort(new DOMException("client aborted", "AbortError"));
   context.signal?.addEventListener("abort", onClientAbort, { once: true });
   if (context.signal?.aborted) onClientAbort();
@@ -170,7 +180,7 @@ export async function callLawTool(
     clearTimeout(timer);
     context.signal?.removeEventListener("abort", onClientAbort);
     // Operational metadata only: no key, headers, query text or response body.
-    console.info("[LAW][MCP]", { requestId: context.requestId, operation: tool, ...("mode" in args ? { mode: args.mode } : {}), upstreamStatus, latencyMs: Date.now() - started });
+    console.info("[LAW][MCP]", { requestId: context.requestId, operation: tool, ...("mode" in args ? { mode: args.mode } : {}), ...("task" in args ? { task: args.task } : {}), upstreamStatus, latencyMs: Date.now() - started });
   }
 }
 

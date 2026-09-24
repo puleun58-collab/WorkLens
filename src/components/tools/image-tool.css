@@ -13,7 +13,8 @@
 .image-tool :is(button, input, select):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .image-tool-intro { margin-bottom: 18px; }
 .image-tool-section-heading span { color: var(--blue); font-family: var(--font-mono); font-size: 12px; font-weight: 700; letter-spacing: .105em; }
-.image-tool-layout { display: grid; grid-template-columns: minmax(228px, 270px) minmax(0, 1fr) minmax(228px, 262px); gap: 12px; align-items: stretch; }
+/* Narrow file list, widest preview, and a settings column wide enough for paired inputs and buttons. */
+.image-tool-layout { display: grid; grid-template-columns: minmax(200px, 236px) minmax(0, 1fr) minmax(280px, 320px); gap: 12px; align-items: stretch; }
 .image-tool-library, .image-tool-stage, .image-tool-controls { min-width: 0; border: 1px solid var(--image-strong-border); border-radius: var(--radius-panel, 4px); background: var(--paper); box-shadow: var(--shadow-surface); }
 /* FILES is a secondary panel: a viewport-scaled minimum (≈350–440px on desktop) that never stretches to the
    PREVIEW row height; a long list scrolls inside the list, not the panel. */
@@ -27,12 +28,17 @@
 .image-tool-section-heading > button { flex: none; height: 34px; border: 1px solid #9abbe4; border-radius: 4px; background: var(--paper); padding: 0 10px; color: var(--blue); font-size: 13px; font-weight: 650; }
 .image-tool-section-heading > button:hover:not(:disabled) { background: var(--blue-pale); border-color: var(--blue); }
 .image-tool-hint, .image-tool-stage-caption { font-size: 12px; line-height: 1.55; color: var(--muted); }
-/* Empty state sits in the upper third of the panel: spacer ratio 1:3 above/below the message. */
-.image-tool-files-empty { flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; line-height: 1.55; text-align: center; }
-.image-tool-files-empty::before { content: ""; flex: 1 1 0; }
-.image-tool-files-empty::after { content: ""; flex: 3 1 0; }
-.image-tool-files-empty svg { width: 22px; height: 22px; color: #a1aec0; }
-.image-tool-files-empty p { margin: 0; }
+/* Empty tool: one full-width drop zone replaces the three-column editor. */
+.image-tool-upload { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 280px; padding: 40px 24px; border: 1px dashed var(--dropzone-border); border-radius: var(--radius-panel, 4px); background: var(--paper); text-align: center; line-height: 1.5; transition: border-color .15s ease, background .15s ease; }
+.image-tool-upload:hover { border-color: var(--blue); }
+.image-tool-upload[data-drag-active="true"] { border-color: var(--blue); background: var(--blue-soft); }
+.image-tool-upload > svg { width: 28px; height: 28px; margin-bottom: 12px; color: #a1aec0; }
+.image-tool-upload strong { font-size: 15px; }
+.image-tool-upload span { color: var(--muted); font-size: 13px; margin-top: 6px; }
+.image-tool-upload button { margin-top: 18px; padding: 9px 15px; border: 1px solid var(--blue); border-radius: 4px; background: var(--blue); color: #fff; font-size: 13px; font-weight: 600; }
+.image-tool-upload button:hover:not(:disabled) { background: var(--blue-hover); }
+.image-tool-upload small { margin-top: 10px; color: var(--muted); font-size: 12px; }
+.image-tool-upload .image-tool-notice { margin-top: 12px; }
 .image-tool-file-list { display: flex; flex-direction: column; max-height: clamp(260px, 56vh, 510px); overflow: auto; margin: 14px -5px 0; gap: 4px; }
 .image-tool-file { display: flex; align-items: center; gap: 5px; padding: 5px 5px 5px 2px; border: 1px solid transparent; border-radius: 4px; min-width: 0; }
 .image-tool-file.is-current { border-color: #bfd4f1; background: var(--blue-pale); }
@@ -49,19 +55,14 @@
 .image-tool-order button:hover:not(:disabled) { color: var(--blue); }
 .image-tool-hint { margin: 13px 2px 0; }
 .image-tool-dimensions { flex: none; font-size: 12px !important; font-family: var(--font-mono); color: var(--muted) !important; letter-spacing: 0 !important; font-weight: 400 !important; }
-.image-tool-preview { flex: 1 1 auto; min-height: 380px; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden; padding: 22px; border: 1px solid var(--image-border); border-radius: 4px; background-color: #edf1f5; background-image: linear-gradient(45deg, #e4eaf1 25%, transparent 25%, transparent 75%, #e4eaf1 75%), linear-gradient(45deg, #e4eaf1 25%, transparent 25%, transparent 75%, #e4eaf1 75%); background-position: 0 0, 8px 8px; background-size: 16px 16px; }
+.image-tool-preview { flex: 1 1 auto; min-height: 320px; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden; padding: 22px; border: 1px solid var(--image-border); border-radius: 4px; background-color: #edf1f5; background-image: linear-gradient(45deg, #e4eaf1 25%, transparent 25%, transparent 75%, #e4eaf1 75%), linear-gradient(45deg, #e4eaf1 25%, transparent 25%, transparent 75%, #e4eaf1 75%); background-position: 0 0, 8px 8px; background-size: 16px 16px; }
 .image-tool-preview-inner { display: inline-block; position: relative; max-width: 100%; line-height: 0; box-shadow: 0 7px 28px rgba(23, 40, 67, .14); }
-.image-tool-preview canvas { display: block; max-width: 100%; max-height: min(60vh, 560px); width: auto; height: auto; }
+.image-tool-preview canvas { display: block; max-width: 100%; max-height: min(52vh, 480px); width: auto; height: auto; }
 .image-tool-pointer { position: absolute; inset: 0; touch-action: none; }
 .image-tool-pointer.is-active { cursor: crosshair; }
 .image-tool-selection { position: absolute; pointer-events: none; border: 2px solid white; outline: 1px solid var(--blue); background: rgba(37, 99, 235, .15); box-shadow: 0 0 0 9999px rgba(15, 23, 42, .17); }
 .image-tool-selection.is-mosaic { border-style: dashed; background: rgba(37, 99, 235, .1); box-shadow: none; }
 .image-tool-preview-error { position: absolute; z-index: 1; left: 18px; right: 18px; top: 18px; padding: 10px 12px; background: #fff1f0; color: #a42318; font-size: 13px; }
-.image-tool-empty { display: flex; flex-direction: column; align-items: center; text-align: center; line-height: 1.5; }
-.image-tool-empty strong { font-size: 15px; }
-.image-tool-empty span { color: var(--muted); font-size: 13px; margin-top: 6px; }
-.image-tool-empty button { margin-top: 18px; padding: 9px 15px; border: 1px solid var(--blue); border-radius: 4px; background: var(--blue); color: #fff; font-size: 13px; font-weight: 600; }
-.image-tool-empty small { margin-top: 10px; color: var(--muted); font-size: 12px; }
 .image-tool-stage-caption { margin: 10px 1px 0; }
 .image-tool-fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
 .image-tool-control-section { padding: 15px 0 16px; border-top: 1px solid var(--image-border); }
@@ -88,7 +89,6 @@
 .image-tool-merge-options label:first-child { grid-column: span 2; }
 .image-tool-merge-options input[type="color"] { padding: 3px !important; cursor: pointer; }
 .image-tool-export { margin-top: 12px; }
-.image-tool-empty button:hover:not(:disabled) { background: var(--blue-hover); }
 .image-tool-progress, .image-tool-notice { width: 100%; margin: 0; font-size: 13px; line-height: 1.5; }
 .image-tool-progress { color: var(--blue); }
 .image-tool-notice.is-error { color: #b42318; }
@@ -99,7 +99,7 @@
   .image-tool-layout { grid-template-columns: minmax(210px, 250px) minmax(0, 1fr); }
   .image-tool-controls { grid-column: 1 / -1; }
   /* Two-column row: keep a long list within the stage's natural height so PREVIEW never grows with it. */
-  .image-tool-file-list { max-height: 380px; }
+  .image-tool-file-list { max-height: 300px; }
   .image-tool-fieldset { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 18px; }
   .image-tool-merge { border-top: 1px solid var(--image-border); }
 }
@@ -107,7 +107,8 @@
   .image-tool-intro { flex-direction: column; gap: 7px; }
   .image-tool-layout { display: flex; flex-direction: column; }
   .image-tool-library, .image-tool-stage, .image-tool-controls { width: 100%; }
-  .image-tool-library { min-height: 168px; }
+  .image-tool-library { min-height: 0; }
+  .image-tool-upload { min-height: 220px; padding: 28px 16px; }
   .image-tool-file-list { max-height: 235px; }
   .image-tool-stage { order: -1; }
   .image-tool-preview { min-height: 260px; padding: 14px; }

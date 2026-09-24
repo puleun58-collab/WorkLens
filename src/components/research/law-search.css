@@ -1,6 +1,6 @@
 .law-research { display: grid; gap: 20px; width: 100%; min-width: 0; }
 .law-research > div { min-width: 0; }
-.law-view-switch { display: flex; gap: 4px; width: fit-content; max-width: 100%; padding: 3px; border: 1px solid var(--line-soft, var(--line)); border-radius: var(--radius-control, 6px); background: var(--layer, #f1f3f6); }
+.law-view-switch { display: flex; flex-wrap: wrap; gap: 4px; width: fit-content; max-width: 100%; padding: 3px; border: 1px solid var(--line-soft, var(--line)); border-radius: var(--radius-control, 6px); background: var(--layer, #f1f3f6); }
 .law-view-switch button { padding: 7px 14px; border: 0; border-radius: var(--radius-control, 6px); background: transparent; color: var(--muted); font: inherit; font-size: var(--font-size-sm); font-weight: 600; cursor: pointer; }
 .law-view-switch button[aria-pressed="true"] { background: var(--paper); color: var(--ink); box-shadow: 0 1px 3px #00000012; }
 .law-view-switch button:focus-visible { outline: 2px solid var(--focus-ring, var(--blue)); outline-offset: 2px; }
@@ -49,8 +49,14 @@
 .law-article-list button:hover { background: var(--layer, #f1f3f6); }
 .law-detail-content > nav .law-article-list { margin: 0 0 16px; }
 .law-detail-source { margin-bottom: 12px; }
-.law-detail-source summary { width: fit-content; padding: 6px 0; color: var(--blue); font-weight: 600; cursor: pointer; }
-.law-detail-source summary:focus-visible { outline: 2px solid var(--focus-ring, var(--blue)); outline-offset: 2px; }
+.law-detail-source .source-toggle { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 2px; border-bottom: 1px solid var(--line-soft, var(--line)); color: var(--ink); font-size: var(--font-size-sm); font-weight: 600; list-style: none; cursor: pointer; }
+.law-detail-source .source-toggle::-webkit-details-marker { display: none; }
+.law-detail-source .source-toggle::marker { content: ""; }
+.law-detail-source .source-toggle:hover { color: var(--blue); }
+.law-detail-source .source-toggle svg { flex: none; width: 16px; height: 16px; color: var(--muted); transition: transform .15s ease; }
+.law-detail-source[open] > .source-toggle svg { transform: rotate(180deg); }
+.law-detail-source:not([open]) .source-toggle-open, .law-detail-source[open] .source-toggle-closed { display: none; }
+.law-detail-source .source-toggle:focus-visible { outline: 2px solid var(--focus-ring, var(--blue)); outline-offset: 2px; }
 .law-detail-source .law-detail-raw { margin-top: 8px; }
 @media (max-width: 520px) {
   .law-search-row { flex-direction: column; }

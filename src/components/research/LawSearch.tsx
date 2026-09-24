@@ -8,9 +8,11 @@ import {
 } from "@/lib/law-search";
 import { DecisionSearch, type LinkedDecisionSearch } from "./DecisionSearch";
 import { LegalAnalysis, type LinkedAnalysis } from "./LegalAnalysis";
+import { LegalResearch } from "./LegalResearch";
+import { SourceToggleSummary } from "./SourceToggleSummary";
 import "./law-search.css";
 
-type ResearchView = "law" | "decisions" | "analysis";
+type ResearchView = "law" | "decisions" | "analysis" | "research";
 
 export function LawSearch() {
   const [view, setView] = useState<ResearchView>("law");
@@ -47,6 +49,7 @@ export function LawSearch() {
       <button type="button" aria-pressed={view === "law"} onClick={() => setView("law")}>법령 검색</button>
       <button type="button" aria-pressed={view === "decisions"} onClick={() => { setLinkedRequest(null); setView("decisions"); }}>판례·결정례</button>
       <button type="button" aria-pressed={view === "analysis"} onClick={() => { setLinkedAnalysis(null); setView("analysis"); }}>검증·분석</button>
+      <button type="button" aria-pressed={view === "research"} onClick={() => setView("research")}>종합 리서치</button>
     </div>
     <div hidden={view !== "law"}><LawPane onRelated={relatedDecisions} onAnalysis={openAnalysis} /></div>
     <div hidden={view !== "decisions"}>
@@ -54,6 +57,7 @@ export function LawSearch() {
         onCiteCheck={(caseNumber) => openAnalysis({ mode: "cite_check", caseNumber, origin: "decisions" }, "decision-cite-check")} />
     </div>
     <div hidden={view !== "analysis"}><LegalAnalysis linkedRequest={linkedAnalysis} onReturn={returnFromAnalysis} /></div>
+    <div hidden={view !== "research"}><LegalResearch /></div>
   </div>;
 }
 
@@ -222,7 +226,7 @@ function LawPane({ onRelated, onAnalysis }: LawPaneProps) {
             </div>}
             {detail.data.mode !== "toc" || !detail.data.articles?.length ? <pre className="law-detail-raw">{detail.data.text}</pre> : null}
             {detail.data.mode === "toc" && detail.data.articles?.length ? <details className="law-detail-source">
-              <summary>원문 보기</summary>
+              <SourceToggleSummary />
               <pre className="law-detail-raw">{detail.data.text}</pre>
             </details> : null}
             {detail.data.mode === "toc" && detail.data.articles && detail.data.articles.length > 0 && <nav aria-label="조문 목차">
@@ -246,8 +250,8 @@ function LawPane({ onRelated, onAnalysis }: LawPaneProps) {
       </div>
     </form>
 
-    <section className="law-search-results" aria-labelledby="law-results-heading" aria-busy={searchLoading}>
-      <h2 id="law-results-heading">검색 결과{outcome?.kind === "found" ? ` · ${outcome.laws.length}건` : ""}</h2>
+    {(searchLoading || outcome) && <section className="law-search-results" aria-labelledby="law-results-heading" aria-busy={searchLoading}>
+      <h2 id="law-results-heading">검색 결과{outcome?.kind === "found" ? ` · ${outcome.laws.length}건` : outcome?.kind === "empty" ? " · 0건" : ""}</h2>
       {searchLoading ? <p className="law-search-note" role="status">검색 중…</p>
         : !outcome ? null
         : outcome.kind === "error" ? <p className="law-search-error" role="alert">{outcome.message}</p>
@@ -273,6 +277,6 @@ function LawPane({ onRelated, onAnalysis }: LawPaneProps) {
             </li>;
           })}
         </ul>}
-    </section>
+    </section>}
   </div>;
 }

@@ -15,6 +15,9 @@
 .tool-export-button:hover:not(:disabled) { background: var(--blue-hover); }
 .tool-export .tool-export-button:disabled { cursor: not-allowed; opacity: .48; }
 .pdf-tool .tool-export :is(button, select):focus-visible, .image-tool .tool-export :is(button, select):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+/* PDF and image rotate buttons: one circular arrow, 14px, 5px from the label, on the side of the turn. */
+.tool-rotate-button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; }
+.tool-rotate-button svg { flex: none; width: 14px; height: 14px; }
 
 @media (max-width: 760px) {
   .tool-export { align-items: stretch; }
