@@ -1,7 +1,7 @@
 .pdf-tool {
   color: var(--ink);
   display: grid;
-  gap: 26px;
+  gap: 18px;
   min-width: 0;
   padding: 4px 0 44px;
 }
@@ -76,7 +76,6 @@
   .pdf-tool-upload { padding: 18px; }
 }
 @media (max-width: 520px) {
-  .pdf-tool { gap: 26px; }
   .pdf-tool-upload { flex-wrap: wrap; }
   .pdf-tool-upload .pdf-tool-button { width: 100%; }
   .pdf-tool-source { max-width: 100%; width: 100%; }

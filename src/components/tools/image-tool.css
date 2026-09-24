@@ -11,7 +11,7 @@
 .image-tool select { font: inherit; }
 .image-tool button:disabled { cursor: not-allowed; opacity: .48; }
 .image-tool :is(button, input, select):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-.image-tool-intro { margin-bottom: 26px; }
+.image-tool-intro { margin-bottom: 18px; }
 .image-tool-section-heading span { color: var(--blue); font-family: var(--font-mono); font-size: 12px; font-weight: 700; letter-spacing: .105em; }
 .image-tool-layout { display: grid; grid-template-columns: minmax(228px, 270px) minmax(0, 1fr) minmax(228px, 262px); gap: 12px; align-items: stretch; }
 .image-tool-library, .image-tool-stage, .image-tool-controls { min-width: 0; border: 1px solid var(--image-strong-border); border-radius: var(--radius-panel, 4px); background: var(--paper); box-shadow: var(--shadow-surface); }
