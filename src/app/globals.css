@@ -4301,7 +4301,9 @@ body {
 }
 
 .rail-tools-label {
-  margin-top: 20px;
+  margin-top: 26px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(170, 187, 211, 0.16);
 }
 
 .rail-list {
@@ -4617,11 +4619,12 @@ body {
 }
 
 .rail-group-label {
-  color: rgba(255, 255, 255, 0.62);
+  color: #aabbd3;
+  font-weight: 700;
 }
 
 .rail-footer {
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  border-top: 1px solid rgba(170, 187, 211, 0.18);
 }
 
 .rail-item {
@@ -5222,7 +5225,8 @@ body {
   .rail-tools-label {
     display: block;
     flex: 0 0 100%;
-    margin: 8px 0 0;
+    margin: 12px 0 0;
+    padding-top: 12px;
   }
 
   .rail-tools-list {
@@ -6367,8 +6371,9 @@ input:disabled {
 
   .rail-footer {
     width: 100%;
-    margin: 0;
-    padding-top: var(--space-2);
+    margin: 12px 0 0;
+    padding-top: 12px;
+    border-top: 1px solid rgba(170, 187, 211, 0.18);
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 4px;

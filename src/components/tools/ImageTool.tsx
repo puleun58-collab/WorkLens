@@ -1,6 +1,7 @@
 "use client";
 
 import { ChangeEvent, DragEvent, PointerEvent, useEffect, useMemo, useRef, useState } from "react";
+import { GripVertical } from "lucide-react";
 import {
   cropWithinPreview, effectiveCrop, encodeCanvas, encodePdf, fileBase, initialImageEdits,
   MAX_PIXELS, MAX_SIDE, mergeDimensions, outputSize, packageImages, renderImage,
@@ -8,12 +9,16 @@ import {
   type ImageEdits, type ImageFormat, type ImageItem, type MergeLayout, type MergeOptions,
   type Rectangle,
 } from "@/lib/tools/image-editor";
+import { moveItem } from "@/lib/tools/reorder";
+import { useReorder } from "./useReorder";
 import "./image-tool.css";
+import "./reorder.css";
 
 type SelectionMode = "crop" | "mosaic" | null;
 type CropRatio = "free" | "1:1" | "4:3" | "16:9";
 const RATIOS: Record<Exclude<CropRatio, "free">, number> = { "1:1": 1, "4:3": 4 / 3, "16:9": 16 / 9 };
 const QUALITY = { high: 0.92, balanced: 0.72, small: 0.42 } as const;
+const QUALITY_LABELS: Record<keyof typeof QUALITY, string> = { high: "고화질", balanced: "균형 (권장)", small: "강력 압축" };
 const ACCEPT = /\.(jpe?g|png|webp)$/i;
 
 function formatSize(bytes: number): string {
@@ -51,12 +56,20 @@ export function ImageTool() {
   const urls = useRef(new Set<string>());
   const timers = useRef(new Set<number | NodeJS.Timeout>());
   const idCounter = useRef(0);
+  const fileList = useRef<HTMLDivElement>(null);
 
   const current = items.find((item) => item.id === currentId) ?? null;
   const selectedItems = useMemo(() => items.filter((item) => selected.includes(item.id)), [items, selected]);
   const mergeActive = merge && selectedItems.length >= 2;
   const dimensions = current ? outputSize(current) : null;
   const mergedDimensions = mergeActive ? mergeDimensions(selectedItems.map(outputSize), mergeOptions) : null;
+  const reorder = useReorder({
+    ids: items.map((item) => item.id),
+    axis: "y",
+    disabled: busy,
+    scrollContainer: fileList,
+    onMove: (from, to) => setItems((list) => moveItem(list, from, to)),
+  });
   const widthDraft = sizeDraft && current && sizeDraft.edits === current.edits ? sizeDraft.width : String(dimensions?.width ?? "");
   const heightDraft = sizeDraft && current && sizeDraft.edits === current.edits ? sizeDraft.height : String(dimensions?.height ?? "");
   const previewSize = mergeActive ? mergedDimensions : dimensions;
@@ -162,7 +175,7 @@ export function ImageTool() {
     event.target.value = "";
   }
 
-  function handleDrop(event: DragEvent<HTMLDivElement>): void {
+  function handleDrop(event: DragEvent<HTMLElement>): void {
     event.preventDefault();
     if (event.dataTransfer.files.length) void addFiles(event.dataTransfer.files);
   }
@@ -184,18 +197,6 @@ export function ImageTool() {
     const next = selected.includes(id) ? selected.filter((value) => value !== id) : [...selected, id];
     setSelected(next);
     if (next.length < 2) setMerge(false);
-  }
-
-  function moveItem(id: string, direction: -1 | 1): void {
-    if (busyRef.current) return;
-    setItems((list) => {
-      const index = list.findIndex((item) => item.id === id);
-      const next = index + direction;
-      if (index < 0 || next < 0 || next >= list.length) return list;
-      const reordered = [...list];
-      [reordered[index], reordered[next]] = [reordered[next], reordered[index]];
-      return reordered;
-    });
   }
 
   function commitDimension(axis: "width" | "height"): void {
@@ -381,14 +382,13 @@ export function ImageTool() {
       </header>
       <div className="image-tool-layout">
         <aside className="image-tool-library" aria-label="이미지 목록">
-          <div className="image-tool-section-heading"><div><span>01 / FILES</span><h3>작업 이미지 <small>{items.length}</small></h3></div><button type="button" onClick={() => fileInput.current?.click()} disabled={busy || importing}>+ 파일 추가</button></div>
+          <div className="image-tool-section-heading"><div><span>01 / FILES</span><h3>작업 이미지 <small>{items.length}</small></h3></div>{items.length > 0 && <button type="button" onClick={() => fileInput.current?.click()} disabled={busy || importing}>+ 파일 추가</button>}</div>
           <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" multiple hidden onChange={handleFileInput} aria-label="이미지 파일 선택" />
-          <div className="image-tool-drop" onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
-            {items.length === 0 ? <><strong>이미지를 이곳에 놓으세요</strong><span>또는 파일 추가 · JPG / PNG / WebP · 여러 장 가능</span></> : <span>여기에 파일을 놓아 추가할 수 있습니다.</span>}
-          </div>
           {importing && <p className="image-tool-hint" role="status">이미지를 읽는 중…</p>}
-          {items.length > 0 && <div className="image-tool-file-list">
-            {items.map((item, index) => <div key={item.id} className={`image-tool-file${item.id === currentId ? " is-current" : ""}`}>
+          {items.length === 0 ? <p className="image-tool-files-empty">추가된 이미지가 없습니다.</p> : <div ref={fileList} className="image-tool-file-list" onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }} onDrop={handleDrop}>
+            <p className="tool-reorder-live" aria-live="polite">{reorder.announcement}</p>
+            {items.map((item) => <div key={item.id} className={`image-tool-file tool-reorder-y${item.id === currentId ? " is-current" : ""}`} {...reorder.itemProps(item.id)}>
+              <button {...reorder.handleProps(item.id, item.file.name)}><GripVertical aria-hidden="true" /></button>
               <label className="image-tool-file-check" title="내보내기·결합에 포함">
                 <input type="checkbox" checked={selected.includes(item.id)} disabled={busy} onChange={() => toggleSelected(item.id)} aria-label={`${item.file.name} 선택`} />
               </label>
@@ -397,14 +397,13 @@ export function ImageTool() {
                 <img src={item.thumbnail} alt="" />
                 <span><strong title={item.file.name}>{item.file.name}</strong><small>{item.width} × {item.height} · {formatSize(item.file.size)}</small></span>
               </button>
-              <div className="image-tool-order"><button type="button" aria-label={`${item.file.name} 위로 이동`} disabled={index === 0 || busy} onClick={() => moveItem(item.id, -1)}>↑</button><button type="button" aria-label={`${item.file.name} 아래로 이동`} disabled={index === items.length - 1 || busy} onClick={() => moveItem(item.id, 1)}>↓</button><button type="button" aria-label={`${item.file.name} 제거`} disabled={busy} onClick={() => removeItem(item.id)}>×</button></div>
+              <div className="image-tool-order"><button type="button" aria-label={`${item.file.name} 제거`} disabled={busy} onClick={() => removeItem(item.id)}>×</button></div>
             </div>)}
           </div>}
-          {items.length > 0 && <p className="image-tool-hint">현재 편집 이미지와 출력 선택은 별개입니다. 왼쪽 체크박스는 내보낼 이미지, 행을 누르면 편집할 이미지입니다.</p>}
         </aside>
         <main className="image-tool-stage">
           <div className="image-tool-section-heading"><div><span>02 / PREVIEW</span><h3>{mergeActive ? "결합 결과 미리보기" : current ? fileBase(current.file.name) : "미리보기"}</h3></div><span className="image-tool-dimensions">{mergeActive ? `${mergedDimensions?.width} × ${mergedDimensions?.height}px` : dimensions ? `${dimensions.width} × ${dimensions.height}px` : "—"}</span></div>
-          <div className="image-tool-preview">
+          <div className="image-tool-preview" onDragOver={(event) => { if (!current && event.dataTransfer.types.includes("Files")) event.preventDefault(); }} onDrop={(event) => { if (!current) handleDrop(event); }}>
             {current ? (
               <>
                 {previewError && <p role="alert" className="image-tool-preview-error">{previewError}</p>}
@@ -432,10 +431,10 @@ export function ImageTool() {
               </>
             ) : (
               <div className="image-tool-empty">
-                <div className="image-tool-empty-mark">+</div>
-                <strong>이미지 파일을 먼저 추가하세요</strong>
-                <span>한 장씩 편집하거나 선택한 여러 장을 결합할 수 있습니다.</span>
-                <button type="button" onClick={() => fileInput.current?.click()}>이미지 선택</button>
+                <strong>이미지를 추가해 편집을 시작하세요</strong>
+                <span>한 장씩 편집하거나 여러 이미지를 결합할 수 있습니다.</span>
+                <button type="button" onClick={() => fileInput.current?.click()} disabled={importing}>이미지 선택</button>
+                <small>또는 이미지를 여기로 끌어오세요</small>
               </div>
             )}
           </div>
@@ -481,9 +480,7 @@ export function ImageTool() {
           {(format === "jpg" || format === "webp") && (
             <label>품질
               <select value={quality} disabled={busy} onChange={(event) => setQuality(event.target.value as keyof typeof QUALITY)}>
-                <option value="high">고화질 · 92%</option>
-                <option value="balanced">균형 · 72%</option>
-                <option value="small">작은 파일 · 42%</option>
+                {(Object.keys(QUALITY) as (keyof typeof QUALITY)[]).map((level) => <option key={level} value={level}>{QUALITY_LABELS[level]}</option>)}
               </select>
             </label>
           )}

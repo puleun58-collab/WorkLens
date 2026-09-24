@@ -50,13 +50,6 @@ export function normalizeRotation(angle: number): number {
   return ((angle % 360) + 360) % 360;
 }
 
-export function movePdfPage<T>(items: readonly T[], from: number, to: number): T[] {
-  if (from < 0 || from >= items.length || to < 0 || to >= items.length || from === to) return [...items];
-  const next = [...items];
-  next.splice(to, 0, next.splice(from, 1)[0]);
-  return next;
-}
-
 export function pagesForExport(items: readonly PdfPageItem[], scope: "all" | "selected"): PdfPageItem[] {
   return scope === "selected" ? items.filter((page) => page.selected) : [...items];
 }

@@ -1,10 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
+import { GripVertical } from "lucide-react";
 import type { PDFDocumentLoadingTask } from "pdfjs-dist";
 import {
   exportPdfPages,
-  movePdfPage,
   normalizeRotation,
   pagesForExport,
   pdfError,
@@ -16,7 +16,10 @@ import {
   type PdfPageRenderer,
 } from "@/lib/tools/pdf";
 import { loadBrowserPdf, recompressBrowserJpeg, renderBrowserPdfPage } from "@/lib/tools/pdf-render";
+import { moveItem } from "@/lib/tools/reorder";
+import { useReorder } from "./useReorder";
 import "./pdf-tool.css";
+import "./reorder.css";
 
 interface WorkspaceSource extends PdfInputSource {
   id: string;
@@ -105,7 +108,6 @@ export function PdfTool() {
   const sourcesRef = useRef(new Map<string, WorkspaceSource>());
   const importAbort = useRef<AbortController | null>(null);
   const exportAbort = useRef<AbortController | null>(null);
-  const draggedPage = useRef<string | null>(null);
   const downloadUrls = useRef(new Set<string>());
   const downloadTimers = useRef(new Set<number>());
   const renderTail = useRef<Promise<unknown>>(Promise.resolve());
@@ -113,6 +115,12 @@ export function PdfTool() {
   const selectedCount = pages.filter((page) => page.selected).length;
   const exportCount = scope === "selected" ? selectedCount : pages.length;
   const sourceById = useMemo(() => new Map(sources.map((source) => [source.id, source])), [sources]);
+  const reorder = useReorder({
+    ids: pages.map((page) => page.id),
+    axis: "x",
+    disabled: busy,
+    onMove: (from, to) => { setPages((current) => moveItem(current, from, to)); setOutcome(null); },
+  });
 
   useEffect(() => () => {
     importAbort.current?.abort();
@@ -268,7 +276,8 @@ export function PdfTool() {
     {error && <div className="pdf-tool-notice pdf-tool-notice-error" role="alert">{error}</div>}
 
     <section className="pdf-tool-editor" aria-label="페이지 편집">
-      <div className="pdf-tool-section-head"><div><span className="pdf-tool-eyebrow">01 / PAGE COMPOSITION</span><h3>페이지 순서</h3><p>드래그하거나 페이지의 이동 버튼으로 순서를 바꾸세요.</p></div><div className="pdf-tool-counts" role="status" aria-label={`${pages.length}페이지 중 ${selectedCount}개 선택`}><span className="pdf-tool-badge">페이지 <b>{pages.length}</b></span><span className="pdf-tool-badge">선택 <b>{selectedCount}</b></span></div></div>
+      <div className="pdf-tool-section-head"><div><span className="pdf-tool-eyebrow">01 / PAGE COMPOSITION</span><h3>페이지 순서</h3><p>페이지를 끌어서 순서를 바꾸세요.</p></div><div className="pdf-tool-counts" role="status" aria-label={`${pages.length}페이지 중 ${selectedCount}개 선택`}><span className="pdf-tool-badge">페이지 <b>{pages.length}</b></span><span className="pdf-tool-badge">선택 <b>{selectedCount}</b></span></div></div>
+      <p className="tool-reorder-live" aria-live="polite">{reorder.announcement}</p>
       {pages.length === 0 ? <div className="pdf-tool-empty"><div className="pdf-tool-empty-glyph" aria-hidden="true">▤</div><strong>{hadPages ? "내보낼 페이지가 없습니다." : "편집할 페이지가 없습니다"}</strong><span>{hadPages ? "PDF를 다시 추가하면 내보내기를 계속할 수 있습니다." : "PDF를 추가하면 페이지가 여기에 순서대로 표시됩니다."}</span></div> : <>
         <div className="pdf-tool-toolbar">
           <label className="pdf-tool-select-all"><input type="checkbox" checked={pages.every((page) => page.selected)} onChange={(event) => setPages((current) => current.map((page) => ({ ...page, selected: event.target.checked })))} disabled={busy} /> 전체 선택</label>
@@ -281,16 +290,10 @@ export function PdfTool() {
           {pages.map((page, index) => {
             const source = sourceById.get(page.sourceId);
             if (!source) return null;
-            return <article className="pdf-tool-page" data-selected={page.selected} key={page.id} draggable={!busy} onDragStart={(event) => { draggedPage.current = page.id; event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", page.id); }} onDragEnd={() => { draggedPage.current = null; }} onDragOver={(event) => { if (draggedPage.current) { event.preventDefault(); event.dataTransfer.dropEffect = "move"; } }} onDrop={(event) => {
-              event.preventDefault(); event.stopPropagation();
-              const from = pages.findIndex((item) => item.id === draggedPage.current);
-              if (from !== -1) { setPages((current) => movePdfPage(current, current.findIndex((item) => item.id === draggedPage.current), index)); setOutcome(null); }
-              draggedPage.current = null;
-            }}>
-              <div className="pdf-tool-page-top"><span className="pdf-tool-page-number">{String(index + 1).padStart(2, "0")}</span><label><input aria-label={`${index + 1}번 페이지 선택`} type="checkbox" checked={page.selected} disabled={busy} onChange={(event) => setPages((current) => current.map((item) => item.id === page.id ? { ...item, selected: event.target.checked } : item))} /> 선택</label></div>
+            return <article className="pdf-tool-page tool-reorder-x" data-selected={page.selected} key={page.id} {...reorder.itemProps(page.id)}>
+              <div className="pdf-tool-page-top"><span className="pdf-tool-page-grip"><button {...reorder.handleProps(page.id, `${index + 1}번 페이지`)}><GripVertical aria-hidden="true" /></button><span className="pdf-tool-page-number">{String(index + 1).padStart(2, "0")}</span></span><label><input aria-label={`${index + 1}번 페이지 선택`} type="checkbox" checked={page.selected} disabled={busy} onChange={(event) => setPages((current) => current.map((item) => item.id === page.id ? { ...item, selected: event.target.checked } : item))} /> 선택</label></div>
               <PdfThumbnail source={source} page={page} queue={queueRender} />
               <div className="pdf-tool-page-meta"><strong title={source.name}>{source.name}</strong><span>원본 {page.pageNumber}페이지 {page.rotation ? `· +${page.rotation}°` : ""}</span></div>
-              <div className="pdf-tool-page-actions"><button type="button" aria-label={`${index + 1}번 페이지 왼쪽으로 이동`} title="왼쪽으로 이동" disabled={index === 0 || busy} onClick={() => { setPages((current) => movePdfPage(current, index, index - 1)); setOutcome(null); }}>←</button><span>이동</span><button type="button" aria-label={`${index + 1}번 페이지 오른쪽으로 이동`} title="오른쪽으로 이동" disabled={index === pages.length - 1 || busy} onClick={() => { setPages((current) => movePdfPage(current, index, index + 1)); setOutcome(null); }}>→</button></div>
             </article>;
           })}
         </div>

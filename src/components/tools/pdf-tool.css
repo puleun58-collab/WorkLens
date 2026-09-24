@@ -71,10 +71,7 @@
 .pdf-tool-page-meta { display: grid; gap: 3px; padding: 11px 1px 9px; border-bottom: 1px solid var(--border-subtle, var(--line)); }
 .pdf-tool-page-meta strong { font-size: 12px; font-weight: 680; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .pdf-tool-page-meta span { color: var(--muted); font-size: 11px; }
-.pdf-tool-page-actions { display: flex; justify-content: space-between; align-items: center; padding-top: 7px; }
-.pdf-tool-page-actions button { width: 30px; height: 26px; border: 0; border-radius: 5px; background: var(--layer); color: var(--ink); font-size: 14px; }
-.pdf-tool-page-actions button:hover:not(:disabled) { color: var(--blue); background: var(--blue-soft); }
-.pdf-tool-page-actions span { color: var(--muted); font-size: 11px; }
+.pdf-tool-page-grip { display: inline-flex; align-items: center; gap: 2px; margin-left: -6px; }
 /* Export sits flat on the page: a divider and spacing separate it, controls keep their own frames. */
 .pdf-tool-export { padding: 24px 0 0; border-top: 1px solid var(--border-default, var(--line)); }
 .pdf-tool-export .pdf-tool-section-head { margin: 0 0 20px; }

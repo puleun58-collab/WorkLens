@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { unzipSync } from "fflate";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { createPdf } from "../fixtures";
 
 test("TOOLS navigation keeps document files in their own workspace", async ({ page }) => {
@@ -91,6 +91,25 @@ async function downloadBytes(page: Page, click: () => Promise<void>) {
   return { name: download.suggestedFilename(), bytes: new Uint8Array(await readFile(await download.path())) };
 }
 
+/** Drags an item by its grip onto one side of a target, the way a mouse user does. */
+async function dragGrip(page: Page, grip: Locator, target: Locator, side: "before" | "after", axis: "x" | "y") {
+  // Start away from the viewport edges so edge auto-scroll does not move the target mid-gesture.
+  await grip.evaluate((element) => element.scrollIntoView({ block: "center", behavior: "instant" }));
+  const from = (await grip.boundingBox())!;
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(from.x + from.width / 2 + 8, from.y + from.height / 2 + 8, { steps: 3 });
+  const fraction = side === "before" ? 0.25 : 0.75;
+  for (let step = 0; step < 8; step++) {
+    const to = (await target.boundingBox())!;
+    const x = axis === "x" ? to.x + to.width * fraction : to.x + to.width / 2;
+    const y = axis === "y" ? to.y + to.height * fraction : to.y + to.height / 2;
+    await page.mouse.move(x, y, { steps: 2 });
+  }
+  await expect(target).toHaveAttribute("data-drop", side);
+  await page.mouse.up();
+}
+
 async function imageDimensions(page: Page, bytes: Uint8Array, mime: string) {
   return page.evaluate(async ({ image, type }) => {
     const bitmap = await createImageBitmap(new Blob([new Uint8Array(image)], { type }));
@@ -132,7 +151,22 @@ test("PDF editor composes reordered, rotated and deleted pages into real files",
   await page.getByLabel("3번 페이지 선택").check();
   await page.getByRole("button", { name: "선택 삭제" }).click();
   await expect(pages).toHaveCount(3);
-  await page.getByLabel("3번 페이지 왼쪽으로 이동").click();
+  await expect(page.getByRole("button", { name: /(왼쪽|오른쪽|위로|아래로)으로? 이동/ })).toHaveCount(0);
+  // Selection follows the page, not the slot it occupied.
+  await page.getByLabel("3번 페이지 선택").check();
+  await dragGrip(page, page.getByRole("button", { name: "3번 페이지 순서 변경" }), pages.nth(1), "before", "x");
+  await expect(pages.locator(".pdf-tool-page-meta span")).toHaveText(["원본 1페이지", "원본 4페이지", "원본 2페이지 · +90°"]);
+  await expect(page.getByLabel("2번 페이지 선택")).toBeChecked();
+  await expect(page.getByLabel("3번 페이지 선택")).not.toBeChecked();
+  await expect(page.locator(".tool-reorder-live")).toHaveText("2번째 위치로 이동했습니다.");
+  // Keyboard users move one step with the arrow keys on the focused grip.
+  await page.getByRole("button", { name: "2번 페이지 순서 변경" }).focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(pages.locator(".pdf-tool-page-meta span")).toHaveText(["원본 1페이지", "원본 2페이지 · +90°", "원본 4페이지"]);
+  await expect(page.getByRole("button", { name: "3번 페이지 순서 변경" })).toBeFocused();
+  await page.keyboard.press("ArrowLeft");
+  await expect(pages.locator(".pdf-tool-page-meta span")).toHaveText(["원본 1페이지", "원본 4페이지", "원본 2페이지 · +90°"]);
+  await page.getByLabel("2번 페이지 선택").uncheck();
   await expect(pages.locator(".pdf-tool-page-meta span")).toHaveText(["원본 1페이지", "원본 4페이지", "원본 2페이지 · +90°"]);
   const pdf = await downloadBytes(page, () => page.getByRole("button", { name: /파일 다운로드/ }).click());
   expect(pdf.name).toBe("worklens-pages.pdf");
@@ -332,6 +366,121 @@ test("image editor chains resize, rotation, crop and merge with browser-only exp
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   expect(posted).toEqual([]);
   expect(errors).toEqual([]);
+});
+
+test("image tool starts from the preview and exports in the dragged order with identity kept", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
+  await page.goto("/");
+  await page.getByRole("button", { name: "이미지 도구" }).click();
+  const library = page.locator(".image-tool-library");
+  await expect(library.getByText("추가된 이미지가 없습니다.", { exact: true })).toBeVisible();
+  await expect(library.getByRole("button", { name: "+ 파일 추가" })).toHaveCount(0);
+  await expect(page.getByText("이미지를 이곳에 놓으세요")).toHaveCount(0);
+  const preview = page.locator(".image-tool-preview");
+  await expect(preview.getByText("이미지를 추가해 편집을 시작하세요", { exact: true })).toBeVisible();
+  await expect(preview.getByText("한 장씩 편집하거나 여러 이미지를 결합할 수 있습니다.", { exact: true })).toBeVisible();
+  await expect(preview.getByRole("button", { name: "이미지 선택" })).toBeVisible();
+
+  // Solid swatches of distinct widths make every output order observable.
+  const swatches = await page.evaluate(() => [["a.png", "#ff0000", 100], ["b.png", "#00ff00", 120], ["c.png", "#0000ff", 140]].map(([name, color, width]) => {
+    const canvas = document.createElement("canvas");
+    canvas.width = Number(width);
+    canvas.height = 50;
+    const context = canvas.getContext("2d")!;
+    context.fillStyle = String(color);
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    return { name: String(name), data: canvas.toDataURL("image/png").split(",")[1] };
+  }));
+  const fileChooser = page.waitForEvent("filechooser");
+  await preview.getByRole("button", { name: "이미지 선택" }).click();
+  await (await fileChooser).setFiles(swatches.map(({ name, data }) => ({ name, mimeType: "image/png", buffer: Buffer.from(data, "base64") })));
+  const files = page.locator(".image-tool-file strong");
+  await expect(files).toHaveText(["a.png", "b.png", "c.png"]);
+  await expect(library.getByRole("button", { name: "+ 파일 추가" })).toBeVisible();
+  await expect(page.getByText(/별개입니다/)).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /(위로|아래로) 이동/ })).toHaveCount(0);
+
+  await page.getByLabel("형식").selectOption("jpg");
+  await expect(page.getByLabel("품질")).toHaveValue("balanced");
+  await expect(page.getByLabel("품질").locator("option")).toHaveText(["고화질", "균형 (권장)", "강력 압축"]);
+  await expect(page.locator(".image-tool-export")).not.toContainText("%");
+
+  await page.locator(".image-tool-file-open").filter({ hasText: "b.png" }).click();
+  await page.getByLabel("a.png 선택").uncheck();
+  await dragGrip(page, page.getByRole("button", { name: "c.png 순서 변경" }), page.locator(".image-tool-file").first(), "before", "y");
+  await expect(files).toHaveText(["c.png", "a.png", "b.png"]);
+  await expect(page.locator(".image-tool-file.is-current strong")).toHaveText("b.png");
+  await expect(page.getByLabel("a.png 선택")).not.toBeChecked();
+  await expect(page.getByLabel("c.png 선택")).toBeChecked();
+  await page.getByLabel("a.png 선택").check();
+
+  await page.getByRole("button", { name: "b.png 순서 변경" }).focus();
+  await page.keyboard.press("ArrowUp");
+  await expect(files).toHaveText(["c.png", "b.png", "a.png"]);
+  await page.keyboard.press("ArrowDown");
+  await expect(files).toHaveText(["c.png", "a.png", "b.png"]);
+  await expect(page.locator(".tool-reorder-live")).toHaveText("3번째 위치로 이동했습니다.");
+
+  await page.getByLabel("형식").selectOption("png");
+  const zipped = await downloadBytes(page, () => page.getByRole("button", { name: /ZIP 다운로드/ }).click());
+  expect(Object.keys(unzipSync(zipped.bytes))).toEqual(["c.png", "a.png", "b.png"]);
+  await page.getByLabel("형식").selectOption("pdf");
+  const pdf = await downloadBytes(page, () => page.getByRole("button", { name: /파일 다운로드/ }).click());
+  const widths = (await PDFDocument.load(pdf.bytes)).getPages().map((item) => item.getWidth());
+  expect(widths[0]).toBeGreaterThan(widths[2]);
+  expect(widths[2]).toBeGreaterThan(widths[1]);
+  await page.getByLabel("선택 이미지 한 장으로 결합").check();
+  await page.getByLabel("형식").selectOption("png");
+  const merged = await downloadBytes(page, () => page.getByRole("button", { name: /파일 다운로드/ }).click());
+  expect((await imagePixel(page, merged.bytes, 5, 25)).slice(0, 3)).toEqual([0, 0, 255]);
+  expect((await imagePixel(page, merged.bytes, 145, 25)).slice(0, 3)).toEqual([255, 0, 0]);
+  expect((await imagePixel(page, merged.bytes, 245, 25)).slice(0, 3)).toEqual([0, 255, 0]);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test("mobile touch grip auto-scrolls a long image list and drops at the visible target", async ({ page, browserName }) => {
+  test.skip(browserName !== "chromium", "Touch input is exercised through Chromium CDP.");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  await page.getByRole("button", { name: "이미지 도구" }).click();
+  const data = await page.evaluate(() => {
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 16;
+    canvas.getContext("2d")!.fillRect(0, 0, 16, 16);
+    return canvas.toDataURL("image/png").split(",")[1];
+  });
+  await page.getByLabel("이미지 파일 선택").setInputFiles(Array.from({ length: 18 }, (_, i) => ({
+    name: `touch-${String(i).padStart(2, "0")}.png`, mimeType: "image/png", buffer: Buffer.from(data, "base64"),
+  })));
+  await expect(page.getByText("이미지를 읽는 중…")).toHaveCount(0);
+  const list = page.locator(".image-tool-file-list");
+  await expect(page.locator(".image-tool-file")).toHaveCount(18);
+  await list.evaluate((element) => { element.scrollIntoView({ block: "center", behavior: "instant" }); element.scrollTop = 0; });
+  const grip = page.getByRole("button", { name: "touch-00.png 순서 변경" });
+  const from = (await grip.boundingBox())!;
+  const rect = (await list.boundingBox())!;
+  const x = from.x + from.width / 2;
+  const y = from.y + from.height / 2;
+  const edgeY = Math.min(rect.y + rect.height - 24, 820);
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true });
+  const touch = async (type: "touchStart" | "touchMove" | "touchEnd", clientY: number) =>
+    cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x, y: clientY, id: 1 }] });
+  await touch("touchStart", y);
+  await touch("touchMove", y + 8);
+  await touch("touchMove", edgeY);
+  await expect.poll(() => list.evaluate((element) => element.scrollTop)).toBeGreaterThan(100);
+  const target = await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.closest("[data-reorder-id]")?.getAttribute("data-reorder-id"), { x, y: edgeY });
+  expect(target).toBeTruthy();
+  await touch("touchEnd", edgeY);
+  await expect(page.locator(".image-tool-file strong").first()).not.toHaveText("touch-00.png");
+  await expect(page.locator(".tool-reorder-live")).toContainText("위치로 이동했습니다.");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await cdp.detach();
 });
 
 test("large WebP sources use bounded previews without downscaling the export", async ({ page }) => {

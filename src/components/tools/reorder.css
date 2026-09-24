@@ -1,0 +1,15 @@
+/* Shared drag-to-reorder look for PDF pages and image files. */
+.tool-reorder-handle { flex: none; display: inline-grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--muted); cursor: grab; touch-action: none; }
+.tool-reorder-handle:hover:not(:disabled) { background: var(--layer, #f1f3f6); color: var(--ink); }
+.tool-reorder-handle:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
+.tool-reorder-handle:active:not(:disabled) { cursor: grabbing; }
+.tool-reorder-handle:disabled { cursor: not-allowed; opacity: .4; }
+.tool-reorder-handle svg { width: 14px; height: 14px; }
+[data-reorder-id] { position: relative; }
+[data-reorder-id][data-dragging] { opacity: .45; }
+[data-reorder-id][data-drop]::after { content: ""; position: absolute; background: var(--blue); border-radius: 2px; pointer-events: none; }
+.tool-reorder-x[data-drop="before"]::after { left: -7px; top: 0; bottom: 0; width: 2px; }
+.tool-reorder-x[data-drop="after"]::after { right: -7px; top: 0; bottom: 0; width: 2px; }
+.tool-reorder-y[data-drop="before"]::after { top: -3px; left: 0; right: 0; height: 2px; }
+.tool-reorder-y[data-drop="after"]::after { bottom: -3px; left: 0; right: 0; height: 2px; }
+.tool-reorder-live { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

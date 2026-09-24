@@ -3,7 +3,8 @@ import { unzipSync } from "fflate";
 import { degrees, PDFDocument, PDFName, PDFRawStream, StandardFonts } from "pdf-lib";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import { describe, expect, it, vi } from "vitest";
-import { exportPdfPages, movePdfPage, pagesForExport, pdfError, PDF_COMPRESSION, type PdfCompressionLevel, type PdfInputSource, type PdfPageItem } from "@/lib/tools/pdf";
+import { exportPdfPages, pagesForExport, pdfError, PDF_COMPRESSION, type PdfCompressionLevel, type PdfInputSource, type PdfPageItem } from "@/lib/tools/pdf";
+import { moveItem } from "@/lib/tools/reorder";
 
 const jpeg = new Uint8Array(Buffer.from("/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAAAP/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AP//Z", "base64"));
 const png = new Uint8Array(Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64"));
@@ -68,7 +69,7 @@ describe("PDF tools output", () => {
       { id: "second", sourceId: "a", pageNumber: 2, rotation: 270, selected: true },
       { id: "removed", sourceId: "a", pageNumber: 1, rotation: 0, selected: false },
     ];
-    const pages = pagesForExport(movePdfPage(original, 1, 0), "selected");
+    const pages = pagesForExport(moveItem(original, 1, 0), "selected");
     const calls: string[] = [];
     const result = await exportPdfPages({
       pages, sources: inputs, format: "png", compression: KEEP,
@@ -109,17 +110,6 @@ describe("PDF export validation and cancellation", () => {
     expect(pdfError(new Error("Disk read failed"))).toBe("Disk read failed");
     expect(pdfError("Unexpected response")).toBe("Unexpected response");
     expect(pdfError(new Error(""))).toBe("PDF 처리 중 오류가 발생했습니다.");
-  });
-
-  it("returns a separate unchanged sequence for invalid and same-index page moves", () => {
-    const original = ["one", "two", "three"];
-    for (const [from, to] of [[-1, 1], [3, 1], [1, -1], [1, 3], [1, 1]]) {
-      const result = movePdfPage(original, from, to);
-      expect(result).toEqual(original);
-      expect(result).not.toBe(original);
-    }
-    expect(movePdfPage(original, 0, 2)).toEqual(["two", "three", "one"]);
-    expect(original).toEqual(["one", "two", "three"]);
   });
 
   it("exports all pages regardless of selection, but selected scope excludes unselected pages", () => {
