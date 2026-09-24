@@ -7,11 +7,16 @@ import {
   type LawEntry, type LawOutcome, type LawText, type LawTextOutcome,
 } from "@/lib/law-search";
 import { DecisionSearch, type LinkedDecisionSearch } from "./DecisionSearch";
+import { LegalAnalysis, type LinkedAnalysis } from "./LegalAnalysis";
 import "./law-search.css";
 
+type ResearchView = "law" | "decisions" | "analysis";
+
 export function LawSearch() {
-  const [view, setView] = useState<"law" | "decisions">("law");
+  const [view, setView] = useState<ResearchView>("law");
   const [linkedRequest, setLinkedRequest] = useState<LinkedDecisionSearch | null>(null);
+  const [linkedAnalysis, setLinkedAnalysis] = useState<LinkedAnalysis | null>(null);
+  const returnFocus = useRef<string | null>(null);
 
   function relatedDecisions(law: LawEntry, jo: string) {
     setLinkedRequest({ query: `${law.name} ${jo}`, lawName: law.name, jo });
@@ -24,17 +29,40 @@ export function LawSearch() {
     requestAnimationFrame(() => document.getElementById("related-decisions")?.focus());
   }
 
+  /** Opens an analysis from structured law/decision state; `focusId` is the trigger to return to. */
+  function openAnalysis(request: LinkedAnalysis, focusId: string) {
+    returnFocus.current = focusId;
+    setLinkedAnalysis(request);
+    setView("analysis");
+  }
+
+  function returnFromAnalysis(origin: LinkedAnalysis["origin"]) {
+    setView(origin);
+    const focusId = returnFocus.current;
+    if (focusId) requestAnimationFrame(() => document.getElementById(focusId)?.focus());
+  }
+
   return <div className="law-research">
     <div className="law-view-switch" aria-label="법령 자료 유형">
       <button type="button" aria-pressed={view === "law"} onClick={() => setView("law")}>법령 검색</button>
       <button type="button" aria-pressed={view === "decisions"} onClick={() => { setLinkedRequest(null); setView("decisions"); }}>판례·결정례</button>
+      <button type="button" aria-pressed={view === "analysis"} onClick={() => { setLinkedAnalysis(null); setView("analysis"); }}>검증·분석</button>
     </div>
-    <div hidden={view !== "law"}><LawPane onRelated={relatedDecisions} /></div>
-    <div hidden={view !== "decisions"}><DecisionSearch linkedRequest={linkedRequest} onReturnToLaw={returnToLaw} /></div>
+    <div hidden={view !== "law"}><LawPane onRelated={relatedDecisions} onAnalysis={openAnalysis} /></div>
+    <div hidden={view !== "decisions"}>
+      <DecisionSearch linkedRequest={linkedRequest} onReturnToLaw={returnToLaw}
+        onCiteCheck={(caseNumber) => openAnalysis({ mode: "cite_check", caseNumber, origin: "decisions" }, "decision-cite-check")} />
+    </div>
+    <div hidden={view !== "analysis"}><LegalAnalysis linkedRequest={linkedAnalysis} onReturn={returnFromAnalysis} /></div>
   </div>;
 }
 
-function LawPane({ onRelated }: { onRelated: (law: LawEntry, jo: string) => void }) {
+interface LawPaneProps {
+  onRelated: (law: LawEntry, jo: string) => void;
+  onAnalysis: (request: LinkedAnalysis, focusId: string) => void;
+}
+
+function LawPane({ onRelated, onAnalysis }: LawPaneProps) {
   const [query, setQuery] = useState("");
   const [searchLoading, setSearchLoading] = useState(false);
   const [outcome, setOutcome] = useState<LawOutcome | null>(null);
@@ -187,7 +215,11 @@ function LawPane({ onRelated }: { onRelated: (law: LawEntry, jo: string) => void
           </div>
           : detail?.kind === "found" ? <div className="law-detail-content">
             <h3>{activeJo ?? (detail.data.mode === "toc" ? "목차" : "법령 원문")}</h3>
-            {activeJo && <button id="related-decisions" type="button" className="law-search-link law-related-action" onClick={() => onRelated(selected, activeJo)}>관련 판례·결정례</button>}
+            {activeJo && <div className="law-related-actions">
+              <button id="related-decisions" type="button" className="law-search-link" onClick={() => onRelated(selected, activeJo)}>관련 판례·결정례</button>
+              <button id="law-applicable-action" type="button" className="law-search-link" onClick={() => onAnalysis({ mode: "applicable_law", lawName: detail.data.name ?? overview?.name ?? selected.name, jo: activeJo, origin: "law" }, "law-applicable-action")}>시점별 적용 법령</button>
+              <button id="law-impact-action" type="button" className="law-search-link" onClick={() => onAnalysis({ mode: "impact_map", lawName: detail.data.name ?? overview?.name ?? selected.name, jo: activeJo, origin: "law" }, "law-impact-action")}>조문 영향도</button>
+            </div>}
             {detail.data.mode !== "toc" || !detail.data.articles?.length ? <pre className="law-detail-raw">{detail.data.text}</pre> : null}
             {detail.data.mode === "toc" && detail.data.articles?.length ? <details className="law-detail-source">
               <summary>원문 보기</summary>
@@ -208,9 +240,8 @@ function LawPane({ onRelated }: { onRelated: (law: LawEntry, jo: string) => void
 
   return <div className="law-search">
     <form className="law-search-form" role="search" onSubmit={(event) => void search(event)}>
-      <label htmlFor="law-query">법령명 또는 키워드로 현행 법령을 검색하세요.</label>
       <div className="law-search-row">
-        <input id="law-query" type="search" value={query} maxLength={200} placeholder="법령명 또는 키워드 검색" onChange={(event) => setQuery(event.target.value)} />
+        <input id="law-query" type="search" value={query} maxLength={200} placeholder="법령명 또는 키워드 검색" aria-label="법령명 또는 키워드 검색" onChange={(event) => setQuery(event.target.value)} />
         <button type="submit" className="law-search-button" disabled={searchLoading || !query.trim()}>{searchLoading ? "검색 중…" : "검색"}</button>
       </div>
     </form>
@@ -218,7 +249,7 @@ function LawPane({ onRelated }: { onRelated: (law: LawEntry, jo: string) => void
     <section className="law-search-results" aria-labelledby="law-results-heading" aria-busy={searchLoading}>
       <h2 id="law-results-heading">검색 결과{outcome?.kind === "found" ? ` · ${outcome.laws.length}건` : ""}</h2>
       {searchLoading ? <p className="law-search-note" role="status">검색 중…</p>
-        : !outcome ? <p className="law-search-note">법령명 또는 키워드를 입력해 검색하세요.</p>
+        : !outcome ? null
         : outcome.kind === "error" ? <p className="law-search-error" role="alert">{outcome.message}</p>
         : outcome.kind === "empty" ? <p className="law-search-note" role="status">검색 결과가 없습니다. 다른 법령명이나 키워드로 검색해보세요.</p>
         : <ul className="law-search-list">

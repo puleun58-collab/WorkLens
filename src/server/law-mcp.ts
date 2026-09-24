@@ -4,12 +4,14 @@ import { ApiError } from "@/server/http";
 
 /**
  * Server-only client for the public Korean Law MCP (Streamable HTTP, stateless).
- * The four fixed tools are selected by server entry points. The MCP URL and
+ * The fixed tools are selected by server entry points. The MCP URL and
  * 법제처 key come from server configuration; the key travels in the `apikey`
  * header, never in the URL, a log line or a response.
  */
 export const LAW_QUERY_MAX_CHARS = 200;
 const REQUEST_TIMEOUT_MS = 20_000;
+/** `legal_analysis` fans out to many 법제처 requests (citations, citing precedents, five impact axes). */
+const ANALYSIS_TIMEOUT_MS = 45_000;
 const MAX_RESPONSE_BYTES = 512 * 1024;
 
 export interface LawSearchEntry {
@@ -100,9 +102,13 @@ export async function getLawText(
 
 /** Tool names and arguments are fixed by server entry points, never supplied by the caller. */
 export async function callLawTool(
-  tool: "search_law" | "get_law_text" | "search_decisions" | "get_decision_text",
+  tool: "search_law" | "get_law_text" | "search_decisions" | "get_decision_text" | "legal_analysis",
   args: { query: string } | { mst: string; jo?: string } | { lawId: string; jo?: string } |
-    { domain: string; query: string; display: 20; page: number } | { domain: string; id: string; full?: true },
+    { domain: string; query: string; display: 20; page: number } | { domain: string; id: string; full?: true } |
+    { mode: "verify_citations"; text: string; maxCitations: 15 } |
+    { mode: "cite_check"; caseNumber: string; display: 20; deepScan: true } |
+    { mode: "applicable_law"; lawName: string; date: string; jo?: string } |
+    { mode: "impact_map"; lawName: string; jo: string; includeOrdinances: true; includeMermaid: false },
   context: LawContext,
 ): Promise<{ text: string; isError: boolean }> {
   const { LAW_OC: key, LAW_MCP_URL: endpoint } = workerEnv();
@@ -117,7 +123,7 @@ export async function callLawTool(
 
   const started = Date.now();
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(new DOMException("timeout", "TimeoutError")), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(new DOMException("timeout", "TimeoutError")), tool === "legal_analysis" ? ANALYSIS_TIMEOUT_MS : REQUEST_TIMEOUT_MS);
   const onClientAbort = () => controller.abort(new DOMException("client aborted", "AbortError"));
   context.signal?.addEventListener("abort", onClientAbort, { once: true });
   if (context.signal?.aborted) onClientAbort();
@@ -164,7 +170,7 @@ export async function callLawTool(
     clearTimeout(timer);
     context.signal?.removeEventListener("abort", onClientAbort);
     // Operational metadata only: no key, headers, query text or response body.
-    console.info("[LAW][MCP]", { requestId: context.requestId, operation: tool, upstreamStatus, latencyMs: Date.now() - started });
+    console.info("[LAW][MCP]", { requestId: context.requestId, operation: tool, ...("mode" in args ? { mode: args.mode } : {}), upstreamStatus, latencyMs: Date.now() - started });
   }
 }
 

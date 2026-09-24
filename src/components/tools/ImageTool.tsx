@@ -1,7 +1,7 @@
 "use client";
 
 import { ChangeEvent, DragEvent, PointerEvent, useEffect, useMemo, useRef, useState } from "react";
-import { GripVertical } from "lucide-react";
+import { GripVertical, Images } from "lucide-react";
 import {
   cropWithinPreview, effectiveCrop, encodeCanvas, encodePdf, fileBase, initialImageEdits,
   MAX_PIXELS, MAX_SIDE, mergeDimensions, outputSize, packageImages, renderImage,
@@ -386,7 +386,7 @@ export function ImageTool() {
           <div className="image-tool-section-heading"><div><span>01 / FILES</span><h3>작업 이미지 <small>{items.length}</small></h3></div>{items.length > 0 && <button type="button" onClick={() => fileInput.current?.click()} disabled={busy || importing}>+ 파일 추가</button>}</div>
           <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" multiple hidden onChange={handleFileInput} aria-label="이미지 파일 선택" />
           {importing && <p className="image-tool-hint" role="status">이미지를 읽는 중…</p>}
-          {items.length === 0 ? <p className="image-tool-files-empty">추가된 이미지가 없습니다.</p> : <div ref={fileList} className="image-tool-file-list" onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }} onDrop={handleDrop}>
+          {items.length === 0 ? <div className="image-tool-files-empty"><Images aria-hidden="true" /><p>추가된 이미지가 없습니다.</p></div> : <div ref={fileList} className="image-tool-file-list" onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }} onDrop={handleDrop}>
             <p className="tool-reorder-live" aria-live="polite">{reorder.announcement}</p>
             {items.map((item) => <div key={item.id} className={`image-tool-file tool-reorder-y${item.id === currentId ? " is-current" : ""}`} {...reorder.itemProps(item.id)}>
               <button {...reorder.handleProps(item.id, item.file.name)}><GripVertical aria-hidden="true" /></button>

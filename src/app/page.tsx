@@ -1315,7 +1315,7 @@ export default function Home() {
                   : shellView === "PdfTools"
                     ? "PDF 페이지를 정리하고 원하는 형식으로 내보낼 수 있습니다."
                     : shellView === "Law"
-                      ? "법령명 또는 키워드로 현행 법령을 검색합니다."
+                      ? "현행 법령과 판례·결정례를 조회합니다."
                       : "이미지를 편집하고 원하는 형식으로 내보낼 수 있습니다."}
             </span>
           </header>

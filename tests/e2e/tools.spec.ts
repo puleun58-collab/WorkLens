@@ -52,7 +52,9 @@ test("RESEARCH law search sends only the query and separates results, no result 
   await page.getByRole("button", { name: "법령", exact: true }).click();
   await expect(page.getByRole("button", { name: "법령", exact: true })).toHaveAttribute("aria-current", "page");
   await expect(page.locator(".context-bar h1")).toHaveText("법령");
-  await expect(page.getByText("법령명 또는 키워드를 입력해 검색하세요.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "검색 결과", exact: true })).toBeVisible();
+  await expect(page.locator(".law-search-results").locator(".law-search-note, .law-search-list")).toHaveCount(0);
+  await expect(page.getByText("법령명 또는 키워드로 현행 법령을 검색하세요.")).toHaveCount(0);
 
   const input = page.getByRole("searchbox");
   await input.fill("근로기준법");
@@ -258,6 +260,210 @@ test("law article opens deterministic related decisions and returns without refe
   await expect(page.locator(".law-detail-raw")).toContainText("조문 본문");
   await expect(page.getByRole("button", { name: "관련 판례·결정례" })).toBeFocused();
   expect(lawCalls).toEqual([{ query: "근로기준법" }, { mst: "283457" }, { mst: "283457", jo: "제74조" }]);
+});
+
+const ANALYSIS_TEXT: Record<string, string> = {
+  verify_citations: "[PARTIAL_VERIFIED] == 인용 검증 결과 ==\n법령 인용 3건 | ✓ 1 실존 | ✗ 1 오류 | ⌛ 0 폐지 | ⚠ 1 확인필요\n판례 인용 0건 | ✓ 0 실존 | ✗ 0 실존불가 | ⚠ 0 미확인\n\n▶ 법령 인용\n✓ 민법 제750조(불법행위의 내용) 실존\n✗ 형법 제9999조 — [NOT_FOUND] 해당 조문 없음 (존재 범위: 제1조~제372조)\n⚠ 같은 법 시행규칙 제2조 — 법령명 불명확\n\n💡 ⚠ 항목은 법령명 불명확/부분 매칭/API 일시 실패 등. 법령명을 명시하거나 재시도하세요.",
+  cite_check: "═══ 판례 인용 추적 (Citator): 2013다61381 ═══\n대상: 대법원 2018.10.30 선고 2013다61381 전원합의체 판결\n\n📊 판정: ✅ 후속 인용 2건, 변경·폐기 신호 미감지 — 계속 인용되는 것으로 추정\n\n▶ 이 판례를 인용한 후속 판례 (2건, 최신순)\n  1. 대법원 2024.01.25 2019다3226 — 손해배상\n\n⚠️ 한계: 법제처 수록 판례(대법원 중심) 범위 내 검색입니다.",
+  applicable_law: "═══ 행위시법 판단: 도로교통법 @ 2023.05.10 ═══\n\n▶ 기준일에 시행 중이던 버전\n  도로교통법 [시행 2023.04.04] (MST 247265)\n\n▶ 현행과 비교: △ 변경됨 — 현행 본문과 다릅니다.\n\n▶ 적용례·경과조치 발췌 (기준일 사건에 영향 가능 — 반드시 확인)\n  ◆ 부칙 <제20864호, 2025.04.01>\n    제2조(운전면허의 결격사유에 관한 적용례) 긴 부칙 문장이 줄바꿈 없이 이어지는 경우에도 화면 폭 안에서 줄바꿈되어야 합니다",
+  impact_map: "═══ Impact Map: 민법 제103조 ═══\n\n▶ 영향 그래프 (이 조문이 인용된 곳)\n├─ 📚 대법원 판례: 7건 확인 / 검색 42건 — 표본 10건만 경계 확인, 나머지는 미확인\n├─ ⚖️ 헌재 결정례: 조회 실패 (업스트림 오류로 확인 못 함, 0건이 아님)\n└─ 🏛️ 자치법규(법령 단위·조번호 미반영): 2건\n\n▶ 총 영향 건수(경계 확인분): 9건 — 표본을 넘는 검색 결과가 있어 실제는 더 많을 수 있음",
+};
+
+async function routeAnalysis(page: Page, requests: unknown[], failFirst = new Set<string>()) {
+  await page.route("**/api/law/analysis", async (route) => {
+    const input = route.request().postDataJSON() as { mode: string };
+    requests.push(input);
+    if (failFirst.delete(input.mode)) {
+      await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: { code: "LAW_UPSTREAM_UNAVAILABLE", message: "법령 검색 서비스가 일시적으로 응답하지 않습니다.", retryable: true } }) });
+      return;
+    }
+    const text = ANALYSIS_TEXT[input.mode];
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { found: true, mode: input.mode, text, markers: [...text.matchAll(/\[([A-Z][A-Z_]+)\]/gu)].map((match) => match[1]) } }) });
+  });
+}
+
+test("RESEARCH analysis runs each fixed mode, keeps MCP meaning and retries without retyping", async ({ page }) => {
+  const requests: unknown[] = [];
+  const errors: string[] = [];
+  page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
+  await routeAnalysis(page, requests, new Set(["verify_citations"]));
+  await page.goto("/");
+  await expect(page.locator(".app-shell")).toHaveAttribute("data-hydrated", "true");
+  await page.getByRole("button", { name: "법령", exact: true }).click();
+  await page.getByRole("button", { name: "검증·분석", exact: true }).click();
+  const modes = page.getByRole("group", { name: "검증·분석 유형" });
+  await expect(modes.getByRole("button")).toHaveText(["인용 검증", "판례 유효성", "시점별 적용 법령", "조문 영향도"]);
+
+  const text = "민법 제750조와 형법 제9999조, 같은 법 시행규칙 제2조를 인용한다.";
+  await expect(page.getByRole("button", { name: "인용 검증", exact: true }).last()).toBeDisabled();
+  await page.getByLabel("검증할 문장을 입력하세요.").fill(text);
+  await expect(page.getByText(`${text.length} / 5,000자`)).toBeVisible();
+  await page.locator(".legal-analysis-form").getByRole("button", { name: "인용 검증" }).click();
+  await expect(page.locator(".legal-analysis-result [role='alert']")).toContainText("일시적으로 응답하지 않습니다");
+  await page.getByRole("button", { name: "다시 시도" }).click();
+  const citations = page.locator(".legal-analysis-citations li");
+  await expect(citations).toHaveCount(3);
+  await expect(citations.locator(".legal-analysis-status")).toHaveText(["실존 확인", "찾을 수 없음", "확인 필요"]);
+  await expect(citations.nth(2)).toHaveClass(/is-unknown/);
+  await expect(page.locator(".legal-analysis-overall")).toHaveText("확인이 필요한 인용이 있습니다.");
+  expect(requests).toEqual([{ mode: "verify_citations", text }, { mode: "verify_citations", text }]);
+
+  await modes.getByRole("button", { name: "판례 유효성" }).click();
+  await page.getByLabel("사건번호").fill("2013다61381");
+  await page.locator(".legal-analysis-form").getByRole("button", { name: "확인" }).click();
+  await expect(page.locator(".legal-analysis-verdict")).toContainText("변경·폐기 신호 미감지 — 계속 인용되는 것으로 추정");
+  await expect(page.locator(".legal-analysis-output")).toContainText("법제처 수록 판례(대법원 중심) 범위 내 검색입니다.");
+  await expect(page.locator(".legal-analysis-note")).toContainText("법제처에 수록된 판례를 기준으로 확인한 결과입니다.");
+
+  await modes.getByRole("button", { name: "시점별 적용 법령" }).click();
+  const analysisForm = page.locator(".legal-analysis-form");
+  await analysisForm.getByLabel("법령명", { exact: true }).fill("도로교통법");
+  await analysisForm.getByLabel("조문 (선택)").fill("44");
+  const applicableSubmit = page.locator(".legal-analysis-form").getByRole("button", { name: "적용 법령 확인" });
+  await expect(applicableSubmit).toBeDisabled();
+  await analysisForm.getByLabel("기준일").fill("2023-05-10");
+  await applicableSubmit.click();
+  await expect(page.locator(".legal-analysis-output")).toContainText("현행과 비교: △ 변경됨");
+  await expect(page.locator(".legal-analysis-output")).toContainText("부칙 <제20864호, 2025.04.01>");
+
+  await modes.getByRole("button", { name: "조문 영향도" }).click();
+  await analysisForm.getByLabel("법령명", { exact: true }).fill("민법");
+  await analysisForm.getByLabel("조문", { exact: true }).fill("제103조");
+  await page.locator(".legal-analysis-form").getByRole("button", { name: "영향도 확인" }).click();
+  const failedAxis = page.locator(".legal-analysis-axes li.is-failed");
+  await expect(failedAxis).toContainText("조회 실패 · 건수 미확인");
+  await expect(failedAxis).not.toContainText(/: 0건$/);
+  await expect(page.locator(".legal-analysis-output")).toContainText("총 영향 건수(경계 확인분): 9건 — 표본을 넘는 검색 결과가 있어 실제는 더 많을 수 있음");
+  await expect(page.locator(".legal-analysis-output")).not.toContainText("전체 영향");
+
+  expect(requests.slice(2)).toEqual([
+    { mode: "cite_check", caseNumber: "2013다61381" },
+    { mode: "applicable_law", lawName: "도로교통법", date: "2023-05-10", jo: "제44조" },
+    { mode: "impact_map", lawName: "민법", jo: "제103조" },
+  ]);
+  await modes.getByRole("button", { name: "인용 검증" }).click();
+  await expect(citations).toHaveCount(3);
+  expect(requests).toHaveLength(5);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  for (const mode of ["인용 검증", "판례 유효성", "시점별 적용 법령", "조문 영향도"]) {
+    await modes.getByRole("button", { name: mode }).click();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  }
+  // The only expected console line is the browser's own log of the injected 503 before retry.
+  expect(errors.filter((error) => !error.includes("status of 503"))).toEqual([]);
+});
+
+test("law article and precedent detail open analyses with their structured identifiers and return without refetch", async ({ page }) => {
+  const lawCalls: unknown[] = [];
+  const decisionCalls: unknown[] = [];
+  const analysis: unknown[] = [];
+  await routeAnalysis(page, analysis);
+  await page.route("**/api/law", async (route) => {
+    lawCalls.push(route.request().postDataJSON());
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { found: true, laws: [{ name: "근로기준", mst: "283457" }] } }) });
+  });
+  await page.route("**/api/law/text", async (route) => {
+    const input = route.request().postDataJSON();
+    lawCalls.push(input);
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: input.jo
+      ? { found: true, mode: "article", name: "근로기준법", text: "제74조(임산부의 보호)\n① 조문 본문" }
+      : { found: true, mode: "toc", name: "근로기준법", text: "목차 (총 1개 조문)\n제74조 임산부의 보호", articles: [{ jo: "제74조", title: "임산부의 보호" }] } }) });
+  });
+  await page.route("**/api/law/decisions/search", async (route) => {
+    decisionCalls.push(route.request().postDataJSON());
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { found: true, page: 1, text: "[609561] 손해배상", entries: [{ domain: "precedent", id: "609561", title: "손해배상(기)", caseNumber: "2013다61381", court: "대법원" }] } }) });
+  });
+  await page.route("**/api/law/decisions/text", async (route) => {
+    decisionCalls.push(route.request().postDataJSON());
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { found: true, text: "판시사항:\n판결문 원문" } }) });
+  });
+  await page.goto("/");
+  await expect(page.locator(".app-shell")).toHaveAttribute("data-hydrated", "true");
+  await page.getByRole("button", { name: "법령", exact: true }).click();
+  await page.getByRole("searchbox").fill("근로기준법");
+  await page.getByRole("button", { name: "검색", exact: true }).click();
+  await page.locator(".law-search-list button").first().click();
+  await page.getByRole("navigation", { name: "조문 목차" }).getByRole("button", { name: "제74조 임산부의 보호" }).click();
+  await expect(page.locator(".law-detail-raw")).toContainText("조문 본문");
+
+  await page.getByRole("button", { name: "시점별 적용 법령" }).click();
+  await expect(page.getByRole("button", { name: "시점별 적용 법령", pressed: true })).toBeVisible();
+  // The official name from the article text wins over the search-result label.
+  await expect(page.locator("#analysis-applicable-law")).toHaveValue("근로기준법");
+  await expect(page.locator("#analysis-applicable-jo")).toHaveValue("제74조");
+  await expect(page.locator("#analysis-applicable-date")).toHaveValue("");
+  await expect(page.locator("#analysis-applicable-date")).toBeFocused();
+  expect(analysis).toEqual([]);
+  await page.locator("#analysis-applicable-date").fill("2024-01-15");
+  await page.locator(".legal-analysis-form").getByRole("button", { name: "적용 법령 확인" }).click();
+  await expect(page.locator(".legal-analysis-output")).toBeVisible();
+  await page.getByRole("button", { name: "← 법령으로" }).click();
+  await expect(page.locator(".law-detail-raw")).toContainText("조문 본문");
+  await expect(page.getByRole("button", { name: "시점별 적용 법령" })).toBeFocused();
+
+  await page.getByRole("button", { name: "조문 영향도" }).click();
+  await expect(page.locator(".legal-analysis-axes")).toBeVisible();
+  await page.getByRole("button", { name: "← 법령으로" }).click();
+  await expect(page.getByRole("button", { name: "조문 영향도" })).toBeFocused();
+  expect(analysis).toEqual([
+    { mode: "applicable_law", lawName: "근로기준법", date: "2024-01-15", jo: "제74조" },
+    { mode: "impact_map", lawName: "근로기준법", jo: "제74조" },
+  ]);
+
+  await page.locator(".law-view-switch").getByRole("button", { name: "판례·결정례" }).click();
+  await page.getByLabel("검색어").fill("손해배상");
+  await page.getByRole("button", { name: "검색", exact: true }).click();
+  await page.getByRole("button", { name: /손해배상\(기\)/ }).click();
+  await expect(page.locator(".decision-detail-raw")).toContainText("판결문 원문");
+  await page.getByRole("button", { name: "판례 유효성 확인" }).click();
+  await expect(page.getByRole("button", { name: "판례 유효성", pressed: true })).toBeVisible();
+  await expect(page.locator("#analysis-case")).toHaveValue("2013다61381");
+  await expect(page.locator(".legal-analysis-verdict")).toBeVisible();
+  expect(analysis.at(-1)).toEqual({ mode: "cite_check", caseNumber: "2013다61381" });
+  await page.getByRole("button", { name: "← 판례 상세로" }).click();
+  await expect(page.locator(".decision-detail-raw")).toContainText("판결문 원문");
+  await expect(page.getByRole("button", { name: "판례 유효성 확인" })).toBeFocused();
+
+  await page.locator(".law-view-switch").getByRole("button", { name: "법령 검색" }).click();
+  await expect(page.locator(".law-detail-raw")).toContainText("조문 본문");
+  expect(lawCalls).toEqual([{ query: "근로기준법" }, { mst: "283457" }, { mst: "283457", jo: "제74조" }]);
+  expect(decisionCalls).toEqual([{ domain: "precedent", query: "손해배상", page: 1 }, { domain: "precedent", id: "609561" }]);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator(".law-view-switch").getByRole("button", { name: "검증·분석" }).click();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test("law views use the shared tool content width with one left and right edge", async ({ page }) => {
+  await page.route("**/api/law", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { found: true, laws: [{ name: "근로기준법", mst: "283457", status: "현행" }] } }) }));
+  await page.route("**/api/law/text", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { found: true, mode: "article", name: "근로기준법", text: "제74조(임산부의 보호)\n① 조문 본문" } }) }));
+  await page.goto("/");
+  await expect(page.locator(".app-shell")).toHaveAttribute("data-hydrated", "true");
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    await page.getByRole("button", { name: "PDF 도구" }).click();
+    const tool = (await page.locator(".pdf-tool").boundingBox())!;
+    await page.getByRole("button", { name: "법령", exact: true }).click();
+    await page.locator(".law-view-switch").getByRole("button", { name: "법령 검색" }).click();
+    const research = (await page.locator(".law-research").boundingBox())!;
+    expect(Math.abs(research.x - tool.x)).toBeLessThan(1);
+    expect(Math.abs(research.width - tool.width)).toBeLessThan(1);
+    const input = page.getByRole("searchbox");
+    if (!(await page.locator(".law-search-list").count())) {
+      await input.fill("근로기준법");
+      await page.getByRole("button", { name: "검색", exact: true }).click();
+    }
+    await expect(page.getByRole("heading", { name: "검색 결과 · 1건" })).toBeVisible();
+    for (const selector of [".law-research > .law-view-switch", ".law-search-row", "#law-results-heading", ".law-search-list"]) {
+      expect(Math.abs((await page.locator(selector).boundingBox())!.x - research.x), selector).toBeLessThan(1);
+    }
+    for (const selector of [".law-search-row", ".law-search-list"]) {
+      const box = (await page.locator(selector).boundingBox())!;
+      expect(Math.abs(box.x + box.width - (research.x + research.width)), selector).toBeLessThan(1);
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  }
 });
 
 async function downloadBytes(page: Page, click: () => Promise<void>) {
@@ -595,25 +801,38 @@ test("image editor chains resize, rotation, crop and merge with browser-only exp
   expect(errors).toEqual([]);
 });
 
-test("image FILES fits its contents without stretching to PREVIEW", async ({ page }) => {
+test("image FILES is a medium panel that scrolls its list without resizing PREVIEW", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".app-shell")).toHaveAttribute("data-hydrated", "true");
   await page.getByRole("button", { name: "이미지 도구" }).click();
-  await expect(page.locator(".image-tool-library")).toBeVisible();
+  const library = page.locator(".image-tool-library");
+  await expect(library).toBeVisible();
   const geometry = () => page.evaluate(() => {
     const box = (selector: string) => {
       const rect = document.querySelector(selector)!.getBoundingClientRect();
       return { top: rect.top, left: rect.left, width: rect.width, height: rect.height };
     };
+    const list = document.querySelector(".image-tool-file-list");
+    const empty = document.querySelector(".image-tool-files-empty");
+    const files = box(".image-tool-library");
     return {
-      files: box(".image-tool-library"),
-      preview: box(".image-tool-stage"),
-      adjust: box(".image-tool-controls"),
+      files, preview: box(".image-tool-stage"), adjust: box(".image-tool-controls"),
+      emptyAt: empty ? (() => {
+        // Centre of the icon + message block, relative to the whole panel.
+        const parts = [...empty.children].map((child) => child.getBoundingClientRect());
+        return ((parts[0].top + parts[parts.length - 1].bottom) / 2 - files.top) / files.height;
+      })() : null,
+      listScrolls: list ? list.scrollHeight > list.clientHeight : null,
       overflow: document.documentElement.scrollWidth > innerWidth,
     };
   });
   const empty = await geometry();
-  expect(empty.files.height).toBeLessThan(empty.preview.height / 2);
+  // A work panel, not a floating summary card, and never stretched to PREVIEW.
+  expect(empty.files.height).toBeGreaterThanOrEqual(320);
+  expect(empty.files.height).toBeLessThan(empty.preview.height);
+  expect(empty.emptyAt).toBeGreaterThan(0.25);
+  expect(empty.emptyAt).toBeLessThan(0.45);
+  await expect(library.getByRole("button")).toHaveCount(0);
   expect(empty.files.top).toBe(empty.preview.top);
   if (page.viewportSize()!.width > 1190) expect(empty.files.top).toBe(empty.adjust.top);
   else expect(empty.adjust.top).toBeGreaterThan(empty.preview.top + empty.preview.height);
@@ -624,29 +843,32 @@ test("image FILES fits its contents without stretching to PREVIEW", async ({ pag
     canvas.getContext("2d")!.fillRect(0, 0, 16, 16);
     return canvas.toDataURL("image/png").split(",")[1];
   });
-  await page.getByLabel("이미지 파일 선택").setInputFiles(["a.png", "b.png", "c.png"].map((name) => ({
-    name, mimeType: "image/png", buffer: Buffer.from(png, "base64"),
-  })));
+  const add = (names: string[]) => page.getByLabel("이미지 파일 선택").setInputFiles(names.map((name) => ({ name, mimeType: "image/png", buffer: Buffer.from(png, "base64") })));
+  await add(["a.png", "b.png", "c.png"]);
   await expect(page.locator(".image-tool-file")).toHaveCount(3);
+  await expect(library.getByRole("button", { name: "+ 파일 추가" })).toBeVisible();
   const populated = await geometry();
-  expect(populated.files.height).toBeGreaterThan(empty.files.height);
-  expect(populated.files.height).toBeLessThan(populated.preview.height);
-  expect(populated.files.left).toBe(empty.files.left);
-  expect(populated.files.width).toBe(empty.files.width);
+  expect(populated.files).toEqual(empty.files);
   expect(populated.preview).toEqual(empty.preview);
   expect(populated.adjust).toEqual(empty.adjust);
-  await page.getByRole("button", { name: "b.png 제거" }).click();
-  await expect(page.locator(".image-tool-file")).toHaveCount(2);
-  expect((await geometry()).files.height).toBeLessThan(populated.files.height);
-  await page.getByRole("button", { name: "a.png 제거" }).click();
-  await page.getByRole("button", { name: "c.png 제거" }).click();
-  await expect(page.getByText("추가된 이미지가 없습니다.", { exact: true })).toBeVisible();
+
+  await add(Array.from({ length: 12 }, (_, index) => `more-${index + 1}.png`));
+  await expect(page.locator(".image-tool-file")).toHaveCount(15);
+  const long = await geometry();
+  expect(long.listScrolls).toBe(true);
+  expect(long.files.height).toBeLessThanOrEqual(long.preview.height);
+  expect(long.files.width).toBe(empty.files.width);
+  expect(long.preview).toEqual(empty.preview);
+  expect(long.adjust.height).toBe(empty.adjust.height);
+
+  while (await page.locator(".image-tool-file").count()) await page.locator(".image-tool-order button").first().click();
+  await expect(library.getByText("추가된 이미지가 없습니다.", { exact: true })).toBeVisible();
   expect((await geometry()).files.height).toBe(empty.files.height);
 
   await page.setViewportSize({ width: 390, height: 844 });
   const mobile = await geometry();
   expect(mobile.files.width).toBe(mobile.preview.width);
-  expect(mobile.files.height).toBeLessThan(mobile.preview.height);
+  expect(mobile.files.height).toBeLessThan(220);
   expect(mobile.overflow).toBe(false);
 });
 

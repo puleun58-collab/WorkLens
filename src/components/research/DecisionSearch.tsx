@@ -6,6 +6,7 @@ import {
   DECISION_SEARCH_ERROR, DECISION_TEXT_ERROR, decisionSearchOutcome, decisionTextOutcome,
   type DecisionEntry, type DecisionSearchOutcome, type DecisionTextData, type DecisionTextOutcome,
 } from "@/lib/decision-search";
+import { LAW_ANALYSIS_CASE_MAX_CHARS, LAW_ANALYSIS_CASE_PATTERN } from "@/lib/law-analysis";
 import "./decision-search.css";
 
 export interface LinkedDecisionSearch {
@@ -17,9 +18,11 @@ export interface LinkedDecisionSearch {
 interface DecisionSearchProps {
   linkedRequest: LinkedDecisionSearch | null;
   onReturnToLaw: () => void;
+  /** Opens cite_check with the case number the decision search already parsed. */
+  onCiteCheck: (caseNumber: string) => void;
 }
 
-export function DecisionSearch({ linkedRequest, onReturnToLaw }: DecisionSearchProps) {
+export function DecisionSearch({ linkedRequest, onReturnToLaw, onCiteCheck }: DecisionSearchProps) {
   const [query, setQuery] = useState("");
   const [domain, setDomain] = useState<DecisionDomain>("precedent");
   const [page, setPage] = useState(1);
@@ -186,10 +189,15 @@ export function DecisionSearch({ linkedRequest, onReturnToLaw }: DecisionSearchP
 
   if (selected) {
     const text = detail?.kind === "found" ? detail.data : null;
+    // cite_check traces court precedents only; other domains' numbers are not court case numbers.
+    const citeCaseNumber = selected.domain === "precedent" && selected.caseNumber
+      && selected.caseNumber.length <= LAW_ANALYSIS_CASE_MAX_CHARS && LAW_ANALYSIS_CASE_PATTERN.test(selected.caseNumber)
+      ? selected.caseNumber : null;
     return <div className="decision-search decision-detail">
       <div className="decision-detail-actions">
         <button type="button" className="law-search-link" onClick={backToResults}>← 검색 결과로</button>
         {returnButton}
+        {citeCaseNumber && <button id="decision-cite-check" type="button" className="law-search-link" onClick={() => onCiteCheck(citeCaseNumber)}>판례 유효성 확인</button>}
       </div>
       <section aria-labelledby="decision-detail-heading" aria-busy={detailLoading || fullLoading}>
         <h2 id="decision-detail-heading">{text?.title || selected.title || selected.caseNumber || "판례·결정례 원문"}</h2>
