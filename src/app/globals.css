@@ -7117,7 +7117,7 @@ input:disabled {
 .check-results .check-recommendation {
   padding: 8px 10px;
   border: 0;
-  background: var(--warning-soft);
+  background: var(--layer);
   box-shadow: none;
 }
 
