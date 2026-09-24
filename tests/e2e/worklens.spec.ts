@@ -2662,6 +2662,28 @@ test("aggregates workbooks into one XLSX result without profile-specific actions
   expect(headingBox!.x).toBe(fileBox!.x);
   expect(descriptionBox!.x).toBe(fileBox!.x);
   expect(listBox!.x).toBe(fileBox!.x);
+  // Outer layout stays flat on the canvas; only data blocks carry a white surface.
+  const surfaces = await panel.evaluate((element) => {
+    const background = (selector: string) => getComputedStyle(element.querySelector(selector) ?? element).backgroundColor;
+    return {
+      panel: getComputedStyle(element).backgroundColor,
+      heading: background(".result-heading"),
+      toolbar: background(".aggregation-result-toolbar"),
+      section: background(".aggregation-section"),
+      sectionRadius: getComputedStyle(element.querySelector(".aggregation-section")!).borderRadius,
+      workbook: background(".aggregation-workbook"),
+      table: background(".aggregation-preview-wrap"),
+    };
+  });
+  expect(surfaces).toEqual({
+    panel: "rgba(0, 0, 0, 0)",
+    heading: "rgba(0, 0, 0, 0)",
+    toolbar: "rgba(0, 0, 0, 0)",
+    section: "rgba(0, 0, 0, 0)",
+    sectionRadius: "0px",
+    workbook: "rgb(255, 255, 255)",
+    table: "rgb(255, 255, 255)",
+  });
 
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(panel.getByRole("button", { name: "XLSX 다운로드" })).toBeVisible();

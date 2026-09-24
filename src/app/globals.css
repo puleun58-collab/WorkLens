@@ -7888,7 +7888,8 @@ input:disabled {
   color: var(--muted);
 }
 
-/* Aggregation keeps business cells on white; controls and provenance stay outside the preview grid. */
+/* Aggregation sits flat on the page canvas: sections are separated by spacing and a hairline divider,
+ * and only the data blocks inside them (sheet lists, mappings, preview table) get a white surface. */
 .aggregation-section-heading {
   display: flex;
   align-items: center;
@@ -7939,19 +7940,9 @@ input:disabled {
 }
 
 .aggregation-section {
-  padding: 18px 0;
-  border-top: 0;
-  border-bottom: 1px solid var(--border-default);
-  background: #fff;
-}
-
-.aggregation-result-toolbar + .aggregation-section {
+  padding: 20px 0 4px;
   border-top: 1px solid var(--border-default);
-  border-radius: var(--radius-panel) var(--radius-panel) 0 0;
-}
-
-.aggregation-section:last-child {
-  border-radius: 0 0 var(--radius-panel) var(--radius-panel);
+  background: transparent;
 }
 
 .aggregation-section-heading h3,
