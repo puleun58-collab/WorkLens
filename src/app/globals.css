@@ -970,15 +970,17 @@ http://scripts.sil.org/OFL
   --space-8: 64px;
   --font-sans: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", sans-serif;
   --font-mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", "Segoe UI Mono", Consolas, "Pretendard Variable", monospace;
-  --font-size-xs: 0.8125rem;
-  --font-size-sm: 0.875rem;
-  --font-size-md: 0.9375rem;
-  --font-size-lg: 1.1875rem;
-  --font-size-xl: 1.375rem;
-  --font-size-2xl: 1.625rem;
-  --control-height-sm: 35px;
-  --control-height-md: 38px;
-  --control-height-lg: 40px;
+  /* Desktop reading scale: one step above the original 13/14/15px body sizes so
+   * 100% zoom reads like the old 110%; the mobile block restores the old steps. */
+  --font-size-xs: 0.875rem;
+  --font-size-sm: 0.9375rem;
+  --font-size-md: 1rem;
+  --font-size-lg: 1.25rem;
+  --font-size-xl: 1.5rem;
+  --font-size-2xl: 1.75rem;
+  --control-height-sm: 36px;
+  --control-height-md: 40px;
+  --control-height-lg: 44px;
   --font-weight-regular: 400;
   --font-weight-medium: 500;
   --font-weight-semibold: 600;
@@ -1164,7 +1166,7 @@ input:disabled,
 .topbar > p {
   margin: 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   letter-spacing: 0.015em;
 }
 
@@ -1205,7 +1207,7 @@ input:disabled,
   border-radius: var(--radius-control);
   background: var(--paper);
   color: var(--critical);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: var(--font-weight-semibold);
 }
 
@@ -1265,7 +1267,7 @@ input:disabled,
 
 .tabs button > span {
   display: block;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: var(--font-weight-bold);
   letter-spacing: -0.01em;
 }
@@ -1400,7 +1402,7 @@ input:disabled,
 .dropzone > div strong {
   display: block;
   color: var(--ink);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: var(--font-weight-semibold);
 }
 
@@ -1432,7 +1434,7 @@ input:disabled,
   border-radius: var(--radius-control);
   background: var(--blue);
   color: #fff;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: var(--font-weight-semibold);
 }
 
@@ -1466,7 +1468,7 @@ input:disabled,
 .empty-state p {
   max-width: 580px;
   margin: 5px 0 0;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .file-list-head,
@@ -1507,7 +1509,7 @@ input:disabled,
   min-height: 59px;
   padding: 8px 18px;
   border-bottom: 1px solid var(--line-soft);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .file-row:last-child {
@@ -1564,7 +1566,7 @@ input:disabled,
 .file-info strong {
   overflow: hidden;
   color: var(--ink);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: var(--font-weight-semibold);
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1595,7 +1597,7 @@ input:disabled,
   background: var(--paper);
   color: var(--blue-active);
   font-family: var(--font-sans);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: var(--font-weight-semibold);
   line-height: 1.4;
   text-transform: none;
@@ -1800,13 +1802,13 @@ input:disabled,
 
 .status-panel > strong {
   color: var(--ink);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .status-panel p {
   margin: 0;
   color: var(--ink-soft);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .status-panel small {
@@ -1883,7 +1885,7 @@ input:disabled,
   max-width: 720px;
   margin: 9px 0 0;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .state-card small {
@@ -2137,7 +2139,7 @@ input:disabled,
 .subsection-heading h3,
 .subsection-heading h4 {
   margin: 0;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: var(--font-weight-semibold);
 }
 
@@ -2373,7 +2375,7 @@ input:disabled,
   border-left: 2px solid var(--line);
   background: var(--layer);
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .total-row {
@@ -2508,7 +2510,7 @@ input:disabled,
   max-width: 62ch;
   margin: 0;
   color: var(--ink-soft);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.65;
 }
 
@@ -2777,7 +2779,7 @@ input:disabled,
 .check-issue-name > strong {
   display: block;
   color: var(--ink);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: var(--font-weight-bold);
 }
 
@@ -2913,7 +2915,7 @@ input:disabled,
 .paragraph-list p {
   margin: 0;
   color: var(--ink-soft);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .ai-result {
@@ -3394,7 +3396,7 @@ input:disabled,
 
 .claim-row > p {
   margin: 0;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 
@@ -3898,7 +3900,7 @@ input:disabled,
 .source-detail h2 {
   margin: 0;
   overflow: hidden;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: var(--font-weight-semibold);
   line-height: 30px;
   text-overflow: ellipsis;
@@ -3997,7 +3999,7 @@ input:disabled,
   border-left: 2px solid #8ab5d8;
   background: var(--paper);
   color: var(--ink-soft);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.65;
   white-space: pre-wrap;
 }
@@ -4075,9 +4077,7 @@ input:disabled,
 }
 
 body {
-  background:
-    radial-gradient(120% 60% at 50% -10%, #ffffff 0%, rgba(255, 255, 255, 0) 60%),
-    var(--canvas);
+  background: var(--canvas);
 }
 
 .topbar {
@@ -4232,7 +4232,7 @@ body {
   --workspace-max-width: 1480px;
   --rail-inline-padding: 16px;
   --rail-item-inline-padding: 9px;
-  --rail-icon-column: 20px;
+  --rail-icon-column: 21px;
   --topbar-height: 70px;
   --inspector-width: 352px;
   /* Check table column system: shared by the header row and every body row. */
@@ -4599,7 +4599,10 @@ body {
   --blue-soft: #eff6ff;
   --blue-pale: #f5f9ff;
   --focus-ring: #2563eb;
-  --canvas: #f6f8fb;
+  /* One tone below white so data surfaces separate from the page without cards. */
+  --canvas: #f2f4f7;
+  /* Primary white surfaces only (file list, preview, settings, main data table). */
+  --shadow-surface: 0 1px 3px rgba(15, 23, 42, 0.05);
   --paper: #ffffff;
   --ink: #111827;
   --muted: #667085;
@@ -6311,6 +6314,16 @@ input:disabled {
 @media (max-width: 700px) {
   :root {
     --panel-inset: 16px;
+    /* Phones keep their original, already comfortable type and control scale. */
+    --font-size-xs: 0.8125rem;
+    --font-size-sm: 0.875rem;
+    --font-size-md: 0.9375rem;
+    --font-size-lg: 1.1875rem;
+    --font-size-xl: 1.375rem;
+    --font-size-2xl: 1.625rem;
+    --control-height-sm: 35px;
+    --control-height-md: 38px;
+    --control-height-lg: 40px;
   }
 
   .app-shell,
@@ -7956,7 +7969,7 @@ input:disabled {
 .aggregation-section-heading p {
   margin: 4px 0 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .aggregation-workbooks,
@@ -7989,7 +8002,7 @@ input:disabled {
   gap: 10px;
   border-bottom: 1px solid var(--aggregation-line);
   color: var(--ink-secondary);
-  font-size: 12px;
+  font-size: 13px;
   overflow-wrap: anywhere;
 }
 
@@ -8020,7 +8033,7 @@ input:disabled {
   margin: 0;
   padding: 12px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .aggregation-result-sheets {
@@ -8041,7 +8054,7 @@ input:disabled {
   gap: 10px;
   border-bottom: 1px solid var(--aggregation-line);
   background: #fff;
-  font-size: 12px;
+  font-size: 13px;
   overflow-wrap: anywhere;
 }
 
@@ -8087,7 +8100,7 @@ input:disabled {
 .aggregation-mapping > .aggregation-mapping-target {
   min-width: 0;
   color: var(--ink);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: var(--font-weight-semibold);
   overflow-wrap: anywhere;
 }
@@ -8105,13 +8118,13 @@ input:disabled {
   border: 1px solid var(--aggregation-line);
   background: var(--aggregation-header);
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   overflow-wrap: anywhere;
 }
 
 .aggregation-mapping em {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   font-style: normal;
   text-align: right;
 }
@@ -8122,7 +8135,7 @@ input:disabled {
 .aggregation-unlinked {
   margin: 10px 0 0;
   color: var(--warning);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .aggregation-preview-heading {
@@ -8136,7 +8149,7 @@ input:disabled {
 .aggregation-preview-heading h4 {
   margin: 0;
   color: var(--ink);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: var(--font-weight-semibold);
   overflow-wrap: anywhere;
 }
@@ -8144,7 +8157,7 @@ input:disabled {
 .aggregation-preview-heading > span {
   flex: none;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -8166,7 +8179,7 @@ input:disabled {
   min-width: 760px;
   border-collapse: collapse;
   table-layout: fixed;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .aggregation-preview th,
@@ -8210,7 +8223,7 @@ input:disabled {
 .aggregation-preview-provenance {
   margin: 6px 0 0;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   overflow-wrap: anywhere;
 }
 
@@ -8219,7 +8232,7 @@ input:disabled {
   padding: 10px 12px;
   border: 1px solid var(--aggregation-line);
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 @media (max-width: 800px) {
@@ -8848,5 +8861,18 @@ input:disabled {
   .polish-row {
     padding: 14px 14px 16px;
   }
+}
+
+/*
+ * Surface separation: the page stays one tone darker than white, and only the
+ * primary working surface of each screen lifts with a hairline shadow. Repeated
+ * rows, findings, controls and nested blocks stay flat.
+ */
+.workspace .file-list,
+.workspace .qa-overview,
+.workspace .extract-table-wrap,
+.workspace .polish-results,
+.workspace .aggregation-preview-wrap {
+  box-shadow: var(--shadow-surface);
 }
 

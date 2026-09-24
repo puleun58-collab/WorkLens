@@ -1,5 +1,6 @@
 import { zip } from "fflate";
-import { degrees, PDFDocument } from "pdf-lib";
+import { degrees, PDFArray, PDFDocument, PDFName, PDFNumber, PDFRawStream } from "pdf-lib";
+import type { PDFObject } from "pdf-lib";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 
 export interface PdfPageItem {
@@ -18,7 +19,30 @@ export interface PdfInputSource {
 }
 
 export type PdfOutputFormat = "pdf" | "jpg" | "png";
-export type PdfCompression = "off" | "structure" | "raster";
+export type PdfCompressionLevel = "quality" | "balanced" | "size";
+/** How hard to compress, and whether pages may be replaced by pictures of themselves. */
+export interface PdfCompression {
+  level: PdfCompressionLevel;
+  rasterize: boolean;
+}
+
+/**
+ * Per level: embedded JPEG re-encode budget (absent = images untouched) and the
+ * render budget used only when pages are rasterized.
+ */
+export const PDF_COMPRESSION: Record<PdfCompressionLevel, { imageEdge?: number; imageQuality?: number; rasterEdge: number; rasterQuality: number }> = {
+  quality: { rasterEdge: 1800, rasterQuality: 0.85 },
+  balanced: { imageEdge: 2400, imageQuality: 0.78, rasterEdge: 1300, rasterQuality: 0.7 },
+  size: { imageEdge: 1600, imageQuality: 0.6, rasterEdge: 1000, rasterQuality: 0.55 },
+};
+
+/** Re-encodes one JPEG no larger than `maxEdge`; undefined when the browser cannot decode it. */
+export type PdfImageRecompressor = (
+  jpeg: Uint8Array,
+  maxEdge: number,
+  quality: number,
+  signal?: AbortSignal,
+) => Promise<{ bytes: Uint8Array; width: number; height: number } | undefined>;
 
 export interface PdfExportResult {
   bytes: Uint8Array;
@@ -79,17 +103,19 @@ export async function exportPdfPages(options: {
   format: PdfOutputFormat;
   compression: PdfCompression;
   render?: PdfPageRenderer;
+  recompress?: PdfImageRecompressor;
   signal?: AbortSignal;
   onProgress?: (done: number, total: number) => void;
 }): Promise<PdfExportResult> {
-  const { pages, sources, format, compression, render, signal, onProgress } = options;
+  const { pages, sources, format, compression, render, recompress, signal, onProgress } = options;
+  const settings = PDF_COMPRESSION[compression.level];
   if (!pages.length) throw new Error("내보낼 페이지를 선택하세요.");
   ensureNotCancelled(signal);
   const includedSources = new Set(pages.map((page) => page.sourceId));
   const inputBytes = [...includedSources].reduce((sum, id) => sum + (sources.get(id)?.file.size ?? 0), 0);
   const name = format === "pdf" ? "worklens-pages.pdf" : pages.length === 1 ? `page-001.${format}` : `worklens-pages-${format}.zip`;
 
-  if (format === "pdf" && compression !== "raster") {
+  if (format === "pdf" && !compression.rasterize) {
     const result = await PDFDocument.create();
     const loaded = new Map<string, PDFDocument>();
     for (const [index, item] of pages.entries()) {
@@ -109,8 +135,12 @@ export async function exportPdfPages(options: {
       onProgress?.(index + 1, pages.length);
     }
     ensureNotCancelled(signal);
-    // Structure mode allows object streams. This may or may not reduce bytes; caller reports the measured result.
-    const bytes = await result.save({ useObjectStreams: compression === "structure" });
+    if (settings.imageEdge !== undefined && settings.imageQuality !== undefined) {
+      if (!recompress) throw new Error("이미지 압축에는 브라우저 이미지 처리가 필요합니다.");
+      await recompressJpegImages(result, settings.imageEdge, settings.imageQuality, recompress, signal);
+    }
+    // Object streams are lossless; the caller reports the measured size either way.
+    const bytes = await result.save({ useObjectStreams: true });
     ensureNotCancelled(signal);
     return { bytes, name, mime: "application/pdf", pageCount: pages.length, inputBytes };
   }
@@ -123,7 +153,7 @@ export async function exportPdfPages(options: {
     const source = sources.get(item.sourceId);
     if (!source) throw new Error("원본 PDF가 제거되었습니다.");
     const imageFormat = format === "png" ? "png" : "jpg";
-    const rendered = await render(source, item, imageFormat, format === "pdf" ? 1300 : 1800, format === "pdf" ? 0.64 : 0.86, signal);
+    const rendered = await render(source, item, imageFormat, format === "pdf" ? settings.rasterEdge : 1800, format === "pdf" ? settings.rasterQuality : 0.86, signal);
     ensureNotCancelled(signal);
     if (output) {
       const image = await output.embedJpg(rendered.bytes);
@@ -162,4 +192,56 @@ export async function exportPdfPages(options: {
   });
   ensureNotCancelled(signal);
   return { bytes, name, mime: "application/zip", pageCount: pages.length, inputBytes };
+}
+
+/** Number of colour components a JPEG image XObject declares, or undefined when unsafe to re-encode. */
+function jpegComponents(pdf: PDFDocument, colorSpace: PDFObject | undefined): number | undefined {
+  const space = pdf.context.lookup(colorSpace);
+  if (space === PDFName.of("DeviceRGB")) return 3;
+  if (space === PDFName.of("DeviceGray")) return 1;
+  if (space instanceof PDFArray && space.size() === 2 && space.lookup(0) === PDFName.of("ICCBased")) {
+    const profile = space.lookup(1);
+    const count = profile instanceof PDFRawStream ? profile.dict.lookup(PDFName.of("N")) : undefined;
+    return count instanceof PDFNumber && (count.asNumber() === 3 || count.asNumber() === 1) ? count.asNumber() : undefined;
+  }
+  return undefined;
+}
+
+/**
+ * Lossy only for photographs: each plain RGB/Gray JPEG image is re-encoded at the
+ * level's size and quality and kept only if that is smaller. Text, vectors,
+ * links and forms are untouched; CMYK, masked, indexed or decoded images are skipped.
+ */
+async function recompressJpegImages(
+  pdf: PDFDocument,
+  maxEdge: number,
+  quality: number,
+  recompress: PdfImageRecompressor,
+  signal?: AbortSignal,
+): Promise<void> {
+  const dct = PDFName.of("DCTDecode");
+  const images = pdf.context.enumerateIndirectObjects().filter(([, object]) => {
+    if (!(object instanceof PDFRawStream) || object.dict.lookup(PDFName.of("Subtype")) !== PDFName.of("Image")) return false;
+    const filter = object.dict.lookup(PDFName.of("Filter"));
+    const onlyJpeg = filter === dct || (filter instanceof PDFArray && filter.size() === 1 && filter.lookup(0) === dct);
+    const bits = object.dict.lookup(PDFName.of("BitsPerComponent"));
+    return onlyJpeg && bits instanceof PDFNumber && bits.asNumber() === 8
+      && !object.dict.has(PDFName.of("Decode")) && !object.dict.has(PDFName.of("ImageMask"))
+      && jpegComponents(pdf, object.dict.get(PDFName.of("ColorSpace"))) !== undefined;
+  });
+  for (const [ref, object] of images) {
+    ensureNotCancelled(signal);
+    const stream = object as PDFRawStream;
+    const original = stream.getContents();
+    const next = await recompress(original, maxEdge, quality, signal);
+    if (!next || next.bytes.length >= original.length) continue;
+    const dict = stream.dict.clone(pdf.context);
+    dict.set(PDFName.of("Width"), PDFNumber.of(next.width));
+    dict.set(PDFName.of("Height"), PDFNumber.of(next.height));
+    // The browser encoder writes baseline sRGB JPEG, so the declared space follows it.
+    dict.set(PDFName.of("ColorSpace"), PDFName.of("DeviceRGB"));
+    dict.set(PDFName.of("Filter"), dct);
+    dict.delete(PDFName.of("DecodeParms"));
+    pdf.context.assign(ref, PDFRawStream.of(dict, next.bytes));
+  }
 }

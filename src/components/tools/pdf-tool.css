@@ -11,89 +11,101 @@
 .pdf-tool button:disabled { cursor: not-allowed; opacity: .44; }
 .pdf-tool :is(button, select, input):focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; }
 .pdf-tool-intro { display: flex; align-items: end; justify-content: space-between; gap: 24px; padding: 12px 2px 6px; }
-.pdf-tool-eyebrow { color: var(--blue); font-size: 10px; font-weight: 760; letter-spacing: .16em; }
+.pdf-tool-eyebrow { color: var(--blue); font-size: 11px; font-weight: 760; letter-spacing: .16em; }
 .pdf-tool-intro h2 { font-size: clamp(22px, 2vw, 26px); letter-spacing: -.035em; line-height: 1.24; margin: 9px 0 10px; font-weight: 700; }
-.pdf-tool-intro p, .pdf-tool-section-head p { color: var(--muted); margin: 0; font-size: 13px; line-height: 1.6; }
-.pdf-tool-local { flex: none; display: inline-flex; align-items: center; color: var(--muted); padding: 9px 0; font-size: 11px; }
+.pdf-tool-intro p, .pdf-tool-section-head p { color: var(--muted); margin: 0; font-size: 14px; line-height: 1.6; }
 .pdf-tool-panel { border: 1px solid var(--border-default, var(--line)); background: var(--paper); border-radius: var(--radius-panel); box-shadow: none; }
 .pdf-tool-upload { display: flex; align-items: center; gap: 17px; min-height: 112px; padding: 23px 26px; border-style: dashed; background: #fafcff; transition: border-color .22s cubic-bezier(.22,1,.36,1), background .22s cubic-bezier(.22,1,.36,1); }
 .pdf-tool-upload[data-drag-active="true"] { border-color: var(--blue); background: var(--blue-soft); }
 .pdf-tool-upload-mark { display: grid; place-items: center; flex: none; height: 50px; width: 50px; background: #edf3fb; color: var(--blue); border-radius: 11px; font-size: 29px; font-weight: 300; }
 .pdf-tool-upload-copy { display: grid; gap: 6px; min-width: 0; flex: 1; }
 .pdf-tool-upload-copy strong { font-size: 14px; font-weight: 700; }
-.pdf-tool-upload-copy span { color: var(--muted); font-size: 12px; line-height: 1.5; }
-.pdf-tool-button { min-height: 38px; display: inline-flex; align-items: center; justify-content: center; gap: 12px; border: 1px solid transparent; border-radius: 8px; padding: 9px 16px; font-weight: 700 !important; font-size: 12px !important; white-space: nowrap; transition: transform .23s cubic-bezier(.22,1,.36,1), background .23s cubic-bezier(.22,1,.36,1); }
+.pdf-tool-upload-copy span { color: var(--muted); font-size: 13px; line-height: 1.5; }
+.pdf-tool-button { min-height: var(--control-height-md); display: inline-flex; align-items: center; justify-content: center; gap: 12px; border: 1px solid transparent; border-radius: var(--radius-control); padding: 9px 16px; font-weight: 700 !important; font-size: 13px !important; white-space: nowrap; transition: transform .23s cubic-bezier(.22,1,.36,1), background .23s cubic-bezier(.22,1,.36,1); }
 .pdf-tool-button:active:not(:disabled) { transform: scale(.975); }
 .pdf-tool-button-secondary { border-color: var(--border-default, var(--line)); background: var(--paper); color: var(--ink); }
 .pdf-tool-button-secondary:hover:not(:disabled) { background: var(--layer); }
 .pdf-tool-button-primary { background: var(--blue); color: white; padding-left: 21px; }
 .pdf-tool-button-primary:hover:not(:disabled) { background: var(--blue-hover); }
+.pdf-tool-upload-button { padding-left: 18px; padding-right: 18px; }
 .pdf-tool-button-primary span { display: grid; place-items: center; width: 23px; height: 23px; border-radius: 6px; background: rgba(255,255,255,.2); font-size: 16px; line-height: 1; }
 .pdf-tool-input-hidden { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .pdf-tool-sources { display: flex; flex-wrap: wrap; gap: 8px; margin-top: -12px; }
 .pdf-tool-source { display: flex; align-items: center; gap: 10px; min-width: 0; max-width: min(100%, 330px); padding: 8px 8px 8px 10px; border-radius: 8px; background: var(--paper); border: 1px solid var(--border-subtle, var(--line)); }
-.pdf-tool-source-icon { color: #9d353c; background: #fff1f0; border-radius: 4px; font-weight: 800; font-size: 9px; padding: 7px 5px; letter-spacing: -.04em; }
-.pdf-tool-source-name { display: grid; gap: 2px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 650; font-size: 11px; }
-.pdf-tool-source-name small { font-size: 10px; color: var(--muted); font-weight: 450; }
+.pdf-tool-source-icon { color: #9d353c; background: #fff1f0; border-radius: 4px; font-weight: 800; font-size: 10px; padding: 7px 5px; letter-spacing: -.04em; }
+.pdf-tool-source-name { display: grid; gap: 2px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 650; font-size: 12px; }
+.pdf-tool-source-name small { font-size: 11px; color: var(--muted); font-weight: 450; }
 .pdf-tool-icon-button { flex: none; width: 26px; height: 26px; display: grid; place-items: center; padding: 0; border: 0; background: transparent; color: var(--muted); border-radius: 5px; font-size: 19px !important; }
 .pdf-tool-icon-button:hover:not(:disabled) { color: #a52631; background: #fff1f0; }
-.pdf-tool-notice { border: 1px solid #cadced; color: var(--blue-active, var(--blue)); background: var(--blue-soft); border-radius: 8px; padding: 12px 15px; font-size: 12px; line-height: 1.5; }
+.pdf-tool-notice { border: 1px solid #cadced; color: var(--blue-active, var(--blue)); background: var(--blue-soft); border-radius: 8px; padding: 12px 15px; font-size: 13px; line-height: 1.5; }
 .pdf-tool-notice button { border: 0; background: none; color: inherit; font-weight: 700; text-decoration: underline; margin-left: 12px; }
 .pdf-tool-notice-error { background: #fff4f3; border-color: #f4d4d1; color: #93322f; }
 .pdf-tool-editor { min-width: 0; }
 .pdf-tool-section-head { display: flex; justify-content: space-between; align-items: end; gap: 16px; margin: 0 2px 17px; }
 .pdf-tool-section-head h3 { font-size: 18px; letter-spacing: -.035em; line-height: 1.3; margin: 6px 0 4px; font-weight: 740; }
-.pdf-tool-count { border-radius: 7px; background: var(--layer); padding: 8px 10px; white-space: nowrap; font-size: 11px; font-weight: 670; }
-.pdf-tool-count i { display: inline-block; width: 3px; height: 3px; border-radius: 50%; background: var(--muted); vertical-align: middle; margin: 0 7px; }
+.pdf-tool-counts { display: flex; flex: none; gap: 6px; }
+.pdf-tool-badge { display: inline-flex; align-items: baseline; gap: 4px; padding: 4px 10px; border: 1px solid #cfe0f7; border-radius: 999px; background: var(--blue-soft); color: var(--blue-active, var(--blue)); font-size: 12px; font-weight: 600; white-space: nowrap; }
+.pdf-tool-badge b { font-weight: 700; font-variant-numeric: tabular-nums; }
 .pdf-tool-empty { min-height: 236px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; border: 1px solid var(--border-default, var(--line)); border-radius: 11px; background: var(--paper); }
 .pdf-tool-empty-glyph { color: #a1aec0; font-size: 36px; font-weight: 300; line-height: 1.3; }
-.pdf-tool-empty strong { font-size: 13px; }
-.pdf-tool-empty span { color: var(--muted); font-size: 11px; }
+.pdf-tool-empty strong { font-size: 14px; }
+.pdf-tool-empty span { color: var(--muted); font-size: 12px; }
 .pdf-tool-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; border: 1px solid var(--border-default, var(--line)); background: var(--paper); border-radius: 10px 10px 0 0; padding: 9px 12px; }
-.pdf-tool-toolbar button { border: 0; background: transparent; color: var(--ink-soft, var(--ink)); min-height: 32px; border-radius: 6px; padding: 5px 10px; font-size: 11px; font-weight: 650; }
+.pdf-tool-toolbar button { border: 0; background: transparent; color: var(--ink-soft, var(--ink)); min-height: 34px; border-radius: 6px; padding: 5px 10px; font-size: 12px; font-weight: 650; }
 .pdf-tool-toolbar button:hover:not(:disabled) { background: var(--layer); }
 .pdf-tool-toolbar button.pdf-tool-delete { color: #a53636; margin-left: auto; }
 .pdf-tool-toolbar button.pdf-tool-delete:hover:not(:disabled) { background: #fff0f0; }
-.pdf-tool-select-all { display: inline-flex; align-items: center; gap: 8px; padding: 0 8px; font-weight: 700; font-size: 11px; min-height: 32px; cursor: pointer; }
+.pdf-tool-select-all { display: inline-flex; align-items: center; gap: 8px; padding: 0 8px; font-weight: 700; font-size: 12px; min-height: 34px; cursor: pointer; }
 .pdf-tool input[type="checkbox"], .pdf-tool input[type="radio"] { accent-color: var(--blue); width: 15px; height: 15px; margin: 0; cursor: pointer; }
 .pdf-tool-toolbar-divider { width: 1px; height: 17px; background: var(--border-default, var(--line)); margin: 0 5px; }
-.pdf-tool-pages { display: grid; grid-template-columns: repeat(auto-fill, minmax(166px, 1fr)); gap: 13px; padding: 17px; border: 1px solid var(--border-default, var(--line)); border-top: 0; background: #fbfcfe; border-radius: 0 0 10px 10px; }
+.pdf-tool-pages { display: grid; grid-template-columns: repeat(auto-fill, minmax(166px, 1fr)); gap: 13px; padding: 17px; border: 1px solid var(--border-default, var(--line)); border-top: 0; background: #fbfcfe; border-radius: 0 0 10px 10px; box-shadow: var(--shadow-surface); }
 .pdf-tool-page { min-width: 0; background: var(--paper); border: 1px solid var(--border-default, var(--line)); border-radius: var(--radius-panel); padding: 11px; box-shadow: none; }
 .pdf-tool-page[data-selected="true"] { border-color: var(--blue); background: #f8fbff; }
 .pdf-tool-page-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 9px; }
-.pdf-tool-page-top label { display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 10px; cursor: pointer; }
-.pdf-tool-page-number { color: var(--blue); font-size: 11px; font-weight: 790; font-variant-numeric: tabular-nums; }
+.pdf-tool-page-top label { display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 11px; cursor: pointer; }
+.pdf-tool-page-number { color: var(--blue); font-size: 12px; font-weight: 790; font-variant-numeric: tabular-nums; }
 .pdf-tool-thumb { position: relative; height: 157px; display: grid; place-items: center; padding: 6px; overflow: hidden; border-radius: 5px; background: #edf0f5; }
 .pdf-tool-thumb img { display: block; max-height: 100%; max-width: 100%; object-fit: contain; box-shadow: 0 2px 7px rgba(18,32,54,.12); }
-.pdf-tool-thumb span { color: var(--muted); text-align: center; line-height: 1.5; font-size: 10px; padding: 8px; }
-.pdf-tool-thumb .pdf-tool-thumb-dimensions { position: absolute; right: 4px; bottom: 4px; border-radius: 3px; padding: 3px 5px; background: rgba(255,255,255,.94); color: var(--ink); font-size: 9px; font-variant-numeric: tabular-nums; }
+.pdf-tool-thumb span { color: var(--muted); text-align: center; line-height: 1.5; font-size: 11px; padding: 8px; }
+.pdf-tool-thumb .pdf-tool-thumb-dimensions { position: absolute; right: 4px; bottom: 4px; border-radius: 3px; padding: 3px 5px; background: rgba(255,255,255,.94); color: var(--ink); font-size: 10px; font-variant-numeric: tabular-nums; }
 .pdf-tool-page-meta { display: grid; gap: 3px; padding: 11px 1px 9px; border-bottom: 1px solid var(--border-subtle, var(--line)); }
-.pdf-tool-page-meta strong { font-size: 11px; font-weight: 680; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.pdf-tool-page-meta span { color: var(--muted); font-size: 10px; }
+.pdf-tool-page-meta strong { font-size: 12px; font-weight: 680; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.pdf-tool-page-meta span { color: var(--muted); font-size: 11px; }
 .pdf-tool-page-actions { display: flex; justify-content: space-between; align-items: center; padding-top: 7px; }
 .pdf-tool-page-actions button { width: 30px; height: 26px; border: 0; border-radius: 5px; background: var(--layer); color: var(--ink); font-size: 14px; }
 .pdf-tool-page-actions button:hover:not(:disabled) { color: var(--blue); background: var(--blue-soft); }
-.pdf-tool-page-actions span { color: var(--muted); font-size: 10px; }
-.pdf-tool-export { padding: 23px 25px 20px; }
+.pdf-tool-page-actions span { color: var(--muted); font-size: 11px; }
+/* Export sits flat on the page: a divider and spacing separate it, controls keep their own frames. */
+.pdf-tool-export { padding: 24px 0 0; border-top: 1px solid var(--border-default, var(--line)); }
 .pdf-tool-export .pdf-tool-section-head { margin: 0 0 20px; }
 .pdf-tool-export-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 14px; }
-.pdf-tool-export-grid label { display: grid; gap: 7px; font-size: 11px; font-weight: 700; }
-.pdf-tool-export-grid select { width: 100%; min-height: 39px; padding: 8px 12px; border: 1px solid var(--border-default, var(--line)); border-radius: 7px; background: var(--paper); color: var(--ink); font-size: 12px; }
+.pdf-tool-export-grid label { display: grid; gap: 7px; font-size: 12px; font-weight: 700; }
+.pdf-tool-export-grid select { width: 100%; min-height: var(--control-height-md); padding: 8px 12px; border: 1px solid var(--border-default, var(--line)); border-radius: 7px; background: var(--paper); color: var(--ink); font-size: 13px; }
 .pdf-tool-compression { border: 0; border-top: 1px solid var(--border-subtle, var(--line)); margin: 22px 0 0; padding: 17px 0 0; display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 10px; }
-.pdf-tool-compression legend { float: left; width: 100%; margin-bottom: 12px; font-size: 11px; font-weight: 700; }
+.pdf-tool-compression legend { float: left; width: 100%; margin-bottom: 6px; font-size: 13px; font-weight: 700; }
+.pdf-tool-compression-help { grid-column: 1 / -1; margin: 0 0 4px; color: var(--muted); font-size: 12px; line-height: 1.55; }
 .pdf-tool-compression label { display: flex; gap: 9px; align-items: flex-start; border: 1px solid var(--border-default, var(--line)); background: var(--paper); border-radius: 7px; padding: 13px 11px; cursor: pointer; }
 .pdf-tool-compression label:has(input:checked) { border-color: var(--blue); background: #f8fbff; }
 .pdf-tool-compression label input { flex: none; margin-top: 1px; }
 .pdf-tool-compression label span { display: grid; gap: 6px; }
-.pdf-tool-compression strong { font-size: 11px; line-height: 1.35; }
-.pdf-tool-compression small { color: var(--muted); font-size: 10px; line-height: 1.55; }
-.pdf-tool-export-hint { background: #f7f9fc; border-radius: 7px; padding: 11px 12px; color: var(--muted); font-size: 11px; line-height: 1.5; margin: 16px 0 0; }
+.pdf-tool-compression strong { font-size: 12px; line-height: 1.35; }
+.pdf-tool-compression small { color: var(--muted); font-size: 11px; line-height: 1.55; }
+.pdf-tool-advanced { margin-top: 16px; }
+.pdf-tool-advanced summary { width: fit-content; padding: 4px 0; color: var(--ink-soft, var(--ink)); font-size: 13px; font-weight: 700; cursor: pointer; }
+.pdf-tool-advanced label { display: flex; gap: 9px; align-items: flex-start; margin-top: 8px; padding: 13px 11px; border: 1px solid var(--border-default, var(--line)); border-radius: 7px; background: var(--paper); cursor: pointer; }
+/* Rasterizing drops text, links and forms: the chosen state reads as a caution, not a recommendation. */
+.pdf-tool-advanced label:has(input:checked) { border-color: #e2c48a; background: var(--warning-soft); }
+.pdf-tool-advanced label input { flex: none; margin-top: 1px; }
+.pdf-tool-advanced label span { display: grid; gap: 6px; }
+.pdf-tool-advanced strong { font-size: 12px; line-height: 1.35; }
+.pdf-tool-advanced small { color: var(--muted); font-size: 11px; line-height: 1.55; }
+.pdf-tool-export-hint { background: #f7f9fc; border-radius: 7px; padding: 11px 12px; color: var(--muted); font-size: 12px; line-height: 1.5; margin: 16px 0 0; }
 .pdf-tool-export-footer { border-top: 1px solid var(--border-subtle, var(--line)); margin-top: 21px; padding-top: 18px; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .pdf-tool-export-summary { display: grid; gap: 4px; }
-.pdf-tool-export-summary strong { font-size: 12px; }
-.pdf-tool-export-summary span { font-size: 10px; color: var(--muted); }
+.pdf-tool-export-summary strong { font-size: 13px; }
+.pdf-tool-export-summary span { font-size: 11px; color: var(--muted); }
 .pdf-tool-export-actions { display: flex; gap: 8px; align-items: center; }
-.pdf-tool-outcome { margin-top: 16px; background: #eef8f2; color: #176343; border-radius: 7px; padding: 10px 12px; font-size: 11px; line-height: 1.5; }
+.pdf-tool-outcome { margin-top: 16px; background: #eef8f2; color: #176343; border-radius: 7px; padding: 10px 12px; font-size: 12px; line-height: 1.5; }
 @media (max-width: 780px) {
   .pdf-tool-intro { align-items: flex-start; flex-direction: column; gap: 15px; }
   .pdf-tool-compression { grid-template-columns: 1fr; }
@@ -109,7 +121,7 @@
   .pdf-tool-pages { grid-template-columns: repeat(2, minmax(0,1fr)); gap: 8px; padding: 9px; }
   .pdf-tool-page { padding: 7px; }
   .pdf-tool-thumb { height: 132px; }
-  .pdf-tool-export { padding: 19px 15px; }
+  .pdf-tool-export { padding: 20px 0 0; }
   .pdf-tool-export-grid { grid-template-columns: 1fr; }
   .pdf-tool-export-footer { flex-wrap: wrap; }
   .pdf-tool-export-actions, .pdf-tool-export-actions .pdf-tool-button-primary { width: 100%; }

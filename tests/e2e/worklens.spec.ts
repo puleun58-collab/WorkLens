@@ -1042,7 +1042,8 @@ test("presents text Polish as an immediate original-to-revision workflow", async
   expect(surface).toMatchObject({
     resultBackground: "rgb(255, 255, 255)",
     resultBorder: "1px",
-    resultShadow: "none",
+    // The primary result surface lifts by the shared hairline shadow only.
+    resultShadow: "rgba(15, 23, 42, 0.05) 0px 1px 3px 0px",
     cardBackground: "rgb(247, 249, 252)",
     cardBorder: "1px",
     revisionBackground: "rgb(239, 246, 255)",
@@ -1745,7 +1746,7 @@ test("reviews PPTX writing, consistency and data findings with filters and exact
     };
   });
   expect(overviewStyle.width).toBeLessThanOrEqual(450);
-  expect(overviewStyle).toMatchObject({ background: "rgb(255, 255, 255)", borderWidth: "1px", boxShadow: "none" });
+  expect(overviewStyle).toMatchObject({ background: "rgb(255, 255, 255)", borderWidth: "1px", boxShadow: "rgba(15, 23, 42, 0.05) 0px 1px 3px 0px" });
   expect(await overview.locator(".qa-summary-line span").nth(1).evaluate((element) => getComputedStyle(element).borderLeftWidth)).toBe("1px");
   await expect(page.getByText("낮은 확신 포함")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "용어 사전" })).toBeVisible();
@@ -1819,9 +1820,9 @@ test("reviews PPTX writing, consistency and data findings with filters and exact
     boxShadow: "none",
     paddingLeft: "10px",
     labelWeight: "600",
-    suggestionSize: "15px",
-    descriptionSize: "15px",
-    sourceSize: "13px",
+    suggestionSize: "16px",
+    descriptionSize: "16px",
+    sourceSize: "14px",
   });
   expect(suggestionHierarchy.suggestionColor).not.toBe(suggestionHierarchy.descriptionColor);
   expect(await typo.evaluate((issue) => getComputedStyle(issue).backgroundColor)).toBe("rgb(255, 255, 255)");

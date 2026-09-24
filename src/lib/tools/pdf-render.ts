@@ -78,3 +78,37 @@ export async function renderBrowserPdfPage(
     if (canvas) { canvas.width = 0; canvas.height = 0; }
   }
 }
+
+/** Decodes one embedded JPEG, scales it to `maxEdge`, and re-encodes it; undefined if the browser cannot decode it. */
+export async function recompressBrowserJpeg(
+  jpeg: Uint8Array,
+  maxEdge: number,
+  quality: number,
+  signal?: AbortSignal,
+): Promise<{ bytes: Uint8Array; width: number; height: number } | undefined> {
+  ensureNotCancelled(signal);
+  let bitmap: ImageBitmap;
+  try {
+    bitmap = await createImageBitmap(new Blob([jpeg as Uint8Array<ArrayBuffer>], { type: "image/jpeg" }));
+  } catch {
+    // CMYK or otherwise unsupported JPEGs keep their original bytes.
+    return undefined;
+  }
+  const canvas = document.createElement("canvas");
+  try {
+    const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height));
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    const context = canvas.getContext("2d", { alpha: false });
+    if (!context) return undefined;
+    context.imageSmoothingQuality = "high";
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
+    ensureNotCancelled(signal);
+    return blob ? { bytes: new Uint8Array(await blob.arrayBuffer()), width: canvas.width, height: canvas.height } : undefined;
+  } finally {
+    bitmap.close();
+    canvas.width = 0;
+    canvas.height = 0;
+  }
+}

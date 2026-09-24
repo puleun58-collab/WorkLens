@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { unzipSync } from "fflate";
-import { PDFDocument } from "pdf-lib";
+import { PDFDocument, StandardFonts } from "pdf-lib";
 import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
 import { expect, test, type Page } from "@playwright/test";
 import { createPdf } from "../fixtures";
@@ -126,7 +126,7 @@ test("PDF editor composes reordered, rotated and deleted pages into real files",
   expect(errors).toEqual([]);
 });
 
-test("PDF raster compression reduces a real image-heavy file with explicit content-loss warning", async ({ page }) => {
+test("PDF compression shrinks embedded photos while keeping text, and rasterizing is an explicit advanced option", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "PDF 도구" }).click();
   const jpeg = Buffer.from(await page.evaluate(() => {
@@ -146,22 +146,46 @@ test("PDF raster compression reduces a real image-heavy file with explicit conte
     return canvas.toDataURL("image/jpeg", 0.94).split(",")[1];
   }), "base64");
   const source = await PDFDocument.create();
+  const font = await source.embedFont(StandardFonts.Helvetica);
   const sheet = source.addPage([600, 600]);
   for (let index = 0; index < 6; index++) {
     const embedded = await source.embedJpg(jpeg);
     sheet.drawImage(embedded, { x: 0, y: 0, width: 600, height: 600 });
   }
+  sheet.drawText("KEEP TEXT", { x: 40, y: 40, font, size: 18 });
   const original = await source.save();
   await page.getByLabel("PDF 파일 선택").setInputFiles({
     name: "image-heavy.pdf", mimeType: "application/pdf", buffer: Buffer.from(original),
   });
   await expect(page.locator(".pdf-tool-page")).toHaveCount(1);
-  await page.getByRole("radio", { name: /크기 우선/ }).check();
-  await expect(page.getByText(/글자 선택·검색, 링크, 양식 및 벡터 품질이 손실됩니다/)).toBeVisible();
-  const compressed = await downloadBytes(page, () => page.getByRole("button", { name: /파일 다운로드/ }).click());
-  expect(compressed.bytes.length).toBeLessThan(original.length);
-  expect((await PDFDocument.load(compressed.bytes)).getPageCount()).toBe(1);
-  await expect(page.locator(".pdf-tool-outcome")).toContainText(/작음/);
+  await expect(page.locator(".pdf-tool-badge")).toHaveText(["페이지 1", "선택 0"]);
+  await expect(page.getByRole("group", { name: "PDF 압축" })).toBeVisible();
+
+  const textOf = async (bytes: Uint8Array) => {
+    pdfjs.GlobalWorkerOptions.workerSrc = new URL("../../public/pdf.worker.mjs", import.meta.url).href;
+    const task = pdfjs.getDocument({ data: bytes.slice() });
+    try {
+      return (await (await (await task.promise).getPage(1)).getTextContent()).items.map((item) => "str" in item ? item.str : "").join(" ");
+    } finally { await task.destroy(); }
+  };
+  await page.getByRole("radio", { name: /균형 압축/ }).check();
+  const balanced = await downloadBytes(page, () => page.getByRole("button", { name: /파일 다운로드/ }).click());
+  expect(balanced.bytes.length).toBeLessThan(original.length);
+  expect(await textOf(balanced.bytes)).toContain("KEEP TEXT");
+  await expect(page.locator(".pdf-tool-outcome")).toContainText(/감소/);
+
+  await page.getByRole("radio", { name: /용량 우선/ }).check();
+  const smallest = await downloadBytes(page, () => page.getByRole("button", { name: /파일 다운로드/ }).click());
+  expect(smallest.bytes.length).toBeLessThan(balanced.bytes.length);
+  expect(await textOf(smallest.bytes)).toContain("KEEP TEXT");
+
+  await page.getByText("고급 옵션").click();
+  await page.getByRole("checkbox", { name: /페이지를 이미지로 변환하여 저장/ }).check();
+  await expect(page.getByText(/텍스트 선택·검색, 링크, 양식 정보가 사라집니다/)).toBeVisible();
+  const rasterized = await downloadBytes(page, () => page.getByRole("button", { name: /파일 다운로드/ }).click());
+  expect(rasterized.bytes.length).toBeLessThan(original.length);
+  expect((await PDFDocument.load(rasterized.bytes)).getPageCount()).toBe(1);
+  expect(await textOf(rasterized.bytes)).not.toContain("KEEP TEXT");
 });
 
 test("image editor chains resize, rotation, crop and merge with browser-only exports", async ({ page }) => {

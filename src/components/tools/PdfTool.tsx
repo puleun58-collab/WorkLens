@@ -9,13 +9,14 @@ import {
   pagesForExport,
   pdfError,
   type PdfCompression,
+  type PdfCompressionLevel,
   type PdfExportResult,
   type PdfInputSource,
   type PdfOutputFormat,
   type PdfPageItem,
   type PdfPageRenderer,
 } from "@/lib/tools/pdf";
-import { loadBrowserPdf, renderBrowserPdfPage } from "@/lib/tools/pdf-render";
+import { loadBrowserPdf, recompressBrowserJpeg, renderBrowserPdfPage } from "@/lib/tools/pdf-render";
 import "./pdf-tool.css";
 
 interface WorkspaceSource extends PdfInputSource {
@@ -23,6 +24,12 @@ interface WorkspaceSource extends PdfInputSource {
   pageCount: number;
   task: PDFDocumentLoadingTask;
 }
+
+const COMPRESSION_LEVELS: ReadonlyArray<{ level: PdfCompressionLevel; label: string; detail: string }> = [
+  { level: "quality", label: "품질 우선", detail: "텍스트와 이미지를 그대로 두고 파일 구조만 정리합니다. 용량 감소는 작을 수 있습니다." },
+  { level: "balanced", label: "균형 압축", detail: "문서 속 JPG 이미지를 적당히 다시 압축합니다. 텍스트와 링크는 유지됩니다." },
+  { level: "size", label: "용량 우선", detail: "문서 속 JPG 이미지를 더 작게 줄입니다. 이미지 화질이 낮아질 수 있습니다." },
+];
 
 function prettyBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -88,7 +95,7 @@ export function PdfTool() {
   const [pages, setPages] = useState<PdfPageItem[]>([]);
   const [hadPages, setHadPages] = useState(false);
   const [format, setFormat] = useState<PdfOutputFormat>("pdf");
-  const [compression, setCompression] = useState<PdfCompression>("off");
+  const [compression, setCompression] = useState<PdfCompression>({ level: "quality", rasterize: false });
   const [scope, setScope] = useState<"all" | "selected">("all");
   const [uploading, setUploading] = useState("");
   const [exporting, setExporting] = useState("");
@@ -204,6 +211,7 @@ export function PdfTool() {
         format,
         compression,
         render: queueRender,
+        recompress: recompressBrowserJpeg,
         signal: controller.signal,
         onProgress: (done, total) => { if (!controller.signal.aborted) setExporting(`${done}/${total} 페이지 처리 중`); },
       });
@@ -239,14 +247,13 @@ export function PdfTool() {
 
   return <div className="pdf-tool">
     <div className="pdf-tool-intro">
-      <div><span className="pdf-tool-eyebrow">PDF · 브라우저 작업공간</span><h2>페이지 편집</h2><p>여러 PDF의 페이지를 한곳에 모아 정렬하고, 회전하고, 필요한 형식으로 저장하세요.</p></div>
-      <div className="pdf-tool-local">브라우저 안에서만 처리 · 서버 전송 없음</div>
+      <div><span className="pdf-tool-eyebrow">PDF · 브라우저 작업공간</span><h2>페이지 편집</h2><p>여러 PDF의 페이지를 모아 순서를 바꾸고, 필요한 형식으로 저장합니다.</p></div>
     </div>
 
     <section className="pdf-tool-panel pdf-tool-upload" aria-label="PDF 파일 추가" onDragOver={(event) => { event.preventDefault(); if (event.dataTransfer.types.includes("Files")) setDropActive(true); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDropActive(false); }} onDrop={handleDrop} data-drag-active={dropActive}>
       <div className="pdf-tool-upload-mark" aria-hidden="true">＋</div>
       <div className="pdf-tool-upload-copy"><strong>PDF를 이곳에 놓으세요</strong><span>여러 파일을 함께 추가할 수 있습니다. 원본 파일은 수정되지 않습니다.</span></div>
-      <button type="button" className="pdf-tool-button pdf-tool-button-secondary" onClick={() => inputRef.current?.click()} disabled={busy}>{sources.length ? "PDF 추가" : "PDF 파일 선택"}</button>
+      <button type="button" className="pdf-tool-button pdf-tool-button-primary pdf-tool-upload-button" onClick={() => inputRef.current?.click()} disabled={busy}>{sources.length ? "PDF 추가" : "PDF 파일 선택"}</button>
       <input ref={inputRef} className="pdf-tool-input-hidden" aria-label="PDF 파일 선택" type="file" accept=".pdf,application/pdf" multiple onChange={handleInput} />
     </section>
 
@@ -262,7 +269,7 @@ export function PdfTool() {
     {error && <div className="pdf-tool-notice pdf-tool-notice-error" role="alert">{error}</div>}
 
     <section className="pdf-tool-editor" aria-label="페이지 편집">
-      <div className="pdf-tool-section-head"><div><span className="pdf-tool-eyebrow">01 / PAGE COMPOSITION</span><h3>페이지 순서</h3><p>드래그하거나 페이지의 이동 버튼으로 순서를 바꾸세요.</p></div><span className="pdf-tool-count">{pages.length} 페이지 <i /> {selectedCount} 선택</span></div>
+      <div className="pdf-tool-section-head"><div><span className="pdf-tool-eyebrow">01 / PAGE COMPOSITION</span><h3>페이지 순서</h3><p>드래그하거나 페이지의 이동 버튼으로 순서를 바꾸세요.</p></div><div className="pdf-tool-counts" role="status" aria-label={`${pages.length}페이지 중 ${selectedCount}개 선택`}><span className="pdf-tool-badge">페이지 <b>{pages.length}</b></span><span className="pdf-tool-badge">선택 <b>{selectedCount}</b></span></div></div>
       {pages.length === 0 ? <div className="pdf-tool-empty"><div className="pdf-tool-empty-glyph" aria-hidden="true">▤</div><strong>{hadPages ? "내보낼 페이지가 없습니다." : "편집할 페이지가 없습니다"}</strong><span>{hadPages ? "PDF를 다시 추가하면 내보내기를 계속할 수 있습니다." : "PDF를 추가하면 페이지가 여기에 순서대로 표시됩니다."}</span></div> : <>
         <div className="pdf-tool-toolbar">
           <label className="pdf-tool-select-all"><input type="checkbox" checked={pages.every((page) => page.selected)} onChange={(event) => setPages((current) => current.map((page) => ({ ...page, selected: event.target.checked })))} disabled={busy} /> 전체 선택</label>
@@ -291,17 +298,23 @@ export function PdfTool() {
       </>}
     </section>
 
-    <section className="pdf-tool-export pdf-tool-panel" aria-label="페이지 내보내기">
+    <section className="pdf-tool-export" aria-label="페이지 내보내기">
       <div className="pdf-tool-section-head"><div><span className="pdf-tool-eyebrow">02 / EXPORT</span><h3>완성본 저장</h3><p>현재 순서와 회전 상태가 모든 출력 형식에 동일하게 적용됩니다.</p></div></div>
       <div className="pdf-tool-export-grid"><label>저장 형식<select value={format} disabled={busy} onChange={(event) => setFormat(event.target.value as PdfOutputFormat)}><option value="pdf">PDF · 페이지 병합</option><option value="jpg">JPG (JPEG) · 이미지</option><option value="png">PNG · 이미지</option></select></label><label>내보낼 페이지<select value={scope} disabled={busy} onChange={(event) => setScope(event.target.value as "all" | "selected")}><option value="all">전체 페이지 ({pages.length})</option><option value="selected">선택한 페이지 ({selectedCount})</option></select></label></div>
-      {format === "pdf" && <fieldset className="pdf-tool-compression"><legend>PDF 용량 방식</legend>
-        <label><input type="radio" name="pdf-compression" value="off" checked={compression === "off"} disabled={busy} onChange={() => setCompression("off")} /><span><strong>원본 품질</strong><small>페이지 콘텐츠를 그대로 복사합니다. 용량 감소를 보장하지 않습니다.</small></span></label>
-        <label><input type="radio" name="pdf-compression" value="structure" checked={compression === "structure"} disabled={busy} onChange={() => setCompression("structure")} /><span><strong>구조 최적화</strong><small>객체 스트림을 사용합니다. 내용은 유지하지만 실제 용량은 파일마다 다릅니다.</small></span></label>
-        <label><input type="radio" name="pdf-compression" value="raster" checked={compression === "raster"} disabled={busy} onChange={() => setCompression("raster")} /><span><strong>크기 우선 · 이미지화</strong><small>페이지를 제한된 해상도의 JPG로 변환합니다. 글자 선택·검색, 링크, 양식 및 벡터 품질이 손실됩니다.</small></span></label>
-      </fieldset>}
+      {format === "pdf" && <>
+        <fieldset className="pdf-tool-compression" disabled={busy}>
+          <legend>PDF 압축</legend>
+          <p className="pdf-tool-compression-help">PDF 파일 크기를 줄이는 방식을 선택합니다. 압축 강도에 따라 화질과 용량이 달라질 수 있습니다.</p>
+          {COMPRESSION_LEVELS.map(({ level, label, detail }) => <label key={level}><input type="radio" name="pdf-compression" value={level} checked={compression.level === level} onChange={() => { setCompression((current) => ({ ...current, level })); setOutcome(null); }} /><span><strong>{label}</strong><small>{detail}</small></span></label>)}
+        </fieldset>
+        <details className="pdf-tool-advanced" open={compression.rasterize || undefined}>
+          <summary>고급 옵션</summary>
+          <label><input type="checkbox" checked={compression.rasterize} disabled={busy} onChange={(event) => { const rasterize = event.target.checked; setCompression((current) => ({ ...current, rasterize })); setOutcome(null); }} /><span><strong>페이지를 이미지로 변환하여 저장</strong><small>페이지를 이미지로 변환해 저장합니다. 용량을 더 줄일 수 있지만 텍스트 선택·검색, 링크, 양식 정보가 사라집니다.</small></span></label>
+        </details>
+      </>}
       {format !== "pdf" && <p className="pdf-tool-export-hint">{exportCount > 1 ? "이미지는 번호가 붙은 파일을 ZIP 한 개로 저장합니다." : "한 페이지는 이미지 파일 하나로 저장합니다."} JPG는 흰 배경으로 저장됩니다.</p>}
       <div className="pdf-tool-export-footer"><div className="pdf-tool-export-summary"><strong>{exportCount} 페이지</strong><span>{format.toUpperCase()} {format === "pdf" ? "파일" : exportCount > 1 ? "ZIP 묶음" : "이미지"}으로 저장</span></div><div className="pdf-tool-export-actions">{exporting && <button type="button" className="pdf-tool-button pdf-tool-button-secondary" onClick={() => exportAbort.current?.abort()}>취소</button>}<button type="button" className="pdf-tool-button pdf-tool-button-primary" onClick={() => void download()} disabled={!exportCount || busy}>{exporting || "파일 다운로드"}<span aria-hidden="true">↗</span></button></div></div>
-      {outcome && <div className="pdf-tool-outcome" role="status">{outcome.name} 저장 · {prettyBytes(outcome.size)}{outcome.mime === "application/pdf" ? ` · 입력 PDF 전체 ${prettyBytes(outcome.inputBytes)}${outcome.size < outcome.inputBytes ? `보다 ${prettyBytes(outcome.inputBytes - outcome.size)} 작음` : ""}` : ""}</div>}
+      {outcome && <div className="pdf-tool-outcome" role="status">{outcome.name} 저장 · {prettyBytes(outcome.size)}{outcome.mime === "application/pdf" ? ` · 원본 ${prettyBytes(outcome.inputBytes)} → 결과 ${prettyBytes(outcome.size)}${outcome.size < outcome.inputBytes ? ` · 약 ${Math.round((1 - outcome.size / outcome.inputBytes) * 100)}% 감소` : " · 원본보다 작아지지 않았습니다"}` : ""}</div>}
     </section>
   </div>;
 }
