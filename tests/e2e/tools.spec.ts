@@ -628,50 +628,60 @@ test("PDF and image tools align their workspace and share a responsive export pa
   await expect(page.locator(".app-shell")).toHaveAttribute("data-hydrated", "true");
   const geometry = () => page.evaluate(() => {
     const root = document.querySelector(".pdf-tool, .image-tool")!;
-    const selectors = [".tool-eyebrow", ".tool-intro h2", ".tool-intro p:not(.tool-eyebrow)", ".pdf-tool-upload, .image-tool-upload"];
+    const top = root.getBoundingClientRect().top;
+    const selectors = [".tool-intro h2", ".tool-intro p", ".pdf-tool-upload, .image-tool-upload"];
     const boxes = selectors.map((selector) => {
       const box = root.querySelector(selector)!.getBoundingClientRect();
-      return { x: box.x, y: box.y };
+      return { x: box.x, y: box.y - top };
     });
-    const button = root.querySelector(".tool-export-button") as HTMLButtonElement | null;
-    const style = button && getComputedStyle(button);
-    return { boxes, button: button && style ? { height: button.getBoundingClientRect().height, background: style.backgroundColor, radius: style.borderRadius, font: style.font, opacity: style.opacity } : null, overflow: document.documentElement.scrollWidth > innerWidth };
+    return { boxes, overflow: document.documentElement.scrollWidth > innerWidth };
   });
   for (const viewport of [{ width: 1440, height: 900 }, { width: 1366, height: 768 }, { width: 900, height: 768 }, { width: 390, height: 844 }]) {
     await page.setViewportSize(viewport);
     await page.getByRole("button", { name: "PDF 도구" }).click();
     await expect(page.locator(".pdf-tool")).toBeVisible();
     await page.evaluate(() => scrollTo(0, 0));
+    // Empty tools show only title, description and one upload zone.
+    await expect(page.locator(".tool-eyebrow")).toHaveCount(0);
+    await expect(page.locator(".pdf-tool-editor, .pdf-tool-export, .pdf-tool-badge")).toHaveCount(0);
+    await expect(page.locator(".pdf-tool-upload").getByRole("button", { name: "PDF 추가" })).toBeVisible();
+    await expect(page.getByText("PDF 파일 선택", { exact: true })).toHaveCount(0);
     const pdf = await geometry();
-    const toolbar = page.locator(".pdf-tool-export");
-    await expect(toolbar).toContainText(`${0}페이지`);
-    await expect(toolbar.getByLabel("형식").locator("option")).toHaveText(["PDF", "JPG", "PNG"]);
-    await expect(toolbar.getByLabel("페이지").locator("option")).toHaveText(["전체 (0)", "선택 (0)"]);
-    await expect(toolbar.getByLabel("압축")).toHaveValue("balanced");
-    await toolbar.getByLabel("형식").selectOption("png");
-    await expect(toolbar.getByLabel("압축")).toHaveCount(0);
-    await toolbar.getByLabel("형식").selectOption("pdf");
-    await expect(toolbar.getByLabel("압축")).toHaveValue("balanced");
-    if (viewport.width >= 1366) {
-      const rows = await toolbar.locator(".tool-export-settings select, .tool-export-button").evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().bottom));
-      expect(Math.max(...rows) - Math.min(...rows)).toBeLessThan(3);
-    }
-    if (viewport.width === 390) {
-      const rows = await toolbar.locator(".tool-export-settings > label, .pdf-tool-export-actions").evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().y));
-      expect(rows.every((row, index) => index === 0 || row > rows[index - 1])).toBe(true);
-    }
     await page.getByRole("button", { name: "이미지 도구" }).click();
     await expect(page.locator(".image-tool")).toBeVisible();
     await page.evaluate(() => scrollTo(0, 0));
+    await expect(page.locator(".image-tool-layout, .image-tool-export")).toHaveCount(0);
+    await expect(page.locator(".image-tool-upload").getByRole("button", { name: "이미지 추가" })).toBeVisible();
     const image = await geometry();
     for (let index = 0; index < pdf.boxes.length; index++) {
       expect(Math.abs(pdf.boxes[index].x - image.boxes[index].x)).toBeLessThan(1);
       expect(Math.abs(pdf.boxes[index].y - image.boxes[index].y)).toBeLessThan(1);
     }
-    // An empty image tool shows only its upload zone; export appears once images exist.
-    expect(image.button).toBeNull();
-    await expect(page.locator(".image-tool-layout, .image-tool-export")).toHaveCount(0);
     expect(pdf.overflow || image.overflow).toBe(false);
+  }
+
+  // The export toolbar appears once a PDF is added and keeps its responsive layout.
+  await page.getByRole("button", { name: "PDF 도구" }).click();
+  await page.getByLabel("PDF 파일 선택").setInputFiles({ name: "one.pdf", mimeType: "application/pdf", buffer: Buffer.from(await createPdf(["ONE"])) });
+  await expect(page.locator(".pdf-tool-page")).toHaveCount(1);
+  await expect(page.locator(".pdf-tool-upload").getByRole("button", { name: "PDF 추가" })).toBeVisible();
+  const toolbar = page.locator(".pdf-tool-export");
+  await expect(toolbar).toContainText("1페이지");
+  await expect(toolbar.getByLabel("형식").locator("option")).toHaveText(["PDF", "JPG", "PNG"]);
+  await expect(toolbar.getByLabel("압축")).toHaveValue("balanced");
+  await toolbar.getByLabel("형식").selectOption("png");
+  await expect(toolbar.getByLabel("압축")).toHaveCount(0);
+  await toolbar.getByLabel("형식").selectOption("pdf");
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    if (viewport.width >= 1366) {
+      const rows = await toolbar.locator(".tool-export-settings select, .tool-export-button").evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().bottom));
+      expect(Math.max(...rows) - Math.min(...rows)).toBeLessThan(3);
+    } else {
+      const rows = await toolbar.locator(".tool-export-settings > label, .pdf-tool-export-actions").evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().y));
+      expect(rows.every((row, index) => index === 0 || row > rows[index - 1])).toBe(true);
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   }
   expect(errors).toEqual([]);
 });
@@ -752,8 +762,9 @@ test("PDF editor composes reordered, rotated and deleted pages into real files",
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.getByLabel("전체 선택").check();
   await page.getByRole("button", { name: "선택 삭제" }).click();
-  await expect(page.getByText("내보낼 페이지가 없습니다.")).toBeVisible();
-  await expect(page.getByRole("button", { name: /파일 다운로드/ })).toBeDisabled();
+  // Removing every page returns the tool to its upload-only empty state.
+  await expect(page.locator(".pdf-tool-editor, .pdf-tool-export")).toHaveCount(0);
+  await expect(page.locator(".pdf-tool-upload").getByRole("button", { name: "PDF 추가" })).toBeVisible();
   expect(posted).toEqual([]);
   expect(errors).toEqual([]);
 });
@@ -791,7 +802,7 @@ test("PDF compression is one level select defaulting to balanced, and each level
   });
   await expect(page.locator(".pdf-tool-page")).toHaveCount(1);
   await expect(page.locator(".pdf-tool-badge")).toHaveText(["페이지 1", "선택 0"]);
-  await expect(page.getByText("PDF 작업공간", { exact: true })).toBeVisible();
+  await expect(page.getByText("PDF 작업공간", { exact: true })).toHaveCount(0);
   await expect(page.getByText(/브라우저 작업공간|브라우저 내 처리|서버 전송 없음/)).toHaveCount(0);
   await expect(page.getByText("고급 옵션")).toHaveCount(0);
   await expect(page.getByRole("radio")).toHaveCount(0);
@@ -921,7 +932,10 @@ test("image tool shows one upload zone when empty and a balanced three-column wo
   const intro = (await page.locator(".image-tool-intro").boundingBox())!;
   const zone = (await upload.boundingBox())!;
   expect(Math.abs(zone.x - intro.x)).toBeLessThan(1);
-  expect(zone.height).toBeLessThan(420);
+  expect(zone.height).toBeLessThan(260);
+  const chooser = page.waitForEvent("filechooser");
+  await upload.getByText("한 장씩 편집하거나 여러 이미지를 결합할 수 있습니다.").click();
+  await chooser;
   expect(await upload.evaluate((node) => getComputedStyle(node).borderTopStyle)).toBe("dashed");
 
   const geometry = () => page.evaluate(() => {
@@ -946,7 +960,7 @@ test("image tool shows one upload zone when empty and a balanced three-column wo
   await add(["a.png", "b.png", "c.png"]);
   await expect(page.locator(".image-tool-file")).toHaveCount(3);
   await expect(upload).toHaveCount(0);
-  await expect(page.locator(".image-tool-library").getByRole("button", { name: "+ 파일 추가" })).toBeVisible();
+  await expect(page.locator(".image-tool-library").getByRole("button", { name: "+ 이미지 추가" })).toBeVisible();
   const populated = await geometry();
   if (page.viewportSize()!.width > 1190) {
     // Settings are wider than the file list; the preview stays the widest column.
@@ -954,7 +968,7 @@ test("image tool shows one upload zone when empty and a balanced three-column wo
     expect(populated.preview.width).toBeGreaterThan(populated.adjust.width);
     expect(populated.adjust.width).toBeGreaterThanOrEqual(280);
   }
-  expect(populated.files.height).toBeLessThan(populated.preview.height);
+  if (page.viewportSize()!.width > 760) expect(Math.abs(populated.files.height - populated.preview.height)).toBeLessThan(1);
   expect(Math.abs(populated.exported.left - populated.layout.left)).toBeLessThan(1);
   expect(Math.abs(populated.exported.right - populated.layout.right)).toBeLessThan(1);
 
@@ -984,9 +998,9 @@ test("image tool starts from the preview and exports in the dragged order with i
   const upload = page.locator(".image-tool-upload");
   await expect(page.locator(".image-tool-library, .image-tool-stage, .image-tool-controls")).toHaveCount(0);
   await expect(page.getByText("추가된 이미지가 없습니다.")).toHaveCount(0);
-  await expect(upload.getByText("이미지를 추가해 편집을 시작하세요", { exact: true })).toHaveCount(1);
+  await expect(upload.getByText("이미지를 추가하세요", { exact: true })).toHaveCount(1);
   await expect(upload.getByText("한 장씩 편집하거나 여러 이미지를 결합할 수 있습니다.", { exact: true })).toBeVisible();
-  await expect(upload.getByRole("button", { name: "이미지 선택" })).toBeVisible();
+  await expect(upload.getByRole("button", { name: "이미지 추가" })).toBeVisible();
   const library = page.locator(".image-tool-library");
 
   // Solid swatches of distinct widths make every output order observable.
@@ -1000,11 +1014,11 @@ test("image tool starts from the preview and exports in the dragged order with i
     return { name: String(name), data: canvas.toDataURL("image/png").split(",")[1] };
   }));
   const fileChooser = page.waitForEvent("filechooser");
-  await upload.getByRole("button", { name: "이미지 선택" }).click();
+  await upload.getByRole("button", { name: "이미지 추가" }).click();
   await (await fileChooser).setFiles(swatches.map(({ name, data }) => ({ name, mimeType: "image/png", buffer: Buffer.from(data, "base64") })));
   const files = page.locator(".image-tool-file strong");
   await expect(files).toHaveText(["a.png", "b.png", "c.png"]);
-  await expect(library.getByRole("button", { name: "+ 파일 추가" })).toBeVisible();
+  await expect(library.getByRole("button", { name: "+ 이미지 추가" })).toBeVisible();
   await expect(page.getByText(/별개입니다/)).toHaveCount(0);
   await expect(page.getByRole("button", { name: /(위로|아래로) 이동/ })).toHaveCount(0);
 

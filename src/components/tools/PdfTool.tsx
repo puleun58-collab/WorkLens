@@ -255,13 +255,13 @@ export function PdfTool() {
 
   return <div className="pdf-tool">
     <header className="tool-intro">
-      <div><p className="tool-eyebrow">PDF 작업공간</p><h2>페이지 편집</h2><p>여러 PDF의 페이지를 모아 순서를 바꾸고, 필요한 형식으로 저장합니다.</p></div>
+      <div><h2>페이지 편집</h2><p>여러 PDF의 페이지를 모아 순서를 바꾸고, 필요한 형식으로 저장합니다.</p></div>
     </header>
 
-    <section className="pdf-tool-panel pdf-tool-upload" aria-label="PDF 파일 추가" onDragOver={(event) => { event.preventDefault(); if (event.dataTransfer.types.includes("Files")) setDropActive(true); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDropActive(false); }} onDrop={handleDrop} data-drag-active={dropActive}>
+    <section className="pdf-tool-panel pdf-tool-upload" aria-label="PDF 파일 추가" onClick={(event) => { if (!busy && !(event.target as HTMLElement).closest("button, input")) inputRef.current?.click(); }} onDragOver={(event) => { event.preventDefault(); if (event.dataTransfer.types.includes("Files")) setDropActive(true); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDropActive(false); }} onDrop={handleDrop} data-drag-active={dropActive}>
       <div className="pdf-tool-upload-mark" aria-hidden="true">＋</div>
       <div className="pdf-tool-upload-copy"><strong>PDF를 이곳에 놓으세요</strong><span>여러 파일을 함께 추가할 수 있습니다. 원본 파일은 수정되지 않습니다.</span></div>
-      <button type="button" className="pdf-tool-button pdf-tool-button-primary pdf-tool-upload-button" onClick={() => inputRef.current?.click()} disabled={busy}>{sources.length ? "PDF 추가" : "PDF 파일 선택"}</button>
+      <button type="button" className="pdf-tool-button pdf-tool-button-primary pdf-tool-upload-button" onClick={() => inputRef.current?.click()} disabled={busy}>PDF 추가</button>
       <input ref={inputRef} className="pdf-tool-input-hidden" aria-label="PDF 파일 선택" type="file" accept=".pdf,application/pdf" multiple onChange={handleInput} />
     </section>
 
@@ -276,7 +276,7 @@ export function PdfTool() {
     {uploading && <div className="pdf-tool-notice" role="status">{uploading} <button type="button" onClick={() => importAbort.current?.abort()}>추가 취소</button></div>}
     {error && <div className="pdf-tool-notice pdf-tool-notice-error" role="alert">{error}</div>}
 
-    <section className="pdf-tool-editor" aria-label="페이지 편집">
+    {sources.length > 0 && <section className="pdf-tool-editor" aria-label="페이지 편집">
       <div className="pdf-tool-section-head"><div><span className="pdf-tool-eyebrow">01 / PAGE COMPOSITION</span><h3>페이지 순서</h3><p>페이지를 끌어서 순서를 바꾸세요.</p></div><div className="pdf-tool-counts" role="status" aria-label={`${pages.length}페이지 중 ${selectedCount}개 선택`}><span className="pdf-tool-badge">페이지 <b>{pages.length}</b></span><span className="pdf-tool-badge">선택 <b>{selectedCount}</b></span></div></div>
       <p className="tool-reorder-live" aria-live="polite">{reorder.announcement}</p>
       {pages.length === 0 ? <div className="pdf-tool-empty"><div className="pdf-tool-empty-glyph" aria-hidden="true">▤</div><strong>{hadPages ? "내보낼 페이지가 없습니다." : "편집할 페이지가 없습니다"}</strong><span>{hadPages ? "PDF를 다시 추가하면 내보내기를 계속할 수 있습니다." : "PDF를 추가하면 페이지가 여기에 순서대로 표시됩니다."}</span></div> : <>
@@ -299,9 +299,9 @@ export function PdfTool() {
           })}
         </div>
       </>}
-    </section>
+    </section>}
 
-    <section className="tool-export pdf-tool-export" aria-label="페이지 내보내기">
+    {sources.length > 0 && <section className="tool-export pdf-tool-export" aria-label="페이지 내보내기">
       <div className="tool-export-title"><span>02 / EXPORT</span><strong>완성본 저장</strong><small>{exportCount}페이지</small></div>
       <div className="tool-export-settings pdf-tool-export-settings">
         <label>형식<select value={format} disabled={busy} onChange={(event) => setFormat(event.target.value as PdfOutputFormat)}><option value="pdf">PDF</option><option value="jpg">JPG</option><option value="png">PNG</option></select></label>
@@ -313,6 +313,6 @@ export function PdfTool() {
         </div>
       </div>
       {outcome && <div className="pdf-tool-outcome" role="status">{outcome.name} 저장 · {prettyBytes(outcome.size)}{outcome.mime === "application/pdf" ? ` · 원본 ${prettyBytes(outcome.inputBytes)} → 결과 ${prettyBytes(outcome.size)}${outcome.size < outcome.inputBytes ? ` · 약 ${Math.round((1 - outcome.size / outcome.inputBytes) * 100)}% 감소` : " · 원본보다 작아지지 않았습니다"}` : ""}</div>}
-    </section>
+    </section>}
   </div>;
 }

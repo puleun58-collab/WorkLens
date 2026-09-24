@@ -380,7 +380,7 @@ export function ImageTool() {
   return (
     <div className="image-tool" aria-label="이미지 편집 도구">
       <header className="tool-intro image-tool-intro">
-        <div><p className="tool-eyebrow">이미지 작업공간</p><h2>이미지 편집</h2><p>크기와 영역을 다듬고, 여러 장을 원하는 순서대로 결합하세요.</p></div>
+        <div><h2>이미지 편집</h2><p>크기와 영역을 다듬고, 여러 장을 원하는 순서대로 결합하세요.</p></div>
       </header>
       <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" multiple hidden onChange={handleFileInput} aria-label="이미지 파일 선택" />
       {items.length === 0 ? (
@@ -388,21 +388,22 @@ export function ImageTool() {
           className="image-tool-upload"
           aria-label="이미지 추가"
           data-drag-active={dropActive}
+          onClick={(event) => { if (!importing && !(event.target as HTMLElement).closest("button")) fileInput.current?.click(); }}
           onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) { event.preventDefault(); setDropActive(true); } }}
           onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDropActive(false); }}
           onDrop={(event) => { setDropActive(false); handleDrop(event); }}
         >
           <Images aria-hidden="true" />
-          <strong>이미지를 추가해 편집을 시작하세요</strong>
+          <strong>이미지를 추가하세요</strong>
           <span>한 장씩 편집하거나 여러 이미지를 결합할 수 있습니다.</span>
-          <button type="button" onClick={() => fileInput.current?.click()} disabled={importing}>이미지 선택</button>
-          <small>{importing ? "이미지를 읽는 중…" : "또는 이미지를 여기로 끌어오세요"}</small>
+          <button type="button" onClick={() => fileInput.current?.click()} disabled={importing}>이미지 추가</button>
+          <small>{importing ? "이미지를 읽는 중…" : "또는 여기로 이미지를 끌어오세요"}</small>
           {notice && <p className={`image-tool-notice is-${notice.tone}`} role={notice.tone === "error" ? "alert" : "status"}>{notice.text}</p>}
         </section>
       ) : <>
       <div className="image-tool-layout">
         <aside className="image-tool-library" aria-label="이미지 목록">
-          <div className="image-tool-section-heading"><div><span>01 / FILES</span><h3>작업 이미지 <small>{items.length}</small></h3></div><button type="button" onClick={() => fileInput.current?.click()} disabled={busy || importing}>+ 파일 추가</button></div>
+          <div className="image-tool-section-heading"><div><span>01 / FILES</span><h3>작업 이미지 <small>{items.length}</small></h3></div><button type="button" onClick={() => fileInput.current?.click()} disabled={busy || importing}>+ 이미지 추가</button></div>
           {importing && <p className="image-tool-hint" role="status">이미지를 읽는 중…</p>}
           <div ref={fileList} className="image-tool-file-list" onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }} onDrop={handleDrop}>
             <p className="tool-reorder-live" aria-live="polite">{reorder.announcement}</p>
@@ -414,7 +415,7 @@ export function ImageTool() {
               <button className="image-tool-file-open" type="button" onClick={() => { setCurrentId(item.id); setDrag(null); dragOrigin.current = null; }} aria-current={item.id === currentId ? "true" : undefined}>
                 {/* eslint-disable-next-line @next/next/no-img-element -- Object URLs are browser-local and unavailable to an image optimizer. */}
                 <img src={item.thumbnail} alt="" />
-                <span><strong title={item.file.name}>{item.file.name}</strong><small>{item.width} × {item.height} · {formatSize(item.file.size)}</small></span>
+                <span><strong title={item.file.name}>{item.file.name}</strong><small title={formatSize(item.file.size)}>{item.width} × {item.height}</small></span>
               </button>
               <div className="image-tool-order"><button type="button" aria-label={`${item.file.name} 제거`} disabled={busy} onClick={() => removeItem(item.id)}>×</button></div>
             </div>)}

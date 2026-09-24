@@ -16,9 +16,8 @@
 /* Narrow file list, widest preview, and a settings column wide enough for paired inputs and buttons. */
 .image-tool-layout { display: grid; grid-template-columns: minmax(200px, 236px) minmax(0, 1fr) minmax(280px, 320px); gap: 12px; align-items: stretch; }
 .image-tool-library, .image-tool-stage, .image-tool-controls { min-width: 0; border: 1px solid var(--image-strong-border); border-radius: var(--radius-panel, 4px); background: var(--paper); box-shadow: var(--shadow-surface); }
-/* FILES is a secondary panel: a viewport-scaled minimum (≈350–440px on desktop) that never stretches to the
-   PREVIEW row height; a long list scrolls inside the list, not the panel. */
-.image-tool-library { align-self: start; display: flex; flex-direction: column; min-height: clamp(320px, 46vh, 440px); }
+/* FILES stretches to the PREVIEW row height; a long list scrolls inside the list, not the panel. */
+.image-tool-library { align-self: stretch; display: flex; flex-direction: column; }
 .image-tool-library, .image-tool-controls { padding: 17px 14px 16px; }
 /* The stage is stretched to the tallest column; the preview takes all of that height. */
 .image-tool-stage { padding: 17px 18px 15px; display: flex; flex-direction: column; }
@@ -29,15 +28,16 @@
 .image-tool-section-heading > button:hover:not(:disabled) { background: var(--blue-pale); border-color: var(--blue); }
 .image-tool-hint, .image-tool-stage-caption { font-size: 12px; line-height: 1.55; color: var(--muted); }
 /* Empty tool: one full-width drop zone replaces the three-column editor. */
-.image-tool-upload { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 280px; padding: 40px 24px; border: 1px dashed var(--dropzone-border); border-radius: var(--radius-panel, 4px); background: var(--paper); text-align: center; line-height: 1.5; transition: border-color .15s ease, background .15s ease; }
+.image-tool-upload { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 230px; padding: 30px 24px; border: 1px dashed var(--dropzone-border); border-radius: var(--radius-panel, 4px); background: var(--paper); text-align: center; line-height: 1.5; cursor: pointer; transition: border-color .15s ease, background .15s ease; }
+.image-tool-upload:focus-within { border-color: var(--blue); }
 .image-tool-upload:hover { border-color: var(--blue); }
 .image-tool-upload[data-drag-active="true"] { border-color: var(--blue); background: var(--blue-soft); }
-.image-tool-upload > svg { width: 28px; height: 28px; margin-bottom: 12px; color: #a1aec0; }
+.image-tool-upload > svg { width: 26px; height: 26px; margin-bottom: 9px; color: #a1aec0; }
 .image-tool-upload strong { font-size: 15px; }
-.image-tool-upload span { color: var(--muted); font-size: 13px; margin-top: 6px; }
-.image-tool-upload button { margin-top: 18px; padding: 9px 15px; border: 1px solid var(--blue); border-radius: 4px; background: var(--blue); color: #fff; font-size: 13px; font-weight: 600; }
+.image-tool-upload span { color: var(--muted); font-size: 13px; margin-top: 4px; }
+.image-tool-upload button { margin-top: 14px; padding: 9px 15px; border: 1px solid var(--blue); border-radius: 4px; background: var(--blue); color: #fff; font-size: 13px; font-weight: 600; }
 .image-tool-upload button:hover:not(:disabled) { background: var(--blue-hover); }
-.image-tool-upload small { margin-top: 10px; color: var(--muted); font-size: 12px; }
+.image-tool-upload small { margin-top: 8px; color: var(--muted); font-size: 12px; opacity: .85; }
 .image-tool-upload .image-tool-notice { margin-top: 12px; }
 .image-tool-file-list { display: flex; flex-direction: column; max-height: clamp(260px, 56vh, 510px); overflow: auto; margin: 14px -5px 0; gap: 4px; }
 .image-tool-file { display: flex; align-items: center; gap: 5px; padding: 5px 5px 5px 2px; border: 1px solid transparent; border-radius: 4px; min-width: 0; }
@@ -66,7 +66,7 @@
 .image-tool-stage-caption { margin: 10px 1px 0; }
 .image-tool-fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
 .image-tool-control-section { padding: 15px 0 16px; border-top: 1px solid var(--image-border); }
-.image-tool-control-section h4 { display: table; margin: 0 0 12px; padding: 4px 9px; border: 1px solid #cfe0f7; border-radius: 7px; background: var(--blue-soft); color: var(--blue-active, var(--blue)); font-size: 12px; font-weight: 700; line-height: 1.3; }
+.image-tool-control-section h4 { margin: 0 0 12px; color: var(--ink); font-size: 13px; font-weight: 700; line-height: 1.3; }
 .image-tool-merge-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
 .image-tool-merge-heading h4 { margin: 0; }
 .image-tool-merge-heading small { color: var(--muted); font-size: 12px; }
@@ -81,8 +81,8 @@
 .image-tool-button-row button.is-edit { border-color: #9abbe4; color: var(--blue); }
 .image-tool-button-row button.is-edit:hover:not(:disabled) { border-color: var(--blue); background: var(--blue-pale); }
 .image-tool-button-row button.is-edit[aria-pressed="true"] { border-color: var(--blue); background: var(--blue-soft); color: var(--blue-active, var(--blue)); box-shadow: inset 0 0 0 1px var(--blue); }
-.image-tool-button-row button.is-reset { color: var(--ink-soft, var(--ink)); }
-.image-tool-button-row button.is-reset:hover:not(:disabled) { border-color: var(--line-strong); background: var(--layer); }
+.image-tool-button-row button.is-reset { border-color: transparent; background: transparent; color: var(--muted); }
+.image-tool-button-row button.is-reset:hover:not(:disabled) { border-color: var(--image-strong-border); background: var(--layer); color: var(--ink); }
 .image-tool-control-section input[type="range"] { display: block; width: 100%; accent-color: var(--blue); margin-top: 9px; }
 .image-tool-merge { padding-bottom: 0; }
 .image-tool-merge-options { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
@@ -107,8 +107,8 @@
   .image-tool-intro { flex-direction: column; gap: 7px; }
   .image-tool-layout { display: flex; flex-direction: column; }
   .image-tool-library, .image-tool-stage, .image-tool-controls { width: 100%; }
-  .image-tool-library { min-height: 0; }
-  .image-tool-upload { min-height: 220px; padding: 28px 16px; }
+  .image-tool-library { align-self: auto; }
+  .image-tool-upload { min-height: 190px; padding: 24px 16px; }
   .image-tool-file-list { max-height: 235px; }
   .image-tool-stage { order: -1; }
   .image-tool-preview { min-height: 260px; padding: 14px; }

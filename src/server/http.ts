@@ -129,7 +129,29 @@ export function requireSameSite(request: Request): void {
   }
   const origin = request.headers.get("origin");
   if (!origin) throw new ApiError("ORIGIN_REQUIRED", "요청 출처가 필요합니다.", 403);
-  if (origin !== new URL(request.url).origin) {
+  const expected = new URL(request.url).origin;
+  if (origin !== expected && !isLocalLoopbackAlias(origin, expected)) {
     throw new ApiError("ORIGIN_MISMATCH", "요청 출처가 일치하지 않습니다.", 403);
   }
+}
+
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1"]);
+
+/**
+ * `next dev` reports its request URL as `localhost` even when the browser opened
+ * `127.0.0.1`. Only in development, treat those two exact hosts as one origin —
+ * same protocol and same port required; any other host, port or environment keeps
+ * the strict comparison above.
+ */
+function isLocalLoopbackAlias(origin: string, expected: string): boolean {
+  if (process.env.NODE_ENV !== "development") return false;
+  let actual: URL;
+  try {
+    actual = new URL(origin);
+  } catch {
+    return false;
+  }
+  const own = new URL(expected);
+  return actual.origin === origin && actual.protocol === own.protocol && actual.port === own.port
+    && LOOPBACK_HOSTS.has(actual.hostname) && LOOPBACK_HOSTS.has(own.hostname);
 }

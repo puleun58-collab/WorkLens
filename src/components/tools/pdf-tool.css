@@ -14,7 +14,8 @@
 .pdf-tool-section-head p { color: var(--muted); margin: 0; font-size: 14px; line-height: 1.6; }
 .pdf-tool-panel { border: 1px solid var(--border-default, var(--line)); background: var(--paper); border-radius: var(--radius-panel); box-shadow: none; }
 .pdf-tool-upload { display: flex; align-items: center; gap: 17px; min-height: 112px; padding: 23px 26px; border: 1px dashed var(--dropzone-border); background: #fafcff; transition: border-color .22s cubic-bezier(.22,1,.36,1), background .22s cubic-bezier(.22,1,.36,1); }
-.pdf-tool-upload:hover { border-color: var(--blue); }
+.pdf-tool-upload { cursor: pointer; }
+.pdf-tool-upload:hover, .pdf-tool-upload:focus-within { border-color: var(--blue); }
 .pdf-tool-upload[data-drag-active="true"] { border-color: var(--blue); background: var(--blue-soft); }
 .pdf-tool-upload-mark { display: grid; place-items: center; flex: none; height: 50px; width: 50px; background: #edf3fb; color: var(--blue); border-radius: 11px; font-size: 29px; font-weight: 300; }
 .pdf-tool-upload-copy { display: grid; gap: 6px; min-width: 0; flex: 1; }
