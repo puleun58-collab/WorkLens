@@ -98,6 +98,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Table2,
+  Scale,
 } from "lucide-react";
 
 const PdfTool = dynamic(() => import("@/components/tools/PdfTool").then((module) => module.PdfTool), {
@@ -106,9 +107,12 @@ const PdfTool = dynamic(() => import("@/components/tools/PdfTool").then((module)
 const ImageTool = dynamic(() => import("@/components/tools/ImageTool").then((module) => module.ImageTool), {
   loading: () => <p role="status">이미지 도구를 불러오는 중…</p>,
 });
+const LawSearch = dynamic(() => import("@/components/research/LawSearch").then((module) => module.LawSearch), {
+  loading: () => <p role="status">법령 검색을 불러오는 중…</p>,
+});
 
 type ToolView = "PdfTools" | "ImageTools";
-type ShellView = Tab | ToolView | "Dictionary" | "Settings";
+type ShellView = Tab | ToolView | "Law" | "Dictionary" | "Settings";
 export interface CompanyTermEntry { id: number; term: string; description: string | null; active: boolean }
 const tabIcons: Record<Tab, typeof BarChart3> = {
   Analyze: BarChart3,
@@ -1203,7 +1207,7 @@ export default function Home() {
    * Document features share one workspace; utility views leave its files in
    * memory while hiding document controls.
    */
-  const isToolView = shellView === "PdfTools" || shellView === "ImageTools";
+  const isToolView = shellView === "PdfTools" || shellView === "ImageTools" || shellView === "Law";
   const isUtilityView = shellView === "Dictionary" || shellView === "Settings";
   const isDocumentWorkspaceView = !isUtilityView && !isToolView;
   const selectedNames = files.filter((file) => selected.includes(file.id)).map((file) => file.name).join(", ");
@@ -1264,6 +1268,21 @@ export default function Home() {
             </li>
           ))}
         </ul>
+        <p className="rail-group-label rail-tools-label">RESEARCH</p>
+        <ul className="rail-list rail-tools-list">
+          <li>
+            <button
+              type="button"
+              className={shellView === "Law" ? "rail-item active" : "rail-item"}
+              aria-current={shellView === "Law" ? "page" : undefined}
+              aria-label="법령"
+              onClick={() => { setDetail(null); detailTrigger.current = null; setShellView("Law"); }}
+            >
+              <Scale size={20} strokeWidth={1.75} aria-hidden="true" />
+              <span>법령</span>
+            </button>
+          </li>
+        </ul>
         <div className="rail-footer">
           {(["Dictionary", "Settings"] as const).map((view) => {
             const Icon = view === "Dictionary" ? BookMarked : SlidersHorizontal;
@@ -1287,7 +1306,7 @@ export default function Home() {
       <div className="shell-main">
         {isUtilityView || isToolView ? (
           <header className="context-bar utility-bar">
-            <h1>{shellView === "Dictionary" ? "용어 사전" : shellView === "Settings" ? "설정" : shellView === "PdfTools" ? "PDF 도구" : "이미지 도구"}</h1>
+            <h1>{shellView === "Dictionary" ? "용어 사전" : shellView === "Settings" ? "설정" : shellView === "PdfTools" ? "PDF 도구" : shellView === "Law" ? "법령" : "이미지 도구"}</h1>
             <span className="context-names">
               {shellView === "Dictionary"
                 ? "맞춤법과 용어 오탐을 줄이기 위한 사전입니다."
@@ -1295,7 +1314,9 @@ export default function Home() {
                   ? "이 브라우저에만 적용되는 항목입니다."
                   : shellView === "PdfTools"
                     ? "PDF 페이지를 정리하고 원하는 형식으로 내보낼 수 있습니다."
-                    : "이미지를 편집하고 원하는 형식으로 내보낼 수 있습니다."}
+                    : shellView === "Law"
+                      ? "법령명 또는 키워드로 현행 법령을 검색합니다."
+                      : "이미지를 편집하고 원하는 형식으로 내보낼 수 있습니다."}
             </span>
           </header>
         ) : (
@@ -1395,7 +1416,7 @@ export default function Home() {
               onToggleRule={toggleRule}
             />
           ) : isToolView ? (
-            shellView === "PdfTools" ? <PdfTool /> : <ImageTool />
+            shellView === "PdfTools" ? <PdfTool /> : shellView === "Law" ? <LawSearch /> : <ImageTool />
           ) : (
             <>
               {polishTextMode || files.length === 0 ? null : (

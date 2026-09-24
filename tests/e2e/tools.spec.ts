@@ -30,6 +30,60 @@ test("TOOLS navigation keeps document files in their own workspace", async ({ pa
   }
 });
 
+test("RESEARCH law search sends only the query and separates results, no result and outages", async ({ page }) => {
+  const bodies: unknown[] = [];
+  const errors: string[] = [];
+  page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
+  let reply: { status: number; body: unknown } = { status: 200, body: { requestId: "r1", data: { found: true, text: "raw", laws: [
+    { name: "근로기준법", status: "현행", lawId: "001872", mst: "283457", promulgationDate: "20260219", effectiveDate: "20260820", kind: "법률" },
+    { name: "근로기준법 시행령", status: "현행", lawId: "003058", mst: "270551", effectiveDate: "20251023", kind: "대통령령" },
+  ] } } };
+  await page.route("**/api/law", async (route) => {
+    bodies.push(route.request().postDataJSON());
+    await page.waitForTimeout(150);
+    await route.fulfill({ status: reply.status, contentType: "application/json", body: JSON.stringify(reply.body) });
+  });
+  await page.goto("/");
+  await expect(page.locator(".app-shell")).toHaveAttribute("data-hydrated", "true");
+  await page.getByLabel("작업 파일 선택").setInputFiles({ name: "keep.pdf", mimeType: "application/pdf", buffer: Buffer.from(await createPdf(["kept"])) });
+  await expect(page.locator(".file-row").filter({ hasText: "keep.pdf" })).toBeVisible();
+
+  await expect(page.locator(".rail-group-label").filter({ hasText: "RESEARCH" })).toBeVisible();
+  await page.getByRole("button", { name: "법령", exact: true }).click();
+  await expect(page.getByRole("button", { name: "법령", exact: true })).toHaveAttribute("aria-current", "page");
+  await expect(page.locator(".context-bar h1")).toHaveText("법령");
+  await expect(page.getByText("법령명 또는 키워드를 입력해 검색하세요.")).toBeVisible();
+
+  const input = page.getByRole("searchbox");
+  await input.fill("근로기준법");
+  await input.press("Enter");
+  await expect(page.getByRole("button", { name: "검색 중…" })).toBeDisabled();
+  await expect(page.getByRole("heading", { name: "검색 결과 · 2건" })).toBeVisible();
+  const first = page.locator(".law-search-list li").first();
+  await expect(first).toContainText("근로기준법");
+  await expect(first).toContainText("법률");
+  await expect(first).toContainText("시행일 2026.08.20");
+  await expect(page.getByText("283457")).toHaveCount(0);
+  await expect(page.getByText("raw", { exact: true })).toHaveCount(0);
+  expect(bodies).toEqual([{ query: "근로기준법" }]);
+
+  reply = { status: 200, body: { requestId: "r2", data: { found: false, marker: "NOT_FOUND", text: "[NOT_FOUND]" } } };
+  await input.fill("없는법령");
+  await page.getByRole("button", { name: "검색", exact: true }).click();
+  await expect(page.getByRole("status").filter({ hasText: "검색 결과가 없습니다." })).toBeVisible();
+
+  reply = { status: 504, body: { requestId: "r3", error: { code: "LAW_UPSTREAM_TIMEOUT", message: "법령 검색 응답이 지연되고 있습니다." } } };
+  await page.getByRole("button", { name: "검색", exact: true }).click();
+  await expect(page.locator(".law-search-error[role=alert]")).toHaveText("법령 검색 응답이 지연되고 있습니다.");
+  await expect(page.getByText("검색 결과가 없습니다.")).toHaveCount(0);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.getByRole("button", { name: "분석", exact: true }).click();
+  await expect(page.locator(".file-row").filter({ hasText: "keep.pdf" })).toBeVisible();
+  expect(errors.filter((text) => !/504/.test(text))).toEqual([]);
+});
+
 async function downloadBytes(page: Page, click: () => Promise<void>) {
   const pending = page.waitForEvent("download");
   await click();

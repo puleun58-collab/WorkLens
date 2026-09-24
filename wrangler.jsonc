@@ -39,6 +39,7 @@
     }
   ],
   "vars": {
-    "WORKLENS_ORIGIN": "https://worklens.puleun58.workers.dev"
+    "WORKLENS_ORIGIN": "https://worklens.puleun58.workers.dev",
+    "LAW_MCP_URL": "https://mcp.gomdori.app/law"
   }
 }
