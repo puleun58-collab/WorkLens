@@ -1807,11 +1807,12 @@ test("reviews PPTX writing, consistency and data findings with filters and exact
       boxShadow: recommendationStyle.boxShadow,
       paddingLeft: recommendationStyle.paddingLeft,
       labelWeight: getComputedStyle(label).fontWeight,
-      suggestionSize: getComputedStyle(suggestion).fontSize,
-      descriptionSize: getComputedStyle(description).fontSize,
+      // Engines round fractional rem sizes differently (14.3 vs 14.2969).
+      suggestionSize: Math.round(Number.parseFloat(getComputedStyle(suggestion).fontSize) * 10) / 10,
+      descriptionSize: Math.round(Number.parseFloat(getComputedStyle(description).fontSize) * 10) / 10,
       suggestionColor: getComputedStyle(suggestion).color,
       descriptionColor: getComputedStyle(description).color,
-      sourceSize: getComputedStyle(source).fontSize,
+      sourceSize: Math.round(Number.parseFloat(getComputedStyle(source).fontSize) * 10) / 10,
     };
   });
   expect(suggestionHierarchy).toMatchObject({
@@ -1820,9 +1821,9 @@ test("reviews PPTX writing, consistency and data findings with filters and exact
     boxShadow: "none",
     paddingLeft: "10px",
     labelWeight: "600",
-    suggestionSize: "16px",
-    descriptionSize: "16px",
-    sourceSize: "14px",
+    suggestionSize: 16.5,
+    descriptionSize: 16.5,
+    sourceSize: 14.3,
   });
   expect(suggestionHierarchy.suggestionColor).not.toBe(suggestionHierarchy.descriptionColor);
   expect(await typo.evaluate((issue) => getComputedStyle(issue).backgroundColor)).toBe("rgb(255, 255, 255)");

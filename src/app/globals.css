@@ -970,16 +970,16 @@ http://scripts.sil.org/OFL
   --space-8: 64px;
   --font-sans: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", sans-serif;
   --font-mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", "Segoe UI Mono", Consolas, "Pretendard Variable", monospace;
-  /* Desktop reading scale: one step above the original 13/14/15px body sizes so
+  /* Desktop reading scale: exactly 110% of the original 13/14/15/19/22/26px steps so
    * 100% zoom reads like the old 110%; the mobile block restores the old steps. */
-  --font-size-xs: 0.875rem;
-  --font-size-sm: 0.9375rem;
-  --font-size-md: 1rem;
-  --font-size-lg: 1.25rem;
-  --font-size-xl: 1.5rem;
-  --font-size-2xl: 1.75rem;
-  --control-height-sm: 36px;
-  --control-height-md: 40px;
+  --font-size-xs: 0.89375rem;
+  --font-size-sm: 0.9625rem;
+  --font-size-md: 1.03125rem;
+  --font-size-lg: 1.30625rem;
+  --font-size-xl: 1.5125rem;
+  --font-size-2xl: 1.7875rem;
+  --control-height-sm: 38px;
+  --control-height-md: 42px;
   --control-height-lg: 44px;
   --font-weight-regular: 400;
   --font-weight-medium: 500;
