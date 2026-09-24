@@ -8,7 +8,6 @@ import {
   normalizeRotation,
   pagesForExport,
   pdfError,
-  type PdfCompression,
   type PdfCompressionLevel,
   type PdfExportResult,
   type PdfInputSource,
@@ -26,9 +25,9 @@ interface WorkspaceSource extends PdfInputSource {
 }
 
 const COMPRESSION_LEVELS: ReadonlyArray<{ level: PdfCompressionLevel; label: string; detail: string }> = [
-  { level: "quality", label: "품질 우선", detail: "텍스트와 이미지를 그대로 두고 파일 구조만 정리합니다. 용량 감소는 작을 수 있습니다." },
-  { level: "balanced", label: "균형 압축", detail: "문서 속 JPG 이미지를 적당히 다시 압축합니다. 텍스트와 링크는 유지됩니다." },
-  { level: "size", label: "용량 우선", detail: "문서 속 JPG 이미지를 더 작게 줄입니다. 이미지 화질이 낮아질 수 있습니다." },
+  { level: "quality", label: "고화질", detail: "품질을 우선하며 용량 감소 폭은 작을 수 있습니다." },
+  { level: "balanced", label: "균형 (권장)", detail: "품질과 파일 크기를 균형 있게 조정합니다." },
+  { level: "size", label: "강력 압축", detail: "파일 크기를 더 줄이며 이미지 품질이 낮아질 수 있습니다." },
 ];
 
 function prettyBytes(bytes: number): string {
@@ -95,7 +94,7 @@ export function PdfTool() {
   const [pages, setPages] = useState<PdfPageItem[]>([]);
   const [hadPages, setHadPages] = useState(false);
   const [format, setFormat] = useState<PdfOutputFormat>("pdf");
-  const [compression, setCompression] = useState<PdfCompression>({ level: "quality", rasterize: false });
+  const [compression, setCompression] = useState<PdfCompressionLevel>("balanced");
   const [scope, setScope] = useState<"all" | "selected">("all");
   const [uploading, setUploading] = useState("");
   const [exporting, setExporting] = useState("");
@@ -247,7 +246,7 @@ export function PdfTool() {
 
   return <div className="pdf-tool">
     <div className="pdf-tool-intro">
-      <div><span className="pdf-tool-eyebrow">PDF · 브라우저 작업공간</span><h2>페이지 편집</h2><p>여러 PDF의 페이지를 모아 순서를 바꾸고, 필요한 형식으로 저장합니다.</p></div>
+      <div><span className="pdf-tool-eyebrow">PDF 작업공간</span><h2>페이지 편집</h2><p>여러 PDF의 페이지를 모아 순서를 바꾸고, 필요한 형식으로 저장합니다.</p></div>
     </div>
 
     <section className="pdf-tool-panel pdf-tool-upload" aria-label="PDF 파일 추가" onDragOver={(event) => { event.preventDefault(); if (event.dataTransfer.types.includes("Files")) setDropActive(true); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDropActive(false); }} onDrop={handleDrop} data-drag-active={dropActive}>
@@ -301,17 +300,12 @@ export function PdfTool() {
     <section className="pdf-tool-export" aria-label="페이지 내보내기">
       <div className="pdf-tool-section-head"><div><span className="pdf-tool-eyebrow">02 / EXPORT</span><h3>완성본 저장</h3><p>현재 순서와 회전 상태가 모든 출력 형식에 동일하게 적용됩니다.</p></div></div>
       <div className="pdf-tool-export-grid"><label>저장 형식<select value={format} disabled={busy} onChange={(event) => setFormat(event.target.value as PdfOutputFormat)}><option value="pdf">PDF · 페이지 병합</option><option value="jpg">JPG (JPEG) · 이미지</option><option value="png">PNG · 이미지</option></select></label><label>내보낼 페이지<select value={scope} disabled={busy} onChange={(event) => setScope(event.target.value as "all" | "selected")}><option value="all">전체 페이지 ({pages.length})</option><option value="selected">선택한 페이지 ({selectedCount})</option></select></label></div>
-      {format === "pdf" && <>
-        <fieldset className="pdf-tool-compression" disabled={busy}>
-          <legend>PDF 압축</legend>
-          <p className="pdf-tool-compression-help">PDF 파일 크기를 줄이는 방식을 선택합니다. 압축 강도에 따라 화질과 용량이 달라질 수 있습니다.</p>
-          {COMPRESSION_LEVELS.map(({ level, label, detail }) => <label key={level}><input type="radio" name="pdf-compression" value={level} checked={compression.level === level} onChange={() => { setCompression((current) => ({ ...current, level })); setOutcome(null); }} /><span><strong>{label}</strong><small>{detail}</small></span></label>)}
-        </fieldset>
-        <details className="pdf-tool-advanced" open={compression.rasterize || undefined}>
-          <summary>고급 옵션</summary>
-          <label><input type="checkbox" checked={compression.rasterize} disabled={busy} onChange={(event) => { const rasterize = event.target.checked; setCompression((current) => ({ ...current, rasterize })); setOutcome(null); }} /><span><strong>페이지를 이미지로 변환하여 저장</strong><small>페이지를 이미지로 변환해 저장합니다. 용량을 더 줄일 수 있지만 텍스트 선택·검색, 링크, 양식 정보가 사라집니다.</small></span></label>
-        </details>
-      </>}
+      {format === "pdf" && <div className="pdf-tool-compression">
+        <h4>PDF 압축</h4>
+        <p className="pdf-tool-compression-help">압축 수준에 따라 파일 크기와 이미지 품질이 달라질 수 있습니다.</p>
+        <label>압축 수준<select value={compression} disabled={busy} aria-describedby="pdf-compression-detail" onChange={(event) => { setCompression(event.target.value as PdfCompressionLevel); setOutcome(null); }}>{COMPRESSION_LEVELS.map(({ level, label }) => <option key={level} value={level}>{label}</option>)}</select></label>
+        <p id="pdf-compression-detail" className="pdf-tool-compression-detail">{COMPRESSION_LEVELS.find(({ level }) => level === compression)?.detail}</p>
+      </div>}
       {format !== "pdf" && <p className="pdf-tool-export-hint">{exportCount > 1 ? "이미지는 번호가 붙은 파일을 ZIP 한 개로 저장합니다." : "한 페이지는 이미지 파일 하나로 저장합니다."} JPG는 흰 배경으로 저장됩니다.</p>}
       <div className="pdf-tool-export-footer"><div className="pdf-tool-export-summary"><strong>{exportCount} 페이지</strong><span>{format.toUpperCase()} {format === "pdf" ? "파일" : exportCount > 1 ? "ZIP 묶음" : "이미지"}으로 저장</span></div><div className="pdf-tool-export-actions">{exporting && <button type="button" className="pdf-tool-button pdf-tool-button-secondary" onClick={() => exportAbort.current?.abort()}>취소</button>}<button type="button" className="pdf-tool-button pdf-tool-button-primary" onClick={() => void download()} disabled={!exportCount || busy}>{exporting || "파일 다운로드"}<span aria-hidden="true">↗</span></button></div></div>
       {outcome && <div className="pdf-tool-outcome" role="status">{outcome.name} 저장 · {prettyBytes(outcome.size)}{outcome.mime === "application/pdf" ? ` · 원본 ${prettyBytes(outcome.inputBytes)} → 결과 ${prettyBytes(outcome.size)}${outcome.size < outcome.inputBytes ? ` · 약 ${Math.round((1 - outcome.size / outcome.inputBytes) * 100)}% 감소` : " · 원본보다 작아지지 않았습니다"}` : ""}</div>}

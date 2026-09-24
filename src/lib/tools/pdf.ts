@@ -20,20 +20,14 @@ export interface PdfInputSource {
 
 export type PdfOutputFormat = "pdf" | "jpg" | "png";
 export type PdfCompressionLevel = "quality" | "balanced" | "size";
-/** How hard to compress, and whether pages may be replaced by pictures of themselves. */
-export interface PdfCompression {
-  level: PdfCompressionLevel;
-  rasterize: boolean;
-}
-
 /**
- * Per level: embedded JPEG re-encode budget (absent = images untouched) and the
- * render budget used only when pages are rasterized.
+ * Per level embedded JPEG re-encode budget; absent = images untouched. Text,
+ * vectors, links and forms are never altered, and pages are never rasterized.
  */
-export const PDF_COMPRESSION: Record<PdfCompressionLevel, { imageEdge?: number; imageQuality?: number; rasterEdge: number; rasterQuality: number }> = {
-  quality: { rasterEdge: 1800, rasterQuality: 0.85 },
-  balanced: { imageEdge: 2400, imageQuality: 0.78, rasterEdge: 1300, rasterQuality: 0.7 },
-  size: { imageEdge: 1600, imageQuality: 0.6, rasterEdge: 1000, rasterQuality: 0.55 },
+export const PDF_COMPRESSION: Record<PdfCompressionLevel, { imageEdge?: number; imageQuality?: number }> = {
+  quality: {},
+  balanced: { imageEdge: 2400, imageQuality: 0.78 },
+  size: { imageEdge: 1600, imageQuality: 0.6 },
 };
 
 /** Re-encodes one JPEG no larger than `maxEdge`; undefined when the browser cannot decode it. */
@@ -101,21 +95,21 @@ export async function exportPdfPages(options: {
   pages: readonly PdfPageItem[];
   sources: ReadonlyMap<string, PdfInputSource>;
   format: PdfOutputFormat;
-  compression: PdfCompression;
+  compression: PdfCompressionLevel;
   render?: PdfPageRenderer;
   recompress?: PdfImageRecompressor;
   signal?: AbortSignal;
   onProgress?: (done: number, total: number) => void;
 }): Promise<PdfExportResult> {
   const { pages, sources, format, compression, render, recompress, signal, onProgress } = options;
-  const settings = PDF_COMPRESSION[compression.level];
+  const settings = PDF_COMPRESSION[compression];
   if (!pages.length) throw new Error("내보낼 페이지를 선택하세요.");
   ensureNotCancelled(signal);
   const includedSources = new Set(pages.map((page) => page.sourceId));
   const inputBytes = [...includedSources].reduce((sum, id) => sum + (sources.get(id)?.file.size ?? 0), 0);
   const name = format === "pdf" ? "worklens-pages.pdf" : pages.length === 1 ? `page-001.${format}` : `worklens-pages-${format}.zip`;
 
-  if (format === "pdf" && !compression.rasterize) {
+  if (format === "pdf") {
     const result = await PDFDocument.create();
     const loaded = new Map<string, PDFDocument>();
     for (const [index, item] of pages.entries()) {
@@ -146,31 +140,18 @@ export async function exportPdfPages(options: {
   }
 
   if (!render) throw new Error("이 형식은 브라우저 페이지 렌더링이 필요합니다.");
-  const output = format === "pdf" ? await PDFDocument.create() : null;
   const images: Record<string, Uint8Array> = {};
   for (const [index, item] of pages.entries()) {
     ensureNotCancelled(signal);
     const source = sources.get(item.sourceId);
     if (!source) throw new Error("원본 PDF가 제거되었습니다.");
-    const imageFormat = format === "png" ? "png" : "jpg";
-    const rendered = await render(source, item, imageFormat, format === "pdf" ? settings.rasterEdge : 1800, format === "pdf" ? settings.rasterQuality : 0.86, signal);
+    const rendered = await render(source, item, format, 1800, 0.86, signal);
     ensureNotCancelled(signal);
-    if (output) {
-      const image = await output.embedJpg(rendered.bytes);
-      const page = output.addPage([rendered.width, rendered.height]);
-      page.drawImage(image, { x: 0, y: 0, width: rendered.width, height: rendered.height });
-    } else {
-      const filename = `page-${String(index + 1).padStart(Math.max(3, String(pages.length).length), "0")}.${format}`;
-      images[filename] = rendered.bytes;
-    }
+    const filename = `page-${String(index + 1).padStart(Math.max(3, String(pages.length).length), "0")}.${format}`;
+    images[filename] = rendered.bytes;
     onProgress?.(index + 1, pages.length);
   }
   ensureNotCancelled(signal);
-  if (output) {
-    const bytes = await output.save({ useObjectStreams: true });
-    ensureNotCancelled(signal);
-    return { bytes, name, mime: "application/pdf", pageCount: pages.length, inputBytes };
-  }
   if (pages.length === 1) {
     const bytes = images[name];
     return { bytes, name, mime: format === "png" ? "image/png" : "image/jpeg", pageCount: 1, inputBytes };

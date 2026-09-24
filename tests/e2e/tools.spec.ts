@@ -126,7 +126,7 @@ test("PDF editor composes reordered, rotated and deleted pages into real files",
   expect(errors).toEqual([]);
 });
 
-test("PDF compression shrinks embedded photos while keeping text, and rasterizing is an explicit advanced option", async ({ page }) => {
+test("PDF compression is one level select defaulting to balanced, and each level keeps text", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "PDF 도구" }).click();
   const jpeg = Buffer.from(await page.evaluate(() => {
@@ -159,7 +159,14 @@ test("PDF compression shrinks embedded photos while keeping text, and rasterizin
   });
   await expect(page.locator(".pdf-tool-page")).toHaveCount(1);
   await expect(page.locator(".pdf-tool-badge")).toHaveText(["페이지 1", "선택 0"]);
-  await expect(page.getByRole("group", { name: "PDF 압축" })).toBeVisible();
+  await expect(page.getByText("PDF 작업공간", { exact: true })).toBeVisible();
+  await expect(page.getByText(/브라우저 작업공간|브라우저 내 처리|서버 전송 없음/)).toHaveCount(0);
+  await expect(page.getByText("고급 옵션")).toHaveCount(0);
+  await expect(page.getByRole("radio")).toHaveCount(0);
+  const level = page.getByLabel("압축 수준");
+  await expect(level).toHaveValue("balanced");
+  await expect(level.locator("option")).toHaveText(["고화질", "균형 (권장)", "강력 압축"]);
+  await expect(page.locator(".pdf-tool-compression-detail")).toHaveText("품질과 파일 크기를 균형 있게 조정합니다.");
 
   const textOf = async (bytes: Uint8Array) => {
     pdfjs.GlobalWorkerOptions.workerSrc = new URL("../../public/pdf.worker.mjs", import.meta.url).href;
@@ -168,24 +175,25 @@ test("PDF compression shrinks embedded photos while keeping text, and rasterizin
       return (await (await (await task.promise).getPage(1)).getTextContent()).items.map((item) => "str" in item ? item.str : "").join(" ");
     } finally { await task.destroy(); }
   };
-  await page.getByRole("radio", { name: /균형 압축/ }).check();
-  const balanced = await downloadBytes(page, () => page.getByRole("button", { name: /파일 다운로드/ }).click());
-  expect(balanced.bytes.length).toBeLessThan(original.length);
-  expect(await textOf(balanced.bytes)).toContain("KEEP TEXT");
+  const save = async () => {
+    const saved = await downloadBytes(page, () => page.getByRole("button", { name: /파일 다운로드/ }).click());
+    expect(Buffer.from(saved.bytes.subarray(0, 5)).toString()).toBe("%PDF-");
+    expect((await PDFDocument.load(saved.bytes)).getPageCount()).toBe(1);
+    expect(await textOf(saved.bytes)).toContain("KEEP TEXT");
+    return saved.bytes.length;
+  };
+  const balanced = await save();
+  expect(balanced).toBeLessThan(original.length);
   await expect(page.locator(".pdf-tool-outcome")).toContainText(/감소/);
 
-  await page.getByRole("radio", { name: /용량 우선/ }).check();
-  const smallest = await downloadBytes(page, () => page.getByRole("button", { name: /파일 다운로드/ }).click());
-  expect(smallest.bytes.length).toBeLessThan(balanced.bytes.length);
-  expect(await textOf(smallest.bytes)).toContain("KEEP TEXT");
+  await level.selectOption("size");
+  await expect(page.locator(".pdf-tool-compression-detail")).toHaveText("파일 크기를 더 줄이며 이미지 품질이 낮아질 수 있습니다.");
+  expect(await save()).toBeLessThan(balanced);
 
-  await page.getByText("고급 옵션").click();
-  await page.getByRole("checkbox", { name: /페이지를 이미지로 변환하여 저장/ }).check();
-  await expect(page.getByText(/텍스트 선택·검색, 링크, 양식 정보가 사라집니다/)).toBeVisible();
-  const rasterized = await downloadBytes(page, () => page.getByRole("button", { name: /파일 다운로드/ }).click());
-  expect(rasterized.bytes.length).toBeLessThan(original.length);
-  expect((await PDFDocument.load(rasterized.bytes)).getPageCount()).toBe(1);
-  expect(await textOf(rasterized.bytes)).not.toContain("KEEP TEXT");
+  await level.selectOption("quality");
+  expect(await save()).toBeGreaterThan(balanced);
+  // Changing the level never touches the page workspace.
+  await expect(page.locator(".pdf-tool-badge")).toHaveText(["페이지 1", "선택 0"]);
 });
 
 test("image editor chains resize, rotation, crop and merge with browser-only exports", async ({ page }) => {

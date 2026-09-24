@@ -3,12 +3,11 @@ import { unzipSync } from "fflate";
 import { degrees, PDFDocument, PDFName, PDFRawStream, StandardFonts } from "pdf-lib";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import { describe, expect, it, vi } from "vitest";
-import { exportPdfPages, movePdfPage, pagesForExport, pdfError, PDF_COMPRESSION, type PdfCompression, type PdfInputSource, type PdfPageItem } from "@/lib/tools/pdf";
+import { exportPdfPages, movePdfPage, pagesForExport, pdfError, PDF_COMPRESSION, type PdfCompressionLevel, type PdfInputSource, type PdfPageItem } from "@/lib/tools/pdf";
 
 const jpeg = new Uint8Array(Buffer.from("/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAAAP/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AP//Z", "base64"));
 const png = new Uint8Array(Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64"));
-const KEEP: PdfCompression = { level: "quality", rasterize: false };
-const RASTER: PdfCompression = { level: "balanced", rasterize: true };
+const KEEP: PdfCompressionLevel = "quality";
 
 const source = (name: string, bytes: Uint8Array): PdfInputSource => ({
   name,
@@ -97,29 +96,6 @@ describe("PDF tools output", () => {
     expect(result.mime).toBe("image/jpeg");
     expect([...result.bytes]).toEqual([1, 2, 3]);
   });
-  it("produces a smaller, correctly oriented raster PDF for an image-heavy original", async () => {
-    const original = await PDFDocument.create();
-    const page = original.addPage([400, 600]);
-    for (let index = 0; index < 120; index++) {
-      const tile = await original.embedJpg(jpeg);
-      page.drawImage(tile, { x: (index % 12) * 33, y: Math.floor(index / 12) * 55, width: 32, height: 54 });
-    }
-    const input = source("tiles.pdf", await original.save());
-    const result = await exportPdfPages({
-      pages: [{ id: "tiles", sourceId: "tiles", pageNumber: 1, rotation: 90, selected: true }],
-      sources: new Map([["tiles", input]]), format: "pdf", compression: RASTER,
-      render: async (_source, selected, format, maxEdge) => {
-        expect(selected.rotation).toBe(90);
-        expect(format).toBe("jpg");
-        expect(maxEdge).toBe(PDF_COMPRESSION.balanced.rasterEdge);
-        return { bytes: jpeg, width: 600, height: 400 };
-      },
-    });
-    const reduced = await PDFDocument.load(result.bytes);
-    expect(reduced.getPageCount()).toBe(1);
-    expect(reduced.getPage(0).getSize()).toEqual({ width: 600, height: 400 });
-    expect(result.bytes.length).toBeLessThan(input.file.size);
-  });
 });
 
 describe("PDF export validation and cancellation", () => {
@@ -169,13 +145,11 @@ describe("PDF export validation and cancellation", () => {
     expect(render).not.toHaveBeenCalled();
   });
 
-  it("requires a renderer for image export and raster PDF export", async () => {
+  it("requires a renderer for image export", async () => {
     const sources = new Map([["original", source("original.pdf", await textPdf(["ONE"]))]]);
     await expect(exportPdfPages({ pages: [page], sources, format: "png", compression: KEEP }))
       .rejects.toThrow("이 형식은 브라우저 페이지 렌더링이 필요합니다.");
     await expect(exportPdfPages({ pages: [page], sources, format: "jpg", compression: KEEP }))
-      .rejects.toThrow("이 형식은 브라우저 페이지 렌더링이 필요합니다.");
-    await expect(exportPdfPages({ pages: [page], sources, format: "pdf", compression: RASTER }))
       .rejects.toThrow("이 형식은 브라우저 페이지 렌더링이 필요합니다.");
   });
 
@@ -245,7 +219,7 @@ describe("PDF compression levels", () => {
     const sources = new Map([["mixed", source("mixed.pdf", await mixedPdf())]]);
     const smaller = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
     const recompress = vi.fn(async () => ({ bytes: smaller, width: 7, height: 5 }));
-    const result = await exportPdfPages({ pages: [page], sources, format: "pdf", compression: { level: "size", rasterize: false }, recompress });
+    const result = await exportPdfPages({ pages: [page], sources, format: "pdf", compression: "size", recompress });
     expect(recompress).toHaveBeenCalledTimes(1);
     expect(recompress).toHaveBeenCalledWith(expect.any(Uint8Array), PDF_COMPRESSION.size.imageEdge, PDF_COMPRESSION.size.imageQuality, undefined);
     const output = await PDFDocument.load(result.bytes);
@@ -266,7 +240,7 @@ describe("PDF compression levels", () => {
   it("keeps an embedded image whose re-encoding would not be smaller", async () => {
     const sources = new Map([["mixed", source("mixed.pdf", await mixedPdf())]]);
     const recompress = vi.fn(async () => ({ bytes: new Uint8Array(jpeg.length + 10), width: 1, height: 1 }));
-    const result = await exportPdfPages({ pages: [page], sources, format: "pdf", compression: { level: "balanced", rasterize: false }, recompress });
+    const result = await exportPdfPages({ pages: [page], sources, format: "pdf", compression: "balanced", recompress });
     const jpegImage = imageStreams(await PDFDocument.load(result.bytes)).find((stream) => stream.dict.lookup(PDFName.of("Filter")) === PDFName.of("DCTDecode"))!;
     expect([...jpegImage.getContents()]).toEqual([...jpeg]);
   });
@@ -276,7 +250,7 @@ describe("PDF compression levels", () => {
     const recompress = vi.fn();
     await exportPdfPages({ pages: [page], sources, format: "pdf", compression: KEEP, recompress });
     expect(recompress).not.toHaveBeenCalled();
-    await expect(exportPdfPages({ pages: [page], sources, format: "pdf", compression: { level: "balanced", rasterize: false } }))
+    await expect(exportPdfPages({ pages: [page], sources, format: "pdf", compression: "balanced" }))
       .rejects.toThrow("이미지 압축에는 브라우저 이미지 처리가 필요합니다.");
   });
 });

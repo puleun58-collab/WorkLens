@@ -80,25 +80,11 @@
 .pdf-tool-export .pdf-tool-section-head { margin: 0 0 20px; }
 .pdf-tool-export-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 14px; }
 .pdf-tool-export-grid label { display: grid; gap: 7px; font-size: 12px; font-weight: 700; }
-.pdf-tool-export-grid select { width: 100%; min-height: var(--control-height-md); padding: 8px 12px; border: 1px solid var(--border-default, var(--line)); border-radius: 7px; background: var(--paper); color: var(--ink); font-size: 13px; }
-.pdf-tool-compression { border: 0; border-top: 1px solid var(--border-subtle, var(--line)); margin: 22px 0 0; padding: 17px 0 0; display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 10px; }
-.pdf-tool-compression legend { float: left; width: 100%; margin-bottom: 6px; font-size: 13px; font-weight: 700; }
-.pdf-tool-compression-help { grid-column: 1 / -1; margin: 0 0 4px; color: var(--muted); font-size: 12px; line-height: 1.55; }
-.pdf-tool-compression label { display: flex; gap: 9px; align-items: flex-start; border: 1px solid var(--border-default, var(--line)); background: var(--paper); border-radius: 7px; padding: 13px 11px; cursor: pointer; }
-.pdf-tool-compression label:has(input:checked) { border-color: var(--blue); background: #f8fbff; }
-.pdf-tool-compression label input { flex: none; margin-top: 1px; }
-.pdf-tool-compression label span { display: grid; gap: 6px; }
-.pdf-tool-compression strong { font-size: 12px; line-height: 1.35; }
-.pdf-tool-compression small { color: var(--muted); font-size: 11px; line-height: 1.55; }
-.pdf-tool-advanced { margin-top: 16px; }
-.pdf-tool-advanced summary { width: fit-content; padding: 4px 0; color: var(--ink-soft, var(--ink)); font-size: 13px; font-weight: 700; cursor: pointer; }
-.pdf-tool-advanced label { display: flex; gap: 9px; align-items: flex-start; margin-top: 8px; padding: 13px 11px; border: 1px solid var(--border-default, var(--line)); border-radius: 7px; background: var(--paper); cursor: pointer; }
-/* Rasterizing drops text, links and forms: the chosen state reads as a caution, not a recommendation. */
-.pdf-tool-advanced label:has(input:checked) { border-color: #e2c48a; background: var(--warning-soft); }
-.pdf-tool-advanced label input { flex: none; margin-top: 1px; }
-.pdf-tool-advanced label span { display: grid; gap: 6px; }
-.pdf-tool-advanced strong { font-size: 12px; line-height: 1.35; }
-.pdf-tool-advanced small { color: var(--muted); font-size: 11px; line-height: 1.55; }
+.pdf-tool-export-grid select, .pdf-tool-compression select { width: 100%; min-height: var(--control-height-md); padding: 8px 12px; border: 1px solid var(--border-default, var(--line)); border-radius: 7px; background: var(--paper); color: var(--ink); font-size: 13px; }
+.pdf-tool-compression { border-top: 1px solid var(--border-subtle, var(--line)); margin: 22px 0 0; padding: 17px 0 0; display: grid; gap: 7px; }
+.pdf-tool-compression h4 { margin: 0; font-size: 13px; font-weight: 700; }
+.pdf-tool-compression-help, .pdf-tool-compression-detail { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.pdf-tool-compression label { display: grid; gap: 7px; width: min(100%, 300px); margin-top: 6px; font-size: 12px; font-weight: 700; }
 .pdf-tool-export-hint { background: #f7f9fc; border-radius: 7px; padding: 11px 12px; color: var(--muted); font-size: 12px; line-height: 1.5; margin: 16px 0 0; }
 .pdf-tool-export-footer { border-top: 1px solid var(--border-subtle, var(--line)); margin-top: 21px; padding-top: 18px; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .pdf-tool-export-summary { display: grid; gap: 4px; }
@@ -108,7 +94,6 @@
 .pdf-tool-outcome { margin-top: 16px; background: #eef8f2; color: #176343; border-radius: 7px; padding: 10px 12px; font-size: 12px; line-height: 1.5; }
 @media (max-width: 780px) {
   .pdf-tool-intro { align-items: flex-start; flex-direction: column; gap: 15px; }
-  .pdf-tool-compression { grid-template-columns: 1fr; }
   .pdf-tool-upload { padding: 18px; }
 }
 @media (max-width: 520px) {
