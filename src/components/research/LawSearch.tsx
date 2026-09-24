@@ -6,9 +6,35 @@ import {
   lawOutcome, lawStatusTone, lawTextIdentifier, lawTextOutcome,
   type LawEntry, type LawOutcome, type LawText, type LawTextOutcome,
 } from "@/lib/law-search";
+import { DecisionSearch, type LinkedDecisionSearch } from "./DecisionSearch";
 import "./law-search.css";
 
 export function LawSearch() {
+  const [view, setView] = useState<"law" | "decisions">("law");
+  const [linkedRequest, setLinkedRequest] = useState<LinkedDecisionSearch | null>(null);
+
+  function relatedDecisions(law: LawEntry, jo: string) {
+    setLinkedRequest({ query: `${law.name} ${jo}`, lawName: law.name, jo });
+    setView("decisions");
+    requestAnimationFrame(() => document.getElementById("decision-query")?.focus());
+  }
+
+  function returnToLaw() {
+    setView("law");
+    requestAnimationFrame(() => document.getElementById("related-decisions")?.focus());
+  }
+
+  return <div className="law-research">
+    <div className="law-view-switch" aria-label="법령 자료 유형">
+      <button type="button" aria-pressed={view === "law"} onClick={() => setView("law")}>법령 검색</button>
+      <button type="button" aria-pressed={view === "decisions"} onClick={() => { setLinkedRequest(null); setView("decisions"); }}>판례·결정례</button>
+    </div>
+    <div hidden={view !== "law"}><LawPane onRelated={relatedDecisions} /></div>
+    <div hidden={view !== "decisions"}><DecisionSearch linkedRequest={linkedRequest} onReturnToLaw={returnToLaw} /></div>
+  </div>;
+}
+
+function LawPane({ onRelated }: { onRelated: (law: LawEntry, jo: string) => void }) {
   const [query, setQuery] = useState("");
   const [searchLoading, setSearchLoading] = useState(false);
   const [outcome, setOutcome] = useState<LawOutcome | null>(null);
@@ -161,6 +187,7 @@ export function LawSearch() {
           </div>
           : detail?.kind === "found" ? <div className="law-detail-content">
             <h3>{activeJo ?? (detail.data.mode === "toc" ? "목차" : "법령 원문")}</h3>
+            {activeJo && <button id="related-decisions" type="button" className="law-search-link law-related-action" onClick={() => onRelated(selected, activeJo)}>관련 판례·결정례</button>}
             {detail.data.mode !== "toc" || !detail.data.articles?.length ? <pre className="law-detail-raw">{detail.data.text}</pre> : null}
             {detail.data.mode === "toc" && detail.data.articles?.length ? <details className="law-detail-source">
               <summary>원문 보기</summary>

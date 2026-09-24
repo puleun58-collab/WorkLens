@@ -4,8 +4,8 @@ import { ApiError } from "@/server/http";
 
 /**
  * Server-only client for the public Korean Law MCP (Streamable HTTP, stateless).
- * Only the fixed `search_law` and `get_law_text` tools are reachable. The MCP URL
- * and 법제처 key come from server configuration; the key travels in the `apikey`
+ * The four fixed tools are selected by server entry points. The MCP URL and
+ * 법제처 key come from server configuration; the key travels in the `apikey`
  * header, never in the URL, a log line or a response.
  */
 export const LAW_QUERY_MAX_CHARS = 200;
@@ -98,10 +98,11 @@ export async function getLawText(
   return { found: true, mode: "toc", text, ...metadata, articles };
 }
 
-/** The tool name is fixed by each server entry point, never supplied by the caller. */
-async function callLawTool(
-  tool: "search_law" | "get_law_text",
-  args: { query: string } | { mst: string; jo?: string } | { lawId: string; jo?: string },
+/** Tool names and arguments are fixed by server entry points, never supplied by the caller. */
+export async function callLawTool(
+  tool: "search_law" | "get_law_text" | "search_decisions" | "get_decision_text",
+  args: { query: string } | { mst: string; jo?: string } | { lawId: string; jo?: string } |
+    { domain: string; query: string; display: 20; page: number } | { domain: string; id: string; full?: true },
   context: LawContext,
 ): Promise<{ text: string; isError: boolean }> {
   const { LAW_OC: key, LAW_MCP_URL: endpoint } = workerEnv();

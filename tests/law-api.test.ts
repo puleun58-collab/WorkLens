@@ -138,4 +138,22 @@ describe("law search text parsing", () => {
   it("keeps entries without status labels and ignores trailing notes", () => {
     expect(parseLawEntries("1. 민법\n   - 법령ID: 001706\n\n참고: 끝")).toEqual([{ name: "민법", lawId: "001706" }]);
   });
+  it("keeps law IDs, MST and effective dates attached to the right numbered result", () => {
+    const text = "1. 근로기준법 [현행]\n   - 법령ID: 001872\n   - MST: 283457\n   - 구분: 법률\n   - 공포일: 20260102 / 시행일: 20260401\n\n2. 근로기준법 시행령\n   - 법령ID: 003058\n   - 시행일: 20260501\n\n참고: 다음 페이지";
+    expect(parseLawEntries(text)).toEqual([
+      { name: "근로기준법", status: "현행", lawId: "001872", mst: "283457", kind: "법률", promulgationDate: "20260102", effectiveDate: "20260401" },
+      { name: "근로기준법 시행령", lawId: "003058", effectiveDate: "20260501" },
+    ]);
+  });
+  it("ignores unknown metadata without promoting it to a law identifier or date", () => {
+    const text = "1. 첫 법령 [현행]\n   - 공포일별: 발행 기록\n   - 참고: 연결 문서\n\n2. 둘째 법령\n   - 법령ID: 002222\n   - 공포일: 20250101\n";
+    expect(parseLawEntries(text)).toEqual([
+      { name: "첫 법령", status: "현행" },
+      { name: "둘째 법령", lawId: "002222", promulgationDate: "20250101" },
+    ]);
+  });
+  it("ignores unnumbered follow-up notes after a valid result", () => {
+    expect(parseLawEntries("1. 근로기준법 [현행]\n   - 법령ID: 001872\n💡 실제 적용 시점을 확인하세요.\n"))
+      .toEqual([{ name: "근로기준법", status: "현행", lawId: "001872" }]);
+  });
 });

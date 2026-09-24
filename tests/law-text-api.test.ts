@@ -68,6 +68,13 @@ describe("POST /api/law/text", () => {
     expect(JSON.stringify(vi.mocked(console.info).mock.calls)).not.toContain(KEY);
     expect(JSON.stringify(vi.mocked(console.info).mock.calls)).not.toContain("283457");
   });
+  it("does not invent effective dates from malformed metadata and stops the TOC at a footer", async () => {
+    const raw = "법령명: 근로기준법\n개정일: 20260505\n공포일: 미확정\n시행일: 2026-04-01\n\n목차 (총 1개 조문)\n제74조 임산부의 보호\n부칙\n제1조 경과조치";
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(toolText(raw)));
+    const response = await call({ mst: "283457" });
+    expect(response.json.data).toEqual({ found: true, mode: "toc", text: raw, name: "근로기준법",
+      articles: [{ jo: "제74조", title: "임산부의 보호" }] });
+  });
 
   it("fetches a direct article by lawId and distinguishes it from an entire short law", async () => {
     const fetcher = vi.fn().mockResolvedValueOnce(toolText(ARTICLE))

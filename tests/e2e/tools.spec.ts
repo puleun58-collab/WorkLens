@@ -156,6 +156,110 @@ test("RESEARCH law detail browses raw TOC and articles, recovers, and preserves 
   expect(requests.at(-1)).toEqual({ lawId: "003058" });
 });
 
+test("RESEARCH decision search keeps identifiers and results across detail and full-text states", async ({ page }) => {
+  const searches: unknown[] = [];
+  const details: unknown[] = [];
+  let fullFails = true;
+  await page.route("**/api/law/decisions/search", async (route) => {
+    const input = route.request().postDataJSON();
+    searches.push(input);
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+      data: input.domain === "precedent"
+        ? { found: true, page: 1, totalCount: 2, text: "[609561] 부당해고 사건", entries: [
+          { domain: "precedent", id: "609561", title: "부당해고 사건", caseNumber: "2023다12345", court: "대법원", date: "20240314" },
+          { domain: "precedent", id: "609562", title: "다른 판결", caseNumber: "2022다67890" },
+        ] }
+        : { found: false, marker: "NOT_FOUND", text: "[NOT_FOUND] 검색 결과가 없습니다." },
+    }) });
+  });
+  await page.route("**/api/law/decisions/text", async (route) => {
+    const input = route.request().postDataJSON();
+    details.push(input);
+    const error = input.full && fullFails;
+    await route.fulfill({ status: error ? 503 : 200, contentType: "application/json", body: JSON.stringify(error
+      ? { error: { code: "LAW_UPSTREAM_UNAVAILABLE", message: "상세 서비스를 사용할 수 없습니다." } }
+      : { data: { found: true, title: "부당해고 사건", expandable: !input.full, text: input.full
+        ? "판시사항:\n판단 원문\n\n이유:\n긴 이유 원문 그대로"
+        : "판시사항:\n판단 원문\n\n이유:\n요약된 원문" } }) });
+  });
+  await page.goto("/");
+  await expect(page.locator(".app-shell")).toHaveAttribute("data-hydrated", "true");
+  await page.getByRole("button", { name: "법령", exact: true }).click();
+  await page.getByRole("button", { name: "판례·결정례", exact: true }).click();
+  await expect(page.getByRole("combobox", { name: /자료 유형/ })).toHaveValue("precedent");
+  await page.getByLabel("검색어").fill("부당해고");
+  await page.getByRole("button", { name: "검색", exact: true }).click();
+  await expect(page.getByRole("button", { name: /부당해고 사건/ })).toBeVisible();
+  expect(searches).toEqual([{ domain: "precedent", query: "부당해고", page: 1 }]);
+  await page.getByRole("button", { name: /부당해고 사건/ }).click();
+  await expect(page.locator(".decision-detail-raw")).toContainText("요약된 원문");
+  expect(details).toEqual([{ domain: "precedent", id: "609561" }]);
+
+  await page.getByRole("button", { name: "전문 보기" }).click();
+  await expect(page.locator(".decision-detail [role='alert']")).toContainText("상세 서비스를 사용할 수 없습니다.");
+  await expect(page.locator(".decision-detail-raw")).toContainText("요약된 원문");
+  fullFails = false;
+  await page.getByRole("button", { name: "전문 보기" }).click();
+  await expect(page.locator(".decision-detail-raw")).toContainText("긴 이유 원문 그대로");
+  expect(details).toEqual([{ domain: "precedent", id: "609561" }, { domain: "precedent", id: "609561", full: true }, { domain: "precedent", id: "609561", full: true }]);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.getByRole("button", { name: "← 검색 결과로" }).click();
+  await expect(page.getByLabel("검색어")).toHaveValue("부당해고");
+  await expect(page.getByRole("button", { name: /부당해고 사건/ })).toBeVisible();
+  expect(searches).toHaveLength(1);
+  await page.getByRole("combobox", { name: /자료 유형/ }).selectOption("constitutional");
+  await expect(page.getByRole("button", { name: /부당해고 사건/ })).toHaveCount(0);
+  await page.getByRole("button", { name: "검색", exact: true }).click();
+  await expect(page.getByRole("status").filter({ hasText: "검색 결과가 없습니다." })).toBeVisible();
+  expect(searches.at(-1)).toEqual({ domain: "constitutional", query: "부당해고", page: 1 });
+});
+
+test("law article opens deterministic related decisions and returns without refetch", async ({ page }) => {
+  const lawCalls: unknown[] = [];
+  const decisionQueries: unknown[] = [];
+  await page.route("**/api/law", async (route) => {
+    lawCalls.push(route.request().postDataJSON());
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { found: true, laws: [{ name: "근로기준법", mst: "283457" }] } }) });
+  });
+  await page.route("**/api/law/text", async (route) => {
+    const input = route.request().postDataJSON();
+    lawCalls.push(input);
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: input.jo
+      ? { found: true, mode: "article", text: "제74조(임산부의 보호)\n① 조문 본문" }
+      : { found: true, mode: "toc", text: "목차 (총 1개 조문)\n제74조 임산부의 보호", articles: [{ jo: "제74조", title: "임산부의 보호" }] } }) });
+  });
+  await page.route("**/api/law/decisions/search", async (route) => {
+    decisionQueries.push(route.request().postDataJSON());
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { found: true, page: 1, text: "[609561] 관련 판결", entries: [{ domain: "precedent", id: "609561", title: "관련 판결" }] } }) });
+  });
+  await page.route("**/api/law/decisions/text", async (route) => {
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { found: true, text: "판시사항:\n판결문 원문" } }) });
+  });
+  await page.goto("/");
+  await expect(page.locator(".app-shell")).toHaveAttribute("data-hydrated", "true");
+  await page.getByRole("button", { name: "법령", exact: true }).click();
+  await page.getByRole("searchbox").fill("근로기준법");
+  await page.getByRole("button", { name: "검색", exact: true }).click();
+  await page.locator(".law-search-list button").first().click();
+  await page.getByRole("navigation", { name: "조문 목차" }).getByRole("button", { name: "제74조 임산부의 보호" }).click();
+  await expect(page.locator(".law-detail-raw")).toContainText("조문 본문");
+  await page.getByRole("button", { name: "관련 판례·결정례" }).click();
+  await expect(page.getByRole("combobox", { name: /자료 유형/ })).toHaveValue("precedent");
+  await expect(page.getByLabel("검색어")).toHaveValue("근로기준법 제74조");
+  await expect(page.getByLabel("검색어")).toBeFocused();
+  await expect(page.getByRole("button", { name: "관련 판결" })).toBeVisible();
+  expect(decisionQueries).toEqual([{ domain: "precedent", query: "근로기준법 제74조", page: 1 }]);
+  await page.getByRole("button", { name: "관련 판결" }).click();
+  await expect(page.locator(".decision-detail-raw")).toContainText("판결문 원문");
+  await page.getByRole("button", { name: "← 검색 결과로" }).click();
+  await page.getByRole("button", { name: "← 법령으로" }).click();
+  await expect(page.locator(".law-detail-raw")).toContainText("조문 본문");
+  await expect(page.getByRole("button", { name: "관련 판례·결정례" })).toBeFocused();
+  expect(lawCalls).toEqual([{ query: "근로기준법" }, { mst: "283457" }, { mst: "283457", jo: "제74조" }]);
+});
+
 async function downloadBytes(page: Page, click: () => Promise<void>) {
   const pending = page.waitForEvent("download");
   await click();
@@ -489,6 +593,61 @@ test("image editor chains resize, rotation, crop and merge with browser-only exp
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   expect(posted).toEqual([]);
   expect(errors).toEqual([]);
+});
+
+test("image FILES fits its contents without stretching to PREVIEW", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator(".app-shell")).toHaveAttribute("data-hydrated", "true");
+  await page.getByRole("button", { name: "이미지 도구" }).click();
+  await expect(page.locator(".image-tool-library")).toBeVisible();
+  const geometry = () => page.evaluate(() => {
+    const box = (selector: string) => {
+      const rect = document.querySelector(selector)!.getBoundingClientRect();
+      return { top: rect.top, left: rect.left, width: rect.width, height: rect.height };
+    };
+    return {
+      files: box(".image-tool-library"),
+      preview: box(".image-tool-stage"),
+      adjust: box(".image-tool-controls"),
+      overflow: document.documentElement.scrollWidth > innerWidth,
+    };
+  });
+  const empty = await geometry();
+  expect(empty.files.height).toBeLessThan(empty.preview.height / 2);
+  expect(empty.files.top).toBe(empty.preview.top);
+  if (page.viewportSize()!.width > 1190) expect(empty.files.top).toBe(empty.adjust.top);
+  else expect(empty.adjust.top).toBeGreaterThan(empty.preview.top + empty.preview.height);
+
+  const png = await page.evaluate(() => {
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 16;
+    canvas.getContext("2d")!.fillRect(0, 0, 16, 16);
+    return canvas.toDataURL("image/png").split(",")[1];
+  });
+  await page.getByLabel("이미지 파일 선택").setInputFiles(["a.png", "b.png", "c.png"].map((name) => ({
+    name, mimeType: "image/png", buffer: Buffer.from(png, "base64"),
+  })));
+  await expect(page.locator(".image-tool-file")).toHaveCount(3);
+  const populated = await geometry();
+  expect(populated.files.height).toBeGreaterThan(empty.files.height);
+  expect(populated.files.height).toBeLessThan(populated.preview.height);
+  expect(populated.files.left).toBe(empty.files.left);
+  expect(populated.files.width).toBe(empty.files.width);
+  expect(populated.preview).toEqual(empty.preview);
+  expect(populated.adjust).toEqual(empty.adjust);
+  await page.getByRole("button", { name: "b.png 제거" }).click();
+  await expect(page.locator(".image-tool-file")).toHaveCount(2);
+  expect((await geometry()).files.height).toBeLessThan(populated.files.height);
+  await page.getByRole("button", { name: "a.png 제거" }).click();
+  await page.getByRole("button", { name: "c.png 제거" }).click();
+  await expect(page.getByText("추가된 이미지가 없습니다.", { exact: true })).toBeVisible();
+  expect((await geometry()).files.height).toBe(empty.files.height);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  const mobile = await geometry();
+  expect(mobile.files.width).toBe(mobile.preview.width);
+  expect(mobile.files.height).toBeLessThan(mobile.preview.height);
+  expect(mobile.overflow).toBe(false);
 });
 
 test("image tool starts from the preview and exports in the dragged order with identity kept", async ({ page }) => {
