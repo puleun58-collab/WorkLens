@@ -140,6 +140,11 @@ async function complete(
     model: GROQ_MODEL,
     messages,
     temperature: 0,
+    // gpt-oss spends completion tokens on hidden reasoning first. At the default
+    // effort, real workbook Analyze runs used 2k–3.8k reasoning tokens and ran out of
+    // budget before emitting JSON (Groq 400 json_validate_failed, 7 of 8 runs);
+    // low effort answered all runs with 300–450 tokens.
+    reasoning_effort: "low",
     max_completion_tokens: maxTokens,
     response_format: {
       type: "json_schema",

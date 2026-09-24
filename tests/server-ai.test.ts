@@ -94,7 +94,8 @@ describe("server AI route boundary", () => {
       request: { operation: "analyze" },
       items: Array.from({ length: 40 }, (_, index) => ({ handle: `E${index + 1}`, text: "근".repeat(250) })),
     });
-    expect(new TextEncoder().encode(body).length).toBeGreaterThan(24 * 1024);
+    expect(new TextEncoder().encode(body).length).toBeGreaterThan(30 * 1024);
+    expect(new TextEncoder().encode(body).length).toBeLessThanOrEqual(64 * 1024);
     const response = await POST(apiRequest(body));
     expect(response.status).toBe(200);
     expect(providerFetch).toHaveBeenCalledTimes(1);
@@ -213,6 +214,8 @@ describe("Groq provider adapter", () => {
     const body = JSON.parse(String(init.body));
     expect(url).toBe("https://api.groq.com/openai/v1/chat/completions");
     expect(body.model).toBe("openai/gpt-oss-20b");
+    // Default gpt-oss reasoning exhausted the completion budget on real workbooks.
+    expect(body.reasoning_effort).toBe("low");
     expect(body.response_format).toMatchObject({ type: "json_schema", json_schema: { strict: true } });
     expect(body.response_format.json_schema.schema.additionalProperties).toBe(false);
     expect(new Headers(init.headers).get("Authorization")).toBe("Bearer test-secret");
