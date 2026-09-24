@@ -19,7 +19,7 @@ import { classifyValue, normalizeValue } from "@/lib/extract/values";
 import { DocumentError } from "@/lib/upload";
 import { isDateNumberFormat } from "@/lib/xlsx-values";
 import { isExternalFormula, rowTemplate } from "./formula";
-import { primaryRegion } from "./values";
+import { fieldDate, primaryRegion } from "./values";
 
 const MAX_HEADER_SCAN_ROWS = 24;
 const MIN_RECORD_CELLS = 2;
@@ -584,12 +584,41 @@ function appendSourceMappings(context: PlanContext, target: AggregationTarget, t
   });
 }
 
+/** Reconstruct a month helper only when the template's rows prove its date source. */
+function monthHelperFormula(
+  context: PlanContext,
+  target: AggregationTarget,
+  region: AggregationRegion,
+  sources: readonly AggregationSheet[],
+  cells: readonly { row: number; cell: TableCell | undefined }[],
+): string | undefined {
+  if (cells.length < 2 || cells.some(({ cell }) => typeof cell?.value !== "number"
+    || !Number.isInteger(cell.value) || cell.value < 1 || cell.value > 12)) return undefined;
+  const candidates = context.mappings.filter((mapping) => mapping.targetId === target.id
+    && mapping.targetColumn !== undefined && (mapping.targetType === "date" || mapping.targetType === "datetime")
+    && region.records.every((record, index) => {
+      const field = record.fields.find((entry) => entry.label === mapping.targetField);
+      const date = field && fieldDate(field);
+      return date && date.getUTCMonth() + 1 === cells[index].cell?.value;
+    })
+    && sources.every((source) => {
+      const sourceRegion = primaryRegion(source);
+      const labels = mapping.sourceFields.filter((field) => field.sheetId === source.id).map((field) => field.field);
+      return sourceRegion && sourceRegion.records.every((record) =>
+        record.fields.some((field) => labels.includes(field.label) && field.value.displayValue && fieldDate(field)));
+    }));
+  const starts = candidates.filter((mapping) => /(?:등록|시작|발생|작성|접수|생성|start|created|opened)/iu.test(mapping.targetField));
+  const dateColumn = starts.length === 1 ? starts[0].targetColumn
+    : candidates.length === 1 ? candidates[0].targetColumn : undefined;
+  return dateColumn === undefined ? undefined : `MONTH(${columnName(dateColumn)}{ROW})`;
+}
+
 /**
  * Target columns outside the header span that the target's own records fill,
- * such as a month helper a summary counts. An appended row takes the target's
- * own row formula, otherwise a row formula a source keeps at the same place
- * relative to its table (re-expressed in target columns), otherwise the
- * source's value there.
+ * such as a month helper a summary counts. Appended rows take the target's
+ * formula, a source formula mapped into target columns, or the source's value.
+ * A numeric month helper can derive from a matching date when the source's
+ * helper is blank and the relationship is supported by every template row.
  */
 function helperColumns(context: PlanContext, target: AggregationTarget, template: AggregationSheet, sources: readonly AggregationSheet[]): AggregationHelperColumn[] {
   const region = primaryRegion(template);
@@ -628,6 +657,7 @@ function helperColumns(context: PlanContext, target: AggregationTarget, template
         }
       }
     }
+    if (!formula && !hasValue) formula = monthHelperFormula(context, target, region, sources, cells);
     helpers.push(formula ? { column, fill: "formula", formula } : { column, fill: hasValue ? "value" : "none" });
     if (!formula && !hasValue && sources.length > 0) {
       context.issues.push({

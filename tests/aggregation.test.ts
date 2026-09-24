@@ -878,6 +878,38 @@ describe("first selected workbook as the target", () => {
     expect(Object.keys(parts).some((part) => /externalLink|vbaProject/iu.test(part))).toBe(false);
   });
 
+  it("reconstructs a month helper from the target registration date when the source has no helper", async () => {
+    const target = await documentOf((book) => {
+      const sheet = book.addWorksheet("실적");
+      sheet.getRow(1).values = [null, "번호", "구분", "등록일", "종료일"];
+      for (const [row, date] of [[2, new Date(Date.UTC(2026, 7, 15))], [3, new Date(Date.UTC(2026, 7, 20))]] as const) {
+        sheet.getCell(row, 1).value = 8;
+        sheet.getCell(row, 2).value = `ITEM-${row}`;
+        sheet.getCell(row, 3).value = "안전";
+        sheet.getCell(row, 4).value = date;
+        sheet.getCell(row, 5).value = date;
+        sheet.getCell(row, 4).numFmt = "yyyy-mm-dd";
+        sheet.getCell(row, 5).numFmt = "yyyy-mm-dd";
+      }
+    }, "month-target");
+    const source = await documentOf((book) => {
+      const sheet = book.addWorksheet("실적");
+      sheet.addRows([["번호", "구분", "등록일", "종료일"],
+        ["ITEM-3", "품질", new Date(Date.UTC(2026, 8, 1)), new Date(Date.UTC(2026, 8, 2))],
+        ["ITEM-4", "안전", new Date(Date.UTC(2026, 7, 31)), new Date(Date.UTC(2026, 8, 1))]]);
+      for (const row of [2, 3]) for (const column of [3, 4]) sheet.getCell(row, column).numFmt = "yyyy-mm-dd";
+    }, "month-source");
+    const documents = [target, source];
+    const draft = buildAggregation(documents);
+    const output = await reopen((await aggregationXlsxExport(draft, defaultSelection(draft), documents)).content);
+    const sheet = output.getWorksheet("실적")!;
+    expect([sheet.getCell("A4").value, sheet.getCell("A5").value]).toEqual([
+      { formula: "MONTH(D4)" }, { formula: "MONTH(D5)" },
+    ]);
+    expect(sheet.getCell("D4").value).toEqual(new Date(Date.UTC(2026, 8, 1)));
+    expect(sheet.getCell("E5").value).toEqual(new Date(Date.UTC(2026, 8, 1)));
+  });
+
   it("fills each picture's own Before or After cell, cropping to cover and tiling several", async () => {
     const { output, exported } = await targetAndSource();
     const sheet = output.getWorksheet("개선 Bank")!;
