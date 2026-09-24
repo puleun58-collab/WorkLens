@@ -13,6 +13,12 @@ export default defineConfig({
     environment: "node",
     include: ["tests/**/*.test.ts"],
     testTimeout: 30_000,
+    coverage: {
+      include: ["src/**/*.{ts,tsx}"],
+      exclude: ["src/**/*.d.ts"],
+      reporter: ["text-summary", "json-summary"],
+      thresholds: { branches: 58 },
+    },
     hookTimeout: 30_000,
   },
 });

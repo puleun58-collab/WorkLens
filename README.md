@@ -30,7 +30,7 @@ WorkLens는 XLSX, CSV, PDF, DOCX, PPTX 파일을 브라우저에서 파싱하고
 - `/api/ai`는 same-origin, JSON content type, 64 KiB 본문, 기능별 strict 요청 스키마, 프로세스 동시 작업 4개, IP별 분당 120회 한도를 강제합니다. 클라이언트는 provider URL·모델·임의 메시지를 지정할 수 없습니다.
 - Groq 요청은 서버에서만 생성되고 API 키는 응답·클라이언트 번들·로그에 포함되지 않습니다. 로그에는 작업 종류, 지연 시간, 토큰 수만 기록합니다.
 
-분석은 한 번 실행하면 근거가 연결된 **핵심 요약 → 문서 주요 내용·확인된 수치 → 분석 인사이트** 순서로 결과를 보여줍니다. 관계가 확인되지 않으면 인사이트 영역을 표시하지 않습니다. AI가 실패해도 deterministic 결과는 유지하며 `기본 분석 완료`로 상태를 표시합니다. 별도의 요약 메뉴나 요약 방식 선택은 없습니다.
+분석은 한 번 실행하면 근거가 연결된 **핵심 요약 → 주요 내용·확인된 수치 → 분석 인사이트** 순서로 결과를 보여줍니다. 주요 내용은 제목·목차 대신 출처가 있는 본문 진술을 최대 7건 선별합니다. 관계가 확인되지 않으면 인사이트 영역을 표시하지 않습니다. AI가 실패해도 deterministic 결과는 유지하며 `기본 분석 완료`로 상태를 표시합니다. 별도의 요약 메뉴나 요약 방식 선택은 없습니다.
 
 ## 2. 설치
 
@@ -73,7 +73,7 @@ bun run start:vinext
 ```bash
 bun run typecheck
 bun run lint
-bun run test
+bun run test --coverage.enabled
 bunx vitest run tests/ai.test.ts tests/server-ai.test.ts
 bun run test:eval:retrieval
 bun run test:eval:grounding
@@ -86,7 +86,7 @@ bun run bench:stress -- --format=xlsx --size=50
 
 실제 Groq smoke는 로컬 서버에 최소 근거 1개를 보내 `/api/ai`의 200 응답과 근거 핸들을 확인합니다. 무료 플랜 한도를 소모하므로 기본 테스트에는 포함하지 않습니다.
 
-`bench:stress`는 어떤 CI·검증 명령에도 연결되어 있지 않습니다. 8 GiB 워크스테이션에서는 브라우저 파싱·검색·deterministic 경로만 물리 메모리 검증 대상입니다. AI 모델은 서버에서 실행되므로 브라우저 GPU·WebGPU·모델 다운로드 검증은 없습니다.
+CI는 lint·TypeScript·전체 단위 테스트(애플리케이션 코드 branch coverage 58% 이상)·retrieval/grounding 평가를 `fast`에서, 프로덕션 빌드와 Playwright·Cloudflare 브라우저 검증을 `integration`에서 실행합니다. 실패 시 coverage 보고서와 브라우저 trace·스크린샷을 아티팩트로 보존합니다. `bench:large`는 월요일마다, 메모리 비용이 큰 `bench:stress`는 매월 1일 별도 작업에서 실행합니다. 배포된 환경의 읽기·브라우저 메모리 전용 smoke는 Actions `workflow_dispatch`로 URL을 지정해 수동 실행합니다.
 
 평가셋은 `tests/eval/`에 있습니다. XLSX·CSV·PDF·DOCX·PPTX 업무 문서의 사실·숫자·날짜·백분율·위치 지정·답변 불가 케이스를 코드로 채점합니다. Ask는 모델 호출 전에 관련성 게이트를 통과해야 하고, grounding 평가는 canonical source와 값 보존을 별도로 측정합니다.
 

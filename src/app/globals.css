@@ -2170,12 +2170,6 @@ input:disabled,
   display: grid;
 }
 
-/* The fold is a control under the list, not another topic row. */
-.analysis-topic-more {
-  margin-top: var(--space-2);
-  min-height: 30px;
-  padding-inline: 10px;
-}
 
 .analysis-empty {
   margin: 0;

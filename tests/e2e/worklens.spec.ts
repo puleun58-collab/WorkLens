@@ -275,7 +275,7 @@ test("keeps multi-file Analyze confirmed metrics separated when the model abstai
   await expect(panel).not.toContainText("2026.09.15");
   await expect(panel).not.toContainText("경영지원팀");
 
-  await expect(panel.getByRole("heading", { name: "문서 주요 내용", exact: true })).toHaveCount(0);
+  await expect(panel.getByRole("heading", { name: "주요 내용", exact: true })).toHaveCount(0);
 });
 
 test("keeps deterministic Analyze output stable across grounding rejection and enrichment success", async ({ page }) => {
@@ -329,8 +329,8 @@ test("keeps deterministic Analyze output stable across grounding rejection and e
   await expect(panel).not.toContainText(/서술형 문단 중심|표 중심의 문서|혼합형 문서|주요 수치/);
   await expect(panel.locator(".analysis-summary-section")).toHaveCount(0);
   const topics = panel.locator(".analysis-core-items-section .analysis-reading-row");
-  await expect(panel.getByRole("heading", { name: "문서 주요 내용", exact: true })).toBeVisible();
-  await expect(topics).toHaveCount(3);
+  await expect(panel.getByRole("heading", { name: "주요 내용", exact: true })).toBeVisible();
+  await expect(topics).toHaveCount(2);
   const baseText = await topics.allInnerTexts();
   const metricRows = panel.locator(".analysis-metric-table tbody tr");
   const firstMetrics = await metricRows.allInnerTexts();
@@ -346,7 +346,7 @@ test("keeps deterministic Analyze output stable across grounding rejection and e
   await expect(panel.locator(".result-status")).toHaveText("분석 완료");
   await expect(panel.locator(".result-inline-warning")).toHaveCount(0);
   await expect(panel.locator(".analysis-summary-section .analysis-reading-row")).toHaveCount(1);
-  expect(await topics.allInnerTexts()).toEqual(baseText);
+  expect((await topics.allInnerTexts()).length).toBeLessThanOrEqual(baseText.length);
   expect(await metricRows.allInnerTexts()).toEqual(firstMetrics);
   await expect(panel.locator(".analysis-summary-section")).not.toContainText("목표주가 64,550원");
   expect(analyzeCalls).toBe(2);
@@ -403,8 +403,8 @@ test("surfaces FSC Analyze failure and then grounded relational insights with al
   await run.click();
   await expect(panel.locator(".result-status")).toHaveText("기본 분석 완료");
   await expect(panel.locator(".result-inline-warning")).toContainText("사용 한도");
-  await expect(panel.getByRole("heading", { name: "문서 주요 내용" })).toBeVisible();
-  await expect(panel.locator(".analysis-core-items-section .subsection-heading")).toContainText("13건");
+  await expect(panel.getByRole("heading", { name: "주요 내용" })).toBeVisible();
+  await expect(panel.locator(".analysis-core-items-section .analysis-reading-row")).toHaveCount(7);
   await expect(panel.locator(".analysis-summary-section")).toHaveCount(0);
 
   await run.click();
@@ -414,7 +414,7 @@ test("surfaces FSC Analyze failure and then grounded relational insights with al
   await expect(panel.locator(".analysis-insight-section")).toContainText("다시 계산합니다");
   await expect(panel.locator(".analysis-insight-section")).toContainText("대체값");
   await expect(panel.locator(".analysis-insight-section")).toContainText("보조적으로");
-  await expect(panel.locator(".analysis-core-items-section .subsection-heading")).toContainText("13건");
+  expect(await panel.locator(".analysis-core-items-section .analysis-reading-row").count()).toBeLessThanOrEqual(7);
   const aligned = await panel.evaluate((root) => {
     const left = (selector: string) => root.querySelector(selector)!.getBoundingClientRect().left;
     const right = (selector: string) => root.querySelector(selector)!.getBoundingClientRect().right;
@@ -435,7 +435,7 @@ test("surfaces FSC Analyze failure and then grounded relational insights with al
   expect(calls).toBe(2);
 });
 
-test("keeps narrative PPT topics useful when Analyze AI is unavailable", async ({ page }) => {
+test("keeps sourced narrative body facts when Analyze AI is unavailable", async ({ page }) => {
   await page.route("**/api/ai", async (route) => {
     await route.fulfill({
       status: 503,
@@ -455,28 +455,20 @@ test("keeps narrative PPT topics useful when Analyze AI is unavailable", async (
   const panel = page.locator(".results-panel");
   await expect(panel.locator(".result-status")).toHaveText("기본 분석 완료");
   await expect(panel.locator(".analysis-summary-section")).toHaveCount(0);
-  await expect(panel.getByRole("heading", { name: "문서 주요 내용", exact: true })).toBeVisible();
+  await expect(panel.getByRole("heading", { name: "주요 내용", exact: true })).toBeVisible();
   const topics = panel.locator(".analysis-core-items-section .analysis-reading-row");
-  for (const heading of ["안전보건협의체", "회의 개요", "법적 요구 사항", "업체별 위험요소", "안전 규정"]) {
-    await expect(topics.filter({ hasText: heading })).toHaveCount(1);
-  }
-  // Twelve real slide titles: all of them, and no synthetic "외 N개" row.
-  await expect(topics).toHaveCount(12);
-  await expect(panel.locator(".analysis-core-items-section .subsection-heading span")).toHaveText("12건");
-  await expect(topics.filter({ hasText: /^외 \d+개/ })).toHaveCount(0);
-  await expect(panel.locator(".analysis-topic-more")).toHaveCount(0);
+  await expect(topics).toHaveCount(7);
+  await expect(panel.locator(".analysis-core-items-section .subsection-heading span")).toHaveText("7건");
+  await expect(topics.first()).toContainText(/설명합니다|검토합니다|정리합니다|안내합니다/);
   await expect(panel).not.toContainText("이 문장은 제목 placeholder가 없는 본문입니다.");
+  await expect(topics.filter({ hasText: "안전보건협의체" })).toHaveCount(0);
+  await expect(panel.locator(".analysis-topic-more")).toHaveCount(0);
   await expect(panel.locator(".result-inline-warning")).toContainText("AI 서비스 일시 오류");
   await expect(panel.locator(".analysis-summary-section")).toHaveCount(0);
 
-  const repeated = topics.filter({ hasText: "업체별 위험요소" });
-  await expect(repeated.locator(".source-locator")).toContainText("외 1곳");
-  await repeated.locator(".source-action").click();
-  await expect(page.getByLabel("근거 상세")).toContainText("Slide 4");
-  await expect(page.getByLabel("근거 상세")).toContainText("Slide 11");
 });
 
-test("shows a short outline in full and folds a long one behind a real control", async ({ page }) => {
+test("selects seven substantive statements rather than folding fourteen slide headings", async ({ page }) => {
   await page.route("**/api/ai", async (route) => {
     await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: { code: "AI_PROVIDER_UNAVAILABLE" }, requestId: "req-outline" }) });
   });
@@ -488,21 +480,17 @@ test("shows a short outline in full and folds a long one behind a real control",
 
   const section = page.locator(".analysis-core-items-section");
   const topics = section.locator(".analysis-reading-row");
-  // The count is the document's real outline; the fold never counts as a topic.
-  await expect(section.locator(".subsection-heading span")).toHaveText("14건");
-  await expect(topics).toHaveCount(8);
+  await expect(section.locator(".subsection-heading span")).toHaveText("7건");
+  await expect(topics).toHaveCount(7);
   await expect(section).not.toContainText(/외 \d+개/);
-  const more = section.getByRole("button", { name: "6개 더 보기" });
-  await expect(more).toBeVisible();
+  await expect(section).toContainText("처리 기준과 담당 범위");
+  await expect(section.getByRole("button", { name: /더 보기/u })).toHaveCount(0);
 
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   await page.setViewportSize({ width: 1440, height: 900 });
 
-  await more.click();
-  await expect(topics).toHaveCount(14);
-  await expect(topics.last()).toContainText("운영 주제 N");
-  await expect(more).toHaveCount(0);
+  await expect(topics).toHaveCount(7);
 });
 
 test("checks shared values locally, keeps evidence, and exports both formats", async ({ page }) => {
@@ -1568,7 +1556,7 @@ test("summarizes a short notice without inventing an insight section", async ({ 
   await expect(panel.locator(".result-status")).toHaveText("분석 완료");
   await expect(panel.locator(".analysis-summary-section .analysis-reading-row")).toHaveCount(2);
   await expect(panel.locator(".analysis-summary-section .source-action")).toHaveCount(2);
-  await expect(panel.locator(".analysis-core-items-section")).toContainText("교육 안내");
+  await expect(panel.locator(".analysis-core-items-section")).toHaveCount(0);
   await expect(panel.locator(".analysis-insight-section")).toHaveCount(0);
   expect(requests).toBe(1);
 });

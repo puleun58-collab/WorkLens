@@ -85,8 +85,6 @@ import {
   claimDisplayText,
   confirmedAnalysisItems,
   confirmedAnalysisMetrics,
-  TOPIC_FOLDED_COUNT,
-  TOPIC_FOLD_THRESHOLD,
 } from "@/lib/analysis-presentation";
 import {
   BarChart3,
@@ -2420,12 +2418,9 @@ function AnalyzeResults({ entries, enrichment, fileNames, onSource }: {
   fileNames: Map<string, string>;
   onSource: SourceHandler;
 }) {
-  const [topicsOpen, setTopicsOpen] = useState(false);
   const confirmedFields = entries.flatMap((entry) => entry.extraction.fields);
-  const coreItems = confirmedAnalysisItems(entries);
-  const presentation = analysisClaimPresentation(enrichment, confirmedFields, coreItems);
-  const topicsFold = coreItems.length > TOPIC_FOLD_THRESHOLD && !topicsOpen;
-  const visibleItems = topicsFold ? coreItems.slice(0, TOPIC_FOLDED_COUNT) : coreItems;
+  const presentation = analysisClaimPresentation(enrichment, confirmedFields, confirmedAnalysisItems(entries));
+  const coreItems = presentation.content;
   const metrics = confirmedAnalysisMetrics(entries);
   const mismatches = entries.flatMap(({ file, analysis }) =>
     analysis.totals.filter((total) => total.actual !== total.expected).map((total) => ({ file, total })));
@@ -2457,11 +2452,11 @@ function AnalyzeResults({ entries, enrichment, fileNames, onSource }: {
       {coreItems.length ? (
         <section className="analysis-report-section analysis-core-items-section" aria-labelledby="analysis-core-items-title">
           <div className="subsection-heading">
-            <h3 id="analysis-core-items-title">문서 주요 내용</h3>
+            <h3 id="analysis-core-items-title">주요 내용</h3>
             <span>{coreItems.length}건</span>
           </div>
           <div className="analysis-reading-list">
-            {visibleItems.map((item) => (
+            {coreItems.map((item) => (
               <article className="analysis-reading-row analysis-core-item-row" key={item.id}>
                 <p>{item.text}</p>
                 <div className="analysis-reading-actions">
@@ -2470,11 +2465,6 @@ function AnalyzeResults({ entries, enrichment, fileNames, onSource }: {
               </article>
             ))}
           </div>
-          {topicsFold ? (
-            <button type="button" className="secondary-action analysis-topic-more" onClick={() => setTopicsOpen(true)}>
-              {coreItems.length - TOPIC_FOLDED_COUNT}개 더 보기
-            </button>
-          ) : null}
         </section>
       ) : null}
 

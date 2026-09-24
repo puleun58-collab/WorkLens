@@ -27,16 +27,13 @@ const ask = (question: string) =>
   selectEvidence(nodes, { operation: "ask", question }, { limit: 4 }).map((node) => node.text.replace(/\s+/gu, " "));
 
 describe("FSC Forecast guide", () => {
-  it("lists every real section and never a synthetic overflow row", () => {
-    const topics = documentAnalysisTopics(document).map((topic) => topic.text);
-    for (const section of [
-      "Forecast 값은 무엇인가요?",
-      "주차별 Forecast 값은 어떻게 산정되나요?",
-      "두바이유와 환율도 반영되나요?",
-      "주차별 상세 데이터의 값 선택 순서",
-      "Forecast 값은 왜 계속 바뀌나요?",
-    ]) expect(topics).toContain(section);
-    expect(topics.some((topic) => /외\s*\d+개/u.test(topic))).toBe(false);
+  it("selects sourced body facts across the guide instead of its question headings", () => {
+    const topics = documentAnalysisTopics(document);
+    expect(topics).toHaveLength(7);
+    expect(topics.some((topic) => topic.text.includes("최근 8 개 주간 평균 유가"))).toBe(true);
+    expect(topics.some((topic) => topic.text.includes("Actual"))).toBe(true);
+    expect(topics.some((topic) => topic.sources[0].page === 5)).toBe(true);
+    expect(topics.every((topic) => topic.sources.length > 0 && !topic.text.endsWith("?"))).toBe(true);
   });
 
   it("answers each question from its own section, not the adjacent one", () => {

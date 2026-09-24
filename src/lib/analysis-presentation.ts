@@ -5,19 +5,9 @@ import type { DocumentTopic } from "@/domain/operations";
 
 const NARRATIVE_SIGNAL_PATTERN = /(관계|의미|특징|주의|증가|감소|변화|추세|상승|하락|비교|차이|영향|원인|위험|가능성|전망|불일치|초과|미달|대비|전년|전월|때문|따라)/u;
 const CONFIRMED_METRIC_TYPES = new Set<ExtractValueType>(["Money", "Percent", "Number"]);
-/**
- * A short outline is read in full; only a long one folds, and the fold is a
- * control in the view, never a pretend topic in the data.
- */
-export const TOPIC_FOLD_THRESHOLD = 12;
-export const TOPIC_FOLDED_COUNT = 8;
 const GENERIC_TOPICS = new Set(["목차", "차례", "contents", "agenda", "chapter", "index", "개정이력"]);
-/** "CH 01", "Chapter 2", "제3장", "4.1": a position in the outline, not a subject. */
 const OUTLINE_NUMBER_ONLY = /^(?:(?:ch(?:apter)?|part|section)\.?\s*\d+|제?\s*\d+\s*[장절부]|\d+(?:\.\d+)*\.?)$/iu;
-/** A table-of-contents entry or a running head carries its page number with it. */
 const TRAILING_PAGE_NUMBER = /\s\d{1,3}$/u;
-const COVER_PAGE = 1;
-const COVER_SKIP_THRESHOLD = 3;
 
 export interface AnalysisMetric {
   id: string;
@@ -32,6 +22,7 @@ export interface AnalysisMetric {
 export interface AnalysisClaimPresentation {
   summary: GroundedClaim[];
   insights: GroundedClaim[];
+  content: DocumentTopic[];
   concerns: GroundedClaim[];
   warnings: ResultWarning[];
 }
@@ -119,12 +110,6 @@ function containment(inner: Set<string>, outer: Set<string>): number {
 }
 
 /**
- * An insight explains how parts of the document relate. A claim whose wording
- * is essentially one of the document's own section titles restates the outline
- * the reader already sees under 문서 주요 내용.
- */
-const RESTATES_HEADING = 0.8;
-/**
  * Two claims citing the same evidence, one worded almost entirely inside the
  * other, say the same thing; the fuller one explains more and is kept.
  */
@@ -175,26 +160,22 @@ export function analysisClaimPresentation(
   topics: readonly DocumentTopic[] = [],
 ): AnalysisClaimPresentation {
   if (!result || result.operation !== "analyze") {
-    return { summary: [], insights: [], concerns: [], warnings: [] };
+    return { summary: [], content: [...topics], insights: [], concerns: [], warnings: [] };
   }
 
-  const repeatsCore = (claim: GroundedClaim) => {
-    const grams = bigrams(claimDisplayText(claim));
-    const sources = claim.evidence.map((binding) => binding.source);
-    return topics.some((topic) =>
-      sharesSource(sources, topic.sources)
-      && containment(grams, bigrams(topic.text)) >= RESTATES_HEADING);
-  };
   const claims = uniqueClaims(result.claims).filter((claim): claim is Extract<GroundedClaim, { kind: "inference" }> =>
-    claim.kind === "inference" && Boolean(claim.presentation) && !repeatsCore(claim)
+    claim.kind === "inference" && Boolean(claim.presentation)
     && !repeatsConfirmedMetric(claim, confirmedFields));
   const concerns = claims.filter((claim) => (claim.confidence ?? "low") === "low");
   const confident = claims.filter((claim) => (claim.confidence ?? "low") !== "low");
   const summary = withoutNearDuplicates(confident.filter((claim) =>
-    claim.kind === "inference" && claim.presentation?.role === "summary"));
+    claim.presentation?.role === "summary")).slice(0, 4);
   const insights = withoutNearDuplicates(confident.filter((claim) =>
-    claim.kind === "inference" && claim.presentation?.role === "insight")).filter((claim) => {
-      const grams = bigrams(claimDisplayText(claim));
+    claim.presentation?.role === "insight")).filter((claim) => {
+      const text = claimDisplayText(claim);
+      if (/[?？]$/u.test(text) || /(?:나요|습니까|인가요)$/u.test(text)
+        || !/(?:하면|경우|없으면|때문|따라|반면|대비|비교|우선|대신|변화|증가|감소|상승|하락|재계산|전환|다시|보조적으로|→|->)/u.test(text)) return false;
+      const grams = bigrams(text);
       return !summary.some((entry) => {
         if (!sharesSource(claim.evidence.map((binding) => binding.source), entry.evidence.map((binding) => binding.source))) return false;
         const entryGrams = bigrams(claimDisplayText(entry));
@@ -203,68 +184,89 @@ export function analysisClaimPresentation(
           && containment(shorter, longer) >= NEAR_DUPLICATE;
       });
     });
-  return { summary, insights, concerns, warnings: result.warnings };
+  const content = topics.filter((topic) => {
+    const grams = bigrams(topic.text);
+    return ![...summary, ...insights].some((claim) => {
+      if (!sharesSource(topic.sources, claim.evidence.map((binding) => binding.source))) return false;
+      const claimGrams = bigrams(claimDisplayText(claim));
+      const [shorter, longer] = grams.size <= claimGrams.size ? [grams, claimGrams] : [claimGrams, grams];
+      return sameMeaningMarkers(topic.text, claimDisplayText(claim))
+        && containment(shorter, longer) >= NEAR_DUPLICATE;
+    });
+  });
+  return { summary, content, insights, concerns, warnings: result.warnings };
 }
 
 function topicKey(text: string): string {
   return text.normalize("NFKC").trim().toLocaleLowerCase("ko-KR").replace(/\s+/gu, " ");
 }
 
-const compactKey = (text: string): string => topicKey(text).replace(/\s+/gu, "");
 
-const pageOf = (source: { page?: number }): number | undefined => source.page;
-
-/**
- * The document's own section headings, minus the parts of a document that
- * describe the file rather than its content: a cover, a table of contents,
- * running heads and a colophon repeat the title instead of adding a subject.
- * Slides have no cover page — every slide titles itself — so that rule
- * applies only to paginated documents.
- */
+/** Select statements from the document body; headings only locate their source. */
 export function documentAnalysisTopics(document: NormalizedDocument): DocumentTopic[] {
-  const headings = document.blocks.flatMap((block) =>
-    block.type === "paragraph" && block.role === "heading" && block.text.trim() ? [block] : []);
-  const paginated = document.kind === "pdf" || document.kind === "docx";
-  const titleKey = paginated ? compactKey(headings[0]?.text ?? "") : "";
-  const beyondCover = headings.filter((block) => pageOf(block.source) !== COVER_PAGE).length;
-  const skipCover = paginated && beyondCover >= COVER_SKIP_THRESHOLD;
-
-  const topics: DocumentTopic[] = [];
-  const indexByKey = new Map<string, number>();
-  for (const block of headings) {
+  const candidates: Array<{ item: DocumentTopic; score: number; order: number }> = [];
+  const byText = new Map<string, number>();
+  for (const [order, block] of document.blocks.entries()) {
+    if (block.type !== "paragraph" || block.role === "heading") continue;
     const text = block.text.replace(/\s+/gu, " ").trim();
+    if (text.length < 18 || text.length > 500 || /[?？]$/u.test(text)) continue;
+    if (GENERIC_TOPICS.has(topicKey(text)) || OUTLINE_NUMBER_ONLY.test(text)
+      || TRAILING_PAGE_NUMBER.test(text) || /(?:placeholder|lorem ipsum)/iu.test(text)) continue;
     const key = topicKey(text);
-    const compact = compactKey(text);
-    if (!key || GENERIC_TOPICS.has(key) || GENERIC_TOPICS.has(compact)) continue;
-    if (TRAILING_PAGE_NUMBER.test(text) || OUTLINE_NUMBER_ONLY.test(text)) continue;
-    if (skipCover && pageOf(block.source) === COVER_PAGE) continue;
-    // The colophon and the cover restate the title; the title identifies the
-    // document, it is not one of its subjects.
-    if (titleKey && compact !== titleKey && (compact.includes(titleKey) || titleKey.includes(compact))) continue;
-    if (titleKey && compact === titleKey && skipCover) continue;
-    const existingIndex = indexByKey.get(key);
-    if (existingIndex === undefined) {
-      indexByKey.set(key, topics.length);
-      topics.push({ id: `topic:${block.id}`, text, sources: [block.source] });
+    const repeated = byText.get(key);
+    if (repeated !== undefined) {
+      const sources = candidates[repeated].item.sources;
+      if (!sources.some((source) => source.nodeId === block.source.nodeId)) sources.push(block.source);
       continue;
     }
-    const existing = topics[existingIndex];
-    if (!existing.sources.some((source) => source.nodeId === block.source.nodeId)) {
-      existing.sources.push(block.source);
-    }
+    byText.set(key, candidates.length);
+    const score = (/(?:조건|기준|정의|적용|예외|우선|절차|결정|상태|필요|계산|산정|확인|변경|반영|없으면|경우|때문|따라)/u.test(text) ? 2 : 0)
+      + (/\d/u.test(text) ? 1 : 0)
+      + (/(?:다|니다|한다|된다|입니다|이다)[.!?]?$/u.test(text) ? 1 : 0)
+      + Math.min(text.length, 160) / 160;
+    candidates.push({ item: { id: `topic:${block.id}`, text, sources: [block.source] }, score, order });
   }
-  return topics;
+  const ranked = candidates.sort((left, right) => right.score - left.score || left.order - right.order);
+  const selected: typeof candidates = [];
+  const overflow: typeof candidates = [];
+  const perSection = new Map<string, number>();
+  for (const entry of ranked) {
+    const source = entry.item.sources[0];
+    const key = source.sheet ?? (source.page === undefined ? `part:${Math.floor(entry.order / 20)}` : `page:${source.page}`);
+    const count = perSection.get(key) ?? 0;
+    if (count >= 2) { overflow.push(entry); continue; }
+    perSection.set(key, count + 1);
+    selected.push(entry);
+    if (selected.length === 7) break;
+  }
+  for (const entry of overflow) {
+    if (selected.length === 7) break;
+    selected.push(entry);
+  }
+  return selected.sort((left, right) => left.order - right.order).map(({ item }) => item);
 }
 
 export function confirmedAnalysisItems(
   entries: readonly AnalysisExtractionEntry[],
 ): DocumentTopic[] {
   const includeFileName = entries.length > 1;
-  return entries.flatMap(({ file, topics }) => topics.map((topic) => ({
-    ...topic,
-    id: `${file.id}:${topic.id}`,
-    text: includeFileName ? `${file.name}: ${topic.text}` : topic.text,
-  })));
+  const items: DocumentTopic[] = [];
+  for (let rank = 0; items.length < 7; rank += 1) {
+    let added = false;
+    for (const { file, topics } of entries) {
+      const topic = topics[rank];
+      if (!topic) continue;
+      items.push({
+        ...topic,
+        id: `${file.id}:${topic.id}`,
+        text: includeFileName ? `${file.name}: ${topic.text}` : topic.text,
+      });
+      added = true;
+      if (items.length === 7) break;
+    }
+    if (!added) break;
+  }
+  return items;
 }
 
 export function confirmedAnalysisMetrics(

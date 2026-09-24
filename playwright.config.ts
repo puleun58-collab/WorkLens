@@ -13,7 +13,7 @@ export default defineConfig({
   outputDir: "artifacts/e2e",
   use: {
     baseURL: `http://127.0.0.1:${PORT}`,
-    trace: "off",
+    trace: "retain-on-failure",
     screenshot: "only-on-failure",
     viewport: { width: 1440, height: 900 },
   },

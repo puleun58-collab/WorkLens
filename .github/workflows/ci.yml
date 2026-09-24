@@ -3,9 +3,24 @@ name: CI
 on:
   push:
   pull_request:
+  workflow_dispatch:
+    inputs:
+      smoke_url:
+        description: Deployed URL for read-only browser smoke
+        required: true
+        default: https://worklens.puleun58.workers.dev
+        type: string
+  schedule:
+    - cron: "0 2 * * 1"
+    - cron: "0 3 1 * *"
+
+permissions:
+  contents: read
+
 
 jobs:
   fast:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,10 +35,21 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run lint
       - run: bun run typecheck
-      - run: bun run test
+      - run: bun run test --coverage.enabled
+      - run: bun run test:eval:retrieval
+      - run: bun run test:eval:grounding
+      - name: Upload coverage when checks fail
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fast-failure-${{ github.run_id }}
+          path: coverage/coverage-summary.json
+          if-no-files-found: ignore
+          retention-days: 14
 
   integration:
     needs: fast
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -40,3 +66,66 @@ jobs:
       - run: bun run build
       - run: bun run test:e2e
       - run: bun run test:e2e:cloudflare
+      - name: Upload browser reports and failure traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-failure-${{ github.run_id }}
+          path: |
+            artifacts/e2e/
+            artifacts/e2e-report.json
+            artifacts/e2e-cloudflare/
+            artifacts/e2e-cloudflare-report.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+  production-smoke:
+    if: github.event_name == 'workflow_dispatch'
+    needs: integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.1
+      - run: bun install --frozen-lockfile
+      - run: bunx playwright install --with-deps chromium
+      - run: bun run test:smoke
+        env:
+          WORKLENS_SMOKE_URL: ${{ inputs.smoke_url }}
+      - name: Upload smoke failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-failure-${{ github.run_id }}
+          path: |
+            artifacts/e2e-smoke/
+            artifacts/e2e-smoke-report.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+  benchmarks:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.1
+      - run: bun install --frozen-lockfile
+      - run: mkdir -p artifacts
+      - name: Weekly large-document sweep
+        if: github.event.schedule == '0 2 * * 1'
+        run: bun run bench:large 2>&1 | tee artifacts/bench-large.log
+      - name: Monthly stress sweep
+        if: github.event.schedule == '0 3 1 * *'
+        run: bun run bench:stress 2>&1 | tee artifacts/bench-stress.log
+      - name: Save benchmark diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-${{ github.run_id }}
+          path: artifacts/bench-*.log
+          if-no-files-found: ignore
+          retention-days: 30

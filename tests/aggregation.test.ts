@@ -826,7 +826,7 @@ describe("first selected workbook as the target", () => {
     expect(sheet.getCell("D9").value).toBe("Q");
     expect(sheet.getCell("N8").value).toBeNull();
     const problem = draft.mappings.find((mapping) => mapping.targetField === "문제점")!;
-    expect(problem).toMatchObject({ status: "suggested", included: true, targetColumn: 7 });
+    expect(problem).toMatchObject({ status: "review", included: true, targetColumn: 7 });
     expect(draft.mappings.find((mapping) => mapping.targetField === "R")).toMatchObject({ status: "review", included: true });
   });
 
@@ -1059,6 +1059,21 @@ describe("combined sequence numbers", () => {
     const expected = ["BP-08-01", "BP-08-02", "BP-08-03", "BP-08-04", "BP-08-05", "BP-08-06"];
     expect(values).toEqual(expected);
     expect(records.map((record) => preview?.mappingId === mapping.id ? preview.cells.get(record.id)?.display : targetCell(mappedFields(record, mapping), mapping).display)).toEqual(expected);
+  });
+
+  it.each([
+    { header: "행", baseline: [1, 2, 3], incoming: [1, null, 2], expected: [1, 2, 3, 4, 5, 6] },
+    { header: "배치키", baseline: ["LOT-42-001", "LOT-42-002", "LOT-42-003"], incoming: ["LOT-42-001", null, "LOT-42-002"], expected: ["LOT-42-001", "LOT-42-002", "LOT-42-003", "LOT-42-004", "LOT-42-005", "LOT-42-006"] },
+  ])("continues a restarted sequence under a generic $header header", async ({ header, baseline, incoming, expected }) => {
+    const { values, preview } = await combine(header, baseline, incoming);
+    expect(preview).toBeDefined();
+    expect(values).toEqual(expected);
+  });
+
+  it("preserves consecutive values that do not restart in the source workbook", async () => {
+    const { preview, values } = await combine("측정값", [1, 2, 3], [4, 5]);
+    expect(preview).toBeUndefined();
+    expect(values).toEqual([1, 2, 3, 4, 5]);
   });
 
   it.each([

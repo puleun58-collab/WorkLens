@@ -1,6 +1,6 @@
 /**
- * Large-document benchmark. Manual only: never wired into lint, typecheck,
- * unit tests, E2E or CI, because a single case can hold gigabytes.
+ * Scheduled separately from the fast gates; never wired into lint, typecheck,
+ * unit tests or browser suites, because a single case can hold gigabytes.
  *
  * Every case runs in its own child process, so a hard wall-clock timeout can
  * kill it outright and its memory is reclaimed before the next case starts.
@@ -9,7 +9,7 @@
  * committed and nothing is uploaded: fixtures are generated in memory.
  *
  *   bun run bench:large    # low-load fixtures, the default sweep
- *   bun run bench:stress   # 50/75/100 MiB inputs, run deliberately
+ *   bun run bench:stress   # 50/75/100 MiB inputs, monthly isolated sweep
  */
 import { strToU8, zipSync } from "fflate";
 import type { NormalizedDocument } from "@/domain/document";

@@ -77,7 +77,7 @@ describe("analysisClaimPresentation", () => {
     expect(presentation.warnings).toEqual(result.warnings);
   });
 
-  it("drops a claim that only restates a section title and merges a near-duplicate", () => {
+  it("rejects question-like insights and merges near-duplicate relationships", () => {
     const heading = source("heading", 2);
     const body = source("body", 2);
     const result: AnalyzeResult = {
@@ -91,12 +91,30 @@ describe("analysisClaimPresentation", () => {
       warnings: [],
       rejectedClaimCount: 0,
     };
-    const topics = [{ id: "topic:heading", text: "주차별 Forecast 값은 어떻게 산정되나요?", sources: [heading] }];
 
-    expect(analysisClaimPresentation(result, [], topics).insights.map(claimDisplayText)).toEqual([
+    expect(analysisClaimPresentation(result).insights.map(claimDisplayText)).toEqual([
       "새로운 Actual이 반영되면 최근 8주 기준이 바뀌어 향후 Forecast를 다시 계산합니다",
       "주간 Forecast가 없으면 월간 Forecast를 사용합니다",
     ]);
+  });
+
+  it("keeps a document-wide summary over a paraphrased core fact while preserving distinct facts", () => {
+    const shared = source("definition", 2);
+    const distinct = source("condition", 3);
+    const result: AnalyzeResult = {
+      operation: "analyze",
+      claims: [inference("summary", "Forecast는 실제값이 없는 미래 주차에 적용하는 예상 유가입니다", "high", [shared], "summary")],
+      warnings: [],
+      rejectedClaimCount: 0,
+    };
+    const content = [
+      { id: "definition", text: "Forecast는 실제값이 없는 미래 주차에 적용되는 예상 유가입니다.", sources: [shared] },
+      { id: "condition", text: "주간 예측값이 없으면 월간 예측값을 적용합니다.", sources: [distinct] },
+    ];
+    const presented = analysisClaimPresentation(result, [], content);
+    expect(presented.summary.map(claimDisplayText)).toHaveLength(1);
+    expect(presented.content).toEqual([content[1]]);
+    expect(analysisClaimPresentation(null, [], content).content).toEqual(content);
   });
 
   it("builds an ordered deterministic summary and confirmed metrics from extraction only", () => {
@@ -131,7 +149,7 @@ describe("analysisClaimPresentation", () => {
     ]);
   });
 
-  it("uses only explicit headings, keeps order, and merges repeated heading sources", () => {
+  it("presents the body rather than repeated slide headings with its own source", () => {
     const first = source("slide-1", 1);
     const repeated = source("slide-2", 2);
     const body = source("body", 3);
@@ -143,61 +161,39 @@ describe("analysisClaimPresentation", () => {
       blocks: [
         { id: "slide-1", type: "paragraph", text: "회의 개요", role: "heading", headingLevel: 1, source: first },
         { id: "slide-2", type: "paragraph", text: "회의 개요", role: "heading", headingLevel: 1, source: repeated },
-        { id: "body", type: "paragraph", text: "법적 요구 사항을 검토합니다.", source: body },
+        { id: "body", type: "paragraph", text: "법적 요구 사항과 적용 범위를 검토합니다.", source: body },
       ],
       warnings: [],
     };
     expect(documentAnalysisTopics(document)).toEqual([{
-      id: "topic:slide-1",
-      text: "회의 개요",
-      sources: [first, repeated],
+      id: "topic:body",
+      text: "법적 요구 사항과 적용 범위를 검토합니다.",
+      sources: [body],
     }]);
   });
 
-  it("keeps the document's sections and drops the parts that only name the file", () => {
-    const page = (nodeId: string, pageNumber: number): SourceRef => ({
-      fileId: "file-1",
-      nodeId,
-      label: `페이지 ${pageNumber}`,
-      page: pageNumber,
-      locator: { kind: "pdf", page: pageNumber, spans: [] },
-    });
-    const heading = (id: string, text: string, pageNumber: number) => ({
-      id,
-      type: "paragraph" as const,
-      text,
-      role: "heading" as const,
-      headingLevel: 1,
-      source: page(id, pageNumber),
-    });
+  it("uses a section question as context rather than a displayed fact", () => {
+    const heading = source("heading", 1);
+    const body = source("body", 2);
     const document: NormalizedDocument = {
       id: "document-file-1",
       fileId: "file-1",
       kind: "pdf",
-      metadata: { fileName: "가이드.pdf", pageCount: 5 },
+      metadata: { fileName: "가이드.pdf", pageCount: 2 },
       blocks: [
-        heading("cover", "예측값 산정 가이드", 1),
-        heading("author", "정하건 지음", 1),
-        heading("toc", "차례", 2),
-        heading("toc-entry", "값 선택 순서 3", 2),
-        heading("chapter", "C H A P T E R", 3),
-        heading("definition", "예측값은 무엇인가요?", 3),
-        heading("basis", "값은 어떻게 산정되나요?", 4),
-        heading("order", "값 선택 순서", 4),
-        { id: "body", type: "paragraph" as const, text: "최근 평균으로 계산합니다.", source: page("body", 4) },
-        heading("colophon", "예측값 산정 가이드 — 안내서", 5),
+        { id: "heading", type: "paragraph", text: "예측값은 무엇인가요?", role: "heading", headingLevel: 1, source: heading },
+        { id: "body", type: "paragraph", text: "최근 8주 평균 유가를 기준으로 예측값을 계산합니다.", source: body },
       ],
       warnings: [],
     };
-
-    expect(documentAnalysisTopics(document).map((topic) => topic.text)).toEqual([
-      "예측값은 무엇인가요?",
-      "값은 어떻게 산정되나요?",
-      "값 선택 순서",
-    ]);
+    expect(documentAnalysisTopics(document)).toEqual([{
+      id: "topic:body",
+      text: "최근 8주 평균 유가를 기준으로 예측값을 계산합니다.",
+      sources: [body],
+    }]);
   });
 
-  it("returns every real topic and never a synthetic overflow row", () => {
+  it("does not turn a fourteen-heading outline into fourteen main facts", () => {
     const blocks = Array.from({ length: 14 }, (_, index) => ({
       id: `slide-${index + 1}`,
       type: "paragraph" as const,
@@ -206,22 +202,15 @@ describe("analysisClaimPresentation", () => {
       headingLevel: 1,
       source: source(`slide-${index + 1}`, index + 1),
     }));
-    const outline = [
-      { id: "chapter", type: "paragraph" as const, text: "제3장", role: "heading" as const, headingLevel: 1, source: source("chapter", 15) },
-      { id: "number", type: "paragraph" as const, text: "4.1", role: "heading" as const, headingLevel: 2, source: source("number", 16) },
-    ];
     const document: NormalizedDocument = {
       id: "document-file-1",
       fileId: "file-1",
       kind: "pptx",
-      metadata: { fileName: "운영.pptx", pageCount: 16 },
-      blocks: [...blocks, ...outline],
+      metadata: { fileName: "운영.pptx", pageCount: 14 },
+      blocks,
       warnings: [],
     };
-
-    const topics = documentAnalysisTopics(document);
-    expect(topics.map((topic) => topic.text)).toEqual(blocks.map((block) => block.text));
-    expect(topics.some((topic) => /^외\s*\d+개$/u.test(topic.text))).toBe(false);
+    expect(documentAnalysisTopics(document)).toEqual([]);
   });
 
   it("keeps equal labels from different files separate and names each deterministic summary", () => {
@@ -291,6 +280,7 @@ describe("analysisClaimPresentation", () => {
 
   it("returns no invented sections without an Analyze result", () => {
     expect(analysisClaimPresentation(null)).toEqual({
+      content: [],
       summary: [],
       insights: [],
       concerns: [],

@@ -179,7 +179,7 @@ export function sequenceCells(records: readonly AggregationRecord[], mappings: r
       const source = parse(mappedFields(record, mapping)[0], named);
       return source?.number === first.number && source.prefix === first.prefix && source.numeric === first.numeric;
     });
-    if (!named && (first.prefix ? !first.prefix.slice(0, -1).includes("-") && !sourceRestarts && numbered.length < 3 : mapping.targetField !== "R" && !sourceRestarts)) continue;
+    if (!named && (!sourceRestarts || numbered.length < 3)) continue;
     const cells = new Map(records.map((record, index) => {
       const number = start + index;
       const value = first.numeric ? number : `${first.prefix}${String(number).padStart(first.digits, "0")}`;
