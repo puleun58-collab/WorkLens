@@ -6,6 +6,7 @@ import {
   lawOutcome, lawStatusTone, lawTextIdentifier, lawTextOutcome,
   type LawEntry, type LawOutcome, type LawText, type LawTextOutcome,
 } from "@/lib/law-search";
+import { LawTextBlock } from "./LawTextBlock";
 import { DecisionSearch, type LinkedDecisionSearch } from "./DecisionSearch";
 import { LegalAnalysis, type LinkedAnalysis } from "./LegalAnalysis";
 import { LegalResearch } from "./LegalResearch";
@@ -224,10 +225,10 @@ function LawPane({ onRelated, onAnalysis }: LawPaneProps) {
               <button id="law-applicable-action" type="button" className="law-search-link" onClick={() => onAnalysis({ mode: "applicable_law", lawName: detail.data.name ?? overview?.name ?? selected.name, jo: activeJo, origin: "law" }, "law-applicable-action")}>시점별 적용 법령</button>
               <button id="law-impact-action" type="button" className="law-search-link" onClick={() => onAnalysis({ mode: "impact_map", lawName: detail.data.name ?? overview?.name ?? selected.name, jo: activeJo, origin: "law" }, "law-impact-action")}>조문 영향도</button>
             </div>}
-            {detail.data.mode !== "toc" || !detail.data.articles?.length ? <pre className="law-detail-raw">{detail.data.text}</pre> : null}
+            {detail.data.mode !== "toc" || !detail.data.articles?.length ? <LawTextBlock className="law-detail-raw" text={detail.data.text} /> : null}
             {detail.data.mode === "toc" && detail.data.articles?.length ? <details className="law-detail-source">
               <SourceToggleSummary />
-              <pre className="law-detail-raw">{detail.data.text}</pre>
+              <LawTextBlock className="law-detail-raw" text={detail.data.text} />
             </details> : null}
             {detail.data.mode === "toc" && detail.data.articles && detail.data.articles.length > 0 && <nav aria-label="조문 목차">
               <ul className="law-article-list">{detail.data.articles.map((article, index) => <li key={`${article.jo}-${index}`}>

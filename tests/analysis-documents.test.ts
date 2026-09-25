@@ -156,6 +156,8 @@ describe("Analyze across real parsed business documents", () => {
     expect(outcome.grounded.rejectedClaimCount).toBe(0);
     expect(outcome.presented.summary.some((claim) => /승인 이후에만.*발주/u.test(claim.text))).toBe(true);
     expect(outcome.presented.insights.some((claim) => /팀장이 부재하면.*대리 승인자.*부재하면.*보류/u.test(claim.text))).toBe(true);
+    expect(outcome.presented.content.every((topic) => !/팀장 승인 이후에만 구매 담당자가 발주를 등록/u.test(topic.text))).toBe(true);
+    expect(outcome.presented.content.some((topic) => /처리 내역과 승인 기록을 함께 보관/u.test(topic.text))).toBe(true);
     for (const claim of [...outcome.presented.summary, ...outcome.presented.insights]) canonical(claim, manual);
   });
 

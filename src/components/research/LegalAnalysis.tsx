@@ -10,6 +10,7 @@ import {
   citationOverallLabel, citeCheckResult, impactMapResult, splitAnalysisText, verifyCitationsResult,
   type AnalysisSection,
 } from "@/lib/law-analysis-parse";
+import { LawTextBlock } from "./LawTextBlock";
 import "./legal-analysis.css";
 import { SourceToggleSummary } from "./SourceToggleSummary";
 
@@ -163,7 +164,7 @@ export function LegalAnalysis({ linkedRequest, onReturn }: LegalAnalysisProps) {
         </div>
         : current.outcome?.kind === "missing" ? <div className="legal-analysis-missing" role="status" data-marker={current.outcome.data.marker}>
           <p className="law-search-note">{current.outcome.data.marker === "INVALID_ARGUMENT" ? "입력한 조문 번호를 해석하지 못했습니다." : "요청한 법령·조문·판례를 법제처 자료에서 찾지 못했습니다."}</p>
-          <pre className="legal-analysis-raw">{current.outcome.data.text}</pre>
+          <LawTextBlock className="legal-analysis-raw" text={current.outcome.data.text} />
         </div>
         : current.outcome?.kind === "found" ? <AnalysisResult data={current.outcome.data} />
         : null}
@@ -172,7 +173,7 @@ export function LegalAnalysis({ linkedRequest, onReturn }: LegalAnalysisProps) {
 }
 
 function Lines({ lines }: { lines: string[] }) {
-  return lines.length ? <pre className="legal-analysis-lines">{lines.join("\n")}</pre> : null;
+  return lines.length ? <LawTextBlock className="legal-analysis-lines" text={lines.join("\n")} /> : null;
 }
 
 function Sections({ sections }: { sections: AnalysisSection[] }) {
@@ -215,7 +216,7 @@ function AnalysisResult({ data }: { data: LawAnalysisData }) {
       <Lines lines={result.target} />
       {result.verdict && <div className={`legal-analysis-verdict is-${result.verdict.tone}`}>
         <span className="legal-analysis-status">판정</span>
-        <pre className="legal-analysis-lines">{result.verdict.text}</pre>
+        <LawTextBlock className="legal-analysis-lines" text={result.verdict.text} />
       </div>}
       <Sections sections={result.sections} />
       {result.limitation.length > 0 && <Lines lines={result.limitation} />}
@@ -249,7 +250,7 @@ function AnalysisResult({ data }: { data: LawAnalysisData }) {
     {body}
     <details className="law-detail-source">
       <SourceToggleSummary />
-      <pre className="legal-analysis-raw">{data.text}</pre>
+      <LawTextBlock className="legal-analysis-raw" text={data.text} />
     </details>
     <p className="legal-analysis-note">{note ? `${note} ` : ""}{RESULT_NOTE}</p>
   </div>;

@@ -30,6 +30,7 @@ import {
 import { WorkLensLogo } from "./worklens-logo";
 import { disposeWorkspace, runInWorker } from "@/client/document-client";
 import {
+  aiFailureDetail,
   extractServerAi,
   generateServerAi,
   interruptServerAi,
@@ -767,7 +768,7 @@ export default function Home() {
         } catch (error) {
           noteAiDiagnostics(error);
           if (process.env.NODE_ENV !== "production") console.info("[worklens] analyze stages", { ...stages, failure: (error as Partial<ServerAiFailure>).code ?? "UNKNOWN" });
-          notifyView("warning", "기본 분석은 완료됐습니다. 요약과 인사이트를 불러오지 못했습니다.");
+          notifyView("warning", "기본 분석은 완료됐습니다. 요약과 인사이트를 불러오지 못했습니다.", undefined, aiFailureDetail(error));
           return deterministic;
         }
       }

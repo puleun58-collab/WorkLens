@@ -8,6 +8,7 @@ import {
   type LawResearchRequest, type LawResearchTask,
 } from "@/lib/law-research";
 import { researchResult } from "@/lib/law-research-parse";
+import { LawTextBlock } from "./LawTextBlock";
 import { SourceToggleSummary } from "./SourceToggleSummary";
 import "./legal-analysis.css";
 
@@ -166,7 +167,7 @@ export function LegalResearch() {
         </div>
         : current.outcome?.kind === "missing" ? <div className="legal-analysis-missing" role="status">
           <p className="law-search-note">요청한 자료를 법제처 자료에서 찾지 못했습니다.</p>
-          <pre className="legal-analysis-raw">{current.outcome.data.text}</pre>
+          <LawTextBlock className="legal-analysis-raw" text={current.outcome.data.text} />
         </div>
         : current.outcome?.kind === "found" ? <ResearchResult data={current.outcome.data} />
         : null}
@@ -182,11 +183,11 @@ function ResearchResult({ data }: { data: LawResearchData }) {
     {unavailable > 0 && <p className="legal-research-partial" role="note">부분 결과입니다. {unavailable}개 항목은 조회하지 못했거나 시간 한도로 수집되지 않았습니다 (결과 없음과 다릅니다).</p>}
     {result.sections.map((section, index) => <div key={index} className={`legal-analysis-section${section.unavailable ? " is-unavailable" : ""}`} data-markers={section.markers.join(" ")}>
       {section.heading && <h3>{section.heading}</h3>}
-      {section.lines.length > 0 && <pre className="legal-analysis-lines">{section.lines.join("\n")}</pre>}
+      {section.lines.length > 0 && <LawTextBlock className="legal-analysis-lines" text={section.lines.join("\n")} />}
     </div>)}
     <details className="law-detail-source">
       <SourceToggleSummary />
-      <pre className="legal-analysis-raw">{data.text}</pre>
+      <LawTextBlock className="legal-analysis-raw" text={data.text} />
     </details>
     <p className="legal-analysis-note">데이터 출처: {result.sources.join(" · ")}. {RESULT_NOTE}</p>
   </div>;

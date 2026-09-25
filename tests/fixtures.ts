@@ -1,5 +1,5 @@
 import ExcelJS from "exceljs";
-import { PDFDocument, StandardFonts } from "pdf-lib";
+import { PDFDocument, PDFHexString, PDFName, PDFString, StandardFonts, beginText, endText, moveText, setFontAndSize, showText } from "pdf-lib";
 import { strToU8, zipSync } from "fflate";
 
 export type SheetRow = (string | number)[];
@@ -28,6 +28,10 @@ export interface PdfLineSpec {
   text: string;
   /** Point size; a heading is simply set in a different size than the body. */
   size?: number;
+  /** createUnicodePdf only: this line wraps the previous one (same paragraph). */
+  continues?: boolean;
+  /** createUnicodePdf only: fixed baseline, e.g. a running header or footer. */
+  y?: number;
 }
 
 /**
@@ -44,6 +48,95 @@ export async function createStructuredPdf(pages: readonly PdfLineSpec[][]): Prom
       const size = line.size ?? 11;
       page.drawText(line.text, { x: 56, y, size, font });
       y -= size * 1.7;
+    }
+  }
+  return pdf.save();
+}
+
+/** ToUnicode CMap mapping each 2-byte code to the same UTF-16 code unit. */
+function identityUnicodeCMap(): string {
+  const ranges = Array.from({ length: 256 }, (_, high) => {
+    const byte = high.toString(16).padStart(2, "0").toUpperCase();
+    return `<${byte}00> <${byte}FF> <${byte}00>`;
+  });
+  const blocks: string[] = [];
+  for (let index = 0; index < ranges.length; index += 100) {
+    const block = ranges.slice(index, index + 100);
+    blocks.push(`${block.length} beginbfrange\n${block.join("\n")}\nendbfrange`);
+  }
+  return [
+    "/CIDInit /ProcSet findresource begin",
+    "12 dict begin",
+    "begincmap",
+    "/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def",
+    "/CMapName /Adobe-Identity-UCS def",
+    "/CMapType 2 def",
+    "1 begincodespacerange",
+    "<0000> <FFFF>",
+    "endcodespacerange",
+    ...blocks,
+    "endcmap",
+    "CMapName currentdict /CMap defineresource pop",
+    "end",
+    "end",
+  ].join("\n");
+}
+
+/**
+ * `createStructuredPdf` for any BMP text, including Korean. The standard PDF
+ * fonts only encode WinAnsi, so text is written with an Identity-H composite
+ * font whose ToUnicode map makes it extractable exactly as a real Korean PDF
+ * with a non-embedded font. Glyph shapes are irrelevant to text extraction.
+ */
+export async function createUnicodePdf(pages: readonly PdfLineSpec[][]): Promise<Uint8Array> {
+  const pdf = await PDFDocument.create();
+  const { context } = pdf;
+  const toUnicode = context.register(context.stream(identityUnicodeCMap()));
+  const descriptor = context.register(context.obj({
+    Type: "FontDescriptor",
+    FontName: "WorkLensTestUnicode",
+    Flags: 4,
+    FontBBox: [0, -200, 1000, 900],
+    ItalicAngle: 0,
+    Ascent: 880,
+    Descent: -120,
+    CapHeight: 700,
+    StemV: 80,
+  }));
+  const descendant = context.register(context.obj({
+    Type: "Font",
+    Subtype: "CIDFontType2",
+    BaseFont: "WorkLensTestUnicode",
+    CIDSystemInfo: { Registry: PDFString.of("Adobe"), Ordering: PDFString.of("Identity"), Supplement: 0 },
+    FontDescriptor: descriptor,
+    DW: 1000,
+    CIDToGIDMap: "Identity",
+  }));
+  const font = context.register(context.obj({
+    Type: "Font",
+    Subtype: "Type0",
+    BaseFont: "WorkLensTestUnicode",
+    Encoding: "Identity-H",
+    DescendantFonts: [descendant],
+    ToUnicode: toUnicode,
+  }));
+  const hex = (text: string) => PDFHexString.of([...text].map((char) => {
+    const code = char.charCodeAt(0);
+    return code.toString(16).padStart(4, "0");
+  }).join(""));
+  for (const lines of pages) {
+    const page = pdf.addPage([595, 842]);
+    page.node.setFontDictionary(PDFName.of("U1"), font);
+    let y = 790;
+    for (const line of lines) {
+      const size = line.size ?? 11;
+      if (line.y === undefined) {
+        if (line.continues) y += size * 1.3;
+        if (y < 60) throw new Error("createUnicodePdf: page overflow; split the content into more pages.");
+      }
+      page.pushOperators(beginText(), setFontAndSize("U1", size), moveText(56, line.y ?? y), showText(hex(line.text)), endText());
+      // Separate paragraphs sit further apart than wrapped lines (parser gap ratio 2.1).
+      if (line.y === undefined) y -= size * 2.7;
     }
   }
   return pdf.save();

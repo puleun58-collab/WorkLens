@@ -7,6 +7,7 @@ import {
   type DecisionEntry, type DecisionSearchOutcome, type DecisionTextData, type DecisionTextOutcome,
 } from "@/lib/decision-search";
 import { LAW_ANALYSIS_CASE_MAX_CHARS, LAW_ANALYSIS_CASE_PATTERN } from "@/lib/law-analysis";
+import { LawTextBlock } from "./LawTextBlock";
 import "./decision-search.css";
 
 export interface LinkedDecisionSearch {
@@ -219,7 +220,7 @@ export function DecisionSearch({ linkedRequest, onReturnToLaw, onCiteCheck }: De
               {fullLoading ? "전문 불러오는 중…" : "전문 보기"}
             </button>}
             {fullError && <p className="law-search-error" role="alert">{fullError}</p>}
-            <pre className="decision-detail-raw">{text.text}</pre>
+            <LawTextBlock className="decision-detail-raw" text={text.text} />
           </div> : null}
       </section>
     </div>;
@@ -260,7 +261,7 @@ export function DecisionSearch({ linkedRequest, onReturnToLaw, onCiteCheck }: De
                 {entry.summary && <span className="decision-search-summary">{entry.summary}</span>}
               </button>
             </li>)}
-          </ul> : <pre className="decision-detail-raw">{outcome.data.text}</pre>}
+          </ul> : <LawTextBlock className="decision-detail-raw" text={outcome.data.text} />}
           <div className="decision-pagination">
             {page > 1 && <button type="button" className="law-search-link" onClick={() => void runSearch(searchedQuery, domain, page - 1)}>← 이전</button>}
             {outcome.data.hasNext === true && <button type="button" className="law-search-link" onClick={() => void runSearch(searchedQuery, domain, page + 1)}>다음 →</button>}

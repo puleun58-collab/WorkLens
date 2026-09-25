@@ -318,7 +318,7 @@ test("keeps deterministic Analyze output stable across grounding rejection and e
   const panel = page.locator(".results-panel");
   await expect(panel.locator(".result-status")).toHaveText("기본 분석 완료");
   await expect(panel.locator(".result-status")).toHaveClass(/warning/);
-  await expect(panel.locator(".result-inline-warning")).toHaveText("기본 분석은 완료됐습니다. 요약과 인사이트를 불러오지 못했습니다.");
+  await expect(panel.locator(".result-inline-warning")).toContainText("기본 분석은 완료됐습니다. 요약과 인사이트를 불러오지 못했습니다.");
   await expect(panel).not.toContainText(/서술형 문단 중심|표 중심의 문서|혼합형 문서|주요 수치/);
   await expect(panel.locator(".analysis-summary-section")).toHaveCount(0);
   const topics = panel.locator(".analysis-core-items-section .analysis-reading-row");
@@ -394,7 +394,7 @@ test("surfaces FSC Analyze failure and then grounded relational insights with al
   const panel = page.locator(".results-panel");
   await run.click();
   await expect(panel.locator(".result-status")).toHaveText("기본 분석 완료");
-  await expect(panel.locator(".result-inline-warning")).toHaveText("기본 분석은 완료됐습니다. 요약과 인사이트를 불러오지 못했습니다.");
+  await expect(panel.locator(".result-inline-warning")).toContainText("기본 분석은 완료됐습니다. 요약과 인사이트를 불러오지 못했습니다.");
   await expect(panel.locator(".result-inline-warning")).toHaveCount(1);
   await expect(panel.locator(".notice.warning")).toHaveCount(0);
   await expect(panel.getByRole("heading", { name: "주요 내용" })).toBeVisible();
@@ -454,7 +454,7 @@ test("keeps sourced narrative body facts when Analyze AI is unavailable", async 
   await topics.first().locator(".source-action").click();
   await expect(page.getByRole("complementary", { name: "근거 상세" })).toBeVisible();
   await page.getByRole("complementary", { name: "근거 상세" }).getByRole("button", { name: "닫기" }).click();
-  await expect(panel.locator(".result-inline-warning")).toHaveText("기본 분석은 완료됐습니다. 요약과 인사이트를 불러오지 못했습니다.");
+  await expect(panel.locator(".result-inline-warning")).toContainText("기본 분석은 완료됐습니다. 요약과 인사이트를 불러오지 못했습니다.");
   await expect(panel.locator(".analysis-summary-section")).toHaveCount(0);
 
 });
@@ -1524,7 +1524,9 @@ test("summarizes a short notice without inventing an insight section", async ({ 
   await expect(panel.locator(".result-status")).toHaveText("분석 완료");
   await expect(panel.locator(".analysis-summary-section .analysis-reading-row")).toHaveCount(2);
   await expect(panel.locator(".analysis-summary-section .source-action")).toHaveCount(2);
-  await expect(panel.locator(".analysis-core-items-section")).toHaveCount(0);
+  // Main content adds only what the summary does not already say.
+  await expect(panel.locator(".analysis-core-items-section .analysis-reading-row")).toHaveCount(1);
+  await expect(panel.locator(".analysis-core-items-section")).toContainText("필기도구를 준비해 주세요.");
   await expect(panel.locator(".analysis-insight-section")).toHaveCount(0);
   expect(requests).toBe(1);
 });
@@ -1647,7 +1649,7 @@ test("integrates enrichment behind one action and preserves every deterministic 
   await page.getByRole("button", { name: "분석", exact: true }).click();
   await page.getByRole("button", { name: "분석 실행" }).click();
   await expect(page.locator(".results-panel .analysis-core-items-section .analysis-reading-row").first()).toBeVisible();
-  await expect(page.locator(".result-inline-warning")).toHaveText("기본 분석은 완료됐습니다. 요약과 인사이트를 불러오지 못했습니다.");
+  await expect(page.locator(".result-inline-warning")).toContainText("기본 분석은 완료됐습니다. 요약과 인사이트를 불러오지 못했습니다.");
   await expect(page.locator(".results-panel .result-status")).toHaveText("기본 분석 완료");
   await expect(page.locator(".results-panel .result-status")).toHaveClass(/warning/);
 

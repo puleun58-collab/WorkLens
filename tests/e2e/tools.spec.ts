@@ -262,6 +262,87 @@ test("law article opens deterministic related decisions and returns without refe
   expect(lawCalls).toEqual([{ query: "근로기준법" }, { mst: "283457" }, { mst: "283457", jo: "제74조" }]);
 });
 
+test("law results render MCP <br> tags as line breaks and keep other HTML inert in every law view", async ({ page }) => {
+  const executed: string[] = [];
+  await page.exposeFunction("markExecuted", (value: string) => executed.push(value));
+  const judgment = (full: boolean) => ["판시사항:<br/>근로자 해고의 정당성", "이유:<BR/>첫째 문단<br />둘째 문단<br/>다음과 같이 판결한다.", ...(full ? Array.from({ length: 60 }, (_, index) => `【${index + 1}】 긴 판결 이유 문단입니다.`) : ["⋯ 중략 3,198자 (full=true로 전문 조회) ⋯"])]
+    .join("<br/><br/>") + "<script>window.markExecuted('decision')</script>\n\n💡 다음: get_precedent_text(id=\"1\") 로 판결문 전문. full=true 로 축약 해제. 유사판례 원하면 find_similar_precedents 사용.";
+  await page.route("**/api/law", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { found: true, laws: [{ name: "근로기준법", mst: "283457" }] } }) }));
+  await page.route("**/api/law/text", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: {
+    found: true, mode: "article", text: "제23조(해고 등의 제한)<br>① 사용자는 정당한 이유 없이 해고하지 못한다.<br><br>② 다음 각 호<img src=x onerror=\"window.markExecuted('law')\">",
+  } }) }));
+  await page.route("**/api/law/decisions/search", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: {
+    found: true, page: 1, text: "[1] 해고 사건", entries: [{ domain: "precedent", id: "1", title: "해고 사건", caseNumber: "2023다1", summary: "요지 첫 줄" }],
+  } }) }));
+  await page.route("**/api/law/decisions/text", async (route) => {
+    const input = route.request().postDataJSON() as { full?: boolean };
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { found: true, title: "해고 사건", expandable: !input.full, text: judgment(Boolean(input.full)) } }) });
+  });
+  await page.route("**/api/law/analysis", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: {
+    found: true, mode: "applicable_law", markers: [], text: "═══ 행위시법 판단: 근로기준법 @ 2023.05.10 ═══<br/><br/>▶ 기준일에 시행 중이던 버전<br>  근로기준법 [시행 2023.04.04]",
+  } }) }));
+  await page.route("**/api/law/research", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: {
+    found: true, task: "full_research", markers: [], text: "═══ 리서치: 해고 ═══\n\n▶ 관련 법령\n근로기준법 제23조<br/>근로기준법 제24조<script>window.markExecuted('research')</script>\n특정 조문 조회: get_law_text(mst=\"283457\", jo=\"제XX조\")\n\n▶ 관련 판례\n검색 보정: body_search=\"해고 통고 기간\" (본문검색)\n자동 상세조회: search_precedents -> get_precedent_text (상위 2건, full=false)\n[1] 해고 사건",
+  } }) }));
+  const pres = page.locator("pre");
+  const expectClean = async () => {
+    for (const text of await pres.allTextContents()) {
+      expect(text, text).not.toMatch(/<\s*\/?\s*br|get_precedent_text|find_similar_precedents|search_precedents|get_law_text|body_search|full=(?:true|false)/iu);
+    }
+  };
+
+  await page.goto("/");
+  await expect(page.locator(".app-shell")).toHaveAttribute("data-hydrated", "true");
+  await page.getByRole("button", { name: "법령", exact: true }).click();
+  await page.getByRole("searchbox").fill("근로기준법");
+  await page.getByRole("button", { name: "검색", exact: true }).click();
+  await page.locator(".law-search-list button").first().click();
+  const article = page.locator(".law-detail-raw").first();
+  await expect(article).toContainText("정당한 이유 없이 해고하지 못한다.");
+  expect(await article.textContent()).toContain("제23조(해고 등의 제한)\n① 사용자는");
+  await expect(article).toContainText("<img src=x onerror=");
+  await expectClean();
+
+  await page.getByRole("button", { name: "판례·결정례", exact: true }).click();
+  await page.getByLabel("검색어", { exact: true }).fill("해고");
+  await page.getByRole("button", { name: "검색", exact: true }).click();
+  await expect(page.locator(".decision-search-summary")).toHaveText("요지 첫 줄");
+  await page.getByRole("button", { name: /해고 사건/ }).click();
+  const decision = page.locator(".decision-detail-raw");
+  await expect(decision).toContainText("첫째 문단");
+  expect(await decision.textContent()).toContain("판시사항:\n근로자 해고의 정당성\n\n이유:\n첫째 문단\n둘째 문단");
+  await expect(decision).toContainText("<script>window.markExecuted('decision')</script>");
+  await expect(decision).toContainText("다음과 같이 판결한다.");
+  await expect(decision).toContainText("⋯ 중략 3,198자 ⋯");
+  await expectClean();
+  await page.getByRole("button", { name: "전문 보기" }).click();
+  await expect(decision).toContainText("【60】 긴 판결 이유 문단입니다.");
+  expect((await decision.textContent())!.split("\n\n").length).toBeGreaterThanOrEqual(62);
+  await expectClean();
+  const lineHeight = await decision.evaluate((node) => parseFloat(getComputedStyle(node).lineHeight));
+  expect((await decision.boundingBox())!.height).toBeGreaterThan(lineHeight * 100);
+
+  await page.getByRole("button", { name: "검증·분석", exact: true }).click();
+  await page.getByRole("group", { name: "검증·분석 유형" }).getByRole("button", { name: "시점별 적용 법령" }).click();
+  await page.locator("#analysis-applicable-law").fill("근로기준법");
+  await page.locator("#analysis-applicable-jo").fill("제23조");
+  await page.locator("#analysis-applicable-date").fill("2023-05-10");
+  await page.locator(".legal-analysis-form:visible button[type='submit']").click();
+  await expect(page.locator(".legal-analysis-output")).toContainText("근로기준법 [시행 2023.04.04]");
+  await expectClean();
+
+  await page.locator(".law-research > .law-view-switch").getByRole("button", { name: "종합 리서치" }).click();
+  await page.getByRole("form", { name: "종합 리서치 입력" }).getByLabel("질문 또는 검색어").fill("해고");
+  await page.getByRole("form", { name: "종합 리서치 입력" }).getByRole("button", { name: "리서치 실행" }).click();
+  const lines = page.locator(".legal-research .legal-analysis-lines").first();
+  await expect(lines).toContainText("근로기준법 제24조");
+  expect(await lines.textContent()).toContain("근로기준법 제23조\n근로기준법 제24조");
+  await expectClean();
+  await expect(page.locator(".legal-research .legal-analysis-output")).toContainText("검색어를 보정해 관련 결과를 찾았습니다.");
+  await expect(page.locator(".legal-research .legal-analysis-output")).toContainText("[1] 해고 사건");
+  expect(executed).toEqual([]);
+});
+
 const ANALYSIS_TEXT: Record<string, string> = {
   verify_citations: "[PARTIAL_VERIFIED] == 인용 검증 결과 ==\n법령 인용 3건 | ✓ 1 실존 | ✗ 1 오류 | ⌛ 0 폐지 | ⚠ 1 확인필요\n판례 인용 0건 | ✓ 0 실존 | ✗ 0 실존불가 | ⚠ 0 미확인\n\n▶ 법령 인용\n✓ 민법 제750조(불법행위의 내용) 실존\n✗ 형법 제9999조 — [NOT_FOUND] 해당 조문 없음 (존재 범위: 제1조~제372조)\n⚠ 같은 법 시행규칙 제2조 — 법령명 불명확\n\n💡 ⚠ 항목은 법령명 불명확/부분 매칭/API 일시 실패 등. 법령명을 명시하거나 재시도하세요.",
   cite_check: "═══ 판례 인용 추적 (Citator): 2013다61381 ═══\n대상: 대법원 2018.10.30 선고 2013다61381 전원합의체 판결\n\n📊 판정: ✅ 후속 인용 2건, 변경·폐기 신호 미감지 — 계속 인용되는 것으로 추정\n\n▶ 이 판례를 인용한 후속 판례 (2건, 최신순)\n  1. 대법원 2024.01.25 2019다3226 — 손해배상\n\n⚠️ 한계: 법제처 수록 판례(대법원 중심) 범위 내 검색입니다.",
