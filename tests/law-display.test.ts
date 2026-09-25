@@ -57,6 +57,24 @@ describe("lawDisplayText", () => {
     expect(lawDisplayText("⋯ 중략 3,198자 (full=true로 전문 조회) ⋯")).toBe("⋯ 중략 3,198자 ⋯");
   });
 
+  it("drops agent-only lines and internal identifiers seen in legal_research output, keeping the facts", () => {
+    expect(lawDisplayText([
+      "   ⚠️ 이 섹션은 조회 실패 — LLM은 내용을 추측/생성하지 마세요.",
+      "   사유: [NOT_FOUND] 해석례 검색 결과가 없습니다.",
+      "  링크: /DRF/lawService.do?OC=***&amp;target=expc&amp;ID=312454&amp;type=HTML",
+      "법령ID: 011357 | MST: 283839 | 구분: 법률",
+      "법령: 행정심판법 (법률) | MST: 249041",
+      "⏱ 시간 한도로 이 섹션은 수집하지 못했습니다 — 개별 도구(search_ai_law)로 조회하세요.",
+      "[생략] 법령 전체 조문의 이력입니다. 조문별로 조회하세요: get_article_history(lawId=\"001805\", jo=\"제93조\")",
+    ].join("\n"))).toBe([
+      "사유: [NOT_FOUND] 해석례 검색 결과가 없습니다.",
+      "법령ID: 011357 | 구분: 법률",
+      "법령: 행정심판법 (법률)",
+      "⏱ 시간 한도로 이 섹션은 수집하지 못했습니다",
+      "[생략] 법령 전체 조문의 이력입니다.",
+    ].join("\n"));
+  });
+
   it("never touches legal prose that merely shares words with the guidance", () => {
     const prose = [
       "다음과 같이 판결한다.",

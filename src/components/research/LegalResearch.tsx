@@ -7,7 +7,8 @@ import {
   type AmendmentScenario, type DisputeDomain, type LawResearchData, type LawResearchDraft, type LawResearchOutcome,
   type LawResearchRequest, type LawResearchTask,
 } from "@/lib/law-research";
-import { researchResult } from "@/lib/law-research-parse";
+import { isSupportingSection, researchResult, type ResearchDecision, type ResearchSection } from "@/lib/law-research-parse";
+import { lawDisplayText } from "@/lib/law-display";
 import { LawTextBlock } from "./LawTextBlock";
 import { SourceToggleSummary } from "./SourceToggleSummary";
 import "./legal-analysis.css";
@@ -175,16 +176,99 @@ export function LegalResearch() {
   </div>;
 }
 
+/** Search hits shown before the list folds; the rest of what the response contains stays one click away. */
+const DECISION_PREVIEW = 3;
+const ANNEX_PREVIEW = 5;
+
+function formatDate(value?: string): string | undefined {
+  return value && /^\d{8}$/u.test(value) ? `${value.slice(0, 4)}.${value.slice(4, 6)}.${value.slice(6)}` : value;
+}
+
+/** Heading without the MCP's bracketed status markers, which the partial notice already reports. */
+const sectionHeading = (section: ResearchSection) => section.heading?.replace(/\s*\[[^\]]*\]/gu, "").trim();
+
+function DecisionList({ entries }: { entries: ResearchDecision[] }) {
+  return <ul className="research-hits">{entries.map((entry) => {
+    const meta = [entry.caseNumber && `사건번호 ${entry.caseNumber}`, entry.body, formatDate(entry.date)].filter(Boolean).join(" · ");
+    return <li key={entry.id}>
+      <strong>{entry.title ?? entry.caseNumber ?? "제목 없음"}</strong>
+      {meta && <span className="research-meta">{meta}</span>}
+    </li>;
+  })}</ul>;
+}
+
+function ResearchSectionView({ section, task }: { section: ResearchSection; task: LawResearchData["task"] }) {
+  const heading = sectionHeading(section);
+  const className = `legal-analysis-section${section.unavailable ? " is-unavailable" : ""}`;
+  if (section.kind === "law_articles" && section.articles) {
+    return <div className={className} data-kind={section.kind} data-markers={section.markers.join(" ")}>
+      <h3>관련 법령·조문 <span className="research-meta">{section.articles.length}건</span></h3>
+      <p className="research-meta">검색 결과에 포함된 조문 일부를 표시합니다.</p>
+      <ul className="research-hits">{section.articles.map((article, index) => <li key={`${article.law}-${article.jo}-${index}`}>
+        <strong>{article.law} {article.jo}{article.title ? ` ${article.title}` : ""}</strong>
+        {article.excerpt && <LawTextBlock className="legal-analysis-lines" text={article.excerpt} />}
+        {(article.effective || article.ministry) && <span className="research-meta">{[article.effective && `시행 ${article.effective}`, article.ministry].filter(Boolean).join(" · ")}</span>}
+      </li>)}</ul>
+    </div>;
+  }
+  if (section.kind === "decision_search" && section.decisions) {
+    const { total, entries } = section.decisions;
+    const rest = entries.slice(DECISION_PREVIEW);
+    return <div className={className} data-kind={section.kind} data-markers={section.markers.join(" ")}>
+      <h3>{heading} {total !== undefined && <span className="research-meta">검색 결과 총 {total.toLocaleString("ko-KR")}건</span>}</h3>
+      <DecisionList entries={entries.slice(0, DECISION_PREVIEW)} />
+      {rest.length > 0 && <details className="law-detail-source research-more">
+        <SourceToggleSummary label={`검색 결과 펼쳐보기 · ${rest.length}건 더`} openLabel="검색 결과 접기" />
+        <DecisionList entries={rest} />
+      </details>}
+    </div>;
+  }
+  if (section.kind === "annex" && section.annex) {
+    const { total, entries } = section.annex;
+    // For 절차·서식 the forms are the answer; elsewhere they are reference material.
+    const preview = task === "procedure_detail" ? 10 : ANNEX_PREVIEW;
+    const list = (items: typeof entries) => <ul className="research-hits">{items.map((item, index) => <li key={`${item.title}-${index}`}>
+      <strong>{item.title}</strong>{item.law && <span className="research-meta">{item.law}</span>}
+    </li>)}</ul>;
+    return <div className={className} data-kind={section.kind} data-markers={section.markers.join(" ")}>
+      <h3>{heading} {total !== undefined && <span className="research-meta">총 {total.toLocaleString("ko-KR")}건</span>}</h3>
+      {list(entries.slice(0, preview))}
+      {entries.length > preview && <details className="law-detail-source research-more">
+        <SourceToggleSummary label={`목록 펼쳐보기 · ${entries.length - preview}건 더`} openLabel="목록 접기" />
+        {list(entries.slice(preview))}
+      </details>}
+    </div>;
+  }
+  return <div className={className} data-kind={section.kind} data-markers={section.markers.join(" ")}>
+    {heading && <h3>{heading}</h3>}
+    {section.lines.length > 0 && <LawTextBlock className="legal-analysis-lines" text={section.lines.join("\n")} />}
+  </div>;
+}
+
 function ResearchResult({ data }: { data: LawResearchData }) {
   const result = researchResult(data.text);
   const unavailable = result.sections.filter((section) => section.unavailable).length;
+  const supporting = result.sections.filter(isSupportingSection);
   return <div className="legal-analysis-output" data-task={data.task} data-markers={data.markers.join(" ")}>
     {result.title && <h3 className="legal-analysis-title">{result.title}</h3>}
     {unavailable > 0 && <p className="legal-research-partial" role="note">부분 결과입니다. {unavailable}개 항목은 조회하지 못했거나 시간 한도로 수집되지 않았습니다 (결과 없음과 다릅니다).</p>}
-    {result.sections.map((section, index) => <div key={index} className={`legal-analysis-section${section.unavailable ? " is-unavailable" : ""}`} data-markers={section.markers.join(" ")}>
-      {section.heading && <h3>{section.heading}</h3>}
-      {section.lines.length > 0 && <LawTextBlock className="legal-analysis-lines" text={section.lines.join("\n")} />}
-    </div>)}
+    {result.sections
+      // A heading-less note that was only agent guidance has nothing left to show.
+      .filter((section) => !isSupportingSection(section) && (section.heading || lawDisplayText(section.lines.join("\n"))))
+      .map((section, index) => <ResearchSectionView key={index} section={section} task={data.task} />)}
+    {supporting.length > 0 && <div className="legal-analysis-section research-supporting">
+      <h3>상세 근거</h3>
+      {supporting.map((section, index) => {
+        const heading = sectionHeading(section) ?? "상세 자료";
+        const label = section.kind === "law_toc" && section.toc
+          ? `${section.toc.law ? `${section.toc.law} ` : ""}전체 목차 · ${section.toc.count.toLocaleString("ko-KR")}개 조문`
+          : heading;
+        return <details key={index} className="law-detail-source" data-kind={section.kind}>
+          <SourceToggleSummary label={label} openLabel={`${label} 접기`} />
+          <LawTextBlock className="legal-analysis-raw" text={section.lines.join("\n")} />
+        </details>;
+      })}
+    </div>}
     <details className="law-detail-source">
       <SourceToggleSummary />
       <LawTextBlock className="legal-analysis-raw" text={data.text} />

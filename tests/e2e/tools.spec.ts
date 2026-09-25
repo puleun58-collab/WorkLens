@@ -4,6 +4,7 @@ import { PDFDocument, StandardFonts } from "pdf-lib";
 import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { createPdf } from "../fixtures";
+import { fullResearchFixture } from "../fixtures/research";
 
 test("TOOLS navigation keeps document files in their own workspace", async ({ page }) => {
   await page.goto("/");
@@ -621,6 +622,68 @@ test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route wit
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   expect(outside).toEqual([]);
   expect(errors).toEqual([]);
+});
+
+test("RESEARCH 종합 리서치 shows statutes and precedents first, folds the TOC and detail dumps, keeps partial notice and raw text", async ({ page }) => {
+  await page.route("**/api/law/research", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: {
+    found: true, task: "full_research", text: fullResearchFixture(), markers: ["NOT_FOUND"],
+  } }) }));
+  await page.goto("/");
+  await expect(page.locator(".app-shell")).toHaveAttribute("data-hydrated", "true");
+  await page.getByRole("button", { name: "법령", exact: true }).click();
+  await page.locator(".law-research > .law-view-switch").getByRole("button", { name: "종합 리서치" }).click();
+  const form = page.getByRole("form", { name: "종합 리서치 입력" });
+  await form.getByLabel("질문 또는 검색어").fill("직장 내 괴롭힘 판단 기준");
+  await form.getByRole("button", { name: "리서치 실행" }).click();
+  const output = page.locator(".legal-research .legal-analysis-output");
+  await expect(output.locator(".legal-analysis-title")).toHaveText("종합 리서치: 직장 내 괴롭힘 판단 기준");
+  await expect(output.locator(".legal-research-partial")).toContainText("2개 항목은 조회하지 못했거나");
+
+  // Statutes, then precedents, before any supporting material.
+  const headings = await output.locator(":scope > .legal-analysis-section > h3").allTextContents();
+  expect(headings[0]).toMatch(/^관련 법령·조문/u);
+  expect(headings[1]).toMatch(/^관련 판례/u);
+  expect(headings.at(-1)).toBe("상세 근거");
+  const statutes = output.locator("[data-kind='law_articles'] .research-hits > li");
+  await expect(statutes).toHaveCount(10);
+  await expect(statutes.first().locator("strong")).toHaveText("근로기준법 제76조의2 직장 내 괴롭힘의 금지");
+  await expect(statutes.nth(1)).toContainText("③ 사용자는 제2항에 따른 ...");
+  await expect(output.locator("[data-kind='law_articles']")).toContainText("조문 일부를 표시합니다");
+
+  // Precedents: the total is metadata; only the 5 returned hits exist, 3 shown then 2 more.
+  const precedents = output.locator("[data-kind='decision_search']");
+  await expect(precedents.locator("h3")).toContainText("검색 결과 총 67건");
+  await expect(precedents.locator(":scope > .research-hits > li")).toHaveCount(3);
+  await expect(precedents.locator(":scope > .research-hits > li").first()).toContainText("사건번호 2024나25130 · 광주고등법원 · 2025.06.12");
+  await expect(output).not.toContainText(/67건\s*전체/u);
+  const more = precedents.locator("details summary");
+  await expect(more).toContainText("검색 결과 펼쳐보기 · 2건 더");
+  await more.focus();
+  await page.keyboard.press("Enter");
+  await expect(precedents.locator("details .research-hits > li")).toHaveCount(2);
+
+  // The 132-article TOC is folded but complete.
+  const toc = output.locator("details[data-kind='law_toc']");
+  await expect(toc.locator("summary")).toContainText("근로기준법 전체 목차 · 132개 조문");
+  await expect(toc).not.toHaveAttribute("open", "");
+  await expect(toc.locator("pre")).toBeHidden();
+  await toc.locator("summary").click();
+  await expect(toc.locator("pre")).toContainText("제132조 조문 제목 132");
+  await expect(output.locator("details[data-kind='detail'] summary")).toContainText("관련 판례 상세");
+
+  // Failed and unknown sections stay; nothing agent-facing is displayed anywhere, even in raw text.
+  await expect(output.locator(".legal-analysis-section.is-unavailable")).toHaveCount(2);
+  await expect(output).toContainText("사유: [NOT_FOUND] 해석례 검색 결과가 없습니다.");
+  await expect(output).toContainText("새로운 형식의 내용 한 줄");
+  await output.locator(":scope > details").last().locator("summary").click();
+  await expect(output.locator(":scope > details").last().locator("pre")).toContainText("검색어를 보정해 관련 결과를 찾았습니다.");
+  for (const text of await output.locator("pre, .research-hits").allTextContents()) {
+    expect(text).not.toMatch(/<\s*\/?\s*br|get_|search_|find_similar|body_search|full=|LLM|MST:/u);
+  }
+  await expect(output.locator(".legal-analysis-note")).toContainText("데이터 출처: 법제처 국가법령정보센터 OPEN API");
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
 test("law views use the shared tool content width with one left and right edge", async ({ page }) => {
