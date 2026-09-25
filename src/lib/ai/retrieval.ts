@@ -185,7 +185,8 @@ function queryOf(request: AiRequest): string {
 /** Sheet, slide, page or block bucket: whole-document coverage spans these. */
 function groupKey(node: AiEvidenceNode, order: number): string {
   const { source } = node;
-  if (source.sheet) return `${node.fileId}|sheet:${source.sheet}`;
+  // Long sheets balance by row range too, so a time series is not represented by its first rows.
+  if (source.sheet) return `${node.fileId}|sheet:${source.sheet}|rows:${Math.floor((source.row ?? 0) / 100)}`;
   if (source.locator?.kind === "pptx") return `${node.fileId}|slide:${source.locator.slide}`;
   if (source.locator?.kind === "docx") return `${node.fileId}|part:${source.locator.part}:${Math.floor(source.locator.block / 20)}`;
   if (typeof source.page === "number") return `${node.fileId}|page:${source.page}`;
@@ -264,6 +265,9 @@ const RULE_SIGNAL = /(?:목적|개요|기준|규칙|순서|절차|흐름|조건|
 const RELATION_SIGNAL = /(?:(?:이|가|하)?면\s|경우|따라|때문|없으면|없을\s*때|대신|순서로|순으로|우선|다시|재계산|재산출|전환|바뀌|변경되|반영되|기준으로|보정|조정|제한|이내|→|->|\b(?:then|if|unless|instead|because|therefore|before|after|depends on|subject to)\b)/u;
 /** Numbered actions are content, unlike a numbered contents entry or sample value. */
 const ORDERED_ACTION = /^(?:\d{1,2}[.)]|[①-⑳]|[-•])\s*.+(?:검토|확인|제출|승인|수행|처리|등록|완료|\b(?:review|verify|submit|approve|perform|record)\b)/u;
+/** A change from an earlier state is document meaning, not a sample value. */
+const TRANSITION_SIGNAL = /(?:\b(?:was|were|previously|initially|formerly)\b.{2,120}\b(?:but|whereas|now|currently)\b|\b(?:changed|moved|transitioned)\s+from\b.{2,80}\bto\b|(?:기존|이전|당초|초기|종전).{2,120}(?:현재|이제|최종|이후|반면)|(?:이었|였|이던|하던|했던|되던).{2,100}(?:이제|현재|최종|바뀌|변경|전환|되었))/iu;
+
 
 function numericNoise(node: AiEvidenceNode, text: string): boolean {
   return node.proposition.predicate === "has_value"
@@ -277,6 +281,10 @@ function semanticImportance(node: AiEvidenceNode, text: string): number {
   if (node.role !== "heading" && RELATION_SIGNAL.test(text)) score += 1.1;
   if (node.role !== "heading" && ORDERED_ACTION.test(text)) score += 0.6;
   if (/(?:예시|예를\s*들|표시\s*예|\b(?:example|sample|illustration)\b)/u.test(text)) score -= 0.8;
+  // One value far outside its column is a finding the model should see; it
+  // is not asserted as a conclusion, only kept in view.
+  if (node.outlier) score += 2.5;
+  if (node.role !== "heading" && TRANSITION_SIGNAL.test(text)) score += 2.8;
   if (numericNoise(node, text)) score -= 0.5;
   return score;
 }
@@ -344,7 +352,20 @@ function balanceBySource(ranked: readonly RankedEvidence[], limit: number, charB
     selected.push(entry);
     characters += size;
   }
-  for (const entry of overflow) {
+  // Analyze fills the rest group by group: the next-best item of every
+  // section before a second one of any, so ties never collapse to the top
+  // rows. Ask keeps pure relevance order.
+  const rank = new Map<string, number>();
+  const interleaved = overflow
+    .map((entry, index) => {
+      const key = groupKey(entry.node, entry.order);
+      const round = rank.get(key) ?? 0;
+      rank.set(key, round + 1);
+      return { entry, round, index };
+    })
+    .sort((left, right) => (ask ? 0 : left.round - right.round) || left.index - right.index)
+    .map(({ entry }) => entry);
+  for (const entry of interleaved) {
     if (selected.length >= limit) break;
     const size = evidenceItemText(entry.node).length;
     if (characters + size > charBudget) continue;
@@ -449,6 +470,27 @@ export interface SelectEvidenceOptions {
 }
 
 /**
+ * Running heads, confidentiality marks and page numbers repeat on page after
+ * page. They say nothing about the document, so whole-document Analyze never
+ * spends evidence on them — even when a short document would fit entirely.
+ * A repeated full sentence is content (a restated rule), not furniture.
+ */
+function withoutRunningFurniture(nodes: readonly AiEvidenceNode[]): readonly AiEvidenceNode[] {
+  const key = (node: AiEvidenceNode) => normalizeText(node.text).replace(/\d+/gu, "#");
+  const pages = new Map<string, Set<string>>();
+  for (const node of nodes) {
+    if (node.source.page === undefined) continue;
+    const text = node.text.trim();
+    if (text.length > 40 || /(?:다|니다|요)[.!?]?$|[.!?]$/u.test(text)) continue;
+    const seen = pages.get(key(node)) ?? new Set<string>();
+    seen.add(`${node.fileId}:${node.source.page}`);
+    pages.set(key(node), seen);
+  }
+  const furniture = new Set([...pages].filter(([, seen]) => seen.size >= 2).map(([text]) => text));
+  return furniture.size === 0 ? nodes : nodes.filter((node) => node.source.page === undefined || !furniture.has(key(node)));
+}
+
+/**
  * Ranks every candidate, keeps the best `limit`, then restores document order
  * so the prompt still reads top to bottom. Equal scores always resolve by
  * document order, which keeps the selection deterministic.
@@ -460,7 +502,7 @@ export function selectEvidence(
 ): AiEvidenceNode[] {
   const limit = Math.min(options.limit ?? MAX_EVIDENCE_ITEMS, MAX_EVIDENCE_ITEMS);
   const charBudget = evidenceCharBudget(request.operation);
-  const candidates = nodes;
+  const candidates = request.operation === "analyze" ? withoutRunningFurniture(nodes) : nodes;
   const query = queryOf(request).trim();
   const scoreAsk = request.operation === "ask" && query.length > 0;
   if (candidates.length <= limit && !scoreAsk

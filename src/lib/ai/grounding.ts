@@ -7,7 +7,7 @@ import type {
   GroundedClaim,
   Scalar,
 } from "@/domain/ai";
-import type { NormalizedDocument, SourceRef } from "@/domain/document";
+import type { NormalizedDocument, SourceRef, TableBlock, TableCell } from "@/domain/document";
 import { sha256Base64Url } from "@/domain/hash";
 import { boundedEvidenceCandidates } from "@/lib/ai/retrieval";
 import { AI_SCHEMA_ID, type AiEvidenceNode, type AiProviderClaim, type AiProviderCompletion } from "@/lib/ai/contract";
@@ -75,7 +75,8 @@ export function groundAiResult(
     let summaries = 0;
     let insights = 0;
     const accepted = grounded.claims.filter((claim) => {
-      if (claim.kind !== "inference" || !claim.presentation || unsupportedDirective(claim)) return false;
+      if (claim.kind !== "inference" || !claim.presentation || unsupportedDirective(claim) || unsupportedCause(claim)
+        || unsupportedCondition(claim) || unsupportedOmission(claim) || unsupportedEffect(claim)) return false;
       if (claim.presentation.role === "summary") return ++summaries <= 4;
       return ++insights <= 3;
     });
@@ -156,6 +157,52 @@ function unsupportedDirective(claim: GroundedClaim): boolean {
   return !claim.evidence.some((binding) => SOURCE_DIRECTIVE_PATTERN.test(binding.source.quote ?? ""));
 }
 
+const CAUSE_PATTERN = /(?:때문|로\s*인해|으로\s*인해|탓에?|원인(?:은|이|으로)?|덕분|영향으로|\b(?:because|due to|caused by|as a result of|owing to)\b)/iu;
+const SOURCE_CAUSE_PATTERN = /(?:때문|인해|탓|원인|덕분|영향|따라|따른|결과|\b(?:because|due to|caused|result|owing|since|therefore)\b)/iu;
+
+/**
+ * A cause is a claim of its own. Numbers moving together do not say why, so
+ * a "because" survives only when a cited source itself states a reason.
+ */
+function unsupportedCause(claim: GroundedClaim): boolean {
+  if (claim.kind !== "inference" || !CAUSE_PATTERN.test(claim.text)) return false;
+  return !claim.evidence.some((binding) => SOURCE_CAUSE_PATTERN.test(binding.source.quote ?? ""));
+}
+
+const CONDITION_PATTERN = /(?:(?:하|되|이|으|지|나|라|다|없으|있으|않으)면[\s,]|경우(?:에는|에)?\s|\b(?:if|when|unless|once)\b)/iu;
+const SOURCE_RELATION_PATTERN = /(?:면(?:[\s,.]|$)|경우|때|(?:^|\s)단[,\s]|다만|예외|제외|대신|후|뒤|이후|전에|까지|→|->|따라|때문|인해|므로|\b(?:if|when|unless|once|after|before|except|until|otherwise|then)\b)/iu;
+
+/**
+ * "If X, then Y" is a rule, and rules come from the document. A conditional
+ * survives only when a cited source itself states a condition, sequence or
+ * exception; a model joining two unrelated facts with "되면" does not.
+ */
+function unsupportedCondition(claim: GroundedClaim): boolean {
+  if (claim.kind !== "inference" || !CONDITION_PATTERN.test(claim.text)) return false;
+  return !claim.evidence.some((binding) => SOURCE_RELATION_PATTERN.test(binding.source.quote ?? ""));
+}
+
+const OMISSION_PATTERN = /(?:생략|없이|불필요|필요\s*없|면제|건너뛰|하지\s*않|되지\s*않|않(?:는다|습니다|아도)|(?:^|\s)안\s|(?:^|\s)못\s|\b(?:skip(?:s|ped)?|omit(?:s|ted)?|without|not|never|no longer|exempt(?:ed)?|waive[sd]?)\b)/iu;
+const SOURCE_NEGATION_PATTERN = /(?:생략|없|불필요|면제|건너뛰|않|안\s|못\s|아니|제외|금지|불가|\b(?:skip|omit|without|not|no|never|exempt|waive|except)\b)/iu;
+const EFFECT_PATTERN = /(단축|증가|감소|개선|악화|향상|절감|하락|상승|확대|축소)(?:될|할|시킬|되어|돼)\s*수\s*있/u;
+
+/**
+ * Saying a step is skipped, not needed or not done reverses a source that
+ * only states the step ("선처리 후 사후 승인" is not "사후 승인 생략"). An
+ * omission survives only when a cited source itself negates or exempts.
+ */
+function unsupportedOmission(claim: GroundedClaim): boolean {
+  if (claim.kind !== "inference" || !OMISSION_PATTERN.test(claim.text)) return false;
+  return !claim.evidence.some((binding) => SOURCE_NEGATION_PATTERN.test(binding.source.quote ?? ""));
+}
+
+/** "…이 단축될 수 있습니다" predicts an effect; it needs a source that names that change. */
+function unsupportedEffect(claim: GroundedClaim): boolean {
+  const effect = claim.kind === "inference" ? EFFECT_PATTERN.exec(claim.text)?.[1] : undefined;
+  if (!effect) return false;
+  return !claim.evidence.some((binding) => (binding.source.quote ?? "").includes(effect));
+}
+
 /**
  * Stream all canonical locations. Retrieval retains only a bounded selection;
  * grounding independently rebuilds only tokens the provider actually cited.
@@ -187,6 +234,7 @@ function* evidenceNodes(document: NormalizedDocument): Generator<CanonicalEviden
       const found = block.rows.findIndex((row) => row.filter((cell) => cleanText(cell.display)).length > 1);
       const headerIndex = found === -1 ? 0 : found;
       const header = block.rows[headerIndex] ?? [];
+      const outliers = columnOutliers(block.rows, headerIndex);
       for (const [rowIndex, row] of block.rows.entries()) {
         // The record's name is its first textual cell: a leading blank or a bare
         // sequence/month number ("8") does not identify the row.
@@ -208,7 +256,7 @@ function* evidenceNodes(document: NormalizedDocument): Generator<CanonicalEviden
             object: cell.value,
             polarity: "affirmed",
           }, cell.source.quote ?? cell.display);
-          if (node) yield node;
+          if (node) yield outliers.has(cell) ? { ...node, outlier: true } : node;
         }
       }
     }
@@ -218,6 +266,32 @@ function* evidenceNodes(document: NormalizedDocument): Generator<CanonicalEviden
 function withContext(context: string, text: string): string {
   const value = cleanText(text);
   return context && value ? `${context} · ${value}` : value;
+}
+
+/**
+ * Cells whose number sits far outside the rest of its column, by median and
+ * median absolute deviation (robust to the outlier itself). Needs enough
+ * values that "the rest" is a pattern; flags at most one in a hundred.
+ */
+function columnOutliers(rows: TableBlock["rows"], headerIndex: number): Set<TableCell> {
+  const flagged = new Set<TableCell>();
+  const width = rows.reduce((max, row) => Math.max(max, row.length), 0);
+  for (let column = 0; column < width; column += 1) {
+    const cells: TableCell[] = [];
+    for (let row = headerIndex + 1; row < rows.length; row += 1) {
+      const cell = rows[row][column];
+      if (cell && typeof cell.value === "number" && Number.isFinite(cell.value)) cells.push(cell);
+    }
+    if (cells.length < 12) continue;
+    const values = cells.map((cell) => cell.value as number).sort((left, right) => left - right);
+    const median = values[Math.floor(values.length / 2)];
+    const deviations = values.map((value) => Math.abs(value - median)).sort((left, right) => left - right);
+    const mad = deviations[Math.floor(deviations.length / 2)];
+    if (mad === 0) continue;
+    const extreme = cells.filter((cell) => Math.abs((cell.value as number) - median) / mad >= 10);
+    if (extreme.length > 0 && extreme.length <= Math.max(1, Math.floor(cells.length / 100))) for (const cell of extreme) flagged.add(cell);
+  }
+  return flagged;
 }
 
 const ROW_DATE_PATTERN = /^\s*(?:[0-9]{4}[-./][0-9]{1,2}(?:[-./][0-9]{1,2})?|[0-9]{1,2}\s*월(?:\s*[0-9]{1,2}\s*일)?)\s*$/u;
@@ -358,12 +432,31 @@ function claimLiteralsAppearInEvidence(claim: string, evidence: readonly string[
   return literals.every((literal) => {
     const normalized = normalize(literal)
       .toLocaleLowerCase("ko-KR")
-      .replace(/[.,:;!?]+$/u, "");
+      .replace(/[.,:;!?]+$/u, "")
+      // "2025년" names the year the evidence labels "2025"; other units stay checked.
+      .replace(/^((?:19|20)\d{2})년(?=$|[가-힣])/u, "$1");
     if (normalized.length === 0 || joined.includes(normalized) || source.includes(compactNumerics(normalized))) return true;
     // Only grammatical endings are dropped; a unit such as 원 or 명 stays checked.
     const value = normalized.replace(TRAILING_PARTICLE_PATTERN, "");
-    return value !== normalized && /\d/u.test(value) && (joined.includes(value) || source.includes(compactNumerics(value)));
+    if (value !== normalized && /\d/u.test(value) && (joined.includes(value) || source.includes(compactNumerics(value)))) return true;
+    return unitFromColumnHeader(value, joined, source);
   });
+}
+
+/**
+ * "9일" is what a cell showing 9 under the header "평균 처리시간(일)" means.
+ * The unit is accepted only when a cited cell holds exactly that number and
+ * a cited header declares exactly that unit; a different unit still fails.
+ */
+function unitFromColumnHeader(candidate: string, joined: string, source: string): boolean {
+  const match = /^(-?\d[\d.,]*)([가-힣a-z%]{1,3})$/u.exec(candidate);
+  if (!match) return false;
+  const number = compactNumerics(match[1]).replace(/[.,]$/u, "");
+  const unit = match[2];
+  const escaped = number.replace(/[.]/gu, "\\.");
+  const cellValue = new RegExp(`·\\s*${escaped}(?![\\d.,])`, "u").test(source);
+  const declared = joined.includes(`(${unit})`) || new RegExp(`단위\\s*[:：]?\\s*${unit}(?![가-힣])`, "u").test(joined);
+  return cellValue && declared;
 }
 
 /** `1,843.33` → `1843.33`, `75 명` → `75명`, `95 %` → `95%`. Nothing else changes. */

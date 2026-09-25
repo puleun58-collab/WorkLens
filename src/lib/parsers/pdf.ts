@@ -31,35 +31,52 @@ const paragraphText = (
   let text = "";
   let spans: SpanBox[] = [];
   let degraded = false;
+  /** End of the previous glyph run on this line, when pdf.js reported its geometry. */
+  let previous: { end: number; y: number; h: number } | undefined;
+  const flush = () => {
+    const normalized = text.replace(/\s+/gu, " ").trim();
+    if (normalized !== "") paragraphs.push({ text: normalized, spans, degraded });
+    text = "";
+    spans = [];
+    degraded = false;
+    previous = undefined;
+  };
   for (const item of items) {
     const itemText = typeof item.str === "string" ? item.str : "";
+    const transform = Array.isArray(item.transform) ? item.transform : undefined;
+    const x = transform?.[4];
+    const y = transform?.[5];
+    const width = typeof item.width === "number" ? item.width : undefined;
+    const height = typeof item.height === "number"
+      ? item.height
+      : typeof transform?.[3] === "number" ? Math.abs(transform[3]) : undefined;
+    const span: SpanBox | undefined = typeof x === "number" && Number.isFinite(x)
+      && typeof y === "number" && Number.isFinite(y)
+      && width !== undefined && Number.isFinite(width)
+      && height !== undefined && Number.isFinite(height)
+      ? { x, y, w: Math.abs(width), h: Math.abs(height) }
+      : undefined;
     if (itemText !== "") {
-      text += text === "" ? itemText : ` ${itemText}`;
-      const transform = Array.isArray(item.transform) ? item.transform : undefined;
-      const x = transform?.[4];
-      const y = transform?.[5];
-      const width = typeof item.width === "number" ? item.width : undefined;
-      const height = typeof item.height === "number"
-        ? item.height
-        : typeof transform?.[3] === "number" ? Math.abs(transform[3]) : undefined;
-      if (
-        typeof x === "number" && Number.isFinite(x) &&
-        typeof y === "number" && Number.isFinite(y) &&
-        width !== undefined && Number.isFinite(width) &&
-        height !== undefined && Number.isFinite(height)
-      ) spans.push({ x, y, w: Math.abs(width), h: Math.abs(height) });
-      else degraded = true;
+      // pdf.js splits a line into glyph runs, often with standalone space
+      // runs. A word gap is visible geometry: runs that touch belong to one
+      // word, so a separator is added only across a real horizontal gap.
+      let separator = " ";
+      if (text === "" || /\s$/u.test(text) || /^\s/u.test(itemText)) separator = "";
+      else if (span && previous && Math.abs(previous.y - span.y) <= Math.max(previous.h, span.h) * 0.5) {
+        separator = span.x - previous.end > Math.max(previous.h, span.h) * 0.15 ? " " : "";
+      }
+      text += `${separator}${itemText}`;
+      if (span) {
+        if (itemText.trim() !== "") spans.push(span);
+        previous = { end: span.x + span.w, y: span.y, h: span.h };
+      } else {
+        degraded = true;
+        previous = undefined;
+      }
     }
-    if (item.hasEOL === true && text !== "") {
-      paragraphs.push({ text, spans, degraded });
-      text = "";
-      spans = [];
-      degraded = false;
-    }
+    if (item.hasEOL === true && text.trim() !== "") flush();
   }
-  if (text !== "") {
-    paragraphs.push({ text, spans, degraded });
-  }
+  if (text.trim() !== "") flush();
   return paragraphs;
 };
 

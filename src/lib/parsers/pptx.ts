@@ -85,6 +85,8 @@ const parseSlide = (input: { fileId: string; slide: number; xml: string }): Docu
   let currentCell: { text: string; column: number; gridSpan?: number; hMerge: boolean; vMerge: boolean } | undefined;
   let openVerticalMerges = new Map<number, TableCell>();
   let incrementedAnchorsThisRow = new Set<TableCell>();
+  /** Top-left of each shape, when the slide states it (a:off inside the shape's transform). */
+  const shapeOffsets = new Map<number, { x: number; y: number }>();
   parser.on("error", (error) => { failure = error; });
   parser.on("opentag", (tag) => {
     if (tag.name === "p:sp" || tag.name === "p:graphicFrame") {
@@ -135,7 +137,15 @@ const parseSlide = (input: { fileId: string; slide: number; xml: string }): Docu
         vMerge: vMergeRaw !== undefined && vMergeRaw !== "0" && vMergeRaw !== "false",
       };
     }
+    else if (tag.name === "a:off" && currentShape !== undefined && tableDepth === 0 && !shapeOffsets.has(currentShape)) {
+      const x = Number(attribute(tag, "x"));
+      const y = Number(attribute(tag, "y"));
+      if (Number.isFinite(x) && Number.isFinite(y)) shapeOffsets.set(currentShape, { x, y });
+    }
     else if (tag.name === "a:p") currentParagraph = "";
+    // A soft line break inside a paragraph separates words on the slide.
+    // (a:tab is a tab-stop definition in paragraph properties, not text.)
+    else if (tag.name === "a:br" && currentParagraph !== undefined && textDepth === 0) currentParagraph += "\n";
     else if (tag.name === "a:t" && currentParagraph !== undefined) textDepth += 1;
   });
   parser.on("text", (text) => { if (textDepth > 0 && currentParagraph !== undefined) currentParagraph += text; });
@@ -228,7 +238,30 @@ const parseSlide = (input: { fileId: string; slide: number; xml: string }): Docu
   });
   parser.write(input.xml).close();
   if (failure !== undefined || tableDepth !== 0 || currentParagraph !== undefined) throw malformedFileError();
-  return blocks;
+  return readingOrder(blocks, shapeOffsets);
+};
+
+/**
+ * Text boxes are stored in drawing order, not reading order. When every body
+ * shape on the slide states its position, read top-to-bottom then
+ * left-to-right (shapes within ~0.1 inch vertically share a row); the title
+ * stays first. Without complete geometry the stored order is kept.
+ */
+const readingOrder = (blocks: DocumentBlock[], offsets: ReadonlyMap<number, { x: number; y: number }>): DocumentBlock[] => {
+  const shapeOf = (block: DocumentBlock) => block.source.locator?.kind === "pptx" ? block.source.locator.shape : undefined;
+  const titles = blocks.filter((block) => block.type === "paragraph" && block.role === "heading");
+  const body = blocks.filter((block) => !titles.includes(block));
+  const shapes = new Set(body.map(shapeOf));
+  if (shapes.size < 2 || [...shapes].some((shape) => shape === undefined || !offsets.has(shape))) return blocks;
+  const ROW_TOLERANCE = 91_440;
+  const ordered = body
+    .map((block, index) => ({ block, index, offset: offsets.get(shapeOf(block)!)! }))
+    .sort((left, right) =>
+      (Math.abs(left.offset.y - right.offset.y) <= ROW_TOLERANCE ? 0 : left.offset.y - right.offset.y)
+      || left.offset.x - right.offset.x
+      || left.index - right.index)
+    .map(({ block }) => block);
+  return [...titles, ...ordered];
 };
 
 const mediaMimeType = (extension: string): string => {

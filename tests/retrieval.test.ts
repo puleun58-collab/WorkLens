@@ -280,6 +280,33 @@ describe("browser evidence retrieval", () => {
     expect(selected.find((node) => node.text === important[2])?.source).toMatchObject({ fileId: "file-1", page: 71, quote: important[2] });
   });
 
+  it("keeps late English and Korean status changes over earlier procedural repetition", () => {
+    const cases = [
+      {
+        earlier: (index: number) => `Procedure ${index}: verify the intake form before assigning a reviewer.`,
+        pending: "The request is pending while the committee reviews the supporting documents.",
+        outcome: "The request was pending review, but the committee has now approved it.",
+      },
+      {
+        earlier: (index: number) => `${index}번 절차: 담당자를 지정하기 전에 접수 문서를 확인합니다.`,
+        pending: "요청은 현재 담당 위원회의 검토를 기다리는 상태입니다.",
+        outcome: "검토 대기 중이던 요청이 최종 승인되어 처리 상태가 변경되었습니다.",
+      },
+    ];
+    for (const { earlier, pending, outcome } of cases) {
+      const document = pdfDocument([
+        "Intake and resolution log",
+        ...Array.from({ length: 24 }, (_, index) => earlier(index + 1)),
+        pending,
+        ...Array.from({ length: 30 }, (_, index) => `Sample ${index + 1}: 2026-01-01, ${index + 10} units.`),
+        outcome,
+      ]);
+      const selected = selectEvidence(buildEvidenceNodes([document]), { operation: "analyze" }, { limit: 5 });
+      expect(selected.map((node) => node.text)).toContain(outcome);
+      expect(selected.find((node) => node.text === outcome)?.source.page).toBe(6);
+    }
+  });
+
   it("keeps substantive table instructions over numeric-only cells without losing cell provenance", () => {
     const doc = sheetDocument([{ name: "Process", rows: [
       ["Stage", "Requirement"],

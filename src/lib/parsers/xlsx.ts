@@ -223,6 +223,66 @@ const percentText = (cell: ExcelJS.Cell): string | undefined => {
   return `${(value * 100).toFixed(decimals)}%`;
 };
 
+/**
+ * The text Excel shows for a number format such as `#,##0`, `#,##0.00`,
+ * `"₩"#,##0` or `[$₩-412]#,##0;[Red]-#,##0`. ExcelJS's `cell.text` ignores the
+ * format, so a budget stored as 1000000 would read "1000000" while the sheet
+ * shows "₩1,000,000". Formats this does not model return undefined.
+ */
+const numberFormatText = (cell: ExcelJS.Cell): string | undefined => {
+  const format = cell.numFmt;
+  const value = numericOf(cell.value);
+  if (value === undefined || !format || /^general$/iu.test(format) || format === "@") return undefined;
+  const sections = format.split(";");
+  const negative = value < 0 && sections.length > 1;
+  const section = (negative ? sections[1] : sections[0]) ?? "";
+  let literal = "";
+  let pattern = "";
+  let prefix = "";
+  let suffix = "";
+  for (let index = 0; index < section.length; index += 1) {
+    const char = section[index];
+    if (char === "[") {
+      const end = section.indexOf("]", index);
+      if (end < 0) return undefined;
+      const currency = /^\[\$([^-\]]*)/u.exec(section.slice(index, end + 1))?.[1];
+      if (currency) literal += currency;
+      index = end;
+    } else if (char === "\"") {
+      const end = section.indexOf("\"", index + 1);
+      if (end < 0) return undefined;
+      literal += section.slice(index + 1, end);
+      index = end;
+    } else if (char === "\\") {
+      literal += section[index + 1] ?? "";
+      index += 1;
+    } else if (/[#0,.]/u.test(char)) {
+      if (pattern === "") { prefix = literal; literal = ""; }
+      pattern += char;
+    } else if (char === "_" || char === "*") {
+      index += 1;
+    } else if (/[a-z%?/eE]/iu.test(char)) {
+      return undefined;
+    } else {
+      literal += char;
+    }
+  }
+  suffix = literal;
+  if (!/[#0]/u.test(pattern) || /,$|,\./u.test(pattern)) return undefined;
+  const [integerPart, fraction = ""] = pattern.split(".");
+  const minDecimals = (fraction.match(/0/gu) ?? []).length;
+  const maxDecimals = (fraction.match(/[0#]/gu) ?? []).length;
+  let digits = Math.abs(value).toFixed(maxDecimals);
+  if (maxDecimals > minDecimals) {
+    const [whole, decimals = ""] = digits.split(".");
+    const trimmed = decimals.replace(/0+$/u, "").padEnd(minDecimals, "0");
+    digits = trimmed ? `${whole}.${trimmed}` : whole;
+  }
+  if (integerPart.includes(",")) digits = digits.replace(/^(\d+)/u, (whole) => whole.replace(/\B(?=(\d{3})+(?!\d))/gu, ","));
+  const sign = value < 0 && !negative ? "-" : "";
+  return `${sign}${prefix}${digits}${suffix}`.replace(/^(-?)\s+/u, "$1").trimEnd();
+};
+
 /** The text a person reads in the cell, never an object's default stringification. */
 const cellText = (cell: ExcelJS.Cell, date: Date | undefined): string => {
   if (date !== undefined) return formatCellDate(date);
@@ -240,6 +300,8 @@ const cellText = (cell: ExcelJS.Cell, date: Date | undefined): string => {
   // shows `7.5%`, and every reader downstream compares what the workbook shows.
   const percent = percentText(cell);
   if (percent !== undefined) return percent;
+  const formatted = numberFormatText(cell);
+  if (formatted !== undefined) return formatted;
   const text = cell.text;
   return typeof text === "string" && !text.startsWith("[object ") ? text : "";
 };

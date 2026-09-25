@@ -81,7 +81,7 @@ export function analyzeDocument(document: NormalizedDocument): AnalyzeResult {
     }
     const columnCount = block.rows.reduce((maximum, row) => Math.max(maximum, row.length), 0);
     tables.push({ blockId: block.id, source: block.source, rowCount: block.rows.length, columnCount });
-    totals.push(...totalForTable(block));
+    for (const total of totalForTable(block)) totals.push(total);
     for (const row of block.rows) {
       for (const cell of row) {
         tableCellCount += 1;
@@ -97,16 +97,19 @@ export function analyzeDocument(document: NormalizedDocument): AnalyzeResult {
     }
   }
 
+  // Large workbooks hold hundreds of thousands of numbers; spreading them into
+  // Math.min/max overflows the call stack, so extremes are folded in one pass.
+  let sum = 0;
+  let minimum = Number.POSITIVE_INFINITY;
+  let maximum = Number.NEGATIVE_INFINITY;
+  for (const value of numericValues) {
+    sum += value;
+    if (value < minimum) minimum = value;
+    if (value > maximum) maximum = value;
+  }
   const numeric: NumericSummary = numericValues.length === 0
     ? { count: 0, sum: 0, minimum: 0, maximum: 0, average: 0, sources: [] }
-    : {
-        count: numericValues.length,
-        sum: numericValues.reduce((sum, value) => sum + value, 0),
-        minimum: Math.min(...numericValues),
-        maximum: Math.max(...numericValues),
-        average: numericValues.reduce((sum, value) => sum + value, 0) / numericValues.length,
-        sources: numericSources,
-      };
+    : { count: numericValues.length, sum, minimum, maximum, average: sum / numericValues.length, sources: numericSources };
 
   return {
     documentId: document.id,

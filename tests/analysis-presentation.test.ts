@@ -77,7 +77,7 @@ describe("analysisClaimPresentation", () => {
     expect(presentation.warnings).toEqual(result.warnings);
   });
 
-  it("rejects question-like insights and merges near-duplicate relationships", () => {
+  it("rejects question-like insights and retains a narrower trigger rather than merging it", () => {
     const heading = source("heading", 2);
     const body = source("body", 2);
     const result: AnalyzeResult = {
@@ -93,6 +93,7 @@ describe("analysisClaimPresentation", () => {
     };
 
     expect(analysisClaimPresentation(result).insights.map(claimDisplayText)).toEqual([
+      "Actual이 반영되면 최근 8주 기준이 바뀌어 향후 Forecast를 다시 계산합니다",
       "새로운 Actual이 반영되면 최근 8주 기준이 바뀌어 향후 Forecast를 다시 계산합니다",
       "주간 Forecast가 없으면 월간 Forecast를 사용합니다",
     ]);
@@ -115,6 +116,22 @@ describe("analysisClaimPresentation", () => {
     expect(presented.summary.map(claimDisplayText)).toHaveLength(1);
     expect(presented.content).toEqual([content[1]]);
     expect(analysisClaimPresentation(null, [], content).content).toEqual(content);
+  });
+
+  it("shows a low-confidence claim only for review rather than again as core content", () => {
+    const evidence = source("review", 2);
+    const result: AnalyzeResult = {
+      operation: "analyze",
+      claims: [inference("review", "The compliance team reviews exceptions quarterly.", "low", [evidence], "insight")],
+      warnings: [], rejectedClaimCount: 0,
+    };
+    const content = [
+      { id: "review", text: "The compliance team reviews exceptions quarterly.", sources: [evidence] },
+      { id: "receipt", text: "Employees submit receipts within ten days.", sources: [source("receipt", 3)] },
+    ];
+    const presented = analysisClaimPresentation(result, [], content);
+    expect(presented.concerns).toHaveLength(1);
+    expect(presented.content).toEqual([content[1]]);
   });
 
   it("builds an ordered deterministic summary and confirmed metrics from extraction only", () => {
@@ -409,6 +426,122 @@ describe("analysisClaimPresentation", () => {
     expect(analysisClaimPresentation(result).insights.map(claimDisplayText)).toEqual([
       "비용이 늘어나면 예산을 다시 검토합니다.",
     ]);
+  });
+
+  it("recognizes a shared-source approval prerequisite across word order and voice without repeating it as content or insight", () => {
+    const first = source("rule", 1);
+    const second = source("restated-rule", 2);
+    const result: AnalyzeResult = {
+      operation: "analyze",
+      claims: [
+        inference("summary", "팀장 승인 이후 구매 담당자가 발주를 등록합니다.", "high", [first, second], "summary"),
+        inference("relation", "팀장 승인이 완료되면 구매 담당자가 발주를 등록합니다.", "high", [second], "insight"),
+      ],
+      warnings: [], rejectedClaimCount: 0,
+    };
+    const content = [
+      { id: "restatement", text: "팀장 승인이 완료된 뒤 구매 담당자가 발주를 등록합니다.", sources: [second] },
+      { id: "novel", text: "구매 담당자는 처리 내역을 별도로 보관합니다.", sources: [second] },
+    ];
+    const presented = analysisClaimPresentation(result, [], content);
+    expect(presented.summary).toHaveLength(1);
+    expect(presented.summary[0].evidence.map(({ source: evidence }) => evidence)).toEqual([first, second]);
+    expect(presented.insights).toEqual([]);
+    expect(presented.content).toEqual([content[1]]);
+  });
+
+  it("keeps changed arguments, states, scope, values, direction, deadlines and rounding rules", () => {
+    const shared = source("rule", 1);
+    const baseline = "팀장 승인 이후 구매 담당자가 발주를 등록합니다.";
+    const result: AnalyzeResult = {
+      operation: "analyze",
+      claims: [inference("summary", baseline, "high", [shared], "summary")],
+      warnings: [], rejectedClaimCount: 0,
+    };
+    const changes = [
+      "실장 승인 이후 구매 담당자가 발주를 등록합니다.",
+      "팀장 거절 이후 구매 담당자가 발주를 등록합니다.",
+      "팀장 승인 이후 구매 담당자가 발주를 안 등록합니다.",
+      "팀장 승인 이전 구매 담당자가 발주를 등록합니다.",
+      "팀장 승인 이후 구매 담당자가 발주를 2건 등록합니다.",
+      "팀장 승인 이후 구매 담당자가 발주를 등록하고 기록을 보관합니다.",
+      "팀장 승인 이후 구매 담당자가 발주를 등록하되 예외를 허용합니다.",
+      "팀장 승인 이후 구매 담당자가 발주를 금요일까지 등록합니다.",
+      "팀장 승인 이후 구매 담당자가 발주를 반올림하여 등록합니다.",
+    ];
+    const topics = changes.map((text, index) => ({ id: `difference-${index}`, text, sources: [shared] }));
+    topics.push({ id: "other-file", text: baseline, sources: [source("rule", 1, "other-file")] });
+    expect(analysisClaimPresentation(result, [], topics).content).toEqual(topics);
+  });
+
+  it("compares passive and active process statements without reversing actors or numeric direction", () => {
+    const evidence = source("decision", 1);
+    const base = "After approval, the clerk registers the order.";
+    const result: AnalyzeResult = {
+      operation: "analyze",
+      claims: [inference("approval", base, "high", [evidence], "summary")],
+      warnings: [], rejectedClaimCount: 0,
+    };
+    const same = { id: "same", text: "Once approval is complete, the order is registered by the clerk.", sources: [evidence] };
+    const different = [
+      { id: "actor", text: "Once approval is complete, the order is registered by the manager.", sources: [evidence] },
+      { id: "polarity", text: "After approval, the clerk does not register the order.", sources: [evidence] },
+      { id: "extra", text: "After approval, the clerk registers the order and notifies the manager.", sources: [evidence] },
+    ];
+    expect(analysisClaimPresentation(result, [], [same, ...different]).content).toEqual(different);
+
+    const numbers: AnalyzeResult = {
+      ...result,
+      claims: [inference("change", "The balance falls from 120 to 100.", "high", [evidence], "summary")],
+    };
+    expect(analysisClaimPresentation(numbers, [], [
+      { id: "reversed", text: "The balance falls from 100 to 120.", sources: [evidence] },
+    ]).content).toHaveLength(1);
+  });
+
+  it("frees topic slots for distinct later facts while retaining every near-repeated source", () => {
+    const repeated = [
+      "The board reviews the annual report before publication.",
+      "Before publication, the annual report is reviewed by the board.",
+      "The annual report is reviewed by the board before publication.",
+    ];
+    const novel = Array.from({ length: 6 }, (_, index) =>
+      `The department records decision ${index + 1} in the signed register.`);
+    const blocks = [...repeated, ...novel].map((text, index) => ({
+      id: `paragraph-${index}`, type: "paragraph" as const, text, source: source(`paragraph-${index}`, 1),
+    }));
+    const document: NormalizedDocument = {
+      id: "repeated", fileId: "file-1", kind: "pptx",
+      metadata: { fileName: "review.pptx" }, blocks, warnings: [],
+    };
+    const topics = documentAnalysisTopics(document);
+    expect(topics).toHaveLength(7);
+    expect(topics.find(({ text }) => /annual report/u.test(text))?.sources.map(({ nodeId }) => nodeId))
+      .toEqual(["paragraph-0", "paragraph-1", "paragraph-2"]);
+    for (const text of novel) expect(topics.some((topic) => topic.text === text)).toBe(true);
+  });
+
+  it("keeps the early and late states of the same document subject despite a crowded middle", () => {
+    const texts = [
+      "The inspection report remains pending while the review continues.",
+      "The draft schedule is circulated for review.",
+      ...Array.from({ length: 10 }, (_, index) =>
+        `If the permit for unit ${index + 1} is missing, the office holds dispatch until clearance.`),
+      "The inspection report is approved after the review is completed.",
+      "The final schedule is issued after review.",
+    ];
+    const document: NormalizedDocument = {
+      id: "states", fileId: "file-1", kind: "pptx", metadata: { fileName: "review.pptx" },
+      blocks: texts.map((text, index) => ({
+        id: `stage-${index}`, type: "paragraph" as const, text, source: source(`stage-${index}`, index + 1),
+      })), warnings: [],
+    };
+    const topics = documentAnalysisTopics(document);
+    expect(topics.some(({ text }) => /report remains pending/u.test(text))).toBe(true);
+    expect(topics.some(({ text }) => /report is approved/u.test(text))).toBe(true);
+    expect(topics.find(({ text }) => /report is approved/u.test(text))?.sources[0].nodeId).toBe("stage-12");
+    expect(topics.some(({ text }) => /draft schedule/u.test(text))).toBe(true);
+    expect(topics.some(({ text }) => /final schedule/u.test(text))).toBe(true);
   });
 
   it("returns no invented sections without an Analyze result", () => {
