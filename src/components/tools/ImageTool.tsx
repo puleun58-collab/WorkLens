@@ -397,7 +397,7 @@ export function ImageTool() {
           <strong>이미지를 추가하세요</strong>
           <span>한 장씩 편집하거나 여러 이미지를 결합할 수 있습니다.</span>
           <button type="button" onClick={() => fileInput.current?.click()} disabled={importing}>이미지 추가</button>
-          <small>{importing ? "이미지를 읽는 중…" : "또는 여기로 이미지를 끌어오세요"}</small>
+          {importing && <small role="status">이미지를 읽는 중…</small>}
           {notice && <p className={`image-tool-notice is-${notice.tone}`} role={notice.tone === "error" ? "alert" : "status"}>{notice.text}</p>}
         </section>
       ) : <>

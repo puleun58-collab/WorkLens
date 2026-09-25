@@ -932,7 +932,8 @@ test("image tool shows one upload zone when empty and a balanced three-column wo
   const intro = (await page.locator(".image-tool-intro").boundingBox())!;
   const zone = (await upload.boundingBox())!;
   expect(Math.abs(zone.x - intro.x)).toBeLessThan(1);
-  expect(zone.height).toBeLessThan(260);
+  expect(zone.height).toBeLessThan(215);
+  await expect(upload.getByText(/끌어오세요/)).toHaveCount(0);
   const chooser = page.waitForEvent("filechooser");
   await upload.getByText("한 장씩 편집하거나 여러 이미지를 결합할 수 있습니다.").click();
   await chooser;
