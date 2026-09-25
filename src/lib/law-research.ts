@@ -1,5 +1,6 @@
 import { LAW_ARTICLE_PATTERN } from "@/lib/law-search";
 import { normalizeAnalysisDate, normalizeAnalysisJo } from "@/lib/law-analysis";
+import type { ContractReview } from "@/lib/contract-review";
 
 /**
  * Shared contract for `POST /api/law/research`, the fixed-tool bridge to the
@@ -55,7 +56,7 @@ export type LawResearchRequest =
     fromDate?: string; toDate?: string; includeHistory?: boolean }
   | { task: "ordinance_compare"; query: string; parentLaw?: string }
   | { task: "procedure_detail"; query: string }
-  | { task: "document_review"; text: string; maxClauses?: number };
+  | { task: "document_review"; text: string };
 
 /** Form state; kept per field so switching tasks never loses what was typed. */
 export interface LawResearchDraft {
@@ -121,6 +122,8 @@ export interface LawResearchData {
   task: LawResearchTask;
   text: string;
   markers: string[];
+  /** 문서 검토 only: the structured clause-by-clause review; `text` is then empty. */
+  review?: ContractReview;
 }
 
 export interface LawResearchAbsent {

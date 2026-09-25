@@ -116,8 +116,7 @@ export async function callLawTool(
     { task: "dispute_prep"; query: string; domain?: "tax" | "labor" | "privacy" | "competition" | "general" } |
     { task: "amendment_track"; query: string; scenario?: "timeline" | "time_travel"; mst?: string; lawId?: string;
       fromDate?: string; toDate?: string; includeHistory: boolean } |
-    { task: "ordinance_compare"; query: string; parentLaw?: string } |
-    { task: "document_review"; text: string; maxClauses: number },
+    { task: "ordinance_compare"; query: string; parentLaw?: string },
   context: LawContext,
 ): Promise<{ text: string; isError: boolean }> {
   const { LAW_OC: key, LAW_MCP_URL: endpoint } = workerEnv();

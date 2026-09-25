@@ -15,7 +15,6 @@ const samples = {
   amend: "═══ 개정 추적: 근로기준법 ═══\n▶ 신구대조표 (최근 개정)\n법령명: 근로기준법",
   ord: "═══ 조례 비교 연구: 주차장법 관련 조례 ═══\n▶ 상위 법령\n주차장법 (법률) | MST: 283743",
   proc: "═══ 절차/비용 안내: 행정심판 청구 절차와 제출서류 ═══\n법령: 행정심판법 (법률) | MST: 249041\n\n▶ 법령 체계 (절차 근거)",
-  doc: "═══ 문서 종합 검토 ═══\n\n▶ 문서 리스크 분석\n=== 문서 리스크 분석 ===\n문서 유형: 일반 계약\n추출 조항: 3개",
 };
 
 beforeEach(() => {
@@ -69,7 +68,6 @@ describe("fixed legal_research API", () => {
       { input: { task: "amendment_track", query }, args: { task: "amendment_track", query, includeHistory: false }, text: samples.amend },
       { input: { task: "ordinance_compare", query, parentLaw: " 주차장법 " }, args: { task: "ordinance_compare", query, parentLaw: "주차장법" }, text: samples.ord },
       { input: { task: "procedure_detail", query }, args: { task: "procedure_detail", query }, text: samples.proc },
-      { input: { task: "document_review", text: `  ${documentText}  ` }, args: { task: "document_review", text: documentText, maxClauses: 15 }, text: samples.doc },
     ];
     const fetcher = vi.fn().mockImplementation(async () => toolText(`${cases[fetcher.mock.calls.length - 1].text}\n[NOT_FOUND] 일부 결과\n[NOT_FOUND] 다른 항목`));
     vi.stubGlobal("fetch", fetcher);
@@ -109,12 +107,11 @@ describe("fixed legal_research API", () => {
   });
 
   it("forwards optional arrays/domains/counts when present and omits absent options", async () => {
-    const fetcher = vi.fn().mockImplementation(async () => toolText(samples.doc));
+    const fetcher = vi.fn().mockImplementation(async () => toolText(samples.system));
     vi.stubGlobal("fetch", fetcher);
     const cases = [
       [{ task: "law_system", query }, { task: "law_system", query }],
       [{ task: "dispute_prep", query }, { task: "dispute_prep", query }],
-      [{ task: "document_review", text: documentText, maxClauses: 30 }, { task: "document_review", text: documentText, maxClauses: 30 }],
     ];
     for (let i = 0; i < cases.length; i++) {
       expect((await call(cases[i][0])).status).toBe(200);

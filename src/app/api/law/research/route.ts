@@ -34,7 +34,7 @@ const researchRequest = z.discriminatedUnion("task", [
     parentLaw: z.string().trim().min(1).max(LAW_RESEARCH_NAME_MAX_CHARS).refine((value) => !/[\p{Cc}]/u.test(value)).optional(),
   }).strict(),
   z.object({ task: z.literal("procedure_detail"), query }).strict(),
-  z.object({ task: z.literal("document_review"), text: documentText, maxClauses: z.number().int().min(1).max(30).optional() }).strict(),
+  z.object({ task: z.literal("document_review"), text: documentText }).strict(),
 ]);
 
 export async function POST(request: Request) {
