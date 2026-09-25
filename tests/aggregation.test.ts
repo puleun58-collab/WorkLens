@@ -573,7 +573,8 @@ describe("KPI logical workbook reconstruction", () => {
     expect(sheet.autoFilter).toBeTruthy();
     const images = sheet.getImages();
     expect(images).toHaveLength(5);
-    expect(output.model.media).toHaveLength(5);
+    // Byte-identical pictures may share a media part; every placement must still resolve to one.
+    expect(images.every((image) => output.model.media[Number(image.imageId)] !== undefined)).toBe(true);
     const anchors = images.map((image) => [image.range.tl.nativeCol, image.range.tl.nativeRow]);
     expect(anchors).toEqual(expect.arrayContaining([[4, 4], [5, 4], [4, 6], [5, 6]]));
     // A full-cell anchor ends at the next grid line; the decoration remains where the template placed it.

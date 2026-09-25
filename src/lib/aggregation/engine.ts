@@ -276,48 +276,125 @@ function associateRecordMedia(
   }
 }
 
+const TOTAL_LABEL = /^(?:합계|소계|총계|총합계?|누계|계|total|subtotal|grandtotal|sum)$/iu;
+const COLUMN_AGGREGATE = /\b(?:SUM|SUBTOTAL|AGGREGATE|AVERAGE|COUNTA?|MAX|MIN)\s*\(\s*(?:\d+\s*,\s*)?\$?([A-Z]{1,3})\$?(\d+)\s*:\s*\$?([A-Z]{1,3})\$?(\d+)/iu;
+
+type HeaderColumn = { column: number; label: string };
+
+/**
+ * A closing total is template layout, not a record, only when its label
+ * names a total AND its formula aggregates its own preceding column rows.
+ * Either clue alone can belong to a legitimate data row.
+ */
+function isTotalRow(row: readonly TableCell[], headers: readonly HeaderColumn[], rowNumber: number): boolean {
+  const first = headers.map(({ column }) => cellText(row[column])).find(Boolean);
+  if (!first || !TOTAL_LABEL.test(first.replace(/\s+/gu, ""))) return false;
+  return headers.some(({ column }) => {
+    const match = row[column]?.formula ? COLUMN_AGGREGATE.exec(row[column].formula!) : null;
+    const letters = columnName(column + 1);
+    return Boolean(match && match[1].toUpperCase() === letters && match[3].toUpperCase() === letters
+      && Number(match[4]) === rowNumber - 1 && Number(match[2]) < Number(match[4]));
+  });
+}
+
+/** Last record row of a run, leaving trailing total and signature rows to the template. */
+function recordEnd(rows: readonly TableCell[][], headers: readonly HeaderColumn[], start: number, end: number): number {
+  const filled = (row: readonly TableCell[]) => headers.filter(({ column }) => cellText(row[column])).length;
+  let last = end;
+  while (last >= start && (filled(rows[last] ?? []) < MIN_RECORD_CELLS || isTotalRow(rows[last] ?? [], headers, last + 1))) last -= 1;
+  return last;
+}
+
+const cellKind = (cell: TableCell): string => cell.valueType === "date" ? "date"
+  : typeof cell.value === "number" ? "number" : typeof cell.value === "boolean" ? "boolean" : "text";
+
+/**
+ * Where a band after a blank row continues the previous table: after a
+ * repeated copy of its header, or directly when every row fits the table's
+ * columns and their value kinds (with a non-text kind as evidence). A
+ * differently shaped table keeps its own region.
+ */
+function continuationStart(rows: readonly TableCell[][], band: { start: number; end: number }, region: AggregationRegion, headers: readonly HeaderColumn[]): number | undefined {
+  const first = rows[band.start] ?? [];
+  if (headers.every(({ column, label }) => fieldKey(headerLabel(first[column])) === fieldKey(label))) return band.start + 1;
+  const low = Math.min(...headers.map(({ column }) => column));
+  const high = Math.max(...headers.map(({ column }) => column));
+  const kinds = new Map(headers.map(({ column }) => [column, new Set(region.records
+    .map((record) => rows[(record.source.row ?? 0) - 1]?.[column])
+    .filter((cell): cell is TableCell => Boolean(cell && cellText(cell)))
+    .map(cellKind))]));
+  let typedEvidence = false;
+  let records = 0;
+  for (let index = band.start; index <= band.end; index += 1) {
+    const row = rows[index] ?? [];
+    if (row.some((cell, column) => (column < low || column > high) && cellText(cell))) return undefined;
+    const filled = headers.filter(({ column }) => row[column] && cellText(row[column]));
+    if (filled.length < MIN_RECORD_CELLS) continue;
+    for (const { column } of filled) {
+      const kind = cellKind(row[column]);
+      if (!kinds.get(column)?.has(kind)) return undefined;
+      if (kind !== "text") typedEvidence = true;
+    }
+    records += 1;
+  }
+  return records > 0 && typedEvidence ? band.start : undefined;
+}
+
 function regionsForTable(document: NormalizedDocument, sheetId: string, table: TableBlock): AggregationRegion[] {
   const regions: AggregationRegion[] = [];
+  const regionHeaders: HeaderColumn[][] = [];
   const bands = rowBands(table.rows);
-  const linkedMedia = new Set<string>();
-  for (const band of bands) {
-    if (regions.length >= MAX_REGIONS_PER_SHEET || band.end - band.start < 1) continue;
-    const header = detectHeader(table.rows, band.start, band.end);
-    if (!header) continue;
-    const headers = headersFor(table.rows, header.row, header.depth);
-    if (headers.length < 2) continue;
-    const dataStart = header.row + header.depth;
-    const records: AggregationRecord[] = [];
-    for (let rowIndex = dataStart; rowIndex <= band.end; rowIndex += 1) {
+  const collect = (headers: readonly HeaderColumn[], from: number, to: number, regionId: string, records: AggregationRecord[]): void => {
+    const firstColumn = Math.min(...headers.map((entry) => entry.column)) + 1;
+    const lastColumn = Math.max(...headers.map((entry) => entry.column)) + 1;
+    for (let rowIndex = from; rowIndex <= to; rowIndex += 1) {
       const row = table.rows[rowIndex] ?? [];
       const fields = headers.flatMap(({ column, label }) => {
         const cell = row[column];
         return cell && cellText(cell) ? [typedField(label, cell)] : [];
       });
       if (fields.length < MIN_RECORD_CELLS) continue;
-      const firstColumn = Math.min(...headers.map((entry) => entry.column)) + 1;
-      const lastColumn = Math.max(...headers.map((entry) => entry.column)) + 1;
       const rowNumber = rowIndex + 1;
       const range = `${columnName(firstColumn)}${rowNumber}:${columnName(lastColumn)}${rowNumber}`;
-      const source = sourceRange(table.source, range, rowNumber, firstColumn);
       records.push({
-        id: `${sheetId}:region:${regions.length + 1}:record:${records.length + 1}`,
+        id: `${regionId}:record:${records.length + 1}`,
         documentId: document.id,
         sheetId,
-        regionId: `${sheetId}:region:${regions.length + 1}`,
+        regionId,
         fields,
         media: [],
-        source,
+        source: sourceRange(table.source, range, rowNumber, firstColumn),
       });
     }
+  };
+  for (const band of bands) {
+    const previous = regions.at(-1);
+    const previousHeaders = regionHeaders.at(-1);
+    const continued = previous && previousHeaders ? continuationStart(table.rows, band, previous, previousHeaders) : undefined;
+    if (previous && previousHeaders && continued !== undefined) {
+      // A blank row inside a table does not end it: every row after it is still a record.
+      const before = previous.records.length;
+      collect(previousHeaders, continued, recordEnd(table.rows, previousHeaders, continued, band.end), previous.id, previous.records);
+      if (previous.records.length > before) {
+        const last = previous.records.at(-1)!.source.row!;
+        previous.recordRange = previous.recordRange?.replace(/\d+$/u, String(last));
+      }
+      continue;
+    }
+    if (regions.length >= MAX_REGIONS_PER_SHEET || band.end - band.start < 1) continue;
+    const header = detectHeader(table.rows, band.start, band.end);
+    if (!header) continue;
+    const headers = headersFor(table.rows, header.row, header.depth);
+    if (headers.length < 2) continue;
+    const dataStart = header.row + header.depth;
+    const id = `${sheetId}:region:${regions.length + 1}`;
+    const records: AggregationRecord[] = [];
+    collect(headers, dataStart, recordEnd(table.rows, headers, dataStart, band.end), id, records);
     if (records.length === 0) continue;
     const firstColumn = Math.min(...headers.map((entry) => entry.column)) + 1;
     const lastColumn = Math.max(...headers.map((entry) => entry.column)) + 1;
     const headerRange = `${columnName(firstColumn)}${header.row + 1}:${columnName(lastColumn)}${header.row + header.depth}`;
-    const recordRange = `${columnName(firstColumn)}${dataStart + 1}:${columnName(lastColumn)}${band.end + 1}`;
-    const id = `${sheetId}:region:${regions.length + 1}`;
-    records.forEach((record) => { record.regionId = id; });
-    associateRecordMedia(document.media ?? [], table.source.sheet, headers, records, linkedMedia);
+    const recordRange = `${columnName(firstColumn)}${dataStart + 1}:${columnName(lastColumn)}${records.at(-1)!.source.row}`;
     regions.push({
       id,
       headerRange,
@@ -328,7 +405,13 @@ function regionsForTable(document: NormalizedDocument, sheetId: string, table: T
       source: sourceRange(table.source, `${headerRange},${recordRange}`),
       status: "ready",
     });
+    regionHeaders.push(headers);
   }
+  const linkedMedia = new Set<string>();
+  regions.forEach((region, index) => {
+    associateRecordMedia(document.media ?? [], table.source.sheet, regionHeaders[index], region.records, linkedMedia);
+    region.source = sourceRange(table.source, `${region.headerRange},${region.recordRange}`);
+  });
   return regions;
 }
 /** Internal formulas among a region's filled record cells, as a share. */
@@ -793,15 +876,34 @@ export function buildAggregation(documents: readonly NormalizedDocument[]): Aggr
   const records = workbooks.flatMap((workbook) => workbook.sheets.flatMap((sheet) => sheet.regions.flatMap((region) => region.records)));
   markDuplicates(records);
   const structureIssues = workbooks.flatMap((workbook) => workbook.sheets
-    .filter((sheet) => (sheet.role === "review" || sheet.role === "reference") && sheet.plan.kind !== "unmatched" && sheet.plan.kind !== "summarized")
-    .map((sheet) => ({ scope: "sheet" as const, id: sheet.id, fileName: workbook.fileName, sheetName: sheet.name, message: sheet.reason ?? "확인이 필요한 구조입니다." })));
+    // A target's own reference sheet is copied as it is; a source's is left out and must say so.
+    .filter((sheet) => (sheet.role === "review" || (sheet.role === "reference" && sheet.plan.kind !== "target"))
+      && sheet.plan.kind !== "unmatched" && sheet.plan.kind !== "summarized")
+    .map((sheet) => ({
+      scope: "sheet" as const,
+      id: sheet.id,
+      fileName: workbook.fileName,
+      sheetName: sheet.name,
+      message: `${sheet.reason ?? "확인이 필요한 구조입니다."}${sheet.plan.kind === "ignored" ? " 이 시트는 결과에 포함되지 않습니다." : ""}`,
+    })));
+  // Only the primary region is appended. Other source tables must be visible
+  // for review rather than quietly disappearing from the exported workbook.
+  const extraRegionIssues = workbooks.slice(1).flatMap((workbook) => workbook.sheets
+    .filter((sheet) => sheet.regions.length > 1 && sheet.plan.kind !== "summarized")
+    .map((sheet) => ({
+      scope: "region" as const,
+      id: sheet.regions[1].id,
+      fileName: workbook.fileName,
+      sheetName: sheet.name,
+      message: `기준 표 외 ${sheet.regions.length - 1}개 추가 표는 자동 취합되지 않습니다. 원본 시트를 확인하세요.`,
+    })));
   return {
     ...(xlsx[0] ? { targetFileId: xlsx[0].fileId } : {}),
     workbooks,
     targets: plan.targets,
     mappings: plan.mappings,
     records,
-    issues: [...structureIssues, ...plan.issues],
+    issues: [...structureIssues, ...extraRegionIssues, ...plan.issues],
   };
 }
 

@@ -75,7 +75,8 @@ export function formatWorksheet(
     });
   }
 
-  for (let columnNumber = 1; columnNumber <= sheet.columnCount; columnNumber += 1) {
+  // `columnCount` walks every row on each read; read it once.
+  for (let columnNumber = 1, columnCount = sheet.columnCount; columnNumber <= columnCount; columnNumber += 1) {
     const column = sheet.getColumn(columnNumber);
     let measured = minWidth;
     column.eachCell({ includeEmpty: false }, (cell) => {

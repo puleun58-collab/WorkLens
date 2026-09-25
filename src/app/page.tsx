@@ -3214,7 +3214,13 @@ function AggregationResults({ draft, selection, busy, onSelection, onExport }: {
       const headerEnd = Number(/:[A-Z]+(\d+)$/iu.exec(primaryRegion(sheet)?.headerRange ?? "")?.[1] ?? 0);
       return sheet.media.filter((media) => !linkedImages.has(`${media.source.fileId}\0${media.id}`) && (media.source.row ?? Infinity) > headerEnd);
     }).length;
-  const reviewCount = reviewMappings.length + unlinkedImages;
+  // A flagged sheet is settled once the user includes it; a note about how the
+  // target's own rows are filled stays while that target is in the result.
+  const pendingIssues = draft.issues.filter((issue) => {
+    const sheet = sheetById.get(issue.id);
+    return !sheet || !selectedSheets.has(sheet.id) || (sheet.role === "records" && sheet.plan.kind !== "unmatched");
+  });
+  const reviewCount = reviewMappings.length + unlinkedImages + pendingIssues.length;
   const toggleSheet = (sheetId: string) => onSelection({
     ...selection,
     sheetIds: selectedSheets.has(sheetId) ? selection.sheetIds.filter((id) => id !== sheetId) : [...selection.sheetIds, sheetId],
@@ -3293,6 +3299,13 @@ function AggregationResults({ draft, selection, busy, onSelection, onExport }: {
           </button>
         </div>
         {unlinkedImages > 0 ? <p className="aggregation-unlinked" role="status">미연결 이미지 {unlinkedImages}건 · 첨부 이미지 시트에서 출처와 위치를 확인하세요.</p> : null}
+        {pendingIssues.length > 0 ? (
+          <ul className="aggregation-issues">
+            {pendingIssues.map((issue) => (
+              <li key={`${issue.id}:${issue.message}`}><strong>{issue.fileName}{issue.sheetName ? ` · ${issue.sheetName}` : ""}</strong><span>{issue.message}</span></li>
+            ))}
+          </ul>
+        ) : null}
         {visibleMappings.length ? (
           <div className="aggregation-mappings">
             {visibleMappings.map((mapping) => {

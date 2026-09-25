@@ -18,6 +18,8 @@ import { evidenceWindow } from "@/lib/ai/prompt";
 import { selectEvidence } from "@/lib/ai/retrieval";
 import { buildComparison } from "@/domain/compare";
 import { analyzeDocument, checkDocument, extractDocument } from "@/lib/deterministic";
+import { buildAggregation } from "@/lib/aggregation/engine";
+import { aggregationXlsxExport } from "@/lib/aggregation/export";
 import { parseDocument } from "@/lib/parsers";
 import { fileKindOf, validateUploadBytes } from "@/lib/upload";
 import { createPdf, createXlsx, type SheetRow } from "../fixtures";
@@ -346,6 +348,45 @@ async function runCompareCase(): Promise<void> {
 }
 
 /**
+ * Child role: aggregation of ten 3-sheet workbooks (30,000 records) through
+ * parse, draft and export, the stages a browser runs in its document worker.
+ * Each parsed cell keeps its own provenance (~3.4 KiB retained), so twice
+ * this many records passes the 2 GiB budget during export.
+ */
+async function runAggregateCase(): Promise<void> {
+  const stages: Stage[] = [];
+  const books = 10;
+  const rows = 1_000;
+  const bytes = await createXlsx(bigWorkbook(rows, 3));
+  // The document worker parses uploads one at a time; so does the bench.
+  const documents = await timed("parse", async () => {
+    const parsed: NormalizedDocument[] = [];
+    for (let index = 0; index < books; index += 1) {
+      parsed.push(await parseDocument({ fileId: `bench-aggregate-${index}`, fileName: `취합${index + 1}.xlsx`, bytes }));
+    }
+    return parsed;
+  }, stages);
+  const draft = await timed("aggregate", () => buildAggregation(documents), stages);
+  const selection = {
+    sheetIds: draft.workbooks.flatMap((workbook) => workbook.sheets.filter((sheet) => sheet.selectedByDefault).map((sheet) => sheet.id)),
+    mappings: draft.mappings,
+  };
+  const exported = await timed("export", () => aggregationXlsxExport(draft, selection, documents), stages);
+  const records = draft.targets.reduce((sum, target) => sum + target.recordCount, 0);
+  if (records !== books * 3 * rows) throw new Error(`aggregate lost records: ${records}`);
+  const row: Measurement = {
+    label: `aggregate-${books}x3x${rows}-rows`,
+    bytesMiB: Math.round((exported.content.byteLength / MiB) * 10) / 10,
+    stages,
+    blocks: records,
+    evidence: 0,
+    rssDeltaMiB: 0,
+    admitted: true,
+  };
+  console.info(`${RESULT_PREFIX}${JSON.stringify(row)}`);
+}
+
+/**
  * Parent role: one child per case. A child that outlives its budget is killed,
  * not awaited, and a child that dies takes its memory with it.
  */
@@ -397,11 +438,12 @@ async function main(): Promise<void> {
   if (caseFlag >= 0) {
     const label = argv[caseFlag + 1];
     if (label === "compare") await runCompareCase();
+    else if (label === "aggregate") await runAggregateCase();
     else await runOneCase(label, cases);
     return;
   }
 
-  const labels = [...cases.map((entry) => entry.label), ...(stress ? [] : ["compare"])];
+  const labels = [...cases.map((entry) => entry.label), ...(stress ? [] : ["compare", "aggregate"])];
   console.info(`bench ${stress ? "stress" : "large"}: ${labels.length} cases · stage ${STAGE_BUDGET_MS}ms · case ${CASE_TIMEOUT_MS}ms · rss ${MEMORY_BUDGET_MIB} MiB`);
   const rows: Measurement[] = [];
   let aborted = 0;

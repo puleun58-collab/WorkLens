@@ -54,7 +54,7 @@ interface ExportContext {
   documents: readonly NormalizedDocument[];
   mappings: readonly AggregationFieldMapping[];
   mediaById: ReadonlyMap<string, DocumentMedia>;
-  imageIds: Map<string, number>;
+  imageIds: Map<string, Array<{ data: Uint8Array; id: number }>>;
   placed: Set<string>;
   used: Set<string>;
   /** Per output sheet, one entry per picture in the order it was added. */
@@ -98,12 +98,17 @@ function imageExtension(extension: string): ImageExtension {
   return kind === "jpg" || kind === "jpeg" ? "jpeg" : kind === "gif" ? "gif" : "png";
 }
 
+/** Byte-identical pictures share one media part; every placement still gets its own anchor. */
 function imageId(context: ExportContext, media: DocumentMedia): number {
-  const key = mediaKey(media);
-  const existing = context.imageIds.get(key);
-  if (existing !== undefined) return existing;
-  const id = context.workbook.addImage({ buffer: media.data.slice().buffer as ArrayBuffer, extension: imageExtension(media.extension) });
-  context.imageIds.set(key, id);
+  const extension = imageExtension(media.extension);
+  let hash = 0x811c9dc5;
+  for (const byte of media.data) hash = Math.imul(hash ^ byte, 0x01000193);
+  const key = `${extension}:${media.data.length}:${hash >>> 0}`;
+  const candidates = context.imageIds.get(key) ?? [];
+  const existing = candidates.find((candidate) => candidate.data.length === media.data.length && candidate.data.every((byte, index) => byte === media.data[index]));
+  if (existing) return existing.id;
+  const id = context.workbook.addImage({ buffer: media.data.slice().buffer as ArrayBuffer, extension });
+  context.imageIds.set(key, [...candidates, { data: media.data, id }]);
   return id;
 }
 

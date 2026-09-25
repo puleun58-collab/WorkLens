@@ -86,7 +86,9 @@ bun run bench:stress -- --format=xlsx --size=50
 
 실제 Groq smoke는 로컬 서버에 최소 근거 1개를 보내 `/api/ai`의 200 응답과 근거 핸들을 확인합니다. 무료 플랜 한도를 소모하므로 기본 테스트에는 포함하지 않습니다.
 
-CI는 lint·TypeScript·전체 단위 테스트(애플리케이션 코드 branch coverage 58% 이상)·retrieval/grounding 평가를 `fast`에서, 프로덕션 빌드와 Playwright·Cloudflare 브라우저 검증을 `integration`에서 실행합니다. 실패 시 coverage 보고서와 브라우저 trace·스크린샷을 아티팩트로 보존합니다. `bench:large`는 월요일마다, 메모리 비용이 큰 `bench:stress`는 매월 1일 별도 작업에서 실행합니다. 배포된 환경의 읽기·브라우저 메모리 전용 smoke는 Actions `workflow_dispatch`로 URL을 지정해 수동 실행합니다.
+CI는 lint·TypeScript·전체 단위 테스트(애플리케이션 코드 branch coverage 58% 이상)·retrieval/grounding 평가를 `fast`에서, 프로덕션 빌드와 Playwright·Cloudflare 브라우저 검증을 `integration`에서 실행합니다. 실패 시 coverage 보고서와 브라우저 trace·스크린샷을 아티팩트로 보존합니다. `bench:large`는 월요일마다, 메모리 비용이 큰 `bench:stress`는 매월 1일 별도 작업에서 실행합니다. 배포된 환경의 읽기·브라우저 메모리 전용 Check·XLSX 취합 smoke는 Actions `workflow_dispatch`로 URL을 지정해 수동 실행합니다.
+
+취합 회귀 검증은 `tests/aggregation-matrix.test.ts`의 생성 XLSX 26종(파싱→취합→내보내기→재열기·OOXML 관계 확인)과 `tests/e2e/aggregation.spec.ts`의 실제 파일 업로드·다운로드 시나리오를 포함합니다. `bench:large`는 10개 파일·3개 시트·각 1,000행의 취합 파싱·계획·내보내기 시간과 메모리도 측정합니다.
 
 평가셋은 `tests/eval/`에 있습니다. XLSX·CSV·PDF·DOCX·PPTX 업무 문서의 사실·숫자·날짜·백분율·위치 지정·답변 불가 케이스를 코드로 채점합니다. Ask는 모델 호출 전에 관련성 게이트를 통과해야 하고, grounding 평가는 canonical source와 값 보존을 별도로 측정합니다.
 
@@ -138,6 +140,7 @@ Extract는 문서에서 필요한 정보를 필드/값으로 구조화해 표로
 취합은 선택한 XLSX·XLSM 파일의 반복 표를 같은 업무 구조별로 묶어 하나의 XLSX로 만듭니다. CSV·PDF·DOCX·PPTX는 취합 입력에서 제외하며, 다른 기능의 파일 지원은 그대로입니다.
 
 - 병합된 다단 헤더는 `Figure > Before`처럼 부모·자식 항목을 구분합니다. 월·날짜 열만 달라지는 동일 표는 한 결과 시트에서 기간 열을 합치고, 구조가 다른 표는 분리합니다. 이름이 다른 확실한 매칭과 구조 충돌은 결과 화면에서 확인할 수 있습니다.
+- 표 중간의 빈 행과 반복 헤더 뒤에 이어지는 레코드는 같은 표에 붙입니다. 마지막 `합계` 행은 실제 집계 수식까지 확인될 때만 풋터로 취급해 같은 이름의 데이터 행을 버리지 않습니다. 한 시트에 별도 표가 여러 개 있으면 기준 표만 자동 취합하고 추가 표의 미포함 여부를 결과 화면에 알립니다.
 - 각 결과 시트는 선택 순서에서 처음 만난 호환 파일의 양식을 따릅니다. 본문에 출처·상태·이미지 전용 열을 추가하지 않고, 연결된 이미지는 해당 레코드의 원래 업무 열에 둡니다. 연결할 위치가 불명확한 이미지만 `첨부 이미지` 시트에 표시합니다.
 - 날짜 형식이 확인된 값은 실제 Excel 날짜로 내보내고 첫 양식의 표시 형식(`m/d` 등)을 유지합니다. 일반 숫자는 날짜로 변환하지 않습니다. PNG·JPEG·GIF 이외의 이미지가 포함되면 누락된 결과를 다운로드시키지 않고 오류를 표시합니다.
 - 레코드 이미지는 비율을 유지한 중앙 crop으로 셀 또는 병합 셀 전체를 채우며, 여러 장이면 여백 없는 타일로 배치합니다. 기준 표의 마지막 외곽 테두리는 레코드가 늘어나면 새 마지막 행으로 옮깁니다.

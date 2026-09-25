@@ -252,6 +252,9 @@ export const parseXlsx = async (input: {
   try {
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(input.bytes.slice().buffer as unknown as Parameters<typeof workbook.xlsx.load>[0]);
+    // Excel never saves a workbook without a sheet; none means a damaged
+    // package (for example a missing xl/workbook.xml), not an empty file.
+    if (workbook.worksheets.length === 0) throw malformedFileError();
 
     const metadata: DocumentMetadata = {
       fileName: input.fileName,
@@ -311,10 +314,14 @@ export const parseXlsx = async (input: {
           }
         }
 
+        // ExcelJS recomputes `columnCount` by walking every row on each read,
+        // so reading it inside the loop made parsing quadratic in row count.
+        const rowCount = worksheet.rowCount;
+        const columnCount = worksheet.columnCount;
         const rows: TableCell[][] = [];
-        for (let row = 1; row <= worksheet.rowCount; row += 1) {
+        for (let row = 1; row <= rowCount; row += 1) {
           const cells: TableCell[] = [];
-          for (let column = 1; column <= worksheet.columnCount; column += 1) {
+          for (let column = 1; column <= columnCount; column += 1) {
             const address = cellAddress(column, row);
             const merge = mergedCells.get(address);
             const cell = worksheet.getCell(row, column);
@@ -371,7 +378,7 @@ export const parseXlsx = async (input: {
         const autoFilter = autoFilterSnapshot(worksheet.autoFilter);
         const conditionalFormats = (worksheet.model as ExcelJS.WorksheetModel & { conditionalFormattings?: ExcelJS.ConditionalFormattingOptions[] }).conditionalFormattings;
         const template: XlsxWorksheetTemplate = {
-          columns: Array.from({ length: worksheet.columnCount }, (_, columnIndex) => {
+          columns: Array.from({ length: columnCount }, (_, columnIndex) => {
             const column = worksheet.getColumn(columnIndex + 1);
             const style = styleSnapshot(column.style);
             return {
@@ -381,7 +388,7 @@ export const parseXlsx = async (input: {
               ...(style ? { style } : {}),
             };
           }),
-          rows: Array.from({ length: worksheet.rowCount }, (_, rowIndex) => {
+          rows: Array.from({ length: rowCount }, (_, rowIndex) => {
             const row = worksheet.getRow(rowIndex + 1);
             return {
               number: rowIndex + 1,

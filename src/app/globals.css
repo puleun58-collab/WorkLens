@@ -8167,6 +8167,33 @@ input:disabled {
   font-size: 13px;
 }
 
+.aggregation-issues {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+}
+
+.aggregation-issues li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  min-width: 0;
+}
+
+.aggregation-issues strong {
+  color: var(--ink);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.aggregation-issues span {
+  color: var(--warning);
+  overflow-wrap: anywhere;
+}
+
 .aggregation-preview-heading {
   margin-top: 16px;
   display: flex;
