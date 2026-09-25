@@ -3,7 +3,9 @@ import {
   EMPTY_RESEARCH_DRAFT, LAW_RESEARCH_ERROR, LAW_RESEARCH_TASKS, lawResearchOutcome, lawResearchRequestFor, parseResearchArticles,
   type LawResearchDraft,
 } from "@/lib/law-research";
-import { researchResult } from "@/lib/law-research-parse";
+import { isSupportingSection, researchResult } from "@/lib/law-research-parse";
+import { lawDisplayText } from "@/lib/law-display";
+import { fullResearchFixture } from "./fixtures/research";
 
 const draft = (changes: Partial<LawResearchDraft> = {}): LawResearchDraft => ({ ...EMPTY_RESEARCH_DRAFT, ...changes });
 
@@ -48,6 +50,65 @@ describe("legal_research result parsing", () => {
 
   it("names a second data source only when the MCP text shows it", () => {
     expect(researchResult("═══ 쟁송 대비 ═══\n\n▶ 국세청 법령해석\n[1] 서면-2023").sources).toEqual(["법제처 국가법령정보센터 OPEN API", "국세법령정보시스템"]);
+  });
+});
+
+describe("legal_research structured presentation", () => {
+  const result = researchResult(fullResearchFixture());
+  const byKind = (kind: string) => result.sections.filter((section) => section.kind === kind);
+
+  it("recognises statute hits, the table of contents, the precedent list and detail dumps by content", () => {
+    expect(result.sections.map((section) => section.kind)).toEqual([
+      "law_articles", "law_toc", "decision_search", "other", "other", "detail", "other", "other",
+    ]);
+    const [articles] = byKind("law_articles");
+    expect(articles.articles).toHaveLength(10);
+    expect(articles.articles![0]).toEqual({
+      law: "근로기준법", jo: "제76조의2", title: "직장 내 괴롭힘의 금지",
+      excerpt: "사용자 또는 근로자는 직장에서의 지위를 이용하여 괴롭힘을 하여서는 아니 된다.",
+      effective: "2026.08.20", ministry: "고용노동부",
+    });
+    expect(byKind("law_toc")[0].toc).toEqual({ law: "근로기준법", count: 132 });
+  });
+
+  it("keeps the upstream search snippet's ellipsis as it is", () => {
+    expect(byKind("law_articles")[0].articles![1].excerpt).toBe("① 누구든지 신고할 수 있다.\n③ 사용자는 제2항에 따른 ...");
+  });
+
+  it("reports the search total separately from the hits actually returned, inventing none", () => {
+    const [search] = byKind("decision_search");
+    expect(search.decisions!.total).toBe(67);
+    expect(search.decisions!.entries).toHaveLength(5);
+    expect(search.decisions!.entries[0]).toEqual({ id: "619470", title: "판례 제목 1", caseNumber: "2024나25130", body: "광주고등법원", date: "20250612" });
+  });
+
+  it("moves only the table of contents and detail dumps to supporting material, keeping all 132 entries", () => {
+    const supporting = result.sections.filter(isSupportingSection);
+    expect(supporting.map((section) => section.kind)).toEqual(["law_toc", "detail"]);
+    const toc = lawDisplayText(supporting[0].lines.join("\n"));
+    expect(toc.match(/^제\d+조 /gmu)).toHaveLength(132);
+  });
+
+  it("keeps failed and time-limited sections flagged, and unknown sections as they are", () => {
+    expect(result.sections.filter((section) => section.unavailable).map((section) => section.heading)).toEqual([
+      "법령 해석례 [NOT_FOUND / FAILED]", "AI 검색 보완 정보",
+    ]);
+    const unknown = result.sections.find((section) => section.heading === "향후 추가될 수도 있는 섹션")!;
+    expect(unknown.kind).toBe("other");
+    expect(unknown.lines).toEqual(["새로운 형식의 내용 한 줄"]);
+  });
+
+  it("shows no <br> or MCP guidance in any displayed block", () => {
+    for (const section of result.sections) {
+      expect(lawDisplayText(section.lines.join("\n"))).not.toMatch(/<\s*\/?\s*br|get_|search_|find_similar|body_search|full=|LLM/u);
+    }
+    expect(lawDisplayText(fullResearchFixture())).not.toMatch(/<\s*\/?\s*br|get_|search_|find_similar|body_search|full=|LLM/u);
+  });
+
+  it("does not fold one search list per contract risk into a single list", () => {
+    const review = researchResult(FIXTURES.document_review.replace("[1] 2015다1234", "판례 검색 결과 (총 3건, 1페이지):\n\n[1] 가\n\n[다른 위험]\n판례 검색 결과 (총 5건, 1페이지):\n\n[2] 나"));
+    expect(review.sections.find((section) => section.heading === "관련 판례")!.kind).toBe("other");
+    expect(review.sections.find((section) => section.heading === "문서 리스크 분석")!.kind).toBe("other");
   });
 });
 
