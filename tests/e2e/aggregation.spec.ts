@@ -16,6 +16,8 @@ async function xlsx(configure: (workbook: ExcelJS.Workbook) => void): Promise<Bu
 }
 
 async function upload(page: Page, files: ReadonlyArray<readonly [string, Buffer]>) {
+  // The file input's handler exists only after hydration; production's first load is slower.
+  await expect(page.locator(".app-shell")).toHaveAttribute("data-hydrated", "true");
   for (const [name, buffer] of files) {
     await page.locator('input[type="file"]').setInputFiles({ name, mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", buffer });
     await expect(page.locator(".file-row").filter({ hasText: name })).toBeVisible();
