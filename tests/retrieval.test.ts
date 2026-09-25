@@ -260,6 +260,42 @@ describe("browser evidence retrieval", () => {
     expect(selected).not.toContain("CH 01 산정과 변경 가이드 2");
   });
 
+  it("keeps late purpose, ordered actions and exceptions ahead of a long numeric appendix", () => {
+    const important = [
+      "Purpose: verify eligibility before granting access.",
+      "1. Review the request before issuing approval.",
+      "Exception: if an owner is unavailable, another reviewer must approve the request.",
+    ];
+    const doc = pdfDocument([
+      "Quarterly operations report",
+      "Contents",
+      ...Array.from({ length: 700 }, (_, index) => `Sample measurement ${index + 1}: ${index + 10} units, 2026-01-01.`),
+      ...important,
+    ]);
+    const task = { operation: "analyze" as const };
+    const candidates = buildEvidenceNodes([doc], task);
+    const selected = selectEvidence(candidates, task, { limit: 4 });
+    expect(candidates.length).toBeLessThanOrEqual(MAX_EVIDENCE_CANDIDATES);
+    for (const text of important) expect(selected.map((node) => node.text)).toContain(text);
+    expect(selected.find((node) => node.text === important[2])?.source).toMatchObject({ fileId: "file-1", page: 71, quote: important[2] });
+  });
+
+  it("keeps substantive table instructions over numeric-only cells without losing cell provenance", () => {
+    const doc = sheetDocument([{ name: "Process", rows: [
+      ["Stage", "Requirement"],
+      ["Intake", "Submit the request before review."],
+      ["Closure", "If evidence is missing, return the request to its owner."],
+      ...Array.from({ length: 100 }, (_, index) => [`Sample ${index + 1}`, `${index + 100}`]),
+    ] }]);
+    const selected = selectEvidence(buildEvidenceNodes([doc]), { operation: "analyze" }, { limit: 3 });
+    expect(selected.map((node) => node.text)).toEqual(expect.arrayContaining([
+      expect.stringContaining("Submit the request before review."),
+      expect.stringContaining("If evidence is missing, return the request to its owner."),
+    ]));
+    expect(selected.filter((node) => /(?:Submit the request|If evidence is missing)/u.test(node.text)).map((node) => node.source))
+      .toMatchObject([{ sheet: "Process", cellRange: "B2" }, { sheet: "Process", cellRange: "B3" }]);
+  });
+
   /**
    * Three neighbouring sections share the same vocabulary, so a short
    * question is only answered correctly when the section whose own title

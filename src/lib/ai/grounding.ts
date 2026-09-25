@@ -76,7 +76,7 @@ export function groundAiResult(
     let insights = 0;
     const accepted = grounded.claims.filter((claim) => {
       if (claim.kind !== "inference" || !claim.presentation || unsupportedDirective(claim)) return false;
-      if (claim.presentation.role === "summary") return ++summaries <= 5;
+      if (claim.presentation.role === "summary") return ++summaries <= 4;
       return ++insights <= 3;
     });
     const rejectedClaimCount = grounded.rejectedClaimCount + grounded.claims.length - accepted.length;
@@ -147,10 +147,10 @@ function groundClaim(candidate: AiProviderClaim, evidence: ReadonlyMap<string, C
   };
 }
 
-const DIRECTIVE_PATTERN = /(?:해야\s*한다|하여야\s*한다|마련해야|검토해야|추진해야|관리해야|확인해야|필요하다|권고한다|요구한다)/u;
-const SOURCE_DIRECTIVE_PATTERN = /(?:해야|하여야|필요|권고|요구|조치|계획|예정|바랍니다|하도록)/u;
+const DIRECTIVE_PATTERN = /(?:해야|하여야|필요(?:합니다|하다|함)|필수(?:입니다|이다)|의무(?:입니다|이다)|권(?:고|장)(?:합니다|한다)|요구(?:합니다|한다)|금지(?:합니다|한다)|하(?:세|십시(?:오|요))|\b(?:should|must|need(?:s)? to|required to|recommend(?:ed)?(?: to)?)\b)/iu;
+const SOURCE_DIRECTIVE_PATTERN = /(?:해야|하여야|필수|의무|권고|권장|요구|금지|필요(?:합니다|하다|함)|하도록|바랍니다|하(?:세|십시(?:오|요))|\b(?:shall|should|must|need(?:s)? to|required|recommend(?:ed)?)\b)/iu;
 
-/** A summary may report a directive but cannot invent one from neutral evidence. */
+/** A summary may report an explicit instruction, but not prescribe one from neutral evidence. */
 function unsupportedDirective(claim: GroundedClaim): boolean {
   if (claim.kind !== "inference" || !DIRECTIVE_PATTERN.test(claim.text)) return false;
   return !claim.evidence.some((binding) => SOURCE_DIRECTIVE_PATTERN.test(binding.source.quote ?? ""));

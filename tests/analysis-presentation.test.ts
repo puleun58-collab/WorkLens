@@ -84,7 +84,7 @@ describe("analysisClaimPresentation", () => {
       operation: "analyze",
       claims: [
         inference("title", "주차별 Forecast 값은 어떻게 산정되나요", "high", [heading], "insight"),
-        inference("short", "Actual이 반영되면 향후 Forecast를 다시 계산합니다", "high", [body], "insight"),
+        inference("short", "Actual이 반영되면 최근 8주 기준이 바뀌어 향후 Forecast를 다시 계산합니다", "high", [body], "insight"),
         inference("full", "새로운 Actual이 반영되면 최근 8주 기준이 바뀌어 향후 Forecast를 다시 계산합니다", "high", [body], "insight"),
         inference("other", "주간 Forecast가 없으면 월간 Forecast를 사용합니다", "high", [source("fallback", 3)], "insight"),
       ],
@@ -276,6 +276,139 @@ describe("analysisClaimPresentation", () => {
 
     expect(extracted.fields).toEqual([]);
     expect(confirmedAnalysisMetrics([{ file: extracted.file, extraction: extracted, topics: [] }])).toEqual([]);
+  });
+
+  it("keeps distinct conditions and values while collapsing the same grounded relationship across roles", () => {
+    const shared = source("rules", 1);
+    const otherFile = source("rules", 1, "file-2");
+    const result: AnalyzeResult = {
+      operation: "analyze",
+      claims: [
+        inference("summary", "If the audit report is delayed, notify the compliance lead.", "high", [shared], "summary"),
+        inference("insight", "If audit report is delayed, notify the compliance lead.", "high", [shared], "insight"),
+        inference("condition", "If the permit is delayed, notify the compliance lead.", "high", [shared], "insight"),
+        inference("value", "If the audit report is delayed, notify the compliance lead within 2 days.", "high", [shared], "insight"),
+        inference("another-file", "If the audit report is delayed, notify the compliance lead.", "high", [otherFile], "insight"),
+        inference("bare", "Revenue increased.", "high", [shared], "insight"),
+      ],
+      warnings: [], rejectedClaimCount: 0,
+    };
+    const presented = analysisClaimPresentation(result, [], [
+      { id: "duplicate", text: "If the audit report is delayed, notify the compliance lead.", sources: [shared] },
+      { id: "other-file", text: "If the audit report is delayed, notify the compliance lead.", sources: [otherFile] },
+    ]);
+    expect(presented.summary.map(claimDisplayText)).toEqual(["If the audit report is delayed, notify the compliance lead."]);
+    expect(presented.insights.map(claimDisplayText)).toEqual([
+      "If the permit is delayed, notify the compliance lead.",
+      "If the audit report is delayed, notify the compliance lead within 2 days.",
+      "If the audit report is delayed, notify the compliance lead.",
+    ]);
+    expect(presented.content).toEqual([]);
+  });
+
+  it("selects an ordered process with its step sources and omits recurring cover furniture", () => {
+    const blocks = [
+      { id: "cover", type: "paragraph" as const, role: "heading" as const, text: "Service handbook", source: source("cover", 1) },
+      { id: "footer1", type: "paragraph" as const, text: "Harbor administration / controlled copy", source: source("footer1", 1) },
+      { id: "first", type: "paragraph" as const, text: "1. Review the application and verify the applicant identity", source: source("first", 2) },
+      { id: "second", type: "paragraph" as const, text: "2. Approve the request and notify the applicant", source: source("second", 2) },
+      { id: "third", type: "paragraph" as const, text: "3. Issue the signed decision to the applicant", source: source("third", 2) },
+      { id: "footer2", type: "paragraph" as const, text: "Harbor administration / controlled copy", source: source("footer2", 2) },
+    ];
+    const document: NormalizedDocument = {
+      id: "process", fileId: "file-1", kind: "pdf", metadata: { fileName: "handbook.pdf" }, blocks, warnings: [],
+    };
+    const topics = documentAnalysisTopics(document);
+    expect(topics).toEqual([{
+      id: "topic:first:sequence",
+      text: "1. Review the application and verify the applicant identity → 2. Approve the request and notify the applicant → 3. Issue the signed decision to the applicant",
+      sources: [blocks[2].source, blocks[3].source, blocks[4].source],
+    }]);
+  });
+
+  it("presents labeled table facts with cell provenance rather than a numeric dump", () => {
+    const cell = (id: string, text: string, slide = 1) => ({
+      display: text, value: text, source: source(id, slide),
+    });
+    const header = [cell("h-region", "Region"), cell("h-year", "2026"), cell("h-cost", "Budget")];
+    const north = [cell("north", "North"), cell("north-year", "2026"), cell("north-cost", "$125")];
+    const south = [cell("south", "South"), cell("south-year", "2026"), cell("south-cost", "0")];
+    const document: NormalizedDocument = {
+      id: "budget", fileId: "file-1", kind: "xlsx", metadata: { fileName: "budget.xlsx" },
+      blocks: [{ id: "sheet", type: "table", source: source("sheet", 1), rows: [header, north, south] }],
+      warnings: [],
+    };
+    const topics = documentAnalysisTopics(document);
+    expect(topics.map(({ text }) => text)).toEqual([
+      "North — 2026 · Budget: $125",
+      "South — 2026 · Budget: 0",
+    ]);
+    expect(topics[0].sources).toEqual([
+      north[0].source, header[1].source, north[1].source, header[2].source, north[2].source,
+    ]);
+    expect(topics[1].sources).toContain(south[2].source);
+  });
+
+  it("keeps prose key-value tables and skips table headers in policy documents", () => {
+    const cell = (id: string, text: string) => ({ display: text, value: text, source: source(id, 1) });
+    const purpose = [cell("purpose", "Purpose"), cell("purpose-value", "Coordinate the emergency response across departments.")];
+    const exception = [cell("exception", "Exception"), cell("exception-value", "When the lead is absent, the deputy takes responsibility.")];
+    const policy: NormalizedDocument = {
+      id: "policy", fileId: "file-1", kind: "docx", metadata: { fileName: "policy.docx" },
+      blocks: [{ id: "policy-table", type: "table", source: source("table", 1), rows: [purpose, exception] }],
+      warnings: [],
+    };
+    expect(documentAnalysisTopics(policy)).toEqual([
+      { id: "topic:policy-table:row:0", text: "Purpose — Coordinate the emergency response across departments.", sources: [purpose[0].source, purpose[1].source] },
+      { id: "topic:policy-table:row:1", text: "Exception — When the lead is absent, the deputy takes responsibility.", sources: [exception[0].source, exception[1].source] },
+    ]);
+    const headers = [cell("condition-header", "Condition"), cell("action-header", "Action")];
+    const rule = [cell("missing", "Missing permit"), cell("hold", "Hold dispatch until clearance is granted.")];
+    expect(documentAnalysisTopics({
+      ...policy, kind: "pdf",
+      blocks: [{ id: "rule-table", type: "table", source: source("rule-table", 1), rows: [headers, rule] }],
+    })).toEqual([{
+      id: "topic:rule-table:row:1",
+      text: "Missing permit — Action: Hold dispatch until clearance is granted.",
+      sources: [rule[0].source, headers[1].source, rule[1].source],
+    }]);
+  });
+
+  it("prioritizes a later table exception over routine rows and retains its cell sources", () => {
+    const cell = (id: string, text: string) => ({ display: text, value: text, source: source(id, 1) });
+    const rows = [
+      [cell("category", "Category"), cell("action", "Action")],
+      ...Array.from({ length: 27 }, (_, index) => [
+        cell(`routine-${index}`, `Routine ${index + 1}`),
+        cell(`copy-${index}`, "Copy the schedule to the shared folder."),
+      ]),
+      [cell("exception", "Missing permit"), cell("response", "If the permit is missing, hold dispatch until approval.")],
+    ];
+    const document: NormalizedDocument = {
+      id: "rules", fileId: "file-1", kind: "xlsx", metadata: { fileName: "rules.xlsx" },
+      blocks: [{ id: "sheet", type: "table", source: source("sheet", 1), rows }],
+      warnings: [],
+    };
+
+    const topics = documentAnalysisTopics(document);
+    expect(topics.some((topic) => topic.text.includes("hold dispatch")
+      && topic.sources.some((item) => item.nodeId === "response"))).toBe(true);
+  });
+
+  it("keeps Korean conditional endings as relationships without elevating a bare fact", () => {
+    const evidence = source("budget-rule", 2);
+    const result: AnalyzeResult = {
+      operation: "analyze",
+      claims: [
+        inference("conditional", "비용이 늘어나면 예산을 다시 검토합니다.", "high", [evidence], "insight"),
+        inference("fact", "현재 비용은 52억원입니다.", "high", [source("amount", 1)], "insight"),
+      ],
+      warnings: [], rejectedClaimCount: 0,
+    };
+
+    expect(analysisClaimPresentation(result).insights.map(claimDisplayText)).toEqual([
+      "비용이 늘어나면 예산을 다시 검토합니다.",
+    ]);
   });
 
   it("returns no invented sections without an Analyze result", () => {

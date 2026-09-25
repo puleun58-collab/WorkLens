@@ -1817,11 +1817,12 @@ const workSectionCopy: Record<Tab, [string, string]> = {
   Aggregate: ["문서 취합", "여러 Excel 파일의 표 데이터를 첫 번째 파일의 서식을 유지해 하나의 Excel 파일로 정리합니다."],
 };
 
-function ResultHeader({ eyebrow, title, status, meta }: {
+function ResultHeader({ eyebrow, title, status, meta, showMessage = true }: {
   eyebrow?: string;
   title: string;
   status: ResultStatus | null;
   meta?: React.ReactNode;
+  showMessage?: boolean;
 }) {
   return (
     <>
@@ -1832,7 +1833,7 @@ function ResultHeader({ eyebrow, title, status, meta }: {
           {status ? <span className={`result-status ${status.tone}`} role="status">{status.label}</span> : null}
         </div>
       </div>
-      {status?.message ? (
+      {showMessage && status?.message ? (
         <p className="result-inline-warning" role="status">
           <span>{status.message}</span>
           {status.detail ? <small>{status.detail}</small> : null}
@@ -1847,7 +1848,7 @@ function ResultView({ tab, result, enrichment, status, fileNames, detail, onSour
   if (!result) return null;
   let content: React.ReactNode;
   if (tab === "Analyze" && Array.isArray(result)) {
-    content = <AnalyzeResults entries={result as AnalyzeEntry[]} enrichment={enrichment} fileNames={fileNames} onSource={onSource} />;
+    content = <AnalyzeResults entries={result as AnalyzeEntry[]} enrichment={enrichment} status={status} fileNames={fileNames} onSource={onSource} />;
   } else if (tab === "Check" && Array.isArray(result)) {
     content = <CheckResults entries={result as CheckEntry[]} fileNames={fileNames} onSource={onSource} {...dictionary} />;
   } else if (tab === "Extract" && Array.isArray(result)) {
@@ -1861,11 +1862,12 @@ function ResultView({ tab, result, enrichment, status, fileNames, detail, onSour
   }
 
   return (
-    <section className="panel results-panel">
+    <section className={`panel results-panel${tab === "Analyze" ? " analysis-results-panel" : ""}`}>
       <ResultHeader
         {...(tab === "Ask" || tab === "Check" || tab === "Extract" || tab === "Analyze" ? {} : { eyebrow: `${tab.toUpperCase()} RESULT` })}
         title={tab === "Analyze" ? "분석 결과" : tab === "Ask" ? "답변" : tab === "Check" ? "검수 결과" : tab === "Extract" ? "추출 결과" : "작업 결과"}
         status={status}
+        showMessage={tab !== "Analyze"}
         {...(tab === "Extract"
           ? { meta: resultActions }
           : tab === "Ask" || tab === "Check" || tab === "Analyze" ? {} : { meta: <span className="result-provenance">근거 연결 결과</span> })}
@@ -2472,9 +2474,10 @@ function CompactResultSource({ sources, fileNames, onSource, locatorOf = locator
   );
 }
 
-function AnalyzeResults({ entries, enrichment, fileNames, onSource }: {
+function AnalyzeResults({ entries, enrichment, status, fileNames, onSource }: {
   entries: AnalyzeEntry[];
   enrichment: AiAvailableResult | null;
+  status: ResultStatus | null;
   fileNames: Map<string, string>;
   onSource: SourceHandler;
 }) {
@@ -2493,6 +2496,9 @@ function AnalyzeResults({ entries, enrichment, fileNames, onSource }: {
       </div>
     </article>
   );
+  const hasContent = presentation.summary.length + coreItems.length + metrics.length + presentation.insights.length
+    + presentation.concerns.length + mismatches.length > 0;
+  const hasWarnings = Boolean(status?.message || presentation.warnings.length);
   const multipleFiles = entries.length > 1;
 
   return (
@@ -2551,21 +2557,6 @@ function AnalyzeResults({ entries, enrichment, fileNames, onSource }: {
         </section>
       ) : null}
 
-      {mismatches.length ? (
-        <section className="analysis-report-section" aria-labelledby="analysis-review-title">
-          <div className="subsection-heading"><h3 id="analysis-review-title">확인 필요</h3><span>{mismatches.length}건</span></div>
-          <div className="analysis-reading-list">
-            {mismatches.map(({ file, total }) => (
-              <article className="analysis-reading-row concern" key={`${file.id}-${total.source.nodeId}`}>
-                <p><strong>{file.name}</strong>의 {total.label} 표시값 {total.actual.toLocaleString("ko-KR")}과 계산값 {total.expected.toLocaleString("ko-KR")}이 일치하지 않습니다.</p>
-                <div className="analysis-reading-actions">
-                  <ResultSource sources={[total.source, ...total.contributingSources]} fileNames={fileNames} onSource={onSource} />
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
-      ) : null}
       {presentation.insights.length ? (
         <section className="analysis-report-section analysis-insight-section" aria-labelledby="analysis-insight-title">
           <div className="subsection-heading">
@@ -2577,10 +2568,41 @@ function AnalyzeResults({ entries, enrichment, fileNames, onSource }: {
           </div>
         </section>
       ) : null}
-      {presentation.warnings.length ? (
-        <StatusPanel variant="warning" className="result-warnings" title="일부 결과 안내">
-          {presentation.warnings.map((warning) => <p key={warning.code}>{warning.message}</p>)}
-        </StatusPanel>
+      {presentation.concerns.length || mismatches.length ? (
+        <section className="analysis-report-section analysis-concern-section" aria-labelledby="analysis-review-title">
+          <div className="subsection-heading"><h3 id="analysis-review-title">확인 필요</h3><span>{presentation.concerns.length + mismatches.length}건</span></div>
+          <div className="analysis-reading-list">
+            {presentation.concerns.map((claim) => (
+              <article className="analysis-reading-row concern" key={claim.id}>
+                <p>{claimDisplayText(claim)}</p>
+                <div className="analysis-reading-actions">
+                  <ResultSource sources={sourcesOf(claim)} fileNames={fileNames} onSource={onSource} />
+                </div>
+              </article>
+            ))}
+            {mismatches.map(({ file, total }) => (
+              <article className="analysis-reading-row concern" key={`${file.id}-${total.source.nodeId}`}>
+                <p><strong>{file.name}</strong>의 {total.label} 표시값 {total.actual.toLocaleString("ko-KR")}과 계산값 {total.expected.toLocaleString("ko-KR")}이 일치하지 않습니다.</p>
+                <div className="analysis-reading-actions">
+                  <ResultSource sources={[total.source, ...total.contributingSources]} fileNames={fileNames} onSource={onSource} />
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
+      {!hasContent ? <p className="analysis-empty">표시할 분석 결과가 없습니다.</p> : null}
+      {hasWarnings ? (
+        <section className="analysis-report-section analysis-warning-section" aria-labelledby="analysis-warning-title">
+          <div className="subsection-heading"><h3 id="analysis-warning-title">결과 안내</h3></div>
+          {status?.message ? (
+            <p className="result-inline-warning" role="status">
+              <span>{status.message}</span>
+              {status.detail ? <small>{status.detail}</small> : null}
+            </p>
+          ) : null}
+          {presentation.warnings.map((warning) => <p className="analysis-warning-line" key={warning.code}>{warning.message}</p>)}
+        </section>
       ) : null}
     </div>
   );

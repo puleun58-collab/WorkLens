@@ -90,6 +90,7 @@ describe("server AI prompt boundary", () => {
     expect(prompt).toContain("관계");
     expect(prompt).toContain("근거");
     expect(prompt).toContain("claims");
+    expect(prompt).toContain("1~4개");
   });
 
   it("orders Ask by directness, not by how much is related", () => {
@@ -112,7 +113,6 @@ describe("server AI prompt boundary", () => {
     const comparison = buildMessages({ operation: "semantic-check", statement: "변화를 점검하세요.", scope: "comparison" }, items)[1].content;
     const writing = buildMessages({ operation: "semantic-check", statement: "문장을 점검하세요." }, items)[1].content;
 
-    expect(analyze[1].content).toContain("근거 문서의 주된 서술 언어를 유지");
     expect(analyze[0].content).toContain("고유명사");
     expect(korean).toContain("답변 언어: 한국어");
     expect(english).toContain("답변 언어: 영어");

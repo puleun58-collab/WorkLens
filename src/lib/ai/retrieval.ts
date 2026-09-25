@@ -105,8 +105,8 @@ export function boundedEvidenceCandidates(
           if (labelTerms.has(term)) score += 0.8;
         }
       }
-      if (RULE_SIGNAL.test(text)) score += request.operation === "analyze" ? 1.3 : 0.2;
-      if (request.operation === "analyze" && node.role !== "heading" && RELATION_SIGNAL.test(text)) score += 1.1;
+      if (request.operation === "analyze") score += semanticImportance(node, text);
+      else if (RULE_SIGNAL.test(text)) score += 0.2;
       if (node.role === "heading") {
         headingScore = queryTerms.length ? score : 0;
         headingReach = HEADING_BODY_REACH;
@@ -115,7 +115,7 @@ export function boundedEvidenceCandidates(
         if (queryTerms.length) score += Math.min(HEADING_BODY_BOOST, headingScore * 0.5);
         headingReach -= 1;
       }
-      if (FRONT_MATTER.test(text) || TOC_LINE.test(text)) score -= 1;
+      if (FRONT_MATTER.test(text) || TOC_LINE.test(text) || (request.operation === "analyze" && numericNoise(node, text))) score -= 1;
       const entry = { node, score, order, file: fileIndex };
       if (overLimit) offer(entry);
       else if (buffer.length < MAX_EVIDENCE_CANDIDATES) buffer.push(entry);
@@ -259,9 +259,27 @@ function relevanceScores(nodes: readonly AiEvidenceNode[], query: string): numbe
 const TOC_LINE = /\s\d{1,3}$/u;
 const STRUCTURAL_LINE = /^[\s\d.,:;()[\]/·—–-]*$/u;
 const FRONT_MATTER = /(?:지은이|펴낸곳|초판|\d+\s*쇄|조판|서체|목차|차례|contents|copyright|all rights reserved)/u;
-const RULE_SIGNAL = /(?:목적|개요|기준|규칙|순서|절차|흐름|조건|예외|전환|재계산|산정|적용|주의|결론|요약|조치|계획|목표|리스크|이슈|정의|반영|선택|우선|action|summary|todo)/u;
+const RULE_SIGNAL = /(?:목적|개요|기준|규칙|순서|절차|흐름|조건|예외|전환|재계산|산정|적용|주의|결론|요약|조치|계획|목표|리스크|이슈|정의|반영|선택|우선|\b(?:purpose|objective|scope|rule|criteria|process|procedure|requirement|exception|condition|policy|decision|risk|action|summary|priority)\b)/u;
 /** Relation-bearing sentences can support an optional Analyze insight. */
-const RELATION_SIGNAL = /(?:(?:이|가|하)?면\s|경우|따라|때문|없으면|없을\s*때|대신|순서로|순으로|우선|다시|재계산|재산출|전환|바뀌|변경되|반영되|기준으로|보정|조정|제한|이내|→|->|then|if\s|unless|instead)/u;
+const RELATION_SIGNAL = /(?:(?:이|가|하)?면\s|경우|따라|때문|없으면|없을\s*때|대신|순서로|순으로|우선|다시|재계산|재산출|전환|바뀌|변경되|반영되|기준으로|보정|조정|제한|이내|→|->|\b(?:then|if|unless|instead|because|therefore|before|after|depends on|subject to)\b)/u;
+/** Numbered actions are content, unlike a numbered contents entry or sample value. */
+const ORDERED_ACTION = /^(?:\d{1,2}[.)]|[①-⑳]|[-•])\s*.+(?:검토|확인|제출|승인|수행|처리|등록|완료|\b(?:review|verify|submit|approve|perform|record)\b)/u;
+
+function numericNoise(node: AiEvidenceNode, text: string): boolean {
+  return node.proposition.predicate === "has_value"
+    ? !RULE_SIGNAL.test(text) && /\d/u.test(text) && text.length <= 40
+    : (text.match(NUMERIC_PATTERN) ?? []).length >= 2 && text.length <= 32;
+}
+
+function semanticImportance(node: AiEvidenceNode, text: string): number {
+  let score = 0;
+  if (RULE_SIGNAL.test(text)) score += 1.3;
+  if (node.role !== "heading" && RELATION_SIGNAL.test(text)) score += 1.1;
+  if (node.role !== "heading" && ORDERED_ACTION.test(text)) score += 0.6;
+  if (/(?:예시|예를\s*들|표시\s*예|\b(?:example|sample|illustration)\b)/u.test(text)) score -= 0.8;
+  if (numericNoise(node, text)) score -= 0.5;
+  return score;
+}
 
 /**
  * Whole-document importance favours rules and process over cover text,
@@ -282,23 +300,16 @@ function importanceScores(nodes: readonly AiEvidenceNode[], operation: AiRequest
     const text = normalizeText(node.text);
     let score = 0;
     const numericCount = (text.match(NUMERIC_PATTERN) ?? []).length;
-    if (numericCount > 0) score += numericCount === 1 ? 0.7 : 0.45;
-    if ((text.match(DATE_PATTERN) ?? []).length > 0) score += 0.45;
-    if ((text.match(CURRENCY_PATTERN) ?? []).length > 0) score += 0.35;
-    if (RULE_SIGNAL.test(text)) score += 1.3;
-    if (/(?:예시|예를\s*들|표시\s*예)/u.test(text) && numericCount >= 2) score -= 0.8;
-    // A short line of mostly numbers is a table row: it illustrates a rule
-    // instead of stating one.
-    if (numericCount >= 2 && text.length <= 32) score -= 0.5;
-    // The section name is worth carrying; its own body still scores on merit.
-    // Analyze needs the body's relation, not the title, so a title is only
-    // context there and cannot take a window slot on its bonus alone.
+    if (numericCount > 0) score += operation === "analyze" ? (numericCount === 1 ? 0.3 : 0.1) : (numericCount === 1 ? 0.7 : 0.45);
+    if ((text.match(DATE_PATTERN) ?? []).length > 0) score += operation === "analyze" ? 0.2 : 0.45;
+    if ((text.match(CURRENCY_PATTERN) ?? []).length > 0) score += operation === "analyze" ? 0.15 : 0.35;
+    if (operation === "analyze") score += semanticImportance(node, text);
+    else if (RULE_SIGNAL.test(text)) score += 1.3;
+    // Titles carry context, but must not displace the rules beneath them.
     if (node.role === "heading") score += operation === "analyze" ? 0.2 : 0.9;
     else if (text.length <= 40) score += 0.2;
-    if (operation === "analyze" && node.role !== "heading" && RELATION_SIGNAL.test(text)) score += 1.1;
-    if (node.proposition.predicate === "has_value") score += 0.25;
-    // Front matter, contents entries and running heads repeat the document's
-    // identity on every page; they are not what the document says.
+    if (node.proposition.predicate === "has_value") score += operation !== "analyze" ? 0.25 : numericNoise(node, text) ? 0 : 0.4;
+    // Front matter, contents entries and running heads are not substantive evidence.
     if (STRUCTURAL_LINE.test(node.text)) score -= 1.2;
     if (TOC_LINE.test(node.text.trim())) score -= 1.0;
     if (FRONT_MATTER.test(text)) score -= 1.0;
@@ -328,7 +339,7 @@ function balanceBySource(ranked: readonly RankedEvidence[], limit: number, charB
     if (!size || characters + size > charBudget) continue;
     const key = groupKey(entry.node, entry.order);
     const count = used.get(key) ?? 0;
-    if (selected.length >= limit || count >= cap) { overflow.push(entry); continue; }
+    if (selected.length >= limit || count >= cap || (!ask && entry.score <= 0)) { overflow.push(entry); continue; }
     used.set(key, count + 1);
     selected.push(entry);
     characters += size;
@@ -344,10 +355,8 @@ function balanceBySource(ranked: readonly RankedEvidence[], limit: number, charB
 }
 
 /**
- * A section name without its section says nothing: "Forecast 값은 왜 계속
- * 바뀌나요?" is a question, and the answer is the paragraph under it. Each
- * selected heading pulls its following paragraph in, displacing the weakest
- * non-heading pick when the window is already full.
+ * A section heading names a topic; its following paragraph explains it.
+ * It can displace the weakest non-heading pick when the window is full.
  */
 function withSectionBodies(
   selected: readonly RankedEvidence[],

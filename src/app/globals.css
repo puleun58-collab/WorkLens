@@ -2153,6 +2153,12 @@ input:disabled,
   font-family: var(--font-mono);
   font-size: var(--font-size-xs);
 }
+.analysis-report {
+  min-width: 0;
+  padding-inline: var(--panel-inset);
+  background: var(--paper);
+}
+
 .analysis-report-section {
   padding: 20px var(--panel-inset) 22px;
   border-bottom: 1px solid var(--line-soft);
@@ -2160,6 +2166,24 @@ input:disabled,
 .analysis-report .analysis-report-section {
   padding-inline: 0;
 }
+
+.analysis-report-section:last-child {
+  border-bottom: 0;
+}
+
+.analysis-report .analysis-empty {
+  padding-block: var(--space-5);
+}
+
+.analysis-warning-section .result-inline-warning {
+  padding: 8px 0;
+  border-bottom: 0;
+}
+
+.analysis-warning-section .analysis-warning-line:first-of-type {
+  border-top: 0;
+}
+
 
 .analysis-summary-section {
   padding-top: 22px;
@@ -2200,11 +2224,11 @@ input:disabled,
   border-top: 0;
 }
 
-.analysis-reading-row.concern {
-  margin-inline: -10px;
-  padding-inline: 10px;
+.analysis-report .analysis-reading-row.concern {
+  margin-inline: 0;
+  padding-inline: 10px 0;
   border-left: 2px solid var(--warning);
-  background: var(--warning-soft);
+  background: var(--paper);
 }
 
 .analysis-reading-row > p {
@@ -2233,6 +2257,11 @@ input:disabled,
   white-space: nowrap;
 }
 
+.analysis-report .source-locator {
+  color: var(--muted);
+}
+
+
 .analysis-metric-wrap {
   max-width: 100%;
   overflow-x: auto;
@@ -2253,6 +2282,20 @@ input:disabled,
   text-align: left;
   vertical-align: top;
 }
+
+.analysis-metric-table th:first-child {
+  padding-left: 0;
+}
+
+.analysis-metric-table th:last-child,
+.analysis-metric-table td:last-child {
+  padding-right: 0;
+}
+
+.analysis-metric-table td:last-child {
+  text-align: right;
+}
+
 
 .analysis-metric-table thead th {
   color: var(--muted);
@@ -2302,7 +2345,7 @@ input:disabled,
 .analysis-warning-line {
   margin: 0;
   padding: 8px 0;
-  border-top: 1px solid #e2c48a;
+  border-top: 1px solid var(--line-soft);
   color: var(--ink-soft);
   font-size: var(--font-size-sm);
 }
@@ -6199,7 +6242,20 @@ input:disabled {
   padding-left: 0;
 }
 
-/* Polish is the one result surface that intentionally remains white. */
+.workspace > .analysis-results-panel {
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-panel);
+  background: var(--paper);
+  box-shadow: var(--shadow-panel);
+  overflow: hidden;
+}
+
+.workspace > .analysis-results-panel > .panel-heading {
+  padding: var(--space-4) var(--panel-inset) var(--space-3);
+  background: var(--paper);
+}
+
+/* Polish uses the same white panel treatment for its separate result view. */
 .workspace > .polish-results {
   border: 1px solid var(--line);
   border-radius: var(--radius-panel);
@@ -6745,9 +6801,8 @@ input:disabled {
     justify-content: space-between;
   }
 
-  .analysis-report-section {
-    padding-right: 16px;
-    padding-left: 16px;
+  .analysis-report {
+    padding-inline: var(--panel-inset);
   }
 
   .analysis-reading-row {
@@ -7891,6 +7946,9 @@ input:disabled {
     width: auto;
     padding: 5px 0;
     border: 0;
+  }
+  .analysis-metric-table td:last-child {
+    text-align: left;
   }
 
   .analysis-metric-table [data-label] {

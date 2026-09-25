@@ -108,7 +108,18 @@ describe("grounding directly observed facts", () => {
     expect(result.warnings.map((warning) => warning.code)).toEqual(["EVIDENCE_VALIDATION_FAILED"]);
   });
 
-  it("caps Analyze at five summaries and three insights, counting every excess as rejected", () => {
+  it("does not turn a neutral plan or status into a directive, but retains an explicit requirement", () => {
+    const doc = pdfDocument(["검토 계획은 다음 분기에 시작됩니다.", "The reviewer must approve the request before release."]);
+    const nodes = buildEvidenceNodes([doc]);
+    const result = groundAiResult({ operation: "analyze" }, [doc], completion([
+      { type: "inference", text: "담당자는 다음 분기에 검토해야 합니다.", sourceTokens: [nodes[0].propositionToken], presentation: { role: "summary" } },
+      { type: "inference", text: "The reviewer must approve the request before release.", sourceTokens: [nodes[1].propositionToken], presentation: { role: "summary" } },
+    ]));
+    expect(result.claims).toMatchObject([{ evidence: [{ source: { nodeId: nodes[1].nodeId } }] }]);
+    expect(result.rejectedClaimCount).toBe(1);
+  });
+
+  it("caps Analyze at four summaries and three insights, counting every excess as rejected", () => {
     const texts = ["가", "나", "다", "라", "마", "바", "사", "아", "자", "차"].map((word) => `${word} 항목은 완료되었습니다.`);
     const doc = pdfDocument(texts);
     const nodes = buildEvidenceNodes([doc]);
@@ -119,10 +130,10 @@ describe("grounding directly observed facts", () => {
       presentation: { role: index < 6 ? "summary" as const : "insight" as const },
     }))));
     expect(result.claims.map((claim) => claim.kind === "inference" ? claim.presentation?.role : "fact")).toEqual([
-      "summary", "summary", "summary", "summary", "summary", "insight", "insight", "insight",
+      "summary", "summary", "summary", "summary", "insight", "insight", "insight",
     ]);
-    expect(result.claims.map((claim) => claim.evidence[0].source.nodeId)).toEqual([nodes[0], nodes[1], nodes[2], nodes[3], nodes[4], nodes[6], nodes[7], nodes[8]].map((node) => node.nodeId));
-    expect(result.rejectedClaimCount).toBe(2);
+    expect(result.claims.map((claim) => claim.evidence[0].source.nodeId)).toEqual([nodes[0], nodes[1], nodes[2], nodes[3], nodes[6], nodes[7], nodes[8]].map((node) => node.nodeId));
+    expect(result.rejectedClaimCount).toBe(3);
     expect(result.warnings.map((warning) => warning.code)).toEqual(["EVIDENCE_VALIDATION_FAILED"]);
   });
 
