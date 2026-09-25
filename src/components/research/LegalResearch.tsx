@@ -220,7 +220,7 @@ function ResearchSectionView({ section, task }: { section: ResearchSection; task
     const { total, entries } = section.decisions;
     const rest = entries.slice(DECISION_PREVIEW);
     return <div className={className} data-kind={section.kind} data-markers={section.markers.join(" ")}>
-      <h3>{heading} {total !== undefined && <span className="research-meta">검색 결과 총 {total.toLocaleString("ko-KR")}건</span>}</h3>
+      <h3>{heading} {total !== undefined && <span className="research-meta">{/검색\s*결과$/u.test(heading ?? "") ? "" : "검색 결과 "}총 {total.toLocaleString("ko-KR")}건</span>}</h3>
       <DecisionList entries={entries.slice(0, DECISION_PREVIEW)} />
       {rest.length > 0 && <details className="law-detail-source research-more">
         <SourceToggleSummary label={`검색 결과 펼쳐보기 · ${rest.length}건 더`} openLabel="검색 결과 접기" />

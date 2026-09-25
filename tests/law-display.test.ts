@@ -36,6 +36,7 @@ describe("lawDisplayText", () => {
       "특정 조문 조회: get_law_text(mst=\"283457\", jo=\"제XX조\")",
       "여러 조문 일괄 조회: get_batch_articles 도구 사용",
       "자동 상세조회: search_precedents -> get_precedent_text (상위 2건, full=false)",
+      "자동 상세조회: search_admin_appeals -> get_admin_appeal_text (상위 1건)",
       "💡 다음: get_law_text(mst=\"283457\") 로 「근로기준법」 조문 전문. 특정 조문만은 jo=\"제N조\" 추가.",
     ].join("\n");
     expect(lawDisplayText(input)).toBe([
@@ -64,12 +65,14 @@ describe("lawDisplayText", () => {
       "  링크: /DRF/lawService.do?OC=***&amp;target=expc&amp;ID=312454&amp;type=HTML",
       "법령ID: 011357 | MST: 283839 | 구분: 법률",
       "법령: 행정심판법 (법률) | MST: 249041",
+      "시점 A: 2021.11.19 시행 | MST 232199 | 공포 제18176호, 2021.05.18 공포, 일부개정 | 126개 조문",
       "⏱ 시간 한도로 이 섹션은 수집하지 못했습니다 — 개별 도구(search_ai_law)로 조회하세요.",
       "[생략] 법령 전체 조문의 이력입니다. 조문별로 조회하세요: get_article_history(lawId=\"001805\", jo=\"제93조\")",
     ].join("\n"))).toBe([
       "사유: [NOT_FOUND] 해석례 검색 결과가 없습니다.",
       "법령ID: 011357 | 구분: 법률",
       "법령: 행정심판법 (법률)",
+      "시점 A: 2021.11.19 시행 | 공포 제18176호, 2021.05.18 공포, 일부개정 | 126개 조문",
       "⏱ 시간 한도로 이 섹션은 수집하지 못했습니다",
       "[생략] 법령 전체 조문의 이력입니다.",
     ].join("\n"));

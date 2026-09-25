@@ -13,8 +13,13 @@
  */
 const LINE_BREAK_TAG = /<\s*\/?\s*br\s*\/?\s*>/giu;
 
-/** Tools the Korean Law MCP names in its own output (observed in live responses). */
-const MCP_TOOL = /\b(?:search_law|get_law_text|get_batch_articles|search_precedents|get_precedent_text|find_similar_precedents|search_decisions|get_decision_text|search_interpretations|get_interpretation_text|search_ai_law|get_article_history|legal_analysis|legal_research|discover_tools|execute_tool|chain_document_review)\b/u;
+/**
+ * Tools the Korean Law MCP names in its own output. Its tool names are ASCII
+ * snake_case led by a fixed verb (`search_admin_appeals`, `get_law_text`,
+ * `chain_document_review`); Korean legal prose never contains such tokens,
+ * so matching the shape keeps newly added tools out of the display too.
+ */
+const MCP_TOOL = /\b(?:search|get|find|compare|chain|legal|discover|execute)_[a-z0-9]+(?:_[a-z0-9]+)*\b/u;
 /** Raw MCP arguments; always `name=` immediately followed by a value. */
 const RAW_ARGUMENT = /\b(?:body_search|query|display|page|full|id|domain|mst|jo|efYd|lawId)=(?:"[^"]*"|true|false|[\w.-]+)/u;
 const OPERATOR_TEXT = new RegExp(`${MCP_TOOL.source}|${RAW_ARGUMENT.source}`, "u");
@@ -31,7 +36,7 @@ const LEFTOVER_LABEL = /^[\s\p{Extended_Pictographic}\uFE0F]*(?:[^\s:：][^:：]
 function withoutOperatorGuidance(raw: string): string | undefined {
   if (AGENT_LINE.test(raw)) return undefined;
   // `법령ID: 011357 | MST: 283839 | 구분: 법률`: MST is the API's version serial, not something a reader uses.
-  const line = raw.replace(/\s*\|\s*MST:\s*\d+(?=\s*(?:\||$))/gu, "").replace(/^(\s*)MST:\s*\d+\s*\|\s*/u, "$1");
+  const line = raw.replace(/\s*\|\s*MST:?\s*\d+(?=\s*(?:\||$))/gu, "").replace(/^(\s*)MST:?\s*\d+\s*\|\s*/u, "$1");
   if (!OPERATOR_TEXT.test(line)) return line;
   if (SEARCH_ADJUSTMENT.test(line)) return "검색어를 보정해 관련 결과를 찾았습니다.";
   const cleaned = line

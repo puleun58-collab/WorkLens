@@ -142,7 +142,7 @@ function classify(section: AnalysisSection): Pick<ResearchSection, "kind" | "art
   if (/상세$/u.test(heading) || /^\s*자동\s*상세조회:/mu.test(text)) return { kind: "detail" };
   const toc = section.lines.map((line) => TOC_HEAD.exec(line)).find(Boolean);
   if (toc) {
-    const law = /^\s*법령명:\s*(.+?)\s*$/mu.exec(text)?.[1];
+    const law = /^\s*(?:법령명|자치법규명):\s*(.+?)\s*$/mu.exec(text)?.[1];
     return { kind: "law_toc", toc: { count: toNumber(toc[1]), ...(law ? { law } : {}) } };
   }
   const annexHead = ANNEX_HEAD.exec(text);
