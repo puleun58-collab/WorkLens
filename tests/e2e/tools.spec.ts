@@ -532,9 +532,25 @@ test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route wit
       await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: { code: "LAW_UPSTREAM_UNAVAILABLE", message: "법령 검색 서비스가 일시적으로 응답하지 않습니다.", retryable: true } }) });
       return;
     }
-    const text = body.task === "document_review"
-      ? "═══ 문서 종합 검토 ═══\n\n▶ 문서 리스크 분석\n발견 리스크: 1건\n\n▶ 관련 판례\n[1] 2015다1234"
-      : `═══ 리서치: ${String(body.query)} ═══\n\n▶ 관련 법령\n근로기준법 제76조의2\n\n▶ 법령 해석례 [NOT_FOUND / FAILED]\n   사유: 조회 실패`;
+    if (body.task === "document_review") {
+      const review = {
+        document: { type: "b2b_service", label: "서비스 이용계약", relationship: "business", relationshipLabel: "사업자 간", confidence: "high", evidence: [], domains: ["civil", "terms"] },
+        risk: { score: 2, level: "보통", high: 0, medium: 1, low: 0 },
+        facts: [{ label: "계약기간", value: "2026년 1월 1일부터 2026년 12월 31일까지", clause: "제1조" }],
+        clauses: [{ number: "제2조", text: "을은 어떠한 경우에도 계약을 해지할 수 없다.", issues: [{
+          id: "termination_restriction", label: "중도해지 제한", severity: "medium",
+          point: "이용자의 중도해지를 전면 금지한 부분이 상대방의 해지권을 부당하게 제한하는지 검토가 필요합니다.",
+          fact: "을은 어떠한 경우에도 계약을 해지할 수 없다.",
+          laws: ["terms-9"], precedents: [], lawStatus: "found", precedentStatus: "none",
+        }] }],
+        laws: { "terms-9": { key: "terms-9", law: "약관의 규제에 관한 법률", jo: "제9조", title: "계약의 해제ㆍ해지", excerpt: "계약의 해제ㆍ해지에 관하여 정하고 있는 약관의 내용 중 …", effectiveDate: "20240807", condition: "이 계약이 약관에 해당하는 경우에 적용됩니다." } },
+        precedents: {},
+        stats: { calls: 3, queries: 2, excludedPrecedents: 5, excludedLaws: 0 },
+      };
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { found: true, task: body.task, text: "", markers: [], review } }) });
+      return;
+    }
+    const text = `═══ 리서치: ${String(body.query)} ═══\n\n▶ 관련 법령\n근로기준법 제76조의2\n\n▶ 법령 해석례 [NOT_FOUND / FAILED]\n   사유: 조회 실패`;
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { found: true, task: body.task, text, markers: text.includes("NOT_FOUND") ? ["NOT_FOUND"] : [] } }) });
   });
   await page.goto("/");
@@ -591,13 +607,24 @@ test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route wit
   await task.selectOption("document_review");
   await expect(form.getByLabel("질문 또는 검색어")).toHaveCount(0);
   const documentText = form.getByLabel("검토할 문서 내용");
-  await expect(form).toContainText("외부 법령 MCP 서버(Korean Law MCP)로 전송");
+  await expect(form).toContainText("조항 쟁점으로 만든 검색어만 전송");
   await expect(form.getByRole("button", { name: "문서 검토" })).toBeDisabled();
   const sample = "제1조 갑은 계약 체결 즉시 대금 전액을 지급한다.\n제2조 을은 어떠한 경우에도 계약을 해지할 수 없다.";
   await documentText.fill(sample);
   await form.getByRole("button", { name: "문서 검토" }).click();
   await expect(page.getByRole("heading", { name: "검토 결과" })).toBeVisible();
-  await expect(page.locator(".legal-analysis-output")).toContainText("문서 리스크 분석");
+  const review = page.locator(".contract-review");
+  await expect(review).toContainText("서비스 이용계약");
+  await expect(review).toContainText("사업자 간");
+  await expect(review).toContainText("2026년 1월 1일부터 2026년 12월 31일까지");
+  const clause = review.locator(".contract-review-clause");
+  await expect(clause.getByRole("heading", { level: 3 })).toHaveText("제2조");
+  await expect(clause).toContainText("중도해지 제한");
+  await expect(clause).toContainText("을은 어떠한 경우에도 계약을 해지할 수 없다.");
+  await expect(clause.locator("summary")).toContainText("약관의 규제에 관한 법률 제9조 (계약의 해제ㆍ해지)");
+  await expect(clause).toContainText("이 계약이 약관에 해당하는 경우에 적용됩니다.");
+  await expect(clause).toContainText("현재 검색 범위에서 직접 관련성이 높은 판례를 확인하지 못했습니다.");
+  await expect(review).not.toContainText(/search_|get_|body_search|full=/u);
 
   expect(bodies.slice(2)).toEqual([
     { task: "dispute_prep", query: "직장 내 괴롭힘 판단 기준", domain: "labor" },

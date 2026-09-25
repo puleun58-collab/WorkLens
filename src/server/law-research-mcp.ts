@@ -2,11 +2,18 @@ import type { LawResearchAbsent, LawResearchData, LawResearchRequest } from "@/l
 import { ApiError } from "@/server/http";
 import { classifyLawToolResult } from "@/server/law-analysis-mcp";
 import { callLawTool } from "@/server/law-mcp";
+import { mcpReviewSources, reviewContract } from "@/server/contract-review";
 
 export async function runLegalResearch(
   request: LawResearchRequest,
   context: { requestId: string; signal?: AbortSignal },
 ): Promise<LawResearchData | LawResearchAbsent> {
+  // Document review decides the document's type and each clause's issue before
+  // any search, then searches only the areas of law that fit (see contract-review).
+  if (request.task === "document_review") {
+    const review = await reviewContract(request.text, mcpReviewSources(context));
+    return { found: true, task: request.task, text: "", markers: [], review };
+  }
   const result = (() => {
     switch (request.task) {
       case "full_research":
@@ -30,9 +37,6 @@ export async function runLegalResearch(
       case "ordinance_compare":
         return callLawTool("legal_research", { task: request.task, query: request.query,
           ...(request.parentLaw ? { parentLaw: request.parentLaw } : {}) }, context);
-      case "document_review":
-        return callLawTool("legal_research", { task: request.task, text: request.text,
-          maxClauses: request.maxClauses ?? 15 }, context);
     }
   })();
   const { text, isError } = await result;

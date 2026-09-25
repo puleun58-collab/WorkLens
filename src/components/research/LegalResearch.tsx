@@ -10,6 +10,7 @@ import {
 import { isSupportingSection, researchResult, type ResearchDecision, type ResearchSection } from "@/lib/law-research-parse";
 import { lawDisplayText } from "@/lib/law-display";
 import { LawTextBlock } from "./LawTextBlock";
+import { ContractReviewResult } from "./ContractReviewResult";
 import { SourceToggleSummary } from "./SourceToggleSummary";
 import "./legal-analysis.css";
 
@@ -30,6 +31,8 @@ const QUERY_PLACEHOLDER: Record<Exclude<LawResearchTask, "document_review">, str
 };
 
 const TRANSMISSION_NOTE = "입력한 내용은 법률 검토를 위해 외부 법령 MCP 서버(Korean Law MCP)로 전송되며, WorkLens에 저장되지 않습니다.";
+/** Document review analyzes the text on the WorkLens server; only issue-based search terms reach the MCP. */
+const DOCUMENT_TRANSMISSION_NOTE = "문서 내용은 WorkLens 서버에서 조항별로 분석되며 저장되지 않습니다. 외부 법령 MCP 서버(Korean Law MCP)에는 조항 쟁점으로 만든 검색어만 전송됩니다.";
 const RESULT_NOTE = "법적 판단이 필요한 경우 국가법령정보센터 원문과 관련 전문가 검토가 필요할 수 있습니다.";
 
 export function LegalResearch() {
@@ -118,7 +121,7 @@ export function LegalResearch() {
         <label htmlFor="research-document">검토할 문서 내용</label>
         <textarea id="research-document" value={draft.text} rows={10} maxLength={LAW_RESEARCH_DOCUMENT_MAX_CHARS} placeholder="계약서 또는 약관 등의 내용을 붙여 넣으세요." onChange={(event) => update("text", event.target.value)} aria-describedby="research-document-help" />
         <p id="research-document-help" className="legal-analysis-help">
-          <span>{TRANSMISSION_NOTE}</span>
+          <span>{DOCUMENT_TRANSMISSION_NOTE}</span>
           <span className="legal-analysis-count">{draft.text.length.toLocaleString("ko-KR")} / {LAW_RESEARCH_DOCUMENT_MAX_CHARS.toLocaleString("ko-KR")}자 · 최소 {LAW_RESEARCH_DOCUMENT_MIN_CHARS}자</span>
         </p>
       </> : <>
@@ -170,7 +173,9 @@ export function LegalResearch() {
           <p className="law-search-note">요청한 자료를 법제처 자료에서 찾지 못했습니다.</p>
           <LawTextBlock className="legal-analysis-raw" text={current.outcome.data.text} />
         </div>
-        : current.outcome?.kind === "found" ? <ResearchResult data={current.outcome.data} />
+        : current.outcome?.kind === "found" ? current.outcome.data.review
+          ? <ContractReviewResult review={current.outcome.data.review} />
+          : <ResearchResult data={current.outcome.data} />
         : null}
     </section>}
   </div>;
