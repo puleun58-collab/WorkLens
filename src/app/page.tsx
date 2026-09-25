@@ -100,6 +100,7 @@ import {
   SlidersHorizontal,
   Table2,
   Scale,
+  ArrowUpDown,
 } from "lucide-react";
 
 const PdfTool = dynamic(() => import("@/components/tools/PdfTool").then((module) => module.PdfTool), {
@@ -319,6 +320,13 @@ export default function Home() {
   const [uploading, setUploading] = useState(false);
   const [dropActive, setDropActive] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
+  /** Bumped on each successful delete; drives a one-off "삭제 완료" that clears itself. */
+  const [deleteDone, setDeleteDone] = useState(0);
+  useEffect(() => {
+    if (!deleteDone) return;
+    const timer = window.setTimeout(() => setDeleteDone(0), 2500);
+    return () => window.clearTimeout(timer);
+  }, [deleteDone]);
   const [comparison, setComparison] = useState<ComparisonResult | null>(null);
   const [compareIds, setCompareIds] = useState<{ baseFileId: string; targetFileId: string } | null>(null);
   const [compareMode, setCompareMode] = useState<"version" | "value-check">("version");
@@ -1123,7 +1131,8 @@ export default function Home() {
     setFiles([]);
     setSelected([]);
     clearResults();
-    notifyWorkspace("info", "브라우저 메모리에서 파일과 결과를 모두 지웠습니다.");
+    setNotice(null);
+    setDeleteDone((count) => count + 1);
   };
 
   const deleteSelected = async () => {
@@ -1137,7 +1146,8 @@ export default function Home() {
     setStructured(null);
     setPolish(null);
     setPolishTextRun(null);
-    notifyWorkspace("info", "선택한 파일과 결과를 지웠습니다.");
+    setNotice(null);
+    setDeleteDone((count) => count + 1);
   };
 
   // Pasted text is its own input: the Polish action then depends on the
@@ -1365,6 +1375,12 @@ export default function Home() {
               onChange={(event: ChangeEvent<HTMLInputElement>) => { enqueueUploads(event.target.files); event.target.value = ""; }}
             />
           ) : null}
+          {deleteDone > 0 && isDocumentWorkspaceView ? (
+            <div className="transient-status-anchor">
+              <span key={deleteDone} className="transient-status" role="status" aria-live="polite">삭제 완료</span>
+            </div>
+          ) : null}
+
           {files.length === 0 && isDocumentWorkspaceView ? (
             <div
               className={`dropzone${uploading ? " busy" : ""}${dropActive ? " drag-active" : ""}`}
@@ -1452,7 +1468,14 @@ export default function Home() {
                           <span />
                         </label>
                         <div className="file-info">
-                          {selectionRole ? <span className="compare-selection-role">{selectionRole}</span> : null}
+                          {selectionRole ? <span className="compare-selection-line">
+                            <span className="compare-selection-role">{selectionRole}</span>
+                            {comparisonSelectionIndex === 0 && comparisonDirection ? (
+                              <button type="button" className="compare-swap-icon" aria-label="기준/대상 바꾸기" title="기준/대상 바꾸기" disabled={busy} onClick={swapComparisonDirection}>
+                                <ArrowUpDown aria-hidden="true" />
+                              </button>
+                            ) : null}
+                          </span> : null}
                           <strong title={file.name} tabIndex={selectionRole ? 0 : undefined}>{file.name}</strong>
                           <span>{file.kind.toUpperCase()} · {formatBytes(file.size)}</span>
                         </div>
@@ -1489,8 +1512,6 @@ export default function Home() {
                   <CompareControls
                     mode={compareMode}
                     busy={busy}
-                    direction={compareMode === "version" ? comparisonDirection : null}
-                    onSwap={swapComparisonDirection}
                     onMode={(mode) => {
                       setCompareMode(mode);
                       clearResults();
@@ -1530,6 +1551,7 @@ export default function Home() {
                         </label>
                       ))}
                     </fieldset>
+                    <div className="polish-mode-run">
                     <fieldset className="segmented polish-modes" aria-label="윤문 방식">
                       {POLISH_MODES.map((mode) => (
                         <label key={mode}>
@@ -1550,6 +1572,10 @@ export default function Home() {
                         </label>
                       ))}
                     </fieldset>
+                    <div className="operation-actions">
+                      <button type="button" onClick={runActive} disabled={actionDisabled} aria-label={`${tabMeta[activeTab].label} ${RUN_LABEL}`}>{busy ? "처리 중…" : RUN_LABEL}</button>
+                    </div>
+                    </div>
                     {polishTextMode ? (
                       <label className="polish-paste">
                         <span>윤문할 내용을 붙여넣으세요.</span>
@@ -1576,7 +1602,7 @@ export default function Home() {
                     <span>{AGGREGATION_UNSUPPORTED_DETAIL}</span>
                   </p>
                 ) : null}
-                {activeTab !== "Extract" ? (
+                {activeTab !== "Extract" && activeTab !== "Polish" ? (
                   <div className="operation-actions">
                     <button type="button" onClick={runActive} disabled={actionDisabled} aria-label={`${tabMeta[activeTab].label} ${RUN_LABEL}`}>{busy ? "처리 중…" : RUN_LABEL}</button>
                   </div>
@@ -1706,6 +1732,7 @@ function SettingsView({ view, companyTerms, companyTermsSource, userTerms, ignor
               : "없음"}
           </dd></div>
           <div><dt>서버 AI</dt><dd>AI 기능은 필요한 질문·문장·근거만 서버 AI로 전송해 처리합니다. 원본 파일은 전송하지 않습니다.</dd></div>
+          <div><dt>법령 기능 외부 연동</dt><dd>법령 기능 사용 시 필요한 검색어·검증 문구가 Korean Law MCP로 전송될 수 있으며, 문서 검토는 원문이 아닌 관련 법령·판례 조회용 검색어만 전송됩니다. 입력 내용은 WorkLens에 저장되지 않습니다.</dd></div>
         </dl>
       </section>
     );
@@ -1830,8 +1857,8 @@ function ResultHeader({ eyebrow, title, status, meta, showMessage = true }: {
       <div className="panel-heading result-heading">
         <div>{eyebrow ? <p className="eyebrow">{eyebrow}</p> : null}<h2>{title}</h2></div>
         <div className="result-heading-meta">
-          {meta}
           {status ? <span className={`result-status ${status.tone}`} role="status">{status.label}</span> : null}
+          {meta}
         </div>
       </div>
       {showMessage && status?.message ? (
@@ -1889,12 +1916,10 @@ function isAiAvailableResult(value: unknown): value is AiAvailableResult {
  * fields. The field list is the schema, reused for every selected file, so ten
  * monthly reports become ten rows of the same columns.
  */
-function CompareControls({ mode, busy, direction, onMode, onSwap }: {
+function CompareControls({ mode, busy, onMode }: {
   mode: "version" | "value-check";
   busy: boolean;
-  direction: { base: string; current: string } | null;
   onMode: (mode: "version" | "value-check") => void;
-  onSwap: () => void;
 }) {
   return (
     <div className="compare-controls">
@@ -1914,9 +1939,6 @@ function CompareControls({ mode, busy, direction, onMode, onSwap }: {
             </label>
           ))}
         </fieldset>
-        {mode === "version" && direction ? (
-          <button type="button" className="secondary-action compare-swap-action" disabled={busy} onClick={onSwap}>기준/대상 변경</button>
-        ) : null}
       </div>
       <p>{mode === "version"
         ? "두 파일의 추가·삭제·변경된 내용을 비교합니다."

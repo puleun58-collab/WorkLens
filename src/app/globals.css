@@ -4666,7 +4666,19 @@ body {
   --blue-pale: #f5f9ff;
   --focus-ring: #2563eb;
   /* One tone below white so data surfaces separate from the page without cards. */
-  --canvas: #f2f4f7;
+  --canvas: #f3f5f8;
+  /* Page-level hairlines (header bottom, header title separator). */
+  --divider: #e4e8ee;
+  /* Rail (navy) states: label text, active tint of --brand-blue, keyboard focus. */
+  --rail-label: #7f8ca3;
+  --rail-active: rgba(59, 130, 246, 0.12);
+  --rail-focus: rgba(147, 197, 253, 0.55);
+  /* Buttons that carry an action (primary, run, export, swap). */
+  --radius-button: 6px;
+  /* A disabled primary reads as unavailable, not as a faded blue. */
+  --disabled-surface: #eceff3;
+  --disabled-border: #dde2e9;
+  --disabled-ink: #8a94a6;
   /* Primary white surfaces only (file list, preview, settings, main data table). */
   --shadow-surface: 0 1px 3px rgba(15, 23, 42, 0.05);
   --paper: #ffffff;
@@ -9023,27 +9035,20 @@ input:disabled {
 
 /*
  * ── Finish pass: same structure, tighter details ─────────────────────────
- * Section labels sit below the menu in the hierarchy, rows share one rhythm,
- * the active item is a tint plus the existing thin blue indicator (no box),
- * primary buttons drop the inset highlight, and a disabled primary reads as
- * unavailable instead of a faded blue. No new colours: navy, WorkLens blue,
- * neutrals.
+ * Values live in the :root tokens above (--rail-*, --divider,
+ * --radius-button, --disabled-*); this block only applies them.
  */
-:root {
-  --canvas: #f3f5f8;
-  --disabled-surface: #eceff3;
-  --disabled-border: #dde2e9;
-  --disabled-ink: #8a94a6;
+.rail-group-label {
+  color: var(--rail-label);
+  font-weight: 600;
+  letter-spacing: 0.08em;
 }
 
 @media (min-width: 701px) {
   .rail-group-label {
     margin-top: 18px;
     margin-bottom: 6px;
-    color: #7f8ca3;
     font-size: 0.6875rem;
-    font-weight: 600;
-    letter-spacing: 0.08em;
   }
 
   .rail-tools-label {
@@ -9065,22 +9070,22 @@ input:disabled {
 }
 
 .rail-item.active {
-  background: rgba(59, 130, 246, 0.12);
+  background: var(--rail-active);
   font-weight: 600;
 }
 
 .rail-item:focus-visible,
 .rail .worklens-logo:focus-visible {
-  outline: 2px solid rgba(147, 197, 253, 0.55);
+  outline: 2px solid var(--rail-focus);
   outline-offset: -2px;
 }
 
 .topbar {
-  border-bottom-color: #e4e8ee;
+  border-bottom-color: var(--divider);
 }
 
 .topbar > p {
-  border-left-color: #e4e8ee;
+  border-left-color: var(--divider);
 }
 
 .file-add,
@@ -9094,7 +9099,7 @@ input:disabled {
 .extract-run,
 .tool-export-button,
 .extract-download-primary {
-  border-radius: 6px;
+  border-radius: var(--radius-button);
 }
 
 .file-add:disabled,
@@ -9116,9 +9121,133 @@ button.law-search-button:disabled,
   letter-spacing: -0.01em;
 }
 
-/* Section labels keep the same quiet treatment when the rail becomes a header. */
-.rail-group-label {
-  color: #7f8ca3;
-  font-weight: 600;
-  letter-spacing: 0.08em;
+/* ── Action placement: each action sits beside what it controls ────────── */
+/* Polish: the run button follows the style choice it applies, not the far edge. */
+.polish-mode-run {
+  display: flex;
+  /* Shrink-to-fit width: wrapping here would be a sub-pixel rounding artefact, not a lack of room. */
+  flex-wrap: nowrap;
+  max-width: 100%;
+  align-items: center;
+  gap: 12px 16px;
+}
+
+.polish-mode-run > .polish-modes {
+  flex: none;
+}
+
+.polish-mode-run .operation-actions {
+  margin: 0;
+  justify-content: flex-start;
+}
+
+/* Compare: base/target swap lives on the file rows it swaps. */
+.compare-selection-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.compare-swap-icon {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-button);
+  background: var(--paper);
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.compare-swap-icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.compare-swap-icon:hover:not(:disabled),
+.compare-swap-icon:focus-visible {
+  border-color: var(--blue);
+  background: var(--blue-pale);
+  color: var(--blue);
+}
+
+.compare-swap-icon:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.compare-swap-icon:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* Result heading: inline status keeps its old place after the meta… */
+.result-heading-meta > .result-status {
+  order: 1;
+}
+
+/* …except next to downloads, where status sits above the button group and both end on the content edge. */
+.result-heading-meta:has(.extract-export-actions) {
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.result-heading-meta:has(.extract-export-actions) > .result-status {
+  order: 0;
+}
+
+@media (max-width: 700px) {
+  .result-heading-meta:has(.extract-export-actions) {
+    align-items: stretch;
+  }
+
+  .result-heading-meta:has(.extract-export-actions) > .result-status {
+    align-self: flex-start;
+  }
+}
+
+/* One-off action result (e.g. 삭제 완료): top right of the content, never pushes layout. */
+.transient-status-anchor {
+  position: relative;
+  height: 0;
+}
+
+.transient-status {
+  position: absolute;
+  top: -20px;
+  right: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+  animation: transient-status-out 2.5s var(--motion-ease, ease) both;
+}
+
+.transient-status::before {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--success, #16a34a);
+  content: "";
+}
+
+@keyframes transient-status-out {
+  0%, 80% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .transient-status { animation: none; }
+}
+
+@media (max-width: 700px) {
+  .polish-mode-run {
+    flex-wrap: wrap;
+  }
 }

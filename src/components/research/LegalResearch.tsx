@@ -30,9 +30,6 @@ const QUERY_PLACEHOLDER: Record<Exclude<LawResearchTask, "document_review">, str
   procedure_detail: "예: 행정심판 청구 절차와 제출서류",
 };
 
-const TRANSMISSION_NOTE = "입력한 내용은 법률 검토를 위해 외부 법령 MCP 서버(Korean Law MCP)로 전송되며, WorkLens에 저장되지 않습니다.";
-/** Document review analyzes the text on the WorkLens server; only issue-based search terms reach the MCP. */
-const DOCUMENT_TRANSMISSION_NOTE = "문서 내용은 WorkLens 서버에서 조항별로 분석되며 저장되지 않습니다. 외부 법령 MCP 서버(Korean Law MCP)에는 조항 쟁점으로 만든 검색어만 전송됩니다.";
 const RESULT_NOTE = "법적 판단이 필요한 경우 국가법령정보센터 원문과 관련 전문가 검토가 필요할 수 있습니다.";
 
 export function LegalResearch() {
@@ -121,7 +118,6 @@ export function LegalResearch() {
         <label htmlFor="research-document">검토할 문서 내용</label>
         <textarea id="research-document" value={draft.text} rows={10} maxLength={LAW_RESEARCH_DOCUMENT_MAX_CHARS} placeholder="계약서 또는 약관 등의 내용을 붙여 넣으세요." onChange={(event) => update("text", event.target.value)} aria-describedby="research-document-help" />
         <p id="research-document-help" className="legal-analysis-help">
-          <span>{DOCUMENT_TRANSMISSION_NOTE}</span>
           <span className="legal-analysis-count">{draft.text.length.toLocaleString("ko-KR")} / {LAW_RESEARCH_DOCUMENT_MAX_CHARS.toLocaleString("ko-KR")}자 · 최소 {LAW_RESEARCH_DOCUMENT_MIN_CHARS}자</span>
         </p>
       </> : <>
@@ -129,7 +125,6 @@ export function LegalResearch() {
         <textarea id="research-query" value={draft.query} rows={3} maxLength={LAW_RESEARCH_QUERY_MAX_CHARS} placeholder={QUERY_PLACEHOLDER[task]} onChange={(event) => update("query", event.target.value)} aria-describedby="research-query-help"
           onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} />
         <p id="research-query-help" className="legal-analysis-help">
-          <span>{TRANSMISSION_NOTE}</span>
           <span className="legal-analysis-count">{draft.query.length.toLocaleString("ko-KR")} / {LAW_RESEARCH_QUERY_MAX_CHARS.toLocaleString("ko-KR")}자</span>
         </p>
       </>}
@@ -256,7 +251,7 @@ function ResearchResult({ data }: { data: LawResearchData }) {
   const supporting = result.sections.filter(isSupportingSection);
   return <div className="legal-analysis-output" data-task={data.task} data-markers={data.markers.join(" ")}>
     {result.title && <h3 className="legal-analysis-title">{result.title}</h3>}
-    {unavailable > 0 && <p className="legal-research-partial" role="note">부분 결과입니다. {unavailable}개 항목은 조회하지 못했거나 시간 한도로 수집되지 않았습니다 (결과 없음과 다릅니다).</p>}
+    {unavailable > 0 && <p className="legal-research-partial" role="note">일부 결과만 확인되었습니다. {unavailable}개 항목은 조회 실패 또는 시간 제한으로 확인되지 않았습니다.</p>}
     {result.sections
       // A heading-less note that was only agent guidance has nothing left to show.
       .filter((section) => !isSupportingSection(section) && (section.heading || lawDisplayText(section.lines.join("\n"))))

@@ -142,7 +142,7 @@ test("uploads XLSX files, compares them and shows source evidence", async ({ pag
   await expect(page.getByText("두 파일의 추가·삭제·변경된 내용을 비교합니다.", { exact: true })).toBeVisible();
   await expect(page.getByText("첫 번째로 선택한 파일이 기준 파일입니다.", { exact: true })).toHaveCount(0);
   await expect(page.getByLabel("현재 비교 방향")).toHaveCount(0);
-  const swap = page.getByRole("button", { name: "기준/대상 변경" });
+  const swap = page.getByRole("button", { name: "기준/대상 바꾸기" });
   await expect(swap).toBeVisible();
   await expect(page.getByText("기준 운임현황_v1.xlsx", { exact: true })).toHaveCount(0);
   await expect(page.getByText("대상 운임현황_v2.xlsx", { exact: true })).toHaveCount(0);
@@ -217,15 +217,15 @@ test("shows the swap action only for exactly two version files", async ({ page }
   await page.goto("/");
   await page.getByRole("button", { name: "비교", exact: true }).click();
   await expect(page.getByLabel("현재 비교 방향")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "기준/대상 변경" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "기준/대상 바꾸기" })).toHaveCount(0);
 
   await upload(page, files.longV1);
   await page.getByLabel(`${path.basename(files.longV1)} 선택`).check();
-  await expect(page.getByRole("button", { name: "기준/대상 변경" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "기준/대상 바꾸기" })).toHaveCount(0);
 
   await upload(page, files.v2);
   await page.getByLabel("운임현황_v2.xlsx 선택").check();
-  const swap = page.getByRole("button", { name: "기준/대상 변경" });
+  const swap = page.getByRole("button", { name: "기준/대상 바꾸기" });
   await expect(swap).toBeVisible();
   await expect(page.getByLabel("현재 비교 방향")).toHaveCount(0);
 
@@ -235,8 +235,8 @@ test("shows the swap action only for exactly two version files", async ({ page }
 
   await page.getByRole("radio", { name: "버전 비교" }).check();
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(page.getByRole("button", { name: "기준/대상 변경" })).toBeVisible();
-  expect(await page.locator(".compare-mode-row").evaluate((element) => getComputedStyle(element).flexWrap)).toBe("wrap");
+  await expect(page.getByRole("button", { name: "기준/대상 바꾸기" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "기준/대상 변경" })).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 });
 
@@ -1979,11 +1979,15 @@ test("aligns fileless text Polish controls to one desktop and mobile baseline", 
     const boxes = await Promise.all([title, inputModes, polishModes, pasteLabel, paste, count, action].map((locator) => locator.boundingBox()));
     expect(boxes.every(Boolean)).toBe(true);
     const left = boxes[0]!.x;
-    for (const box of boxes.slice(1)) expect(Math.abs(box!.x - left)).toBeLessThanOrEqual(1);
-    return { paste: boxes[4]!, action: boxes[6]! };
+    for (const box of boxes.slice(1, 6)) expect(Math.abs(box!.x - left)).toBeLessThanOrEqual(1);
+    return { modes: boxes[2]!, paste: boxes[4]!, action: boxes[6]!, left };
   };
 
+  // Desktop: 실행 follows the style choice it applies, on the same row.
   const desktop = await alignment();
+  expect(Math.abs(desktop.action.y + desktop.action.height / 2 - (desktop.modes.y + desktop.modes.height / 2))).toBeLessThanOrEqual(2);
+  expect(desktop.action.x - (desktop.modes.x + desktop.modes.width)).toBeGreaterThanOrEqual(8);
+  expect(desktop.action.x - (desktop.modes.x + desktop.modes.width)).toBeLessThanOrEqual(24);
   const initialViewport = page.viewportSize();
   expect(desktop.paste.width).toBeGreaterThanOrEqual(initialViewport && initialViewport.width < 1000 ? 600 : 700);
   expect(desktop.paste.width).toBeLessThanOrEqual(960);
@@ -1991,7 +1995,9 @@ test("aligns fileless text Polish controls to one desktop and mobile baseline", 
   await expect(page.getByRole("button", { name: "윤문 실행" })).toBeEnabled();
 
   await page.setViewportSize({ width: 390, height: 844 });
+  // Mobile: 실행 wraps under the options onto the shared left edge.
   const mobile = await alignment();
+  expect(Math.abs(mobile.action.x - mobile.left)).toBeLessThanOrEqual(1);
   expect(mobile.paste.width).toBeLessThanOrEqual(358);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 });
@@ -2227,9 +2233,12 @@ test("explicitly clears the in-browser workspace", async ({ page }) => {
   await upload(page, files.v1);
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "모두 삭제" }).click();
-  const clearedStatus = page.getByText("브라우저 메모리에서 파일과 결과를 모두 지웠습니다.", { exact: true });
-  await expect(clearedStatus).toBeVisible();
-  await expect(clearedStatus).toHaveClass(/notice-inline/);
+  const clearedStatus = page.locator(".transient-status");
+  await expect(clearedStatus).toHaveText("삭제 완료");
+  await expect(page.getByText("브라우저 메모리에서 파일과 결과를 모두 지웠습니다.")).toHaveCount(0);
+  await expect(page.locator(".notice-inline")).toHaveCount(0);
+  // A one-off result: it clears itself.
+  await expect(clearedStatus).toHaveCount(0, { timeout: 5000 });
   await expect(page.locator(".status-panel")).toHaveCount(0);
   await expect(page.getByText("처리 상태", { exact: true })).toHaveCount(0);
   await expect(page.locator(".dropzone")).toBeVisible();
@@ -2591,7 +2600,7 @@ test("aggregates workbooks into one XLSX result without profile-specific actions
   await expect(first.locator(".compare-selection-role")).toHaveText("기준 파일");
   expect(await first.locator(".compare-selection-role").evaluate(appearance)).toEqual(expectedAppearance);
   await expect(second.locator(".compare-selection-role")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "기준/대상 변경" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "기준/대상 바꾸기" })).toHaveCount(0);
   await expect(first).not.toContainText("1 ·");
   await page.getByRole("button", { name: "취합 실행" }).click();
 

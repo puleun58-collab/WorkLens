@@ -568,7 +568,7 @@ test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route wit
   await expect(page.locator(".legal-analysis-result [role='alert']")).toContainText("일시적으로 응답하지 않습니다");
   await page.getByRole("button", { name: "다시 시도" }).click();
   await expect(page.getByRole("heading", { name: "리서치 결과" })).toBeVisible();
-  await expect(page.locator(".legal-research-partial")).toContainText("결과 없음과 다릅니다");
+  await expect(page.locator(".legal-research-partial")).toHaveText("일부 결과만 확인되었습니다. 1개 항목은 조회 실패 또는 시간 제한으로 확인되지 않았습니다.");
   await expect(page.locator(".legal-analysis-section.is-unavailable")).toHaveCount(1);
   await expect(page.locator(".legal-analysis-note")).toContainText("데이터 출처: 법제처 국가법령정보센터 OPEN API");
   expect(bodies).toEqual([{ task: "full_research", query: "직장 내 괴롭힘 판단 기준" }, { task: "full_research", query: "직장 내 괴롭힘 판단 기준" }]);
@@ -607,7 +607,7 @@ test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route wit
   await task.selectOption("document_review");
   await expect(form.getByLabel("질문 또는 검색어")).toHaveCount(0);
   const documentText = form.getByLabel("검토할 문서 내용");
-  await expect(form).toContainText("조항 쟁점으로 만든 검색어만 전송");
+  await expect(form).not.toContainText("Korean Law MCP");
   await expect(form.getByRole("button", { name: "문서 검토" })).toBeDisabled();
   const sample = "제1조 갑은 계약 체결 즉시 대금 전액을 지급한다.\n제2조 을은 어떠한 경우에도 계약을 해지할 수 없다.";
   await documentText.fill(sample);
@@ -664,7 +664,7 @@ test("RESEARCH 종합 리서치 shows statutes and precedents first, folds the T
   await form.getByRole("button", { name: "리서치 실행" }).click();
   const output = page.locator(".legal-research .legal-analysis-output");
   await expect(output.locator(".legal-analysis-title")).toHaveText("종합 리서치: 직장 내 괴롭힘 판단 기준");
-  await expect(output.locator(".legal-research-partial")).toContainText("2개 항목은 조회하지 못했거나");
+  await expect(output.locator(".legal-research-partial")).toHaveText("일부 결과만 확인되었습니다. 2개 항목은 조회 실패 또는 시간 제한으로 확인되지 않았습니다.");
 
   // Statutes, then precedents, before any supporting material.
   const headings = await output.locator(":scope > .legal-analysis-section > h3").allTextContents();

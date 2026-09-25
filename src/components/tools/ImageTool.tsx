@@ -165,8 +165,8 @@ export function ImageTool() {
         setSelected((ids) => [...ids, ...added.map((item) => item.id)]);
         setCurrentId((id) => id ?? added[0].id);
       }
+      // A successful load is already visible in the list and preview; only problems get a notice.
       if (errors.length) setNotice({ tone: "error", text: errors.join(" ") });
-      else if (added.length) setNotice({ tone: "info", text: `${added.length}개 이미지를 브라우저 메모리에 불러왔습니다.` });
       setImporting(false);
       importingRef.current = false;
     }
