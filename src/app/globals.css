@@ -9020,3 +9020,105 @@ input:disabled {
   box-shadow: var(--shadow-surface);
 }
 
+
+/*
+ * ── Finish pass: same structure, tighter details ─────────────────────────
+ * Section labels sit below the menu in the hierarchy, rows share one rhythm,
+ * the active item is a tint plus the existing thin blue indicator (no box),
+ * primary buttons drop the inset highlight, and a disabled primary reads as
+ * unavailable instead of a faded blue. No new colours: navy, WorkLens blue,
+ * neutrals.
+ */
+:root {
+  --canvas: #f3f5f8;
+  --disabled-surface: #eceff3;
+  --disabled-border: #dde2e9;
+  --disabled-ink: #8a94a6;
+}
+
+@media (min-width: 701px) {
+  .rail-group-label {
+    margin-top: 18px;
+    margin-bottom: 6px;
+    color: #7f8ca3;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+  }
+
+  .rail-tools-label {
+    margin-top: 28px;
+    padding-top: 0;
+    border-top: 0;
+  }
+
+  .rail-item {
+    min-height: 40px;
+    font-size: var(--font-size-sm);
+    font-weight: 500;
+  }
+
+  .rail-footer .rail-item {
+    min-height: 38px;
+    font-size: calc(var(--font-size-sm) - 1px);
+  }
+}
+
+.rail-item.active {
+  background: rgba(59, 130, 246, 0.12);
+  font-weight: 600;
+}
+
+.rail-item:focus-visible,
+.rail .worklens-logo:focus-visible {
+  outline: 2px solid rgba(147, 197, 253, 0.55);
+  outline-offset: -2px;
+}
+
+.topbar {
+  border-bottom-color: #e4e8ee;
+}
+
+.topbar > p {
+  border-left-color: #e4e8ee;
+}
+
+.file-add,
+.operation-actions button:last-child {
+  box-shadow: none;
+}
+
+.file-add,
+.operation-actions button:last-child,
+.law-search-button,
+.extract-run,
+.tool-export-button,
+.extract-download-primary {
+  border-radius: 6px;
+}
+
+.file-add:disabled,
+.operation-actions button:last-child:disabled,
+.extract-run:disabled,
+button.law-search-button:disabled,
+.tool-export .tool-export-button:disabled,
+.extract-download-primary:disabled {
+  border-color: var(--disabled-border);
+  background: var(--disabled-surface);
+  color: var(--disabled-ink);
+  box-shadow: none;
+  opacity: 1;
+  cursor: not-allowed;
+}
+
+.workspace h2 {
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+/* Section labels keep the same quiet treatment when the rail becomes a header. */
+.rail-group-label {
+  color: #7f8ca3;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
