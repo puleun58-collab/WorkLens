@@ -9,7 +9,7 @@
 .legal-analysis-fields label { display: grid; gap: 8px; min-width: 0; }
 .legal-analysis-fields .legal-analysis-help { grid-column: 1 / -1; }
 .legal-analysis-help { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 16px; margin: 0; color: var(--muted); font-size: var(--font-size-sm); }
-.legal-analysis-count { flex: none; font-variant-numeric: tabular-nums; }
+.legal-analysis-count { flex: none; margin-left: auto; font-variant-numeric: tabular-nums; }
 .legal-analysis-actions { display: flex; justify-content: flex-end; }
 .legal-analysis-result { display: grid; gap: 12px; min-width: 0; padding-top: 16px; border-top: 1px solid var(--line-soft, var(--line)); }
 .legal-analysis-result h2 { margin: 0; font-size: var(--font-size-md); font-weight: 700; }

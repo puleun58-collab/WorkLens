@@ -121,7 +121,7 @@ export function LegalAnalysis({ linkedRequest, onReturn }: LegalAnalysisProps) {
         <label htmlFor="analysis-text">검증할 문장을 입력하세요.</label>
         <textarea id="analysis-text" value={text} rows={6} maxLength={LAW_ANALYSIS_TEXT_MAX_CHARS} placeholder="예: 민법 제750조에 따라 손해배상을 청구할 수 있다." onChange={(event) => setText(event.target.value)} aria-describedby="analysis-text-help" />
         <p id="analysis-text-help" className="legal-analysis-help">
-          <span>법령 조문·판례 인용이 법제처 자료에 실존하는지 확인합니다. 입력한 문장은 검증을 위해 Korean Law MCP로 전송되며 저장되지 않습니다.</span>
+          <span>법령 조문·판례 인용이 법제처 자료에 실존하는지 확인합니다.</span>
           <span className="legal-analysis-count">{text.length.toLocaleString("ko-KR")} / {LAW_ANALYSIS_TEXT_MAX_CHARS.toLocaleString("ko-KR")}자</span>
         </p>
       </>}
