@@ -1392,11 +1392,10 @@ export default function Home() {
               onDrop={onDrop}
             >
               <div>
-                <strong>{uploading ? "파일을 읽고 구조를 분석하는 중" : "파일 추가"}</strong>
-                <span>XLSX, CSV, PDF, DOCX, PPTX · 파일당 100 MB · 최대 300 MB</span>
+                <strong>{uploading ? "파일을 읽고 구조를 분석하는 중" : "파일 업로드"}</strong>
+                <span>XLSX, CSV, PDF, DOCX, PPTX · 파일당 최대 100{"\u00a0"}MB · 전체 최대 300{"\u00a0"}MB</span>
               </div>
               <div className="drop-actions">
-                <span className="drop-hint">여기로 끌어놓기</span>
                 <button type="button" onClick={() => inputRef.current?.click()} disabled={uploading}>
                   {uploading ? "분석 중…" : "파일 추가"}
                 </button>
@@ -1732,7 +1731,7 @@ function SettingsView({ view, companyTerms, companyTermsSource, userTerms, ignor
               : "없음"}
           </dd></div>
           <div><dt>서버 AI</dt><dd>AI 기능은 필요한 질문·문장·근거만 서버 AI로 전송해 처리합니다. 원본 파일은 전송하지 않습니다.</dd></div>
-          <div><dt>법령 기능 외부 연동</dt><dd>법령 기능 사용 시 필요한 검색어·검증 문구가 Korean Law MCP로 전송될 수 있으며, 문서 검토는 원문이 아닌 관련 법령·판례 조회용 검색어만 전송됩니다. 입력 내용은 WorkLens에 저장되지 않습니다.</dd></div>
+          <div><dt>법령 기능 외부 연동</dt><dd>법령 기능 사용 시 필요한 검색어·검증 문구가 Korean Law MCP로 전송될 수 있으며, 문서 검토는 원문이 아닌 관련 법령·판례 조회용 검색어만 전송됩니다.<br />입력 내용은 WorkLens에 저장되지 않습니다.</dd></div>
         </dl>
       </section>
     );

@@ -165,7 +165,11 @@ export function documentSearchTerm(profile: DocumentProfile): string {
 const CLAUSE_HEAD = /^\s*(제\s*\d+\s*조(?:의\s*\d+)?)\s*(?:\(([^)]{1,40})\))?\s*/u;
 
 export function splitClauses(text: string): Clause[] {
-  const lines = text.replace(/\r\n?/gu, "\n").split("\n").map((line) => line.trim()).filter(Boolean);
+  const lines = text.replace(/\r\n?/gu, "\n").split("\n")
+    // A line break lost in copying can leave "…한다. 제2조(해지) …" on one line; an article
+    // heading right after a sentence end starts a new clause, a cross-reference mid-sentence does not.
+    .flatMap((line) => line.split(/(?<=[.다])\s+(?=제\s*\d+\s*조(?:의\s*\d+)?\s*\()/u))
+    .map((line) => line.trim()).filter(Boolean);
   const clauses: Clause[] = [];
   for (const line of lines) {
     const head = CLAUSE_HEAD.exec(line);
@@ -193,7 +197,8 @@ export const ISSUES: IssueDefinition[] = [
   {
     id: "auto_renewal", label: "자동 갱신", severity: "low",
     point: "갱신 거절 통지 기한과 방법이 명확한지, 갱신 전 고지 절차가 있는지 확인이 필요합니다.",
-    detect: /자동\s*(?:으로\s*)?(?:갱신|연장)/u,
+    // "자동 연장" and paraphrases: "해지 의사가 없는 경우 … 갱신된다", "종료 의사 표시가 없으면 … 연장된다".
+    detect: /자동\s*(?:으로\s*)?(?:갱신|연장)|(?:통지|의사\s*표시|의사|이의)[^.]{0,15}(?:없|아니)[^.]{0,40}(?:갱신|연장)(?:된다|한다|되는|하는)/u,
     laws: [{ law: TERMS_ACT, jo: "제12조", domain: "terms", condition: TERMS_CONDITION }],
     queries: ["{doc} 자동갱신 해지 통지", "자동갱신 조항 해지 고지", "계약 자동연장 갱신거절 통지"],
     holdingTerms: /자동\s*(?:갱신|연장)|갱신거절|묵시적\s*갱신|의사표시의\s*의제/u,

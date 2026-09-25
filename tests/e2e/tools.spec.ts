@@ -339,7 +339,7 @@ test("law results render MCP <br> tags as line breaks and keep other HTML inert 
   await expect(lines).toContainText("근로기준법 제24조");
   expect(await lines.textContent()).toContain("근로기준법 제23조\n근로기준법 제24조");
   await expectClean();
-  await expect(page.locator(".legal-research .legal-analysis-output")).toContainText("검색어를 보정해 관련 결과를 찾았습니다.");
+  await expect(page.locator(".legal-research .legal-analysis-output")).toContainText("본문 검색으로 찾은 결과입니다.");
   await expect(page.locator(".legal-research .legal-analysis-output")).toContainText("[1] 해고 사건");
   expect(executed).toEqual([]);
 });
@@ -703,7 +703,7 @@ test("RESEARCH 종합 리서치 shows statutes and precedents first, folds the T
   await expect(output).toContainText("사유: [NOT_FOUND] 해석례 검색 결과가 없습니다.");
   await expect(output).toContainText("새로운 형식의 내용 한 줄");
   await output.locator(":scope > details").last().locator("summary").click();
-  await expect(output.locator(":scope > details").last().locator("pre")).toContainText("검색어를 보정해 관련 결과를 찾았습니다.");
+  await expect(output.locator(":scope > details").last().locator("pre")).toContainText("본문 검색으로 찾은 결과입니다.");
   for (const text of await output.locator("pre, .research-hits").allTextContents()) {
     expect(text).not.toMatch(/<\s*\/?\s*br|get_|search_|find_similar|body_search|full=|LLM|MST:/u);
   }
