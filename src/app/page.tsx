@@ -144,7 +144,7 @@ const WARNING_MESSAGES: Record<string, string> = {
   PPTX_IMAGE_OMITTED: "이미지 안의 내용은 읽지 않습니다.",
   PPTX_CHART_OMITTED: "차트 안의 값은 읽지 않습니다.",
   PPTX_SPEAKER_NOTES_OMITTED: "발표자 노트는 읽지 않습니다.",
-  PDF_SCANNED_PAGE: "스캔된 페이지의 글자는 읽지 않습니다.",
+  PDF_TEXT_LAYER_EMPTY: "스캔된 페이지의 글자는 읽지 않습니다.",
 };
 const warningText = (codes: readonly string[]): string =>
   [...new Set(codes.map((code) => WARNING_MESSAGES[code] ?? "일부 내용은 분석 대상에서 제외했습니다."))].join("\n");
