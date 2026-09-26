@@ -35,6 +35,12 @@ export interface ResearchEnrichment {
   precedents?: Record<string, PrecedentRelevance>;
   /** `none`: looked up and nothing matched; `failed`: lookups failed; `not_searched`: no usable term. */
   supplement?: { status: "found" | "none" | "failed" | "not_searched"; articles: SupplementArticle[] };
+  /**
+   * The MCP searches 법령해석례 with the whole question, which AND-matches framing
+   * words and often returns nothing. When that section is empty, one retry with
+   * only the question's subject terms; `entries` are that search's hits.
+   */
+  interpretations?: { query: string; entries: Array<{ id: string; title?: string; caseNumber?: string; body?: string; date?: string }> };
 }
 
 /** Words that frame a question rather than name its subject. */

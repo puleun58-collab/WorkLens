@@ -332,7 +332,7 @@ test("law results render MCP <br> tags as line breaks and keep other HTML inert 
   await expect(page.locator(".legal-analysis-output")).toContainText("근로기준법 [시행 2023.04.04]");
   await expectClean();
 
-  await page.locator(".law-research > .law-view-switch").getByRole("button", { name: "종합 리서치" }).click();
+  await page.locator(".law-view-tabs").getByRole("button", { name: "종합 리서치" }).click();
   await page.getByRole("form", { name: "종합 리서치 입력" }).getByLabel("질문 또는 검색어").fill("해고");
   await page.getByRole("form", { name: "종합 리서치 입력" }).getByRole("button", { name: "리서치 실행" }).click();
   const lines = page.locator(".legal-research .legal-analysis-lines").first();
@@ -556,7 +556,7 @@ test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route wit
   await page.goto("/");
   await expect(page.locator(".app-shell")).toHaveAttribute("data-hydrated", "true");
   await page.getByRole("button", { name: "법령", exact: true }).click();
-  await page.locator(".law-research > .law-view-switch").getByRole("button", { name: "종합 리서치" }).click();
+  await page.locator(".law-view-tabs").getByRole("button", { name: "종합 리서치" }).click();
   const form = page.getByRole("form", { name: "종합 리서치 입력" });
   const task = form.getByLabel("리서치 유형");
   await expect(task.locator("option")).toHaveText(["종합 리서치", "법체계 확인", "처분·허가 근거", "분쟁·불복 자료", "개정 추적", "조례 비교", "절차·서식", "문서 검토"]);
@@ -568,7 +568,8 @@ test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route wit
   await expect(page.locator(".legal-analysis-result [role='alert']")).toContainText("일시적으로 응답하지 않습니다");
   await page.getByRole("button", { name: "다시 시도" }).click();
   await expect(page.getByRole("heading", { name: "리서치 결과" })).toBeVisible();
-  await expect(page.locator(".legal-research-partial")).toHaveText("일부 결과만 확인되었습니다. 1개 항목은 조회 실패 또는 시간 제한으로 확인되지 않았습니다.");
+  await expect(page.locator(".legal-research-partial")).toHaveText("일부 자료를 불러오지 못했습니다. 확인된 자료를 기준으로 결과를 표시합니다.");
+  await expect(page.locator("[data-status='failed']")).toContainText("이 자료를 불러오지 못했습니다.");
   await expect(page.locator(".legal-analysis-section.is-unavailable")).toHaveCount(1);
   await expect(page.locator(".legal-analysis-note")).toContainText("데이터 출처: 법제처 국가법령정보센터 OPEN API");
   expect(bodies).toEqual([{ task: "full_research", query: "직장 내 괴롭힘 판단 기준" }, { task: "full_research", query: "직장 내 괴롭힘 판단 기준" }]);
@@ -639,8 +640,8 @@ test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route wit
   // Previous task results and other research views survive switching.
   await task.selectOption("full_research");
   await expect(page.locator(".legal-research-partial")).toBeVisible();
-  await page.locator(".law-research > .law-view-switch").getByRole("button", { name: "법령 검색" }).click();
-  await page.locator(".law-research > .law-view-switch").getByRole("button", { name: "종합 리서치" }).click();
+  await page.locator(".law-view-tabs").getByRole("button", { name: "법령 검색" }).click();
+  await page.locator(".law-view-tabs").getByRole("button", { name: "종합 리서치" }).click();
   await expect(query).toHaveValue("직장 내 괴롭힘 판단 기준");
 
   await page.setViewportSize({ width: 390, height: 844 });
@@ -658,13 +659,14 @@ test("RESEARCH 종합 리서치 shows statutes and precedents first, folds the T
   await page.goto("/");
   await expect(page.locator(".app-shell")).toHaveAttribute("data-hydrated", "true");
   await page.getByRole("button", { name: "법령", exact: true }).click();
-  await page.locator(".law-research > .law-view-switch").getByRole("button", { name: "종합 리서치" }).click();
+  await page.locator(".law-view-tabs").getByRole("button", { name: "종합 리서치" }).click();
   const form = page.getByRole("form", { name: "종합 리서치 입력" });
   await form.getByLabel("질문 또는 검색어").fill("직장 내 괴롭힘 판단 기준");
   await form.getByRole("button", { name: "리서치 실행" }).click();
   const output = page.locator(".legal-research .legal-analysis-output");
   await expect(output.locator(".legal-analysis-title")).toHaveText("종합 리서치: 직장 내 괴롭힘 판단 기준");
-  await expect(output.locator(".legal-research-partial")).toHaveText("일부 결과만 확인되었습니다. 2개 항목은 조회 실패 또는 시간 제한으로 확인되지 않았습니다.");
+  // The empty 해석례 search is a normal result; only the time-limited section makes the answer partial.
+  await expect(output.locator(".legal-research-partial")).toHaveText("일부 자료 조회가 완료되지 않아 확인된 결과만 표시합니다.");
 
   // Statutes, then precedents, before any supporting material.
   const headings = await output.locator(":scope > .legal-analysis-section > h3").allTextContents();
@@ -699,8 +701,10 @@ test("RESEARCH 종합 리서치 shows statutes and precedents first, folds the T
   await expect(output.locator("details[data-kind='detail'] summary")).toContainText("관련 판례 상세");
 
   // Failed and unknown sections stay; nothing agent-facing is displayed anywhere, even in raw text.
-  await expect(output.locator(".legal-analysis-section.is-unavailable")).toHaveCount(2);
-  await expect(output).toContainText("사유: [NOT_FOUND] 해석례 검색 결과가 없습니다.");
+  await expect(output.locator(".legal-analysis-section.is-unavailable")).toHaveCount(1);
+  await expect(output.locator("[data-status='not_found']")).toContainText("검색된 관련 자료가 없습니다.");
+  await expect(output.locator("[data-status='timeout']")).toContainText("조회가 완료되지 않았습니다.");
+  await expect(output.locator(".legal-analysis-section").filter({ hasText: /\[NOT_FOUND\]|힌트:|LLM/u })).toHaveCount(0);
   await expect(output).toContainText("새로운 형식의 내용 한 줄");
   await output.locator(":scope > details").last().locator("summary").click();
   await expect(output.locator(":scope > details").last().locator("pre")).toContainText("본문 검색으로 찾은 결과입니다.");
@@ -733,7 +737,7 @@ test("law views use the shared tool content width with one left and right edge",
       await page.getByRole("button", { name: "검색", exact: true }).click();
     }
     await expect(page.getByRole("heading", { name: "검색 결과 · 1건" })).toBeVisible();
-    for (const selector of [".law-research > .law-view-switch", ".law-search-row", "#law-results-heading", ".law-search-list"]) {
+    for (const selector of [".law-view-band", ".law-search-row", "#law-results-heading", ".law-search-list"]) {
       expect(Math.abs((await page.locator(selector).boundingBox())!.x - research.x), selector).toBeLessThan(1);
     }
     for (const selector of [".law-search-row", ".law-search-list"]) {

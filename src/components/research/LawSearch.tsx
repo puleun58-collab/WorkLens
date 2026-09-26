@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { ChartNoAxesColumn, FileText, Gavel, SearchCheck } from "lucide-react";
 import {
   formatLawDate, LAW_ARTICLE_PATTERN, LAW_FALLBACK_ERROR, LAW_TEXT_FALLBACK_ERROR,
   lawOutcome, lawStatusTone, lawTextIdentifier, lawTextOutcome,
@@ -46,11 +47,13 @@ export function LawSearch() {
   }
 
   return <div className="law-research">
-    <div className="law-view-switch" aria-label="법령 자료 유형">
-      <button type="button" aria-pressed={view === "law"} onClick={() => setView("law")}>법령 검색</button>
-      <button type="button" aria-pressed={view === "decisions"} onClick={() => { setLinkedRequest(null); setView("decisions"); }}>판례·결정례</button>
-      <button type="button" aria-pressed={view === "analysis"} onClick={() => { setLinkedAnalysis(null); setView("analysis"); }}>검증·분석</button>
-      <button type="button" aria-pressed={view === "research"} onClick={() => setView("research")}>종합 리서치</button>
+    <div className="law-view-band">
+      <div className="law-view-switch law-view-tabs" aria-label="법령 자료 유형">
+        <button type="button" aria-pressed={view === "law"} onClick={() => setView("law")}><FileText aria-hidden="true" />법령 검색</button>
+        <button type="button" aria-pressed={view === "decisions"} onClick={() => { setLinkedRequest(null); setView("decisions"); }}><Gavel aria-hidden="true" />판례·결정례</button>
+        <button type="button" aria-pressed={view === "analysis"} onClick={() => { setLinkedAnalysis(null); setView("analysis"); }}><SearchCheck aria-hidden="true" />검증·분석</button>
+        <button type="button" aria-pressed={view === "research"} onClick={() => setView("research")}><ChartNoAxesColumn aria-hidden="true" />종합 리서치</button>
+      </div>
     </div>
     <div hidden={view !== "law"}><LawPane onRelated={relatedDecisions} onAnalysis={openAnalysis} /></div>
     <div hidden={view !== "decisions"}>

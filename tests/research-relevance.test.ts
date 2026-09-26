@@ -30,6 +30,7 @@ function fakeSources(overrides: Partial<EnrichmentSources> = {}): EnrichmentSour
     async laws(query) { calls.push(`laws:${query}`); return []; },
     async toc(mst) { calls.push(`toc:${mst}`); return []; },
     async article(mst, jo) { calls.push(`article:${mst}:${jo}`); return undefined; },
+    async interpretations(query) { calls.push(`interpretations:${query}`); return []; },
     ...overrides,
   };
 }
@@ -39,6 +40,30 @@ describe("question terms", () => {
     expect(questionTerms("직장 내 괴롭힘 판단 기준")).toEqual(["직장", "괴롭힘"]);
     expect(questionTerms("건축법 이행강제금 부과 근거")).toEqual(["건축법", "이행강제금", "부과"]);
     expect(questionTerms("임대차 보증금의 반환")).toEqual(["임대차", "보증금", "반환"]);
+  });
+});
+
+describe("empty 법령 해석례 retry", () => {
+  const empty = [
+    "═══ 종합 리서치: 직장 내 괴롭힘 판단 기준 ═══", "",
+    "▶ 법령 해석례 [NOT_FOUND / FAILED]", "   사유: [NOT_FOUND] 해석례 '직장 내 괴롭힘 판단 기준' 검색 결과가 없습니다.", "",
+  ].join("\n");
+
+  it("retries once with the subject terms and keeps what that search returns", async () => {
+    const sources = fakeSources({ async interpretations(query) { sources.calls.push(`interpretations:${query}`); return [{ id: "9", title: "직장 내 괴롭힘 조사 비밀유지" }]; } });
+    const enrichment = await enrichResearch("full_research", "직장 내 괴롭힘 판단 기준", empty, sources);
+    expect(sources.calls.filter((call) => call.startsWith("interpretations"))).toEqual(["interpretations:직장 괴롭힘"]);
+    expect(enrichment.interpretations).toEqual({ query: "직장 괴롭힘", entries: [{ id: "9", title: "직장 내 괴롭힘 조사 비밀유지" }] });
+  });
+
+  it("does not retry when the section was not empty, failed, or the question has nothing to drop", async () => {
+    const failed = empty.replace("사유: [NOT_FOUND]", "사유: [EXTERNAL_API_ERROR]");
+    for (const [query, text] of [["직장 내 괴롭힘 판단 기준", failed], ["괴롭힘", empty.replaceAll("직장 내 괴롭힘 판단 기준", "괴롭힘")]] as const) {
+      const sources = fakeSources();
+      const enrichment = await enrichResearch("full_research", query, text, sources);
+      expect(sources.calls.some((call) => call.startsWith("interpretations"))).toBe(false);
+      expect(enrichment.interpretations).toBeUndefined();
+    }
   });
 });
 

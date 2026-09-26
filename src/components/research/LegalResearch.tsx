@@ -218,11 +218,41 @@ function SupplementView({ supplement, hasArticles }: { supplement: NonNullable<R
   </div>;
 }
 
-function ResearchSectionView({ section, task, relevance }: {
+const STATUS_NOTE: Record<Exclude<ResearchSection["status"], "available">, string> = {
+  not_found: "검색된 관련 자료가 없습니다.",
+  failed: "이 자료를 불러오지 못했습니다.",
+  timeout: "조회가 완료되지 않았습니다.",
+};
+
+/** Top notice only for sections that failed or timed out; an empty search is a normal result. */
+function partialNotice(sections: readonly ResearchSection[]): string | null {
+  const failed = sections.some((section) => section.status === "failed");
+  const timeout = sections.some((section) => section.status === "timeout");
+  if (failed && timeout) return "일부 자료를 확인하지 못해 현재 조회된 결과만 표시합니다.";
+  if (failed) return "일부 자료를 불러오지 못했습니다. 확인된 자료를 기준으로 결과를 표시합니다.";
+  if (timeout) return "일부 자료 조회가 완료되지 않아 확인된 결과만 표시합니다.";
+  return null;
+}
+
+function ResearchSectionView({ section, task, relevance, retried }: {
   section: ResearchSection; task: LawResearchData["task"]; relevance?: ResearchEnrichment["precedents"];
+  retried?: ResearchEnrichment["interpretations"];
 }) {
   const heading = sectionHeading(section);
   const className = `legal-analysis-section${section.unavailable ? " is-unavailable" : ""}`;
+  if (section.status !== "available") {
+    // The MCP's reason/hint lines address the calling agent; the reader gets one sentence (raw text stays in 원문 보기).
+    const found = section.status === "not_found" && retried?.entries.length ? retried : undefined;
+    return <div className={className} data-kind={section.kind} data-status={section.status} data-markers={section.markers.join(" ")}>
+      {heading && <h3>{heading}{found && <span className="research-meta"> {found.entries.length}건</span>}</h3>}
+      {found
+        ? <>
+          <p className="research-meta">질문의 핵심어({found.query})로 다시 검색한 결과입니다.</p>
+          <DecisionList entries={found.entries} />
+        </>
+        : <p className="research-meta research-empty">{STATUS_NOTE[section.status]}</p>}
+    </div>;
+  }
   if (section.kind === "law_articles" && section.articles) {
     return <div className={className} data-kind={section.kind} data-markers={section.markers.join(" ")}>
       <h3>관련 법령·조문 <span className="research-meta">{section.articles.length}건</span></h3>
@@ -282,16 +312,17 @@ function ResearchSectionView({ section, task, relevance }: {
 
 function ResearchResult({ data }: { data: LawResearchData }) {
   const result = researchResult(data.text);
-  const unavailable = result.sections.filter((section) => section.unavailable).length;
+  const notice = partialNotice(result.sections);
   const supporting = result.sections.filter(isSupportingSection);
   return <div className="legal-analysis-output" data-task={data.task} data-markers={data.markers.join(" ")}>
     {result.title && <h3 className="legal-analysis-title">{result.title}</h3>}
-    {unavailable > 0 && <p className="legal-research-partial" role="note">일부 결과만 확인되었습니다. {unavailable}개 항목은 조회 실패 또는 시간 제한으로 확인되지 않았습니다.</p>}
+    {notice && <p className="legal-research-partial" role="note">{notice}</p>}
     {result.sections
       // A heading-less note that was only agent guidance has nothing left to show.
       .filter((section) => !isSupportingSection(section) && (section.heading || lawDisplayText(section.lines.join("\n"))))
       .flatMap((section, index, primary) => {
-        const view = <ResearchSectionView key={index} section={section} task={data.task} relevance={data.enrichment?.precedents} />;
+        const view = <ResearchSectionView key={index} section={section} task={data.task} relevance={data.enrichment?.precedents}
+          retried={/해석례/u.test(section.heading ?? "") ? data.enrichment?.interpretations : undefined} />;
         // Looked-up articles follow the statute hits, or open the answer when there are none.
         const anchor = primary.findIndex((entry) => entry.kind === "law_articles");
         const supplement = data.enrichment?.supplement && (anchor < 0 ? index === 0 : index === anchor)

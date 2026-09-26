@@ -4,7 +4,7 @@ import {
   isLawName, questionTerms, rankPrecedent, titleMatches,
   type PrecedentRelevance, type ResearchEnrichment, type SupplementArticle,
 } from "@/lib/research-relevance";
-import { getDecisionText } from "@/server/decision-mcp";
+import { getDecisionText, searchDecisions } from "@/server/decision-mcp";
 import { getLawText, searchLaw } from "@/server/law-mcp";
 
 type Context = { requestId: string; signal?: AbortSignal };
@@ -20,6 +20,8 @@ export interface EnrichmentSources {
   laws(query: string): Promise<Array<{ name: string; mst: string }>>;
   toc(mst: string): Promise<Array<{ jo: string; title: string }>>;
   article(mst: string, jo: string): Promise<{ text: string; effectiveDate?: string } | undefined>;
+  /** 법령해석례 search; [] when the MCP reports no result. */
+  interpretations(query: string): Promise<Array<{ id: string; title?: string; caseNumber?: string; body?: string; date?: string }>>;
 }
 
 const SUMMARY_HEADINGS = new Set(["판시사항", "판결요지", "결정요지", "참조조문"]);
@@ -57,6 +59,11 @@ export function mcpEnrichmentSources(context: Context): EnrichmentSources {
     async article(mst, jo) {
       const result = await getLawText({ mst }, jo, context);
       return result.found ? { text: result.text, ...(result.effectiveDate ? { effectiveDate: result.effectiveDate } : {}) } : undefined;
+    },
+    async interpretations(query) {
+      const result = await searchDecisions("interpretation", query, 1, context);
+      return result.found ? result.entries.map((entry) => ({ id: entry.id, ...(entry.title ? { title: entry.title } : {}),
+        ...(entry.caseNumber ? { caseNumber: entry.caseNumber } : {}), ...(entry.date ? { date: entry.date } : {}) })) : [];
     },
   };
 }
@@ -128,6 +135,14 @@ export async function enrichResearch(
     }, expired);
     for (const id of precedentIds) relevance[id] ??= rankPrecedent(terms, { title: titles.get(id) });
     enrichment.precedents = relevance;
+  }
+
+  // An empty 법령 해석례 section: retry once with the subject terms only (never wider than that).
+  const interpretation = document.sections.find((section) => section.status === "not_found" && /해석례/u.test(section.heading ?? ""));
+  const retryQuery = terms.join(" ");
+  if (interpretation && terms.length && retryQuery !== query.trim() && !expired()) {
+    const entries = await sources.interpretations(retryQuery).catch(() => []);
+    if (entries.length) enrichment.interpretations = { query: retryQuery, entries: entries.slice(0, 5) };
   }
 
   const keywords = terms.filter((term) => !isLawName(term));

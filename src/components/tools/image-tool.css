@@ -55,7 +55,7 @@
 .image-tool-hint { margin: 13px 2px 0; }
 .image-tool-dimensions { flex: none; font-size: 12px !important; font-family: var(--font-mono); color: var(--muted) !important; letter-spacing: 0 !important; font-weight: 400 !important; }
 .image-tool-preview { flex: 1 1 auto; min-height: 320px; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden; padding: 22px; border: 1px solid var(--image-border); border-radius: 4px; background-color: #edf1f5; background-image: linear-gradient(45deg, #e4eaf1 25%, transparent 25%, transparent 75%, #e4eaf1 75%), linear-gradient(45deg, #e4eaf1 25%, transparent 25%, transparent 75%, #e4eaf1 75%); background-position: 0 0, 8px 8px; background-size: 16px 16px; }
-.image-tool-preview-inner { display: inline-block; position: relative; max-width: 100%; line-height: 0; box-shadow: 0 7px 28px rgba(23, 40, 67, .14); }
+.image-tool-preview-inner { display: inline-block; position: relative; max-width: 100%; line-height: 0; box-shadow: var(--elevation-elevated); }
 .image-tool-preview canvas { display: block; max-width: 100%; max-height: min(52vh, 480px); width: auto; height: auto; }
 .image-tool-pointer { position: absolute; inset: 0; touch-action: none; }
 .image-tool-pointer.is-active { cursor: crosshair; }

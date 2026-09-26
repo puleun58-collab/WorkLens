@@ -39,9 +39,9 @@ function inspect(data: LawResearchData, relevance: boolean): string[] {
   const shown = document.sections.map((section) => `${section.heading ?? ""}\n${lawDisplayText(section.lines.join("\n"))}`).join("\n");
   const leak = INTERNAL.exec(shown);
   if (leak) problems.push(`internal text on screen: ${leak[0]}`);
-  const unavailable = document.sections.filter((section) => section.unavailable).length;
-  const failedMarkers = document.sections.filter((section) => /\[(?:NOT_FOUND \/ FAILED|FAILED)\]/u.test(section.heading ?? "")).length;
-  if (unavailable < failedMarkers) problems.push(`partial count ${unavailable} below failed sections ${failedMarkers}`);
+  // An empty search is a normal result and must never make the answer partial.
+  const miscounted = document.sections.filter((section) => section.status === "not_found" && section.unavailable).length;
+  if (miscounted) problems.push(`${miscounted} empty section(s) counted as partial`);
   if (relevance) {
     const precedents = document.sections.filter((section) => section.kind === "decision_search" && /판례/u.test(section.heading ?? ""));
     const ranks = data.enrichment?.precedents;

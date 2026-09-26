@@ -30,18 +30,23 @@ describe("legal_research result parsing", () => {
     }
     for (const section of result.sections) {
       const marked = /\[(?:NOT_FOUND \/ FAILED|FAILED)\]/u.test(section.heading ?? "") || section.lines.some((line) => line.trim().startsWith("⏱"));
-      expect(section.unavailable).toBe(marked);
+      // An empty search ([NOT_FOUND] reason) is a normal result, never counted as partial.
+      const empty = section.lines.some((line) => /사유\s*:\s*\[NOT_FOUND\]/u.test(line));
+      expect(section.unavailable).toBe(marked && !empty);
+      expect(section.status === "not_found").toBe(empty);
     }
     expect(result.sources[0]).toBe("법제처 국가법령정보센터 OPEN API");
   });
 
   it("separates failed and time-limited sections from sections that simply returned data", () => {
     const full = researchResult(FIXTURES.full_research);
-    expect(full.sections.map((section) => [section.heading, section.unavailable])).toEqual([
-      ["AI 법령검색 결과", false], ["관련 판례", false], ["법령 해석례 [NOT_FOUND / FAILED]", true],
+    expect(full.sections.map((section) => [section.heading, section.status, section.unavailable])).toEqual([
+      ["AI 법령검색 결과", "available", false], ["관련 판례", "available", false], ["법령 해석례 [NOT_FOUND / FAILED]", "not_found", false],
     ]);
     expect(full.sections[2].markers).toEqual(["NOT_FOUND"]);
-    expect(researchResult(FIXTURES.procedure_detail).sections.at(-1)?.unavailable).toBe(true);
+    expect(researchResult(FIXTURES.procedure_detail).sections.at(-1)).toMatchObject({ status: "timeout", unavailable: true });
+    expect(researchResult(FIXTURES.action_basis).sections.at(-1)).toMatchObject({ status: "failed", unavailable: true });
+    expect(researchResult(FIXTURES.ordinance_compare).sections.at(-1)).toMatchObject({ status: "failed", unavailable: true });
     // A section the chain titled "…실패" but did not mark keeps its own wording instead of being reclassified.
     const review = researchResult(FIXTURES.document_review);
     expect(review.sections.at(-1)).toMatchObject({ heading: "근거 법령 검색 실패", unavailable: false, markers: ["EXTERNAL_API_ERROR"] });
@@ -90,9 +95,8 @@ describe("legal_research structured presentation", () => {
   });
 
   it("keeps failed and time-limited sections flagged, and unknown sections as they are", () => {
-    expect(result.sections.filter((section) => section.unavailable).map((section) => section.heading)).toEqual([
-      "법령 해석례 [NOT_FOUND / FAILED]", "AI 검색 보완 정보",
-    ]);
+    expect(result.sections.filter((section) => section.unavailable).map((section) => section.heading)).toEqual(["AI 검색 보완 정보"]);
+    expect(result.sections.find((section) => section.heading?.startsWith("법령 해석례"))?.status).toBe("not_found");
     const unknown = result.sections.find((section) => section.heading === "향후 추가될 수도 있는 섹션")!;
     expect(unknown.kind).toBe("other");
     expect(unknown.lines).toEqual(["새로운 형식의 내용 한 줄"]);
@@ -169,5 +173,14 @@ describe("legal_research form input", () => {
     for (const body of [null, { data: { ...found, task: "legal_analysis" } }, { data: { ...found, markers: [1] } }, { data: { ...absent, marker: "FAILED" } }]) {
       expect(lawResearchOutcome(true, body)).toEqual({ kind: "error", message: LAW_RESEARCH_ERROR });
     }
+  });
+});
+
+describe("empty, failed and time-limited sections", () => {
+  it("folds the MCP's retry hints into the empty section instead of showing them as their own block", () => {
+    const result = researchResult(["═══ 쟁송 대비: x ═══", "", "▶ 행정심판례 [NOT_FOUND / FAILED]", "   사유: [NOT_FOUND] 행정심판 'x' 검색 결과가 없습니다.", "", "",
+      "힌트: 법제처 API는 공백 구분 키워드를 AND 조건으로 처리합니다.", "재시도 제안...", "", "", "▶ 대법원 판례", "[1] 해고"].join("\n"));
+    expect(result.sections.map((section) => [section.heading ?? null, section.status])).toEqual([["행정심판례 [NOT_FOUND / FAILED]", "not_found"], ["대법원 판례", "available"]]);
+    expect(result.sections[0].lines.join("\n")).toContain("힌트:");
   });
 });

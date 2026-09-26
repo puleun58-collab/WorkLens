@@ -61,3 +61,34 @@
 @media (max-width: 520px) {
   .law-search-row { flex-direction: column; }
 }
+
+/* View tabs: a light blue-grey band holding one tab group; the active tab is a white card with a blue outline. */
+.law-view-band { padding: 16px; border: 1px solid var(--border-surface, var(--line-soft)); border-radius: var(--radius-button, 6px); background: #eef3f9; }
+.law-view-switch.law-view-tabs { display: flex; flex-wrap: wrap; gap: 0; width: 100%; padding: 0; border: 1px solid var(--border-surface, var(--line-soft)); border-radius: 10px; background: #f8fafc; }
+.law-view-tabs button { position: relative; flex: 1 1 0; display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 48px; padding: 0 20px; border: 1px solid transparent; border-radius: 10px; background: transparent; color: #5b6b82; font-size: var(--font-size-md); font-weight: 500; white-space: nowrap; }
+.law-view-tabs button svg { width: 20px; height: 20px; flex: none; color: #6b7a90; }
+/* Hairline dividers between inactive tabs only. */
+.law-view-tabs button + button::before { content: ""; position: absolute; left: 0; top: 14px; bottom: 14px; width: 1px; background: var(--border-surface, var(--line-soft)); }
+.law-view-tabs button[aria-pressed="true"]::before, .law-view-tabs button[aria-pressed="true"] + button::before { display: none; }
+.law-view-tabs button:hover:not([aria-pressed="true"]) { color: var(--ink); }
+.law-view-tabs button[aria-pressed="true"] { border-color: var(--blue); background: var(--paper); color: var(--ink); font-weight: 600; box-shadow: var(--elevation-active); }
+.law-view-tabs button[aria-pressed="true"] svg { color: var(--blue); }
+@media (max-width: 700px) {
+  .law-view-band { padding: 10px; }
+  .law-view-tabs button { flex: 1 1 calc(50% - 1px); min-height: 44px; padding: 0 10px; gap: 6px; font-size: var(--font-size-sm); }
+  .law-view-tabs button svg { width: 17px; height: 17px; }
+  .law-view-tabs button + button::before { display: none; }
+}
+/* Reference fit: tabs size to their label, the group sits left inside a roomier band. */
+.law-view-band { padding: 22px 24px; border-color: #e1e8f2; background: #edf2f8; }
+.law-view-switch.law-view-tabs { width: fit-content; max-width: 100%; background: #f9fbfd; }
+.law-view-tabs button { flex: none; min-height: 52px; padding: 0 30px; }
+.law-view-tabs button[aria-pressed="true"] { border-width: 1.5px; }
+@media (max-width: 700px) {
+  .law-view-band { padding: 10px; }
+  .law-view-switch.law-view-tabs { width: 100%; }
+  .law-view-tabs button { flex: 1 1 calc(50% - 1px); min-height: 44px; padding: 0 10px; }
+}
+/* Shared shadow scale: the tab group is an elevated container, the chosen tab the active step. */
+.law-view-switch.law-view-tabs { background: var(--paper); box-shadow: var(--elevation-elevated); }
+.law-view-tabs button[aria-pressed="true"] { box-shadow: var(--elevation-active); }

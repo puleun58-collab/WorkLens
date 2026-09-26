@@ -36,7 +36,12 @@ export interface ResearchAnnexItem {
 }
 
 export interface ResearchSection extends AnalysisSection {
-  /** MCP marked this section `[NOT_FOUND / FAILED]`, `[FAILED]` or `⏱` time-limited — not the same as "no results". */
+  /**
+   * `not_found`: the MCP searched and found nothing (a normal empty result, not a failure).
+   * `failed`: the lookup itself failed. `timeout`: the chain's time limit cut it off.
+   */
+  status: ResearchSectionStatus;
+  /** A failed or time-limited section: the answer is partial. `not_found` never counts. */
   unavailable: boolean;
   markers: string[];
   kind: ResearchSectionKind;
@@ -163,18 +168,40 @@ function classify(section: AnalysisSection): Pick<ResearchSection, "kind" | "art
   return { kind: "other" };
 }
 
+export type ResearchSectionStatus = "available" | "not_found" | "failed" | "timeout";
+
+/** The MCP heads both empty and failed sections `[NOT_FOUND / FAILED]`; the `사유:` line tells which. */
+function sectionStatus(section: AnalysisSection): ResearchSectionStatus {
+  if (section.lines.some((line) => line.trim().startsWith("⏱"))) return "timeout";
+  if (!UNAVAILABLE_HEADING.test(section.heading ?? "")) return "available";
+  const reason = section.lines.find((line) => /^\s*사유\s*:/u.test(line)) ?? "";
+  return /\[(?:NOT_FOUND|[A-Z_]*NOT_FOUND)\]/u.test(reason) ? "not_found" : "failed";
+}
+
+/** Lines written to steer the calling agent's retry (`힌트: …`, `재시도 제안 …`), not for a reader. */
+const RETRY_GUIDANCE = /^\s*(?:힌트\s*:|재시(?:도)?(?:\s*제안)?\s*(?:\.\.\.|…|:))/u;
+
 export function researchResult(text: string): ResearchDocument {
   const document = splitAnalysisText(text);
-  const sections = document.sections.map((section): ResearchSection => {
+  const sections: ResearchSection[] = [];
+  for (const section of document.sections) {
+    // A heading-less block of retry hints belongs to the empty/failed section above; keep it there.
+    const previous = sections.at(-1);
+    if (!section.heading && previous && previous.status !== "available" && section.lines.every((line) => !line.trim() || RETRY_GUIDANCE.test(line))) {
+      previous.lines.push("", ...section.lines);
+      continue;
+    }
     const all = [section.heading ?? "", ...section.lines];
-    const unavailable = UNAVAILABLE_HEADING.test(section.heading ?? "") || section.lines.some((line) => line.trim().startsWith("⏱"));
-    return {
+    const status = sectionStatus(section);
+    const unavailable = status === "failed" || status === "timeout";
+    sections.push({
       ...section,
+      status,
       unavailable,
       markers: [...new Set(all.flatMap(analysisMarkers))],
-      ...(unavailable ? { kind: "other" as const } : classify(section)),
-    };
-  });
+      ...(status !== "available" ? { kind: "other" as const } : classify(section)),
+    });
+  }
   const sources = ["법제처 국가법령정보센터 OPEN API"];
   if (/국세법령정보|국세청\s*(?:법령)?해석/u.test(text)) sources.push("국세법령정보시스템");
   return { title: document.title, sections, sources };
