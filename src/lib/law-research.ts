@@ -1,6 +1,7 @@
 import { LAW_ARTICLE_PATTERN } from "@/lib/law-search";
 import { normalizeAnalysisDate, normalizeAnalysisJo } from "@/lib/law-analysis";
 import type { ContractReview } from "@/lib/contract-review";
+import type { ResearchEnrichment } from "@/lib/research-relevance";
 
 /**
  * Shared contract for `POST /api/law/research`, the fixed-tool bridge to the
@@ -124,6 +125,8 @@ export interface LawResearchData {
   markers: string[];
   /** 문서 검토 only: the structured clause-by-clause review; `text` is then empty. */
   review?: ContractReview;
+  /** 종합 리서치 / 처분 근거: WorkLens's own relevance ranking and title-matched articles; `text` is unchanged. */
+  enrichment?: ResearchEnrichment;
 }
 
 export interface LawResearchAbsent {

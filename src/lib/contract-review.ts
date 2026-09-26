@@ -181,11 +181,36 @@ export function splitClauses(text: string): Clause[] {
       clauses.push({ text: line });
     }
   }
-  // Without numbered articles every sentence is its own unit.
+  // Without numbered articles every sentence is its own unit, and a bare heading
+  // line ("면책", "계약기간") titles the unit that follows instead of being one.
   if (!clauses.some((clause) => clause.number)) {
-    return clauses.flatMap((clause) => clause.text.split(/(?<=[.다])\s+/u).filter(Boolean).map((sentence) => ({ text: sentence })));
+    const units: Clause[] = [];
+    let heading: string | undefined;
+    for (const clause of clauses) {
+      if (isBareHeading(clause.text)) {
+        heading = clause.text;
+        continue;
+      }
+      clause.text.split(/(?<=[.다])\s+/u).filter(Boolean).forEach((sentence, index) => {
+        units.push({ ...(heading && index === 0 ? { title: heading } : {}), text: sentence });
+      });
+      heading = undefined;
+    }
+    // A trailing heading with nothing under it is still text the reader wrote.
+    if (heading) units.push({ text: heading });
+    return units;
   }
   return clauses.filter((clause) => clause.number);
+}
+
+/**
+ * A heading, not a statement: short, no sentence ending or period, no digits
+ * (amounts, dates and table rows carry them) and no list/check marks.
+ */
+function isBareHeading(line: string): boolean {
+  const text = line.replace(/^[\s\-–•·*]+|[\s:：]+$/gu, "");
+  return text.length > 0 && text.length <= 15 && !/[.。!?]|\d|[□■☐☑✓]/u.test(text)
+    && !/(?:다|요|음|함|됨|임|것)$/u.test(text);
 }
 
 // ── Issue taxonomy ─────────────────────────────────────────────────────

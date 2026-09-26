@@ -3,6 +3,7 @@ import { ApiError } from "@/server/http";
 import { classifyLawToolResult } from "@/server/law-analysis-mcp";
 import { callLawTool } from "@/server/law-mcp";
 import { mcpReviewSources, reviewContract } from "@/server/contract-review";
+import { enrichResearch, mcpEnrichmentSources } from "@/server/research-enrichment";
 
 export async function runLegalResearch(
   request: LawResearchRequest,
@@ -48,6 +49,11 @@ export async function runLegalResearch(
       throw new ApiError("LAW_MCP_ERROR", "법령 리서치 서비스가 요청을 처리하지 못했습니다.", 502);
     }
     return { found: false, task: request.task, marker: "NOT_FOUND", text };
+  }
+  // Re-rank precedents and add title-matched articles; the MCP answer stands on its own if this fails.
+  if (request.task === "full_research" || request.task === "action_basis") {
+    const enrichment = await enrichResearch(request.task, request.query, text, mcpEnrichmentSources(context)).catch(() => undefined);
+    if (enrichment) return { found: true, task: request.task, text, markers: classification.markers, enrichment };
   }
   return { found: true, task: request.task, text, markers: classification.markers };
 }

@@ -9,6 +9,7 @@ import {
 } from "@/lib/law-research";
 import { isSupportingSection, researchResult, type ResearchDecision, type ResearchSection } from "@/lib/law-research-parse";
 import { lawDisplayText } from "@/lib/law-display";
+import { orderByRelevance, type ResearchEnrichment } from "@/lib/research-relevance";
 import { LawTextBlock } from "./LawTextBlock";
 import { ContractReviewResult } from "./ContractReviewResult";
 import { SourceToggleSummary } from "./SourceToggleSummary";
@@ -197,7 +198,29 @@ function DecisionList({ entries }: { entries: ResearchDecision[] }) {
   })}</ul>;
 }
 
-function ResearchSectionView({ section, task }: { section: ResearchSection; task: LawResearchData["task"] }) {
+/** Articles WorkLens looked up itself because a question term is in their title. */
+function SupplementView({ supplement, hasArticles }: { supplement: NonNullable<ResearchEnrichment["supplement"]>; hasArticles: boolean }) {
+  if (!supplement.articles.length) {
+    // Only worth saying when the answer has no statute at all; otherwise the MCP's own hits stand.
+    if (hasArticles || supplement.status === "not_searched") return null;
+    return <div className="legal-analysis-section" data-kind="supplement" data-status={supplement.status}>
+      <p className="research-meta">{supplement.status === "failed" ? "관련 조문 추가 조회에 실패했습니다." : "관련 법령을 충분히 확인하지 못했습니다."}</p>
+    </div>;
+  }
+  return <div className="legal-analysis-section" data-kind="supplement" data-status={supplement.status}>
+    <h3>질문 용어가 제목에 있는 조문 <span className="research-meta">{supplement.articles.length}건</span></h3>
+    <p className="research-meta">질문의 용어가 조문 제목에 있는 조문을 법제처에서 추가로 조회했습니다.</p>
+    <ul className="research-hits">{supplement.articles.map((article) => <li key={`${article.law}-${article.jo}`}>
+      <strong>{article.law} {article.jo} {article.title}</strong>
+      <LawTextBlock className="legal-analysis-lines" text={article.excerpt} />
+      {article.effectiveDate && <span className="research-meta">시행 {formatDate(article.effectiveDate)}</span>}
+    </li>)}</ul>
+  </div>;
+}
+
+function ResearchSectionView({ section, task, relevance }: {
+  section: ResearchSection; task: LawResearchData["task"]; relevance?: ResearchEnrichment["precedents"];
+}) {
   const heading = sectionHeading(section);
   const className = `legal-analysis-section${section.unavailable ? " is-unavailable" : ""}`;
   if (section.kind === "law_articles" && section.articles) {
@@ -213,13 +236,25 @@ function ResearchSectionView({ section, task }: { section: ResearchSection; task
   }
   if (section.kind === "decision_search" && section.decisions) {
     const { total, entries } = section.decisions;
-    const rest = entries.slice(DECISION_PREVIEW);
+    const rated = relevance && entries.some((entry) => relevance[entry.id]);
+    const ordered = rated ? orderByRelevance(entries, relevance) : entries;
+    // Cases whose 판시사항/opening does not address the question are kept, folded, never deleted.
+    const shown = rated ? ordered.filter((entry) => relevance![entry.id]?.rank !== "low") : ordered;
+    const low = rated ? ordered.filter((entry) => relevance![entry.id]?.rank === "low") : [];
+    const rest = shown.slice(DECISION_PREVIEW);
     return <div className={className} data-kind={section.kind} data-markers={section.markers.join(" ")}>
       <h3>{heading} {total !== undefined && <span className="research-meta">{/검색\s*결과$/u.test(heading ?? "") ? "" : "검색 결과 "}총 {total.toLocaleString("ko-KR")}건</span>}</h3>
-      <DecisionList entries={entries.slice(0, DECISION_PREVIEW)} />
+      {rated && <p className="research-meta">판시사항과 질문 용어를 비교해 관련성이 확인된 판례를 먼저 표시합니다.</p>}
+      {shown.length > 0
+        ? <DecisionList entries={shown.slice(0, DECISION_PREVIEW)} />
+        : <p className="research-meta research-empty">관련성이 높은 판례를 충분히 확인하지 못했습니다.</p>}
       {rest.length > 0 && <details className="law-detail-source research-more">
         <SourceToggleSummary label={`검색 결과 펼쳐보기 · ${rest.length}건 더`} openLabel="검색 결과 접기" />
         <DecisionList entries={rest} />
+      </details>}
+      {low.length > 0 && <details className="law-detail-source research-more" data-relevance="low">
+        <SourceToggleSummary label={`질문과의 관련성을 확인하지 못한 판례 · ${low.length}건`} openLabel="관련성 미확인 판례 접기" />
+        <DecisionList entries={low} />
       </details>}
     </div>;
   }
@@ -255,7 +290,15 @@ function ResearchResult({ data }: { data: LawResearchData }) {
     {result.sections
       // A heading-less note that was only agent guidance has nothing left to show.
       .filter((section) => !isSupportingSection(section) && (section.heading || lawDisplayText(section.lines.join("\n"))))
-      .map((section, index) => <ResearchSectionView key={index} section={section} task={data.task} />)}
+      .flatMap((section, index, primary) => {
+        const view = <ResearchSectionView key={index} section={section} task={data.task} relevance={data.enrichment?.precedents} />;
+        // Looked-up articles follow the statute hits, or open the answer when there are none.
+        const anchor = primary.findIndex((entry) => entry.kind === "law_articles");
+        const supplement = data.enrichment?.supplement && (anchor < 0 ? index === 0 : index === anchor)
+          ? <SupplementView key="supplement" supplement={data.enrichment.supplement} hasArticles={anchor >= 0} />
+          : null;
+        return anchor < 0 ? [supplement, view] : [view, supplement];
+      })}
     {supporting.length > 0 && <div className="legal-analysis-section research-supporting">
       <h3>상세 근거</h3>
       {supporting.map((section, index) => {

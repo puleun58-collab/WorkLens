@@ -1,0 +1,29 @@
+name: Law live smoke
+
+# Manual only: calls the deployed research API, which queries the live Korean Law MCP.
+# No MCP URL or key is used here; they stay in the Cloudflare deployment.
+on:
+  workflow_dispatch:
+    inputs:
+      smoke_url:
+        description: Deployed WorkLens URL
+        required: true
+        default: https://worklens.puleun58.workers.dev
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  law-live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.1
+      - run: bun install --frozen-lockfile
+      - run: bun run test:law-live
+        env:
+          WORKLENS_SMOKE_URL: ${{ inputs.smoke_url }}
