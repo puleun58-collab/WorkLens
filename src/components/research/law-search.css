@@ -92,3 +92,15 @@
 /* Shared shadow scale: the tab group is an elevated container, the chosen tab the active step. */
 .law-view-switch.law-view-tabs { background: var(--paper); box-shadow: var(--elevation-elevated); }
 .law-view-tabs button[aria-pressed="true"] { box-shadow: var(--elevation-active); }
+
+/* No box behind the primary tabs: the white tab group is the only card, on the content's left edge. */
+.law-view-band { padding: 0; border: 0; border-radius: 0; background: transparent; }
+@media (max-width: 700px) { .law-view-band { padding: 0; } }
+
+/* Secondary tabs (검증·분석 modes): same family as the primary tabs, one step lighter. */
+.law-view-switch.legal-analysis-modes { gap: 0; padding: 0; border: 1px solid var(--border-surface, var(--line-soft)); border-radius: 8px; background: var(--paper); box-shadow: none; }
+.legal-analysis-modes button { position: relative; min-height: 36px; padding: 0 16px; border: 1px solid transparent; border-radius: 8px; color: #5b6b82; font-size: var(--font-size-sm); font-weight: 500; }
+.legal-analysis-modes button + button::before { content: ""; position: absolute; left: 0; top: 10px; bottom: 10px; width: 1px; background: var(--border-surface, var(--line-soft)); }
+.legal-analysis-modes button[aria-pressed="true"]::before, .legal-analysis-modes button[aria-pressed="true"] + button::before { display: none; }
+.legal-analysis-modes button:hover:not([aria-pressed="true"]) { color: var(--ink); }
+.legal-analysis-modes button[aria-pressed="true"] { border-color: #bcd0f5; background: var(--blue-pale, #f5f9ff); color: var(--ink); font-weight: 600; box-shadow: none; }

@@ -20,6 +20,7 @@
     "test:e2e:cloudflare:run": "playwright test --config playwright.cloudflare.config.ts",
     "test:smoke": "playwright test --config playwright.smoke.config.ts",
     "test:law-live": "bun scripts/law-live-smoke.ts",
+    "test:law-regression": "bun scripts/law-regression.ts",
     "test:eval:retrieval": "vitest run tests/eval-retrieval.test.ts",
     "test:eval:grounding": "vitest run tests/eval-grounding.test.ts",
     "bench:large": "bun tests/bench/large-documents.ts",
