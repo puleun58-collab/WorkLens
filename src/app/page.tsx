@@ -90,6 +90,7 @@ import {
 import {
   BarChart3,
   BookMarked,
+  CircleHelp,
   FileText,
   GitCompareArrows,
   Image as ImageIcon,
@@ -112,9 +113,12 @@ const ImageTool = dynamic(() => import("@/components/tools/ImageTool").then((mod
 const LawSearch = dynamic(() => import("@/components/research/LawSearch").then((module) => module.LawSearch), {
   loading: () => <p role="status">법령 검색을 불러오는 중…</p>,
 });
+const UsageGuide = dynamic(() => import("@/components/guide/UsageGuide").then((module) => module.UsageGuide), {
+  loading: () => <p role="status">사용 가이드를 불러오는 중…</p>,
+});
 
 type ToolView = "PdfTools" | "ImageTools";
-type ShellView = Tab | ToolView | "Law" | "Dictionary" | "Settings";
+type ShellView = Tab | ToolView | "Law" | "Guide" | "Dictionary" | "Settings";
 export interface CompanyTermEntry { id: number; term: string; description: string | null; active: boolean }
 const tabIcons: Record<Tab, typeof BarChart3> = {
   Analyze: BarChart3,
@@ -1222,7 +1226,7 @@ export default function Home() {
    * memory while hiding document controls.
    */
   const isToolView = shellView === "PdfTools" || shellView === "ImageTools" || shellView === "Law";
-  const isUtilityView = shellView === "Dictionary" || shellView === "Settings";
+  const isUtilityView = shellView === "Guide" || shellView === "Dictionary" || shellView === "Settings";
   const isDocumentWorkspaceView = !isUtilityView && !isToolView;
   const selectedNames = files.filter((file) => selected.includes(file.id)).map((file) => file.name).join(", ");
 
@@ -1298,8 +1302,8 @@ export default function Home() {
           </li>
         </ul>
         <div className="rail-footer">
-          {(["Dictionary", "Settings"] as const).map((view) => {
-            const Icon = view === "Dictionary" ? BookMarked : SlidersHorizontal;
+          {(["Guide", "Dictionary", "Settings"] as const).map((view) => {
+            const Icon = view === "Guide" ? CircleHelp : view === "Dictionary" ? BookMarked : SlidersHorizontal;
             return (
               <button
                 key={view}
@@ -1310,7 +1314,7 @@ export default function Home() {
                 onClick={() => { setShellView(view); clearResults(); }}
               >
                 <Icon size={20} strokeWidth={1.75} aria-hidden="true" />
-                <span>{view === "Dictionary" ? "용어 사전" : "설정"}</span>
+                <span>{view === "Guide" ? "사용 가이드" : view === "Dictionary" ? "용어 사전" : "설정"}</span>
               </button>
             );
           })}
@@ -1320,9 +1324,11 @@ export default function Home() {
       <div className="shell-main">
         {isUtilityView || isToolView ? (
           <header className="context-bar utility-bar">
-            <h1>{shellView === "Dictionary" ? "용어 사전" : shellView === "Settings" ? "설정" : shellView === "PdfTools" ? "PDF 도구" : shellView === "Law" ? "법령" : "이미지 도구"}</h1>
+            <h1>{shellView === "Guide" ? "사용 가이드" : shellView === "Dictionary" ? "용어 사전" : shellView === "Settings" ? "설정" : shellView === "PdfTools" ? "PDF 도구" : shellView === "Law" ? "법령" : "이미지 도구"}</h1>
             <span className="context-names">
-              {shellView === "Dictionary"
+              {shellView === "Guide"
+                ? "WorkLens의 주요 기능을 단계별로 확인하세요."
+                : shellView === "Dictionary"
                 ? "맞춤법과 용어 오탐을 줄이기 위한 사전입니다."
                 : shellView === "Settings"
                   ? "이 브라우저에만 적용되는 항목입니다."
@@ -1422,7 +1428,9 @@ export default function Home() {
             )
           ) : null}
 
-          {isUtilityView ? (
+          {shellView === "Guide" ? (
+            <UsageGuide />
+          ) : isUtilityView ? (
             <SettingsView
               view={shellView}
               companyTerms={companyTerms}
@@ -1844,7 +1852,7 @@ const workSectionCopy: Record<Tab, [string, string]> = {
   Check: ["문서 검수", "선택한 파일의 문장·일관성·데이터·개인정보·보안정보를 검수합니다."],
   Polish: ["문서 윤문", "선택한 파일의 번역투와 중복 표현을 문장 단위로 다듬습니다."],
   Extract: ["정보 추출", "선택한 파일에서 필요한 항목과 값을 찾아 정리합니다."],
-  Aggregate: ["문서 취합", "여러 Excel 파일의 표 데이터를 첫 번째 파일의 서식을 유지해 하나의 Excel 파일로 정리합니다."],
+  Aggregate: ["문서 취합", "여러 Excel 파일의 표 데이터를 첫 번째 파일의 서식을 기준으로 하나의 파일로 취합합니다."],
 };
 
 function ResultHeader({ eyebrow, title, status, meta, showMessage = true }: {

@@ -173,6 +173,13 @@ test("uploads XLSX files, compares them and shows source evidence", async ({ pag
     "rgb(255, 255, 255)",
   ]);
   expect(await panel.locator(".change-head").evaluate((element) => getComputedStyle(element).backgroundColor)).toBe("rgb(238, 242, 247)");
+  const edges = await panel.evaluate((root) => {
+    const rect = (element: Element) => element.getBoundingClientRect();
+    const [base, target] = [...root.querySelectorAll(".comparison-file-map > div")].map(rect);
+    const summary = rect(root.querySelector(".executive-summary")!);
+    return [base.left - summary.left, target.right - summary.right, base.height - target.height].map(Math.round);
+  });
+  expect(edges).toEqual([0, 0, 0]);
   const csvDownload = page.waitForEvent("download");
   await panel.getByRole("button", { name: "CSV 다운로드" }).click();
   expect((await csvDownload).suggestedFilename()).toBe("worklens-version-compare.csv");
@@ -237,6 +244,23 @@ test("shows the swap action only for exactly two version files", async ({ page }
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.getByRole("button", { name: "기준/대상 바꾸기" })).toBeVisible();
   await expect(page.getByRole("button", { name: "기준/대상 변경" })).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+});
+
+test("usage guide sits above dictionary and settings and switches feature flows", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Guide" }).click();
+  await expect(page.locator(".rail-footer .rail-item span")).toHaveText(["사용 가이드", "용어 사전", "설정"]);
+  await expect(page.getByRole("button", { name: "Guide" })).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("tab", { name: "분석", exact: true })).toHaveAttribute("aria-selected", "true");
+  const panel = page.getByRole("tabpanel");
+  await page.getByRole("tab", { name: "비교", exact: true }).click();
+  await expect(panel.locator(".usage-guide-step > strong")).toHaveText(["파일 선택", "기준/대상 확인", "실행", "결과 확인"]);
+  await page.getByRole("tab", { name: "비교", exact: true }).press("ArrowRight");
+  await expect(page.getByRole("tab", { name: "검수", exact: true })).toBeFocused();
+  await expect(page.getByRole("tab", { name: "검수", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(panel.locator(".usage-guide-step")).toHaveCount(3);
+  await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 });
 
@@ -2684,8 +2708,8 @@ test("blocks unsupported files from aggregation without offering PPTX export", a
   await page.getByRole("button", { name: "취합", exact: true }).click();
 
   await expect(page.getByRole("button", { name: "취합 실행" })).toBeDisabled();
-  await expect(page.getByText("취합할 수 없는 파일이 포함되어 있습니다.", { exact: true })).toBeVisible();
-  await expect(page.getByText("취합은 Excel 파일만 지원합니다. 지원하지 않는 파일을 선택 해제한 뒤 다시 실행해 주세요.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Excel이 아닌 파일이 포함되어 있습니다.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Excel 파일만 취합할 수 있습니다. 해당 파일을 선택 해제한 후 다시 실행해 주세요.", { exact: true })).toBeVisible();
   await expect(page.getByText(/Excel·CSV/)).toHaveCount(0);
   await expect(page.getByRole("button", { name: /PPTX 다운로드/ })).toHaveCount(0);
 });
@@ -2700,7 +2724,7 @@ test("does not silently aggregate supported files from a mixed selection", async
   await page.getByRole("button", { name: "취합", exact: true }).click();
 
   await expect(page.getByRole("button", { name: "취합 실행" })).toBeDisabled();
-  await expect(page.getByText("취합할 수 없는 파일이 포함되어 있습니다.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Excel이 아닌 파일이 포함되어 있습니다.", { exact: true })).toBeVisible();
   await expect(page.locator(".aggregation-results")).toHaveCount(0);
 });
 
@@ -2714,15 +2738,15 @@ test("keeps CSV out of aggregation while other features still accept it", async 
 
   // CSV alone: nothing to aggregate.
   await expect(page.getByRole("button", { name: "취합 실행" })).toBeDisabled();
-  await expect(page.getByText("취합할 수 없는 파일이 포함되어 있습니다.", { exact: true })).toBeVisible();
-  await expect(page.getByText("취합은 Excel 파일만 지원합니다. 지원하지 않는 파일을 선택 해제한 뒤 다시 실행해 주세요.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Excel이 아닌 파일이 포함되어 있습니다.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Excel 파일만 취합할 수 있습니다. 해당 파일을 선택 해제한 후 다시 실행해 주세요.", { exact: true })).toBeVisible();
 
   // Workbook plus CSV: the workbook is not aggregated behind the user's back.
   await page.getByLabel("운임현황_v1.xlsx 선택").check();
   await expect(page.getByRole("button", { name: "취합 실행" })).toBeDisabled();
   await expect(page.locator(".aggregation-results")).toHaveCount(0);
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(page.getByText("취합할 수 없는 파일이 포함되어 있습니다.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Excel이 아닌 파일이 포함되어 있습니다.", { exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   await page.setViewportSize({ width: 1440, height: 900 });
 
@@ -2747,6 +2771,6 @@ for (const [format, file] of [["PDF", files.pdf], ["DOCX", files.docx]] as const
     await page.getByRole("button", { name: "취합", exact: true }).click();
 
     await expect(page.getByRole("button", { name: "취합 실행" })).toBeDisabled();
-    await expect(page.getByText("취합할 수 없는 파일이 포함되어 있습니다.", { exact: true })).toBeVisible();
+    await expect(page.getByText("Excel이 아닌 파일이 포함되어 있습니다.", { exact: true })).toBeVisible();
   });
 }

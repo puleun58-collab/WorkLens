@@ -3727,7 +3727,8 @@ input:disabled,
 }
 
 .comparison-file-map {
-  padding: 14px var(--panel-inset);
+  /* Boxes share the result grid's outer edges (the summary band below runs edge to edge). */
+  padding: 14px 0;
   border-bottom: 1px solid var(--line);
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
@@ -3743,6 +3744,7 @@ input:disabled,
   background: var(--paper);
   display: grid;
   gap: 3px;
+  align-content: start;
 }
 
 .comparison-file-map span {
@@ -7768,8 +7770,9 @@ input:disabled {
   }
 
   .comparison-file-map {
-    padding-right: 16px;
-    padding-left: 16px;
+    padding-right: 0;
+    padding-left: 0;
+    grid-template-rows: 1fr auto 1fr;
     grid-template-columns: minmax(0, 1fr);
     gap: 8px;
   }

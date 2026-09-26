@@ -12,8 +12,8 @@ export function isAggregationFileKind(kind: FileKind): kind is "xlsx" {
   return kind === "xlsx";
 }
 
-export const AGGREGATION_UNSUPPORTED_TITLE = "취합할 수 없는 파일이 포함되어 있습니다.";
-export const AGGREGATION_UNSUPPORTED_DETAIL = "취합은 Excel 파일만 지원합니다. 지원하지 않는 파일을 선택 해제한 뒤 다시 실행해 주세요.";
+export const AGGREGATION_UNSUPPORTED_TITLE = "Excel이 아닌 파일이 포함되어 있습니다.";
+export const AGGREGATION_UNSUPPORTED_DETAIL = "Excel 파일만 취합할 수 있습니다. 해당 파일을 선택 해제한 후 다시 실행해 주세요.";
 
 export interface AggregationValue {
   displayValue: string;

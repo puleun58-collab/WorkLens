@@ -102,7 +102,7 @@ describe("Excel-only aggregation input", () => {
   it("rejects a CSV on its own: it has no layout to use as the template", async () => {
     const csv = await salesCsv();
 
-    expect(() => buildAggregation([csv])).toThrow("취합할 수 없는 파일이 포함되어 있습니다.");
+    expect(() => buildAggregation([csv])).toThrow("Excel이 아닌 파일이 포함되어 있습니다.");
   });
 
   it("refuses a workbook mixed with a CSV instead of silently dropping the CSV", async () => {
@@ -120,8 +120,8 @@ describe("Excel-only aggregation input", () => {
       }
       expect(error).toMatchObject({
         code: "AGGREGATE_FORMAT_UNSUPPORTED",
-        message: "취합할 수 없는 파일이 포함되어 있습니다.",
-        detail: "취합은 Excel 파일만 지원합니다. 지원하지 않는 파일을 선택 해제한 뒤 다시 실행해 주세요.",
+        message: "Excel이 아닌 파일이 포함되어 있습니다.",
+        detail: "Excel 파일만 취합할 수 있습니다. 해당 파일을 선택 해제한 후 다시 실행해 주세요.",
       });
     }
   });
@@ -136,7 +136,7 @@ describe("Excel-only aggregation input", () => {
       warnings: [],
     };
 
-    expect(() => buildAggregation([document])).toThrow("취합할 수 없는 파일이 포함되어 있습니다.");
+    expect(() => buildAggregation([document])).toThrow("Excel이 아닌 파일이 포함되어 있습니다.");
   });
 });
 
