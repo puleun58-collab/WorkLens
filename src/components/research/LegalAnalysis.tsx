@@ -142,7 +142,7 @@ export function LegalAnalysis({ linkedRequest, onReturn }: LegalAnalysisProps) {
         </label>
         <p className="legal-analysis-help"><span>기준일은 행위·계약·처분 등 판단하려는 시점입니다.</span></p>
       </div>}
-      {mode === "impact_map" && <div className="legal-analysis-fields">
+      {mode === "impact_map" && <div className="legal-analysis-fields legal-analysis-fields-2">
         <label htmlFor="analysis-impact-law">법령명
           <input id="analysis-impact-law" type="text" value={impact.lawName} maxLength={LAW_ANALYSIS_LAW_NAME_MAX_CHARS} placeholder="예: 민법" onChange={(event) => setImpact({ ...impact, lawName: event.target.value })} />
         </label>
