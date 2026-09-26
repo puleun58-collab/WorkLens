@@ -62,22 +62,27 @@ export function questionTerms(query: string): string[] {
 export const isLawName = (term: string) => LAW_NAME.test(term) && term.length >= 3;
 
 /**
- * `direct`: every subject term (or a cited article from the statute hits)
- * appears in the title or summary. `related`: at least half the terms,
- * including one of the most specific (longest) ones. Otherwise `low`.
- * An `excerpt` (judgment opening, no 판시사항) can at most make a case
- * `related`; without any text the title alone cannot place it above `unknown`.
+ * The case title is a candidate signal only; relevance evidence is the
+ * 판시사항/판결요지/참조조문 (or, for lower courts without one, the judgment
+ * opening with the title lines removed).
+ *
+ * `direct`: every subject term, or a statute article the answer cites, appears
+ * in the summary. `related`: at least half the terms including one of the most
+ * specific (longest). Otherwise `low`: the summary was read and does not
+ * address the question, whatever the title says. An `excerpt` can at most
+ * make a case `related`; without any summary the case stays `unknown`.
+ * `matched` lists the evidence terms only.
  */
 export function rankPrecedent(
   terms: readonly string[],
   entry: { title?: string; summary?: string; excerpt?: boolean },
   citedArticles: readonly string[] = [],
 ): PrecedentRelevance {
-  if (!terms.length) return { rank: "unknown", matched: [] };
-  const haystack = compact(`${entry.title ?? ""}\n${entry.summary ?? ""}`);
-  const matched = terms.filter((term) => haystack.includes(compact(term)));
-  const articles = citedArticles.filter((article) => haystack.includes(compact(article)));
-  if (entry.summary === undefined) return { rank: "unknown", matched: [...matched, ...articles] };
+  if (!terms.length || entry.summary === undefined) return { rank: "unknown", matched: [] };
+  // A judgment opening repeats the case name (`[id] 사건명`, `=== 사건명 ===`); that is still the title.
+  const evidence = compact(entry.excerpt && entry.title ? entry.summary.split(entry.title).join(" ") : entry.summary);
+  const matched = terms.filter((term) => evidence.includes(compact(term)));
+  const articles = citedArticles.filter((article) => evidence.includes(compact(article)));
   const longest = Math.max(...terms.map((term) => term.length));
   const specific = matched.some((term) => term.length === longest);
   if (!entry.excerpt && (matched.length === terms.length || articles.length)) return { rank: "direct", matched: [...matched, ...articles] };
