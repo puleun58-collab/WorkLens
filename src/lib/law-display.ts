@@ -14,12 +14,13 @@
 const LINE_BREAK_TAG = /<\s*\/?\s*br\s*\/?\s*>/giu;
 
 /**
- * Tools the Korean Law MCP names in its own output. Its tool names are ASCII
- * snake_case led by a fixed verb (`search_admin_appeals`, `get_law_text`,
- * `chain_document_review`); Korean legal prose never contains such tokens,
- * so matching the shape keeps newly added tools out of the display too.
+ * Tools the Korean Law MCP names in its own output: ASCII snake_case led by a
+ * fixed verb and naming a legal object (`search_admin_appeals`, `get_law_text`,
+ * `chain_document_review`, `discover_tools`). Requiring the legal noun keeps
+ * newly added MCP tools hidden while leaving ordinary identifiers that a
+ * judgment may quote (`get_user_profile`, `search_engine_optimization`) intact.
  */
-const MCP_TOOL = /\b(?:search|get|find|compare|chain|legal|discover|execute)_[a-z0-9]+(?:_[a-z0-9]+)*\b/u;
+const MCP_TOOL = /\b(?:search|get|find|compare|chain|legal|discover|execute)_(?=[a-z0-9_]*(?:law|precedent|decision|appeal|interpretation|article|ordinance|annex|document|analysis|research|tribunal|treaty|ruling|tool|term))[a-z0-9]+(?:_[a-z0-9]+)*\b/u;
 /** Raw MCP arguments; always `name=` immediately followed by a value. */
 const RAW_ARGUMENT = /\b(?:body_search|query|display|page|full|id|domain|mst|jo|efYd|lawId)=(?:"[^"]*"|true|false|[\w.-]+)/u;
 const OPERATOR_TEXT = new RegExp(`${MCP_TOOL.source}|${RAW_ARGUMENT.source}`, "u");
@@ -38,7 +39,8 @@ function withoutOperatorGuidance(raw: string): string | undefined {
   // `법령ID: 011357 | MST: 283839 | 구분: 법률`: MST is the API's version serial, not something a reader uses.
   const line = raw.replace(/\s*\|\s*MST:?\s*\d+(?=\s*(?:\||$))/gu, "").replace(/^(\s*)MST:?\s*\d+\s*\|\s*/u, "$1");
   if (!OPERATOR_TEXT.test(line)) return line;
-  if (SEARCH_ADJUSTMENT.test(line)) return "검색어를 보정해 관련 결과를 찾았습니다.";
+  // The MCP fell back to full-text search: a body hit is not a relevance judgement, so the note says only how the list was found.
+  if (SEARCH_ADJUSTMENT.test(line)) return "본문 검색으로 찾은 결과입니다. 쟁점과의 관련성은 판시사항에서 확인하세요.";
   const cleaned = line
     .replace(OMISSION_ARGUMENT, "")
     .split(/(?<=[.。])\s+/u)

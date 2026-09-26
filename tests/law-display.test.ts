@@ -43,7 +43,7 @@ describe("lawDisplayText", () => {
       "[618081] 건물인도",
       "  사건번호: 2025다212423",
       "",
-      "검색어를 보정해 관련 결과를 찾았습니다.",
+      "본문 검색으로 찾은 결과입니다. 쟁점과의 관련성은 판시사항에서 확인하세요.",
       "",
     ].join("\n").trim());
   });
@@ -86,6 +86,10 @@ describe("lawDisplayText", () => {
       "ID 번호는 계약서에 기재한다.",
       "【주    문】",
       " 1. 원고의 청구를 기각한다.",
+      // Identifiers a judgment may quote are prose, not MCP tools.
+      "피고는 API 명세의 get_user_profile 호출 결과를 저장하였다.",
+      "「search_engine_optimization 용역계약」 제5조, 파일 report_final_v2.xlsx, 원고 Samsung Electronics Co., Ltd.",
+      "금 1,500,000원 및 연 12%의 비율로 계산한 돈 | 사건번호: 2024다12345",
       "검색 결과 판례를 전문(全文)으로 검토하였다.",
     ].join("\n");
     expect(lawDisplayText(prose)).toBe(prose);

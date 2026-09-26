@@ -4,7 +4,10 @@ import {
   precedentQueries, reviewClauses, splitClauses,
 } from "@/lib/contract-review";
 import { reviewContract, type ReviewSources } from "@/server/contract-review";
-import { B2B_SERVICE_CONTRACT, CONSUMER_TERMS, EMPLOYMENT_CONTRACT, LEASE_CONTRACT } from "./fixtures/contracts";
+import {
+  B2B_SERVICE_CONTRACT, CONSUMER_TERMS, EMPLOYMENT_CONTRACT, LEASE_CONTRACT, MIXED_SERVICE_CONTRACT, NDA_CONTRACT,
+  OUTSOURCING_CONTRACT, SUPPLY_CONTRACT,
+} from "./fixtures/contracts";
 
 const LABOR = /근로|해고|임금/u;
 const LEASE = /임대차|임차|갱신거절권|보증금/u;
@@ -97,6 +100,40 @@ describe("the same areas of law stay available where the document is about them"
     expect(lawTargets(issueDefinition("lease_renewal")!, lease.profile).map((law) => law.law)).toEqual(["상가건물 임대차보호법"]);
     const consumer = issuesOf(CONSUMER_TERMS);
     expect(consumer.clauses.flatMap((clause) => clause.issues.map((issue) => issue.id))).toContain("withdrawal_restriction");
+  });
+});
+
+describe("other business contract types, paraphrases and broken layout", () => {
+  const ids = (text: string) => issuesOf(text).clauses.map((clause) => `${clause.number}:${clause.issues.map((issue) => issue.id).join("+")}`);
+
+  it.each([
+    [OUTSOURCING_CONTRACT, "outsourcing", ["제2조:penalty", "제3조:unilateral_termination", "제4조:jurisdiction"]],
+    [SUPPLY_CONTRACT, "sale", ["제2조:price_change", "제3조:exemption"]],
+    [NDA_CONTRACT, "nda", ["제3조:penalty", "제4조:auto_renewal"]],
+    [MIXED_SERVICE_CONTRACT, "b2b_service", ["제1조:data_transfer", "제2조:liability_cap", "제3조:penalty", "제4조:jurisdiction", "제5조:auto_renewal"]],
+  ])("classifies %#, raises its clause issues and keeps labor and lease out", (text, type, expected) => {
+    const { profile, clauses } = issuesOf(text);
+    expect(profile.type).toBe(type);
+    expect(profile.relationship).toBe("business");
+    expect(profile.domains).not.toContain("labor");
+    expect(profile.domains).not.toContain("lease");
+    for (const entry of expected) expect(ids(text)).toContain(entry);
+    expect(clauses.flatMap((clause) => clause.issues.map((issue) => issue.id))).not.toContain("dismissal");
+  });
+
+  it("reads renewal written without 자동, and ignores sentences that only mention renewal", () => {
+    const renewal = issueDefinition("auto_renewal")!.detect;
+    for (const text of ["별도 통지가 없으면 1년 자동 연장한다.", "계약 만료 전 해지 의사가 없는 경우 동일 조건으로 갱신된다.",
+      "종료 의사 표시가 없으면 계약기간이 연장된다."]) expect(renewal.test(text), text).toBe(true);
+    for (const text of ["임대인은 임차인의 갱신 요구가 없는 한 계약을 연장하지 아니한다.", "통지 없이 계약을 연장할 수 없다."]) {
+      expect(renewal.test(text), text).toBe(false);
+    }
+  });
+
+  it("starts a new clause at an article heading left mid-line by a lost line break, not at a cross-reference", () => {
+    const clauses = splitClauses("제1조(목적) 제공자는 서비스를\n제공한다. 제2조(해지) 이용자는 계약기간 중\n해지할 수 없다.\n제3조(책임) 제5조(손해배상)에 따른 책임은 제7조(면책)에 우선한다.");
+    expect(clauses.map((clause) => clause.number)).toEqual(["제1조", "제2조", "제3조"]);
+    expect(clauses[1].text).toBe("이용자는 계약기간 중 해지할 수 없다.");
   });
 });
 
@@ -200,6 +237,27 @@ describe("reviewContract pipeline", () => {
     const review = await reviewContract(B2B_SERVICE_CONTRACT, sources, () => clock);
     expect(review.clauses.length).toBeGreaterThan(0);
     expect(sources.calls.holding.length + sources.calls.searchPrecedents.length).toBeLessThan(20);
+  });
+
+  it("sends the MCP only statute names, article numbers, issue search terms and case ids, never the document's own sentences", async () => {
+    for (const text of [B2B_SERVICE_CONTRACT, MIXED_SERVICE_CONTRACT, CONSUMER_TERMS]) {
+      const sources = fakeSources();
+      await reviewContract(text, sources);
+      const sent = Object.values(sources.calls).flat();
+      // Any 12-character run of a clause (names, amounts, periods, wording) would mean document text left WorkLens.
+      const fragments = splitClauses(text).flatMap((clause) => {
+        const body = clause.text.replace(/\s+/gu, " ");
+        return Array.from({ length: Math.max(0, body.length - 11) }, (_, index) => body.slice(index, index + 12));
+      });
+      for (const value of sent) for (const fragment of fragments) expect(value.includes(fragment), `${value} ⊃ ${fragment}`).toBe(false);
+    }
+  });
+
+  it("does not search for renewal statutes where the document's area excludes them, and says so", async () => {
+    const review = await reviewContract(NDA_CONTRACT, fakeSources());
+    const renewal = review.clauses.flatMap((clause) => clause.issues).find((issue) => issue.id === "auto_renewal")!;
+    expect(renewal.lawStatus).toBe("not_searched");
+    expect(renewal.laws).toEqual([]);
   });
 
   it("searches labor statutes for an employment contract", async () => {

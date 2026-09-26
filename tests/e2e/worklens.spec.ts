@@ -1921,8 +1921,9 @@ test("keeps empty upload actions singular and restores header actions after uplo
   await expect(context.getByRole("button", { name: "파일 추가" })).toHaveCount(0);
   await expect(context.getByRole("button", { name: "모두 삭제" })).toHaveCount(0);
   await expect(dropzone.getByRole("button", { name: "파일 추가" })).toBeVisible();
-  await expect(dropzone).toContainText("XLSX, CSV, PDF, DOCX, PPTX · 파일당 100 MB · 최대 300 MB");
-  await expect(dropzone).toContainText("여기로 끌어놓기");
+  await expect(dropzone).toContainText("파일 업로드");
+  await expect(dropzone).toContainText("XLSX, CSV, PDF, DOCX, PPTX · 파일당 최대 100 MB · 전체 최대 300 MB");
+  await expect(dropzone).not.toContainText("여기로 끌어놓기");
 
   await dropzone.dispatchEvent("dragenter");
   await expect(dropzone).toHaveClass(/drag-active/);

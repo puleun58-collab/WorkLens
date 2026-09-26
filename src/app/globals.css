@@ -4420,7 +4420,7 @@ body {
 /* The accent lives inside the item, so idle and active share the outer inset. */
 .rail-item.active {
   background: var(--blue-soft);
-  box-shadow: inset 2px 0 0 var(--blue);
+  box-shadow: none;
   color: var(--blue-active);
   font-weight: var(--font-weight-semibold);
 }
@@ -4671,7 +4671,7 @@ body {
   --divider: #e4e8ee;
   /* Rail (navy) states: label text, active tint of --brand-blue, keyboard focus. */
   --rail-label: #7f8ca3;
-  --rail-active: rgba(59, 130, 246, 0.12);
+  --rail-active: rgba(59, 130, 246, 0.18);
   --rail-focus: rgba(147, 197, 253, 0.55);
   /* Buttons that carry an action (primary, run, export, swap). */
   --radius-button: 6px;
@@ -4727,7 +4727,7 @@ body {
 
 .rail-item.active {
   background: var(--navy-800);
-  box-shadow: inset 2px 0 0 var(--blue-500, #3b82f6);
+  box-shadow: none;
   color: #fff;
 }
 
@@ -9069,8 +9069,16 @@ input:disabled {
   }
 }
 
+/* Active = blue tint + full-contrast text/icon, no side indicator; hover stays a faint neutral lift. */
+.rail-item:hover:not(.active) {
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.9);
+}
+
 .rail-item.active {
   background: var(--rail-active);
+  box-shadow: none;
+  color: #fff;
   font-weight: 600;
 }
 
