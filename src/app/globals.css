@@ -9553,3 +9553,4 @@ div.status-panel.error > strong { font-size: 14px; line-height: 1.5; }
   --tab-divider-primary: #c9d3e1;
   --tab-divider-secondary: #dde4ee;
 }
+.context-actions .transient-status { margin-left: auto; }
