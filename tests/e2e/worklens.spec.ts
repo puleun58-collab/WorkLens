@@ -1000,8 +1000,8 @@ test("presents text Polish as an immediate original-to-revision workflow", async
   expect(surface).toMatchObject({
     resultBackground: "rgb(255, 255, 255)",
     resultBorder: "1px",
-    // Surfaces separate from the canvas by colour and a hairline border; shadows belong to floating UI only.
-    resultShadow: "none",
+    // Top-level surfaces take the single surface elevation; nested blocks stay flat.
+    resultShadow: "rgba(15, 23, 42, 0.05) 0px 1px 2px 0px",
     cardBackground: "rgb(247, 249, 252)",
     cardBorder: "1px",
     revisionBackground: "rgb(239, 246, 255)",
@@ -1706,7 +1706,7 @@ test("reviews PPTX writing, consistency and data findings with filters and exact
     };
   });
   expect(overviewStyle.width).toBeLessThanOrEqual(450);
-  expect(overviewStyle).toMatchObject({ background: "rgb(255, 255, 255)", borderWidth: "1px", boxShadow: "none" });
+  expect(overviewStyle).toMatchObject({ background: "rgb(255, 255, 255)", borderWidth: "1px", boxShadow: "rgba(15, 23, 42, 0.05) 0px 1px 2px 0px" });
   expect(await overview.locator(".qa-summary-line span").nth(1).evaluate((element) => getComputedStyle(element).borderLeftWidth)).toBe("1px");
   await expect(page.getByText("낮은 확신 포함")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "용어 사전" })).toBeVisible();

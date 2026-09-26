@@ -156,7 +156,9 @@ type NoticeScope = "workspace" | ShellView;
  * start-up failure is a different sentence from a task that failed, and
  * matching on message text to tell them apart is guesswork.
  */
-type Notice = { tone: "error" | "success" | "info" | "warning"; message: string; scope: NoticeScope; code?: ServerAiErrorCode; detail?: string };
+type Notice = { tone: "error" | "success" | "info" | "warning"; message: string; scope: NoticeScope; code?: ServerAiErrorCode; detail?: string;
+  /** Announced to assistive tech only: the screen already shows the outcome (e.g. the new file row with READY). */
+  srOnly?: boolean };
 
 /*
  * A notice already says what happened in the words of the feature that raised
@@ -436,7 +438,8 @@ export default function Home() {
         [bytes.buffer],
       );
       setFiles((current) => [...current, summary]);
-      notifyWorkspace("success", `${file.name} 분석이 완료되었습니다.`);
+      // The new row (name, READY, structure) is the visible confirmation; only assistive tech gets a sentence.
+      setNotice({ tone: "success", message: `${file.name} 분석이 완료되었습니다.`, scope: "workspace", srOnly: true });
     } catch (error) {
       const failure = error as ApiError;
       notifyWorkspace("error", failure.message ?? "파일을 처리하지 못했습니다.", failure.detail);
@@ -1415,7 +1418,7 @@ export default function Home() {
                 {notice.detail ? <p>{notice.detail}</p> : null}
               </StatusPanel>
             ) : (
-              <p className={`notice-inline ${notice.tone}`} role="status" aria-live="polite">{notice.message}</p>
+              <p className={`notice-inline ${notice.tone}${notice.srOnly ? " sr-only" : ""}`} role="status" aria-live="polite">{notice.message}</p>
             )
           ) : null}
 

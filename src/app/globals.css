@@ -4113,11 +4113,6 @@ input:disabled,
 
 /* ── Visual refinement layer: hierarchy, surface depth and rhythm ───────── */
 
-:root {
-  --shadow-panel: 0 1px 2px rgba(16, 42, 67, 0.05), 0 12px 28px -22px rgba(16, 42, 67, 0.35);
-  --shadow-raise: 0 1px 2px rgba(16, 42, 67, 0.07), 0 18px 40px -24px rgba(16, 42, 67, 0.4);
-}
-
 body {
   background: var(--canvas);
 }
@@ -4657,8 +4652,6 @@ body {
   --disabled-surface: #eceff3;
   --disabled-border: #dde2e9;
   --disabled-ink: #8a94a6;
-  /* Primary white surfaces only (file list, preview, settings, main data table). */
-  --shadow-surface: 0 1px 3px rgba(15, 23, 42, 0.05);
   --paper: #ffffff;
   --ink: #111827;
   --muted: #667085;
@@ -8993,19 +8986,6 @@ input:disabled {
   }
 }
 
-/*
- * Surface separation: the page stays one tone darker than white, and only the
- * primary working surface of each screen lifts with a hairline shadow. Repeated
- * rows, findings, controls and nested blocks stay flat.
- */
-.workspace .file-list,
-.workspace .qa-overview,
-.workspace .extract-table-wrap,
-.workspace .polish-results,
-.workspace .aggregation-preview-wrap {
-  box-shadow: var(--shadow-surface);
-}
-
 
 /*
  * ── Finish pass: same structure, tighter details ─────────────────────────
@@ -9235,31 +9215,61 @@ button.law-search-button:disabled,
 }
 
 /*
- * ── Depth: Canvas → Surface → Floating ──────────────────────────────────
- * Canvas (--canvas) is the workspace backdrop. Surfaces are white work
- * areas separated from it by colour and one subtle hairline, never by a
- * shadow. Only UI that genuinely sits above the page (popover, toast, the
- * drawer that overlays results) gets elevation, from exactly two tokens.
- * These are the only shadow values the app uses; the older --shadow-panel,
- * --shadow-raise and --shadow-surface now resolve to none.
+ * ── Depth: Canvas → Surface → Primary CTA → Floating ─────────────────────
+ * The only shadow values in the app. Canvas (--canvas) is flat. Top-level
+ * work surfaces sit one hairline above it (colour + border + a barely-there
+ * --elevation-surface); primary CTAs reuse that same value so they read as
+ * pressable. Only UI that genuinely floats (toast, popover, overlay drawer)
+ * uses --elevation-floating / --elevation-overlay. Legacy names alias these.
  */
 :root {
   --border-surface: #e2e7ee;
+  --elevation-surface: 0 1px 2px rgba(15, 23, 42, 0.05);
   --elevation-floating: 0 4px 12px rgba(15, 23, 42, 0.10), 0 1px 3px rgba(15, 23, 42, 0.06);
   --elevation-overlay: 0 12px 32px rgba(15, 23, 42, 0.16), 0 2px 6px rgba(15, 23, 42, 0.08);
   --shadow-panel: none;
   --shadow-raise: none;
-  --shadow-surface: none;
+  --shadow-surface: var(--elevation-surface);
   --shadow-float: var(--elevation-floating);
 }
 
-/* Level 1 — Surface: colour + hairline. */
+/* Level 1 — Surface: colour + hairline + the surface elevation, top-level only. */
 .workspace .file-list,
-.workspace .results-panel,
 .workspace > .analysis-results-panel,
-.workspace .dropzone:not(.compact),
-.settings-surface {
+.workspace .qa-overview,
+.workspace .extract-table-wrap,
+.workspace .polish-results,
+.workspace .polish-text-results,
+.workspace .aggregation-preview-wrap,
+.workspace > .settings-surface {
   border-color: var(--border-surface);
+  box-shadow: var(--elevation-surface);
+}
+
+/* Upload boxes keep their dashed interaction border (see below) and take only the lift. */
+.workspace .dropzone:not(.compact),
+.pdf-tool .pdf-tool-upload,
+.image-tool-upload {
+  box-shadow: var(--elevation-surface);
+}
+
+/* Primary CTAs: the same slight lift; hover only darkens, pressing flattens, disabled stays flat. */
+.file-add,
+.dropzone:not(.compact) button,
+.operation-actions button:last-child,
+.extract-run,
+.law-search-button,
+.tool-export-button,
+.extract-download-primary,
+.image-tool-upload button,
+.pdf-tool .pdf-tool-button-primary {
+  box-shadow: var(--elevation-surface);
+}
+
+:is(.file-add, .dropzone:not(.compact) button, .operation-actions button:last-child, .extract-run, .law-search-button,
+  .tool-export-button, .extract-download-primary, .image-tool-upload button, .pdf-tool .pdf-tool-button-primary):active,
+:is(.file-add, .dropzone:not(.compact) button, .operation-actions button:last-child, .extract-run, .law-search-button,
+  .tool-export-button, .extract-download-primary, .image-tool-upload button, .pdf-tool .pdf-tool-button-primary):disabled {
   box-shadow: none;
 }
 
@@ -9287,4 +9297,107 @@ button.law-search-button:disabled,
   background: var(--paper);
   box-shadow: var(--elevation-floating);
   color: var(--ink-soft, var(--ink));
+}
+
+/*
+ * Upload CTAs (파일 추가 · PDF 추가 · 이미지 추가) share the file-upload button's text.
+ * The PDF tool sets every button's text with !important, so the upload button opts out here;
+ * each button keeps its own height, padding and colour.
+ */
+.dropzone:not(.compact) button,
+.image-tool-upload button,
+.pdf-tool .pdf-tool-upload-button {
+  font-size: var(--font-size-md) !important;
+  font-weight: var(--font-weight-semibold) !important;
+  line-height: 1.5;
+}
+
+/* Keep the image and PDF buttons at their previous heights now that the text is larger. */
+.image-tool-upload button {
+  height: 40px;
+  padding-block: 0;
+}
+
+.pdf-tool .pdf-tool-upload-button {
+  padding-block: 0;
+}
+
+@media (max-width: 700px) {
+  .pdf-tool .pdf-tool-upload-button {
+    min-height: 40px;
+  }
+}
+
+/*
+ * ── Status feedback ─────────────────────────────────────────────────────
+ * One-off results float at the viewport's top right, below the header, over
+ * any card. Errors and warnings sit on the neutral surface; their colour is
+ * the thin left accent and the title only.
+ */
+.transient-status-anchor {
+  position: static;
+  height: 0;
+}
+
+.transient-status {
+  position: fixed;
+  top: 76px;
+  right: 24px;
+  z-index: var(--z-inspector);
+}
+
+@media (max-width: 700px) {
+  .transient-status {
+    top: 12px;
+    right: 12px;
+    max-width: calc(100vw - 24px);
+  }
+}
+
+.status-panel.error,
+.status-panel.warning {
+  --status-surface: var(--paper);
+  --status-border: var(--border-surface);
+}
+
+.status-panel.error > strong {
+  color: var(--critical);
+}
+
+.status-panel.warning > strong {
+  color: var(--warning);
+}
+
+/* Visually hidden but announced; must win over layout rules such as the mobile notice width. */
+.sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  max-width: 1px !important;
+  height: 1px !important;
+  margin: -1px !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  clip: rect(0 0 0 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+/*
+ * Upload boxes share one interaction model (file, PDF, image): a neutral dashed
+ * outline at rest, the WorkLens blue dashed outline on hover or keyboard focus
+ * inside, and blue plus a soft tint while files are dragged over.
+ */
+.dropzone:not(.compact) {
+  border: 1px dashed var(--dropzone-border);
+}
+
+.dropzone:not(.compact):hover,
+.dropzone:not(.compact):focus-within {
+  border-color: var(--blue);
+  background: var(--paper);
+}
+
+.dropzone:not(.compact).drag-active {
+  border-color: var(--blue);
+  background: var(--blue-soft);
 }
