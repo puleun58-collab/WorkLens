@@ -446,7 +446,10 @@ export default function Home() {
       setNotice({ tone: "success", message: `${file.name} 분석이 완료되었습니다.`, scope: "workspace", srOnly: true });
     } catch (error) {
       const failure = error as ApiError;
-      notifyWorkspace("error", failure.message ?? "파일을 처리하지 못했습니다.", failure.detail);
+      // Only WorkLens errors (string code) carry user copy; a browser exception such as a
+      // DOMException from File.arrayBuffer() would otherwise leak English internals.
+      const ours = typeof failure?.code === "string";
+      notifyWorkspace("error", ours && failure.message ? failure.message : "파일을 읽지 못했습니다.", ours ? failure.detail : "파일이 이동·삭제되지 않았는지 확인한 뒤 다시 추가해 주세요.");
     } finally {
       setUploading(false);
     }

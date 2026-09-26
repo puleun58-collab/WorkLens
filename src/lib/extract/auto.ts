@@ -129,8 +129,15 @@ function looksLikeHeaderRow(label: string, value: string): boolean {
 function tableRecords(block: TableBlock, index: number, displayTitle?: string): ExtractedRecords | undefined {
   const [header, ...body] = block.rows;
   if (!header || body.length < RECORD_MIN_ROWS || header.length < 3) return undefined;
-  const columns = header.map((cell, column) => cell.display.trim() || `열 ${column + 1}`);
-  if (new Set(columns.map(labelKey)).size !== columns.length) return undefined;
+  // Duplicate headings (e.g. two 금액 columns) are numbered, never a reason to drop the table:
+  // falling back to label/value pairs would silently lose every column after the second.
+  const seen = new Map<string, number>();
+  const columns = header.map((cell, column) => {
+    const name = cell.display.trim() || `열 ${column + 1}`;
+    const count = (seen.get(labelKey(name)) ?? 0) + 1;
+    seen.set(labelKey(name), count);
+    return count > 1 ? `${name} (${count})` : name;
+  });
   const validRows = body.filter((row) => row.filter((cell) => cell.display.trim() !== "").length >= 2);
   if (validRows.length < RECORD_MIN_ROWS) return undefined;
   return {
@@ -209,13 +216,22 @@ export function autoExtract(
       records.push(asRecords);
       continue;
     }
-    // Two-column tables carry explicit key/value pairs.
+    // Key/value tables: the first two cells form a pair, and further pairs placed side by
+    // side after an empty separator cell (label | value | · | label | value) are read too.
     for (const row of block.rows) {
       if (row.length < 2) continue;
       const label = row[0].display.trim();
       const value = row[1].display.trim();
       if (looksLikeHeaderRow(label, value)) continue;
       addCandidate(label, value, row[1].source, `${label}: ${value}`, "key-value-table");
+      for (let index = 2; index + 2 < row.length; index += 1) {
+        if (row[index].display.trim() !== "") continue;
+        const nextLabel = row[index + 1].display.trim();
+        const nextValue = row[index + 2].display.trim();
+        if (!nextLabel || !nextValue) continue;
+        addCandidate(nextLabel, nextValue, row[index + 2].source, `${nextLabel}: ${nextValue}`, "key-value-table");
+        index += 2;
+      }
     }
   }
 

@@ -42,8 +42,9 @@ describe("buildComparison", () => {
     const added = result.items.filter((item) => item.category === "Added").map((item) => item.current);
     const removed = result.items.filter((item) => item.category === "Removed").map((item) => item.previous);
 
-    expect(added).toContain("INCHEON");
-    expect(removed).toContain("DAEGU");
+    // The whole row is reported, not only its key cell (the amount used to be dropped).
+    expect(added).toContain("INCHEON · 60000");
+    expect(removed).toContain("DAEGU · 70000");
     expect(result.summary.total).toBe(result.items.length);
     expect(result.summary.added).toBe(1);
     expect(result.summary.removed).toBe(1);

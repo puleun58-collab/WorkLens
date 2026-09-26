@@ -101,6 +101,8 @@ interface KeyedRow {
 }
 
 const cellText = (cell: TableCell): string => cell.display.trim();
+/** An added/removed row is reported with all of its content, not just its key cell. */
+const rowText = (cells: readonly TableCell[]): string => cells.map(cellText).filter(Boolean).join(" · ");
 
 const rowKey = (cells: TableCell[]): string | undefined => {
   const first = cells.find((cell) => cellText(cell) !== "");
@@ -440,7 +442,7 @@ const compareTable = (
       results.push({
         category: "Added",
         label: key,
-        current: key,
+        current: rowText(currentRow.cells) || key,
         sources: { current: currentRow.cells[0]?.source ?? current.source },
       });
       continue;
@@ -515,7 +517,7 @@ const compareTable = (
       results.push({
         category: "Removed",
         label: key,
-        previous: key,
+        previous: rowText(baseRow.cells) || key,
         sources: { base: baseRow.cells[0]?.source ?? base.source },
       });
     }

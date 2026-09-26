@@ -9453,7 +9453,7 @@ p.image-tool-notice.is-error::before,
 .decision-feedback[role="alert"]::before,
 .law-detail-feedback[role="alert"]::before,
 p.law-search-error.law-operation-error::before {
-  content: "!";
+  content: "!" / "";
   position: absolute;
   top: 13px;
   left: 16px;
@@ -9502,3 +9502,10 @@ div.status-panel.error p {
 .pdf-tool-notice.pdf-tool-notice-error button { color: var(--ink-soft); font-weight: 600; }
 p.image-tool-notice.is-error { text-align: left; }
 div.status-panel.error > strong { font-size: 14px; line-height: 1.5; }
+
+/* A long unbroken term wraps inside its chip instead of widening the page. */
+.dictionary-term {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
