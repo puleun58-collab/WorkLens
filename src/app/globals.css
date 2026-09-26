@@ -9509,3 +9509,24 @@ div.status-panel.error > strong { font-size: 14px; line-height: 1.5; }
   max-width: 100%;
   overflow-wrap: anywhere;
 }
+
+/* Blue guidance surfaces, two steps: guide TIP (clearer) > check 수정 제안 (lighter). Info only: no shadow, hover or pointer. */
+.usage-guide-tip {
+  border: 1px solid #d3e3fb;
+  background: #e6f0fe;
+  box-shadow: none;
+}
+.usage-guide-tip b { color: var(--blue-active); }
+.check-results .check-recommendation {
+  padding: 8px 10px;
+  border: 1px solid #e1ebfa;
+  border-radius: var(--radius-control);
+  background: var(--blue-pale);
+  box-shadow: none;
+  cursor: default;
+}
+.check-results .check-recommendation .check-field-label {
+  color: var(--blue-active);
+  font-weight: var(--font-weight-semibold);
+}
+.check-results .check-recommendation p { color: var(--ink); }
