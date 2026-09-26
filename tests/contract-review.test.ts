@@ -137,6 +137,26 @@ describe("other business contract types, paraphrases and broken layout", () => {
   });
 });
 
+describe("documents without article numbers", () => {
+  it("folds a bare heading into the sentence it titles, so one clause raises one issue", () => {
+    const text = "서비스 이용 계약\n소프트웨어 서비스 이용계약\n면책\n회사는 고의 또는 중대한 과실이 없는 한 손해에 책임지지 않는다.";
+    const clauses = splitClauses(text);
+    expect(clauses).toEqual([{ title: "면책", text: "회사는 고의 또는 중대한 과실이 없는 한 손해에 책임지지 않는다." }]);
+    expect(reviewClauses(clauses, classifyDocument(text)).flatMap((clause) => clause.issues.map((issue) => issue.id))).toEqual(["exemption"]);
+  });
+
+  it("pairs several headings with their own bodies", () => {
+    const text = ["소프트웨어 서비스 이용계약", "계약기간", "별도 통지가 없으면 계약은 1년 자동 연장한다.", "자동갱신",
+      "종료 의사 표시가 없으면 계약기간이 연장된다.", "해지", "이용자는 계약기간 중 해지할 수 없다.", "면책", "제공자는 일체의 책임을 지지 않는다."].join("\n");
+    expect(splitClauses(text).map((clause) => clause.title)).toEqual(["계약기간", "자동갱신", "해지", "면책"]);
+  });
+
+  it("keeps short statements, amounts, check marks and a trailing heading as their own lines", () => {
+    expect(splitClauses("을은 동의한다.\n보증금 1,000,000원\n□ 확인\n비고").map((clause) => clause.text))
+      .toEqual(["을은 동의한다.", "보증금 1,000,000원", "□ 확인", "비고"]);
+  });
+});
+
 describe("relevance gates", () => {
   const b2b = classifyDocument(B2B_SERVICE_CONTRACT);
   const lease = classifyDocument(LEASE_CONTRACT);

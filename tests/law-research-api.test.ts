@@ -2,6 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { POST } from "@/app/api/law/research/route";
 import { LAW_RESEARCH_BODY_MAX_BYTES, LAW_RESEARCH_DOCUMENT_MAX_CHARS } from "@/lib/law-research";
 
+// These tests pin the single legal_research call; follow-up relevance lookups have their own tests
+// (research-relevance.test.ts), and a failed enrichment must leave the answer exactly as the MCP gave it.
+vi.mock("@/server/research-enrichment", () => ({
+  mcpEnrichmentSources: () => ({}),
+  enrichResearch: () => Promise.reject(new Error("enrichment disabled in route tests")),
+}));
+
 const KEY = "test-law-key-1234";
 const ENDPOINT = "https://mcp.example.test/law";
 const query = "직장 내 괴롭힘 판단 기준";

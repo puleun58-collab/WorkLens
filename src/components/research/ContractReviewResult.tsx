@@ -16,6 +16,8 @@ function statusNote(kind: "법령" | "판례", status: SourceStatus): string | n
       ? "현재 검색 범위에서 직접 관련성이 높은 판례를 확인하지 못했습니다."
       : "현재 검색 범위에서 직접 관련된 조문을 확인하지 못했습니다.";
   }
+  // Deliberately skipped (the document's area of law excludes this source): not "none", not "failed".
+  if (status === "not_searched") return `관련 ${kind} 검색은 수행하지 않았습니다.`;
   return null;
 }
 
