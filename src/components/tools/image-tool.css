@@ -33,7 +33,6 @@
 .image-tool-upload:hover { border-color: var(--blue); }
 .image-tool-upload[data-drag-active="true"] { border-color: var(--blue); background: var(--blue-soft); }
 .image-tool-upload > svg { width: 24px; height: 24px; margin-bottom: 7px; color: #a1aec0; }
-.image-tool-upload strong { font-size: 15px; }
 .image-tool-upload span { color: var(--muted); font-size: 13px; margin-top: 3px; }
 .image-tool-upload button { margin-top: 12px; padding: 9px 15px; border: 1px solid var(--blue); border-radius: 4px; background: var(--blue); color: #fff; font-size: 13px; font-weight: 600; }
 .image-tool-upload button:hover:not(:disabled) { background: var(--blue-hover); }

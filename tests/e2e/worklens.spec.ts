@@ -139,7 +139,7 @@ test("uploads XLSX files, compares them and shows source evidence", async ({ pag
   await page.getByLabel("운임현황_v1.xlsx 선택").check();
   await page.getByLabel("운임현황_v2.xlsx 선택").check();
   await page.getByRole("button", { name: "비교", exact: true }).click();
-  await expect(page.getByText("두 파일의 추가·삭제·변경된 내용을 비교합니다.", { exact: true })).toBeVisible();
+  await expect(page.getByText("두 파일의 추가·삭제·변경된 내용을 비교합니다.", { exact: true })).toHaveCount(0);
   await expect(page.getByText("첫 번째로 선택한 파일이 기준 파일입니다.", { exact: true })).toHaveCount(0);
   await expect(page.getByLabel("현재 비교 방향")).toHaveCount(0);
   const swap = page.getByRole("button", { name: "기준/대상 바꾸기" });
@@ -231,7 +231,7 @@ test("shows the swap action only for exactly two version files", async ({ page }
 
   await page.getByRole("radio", { name: "값 일치 확인" }).check();
   await expect(swap).toHaveCount(0);
-  await expect(page.getByText("여러 파일의 동일 항목과 값 차이를 확인합니다.", { exact: true })).toBeVisible();
+  await expect(page.getByText("여러 파일의 동일 항목과 값 차이를 확인합니다.", { exact: true })).toHaveCount(0);
 
   await page.getByRole("radio", { name: "버전 비교" }).check();
   await page.setViewportSize({ width: 390, height: 844 });
@@ -518,7 +518,7 @@ test("scales value checks from two-file columns to compact multi-file rows", asy
   }
   await page.getByRole("button", { name: "비교", exact: true }).click();
   await page.getByRole("radio", { name: "값 일치 확인" }).check();
-  await expect(page.getByText("여러 파일의 동일 항목과 값 차이를 확인합니다.", { exact: true })).toBeVisible();
+  await expect(page.getByRole("radio", { name: "값 일치 확인" })).toBeChecked();
   await page.getByRole("button", { name: "비교 실행" }).click();
 
   const panel = page.locator(".value-check-panel");
@@ -1000,8 +1000,8 @@ test("presents text Polish as an immediate original-to-revision workflow", async
   expect(surface).toMatchObject({
     resultBackground: "rgb(255, 255, 255)",
     resultBorder: "1px",
-    // The primary result surface lifts by the shared hairline shadow only.
-    resultShadow: "rgba(15, 23, 42, 0.05) 0px 1px 3px 0px",
+    // Surfaces separate from the canvas by colour and a hairline border; shadows belong to floating UI only.
+    resultShadow: "none",
     cardBackground: "rgb(247, 249, 252)",
     cardBorder: "1px",
     revisionBackground: "rgb(239, 246, 255)",
@@ -1706,7 +1706,7 @@ test("reviews PPTX writing, consistency and data findings with filters and exact
     };
   });
   expect(overviewStyle.width).toBeLessThanOrEqual(450);
-  expect(overviewStyle).toMatchObject({ background: "rgb(255, 255, 255)", borderWidth: "1px", boxShadow: "rgba(15, 23, 42, 0.05) 0px 1px 3px 0px" });
+  expect(overviewStyle).toMatchObject({ background: "rgb(255, 255, 255)", borderWidth: "1px", boxShadow: "none" });
   expect(await overview.locator(".qa-summary-line span").nth(1).evaluate((element) => getComputedStyle(element).borderLeftWidth)).toBe("1px");
   await expect(page.getByText("낮은 확신 포함")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "용어 사전" })).toBeVisible();

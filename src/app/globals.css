@@ -3502,28 +3502,6 @@ input:disabled,
   gap: var(--space-5);
 }
 
-.compare-controls > p {
-  margin: 0;
-  color: var(--muted);
-  font-size: var(--font-size-sm);
-}
-
-.operation-bar .compare-swap-action {
-  min-height: 32px;
-  padding-inline: 9px;
-  border-color: var(--line-strong);
-  background: var(--paper);
-  box-shadow: none;
-  color: var(--blue);
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-semibold);
-}
-
-.operation-bar .compare-swap-action:hover:not(:disabled) {
-  border-color: var(--blue);
-  background: var(--blue-pale);
-}
-
 .value-check-toolbar {
   padding: 12px var(--panel-inset);
   border-bottom: 1px solid var(--line);
@@ -7796,14 +7774,6 @@ input:disabled {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .compare-controls > p {
-    min-width: 0;
-  }
-
-  .operation-bar .compare-swap-action {
-    min-height: 36px;
-  }
-
   .comparison-file-map {
     padding-right: 16px;
     padding-left: 16px;
@@ -8735,10 +8705,14 @@ input:disabled {
   background: var(--blue-pale);
 }
 
-.dropzone:not(.compact) > div strong {
+/* Upload headings share one style: file, PDF and image upload zones. */
+.dropzone:not(.compact) > div strong,
+.pdf-tool-upload-copy strong,
+.image-tool-upload strong {
   color: var(--ink);
   font-size: var(--font-size-md);
   font-weight: var(--font-weight-semibold);
+  line-height: 1.5;
 }
 
 .dropzone:not(.compact) > div span {
@@ -9258,4 +9232,59 @@ button.law-search-button:disabled,
   .polish-mode-run {
     flex-wrap: wrap;
   }
+}
+
+/*
+ * ── Depth: Canvas → Surface → Floating ──────────────────────────────────
+ * Canvas (--canvas) is the workspace backdrop. Surfaces are white work
+ * areas separated from it by colour and one subtle hairline, never by a
+ * shadow. Only UI that genuinely sits above the page (popover, toast, the
+ * drawer that overlays results) gets elevation, from exactly two tokens.
+ * These are the only shadow values the app uses; the older --shadow-panel,
+ * --shadow-raise and --shadow-surface now resolve to none.
+ */
+:root {
+  --border-surface: #e2e7ee;
+  --elevation-floating: 0 4px 12px rgba(15, 23, 42, 0.10), 0 1px 3px rgba(15, 23, 42, 0.06);
+  --elevation-overlay: 0 12px 32px rgba(15, 23, 42, 0.16), 0 2px 6px rgba(15, 23, 42, 0.08);
+  --shadow-panel: none;
+  --shadow-raise: none;
+  --shadow-surface: none;
+  --shadow-float: var(--elevation-floating);
+}
+
+/* Level 1 — Surface: colour + hairline. */
+.workspace .file-list,
+.workspace .results-panel,
+.workspace > .analysis-results-panel,
+.workspace .dropzone:not(.compact),
+.settings-surface {
+  border-color: var(--border-surface);
+  box-shadow: none;
+}
+
+.topbar {
+  box-shadow: none;
+}
+
+/* Level 2 — Floating. */
+.dictionary-panel {
+  border-color: var(--border-default);
+  box-shadow: var(--elevation-floating);
+}
+
+@media (max-width: 900px) {
+  .evidence-inspector {
+    box-shadow: var(--elevation-overlay);
+  }
+}
+
+.transient-status {
+  top: -26px;
+  padding: 4px 10px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-button);
+  background: var(--paper);
+  box-shadow: var(--elevation-floating);
+  color: var(--ink-soft, var(--ink));
 }

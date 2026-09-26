@@ -19,7 +19,6 @@
 .pdf-tool-upload[data-drag-active="true"] { border-color: var(--blue); background: var(--blue-soft); }
 .pdf-tool-upload-mark { display: grid; place-items: center; flex: none; height: 50px; width: 50px; background: #edf3fb; color: var(--blue); border-radius: 11px; font-size: 29px; font-weight: 300; }
 .pdf-tool-upload-copy { display: grid; gap: 6px; min-width: 0; flex: 1; }
-.pdf-tool-upload-copy strong { font-size: 14px; font-weight: 700; }
 .pdf-tool-upload-copy span { color: var(--muted); font-size: 13px; line-height: 1.5; }
 .pdf-tool-button { min-height: var(--control-height-md); display: inline-flex; align-items: center; justify-content: center; gap: 12px; border: 1px solid transparent; border-radius: var(--radius-control); padding: 9px 16px; font-weight: 700 !important; font-size: 13px !important; white-space: nowrap; transition: transform .23s cubic-bezier(.22,1,.36,1), background .23s cubic-bezier(.22,1,.36,1); }
 .pdf-tool-button:active:not(:disabled) { transform: scale(.975); }

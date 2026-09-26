@@ -1939,9 +1939,6 @@ function CompareControls({ mode, busy, onMode }: {
           ))}
         </fieldset>
       </div>
-      <p>{mode === "version"
-        ? "두 파일의 추가·삭제·변경된 내용을 비교합니다."
-        : "여러 파일의 동일 항목과 값 차이를 확인합니다."}</p>
     </div>
   );
 }
