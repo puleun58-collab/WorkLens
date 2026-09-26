@@ -7,19 +7,20 @@
 
 .usage-guide-tabs {
   display: flex;
-  gap: 4px;
+  gap: 2px;
   padding: 4px;
   overflow-x: auto;
   border: 1px solid var(--border-default);
   border-radius: 8px;
-  background: var(--paper);
+  background: #f3f6fa;
   scrollbar-width: none;
 }
 
 .usage-guide-tabs button {
+  position: relative;
   flex: 0 0 auto;
   min-height: 36px;
-  padding: 0 14px;
+  padding: 0 16px;
   border: 1px solid transparent;
   border-radius: 6px;
   background: transparent;
@@ -29,16 +30,35 @@
   cursor: pointer;
 }
 
+/* Short hairline between neighbours; hidden next to hover/active pills. */
+.usage-guide-tabs button + button::before {
+  content: "";
+  position: absolute;
+  top: 11px;
+  bottom: 11px;
+  left: -2px;
+  width: 1px;
+  background: var(--border-default);
+}
+
+.usage-guide-tabs button:hover::before,
+.usage-guide-tabs button:hover + button::before,
+.usage-guide-tabs button[aria-selected="true"]::before,
+.usage-guide-tabs button[aria-selected="true"] + button::before {
+  opacity: 0;
+}
+
 .usage-guide-tabs button:hover {
   color: var(--ink);
-  background: var(--blue-pale);
+  background: #e8edf4;
 }
 
 .usage-guide-tabs button[aria-selected="true"] {
-  border-color: var(--blue-line, #bfd3f6);
-  background: var(--blue-soft);
+  border-color: var(--blue);
+  background: var(--paper);
   color: var(--blue-active);
   font-weight: var(--font-weight-semibold);
+  box-shadow: var(--elevation-active, 0 1px 2px rgb(15 23 42 / 0.06));
 }
 
 .usage-guide-tabs button:focus-visible {
@@ -335,14 +355,15 @@
   margin: 0;
   padding: 10px 12px;
   border-radius: 6px;
-  background: var(--blue-pale);
-  color: var(--ink-soft, var(--ink));
+  background: var(--blue-soft);
+  color: var(--ink);
   font-size: var(--font-size-sm);
 }
 
 .usage-guide-tip b {
   flex: 0 0 auto;
   color: var(--blue);
+  font-weight: 800;
   font-size: 11px;
   letter-spacing: 0.06em;
   line-height: 20px;

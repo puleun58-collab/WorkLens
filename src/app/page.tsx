@@ -1266,6 +1266,21 @@ export default function Home() {
             );
           })}
         </ul>
+        <p className="rail-group-label rail-tools-label">RESEARCH</p>
+        <ul className="rail-list rail-tools-list">
+          <li>
+            <button
+              type="button"
+              className={shellView === "Law" ? "rail-item active" : "rail-item"}
+              aria-current={shellView === "Law" ? "page" : undefined}
+              aria-label="법령"
+              onClick={() => { setDetail(null); detailTrigger.current = null; setShellView("Law"); }}
+            >
+              <Scale size={20} strokeWidth={1.75} aria-hidden="true" />
+              <span>법령</span>
+            </button>
+          </li>
+        </ul>
         <p className="rail-group-label rail-tools-label">TOOLS</p>
         <ul className="rail-list rail-tools-list">
           {([
@@ -1285,21 +1300,6 @@ export default function Home() {
               </button>
             </li>
           ))}
-        </ul>
-        <p className="rail-group-label rail-tools-label">RESEARCH</p>
-        <ul className="rail-list rail-tools-list">
-          <li>
-            <button
-              type="button"
-              className={shellView === "Law" ? "rail-item active" : "rail-item"}
-              aria-current={shellView === "Law" ? "page" : undefined}
-              aria-label="법령"
-              onClick={() => { setDetail(null); detailTrigger.current = null; setShellView("Law"); }}
-            >
-              <Scale size={20} strokeWidth={1.75} aria-hidden="true" />
-              <span>법령</span>
-            </button>
-          </li>
         </ul>
         <div className="rail-footer">
           {(["Guide", "Dictionary", "Settings"] as const).map((view) => {
