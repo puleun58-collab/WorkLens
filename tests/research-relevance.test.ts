@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { orderByRelevance, questionTerms, rankPrecedent, titleMatches } from "@/lib/research-relevance";
-import { enrichResearch, type EnrichmentSources } from "@/server/research-enrichment";
+import { enrichResearch, precedentEvidence, type EnrichmentSources } from "@/server/research-enrichment";
 
 /** A full_research answer shaped like the live one for "직장 내 괴롭힘 판단 기준". */
 const HARASSMENT = [
@@ -47,7 +47,9 @@ describe("precedent relevance for 종합 리서치", () => {
 
   it("ranks by the 판시사항, not the case title", () => {
     expect(rankPrecedent(terms, { title: "손해배상(기)", summary: "직장 내 괴롭힘으로 인한 손해배상책임" }).rank).toBe("direct");
-    expect(rankPrecedent(terms, { title: "직장 내 괴롭힘 손해배상", summary: "부당이득반환청구권의 소멸시효" }).rank).toBe("direct");
+    // The title is a candidate signal, not evidence: a matching case name with an unrelated holding is low.
+    expect(rankPrecedent(terms, { title: "직장 내 괴롭힘 손해배상", summary: "부당이득반환청구권의 소멸시효" })).toEqual({ rank: "low", matched: [] });
+    expect(rankPrecedent(terms, { title: "직장 내 괴롭힘", summary: "=== 직장 내 괴롭힘 ===\n【원고】 이사장 직무집행 방해", excerpt: true }).rank).toBe("low");
     expect(rankPrecedent(terms, { title: "부당이득금반환", summary: "부당이득반환청구권의 소멸시효 기산점" }).rank).toBe("low");
   });
 
@@ -59,6 +61,21 @@ describe("precedent relevance for 종합 리서치", () => {
 
   it("never demotes a case it could not read", () => {
     expect(rankPrecedent(terms, { title: "해고무효확인" }).rank).toBe("unknown");
+    // Not even a title that matches every term promotes an unread case.
+    expect(rankPrecedent(terms, { title: "직장 내 괴롭힘 판단" })).toEqual({ rank: "unknown", matched: [] });
+  });
+
+  it("does not take a filed 주문 for a holding; it falls back to the judgment opening", () => {
+    const title = "임대차보증금 반환청구권만을 양수한 자는 임차권 등기에 관하여 권리가 없음";
+    const text = `=== ${title} ===\n\n판결요지:\n1. 원고의 소를 모두 각하한다.\n2. 소송비용은 원고가 부담한다.\n\n전문:\n원고는 피고의 임대차보증금을 양수한 자로서 반환을 구한다.`;
+    const evidence = precedentEvidence({ text, sections: [
+      { heading: "판결요지", text: "1. 원고의 소를 모두 각하한다.\n2. 소송비용은 원고가 부담한다." },
+      { heading: "전문", text: "원고는 피고의 임대차보증금을 양수한 자로서 반환을 구한다." },
+    ] })!;
+    expect(evidence.excerpt).toBe(true);
+    // Capped at related, and the title repeated in the opening is not counted.
+    expect(rankPrecedent(questionTerms("임대차 보증금 반환"), { title, summary: evidence.text, excerpt: evidence.excerpt }).rank).toBe("related");
+    expect(precedentEvidence({ text: "x", sections: [{ heading: "판시사항", text: "[1] 위약금 감액 여부" }] })).toEqual({ text: "[1] 위약금 감액 여부", excerpt: false });
   });
 
   it("orders direct, related, unknown, low and keeps upstream order within a rank", () => {
@@ -95,11 +112,12 @@ describe("title-matched article lookup", () => {
     const sources = fakeSources({
       async laws(query) { return query === "건축법" ? [{ name: "건축법", mst: "m1" }] : []; },
       async toc() { return [{ jo: "제79조", title: "위반 건축물 등에 대한 조치 등" }, { jo: "제80조", title: "이행강제금" }]; },
-      async article(_mst, jo) { return { text: `${jo}(이행강제금) ① 허가권자는 …`, effectiveDate: "20250101" }; },
+      // Live shape: a `제80조 이행강제금` label line, then the heading carrying the first paragraph.
+      async article(_mst, jo) { return { text: `법령명: 건축법\n\n${jo} 이행강제금\n${jo}(이행강제금) ① 허가권자는 …\n② 부과한다.`, effectiveDate: "20250101" }; },
     });
     const enrichment = await enrichResearch("action_basis", "건축법 이행강제금", "═══ 처분 근거 확인: 건축법 ═══\n", sources);
     expect(enrichment.supplement).toMatchObject({ status: "found", articles: [{ law: "건축법", jo: "제80조", title: "이행강제금", matched: ["이행강제금"] }] });
-    expect(enrichment.supplement!.articles[0].excerpt).toContain("허가권자는");
+    expect(enrichment.supplement!.articles[0].excerpt).toBe("① 허가권자는 …\n② 부과한다.");
   });
 
   it("finds laws through a question term when no law is named, and skips articles the answer already shows", async () => {

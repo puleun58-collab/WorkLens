@@ -23,15 +23,27 @@ export interface EnrichmentSources {
 }
 
 const SUMMARY_HEADINGS = new Set(["판시사항", "판결요지", "결정요지", "참조조문"]);
+/** `주문` lines some sources file under 판결요지: they decide the case but say nothing about the issue. */
+const DISPOSITION_LINE = /(?:각하한다|기각한다|인용한다|취소한다|환송한다|부담한다|지급하라|이행하라)\.?\s*$/u;
+const isDisposition = (text: string) => text.split(/\r?\n/u).filter((line) => line.trim()).every((line) => DISPOSITION_LINE.test(line));
+
+/**
+ * What a precedent's text offers as relevance evidence: its summary sections,
+ * or — when there are none, or only a filed 주문 — the judgment opening.
+ */
+export function precedentEvidence(result: { text: string; sections?: Array<{ heading: string; text: string }> }): { text: string; excerpt: boolean } | undefined {
+  const text = (result.sections ?? [])
+    .filter((section) => SUMMARY_HEADINGS.has(section.heading) && !isDisposition(section.text))
+    .map((section) => section.text).join("\n");
+  if (text.trim()) return { text: lawDisplayText(text), excerpt: false };
+  return result.text.trim() ? { text: lawDisplayText(result.text), excerpt: true } : undefined;
+}
 
 export function mcpEnrichmentSources(context: Context): EnrichmentSources {
   return {
     async summary(id) {
       const result = await getDecisionText("precedent", id, undefined, context);
-      if (!result.found) return undefined;
-      const text = (result.sections ?? []).filter((section) => SUMMARY_HEADINGS.has(section.heading)).map((section) => section.text).join("\n");
-      if (text.trim()) return { text: lawDisplayText(text), excerpt: false };
-      return result.text.trim() ? { text: lawDisplayText(result.text), excerpt: true } : undefined;
+      return result.found ? precedentEvidence(result) : undefined;
     },
     async laws(query) {
       const result = await searchLaw(query, context);
@@ -70,8 +82,10 @@ async function pool<T>(items: readonly T[], worker: (item: T) => Promise<void>, 
 
 function articleExcerpt(text: string, jo: string): string {
   const lines = text.split(/\r?\n/u).map((line) => line.trim());
-  const head = lines.findIndex((line) => new RegExp(`^${jo}(?:\\s|\\(|$)`, "u").test(line));
-  // `제80조(이행강제금) ① …` may carry the first paragraph on the heading line itself.
+  const heading = new RegExp(`^${jo}(?:\\s|\\(|$)`, "u");
+  // Upstream prints a `제80조 이행강제금` label, then `제80조(이행강제금) ① …`; the body starts after the last heading line.
+  let head = lines.findIndex((line) => heading.test(line));
+  while (head >= 0 && heading.test(lines[head + 1] ?? "")) head++;
   const first = head < 0 ? [] : [lines[head].slice(jo.length).replace(/^\s*\([^)]*\)\s*/u, "")];
   const body = [...first, ...(head < 0 ? lines : lines.slice(head + 1))].filter(Boolean).join("\n");
   const shown = lawDisplayText(body);
