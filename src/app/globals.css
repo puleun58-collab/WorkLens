@@ -9418,3 +9418,87 @@ button.law-search-button:disabled,
   justify-content: center;
   line-height: 1;
 }
+
+/*
+ * Operation/file error box, one look everywhere: pale red surface, thin full
+ * red border, a small red "!" disc, red title, neutral description aligned to
+ * the title. No shadow, no left bar. Field validation and empty/NOT_FOUND
+ * states do not use it.
+ */
+div.status-panel.error,
+.pdf-tool-notice.pdf-tool-notice-error,
+p.image-tool-notice.is-error,
+.decision-feedback[role="alert"],
+.law-detail-feedback[role="alert"],
+p.law-search-error.law-operation-error {
+  --error-border: #f2b8b5;
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 0;
+  margin-top: 12px;
+  padding: 12px 16px 12px 44px;
+  border: 1px solid var(--error-border);
+  border-radius: 6px;
+  background: var(--critical-soft);
+  box-shadow: none;
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+div.status-panel.error::before,
+.pdf-tool-notice.pdf-tool-notice-error::before,
+p.image-tool-notice.is-error::before,
+.decision-feedback[role="alert"]::before,
+.law-detail-feedback[role="alert"]::before,
+p.law-search-error.law-operation-error::before {
+  content: "!";
+  position: absolute;
+  top: 13px;
+  left: 16px;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--critical);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+/* Title: the only red line. Single-message tools render their message as the title. */
+div.status-panel.error > strong,
+.pdf-tool-notice.pdf-tool-notice-error,
+p.image-tool-notice.is-error,
+.decision-feedback[role="alert"] .law-search-error,
+.law-detail-feedback[role="alert"] .law-search-error,
+p.law-search-error.law-operation-error {
+  color: var(--critical);
+  font-size: 14px;
+  font-weight: var(--font-weight-semibold);
+}
+
+div.status-panel.error p {
+  margin: 2px 0 0;
+  color: var(--ink-soft);
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.decision-feedback[role="alert"],
+.law-detail-feedback[role="alert"] {
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+}
+
+.decision-feedback[role="alert"] .law-search-error,
+.law-detail-feedback[role="alert"] .law-search-error { margin: 0; padding: 0; border: 0; background: none; }
+.decision-feedback[role="alert"] .law-search-link,
+.law-detail-feedback[role="alert"] .law-search-link { padding: 0; font-size: 13px; }
+.pdf-tool-notice.pdf-tool-notice-error button { color: var(--ink-soft); font-weight: 600; }
+p.image-tool-notice.is-error { text-align: left; }
+div.status-panel.error > strong { font-size: 14px; line-height: 1.5; }

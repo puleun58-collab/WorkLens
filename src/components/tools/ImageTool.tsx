@@ -156,7 +156,8 @@ export function ImageTool() {
           id: `image-${++idCounter.current}`, file, width: bitmap.width, height: bitmap.height,
           edits: initialImageEdits(), thumbnail,
         });
-      } catch (error) { errors.push(`${file.name}: ${errorMessage(error)}`); }
+      // Decoder exceptions are browser-internal English; the user gets the cause in plain Korean.
+      } catch { errors.push(`${file.name}: 손상되었거나 열 수 없는 이미지입니다.`); }
       finally { bitmap?.close(); }
     }
     if (alive.current) {

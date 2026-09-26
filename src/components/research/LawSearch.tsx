@@ -258,7 +258,7 @@ function LawPane({ onRelated, onAnalysis }: LawPaneProps) {
       <h2 id="law-results-heading">검색 결과{outcome?.kind === "found" ? ` · ${outcome.laws.length}건` : outcome?.kind === "empty" ? " · 0건" : ""}</h2>
       {searchLoading ? <p className="law-search-note" role="status">검색 중…</p>
         : !outcome ? null
-        : outcome.kind === "error" ? <p className="law-search-error" role="alert">{outcome.message}</p>
+        : outcome.kind === "error" ? <p className="law-search-error law-operation-error" role="alert">{outcome.message}</p>
         : outcome.kind === "empty" ? <p className="law-search-note" role="status">검색 결과가 없습니다. 다른 법령명이나 키워드로 검색해보세요.</p>
         : <ul className="law-search-list">
           {outcome.laws.map((law, index) => {

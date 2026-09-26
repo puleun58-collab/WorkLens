@@ -219,7 +219,7 @@ export function DecisionSearch({ linkedRequest, onReturnToLaw, onCiteCheck }: De
             {text.expandable === true && <button type="button" className="law-search-link" disabled={fullLoading} onClick={() => void loadDetail(selected, true)}>
               {fullLoading ? "전문 불러오는 중…" : "전문 보기"}
             </button>}
-            {fullError && <p className="law-search-error" role="alert">{fullError}</p>}
+            {fullError && <p className="law-search-error law-operation-error" role="alert">{fullError}</p>}
             <LawTextBlock className="decision-detail-raw" text={text.text} />
           </div> : null}
       </section>
@@ -245,7 +245,7 @@ export function DecisionSearch({ linkedRequest, onReturnToLaw, onCiteCheck }: De
       <h2 id="decision-results-heading">검색 결과{outcome?.kind === "found" && outcome.data.totalCount !== undefined ? ` · ${outcome.data.totalCount}건` : outcome?.kind === "missing" ? " · 0건" : ""}</h2>
       {searchLoading ? <p className="law-search-note" role="status">검색 중…</p>
         : !outcome ? null
-        : outcome.kind === "error" ? <p className="law-search-error" role="alert">{outcome.message}</p>
+        : outcome.kind === "error" ? <p className="law-search-error law-operation-error" role="alert">{outcome.message}</p>
         : outcome.kind === "missing" ? <p className="law-search-note" role="status">검색 결과가 없습니다. 다른 검색어로 검색해보세요.</p>
         : <>
           {outcome.data.entries.length > 0 ? <ul className="decision-search-list">

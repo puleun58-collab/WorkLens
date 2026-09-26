@@ -1352,9 +1352,9 @@ export default function Home() {
                   </>
                 ) : null}
               </span>
-              {files.length > 0 ? (
-                <span className="context-names" title={selectedNames || undefined}>
-                  {selectedNames || "선택 없음"}
+              {selectedNames ? (
+                <span className="context-names" title={selectedNames}>
+                  {selectedNames}
                 </span>
               ) : null}
             </div>
