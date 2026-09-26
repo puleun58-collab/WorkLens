@@ -38,7 +38,7 @@
   bottom: 11px;
   left: -2px;
   width: 1px;
-  background: var(--border-default);
+  background: var(--tab-divider-primary);
 }
 
 .usage-guide-tabs button:hover::before,

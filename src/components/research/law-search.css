@@ -68,7 +68,7 @@
 .law-view-tabs button { position: relative; flex: 1 1 0; display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 48px; padding: 0 20px; border: 1px solid transparent; border-radius: 10px; background: transparent; color: #5b6b82; font-size: var(--font-size-md); font-weight: 500; white-space: nowrap; }
 .law-view-tabs button svg { width: 20px; height: 20px; flex: none; color: #6b7a90; }
 /* Hairline dividers between inactive tabs only. */
-.law-view-tabs button + button::before { content: ""; position: absolute; left: 0; top: 14px; bottom: 14px; width: 1px; background: var(--border-surface, var(--line-soft)); }
+.law-view-tabs button + button::before { content: ""; position: absolute; left: 0; top: 14px; bottom: 14px; width: 1px; background: var(--tab-divider-primary); }
 .law-view-tabs button[aria-pressed="true"]::before, .law-view-tabs button[aria-pressed="true"] + button::before { display: none; }
 .law-view-tabs button:hover:not([aria-pressed="true"]) { color: var(--ink); }
 .law-view-tabs button[aria-pressed="true"] { border-color: var(--blue); background: var(--paper); color: var(--ink); font-weight: 600; box-shadow: var(--elevation-active); }
@@ -100,7 +100,7 @@
 /* Secondary tabs (검증·분석 modes): same family as the primary tabs, one step lighter. */
 .law-view-switch.legal-analysis-modes { gap: 0; padding: 0; border: 1px solid var(--border-surface, var(--line-soft)); border-radius: 8px; background: var(--paper); box-shadow: none; }
 .legal-analysis-modes button { position: relative; min-height: 36px; padding: 0 16px; border: 1px solid transparent; border-radius: 8px; color: #5b6b82; font-size: var(--font-size-sm); font-weight: 500; }
-.legal-analysis-modes button + button::before { content: ""; position: absolute; left: 0; top: 10px; bottom: 10px; width: 1px; background: var(--border-surface, var(--line-soft)); }
+.legal-analysis-modes button + button::before { content: ""; position: absolute; left: 0; top: 10px; bottom: 10px; width: 1px; background: var(--tab-divider-secondary); }
 .legal-analysis-modes button[aria-pressed="true"]::before, .legal-analysis-modes button[aria-pressed="true"] + button::before { display: none; }
 .legal-analysis-modes button:hover:not([aria-pressed="true"]) { color: var(--ink); }
 .legal-analysis-modes button[aria-pressed="true"] { border-color: #bcd0f5; background: var(--blue-pale, #f5f9ff); color: var(--ink); font-weight: 600; box-shadow: none; }

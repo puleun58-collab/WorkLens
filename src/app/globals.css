@@ -9547,3 +9547,9 @@ div.status-panel.error > strong { font-size: 14px; line-height: 1.5; }
   white-space: nowrap;
 }
 .context-actions { display: flex; align-items: center; gap: 12px; margin-left: auto; }
+
+/* Tab dividers: 1px hairlines; primary groups one step clearer than secondary. */
+:root {
+  --tab-divider-primary: #c9d3e1;
+  --tab-divider-secondary: #dde4ee;
+}
