@@ -104,6 +104,10 @@ export function LegalAnalysis({ linkedRequest, onReturn }: LegalAnalysisProps) {
     if (request && !loading) void run(request);
   }
 
+  const ACTION_HELP: Partial<Record<typeof mode, string>> = {
+    cite_check: "후속 판례의 인용을 역추적해 변경·폐기 신호를 확인합니다.",
+    applicable_law: "기준일은 행위·계약·처분 등 판단하려는 시점입니다.",
+  };
   const submitLabel = { verify_citations: "인용 검증", cite_check: "확인", applicable_law: "적용 법령 확인", impact_map: "영향도 확인" }[mode];
 
   return <div className="legal-analysis">
@@ -128,7 +132,7 @@ export function LegalAnalysis({ linkedRequest, onReturn }: LegalAnalysisProps) {
       {mode === "cite_check" && <>
         <label htmlFor="analysis-case">사건번호</label>
         <input id="analysis-case" type="text" value={caseNumber} maxLength={LAW_ANALYSIS_CASE_MAX_CHARS} placeholder="예: 2013다61381" autoComplete="off" onChange={(event) => setCaseNumber(event.target.value)} />
-        <p className="legal-analysis-help"><span>후속 판례의 인용을 역추적해 변경·폐기 신호를 확인합니다.</span></p>
+
       </>}
       {mode === "applicable_law" && <div className="legal-analysis-fields">
         <label htmlFor="analysis-applicable-law">법령명
@@ -140,7 +144,7 @@ export function LegalAnalysis({ linkedRequest, onReturn }: LegalAnalysisProps) {
         <label htmlFor="analysis-applicable-jo">조문 (선택)
           <input id="analysis-applicable-jo" type="text" value={applicable.jo} placeholder="예: 제44조" onChange={(event) => setApplicable({ ...applicable, jo: event.target.value })} />
         </label>
-        <p className="legal-analysis-help"><span>기준일은 행위·계약·처분 등 판단하려는 시점입니다.</span></p>
+
       </div>}
       {mode === "impact_map" && <div className="legal-analysis-fields legal-analysis-fields-2">
         <label htmlFor="analysis-impact-law">법령명
@@ -150,7 +154,8 @@ export function LegalAnalysis({ linkedRequest, onReturn }: LegalAnalysisProps) {
           <input id="analysis-impact-jo" type="text" value={impact.jo} placeholder="예: 제103조" onChange={(event) => setImpact({ ...impact, jo: event.target.value })} />
         </label>
       </div>}
-      <div className="legal-analysis-actions">
+      <div className="legal-analysis-actions legal-analysis-action-row">
+        {ACTION_HELP[mode] && <p className="legal-analysis-help"><span>{ACTION_HELP[mode]}</span></p>}
         <button type="submit" className="law-search-button" disabled={!request || loading}>{loading ? "확인 중…" : submitLabel}</button>
       </div>
     </form>

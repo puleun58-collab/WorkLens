@@ -102,3 +102,7 @@ p.research-meta { margin: 0; }
 .legal-analysis-fields-2 { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); }
 .legal-analysis .legal-analysis-actions { margin-top: 4px; }
 @media (max-width: 700px) { .legal-analysis-fields-2 { grid-template-columns: minmax(0, 1fr); } }
+/* 입력 → 보조 설명 + 실행: help on the left, run button right on the form's right edge. */
+.legal-analysis .legal-analysis-action-row { display: flex; align-items: center; justify-content: flex-end; gap: 8px 16px; flex-wrap: wrap; margin-top: 4px; }
+.legal-analysis-action-row .legal-analysis-help { flex: 1 1 280px; min-width: 0; }
+@media (max-width: 700px) { .legal-analysis-action-row .legal-analysis-help { flex-basis: 100%; } }
