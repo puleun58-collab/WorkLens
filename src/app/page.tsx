@@ -1371,6 +1371,9 @@ export default function Home() {
                   <button type="button" className="delete-all" onClick={deleteAll} disabled={busy}>모두 삭제</button>
                 </div>
               ) : null}
+              {deleteDone > 0 ? (
+                <span key={deleteDone} className="transient-status" role="status" aria-live="polite">삭제 완료</span>
+              ) : null}
             </div>
           </header>
         )}
@@ -1386,11 +1389,6 @@ export default function Home() {
               aria-label="작업 파일 선택"
               onChange={(event: ChangeEvent<HTMLInputElement>) => { enqueueUploads(event.target.files); event.target.value = ""; }}
             />
-          ) : null}
-          {deleteDone > 0 && isDocumentWorkspaceView ? (
-            <div className="transient-status-anchor">
-              <span key={deleteDone} className="transient-status" role="status" aria-live="polite">삭제 완료</span>
-            </div>
           ) : null}
 
           {files.length === 0 && isDocumentWorkspaceView ? (

@@ -1800,8 +1800,8 @@ test("reviews PPTX writing, consistency and data findings with filters and exact
     };
   });
   expect(suggestionHierarchy).toMatchObject({
-    background: "rgb(244, 244, 244)",
-    borderWidth: "0px",
+    background: "rgb(245, 249, 255)",
+    borderWidth: "1px",
     boxShadow: "none",
     paddingLeft: "10px",
     labelWeight: "600",
@@ -1812,7 +1812,7 @@ test("reviews PPTX writing, consistency and data findings with filters and exact
   expect(suggestionHierarchy.suggestionColor).not.toBe(suggestionHierarchy.descriptionColor);
   expect(await typo.evaluate((issue) => getComputedStyle(issue).backgroundColor)).toBe("rgb(255, 255, 255)");
   expect(await page.locator(".check-issue .check-recommendation").evaluateAll((recommendations) =>
-    recommendations.every((recommendation) => getComputedStyle(recommendation).backgroundColor === "rgb(244, 244, 244)"))).toBe(true);
+    recommendations.every((recommendation) => getComputedStyle(recommendation).backgroundColor === "rgb(245, 249, 255)"))).toBe(true);
   await expect(typo.locator(".check-source .check-field-label")).toHaveCount(0);
   await expect(typo.locator(".issue-detail-toggle")).toHaveCount(0);
   expect((await typo.innerText()).split("최종검수.pptx").length - 1).toBe(0);

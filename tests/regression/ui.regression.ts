@@ -293,9 +293,9 @@ regressionCase(make(24, "UI", "Every rail view with a long uploaded filename", "
   await openView(page, "분석"); await selectFiles(page, file);
   await page.getByRole("button", { name: "선택 삭제" }).click();
   const toast = page.locator(".transient-status"); await expect(toast).toBeVisible();
-  expect(await toast.evaluate((e) => getComputedStyle(e).boxShadow)).not.toBe("none");
+  expect(await toast.evaluate((e) => getComputedStyle(e).boxShadow)).toBe("none"); await expect(page.locator(".context-actions .transient-status")).toBeVisible();
   await noHorizontalOverflow(page);
-  note("All 13 rail destinations fit at 390px with a long filename, and deletion toast was visible with floating elevation.");
+  note("All 13 rail destinations fit at 390px with a long filename, and 삭제 완료 shown flat in the 작업 파일 header.");
 });
 regressionCase(make(25, "UI", "Tab and icon controls elevation", "Inactive tabs and icon buttons flat; an active tab uses only the subtle --elevation-active"), async ({ page, note }) => {
   await ready(page);

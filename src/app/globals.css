@@ -9530,3 +9530,20 @@ div.status-panel.error > strong { font-size: 14px; line-height: 1.5; }
   font-weight: var(--font-weight-semibold);
 }
 .check-results .check-recommendation p { color: var(--ink); }
+
+/* 삭제 완료: a quiet inline status at the right end of the 작업 파일 header row, not a toast. */
+.context-actions .transient-status {
+  position: static;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+}
+.context-actions { display: flex; align-items: center; gap: 12px; margin-left: auto; }

@@ -48,7 +48,7 @@ test("loads the deployed workspace and runs browser-only Check", async ({ page }
   const finding = page.locator(".check-issue").first();
   expect(await finding.evaluate((element) => getComputedStyle(element).backgroundColor)).toBe("rgb(255, 255, 255)");
   expect(await finding.locator(".check-recommendation").evaluate((element) =>
-    getComputedStyle(element).backgroundColor)).toBe("rgb(244, 244, 244)");
+    getComputedStyle(element).backgroundColor)).toBe("rgb(245, 249, 255)");
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   const order = await finding.locator(".check-recommendation, .check-source").evaluateAll((nodes) =>

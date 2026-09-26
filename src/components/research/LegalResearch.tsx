@@ -125,7 +125,11 @@ export function LegalResearch() {
         <label htmlFor="research-query">질문 또는 검색어</label>
         <textarea id="research-query" value={draft.query} rows={3} maxLength={LAW_RESEARCH_QUERY_MAX_CHARS} placeholder={QUERY_PLACEHOLDER[task]} onChange={(event) => update("query", event.target.value)} aria-describedby="research-query-help"
           onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} />
-        <p id="research-query-help" className="legal-analysis-help">
+        <p id="research-query-help" className="legal-analysis-help legal-research-help-row">
+          {task === "amendment_track" && <label className="legal-research-switch">
+            전체 개정 이력 포함
+            <input type="checkbox" role="switch" checked={draft.includeHistory} onChange={(event) => update("includeHistory", event.target.checked)} />
+          </label>}
           <span className="legal-analysis-count">{draft.query.length.toLocaleString("ko-KR")} / {LAW_RESEARCH_QUERY_MAX_CHARS.toLocaleString("ko-KR")}자</span>
         </p>
       </>}
@@ -146,9 +150,6 @@ export function LegalResearch() {
           </label>
           {reversedDates && <p className="law-search-error" role="alert">시작일은 종료일보다 늦을 수 없습니다.</p>}
         </div>}
-        <label className="image-tool-check legal-research-check">
-          <input type="checkbox" checked={draft.includeHistory} onChange={(event) => update("includeHistory", event.target.checked)} /> 전체 개정 이력 포함
-        </label>
       </>}
 
       <div className="legal-analysis-actions">
