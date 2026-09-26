@@ -9401,3 +9401,12 @@ button.law-search-button:disabled,
   border-color: var(--blue);
   background: var(--blue-soft);
 }
+
+/* PDF/이미지 추가: the label sits on the button's vertical centre, like 파일 추가. */
+.image-tool-upload button,
+.pdf-tool .pdf-tool-upload-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
