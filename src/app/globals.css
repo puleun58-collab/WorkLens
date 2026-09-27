@@ -4663,6 +4663,9 @@ body {
   --line-soft: #d9e0ea;
   /* Every file drop/select zone shares one dashed outline; hover and drag-over use --blue. */
   --dropzone-border: #cbd5e1;
+  /* Result tables (Aggregation, Compare, Extract) share one blue-gray header and header rule. */
+  --result-table-header: #dbe5f0;
+  --result-table-rule: #c5d0df;
 }
 
 .rail {
@@ -7992,8 +7995,6 @@ input:disabled {
 .workspace > .aggregation-results {
   --aggregation-line: var(--border-subtle);
   --aggregation-header: #e7ecf3;
-  --aggregation-table-header: #dbe5f0;
-  --aggregation-table-rule: #c5d0df;
   background: transparent;
 }
 
@@ -8339,10 +8340,10 @@ input:disabled {
 .aggregation-preview th {
   position: sticky;
   top: 0;
-  background: var(--aggregation-table-header);
+  background: var(--result-table-header);
   color: var(--navy-800);
   border-right-color: var(--border-default);
-  border-bottom-color: var(--aggregation-table-rule);
+  border-bottom-color: var(--result-table-rule);
   font-weight: var(--font-weight-semibold);
 }
 
@@ -8406,16 +8407,16 @@ input:disabled {
 
 /*
  * Compare reads as three bands, not one white sheet: the file pair sits on
- * paper, the summary on a faint blue-grey strip, and the table opens with a
- * tinted header over white rows. Depth comes from those tones and 1px rules —
- * no cards, no shadows, no stripes.
+ * paper, the summary on a faint blue-grey strip, and the table opens with the
+ * shared result-table header over white rows (see the result table surface
+ * block below for its frame).
  */
 .change-head,
 .value-check-matrix-head {
   min-height: 38px;
-  border-bottom: 1px solid var(--line);
-  background: #eef2f7;
-  color: var(--ink);
+  border-bottom: 1px solid var(--result-table-rule);
+  background: var(--result-table-header);
+  color: var(--navy-800);
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-semibold);
   box-shadow: none;
@@ -8435,7 +8436,7 @@ input:disabled {
 .change-row,
 .value-check-matrix-row {
   min-height: 48px;
-  border-bottom: 1px solid var(--line-soft);
+  border-bottom: 1px solid var(--border-subtle);
   align-items: stretch;
 }
 
@@ -8451,10 +8452,13 @@ input:disabled {
  * Column rules come from the cells themselves, so header and body share the
  * one grid definition and stay aligned however long a value runs.
  */
-.change-head > span:not(:last-child),
+.change-head > span:not(:last-child) {
+  border-right: 1px solid var(--border-default);
+}
+
 .change-row > span:not(:last-child),
 .change-row > div:not(:last-child) {
-  border-right: 1px solid var(--line-soft);
+  border-right: 1px solid var(--border-subtle);
 }
 
 .change-row > span,
@@ -9255,6 +9259,9 @@ button.law-search-button:disabled,
 .workspace .file-list,
 .workspace > .analysis-results-panel,
 .workspace .qa-overview,
+.workspace .change-table,
+.workspace .extract-auto-table,
+.workspace .extract-fields-table,
 .workspace .extract-table-wrap,
 .workspace .polish-results,
 .workspace .polish-text-results,
@@ -9595,3 +9602,138 @@ div.status-panel.error > strong { font-size: 14px; line-height: 1.5; }
   --tab-divider-secondary: #dde4ee;
 }
 .context-actions .transient-status { margin-left: auto; }
+
+/*
+ * Result table surface — Compare and Extract reuse the Aggregation preview:
+ * a hairline frame with the surface elevation (Level 1 group above), 4px
+ * corners, the shared blue-gray header over a firmer rule, and subtle cell
+ * dividers. No per-row shadows, no nested cards.
+ */
+.change-table,
+.extract-auto-table,
+.extract-fields-table {
+  border: 1px solid var(--border-surface);
+  border-radius: var(--radius-control);
+  background: var(--paper);
+  overflow-x: auto;
+}
+
+.change-row {
+  border-top: 0;
+}
+
+.change-row:last-child,
+.extract-auto-table .data-row:last-child,
+.extract-fields-table .data-row:last-child {
+  border-bottom: 0;
+}
+
+.extract-auto-table .data-head,
+.extract-fields-table .data-head {
+  border-bottom: 1px solid var(--result-table-rule);
+  background: var(--result-table-header);
+  color: var(--navy-800);
+}
+
+.extract-auto-table .data-row,
+.extract-fields-table .data-row {
+  border-bottom-color: var(--border-subtle);
+}
+
+/* A file name reads on one line; a long one ends in an ellipsis and keeps its full title. */
+.extract-results .data-row > span[data-label="파일"] {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (min-width: 701px) {
+  /* File names take the width the evidence column does not need. */
+  .extract-auto-table.multi-file :is(.data-head, .data-row),
+  .extract-fields-table.multi-file :is(.data-head, .data-row) {
+    grid-template-columns: minmax(160px, 1.25fr) minmax(96px, 0.6fr) minmax(220px, 1.9fr) minmax(136px, 0.55fr);
+  }
+
+  .extract-auto-table:not(.multi-file) :is(.data-head, .data-row),
+  .extract-fields-table:not(.multi-file) :is(.data-head, .data-row) {
+    grid-template-columns: minmax(96px, 0.6fr) minmax(260px, 2.2fr) minmax(136px, 0.55fr);
+  }
+
+  .extract-auto-table :is(.data-head, .data-row),
+  .extract-fields-table :is(.data-head, .data-row) {
+    align-items: stretch;
+  }
+
+  .extract-auto-table :is(.data-head, .data-row) > span,
+  .extract-fields-table :is(.data-head, .data-row) > span {
+    align-content: center;
+  }
+
+  .extract-auto-table .data-head > span:not(:last-child),
+  .extract-fields-table .data-head > span:not(:last-child) {
+    border-right: 1px solid var(--border-default);
+  }
+
+  .extract-auto-table .data-row > span:not(:last-child),
+  .extract-fields-table .data-row > span:not(:last-child) {
+    border-right: 1px solid var(--border-subtle);
+  }
+
+  /* Evidence sits on the table's right edge: locator and action alike. */
+  .extract-auto-table :is(.data-head, .data-row) > span:last-child,
+  .extract-fields-table :is(.data-head, .data-row) > span:last-child {
+    text-align: right;
+  }
+
+  .extract-auto-table .data-row > span:last-child .result-source,
+  .extract-fields-table .data-row > span:last-child .result-source {
+    align-items: flex-end;
+  }
+}
+
+/*
+ * Per-file tables share the main table's left and right edges: title on the
+ * left, its evidence on the table's right edge. Same frame and header, one
+ * step quieter than the main result — no elevation, smaller body text.
+ */
+.extract-results .result-subsection {
+  padding-inline: 0;
+  border-bottom: 0;
+}
+
+.extract-results .subsection-heading .result-source {
+  align-items: flex-end;
+  text-align: right;
+}
+
+.workspace .extract-results .extract-table-wrap {
+  border-radius: var(--radius-control);
+  box-shadow: none;
+}
+
+.extract-results .extract-table th,
+.extract-results .extract-table td {
+  padding: 8px 10px;
+  border-right-color: var(--border-subtle);
+  border-bottom-color: var(--border-subtle);
+}
+
+.extract-results .extract-table :is(th, td):last-child {
+  border-right: 0;
+}
+
+.extract-results .extract-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.extract-results .extract-table th {
+  background: var(--result-table-header);
+  color: var(--navy-800);
+  border-right-color: var(--border-default);
+  border-bottom-color: var(--result-table-rule);
+}
+
+.extract-results .extract-table td {
+  color: var(--ink-soft);
+  font-size: var(--font-size-xs);
+}

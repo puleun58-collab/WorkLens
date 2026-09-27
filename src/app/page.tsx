@@ -45,6 +45,7 @@ import {
   EXTRACT_MODE_LABELS,
   EXTRACT_TYPE_LABELS,
   type ExtractConfidence,
+  type ExtractedField,
   type ExtractMode,
   type StructuredExtract,
 } from "@/domain/extract";
@@ -221,6 +222,18 @@ const extractConfidenceLabels: Record<ExtractConfidence, string> = {
   medium: "보통",
   low: "낮음",
 };
+
+/**
+ * Secondary line under an extracted value. High confidence is the expected
+ * case, so it is not repeated beside every value; a lower confidence or a
+ * non-text type still earns its note.
+ */
+function ExtractValueNote({ field }: { field: ExtractedField }) {
+  const confidence = field.confidence && field.confidence !== "high" ? ` · 확신 ${extractConfidenceLabels[field.confidence]}` : "";
+  if (field.type === "Text" && !confidence) return null;
+  return <small>{EXTRACT_TYPE_LABELS[field.type]}{confidence}</small>;
+}
+
 const checkCategoryLabels: Record<CheckCategory, string> = {
   spelling: "맞춤법",
   grammar: "문법",
@@ -2033,9 +2046,7 @@ function StructuredExtractResults({ result, fileNames, onSource, status, busy, o
                     {matches.map((field, index) => (
                       <span key={`${field.displayValue}-${index}`} title={field.normalizedValue ? `정규화: ${field.normalizedValue}` : undefined}>
                         {field.displayValue}
-                        {field.type !== "Text" || field.confidence
-                          ? <small>{EXTRACT_TYPE_LABELS[field.type]}{field.confidence ? ` · 확신 ${extractConfidenceLabels[field.confidence]}` : ""}</small>
-                          : null}
+                        <ExtractValueNote field={field} />
                       </span>
                     ))}
                     {distinctValues > 1 ? <small className="extract-conflict">서로 다른 값 {distinctValues}개</small> : null}
@@ -2064,9 +2075,7 @@ function StructuredExtractResults({ result, fileNames, onSource, status, busy, o
               <span role="cell" data-label="항목" className="extract-field-name">{field.field}</span>
               <span role="cell" data-label="값" className="extract-field-value" title={field.normalizedValue ? `정규화: ${field.normalizedValue}` : undefined}>
                 <span>{field.displayValue}</span>
-                {field.type !== "Text" || field.confidence
-                  ? <small>{EXTRACT_TYPE_LABELS[field.type]}{field.confidence ? ` · 확신 ${extractConfidenceLabels[field.confidence]}` : ""}</small>
-                  : null}
+                <ExtractValueNote field={field} />
               </span>
               <span role="cell" data-label="근거"><CompactResultSource sources={field.sources} fileNames={fileNames} onSource={onSource} /></span>
             </div>
