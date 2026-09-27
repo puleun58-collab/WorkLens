@@ -1039,7 +1039,7 @@ test("image editor chains resize, rotation, crop and merge with browser-only exp
   await expect(page.getByLabel("높이 px")).toHaveValue("300");
   await page.getByRole("button", { name: /오른쪽 90°/ }).click();
   await expect(page.locator(".image-tool-preview canvas")).toHaveAttribute("width", "300");
-  await page.locator(".image-tool-control-section").filter({ hasText: "영역 자르기" }).getByRole("button", { name: "영역 지정" }).click();
+  await page.locator(".image-tool-control-section").filter({ has: page.getByRole("heading", { name: "자르기", exact: true }) }).getByRole("button", { name: "영역 지정" }).click();
   const target = page.locator(".image-tool-pointer");
   await target.scrollIntoViewIfNeeded();
   const box = await target.boundingBox();
@@ -1064,7 +1064,7 @@ test("image editor chains resize, rotation, crop and merge with browser-only exp
   expect(webpSmall.bytes.length).toBeLessThan(webpHigh.bytes.length);
   await page.getByLabel("형식").selectOption("png");
   const clean = await downloadBytes(page, () => page.getByRole("button", { name: /파일 다운로드/ }).click());
-  await page.locator(".image-tool-control-section").filter({ hasText: "부분 모자이크" }).getByRole("button", { name: "영역 지정" }).click();
+  await page.locator(".image-tool-control-section").filter({ has: page.getByRole("heading", { name: "모자이크", exact: true }) }).getByRole("button", { name: "영역 지정" }).click();
   const mosaicBox = await page.locator(".image-tool-pointer").boundingBox();
   await page.mouse.move(mosaicBox!.x + mosaicBox!.width * 0.25, mosaicBox!.y + mosaicBox!.height * 0.25);
   await page.mouse.down();
@@ -1081,7 +1081,7 @@ test("image editor chains resize, rotation, crop and merge with browser-only exp
   await page.getByLabel("선택 이미지 한 장으로 결합").check();
   await page.getByLabel("형식").selectOption("png");
   const merged = await downloadBytes(page, () => page.getByRole("button", { name: /파일 다운로드/ }).click());
-  expect(await imageDimensions(page, merged.bytes, "image/png")).toEqual({ width: 950, height: 600 });
+  expect(await imageDimensions(page, merged.bytes, "image/png")).toEqual({ width: 1600, height: 1600 });
   await page.getByLabel("선택 이미지 한 장으로 결합").uncheck();
   const zipped = await downloadBytes(page, () => page.getByRole("button", { name: /ZIP 다운로드/ }).click());
   expect(Object.keys(unzipSync(zipped.bytes)).sort()).toEqual(["pattern.png", "second.png"]);

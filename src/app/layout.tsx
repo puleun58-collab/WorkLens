@@ -3,8 +3,8 @@ import type { ReactNode } from "react";
 import "./globals.css";
 
 const origin = new URL(process.env.WORKLENS_ORIGIN ?? "https://worklens.puleun58.workers.dev");
-const title = "WorkLens | 업무 문서 분석·비교·검수";
-const description = "업무 문서를 분석하고 비교·검수할 수 있는 문서 작업 공간";
+const title = "WorkLens | 업무 문서 작업 공간";
+const description = "문서 분석·비교·검수·추출·취합과 법령 리서치를 한곳에서 처리합니다.";
 
 export const metadata: Metadata = {
   metadataBase: origin,
@@ -18,7 +18,7 @@ export const metadata: Metadata = {
     type: "website",
     locale: "ko_KR",
     url: "/",
-    images: [{ url: "/opengraph-image", width: 1200, height: 630, alt: "WorkLens | 업무 문서 분석·비교·검수" }],
+    images: [{ url: "/opengraph-image", width: 1200, height: 630, alt: "WorkLens | 업무 문서 작업 공간" }],
   },
   twitter: {
     card: "summary_large_image",

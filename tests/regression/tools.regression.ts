@@ -82,7 +82,7 @@ async function imageExport(page: Page, format: string) {
   return saved(page);
 }
 
-async function dragRegion(page: Page, mode: "영역 자르기" | "부분 모자이크", ratio?: string) {
+async function dragRegion(page: Page, mode: "자르기" | "모자이크", ratio?: string) {
   const controls = page.locator(".image-tool-control-section").filter({ has: page.getByRole("heading", { name: mode }) });
   if (ratio) await controls.getByLabel("선택 비율").selectOption(ratio);
   await controls.getByRole("button", { name: "영역 지정" }).click();
@@ -354,10 +354,10 @@ for (const [id, ratio, expected] of [
   regressionCase({ id, category: "Image", input: `${ratio} cropped area`, format: "PNG", structure: "400×300 image; drag from 20% to 70%", expected: `Export is ${expected.width}×${expected.height} and crop reset restores source`, mobile: id === "TOOL-20" }, async ({ page, note }) => {
     await enter(page, "이미지 도구");
     await imageInput(page, `tool-crop-${id}.png`, 400, 300);
-    await dragRegion(page, "영역 자르기", ratio);
+    await dragRegion(page, "자르기", ratio);
     const output = await imageExport(page, "png");
     const info = await decoded(output, "png", expected);
-    await page.locator(".image-tool-control-section").filter({ has: page.getByRole("heading", { name: "영역 자르기" }) }).getByRole("button", { name: "자르기 해제" }).click();
+    await page.locator(".image-tool-control-section").filter({ has: page.getByRole("heading", { name: "자르기", exact: true }) }).getByRole("button", { name: "자르기 해제" }).click();
     await decoded(await saved(page), "png", { width: 400, height: 300 });
     note(`${ratio} crop ${info.width}×${info.height}; reset 400×300`);
     await noHorizontalOverflow(page);
@@ -377,42 +377,104 @@ regressionCase({ id: "TOOL-23", category: "Image", input: "Mosaic region and res
   await page.getByLabel("이미지 파일 선택").setInputFiles(file);
   await expect(page.locator(".image-tool-file")).toHaveCount(1);
   const clean = await imageExport(page, "png");
-  await dragRegion(page, "부분 모자이크");
+  await dragRegion(page, "모자이크");
   const mosaic = await saved(page);
   const cleanPixels = await sharp(clean.bytes).removeAlpha().raw().toBuffer();
   const mosaicPixels = await sharp(mosaic.bytes).removeAlpha().raw().toBuffer();
   const pixel = (data: Buffer, x: number, y: number) => [...data.subarray((y * 160 + x) * 3, (y * 160 + x) * 3 + 3)];
   expect(pixel(mosaicPixels, 10, 10)).toEqual(pixel(cleanPixels, 10, 10));
   expect(pixel(mosaicPixels, 70, 70)).not.toEqual(pixel(cleanPixels, 70, 70));
-  await page.locator(".image-tool-control-section").filter({ has: page.getByRole("heading", { name: "부분 모자이크" }) }).getByRole("button", { name: "모자이크 해제" }).click();
+  await page.locator(".image-tool-control-section").filter({ has: page.getByRole("heading", { name: "모자이크", exact: true }) }).getByRole("button", { name: "모자이크 해제" }).click();
   const reset = await saved(page);
   await decoded(reset, "png", { width: 160, height: 160 });
   expect(await sharp(reset.bytes).removeAlpha().raw().toBuffer()).toEqual(cleanPixels);
   note(`Center changed ${pixel(cleanPixels, 70, 70)}→${pixel(mosaicPixels, 70, 70)}; outside and reset retained`);
 });
 
-for (const [id, layout, width, height] of [
-  ["TOOL-24", "horizontal", 220, 80],
-  ["TOOL-25", "vertical", 100, 190],
-  ["TOOL-26", "grid", 165, 125],
+regressionCase({ id: "TOOL-23b", category: "Image", input: "Default blur strength on a hard edge", format: "PNG", structure: "Black/white edge inside selected region", expected: "Default blur creates intermediate pixels; higher strength widens the softened edge without changing outside" }, async ({ page, note }) => {
+  await enter(page, "이미지 도구");
+  const pixels = Buffer.alloc(160 * 160 * 3);
+  for (let y = 0; y < 160; y++) for (let x = 80; x < 160; x++) pixels.fill(255, (y * 160 + x) * 3, (y * 160 + x + 1) * 3);
+  await page.getByLabel("이미지 파일 선택").setInputFiles(await writeFixture("tool-blur-edge.png", await sharp(pixels, { raw: { width: 160, height: 160, channels: 3 } }).png().toBuffer()));
+  await expect(page.locator(".image-tool-controls h4")).toHaveText(["크기 · 회전", "자르기", "모자이크", "결합"]);
+  const slider = page.getByRole("slider", { name: /강도/ });
+  await expect(slider).toHaveValue("12");
+  await dragRegion(page, "모자이크");
+  const blurred = await imageExport(page, "png");
+  const light = await sharp(blurred.bytes).removeAlpha().raw().toBuffer();
+  const at = (data: Buffer, x: number, y: number) => data[(y * 160 + x) * 3];
+  expect(at(light, 10, 80)).toBe(0);
+  expect(at(light, 78, 80)).toBeGreaterThan(0);
+  expect(at(light, 78, 80)).toBeLessThan(255);
+  await slider.fill("48");
+  const strong = await sharp((await saved(page)).bytes).removeAlpha().raw().toBuffer();
+  expect(at(strong, 60, 80)).toBeGreaterThan(at(light, 60, 80));
+  expect(at(strong, 10, 80)).toBe(0);
+  note(`Blur 12px at edge ${at(light, 78, 80)}; 48px at x60 ${at(strong, 60, 80)} > ${at(light, 60, 80)}`);
+});
+
+const COLORS = { red: [255, 0, 0], green: [0, 128, 0], blue: [0, 0, 255], yellow: [255, 255, 0], magenta: [255, 0, 255] } as const;
+for (const [id, count, label, cells] of [
+  ["TOOL-24", 2, "좌우", [[0.25, 0.5], [0.75, 0.5]]],
+  ["TOOL-25", 2, "상하", [[0.5, 0.25], [0.5, 0.75]]],
+  ["TOOL-26", 3, "위 2 · 아래 1", [[0.25, 0.25], [0.75, 0.25], [0.5, 0.75]]],
+  ["TOOL-26b", 3, "위 1 · 아래 2", [[0.5, 0.25], [0.25, 0.75], [0.75, 0.75]]],
+  ["TOOL-26c", 4, "2×2", [[0.25, 0.25], [0.75, 0.25], [0.25, 0.75], [0.75, 0.75]]],
+  ["TOOL-26d", 5, "격자", [[1 / 6, 0.25], [0.5, 0.25], [5 / 6, 0.25], [0.25, 0.75], [0.75, 0.75]]],
 ] as const) {
-  regressionCase({ id, category: "Image", input: `${layout} merge with gap and colored background`, format: "PNG", structure: "3 different sized colored images", expected: `Merged image is ${width}×${height} and gap uses selected background`, mobile: id === "TOOL-25" }, async ({ page, note }) => {
+  regressionCase({ id, category: "Image", input: `1:1 merge · ${count} images · ${label}`, format: "PNG", structure: `${count} differently sized colored images`, expected: "Square output; each cell filled by its image in list order; gap 0", mobile: id === "TOOL-26" }, async ({ page, note }) => {
     await enter(page, "이미지 도구");
-    await imageFiles(page, [[`tool-red-${id}.png`, 100, 50, "#ff0000"], [`tool-green-${id}.png`, 50, 80, "#00ff00"], [`tool-blue-${id}.png`, 40, 30, "#0000ff"]]);
+    const colors = (["red", "green", "blue", "yellow", "magenta"] as const).slice(0, count);
+    await imageFiles(page, colors.map((color, index) => [`tool-merge-${id}-${index}.png`, 60 + index * 30, 90 - index * 20, color] as [string, number, number, string]));
     await page.getByLabel("선택 이미지 한 장으로 결합").check();
-    await page.getByLabel("배치").selectOption(layout);
-    await page.getByLabel("간격 px").fill("15");
-    await page.getByLabel("배경").fill("#112233");
+    await expect(page.getByLabel("간격 px")).toHaveCount(0); await expect(page.getByLabel("배경")).toHaveCount(0);
+    await expect(page.locator('fieldset[aria-label="배치"]').getByRole("radio")).toHaveCount(count >= 4 ? 1 : 2);
+    await page.locator('fieldset[aria-label="비율"]').getByRole("radio", { name: "1:1" }).check({ force: true });
+    await page.locator('fieldset[aria-label="배치"]').getByRole("radio", { name: label }).check({ force: true });
     const output = await imageExport(page, "png");
-    const meta = await decoded(output, "png", { width, height });
+    const meta = await sharp(output.bytes).metadata();
+    expect(meta.width).toBe(meta.height);
     const pixels = await sharp(output.bytes).raw().ensureAlpha().toBuffer();
-    const gap = layout === "horizontal" ? [105, 5] : layout === "vertical" ? [5, 55] : [105, 5];
-    const index = (gap[1] * width + gap[0]) * 4;
-    expect([...pixels.subarray(index, index + 3)]).toEqual([17, 34, 51]);
-    note(`${layout}: ${meta.width}×${meta.height}, gap pixel rgb(17,34,51)`);
+    const at = (fx: number, fy: number) => { const i = (Math.floor(fy * meta.height!) * meta.width! + Math.floor(fx * meta.width!)) * 4; return [...pixels.subarray(i, i + 3)]; };
+    cells.forEach(([fx, fy], index) => expect(at(fx, fy), `cell ${index + 1}`).toEqual([...COLORS[colors[index]]]));
+    // Check both pixels at a split; the cells meet with no unpainted band.
+    if (label === "상하" || label === "위 1 · 아래 2") {
+      const edge = Math.round(meta.height! / 2);
+      expect(at(0.25, (edge - 1) / meta.height!)).toEqual([...COLORS.red]);
+      expect(at(0.25, edge / meta.height!)).toEqual([...COLORS.green]);
+    } else {
+      const edge = Math.round(meta.width! / (count === 5 ? 3 : 2));
+      expect(at((edge - 1) / meta.width!, 0.25)).toEqual([...COLORS.red]);
+      expect(at(edge / meta.width!, 0.25)).toEqual([...COLORS.green]);
+    }
+    note(`${meta.width}×${meta.height}; cells ${colors.join(" → ")} in order, no gap`);
     await noHorizontalOverflow(page);
   });
 }
+
+regressionCase({ id: "TOOL-26e", category: "Image", input: "4:3 vertical merge preview/export", format: "PNG", structure: "2 asymmetric colored images", expected: "Preview pixels and downloaded PNG share dimensions, layout and colors" }, async ({ page, note }) => {
+  await enter(page, "이미지 도구");
+  await imageFiles(page, [["tool-ratio-red.png", 80, 120, "red"], ["tool-ratio-blue.png", 100, 60, "blue"]]);
+  await page.getByLabel("선택 이미지 한 장으로 결합").check();
+  await page.locator('fieldset[aria-label="비율"]').getByRole("radio", { name: "4:3" }).check({ force: true });
+  await page.locator('fieldset[aria-label="배치"]').getByRole("radio", { name: "상하" }).check({ force: true });
+  const canvas = page.getByLabel("결합 이미지 미리보기");
+  await expect.poll(async () => canvas.evaluate((element: HTMLCanvasElement) => element.width / element.height)).toBeCloseTo(4 / 3, 2);
+  const preview = await canvas.evaluate((element: HTMLCanvasElement) => {
+    const ctx = element.getContext("2d")!;
+    return { width: element.width, height: element.height,
+      top: [...ctx.getImageData(element.width / 2, element.height / 4, 1, 1).data].slice(0, 3),
+      bottom: [...ctx.getImageData(element.width / 2, 3 * element.height / 4, 1, 1).data].slice(0, 3) };
+  });
+  const output = await imageExport(page, "png");
+  const info = await sharp(output.bytes).metadata();
+  const raw = await sharp(output.bytes).ensureAlpha().raw().toBuffer();
+  const at = (y: number) => [...raw.subarray((Math.floor(y * info.height!) * info.width! + Math.floor(info.width! / 2)) * 4, (Math.floor(y * info.height!) * info.width! + Math.floor(info.width! / 2)) * 4 + 3)];
+  expect(preview).toEqual({ width: info.width, height: info.height, top: [...COLORS.red], bottom: [...COLORS.blue] });
+  expect(at(0.25)).toEqual(preview.top);
+  expect(at(0.75)).toEqual(preview.bottom);
+  note(`${info.width}×${info.height} 4:3; preview equals export in both cells`);
+});
 
 regressionCase({ id: "TOOL-27", category: "Image", input: "Four selected images into ZIP", format: "PNG ZIP", structure: "JPG, JPEG, PNG, WebP inputs", expected: "Four independently decoded PNG entries preserve source sizes" }, async ({ page, note }) => {
   await enter(page, "이미지 도구");
@@ -437,16 +499,15 @@ regressionCase({ id: "TOOL-28", category: "Image", input: "Multiple images into 
   expect(sizes).toEqual([{ width: 100, height: 200 }, { width: 220, height: 120 }, { width: 80, height: 80 }]);
 });
 
-regressionCase({ id: "TOOL-29", category: "Image", input: "Merged image exported as PDF", format: "PDF", structure: "2 PNGs horizontal with gap", expected: "One PDF page has merged pixel dimensions" }, async ({ page, note }) => {
+regressionCase({ id: "TOOL-29", category: "Image", input: "Merged image exported as PDF", format: "PDF", structure: "2 PNGs 좌우 at default 1:1", expected: "One square PDF page" }, async ({ page, note }) => {
   await enter(page, "이미지 도구");
   await imageFiles(page, [["tool-pdf-merge-a.png", 100, 70, "red"], ["tool-pdf-merge-b.png", 90, 80, "blue"]]);
   await page.getByLabel("선택 이미지 한 장으로 결합").check();
-  await page.getByLabel("간격 px").fill("11");
   const result = await imageExport(page, "pdf");
   const sizes = await pdfSizes(result);
   note(`${result.name}: ${JSON.stringify(sizes)}`);
   expect(result.name).toBe("merged-images.pdf");
-  expect(sizes).toEqual([{ width: 201, height: 80 }]);
+  expect(sizes).toEqual([{ width: 200, height: 200 }]);
 });
 
 regressionCase({ id: "TOOL-30", category: "Image", input: "Invalid image type and corrupt PNG", format: "TXT and invalid PNG", structure: "Rejected inputs then valid image", expected: "Visible rejection and recovery with valid PNG", mobile: true }, async ({ page, note, classify }) => {

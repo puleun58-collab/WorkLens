@@ -84,9 +84,6 @@
 .image-tool-button-row button.is-reset:hover:not(:disabled) { border-color: var(--image-strong-border); background: var(--layer); color: var(--ink); }
 .image-tool-control-section input[type="range"] { display: block; width: 100%; accent-color: var(--blue); margin-top: 9px; }
 .image-tool-merge { padding-bottom: 0; }
-.image-tool-merge-options { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
-.image-tool-merge-options label:first-child { grid-column: span 2; }
-.image-tool-merge-options input[type="color"] { padding: 3px !important; cursor: pointer; }
 .image-tool-export { margin-top: 12px; }
 .image-tool-progress, .image-tool-notice { width: 100%; margin: 0; font-size: 13px; line-height: 1.5; }
 .image-tool-progress { color: var(--blue); }
@@ -116,3 +113,9 @@
 @media (prefers-reduced-motion: reduce) {
   .image-tool button { transition: none; }
 }
+/* 이미지 결합: 비율 → 배치 → (export CTA). Only the choices valid for the selected count are shown. */
+.image-tool-merge-options { display: grid; gap: 8px; margin-top: 10px; }
+.image-tool-merge-choice { display: flex; flex-wrap: wrap; margin: 0; min-width: 0; }
+.image-tool-merge-label { margin-bottom: -4px; color: var(--muted); font-size: 12px; font-weight: 600; }
+.image-tool-merge-choice label { flex: 1 1 auto; min-width: 0; }
+.image-tool-merge-choice span { white-space: nowrap; }

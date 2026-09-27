@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { unzipSync } from "fflate";
 import {
-  cropWithinPreview, effectiveCrop, fileBase, initialImageEdits, mergeDimensions, outputSize, packageImages,
+  cropWithinPreview, effectiveCrop, fileBase, initialImageEdits, mergeCells, mergeDimensions, mergeLayoutsFor, outputSize, packageImages,
   resetCrop, rotateEdits, rotatedSize, type ImageEdits,
 } from "../src/lib/tools/image-editor";
 
@@ -16,7 +16,7 @@ describe("image editing geometry", () => {
   it("rotates a cropped, resized, mosaicked image while keeping the same content region", () => {
     const edits: ImageEdits = {
       rotation: 0, crop: { x: 20, y: 10, width: 60, height: 30 }, size: { width: 120, height: 60 },
-      mosaic: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 }, blockSize: 12,
+      mosaic: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 }, blurRadius: 12,
     };
     const clockwise = rotateEdits(edits, 200, 100, 1);
     expect(clockwise.crop).toEqual({ x: 60, y: 20, width: 30, height: 60 });
@@ -32,7 +32,7 @@ describe("image editing geometry", () => {
   it("removes a crop without discarding resize scale or a retained mosaic", () => {
     const edits: ImageEdits = {
       rotation: 0, crop: { x: 20, y: 10, width: 60, height: 30 }, size: { width: 120, height: 60 },
-      mosaic: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 }, blockSize: 12,
+      mosaic: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 }, blurRadius: 12,
     };
     const restored = resetCrop({ width: 200, height: 100, edits });
     expect(restored.crop).toBeNull();
@@ -43,11 +43,40 @@ describe("image editing geometry", () => {
     expect(restored.mosaic?.height).toBeCloseTo(0.12);
   });
 
-  it("preserves each selected image's dimensions in horizontal, vertical and grid layouts", () => {
-    const sizes = [{ width: 40, height: 30 }, { width: 10, height: 80 }, { width: 25, height: 50 }];
-    expect(mergeDimensions(sizes, { layout: "horizontal", gap: 0, background: "#fff" })).toEqual({ width: 75, height: 80 });
-    expect(mergeDimensions(sizes, { layout: "vertical", gap: 8, background: "#fff" })).toEqual({ width: 40, height: 176 });
-    expect(mergeDimensions(sizes, { layout: "grid", gap: 8, background: "#fff" })).toEqual({ width: 58, height: 138 });
+  it("offers only the layouts that fit the image count and never leaves a stale one", () => {
+    expect(mergeLayoutsFor(2)).toEqual(["horizontal", "vertical"]);
+    expect(mergeLayoutsFor(3)).toEqual(["top-two", "top-one"]);
+    expect(mergeLayoutsFor(4)).toEqual(["grid"]);
+    // A 3-image layout requested for 2 images falls back to the 2-image default.
+    expect(mergeCells(2, "top-two")).toEqual(mergeCells(2, "horizontal"));
+  });
+
+  it("tiles the canvas exactly, in list order, with no gap or overlap", () => {
+    const area = (cells: ReturnType<typeof mergeCells>) => cells.reduce((sum, cell) => sum + cell.width * cell.height, 0);
+    for (const [count, layout] of [[2, "horizontal"], [2, "vertical"], [3, "top-two"], [3, "top-one"], [4, "grid"], [5, "grid"]] as const) {
+      expect(area(mergeCells(count, layout))).toBeCloseTo(1);
+    }
+    expect(mergeCells(3, "top-two")).toEqual([
+      { x: 0, y: 0, width: 0.5, height: 0.5 }, { x: 0.5, y: 0, width: 0.5, height: 0.5 }, { x: 0, y: 0.5, width: 1, height: 0.5 },
+    ]);
+    expect(mergeCells(3, "top-one")[0]).toEqual({ x: 0, y: 0, width: 1, height: 0.5 });
+    expect(mergeCells(4, "grid").map(({ x, y }) => [x, y])).toEqual([[0, 0], [0.5, 0], [0, 0.5], [0.5, 0.5]]);
+  });
+
+  it("sizes the canvas to the chosen ratio based on the input dimensions", () => {
+    const sizes = [{ width: 400, height: 300 }, { width: 100, height: 800 }];
+    expect(mergeDimensions(sizes, { layout: "horizontal", ratio: "1:1" })).toEqual({ width: 800, height: 800 });
+    const wide = mergeDimensions(sizes, { layout: "vertical", ratio: "16:9" });
+    expect(wide.width / wide.height).toBeCloseTo(16 / 9, 2);
+    expect(wide.height / 2).toBeGreaterThanOrEqual(800);
+  });
+
+  it("keeps rounded canvas dimensions within the pixel and side limits", () => {
+    const result = mergeDimensions([{ width: 16_384, height: 16_384 }, { width: 16_384, height: 16_384 }], { layout: "horizontal", ratio: "4:3" });
+    expect(result.width).toBeLessThanOrEqual(16_384);
+    expect(result.height).toBeLessThanOrEqual(16_384);
+    expect(result.width * result.height).toBeLessThanOrEqual(80_000_000);
+    expect(result.width / result.height).toBeCloseTo(4 / 3, 3);
   });
 });
 
@@ -84,7 +113,7 @@ describe("image edit boundaries", () => {
   it("rotates crop, output size and mosaic counter-clockwise using the source bounds", () => {
     const edits: ImageEdits = {
       rotation: 0, crop: { x: 20, y: 10, width: 60, height: 30 },
-      size: { width: 120, height: 60 }, mosaic: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 }, blockSize: 12,
+      size: { width: 120, height: 60 }, mosaic: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 }, blurRadius: 12,
     };
     const result = rotateEdits(edits, 200, 100, -1);
     expect(result.rotation).toBe(3);
@@ -124,15 +153,9 @@ describe("image edit boundaries", () => {
       .toEqual({ ...edits, crop: null, size: null, mosaic: null });
   });
 
-  it("rejects missing images and gaps outside the integer 0–1000 pixel range", () => {
-    const options = { layout: "grid" as const, gap: 0, background: "#fff" };
-    expect(() => mergeDimensions([], options)).toThrow("합칠 이미지를 선택하세요.");
-    for (const gap of [-1, 1001, 0.5]) {
-      expect(() => mergeDimensions([{ width: 20, height: 10 }], { ...options, gap }))
-        .toThrow("간격은 0~1000px로 설정하세요.");
-    }
-    expect(mergeDimensions([{ width: 20, height: 10 }], { ...options, gap: 1000 }))
-      .toEqual({ width: 20, height: 10 });
+  it("rejects merging fewer than two images", () => {
+    expect(() => mergeDimensions([], { layout: "grid", ratio: "1:1" })).toThrow("합칠 이미지를 두 장 이상 선택하세요.");
+    expect(() => mergeDimensions([{ width: 20, height: 10 }], { layout: "grid", ratio: "1:1" })).toThrow();
   });
 
   it("makes safe file basenames from extensions and illegal characters", () => {

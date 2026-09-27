@@ -6,7 +6,7 @@ import {
   cropWithinPreview, effectiveCrop, encodeCanvas, encodePdf, fileBase, initialImageEdits,
   MAX_PIXELS, MAX_SIDE, mergeDimensions, outputSize, packageImages, renderImage,
   renderMerged, resetCrop, rotateEdits,
-  type ImageEdits, type ImageFormat, type ImageItem, type MergeLayout, type MergeOptions,
+  type ImageEdits, type ImageFormat, type ImageItem, type MergeOptions, MERGE_LAYOUT_LABELS, MERGE_RATIOS, mergeLayoutsFor,
   type Rectangle,
 } from "@/lib/tools/image-editor";
 import { moveItem } from "@/lib/tools/reorder";
@@ -40,7 +40,7 @@ export function ImageTool() {
   const [aspectLocked, setAspectLocked] = useState(true);
   const [sizeDraft, setSizeDraft] = useState<{ edits: ImageEdits; width: string; height: string } | null>(null);
   const [merge, setMerge] = useState(false);
-  const [mergeOptions, setMergeOptions] = useState<MergeOptions>({ layout: "horizontal", gap: 0, background: "#ffffff" });
+  const [mergeOptions, setMergeOptions] = useState<MergeOptions>({ layout: "horizontal", ratio: "1:1" });
   const [format, setFormat] = useState<ImageFormat>("jpg");
   const [quality, setQuality] = useState<keyof typeof QUALITY>("balanced");
   const [busy, setBusy] = useState(false);
@@ -63,8 +63,12 @@ export function ImageTool() {
   const current = items.find((item) => item.id === currentId) ?? null;
   const selectedItems = useMemo(() => items.filter((item) => selected.includes(item.id)), [items, selected]);
   const mergeActive = merge && selectedItems.length >= 2;
+  // Layout depends on the image count; a choice that no longer fits falls back to the count's default.
+  const mergeLayouts = mergeLayoutsFor(selectedItems.length);
+  const mergeLayout = mergeLayouts.includes(mergeOptions.layout) ? mergeOptions.layout : mergeLayouts[0];
+  const mergeSettings: MergeOptions = { layout: mergeLayout, ratio: mergeOptions.ratio };
   const dimensions = current ? outputSize(current) : null;
-  const mergedDimensions = mergeActive ? mergeDimensions(selectedItems.map(outputSize), mergeOptions) : null;
+  const mergedDimensions = mergeActive ? mergeDimensions(selectedItems.map(outputSize), mergeSettings) : null;
   const reorder = useReorder({
     ids: items.map((item) => item.id),
     axis: "y",
@@ -76,7 +80,7 @@ export function ImageTool() {
   const heightDraft = sizeDraft && current && sizeDraft.edits === current.edits ? sizeDraft.height : String(dimensions?.height ?? "");
   const previewSize = mergeActive ? mergedDimensions : dimensions;
   const previewError = previewFailure?.current === current && previewFailure.selected === selectedItems &&
-    previewFailure.merge === mergeActive && previewFailure.options === mergeOptions ? previewFailure.text : "";
+    previewFailure.merge === mergeActive && previewFailure.options.layout === mergeLayout && previewFailure.options.ratio === mergeOptions.ratio ? previewFailure.text : "";
 
   function setWidthDraft(width: string) {
     if (current) setSizeDraft({ edits: current.edits, width, height: heightDraft });
@@ -104,9 +108,10 @@ export function ImageTool() {
     let cancelled = false;
     const target = canvasRef.current;
     if (!target || !current) return;
+    const settings: MergeOptions = { layout: mergeLayout, ratio: mergeOptions.ratio };
     const draw = async () => {
       const rendered = mergeActive
-        ? await renderMerged(selectedItems, mergeOptions, undefined, 1440)
+        ? await renderMerged(selectedItems, settings, undefined, 1440)
         : await renderImage(current, 1440);
       try {
         if (cancelled) return;
@@ -120,10 +125,10 @@ export function ImageTool() {
       }
     };
     void draw().catch((error: unknown) => {
-      if (!cancelled) setPreviewFailure({ current, selected: selectedItems, merge: mergeActive, options: mergeOptions, text: errorMessage(error) });
+      if (!cancelled) setPreviewFailure({ current, selected: selectedItems, merge: mergeActive, options: settings, text: errorMessage(error) });
     });
     return () => { cancelled = true; target.width = target.height = 0; };
-  }, [current, mergeActive, selectedItems, mergeOptions]);
+  }, [current, mergeActive, selectedItems, mergeLayout, mergeOptions.ratio]);
 
   function editCurrent(change: (item: ImageItem) => ImageEdits): void {
     if (!current || busyRef.current) return;
@@ -317,7 +322,7 @@ export function ImageTool() {
         const pages = async function* () {
           if (mergeActive) {
             setProgress(`이미지 결합 중 · ${selectedItems.length}개`);
-            const image = await renderMerged(selectedItems, mergeOptions, () => ensureOpen());
+            const image = await renderMerged(selectedItems, mergeSettings, () => ensureOpen());
             if (!alive.current) { image.width = image.height = 0; ensureOpen(); }
             yield image;
           } else {
@@ -336,7 +341,7 @@ export function ImageTool() {
         const outputs: { name: string; blob: Blob }[] = [];
         if (mergeActive) {
           setProgress(`이미지 결합 중 · ${selectedItems.length}개`);
-          const image = await renderMerged(selectedItems, mergeOptions, (done, count) => {
+          const image = await renderMerged(selectedItems, mergeSettings, (done, count) => {
             ensureOpen();
             setProgress(`결합 ${done} / ${count}`);
           });
@@ -459,7 +464,7 @@ export function ImageTool() {
           <fieldset disabled={!current || busy || mergeActive} className="image-tool-fieldset">
             <section className="image-tool-control-section"><h4>크기 · 회전</h4><div className="image-tool-size-grid"><label>너비 px<input type="number" min="1" max={MAX_SIDE} value={widthDraft} onChange={(event) => setWidthDraft(event.target.value)} onBlur={() => commitDimension("width")} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} /></label><label>높이 px<input type="number" min="1" max={MAX_SIDE} value={heightDraft} onChange={(event) => setHeightDraft(event.target.value)} onBlur={() => commitDimension("height")} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} /></label></div><label className="image-tool-check"><input type="checkbox" checked={aspectLocked} onChange={(event) => setAspectLocked(event.target.checked)} /> 비율 유지</label><div className="image-tool-button-row"><button type="button" className="is-edit tool-rotate-button" onClick={() => editCurrent((item) => rotateEdits(item.edits, item.width, item.height, -1))}><RotateCcw aria-hidden="true" />왼쪽 90°</button><button type="button" className="is-edit tool-rotate-button" onClick={() => editCurrent((item) => rotateEdits(item.edits, item.width, item.height, 1))}>오른쪽 90°<RotateCw aria-hidden="true" /></button></div></section>
             <section className="image-tool-control-section">
-              <h4>영역 자르기</h4>
+              <h4>자르기</h4>
               <label>선택 비율
                 <select value={ratio} onChange={(event) => setRatio(event.target.value as CropRatio)}>
                   <option value="free">자유</option>
@@ -473,9 +478,12 @@ export function ImageTool() {
                 <button type="button" className="is-reset" disabled={!current?.edits.crop} onClick={() => editCurrent(resetCrop)}>자르기 해제</button>
               </div>
             </section>
-            <section className="image-tool-control-section"><h4>부분 모자이크</h4><label>블록 크기 <span>{current?.edits.blockSize ?? 12}px</span><input type="range" min="4" max="48" step="2" value={current?.edits.blockSize ?? 12} onChange={(event) => editCurrent((item) => ({ ...item.edits, blockSize: Number(event.target.value) }))} /></label><div className="image-tool-button-row"><button type="button" className={mode === "mosaic" ? "is-edit is-chosen" : "is-edit"} aria-pressed={mode === "mosaic"} onClick={() => setMode(mode === "mosaic" ? null : "mosaic")}>{mode === "mosaic" ? "영역 선택 중" : "영역 지정"}</button><button type="button" className="is-reset" disabled={!current?.edits.mosaic} onClick={() => editCurrent((item) => ({ ...item.edits, mosaic: null }))}>모자이크 해제</button></div></section>
+            <section className="image-tool-control-section"><h4>모자이크</h4><label>강도 <span>{current?.edits.blurRadius ?? 12}px</span><input type="range" min="4" max="48" step="2" value={current?.edits.blurRadius ?? 12} onChange={(event) => editCurrent((item) => ({ ...item.edits, blurRadius: Number(event.target.value) }))} /></label><div className="image-tool-button-row"><button type="button" className={mode === "mosaic" ? "is-edit is-chosen" : "is-edit"} aria-pressed={mode === "mosaic"} onClick={() => setMode(mode === "mosaic" ? null : "mosaic")}>{mode === "mosaic" ? "영역 선택 중" : "영역 지정"}</button><button type="button" className="is-reset" disabled={!current?.edits.mosaic} onClick={() => editCurrent((item) => ({ ...item.edits, mosaic: null }))}>모자이크 해제</button></div></section>
           </fieldset>
-          <section className="image-tool-control-section image-tool-merge"><div className="image-tool-merge-heading"><h4>이미지 결합</h4><small>선택 {selectedItems.length}장</small></div><label className="image-tool-check"><input type="checkbox" checked={merge} disabled={selectedItems.length < 2 || busy} onChange={(event) => { setMerge(event.target.checked); setMode(null); }} /> 선택 이미지 한 장으로 결합</label>{merge && <div className="image-tool-merge-options"><label>배치<select value={mergeOptions.layout} disabled={busy} onChange={(event) => setMergeOptions((option) => ({ ...option, layout: event.target.value as MergeLayout }))}><option value="horizontal">가로</option><option value="vertical">세로</option><option value="grid">격자</option></select></label><label>간격 px<input type="number" min="0" max="1000" value={mergeOptions.gap} disabled={busy} onChange={(event) => { const gap = Number(event.target.value); if (Number.isSafeInteger(gap) && gap >= 0 && gap <= 1000) setMergeOptions((option) => ({ ...option, gap })); }} /></label><label>배경<input type="color" value={mergeOptions.background} disabled={busy} onChange={(event) => setMergeOptions((option) => ({ ...option, background: event.target.value }))} /></label></div>}</section>
+          <section className="image-tool-control-section image-tool-merge"><div className="image-tool-merge-heading"><h4>결합</h4><small>선택 {selectedItems.length}장</small></div><label className="image-tool-check"><input type="checkbox" checked={merge} disabled={selectedItems.length < 2 || busy} onChange={(event) => { setMerge(event.target.checked); setMode(null); }} /> 선택 이미지 한 장으로 결합</label>{mergeActive && <div className="image-tool-merge-options">
+            <span className="image-tool-merge-label" aria-hidden="true">비율</span><fieldset className="segmented image-tool-merge-choice" aria-label="비율" disabled={busy}>{MERGE_RATIOS.map((ratio) => <label key={ratio}><input type="radio" name="merge-ratio" value={ratio} checked={mergeOptions.ratio === ratio} onChange={() => setMergeOptions((option) => ({ ...option, ratio }))} /><span>{ratio}</span></label>)}</fieldset>
+            <span className="image-tool-merge-label" aria-hidden="true">배치</span><fieldset className="segmented image-tool-merge-choice" aria-label="배치" disabled={busy}>{mergeLayouts.map((layout) => <label key={layout}><input type="radio" name="merge-layout" value={layout} checked={mergeLayout === layout} onChange={() => setMergeOptions((option) => ({ ...option, layout }))} /><span>{layout === "grid" && selectedItems.length > 4 ? "격자" : MERGE_LAYOUT_LABELS[layout]}</span></label>)}</fieldset>
+          </div>}</section>
         </aside>
       </div>
       <div className="tool-export image-tool-export">

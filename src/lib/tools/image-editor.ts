@@ -2,14 +2,16 @@ import { zipSync } from "fflate";
 import { PDFDocument } from "pdf-lib";
 
 export type ImageFormat = "jpg" | "png" | "webp" | "pdf";
-export type MergeLayout = "horizontal" | "vertical" | "grid";
+/** Cells per image count: 2 → horizontal | vertical, 3 → top-two | top-one, 4+ → grid. */
+export type MergeLayout = "horizontal" | "vertical" | "top-two" | "top-one" | "grid";
+export type MergeRatio = "1:1" | "4:3" | "16:9";
 export type Rectangle = { x: number; y: number; width: number; height: number };
 export type ImageEdits = {
   rotation: 0 | 1 | 2 | 3;
   crop: Rectangle | null;
   size: { width: number; height: number } | null;
   mosaic: Rectangle | null; // Relative to the final, resized image (0–1).
-  blockSize: number;
+  blurRadius: number;
 };
 export type ImageItem = {
   id: string;
@@ -19,10 +21,14 @@ export type ImageItem = {
   edits: ImageEdits;
   thumbnail: string;
 };
-export type MergeOptions = { layout: MergeLayout; gap: number; background: string };
+export type MergeOptions = { layout: MergeLayout; ratio: MergeRatio };
+export const MERGE_RATIOS: readonly MergeRatio[] = ["1:1", "4:3", "16:9"];
+export const MERGE_LAYOUT_LABELS: Record<MergeLayout, string> = {
+  horizontal: "좌우", vertical: "상하", "top-two": "위 2 · 아래 1", "top-one": "위 1 · 아래 2", grid: "2×2",
+};
 export type ImageOutput = { name: string; blob: Blob };
 
-export const initialImageEdits = (): ImageEdits => ({ rotation: 0, crop: null, size: null, mosaic: null, blockSize: 12 });
+export const initialImageEdits = (): ImageEdits => ({ rotation: 0, crop: null, size: null, mosaic: null, blurRadius: 12 });
 export const MAX_SIDE = 16384;
 export const MAX_PIXELS = 80_000_000;
 const MIME: Record<Exclude<ImageFormat, "pdf">, string> = { jpg: "image/jpeg", png: "image/png", webp: "image/webp" };
@@ -109,28 +115,31 @@ function context(target: HTMLCanvasElement): CanvasRenderingContext2D {
   return ctx;
 }
 
-export function mosaicRegion(target: HTMLCanvasElement, region: Rectangle, blockSize: number): void {
+function blurRegion(target: HTMLCanvasElement, region: Rectangle, radius: number): void {
   const x = Math.max(0, Math.floor(region.x * target.width));
   const y = Math.max(0, Math.floor(region.y * target.height));
   const right = Math.min(target.width, Math.ceil((region.x + region.width) * target.width));
   const bottom = Math.min(target.height, Math.ceil((region.y + region.height) * target.height));
-  const width = right - x;
-  const height = bottom - y;
-  if (!Number.isSafeInteger(blockSize) || blockSize < 1) throw new Error("모자이크 블록 크기를 확인하세요.");
-  if (width < 1 || height < 1) return;
-  const tile = canvas(Math.ceil(width / blockSize), Math.ceil(height / blockSize));
+  if (!Number.isFinite(radius) || radius <= 0) throw new Error("모자이크 강도를 확인하세요.");
+  if (right <= x || bottom <= y) return;
+  // Read a padded source so the blur sees pixels outside the selection, while
+  // clipping writes strictly to the selected rectangle.
+  const padding = Math.ceil(radius * 3);
+  const left = Math.max(0, x - padding);
+  const top = Math.max(0, y - padding);
+  const sourceRight = Math.min(target.width, right + padding);
+  const sourceBottom = Math.min(target.height, bottom + padding);
+  const tile = canvas(sourceRight - left, sourceBottom - top);
   try {
-    const tileContext = context(tile);
-    tileContext.imageSmoothingEnabled = true;
-    tileContext.drawImage(target, x, y, width, height, 0, 0, tile.width, tile.height);
+    context(tile).drawImage(target, left, top, tile.width, tile.height, 0, 0, tile.width, tile.height);
     const ctx = context(target);
     ctx.save();
     try {
       ctx.beginPath();
-      ctx.rect(x, y, width, height);
+      ctx.rect(x, y, right - x, bottom - y);
       ctx.clip();
-      ctx.imageSmoothingEnabled = false;
-      ctx.drawImage(tile, x, y, width, height);
+      ctx.filter = `blur(${radius}px)`;
+      ctx.drawImage(tile, left, top);
     } finally {
       ctx.restore();
     }
@@ -162,7 +171,7 @@ export async function renderImage(item: ImageItem, maxEdge = Infinity): Promise<
     }
     ctx.drawImage(bitmap, 0, 0);
     ctx.resetTransform();
-    if (item.edits.mosaic) mosaicRegion(target, item.edits.mosaic, Math.max(1, Math.round(item.edits.blockSize * scale)));
+    if (item.edits.mosaic) blurRegion(target, item.edits.mosaic, Math.max(0.1, item.edits.blurRadius * scale));
     return target;
   } catch (error) {
     target.width = target.height = 0;
@@ -172,51 +181,76 @@ export async function renderImage(item: ImageItem, maxEdge = Infinity): Promise<
   }
 }
 
+/** The layouts offered for a given number of selected images; the first is the default. */
+export function mergeLayoutsFor(count: number): MergeLayout[] {
+  if (count === 2) return ["horizontal", "vertical"];
+  if (count === 3) return ["top-two", "top-one"];
+  return ["grid"];
+}
+
+type Cell = { x: number; y: number; width: number; height: number };
+
+/** Cells as fractions of the canvas, in list order. Gap is always 0 and every cell is filled. */
+export function mergeCells(count: number, layout: MergeLayout): Cell[] {
+  const valid = mergeLayoutsFor(count).includes(layout) ? layout : mergeLayoutsFor(count)[0];
+  if (valid === "horizontal") return [{ x: 0, y: 0, width: 0.5, height: 1 }, { x: 0.5, y: 0, width: 0.5, height: 1 }];
+  if (valid === "vertical") return [{ x: 0, y: 0, width: 1, height: 0.5 }, { x: 0, y: 0.5, width: 1, height: 0.5 }];
+  if (valid === "top-two") return [{ x: 0, y: 0, width: 0.5, height: 0.5 }, { x: 0.5, y: 0, width: 0.5, height: 0.5 }, { x: 0, y: 0.5, width: 1, height: 0.5 }];
+  if (valid === "top-one") return [{ x: 0, y: 0, width: 1, height: 0.5 }, { x: 0, y: 0.5, width: 0.5, height: 0.5 }, { x: 0.5, y: 0.5, width: 0.5, height: 0.5 }];
+  // Grid (4 → 2×2; more images keep the square-ish grid, a short last row spans the full width).
+  const columns = Math.ceil(Math.sqrt(count));
+  const rows = Math.ceil(count / columns);
+  return Array.from({ length: count }, (_, index) => {
+    const row = Math.floor(index / columns);
+    const inRow = row === rows - 1 ? count - row * columns : columns;
+    const col = index - row * columns;
+    return { x: col / inRow, y: row / rows, width: 1 / inRow, height: 1 / rows };
+  });
+}
+
+/** Canvas size at the chosen ratio, scaled from source dimensions and bounded by browser canvas limits. */
 export function mergeDimensions(sizes: readonly { width: number; height: number }[], options: MergeOptions) {
-  if (sizes.length === 0) throw new Error("합칠 이미지를 선택하세요.");
-  const gap = options.gap;
-  if (!Number.isSafeInteger(gap) || gap < 0 || gap > 1000) throw new Error("간격은 0~1000px로 설정하세요.");
-  if (options.layout === "horizontal") {
-    return { width: sizes.reduce((sum, size) => sum + size.width, 0) + gap * (sizes.length - 1), height: Math.max(...sizes.map((size) => size.height)) };
+  if (sizes.length < 2) throw new Error("합칠 이미지를 두 장 이상 선택하세요.");
+  const [rw, rh] = options.ratio.split(":").map(Number);
+  const cells = mergeCells(sizes.length, options.layout);
+  let width = 1;
+  for (const [index, cell] of cells.entries()) {
+    width = Math.max(width, sizes[index].width / cell.width, (sizes[index].height / cell.height) * (rw / rh));
   }
-  if (options.layout === "vertical") {
-    return { width: Math.max(...sizes.map((size) => size.width)), height: sizes.reduce((sum, size) => sum + size.height, 0) + gap * (sizes.length - 1) };
+  const limit = Math.min(1, MAX_SIDE / Math.max(width, (width * rh) / rw), Math.sqrt(MAX_PIXELS / ((width * width * rh) / rw)));
+  width = Math.max(1, Math.floor(width * limit));
+  let height = Math.max(1, Math.round((width * rh) / rw));
+  while (height > MAX_SIDE || width * height > MAX_PIXELS) {
+    width--;
+    height = Math.max(1, Math.round((width * rh) / rw));
   }
-  const columns = Math.ceil(Math.sqrt(sizes.length));
-  const rows = Math.ceil(sizes.length / columns);
-  const columnWidths = Array.from({ length: columns }, (_, column) => Math.max(...sizes.filter((_, index) => index % columns === column).map((size) => size.width)));
-  const rowHeights = Array.from({ length: rows }, (_, row) => Math.max(...sizes.slice(row * columns, (row + 1) * columns).map((size) => size.height)));
-  return { width: columnWidths.reduce((sum, value) => sum + value, 0) + gap * (columns - 1), height: rowHeights.reduce((sum, value) => sum + value, 0) + gap * (rows - 1) };
+  return { width, height };
 }
 
 export async function renderMerged(items: readonly ImageItem[], options: MergeOptions, onProgress?: (done: number, total: number) => void, maxEdge = Infinity): Promise<HTMLCanvasElement> {
-  const sizes = items.map(outputSize);
-  const dimensions = mergeDimensions(sizes, options);
+  const dimensions = mergeDimensions(items.map(outputSize), options);
   const scale = Math.min(1, maxEdge / Math.max(dimensions.width, dimensions.height));
   const target = canvas(Math.max(1, Math.round(dimensions.width * scale)), Math.max(1, Math.round(dimensions.height * scale)));
   try {
     const ctx = context(target);
-    ctx.fillStyle = options.background;
-    ctx.fillRect(0, 0, target.width, target.height);
-    const columns = Math.ceil(Math.sqrt(items.length));
-    const columnWidths = options.layout === "grid" ? Array.from({ length: columns }, (_, column) => Math.max(...sizes.filter((_, index) => index % columns === column).map((size) => size.width))) : [];
-    const rowHeights = options.layout === "grid" ? Array.from({ length: Math.ceil(items.length / columns) }, (_, row) => Math.max(...sizes.slice(row * columns, (row + 1) * columns).map((size) => size.height))) : [];
-    let x = 0;
-    let y = 0;
+    const cells = mergeCells(items.length, options.layout);
     for (let index = 0; index < items.length; index++) {
-      if (options.layout === "grid") {
-        const col = index % columns;
-        const row = Math.floor(index / columns);
-        x = columnWidths.slice(0, col).reduce((sum, value) => sum + value + options.gap, 0);
-        y = rowHeights.slice(0, row).reduce((sum, value) => sum + value + options.gap, 0);
-      }
-      const size = sizes[index];
+      // Integer cell edges from shared fractions: neighbours meet exactly, no seams or overlap.
+      const cell = cells[index];
+      const x0 = Math.round(cell.x * target.width);
+      const y0 = Math.round(cell.y * target.height);
+      const w = Math.round((cell.x + cell.width) * target.width) - x0;
+      const h = Math.round((cell.y + cell.height) * target.height) - y0;
+      const size = outputSize(items[index]);
       const image = await renderImage(items[index], Math.max(size.width, size.height) * scale);
-      try { ctx.drawImage(image, x * scale, y * scale, size.width * scale, size.height * scale); }
-      finally { image.width = image.height = 0; }
+      try {
+        // Cover: scale to fill the cell, centre-crop the overflow; never stretched.
+        const fit = Math.max(w / image.width, h / image.height);
+        const sw = w / fit;
+        const sh = h / fit;
+        ctx.drawImage(image, (image.width - sw) / 2, (image.height - sh) / 2, sw, sh, x0, y0, w, h);
+      } finally { image.width = image.height = 0; }
       onProgress?.(index + 1, items.length);
-      if (options.layout === "horizontal") x += sizes[index].width + options.gap;
-      if (options.layout === "vertical") y += sizes[index].height + options.gap;
     }
     return target;
   } catch (error) {

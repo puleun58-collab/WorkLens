@@ -5910,9 +5910,6 @@ body {
   justify-content: flex-start;
 }
 
-.operation-bar:has(.polish-paste) .polish-paste small {
-  text-align: left;
-}
 
 /*
  * Polish stacks three control rows on the right — input source, mode, run —

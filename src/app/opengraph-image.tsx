@@ -1,7 +1,7 @@
 import { ImageResponse } from "next/og";
 import { WORKLENS_FRAME_PATH, WORKLENS_W_PATH } from "./worklens-logo";
 
-export const alt = "WorkLens | 업무 문서 분석·비교·검수";
+export const alt = "WorkLens | 업무 문서 작업 공간";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -57,7 +57,7 @@ export default function OpenGraphImage() {
             lineHeight: 1.35,
           }}
         >
-          업무 문서 분석·비교·검수
+          업무 문서 작업 공간
         </div>
       </div>
     </div>,
