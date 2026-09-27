@@ -33,6 +33,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     if ("term" in body && typeof body.term === "string") patch.term = body.term;
     if ("description" in body && (typeof body.description === "string" || body.description === null)) patch.description = body.description;
     if ("active" in body && typeof body.active === "boolean") patch.active = body.active;
+    if (Object.keys(patch).length === 0) throw new ApiError("INVALID_REQUEST", "변경할 내용을 확인하세요.", 400);
     return ok({ term: await updateCompanyTerm(termId(id), patch) });
   } catch (error) {
     return apiError(toApiError(error));

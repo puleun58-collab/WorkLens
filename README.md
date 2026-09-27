@@ -36,6 +36,7 @@ WorkLens는 XLSX, CSV, PDF, DOCX, PPTX 파일을 브라우저에서 읽어 분�
 | 이미지 도구 | 입력 JPG, JPEG, PNG, WebP · 출력 JPG, PNG, WebP, PDF |
 
 파일당 최대 100 MB, 작업 공간 합계 최대 300 MB, 최대 10개 파일입니다. 스캔 PDF의 이미지 속 글자는 읽지 않습니다(OCR 없음).
+PDF 도구는 이 파일·용량 제한에 더해 작업 공간에서 최대 1,000페이지까지 편집할 수 있습니다.
 
 ## 개발 실행
 

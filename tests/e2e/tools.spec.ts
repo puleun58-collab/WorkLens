@@ -1306,3 +1306,27 @@ test("large WebP sources use bounded previews without downscaling the export", a
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
+
+test("rejects oversized and excessive-page PDF imports before retaining them", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium-desktop");
+  await page.goto("/");
+  await page.getByRole("button", { name: "PDF 도구" }).click();
+  await expect(page.locator(".pdf-tool-upload")).toBeVisible();
+  await page.evaluate(() => {
+    const chunk = new Uint8Array(1024 * 1024);
+    const file = new File(Array(101).fill(chunk), "too-big.pdf", { type: "application/pdf" });
+    const transfer = new DataTransfer();
+    transfer.items.add(file);
+    document.querySelector(".pdf-tool-upload")!.dispatchEvent(new DragEvent("drop", { bubbles: true, dataTransfer: transfer }));
+  });
+  await expect(page.locator(".pdf-tool-notice-error")).toContainText("100.00 MB 이하");
+  await expect(page.getByLabel("불러온 PDF")).toHaveCount(0);
+
+  const pdfDocument = await PDFDocument.create();
+  for (let pageNumber = 0; pageNumber < 1001; pageNumber++) pdfDocument.addPage([72, 72]);
+  await page.getByLabel("PDF 파일 선택").setInputFiles({
+    name: "too-many-pages.pdf", mimeType: "application/pdf", buffer: Buffer.from(await pdfDocument.save()),
+  });
+  await expect(page.locator(".pdf-tool-notice-error")).toContainText("최대 1000페이지");
+  await expect(page.getByLabel("불러온 PDF")).toHaveCount(0);
+});

@@ -2789,3 +2789,44 @@ for (const [format, file] of [["PDF", files.pdf], ["DOCX", files.docx]] as const
     await expect(page.getByText("Excel이 아닌 파일이 포함되어 있습니다.", { exact: true })).toBeVisible();
   });
 }
+
+test("keeps selected files and reports a worker deletion failure", async ({ page }) => {
+  await page.addInitScript(() => {
+    const NativeWorker = window.Worker;
+    window.Worker = class extends NativeWorker {
+      override postMessage(message: unknown, options?: StructuredSerializeOptions | Transferable[]) {
+        const envelope = message as { id: string; request: { kind: string } };
+        if (envelope.request.kind === "forget") {
+          queueMicrotask(() => this.dispatchEvent(new MessageEvent("message", {
+            data: { id: envelope.id, ok: false, error: { code: "WORKER_FAILED", message: "unavailable" } },
+          })));
+          return;
+        }
+        super.postMessage(message, options as StructuredSerializeOptions);
+      }
+    };
+  });
+  await page.goto("/");
+  await upload(page, files.v1);
+  await page.getByLabel("운임현황_v1.xlsx 선택").check();
+  await page.getByRole("button", { name: "선택 삭제" }).click();
+  await expect(page.locator(".notice.error")).toContainText("선택한 파일을 삭제하지 못했습니다.");
+  await expect(page.getByLabel("운임현황_v1.xlsx 선택")).toBeChecked();
+  await expect(page.locator(".transient-status")).toHaveCount(0);
+});
+
+test("shows incomplete AI extraction without discarding deterministic fields", async ({ page }) => {
+  await page.route("**/api/ai", (route) => route.fulfill({
+    status: 503, contentType: "application/json", body: JSON.stringify({ error: { code: "UNAVAILABLE", message: "unavailable" } }),
+  }));
+  await page.goto("/");
+  await upload(page, files.extractPptx);
+  await page.getByLabel("회의자료.pptx 선택").check();
+  await page.getByRole("button", { name: "추출", exact: true }).click();
+  await page.getByRole("radio", { name: "항목 지정" }).check();
+  await page.getByLabel("추출할 항목").fill("존재하지 않는 항목");
+  await page.getByRole("button", { name: "항목 추가" }).click();
+  await page.getByRole("button", { name: "추출 실행" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "AI 항목 확인이 중단되어 나머지 항목은 확인하지 못했습니다." })).toBeVisible();
+  await expect(page.locator(".extract-results")).toContainText("찾지 못함");
+});

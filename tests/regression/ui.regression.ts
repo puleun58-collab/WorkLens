@@ -317,3 +317,16 @@ regressionCase(make(25, "UI", "Tab and icon controls elevation", "Inactive tabs 
   expect(guideIdle).toBe("none"); expect(lawIdle).toBe("none"); expect(iconShadow).toBe("none");
   note(`active guide tab = --elevation-active (${activeToken}); idle guide/law tabs and swap icon flat`);
 });
+regressionCase(make(26, "Dictionary", "Company-term API unavailable", "Versioned seed terms remain visible and searchable after an HTTP failure"), async ({ page, note }) => {
+  await page.route("**/api/company-terms", (route) => route.fulfill({
+    status: 503, contentType: "application/json", body: JSON.stringify({ error: "unavailable" }),
+  }));
+  await ready(page); await openView(page, "Dictionary");
+  const dictionary = page.locator('.settings-surface[aria-label="Dictionary"]');
+  await expect(dictionary.locator(".dictionary-section h4").first()).toContainText("48");
+  await expect(dictionary).toContainText("공용 사전 저장소에 연결하지 못해 기본 목록을 표시합니다.");
+  await page.getByRole("textbox", { name: "공용 용어 검색" }).fill("WorkLens");
+  await expect(dictionary.locator(".dictionary-section").first().locator(".dictionary-term")).toHaveCount(1);
+  await expect(dictionary.locator(".dictionary-section").first()).toContainText("WorkLens");
+  note("HTTP 503 displayed the 48 versioned seed terms rather than an empty pending dictionary.");
+});

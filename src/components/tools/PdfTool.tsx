@@ -16,6 +16,7 @@ import {
   type PdfPageRenderer,
 } from "@/lib/tools/pdf";
 import { loadBrowserPdf, recompressBrowserJpeg, renderBrowserPdfPage } from "@/lib/tools/pdf-render";
+import { inputLimitFor, MAX_WORKSPACE_INPUT_BYTES } from "@/lib/parsers/policy";
 import { moveItem } from "@/lib/tools/reorder";
 import { useReorder } from "./useReorder";
 import "./tool-layout.css";
@@ -27,6 +28,8 @@ interface WorkspaceSource extends PdfInputSource {
   pageCount: number;
   task: PDFDocumentLoadingTask;
 }
+const MAX_PDF_EDITOR_FILES = 10;
+const MAX_PDF_EDITOR_PAGES = 1000;
 
 const COMPRESSION_LEVELS: ReadonlyArray<{ level: PdfCompressionLevel; label: string }> = [
   { level: "quality", label: "고화질" },
@@ -152,11 +155,34 @@ export function PdfTool() {
           setError(`${file.name}: PDF 파일을 선택하세요.`);
           continue;
         }
+        if (sourcesRef.current.size >= MAX_PDF_EDITOR_FILES) {
+          setError(`${file.name}: PDF 작업 공간은 최대 ${MAX_PDF_EDITOR_FILES}개 파일까지 지원합니다.`);
+          continue;
+        }
+        if (file.size > inputLimitFor("pdf")) {
+          setError(`${file.name}: PDF 파일 크기는 ${prettyBytes(inputLimitFor("pdf"))} 이하만 지원합니다.`);
+          continue;
+        }
+        let retainedBytes = 0;
+        let retainedPages = 0;
+        for (const source of sourcesRef.current.values()) {
+          retainedBytes += source.file.size;
+          retainedPages += source.pageCount;
+        }
+        if (retainedBytes + file.size > MAX_WORKSPACE_INPUT_BYTES) {
+          setError(`${file.name}: PDF 작업 공간의 파일 합계는 ${prettyBytes(MAX_WORKSPACE_INPUT_BYTES)} 이하만 지원합니다.`);
+          continue;
+        }
         try {
           const { document, task } = await loadBrowserPdf(file, controller.signal, (loadingTask) => {
             controller.signal.addEventListener("abort", () => void loadingTask.destroy(), { once: true });
           });
           if (controller.signal.aborted) { await task.destroy(); break; }
+          if (retainedPages + document.numPages > MAX_PDF_EDITOR_PAGES) {
+            await task.destroy();
+            setError(`${file.name}: PDF 작업 공간은 최대 ${MAX_PDF_EDITOR_PAGES}페이지까지 지원합니다.`);
+            continue;
+          }
           const id = crypto.randomUUID();
           const source: WorkspaceSource = { id, name: file.name, file, document, task, pageCount: document.numPages };
           sourcesRef.current.set(id, source);

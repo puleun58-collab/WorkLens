@@ -62,16 +62,11 @@ export async function createCompanyTerm(term: string, description: string | null
   const display = term.normalize("NFKC").replace(/\s+/gu, " ").trim();
   const normalized = normalizeTerm(display);
   if (!display || !normalized) throw new Error("INVALID_TERM");
-  const existing = await database
-    .prepare("SELECT id FROM company_terms WHERE normalized_term = ?")
-    .bind(normalized)
-    .first<{ id: number }>();
-  if (existing) throw new Error("DUPLICATE_TERM");
   const inserted = await database
-    .prepare("INSERT INTO company_terms (term, normalized_term, description) VALUES (?, ?, ?) RETURNING id, term, description, active, updated_at")
+    .prepare("INSERT INTO company_terms (term, normalized_term, description) VALUES (?, ?, ?) ON CONFLICT(normalized_term) DO NOTHING RETURNING id, term, description, active, updated_at")
     .bind(display, normalized, description)
     .first<TermRow>();
-  if (!inserted) throw new Error("COMPANY_TERMS_UNAVAILABLE");
+  if (!inserted) throw new Error("DUPLICATE_TERM");
   return toTerm(inserted);
 }
 
