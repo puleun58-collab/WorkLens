@@ -1,12 +1,17 @@
 /* Usage guide: WorkLens tokens only; one surface, no floating cards. */
 .usage-guide {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
   min-width: 0;
 }
 
 .usage-guide-tabs {
   display: flex;
+  justify-self: start;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: 100%;
   gap: 2px;
   padding: 4px;
   overflow-x: auto;

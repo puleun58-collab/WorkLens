@@ -4,7 +4,7 @@ import { ChangeEvent, DragEvent, PointerEvent, useEffect, useMemo, useRef, useSt
 import { GripVertical, Images, RotateCcw, RotateCw } from "lucide-react";
 import {
   cropWithinPreview, effectiveCrop, encodeCanvas, encodePdf, fileBase, initialImageEdits,
-  MAX_PIXELS, MAX_SIDE, mergeDimensions, outputSize, packageImages, renderImage,
+  MAX_PIXELS, MAX_SIDE, mergeCells, mergeDimensions, outputSize, packageImages, renderImage,
   renderMerged, resetCrop, rotateEdits,
   type ImageEdits, type ImageFormat, type ImageItem, type MergeOptions, MERGE_LAYOUT_LABELS, MERGE_RATIOS, mergeLayoutsFor,
   type Rectangle,
@@ -16,8 +16,6 @@ import "./image-tool.css";
 import "./reorder.css";
 
 type SelectionMode = "crop" | "mosaic" | null;
-type CropRatio = "free" | "1:1" | "4:3" | "16:9";
-const RATIOS: Record<Exclude<CropRatio, "free">, number> = { "1:1": 1, "4:3": 4 / 3, "16:9": 16 / 9 };
 const QUALITY = { high: 0.92, balanced: 0.72, small: 0.42 } as const;
 const QUALITY_LABELS: Record<keyof typeof QUALITY, string> = { high: "고화질", balanced: "균형 (권장)", small: "강력 압축" };
 const ACCEPT = /\.(jpe?g|png|webp)$/i;
@@ -35,7 +33,6 @@ export function ImageTool() {
   const [selected, setSelected] = useState<string[]>([]);
   const [currentId, setCurrentId] = useState<string | null>(null);
   const [mode, setMode] = useState<SelectionMode>(null);
-  const [ratio, setRatio] = useState<CropRatio>("free");
   const [drag, setDrag] = useState<Rectangle | null>(null);
   const [aspectLocked, setAspectLocked] = useState(true);
   const [sizeDraft, setSizeDraft] = useState<{ edits: ImageEdits; width: string; height: string } | null>(null);
@@ -231,16 +228,8 @@ export function ImageTool() {
   }
 
   function selectionRectangle(origin: { x: number; y: number }, end: { x: number; y: number }): Rectangle {
-    let dx = end.x - origin.x;
-    let dy = end.y - origin.y;
-    if (mode === "crop" && ratio !== "free" && previewSize) {
-      const desired = RATIOS[ratio];
-      const roomX = (dx >= 0 ? 1 - origin.x : origin.x) * previewSize.width;
-      const roomY = (dy >= 0 ? 1 - origin.y : origin.y) * previewSize.height;
-      const width = Math.min(Math.max(Math.abs(dx) * previewSize.width, Math.abs(dy) * previewSize.height * desired), roomX, roomY * desired);
-      dx = (Math.sign(dx) || 1) * width / previewSize.width;
-      dy = (Math.sign(dy) || 1) * width / desired / previewSize.height;
-    }
+    const dx = end.x - origin.x;
+    const dy = end.y - origin.y;
     return { x: Math.min(origin.x, origin.x + dx), y: Math.min(origin.y, origin.y + dy), width: Math.abs(dx), height: Math.abs(dy) };
   }
 
@@ -465,14 +454,6 @@ export function ImageTool() {
             <section className="image-tool-control-section"><h4>크기 · 회전</h4><div className="image-tool-size-grid"><label>너비 px<input type="number" min="1" max={MAX_SIDE} value={widthDraft} onChange={(event) => setWidthDraft(event.target.value)} onBlur={() => commitDimension("width")} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} /></label><label>높이 px<input type="number" min="1" max={MAX_SIDE} value={heightDraft} onChange={(event) => setHeightDraft(event.target.value)} onBlur={() => commitDimension("height")} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} /></label></div><label className="image-tool-check"><input type="checkbox" checked={aspectLocked} onChange={(event) => setAspectLocked(event.target.checked)} /> 비율 유지</label><div className="image-tool-button-row"><button type="button" className="is-edit tool-rotate-button" onClick={() => editCurrent((item) => rotateEdits(item.edits, item.width, item.height, -1))}><RotateCcw aria-hidden="true" />왼쪽 90°</button><button type="button" className="is-edit tool-rotate-button" onClick={() => editCurrent((item) => rotateEdits(item.edits, item.width, item.height, 1))}>오른쪽 90°<RotateCw aria-hidden="true" /></button></div></section>
             <section className="image-tool-control-section">
               <h4>자르기</h4>
-              <label>선택 비율
-                <select value={ratio} onChange={(event) => setRatio(event.target.value as CropRatio)}>
-                  <option value="free">자유</option>
-                  <option value="1:1">1 : 1</option>
-                  <option value="4:3">4 : 3</option>
-                  <option value="16:9">16 : 9</option>
-                </select>
-              </label>
               <div className="image-tool-button-row">
                 <button type="button" className={mode === "crop" ? "is-edit is-chosen" : "is-edit"} aria-pressed={mode === "crop"} onClick={() => setMode(mode === "crop" ? null : "crop")}>{mode === "crop" ? "영역 선택 중" : "영역 지정"}</button>
                 <button type="button" className="is-reset" disabled={!current?.edits.crop} onClick={() => editCurrent(resetCrop)}>자르기 해제</button>
@@ -481,8 +462,23 @@ export function ImageTool() {
             <section className="image-tool-control-section"><h4>모자이크</h4><label>강도 <span>{current?.edits.blurRadius ?? 12}px</span><input type="range" min="4" max="48" step="2" value={current?.edits.blurRadius ?? 12} onChange={(event) => editCurrent((item) => ({ ...item.edits, blurRadius: Number(event.target.value) }))} /></label><div className="image-tool-button-row"><button type="button" className={mode === "mosaic" ? "is-edit is-chosen" : "is-edit"} aria-pressed={mode === "mosaic"} onClick={() => setMode(mode === "mosaic" ? null : "mosaic")}>{mode === "mosaic" ? "영역 선택 중" : "영역 지정"}</button><button type="button" className="is-reset" disabled={!current?.edits.mosaic} onClick={() => editCurrent((item) => ({ ...item.edits, mosaic: null }))}>모자이크 해제</button></div></section>
           </fieldset>
           <section className="image-tool-control-section image-tool-merge"><div className="image-tool-merge-heading"><h4>결합</h4><small>선택 {selectedItems.length}장</small></div><label className="image-tool-check"><input type="checkbox" checked={merge} disabled={selectedItems.length < 2 || busy} onChange={(event) => { setMerge(event.target.checked); setMode(null); }} /> 선택 이미지 한 장으로 결합</label>{mergeActive && <div className="image-tool-merge-options">
-            <span className="image-tool-merge-label" aria-hidden="true">비율</span><fieldset className="segmented image-tool-merge-choice" aria-label="비율" disabled={busy}>{MERGE_RATIOS.map((ratio) => <label key={ratio}><input type="radio" name="merge-ratio" value={ratio} checked={mergeOptions.ratio === ratio} onChange={() => setMergeOptions((option) => ({ ...option, ratio }))} /><span>{ratio}</span></label>)}</fieldset>
-            <span className="image-tool-merge-label" aria-hidden="true">배치</span><fieldset className="segmented image-tool-merge-choice" aria-label="배치" disabled={busy}>{mergeLayouts.map((layout) => <label key={layout}><input type="radio" name="merge-layout" value={layout} checked={mergeLayout === layout} onChange={() => setMergeOptions((option) => ({ ...option, layout }))} /><span>{layout === "grid" && selectedItems.length > 4 ? "격자" : MERGE_LAYOUT_LABELS[layout]}</span></label>)}</fieldset>
+            <span className="image-tool-merge-label" aria-hidden="true">비율</span>
+            <fieldset className="segmented image-tool-merge-ratios" aria-label="비율" disabled={busy}>
+              {MERGE_RATIOS.map((ratio) => <label key={ratio}><input type="radio" name="merge-ratio" value={ratio} checked={mergeOptions.ratio === ratio} onChange={() => setMergeOptions((option) => ({ ...option, ratio }))} /><span>{ratio}</span></label>)}
+            </fieldset>
+            <span className="image-tool-merge-label" aria-hidden="true">배치</span>
+            <fieldset className="image-tool-merge-layouts" aria-label="배치" disabled={busy}>
+              {mergeLayouts.map((layout) => {
+                const label = layout === "grid" && selectedItems.length > 4 ? "격자" : MERGE_LAYOUT_LABELS[layout];
+                return <label key={layout}>
+                  <input type="radio" name="merge-layout" value={layout} aria-label={label} checked={mergeLayout === layout} onChange={() => setMergeOptions((option) => ({ ...option, layout }))} />
+                  <span className="image-tool-layout-preview" aria-hidden="true">
+                    {mergeCells(selectedItems.length, layout).map((cell, index) => <span key={index} className="image-tool-layout-cell" style={{ left: `${cell.x * 100}%`, top: `${cell.y * 100}%`, width: `${cell.width * 100}%`, height: `${cell.height * 100}%` }} />)}
+                  </span>
+                  <span className="image-tool-layout-caption">{layout === "top-two" ? "2 + 1" : layout === "top-one" ? "1 + 2" : label}</span>
+                </label>;
+              })}
+            </fieldset>
           </div>}</section>
         </aside>
       </div>

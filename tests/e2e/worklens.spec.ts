@@ -248,11 +248,21 @@ test("shows the swap action only for exactly two version files", async ({ page }
 });
 
 test("usage guide sits above dictionary and settings and switches feature flows", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/");
   await page.getByRole("button", { name: "Guide" }).click();
   await expect(page.locator(".rail-footer .rail-item span")).toHaveText(["사용 가이드", "용어 사전", "설정"]);
   await expect(page.getByRole("button", { name: "Guide" })).toHaveAttribute("aria-current", "page");
   await expect(page.getByRole("tab", { name: "분석", exact: true })).toHaveAttribute("aria-selected", "true");
+  const tabs = page.getByRole("tablist", { name: "기능 선택" });
+  const desktopTabs = await tabs.evaluate((element) => {
+    const bounds = element.getBoundingClientRect();
+    const guide = element.parentElement!.getBoundingClientRect();
+    return { left: bounds.left, guideLeft: guide.left, width: bounds.width, guideWidth: guide.width, trailing: bounds.right - element.lastElementChild!.getBoundingClientRect().right };
+  });
+  expect(Math.abs(desktopTabs.left - desktopTabs.guideLeft)).toBeLessThan(1);
+  expect(desktopTabs.width).toBeLessThan(desktopTabs.guideWidth);
+  expect(desktopTabs.trailing).toBeLessThan(12);
   const panel = page.getByRole("tabpanel");
   await page.getByRole("tab", { name: "비교", exact: true }).click();
   await expect(panel.locator(".usage-guide-step > strong")).toHaveText(["파일 선택", "기준/대상 확인", "실행", "결과 확인"]);
@@ -261,6 +271,11 @@ test("usage guide sits above dictionary and settings and switches feature flows"
   await expect(page.getByRole("tab", { name: "검수", exact: true })).toHaveAttribute("aria-selected", "true");
   await expect(panel.locator(".usage-guide-step")).toHaveCount(3);
   await page.setViewportSize({ width: 390, height: 844 });
+  const mobileTabs = await tabs.evaluate((element) => ({ width: element.getBoundingClientRect().width, guideWidth: element.parentElement!.getBoundingClientRect().width, scrollWidth: element.scrollWidth, clientWidth: element.clientWidth }));
+  expect(mobileTabs.width).toBeLessThanOrEqual(mobileTabs.guideWidth + 1);
+  expect(mobileTabs.scrollWidth).toBeGreaterThan(mobileTabs.clientWidth);
+  await page.getByRole("tab", { name: "용어 사전", exact: true }).click();
+  await expect(page.getByRole("tab", { name: "용어 사전", exact: true })).toHaveAttribute("aria-selected", "true");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 });
 

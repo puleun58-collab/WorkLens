@@ -82,9 +82,8 @@ async function imageExport(page: Page, format: string) {
   return saved(page);
 }
 
-async function dragRegion(page: Page, mode: "자르기" | "모자이크", ratio?: string) {
+async function dragRegion(page: Page, mode: "자르기" | "모자이크") {
   const controls = page.locator(".image-tool-control-section").filter({ has: page.getByRole("heading", { name: mode }) });
-  if (ratio) await controls.getByLabel("선택 비율").selectOption(ratio);
   await controls.getByRole("button", { name: "영역 지정" }).click();
   const target = page.locator(".image-tool-pointer");
   await target.scrollIntoViewIfNeeded();
@@ -345,24 +344,18 @@ regressionCase({ id: "TOOL-18", category: "Image", input: "Unlinked dimensions a
   note(`Independent 200×180; left 180×200; right restored 200×180`);
 });
 
-for (const [id, ratio, expected] of [
-  ["TOOL-19", "free", { width: 200, height: 150 }],
-  ["TOOL-20", "1:1", { width: 200, height: 200 }],
-  ["TOOL-21", "4:3", { width: 200, height: 150 }],
-  ["TOOL-22", "16:9", { width: 267, height: 150 }],
-] as const) {
-  regressionCase({ id, category: "Image", input: `${ratio} cropped area`, format: "PNG", structure: "400×300 image; drag from 20% to 70%", expected: `Export is ${expected.width}×${expected.height} and crop reset restores source`, mobile: id === "TOOL-20" }, async ({ page, note }) => {
-    await enter(page, "이미지 도구");
-    await imageInput(page, `tool-crop-${id}.png`, 400, 300);
-    await dragRegion(page, "자르기", ratio);
-    const output = await imageExport(page, "png");
-    const info = await decoded(output, "png", expected);
-    await page.locator(".image-tool-control-section").filter({ has: page.getByRole("heading", { name: "자르기", exact: true }) }).getByRole("button", { name: "자르기 해제" }).click();
-    await decoded(await saved(page), "png", { width: 400, height: 300 });
-    note(`${ratio} crop ${info.width}×${info.height}; reset 400×300`);
-    await noHorizontalOverflow(page);
-  });
-}
+regressionCase({ id: "TOOL-19", category: "Image", input: "Free cropped area", format: "PNG", structure: "400×300 image; drag from 20% to 70%", expected: "Export is 200×150 and crop reset restores source", mobile: true }, async ({ page, note }) => {
+  await enter(page, "이미지 도구");
+  await imageInput(page, "tool-crop-free.png", 400, 300);
+  await expect(page.locator(".image-tool-control-section").filter({ has: page.getByRole("heading", { name: "자르기", exact: true }) }).getByLabel("선택 비율")).toHaveCount(0);
+  await dragRegion(page, "자르기");
+  const output = await imageExport(page, "png");
+  const info = await decoded(output, "png", { width: 200, height: 150 });
+  await page.locator(".image-tool-control-section").filter({ has: page.getByRole("heading", { name: "자르기", exact: true }) }).getByRole("button", { name: "자르기 해제" }).click();
+  await decoded(await saved(page), "png", { width: 400, height: 300 });
+  note(`Free crop ${info.width}×${info.height}; reset 400×300`);
+  await noHorizontalOverflow(page);
+});
 
 regressionCase({ id: "TOOL-23", category: "Image", input: "Mosaic region and reset", format: "PNG", structure: "Patterned PNG with center mosaic", expected: "Region pixels change while outside stays unchanged; reset restores exact bytes" }, async ({ page, note }) => {
   await enter(page, "이미지 도구");
