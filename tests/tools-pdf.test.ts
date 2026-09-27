@@ -227,6 +227,69 @@ describe("PDF compression levels", () => {
     }
   });
 
+  it("keeps a text-only original when recomposition grows far beyond the input", async () => {
+    const original = await textPdf(["SMALL TEXT"]);
+    const sources = new Map([["mixed", source("small.pdf", original)]]);
+    const save = vi.spyOn(PDFDocument.prototype, "save").mockResolvedValue(new Uint8Array(original.byteLength + 544 * 1024));
+    try {
+      const result = await exportPdfPages({ pages: [page], sources, format: "pdf", compression: "size", recompress: vi.fn() });
+      expect(result.bytes).toEqual(original);
+      expect(result.compression).toEqual({ baselineBytes: original.byteLength, reduced: false, originalContent: true });
+      expect((await PDFDocument.load(result.bytes)).getPageCount()).toBe(1);
+    } finally {
+      save.mockRestore();
+    }
+  });
+
+  it("rejects equal-size outputs for both compression levels", async () => {
+    const original = await textPdf(["EQUAL"]);
+    const sources = new Map([["mixed", source("equal.pdf", original)]]);
+    const save = vi.spyOn(PDFDocument.prototype, "save").mockResolvedValue(new Uint8Array(original.byteLength));
+    try {
+      for (const compression of ["balanced", "size"] as const) {
+        const result = await exportPdfPages({ pages: [page], sources, format: "pdf", compression, recompress: vi.fn() });
+        expect(result.bytes).toEqual(original);
+        expect(result.compression?.reduced).toBe(false);
+      }
+    } finally {
+      save.mockRestore();
+    }
+  });
+
+  it("compares edited pages to an equivalent uncompressed export, never to the original", async () => {
+    const original = await textPdf(["FIRST", "SECOND"]);
+    const sources = new Map([["mixed", source("edited.pdf", original)]]);
+    const edited = [
+      { ...page, id: "second", pageNumber: 2 },
+      { ...page, id: "first", pageNumber: 1 },
+    ];
+    const realSave = PDFDocument.prototype.save;
+    let saved = 0;
+    const save = vi.spyOn(PDFDocument.prototype, "save").mockImplementation(async function (this: PDFDocument, options) {
+      const bytes = await realSave.call(this, options);
+      return ++saved === 2 ? new Uint8Array(bytes.byteLength + Math.ceil(bytes.byteLength * 0.02)) : bytes;
+    });
+    try {
+      const result = await exportPdfPages({ pages: edited, sources, format: "pdf", compression: "balanced", recompress: vi.fn() });
+      expect(result.compression).toEqual({ baselineBytes: result.bytes.byteLength, reduced: false, originalContent: false });
+      expect(saved).toBe(2);
+      pdfjs.GlobalWorkerOptions.workerSrc = new URL("../public/pdf.worker.mjs", import.meta.url).href;
+      const task = pdfjs.getDocument({ data: result.bytes.slice() });
+      try {
+        const document = await task.promise;
+        const texts = [];
+        for (let index = 1; index <= document.numPages; index++) {
+          const current = await document.getPage(index);
+          texts.push((await current.getTextContent()).items.map((item) => "str" in item ? item.str : "").join(" "));
+        }
+        expect(texts).toEqual([expect.stringContaining("SECOND"), expect.stringContaining("FIRST")]);
+      } finally {
+        await task.destroy();
+      }
+    } finally {
+      save.mockRestore();
+    }
+  });
   it("keeps an embedded image whose re-encoding would not be smaller", async () => {
     const sources = new Map([["mixed", source("mixed.pdf", await mixedPdf())]]);
     const recompress = vi.fn(async () => ({ bytes: new Uint8Array(jpeg.length + 10), width: 1, height: 1 }));

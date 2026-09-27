@@ -72,7 +72,8 @@
 .pdf-tool-page-meta span { color: var(--muted); font-size: 11px; }
 .pdf-tool-page-grip { display: inline-flex; align-items: center; gap: 2px; margin-left: -6px; }
 .pdf-tool-export-actions { display: flex; gap: 8px; align-items: center; }
-.pdf-tool-outcome { width: 100%; margin: 0; background: #eef8f2; color: #176343; border-radius: 7px; padding: 10px 12px; font-size: 12px; line-height: 1.5; }
+.pdf-tool-outcome { width: 100%; margin: 0; }
+.pdf-tool-outcome:not(.pdf-tool-notice) { background: #eef8f2; color: #176343; border-radius: 7px; padding: 10px 12px; font-size: 12px; line-height: 1.5; }
 @media (max-width: 780px) {
   .pdf-tool-upload { padding: 18px; }
 }

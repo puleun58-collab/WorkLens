@@ -44,6 +44,7 @@ export interface PdfExportResult {
   mime: string;
   pageCount: number;
   inputBytes: number;
+  compression?: { baselineBytes: number; reduced: boolean; originalContent: boolean };
 }
 
 export function normalizeRotation(angle: number): number {
@@ -122,14 +123,29 @@ export async function exportPdfPages(options: {
       onProgress?.(index + 1, pages.length);
     }
     ensureNotCancelled(signal);
+    const soleSourceId = includedSources.size === 1 ? includedSources.values().next().value : undefined;
+    const originalSource = soleSourceId && pages.length === loaded.get(soleSourceId)?.getPageCount()
+      && pages.every((page, index) => page.sourceId === soleSourceId && page.pageNumber === index + 1 && page.rotation === 0)
+      ? sources.get(soleSourceId) : undefined;
+    // Edited or merged pages must be compared with the same page composition, not an unrelated input file.
+    const baseline = originalSource
+      ? new Uint8Array(await originalSource.file.arrayBuffer())
+      : await result.save({ useObjectStreams: true });
+    ensureNotCancelled(signal);
     if (settings.imageEdge !== undefined && settings.imageQuality !== undefined) {
       if (!recompress) throw new Error("이미지 압축에는 브라우저 이미지 처리가 필요합니다.");
       await recompressJpegImages(result, settings.imageEdge, settings.imageQuality, recompress, signal);
     }
-    // Object streams are lossless; the caller reports the measured size either way.
-    const bytes = await result.save({ useObjectStreams: true });
+    const compressed = settings.imageEdge !== undefined || originalSource
+      ? await result.save({ useObjectStreams: true })
+      : baseline;
     ensureNotCancelled(signal);
-    return { bytes, name, mime: "application/pdf", pageCount: pages.length, inputBytes };
+    const reduced = compressed.byteLength < baseline.byteLength;
+    return {
+      bytes: reduced ? compressed : baseline,
+      name, mime: "application/pdf", pageCount: pages.length, inputBytes,
+      compression: { baselineBytes: baseline.byteLength, reduced, originalContent: Boolean(originalSource) },
+    };
   }
 
   if (!render) throw new Error("이 형식은 브라우저 페이지 렌더링이 필요합니다.");

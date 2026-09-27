@@ -944,6 +944,26 @@ test("PDF editor composes reordered, rotated and deleted pages into real files",
   expect(errors).toEqual([]);
 });
 
+test("PDF export keeps the byte-identical text original when compression does not shrink it", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "PDF 도구" }).click();
+  const document = await PDFDocument.create();
+  const sheet = document.addPage([400, 600]);
+  sheet.drawText("SMALL TEXT", { x: 30, y: 500, font: await document.embedFont(StandardFonts.Helvetica) });
+  const original = await document.save();
+  await page.getByLabel("PDF 파일 선택").setInputFiles({
+    name: "small-text.pdf", mimeType: "application/pdf", buffer: Buffer.from(original),
+  });
+  await expect(page.locator(".pdf-tool-page")).toHaveCount(1);
+  for (const level of ["balanced", "size"]) {
+    await page.getByLabel("압축").selectOption(level);
+    const result = await downloadBytes(page, () => page.getByRole("button", { name: /파일 다운로드/ }).click());
+    expect(result.bytes).toEqual(original);
+    await expect(page.locator(".pdf-tool-export .pdf-tool-notice")).toContainText("파일 크기가 줄어들지 않아 원본을 유지합니다.");
+    await expect(page.locator(".pdf-tool-export .pdf-tool-notice")).not.toContainText("감소");
+  }
+});
+
 test("PDF compression is one level select defaulting to balanced, and each level keeps text", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "PDF 도구" }).click();
@@ -1001,7 +1021,7 @@ test("PDF compression is one level select defaulting to balanced, and each level
   };
   const balanced = await save();
   expect(balanced).toBeLessThan(original.length);
-  await expect(page.locator(".pdf-tool-outcome")).toContainText(/감소/);
+  await expect(page.locator(".pdf-tool-outcome")).toContainText(`약 ${Math.round((1 - balanced / original.length) * 100)}% 감소`);
 
   await level.selectOption("size");
   expect(await save()).toBeLessThan(balanced);

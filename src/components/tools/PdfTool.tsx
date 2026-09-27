@@ -264,7 +264,7 @@ export function PdfTool() {
         downloadTimers.current.delete(timer);
       }, 60_000);
       downloadTimers.current.add(timer);
-      setOutcome({ name: result.name, mime: result.mime, pageCount: result.pageCount, inputBytes: result.inputBytes, size: result.bytes.length });
+      setOutcome({ name: result.name, mime: result.mime, pageCount: result.pageCount, inputBytes: result.inputBytes, compression: result.compression, size: result.bytes.byteLength });
     } catch (cause) {
       if (!controller.signal.aborted) setError(pdfError(cause));
     } finally {
@@ -338,7 +338,9 @@ export function PdfTool() {
           <button type="button" className="tool-export-button" onClick={() => void download()} disabled={!exportCount || busy}>{exporting || "파일 다운로드"} ↗</button>
         </div>
       </div>
-      {outcome && <div className="pdf-tool-outcome" role="status">{outcome.name} 저장 · {prettyBytes(outcome.size)}{outcome.mime === "application/pdf" ? ` · 원본 ${prettyBytes(outcome.inputBytes)} → 결과 ${prettyBytes(outcome.size)}${outcome.size < outcome.inputBytes ? ` · 약 ${Math.round((1 - outcome.size / outcome.inputBytes) * 100)}% 감소` : " · 원본보다 작아지지 않았습니다"}` : ""}</div>}
+      {outcome && <div className={outcome.compression && !outcome.compression.reduced ? "pdf-tool-outcome pdf-tool-notice" : "pdf-tool-outcome"} role="status">{outcome.name} 저장 · {prettyBytes(outcome.size)}{outcome.compression && (outcome.compression.reduced
+        ? ` · ${outcome.compression.originalContent ? "원본" : "편집본"} ${prettyBytes(outcome.compression.baselineBytes)} → 결과 ${prettyBytes(outcome.size)} · 약 ${Math.round((1 - outcome.size / outcome.compression.baselineBytes) * 100)}% 감소`
+        : ` · 파일 크기가 줄어들지 않아 원본을 유지합니다.${outcome.compression.originalContent ? "" : " 편집한 페이지 구성은 유지됩니다."}`)}</div>}
     </section>}
   </div>;
 }
