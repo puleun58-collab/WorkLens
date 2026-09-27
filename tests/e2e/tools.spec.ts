@@ -1230,9 +1230,11 @@ test("image tool starts from the preview and exports in the dragged order with i
   await page.getByLabel("선택 이미지 한 장으로 결합").check();
   await page.getByLabel("형식").selectOption("png");
   const merged = await downloadBytes(page, () => page.getByRole("button", { name: /파일 다운로드/ }).click());
-  expect((await imagePixel(page, merged.bytes, 5, 25)).slice(0, 3)).toEqual([0, 0, 255]);
-  expect((await imagePixel(page, merged.bytes, 145, 25)).slice(0, 3)).toEqual([255, 0, 0]);
-  expect((await imagePixel(page, merged.bytes, 245, 25)).slice(0, 3)).toEqual([0, 255, 0]);
+  const { width, height } = await imageDimensions(page, merged.bytes, "image/png");
+  expect(width).toBe(height);
+  expect((await imagePixel(page, merged.bytes, Math.floor(width * 0.25), Math.floor(height * 0.25))).slice(0, 3)).toEqual([0, 0, 255]);
+  expect((await imagePixel(page, merged.bytes, Math.floor(width * 0.75), Math.floor(height * 0.25))).slice(0, 3)).toEqual([255, 0, 0]);
+  expect((await imagePixel(page, merged.bytes, Math.floor(width * 0.5), Math.floor(height * 0.75))).slice(0, 3)).toEqual([0, 255, 0]);
 
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
