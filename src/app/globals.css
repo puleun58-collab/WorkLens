@@ -9651,12 +9651,12 @@ div.status-panel.error > strong { font-size: 14px; line-height: 1.5; }
   /* File names take the width the evidence column does not need. */
   .extract-auto-table.multi-file :is(.data-head, .data-row),
   .extract-fields-table.multi-file :is(.data-head, .data-row) {
-    grid-template-columns: minmax(160px, 1.25fr) minmax(96px, 0.6fr) minmax(220px, 1.9fr) minmax(136px, 0.55fr);
+    grid-template-columns: minmax(160px, 1.3fr) minmax(96px, 0.6fr) minmax(220px, 1.9fr) minmax(120px, 0.45fr);
   }
 
   .extract-auto-table:not(.multi-file) :is(.data-head, .data-row),
   .extract-fields-table:not(.multi-file) :is(.data-head, .data-row) {
-    grid-template-columns: minmax(96px, 0.6fr) minmax(260px, 2.2fr) minmax(136px, 0.55fr);
+    grid-template-columns: minmax(96px, 0.6fr) minmax(260px, 2.3fr) minmax(120px, 0.45fr);
   }
 
   .extract-auto-table :is(.data-head, .data-row),
@@ -9678,23 +9678,13 @@ div.status-panel.error > strong { font-size: 14px; line-height: 1.5; }
   .extract-fields-table .data-row > span:not(:last-child) {
     border-right: 1px solid var(--border-subtle);
   }
-
-  /* Evidence sits on the table's right edge: locator and action alike. */
-  .extract-auto-table :is(.data-head, .data-row) > span:last-child,
-  .extract-fields-table :is(.data-head, .data-row) > span:last-child {
-    text-align: right;
-  }
-
-  .extract-auto-table .data-row > span:last-child .result-source,
-  .extract-fields-table .data-row > span:last-child .result-source {
-    align-items: flex-end;
-  }
 }
 
 /*
  * Per-file tables share the main table's left and right edges: title on the
- * left, its evidence on the table's right edge. Same frame and header, one
- * step quieter than the main result — no elevation, smaller body text.
+ * left, the table-wide evidence on the table's right edge. Same frame, header,
+ * white body and surface elevation (Level 1 group) as the main result, with
+ * smaller body text so the preview stays secondary.
  */
 .extract-results .result-subsection {
   padding-inline: 0;
@@ -9706,9 +9696,9 @@ div.status-panel.error > strong { font-size: 14px; line-height: 1.5; }
   text-align: right;
 }
 
-.workspace .extract-results .extract-table-wrap {
+.extract-results .extract-table-wrap {
   border-radius: var(--radius-control);
-  box-shadow: none;
+  background: var(--paper);
 }
 
 .extract-results .extract-table th,
@@ -9734,6 +9724,7 @@ div.status-panel.error > strong { font-size: 14px; line-height: 1.5; }
 }
 
 .extract-results .extract-table td {
+  background: var(--paper);
   color: var(--ink-soft);
   font-size: var(--font-size-xs);
 }
