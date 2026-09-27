@@ -128,9 +128,7 @@ export async function exportPdfPages(options: {
       && pages.every((page, index) => page.sourceId === soleSourceId && page.pageNumber === index + 1 && page.rotation === 0)
       ? sources.get(soleSourceId) : undefined;
     // Edited or merged pages must be compared with the same page composition, not an unrelated input file.
-    const baseline = originalSource
-      ? new Uint8Array(await originalSource.file.arrayBuffer())
-      : await result.save({ useObjectStreams: true });
+    const baseline = originalSource ? undefined : await result.save({ useObjectStreams: true });
     ensureNotCancelled(signal);
     if (settings.imageEdge !== undefined && settings.imageQuality !== undefined) {
       if (!recompress) throw new Error("이미지 압축에는 브라우저 이미지 처리가 필요합니다.");
@@ -138,13 +136,15 @@ export async function exportPdfPages(options: {
     }
     const compressed = settings.imageEdge !== undefined || originalSource
       ? await result.save({ useObjectStreams: true })
-      : baseline;
+      : baseline!;
     ensureNotCancelled(signal);
-    const reduced = compressed.byteLength < baseline.byteLength;
+    const baselineBytes = originalSource?.file.size ?? baseline!.byteLength;
+    const reduced = compressed.byteLength < baselineBytes;
+    const bytes = reduced ? compressed : baseline ?? new Uint8Array(await originalSource!.file.arrayBuffer());
+    ensureNotCancelled(signal);
     return {
-      bytes: reduced ? compressed : baseline,
-      name, mime: "application/pdf", pageCount: pages.length, inputBytes,
-      compression: { baselineBytes: baseline.byteLength, reduced, originalContent: Boolean(originalSource) },
+      bytes, name, mime: "application/pdf", pageCount: pages.length, inputBytes,
+      compression: { baselineBytes, reduced, originalContent: Boolean(originalSource) },
     };
   }
 
