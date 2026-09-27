@@ -1309,6 +1309,7 @@ test("keeps compact counted progress for Polish and Extract", async ({ page }) =
   await page.getByRole("radio", { name: "항목 지정" }).check();
   await page.getByLabel("추출할 항목").fill("존재하지 않는 항목");
   await page.getByRole("button", { name: "항목 추가" }).click();
+  await page.setViewportSize({ width: 390, height: 844 });
   const extractAction = page.getByRole("button", { name: "추출 실행" });
   await extractAction.click();
   await expect(extractAction).toHaveText("처리 중…");
@@ -1316,7 +1317,6 @@ test("keeps compact counted progress for Polish and Extract", async ({ page }) =
   const extractProgress = page.locator(".compact-progress");
   await expect(extractProgress).toContainText("항목 확인 중 0/1");
   await expect(extractProgress).toContainText("관련 근거를 확인하고 있습니다.");
-  await page.setViewportSize({ width: 390, height: 844 });
   await expect(extractProgress).toBeVisible();
   const stop = extractProgress.getByRole("button", { name: "중지", exact: true });
   await expect(stop).toBeVisible();

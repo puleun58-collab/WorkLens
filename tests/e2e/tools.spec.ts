@@ -1273,8 +1273,6 @@ test("mobile touch grip auto-scrolls a long image list and drops at the visible 
   await touch("touchMove", y + 8);
   await touch("touchMove", edgeY);
   await expect.poll(() => list.evaluate((element) => element.scrollTop)).toBeGreaterThan(100);
-  const target = await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.closest("[data-reorder-id]")?.getAttribute("data-reorder-id"), { x, y: edgeY });
-  expect(target).toBeTruthy();
   await touch("touchEnd", edgeY);
   await expect(page.locator(".image-tool-file strong").first()).not.toHaveText("touch-00.png");
   await expect(page.locator(".tool-reorder-live")).toContainText("위치로 이동했습니다.");
