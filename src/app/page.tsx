@@ -90,6 +90,7 @@ import {
 import {
   BarChart3,
   BookMarked,
+  CircleCheck,
   CircleHelp,
   FileText,
   GitCompareArrows,
@@ -1679,15 +1680,12 @@ export default function Home() {
 }
 
 /**
- * Every box that reports a state — done, running, advisory, failed — reads the
- * same way: an accent rule on the left, a restrained tint, a title, then the
- * text. Only the variant changes between features, so Analyze, Ask, Compare,
- * Check, Extract and the dictionary surfaces cannot drift apart.
- * Plain containers, empty states and drop zones deliberately do not use it.
+ * Shared state container for results and notices. Variants supply their tone;
+ * the review success state also carries an icon aligned with the error alert.
  */
 type StatusVariant = "success" | "info" | "warning" | "error" | "neutral";
 
-function StatusPanel({ variant, title, children, tone, live, className, label }: {
+function StatusPanel({ variant, title, children, tone, live, className, label, icon }: {
   variant: StatusVariant;
   title: string;
   children?: React.ReactNode;
@@ -1695,6 +1693,7 @@ function StatusPanel({ variant, title, children, tone, live, className, label }:
   live?: "polite" | "assertive";
   className?: string;
   label?: string;
+  icon?: React.ReactNode;
 }) {
   return (
     <div
@@ -1703,6 +1702,7 @@ function StatusPanel({ variant, title, children, tone, live, className, label }:
       aria-live={live}
       aria-label={label}
     >
+      {icon ? <span className="status-panel-icon" aria-hidden="true">{icon}</span> : null}
       <strong>{title}</strong>
       {children}
     </div>
@@ -2745,7 +2745,7 @@ function CheckResults({ entries, fileNames, onSource, userTerms, ignoredRules, o
       </section>
 
       {indexed.length === 0 ? (
-        <StatusPanel variant="success" className="result-clear" title="확인된 문제가 없습니다."><p>현재 규칙 범위에서 문장, 일관성, 데이터와 개인정보 문제를 찾지 못했습니다.</p></StatusPanel>
+        <StatusPanel variant="success" className="result-clear" title="확인된 문제가 없습니다." icon={<CircleCheck size={18} fill="currentColor" stroke="white" strokeWidth={2.2} />}><p>현재 규칙 범위에서 문장, 일관성, 데이터와 개인정보 문제를 찾지 못했습니다.</p></StatusPanel>
       ) : (
         <>
           <div className="check-toolbar check-toolbar-compact">

@@ -40,7 +40,7 @@
 .image-tool-upload .image-tool-notice { margin-top: 12px; }
 .image-tool-file-list { display: flex; flex-direction: column; max-height: clamp(260px, 56vh, 510px); overflow: auto; margin: 14px -5px 0; gap: 4px; }
 .image-tool-file { display: flex; align-items: center; gap: 5px; padding: 5px 5px 5px 2px; border: 1px solid transparent; border-radius: 4px; min-width: 0; }
-.image-tool-file.is-current { border-color: #bfd4f1; background: var(--blue-pale); }
+.image-tool-file.is-current { border-color: var(--blue-border); background: var(--blue-pale); }
 .image-tool-file-check { display: flex; align-items: center; flex: none; padding: 5px 2px 5px 5px; }
 .image-tool-file-check input, .image-tool-check input { accent-color: var(--blue); width: 15px; height: 15px; margin: 0; }
 .image-tool-file-open { display: flex; min-width: 0; flex: 1; align-items: center; gap: 7px; text-align: left; padding: 0; border: 0; background: transparent; }

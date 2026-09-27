@@ -1788,8 +1788,8 @@ input:disabled,
 }
 
 /*
- * Status surfaces: one geometry for every feature. An accent rule on the left
- * carries the meaning, the tint stays quiet, and only the variant changes.
+ * Status surfaces share a base geometry. Feature-specific alerts can replace
+ * the default left rule with an icon and full border for success or error.
  */
 .status-panel {
   min-height: 44px;
@@ -4639,6 +4639,7 @@ body {
   --blue-active: #1e40af;
   --blue-soft: #eff6ff;
   --blue-pale: #f5f9ff;
+  --blue-border: #bfd4f1;
   --focus-ring: #2563eb;
   /* One tone below white so data surfaces separate from the page without cards. */
   --canvas: #f3f5f8;
@@ -8005,6 +8006,8 @@ input:disabled {
 .workspace > .aggregation-results {
   --aggregation-line: #e5eaf2;
   --aggregation-header: #f1f3f5;
+  --aggregation-table-header: #e7ecf3;
+  --aggregation-table-rule: #c5d0df;
   background: transparent;
 }
 
@@ -8327,10 +8330,10 @@ input:disabled {
 .aggregation-preview th {
   position: sticky;
   top: 0;
-  background: var(--aggregation-header);
-  color: var(--ink);
-  border-bottom-color: var(--aggregation-line);
-  font-weight: 700;
+  background: var(--aggregation-table-header);
+  color: var(--navy-800);
+  border-bottom-color: var(--aggregation-table-rule);
+  font-weight: var(--font-weight-semibold);
 }
 
 .aggregation-image-count {
@@ -9417,12 +9420,11 @@ button.law-search-button:disabled,
 }
 
 /*
- * Operation/file error box, one look everywhere: pale red surface, thin full
- * red border, a small red "!" disc, red title, neutral description aligned to
- * the title. No shadow, no left bar. Field validation and empty/NOT_FOUND
- * states do not use it.
+ * Review success and operation errors share alert geometry; status-specific
+ * colors and icons keep their meanings separate. No shadow or left accent.
  */
 div.status-panel.error,
+.check-results div.status-panel.success.result-clear,
 .pdf-tool-notice.pdf-tool-notice-error,
 p.image-tool-notice.is-error,
 .decision-feedback[role="alert"],
@@ -9435,13 +9437,42 @@ p.law-search-error.law-operation-error {
   min-height: 0;
   margin-top: 12px;
   padding: 12px 16px 12px 44px;
-  border: 1px solid var(--error-border);
+  border: 1px solid var(--alert-border, var(--error-border));
   border-radius: 6px;
-  background: var(--critical-soft);
+  background: var(--alert-surface, var(--critical-soft));
   box-shadow: none;
   color: var(--ink-soft);
   font-size: 13px;
   line-height: 1.5;
+}
+
+.check-results div.status-panel.success.result-clear {
+  --alert-border: #89caa7;
+  --alert-surface: #effaf3;
+  --success-alert-ink: #128049;
+}
+
+.check-results .status-panel.success.result-clear > .status-panel-icon {
+  position: absolute;
+  top: 13px;
+  left: 16px;
+  width: 18px;
+  height: 18px;
+  color: var(--success-alert-ink);
+  line-height: 0;
+}
+
+.check-results .status-panel.success.result-clear > strong {
+  color: var(--success-alert-ink);
+  font-size: 14px;
+  font-weight: var(--font-weight-semibold);
+}
+
+.check-results .status-panel.success.result-clear > p {
+  margin: 2px 0 0;
+  color: var(--ink-soft);
+  font-size: 13px;
+  font-weight: var(--font-weight-regular);
 }
 
 div.status-panel.error::before,
@@ -9507,7 +9538,7 @@ div.status-panel.error > strong { font-size: 14px; line-height: 1.5; }
   overflow-wrap: anywhere;
 }
 
-/* Blue guidance surfaces, two steps: guide TIP (clearer) > check 수정 제안 (lighter). Info only: no shadow, hover or pointer. */
+/* Guide tips remain stronger than the quieter, repeated review suggestions. */
 .usage-guide-tip {
   border: 1px solid #d3e3fb;
   background: #e6f0fe;
@@ -9516,7 +9547,7 @@ div.status-panel.error > strong { font-size: 14px; line-height: 1.5; }
 .usage-guide-tip b { color: var(--blue-active); }
 .check-results .check-recommendation {
   padding: 8px 10px;
-  border: 1px solid #e1ebfa;
+  border: 1px solid var(--blue-border);
   border-radius: var(--radius-control);
   background: var(--blue-pale);
   box-shadow: none;
