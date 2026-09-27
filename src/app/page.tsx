@@ -1609,10 +1609,9 @@ export default function Home() {
                   </div>
                 ) : null}
                 {activeTab === "Aggregate" && aggregationHasUnsupportedFiles ? (
-                  <p className="aggregation-selection-error" role="status">
-                    <strong>{AGGREGATION_UNSUPPORTED_TITLE}</strong>
-                    <span>{AGGREGATION_UNSUPPORTED_DETAIL}</span>
-                  </p>
+                  <StatusPanel variant="error" className="aggregation-selection-error" title={AGGREGATION_UNSUPPORTED_TITLE}>
+                    <p>{AGGREGATION_UNSUPPORTED_DETAIL}</p>
+                  </StatusPanel>
                 ) : null}
                 {activeTab !== "Extract" && activeTab !== "Polish" ? (
                   <div className="operation-actions">

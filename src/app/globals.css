@@ -7980,22 +7980,8 @@ input:disabled {
     justify-content: flex-start;
   }
 }
-.aggregation-selection-error {
-  min-width: 0;
-  margin: 0;
-  display: grid;
-  gap: 3px;
-  color: var(--critical);
-  font-size: var(--font-size-xs);
-  line-height: 1.5;
-}
 
-.aggregation-selection-error span {
-  color: var(--muted);
-}
-
-/* Aggregation sits flat on the page canvas: sections are separated by spacing and a hairline divider,
- * and only the data blocks inside them (sheet lists, mappings, preview table) get a white surface. */
+/* Aggregation keeps section headings flat and elevates only their data boxes. */
 .aggregation-section-heading {
   display: flex;
   align-items: center;
@@ -8004,9 +7990,9 @@ input:disabled {
 }
 
 .workspace > .aggregation-results {
-  --aggregation-line: #e5eaf2;
-  --aggregation-header: #f1f3f5;
-  --aggregation-table-header: #e7ecf3;
+  --aggregation-line: var(--border-subtle);
+  --aggregation-header: #e7ecf3;
+  --aggregation-table-header: #dbe5f0;
   --aggregation-table-rule: #c5d0df;
   background: transparent;
 }
@@ -8053,10 +8039,16 @@ input:disabled {
   background: transparent;
 }
 
-.aggregation-section-heading h3,
-.aggregation-workbook h4 {
+.aggregation-section-heading h3 {
   margin: 0;
   color: var(--ink);
+  font-size: 15px;
+  font-weight: var(--font-weight-semibold);
+}
+
+.aggregation-workbook h4 {
+  margin: 0;
+  color: var(--navy-800);
   font-size: 15px;
   font-weight: var(--font-weight-semibold);
 }
@@ -8077,13 +8069,15 @@ input:disabled {
 .aggregation-workbook {
   min-width: 0;
   border: 1px solid var(--aggregation-line);
-  background: #fff;
+  border-radius: var(--radius-panel);
+  background: var(--paper);
+  overflow: hidden;
 }
 
 .aggregation-workbook h4 {
   padding: 9px 12px;
   background: var(--aggregation-header);
-  border-bottom: 1px solid var(--aggregation-line);
+  border-bottom: 1px solid var(--border-default);
   overflow-wrap: anywhere;
 }
 
@@ -8137,7 +8131,9 @@ input:disabled {
   list-style: none;
   display: grid;
   border: 1px solid var(--aggregation-line);
-  background: #fff;
+  border-radius: var(--radius-panel);
+  background: var(--paper);
+  overflow: hidden;
 }
 
 .aggregation-result-sheets li {
@@ -8172,6 +8168,14 @@ input:disabled {
   white-space: nowrap;
 }
 
+.aggregation-mappings {
+  gap: 0;
+  border: 1px solid var(--aggregation-line);
+  border-radius: var(--radius-panel);
+  background: var(--paper);
+  overflow: hidden;
+}
+
 .aggregation-mapping {
   min-width: 0;
   min-height: 48px;
@@ -8180,8 +8184,12 @@ input:disabled {
   grid-template-columns: 62px minmax(140px, 0.55fr) minmax(240px, 1.45fr) 44px;
   align-items: center;
   gap: 10px;
-  border: 1px solid var(--aggregation-line);
+  border-bottom: 1px solid var(--aggregation-line);
   background: #fff;
+}
+
+.aggregation-mapping:last-child {
+  border-bottom: 0;
 }
 
 .aggregation-mapping label,
@@ -8211,7 +8219,7 @@ input:disabled {
 .aggregation-mapping > div span {
   padding: 3px 6px;
   border: 1px solid var(--aggregation-line);
-  background: var(--aggregation-header);
+  background: var(--layer);
   color: var(--muted);
   font-size: 12px;
   overflow-wrap: anywhere;
@@ -8288,6 +8296,7 @@ input:disabled {
   margin-top: 8px;
   overflow: auto;
   border: 1px solid var(--aggregation-line);
+  border-radius: var(--radius-control);
   background: #fff;
 }
 
@@ -8332,6 +8341,7 @@ input:disabled {
   top: 0;
   background: var(--aggregation-table-header);
   color: var(--navy-800);
+  border-right-color: var(--border-default);
   border-bottom-color: var(--aggregation-table-rule);
   font-weight: var(--font-weight-semibold);
 }
@@ -9248,6 +9258,9 @@ button.law-search-button:disabled,
 .workspace .extract-table-wrap,
 .workspace .polish-results,
 .workspace .polish-text-results,
+.workspace .aggregation-workbook,
+.workspace .aggregation-result-sheets,
+.workspace .aggregation-mappings,
 .workspace .aggregation-preview-wrap,
 .workspace > .settings-surface {
   border-color: var(--border-surface);

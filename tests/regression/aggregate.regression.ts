@@ -237,7 +237,7 @@ regressionCase({ id: "AGG-16", category: "Aggregate", input: "CSV mixed with Exc
   const [xlsx, csv] = await begin(page, [standard("agg16-base.xlsx"), ["agg16-extra.csv", "부서,금액,상태\n지원,300,완료\n"]]);
   const warning = page.locator(".aggregation-selection-error");
   await expect(warning.locator("strong")).toHaveText("Excel이 아닌 파일이 포함되어 있습니다.");
-  await expect(warning.locator("span")).toHaveText("Excel 파일만 취합할 수 있습니다. 해당 파일을 선택 해제한 후 다시 실행해 주세요.");
+  await expect(warning.locator("p")).toHaveText("Excel 파일만 취합할 수 있습니다. 해당 파일을 선택 해제한 후 다시 실행해 주세요.");
   await expect(page.getByRole("button", { name: "취합 실행" })).toBeDisabled();
   await page.getByLabel("agg16-extra.csv 선택", { exact: true }).uncheck();
   await expect(warning).toHaveCount(0);
