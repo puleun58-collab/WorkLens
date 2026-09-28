@@ -997,48 +997,47 @@ test("presents text Polish as an immediate original-to-revision workflow", async
   const original = result.locator(".polish-copy-block").filter({ hasText: "원문" });
   const revision = result.locator(".polish-copy-block").filter({ hasText: "수정안" });
 
-  const [inputBox, resultBox, emphasis, surface] = await Promise.all([
+  const [inputBox, resultBox, surfaces] = await Promise.all([
     paste.boundingBox(),
     result.boundingBox(),
-    Promise.all([
-      original.evaluate((block) => Number.parseInt(getComputedStyle(block.querySelector("p")!).fontWeight, 10)),
-      revision.evaluate((block) => Number.parseInt(getComputedStyle(block.querySelector("p")!).fontWeight, 10)),
-    ]),
-    result.evaluate((element) => {
-      const resultStyle = getComputedStyle(element);
-      const revisionStyle = getComputedStyle(element.querySelector(".polish-copy-block.revised")!);
-      const cardStyle = getComputedStyle(element.querySelector(".polish-row")!);
+    Promise.all([original, revision].map((block) => block.evaluate((element) => {
+      const style = getComputedStyle(element);
+      const heading = element.querySelector(".polish-copy-heading")!;
+      const copy = heading.querySelector("button")!;
+      const text = element.querySelector("p")!;
+      const box = element.getBoundingClientRect();
       return {
-        page: getComputedStyle(document.body).backgroundColor,
-        resultBackground: resultStyle.backgroundColor,
-        resultBorder: resultStyle.borderTopWidth,
-        resultShadow: resultStyle.boxShadow,
-        cardBackground: cardStyle.backgroundColor,
-        cardBorder: cardStyle.borderTopWidth,
-        revisionBackground: revisionStyle.backgroundColor,
-        revisionBorder: revisionStyle.borderTopWidth,
+        background: style.backgroundColor,
+        border: [style.borderTopWidth, style.borderRightWidth, style.borderBottomWidth, style.borderLeftWidth],
+        shadow: style.boxShadow,
+        left: box.left,
+        right: box.right,
+        top: box.top,
+        bottom: box.bottom,
+        headerTop: heading.getBoundingClientRect().top,
+        copyTop: copy.getBoundingClientRect().top,
+        textTop: text.getBoundingClientRect().top,
       };
-    }),
+    }))),
   ]);
   const boundaryBox = await page.locator(".work-section-heading").boundingBox();
   expect(inputBox).not.toBeNull();
   expect(resultBox).not.toBeNull();
   expect(boundaryBox).not.toBeNull();
   expect(Math.abs(resultBox!.width - boundaryBox!.width)).toBeLessThanOrEqual(1);
-  expect(emphasis[1]).toBeGreaterThan(emphasis[0]);
-  // Canvas, white panel, light blue-gray item and blue revision remain distinct.
-  expect(new Set([surface.page, surface.resultBackground, surface.cardBackground, surface.revisionBackground]).size).toBe(4);
-  expect(surface).toMatchObject({
-    resultBackground: "rgb(255, 255, 255)",
-    resultBorder: "1px",
-    // Top-level surfaces take the single surface elevation; nested blocks stay flat.
-    resultShadow: "rgba(15, 23, 42, 0.04) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 4px 12px 0px",
-    cardBackground: "rgb(247, 249, 252)",
-    cardBorder: "1px",
-    revisionBackground: "rgb(239, 246, 255)",
-    revisionBorder: "1px",
-  });
-  expect(await original.locator(".polish-copy-heading").evaluate((element) => getComputedStyle(element).justifyContent)).toBe("space-between");
+  expect(surfaces[0].background).toBe("rgb(250, 251, 253)");
+  expect(surfaces[1].background).toBe("rgb(239, 246, 255)");
+  for (const surface of surfaces) {
+    expect(surface.border).toEqual(["1px", "1px", "1px", "1px"]);
+    expect(surface.shadow).toBe("none");
+    expect(surface.headerTop).toBeLessThan(surface.textTop);
+    expect(surface.copyTop).toBeLessThan(surface.textTop);
+  }
+  expect(surfaces[0].left).toBe(surfaces[1].left);
+  expect(surfaces[0].right).toBe(surfaces[1].right);
+  expect(surfaces[1].top - surfaces[0].bottom).toBeGreaterThanOrEqual(16);
+  const reason = await result.locator(".polish-reason").boundingBox();
+  expect(reason!.y).toBeGreaterThan(surfaces[1].bottom);
   await page.screenshot({ path: "artifacts/polish-result-desktop-1440.png", fullPage: true });
 
   await page.setViewportSize({ width: 390, height: 844 });
@@ -1157,6 +1156,27 @@ test("shows changed, rejected and failed outcomes independently for a document",
   await expect(result.locator(".polish-row.rejected")).toContainText("김영삼 차장님");
   await expect(result.locator(".polish-row.rejected .polish-copy-block.revised")).toHaveCount(0);
   await expect(result.locator(".polish-row:not(.rejected) .polish-copy-block.revised")).toHaveCount(1);
+  const fileComparison = result.locator(".polish-row:not(.rejected)");
+  await expect(fileComparison.locator(".polish-copy-block")).toHaveCount(2);
+  await expect(fileComparison.locator(".polish-copy-block.revised")).toContainText("논의를 했습니다");
+  await expect(fileComparison.locator(".polish-reason")).toContainText("표현 정리");
+  const evidence = fileComparison.locator(".polish-source").getByRole("button", { name: /근거 보기/ });
+  await expect(evidence).toBeVisible();
+  const fileGeometry = await fileComparison.evaluate((row) => {
+    const [before, after] = [...row.querySelectorAll(".polish-copy-block")];
+    const reason = row.querySelector(".polish-reason")!;
+    const source = row.querySelector(".polish-source")!;
+    return {
+      alignment: before.getBoundingClientRect().left === after.getBoundingClientRect().left
+        && before.getBoundingClientRect().right === after.getBoundingClientRect().right,
+      order: before.getBoundingClientRect().bottom < after.getBoundingClientRect().top
+        && after.getBoundingClientRect().bottom < reason.getBoundingClientRect().top
+        && reason.getBoundingClientRect().bottom < source.getBoundingClientRect().top,
+    };
+  });
+  expect(fileGeometry).toEqual({ alignment: true, order: true });
+  await evidence.click();
+  await expect(page.locator(".evidence-inspector")).toBeVisible();
   expect(attempts.filter((text) => text.includes("내부 공유"))).toHaveLength(2);
 });
 

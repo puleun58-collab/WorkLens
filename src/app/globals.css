@@ -3336,28 +3336,23 @@ input:disabled,
 .polish-row {
   margin: 0 var(--panel-inset);
   padding: 22px 0 24px;
-  border-top: 1px solid var(--line-soft);
   display: grid;
-  gap: 16px;
-}
-
-.polish-row.rejected {
-  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--warning) 60%, transparent);
+  gap: 18px;
 }
 
 .polish-copy-block {
   min-width: 0;
   width: 100%;
+  padding: 16px 20px 18px;
+  border: 1px solid var(--border-surface);
+  border-radius: var(--radius-control);
+  background: #fafbfd;
   display: grid;
-  gap: 8px;
+  gap: 12px;
 }
 
 .polish-copy-block.revised {
-  width: 100%;
-  padding: 14px 15px 15px;
-  border: 1px solid #b8dcf7;
-  border-left: 3px solid var(--blue);
-  border-radius: var(--radius-control);
+  border-color: #91c5f3;
   background: var(--blue-soft);
 }
 
@@ -3372,6 +3367,12 @@ input:disabled,
   letter-spacing: var(--tracking-label);
 }
 
+.polish-copy-heading .polish-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .polish-copy-heading {
   min-width: 0;
   display: flex;
@@ -3382,13 +3383,20 @@ input:disabled,
 
 .polish-copy-heading > .secondary-action {
   flex: none;
-  min-width: 72px;
+  min-width: 0;
   min-height: 30px;
-  padding-inline: 10px;
+  padding-inline: 8px;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  color: var(--muted);
+}
+
+.polish-copy-block.revised .polish-copy-heading > .secondary-action {
+  color: var(--blue-active);
 }
 
 .polish-copy-block > p {
-  max-width: 72ch;
   min-width: 0;
   margin: 0;
   color: var(--ink-soft);
@@ -3399,7 +3407,7 @@ input:disabled,
 
 .polish-copy-block > p.polish-revised {
   color: var(--ink);
-  font-weight: var(--font-weight-semibold);
+  font-weight: var(--font-weight-medium);
 }
 
 .polish-text-results .polish-copy-block > p {
@@ -3408,7 +3416,9 @@ input:disabled,
 
 .polish-reason {
   display: grid;
-  gap: 4px;
+  gap: 6px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line-soft);
 }
 
 .polish-reason > p,
@@ -8956,28 +8966,12 @@ input:disabled {
   padding-inline: 18px;
 }
 
-/*
- * White result surface, restrained blue-gray items and a blue revision:
- * preserve the existing hierarchy without a heavy item background.
- */
-.polish-row {
-  padding: 16px 18px 18px;
-  border: 1px solid var(--line-soft);
-  border-radius: var(--radius-control);
-  background: #f7f9fc;
+/* Comparison surfaces are the only nested outlines inside the result panel. */
+.polish-row + .polish-row {
+  border-top: 1px solid var(--line-soft);
 }
 
-.polish-row + .polish-row,
-.polish-summary-line + .polish-row {
-  margin-top: 16px;
-}
 
-.polish-results .polish-row:last-of-type {
-  margin-bottom: 18px;
-}
-
-/* Divider, not decoration: each section boundary gets one hairline. */
-.polish-reason,
 .polish-source,
 .polish-rejection-reason {
   padding-top: 12px;
