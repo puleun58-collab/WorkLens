@@ -3352,6 +3352,13 @@ input:disabled,
   gap: 8px;
 }
 
+.polish-copy-block:not(.revised) {
+  padding: 14px 15px 15px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--canvas);
+}
+
 .polish-copy-block.revised {
   width: 100%;
   padding: 14px 15px 15px;
@@ -3382,9 +3389,32 @@ input:disabled,
 
 .polish-copy-heading > .secondary-action {
   flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   min-width: 72px;
-  min-height: 30px;
-  padding-inline: 10px;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.polish-copy-heading > .secondary-action:hover:not(:disabled) {
+  border-color: var(--border-default);
+  background: var(--paper);
+  color: var(--ink-soft);
+}
+
+.polish-copy-heading > .secondary-action:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 .polish-copy-block > p {

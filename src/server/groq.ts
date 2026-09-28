@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { AiApiRequest, AiApiResult } from "@/lib/ai/api";
 import { buildExtractMessages, EXTRACT_RESPONSE_SCHEMA, parseExtractResponse } from "@/lib/ai/extract-prompt";
-import { buildPolishMessages, parsePolishResponse, POLISH_RESPONSE_SCHEMA } from "@/lib/ai/polish-prompt";
+import { buildPolishBatchMessages, buildPolishMessages, parsePolishResponse, POLISH_BATCH_RESPONSE_SCHEMA, POLISH_RESPONSE_SCHEMA } from "@/lib/ai/polish-prompt";
 import { ANALYZE_RESPONSE_SCHEMA, buildMessages, CLAIM_RESPONSE_SCHEMA, parseModelResponse } from "@/lib/ai/prompt";
 import { workerEnv } from "@/server/cf-env";
 import { ApiError } from "@/server/http";
@@ -46,6 +46,13 @@ const polishContentSchema = z.object({
   changed: z.boolean(),
   revisedText: z.string(),
   reasons: z.array(z.string()),
+}).strict();
+const polishBatchItemSchema = z.object({
+  id: z.string(),
+  proposal: polishContentSchema,
+}).strict();
+const polishBatchContentSchema = z.object({
+  proposals: z.array(z.unknown()),
 }).strict();
 const extractContentSchema = z.object({
   field: z.string(),
@@ -91,6 +98,8 @@ function requestSpecification(request: AiApiRequest): {
         : { messages: buildMessages(request.request, request.items), schema: CLAIM_RESPONSE_SCHEMA, schemaName: "worklens_claims", maxTokens: 1_200 };
     case "polish":
       return { messages: buildPolishMessages(request.text, request.mode), schema: POLISH_RESPONSE_SCHEMA, schemaName: "worklens_polish", maxTokens: 900 };
+    case "polish-batch":
+      return { messages: buildPolishBatchMessages(request.items, request.mode), schema: POLISH_BATCH_RESPONSE_SCHEMA, schemaName: "worklens_polish_batch", maxTokens: 3_000 };
     case "extract":
       return { messages: buildExtractMessages(request.field, request.items), schema: EXTRACT_RESPONSE_SCHEMA, schemaName: "worklens_extract", maxTokens: 500 };
   }
@@ -118,6 +127,34 @@ function parseResult(request: AiApiRequest, content: string): AiApiResult {
         throw new ApiError("INVALID_PROVIDER_OUTPUT", "AI 응답 형식이 올바르지 않습니다.", 502);
       }
       return { kind: "polish", proposal: parsePolishResponse(JSON.stringify(validated.data), request.text) };
+    }
+    case "polish-batch": {
+      const validated = polishBatchContentSchema.safeParse(payload);
+      if (!validated.success) throw new ApiError("INVALID_PROVIDER_OUTPUT", "AI 응답 형식이 올바르지 않습니다.", 502);
+      const proposals: Extract<AiApiResult, { kind: "polish-batch" }>["proposals"] = [];
+      const malformedIds = new Set<string>();
+      for (const entry of validated.data.proposals) {
+        // Without an id, a malformed item cannot safely be assigned to a sentence.
+        if (!entry || typeof entry !== "object" || !("id" in entry) || typeof entry.id !== "string") {
+          throw new ApiError("INVALID_PROVIDER_OUTPUT", "AI 응답 형식이 올바르지 않습니다.", 502);
+        }
+        const item = polishBatchItemSchema.safeParse(entry);
+        if (!item.success || (item.data.proposal.changed && !item.data.proposal.revisedText.trim())) {
+          malformedIds.add(entry.id);
+          continue;
+        }
+        const original = request.items.find((candidate) => candidate.id === item.data.id);
+        proposals.push({
+          id: item.data.id,
+          proposal: original
+            ? parsePolishResponse(JSON.stringify(item.data.proposal), original.text)
+            : item.data.proposal,
+        });
+      }
+      return {
+        kind: "polish-batch",
+        proposals: malformedIds.size ? proposals.filter(({ id }) => !malformedIds.has(id)) : proposals,
+      };
     }
     case "extract": {
       const validated = extractContentSchema.safeParse(payload);
@@ -233,7 +270,10 @@ async function providerError(
     operation: context.operation,
     timestamp: new Date().toISOString(),
   });
-  if (response.status === 429) return new ApiError("AI_RATE_LIMITED", "AI 사용 한도에 도달했습니다. 잠시 후 다시 시도하세요.", 429);
+  if (response.status === 429) {
+    const retryAfterMs = providerRetryAfterMs(response.headers.get("retry-after"));
+    return new ApiError("AI_RATE_LIMITED", "AI 사용 한도에 도달했습니다. 잠시 후 다시 시도하세요.", 429, retryAfterMs);
+  }
   if (response.status === 401 || response.status === 403) return new ApiError("AI_NOT_CONFIGURED", "AI 서비스 인증 구성이 올바르지 않습니다.", 503);
   if (response.status === 408 || response.status === 504) return new ApiError("AI_TIMEOUT", "AI 응답 시간이 초과되었습니다. 다시 시도하세요.", 504);
   if (response.status >= 500) return new ApiError("AI_PROVIDER_UNAVAILABLE", "AI 서비스가 일시적으로 응답하지 않습니다.", 503);
@@ -275,10 +315,19 @@ function classifyProviderReason(
   return "provider_rejected";
 }
 
+function providerRetryAfterMs(value: string | null): number | undefined {
+  if (!value) return undefined;
+  const text = value.trim();
+  const milliseconds = /^\d+(?:\.\d+)?$/u.test(text)
+    ? Number(text) * 1_000
+    : Date.parse(text) - Date.now();
+  if (!Number.isFinite(milliseconds)) return undefined;
+  return Math.min(86_400_000, Math.max(0, Math.ceil(milliseconds)));
+}
+
 function retryDelay(value: string | null): number {
   if (!value) return 250;
-  const seconds = Number(value);
-  return Number.isFinite(seconds) ? Math.max(0, seconds * 1_000) : 2_000;
+  return providerRetryAfterMs(value) ?? 2_000;
 }
 
 function delay(milliseconds: number): Promise<void> {

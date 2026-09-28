@@ -35,11 +35,12 @@ import {
   generateServerAi,
   interruptServerAi,
   logAiFailure,
-  polishServerAi,
+  polishBatchServerAi,
   SERVER_AI_MESSAGES,
+  waitForPolishRetry,
   type ServerAiFailure,
 } from "@/client/server-ai-client";
-import { SERVER_AI_MAX_FILES, type ServerAiErrorCode } from "@/lib/ai/api";
+import { POLISH_BATCH_MAX_CHARS, POLISH_BATCH_MAX_ITEMS, SERVER_AI_MAX_FILES, type ServerAiErrorCode } from "@/lib/ai/api";
 import type { AnalyzeEntry as WorkerAnalyzeEntry, CheckEntry as WorkerCheckEntry, WorkspaceFile } from "@/client/protocol";
 import {
   EXTRACT_MODE_LABELS,
@@ -95,6 +96,7 @@ import {
   CircleCheck,
   CircleHelp,
   FileText,
+  Copy,
   Info,
   GitCompareArrows,
   Image as ImageIcon,
@@ -323,7 +325,7 @@ const POLISH_TRANSIENT_ERRORS = new Set<ServerAiErrorCode>([
   "TIMEOUT", "RATE_LIMITED", "PROVIDER_UNAVAILABLE", "BUSY", "OPERATION_CAPACITY",
 ]);
 
-/** An attempted sentence is the only unit that can fail. Never mark the remaining work as failed. */
+/** Keep only attempted outcomes: an interrupted or blocked run leaves the rest untouched. */
 async function processPolishCandidates(
   candidates: readonly PolishCandidate[],
   mode: PolishMode,
@@ -331,41 +333,116 @@ async function processPolishCandidates(
   onOutcome: (outcomes: readonly PolishOutcome[]) => void,
 ): Promise<{ outcomes: PolishOutcome[]; stopped: boolean; terminalError?: unknown }> {
   const outcomes: PolishOutcome[] = [];
-  for (const candidate of candidates) {
-    if (isCancelled()) return { outcomes, stopped: true };
-    let proposal!: PolishProposal;
-    let failure: unknown;
-    for (let attempt = 0; attempt < 2; attempt += 1) {
+  let consecutiveUnavailable = 0;
+  type BatchItem = { wireId: string; candidate: PolishCandidate };
+  type BatchStatus = { stopped?: boolean; terminalError?: unknown };
+
+  async function resolveBatch(items: BatchItem[], resolved: Map<string, PolishOutcome>): Promise<BatchStatus> {
+    if (isCancelled()) return { stopped: true };
+    let proposals: { id: string; proposal: PolishProposal }[] | undefined;
+    let error: unknown;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
-        proposal = await polishServerAi(candidate.text, mode);
+        proposals = await polishBatchServerAi(items.map(({ wireId, candidate }) => ({ id: wireId, text: candidate.text })), mode);
+        error = undefined;
         break;
-      } catch (error) {
-        const code = (error as Partial<ServerAiFailure>).code;
-        if (isCancelled() || code === "CANCELLED") return { outcomes, stopped: true };
-        if (attempt === 0 && code && POLISH_TRANSIENT_ERRORS.has(code)) {
-          const { promise, resolve } = Promise.withResolvers<void>();
-          setTimeout(resolve, 300);
-          await promise;
-          if (isCancelled()) return { outcomes, stopped: true };
+      } catch (caught) {
+        error = caught;
+        const failure = caught as Partial<ServerAiFailure>;
+        if (isCancelled() || failure.code === "CANCELLED") return { stopped: true };
+        if (attempt < 2 && failure.code && POLISH_TRANSIENT_ERRORS.has(failure.code)) {
+          const delay = Math.max(300 * 2 ** attempt, failure.retryAfterMs ?? 0);
+          // A long provider embargo is a terminal limit, not a reason to retry early.
+          if (delay > 30_000) break;
+          if (!await waitForPolishRetry(delay) || isCancelled()) return { stopped: true };
           continue;
         }
-        failure = error;
         break;
       }
     }
-    if (isCancelled()) return { outcomes, stopped: true };
-    if (failure) {
-      outcomes.push(failedPolishOutcome(candidate, failure));
-      onOutcome(outcomes);
-      const code = (failure as Partial<ServerAiFailure>).code;
-      if (code === "CONFIGURATION" || code === "INVALID_REQUEST") {
-        return { outcomes, stopped: false, terminalError: failure };
+    if (isCancelled()) return { stopped: true };
+    if (!proposals) {
+      const code = (error as Partial<ServerAiFailure>).code;
+      if (code === "CONFIGURATION" || code === "INVALID_REQUEST" || code === "PROVIDER_REJECTED"
+        || code === "RATE_LIMITED" || code === "OPERATION_CAPACITY" || code === "BUSY") {
+        for (const { wireId, candidate } of items) resolved.set(wireId, failedPolishOutcome(candidate, error));
+        return { terminalError: error };
       }
-      logAiFailure(failure);
-    } else {
-      outcomes.push(reviewProposal(candidate, proposal));
-      onOutcome(outcomes);
+      if (items.length > 1) {
+        const midpoint = Math.ceil(items.length / 2);
+        const first = await resolveBatch(items.slice(0, midpoint), resolved);
+        if (first.stopped || first.terminalError) return first;
+        return resolveBatch(items.slice(midpoint), resolved);
+      }
+      if (code === "PROVIDER_UNAVAILABLE" && ++consecutiveUnavailable >= 2) {
+        resolved.set(items[0].wireId, failedPolishOutcome(items[0].candidate, error));
+        return { terminalError: error };
+      }
+      resolved.set(items[0].wireId, failedPolishOutcome(items[0].candidate, error));
+      logAiFailure(error);
+      return {};
     }
+
+    // Duplicate IDs are ambiguous, including a valid first answer. Unknown IDs
+    // cannot be attributed to a candidate and must never replace one.
+    const requested = new Map(items.map((item) => [item.wireId, item]));
+    const accepted = new Map<string, PolishProposal>();
+    const duplicates = new Set<string>();
+    for (const { id, proposal } of proposals) {
+      if (!requested.has(id)) continue;
+      if (accepted.has(id)) duplicates.add(id);
+      else accepted.set(id, proposal);
+    }
+    const missing: BatchItem[] = [];
+    for (const item of items) {
+      const proposal = accepted.get(item.wireId);
+      if (proposal && !duplicates.has(item.wireId)) {
+        consecutiveUnavailable = 0;
+        resolved.set(item.wireId, reviewProposal(item.candidate, proposal));
+      } else {
+        missing.push(item);
+      }
+    }
+    if (!missing.length) return {};
+    if (missing.length === 1 && items.length === 1) {
+      const failure: ServerAiFailure = {
+        code: "INVALID_OUTPUT",
+        message: SERVER_AI_MESSAGES.INVALID_OUTPUT,
+        operation: "polish-batch",
+      };
+      resolved.set(missing[0].wireId, failedPolishOutcome(missing[0].candidate, failure));
+      logAiFailure(failure);
+      return {};
+    }
+    if (missing.length < items.length) return resolveBatch(missing, resolved);
+    const midpoint = Math.ceil(items.length / 2);
+    const first = await resolveBatch(items.slice(0, midpoint), resolved);
+    if (first.stopped || first.terminalError) return first;
+    return resolveBatch(items.slice(midpoint), resolved);
+  }
+
+  for (let index = 0; index < candidates.length;) {
+    if (isCancelled()) return { outcomes, stopped: true };
+    const batch: BatchItem[] = [];
+    let chars = 0;
+    while (index < candidates.length && batch.length < POLISH_BATCH_MAX_ITEMS
+      && (batch.length === 0 || chars + candidates[index].text.length <= POLISH_BATCH_MAX_CHARS)) {
+      const candidate = candidates[index];
+      batch.push({ wireId: String(index), candidate });
+      chars += candidate.text.length;
+      index += 1;
+    }
+    const resolved = new Map<string, PolishOutcome>();
+    const result = await resolveBatch(batch, resolved);
+    for (const { wireId } of batch) {
+      const outcome = resolved.get(wireId);
+      if (outcome) {
+        outcomes.push(outcome);
+        onOutcome(outcomes);
+      }
+    }
+    if (result.stopped) return { outcomes, stopped: true };
+    if (result.terminalError) return { outcomes, stopped: false, terminalError: result.terminalError };
   }
   return { outcomes, stopped: false };
 }
@@ -704,7 +781,7 @@ export default function Home() {
 
   /**
    * Polish pipeline. The document worker selects prose and keeps the document;
-   * the main thread sends one bounded candidate at a time to the server and
+   * the main thread sends sequential bounded batches to the server and
    * verifies every proposal deterministically before pairing canonical sources.
    */
   const runPolish = async () => {
@@ -1213,7 +1290,7 @@ export default function Home() {
     : workSectionCopy[activeTab];
   const aggregationHasUnsupportedFiles = activeTab === "Aggregate"
     && files.some((file) => selected.includes(file.id) && !isAggregationFileKind(file.kind));
-  const actionDisabled = busy
+  const actionDisabled = busy || (activeTab === "Check" && companyTermsSource === "pending")
     || (polishTextMode
       ? polishText.trim().length === 0
       : selected.length === 0
@@ -1674,7 +1751,7 @@ export default function Home() {
               {busy && polishProgress ? (
                 <div className="processing-bar compact-progress" role="status" aria-live="polite">
                   <strong>{`윤문 처리 중 ${polishProgress.done}/${polishProgress.total}`}</strong>
-                  <small>문장 단위로 처리하고 있습니다.</small>
+                  <small>문장별 검증을 유지하며 묶음으로 처리하고 있습니다.</small>
                   <div className="ai-status-actions">
                     <button type="button" className="secondary-action" onClick={() => { polishCancelled.current = true; interruptServerAi(); }}>중지</button>
                   </div>
@@ -1714,7 +1791,7 @@ export default function Home() {
                     resultActions={activeTab === "Extract" && extractMode === "text"
                       ? <ResultExportButtons busy={busy} onExport={exportFiles} />
                       : undefined}
-                    dictionary={{ userTerms, ignoredRules, onAddTerm: addTerm, onRemoveTerm: removeTerm, onClearTerms: clearTerms, onToggleRule: toggleRule }}
+                    dictionary={{ companyTerms, userTerms, ignoredRules, onAddTerm: addTerm, onRemoveTerm: removeTerm, onClearTerms: clearTerms, onToggleRule: toggleRule }}
                   />}
             </>
           )}
@@ -1817,7 +1894,7 @@ interface ResultViewProps {
 const workSectionCopy: Record<Tab, [string, string]> = {
   Analyze: ["문서 분석", "선택한 파일의 핵심 요약과 확인된 항목·수치를 분석합니다."],
   Ask: ["질문하기", "선택한 파일을 근거로 질문에 답합니다."],
-  Compare: ["파일 비교", "선택한 파일의 변경 사항이나 주요 값 차이를 확인합니다."],
+  Compare: ["파일 비교", "같은 파일의 전·후 변경 내용과 여러 파일의 공통 항목 값을 비교합니다."],
   Check: ["문서 검수", "선택한 파일의 문장·일관성·데이터·개인정보·보안정보를 검수합니다."],
   Polish: ["문서 윤문", "선택한 파일의 번역투와 중복 표현을 문장 단위로 다듬습니다."],
   Extract: ["정보 추출", "선택한 파일에서 필요한 항목과 값을 찾아 정리합니다."],
@@ -2326,7 +2403,8 @@ function CopyButton({ text, label, className }: { text: string; label: string; c
   };
   return (
     <button type="button" className={["secondary-action", className].filter(Boolean).join(" ")} onClick={() => void copy()}>
-      {copied ? "복사됨" : label}
+      <Copy size={14} strokeWidth={1.8} aria-hidden="true" />
+      <span>{copied ? "복사됨" : label}</span>
     </button>
   );
 }
@@ -2624,6 +2702,7 @@ interface CheckViewProps {
   entries: CheckEntry[];
   fileNames: Map<string, string>;
   onSource: SourceHandler;
+  companyTerms: CompanyTermEntry[];
   userTerms: string[];
   ignoredRules: string[];
   onAddTerm: (term: string) => void;
@@ -2632,7 +2711,7 @@ interface CheckViewProps {
   onToggleRule: (ruleId: string) => void;
 }
 
-function CheckResults({ entries, fileNames, onSource, userTerms, ignoredRules, onAddTerm, onRemoveTerm, onClearTerms, onToggleRule }: CheckViewProps) {
+function CheckResults({ entries, fileNames, onSource, companyTerms, userTerms, ignoredRules, onAddTerm, onRemoveTerm, onClearTerms, onToggleRule }: CheckViewProps) {
 
   const [groupFilter, setGroupFilter] = useState<"all" | CheckCategoryGroup>("all");
   const [showLowConfidence] = useState(false);
@@ -2741,11 +2820,11 @@ function CheckResults({ entries, fileNames, onSource, userTerms, ignoredRules, o
                 {dictionaryOpen ? (
                   <div className="dictionary-panel" role="dialog" aria-label="용어 사전">
                     <section className="dictionary-section">
-                      <h4>회사 용어 <span>{companyTermFile.terms.length}</span></h4>
+                      <h4>회사 용어 <span>{companyTerms.length}</span></h4>
                       <p className="dictionary-note">회사 공용 사전은 읽기 전용입니다.</p>
                       <div className="dictionary-term-list">
-                        {companyTermFile.terms.slice(0, 12).map((term) => <span className="dictionary-term" key={term}>{term}</span>)}
-                        {companyTermFile.terms.length > 12 ? <span className="dictionary-term muted">외 {companyTermFile.terms.length - 12}개</span> : null}
+                        {companyTerms.slice(0, 12).map((entry) => <span className="dictionary-term" key={entry.id}>{entry.term}</span>)}
+                        {companyTerms.length > 12 ? <span className="dictionary-term muted">외 {companyTerms.length - 12}개</span> : null}
                       </div>
                     </section>
                     <section className="dictionary-section">
@@ -3116,8 +3195,8 @@ function ValueCheckView({ result, fileNames, onSource, status, busy, onExport }:
       </div>
 
       {result.groups.length === 0 ? (
-        <StatusPanel variant="info" className="result-clear" title="공통으로 비교할 수 있는 항목이 없습니다.">
-          <p>선택한 파일에서 같은 항목명이 두 개 이상 확인되면 값 일치 여부를 보여 줍니다.</p>
+        <StatusPanel variant="info" className="result-clear notice" title="비교할 공통 항목이 없습니다." icon={<Info size={18} fill="currentColor" stroke="white" strokeWidth={2.2} />}>
+          <p>선택한 파일에서 공통으로 확인되는 항목이 있어야 값 일치 여부를 비교할 수 있습니다.</p>
         </StatusPanel>
       ) : visible.length === 0 ? (
         <p className="value-check-filter-empty">이 상태에 해당하는 항목이 없습니다.</p>

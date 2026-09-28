@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { extractServerAi, generateServerAi, interruptServerAi, polishServerAi, SERVER_AI_MESSAGES } from "@/client/server-ai-client";
+import { extractServerAi, generateServerAi, interruptServerAi, polishBatchServerAi, polishServerAi, SERVER_AI_MESSAGES } from "@/client/server-ai-client";
 import { runGroqAi } from "@/server/groq";
 
 const items = [{ handle: "E1", text: "매출은 10억원입니다." }];
@@ -148,6 +148,27 @@ describe("Groq provider failure boundaries", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ choices: [] }), { status: 200 })));
     await expect(runGroqAi(extractRequest)).rejects.toMatchObject({ code: "INVALID_PROVIDER_OUTPUT", status: 502 });
   });
+
+  it("returns attributable batch proposals while leaving invalid entries for client recovery", async () => {
+    const request = { kind: "polish-batch" as const, mode: "default" as const, items: [
+      { id: "one", text: "첫 번째 문장을 검토합니다." },
+      { id: "two", text: "두 번째 문장을 검토합니다." },
+    ] };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(completion({ proposals: [
+      { id: "one", proposal: { changed: false, revisedText: "첫 번째 문장을 검토합니다.", reasons: [] } },
+      { id: "two", proposal: { changed: true, revisedText: " ", reasons: ["다듬기"] } },
+    ] })));
+    await expect(runGroqAi(request)).resolves.toEqual({
+      kind: "polish-batch",
+      proposals: [{ id: "one", proposal: { changed: false, revisedText: "첫 번째 문장을 검토합니다.", reasons: [] } }],
+    });
+  });
+
+  it("forwards a bounded provider Retry-After without exposing provider error text", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(rejected(429, "private document text", { "retry-after": "2" })));
+    await expect(runGroqAi(polishRequest)).rejects.toMatchObject({ code: "AI_RATE_LIMITED", status: 429, retryAfterMs: 2_000 });
+    expect(JSON.stringify(vi.mocked(console.error).mock.calls)).not.toContain("private document text");
+  });
 });
 
 describe("server AI client response boundaries", () => {
@@ -178,6 +199,15 @@ describe("server AI client response boundaries", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("not json", { status })));
     await expect(polishServerAi("원문입니다.", "default")).rejects.toMatchObject({
       code, message: SERVER_AI_MESSAGES[code], operation: "polish", requestId: undefined, serverCode: undefined,
+    });
+  });
+
+  it("exposes a bounded Retry-After delay for batch orchestration", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      error: { code: "AI_RATE_LIMITED", message: "untrusted provider text" },
+    }), { status: 429, headers: { "Retry-After": "2" } })));
+    await expect(polishBatchServerAi([{ id: "one", text: "문장을 검토합니다." }], "default")).rejects.toMatchObject({
+      code: "RATE_LIMITED", operation: "polish-batch", retryAfterMs: 2_000, message: SERVER_AI_MESSAGES.RATE_LIMITED,
     });
   });
 

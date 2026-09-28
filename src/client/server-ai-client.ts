@@ -13,6 +13,12 @@ const CLIENT_TIMEOUT_MS = 35_000;
 let activeController: AbortController | undefined;
 
 const confidenceSchema = z.enum(["high", "medium", "low"]);
+const polishProposalSchema = z.object({
+  changed: z.boolean(),
+  revisedText: z.string(),
+  reasons: z.array(z.string()),
+});
+const polishBatchItemSchema = z.object({ id: z.string(), proposal: polishProposalSchema });
 const aiResultSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("claims"),
@@ -27,12 +33,24 @@ const aiResultSchema = z.discriminatedUnion("kind", [
     })),
   }),
   z.object({
-    kind: z.literal("polish"),
-    proposal: z.object({
-      changed: z.boolean(),
-      revisedText: z.string(),
-      reasons: z.array(z.string()),
+    kind: z.literal("polish-batch"),
+    proposals: z.array(z.unknown()).transform((items) => {
+      const valid: z.infer<typeof polishBatchItemSchema>[] = [];
+      const malformedIds = new Set<string>();
+      for (const item of items) {
+        const parsed = polishBatchItemSchema.safeParse(item);
+        if (parsed.success) valid.push(parsed.data);
+        else if (typeof item === "object" && item !== null && "id" in item && typeof item.id === "string") {
+          malformedIds.add(item.id);
+        }
+      }
+      // A malformed duplicate makes even a valid answer for that ID ambiguous.
+      return valid.filter(({ id }) => !malformedIds.has(id));
     }),
+  }),
+  z.object({
+    kind: z.literal("polish"),
+    proposal: polishProposalSchema,
   }),
   z.object({
     kind: z.literal("extract"),
@@ -116,6 +134,15 @@ export async function polishServerAi(text: string, mode: PolishMode): Promise<Po
   return result.proposal;
 }
 
+export async function polishBatchServerAi(
+  items: { id: string; text: string }[],
+  mode: PolishMode,
+): Promise<{ id: string; proposal: PolishProposal }[]> {
+  const result = await send({ kind: "polish-batch", items, mode });
+  if (result.kind !== "polish-batch") throw failure("INVALID_OUTPUT", "polish-batch");
+  return result.proposals;
+}
+
 export async function extractServerAi(field: string, items: EvidenceItem[]): Promise<ExtractProposal> {
   const result = await send({ kind: "extract", field, items });
   if (result.kind !== "extract") throw failure("INVALID_OUTPUT", "extract");
@@ -124,6 +151,23 @@ export async function extractServerAi(field: string, items: EvidenceItem[]): Pro
 
 export function interruptServerAi(): void {
   activeController?.abort();
+  activePolishDelay?.();
+}
+
+let activePolishDelay: (() => void) | undefined;
+
+/** Aborts the pending retry immediately when the user stops the run. */
+export function waitForPolishRetry(ms: number): Promise<boolean> {
+  const { promise, resolve } = Promise.withResolvers<boolean>();
+  const finish = (completed: boolean) => {
+    clearTimeout(timer);
+    if (activePolishDelay === cancel) activePolishDelay = undefined;
+    resolve(completed);
+  };
+  const cancel = () => finish(false);
+  const timer = setTimeout(() => finish(true), ms);
+  activePolishDelay = cancel;
+  return promise;
 }
 
 async function send(request: AiApiRequest): Promise<AiApiResult> {
@@ -141,7 +185,7 @@ async function send(request: AiApiRequest): Promise<AiApiResult> {
       signal: controller.signal,
     });
     const payload: unknown = await response.json().catch(() => null);
-    if (!response.ok) throw responseFailure(payload, response.status, request.kind);
+    if (!response.ok) throw responseFailure(payload, response.status, request.kind, response.headers.get("Retry-After"));
     const parsed = successEnvelopeSchema.safeParse(payload);
     if (!parsed.success) throw failure("INVALID_OUTPUT", request.kind);
     return parsed.data.data;
@@ -161,6 +205,7 @@ function responseFailure(
   payload: unknown,
   status: number,
   operation: AiApiRequest["kind"],
+  retryAfter: string | null,
 ): ServerAiFailure {
   const parsed = errorEnvelopeSchema.safeParse(payload);
   const serverCode = parsed.success ? parsed.data.error.code : "";
@@ -190,13 +235,16 @@ function responseFailure(
   return failure(mapped, operation, {
     requestId: parsed.success ? parsed.data.requestId : undefined,
     serverCode: serverCode || undefined,
+    ...(mapped === "RATE_LIMITED" && retryAfter && /^\d+$/u.test(retryAfter)
+      ? { retryAfterMs: Math.min(Number(retryAfter) * 1_000, 86_400_000) }
+      : {}),
   });
 }
 
 function failure(
   code: ServerAiErrorCode,
   operation?: AiApiRequest["kind"],
-  diagnostic: Pick<ServerAiFailure, "requestId" | "serverCode"> = {},
+  diagnostic: Pick<ServerAiFailure, "requestId" | "serverCode" | "retryAfterMs"> = {},
 ): ServerAiFailure {
   return { code, message: MESSAGES[code], operation, occurredAt: new Date().toISOString(), ...diagnostic };
 }

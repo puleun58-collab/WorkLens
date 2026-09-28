@@ -63,6 +63,14 @@ describe("server AI request boundary", () => {
       text: "가".repeat(601),
     })).toThrow("AI 요청 형식이 올바르지 않습니다.");
   });
+
+  it("rejects oversized or ambiguous Polish batches before contacting the provider", () => {
+    const valid = Array.from({ length: 4 }, (_, index) => ({ id: `sentence-${index}`, text: "가".repeat(600) }));
+    expect(parseAiApiRequest({ kind: "polish-batch", mode: "default", items: valid })).toMatchObject({ items: valid });
+    for (const items of [[], [...valid, valid[0]], [valid[0], valid[0]], [{ id: "long", text: "가".repeat(601) }]]) {
+      expect(() => parseAiApiRequest({ kind: "polish-batch", mode: "default", items })).toThrow("AI 요청 형식이 올바르지 않습니다.");
+    }
+  });
 });
 
 describe("server AI route boundary", () => {

@@ -13,6 +13,7 @@ export class ApiError extends Error {
     public readonly code: string,
     message: string,
     public readonly status: number,
+    public readonly retryAfterMs?: number,
   ) {
     super(message);
     this.name = "ApiError";
@@ -106,9 +107,12 @@ export function ok<T>(data: T, status = 200, requestId = randomUUID()): NextResp
 
 export function apiError(error: unknown, requestId = randomUUID()): NextResponse {
   if (error instanceof ApiError) {
+    const headers = error.retryAfterMs === undefined
+      ? NO_STORE_HEADERS
+      : { ...NO_STORE_HEADERS, "Retry-After": String(Math.ceil(error.retryAfterMs / 1_000)) };
     return NextResponse.json(
       { error: { code: error.code, message: error.message, retryable: error.status >= 500 }, requestId },
-      { status: error.status, headers: NO_STORE_HEADERS },
+      { status: error.status, headers },
     );
   }
   console.error("WorkLens API unhandled error", { requestId, error });
