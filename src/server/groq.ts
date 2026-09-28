@@ -189,7 +189,10 @@ async function complete(
     },
   });
 
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  // Polish batches retry at the abortable client layer; retrying here as well
+  // multiplies provider calls for every failed split.
+  const maxAttempts = context.operation === "polish-batch" ? 1 : 2;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
@@ -201,7 +204,7 @@ async function complete(
       });
       if (response.ok) return parseCompletion(await response.json());
       const retryable = response.status === 429 || response.status >= 500;
-      if (attempt === 0 && retryable) {
+      if (attempt + 1 < maxAttempts && retryable) {
         const retryAfter = retryDelay(response.headers.get("retry-after"));
         if (retryAfter <= 1_500) {
           await delay(retryAfter);
@@ -214,7 +217,7 @@ async function complete(
       if (error instanceof Error && error.name === "AbortError") {
         throw new ApiError("AI_TIMEOUT", "AI 응답 시간이 초과되었습니다. 다시 시도하세요.", 504);
       }
-      if (attempt === 0) {
+      if (attempt + 1 < maxAttempts) {
         await delay(250);
         continue;
       }

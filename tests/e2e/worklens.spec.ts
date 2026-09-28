@@ -1250,8 +1250,8 @@ test("recovers only missing and duplicated batch entries without accepting unkno
     const proposals = request.items.map(({ id, text }) => ({
       id, proposal: { changed: false, revisedText: text, reasons: [] },
     }));
-    const returned = first && proposals.length === 4
-      ? [proposals[0], proposals[1], proposals[1], proposals[2], { ...proposals[3], id: "unknown-id" }]
+    const returned = first && proposals.length === 6
+      ? [proposals[0], proposals[1], proposals[1], { ...proposals[2], proposal: { changed: true, revisedText: "", reasons: [] } }, { ...proposals[3], id: "unknown-id" }, proposals[4], proposals[5]]
       : proposals;
     first = false;
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
@@ -1269,10 +1269,105 @@ test("recovers only missing and duplicated batch entries without accepting unkno
   await expect(result.locator(".polish-summary-line")).not.toContainText("검토 미완료");
   expect(attempts.get(sentences[0])).toBe(1);
   expect(attempts.get(sentences[1])).toBeGreaterThan(1);
-  expect(attempts.get(sentences[2])).toBe(1);
+  expect(attempts.get(sentences[2])).toBeGreaterThan(1);
   expect(attempts.get(sentences[3])).toBeGreaterThan(1);
   expect(attempts.get(sentences[4])).toBe(1);
   expect(attempts.get(sentences[5])).toBe(1);
+});
+
+test("splits only failing Polish ranges down to a single sentence", async ({ page }) => {
+  const requests: string[][] = [];
+  const attempts = new Map<string, number>();
+  await page.route("**/api/ai", async (route) => {
+    const request = route.request().postDataJSON() as PolishBatchRequest;
+    const texts = request.items.map(({ text }) => text);
+    requests.push(texts);
+    for (const text of texts) attempts.set(text, (attempts.get(text) ?? 0) + 1);
+    if (texts.includes("문장 1의 내용을 검토합니다.")) {
+      await route.fulfill({ status: 504, contentType: "application/json", body: JSON.stringify({ error: { code: "AI_TIMEOUT" } }) });
+      return;
+    }
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(
+      polishBatchResponse(request.items, (text) => ({ changed: false, revisedText: text, reasons: [] })),
+    ) });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "윤문", exact: true }).click();
+  await page.getByRole("radio", { name: "텍스트 윤문" }).check();
+  const sentences = Array.from({ length: 8 }, (_, index) => `문장 ${index + 1}의 내용을 검토합니다.`);
+  await page.getByLabel("윤문할 텍스트 입력").fill(sentences.join("\n"));
+  await page.evaluate(() => {
+    const readings: number[] = [];
+    (window as Window & { __polishProgressReadings?: number[] }).__polishProgressReadings = readings;
+    new MutationObserver(() => {
+      const match = /윤문 처리 중 (\d+)\/8/u.exec(document.querySelector(".compact-progress strong")?.textContent ?? "");
+      if (match && readings.at(-1) !== Number(match[1])) readings.push(Number(match[1]));
+    }).observe(document.body, { childList: true, subtree: true, characterData: true });
+  });
+  await page.getByRole("button", { name: "윤문 실행" }).click();
+  const result = page.locator(".polish-text-results");
+  await expect(result.locator(".polish-summary-line")).toContainText("변경 없음 7");
+  await expect(result.locator(".polish-summary-line")).toContainText("검토 미완료 1");
+  expect(requests.map((items) => items.length)).toEqual([8, 8, 4, 2, 1, 1, 2, 4]);
+  expect(attempts.get(sentences[0])).toBe(5);
+  expect(attempts.get(sentences[1])).toBe(5);
+  expect(attempts.get(sentences[4])).toBe(3);
+  expect(requests.at(-1)).toEqual(sentences.slice(4));
+  const readings = await page.evaluate(() => (window as Window & { __polishProgressReadings?: number[] }).__polishProgressReadings ?? []);
+  expect(readings.length).toBeGreaterThan(0);
+  expect(readings.every((value, index) => value >= 0 && value <= 8 && (index === 0 || value >= readings[index - 1]))).toBe(true);
+});
+
+test("retries malformed batch JSON once and still rejects protected-value changes", async ({ page }) => {
+  let requests = 0;
+  await page.route("**/api/ai", async (route) => {
+    requests += 1;
+    if (requests === 1) {
+      await route.fulfill({ status: 200, contentType: "application/json", body: "{broken" });
+      return;
+    }
+    const request = route.request().postDataJSON() as PolishBatchRequest;
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(
+      polishBatchResponse(request.items, (text) => text.includes("1,250")
+        ? { changed: true, revisedText: text.replace("1,250", "1,500"), reasons: ["표현 정리"] }
+        : { changed: false, revisedText: text, reasons: [] }),
+    ) });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "윤문", exact: true }).click();
+  await page.getByRole("radio", { name: "텍스트 윤문" }).check();
+  await page.getByLabel("윤문할 텍스트 입력").fill(
+    "이번 매출은 1,250만원으로 집계되었습니다.\n다음 회의를 함께 검토 부탁드립니다.");
+  await page.getByRole("button", { name: "윤문 실행" }).click();
+  const result = page.locator(".polish-text-results");
+  await expect(result.locator(".polish-summary-line")).toContainText("수정안 미적용 1");
+  await expect(result.locator(".polish-summary-line")).toContainText("변경 없음 1");
+  await expect(result.locator(".polish-summary-line")).not.toContainText("검토 미완료");
+  expect(requests).toBe(2);
+});
+
+test("bounds long Polish candidates by total characters as well as count", async ({ page }) => {
+  const sizes: number[] = [];
+  await page.route("**/api/ai", async (route) => {
+    const request = route.request().postDataJSON() as PolishBatchRequest;
+    const chars = request.items.reduce((sum, item) => sum + item.text.length, 0);
+    expect(request.items.length).toBeLessThanOrEqual(8);
+    expect(chars).toBeLessThanOrEqual(2400);
+    sizes.push(request.items.length);
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(
+      polishBatchResponse(request.items, (text) => ({ changed: false, revisedText: text, reasons: [] })),
+    ) });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "윤문", exact: true }).click();
+  await page.getByRole("radio", { name: "텍스트 윤문" }).check();
+  const sentences = Array.from({ length: 9 }, (_, index) =>
+    `문장 ${index + 1}의 내용을 검토합니다. ` + "관련 내용을 함께 검토 부탁드립니다. ".repeat(16));
+  await page.getByLabel("윤문할 텍스트 입력").fill(sentences.join("\n"));
+  await page.getByRole("button", { name: "윤문 실행" }).click();
+  await expect(page.locator(".polish-text-results .polish-summary-line")).toContainText("변경 없음 9");
+  expect(sizes.length).toBeGreaterThan(1);
+  expect(sizes[0]).toBeLessThan(8);
 });
 
 test("bounds PDF Polish requests while preserving every sentence", async ({ page }) => {
@@ -1286,7 +1381,7 @@ test("bounds PDF Polish requests while preserving every sentence", async ({ page
     const request = route.request().postDataJSON() as PolishBatchRequest;
     requests++;
     expect(request.kind).toBe("polish-batch");
-    expect(request.items.length).toBeLessThanOrEqual(4);
+    expect(request.items.length).toBeLessThanOrEqual(8);
     expect(request.items.reduce((sum, item) => sum + item.text.length, 0)).toBeLessThanOrEqual(2400);
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(
       polishBatchResponse(request.items, (text) => ({ changed: false, revisedText: text, reasons: [] })),
@@ -1299,7 +1394,7 @@ test("bounds PDF Polish requests while preserving every sentence", async ({ page
   await page.getByRole("button", { name: "윤문 실행" }).click();
   const result = page.locator(".polish-results:not(.polish-text-results)");
   await expect(result.locator(".polish-summary-line")).toContainText("변경 없음 58");
-  expect(requests).toBe(15);
+  expect(requests).toBe(8);
 });
 
 test("stops a pending Retry-After wait without sending another batch", async ({ page }) => {
@@ -1324,6 +1419,27 @@ test("stops a pending Retry-After wait without sending another batch", async ({ 
   expect(requests).toBe(1);
 });
 
+test("does not split or storm the provider after a persistent rate limit", async ({ page }) => {
+  const requests: number[] = [];
+  await page.route("**/api/ai", async (route) => {
+    const request = route.request().postDataJSON() as PolishBatchRequest;
+    requests.push(request.items.length);
+    await route.fulfill({
+      status: 429, contentType: "application/json",
+      headers: { "Retry-After": "1" },
+      body: JSON.stringify({ error: { code: "AI_RATE_LIMITED" } }),
+    });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "윤문", exact: true }).click();
+  await page.getByRole("radio", { name: "텍스트 윤문" }).check();
+  await page.getByLabel("윤문할 텍스트 입력").fill(
+    Array.from({ length: 9 }, (_, index) => `문장 ${index + 1}의 내용을 검토합니다.`).join("\n"));
+  await page.getByRole("button", { name: "윤문 실행" }).click();
+  await expect(page.locator(".polish-text-results .polish-summary-line")).toContainText("검토 미완료 8");
+  expect(requests).toEqual([8, 8]);
+});
+
 test("stops Polish at a configuration error without retrying or accusing unattempted sentences", async ({ page }) => {
   const attempts: string[][] = [];
   await page.route("**/api/ai", async (route) => {
@@ -1337,9 +1453,9 @@ test("stops Polish at a configuration error without retrying or accusing unattem
   await page.getByLabel("윤문할 텍스트 입력").fill("첫 번째 문장은 그대로 둡니다.\n두 번째 문장은 검토합니다.\n세 번째 문장은 아직 남았습니다.\n네 번째 문장은 아직 남았습니다.\n다섯 번째 문장은 아직 남았습니다.");
   await page.getByRole("button", { name: "윤문 실행" }).click();
   await expect(page.locator(".notice.error")).toContainText("윤문을 완료하지 못했습니다.");
-  await expect(page.locator(".polish-text-results .polish-summary-line")).toContainText("검토 미완료 4");
+  await expect(page.locator(".polish-text-results .polish-summary-line")).toContainText("검토 미완료 5");
   expect(attempts).toHaveLength(1);
-  expect(attempts[0]).toHaveLength(4);
+  expect(attempts[0]).toHaveLength(5);
 });
 
 test("keeps completed Polish work when the user stops an in-flight sentence", async ({ page }) => {
@@ -1349,7 +1465,7 @@ test("keeps completed Polish work when the user stops an in-flight sentence", as
   await page.route("**/api/ai", async (route) => {
     const request = route.request().postDataJSON() as PolishBatchRequest;
     attempts.push(...request.items.map(({ text }) => text));
-    if (request.items.some(({ text }) => text.includes("다섯 번째"))) {
+    if (request.items.some(({ text }) => text.includes("문장 9의"))) {
       secondStarted.resolve();
       await releaseSecond.promise;
     }
@@ -1364,16 +1480,17 @@ test("keeps completed Polish work when the user stops an in-flight sentence", as
   await page.goto("/");
   await page.getByRole("button", { name: "윤문", exact: true }).click();
   await page.getByRole("radio", { name: "텍스트 윤문" }).check();
-  await page.getByLabel("윤문할 텍스트 입력").fill("첫 번째 문장은 그대로 둡니다.\n두 번째 문장은 검토합니다.\n세 번째 문장은 아직 남았습니다.\n네 번째 문장은 아직 남았습니다.\n다섯 번째 문장은 아직 남았습니다.");
+  await page.getByLabel("윤문할 텍스트 입력").fill(
+    Array.from({ length: 9 }, (_, index) => `문장 ${index + 1}의 내용을 검토합니다.`).join("\n"));
   await page.getByRole("button", { name: "윤문 실행" }).click();
   await secondStarted.promise;
   await page.getByRole("button", { name: "중지", exact: true }).click();
   releaseSecond.resolve();
   await expect(page.locator(".polish-text-results .result-status")).toHaveText("중지됨");
-  await expect(page.locator(".polish-text-results .polish-summary-line")).toContainText("변경 없음 4");
+  await expect(page.locator(".polish-text-results .polish-summary-line")).toContainText("변경 없음 8");
   await expect(page.locator(".polish-text-results .polish-summary-line")).not.toContainText("검토 미완료");
   await expect(page.locator(".notice.error")).toHaveCount(0);
-  expect(attempts).toHaveLength(5);
+  expect(attempts).toHaveLength(9);
 });
 
 test("runs Ask, Analyze, Polish, Check and Extract through the server AI boundary", async ({ page }) => {
