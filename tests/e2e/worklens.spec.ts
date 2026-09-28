@@ -3,7 +3,7 @@ import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import ExcelJS from "exceljs";
-import { createAnalyzePptx, createCheckPptx, createDocx, createExtractPptx, createNarrativePptx, createPdf, createPptx, createPptxSlides, createTrainingPptx, createXlsx, RATE_SHEET_V1, RATE_SHEET_V2 } from "../fixtures";
+import { createAnalyzePptx, createCheckPptx, createDocx, createExtractPptx, createNarrativePptx, createPdf, createPptx, createPptxSlides, createTrainingPptx, createUnicodePdf, createXlsx, RATE_SHEET_V1, RATE_SHEET_V2 } from "../fixtures";
 
 const FIXTURE_DIR = path.join(process.cwd(), "artifacts", "fixtures");
 const files = {
@@ -107,6 +107,12 @@ async function mockEmptyClaims(page: Page) {
       body: JSON.stringify({ data: { kind: "claims", claims: [] } }),
     });
   });
+}
+
+type PolishBatchRequest = { kind: "polish-batch"; items: Array<{ id: string; text: string }> };
+
+function polishBatchResponse(items: PolishBatchRequest["items"], propose: (text: string) => { changed: boolean; revisedText: string; reasons: string[] }) {
+  return { data: { kind: "polish-batch", proposals: items.map(({ id, text }) => ({ id, proposal: propose(text) })) } };
 }
 
 test("uploads XLSX files, compares them and shows source evidence", async ({ page }) => {
@@ -950,25 +956,15 @@ test("presents text Polish as an immediate original-to-revision workflow", async
     });
   });
   await page.route("**/api/ai", async (route) => {
-    const request = route.request().postDataJSON() as { kind: string; text?: string };
-    const text = request.text ?? "";
-    const proposal = text.includes("pc반환")
-      ? {
-          changed: true,
-          revisedText: "김영삼 차장님이 PC 반납을 요청했습니다.",
-          reasons: ["오타 수정", "표현 정리"],
-        }
-      : text.includes("1,250")
-        ? {
-            changed: true,
-            revisedText: "이번 매출은 1,500만원으로 집계되었습니다.",
-            reasons: ["수치 표현 정리"],
-          }
-        : { changed: false, revisedText: text, reasons: [] };
+    const request = route.request().postDataJSON() as PolishBatchRequest;
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ data: { kind: "polish", proposal } }),
+      body: JSON.stringify(polishBatchResponse(request.items, (text) => text.includes("pc반환")
+        ? { changed: true, revisedText: "김영삼 차장님이 PC 반납을 요청했습니다.", reasons: ["오타 수정", "표현 정리"] }
+        : text.includes("1,250")
+          ? { changed: true, revisedText: "이번 매출은 1,500만원으로 집계되었습니다.", reasons: ["수치 표현 정리"] }
+          : { changed: false, revisedText: text, reasons: [] })),
     });
   });
 
@@ -1039,6 +1035,46 @@ test("presents text Polish as an immediate original-to-revision workflow", async
     revisionBorder: "1px",
   });
   expect(await original.locator(".polish-copy-heading").evaluate((element) => getComputedStyle(element).justifyContent)).toBe("space-between");
+  const copyActions = result.locator(".polish-copy-heading > button");
+  const cardHierarchy = async () => result.evaluate((element) => {
+    const cards = [...element.querySelectorAll<HTMLElement>(".polish-copy-block")];
+    return cards.map((card) => {
+      const button = card.querySelector("button")!;
+      const cardBox = card.getBoundingClientRect();
+      const buttonBox = button.getBoundingClientRect();
+      const style = getComputedStyle(button);
+      return {
+        background: getComputedStyle(card).backgroundColor,
+        label: button.innerText,
+        icon: Boolean(button.querySelector("svg")),
+        right: Math.round(cardBox.right - buttonBox.right),
+        top: Math.round(buttonBox.top - cardBox.top),
+        height: buttonBox.height,
+        font: style.fontSize,
+        color: style.color,
+        gap: style.gap,
+      };
+    });
+  });
+  const desktopCards = await cardHierarchy();
+  expect(desktopCards.map((card) => card.label)).toEqual(["원문 복사", "복사"]);
+  expect(desktopCards.map((card) => card.icon)).toEqual([true, true]);
+  expect(desktopCards[0].background).not.toBe(surface.cardBackground);
+  expect(desktopCards[0].background).not.toBe(desktopCards[1].background);
+  expect(desktopCards[0].right).toBe(desktopCards[1].right);
+  expect(desktopCards[0].top).toBe(desktopCards[1].top);
+  for (const property of ["height", "font", "color", "gap"] as const) {
+    expect(desktopCards[0][property]).toBe(desktopCards[1][property]);
+  }
+  await copyActions.first().hover();
+  const originalHover = await copyActions.first().evaluate((button) => getComputedStyle(button).backgroundColor);
+  await copyActions.last().hover();
+  expect(await copyActions.last().evaluate((button) => getComputedStyle(button).backgroundColor)).toBe(originalHover);
+  await copyActions.first().focus();
+  const focusWidth = await copyActions.first().evaluate((button) => getComputedStyle(button).outlineWidth);
+  expect(Number.parseInt(focusWidth, 10)).toBeGreaterThan(0);
+  await copyActions.last().focus();
+  expect(await copyActions.last().evaluate((button) => getComputedStyle(button).outlineWidth)).toBe(focusWidth);
   await page.screenshot({ path: "artifacts/polish-result-desktop-1440.png", fullPage: true });
 
   await page.setViewportSize({ width: 390, height: 844 });
@@ -1051,6 +1087,10 @@ test("presents text Polish as an immediate original-to-revision workflow", async
         - Number.parseFloat(style.borderLeftWidth) - Number.parseFloat(style.borderRightWidth));
     }));
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  const mobileCards = await cardHierarchy();
+  expect(mobileCards[0].right).toBe(mobileCards[1].right);
+  expect(mobileCards[0].top).toBe(mobileCards[1].top);
+  expect(mobileCards.map((card) => card.icon)).toEqual([true, true]);
   await page.screenshot({ path: "artifacts/polish-result-mobile-390.png", fullPage: true });
   await original.getByRole("button", { name: "원문 복사" }).click();
   expect(await page.evaluate(() => (window as Window & { __copiedText?: string }).__copiedText))
@@ -1084,17 +1124,17 @@ test("presents text Polish as an immediate original-to-revision workflow", async
 test("distinguishes partial Polish failure from unchanged text and clears stale mode results", async ({ page }) => {
   let failAll = false;
   await page.route("**/api/ai", async (route) => {
-    const request = route.request().postDataJSON() as { text: string };
-    if (failAll || request.text.includes("이번 내용")) {
-      await route.fulfill({ status: 429, contentType: "application/json", body: JSON.stringify({ error: { code: "AI_RATE_LIMITED" } }) });
+    const request = route.request().postDataJSON() as PolishBatchRequest;
+    if (failAll || request.items.some(({ text }) => text.includes("이번 내용"))) {
+      await route.fulfill({ status: 504, contentType: "application/json", body: JSON.stringify({ error: { code: "AI_TIMEOUT" } }) });
       return;
     }
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ data: { kind: "polish", proposal: request.text.includes("pc반환")
+      body: JSON.stringify(polishBatchResponse(request.items, (text) => text.includes("pc반환")
         ? { changed: true, revisedText: "김영삼 차장님이 PC 반납을 요청했습니다.", reasons: ["표현 정리"] }
-        : { changed: false, revisedText: request.text, reasons: [] } } }),
+        : { changed: false, revisedText: text, reasons: [] })),
     });
   });
 
@@ -1132,18 +1172,19 @@ test("shows changed, rejected and failed outcomes independently for a document",
   ]]));
   const attempts: string[] = [];
   await page.route("**/api/ai", async (route) => {
-    const { text } = route.request().postDataJSON() as { text: string };
-    attempts.push(text);
-    if (text.includes("내부 공유")) {
-      await route.fulfill({ status: 429, contentType: "application/json", body: JSON.stringify({ error: { code: "AI_RATE_LIMITED" } }) });
+    const request = route.request().postDataJSON() as PolishBatchRequest;
+    attempts.push(...request.items.map(({ text }) => text));
+    if (request.items.some(({ text }) => text.includes("내부 공유"))) {
+      await route.fulfill({ status: 504, contentType: "application/json", body: JSON.stringify({ error: { code: "AI_TIMEOUT" } }) });
       return;
     }
-    const revisedText = text.includes("차장님")
-      ? text.replace("김영삼", "김철수")
-      : text.replace("논의를 진행했습니다", "논의를 했습니다");
-    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
-      data: { kind: "polish", proposal: { changed: true, revisedText, reasons: ["표현 정리"] } },
-    }) });
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(
+      polishBatchResponse(request.items, (text) => ({
+        changed: true,
+        revisedText: text.includes("차장님") ? text.replace("김영삼", "김철수") : text.replace("논의를 진행했습니다", "논의를 했습니다"),
+        reasons: ["표현 정리"],
+      })),
+    ) });
   });
   await page.goto("/");
   await upload(page, fixture);
@@ -1157,22 +1198,26 @@ test("shows changed, rejected and failed outcomes independently for a document",
   await expect(result.locator(".polish-row.rejected")).toContainText("김영삼 차장님");
   await expect(result.locator(".polish-row.rejected .polish-copy-block.revised")).toHaveCount(0);
   await expect(result.locator(".polish-row:not(.rejected) .polish-copy-block.revised")).toHaveCount(1);
-  expect(attempts.filter((text) => text.includes("내부 공유"))).toHaveLength(2);
+  expect(attempts.filter((text) => text.includes("내부 공유")).length).toBeGreaterThanOrEqual(3);
 });
 
 test("keeps the other 57 text sentences when candidate 11 exhausts its transient retry", async ({ page }) => {
   const attempts = new Map<number, number>();
+  let requests = 0;
   await page.route("**/api/ai", async (route) => {
-    const { text } = route.request().postDataJSON() as { text: string };
-    const number = Number(/문장 (\d+)/u.exec(text)?.[1]);
-    attempts.set(number, (attempts.get(number) ?? 0) + 1);
-    if (number === 11 || (number === 12 && attempts.get(number) === 1)) {
+    const request = route.request().postDataJSON() as PolishBatchRequest;
+    requests += 1;
+    for (const { text } of request.items) {
+      const number = Number(/문장 (\d+)/u.exec(text)?.[1]);
+      attempts.set(number, (attempts.get(number) ?? 0) + 1);
+    }
+    if (request.items.some(({ text }) => text.includes("문장 11의"))) {
       await route.fulfill({ status: 504, contentType: "application/json", body: JSON.stringify({ error: { code: "AI_TIMEOUT" } }) });
       return;
     }
-    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
-      data: { kind: "polish", proposal: { changed: false, revisedText: text, reasons: [] } },
-    }) });
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(
+      polishBatchResponse(request.items, (text) => ({ changed: false, revisedText: text, reasons: [] })),
+    ) });
   });
 
   await page.goto("/");
@@ -1189,30 +1234,135 @@ test("keeps the other 57 text sentences when candidate 11 exhausts its transient
   await result.getByRole("button", { name: "검토 미완료 문장 1건 보기" }).click();
   await expect(result.locator(".polish-unchanged li")).toContainText(["문장 11의 내용을 함께 검토 부탁드립니다."]);
   expect(attempts.size).toBe(58);
-  expect(attempts.get(11)).toBe(2);
-  expect(attempts.get(12)).toBe(2);
+  expect(attempts.get(11)).toBeGreaterThanOrEqual(2);
   expect(attempts.get(58)).toBe(1);
+  expect(requests).toBeLessThan(58);
 });
 
-test("stops Polish at a configuration error without retrying or accusing unattempted sentences", async ({ page }) => {
-  const attempts: string[] = [];
+test("isolates one unavailable provider sentence and continues later batches", async ({ page }) => {
+  let requests = 0;
   await page.route("**/api/ai", async (route) => {
-    const { text } = route.request().postDataJSON() as { text: string };
-    attempts.push(text);
-    await route.fulfill(text.includes("두 번째")
-      ? { status: 500, contentType: "application/json", body: JSON.stringify({ error: { code: "AI_NOT_CONFIGURED" } }) }
-      : { status: 200, contentType: "application/json", body: JSON.stringify({
-        data: { kind: "polish", proposal: { changed: false, revisedText: text, reasons: [] } },
-      }) });
+    const request = route.request().postDataJSON() as PolishBatchRequest;
+    requests++;
+    if (request.items.some(({ text }) => text.includes("문장 2의"))) {
+      await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: { code: "AI_PROVIDER_UNAVAILABLE" } }) });
+      return;
+    }
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(
+      polishBatchResponse(request.items, (text) => ({ changed: false, revisedText: text, reasons: [] })),
+    ) });
   });
   await page.goto("/");
   await page.getByRole("button", { name: "윤문", exact: true }).click();
   await page.getByRole("radio", { name: "텍스트 윤문" }).check();
-  await page.getByLabel("윤문할 텍스트 입력").fill("첫 번째 문장은 그대로 둡니다.\n두 번째 문장은 검토합니다.\n세 번째 문장은 아직 남았습니다.");
+  await page.getByLabel("윤문할 텍스트 입력").fill(
+    Array.from({ length: 6 }, (_, index) => `문장 ${index + 1}의 내용을 함께 검토 부탁드립니다.`).join("\n"));
+  await page.getByRole("button", { name: "윤문 실행" }).click();
+  const result = page.locator(".polish-text-results");
+  await expect(result.locator(".polish-summary-line")).toContainText("변경 없음 5");
+  await expect(result.locator(".polish-summary-line")).toContainText("검토 미완료 1");
+  expect(requests).toBeLessThan(20);
+});
+
+test("recovers only missing and duplicated batch entries without accepting unknown IDs", async ({ page }) => {
+  const attempts = new Map<string, number>();
+  let first = true;
+  await page.route("**/api/ai", async (route) => {
+    const request = route.request().postDataJSON() as PolishBatchRequest;
+    for (const item of request.items) attempts.set(item.text, (attempts.get(item.text) ?? 0) + 1);
+    const proposals = request.items.map(({ id, text }) => ({
+      id, proposal: { changed: false, revisedText: text, reasons: [] },
+    }));
+    const returned = first && proposals.length === 4
+      ? [proposals[0], proposals[1], proposals[1], proposals[2], { ...proposals[3], id: "unknown-id" }]
+      : proposals;
+    first = false;
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+      data: { kind: "polish-batch", proposals: returned },
+    }) });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "윤문", exact: true }).click();
+  await page.getByRole("radio", { name: "텍스트 윤문" }).check();
+  const sentences = Array.from({ length: 6 }, (_, index) => `문장 ${index + 1}의 내용을 다시 한번 검토 부탁드립니다.`);
+  await page.getByLabel("윤문할 텍스트 입력").fill(sentences.join("\n"));
+  await page.getByRole("button", { name: "윤문 실행" }).click();
+  const result = page.locator(".polish-text-results");
+  await expect(result.locator(".polish-summary-line")).toContainText("변경 없음 6");
+  await expect(result.locator(".polish-summary-line")).not.toContainText("검토 미완료");
+  expect(attempts.get(sentences[0])).toBe(1);
+  expect(attempts.get(sentences[1])).toBeGreaterThan(1);
+  expect(attempts.get(sentences[2])).toBe(1);
+  expect(attempts.get(sentences[3])).toBeGreaterThan(1);
+  expect(attempts.get(sentences[4])).toBe(1);
+  expect(attempts.get(sentences[5])).toBe(1);
+});
+
+test("bounds PDF Polish requests while preserving every sentence", async ({ page }) => {
+  const sentences = Array.from({ length: 58 }, (_, index) => `문장 ${index + 1}의 업무 내용을 함께 검토 부탁드립니다.`);
+  const pdf = await createUnicodePdf(Array.from({ length: 5 }, (_, index) =>
+    sentences.slice(index * 12, (index + 1) * 12).map((text) => ({ text }))));
+  const fixture = path.join(FIXTURE_DIR, "윤문_58문장.pdf");
+  await writeFile(fixture, pdf);
+  let requests = 0;
+  await page.route("**/api/ai", async (route) => {
+    const request = route.request().postDataJSON() as PolishBatchRequest;
+    requests++;
+    expect(request.kind).toBe("polish-batch");
+    expect(request.items.length).toBeLessThanOrEqual(4);
+    expect(request.items.reduce((sum, item) => sum + item.text.length, 0)).toBeLessThanOrEqual(2400);
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(
+      polishBatchResponse(request.items, (text) => ({ changed: false, revisedText: text, reasons: [] })),
+    ) });
+  });
+  await page.goto("/");
+  await upload(page, fixture);
+  await page.getByLabel("윤문_58문장.pdf 선택").check();
+  await page.getByRole("button", { name: "윤문", exact: true }).click();
+  await page.getByRole("button", { name: "윤문 실행" }).click();
+  const result = page.locator(".polish-results:not(.polish-text-results)");
+  await expect(result.locator(".polish-summary-line")).toContainText("변경 없음 58");
+  expect(requests).toBe(15);
+});
+
+test("stops a pending Retry-After wait without sending another batch", async ({ page }) => {
+  let requests = 0;
+  await page.route("**/api/ai", async (route) => {
+    requests++;
+    await route.fulfill({
+      status: 429, contentType: "application/json",
+      headers: { "Retry-After": "2" },
+      body: JSON.stringify({ error: { code: "AI_RATE_LIMITED" } }),
+    });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "윤문", exact: true }).click();
+  await page.getByRole("radio", { name: "텍스트 윤문" }).check();
+  await page.getByLabel("윤문할 텍스트 입력").fill("첫 번째 문장을 검토합니다.\n두 번째 문장을 검토합니다.");
+  await page.getByRole("button", { name: "윤문 실행" }).click();
+  await expect.poll(() => requests).toBe(1);
+  await page.getByRole("button", { name: "중지", exact: true }).click();
+  await expect(page.locator(".polish-text-results .result-status")).toHaveText("중지됨", { timeout: 800 });
+  await page.waitForTimeout(2_100);
+  expect(requests).toBe(1);
+});
+
+test("stops Polish at a configuration error without retrying or accusing unattempted sentences", async ({ page }) => {
+  const attempts: string[][] = [];
+  await page.route("**/api/ai", async (route) => {
+    const request = route.request().postDataJSON() as PolishBatchRequest;
+    attempts.push(request.items.map(({ text }) => text));
+    await route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: { code: "AI_NOT_CONFIGURED" } }) });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "윤문", exact: true }).click();
+  await page.getByRole("radio", { name: "텍스트 윤문" }).check();
+  await page.getByLabel("윤문할 텍스트 입력").fill("첫 번째 문장은 그대로 둡니다.\n두 번째 문장은 검토합니다.\n세 번째 문장은 아직 남았습니다.\n네 번째 문장은 아직 남았습니다.\n다섯 번째 문장은 아직 남았습니다.");
   await page.getByRole("button", { name: "윤문 실행" }).click();
   await expect(page.locator(".notice.error")).toContainText("윤문을 완료하지 못했습니다.");
-  await expect(page.locator(".polish-text-results .polish-summary-line")).toContainText("검토 미완료 1");
-  expect(attempts).toHaveLength(2);
+  await expect(page.locator(".polish-text-results .polish-summary-line")).toContainText("검토 미완료 4");
+  expect(attempts).toHaveLength(1);
+  expect(attempts[0]).toHaveLength(4);
 });
 
 test("keeps completed Polish work when the user stops an in-flight sentence", async ({ page }) => {
@@ -1220,16 +1370,16 @@ test("keeps completed Polish work when the user stops an in-flight sentence", as
   const releaseSecond = Promise.withResolvers<void>();
   const attempts: string[] = [];
   await page.route("**/api/ai", async (route) => {
-    const { text } = route.request().postDataJSON() as { text: string };
-    attempts.push(text);
-    if (text.includes("두 번째")) {
+    const request = route.request().postDataJSON() as PolishBatchRequest;
+    attempts.push(...request.items.map(({ text }) => text));
+    if (request.items.some(({ text }) => text.includes("다섯 번째"))) {
       secondStarted.resolve();
       await releaseSecond.promise;
     }
     try {
-      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
-        data: { kind: "polish", proposal: { changed: false, revisedText: text, reasons: [] } },
-      }) });
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(
+        polishBatchResponse(request.items, (text) => ({ changed: false, revisedText: text, reasons: [] })),
+      ) });
     } catch {
       // The browser has already aborted the request being fulfilled.
     }
@@ -1237,26 +1387,25 @@ test("keeps completed Polish work when the user stops an in-flight sentence", as
   await page.goto("/");
   await page.getByRole("button", { name: "윤문", exact: true }).click();
   await page.getByRole("radio", { name: "텍스트 윤문" }).check();
-  await page.getByLabel("윤문할 텍스트 입력").fill("첫 번째 문장은 그대로 둡니다.\n두 번째 문장은 검토합니다.\n세 번째 문장은 아직 남았습니다.");
+  await page.getByLabel("윤문할 텍스트 입력").fill("첫 번째 문장은 그대로 둡니다.\n두 번째 문장은 검토합니다.\n세 번째 문장은 아직 남았습니다.\n네 번째 문장은 아직 남았습니다.\n다섯 번째 문장은 아직 남았습니다.");
   await page.getByRole("button", { name: "윤문 실행" }).click();
   await secondStarted.promise;
   await page.getByRole("button", { name: "중지", exact: true }).click();
   releaseSecond.resolve();
   await expect(page.locator(".polish-text-results .result-status")).toHaveText("중지됨");
-  await expect(page.locator(".polish-text-results .polish-summary-line")).toContainText("변경 없음 1");
+  await expect(page.locator(".polish-text-results .polish-summary-line")).toContainText("변경 없음 4");
   await expect(page.locator(".polish-text-results .polish-summary-line")).not.toContainText("검토 미완료");
   await expect(page.locator(".notice.error")).toHaveCount(0);
-  expect(attempts).toHaveLength(2);
+  expect(attempts).toHaveLength(5);
 });
 
 test("runs Ask, Analyze, Polish, Check and Extract through the server AI boundary", async ({ page }) => {
   const seen = new Set<string>();
   await page.route("**/api/ai", async (route) => {
     const request = route.request().postDataJSON() as {
-      kind: "claims" | "polish" | "extract";
+      kind: "claims" | "polish-batch" | "extract";
       request?: { operation: string };
-      items?: Array<{ handle: string; text: string }>;
-      text?: string;
+      items?: Array<{ handle: string; id: string; text: string }>;
       field?: string;
     };
     let data: object;
@@ -1269,12 +1418,9 @@ test("runs Ask, Analyze, Polish, Check and Extract through the server AI boundar
         claims: [{ text: evidence.text, handles: [evidence.handle], confidence: "high",
           ...(request.request.operation === "analyze" ? { presentation: { role: "summary" } } : {}) }],
       };
-    } else if (request.kind === "polish") {
+    } else if (request.kind === "polish-batch") {
       seen.add("polish");
-      data = {
-        kind: "polish",
-        proposal: { changed: false, revisedText: request.text ?? "", reasons: [] },
-      };
+      data = polishBatchResponse(request.items ?? [], (text) => ({ changed: false, revisedText: text, reasons: [] })).data;
     } else {
       seen.add("extract");
       data = {
@@ -1392,12 +1538,12 @@ test("keeps compact counted progress for Polish and Extract", async ({ page }) =
   await page.route("**/api/ai", async (route) => {
     const request = route.request().postDataJSON() as {
       kind: string;
-      text?: string;
+      items?: PolishBatchRequest["items"];
       field?: string;
     };
     await new Promise((resolve) => setTimeout(resolve, 400));
-    const data = request.kind === "polish"
-      ? { kind: "polish", proposal: { changed: false, revisedText: request.text ?? "", reasons: [] } }
+    const data = request.kind === "polish-batch"
+      ? polishBatchResponse(request.items ?? [], (text) => ({ changed: false, revisedText: text, reasons: [] })).data
       : { kind: "extract", proposal: { field: request.field ?? "", value: null, handles: [], confidence: "low" } };
     await route.fulfill({
       status: 200,
@@ -1419,7 +1565,7 @@ test("keeps compact counted progress for Polish and Extract", async ({ page }) =
   await expect(polishAction).toBeDisabled();
   const polishProgress = page.locator(".compact-progress");
   await expect(polishProgress).toContainText(/윤문 처리 중 0\/\d+/);
-  await expect(polishProgress).toContainText("문장 단위로 처리하고 있습니다.");
+  await expect(polishProgress).toContainText("문장별 검증을 유지하며 묶음으로 처리하고 있습니다.");
   await expect(polishProgress.getByRole("button", { name: "중지", exact: true })).toBeVisible();
   await expect(polishProgress).not.toHaveClass(/status-panel/);
   await expect(polishProgress).toHaveCSS("border-width", "0px");
@@ -2101,6 +2247,59 @@ test("keeps the personal dictionary and ignore actions inside this browser", asy
   await isolated.close();
 });
 
+
+test("uses the loaded company dictionary in both the page and review popup across changes and fallback", async ({ page }) => {
+  let terms = ["I&C", "WorkLens", "ISO 27001", "R&D", "Winstal", "운영", "품질", "안전"];
+  let unavailable = false;
+  let requests = 0;
+  await page.route("**/api/company-terms", (route) => {
+    requests += 1;
+    return route.fulfill(unavailable
+      ? { status: 503, body: "unavailable" }
+      : {
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ data: { source: "d1", terms: terms.map((term, index) => ({
+          id: index + 1, term, description: null, active: true,
+        })) } }),
+      });
+  });
+  await mockEmptyClaims(page);
+
+  const inspect = async (expected: string[], source: "d1" | "seed", expectedRequests: number) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: "Dictionary" }).click();
+    const dictionary = page.locator('.settings-surface[aria-label="Dictionary"] .dictionary-section').first();
+    await expect(dictionary.locator("h4")).toContainText(`COMPANY TERMS ${expected.length}`);
+    if (source === "seed") await expect(dictionary).toContainText("공용 사전 저장소에 연결하지 못해 기본 목록을 표시합니다.");
+    const pageTerms = await dictionary.locator(".dictionary-term").allTextContents();
+    await page.getByRole("button", { name: "분석", exact: true }).click();
+    await upload(page, files.checkPptx);
+    await page.getByLabel("최종검수.pptx 선택").check();
+    await page.getByRole("button", { name: "검수", exact: true }).click();
+    await page.getByRole("button", { name: "검수 실행" }).click();
+    await expect(page.locator(".check-issue").first()).toBeVisible();
+    await page.getByRole("button", { name: "용어 사전" }).click();
+    const popup = page.getByRole("dialog", { name: "용어 사전" });
+    const company = popup.locator(".dictionary-section").first();
+    await expect(company.locator("h4")).toContainText(`회사 용어 ${expected.length}`);
+    const shown = expected.slice(0, 12);
+    await expect(company.locator(".dictionary-term:not(.muted)")).toHaveText(shown);
+    expect(pageTerms).toEqual(expected);
+    if (expected.length > 12) await expect(company.locator(".dictionary-term.muted")).toHaveText(`외 ${expected.length - 12}개`);
+    else await expect(company.locator(".dictionary-term.muted")).toHaveCount(0);
+    expect(requests).toBe(expectedRequests);
+  };
+  await inspect(terms, "d1", 1);
+  terms = [...terms, "새 회사 용어"];
+  await inspect(terms, "d1", 2);
+  terms = terms.filter((term) => term !== "I&C");
+  await inspect(terms, "d1", 3);
+  unavailable = true;
+  const parsedSeed: unknown = JSON.parse(await readFile(path.join(process.cwd(), "src/config/company-terms.json"), "utf8"));
+  if (!parsedSeed || typeof parsedSeed !== "object" || !("terms" in parsedSeed) || !Array.isArray(parsedSeed.terms) || !parsedSeed.terms.every((term) => typeof term === "string")) throw new Error("Invalid seed terms");
+  await inspect(parsedSeed.terms, "seed", 4);
+});
 
 test("keeps empty upload actions singular and restores header actions after upload", async ({ page }) => {
   await page.goto("/");

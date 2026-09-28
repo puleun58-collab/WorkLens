@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { AiApiRequest } from "@/lib/ai/api";
+import { POLISH_BATCH_MAX_CHARS, POLISH_BATCH_MAX_ITEMS, type AiApiRequest } from "@/lib/ai/api";
 import { evidenceCharBudget, MAX_EVIDENCE_CHARS, MAX_EVIDENCE_ITEM_CHARS, MAX_EVIDENCE_ITEMS } from "@/lib/ai/prompt";
 import { POLISH_SEGMENT_MAX_CHARS } from "@/lib/polish/candidates";
 import { ApiError } from "@/server/http";
@@ -37,6 +37,21 @@ const aiApiRequestSchema = z.discriminatedUnion("kind", [
     kind: z.literal("polish"),
     text: boundedText(POLISH_SEGMENT_MAX_CHARS),
     mode: z.enum(["default", "concise", "business"]),
+  }).strict(),
+  z.object({
+    kind: z.literal("polish-batch"),
+    mode: z.enum(["default", "concise", "business"]),
+    items: z.array(z.object({
+      id: boundedText(120),
+      text: boundedText(POLISH_SEGMENT_MAX_CHARS),
+    }).strict()).min(1).max(POLISH_BATCH_MAX_ITEMS).superRefine((items, context) => {
+      if (new Set(items.map((item) => item.id)).size !== items.length) {
+        context.addIssue({ code: "custom", message: "윤문 문장 식별자는 중복될 수 없습니다." });
+      }
+      if (items.reduce((total, item) => total + item.text.length, 0) > POLISH_BATCH_MAX_CHARS) {
+        context.addIssue({ code: "custom", message: "윤문 텍스트가 허용 길이를 초과했습니다." });
+      }
+    }),
   }).strict(),
   z.object({
     kind: z.literal("extract"),
