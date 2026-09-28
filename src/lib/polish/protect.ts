@@ -66,8 +66,17 @@ const MODALITY: Record<string, RegExp> = {
   recommendation: /(권고|권장|바랍니다|바라며|제안|검토\s*필요|should|recommend)/u,
   request: /(부탁|요청|주시기|주세요|please)/u,
   plan: /(예정|계획|목표|will|plan)/u,
-  negation: /(않|없|못|아니|불가|no\s|not\s)/u,
 };
+
+/** Count each negation, rather than merely detecting one somewhere in the text. */
+const NEGATION = /않|없|못|아니|불가|no\s|not\s/gu;
+/** Compare coordinated clauses independently when the rewrite preserves their shape. */
+const CLAUSE_BOUNDARY = /고(?=\s|$)|[,;.!?]\s*/u;
+
+function negationCounts(text: string): number[] {
+  return text.normalize("NFKC").split(CLAUSE_BOUNDARY)
+    .map((clause) => clause.match(NEGATION)?.length ?? 0);
+}
 
 function collect(text: string, pattern: RegExp): string[] {
   const normalized = text.normalize("NFKC");
@@ -156,6 +165,14 @@ export function verifyPolish(original: string, revised: string): PolishVerdict {
     if (pattern.test(original) !== pattern.test(revised)) {
       return { ok: false, rejection: "modality", detail: name };
     }
+  }
+  const originalNegations = negationCounts(original);
+  const revisedNegations = negationCounts(revised);
+  if (originalNegations.reduce((total, count) => total + count, 0) !==
+    revisedNegations.reduce((total, count) => total + count, 0) ||
+    (originalNegations.length === revisedNegations.length &&
+      originalNegations.some((count, index) => count !== revisedNegations[index]))) {
+    return { ok: false, rejection: "modality", detail: "negation" };
   }
   // Minimal edit: a rewrite that keeps little of the original is a new text,
   // and a new text can carry facts the original never had.

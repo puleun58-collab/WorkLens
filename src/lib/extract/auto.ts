@@ -37,6 +37,8 @@ const DELIMITERLESS_TYPES = new Set<ExtractValueType>([
 interface AutoExtractOptions {
   /** Requested-field mode may explicitly ask for an otherwise structural name. */
   includeGenericLabels?: boolean;
+  /** Requested-field mode collects only labels relevant to its requested columns. */
+  acceptField?: (label: string) => boolean;
 }
 
 
@@ -98,16 +100,16 @@ function delimiterlessPair(text: string): { label: string; value: string } | und
   return undefined;
 }
 
-function push(fields: ExtractedField[], field: string, value: string, source: SourceRef, origin: ExtractOrigin, quote?: string): void {
-  if (fields.length >= MAX_FIELDS) return;
+function push(fields: ExtractedField[], field: string, value: string, source: SourceRef, origin: ExtractOrigin, quote?: string): boolean {
   const type = classifyValue(value);
   const normalized = normalizeValue(value, type);
   // The same pair repeated across a deck is one field with several sources.
   const existing = fields.find((entry) => labelKey(entry.field) === labelKey(field) && valueKey(entry.displayValue) === valueKey(value));
   if (existing) {
     if (!existing.sources.some((entry) => entry.nodeId === source.nodeId)) existing.sources.push(source);
-    return;
+    return false;
   }
+  if (fields.length >= MAX_FIELDS) return true;
   fields.push({
     field,
     displayValue: value,
@@ -117,6 +119,7 @@ function push(fields: ExtractedField[], field: string, value: string, source: So
     origin,
     ...(quote ? { quote } : {}),
   });
+  return false;
 }
 
 function looksLikeHeaderRow(label: string, value: string): boolean {
@@ -159,6 +162,7 @@ export function autoExtract(
   const records: ExtractedRecords[] = [];
   let tableIndex = 0;
   let currentHeading: string | undefined;
+  let truncated = false;
 
   const addCandidate = (
     label: string,
@@ -173,7 +177,8 @@ export function autoExtract(
     // the left side reads as an explicit compact business label.
     if (delimiter === "|" && !isExplicitPipeLabel(label)) return;
     if (!options.includeGenericLabels && isGenericLabel(label)) return;
-    push(fields, label.trim(), value.trim(), source, origin, quote);
+    if (options.acceptField && !options.acceptField(label.trim())) return;
+    if (push(fields, label.trim(), value.trim(), source, origin, quote)) truncated = true;
   };
 
   if (document.kind === "pptx") {
@@ -236,5 +241,5 @@ export function autoExtract(
   }
 
 
-  return { file, fields, records, missing: [] };
+  return { file, fields, records, missing: [], ...(truncated ? { truncated: true } : {}) };
 }

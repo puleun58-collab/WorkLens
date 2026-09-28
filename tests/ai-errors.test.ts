@@ -71,6 +71,22 @@ describe("Groq provider failure boundaries", () => {
     expect(JSON.stringify(vi.mocked(console.error).mock.calls)).not.toContain("private document text");
   });
 
+  it("maps an HTTP 408 to timeout without retry or exposing provider text", async () => {
+    const fetcher = vi.fn().mockResolvedValue(rejected(408, "private document text"));
+    vi.stubGlobal("fetch", fetcher);
+    await expect(runGroqAi(extractRequest)).rejects.toMatchObject({ code: "AI_TIMEOUT", status: 504 });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(vi.mocked(console.error).mock.calls)).not.toContain("private document text");
+  });
+
+  it("maps a persistent HTTP 504 to timeout after the existing retry", async () => {
+    const fetcher = vi.fn().mockResolvedValue(rejected(504, "private document text", { "retry-after": "0" }));
+    vi.stubGlobal("fetch", fetcher);
+    await expect(runGroqAi(extractRequest)).rejects.toMatchObject({ code: "AI_TIMEOUT", status: 504 });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(vi.mocked(console.error).mock.calls)).not.toContain("private document text");
+  });
+
   it("retries transport failures once, then returns a connection failure", async () => {
     const fetcher = vi.fn().mockRejectedValue(new TypeError("network disconnected"));
     vi.stubGlobal("fetch", fetcher);

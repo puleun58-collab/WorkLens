@@ -1,5 +1,4 @@
 import type { LawResearchAbsent, LawResearchData, LawResearchRequest } from "@/lib/law-research";
-import { ApiError } from "@/server/http";
 import { classifyLawToolResult } from "@/server/law-analysis-mcp";
 import { callLawTool } from "@/server/law-mcp";
 import { mcpReviewSources, reviewContract } from "@/server/contract-review";
@@ -45,9 +44,6 @@ export async function runLegalResearch(
     failureMessage: "법령 리서치 서비스가 요청을 처리하지 못했습니다.",
   });
   if (classification.kind === "absent") {
-    if (classification.marker === "INVALID_ARGUMENT") {
-      throw new ApiError("LAW_MCP_ERROR", "법령 리서치 서비스가 요청을 처리하지 못했습니다.", 502);
-    }
     return { found: false, task: request.task, marker: "NOT_FOUND", text };
   }
   // Re-rank precedents and add title-matched articles; the MCP answer stands on its own if this fails.

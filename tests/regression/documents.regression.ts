@@ -124,7 +124,7 @@ csvCases.forEach(({ name, source, field, value, describe }, index) => regression
   await expect(result.locator(".extract-auto-table")).toContainText(field);
   await expect(result.locator(".extract-auto-table")).toContainText(value);
   const rows = await csvRows(page);
-  expect(rows).toContainEqual([path.basename(file), field, value, expect.any(String), expect.any(String)]);
+  expect(rows).toContainEqual([path.basename(file), field, value, expect.any(String), expect.any(String), ""]);
   const book = await xlsxBook(page);
   const details = book.getWorksheet("Details")!;
   expect(details.getSheetValues().some((r) => Array.isArray(r) && r[2] === field && r[3] === value)).toBe(true);

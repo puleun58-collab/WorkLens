@@ -110,7 +110,7 @@ describe("fixed legal_analysis API", () => {
       markers: ["NO_CITATIONS_FOUND"] });
   });
 
-  it("distinguishes leading absence markers from inline sections and upstream failure axes", async () => {
+  it("distinguishes explicit absence from invalid arguments, inline sections and upstream failure axes", async () => {
     const axis = "조회 실패 (업스트림 오류로 확인 못 함, 0건이 아님)";
     const partial = `${samples.impact_bad.text}\n▶ 행정심판례: ${axis}\n[NOT_FOUND] 일부 조문`;
     vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(toolText(samples.cite_missing.text, true))
@@ -122,7 +122,9 @@ describe("fixed legal_analysis API", () => {
     const lawMissing = await call(applicable);
     expect(lawMissing.json.data).toEqual({ found: false, mode: "applicable_law", marker: "NOT_FOUND", text: "  [LAW_NOT_FOUND] 법령 없음" });
     const invalid = await call(impact);
-    expect(invalid.json.data).toEqual({ found: false, mode: "impact_map", marker: "INVALID_ARGUMENT", text: "[INVALID_ARGUMENT] 조문 오류" });
+    expect([invalid.status, invalid.json.error?.code]).toEqual([502, "LAW_MCP_ERROR"]);
+    expect(invalid.json.data).toBeUndefined();
+    expect(invalid.raw).not.toContain("조문 오류");
     const map = await call(impact);
     expect(map.json.data).toEqual({ found: true, mode: "impact_map", text: partial, markers: ["NOT_FOUND"] });
     expect(map.json.data?.text).toContain(axis);
@@ -181,6 +183,14 @@ describe("fixed legal_analysis API", () => {
       expect(result.raw).not.toContain(KEY);
       expect(result.raw).not.toContain("[ERROR]");
     }
+  });
+
+  it.each([408, 504])("reports an HTTP %i from MCP as timeout rather than service unavailability", async status => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(KEY, { status })));
+    const result = await call(verify);
+    expect([result.status, result.json.error?.code]).toEqual([504, "LAW_UPSTREAM_TIMEOUT"]);
+    expect(result.json.data).toBeUndefined();
+    expect(result.raw).not.toContain(KEY);
   });
 
   it("maps upstream status markers, empty replies and generic isError without presenting an outage as absence", async () => {

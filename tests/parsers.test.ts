@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { strToU8, zipSync } from "fflate";
+import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { parseDocument } from "@/lib/parsers";
-import { FORMAT_INPUT_LIMITS, MAX_CONFIGURED_FILE_BYTES, MAX_WORKSPACE_INPUT_BYTES, inputLimitFor } from "@/lib/parsers/policy";
+import { FORMAT_INPUT_LIMITS, MAX_CONFIGURED_FILE_BYTES, MAX_WORKSPACE_INPUT_BYTES, StructureLimitError, inputLimitFor } from "@/lib/parsers/policy";
 import { assertSizeWithinLimit, assertWorkspaceWithinLimit } from "@/lib/upload";
 import type { TableBlock } from "@/domain/document";
 import {
@@ -81,6 +81,41 @@ describe("parseDocument", () => {
       documentVersion: document.version,
       quoteHash: expect.stringMatching(/^[a-f0-9]{64}$/),
     });
+  });
+
+  it("bounds sparse XLSX coordinates and merges before expanding their tables", async () => {
+    const base = unzipSync(await createXlsx({ Sparse: [["value"]] }));
+    const worksheet = strFromU8(base["xl/worksheets/sheet1.xml"]);
+    const withSheet = (xml: string): Uint8Array => zipSync({
+      ...base,
+      "xl/worksheets/sheet1.xml": strToU8(xml),
+    });
+    const farCell = worksheet
+      .replace(/<dimension ref="[^"]+"/u, '<dimension ref="XFD1048576"')
+      .replace('<row r="1"', '<row r="1048576"')
+      .replace('spans="1:1"', 'spans="16384:16384"')
+      .replace('r="A1"', 'r="XFD1048576"');
+    expect(worksheet).toContain('r="A1"');
+    await expect(parseDocument({ fileId: "far", fileName: "far.xlsx", bytes: withSheet(farCell) }))
+      .rejects.toBeInstanceOf(StructureLimitError);
+
+    const hugeMerge = worksheet.replace(
+      "</worksheet>",
+      '<mergeCells count="1"><mergeCell ref="A1:XFD1048576"/></mergeCells></worksheet>',
+    );
+    await expect(parseDocument({ fileId: "merge", fileName: "merge.xlsx", bytes: withSheet(hugeMerge) }))
+      .rejects.toBeInstanceOf(StructureLimitError);
+
+    const modestCell = worksheet
+      .replace(/<dimension ref="[^"]+"/u, '<dimension ref="C12"')
+      .replace('<row r="1"', '<row r="12"')
+      .replace('spans="1:1"', 'spans="3:3"')
+      .replace('r="A1"', 'r="C12"');
+    const sparse = await parseDocument({ fileId: "sparse", fileName: "sparse.xlsx", bytes: withSheet(modestCell) });
+    const table = sparse.blocks[0] as TableBlock;
+    expect(table.rows).toHaveLength(12);
+    expect(table.rows[11][2]).toMatchObject({ value: "value", source: { cellRange: "C12" } });
+    expect(table.rows[0][0].value).toBeNull();
   });
 
   it("produces stable node ids for identical input", async () => {

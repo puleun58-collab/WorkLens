@@ -9449,6 +9449,7 @@ button.law-search-button:disabled,
  * colors and icons keep their meanings separate. No shadow or left accent.
  */
 div.status-panel.error,
+div.status-panel.info.notice,
 .check-results div.status-panel.success.result-clear,
 .pdf-tool-notice.pdf-tool-notice-error,
 p.image-tool-notice.is-error,
@@ -9475,6 +9476,36 @@ p.law-search-error.law-operation-error {
   --alert-border: #d5e7da;
   --alert-surface: #f7fbf8;
   --success-alert-ink: #28714d;
+}
+
+div.status-panel.info.notice {
+  --alert-border: var(--blue-border);
+  --alert-surface: var(--blue-pale);
+}
+
+div.status-panel.info.notice > .status-panel-icon {
+  position: absolute;
+  top: 13px;
+  left: 16px;
+  width: 18px;
+  height: 18px;
+  color: var(--blue);
+  line-height: 0;
+}
+
+div.status-panel.info.notice > strong {
+  color: var(--blue);
+  font-size: 14px;
+  font-weight: var(--font-weight-semibold);
+  overflow-wrap: anywhere;
+}
+
+div.status-panel.info.notice > p {
+  margin: 2px 0 0;
+  color: var(--ink-soft);
+  font-size: 13px;
+  font-weight: var(--font-weight-regular);
+  overflow-wrap: anywhere;
 }
 
 .check-results .status-panel.success.result-clear > .status-panel-icon {

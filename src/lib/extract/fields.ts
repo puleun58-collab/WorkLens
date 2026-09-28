@@ -34,7 +34,10 @@ export function extractRequestedFields(
   file: { id: string; name: string },
   requested: readonly string[],
 ): FieldExtractionPlan {
-  const available = autoExtract(document, file, { includeGenericLabels: true });
+  const available = autoExtract(document, file, {
+    includeGenericLabels: true,
+    acceptField: (label) => requested.some((request) => labelMatches(request, label)),
+  });
   const fields: ExtractedField[] = [];
   const unresolved: string[] = [];
 
@@ -50,7 +53,7 @@ export function extractRequestedFields(
   }
 
   return {
-    extraction: { file, fields, records: available.records, missing: [] },
+    extraction: { file, fields, records: available.records, missing: [], ...(available.truncated ? { truncated: true } : {}) },
     unresolved,
   };
 }

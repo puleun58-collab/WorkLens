@@ -27,6 +27,7 @@ export function withResolvedField(
       fields: files.reduce((sum, file) => sum + file.fields.length, 0),
       missing: files.reduce((sum, file) => sum + file.missing.length, 0),
       records: files.reduce((sum, file) => sum + file.records.length, 0),
+      truncatedFiles: current.summary.truncatedFiles,
       lowConfidence: files.reduce(
         (sum, file) => sum + file.fields.filter((entry) => entry.confidence === "low").length,
         0,

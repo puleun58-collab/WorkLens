@@ -64,6 +64,8 @@ export interface FileExtraction {
   records: ExtractedRecords[];
   /** Requested fields the document does not answer. Never guessed. */
   missing: string[];
+  /** True only when otherwise-accepted distinct automatic fields exceeded the per-file limit. */
+  truncated?: boolean;
 }
 
 export interface StructuredExtract {
@@ -71,7 +73,7 @@ export interface StructuredExtract {
   /** Field names the user asked for; empty in auto mode. */
   requestedFields: string[];
   files: FileExtraction[];
-  summary: { fields: number; missing: number; records: number; lowConfidence: number };
+  summary: { fields: number; missing: number; records: number; lowConfidence: number; truncatedFiles: number };
 }
 
 export const EXTRACT_MODE_LABELS: Record<ExtractMode, string> = {

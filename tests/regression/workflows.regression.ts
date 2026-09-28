@@ -294,8 +294,8 @@ regressionCase({ id: "WF-25", category: "Polish", input: "Pasted text protects c
   await page.goto("/"); await openView(page, "윤문"); await page.getByRole("radio", { name: "텍스트 윤문" }).check();
   await page.getByLabel("윤문할 텍스트 입력").fill("1. 김하나의 매출은 1,250만원입니다."); await run(page, "윤문");
   const result = page.locator(".polish-text-results"); await expect(result).toContainText("수정안 미적용 1");
-  await expect(result.locator(".polish-copy-block.revised")).toContainText("1,250만원");
-  await expect(result.locator(".polish-copy-block.revised")).not.toContainText("1,500만원"); await noHorizontalOverflow(page); note("Changed 1,500 rejected, original numbered 1,250 retained");
+  await expect(result.locator(".polish-copy-block.revised")).toHaveCount(0);
+  await expect(result).not.toContainText("1,500만원"); await expect(page.getByLabel("윤문할 텍스트 입력")).toHaveValue("1. 김하나의 매출은 1,250만원입니다."); await noHorizontalOverflow(page); note("Changed 1,500 rejected, original numbered 1,250 retained");
 });
 regressionCase({ id: "WF-26", category: "Extract", input: "Automatic labelled fields and export round-trip", format: "PPTX → CSV", structure: "slide label/value pairs", expected: "original Korean values, field count and sources survive CSV" }, async ({ page, note }) => {
   await start(page, ["deckExtract"], "추출"); await run(page, "추출");
@@ -303,7 +303,7 @@ regressionCase({ id: "WF-26", category: "Extract", input: "Automatic labelled fi
   await expect(rows.filter({ hasText: "작성부서" })).toContainText("경영지원팀");
   await expect(rows.filter({ hasText: "목표주가" })).toContainText("64,550원");
   const csvWait = page.waitForEvent("download"); await panel.getByRole("button", { name: "CSV 다운로드" }).click(); const csv = await csvRows(await csvWait);
-  expect(csv[0]).toEqual(["FILE", "FIELD", "VALUE", "TYPE", "SOURCE"]);
+  expect(csv[0]).toEqual(["FILE", "FIELD", "VALUE", "TYPE", "SOURCE", "AI CONFIDENCE"]);
   expect(csv.slice(1).filter((row) => row[3] !== "Record")).toHaveLength(await rows.count());
   expect(csv.some((row) => row[1] === "작성부서" && row[2] === "경영지원팀" && row[4].includes("Slide"))).toBe(true); note("Auto-extracted Korean field/value rows reopened from CSV with slide source");
 });

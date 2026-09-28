@@ -1,4 +1,5 @@
 import ExcelJS from "exceljs";
+import { SaxesParser } from "saxes";
 
 import type {
   DocumentMedia,
@@ -13,6 +14,8 @@ import type {
 
 import { DocumentError } from "@/lib/upload";
 import { isDateNumberFormat, serialToDate } from "@/lib/xlsx-values";
+import { unzipOoxml } from "./ooxml-zip";
+import { FORMAT_INPUT_LIMITS, StructureLimitError } from "./policy";
 import { readCellImages, type CellImage } from "./xlsx-cell-images";
 
 const nativeAnchor = (anchor: { nativeCol: number; nativeColOff: number; nativeRow: number; nativeRowOff: number }) => ({
@@ -59,6 +62,72 @@ const rangeBounds = (
     endColumn: column(match[3]),
     endRow: Number(match[4]),
   };
+};
+
+// Each normalized cell carries a value, style, source and template metadata.
+// A sparse far-edge cell still costs the full rectangular table.
+const MAX_SHEET_CELLS = 100_000;
+const MAX_WORKBOOK_CELLS = 400_000;
+const MAX_ROWS = 100_000;
+const MAX_COLUMNS = 1_000;
+const MAX_SHEET_MERGES = 2_000;
+const MAX_SHEET_XML_BYTES = 20 * 1024 * 1024;
+const MAX_WORKBOOK_XML_BYTES = 60 * 1024 * 1024;
+
+const admitSize = (rows: number, columns: number, spent: number): number => {
+  if (rows > MAX_ROWS || columns > MAX_COLUMNS || rows * columns > MAX_SHEET_CELLS) {
+    throw new StructureLimitError();
+  }
+  const total = spent + rows * columns;
+  if (total > MAX_WORKBOOK_CELLS) throw new StructureLimitError();
+  return total;
+};
+
+/** Inspect worksheet coordinates before ExcelJS expands merged ranges on load. */
+const admitWorkbookStructure = (bytes: Uint8Array): void => {
+  const files = unzipOoxml(bytes, {
+    maxInputBytes: FORMAT_INPUT_LIMITS.xlsx,
+    keepOtherParts: false,
+    selectPart: (name) => /xl\/worksheets\/sheet\d+[.]xml/u.test(name),
+    maxXmlEntryBytes: MAX_SHEET_XML_BYTES,
+    maxXmlTotalBytes: MAX_WORKBOOK_XML_BYTES,
+    malformed: malformedFileError,
+    limitExceeded: () => new StructureLimitError(),
+  });
+  let spent = 0;
+  for (const [name, content] of files) {
+    if (!/xl\/worksheets\/sheet\d+[.]xml/u.test(name)) continue;
+    let rows = 0;
+    let merges = 0;
+    let columns = 0;
+    const include = (row: number, column: number): void => {
+      rows = Math.max(rows, row);
+      columns = Math.max(columns, column);
+      admitSize(rows, columns, spent);
+    };
+    const address = (value: string): { row: number; column: number } | undefined => {
+      const match = /^([A-Z]+)(\d+)$/iu.exec(value);
+      if (!match) return undefined;
+      let column = 0;
+      for (const letter of match[1].toUpperCase()) column = column * 26 + letter.charCodeAt(0) - 64;
+      return { row: Number(match[2]), column };
+    };
+    const parser = new SaxesParser();
+    parser.on("opentag", (tag) => {
+      if (tag.name === "row" && typeof tag.attributes.r === "string") {
+        include(Number(tag.attributes.r), columns);
+      } else if (tag.name === "c" && typeof tag.attributes.r === "string") {
+        const cell = address(tag.attributes.r);
+        if (cell) include(cell.row, cell.column);
+      } else if (tag.name === "mergeCell" && typeof tag.attributes.ref === "string") {
+        if (++merges > MAX_SHEET_MERGES) throw new StructureLimitError();
+        const bounds = rangeBounds(tag.attributes.ref);
+        if (bounds) include(bounds.endRow, bounds.endColumn);
+      }
+    });
+    parser.write(new TextDecoder("utf-8", { fatal: true }).decode(content)).close();
+    spent = admitSize(rows, columns, spent);
+  }
 };
 
 const snapshot = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
@@ -312,12 +381,19 @@ export const parseXlsx = async (input: {
   bytes: Uint8Array;
 }): Promise<NormalizedDocument> => {
   try {
+    admitWorkbookStructure(input.bytes);
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(input.bytes.slice().buffer as unknown as Parameters<typeof workbook.xlsx.load>[0]);
     // Excel never saves a workbook without a sheet; none means a damaged
     // package (for example a missing xl/workbook.xml), not an empty file.
     if (workbook.worksheets.length === 0) throw malformedFileError();
 
+    // XML admission protects ExcelJS merge expansion; these checks cover its
+    // actual row/column interpretation before creating any dense tables.
+    let admittedCells = 0;
+    for (const worksheet of workbook.worksheets) {
+      admittedCells = admitSize(worksheet.rowCount, worksheet.columnCount, admittedCells);
+    }
     const metadata: DocumentMetadata = {
       fileName: input.fileName,
       sheets: workbook.worksheets.map((worksheet) => ({
@@ -549,7 +625,8 @@ export const parseXlsx = async (input: {
       workbookSheets,
       warnings: [...warnings],
     };
-  } catch {
+  } catch (error) {
+    if (error instanceof StructureLimitError) throw error;
     throw malformedFileError();
   }
 };

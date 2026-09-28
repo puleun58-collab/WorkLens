@@ -8,12 +8,10 @@ import { formatWorksheet } from "@/lib/xlsx-format";
 /**
  * Export of structured extraction.
  *
- * The workbook is the deliverable: one row per file when the user named the
- * fields, one row per extracted item in automatic mode. Details and Evidence
- * appear only when there are corresponding items and sources in automatic mode;
- * requested-field mode keeps its existing horizontal result and evidence layout.
- * CSV holds the same table with the source as a column, because a spreadsheet
- * is where this data is actually used.
+ * The workbook's main sheet stays horizontal (one row per file). Automatic
+ * mode also keeps item-level Details; Evidence maps readings to source and
+ * model confidence. Requested-field CSV retains the same horizontal shape,
+ * with source and confidence mappings in trailing columns.
  */
 const CSV_MIME_TYPE = "text/csv; charset=utf-8";
 const XLSX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -27,12 +25,32 @@ export function sourceText(source: SourceRef): string {
     case "pptx": return locator.tableCell ? `Slide ${locator.slide} · 표` : `Slide ${locator.slide}`;
     case "pdf": return `Page ${locator.page}`;
     case "xlsx": return `${locator.sheet} · ${locator.range}`;
-    case "docx": return locator.tableCell ? `표 · Row ${locator.tableCell.row + 1}` : `Paragraph ${locator.block + 1}`;
+    case "docx": {
+      const part = locator.part === "header" ? "머리글" : locator.part === "footer" ? "바닥글" : undefined;
+      const position = locator.tableCell ? `표 · Row ${locator.tableCell.row + 1}` : `Paragraph ${locator.block + 1}`;
+      return part ? `${part} · ${position}` : position;
+    }
     case "csv": return `Row ${locator.record}`;
   }
 }
 
 const sourcesText = (field: ExtractedField): string => field.sources.map(sourceText).join("; ");
+
+/** The requested-field CSV stays horizontal; map uncertain readings to the exact value. */
+function confidenceText(fields: readonly ExtractedField[]): string {
+  const modelFields = fields.filter((field) => field.confidence !== undefined);
+  return modelFields.length
+    ? JSON.stringify(modelFields.map((entry) => ({
+      field: entry.field,
+      value: entry.displayValue,
+      confidence: entry.confidence,
+      sources: entry.sources.map(sourceText),
+    })))
+    : "";
+}
+
+const truncatedText = (truncated?: boolean): string =>
+  truncated ? "추출 한도(파일당 300개) 초과: 일부 항목 누락" : "";
 
 /** Values are left empty when a field is not stated: no "없음" placeholders. */
 function fieldValue(fields: readonly ExtractedField[], name: string): string {
@@ -59,23 +77,27 @@ const recordTitle = (record: StructuredExtract["files"][number]["records"][numbe
 export function structuredCsv(extract: StructuredExtract): string {
   const rows: Array<Array<string | number | null>> = [];
   if (extract.mode === "fields") {
-    rows.push(["FILE", ...extract.requestedFields, "SOURCE"]);
+    const hasTruncation = extract.files.some((file) => file.truncated);
+    rows.push(["FILE", ...extract.requestedFields, "SOURCE", "AI CONFIDENCE", ...(hasTruncation ? ["STATUS"] : [])]);
     for (const file of extract.files) {
       rows.push([
         file.file.name,
         ...extract.requestedFields.map((name) => fieldValue(file.fields, name)),
         file.fields.map((entry) => `${entry.field}=${sourcesText(entry)}`).join("; "),
+        confidenceText(file.fields),
+        ...(hasTruncation ? [truncatedText(file.truncated)] : []),
       ]);
     }
   } else {
-    rows.push(["FILE", "FIELD", "VALUE", "TYPE", "SOURCE"]);
+    const hasTruncation = extract.files.some((file) => file.truncated);
+    rows.push(["FILE", "FIELD", "VALUE", "TYPE", "SOURCE", "AI CONFIDENCE", ...(hasTruncation ? ["STATUS"] : [])]);
     for (const file of extract.files) {
       for (const field of file.fields) {
-        rows.push([file.file.name, field.field, field.displayValue, field.type, sourcesText(field)]);
+        rows.push([file.file.name, field.field, field.displayValue, field.type, sourcesText(field), field.confidence ?? "", ...(hasTruncation ? [truncatedText(file.truncated)] : [])]);
       }
       for (const record of file.records) {
         for (const row of record.rows) {
-          rows.push([file.file.name, recordTitle(record), row.cells.join(" | "), "Record", sourceText(row.source)]);
+          rows.push([file.file.name, recordTitle(record), row.cells.join(" | "), "Record", sourceText(row.source), "", ...(hasTruncation ? [truncatedText(file.truncated)] : [])]);
         }
       }
     }
@@ -87,23 +109,25 @@ export async function structuredXlsx(extract: StructuredExtract): Promise<Uint8A
   const workbook = new ExcelJS.Workbook();
   const data = workbook.addWorksheet("Extracted Data");
   if (extract.mode === "fields") {
-    data.addRow(["FILE", ...extract.requestedFields]);
+    const hasTruncation = extract.files.some((file) => file.truncated);
+    data.addRow(["FILE", ...extract.requestedFields, ...(hasTruncation ? ["STATUS"] : [])]);
     for (const file of extract.files) {
-      data.addRow([file.file.name, ...extract.requestedFields.map((name) => fieldValue(file.fields, name))]);
+      data.addRow([file.file.name, ...extract.requestedFields.map((name) => fieldValue(file.fields, name)), ...(hasTruncation ? [truncatedText(file.truncated)] : [])]);
     }
   } else {
     const fields = automaticFields(extract);
-    data.addRow(["FILE", ...fields]);
+    const hasTruncation = extract.files.some((file) => file.truncated);
+    data.addRow(["FILE", ...fields, ...(hasTruncation ? ["STATUS"] : [])]);
     for (const file of extract.files) {
-      data.addRow([file.file.name, ...fields.map((name) => fieldValue(file.fields, name))]);
+      data.addRow([file.file.name, ...fields.map((name) => fieldValue(file.fields, name)), ...(hasTruncation ? [truncatedText(file.truncated)] : [])]);
     }
 
     if (extract.files.some((file) => file.fields.length > 0)) {
       const details = workbook.addWorksheet("Details");
-      details.addRow(["FILE", "FIELD", "VALUE", "TYPE", "SOURCE"]);
+      details.addRow(["FILE", "FIELD", "VALUE", "TYPE", "SOURCE", "AI CONFIDENCE"]);
       for (const file of extract.files) {
         for (const field of file.fields) {
-          details.addRow([file.file.name, field.field, field.displayValue, field.type, sourcesText(field)]);
+          details.addRow([file.file.name, field.field, field.displayValue, field.type, sourcesText(field), field.confidence ?? ""]);
         }
       }
       formatWorksheet(details, { freezeHeader: true, autoFilter: true });
@@ -111,13 +135,16 @@ export async function structuredXlsx(extract: StructuredExtract): Promise<Uint8A
   }
   formatWorksheet(data, { freezeHeader: true, autoFilter: true });
 
-  if (extract.mode === "fields" || extract.files.some((file) => file.fields.some((field) => field.sources.length > 0))) {
+  if (extract.mode === "fields" || extract.files.some((file) => file.fields.some((field) => field.sources.length > 0 || field.confidence))) {
     const evidence = workbook.addWorksheet("Evidence");
-    evidence.addRow(["FILE", "FIELD", "VALUE", "SOURCE", "QUOTE"]);
+    evidence.addRow(["FILE", "FIELD", "VALUE", "SOURCE", "QUOTE", "AI CONFIDENCE"]);
     for (const file of extract.files) {
       for (const field of file.fields) {
+        if (field.sources.length === 0 && field.confidence) {
+          evidence.addRow([file.file.name, field.field, field.displayValue, "", field.quote ?? "", field.confidence]);
+        }
         for (const source of field.sources) {
-          evidence.addRow([file.file.name, field.field, field.displayValue, sourceText(source), field.quote ?? source.quote ?? ""]);
+          evidence.addRow([file.file.name, field.field, field.displayValue, sourceText(source), field.quote ?? source.quote ?? "", field.confidence ?? ""]);
         }
       }
     }

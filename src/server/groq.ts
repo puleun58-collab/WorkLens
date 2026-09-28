@@ -235,6 +235,7 @@ async function providerError(
   });
   if (response.status === 429) return new ApiError("AI_RATE_LIMITED", "AI 사용 한도에 도달했습니다. 잠시 후 다시 시도하세요.", 429);
   if (response.status === 401 || response.status === 403) return new ApiError("AI_NOT_CONFIGURED", "AI 서비스 인증 구성이 올바르지 않습니다.", 503);
+  if (response.status === 408 || response.status === 504) return new ApiError("AI_TIMEOUT", "AI 응답 시간이 초과되었습니다. 다시 시도하세요.", 504);
   if (response.status >= 500) return new ApiError("AI_PROVIDER_UNAVAILABLE", "AI 서비스가 일시적으로 응답하지 않습니다.", 503);
   return new ApiError("AI_PROVIDER_REJECTED", "AI 서비스가 요청을 처리하지 못했습니다.", 502);
 }

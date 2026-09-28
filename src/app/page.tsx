@@ -95,6 +95,7 @@ import {
   CircleCheck,
   CircleHelp,
   FileText,
+  Info,
   GitCompareArrows,
   Image as ImageIcon,
   Layers3,
@@ -407,6 +408,7 @@ export default function Home() {
   const [compareMode, setCompareMode] = useState<"version" | "value-check">("version");
   const [valueCheck, setValueCheck] = useState<ValueCheckResult | null>(null);
   const [enrichmentResult, setEnrichmentResult] = useState<AiAvailableResult | null>(null);
+  const [analyzeEvidenceLimited, setAnalyzeEvidenceLimited] = useState(false);
   const [extractMode, setExtractMode] = useState<ExtractMode>("auto");
   const [extractFields, setExtractFields] = useState<string[]>([]);
   const [structured, setStructured] = useState<StructuredExtract | null>(null);
@@ -496,6 +498,7 @@ export default function Home() {
     setCompareIds(null);
     setValueCheck(null);
     setEnrichmentResult(null);
+    setAnalyzeEvidenceLimited(false);
     setAggregation(null);
     setAggregationSelection(null);
     setDetail(null);
@@ -788,6 +791,7 @@ export default function Home() {
     setNotice(null);
     setDetail(null);
     setEnrichmentResult(null);
+    setAnalyzeEvidenceLimited(false);
     try {
       let deterministic: AnalyzeEntry[];
       try {
@@ -811,6 +815,7 @@ export default function Home() {
         try {
           const enriched = await generateGroundedResult({ operation: "analyze" }, undefined, onStage);
           setEnrichmentResult(enriched);
+          setAnalyzeEvidenceLimited(stages.candidates > stages.selected);
           if (process.env.NODE_ENV !== "production") {
             const presented = analysisClaimPresentation(enriched, deterministic.flatMap((entry) => entry.extraction.fields), confirmedAnalysisItems(deterministic));
             console.info("[worklens] analyze stages", { ...stages, presented: presented.summary.length, insights: presented.insights.length, concerns: presented.concerns.length, presentationFiltered: stages.grounded - presented.summary.length - presented.insights.length - presented.concerns.length });
@@ -1052,7 +1057,8 @@ export default function Home() {
       setStructured(deterministic);
       const pending = deterministic.files.flatMap((file) => file.missing.map((field) => ({ fileId: file.file.id, field })));
       if (pending.length === 0) {
-        notifyView("success", `추출 항목 ${deterministic.summary.fields}개 · 찾지 못함 ${deterministic.summary.missing}개`);
+        notifyView(deterministic.summary.truncatedFiles ? "warning" : "success",
+          `추출 항목 ${deterministic.summary.fields}개 · 찾지 못함 ${deterministic.summary.missing}개${deterministic.summary.truncatedFiles ? ` · 추출 한도(파일당 300개)로 일부 항목이 누락되었습니다. 영향받은 파일 ${deterministic.summary.truncatedFiles}개` : ""}`);
         return;
       }
       let resolved = deterministic;
@@ -1071,8 +1077,8 @@ export default function Home() {
         setStructured(resolved);
         setExtractProgress({ done: index + 1, total: pending.length });
       }
-      notifyView(resolutionFailed ? "warning" : "success",
-        `추출 항목 ${resolved.summary.fields}개 · 찾지 못함 ${resolved.summary.missing}개${resolutionFailed ? " · AI 항목 확인이 중단되어 나머지 항목은 확인하지 못했습니다." : ""}`);
+      notifyView(resolutionFailed || resolved.summary.truncatedFiles ? "warning" : "success",
+        `추출 항목 ${resolved.summary.fields}개 · 찾지 못함 ${resolved.summary.missing}개${resolutionFailed ? " · AI 항목 확인이 중단되어 나머지 항목은 확인하지 못했습니다." : ""}${resolved.summary.truncatedFiles ? ` · 추출 한도(파일당 300개)로 일부 항목이 누락되었습니다. 영향받은 파일 ${resolved.summary.truncatedFiles}개` : ""}`);
     } catch (error) {
       setStructured(null);
       reportAiFailure(error, "정보 추출을 완료하지 못했습니다.");
@@ -1116,7 +1122,8 @@ export default function Home() {
       anchor.download = exported.fileName;
       anchor.click();
       URL.revokeObjectURL(url);
-      notifyView("success", `${format.toUpperCase()} 파일을 다운로드했습니다. 다운로드된 복사본은 사용자 기기에서 직접 관리하세요.`);
+      notifyView(structured.summary.truncatedFiles ? "warning" : "success",
+        `${format.toUpperCase()} 파일을 다운로드했습니다.${structured.summary.truncatedFiles ? ` 추출 한도로 일부 항목이 누락되었습니다. 영향받은 파일 ${structured.summary.truncatedFiles}개` : ""} 다운로드된 복사본은 사용자 기기에서 직접 관리하세요.`);
     } catch (error) {
       notifyView("error", (error as ApiError).message ?? "내보내기에 실패했습니다.");
     } finally {
@@ -1465,6 +1472,7 @@ export default function Home() {
                 tone={notice.tone === "error" ? "alert" : "status"}
                 live={notice.tone === "error" ? "assertive" : "polite"}
                 title={notice.message}
+                icon={notice.tone === "info" ? <Info size={18} strokeWidth={2} /> : undefined}
               >
                 {notice.detail ? <p>{notice.detail}</p> : null}
               </StatusPanel>
@@ -1697,6 +1705,7 @@ export default function Home() {
                     tab={activeTab}
                     result={operationResult}
                     enrichment={activeTab === "Analyze" ? enrichmentResult : null}
+                    analyzeEvidenceLimited={activeTab === "Analyze" && analyzeEvidenceLimited}
                     status={resultStatus}
                     fileNames={fileNames}
                     detail={null}
@@ -1794,6 +1803,7 @@ interface ResultViewProps {
   tab: Tab;
   result: unknown;
   enrichment: AiAvailableResult | null;
+  analyzeEvidenceLimited: boolean;
   status: ResultStatus | null;
   fileNames: Map<string, string>;
   detail: DetailInfo | null;
@@ -1841,11 +1851,11 @@ function ResultHeader({ eyebrow, title, status, meta, showMessage = true }: {
 }
 
 
-function ResultView({ tab, result, enrichment, status, fileNames, detail, onSource, onCloseSource, dictionary, resultActions }: ResultViewProps) {
+function ResultView({ tab, result, enrichment, analyzeEvidenceLimited, status, fileNames, detail, onSource, onCloseSource, dictionary, resultActions }: ResultViewProps) {
   if (!result) return null;
   let content: React.ReactNode;
   if (tab === "Analyze" && Array.isArray(result)) {
-    content = <AnalyzeResults entries={result as AnalyzeEntry[]} enrichment={enrichment} status={status} fileNames={fileNames} onSource={onSource} />;
+    content = <AnalyzeResults entries={result as AnalyzeEntry[]} enrichment={enrichment} evidenceLimited={analyzeEvidenceLimited} status={status} fileNames={fileNames} onSource={onSource} />;
   } else if (tab === "Check" && Array.isArray(result)) {
     content = <CheckResults entries={result as CheckEntry[]} fileNames={fileNames} onSource={onSource} {...dictionary} />;
   } else if (tab === "Extract" && Array.isArray(result)) {
@@ -2028,6 +2038,11 @@ function StructuredExtractResults({ result, fileNames, onSource, status, busy, o
           ? <ResultExportButtons busy={busy} onExport={onExport} />
           : null}
       </div>
+      {result.summary.truncatedFiles > 0 ? (
+        <p className="result-inline-warning" role="status">
+          추출 한도(파일당 300개)로 일부 항목이 누락되었습니다. 영향받은 파일 {result.summary.truncatedFiles}개
+        </p>
+      ) : null}
 
       {isEmpty ? (
         <StatusPanel
@@ -2466,9 +2481,10 @@ function CompactResultSource({ sources, fileNames, onSource, locatorOf = locator
   );
 }
 
-function AnalyzeResults({ entries, enrichment, status, fileNames, onSource }: {
+function AnalyzeResults({ entries, enrichment, evidenceLimited, status, fileNames, onSource }: {
   entries: AnalyzeEntry[];
   enrichment: AiAvailableResult | null;
+  evidenceLimited: boolean;
   status: ResultStatus | null;
   fileNames: Map<string, string>;
   onSource: SourceHandler;
@@ -2495,6 +2511,7 @@ function AnalyzeResults({ entries, enrichment, status, fileNames, onSource }: {
 
   return (
     <div className="analysis-report">
+      {enrichment && evidenceLimited ? <p className="result-inline-warning" role="status">AI 해석은 선택된 근거만 반영했습니다. 문서 전체를 빠짐없이 요약한 결과는 아닙니다.</p> : null}
       {presentation.summary.length ? (
         <section className="analysis-report-section analysis-summary-section" aria-labelledby="analysis-summary-title">
           <div className="subsection-heading">

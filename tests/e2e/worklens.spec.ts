@@ -1533,6 +1533,22 @@ test("shows an informational Ask alert without inventing sources", async ({ page
   await expect(page.locator(".notice.error")).toHaveCount(0);
   await expect(page.locator(".results-panel")).toHaveCount(0);
   await expect(page.locator(".ask-evidence .result-source")).toHaveCount(0);
+  const assertAlertGeometry = async () => {
+    const geometry = await notice.evaluate((element) => {
+      const style = getComputedStyle(element);
+      const icon = element.querySelector(".status-panel-icon");
+      return {
+        borders: [style.borderTopWidth, style.borderRightWidth, style.borderBottomWidth, style.borderLeftWidth],
+        iconVisible: Boolean(icon && getComputedStyle(icon).display !== "none" && icon.getBoundingClientRect().width > 0),
+        withinViewport: element.getBoundingClientRect().right <= window.innerWidth,
+      };
+    });
+    expect(geometry).toEqual({ borders: ["1px", "1px", "1px", "1px"], iconVisible: true, withinViewport: true });
+  };
+  await assertAlertGeometry();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await assertAlertGeometry();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 
   serverError = true;
   await page.getByRole("button", { name: "질문 실행" }).click();

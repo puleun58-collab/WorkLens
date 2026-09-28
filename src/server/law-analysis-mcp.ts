@@ -9,16 +9,14 @@ export function classifyLawToolResult(
   text: string,
   isError: boolean,
   options: { acceptErrorPrefix?: string; failureMessage?: string } = {},
-): { kind: "found"; markers: string[] } | { kind: "absent"; marker: "NOT_FOUND" | "INVALID_ARGUMENT" } {
+): { kind: "found"; markers: string[] } | { kind: "absent"; marker: "NOT_FOUND" } {
   const failed = () => new ApiError("LAW_MCP_ERROR", options.failureMessage ?? "검증·분석 서비스가 요청을 처리하지 못했습니다.", 502);
   if (!text.trim()) throw failed();
   const leading = text.trimStart();
   if (leading.startsWith("[NOT_FOUND]") || leading.startsWith("[LAW_NOT_FOUND]")) {
     return { kind: "absent", marker: "NOT_FOUND" };
   }
-  if (leading.startsWith("[INVALID_ARGUMENT]")) {
-    return { kind: "absent", marker: "INVALID_ARGUMENT" };
-  }
+  if (leading.startsWith("[INVALID_ARGUMENT]")) throw failed();
   if (leading.startsWith("[RATE_LIMITED]")) {
     throw new ApiError("LAW_RATE_LIMITED", "법령 검색 요청이 많습니다. 잠시 후 다시 시도하세요.", 429);
   }

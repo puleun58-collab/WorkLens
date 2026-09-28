@@ -178,6 +178,7 @@ async function handle(request: WorkerRequest): Promise<unknown> {
           missing: files.reduce((sum, entry) => sum + entry.missing.length, 0),
           records: files.reduce((sum, entry) => sum + entry.records.length, 0),
           lowConfidence: 0,
+          truncatedFiles: files.reduce((sum, entry) => sum + Number(entry.truncated === true), 0),
         },
       };
     }

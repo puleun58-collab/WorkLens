@@ -20,6 +20,10 @@ export interface UnzipOoxmlOptions {
   maxInputBytes: number;
   /** Repackaging needs every part; parsing keeps only XML and media. */
   keepOtherParts: boolean;
+  /** Inspect only selected entries; other entries retain ZIP validation without inflation. */
+  selectPart?: (name: string) => boolean;
+  maxXmlEntryBytes?: number;
+  maxXmlTotalBytes?: number;
   malformed: () => Error;
   limitExceeded: () => Error;
 }
@@ -72,14 +76,20 @@ export function unzipOoxml(input: Uint8Array, options: UnzipOoxmlOptions): Map<s
     if (uint32(input, localOffset) !== 0x04034b50) throw malformedFileError();
     const dataOffset = localOffset + 30 + uint16(input, localOffset + 26) + uint16(input, localOffset + 28);
     if (dataOffset + compressedSize > input.byteLength) throw malformedFileError();
+    const selected = options.selectPart?.(name);
+    if (selected === false) {
+      files.set(name, new Uint8Array(0));
+      offset = nextOffset;
+      continue;
+    }
     const compressed = input.subarray(dataOffset, dataOffset + compressedSize);
     const inflate = (): Uint8Array => {
       const content = compression === 0 ? compressed.slice() : inflateSync(compressed, { out: new Uint8Array(uncompressedSize) });
       if (content.byteLength !== uncompressedSize) throw malformedFileError();
       return content;
     };
-    if (isXmlPart(name)) {
-      if (uncompressedSize > OOXML_LIMITS.maxXmlEntryBytes || totalXmlSize + uncompressedSize > OOXML_LIMITS.maxXmlTotalBytes) throw structureLimitError();
+    if (isXmlPart(name) || selected) {
+      if (uncompressedSize > (options.maxXmlEntryBytes ?? OOXML_LIMITS.maxXmlEntryBytes) || totalXmlSize + uncompressedSize > (options.maxXmlTotalBytes ?? OOXML_LIMITS.maxXmlTotalBytes)) throw structureLimitError();
       totalXmlSize += uncompressedSize;
       files.set(name, inflate());
     } else if (isMediaPart(name) || options.keepOtherParts) {

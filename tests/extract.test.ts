@@ -6,6 +6,7 @@ import { extractRequestedFields, labelMatches, modelField } from "@/lib/extract/
 import { withResolvedField } from "@/lib/extract/merge";
 import { structuredCsv, structuredXlsx } from "@/lib/extract/export";
 import { classifyValue, normalizeValue } from "@/lib/extract/values";
+import { parseCsv } from "@/lib/parsers/csv";
 import { parseExtractResponse } from "@/lib/ai/extract-prompt";
 import type { NormalizedDocument, SourceRef } from "@/domain/document";
 import type { StructuredExtract } from "@/domain/extract";
@@ -283,6 +284,39 @@ describe("automatic extraction", () => {
     expect(result.records).toEqual([]);
     expect(result.fields.map((entry) => entry.origin)).toEqual(["key-value-table", "key-value-table"]);
   });
+
+  it("marks only a distinct accepted field beyond the 300-field limit, keeping later duplicate evidence", async () => {
+    const lines = Array.from({ length: 300 }, (_, index) => `항목${index}: 값${index}`);
+    expect(autoExtract(paragraphs(lines), file).truncated).toBeUndefined();
+    const extraction = autoExtract(paragraphs([...lines, "항목300: 값300", "항목0: 값0"]), file);
+    expect(extraction.fields).toHaveLength(300);
+    expect(extraction.fields.some((field) => field.field === "항목300")).toBe(false);
+    expect(extraction.fields[0].sources).toHaveLength(2);
+    expect(extraction.truncated).toBe(true);
+
+    const result: StructuredExtract = {
+      mode: "auto",
+      requestedFields: [],
+      files: [extraction],
+      summary: { fields: 300, missing: 0, records: 0, lowConfidence: 0, truncatedFiles: 1 },
+    };
+    const parsed = await parseCsv({
+      fileId: "export",
+      fileName: "extract.csv",
+      bytes: new TextEncoder().encode(structuredCsv(result)),
+    });
+    const csvRows = parsed.blocks[0];
+    if (csvRows.type !== "table") throw new Error("Expected CSV table");
+    expect(csvRows.rows[0].at(-1)?.display).toBe("STATUS");
+    expect(csvRows.rows[1].at(-1)?.display).toContain("일부 항목 누락");
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(await structuredXlsx(result) as unknown as Parameters<typeof workbook.xlsx.load>[0]);
+    const main = workbook.getWorksheet("Extracted Data")!;
+    expect(main.getRow(1).getCell(302).value).toBe("STATUS");
+    expect(main.getRow(2).getCell(302).value).toContain("일부 항목 누락");
+  });
+
 });
 
 describe("requested fields", () => {
@@ -310,6 +344,40 @@ describe("requested fields", () => {
     );
     expect(plan.unresolved).toEqual([]);
     expect(plan.extraction.fields.map((entry) => entry.displayValue)).toEqual(["회사 공시", "거래소 데이터"]);
+  });
+
+  it("finds a requested field after 301 unrelated pairs and warns if 301 matching values exceed the cap", async () => {
+    const unrelated = Array.from({ length: 301 }, (_, index) => `다른항목${index}: 값${index}`);
+    const selected = extractRequestedFields(paragraphs([...unrelated, "조치기한: 2026.09.30"]), file, ["조치기한"]);
+    expect(selected.extraction.fields.map((field) => field.displayValue)).toEqual(["2026.09.30"]);
+    expect(selected.unresolved).toEqual([]);
+    expect(selected.extraction.truncated).toBeUndefined();
+
+    const matching = extractRequestedFields(
+      paragraphs(Array.from({ length: 301 }, (_, index) => `조치기한: ${index}일`)),
+      file,
+      ["조치기한"],
+    );
+    expect(matching.extraction.fields).toHaveLength(300);
+    expect(matching.extraction.truncated).toBe(true);
+    const result: StructuredExtract = {
+      mode: "fields",
+      requestedFields: ["조치기한"],
+      files: [{ ...matching.extraction, missing: matching.unresolved }],
+      summary: { fields: 300, missing: 0, records: 0, lowConfidence: 0, truncatedFiles: 1 },
+    };
+    const parsed = await parseCsv({
+      fileId: "export",
+      fileName: "extract.csv",
+      bytes: new TextEncoder().encode(structuredCsv(result)),
+    });
+    const csv = parsed.blocks[0];
+    if (csv.type !== "table") throw new Error("Expected CSV table");
+    expect(csv.rows[0].at(-1)?.display).toBe("STATUS");
+    expect(csv.rows[1].at(-1)?.display).toContain("일부 항목 누락");
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(await structuredXlsx(result) as unknown as Parameters<typeof workbook.xlsx.load>[0]);
+    expect(workbook.getWorksheet("Extracted Data")!.getRow(2).getCell(3).value).toContain("일부 항목 누락");
   });
 });
 
@@ -340,7 +408,7 @@ describe("model-extracted values", () => {
       mode: "fields",
       requestedFields: ["회의일시", "조치기한"],
       files: [{ file, fields: [], records: [], missing: ["회의일시", "조치기한"] }],
-      summary: { fields: 0, missing: 2, records: 0, lowConfidence: 0 },
+      summary: { fields: 0, missing: 2, records: 0, lowConfidence: 0, truncatedFiles: 0 },
     };
     const resolved = withResolvedField(current, "file-1", modelField("조치기한", "2026.09.30", [source("p3", "Slide 4")], "medium"));
     expect(resolved.files[0].fields[0].displayValue).toBe("2026.09.30");
@@ -348,7 +416,7 @@ describe("model-extracted values", () => {
     // The wording stays; the normalised form is added beside it.
     expect(resolved.files[0].fields[0].normalizedValue).toBe("2026-09-30");
     expect(resolved.files[0].missing).toEqual(["회의일시"]);
-    expect(resolved.summary).toEqual({ fields: 1, missing: 1, records: 0, lowConfidence: 0 });
+    expect(resolved.summary).toEqual({ fields: 1, missing: 1, records: 0, lowConfidence: 0, truncatedFiles: 0 });
   });
 });
 
@@ -373,7 +441,7 @@ describe("structured export", () => {
         missing: ["매출"],
       },
     ],
-    summary: { fields: 3, missing: 1, records: 0, lowConfidence: 0 },
+    summary: { fields: 3, missing: 1, records: 0, lowConfidence: 0, truncatedFiles: 0 },
   };
 
   const automaticMultiFile: StructuredExtract = {
@@ -430,7 +498,7 @@ describe("structured export", () => {
         missing: [],
       },
     ],
-    summary: { fields: 9, missing: 0, records: 2, lowConfidence: 0 },
+    summary: { fields: 9, missing: 0, records: 2, lowConfidence: 0, truncatedFiles: 0 },
   };
 
   it("writes one row per file with the requested fields as columns", () => {
@@ -440,14 +508,14 @@ describe("structured export", () => {
     expect(first).toContain("7월 보고서.docx");
     expect(first).toContain("1,250만원".replace(",", ",")); // quoted by the writer
     // A field the document does not state stays an empty cell, never "없음".
-    expect(second.endsWith(",")).toBe(false);
+    expect(second.endsWith(",")).toBe(true); // no AI confidence for deterministic values
     expect(second).toContain("2026-08");
     expect(second).not.toContain("없음");
   });
 
   it("keeps automatic CSV detail rows unchanged", () => {
     const csv = structuredCsv(automaticMultiFile);
-    expect(csv.trim().split("\r\n")[0]).toBe("FILE,FIELD,VALUE,TYPE,SOURCE");
+    expect(csv.trim().split("\r\n")[0]).toBe("FILE,FIELD,VALUE,TYPE,SOURCE,AI CONFIDENCE");
     expect(csv).toContain("인재개발팀");
     expect(csv).toContain("교육 세부 일정");
     expect(csv).not.toContain("business-label");
@@ -485,7 +553,7 @@ describe("structured export", () => {
     expect(data.getRow(2).getCell(6).alignment.wrapText).toBe(true);
 
     const details = workbook.getWorksheet("Details")!;
-    expect(details.getRow(1).values).toEqual([undefined, "FILE", "FIELD", "VALUE", "TYPE", "SOURCE"]);
+    expect(details.getRow(1).values).toEqual([undefined, "FILE", "FIELD", "VALUE", "TYPE", "SOURCE", "AI CONFIDENCE"]);
     expect(details.getRow(2).values).toEqual(expect.arrayContaining(["기준일", "2026.09.21", "Date", "Slide 1"]));
     expect(workbook.getWorksheet("Evidence")?.getRow(2).values).toEqual(
       expect.arrayContaining(["WL_교육운영_9월_긴파일명_취합본.pptx", "기준일", "2026.09.21", "Slide 1"]),
@@ -514,7 +582,7 @@ describe("structured export", () => {
       mode: "auto",
       requestedFields: [],
       files: [extracted],
-      summary: { fields: 0, missing: 0, records: 1, lowConfidence: 0 },
+      summary: { fields: 0, missing: 0, records: 1, lowConfidence: 0, truncatedFiles: 0 },
     }) as unknown as Parameters<typeof workbook.xlsx.load>[0]);
     expect(workbook.worksheets.map((sheet) => sheet.name)).toEqual(["Extracted Data", "Records"]);
     expect(workbook.getWorksheet("Records")!.getRow(2).values).toEqual(
@@ -528,7 +596,7 @@ describe("structured export", () => {
       mode: "auto",
       requestedFields: [],
       files: [{ file, fields: [{ field: "담당부서", displayValue: "인재개발팀", type: "Text", sources: [] }], records: [], missing: [] }],
-      summary: { fields: 1, missing: 0, records: 0, lowConfidence: 0 },
+      summary: { fields: 1, missing: 0, records: 0, lowConfidence: 0, truncatedFiles: 0 },
     }) as unknown as Parameters<typeof workbook.xlsx.load>[0]);
     expect(workbook.worksheets.map((sheet) => sheet.name)).toEqual(["Extracted Data", "Details"]);
     expect(workbook.getWorksheet("Details")!.getRow(2).values).toEqual(
@@ -546,7 +614,7 @@ describe("structured export", () => {
       mode: "auto",
       requestedFields: [],
       files: [extraction],
-      summary: { fields: extraction.fields.length, missing: 0, records: extraction.records.length, lowConfidence: 0 },
+      summary: { fields: extraction.fields.length, missing: 0, records: extraction.records.length, lowConfidence: 0, truncatedFiles: 0 },
     };
     const csv = structuredCsv(auto);
     expect(csv).toContain("작성부서,경영지원팀");
@@ -565,7 +633,7 @@ describe("structured export", () => {
       mode: "auto",
       requestedFields: [],
       files: [extraction],
-      summary: { fields: extraction.fields.length, missing: 0, records: extraction.records.length, lowConfidence: 0 },
+      summary: { fields: extraction.fields.length, missing: 0, records: extraction.records.length, lowConfidence: 0, truncatedFiles: 0 },
     };
     expect(structuredCsv(auto)).not.toContain("참고 출처");
     const workbook = new ExcelJS.Workbook();
@@ -593,5 +661,78 @@ describe("structured export", () => {
     expect(data.getRow(3).values).toEqual([undefined, "8월 보고서.docx", "2026-08", ""]);
     expect(data.views[0]).toMatchObject({ state: "frozen", ySplit: 1 });
     expect(data.autoFilter).toBe("A1:C1");
+  });
+
+  it("retains model confidence and DOCX header/footer provenance in parsed CSV and reopened XLSX", async () => {
+    const header = { ...source("h1", "Header"), locator: { kind: "docx" as const, part: "header" as const, block: 0 } };
+    const footer = { ...source("f1", "Footer"), locator: { kind: "docx" as const, part: "footer" as const, block: 1 } };
+    const deterministic = {
+      field: "작성부서",
+      displayValue: "경영지원팀",
+      type: "Text" as const,
+      sources: [source("p1", "Paragraph 3")],
+    };
+    const result: StructuredExtract = {
+      mode: "fields",
+      requestedFields: ["조치기한", "승인자", "작성부서"],
+      files: [{
+        file,
+        fields: [
+          modelField("조치기한", "2026.09.30", [header], "low"),
+          modelField("승인자", "김OO", [footer], "medium"),
+          deterministic,
+        ],
+        records: [],
+        missing: [],
+      }],
+      summary: { fields: 3, missing: 0, records: 0, lowConfidence: 1, truncatedFiles: 0 },
+    };
+    const parsed = await parseCsv({
+      fileId: "export",
+      fileName: "extract.csv",
+      bytes: new TextEncoder().encode(structuredCsv(result)),
+    });
+    const csv = parsed.blocks[0];
+    if (csv.type !== "table") throw new Error("Expected CSV table");
+    expect(csv.rows[0].map((cell) => cell.display)).toEqual([
+      "FILE", "조치기한", "승인자", "작성부서", "SOURCE", "AI CONFIDENCE",
+    ]);
+    const row = csv.rows[1].map((cell) => cell.display);
+    expect(row.slice(1, 4)).toEqual(["2026.09.30", "김OO", "경영지원팀"]);
+    expect(row[4]).toContain("조치기한=머리글 · Paragraph 1");
+    expect(row[4]).toContain("승인자=바닥글 · Paragraph 2");
+    expect(JSON.parse(row[5])).toEqual([
+      { field: "조치기한", value: "2026.09.30", confidence: "low", sources: ["머리글 · Paragraph 1"] },
+      { field: "승인자", value: "김OO", confidence: "medium", sources: ["바닥글 · Paragraph 2"] },
+    ]);
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(await structuredXlsx(result) as unknown as Parameters<typeof workbook.xlsx.load>[0]);
+    expect(workbook.getWorksheet("Extracted Data")!.getRow(1).values).toEqual([
+      undefined, "FILE", "조치기한", "승인자", "작성부서",
+    ]);
+    const evidence = workbook.getWorksheet("Evidence")!;
+    expect(evidence.getRow(1).values).toEqual([
+      undefined, "FILE", "FIELD", "VALUE", "SOURCE", "QUOTE", "AI CONFIDENCE",
+    ]);
+    expect(evidence.getRow(2).getCell(4).value).toBe("머리글 · Paragraph 1");
+    expect(evidence.getRow(2).getCell(6).value).toBe("low");
+    expect(evidence.getRow(3).getCell(4).value).toBe("바닥글 · Paragraph 2");
+    expect(evidence.getRow(3).getCell(6).value).toBe("medium");
+    expect(evidence.getRow(4).getCell(6).value).toBe("");
+
+    const automatic: StructuredExtract = { ...result, mode: "auto", requestedFields: [] };
+    const autoCsv = await parseCsv({
+      fileId: "export-auto",
+      fileName: "extract-auto.csv",
+      bytes: new TextEncoder().encode(structuredCsv(automatic)),
+    });
+    const autoRows = autoCsv.blocks[0];
+    if (autoRows.type !== "table") throw new Error("Expected CSV table");
+    expect(autoRows.rows[1].at(-1)?.display).toBe("low");
+    expect(autoRows.rows[3].at(-1)?.display).toBe("");
+    const autoBook = new ExcelJS.Workbook();
+    await autoBook.xlsx.load(await structuredXlsx(automatic) as unknown as Parameters<typeof autoBook.xlsx.load>[0]);
+    expect(autoBook.getWorksheet("Details")!.getRow(2).getCell(6).value).toBe("low");
   });
 });

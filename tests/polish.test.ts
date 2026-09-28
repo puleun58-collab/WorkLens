@@ -197,6 +197,21 @@ describe("polish protection", () => {
       expect(verdict.rejection).toBe("modality");
     });
   }
+  it("rejects loss of one negative clause and keeps the original proposal", () => {
+    const original = "이 요청은 승인하지 않고 검토하지 않습니다.";
+    const revised = "이 요청은 승인하지 않고 검토합니다.";
+    expect(verifyPolish(original, revised)).toEqual({ ok: false, rejection: "modality", detail: "negation" });
+    const outcome = reviewProposal(candidate(original), { changed: true, revisedText: revised, reasons: [] });
+    expect(outcome.status).toBe("rejected");
+    expect(outcome.revisedText).toBe(original);
+  });
+
+  it("preserves negation in each clause without blocking a safe rewording", () => {
+    const original = "이 요청은 승인하지 않고 검토하지 않습니다.";
+    expect(verifyPolish(original, "이 요청은 승인을 하지 않고 검토를 하지 않습니다.")).toEqual({ ok: true });
+    expect(verifyPolish("이 요청은 승인하지 않고 검토합니다.", "이 요청은 승인하고 검토하지 않습니다."))
+      .toEqual({ ok: false, rejection: "modality", detail: "negation" });
+  });
 
   it("rejects a rewrite that keeps little of the original", () => {
     const verdict = verifyPolish(

@@ -92,11 +92,11 @@ export interface LawAnalysisData {
   markers: string[];
 }
 
-/** The MCP explicitly reported absent data or an unusable argument; never an outage. */
+/** The MCP explicitly reported absent data; never an outage or an invalid argument. */
 export interface LawAnalysisAbsent {
   found: false;
   mode: LawAnalysisMode;
-  marker: "NOT_FOUND" | "INVALID_ARGUMENT";
+  marker: "NOT_FOUND";
   text: string;
 }
 
@@ -126,7 +126,7 @@ export function lawAnalysisOutcome(ok: boolean, body: unknown): LawAnalysisOutco
   }
   const data = record(record(body)?.data);
   if (!data || !isMode(data.mode) || typeof data.text !== "string") return { kind: "error", message: LAW_ANALYSIS_ERROR };
-  if (data.found === false && (data.marker === "NOT_FOUND" || data.marker === "INVALID_ARGUMENT")) {
+  if (data.found === false && data.marker === "NOT_FOUND") {
     return { kind: "missing", data: data as unknown as LawAnalysisAbsent };
   }
   if (data.found === true && Array.isArray(data.markers) && data.markers.every((marker) => typeof marker === "string")) {

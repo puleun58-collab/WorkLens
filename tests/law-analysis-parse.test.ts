@@ -243,11 +243,11 @@ describe("legal_analysis client contract", () => {
   it("separates explicit absence from failures and rejects malformed success", () => {
     const found = { found: true, mode: "cite_check", text: "═══ x ═══", markers: [] };
     expect(lawAnalysisOutcome(true, { data: found })).toEqual({ kind: "found", data: found });
-    const absent = { found: false, mode: "impact_map", marker: "INVALID_ARGUMENT", text: "[INVALID_ARGUMENT] 조문" };
+    const absent = { found: false, mode: "impact_map", marker: "NOT_FOUND", text: "[NOT_FOUND] 조문" };
     expect(lawAnalysisOutcome(true, { data: absent })).toEqual({ kind: "missing", data: absent });
     expect(lawAnalysisOutcome(false, { error: { message: "법령 검색 요청이 많습니다." } })).toEqual({ kind: "error", message: "법령 검색 요청이 많습니다." });
     for (const body of [null, { data: null }, { data: { ...found, mode: "legal_research" } }, { data: { ...found, markers: [1] } },
-      { data: { ...found, text: 1 } }, { data: { ...absent, marker: "FAILED" } }, { data: { ...found, found: "yes" } }]) {
+      { data: { ...found, text: 1 } }, { data: { ...absent, marker: "INVALID_ARGUMENT" } }, { data: { ...absent, marker: "FAILED" } }, { data: { ...found, found: "yes" } }]) {
       expect(lawAnalysisOutcome(true, body)).toEqual({ kind: "error", message: LAW_ANALYSIS_ERROR });
     }
     expect(lawAnalysisOutcome(false, null)).toEqual({ kind: "error", message: LAW_ANALYSIS_ERROR });

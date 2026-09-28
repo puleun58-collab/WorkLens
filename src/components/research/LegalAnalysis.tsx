@@ -168,7 +168,7 @@ export function LegalAnalysis({ linkedRequest, onReturn }: LegalAnalysisProps) {
           <button type="button" className="law-search-link" onClick={() => void run(current.request)}>다시 시도</button>
         </div>
         : current.outcome?.kind === "missing" ? <div className="legal-analysis-missing" role="status" data-marker={current.outcome.data.marker}>
-          <p className="law-search-note">{current.outcome.data.marker === "INVALID_ARGUMENT" ? "입력한 조문 번호를 해석하지 못했습니다." : "요청한 법령·조문·판례를 법제처 자료에서 찾지 못했습니다."}</p>
+          <p className="law-search-note">요청한 법령·조문·판례를 법제처 자료에서 찾지 못했습니다.</p>
           <LawTextBlock className="legal-analysis-raw" text={current.outcome.data.text} />
         </div>
         : current.outcome?.kind === "found" ? <AnalysisResult data={current.outcome.data} />
