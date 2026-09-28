@@ -89,6 +89,25 @@ describe("polish mode prompts", () => {
     expect(buildPolishMessages(business, "business")[1].content).toContain("문장 목적과 결론");
   });
 });
+describe("protected originals in model prompts", () => {
+  const original = '㈜한빛전자 법무팀은 2026-08-31 14:30에 ₩1,250와 7kg, SOP-Q3, ISO 27001, ops@example.com, https://example.com/a 및 "계약 원문"을 검토합니다.';
+  const literals = [
+    "㈜한빛전자", "법무팀", "2026-08-31", "14:30", "₩1,250", "7kg",
+    "SOP-Q3", "ISO 27001", "ops@example.com", "https://example.com/a", '"계약 원문"',
+  ];
+
+  it.each(["default", "concise", "business"] as const)("supplies raw values in source order in %s mode", (mode) => {
+    const [system, user] = buildPolishMessages(original, mode);
+    const list = user.content.split("[원문 보호 리터럴 — 등장 순서, 원문 표기 그대로]\n")[1]
+      .split("\n위 목록과")[0];
+    expect(list).toBe(literals.map((literal, index) => `${index + 1}. ${literal}`).join("\n"));
+    expect(user.content).toContain(`[원문]\n${original}`);
+    expect(system.content).toMatch(/추가·삭제·치환·재배열/u);
+    expect(user.content).toMatch(/추가·삭제·치환·순서 변경/u);
+    expect(user.content).toContain("원문이 최종 기준");
+  });
+});
+
 
 describe("polish protection", () => {
   it("accepts a rewrite that only changes wording", () => {
@@ -121,6 +140,40 @@ describe("polish protection", () => {
     expect(verdict.ok).toBe(false);
     expect(verdict.rejection).toBe("protected-token");
   });
+  it("rejects an extra copy of a number and a reorder of existing values", () => {
+    const original = "1건은 처리하고 2건은 보류했습니다.";
+    for (const revised of [
+      "1건은 처리하고 2건과 2건은 보류했습니다.",
+      "2건은 처리하고 1건은 보류했습니다.",
+    ]) {
+      expect(verifyPolish(original, revised).rejection).toBe("protected-token");
+    }
+  });
+
+  it("preserves complete ISO and alphanumeric codes, legal company names and explicit departments", () => {
+    for (const [original, revised] of [
+      ["ISO 27001 기준에 따라 검토했습니다.", "ISO 27002 기준에 따라 검토했습니다."],
+      ["SOP-Q3 절차를 따릅니다.", "DOC-Q3 절차를 따릅니다."],
+      ["㈜한빛전자 법무팀이 검토했습니다.", "㈜미래전자 법무팀이 검토했습니다."],
+      ["㈜한빛전자 법무팀이 검토했습니다.", "㈜한빛전자 인사팀이 검토했습니다."],
+      ["경영지원팀은 검토했습니다.", "영업팀은 검토했습니다."],
+      ["김영삼 차장님이 검토했습니다.", "김철수 차장님이 검토했습니다."],
+    ]) {
+      expect(verifyPolish(original, revised).rejection).toBe("protected-token");
+    }
+  });
+
+  it("preserves exact quoted wording even when only whitespace changes", () => {
+    expect(verifyPolish('보고서는 "계약  원문"을 인용했습니다.', '보고서는 "계약 원문"을 인용했습니다.').ok).toBe(false);
+  });
+
+  it("still accepts wording changes around exact identifiers and dates", () => {
+    expect(verifyPolish(
+      "㈜한빛전자 법무팀은 2026-08-31에 SOP-Q3를 검토하기 위한 논의를 진행했습니다.",
+      "㈜한빛전자 법무팀은 2026-08-31에 SOP-Q3 검토를 논의했습니다.",
+    )).toEqual({ ok: true });
+  });
+
 
   it("keeps a direct quotation verbatim", () => {
     const verdict = verifyPolish(

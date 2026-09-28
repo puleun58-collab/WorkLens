@@ -1985,6 +1985,10 @@ input:disabled,
   background: var(--warning);
 }
 
+.result-status.info::before {
+  background: var(--line-strong);
+}
+
 .result-inline-warning {
   margin: 0;
   padding: 8px var(--panel-inset);

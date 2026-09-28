@@ -60,12 +60,13 @@ import {
   POLISH_REJECTION_LABELS,
   type PolishCandidate,
   type PolishMode,
+  type PolishProposal,
   type PolishOutcome,
   type PolishResult,
   type PolishSummary,
   type PolishTextResult,
 } from "@/domain/polish";
-import { polishResult, polishTextResult, reviewProposal } from "@/lib/polish/engine";
+import { polishResult, polishTextResult, reviewProposal, summarizePolish } from "@/lib/polish/engine";
 import {
   POLISH_TEXT_MAX_CHARS,
   POLISH_TEXT_TOO_LONG_MESSAGE,
@@ -191,7 +192,7 @@ const completionLabels: Record<Tab, string> = {
   Extract: "추출 완료",
   Aggregate: "취합 완료",
 };
-type ResultStatus = { tone: "success" | "warning"; label: string; message?: string; detail?: string };
+type ResultStatus = { tone: "success" | "warning" | "info"; label: string; message?: string; detail?: string };
 /*
  * One label for the primary action in every feature. The visible word is
  * always 실행 — the destination already says what runs — and the accessible
@@ -315,6 +316,57 @@ function failedPolishOutcome(candidate: PolishCandidate, error: unknown): Polish
       message: failure.message ?? "윤문 처리를 완료하지 못했습니다.",
     },
   };
+}
+
+const POLISH_TRANSIENT_ERRORS = new Set<ServerAiErrorCode>([
+  "TIMEOUT", "RATE_LIMITED", "PROVIDER_UNAVAILABLE", "BUSY", "OPERATION_CAPACITY",
+]);
+
+/** An attempted sentence is the only unit that can fail. Never mark the remaining work as failed. */
+async function processPolishCandidates(
+  candidates: readonly PolishCandidate[],
+  mode: PolishMode,
+  isCancelled: () => boolean,
+  onOutcome: (outcomes: readonly PolishOutcome[]) => void,
+): Promise<{ outcomes: PolishOutcome[]; stopped: boolean; terminalError?: unknown }> {
+  const outcomes: PolishOutcome[] = [];
+  for (const candidate of candidates) {
+    if (isCancelled()) return { outcomes, stopped: true };
+    let proposal!: PolishProposal;
+    let failure: unknown;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        proposal = await polishServerAi(candidate.text, mode);
+        break;
+      } catch (error) {
+        const code = (error as Partial<ServerAiFailure>).code;
+        if (isCancelled() || code === "CANCELLED") return { outcomes, stopped: true };
+        if (attempt === 0 && code && POLISH_TRANSIENT_ERRORS.has(code)) {
+          const { promise, resolve } = Promise.withResolvers<void>();
+          setTimeout(resolve, 300);
+          await promise;
+          if (isCancelled()) return { outcomes, stopped: true };
+          continue;
+        }
+        failure = error;
+        break;
+      }
+    }
+    if (isCancelled()) return { outcomes, stopped: true };
+    if (failure) {
+      outcomes.push(failedPolishOutcome(candidate, failure));
+      onOutcome(outcomes);
+      const code = (failure as Partial<ServerAiFailure>).code;
+      if (code === "CONFIGURATION" || code === "INVALID_REQUEST") {
+        return { outcomes, stopped: false, terminalError: failure };
+      }
+      logAiFailure(failure);
+    } else {
+      outcomes.push(reviewProposal(candidate, proposal));
+      onOutcome(outcomes);
+    }
+  }
+  return { outcomes, stopped: false };
 }
 
 
@@ -601,7 +653,7 @@ export default function Home() {
 
   /** Ask needs a grounded answer; an empty answer is not a system error. */
   const runAsk = async () => {
-    const empty = { message: "질문에 답할 내용을 찾지 못했습니다.", detail: "선택한 파일의 내용을 확인해 주세요." };
+    const empty = { message: "선택한 파일에서 관련 내용을 찾지 못했습니다.", detail: "질문을 바꾸거나 다른 파일을 선택해 주세요." };
     if (selected.length > SERVER_AI_MAX_FILES) {
       notifyView("error", `한 번에 최대 ${SERVER_AI_MAX_FILES}개 파일까지 처리할 수 있습니다.`);
       return;
@@ -613,7 +665,7 @@ export default function Home() {
       const result = await generateGroundedResult({ operation: "ask", question: question.trim() });
       if (result.claims.length === 0) {
         setOperationResult(null);
-        notifyView("warning", empty.message, undefined, empty.detail);
+        notifyView("info", empty.message, undefined, empty.detail);
         return;
       }
       setOperationResult(result);
@@ -624,12 +676,26 @@ export default function Home() {
       const code = (error as Partial<ServerAiFailure>).code;
       if (code === "NO_EVIDENCE" || code === "GROUNDING_REJECTED") {
         logAiFailure(error);
-        notifyView("warning", empty.message, undefined, empty.detail);
+        notifyView("info", empty.message, undefined, empty.detail);
         return;
       }
       reportAiFailure(error, "질문을 처리하지 못했습니다.");
     } finally {
       setBusy(false);
+    }
+  };
+
+  const announcePolishResult = (summary: PolishSummary, stopped: boolean, terminalError?: unknown) => {
+    if (terminalError) {
+      reportAiFailure(terminalError, "윤문을 완료하지 못했습니다.");
+    } else if (stopped) {
+      notifyView("info", "윤문을 중지했습니다. 검토하지 않은 문장은 원문을 유지합니다.");
+    } else if (summary.failed > 0) {
+      notifyView("warning", "일부 문장의 윤문 검토를 완료하지 못했습니다.", undefined, `검토 미완료 ${summary.failed}건은 원문을 유지합니다.`);
+    } else if (summary.rejected > 0) {
+      notifyView("warning", `윤문 결과는 준비되었습니다. 수정안 미적용 ${summary.rejected}건은 원문을 유지했습니다.`);
+    } else {
+      notifyView("success", `윤문 완료 · 변경 ${summary.changed}건 · 변경 없음 ${summary.unchanged}건`);
     }
   };
 
@@ -656,42 +722,12 @@ export default function Home() {
         return;
       }
       setPolishProgress({ done: 0, total: candidates.length });
-      const outcomes: PolishOutcome[] = [];
-      let partialFailure: unknown = null;
-      for (const [index, candidate] of candidates.entries()) {
-        if (polishCancelled.current) {
-          partialFailure = { code: "CANCELLED", message: SERVER_AI_MESSAGES.CANCELLED };
-          outcomes.push(...candidates.slice(index).map((entry) => failedPolishOutcome(entry, partialFailure)));
-          break;
-        }
-        try {
-          const proposal = await polishServerAi(candidate.text, polishMode);
-          outcomes.push(reviewProposal(candidate, proposal));
-          setPolishProgress({ done: index + 1, total: candidates.length });
-          setPolish(polishResult(polishMode, outcomes));
-        } catch (error) {
-          partialFailure = error;
-          outcomes.push(...candidates.slice(index).map((entry) => failedPolishOutcome(entry, error)));
-          break;
-        }
-      }
-      const completed = outcomes.some((entry) => entry.status !== "failed");
-      if (partialFailure && !completed) {
-        setPolish(null);
-        reportAiFailure(partialFailure, "윤문을 완료하지 못했습니다.");
-        return;
-      }
-      const result = polishResult(polishMode, outcomes);
-      setPolish(result);
-      if (partialFailure) {
-        noteAiDiagnostics(partialFailure);
-        const unfinished = result.summary.failed;
-        notifyView("warning", "일부 문장을 처리하지 못했습니다.", undefined, `처리 완료 ${result.summary.candidates - unfinished}건 · 처리 실패 ${unfinished}건`);
-      } else if (result.summary.rejected > 0) {
-        notifyView("warning", `윤문 결과는 준비되었습니다. 보호 항목 ${result.summary.rejected}건은 원문을 유지했습니다.`);
-      } else {
-        notifyView("success", `윤문 완료 · 변경 제안 ${result.summary.changed}건 · 변경 없음 ${result.summary.unchanged}건`);
-      }
+      const run = await processPolishCandidates(candidates, polishMode, () => polishCancelled.current, (outcomes) => {
+        setPolishProgress({ done: outcomes.length, total: candidates.length });
+        setPolish(polishResult(polishMode, outcomes));
+      });
+      setPolish({ ...polishResult(polishMode, run.outcomes), stopped: run.stopped });
+      announcePolishResult(summarizePolish(run.outcomes), run.stopped, run.terminalError);
     } catch (error) {
       setPolish(null);
       notifyView("error", (error as ApiError).message ?? "윤문할 문장을 준비하지 못했습니다.");
@@ -730,42 +766,12 @@ export default function Home() {
       }
       setPolishProgress({ done: 0, total: targets.length });
       const candidates = targets.map((segment): PolishCandidate => ({ id: segment.id, text: segment.text, origin: "pasted" }));
-      const outcomes: PolishOutcome[] = [];
-      let partialFailure: unknown = null;
-      for (const [index, candidate] of candidates.entries()) {
-        if (polishCancelled.current) {
-          partialFailure = { code: "CANCELLED", message: SERVER_AI_MESSAGES.CANCELLED };
-          outcomes.push(...candidates.slice(index).map((entry) => failedPolishOutcome(entry, partialFailure)));
-          break;
-        }
-        try {
-          const proposal = await polishServerAi(candidate.text, polishMode);
-          outcomes.push(reviewProposal(candidate, proposal));
-          setPolishProgress({ done: index + 1, total: candidates.length });
-          setPolishTextRun(polishTextResult(polishMode, input, segments, outcomes));
-        } catch (error) {
-          partialFailure = error;
-          outcomes.push(...candidates.slice(index).map((entry) => failedPolishOutcome(entry, error)));
-          break;
-        }
-      }
-      const completed = outcomes.some((entry) => entry.status !== "failed");
-      if (partialFailure && !completed) {
-        setPolishTextRun(null);
-        reportAiFailure(partialFailure, "윤문을 완료하지 못했습니다.");
-        return;
-      }
-      const result = polishTextResult(polishMode, input, segments, outcomes);
-      setPolishTextRun(result);
-      if (partialFailure) {
-        noteAiDiagnostics(partialFailure);
-        const unfinished = result.summary.failed;
-        notifyView("warning", "일부 문장을 처리하지 못했습니다.", undefined, `처리 완료 ${result.summary.candidates - unfinished}건 · 처리 실패 ${unfinished}건`);
-      } else if (result.summary.rejected > 0) {
-        notifyView("warning", `윤문 결과는 준비되었습니다. 보호 항목 ${result.summary.rejected}건은 원문을 유지했습니다.`);
-      } else {
-        notifyView("success", `윤문 완료 · 변경 제안 ${result.summary.changed}건 · 변경 없음 ${result.summary.unchanged}건`);
-      }
+      const run = await processPolishCandidates(candidates, polishMode, () => polishCancelled.current, (outcomes) => {
+        setPolishProgress({ done: outcomes.length, total: candidates.length });
+        setPolishTextRun(polishTextResult(polishMode, input, segments, outcomes));
+      });
+      setPolishTextRun({ ...polishTextResult(polishMode, input, segments, run.outcomes), stopped: run.stopped });
+      announcePolishResult(summarizePolish(run.outcomes), run.stopped, run.terminalError);
     } catch (error) {
       setPolishTextRun(null);
       notifyView("error", (error as ApiError).message ?? "윤문할 텍스트를 준비하지 못했습니다.");
@@ -1216,22 +1222,28 @@ export default function Home() {
         : activeTab === "Aggregate"
           ? aggregation !== null
           : operationResult !== null;
+  const stoppedPolish = activeTab === "Polish" && (polishTextMode ? polishTextRun?.stopped : polish?.stopped);
+  const polishSummary = activeTab === "Polish" ? (polishTextMode ? polishTextRun?.summary : polish?.summary) : undefined;
   const inlineResultNotice = hasCategoryResult
     && notice?.scope === activeTab
-    && (notice.tone === "success" || notice.tone === "warning")
+    && (notice.tone === "success" || notice.tone === "warning" || (notice.tone === "info" && stoppedPolish))
     ? notice
     : null;
   const resultStatus: ResultStatus | null = inlineResultNotice
     ? {
-      tone: activeTab === "Compare" && comparison !== null ? "success" : inlineResultNotice.tone === "warning" ? "warning" : "success",
+      tone: activeTab === "Compare" && comparison !== null ? "success" : inlineResultNotice.tone === "warning" ? "warning" : inlineResultNotice.tone === "info" ? "info" : "success",
       label: activeTab === "Compare" && compareMode === "value-check" && inlineResultNotice.tone !== "warning"
         ? "확인 완료"
         : activeTab === "Analyze" && inlineResultNotice.tone === "warning"
           ? "기본 분석 완료"
-          : activeTab === "Polish" && (polishTextMode ? polishTextRun?.summary.failed : polish?.summary.failed)
-            ? "일부 처리"
-            : completionLabels[activeTab],
-      ...(inlineResultNotice.tone === "warning" ? {
+          : stoppedPolish
+            ? "중지됨"
+            : polishSummary?.failed
+              ? "검토 미완료"
+              : polishSummary?.rejected
+                ? "수정안 미적용"
+                : completionLabels[activeTab],
+      ...(inlineResultNotice.tone !== "success" ? {
         message: inlineResultNotice.message,
         ...(inlineResultNotice.detail ? { detail: inlineResultNotice.detail } : {}),
       } : {}),
@@ -1446,7 +1458,7 @@ export default function Home() {
           ) : null}
 
           {isDocumentWorkspaceView && notice && !inlineResultNotice && (notice.scope === "workspace" || notice.scope === shellView) ? (
-            notice.tone === "error" || notice.tone === "warning" ? (
+            notice.tone === "error" || notice.tone === "warning" || (notice.tone === "info" && notice.scope === "Ask" && Boolean(notice.detail)) ? (
               <StatusPanel
                 className={`notice ${notice.tone}`}
                 variant={notice.tone}
@@ -2174,13 +2186,13 @@ function PolishSummaryLine({ summary }: { summary: PolishSummary }) {
         {summary.rejected > 0 ? (
           <>
             <span aria-hidden="true">·</span>
-            <span className="polish-protection-metric">보호 항목 {summary.rejected}건 확인 필요</span>
+            <span className="polish-protection-metric">수정안 미적용 {summary.rejected}</span>
           </>
         ) : null}
         {summary.failed > 0 ? (
           <>
             <span aria-hidden="true">·</span>
-            <span className="polish-protection-metric">처리 실패 {summary.failed}</span>
+            <span className="polish-protection-metric">검토 미완료 {summary.failed}</span>
           </>
         ) : null}
       </p>
@@ -2195,7 +2207,7 @@ function PolishFailedItems({ outcomes }: { outcomes: readonly PolishOutcome[] })
   return (
     <div className="polish-unchanged">
       <button type="button" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
-        처리되지 않은 문장 {failed.length}건 {expanded ? "접기" : "보기"}
+        검토 미완료 문장 {failed.length}건 {expanded ? "접기" : "보기"}
       </button>
       {expanded ? <ul>{failed.map((entry) => <li key={entry.id}><p>{entry.originalText}</p></li>)}</ul> : null}
     </div>
@@ -2223,7 +2235,7 @@ function PolishResults({ result, fileNames, onSource, status }: {
       />
       <PolishSummaryLine summary={result.summary} />
 
-      {changed.length === 0 && rejected.length === 0 && result.summary.failed === 0 ? (
+      {!result.stopped && changed.length === 0 && rejected.length === 0 && result.summary.failed === 0 ? (
         <p className="polish-unchanged-message">{POLISH_UNCHANGED_MESSAGE}</p>
       ) : null}
 
@@ -2243,6 +2255,7 @@ function PolishResults({ result, fileNames, onSource, status }: {
 
       {rejected.map((entry) => (
         <article className="polish-row rejected" key={entry.id}>
+          <span className="polish-label">수정안 미적용</span>
           <PolishCopyBlock label="원문 유지" text={entry.originalText} />
           <p className="polish-rejection-reason">
             {entry.rejection ? POLISH_REJECTION_LABELS[entry.rejection] : "수정안을 적용하지 않았습니다."}
@@ -2318,7 +2331,7 @@ function PolishTextResults({ result, status }: { result: PolishTextResult | null
   const showComparison = result.revisedText !== result.originalText;
   const rejectionNote = rejected.length ? (
     <p className="polish-rejection-reason">
-      {[...new Set(rejected.map((entry) => entry.rejection ? POLISH_REJECTION_LABELS[entry.rejection] : "수정안을 적용하지 않았습니다."))].join(" · ")}
+      수정안 미적용 · {[...new Set(rejected.map((entry) => entry.rejection ? POLISH_REJECTION_LABELS[entry.rejection] : "수정안을 적용하지 않았습니다."))].join(" · ")}
     </p>
   ) : null;
 
@@ -2346,7 +2359,7 @@ function PolishTextResults({ result, status }: { result: PolishTextResult | null
       ) : (
         <>
           {/* Failed or protected sentences were not accepted as ready without edits. */}
-          {result.summary.failed === 0 && rejected.length === 0 ? <p className="polish-unchanged-message">{POLISH_UNCHANGED_MESSAGE}</p> : null}
+          {!result.stopped && result.summary.failed === 0 && rejected.length === 0 ? <p className="polish-unchanged-message">{POLISH_UNCHANGED_MESSAGE}</p> : null}
           {rejectionNote}
         </>
       )}

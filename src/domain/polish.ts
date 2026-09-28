@@ -64,6 +64,8 @@ export interface PolishResult {
   mode: PolishMode;
   outcomes: PolishOutcome[];
   summary: PolishSummary;
+  /** User interrupted the run; unattempted sentences are not failures. */
+  stopped?: boolean;
 }
 
 /**
@@ -76,6 +78,8 @@ export interface PolishTextResult {
   revisedText: string;
   outcomes: PolishOutcome[];
   summary: PolishSummary;
+  /** User interrupted the run; unattempted sentences retain their source text. */
+  stopped?: boolean;
 }
 
 export const POLISH_MODE_LABELS: Record<PolishMode, string> = {
@@ -85,9 +89,9 @@ export const POLISH_MODE_LABELS: Record<PolishMode, string> = {
 };
 
 export const POLISH_REJECTION_LABELS: Record<PolishRejection, string> = {
-  "protected-token": "핵심 정보 변경 가능성이 있어 윤문 결과를 적용하지 않았습니다.",
-  quote: "직접 인용이 바뀌어 윤문 결과를 적용하지 않았습니다.",
-  modality: "가능성·의무 표현의 강도가 달라져 윤문 결과를 적용하지 않았습니다.",
-  "over-edit": "원문과 너무 달라져 윤문 결과를 적용하지 않았습니다.",
-  empty: "윤문 결과가 비어 있어 적용하지 않았습니다.",
+  "protected-token": "숫자·날짜·고유명사 등 보호 항목이 달라져 수정안을 적용하지 않았습니다.",
+  quote: "직접 인용이 달라져 수정안을 적용하지 않았습니다.",
+  modality: "의미나 표현 강도가 달라져 수정안을 적용하지 않았습니다.",
+  "over-edit": "원문과 지나치게 달라져 수정안을 적용하지 않았습니다.",
+  empty: "수정안이 비어 있어 적용하지 않았습니다.",
 };

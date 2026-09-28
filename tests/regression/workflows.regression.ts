@@ -167,7 +167,7 @@ regressionCase({ id: "WF-07", category: "Ask", input: "Specific rate with ground
 regressionCase({ id: "WF-08", category: "Ask", input: "Unknown fact abstention", format: "XLSX", structure: "unrelated question", expected: "explicit no-answer warning, no invented source" }, async ({ page, note, classify }) => {
   await start(page, ["ratesOld"], "질문"); await page.getByLabel("질문 입력").fill("문서에 없는 대표이사의 혈액형은 무엇인가요?");
   await page.getByRole("button", { name: "질문 실행" }).click();
-  await expect(page.locator(".notice.warning")).toContainText("질문에 답할 내용을 찾지 못했습니다.");
+  await expect(page.locator(".notice.info")).toContainText("선택한 파일에서 관련 내용을 찾지 못했습니다.");
   await expect(page.locator(".ask-answer-row")).toHaveCount(0); classify("Expected"); note("No evidence: explicit abstention, zero sourced answers");
 });
 regressionCase({ id: "WF-09", category: "Ask", input: "Two-file evidence attribution", format: "XLSX", structure: "two revisions", expected: "each quoted answer identifies its source file" }, async ({ page, note }) => {
@@ -183,7 +183,7 @@ regressionCase({ id: "WF-10", category: "Ask", input: "Unknown evidence handle",
   await start(page, ["ratesOld"], "질문", false);
   await page.getByLabel("질문 입력").fill("SEOUL 단가는 얼마인가요?");
   await page.getByRole("button", { name: "질문 실행" }).click();
-  await expect(page.locator(".notice.warning")).toContainText("질문에 답할 내용을 찾지 못했습니다.");
+  await expect(page.locator(".notice.info")).toContainText("선택한 파일에서 관련 내용을 찾지 못했습니다.");
   await expect(page.locator(".ask-answer-row")).toHaveCount(0); await expect(page.locator(".workspace")).not.toContainText("999999");
   await noHorizontalOverflow(page); classify("Expected"); note("Fabricated E999 handle rejected; no answer leaked");
 });
@@ -293,7 +293,7 @@ regressionCase({ id: "WF-25", category: "Polish", input: "Pasted text protects c
   });
   await page.goto("/"); await openView(page, "윤문"); await page.getByRole("radio", { name: "텍스트 윤문" }).check();
   await page.getByLabel("윤문할 텍스트 입력").fill("1. 김하나의 매출은 1,250만원입니다."); await run(page, "윤문");
-  const result = page.locator(".polish-text-results"); await expect(result).toContainText("보호 항목 1건 확인 필요");
+  const result = page.locator(".polish-text-results"); await expect(result).toContainText("수정안 미적용 1");
   await expect(result.locator(".polish-copy-block.revised")).toContainText("1,250만원");
   await expect(result.locator(".polish-copy-block.revised")).not.toContainText("1,500만원"); await noHorizontalOverflow(page); note("Changed 1,500 rejected, original numbered 1,250 retained");
 });

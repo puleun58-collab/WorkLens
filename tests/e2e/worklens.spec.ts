@@ -1066,7 +1066,7 @@ test("presents text Polish as an immediate original-to-revision workflow", async
 
   await paste.fill("이번 매출은 1,250만원으로 집계되었습니다.");
   await page.getByRole("button", { name: "윤문 실행" }).click();
-  await expect(result.locator(".polish-protection-metric")).toHaveText("보호 항목 1건 확인 필요");
+  await expect(result.locator(".polish-protection-metric")).toHaveText("수정안 미적용 1");
   await expect(result).not.toContainText("보호 검증 차단");
   // A rejected proposal leaves the text unchanged, so no identical 수정안 is repeated.
   await expect(result.locator(".polish-summary-line")).toContainText("변경 0");
@@ -1085,18 +1085,16 @@ test("distinguishes partial Polish failure from unchanged text and clears stale 
   let failAll = false;
   await page.route("**/api/ai", async (route) => {
     const request = route.request().postDataJSON() as { text: string };
-    if (failAll || !request.text.includes("pc반환")) {
+    if (failAll || request.text.includes("이번 내용")) {
       await route.fulfill({ status: 429, contentType: "application/json", body: JSON.stringify({ error: { code: "AI_RATE_LIMITED" } }) });
       return;
     }
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ data: { kind: "polish", proposal: {
-        changed: true,
-        revisedText: "김영삼 차장님이 PC 반납을 요청했습니다.",
-        reasons: ["표현 정리"],
-      } } }),
+      body: JSON.stringify({ data: { kind: "polish", proposal: request.text.includes("pc반환")
+        ? { changed: true, revisedText: "김영삼 차장님이 PC 반납을 요청했습니다.", reasons: ["표현 정리"] }
+        : { changed: false, revisedText: request.text, reasons: [] } } }),
     });
   });
 
@@ -1104,23 +1102,151 @@ test("distinguishes partial Polish failure from unchanged text and clears stale 
   await page.getByRole("button", { name: "윤문", exact: true }).click();
   await page.getByRole("radio", { name: "텍스트 윤문" }).check();
   const paste = page.getByLabel("윤문할 텍스트 입력");
-  await paste.fill("김영삼 차장님이 pc반환 요청했습니다.\n이번 내용은 확인했습니다.");
+  await paste.fill("김영삼 차장님이 pc반환 요청했습니다.\n이번 내용은 확인했습니다.\n다음 문장은 확인했습니다.");
   await page.getByRole("button", { name: "윤문 실행" }).click();
   const result = page.locator(".polish-text-results");
-  await expect(result.locator(".result-status")).toHaveText("일부 처리");
+  await expect(result.locator(".result-status")).toHaveText("검토 미완료");
   await expect(result.locator(".polish-summary-line")).toContainText("변경 1");
-  await expect(result.locator(".polish-summary-line")).toContainText("처리 실패 1");
+  await expect(result.locator(".polish-summary-line")).toContainText("변경 없음 1");
+  await expect(result.locator(".polish-summary-line")).toContainText("검토 미완료 1");
   await expect(result).not.toContainText("별도 수정 없이 사용할 수 있습니다.");
-  await result.getByRole("button", { name: "처리되지 않은 문장 1건 보기" }).click();
+  await result.getByRole("button", { name: "검토 미완료 문장 1건 보기" }).click();
   await expect(result).toContainText("이번 내용은 확인했습니다.");
 
   await page.getByRole("radio", { name: "간결하게" }).check();
   await expect(result).toHaveCount(0);
   failAll = true;
   await page.getByRole("button", { name: "윤문 실행" }).click();
-  await expect(result).toHaveCount(0);
+  await expect(result.locator(".result-status")).toHaveText("검토 미완료");
+  await expect(result.locator(".polish-summary-line")).toContainText("검토 미완료 3");
+  await expect(page.locator(".notice.error")).toHaveCount(0);
+});
+
+test("shows changed, rejected and failed outcomes independently for a document", async ({ page }) => {
+  const fixture = path.join(FIXTURE_DIR, "윤문_혼합.pptx");
+  await writeFile(fixture, createPptxSlides([[
+    "윤문 검토",
+    "㈜한빛전자 법무팀은 2026-08-31에 예산을 검토하기 위한 논의를 진행했습니다.",
+    "김영삼 차장님이 고객 대응을 위한 검토를 진행했습니다.",
+    "이번 계획은 내부 공유를 위해 작성했습니다.",
+  ]]));
+  const attempts: string[] = [];
+  await page.route("**/api/ai", async (route) => {
+    const { text } = route.request().postDataJSON() as { text: string };
+    attempts.push(text);
+    if (text.includes("내부 공유")) {
+      await route.fulfill({ status: 429, contentType: "application/json", body: JSON.stringify({ error: { code: "AI_RATE_LIMITED" } }) });
+      return;
+    }
+    const revisedText = text.includes("차장님")
+      ? text.replace("김영삼", "김철수")
+      : text.replace("논의를 진행했습니다", "논의를 했습니다");
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+      data: { kind: "polish", proposal: { changed: true, revisedText, reasons: ["표현 정리"] } },
+    }) });
+  });
+  await page.goto("/");
+  await upload(page, fixture);
+  await page.getByLabel("윤문_혼합.pptx 선택").check();
+  await page.getByRole("button", { name: "윤문", exact: true }).click();
+  await page.getByRole("button", { name: "윤문 실행" }).click();
+  const result = page.locator(".polish-results:not(.polish-text-results)");
+  await expect(result.locator(".polish-summary-line")).toContainText("변경 1");
+  await expect(result.locator(".polish-summary-line")).toContainText("수정안 미적용 1");
+  await expect(result.locator(".polish-summary-line")).toContainText("검토 미완료 1");
+  await expect(result.locator(".polish-row.rejected")).toContainText("김영삼 차장님");
+  await expect(result.locator(".polish-row.rejected .polish-copy-block.revised")).toHaveCount(0);
+  await expect(result.locator(".polish-row:not(.rejected) .polish-copy-block.revised")).toHaveCount(1);
+  expect(attempts.filter((text) => text.includes("내부 공유"))).toHaveLength(2);
+});
+
+test("keeps the other 57 text sentences when candidate 11 exhausts its transient retry", async ({ page }) => {
+  const attempts = new Map<number, number>();
+  await page.route("**/api/ai", async (route) => {
+    const { text } = route.request().postDataJSON() as { text: string };
+    const number = Number(/문장 (\d+)/u.exec(text)?.[1]);
+    attempts.set(number, (attempts.get(number) ?? 0) + 1);
+    if (number === 11 || (number === 12 && attempts.get(number) === 1)) {
+      await route.fulfill({ status: 504, contentType: "application/json", body: JSON.stringify({ error: { code: "AI_TIMEOUT" } }) });
+      return;
+    }
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+      data: { kind: "polish", proposal: { changed: false, revisedText: text, reasons: [] } },
+    }) });
+  });
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "윤문", exact: true }).click();
+  await page.getByRole("radio", { name: "텍스트 윤문" }).check();
+  const original = Array.from({ length: 58 }, (_, index) => `문장 ${index + 1}의 내용을 함께 검토 부탁드립니다.`).join("\n");
+  await page.getByLabel("윤문할 텍스트 입력").fill(original);
+  await page.getByRole("button", { name: "윤문 실행" }).click();
+
+  const result = page.locator(".polish-text-results");
+  await expect(result.locator(".polish-summary-line")).toContainText("변경 없음 57");
+  await expect(result.locator(".polish-summary-line")).toContainText("검토 미완료 1");
+  await expect(result.locator(".polish-copy-block.revised")).toHaveCount(0);
+  await result.getByRole("button", { name: "검토 미완료 문장 1건 보기" }).click();
+  await expect(result.locator(".polish-unchanged li")).toContainText(["문장 11의 내용을 함께 검토 부탁드립니다."]);
+  expect(attempts.size).toBe(58);
+  expect(attempts.get(11)).toBe(2);
+  expect(attempts.get(12)).toBe(2);
+  expect(attempts.get(58)).toBe(1);
+});
+
+test("stops Polish at a configuration error without retrying or accusing unattempted sentences", async ({ page }) => {
+  const attempts: string[] = [];
+  await page.route("**/api/ai", async (route) => {
+    const { text } = route.request().postDataJSON() as { text: string };
+    attempts.push(text);
+    await route.fulfill(text.includes("두 번째")
+      ? { status: 500, contentType: "application/json", body: JSON.stringify({ error: { code: "AI_NOT_CONFIGURED" } }) }
+      : { status: 200, contentType: "application/json", body: JSON.stringify({
+        data: { kind: "polish", proposal: { changed: false, revisedText: text, reasons: [] } },
+      }) });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "윤문", exact: true }).click();
+  await page.getByRole("radio", { name: "텍스트 윤문" }).check();
+  await page.getByLabel("윤문할 텍스트 입력").fill("첫 번째 문장은 그대로 둡니다.\n두 번째 문장은 검토합니다.\n세 번째 문장은 아직 남았습니다.");
+  await page.getByRole("button", { name: "윤문 실행" }).click();
   await expect(page.locator(".notice.error")).toContainText("윤문을 완료하지 못했습니다.");
-  await expect(page.locator(".notice.error")).not.toContainText("별도 수정 없이 사용할 수 있습니다.");
+  await expect(page.locator(".polish-text-results .polish-summary-line")).toContainText("검토 미완료 1");
+  expect(attempts).toHaveLength(2);
+});
+
+test("keeps completed Polish work when the user stops an in-flight sentence", async ({ page }) => {
+  const secondStarted = Promise.withResolvers<void>();
+  const releaseSecond = Promise.withResolvers<void>();
+  const attempts: string[] = [];
+  await page.route("**/api/ai", async (route) => {
+    const { text } = route.request().postDataJSON() as { text: string };
+    attempts.push(text);
+    if (text.includes("두 번째")) {
+      secondStarted.resolve();
+      await releaseSecond.promise;
+    }
+    try {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+        data: { kind: "polish", proposal: { changed: false, revisedText: text, reasons: [] } },
+      }) });
+    } catch {
+      // The browser has already aborted the request being fulfilled.
+    }
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "윤문", exact: true }).click();
+  await page.getByRole("radio", { name: "텍스트 윤문" }).check();
+  await page.getByLabel("윤문할 텍스트 입력").fill("첫 번째 문장은 그대로 둡니다.\n두 번째 문장은 검토합니다.\n세 번째 문장은 아직 남았습니다.");
+  await page.getByRole("button", { name: "윤문 실행" }).click();
+  await secondStarted.promise;
+  await page.getByRole("button", { name: "중지", exact: true }).click();
+  releaseSecond.resolve();
+  await expect(page.locator(".polish-text-results .result-status")).toHaveText("중지됨");
+  await expect(page.locator(".polish-text-results .polish-summary-line")).toContainText("변경 없음 1");
+  await expect(page.locator(".polish-text-results .polish-summary-line")).not.toContainText("검토 미완료");
+  await expect(page.locator(".notice.error")).toHaveCount(0);
+  expect(attempts).toHaveLength(2);
 });
 
 test("runs Ask, Analyze, Polish, Check and Extract through the server AI boundary", async ({ page }) => {
@@ -1385,26 +1511,33 @@ test("connects each Ask answer directly to its file and evidence", async ({ page
   await expect(page.locator(".evidence-inspector")).toBeVisible();
 });
 
-test("keeps an unanswerable Ask as a grounded error without invented sources", async ({ page }) => {
+test("shows an informational Ask alert without inventing sources", async ({ page }) => {
+  let serverError = false;
   await page.route("**/api/ai", async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({ data: { kind: "claims", claims: [] } }),
-    });
+    await route.fulfill(serverError
+      ? { status: 500, contentType: "application/json", body: JSON.stringify({ error: { code: "AI_NOT_CONFIGURED" } }) }
+      : { status: 200, contentType: "application/json", body: JSON.stringify({ data: { kind: "claims", claims: [] } }) });
   });
 
   await page.goto("/");
   await upload(page, files.v1);
   await page.getByLabel("운임현황_v1.xlsx 선택").check();
   await page.getByRole("button", { name: "질문", exact: true }).click();
-  await page.getByLabel("질문 입력").fill("문서에 없는 값을 알려주세요.");
+  await page.getByLabel("질문 입력").fill("SEOUL 단가는 얼마인가요?");
   await page.getByRole("button", { name: "질문 실행" }).click();
 
-  await expect(page.locator(".notice.warning")).toContainText("질문에 답할 내용을 찾지 못했습니다.");
+  const notice = page.locator(".status-panel.notice.info");
+  await expect(notice).toContainText("선택한 파일에서 관련 내용을 찾지 못했습니다.");
+  await expect(notice).toContainText("질문을 바꾸거나 다른 파일을 선택해 주세요.");
+  await expect(notice).toHaveAttribute("role", "status");
   await expect(page.locator(".notice.error")).toHaveCount(0);
   await expect(page.locator(".results-panel")).toHaveCount(0);
   await expect(page.locator(".ask-evidence .result-source")).toHaveCount(0);
+
+  serverError = true;
+  await page.getByRole("button", { name: "질문 실행" }).click();
+  await expect(page.locator(".status-panel.notice.error")).toContainText("질문을 처리하지 못했습니다.");
+  await expect(page.locator(".notice.info")).toHaveCount(0);
 });
 
 test("keeps grounded Ask and Analyze summaries when another claim is rejected", async ({ page }) => {

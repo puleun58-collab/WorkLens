@@ -13,16 +13,47 @@ import type { PolishRejection } from "@/domain/polish";
 /** Values the reader acts on. A change here is a different document. */
 const NUMBER = /\d[\d,.]*/g;
 const PERCENT = /\d[\d,.]*\s*(?:%|퍼센트|percent)/gu;
-const DATE = /\d{4}\s*[-./년]\s*\d{1,2}(?:\s*[-./월]\s*\d{1,2}\s*일?)?|\d{1,2}\s*월\s*\d{1,2}\s*일/gu;
+const DATE = /\d{4}\s*[-./년]\s*\d{1,2}(?:\s*[-./월]\s*\d{1,2}(?:\s*일)?)?|\d{1,2}\s*월\s*\d{1,2}\s*일/gu;
 const TIME = /\d{1,2}\s*:\s*\d{2}(?:\s*:\s*\d{2})?|\d{1,2}\s*시(?:\s*\d{1,2}\s*분)?/gu;
 const MONEY = /(?:₩|\$|€|¥|USD|KRW)\s*\d[\d,.]*|\d[\d,.]*\s*(?:원|달러|엔|유로|만원|억원)/gu;
 const UNIT = /\d[\d,.]*\s*(?:km|m|cm|mm|kg|g|t|톤|개|건|명|시간|분|초|일|주|개월|년|배|회|GB|MB|KB|TB)/giu;
 const EMAIL = /[\w.+-]+@[\w-]+\.[\w.-]+/g;
 const URL = /(?:https?:\/\/|www\.)[^\s<>()"']+/gi;
 /** Identifiers and codes: `WL-2026`, `SOP-Q3`, `ISO 27001`, `A1:B5`. */
-const CODE = /\b[A-Z]{2,}(?:[-_ ]?\d+)+\b|\b[A-Z]+\d+(?::[A-Z]+\d+)?\b/g;
+const CODE = /\b[A-Z]{2,}(?:[-_ ]?[A-Z]*\d+)+\b|\b[A-Z]+\d+(?::[A-Z]+\d+)?\b/g;
 /** Straight and typographic quotation, plus Korean corner brackets. */
 const QUOTE = /"([^"]{2,})"|“([^”]{2,})”|'([^']{3,})'|‘([^’]{3,})’|「([^」]{2,})」/gu;
+/** Only explicitly marked legal names and unambiguous department titles. */
+const COMPANY = /(?:주식회사\s+|㈜\s*|\(주\)\s*)[가-힣A-Za-z][가-힣A-Za-z0-9]*/gu;
+const DEPARTMENT = /(?:경영지원|인사|총무|법무|재무|회계|영업|개발|기획|홍보|감사)(?:팀|부|실|본부)(?=$|[\s.,;:!?()[\]{}"“”]|[은는이가을를에의와과도만])/gu;
+/** A Korean personal name only when the source itself supplies a job title. */
+const PERSON = /[가-힣]{2,4}\s*(?:대표이사|본부장|팀장|실장|사장|부장|차장|과장|대리)(?:님)?(?=$|[\s.,;:!?()[\]{}"“”]|[은는이가을를에의와과도만])/gu;
+const PROTECTED_PATTERNS = [DATE, TIME, MONEY, PERCENT, UNIT, EMAIL, URL, CODE, QUOTE, COMPANY, DEPARTMENT, PERSON, NUMBER] as const;
+
+/**
+ * Raw source spans for the model and the final guard. Longer overlapping
+ * matches win (a date rather than its component numbers, a quote rather than
+ * values inside it), while independent values retain their source order.
+ */
+export function protectedLiterals(text: string): string[] {
+  const spans: Array<{ start: number; end: number; value: string }> = [];
+  for (const pattern of PROTECTED_PATTERNS) {
+    for (const match of text.matchAll(pattern)) {
+      const start = match.index;
+      const value = match[0];
+      spans.push({ start, end: start + value.length, value });
+    }
+  }
+  spans.sort((a, b) => a.start - b.start || b.end - a.end);
+  const result: string[] = [];
+  let end = 0;
+  for (const span of spans) {
+    if (span.start < end) continue;
+    result.push(span.value);
+    end = span.end;
+  }
+  return result;
+}
 
 /**
  * Strength markers. Polishing may change the wording of a sentence but not
@@ -112,6 +143,14 @@ export function verifyPolish(original: string, revised: string): PolishVerdict {
   // Quotation is the author's, not the model's: it must come through verbatim.
   if (before.quotes.join("|") !== after.quotes.join("|")) {
     return { ok: false, rejection: "quote" };
+  }
+  // Compare the raw protected spans too: normalized category sets above do
+  // not detect reordering, changed separators/case, or named-entity swaps.
+  const originalLiterals = protectedLiterals(original);
+  const revisedLiterals = protectedLiterals(revised);
+  if (originalLiterals.length !== revisedLiterals.length ||
+    originalLiterals.some((value, index) => value !== revisedLiterals[index])) {
+    return { ok: false, rejection: "protected-token", detail: "literal" };
   }
   for (const [name, pattern] of Object.entries(MODALITY)) {
     if (pattern.test(original) !== pattern.test(revised)) {
