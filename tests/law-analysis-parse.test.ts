@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { LAW_ANALYSIS_CASE_PATTERN, LAW_ANALYSIS_ERROR, lawAnalysisOutcome, lawAnalysisRequestFor, normalizeAnalysisDate, normalizeAnalysisJo, type LawAnalysisDraft } from "@/lib/law-analysis";
-import { citationOverallLabel, citeCheckResult, impactMapResult, splitAnalysisText, verifyCitationsResult } from "@/lib/law-analysis-parse";
+import { applicableLawPresentation, citationOverallLabel, citeCheckResult, impactMapResult, splitAnalysisText, verifyCitationsResult } from "@/lib/law-analysis-parse";
 
 const VERIFY = [
   "[HALLUCINATION_DETECTED] == 인용 검증 결과 ==",
@@ -163,6 +163,41 @@ describe("legal_analysis presentation parsing", () => {
     ]);
     expect(document.sections[0].lines.join("\n")).toContain("시행 예정 개정 1건");
     expect(document.sections[1].lines).toEqual(["제44조(술에 취한 상태에서의 운전 금지)", "① 누구든지 술에 취한 상태에서 운전하여서는 아니 된다."]);
+  });
+
+  it("separates applicable-law decision from actual statute text and preserves transition states", () => {
+    const failed = applicableLawPresentation(APPLICABLE);
+    expect(failed.mst).toBe("247265");
+    expect(failed.jo).toBe("제44조");
+    expect(failed.sections.flatMap(({ heading, lines }) => [heading, ...lines]).join("\n")).toContain("시행 예정 개정 1건");
+    expect(failed.sections.flatMap(({ heading, lines }) => [heading, ...lines]).join("\n")).toContain("부칙 조회에 실패했습니다.");
+    expect(failed.sections.flatMap(({ heading, lines }) => [heading, ...lines]).join("\n")).not.toMatch(/get_law_text|술에 취한 상태에서의 운전 금지/u);
+    expect(failed.excerpts.map(({ heading, lines }) => `${heading}\n${lines.join("\n")}`).join("\n")).toContain("① 누구든지 술에 취한 상태에서 운전하여서는 아니 된다.");
+
+    const unconfirmed = applicableLawPresentation(APPLICABLE.replace(
+      "적용례·경과조치: [FAILED] 부칙 조회 실패 — get_law_text(mst=\"286419\")로 부칙을 직접 확인하세요.",
+      "적용례·경과조치: 관련 부칙에서 경과규정 신호 미발견 — 부칙 원문 확인: get_law_text",
+    ));
+    expect(unconfirmed.sections.map((section) => section.heading)).toContain("적용례·경과조치: 관련 부칙에서 경과규정을 확인하지 못했습니다. 부칙 원문을 확인해 주세요.");
+    expect(unconfirmed.excerpts).toEqual([{ heading: "조문 원문", lines: ["제44조(술에 취한 상태에서의 운전 금지)", "① 누구든지 술에 취한 상태에서 운전하여서는 아니 된다."] }]);
+    const lineStatus = applicableLawPresentation(APPLICABLE.replace(
+      "▶ 적용례·경과조치: [FAILED] 부칙 조회 실패 — get_law_text(mst=\"286419\")로 부칙을 직접 확인하세요.",
+      "▶ 적용례·경과조치\n부칙 원문 확인: get_law_text",
+    ));
+    expect(lineStatus.sections.map((section) => section.heading)).toContain("적용례·경과조치: 관련 부칙에서 경과규정을 확인하지 못했습니다. 부칙 원문을 확인해 주세요.");
+    expect(lineStatus.excerpts).toHaveLength(1);
+
+    const withAddenda = applicableLawPresentation(APPLICABLE.replace(
+      "▶ 적용례·경과조치: [FAILED] 부칙 조회 실패 — get_law_text(mst=\"286419\")로 부칙을 직접 확인하세요.",
+      "▶ 적용례·경과조치 발췌 (기준일 사건에 영향 가능)\n  ◆ 부칙 <제20864호, 2025.04.01>\n  제2조(적용례) 종전 규정을 적용한다.",
+    ));
+    expect(withAddenda.sections.map((section) => section.heading)).toContain("적용례·경과조치: 관련 부칙 발췌를 원문에서 확인해 주세요.");
+    expect(withAddenda.excerpts[1].lines).toContain("  제2조(적용례) 종전 규정을 적용한다.");
+    const noAddenda = applicableLawPresentation(APPLICABLE.replace(
+      "적용례·경과조치: [FAILED] 부칙 조회 실패 — get_law_text(mst=\"286419\")로 부칙을 직접 확인하세요.",
+      "적용례·경과조치: [NOT_FOUND] 관련 부칙 없음",
+    ));
+    expect(noAddenda.sections.map((section) => section.heading)).toContain("적용례·경과조치: 관련 부칙을 찾지 못했습니다.");
   });
 
   it("marks a failed impact axis as unknown instead of zero and keeps sampled counts as reported", () => {

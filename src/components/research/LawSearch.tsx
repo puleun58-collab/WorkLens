@@ -7,6 +7,7 @@ import {
   lawOutcome, lawStatusTone, lawTextIdentifier, lawTextOutcome,
   type LawEntry, type LawOutcome, type LawText, type LawTextOutcome,
 } from "@/lib/law-search";
+import { lawDisplayText } from "@/lib/law-display";
 import { LawTextBlock } from "./LawTextBlock";
 import { DecisionSearch, type LinkedDecisionSearch } from "./DecisionSearch";
 import { LegalAnalysis, type LinkedAnalysis } from "./LegalAnalysis";
@@ -194,7 +195,7 @@ function LawPane({ onRelated, onAnalysis }: LawPaneProps) {
     return <div className="law-search law-detail">
       <button type="button" className="law-search-link" onClick={backToResults}>← 검색 결과로</button>
       <section aria-labelledby="law-detail-heading" aria-busy={detailLoading}>
-        <h2 id="law-detail-heading">{data?.name ?? selected.name}</h2>
+        <h2 id="law-detail-heading">{lawDisplayText(data?.name ?? selected.name)}</h2>
         {(promulgated || effective) && <p className="law-search-meta">
           {promulgated && <span>공포일 {promulgated}</span>}
           {effective && <span>시행일 {effective}</span>}
@@ -266,10 +267,10 @@ function LawPane({ onRelated, onAnalysis }: LawPaneProps) {
             const promulgated = formatLawDate(law.promulgationDate);
             const tone = lawStatusTone(law.status);
             const content = <>
-              <strong>{law.name}</strong>
+              <strong>{lawDisplayText(law.name)}</strong>
               <span className="law-search-meta">
-                {law.kind && <span>{law.kind}</span>}
-                {law.status && <span className={`law-search-status is-${tone}`}>{law.status}</span>}
+                {law.kind && <span>{lawDisplayText(law.kind)}</span>}
+                {law.status && <span className={`law-search-status is-${tone}`}>{lawDisplayText(law.status)}</span>}
                 {effective && <span>시행일 {effective}</span>}
                 {promulgated && <span>공포일 {promulgated}</span>}
               </span>

@@ -1,8 +1,7 @@
 /**
- * Presentation parsers for `legal_analysis` text. Each mode keeps only the
- * structure its MCP output reliably has; every other line stays in an ordered
- * section so nothing the MCP said is dropped. The complete text is always
- * rendered separately as the source fallback.
+ * Presentation parsers for `legal_analysis` text. Raw MCP text remains intact
+ * for classification; applicable-law decisions and actual excerpts are shown
+ * separately, while other modes preserve their established sections.
  */
 
 export interface AnalysisSection {
@@ -69,6 +68,50 @@ export function splitAnalysisText(text: string): AnalysisDocument {
   }
   push();
   return document;
+}
+
+/** Separate the MCP's decision text from the statute excerpts it actually returned. */
+export function applicableLawPresentation(text: string): {
+  title?: string;
+  sections: AnalysisSection[];
+  excerpts: AnalysisSection[];
+  mst?: string;
+  jo?: string;
+} {
+  const parsed = splitAnalysisText(text);
+  const sections: AnalysisSection[] = [];
+  const excerpts: AnalysisSection[] = [];
+  let mst: string | undefined;
+  let jo: string | undefined;
+  let hasTransition = false;
+  for (const section of parsed.sections) {
+    const heading = section.heading ?? "";
+    if (heading.startsWith("기준일에 시행 중이던 버전")) {
+      mst = /\(\s*MST\s+(\d{6})\s*\)/u.exec(section.lines.join("\n"))?.[1];
+      sections.push({ heading, lines: section.lines.map((line) => line.replace(/\s*\(\s*MST\s+\d{6}\s*\)/gu, "")) });
+    } else if (heading.startsWith("기준일 시점 조문")) {
+      jo = /(제[1-9]\d{0,3}조(?:의[1-9]\d?)?)/u.exec(heading)?.[1];
+      sections.push({ heading: jo ? `기준일 시행 조문: ${jo}` : "기준일 시행 조문", lines: [] });
+      if (section.lines.length) excerpts.push({ heading: "조문 원문", lines: section.lines });
+    } else if (heading.startsWith("적용례·경과조치")) {
+      hasTransition = true;
+      const status = `${heading}\n${section.lines.join("\n")}`;
+      if (/\[(?:FAILED|REQUEST_TIMEOUT|UPSTREAM_NO_DATA|ERROR)\]|조회 실패|조회 오류/u.test(status)) {
+        sections.push({ heading: "적용례·경과조치: 부칙 조회에 실패했습니다. 부칙 원문을 확인해 주세요.", lines: [] });
+      } else if (/\[NOT_FOUND\]|관련 부칙 (?:없음|미제공|자료 없음)/u.test(status)) {
+        sections.push({ heading: "적용례·경과조치: 관련 부칙을 찾지 못했습니다.", lines: [] });
+      } else if (section.lines.some((line) => /^\s*(?:◆\s*부칙|제\d+조(?:의\d+)?(?:\(|\s))/u.test(line))) {
+        sections.push({ heading: "적용례·경과조치: 관련 부칙 발췌를 원문에서 확인해 주세요.", lines: [] });
+        excerpts.push({ heading: "부칙 원문", lines: section.lines });
+      } else {
+        sections.push({ heading: "적용례·경과조치: 관련 부칙에서 경과규정을 확인하지 못했습니다. 부칙 원문을 확인해 주세요.", lines: [] });
+      }
+    } else {
+      sections.push(section);
+    }
+  }
+  if (!hasTransition) sections.push({ heading: "적용례·경과조치: 관련 부칙에서 경과규정을 확인하지 못했습니다. 부칙 원문을 확인해 주세요.", lines: [] });
+  return { title: parsed.title, sections, excerpts, mst, jo };
 }
 
 export type CitationTone = "verified" | "unknown" | "critical" | "repealed";

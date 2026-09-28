@@ -187,14 +187,14 @@ function formatDate(value?: string): string | undefined {
 }
 
 /** Heading without the MCP's bracketed status markers, which the partial notice already reports. */
-const sectionHeading = (section: ResearchSection) => section.heading?.replace(/\s*\[[^\]]*\]/gu, "").trim();
+const sectionHeading = (section: ResearchSection) => lawDisplayText(section.heading?.replace(/\s*\[[^\]]*\]/gu, "").trim());
 
 function DecisionList({ entries }: { entries: ResearchDecision[] }) {
   return <ul className="research-hits">{entries.map((entry) => {
     const meta = [entry.caseNumber && `사건번호 ${entry.caseNumber}`, entry.body, formatDate(entry.date)].filter(Boolean).join(" · ");
     return <li key={entry.id}>
-      <strong>{entry.title ?? entry.caseNumber ?? "제목 없음"}</strong>
-      {meta && <span className="research-meta">{meta}</span>}
+      <strong>{lawDisplayText(entry.title ?? entry.caseNumber ?? "제목 없음")}</strong>
+      {meta && <span className="research-meta">{lawDisplayText(meta)}</span>}
     </li>;
   })}</ul>;
 }
@@ -316,7 +316,7 @@ function ResearchResult({ data }: { data: LawResearchData }) {
   const notice = partialNotice(result.sections);
   const supporting = result.sections.filter(isSupportingSection);
   return <div className="legal-analysis-output" data-task={data.task} data-markers={data.markers.join(" ")}>
-    {result.title && <h3 className="legal-analysis-title">{result.title}</h3>}
+    {result.title && <h3 className="legal-analysis-title">{lawDisplayText(result.title)}</h3>}
     {notice && <p className="legal-research-partial" role="note">{notice}</p>}
     {result.sections
       // A heading-less note that was only agent guidance has nothing left to show.
@@ -334,9 +334,9 @@ function ResearchResult({ data }: { data: LawResearchData }) {
     {supporting.length > 0 && <div className="legal-analysis-section research-supporting">
       <h3>상세 근거</h3>
       {supporting.map((section, index) => {
-        const heading = sectionHeading(section) ?? "상세 자료";
+        const heading = sectionHeading(section) || "상세 자료";
         const label = section.kind === "law_toc" && section.toc
-          ? `${section.toc.law ? `${section.toc.law} ` : ""}전체 목차 · ${section.toc.count.toLocaleString("ko-KR")}개 조문`
+          ? `${section.toc.law ? `${lawDisplayText(section.toc.law)} ` : ""}전체 목차 · ${section.toc.count.toLocaleString("ko-KR")}개 조문`
           : heading;
         return <details key={index} className="law-detail-source" data-kind={section.kind}>
           <SourceToggleSummary label={label} openLabel={`${label} 접기`} />
