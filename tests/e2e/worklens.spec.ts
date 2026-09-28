@@ -1537,13 +1537,25 @@ test("shows an informational Ask alert without inventing sources", async ({ page
     const geometry = await notice.evaluate((element) => {
       const style = getComputedStyle(element);
       const icon = element.querySelector(".status-panel-icon");
+      const svg = icon?.querySelector("svg");
       return {
         borders: [style.borderTopWidth, style.borderRightWidth, style.borderBottomWidth, style.borderLeftWidth],
-        iconVisible: Boolean(icon && getComputedStyle(icon).display !== "none" && icon.getBoundingClientRect().width > 0),
+        iconVisible: Boolean(icon && getComputedStyle(icon).display !== "none" && icon.getBoundingClientRect().width === 18),
+        badge: svg ? {
+          size: [svg.getBoundingClientRect().width, svg.getBoundingClientRect().height],
+          fill: getComputedStyle(svg).fill,
+          stroke: getComputedStyle(svg).stroke,
+          circle: svg.querySelector("circle") !== null,
+        } : null,
         withinViewport: element.getBoundingClientRect().right <= window.innerWidth,
       };
     });
-    expect(geometry).toEqual({ borders: ["1px", "1px", "1px", "1px"], iconVisible: true, withinViewport: true });
+    expect(geometry).toEqual({
+      borders: ["1px", "1px", "1px", "1px"],
+      iconVisible: true,
+      badge: { size: [18, 18], fill: "rgb(37, 99, 235)", stroke: "rgb(255, 255, 255)", circle: true },
+      withinViewport: true,
+    });
   };
   await assertAlertGeometry();
   await page.setViewportSize({ width: 390, height: 844 });

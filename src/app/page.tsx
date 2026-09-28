@@ -1472,7 +1472,7 @@ export default function Home() {
                 tone={notice.tone === "error" ? "alert" : "status"}
                 live={notice.tone === "error" ? "assertive" : "polite"}
                 title={notice.message}
-                icon={notice.tone === "info" ? <Info size={18} strokeWidth={2} /> : undefined}
+                icon={notice.tone === "info" ? <Info size={18} fill="currentColor" stroke="white" strokeWidth={2.2} /> : undefined}
               >
                 {notice.detail ? <p>{notice.detail}</p> : null}
               </StatusPanel>
@@ -2511,7 +2511,7 @@ function AnalyzeResults({ entries, enrichment, evidenceLimited, status, fileName
 
   return (
     <div className="analysis-report">
-      {enrichment && evidenceLimited ? <p className="result-inline-warning" role="status">AI 해석은 선택된 근거만 반영했습니다. 문서 전체를 빠짐없이 요약한 결과는 아닙니다.</p> : null}
+      {enrichment && evidenceLimited ? <p className="result-inline-warning" role="status">AI 해석은 확인된 근거를 바탕으로 제공되며, 문서 전체 내용을 모두 포함하지 않을 수 있습니다.</p> : null}
       {presentation.summary.length ? (
         <section className="analysis-report-section analysis-summary-section" aria-labelledby="analysis-summary-title">
           <div className="subsection-heading">

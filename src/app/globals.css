@@ -9483,14 +9483,18 @@ div.status-panel.info.notice {
   --alert-surface: var(--blue-pale);
 }
 
-div.status-panel.info.notice > .status-panel-icon {
+div.status-panel.info.notice > .status-panel-icon,
+.check-results .status-panel.success.result-clear > .status-panel-icon {
   position: absolute;
   top: 13px;
   left: 16px;
   width: 18px;
   height: 18px;
-  color: var(--blue);
   line-height: 0;
+}
+
+div.status-panel.info.notice > .status-panel-icon {
+  color: var(--blue);
 }
 
 div.status-panel.info.notice > strong {
@@ -9509,13 +9513,7 @@ div.status-panel.info.notice > p {
 }
 
 .check-results .status-panel.success.result-clear > .status-panel-icon {
-  position: absolute;
-  top: 13px;
-  left: 16px;
-  width: 18px;
-  height: 18px;
   color: var(--success-alert-ink);
-  line-height: 0;
 }
 
 .check-results .status-panel.success.result-clear > strong {
