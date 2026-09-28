@@ -234,6 +234,9 @@ function ExtractValueNote({ field }: { field: ExtractedField }) {
   return <small>{EXTRACT_TYPE_LABELS[field.type]}{confidence}</small>;
 }
 
+/** Shown only when every sentence was reviewed and the final text equals the original. */
+const POLISH_UNCHANGED_MESSAGE = "현재 문장은 별도 수정 없이 사용할 수 있습니다.";
+
 const checkCategoryLabels: Record<CheckCategory, string> = {
   spelling: "맞춤법",
   grammar: "문법",
@@ -2221,7 +2224,7 @@ function PolishResults({ result, fileNames, onSource, status }: {
       <PolishSummaryLine summary={result.summary} />
 
       {changed.length === 0 && rejected.length === 0 && result.summary.failed === 0 ? (
-        <p className="polish-unchanged-message">현재 문서는 {POLISH_MODE_LABELS[result.mode]} 기준에서 별도 수정이 필요하지 않습니다.</p>
+        <p className="polish-unchanged-message">{POLISH_UNCHANGED_MESSAGE}</p>
       ) : null}
 
       {changed.map((entry) => (
@@ -2310,8 +2313,14 @@ function PolishTextResults({ result, status }: { result: PolishTextResult | null
   if (!result) return null;
   const reasons = [...new Set(result.outcomes.flatMap((entry) => entry.reasons))].slice(0, 6);
   const rejected = result.outcomes.filter((entry) => entry.status === "rejected");
-  const changed = result.summary.changed > 0;
-  const showComparison = changed || rejected.length > 0;
+  // The final text decides, not the model's reply: a rejected or no-op
+  // proposal leaves the text as it was, and repeating it as a 수정안 says nothing.
+  const showComparison = result.revisedText !== result.originalText;
+  const rejectionNote = rejected.length ? (
+    <p className="polish-rejection-reason">
+      {[...new Set(rejected.map((entry) => entry.rejection ? POLISH_REJECTION_LABELS[entry.rejection] : "수정안을 적용하지 않았습니다."))].join(" · ")}
+    </p>
+  ) : null;
 
   return (
     <section className="panel results-panel polish-results polish-text-results">
@@ -2322,9 +2331,7 @@ function PolishTextResults({ result, status }: { result: PolishTextResult | null
       />
       <PolishSummaryLine summary={result.summary} />
 
-      {!showComparison && result.summary.failed === 0 ? (
-        <p className="polish-unchanged-message">현재 문장은 {POLISH_MODE_LABELS[result.mode]} 기준에서 별도 수정이 필요하지 않습니다.</p>
-      ) : showComparison ? (
+      {showComparison ? (
         <article className="polish-row polish-text-run">
           <PolishCopyBlock label="원문" text={result.originalText} />
           <PolishCopyBlock label="수정안" text={result.revisedText} revised />
@@ -2334,13 +2341,15 @@ function PolishTextResults({ result, status }: { result: PolishTextResult | null
               <p>{reasons.join(" · ")}</p>
             </div>
           ) : null}
-          {rejected.length ? (
-            <p className="polish-rejection-reason">
-              {[...new Set(rejected.map((entry) => entry.rejection ? POLISH_REJECTION_LABELS[entry.rejection] : "수정안을 적용하지 않았습니다."))].join(" · ")}
-            </p>
-          ) : null}
+          {rejectionNote}
         </article>
-      ) : null}
+      ) : (
+        <>
+          {/* Failed or protected sentences were not accepted as ready without edits. */}
+          {result.summary.failed === 0 && rejected.length === 0 ? <p className="polish-unchanged-message">{POLISH_UNCHANGED_MESSAGE}</p> : null}
+          {rejectionNote}
+        </>
+      )}
       <PolishFailedItems outcomes={result.outcomes} />
     </section>
   );

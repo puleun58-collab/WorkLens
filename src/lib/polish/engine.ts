@@ -81,7 +81,7 @@ export function polishTextResult(
   return {
     mode,
     originalText,
-    revisedText: assemblePolishText(segments, revisedById),
+    revisedText: revisedById.size ? assemblePolishText(segments, revisedById) : originalText,
     outcomes: [...outcomes],
     summary: summarizePolish(outcomes),
   };

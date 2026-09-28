@@ -1069,13 +1069,17 @@ test("presents text Polish as an immediate original-to-revision workflow", async
 
   await paste.fill("현재 문장은 자연스럽습니다.");
   await page.getByRole("button", { name: "윤문 실행" }).click();
-  await expect(result.getByText("현재 문장은 업무 문체 기준에서 별도 수정이 필요하지 않습니다.", { exact: true })).toBeVisible();
+  await expect(result.getByText("현재 문장은 별도 수정 없이 사용할 수 있습니다.", { exact: true })).toBeVisible();
   await expect(result.locator(".polish-row")).toHaveCount(0);
 
   await paste.fill("이번 매출은 1,250만원으로 집계되었습니다.");
   await page.getByRole("button", { name: "윤문 실행" }).click();
   await expect(result.locator(".polish-protection-metric")).toHaveText("보호 항목 1건 확인 필요");
   await expect(result).not.toContainText("보호 검증 차단");
+  // A rejected proposal leaves the text unchanged, so no identical 수정안 is repeated.
+  await expect(result.locator(".polish-summary-line")).toContainText("변경 0");
+  await expect(result.locator(".polish-row")).toHaveCount(0);
+  await expect(result.locator(".polish-rejection-reason")).toBeVisible();
 
   await page.getByRole("radio", { name: "파일 윤문" }).check();
   await page.getByRole("button", { name: "윤문 실행" }).click();
@@ -1114,7 +1118,7 @@ test("distinguishes partial Polish failure from unchanged text and clears stale 
   await expect(result.locator(".result-status")).toHaveText("일부 처리");
   await expect(result.locator(".polish-summary-line")).toContainText("변경 1");
   await expect(result.locator(".polish-summary-line")).toContainText("처리 실패 1");
-  await expect(result).not.toContainText("별도 수정이 필요하지 않습니다.");
+  await expect(result).not.toContainText("별도 수정 없이 사용할 수 있습니다.");
   await result.getByRole("button", { name: "처리되지 않은 문장 1건 보기" }).click();
   await expect(result).toContainText("이번 내용은 확인했습니다.");
 
@@ -1124,7 +1128,7 @@ test("distinguishes partial Polish failure from unchanged text and clears stale 
   await page.getByRole("button", { name: "윤문 실행" }).click();
   await expect(result).toHaveCount(0);
   await expect(page.locator(".notice.error")).toContainText("윤문을 완료하지 못했습니다.");
-  await expect(page.locator(".notice.error")).not.toContainText("별도 수정이 필요하지 않습니다.");
+  await expect(page.locator(".notice.error")).not.toContainText("별도 수정 없이 사용할 수 있습니다.");
 });
 
 test("runs Ask, Analyze, Polish, Check and Extract through the server AI boundary", async ({ page }) => {

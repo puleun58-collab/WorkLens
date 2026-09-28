@@ -75,6 +75,15 @@ describe("pasted text segmentation", () => {
     expect(result.revisedText).toBe(input);
   });
 
+  it("keeps the exact pasted text when no accepted rewrite exists", () => {
+    const input = "이번 매출은 1,250만원으로 집계되었습니다.\r\n검토 결과를 공유하겠습니다.";
+    const { result } = run(input, (text) => text.includes("1,250만원")
+      ? { changed: true, revisedText: text.replace("1,250만원", "1,350만원"), reasons: ["표현 정리"] }
+      : { changed: true, revisedText: text, reasons: ["문장 정리"] });
+    expect(result.summary).toMatchObject({ changed: 0, unchanged: 1, rejected: 1, failed: 0 });
+    expect(result.revisedText).toBe(input);
+  });
+
   it("refuses a rewrite that moves a number, a date, a URL or the strength of a statement", () => {
     const cases = [
       ["매출은 1,250만원으로 집계되었습니다.", "매출은 1,350만원으로 집계되었습니다."],
