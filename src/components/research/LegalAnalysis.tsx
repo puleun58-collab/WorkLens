@@ -170,8 +170,7 @@ export function LegalAnalysis({ linkedRequest, onReturn }: LegalAnalysisProps) {
           <button type="button" className="law-search-link" onClick={() => void run(current.request)}>다시 시도</button>
         </div>
         : current.outcome?.kind === "missing" ? <div className="legal-analysis-missing" role="status" data-marker={current.outcome.data.marker}>
-          <p className="law-search-note">요청한 법령·조문·판례를 법제처 자료에서 찾지 못했습니다.</p>
-          <LawTextBlock className="legal-analysis-raw" text={current.outcome.data.text} />
+          <p className="law-search-note">요청한 법령·조문·판례를 법제처 자료에서 찾지 못했습니다. 조회 실패와는 다른 결과입니다.</p>
         </div>
         : current.outcome?.kind === "found" ? <AnalysisResult data={current.outcome.data} request={current.request} />
         : null}
@@ -189,19 +188,19 @@ function analysisTitle(title: string): string {
 /** Limit machine-label cleanup to generated analysis prose; never rewrite quoted legal text or source. */
 function analysisStatus(text: string): string {
   return text
-    .replace(/\[(?:NOT_FOUND|CONTENT_MISMATCH|REQUEST_TIMEOUT|UPSTREAM_NO_DATA|FAILED|ERROR)\]\s*/gu, "")
+    .replace(/\[[A-Z][A-Z_]{2,}\]\s*/gu, "")
     .replace(/API 일시 실패/gu, "자료 조회 일시 실패")
     .replace(/\(\s*MST \d{6},\s*/gu, "(")
     .replace(/\s*\(MST \d{6}\)/gu, "");
 }
 
 function Lines({ lines }: { lines: string[] }) {
-  return lines.length ? <LawTextBlock className="legal-analysis-lines" text={lines.join("\n")} /> : null;
+  return lines.length ? <LawTextBlock className="legal-analysis-lines" text={lines.map(analysisStatus).join("\n")} /> : null;
 }
 
 function Sections({ sections }: { sections: AnalysisSection[] }) {
   return <>{sections.map((section, index) => <div key={index} className="legal-analysis-section">
-    {section.heading && <h3>{lawDisplayText(section.heading)}</h3>}
+    {section.heading && <h3>{lawDisplayText(analysisStatus(section.heading))}</h3>}
     <Lines lines={section.lines} />
   </div>)}</>;
 }
@@ -224,7 +223,7 @@ function AnalysisResult({ data, request }: { data: LawAnalysisData; request: Law
       : citationOverallLabel(result.overallMarker);
     body = <>
       {overall && <p className="legal-analysis-overall" data-marker={result.overallMarker ?? "NO_CITATIONS_FOUND"}>{overall}</p>}
-      {result.summary.length > 0 && <Lines lines={result.summary.map(analysisStatus)} />}
+      {result.summary.length > 0 && <Lines lines={result.summary} />}
       {(["law", "case"] as const).map((group) => {
         const items = result.items.filter((item) => item.group === group);
         return items.length ? <div key={group} className="legal-analysis-section">
@@ -237,8 +236,13 @@ function AnalysisResult({ data, request }: { data: LawAnalysisData; request: Law
           </ul>
         </div> : null;
       })}
-      <Sections sections={result.notes.map((section) => ({ ...section, lines: section.lines.map(analysisStatus) }))} />
+      <Sections sections={result.notes} />
     </>;
+    source = <details className="law-detail-source">
+      <SourceToggleSummary label="입력 원문 보기" openLabel="입력 원문 접기" />
+      <p className="law-search-note">검증에 사용한 입력입니다. 법령·판례 원문은 이 결과에 포함되지 않습니다.</p>
+      <LawTextBlock className="legal-analysis-raw" text={request.mode === "verify_citations" ? request.text : ""} />
+    </details>;
   } else if (data.mode === "cite_check") {
     const result = citeCheckResult(data.text);
     note = "법제처에 수록된 판례를 기준으로 확인한 결과입니다.";
@@ -247,29 +251,45 @@ function AnalysisResult({ data, request }: { data: LawAnalysisData; request: Law
       <Lines lines={result.target} />
       {result.verdict && <div className={`legal-analysis-verdict is-${result.verdict.tone}`}>
         <span className="legal-analysis-status">판정</span>
-        <LawTextBlock className="legal-analysis-lines" text={result.verdict.text} />
+        <Lines lines={[result.verdict.text]} />
       </div>}
-      <Sections sections={result.sections} />
       {result.limitation.length > 0 && <Lines lines={result.limitation} />}
     </>;
+    source = <details className="law-detail-source">
+      <SourceToggleSummary label="근거 보기" openLabel="근거 접기" />
+      <p className="law-search-note">후속 인용·본문 확인 결과입니다. 판결문 원문은 이 결과에 포함되지 않습니다.</p>
+      {result.sections.length > 0 ? <Sections sections={result.sections} />
+        : <p className="law-search-note">제공된 후속 판례 목록이 없습니다.</p>}
+    </details>;
   } else if (data.mode === "impact_map") {
     const result = impactMapResult(data.text);
+    const sourceHeading = /^(?:대상 조문 본문|(?:관련 )?조문 원문|부칙(?: 원문| 발췌)?)/u;
+    const sourceSections = result.sections.filter((section) => sourceHeading.test(section.heading ?? "")
+      && !/\[(?:NOT_FOUND|FAILED|ERROR|UPSTREAM_NO_DATA)\]/u.test(section.heading ?? "") && section.lines.length > 0);
+    const references = result.axes.filter((axis) => axis.items.length > 0);
     body = <>
       {result.title && <h3 className="legal-analysis-title">{analysisTitle(result.title)}</h3>}
       {result.sections.map((section, index) => index === result.graphIndex && result.axes.length
         ? <div key={index} className="legal-analysis-section">
-          <h3>{lawDisplayText(section.heading ?? "")}</h3>
+          <h3>{lawDisplayText(analysisStatus(section.heading ?? ""))}</h3>
           <ul className="legal-analysis-axes">
             {result.axes.map((axis) => <li key={axis.label} className={axis.failed ? "is-failed" : undefined}>
               <AxisLabel label={axis.label} />
-              <span className="legal-analysis-axis-value">{axis.failed ? `조회 실패 · 건수 미확인 — ${lawDisplayText(axis.value)}` : lawDisplayText(axis.value)}</span>
-              {axis.items.length > 0 && <ul>{axis.items.map((item, itemIndex) => <li key={itemIndex}>{lawDisplayText(item)}</li>)}</ul>}
+              <span className="legal-analysis-axis-value">{axis.failed ? `조회 실패 · 건수 미확인 — ${lawDisplayText(analysisStatus(axis.value))}` : lawDisplayText(analysisStatus(axis.value))}</span>
             </li>)}
           </ul>
           <Lines lines={result.graphNotes} />
         </div>
-        : <Sections key={index} sections={[section]} />)}
+        : sourceSections.includes(section) ? null
+          : <Sections key={index} sections={[section]} />)}
     </>;
+    source = <details className="law-detail-source">
+      <SourceToggleSummary label="근거·원문 보기" openLabel="근거·원문 접기" />
+      {sourceSections.length > 0
+        ? <LawTextBlock className="legal-analysis-raw" text={sourceSections.map((section) => `${section.heading}\n${section.lines.join("\n")}`).join("\n\n")} />
+        : <p className="law-search-note">조회된 조문 원문이 이 결과에 포함되지 않습니다.</p>}
+      {references.length > 0 && <Sections sections={references.map((axis) => ({ heading: `${axis.label} · 조회된 항목`, lines: axis.items }))} />}
+    </details>;
   } else {
     const parsed = applicableLawPresentation(data.text);
     body = <>
@@ -280,10 +300,7 @@ function AnalysisResult({ data, request }: { data: LawAnalysisData; request: Law
   }
   return <div className="legal-analysis-output" data-mode={data.mode} data-markers={data.markers.join(" ")}>
     {body}
-    {source ?? <details className="law-detail-source">
-      <SourceToggleSummary />
-      <LawTextBlock className="legal-analysis-raw" text={data.text} />
-    </details>}
+    {source}
     <p className="legal-analysis-note">{note ? `${note} ` : ""}{RESULT_NOTE}</p>
   </div>;
 }
