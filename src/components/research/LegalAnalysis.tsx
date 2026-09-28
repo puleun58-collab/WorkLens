@@ -188,6 +188,13 @@ function Sections({ sections }: { sections: AnalysisSection[] }) {
   </div>)}</>;
 }
 
+function AxisLabel({ label }: { label: string }) {
+  const match = /(.+?)(\([^()]*\)|（[^（）]*）)$/su.exec(label);
+  return <span className="legal-analysis-axis-label">
+    {match ? <>{match[1]}<wbr /><span className="legal-analysis-axis-suffix">{match[2]}</span></> : label}
+  </span>;
+}
+
 function AnalysisResult({ data }: { data: LawAnalysisData }) {
   let body: ReactNode;
   let note: string | undefined;
@@ -235,7 +242,7 @@ function AnalysisResult({ data }: { data: LawAnalysisData }) {
           <h3>{section.heading}</h3>
           <ul className="legal-analysis-axes">
             {result.axes.map((axis) => <li key={axis.label} className={axis.failed ? "is-failed" : undefined}>
-              <span className="legal-analysis-axis-label">{axis.label}</span>
+              <AxisLabel label={axis.label} />
               <span className="legal-analysis-axis-value">{axis.failed ? `조회 실패 · 건수 미확인 — ${axis.value}` : axis.value}</span>
               {axis.items.length > 0 && <ul>{axis.items.map((item, itemIndex) => <li key={itemIndex}>{item}</li>)}</ul>}
             </li>)}

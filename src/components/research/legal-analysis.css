@@ -25,11 +25,13 @@
 .legal-analysis-citations > li + li, .legal-analysis-axes > li + li { border-top: 1px solid var(--line-soft, var(--line)); }
 .legal-analysis-citation-text, .legal-analysis-axis-value { min-width: 0; overflow-wrap: anywhere; }
 .legal-analysis-status, .legal-analysis-axis-label { font-weight: 600; overflow-wrap: anywhere; }
+.legal-analysis-axis-label { min-width: 0; white-space: pre-wrap; }
+.legal-analysis-axis-suffix { display: inline-block; max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; }
 .legal-analysis-citations .is-verified .legal-analysis-status { color: var(--ink); }
 .legal-analysis-citations .is-unknown .legal-analysis-status { color: var(--muted); }
 .legal-analysis-citations .is-critical .legal-analysis-status { color: #b42318; }
 .legal-analysis-citations .is-repealed .legal-analysis-status { color: #8a5a00; }
-.legal-analysis-axes > li { grid-template-columns: minmax(120px, 220px) minmax(0, 1fr); }
+.legal-analysis-axes > li { grid-template-columns: minmax(120px, min(50%, 320px)) minmax(0, 1fr); }
 .legal-analysis-axes ul { grid-column: 1 / -1; display: grid; gap: 2px; margin: 0; padding: 0 0 0 16px; color: var(--muted); }
 .legal-analysis-axes li li { overflow-wrap: anywhere; }
 .legal-analysis-axes .is-failed .legal-analysis-axis-value { color: #8a5a00; }
