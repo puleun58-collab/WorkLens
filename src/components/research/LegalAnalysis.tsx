@@ -179,6 +179,22 @@ export function LegalAnalysis({ linkedRequest, onReturn }: LegalAnalysisProps) {
   </div>;
 }
 
+function analysisTitle(title: string): string {
+  return lawDisplayText(title
+    .replace(/^행위시법 판단: (.+) @ (\d{4}\.\d{2}\.\d{2})$/u, "행위시법 판단: $1 · 기준일 $2")
+    .replace(/^Impact Map: /u, "조문 영향도: ")
+    .replace(/^판례 인용 추적 \(Citator\): /u, "판례 인용 추적: "));
+}
+
+/** Limit machine-label cleanup to generated analysis prose; never rewrite quoted legal text or source. */
+function analysisStatus(text: string): string {
+  return text
+    .replace(/\[(?:NOT_FOUND|CONTENT_MISMATCH|REQUEST_TIMEOUT|UPSTREAM_NO_DATA|FAILED|ERROR)\]\s*/gu, "")
+    .replace(/API 일시 실패/gu, "자료 조회 일시 실패")
+    .replace(/\(\s*MST \d{6},\s*/gu, "(")
+    .replace(/\s*\(MST \d{6}\)/gu, "");
+}
+
 function Lines({ lines }: { lines: string[] }) {
   return lines.length ? <LawTextBlock className="legal-analysis-lines" text={lines.join("\n")} /> : null;
 }
@@ -208,7 +224,7 @@ function AnalysisResult({ data, request }: { data: LawAnalysisData; request: Law
       : citationOverallLabel(result.overallMarker);
     body = <>
       {overall && <p className="legal-analysis-overall" data-marker={result.overallMarker ?? "NO_CITATIONS_FOUND"}>{overall}</p>}
-      <Lines lines={result.summary} />
+      {result.summary.length > 0 && <Lines lines={result.summary.map(analysisStatus)} />}
       {(["law", "case"] as const).map((group) => {
         const items = result.items.filter((item) => item.group === group);
         return items.length ? <div key={group} className="legal-analysis-section">
@@ -216,18 +232,18 @@ function AnalysisResult({ data, request }: { data: LawAnalysisData; request: Law
           <ul className="legal-analysis-citations">
             {items.map((item, index) => <li key={index} className={`is-${item.tone}`} data-markers={item.markers.join(" ")}>
               <span className="legal-analysis-status">{item.label}</span>
-              <span className="legal-analysis-citation-text">{lawDisplayText(item.text)}</span>
+              <span className="legal-analysis-citation-text">{lawDisplayText(analysisStatus(item.text))}</span>
             </li>)}
           </ul>
         </div> : null;
       })}
-      <Sections sections={result.notes} />
+      <Sections sections={result.notes.map((section) => ({ ...section, lines: section.lines.map(analysisStatus) }))} />
     </>;
   } else if (data.mode === "cite_check") {
     const result = citeCheckResult(data.text);
     note = "법제처에 수록된 판례를 기준으로 확인한 결과입니다.";
     body = <>
-      {result.title && <h3 className="legal-analysis-title">{lawDisplayText(result.title)}</h3>}
+      {result.title && <h3 className="legal-analysis-title">{analysisTitle(result.title)}</h3>}
       <Lines lines={result.target} />
       {result.verdict && <div className={`legal-analysis-verdict is-${result.verdict.tone}`}>
         <span className="legal-analysis-status">판정</span>
@@ -239,7 +255,7 @@ function AnalysisResult({ data, request }: { data: LawAnalysisData; request: Law
   } else if (data.mode === "impact_map") {
     const result = impactMapResult(data.text);
     body = <>
-      {result.title && <h3 className="legal-analysis-title">{lawDisplayText(result.title)}</h3>}
+      {result.title && <h3 className="legal-analysis-title">{analysisTitle(result.title)}</h3>}
       {result.sections.map((section, index) => index === result.graphIndex && result.axes.length
         ? <div key={index} className="legal-analysis-section">
           <h3>{lawDisplayText(section.heading ?? "")}</h3>
@@ -257,7 +273,7 @@ function AnalysisResult({ data, request }: { data: LawAnalysisData; request: Law
   } else {
     const parsed = applicableLawPresentation(data.text);
     body = <>
-      {parsed.title && <h3 className="legal-analysis-title">{lawDisplayText(parsed.title)}</h3>}
+      {parsed.title && <h3 className="legal-analysis-title">{analysisTitle(parsed.title)}</h3>}
       <Sections sections={parsed.sections} />
     </>;
     source = <ApplicableLawSource parsed={parsed} jo={request.mode === "applicable_law" ? request.jo : undefined} />;

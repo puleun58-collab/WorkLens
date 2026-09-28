@@ -3335,10 +3335,9 @@ input:disabled,
 
 .polish-row {
   margin: 0 var(--panel-inset);
-  padding: 22px 0 24px;
-  border-top: 1px solid var(--line-soft);
+  padding: 0;
   display: grid;
-  gap: 16px;
+  gap: 14px;
 }
 
 .polish-row.rejected {
@@ -3350,26 +3349,34 @@ input:disabled,
   width: 100%;
   display: grid;
   gap: 8px;
+  padding: 12px 19px;
+  border-radius: var(--radius-control);
 }
 
 .polish-copy-block:not(.revised) {
-  padding: 14px 15px 15px;
   border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-control);
   background: var(--canvas);
 }
 
 .polish-copy-block.revised {
-  width: 100%;
-  padding: 14px 15px 15px;
-  border: 1px solid #b8dcf7;
-  border-left: 3px solid var(--blue);
-  border-radius: var(--radius-control);
+  border: 1px solid var(--blue-border);
   background: var(--blue-soft);
 }
 
 .polish-copy-block.revised .polish-label {
   color: var(--blue-active);
+}
+
+.polish-copy-heading .polish-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+}
+
+.polish-copy-heading .polish-label svg {
+  width: 16px;
+  height: 16px;
 }
 
 .polish-label {
@@ -3394,13 +3401,13 @@ input:disabled,
   justify-content: center;
   gap: 6px;
   min-width: 72px;
-  min-height: 36px;
+  min-height: 30px;
   padding: 0 10px;
   border: 1px solid transparent;
   border-radius: var(--radius-control);
   background: transparent;
   color: var(--muted);
-  font-size: var(--font-size-xs);
+  font-size: 12px;
   font-weight: var(--font-weight-semibold);
   white-space: nowrap;
   cursor: pointer;
@@ -3422,14 +3429,14 @@ input:disabled,
   min-width: 0;
   margin: 0;
   color: var(--ink-soft);
-  font-size: var(--font-size-sm);
-  line-height: 1.65;
+  font-size: 14px;
+  line-height: 1.55;
   overflow-wrap: anywhere;
 }
 
 .polish-copy-block > p.polish-revised {
   color: var(--ink);
-  font-weight: var(--font-weight-semibold);
+  font-weight: var(--font-weight-regular);
 }
 
 .polish-text-results .polish-copy-block > p {
@@ -8986,20 +8993,10 @@ input:disabled {
   padding-inline: 18px;
 }
 
-/*
- * White result surface, restrained blue-gray items and a blue revision:
- * preserve the existing hierarchy without a heavy item background.
- */
-.polish-row {
-  padding: 16px 18px 18px;
-  border: 1px solid var(--line-soft);
-  border-radius: var(--radius-control);
-  background: #f7f9fc;
-}
-
+/* The revision carries the visual emphasis; the row itself adds no card. */
 .polish-row + .polish-row,
 .polish-summary-line + .polish-row {
-  margin-top: 16px;
+  margin-top: 20px;
 }
 
 .polish-results .polish-row:last-of-type {
@@ -9031,10 +9028,6 @@ input:disabled {
 @media (max-width: 700px) {
   .check-results .check-issue-row {
     padding-inline: 14px;
-  }
-
-  .polish-row {
-    padding: 14px 14px 16px;
   }
 }
 
@@ -9509,8 +9502,8 @@ p.law-search-error.law-operation-error {
 }
 
 div.status-panel.info.notice {
-  --alert-border: var(--blue-border);
-  --alert-surface: var(--blue-pale);
+  --alert-border: color-mix(in srgb, var(--blue-border) 80%, var(--blue) 20%);
+  --alert-surface: var(--blue-soft);
 }
 
 div.status-panel.info.notice > .status-panel-icon,

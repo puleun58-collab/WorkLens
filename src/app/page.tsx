@@ -2261,7 +2261,7 @@ function PolishCopyBlock({ label, text, revised = false }: {
   return (
     <div className={`polish-copy-block${revised ? " revised" : ""}`}>
       <div className="polish-copy-heading">
-        <span className="polish-label">{label}</span>
+        <span className="polish-label">{revised ? <PenLine aria-hidden="true" /> : <FileText aria-hidden="true" />}{label}</span>
         <CopyButton text={text} label={revised ? "복사" : "원문 복사"} />
       </div>
       <p className={revised ? "polish-revised" : undefined}>{text}</p>
