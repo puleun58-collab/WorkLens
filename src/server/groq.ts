@@ -134,10 +134,9 @@ function parseResult(request: AiApiRequest, content: string): AiApiResult {
       const proposals: Extract<AiApiResult, { kind: "polish-batch" }>["proposals"] = [];
       const malformedIds = new Set<string>();
       for (const entry of validated.data.proposals) {
-        // Without an id, a malformed item cannot safely be assigned to a sentence.
-        if (!entry || typeof entry !== "object" || !("id" in entry) || typeof entry.id !== "string") {
-          throw new ApiError("INVALID_PROVIDER_OUTPUT", "AI 응답 형식이 올바르지 않습니다.", 502);
-        }
+        // An entry without a usable id cannot be attributed; keep the other
+        // sentences and let the client retry only the missing ids.
+        if (!entry || typeof entry !== "object" || !("id" in entry) || typeof entry.id !== "string") continue;
         const item = polishBatchItemSchema.safeParse(entry);
         if (!item.success || (item.data.proposal.changed && !item.data.proposal.revisedText.trim())) {
           malformedIds.add(entry.id);

@@ -165,6 +165,7 @@ describe("Groq provider failure boundaries", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(completion({ proposals: [
       { id: "one", proposal: { changed: false, revisedText: "첫 번째 문장을 검토합니다.", reasons: [] } },
       { id: "two", proposal: { changed: true, revisedText: " ", reasons: ["다듬기"] } },
+      { proposal: { changed: false, revisedText: "두 번째 문장을 검토합니다.", reasons: [] } },
     ] })));
     await expect(runGroqAi(request)).resolves.toEqual({
       kind: "polish-batch",
