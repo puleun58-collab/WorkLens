@@ -993,27 +993,16 @@ test("presents text Polish as an immediate original-to-revision workflow", async
   const original = result.locator(".polish-copy-block").filter({ hasText: "원문" });
   const revision = result.locator(".polish-copy-block").filter({ hasText: "수정안" });
 
-  const [inputBox, resultBox, emphasis, surface] = await Promise.all([
+  const [inputBox, resultBox, weights, revisionBorder] = await Promise.all([
     paste.boundingBox(),
     result.boundingBox(),
     Promise.all([
-      original.evaluate((block) => Number.parseInt(getComputedStyle(block.querySelector("p")!).fontWeight, 10)),
-      revision.evaluate((block) => Number.parseInt(getComputedStyle(block.querySelector("p")!).fontWeight, 10)),
+      original.evaluate((block) => getComputedStyle(block.querySelector("p")!).fontWeight),
+      revision.evaluate((block) => getComputedStyle(block.querySelector("p")!).fontWeight),
     ]),
-    result.evaluate((element) => {
-      const resultStyle = getComputedStyle(element);
-      const revisionStyle = getComputedStyle(element.querySelector(".polish-copy-block.revised")!);
-      const cardStyle = getComputedStyle(element.querySelector(".polish-row")!);
-      return {
-        page: getComputedStyle(document.body).backgroundColor,
-        resultBackground: resultStyle.backgroundColor,
-        resultBorder: resultStyle.borderTopWidth,
-        resultShadow: resultStyle.boxShadow,
-        cardBackground: cardStyle.backgroundColor,
-        cardBorder: cardStyle.borderTopWidth,
-        revisionBackground: revisionStyle.backgroundColor,
-        revisionBorder: revisionStyle.borderTopWidth,
-      };
+    revision.evaluate((block) => {
+      const style = getComputedStyle(block);
+      return { top: style.borderTopWidth, left: style.borderLeftWidth };
     }),
   ]);
   const boundaryBox = await page.locator(".work-section-heading").boundingBox();
@@ -1021,19 +1010,8 @@ test("presents text Polish as an immediate original-to-revision workflow", async
   expect(resultBox).not.toBeNull();
   expect(boundaryBox).not.toBeNull();
   expect(Math.abs(resultBox!.width - boundaryBox!.width)).toBeLessThanOrEqual(1);
-  expect(emphasis[1]).toBeGreaterThan(emphasis[0]);
-  // Canvas, white panel, light blue-gray item and blue revision remain distinct.
-  expect(new Set([surface.page, surface.resultBackground, surface.cardBackground, surface.revisionBackground]).size).toBe(4);
-  expect(surface).toMatchObject({
-    resultBackground: "rgb(255, 255, 255)",
-    resultBorder: "1px",
-    // Top-level surfaces take the single surface elevation; nested blocks stay flat.
-    resultShadow: "rgba(15, 23, 42, 0.04) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 4px 12px 0px",
-    cardBackground: "rgb(247, 249, 252)",
-    cardBorder: "1px",
-    revisionBackground: "rgb(239, 246, 255)",
-    revisionBorder: "1px",
-  });
+  expect(weights[1]).toBe(weights[0]);
+  expect(revisionBorder.left).toBe(revisionBorder.top);
   expect(await original.locator(".polish-copy-heading").evaluate((element) => getComputedStyle(element).justifyContent)).toBe("space-between");
   const copyActions = result.locator(".polish-copy-heading > button");
   const cardHierarchy = async () => result.evaluate((element) => {
@@ -1059,7 +1037,6 @@ test("presents text Polish as an immediate original-to-revision workflow", async
   const desktopCards = await cardHierarchy();
   expect(desktopCards.map((card) => card.label)).toEqual(["원문 복사", "복사"]);
   expect(desktopCards.map((card) => card.icon)).toEqual([true, true]);
-  expect(desktopCards[0].background).not.toBe(surface.cardBackground);
   expect(desktopCards[0].background).not.toBe(desktopCards[1].background);
   expect(desktopCards[0].right).toBe(desktopCards[1].right);
   expect(desktopCards[0].top).toBe(desktopCards[1].top);

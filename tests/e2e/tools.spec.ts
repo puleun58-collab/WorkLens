@@ -388,11 +388,15 @@ test("RESEARCH analysis runs each fixed mode, keeps MCP meaning and retries with
   await expect(citations.locator(".legal-analysis-status")).toHaveText(["실존 확인", "찾을 수 없음", "확인 필요"]);
   await expect(citations.nth(2)).toHaveClass(/is-unknown/);
   await expect(page.locator(".legal-analysis-overall")).toHaveText("확인이 필요한 인용이 있습니다.");
+  await expect(citations.nth(1)).toHaveAttribute("data-markers", "NOT_FOUND");
+  await expect(citations.nth(1)).not.toContainText("[NOT_FOUND]");
+  await expect(page.locator(".legal-analysis-section").last()).toContainText("자료 조회 일시 실패");
   expect(requests).toEqual([{ mode: "verify_citations", text }, { mode: "verify_citations", text }]);
 
   await modes.getByRole("button", { name: "판례 유효성" }).click();
   await page.getByLabel("사건번호").fill("2013다61381");
   await page.locator(".legal-analysis-form").getByRole("button", { name: "확인" }).click();
+  await expect(page.locator(".legal-analysis-title")).toHaveText("판례 인용 추적: 2013다61381");
   await expect(page.locator(".legal-analysis-verdict")).toContainText("변경·폐기 신호 미감지 — 계속 인용되는 것으로 추정");
   await expect(page.locator(".legal-analysis-output")).toContainText("법제처 수록 판례(대법원 중심) 범위 내 검색입니다.");
   await expect(page.locator(".legal-analysis-note")).toContainText("법제처에 수록된 판례를 기준으로 확인한 결과입니다.");
@@ -405,12 +409,14 @@ test("RESEARCH analysis runs each fixed mode, keeps MCP meaning and retries with
   await expect(applicableSubmit).toBeDisabled();
   await analysisForm.getByLabel("기준일").fill("2023-05-10");
   await applicableSubmit.click();
+  await expect(page.locator(".legal-analysis-title")).toHaveText("행위시법 판단: 도로교통법 · 기준일 2023.05.10");
   await expect(page.locator(".legal-analysis-output")).toContainText("현행과 비교: △ 변경됨");
 
   await modes.getByRole("button", { name: "조문 영향도" }).click();
   await analysisForm.getByLabel("법령명", { exact: true }).fill("민법");
   await analysisForm.getByLabel("조문", { exact: true }).fill("제103조");
   await page.locator(".legal-analysis-form").getByRole("button", { name: "영향도 확인" }).click();
+  await expect(page.locator(".legal-analysis-title")).toHaveText("조문 영향도: 민법 제103조");
   const failedAxis = page.locator(".legal-analysis-axes li.is-failed");
   await expect(failedAxis).toContainText("조회 실패 · 건수 미확인");
   await expect(failedAxis).not.toContainText(/: 0건$/);
