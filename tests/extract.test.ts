@@ -500,6 +500,42 @@ describe("structured export", () => {
     expect(records.autoFilter).toBeUndefined();
   });
 
+  it("omits empty Details and Evidence for a record-only automatic export", async () => {
+    const extracted = autoExtract(table([
+      ["담당자", "조치사항", "기한"],
+      ["김OO", "안전표지 설치", "9/30"],
+      ["이OO", "통로 정리", "10/5"],
+    ]), { id: "file-2", name: "실적.docx" });
+    expect(extracted.fields).toEqual([]);
+    expect(extracted.records).toHaveLength(1);
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(await structuredXlsx({
+      mode: "auto",
+      requestedFields: [],
+      files: [extracted],
+      summary: { fields: 0, missing: 0, records: 1, lowConfidence: 0 },
+    }) as unknown as Parameters<typeof workbook.xlsx.load>[0]);
+    expect(workbook.worksheets.map((sheet) => sheet.name)).toEqual(["Extracted Data", "Records"]);
+    expect(workbook.getWorksheet("Records")!.getRow(2).values).toEqual(
+      expect.arrayContaining(["실적.docx", "김OO", "안전표지 설치", "9/30"]),
+    );
+  });
+
+  it("keeps field details but omits Evidence when no source can be recorded", async () => {
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(await structuredXlsx({
+      mode: "auto",
+      requestedFields: [],
+      files: [{ file, fields: [{ field: "담당부서", displayValue: "인재개발팀", type: "Text", sources: [] }], records: [], missing: [] }],
+      summary: { fields: 1, missing: 0, records: 0, lowConfidence: 0 },
+    }) as unknown as Parameters<typeof workbook.xlsx.load>[0]);
+    expect(workbook.worksheets.map((sheet) => sheet.name)).toEqual(["Extracted Data", "Details"]);
+    expect(workbook.getWorksheet("Details")!.getRow(2).values).toEqual(
+      expect.arrayContaining(["담당부서", "인재개발팀"]),
+    );
+  });
+
   it("does not export generic source labels excluded by automatic extraction", () => {
     const extraction = autoExtract(paragraphs([
       "Source: 회사 공시",
@@ -535,6 +571,7 @@ describe("structured export", () => {
     const workbook = new ExcelJS.Workbook();
     const bytes = await structuredXlsx(auto);
     await workbook.xlsx.load(bytes as unknown as Parameters<typeof workbook.xlsx.load>[0]);
+    expect(workbook.worksheets.map((sheet) => sheet.name)).toEqual(["Extracted Data", "Details", "Evidence"]);
     expect(workbook.getWorksheet("Records")).toBeUndefined();
     expect(workbook.getWorksheet("Extracted Data")?.getRow(1).values).toEqual(
       expect.arrayContaining(["FILE", "작성부서"]),

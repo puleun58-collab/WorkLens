@@ -410,7 +410,9 @@ regressionCase({ id: "DOC-53", category: "Extract", input: "three-column CSV rec
   const rows = await csvRows(page);
   expect(rows.filter((r) => r[3] === "Record")).toHaveLength(3);
   expect(rows.some((r) => r[2].includes("부산 | 이,민수 | 90000"))).toBe(true);
-  const records = (await xlsxBook(page)).getWorksheet("Records")!;
+  const book = await xlsxBook(page);
+  expect(book.worksheets.map((sheet) => sheet.name)).toEqual(["Extracted Data", "Records"]);
+  const records = book.getWorksheet("Records")!;
   expect(records.getRow(3).getCell(4).value).toBe("이,민수");
   expect(records.getRow(4).getCell(5).value).toBe("");
   note("Three records retained; quoted comma and short row preserved in CSV and XLSX Records");
@@ -437,4 +439,43 @@ regressionCase({ id: "DOC-55", category: "Extract", input: "DOCX footer part", f
   expect((await csvRows(page)).some((r) => r.includes("꼬리말부서"))).toBe(true);
   expect((await xlsxBook(page)).getWorksheet("Details")!.getSheetValues().flat()).toContain("꼬리말부서");
   note("Footer 부서: 꼬리말부서 visible and present in reopened exports");
+});
+
+regressionCase({ id: "DOC-56", category: "Extract", input: "XLSX repeating table without fields", format: "XLSX", structure: "three-column header and two records", expected: "Downloaded workbook contains populated Records but no empty Details or Evidence" }, async ({ page, note }) => {
+  const inputBook = new ExcelJS.Workbook();
+  inputBook.addWorksheet("운송단가").addRows([
+    ["지역", "차종", "금액"],
+    ["서울", "1톤", 145000],
+    ["부산", "2톤", 90000],
+  ]);
+  const file = await prepared(page, "DOC-records.xlsx", new Uint8Array(await inputBook.xlsx.writeBuffer()));
+  const result = await runExtract(page, file);
+  await expect(result).toContainText("세부 표 1");
+
+  const book = await xlsxBook(page);
+  expect(book.worksheets.map((sheet) => sheet.name)).toEqual(["Extracted Data", "Records"]);
+  const records = book.getWorksheet("Records")!;
+  expect(records.getRow(2).values).toEqual(expect.arrayContaining(["DOC-records.xlsx", "서울", "1톤", "145000"]));
+  expect(records.getRow(3).values).toEqual(expect.arrayContaining(["부산", "2톤", "90000"]));
+  note("XLSX table rows preserved; reopened download has no empty Details or Evidence tabs");
+});
+
+regressionCase({ id: "DOC-57", category: "Extract", input: "DOCX field and repeating table", format: "DOCX", structure: "labeled paragraph plus three-column table", expected: "Downloaded workbook contains populated Details, Evidence and Records" }, async ({ page, note }) => {
+  const file = await prepared(page, "DOC-mixed.docx", docx(
+    paragraph("담당부서: 물류팀") + table([
+      ["지역", "차종", "금액"],
+      ["서울", "1톤", "145000"],
+      ["부산", "2톤", "90000"],
+    ]),
+  ));
+  const result = await runExtract(page, file);
+  await expect(result).toContainText("물류팀");
+  await expect(result).toContainText("세부 표 1");
+
+  const book = await xlsxBook(page);
+  expect(book.worksheets.map((sheet) => sheet.name)).toEqual(["Extracted Data", "Details", "Evidence", "Records"]);
+  expect(book.getWorksheet("Details")!.getRow(2).values).toEqual(expect.arrayContaining(["담당부서", "물류팀"]));
+  expect(book.getWorksheet("Evidence")!.getRow(2).values).toEqual(expect.arrayContaining(["담당부서", "물류팀"]));
+  expect(book.getWorksheet("Records")!.getRow(2).values).toEqual(expect.arrayContaining(["서울", "1톤", "145000"]));
+  note("DOCX field and table retained across all four populated workbook tabs");
 });

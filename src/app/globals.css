@@ -1035,7 +1035,9 @@ body {
 }
 
 button,
-input {
+input,
+select,
+textarea {
   font: inherit;
 }
 
@@ -1053,6 +1055,8 @@ a {
 
 button:focus-visible,
 input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
 a:focus-visible,
 [role="button"]:focus-visible,
 [tabindex="-1"]:focus-visible {
@@ -4899,12 +4903,6 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-.dropzone button:hover:not(:disabled),
-.operation-bar button:hover:not(:disabled),
-.export-actions button:hover:not(:disabled),
-.state-card button:hover:not(:disabled) {
-  transform: translateY(-1px);
-}
 
 .status-panel {
   animation: notice-enter var(--motion-standard) var(--motion-ease) both;
@@ -4928,7 +4926,7 @@ body {
 
 .empty-state {
   min-height: 140px;
-  background: linear-gradient(135deg, var(--paper), var(--blue-pale));
+  background: var(--paper);
 }
 
 .check-issue {
@@ -5066,7 +5064,6 @@ body {
 .finding-actions button:hover:not(:disabled) {
   border-bottom-color: var(--blue);
   color: var(--blue-active);
-  transform: translateY(-1px);
 }
 
 .dictionary-trigger,
@@ -5086,7 +5083,6 @@ body {
 .check-pagination button:hover:not(:disabled) {
   border-color: var(--blue);
   background: var(--blue-pale);
-  transform: translateY(-1px);
 }
 
 .dictionary-panel {
@@ -6445,13 +6441,18 @@ input:disabled {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .rail-tools-label {
+    margin-top: 8px;
+    padding-top: 8px;
+  }
+
   .rail-footer {
     width: 100%;
-    margin: 12px 0 0;
-    padding-top: 12px;
+    margin: 8px 0 0;
+    padding-top: 8px;
     border-top: 1px solid rgba(170, 187, 211, 0.18);
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 4px;
   }
 
@@ -9096,7 +9097,7 @@ button.law-search-button:disabled,
 }
 
 .workspace h2 {
-  font-weight: 650;
+  font-weight: var(--font-weight-bold);
   letter-spacing: -0.01em;
 }
 
@@ -9467,9 +9468,9 @@ p.law-search-error.law-operation-error {
 }
 
 .check-results div.status-panel.success.result-clear {
-  --alert-border: #89caa7;
-  --alert-surface: #effaf3;
-  --success-alert-ink: #128049;
+  --alert-border: #d5e7da;
+  --alert-surface: #f7fbf8;
+  --success-alert-ink: #28714d;
 }
 
 .check-results .status-panel.success.result-clear > .status-panel-icon {

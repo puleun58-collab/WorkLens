@@ -9,10 +9,11 @@ import { formatWorksheet } from "@/lib/xlsx-format";
  * Export of structured extraction.
  *
  * The workbook is the deliverable: one row per file when the user named the
- * fields, one row per extracted item in automatic mode, and a second sheet
- * carrying the source and quote behind every value. CSV holds the same table
- * with the source as a column, because a spreadsheet is where this data is
- * actually used.
+ * fields, one row per extracted item in automatic mode. Details and Evidence
+ * appear only when there are corresponding items and sources in automatic mode;
+ * requested-field mode keeps its existing horizontal result and evidence layout.
+ * CSV holds the same table with the source as a column, because a spreadsheet
+ * is where this data is actually used.
  */
 const CSV_MIME_TYPE = "text/csv; charset=utf-8";
 const XLSX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -97,27 +98,31 @@ export async function structuredXlsx(extract: StructuredExtract): Promise<Uint8A
       data.addRow([file.file.name, ...fields.map((name) => fieldValue(file.fields, name))]);
     }
 
-    const details = workbook.addWorksheet("Details");
-    details.addRow(["FILE", "FIELD", "VALUE", "TYPE", "SOURCE"]);
-    for (const file of extract.files) {
-      for (const field of file.fields) {
-        details.addRow([file.file.name, field.field, field.displayValue, field.type, sourcesText(field)]);
+    if (extract.files.some((file) => file.fields.length > 0)) {
+      const details = workbook.addWorksheet("Details");
+      details.addRow(["FILE", "FIELD", "VALUE", "TYPE", "SOURCE"]);
+      for (const file of extract.files) {
+        for (const field of file.fields) {
+          details.addRow([file.file.name, field.field, field.displayValue, field.type, sourcesText(field)]);
+        }
       }
+      formatWorksheet(details, { freezeHeader: true, autoFilter: true });
     }
-    formatWorksheet(details, { freezeHeader: true, autoFilter: true });
   }
   formatWorksheet(data, { freezeHeader: true, autoFilter: true });
 
-  const evidence = workbook.addWorksheet("Evidence");
-  evidence.addRow(["FILE", "FIELD", "VALUE", "SOURCE", "QUOTE"]);
-  for (const file of extract.files) {
-    for (const field of file.fields) {
-      for (const source of field.sources) {
-        evidence.addRow([file.file.name, field.field, field.displayValue, sourceText(source), field.quote ?? source.quote ?? ""]);
+  if (extract.mode === "fields" || extract.files.some((file) => file.fields.some((field) => field.sources.length > 0))) {
+    const evidence = workbook.addWorksheet("Evidence");
+    evidence.addRow(["FILE", "FIELD", "VALUE", "SOURCE", "QUOTE"]);
+    for (const file of extract.files) {
+      for (const field of file.fields) {
+        for (const source of field.sources) {
+          evidence.addRow([file.file.name, field.field, field.displayValue, sourceText(source), field.quote ?? source.quote ?? ""]);
+        }
       }
     }
+    formatWorksheet(evidence, { freezeHeader: true });
   }
-  formatWorksheet(evidence, { freezeHeader: true });
 
   // Repeating structures stay tables instead of being split into pairs.
   const withRecords = extract.files.filter((file) => file.records.length > 0);

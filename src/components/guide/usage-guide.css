@@ -16,9 +16,10 @@
   padding: 4px;
   overflow-x: auto;
   border: 1px solid var(--border-default);
-  border-radius: 8px;
-  background: #f3f6fa;
-  scrollbar-width: none;
+  border-radius: var(--radius-button);
+  background: var(--canvas);
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-default) transparent;
 }
 
 .usage-guide-tabs button {
@@ -27,7 +28,7 @@
   min-height: 36px;
   padding: 0 16px;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   background: transparent;
   color: var(--muted);
   font-size: var(--font-size-sm);
@@ -74,9 +75,10 @@
 .usage-guide-panel {
   display: grid;
   gap: 20px;
+  min-width: 0;
   padding: 24px;
-  border: 1px solid var(--border-surface, var(--border-default));
-  border-radius: 8px;
+  border: 1px solid var(--border-surface);
+  border-radius: var(--radius-panel);
   background: var(--paper);
   box-shadow: var(--elevation-surface);
 }
