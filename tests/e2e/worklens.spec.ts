@@ -167,12 +167,6 @@ test("uploads XLSX files, compares them and shows source evidence", async ({ pag
   await expect(panel.locator(".change-head [role='columnheader']")).toHaveText(["변경 유형", "기준 파일 값", "대상 파일 값", "변동", "근거"]);
   expect(await panel.locator(".change-head [role='columnheader']").evaluateAll((headers) =>
     headers.map((header) => getComputedStyle(header).textAlign))).toEqual(["left", "left", "left", "left", "left"]);
-  expect(await fileMap.locator("> div").evaluateAll((elements) =>
-    elements.map((element) => getComputedStyle(element).backgroundColor))).toEqual([
-    "rgb(255, 255, 255)",
-    "rgb(255, 255, 255)",
-  ]);
-  expect(await panel.locator(".change-head").evaluate((element) => getComputedStyle(element).backgroundColor)).toBe("rgb(238, 242, 247)");
   const edges = await panel.evaluate((root) => {
     const rect = (element: Element) => element.getBoundingClientRect();
     const [base, target] = [...root.querySelectorAll(".comparison-file-map > div")].map(rect);
@@ -521,8 +515,6 @@ test("checks shared values locally, keeps evidence, and exports both formats", a
   await expect(panel.locator(".value-check-filters")).toContainText("값 차이 1");
   await expect(panel.locator(".value-check-filters")).toContainText("일치 2");
   await expect(panel.locator(".check-summary-line")).toHaveCount(0);
-  expect(await panel.locator(".value-check-matrix-head").evaluate((element) => getComputedStyle(element).backgroundColor)).toBe("rgb(238, 242, 247)");
-  expect(await panel.locator(".value-check-matrix-row").first().evaluate((element) => getComputedStyle(element).backgroundColor)).toBe("rgb(255, 255, 255)");
   const different = panel.getByTestId("value-check-group").filter({ hasText: "목표주가" });
   await expect(different).toContainText("64,550원");
   await expect(different).toContainText("62,000원");

@@ -189,7 +189,7 @@ function Sections({ sections }: { sections: AnalysisSection[] }) {
 }
 
 function AxisLabel({ label }: { label: string }) {
-  const match = /(.+?)(\([^()]*\)|（[^（）]*）)$/su.exec(label);
+  const match = /(.+?)(\([^()]*\)|（[^（）]*）)$/u.exec(label);
   return <span className="legal-analysis-axis-label">
     {match ? <>{match[1]}<wbr /><span className="legal-analysis-axis-suffix">{match[2]}</span></> : label}
   </span>;
