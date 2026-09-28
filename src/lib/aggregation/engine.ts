@@ -202,7 +202,7 @@ function headersFor(rows: readonly TableCell[][], headerRow: number, depth: numb
   return headers;
 }
 
-function typedField(label: string, cell: TableCell): AggregationField {
+function typedField(label: string, key: string, cell: TableCell): AggregationField {
   const displayValue = cellText(cell);
   const isoDate = cell.valueType === "date" && typeof cell.value === "string" ? ISO_DATE.exec(cell.value) : null;
   // Midnight is how a plain calendar day serializes; only a real time of day
@@ -215,7 +215,7 @@ function typedField(label: string, cell: TableCell): AggregationField {
     ? (hasTimeOfDay ? `${isoDate[1]}-${isoDate[2]}-${isoDate[3]}T${isoDate[4]}:${isoDate[5]}` : `${isoDate[1]}-${isoDate[2]}-${isoDate[3]}`)
     : normalizeValue(displayValue, inferred);
   return {
-    key: fieldKey(label),
+    key,
     label,
     value: {
       displayValue,
@@ -347,12 +347,14 @@ function regionsForTable(document: NormalizedDocument, sheetId: string, table: T
   const collect = (headers: readonly HeaderColumn[], from: number, to: number, regionId: string, records: AggregationRecord[]): void => {
     const firstColumn = Math.min(...headers.map((entry) => entry.column)) + 1;
     const lastColumn = Math.max(...headers.map((entry) => entry.column)) + 1;
+    const keyedHeaders = headers.map(({ column, label }) => ({ column, label, key: fieldKey(label) }));
     for (let rowIndex = from; rowIndex <= to; rowIndex += 1) {
       const row = table.rows[rowIndex] ?? [];
-      const fields = headers.flatMap(({ column, label }) => {
+      const fields: AggregationField[] = [];
+      for (const { column, label, key } of keyedHeaders) {
         const cell = row[column];
-        return cell && cellText(cell) ? [typedField(label, cell)] : [];
-      });
+        if (cell && cellText(cell)) fields.push(typedField(label, key, cell));
+      }
       if (fields.length < MIN_RECORD_CELLS) continue;
       const rowNumber = rowIndex + 1;
       const range = `${columnName(firstColumn)}${rowNumber}:${columnName(lastColumn)}${rowNumber}`;

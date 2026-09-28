@@ -132,10 +132,8 @@ const admitWorkbookStructure = (bytes: Uint8Array): void => {
 
 const snapshot = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
-const styleSnapshot = (style: Partial<ExcelJS.Style>): XlsxStyleSnapshot | undefined => {
-  const cloned = snapshot(style) as XlsxStyleSnapshot;
-  return Object.keys(cloned).length > 0 ? cloned : undefined;
-};
+const styleSnapshot = (style: Partial<ExcelJS.Style>): XlsxStyleSnapshot | undefined =>
+  Object.keys(style).length ? snapshot(style) as XlsxStyleSnapshot : undefined;
 
 const cellPosition = (value: unknown): { row: number; column: number } | undefined => {
   if (typeof value === "string") {
