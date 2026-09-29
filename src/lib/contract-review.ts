@@ -172,11 +172,12 @@ export function documentSearchTerm(profile: DocumentProfile): string {
 
 const CLAUSE_HEAD = /^\s*(제\s*\d+\s*조(?:의\s*\d+)?)\.?\s*(?:\(([^)]{1,40})\))?\s*/u;
 /** Markdown heading/bold markers a pasted document may carry; they are formatting, not text. */
-const MARKDOWN_MARKS = /^#{1,6}\s+|^\*\*(.*)\*\*$/u;
+const MARKDOWN_HEADING = /^#{1,6}\s+/u;
+const MARKDOWN_BOLD = /\*\*(.+?)\*\*/gu;
 
 export function splitClauses(text: string): Clause[] {
   const lines = text.replace(/\r\n?/gu, "\n").split("\n")
-    .map((line) => line.trim().replace(MARKDOWN_MARKS, "$1").trim())
+    .map((line) => line.trim().replace(MARKDOWN_HEADING, "").replace(MARKDOWN_BOLD, "$1").trim())
     // A line break lost in copying can leave "…한다. 제2조(해지) …" on one line; an article
     // heading right after a sentence end starts a new clause, a cross-reference mid-sentence does not.
     .flatMap((line) => line.split(/(?<=[.다])\s+(?=제\s*\d+\s*조(?:의\s*\d+)?\s*\()/u))
