@@ -370,7 +370,7 @@ function ResearchSectionView({ section, task, relevance, retried }: {
     </div>;
   }
   if (section.kind === "decision_search" && section.decisions) {
-    const { total, entries } = section.decisions;
+    const { entries } = section.decisions;
     const rated = relevance && entries.some((entry) => relevance[entry.id]);
     const ordered = rated ? orderByRelevance(entries, relevance) : entries;
     // Cases whose 판시사항/opening does not address the question are kept, folded, never deleted.
