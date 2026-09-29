@@ -409,7 +409,8 @@ export const ISSUES: IssueDefinition[] = [
     detect: /(?:로그인|로그아웃|실행\s*기록|접속\s*(?:IP|기록)|다운로드\s*기록|화면\s*캡처|키\s*입력|위치\s*정보)[^.]{0,120}수집|(?:근태|근무\s*상황)[^.]{0,30}(?:확인|감시)[^.]{0,30}(?:정보|기록)[^.]{0,20}수집/u,
     laws: [{ law: "개인정보 보호법", jo: "제15조", domain: "privacy" }],
     queries: ["직원 업무용 PC 모니터링 개인정보", "근로자 감시 개인정보 수집"],
-    holdingTerms: /개인정보|감시|모니터링/u,
+    // A data breach holding is about security duties, not about watching staff.
+    holdingTerms: /(?:근로자|직원|피용자)[^.]{0,40}(?:감시|모니터링|전자우편|메신저|컴퓨터)|업무용\s*(?:PC|컴퓨터)|영상정보처리기기|CCTV/u,
     group: "monitoring",
   },
   {
@@ -419,7 +420,7 @@ export const ISSUES: IssueDefinition[] = [
     detect: /(?:근무\s*(?:상황|태도)|근태)[^.]{0,60}(?:CCTV|영상정보처리기기)|(?:CCTV|영상정보처리기기)[^.]{0,60}(?:근무\s*(?:상황|태도)|근태)|음성[^.]{0,10}녹음/u,
     laws: [{ law: "개인정보 보호법", jo: "제25조", domain: "privacy" }],
     queries: ["사업장 CCTV 근로자 감시 개인정보", "영상정보처리기기 녹음 기능"],
-    holdingTerms: /CCTV|영상정보처리기기|녹음/u,
+    holdingTerms: /영상정보처리기기|CCTV|(?:대화|음성)[^.]{0,10}녹음/u,
     group: "monitoring",
   },
   {
