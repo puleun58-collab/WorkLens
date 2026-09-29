@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { checkDocument, MAX_FINDINGS, mergeSemanticFindings, semanticFindings } from "@/lib/check";
+import { checkDocument, createDictionary, MAX_FINDINGS, mergeSemanticFindings, semanticFindings } from "@/lib/check";
+import { resummarize } from "@/lib/check/merge";
+import type { GroundedClaim } from "@/domain/ai";
 import type { NormalizedDocument, SourceRef } from "@/domain/document";
 
 function paragraphDocument(texts: readonly string[]): NormalizedDocument {
@@ -101,7 +103,7 @@ describe("check result assembly", () => {
         text: "Clarify the second sentence.",
         evidence: [{ source: document.blocks[1].source, support: "context" }],
       },
-    ]);
+    ], createDictionary());
 
     expect(colliding).toMatchObject({
       code: "semantic-writing-suggestion",
@@ -113,5 +115,77 @@ describe("check result assembly", () => {
     expect(merged).toContain(deterministic);
     expect(merged).not.toContain(colliding);
     expect(merged).toContain(nonColliding);
+  });
+
+  it("classifies an English typo from sentence review exactly like the rule finding and reports it once", () => {
+    const document = paragraphDocument([
+      "We should re-check teh assumptions before send the final file.",
+      "Please make sure every attachement are included.",
+      "The KPI dashboard show a incorrect forecast value.",
+      "Contact the WorkLnes team or the Recievr desk.",
+    ]);
+    const claim = (text: string, block: number, confidence: "high" | "medium" | "low" = "high"): GroundedClaim => ({
+      id: `claim:${text}`,
+      kind: "inference",
+      text: `추론: ${text}`,
+      confidence,
+      evidence: [{ source: document.blocks[block].source, support: "context" }],
+    });
+    const deterministic = checkDocument(document, { userTerms: ["Recievr"] });
+    const semantic = semanticFindings([
+      claim("‘teh’는 ‘the’로 표기해야 합니다.", 0),
+      claim("‘attachement’는 ‘attachment’로 표기해야 합니다.", 1),
+      claim("‘show’는 ‘shows’로 표기해야 합니다.", 2),
+      claim("‘WorkLnes’는 ‘WorkLens’로 표기해야 합니다.", 3),
+      claim("‘Recievr’는 ‘Receiver’로 표기해야 합니다.", 3),
+    ], createDictionary(["Recievr"]));
+    const merged = mergeSemanticFindings(deterministic.findings, semantic);
+
+    const spelling = merged.filter((finding) => finding.code === "english-spelling");
+    expect(spelling.map((finding) => [finding.normalizedToken, finding.severity])).toEqual([
+      ["teh", "warning"],
+      ["attachement", "warning"],
+      ["WorkLnes", "suggestion"],
+    ]);
+    const rule = spelling[0];
+    const reviewed = spelling[1];
+    expect(reviewed).toMatchObject({
+      ruleId: "writing/english/spelling:attachement",
+      category: "spelling",
+      confidence: "high",
+      issue: rule.issue,
+      message: "\"attachement\"의 철자를 확인하세요.",
+      recommendation: "\"attachment\"(으)로 교정하세요.",
+      suggestedText: "Please make sure every attachment are included.",
+      source: document.blocks[1].source,
+      dictionaryEligible: true,
+    });
+    expect(spelling[2]).toMatchObject({ message: "\"WorkLnes\" 표기가 맞는지 확인하세요.", recommendation: "\"WorkLens\" 표기인지 확인하세요." });
+    expect(spelling[2]).not.toHaveProperty("suggestedText");
+    // A word-form edit stays a sentence-review suggestion; no finding shows how grounding labelled the claim.
+    expect(merged.find((finding) => finding.code === "semantic-writing-suggestion")).toMatchObject({
+      severity: "suggestion",
+      message: "‘show’는 ‘shows’로 표기해야 합니다.",
+    });
+    expect(merged.some((finding) => finding.message.includes("추론"))).toBe(false);
+
+    const summary = resummarize(deterministic.summary, deterministic.findings, merged);
+    const shown = { critical: 0, warning: 0, suggestion: 0 };
+    for (const finding of merged) shown[finding.severity] += 1;
+    expect(summary.bySeverity).toEqual(shown);
+    expect(summary.totalFound).toBe(merged.length);
+    expect(sum(summary.byGroup)).toBe(merged.length);
+    expect(sum(summary.byConfidence)).toBe(merged.length);
+  });
+
+  it("keeps a sentence-review correction uncertain when it offers several candidates or low confidence", () => {
+    const document = paragraphDocument(["The quaterly report is late."]);
+    const evidence = [{ source: document.blocks[0].source, support: "context" as const }] as [{ source: SourceRef; support: "context" }];
+    const [several, unsure] = semanticFindings([
+      { id: "a", kind: "inference", text: "‘quaterly’는 ‘quarterly’ 또는 ‘quartely’로 표기해야 합니다.", confidence: "high", evidence },
+      { id: "b", kind: "inference", text: "‘quaterly’는 ‘quarterly’로 표기해야 합니다.", confidence: "low", evidence },
+    ], createDictionary());
+    expect(several).toMatchObject({ code: "english-spelling", severity: "suggestion", message: "\"quaterly\" 표기가 맞는지 확인하세요." });
+    expect(unsure).toMatchObject({ code: "english-spelling", severity: "suggestion", confidence: "low" });
   });
 });

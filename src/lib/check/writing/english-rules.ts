@@ -1,5 +1,6 @@
 import type { SourceRef } from "@/domain/document";
-import type { CheckFinding } from "@/domain/operations";
+import type { CheckConfidence, CheckFinding } from "@/domain/operations";
+import { isProtectedToken, type TermDictionary } from "../dictionary";
 import { makeFinding, type RuleContext, type TextUnit } from "../types";
 
 /**
@@ -36,6 +37,97 @@ export const ENGLISH_MISSPELLINGS: Record<string, string> = {
 };
 
 const WORD = /\b[A-Za-z][A-Za-z'-]{1,}\b/gu;
+const PLAIN_WORD = /^[A-Za-z]{3,}$/u;
+
+/** Optimal string alignment distance: substitution, insertion, deletion and adjacent transposition each cost 1. */
+function editDistance(left: string, right: string): number {
+  const rows = Array.from({ length: left.length + 1 }, (_, index) => [index, ...new Array<number>(right.length).fill(0)]);
+  for (let column = 1; column <= right.length; column += 1) rows[0][column] = column;
+  for (let row = 1; row <= left.length; row += 1) {
+    for (let column = 1; column <= right.length; column += 1) {
+      const cost = left[row - 1] === right[column - 1] ? 0 : 1;
+      rows[row][column] = Math.min(rows[row - 1][column] + 1, rows[row][column - 1] + 1, rows[row - 1][column - 1] + cost);
+      if (row > 1 && column > 1 && left[row - 1] === right[column - 2] && left[row - 2] === right[column - 1]) {
+        rows[row][column] = Math.min(rows[row][column], rows[row - 2][column - 2] + 1);
+      }
+    }
+  }
+  return rows[left.length][right.length];
+}
+
+/**
+ * How certain a word-level English correction is, whichever detector proposed
+ * it. `clear` is a concrete, stable correction (a known typo, or a candidate
+ * one or two letters away: doubled, missing, swapped or mistyped letters);
+ * `uncertain` still needs the author's intent. Returns `protected` for
+ * dictionary terms and `undefined` when the pair is not a spelling correction
+ * at all: phrases, case-only changes (a consistency matter), or inflection
+ * and word-form edits (`show`→`shows`, `send`→`sent`) that are grammar.
+ */
+export function classifyEnglishCorrection(
+  original: string,
+  replacement: string,
+  dictionary: TermDictionary,
+): "clear" | "uncertain" | "protected" | undefined {
+  if (!PLAIN_WORD.test(original) || !PLAIN_WORD.test(replacement)) return undefined;
+  const from = original.toLocaleLowerCase();
+  const to = replacement.toLocaleLowerCase();
+  if (from === to) return undefined;
+  if (dictionary.has(original)) return "protected";
+  if (ENGLISH_MISSPELLINGS[from] === to) return "clear";
+  if (to.startsWith(from) || from.startsWith(to)) return undefined;
+  const distance = editDistance(from, to);
+  if (distance === 1 && from.length === to.length && from.slice(0, -1) === to.slice(0, -1)) return undefined;
+  if (distance > 2 || (distance === 2 && from.length < 6)) return undefined;
+  return isProtectedToken(original, dictionary) ? "uncertain" : "clear";
+}
+
+function matchCase(word: string, replacement: string): string {
+  return word[0] === word[0].toLocaleUpperCase() ? replacement[0].toLocaleUpperCase() + replacement.slice(1) : replacement;
+}
+
+export interface EnglishSpellingInput {
+  word: string;
+  replacement: string;
+  certainty: "clear" | "uncertain";
+  sources: SourceRef[];
+  /** Text the word was found in; the suggested text replaces the word there. */
+  originalText: string;
+  /** Only used for uncertain corrections; a clear correction is always high confidence. */
+  confidence?: CheckConfidence;
+}
+
+/**
+ * The one English spelling finding every detector produces. Severity and
+ * wording follow the correction's certainty, never the detector: a clear
+ * typo is a warning with a concrete fix, an uncertain one a suggestion that
+ * asks the author to confirm the spelling.
+ */
+export function englishSpellingFinding(input: EnglishSpellingInput): CheckFinding {
+  const { word, certainty } = input;
+  const lower = word.toLocaleLowerCase();
+  const cased = matchCase(word, input.replacement);
+  const clear = certainty === "clear";
+  return makeFinding({
+    code: "english-spelling",
+    ruleId: `writing/english/spelling:${lower}`,
+    category: "spelling",
+    severity: clear ? "warning" : "suggestion",
+    confidence: clear ? "high" : input.confidence ?? "low",
+    issue: "영문 철자 오류 가능성",
+    message: clear ? `"${word}"의 철자를 확인하세요.` : `"${word}" 표기가 맞는지 확인하세요.`,
+    reason: !clear
+      ? "교정 후보가 확실하지 않아 원문 의도를 확인해야 합니다."
+      : ENGLISH_MISSPELLINGS[lower] === input.replacement.toLocaleLowerCase()
+        ? "표준 영어 사전에 없는 형태이며 알려진 오타 패턴과 일치합니다."
+        : "교정 후보와 한두 글자만 다른 명확한 철자 오류 형태입니다.",
+    recommendation: clear ? `"${cased}"(으)로 교정하세요.` : `"${cased}" 표기인지 확인하세요.`,
+    sources: input.sources,
+    originalText: input.originalText,
+    ...(clear ? { suggestedText: input.originalText.replace(new RegExp(`\\b${word}\\b`, "u"), cased) } : {}),
+    normalizedToken: word,
+  });
+}
 
 export function englishSpellingFindings(unit: TextUnit, context: RuleContext): CheckFinding[] {
   const findings: CheckFinding[] = [];
@@ -45,26 +137,10 @@ export function englishSpellingFindings(unit: TextUnit, context: RuleContext): C
     const lower = word.toLocaleLowerCase();
     const replacement = ENGLISH_MISSPELLINGS[lower];
     if (!replacement || reported.has(lower)) continue;
-    if (context.dictionary.has(word)) continue;
+    const certainty = classifyEnglishCorrection(word, replacement, context.dictionary);
+    if (certainty !== "clear" && certainty !== "uncertain") continue;
     reported.add(lower);
-    const cased = word[0] === word[0].toLocaleUpperCase()
-      ? replacement[0].toLocaleUpperCase() + replacement.slice(1)
-      : replacement;
-    findings.push(makeFinding({
-      code: "english-spelling",
-      ruleId: `writing/english/spelling:${lower}`,
-      category: "spelling",
-      severity: "warning",
-      confidence: "high",
-      issue: "영문 철자 오류 가능성",
-      message: `"${word}"의 철자를 확인하세요.`,
-      reason: "표준 영어 사전에 없는 형태이며 알려진 오타 패턴과 일치합니다.",
-      recommendation: `"${cased}"(으)로 교정하세요.`,
-      sources: [unit.source],
-      originalText: unit.text,
-      suggestedText: unit.text.replace(word, cased),
-      normalizedToken: word,
-    }));
+    findings.push(englishSpellingFinding({ word, replacement, certainty, sources: [unit.source], originalText: unit.text }));
   }
   return findings;
 }
