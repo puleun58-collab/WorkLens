@@ -16,10 +16,10 @@ export interface EnrichmentSources {
    * none, and then the opening of the judgment the MCP returns (`excerpt: true`).
    */
   summary(id: string): Promise<{ text: string; excerpt: boolean } | undefined>;
-  /** Current laws whose name matches the query. */
+  /** Laws returned by the official index; explicit non-current statuses are excluded. */
   laws(query: string): Promise<Array<{ name: string; mst: string }>>;
   toc(mst: string): Promise<Array<{ jo: string; title: string }>>;
-  article(mst: string, jo: string): Promise<{ text: string; effectiveDate?: string } | undefined>;
+  article(mst: string, jo: string): Promise<{ text: string; name?: string; effectiveDate?: string } | undefined>;
   /** 법령해석례 search; [] when the MCP reports no result. */
   interpretations(query: string): Promise<Array<{ id: string; title?: string; caseNumber?: string; body?: string; date?: string }>>;
 }
@@ -58,7 +58,8 @@ export function mcpEnrichmentSources(context: Context): EnrichmentSources {
     },
     async article(mst, jo) {
       const result = await getLawText({ mst }, jo, context);
-      return result.found ? { text: result.text, ...(result.effectiveDate ? { effectiveDate: result.effectiveDate } : {}) } : undefined;
+      return result.found ? { text: result.text, ...(result.name ? { name: result.name } : {}),
+        ...(result.effectiveDate ? { effectiveDate: result.effectiveDate } : {}) } : undefined;
     },
     async interpretations(query) {
       const result = await searchDecisions("interpretation", query, 1, context);
@@ -115,11 +116,12 @@ export async function enrichResearch(
   const started = now();
   const expired = () => now() - started > BUDGET_MS;
   const document = researchResult(text);
-  const terms = questionTerms(query);
+  const terms = (task === "full_research" ? questionTerms(query).slice(0, 8) : questionTerms(query));
   const enrichment: ResearchEnrichment = {};
 
   const shownArticles = document.sections.flatMap((section) => section.articles ?? []);
-  const cited = shownArticles.map((article) => `${article.law} ${article.jo}`);
+  const cited = shownArticles.filter((article) => task !== "full_research" || terms.some((term) => !isLawName(term)
+    && (article.title?.includes(term) || article.excerpt.includes(term)))).map((article) => `${article.law} ${article.jo}`);
 
   // Precedent lists only (not interpretations or tribunal rulings): the case summary is what the MCP can return.
   const precedentIds = [...new Set(document.sections
@@ -128,21 +130,30 @@ export async function enrichResearch(
     .map((entry) => entry.id))].slice(0, MAX_PRECEDENTS);
   if (task === "full_research" && precedentIds.length) {
     const titles = new Map(document.sections.flatMap((section) => section.decisions?.entries ?? []).map((entry) => [entry.id, entry.title]));
+    const excerpts: Record<string, string> = {};
     const relevance: Record<string, PrecedentRelevance> = {};
     await pool(precedentIds, async (id) => {
       const summary = await sources.summary(id).catch(() => undefined);
       relevance[id] = rankPrecedent(terms, { title: titles.get(id), ...(summary ? { summary: summary.text, excerpt: summary.excerpt } : {}) }, cited);
+      if (summary?.text && relevance[id].rank !== "low" && relevance[id].rank !== "unknown") {
+        excerpts[id] = summary.text.slice(0, EXCERPT_CHARS);
+      }
     }, expired);
     for (const id of precedentIds) relevance[id] ??= rankPrecedent(terms, { title: titles.get(id) });
     enrichment.precedents = relevance;
+    enrichment.precedentExcerpts = excerpts;
   }
 
-  // An empty 법령 해석례 section: retry once with the subject terms only (never wider than that).
+  // An empty 법령 해석례 section: retry once with the subject terms only. Titles
+  // remain search candidates, never proof of a legal interpretation.
   const interpretation = document.sections.find((section) => section.status === "not_found" && /해석례/u.test(section.heading ?? ""));
   const retryQuery = terms.join(" ");
   if (interpretation && terms.length && retryQuery !== query.trim() && !expired()) {
     const entries = await sources.interpretations(retryQuery).catch(() => []);
-    if (entries.length) enrichment.interpretations = { query: retryQuery, entries: entries.slice(0, 5) };
+    const relevant = task === "full_research"
+      ? entries.filter((entry) => terms.some((term) => (entry.title ?? "").replace(/\s+/gu, "").includes(term.replace(/\s+/gu, ""))))
+      : entries;
+    if (relevant.length) enrichment.interpretations = { query: retryQuery, entries: relevant.slice(0, 5) };
   }
 
   const keywords = terms.filter((term) => !isLawName(term));
@@ -190,8 +201,8 @@ export async function enrichResearch(
 
   const articles: SupplementArticle[] = [];
   await pool(chosen, async (candidate) => {
-    lookups++;
     const found = await sources.article(candidate.mst, candidate.jo).catch(() => { failures++; return undefined; });
+    if (task === "full_research" && found?.name && found.name !== candidate.law) return; // Stale/misdirected MST.
     const excerpt = found ? articleExcerpt(found.text, candidate.jo) : "";
     if (excerpt) articles.push({ law: candidate.law, jo: candidate.jo, title: candidate.title, excerpt, matched: candidate.matched,
       ...(found?.effectiveDate ? { effectiveDate: found.effectiveDate } : {}) });

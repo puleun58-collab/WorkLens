@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { orderByRelevance, questionTerms, rankPrecedent, titleMatches } from "@/lib/research-relevance";
+import { hasRelevantResearchEvidence, researchEvidenceSources, orderByRelevance, questionTerms, rankPrecedent, titleMatches } from "@/lib/research-relevance";
 import { enrichResearch, precedentEvidence, type EnrichmentSources } from "@/server/research-enrichment";
 
 /** A full_research answer shaped like the live one for "직장 내 괴롭힘 판단 기준". */
@@ -126,6 +126,30 @@ describe("precedent relevance for 종합 리서치", () => {
   });
 });
 
+describe("evidence versus search candidates", () => {
+  it("does not adopt a large hit count, title match or narrative as issue evidence", () => {
+    const candidates = "═══ 종합 리서치 ═══\n▶ 관련 판례\n판례 검색 결과 (총 100건, 1페이지):\n\n[1] 임대차 보증금 반환\n  사건번호: 2025다1\n\n▶ STEP 5 종합\n보증금 반환이 가능할 수 있습니다.";
+    expect(hasRelevantResearchEvidence(candidates, "임대차 보증금 반환")).toBe(false);
+    expect(hasRelevantResearchEvidence(candidates, "임대차 보증금 반환", {
+      precedents: { "1": { rank: "direct", matched: ["근거 없는 제3조"] } },
+    })).toBe(false);
+  });
+
+  it("requires specific overlap in official article content, not an incidental generic word", () => {
+    const source = "═══ 종합 리서치 ═══\n▶ AI 법령검색 결과\n지능형 법령검색 결과 (법령조문, 1건):\n\n주택임대차보호법\n   제0003조의2 (보증금의 회수)\n임대차 보증금의 반환과 관련된 규정\n   시행: 2025.01.01 | 법무부";
+    expect(hasRelevantResearchEvidence(source, "임대차 보증금 반환")).toBe(true);
+    expect(hasRelevantResearchEvidence(source.replace("임대차 보증금의 반환과 관련된 규정", "보증금이라는 단어만 있음"),
+      "임대차 보증금 반환")).toBe(false);
+  });
+
+  it("identifies only source-content matches for citation and leaves other search hits as candidates", () => {
+    const source = "═══ 종합 리서치 ═══\n▶ AI 법령검색 결과\n지능형 법령검색 결과 (법령조문, 2건):\n\n주택임대차보호법\n   제0003조의2 (보증금의 회수)\n임대차 보증금의 반환에 관한 내용\n   시행: 2025.01.01 | 법무부\n\n건축법\n   제0080조 (이행강제금)\n건축물에 이행강제금을 부과한다.\n   시행: 2025.01.01 | 국토교통부";
+    expect(researchEvidenceSources(source, "임대차 보증금 반환")).toEqual({
+      articles: [{ law: "주택임대차보호법", jo: "제3조의2" }], precedents: [],
+    });
+  });
+});
+
 describe("title-matched article lookup", () => {
   it("ignores terms that are part of the law's own name", () => {
     expect(titleMatches(["임대차", "보증금", "반환"], "주택임대차보호법", "보증금의 회수")).toEqual(["보증금"]);
@@ -155,6 +179,24 @@ describe("title-matched article lookup", () => {
     const enrichment = await enrichResearch("full_research", "임대차 보증금 반환", answer, sources);
     expect(enrichment.supplement!.articles.map((article) => `${article.law} ${article.jo}`)).toEqual(["주택임대차보호법 제8조", "상가건물 임대차보호법 제5조"]);
     expect(sources.calls).not.toContain("toc:r");
+  });
+
+  it("rejects a stale law identifier that resolves to another title and keeps source dates literal", async () => {
+    const sources = fakeSources({
+      async laws(query) { return query === "건축법" ? [{ name: "건축법", mst: "m1" }] : []; },
+      async toc() { return [{ jo: "제80조", title: "이행강제금" }]; },
+      async article() { return { name: "다른 법률", text: "제80조(이행강제금) 부과한다.", effectiveDate: "20180101" }; },
+    });
+    const stale = await enrichResearch("full_research", "건축법 이행강제금", "", sources);
+    expect(stale.supplement).toEqual({ status: "none", articles: [] });
+    const datedSources = fakeSources({
+      async laws(query) { return query === "건축법" ? [{ name: "건축법", mst: "m1" }] : []; },
+      async toc() { return [{ jo: "제80조", title: "이행강제금" }]; },
+      async article() { return { name: "건축법", text: "제80조(이행강제금) 부과한다.", effectiveDate: "20180101" }; },
+    });
+    const dated = await enrichResearch("full_research", "건축법 이행강제금", "", datedSources);
+    expect(dated.supplement?.articles[0]).toMatchObject({ law: "건축법", effectiveDate: "20180101" });
+    expect(dated.supplement?.articles[0]).not.toHaveProperty("status");
   });
 
   it("reports none, failed and not searched as different states, and never invents an article", async () => {

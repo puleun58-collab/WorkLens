@@ -1,8 +1,58 @@
 import type { LawResearchAbsent, LawResearchData, LawResearchRequest } from "@/lib/law-research";
+import { researchEvidenceSources } from "@/lib/research-relevance";
 import { classifyLawToolResult } from "@/server/law-analysis-mcp";
 import { callLawTool } from "@/server/law-mcp";
 import { mcpReviewSources, reviewContract } from "@/server/contract-review";
+import { interpretResearchQuery } from "@/server/groq";
+import { ApiError } from "@/server/http";
 import { enrichResearch, mcpEnrichmentSources } from "@/server/research-enrichment";
+
+const RESEARCH_FAILURE = "법령 리서치 서비스가 요청을 처리하지 못했습니다.";
+
+async function fullResearch(
+  query: string,
+  context: { requestId: string; signal?: AbortSignal },
+): Promise<LawResearchData | LawResearchAbsent> {
+  // An interpretation may be unavailable without taking away the original
+  // question's existing search path. It never supplies factual evidence.
+  const interpretation = await interpretResearchQuery(query, context).catch(() => undefined);
+  if (context.signal?.aborted) throw new ApiError("LAW_REQUEST_ABORTED", "요청이 취소되었습니다.", 499);
+  const issue = interpretation?.issues.join(" / ").slice(0, 500) || query;
+  const attempt = async (searchQuery: string) => {
+    const { text, isError } = await callLawTool("legal_research", { task: "full_research", query: searchQuery }, context);
+    const classification = classifyLawToolResult(text, isError, { failureMessage: RESEARCH_FAILURE });
+    if (classification.kind === "absent") return { found: false as const, task: "full_research" as const, marker: "NOT_FOUND" as const, text };
+    const enrichment = await enrichResearch("full_research", issue, text, mcpEnrichmentSources(context)).catch(() => undefined);
+    const issues = interpretation?.issues ?? [query];
+    const matched = issues.map((item) => researchEvidenceSources(text, item, enrichment));
+    const matchedCount = matched.filter((sources) => sources.articles.length || sources.precedents.length).length;
+    const status = matchedCount === issues.length ? "matched" as const : matchedCount ? "partial" as const : "unverified" as const;
+    const articles = [...new Map(matched.flatMap((sources) => sources.articles).map((article) => [`${article.law}\0${article.jo}`, article])).values()];
+    const precedents = [...new Set(matched.flatMap((sources) => sources.precedents))];
+    const precedentExcerpts = precedents.length ? Object.fromEntries(precedents.flatMap((id) => enrichment?.precedentExcerpts?.[id]
+      ? [[id, enrichment.precedentExcerpts[id]]] : [])) : undefined;
+    return { found: true as const, task: "full_research" as const, text, markers: classification.markers,
+      ...(enrichment ? { enrichment } : {}), evidence: { status, articles, precedents,
+        ...(precedentExcerpts && Object.keys(precedentExcerpts).length ? { precedentExcerpts } : {}) } };
+  };
+  const first = await attempt(issue);
+  if (!interpretation || (first.found && first.evidence.status === "matched")) {
+    return { ...first, ...(interpretation ? { interpretation } : {}) };
+  }
+  // One alternative retrieval only, drawn from the same interpreted issue.
+  // A failed second lookup never erases an official first response.
+  const alternative = interpretation.searchTerms.slice(0, 2).join(" ");
+  if (!alternative || alternative === issue || alternative === query) {
+    return { ...first, interpretation };
+  }
+  const second = await attempt(alternative).catch((error: unknown) => {
+    if (context.signal?.aborted) throw error;
+    return undefined;
+  });
+  const score: Record<"unverified" | "partial" | "matched", number> = { unverified: 0, partial: 1, matched: 2 };
+  const selected = second?.found && (!first.found || score[second.evidence.status] > score[first.evidence.status]) ? second : first;
+  return { ...selected, interpretation };
+}
 
 export async function runLegalResearch(
   request: LawResearchRequest,
@@ -14,9 +64,9 @@ export async function runLegalResearch(
     const review = await reviewContract(request.text, mcpReviewSources(context));
     return { found: true, task: request.task, text: "", markers: [], review };
   }
+  if (request.task === "full_research") return fullResearch(request.query, context);
   const result = (() => {
     switch (request.task) {
-      case "full_research":
       case "action_basis":
       case "procedure_detail":
         return callLawTool("legal_research", { task: request.task, query: request.query }, context);
@@ -41,13 +91,13 @@ export async function runLegalResearch(
   })();
   const { text, isError } = await result;
   const classification = classifyLawToolResult(text, isError, {
-    failureMessage: "법령 리서치 서비스가 요청을 처리하지 못했습니다.",
+    failureMessage: RESEARCH_FAILURE,
   });
   if (classification.kind === "absent") {
     return { found: false, task: request.task, marker: "NOT_FOUND", text };
   }
-  // Re-rank precedents and add title-matched articles; the MCP answer stands on its own if this fails.
-  if (request.task === "full_research" || request.task === "action_basis") {
+  // Action-basis enrichment keeps its previous behavior; full research is handled above.
+  if (request.task === "action_basis") {
     const enrichment = await enrichResearch(request.task, request.query, text, mcpEnrichmentSources(context)).catch(() => undefined);
     if (enrichment) return { found: true, task: request.task, text, markers: classification.markers, enrichment };
   }
