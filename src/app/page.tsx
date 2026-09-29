@@ -151,6 +151,8 @@ const [UsageGuide, loadUsageGuide] = lazyView(() => import("@/components/guide/U
 
 /** Warm-up order: lighter, more frequently opened views first; the PDF tool is the largest. */
 const LAZY_VIEW_LOADERS = [loadLawSearch, loadUsageGuide, loadImageTool, loadPdfTool] as const;
+/** Quiet period after `load` before idle warm-up; hover/focus prefetch is not delayed. */
+const WARM_UP_DELAY_MS = 2000;
 
 /** Starts a lazy view's download before the click; the view's own fallback covers a failure. */
 function prefetchView(load: () => Promise<unknown>): void {
@@ -159,17 +161,20 @@ function prefetchView(load: () => Promise<unknown>): void {
 
 /**
  * Loads the lazy views one at a time while the browser is idle, so pointer-less
- * devices also open them without a chunk wait. Skipped on data-saver or 2G.
+ * devices also open them without a chunk wait. Called once the app is
+ * hydrated; it still waits for the window `load` event and a quiet period so
+ * chunk downloads and module evaluation never compete with the first screen.
+ * Skipped on data-saver or 2G.
  */
 function warmLazyViews(): () => void {
   const connection = (navigator as Navigator & { connection?: { saveData?: boolean; effectiveType?: string } }).connection;
   if (connection?.saveData || /2g/u.test(connection?.effectiveType ?? "")) return () => undefined;
   let cancelled = false;
-  let handle: number | undefined;
+  let timer: number | undefined;
+  let idle: number | undefined;
   const schedule = (callback: () => void) => {
-    handle = typeof window.requestIdleCallback === "function"
-      ? window.requestIdleCallback(callback, { timeout: 5000 })
-      : window.setTimeout(callback, 1500);
+    if (typeof window.requestIdleCallback === "function") idle = window.requestIdleCallback(callback, { timeout: 5000 });
+    else timer = window.setTimeout(callback, 1500);
   };
   const next = (index: number) => {
     if (cancelled || index >= LAZY_VIEW_LOADERS.length) return;
@@ -177,12 +182,16 @@ function warmLazyViews(): () => void {
       LAZY_VIEW_LOADERS[index]().catch(() => undefined).finally(() => next(index + 1));
     });
   };
-  next(0);
+  const start = () => {
+    timer = window.setTimeout(() => next(0), WARM_UP_DELAY_MS);
+  };
+  if (document.readyState === "complete") start();
+  else window.addEventListener("load", start, { once: true });
   return () => {
     cancelled = true;
-    if (handle === undefined) return;
-    if (typeof window.cancelIdleCallback === "function") window.cancelIdleCallback(handle);
-    else window.clearTimeout(handle);
+    window.removeEventListener("load", start);
+    if (timer !== undefined) window.clearTimeout(timer);
+    if (idle !== undefined) window.cancelIdleCallback(idle);
   };
 }
 
@@ -573,7 +582,7 @@ export default function Home() {
    * `true`, so `data-hydrated` flips exactly when this tree is interactive.
    */
   const hydrated = useSyncExternalStore(subscribeNothing, clientHydrated, serverHydrated);
-  useEffect(() => warmLazyViews(), []);
+  useEffect(() => (hydrated ? warmLazyViews() : undefined), [hydrated]);
   const [polishMode, setPolishMode] = useState<PolishMode>("default");
   const [polish, setPolish] = useState<PolishResult | null>(null);
   const [polishProgress, setPolishProgress] = useState<{ done: number; total: number } | null>(null);
