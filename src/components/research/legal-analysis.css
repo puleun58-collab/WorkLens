@@ -20,7 +20,7 @@
 .legal-analysis-section h3 { margin: 0; font-size: var(--font-size-sm); font-weight: 700; overflow-wrap: anywhere; }
 .legal-analysis-lines, .legal-analysis-raw { box-sizing: border-box; max-width: 100%; min-width: 0; margin: 0; color: var(--ink); font: inherit; font-size: var(--font-size-sm); line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
 .legal-analysis-raw { padding: 16px; border: 1px solid var(--line-soft, var(--line)); border-radius: var(--radius-panel, 8px); background: var(--paper); }
-.legal-analysis-output .law-detail-source > :is(.law-search-note, .legal-analysis-raw, .legal-analysis-section) { margin-top: 8px; }
+.legal-analysis-output .law-detail-source > :is(.law-search-note, .legal-analysis-raw, .legal-analysis-lines, .legal-analysis-section) { margin-top: 8px; }
 .legal-analysis-overall { margin: 0; font-weight: 600; }
 .legal-analysis-citations, .legal-analysis-axes { margin: 0; padding: 0; list-style: none; border: 1px solid var(--line-soft, var(--line)); border-radius: var(--radius-panel, 8px); background: var(--paper); }
 .legal-analysis-citations > li, .legal-analysis-axes > li { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 4px 12px; padding: 10px 14px; font-size: var(--font-size-sm); line-height: 1.6; }

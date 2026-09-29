@@ -346,7 +346,7 @@ test("law results render MCP <br> tags as line breaks and keep other HTML inert 
 
 const ANALYSIS_TEXT: Record<string, string> = {
   verify_citations: "[PARTIAL_VERIFIED] == 인용 검증 결과 ==\n법령 인용 3건 | ✓ 1 실존 | ✗ 1 오류 | ⌛ 0 폐지 | ⚠ 1 확인필요\n판례 인용 0건 | ✓ 0 실존 | ✗ 0 실존불가 | ⚠ 0 미확인\n\n▶ 법령 인용\n✓ 민법 제750조(불법행위의 내용) 실존\n✗ 형법 제9999조 — [NOT_FOUND] 해당 조문 없음 (존재 범위: 제1조~제372조)\n⚠ 같은 법 시행규칙 제2조 — 법령명 불명확\n\n💡 ⚠ 항목은 법령명 불명확/부분 매칭/API 일시 실패 등. 법령명을 명시하거나 재시도하세요.",
-  cite_check: "═══ 판례 인용 추적 (Citator): 2013다61381 ═══\n대상: 대법원 2018.10.30 선고 2013다61381 전원합의체 판결\n\n📊 판정: ✅ 후속 인용 2건, 변경·폐기 신호 미감지 — 계속 인용되는 것으로 추정\n\n▶ 이 판례를 인용한 후속 판례 (2건, 최신순)\n  1. 대법원 2024.01.25 2019다3226 — 손해배상\n\n⚠️ 한계: 법제처 수록 판례(대법원 중심) 범위 내 검색입니다.",
+  cite_check: "═══ 판례 인용 추적 (Citator): 2013다61381 ═══\n대상: 대법원 2018.10.30 선고 2013다61381 전원합의체 판결\n사건명: 손해배상(기)\n판시사항: [1] 조약의 해석 방법과 당사국 사이에 이루어진 합의의 적용 범위\n  기준 사건에서 당사자가 주장한 청구권의 적용 대상에 관한 설명\n\n📊 판정: ✅ 후속 인용 2건, 변경·폐기 신호 미감지 — 계속 인용되는 것으로 추정\n\n▶ 이 판례를 인용한 후속 판례 (2건, 최신순)\n  1. 대법원 2024.01.25 2019다3226 — 손해배상\n\n⚠️ 한계: 법제처 수록 판례(대법원 중심) 범위 내 검색입니다.",
   applicable_law: "═══ 행위시법 판단: 도로교통법 @ 2023.05.10 ═══\n\n▶ 기준일에 시행 중이던 버전\n  도로교통법 [시행 2023.04.04] (MST 247265)\n\n▶ 현행과 비교: △ 변경됨 — 현행 본문과 다릅니다.\n\n▶ 적용례·경과조치 발췌 (기준일 사건에 영향 가능 — 반드시 확인)\n  ◆ 부칙 <제20864호, 2025.04.01>\n    제2조(운전면허의 결격사유에 관한 적용례) 긴 부칙 문장이 줄바꿈 없이 이어지는 경우에도 화면 폭 안에서 줄바꿈되어야 합니다",
   impact_map: "═══ Impact Map: 민법 제103조 ═══\n\n▶ 대상 조문 본문\n제103조(반사회질서의 법률행위) 선량한 풍속 기타 사회질서에 위반한 사항을 내용으로 하는 법률행위는 무효로 한다.\n\n▶ 영향 그래프 (이 조문이 인용된 곳)\n├─ 📚 대법원 판례: 7건 확인 / 검색 42건 — 표본 10건만 경계 확인, 나머지는 미확인\n│   • [245007] 반사회적 법률행위 · 사건번호: 대법원-2023-다-302036\n├─ ⚖️ 헌재 결정례: 조회 실패 (업스트림 오류로 확인 못 함, 0건이 아님)\n└─ 🏛️ 자치법규(법령 단위·조번호 미반영): 2건\n\n▶ 총 영향 건수(경계 확인분): 9건 — 표본을 넘는 검색 결과가 있어 실제는 더 많을 수 있음",
 };
@@ -409,9 +409,13 @@ test("RESEARCH analysis runs each fixed mode, keeps MCP meaning and retries with
   await expect(page.locator(".legal-analysis-output")).toContainText("법제처 수록 판례(대법원 중심) 범위 내 검색입니다.");
   await expect(page.locator(".legal-analysis-note")).toContainText("법제처에 수록된 판례를 기준으로 확인한 결과입니다.");
   const citeOutput = page.locator(".legal-analysis-output");
+  await expect(citeOutput.locator(":scope > .legal-analysis-lines").first()).toContainText("대상: 대법원");
+  await expect(citeOutput.locator(":scope > .legal-analysis-lines").first()).not.toContainText("판시사항");
   await expect(citeOutput.locator(":scope > .legal-analysis-section")).toHaveCount(0);
   await citeOutput.locator(".law-detail-source summary").click();
   await expect(citeOutput.locator(".law-detail-source")).toContainText("2019다3226");
+  await expect(citeOutput.locator(".law-detail-source")).toContainText("판시사항: [1] 조약의 해석 방법");
+  await expect(citeOutput.locator(".law-detail-source")).toContainText("청구권의 적용 대상에 관한 설명");
   await expect(citeOutput.locator(".law-detail-source")).not.toContainText("계속 인용되는 것으로 추정");
   await citeOutput.locator(".law-detail-source summary").click();
 
