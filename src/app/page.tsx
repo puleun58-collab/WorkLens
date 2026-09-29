@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, DragEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { ChangeEvent, DragEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentType } from "react";
 import dynamic from "next/dynamic";
 import type { AiAvailableResult, AiRequest, GroundedClaim } from "@/domain/ai";
 import type { ComparisonItem, ComparisonResult } from "@/domain/compare";
@@ -111,18 +111,79 @@ import {
 } from "lucide-react";
 import { SettingsView, type CompanyTermEntry } from "@/components/SettingsView";
 
-const PdfTool = dynamic(() => import("@/components/tools/PdfTool").then((module) => module.PdfTool), {
-  loading: () => <p role="status">PDF 도구를 불러오는 중…</p>,
-});
-const ImageTool = dynamic(() => import("@/components/tools/ImageTool").then((module) => module.ImageTool), {
-  loading: () => <p role="status">이미지 도구를 불러오는 중…</p>,
-});
-const LawSearch = dynamic(() => import("@/components/research/LawSearch").then((module) => module.LawSearch), {
-  loading: () => <p role="status">법령 검색을 불러오는 중…</p>,
-});
-const UsageGuide = dynamic(() => import("@/components/guide/UsageGuide").then((module) => module.UsageGuide), {
-  loading: () => <p role="status">사용 가이드를 불러오는 중…</p>,
-});
+/**
+ * Lazy views keep their own chunks. Each loader memoizes its import promise so
+ * `dynamic()`, hover/focus prefetch and idle warm-up share one request and one
+ * module evaluation; a failed load is forgotten so the next attempt retries.
+ */
+function sharedLoader<T>(load: () => Promise<T>): () => Promise<T> {
+  let pending: Promise<T> | undefined;
+  return () => (pending ??= load().catch((error: unknown) => {
+    pending = undefined;
+    throw error;
+  }));
+}
+
+/**
+ * A lazy view and its loader. Once the chunk is loaded the view renders the
+ * component directly: going through `dynamic()` again would suspend for one
+ * pass and React holds a revealed Suspense boundary for ~300 ms, which is the
+ * wait a prefetch is meant to remove. A view opened before its chunk arrives
+ * keeps the `dynamic()` loading state.
+ */
+function lazyView(load: () => Promise<ComponentType>, loadingMessage: string): readonly [ComponentType, () => Promise<ComponentType>] {
+  let loaded: ComponentType | undefined;
+  const loader = sharedLoader(() => load().then((component) => (loaded = component)));
+  const Pending = dynamic(loader, { loading: () => <p role="status">{loadingMessage}</p> });
+  function LazyView() {
+    // Chosen once per mount so a chunk that lands while the view is open never remounts it.
+    const [View] = useState<ComponentType>(() => loaded ?? Pending);
+    return <View />;
+  }
+  return [LazyView, loader];
+}
+
+const [PdfTool, loadPdfTool] = lazyView(() => import("@/components/tools/PdfTool").then((module) => module.PdfTool), "PDF 도구를 불러오는 중…");
+const [ImageTool, loadImageTool] = lazyView(() => import("@/components/tools/ImageTool").then((module) => module.ImageTool), "이미지 도구를 불러오는 중…");
+const [LawSearch, loadLawSearch] = lazyView(() => import("@/components/research/LawSearch").then((module) => module.LawSearch), "법령 검색을 불러오는 중…");
+const [UsageGuide, loadUsageGuide] = lazyView(() => import("@/components/guide/UsageGuide").then((module) => module.UsageGuide), "사용 가이드를 불러오는 중…");
+
+/** Warm-up order: lighter, more frequently opened views first; the PDF tool is the largest. */
+const LAZY_VIEW_LOADERS = [loadLawSearch, loadUsageGuide, loadImageTool, loadPdfTool] as const;
+
+/** Starts a lazy view's download before the click; the view's own fallback covers a failure. */
+function prefetchView(load: () => Promise<unknown>): void {
+  load().catch(() => undefined);
+}
+
+/**
+ * Loads the lazy views one at a time while the browser is idle, so pointer-less
+ * devices also open them without a chunk wait. Skipped on data-saver or 2G.
+ */
+function warmLazyViews(): () => void {
+  const connection = (navigator as Navigator & { connection?: { saveData?: boolean; effectiveType?: string } }).connection;
+  if (connection?.saveData || /2g/u.test(connection?.effectiveType ?? "")) return () => undefined;
+  let cancelled = false;
+  let handle: number | undefined;
+  const schedule = (callback: () => void) => {
+    handle = typeof window.requestIdleCallback === "function"
+      ? window.requestIdleCallback(callback, { timeout: 5000 })
+      : window.setTimeout(callback, 1500);
+  };
+  const next = (index: number) => {
+    if (cancelled || index >= LAZY_VIEW_LOADERS.length) return;
+    schedule(() => {
+      LAZY_VIEW_LOADERS[index]().catch(() => undefined).finally(() => next(index + 1));
+    });
+  };
+  next(0);
+  return () => {
+    cancelled = true;
+    if (handle === undefined) return;
+    if (typeof window.cancelIdleCallback === "function") window.cancelIdleCallback(handle);
+    else window.clearTimeout(handle);
+  };
+}
 
 type ToolView = "PdfTools" | "ImageTools";
 type ShellView = Tab | ToolView | "Law" | "Guide" | "Dictionary" | "Settings";
@@ -511,6 +572,7 @@ export default function Home() {
    * `true`, so `data-hydrated` flips exactly when this tree is interactive.
    */
   const hydrated = useSyncExternalStore(subscribeNothing, clientHydrated, serverHydrated);
+  useEffect(() => warmLazyViews(), []);
   const [polishMode, setPolishMode] = useState<PolishMode>("default");
   const [polish, setPolish] = useState<PolishResult | null>(null);
   const [polishProgress, setPolishProgress] = useState<{ done: number; total: number } | null>(null);
@@ -1412,6 +1474,8 @@ export default function Home() {
               aria-current={shellView === "Law" ? "page" : undefined}
               aria-label="법령"
               onClick={() => { setDetail(null); detailTrigger.current = null; setShellView("Law"); }}
+              onPointerEnter={() => prefetchView(loadLawSearch)}
+              onFocus={() => prefetchView(loadLawSearch)}
             >
               <Scale size={20} strokeWidth={1.75} aria-hidden="true" />
               <span>법령</span>
@@ -1421,9 +1485,9 @@ export default function Home() {
         <p className="rail-group-label rail-tools-label">TOOLS</p>
         <ul className="rail-list rail-tools-list">
           {([
-            { view: "PdfTools", label: "PDF 도구", Icon: FileText },
-            { view: "ImageTools", label: "이미지 도구", Icon: ImageIcon },
-          ] as const).map(({ view, label, Icon }) => (
+            { view: "PdfTools", label: "PDF 도구", Icon: FileText, load: loadPdfTool },
+            { view: "ImageTools", label: "이미지 도구", Icon: ImageIcon, load: loadImageTool },
+          ] as const).map(({ view, label, Icon, load }) => (
             <li key={view}>
               <button
                 type="button"
@@ -1431,6 +1495,8 @@ export default function Home() {
                 aria-current={shellView === view ? "page" : undefined}
                 aria-label={label}
                 onClick={() => { setDetail(null); detailTrigger.current = null; setShellView(view); }}
+                onPointerEnter={() => prefetchView(load)}
+                onFocus={() => prefetchView(load)}
               >
                 <Icon size={20} strokeWidth={1.75} aria-hidden="true" />
                 <span>{label}</span>
@@ -1449,6 +1515,8 @@ export default function Home() {
                 aria-current={shellView === view ? "page" : undefined}
                 aria-label={view}
                 onClick={() => { setShellView(view); clearResults(); }}
+                onPointerEnter={view === "Guide" ? () => prefetchView(loadUsageGuide) : undefined}
+                onFocus={view === "Guide" ? () => prefetchView(loadUsageGuide) : undefined}
               >
                 <Icon size={20} strokeWidth={1.75} aria-hidden="true" />
                 <span>{view === "Guide" ? "사용 가이드" : view === "Dictionary" ? "용어 사전" : "설정"}</span>
