@@ -36,11 +36,6 @@ export function normalizeCaseNumber(value: string): string {
   return value.trim().replace(CASE_NUMBER_PARTS, "$1$2$3");
 }
 
-/** A search query that is exactly one case number is canonicalized; any other query is left as typed. */
-export function canonicalCaseQuery(query: string): string {
-  const trimmed = query.trim();
-  return /^\d{2,4}\s*[가-힣]{1,3}\s*\d+$/u.test(trimmed) ? normalizeCaseNumber(trimmed) : query;
-}
 export const LAW_ANALYSIS_JO_PATTERN = LAW_ARTICLE_PATTERN;
 
 export type LawAnalysisRequest =
