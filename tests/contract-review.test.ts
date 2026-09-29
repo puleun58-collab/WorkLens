@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   classifyDocument, documentRisk, extractKeyFacts, holdingRelevance, issueDefinition, lawTargets, passesMetadataGate,
@@ -8,6 +9,9 @@ import {
   B2B_SERVICE_CONTRACT, CONSUMER_TERMS, EMPLOYMENT_CONTRACT, LEASE_CONTRACT, MIXED_SERVICE_CONTRACT, NDA_CONTRACT,
   OUTSOURCING_CONTRACT, SUPPLY_CONTRACT,
 } from "./fixtures/contracts";
+import {
+  AMBIGUOUS_NOTICE, CLEAN_WORK_RULES, EMPLOYMENT_CONTRACT_2, PRIVACY_CCTV_GUIDELINE, REMOTE_WORK_GUIDELINE,
+} from "./fixtures/review-scenarios";
 
 const LABOR = /근로|해고|임금/u;
 const LEASE = /임대차|임차|갱신거절권|보증금/u;
@@ -35,6 +39,99 @@ describe("document type and party relationship come first", () => {
     expect(profile.relationship).toBe("unknown");
     expect(profile.domains).not.toContain("labor");
     expect(profile.domains).not.toContain("lease");
+  });
+});
+
+describe("company work rules are reviewed as employment documents without being called contracts", () => {
+  // Verbatim reproduction that was classified "유형 확인 불가" with no issues.
+  const GUIDELINE = readFileSync(new URL("./fixtures/employee-work-info-guideline.md", import.meta.url), "utf8");
+  const ids = (text: string) => issuesOf(text).clauses.flatMap((clause) => clause.issues.map((issue) => issue.id));
+
+  it("labels the guideline as internal rules between employer and employees, with labor review", () => {
+    const { profile, clauses } = issuesOf(GUIDELINE);
+    expect(profile).toMatchObject({ type: "work_rules", label: "근로·인사 관련 내부 규정", relationshipLabel: "사용자와 근로자" });
+    expect(profile.label).not.toContain("근로계약");
+    expect(profile.domains).toEqual(expect.arrayContaining(["labor", "privacy"]));
+    expect(clauses.map((clause) => [clause.number, clause.title])).toContainEqual(["제7조", "인사 및 징계"]);
+    // A statute cited inside a clause is not a new clause.
+    expect(clauses.map((clause) => clause.number)).not.toContain("제23조");
+  });
+
+  it("finds each kind of review point the guideline contains", () => {
+    expect(ids(GUIDELINE)).toEqual(expect.arrayContaining([
+      "overtime_pay", "working_hours", "annual_leave", "employee_monitoring", "cctv_audio", "data_transfer",
+      "overseas_storage", "retention_period", "penalty", "dismissal", "rules_change", "deemed_consent", "rules_precedence",
+    ]));
+  });
+
+  it("reads the same points when they are phrased differently", () => {
+    const variant = GUIDELINE
+      .replace("별도의 수당을 지급하지 않는다", "추가 임금 지급 대상에서 제외한다")
+      .replace("해외 서버에 저장할 수도 있다", "국외 데이터센터에서 처리할 수 있다")
+      .replace("공지 후 3일이 지나면 모든 직원이 변경 내용에 동의한 것으로 본다", "별도 이의가 없는 경우 변경에 동의한 것으로 간주한다")
+      .replace("실제 손해액과 관계없이 5천만 원의 손해배상금을 청구할 수 있다", "발생한 실제 손해와 무관하게 정액 5천만 원을 배상한다")
+      .replace("직원이 본 지침에 동의하고 근무를 계속하는 경우 이러한 정보 수집에 동의한 것으로 본다.", "");
+    expect(variant).not.toBe(GUIDELINE);
+    const found = issuesOf(variant).clauses;
+    const at = (number: string) => found.find((clause) => clause.number === number)!.issues.map((issue) => issue.id);
+    expect(at("제2조")).toContain("overtime_pay");
+    expect(at("제8조")).toContain("overseas_storage");
+    expect(at("제9조")).toContain("deemed_consent");
+    expect(at("제6조")).toContain("penalty");
+  });
+
+  it("leaves ordinary rule sentences alone", () => {
+    const plain = [
+      "취업규칙",
+      "제1조(연차) 연차휴가는 근로기준법 및 회사 취업규칙에 따라 부여한다.",
+      "제2조(보호) 회사는 개인정보 보호를 위해 접근권한을 최소화한다.",
+      "제3조(CCTV) CCTV는 시설 안전사고 예방을 위해 관련 법령에 따라 운영한다.",
+      "제4조(해고) 직원의 해고는 근로기준법이 정한 절차에 따른다.",
+      "제5조(근무) 직원의 근무시간과 휴게시간은 근로기준법에 따른다.",
+    ].join("\n");
+    expect(classifyDocument(plain).type).toBe("work_rules");
+    expect(ids(plain)).toEqual([]);
+  });
+
+  it("keeps an employment contract an employment contract", () => {
+    expect(classifyDocument(EMPLOYMENT_CONTRACT).type).toBe("employment");
+    for (const text of [B2B_SERVICE_CONTRACT, NDA_CONTRACT, OUTSOURCING_CONTRACT, SUPPLY_CONTRACT, LEASE_CONTRACT, CONSUMER_TERMS]) {
+      expect(classifyDocument(text).type).not.toBe("work_rules");
+    }
+  });
+});
+
+describe("classification and detection across document kinds", () => {
+  const GUIDELINE = readFileSync(new URL("./fixtures/employee-work-info-guideline.md", import.meta.url), "utf8");
+  // [document, type, relationship, must find, must not find]
+  const cases: Array<[string, string, string, string, string[], string[]]> = [
+    ["인사·복무 운영지침", GUIDELINE, "work_rules", "employment", ["overtime_pay", "annual_leave", "dismissal", "rules_precedence"], ["contract_change", "withdrawal_restriction", "lease_renewal"]],
+    ["재택근무·근태 지침", REMOTE_WORK_GUIDELINE, "work_rules", "employment", ["overtime_pay", "employee_monitoring", "annual_leave", "rules_change", "deemed_consent"], ["contract_change", "cctv_audio"]],
+    ["개인정보·CCTV 규정", PRIVACY_CCTV_GUIDELINE, "work_rules", "employment", ["cctv_audio", "data_transfer", "overseas_storage", "retention_period", "dismissal"], ["overtime_pay", "annual_leave"]],
+    ["근로계약서", EMPLOYMENT_CONTRACT, "employment", "employment", ["dismissal"], ["rules_change", "contract_change"]],
+    ["근로계약서(다른 표현)", EMPLOYMENT_CONTRACT_2, "employment", "employment", ["overtime_pay", "dismissal"], ["annual_leave", "rules_precedence"]],
+    ["정상 복무규정", CLEAN_WORK_RULES, "work_rules", "employment", [], ["overtime_pay", "annual_leave", "dismissal", "data_transfer", "cctv_audio", "employee_monitoring"]],
+    ["B2B 서비스 계약", B2B_SERVICE_CONTRACT, "b2b_service", "business", ["price_change", "data_transfer", "contract_change"], ["dismissal", "overtime_pay", "rules_change", "cctv_audio"]],
+    ["B2B 서비스 계약(개인정보 포함)", MIXED_SERVICE_CONTRACT, "b2b_service", "business", ["data_transfer", "penalty"], ["dismissal", "employee_monitoring", "rules_change"]],
+    ["소비자 이용약관", CONSUMER_TERMS, "b2c_terms", "consumer", ["withdrawal_restriction"], ["dismissal", "rules_change"]],
+    ["용역계약", OUTSOURCING_CONTRACT, "outsourcing", "business", ["penalty"], ["dismissal", "overtime_pay"]],
+    ["임대차계약", LEASE_CONTRACT, "lease", "lease", ["lease_renewal"], ["dismissal", "data_transfer"]],
+    ["공급계약", SUPPLY_CONTRACT, "sale", "business", ["price_change"], ["dismissal", "annual_leave"]],
+    ["비밀유지계약", NDA_CONTRACT, "nda", "business", ["penalty"], ["dismissal", "overseas_storage"]],
+    ["애매한 안내문", AMBIGUOUS_NOTICE, "unknown", "unknown", [], ["dismissal", "data_transfer"]],
+  ];
+
+  it.each(cases)("%s", (_name, text, type, relationship, present, absent) => {
+    const { profile, clauses } = issuesOf(text);
+    expect([profile.type, profile.relationship]).toEqual([type, relationship]);
+    // Labor review follows an employment relationship; nothing else gains it.
+    expect(profile.domains.includes("labor")).toBe(relationship === "employment");
+    const found = clauses.flatMap((clause) => clause.issues.map((issue) => issue.id));
+    expect(found).toEqual(expect.arrayContaining(present));
+    for (const id of absent) expect(found).not.toContain(id);
+    // Every statute an issue may cite stays inside the document's areas of law.
+    for (const id of new Set(found)) for (const law of lawTargets(issueDefinition(id)!, profile)) expect(profile.domains).toContain(law.domain);
+    if (!present.length) expect(documentRisk(clauses).level).toBe("낮음");
   });
 });
 
