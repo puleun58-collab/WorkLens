@@ -3,8 +3,6 @@
  * existing law/decision endpoints return. Nothing here summarizes, rewrites
  * or invents legal text: it selects whole lines of the returned article.
  */
-import type { LawEntry } from "@/lib/law-search";
-
 export interface LawCitationTarget {
   lawName: string;
   /** `제750조`, `제10조의2`. */
@@ -60,12 +58,6 @@ export function citedHo(input: string, targets: readonly (LawCitationTarget | un
     }
     return undefined;
   });
-}
-
-/** The 현행 entry whose name is exactly the verified law; ambiguous or absent → undefined. */
-export function currentLawEntry(laws: readonly LawEntry[], lawName: string): LawEntry | undefined {
-  const matches = laws.filter((law) => law.name === lawName && law.status === "현행" && /^\d{6}$/u.test(law.mst ?? ""));
-  return matches.length === 1 ? matches[0] : undefined;
 }
 
 /**

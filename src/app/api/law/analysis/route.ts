@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { LAW_ANALYSIS_BODY_MAX_BYTES, LAW_ANALYSIS_CASE_MAX_CHARS, LAW_ANALYSIS_CASE_PATTERN,
   LAW_ANALYSIS_JO_PATTERN, LAW_ANALYSIS_LAW_NAME_MAX_CHARS, LAW_ANALYSIS_TEXT_MAX_CHARS,
-  normalizeAnalysisDate } from "@/lib/law-analysis";
+  normalizeAnalysisDate, normalizeCaseNumber } from "@/lib/law-analysis";
 import { ApiError, apiError, ok, readBoundedJson, requireSameSite, runBoundedOperation } from "@/server/http";
 import { runLegalAnalysis } from "@/server/law-analysis-mcp";
 
@@ -13,7 +13,8 @@ const lawName = z.string().trim().min(1).max(LAW_ANALYSIS_LAW_NAME_MAX_CHARS).re
 const jo = z.string().trim().regex(LAW_ANALYSIS_JO_PATTERN);
 const analysisRequest = z.discriminatedUnion("mode", [
   z.object({ mode: z.literal("verify_citations"), text: z.string().trim().min(1).max(LAW_ANALYSIS_TEXT_MAX_CHARS) }).strict(),
-  z.object({ mode: z.literal("cite_check"), caseNumber: z.string().trim().min(1).max(LAW_ANALYSIS_CASE_MAX_CHARS).regex(LAW_ANALYSIS_CASE_PATTERN) }).strict(),
+  z.object({ mode: z.literal("cite_check"), caseNumber: z.string().transform(normalizeCaseNumber)
+    .pipe(z.string().min(1).max(LAW_ANALYSIS_CASE_MAX_CHARS).regex(LAW_ANALYSIS_CASE_PATTERN)) }).strict(),
   z.object({ mode: z.literal("applicable_law"), lawName, date: z.string().transform(normalizeAnalysisDate).pipe(z.string()), jo: jo.optional() }).strict(),
   z.object({ mode: z.literal("impact_map"), lawName, jo }).strict(),
 ]);

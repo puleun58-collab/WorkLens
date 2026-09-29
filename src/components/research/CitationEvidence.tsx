@@ -2,13 +2,13 @@
 
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  articleEvidence, articleLines, citedHo, currentLawEntry, lawCitationTarget, versionMatchesVerification, ymd,
+  articleEvidence, articleLines, citedHo, lawCitationTarget, versionMatchesVerification, ymd,
   type ArticleEvidence, type LawCitationTarget,
 } from "@/lib/citation-evidence";
 import { decisionSearchOutcome, decisionTextOutcome, type DecisionEntry } from "@/lib/decision-search";
 import { citationCounts, citationGroupLine, citationOverallLabel, type CitationGroupSummary, type CitationItem } from "@/lib/law-analysis-parse";
 import { lawDisplayText } from "@/lib/law-display";
-import { formatLawDate, lawOutcome, lawTextOutcome, type LawEntry } from "@/lib/law-search";
+import { exactCurrentLaw, formatLawDate, lawOutcome, lawTextOutcome, type LawEntry } from "@/lib/law-search";
 import { LawTextBlock } from "./LawTextBlock";
 import { SourceToggleSummary } from "./SourceToggleSummary";
 
@@ -63,7 +63,7 @@ function once(key: string, url: string, body: unknown) {
 async function loadLaw(target: NonNullable<EvidenceTarget["law"]>, verifiedAt: number): Promise<EvidenceState> {
   const search = await once(`law:${verifiedAt}:${target.lawName}`, "/api/law", { query: target.lawName }).then((r) => lawOutcome(r.ok, r.body));
   if (search.kind === "error") return { status: "error", message: EVIDENCE_ERROR };
-  const law = search.kind === "found" ? currentLawEntry(search.laws, target.lawName) : undefined;
+  const law = search.kind === "found" ? exactCurrentLaw(search.laws, target.lawName) : undefined;
   if (!law?.mst) return { status: "unavailable", message: "검증에 사용된 법령을 법제처 자료에서 특정하지 못해 조문 원문을 표시할 수 없습니다." };
   if (!versionMatchesVerification(law.effectiveDate, ymd(new Date(verifiedAt)))) return { status: "unavailable", message: VERSION_MISMATCH };
   const response = await once(`text:${law.mst}:${target.jo}`, "/api/law/text", { mst: law.mst, jo: target.jo });

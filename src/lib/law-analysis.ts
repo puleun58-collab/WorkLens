@@ -23,6 +23,24 @@ export const LAW_ANALYSIS_BODY_MAX_BYTES = LAW_ANALYSIS_TEXT_MAX_CHARS * 4 + 102
 
 /** Court case numbers such as `2013다61381`, including multi-number metadata like `2017다360, 2017다377`. */
 export const LAW_ANALYSIS_CASE_PATTERN = /^(?=.*\d{2,4}\s*[가-힣]{1,3}\s*\d)[0-9가-힣\s,.·()-]+$/u;
+
+/** One case number with optional spaces inside it, e.g. `2013 다 61381`. */
+const CASE_NUMBER_PARTS = /(\d{2,4})\s*([가-힣]{1,3})\s*(\d+)/gu;
+
+/**
+ * Canonical case number text: trimmed, with spaces removed only inside each
+ * `year + 부호 + serial` group. Digits, 부호 and the separators between several
+ * numbers (`,`, `·`) are kept as written.
+ */
+export function normalizeCaseNumber(value: string): string {
+  return value.trim().replace(CASE_NUMBER_PARTS, "$1$2$3");
+}
+
+/** A search query that is exactly one case number is canonicalized; any other query is left as typed. */
+export function canonicalCaseQuery(query: string): string {
+  const trimmed = query.trim();
+  return /^\d{2,4}\s*[가-힣]{1,3}\s*\d+$/u.test(trimmed) ? normalizeCaseNumber(trimmed) : query;
+}
 export const LAW_ANALYSIS_JO_PATTERN = LAW_ARTICLE_PATTERN;
 
 export type LawAnalysisRequest =
@@ -69,7 +87,7 @@ export function lawAnalysisRequestFor(mode: LawAnalysisMode, draft: LawAnalysisD
     return text && draft.text.length <= LAW_ANALYSIS_TEXT_MAX_CHARS ? { mode, text } : null;
   }
   if (mode === "cite_check") {
-    const caseNumber = draft.caseNumber.trim();
+    const caseNumber = normalizeCaseNumber(draft.caseNumber);
     return caseNumber.length <= LAW_ANALYSIS_CASE_MAX_CHARS && LAW_ANALYSIS_CASE_PATTERN.test(caseNumber) ? { mode, caseNumber } : null;
   }
   if (mode === "applicable_law") {
