@@ -104,7 +104,7 @@ export async function getLawText(
 
 /** Tool names and arguments are fixed by server entry points, never supplied by the caller. */
 export async function callLawTool(
-  tool: "search_law" | "get_law_text" | "search_decisions" | "get_decision_text" | "legal_analysis" | "legal_research",
+  tool: "search_law" | "get_law_text" | "search_decisions" | "get_decision_text" | "legal_analysis" | "legal_research" | "execute_tool",
   args: { query: string } | { mst: string; jo?: string } | { lawId: string; jo?: string } |
     { domain: string; query: string; display: 20; page: number } | { domain: string; id: string; full?: true } |
     { mode: "verify_citations"; text: string; maxCitations: 15 } |
@@ -116,7 +116,9 @@ export async function callLawTool(
     { task: "dispute_prep"; query: string; domain?: "tax" | "labor" | "privacy" | "competition" | "general" } |
     { task: "amendment_track"; query: string; scenario?: "timeline" | "time_travel"; mst?: string; lawId?: string;
       fromDate?: string; toDate?: string; includeHistory: boolean } |
-    { task: "ordinance_compare"; query: string; parentLaw?: string },
+    { task: "ordinance_compare"; query: string; parentLaw?: string } |
+    { tool_name: "search_ordinance"; params: { query: string; display: 100 } } |
+    { tool_name: "get_ordinance"; params: { ordinSeq: string; jo?: string } },
   context: LawContext,
 ): Promise<{ text: string; isError: boolean }> {
   const { LAW_OC: key, LAW_MCP_URL: endpoint } = workerEnv();

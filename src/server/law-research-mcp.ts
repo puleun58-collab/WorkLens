@@ -1,13 +1,49 @@
-import type { LawResearchAbsent, LawResearchData, LawResearchRequest } from "@/lib/law-research";
-import { researchEvidenceSources } from "@/lib/research-relevance";
+import type { EvidenceArticle, LawCurrency, LawResearchAbsent, LawResearchData, LawResearchRequest } from "@/lib/law-research";
+import { researchResult } from "@/lib/law-research-parse";
+import { researchEvidenceSources, type ResearchEnrichment } from "@/lib/research-relevance";
 import { classifyLawToolResult } from "@/server/law-analysis-mcp";
-import { callLawTool } from "@/server/law-mcp";
+import { callLawTool, searchLaw } from "@/server/law-mcp";
 import { mcpReviewSources, reviewContract } from "@/server/contract-review";
 import { interpretResearchQuery } from "@/server/groq";
 import { ApiError } from "@/server/http";
 import { enrichResearch, mcpEnrichmentSources } from "@/server/research-enrichment";
+import { compareOrdinances, mcpOrdinanceSources } from "@/server/ordinance-compare";
 
 const RESEARCH_FAILURE = "법령 리서치 서비스가 요청을 처리하지 못했습니다.";
+const MAX_STATUS_LAWS = 4;
+
+/**
+ * Whether each cited article is in force today: the law's 법제처 status (`현행` or not)
+ * plus the 시행일 printed on the article text. Nothing is marked current unless both agree.
+ */
+async function withCurrency(articles: Array<{ law: string; jo: string }>, text: string, enrichment: ResearchEnrichment | undefined,
+  context: { requestId: string; signal?: AbortSignal }): Promise<EvidenceArticle[]> {
+  if (!articles.length) return [];
+  const effective = new Map<string, string>();
+  for (const article of researchResult(text).sections.flatMap((section) => section.articles ?? [])) {
+    if (article.effective) effective.set(`${article.law}\0${article.jo}`, article.effective.replace(/\D/gu, ""));
+  }
+  for (const article of enrichment?.supplement?.articles ?? []) {
+    if (article.effectiveDate) effective.set(`${article.law}\0${article.jo}`, article.effectiveDate);
+  }
+  const laws = [...new Set(articles.map((article) => article.law))].slice(0, MAX_STATUS_LAWS);
+  const statuses = new Map(await Promise.all(laws.map(async (law) => {
+    const found = await searchLaw(law, context).catch(() => undefined);
+    const exact = found?.found ? found.laws.find((entry) => entry.name === law) : undefined;
+    return [law, exact?.status] as const;
+  })));
+  // Today in Korea, the calendar 시행일 are stated in.
+  const today = new Date(Date.now() + 9 * 3_600_000).toISOString().slice(0, 10).replaceAll("-", "");
+  return articles.map((article) => {
+    const status = statuses.get(article.law);
+    const date = effective.get(`${article.law}\0${article.jo}`);
+    const currency: LawCurrency = status === undefined ? "unconfirmed"
+      : status !== "현행" ? "not_current"
+      : date && date.length === 8 && date > today ? "upcoming"
+      : date ? "current" : "unconfirmed";
+    return { ...article, currency };
+  });
+}
 
 async function fullResearch(
   query: string,
@@ -37,22 +73,23 @@ async function fullResearch(
       ...(enrichment ? { enrichment } : {}), evidence: { status, articles, precedents,
         ...(precedentExcerpts && Object.keys(precedentExcerpts).length ? { precedentExcerpts } : {}) } };
   };
-  const first = await attempt(issue);
-  if (!interpretation || (first.found && first.evidence.status === "matched")) {
-    return { ...first, ...(interpretation ? { interpretation } : {}) };
-  }
-  // One alternative retrieval only. A failed second lookup never erases an official first response.
-  const alternative = issue !== query ? query : interpretation.searchTerms.find((term) => term !== issue);
-  if (!alternative) {
-    return { ...first, interpretation };
-  }
-  const second = await attempt(alternative).catch((error: unknown) => {
-    if (context.signal?.aborted) throw error;
-    return undefined;
-  });
-  const score: Record<"unverified" | "partial" | "matched", number> = { unverified: 0, partial: 1, matched: 2 };
-  const selected = second?.found && (!first.found || score[second.evidence.status] > score[first.evidence.status]) ? second : first;
-  return { ...selected, interpretation };
+  const chosen = await (async () => {
+    const first = await attempt(issue);
+    if (!interpretation || (first.found && first.evidence.status === "matched")) return first;
+    // One alternative retrieval only. A failed second lookup never erases an official first response.
+    const alternative = issue !== query ? query : interpretation.searchTerms.find((term) => term !== issue);
+    if (!alternative) return first;
+    const second = await attempt(alternative).catch((error: unknown) => {
+      if (context.signal?.aborted) throw error;
+      return undefined;
+    });
+    const score: Record<"unverified" | "partial" | "matched", number> = { unverified: 0, partial: 1, matched: 2 };
+    return second?.found && (!first.found || score[second.evidence.status] > score[first.evidence.status]) ? second : first;
+  })();
+  const selected = chosen.found
+    ? { ...chosen, evidence: { ...chosen.evidence, articles: await withCurrency(chosen.evidence.articles, chosen.text, chosen.enrichment, context) } }
+    : chosen;
+  return { ...selected, ...(interpretation ? { interpretation } : {}) };
 }
 
 export async function runLegalResearch(
@@ -86,15 +123,25 @@ export async function runLegalResearch(
           ...(request.toDate ? { toDate: request.toDate.replaceAll("-", "") } : {}),
           includeHistory: request.includeHistory ?? false }, context);
       case "ordinance_compare":
+        // The chain covers the parent law and delegation; regions are searched separately (never AND-joined into this query).
         return callLawTool("legal_research", { task: request.task, query: request.query,
           ...(request.parentLaw ? { parentLaw: request.parentLaw } : {}) }, context);
     }
   })();
-  const { text, isError } = await result;
+  const [{ text, isError }, comparison] = await Promise.all([
+    result,
+    request.task === "ordinance_compare"
+      ? compareOrdinances(request.query, request.regions, mcpOrdinanceSources(context), request.parentLaw).catch(() => undefined)
+      : undefined,
+  ]);
   const classification = classifyLawToolResult(text, isError, {
     failureMessage: RESEARCH_FAILURE,
   });
   if (classification.kind === "absent") {
+    // An empty parent-law chain does not erase ordinances the per-region search did find.
+    if (comparison?.regions.some((region) => region.status === "found")) {
+      return { found: true, task: request.task, text, markers: ["NOT_FOUND"], comparison };
+    }
     return { found: false, task: request.task, marker: "NOT_FOUND", text };
   }
   // Action-basis enrichment keeps its previous behavior; full research is handled above.
@@ -102,5 +149,5 @@ export async function runLegalResearch(
     const enrichment = await enrichResearch(request.task, request.query, text, mcpEnrichmentSources(context)).catch(() => undefined);
     if (enrichment) return { found: true, task: request.task, text, markers: classification.markers, enrichment };
   }
-  return { found: true, task: request.task, text, markers: classification.markers };
+  return { found: true, task: request.task, text, markers: classification.markers, ...(comparison ? { comparison } : {}) };
 }

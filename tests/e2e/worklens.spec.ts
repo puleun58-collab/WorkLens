@@ -521,6 +521,9 @@ test("checks shared values locally, keeps evidence, and exports both formats", a
   await expect(panel.locator(".value-check-filters")).toContainText("값 차이 1");
   await expect(panel.locator(".value-check-filters")).toContainText("일치 2");
   await expect(panel.locator(".check-summary-line")).toHaveCount(0);
+  // The count summary starts on the same left edge as the result table below it.
+  const leftEdge = async (selector: string) => (await panel.locator(selector).first().boundingBox())!.x;
+  expect(Math.abs(await leftEdge(".value-check-filters") - await leftEdge(".value-check-matrix"))).toBeLessThan(1);
   const different = panel.getByTestId("value-check-group").filter({ hasText: "목표주가" });
   await expect(different).toContainText("64,550원");
   await expect(different).toContainText("62,000원");
@@ -540,6 +543,7 @@ test("checks shared values locally, keeps evidence, and exports both formats", a
   expect(await different.evaluate((element) =>
     getComputedStyle(element).gridTemplateColumns.split(/\s+/).length)).toBe(1);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  expect(Math.abs(await leftEdge(".value-check-filters") - await leftEdge(".value-check-matrix"))).toBeLessThan(1);
 });
 
 test("scales value checks from two-file columns to compact multi-file rows", async ({ page }) => {
@@ -567,6 +571,7 @@ test("scales value checks from two-file columns to compact multi-file rows", asy
   await expect(partial).toContainText("일부 파일만 확인");
   await expect(partial).toContainText("주요값_C.xlsx");
   await expect(partial.locator(".value-check-occurrence")).toHaveCount(2);
+  expect(Math.abs((await panel.locator(".value-check-filters").boundingBox())!.x - (await panel.locator(".value-check-list").boundingBox())!.x)).toBeLessThan(1);
   expect(aiRequests).toBe(0);
 });
 

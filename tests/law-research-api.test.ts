@@ -8,6 +8,11 @@ vi.mock("@/server/research-enrichment", () => ({
   mcpEnrichmentSources: () => ({}),
   enrichResearch: () => Promise.reject(new Error("enrichment disabled in route tests")),
 }));
+// Route tests cover forwarding; per-region ordinance lookups have their own offline tests.
+vi.mock("@/server/ordinance-compare", () => ({
+  mcpOrdinanceSources: () => ({}),
+  compareOrdinances: () => Promise.reject(new Error("comparison disabled in route tests")),
+}));
 
 const KEY = "test-law-key-1234";
 const ENDPOINT = "https://mcp.example.test/law";
@@ -73,7 +78,7 @@ describe("fixed legal_research API", () => {
       { input: { task: "action_basis", query }, args: { task: "action_basis", query }, text: samples.basis },
       { input: { task: "dispute_prep", query, domain: "labor" }, args: { task: "dispute_prep", query, domain: "labor" }, text: samples.dispute },
       { input: { task: "amendment_track", query }, args: { task: "amendment_track", query, includeHistory: false }, text: samples.amend },
-      { input: { task: "ordinance_compare", query, parentLaw: " 주차장법 " }, args: { task: "ordinance_compare", query, parentLaw: "주차장법" }, text: samples.ord },
+      { input: { task: "ordinance_compare", query, regions: [" 인천광역시 ", "서울특별시"], parentLaw: " 주차장법 " }, args: { task: "ordinance_compare", query, parentLaw: "주차장법" }, text: samples.ord },
       { input: { task: "procedure_detail", query }, args: { task: "procedure_detail", query }, text: samples.proc },
     ];
     const fetcher = vi.fn().mockImplementation(async () => toolText(`${cases[fetcher.mock.calls.length - 1].text}\n[NOT_FOUND] 일부 결과\n[NOT_FOUND] 다른 항목`));
@@ -149,8 +154,12 @@ describe("fixed legal_research API", () => {
       ...["apiKey", "tool", "url", "method", "jsonrpc", "headers"].map((field) => ({ ...base, [field]: "injected-secret" })),
       { task: "dispute_prep", query, domain: "unknown" },
       ...[[], ["제0조"], ["제1조", "bad"], Array.from({ length: 11 }, () => "제1조")].map((articles) => ({ task: "law_system", query, articles })),
-      { task: "ordinance_compare", query, parentLaw: "  " }, { task: "ordinance_compare", query, parentLaw: "법\u0000명" },
-      { task: "ordinance_compare", query, parentLaw: "가".repeat(101) },
+      { task: "ordinance_compare", query, regions: ["인천광역시", "서울특별시"], parentLaw: "  " },
+      { task: "ordinance_compare", query, regions: ["인천광역시", "서울특별시"], parentLaw: "법\u0000명" },
+      { task: "ordinance_compare", query, regions: ["인천광역시", "서울특별시"], parentLaw: "가".repeat(101) },
+      // Comparison needs two different regions.
+      { task: "ordinance_compare", query }, { task: "ordinance_compare", query, regions: ["인천광역시"] },
+      { task: "ordinance_compare", query, regions: ["인천광역시", "인천광역시"] }, { task: "ordinance_compare", query, regions: ["인천광역시", " "] },
       ...["time_travel", "timeline"].flatMap((scenario) => [
         { task: "amendment_track", query, scenario, fromDate: "2022-01-01" },
         { task: "amendment_track", query, scenario, toDate: "2026-01-01" },

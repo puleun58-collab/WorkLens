@@ -125,12 +125,12 @@ describe("legal_research form input", () => {
   });
 
   it("builds only the task's own fields", () => {
-    const full = draft({ query: " 질문 ", text: "무시", domain: "labor", parentLaw: "주차장법", articles: "제38조", includeHistory: true });
+    const full = draft({ query: " 질문 ", text: "무시", domain: "labor", parentLaw: "주차장법", articles: "제38조", includeHistory: true, region1: " 인천광역시 ", region2: "서울특별시" });
     expect(lawResearchRequestFor("full_research", full)).toEqual({ task: "full_research", query: "질문" });
     expect(lawResearchRequestFor("procedure_detail", full)).toEqual({ task: "procedure_detail", query: "질문" });
     expect(lawResearchRequestFor("dispute_prep", full)).toEqual({ task: "dispute_prep", query: "질문", domain: "labor" });
     expect(lawResearchRequestFor("dispute_prep", draft({ query: "q" }))).toEqual({ task: "dispute_prep", query: "q" });
-    expect(lawResearchRequestFor("ordinance_compare", full)).toEqual({ task: "ordinance_compare", query: "질문", parentLaw: "주차장법" });
+    expect(lawResearchRequestFor("ordinance_compare", full)).toEqual({ task: "ordinance_compare", query: "질문", regions: ["인천광역시", "서울특별시"], parentLaw: "주차장법" });
     expect(lawResearchRequestFor("law_system", full)).toEqual({ task: "law_system", query: "질문", articles: ["제38조"] });
     expect(lawResearchRequestFor("amendment_track", full)).toEqual({ task: "amendment_track", query: "질문", includeHistory: true });
     expect(lawResearchRequestFor("document_review", draft({ query: "질문", text: "  갑은 계약 체결 즉시 대금 전액을 지급한다.  " })))
@@ -143,7 +143,10 @@ describe("legal_research form input", () => {
     expect(lawResearchRequestFor("document_review", draft({ text: "짧은 문장" }))).toBeNull();
     expect(lawResearchRequestFor("document_review", draft({ text: "가".repeat(20_001) }))).toBeNull();
     expect(lawResearchRequestFor("law_system", draft({ query: "q", articles: "백조" }))).toBeNull();
-    expect(lawResearchRequestFor("ordinance_compare", draft({ query: "q", parentLaw: "법".repeat(101) }))).toBeNull();
+    expect(lawResearchRequestFor("ordinance_compare", draft({ query: "q", region1: "가", region2: "나", parentLaw: "법".repeat(101) }))).toBeNull();
+    // A comparison is not run with one region, or the same region twice.
+    expect(lawResearchRequestFor("ordinance_compare", draft({ query: "q", region1: "인천광역시" }))).toBeNull();
+    expect(lawResearchRequestFor("ordinance_compare", draft({ query: "q", region1: "인천광역시", region2: " 인천광역시 " }))).toBeNull();
   });
 
   it("compares two real dates only in time travel, with the start not after the end", () => {

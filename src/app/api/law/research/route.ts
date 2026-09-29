@@ -12,6 +12,7 @@ export const dynamic = "force-dynamic";
 
 const query = z.string().trim().min(1).max(LAW_RESEARCH_QUERY_MAX_CHARS);
 const date = z.string().transform(normalizeAnalysisDate).pipe(z.string());
+const regionName = z.string().trim().min(1).max(LAW_RESEARCH_NAME_MAX_CHARS).refine((value) => !/[\p{Cc}]/u.test(value));
 const documentText = z.string().max(LAW_RESEARCH_DOCUMENT_MAX_CHARS).trim().min(LAW_RESEARCH_DOCUMENT_MIN_CHARS);
 const researchRequest = z.discriminatedUnion("task", [
   z.object({ task: z.literal("full_research"), query }).strict(),
@@ -31,6 +32,7 @@ const researchRequest = z.discriminatedUnion("task", [
     }
   }),
   z.object({ task: z.literal("ordinance_compare"), query,
+    regions: z.tuple([regionName, regionName]).refine(([first, second]) => first !== second),
     parentLaw: z.string().trim().min(1).max(LAW_RESEARCH_NAME_MAX_CHARS).refine((value) => !/[\p{Cc}]/u.test(value)).optional(),
   }).strict(),
   z.object({ task: z.literal("procedure_detail"), query }).strict(),
