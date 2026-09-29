@@ -369,6 +369,18 @@ test("RESEARCH analysis runs each fixed mode, keeps MCP meaning and retries with
   const errors: string[] = [];
   page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
   await routeAnalysis(page, requests, new Set(["verify_citations"]));
+  const evidenceRequests: string[] = [];
+  await page.route("**/api/law", (route) => {
+    evidenceRequests.push(`search:${(route.request().postDataJSON() as { query: string }).query}`);
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { found: true, text: "", laws: [
+      { name: "민법", status: "현행", lawId: "001706", mst: "284415", promulgationDate: "20260317", effectiveDate: "20260317", kind: "법률" },
+    ] } }) });
+  });
+  await page.route("**/api/law/text", (route) => {
+    evidenceRequests.push(`text:${JSON.stringify(route.request().postDataJSON())}`);
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { found: true, mode: "article", name: "민법", promulgationDate: "20260317", effectiveDate: "20260317",
+      text: "법령명: 민법\n공포일: 20260317\n시행일: 20260317\nℹ️ 조회기준일 20260929 — 위 시행일 버전 본문.\n\n제750조 불법행위의 내용\n고의 또는 과실로 인한 위법행위로 타인에게 손해를 가한 자는 그 손해를 배상할 책임이 있다.\n" } }) });
+  });
   await page.goto("/");
   await expect(page.locator(".app-shell")).toHaveAttribute("data-hydrated", "true");
   await page.getByRole("button", { name: "법령", exact: true }).click();
@@ -401,10 +413,17 @@ test("RESEARCH analysis runs each fixed mode, keeps MCP meaning and retries with
   await expect(citationOutput).not.toContainText(/실존|입력 원문|⌛|✓/u);
   await expect(citationSource.locator("summary")).toContainText("근거 보기");
   await citationSource.locator("summary").click();
-  await expect(citationSource).toContainText("민법 제750조(불법행위의 내용) — 법제처 법령 자료에서 조문 확인");
+  await expect(citationSource).toContainText("고의 또는 과실로 인한 위법행위로 타인에게 손해를 가한 자는 그 손해를 배상할 책임이 있다.");
+  await expect(citationSource).toContainText("시행일 2026.03.17 · 공포일 2026.03.17 · 법령 버전(MST) 284415 · 출처 국가법령정보센터(법제처)");
+  await expect(citationSource).not.toContainText(/조문 확인$|조회기준일|조문·판결문 원문은/u);
   await expect(citationSource).toContainText("형법 제9999조 — 해당 조문 없음 (존재 범위: 제1조~제372조)");
   await expect(citationSource).not.toContainText(text);
   await citationSource.locator("summary").click();
+  await citationSource.locator("summary").click();
+  await expect(citationSource).toContainText("손해를 배상할 책임이 있다.");
+  await citationSource.locator("summary").click();
+  // Reopening reuses the evidence already loaded for this verification.
+  expect(evidenceRequests).toEqual(["search:민법", 'text:{"mst":"284415","jo":"제750조"}']);
 
   await modes.getByRole("button", { name: "판례 유효성" }).click();
   await page.getByLabel("사건번호").fill("2013다61381");
@@ -501,6 +520,58 @@ test("analysis distinguishes no citations and missing records without exposing m
   await expect(page.locator(".legal-analysis-missing")).toContainText("찾지 못했습니다");
   await expect(page.locator(".legal-analysis-missing")).not.toContainText("[NOT_FOUND]");
   await expect(page.locator(".legal-analysis-output")).toHaveCount(0);
+});
+
+test("citation evidence checks a cited 호, recovers a failed lookup and shows precedent evidence", async ({ page }) => {
+  const input = "근로기준법 제60조 제6항 제9호와 대법원 2013다61381 판결을 인용한다.";
+  let textCalls = 0;
+  await page.route("**/api/law/analysis", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: {
+    found: true, mode: "verify_citations", markers: ["VERIFIED"],
+    text: "[VERIFIED] == 인용 검증 결과 ==\n법령 인용 1건 | ✓ 1 실존 | ✗ 0 오류 | ⌛ 0 폐지 | ⚠ 0 확인필요\n판례 인용 1건 | ✓ 1 실존 | ✗ 0 실존불가 | ⚠ 0 미확인\n\n▶ 법령 인용\n✓ 근로기준법 제60조(연차 유급휴가) 제6항 실존\n\n▶ 판례 인용\n✓ 2013다61381 실존 — 대법원 2018.10.30 손해배상(기)",
+  } }) }));
+  await page.route("**/api/law", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { found: true, text: "", laws: [
+    { name: "근로기준법", status: "현행", lawId: "001872", mst: "283457", promulgationDate: "20260219", effectiveDate: "20260820", kind: "법률" },
+    { name: "근로기준법 시행령", status: "현행", lawId: "003058", mst: "270551", effectiveDate: "20251023", kind: "대통령령" },
+  ] } }) }));
+  await page.route("**/api/law/text", (route) => {
+    textCalls += 1;
+    // The eager 호 check and the retry on opening both fail; "다시 시도" then succeeds.
+    if (textCalls <= 2) return route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: { code: "LAW_MCP_ERROR", message: "x" } }) });
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { found: true, mode: "article", effectiveDate: "20260820",
+      text: "법령명: 근로기준법\n시행일: 20260820\n\n제60조 연차 유급휴가\n제60조(연차 유급휴가)\n① 사용자는 15일의 유급휴가를 주어야 한다.\n⑥ 제1항 및 제2항을 적용하는 경우 다음 각 호의 어느 하나에 해당하는 기간은 출근한 것으로 본다.\n1. 근로자가 업무상의 부상 또는 질병으로 휴업한 기간\n2. 임신 중의 여성이 휴업한 기간\n⑦ 휴가는 1년간 행사하지 아니하면 소멸된다.\n" } }) });
+  });
+  await page.route("**/api/law/decisions/search", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { found: true, page: 1, text: "", entries: [
+    { domain: "precedent", id: "619495", caseNumber: "2023두54761", court: "대법원", date: "20260409", title: "원천징수법인세환급거부처분취소" },
+    { domain: "precedent", id: "204201", caseNumber: "2013다61381", court: "대법원", date: "20181030", title: "손해배상(기)" },
+  ] } }) }));
+  await page.route("**/api/law/decisions/text", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { found: true, text: "", title: "손해배상(기)", expandable: true, sections: [
+    { heading: "판시사항", text: "[1] 조약의 해석 방법" }, { heading: "판결요지", text: "[1] 조약은 문맥에 따라 해석되어야 한다." }, { heading: "전문", text: "판결문 일부" },
+  ] } }) }));
+  await page.goto("/");
+  await page.getByRole("button", { name: "법령", exact: true }).click();
+  await page.getByRole("button", { name: "검증·분석", exact: true }).click();
+  await page.getByLabel("검증할 문장을 입력하세요.").fill(input);
+  await page.locator(".legal-analysis-form").getByRole("button", { name: "인용 검증" }).click();
+
+  const output = page.locator(".legal-analysis-output");
+  const law = output.locator(".legal-analysis-citations li").first();
+  // The verifier only checked 제6항; the 호 is not reported as confirmed while its text could not be read.
+  await expect(law.locator(".legal-analysis-citation-text")).toHaveText("근로기준법 제60조(연차 유급휴가) 제6항 제9호");
+  await expect(law.locator(".legal-analysis-status")).toHaveText("호 확인 필요");
+  await expect(output.locator(".legal-analysis-overall")).toHaveText("확인이 필요한 인용이 있습니다.");
+  const source = output.locator(".law-detail-source");
+  await source.locator("summary").click();
+  await expect(source).toContainText("검증에 사용된 조문 원문을 불러오지 못했습니다.");
+  await source.getByRole("button", { name: "다시 시도" }).click();
+  await expect(law.locator(".legal-analysis-status")).toHaveText("찾을 수 없음");
+  await expect(source).toContainText("인용한 제6항 제9호을(를) 이 조문에서 찾지 못했습니다.");
+  await expect(source).toContainText("⑥ 제1항 및 제2항을 적용하는 경우");
+  await expect(source).not.toContainText("⑦ 휴가는");
+  await expect(source).toContainText("대법원 · 2018.10.30 선고 · 2013다61381 · 손해배상(기)");
+  await expect(source).toContainText("[1] 조약은 문맥에 따라 해석되어야 한다.");
+  await expect(source).toContainText("판결문 전체 원문은 포함되지 않습니다.");
+  await expect(source).not.toContainText("판결문 일부");
+  expect(textCalls).toBe(3);
 });
 
 test("applicable law separates decision from legal source across transition and lookup states", async ({ page }) => {

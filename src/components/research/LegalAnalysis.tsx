@@ -7,13 +7,14 @@ import {
   type LawAnalysisData, type LawAnalysisMode, type LawAnalysisOutcome, type LawAnalysisRequest,
 } from "@/lib/law-analysis";
 import {
-  applicableLawPresentation, citationGroupLine, citationOverallLabel, citeCheckResult, impactMapResult, verifyCitationsResult,
+  applicableLawPresentation, citeCheckResult, impactMapResult, verifyCitationsResult,
   type AnalysisSection,
 } from "@/lib/law-analysis-parse";
 import { lawDisplayText } from "@/lib/law-display";
 import { lawTextOutcome, type LawTextOutcome } from "@/lib/law-search";
 import { LawTextBlock } from "./LawTextBlock";
 import "./legal-analysis.css";
+import { CitationResult } from "./CitationEvidence";
 import { SourceToggleSummary } from "./SourceToggleSummary";
 
 /** A request opened from a law article or a decision detail; `origin` drives the return action. */
@@ -31,6 +32,8 @@ interface ModeResult {
   request: LawAnalysisRequest;
   outcome: LawAnalysisOutcome | null;
   loading: boolean;
+  /** When the result arrived; the law version a citation was checked against is the one in force then. */
+  completedAt?: number;
 }
 
 const RESULT_NOTE = "법적 판단이 필요한 경우 국가법령정보센터 원문과 관련 전문가 검토가 필요할 수 있습니다.";
@@ -72,7 +75,7 @@ export function LegalAnalysis({ linkedRequest, onReturn }: LegalAnalysisProps) {
     }
     if (controller.signal.aborted) return;
     requests.current.delete(request.mode);
-    setResults((current) => ({ ...current, [request.mode]: { request, outcome, loading: false } }));
+    setResults((current) => ({ ...current, [request.mode]: { request, outcome, loading: false, completedAt: Date.now() } }));
   }, []);
 
   useEffect(() => {
@@ -174,7 +177,7 @@ export function LegalAnalysis({ linkedRequest, onReturn }: LegalAnalysisProps) {
         : current.outcome?.kind === "missing" ? <div className="legal-analysis-missing" role="status" data-marker={current.outcome.data.marker}>
           <p className="law-search-note">요청한 법령·조문·판례를 법제처 자료에서 찾지 못했습니다. 조회 실패와는 다른 결과입니다.</p>
         </div>
-        : current.outcome?.kind === "found" ? <AnalysisResult data={current.outcome.data} request={current.request} />
+        : current.outcome?.kind === "found" && current.completedAt ? <AnalysisResult key={current.completedAt} data={current.outcome.data} request={current.request} completedAt={current.completedAt} />
         : null}
     </section>}
   </div>;
@@ -214,37 +217,22 @@ function AxisLabel({ label }: { label: string }) {
   </span>;
 }
 
-function AnalysisResult({ data, request }: { data: LawAnalysisData; request: LawAnalysisRequest }) {
+function AnalysisResult({ data, request, completedAt }: { data: LawAnalysisData; request: LawAnalysisRequest; completedAt: number }) {
   let body: ReactNode;
   let source: ReactNode;
   if (data.mode === "verify_citations") {
     const result = verifyCitationsResult(data.text);
-    const groups = (["law", "case"] as const).map((group) => ({ group, items: result.items.filter((item) => item.group === group) }));
     body = result.empty ? <>
       <p className="legal-analysis-overall" data-marker="NO_CITATIONS_FOUND">{NO_CITATIONS}</p>
       <p className="law-search-note">{NO_CITATIONS_HELP}</p>
-    </> : <>
-      {result.overallMarker && <p className="legal-analysis-overall" data-marker={result.overallMarker}>{citationOverallLabel(result.overallMarker)}</p>}
-      <Lines lines={result.groups.map(citationGroupLine)} />
-      {groups.map(({ group, items }) => items.length ? <div key={group} className="legal-analysis-section">
-        <h3>{group === "law" ? "법령 인용" : "판례 인용"}</h3>
-        <ul className="legal-analysis-citations">
-          {items.map((item, index) => <li key={index} className={`is-${item.tone}`} data-markers={item.markers.join(" ")}>
-            <span className="legal-analysis-status">{item.label}</span>
-            <span className="legal-analysis-citation-text">{lawDisplayText(item.citation)}</span>
-          </li>)}
-        </ul>
-      </div> : null)}
-      <Sections sections={result.notes} />
-    </>;
-    source = result.items.length > 0 && <details className="law-detail-source">
-      <SourceToggleSummary label="근거 보기" openLabel="근거 접기" />
-      <p className="law-search-note">법제처 국가법령정보에서 각 인용을 조회한 결과입니다. 조문·판결문 원문은 이 결과에 포함되지 않습니다.</p>
-      <Sections sections={groups.filter(({ items }) => items.length).map(({ group, items }) => ({
-        heading: group === "law" ? "법령 인용" : "판례 인용",
-        lines: items.map((item) => item.detail ? `${item.citation} — ${item.detail}` : item.citation),
-      }))} />
-    </details>;
+    </> : <CitationResult
+      items={result.items}
+      groups={result.groups}
+      overallMarker={result.overallMarker}
+      notes={<Sections sections={result.notes} />}
+      input={request.mode === "verify_citations" ? request.text : ""}
+      verifiedAt={completedAt}
+    />;
   } else if (data.mode === "cite_check") {
     const result = citeCheckResult(data.text);
     const detailStart = result.target.findIndex((line) => /^\s*(?:판시사항|판결요지|참조조문|참조판례)\s*:/u.test(line));
