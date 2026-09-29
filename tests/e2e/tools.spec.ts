@@ -348,7 +348,7 @@ const ANALYSIS_TEXT: Record<string, string> = {
   verify_citations: "[PARTIAL_VERIFIED] == 인용 검증 결과 ==\n법령 인용 3건 | ✓ 1 실존 | ✗ 1 오류 | ⌛ 0 폐지 | ⚠ 1 확인필요\n판례 인용 0건 | ✓ 0 실존 | ✗ 0 실존불가 | ⚠ 0 미확인\n\n▶ 법령 인용\n✓ 민법 제750조(불법행위의 내용) 실존\n✗ 형법 제9999조 — [NOT_FOUND] 해당 조문 없음 (존재 범위: 제1조~제372조)\n⚠ 같은 법 시행규칙 제2조 — 법령명 불명확\n\n💡 ⚠ 항목은 법령명 불명확/부분 매칭/API 일시 실패 등. 법령명을 명시하거나 재시도하세요.",
   cite_check: "═══ 판례 인용 추적 (Citator): 2013다61381 ═══\n대상: 대법원 2018.10.30 선고 2013다61381 전원합의체 판결\n\n📊 판정: ✅ 후속 인용 2건, 변경·폐기 신호 미감지 — 계속 인용되는 것으로 추정\n\n▶ 이 판례를 인용한 후속 판례 (2건, 최신순)\n  1. 대법원 2024.01.25 2019다3226 — 손해배상\n\n⚠️ 한계: 법제처 수록 판례(대법원 중심) 범위 내 검색입니다.",
   applicable_law: "═══ 행위시법 판단: 도로교통법 @ 2023.05.10 ═══\n\n▶ 기준일에 시행 중이던 버전\n  도로교통법 [시행 2023.04.04] (MST 247265)\n\n▶ 현행과 비교: △ 변경됨 — 현행 본문과 다릅니다.\n\n▶ 적용례·경과조치 발췌 (기준일 사건에 영향 가능 — 반드시 확인)\n  ◆ 부칙 <제20864호, 2025.04.01>\n    제2조(운전면허의 결격사유에 관한 적용례) 긴 부칙 문장이 줄바꿈 없이 이어지는 경우에도 화면 폭 안에서 줄바꿈되어야 합니다",
-  impact_map: "═══ Impact Map: 민법 제103조 ═══\n\n▶ 영향 그래프 (이 조문이 인용된 곳)\n├─ 📚 대법원 판례: 7건 확인 / 검색 42건 — 표본 10건만 경계 확인, 나머지는 미확인\n├─ ⚖️ 헌재 결정례: 조회 실패 (업스트림 오류로 확인 못 함, 0건이 아님)\n└─ 🏛️ 자치법규(법령 단위·조번호 미반영): 2건\n\n▶ 총 영향 건수(경계 확인분): 9건 — 표본을 넘는 검색 결과가 있어 실제는 더 많을 수 있음",
+  impact_map: "═══ Impact Map: 민법 제103조 ═══\n\n▶ 대상 조문 본문\n제103조(반사회질서의 법률행위) 선량한 풍속 기타 사회질서에 위반한 사항을 내용으로 하는 법률행위는 무효로 한다.\n\n▶ 영향 그래프 (이 조문이 인용된 곳)\n├─ 📚 대법원 판례: 7건 확인 / 검색 42건 — 표본 10건만 경계 확인, 나머지는 미확인\n│   • [245007] 반사회적 법률행위 · 사건번호: 대법원-2023-다-302036\n├─ ⚖️ 헌재 결정례: 조회 실패 (업스트림 오류로 확인 못 함, 0건이 아님)\n└─ 🏛️ 자치법규(법령 단위·조번호 미반영): 2건\n\n▶ 총 영향 건수(경계 확인분): 9건 — 표본을 넘는 검색 결과가 있어 실제는 더 많을 수 있음",
 };
 
 async function routeAnalysis(page: Page, requests: unknown[], failFirst = new Set<string>()) {
@@ -392,6 +392,14 @@ test("RESEARCH analysis runs each fixed mode, keeps MCP meaning and retries with
   await expect(citations.nth(1)).not.toContainText("[NOT_FOUND]");
   await expect(page.locator(".legal-analysis-section").last()).toContainText("자료 조회 일시 실패");
   expect(requests).toEqual([{ mode: "verify_citations", text }, { mode: "verify_citations", text }]);
+  const citationOutput = page.locator(".legal-analysis-output");
+  const citationSource = citationOutput.locator(".law-detail-source");
+  await expect(citationSource).not.toHaveAttribute("open", "");
+  await expect(citationOutput).not.toContainText("[PARTIAL_VERIFIED]");
+  await citationSource.locator("summary").click();
+  await expect(citationSource).toContainText(text);
+  await expect(citationSource).not.toContainText("법령 인용 3건");
+  await citationSource.locator("summary").click();
 
   await modes.getByRole("button", { name: "판례 유효성" }).click();
   await page.getByLabel("사건번호").fill("2013다61381");
@@ -400,6 +408,12 @@ test("RESEARCH analysis runs each fixed mode, keeps MCP meaning and retries with
   await expect(page.locator(".legal-analysis-verdict")).toContainText("변경·폐기 신호 미감지 — 계속 인용되는 것으로 추정");
   await expect(page.locator(".legal-analysis-output")).toContainText("법제처 수록 판례(대법원 중심) 범위 내 검색입니다.");
   await expect(page.locator(".legal-analysis-note")).toContainText("법제처에 수록된 판례를 기준으로 확인한 결과입니다.");
+  const citeOutput = page.locator(".legal-analysis-output");
+  await expect(citeOutput.locator(":scope > .legal-analysis-section")).toHaveCount(0);
+  await citeOutput.locator(".law-detail-source summary").click();
+  await expect(citeOutput.locator(".law-detail-source")).toContainText("2019다3226");
+  await expect(citeOutput.locator(".law-detail-source")).not.toContainText("계속 인용되는 것으로 추정");
+  await citeOutput.locator(".law-detail-source summary").click();
 
   await modes.getByRole("button", { name: "시점별 적용 법령" }).click();
   const analysisForm = page.locator(".legal-analysis-form");
@@ -422,6 +436,14 @@ test("RESEARCH analysis runs each fixed mode, keeps MCP meaning and retries with
   await expect(failedAxis).not.toContainText(/: 0건$/);
   await expect(page.locator(".legal-analysis-output")).toContainText("총 영향 건수(경계 확인분): 9건 — 표본을 넘는 검색 결과가 있어 실제는 더 많을 수 있음");
   await expect(page.locator(".legal-analysis-output")).not.toContainText("전체 영향");
+  const impactOutput = page.locator(".legal-analysis-output");
+  expect((await impactOutput.locator(":scope > .legal-analysis-section").allTextContents()).join("\n")).not.toContain("선량한 풍속");
+  await expect(impactOutput.locator(".legal-analysis-axes")).not.toContainText("245007");
+  await impactOutput.locator(".law-detail-source summary").click();
+  await expect(impactOutput.locator(".legal-analysis-raw")).toContainText("제103조(반사회질서의 법률행위)");
+  await expect(impactOutput.locator(".law-detail-source")).toContainText("245007");
+  await expect(impactOutput.locator(".law-detail-source")).not.toContainText("7건 확인 / 검색 42건");
+  await impactOutput.locator(".law-detail-source summary").click();
 
   expect(requests.slice(2)).toEqual([
     { mode: "cite_check", caseNumber: "2013다61381" },
@@ -439,6 +461,35 @@ test("RESEARCH analysis runs each fixed mode, keeps MCP meaning and retries with
   }
   // The only expected console line is the browser's own log of the injected 503 before retry.
   expect(errors.filter((error) => !error.includes("status of 503"))).toEqual([]);
+});
+
+test("analysis distinguishes no citations and missing records without exposing machine markers", async ({ page }) => {
+  await page.route("**/api/law/analysis", (route) => {
+    const request = route.request().postDataJSON() as { mode: string };
+    const noCitations = request.mode === "verify_citations";
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: noCitations
+      ? { found: true, mode: request.mode, markers: ["NO_CITATIONS_FOUND"], text: "[NO_CITATIONS_FOUND] 입력 텍스트에서 조문·판례 인용이 발견되지 않았습니다.\n\n⚠️ 이 결과는 '검증 성공'이 아니라 '검증할 인용이 없음'입니다." }
+      : { found: false, mode: request.mode, marker: "NOT_FOUND", text: "[NOT_FOUND] 사건번호를 찾지 못했습니다." } }) });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "법령", exact: true }).click();
+  await page.getByRole("button", { name: "검증·분석", exact: true }).click();
+  const modes = page.getByRole("group", { name: "검증·분석 유형" });
+  const input = "오늘은 맑습니다.";
+  await page.getByLabel("검증할 문장을 입력하세요.").fill(input);
+  await page.locator(".legal-analysis-form").getByRole("button", { name: "인용 검증" }).click();
+  const output = page.locator(".legal-analysis-output");
+  await expect(output.locator(".legal-analysis-overall")).toContainText("검증에 성공했다는 뜻이 아닙니다");
+  await expect(output.locator(".legal-analysis-citations")).toHaveCount(0);
+  await expect(output).not.toContainText("[NO_CITATIONS_FOUND]");
+  await output.locator(".law-detail-source summary").click();
+  await expect(output.locator(".legal-analysis-raw")).toHaveText(input);
+  await modes.getByRole("button", { name: "판례 유효성" }).click();
+  await page.getByLabel("사건번호").fill("2099다99999");
+  await page.locator(".legal-analysis-form").getByRole("button", { name: "확인" }).click();
+  await expect(page.locator(".legal-analysis-missing")).toContainText("찾지 못했습니다");
+  await expect(page.locator(".legal-analysis-missing")).not.toContainText("[NOT_FOUND]");
+  await expect(page.locator(".legal-analysis-output")).toHaveCount(0);
 });
 
 test("applicable law separates decision from legal source across transition and lookup states", async ({ page }) => {

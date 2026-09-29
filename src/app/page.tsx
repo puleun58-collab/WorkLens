@@ -322,7 +322,7 @@ function failedPolishOutcome(candidate: PolishCandidate, error: unknown): Polish
 }
 
 const POLISH_TRANSIENT_ERRORS = new Set<ServerAiErrorCode>([
-  "TIMEOUT", "RATE_LIMITED", "PROVIDER_UNAVAILABLE", "BUSY", "OPERATION_CAPACITY",
+  "TIMEOUT", "RATE_LIMITED", "PROVIDER_UNAVAILABLE",
 ]);
 
 /** Keep only attempted outcomes: an interrupted or blocked run leaves the rest untouched. */
@@ -337,11 +337,13 @@ async function processPolishCandidates(
   type BatchItem = { wireId: string; candidate: PolishCandidate };
   type BatchStatus = { stopped?: boolean; terminalError?: unknown };
 
-  async function resolveBatch(items: BatchItem[], resolved: Map<string, PolishOutcome>): Promise<BatchStatus> {
+  async function resolveBatch(items: BatchItem[], resolved: Map<string, PolishOutcome>, retry = true): Promise<BatchStatus> {
     if (isCancelled()) return { stopped: true };
     let proposals: { id: string; proposal: PolishProposal }[] | undefined;
     let error: unknown;
-    for (let attempt = 0; attempt < 3; attempt += 1) {
+    // One client retry at most. Descendant splits each get one attempt, so a
+    // failing provider cannot multiply its own retries across every split.
+    for (let attempt = 0; attempt < (retry ? 2 : 1); attempt += 1) {
       try {
         proposals = await polishBatchServerAi(items.map(({ wireId, candidate }) => ({ id: wireId, text: candidate.text })), mode);
         error = undefined;
@@ -350,11 +352,14 @@ async function processPolishCandidates(
         error = caught;
         const failure = caught as Partial<ServerAiFailure>;
         if (isCancelled() || failure.code === "CANCELLED") return { stopped: true };
-        if (attempt < 2 && failure.code && POLISH_TRANSIENT_ERRORS.has(failure.code)) {
-          const delay = Math.max(300 * 2 ** attempt, failure.retryAfterMs ?? 0);
+        const transient = failure.code && POLISH_TRANSIENT_ERRORS.has(failure.code);
+        if (attempt === 0 && retry && (transient || failure.code === "INVALID_OUTPUT")) {
+          const delay = transient
+            ? Math.max(failure.code === "RATE_LIMITED" ? 2_000 : 300, failure.retryAfterMs ?? 0)
+            : 0;
           // A long provider embargo is a terminal limit, not a reason to retry early.
           if (delay > 30_000) break;
-          if (!await waitForPolishRetry(delay) || isCancelled()) return { stopped: true };
+          if (delay && (!await waitForPolishRetry(delay) || isCancelled())) return { stopped: true };
           continue;
         }
         break;
@@ -370,9 +375,9 @@ async function processPolishCandidates(
       }
       if (items.length > 1) {
         const midpoint = Math.ceil(items.length / 2);
-        const first = await resolveBatch(items.slice(0, midpoint), resolved);
+        const first = await resolveBatch(items.slice(0, midpoint), resolved, false);
         if (first.stopped || first.terminalError) return first;
-        return resolveBatch(items.slice(midpoint), resolved);
+        return resolveBatch(items.slice(midpoint), resolved, false);
       }
       if (code === "PROVIDER_UNAVAILABLE" && ++consecutiveUnavailable >= 2) {
         resolved.set(items[0].wireId, failedPolishOutcome(items[0].candidate, error));
@@ -396,7 +401,7 @@ async function processPolishCandidates(
     const missing: BatchItem[] = [];
     for (const item of items) {
       const proposal = accepted.get(item.wireId);
-      if (proposal && !duplicates.has(item.wireId)) {
+      if (proposal && !duplicates.has(item.wireId) && (!proposal.changed || proposal.revisedText.trim().length > 0)) {
         consecutiveUnavailable = 0;
         resolved.set(item.wireId, reviewProposal(item.candidate, proposal));
       } else {
@@ -404,6 +409,7 @@ async function processPolishCandidates(
       }
     }
     if (!missing.length) return {};
+    if (missing.length === items.length && retry) return resolveBatch(items, resolved, false);
     if (missing.length === 1 && items.length === 1) {
       const failure: ServerAiFailure = {
         code: "INVALID_OUTPUT",
@@ -416,9 +422,9 @@ async function processPolishCandidates(
     }
     if (missing.length < items.length) return resolveBatch(missing, resolved);
     const midpoint = Math.ceil(items.length / 2);
-    const first = await resolveBatch(items.slice(0, midpoint), resolved);
+    const first = await resolveBatch(items.slice(0, midpoint), resolved, false);
     if (first.stopped || first.terminalError) return first;
-    return resolveBatch(items.slice(midpoint), resolved);
+    return resolveBatch(items.slice(midpoint), resolved, false);
   }
 
   for (let index = 0; index < candidates.length;) {

@@ -4,7 +4,7 @@ import type { ExtractProposal } from "@/lib/ai/extract-prompt";
 import type { EvidenceItem, ModelClaim } from "@/lib/ai/prompt";
 
 export const SERVER_AI_MAX_FILES = 5;
-export const POLISH_BATCH_MAX_ITEMS = 4;
+export const POLISH_BATCH_MAX_ITEMS = 8;
 export const POLISH_BATCH_MAX_CHARS = 2_400;
 
 export type AiApiRequest =

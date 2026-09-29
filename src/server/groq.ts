@@ -134,10 +134,9 @@ function parseResult(request: AiApiRequest, content: string): AiApiResult {
       const proposals: Extract<AiApiResult, { kind: "polish-batch" }>["proposals"] = [];
       const malformedIds = new Set<string>();
       for (const entry of validated.data.proposals) {
-        // Without an id, a malformed item cannot safely be assigned to a sentence.
-        if (!entry || typeof entry !== "object" || !("id" in entry) || typeof entry.id !== "string") {
-          throw new ApiError("INVALID_PROVIDER_OUTPUT", "AI 응답 형식이 올바르지 않습니다.", 502);
-        }
+        // An entry without a usable id cannot be attributed; keep the other
+        // sentences and let the client retry only the missing ids.
+        if (!entry || typeof entry !== "object" || !("id" in entry) || typeof entry.id !== "string") continue;
         const item = polishBatchItemSchema.safeParse(entry);
         if (!item.success || (item.data.proposal.changed && !item.data.proposal.revisedText.trim())) {
           malformedIds.add(entry.id);
@@ -189,7 +188,10 @@ async function complete(
     },
   });
 
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  // Polish batches retry at the abortable client layer; retrying here as well
+  // multiplies provider calls for every failed split.
+  const maxAttempts = context.operation === "polish-batch" ? 1 : 2;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
@@ -201,7 +203,7 @@ async function complete(
       });
       if (response.ok) return parseCompletion(await response.json());
       const retryable = response.status === 429 || response.status >= 500;
-      if (attempt === 0 && retryable) {
+      if (attempt + 1 < maxAttempts && retryable) {
         const retryAfter = retryDelay(response.headers.get("retry-after"));
         if (retryAfter <= 1_500) {
           await delay(retryAfter);
@@ -214,7 +216,7 @@ async function complete(
       if (error instanceof Error && error.name === "AbortError") {
         throw new ApiError("AI_TIMEOUT", "AI 응답 시간이 초과되었습니다. 다시 시도하세요.", 504);
       }
-      if (attempt === 0) {
+      if (attempt + 1 < maxAttempts) {
         await delay(250);
         continue;
       }
