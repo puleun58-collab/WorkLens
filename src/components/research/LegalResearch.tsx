@@ -147,8 +147,8 @@ export function LegalResearch() {
       {task === "law_system" && <label htmlFor="research-articles" className="legal-research-single">관련 조문 (선택)
         <input id="research-articles" type="text" value={draft.articles} placeholder="예: 제38조, 제39조" onChange={(event) => update("articles", event.target.value)} />
       </label>}
-      {task === "ordinance_compare" && <label htmlFor="research-parent-law" className="legal-research-single">상위 법령 (선택)
-        <input id="research-parent-law" type="text" value={draft.parentLaw} maxLength={LAW_RESEARCH_NAME_MAX_CHARS} placeholder="예: 주차장법" onChange={(event) => update("parentLaw", event.target.value)} />
+      {task === "ordinance_compare" && <label htmlFor="research-parent-law" className="legal-research-single">관련 상위 법령 (선택)
+        <input id="research-parent-law" type="text" value={draft.parentLaw} maxLength={LAW_RESEARCH_NAME_MAX_CHARS} placeholder="요청에 법령이 명시된 경우에만 입력하세요. 예: 주차장법" onChange={(event) => update("parentLaw", event.target.value)} />
       </label>}
       {task === "ordinance_compare" && <>
         <div className="legal-analysis-fields legal-research-dates legal-research-regions">

@@ -927,7 +927,7 @@ test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route wit
   await form.getByLabel("비교 지역 1").fill("인천광역시");
   await expect(form.getByRole("button", { name: "리서치 실행" })).toBeDisabled();
   await form.getByLabel("비교 지역 2").fill("서울특별시");
-  await form.getByLabel("상위 법령 (선택)").fill("주차장법");
+  await form.getByLabel("관련 상위 법령 (선택)").fill("주차장법");
   await form.getByRole("button", { name: "리서치 실행" }).click();
   for (const value of ["action_basis", "procedure_detail"]) {
     await task.selectOption(value);
@@ -993,10 +993,10 @@ test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route wit
 });
 
 test("RESEARCH ordinance comparison needs two regions and compares only sourced pairs", async ({ page }) => {
-  const searches: string[] = [];
+  const searches: Array<{ query: string; parentLaw?: string }> = [];
   await page.route("**/api/law/research", (route) => {
     const body = route.request().postDataJSON() as { task: string; query: string; parentLaw?: string };
-    searches.push(body.query);
+    searches.push({ query: body.query, ...(body.parentLaw ? { parentLaw: body.parentLaw } : {}) });
     const pair = !body.query.startsWith("한쪽만");
     const article = (law: string, content: string) =>
       `${law}\n   제0012조 (주차요금 감면)\n   제12조(주차요금 감면)\n ${content}\n   시행: 2025.01.01 | 지방자치단체`;
@@ -1015,7 +1015,7 @@ test("RESEARCH ordinance comparison needs two regions and compares only sourced 
   await form.getByLabel("비교 지역 2").fill("인천광역시");
   await expect(form).toContainText("서로 다른 비교 지역 두 곳");
   await form.getByLabel("비교 지역 2").fill("서울특별시");
-  await form.getByLabel("상위 법령 (선택)").fill("주차장법");
+  await form.getByLabel("관련 상위 법령 (선택)").fill("주차장법");
   await form.getByRole("button", { name: "리서치 실행" }).click();
   const comparison = page.locator(".research-comparison");
   await expect(comparison).toBeVisible();
@@ -1025,15 +1025,63 @@ test("RESEARCH ordinance comparison needs two regions and compares only sourced 
   await expect(page.locator(".research-overview")).toContainText("장애인 주차요금 감면");
   await expect(page.locator(".research-overview")).not.toContainText("비교 대상 지역:");
   await form.getByLabel("질문 또는 검색어").fill("한쪽만");
+  await form.getByLabel("관련 상위 법령 (선택)").fill("");
   await form.getByRole("button", { name: "리서치 실행" }).click();
   await expect(comparison).toHaveCount(0);
   await expect(page.getByRole("region", { name: "조례 대조" })).toContainText("함께 확인되지 않아");
   expect(searches).toEqual([
-    "장애인 주차요금 감면\n비교 대상 지역: 인천광역시 / 서울특별시",
-    "한쪽만\n비교 대상 지역: 인천광역시 / 서울특별시",
+    { query: "장애인 주차요금 감면\n비교 대상 지역: 인천광역시 / 서울특별시", parentLaw: "주차장법" },
+    { query: "한쪽만\n비교 대상 지역: 인천광역시 / 서울특별시" },
   ]);
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test("RESEARCH distinguishes empty, low-relevance and partial evidence without adding facts", async ({ page }) => {
+  await page.route("**/api/law/research", (route) => {
+    const { query } = route.request().postDataJSON() as { query: string };
+    const interpretation = {
+      original: query, situation: "갑작스러운 해고 문제로 이해했습니다.",
+      issues: ["해고의 정당성", "해고예고"], searchTerms: ["해고", "해고예고"],
+      confidence: "medium", uncertainty: "근로계약의 형태는 확인되지 않았습니다.", followUp: "근무 기간은 얼마나 되나요?",
+    };
+    if (query === "자료 없음") return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+      data: { found: false, task: "full_research", marker: "NOT_FOUND", text: "[NOT_FOUND] get_law_text failed", interpretation },
+    }) });
+    const source = query === "일부 근거";
+    const text = source
+      ? "═══ 종합 리서치 ═══\n▶ AI 법령검색 결과\n지능형 법령검색 결과 (법령조문, 1건):\n\n근로기준법\n   제0023조 (해고 등의 제한)\n근로자에 대한 해고의 정당성을 판단한다.\n   시행: 2025.01.01 | 고용노동부"
+      : "═══ 종합 리서치 ═══\n▶ 관련 판례\n판례 검색 결과 (총 65건, 1페이지):\n\n[9] 다른 사건\n  사건번호: 2025다1";
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: {
+      found: true, task: "full_research", text, markers: [], interpretation,
+      evidence: source ? { status: "partial", articles: [{ law: "근로기준법", jo: "제23조" }], precedents: [] }
+        : { status: "unverified", articles: [], precedents: [] },
+    } }) });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "법령", exact: true }).click();
+  await page.locator(".law-view-tabs").getByRole("button", { name: "종합 리서치" }).click();
+  const form = page.getByRole("form", { name: "종합 리서치 입력" });
+  const query = form.getByLabel("질문 또는 검색어");
+  const run = form.getByRole("button", { name: "리서치 실행" });
+  await query.fill("회사에서 갑자기 잘렸어");
+  await run.click();
+  const overview = page.locator(".research-overview");
+  await expect(overview).toContainText("자료 후보는 있으나");
+  await expect(overview).toContainText("근무 기간은 얼마나 되나요?");
+  await expect(overview).not.toContainText("근로계약이 종료되었");
+  await expect(page.locator(".research-selected")).toHaveCount(0);
+  await expect(page.locator("[data-kind='decision_search']")).toContainText("전체 검색 후보 총 65건");
+  await query.fill("자료 없음");
+  await run.click();
+  await expect(page.locator(".legal-analysis-missing")).toContainText("현재 조회 범위에서 자료를 찾지 못했습니다");
+  await expect(page.locator(".legal-analysis-missing")).toContainText("자료 없음");
+  await expect(page.locator(".legal-analysis-missing")).not.toContainText("get_law_text");
+  await query.fill("일부 근거");
+  await run.click();
+  await expect(overview).toContainText("일부 쟁점에 닿는 출처 내용");
+  await expect(page.locator(".research-selected")).toContainText("근로기준법 제23조");
+  await expect(overview).not.toContainText("현행");
 });
 
 test("RESEARCH separates a verified article from search candidates and hides internal guidance", async ({ page }) => {
