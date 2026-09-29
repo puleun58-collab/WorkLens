@@ -15,6 +15,10 @@ export interface LinkedDecisionSearch {
   query: string;
   lawName: string;
   jo: string;
+  /** Defaults to 판례; an impact map's 해석례 follow-up opens 법령해석례. */
+  domain?: DecisionDomain;
+  /** Where "back" returns to: the law article (default) or the impact map that suggested the search. */
+  origin?: "law" | "analysis";
 }
 
 interface DecisionSearchProps {
@@ -84,9 +88,10 @@ export function DecisionSearch({ linkedRequest, onReturnToLaw, onCiteCheck }: De
       setDetailLoading(false);
       setFullLoading(false);
       setSelected(null);
-      setDomain("precedent");
+      const domain = linkedRequest.domain ?? "precedent";
+      setDomain(domain);
       setQuery(linkedRequest.query);
-      void runSearch(linkedRequest.query, "precedent", 1);
+      void runSearch(linkedRequest.query, domain, 1);
     });
     return () => { active = false; };
   }, [linkedRequest, runSearch]);
@@ -186,7 +191,7 @@ export function DecisionSearch({ linkedRequest, onReturnToLaw, onCiteCheck }: De
   }
 
   const returnButton = linkedRequest && <button type="button" className="law-search-link" onClick={onReturnToLaw} title={`${linkedRequest.lawName} ${linkedRequest.jo}`}>
-    ← 법령으로
+    {linkedRequest.origin === "analysis" ? "← 조문 영향도로" : "← 법령으로"}
   </button>;
 
   if (selected) {

@@ -10,7 +10,7 @@ import {
 import { lawDisplayText } from "@/lib/law-display";
 import { LawTextBlock } from "./LawTextBlock";
 import { DecisionSearch, type LinkedDecisionSearch } from "./DecisionSearch";
-import { LegalAnalysis, type LinkedAnalysis } from "./LegalAnalysis";
+import { LegalAnalysis, type LinkedAnalysis, type RelatedSearch } from "./LegalAnalysis";
 import { LegalResearch } from "./LegalResearch";
 import { SourceToggleSummary } from "./SourceToggleSummary";
 import "./law-search.css";
@@ -30,8 +30,17 @@ export function LawSearch() {
   }
 
   function returnToLaw() {
+    if (linkedRequest?.origin === "analysis") {
+      setView("analysis");
+      return;
+    }
     setView("law");
     requestAnimationFrame(() => document.getElementById("related-decisions")?.focus());
+  }
+
+  function relatedFromAnalysis(search: RelatedSearch) {
+    setLinkedRequest({ query: search.query, lawName: search.query, jo: "", domain: search.domain, origin: "analysis" });
+    setView("decisions");
   }
 
   /** Opens an analysis from structured law/decision state; `focusId` is the trigger to return to. */
@@ -61,7 +70,7 @@ export function LawSearch() {
       <DecisionSearch linkedRequest={linkedRequest} onReturnToLaw={returnToLaw}
         onCiteCheck={(caseNumber) => openAnalysis({ mode: "cite_check", caseNumber, origin: "decisions" }, "decision-cite-check")} />
     </div>
-    <div hidden={view !== "analysis"}><LegalAnalysis linkedRequest={linkedAnalysis} onReturn={returnFromAnalysis} /></div>
+    <div hidden={view !== "analysis"}><LegalAnalysis linkedRequest={linkedAnalysis} onReturn={returnFromAnalysis} onRelatedSearch={relatedFromAnalysis} /></div>
     <div hidden={view !== "research"}><LegalResearch /></div>
   </div>;
 }
