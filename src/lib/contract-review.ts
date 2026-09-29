@@ -9,7 +9,8 @@
  * searches are allowed and which results are relevant.
  */
 
-export type DocumentType = "b2b_service" | "b2c_terms" | "employment" | "lease" | "outsourcing" | "sale" | "nda" | "unknown";
+/** `work_rules`: 취업규칙·인사/복무 규정·운영지침 — an employment document that is not a contract. */
+export type DocumentType = "b2b_service" | "b2c_terms" | "employment" | "work_rules" | "lease" | "outsourcing" | "sale" | "nda" | "unknown";
 export type PartyRelationship = "business" | "consumer" | "employment" | "lease" | "unknown";
 /** Area of law a statute or precedent belongs to; searches never leave the document's allowed areas. */
 export type LawDomain = "civil" | "terms" | "privacy" | "procedure" | "labor" | "lease" | "consumer";
@@ -87,6 +88,11 @@ export interface KeyFact {
 
 const TYPE_SIGNALS: Array<{ type: DocumentType; label: string; patterns: RegExp[] }> = [
   { type: "employment", label: "근로계약", patterns: [/근로계약/u, /근로자/u, /사용자/u, /임금|기본급/u, /근로시간|소정근로/u] },
+  // A company's own rules for its staff: named as rules/guidelines, and about work, leave, discipline and staff together.
+  { type: "work_rules", label: "근로·인사 관련 내부 규정", patterns: [
+    /취업\s*규칙|(?:인사|복무|근무|근태|징계|휴가)\s*(?:관리\s*)?(?:규정|규칙|지침)|(?:임직원|직원|사원)[^\n]{0,20}(?:규정|지침)|운영\s*지침/u,
+    /임직원|직원/u, /근무\s*시간|연장\s*근[무로]|휴게\s*시간/u, /연차|휴가/u, /징계|해고/u, /근태|재택\s*근무|인사\s*평가|퇴직/u,
+  ] },
   { type: "lease", label: "임대차계약", patterns: [/임대차/u, /임대인/u, /임차인/u, /보증금/u, /차임|월세/u] },
   { type: "b2c_terms", label: "소비자 대상 이용약관", patterns: [/이용약관/u, /회원/u, /개인\s*소비자|소비자/u, /청약\s*철회|환불/u, /구독료|자동\s*결제/u] },
   { type: "b2b_service", label: "서비스 이용계약", patterns: [/서비스\s*이용\s*계약|이용계약/u, /소프트웨어|클라우드|SaaS|솔루션/iu, /이용\s*요금|이용료/u, /제공자/u, /이용자/u] },
@@ -99,6 +105,7 @@ const DOMAINS: Record<DocumentType, LawDomain[]> = {
   b2b_service: ["civil", "terms", "privacy", "procedure"],
   b2c_terms: ["civil", "terms", "consumer", "privacy", "procedure"],
   employment: ["civil", "labor", "privacy", "procedure"],
+  work_rules: ["civil", "labor", "privacy", "procedure"],
   lease: ["civil", "lease", "procedure"],
   outsourcing: ["civil", "terms", "privacy", "procedure"],
   sale: ["civil", "terms", "procedure"],
@@ -128,7 +135,7 @@ export function classifyDocument(text: string): DocumentProfile {
   const confidence: Confidence = !decided ? "low" : best.score - (second?.score ?? 0) >= 3 ? "high" : "medium";
 
   const corporateParties = (head.match(/주식회사|㈜|\(주\)|유한회사|법인/gu) ?? []).length;
-  const relationship: PartyRelationship = type === "employment" ? "employment"
+  const relationship: PartyRelationship = type === "employment" || type === "work_rules" ? "employment"
     : type === "lease" ? "lease"
     : type === "b2c_terms" ? "consumer"
     : corporateParties >= 2 ? "business"
@@ -152,6 +159,7 @@ export function documentSearchTerm(profile: DocumentProfile): string {
     case "b2b_service": return "서비스 이용계약";
     case "b2c_terms": return "이용약관";
     case "employment": return "근로계약";
+    case "work_rules": return "취업규칙";
     case "lease": return "임대차";
     case "outsourcing": return "용역계약";
     case "sale": return "매매계약";
@@ -162,10 +170,13 @@ export function documentSearchTerm(profile: DocumentProfile): string {
 
 // ── Clauses ──────────────────────────────────────────────────────────────
 
-const CLAUSE_HEAD = /^\s*(제\s*\d+\s*조(?:의\s*\d+)?)\s*(?:\(([^)]{1,40})\))?\s*/u;
+const CLAUSE_HEAD = /^\s*(제\s*\d+\s*조(?:의\s*\d+)?)\.?\s*(?:\(([^)]{1,40})\))?\s*/u;
+/** Markdown heading/bold markers a pasted document may carry; they are formatting, not text. */
+const MARKDOWN_MARKS = /^#{1,6}\s+|^\*\*(.*)\*\*$/u;
 
 export function splitClauses(text: string): Clause[] {
   const lines = text.replace(/\r\n?/gu, "\n").split("\n")
+    .map((line) => line.trim().replace(MARKDOWN_MARKS, "$1").trim())
     // A line break lost in copying can leave "…한다. 제2조(해지) …" on one line; an article
     // heading right after a sentence end starts a new clause, a cross-reference mid-sentence does not.
     .flatMap((line) => line.split(/(?<=[.다])\s+(?=제\s*\d+\s*조(?:의\s*\d+)?\s*\()/u))
@@ -174,9 +185,14 @@ export function splitClauses(text: string): Clause[] {
   for (const line of lines) {
     const head = CLAUSE_HEAD.exec(line);
     if (head) {
-      clauses.push({ number: head[1].replace(/\s+/gu, ""), ...(head[2] ? { title: head[2] } : {}), text: line.slice(head[0].length).trim() });
+      const rest = line.slice(head[0].length).trim();
+      // `제1조 목적` names the article like `제1조(목적)` when the rest of the line is a bare heading.
+      const bareTitle = !head[2] && rest && isBareHeading(rest) ? rest : undefined;
+      const title = head[2] ?? bareTitle;
+      clauses.push({ number: head[1].replace(/\s+/gu, ""), ...(title ? { title } : {}), text: bareTitle ? "" : rest });
     } else if (clauses.length && clauses.at(-1)!.number) {
-      clauses.at(-1)!.text += ` ${line}`;
+      const last = clauses.at(-1)!;
+      last.text = last.text ? `${last.text} ${line}` : line;
     } else {
       clauses.push({ text: line });
     }
@@ -291,7 +307,8 @@ export const ISSUES: IssueDefinition[] = [
   {
     id: "penalty", label: "위약금·손해배상 예정", severity: "high",
     point: "위약금이 손해배상 예정액으로서 부당히 과다한지 검토가 필요합니다. 과다한 경우 법원이 감액할 수 있습니다.",
-    detect: /위약금|위약벌|손해배상액?의\s*예정/u,
+    // Also a fixed sum owed regardless of the actual loss, which works as a liquidated damages clause.
+    detect: /위약금|위약벌|손해배상액?의\s*예정|(?:실제\s*)?손해(?:액)?(?:와|과)?\s*(?:관계없이|무관하게|상관없이)[^.]{0,40}(?:원|배상)|정액[^.]{0,20}(?:배상|손해배상)/u,
     laws: [
       { law: "민법", jo: "제398조", domain: "civil" },
       { law: TERMS_ACT, jo: "제8조", domain: "terms", condition: TERMS_CONDITION },
@@ -302,8 +319,9 @@ export const ISSUES: IssueDefinition[] = [
   },
   {
     id: "data_transfer", label: "개인정보·업무 데이터 제3자 제공", severity: "high",
-    point: "제3자 제공 대상이 개인정보인지 업무 데이터인지, 제공인지 처리위탁인지, 법적 근거나 동의 예외가 있는지 문서만으로는 확인되지 않아 추가 확인이 필요합니다.",
-    detect: /(?:개인정보|업무\s*데이터|이용자\s*정보|정보)[^.]{0,80}제3자에게[^.]{0,30}제공|제3자에게[^.]{0,40}(?:개인정보|정보)/u,
+    point: "제공 대상이 개인정보인지 업무 데이터인지, 제3자 제공인지 처리위탁인지, 법적 근거나 동의 예외가 있는지 문서만으로는 확인되지 않아 추가 확인이 필요합니다.",
+    // Named recipients (관계 회사, 고객사, 위탁업체 …) are recipients too; 제공 vs 위탁 is left to the reader.
+    detect: /(?:개인정보|업무\s*데이터|이용자\s*정보|정보)[^.]{0,80}(?:제3자|관계\s*회사|계열사|고객사|협력\s*업체|외부\s*업체|위탁\s*업체|수탁자)[^.]{0,20}(?:에게|에)[^.]{0,20}제공|제3자에게[^.]{0,40}(?:개인정보|정보)/u,
     laws: [
       { law: "개인정보 보호법", jo: "제17조", domain: "privacy" },
       { law: "개인정보 보호법", jo: "제26조", domain: "privacy" },
@@ -342,15 +360,115 @@ export const ISSUES: IssueDefinition[] = [
   },
   // Document-type-specific issues: raised only when the document itself is of that kind.
   {
-    id: "dismissal", label: "예고 없는 해고", severity: "high", only: ["employment"],
-    point: "예고 없이 즉시 해고할 수 있게 한 부분이 해고 예고 및 정당한 이유 요건과 맞는지 확인이 필요합니다.",
-    detect: /해고/u,
+    id: "dismissal", label: "경고·예고 없는 징계·해고", severity: "high", only: ["employment", "work_rules"],
+    point: "경고나 예고 없이 징계·즉시 해고할 수 있게 한 부분이 해고의 정당한 이유, 해고 예고, 징계 절차 요건과 맞는지 확인이 필요합니다.",
+    // A 해고 mentioned without dropping warning, notice or procedure is not by itself a review point.
+    detect: /(?:경고|예고|통지|절차|소명)[^.]{0,6}없이[^.]{0,40}(?:해고|징계)|즉시\s*해고/u,
     laws: [
       { law: "근로기준법", jo: "제23조", domain: "labor" },
       { law: "근로기준법", jo: "제26조", domain: "labor" },
     ],
-    queries: ["근로계약 즉시 해고 예고", "해고예고 없는 해고 효력"],
+    queries: ["{doc} 즉시 해고 예고", "해고예고 없는 해고 효력", "징계해고 정당한 이유"],
     holdingTerms: /해고/u,
+  },
+  {
+    id: "overtime_pay", label: "연장근로 수당 미지급", severity: "high", only: ["employment", "work_rules"],
+    point: "승인 절차 등을 이유로 실제 연장근로에 대한 수당을 지급하지 않게 한 부분이 연장근로 가산임금 지급 의무와 맞는지 확인이 필요합니다.",
+    detect: /(?:연장\s*근[무로]|초과\s*근무|야간\s*근[무로]|휴일\s*근[무로])[^.]{0,100}(?:수당|임금|가산)[^.]{0,30}(?:지급하지\s*않|제외|지급\s*대상이\s*아니)/u,
+    laws: [{ law: "근로기준법", jo: "제56조", domain: "labor" }],
+    queries: ["연장근로 사전승인 없는 연장근로 수당", "연장근로 가산임금 지급 의무"],
+    holdingTerms: /연장\s*근로|가산\s*임금|시간외\s*근로/u,
+    group: "working_time",
+  },
+  {
+    id: "working_hours", label: "주 근로시간 한도", severity: "medium", only: ["employment", "work_rules"],
+    point: "한 주 근로시간을 52시간을 넘겨 정할 수 있게 한 부분이 연장근로 한도나 적용 가능한 예외 제도(탄력적 근로시간제 등)의 요건과 맞는지 확인이 필요합니다.",
+    detect: /(?:근무|근로)\s*시간[^.]{0,30}(?:5[3-9]|[6-9]\d)\s*시간|(?:주|1주|한\s*주)[^.]{0,20}(?:5[3-9]|[6-9]\d)\s*시간/u,
+    laws: [
+      { law: "근로기준법", jo: "제50조", domain: "labor" },
+      { law: "근로기준법", jo: "제53조", domain: "labor" },
+    ],
+    queries: ["1주 연장근로 한도 초과", "주 52시간 연장근로 한도"],
+    holdingTerms: /연장\s*근로|근로시간/u,
+    group: "working_time",
+  },
+  {
+    id: "annual_leave", label: "연차휴가 사용 제한·미사용 처리", severity: "medium", only: ["employment", "work_rules"],
+    point: "연차휴가 사용을 제한하거나 미사용 연차를 보상 없이 소멸시키는 부분이 시기변경 요건, 사용촉진 절차, 미사용 수당 지급과 맞는지 확인이 필요합니다.",
+    detect: /연차[^.]{0,60}(?:사용[^.]{0,10}제한|변경하거나|자동\s*(?:으로\s*)?소멸|보상[^.]{0,20}(?:지급하지\s*않|하지\s*않)|수당[^.]{0,20}지급하지\s*않)/u,
+    laws: [
+      { law: "근로기준법", jo: "제60조", domain: "labor" },
+      { law: "근로기준법", jo: "제61조", domain: "labor" },
+    ],
+    queries: ["미사용 연차휴가 수당 소멸", "연차휴가 시기변경권 사용 제한"],
+    holdingTerms: /연차\s*(?:유급)?\s*휴가/u,
+  },
+  {
+    id: "employee_monitoring", label: "직원 업무 모니터링", severity: "medium", only: ["employment", "work_rules"],
+    point: "로그인·프로그램 실행·화면 캡처 등 직원 정보를 수집하는 부분의 목적·범위·필요성, 고지와 처리 근거, 보관기간, 인사평가·징계 활용이 적절한지 확인이 필요합니다.",
+    detect: /(?:로그인|로그아웃|실행\s*기록|접속\s*(?:IP|기록)|다운로드\s*기록|화면\s*캡처|키\s*입력|위치\s*정보)[^.]{0,120}수집|(?:근태|근무\s*상황)[^.]{0,30}(?:확인|감시)[^.]{0,30}(?:정보|기록)[^.]{0,20}수집/u,
+    laws: [{ law: "개인정보 보호법", jo: "제15조", domain: "privacy" }],
+    queries: ["직원 업무용 PC 모니터링 개인정보", "근로자 감시 개인정보 수집"],
+    holdingTerms: /개인정보|감시|모니터링/u,
+    group: "monitoring",
+  },
+  {
+    id: "cctv_audio", label: "근무 감시 목적 CCTV·음성녹음", severity: "medium", only: ["employment", "work_rules"],
+    point: "CCTV를 근무상황 확인에 쓰거나 음성을 녹음할 수 있게 한 부분의 설치 목적·장소, 녹음 여부, 보관기간과 열람 권한이 적절한지 확인이 필요합니다.",
+    // CCTV alone is not a point: only when it watches work or records sound.
+    detect: /(?:근무\s*(?:상황|태도)|근태)[^.]{0,60}(?:CCTV|영상정보처리기기)|(?:CCTV|영상정보처리기기)[^.]{0,60}(?:근무\s*(?:상황|태도)|근태)|음성[^.]{0,10}녹음/u,
+    laws: [{ law: "개인정보 보호법", jo: "제25조", domain: "privacy" }],
+    queries: ["사업장 CCTV 근로자 감시 개인정보", "영상정보처리기기 녹음 기능"],
+    holdingTerms: /CCTV|영상정보처리기기|녹음/u,
+    group: "monitoring",
+  },
+  {
+    id: "overseas_storage", label: "개인정보 국외 저장·이전", severity: "medium",
+    point: "개인정보를 해외 서버 등 국외에 저장·처리할 수 있게 한 부분이 국외 이전 요건(동의, 고지, 이전 대상과 보호조치)을 갖추었는지 확인이 필요합니다.",
+    detect: /개인정보[^.]{0,60}(?:해외|국외)\s*(?:의\s*)?(?:서버|데이터\s*센터|사업자|이전|저장|처리)|(?:해외|국외)\s*(?:서버|데이터\s*센터)[^.]{0,30}개인정보/u,
+    laws: [{ law: "개인정보 보호법", jo: "제28조의8", domain: "privacy" }],
+    queries: ["개인정보 국외 이전 동의"],
+    holdingTerms: /국외\s*이전|해외/u,
+    group: "privacy_processing",
+  },
+  {
+    id: "retention_period", label: "개인정보 보관기간 불명확", severity: "low",
+    point: "보관기간을 '필요하다고 판단하는 기간' 등으로 포괄적으로 정한 부분은 보유 목적 달성 후 파기 원칙에 맞게 기간을 구체적으로 정했는지 확인이 필요합니다.",
+    detect: /(?:필요하다고\s*판단하는|필요한)\s*기간\s*동안[^.]{0,30}보관|무기한[^.]{0,20}(?:보관|보유)|보관\s*기간[^.]{0,10}(?:정하지\s*않|미정)/u,
+    laws: [{ law: "개인정보 보호법", jo: "제21조", domain: "privacy" }],
+    group: "privacy_processing",
+  },
+  {
+    id: "rules_change", label: "일방적 규정 변경", severity: "high", only: ["employment", "work_rules"],
+    point: "회사가 지침·규정을 일방적으로 바꿀 수 있게 한 부분은 근로조건을 불리하게 바꾸는 경우 근로자 과반수의 동의 등 취업규칙 변경 절차가 필요할 수 있어 확인이 필요합니다.",
+    detect: /(?:지침|규정|규칙|운영\s*정책)(?:의)?\s*(?:내용)?[^.]{0,20}변경할\s*수\s*있/u,
+    laws: [{ law: "근로기준법", jo: "제94조", domain: "labor" }],
+    queries: ["취업규칙 불이익 변경 근로자 과반수 동의", "취업규칙 변경 동의 없는 효력"],
+    holdingTerms: /취업\s*규칙[^.]{0,30}(?:변경|불이익)/u,
+    group: "rules_change",
+  },
+  {
+    id: "deemed_consent", label: "동의 간주", severity: "medium",
+    point: "일정 기간이 지나거나 이의가 없거나 계속 근무·이용하면 동의한 것으로 보는 부분은 그 방식의 동의가 해당 사안에서 유효한지 추가 확인이 필요합니다.",
+    detect: /(?:동의|승낙|승인)한\s*것으로\s*(?:본다|보며|간주)|(?:이의|반대)[^.]{0,20}(?:없는|없으면)[^.]{0,40}동의[^.]{0,20}(?:간주|본다|것으로)/u,
+    laws: [
+      { law: "근로기준법", jo: "제94조", domain: "labor" },
+      { law: "개인정보 보호법", jo: "제22조", domain: "privacy" },
+      { law: TERMS_ACT, jo: "제12조", domain: "terms", condition: TERMS_CONDITION },
+    ],
+    queries: ["묵시적 동의 간주 효력", "의사표시 의제 약관"],
+    holdingTerms: /동의[^.]{0,20}(?:간주|의제)|묵시적\s*동의|의사표시의\s*의제/u,
+    group: "rules_change",
+  },
+  {
+    id: "rules_precedence", label: "취업규칙과 내부 지침의 우선순위", severity: "medium", only: ["employment", "work_rules"],
+    point: "내부 지침을 기존 취업규칙보다 우선 적용하게 한 부분이 근로조건 변경에 해당하는지, 취업규칙 변경 절차 없이 우선순위를 바꿀 수 있는지 추가 확인이 필요합니다.",
+    detect: /취업\s*규칙[^.]{0,60}(?:지침|규정)[^.]{0,20}우선|(?:지침|규정)[^.]{0,40}취업\s*규칙[^.]{0,40}우선/u,
+    laws: [
+      { law: "근로기준법", jo: "제94조", domain: "labor" },
+      { law: "근로기준법", jo: "제97조", domain: "labor" },
+    ],
+    group: "rules_change",
   },
   {
     id: "lease_renewal", label: "계약갱신 요구 거절", severity: "high", only: ["lease"],
