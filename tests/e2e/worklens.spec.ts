@@ -2271,6 +2271,56 @@ test("reviews PPTX writing, consistency and data findings with filters and exact
   expect(await findingActions.evaluate((element) => getComputedStyle(element).justifyContent)).toBe("flex-start");
 });
 
+test("reports an English typo at one severity whichever detector finds it", async ({ page }) => {
+  const deck = path.join(FIXTURE_DIR, "영문_오타.pptx");
+  await writeFile(deck, createPptxSlides([[
+    "Quarterly update",
+    "We should re-check teh assumptions.",
+    "Please make sure every attachement is included.",
+    "Forecast review",
+    "The forecast value is late.",
+  ]]));
+  await page.route("**/api/ai", async (route) => {
+    const request = route.request().postDataJSON() as { items: Array<{ handle: string; text: string }> };
+    const handle = (word: string) => request.items.find((item) => item.text.includes(word))!.handle;
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { kind: "claims", claims: [
+      { text: "‘teh’는 ‘the’로 표기해야 합니다.", handles: [handle("teh")], confidence: "high" },
+      { text: "‘attachement’는 ‘attachment’로 표기해야 합니다.", handles: [handle("attachement")], confidence: "high" },
+    ] } }) });
+  });
+  await page.goto("/");
+  await upload(page, deck);
+  await page.getByLabel("영문_오타.pptx 선택").check();
+  await page.getByRole("button", { name: "검수", exact: true }).click();
+  await page.getByRole("button", { name: "검수 실행" }).click();
+
+  const panel = page.locator(".results-panel");
+  const issues = page.locator(".check-issue");
+  const spelling = issues.filter({ hasText: "영문 철자 오류 가능성" });
+  // The rule and sentence review both report "teh": one issue, same wording and severity as "attachement".
+  await expect(spelling).toHaveCount(2);
+  await expect(spelling.filter({ hasText: "\"teh\"의 철자를 확인하세요." })).toHaveCount(1);
+  const reviewed = spelling.filter({ hasText: "\"attachement\"의 철자를 확인하세요." });
+  await expect(reviewed).toHaveClass(/severity-warning/);
+  await expect(reviewed).toContainText("\"attachment\"(으)로 교정하세요.");
+  await expect(reviewed.getByRole("button", { name: "Slide 1 근거 보기" })).toBeVisible();
+  await expect(spelling.filter({ has: page.locator(".check-severity", { hasText: "제안" }) })).toHaveCount(0);
+  await expect(panel).not.toContainText("추론");
+  await expect(panel).not.toContainText("문장 검토 의견");
+  // Choosing between "Forecast" and "forecast" stays a consistency suggestion.
+  await expect(issues.filter({ hasText: "\"Forecast\"" }).first()).toHaveClass(/severity-suggestion/);
+
+  const summaryCount = async (label: string) => Number(await page.locator(".qa-summary-line span", { hasText: label }).locator("b").textContent());
+  expect(await summaryCount("주의")).toBe(await issues.locator(".check-severity", { hasText: "주의" }).count());
+  expect(await summaryCount("제안")).toBe(await issues.locator(".check-severity", { hasText: "제안" }).count());
+
+  // Adding the reviewed word to the personal dictionary removes it and its count, like any rule finding.
+  const warningsBefore = await summaryCount("주의");
+  await reviewed.getByRole("button", { name: "내 용어에 추가" }).click();
+  await expect(spelling).toHaveCount(1);
+  expect(await summaryCount("주의")).toBe(warningsBefore - 1);
+});
+
 test("keeps the personal dictionary and ignore actions inside this browser", async ({ page, browser }) => {
   await page.goto("/");
   await upload(page, files.checkPptx);

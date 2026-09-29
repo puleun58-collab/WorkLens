@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { checkDocument } from "@/lib/check";
+import { checkDocument, createDictionary } from "@/lib/check";
+import { classifyEnglishCorrection } from "@/lib/check/writing/english-rules";
 import type { NormalizedDocument, SourceRef } from "@/domain/document";
 
 function paragraphDocument(texts: readonly string[]): NormalizedDocument {
@@ -92,5 +93,26 @@ describe("writing checks", () => {
       suggestedText: "Receive the report.",
     }));
     expect(protectedTokens.findings.filter((finding) => finding.category === "spelling" || finding.category === "terminology")).toEqual([]);
+  });
+
+  it("classifies an English correction by its certainty, not by who proposed it", () => {
+    const dictionary = createDictionary(["Recievr"], ["FSC-Forecast"]);
+    for (const [original, replacement] of [
+      ["teh", "the"], // known typo, swapped letters
+      ["attachement", "attachment"], // extra letter
+      ["Quaterly", "Quarterly"], // missing letter
+      ["maintanance", "maintenance"], // mistyped letter
+      ["recieveed", "received"], // swapped and doubled letters
+    ]) expect(classifyEnglishCorrection(original, replacement, dictionary), original).toBe("clear");
+    // Registered terms are the author's spelling.
+    expect(classifyEnglishCorrection("Recievr", "Receiver", dictionary)).toBe("protected");
+    // Product-like mixed case and acronyms may be intentional: confirm, never assert.
+    expect(classifyEnglishCorrection("WorkLnes", "WorkLens", dictionary)).toBe("uncertain");
+    expect(classifyEnglishCorrection("KPIS", "KPIs", dictionary)).toBeUndefined();
+    // Not spelling: case-only, inflection/word form, phrases and distant rewrites.
+    for (const [original, replacement] of [
+      ["Forecast", "forecast"], ["show", "shows"], ["send", "sent"], ["was", "were"],
+      ["departments have", "department has"], ["correct", "correctly"], ["colour", "hue"],
+    ]) expect(classifyEnglishCorrection(original, replacement, dictionary), original).toBeUndefined();
   });
 });

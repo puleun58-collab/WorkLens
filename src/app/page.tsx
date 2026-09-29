@@ -82,7 +82,8 @@ import {
   toggleIgnoredRule,
 } from "@/client/user-dictionary";
 import companyTermFile from "@/config/company-terms.json";
-import { sortFindings } from "@/lib/check/merge";
+import { resummarize, sortFindings } from "@/lib/check/merge";
+import { createDictionary } from "@/lib/check/dictionary";
 import { mergeSemanticFindings, semanticFindings } from "@/lib/check/writing/semantic-review";
 import {
   analysisClaimPresentation,
@@ -977,7 +978,8 @@ export default function Home() {
 
   /**
    * Deterministic findings are committed first and remain authoritative.
-   * Grounded semantic findings can only append suggestion-level entries.
+   * Grounded semantic findings are appended after the same spelling
+   * classification and de-duplication; the summary is recounted from them.
    */
   const runCheck = async () => {
     if (primaryRunInFlight.current) return;
@@ -1005,29 +1007,17 @@ export default function Home() {
         };
         try {
           const aiResult = await generateGroundedResult(request);
+          const dictionary = createDictionary(userTerms, companyTermNames);
           merged = base.map((entry) => {
             const forFile = aiResult.claims.filter((claim) =>
               claim.evidence.some((binding) => binding.source.fileId === entry.file.id));
             const findings = sortFindings(
-              mergeSemanticFindings(entry.check.findings, semanticFindings(forFile)),
+              mergeSemanticFindings(entry.check.findings, semanticFindings(forFile, dictionary)),
               new Map(),
             );
-            const added = findings.length - entry.check.findings.length;
-            const summary = entry.check.summary;
             return {
               ...entry,
-              check: {
-                ...entry.check,
-                findings,
-                summary: {
-                  ...summary,
-                  totalFound: summary.totalFound + added,
-                  returned: findings.length,
-                  bySeverity: { ...summary.bySeverity, suggestion: summary.bySeverity.suggestion + added },
-                  byGroup: { ...summary.byGroup, writing: summary.byGroup.writing + added },
-                  byConfidence: { ...summary.byConfidence, low: summary.byConfidence.low + added },
-                },
-              },
+              check: { ...entry.check, findings, summary: resummarize(entry.check.summary, entry.check.findings, findings) },
             };
           });
           setOperationResult(merged);
