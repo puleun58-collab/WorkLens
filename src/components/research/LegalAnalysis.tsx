@@ -7,7 +7,7 @@ import {
   type LawAnalysisData, type LawAnalysisMode, type LawAnalysisOutcome, type LawAnalysisRequest,
 } from "@/lib/law-analysis";
 import {
-  applicableLawPresentation, citeCheckResult, impactMapResult, verifyCitationsResult,
+  applicableLawPresentation, citeCheckResult, impactMapPresentation, verifyCitationsResult,
   type AnalysisSection,
 } from "@/lib/law-analysis-parse";
 import { lawDisplayText } from "@/lib/law-display";
@@ -23,9 +23,16 @@ export type LinkedAnalysis =
   | { mode: "applicable_law"; lawName: string; jo: string; origin: "law" }
   | { mode: "impact_map"; lawName: string; jo: string; origin: "law" };
 
+/** A decision search the impact map suggests, opened in 판례·결정례. */
+export interface RelatedSearch {
+  query: string;
+  domain: "precedent" | "interpretation";
+}
+
 interface LegalAnalysisProps {
   linkedRequest: LinkedAnalysis | null;
   onReturn: (origin: LinkedAnalysis["origin"]) => void;
+  onRelatedSearch?: (search: RelatedSearch) => void;
 }
 
 interface ModeResult {
@@ -40,7 +47,7 @@ const RESULT_NOTE = "법적 판단이 필요한 경우 국가법령정보센터 
 const NO_CITATIONS = "검증할 법령·판례 인용을 찾지 못했습니다.";
 const NO_CITATIONS_HELP = "법령명, 조문 또는 사건번호가 포함된 문장으로 다시 입력해 주세요. 예: 민법 제750조, 2013다61381";
 
-export function LegalAnalysis({ linkedRequest, onReturn }: LegalAnalysisProps) {
+export function LegalAnalysis({ linkedRequest, onReturn, onRelatedSearch }: LegalAnalysisProps) {
   const [mode, setMode] = useState<LawAnalysisMode>("verify_citations");
   const [text, setText] = useState("");
   const [caseNumber, setCaseNumber] = useState("");
@@ -177,7 +184,7 @@ export function LegalAnalysis({ linkedRequest, onReturn }: LegalAnalysisProps) {
         : current.outcome?.kind === "missing" ? <div className="legal-analysis-missing" role="status" data-marker={current.outcome.data.marker}>
           <p className="law-search-note">요청한 법령·조문·판례를 법제처 자료에서 찾지 못했습니다. 조회 실패와는 다른 결과입니다.</p>
         </div>
-        : current.outcome?.kind === "found" && current.completedAt ? <AnalysisResult key={current.completedAt} data={current.outcome.data} request={current.request} completedAt={current.completedAt} />
+        : current.outcome?.kind === "found" && current.completedAt ? <AnalysisResult key={current.completedAt} data={current.outcome.data} request={current.request} completedAt={current.completedAt} onRelatedSearch={onRelatedSearch} />
         : null}
     </section>}
   </div>;
@@ -217,7 +224,7 @@ function AxisLabel({ label }: { label: string }) {
   </span>;
 }
 
-function AnalysisResult({ data, request, completedAt }: { data: LawAnalysisData; request: LawAnalysisRequest; completedAt: number }) {
+function AnalysisResult({ data, request, completedAt, onRelatedSearch }: { data: LawAnalysisData; request: LawAnalysisRequest; completedAt: number; onRelatedSearch?: (search: RelatedSearch) => void }) {
   let body: ReactNode;
   let source: ReactNode;
   if (data.mode === "verify_citations") {
@@ -255,26 +262,43 @@ function AnalysisResult({ data, request, completedAt }: { data: LawAnalysisData;
         : <p className="law-search-note">제공된 후속 판례 목록이 없습니다.</p>}
     </details>;
   } else if (data.mode === "impact_map") {
-    const result = impactMapResult(data.text);
-    const sourceHeading = /^(?:대상 조문 본문|(?:관련 )?조문 원문|부칙(?: 원문| 발췌)?)/u;
-    const sourceSections = result.sections.filter((section) => sourceHeading.test(section.heading ?? "")
-      && !/\[(?:NOT_FOUND|FAILED|ERROR|UPSTREAM_NO_DATA)\]/u.test(section.heading ?? "") && section.lines.length > 0);
-    const references = result.axes.filter((axis) => axis.items.length > 0);
+    const view = impactMapPresentation(data.text);
+    const sourceSections = view.sources.filter((section) => !/\[(?:NOT_FOUND|FAILED|ERROR|UPSTREAM_NO_DATA)\]/u.test(section.heading ?? "") && section.lines.length > 0);
+    const sourceFailures = view.sources.filter((section) => !sourceSections.includes(section));
+    const references = view.axes.filter((axis) => axis.items.length > 0);
+    const related = view.related.filter((item) => item.domain);
     body = <>
-      {result.title && <h3 className="legal-analysis-title">{analysisTitle(result.title)}</h3>}
-      {result.sections.map((section, index) => index === result.graphIndex && result.axes.length
-        ? <div key={index} className="legal-analysis-section">
-          <h3>{lawDisplayText(analysisStatus(section.heading ?? ""))}</h3>
-          <ul className="legal-analysis-axes">
-            {result.axes.map((axis) => <li key={axis.label} className={axis.failed ? "is-failed" : undefined}>
-              <AxisLabel label={axis.label} />
-              <span className="legal-analysis-axis-value">{axis.failed ? `조회 실패 · 건수 미확인 — ${lawDisplayText(analysisStatus(axis.value))}` : lawDisplayText(analysisStatus(axis.value))}</span>
-            </li>)}
-          </ul>
-          <Lines lines={result.graphNotes} />
+      {view.title && <h3 className="legal-analysis-title">{analysisTitle(view.title)}</h3>}
+      {view.law && <p className="legal-analysis-lines">법령: {lawDisplayText(view.law)}</p>}
+      <Sections sections={[...sourceFailures, ...view.other]} />
+      {view.axes.length > 0 && <div className="legal-analysis-section">
+        <h3>인용 현황</h3>
+        <p className="law-search-note">이 조문을 인용한 판례·헌재 결정례·법령해석례·행정심판례와 이 법령을 언급한 자치법규를 확인합니다.</p>
+        <ul className="legal-analysis-axes">
+          {view.axes.map((axis) => <li key={axis.label} className={axis.state === "failed" ? "is-failed" : undefined} data-state={axis.state}>
+            <AxisLabel label={axis.label} />
+            <span className="legal-analysis-axis-value">
+              <strong>{axis.headline}</strong>
+              {axis.detail && <span className="legal-analysis-axis-detail">{axis.detail}</span>}
+            </span>
+          </li>)}
+        </ul>
+        <p className="law-search-note">법제처 검색 결과에는 유사 조문이나 다른 법령이 함께 포함될 수 있어, 실제 법령명과 조문이 일치하는 결과만 집계합니다.</p>
+        <Lines lines={view.notes} />
+      </div>}
+      {view.total && <div className="legal-analysis-section">
+        <h3>{view.total.headline}</h3>
+        <Lines lines={view.total.lines} />
+      </div>}
+      {view.citedLaws.length > 0 && <Sections sections={[{ heading: `이 조문이 인용한 다른 법령 ${view.citedLaws.length}건`, lines: view.citedLaws }]} />}
+      {related.length > 0 && onRelatedSearch && <div className="legal-analysis-section">
+        <h3>관련 조회</h3>
+        <div className="law-related-actions">
+          {related.map((item) => <button key={item.query + item.label} type="button" className="law-search-link" onClick={() => onRelatedSearch({ query: item.query, domain: item.domain! })}>
+            {item.label}
+          </button>)}
         </div>
-        : sourceSections.includes(section) ? null
-          : <Sections key={index} sections={[section]} />)}
+      </div>}
     </>;
     source = <details className="law-detail-source">
       <SourceToggleSummary label="근거·원문 보기" openLabel="근거·원문 접기" />

@@ -511,9 +511,14 @@ test("RESEARCH analysis runs each fixed mode, keeps MCP meaning and retries with
   await page.locator(".legal-analysis-form").getByRole("button", { name: "영향도 확인" }).click();
   await expect(page.locator(".legal-analysis-title")).toHaveText("조문 영향도: 민법 제103조");
   const failedAxis = page.locator(".legal-analysis-axes li.is-failed");
-  await expect(failedAxis).toContainText("조회 실패 · 건수 미확인");
-  await expect(failedAxis).not.toContainText(/: 0건$/);
-  await expect(page.locator(".legal-analysis-output")).toContainText("총 영향 건수(경계 확인분): 9건 — 표본을 넘는 검색 결과가 있어 실제는 더 많을 수 있음");
+  await expect(failedAxis).toContainText("조회 실패");
+  await expect(failedAxis).toContainText("0건이 아니라 확인하지 못한 상태입니다.");
+  await expect(page.locator('.legal-analysis-axes li[data-state="partial"]').first()).toContainText("확인된 결과 7건검색 결과 42건 중 10건을 확인했습니다.");
+  await expect(page.locator('.legal-analysis-axes li[data-state="law_only"]')).toContainText("조문 단위의 일치 여부는 확인되지 않았습니다.");
+  await expect(page.locator(".legal-analysis-output")).toContainText("확인된 인용 결과 7건");
+  await expect(page.locator(".legal-analysis-output")).toContainText("인용 현황");
+  const shownImpact = await page.locator(".legal-analysis-output").evaluate((node) => [...node.children].filter((child) => !child.matches("details")).map((child) => child.textContent).join("\n"));
+  expect(shownImpact).not.toMatch(/표본|보류|부분 일치|영향 그래프|총 영향 건수|미반영/u);
   await expect(page.locator(".legal-analysis-output")).not.toContainText("전체 영향");
   const impactOutput = page.locator(".legal-analysis-output");
   expect((await impactOutput.locator(":scope > .legal-analysis-section").allTextContents()).join("\n")).not.toContain("선량한 풍속");

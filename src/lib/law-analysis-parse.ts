@@ -408,3 +408,156 @@ export function impactMapResult(text: string): ImpactMapResult {
   }
   return { title: document.title, sections: document.sections, graphIndex, axes, graphNotes };
 }
+
+/**
+ * Reader state of one citing-source axis. The MCP checks a sample of each
+ * search against the article; `none` (everything checked, nothing matched) is
+ * never used for a partly checked axis, whose unchecked results stay visible.
+ */
+export type ImpactAxisState = "found" | "partial" | "none" | "empty" | "failed" | "law_only" | "unknown";
+
+export interface ImpactAxisView {
+  label: string;
+  state: ImpactAxisState;
+  headline: string;
+  detail?: string;
+  items: string[];
+}
+
+const COVERED_AXIS = /^(\d+)건(?:\s*\((.+?)\s*제외\))?$/u;
+const PARTIAL_AXIS = /^(\d+)건\s*확인(?:\s*\((.+?)\s*제외\))?\s*\/\s*검색\s*(\d+)건\s*—\s*표본\s*(\d+)건만/u;
+
+/** `조문 불일치 10건·다른 법령 2건` → 12. */
+function excludedCount(phrase?: string): number {
+  return [...(phrase ?? "").matchAll(/(\d+)건/gu)].reduce((sum, match) => sum + Number(match[1]), 0);
+}
+
+export function impactAxisView(axis: ImpactAxis): ImpactAxisView {
+  const lawOnly = /자치법규/u.test(axis.label);
+  const label = axis.label.replace(/^[^\p{L}\p{N}]+/u, "").replace(/\s*\([^)]*\)\s*$/u, "").trim();
+  const base = { label, items: axis.items };
+  if (axis.failed) return { ...base, state: "failed", headline: "조회 실패", detail: "0건이 아니라 확인하지 못한 상태입니다." };
+  const partial = PARTIAL_AXIS.exec(axis.value);
+  if (partial) {
+    const [found, excluded, searched, checked] = [Number(partial[1]), partial[2], Number(partial[3]), Number(partial[4])];
+    const scope = `검색 결과 ${searched}건 중 ${checked}건을 확인했습니다.`;
+    const outcome = found === 0 ? ` 확인한 ${checked}건은 해당 조문과 일치하지 않았습니다.` : excluded ? ` 확인한 결과 중 ${excluded}을 제외했습니다.` : "";
+    return { ...base, state: "partial", headline: `확인된 결과 ${found}건`, detail: scope + outcome };
+  }
+  const covered = COVERED_AXIS.exec(axis.value);
+  if (!covered) return { ...base, state: "unknown", headline: axis.value };
+  const found = Number(covered[1]);
+  const excluded = excludedCount(covered[2]);
+  if (lawOnly) {
+    return found
+      ? { ...base, state: "law_only", headline: `${found}건`, detail: "법령 이름으로 찾은 결과이며, 조문 단위의 일치 여부는 확인되지 않았습니다." }
+      : { ...base, state: "empty", headline: "검색 결과 없음" };
+  }
+  if (found) {
+    return { ...base, state: "found", headline: `확인된 결과 ${found}건`, detail: `검색 결과를 모두 확인했습니다.${excluded ? ` 일치하지 않는 ${excluded}건을 제외했습니다.` : ""}` };
+  }
+  return excluded
+    ? { ...base, state: "none", headline: "관련 결과 없음", detail: `검색 결과 ${excluded}건을 모두 확인했으나 해당 조문과 일치하지 않았습니다.` }
+    : { ...base, state: "empty", headline: "검색 결과 없음" };
+}
+
+export interface ImpactRelatedSearch {
+  query: string;
+  label: string;
+  /** Decision-search domain the query belongs to; absent when WorkLens has no view for it. */
+  domain?: "precedent" | "interpretation";
+}
+
+export interface ImpactMapPresentation {
+  title?: string;
+  law?: string;
+  axes: ImpactAxisView[];
+  notes: string[];
+  total?: { headline: string; lines: string[] };
+  citedLaws: string[];
+  related: ImpactRelatedSearch[];
+  /** Official article text (and failure notes about it) for the evidence disclosure. */
+  sources: AnalysisSection[];
+  /** Sections this view does not recognise, kept verbatim. */
+  other: AnalysisSection[];
+}
+
+const TOTAL_HEADING = /^총 영향 건수[^:]*:\s*(\d+)건(.*)$/u;
+const SOURCE_HEADING = /^(?:대상 조문 본문|(?:관련 )?조문 원문|부칙(?: 원문| 발췌)?)/u;
+
+function impactNote(line: string): string | undefined {
+  const text = line.trim();
+  // Each source row already states what it excluded; the aggregate repeats it.
+  if (/조번호를 부분 일치로/u.test(text)) return undefined;
+  const match = /법령명 대조:\s*확정\s*(\d+)건\s*\/\s*보류\s*(\d+)건/u.exec(text);
+  if (match) {
+    return `법령 일치 확인: 확인 ${match[1]}건 · 추가 확인 필요 ${match[2]}건${Number(match[2]) ? " (약칭·표기 차이로 같은 법령인지 판단하지 못한 결과도 제외하지 않고 포함했습니다.)" : ""}`;
+  }
+  if (/조회 실패 축은 0건이 아니라/u.test(text)) return "조회에 실패한 자료 유형은 0건이 아니라 확인하지 못한 것입니다.";
+  return text || undefined;
+}
+
+export function impactMapPresentation(text: string): ImpactMapPresentation {
+  const parsed = impactMapResult(text);
+  const result: ImpactMapPresentation = { title: parsed.title, axes: parsed.axes.map(impactAxisView), notes: [], citedLaws: [], related: [], sources: [], other: [] };
+  parsed.sections.forEach((section, index) => {
+    const heading = section.heading ?? "";
+    if (index === parsed.graphIndex) {
+      for (const line of parsed.graphNotes) {
+        const note = impactNote(line);
+        if (note) result.notes.push(note);
+      }
+      return;
+    }
+    if (SOURCE_HEADING.test(heading)) {
+      result.sources.push(section);
+      return;
+    }
+    const total = TOTAL_HEADING.exec(heading);
+    if (total) {
+      const lines: string[] = [];
+      if (/실제는 더 많을 수 있음/u.test(total[2])) lines.push("아직 확인하지 않은 검색 결과가 있어 실제로는 더 많을 수 있습니다.");
+      const failed = /\[부분 결과:\s*(.+?)\s*조회 실패/u.exec(total[2]);
+      if (failed) lines.push(`${failed[1]}은(는) 조회에 실패해 이 건수에 포함되지 않았습니다.`);
+      const breakdown = /\(판례 (\d+) \/ 헌재 (\d+) \/ 해석 (\d+) \/ 행심 (\d+) \/ 조례 (\d+)\)/u.exec(total[2]);
+      // 자치법규 are matched by law name only, so they are not confirmed citations of the article.
+      const ordinanceRow = result.axes.find((row) => row.state === "law_only");
+      const ordinances = breakdown ? Number(breakdown[5]) : ordinanceRow ? Number(/^(\d+)건/u.exec(ordinanceRow.headline)?.[1] ?? 0) : 0;
+      if (breakdown) lines.push(`판례 ${breakdown[1]} · 헌재 결정례 ${breakdown[2]} · 법령해석례 ${breakdown[3]} · 행정심판례 ${breakdown[4]}`);
+      if (ordinances) lines.push(`자치법규 ${ordinances}건은 조문 단위로 확인되지 않아 이 건수에 포함하지 않았습니다.`);
+      for (const line of section.lines) {
+        if (/^\s*인용 법령:/u.test(line)) continue;
+        const note = impactNote(line);
+        if (note) lines.push(note);
+      }
+      result.total = { headline: `확인된 인용 결과 ${Number(total[1]) - ordinances}건`, lines };
+      return;
+    }
+    if (/^이 조문이 인용한 다른 법령/u.test(heading)) {
+      result.citedLaws = section.lines.map((line) => line.replace(/^\s*→\s*/u, "").trim()).filter(Boolean);
+      return;
+    }
+    if (/^이어서 (?:할|볼) 수 있는 조회/u.test(heading)) {
+      for (const line of section.lines) {
+        const item = /^\s*\d+\.\s*"(.+?)"\s*—\s*(.+?)\s*$/u.exec(line);
+        if (!item) continue;
+        const domain = /판례/u.test(item[2]) ? "precedent" : /해석례/u.test(item[2]) ? "interpretation" : undefined;
+        result.related.push({ query: domain ? item[1].replace(/\s+(?:판례|해석례)$/u, "") : item[1], label: item[2], ...(domain ? { domain } : {}) });
+      }
+      return;
+    }
+    if (!heading && index === 0) {
+      const lines: string[] = [];
+      for (const line of section.lines) {
+        const law = /^\s*법령:\s*(.+?)\s*\((?:MST\s*\d+,\s*)?([^)]+)\)\s*$/u.exec(line);
+        if (law) result.law = `${law[1]} · ${law[2]}`;
+        else lines.push(line);
+      }
+      if (lines.some((line) => line.trim())) result.other.push({ lines });
+      return;
+    }
+    // Remaining MCP notes after the graph (e.g. a failure reminder) are reworded, anything else kept.
+    result.other.push({ ...section, lines: section.lines.map((line) => impactNote(line) ?? line) });
+  });
+  return result;
+}

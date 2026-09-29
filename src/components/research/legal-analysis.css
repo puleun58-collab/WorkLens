@@ -33,6 +33,8 @@
 .legal-analysis-citations > li, .legal-analysis-axes > li { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 4px 12px; padding: 10px 14px; font-size: var(--font-size-sm); line-height: 1.6; }
 .legal-analysis-citations > li + li, .legal-analysis-axes > li + li { border-top: 1px solid var(--line-soft, var(--line)); }
 .legal-analysis-citation-text, .legal-analysis-axis-value { min-width: 0; overflow-wrap: anywhere; }
+.legal-analysis-axis-value > strong { font-weight: 600; }
+.legal-analysis-axis-detail { display: block; color: var(--muted, #5b6b82); font-size: var(--font-size-xs, 12px); line-height: 1.6; }
 .legal-analysis-status, .legal-analysis-axis-label { font-weight: 600; overflow-wrap: anywhere; }
 .legal-analysis-axis-label { min-width: 0; white-space: pre-wrap; }
 .legal-analysis-axis-suffix { display: inline-block; max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; }
