@@ -210,6 +210,62 @@ test("RESEARCH law detail browses raw TOC and articles, recovers, and preserves 
   expect(requests.at(-1)).toEqual({ lawId: "003058" });
 });
 
+test("RESEARCH decision search puts the exact case number first and keeps the other results", async ({ page }) => {
+  const searches: unknown[] = [];
+  await page.route("**/api/law/decisions/search", (route) => {
+    const body = route.request().postDataJSON() as { domain: string; query: string };
+    searches.push(body);
+    const entries = body.domain === "precedent" && body.query === "2013다61381" ? [
+      { domain: "precedent", id: "619495", caseNumber: "2023두54761", court: "대법원", date: "20260409", title: "원천징수법인세환급거부처분취소" },
+      { domain: "precedent", id: "623079", caseNumber: "2024두65607", court: "대법원", date: "20260409", title: "법인세경정거부처분취소" },
+      { domain: "precedent", id: "204201", caseNumber: "2013다61381", court: "대법원", date: "20181030", title: "손해배상(기)" },
+      { domain: "precedent", id: "204201", caseNumber: "2013다61381", court: "대법원", date: "20181030", title: "손해배상(기)" },
+    ] : body.query === "2099다1" ? [
+      { domain: "precedent", id: "1", caseNumber: "2020다1", court: "대법원", date: "20200101", title: "다른 판례" },
+    ] : [
+      { domain: body.domain, id: "9", caseNumber: "2016부해OOO", date: "2016.05.09", title: "부당해고 구제신청" },
+    ];
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { found: true, page: 1, text: "", totalCount: entries.length, hasNext: false, entries } }) });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "법령", exact: true }).click();
+  await page.getByRole("button", { name: "판례·결정례", exact: true }).click();
+  const input = page.locator("#decision-query");
+  const results = page.locator(".decision-search-results");
+
+  await input.fill("2013 다 61381");
+  await input.press("Enter");
+  await expect(results.locator("h2")).toHaveText("일치 결과 · 1건");
+  await expect(results.locator(".decision-search-list").first().locator("li")).toHaveText([/손해배상\(기\)2013다61381/u]);
+  await expect(results.locator("h3")).toHaveText("다른 검색 결과 · 2건");
+  await expect(results.locator(".decision-search-list").nth(1).locator("li")).toHaveCount(2);
+  await expect(input).toHaveValue("2013 다 61381");
+
+  await input.fill("2099다1");
+  await input.press("Enter");
+  await expect(results.locator("h2")).toHaveText("일치 결과 · 0건");
+  await expect(results).toContainText("일치하는 자료를 찾지 못했습니다.");
+  await expect(results.locator("h3")).toHaveText("다른 검색 결과 · 1건");
+
+  await input.fill("취업규칙 불이익 변경");
+  await input.press("Enter");
+  await expect(results.locator("h2")).toHaveText("검색 결과 · 1건");
+  await expect(results.locator("h3")).toHaveCount(0);
+
+  await page.locator("#decision-domain").selectOption("nlrc");
+  await expect(results).toHaveCount(0);
+  await input.fill("2013다61381");
+  await input.press("Enter");
+  // A 판례 number is only a keyword for 노동위.
+  await expect(results.locator("h2")).toHaveText("검색 결과 · 1건");
+  expect(searches).toEqual([
+    { domain: "precedent", query: "2013다61381", page: 1 },
+    { domain: "precedent", query: "2099다1", page: 1 },
+    { domain: "precedent", query: "취업규칙 불이익 변경", page: 1 },
+    { domain: "nlrc", query: "2013다61381", page: 1 },
+  ]);
+});
+
 test("RESEARCH decision search keeps identifiers and results across detail and full-text states", async ({ page }) => {
   const searches: unknown[] = [];
   const details: unknown[] = [];

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { canonicalCaseQuery, LAW_ANALYSIS_CASE_PATTERN, lawAnalysisRequestFor, normalizeCaseNumber, type LawAnalysisDraft } from "@/lib/law-analysis";
+import { LAW_ANALYSIS_CASE_PATTERN, lawAnalysisRequestFor, normalizeCaseNumber, type LawAnalysisDraft } from "@/lib/law-analysis";
+import { decisionIdentifier, decisionSearchQuery } from "@/lib/decision-identifier";
 import { exactCurrentLaw, parseLawArticleQuery } from "@/lib/law-search";
 
 describe("law search input", () => {
@@ -44,9 +45,11 @@ describe("case number input", () => {
     expect(LAW_ANALYSIS_CASE_PATTERN.test(normalizeCaseNumber("2017 다 360, 2017 다 377"))).toBe(true);
   });
 
-  it("canonicalizes a decision search only when the whole query is one case number", () => {
-    expect(canonicalCaseQuery("2013 다 61381")).toBe("2013다61381");
-    expect(canonicalCaseQuery("손해배상 계약 해제")).toBe("손해배상 계약 해제");
-    expect(canonicalCaseQuery("2013 사건 손해배상")).toBe("2013 사건 손해배상");
+  it("canonicalizes a decision search only when the whole query is one identifier of that domain", () => {
+    expect(decisionSearchQuery("precedent", "2013 다 61381")).toBe("2013다61381");
+    expect(decisionSearchQuery("precedent", "손해배상 계약 해제")).toBe("손해배상 계약 해제");
+    expect(decisionSearchQuery("precedent", "2013 사건 손해배상")).toBe("2013 사건 손해배상");
+    // A 판례 number is not an identifier in a domain with another numbering.
+    expect(decisionIdentifier("nlrc", "2013다61381")).toBeNull();
   });
 });

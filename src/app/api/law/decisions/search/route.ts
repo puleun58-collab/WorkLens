@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { DECISION_DOMAINS, type DecisionDomain } from "@/lib/decision-domain";
-import { canonicalCaseQuery } from "@/lib/law-analysis";
+import { decisionSearchQuery } from "@/lib/decision-identifier";
 import { ApiError, apiError, ok, readBoundedJson, requireSameSite, runBoundedOperation } from "@/server/http";
 import { LAW_QUERY_MAX_CHARS } from "@/server/law-mcp";
 import { searchDecisions } from "@/server/decision-mcp";
@@ -11,8 +11,7 @@ export const dynamic = "force-dynamic";
 
 const searchRequest = z.object({
   domain: z.enum(DECISION_DOMAINS.map(({ value }) => value) as [DecisionDomain, ...DecisionDomain[]]),
-  // A query that is exactly one case number is searched as its canonical `2013다61381` form.
-  query: z.string().trim().min(1).max(LAW_QUERY_MAX_CHARS).transform(canonicalCaseQuery),
+  query: z.string().trim().min(1).max(LAW_QUERY_MAX_CHARS),
   page: z.number().int().min(1).max(1000).optional(),
 }).strict();
 
@@ -26,7 +25,8 @@ export async function POST(request: Request) {
     const parsed = searchRequest.safeParse(await readBoundedJson(request, 2 * 1024));
     if (!parsed.success) throw new ApiError("LAW_INVALID_REQUEST", "검색 범위·검색어·페이지를 확인하세요.", 400);
     const { domain, query, page = 1 } = parsed.data;
-    const result = await runBoundedOperation(() => searchDecisions(domain, query, page, { requestId, signal: request.signal }));
+    // A query that is exactly one identifier of this domain is searched in its canonical form.
+    const result = await runBoundedOperation(() => searchDecisions(domain, decisionSearchQuery(domain, query), page, { requestId, signal: request.signal }));
     return ok(result, 200, requestId);
   } catch (error) {
     return apiError(error, requestId);

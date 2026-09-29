@@ -6,7 +6,8 @@ import {
   DECISION_SEARCH_ERROR, DECISION_TEXT_ERROR, decisionSearchOutcome, decisionTextOutcome,
   type DecisionEntry, type DecisionSearchOutcome, type DecisionTextData, type DecisionTextOutcome,
 } from "@/lib/decision-search";
-import { canonicalCaseQuery, LAW_ANALYSIS_CASE_MAX_CHARS, LAW_ANALYSIS_CASE_PATTERN } from "@/lib/law-analysis";
+import { LAW_ANALYSIS_CASE_MAX_CHARS, LAW_ANALYSIS_CASE_PATTERN } from "@/lib/law-analysis";
+import { decisionIdentifier, decisionSearchQuery, splitExactResults } from "@/lib/decision-identifier";
 import { LawTextBlock } from "./LawTextBlock";
 import "./decision-search.css";
 
@@ -166,7 +167,7 @@ export function DecisionSearch({ linkedRequest, onReturnToLaw, onCiteCheck }: De
     detailRequest.current?.abort();
     detailRequest.current = null;
     setSelected(null);
-    void runSearch(canonicalCaseQuery(query).trim(), domain, 1);
+    void runSearch(decisionSearchQuery(domain, query), domain, 1);
   }
 
   function changeDomain(value: DecisionDomain) {
@@ -226,6 +227,9 @@ export function DecisionSearch({ linkedRequest, onReturnToLaw, onCiteCheck }: De
     </div>;
   }
 
+  const identifier = outcome?.kind === "found" ? decisionIdentifier(domain, searchedQuery) : null;
+  const split = identifier && outcome?.kind === "found" ? splitExactResults(domain, identifier, outcome.data.entries) : null;
+
   return <div className="decision-search">
     {returnButton}
     <form className="decision-search-form" role="search" onSubmit={submitSearch}>
@@ -242,26 +246,22 @@ export function DecisionSearch({ linkedRequest, onReturnToLaw, onCiteCheck }: De
       </div>
     </form>
     {(searchLoading || outcome) && <section className="decision-search-results" aria-labelledby="decision-results-heading" aria-busy={searchLoading}>
-      <h2 id="decision-results-heading">검색 결과{outcome?.kind === "found" && outcome.data.totalCount !== undefined ? ` · ${outcome.data.totalCount}건` : outcome?.kind === "missing" ? " · 0건" : ""}</h2>
+      <h2 id="decision-results-heading">{split ? `일치 결과 · ${split.exact.length}건`
+        : `검색 결과${outcome?.kind === "found" && outcome.data.totalCount !== undefined ? ` · ${outcome.data.totalCount}건` : outcome?.kind === "missing" ? " · 0건" : ""}`}</h2>
       {searchLoading ? <p className="law-search-note" role="status">검색 중…</p>
         : !outcome ? null
         : outcome.kind === "error" ? <p className="law-search-error law-operation-error" role="alert">{outcome.message}</p>
         : outcome.kind === "missing" ? <p className="law-search-note" role="status">검색 결과가 없습니다. 다른 검색어로 검색해보세요.</p>
         : <>
-          {outcome.data.entries.length > 0 ? <ul className="decision-search-list">
-            {outcome.data.entries.map((entry, index) => <li key={`${entry.domain}-${entry.id}-${index}`}>
-              <button type="button" className="decision-search-result" onClick={() => openDetail(entry)}>
-                <strong>{entry.title || entry.caseNumber || "판례·결정례 원문"}</strong>
-                {(entry.caseNumber || entry.court || entry.institution || entry.date) && <span className="decision-search-meta">
-                  {entry.caseNumber && entry.title && <span>{entry.caseNumber}</span>}
-                  {entry.court && <span>{entry.court}</span>}
-                  {entry.institution && <span>{entry.institution}</span>}
-                  {entry.date && <span>{entry.date}</span>}
-                </span>}
-                {entry.summary && <span className="decision-search-summary">{entry.summary}</span>}
-              </button>
-            </li>)}
-          </ul> : <LawTextBlock className="decision-detail-raw" text={outcome.data.text} />}
+          {split ? <>
+            {split.exact.length ? <DecisionList entries={split.exact} onOpen={openDetail} /> : <p className="law-search-note" role="status">
+              {page > 1 || outcome.data.hasNext ? "이 페이지에서는 일치하는 자료를 찾지 못했습니다. 다른 페이지에 있을 수 있습니다." : "일치하는 자료를 찾지 못했습니다."}
+            </p>}
+            {split.others.length > 0 && <>
+              <h3 className="decision-search-subheading">다른 검색 결과 · {split.others.length}건</h3>
+              <DecisionList entries={split.others} onOpen={openDetail} />
+            </>}
+          </> : outcome.data.entries.length > 0 ? <DecisionList entries={outcome.data.entries} onOpen={openDetail} /> : <LawTextBlock className="decision-detail-raw" text={outcome.data.text} />}
           <div className="decision-pagination">
             {page > 1 && <button type="button" className="law-search-link" onClick={() => void runSearch(searchedQuery, domain, page - 1)}>← 이전</button>}
             {outcome.data.hasNext === true && <button type="button" className="law-search-link" onClick={() => void runSearch(searchedQuery, domain, page + 1)}>다음 →</button>}
@@ -269,4 +269,21 @@ export function DecisionSearch({ linkedRequest, onReturnToLaw, onCiteCheck }: De
         </>}
     </section>}
   </div>;
+}
+
+function DecisionList({ entries, onOpen }: { entries: readonly DecisionEntry[]; onOpen: (entry: DecisionEntry) => void }) {
+  return <ul className="decision-search-list">
+    {entries.map((entry, index) => <li key={`${entry.domain}-${entry.id}-${index}`}>
+      <button type="button" className="decision-search-result" onClick={() => onOpen(entry)}>
+        <strong>{entry.title || entry.caseNumber || "판례·결정례 원문"}</strong>
+        {(entry.caseNumber || entry.court || entry.institution || entry.date) && <span className="decision-search-meta">
+          {entry.caseNumber && entry.title && <span>{entry.caseNumber}</span>}
+          {entry.court && <span>{entry.court}</span>}
+          {entry.institution && <span>{entry.institution}</span>}
+          {entry.date && <span>{entry.date}</span>}
+        </span>}
+        {entry.summary && <span className="decision-search-summary">{entry.summary}</span>}
+      </button>
+    </li>)}
+  </ul>;
 }
