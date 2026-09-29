@@ -7,7 +7,7 @@ import {
   type LawAnalysisData, type LawAnalysisMode, type LawAnalysisOutcome, type LawAnalysisRequest,
 } from "@/lib/law-analysis";
 import {
-  applicableLawPresentation, citationOverallLabel, citeCheckResult, impactMapResult, verifyCitationsResult,
+  applicableLawPresentation, citationGroupLine, citationOverallLabel, citeCheckResult, impactMapResult, verifyCitationsResult,
   type AnalysisSection,
 } from "@/lib/law-analysis-parse";
 import { lawDisplayText } from "@/lib/law-display";
@@ -34,6 +34,8 @@ interface ModeResult {
 }
 
 const RESULT_NOTE = "법적 판단이 필요한 경우 국가법령정보센터 원문과 관련 전문가 검토가 필요할 수 있습니다.";
+const NO_CITATIONS = "검증할 법령·판례 인용을 찾지 못했습니다.";
+const NO_CITATIONS_HELP = "법령명, 조문 또는 사건번호가 포함된 문장으로 다시 입력해 주세요. 예: 민법 제750조, 2013다61381";
 
 export function LegalAnalysis({ linkedRequest, onReturn }: LegalAnalysisProps) {
   const [mode, setMode] = useState<LawAnalysisMode>("verify_citations");
@@ -107,7 +109,7 @@ export function LegalAnalysis({ linkedRequest, onReturn }: LegalAnalysisProps) {
   }
 
   const ACTION_HELP: Partial<Record<typeof mode, string>> = {
-    cite_check: "후속 판례의 인용을 역추적해 변경·폐기 신호를 확인합니다.",
+    cite_check: "후속 판례의 인용을 역추적해 변경·폐기 정황을 확인합니다.",
     applicable_law: "기준일은 행위·계약·처분 등 판단하려는 시점입니다.",
   };
   const submitLabel = { verify_citations: "인용 검증", cite_check: "확인", applicable_law: "적용 법령 확인", impact_map: "영향도 확인" }[mode];
@@ -127,7 +129,7 @@ export function LegalAnalysis({ linkedRequest, onReturn }: LegalAnalysisProps) {
         <label htmlFor="analysis-text">검증할 문장을 입력하세요.</label>
         <textarea id="analysis-text" value={text} rows={6} maxLength={LAW_ANALYSIS_TEXT_MAX_CHARS} placeholder="예: 민법 제750조에 따라 손해배상을 청구할 수 있다." onChange={(event) => setText(event.target.value)} aria-describedby="analysis-text-help" />
         <p id="analysis-text-help" className="legal-analysis-help">
-          <span>법령 조문·판례 인용이 법제처 자료에 실존하는지 확인합니다.</span>
+          <span>법령 조문·판례 인용을 법제처 자료에서 확인합니다.</span>
           <span className="legal-analysis-count">{text.length.toLocaleString("ko-KR")} / {LAW_ANALYSIS_TEXT_MAX_CHARS.toLocaleString("ko-KR")}자</span>
         </p>
       </>}
@@ -214,49 +216,48 @@ function AxisLabel({ label }: { label: string }) {
 
 function AnalysisResult({ data, request }: { data: LawAnalysisData; request: LawAnalysisRequest }) {
   let body: ReactNode;
-  let note: string | undefined;
   let source: ReactNode;
   if (data.mode === "verify_citations") {
     const result = verifyCitationsResult(data.text);
-    const overall = data.markers.includes("NO_CITATIONS_FOUND")
-      ? "검증할 인용을 찾지 못했습니다. 검증에 성공했다는 뜻이 아닙니다."
-      : citationOverallLabel(result.overallMarker);
-    body = <>
-      {overall && <p className="legal-analysis-overall" data-marker={result.overallMarker ?? "NO_CITATIONS_FOUND"}>{overall}</p>}
-      {result.summary.length > 0 && <Lines lines={result.summary} />}
-      {(["law", "case"] as const).map((group) => {
-        const items = result.items.filter((item) => item.group === group);
-        return items.length ? <div key={group} className="legal-analysis-section">
-          <h3>{group === "law" ? "법령 인용" : "판례 인용"}</h3>
-          <ul className="legal-analysis-citations">
-            {items.map((item, index) => <li key={index} className={`is-${item.tone}`} data-markers={item.markers.join(" ")}>
-              <span className="legal-analysis-status">{item.label}</span>
-              <span className="legal-analysis-citation-text">{lawDisplayText(analysisStatus(item.text))}</span>
-            </li>)}
-          </ul>
-        </div> : null;
-      })}
+    const groups = (["law", "case"] as const).map((group) => ({ group, items: result.items.filter((item) => item.group === group) }));
+    body = result.empty ? <>
+      <p className="legal-analysis-overall" data-marker="NO_CITATIONS_FOUND">{NO_CITATIONS}</p>
+      <p className="law-search-note">{NO_CITATIONS_HELP}</p>
+    </> : <>
+      {result.overallMarker && <p className="legal-analysis-overall" data-marker={result.overallMarker}>{citationOverallLabel(result.overallMarker)}</p>}
+      <Lines lines={result.groups.map(citationGroupLine)} />
+      {groups.map(({ group, items }) => items.length ? <div key={group} className="legal-analysis-section">
+        <h3>{group === "law" ? "법령 인용" : "판례 인용"}</h3>
+        <ul className="legal-analysis-citations">
+          {items.map((item, index) => <li key={index} className={`is-${item.tone}`} data-markers={item.markers.join(" ")}>
+            <span className="legal-analysis-status">{item.label}</span>
+            <span className="legal-analysis-citation-text">{lawDisplayText(item.citation)}</span>
+          </li>)}
+        </ul>
+      </div> : null)}
       <Sections sections={result.notes} />
     </>;
-    source = <details className="law-detail-source">
-      <SourceToggleSummary label="입력 원문 보기" openLabel="입력 원문 접기" />
-      <p className="law-search-note">검증에 사용한 입력입니다. 법령·판례 원문은 이 결과에 포함되지 않습니다.</p>
-      <LawTextBlock className="legal-analysis-raw" text={request.mode === "verify_citations" ? request.text : ""} />
+    source = result.items.length > 0 && <details className="law-detail-source">
+      <SourceToggleSummary label="근거 보기" openLabel="근거 접기" />
+      <p className="law-search-note">법제처 국가법령정보에서 각 인용을 조회한 결과입니다. 조문·판결문 원문은 이 결과에 포함되지 않습니다.</p>
+      <Sections sections={groups.filter(({ items }) => items.length).map(({ group, items }) => ({
+        heading: group === "law" ? "법령 인용" : "판례 인용",
+        lines: items.map((item) => item.detail ? `${item.citation} — ${item.detail}` : item.citation),
+      }))} />
     </details>;
   } else if (data.mode === "cite_check") {
     const result = citeCheckResult(data.text);
     const detailStart = result.target.findIndex((line) => /^\s*(?:판시사항|판결요지|참조조문|참조판례)\s*:/u.test(line));
     const targetSummary = detailStart < 0 ? result.target : result.target.slice(0, detailStart);
     const targetDetails = detailStart < 0 ? [] : result.target.slice(detailStart);
-    note = "법제처에 수록된 판례를 기준으로 확인한 결과입니다.";
     body = <>
       {result.title && <h3 className="legal-analysis-title">{analysisTitle(result.title)}</h3>}
       <Lines lines={targetSummary} />
       {result.verdict && <div className={`legal-analysis-verdict is-${result.verdict.tone}`}>
         <span className="legal-analysis-status">판정</span>
-        <Lines lines={[result.verdict.text]} />
+        <Lines lines={result.verdict.lines} />
       </div>}
-      {result.limitation.length > 0 && <Lines lines={result.limitation} />}
+      {result.limitation.length > 0 && <Lines lines={result.limitation.map((line) => `⚠️ 한계: ${line}`)} />}
     </>;
     source = <details className="law-detail-source">
       <SourceToggleSummary label="근거 보기" openLabel="근거 접기" />
@@ -305,7 +306,7 @@ function AnalysisResult({ data, request }: { data: LawAnalysisData; request: Law
   return <div className="legal-analysis-output" data-mode={data.mode} data-markers={data.markers.join(" ")}>
     {body}
     {source}
-    <p className="legal-analysis-note">{note ? `${note} ` : ""}{RESULT_NOTE}</p>
+    <p className="legal-analysis-note">{RESULT_NOTE}</p>
   </div>;
 }
 
