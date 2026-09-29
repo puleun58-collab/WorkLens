@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
-  articleEvidence, articleLines, citedHo, currentLawEntry, lawCitationTarget, versionMatchesVerification,
+  articleEvidence, articleLines, citedHo, lawCitationTarget, versionMatchesVerification,
 } from "@/lib/citation-evidence";
+import { exactCurrentLaw } from "@/lib/law-search";
 
 const ARTICLE_60 = [
   "법령명: 근로기준법",
@@ -54,8 +55,8 @@ describe("citation evidence", () => {
       { name: "난민법", status: "현행", mst: "188376" },
       { name: "민법", status: "연혁", mst: "111111" },
     ];
-    expect(currentLawEntry(laws, "민법")?.mst).toBe("284415");
-    expect(currentLawEntry(laws, "민사소송법")).toBeUndefined();
+    expect(exactCurrentLaw(laws, "민법")?.mst).toBe("284415");
+    expect(exactCurrentLaw(laws, "민사소송법")).toBeUndefined();
   });
 
   it("rejects a version that took effect after the verification day", () => {

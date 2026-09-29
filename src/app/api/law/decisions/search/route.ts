@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { DECISION_DOMAINS, type DecisionDomain } from "@/lib/decision-domain";
+import { canonicalCaseQuery } from "@/lib/law-analysis";
 import { ApiError, apiError, ok, readBoundedJson, requireSameSite, runBoundedOperation } from "@/server/http";
 import { LAW_QUERY_MAX_CHARS } from "@/server/law-mcp";
 import { searchDecisions } from "@/server/decision-mcp";
@@ -10,7 +11,8 @@ export const dynamic = "force-dynamic";
 
 const searchRequest = z.object({
   domain: z.enum(DECISION_DOMAINS.map(({ value }) => value) as [DecisionDomain, ...DecisionDomain[]]),
-  query: z.string().trim().min(1).max(LAW_QUERY_MAX_CHARS),
+  // A query that is exactly one case number is searched as its canonical `2013다61381` form.
+  query: z.string().trim().min(1).max(LAW_QUERY_MAX_CHARS).transform(canonicalCaseQuery),
   page: z.number().int().min(1).max(1000).optional(),
 }).strict();
 

@@ -31,6 +31,57 @@ test("TOOLS navigation keeps document files in their own workspace", async ({ pa
   }
 });
 
+test("RESEARCH law search opens an exact law article and falls back to results; case numbers go out canonical", async ({ page }) => {
+  const searches: string[] = [];
+  const texts: unknown[] = [];
+  const analyses: unknown[] = [];
+  await page.route("**/api/law", (route) => {
+    const { query } = route.request().postDataJSON() as { query: string };
+    searches.push(query);
+    const laws = query === "근로기준법"
+      ? [{ name: "근로기준법", status: "현행", lawId: "001872", mst: "283457", kind: "법률" }, { name: "근로기준법 시행령", status: "현행", lawId: "003058", mst: "270551", kind: "대통령령" }]
+      : [{ name: "근로 관련 법", status: "현행", lawId: "000001", mst: "100001", kind: "법률" }];
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { found: true, text: "", laws } }) });
+  });
+  await page.route("**/api/law/text", (route) => {
+    texts.push(route.request().postDataJSON());
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { found: true, mode: "article", name: "근로기준법",
+      text: "법령명: 근로기준법\n\n제74조 임산부의 보호\n제74조(임산부의 보호)\n① 사용자는 임신 중의 여성에게 출산 전과 출산 후를 통하여 90일의 출산전후휴가를 주어야 한다." } }) });
+  });
+  await page.route("**/api/law/analysis", (route) => {
+    analyses.push(route.request().postDataJSON());
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { found: false, mode: "cite_check", marker: "NOT_FOUND", text: "[NOT_FOUND]" } }) });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "법령", exact: true }).click();
+  const input = page.getByRole("searchbox");
+  await expect(input).toHaveAttribute("placeholder", "법령명 또는 조문 검색 (예: 민법 제750조)");
+  await input.fill("근로기준법 제74조 내용 알려줘");
+  await input.press("Enter");
+  await expect(page.locator("#law-detail-heading")).toHaveText("근로기준법");
+  await expect(page.locator(".law-detail-content h3")).toHaveText("제74조");
+  await expect(page.locator(".law-detail-content")).toContainText("90일의 출산전후휴가");
+  await expect(page.locator("#law-article-number")).toHaveValue("제74조");
+  expect(searches).toEqual(["근로기준법"]);
+  expect(texts).toEqual([{ mst: "283457", jo: "제74조" }]);
+
+  await page.getByRole("button", { name: "← 검색 결과로" }).click();
+  await input.fill("근로 관련 제74조");
+  await input.press("Enter");
+  // No law is named exactly "근로 관련": the ordinary list is shown, nothing is opened.
+  await expect(page.locator(".law-search-list li")).toHaveText([/근로 관련 법/u]);
+  await expect(page.locator("#law-detail-heading")).toHaveCount(0);
+  expect(texts).toHaveLength(1);
+
+  await page.getByRole("button", { name: "검증·분석", exact: true }).click();
+  await page.getByRole("group", { name: "검증·분석 유형" }).getByRole("button", { name: "판례 유효성" }).click();
+  await page.getByLabel("사건번호").fill("2013 다 61381");
+  await page.locator(".legal-analysis-form").getByRole("button", { name: "확인" }).click();
+  await expect(page.locator(".legal-analysis-missing")).toBeVisible();
+  await expect(page.getByLabel("사건번호")).toHaveValue("2013 다 61381");
+  expect(analyses).toEqual([{ mode: "cite_check", caseNumber: "2013다61381" }]);
+});
+
 test("RESEARCH law search sends only the query and separates results, no result and outages", async ({ page }) => {
   const bodies: unknown[] = [];
   const errors: string[] = [];

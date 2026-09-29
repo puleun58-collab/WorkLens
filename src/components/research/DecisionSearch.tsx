@@ -6,7 +6,7 @@ import {
   DECISION_SEARCH_ERROR, DECISION_TEXT_ERROR, decisionSearchOutcome, decisionTextOutcome,
   type DecisionEntry, type DecisionSearchOutcome, type DecisionTextData, type DecisionTextOutcome,
 } from "@/lib/decision-search";
-import { LAW_ANALYSIS_CASE_MAX_CHARS, LAW_ANALYSIS_CASE_PATTERN } from "@/lib/law-analysis";
+import { canonicalCaseQuery, LAW_ANALYSIS_CASE_MAX_CHARS, LAW_ANALYSIS_CASE_PATTERN } from "@/lib/law-analysis";
 import { LawTextBlock } from "./LawTextBlock";
 import "./decision-search.css";
 
@@ -166,7 +166,7 @@ export function DecisionSearch({ linkedRequest, onReturnToLaw, onCiteCheck }: De
     detailRequest.current?.abort();
     detailRequest.current = null;
     setSelected(null);
-    void runSearch(query, domain, 1);
+    void runSearch(canonicalCaseQuery(query).trim(), domain, 1);
   }
 
   function changeDomain(value: DecisionDomain) {

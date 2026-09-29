@@ -3,8 +3,8 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ChartNoAxesColumn, FileText, Gavel, SearchCheck } from "lucide-react";
 import {
-  formatLawDate, LAW_ARTICLE_PATTERN, LAW_FALLBACK_ERROR, LAW_TEXT_FALLBACK_ERROR,
-  lawOutcome, lawStatusTone, lawTextIdentifier, lawTextOutcome,
+  exactCurrentLaw, formatLawDate, LAW_ARTICLE_PATTERN, LAW_FALLBACK_ERROR, LAW_TEXT_FALLBACK_ERROR,
+  lawOutcome, lawStatusTone, lawTextIdentifier, lawTextOutcome, parseLawArticleQuery,
   type LawEntry, type LawOutcome, type LawText, type LawTextOutcome,
 } from "@/lib/law-search";
 import { lawDisplayText } from "@/lib/law-display";
@@ -90,10 +90,16 @@ function LawPane({ onRelated, onAnalysis }: LawPaneProps) {
     detailRequest.current?.abort();
   }, []);
 
+  /**
+   * `민법 제750조` searches the law-name part and opens the article only when
+   * exactly one current law carries that exact name; otherwise the ordinary
+   * result list is shown so the user picks the law.
+   */
   async function search(event: FormEvent) {
     event.preventDefault();
     const trimmed = query.trim();
     if (!trimmed || searchRequest.current) return;
+    const article = parseLawArticleQuery(trimmed);
     const controller = new AbortController();
     searchRequest.current = controller;
     setSearchLoading(true);
@@ -101,11 +107,15 @@ function LawPane({ onRelated, onAnalysis }: LawPaneProps) {
       const response = await fetch("/api/law", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: trimmed }),
+        body: JSON.stringify({ query: article?.lawName ?? trimmed }),
         signal: controller.signal,
       });
       const body: unknown = await response.json().catch(() => null);
-      if (!controller.signal.aborted) setOutcome(lawOutcome(response.ok, body));
+      if (controller.signal.aborted) return;
+      const result = lawOutcome(response.ok, body);
+      setOutcome(result);
+      const law = article && result.kind === "found" ? exactCurrentLaw(result.laws, article.lawName) : undefined;
+      if (law && article) openLaw(law, article.jo);
     } catch {
       if (!controller.signal.aborted) setOutcome({ kind: "error", message: LAW_FALLBACK_ERROR });
     } finally {
@@ -147,13 +157,13 @@ function LawPane({ onRelated, onAnalysis }: LawPaneProps) {
     }
   }
 
-  function openLaw(law: LawEntry) {
+  function openLaw(law: LawEntry, jo?: string) {
     if (!lawTextIdentifier(law)) return;
     setSelected(law);
     setOverview(null);
-    setArticleInput("");
+    setArticleInput(jo ?? "");
     setArticleInputError(false);
-    void loadText(law);
+    void loadText(law, jo);
   }
 
   function backToResults() {
@@ -250,7 +260,7 @@ function LawPane({ onRelated, onAnalysis }: LawPaneProps) {
   return <div className="law-search">
     <form className="law-search-form" role="search" onSubmit={(event) => void search(event)}>
       <div className="law-search-row">
-        <input id="law-query" type="search" value={query} maxLength={200} placeholder="법령명 또는 키워드 검색" aria-label="법령명 또는 키워드 검색" onChange={(event) => setQuery(event.target.value)} />
+        <input id="law-query" type="search" value={query} maxLength={200} placeholder="법령명 또는 조문 검색 (예: 민법 제750조)" aria-label="법령명 또는 키워드 검색" onChange={(event) => setQuery(event.target.value)} />
         <button type="submit" className="law-search-button" disabled={searchLoading || !query.trim()}>{searchLoading ? "검색 중…" : "검색"}</button>
       </div>
     </form>
