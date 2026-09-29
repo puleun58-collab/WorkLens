@@ -118,6 +118,18 @@ export function lawResearchRequestFor(task: LawResearchTask, draft: LawResearchD
   }
 }
 
+/** A tentative reading of the user's own words, never a finding about the law or facts. */
+export interface ResearchInterpretation {
+  original: string;
+  situation: string;
+  issues: string[];
+  /** Retrieval hints only; never display these as findings or citations. */
+  searchTerms: string[];
+  confidence: "high" | "medium" | "low";
+  uncertainty?: string;
+  followUp?: string;
+}
+
 export interface LawResearchData {
   found: true;
   task: LawResearchTask;
@@ -127,12 +139,18 @@ export interface LawResearchData {
   review?: ContractReview;
   /** 종합 리서치 / 처분 근거: WorkLens's own relevance ranking and title-matched articles; `text` is unchanged. */
   enrichment?: ResearchEnrichment;
+  /** 종합 리서치 only: interpretation is tentative; source evidence is assessed separately. */
+  interpretation?: ResearchInterpretation;
+  /** `matched` requires source content to address an issue, not just a search hit. */
+  evidence?: { status: "matched" | "partial" | "unverified"; articles?: Array<{ law: string; jo: string }>; precedents?: string[]; precedentExcerpts?: Record<string, string> };
 }
 
 export interface LawResearchAbsent {
   found: false;
   task: LawResearchTask;
   marker: "NOT_FOUND";
+  /** Available when semantic interpretation succeeded but official search returned no material. */
+  interpretation?: ResearchInterpretation;
   text: string;
 }
 

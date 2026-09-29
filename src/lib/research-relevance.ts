@@ -1,3 +1,5 @@
+import { researchResult } from "@/lib/law-research-parse";
+
 /**
  * Relevance of `legal_research` results to the user's question, decided by
  * WorkLens rather than the upstream order. Rule-based and explainable: every
@@ -33,6 +35,8 @@ export interface SupplementArticle {
 export interface ResearchEnrichment {
   /** Keyed by precedent id as printed by the MCP (`[619479]`). */
   precedents?: Record<string, PrecedentRelevance>;
+  /** Bounded official holding/opening text used to verify each precedent's topical match. */
+  precedentExcerpts?: Record<string, string>;
   /** `none`: looked up and nothing matched; `failed`: lookups failed; `not_searched`: no usable term. */
   supplement?: { status: "found" | "none" | "failed" | "not_searched"; articles: SupplementArticle[] };
   /**
@@ -116,4 +120,38 @@ export function titleMatches(terms: readonly string[], law: string, title: strin
   const name = compact(law);
   const heading = compact(title);
   return terms.filter((term) => !isLawName(term) && !name.includes(compact(term)) && heading.includes(compact(term)));
+}
+
+/**
+ * A search total or decision title is merely a candidate. Only source text
+ * reflecting the issue can be cited as a topical match; applicability still
+ * depends on the user's facts and the source's effective date.
+ */
+export function researchEvidenceSources(text: string, query: string, enrichment?: ResearchEnrichment): {
+  articles: Array<{ law: string; jo: string }>; precedents: string[];
+} {
+  const terms = questionTerms(query).filter((term) => !isLawName(term));
+  if (!terms.length) return { articles: [], precedents: [] };
+  const longest = Math.max(...terms.map((term) => term.length));
+  const addressesIssue = (excerpt: string) => {
+    if (!excerpt.trim()) return false;
+    const normalized = compact(excerpt);
+    const matched = terms.filter((term) => normalized.includes(compact(term)));
+    return matched.length >= Math.ceil(terms.length / 2) && matched.some((term) => term.length === longest);
+  };
+  const articles = [
+    ...researchResult(text).sections.filter((section) => section.status === "available").flatMap((section) => section.articles ?? []),
+    ...(enrichment?.supplement?.articles ?? []),
+  ].filter((article) => addressesIssue(article.excerpt)).map(({ law, jo }) => ({ law, jo }));
+  const precedents = Object.entries(enrichment?.precedents ?? {})
+    .filter(([, { rank, matched }]) => (rank === "direct" || rank === "related")
+      && addressesIssue(matched.filter((term) => terms.includes(term)).join(" ")))
+    .map(([id]) => id);
+  return { articles, precedents };
+}
+
+/** Whether verified source content addresses an interpreted issue. */
+export function hasRelevantResearchEvidence(text: string, query: string, enrichment?: ResearchEnrichment): boolean {
+  const sources = researchEvidenceSources(text, query, enrichment);
+  return sources.articles.length > 0 || sources.precedents.length > 0;
 }

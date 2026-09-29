@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { POST } from "@/app/api/law/research/route";
 import { LAW_RESEARCH_BODY_MAX_BYTES, LAW_RESEARCH_DOCUMENT_MAX_CHARS } from "@/lib/law-research";
 
-// These tests pin the single legal_research call; follow-up relevance lookups have their own tests
-// (research-relevance.test.ts), and a failed enrichment must leave the answer exactly as the MCP gave it.
+// The MCP result is verbatim; full_research may add a source-relevance status,
+// while enrichment failures leave the original answer and markers intact.
 vi.mock("@/server/research-enrichment", () => ({
   mcpEnrichmentSources: () => ({}),
   enrichResearch: () => Promise.reject(new Error("enrichment disabled in route tests")),
@@ -82,7 +82,8 @@ describe("fixed legal_research API", () => {
       const { input, args, text } = cases[i];
       const result = await call(input);
       expect(result.status).toBe(200);
-      expect(result.json.data).toEqual({ found: true, task: input.task, text: `${text}\n[NOT_FOUND] 일부 결과\n[NOT_FOUND] 다른 항목`, markers: ["NOT_FOUND"] });
+      expect(result.json.data).toEqual({ found: true, task: input.task, text: `${text}\n[NOT_FOUND] 일부 결과\n[NOT_FOUND] 다른 항목`, markers: ["NOT_FOUND"],
+        ...(input.task === "full_research" ? { evidence: { status: "unverified", articles: [], precedents: [] } } : {}) });
       const upstream = toolCall(fetcher, i);
       expect(String(upstream.url)).toBe(ENDPOINT);
       expect(upstream.headers.get("apikey")).toBe(KEY);
@@ -132,7 +133,7 @@ describe("fixed legal_research API", () => {
       .mockResolvedValueOnce(toolText(" \n[NOT_FOUND] 법령이 없습니다.", true))
       .mockResolvedValueOnce(toolText("[LAW_NOT_FOUND] 법령이 없습니다.", true)));
     expect((await call(base)).json.data).toEqual({ found: true, task: "full_research", text: partial,
-      markers: ["REQUEST_TIMEOUT"] });
+      markers: ["REQUEST_TIMEOUT"], evidence: { status: "unverified", articles: [], precedents: [] } });
     expect((await call(base)).json.data).toEqual({ found: false, task: "full_research", marker: "NOT_FOUND", text: " \n[NOT_FOUND] 법령이 없습니다." });
     expect((await call(base)).json.data).toEqual({ found: false, task: "full_research", marker: "NOT_FOUND", text: "[LAW_NOT_FOUND] 법령이 없습니다." });
   });
