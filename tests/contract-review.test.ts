@@ -64,6 +64,12 @@ describe("company work rules are reviewed as employment documents without being 
     ]));
   });
 
+  it("drops markdown bold wherever it sits in a line", () => {
+    expect(splitClauses("### 제1조 목적\n회사는 **모든** 직원에게 **즉시** 적용한다.")).toEqual([
+      { number: "제1조", title: "목적", text: "회사는 모든 직원에게 즉시 적용한다." },
+    ]);
+  });
+
   it("reads the same points when they are phrased differently", () => {
     const variant = GUIDELINE
       .replace("별도의 수당을 지급하지 않는다", "추가 임금 지급 대상에서 제외한다")
