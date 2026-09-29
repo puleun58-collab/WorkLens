@@ -166,7 +166,7 @@ function citationPhrase(text: string): string {
   return CITATION_PHRASES.reduce((value, [pattern, replacement]) => value.replace(pattern, replacement), text).trim();
 }
 
-const STATUS_ORDER = ["확인됨", "찾을 수 없음", "내용 불일치", "확인할 수 없음", "확인되지 않음", "폐지 법령", "확인 필요", "조회 실패", "검증하지 않음"];
+const STATUS_ORDER = ["확인됨", "찾을 수 없음", "내용 불일치", "확인할 수 없음", "확인되지 않음", "폐지 법령", "확인 필요", "호 확인 중", "호 확인 필요", "조회 실패", "검증하지 않음"];
 
 function citationStatus(symbol: CitationItem["symbol"], text: string, group: CitationItem["group"]): Pick<CitationItem, "label" | "tone"> {
   if (symbol === "✓") return { label: "확인됨", tone: "verified" };
@@ -265,13 +265,17 @@ export function verifyCitationsResult(text: string): VerifyCitationsResult {
   }
   result.groups = (["law", "case"] as const).map((group) => {
     const items = result.items.filter((item) => item.group === group);
-    const counts = STATUS_ORDER.flatMap((label) => {
-      const count = items.filter((item) => item.label === label).length;
-      return count ? [`${label === "확인됨" ? "확인" : label} ${count}건`] : [];
-    });
-    return { group, total: Math.max(totals.get(group) ?? 0, items.length), counts };
+    return { group, total: Math.max(totals.get(group) ?? 0, items.length), counts: citationCounts(items) };
   });
   return result;
+}
+
+/** Non-zero statuses in a fixed order, e.g. `확인 1건 · 찾을 수 없음 1건`. */
+export function citationCounts(items: readonly Pick<CitationItem, "label">[]): string[] {
+  return STATUS_ORDER.flatMap((label) => {
+    const count = items.filter((item) => item.label === label).length;
+    return count ? [`${label === "확인됨" ? "확인" : label} ${count}건`] : [];
+  });
 }
 
 /** One-line reading of a group summary, e.g. `법령 인용 1건 · 확인 1건` or `판례 인용 없음`. */
