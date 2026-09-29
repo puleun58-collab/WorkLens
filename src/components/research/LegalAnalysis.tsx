@@ -245,10 +245,13 @@ function AnalysisResult({ data, request }: { data: LawAnalysisData; request: Law
     </details>;
   } else if (data.mode === "cite_check") {
     const result = citeCheckResult(data.text);
+    const detailStart = result.target.findIndex((line) => /^\s*(?:판시사항|판결요지|참조조문|참조판례)\s*:/u.test(line));
+    const targetSummary = detailStart < 0 ? result.target : result.target.slice(0, detailStart);
+    const targetDetails = detailStart < 0 ? [] : result.target.slice(detailStart);
     note = "법제처에 수록된 판례를 기준으로 확인한 결과입니다.";
     body = <>
       {result.title && <h3 className="legal-analysis-title">{analysisTitle(result.title)}</h3>}
-      <Lines lines={result.target} />
+      <Lines lines={targetSummary} />
       {result.verdict && <div className={`legal-analysis-verdict is-${result.verdict.tone}`}>
         <span className="legal-analysis-status">판정</span>
         <Lines lines={[result.verdict.text]} />
@@ -257,7 +260,8 @@ function AnalysisResult({ data, request }: { data: LawAnalysisData; request: Law
     </>;
     source = <details className="law-detail-source">
       <SourceToggleSummary label="근거 보기" openLabel="근거 접기" />
-      <p className="law-search-note">후속 인용·본문 확인 결과입니다. 판결문 원문은 이 결과에 포함되지 않습니다.</p>
+      <p className="law-search-note">대상 판례 정보와 후속 인용·본문 확인 결과입니다. 판결문 원문은 이 결과에 포함되지 않습니다.</p>
+      <Lines lines={targetDetails} />
       {result.sections.length > 0 ? <Sections sections={result.sections} />
         : <p className="law-search-note">제공된 후속 판례 목록이 없습니다.</p>}
     </details>;
