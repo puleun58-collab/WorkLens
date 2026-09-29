@@ -79,6 +79,32 @@ export function summarize(all: readonly CheckFinding[], returned: readonly Check
 }
 
 /**
+ * Re-bases a summary after the returned findings were replaced (semantic
+ * findings appended and normalized): the counts of findings cut by the display
+ * cap are kept, the returned ones are counted again from their final severity,
+ * group and confidence.
+ */
+export function resummarize(
+  summary: CheckResult["summary"],
+  before: readonly CheckFinding[],
+  after: readonly CheckFinding[],
+): CheckResult["summary"] {
+  const removed = summarize(before, before);
+  const added = summarize(after, after);
+  const rebase = <Key extends string>(base: Record<Key, number>, minus: Record<Key, number>, plus: Record<Key, number>) =>
+    Object.fromEntries(Object.keys(base).map((key) => [key, base[key as Key] - minus[key as Key] + plus[key as Key]])) as Record<Key, number>;
+  const totalFound = summary.totalFound - before.length + after.length;
+  return {
+    totalFound,
+    returned: after.length,
+    truncated: after.length < totalFound,
+    bySeverity: rebase(summary.bySeverity, removed.bySeverity, added.bySeverity),
+    byGroup: rebase(summary.byGroup, removed.byGroup, added.byGroup),
+    byConfidence: rebase(summary.byConfidence, removed.byConfidence, added.byConfidence),
+  };
+}
+
+/**
  * Dedupes, prioritises and caps the finding list, then reports what was cut so
  * the UI can tell the user the result is partial.
  */
