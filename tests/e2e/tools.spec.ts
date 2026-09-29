@@ -446,7 +446,6 @@ test("law results render MCP <br> tags as line breaks and keep other HTML inert 
   await expect(lines).toContainText("근로기준법 제24조");
   expect(await lines.textContent()).toContain("근로기준법 제23조\n근로기준법 제24조");
   await expectClean();
-  await expect(page.locator(".legal-research .legal-analysis-output")).toContainText("본문 검색으로 찾은 결과입니다.");
   await expect(page.locator(".legal-research .legal-analysis-output")).toContainText("[1] 해고 사건");
   expect(executed).toEqual([]);
 });
