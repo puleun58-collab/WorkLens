@@ -41,7 +41,7 @@ describe("full_research semantic retrieval", () => {
     const fetcher = vi.fn().mockResolvedValueOnce(mcpResponse(unrelated)).mockResolvedValueOnce(mcpResponse(relevant));
     vi.stubGlobal("fetch", fetcher);
     const result = await runLegalResearch({ task: "full_research", query }, ctx);
-    expect(fetcher.mock.calls.map(mcpQuery)).toEqual([issue, "직장 내 괴롭힘 근로기준법 제76조의2"]);
+    expect(fetcher.mock.calls.map(mcpQuery)).toEqual([issue, query]);
     expect(result).toMatchObject({ found: true, text: relevant, markers: ["NOT_FOUND"], interpretation,
       evidence: { status: "matched" } });
     expect(result.text).not.toContain(unrelated);
@@ -54,7 +54,8 @@ describe("full_research semantic retrieval", () => {
     const fetcher = vi.fn().mockResolvedValue(mcpResponse(relevant));
     vi.stubGlobal("fetch", fetcher);
     const result = await runLegalResearch({ task: "full_research", query }, ctx);
-    expect(fetcher.mock.calls.map(mcpQuery)).toEqual([multiple.issues.join(" / "), "직장 내 괴롭힘 근로기준법 제76조의2"]);
+    // Issues are never joined into one AND-matched query.
+    expect(fetcher.mock.calls.map(mcpQuery)).toEqual([issue, query]);
     expect(result).toMatchObject({ found: true, interpretation: multiple, evidence: { status: "partial" } });
   });
 

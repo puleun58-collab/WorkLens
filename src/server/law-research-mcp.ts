@@ -17,7 +17,9 @@ async function fullResearch(
   // question's existing search path. It never supplies factual evidence.
   const interpretation = await interpretResearchQuery(query, context).catch(() => undefined);
   if (context.signal?.aborted) throw new ApiError("LAW_REQUEST_ABORTED", "요청이 취소되었습니다.", 499);
-  const issue = interpretation?.issues.join(" / ").slice(0, 500) || query;
+  // The upstream search AND-matches words, so issues are searched one at a time,
+  // never joined: the primary issue first, then (once) the user's own wording.
+  const issue = interpretation?.issues[0]?.slice(0, 500) || query;
   const attempt = async (searchQuery: string) => {
     const { text, isError } = await callLawTool("legal_research", { task: "full_research", query: searchQuery }, context);
     const classification = classifyLawToolResult(text, isError, { failureMessage: RESEARCH_FAILURE });
@@ -39,10 +41,9 @@ async function fullResearch(
   if (!interpretation || (first.found && first.evidence.status === "matched")) {
     return { ...first, ...(interpretation ? { interpretation } : {}) };
   }
-  // One alternative retrieval only, drawn from the same interpreted issue.
-  // A failed second lookup never erases an official first response.
-  const alternative = interpretation.searchTerms.slice(0, 2).join(" ");
-  if (!alternative || alternative === issue || alternative === query) {
+  // One alternative retrieval only. A failed second lookup never erases an official first response.
+  const alternative = issue !== query ? query : interpretation.searchTerms.find((term) => term !== issue);
+  if (!alternative) {
     return { ...first, interpretation };
   }
   const second = await attempt(alternative).catch((error: unknown) => {
