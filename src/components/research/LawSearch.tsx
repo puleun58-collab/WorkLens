@@ -242,7 +242,7 @@ function LawPane({ onRelated, onAnalysis }: LawPaneProps) {
             <p className="law-search-note">요청한 {activeJo ? "조문" : "법령 원문"}을 찾을 수 없습니다.</p>
           </div>
           : detail?.kind === "found" ? <div className="law-detail-content">
-            <h3>{activeJo ?? (detail.data.mode === "toc" ? "목차" : "법령 원문")}</h3>
+            <h3 className={activeJo ? undefined : "law-detail-section-heading"}>{activeJo ?? (detail.data.mode === "toc" ? "목차" : "법령 원문")}</h3>
             {activeJo && <div className="law-related-actions">
               <button id="related-decisions" type="button" className="law-search-link" onClick={() => onRelated(selected, activeJo)}>관련 판례·결정례</button>
               <button id="law-applicable-action" type="button" className="law-search-link" onClick={() => onAnalysis({ mode: "applicable_law", lawName: detail.data.name ?? overview?.name ?? selected.name, jo: activeJo, origin: "law" }, "law-applicable-action")}>시점별 적용 법령</button>
@@ -275,7 +275,7 @@ function LawPane({ onRelated, onAnalysis }: LawPaneProps) {
     </form>
 
     {(searchLoading || outcome) && <section className="law-search-results" aria-labelledby="law-results-heading" aria-busy={searchLoading}>
-      <h2 id="law-results-heading">검색 결과{outcome?.kind === "found" ? ` · ${outcome.laws.length}건` : outcome?.kind === "empty" ? " · 0건" : ""}</h2>
+      <h2 id="law-results-heading">검색 결과{outcome?.kind === "found" ? <span className="law-section-count"> · {outcome.laws.length}건</span> : outcome?.kind === "empty" ? <span className="law-section-count"> · 0건</span> : null}</h2>
       {searchLoading ? <p className="law-search-note" role="status">검색 중…</p>
         : !outcome ? null
         : outcome.kind === "error" ? <p className="law-search-error law-operation-error" role="alert">{outcome.message}</p>

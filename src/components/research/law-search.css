@@ -106,3 +106,17 @@
 .legal-analysis-modes button[aria-pressed="true"]::before, .legal-analysis-modes button[aria-pressed="true"] + button::before { display: none; }
 .legal-analysis-modes button:hover:not([aria-pressed="true"]) { color: var(--ink); }
 .legal-analysis-modes button[aria-pressed="true"] { border-color: #bcd0f5; background: var(--blue-pale, #f5f9ff); color: var(--ink); font-weight: 600; box-shadow: none; }
+
+/* Section boundaries only: source titles, input labels, and result states keep their own text colors. */
+.law-research :is(.law-search-results, .decision-search-results, .legal-analysis-result) > h2,
+.law-research .decision-search-subheading,
+.law-research .law-detail-section-heading,
+.law-research .legal-analysis-section:not(.contract-review-clause):not(.is-unavailable) > h3,
+.law-research .legal-research .research-group > h3 {
+  color: var(--blue-active);
+  font-weight: var(--font-weight-semibold);
+}
+.law-research .law-section-count {
+  color: var(--muted);
+  font-weight: var(--font-weight-regular);
+}
