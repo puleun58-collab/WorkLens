@@ -107,3 +107,21 @@ describe("lawDisplayText", () => {
     expect(lawDisplayText(undefined)).toBe("");
   });
 });
+
+describe("missing metadata in law text", () => {
+  // Live shape of a 국세법령정보시스템 precedent (2026-09).
+  const record = "기본 정보:\n  사건번호: 대법원-2023-다-302036\n  법원: N/A\n  선고일: 20240208\n  판결유형: N/A";
+
+  it("names the court from the record's own case-number field, drops optional placeholders and formats dates", () => {
+    expect(lawDisplayText(record)).toBe("기본 정보:\n  사건번호: 대법원-2023-다-302036\n  법원: 대법원\n  선고일: 2024.02.08");
+  });
+
+  it("never infers a court from a bare case number; says it is unknown instead", () => {
+    expect(lawDisplayText("  사건번호: 2023다302036\n  법원: N/A")).toBe("사건번호: 2023다302036\n  법원: 확인되지 않음");
+  });
+
+  it("keeps the court prefix inside its own record only, and leaves real values alone", () => {
+    expect(lawDisplayText("  사건번호: 대법원-2023-다-1\n\n  법원: null")).toBe("사건번호: 대법원-2023-다-1\n\n  법원: 확인되지 않음");
+    expect(lawDisplayText("  구분: -\n  비고: 없음\n  선고일: 20241399")).toBe("구분: -\n  비고: 없음\n  선고일: 20241399");
+  });
+});

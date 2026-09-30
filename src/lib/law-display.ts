@@ -54,18 +54,57 @@ function withoutOperatorGuidance(raw: string): string | undefined {
     .join(" ");
   return LEFTOVER_LABEL.test(cleaned) ? undefined : cleaned;
 }
+/** Upstream placeholders for "no value"; `-` and `없음` are left alone because they can be real values. */
+const MISSING_VALUE = /^(?:N\/?A|n\/a|NA|null|undefined|\(없음\))$/u;
+/** Identifying fields: when missing, the reader is told so instead of the row silently vanishing. */
+const CORE_LABELS: Record<string, true> = {
+  법원: true, 사건번호: true, 선고일: true, 법령명: true, 조문: true, 시행일: true, 공포일: true, 종국일: true,
+  의결일: true, 의결일자: true, 결정일: true, 회신일자: true, 해석일자: true, 청구번호: true, 해석례번호: true,
+};
+const DATE_LABELS = "선고일|시행일|공포일|종국일|의결일자|의결일|결정일|회신일자|해석일자|시행일자|공포일자|개정일";
+const COMPACT_DATE = new RegExp(`((?:${DATE_LABELS})\\s*[:：]\\s*)(\\d{4})(\\d{2})(\\d{2})(?!\\d)`, "gu");
+const METADATA_LINE = /^(\s*(?:-\s*)?)([가-힣A-Za-z ]{1,12}?)\s*[:：][ \t]*(.*?)[ \t]*$/u;
+
+/**
+ * The court named by a record's own case-number field (`대법원-2023-다-302036`, as 국세법령정보시스템
+ * prints it). Only this explicit prefix counts; a bare number like `2023다302036` never implies a court.
+ */
+export function courtFromCaseNumber(caseNumber: string | undefined): string | undefined {
+  return /^((?:대법원|헌법재판소|[가-힣]+(?:고등|지방|행정|가정|특허|회생)법원(?:[가-힣]+지원)?))-\d{4}-/u.exec(caseNumber?.trim() ?? "")?.[1];
+}
+
+/** Missing metadata within one blank-line-separated record: reuse the record's own court prefix, name what is unknown, drop the rest. */
+function withMetadata(block: string[]): string[] {
+  const caseNumber = block.map((line) => METADATA_LINE.exec(line)).find((match) => match?.[2].trim() === "사건번호")?.[3];
+  return block.flatMap((line) => {
+    const match = METADATA_LINE.exec(line);
+    if (!match || !MISSING_VALUE.test(match[3])) return [line];
+    const label = match[2].trim();
+    const court = label === "법원" ? courtFromCaseNumber(caseNumber) : undefined;
+    if (court) return [`${match[1]}${label}: ${court}`];
+    return CORE_LABELS[label] ? [`${match[1]}${label}: 확인되지 않음`] : [];
+  });
+}
 
 export function lawDisplayText(value: string | null | undefined): string {
   if (!value) return "";
-  return value
+  const lines = value
     .replace(/\r\n?/gu, "\n")
     .replace(LINE_BREAK_TAG, "\n")
     .split("\n")
     .flatMap((line) => {
       const shown = withoutOperatorGuidance(line);
       return shown === undefined ? [] : [shown.replace(/[ \t\u00a0]+$/u, "")];
-    })
-    .join("\n")
+    });
+  const records: string[][] = [[]];
+  for (const line of lines) {
+    if (line.trim()) records.at(-1)!.push(line);
+    else records.push([line]);
+  }
+  return records.flatMap(withMetadata).join("\n")
+    // 20240208 → 2024.02.08 on labelled dates only; the raw response keeps its own form.
+    .replace(COMPACT_DATE, (whole, label: string, year: string, month: string, day: string) =>
+      Number(month) >= 1 && Number(month) <= 12 && Number(day) >= 1 && Number(day) <= 31 ? `${label}${year}.${month}.${day}` : whole)
     // At most two blank lines in a row: 3+ newlines between paragraphs are layout noise.
     .replace(/\n{4,}/gu, "\n\n\n")
     .trim();
