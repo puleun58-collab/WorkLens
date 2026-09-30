@@ -922,7 +922,7 @@ test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route wit
   await form.getByRole("button", { name: "리서치 실행" }).click();
   await task.selectOption("ordinance_compare");
   await expect(form.getByRole("button", { name: "리서치 실행" })).toBeDisabled();
-  await expect(form).toContainText("서로 다른 비교 지역 두 곳");
+  await expect(form).toContainText("서로 다른 비교 지역 2곳을 입력하세요. 비교할 주제는 위 질문에 입력하면 됩니다.");
   await form.getByLabel("비교 지역 1").fill("인천광역시");
   await expect(form.getByRole("button", { name: "리서치 실행" })).toBeDisabled();
   await form.getByLabel("비교 지역 2").fill("서울특별시");
@@ -1016,14 +1016,38 @@ test("RESEARCH ordinance comparison needs two regions and shows each region's ve
   await form.getByLabel("질문 또는 검색어").fill("장애인 주차요금 감면");
   await form.getByLabel("비교 지역 1").fill("인천광역시");
   await expect(form.getByRole("button", { name: "리서치 실행" })).toBeDisabled();
-  await expect(form).toContainText("조례 비교를 위해 서로 다른 비교 지역 두 곳");
+  const note = form.locator(".legal-research-input-note");
+  await expect(note).toHaveText("서로 다른 비교 지역 2곳을 입력하세요. 비교할 주제는 위 질문에 입력하면 됩니다.");
+  await expect(note).toHaveAttribute("data-state", "hint");
+  expect(await note.evaluate((node) => getComputedStyle(node).fontWeight)).toBe("600");
+  // Guidance and run button share one row, vertically centred, at desktop width.
+  const [noteBox, runBox] = [await note.boundingBox(), await form.getByRole("button", { name: "리서치 실행" }).boundingBox()];
+  expect(Math.abs((noteBox!.y + noteBox!.height / 2) - (runBox!.y + runBox!.height / 2))).toBeLessThan(2);
+  expect(runBox!.x).toBeGreaterThan(noteBox!.x + noteBox!.width);
   await form.getByLabel("비교 지역 2").fill("인천광역시");
+  await expect(note).toHaveAttribute("data-state", "error");
   await expect(form.getByRole("button", { name: "리서치 실행" })).toBeDisabled();
   await form.getByLabel("비교 지역 2").fill("서울특별시");
   await form.getByLabel("관련 상위 법령 (선택)").fill("주차장법");
   await form.getByRole("button", { name: "리서치 실행" }).click();
   const table = page.getByRole("region", { name: "조례 대조" }).locator(".research-comparison");
   await expect(table.locator("thead th")).toHaveText(["비교 항목", "인천광역시", "서울특별시"]);
+  // Same table language as the aggregation result: blue-gray header and visible column rules; region columns equal.
+  const styles = await table.evaluate((node) => {
+    const header = getComputedStyle(node.querySelector("thead th")!);
+    const cell = getComputedStyle(node.querySelector("tbody td")!);
+    const probe = document.createElement("div");
+    probe.style.background = "var(--result-table-header)";
+    document.body.append(probe);
+    const expected = getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    const widths = [...node.querySelectorAll("thead th")].map((th) => Math.round(th.getBoundingClientRect().width));
+    return { header: header.backgroundColor, expected, rule: cell.borderRightWidth, widths };
+  });
+  expect(styles.header).toBe(styles.expected);
+  expect(styles.rule).toBe("1px");
+  expect(styles.widths[0]).toBeLessThan(styles.widths[1]);
+  expect(Math.abs(styles.widths[1] - styles.widths[2])).toBeLessThanOrEqual(1);
   await expect(table.locator("tbody tr").first()).toContainText("인천광역시 주차장 설치 및 관리 조례");
   const row = table.locator("tbody tr").filter({ hasText: "주차요금의 감면" });
   await expect(row).toContainText("50퍼센트");
@@ -1077,7 +1101,12 @@ test("RESEARCH distinguishes empty, low-relevance and partial evidence without a
   const overview = page.locator(".research-overview");
   await expect(overview.locator("h3")).toHaveText("직접 관련된 근거가 충분하지 않습니다");
   // The specific follow-up replaces the generic uncertainty instead of repeating it.
-  await expect(overview).toContainText("추가로 필요한 정보근무 기간은 얼마나 되나요?");
+  await expect(overview).toContainText("추가로 필요한 정보 근무 기간은 얼마나 되나요?");
+  // Two issues flow on one line with a separator, under their own rule.
+  const issues = overview.locator(".research-issues li");
+  await expect(issues).toHaveText(["해고의 정당성", "해고예고"]);
+  const [first, second] = [await issues.nth(0).boundingBox(), await issues.nth(1).boundingBox()];
+  expect(Math.abs(first!.y - second!.y)).toBeLessThan(1);
   await expect(overview).not.toContainText("근로계약의 형태는 확인되지 않았습니다.");
   await expect(overview).not.toContainText("근로계약이 종료되었");
   await expect(page.locator(".research-selected")).toHaveCount(0);
@@ -1186,12 +1215,16 @@ test("RESEARCH separates a verified article from search candidates and hides int
   await form.getByRole("button", { name: "리서치 실행" }).click();
   const output = page.locator(".legal-research .legal-analysis-output");
   await expect(output.locator(".research-overview")).toContainText("직장에서 괴롭힘 문제를 겪는 상황");
-  await expect(output.locator(".research-original")).toContainText("입력한 질문");
+  await expect(output.locator(".research-original").first()).toContainText("입력한 질문");
   await expect(output.locator(".research-understanding")).toContainText("이렇게 이해했어요");
-  // Issues start on the same left edge as their heading, and result boxes carry no blue side rule.
-  const issueHeading = await output.locator(".research-understanding strong").boundingBox();
-  const issueItem = await output.locator(".research-understanding li").first().boundingBox();
-  expect(Math.abs(issueHeading!.x - issueItem!.x)).toBeLessThan(1);
+  // 입력한 질문 → 이렇게 이해했어요 → 살펴볼 쟁점: same rule above each, one left edge for labels, text and issues.
+  const blocks = await output.locator(".research-overview .research-original").evaluateAll((nodes) => nodes.map((node) => ({
+    label: node.querySelector("span")!.textContent, rule: getComputedStyle(node).borderTopWidth, pad: getComputedStyle(node).paddingTop, x: Math.round(node.getBoundingClientRect().left),
+    content: Math.round((node.querySelector("p, li") as HTMLElement).getBoundingClientRect().left),
+  })));
+  expect(blocks.map((block) => block.label)).toEqual(["입력한 질문", "이렇게 이해했어요", "살펴볼 쟁점"]);
+  expect(new Set(blocks.map((block) => `${block.rule}|${block.pad}`)).size).toBe(1);
+  expect(new Set(blocks.flatMap((block) => [block.x, block.content])).size).toBe(1);
   for (const box of [".research-overview", ".research-selected"]) {
     expect(await output.locator(box).evaluate((node) => getComputedStyle(node).borderLeftColor === getComputedStyle(node).borderTopColor)).toBe(true);
   }
