@@ -60,6 +60,20 @@ describe("ordinance comparison", () => {
     expect(gwangjin.articles).toEqual([{ jo: "제3조의2", title: "주차장의 설치기준", body: "광진 본문 설치기준", topic: "주차장의 설치기준" }]);
   });
 
+  it("retains the complete fetched article after 600 characters, including 항 and 호 line breaks", async () => {
+    const body = `① 주차요금을 감면한다.\n${"장애인 전용 주차구획의 설치기준은 별표에 따른다. ".repeat(20)}\n② 시설기준은 다음 각 호와 같다.\n1. 출입구에 가깝게 설치한다.`;
+    expect(body.length).toBeGreaterThan(600);
+    const original = sources();
+    const result = await compareOrdinances("주차장 설치 기준", ["인천광역시", "광진구"], {
+      ...original,
+      async text(id, jo) {
+        if (id === "13" && jo === "제7조") return `${head("인천광역시 주차장 설치 및 관리 조례", "인천광역시")}주차장의 설치기준\n제7조(주차장의 설치기준) ${body}`;
+        return original.text(id, jo);
+      },
+    }, "주차장법");
+    expect(result.regions[0].articles[0].body).toBe(body);
+  });
+
   it("reports a region with no matching ordinance as none, without inventing one", async () => {
     const result = await compareOrdinances("주차장 설치 기준", ["인천광역시", "가나다시"], sources());
     expect(result.regions[1]).toEqual({ region: "가나다시", status: "none", candidates: 0, articles: [] });
