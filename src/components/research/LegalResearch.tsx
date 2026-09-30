@@ -5,7 +5,7 @@ import {
   AMENDMENT_SCENARIOS, DISPUTE_DOMAINS, EMPTY_RESEARCH_DRAFT, LAW_RESEARCH_DOCUMENT_MAX_CHARS, LAW_RESEARCH_DOCUMENT_MIN_CHARS,
   LAW_RESEARCH_ERROR, LAW_RESEARCH_NAME_MAX_CHARS, LAW_RESEARCH_QUERY_MAX_CHARS, LAW_RESEARCH_TASKS, lawResearchOutcome, lawResearchRequestFor,
   type AmendmentScenario, type DisputeDomain, type LawResearchData, type LawResearchDraft, type LawResearchOutcome,
-  type LawResearchRequest, type LawResearchTask, type ResearchInterpretation,
+  type LawCurrency, type LawResearchRequest, type LawResearchTask, type ResearchInterpretation,
 } from "@/lib/law-research";
 import { isSupportingSection, researchResult, type ResearchDecision, type ResearchSection } from "@/lib/law-research-parse";
 import { lawDisplayText } from "@/lib/law-display";
@@ -22,23 +22,29 @@ interface TaskResult {
 }
 
 const TASK_HELP: Record<LawResearchTask, { description: string; placeholder: string }> = {
-  full_research: { description: "상황을 설명하면 관련 쟁점과 확인된 법령·판례를 구분해 보여줍니다. 확인되지 않은 사실은 판단하지 않습니다.", placeholder: "예: 회사에서 업무와 관련해 지속적으로 모욕을 당했는데 어떤 법적 기준을 살펴봐야 하나요?" },
+  full_research: { description: "상황을 설명하면 관련 쟁점과 확인된 법령·판례를 구분해 보여줍니다.\n확인되지 않은 사실은 판단하지 않습니다.", placeholder: "예: 회사에서 업무와 관련해 지속적으로 모욕을 당했는데 어떤 법적 기준을 살펴봐야 하나요?" },
   law_system: { description: "한 법령의 법률·시행령·시행규칙 관계와 관련 조문을 확인합니다.", placeholder: "예: 개인정보 보호법 제38조와 시행령의 관계" },
   action_basis: { description: "처분 또는 허가의 근거 조문과 확인 가능한 불복 자료를 찾습니다.", placeholder: "예: 식품위생법상 영업정지의 근거와 요건" },
   dispute_prep: { description: "쟁송에 참고할 법령, 판례, 결정례를 자료별로 나눠 살펴봅니다.", placeholder: "예: 부당해고 구제 신청 관련 판례와 결정례" },
   amendment_track: { description: "법령의 개정 이력이나 지정한 두 시점의 조문 변화를 확인합니다.", placeholder: "예: 근로기준법 제60조 개정 내용" },
-  ordinance_compare: { description: "두 지역의 자치법규를 같은 주제로 조회합니다. 비교 내용은 양쪽 원문이 확인된 경우에만 제시합니다.", placeholder: "예: 공영주차장 감면 기준" },
+  ordinance_compare: { description: "두 지역의 같은 주제 조례를 찾아 조문 원문을 나란히 보여줍니다.\n양쪽 원문이 확인된 항목만 비교합니다.", placeholder: "예: 주차장 설치 기준" },
   procedure_detail: { description: "절차의 근거 조문과 제출 서식을 찾아 확인합니다.", placeholder: "예: 행정심판 청구 절차와 제출서류" },
   document_review: { description: "입력한 문서의 조항별 쟁점과 확인된 근거를 검토합니다.", placeholder: "계약서 또는 약관 등의 내용을 붙여 넣으세요." },
 };
 
+/** 법제처 status plus the article's 시행일; only `current` means in force today. */
+const CURRENCY_LABEL: Record<LawCurrency, string> = {
+  current: "현행",
+  upcoming: "시행 예정",
+  not_current: "현행 아님",
+  unconfirmed: "현행 여부 미확인",
+};
 const RESULT_NOTE = "법적 판단이 필요한 경우 국가법령정보센터 원문과 관련 전문가 검토가 필요할 수 있습니다.";
 
 export function LegalResearch() {
   const [task, setTask] = useState<LawResearchTask>("full_research");
   const [draft, setDraft] = useState<LawResearchDraft>(EMPTY_RESEARCH_DRAFT);
   const [results, setResults] = useState<Partial<Record<LawResearchTask, TaskResult>>>({});
-  const [regions, setRegions] = useState<[string, string]>(["", ""]);
   const requests = useRef(new Map<LawResearchTask, AbortController>());
 
   useEffect(() => {
@@ -87,14 +93,9 @@ export function LegalResearch() {
   const update = <K extends keyof LawResearchDraft>(key: K, value: LawResearchDraft[K]) => setDraft((current) => ({ ...current, [key]: value }));
   const current = results[task];
   const loading = current?.loading === true;
-  const baseRequest = lawResearchRequestFor(task, draft);
-  const regionNames = regions.map((region) => region.trim());
+  const request = lawResearchRequestFor(task, draft);
+  const regionNames = [draft.region1.trim(), draft.region2.trim()];
   const regionError = task === "ordinance_compare" && (regionNames.some((region) => !region) || regionNames[0] === regionNames[1]);
-  const comparedQuery = `${draft.query.trim()}\n비교 대상 지역: ${regionNames.join(" / ")}`;
-  const comparisonTooLong = task === "ordinance_compare" && comparedQuery.length > LAW_RESEARCH_QUERY_MAX_CHARS;
-  const request = baseRequest?.task === "ordinance_compare"
-    ? !regionError && !comparisonTooLong ? { ...baseRequest, query: comparedQuery } : null
-    : baseRequest;
   const isDocument = task === "document_review";
   const reversedDates = task === "amendment_track" && draft.scenario === "time_travel" && draft.fromDate && draft.toDate && draft.fromDate > draft.toDate;
 
@@ -152,13 +153,12 @@ export function LegalResearch() {
       </label>}
       {task === "ordinance_compare" && <>
         <div className="legal-analysis-fields legal-research-dates legal-research-regions">
-          {regions.map((region, index) => <label key={index} htmlFor={`research-region-${index}`}>비교 지역 {index + 1}
-            <input id={`research-region-${index}`} type="text" value={region} maxLength={LAW_RESEARCH_NAME_MAX_CHARS} placeholder={index ? "예: 부산광역시" : "예: 서울특별시"}
-              onChange={(event) => setRegions((current) => current.map((value, position) => position === index ? event.target.value : value) as [string, string])} />
+          {(["region1", "region2"] as const).map((key, index) => <label key={key} htmlFor={`research-region-${index}`}>비교 지역 {index + 1}
+            <input id={`research-region-${index}`} type="text" value={draft[key]} maxLength={LAW_RESEARCH_NAME_MAX_CHARS} placeholder={index ? "예: 서울특별시" : "예: 인천광역시"}
+              onChange={(event) => update(key, event.target.value)} />
           </label>)}
         </div>
-        {regionError && <p className="legal-research-input-note">서로 다른 비교 지역 두 곳을 각각 입력해 주세요. 지역명만 입력하고 질문은 위에 적으면 됩니다.</p>}
-        {comparisonTooLong && <p className="legal-research-input-note">질문과 두 지역명을 합쳐 {LAW_RESEARCH_QUERY_MAX_CHARS.toLocaleString("ko-KR")}자 이내로 줄여 주세요.</p>}
+        {regionError && <p className="legal-research-input-note">조례 비교를 위해 서로 다른 비교 지역 두 곳을 입력해 주세요. 지역명만 입력하고 비교할 주제는 위에 적으면 됩니다.</p>}
       </>}
       {task === "amendment_track" && <>
         {draft.scenario === "time_travel" && <div className="legal-analysis-fields legal-research-dates">
@@ -188,9 +188,9 @@ export function LegalResearch() {
         </div>
         : current.outcome?.kind === "missing" ? <div className="legal-analysis-missing" role="status">
           <header className="research-overview">
-            <span className="research-eyebrow">조회 결과</span>
-            <h3 className="legal-analysis-title">현재 조회 범위에서 자료를 찾지 못했습니다</h3>
-            {current.request.task !== "document_review" && <div className="research-original"><span>원래 질문</span><p>{current.request.query}</p></div>}
+            <span className="research-eyebrow">{LAW_RESEARCH_TASKS.find((item) => item.value === current.request.task)?.label}</span>
+            <h3 className="legal-analysis-title">관련 자료를 찾지 못했습니다</h3>
+            {current.request.task !== "document_review" && <div className="research-original"><span>입력한 질문</span><p>{current.request.query}</p></div>}
             {current.request.task === "full_research" && current.outcome.data.interpretation?.original === current.request.query
               && <ResearchUnderstanding interpretation={current.outcome.data.interpretation} />}
             <p className="research-caution">자료가 조회되지 않았다는 뜻이지 관련 법령이나 판례가 존재하지 않는다는 뜻은 아닙니다. 다른 법령명이나 구체적인 쟁점으로 다시 확인해 주세요.</p>
@@ -239,7 +239,7 @@ function readerText(text: string): string {
 
 type ResearchGroup = "statutes" | "decisions" | "change" | "regional" | "forms" | "other";
 const GROUP_LABELS: Record<Exclude<LawResearchTask, "document_review">, Partial<Record<ResearchGroup, string>>> = {
-  full_research: { statutes: "추가 검색 결과 · 법령·조문 후보", decisions: "추가 검색 결과 · 판례·해석례 후보", other: "추가 조회 자료" },
+  full_research: { statutes: "관련 법령·조문", decisions: "관련 판례·결정례", other: "참고 자료" },
   law_system: { statutes: "법령·조문", other: "법률·시행령·시행규칙 관계", decisions: "참고 결정" },
   action_basis: { statutes: "처분·허가의 법령 근거", decisions: "관련 불복·해석 자료", other: "추가 근거" },
   dispute_prep: { statutes: "관련 법령", decisions: "판례·결정례·재결례", other: "쟁송 참고 자료" },
@@ -271,8 +271,9 @@ function groupOf(section: ResearchSection, task: LawResearchTask): ResearchGroup
 
 function ResearchUnderstanding({ interpretation }: { interpretation: ResearchInterpretation }) {
   return <div className="research-understanding">
-    <span className="research-eyebrow">질문 해석 · 출처의 법적 판단이 아닙니다</span>
-    <p>{interpretation.situation}</p>
+    <span className="research-eyebrow">이렇게 이해했어요</span>
+    {/* The model often restates the question verbatim; showing it twice adds nothing. */}
+    {interpretation.situation.replace(/\s+/gu, "") !== interpretation.original.replace(/\s+/gu, "") && <p>{interpretation.situation}</p>}
     {interpretation.issues.length > 0 && <div><strong>살펴볼 쟁점</strong><ul>{interpretation.issues.map((issue, index) => <li key={index}>{issue}</li>)}</ul></div>}
     {interpretation.uncertainty && <p className="research-meta">{interpretation.uncertainty}</p>}
     {interpretation.followUp && <p className="research-meta">확인이 필요한 정보: {interpretation.followUp}</p>}
@@ -313,9 +314,9 @@ function SupplementView({ supplement, hasArticles, excluded }: { supplement: Non
 }
 
 const STATUS_NOTE: Record<Exclude<ResearchSection["status"], "available">, string> = {
-  not_found: "검색된 관련 자료가 없습니다.",
-  failed: "이 자료를 불러오지 못했습니다.",
-  timeout: "조회가 완료되지 않았습니다.",
+  not_found: "자료 없음",
+  failed: "불러오지 못했습니다",
+  timeout: "조회를 마치지 못했습니다",
 };
 
 /** Top notice only for sections that failed or timed out; an empty search is a normal result. */
@@ -337,14 +338,16 @@ function ResearchSectionView({ section, task, relevance, retried }: {
   if (section.status !== "available") {
     // The MCP's reason/hint lines address the calling agent; the reader gets one sentence (raw text stays in 원문 보기).
     const found = section.status === "not_found" && retried?.entries.length ? retried : undefined;
+    // An empty or unavailable section takes one line; the heading and its state read together.
+    if (!found) {
+      return <p className={`${className} research-empty-line`} data-kind={section.kind} data-status={section.status}>
+        {heading ? `${heading} · ` : ""}{STATUS_NOTE[section.status]}
+      </p>;
+    }
     return <div className={className} data-kind={section.kind} data-status={section.status}>
-      {heading && <h3>{heading}{found && <span className="research-meta"> {found.entries.length}건</span>}</h3>}
-      {found
-        ? <>
-          <p className="research-meta">별도 조회에서 찾은 후보 자료입니다. 사건 내용과의 관련성은 원문으로 확인해 주세요.</p>
-          <DecisionList entries={found.entries} />
-        </>
-        : <p className="research-meta research-empty">{STATUS_NOTE[section.status]}</p>}
+      {heading && <h3>{heading}<span className="research-meta"> {found.entries.length}건</span></h3>}
+      <p className="research-meta">질문의 핵심어로 다시 찾은 자료입니다. 사건과의 관련성은 원문으로 확인해 주세요.</p>
+      <DecisionList entries={found.entries} />
     </div>;
   }
   if (section.kind === "law_articles" && section.articles) {
@@ -360,14 +363,14 @@ function ResearchSectionView({ section, task, relevance, retried }: {
       </li>;
     })}</ul>;
     return <div className={className} data-kind={section.kind}>
-      <h3>검색된 조문 후보 <span className="research-meta">여기 표시한 {articles.length}건</span></h3>
-      <p className="research-meta">검색 후보의 조문 발췌입니다. 실제 적용 여부는 해당 사실관계와 법령 원문을 대조해야 합니다.</p>
+      <h3>관련 조문 <span className="research-meta">{articles.length}건</span></h3>
+      <p className="research-meta">조문 발췌입니다. 실제 적용 여부는 사실관계와 법령 원문으로 확인해 주세요.</p>
       {items(0, 3)}
       {articles.length > 3 && <details className="law-detail-source research-more"><SourceToggleSummary label={`나머지 조문 ${articles.length - 3}건 보기`} openLabel="나머지 조문 접기" />{items(3, articles.length)}</details>}
     </div>;
   }
   if (section.kind === "decision_search" && section.decisions) {
-    const { total, entries } = section.decisions;
+    const { entries } = section.decisions;
     const rated = relevance && entries.some((entry) => relevance[entry.id]);
     const ordered = rated ? orderByRelevance(entries, relevance) : entries;
     // Cases whose 판시사항/opening does not address the question are kept, folded, never deleted.
@@ -375,17 +378,17 @@ function ResearchSectionView({ section, task, relevance, retried }: {
     const low = rated ? ordered.filter((entry) => relevance![entry.id]?.rank === "low") : [];
     const rest = shown.slice(DECISION_PREVIEW);
     return <div className={className} data-kind={section.kind}>
-      <h3>{heading} <span className="research-meta">여기 표시한 후보 {entries.length}건{total !== undefined ? ` · 전체 검색 후보 총 ${total.toLocaleString("ko-KR")}건` : ""}</span></h3>
-      {rated && <p className="research-meta">읽힌 판시사항과 질문의 관련성을 기준으로 정렬했습니다. 제목만으로 판단하지 않습니다.</p>}
+      <h3>{heading} <span className="research-meta">{entries.length}건</span></h3>
+      {rated && <p className="research-meta">판시사항을 기준으로 질문과 관련성이 높은 판례를 먼저 보여줍니다.</p>}
       {shown.length > 0
         ? <DecisionList entries={shown.slice(0, DECISION_PREVIEW)} />
         : <p className="research-meta research-empty">관련성이 높은 판례를 충분히 확인하지 못했습니다.</p>}
       {rest.length > 0 && <details className="law-detail-source research-more">
-        <SourceToggleSummary label={`검색 결과 펼쳐보기 · ${rest.length}건 더`} openLabel="검색 결과 접기" />
+        <SourceToggleSummary label={`판례 ${rest.length}건 더 보기`} openLabel="판례 접기" />
         <DecisionList entries={rest} />
       </details>}
       {low.length > 0 && <details className="law-detail-source research-more" data-relevance="low">
-        <SourceToggleSummary label={`질문과의 관련성을 확인하지 못한 판례 · ${low.length}건`} openLabel="관련성 미확인 판례 접기" />
+        <SourceToggleSummary label={`참고: 직접 관련성이 확인되지 않은 판례 ${low.length}건`} openLabel="참고 판례 접기" />
         <DecisionList entries={low} />
       </details>}
     </div>;
@@ -398,7 +401,7 @@ function ResearchSectionView({ section, task, relevance, retried }: {
       <strong>{item.title}</strong>{item.law && <span className="research-meta">{item.law}</span>}
     </li>)}</ul>;
     return <div className={className} data-kind={section.kind}>
-      <h3>{heading} <span className="research-meta">응답에 포함된 {entries.length}건{total !== undefined ? ` · 검색 후보 총 ${total.toLocaleString("ko-KR")}건` : ""}</span></h3>
+      <h3>{heading} <span className="research-meta">{total !== undefined && total > entries.length ? `전체 ${total.toLocaleString("ko-KR")}건 중 ${entries.length}건` : `${entries.length}건`}</span></h3>
       {list(entries.slice(0, preview))}
       {entries.length > preview && <details className="law-detail-source research-more">
         <SourceToggleSummary label={`목록 펼쳐보기 · ${entries.length - preview}건 더`} openLabel="목록 접기" />
@@ -456,10 +459,10 @@ function ResearchResult({ data, request }: { data: LawResearchData; request: Law
     .map((entry) => [entry.id, entry] as const)).values()];
   const evidenceStatus = selectedArticles.length + selectedCases.length ? data.evidence?.status : "unverified";
   const headline = evidenceStatus === "matched"
-    ? notice ? "쟁점과 닿는 출처 내용을 찾았지만 조회가 완전하지 않습니다" : "쟁점과 닿는 출처 내용을 찾았습니다"
-    : evidenceStatus === "partial" ? "일부 쟁점에 닿는 출처 내용만 찾았습니다"
-      : hasCandidates ? "자료 후보는 있으나 쟁점과의 관련성이 확인되지 않았습니다"
-        : notice ? "자료 조회가 완료되지 않았습니다" : "현재 확인 가능한 자료 후보가 없습니다";
+    ? notice ? "관련 근거를 확인했지만 일부 자료는 조회하지 못했습니다" : "관련 근거를 확인했습니다"
+    : evidenceStatus === "partial" ? "관련 근거를 일부 확인했습니다"
+      : hasCandidates ? "질문과 직접 관련된 근거를 확인하지 못했습니다"
+        : notice ? "자료 조회가 완료되지 않았습니다" : "관련 자료를 찾지 못했습니다";
   const visibleSelectedKeys = new Set(selectedArticles.map((article) => `${article.law}\u0000${article.jo}`));
   const visibleSelectedCaseIds = new Set(selectedCases.map((entry) => entry.id));
   const candidatePrimary: ResearchSection[] = full ? primary.flatMap((section) => {
@@ -473,53 +476,57 @@ function ResearchResult({ data, request }: { data: LawResearchData; request: Law
     }
     return [section];
   }) : primary;
-  const regionMatch = request.task === "ordinance_compare" && /\n비교 대상 지역: ([^\n/]+) \/ ([^\n/]+)$/u.exec(request.query);
-  const regionNames = regionMatch ? [regionMatch[1].trim(), regionMatch[2].trim()] : [];
-  const left = allArticles.filter((article) => regionNames[0] && article.law.includes(regionNames[0]) && article.title && readerText(article.excerpt));
-  const right = allArticles.filter((article) => regionNames[1] && article.law.includes(regionNames[1]) && article.title && readerText(article.excerpt));
-  const paired = left.flatMap((first) => {
-    const second = right.find((entry) => entry.title === first.title && entry.law !== first.law);
-    return second ? [{ first, second }] : [];
-  }).slice(0, 8);
+  const comparison = data.task === "ordinance_compare" ? data.comparison : undefined;
+  const comparedRegions = comparison?.regions.filter((region) => region.status === "found") ?? [];
+  // A row is a comparison only when both regions returned that article; otherwise it is shown as one-sided.
+  const bothSides = comparison?.topics.filter((topic) => comparison.regions.every((region) => region.articles.some((article) => article.topic === topic))) ?? [];
   const taskHeadlines: Record<Exclude<LawResearchTask, "full_research">, string> = {
-    law_system: "법률과 하위 법령의 관계를 살펴보세요",
-    action_basis: "처분·허가의 근거 후보를 살펴보세요",
-    dispute_prep: "판례와 불복 자료를 살펴보세요",
-    amendment_track: "조회된 시점별 개정 내용을 살펴보세요",
-    ordinance_compare: paired.length ? "두 지역의 조문 발췌를 나란히 확인하세요" : "지역별 자치법규 자료를 살펴보세요",
-    procedure_detail: "절차 근거와 서식을 살펴보세요",
+    law_system: "법률·시행령·시행규칙의 관계를 정리했습니다",
+    action_basis: "처분·허가의 법령 근거를 찾았습니다",
+    dispute_prep: "쟁송에 참고할 판례·결정례를 찾았습니다",
+    amendment_track: "개정 내용을 확인했습니다",
+    ordinance_compare: bothSides.length ? "두 지역의 같은 주제 조문을 비교했습니다"
+      : comparedRegions.length === 2 ? "두 지역의 조례는 찾았지만 같은 주제의 조문이 함께 확인되지 않았습니다"
+      : comparedRegions.length === 1 ? "한 지역의 조례만 확인했습니다" : "비교할 조례를 찾지 못했습니다",
+    procedure_detail: "절차의 근거와 제출 서식을 찾았습니다",
     document_review: "문서 검토 결과",
   };
   const available = primary.some((section) => section.status === "available" && readerText(section.lines.join("\n")))
     || Boolean(data.enrichment?.supplement?.articles.length);
-  const resultHeadline = full ? headline : !available ? notice ? "일부 조회를 완료하지 못했습니다" : "현재 조회된 자료가 없습니다"
+  // A comparison stands on the per-region lookups even when the parent-law chain returned nothing.
+  const resultHeadline = full ? headline
+    : !available && !comparison ? notice ? "일부 자료를 조회하지 못했습니다" : "관련 자료를 찾지 못했습니다"
     : taskHeadlines[data.task === "full_research" ? "document_review" : data.task];
 
   return <div className="legal-analysis-output" data-task={data.task}>
     <header className="research-overview">
-      <span className="research-eyebrow">{LAW_RESEARCH_TASKS.find((item) => item.value === data.task)?.label} · 조회 결과</span>
+      <span className="research-eyebrow">{LAW_RESEARCH_TASKS.find((item) => item.value === data.task)?.label}</span>
       <h3 className="legal-analysis-title">{resultHeadline}</h3>
-      {request.task !== "document_review" && <div className="research-original"><span>원래 질문</span><p>{request.task === "ordinance_compare" ? request.query.split("\n비교 대상 지역:")[0] : request.query}</p></div>}
+      {request.task !== "document_review" && <div className="research-original"><span>입력한 질문</span><p>{request.query}</p></div>}
       {interpretation && <ResearchUnderstanding interpretation={interpretation} />}
-      {full && <p className="research-caution">{hasCandidates
-        ? `${candidateCount ? `조회 응답에 조문 ${articleCount}건·사건 자료 ${caseCount}건이 포함됐습니다. ` : "아래 조회 내용은 검토 전 자료 후보입니다. "}${selectedArticles.length + selectedCases.length ? "아래 '확인한 근거'에 별도로 표시한 출처만 쟁점과의 내용 일치가 확인됐습니다. 나머지는 검색 후보이며, 구체적 사건의 법적 결론은 아닙니다." : "제목이나 검색 건수만으로 관련성이나 법적 결론을 확인할 수 없습니다."}`
-        : "검색 결과가 없다는 뜻이지 관련 법령이나 판례가 존재하지 않는다는 뜻은 아닙니다."}</p>}
-      {data.task === "ordinance_compare" && regionNames.length === 2 && <p className="research-caution">비교 대상: {regionNames.join(" · ")}. 두 지역의 조문이 모두 조회되지 않으면 차이·우열을 판단하지 않습니다.</p>}
+      {full && <p className="research-caution">{selectedArticles.length + selectedCases.length
+        ? `아래 '확인한 근거'는 질문 쟁점과 내용이 맞는 자료입니다. 구체적 사건의 법적 결론은 아닙니다.${evidenceStatus === "partial" ? " 현재 확인된 자료만으로 모든 쟁점을 판단하기에는 근거가 충분하지 않을 수 있습니다." : ""}`
+        : hasCandidates ? "관련 자료는 조회됐지만 질문 쟁점과 내용이 맞는지 확인되지 않았습니다. 아래 자료는 참고용입니다."
+        : "관련 자료가 조회되지 않았다는 뜻이지, 관련 법령이나 판례가 없다는 뜻은 아닙니다."}</p>}
+      {request.task === "ordinance_compare" && <p className="research-caution">비교 대상: {request.regions.join(" · ")}. 두 지역의 조문이 모두 조회되지 않으면 차이·우열을 판단하지 않습니다.</p>}
     </header>
     {notice && <p className="legal-research-partial" role="note">{notice}</p>}
     {full && (selectedArticles.length > 0 || selectedCases.length > 0) && <section className="research-group research-selected" aria-label="확인한 근거">
       <h3>확인한 근거</h3>
-      <p className="research-meta">법제처 조회 내용의 표현과 질문 쟁점이 맞닿는 자료입니다. 법령의 적용 여부, 판결의 결론이나 현행 상태까지 확인했다는 뜻은 아닙니다.</p>
+      <p className="research-meta">질문 쟁점과 내용이 맞는 법제처 자료입니다. 법령의 적용 여부나 판결의 결론까지 확인했다는 뜻은 아닙니다.</p>
       {selectedArticles.length > 0 && <div className="legal-analysis-section">
         <h3>조문에서 확인한 내용</h3>
         <ul className="research-hits">{selectedArticles.map((article) => {
           const excerpt = readerText(article.excerpt);
           const effective = formatDate(article.effective);
+          const currency = data.evidence?.articles?.find((item) => item.law === article.law && item.jo === article.jo)?.currency;
           return <li key={`${article.law}-${article.jo}`}>
             <strong>{article.law} {article.jo}{article.title ? ` ${article.title}` : ""}</strong>
             <LawTextBlock className="legal-analysis-lines" text={excerpt.length > 700 ? `${excerpt.slice(0, 700)}…` : excerpt} />
             {excerpt.length > 700 && <details className="law-detail-source research-more"><SourceToggleSummary label="조문 발췌 전체 보기" openLabel="조문 발췌 접기" /><LawTextBlock className="legal-analysis-raw" text={excerpt} /></details>}
-            {effective && <span className="research-meta">출처에 표시된 시행일 {effective}</span>}
+            {(effective || currency) && <span className="research-meta" data-currency={currency}>
+              {[currency && CURRENCY_LABEL[currency], effective && `시행 ${effective}`].filter(Boolean).join(" · ")}
+            </span>}
           </li>;
         })}</ul>
       </div>}
@@ -543,19 +550,27 @@ function ResearchResult({ data, request }: { data: LawResearchData; request: Law
         })}</ul>
       </div>}
     </section>}
-    {data.task === "ordinance_compare" && <section className="research-group" aria-label="조례 대조">
-      <h3>확인된 조문 나란히 보기</h3>
-      {paired.length ? <>
-        <p className="research-meta">같은 제목으로 조회된 두 지역 조문의 발췌입니다. 동일한 법적 효과를 뜻하지 않습니다.</p>
-        <div className="research-table-scroll"><table className="research-comparison"><thead><tr><th scope="col">조문 제목</th><th scope="col">{regionNames[0]}</th><th scope="col">{regionNames[1]}</th></tr></thead>
-          <tbody>{paired.map(({ first, second }, index) => {
-            const firstDate = formatDate(first.effective);
-            const secondDate = formatDate(second.effective);
-            return <tr key={`${first.title}-${index}`}><th scope="row">{first.title}</th>
-              <td><strong>{first.law} {first.jo}</strong><LawTextBlock className="legal-analysis-lines" text={readerText(first.excerpt)} />{firstDate && <span className="research-meta">출처 시행일 {firstDate}</span>}</td>
-              <td><strong>{second.law} {second.jo}</strong><LawTextBlock className="legal-analysis-lines" text={readerText(second.excerpt)} />{secondDate && <span className="research-meta">출처 시행일 {secondDate}</span>}</td></tr>;
-          })}</tbody></table></div>
-      </> : <p className="research-meta">양쪽 지역의 같은 주제 조문 원문이 함께 확인되지 않아 비교표를 만들지 않았습니다. 아래 지역별 조회 자료를 확인해 주세요.</p>}
+    {comparison && <section className="research-group" aria-label="조례 대조">
+      <h3>지역별 조례 대조</h3>
+      <div className="research-table-scroll"><table className="research-comparison">
+        <thead><tr><th scope="col">비교 항목</th>{comparison.regions.map((region) => <th key={region.region} scope="col">{region.region}</th>)}</tr></thead>
+        <tbody>
+          <tr><th scope="row">적용 조례</th>{comparison.regions.map((region) => <td key={region.region}>
+            {region.ordinance ? <><strong>{region.ordinance.name}</strong>
+              <span className="research-meta">{[region.ordinance.body, formatDate(region.ordinance.effective) && `시행 ${formatDate(region.ordinance.effective)}`].filter(Boolean).join(" · ")}</span></>
+              : <span className="research-meta">{region.status === "failed" ? "조례를 조회하지 못했습니다." : "확인 가능한 관련 조례를 찾지 못했습니다."}</span>}
+          </td>)}</tr>
+          {comparison.topics.map((topic) => <tr key={topic}><th scope="row">{topic}</th>{comparison.regions.map((region) => {
+            const article = region.articles.find((item) => item.topic === topic);
+            return <td key={region.region}>{article
+              ? <><strong>{article.jo}({article.title})</strong><LawTextBlock className="legal-analysis-lines" text={readerText(article.body)} /></>
+              : <span className="research-meta">{region.ordinance ? "이 제목의 조문을 확인하지 못했습니다." : "—"}</span>}</td>;
+          })}</tr>)}
+        </tbody>
+      </table></div>
+      <p className="research-meta">{bothSides.length
+        ? `${bothSides.length}개 주제는 두 지역 조문 원문을 모두 확인했습니다. 원문을 나란히 보여줄 뿐, 차이의 법적 의미는 판단하지 않습니다.`
+        : "양쪽 지역에서 같은 주제의 조문이 함께 확인되지 않아 차이를 비교하지 않았습니다."} 조문은 법제처 자치법규 원문에서 조회했습니다.</p>
     </section>}
     {taskGroups.map((group) => {
       const sections = candidatePrimary.filter((section) => groupOf(section, data.task) === group);
@@ -572,10 +587,11 @@ function ResearchResult({ data, request }: { data: LawResearchData; request: Law
     })}
     {supporting.length > 0 && <section className="legal-analysis-section research-supporting">
       <h3>상세 근거</h3>
-      {supporting.map((section, index) => {
+      {/* The material this answer drew on first; whole-law tables of contents are a browsing aid, so they come after. */}
+      {[...supporting].sort((a, b) => Number(a.kind === "law_toc") - Number(b.kind === "law_toc")).map((section, index) => {
         const heading = sectionHeading(section) || "상세 자료";
         const label = section.kind === "law_toc" && section.toc
-          ? `${section.toc.law ? `${lawDisplayText(section.toc.law)} ` : ""}전체 목차 · ${section.toc.count.toLocaleString("ko-KR")}개 조문`
+          ? `${section.toc.law ? `${lawDisplayText(section.toc.law)} ` : ""}법령 전체 보기 · ${section.toc.count.toLocaleString("ko-KR")}개 조문`
           : heading;
         return <details key={index} className="law-detail-source" data-kind={section.kind}>
           <SourceToggleSummary label={label} openLabel={`${label} 접기`} />
@@ -584,8 +600,8 @@ function ResearchResult({ data, request }: { data: LawResearchData; request: Law
       })}
     </section>}
     <details className="law-detail-source research-source">
-      <SourceToggleSummary label="조회 원자료 전체 보기" openLabel="조회 원자료 접기" />
-      <p className="research-meta">출처의 원문 발췌와 시행 시점을 대조해 주세요. 검색 안내 문구는 제외했습니다.</p>
+      <SourceToggleSummary label="출처 원문 전체 보기" openLabel="출처 원문 접기" />
+      <p className="research-meta">법제처에서 받은 원문 그대로입니다. 인용 전에 시행 시점을 대조해 주세요.</p>
       <LawTextBlock className="legal-analysis-raw" text={readerText(data.text)} />
     </details>
     <p className="legal-analysis-note">조회 경로: {result.sources.map((source) => source.replace(" OPEN API", "")).join(" · ")}. {RESULT_NOTE}</p>

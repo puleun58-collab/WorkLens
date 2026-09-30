@@ -122,10 +122,10 @@ p.research-meta { margin: 0; }
 @media (max-width: 700px) { .legal-analysis-action-row .legal-analysis-help { flex-basis: 100%; } }
 
 /* Research keeps the shared controls but gives the interpretation and source evidence distinct hierarchy. */
-.legal-research .legal-research-description { max-width: 68ch; margin: 0 0 6px; color: var(--ink-soft); font-size: var(--font-size-sm); line-height: 1.65; }
+.legal-research .legal-research-description { max-width: 68ch; margin: 0 0 6px; color: var(--ink-soft); font-size: var(--font-size-sm); line-height: 1.65; white-space: pre-line; }
 .legal-research .legal-research-input-note { margin: 0; color: var(--warning); font-size: var(--font-size-sm); line-height: 1.55; }
-.legal-research .legal-analysis-output { gap: 20px; }
-.legal-research .research-overview { display: grid; gap: 12px; min-width: 0; padding: 22px clamp(16px, 3vw, 30px) 24px; border: 1px solid var(--line-soft, var(--line)); border-left: 3px solid var(--blue); border-radius: var(--radius-panel, 8px); background: var(--paper); }
+.legal-research .legal-analysis-output { gap: 28px; }
+.legal-research .research-overview { display: grid; gap: 12px; min-width: 0; padding: 22px clamp(16px, 3vw, 30px) 24px; border: 1px solid var(--line-soft, var(--line)); border-radius: var(--radius-panel, 8px); background: var(--paper); }
 .legal-research .research-eyebrow { color: var(--muted); font-size: var(--font-size-xs, 12px); font-weight: 600; letter-spacing: .025em; }
 .legal-research .research-overview .legal-analysis-title { max-width: 30ch; font-size: clamp(19px, 2.5vw, 26px); line-height: 1.35; letter-spacing: -.025em; text-wrap: balance; }
 .legal-research .research-original { display: grid; gap: 4px; min-width: 0; padding-top: 10px; border-top: 1px solid var(--line-soft, var(--line)); }
@@ -134,10 +134,10 @@ p.research-meta { margin: 0; }
 .legal-research .research-caution { max-width: 76ch; margin: 0; color: var(--ink-soft); font-size: var(--font-size-sm); line-height: 1.65; }
 .legal-research .research-understanding { display: grid; gap: 8px; min-width: 0; padding: 14px 0 0; border-top: 1px solid var(--line-soft, var(--line)); }
 .legal-research .research-understanding p, .legal-research .research-understanding ul { max-width: 72ch; margin: 0; line-height: 1.65; }
-.legal-research .research-understanding ul { padding-left: 20px; }
+.legal-research .research-understanding ul { padding-left: 0; list-style: none; }
 .legal-research .research-understanding li + li { margin-top: 3px; }
 .legal-research .research-understanding strong { font-size: var(--font-size-sm); }
-.legal-research .research-group { display: grid; gap: 12px; min-width: 0; padding-top: 18px; border-top: 1px solid var(--line-soft, var(--line)); }
+.legal-research .research-group { display: grid; gap: 12px; min-width: 0; padding-top: 22px; border-top: 1px solid var(--line-soft, var(--line)); }
 .legal-research .research-group > h3 { margin: 0; font-size: var(--font-size-md); font-weight: 700; letter-spacing: -.015em; }
 .legal-research .research-group > .legal-analysis-section { padding: 10px 0 14px; }
 .legal-research .research-group > .legal-analysis-section + .legal-analysis-section { border-top: 1px solid var(--line-soft, var(--line)); }
@@ -145,7 +145,8 @@ p.research-meta { margin: 0; }
 .legal-research .research-steps { display: grid; gap: 10px; max-width: 72ch; margin: 0; padding-left: 24px; line-height: 1.65; font-size: var(--font-size-sm); }
 .legal-research .research-steps li { padding-left: 6px; }
 .legal-research .research-source { min-width: 0; }
-.legal-research .research-selected { padding: 18px clamp(14px, 2.5vw, 24px) 22px; border: 1px solid var(--line-soft, var(--line)); border-left: 3px solid var(--blue); border-radius: var(--radius-panel, 8px); background: var(--paper); }
+.legal-research .research-selected { padding: 18px clamp(14px, 2.5vw, 24px) 22px; border: 1px solid var(--line-soft, var(--line)); border-radius: var(--radius-panel, 8px); background: var(--paper); }
+.legal-research .research-empty-line { margin: 0; padding: 6px 0; color: var(--muted); font-size: var(--font-size-sm); }
 .legal-research .research-selected > .legal-analysis-section { padding: 4px 0; }
 .legal-research .research-selected > .legal-analysis-section > h3 { font-size: var(--font-size-sm); }
 .legal-research .research-source > .research-meta { margin: 8px 0; }

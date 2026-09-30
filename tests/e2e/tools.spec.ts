@@ -893,7 +893,7 @@ test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route wit
   await page.getByRole("button", { name: "다시 시도" }).click();
   await expect(page.getByRole("heading", { name: "리서치 결과" })).toBeVisible();
   await expect(page.locator(".legal-research-partial")).toHaveText("일부 자료를 불러오지 못했습니다. 확인된 자료를 기준으로 결과를 표시합니다.");
-  await expect(page.locator("[data-status='failed']")).toContainText("이 자료를 불러오지 못했습니다.");
+  await expect(page.locator("[data-status='failed']")).toContainText("불러오지 못했습니다");
   await expect(page.locator(".legal-analysis-section.is-unavailable")).toHaveCount(1);
   await expect(page.locator(".legal-analysis-note")).toContainText("조회 경로: 법제처 국가법령정보센터");
   expect(bodies).toEqual([{ task: "full_research", query: "직장 내 괴롭힘 판단 기준" }, { task: "full_research", query: "직장 내 괴롭힘 판단 기준" }]);
@@ -960,7 +960,7 @@ test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route wit
     { task: "dispute_prep", query: "직장 내 괴롭힘 판단 기준", domain: "labor" },
     { task: "amendment_track", query: "직장 내 괴롭힘 판단 기준", scenario: "time_travel", fromDate: "2022-01-01", toDate: "2026-01-01" },
     { task: "law_system", query: "직장 내 괴롭힘 판단 기준", articles: ["제38조", "제39조"] },
-    { task: "ordinance_compare", query: "직장 내 괴롭힘 판단 기준\n비교 대상 지역: 인천광역시 / 서울특별시", parentLaw: "주차장법" },
+    { task: "ordinance_compare", query: "직장 내 괴롭힘 판단 기준", regions: ["인천광역시", "서울특별시"], parentLaw: "주차장법" },
     { task: "action_basis", query: "직장 내 괴롭힘 판단 기준" },
     { task: "procedure_detail", query: "직장 내 괴롭힘 판단 기준" },
     { task: "document_review", text: sample },
@@ -991,17 +991,20 @@ test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route wit
   expect(errors).toEqual([]);
 });
 
-test("RESEARCH ordinance comparison needs two regions and compares only sourced pairs", async ({ page }) => {
-  const searches: Array<{ query: string; parentLaw?: string }> = [];
+test("RESEARCH ordinance comparison needs two regions and shows each region's verified articles", async ({ page }) => {
+  const searches: unknown[] = [];
   await page.route("**/api/law/research", (route) => {
-    const body = route.request().postDataJSON() as { task: string; query: string; parentLaw?: string };
-    searches.push({ query: body.query, ...(body.parentLaw ? { parentLaw: body.parentLaw } : {}) });
-    const pair = !body.query.startsWith("한쪽만");
-    const article = (law: string, content: string) =>
-      `${law}\n   제0012조 (주차요금 감면)\n   제12조(주차요금 감면)\n ${content}\n   시행: 2025.01.01 | 지방자치단체`;
-    const text = `═══ 조례 비교 ═══\n▶ 자치법규 조회\n지능형 법령검색 결과 (법령조문, ${pair ? 2 : 1}건):\n\n${article("인천광역시 주차장 조례", "장애인 주차요금 50퍼센트를 감면한다.")}`
-      + (pair ? `\n\n${article("서울특별시 주차장 조례", "장애인 주차요금 80퍼센트를 감면한다.")}` : "");
-    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { found: true, task: body.task, text, markers: [] } }) });
+    const body = route.request().postDataJSON() as { task: string; query: string; regions: [string, string]; parentLaw?: string };
+    searches.push(body);
+    const oneSided = body.query === "한쪽만";
+    const region = (name: string, body: string, rate?: string) => rate
+      ? { region: name, status: "found", candidates: 3, ordinance: { id: name, name: `${name} 주차장 설치 및 관리 조례`, body, effective: "20260701" },
+        articles: [{ jo: "제12조", title: "주차요금의 감면", body: `장애인 주차요금 ${rate}를 감면한다.`, topic: "주차요금의 감면" }] }
+      : { region: name, status: "none", candidates: 0, articles: [] };
+    const comparison = { topic: body.query, topics: ["주차요금의 감면"],
+      regions: [region("인천광역시", "인천광역시", "50퍼센트"), oneSided ? region("서울특별시", "서울특별시") : region("서울특별시", "서울특별시", "80퍼센트")] };
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: {
+      found: true, task: body.task, text: "═══ 조례 비교 ═══\n▶ 상위 법령\n주차장법 (법률)", markers: [], comparison } }) });
   });
   await page.goto("/");
   await page.getByRole("button", { name: "법령", exact: true }).click();
@@ -1011,26 +1014,30 @@ test("RESEARCH ordinance comparison needs two regions and compares only sourced 
   await form.getByLabel("질문 또는 검색어").fill("장애인 주차요금 감면");
   await form.getByLabel("비교 지역 1").fill("인천광역시");
   await expect(form.getByRole("button", { name: "리서치 실행" })).toBeDisabled();
+  await expect(form).toContainText("조례 비교를 위해 서로 다른 비교 지역 두 곳");
   await form.getByLabel("비교 지역 2").fill("인천광역시");
-  await expect(form).toContainText("서로 다른 비교 지역 두 곳");
+  await expect(form.getByRole("button", { name: "리서치 실행" })).toBeDisabled();
   await form.getByLabel("비교 지역 2").fill("서울특별시");
   await form.getByLabel("관련 상위 법령 (선택)").fill("주차장법");
   await form.getByRole("button", { name: "리서치 실행" }).click();
-  const comparison = page.locator(".research-comparison");
-  await expect(comparison).toBeVisible();
-  await expect(comparison.locator("tbody tr")).toHaveCount(1);
-  await expect(comparison.locator("tbody tr")).toContainText("50퍼센트");
-  await expect(comparison.locator("tbody tr")).toContainText("80퍼센트");
-  await expect(page.locator(".research-overview")).toContainText("장애인 주차요금 감면");
+  const table = page.getByRole("region", { name: "조례 대조" }).locator(".research-comparison");
+  await expect(table.locator("thead th")).toHaveText(["비교 항목", "인천광역시", "서울특별시"]);
+  await expect(table.locator("tbody tr").first()).toContainText("인천광역시 주차장 설치 및 관리 조례");
+  const row = table.locator("tbody tr").filter({ hasText: "주차요금의 감면" });
+  await expect(row).toContainText("50퍼센트");
+  await expect(row).toContainText("80퍼센트");
+  await expect(page.locator(".research-overview h3")).toHaveText("두 지역의 같은 주제 조문을 비교했습니다");
   await expect(page.locator(".research-overview")).not.toContainText("비교 대상 지역:");
+
   await form.getByLabel("질문 또는 검색어").fill("한쪽만");
   await form.getByLabel("관련 상위 법령 (선택)").fill("");
   await form.getByRole("button", { name: "리서치 실행" }).click();
-  await expect(comparison).toHaveCount(0);
-  await expect(page.getByRole("region", { name: "조례 대조" })).toContainText("함께 확인되지 않아");
+  await expect(page.locator(".research-overview h3")).toHaveText("한 지역의 조례만 확인했습니다");
+  await expect(table).toContainText("확인 가능한 관련 조례를 찾지 못했습니다.");
+  await expect(page.getByRole("region", { name: "조례 대조" })).toContainText("차이를 비교하지 않았습니다");
   expect(searches).toEqual([
-    { query: "장애인 주차요금 감면\n비교 대상 지역: 인천광역시 / 서울특별시", parentLaw: "주차장법" },
-    { query: "한쪽만\n비교 대상 지역: 인천광역시 / 서울특별시" },
+    { task: "ordinance_compare", query: "장애인 주차요금 감면", regions: ["인천광역시", "서울특별시"], parentLaw: "주차장법" },
+    { task: "ordinance_compare", query: "한쪽만", regions: ["인천광역시", "서울특별시"] },
   ]);
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -1066,46 +1073,129 @@ test("RESEARCH distinguishes empty, low-relevance and partial evidence without a
   await query.fill("회사에서 갑자기 잘렸어");
   await run.click();
   const overview = page.locator(".research-overview");
-  await expect(overview).toContainText("자료 후보는 있으나");
+  await expect(overview.locator("h3")).toHaveText("질문과 직접 관련된 근거를 확인하지 못했습니다");
   await expect(overview).toContainText("근무 기간은 얼마나 되나요?");
   await expect(overview).not.toContainText("근로계약이 종료되었");
   await expect(page.locator(".research-selected")).toHaveCount(0);
-  await expect(page.locator("[data-kind='decision_search']")).toContainText("전체 검색 후보 총 65건");
+  // Search statistics are not shown; only what was reviewed.
+  await expect(page.locator("[data-kind='decision_search'] h3")).toContainText("1건");
+  for (const part of [".research-overview", ".research-group"]) {
+    await expect(page.locator(`.legal-research ${part}`).first()).not.toContainText(/후보|총 65건/u);
+  }
   await query.fill("자료 없음");
   await run.click();
-  await expect(page.locator(".legal-analysis-missing")).toContainText("현재 조회 범위에서 자료를 찾지 못했습니다");
+  await expect(page.locator(".legal-analysis-missing h3")).toHaveText("관련 자료를 찾지 못했습니다");
   await expect(page.locator(".legal-analysis-missing")).toContainText("자료 없음");
   await expect(page.locator(".legal-analysis-missing")).not.toContainText("get_law_text");
   await query.fill("일부 근거");
   await run.click();
-  await expect(overview).toContainText("일부 쟁점에 닿는 출처 내용");
+  await expect(overview.locator("h3")).toHaveText("관련 근거를 일부 확인했습니다");
+  await expect(overview).toContainText("모든 쟁점을 판단하기에는 근거가 충분하지 않을 수 있습니다");
   await expect(page.locator(".research-selected")).toContainText("근로기준법 제23조");
   await expect(overview).not.toContainText("현행");
+});
+
+test("RESEARCH every task applies the same result rules while keeping its own structure", async ({ page }) => {
+  await page.route("**/api/law/research", (route) => {
+    const body = route.request().postDataJSON() as { task: string };
+    const extra: Record<string, string> = {
+      amendment_track: "\n\n▶ Time Travel — 근로기준법 (20211119 ↔ 20251023)\n변경 조문 3건",
+      procedure_detail: "\n\n▶ 행정심판법 별표/서식\n별표/서식 목록 (총 2건)\n1. [별지 제30호서식] 행정심판 청구서\n2. [별지 제31호서식] 집행정지신청서",
+      law_system: "\n\n▶ 3단 비교 (법률·시행령·시행규칙)\n[법률] 개인정보 보호법 제38조\n[시행령] 제41조\n[시행규칙] 제12조",
+    };
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: {
+      found: true, task: body.task, text: fullResearchFixture() + (extra[body.task] ?? ""), markers: ["NOT_FOUND"],
+      ...(body.task === "ordinance_compare" ? { comparison: { topic: "q", topics: [], regions: [
+        { region: "인천광역시", status: "none", candidates: 0, articles: [] }, { region: "서울특별시", status: "none", candidates: 0, articles: [] }] } } : {}),
+    } }) });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "법령", exact: true }).click();
+  await page.locator(".law-view-tabs").getByRole("button", { name: "종합 리서치" }).click();
+  const form = page.getByRole("form", { name: "종합 리서치 입력" });
+  await form.getByLabel("질문 또는 검색어").fill("직장 내 괴롭힘 판단 기준");
+  await form.getByLabel("리서치 유형").selectOption("ordinance_compare");
+  await form.getByLabel("비교 지역 1").fill("인천광역시");
+  await form.getByLabel("비교 지역 2").fill("서울특별시");
+  const tasks = ["full_research", "law_system", "action_basis", "dispute_prep", "amendment_track", "ordinance_compare", "procedure_detail"];
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    for (const task of tasks) {
+      await form.getByLabel("리서치 유형").selectOption(task);
+      await form.getByRole("button", { name: "리서치 실행" }).click();
+      const output = page.locator(".legal-research .legal-analysis-output");
+      await expect(output.locator(".research-overview")).toBeVisible();
+      // The first box reads as a result: no "· 조회 결과" label, no "…살펴보세요" instruction, one question label.
+      await expect(output.locator(".research-overview .research-eyebrow").first(), task).not.toContainText("조회 결과");
+      await expect(output.locator(".research-overview h3"), task).not.toContainText("살펴보세요");
+      await expect(output.locator(".research-original > span"), task).toHaveText("입력한 질문");
+      // No decorative blue side rule, one left edge for the summary and every section.
+      expect(await output.locator(".research-overview").evaluate((node) => getComputedStyle(node).borderLeftColor === getComputedStyle(node).borderTopColor), task).toBe(true);
+      const edges = await output.locator(":scope > .research-overview, :scope > .research-group").evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().left)));
+      expect(new Set(edges).size, `${task} left edges ${edges}`).toBe(1);
+      // Search-engine vocabulary stays out of what the reader sees.
+      for (const text of await output.locator(":scope > .research-overview, :scope > .research-group").allInnerTexts()) {
+        expect(text, task).not.toMatch(/후보|검색 보정|시그널|STEP\s*\d|API 조건|내부 검색어/u);
+      }
+      // An empty section is one line; the whole-law TOC follows the detail material; "나머지 조문" keeps its fold.
+      await expect(output.locator("p[data-status='not_found']"), task).toHaveText("법령 해석례 · 자료 없음");
+      const supporting = await output.locator(".research-supporting details").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-kind")));
+      expect(supporting.indexOf("detail"), task).toBeLessThan(supporting.indexOf("law_toc"));
+      await expect(output.locator("details summary").filter({ hasText: /나머지 조문 \d+건 보기/u }), task).toHaveCount(1);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), task).toBe(true);
+    }
+  }
+  // Each type keeps its own structure.
+  await form.getByLabel("리서치 유형").selectOption("amendment_track");
+  await expect(page.locator(".research-group[data-group='change']")).toContainText("두 시점의 조문 비교");
+  await form.getByLabel("리서치 유형").selectOption("law_system");
+  await expect(page.locator(".research-hierarchy dt")).toHaveText(["법률", "시행령", "시행규칙"]);
+  await form.getByLabel("리서치 유형").selectOption("ordinance_compare");
+  await expect(page.getByRole("region", { name: "조례 대조" })).toBeVisible();
+  await form.getByLabel("리서치 유형").selectOption("procedure_detail");
+  await expect(page.locator("[data-kind='annex']")).toContainText("행정심판 청구서");
 });
 
 test("RESEARCH separates a verified article from search candidates and hides internal guidance", async ({ page }) => {
   await page.route("**/api/law/research", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: {
     found: true, task: "full_research", text: fullResearchFixture(), markers: ["NOT_FOUND"],
     interpretation: { original: "직장 내 괴롭힘 판단 기준", situation: "직장에서 괴롭힘 문제를 겪는 상황으로 이해했습니다.", issues: ["직장 내 괴롭힘"], searchTerms: ["직장 내 괴롭힘"], confidence: "high" },
-    evidence: { status: "matched", articles: [{ law: "근로기준법", jo: "제76조의2" }], precedents: [] },
+    evidence: { status: "matched", articles: [{ law: "근로기준법", jo: "제76조의2", currency: "current" }], precedents: [] },
   } }) }));
   await page.goto("/");
   await page.getByRole("button", { name: "법령", exact: true }).click();
   await page.locator(".law-view-tabs").getByRole("button", { name: "종합 리서치" }).click();
   const form = page.getByRole("form", { name: "종합 리서치 입력" });
   await form.getByLabel("질문 또는 검색어").fill("직장 내 괴롭힘 판단 기준");
+  // The feature description and the caution read as two lines of one help text.
+  const help = form.locator(".legal-research-description");
+  expect((await help.innerText()).split("\n")).toEqual(["상황을 설명하면 관련 쟁점과 확인된 법령·판례를 구분해 보여줍니다.", "확인되지 않은 사실은 판단하지 않습니다."]);
   await form.getByRole("button", { name: "리서치 실행" }).click();
   const output = page.locator(".legal-research .legal-analysis-output");
   await expect(output.locator(".research-overview")).toContainText("직장에서 괴롭힘 문제를 겪는 상황");
-  await expect(output.locator(".research-overview")).toContainText("직장 내 괴롭힘 판단 기준");
+  await expect(output.locator(".research-original")).toContainText("입력한 질문");
+  await expect(output.locator(".research-understanding")).toContainText("이렇게 이해했어요");
+  // Issues start on the same left edge as their heading, and result boxes carry no blue side rule.
+  const issueHeading = await output.locator(".research-understanding strong").boundingBox();
+  const issueItem = await output.locator(".research-understanding li").first().boundingBox();
+  expect(Math.abs(issueHeading!.x - issueItem!.x)).toBeLessThan(1);
+  for (const box of [".research-overview", ".research-selected"]) {
+    expect(await output.locator(box).evaluate((node) => getComputedStyle(node).borderLeftColor === getComputedStyle(node).borderTopColor)).toBe(true);
+  }
   await expect(output.getByRole("heading", { name: "확인한 근거" })).toBeVisible();
   await expect(output.locator(".research-selected")).toContainText("근로기준법 제76조의2");
   await expect(output.locator(".research-selected")).toContainText("사용자 또는 근로자는 직장에서의 지위를 이용하여");
+  await expect(output.locator(".research-selected [data-currency='current']")).toHaveText("현행 · 시행 2026.08.20");
   await expect(output.locator("[data-kind='law_articles'] > .research-hits > li")).toHaveCount(3);
-  await expect(output.locator("[data-kind='decision_search'] h3")).toContainText("후보 5건");
-  await expect(output.locator("[data-status='not_found']")).toContainText("검색된 관련 자료가 없습니다.");
+  await expect(output.locator("[data-kind='decision_search'] h3")).toContainText("5건");
+  // An empty section is one line: heading and state together.
+  await expect(output.locator("p[data-status='not_found']")).toHaveText("법령 해석례 · 자료 없음");
   await expect(output.locator(".legal-research-partial")).toContainText("일부 자료 조회가 완료되지 않아");
+  // What this answer drew on comes before the whole-law table of contents.
+  const supporting = await output.locator(".research-supporting details").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-kind")));
+  expect(supporting.indexOf("detail")).toBeLessThan(supporting.indexOf("law_toc"));
   const toc = output.locator("details[data-kind='law_toc']");
+  await expect(toc.locator("summary")).toContainText("근로기준법 법령 전체 보기 · 132개 조문");
   await expect(toc).not.toHaveAttribute("open", "");
   await toc.locator("summary").click();
   await expect(toc.locator("pre")).toContainText("제132조 조문 제목 132");

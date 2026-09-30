@@ -270,6 +270,12 @@ test("usage guide sits above dictionary and settings and switches feature flows"
   await expect(page.getByRole("tab", { name: "검수", exact: true })).toBeFocused();
   await expect(page.getByRole("tab", { name: "검수", exact: true })).toHaveAttribute("aria-selected", "true");
   await expect(panel.locator(".usage-guide-step")).toHaveCount(3);
+  await page.getByRole("tab", { name: "법령", exact: true }).click();
+  const tip = panel.locator(".usage-guide-tip");
+  await expect(tip).toHaveText("TIP상단 탭에서 기능을 선택하고, 종합 리서치는 자연어로 질문한 뒤 핵심 결과와 근거·원문을 확인하세요.");
+  // One line at desktop width: no taller than the TIP label itself (plus the box padding).
+  const tipBox = await tip.evaluate((element) => ({ text: element.getBoundingClientRect().height, label: element.querySelector("b")!.getBoundingClientRect().height }));
+  expect(tipBox.text).toBeLessThan(tipBox.label * 2 + 24);
   await page.setViewportSize({ width: 390, height: 844 });
   const mobileTabs = await tabs.evaluate((element) => ({ width: element.getBoundingClientRect().width, guideWidth: element.parentElement!.getBoundingClientRect().width, scrollWidth: element.scrollWidth, clientWidth: element.clientWidth }));
   expect(mobileTabs.width).toBeLessThanOrEqual(mobileTabs.guideWidth + 1);
@@ -521,6 +527,9 @@ test("checks shared values locally, keeps evidence, and exports both formats", a
   await expect(panel.locator(".value-check-filters")).toContainText("값 차이 1");
   await expect(panel.locator(".value-check-filters")).toContainText("일치 2");
   await expect(panel.locator(".check-summary-line")).toHaveCount(0);
+  // The count summary starts on the same left edge as the result table below it.
+  const leftEdge = async (selector: string) => (await panel.locator(selector).first().boundingBox())!.x;
+  expect(Math.abs(await leftEdge(".value-check-filters") - await leftEdge(".value-check-matrix"))).toBeLessThan(1);
   const different = panel.getByTestId("value-check-group").filter({ hasText: "목표주가" });
   await expect(different).toContainText("64,550원");
   await expect(different).toContainText("62,000원");
@@ -540,6 +549,7 @@ test("checks shared values locally, keeps evidence, and exports both formats", a
   expect(await different.evaluate((element) =>
     getComputedStyle(element).gridTemplateColumns.split(/\s+/).length)).toBe(1);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  expect(Math.abs(await leftEdge(".value-check-filters") - await leftEdge(".value-check-matrix"))).toBeLessThan(1);
 });
 
 test("scales value checks from two-file columns to compact multi-file rows", async ({ page }) => {
@@ -567,6 +577,7 @@ test("scales value checks from two-file columns to compact multi-file rows", asy
   await expect(partial).toContainText("일부 파일만 확인");
   await expect(partial).toContainText("주요값_C.xlsx");
   await expect(partial.locator(".value-check-occurrence")).toHaveCount(2);
+  expect(Math.abs((await panel.locator(".value-check-filters").boundingBox())!.x - (await panel.locator(".value-check-list").boundingBox())!.x)).toBeLessThan(1);
   expect(aiRequests).toBe(0);
 });
 

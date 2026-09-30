@@ -55,7 +55,7 @@ export type LawResearchRequest =
   | { task: "dispute_prep"; query: string; domain?: DisputeDomain }
   | { task: "amendment_track"; query: string; scenario?: AmendmentScenario; mst?: string; lawId?: string;
     fromDate?: string; toDate?: string; includeHistory?: boolean }
-  | { task: "ordinance_compare"; query: string; parentLaw?: string }
+  | { task: "ordinance_compare"; query: string; regions: [string, string]; parentLaw?: string }
   | { task: "procedure_detail"; query: string }
   | { task: "document_review"; text: string };
 
@@ -70,10 +70,13 @@ export interface LawResearchDraft {
   toDate: string;
   includeHistory: boolean;
   parentLaw: string;
+  /** 조례 비교: two distinct regions, kept apart from the topic so each is searched on its own. */
+  region1: string;
+  region2: string;
 }
 
 export const EMPTY_RESEARCH_DRAFT: LawResearchDraft = {
-  query: "", text: "", articles: "", domain: "", scenario: "", fromDate: "", toDate: "", includeHistory: false, parentLaw: "",
+  query: "", text: "", articles: "", domain: "", scenario: "", fromDate: "", toDate: "", includeHistory: false, parentLaw: "", region1: "", region2: "",
 };
 
 /** `제38조, 39조` → `["제38조","제39조"]`; null when any entry is not a real article number. */
@@ -110,8 +113,10 @@ export function lawResearchRequestFor(task: LawResearchTask, draft: LawResearchD
     }
     case "ordinance_compare": {
       const parentLaw = draft.parentLaw.trim();
-      if (parentLaw.length > LAW_RESEARCH_NAME_MAX_CHARS) return null;
-      return { task, query, ...(parentLaw ? { parentLaw } : {}) };
+      const regions: [string, string] = [draft.region1.trim(), draft.region2.trim()];
+      if (parentLaw.length > LAW_RESEARCH_NAME_MAX_CHARS || regions.some((region) => !region || region.length > LAW_RESEARCH_NAME_MAX_CHARS)
+        || regions[0] === regions[1]) return null;
+      return { task, query, regions, ...(parentLaw ? { parentLaw } : {}) };
     }
     default:
       return { task, query };
@@ -142,7 +147,34 @@ export interface LawResearchData {
   /** 종합 리서치 only: interpretation is tentative; source evidence is assessed separately. */
   interpretation?: ResearchInterpretation;
   /** `matched` requires source content to address an issue, not just a search hit. */
-  evidence?: { status: "matched" | "partial" | "unverified"; articles?: Array<{ law: string; jo: string }>; precedents?: string[]; precedentExcerpts?: Record<string, string> };
+  evidence?: { status: "matched" | "partial" | "unverified"; articles?: EvidenceArticle[]; precedents?: string[]; precedentExcerpts?: Record<string, string> };
+  /** 조례 비교 only: each region's ordinance and the topic articles fetched from 법제처. */
+  comparison?: OrdinanceComparison;
+}
+
+/**
+ * `current`: the law is listed 현행 and this text is already in force; `upcoming`: its 시행일 is still ahead;
+ * `not_current`: 법제처 lists the law as not in force; `unconfirmed`: the status lookup gave no answer.
+ */
+export type LawCurrency = "current" | "upcoming" | "not_current" | "unconfirmed";
+export interface EvidenceArticle { law: string; jo: string; currency?: LawCurrency }
+
+export interface OrdinanceRegionResult {
+  region: string;
+  /** `none`: searched and no ordinance of this region matched; `failed`: the lookup itself failed. */
+  status: "found" | "none" | "failed";
+  /** Ordinances of this region the search returned. */
+  candidates: number;
+  ordinance?: { id: string; name: string; body?: string; effective?: string };
+  /** Articles whose returned number and title were verified against the table of contents. */
+  articles: Array<{ jo: string; title: string; body: string; topic: string }>;
+}
+
+export interface OrdinanceComparison {
+  topic: string;
+  /** Article titles carrying a topic term; the comparison's rows. */
+  topics: string[];
+  regions: OrdinanceRegionResult[];
 }
 
 export interface LawResearchAbsent {

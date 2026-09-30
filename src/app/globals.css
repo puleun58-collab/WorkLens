@@ -7912,7 +7912,7 @@ input:disabled {
 
   .value-check-toolbar {
     padding-right: 16px;
-    padding-left: 16px;
+    padding-left: 0;
     align-items: flex-start;
     flex-direction: column;
   }
@@ -8683,8 +8683,9 @@ input:disabled {
 }
 
 /* Value Check filter carries the counts, so it owns the same hierarchy. */
+/* The table below starts flush with the panel edge, so the summary box starts there too. */
 .value-check-toolbar {
-  padding: 10px var(--panel-inset);
+  padding: 10px var(--panel-inset) 10px 0;
 }
 
 .value-check-filters b {
