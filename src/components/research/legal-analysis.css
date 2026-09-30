@@ -72,21 +72,37 @@ p.research-meta { margin: 0; }
 .research-supporting > h3 { margin-bottom: 4px; }
 .research-supporting .law-detail-source { margin-bottom: 0; }
 .research-supporting .legal-analysis-raw { margin: 8px 0 12px; }
-.contract-review-clause { padding-top: 12px; border-top: 1px solid var(--line-soft, var(--line)); }
+.legal-research .contract-review { gap: 22px; }
+.contract-review :is(.contract-review-overview, .contract-review-summary, .contract-review-results, .contract-review-details) > h3 {
+  color: var(--blue-active); font-size: var(--font-size-md); font-weight: var(--font-weight-semibold); letter-spacing: -.015em;
+}
+.contract-review-overview, .contract-review-summary { gap: 10px; }
+.contract-review-summary { padding-top: 18px; border-top: 1px solid var(--line-soft, var(--line)); }
+.contract-review-summary p { margin: 0; color: var(--ink-soft); font-size: var(--font-size-sm); line-height: 1.65; }
+.contract-review-results, .contract-review-details { gap: 12px; padding-top: 20px; border-top: 1px solid var(--line-soft, var(--line)); }
+.contract-review-clause { gap: 12px; padding: 16px 0 4px; border-top: 1px solid var(--line-soft, var(--line)); }
+.contract-review-clause > h4, .contract-review-detail > h4 {
+  margin: 0; color: var(--ink); font-size: var(--font-size-sm); font-weight: 700; line-height: 1.55; overflow-wrap: anywhere;
+}
 .contract-review-issue { display: grid; gap: 8px; min-width: 0; }
-.contract-review-issue + .contract-review-issue { margin-top: 8px; }
-.contract-review-issue h4 { margin: 0; font-size: var(--font-size-sm); font-weight: 600; overflow-wrap: anywhere; }
-.contract-review-issue h5 { margin: 0 0 4px; color: var(--muted); font-size: var(--font-size-xs, 12px); font-weight: 600; }
-.contract-review-facts { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 4px 12px; margin: 0; font-size: var(--font-size-sm); line-height: 1.6; }
+.contract-review-issue + .contract-review-issue { margin-top: 12px; padding-top: 14px; border-top: 1px solid var(--line-soft, var(--line)); }
+.contract-review-issue > h5 { margin: 0; color: var(--ink); font-size: var(--font-size-sm); font-weight: 600; overflow-wrap: anywhere; }
+.contract-review-facts { display: grid; grid-template-columns: minmax(96px, 140px) minmax(0, 1fr); gap: 5px 12px; margin: 0; font-size: var(--font-size-sm); line-height: 1.65; }
 .contract-review-facts dt { color: var(--muted); }
-.contract-review-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
-.contract-review-keyfacts { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; font-size: var(--font-size-sm); }
+.contract-review-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.contract-review-facts a { color: var(--blue); text-underline-offset: 3px; }
+.contract-review-keyfacts { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; font-size: var(--font-size-sm); line-height: 1.6; }
 .contract-review-keyfacts span:first-child { color: var(--muted); }
-.contract-review-refs ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; font-size: var(--font-size-sm); line-height: 1.6; }
-.contract-review-refs li, .contract-review-refs summary { min-width: 0; overflow-wrap: anywhere; }
-.contract-review-refs summary { cursor: pointer; }
-.contract-review-refs details .legal-analysis-lines { margin-top: 4px; padding-left: 12px; border-left: 2px solid var(--line-soft, var(--line)); }
-.contract-review-holding, .contract-review-condition { margin: 2px 0 0; }
+.contract-review-detail { min-width: 0; padding-top: 14px; border-top: 1px solid var(--line-soft, var(--line)); scroll-margin-top: 20px; }
+.contract-review-detail > h4 { margin-bottom: 6px; }
+.contract-review-refs { margin: 0; }
+.contract-review-refs ul { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; font-size: var(--font-size-sm); line-height: 1.65; }
+.contract-review-refs li { min-width: 0; padding: 10px 2px; overflow-wrap: anywhere; }
+.contract-review-refs li + li { border-top: 1px solid var(--line-soft, var(--line)); }
+.contract-review-refs li > strong { display: block; font-weight: 600; }
+.contract-review-refs li > .contract-review-meta { display: block; }
+.contract-review-refs .legal-analysis-lines { margin-top: 8px; padding-left: 12px; border-left: 2px solid var(--line-soft, var(--line)); }
+.contract-review-holding, .contract-review-condition { margin: 4px 0 0; color: var(--ink-soft); }
 .contract-review-meta { color: var(--muted); font-size: var(--font-size-xs, 12px); }
 @media (max-width: 640px) {
   .legal-research-options, .legal-research-dates { grid-template-columns: minmax(0, 1fr); }

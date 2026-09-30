@@ -343,7 +343,9 @@ describe("reviewContract pipeline", () => {
     }));
     const issues = review.clauses.flatMap((clause) => clause.issues);
     expect(issues.length).toBeGreaterThanOrEqual(12);
-    expect(issues.every((issue) => issue.lawStatus === "failed" && issue.precedentStatus === "failed")).toBe(true);
+    expect(issues.every((issue) => issue.lawStatus === "failed"
+      && (issue.precedentStatus === "failed" || issue.precedentStatus === "not_searched"))).toBe(true);
+    expect(issues.some((issue) => issue.precedentStatus === "not_searched")).toBe(true);
     expect(review.risk.level).toBe("높음");
   });
 
@@ -391,5 +393,154 @@ describe("reviewContract pipeline", () => {
     await reviewContract(B2B_SERVICE_CONTRACT, b2b);
     expect(b2b.calls.findLaw.filter((name) => /근로기준법|임대차/u.test(name))).toEqual([]);
     expect(b2b.calls.searchPrecedents.filter((query) => LABOR.test(query) || LEASE.test(query))).toEqual([]);
+  });
+});
+
+describe("cross-document review regressions", () => {
+  it.each([
+    ["서비스 계약", B2B_SERVICE_CONTRACT, "b2b_service", "제6조", "penalty", "민법", "제398조"],
+    ["근로계약", EMPLOYMENT_CONTRACT, "employment", "제4조", "dismissal", "근로기준법", "제23조"],
+    ["임대차", LEASE_CONTRACT, "lease", "제3조", "lease_renewal", "상가건물 임대차보호법", "제10조"],
+    ["소비자 약관", CONSUMER_TERMS, "b2c_terms", "제3조", "withdrawal_restriction", "전자상거래 등에서의 소비자보호에 관한 법률", "제17조"],
+    ["개발 용역", OUTSOURCING_CONTRACT, "outsourcing", "제2조", "penalty", "민법", "제398조"],
+    ["공급 계약", SUPPLY_CONTRACT, "sale", "제2조", "price_change", "약관의 규제에 관한 법률", "제10조"],
+    ["근태 지침", REMOTE_WORK_GUIDELINE, "work_rules", "제2조", "overtime_pay", "근로기준법", "제56조"],
+    ["비밀유지", NDA_CONTRACT, "nda", "제3조", "penalty", "민법", "제398조"],
+  ])("%s keeps its own issue attached to a verified statute", async (_name, text, type, number, id, law, jo) => {
+    const review = await reviewContract(text, fakeSources());
+    expect(review.document.type).toBe(type);
+    const clause = review.clauses.find((entry) => entry.number === number);
+    const issue = clause?.issues.find((entry) => entry.id === id);
+    expect(issue?.lawStatus).toBe("found");
+    expect(issue?.laws).toContain(`${law}\0${jo}`);
+    expect(review.laws[`${law}\0${jo}`]).toMatchObject({ law, jo, excerpt: `${jo}의 본문입니다.` });
+    expect(issue?.fact).toBeTruthy();
+    expect(issue?.suggestion).toMatch(/\S/u);
+    expect(issue?.suggestion).not.toMatch(/무효입니다|위법입니다|불법입니다/u);
+  });
+
+  it("distinguishes high, medium and clean reviews from distinct issues, not repeated clauses or citation counts", async () => {
+    const mediumText = [
+      ...B2B_SERVICE_CONTRACT.split("\n").slice(0, 2),
+      B2B_SERVICE_CONTRACT.split("\n")[3], // auto renewal
+      B2B_SERVICE_CONTRACT.split("\n")[6], // termination restriction
+      B2B_SERVICE_CONTRACT.split("\n")[12], // jurisdiction
+    ].join("\n");
+    const [high, medium, clean] = await Promise.all([
+      reviewContract(B2B_SERVICE_CONTRACT, fakeSources({ async findLaw() { return undefined; }, async searchPrecedents() { return []; } })),
+      reviewContract(mediumText, fakeSources()),
+      reviewContract(CLEAN_WORK_RULES, fakeSources()),
+    ]);
+    expect(high.risk.level).toBe("높음");
+    expect(medium.risk.level).toBe("보통");
+    expect(medium.risk.high).toBe(0);
+    expect(clean.document.type).toBe("work_rules");
+    expect(clean.risk).toMatchObject({ level: "낮음", score: 0 });
+    expect(clean.clauses).toEqual([]);
+    expect(high.clauses.find((clause) => clause.number === "제4조")?.issues.map((issue) => issue.id))
+      .toEqual(expect.arrayContaining(["service_suspension", "exemption"]));
+    expect(high.risk).toEqual(documentRisk(reviewClauses(splitClauses(B2B_SERVICE_CONTRACT), classifyDocument(B2B_SERVICE_CONTRACT))));
+  });
+
+  it("keeps unnumbered privacy rules, short and long clauses, duplicate issues and an ambiguous notice separate", () => {
+    const privacy = issuesOf(PRIVACY_CCTV_GUIDELINE);
+    expect(privacy.profile.type).toBe("work_rules");
+    expect(privacy.clauses.filter((clause) => clause.issues.some((issue) => issue.id === "cctv_audio")).map((clause) => clause.text))
+      .toContain("영상정보처리기기에는 음성 녹음 기능을 함께 사용할 수 있다.");
+    const b2bHead = B2B_SERVICE_CONTRACT.split("\n").slice(0, 2).join("\n");
+    const repeated = `${b2bHead}\n제1조(위약금) ${NDA_CONTRACT.split("\n")[4].replace(/^제3조\(위약벌\)\s*/u, "")}\n제2조(위약금) ${NDA_CONTRACT.split("\n")[4].replace(/^제3조\(위약벌\)\s*/u, "")}`;
+    const repeatedIssues = issuesOf(repeated).clauses.flatMap((clause) => clause.issues);
+    expect(repeatedIssues.map((issue) => issue.id)).toEqual(["penalty", "penalty"]);
+    expect(documentRisk(issuesOf(repeated).clauses).high).toBe(1);
+    const long = `${b2bHead}\n제1조(목적) ${"서비스의 제공 범위와 대가를 정한다. ".repeat(30)}\n제2조(위약금) 이용자는 잔여 이용료의 200%를 위약금으로 지급한다.`;
+    expect(issuesOf(long).clauses.find((clause) => clause.number === "제2조")?.issues.map((issue) => issue.id)).toContain("penalty");
+    expect(issuesOf("비밀유지계약서\n갑 주식회사 알파와 을 주식회사 베타는 비밀정보의 보호에 합의한다.\n위약벌\n위반 시 위약벌로 1억 원을 지급한다.").clauses
+      .find((clause) => clause.title === "위약벌")?.issues.map((issue) => issue.id)).toContain("penalty");
+    expect(issuesOf(AMBIGUOUS_NOTICE).profile.type).toBe("unknown");
+    expect(issuesOf(AMBIGUOUS_NOTICE).clauses.flatMap((clause) => clause.issues)).toEqual([]);
+  });
+
+  it("does not confuse numbered headings, in-text article references or conflicting safe and risky terms", () => {
+    const text = [
+      ...B2B_SERVICE_CONTRACT.split("\n").slice(0, 2),
+      "제1조(기준) 서비스는 관련 법령 제7조(책임)에 따라 제공한다.",
+      "제2조(이용요금) 제공자는 이용요금을 변경할 수 있다. 변경 시에는 이용자에게 사전에 통지한다.",
+      "제3조(책임) 제공자는 어떠한 경우에도 책임을 지지 않는다.",
+    ].join("\n");
+    const clauses = issuesOf(text).clauses;
+    expect(clauses.map((clause) => clause.number)).toEqual(["제1조", "제2조", "제3조"]);
+    expect(clauses[0].issues).toEqual([]);
+    expect(clauses[1].issues.map((issue) => issue.id)).toContain("price_change");
+    expect(clauses[2].issues.map((issue) => issue.id)).toContain("exemption");
+    expect(issuesOf(CLEAN_WORK_RULES).clauses.flatMap((clause) => clause.issues)).toEqual([]);
+  });
+
+  it("retains article suffixes while splitting a copied run-on document and leaves a cross-reference inside its clause", () => {
+    const text = [
+      ...B2B_SERVICE_CONTRACT.split("\n").slice(0, 2),
+      "제1조(목적) 제공자는 서비스를 공급한다. 제2조의2(요금) 제공자는 이용요금을 변경할 수 있다.",
+      "제3조(책임) 제2조의2(요금)에 따른 통지 절차는 유지한다. 제공자는 어떠한 경우에도 책임을 지지 않는다.",
+    ].join("\n");
+    const clauses = issuesOf(text).clauses;
+    expect(clauses.map((clause) => clause.number)).toEqual(["제1조", "제2조의2", "제3조"]);
+    expect(clauses[0].issues).toEqual([]);
+    expect(clauses[1].issues.map((issue) => issue.id)).toContain("price_change");
+    expect(clauses[2].issues.map((issue) => issue.id)).toEqual(["exemption"]);
+  });
+
+  it("distinguishes verified both, statute-only, precedent-only, irrelevant and absent evidence without changing a review point", async () => {
+    const penaltyText = [...B2B_SERVICE_CONTRACT.split("\n").slice(0, 2), B2B_SERVICE_CONTRACT.split("\n")[7]].join("\n");
+    const variants = {
+      both: fakeSources(),
+      statute: fakeSources({ async searchPrecedents() { return []; } }),
+      precedent: fakeSources({ async findLaw() { return undefined; } }),
+      irrelevant: fakeSources({
+        async searchPrecedents() { return [{ domain: "precedent", id: "irrelevant", title: "위약금등청구", caseNumber: "2020다9" }]; },
+        async holding() { return "[1] 위약금 채권의 단기소멸시효 기산점"; },
+      }),
+      none: fakeSources({ async findLaw() { return undefined; }, async searchPrecedents() { return []; } }),
+    };
+    const entries = await Promise.all(Object.entries(variants).map(async ([name, sources]) => [name, await reviewContract(penaltyText, sources)] as const));
+    const results = Object.fromEntries(entries);
+    const issue = (name: keyof typeof variants) => results[name].clauses[0].issues.find((entry) => entry.id === "penalty")!;
+    expect(issue("both")).toMatchObject({ lawStatus: "found", precedentStatus: "found", precedents: ["precedent:2"] });
+    expect(issue("statute")).toMatchObject({ lawStatus: "found", precedentStatus: "none", precedents: [] });
+    expect(issue("precedent")).toMatchObject({ lawStatus: "none", precedentStatus: "found", laws: [] });
+    expect(issue("irrelevant")).toMatchObject({ precedentStatus: "none", precedents: [] });
+    expect(issue("none")).toMatchObject({ lawStatus: "none", precedentStatus: "none", laws: [], precedents: [] });
+    for (const result of Object.values(results)) {
+      const found = result.clauses[0].issues[0];
+      expect(found.fact).toContain("200%");
+      expect(found.suggestion).toBe(issue("both").suggestion);
+      for (const key of found.laws) expect(result.laws[key]?.key).toBe(key);
+      for (const key of found.precedents) expect(result.precedents[key]?.key).toBe(key);
+      expect(result.risk).toEqual(results.both.risk);
+    }
+    expect(results.irrelevant.stats.excludedPrecedents).toBeGreaterThan(0);
+    expect(results.irrelevant.precedents).toEqual({});
+  });
+
+  it("adopts each relevant holding for two different high issues sharing a former search group", async () => {
+    const text = [
+      ...B2B_SERVICE_CONTRACT.split("\n").slice(0, 2),
+      B2B_SERVICE_CONTRACT.split("\n")[4], // price change
+      "제4조(서비스 중단) 제공자는 사전 통지 없이 서비스를 중단할 수 있다.",
+    ].join("\n");
+    const sources = fakeSources({
+      async searchPrecedents(query) {
+        if (query.includes("일방적 요금")) return [{ domain: "precedent", id: "price", title: "요금 변경 약정", caseNumber: "2024다1" }];
+        if (query.includes("서비스 중단")) return [{ domain: "precedent", id: "suspension", title: "서비스 중단 약정", caseNumber: "2024다2" }];
+        return [];
+      },
+      async holding(id) {
+        return id === "price" ? "[1] 사업자의 일방적 요금 변경 약관의 효력" : "[1] 서비스 중단 약정의 효력";
+      },
+    });
+    const review = await reviewContract(text, sources);
+    const byId = Object.fromEntries(review.clauses.flatMap((clause) => clause.issues.map((issue) => [issue.id, issue] as const)));
+    expect(byId.price_change?.precedents).toEqual(["precedent:price"]);
+    expect(byId.service_suspension?.precedents).toEqual(["precedent:suspension"]);
+    expect(review.precedents["precedent:price"]?.holding).toContain("요금 변경");
+    expect(review.precedents["precedent:suspension"]?.holding).toContain("서비스 중단");
   });
 });

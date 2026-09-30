@@ -1,115 +1,134 @@
 "use client";
 
-import type { ContractReview, ReviewedIssue, SourceStatus } from "@/lib/contract-review";
+import type { ContractReview, ReviewedIssue } from "@/lib/contract-review";
 import { STATUS_TITLE, type ResearchStatus } from "@/lib/research-status";
+import { SourceToggleSummary } from "./SourceToggleSummary";
 
 const SEVERITY_LABEL = { high: "높음", medium: "보통", low: "낮음" } as const;
-const RESULT_NOTE = "법적 판단이 필요한 경우 국가법령정보센터 원문과 관련 전문가 검토가 필요할 수 있습니다.";
+const RESULT_NOTE = "판례는 판시사항 기준이며 판결 전문은 포함되지 않습니다. 법적 판단은 원문 및 전문가 검토가 필요할 수 있습니다.";
 
 function formatDate(value?: string): string | undefined {
   return value && /^\d{8}$/u.test(value) ? `${value.slice(0, 4)}.${value.slice(4, 6)}.${value.slice(6)}` : value;
 }
 
-function statusNote(kind: "법령" | "판례", status: SourceStatus): string | null {
-  if (status === "failed") return `${kind} 검색에 실패했습니다. 조항 검토 내용은 그대로 참고할 수 있습니다.`;
-  if (status === "none") {
-    return kind === "판례"
-      ? "현재 검색 범위에서 직접 관련성이 높은 판례를 확인하지 못했습니다."
-      : "현재 검색 범위에서 직접 관련된 조문을 확인하지 못했습니다.";
-  }
-  // Deliberately skipped (the document's area of law excludes this source): not "none", not "failed".
-  if (status === "not_searched") return `관련 ${kind} 검색은 수행하지 않았습니다.`;
-  return null;
-}
-
-/**
- * 문서 검토 result: clause → issue → statutes → precedents. Every statute
- * title, article text, case number, court and date shown here came from a
- * 법제처 search result; a citation already shown under an earlier clause is
- * named again, not repeated in full.
- */
 export function ContractReviewResult({ review }: { review: ContractReview }) {
   const shownLaws = new Set<string>();
   const shownPrecedents = new Set<string>();
   const { document, risk } = review;
+  const issues = review.clauses.flatMap((clause) => clause.issues);
+  const grounded = issues.filter((issue) =>
+    issue.laws.some((key) => review.laws[key]) || issue.precedents.some((key) => review.precedents[key])).length;
+  const status: ResearchStatus = !issues.length ? "none"
+    : grounded === issues.length ? "matched"
+    : grounded ? "partial"
+    : review.stats.excludedPrecedents > 0 ? "weak" : "none";
+  const lawCount = new Set(issues.flatMap((issue) => issue.laws.filter((key) => review.laws[key]))).size;
+  const precedentCount = new Set(issues.flatMap((issue) => issue.precedents.filter((key) => review.precedents[key]))).size;
 
-  const issueBody = (issue: ReviewedIssue) => {
-    const laws = issue.laws.map((key) => review.laws[key]).filter(Boolean);
-    const precedents = issue.precedents.map((key) => review.precedents[key]).filter(Boolean);
-    const lawNote = laws.length ? null : statusNote("법령", issue.lawStatus);
-    const precedentNote = precedents.length ? null : statusNote("판례", issue.precedentStatus);
+  const issueBody = (issue: ReviewedIssue, anchor: string) => {
+    const laws = [...new Set(issue.laws)].map((key) => review.laws[key]).filter(Boolean);
+    const precedents = [...new Set(issue.precedents)].map((key) => review.precedents[key]).filter(Boolean);
+    return <dl className="contract-review-facts contract-review-issue-facts">
+      <dt>원문</dt><dd>{issue.fact}</dd>
+      <dt>검토 결과</dt><dd>{issue.point}</dd>
+      <dt>우선순위</dt><dd>{SEVERITY_LABEL[issue.severity]}</dd>
+      {issue.suggestion && <><dt>수정 제안</dt><dd>{issue.suggestion}</dd></>}
+      <dt>근거</dt>
+      <dd>{laws.length + precedents.length > 0
+        ? <>{laws.map((law) => `${law.law} ${law.jo}`).concat(precedents.map((precedent) =>
+          precedent.title ?? precedent.caseNumber ?? "판례")).join(" · ")} <a href={`#${anchor}`}>상세 근거 보기</a></>
+        : issue.lawStatus === "failed" || issue.precedentStatus === "failed"
+          ? "직접 근거 확인이 완료되지 않았습니다."
+          : "확인된 직접 근거 없음"}</dd>
+    </dl>;
+  };
+
+  const issueEvidence = (issue: ReviewedIssue) => {
+    const laws = [...new Set(issue.laws)].map((key) => review.laws[key]).filter(Boolean);
+    const precedents = [...new Set(issue.precedents)].map((key) => review.precedents[key]).filter(Boolean);
     return <>
-      <dl className="contract-review-facts">
-        <dt>원문</dt><dd>{issue.fact}</dd>
-        <dt>검토 포인트</dt><dd>{issue.point}</dd>
-      </dl>
-      {(laws.length > 0 || lawNote) && <div className="contract-review-refs">
-        <h5>관련 법령</h5>
-        {lawNote && <p className="law-search-note">{lawNote}</p>}
-        {laws.length > 0 && <ul>{laws.map((law) => {
+      {laws.length > 0 && <details className="law-detail-source contract-review-refs">
+        <SourceToggleSummary label={`관련 법령 ${laws.length}건 보기`} openLabel="관련 법령 접기" />
+        <ul>{laws.map((law) => {
           const repeated = shownLaws.has(law.key);
           shownLaws.add(law.key);
           const name = `${law.law} ${law.jo}${law.title ? ` (${law.title})` : ""}`;
           return <li key={law.key}>
-            {repeated ? <span>{name} — 위 조항에서 확인</span> : <details>
-              <summary>{name}{law.effectiveDate ? <span className="contract-review-meta"> 시행 {formatDate(law.effectiveDate)}</span> : null}</summary>
-              <pre className="legal-analysis-lines">{law.excerpt}</pre>
-            </details>}
-            {!repeated && law.condition && <p className="contract-review-condition">{law.condition}</p>}
+            <strong>{name}</strong>
+            {law.effectiveDate && <span className="contract-review-meta">시행 {formatDate(law.effectiveDate)}</span>}
+            {repeated ? <p className="contract-review-meta">앞선 쟁점에서 제시한 근거입니다.</p> : <>
+              {law.condition && <p className="contract-review-condition">{law.condition}</p>}
+              {law.excerpt && <pre className="legal-analysis-lines">{law.excerpt}</pre>}
+            </>}
           </li>;
-        })}</ul>}
-      </div>}
-      {(precedents.length > 0 || precedentNote) && <div className="contract-review-refs">
-        <h5>관련 판례</h5>
-        {precedentNote && <p className="law-search-note">{precedentNote}</p>}
-        {precedents.length > 0 && <ul>{precedents.map((precedent) => {
+        })}</ul>
+      </details>}
+      {precedents.length > 0 && <details className="law-detail-source contract-review-refs">
+        <SourceToggleSummary label={`관련 판례 ${precedents.length}건 보기`} openLabel="관련 판례 접기" />
+        <ul>{precedents.map((precedent) => {
           const repeated = shownPrecedents.has(precedent.key);
           shownPrecedents.add(precedent.key);
-          const heading = [precedent.court, precedent.caseNumber, formatDate(precedent.date)].filter(Boolean).join(" · ");
+          const metadata = [precedent.court, precedent.caseNumber, formatDate(precedent.date)].filter(Boolean).join(" · ");
           return <li key={precedent.key}>
             <strong>{precedent.title ?? precedent.caseNumber ?? "판례"}</strong>
-            {heading && <span className="contract-review-meta"> {heading}</span>}
-            {repeated ? <p className="contract-review-meta">위 조항에서 확인한 판례입니다.</p>
-              : <p className="contract-review-holding">{precedent.holding}<span className="contract-review-meta"> (판시사항 기준, 판결 전문은 검토하지 않았습니다.)</span></p>}
+            {metadata && <span className="contract-review-meta">{metadata}</span>}
+            {repeated ? <p className="contract-review-meta">앞선 쟁점에서 제시한 근거입니다.</p>
+              : <p className="contract-review-holding">{precedent.holding}</p>}
           </li>;
-        })}</ul>}
-      </div>}
+        })}</ul>
+      </details>}
     </>;
   };
 
-  // Same status vocabulary as every research task: issues whose law was found are adopted evidence.
-  const issues = review.clauses.flatMap((clause) => clause.issues);
-  const grounded = issues.filter((issue) => issue.laws.some((key) => review.laws[key])).length;
-  const status: ResearchStatus = !issues.length ? "none" : grounded === issues.length ? "matched" : grounded ? "partial" : "weak";
   return <div className="legal-analysis-output contract-review" data-task="document_review" data-document-type={document.type}>
     <header className="research-overview">
       <span className="research-eyebrow">문서 검토</span>
-      <h3 className="legal-analysis-title" data-status={status}>{issues.length ? STATUS_TITLE[status] : "검토가 필요한 조항을 찾지 못했습니다"}</h3>
+      <h3 className="legal-analysis-title" data-status={status}>{issues.length ? STATUS_TITLE[status] : "검토할 쟁점을 찾지 못했습니다"}</h3>
       <p className="research-caution">{issues.length
         ? "검토 결과는 관련 쟁점을 확인하기 위한 자료이며, 구체적인 사건의 법적 결론을 의미하지 않습니다."
-        : "찾지 못했다고 문서에 법적 위험이 없다는 뜻은 아닙니다."}</p>
+        : "검토할 쟁점을 찾지 못했지만 문서에 법적 위험이 없다는 뜻은 아닙니다."}</p>
     </header>
-    <div className="legal-analysis-section">
+    <section className="legal-analysis-section contract-review-overview">
       <h3>문서 개요</h3>
       <dl className="contract-review-facts">
         <dt>문서 유형</dt>
         <dd>{document.label}{document.confidence !== "high" && document.type !== "unknown" ? " (추정)" : ""}</dd>
         <dt>당사자 관계</dt><dd>{document.relationshipLabel}</dd>
         <dt>검토 필요 조항 위험도</dt>
-        <dd>{risk.level} <span className="contract-review-meta">높음 {risk.high} · 보통 {risk.medium} · 낮음 {risk.low}건, 조항 내용 기준이며 검색된 법령·판례 수와 무관합니다.</span></dd>
+        <dd>{risk.level} <span className="contract-review-meta">높음 {risk.high} · 보통 {risk.medium} · 낮음 {risk.low}건 (조항 내용 기준)</span></dd>
       </dl>
       {review.facts.length > 0 && <ul className="contract-review-keyfacts">
         {review.facts.map((fact) => <li key={`${fact.clause}-${fact.value}`}><span>{fact.label}</span> {fact.value}{fact.clause ? <span className="contract-review-meta"> ({fact.clause})</span> : null}</li>)}
       </ul>}
-    </div>
-    {review.clauses.length === 0 && <p className="law-search-note">검토가 필요한 조항을 찾지 못했습니다.</p>}
-    {review.clauses.map((clause, index) => <section key={`${clause.number ?? index}`} className="legal-analysis-section contract-review-clause">
-      <h3>{clause.number ?? `조항 ${index + 1}`}{clause.title ? ` ${clause.title}` : ""}</h3>
-      {clause.issues.map((issue) => <div key={issue.id} className={`contract-review-issue is-${issue.severity}`}>
-        <h4>{issue.label} <span className="contract-review-meta">검토 우선순위 {SEVERITY_LABEL[issue.severity]}</span></h4>
-        {issueBody(issue)}
-      </div>)}
-    </section>)}
-    <p className="legal-analysis-note">데이터 출처: 법제처 국가법령정보센터 OPEN API. {RESULT_NOTE}</p>
+    </section>
+    <section className="legal-analysis-section contract-review-summary">
+      <h3>전체 검토 요약</h3>
+      <p>검토 조항 {review.clauses.length}개 · 높은 우선순위 {risk.high}건 · 보통 {risk.medium}건 · 낮음 {risk.low}건
+        <span className="contract-review-meta"> · 관련 근거 확인 {grounded}/{issues.length}건
+          {lawCount + precedentCount > 0 && ` (법령 ${lawCount}건 · 판례 ${precedentCount}건)`}</span>
+      </p>
+    </section>
+    <section className="legal-analysis-section contract-review-results">
+      <h3>조항별 검토 결과</h3>
+      {review.clauses.length === 0 && <p className="law-search-note">검토할 쟁점을 찾지 못했습니다.</p>}
+      {review.clauses.map((clause, index) => <section key={`${clause.number ?? index}`} className="legal-analysis-section contract-review-clause">
+        <h4>{clause.number ?? clause.title ?? `검토 항목 ${index + 1}`}{clause.number && clause.title ? ` ${clause.title}` : ""}</h4>
+        {clause.issues.map((issue, issueIndex) => <div key={issue.id} className={`contract-review-issue is-${issue.severity}`}>
+          <h5>{issue.label}</h5>
+          {issueBody(issue, `contract-review-evidence-${index}-${issueIndex}`)}
+        </div>)}
+      </section>)}
+    </section>
+    {lawCount + precedentCount > 0 && <section className="legal-analysis-section contract-review-details">
+      <h3>상세 근거</h3>
+      {review.clauses.flatMap((clause, clauseIndex) => clause.issues.map((issue, issueIndex) => {
+        if (!issue.laws.some((key) => review.laws[key]) && !issue.precedents.some((key) => review.precedents[key])) return null;
+        return <div key={`${clauseIndex}-${issueIndex}`} id={`contract-review-evidence-${clauseIndex}-${issueIndex}`} className="contract-review-detail">
+          <h4>{clause.number ?? clause.title ?? `검토 항목 ${clauseIndex + 1}`}{clause.number && clause.title ? ` ${clause.title}` : ""} · {issue.label}</h4>
+          {issueEvidence(issue)}
+        </div>;
+      }))}
+    </section>}
+    <p className="legal-analysis-note">법령·판례 출처: 국가법령정보센터(법제처). {RESULT_NOTE}</p>
   </div>;
 }
