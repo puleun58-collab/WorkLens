@@ -16,7 +16,7 @@
 .tool-export .tool-export-button:disabled { cursor: not-allowed; border-color: var(--disabled-border); background: var(--disabled-surface); color: var(--disabled-ink); opacity: 1; }
 .pdf-tool .tool-export :is(button, select):focus-visible, .image-tool .tool-export :is(button, select):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .tool-export-settings select:disabled { cursor: not-allowed; border-color: var(--disabled-border); background: var(--disabled-surface); color: var(--disabled-ink); }
-/* PDF and image rotate buttons: one circular arrow, 14px, 5px from the label, on the side of the turn. */
+/* Rotate buttons: one circular arrow, 14px, 5px from the label, on the side of the turn. The PDF page toolbar (pdf-tool.css) sizes its actions itself and leads with the icon. */
 .tool-rotate-button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; }
 .tool-rotate-button svg { flex: none; width: 14px; height: 14px; }
 

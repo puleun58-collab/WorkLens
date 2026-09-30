@@ -1472,6 +1472,8 @@ test("document evidence links focus only the selected issue without changing dis
     status: 200, contentType: "application/json",
     body: JSON.stringify({ data: { found: true, task: "document_review", text: "", markers: [], review } }),
   }));
+  // Phases are read from resolved styles, not mid-transition frames.
+  await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/");
   await page.getByRole("button", { name: "법령", exact: true }).click();
   await page.locator(".law-view-tabs").getByRole("button", { name: "종합 리서치" }).click();
@@ -1491,20 +1493,41 @@ test("document evidence links focus only the selected issue without changing dis
     const first = details.nth(0);
     const sameClause = details.nth(1);
     const last = details.nth(2);
+    const layout = () => first.evaluate((node) => {
+      const box = node.getBoundingClientRect();
+      const title = node.querySelector("h4")!.getBoundingClientRect();
+      const row = node.querySelector("summary")!.getBoundingClientRect();
+      const next = node.nextElementSibling!.getBoundingClientRect();
+      return { boxLeft: box.left, boxRight: box.right, titleLeft: title.left, rowLeft: row.left, rowRight: row.right, nextOffset: next.top - title.top };
+    });
+    const resting = await layout();
     await links.nth(0).click();
+    const fresh = await first.evaluate((node) => ({ fresh: node.classList.contains("is-focus-fresh"), bg: getComputedStyle(node).backgroundColor }));
+    expect(fresh.fresh).toBe(true);
+    const focused = await layout();
+    // The box grows outward to give the text an inner margin; text and the following blocks stay put.
+    expect(focused.titleLeft).toBeCloseTo(resting.titleLeft, 1);
+    expect(focused.rowLeft).toBeCloseTo(focused.titleLeft, 1);
+    expect(focused.nextOffset).toBeCloseTo(resting.nextOffset, 1);
+    expect(focused.titleLeft - focused.boxLeft).toBeGreaterThanOrEqual(12);
+    expect(focused.boxRight - focused.rowRight).toBeGreaterThanOrEqual(12);
+    expect(focused.boxLeft).toBeGreaterThanOrEqual(0);
+    expect(focused.boxRight).toBeLessThanOrEqual(viewport.width);
+    await expect(first).not.toHaveClass(/is-focus-fresh/u);
     await expect(first).toHaveClass(/is-focused/u);
+    const settled = await first.evaluate((node) => getComputedStyle(node).backgroundColor);
+    const lightness = (color: string) => {
+      const values = color.match(/[\d.]+/gu)!.slice(0, 3).map(Number);
+      return values.reduce((sum, value) => sum + (color.startsWith("color(") ? value * 255 : value), 0);
+    };
+    expect(lightness(fresh.bg)).toBeLessThan(lightness(settled));
+    expect(lightness(settled)).toBeLessThan(255 * 3);
     await expect(reviewResult.locator(".contract-review-detail.is-focused")).toHaveCount(1);
     await expect(first.locator(".law-detail-source")).toHaveCount(2);
     const firstLaw = first.locator(".law-detail-source").first();
     if (viewport.width > 700) await expect(firstLaw).not.toHaveAttribute("open", "");
     else await expect(firstLaw).toHaveAttribute("open", "");
-    const focus = await first.evaluate((node) => {
-      const style = getComputedStyle(node);
-      return { color: style.backgroundColor, outline: style.boxShadow, width: node.getBoundingClientRect().width };
-    });
-    expect(focus.color).not.toBe("rgba(0, 0, 0, 0)");
-    expect(focus.outline).not.toBe("none");
-    expect(focus.width).toBeLessThanOrEqual(viewport.width);
+    expect(await first.evaluate((node) => getComputedStyle(node).boxShadow)).not.toBe("none");
     if (viewport.width > 700) await firstLaw.locator("summary").click();
     await expect(firstLaw).toHaveAttribute("open", "");
     await links.nth(1).click();
@@ -1524,9 +1547,19 @@ test("document evidence links focus only the selected issue without changing dis
       return top >= minTop && bottom <= innerHeight;
     }, headerOffset)).toBe(true);
     await expect(last).not.toHaveClass(/is-focused/u, { timeout: 4_000 });
+    // Back to the resting block: no tint, no inset.
+    const rest = await last.evaluate((node) => ({
+      bg: getComputedStyle(node).backgroundColor,
+      inset: node.querySelector("h4")!.getBoundingClientRect().left - node.getBoundingClientRect().left,
+    }));
+    expect(rest.bg).toBe("rgba(0, 0, 0, 0)");
+    expect(rest.inset).toBeCloseTo(0, 1);
     await links.nth(2).click();
     await expect(last).toHaveClass(/is-focused/u);
     await expect(reviewResult.locator(".contract-review-detail.is-focused")).toHaveCount(1);
+    await expect(last).not.toHaveClass(/is-focus-fresh/u);
+    await links.nth(2).click();
+    expect(await last.evaluate((node) => node.classList.contains("is-focus-fresh"))).toBe(true);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     expect(page.url()).not.toContain("#");
     expect(await page.evaluate(() => history.length)).toBe(historyLength);

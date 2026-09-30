@@ -93,8 +93,14 @@ p.research-meta { margin: 0; }
 .contract-review-facts .law-search-link { display: inline; padding: 0; font-weight: inherit; text-decoration: underline; text-underline-offset: 3px; }
 .contract-review-keyfacts { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; font-size: var(--font-size-sm); line-height: 1.6; }
 .contract-review-keyfacts span:first-child { color: var(--muted); }
-.contract-review-detail { min-width: 0; padding-top: 14px; border-top: 1px solid var(--line-soft, var(--line)); border-radius: var(--radius-panel); scroll-margin-top: calc(64px + var(--space-4)); transition: background-color .35s ease, box-shadow .35s ease; }
-.contract-review-detail.is-focused { background: var(--blue-pale); box-shadow: inset 0 0 0 1px var(--blue-border); }
+.contract-review-detail { min-width: 0; padding-top: 14px; border-top: 1px solid var(--line-soft, var(--line)); scroll-margin-top: calc(64px + var(--space-4)); transition: background-color .35s ease, box-shadow .35s ease, border-top-color .35s ease; }
+/* Focus grows the box outward by its own padding (negative margin = padding), so text never moves and nothing reflows when it ends. */
+.contract-review-detail.is-focused {
+  margin: 0 calc(-1 * var(--space-3)) -10px; padding: 14px var(--space-3) 10px; border-top-color: transparent; border-radius: var(--radius-panel);
+  background: var(--blue-soft); box-shadow: inset 0 0 0 1px var(--blue-border);
+}
+.contract-review-detail.is-focused.is-focus-fresh { background: color-mix(in srgb, var(--blue) 11%, var(--paper)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--blue) 40%, var(--blue-border)); }
+.contract-review-detail.is-focused.is-focus-leaving { background: transparent; box-shadow: inset 0 0 0 1px transparent; }
 .contract-review-detail > h4 { margin-bottom: 6px; }
 .contract-review-refs { margin: 0; }
 .contract-review-refs ul { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; font-size: var(--font-size-sm); line-height: 1.65; }
