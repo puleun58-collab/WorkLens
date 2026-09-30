@@ -7,10 +7,10 @@ import type { FileKind, SourceRef } from "@/domain/document";
  */
 
 /** The formats this feature analyses. */
-export const SUPPLEMENT_FILE_KINDS: readonly FileKind[] = ["pptx", "pdf", "xlsx"];
+export const SUPPLEMENT_FILE_KINDS: readonly FileKind[] = ["pptx", "pdf", "xlsx", "docx"];
 export const isSupplementFileKind = (kind: FileKind): boolean => SUPPLEMENT_FILE_KINDS.includes(kind);
-export const SUPPLEMENT_UNSUPPORTED_TITLE = "보완은 PPTX, PDF, XLSX 파일만 지원합니다.";
-export const SUPPLEMENT_UNSUPPORTED_DETAIL = "CSV, DOCX 파일은 선택을 해제한 뒤 실행하세요.";
+export const SUPPLEMENT_UNSUPPORTED_TITLE = "보완은 PPTX, PDF, XLSX, DOCX 파일을 지원합니다.";
+export const SUPPLEMENT_UNSUPPORTED_DETAIL = "CSV 파일은 선택을 해제한 뒤 실행하세요.";
 
 export type SupplementDocType =
   | "performance"
@@ -97,12 +97,28 @@ export interface SupplementFinding {
   question?: string;
   /** Present when `status` is `unverified`. */
   limitation?: string;
+  /**
+   * `all`: not found anywhere in the uploaded set. `report`: another file has
+   * it, the core report does not. `conflict`: files explain it differently.
+   */
+  scope: "all" | "report" | "conflict";
+  /** Where the information was found instead (report scope) or each differing explanation (conflict). */
+  evidence?: SourceRef[];
+  evidenceLocations?: string[];
+  /** A related line that could not be used as direct evidence (other period, weak link). */
+  linkNote?: string;
 }
 
 /** A finding before the semantic re-check decided it. */
 export interface SupplementCandidate extends SupplementFinding {
   /** Short statement of the information that would cancel this candidate. */
   requirement: string;
+  /** Topic identity for merging the same gap across files. */
+  topic: string;
+  /** The gap sits in a core report and the information would help a decision there. */
+  reportEligible: boolean;
+  /** Wording used when another file supplies the information. */
+  reportTitle: string;
 }
 
 /** How far one worksheet was read. Every sheet of the workbook carries exactly one. */
@@ -144,7 +160,7 @@ export interface SupplementCoverage {
   fileId: string;
   fileName: string;
   kind: FileKind;
-  /** "슬라이드", "페이지" or "시트". */
+  /** "슬라이드", "페이지", "시트" or "섹션". */
   unit: string;
   total: number;
   analyzed: number;
@@ -155,10 +171,23 @@ export interface SupplementCoverage {
   sheets?: SupplementSheetCoverage[];
 }
 
+export type SupplementFileRole = "report" | "data" | "analysis" | "reference" | "unknown";
+
+export const SUPPLEMENT_FILE_ROLE_LABELS: Record<SupplementFileRole, string> = {
+  report: "핵심 보고자료",
+  data: "근거 데이터",
+  analysis: "원인·분석자료",
+  reference: "참고자료",
+  unknown: "역할 불명확",
+};
+
 export interface SupplementFileSummary {
   fileId: string;
   fileName: string;
   docType: SupplementDocType;
+  role: SupplementFileRole;
+  /** Normalized reporting period of the file when it states one, e.g. "2026년 9월". */
+  period?: string;
 }
 
 /** One bounded semantic re-check request: up to six candidates and their related evidence. */
@@ -190,8 +219,10 @@ export interface SupplementResult {
   coverage: SupplementCoverage[];
   findings: SupplementFinding[];
   questions: string[];
-  /** Candidates cancelled because another location already covers them. */
+  /** Candidates cancelled because the same file already covers them. */
   resolvedCount: number;
+  /** Candidates cancelled because another uploaded file covers them (and no report needs it). */
+  confirmedCount: number;
   /** Candidates withheld because their need or absence stayed unclear. */
   withheldCount: number;
   /** Whether the meaning-level re-check ran for every candidate that needed it. */

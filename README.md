@@ -10,7 +10,7 @@ WorkLens는 XLSX, CSV, PDF, DOCX, PPTX 파일을 브라우저에서 읽어 분�
 - **질문** — 선택한 파일을 근거로 답변
 - **비교** — 두 버전의 변경 사항, 여러 파일의 값 일치 확인
 - **검수** — 문장·일관성·데이터·개인정보·보안정보 점검
-- **보완** — PPTX, PDF, XLSX 보고자료에서 빠진 비교 기준·원인·영향·대응·담당·일정·결론 근거를 찾고, 예상 질문과 분석 범위를 함께 표시
+- **보완** — PPTX, PDF, XLSX, DOCX 보고자료에서 빠진 비교 기준·원인·영향·대응·담당·일정·결론 근거를 찾고, 예상 질문과 분석 범위를 함께 표시
 - **윤문** — 파일 또는 붙여넣은 텍스트의 문장 다듬기
 - **추출** — 항목과 값을 표로 정리해 CSV/XLSX로 내보내기
 - **취합** — 여러 XLSX의 반복 표를 첫 번째 파일 서식 기준으로 하나의 XLSX로 취합
@@ -33,7 +33,7 @@ WorkLens는 XLSX, CSV, PDF, DOCX, PPTX 파일을 브라우저에서 읽어 분�
 | --- | --- |
 | 문서 작업 | XLSX, CSV, PDF, DOCX, PPTX |
 | 취합 | XLSX |
-| 보완 | PPTX, PDF, XLSX |
+| 보완 | PPTX, PDF, XLSX, DOCX |
 | PDF 도구 | 입력 PDF · 출력 PDF, JPG, PNG |
 | 이미지 도구 | 입력 JPG, JPEG, PNG, WebP · 출력 JPG, PNG, WebP, PDF |
 

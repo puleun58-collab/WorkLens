@@ -17,12 +17,16 @@ const STOP: Readonly<Record<string, true>> = Object.fromEntries([
   "및", "또는", "그리고", "하지만", "따라서", "그러나", "또한", "이에", "것으로", "것", "수", "등", "중", "내", "후", "전", "월", "주차", "연간", "상반기", "하반기",
   ].map((word) => [word, true]));
 
-const FAMILIES: ReadonlyArray<{ key: string; label: string; test: (token: string) => boolean }> = [
-  { key: "cost", label: "비용", test: (token) => /^(비용|원가|경비|지출|운임|단가|물류비용|운송비용|cost|costs|expense|expenses|freight|logistics)$/u.test(token) || (/비$/u.test(token) && token.length >= 2 && !/^(대비|준비|장비|설비|구비|경비율)$/u.test(token)) },
-  { key: "revenue", label: "매출", test: (token) => /^(매출|매출액|판매|판매량|판매액|수주|수주액|수익|sales|revenue)$/u.test(token) },
-  { key: "profit", label: "이익", test: (token) => /^(이익|영업이익|순이익|손익|마진|이익률|영업이익률)$/u.test(token) },
-  { key: "delivery", label: "납기", test: (token) => /^(납기|출하|배송|납품|지연)$/u.test(token) },
-  { key: "quality", label: "품질", test: (token) => /^(불량|불량률|품질|결함|클레임|반품)$/u.test(token) },
+/**
+ * Metric families. Grouping uses any member; relating two lines needs one side
+ * to be the family's general word, so 운송비 and 인건비 never explain each other.
+ */
+const FAMILIES: ReadonlyArray<{ key: string; label: string; generic: RegExp; test: (token: string) => boolean }> = [
+  { key: "cost", label: "비용", generic: /^(비용|원가|경비|지출|cost|costs|expense|expenses)$/u, test: (token) => /^(비용|원가|경비|지출|운임|단가|물류비용|운송비용|cost|costs|expense|expenses|freight|logistics)$/u.test(token) || (/비$/u.test(token) && token.length >= 2 && !/^(대비|준비|장비|설비|구비|경비율)$/u.test(token)) },
+  { key: "revenue", label: "매출", generic: /^(매출|매출액|수익|sales|revenue)$/u, test: (token) => /^(매출|매출액|판매|판매량|판매액|수주|수주액|수익|sales|revenue)$/u.test(token) },
+  { key: "profit", label: "이익", generic: /^(이익|손익)$/u, test: (token) => /^(이익|영업이익|순이익|손익|마진|이익률|영업이익률)$/u.test(token) },
+  { key: "delivery", label: "납기", generic: /^납기$/u, test: (token) => /^(납기|출하|배송|납품|지연)$/u.test(token) },
+  { key: "quality", label: "품질", generic: /^품질$/u, test: (token) => /^(불량|불량률|품질|결함|클레임|반품)$/u.test(token) },
 ];
 
 export const normalize = (value: string): string => value.normalize("NFKC").replace(/\s+/gu, " ").trim();
@@ -53,14 +57,101 @@ export function familyOf(token: string): { key: string; label: string } | undefi
   return found ? { key: found.key, label: found.label } : undefined;
 }
 
-/** Two content-token sets name the same thing: shared word, word prefix, or metric family. */
+/**
+ * Two content-token sets name the same thing: a shared word, a word prefix, or
+ * a metric family where one side uses the family's general word (비용 ↔ 물류비).
+ */
 export function tokensRelate(subject: readonly string[], other: readonly string[]): boolean {
   if (subject.length === 0 || other.length === 0) return false;
-  const otherFamilies = new Set(other.map((token) => familyOf(token)?.key).filter(Boolean));
+  const generic = (token: string) => FAMILIES.find((family) => family.test(token))?.generic.test(token) === true;
   return subject.some((token) => other.some((candidate) =>
     candidate === token
-    || (token.length >= 2 && candidate.length >= 2 && (candidate.startsWith(token) || token.startsWith(candidate))))
-    || (familyOf(token) !== undefined && otherFamilies.has(familyOf(token)!.key)));
+    || (token.length >= 2 && candidate.length >= 2 && (candidate.startsWith(token) || token.startsWith(candidate)))
+    || (familyOf(token) !== undefined && familyOf(token)!.key === familyOf(candidate)?.key && (generic(token) || generic(candidate)))));
+}
+
+/**
+ * Named parties a figure belongs to: 고객사 A, A사, 서울지점, 알파 프로젝트.
+ * Only coded or explicitly suffixed names count; "고객 클레임" names nobody.
+ */
+export function entitiesOf(text: string): string[] {
+  const found = new Set<string>();
+  const value = normalize(text);
+  const patterns = [
+    /(?:고객사|고객|거래처|프로젝트)\s?([A-Z0-9][A-Za-z0-9-]*)(?![A-Za-z0-9])/gu,
+    /(?<![A-Za-z0-9])([A-Z][A-Za-z0-9-]*)\s?(?:사|법인|지점)(?=\s|$|[^가-힣])/gu,
+    /(?<![가-힣])([가-힣]{1,6})(?:법인|지점|센터)(?=\s|$|[^가-힣])/gu,
+    /(?<![가-힣])([가-힣A-Za-z0-9]{1,10})\s프로젝트/gu,
+  ];
+  for (const pattern of patterns) {
+    for (const match of value.matchAll(pattern)) {
+      const name = match[1].toLocaleLowerCase("ko-KR");
+      if (!/^(주요|해당|전체|신규|기존|각|당|본|전|타|이|그|물류|고객)$/u.test(name)) found.add(name);
+    }
+  }
+  return [...found];
+}
+
+/** Both lines name a party and none is shared: they are about different customers or projects. */
+export function differentParties(a: string, b: string): boolean {
+  const left = entitiesOf(a);
+  const right = entitiesOf(b);
+  return left.length > 0 && right.length > 0 && !left.some((name) => right.includes(name));
+}
+
+export interface Period { year?: number; month?: number; quarter?: number }
+
+/** The reporting period a text states, normalized; relative words (전월) are not a period. */
+export function periodOf(text: string): Period | undefined {
+  const value = normalize(text);
+  const period: Period = {};
+  const dated = /(20\d{2})\s?[.\-/년]\s?(\d{1,2})(?!\d)\s?월?/u.exec(value);
+  const year = dated?.[1] ?? /(20\d{2})\s?년?/u.exec(value)?.[1];
+  if (year) period.year = Number(year);
+  const month = dated?.[2] ?? /(?<![\d.])(\d{1,2})\s?월(?!\s?(말|초|중))/u.exec(value)?.[1];
+  if (month && Number(month) >= 1 && Number(month) <= 12) period.month = Number(month);
+  const quarter = /([1-4])\s?분기|Q([1-4])/u.exec(value);
+  if (quarter) period.quarter = Number(quarter[1] ?? quarter[2]);
+  return Object.keys(period).length ? period : undefined;
+}
+
+/** Unknown on either side is compatible; stated periods must agree (a month sits inside its quarter). */
+export function periodsCompatible(a: Period | undefined, b: Period | undefined): boolean {
+  if (!a || !b) return true;
+  if (a.year && b.year && a.year !== b.year) return false;
+  if (a.month && b.month) return a.month === b.month;
+  if (a.quarter && b.quarter) return a.quarter === b.quarter;
+  if (a.month && b.quarter) return Math.ceil(a.month / 3) === b.quarter;
+  if (a.quarter && b.month) return Math.ceil(b.month / 3) === a.quarter;
+  return true;
+}
+
+export function periodLabel(period: Period | undefined): string | undefined {
+  if (!period) return undefined;
+  const parts = [period.year ? `${period.year}년` : "", period.month ? `${period.month}월` : period.quarter ? `${period.quarter}분기` : ""].filter(Boolean);
+  return parts.length ? parts.join(" ") : undefined;
+}
+
+const UNIT_WON: Record<string, number> = { 조: 1e12, 억: 1e8, 억원: 1e8, 천만원: 1e7, 백만원: 1e6, 만원: 1e4, 천원: 1e3, 원: 1 };
+
+/**
+ * Money amounts in won. A bare number takes the unit stated around it (단위: 백만원);
+ * without a stated unit it is not an amount, so 1,200 is never guessed.
+ */
+export function amountsInWon(text: string, context = ""): number[] {
+  const hint = /단위\s?[:：]?\s?(조|억원|억|천만원|백만원|만원|천원|원)/u.exec(context)?.[1] ?? /\((조|억원|억|천만원|백만원|만원|천원|원)\)/u.exec(context)?.[1];
+  const amounts: number[] = [];
+  for (const match of normalize(text).matchAll(/(\d[\d,]*(?:\.\d+)?)\s?(조|억원|억|천만원|백만원|만원|천원|원)?(?![\d%.,])/gu)) {
+    const unit = match[2] ?? hint;
+    if (!unit) continue;
+    const value = Number(match[1].replace(/,/gu, "")) * UNIT_WON[unit];
+    if (Number.isFinite(value) && value >= 1e4) amounts.push(value);
+  }
+  return amounts;
+}
+
+export function sameAmount(a: readonly number[], b: readonly number[]): boolean {
+  return a.some((left) => b.some((right) => Math.abs(left - right) <= Math.max(left, right) * 0.005));
 }
 
 /** Items that rise are bad news for these metrics. */

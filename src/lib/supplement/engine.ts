@@ -1,6 +1,7 @@
 import type { NormalizedDocument, SourceRef, TableBlock } from "@/domain/document";
 import {
   type SupplementCandidate,
+  type SupplementFileRole,
   type SupplementCheck,
   type SupplementCoverage,
   type SupplementDocType,
@@ -48,6 +49,13 @@ import {
   RESPONSE_CUE,
   SCHEDULE_CUE,
   tokensRelate,
+  amountsInWon,
+  differentParties,
+  periodLabel,
+  periodOf,
+  periodsCompatible,
+  sameAmount,
+  type Period,
   UP_WORD,
 } from "./text";
 import { outlineWorkbook, type SheetTable } from "./workbook";
@@ -80,6 +88,10 @@ export interface Statement {
   tableRow?: boolean;
   /** A significant change read from a workbook change column. */
   change?: Change;
+  /** Reporting period the line belongs to: its own, its section's, or its file's. */
+  period?: Period;
+  /** Evidence-only line (raw data, lookup, hidden sheet): never a gap source or cross-file rebuttal. */
+  reference?: boolean;
 }
 
 interface FileOutline {
@@ -132,8 +144,70 @@ function tableRowTexts(table: TableBlock): Array<{ text: string; source: SourceR
 
 const SENTENCE_END = /([.。!?]|다|요|음|함|됨|임|:)$/u;
 
+/** A title line in a document without heading styles: numbered or marked, short, not a sentence. */
+const DOCX_TITLE = /^([0-9]{1,2}(\.[0-9]{1,2})*[.)]\s|[IVXⅠ-Ⅹ]+\.\s?|[가-하]\.\s|[■□▶●◆]\s?|제\s?\d+\s?[장절]\s?)/u;
+
+/**
+ * Word documents have no reliable page numbers, so the unit is the section:
+ * a heading (style or numbered title) opens one, and every paragraph and
+ * table row below it belongs to it. Locations name the section path and the
+ * table number — never a page.
+ */
+function outlineDocx(document: NormalizedDocument, fileName: string): FileOutline {
+  const statements: Statement[] = [];
+  const path: Array<{ level: number; text: string }> = [];
+  let unit = 0;
+  let tableNumber = 0;
+  let blockNumber = 0;
+  const sectionLabel = () => path.map((entry) => entry.text).join(" > ");
+  const unitsWithText = new Set<number>();
+  for (const block of document.blocks) {
+    if (block.source.locator?.kind === "docx" && block.source.locator.part !== "body") continue;
+    blockNumber += 1;
+    if (block.type === "paragraph") {
+      const text = normalize(block.text);
+      if (!text) continue;
+      const heading = block.role === "heading" || (text.length <= 40 && DOCX_TITLE.test(text) && !/[.다]$/u.test(text));
+      if (heading) {
+        const level = block.headingLevel ?? (/^[0-9]+\.[0-9]/u.test(text) ? 2 : 1);
+        while (path.length && path.at(-1)!.level >= level) path.pop();
+        path.push({ level, text: clip(text.replace(DOCX_TITLE, "").trim() || text, 30) });
+        unit += 1;
+      }
+      const label = sectionLabel() || `문단 ${blockNumber}`;
+      statements.push({ index: statements.length, fileId: document.fileId, text, tokens: contentTokens(text), source: { ...block.source, quote: text }, unit, unitLabel: label, unitTitle: sectionLabel(), heading });
+      unitsWithText.add(unit);
+    } else {
+      tableNumber += 1;
+      const label = `${sectionLabel() ? `${sectionLabel()} · ` : ""}표 ${tableNumber}`;
+      for (const row of tableRowTexts(block)) {
+        statements.push({ index: statements.length, fileId: document.fileId, text: row.text, tokens: contentTokens(row.text), source: row.source, unit, unitLabel: label, unitTitle: sectionLabel() || `표 ${tableNumber}`, heading: false });
+        unitsWithText.add(unit);
+      }
+    }
+    if (statements.length >= MAX_STATEMENTS_PER_FILE) break;
+  }
+  const notes: string[] = [];
+  let complete = true;
+  if (document.warnings.includes("DOCX_CHART_OMITTED")) { complete = false; notes.push("차트 안의 값과 설명은 읽지 않았습니다."); }
+  if (document.warnings.includes("DOCX_NESTED_TABLE_OMITTED")) { complete = false; notes.push("표 안에 들어 있는 표는 읽지 않았습니다."); }
+  if (statements.length >= MAX_STATEMENTS_PER_FILE) { complete = false; notes.push(`분량이 많아 앞부분 ${MAX_STATEMENTS_PER_FILE.toLocaleString("ko-KR")}개 문장까지만 분석했습니다.`); }
+  if (document.warnings.includes("DOCX_IMAGE_OMITTED")) notes.push("이미지 안의 글자는 읽지 않습니다.");
+  if (document.warnings.includes("DOCX_HEADER_FOOTER_OMITTED")) notes.push("머리글·바닥글 일부는 읽지 못했습니다.");
+  if (statements.length === 0) { complete = false; notes.push("읽을 수 있는 본문이 없습니다."); }
+  return {
+    document,
+    fileName,
+    statements,
+    references: [],
+    tables: [],
+    coverage: { fileId: document.fileId, fileName, kind: "docx", unit: "섹션", total: unitsWithText.size, analyzed: unitsWithText.size, complete, notes },
+  };
+}
+
 function outline(document: NormalizedDocument, fileName: string): FileOutline {
   if (document.kind === "xlsx") return { document, fileName, ...outlineWorkbook(document, fileName) };
+  if (document.kind === "docx") return outlineDocx(document, fileName);
   const raw: Array<{ text: string; source: SourceRef; heading: boolean }> = [];
   for (const block of document.blocks) {
     if (block.type === "paragraph") {
@@ -332,6 +406,8 @@ function detectIssue(statement: Statement): Issue | undefined {
   if (!match || !ISSUE_OCCURRENCE.test(text) || ISSUE_RESOLVED.test(text)) return undefined;
   // "원인: …", "영향: …" lines explain a problem already stated; they are not a new one.
   if (/^[\s•\-–·▶■□○●]*(원인|영향|배경|사유|대응|조치|대책|결과|비고|요인)\s?[:：]/u.test(text)) return undefined;
+  // Lines under a 원인 / 영향 / 대응 section explain a problem the report already raised.
+  if (/(원인|영향|배경|사유|대응|조치|대책|요인)[^>]*$/u.test(statement.unitTitle.split(" > ").at(-1) ?? "")) return undefined;
   // Hypothetical wording ("~ 시", "방지를 위해") is not an occurrence.
   if (/(방지|예방|대비하여|대비해|최소화|없도록)/u.test(text)) return undefined;
   // The problem as a short noun phrase: up to three words before it plus its count.
@@ -360,7 +436,7 @@ function isAction(statement: Statement): boolean {
   if (ACTION_DONE.test(text) && !/예정/u.test(text)) return false;
   if (ACTION_WORD.test(text)) return true;
   // Bullets under an action heading are actions even without a verb.
-  return ACTION_HEADING.test(statement.unitTitle) && text.length >= 6 && !OWNER_CUE.test(text) && !SCHEDULE_CUE.test(text) && !/^(구분|항목|내용)$/u.test(text);
+  return ACTION_HEADING.test(statement.unitTitle) && text.length >= 6 && !/^[\s•\-–·]*(담당|일정|기한|완료\s?(목표|예정)|책임)\s?[:：]/u.test(text) && !/^(구분|항목|내용)$/u.test(text);
 }
 
 function isConclusion(statement: Statement): boolean {
@@ -398,7 +474,7 @@ function inUnit(all: readonly Statement[], statement: Statement): Statement[] {
  */
 function rebut(all: readonly Statement[], origin: Statement, cue: RegExp, subjectTokens: readonly string[], options: { sameUnit?: boolean; needSubject?: boolean; analysisSection?: boolean } = {}): Statement | undefined {
   return all.find((other) => {
-    if (other === origin || !cue.test(other.text)) return false;
+    if (other === origin || !cue.test(other.text) || differentParties(origin.text, other.text)) return false;
     const sameUnit = other.fileId === origin.fileId && other.unit === origin.unit;
     if (sameUnit && options.sameUnit !== false && !options.needSubject) return true;
     const titleRelates = tokensRelate(subjectTokens, contentTokens(other.unitTitle));
@@ -733,75 +809,248 @@ function wording(kind: string, members: readonly Member[]): { title: string; mes
 
 export interface SupplementInput { document: NormalizedDocument; fileName: string }
 
+/** The kind of line that would supply each check's missing information. */
+const CHECK_CUES: Partial<Record<SupplementCheck, RegExp>> = {
+  cause: CAUSE_CUE,
+  baseline: BASELINE_CUE,
+  target: TARGET_HEADER,
+  impact: IMPACT_CUE,
+  response: RESPONSE_CUE,
+  owner: OWNER_CUE,
+  schedule: SCHEDULE_CUE,
+  conclusion: REASON_CUE,
+};
+
+/**
+ * Decision information worth carrying into a report when another file has it.
+ * Owner, schedule, period and unit stay where they are managed.
+ */
+const REPORT_TITLES: Partial<Record<SupplementCheck, string>> = {
+  cause: "원인 설명을 보고자료에 추가하면 좋습니다",
+  baseline: "비교 기준을 보고자료에 추가하면 좋습니다",
+  target: "목표·예산 기준을 보고자료에 추가하면 좋습니다",
+  impact: "영향 설명을 보고자료에 추가하면 좋습니다",
+  response: "대응 내용을 보고자료에 추가하면 좋습니다",
+  conclusion: "결론 근거를 보고자료에 추가하면 좋습니다",
+};
+
+/**
+ * A file's part in the set, from its name, format and structure. A deck is a
+ * presentation unless it is named as analysis or reference; a PDF is a report
+ * only when it reads like one. Anything unclear stays `unknown`.
+ */
+function roleOfFile(entry: FileOutline): SupplementFileRole {
+  const name = entry.fileName.replace(/\.[^.]+$/u, "");
+  const titles = [...new Set(entry.statements.filter((statement) => statement.heading).map((statement) => statement.text))];
+  if (/(회의|공문|참고|가이드|매뉴얼|안내|규정)/u.test(name)) return "reference";
+  if (/(분석|원인|요인|세부|analysis|detail)/iu.test(name) || (titles.length >= 2 && titles.filter((title) => ANALYSIS_TITLE.test(title)).length * 2 > titles.length)) return "analysis";
+  if (entry.document.kind === "xlsx") return "data";
+  if (entry.document.kind === "pptx") return "report";
+  const reportName = /(보고|결과|report|요약|브리핑|임원|경영|고객|제출|최종)/iu.test(name);
+  const reportShape = entry.statements.some((statement) => CONCLUSION_HEADING.test(statement.unitTitle) || ACTION_HEADING.test(statement.unitTitle));
+  return reportName || reportShape ? "report" : "unknown";
+}
+
+/**
+ * A line of another file may speak about the same thing only when it names the
+ * same subject (or the same amount after unit normalization) and no other
+ * party. The deterministic search and the model's evidence both use this test,
+ * so a merely nearby line from another upload is never offered as evidence.
+ */
+function linkable(own: readonly Statement[], subjectTokens: readonly string[], other: Statement, ownAmounts: readonly number[]): boolean {
+  if (other.reference || other.heading || own.some((statement) => differentParties(statement.text, other.text))) return false;
+  return tokensRelate(subjectTokens, other.tokens)
+    || tokensRelate(subjectTokens, contentTokens(other.unitTitle))
+    || (ownAmounts.length > 0 && sameAmount(ownAmounts, amountsInWon(other.text, other.unitTitle)));
+}
+
+/**
+ * Where another file supplies the same information: the check's cue, the same
+ * subject (or the same money amount after unit normalization), the same party
+ * and a compatible period. A match that fails only on period is kept as a
+ * weak link and never used as a rebuttal.
+ */
+function crossEvidence(own: readonly Statement[], subjectTokens: readonly string[], check: SupplementCheck, others: readonly Statement[]): { direct: Statement[]; weak?: Statement } {
+  const cue = CHECK_CUES[check];
+  const lead = own[0];
+  if (!cue || !lead) return { direct: [] };
+  const ownAmounts = own.flatMap((statement) => amountsInWon(statement.text, statement.unitTitle));
+  const direct: Statement[] = [];
+  let weak: Statement | undefined;
+  for (const other of others) {
+    if (!cue.test(other.text) || !linkable(own, subjectTokens, other, ownAmounts)) continue;
+    if (!periodsCompatible(lead.period, other.period)) { weak ??= other; continue; }
+    direct.push(other);
+  }
+  return { direct: direct.slice(0, 3), ...(weak ? { weak } : {}) };
+}
+
+const CAUSE_FILLER = /^(원인|요인|주요|주된|영향|증가|감소|상승|하락|확대|축소|가장|핵심|기인|때문|이유|배경|분석|설명)$/u;
+
+/**
+ * Explanation conflicts: two files give a main cause for the same change and
+ * name no factor in common. Reported for review, never resolved by choosing one.
+ */
+function conflictCandidates(outlines: readonly FileOutline[], label: (statement: Statement) => string): SupplementCandidate[] {
+  const changes: Array<{ statement: Statement; change: Change }> = [];
+  for (const entry of outlines) {
+    for (const statement of entry.statements) {
+      const change = statement.change ?? (statement.tableRow ? undefined : detectChange(statement));
+      if (change && (change.percent ?? 100) >= 10 && !changes.some((seen) => seen.change.subject === change.subject)) changes.push({ statement, change });
+    }
+  }
+  const found: SupplementCandidate[] = [];
+  for (const { statement, change } of changes) {
+    const subject = [change.subject];
+    const byFile = outlines.map((entry) => entry.statements.filter((line) => line !== statement && CAUSE_CUE.test(line.text)
+      && (tokensRelate(subject, line.tokens) || tokensRelate(subject, contentTokens(line.unitTitle)))
+      && periodsCompatible(statement.period, line.period) && !differentParties(statement.text, line.text))).filter((lines) => lines.length > 0);
+    if (byFile.length < 2) continue;
+    const factors = byFile.map((lines) => new Set(lines.flatMap((line) => line.tokens).filter((token) => !CAUSE_FILLER.test(token) && !tokensRelate(subject, [token]))));
+    const main = byFile.map((lines) => lines.some((line) => /(주요|주된|가장\s?큰|핵심)/u.test(line.text)));
+    const pair = byFile.findIndex((_, left) => byFile.some((__, right) => right > left && (main[left] || main[right])
+      && factors[left].size > 0 && factors[right].size > 0 && ![...factors[left]].some((token) => factors[right].has(token))));
+    if (pair < 0) continue;
+    const lines = byFile.map((entries) => entries[0]);
+    found.push({
+      id: `conflict:${change.subject}`,
+      fileId: statement.fileId,
+      check: "cause",
+      severity: "warning",
+      status: "missing",
+      scope: "conflict",
+      title: "원인 설명이 자료별로 다릅니다",
+      message: `${change.subject} 변화의 주요 원인을 자료마다 다르게 설명하고 있습니다. 어느 설명이 맞는지 자료 간 확인이 필요합니다.`,
+      reason: "같은 변화에 대해 자료마다 설명이 다르면 보고받는 사람이 어느 쪽을 기준으로 판단할지 알 수 없습니다.",
+      current: clip(statement.text, 160),
+      sources: [statement.source],
+      locations: [label(statement)],
+      additions: ["자료 간 원인 설명 정리", "요인별 영향 규모"],
+      question: `${change.subject} 변화의 주요 원인은 무엇입니까? 자료마다 설명이 다릅니다.`,
+      evidence: lines.map((line) => line.source),
+      evidenceLocations: lines.map(label),
+      requirement: "",
+      topic: `conflict:${change.subject}`,
+      reportEligible: false,
+      reportTitle: "",
+    });
+  }
+  return found;
+}
+
 export function buildSupplementDraft(inputs: readonly SupplementInput[]): SupplementDraft {
   const outlines = inputs.map((input) => outline(input.document, input.fileName));
-  const all = outlines.flatMap((entry) => [...entry.statements, ...entry.references]);
+  const multi = outlines.length > 1;
+  const fileNameOf = new Map(outlines.map((entry) => [entry.document.fileId, entry.fileName]));
+  const label = (statement: Statement) => multi ? `${fileNameOf.get(statement.fileId)} / ${statement.unitLabel}` : statement.unitLabel;
+
+  // Periods: the line's own, else its slide/page/sheet title, else the file's.
+  const filePeriods = new Map<string, Period | undefined>();
+  for (const entry of outlines) {
+    const titles = entry.statements.filter((statement) => statement.heading).slice(0, 2).map((statement) => statement.text).join(" ");
+    const filePeriod = periodOf(entry.fileName) ?? periodOf(titles || entry.statements.slice(0, 2).map((statement) => statement.text).join(" "));
+    filePeriods.set(entry.document.fileId, filePeriod);
+    for (const statement of entry.statements) statement.period = periodOf(statement.text) ?? periodOf(statement.unitTitle) ?? filePeriod;
+    for (const statement of entry.references) {
+      statement.reference = true;
+      statement.period = periodOf(statement.text) ?? periodOf(statement.unitTitle) ?? filePeriod;
+    }
+  }
+
   const files: SupplementFileSummary[] = [];
   const candidates: SupplementCandidate[] = [];
   const origins = new Map<string, Statement[]>();
+  const pools = new Map<string, Statement[]>();
+  const incomplete = outlines.filter((entry) => !entry.coverage.complete);
   let resolvedCount = 0;
 
   for (const entry of outlines) {
     const docType = classify(entry.fileName, entry.statements);
-    files.push({ fileId: entry.document.fileId, fileName: entry.fileName, docType });
-    const { members, resolved } = candidatesFor(entry, docType, all);
+    const role = roleOfFile(entry);
+    const period = periodLabel(filePeriods.get(entry.document.fileId));
+    files.push({ fileId: entry.document.fileId, fileName: entry.fileName, docType, role, ...(period ? { period } : {}) });
+    // File first: its own lines, including its evidence-only sheets.
+    const own = [...entry.statements, ...entry.references];
+    const { members, resolved } = candidatesFor(entry, docType, own);
     resolvedCount += resolved;
+    // Then the other files: their report and analysis lines, never raw data rows.
+    const others = outlines.filter((other) => other !== entry).flatMap((other) => other.statements);
     const groups = new Map<string, Member[]>();
     for (const member of members) groups.set(member.groupKey, [...(groups.get(member.groupKey) ?? []), member]);
-    const limitation = entry.coverage.complete ? undefined : entry.coverage.notes.join(" ");
+    // Absence is only proven when every file of the set was read in full.
+    const unread = entry.coverage.complete
+      ? multi && incomplete.length > 0 ? incomplete.map((other) => `${other.fileName}: ${other.coverage.notes.join(" ")}`).join(" ") : undefined
+      : `${multi ? `${entry.fileName}: ` : ""}${entry.coverage.notes.join(" ")}`;
     for (const [key, group] of groups) {
       const ordered = [...group].sort((a, b) => a.statement.index - b.statement.index);
       const kind = key === "owner+schedule" ? key : ordered[0].check;
       const text = wording(kind, ordered);
       const severity = ordered.reduce<SupplementSeverity>((best, member) => SEVERITY_RANK[member.severity] < SEVERITY_RANK[best] ? member.severity : best, "suggestion");
-      const locations = [...new Set(ordered.map((member) => member.statement.unitLabel))];
       const id = `${entry.document.fileId}:${key}`;
       origins.set(id, ordered.flatMap((member) => member.own ?? [member.statement]));
+      const subjectTokens = [...new Set(ordered.flatMap((member) => member.subjectTokens))];
+      const ownAmounts = ordered.flatMap((member) => amountsInWon(member.statement.text, member.statement.unitTitle));
+      pools.set(id, [...own, ...others.filter((other) => periodsCompatible(ordered[0].statement.period, other.period)
+        && linkable(ordered.map((member) => member.statement), subjectTokens, other, ownAmounts))]);
+      const cross = multi ? crossEvidence(ordered.map((member) => member.statement), subjectTokens, ordered[0].check, others) : { direct: [] };
+      const message = multi ? text.message.replace(/현재 자료에서/u, "업로드된 자료 전체에서") : text.message;
+      const family = familyOf(ordered[0].subject);
       candidates.push({
         id,
         fileId: entry.document.fileId,
         check: ordered[0].check,
         severity,
-        status: limitation ? "unverified" : "missing",
+        status: unread ? "unverified" : "missing",
+        scope: "all",
         title: text.title,
-        message: limitation ? `${text.message.replace(/ 현재 자료에서 /u, " 현재 읽은 범위에서 ")}` : text.message,
+        message: unread ? message.replace(/(현재 자료에서|업로드된 자료 전체에서)/u, "현재 읽은 범위에서") : message,
         reason: REASONS[kind],
         current: clip(ordered[0].statement.text, 160),
         sources: ordered.map((member) => member.statement.source),
-        locations,
+        locations: [...new Set(ordered.map((member) => label(member.statement)))],
         additions: text.additions,
         ...(severity !== "suggestion" && text.question ? { question: text.question } : {}),
-        ...(limitation ? { limitation: `읽지 못한 영역에 관련 내용이 있을 수 있어 확정하지 않았습니다. ${limitation}` } : {}),
+        ...(unread ? { limitation: `읽지 못한 영역에 관련 내용이 있을 수 있어 확정하지 않았습니다. ${unread}` } : {}),
+        ...(cross.direct.length ? { evidence: cross.direct.map((line) => line.source), evidenceLocations: cross.direct.map(label) } : {}),
+        ...(cross.weak ? { linkNote: `${label(cross.weak)}에 관련 가능성이 있는 설명이 있으나 기간(${periodLabel(cross.weak.period) ?? "다름"})이 달라 직접 근거로 연결하지 않았습니다.` } : {}),
         requirement: text.requirement,
+        topic: `${kind}:${family?.key ?? ordered[0].subject}:${ordered[0].change?.direction ?? ""}`,
+        reportEligible: role === "report" && REPORT_TITLES[ordered[0].check] !== undefined && severity !== "suggestion",
+        reportTitle: REPORT_TITLES[ordered[0].check] ?? "",
       });
     }
   }
+
+  if (multi) candidates.push(...conflictCandidates(outlines, label));
 
   return {
     files,
     coverage: outlines.map((entry) => entry.coverage),
     candidates,
-    reviews: reviewBatches(candidates, origins, all),
+    reviews: reviewBatches(candidates.filter((candidate) => candidate.scope === "all"), origins, pools),
     resolvedCount,
   };
 }
 
 /**
  * Related evidence for the meaning-level rebuttal: the same subject, the
- * same metric family, or the same slide/page, never the candidate's own lines.
+ * same metric family, the same slide/page, or a section titled for the
+ * subject — never the candidate's own lines, never another party's.
  */
-function relatedEvidence(own: readonly Statement[], all: readonly Statement[]): Statement[] {
+function relatedEvidence(own: readonly Statement[], pool: readonly Statement[]): Statement[] {
   const origins = new Set(own);
   const originTexts = new Set(own.map((statement) => statement.text));
   const originUnits = new Set([...origins].map((statement) => `${statement.fileId}:${statement.unit}`));
   const subjectTokens = [...origins].flatMap((statement) => statement.tokens);
-  return all
-    .filter((statement) => !origins.has(statement) && !originTexts.has(statement.text) && !statement.heading)
+  return pool
+    .filter((statement) => !origins.has(statement) && !originTexts.has(statement.text) && !statement.heading
+      && !own.some((origin) => differentParties(origin.text, statement.text)))
     .map((statement) => {
       const shared = statement.tokens.filter((token) => subjectTokens.includes(token)).length;
       const family = tokensRelate(subjectTokens, statement.tokens) ? 2 : 0;
+      const titled = tokensRelate(subjectTokens, contentTokens(statement.unitTitle)) ? 2 : 0;
       const unit = originUnits.has(`${statement.fileId}:${statement.unit}`) ? 1 : 0;
-      return { statement, score: shared * 2 + family + unit };
+      return { statement, score: shared * 2 + family + titled + unit };
     })
     .filter((entry) => entry.score >= 2)
     .sort((a, b) => b.score - a.score || a.statement.index - b.statement.index)
@@ -809,18 +1058,18 @@ function relatedEvidence(own: readonly Statement[], all: readonly Statement[]): 
     .map((entry) => entry.statement);
 }
 
-function reviewBatches(candidates: readonly SupplementCandidate[], origins: ReadonlyMap<string, Statement[]>, all: readonly Statement[]): SupplementReviewBatch[] {
+function reviewBatches(candidates: readonly SupplementCandidate[], origins: ReadonlyMap<string, Statement[]>, pools: ReadonlyMap<string, Statement[]>): SupplementReviewBatch[] {
   const batches: SupplementReviewBatch[] = [];
   let batch: SupplementReviewBatch | undefined;
   let handleOf = new Map<Statement, string>();
   let chars = 0;
   for (const candidate of candidates) {
     const statements = origins.get(candidate.id) ?? [];
-    const evidence = relatedEvidence(statements, all);
+    const evidence = relatedEvidence(statements, pools.get(candidate.id) ?? []);
     // Nothing related anywhere: there is nothing a re-check could find.
     if (evidence.length === 0) continue;
     const newItems = evidence.filter((statement) => !handleOf.has(statement));
-    const newChars = newItems.reduce((sum, statement) => sum + Math.min(statement.text.length, REVIEW_ITEM_CHARS), 0);
+    const newChars = newItems.reduce((sum, statement) => sum + Math.min(statement.text.length + 9, REVIEW_ITEM_CHARS), 0);
     if (!batch || batch.checks.length >= SUPPLEMENT_REVIEW_MAX_CHECKS || batch.items.length + newItems.length > MAX_EVIDENCE_ITEMS || chars + newChars > MAX_EVIDENCE_CHARS) {
       batch = { checks: [], items: [], sources: {} };
       batches.push(batch);
@@ -832,7 +1081,8 @@ function reviewBatches(candidates: readonly SupplementCandidate[], origins: Read
       if (!handle) {
         handle = `E${batch!.items.length + 1}`;
         handleOf.set(statement, handle);
-        const text = clip(statement.text, REVIEW_ITEM_CHARS);
+        // Lines from another upload are marked so the model weighs them as outside evidence.
+        const text = clip(`${statement.fileId !== candidate.fileId ? "[다른 자료] " : ""}${statement.text}`, REVIEW_ITEM_CHARS);
         batch!.items.push({ handle, text });
         batch!.sources[handle] = statement.source;
         chars += text.length;
