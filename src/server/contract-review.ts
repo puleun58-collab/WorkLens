@@ -138,6 +138,10 @@ export async function reviewContract(text: string, sources: ReviewSources, now: 
   }
 
   async function resolvePrecedents(issue: IssueDefinition): Promise<{ keys: string[]; status: SourceStatus }> {
+    // An issue can have an in-domain precedent question without an applicable
+    // statute (e.g. renewal in an NDA). Never search a wholly excluded area.
+    const domains = issue.precedentDomains ?? issue.laws.map((law) => law.domain);
+    if (!domains.some((domain) => profile.domains.includes(domain))) return { keys: [], status: "not_searched" };
     const queries = precedentQueries(issue, profile);
     if (!queries.length || !issue.holdingTerms) return { keys: [], status: "not_searched" };
     let failed = 0;
@@ -174,9 +178,15 @@ export async function reviewContract(text: string, sources: ReviewSources, now: 
           continue;
         }
         const sentence = holding ? holdingRelevance(holding, issue, profile) : undefined;
-        const key = `precedent:${entry.id}`;
-        // Companion cases often repeat one holding word for word; it is shown once.
-        const repeated = sentence !== undefined && Object.values(precedents).some((other) => other.key !== key && other.holding === sentence);
+        const baseKey = `precedent:${entry.id}`;
+        const existing = precedents[baseKey];
+        // One judgment may contain separate relevant holdings for separate issues.
+        // Keep each issue's excerpt tied to the case actually read, rather than
+        // letting the first issue's excerpt silently stand in for another.
+        const key = existing && existing.holding !== sentence ? `${baseKey}:${issue.id}` : baseKey;
+        // Companion cases often repeat one holding word for word; show it once
+        // within this issue without hiding a relevant citation from another.
+        const repeated = sentence !== undefined && keys.some((other) => precedents[other]?.holding === sentence);
         if (!sentence || repeated) {
           stats.excludedPrecedents += 1;
           continue;
@@ -195,19 +205,21 @@ export async function reviewContract(text: string, sources: ReviewSources, now: 
     return { keys: [], status: failed === queries.length ? "failed" : "none" };
   }
 
-  // Issues that share a legal question reuse one precedent search per group.
-  const issueIds = [...new Set(clauses.flatMap((clause) => clause.issues.map((issue) => issue.id)))];
-  const groupResults = new Map<string, Promise<{ keys: string[]; status: SourceStatus }>>();
+  // Resolve each issue against its own search terms and holding gate. Sharing a
+  // group result could attach a price-change case to a service-suspension clause,
+  // or skip the latter's query entirely. The lookup memo still reuses identical
+  // statute, query and holding requests across issues and clauses.
+  // Resolve all high-priority stages before lower-priority searches consume
+  // the fixed time budget; identical lookups remain memoized and concurrency-bound.
   const resolved = new Map<string, Promise<[{ keys: string[]; status: SourceStatus }, { keys: string[]; status: SourceStatus }]>>();
-  for (const id of issueIds) {
-    const issue = issueDefinition(id)!;
-    const group = issue.group ?? issue.id;
-    if (!groupResults.has(group)) {
-      const representative = issueIds.map((other) => issueDefinition(other)!)
-        .find((other) => (other.group ?? other.id) === group && other.queries?.length) ?? issue;
-      groupResults.set(group, resolvePrecedents(representative));
+  const issueIds = [...new Set(clauses.flatMap((clause) => clause.issues.map((issue) => issue.id)))];
+  for (const severity of ["high", "medium", "low"] as const) {
+    const tier = issueIds.filter((id) => issueDefinition(id)!.severity === severity);
+    for (const id of tier) {
+      const issue = issueDefinition(id)!;
+      resolved.set(id, Promise.all([resolveLaws(issue), resolvePrecedents(issue)]));
     }
-    resolved.set(id, Promise.all([resolveLaws(issue), groupResults.get(group)!]));
+    await Promise.all(tier.map((id) => resolved.get(id)!));
   }
 
   const reviewedClauses: ContractReview["clauses"] = [];

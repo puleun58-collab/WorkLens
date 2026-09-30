@@ -5,6 +5,9 @@ import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { createPdf } from "../fixtures";
 import { fullResearchFixture } from "../fixtures/research";
+import { classifyDocument, documentRisk, extractKeyFacts, reviewClauses, splitClauses, type ContractReview } from "../../src/lib/contract-review";
+import { B2B_SERVICE_CONTRACT, SUPPLY_CONTRACT, NDA_CONTRACT } from "../fixtures/contracts";
+import { CLEAN_WORK_RULES } from "../fixtures/review-scenarios";
 
 test("TOOLS navigation keeps document files in their own workspace", async ({ page }) => {
   await page.goto("/");
@@ -942,7 +945,7 @@ test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route wit
   const sample = "제1조 갑은 계약 체결 즉시 대금 전액을 지급한다.\n제2조 을은 어떠한 경우에도 계약을 해지할 수 없다.";
   await documentText.fill(sample);
   await form.getByRole("button", { name: "문서 검토" }).click();
-  await expect(page.getByRole("heading", { name: "검토 결과" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "검토 결과", exact: true })).toBeVisible();
   const review = page.locator(".contract-review");
   await expect(review.locator(".research-overview .research-eyebrow")).toHaveText("문서 검토");
   await expect(review.locator(".research-overview h3")).toHaveText("관련 근거를 확인했습니다");
@@ -950,13 +953,16 @@ test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route wit
   await expect(review).toContainText("사업자 간");
   await expect(review).toContainText("2026년 1월 1일부터 2026년 12월 31일까지");
   const clause = review.locator(".contract-review-clause");
-  await expect(clause.getByRole("heading", { level: 3 })).toHaveText("제2조");
+  await expect(clause.getByRole("heading", { level: 4 })).toContainText("제2조");
   await expect(clause).toContainText("중도해지 제한");
   await expect(clause).toContainText("을은 어떠한 경우에도 계약을 해지할 수 없다.");
-  await expect(clause.locator("summary")).toContainText("약관의 규제에 관한 법률 제9조 (계약의 해제ㆍ해지)");
-  await expect(clause).toContainText("이 계약이 약관에 해당하는 경우에 적용됩니다.");
-  await expect(clause).toContainText("현재 검색 범위에서 직접 관련성이 높은 판례를 확인하지 못했습니다.");
-  await expect(review).not.toContainText(/search_|get_|body_search|full=/u);
+  await expect(clause.locator(".contract-review-issue dt")).toHaveText(["원문", "검토 결과", "우선순위", "근거"]);
+  const lawEvidence = review.locator(".contract-review-details .law-detail-source");
+  await expect(lawEvidence.locator("summary")).toHaveText(/관련 법령 1건 보기/u);
+  await expect(lawEvidence).not.toHaveAttribute("open", "");
+  await lawEvidence.locator("summary").click();
+  await expect(lawEvidence).toContainText("약관의 규제에 관한 법률 제9조 (계약의 해제ㆍ해지)");
+  await expect(lawEvidence).toContainText("이 계약이 약관에 해당하는 경우에 적용됩니다.");
 
   expect(bodies.slice(2)).toEqual([
     { task: "dispute_prep", query: "직장 내 괴롭힘 판단 기준", domain: "labor" },
@@ -1251,6 +1257,126 @@ test("RESEARCH separates a verified article from search candidates and hides int
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
+test("document review keeps issue guidance ahead of independent, grouped source disclosures on desktop and mobile", async ({ page }) => {
+  const penalty = [...B2B_SERVICE_CONTRACT.split("\n").slice(0, 2), B2B_SERVICE_CONTRACT.split("\n")[7]].join("\n");
+  const sale = [...SUPPLY_CONTRACT.split("\n").slice(0, 2), SUPPLY_CONTRACT.split("\n")[3]].join("\n");
+  const nda = [...NDA_CONTRACT.split("\n").slice(0, 2), NDA_CONTRACT.split("\n")[4]].join("\n");
+  const excerpt = "조문에 기재된 장문의 확인할 사항과 적용 조건 ".repeat(30);
+  const partial = [...B2B_SERVICE_CONTRACT.split("\n").slice(0, 2), B2B_SERVICE_CONTRACT.split("\n")[7], B2B_SERVICE_CONTRACT.split("\n")[12]].join("\n");
+  const lawEntries: ContractReview["laws"] = {
+    "law-a": { key: "law-a", law: "민법", jo: "제398조", title: "배상액의 예정", excerpt },
+    "law-b": { key: "law-b", law: "약관의 규제에 관한 법률", jo: "제8조", title: "손해배상액의 예정", excerpt },
+  };
+  const precedentEntries: ContractReview["precedents"] = {
+    "case-a": { key: "case-a", id: "penalty-a", title: "위약금 과다 약정", caseNumber: "2024다101", court: "대법원", date: "20240101", holding: "위약금 약정이 부당히 과다한 경우 손해배상액의 예정 감액 여부", scope: "판시사항" },
+    "case-b": { key: "case-b", id: "penalty-b", title: "손해배상 예정액", caseNumber: "2024다102", court: "대법원", date: "20240202", holding: "손해배상액의 예정이 부당히 과다하면 감액 가능 여부", scope: "판시사항" },
+  };
+  const fixtureReview = (input: string, mode: "both" | "statute" | "precedent" | "partial" | "excluded" | "empty"): ContractReview => {
+    const document = classifyDocument(input);
+    const clauses = reviewClauses(splitClauses(input), document);
+    const lawKeys = mode === "both" ? ["law-a", "law-b"] : mode === "statute" ? ["law-a"] : [];
+    const caseKeys = mode === "both" || mode === "precedent" || mode === "partial" ? ["case-a", "case-b"] : [];
+    return {
+      document, risk: documentRisk(clauses), facts: extractKeyFacts(clauses),
+      clauses: clauses.filter((clause) => clause.issues.length > 0).map((clause, clauseIndex) => ({
+        ...clause, issues: clause.issues.map((issue, issueIndex) => ({
+          ...issue,
+          laws: clauseIndex === 0 && issueIndex === 0 ? lawKeys : [],
+          precedents: clauseIndex === 0 && issueIndex === 0 ? caseKeys : [],
+          lawStatus: lawKeys.length ? "found" as const : "none" as const,
+          precedentStatus: caseKeys.length ? "found" as const : "none" as const,
+        })),
+      })),
+      laws: Object.fromEntries(lawKeys.map((key) => [key, lawEntries[key]])),
+      precedents: Object.fromEntries(caseKeys.map((key) => [key, precedentEntries[key]])),
+      stats: { calls: 0, queries: 0, excludedPrecedents: mode === "excluded" ? 1 : 0, excludedLaws: 0 },
+    };
+  };
+  const fixtures = {
+    both: { input: penalty, review: fixtureReview(penalty, "both"), status: "matched", title: "관련 근거를 확인했습니다", law: 2, precedent: 2, summary: "검토 조항 1개 · 높은 우선순위 1건" },
+    statute: { input: sale, review: fixtureReview(sale, "statute"), status: "matched", title: "관련 근거를 확인했습니다", law: 1, precedent: 0, summary: "검토 조항 1개 · 높은 우선순위 1건" },
+    precedent: { input: nda, review: fixtureReview(nda, "precedent"), status: "matched", title: "관련 근거를 확인했습니다", law: 0, precedent: 2, summary: "검토 조항 1개 · 높은 우선순위 1건" },
+    partial: { input: partial, review: fixtureReview(partial, "partial"), status: "partial", title: "관련 근거를 일부 확인했습니다", law: 0, precedent: 2, summary: "검토 조항 2개 · 높은 우선순위 1건" },
+    excluded: { input: `${penalty}\n제7조(중복) 이용자는 잔여기간 이용료의 50%를 위약금으로 지급한다.`, review: fixtureReview(`${penalty}\n제7조(중복) 이용자는 잔여기간 이용료의 50%를 위약금으로 지급한다.`, "excluded"), status: "weak", title: "직접 관련된 근거가 충분하지 않습니다", law: 0, precedent: 0, summary: "검토 조항 2개 · 높은 우선순위 1건" },
+    clean: { input: CLEAN_WORK_RULES, review: fixtureReview(CLEAN_WORK_RULES, "empty"), status: "none", title: "검토할 쟁점을 찾지 못했습니다", law: 0, precedent: 0, summary: "검토 조항 0개 · 높은 우선순위 0건" },
+  };
+  const errors: string[] = [];
+  page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
+  await page.route("**/api/law/research", (route) => {
+    const body = route.request().postDataJSON() as { task: string; text: string };
+    const match = Object.values(fixtures).find(({ input }) => input === body.text);
+    if (body.task !== "document_review" || !match) throw new Error("Unexpected document review request");
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { found: true, task: body.task, text: "", markers: [], review: match.review } }) });
+  });
+  await page.goto("/");
+  await expect(page.locator(".app-shell")).toHaveAttribute("data-hydrated", "true");
+  await page.getByRole("button", { name: "법령", exact: true }).click();
+  await page.locator(".law-view-tabs").getByRole("button", { name: "종합 리서치" }).click();
+  const form = page.getByRole("form", { name: "종합 리서치 입력" });
+  await form.getByLabel("리서치 유형").selectOption("document_review");
+  const input = form.getByLabel("검토할 문서 내용");
+
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    for (const [name, fixture] of Object.entries(fixtures)) {
+      await input.fill(fixture.input);
+      await form.getByRole("button", { name: "문서 검토" }).click();
+      const review = page.locator(".contract-review");
+      await expect(review.locator(".research-overview h3"), name).toHaveAttribute("data-status", fixture.status);
+      await expect(review.locator(".research-overview h3"), name).toHaveText(fixture.title);
+      const sections = await review.locator(":scope > .legal-analysis-section").evaluateAll((nodes) => nodes.map((node) => node.classList[1]));
+      expect(sections.slice(0, 3), name).toEqual(["contract-review-overview", "contract-review-summary", "contract-review-results"]);
+      await expect(review.locator(".contract-review-overview"), name).toContainText(fixture.review.document.label);
+      await expect(review.locator(".contract-review-overview"), name).toContainText(fixture.review.risk.level);
+      await expect(review.locator(".contract-review-summary"), name).toContainText(fixture.summary);
+      const firstIssue = review.locator(".contract-review-issue").first();
+      if (name === "clean") {
+        await expect(firstIssue).toHaveCount(0);
+        await expect(review.locator(".contract-review-results")).toContainText("검토할 쟁점을 찾지 못했습니다.");
+      } else {
+        await expect(firstIssue.locator("dt"), name).toHaveText(["원문", "검토 결과", "우선순위", "수정 제안", "근거"]);
+        await expect(firstIssue.locator("dd").nth(0), name).toHaveText(fixture.review.clauses[0].issues[0].fact);
+        await expect(firstIssue.locator("dd").nth(3), name).toHaveText(fixture.review.clauses[0].issues[0].suggestion);
+      }
+      const detail = review.locator(".contract-review-detail").first();
+      const disclosures = detail.locator(".law-detail-source");
+      if (fixture.law + fixture.precedent === 0) {
+        await expect(review.locator(".contract-review-details")).toHaveCount(0);
+        if (name !== "clean") await expect(firstIssue.locator("dd").last()).toContainText("확인된 직접 근거 없음");
+      } else {
+        await expect(review.locator(".contract-review-details")).toBeVisible();
+        await expect(disclosures).toHaveCount(Number(fixture.law > 0) + Number(fixture.precedent > 0));
+        for (const disclosure of await disclosures.all()) await expect(disclosure).not.toHaveAttribute("open", "");
+        if (fixture.law) {
+          const law = disclosures.first();
+          await expect(law.locator("summary")).toContainText(`관련 법령 ${fixture.law}건 보기`);
+          await law.locator("summary").click();
+          await expect(law.locator("li")).toHaveCount(fixture.law);
+          await expect(law.locator("pre").first()).toContainText(excerpt.slice(0, 100));
+          if (fixture.precedent) await expect(disclosures.last()).not.toHaveAttribute("open", "");
+        }
+        if (fixture.precedent) {
+          const precedent = disclosures.last();
+          await expect(precedent.locator("summary")).toContainText(`관련 판례 ${fixture.precedent}건 보기`);
+          await precedent.locator("summary").click();
+          await expect(precedent.locator("li")).toHaveCount(fixture.precedent);
+          await expect(precedent).toContainText("2024다101");
+          if (fixture.law) await expect(disclosures.first()).toHaveAttribute("open", "");
+          await precedent.locator("summary").click();
+          await expect(precedent).not.toHaveAttribute("open", "");
+        }
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${name} @ ${viewport.width}`).toBe(true);
+    }
+  }
+  await form.getByLabel("리서치 유형").selectOption("full_research");
+  await expect(page.locator(".contract-review")).toHaveCount(0);
+  await expect(form.getByLabel("질문 또는 검색어")).toBeVisible();
+  await page.locator(".law-view-tabs").getByRole("button", { name: "법령 검색" }).click();
+  await expect(page.locator(".contract-review")).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
 
 test("law views use the shared tool content width with one left and right edge", async ({ page }) => {
   await page.route("**/api/law", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { found: true, laws: [{ name: "근로기준법", mst: "283457", status: "현행" }] } }) }));
