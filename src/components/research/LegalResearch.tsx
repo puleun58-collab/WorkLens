@@ -28,7 +28,7 @@ const TASK_HELP: Record<LawResearchTask, { description: string; placeholder: str
   action_basis: { description: "처분 또는 허가의 근거 조문과 확인 가능한 불복 자료를 찾습니다.", placeholder: "예: 식품위생법상 영업정지의 근거와 요건" },
   dispute_prep: { description: "쟁송에 참고할 법령, 판례, 결정례를 자료별로 나눠 살펴봅니다.", placeholder: "예: 부당해고 구제 신청 관련 판례와 결정례" },
   amendment_track: { description: "법령의 개정 이력이나 지정한 두 시점의 조문 변화를 확인합니다.", placeholder: "예: 근로기준법 제60조 개정 내용" },
-  ordinance_compare: { description: "두 지역의 같은 주제 조례를 찾아 조문 원문을 나란히 보여줍니다.\n양쪽 원문이 확인된 항목만 비교합니다.", placeholder: "예: 주차장 설치 기준" },
+  ordinance_compare: { description: "두 지역의 같은 주제 조례를 찾아 확인된 조문 원문을 비교합니다.", placeholder: "예: 주차장 설치 기준" },
   procedure_detail: { description: "절차의 근거 조문과 제출 서식을 찾아 확인합니다.", placeholder: "예: 행정심판 청구 절차와 제출서류" },
   document_review: { description: "입력한 문서의 조항별 쟁점과 확인된 근거를 검토합니다.", placeholder: "계약서 또는 약관 등의 내용을 붙여 넣으세요." },
 };
@@ -159,7 +159,6 @@ export function LegalResearch() {
               onChange={(event) => update(key, event.target.value)} />
           </label>)}
         </div>
-        {regionError && <p className="legal-research-input-note">조례 비교를 위해 서로 다른 비교 지역 두 곳을 입력해 주세요. 지역명만 입력하고 비교할 주제는 위에 적으면 됩니다.</p>}
       </>}
       {task === "amendment_track" && <>
         {draft.scenario === "time_travel" && <div className="legal-analysis-fields legal-research-dates">
@@ -173,7 +172,14 @@ export function LegalResearch() {
         </div>}
       </>}
 
-      <div className="legal-analysis-actions">
+      <div className={`legal-analysis-actions${task === "ordinance_compare" ? " legal-research-action-row" : ""}`}>
+        {task === "ordinance_compare" && (() => {
+          // Guidance until both regions are filled; the same region twice is a real input error.
+          const duplicate = Boolean(regionNames[0]) && regionNames[0] === regionNames[1];
+          return regionError ? <p className="legal-research-input-note" data-state={duplicate ? "error" : "hint"} role={duplicate ? "alert" : undefined}>
+            {duplicate ? "같은 지역을 두 번 입력했습니다. 서로 다른 비교 지역 2곳을 입력하세요." : "서로 다른 비교 지역 2곳을 입력하세요. 비교할 주제는 위 질문에 입력하면 됩니다."}
+          </p> : null;
+        })()}
         <button type="submit" className="law-search-button" disabled={!request || loading}>
           {loading ? (isDocument ? "문서 검토 중…" : "리서치 중…") : isDocument ? "문서 검토" : "리서치 실행"}
         </button>
@@ -270,17 +276,26 @@ function groupOf(section: ResearchSection, task: LawResearchTask): ResearchGroup
   return "other";
 }
 
+/** 입력한 질문 → 이렇게 이해했어요 → 살펴볼 쟁점: sibling blocks, each opened by the same rule; empty ones are not rendered. */
 function ResearchUnderstanding({ interpretation }: { interpretation: ResearchInterpretation }) {
-  return <div className="research-understanding">
-    <span className="research-eyebrow">이렇게 이해했어요</span>
-    {/* The model often restates the question verbatim; showing it twice adds nothing. */}
-    {interpretation.situation.replace(/\s+/gu, "") !== interpretation.original.replace(/\s+/gu, "") && <p>{interpretation.situation}</p>}
-    {interpretation.issues.length > 0 && <div><strong>살펴볼 쟁점</strong><ul>{interpretation.issues.map((issue, index) => <li key={index}>{issue}</li>)}</ul></div>}
-    {/* One short, concrete request; the generic uncertainty only when there is no specific question to ask. */}
-    {interpretation.followUp
-      ? <div><strong>추가로 필요한 정보</strong><p className="research-meta">{interpretation.followUp}</p></div>
-      : interpretation.uncertainty && <p className="research-meta">{interpretation.uncertainty}</p>}
-  </div>;
+  // The model often restates the question verbatim; showing it twice adds nothing.
+  const situation = interpretation.situation.replace(/\s+/gu, "") !== interpretation.original.replace(/\s+/gu, "") ? interpretation.situation : "";
+  const issues = interpretation.issues.map((issue) => issue.trim()).filter(Boolean);
+  const note = interpretation.followUp || interpretation.uncertainty;
+  return <>
+    {(situation || note) && <div className="research-original research-understanding">
+      <span>이렇게 이해했어요</span>
+      {situation && <p>{situation}</p>}
+      {/* One short, concrete request; the generic uncertainty only when there is no specific question to ask. */}
+      {interpretation.followUp
+        ? <p className="research-meta"><b>추가로 필요한 정보</b> {interpretation.followUp}</p>
+        : interpretation.uncertainty && <p className="research-meta">{interpretation.uncertainty}</p>}
+    </div>}
+    {issues.length > 0 && <div className="research-original research-issues">
+      <span>살펴볼 쟁점</span>
+      <ul>{issues.map((issue, index) => <li key={index}>{issue}</li>)}</ul>
+    </div>}
+  </>;
 }
 
 function DecisionList({ entries }: { entries: ResearchDecision[] }) {
