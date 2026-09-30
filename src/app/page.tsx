@@ -47,9 +47,8 @@ import {
   SUPPLEMENT_UNSUPPORTED_DETAIL,
   SUPPLEMENT_UNSUPPORTED_TITLE,
   type SupplementResult,
-  type SupplementVerdict,
 } from "@/domain/supplement";
-import { finalizeSupplement } from "@/lib/supplement/finalize";
+import { finalizeSupplement, type SupplementReviewOutcome } from "@/lib/supplement/finalize";
 import { SupplementResults } from "@/components/supplement/SupplementResults";
 import type { AnalyzeEntry as WorkerAnalyzeEntry, CheckEntry as WorkerCheckEntry, WorkspaceFile } from "@/client/protocol";
 import {
@@ -275,7 +274,7 @@ const completionLabels: Record<Tab, string> = {
   Ask: "답변 완료",
   Compare: "비교 완료",
   Check: "검수 완료",
-  Supplement: "보완 확인 완료",
+  Supplement: "검토 완료",
   Polish: "윤문 완료",
   Extract: "추출 완료",
   Aggregate: "취합 완료",
@@ -1142,7 +1141,7 @@ export default function Home() {
     setDetail(null);
     setSupplement(null);
     try {
-      setSupplementStage({ label: "파일 구조 확인 중" });
+      setSupplementStage({ label: "자료 확인 중" });
       let draft;
       try {
         draft = await runInWorker({ kind: "supplement", fileIds: selected });
@@ -1151,7 +1150,7 @@ export default function Home() {
         notifyView("error", failure.message ?? "자료를 분석하지 못했습니다.", undefined, failure.detail);
         return;
       }
-      const verdicts = new Map<string, SupplementVerdict>();
+      const verdicts = new Map<string, SupplementReviewOutcome>();
       let reviewFailure: unknown;
       for (const [index, batch] of draft.reviews.entries()) {
         if (supplementCancelled.current) break;
@@ -1163,7 +1162,7 @@ export default function Home() {
           );
           for (const answer of answers) {
             const check = batch.checks.find((entry) => entry.id === answer.id);
-            if (check) verdicts.set(check.candidateId, answer.verdict);
+            if (check) verdicts.set(check.candidateId, { verdict: answer.verdict, sources: answer.handles.map((handle) => batch.sources[handle]).filter(Boolean) });
           }
         } catch (error) {
           reviewFailure = error;
@@ -1483,7 +1482,9 @@ export default function Home() {
                 ? "수정안 미적용"
                 : activeTab === "Supplement" && inlineResultNotice.tone === "warning"
                   ? "일부 확인 미완료"
-                  : completionLabels[activeTab],
+                  : activeTab === "Supplement" && supplement?.coverage.some((entry) => !entry.complete)
+                    ? "부분 검토 완료"
+                    : completionLabels[activeTab],
       ...(inlineResultNotice.tone !== "success" ? {
         message: inlineResultNotice.message,
         ...(inlineResultNotice.detail ? { detail: inlineResultNotice.detail } : {}),
@@ -2094,7 +2095,7 @@ const workSectionCopy: Record<Tab, [string, string]> = {
   Ask: ["질문하기", "선택한 파일을 근거로 질문에 답합니다."],
   Compare: ["파일 비교", "같은 파일의 전·후 변경 내용과 여러 파일의 공통 항목 값을 비교합니다."],
   Check: ["문서 검수", "선택한 파일의 문장·일관성·데이터·개인정보·보안정보를 검수합니다."],
-  Supplement: ["자료 보완", "자료에서 빠진 핵심 정보와 설명이 필요한 부분을 찾습니다. PPTX, PDF, XLSX 지원"],
+  Supplement: ["자료 보완", "자료에서 빠진 핵심 정보와 설명이 필요한 부분을 찾습니다."],
   Polish: ["문서 윤문", "선택한 파일의 번역투와 중복 표현을 문장 단위로 다듬습니다."],
   Extract: ["정보 추출", "선택한 파일에서 필요한 항목과 값을 찾아 정리합니다."],
   Aggregate: ["문서 취합", "여러 Excel 파일의 표 데이터를 첫 번째 파일의 서식을 기준으로 하나의 파일로 취합합니다."],

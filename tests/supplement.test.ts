@@ -182,10 +182,10 @@ describe("보완 — gap detection on PPTX/PDF", () => {
       ["물류", "물류비가 전월 대비 20% 증가했습니다.", "운송 노선 변경 효과가 컸습니다."],
     ]);
     expect(draft.reviews.length).toBeGreaterThan(0);
-    const verdicts = new Map(draft.reviews.flatMap((batch) => batch.checks.map((check) => [check.candidateId, "found" as const])));
+    const verdicts = new Map(draft.reviews.flatMap((batch) => batch.checks.map((check) => [check.candidateId, { verdict: "found" as const, sources: [batch.sources[check.handles[0]]] }])));
     const result = finalizeSupplement(draft, verdicts);
     expect(result.findings.filter((finding) => draft.reviews.some((batch) => batch.checks.some((check) => check.candidateId === finding.id)))).toEqual([]);
-    const unclear = finalizeSupplement(draft, new Map([...verdicts].map(([id]) => [id, "unclear" as const])));
+    const unclear = finalizeSupplement(draft, new Map([...verdicts].map(([id]) => [id, { verdict: "unclear" as const, sources: [] }])));
     expect(unclear.withheldCount).toBe(verdicts.size);
   });
 });
