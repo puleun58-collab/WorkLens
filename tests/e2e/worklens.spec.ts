@@ -270,6 +270,12 @@ test("usage guide sits above dictionary and settings and switches feature flows"
   await expect(page.getByRole("tab", { name: "검수", exact: true })).toBeFocused();
   await expect(page.getByRole("tab", { name: "검수", exact: true })).toHaveAttribute("aria-selected", "true");
   await expect(panel.locator(".usage-guide-step")).toHaveCount(3);
+  await page.getByRole("tab", { name: "법령", exact: true }).click();
+  const tip = panel.locator(".usage-guide-tip");
+  await expect(tip).toHaveText("TIP상단 탭에서 기능을 선택하고, 종합 리서치는 자연어로 질문한 뒤 핵심 결과와 근거·원문을 확인하세요.");
+  // One line at desktop width: no taller than the TIP label itself (plus the box padding).
+  const tipBox = await tip.evaluate((element) => ({ text: element.getBoundingClientRect().height, label: element.querySelector("b")!.getBoundingClientRect().height }));
+  expect(tipBox.text).toBeLessThan(tipBox.label * 2 + 24);
   await page.setViewportSize({ width: 390, height: 844 });
   const mobileTabs = await tabs.evaluate((element) => ({ width: element.getBoundingClientRect().width, guideWidth: element.parentElement!.getBoundingClientRect().width, scrollWidth: element.scrollWidth, clientWidth: element.clientWidth }));
   expect(mobileTabs.width).toBeLessThanOrEqual(mobileTabs.guideWidth + 1);

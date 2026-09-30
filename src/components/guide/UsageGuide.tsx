@@ -135,7 +135,7 @@ const GUIDES: Guide[] = [
       { title: "결과 선택", text: "목록에서 법령을 선택합니다.", mini: <span className="mini-files"><span className="mini-row is-mark"><span className="mini-name">근로기준법</span><b className="mini-role">현행</b></span><span className="mini-row"><span className="mini-name">근로기준법 시행령</span></span></span> },
       { title: "조문 확인", text: "조문을 읽고 관련 판례·결정례로 이어갑니다.", mini: <Result title="제23조(해고 등의 제한)" status="현행" lines={["① 사용자는 근로자에게 정당한 이유 없이…"]} actions={["관련 판례·결정례"]} /> },
     ],
-    tip: "판례·결정례, 검증·분석, 종합 리서치는 법령 화면 상단 탭에서 고릅니다. 종합 리서치에서는 유형을 고른 뒤 일상적인 표현으로 질문할 수 있습니다. 조례 비교는 비교할 두 지역을 입력하세요. 결과의 핵심 내용을 먼저 확인하고 근거·원문을 펼쳐 보세요.",
+    tip: "상단 탭에서 기능을 선택하고, 종합 리서치는 자연어로 질문한 뒤 핵심 결과와 근거·원문을 확인하세요.",
   },
   {
     id: "pdf", label: "PDF 도구", summary: "PDF 페이지를 정리하고 원하는 형식으로 내보냅니다.",
