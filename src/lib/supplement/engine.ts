@@ -16,6 +16,12 @@ import {
   ACTION_DONE,
   ACTION_HEADING,
   ACTION_WORD,
+  ATTAINMENT_HEADER,
+  EXPLANATION_FIELD,
+  MONEY_LABEL,
+  PERIOD_EXPR,
+  TARGET_HEADER,
+  UNIT_EXPR,
   BASELINE_CUE,
   BENEFIT_LIKE,
   CAUSE_CUE,
@@ -44,6 +50,7 @@ import {
   tokensRelate,
   UP_WORD,
 } from "./text";
+import { outlineWorkbook, type SheetTable } from "./workbook";
 
 /**
  * 보완 pipeline, deterministic part:
@@ -69,15 +76,21 @@ export interface Statement {
   unitLabel: string;
   unitTitle: string;
   heading: boolean;
+  /** A worksheet table row; generic sentence checks do not apply to it. */
+  tableRow?: boolean;
+  /** A significant change read from a workbook change column. */
+  change?: Change;
 }
 
 interface FileOutline {
   document: NormalizedDocument;
   fileName: string;
   statements: Statement[];
+  /** Searched as evidence only (raw data, lookup, hidden sheets …); never a gap source. */
+  references: Statement[];
+  tables: SheetTable[];
   coverage: SupplementCoverage;
 }
-
 const unitLabelOf = (kind: NormalizedDocument["kind"], unit: number): string => kind === "pptx" ? `${unit}P` : `${unit}페이지`;
 
 function unitOf(source: SourceRef): number {
@@ -120,6 +133,7 @@ function tableRowTexts(table: TableBlock): Array<{ text: string; source: SourceR
 const SENTENCE_END = /([.。!?]|다|요|음|함|됨|임|:)$/u;
 
 function outline(document: NormalizedDocument, fileName: string): FileOutline {
+  if (document.kind === "xlsx") return { document, fileName, ...outlineWorkbook(document, fileName) };
   const raw: Array<{ text: string; source: SourceRef; heading: boolean }> = [];
   for (const block of document.blocks) {
     if (block.type === "paragraph") {
@@ -194,6 +208,8 @@ function outline(document: NormalizedDocument, fileName: string): FileOutline {
     document,
     fileName,
     statements,
+    references: [],
+    tables: [],
     coverage: {
       fileId: document.fileId,
       fileName,
@@ -249,11 +265,15 @@ export const NECESSITY: Record<SupplementCheck, NecessityRow> = {
   owner: row({ project: "required", issue: "required", improvement: "required", plan: "required" }, "conditional"),
   schedule: row({ project: "required", issue: "required", improvement: "required", plan: "required" }, "conditional"),
   conclusion: row({}, "conditional"),
+  // Workbook-only: a report table needs its target, period and unit in KPI-centred reports; elsewhere only on a summary sheet.
+  target: row({ performance: "required", cost: "required", operation: "required", management: "required" }, "conditional"),
+  period: row({ performance: "required", cost: "required", operation: "required", management: "required" }, "conditional"),
+  unit: row({ performance: "required", cost: "required", operation: "required", management: "required" }, "conditional"),
 };
 
 // ── Triggers ─────────────────────────────────────────────────────────────
 
-interface Change {
+export interface Change {
   subject: string;
   subjectTokens: string[];
   percent?: number;
@@ -352,6 +372,8 @@ function isConclusion(statement: Statement): boolean {
 
 interface Member {
   statement: Statement;
+  /** Lines the gap is about; a table-level gap owns its rows, so they never count as their own rebuttal. */
+  own?: Statement[];
   check: SupplementCheck;
   severity: SupplementSeverity;
   groupKey: string;
@@ -374,13 +396,15 @@ function inUnit(all: readonly Statement[], statement: Statement): Statement[] {
  * missing information for this subject? Same-unit statements count without a
  * subject match — a slide is one argument.
  */
-function rebut(all: readonly Statement[], origin: Statement, cue: RegExp, subjectTokens: readonly string[], options: { sameUnit?: boolean; needSubject?: boolean } = {}): Statement | undefined {
+function rebut(all: readonly Statement[], origin: Statement, cue: RegExp, subjectTokens: readonly string[], options: { sameUnit?: boolean; needSubject?: boolean; analysisSection?: boolean } = {}): Statement | undefined {
   return all.find((other) => {
     if (other === origin || !cue.test(other.text)) return false;
     const sameUnit = other.fileId === origin.fileId && other.unit === origin.unit;
     if (sameUnit && options.sameUnit !== false && !options.needSubject) return true;
     const titleRelates = tokensRelate(subjectTokens, contentTokens(other.unitTitle));
-    return tokensRelate(subjectTokens, other.tokens) || (titleRelates && !other.heading);
+    // A report's own analysis section (원인 분석 · Analysis sheet) explains its figures.
+    const analysisSection = options.analysisSection === true && other.fileId === origin.fileId && ANALYSIS_TITLE.test(other.unitTitle);
+    return tokensRelate(subjectTokens, other.tokens) || (titleRelates && !other.heading) || (analysisSection && !other.heading);
   });
 }
 
@@ -393,8 +417,10 @@ function candidatesFor(outline: FileOutline, docType: SupplementDocType, all: re
   const changes = new Map<Statement, Change>();
   const issues = new Map<Statement, Issue>();
   for (const statement of statements) {
-    const change = detectChange(statement);
+    if (statement.tableRow && !statement.change) continue;
+    const change = statement.change ?? detectChange(statement);
     if (change) changes.set(statement, change);
+    if (statement.tableRow) continue;
     const issue = detectIssue(statement);
     if (issue && !(change && change.adverse === false)) issues.set(statement, issue);
   }
@@ -411,7 +437,7 @@ function candidatesFor(outline: FileOutline, docType: SupplementDocType, all: re
     if (change.adverse === true && size >= 10) severity = necessity === "required" ? "critical" : size >= 15 ? "warning" : undefined;
     else if (change.adverse === undefined && size >= 15 && necessity === "required") severity = "warning";
     if (!severity || necessity === "recommended") continue;
-    if (CAUSE_CUE.test(statement.text) || rebut(all, statement, CAUSE_CUE, change.subjectTokens, { needSubject: false })) { resolved += 1; continue; }
+    if (CAUSE_CUE.test(statement.text) || EXPLANATION_FIELD.test(statement.text) || rebut(all, statement, CAUSE_CUE, change.subjectTokens, { needSubject: false, analysisSection: true })) { resolved += 1; continue; }
     const family = familyOf(change.subject);
     members.push({ statement, check: "cause", severity, groupKey: `cause:${family?.key ?? change.subject}:${change.direction}`, subject: change.subject, subjectTokens: change.subjectTokens, phrase: change.subject, change });
   }
@@ -420,6 +446,7 @@ function candidatesFor(outline: FileOutline, docType: SupplementDocType, all: re
   for (const statement of statements) {
     const necessity = need("baseline");
     if (necessity === "none" || necessity === "recommended" || changes.has(statement)) continue;
+    if (statement.tableRow) continue;
     const kpi = detectKpi(statement);
     // Outside KPI-centred reports only a headline figure standing alone needs a reference.
     if (!kpi || (necessity === "conditional" && statement.text.length > 40)) continue;
@@ -451,7 +478,7 @@ function candidatesFor(outline: FileOutline, docType: SupplementDocType, all: re
 
   // 담당 · 일정: commitments that cannot be tracked.
   for (const statement of statements) {
-    if (!isAction(statement) || issues.has(statement)) continue;
+    if (statement.tableRow || !isAction(statement) || issues.has(statement)) continue;
     const ownerNeed = need("owner");
     const strong = ownerNeed === "required"
       || (ownerNeed === "conditional" && (unitHasProblem(statement) || (fileHasProblem && ACTION_HEADING.test(statement.unitTitle))));
@@ -471,13 +498,14 @@ function candidatesFor(outline: FileOutline, docType: SupplementDocType, all: re
 
   // 결론 근거: judgements with nothing related that argues for them.
   for (const statement of statements) {
-    if (!isConclusion(statement)) continue;
+    if (statement.tableRow || !isConclusion(statement)) continue;
     const keys = statement.tokens.filter((token) => !/^(향후|앞으로|부담|수준|영향|효과|상황|측면)$/u.test(token));
     if (keys.length === 0) continue;
     const support = all.find((other) => other !== statement && !isConclusion(other) && REASON_CUE.test(other.text) && tokensRelate(keys, other.tokens));
     if (support) { resolved += 1; continue; }
     members.push({ statement, check: "conclusion", severity: "critical", groupKey: `conclusion:${statement.index}`, subject: clip(statement.text, 40), subjectTokens: keys, phrase: clip(statement.text, 40) });
   }
+  if (outline.tables.length > 0) resolved += workbookCandidates(outline, need, all, members);
   return { members, resolved };
 }
 
@@ -491,6 +519,91 @@ function hasActionFor(all: readonly Statement[], origin: Statement, tokens: read
     && ((other.fileId === origin.fileId && (other.unit === origin.unit || ACTION_HEADING.test(other.unitTitle))) || tokensRelate(tokens, other.tokens)));
 }
 
+const ANALYSIS_TITLE = /(원인|요인|분석|배경|breakdown|analysis|driver)/iu;
+
+/**
+ * Workbook report tables: a reference for the figures, a target behind an
+ * attainment rate, the period and unit of the numbers, and a follow-up for
+ * open issues in an issue register. Only report tables are checked; every
+ * check first searches the whole workbook for what would cancel it.
+ * Returns how many candidates the search cancelled.
+ */
+function workbookCandidates(
+  outline: FileOutline,
+  need: (check: SupplementCheck) => SupplementNecessity,
+  all: readonly Statement[],
+  members: Member[],
+): number {
+  let resolved = 0;
+  const tables = outline.tables.filter((table) => table.rows.length > 0);
+  const applies = (check: SupplementCheck, table: SheetTable) => need(check) === "required" || (need(check) === "conditional" && table.summary);
+  const labelTokens = (table: SheetTable) => table.rows.flatMap((entry) => contentTokens(entry.label));
+  const pseudo = (table: SheetTable): Statement => ({
+    ...table.rows[0].statement,
+    text: `${table.title} · ${table.headers.filter(Boolean).join(" · ")}`,
+    source: { ...table.source, quote: table.rows.slice(0, 3).map((entry) => entry.statement.text).join("\n") },
+    unitLabel: `${table.sheet} / ${table.range}`,
+  });
+  const sheetText = (table: SheetTable) => [table.title, ...outline.tables.filter((other) => other.sheet === table.sheet).map((other) => `${other.title} ${other.headers.join(" ")}`)].join(" ");
+  const metricRows = (table: SheetTable) => table.rows.filter((entry) => entry.label && entry.cells.some((cell) => typeof cell.value === "number"));
+  const push = (table: SheetTable, check: SupplementCheck, groupKey: string, subject: string, phrase: string, severity: SupplementSeverity = "warning") =>
+    members.push({ statement: pseudo(table), own: table.rows.map((entry) => entry.statement), check, severity, groupKey, subject, subjectTokens: contentTokens(subject), phrase });
+
+  for (const table of tables) {
+    const headerText = table.headers.join(" ");
+    const metrics = metricRows(table);
+    if (metrics.length === 0) continue;
+    const labels = labelTokens(table);
+    const lead = metrics[0].label;
+    const related = (pattern: RegExp) => outline.tables.some((other) => other !== table && pattern.test(other.headers.join(" ")) && tokensRelate(labels, labelTokens(other)));
+
+    // 목표/예산 기준: an attainment rate with no target beside it.
+    if (applies("target", table) && ATTAINMENT_HEADER.test(headerText)) {
+      if (TARGET_HEADER.test(headerText.replace(ATTAINMENT_HEADER, "")) || related(TARGET_HEADER)) resolved += 1;
+      else push(table, "target", `target:${table.sheet}`, lead, `${table.sheet} 시트의 ${lead}`);
+    }
+
+    // 비교 기준: figures with no target, budget or prior period anywhere near them.
+    if (applies("baseline", table) && metrics.length >= 2 && !ATTAINMENT_HEADER.test(headerText)
+      && !table.rows.some((entry) => entry.statement.change) && !table.headers.some((header) => /(증감|대비|변동|YoY|MoM|QoQ)/iu.test(header))) {
+      if (BASELINE_CUE.test(`${table.title} ${headerText}`) || related(BASELINE_CUE)) resolved += 1;
+      else push(table, "baseline", `baseline:${table.sheet}`, lead, `${table.sheet} 시트의 ${metrics.slice(0, 2).map((entry) => entry.label).join("·")} 수치`);
+    }
+
+    // 기준 기간: figures that do not say which month, quarter or cut-off they cover.
+    if (applies("period", table)) {
+      const periodStated = PERIOD_EXPR.test(outline.fileName) || PERIOD_EXPR.test(sheetText(table)) || table.rows.some((entry) => PERIOD_EXPR.test(entry.label))
+        || table.rows.some((entry) => entry.cells.some((cell) => cell.valueType === "date"));
+      if (periodStated) resolved += 1;
+      else push(table, "period", "period", table.sheet, table.sheet);
+    }
+
+    // 단위: money figures whose unit is stated nowhere on the sheet or in their format.
+    if (applies("unit", table) && (MONEY_LABEL.test(headerText) || metrics.some((entry) => MONEY_LABEL.test(entry.label)))) {
+      const unitStated = UNIT_EXPR.test(sheetText(table)) || UNIT_EXPR.test(outline.fileName)
+        || metrics.some((entry) => entry.cells.some((cell) => /[₩$€]|원|"|%/u.test(cell.numberFormat ?? "") || UNIT_EXPR.test(normalize(cell.display))));
+      if (unitStated) resolved += 1;
+      else push(table, "unit", "unit", table.sheet, table.sheet);
+    }
+  }
+
+  // 대응: open items in an issue or risk register with no action recorded.
+  for (const table of tables) {
+    if (need("response") === "none" || !/(이슈|리스크|문제|위험|issue|risk)/iu.test(`${table.title} ${table.headers.join(" ")}`)) continue;
+    const actionColumn = table.headers.findIndex((header) => /(조치|대응|대책|개선|action|계획|mitigation)/iu.test(header));
+    const statusColumn = table.headers.findIndex((header) => /(상태|status|진행)/iu.test(header));
+    for (const entry of table.rows) {
+      const status = statusColumn >= 0 ? normalize(entry.cells[statusColumn]?.display ?? "") : "";
+      if (/(완료|종결|해결|closed|done)/iu.test(status)) continue;
+      if (actionColumn >= 0 && normalize(entry.cells[actionColumn]?.display ?? "")) { resolved += 1; continue; }
+      if (rebut(all, entry.statement, RESPONSE_CUE, contentTokens(entry.label), { needSubject: true })) { resolved += 1; continue; }
+      const phrase = clip(entry.label, 30);
+      members.push({ statement: entry.statement, check: "response", severity: need("response") === "required" ? "critical" : "warning", groupKey: `response:register:${table.sheet}`, subject: phrase, subjectTokens: contentTokens(entry.label), phrase });
+    }
+  }
+  return resolved;
+}
+
 // ── Grouping and wording ─────────────────────────────────────────────────
 
 const TITLES: Record<string, string> = {
@@ -502,6 +615,9 @@ const TITLES: Record<string, string> = {
   schedule: "일정 확인 필요",
   "owner+schedule": "담당 및 일정 확인 필요",
   conclusion: "결론 근거 확인 필요",
+  target: "목표/예산 기준 확인 필요",
+  period: "기준 기간 확인 필요",
+  unit: "단위 확인 필요",
 };
 
 const REASONS: Record<string, string> = {
@@ -513,6 +629,9 @@ const REASONS: Record<string, string> = {
   schedule: "완료 시점이 없으면 진행 상황을 점검하기 어렵습니다.",
   "owner+schedule": "책임 주체와 완료 시점이 없으면 실행 여부를 추적하기 어렵습니다.",
   conclusion: "근거가 드러나지 않은 판단은 의사결정에 그대로 쓰기 어렵습니다.",
+  target: "목표가 없으면 달성률이 무엇을 기준으로 계산됐는지 알 수 없습니다.",
+  period: "기간이 불분명하면 다른 자료와 비교하거나 보고할 때 오해가 생깁니다.",
+  unit: "단위가 없으면 같은 숫자도 천 배 이상 다르게 읽힐 수 있습니다.",
 };
 
 function wording(kind: string, members: readonly Member[]): { title: string; message: string; additions: string[]; question?: string; requirement: string } {
@@ -566,6 +685,33 @@ function wording(kind: string, members: readonly Member[]): { title: string; mes
         question: "이 판단의 근거는 무엇입니까?",
         requirement: "이 판단을 직접 뒷받침하는 수치, 사실 또는 이유",
       };
+    case "target":
+      return {
+        title,
+        message: `${lead.phrase} 달성률이 제시되어 있지만 현재 자료에서 목표값 또는 예산 기준을 확인하지 못했습니다.`,
+        additions: ["목표값 또는 예산", "달성률 산정 기준"],
+        question: `${lead.subject}의 목표값은 얼마입니까?`,
+        requirement: `${lead.subject}의 목표값이나 예산`,
+      };
+    case "period":
+    case "unit": {
+      const sheets = distinct.join(", ");
+      return kind === "period"
+        ? {
+          title,
+          message: `${sheets} 시트의 수치가 어느 기간(월·분기·누계·기준일) 기준인지 현재 자료에서 확인하지 못했습니다.`,
+          additions: ["기준 기간(월·분기·누계)", "기준일"],
+          question: "이 수치는 어느 기간 기준입니까?",
+          requirement: `${sheets} 시트 수치의 기준 기간이나 기준일`,
+        }
+        : {
+          title,
+          message: `${sheets} 시트의 금액이 어떤 단위(원·천원·백만원 등)인지 현재 자료에서 확인하지 못했습니다.`,
+          additions: ["금액 단위(원·천원·백만원 등)"],
+          question: "금액 단위는 무엇입니까?",
+          requirement: `${sheets} 시트 금액의 단위`,
+        };
+    }
     default: {
       const what = kind === "owner" ? "담당" : kind === "schedule" ? "완료 시점" : "담당과 완료 시점";
       const single = members.length === 1;
@@ -589,7 +735,7 @@ export interface SupplementInput { document: NormalizedDocument; fileName: strin
 
 export function buildSupplementDraft(inputs: readonly SupplementInput[]): SupplementDraft {
   const outlines = inputs.map((input) => outline(input.document, input.fileName));
-  const all = outlines.flatMap((entry) => entry.statements);
+  const all = outlines.flatMap((entry) => [...entry.statements, ...entry.references]);
   const files: SupplementFileSummary[] = [];
   const candidates: SupplementCandidate[] = [];
   const origins = new Map<string, Statement[]>();
@@ -610,7 +756,7 @@ export function buildSupplementDraft(inputs: readonly SupplementInput[]): Supple
       const severity = ordered.reduce<SupplementSeverity>((best, member) => SEVERITY_RANK[member.severity] < SEVERITY_RANK[best] ? member.severity : best, "suggestion");
       const locations = [...new Set(ordered.map((member) => member.statement.unitLabel))];
       const id = `${entry.document.fileId}:${key}`;
-      origins.set(id, ordered.slice(0, 2).map((member) => member.statement));
+      origins.set(id, ordered.flatMap((member) => member.own ?? [member.statement]));
       candidates.push({
         id,
         fileId: entry.document.fileId,
@@ -646,10 +792,11 @@ export function buildSupplementDraft(inputs: readonly SupplementInput[]): Supple
  */
 function relatedEvidence(own: readonly Statement[], all: readonly Statement[]): Statement[] {
   const origins = new Set(own);
+  const originTexts = new Set(own.map((statement) => statement.text));
   const originUnits = new Set([...origins].map((statement) => `${statement.fileId}:${statement.unit}`));
   const subjectTokens = [...origins].flatMap((statement) => statement.tokens);
   return all
-    .filter((statement) => !origins.has(statement) && !statement.heading)
+    .filter((statement) => !origins.has(statement) && !originTexts.has(statement.text) && !statement.heading)
     .map((statement) => {
       const shared = statement.tokens.filter((token) => subjectTokens.includes(token)).length;
       const family = tokensRelate(subjectTokens, statement.tokens) ? 2 : 0;

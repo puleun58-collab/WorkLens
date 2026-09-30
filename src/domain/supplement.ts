@@ -6,11 +6,11 @@ import type { FileKind, SourceRef } from "@/domain/document";
  * 검수 and 비교 — only whether something required is absent.
  */
 
-/** The only formats this feature analyses in its first release. */
-export const SUPPLEMENT_FILE_KINDS: readonly FileKind[] = ["pptx", "pdf"];
+/** The formats this feature analyses. */
+export const SUPPLEMENT_FILE_KINDS: readonly FileKind[] = ["pptx", "pdf", "xlsx"];
 export const isSupplementFileKind = (kind: FileKind): boolean => SUPPLEMENT_FILE_KINDS.includes(kind);
-export const SUPPLEMENT_UNSUPPORTED_TITLE = "보완은 PPTX, PDF 파일만 지원합니다.";
-export const SUPPLEMENT_UNSUPPORTED_DETAIL = "XLSX, CSV, DOCX 파일은 선택을 해제한 뒤 실행하세요.";
+export const SUPPLEMENT_UNSUPPORTED_TITLE = "보완은 PPTX, PDF, XLSX 파일만 지원합니다.";
+export const SUPPLEMENT_UNSUPPORTED_DETAIL = "CSV, DOCX 파일은 선택을 해제한 뒤 실행하세요.";
 
 export type SupplementDocType =
   | "performance"
@@ -35,8 +35,8 @@ export const SUPPLEMENT_DOC_TYPE_LABELS: Record<SupplementDocType, string> = {
   general: "일반 업무자료",
 };
 
-/** The seven gap kinds this release detects; nothing else is reported. */
-export type SupplementCheck = "baseline" | "cause" | "impact" | "response" | "owner" | "schedule" | "conclusion";
+/** The gap kinds this feature detects; target, period and unit apply to workbooks. */
+export type SupplementCheck = "baseline" | "cause" | "impact" | "response" | "owner" | "schedule" | "conclusion" | "target" | "period" | "unit";
 
 /**
  * How much a document of a given type needs a check.
@@ -105,17 +105,54 @@ export interface SupplementCandidate extends SupplementFinding {
   requirement: string;
 }
 
+/** How far one worksheet was read. Every sheet of the workbook carries exactly one. */
+export type SupplementSheetStatus =
+  /** Report area read in full for gaps. */
+  | "detailed"
+  /** Read for gaps, but only part of it (row cap). */
+  | "limited"
+  /** Deliberately left out of gap analysis (raw data, lookup, config, archive, hidden); structure checked and text searched as evidence. */
+  | "structure"
+  /** Meant to be read but could not be processed. */
+  | "failed";
+
+export const SUPPLEMENT_SHEET_STATUS_LABELS: Record<SupplementSheetStatus, string> = {
+  detailed: "상세 분석",
+  limited: "제한 분석",
+  structure: "구조 확인",
+  failed: "분석 실패",
+};
+
+export interface SupplementSheetCoverage {
+  name: string;
+  /** Estimated role in the reader's words, e.g. "요약·보고". */
+  role: string;
+  status: SupplementSheetStatus;
+  hidden: boolean;
+  rows: number;
+  columns: number;
+  filledCells: number;
+  formulas: number;
+  /** Formulas that reference another sheet. */
+  crossSheetFormulas: number;
+  merges: number;
+  /** Why the sheet has this status, when that is not obvious from the role. */
+  note?: string;
+}
+
 export interface SupplementCoverage {
   fileId: string;
   fileName: string;
   kind: FileKind;
-  /** "슬라이드" or "페이지". */
+  /** "슬라이드", "페이지" or "시트". */
   unit: string;
   total: number;
   analyzed: number;
   complete: boolean;
   /** Unread areas, in the reader's words. */
   notes: string[];
+  /** Workbooks only: the full sheet manifest with each sheet's final status. */
+  sheets?: SupplementSheetCoverage[];
 }
 
 export interface SupplementFileSummary {

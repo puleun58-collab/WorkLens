@@ -105,7 +105,7 @@ const GUIDES: Guide[] = [
   {
     id: "supplement", label: "보완", summary: "자료에서 빠진 핵심 정보와 설명이 필요한 부분을 찾습니다.",
     steps: [
-      selectFiles("보완할 PPTX 또는 PDF 파일을 선택합니다.", ["3분기_비용보고.pptx"]),
+      selectFiles("보완할 PPTX, PDF 또는 XLSX 파일을 선택합니다.", ["3분기_비용보고.pptx"]),
       { title: "실행", text: "보완 탭에서 실행을 누릅니다.", mini: <Run /> },
       { title: "결과 확인", text: "중요도, 원문 위치, 추가하면 좋은 정보를 확인합니다.", mini: <Result title="보완 결과" status="보완 확인 완료" lines={["중요 · 원인 설명 확인 필요 · 3P", "상사가 물어보기 전에"]} /> },
     ],

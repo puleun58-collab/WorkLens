@@ -171,3 +171,44 @@
     gap: 2px;
   }
 }
+
+.supplement-sheets {
+  margin-top: var(--space-1);
+  font-size: var(--font-size-xs);
+}
+
+.supplement-sheets summary {
+  width: fit-content;
+  color: var(--blue);
+  cursor: pointer;
+}
+
+.supplement-sheets ul {
+  display: grid;
+  gap: 2px;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.supplement-sheets li {
+  display: grid;
+  grid-template-columns: minmax(0, 12rem) 5.5rem minmax(0, 1fr);
+  gap: var(--space-2);
+  align-items: baseline;
+}
+
+.supplement-sheet-name {
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 720px) {
+  .supplement-sheets li {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .supplement-sheets li small {
+    grid-column: 1 / -1;
+  }
+}

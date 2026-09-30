@@ -6,6 +6,7 @@ import type { SourceRef } from "@/domain/document";
 import {
   SUPPLEMENT_DOC_TYPE_LABELS,
   SUPPLEMENT_SEVERITY_LABELS,
+  SUPPLEMENT_SHEET_STATUS_LABELS,
   type SupplementResult,
   type SupplementSeverity,
 } from "@/domain/supplement";
@@ -27,6 +28,8 @@ export function SupplementResults({ result, fileNames, renderSource }: {
   const counts = Object.fromEntries(SEVERITIES.map((severity) => [severity, result.findings.filter((finding) => finding.severity === severity).length])) as Record<SupplementSeverity, number>;
   const visible = filter === "all" ? result.findings : result.findings.filter((finding) => finding.severity === filter);
   const complete = result.coverage.every((entry) => entry.complete);
+  // Deliberately excluded sheets are disclosed; the analysis is complete but not "전체".
+  const partialByDesign = complete && result.coverage.some((entry) => entry.sheets?.some((sheet) => sheet.status === "structure"));
   const multipleFiles = result.files.length > 1;
 
   return (
@@ -48,12 +51,33 @@ export function SupplementResults({ result, fileNames, renderSource }: {
           <div>
             <dt>분석 범위</dt>
             <dd>
-              <span className={complete ? "supplement-coverage-state" : "supplement-coverage-state limited"}>{complete ? "전체 분석 완료" : "일부 분석 제한"}</span>
+              <span className={complete ? "supplement-coverage-state" : "supplement-coverage-state limited"}>{!complete ? "일부 분석 제한" : partialByDesign ? "분석 완료" : "전체 분석 완료"}</span>
               <ul className="supplement-coverage">
                 {result.coverage.map((entry) => (
                   <li key={entry.fileId}>
                     <span className="supplement-coverage-count">{multipleFiles ? `${fileNames.get(entry.fileId) ?? entry.fileName} · ` : ""}{entry.kind.toUpperCase()} {entry.analyzed} / {entry.total} {entry.unit}</span>
+                    {entry.sheets ? (
+                      <small>{(["detailed", "limited", "structure", "failed"] as const)
+                        .map((status) => [status, entry.sheets!.filter((sheet) => sheet.status === status).length] as const)
+                        .filter(([, count]) => count > 0)
+                        .map(([status, count]) => `${SUPPLEMENT_SHEET_STATUS_LABELS[status]} ${count}`)
+                        .join(" · ")}</small>
+                    ) : null}
                     {entry.notes.map((note) => <small key={note}>{note}</small>)}
+                    {entry.sheets ? (
+                      <details className="supplement-sheets">
+                        <summary>시트별 처리 상태</summary>
+                        <ul>
+                          {entry.sheets.map((sheet) => (
+                            <li key={sheet.name}>
+                              <span className="supplement-sheet-name">{sheet.name}</span>
+                              <span>{SUPPLEMENT_SHEET_STATUS_LABELS[sheet.status]}</span>
+                              <small>{[sheet.role, sheet.hidden ? "숨김" : "", `${sheet.rows.toLocaleString("ko-KR")}행`, sheet.formulas ? `수식 ${sheet.formulas.toLocaleString("ko-KR")}` : "", sheet.note ?? ""].filter(Boolean).join(" · ")}</small>
+                            </li>
+                          ))}
+                        </ul>
+                      </details>
+                    ) : null}
                   </li>
                 ))}
               </ul>
@@ -79,9 +103,11 @@ export function SupplementResults({ result, fileNames, renderSource }: {
         <div className="status-panel success result-clear supplement-clear" role="status">
           <span className="status-panel-icon" aria-hidden="true"><CircleCheck size={18} fill="currentColor" stroke="white" strokeWidth={2.2} /></span>
           <strong>중요한 보완 항목을 확인하지 못했습니다.</strong>
-          <p>{complete
-            ? "비교 기준, 원인, 영향, 대응, 담당, 일정, 결론 근거를 점검한 범위에서 추가할 항목을 찾지 못했습니다."
-            : "읽은 범위에서는 추가할 항목을 찾지 못했습니다. 읽지 못한 영역은 판단에서 제외했습니다."}</p>
+          <p>{!complete
+            ? "읽은 범위에서는 추가할 항목을 찾지 못했습니다. 읽지 못한 영역은 판단에서 제외했습니다."
+            : partialByDesign
+              ? "상세 분석한 시트에서는 추가할 항목을 찾지 못했습니다. 구조만 확인한 시트는 판단에서 제외했습니다."
+              : "비교 기준, 원인, 영향, 대응, 담당, 일정, 결론 근거를 점검한 범위에서 추가할 항목을 찾지 못했습니다."}</p>
         </div>
       ) : (
         <section className="supplement-list" aria-label="보완 항목">

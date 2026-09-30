@@ -18,8 +18,8 @@ const STOP: Readonly<Record<string, true>> = Object.fromEntries([
   ].map((word) => [word, true]));
 
 const FAMILIES: ReadonlyArray<{ key: string; label: string; test: (token: string) => boolean }> = [
-  { key: "cost", label: "비용", test: (token) => /^(비용|원가|경비|지출|운임|단가|물류비용|운송비용)$/u.test(token) || (/비$/u.test(token) && token.length >= 2 && !/^(대비|준비|장비|설비|구비|경비율)$/u.test(token)) },
-  { key: "revenue", label: "매출", test: (token) => /^(매출|매출액|판매|판매량|판매액|수주|수주액|수익)$/u.test(token) },
+  { key: "cost", label: "비용", test: (token) => /^(비용|원가|경비|지출|운임|단가|물류비용|운송비용|cost|costs|expense|expenses|freight|logistics)$/u.test(token) || (/비$/u.test(token) && token.length >= 2 && !/^(대비|준비|장비|설비|구비|경비율)$/u.test(token)) },
+  { key: "revenue", label: "매출", test: (token) => /^(매출|매출액|판매|판매량|판매액|수주|수주액|수익|sales|revenue)$/u.test(token) },
   { key: "profit", label: "이익", test: (token) => /^(이익|영업이익|순이익|손익|마진|이익률|영업이익률)$/u.test(token) },
   { key: "delivery", label: "납기", test: (token) => /^(납기|출하|배송|납품|지연)$/u.test(token) },
   { key: "quality", label: "품질", test: (token) => /^(불량|불량률|품질|결함|클레임|반품)$/u.test(token) },
@@ -77,7 +77,7 @@ export const PERIOD_BASELINE = /(전년\s?동기|전년|전월|전분기|직전\
 export const BASELINE_CUE = /(목표|계획|예산|기준(값|치)?|대비|전년|전월|전분기|전기|전주|작년|지난|이전|평균|벤치마크|업계|동기|YoY|MoM|QoQ|vs\.?|→|에서\s?\d|보다)/iu;
 
 /** Explicit reasons, or "A 증가로 B 확대" constructions without the word 원인. */
-export const CAUSE_CUE = /(원인|요인|때문|영향으로|영향을\s?받|영향에|기인|(?:으)?로\s?인해|인하여|인한|에\s?따른|에\s?따라|덕분|견인|주도|반영|탓|사유|배경|이유|[가-힣]{2,}(?:으)?로\s+(?:[가-힣A-Za-z]+\s+){0,3}(?:증가|확대|상승|감소|하락|축소|늘|줄|급증|급감|악화|개선))/u;
+export const CAUSE_CUE = /(원인|요인|때문|영향으로|영향을\s?받|영향에|기인|(?:으)?로\s?인해|인하여|인한|에\s?따른|에\s?따라|덕분|견인|주도|반영|탓|사유|배경|이유|(?:영향|요인|기여도?)\s?[:：]?\s?[+\-−]?\d|[가-힣]{2,}(?:으)?로\s+(?:[가-힣A-Za-z]+\s+){0,3}(?:증가|확대|상승|감소|하락|축소|늘|줄|급증|급감|악화|개선))/u;
 
 export const IMPACT_CUE = /(영향|손실|피해|파급|차질|지체상금|패널티|위약금|기회\s?비용|추가\s?비용|매출\s?감소|고객\s?불만|고객\s?이탈|생산\s?중단|출하\s?지연|리스크\s?금액|손해)/u;
 
@@ -125,3 +125,14 @@ export function clip(text: string, max: number): string {
   const value = normalize(text);
   return value.length <= max ? value : `${value.slice(0, max - 1).trimEnd()}…`;
 }
+
+/** A worksheet row whose explanation column is filled (비고 · 원인 · 사유 …). */
+export const EXPLANATION_FIELD = /(비고|원인|사유|코멘트|설명|요인|메모|comment|remark|note|reason)\s[^\s·]/iu;
+/** Any statement of the period a figure belongs to. */
+export const PERIOD_EXPR = /(\d{4}\s?년|\d{4}[.\-/]\d{1,2}|\d{1,2}\s?월|[1-4]\s?분기|Q[1-4]|YTD|누계|기준일|FY\s?\d*|반기|상반기|하반기|주차|W\d{1,2}|20\d{2}|당월|금월|전월|전년|금년|월별|분기별|연간|기간)/iu;
+/** Any statement of the unit a figure is in. */
+export const UNIT_EXPR = /(단위|\(\s?(원|천원|만원|백만원|억원|억|%|건|EA|개|명|톤|kg|km|달러|USD|KRW)\s?\)|천원|백만원|억원|만원|₩|\$|USD|KRW|EUR|\d\s?원)/iu;
+/** Money-like measures, where 1,200 means nothing without its unit. */
+export const MONEY_LABEL = /(매출|비용|금액|원가|이익|예산|단가|운임|경비|지출|수익|손익|cost|sales|revenue|amount|비$|액$)/iu;
+export const TARGET_HEADER = /(목표|계획|예산|기준|target|plan|budget)/iu;
+export const ATTAINMENT_HEADER = /(달성률|달성율|달성도|진척률|진도율)/u;
