@@ -56,7 +56,10 @@ function articleReference(target: LawTarget, text: string, effectiveDate?: strin
   const head = lines.findIndex((line) => new RegExp(`^${target.jo}(?:\\s|\\(|$)`, "u").test(line.trim()));
   if (head < 0) return undefined;
   const title = lines[head].trim().slice(target.jo.length).replace(/^\s*\(?|\)?\s*$/gu, "").trim();
-  const body = lines.slice(head + 1).map((line) => line.trim()).filter(Boolean).join("\n");
+  const content = lines.slice(head + 1).map((line) => line.trim()).filter(Boolean);
+  if (content[0]?.startsWith(target.jo)
+    && content[0].slice(target.jo.length).replace(/^\s*\(?|\)?\s*$/gu, "").trim() === title) content.shift();
+  const body = content.join("\n");
   if (!body) return undefined;
   return {
     key: `${target.law}\0${target.jo}`,
