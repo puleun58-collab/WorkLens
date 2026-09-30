@@ -10,6 +10,7 @@ import {
 import { isSupportingSection, researchResult, type ResearchDecision, type ResearchSection } from "@/lib/law-research-parse";
 import { lawDisplayText } from "@/lib/law-display";
 import { orderByRelevance, type ResearchEnrichment } from "@/lib/research-relevance";
+import { STATUS_TITLE, type ResearchStatus } from "@/lib/research-status";
 import { LawTextBlock } from "./LawTextBlock";
 import { ContractReviewResult } from "./ContractReviewResult";
 import { SourceToggleSummary } from "./SourceToggleSummary";
@@ -22,7 +23,7 @@ interface TaskResult {
 }
 
 const TASK_HELP: Record<LawResearchTask, { description: string; placeholder: string }> = {
-  full_research: { description: "상황을 설명하면 관련 쟁점과 확인된 법령·판례를 구분해 보여줍니다.\n확인되지 않은 사실은 판단하지 않습니다.", placeholder: "예: 회사에서 업무와 관련해 지속적으로 모욕을 당했는데 어떤 법적 기준을 살펴봐야 하나요?" },
+  full_research: { description: "상황을 설명하면 관련 쟁점과 확인된 법령·판례를 구분해 보여줍니다.", placeholder: "예: 회사에서 업무와 관련해 지속적으로 모욕을 당했는데 어떤 법적 기준을 살펴봐야 하나요?" },
   law_system: { description: "한 법령의 법률·시행령·시행규칙 관계와 관련 조문을 확인합니다.", placeholder: "예: 개인정보 보호법 제38조와 시행령의 관계" },
   action_basis: { description: "처분 또는 허가의 근거 조문과 확인 가능한 불복 자료를 찾습니다.", placeholder: "예: 식품위생법상 영업정지의 근거와 요건" },
   dispute_prep: { description: "쟁송에 참고할 법령, 판례, 결정례를 자료별로 나눠 살펴봅니다.", placeholder: "예: 부당해고 구제 신청 관련 판례와 결정례" },
@@ -189,11 +190,11 @@ export function LegalResearch() {
         : current.outcome?.kind === "missing" ? <div className="legal-analysis-missing" role="status">
           <header className="research-overview">
             <span className="research-eyebrow">{LAW_RESEARCH_TASKS.find((item) => item.value === current.request.task)?.label}</span>
-            <h3 className="legal-analysis-title">관련 자료를 찾지 못했습니다</h3>
+            <h3 className="legal-analysis-title">{STATUS_TITLE.none}</h3>
             {current.request.task !== "document_review" && <div className="research-original"><span>입력한 질문</span><p>{current.request.query}</p></div>}
             {current.request.task === "full_research" && current.outcome.data.interpretation?.original === current.request.query
               && <ResearchUnderstanding interpretation={current.outcome.data.interpretation} />}
-            <p className="research-caution">자료가 조회되지 않았다는 뜻이지 관련 법령이나 판례가 존재하지 않는다는 뜻은 아닙니다. 다른 법령명이나 구체적인 쟁점으로 다시 확인해 주세요.</p>
+            <p className="research-caution">조회되지 않았다고 관련 법령이나 판례가 없다는 뜻은 아닙니다.</p>
           </header>
         </div>
         : current.outcome?.kind === "found" ? current.outcome.data.review
@@ -275,8 +276,10 @@ function ResearchUnderstanding({ interpretation }: { interpretation: ResearchInt
     {/* The model often restates the question verbatim; showing it twice adds nothing. */}
     {interpretation.situation.replace(/\s+/gu, "") !== interpretation.original.replace(/\s+/gu, "") && <p>{interpretation.situation}</p>}
     {interpretation.issues.length > 0 && <div><strong>살펴볼 쟁점</strong><ul>{interpretation.issues.map((issue, index) => <li key={index}>{issue}</li>)}</ul></div>}
-    {interpretation.uncertainty && <p className="research-meta">{interpretation.uncertainty}</p>}
-    {interpretation.followUp && <p className="research-meta">확인이 필요한 정보: {interpretation.followUp}</p>}
+    {/* One short, concrete request; the generic uncertainty only when there is no specific question to ask. */}
+    {interpretation.followUp
+      ? <div><strong>추가로 필요한 정보</strong><p className="research-meta">{interpretation.followUp}</p></div>
+      : interpretation.uncertainty && <p className="research-meta">{interpretation.uncertainty}</p>}
   </div>;
 }
 
@@ -458,11 +461,7 @@ function ResearchResult({ data, request }: { data: LawResearchData; request: Law
     .flatMap((section) => section.decisions?.entries ?? []).filter((entry) => selectedCaseIds.has(entry.id))
     .map((entry) => [entry.id, entry] as const)).values()];
   const evidenceStatus = selectedArticles.length + selectedCases.length ? data.evidence?.status : "unverified";
-  const headline = evidenceStatus === "matched"
-    ? notice ? "관련 근거를 확인했지만 일부 자료는 조회하지 못했습니다" : "관련 근거를 확인했습니다"
-    : evidenceStatus === "partial" ? "관련 근거를 일부 확인했습니다"
-      : hasCandidates ? "질문과 직접 관련된 근거를 확인하지 못했습니다"
-        : notice ? "자료 조회가 완료되지 않았습니다" : "관련 자료를 찾지 못했습니다";
+  const unavailableCount = result.sections.filter((section) => section.status !== "available").length;
   const visibleSelectedKeys = new Set(selectedArticles.map((article) => `${article.law}\u0000${article.jo}`));
   const visibleSelectedCaseIds = new Set(selectedCases.map((entry) => entry.id));
   const candidatePrimary: ResearchSection[] = full ? primary.flatMap((section) => {
@@ -480,35 +479,28 @@ function ResearchResult({ data, request }: { data: LawResearchData; request: Law
   const comparedRegions = comparison?.regions.filter((region) => region.status === "found") ?? [];
   // A row is a comparison only when both regions returned that article; otherwise it is shown as one-sided.
   const bothSides = comparison?.topics.filter((topic) => comparison.regions.every((region) => region.articles.some((article) => article.topic === topic))) ?? [];
-  const taskHeadlines: Record<Exclude<LawResearchTask, "full_research">, string> = {
-    law_system: "법률·시행령·시행규칙의 관계를 정리했습니다",
-    action_basis: "처분·허가의 법령 근거를 찾았습니다",
-    dispute_prep: "쟁송에 참고할 판례·결정례를 찾았습니다",
-    amendment_track: "개정 내용을 확인했습니다",
-    ordinance_compare: bothSides.length ? "두 지역의 같은 주제 조문을 비교했습니다"
-      : comparedRegions.length === 2 ? "두 지역의 조례는 찾았지만 같은 주제의 조문이 함께 확인되지 않았습니다"
-      : comparedRegions.length === 1 ? "한 지역의 조례만 확인했습니다" : "비교할 조례를 찾지 못했습니다",
-    procedure_detail: "절차의 근거와 제출 서식을 찾았습니다",
-    document_review: "문서 검토 결과",
-  };
+  // Primary sections that returned source content for this request.
   const available = primary.some((section) => section.status === "available" && readerText(section.lines.join("\n")))
     || Boolean(data.enrichment?.supplement?.articles.length);
-  // A comparison stands on the per-region lookups even when the parent-law chain returned nothing.
-  const resultHeadline = full ? headline
-    : !available && !comparison ? notice ? "일부 자료를 조회하지 못했습니다" : "관련 자료를 찾지 못했습니다"
-    : taskHeadlines[data.task === "full_research" ? "document_review" : data.task];
+  // One status vocabulary for every task, decided by what was actually adopted, never by hit counts.
+  const status: ResearchStatus = full
+    ? evidenceStatus === "matched" ? notice ? "partial" : "matched" : evidenceStatus === "partial" ? "partial" : hasCandidates ? "weak" : "none"
+    : comparison
+      ? bothSides.length ? comparedRegions.length === 2 ? "matched" : "partial"
+        : comparedRegions.some((region) => region.articles.length) ? "partial" : comparedRegions.length ? "weak" : "none"
+      : !available ? "none" : notice || unavailableCount ? "partial" : "matched";
 
   return <div className="legal-analysis-output" data-task={data.task}>
     <header className="research-overview">
       <span className="research-eyebrow">{LAW_RESEARCH_TASKS.find((item) => item.value === data.task)?.label}</span>
-      <h3 className="legal-analysis-title">{resultHeadline}</h3>
+      <h3 className="legal-analysis-title" data-status={status}>{STATUS_TITLE[status]}</h3>
       {request.task !== "document_review" && <div className="research-original"><span>입력한 질문</span><p>{request.query}</p></div>}
       {interpretation && <ResearchUnderstanding interpretation={interpretation} />}
-      {full && <p className="research-caution">{selectedArticles.length + selectedCases.length
-        ? `아래 '확인한 근거'는 질문 쟁점과 내용이 맞는 자료입니다. 구체적 사건의 법적 결론은 아닙니다.${evidenceStatus === "partial" ? " 현재 확인된 자료만으로 모든 쟁점을 판단하기에는 근거가 충분하지 않을 수 있습니다." : ""}`
-        : hasCandidates ? "관련 자료는 조회됐지만 질문 쟁점과 내용이 맞는지 확인되지 않았습니다. 아래 자료는 참고용입니다."
-        : "관련 자료가 조회되지 않았다는 뜻이지, 관련 법령이나 판례가 없다는 뜻은 아닙니다."}</p>}
-      {request.task === "ordinance_compare" && <p className="research-caution">비교 대상: {request.regions.join(" · ")}. 두 지역의 조문이 모두 조회되지 않으면 차이·우열을 판단하지 않습니다.</p>}
+      <p className="research-caution">{status === "matched" || status === "partial"
+        ? `${full ? "확인한 근거는" : "조회한 자료는"} 관련 쟁점을 검토하기 위한 자료이며, 구체적인 사건의 법적 결론을 의미하지 않습니다.`
+        : status === "weak" ? "조회된 자료가 질문과 직접 관련되는지 확인되지 않았습니다. 아래 자료는 참고용입니다."
+        : "조회되지 않았다고 관련 법령이나 판례가 없다는 뜻은 아닙니다."}</p>
+      {request.task === "ordinance_compare" && <p className="research-caution">비교 대상: {request.regions.join(" · ")}. 양쪽 조문이 모두 확인된 항목만 비교합니다.</p>}
     </header>
     {notice && <p className="legal-research-partial" role="note">{notice}</p>}
     {full && (selectedArticles.length > 0 || selectedCases.length > 0) && <section className="research-group research-selected" aria-label="확인한 근거">

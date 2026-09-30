@@ -8,6 +8,7 @@ import {
 } from "@/lib/decision-search";
 import { LAW_ANALYSIS_CASE_MAX_CHARS, LAW_ANALYSIS_CASE_PATTERN } from "@/lib/law-analysis";
 import { decisionIdentifier, decisionSearchQuery, splitExactResults } from "@/lib/decision-identifier";
+import { formatLawDate } from "@/lib/law-search";
 import { LawTextBlock } from "./LawTextBlock";
 import "./decision-search.css";
 
@@ -213,7 +214,7 @@ export function DecisionSearch({ linkedRequest, onReturnToLaw, onCiteCheck }: De
           {selected.caseNumber && <span>{selected.caseNumber}</span>}
           {selected.court && <span>{selected.court}</span>}
           {selected.institution && <span>{selected.institution}</span>}
-          {selected.date && <span>{selected.date}</span>}
+          {selected.date && <span>{formatLawDate(selected.date) ?? selected.date}</span>}
         </p>
         {detailLoading ? <p className="law-search-note" role="status">원문을 불러오는 중…</p>
           : detail?.kind === "error" ? <div className="decision-feedback" role="alert">
@@ -285,7 +286,7 @@ function DecisionList({ entries, onOpen }: { entries: readonly DecisionEntry[]; 
           {entry.caseNumber && entry.title && <span>{entry.caseNumber}</span>}
           {entry.court && <span>{entry.court}</span>}
           {entry.institution && <span>{entry.institution}</span>}
-          {entry.date && <span>{entry.date}</span>}
+          {entry.date && <span>{formatLawDate(entry.date) ?? entry.date}</span>}
         </span>}
         {entry.summary && <span className="decision-search-summary">{entry.summary}</span>}
       </button>

@@ -1,4 +1,5 @@
 import { analysisMarkers, splitAnalysisText, type AnalysisSection } from "@/lib/law-analysis-parse";
+import { courtFromCaseNumber } from "@/lib/law-display";
 
 /**
  * `legal_research` chains all emit `═══ title ═══` + `▶ section` blocks. Sections
@@ -126,6 +127,10 @@ function parseDecisions(lines: readonly string[]): ResearchDecision[] {
     if (CASE_NUMBER_FIELDS.has(field[1])) current.caseNumber ??= field[2];
     else if (BODY_FIELDS.has(field[1])) current.body ??= field[2];
     else if (DATE_FIELDS.has(field[1])) current.date ??= field[2];
+  }
+  for (const entry of entries) {
+    const court = entry.body ? undefined : courtFromCaseNumber(entry.caseNumber);
+    if (court) entry.body = court;
   }
   return entries;
 }

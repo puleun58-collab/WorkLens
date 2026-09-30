@@ -944,6 +944,8 @@ test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route wit
   await form.getByRole("button", { name: "문서 검토" }).click();
   await expect(page.getByRole("heading", { name: "검토 결과" })).toBeVisible();
   const review = page.locator(".contract-review");
+  await expect(review.locator(".research-overview .research-eyebrow")).toHaveText("문서 검토");
+  await expect(review.locator(".research-overview h3")).toHaveText("관련 근거를 확인했습니다");
   await expect(review).toContainText("서비스 이용계약");
   await expect(review).toContainText("사업자 간");
   await expect(review).toContainText("2026년 1월 1일부터 2026년 12월 31일까지");
@@ -1026,13 +1028,13 @@ test("RESEARCH ordinance comparison needs two regions and shows each region's ve
   const row = table.locator("tbody tr").filter({ hasText: "주차요금의 감면" });
   await expect(row).toContainText("50퍼센트");
   await expect(row).toContainText("80퍼센트");
-  await expect(page.locator(".research-overview h3")).toHaveText("두 지역의 같은 주제 조문을 비교했습니다");
+  await expect(page.locator(".research-overview h3")).toHaveText("관련 근거를 확인했습니다");
   await expect(page.locator(".research-overview")).not.toContainText("비교 대상 지역:");
 
   await form.getByLabel("질문 또는 검색어").fill("한쪽만");
   await form.getByLabel("관련 상위 법령 (선택)").fill("");
   await form.getByRole("button", { name: "리서치 실행" }).click();
-  await expect(page.locator(".research-overview h3")).toHaveText("한 지역의 조례만 확인했습니다");
+  await expect(page.locator(".research-overview h3")).toHaveText("관련 근거를 일부 확인했습니다");
   await expect(table).toContainText("확인 가능한 관련 조례를 찾지 못했습니다.");
   await expect(page.getByRole("region", { name: "조례 대조" })).toContainText("차이를 비교하지 않았습니다");
   expect(searches).toEqual([
@@ -1073,8 +1075,10 @@ test("RESEARCH distinguishes empty, low-relevance and partial evidence without a
   await query.fill("회사에서 갑자기 잘렸어");
   await run.click();
   const overview = page.locator(".research-overview");
-  await expect(overview.locator("h3")).toHaveText("질문과 직접 관련된 근거를 확인하지 못했습니다");
-  await expect(overview).toContainText("근무 기간은 얼마나 되나요?");
+  await expect(overview.locator("h3")).toHaveText("직접 관련된 근거가 충분하지 않습니다");
+  // The specific follow-up replaces the generic uncertainty instead of repeating it.
+  await expect(overview).toContainText("추가로 필요한 정보근무 기간은 얼마나 되나요?");
+  await expect(overview).not.toContainText("근로계약의 형태는 확인되지 않았습니다.");
   await expect(overview).not.toContainText("근로계약이 종료되었");
   await expect(page.locator(".research-selected")).toHaveCount(0);
   // Search statistics are not shown; only what was reviewed.
@@ -1084,13 +1088,13 @@ test("RESEARCH distinguishes empty, low-relevance and partial evidence without a
   }
   await query.fill("자료 없음");
   await run.click();
-  await expect(page.locator(".legal-analysis-missing h3")).toHaveText("관련 자료를 찾지 못했습니다");
+  await expect(page.locator(".legal-analysis-missing h3")).toHaveText("관련 근거를 확인하지 못했습니다");
   await expect(page.locator(".legal-analysis-missing")).toContainText("자료 없음");
   await expect(page.locator(".legal-analysis-missing")).not.toContainText("get_law_text");
   await query.fill("일부 근거");
   await run.click();
   await expect(overview.locator("h3")).toHaveText("관련 근거를 일부 확인했습니다");
-  await expect(overview).toContainText("모든 쟁점을 판단하기에는 근거가 충분하지 않을 수 있습니다");
+  await expect(overview.locator(".research-caution")).toHaveText("확인한 근거는 관련 쟁점을 검토하기 위한 자료이며, 구체적인 사건의 법적 결론을 의미하지 않습니다.");
   await expect(page.locator(".research-selected")).toContainText("근로기준법 제23조");
   await expect(overview).not.toContainText("현행");
 });
@@ -1118,6 +1122,9 @@ test("RESEARCH every task applies the same result rules while keeping its own st
   await form.getByLabel("비교 지역 1").fill("인천광역시");
   await form.getByLabel("비교 지역 2").fill("서울특별시");
   const tasks = ["full_research", "law_system", "action_basis", "dispute_prep", "amendment_track", "ordinance_compare", "procedure_detail"];
+  const labels: Record<string, string> = { full_research: "종합 리서치", law_system: "법체계 확인", action_basis: "처분·허가 근거", dispute_prep: "분쟁·불복 자료",
+    amendment_track: "개정 추적", ordinance_compare: "조례 비교", procedure_detail: "절차·서식" };
+  const statuses = new Set<string>();
   for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
     await page.setViewportSize(viewport);
     for (const task of tasks) {
@@ -1126,8 +1133,9 @@ test("RESEARCH every task applies the same result rules while keeping its own st
       const output = page.locator(".legal-research .legal-analysis-output");
       await expect(output.locator(".research-overview")).toBeVisible();
       // The first box reads as a result: no "· 조회 결과" label, no "…살펴보세요" instruction, one question label.
-      await expect(output.locator(".research-overview .research-eyebrow").first(), task).not.toContainText("조회 결과");
-      await expect(output.locator(".research-overview h3"), task).not.toContainText("살펴보세요");
+      await expect(output.locator(".research-overview .research-eyebrow").first(), task).toHaveText(labels[task]);
+      await expect(output.locator(".research-overview h3"), task).toHaveText(/^관련 근거를 (?:확인했습니다|일부 확인했습니다|확인하지 못했습니다)$|^직접 관련된 근거가 충분하지 않습니다$/u);
+      statuses.add(`${task}:${await output.locator(".research-overview h3").getAttribute("data-status")}`);
       await expect(output.locator(".research-original > span"), task).toHaveText("입력한 질문");
       // No decorative blue side rule, one left edge for the summary and every section.
       expect(await output.locator(".research-overview").evaluate((node) => getComputedStyle(node).borderLeftColor === getComputedStyle(node).borderTopColor), task).toBe(true);
@@ -1145,6 +1153,11 @@ test("RESEARCH every task applies the same result rules while keeping its own st
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), task).toBe(true);
     }
   }
+  // The status follows adopted evidence, not a fixed title: this fixture gives full research no adopted
+  // source (weak), a comparison with no regional ordinance (none), and the others partial results.
+  expect([...statuses].filter((entry) => entry.startsWith("full_research:"))).toEqual(["full_research:weak"]);
+  expect([...statuses].filter((entry) => entry.startsWith("ordinance_compare:"))).toEqual(["ordinance_compare:none"]);
+  expect([...statuses].filter((entry) => entry.startsWith("law_system:"))).toEqual(["law_system:partial"]);
   // Each type keeps its own structure.
   await form.getByLabel("리서치 유형").selectOption("amendment_track");
   await expect(page.locator(".research-group[data-group='change']")).toContainText("두 시점의 조문 비교");
@@ -1169,7 +1182,7 @@ test("RESEARCH separates a verified article from search candidates and hides int
   await form.getByLabel("질문 또는 검색어").fill("직장 내 괴롭힘 판단 기준");
   // The feature description and the caution read as two lines of one help text.
   const help = form.locator(".legal-research-description");
-  expect((await help.innerText()).split("\n")).toEqual(["상황을 설명하면 관련 쟁점과 확인된 법령·판례를 구분해 보여줍니다.", "확인되지 않은 사실은 판단하지 않습니다."]);
+  await expect(help).toHaveText("상황을 설명하면 관련 쟁점과 확인된 법령·판례를 구분해 보여줍니다.");
   await form.getByRole("button", { name: "리서치 실행" }).click();
   const output = page.locator(".legal-research .legal-analysis-output");
   await expect(output.locator(".research-overview")).toContainText("직장에서 괴롭힘 문제를 겪는 상황");

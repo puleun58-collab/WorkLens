@@ -1,6 +1,7 @@
 "use client";
 
 import type { ContractReview, ReviewedIssue, SourceStatus } from "@/lib/contract-review";
+import { STATUS_TITLE, type ResearchStatus } from "@/lib/research-status";
 
 const SEVERITY_LABEL = { high: "높음", medium: "보통", low: "낮음" } as const;
 const RESULT_NOTE = "법적 판단이 필요한 경우 국가법령정보센터 원문과 관련 전문가 검토가 필요할 수 있습니다.";
@@ -76,7 +77,18 @@ export function ContractReviewResult({ review }: { review: ContractReview }) {
     </>;
   };
 
+  // Same status vocabulary as every research task: issues whose law was found are adopted evidence.
+  const issues = review.clauses.flatMap((clause) => clause.issues);
+  const grounded = issues.filter((issue) => issue.laws.some((key) => review.laws[key])).length;
+  const status: ResearchStatus = !issues.length ? "none" : grounded === issues.length ? "matched" : grounded ? "partial" : "weak";
   return <div className="legal-analysis-output contract-review" data-task="document_review" data-document-type={document.type}>
+    <header className="research-overview">
+      <span className="research-eyebrow">문서 검토</span>
+      <h3 className="legal-analysis-title" data-status={status}>{issues.length ? STATUS_TITLE[status] : "검토가 필요한 조항을 찾지 못했습니다"}</h3>
+      <p className="research-caution">{issues.length
+        ? "검토 결과는 관련 쟁점을 확인하기 위한 자료이며, 구체적인 사건의 법적 결론을 의미하지 않습니다."
+        : "찾지 못했다고 문서에 법적 위험이 없다는 뜻은 아닙니다."}</p>
+    </header>
     <div className="legal-analysis-section">
       <h3>문서 개요</h3>
       <dl className="contract-review-facts">

@@ -1,6 +1,7 @@
 import type { DecisionDomain } from "@/lib/decision-domain";
 import { ApiError } from "@/server/http";
 import { callLawTool } from "@/server/law-mcp";
+import { courtFromCaseNumber } from "@/lib/law-display";
 
 export interface DecisionEntry {
   domain: DecisionDomain;
@@ -70,6 +71,11 @@ export function parseDecisionEntries(text: string, domain: DecisionDomain): Deci
     const field = /^  ([^:\r\n]+):[ \t]*(.+?)[ \t]*$/u.exec(line);
     if (!field) continue;
     if (Object.hasOwn(fields, field[1]) && field[2] !== "N/A") current[fields[field[1]]] = field[2];
+  }
+  // 법원: N/A beside `대법원-2023-다-302036`: the record's own case-number field names the court.
+  for (const entry of entries) {
+    const court = entry.court ? undefined : courtFromCaseNumber(entry.caseNumber);
+    if (court) entry.court = court;
   }
   return entries;
 }
