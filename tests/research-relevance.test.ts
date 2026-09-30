@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { hasRelevantResearchEvidence, researchEvidenceSources, orderByRelevance, questionTerms, rankPrecedent, titleMatches } from "@/lib/research-relevance";
-import { enrichResearch, precedentEvidence, type EnrichmentSources } from "@/server/research-enrichment";
+import { enrichResearch, lookupIssue, precedentEvidence, sharedSources, type EnrichmentSources } from "@/server/research-enrichment";
 
 /** A full_research answer shaped like the live one for "직장 내 괴롭힘 판단 기준". */
 const HARASSMENT = [
@@ -31,6 +31,7 @@ function fakeSources(overrides: Partial<EnrichmentSources> = {}): EnrichmentSour
     async toc(mst) { calls.push(`toc:${mst}`); return []; },
     async article(mst, jo) { calls.push(`article:${mst}:${jo}`); return undefined; },
     async interpretations(query) { calls.push(`interpretations:${query}`); return []; },
+    async precedents(query) { calls.push(`precedents:${query}`); return []; },
     ...overrides,
   };
 }
@@ -40,6 +41,43 @@ describe("question terms", () => {
     expect(questionTerms("직장 내 괴롭힘 판단 기준")).toEqual(["직장", "괴롭힘"]);
     expect(questionTerms("건축법 이행강제금 부과 근거")).toEqual(["건축법", "이행강제금", "부과"]);
     expect(questionTerms("임대차 보증금의 반환")).toEqual(["임대차", "보증금", "반환"]);
+  });
+});
+
+describe("request budget across issues", () => {
+  it("makes each identical lookup once and never exceeds the concurrency limit", async () => {
+    let active = 0;
+    let peak = 0;
+    const gates: Array<() => void> = [];
+    const base = fakeSources({ async laws(query) {
+      base.calls.push(`laws:${query}`);
+      active++;
+      peak = Math.max(peak, active);
+      const { promise, resolve } = Promise.withResolvers<void>();
+      gates.push(resolve);
+      await promise;
+      active--;
+      return [];
+    } });
+    const shared = sharedSources(base, 2);
+    const all = Promise.all(["해고", "해고", "임금", "퇴직금", "임금", "휴업"].map((term) => shared.laws(term)));
+    // Hold every started lookup until released: the limiter must admit the next only after one finishes.
+    await vi.waitFor(() => expect(gates).toHaveLength(2));
+    expect(base.calls).toHaveLength(2);
+    while (base.calls.length < 4 || gates.length) {
+      await vi.waitFor(() => expect(gates.length).toBeGreaterThan(0));
+      gates.shift()!();
+    }
+    await all;
+    expect(base.calls.sort()).toEqual(["laws:임금", "laws:퇴직금", "laws:해고", "laws:휴업"]);
+    expect(peak).toBe(2);
+  });
+
+  it("reports an issue whose searches could not answer as failed or unfinished, not as having no source", async () => {
+    const down = fakeSources({ async precedents() { throw new Error("down"); } });
+    expect((await lookupIssue("임금 체불", [], down, () => false)).status).toBe("failed");
+    expect((await lookupIssue("임금 체불", [], fakeSources(), () => true)).status).toBe("timeout");
+    expect((await lookupIssue("임금 체불", [], fakeSources(), () => false)).status).toBe("none");
   });
 });
 

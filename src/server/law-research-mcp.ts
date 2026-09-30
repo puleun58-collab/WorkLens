@@ -1,16 +1,27 @@
-import type { EvidenceArticle, LawCurrency, LawResearchAbsent, LawResearchData, LawResearchRequest } from "@/lib/law-research";
-import { researchResult } from "@/lib/law-research-parse";
-import { researchEvidenceSources, type ResearchEnrichment } from "@/lib/research-relevance";
+import type { EvidenceArticle, IssueEvidence, LawCurrency, LawResearchAbsent, LawResearchData, LawResearchRequest, ResearchIssue } from "@/lib/law-research";
+import { researchResult, type ResearchDecision } from "@/lib/law-research-parse";
+import {
+  questionTerms, rankPrecedent, researchEvidenceSources,
+  type PrecedentRelevance, type ResearchEnrichment, type SupplementArticle,
+} from "@/lib/research-relevance";
 import { classifyLawToolResult } from "@/server/law-analysis-mcp";
 import { callLawTool, searchLaw } from "@/server/law-mcp";
 import { mcpReviewSources, reviewContract } from "@/server/contract-review";
 import { interpretResearchQuery } from "@/server/groq";
 import { ApiError } from "@/server/http";
-import { enrichResearch, mcpEnrichmentSources } from "@/server/research-enrichment";
+import {
+  enrichResearch, lookupIssue, mcpEnrichmentSources, sharedSources,
+  type EnrichmentSources, type IssueLookup,
+} from "@/server/research-enrichment";
 import { compareOrdinances, mcpOrdinanceSources } from "@/server/ordinance-compare";
 
 const RESEARCH_FAILURE = "법령 리서치 서비스가 요청을 처리하지 못했습니다.";
 const MAX_STATUS_LAWS = 4;
+/** Every issue the combined answer did not cover shares this budget; one it cannot reach is reported, never dropped. */
+const ISSUE_BUDGET_MS = 15_000;
+/** The upstream search AND-matches words, so only a keyword-length question is usable as written. */
+const SHORT_QUERY_TERMS = 4;
+const EXCERPT_CHARS = 600;
 
 /**
  * Whether each cited article is in force today: the law's 법제처 status (`현행` or not)
@@ -45,6 +56,41 @@ async function withCurrency(articles: Array<{ law: string; jo: string }>, text: 
   });
 }
 
+type ChainResult =
+  | { kind: "found"; text: string; markers: string[]; enrichment?: ResearchEnrichment }
+  | { kind: "absent"; text: string }
+  | { kind: "failed"; error: unknown };
+
+/**
+ * Which of the known sources address one issue, judged by that issue's own terms: cases
+ * are re-ranked from their (cached) summaries, articles by the shared excerpt rule.
+ */
+async function issueSources(
+  issueQuery: string,
+  chain: { text: string; enrichment?: ResearchEnrichment; listed: Map<string, ResearchDecision> },
+  lookup: IssueLookup | undefined,
+  sources: EnrichmentSources,
+  summaries: Map<string, string>,
+): Promise<{ articles: Array<{ law: string; jo: string }>; precedents: string[] }> {
+  const terms = questionTerms(issueQuery);
+  const relevance: Record<string, PrecedentRelevance> = {};
+  await Promise.all(Object.keys(chain.enrichment?.precedents ?? {}).map(async (id) => {
+    const summary = await sources.summary(id).catch(() => undefined);
+    if (summary?.text) summaries.set(id, summary.text);
+    relevance[id] = rankPrecedent(terms, { title: chain.listed.get(id)?.title, ...(summary ? { summary: summary.text, excerpt: summary.excerpt } : {}) });
+  }));
+  for (const hit of lookup?.precedents ?? []) {
+    summaries.set(hit.id, hit.summary);
+    relevance[hit.id] = rankPrecedent(terms, { title: hit.title, summary: hit.summary, excerpt: hit.excerpt });
+  }
+  const supplement = [...(chain.enrichment?.supplement?.articles ?? []), ...(lookup?.articles ?? [])];
+  return researchEvidenceSources(chain.text, issueQuery, {
+    ...chain.enrichment,
+    precedents: relevance,
+    supplement: { status: supplement.length ? "found" : "none", articles: supplement },
+  });
+}
+
 async function fullResearch(
   query: string,
   context: { requestId: string; signal?: AbortSignal },
@@ -53,43 +99,112 @@ async function fullResearch(
   // question's existing search path. It never supplies factual evidence.
   const interpretation = await interpretResearchQuery(query, context).catch(() => undefined);
   if (context.signal?.aborted) throw new ApiError("LAW_REQUEST_ABORTED", "요청이 취소되었습니다.", 499);
-  // The upstream search AND-matches words, so issues are searched one at a time,
-  // never joined: the primary issue first, then (once) the user's own wording.
-  const issue = interpretation?.issues[0]?.slice(0, 500) || query;
-  const attempt = async (searchQuery: string) => {
-    const { text, isError } = await callLawTool("legal_research", { task: "full_research", query: searchQuery }, context);
-    const classification = classifyLawToolResult(text, isError, { failureMessage: RESEARCH_FAILURE });
-    if (classification.kind === "absent") return { found: false as const, task: "full_research" as const, marker: "NOT_FOUND" as const, text };
-    const enrichment = await enrichResearch("full_research", issue, text, mcpEnrichmentSources(context)).catch(() => undefined);
-    const issues = interpretation?.issues ?? [query];
-    const matched = issues.map((item) => researchEvidenceSources(text, item, enrichment));
-    const matchedCount = matched.filter((sources) => sources.articles.length || sources.precedents.length).length;
-    const status = matchedCount === issues.length ? "matched" as const : matchedCount ? "partial" as const : "unverified" as const;
-    const articles = [...new Map(matched.flatMap((sources) => sources.articles).map((article) => [`${article.law}\0${article.jo}`, article])).values()];
-    const precedents = [...new Set(matched.flatMap((sources) => sources.precedents))];
-    const precedentExcerpts = precedents.length ? Object.fromEntries(precedents.flatMap((id) => enrichment?.precedentExcerpts?.[id]
-      ? [[id, enrichment.precedentExcerpts[id]]] : [])) : undefined;
-    return { found: true as const, task: "full_research" as const, text, markers: classification.markers,
-      ...(enrichment ? { enrichment } : {}), evidence: { status, articles, precedents,
-        ...(precedentExcerpts && Object.keys(precedentExcerpts).length ? { precedentExcerpts } : {}) } };
-  };
-  const chosen = await (async () => {
-    const first = await attempt(issue);
-    if (!interpretation || (first.found && first.evidence.status === "matched")) return first;
-    // One alternative retrieval only. A failed second lookup never erases an official first response.
-    const alternative = issue !== query ? query : interpretation.searchTerms.find((term) => term !== issue);
-    if (!alternative) return first;
-    const second = await attempt(alternative).catch((error: unknown) => {
+  // Each issue carries its own short search phrase; the question is searched as written only when it could not be read.
+  const issues: Array<ResearchIssue | { label?: undefined; query: string }> = interpretation?.issues.length ? interpretation.issues : [{ query }];
+  const sources = sharedSources(mcpEnrichmentSources(context));
+
+  const search = async (searchQuery: string): Promise<ChainResult> => {
+    try {
+      const { text, isError } = await callLawTool("legal_research", { task: "full_research", query: searchQuery }, context);
+      const classification = classifyLawToolResult(text, isError, { failureMessage: RESEARCH_FAILURE });
+      if (classification.kind === "absent") return { kind: "absent", text };
+      const enrichment = await enrichResearch("full_research", searchQuery, text, sources).catch(() => undefined);
+      return { kind: "found", text, markers: classification.markers, ...(enrichment ? { enrichment } : {}) };
+    } catch (error) {
       if (context.signal?.aborted) throw error;
-      return undefined;
-    });
-    const score: Record<"unverified" | "partial" | "matched", number> = { unverified: 0, partial: 1, matched: 2 };
-    return second?.found && (!first.found || score[second.evidence.status] > score[first.evidence.status]) ? second : first;
-  })();
-  const selected = chosen.found
-    ? { ...chosen, evidence: { ...chosen.evidence, articles: await withCurrency(chosen.evidence.articles, chosen.text, chosen.enrichment, context) } }
-    : chosen;
-  return { ...selected, ...(interpretation ? { interpretation } : {}) };
+      return { kind: "failed", error };
+    }
+  };
+  let chain = await search(issues[0].query);
+  if (chain.kind === "absent") {
+    // One retry for a genuine absence: the next issue's phrase, or the question itself when it is keyword-short.
+    const alternative = issues[1]?.query
+      ?? (interpretation && query !== issues[0].query && questionTerms(query).length <= SHORT_QUERY_TERMS ? query : undefined);
+    if (alternative) {
+      const second = await search(alternative);
+      if (second.kind === "found") chain = second;
+    }
+  }
+  // Without an interpretation there is nothing else to search: the chain's own outcome stands.
+  if (!interpretation && chain.kind === "failed") throw chain.error;
+  if (!interpretation && chain.kind === "absent") return { found: false, task: "full_research", marker: "NOT_FOUND", text: chain.text };
+
+  const found = chain.kind === "found" ? chain : undefined;
+  const document = researchResult(found?.text ?? "");
+  const known = {
+    text: found?.text ?? "",
+    ...(found?.enrichment ? { enrichment: found.enrichment } : {}),
+    listed: new Map(document.sections.filter((section) => section.status === "available")
+      .flatMap((section) => section.decisions?.entries ?? []).map((entry) => [entry.id, entry] as const)),
+  };
+  const shownArticles = document.sections.flatMap((section) => section.articles ?? []);
+  const summaries = new Map<string, string>();
+  const started = Date.now();
+  const expired = () => Date.now() - started > ISSUE_BUDGET_MS;
+  const judged = await Promise.all(issues.map(async (issue) => {
+    let adopted = await issueSources(issue.query, known, undefined, sources, summaries);
+    let lookup: IssueLookup | undefined;
+    // Only an interpreted issue has a short phrase of its own; a question that could not be read is never sent whole.
+    if (!adopted.articles.length && !adopted.precedents.length && issue.label !== undefined) {
+      lookup = await lookupIssue(issue.query, shownArticles, sources, expired);
+      if (lookup.status === "found") adopted = await issueSources(issue.query, known, lookup, sources, summaries);
+    }
+    const covered = adopted.articles.length > 0 || adopted.precedents.length > 0;
+    // When the combined search failed, "nothing found" by the issue lookup alone is not a confirmed absence.
+    const status: IssueEvidence["status"] = covered ? "found"
+      : lookup?.status === "failed" || lookup?.status === "timeout" ? lookup.status
+      : chain.kind === "failed" ? "failed" : "none";
+    return { issue, lookup, adopted, status };
+  }));
+
+  const coveredCount = judged.filter((item) => item.status === "found").length;
+  if (!found && !coveredCount) {
+    if (chain.kind === "failed") throw chain.error;
+    return { found: false, task: "full_research", marker: "NOT_FOUND", text: chain.kind === "absent" ? chain.text : "", interpretation };
+  }
+
+  // Sources an issue lookup contributed join the answer's own, each shown once however many issues cite it.
+  const lookupArticles = new Map<string, SupplementArticle>();
+  const precedentEntries: Record<string, { title?: string; caseNumber?: string; body?: string; date?: string }> = {};
+  for (const { lookup, adopted } of judged) {
+    for (const article of lookup?.articles ?? []) {
+      if (adopted.articles.some((item) => item.law === article.law && item.jo === article.jo)) lookupArticles.set(`${article.law}\0${article.jo}`, article);
+    }
+    for (const hit of lookup?.precedents ?? []) {
+      if (adopted.precedents.includes(hit.id) && !known.listed.has(hit.id)) {
+        precedentEntries[hit.id] = { ...(hit.title ? { title: hit.title } : {}), ...(hit.caseNumber ? { caseNumber: hit.caseNumber } : {}),
+          ...(hit.body ? { body: hit.body } : {}), ...(hit.date ? { date: hit.date } : {}) };
+      }
+    }
+  }
+  const baseSupplement = found?.enrichment?.supplement;
+  const supplementArticles = [...(baseSupplement?.articles ?? []),
+    ...[...lookupArticles.values()].filter((article) => !baseSupplement?.articles.some((item) => item.law === article.law && item.jo === article.jo))];
+  const enrichment: ResearchEnrichment | undefined = found?.enrichment || supplementArticles.length ? {
+    ...found?.enrichment,
+    ...(supplementArticles.length ? { supplement: { status: "found" as const, articles: supplementArticles } } : {}),
+  } : undefined;
+  const articles = [...new Map(judged.flatMap(({ adopted }) => adopted.articles).map((article) => [`${article.law}\0${article.jo}`, article])).values()];
+  const precedents = [...new Set(judged.flatMap(({ adopted }) => adopted.precedents))];
+  const precedentExcerpts = Object.fromEntries(precedents.flatMap((id) => {
+    const text = summaries.get(id);
+    return text ? [[id, text.slice(0, EXCERPT_CHARS)]] : [];
+  }));
+  const text = found?.text ?? "";
+  return {
+    found: true, task: "full_research", text, markers: found?.markers ?? [],
+    ...(enrichment ? { enrichment } : {}),
+    evidence: {
+      status: coveredCount === issues.length ? "matched" : coveredCount ? "partial" : "unverified",
+      articles: await withCurrency(articles, text, enrichment, context),
+      precedents,
+      ...(Object.keys(precedentExcerpts).length ? { precedentExcerpts } : {}),
+      issues: judged.map(({ issue, adopted, status }) => ({ ...(issue.label ? { label: issue.label } : {}), status, ...adopted })),
+      ...(Object.keys(precedentEntries).length ? { precedentEntries } : {}),
+      ...(chain.kind === "failed" ? { searchFailed: true as const } : {}),
+    },
+    ...(interpretation ? { interpretation } : {}),
+  };
 }
 
 export async function runLegalResearch(

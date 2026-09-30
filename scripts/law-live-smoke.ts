@@ -26,7 +26,7 @@ const CASES: Array<{ name: string; body: Record<string, unknown>; relevance?: bo
   { name: "full_research", body: { task: "full_research", query: "직장 내 괴롭힘 판단 기준" }, relevance: true },
   { name: "law_system", body: { task: "law_system", query: "개인정보 보호법" } },
   { name: "amendment_track", body: { task: "amendment_track", query: "근로기준법", scenario: "time_travel", fromDate: "2022-01-01", toDate: "2026-01-01" } },
-  { name: "ordinance_compare", body: { task: "ordinance_compare", query: "주차장 설치 및 관리 조례", parentLaw: "주차장법" } },
+  { name: "ordinance_compare", body: { task: "ordinance_compare", query: "주차장 설치 및 관리 조례", regions: ["인천광역시", "서울특별시"], parentLaw: "주차장법" } },
   { name: "procedure_detail", body: { task: "procedure_detail", query: "행정심판 청구 절차와 제출서류" } },
 ];
 

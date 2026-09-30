@@ -4,6 +4,7 @@ import {
   isLawName, questionTerms, rankPrecedent, titleMatches,
   type PrecedentRelevance, type ResearchEnrichment, type SupplementArticle,
 } from "@/lib/research-relevance";
+import type { ResearchDecision } from "@/lib/law-research-parse";
 import { getDecisionText, searchDecisions } from "@/server/decision-mcp";
 import { getLawText, searchLaw } from "@/server/law-mcp";
 
@@ -22,6 +23,8 @@ export interface EnrichmentSources {
   article(mst: string, jo: string): Promise<{ text: string; name?: string; effectiveDate?: string } | undefined>;
   /** 법령해석례 search; [] when the MCP reports no result. */
   interpretations(query: string): Promise<Array<{ id: string; title?: string; caseNumber?: string; body?: string; date?: string }>>;
+  /** 판례 search for one issue's short phrase; [] when the MCP reports no result. */
+  precedents(query: string): Promise<ResearchDecision[]>;
 }
 
 const SUMMARY_HEADINGS = new Set(["판시사항", "판결요지", "결정요지", "참조조문"]);
@@ -66,6 +69,42 @@ export function mcpEnrichmentSources(context: Context): EnrichmentSources {
       return result.found ? result.entries.map((entry) => ({ id: entry.id, ...(entry.title ? { title: entry.title } : {}),
         ...(entry.caseNumber ? { caseNumber: entry.caseNumber } : {}), ...(entry.date ? { date: entry.date } : {}) })) : [];
     },
+    async precedents(query) {
+      const result = await searchDecisions("precedent", query, 1, context);
+      return result.found ? result.entries.map((entry) => ({ id: entry.id, ...(entry.title ? { title: entry.title } : {}),
+        ...(entry.caseNumber ? { caseNumber: entry.caseNumber } : {}), ...(entry.court ? { body: entry.court } : {}),
+        ...(entry.date ? { date: entry.date } : {}) })) : [];
+    },
+  };
+}
+
+/**
+ * One cache and one concurrency limit for every lookup a request makes: issues that
+ * reach the same law, table of contents, article or case never repeat the call.
+ */
+export function sharedSources(sources: EnrichmentSources, limit = CONCURRENCY): EnrichmentSources {
+  let active = 0;
+  const waiting: Array<() => void> = [];
+  const acquire = () => active < limit
+    ? (active++, Promise.resolve())
+    : new Promise<void>((resolve) => waiting.push(() => { active++; resolve(); }));
+  const release = () => { active--; waiting.shift()?.(); };
+  const cache = new Map<string, Promise<unknown>>();
+  const call = <T>(key: string, run: () => Promise<T>): Promise<T> => {
+    let pending = cache.get(key) as Promise<T> | undefined;
+    if (!pending) {
+      pending = acquire().then(run).finally(release);
+      cache.set(key, pending);
+    }
+    return pending;
+  };
+  return {
+    summary: (id) => call(`summary\0${id}`, () => sources.summary(id)),
+    laws: (query) => call(`laws\0${query}`, () => sources.laws(query)),
+    toc: (mst) => call(`toc\0${mst}`, () => sources.toc(mst)),
+    article: (mst, jo) => call(`article\0${mst}\0${jo}`, () => sources.article(mst, jo)),
+    interpretations: (query) => call(`interpretations\0${query}`, () => sources.interpretations(query)),
+    precedents: (query) => call(`precedents\0${query}`, () => sources.precedents(query)),
   };
 }
 
@@ -163,6 +202,22 @@ export async function enrichResearch(
   }
   // Laws named in the question or the answer's title, then laws whose names contain a question term.
   const named = [...terms.filter(isLawName), ...(document.title?.split(":").slice(1).map((part) => part.trim()).filter(isLawName) ?? [])];
+  enrichment.supplement = await titleArticles(keywords, named, shownArticles, sources, expired, task === "full_research");
+  return enrichment;
+}
+
+/**
+ * Articles whose titles carry a subject term, from laws the terms name exactly or whose
+ * names contain a term. `strictName` drops an article whose text names a different law.
+ */
+async function titleArticles(
+  keywords: readonly string[],
+  named: readonly string[],
+  shownArticles: ReadonlyArray<{ law: string; jo: string }>,
+  sources: EnrichmentSources,
+  expired: () => boolean,
+  strictName: boolean,
+): Promise<NonNullable<ResearchEnrichment["supplement"]>> {
   const laws = new Map<string, string>();
   let failures = 0;
   let lookups = 0;
@@ -202,15 +257,56 @@ export async function enrichResearch(
   const articles: SupplementArticle[] = [];
   await pool(chosen, async (candidate) => {
     const found = await sources.article(candidate.mst, candidate.jo).catch(() => { failures++; return undefined; });
-    if (task === "full_research" && found?.name && found.name !== candidate.law) return; // Stale/misdirected MST.
+    if (strictName && found?.name && found.name !== candidate.law) return; // Stale/misdirected MST.
     const excerpt = found ? articleExcerpt(found.text, candidate.jo) : "";
     if (excerpt) articles.push({ law: candidate.law, jo: candidate.jo, title: candidate.title, excerpt, matched: candidate.matched,
       ...(found?.effectiveDate ? { effectiveDate: found.effectiveDate } : {}) });
   }, expired);
   articles.sort((a, b) => chosen.findIndex((c) => c.law === a.law && c.jo === a.jo) - chosen.findIndex((c) => c.law === b.law && c.jo === b.jo));
-  enrichment.supplement = {
-    status: articles.length ? "found" : failures && failures === lookups ? "failed" : "none",
-    articles,
-  };
-  return enrichment;
+  return { status: articles.length ? "found" : failures && failures === lookups ? "failed" : "none", articles };
+}
+
+/** Cases read per issue search: the first hits, in the MCP's own order. */
+const ISSUE_PRECEDENTS = 4;
+
+export interface IssueLookup {
+  /** `failed`: every lookup failed; `timeout`: the shared budget ran out before any lookup finished. */
+  status: "found" | "none" | "failed" | "timeout";
+  articles: SupplementArticle[];
+  /** Cases this issue's own search returned, each with the summary text its relevance was judged on. */
+  precedents: Array<ResearchDecision & { summary: string; excerpt: boolean }>;
+}
+
+/**
+ * A search for one issue that the combined research answer did not cover: its short
+ * phrase goes to 판례 search and to the statute-title lookup, never the user's sentence.
+ * Relevance is still judged by the caller from the source text returned here.
+ */
+export async function lookupIssue(
+  query: string,
+  shownArticles: ReadonlyArray<{ law: string; jo: string }>,
+  sources: EnrichmentSources,
+  expired: () => boolean,
+): Promise<IssueLookup> {
+  const terms = questionTerms(query);
+  const keywords = terms.filter((term) => !isLawName(term));
+  if (!keywords.length) return { status: "none", articles: [], precedents: [] };
+  if (expired()) return { status: "timeout", articles: [], precedents: [] };
+  let failed = false;
+  const [hits, statutes] = await Promise.all([
+    sources.precedents(query).catch(() => { failed = true; return []; }),
+    titleArticles(keywords, terms.filter(isLawName), shownArticles, sources, expired, true),
+  ]);
+  const precedents: IssueLookup["precedents"] = [];
+  const read = hits.slice(0, ISSUE_PRECEDENTS);
+  await pool(read, async (hit) => {
+    const summary = await sources.summary(hit.id).catch(() => undefined);
+    if (summary?.text) precedents.push({ ...hit, summary: summary.text, excerpt: summary.excerpt });
+  }, expired);
+  precedents.sort((a, b) => read.findIndex((hit) => hit.id === a.id) - read.findIndex((hit) => hit.id === b.id));
+  // Absence is only reported when both searches actually answered; otherwise it is unknown.
+  const status = statutes.articles.length || precedents.length ? "found"
+    : failed || statutes.status === "failed" ? "failed"
+    : expired() ? "timeout" : "none";
+  return { status, articles: statutes.articles, precedents };
 }

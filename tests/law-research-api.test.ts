@@ -6,7 +6,9 @@ import { LAW_RESEARCH_BODY_MAX_BYTES, LAW_RESEARCH_DOCUMENT_MAX_CHARS } from "@/
 // while enrichment failures leave the original answer and markers intact.
 vi.mock("@/server/research-enrichment", () => ({
   mcpEnrichmentSources: () => ({}),
+  sharedSources: (sources: unknown) => sources,
   enrichResearch: () => Promise.reject(new Error("enrichment disabled in route tests")),
+  lookupIssue: () => Promise.reject(new Error("issue lookups disabled in route tests")),
 }));
 // Route tests cover forwarding; per-region ordinance lookups have their own offline tests.
 vi.mock("@/server/ordinance-compare", () => ({
@@ -88,7 +90,8 @@ describe("fixed legal_research API", () => {
       const result = await call(input);
       expect(result.status).toBe(200);
       expect(result.json.data).toEqual({ found: true, task: input.task, text: `${text}\n[NOT_FOUND] 일부 결과\n[NOT_FOUND] 다른 항목`, markers: ["NOT_FOUND"],
-        ...(input.task === "full_research" ? { evidence: { status: "unverified", articles: [], precedents: [] } } : {}) });
+        ...(input.task === "full_research" ? { evidence: { status: "unverified", articles: [], precedents: [],
+          issues: [{ status: "none", articles: [], precedents: [] }] } } : {}) });
       const upstream = toolCall(fetcher, i);
       expect(String(upstream.url)).toBe(ENDPOINT);
       expect(upstream.headers.get("apikey")).toBe(KEY);
@@ -138,7 +141,7 @@ describe("fixed legal_research API", () => {
       .mockResolvedValueOnce(toolText(" \n[NOT_FOUND] 법령이 없습니다.", true))
       .mockResolvedValueOnce(toolText("[LAW_NOT_FOUND] 법령이 없습니다.", true)));
     expect((await call(base)).json.data).toEqual({ found: true, task: "full_research", text: partial,
-      markers: ["REQUEST_TIMEOUT"], evidence: { status: "unverified", articles: [], precedents: [] } });
+      markers: ["REQUEST_TIMEOUT"], evidence: { status: "unverified", articles: [], precedents: [], issues: [{ status: "none", articles: [], precedents: [] }] } });
     expect((await call(base)).json.data).toEqual({ found: false, task: "full_research", marker: "NOT_FOUND", text: " \n[NOT_FOUND] 법령이 없습니다." });
     expect((await call(base)).json.data).toEqual({ found: false, task: "full_research", marker: "NOT_FOUND", text: "[LAW_NOT_FOUND] 법령이 없습니다." });
   });
