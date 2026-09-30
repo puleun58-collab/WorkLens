@@ -1,4 +1,5 @@
 "use client";
+import { useEffect, useRef } from "react";
 
 import type { ContractReview, ReviewedIssue } from "@/lib/contract-review";
 import { STATUS_TITLE, type ResearchStatus } from "@/lib/research-status";
@@ -12,6 +13,28 @@ function formatDate(value?: string): string | undefined {
 }
 
 export function ContractReviewResult({ review }: { review: ContractReview }) {
+  const activeDetail = useRef<HTMLElement | null>(null);
+  const focusTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => {
+    window.clearTimeout(focusTimer.current);
+    activeDetail.current?.classList.remove("is-focused");
+  }, []);
+
+  function showEvidence(anchor: string) {
+    const target = window.document.getElementById(anchor);
+    if (!target) return;
+    window.clearTimeout(focusTimer.current);
+    activeDetail.current?.classList.remove("is-focused");
+    target.classList.add("is-focused");
+    activeDetail.current = target;
+    target.scrollIntoView({ behavior: "instant", block: "start" });
+    focusTimer.current = window.setTimeout(() => {
+      target.classList.remove("is-focused");
+      activeDetail.current = null;
+      focusTimer.current = undefined;
+    }, 2500);
+  }
+
   const shownLaws = new Set<string>();
   const shownPrecedents = new Set<string>();
   const { document, risk } = review;
@@ -36,7 +59,7 @@ export function ContractReviewResult({ review }: { review: ContractReview }) {
       <dt>근거</dt>
       <dd>{laws.length + precedents.length > 0
         ? <>{laws.map((law) => `${law.law} ${law.jo}`).concat(precedents.map((precedent) =>
-          precedent.title ?? precedent.caseNumber ?? "판례")).join(" · ")} <a href={`#${anchor}`}>상세 근거 보기</a></>
+          precedent.title ?? precedent.caseNumber ?? "판례")).join(" · ")} <button type="button" className="law-search-link" aria-controls={anchor} onClick={() => showEvidence(anchor)}>상세 근거 보기</button></>
         : issue.lawStatus === "failed" || issue.precedentStatus === "failed"
           ? "직접 근거 확인이 완료되지 않았습니다."
           : "확인된 직접 근거 없음"}</dd>

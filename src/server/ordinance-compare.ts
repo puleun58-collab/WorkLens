@@ -21,7 +21,6 @@ export function mcpOrdinanceSources(context: Context): OrdinanceSources {
 }
 
 const MAX_TOPICS = 4;
-const EXCERPT_CHARS = 600;
 const compact = (text: string) => text.replace(/\s+/gu, "");
 
 interface OrdinanceEntry { id: string; name: string; body?: string; effective?: string }
@@ -64,7 +63,7 @@ export function parseOrdinanceArticle(text: string): { jo: string; title: string
   const match = /^\s*(제\d+조(?:의\d+)?)\s*\(([^)]+)\)\s*([\s\S]*)$/mu.exec(text.split(/^---\s*$/mu).at(-1) ?? text);
   if (!match) return undefined;
   const body = match[3].trim();
-  return { jo: match[1], title: match[2].trim(), body: body.length > EXCERPT_CHARS ? `${body.slice(0, EXCERPT_CHARS).trimEnd()} …` : body };
+  return { jo: match[1], title: match[2].trim(), body };
 }
 
 const SHORTLIST = 6;

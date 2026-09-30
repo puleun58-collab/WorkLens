@@ -1001,16 +1001,25 @@ test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route wit
 
 test("RESEARCH ordinance comparison needs two regions and shows each region's verified articles", async ({ page }) => {
   const searches: unknown[] = [];
+  const longBody = `① 장애인 주차요금 50퍼센트를 감면한다.\n② ${"추가 설치 기준은 별표에 따른다. ".repeat(40)}\n1. 원문의 마지막 호까지 확인한다.`;
+  const longFirstSentence = `① ${"장애인 주차요금은 관련 기준에 따라 80퍼센트를 ".repeat(7)}감면한다.\n② 후속 항을 그대로 표시한다.`;
   await page.route("**/api/law/research", (route) => {
     const body = route.request().postDataJSON() as { task: string; query: string; regions: [string, string]; parentLaw?: string };
     searches.push(body);
     const oneSided = body.query === "한쪽만";
-    const region = (name: string, body: string, rate?: string) => rate
-      ? { region: name, status: "found", candidates: 3, ordinance: { id: name, name: `${name} 주차장 설치 및 관리 조례`, body, effective: "20260701" },
-        articles: [{ jo: "제12조", title: "주차요금의 감면", body: `장애인 주차요금 ${rate}를 감면한다.`, topic: "주차요금의 감면" }] }
-      : { region: name, status: "none", candidates: 0, articles: [] };
-    const comparison = { topic: body.query, topics: ["주차요금의 감면"],
-      regions: [region("인천광역시", "인천광역시", "50퍼센트"), oneSided ? region("서울특별시", "서울특별시") : region("서울특별시", "서울특별시", "80퍼센트")] };
+    const noArticles = body.query === "조문 없음";
+    const noOrdinances = body.query === "양쪽 없음";
+    const failed = body.query === "조회 실패";
+    const region = (name: string, place: string, rate?: string) => rate
+      ? { region: name, status: "found", candidates: 3, ordinance: { id: name, name: `${name} 주차장 설치 및 관리 조례`, body: place, effective: "20260701" },
+        articles: noArticles ? [] : [
+          { jo: "제12조", title: "주차요금의 감면", body: rate === "50퍼센트" ? longBody : longFirstSentence, topic: "주차요금의 감면" },
+          { jo: "제13조", title: "주차장의 설치기준", body: `① ${name} 주차장의 설치기준은 별표에 따른다.\n② 세부기준을 적용한다.`, topic: "주차장의 설치기준" },
+        ] }
+      : { region: name, status: failed ? "failed" : "none", candidates: 0, articles: [] };
+    const comparison = { topic: body.query, topics: ["주차요금의 감면", "주차장의 설치기준"],
+      regions: [region("인천광역시", "인천광역시", failed || noOrdinances ? undefined : "50퍼센트"),
+        region("서울특별시", "서울특별시", oneSided || noOrdinances ? undefined : "80퍼센트")] };
     return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: {
       found: true, task: body.task, text: "═══ 조례 비교 ═══\n▶ 상위 법령\n주차장법 (법률)", markers: [], comparison } }) });
   });
@@ -1055,23 +1064,72 @@ test("RESEARCH ordinance comparison needs two regions and shows each region's ve
   expect(styles.widths[0]).toBeLessThan(styles.widths[1]);
   expect(Math.abs(styles.widths[1] - styles.widths[2])).toBeLessThanOrEqual(1);
   await expect(table.locator("tbody tr").first()).toContainText("인천광역시 주차장 설치 및 관리 조례");
-  const row = table.locator("tbody tr").filter({ hasText: "주차요금의 감면" });
-  await expect(row).toContainText("50퍼센트");
-  await expect(row).toContainText("80퍼센트");
+  const row = table.locator("tbody tr").nth(1);
+  const [first, second] = [row.locator("td").nth(0), row.locator("td").nth(1)];
+  const otherRow = table.locator("tbody tr").nth(2);
+  const other = otherRow.locator("td").nth(0);
+  expect(longBody.length).toBeGreaterThan(600);
+  await expect(row.locator(".research-comparison-status")).toHaveText("두 지역 조문 확인");
+  await expect(first.locator(".research-comparison-title")).toHaveText("제12조(주차요금의 감면)");
+  await expect(first.locator(".research-comparison-excerpt")).toHaveText("원문 발췌 · ① 장애인 주차요금 50퍼센트를 감면한다.");
+  await expect(first.locator(".research-meta")).toHaveText("시행 2026.07.01");
+  await expect(second.locator(".research-comparison-excerpt")).toHaveCount(0);
+  await expect(table).not.toContainText("원문의 마지막 호까지 확인한다.");
+  await expect(row).not.toContainText("80퍼센트");
+  await expect(table.locator(".research-comparison-original")).toHaveCount(0);
+  await expect(table.locator(".research-comparison-article svg, .research-comparison-article summary, .research-comparison-article .source-toggle")).toHaveCount(0);
   await expect(page.locator(".research-overview h3")).toHaveText("관련 근거를 확인했습니다");
   await expect(page.locator(".research-overview")).not.toContainText("비교 대상 지역:");
+  await first.getByRole("button", { name: "조문 원문 보기" }).click();
+  await expect(first.getByRole("button", { name: "조문 원문 닫기" })).toHaveAttribute("aria-expanded", "true");
+  await expect(first.locator(".research-comparison-original pre")).toHaveText(longBody);
+  await expect(second.locator(".research-comparison-original")).toHaveCount(0);
+  await second.getByRole("button", { name: "조문 원문 보기" }).click();
+  await other.getByRole("button", { name: "조문 원문 보기" }).click();
+  await expect(second.locator(".research-comparison-original pre")).toHaveText(longFirstSentence);
+  await expect(other.locator(".research-comparison-original pre")).toContainText("② 세부기준을 적용한다.");
+  await first.getByRole("button", { name: "조문 원문 닫기" }).click();
+  await expect(first.locator(".research-comparison-original")).toHaveCount(0);
+  await expect(second.locator(".research-comparison-original")).toHaveCount(1);
+  await expect(other.locator(".research-comparison-original")).toHaveCount(1);
+  await page.setViewportSize({ width: 390, height: 844 });
+  const scroll = page.locator(".research-table-scroll");
+  await scroll.evaluate((node) => { node.scrollLeft = 70; });
+  const offset = await scroll.evaluate((node) => node.scrollLeft);
+  expect(offset).toBeGreaterThan(0);
+  await first.locator(".research-comparison-toggle").evaluate((node: HTMLElement) => node.click());
+  await expect(first.locator(".research-comparison-original pre")).toHaveText(longBody);
+  expect(await scroll.evaluate((node) => node.scrollLeft)).toBe(offset);
+  await expect(second.locator(".research-comparison-original")).toHaveCount(1);
+  await expect(other.locator(".research-comparison-original")).toHaveCount(1);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 
   await form.getByLabel("질문 또는 검색어").fill("한쪽만");
   await form.getByLabel("관련 상위 법령 (선택)").fill("");
   await form.getByRole("button", { name: "리서치 실행" }).click();
   await expect(page.locator(".research-overview h3")).toHaveText("관련 근거를 일부 확인했습니다");
+  await expect(row.locator(".research-comparison-status")).toHaveText("한 지역 조문 확인");
+  await expect(second.locator(".research-comparison-missing")).toHaveText("관련 조례를 찾지 못해 조문이 없습니다.");
   await expect(table).toContainText("확인 가능한 관련 조례를 찾지 못했습니다.");
-  await expect(page.getByRole("region", { name: "조례 대조" })).toContainText("차이를 비교하지 않았습니다");
+  await form.getByLabel("질문 또는 검색어").fill("조문 없음");
+  await form.getByRole("button", { name: "리서치 실행" }).click();
+  await expect(row.locator(".research-comparison-status")).toHaveText("확인된 조문 없음");
+  await expect(row.locator(".research-comparison-missing")).toHaveText(["해당 제목의 조문을 확인하지 못했습니다.", "해당 제목의 조문을 확인하지 못했습니다."]);
+  await form.getByLabel("질문 또는 검색어").fill("조회 실패");
+  await form.getByRole("button", { name: "리서치 실행" }).click();
+  await expect(first.locator(".research-comparison-missing")).toHaveText("조례 조회에 실패하여 조문을 확인하지 못했습니다.");
+  await expect(row.locator(".research-comparison-status")).toHaveText("한 지역 조문 확인");
+  await form.getByLabel("질문 또는 검색어").fill("양쪽 없음");
+  await form.getByRole("button", { name: "리서치 실행" }).click();
+  await expect(row.locator(".research-comparison-status")).toHaveText("확인된 조문 없음");
+  await expect(row.locator(".research-comparison-missing")).toHaveText(["관련 조례를 찾지 못해 조문이 없습니다.", "관련 조례를 찾지 못해 조문이 없습니다."]);
   expect(searches).toEqual([
     { task: "ordinance_compare", query: "장애인 주차요금 감면", regions: ["인천광역시", "서울특별시"], parentLaw: "주차장법" },
     { task: "ordinance_compare", query: "한쪽만", regions: ["인천광역시", "서울특별시"] },
+    { task: "ordinance_compare", query: "조문 없음", regions: ["인천광역시", "서울특별시"] },
+    { task: "ordinance_compare", query: "조회 실패", regions: ["인천광역시", "서울특별시"] },
+    { task: "ordinance_compare", query: "양쪽 없음", regions: ["인천광역시", "서울특별시"] },
   ]);
-  await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
@@ -1374,6 +1432,104 @@ test("document review keeps issue guidance ahead of independent, grouped source 
   await expect(form.getByLabel("질문 또는 검색어")).toBeVisible();
   await page.locator(".law-view-tabs").getByRole("button", { name: "법령 검색" }).click();
   await expect(page.locator(".contract-review")).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test("document evidence links focus only the selected issue without changing disclosures or history", async ({ page }) => {
+  const input = "제6조 휴가와 미사용 휴가를 정한다.\n제10조 개인정보 및 모니터링을 정한다.";
+  const longExcerpt = `① 개인정보 처리 조건을 확인한다.\n${"관련 요건을 확인하고 해당 조항의 적용 여부를 대조한다. ".repeat(45)}`;
+  const issue = (id: string, label: string, laws: string[], precedents: string[] = []) => ({
+    id, label, severity: "medium" as const, point: `${label} 검토가 필요합니다.`, suggestion: `${label} 조건을 확인합니다.`,
+    fact: `${label} 원문`, laws, precedents, lawStatus: "found" as const, precedentStatus: precedents.length ? "found" as const : "none" as const,
+  });
+  const review: ContractReview = {
+    document: { type: "work_rules", label: "근로·인사 관련 내부 규정", relationship: "employment", relationshipLabel: "사용자·근로자", confidence: "high", evidence: [], domains: ["labor"] },
+    risk: { score: 3, level: "보통", high: 0, medium: 3, low: 0 },
+    facts: [],
+    clauses: [
+      { number: "제6조", title: "휴가", text: "휴가", issues: [
+        issue("leave-use", "연차휴가 사용 제한", ["law-a"], ["case-a"]),
+        issue("leave-unused", "미사용 휴가 처리", ["law-b"]),
+      ] },
+      { number: "제10조", title: "개인정보 및 모니터링에 관한 긴 조항 제목", text: "개인정보", issues: [
+        issue("privacy", "개인정보 수집과 모니터링 범위", ["law-c"], ["case-b"]),
+      ] },
+    ],
+    laws: {
+      "law-a": { key: "law-a", law: "근로기준법", jo: "제60조", title: "연차휴가", excerpt: "① 연차휴가를 부여한다." },
+      "law-b": { key: "law-b", law: "근로기준법", jo: "제61조", title: "연차휴가의 사용 촉진", excerpt: "① 사용 촉진 조치를 확인한다." },
+      "law-c": { key: "law-c", law: "개인정보 보호법", jo: "제15조", title: "개인정보의 수집·이용", excerpt: longExcerpt },
+    },
+    precedents: {
+      "case-a": { key: "case-a", id: "leave-case", title: "연차휴가 사건", holding: "연차휴가 관련 판시사항", scope: "판시사항" },
+      "case-b": { key: "case-b", id: "privacy-case", title: "개인정보 처리 사건", holding: "개인정보 관련 판시사항", scope: "판시사항" },
+    },
+    stats: { calls: 0, queries: 0, excludedPrecedents: 0, excludedLaws: 0 },
+  };
+  const errors: string[] = [];
+  page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
+  await page.route("**/api/law/research", (route) => route.fulfill({
+    status: 200, contentType: "application/json",
+    body: JSON.stringify({ data: { found: true, task: "document_review", text: "", markers: [], review } }),
+  }));
+  await page.goto("/");
+  await page.getByRole("button", { name: "법령", exact: true }).click();
+  await page.locator(".law-view-tabs").getByRole("button", { name: "종합 리서치" }).click();
+  const form = page.getByRole("form", { name: "종합 리서치 입력" });
+  await form.getByLabel("리서치 유형").selectOption("document_review");
+  await form.getByLabel("검토할 문서 내용").fill(input);
+  await form.getByRole("button", { name: "문서 검토" }).click();
+  const reviewResult = page.locator(".contract-review");
+  const links = reviewResult.getByRole("button", { name: "상세 근거 보기" });
+  const details = reviewResult.locator(".contract-review-detail");
+  await expect(links).toHaveCount(3);
+  await expect(details).toHaveCount(3);
+  const historyLength = await page.evaluate(() => history.length);
+
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    const first = details.nth(0);
+    const sameClause = details.nth(1);
+    const last = details.nth(2);
+    await links.nth(0).click();
+    await expect(first).toHaveClass(/is-focused/u);
+    await expect(reviewResult.locator(".contract-review-detail.is-focused")).toHaveCount(1);
+    await expect(first.locator(".law-detail-source")).toHaveCount(2);
+    const firstLaw = first.locator(".law-detail-source").first();
+    if (viewport.width > 700) await expect(firstLaw).not.toHaveAttribute("open", "");
+    else await expect(firstLaw).toHaveAttribute("open", "");
+    const focus = await first.evaluate((node) => {
+      const style = getComputedStyle(node);
+      return { color: style.backgroundColor, outline: style.boxShadow, width: node.getBoundingClientRect().width };
+    });
+    expect(focus.color).not.toBe("rgba(0, 0, 0, 0)");
+    expect(focus.outline).not.toBe("none");
+    expect(focus.width).toBeLessThanOrEqual(viewport.width);
+    if (viewport.width > 700) await firstLaw.locator("summary").click();
+    await expect(firstLaw).toHaveAttribute("open", "");
+    await links.nth(1).click();
+    await expect(sameClause).toHaveClass(/is-focused/u);
+    await expect(first).not.toHaveClass(/is-focused/u);
+    await expect(firstLaw).toHaveAttribute("open", "");
+    await links.nth(0).click();
+    await links.nth(2).click();
+    await expect(last).toHaveClass(/is-focused/u);
+    await expect(reviewResult.locator(".contract-review-detail.is-focused")).toHaveCount(1);
+    await expect(first).not.toHaveClass(/is-focused/u);
+    await expect(last.locator(".law-detail-source[open]")).toHaveCount(0);
+    await expect.poll(async () => last.evaluate((node) => {
+      const { top, bottom } = node.getBoundingClientRect();
+      return top >= (viewport.width < 700 ? 0 : 64) && bottom <= innerHeight;
+    })).toBe(true);
+    await expect(last).not.toHaveClass(/is-focused/u, { timeout: 4_000 });
+    await links.nth(2).click();
+    await expect(last).toHaveClass(/is-focused/u);
+    await expect(reviewResult.locator(".contract-review-detail.is-focused")).toHaveCount(1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    expect(page.url()).not.toContain("#");
+    expect(await page.evaluate(() => history.length)).toBe(historyLength);
+    await expect(last).not.toHaveClass(/is-focused/u, { timeout: 4_000 });
+  }
   expect(errors).toEqual([]);
 });
 

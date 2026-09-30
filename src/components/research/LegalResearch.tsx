@@ -5,7 +5,7 @@ import {
   AMENDMENT_SCENARIOS, DISPUTE_DOMAINS, EMPTY_RESEARCH_DRAFT, LAW_RESEARCH_DOCUMENT_MAX_CHARS, LAW_RESEARCH_DOCUMENT_MIN_CHARS,
   LAW_RESEARCH_ERROR, LAW_RESEARCH_NAME_MAX_CHARS, LAW_RESEARCH_QUERY_MAX_CHARS, LAW_RESEARCH_TASKS, lawResearchOutcome, lawResearchRequestFor,
   type AmendmentScenario, type DisputeDomain, type LawResearchData, type LawResearchDraft, type LawResearchOutcome,
-  type LawCurrency, type LawResearchRequest, type LawResearchTask, type ResearchInterpretation,
+  type LawCurrency, type LawResearchRequest, type LawResearchTask, type OrdinanceRegionResult, type ResearchInterpretation,
 } from "@/lib/law-research";
 import { isSupportingSection, researchResult, type ResearchDecision, type ResearchSection } from "@/lib/law-research-parse";
 import { lawDisplayText } from "@/lib/law-display";
@@ -447,6 +447,32 @@ function ResearchSectionView({ section, task, relevance, retried }: {
   </div>;
 }
 
+/** Only a complete, short sentence from the official body may be shown before opening the source. */
+function ordinanceFirstSentence(body: string): string | undefined {
+  const sentence = /^\s*([\s\S]*?[.!?。！？])(?=\s|$)/u.exec(body)?.[1].trim();
+  return sentence && sentence.length <= 140 ? sentence : undefined;
+}
+
+function OrdinanceArticleCell({ article, effective }: {
+  article: OrdinanceRegionResult["articles"][number];
+  effective?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const excerpt = ordinanceFirstSentence(article.body);
+  const date = formatDate(effective);
+  return <div className="research-comparison-article">
+    <div className="research-comparison-title"><strong>{article.jo}({article.title})</strong></div>
+    {excerpt && <p className="research-comparison-excerpt">원문 발췌 · {excerpt}</p>}
+    {date && <span className="research-meta">시행 {date}</span>}
+    <button type="button" className="law-search-link research-comparison-toggle" aria-expanded={open}
+      onClick={() => setOpen((previous) => !previous)}>{open ? "조문 원문 닫기" : "조문 원문 보기"}</button>
+    {open && <div className="research-comparison-original">
+      <p className="research-comparison-original-label">법제처 조문 원문</p>
+      <LawTextBlock className="legal-analysis-lines" text={article.body} />
+    </div>}
+  </div>;
+}
+
 function ResearchResult({ data, request }: { data: LawResearchData; request: LawResearchRequest }) {
   const result = researchResult(data.text);
   const notice = partialNotice(result.sections);
@@ -492,7 +518,6 @@ function ResearchResult({ data, request }: { data: LawResearchData; request: Law
   }) : primary;
   const comparison = data.task === "ordinance_compare" ? data.comparison : undefined;
   const comparedRegions = comparison?.regions.filter((region) => region.status === "found") ?? [];
-  // A row is a comparison only when both regions returned that article; otherwise it is shown as one-sided.
   const bothSides = comparison?.topics.filter((topic) => comparison.regions.every((region) => region.articles.some((article) => article.topic === topic))) ?? [];
   // Primary sections that returned source content for this request.
   const available = primary.some((section) => section.status === "available" && readerText(section.lines.join("\n")))
@@ -515,7 +540,6 @@ function ResearchResult({ data, request }: { data: LawResearchData; request: Law
         ? `${full ? "확인한 근거는" : "조회한 자료는"} 관련 쟁점을 검토하기 위한 자료이며, 구체적인 사건의 법적 결론을 의미하지 않습니다.`
         : status === "weak" ? "조회된 자료가 질문과 직접 관련되는지 확인되지 않았습니다. 아래 자료는 참고용입니다."
         : "조회되지 않았다고 관련 법령이나 판례가 없다는 뜻은 아닙니다."}</p>
-      {request.task === "ordinance_compare" && <p className="research-caution">비교 대상: {request.regions.join(" · ")}. 양쪽 조문이 모두 확인된 항목만 비교합니다.</p>}
     </header>
     {notice && <p className="legal-research-partial" role="note">{notice}</p>}
     {full && (selectedArticles.length > 0 || selectedCases.length > 0) && <section className="research-group research-selected" aria-label="확인한 근거">
@@ -567,17 +591,21 @@ function ResearchResult({ data, request }: { data: LawResearchData; request: Law
               <span className="research-meta">{[region.ordinance.body, formatDate(region.ordinance.effective) && `시행 ${formatDate(region.ordinance.effective)}`].filter(Boolean).join(" · ")}</span></>
               : <span className="research-meta">{region.status === "failed" ? "조례를 조회하지 못했습니다." : "확인 가능한 관련 조례를 찾지 못했습니다."}</span>}
           </td>)}</tr>
-          {comparison.topics.map((topic) => <tr key={topic}><th scope="row">{topic}</th>{comparison.regions.map((region) => {
-            const article = region.articles.find((item) => item.topic === topic);
-            return <td key={region.region}>{article
-              ? <><strong>{article.jo}({article.title})</strong><LawTextBlock className="legal-analysis-lines" text={readerText(article.body)} /></>
-              : <span className="research-meta">{region.ordinance ? "이 제목의 조문을 확인하지 못했습니다." : "—"}</span>}</td>;
-          })}</tr>)}
+          {comparison.topics.map((topic) => {
+            const count = comparison.regions.filter((region) => region.articles.some((article) => article.topic === topic)).length;
+            return <tr key={topic}><th scope="row">{topic}<span className="research-comparison-status research-meta">
+              {count === 2 ? "두 지역 조문 확인" : count === 1 ? "한 지역 조문 확인" : "확인된 조문 없음"}
+            </span></th>{comparison.regions.map((region) => {
+              const article = region.articles.find((item) => item.topic === topic);
+              return <td key={region.region}>{article
+                ? <OrdinanceArticleCell key={`${article.jo}-${article.topic}`} article={article} effective={region.ordinance?.effective} />
+                : <span className="research-comparison-missing research-meta">{region.status === "failed" ? "조례 조회에 실패하여 조문을 확인하지 못했습니다."
+                  : region.status === "none" ? "관련 조례를 찾지 못해 조문이 없습니다." : "해당 제목의 조문을 확인하지 못했습니다."}</span>}</td>;
+            })}</tr>;
+          })}
         </tbody>
       </table></div>
-      <p className="research-meta">{bothSides.length
-        ? `${bothSides.length}개 주제는 두 지역 조문 원문을 모두 확인했습니다. 원문을 나란히 보여줄 뿐, 차이의 법적 의미는 판단하지 않습니다.`
-        : "양쪽 지역에서 같은 주제의 조문이 함께 확인되지 않아 차이를 비교하지 않았습니다."} 조문은 법제처 자치법규 원문에서 조회했습니다.</p>
+      <p className="research-meta">조문은 법제처 자치법규 원문에서 조회했습니다. 나란히 놓인 원문은 차이의 법적 의미를 판단한 결과가 아닙니다.</p>
     </section>}
     {taskGroups.map((group) => {
       const sections = candidatePrimary.filter((section) => groupOf(section, data.task) === group);
