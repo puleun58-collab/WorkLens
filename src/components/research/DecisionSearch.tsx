@@ -252,8 +252,8 @@ export function DecisionSearch({ linkedRequest, onReturnToLaw, onCiteCheck }: De
       </div>
     </form>
     {(searchLoading || outcome) && <section className="decision-search-results" aria-labelledby="decision-results-heading" aria-busy={searchLoading}>
-      <h2 id="decision-results-heading">{split ? `일치 결과 · ${split.exact.length}건`
-        : `검색 결과${outcome?.kind === "found" && outcome.data.totalCount !== undefined ? ` · ${outcome.data.totalCount}건` : outcome?.kind === "missing" ? " · 0건" : ""}`}</h2>
+      <h2 id="decision-results-heading">{split ? <>일치 결과<span className="law-section-count"> · {split.exact.length}건</span></>
+        : <>검색 결과{outcome?.kind === "found" && outcome.data.totalCount !== undefined ? <span className="law-section-count"> · {outcome.data.totalCount}건</span> : outcome?.kind === "missing" ? <span className="law-section-count"> · 0건</span> : null}</>}</h2>
       {searchLoading ? <p className="law-search-note" role="status">검색 중…</p>
         : !outcome ? null
         : outcome.kind === "error" ? <p className="law-search-error law-operation-error" role="alert">{outcome.message}</p>
@@ -264,7 +264,7 @@ export function DecisionSearch({ linkedRequest, onReturnToLaw, onCiteCheck }: De
               {page > 1 || outcome.data.hasNext ? "이 페이지에서는 일치하는 자료를 찾지 못했습니다. 다른 페이지에 있을 수 있습니다." : "일치하는 자료를 찾지 못했습니다."}
             </p>}
             {split.others.length > 0 && <>
-              <h3 className="decision-search-subheading">다른 검색 결과 · {split.others.length}건</h3>
+              <h3 className="decision-search-subheading">다른 검색 결과<span className="law-section-count"> · {split.others.length}건</span></h3>
               <DecisionList entries={split.others} onOpen={openDetail} />
             </>}
           </> : outcome.data.entries.length > 0 ? <DecisionList entries={outcome.data.entries} onOpen={openDetail} /> : <LawTextBlock className="decision-detail-raw" text={outcome.data.text} />}
