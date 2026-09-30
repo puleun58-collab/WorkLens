@@ -12,27 +12,42 @@ function formatDate(value?: string): string | undefined {
   return value && /^\d{8}$/u.test(value) ? `${value.slice(0, 4)}.${value.slice(4, 6)}.${value.slice(6)}` : value;
 }
 
+/** Whole-block focus: a brighter tint on arrival, a settled tint, then a fade back to the default look. */
+const FOCUS_CLASSES = ["is-focused", "is-focus-fresh", "is-focus-leaving"];
+const FOCUS_FRESH_MS = 450;
+const FOCUS_SETTLED_MS = 1750;
+const FOCUS_FADE_MS = 350;
+
 export function ContractReviewResult({ review }: { review: ContractReview }) {
   const activeDetail = useRef<HTMLElement | null>(null);
   const focusTimer = useRef<number | undefined>(undefined);
   useEffect(() => () => {
     window.clearTimeout(focusTimer.current);
-    activeDetail.current?.classList.remove("is-focused");
+    activeDetail.current?.classList.remove(...FOCUS_CLASSES);
   }, []);
 
   function showEvidence(anchor: string) {
     const target = window.document.getElementById(anchor);
     if (!target) return;
     window.clearTimeout(focusTimer.current);
-    activeDetail.current?.classList.remove("is-focused");
-    target.classList.add("is-focused");
+    activeDetail.current?.classList.remove(...FOCUS_CLASSES);
+    target.classList.remove(...FOCUS_CLASSES);
+    // A repeat click restarts from the fresh tint instead of continuing the running fade.
+    void target.offsetWidth;
+    target.classList.add("is-focused", "is-focus-fresh");
     activeDetail.current = target;
     target.scrollIntoView({ behavior: "instant", block: "start" });
     focusTimer.current = window.setTimeout(() => {
-      target.classList.remove("is-focused");
-      activeDetail.current = null;
-      focusTimer.current = undefined;
-    }, 2500);
+      target.classList.remove("is-focus-fresh");
+      focusTimer.current = window.setTimeout(() => {
+        target.classList.add("is-focus-leaving");
+        focusTimer.current = window.setTimeout(() => {
+          target.classList.remove(...FOCUS_CLASSES);
+          activeDetail.current = null;
+          focusTimer.current = undefined;
+        }, FOCUS_FADE_MS);
+      }, FOCUS_SETTLED_MS);
+    }, FOCUS_FRESH_MS);
   }
 
   const shownLaws = new Set<string>();
