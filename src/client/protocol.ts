@@ -5,6 +5,7 @@ import type { DocumentMetadata, FileKind, SourceRef } from "@/domain/document";
 import type { FileExtraction, StructuredExtract } from "@/domain/extract";
 import type { ValueCheckResult } from "@/domain/value-check";
 import type { PolishCandidate } from "@/domain/polish";
+import type { SupplementDraft } from "@/domain/supplement";
 import type { EvidenceItem, ModelClaim } from "@/lib/ai/prompt";
 import type { AnalyzeResult, CheckResult, DocumentTopic, ExportFormat, ExtractResult } from "@/domain/operations";
 
@@ -54,7 +55,9 @@ export type WorkerRequest =
   | { kind: "field-source"; windowId: string; handles: string[] }
   | { kind: "ground"; windowId: string; request: AiRequest; claims: ModelClaim[] }
   | { kind: "release-evidence"; windowId: string }
-  | { kind: "forget"; fileIds: string[] };
+  | { kind: "forget"; fileIds: string[] }
+  /** 보완: deterministic gap candidates plus bounded batches for the meaning re-check. */
+  | { kind: "supplement"; fileIds: string[] };
 
 export interface EvidencePayload {
   windowId: string;
@@ -87,6 +90,7 @@ export interface WorkerResultMap {
   ground: AiAvailableResult;
   "release-evidence": { released: number };
   forget: { released: number };
+  supplement: SupplementDraft;
 }
 
 export interface WorkerFailure {

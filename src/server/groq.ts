@@ -5,6 +5,7 @@ import type { ResearchInterpretation } from "@/lib/law-research";
 import { buildExtractMessages, EXTRACT_RESPONSE_SCHEMA, parseExtractResponse } from "@/lib/ai/extract-prompt";
 import { buildPolishBatchMessages, buildPolishMessages, parsePolishResponse, POLISH_BATCH_RESPONSE_SCHEMA, POLISH_RESPONSE_SCHEMA } from "@/lib/ai/polish-prompt";
 import { ANALYZE_RESPONSE_SCHEMA, buildMessages, CLAIM_RESPONSE_SCHEMA, parseModelResponse } from "@/lib/ai/prompt";
+import { buildSupplementReviewMessages, parseSupplementReview, SUPPLEMENT_REVIEW_RESPONSE_SCHEMA } from "@/lib/ai/supplement-prompt";
 import { workerEnv } from "@/server/cf-env";
 import { ApiError } from "@/server/http";
 
@@ -61,6 +62,13 @@ const extractContentSchema = z.object({
   value: z.string().nullable(),
   sources: z.array(z.string()),
   confidence: z.enum(["high", "medium", "low"]),
+}).strict();
+const supplementReviewContentSchema = z.object({
+  verdicts: z.array(z.object({
+    id: z.string(),
+    verdict: z.string(),
+    sources: z.array(z.string()),
+  }).strict()),
 }).strict();
 
 const researchInterpretationSchema = z.object({
@@ -170,6 +178,8 @@ function requestSpecification(request: AiApiRequest): {
       return { messages: buildPolishBatchMessages(request.items, request.mode), schema: POLISH_BATCH_RESPONSE_SCHEMA, schemaName: "worklens_polish_batch", maxTokens: 3_000 };
     case "extract":
       return { messages: buildExtractMessages(request.field, request.items), schema: EXTRACT_RESPONSE_SCHEMA, schemaName: "worklens_extract", maxTokens: 500 };
+    case "supplement-review":
+      return { messages: buildSupplementReviewMessages(request.checks, request.items), schema: SUPPLEMENT_REVIEW_RESPONSE_SCHEMA, schemaName: "worklens_supplement_review", maxTokens: 1_500 };
   }
 }
 
@@ -227,6 +237,11 @@ function parseResult(request: AiApiRequest, content: string): AiApiResult {
       const validated = extractContentSchema.safeParse(payload);
       if (!validated.success) throw new ApiError("INVALID_PROVIDER_OUTPUT", "AI 응답 형식이 올바르지 않습니다.", 502);
       return { kind: "extract", proposal: parseExtractResponse(JSON.stringify(validated.data), request.field, request.items) };
+    }
+    case "supplement-review": {
+      const validated = supplementReviewContentSchema.safeParse(payload);
+      if (!validated.success) throw new ApiError("INVALID_PROVIDER_OUTPUT", "AI 응답 형식이 올바르지 않습니다.", 502);
+      return { kind: "supplement-review", verdicts: parseSupplementReview(validated.data, request.checks) };
     }
   }
 }

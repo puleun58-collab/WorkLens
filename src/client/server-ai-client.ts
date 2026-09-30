@@ -4,6 +4,8 @@ import type { PolishMode, PolishProposal } from "@/domain/polish";
 import type { AiApiRequest, AiApiResult, ServerAiErrorCode, ServerAiFailure } from "@/lib/ai/api";
 import type { ExtractProposal } from "@/lib/ai/extract-prompt";
 import type { EvidenceItem, ModelClaim } from "@/lib/ai/prompt";
+import type { SupplementReviewCheck } from "@/lib/ai/supplement-prompt";
+import type { SupplementReviewVerdict } from "@/domain/supplement";
 
 // The production CSP forbids eval; without this, zod probes `new Function` when
 // building object schemas and Firefox reports the blocked probe as a console error.
@@ -60,6 +62,14 @@ const aiResultSchema = z.discriminatedUnion("kind", [
       handles: z.array(z.string()),
       confidence: confidenceSchema,
     }),
+  }),
+  z.object({
+    kind: z.literal("supplement-review"),
+    verdicts: z.array(z.object({
+      id: z.string(),
+      verdict: z.enum(["found", "not_found", "unclear"]),
+      handles: z.array(z.string()),
+    })),
   }),
 ]);
 const successEnvelopeSchema = z.object({ data: aiResultSchema });
@@ -147,6 +157,12 @@ export async function extractServerAi(field: string, items: EvidenceItem[]): Pro
   const result = await send({ kind: "extract", field, items });
   if (result.kind !== "extract") throw failure("INVALID_OUTPUT", "extract");
   return result.proposal;
+}
+
+export async function reviewSupplementServerAi(checks: SupplementReviewCheck[], items: EvidenceItem[]): Promise<SupplementReviewVerdict[]> {
+  const result = await send({ kind: "supplement-review", checks, items });
+  if (result.kind !== "supplement-review") throw failure("INVALID_OUTPUT", "supplement-review");
+  return result.verdicts;
 }
 
 export function interruptServerAi(): void {
