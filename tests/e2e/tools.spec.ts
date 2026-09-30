@@ -1169,7 +1169,7 @@ test("RESEARCH separates a verified article from search candidates and hides int
   await form.getByLabel("질문 또는 검색어").fill("직장 내 괴롭힘 판단 기준");
   // The feature description and the caution read as two lines of one help text.
   const help = form.locator(".legal-research-description");
-  expect((await help.innerText()).split("\n")).toEqual(["상황을 설명하면 관련 쟁점과 확인된 법령·판례를 구분해 보여줍니다.", "확인되지 않은 사실은 판단하지 않습니다."]);
+  await expect(help).toHaveText("상황을 설명하면 관련 쟁점과 확인된 법령·판례를 구분해 보여줍니다.");
   await form.getByRole("button", { name: "리서치 실행" }).click();
   const output = page.locator(".legal-research .legal-analysis-output");
   await expect(output.locator(".research-overview")).toContainText("직장에서 괴롭힘 문제를 겪는 상황");

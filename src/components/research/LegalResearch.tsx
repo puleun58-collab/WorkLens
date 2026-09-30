@@ -22,7 +22,7 @@ interface TaskResult {
 }
 
 const TASK_HELP: Record<LawResearchTask, { description: string; placeholder: string }> = {
-  full_research: { description: "상황을 설명하면 관련 쟁점과 확인된 법령·판례를 구분해 보여줍니다.\n확인되지 않은 사실은 판단하지 않습니다.", placeholder: "예: 회사에서 업무와 관련해 지속적으로 모욕을 당했는데 어떤 법적 기준을 살펴봐야 하나요?" },
+  full_research: { description: "상황을 설명하면 관련 쟁점과 확인된 법령·판례를 구분해 보여줍니다.", placeholder: "예: 회사에서 업무와 관련해 지속적으로 모욕을 당했는데 어떤 법적 기준을 살펴봐야 하나요?" },
   law_system: { description: "한 법령의 법률·시행령·시행규칙 관계와 관련 조문을 확인합니다.", placeholder: "예: 개인정보 보호법 제38조와 시행령의 관계" },
   action_basis: { description: "처분 또는 허가의 근거 조문과 확인 가능한 불복 자료를 찾습니다.", placeholder: "예: 식품위생법상 영업정지의 근거와 요건" },
   dispute_prep: { description: "쟁송에 참고할 법령, 판례, 결정례를 자료별로 나눠 살펴봅니다.", placeholder: "예: 부당해고 구제 신청 관련 판례와 결정례" },
