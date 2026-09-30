@@ -38,9 +38,19 @@ import {
   polishBatchServerAi,
   SERVER_AI_MESSAGES,
   waitForPolishRetry,
+  reviewSupplementServerAi,
   type ServerAiFailure,
 } from "@/client/server-ai-client";
 import { POLISH_BATCH_MAX_CHARS, POLISH_BATCH_MAX_ITEMS, SERVER_AI_MAX_FILES, type ServerAiErrorCode } from "@/lib/ai/api";
+import {
+  isSupplementFileKind,
+  SUPPLEMENT_UNSUPPORTED_DETAIL,
+  SUPPLEMENT_UNSUPPORTED_TITLE,
+  type SupplementResult,
+  type SupplementVerdict,
+} from "@/domain/supplement";
+import { finalizeSupplement } from "@/lib/supplement/finalize";
+import { SupplementResults } from "@/components/supplement/SupplementResults";
 import type { AnalyzeEntry as WorkerAnalyzeEntry, CheckEntry as WorkerCheckEntry, WorkspaceFile } from "@/client/protocol";
 import {
   EXTRACT_MODE_LABELS,
@@ -102,6 +112,7 @@ import {
   GitCompareArrows,
   Image as ImageIcon,
   Layers3,
+  ListChecks,
   MessageSquareText,
   PenLine,
   ShieldCheck,
@@ -202,6 +213,7 @@ const tabIcons: Record<Tab, typeof BarChart3> = {
   Ask: MessageSquareText,
   Compare: GitCompareArrows,
   Check: ShieldCheck,
+  Supplement: ListChecks,
   Polish: PenLine,
   Extract: Table2,
   Aggregate: Layers3,
@@ -246,13 +258,14 @@ type Notice = { tone: "error" | "success" | "info" | "warning"; message: string;
  * it, so the panel never adds a second sentence with the same meaning: the
  * title carries the state and the body only appears when there is a next step.
  */
-const tabs = ["Analyze", "Ask", "Compare", "Check", "Polish", "Extract", "Aggregate"] as const;
+const tabs = ["Analyze", "Ask", "Compare", "Check", "Supplement", "Polish", "Extract", "Aggregate"] as const;
 type Tab = (typeof tabs)[number];
 const tabMeta: Record<Tab, { label: string; description: string }> = {
   Analyze: { label: "분석", description: "구조와 수치" },
   Ask: { label: "질문", description: "파일에 질문" },
   Compare: { label: "비교", description: "버전 차이" },
   Check: { label: "검수", description: "품질과 위험" },
+  Supplement: { label: "보완", description: "빠진 정보" },
   Polish: { label: "윤문", description: "문장 윤문" },
   Extract: { label: "추출", description: "데이터 추출" },
   Aggregate: { label: "취합", description: "다중 파일 취합" },
@@ -262,6 +275,7 @@ const completionLabels: Record<Tab, string> = {
   Ask: "답변 완료",
   Compare: "비교 완료",
   Check: "검수 완료",
+  Supplement: "보완 확인 완료",
   Polish: "윤문 완료",
   Extract: "추출 완료",
   Aggregate: "취합 완료",
@@ -569,6 +583,10 @@ export default function Home() {
   const [extractProgress, setExtractProgress] = useState<{ done: number; total: number } | null>(null);
   const [aggregation, setAggregation] = useState<AggregationDraft | null>(null);
   const [aggregationSelection, setAggregationSelection] = useState<AggregationSelection | null>(null);
+  const [supplement, setSupplement] = useState<SupplementResult | null>(null);
+  /** Plain-language stage of a 보완 run; review batches report their count. */
+  const [supplementStage, setSupplementStage] = useState<{ label: string; done?: number; total?: number } | null>(null);
+  const supplementCancelled = useRef(false);
   const extractCancelled = useRef(false);
   const [operationResult, setOperationResult] = useState<unknown>(null);
   const [detail, setDetail] = useState<DetailInfo | null>(null);
@@ -656,6 +674,7 @@ export default function Home() {
     setAnalyzeEvidenceLimited(false);
     setAggregation(null);
     setAggregationSelection(null);
+    setSupplement(null);
     setDetail(null);
     // Results and the message that announced them are one unit, so a
     // navigation or a change of selection retires both. A workspace-level
@@ -1104,6 +1123,69 @@ export default function Home() {
     }
   };
 
+  /**
+   * 보완: the worker finds candidates and cancels those another location
+   * already covers; each remaining candidate is then re-checked for meaning
+   * against its related lines. Only what survives both is shown. A failed or
+   * stopped re-check keeps the deterministic result and says so.
+   */
+  const runSupplement = async () => {
+    if (primaryRunInFlight.current) return;
+    if (selected.length > SERVER_AI_MAX_FILES) {
+      notifyView("error", `한 번에 최대 ${SERVER_AI_MAX_FILES}개 파일까지 처리할 수 있습니다.`);
+      return;
+    }
+    primaryRunInFlight.current = true;
+    supplementCancelled.current = false;
+    setBusy(true);
+    setNotice(null);
+    setDetail(null);
+    setSupplement(null);
+    try {
+      setSupplementStage({ label: "자료 확인 중" });
+      let draft;
+      try {
+        draft = await runInWorker({ kind: "supplement", fileIds: selected });
+      } catch (error) {
+        const failure = error as ApiError;
+        notifyView("error", failure.message ?? "자료를 분석하지 못했습니다.", undefined, failure.detail);
+        return;
+      }
+      const verdicts = new Map<string, SupplementVerdict>();
+      let reviewFailure: unknown;
+      for (const [index, batch] of draft.reviews.entries()) {
+        if (supplementCancelled.current) break;
+        setSupplementStage({ label: "빠진 정보 확인 중", done: index, total: draft.reviews.length });
+        try {
+          const answers = await reviewSupplementServerAi(
+            batch.checks.map(({ id, statement, requirement, handles }) => ({ id, statement, requirement, handles })),
+            batch.items,
+          );
+          for (const answer of answers) {
+            const check = batch.checks.find((entry) => entry.id === answer.id);
+            if (check) verdicts.set(check.candidateId, answer.verdict);
+          }
+        } catch (error) {
+          reviewFailure = error;
+          logAiFailure(error);
+          break;
+        }
+      }
+      setSupplementStage({ label: "결과 정리 중" });
+      setSupplement(finalizeSupplement(draft, verdicts));
+      if (supplementCancelled.current) {
+        notifyView("warning", "보완 확인을 중지했습니다.", undefined, "재확인하지 못한 항목은 다른 위치에 설명이 있을 수 있습니다.");
+      } else if (reviewFailure) {
+        notifyView("warning", "일부 항목의 재확인을 완료하지 못했습니다.", undefined, `${aiFailureDetail(reviewFailure)} · 다른 표현으로 설명된 내용이 있을 수 있습니다.`);
+      } else {
+        notifyView("success", "보완 항목을 확인했습니다.");
+      }
+    } finally {
+      setBusy(false);
+      setSupplementStage(null);
+      primaryRunInFlight.current = false;
+    }
+  };
   const runAggregate = async () => {
     const selectedFiles = files.filter((file) => selected.includes(file.id));
     if (selectedFiles.some((file) => !isAggregationFileKind(file.kind))) {
@@ -1153,6 +1235,7 @@ export default function Home() {
     if (activeTab === "Compare") return runCompare();
     if (activeTab === "Analyze") return runAnalyze();
     if (activeTab === "Check") return runCheck();
+    if (activeTab === "Supplement") return runSupplement();
     if (activeTab === "Extract") return runExtract();
     if (activeTab === "Aggregate") return runAggregate();
     if (activeTab === "Polish") return runPolish();
@@ -1357,11 +1440,14 @@ export default function Home() {
     : workSectionCopy[activeTab];
   const aggregationHasUnsupportedFiles = activeTab === "Aggregate"
     && files.some((file) => selected.includes(file.id) && !isAggregationFileKind(file.kind));
+  const supplementHasUnsupportedFiles = activeTab === "Supplement"
+    && files.some((file) => selected.includes(file.id) && !isSupplementFileKind(file.kind));
   const actionDisabled = busy || (activeTab === "Check" && companyTermsSource === "pending")
     || (polishTextMode
       ? polishText.trim().length === 0
       : selected.length === 0
         || (activeTab === "Aggregate" && aggregationHasUnsupportedFiles)
+        || (activeTab === "Supplement" && supplementHasUnsupportedFiles)
         || (activeTab === "Compare" && (selected.length < 2 || (compareMode === "version" && selected.length !== 2)))
         || (activeTab === "Ask" && !question.trim()));
   const hasCategoryResult = activeTab === "Compare"
@@ -1372,7 +1458,9 @@ export default function Home() {
         ? structured !== null
         : activeTab === "Aggregate"
           ? aggregation !== null
-          : operationResult !== null;
+          : activeTab === "Supplement"
+            ? supplement !== null
+            : operationResult !== null;
   const stoppedPolish = activeTab === "Polish" && (polishTextMode ? polishTextRun?.stopped : polish?.stopped);
   const polishSummary = activeTab === "Polish" ? (polishTextMode ? polishTextRun?.summary : polish?.summary) : undefined;
   const inlineResultNotice = hasCategoryResult
@@ -1393,7 +1481,9 @@ export default function Home() {
               ? "검토 미완료"
               : polishSummary?.rejected
                 ? "수정안 미적용"
-                : completionLabels[activeTab],
+                : activeTab === "Supplement" && inlineResultNotice.tone === "warning"
+                  ? "일부 확인 미완료"
+                  : completionLabels[activeTab],
       ...(inlineResultNotice.tone !== "success" ? {
         message: inlineResultNotice.message,
         ...(inlineResultNotice.detail ? { detail: inlineResultNotice.detail } : {}),
@@ -1809,6 +1899,11 @@ export default function Home() {
                     ) : null}
                   </div>
                 ) : null}
+                {activeTab === "Supplement" && supplementHasUnsupportedFiles ? (
+                  <StatusPanel variant="error" className="aggregation-selection-error" title={SUPPLEMENT_UNSUPPORTED_TITLE}>
+                    <p>{SUPPLEMENT_UNSUPPORTED_DETAIL}</p>
+                  </StatusPanel>
+                ) : null}
                 {activeTab === "Aggregate" && aggregationHasUnsupportedFiles ? (
                   <StatusPanel variant="error" className="aggregation-selection-error" title={AGGREGATION_UNSUPPORTED_TITLE}>
                     <p>{AGGREGATION_UNSUPPORTED_DETAIL}</p>
@@ -1837,6 +1932,16 @@ export default function Home() {
                     <button type="button" className="secondary-action" onClick={() => { extractCancelled.current = true; interruptServerAi(); }}>중지</button>
                   </div>
                 </div>
+              ) : busy && supplementStage ? (
+                <div className="processing-bar compact-progress" role="status" aria-live="polite">
+                  <strong>{supplementStage.total ? `${supplementStage.label} ${supplementStage.done}/${supplementStage.total}` : supplementStage.label}</strong>
+                  <small>다른 페이지·슬라이드의 설명까지 함께 확인하고 있습니다.</small>
+                  {supplementStage.total ? (
+                    <div className="ai-status-actions">
+                      <button type="button" className="secondary-action" onClick={() => { supplementCancelled.current = true; interruptServerAi(); }}>중지</button>
+                    </div>
+                  ) : null}
+                </div>
               ) : null}
 
               {activeTab === "Compare"
@@ -1847,6 +1952,26 @@ export default function Home() {
                   ? <PolishTextResults result={polishTextRun} status={resultStatus} />
                   : activeTab === "Polish"
                   ? <PolishResults result={polish} fileNames={fileNames} onSource={openSource} status={resultStatus} />
+                  : activeTab === "Supplement"
+                    ? supplement ? (
+                      <section className="panel results-panel">
+                        <ResultHeader title="보완 결과" status={resultStatus} />
+                        <SupplementResults
+                          result={supplement}
+                          fileNames={fileNames}
+                          renderSource={(sources, context) => (
+                            <span className="result-source">
+                              <button
+                                type="button"
+                                className="source-action"
+                                aria-label={`${context.issue} 근거 보기`}
+                                onClick={(event) => openSource(sources.map((source) => ({ source, context })), event.currentTarget)}
+                              >근거 보기</button>
+                            </span>
+                          )}
+                        />
+                      </section>
+                    ) : null
                   : activeTab === "Aggregate"
                     ? <AggregationResults draft={aggregation} selection={aggregationSelection} busy={busy} onSelection={setAggregationSelection} onExport={exportAggregation} />
                   : activeTab === "Extract" && extractMode !== "text"
@@ -1969,6 +2094,7 @@ const workSectionCopy: Record<Tab, [string, string]> = {
   Ask: ["질문하기", "선택한 파일을 근거로 질문에 답합니다."],
   Compare: ["파일 비교", "같은 파일의 전·후 변경 내용과 여러 파일의 공통 항목 값을 비교합니다."],
   Check: ["문서 검수", "선택한 파일의 문장·일관성·데이터·개인정보·보안정보를 검수합니다."],
+  Supplement: ["자료 보완", "자료에서 빠진 핵심 정보와 설명이 필요한 부분을 찾습니다. PPTX, PDF 지원"],
   Polish: ["문서 윤문", "선택한 파일의 번역투와 중복 표현을 문장 단위로 다듬습니다."],
   Extract: ["정보 추출", "선택한 파일에서 필요한 항목과 값을 찾아 정리합니다."],
   Aggregate: ["문서 취합", "여러 Excel 파일의 표 데이터를 첫 번째 파일의 서식을 기준으로 하나의 파일로 취합합니다."],

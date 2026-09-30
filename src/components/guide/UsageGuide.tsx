@@ -103,6 +103,15 @@ const GUIDES: Guide[] = [
     ],
   },
   {
+    id: "supplement", label: "보완", summary: "자료에서 빠진 핵심 정보와 설명이 필요한 부분을 찾습니다.",
+    steps: [
+      selectFiles("보완할 PPTX 또는 PDF 파일을 선택합니다.", ["3분기_비용보고.pptx"]),
+      { title: "실행", text: "보완 탭에서 실행을 누릅니다.", mini: <Run /> },
+      { title: "결과 확인", text: "중요도, 원문 위치, 추가하면 좋은 정보를 확인합니다.", mini: <Result title="보완 결과" status="보완 확인 완료" lines={["중요 · 원인 설명 확인 필요 · 3P", "상사가 물어보기 전에"]} /> },
+    ],
+    tip: "다른 페이지나 슬라이드에 설명이 있으면 누락으로 표시하지 않습니다. 읽지 못한 영역은 분석 범위에 표시됩니다.",
+  },
+  {
     id: "polish", label: "윤문", summary: "번역투와 중복 표현을 문장 단위로 다듬습니다.",
     steps: [
       { title: "입력 방식 선택", text: "파일 또는 붙여넣은 텍스트를 고릅니다.", mini: <Segments items={["파일 윤문", "텍스트 윤문"]} active={1} /> },

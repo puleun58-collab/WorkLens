@@ -1,0 +1,173 @@
+/* 보완 result: the Check result vocabulary (severity marks, filters, rows), no new surfaces. */
+.supplement-overview {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.supplement-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+}
+
+.supplement-filters .severity-mark {
+  margin-right: 6px;
+}
+
+.supplement-meta {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.supplement-meta > div,
+.supplement-fields > div {
+  display: grid;
+  grid-template-columns: 128px minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: baseline;
+}
+
+.supplement-meta dt,
+.supplement-fields dt {
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+}
+
+.supplement-meta dd,
+.supplement-fields dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}
+
+.supplement-coverage-state {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.supplement-coverage-state.limited {
+  color: var(--warning);
+}
+
+.supplement-coverage {
+  display: grid;
+  gap: var(--space-1);
+  margin: var(--space-1) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.supplement-coverage small {
+  display: block;
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+}
+
+.supplement-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+}
+
+.supplement-questions {
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.supplement-questions h3 {
+  margin: 0 0 var(--space-2);
+  color: var(--ink);
+  font-size: var(--font-size-md);
+}
+
+.supplement-questions ol {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding-left: 1.4em;
+  color: var(--ink-soft);
+  font-size: var(--font-size-sm);
+}
+
+.supplement-clear {
+  margin: var(--space-4) var(--space-5);
+}
+
+.supplement-item {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-5);
+}
+
+.supplement-item-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2) var(--space-3);
+}
+
+.supplement-item-head h3 {
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--font-size-md);
+}
+
+.supplement-file {
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+  overflow-wrap: anywhere;
+}
+
+.supplement-message {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}
+
+.supplement-fields {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.supplement-fields ul {
+  margin: 0;
+  padding-left: 1.2em;
+}
+
+.supplement-location {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2) var(--space-3);
+}
+
+.supplement-limitation {
+  margin: 0;
+  color: var(--warning);
+  font-size: var(--font-size-xs);
+}
+
+@media (max-width: 720px) {
+  .supplement-overview,
+  .supplement-questions,
+  .supplement-item {
+    padding-inline: var(--space-4);
+  }
+
+  .supplement-clear {
+    margin-inline: var(--space-4);
+  }
+
+  .supplement-meta > div,
+  .supplement-fields > div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+}

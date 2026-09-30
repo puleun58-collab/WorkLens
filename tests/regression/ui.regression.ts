@@ -141,7 +141,7 @@ regressionCase(make(10, "UI", "All guide categories show complete steps", "Every
   await page.setViewportSize({ width: 390, height: 844 }); await ready(page); await openView(page, "Guide");
   const tabs = page.getByRole("tablist", { name: "기능 선택" }).getByRole("tab");
   // The guide is lazily loaded; wait for its tabs before reading them.
-  await expect(tabs).toHaveCount(11); const labels = await tabs.allTextContents();
+  await expect(tabs).toHaveCount(12); const labels = await tabs.allTextContents();
   for (const label of labels) {
     await page.getByRole("tab", { name: label, exact: true }).click();
     const panel = page.getByRole("tabpanel"); await expect(panel.getByRole("heading", { name: label, exact: true })).toBeVisible();
