@@ -1517,10 +1517,12 @@ test("document evidence links focus only the selected issue without changing dis
     await expect(reviewResult.locator(".contract-review-detail.is-focused")).toHaveCount(1);
     await expect(first).not.toHaveClass(/is-focused/u);
     await expect(last.locator(".law-detail-source[open]")).toHaveCount(0);
-    await expect.poll(async () => last.evaluate((node) => {
+    // Desktop keeps the 64px context bar sticky; on phones it scrolls away.
+    const headerOffset = viewport.width < 700 ? 0 : 64;
+    await expect.poll(async () => last.evaluate((node, minTop) => {
       const { top, bottom } = node.getBoundingClientRect();
-      return top >= (viewport.width < 700 ? 0 : 64) && bottom <= innerHeight;
-    })).toBe(true);
+      return top >= minTop && bottom <= innerHeight;
+    }, headerOffset)).toBe(true);
     await expect(last).not.toHaveClass(/is-focused/u, { timeout: 4_000 });
     await links.nth(2).click();
     await expect(last).toHaveClass(/is-focused/u);
