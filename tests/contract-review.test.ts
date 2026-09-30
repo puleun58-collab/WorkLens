@@ -330,6 +330,22 @@ describe("reviewContract pipeline", () => {
     expect(sources.calls.holding).not.toContain("1");
   });
 
+  it("shows a verified article body once when the source repeats its heading", async () => {
+    const text = [
+      "서비스 이용계약서",
+      "제1조(위약금) 이용자는 잔여기간 이용요금의 200%를 위약금으로 지급한다.",
+    ].join("\n");
+    const review = await reviewContract(text, fakeSources({
+      async article(_mst, jo) {
+        return `법령명: 테스트\n시행일: 20240807\n\n${jo}(배상액의 예정)\n${jo}(배상액의 예정)\n① 손해배상의 예정액이 부당히 과다한 경우 법원은 감액할 수 있다.`;
+      },
+    }));
+    const issue = review.clauses.flatMap((clause) => clause.issues).find((item) => item.id === "penalty")!;
+    const law = review.laws[issue.laws[0]];
+    expect(law.title).toBe("배상액의 예정");
+    expect(law.excerpt).toBe("① 손해배상의 예정액이 부당히 과다한 경우 법원은 감액할 수 있다.");
+  });
+
   it("never searches or opens anything twice", async () => {
     const sources = fakeSources();
     await reviewContract(B2B_SERVICE_CONTRACT, sources);
