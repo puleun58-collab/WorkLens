@@ -276,7 +276,8 @@ function outline(document: NormalizedDocument, fileName: string): FileOutline {
     complete = false;
     notes.push("차트 안의 값과 설명은 읽지 않았습니다.");
   }
-  if (document.warnings.includes("PPTX_IMAGE_OMITTED")) notes.push("이미지 안의 글자는 읽지 않습니다.");
+  // Supplement reads no image text, so the note applies to any picture actually on a slide, and only then.
+  if (document.kind === "pptx" && ((document.media?.length ?? 0) > 0 || document.warnings.includes("PPTX_IMAGE_OMITTED"))) notes.push("이미지 안의 글자는 읽지 않습니다.");
   const readUnits = new Set(statements.map((statement) => statement.unit)).size;
   return {
     document,

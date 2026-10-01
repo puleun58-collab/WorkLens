@@ -103,7 +103,7 @@ const GUIDES: Guide[] = [
     ],
   },
   {
-    id: "supplement", label: "보완", summary: "자료에서 빠진 핵심 정보와 설명이 필요한 부분을 찾습니다.",
+    id: "supplement", label: "보완", summary: "문서에서 빠진 핵심 정보와 설명이 필요한 부분을 찾습니다.",
     steps: [
       selectFiles("보완할 PPTX, PDF, XLSX 또는 DOCX 파일을 선택합니다.", ["3분기_비용보고.pptx"]),
       { title: "실행", text: "보완 탭에서 실행을 누릅니다.", mini: <Run /> },
