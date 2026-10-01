@@ -231,9 +231,10 @@ export async function runLegalResearch(
   // Document review decides the document's type and each clause's issue before
   // any search, then searches only the areas of law that fit (see contract-review).
   if (request.task === "document_review") {
-    // A file's segments go through the same review as pasted text; only their positions are added.
-    const input = "document" in request ? request.document.segments.map((segment) => segment.text) : request.text;
-    const review = await reviewContract(input, mcpReviewSources(context));
+    // File ranges carry explicit gaps; the profile and lookup memo span them all.
+    const input = "document" in request ? request.document.segments : request.text;
+    const review = await reviewContract(input, mcpReviewSources(context), Date.now, context.signal,
+      "document" in request ? request.document.profile : undefined);
     return { found: true, task: request.task, text: "", markers: [], review };
   }
   if (request.task === "full_research") return fullResearch(request.query, context);

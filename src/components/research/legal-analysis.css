@@ -97,6 +97,7 @@ p.research-meta { margin: 0; }
 .contract-review-keyfacts span:first-child { color: var(--muted); }
 .contract-review-coverage { display: grid; gap: 2px; margin: 4px 0 0; padding: 0; list-style: none; color: var(--muted); font-size: var(--font-size-xs, 12px); }
 .contract-review-file { overflow-wrap: anywhere; }
+.contract-review-preview-note, .contract-review-clause-place { margin: 0; color: var(--muted); font-size: var(--font-size-xs, 12px); line-height: 1.6; overflow-wrap: anywhere; }
 .contract-review-detail { min-width: 0; padding-top: 14px; border-top: 1px solid var(--line-soft, var(--line)); scroll-margin-top: calc(64px + var(--space-4)); transition: background-color .35s ease, box-shadow .35s ease, border-top-color .35s ease; }
 /* Focus grows the box outward by its own padding (negative margin = padding), so text never moves and nothing reflows when it ends. */
 .contract-review-detail.is-focused {

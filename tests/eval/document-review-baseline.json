@@ -1,0 +1,39 @@
+{
+  "version": "document-review-v1",
+  "set": "development",
+  "caseIds": [
+    "dev-01-penalty",
+    "dev-02-multi-penalty",
+    "dev-03-exemption",
+    "dev-04-employment",
+    "dev-05-work-rules",
+    "dev-06-privacy",
+    "dev-07-lease",
+    "dev-08-normal",
+    "dev-09-short-table",
+    "dev-10-data-negative",
+    "dev-11-no-pdf-text",
+    "dev-12-renewal",
+    "dev-13-termination",
+    "dev-14-price",
+    "dev-15-citation-trap",
+    "dev-16-no-over-suggestion",
+    "dev-17-long-end"
+  ],
+  "summary": {
+    "cases": 17,
+    "tp": 15,
+    "fp": 0,
+    "fn": 0,
+    "wrongLawLinks": 0,
+    "wrongPrecedentLinks": 0,
+    "unsupportedClaims": 0,
+    "duplicates": 0,
+    "overSuggestions": 0,
+    "wrongLocations": 0,
+    "coverageErrors": 0,
+    "sourceFailures": 0,
+    "precision": 100,
+    "recall": 100
+  }
+}

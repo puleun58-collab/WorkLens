@@ -559,4 +559,36 @@ describe("cross-document review regressions", () => {
     expect(review.precedents["precedent:price"]?.holding).toContain("요금 변경");
     expect(review.precedents["precedent:suspension"]?.holding).toContain("서비스 중단");
   });
+  it("does not merge clauses across sampled gaps, and merges repeated findings with all their locations", async () => {
+    const segments = [
+      { text: "서비스 이용계약 제1조(계약 기간) 당사자는 1년의 기간을 정한다.", batch: 0 },
+      { text: "위약금 30%를 지급한다.", batch: 1 },
+      { text: "위약금 30%를 지급한다.", batch: 2 },
+      { text: "제200조(종료) 자동 연장 1년으로 한다.", batch: 3 },
+    ];
+    const sources = fakeSources();
+    const review = await reviewContract(segments, sources);
+    const penalty = review.clauses.flatMap((clause) => clause.issues).filter((issue) => issue.id === "penalty");
+    expect(penalty).toHaveLength(1);
+    expect(penalty[0].segments).toEqual([1, 2]);
+    expect(review.clauses.flatMap((clause) => clause.issues).find((issue) => issue.id === "auto_renewal")?.segments).toEqual([3]);
+    for (const list of Object.values(sources.calls)) expect(new Set(list).size).toBe(list.length);
+  });
+
+  it("cancels queued lookups instead of reporting an aborted source as absent", async () => {
+    const controller = new AbortController();
+    const pending = reviewContract(B2B_SERVICE_CONTRACT, fakeSources({
+      async findLaw() { controller.abort(); throw new Error("cancelled"); },
+    }), Date.now, controller.signal);
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+  });
+
+  it("labels incomplete source coverage even if another applicable article was found", async () => {
+    const review = await reviewContract("서비스 이용계약. 제1조(면책) 회사는 어떠한 경우에도 책임을 지지 않는다.", fakeSources({
+      async findLaw(name) { if (name === "민법") throw new Error("offline"); return { mst: name }; },
+    }));
+    const exemption = review.clauses.flatMap((clause) => clause.issues).find((issue) => issue.id === "exemption");
+    expect(exemption?.lawStatus).toBe("partial");
+    expect(exemption?.laws.some((key) => key.startsWith("약관의 규제에 관한 법률") && key.endsWith("제7조"))).toBe(true);
+  });
 });

@@ -1,8 +1,8 @@
 import {
   classifyDocument, documentRisk, extractKeyFacts, holdingRelevance, issueDefinition, lawTargets, passesMetadataGate,
   precedentQueries, reviewClauses, segmentsOf, splitClauses,
-  type ContractReview, type DocumentProfile, type IssueDefinition, type LawReference, type LawTarget,
-  type PrecedentReference, type ReviewedIssue, type SourceStatus,
+  type Clause, type ClauseIssue, type ContractReview, type DocumentProfile, type IssueDefinition, type LawReference, type LawTarget,
+  type PrecedentReference, type ReviewedClause, type ReviewedIssue, type SourceStatus,
 } from "@/lib/contract-review";
 import { getDecisionText, searchDecisions, type DecisionEntry } from "@/server/decision-mcp";
 import { getLawText, searchLaw } from "@/server/law-mcp";
@@ -81,12 +81,57 @@ function caseSubjectScore(entry: DecisionEntry, issue: IssueDefinition): number 
   return (direct ? 2 : 0) + (CONTRACT_SUBJECT.test(title) ? 1 : 0);
 }
 
-/** Reviews pasted text, or a file's segments in document order; both read the same newline-joined words. */
-export async function reviewContract(input: string | readonly string[], sources: ReviewSources, now: () => number = Date.now): Promise<ContractReview> {
+/** One profile and lookup memo across every selected document range and semantic batch. */
+export async function reviewContract(
+  input: string | readonly string[] | readonly { text: string; batch?: number }[],
+  sources: ReviewSources, now: () => number = Date.now, signal?: AbortSignal, profileOverride?: DocumentProfile,
+): Promise<ContractReview> {
   const started = now();
-  // The whole document decides its type and parties once; every clause is reviewed in that context.
-  const profile: DocumentProfile = classifyDocument(typeof input === "string" ? input : input.join("\n"));
-  const clauses = reviewClauses(splitClauses(input), profile);
+  signal?.throwIfAborted();
+  const texts = typeof input === "string" ? [input] : input.map((part) => typeof part === "string" ? part : part.text);
+  const profile: DocumentProfile = profileOverride ?? classifyDocument(texts.join("\n"));
+  const split: Clause[] = [];
+  if (typeof input === "string") split.push(...splitClauses(input));
+  else {
+    const batchOf = (part: string | { text: string; batch?: number }) => typeof part === "string" ? 0 : part.batch ?? 0;
+    for (let first = 0; first < input.length;) {
+      const batch = batchOf(input[first]);
+      let last = first + 1;
+      while (last < input.length && batchOf(input[last]) === batch) last += 1;
+      for (const clause of splitClauses(texts.slice(first, last))) {
+        split.push({ ...clause, ...(clause.sources ? { sources: clause.sources.map((source) =>
+          ({ ...source, segment: source.segment + first })) } : {}) });
+      }
+      first = last;
+    }
+  }
+  const clauses: ReviewedClause[] = [];
+  let section: Clause[] = [];
+  let chars = 0;
+  const flush = () => {
+    if (section.length) clauses.push(...reviewClauses(section, profile));
+    section = [];
+    chars = 0;
+  };
+  for (const clause of split) {
+    signal?.throwIfAborted();
+    if (chars && chars + clause.text.length > 8_000) flush();
+    section.push(clause);
+    chars += clause.text.length;
+  }
+  flush();
+  // A repeated boilerplate issue is one finding with all its source positions.
+  const seen = new Map<string, ClauseIssue>();
+  for (const clause of clauses) clause.issues = clause.issues.filter((issue) => {
+    const key = `${issue.id}\0${issue.fact.replace(/\s+/gu, " ").trim()}`;
+    const previous = seen.get(key);
+    if (!previous) {
+      seen.set(key, issue);
+      return true;
+    }
+    if (issue.segments?.length) previous.segments = [...new Set([...(previous.segments ?? []), ...issue.segments])];
+    return false;
+  });
   const stats = { calls: 0, queries: 0, excludedPrecedents: 0, excludedLaws: 0 };
 
   // One promise per distinct lookup: the same statute, search or judgment is never requested twice.
@@ -97,16 +142,28 @@ export async function reviewContract(input: string | readonly string[], sources:
     const existing = memo.get(key);
     if (existing) return existing as Promise<T>;
     const promise = (async () => {
-      while (active >= CONCURRENCY) await new Promise<void>((resolve) => waiting.push(resolve));
-      if (now() - started > BUDGET_MS) {
-        // Out of time: skip this lookup but wake the next one, so the whole queue drains.
-        waiting.shift()?.();
-        throw new Error("budget");
+      while (active >= CONCURRENCY) {
+        signal?.throwIfAborted();
+        await new Promise<void>((resolve, reject) => {
+          const resume = () => { signal?.removeEventListener("abort", abort); resolve(); };
+          const abort = () => {
+            const index = waiting.indexOf(resume);
+            if (index >= 0) waiting.splice(index, 1);
+            reject(signal?.reason ?? new DOMException("Review cancelled", "AbortError"));
+          };
+          waiting.push(resume);
+          signal?.addEventListener("abort", abort, { once: true });
+          if (signal?.aborted) abort();
+        });
       }
+      signal?.throwIfAborted();
+      if (now() - started > BUDGET_MS) throw new Error("budget");
       active += 1;
       stats.calls += 1;
       try {
-        return await run();
+        const result = await run();
+        signal?.throwIfAborted();
+        return result;
       } finally {
         active -= 1;
         waiting.shift()?.();
@@ -136,10 +193,11 @@ export async function reviewContract(input: string | readonly string[], sources:
         laws[reference.key] ??= reference;
         keys.push(reference.key);
       } catch {
+        signal?.throwIfAborted();
         failed += 1;
       }
     }
-    return { keys, status: keys.length ? "found" : failed === targets.length ? "failed" : "none" };
+    return { keys, status: keys.length ? failed ? "partial" : "found" : failed ? "failed" : "none" };
   }
 
   async function resolvePrecedents(issue: IssueDefinition): Promise<{ keys: string[]; status: SourceStatus }> {
@@ -158,6 +216,7 @@ export async function reviewContract(input: string | readonly string[], sources:
         stats.queries += 1;
         entries = await lookup(`search:${query}`, () => sources.searchPrecedents(query));
       } catch {
+        signal?.throwIfAborted();
         failed += 1;
         continue;
       }
@@ -180,6 +239,8 @@ export async function reviewContract(input: string | readonly string[], sources:
         try {
           holding = await lookup(`holding:${entry.id}`, () => sources.holding(entry.id));
         } catch {
+          signal?.throwIfAborted();
+          failed += 1;
           continue;
         }
         const sentence = holding ? holdingRelevance(holding, issue, profile) : undefined;
@@ -205,9 +266,9 @@ export async function reviewContract(input: string | readonly string[], sources:
         };
         keys.push(key);
       }
-      if (keys.length) return { keys, status: "found" };
+      if (keys.length) return { keys, status: failed ? "partial" : "found" };
     }
-    return { keys: [], status: failed === queries.length ? "failed" : "none" };
+    return { keys: [], status: failed ? "failed" : "none" };
   }
 
   // Resolve each issue against its own search terms and holding gate. Sharing a
@@ -225,6 +286,7 @@ export async function reviewContract(input: string | readonly string[], sources:
       resolved.set(id, Promise.all([resolveLaws(issue), resolvePrecedents(issue)]));
     }
     await Promise.all(tier.map((id) => resolved.get(id)!));
+    signal?.throwIfAborted();
   }
 
   const reviewedClauses: ContractReview["clauses"] = [];
@@ -236,6 +298,7 @@ export async function reviewContract(input: string | readonly string[], sources:
     }
     reviewedClauses.push({ ...clause, ...(origin ? { segments: segmentsOf({ ...clause, sources: origin }) } : {}), issues });
   }
+  signal?.throwIfAborted();
 
   return {
     document: profile,
