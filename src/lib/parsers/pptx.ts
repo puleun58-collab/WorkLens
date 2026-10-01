@@ -337,8 +337,9 @@ export const parsePptx = async (input: { fileId: string; fileName: string; bytes
     const media = paths.flatMap((path, index) =>
       slideMedia({ fileId: input.fileId, slide: index + 1, path, xml: xml(files.get(path)!) }, files));
     const warnings = new Set<string>();
-    const archivedImageCount = [...files.keys()].filter((name) => name.startsWith("ppt/media/")).length;
-    if (archivedImageCount > media.length) warnings.add("PPTX_IMAGE_OMITTED");
+    // Only pictures placed on slides count; master/layout backgrounds and logos also live in ppt/media/.
+    const placedImageCount = paths.reduce((count, path) => count + (xml(files.get(path)!).match(/<a:blip\b[^>]*r:embed=/gu)?.length ?? 0), 0);
+    if (placedImageCount > media.length) warnings.add("PPTX_IMAGE_OMITTED");
     for (const name of files.keys()) {
       if (name.startsWith("ppt/charts/")) warnings.add("PPTX_CHART_OMITTED");
       else if (name.startsWith("ppt/notesSlides/")) warnings.add("PPTX_SPEAKER_NOTES_OMITTED");

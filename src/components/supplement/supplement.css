@@ -1,15 +1,22 @@
 /* 보완 result: the Check result vocabulary (severity marks, filters, rows), no new surfaces. */
+/* Summary, status and notice text start on the 보완 결과 title's left line; findings keep their own row inset. */
 .supplement-overview {
   display: grid;
   gap: var(--space-3);
-  padding: var(--space-4) var(--space-5);
+  padding: var(--space-4) 0;
   border-bottom: 1px solid var(--line-soft);
+}
+
+.results-panel:has(> .supplement-results) > .result-inline-warning {
+  padding-inline: 0;
 }
 
 .supplement-filters {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2) var(--space-4);
+  /* The buttons' own inline padding; the first label then sits on the title line. */
+  margin-left: -5px;
 }
 
 .supplement-filters .severity-mark {
@@ -75,7 +82,7 @@
 }
 
 .supplement-questions {
-  padding: var(--space-4) var(--space-5);
+  padding: var(--space-4) 0;
   border-bottom: 1px solid var(--line-soft);
 }
 
@@ -95,7 +102,7 @@
 }
 
 .supplement-clear {
-  margin: var(--space-4) var(--space-5);
+  margin: var(--space-4) 0;
 }
 
 .supplement-item {
@@ -155,14 +162,8 @@
 }
 
 @media (max-width: 720px) {
-  .supplement-overview,
-  .supplement-questions,
   .supplement-item {
     padding-inline: var(--space-4);
-  }
-
-  .supplement-clear {
-    margin-inline: var(--space-4);
   }
 
   .supplement-meta > div,

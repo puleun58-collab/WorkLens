@@ -291,6 +291,13 @@ describe("parseDocument", () => {
     expect(document.warnings).toEqual([]);
   });
 
+  it("does not report an image a DOCX archive holds but never places", async () => {
+    const files = unzipSync(createDocx());
+    const bytes = zipSync({ ...files, "word/media/logo.png": strToU8("fake-png-bytes") });
+    const document = await parseDocument({ fileId: "docx-orphan", fileName: "로고.docx", bytes });
+    expect(document.warnings).not.toContain("DOCX_IMAGE_OMITTED");
+  });
+
   it("omits nested DOCX tables without corrupting the outer table", async () => {
     const document = await parseDocument({
       fileId: "docx-nested",
@@ -330,6 +337,13 @@ describe("parseDocument", () => {
   it("emits no PPTX warnings when no omitted content is present", async () => {
     const document = await parseDocument({ fileId: "pptx-clean", fileName: "깔끔.pptx", bytes: createPptx() });
     expect(document.warnings).toEqual([]);
+  });
+
+  it("does not report master or layout images as slide images", async () => {
+    const files = unzipSync(createPptx());
+    const bytes = zipSync({ ...files, "ppt/media/background.png": strToU8("fake-png-bytes") });
+    const document = await parseDocument({ fileId: "pptx-master", fileName: "템플릿.pptx", bytes });
+    expect(document.warnings).not.toContain("PPTX_IMAGE_OMITTED");
   });
 
   it("emits XLSX hidden-sheet and formula-value-only warnings, deduplicated", async () => {

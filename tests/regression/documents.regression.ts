@@ -148,7 +148,7 @@ const documentCases: Array<{ body: string; name: string; contains: string; secon
   { name: "mixed-blocks", body: paragraph("담당부서: 본부") + table([["항목", "값"], ["금액", "35000"]]) + paragraph("담당자: 홍길동"), contains: "본부", second: "홍길동" },
   { name: "empty-paragraphs", body: `${"<w:p/>".repeat(350)}${paragraph("담당자: 문서담당")}`, contains: "문서담당" },
   { name: "long-document", body: `${Array.from({ length: 600 }, (_, i) => paragraph(`문단 ${i + 1}의 본문 안내입니다`)).join("")}${paragraph("담당자: 마지막담당")}`, contains: "마지막담당" },
-  { name: "image-only", body: '<w:p><w:r><w:drawing/></w:r></w:p>', contains: "", warn: "이미지 안의 내용은 읽지 않습니다." },
+  { name: "image-only", body: '<w:p><w:r><w:drawing><a:blip xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:embed="rIdImage1"/></w:drawing></w:r></w:p>', contains: "", warn: "이미지 안의 내용은 읽지 않습니다." },
   { name: "list-and-pagebreak", body: paragraph("담당자: 목록담당", '<w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr></w:pPr>') + '<w:p><w:r><w:br w:type="page"/></w:r></w:p>' + paragraph("기준일: 2026-09-26"), contains: "목록담당", second: "2026-09-26" },
   { name: "header-footer", body: paragraph("담당자: 본문담당"), contains: "본문담당", second: "머리말담당" },
 ];

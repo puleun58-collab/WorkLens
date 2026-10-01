@@ -101,8 +101,7 @@ export const parseDocx = async (input: {
     if (documentXml === undefined) throw malformedFileError();
     const warnings = new Set<string>();
     for (const name of files.keys()) {
-      if (name.startsWith("word/media/")) warnings.add("DOCX_IMAGE_OMITTED");
-      else if (name.startsWith("word/charts/")) warnings.add("DOCX_CHART_OMITTED");
+      if (name.startsWith("word/charts/")) warnings.add("DOCX_CHART_OMITTED");
     }
     const partContent = (bytes: Uint8Array, root: "document" | "hdr" | "ftr"): string => {
       const content = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
@@ -127,6 +126,8 @@ export const parseDocx = async (input: {
         warnings.add("DOCX_HEADER_FOOTER_OMITTED");
       }
     }
+    // An image counts only when the document places it; unreferenced files in word/media/ are not in the document.
+    if (parts.some((part) => /<a:blip\b[^>]*r:embed=|<v:imagedata\b/u.test(part.content))) warnings.add("DOCX_IMAGE_OMITTED");
     const blocks: DocumentBlock[] = [];
     const parser = new SaxesParser({ xmlns: false });
     let failure: Error | undefined;
