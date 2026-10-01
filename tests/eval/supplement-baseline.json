@@ -1,21 +1,90 @@
 {
-  "model": "openai/gpt-oss-20b",
+  "status": "complete",
+  "model": "openai/gpt-oss-120b",
   "promptVersion": "2026-09-30.3",
-  "ranAt": "2026-09-30T14:40:08.367Z",
+  "ranAt": "2026-10-01T13:01:11.074Z",
+  "commit": "7e9a2c5",
+  "args": [
+    "--set",
+    "fixed",
+    "--save-baseline",
+    "--shared-key"
+  ],
+  "limits": {
+    "requestTimeoutMs": 45000,
+    "maxAttempts": 3,
+    "maxRetryAfterSeconds": 30,
+    "budgetSeconds": 1200
+  },
+  "plan": {
+    "caseRuns": 57,
+    "reviewCases": 29,
+    "plannedCalls": 29
+  },
+  "evalSet": {
+    "name": "fixed",
+    "cases": 57,
+    "fingerprint": "5ca4c13ff142"
+  },
+  "via": "groq",
   "repeat": 1,
-  "durationMs": 55173,
+  "notRun": [],
+  "durationMs": 96218,
+  "caseDurationMs": {
+    "average": 1687,
+    "max": 16734
+  },
   "usage": {
-    "calls": 24,
-    "promptTokens": 19137,
-    "completionTokens": 2296,
-    "retries": 7,
-    "errors": 0,
-    "latencyMs": 15620
+    "calls": 29,
+    "promptTokens": 23041,
+    "completionTokens": 2894,
+    "retries": 0,
+    "recoveredAfterRetry": 0,
+    "latencyMs": 90554,
+    "failures": {
+      "rate-limited": 0,
+      "timeout": 0,
+      "provider": 0,
+      "invalid-output": 0,
+      "network": 0,
+      "rejected": 0,
+      "budget": 0
+    }
   },
   "unstable": [],
+  "stability": {
+    "modelUnstable": [],
+    "systemAffected": [],
+    "passedInEveryRound": 57
+  },
+  "rounds": [
+    {
+      "passed": 57,
+      "summary": {
+        "cases": 57,
+        "passed": 57,
+        "failed": 0,
+        "precision": 100,
+        "recall": 100,
+        "byKind": {
+          "unsupported-claim": 0,
+          "wrong-linking": 0,
+          "coverage": 0,
+          "false-positive": 0,
+          "false-negative": 0,
+          "classification": 0,
+          "duplicate": 0,
+          "over-suggestion": 0
+        },
+        "byStage": {},
+        "modelCalls": 29,
+        "failures": []
+      }
+    }
+  ],
   "summary": {
-    "cases": 46,
-    "passed": 46,
+    "cases": 57,
+    "passed": 57,
     "failed": 0,
     "precision": 100,
     "recall": 100,
@@ -30,7 +99,7 @@
       "over-suggestion": 0
     },
     "byStage": {},
-    "modelCalls": 24,
+    "modelCalls": 29,
     "failures": []
   },
   "passedCases": [
@@ -47,7 +116,12 @@
     "M05",
     "M06",
     "M07",
+    "M08",
+    "M09",
+    "M10",
+    "M11",
     "R01",
+    "R05",
     "R02",
     "R03",
     "R04",
@@ -66,6 +140,12 @@
     "K03",
     "K04",
     "K05",
+    "K06",
+    "K07",
+    "K08",
+    "F07",
+    "F08",
+    "F09",
     "C01",
     "D01",
     "D02",
