@@ -167,22 +167,22 @@ export async function reviewSupplementServerAi(checks: SupplementReviewCheck[], 
 
 export function interruptServerAi(): void {
   activeController?.abort();
-  activePolishDelay?.();
+  activeRetryDelay?.();
 }
 
-let activePolishDelay: (() => void) | undefined;
+let activeRetryDelay: (() => void) | undefined;
 
-/** Aborts the pending retry immediately when the user stops the run. */
-export function waitForPolishRetry(ms: number): Promise<boolean> {
+/** Waits before retrying a server AI call; aborts immediately when the user stops the run. */
+export function waitForServerAiRetry(ms: number): Promise<boolean> {
   const { promise, resolve } = Promise.withResolvers<boolean>();
   const finish = (completed: boolean) => {
     clearTimeout(timer);
-    if (activePolishDelay === cancel) activePolishDelay = undefined;
+    if (activeRetryDelay === cancel) activeRetryDelay = undefined;
     resolve(completed);
   };
   const cancel = () => finish(false);
   const timer = setTimeout(() => finish(true), ms);
-  activePolishDelay = cancel;
+  activeRetryDelay = cancel;
   return promise;
 }
 

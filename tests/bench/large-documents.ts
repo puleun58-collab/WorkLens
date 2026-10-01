@@ -19,6 +19,8 @@ import { selectEvidence } from "@/lib/ai/retrieval";
 import { buildComparison } from "@/domain/compare";
 import { analyzeDocument, checkDocument, extractDocument } from "@/lib/deterministic";
 import { buildAggregation } from "@/lib/aggregation/engine";
+import { isSupplementFileKind } from "@/domain/supplement";
+import { buildSupplementDraft } from "@/lib/supplement/engine";
 import { aggregationXlsxExport } from "@/lib/aggregation/export";
 import { parseDocument } from "@/lib/parsers";
 import { fileKindOf, validateUploadBytes } from "@/lib/upload";
@@ -179,6 +181,7 @@ async function measure(label: string, bytes: Uint8Array, fileName: string): Prom
   await timed("analyze", () => analyzeDocument(document), stages);
   await timed("check", () => checkDocument(document, { userTerms: [], companyTerms: [] }), stages);
   await timed("extract", () => extractDocument(document), stages);
+  if (isSupplementFileKind(document.kind)) await timed("supplement", () => buildSupplementDraft([{ document, fileName }]), stages);
   const after = process.memoryUsage?.().rss ?? 0;
   return {
     label,

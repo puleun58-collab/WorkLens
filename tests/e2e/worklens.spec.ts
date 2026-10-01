@@ -3314,3 +3314,65 @@ test("shows incomplete AI extraction without discarding deterministic fields", a
   await expect(page.getByRole("status").filter({ hasText: "AI 항목 확인이 중단되어 나머지 항목은 확인하지 못했습니다." })).toBeVisible();
   await expect(page.locator(".extract-results")).toContainText("찾지 못함");
 });
+
+async function runSupplementOn(page: Page, deck: string) {
+  await upload(page, deck);
+  await page.getByLabel(`${path.basename(deck)} 선택`).check();
+  await page.getByRole("button", { name: "보완", exact: true }).click();
+  await page.getByRole("button", { name: "보완 실행" }).click();
+}
+
+test("보완 waits out a rate-limited re-check and still completes it, on desktop and mobile", async ({ page }) => {
+  const deck = path.join(FIXTURE_DIR, "보완_재시도.pptx");
+  await writeFile(deck, createPptxSlides([["2026년 9월 비용 보고", "운영 현황"], ["비용 현황", "물류비가 전월 대비 18% 증가했습니다."]]));
+  let calls = 0;
+  await page.route("**/api/ai", (route) => {
+    calls += 1;
+    if (calls === 1) {
+      return route.fulfill({ status: 429, headers: { "Retry-After": "0" }, contentType: "application/json",
+        body: JSON.stringify({ error: { code: "AI_RATE_LIMITED", message: "AI 사용 한도에 도달했습니다." } }) });
+    }
+    const { checks } = route.request().postDataJSON() as { checks: Array<{ id: string }> };
+    return route.fulfill({ status: 200, contentType: "application/json",
+      body: JSON.stringify({ data: { kind: "supplement-review", verdicts: checks.map(({ id }) => ({ id, verdict: "not_found", handles: [] })) } }) });
+  });
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+    calls = 0;
+    await page.setViewportSize(viewport);
+    await page.goto("/");
+    await runSupplementOn(page, deck);
+    const results = page.locator(".supplement-results");
+    await expect(results.locator(".supplement-item")).toContainText("원인 설명 확인 필요");
+    // The first answer was a 429; the batch was retried, so the re-check is complete, not partial.
+    expect(calls).toBe(2);
+    await expect(page.getByText("일부 항목의 재확인을 완료하지 못했습니다.")).toHaveCount(0);
+    await expect(results).not.toContainText("의미 기반 재확인을 마치지 못했습니다");
+    // Title, summary text and the white meta box start on one line; nothing overflows.
+    const lines = await page.evaluate(() => {
+      const textLeft = (selector: string) => {
+        const range = document.createRange();
+        range.selectNodeContents(document.querySelector(selector)!);
+        return Math.round(range.getClientRects()[0].left);
+      };
+      return { title: textLeft(".results-panel h2"), filters: textLeft(".supplement-filters button"), box: Math.round(document.querySelector(".supplement-meta")!.getBoundingClientRect().left) };
+    });
+    expect(new Set(Object.values(lines)).size).toBe(1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  }
+});
+
+test("보완 gives up after three rate-limited attempts and says the re-check is partial", async ({ page }) => {
+  const deck = path.join(FIXTURE_DIR, "보완_한도.pptx");
+  await writeFile(deck, createPptxSlides([["2026년 9월 비용 보고", "운영 현황"], ["비용 현황", "물류비가 전월 대비 18% 증가했습니다."]]));
+  let calls = 0;
+  await page.route("**/api/ai", (route) => {
+    calls += 1;
+    return route.fulfill({ status: 429, headers: { "Retry-After": "0" }, contentType: "application/json",
+      body: JSON.stringify({ error: { code: "AI_RATE_LIMITED", message: "AI 사용 한도에 도달했습니다." } }) });
+  });
+  await page.goto("/");
+  await runSupplementOn(page, deck);
+  await expect(page.getByText("일부 항목의 재확인을 완료하지 못했습니다.")).toBeVisible({ timeout: 20_000 });
+  expect(calls).toBe(3);
+  await expect(page.locator(".supplement-item")).toContainText("원인 설명 확인 필요");
+});
