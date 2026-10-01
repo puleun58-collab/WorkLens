@@ -37,7 +37,7 @@ import {
   logAiFailure,
   polishBatchServerAi,
   SERVER_AI_MESSAGES,
-  waitForPolishRetry,
+  waitForServerAiRetry,
   reviewSupplementServerAi,
   type ServerAiFailure,
 } from "@/client/server-ai-client";
@@ -408,6 +408,10 @@ function failedPolishOutcome(candidate: PolishCandidate, error: unknown): Polish
 const POLISH_TRANSIENT_ERRORS = new Set<ServerAiErrorCode>([
   "TIMEOUT", "RATE_LIMITED", "PROVIDER_UNAVAILABLE",
 ]);
+/** Failures a 보완 re-check batch waits out before giving up on the rest of the run. */
+const SUPPLEMENT_TRANSIENT_ERRORS = new Set<ServerAiErrorCode>([
+  "TIMEOUT", "RATE_LIMITED", "PROVIDER_UNAVAILABLE", "OPERATION_CAPACITY",
+]);
 
 /** Keep only attempted outcomes: an interrupted or blocked run leaves the rest untouched. */
 async function processPolishCandidates(
@@ -443,7 +447,7 @@ async function processPolishCandidates(
             : 0;
           // A long provider embargo is a terminal limit, not a reason to retry early.
           if (delay > 30_000) break;
-          if (delay && (!await waitForPolishRetry(delay) || isCancelled())) return { stopped: true };
+          if (delay && (!await waitForServerAiRetry(delay) || isCancelled())) return { stopped: true };
           continue;
         }
         break;
@@ -1155,20 +1159,31 @@ export default function Home() {
       for (const [index, batch] of draft.reviews.entries()) {
         if (supplementCancelled.current) break;
         setSupplementStage({ label: "빠진 정보 확인 중", done: index, total: draft.reviews.length });
-        try {
-          const answers = await reviewSupplementServerAi(
-            batch.checks.map(({ id, statement, requirement, handles }) => ({ id, statement, requirement, handles })),
-            batch.items,
-          );
-          for (const answer of answers) {
-            const check = batch.checks.find((entry) => entry.id === answer.id);
-            if (check) verdicts.set(check.candidateId, { verdict: answer.verdict, sources: answer.handles.map((handle) => batch.sources[handle]).filter(Boolean) });
+        // A transient failure (rate limit, timeout, busy provider) is retried twice after the provider's own
+        // wait; only then does the run stop re-checking, so one 429 no longer leaves every later batch unchecked.
+        for (let attempt = 0; ; attempt += 1) {
+          try {
+            const answers = await reviewSupplementServerAi(
+              batch.checks.map(({ id, statement, requirement, handles }) => ({ id, statement, requirement, handles })),
+              batch.items,
+            );
+            for (const answer of answers) {
+              const check = batch.checks.find((entry) => entry.id === answer.id);
+              if (check) verdicts.set(check.candidateId, { verdict: answer.verdict, sources: answer.handles.map((handle) => batch.sources[handle]).filter(Boolean) });
+            }
+            break;
+          } catch (error) {
+            const failure = error as Partial<ServerAiFailure>;
+            const delay = Math.max(failure.code === "RATE_LIMITED" ? 2_000 : 500, failure.retryAfterMs ?? 0);
+            const transient = failure.code !== undefined && SUPPLEMENT_TRANSIENT_ERRORS.has(failure.code);
+            if (transient && attempt < 2 && delay <= 30_000 && !supplementCancelled.current
+              && await waitForServerAiRetry(delay * (attempt + 1)) && !supplementCancelled.current) continue;
+            reviewFailure = error;
+            logAiFailure(error);
+            break;
           }
-        } catch (error) {
-          reviewFailure = error;
-          logAiFailure(error);
-          break;
         }
+        if (reviewFailure) break;
       }
       setSupplementStage({ label: "결과 정리 중" });
       setSupplement(finalizeSupplement(draft, verdicts));

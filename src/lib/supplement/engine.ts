@@ -301,7 +301,7 @@ function outline(document: NormalizedDocument, fileName: string): FileOutline {
 // ── Document type and necessity ──────────────────────────────────────────
 
 const TYPE_KEYWORDS: Record<Exclude<SupplementDocType, "general">, RegExp> = {
-  performance: /(실적|매출|판매|달성|영업이익|성과|KPI|수주)/giu,
+  performance: /(실적|매출|판매|달성|영업이익|영업\s?(보고|현황|실적)|성과|KPI|수주)/giu,
   cost: /(비용|원가|예산|지출|경비|물류비|운송비|인건비|집행)/giu,
   project: /(프로젝트|진행률|진척|마일스톤|착수|구축|WBS|오픈\s?일정)/giu,
   operation: /(운영\s?(현황|보고|실적)|가동|처리량|서비스\s?수준|SLA)/giu,
@@ -314,9 +314,11 @@ const TYPE_KEYWORDS: Record<Exclude<SupplementDocType, "general">, RegExp> = {
 function classify(fileName: string, statements: readonly Statement[]): SupplementDocType {
   const titles = [fileName.replace(/\.[^.]+$/u, ""), ...new Set(statements.filter((statement) => statement.heading).map((statement) => statement.text))].join(" ");
   const body = statements.map((statement) => statement.text).join(" ");
+  // Cost words are open-ended (판관비, 외주비, 보관비 …): the metric family decides, as it does for linking.
+  const costWords = (text: string) => contentTokens(text).filter((token) => familyOf(token)?.key === "cost").length;
   const scores = (Object.keys(TYPE_KEYWORDS) as Array<keyof typeof TYPE_KEYWORDS>).map((type) => {
-    const title = titles.match(TYPE_KEYWORDS[type])?.length ?? 0;
-    const text = body.match(TYPE_KEYWORDS[type])?.length ?? 0;
+    const title = Math.max(titles.match(TYPE_KEYWORDS[type])?.length ?? 0, type === "cost" ? costWords(titles) : 0);
+    const text = Math.max(body.match(TYPE_KEYWORDS[type])?.length ?? 0, type === "cost" ? costWords(body) : 0);
     return { type, score: title * 3 + Math.min(text, 6) };
   }).sort((a, b) => b.score - a.score);
   const [best, second] = scores;
@@ -398,6 +400,16 @@ function detectChange(statement: Statement): Change | undefined {
   };
 }
 
+/**
+ * How large a change is on the relative-% scale the thresholds use. A move in
+ * percentage points is a move of a rate (원가율, 이익률), where 2%p is already
+ * material, so it weighs five times its face value. Unknown size counts as large.
+ */
+function changeSize(change: Change): number {
+  if (change.percent === undefined) return 100;
+  return /(%p|포인트)$/u.test(change.percentText ?? "") ? change.percent * 5 : change.percent;
+}
+
 interface Issue { phrase: string; tokens: string[] }
 
 function detectIssue(statement: Statement): Issue | undefined {
@@ -471,13 +483,14 @@ function inUnit(all: readonly Statement[], statement: Statement): Statement[] {
 /**
  * The document-wide rebuttal: does any other readable location supply the
  * missing information for this subject? Same-unit statements count without a
- * subject match — a slide is one argument.
+ * subject match — a slide is one argument — but its title does not: "점검 결과"
+ * names the slide, it does not answer it.
  */
 function rebut(all: readonly Statement[], origin: Statement, cue: RegExp, subjectTokens: readonly string[], options: { sameUnit?: boolean; needSubject?: boolean; analysisSection?: boolean } = {}): Statement | undefined {
   return all.find((other) => {
     if (other === origin || !cue.test(other.text) || differentParties(origin.text, other.text)) return false;
     const sameUnit = other.fileId === origin.fileId && other.unit === origin.unit;
-    if (sameUnit && options.sameUnit !== false && !options.needSubject) return true;
+    if (sameUnit && !other.heading && options.sameUnit !== false && !options.needSubject) return true;
     const titleRelates = tokensRelate(subjectTokens, contentTokens(other.unitTitle));
     // A report's own analysis section (원인 분석 · Analysis sheet) explains its figures.
     const analysisSection = options.analysisSection === true && other.fileId === origin.fileId && ANALYSIS_TITLE.test(other.unitTitle);
@@ -501,7 +514,7 @@ function candidatesFor(outline: FileOutline, docType: SupplementDocType, all: re
     const issue = detectIssue(statement);
     if (issue && !(change && change.adverse === false)) issues.set(statement, issue);
   }
-  const isProblem = (other: Statement) => issues.has(other) || (changes.get(other)?.adverse === true && (changes.get(other)?.percent ?? 100) >= 10);
+  const isProblem = (other: Statement) => issues.has(other) || (changes.get(other)?.adverse === true && changeSize(changes.get(other)!) >= 10);
   const unitHasProblem = (statement: Statement) => inUnit(statements, statement).some(isProblem);
   const fileHasProblem = statements.some(isProblem);
 
@@ -509,10 +522,11 @@ function candidatesFor(outline: FileOutline, docType: SupplementDocType, all: re
   for (const [statement, change] of changes) {
     const necessity = need("cause");
     if (necessity === "none" || statement.heading) continue;
-    const size = change.percent ?? 100;
+    const size = changeSize(change);
     let severity: SupplementSeverity | undefined;
     if (change.adverse === true && size >= 10) severity = necessity === "required" ? "critical" : size >= 15 ? "warning" : undefined;
-    else if (change.adverse === undefined && size >= 15 && necessity === "required") severity = "warning";
+    // A large swing either way needs its driver where figures are the point of the report.
+    else if (change.adverse !== true && size >= 15 && necessity === "required") severity = "warning";
     if (!severity || necessity === "recommended") continue;
     if (CAUSE_CUE.test(statement.text) || EXPLANATION_FIELD.test(statement.text) || rebut(all, statement, CAUSE_CUE, change.subjectTokens, { needSubject: false, analysisSection: true })) { resolved += 1; continue; }
     const family = familyOf(change.subject);
@@ -544,7 +558,7 @@ function candidatesFor(outline: FileOutline, docType: SupplementDocType, all: re
     members.push({ statement, check: "response", severity: responseNeed === "required" ? "critical" : "warning", groupKey: `response:${familyOf(issue.tokens[0])?.key ?? issue.tokens[0]}`, subject: issue.phrase, subjectTokens: issue.tokens, phrase: issue.phrase });
   }
   for (const [statement, change] of changes) {
-    if (issues.has(statement) || statement.heading || change.adverse !== true || (change.percent ?? 100) < 15) continue;
+    if (issues.has(statement) || statement.heading || change.adverse !== true || changeSize(change) < 15) continue;
     // A cost or sales swing needs its cause everywhere, but a follow-up plan only
     // where the report exists to drive action (issue, project reports).
     if (need("response") !== "required") continue;
@@ -855,14 +869,18 @@ function roleOfFile(entry: FileOutline): SupplementFileRole {
 /**
  * A line of another file may speak about the same thing only when it names the
  * same subject (or the same amount after unit normalization) and no other
- * party. The deterministic search and the model's evidence both use this test,
- * so a merely nearby line from another upload is never offered as evidence.
+ * party. An amount below 1% of the reported one cannot explain it, however
+ * close the wording (₩1.2M against ₩1.2B). The deterministic search and the
+ * model's evidence both use this test, so a merely nearby line from another
+ * upload is never offered as evidence.
  */
 function linkable(own: readonly Statement[], subjectTokens: readonly string[], other: Statement, ownAmounts: readonly number[]): boolean {
   if (other.reference || other.heading || own.some((statement) => differentParties(statement.text, other.text))) return false;
+  const otherAmounts = amountsInWon(other.text, other.unitTitle);
+  if (ownAmounts.length > 0 && otherAmounts.length > 0 && Math.max(...otherAmounts) < Math.min(...ownAmounts) * 0.01) return false;
   return tokensRelate(subjectTokens, other.tokens)
     || tokensRelate(subjectTokens, contentTokens(other.unitTitle))
-    || (ownAmounts.length > 0 && sameAmount(ownAmounts, amountsInWon(other.text, other.unitTitle)));
+    || (ownAmounts.length > 0 && sameAmount(ownAmounts, otherAmounts));
 }
 
 /**
@@ -879,7 +897,9 @@ function crossEvidence(own: readonly Statement[], subjectTokens: readonly string
   const direct: Statement[] = [];
   let weak: Statement | undefined;
   for (const other of others) {
-    if (!cue.test(other.text) || !linkable(own, subjectTokens, other, ownAmounts)) continue;
+    // An explanation column of an analysis table (증감 분석 · 요인 분석) states causes without the word 원인.
+    const cued = cue.test(other.text) || (check === "cause" && other.tableRow === true && EXPLANATION_FIELD.test(other.text) && ANALYSIS_TITLE.test(other.unitTitle));
+    if (!cued || !linkable(own, subjectTokens, other, ownAmounts)) continue;
     if (!periodsCompatible(lead.period, other.period)) { weak ??= other; continue; }
     direct.push(other);
   }
@@ -897,7 +917,7 @@ function conflictCandidates(outlines: readonly FileOutline[], label: (statement:
   for (const entry of outlines) {
     for (const statement of entry.statements) {
       const change = statement.change ?? (statement.tableRow ? undefined : detectChange(statement));
-      if (change && (change.percent ?? 100) >= 10 && !changes.some((seen) => seen.change.subject === change.subject)) changes.push({ statement, change });
+      if (change && changeSize(change) >= 10 && !changes.some((seen) => seen.change.subject === change.subject)) changes.push({ statement, change });
     }
   }
   const found: SupplementCandidate[] = [];

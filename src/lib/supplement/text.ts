@@ -70,8 +70,22 @@ export function tokensRelate(subject: readonly string[], other: readonly string[
     || (familyOf(token) !== undefined && familyOf(token)!.key === familyOf(candidate)?.key && (generic(token) || generic(candidate)))));
 }
 
+/** Mutually exclusive market segments: a figure for one is never explained by a line about another. */
+const SEGMENTS: ReadonlyArray<{ key: string; pattern: RegExp }> = [
+  { key: "domestic", pattern: /(?<![가-힣])(국내|내수)(?![가-힣외])/u },
+  { key: "overseas", pattern: /(?<![가-힣])(해외|수출)(?![가-힣])/u },
+  { key: "online", pattern: /(?<![가-힣])온라인(?![가-힣])/u },
+  { key: "offline", pattern: /(?<![가-힣])오프라인(?![가-힣])/u },
+  { key: "b2b", pattern: /(?<![A-Za-z])B2B(?![A-Za-z])/iu },
+  { key: "b2c", pattern: /(?<![A-Za-z])B2C(?![A-Za-z])/iu },
+];
+/** Lettered or numbered groups of the same kind: 제품군 A ≠ 제품군 B, A라인 ≠ B라인. */
+const GROUP_KIND: ReadonlyArray<[RegExp, string]> = [[/^(제품군|제품|모델)$/u, "product"], [/^(사업부|사업|부문)$/u, "division"], [/^라인$/u, "line"], [/^(브랜드)$/u, "brand"], [/^(채널)$/u, "channel"], [/^(공장)$/u, "plant"]];
+const groupKind = (word: string) => GROUP_KIND.find(([pattern]) => pattern.test(word))?.[1];
+
 /**
- * Named parties a figure belongs to: 고객사 A, A사, 서울지점, 알파 프로젝트.
+ * Named parties a figure belongs to: 고객사 A, A사, 서울지점, 알파 프로젝트,
+ * a market segment (국내 · 해외) or a lettered group (제품군 B, A라인).
  * Only coded or explicitly suffixed names count; "고객 클레임" names nobody.
  */
 export function entitiesOf(text: string): string[] {
@@ -88,6 +102,13 @@ export function entitiesOf(text: string): string[] {
       const name = match[1].toLocaleLowerCase("ko-KR");
       if (!/^(주요|해당|전체|신규|기존|각|당|본|전|타|이|그|물류|고객)$/u.test(name)) found.add(name);
     }
+  }
+  for (const segment of SEGMENTS) if (segment.pattern.test(value)) found.add(`segment:${segment.key}`);
+  for (const match of value.matchAll(/(?<![가-힣])(제품군|제품|모델|사업부|사업|부문|라인|브랜드|채널|공장)\s?([A-Z0-9])(?![A-Za-z0-9])/gu)) {
+    found.add(`${groupKind(match[1])}:${match[2].toLocaleLowerCase("ko-KR")}`);
+  }
+  for (const match of value.matchAll(/(?<![A-Za-z0-9])([A-Z])\s?(제품군|라인|사업부|브랜드|공장|모델)(?![가-힣])/gu)) {
+    found.add(`${groupKind(match[2])}:${match[1].toLocaleLowerCase("ko-KR")}`);
   }
   return [...found];
 }
@@ -175,15 +196,15 @@ export const IMPACT_CUE = /(영향|손실|피해|파급|차질|지체상금|패�
 export const RESPONSE_CUE = /(조치|대응|대책|개선|방안|재발\s?방지|시정|보완|해결|복구|재협상|협의|교체|강화|점검|교육|추진|예정|계획|도입|전환|확보|조정)/u;
 
 /** Occurrence of a problem, risk or shortfall. */
-export const ISSUE_WORD = /(지연|장애|불량|사고|클레임|민원|결함|차질|중단|누락|오류|이슈|문제|리스크|위험|미달|부족|이탈|실패|위반|적발|반려|고장|결품|초과\s?근무)/u;
+export const ISSUE_WORD = /(지연|장애|불량|사고|클레임|민원|결함|차질|중단|누락|오류|이슈|문제|리스크|위험|미달|부족|이탈|실패|위반|미준수|미흡|미비|적발|반려|고장|결품|초과\s?근무)/u;
 /** Evidence the problem actually happened or is expected, not just a heading. */
-export const ISSUE_OCCURRENCE = /(\d+\s?(건|회|명|일|시간|개|%)|발생|확인(됨|되었|했)|증가|지속|우려|예상|반복|심화|확대|초래)/u;
+export const ISSUE_OCCURRENCE = /(\d+\s?(건|회|명|일|주|개월|시간|개|%)|발생|확인(됨|되었|했)|증가|지속|우려|예상|반복|심화|확대|초래)/u;
 export const ISSUE_RESOLVED = /(없음|없었|없습니다|해결(됨|되었|했|완료)|정상화(됨|되었|완료)|이상\s?없|무사고|0\s?건|완료했|완료되었|해소)/u;
 
 /** Forward-looking commitments. Completed work carries no owner/schedule gap. */
 export const ACTION_WORD = /(예정|추진|하겠|할\s?계획|계획임|계획입니다|착수|진행\s?중|진행할|시행할|도입할|검토\s?중|조치\s?중|개선\s?중|실시\s?예정|재협상|적용할|강화할|확대할)/u;
 export const ACTION_DONE = /(완료(했|하였|됨|되었)|실시(했|하였)|하였습니다|했습니다)$/u;
-export const ACTION_HEADING = /(향후\s?(계획|과제|조치)|대응|조치|대책|실행\s?계획|개선\s?(계획|방안|과제)|추진\s?계획|action|next\s?step)/iu;
+export const ACTION_HEADING = /(향후\s?(계획|과제|조치)|대응|조치|대책|실행\s?계획|개선\s?(계획|방안|과제)|추진\s?계획|결정\s?사항|후속\s?조치|액션\s?아이템|action|next\s?step)/iu;
 
 export const OWNER_CUE = /(담당|책임자|주관|주무|PM\b|오너|owner|팀장|파트장|과장|부장|대리|차장|매니저|[가-힣]{1,6}(?:팀|본부|센터|부서|실)(?=$|[^가-힣]|[이은는을를에의과와도장])|[가-힣]O{1,2}|[가-힣]{2,4}\s?(님|책임|선임|수석))/iu;
 export const SCHEDULE_CUE = /(\d{4}\s?[.\-/년]\s?\d{1,2}|\d{1,2}\s?월|\d{1,2}\/\d{1,2}|[1-4]\s?분기|Q[1-4]|상반기|하반기|연내|연말|월말|분기\s?말|주차|W\d{1,2}|까지|이내|기한|일정|D-\d+|내년|다음\s?(주|달|분기)|\d{1,2}일)/iu;
