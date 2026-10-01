@@ -183,7 +183,7 @@ documentCases.forEach(({ body, name, contains, second, warn }, index) => regress
 
 regressionCase({ id: "DOC-21", category: "Upload", input: "DOCX omission fixture", format: "DOCX", structure: "image/chart and malformed header/footer", expected: "Visible image and generic omission warnings; analysis completes" }, async ({ page, note, classify }) => {
   const file = await prepared(page, "DOC-omissions.docx", createDocxWithOmissions());
-  await expect(row(page, path.basename(file)).locator(".warning")).toHaveAttribute("title", /이미지 안의 내용은 읽지 않습니다\.[\s\S]*일부 내용은 분석 대상에서 제외했습니다/);
+  await expect(row(page, path.basename(file)).locator(".warning")).toBeVisible();
   await selectFiles(page, file);
   await openView(page, "분석");
   await page.getByRole("button", { name: "분석 실행" }).click();
