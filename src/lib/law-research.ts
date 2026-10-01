@@ -1,3 +1,4 @@
+import type { FileKind } from "@/domain/document";
 import { LAW_ARTICLE_PATTERN } from "@/lib/law-search";
 import { normalizeAnalysisDate, normalizeAnalysisJo } from "@/lib/law-analysis";
 import type { ContractReview } from "@/lib/contract-review";
@@ -41,11 +42,22 @@ export type AmendmentScenario = (typeof AMENDMENT_SCENARIOS)[number]["value"];
 export const LAW_RESEARCH_QUERY_MAX_CHARS = 2000;
 /** The MCP document analysis rejects shorter text as "too short". */
 export const LAW_RESEARCH_DOCUMENT_MIN_CHARS = 20;
-/** Keeps the forwarded JSON-RPC body well inside the MCP's 100 KB request limit (Korean text is 3 bytes/char). */
+/** Pasted text: kept from when the text was forwarded to the MCP (100 KB request limit; Korean text is 3 bytes/char). */
 export const LAW_RESEARCH_DOCUMENT_MAX_CHARS = 20_000;
+/**
+ * A workspace file is reviewed by WorkLens itself (no text goes to the MCP). Lookups depend on
+ * the distinct issues found, not the length (45 lookups for 20,000 and for 240,000 chars, about
+ * half a second of review either way); the bound keeps the request and the result a reader can
+ * scan reasonable. Beyond it the review is partial and says which part was not read.
+ */
+export const LAW_REVIEW_FILE_MAX_CHARS = 100_000;
+export const LAW_REVIEW_FILE_MAX_SEGMENTS = 2_000;
+export const LAW_REVIEW_SEGMENT_MAX_CHARS = 2_000;
+export const LAW_REVIEW_LOCATION_MAX_CHARS = 80;
 export const LAW_RESEARCH_NAME_MAX_CHARS = 100;
 export const LAW_RESEARCH_MAX_ARTICLES = 10;
-export const LAW_RESEARCH_BODY_MAX_BYTES = LAW_RESEARCH_DOCUMENT_MAX_CHARS * 4 + 2048;
+/** Large enough for the biggest file review request (worst case 4 bytes/char); the route's schema bounds each field. */
+export const LAW_RESEARCH_BODY_MAX_BYTES = LAW_REVIEW_FILE_MAX_CHARS * 4 + LAW_REVIEW_FILE_MAX_SEGMENTS * (LAW_REVIEW_LOCATION_MAX_CHARS * 4 + 64) + 4096;
 export const LAW_RESEARCH_ARTICLE_PATTERN = LAW_ARTICLE_PATTERN;
 
 export type LawResearchRequest =
@@ -57,7 +69,21 @@ export type LawResearchRequest =
     fromDate?: string; toDate?: string; includeHistory?: boolean }
   | { task: "ordinance_compare"; query: string; regions: [string, string]; parentLaw?: string }
   | { task: "procedure_detail"; query: string }
-  | { task: "document_review"; text: string };
+  | { task: "document_review"; text: string }
+  | { task: "document_review"; document: ReviewDocument };
+
+/**
+ * One workspace file as 문서 검토 receives it: identity plus its text segments in document
+ * order, each with the reader's location label. No bytes, styles, media or other files.
+ */
+export interface ReviewDocument {
+  name: string;
+  kind: FileKind;
+  /** Parser document id and content-bound version: which file and which version was reviewed. */
+  id: string;
+  version?: string;
+  segments: Array<{ text: string; location: string }>;
+}
 
 /** Form state; kept per field so switching tasks never loses what was typed. */
 export interface LawResearchDraft {

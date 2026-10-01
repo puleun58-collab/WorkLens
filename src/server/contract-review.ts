@@ -1,6 +1,6 @@
 import {
   classifyDocument, documentRisk, extractKeyFacts, holdingRelevance, issueDefinition, lawTargets, passesMetadataGate,
-  precedentQueries, reviewClauses, splitClauses,
+  precedentQueries, reviewClauses, segmentsOf, splitClauses,
   type ContractReview, type DocumentProfile, type IssueDefinition, type LawReference, type LawTarget,
   type PrecedentReference, type ReviewedIssue, type SourceStatus,
 } from "@/lib/contract-review";
@@ -81,10 +81,12 @@ function caseSubjectScore(entry: DecisionEntry, issue: IssueDefinition): number 
   return (direct ? 2 : 0) + (CONTRACT_SUBJECT.test(title) ? 1 : 0);
 }
 
-export async function reviewContract(text: string, sources: ReviewSources, now: () => number = Date.now): Promise<ContractReview> {
+/** Reviews pasted text, or a file's segments in document order; both read the same newline-joined words. */
+export async function reviewContract(input: string | readonly string[], sources: ReviewSources, now: () => number = Date.now): Promise<ContractReview> {
   const started = now();
-  const profile: DocumentProfile = classifyDocument(text);
-  const clauses = reviewClauses(splitClauses(text), profile);
+  // The whole document decides its type and parties once; every clause is reviewed in that context.
+  const profile: DocumentProfile = classifyDocument(typeof input === "string" ? input : input.join("\n"));
+  const clauses = reviewClauses(splitClauses(input), profile);
   const stats = { calls: 0, queries: 0, excludedPrecedents: 0, excludedLaws: 0 };
 
   // One promise per distinct lookup: the same statute, search or judgment is never requested twice.
@@ -226,13 +228,13 @@ export async function reviewContract(text: string, sources: ReviewSources, now: 
   }
 
   const reviewedClauses: ContractReview["clauses"] = [];
-  for (const clause of clauses) {
+  for (const { sources: origin, ...clause } of clauses) {
     const issues: ReviewedIssue[] = [];
     for (const issue of clause.issues) {
       const [law, precedent] = await resolved.get(issue.id)!;
       issues.push({ ...issue, laws: law.keys, precedents: precedent.keys, lawStatus: law.status, precedentStatus: precedent.status });
     }
-    reviewedClauses.push({ ...clause, issues });
+    reviewedClauses.push({ ...clause, ...(origin ? { segments: segmentsOf({ ...clause, sources: origin }) } : {}), issues });
   }
 
   return {

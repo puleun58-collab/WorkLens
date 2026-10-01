@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { POST } from "@/app/api/law/research/route";
 import { LAW_RESEARCH_BODY_MAX_BYTES, LAW_RESEARCH_DOCUMENT_MAX_CHARS } from "@/lib/law-research";
+import type { ContractReview } from "@/lib/contract-review";
 
 // The MCP result is verbatim; full_research may add a source-relevance status,
 // while enrichment failures leave the original answer and markers intact.
@@ -71,6 +72,11 @@ function toolCall(fetcher: { mock: { calls: unknown[][] } }, index = 0) {
 }
 
 const base = { task: "full_research", query };
+/** A valid workspace-file review body; overrides make one field invalid. */
+function fileDocument(override: Record<string, unknown> = {}) {
+  return { name: "계약서.docx", kind: "docx", id: "document:file-1", version: "a".repeat(64),
+    segments: [{ text: documentText, location: "제1조 목적" }], ...override };
+}
 
 describe("fixed legal_research API", () => {
   it("forwards only each task's allowlisted fields to legal_research and returns complete upstream text and distinct markers", async () => {
@@ -178,6 +184,17 @@ describe("fixed legal_research API", () => {
       { task: "document_review" }, { task: "document_review", text: "" }, { task: "document_review", text: " \t " },
       { task: "document_review", text: "x".repeat(19) }, { task: "document_review", text: "x".repeat(LAW_RESEARCH_DOCUMENT_MAX_CHARS + 1) },
       ...[0, 31, 1.5, "5"].map((maxClauses) => ({ task: "document_review", text: documentText, maxClauses })),
+      // A workspace file: pasted text or a file, never both; every field bounded and nothing else accepted.
+      { task: "document_review", text: documentText, document: fileDocument() },
+      ...[
+        { kind: "hwp" }, { id: "../../etc" }, { id: "" }, { version: "not-hex" }, { name: "계약\u0000.docx" }, { name: "가".repeat(256) },
+        { segments: [] }, { segments: [{ text: documentText }] }, { segments: [{ text: documentText, location: "1페이지", nodeId: "x" }] },
+        { segments: [{ text: documentText, location: "1\u0007페이지" }] }, { segments: [{ text: documentText, location: "가".repeat(81) }] },
+        { segments: [{ text: "x".repeat(2001), location: "1페이지" }] }, { segments: [{ text: "짧은 글", location: "1페이지" }] },
+        { segments: Array.from({ length: 2001 }, () => ({ text: "가", location: "1페이지" })) },
+        { segments: Array.from({ length: 51 }, () => ({ text: "가".repeat(2000), location: "1페이지" })) },
+        { bytes: "UEsDBA==" },
+      ].map((override) => ({ task: "document_review", document: fileDocument(override) })),
     ];
     for (const body of invalid) {
       const response = await call(body);
@@ -187,6 +204,22 @@ describe("fixed legal_research API", () => {
       expect(response.raw).not.toContain("injected-secret");
     }
     expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("reviews a workspace file's segments with the same engine and returns where each clause came from", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
+    const document = fileDocument({ segments: [
+      { text: "제1조(목적) 이 계약은 갑과 을의 용역에 관한 사항을 정한다.", location: "제1조 목적" },
+      { text: "제2조(해지) 갑은 최고 없이 즉시 계약을 해지할 수 있다.", location: "2페이지" },
+    ] });
+    const response = await call({ task: "document_review", document });
+    expect(response.status).toBe(200);
+    const review = (response.json.data as unknown as { review: ContractReview }).review;
+    const termination = review.clauses.find((clause) => clause.number === "제2조")!;
+    expect(termination.segments).toEqual([1]);
+    expect(termination.issues.map((issue) => [issue.id, issue.segments])).toEqual([["unilateral_termination", [1]]]);
+    // The response names positions by index only; the file name and text are not echoed back.
+    expect(response.raw).not.toContain("계약서.docx");
   });
 
   it("enforces same-site, JSON content type, and body byte ceiling before MCP", async () => {

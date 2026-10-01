@@ -13,11 +13,18 @@ import { DecisionSearch, type LinkedDecisionSearch } from "./DecisionSearch";
 import { LegalAnalysis, type LinkedAnalysis, type RelatedSearch } from "./LegalAnalysis";
 import { LegalResearch } from "./LegalResearch";
 import { SourceToggleSummary } from "./SourceToggleSummary";
+import type { WorkspaceFile } from "@/client/protocol";
 import "./law-search.css";
 
 type ResearchView = "law" | "decisions" | "analysis" | "research";
 
-export function LawSearch() {
+/** Workspace files the 문서 검토 can review in place; read only, never changed from here. */
+export interface ReviewableFiles {
+  files: readonly WorkspaceFile[];
+  selected: readonly string[];
+}
+
+export function LawSearch({ workspace }: { workspace?: ReviewableFiles }) {
   const [view, setView] = useState<ResearchView>("law");
   const [linkedRequest, setLinkedRequest] = useState<LinkedDecisionSearch | null>(null);
   const [linkedAnalysis, setLinkedAnalysis] = useState<LinkedAnalysis | null>(null);
@@ -71,7 +78,7 @@ export function LawSearch() {
         onCiteCheck={(caseNumber) => openAnalysis({ mode: "cite_check", caseNumber, origin: "decisions" }, "decision-cite-check")} />
     </div>
     <div hidden={view !== "analysis"}><LegalAnalysis linkedRequest={linkedAnalysis} onReturn={returnFromAnalysis} onRelatedSearch={relatedFromAnalysis} /></div>
-    <div hidden={view !== "research"}><LegalResearch /></div>
+    <div hidden={view !== "research"}><LegalResearch workspace={workspace} /></div>
   </div>;
 }
 
