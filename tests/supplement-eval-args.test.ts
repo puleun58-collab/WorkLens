@@ -4,7 +4,7 @@ import { parseEvalArgs } from "../scripts/supplement-eval-args";
 describe("보완 eval command line", () => {
   it("reads the documented options", () => {
     expect(parseEvalArgs(["--set", "development", "--repeat", "3", "--budget", "600", "--plan"])).toMatchObject({
-      set: "development", repeat: 3, budgetSeconds: 600, planOnly: true, offline: false, endpoint: "", model: "openai/gpt-oss-20b",
+      set: "development", repeat: 3, budgetSeconds: 600, planOnly: true, offline: false, endpoint: "", model: "openai/gpt-oss-120b",
     });
     expect(parseEvalArgs([])).toMatchObject({ set: "fixed", repeat: 1, budgetSeconds: 1200 });
   });

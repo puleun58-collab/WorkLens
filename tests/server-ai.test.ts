@@ -235,7 +235,7 @@ describe("Groq provider adapter", () => {
     const [url, init] = providerFetch.mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(String(init.body));
     expect(url).toBe("https://api.groq.com/openai/v1/chat/completions");
-    expect(body.model).toBe("openai/gpt-oss-20b");
+    expect(body.model).toBe("openai/gpt-oss-120b");
     // Default gpt-oss reasoning exhausted the completion budget on real workbooks.
     expect(body.reasoning_effort).toBe("low");
     expect(body.response_format).toMatchObject({ type: "json_schema", json_schema: { strict: true } });

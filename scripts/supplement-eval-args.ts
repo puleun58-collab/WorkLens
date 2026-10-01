@@ -53,7 +53,7 @@ export function parseEvalArgs(argv: readonly string[]): EvalArgs {
   return {
     set,
     repeat,
-    model: values.model ?? "openai/gpt-oss-20b",
+    model: values.model ?? "openai/gpt-oss-120b",
     endpoint: (values.endpoint ?? "").replace(/\/+$/u, ""),
     budgetSeconds,
     offline: flags.has("offline"),
