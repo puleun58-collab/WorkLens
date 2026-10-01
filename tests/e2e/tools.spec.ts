@@ -3,10 +3,10 @@ import { unzipSync } from "fflate";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { createPdf } from "../fixtures";
+import { createDocxParagraphs, createPdf, createUnicodePdf } from "../fixtures";
 import { fullResearchFixture } from "../fixtures/research";
-import { classifyDocument, documentRisk, extractKeyFacts, reviewClauses, splitClauses, type ContractReview } from "../../src/lib/contract-review";
-import { B2B_SERVICE_CONTRACT, SUPPLY_CONTRACT, NDA_CONTRACT } from "../fixtures/contracts";
+import { classifyDocument, documentRisk, extractKeyFacts, reviewClauses, segmentsOf, splitClauses, type ContractReview } from "../../src/lib/contract-review";
+import { B2B_SERVICE_CONTRACT, EMPLOYMENT_CONTRACT, SUPPLY_CONTRACT, NDA_CONTRACT } from "../fixtures/contracts";
 import { CLEAN_WORK_RULES } from "../fixtures/review-scenarios";
 
 test("TOOLS navigation keeps document files in their own workspace", async ({ page }) => {
@@ -956,7 +956,7 @@ test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route wit
   await expect(clause.getByRole("heading", { level: 4 })).toContainText("제2조");
   await expect(clause).toContainText("중도해지 제한");
   await expect(clause).toContainText("을은 어떠한 경우에도 계약을 해지할 수 없다.");
-  await expect(clause.locator(".contract-review-issue dt")).toHaveText(["원문", "검토 결과", "우선순위", "근거"]);
+  await expect(clause.locator(".contract-review-issue dt")).toHaveText(["검토 원문", "검토 결과", "우선순위", "확인한 근거"]);
   const lawEvidence = review.locator(".contract-review-details .law-detail-source");
   await expect(lawEvidence.locator("summary")).toHaveText(/관련 법령 1건 보기/u);
   await expect(lawEvidence).not.toHaveAttribute("open", "");
@@ -996,6 +996,111 @@ test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route wit
   await documentText.fill(`${sample}\n`.repeat(200));
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   expect(outside).toEqual([]);
+  expect(errors).toEqual([]);
+});
+
+test("RESEARCH 문서 검토 reviews one workspace file in place and shows where each issue is", async ({ page }) => {
+  const bodies: Array<Record<string, unknown>> = [];
+  const errors: string[] = [];
+  page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
+  // The real clause engine; statutes are fixed so the evidence UI has something to open.
+  await page.route("**/api/law/research", async (route) => {
+    const body = route.request().postDataJSON() as { task: string; document: { segments: Array<{ text: string }> } };
+    bodies.push(body);
+    const texts = body.document.segments.map((segment) => segment.text);
+    const profile = classifyDocument(texts.join("\n"));
+    const clauses = reviewClauses(splitClauses(texts), profile);
+    const review: ContractReview = {
+      document: profile, risk: documentRisk(clauses), facts: extractKeyFacts(clauses),
+      clauses: clauses.filter((clause) => clause.issues.length).map(({ sources, ...clause }) => ({
+        ...clause, segments: segmentsOf({ ...clause, sources }),
+        issues: clause.issues.map((issue) => ({ ...issue, laws: ["law-23"], precedents: [], lawStatus: "found" as const, precedentStatus: "none" as const })),
+      })),
+      laws: { "law-23": { key: "law-23", law: "근로기준법", jo: "제23조", title: "해고 등의 제한", excerpt: "사용자는 근로자에게 정당한 이유 없이 해고하지 못한다." } },
+      precedents: {},
+      stats: { calls: 1, queries: 0, excludedPrecedents: 0, excludedLaws: 0 },
+    };
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { found: true, task: body.task, text: "", markers: [], review } }) });
+  });
+  const longName = "2026년_신규입사자_표준_근로계약서_최종_검토본_인사팀_공유용.docx";
+  const contractLines = EMPLOYMENT_CONTRACT.split("\n");
+  const longContract = Array.from({ length: 1400 }, (_, index) => `제${index + 1}조(조항) 회사는 이 조항에 따라 상대방에게 서비스를 제공하며 상대방은 이에 따른 대가를 지급하여야 한다. 세부 사항은 별도 합의로 정한다.`);
+  await page.goto("/");
+  await expect(page.locator(".app-shell")).toHaveAttribute("data-hydrated", "true");
+  await page.getByLabel("작업 파일 선택").setInputFiles([
+    { name: longName, mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", buffer: Buffer.from(createDocxParagraphs(contractLines)) },
+    { name: "근로계약서.pdf", mimeType: "application/pdf", buffer: Buffer.from(await createUnicodePdf([contractLines.slice(0, 4).map((text) => ({ text })), contractLines.slice(4).map((text) => ({ text }))])) },
+    { name: "매출.csv", mimeType: "text/csv", buffer: Buffer.from("월,매출,비용,담당\n1월,1200,800,김철수\n2월,1300,900,이영희\n") },
+    { name: "긴계약.docx", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", buffer: Buffer.from(createDocxParagraphs(longContract)) },
+  ]);
+  await expect(page.locator(".file-row")).toHaveCount(4);
+  await page.getByLabel("근로계약서.pdf 선택").check();
+  await page.getByLabel(`${longName} 선택`).check();
+
+  await page.getByRole("button", { name: "법령", exact: true }).click();
+  await page.locator(".law-view-tabs").getByRole("button", { name: "종합 리서치" }).click();
+  const form = page.getByRole("form", { name: "종합 리서치 입력" });
+  await form.getByLabel("리서치 유형").selectOption("document_review");
+  await expect(form.getByRole("radio", { name: "작업 파일" })).toBeChecked();
+  const choice = form.getByLabel("검토할 문서");
+  // Selected files come first; one is reviewed at a time.
+  await expect(choice.locator("option")).toHaveText([longName, "근로계약서.pdf", "매출.csv", "긴계약.docx"]);
+  await form.getByRole("button", { name: "문서 검토" }).click();
+  const review = page.locator(".contract-review");
+  await expect(review.locator(".contract-review-file")).toHaveText(`검토 문서: ${longName}`);
+  await expect(review).toContainText("전체 검토 · 6개 문단 중 6개 검토");
+  await expect(review).not.toContainText("이미지 안의 글자는 읽지 않습니다");
+  const dismissal = review.locator(".contract-review-issue").filter({ hasText: "경고·예고 없는 징계·해고" });
+  await expect(dismissal.locator("dt")).toHaveText(["검토 위치", "검토 원문", "검토 결과", "우선순위", "수정 제안", "확인한 근거"]);
+  await expect(dismissal.locator(".contract-review-place")).toHaveText("제4조 해고");
+  await dismissal.getByRole("button", { name: "상세 근거 보기" }).click();
+  await expect(review.locator(".contract-review-details")).toContainText("근로기준법 제23조");
+
+  // Only this file's identity and text segments were sent: no bytes, styles, other files or locators.
+  expect(bodies).toHaveLength(1);
+  const sent = bodies[0] as { task: string; document: Record<string, unknown> & { segments: Array<Record<string, unknown>> } };
+  expect(Object.keys(sent).sort()).toEqual(["document", "task"]);
+  expect(Object.keys(sent.document).sort()).toEqual(["id", "kind", "name", "segments", "version"]);
+  expect(sent.document.segments.every((segment) => Object.keys(segment).sort().join() === "location,text")).toBe(true);
+  expect(JSON.stringify(sent)).not.toMatch(/근로계약서\.pdf|매출|긴계약/u);
+
+  // Another file: the shown result says which file it belongs to until the new one is reviewed.
+  await choice.selectOption({ label: "근로계약서.pdf" });
+  await expect(page.getByText(`지금 선택한 문서가 아닌 ${longName}의 검토 결과입니다.`)).toBeVisible();
+  await form.getByRole("button", { name: "문서 검토" }).click();
+  await expect(review.locator(".contract-review-file")).toHaveText("검토 문서: 근로계약서.pdf");
+  await expect(review).toContainText("2개 페이지 중 2개 검토");
+  await expect(review.locator(".contract-review-issue").filter({ hasText: "경고·예고 없는 징계·해고" }).locator(".contract-review-place")).toHaveText("2페이지");
+
+  // Raw data is not a contract: nothing is sent and nothing is called "no risk".
+  await choice.selectOption({ label: "매출.csv" });
+  await form.getByRole("button", { name: "문서 검토" }).click();
+  await expect(page.locator("[data-coverage='excluded']")).toContainText("계약·규정 성격의 문장을 찾지 못했습니다");
+  await expect(page.locator("[data-coverage='excluded']")).toContainText("위험 항목이 없다는 뜻이 아니라");
+  expect(bodies).toHaveLength(2);
+
+  // Past the bound: a partial review that says what was left and why.
+  await choice.selectOption({ label: "긴계약.docx" });
+  await form.getByRole("button", { name: "문서 검토" }).click();
+  await expect(review).toHaveAttribute("data-coverage", "partial");
+  await expect(review).toContainText("부분 검토 · 1,400개 문단 중");
+  await expect(review).toContainText("처리 한도(100,000자)를 넘은 뒷부분");
+  await expect(review).toContainText("문서의 일부만 검토했습니다. 아래 결과는 검토된 범위에서 확인된 항목입니다.");
+  await expect(review.getByRole("heading", { name: "검토한 범위 요약" })).toBeVisible();
+
+  // Pasting stays available.
+  await form.getByRole("radio", { name: "직접 입력" }).check();
+  await expect(form.getByLabel("검토할 문서 내용")).toBeVisible();
+  await expect(form.getByRole("button", { name: "문서 검토" })).toBeDisabled();
+
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    await form.getByRole("radio", { name: "작업 파일" }).check();
+    await choice.selectOption({ label: longName });
+    await form.getByRole("button", { name: "문서 검토" }).click();
+    await expect(review.locator(".contract-review-file")).toHaveText(`검토 문서: ${longName}`);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  }
   expect(errors).toEqual([]);
 });
 
@@ -1432,7 +1537,7 @@ test("document review keeps issue guidance ahead of independent, grouped source 
         await expect(firstIssue).toHaveCount(0);
         await expect(review.locator(".contract-review-results")).toContainText("검토할 쟁점을 찾지 못했습니다.");
       } else {
-        await expect(firstIssue.locator("dt"), name).toHaveText(["원문", "검토 결과", "우선순위", "수정 제안", "근거"]);
+        await expect(firstIssue.locator("dt"), name).toHaveText(["검토 원문", "검토 결과", "우선순위", "수정 제안", "확인한 근거"]);
         await expect(firstIssue.locator("dd").nth(0), name).toHaveText(fixture.review.clauses[0].issues[0].fact);
         await expect(firstIssue.locator("dd").nth(3), name).toHaveText(fixture.review.clauses[0].issues[0].suggestion);
       }

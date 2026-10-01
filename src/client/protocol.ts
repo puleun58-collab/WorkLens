@@ -7,6 +7,7 @@ import type { ValueCheckResult } from "@/domain/value-check";
 import type { PolishCandidate } from "@/domain/polish";
 import type { SupplementDraft } from "@/domain/supplement";
 import type { EvidenceItem, ModelClaim } from "@/lib/ai/prompt";
+import type { ReviewFile } from "@/lib/law-review-source";
 import type { AnalyzeResult, CheckResult, DocumentTopic, ExportFormat, ExtractResult } from "@/domain/operations";
 
 /** Everything the UI knows about a file. The bytes never leave the worker. */
@@ -57,7 +58,9 @@ export type WorkerRequest =
   | { kind: "release-evidence"; windowId: string }
   | { kind: "forget"; fileIds: string[] }
   /** 보완: deterministic gap candidates plus bounded batches for the meaning re-check. */
-  | { kind: "supplement"; fileIds: string[] };
+  | { kind: "supplement"; fileIds: string[] }
+  /** 법령 문서 검토: one file's bounded review request plus its segments' sources, which stay here. */
+  | { kind: "review-source"; fileId: string };
 
 export interface EvidencePayload {
   windowId: string;
@@ -91,6 +94,7 @@ export interface WorkerResultMap {
   "release-evidence": { released: number };
   forget: { released: number };
   supplement: SupplementDraft;
+  "review-source": ReviewFile;
 }
 
 export interface WorkerFailure {

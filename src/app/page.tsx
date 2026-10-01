@@ -142,14 +142,14 @@ function sharedLoader<T>(load: () => Promise<T>): () => Promise<T> {
  * wait a prefetch is meant to remove. A view opened before its chunk arrives
  * keeps the `dynamic()` loading state.
  */
-function lazyView(load: () => Promise<ComponentType>, loadingMessage: string): readonly [ComponentType, () => Promise<ComponentType>] {
-  let loaded: ComponentType | undefined;
+function lazyView<P extends object = object>(load: () => Promise<ComponentType<P>>, loadingMessage: string): readonly [ComponentType<P>, () => Promise<ComponentType<P>>] {
+  let loaded: ComponentType<P> | undefined;
   const loader = sharedLoader(() => load().then((component) => (loaded = component)));
   const Pending = dynamic(loader, { loading: () => <p role="status">{loadingMessage}</p> });
-  function LazyView() {
+  function LazyView(props: P) {
     // Chosen once per mount so a chunk that lands while the view is open never remounts it.
-    const [View] = useState<ComponentType>(() => loaded ?? Pending);
-    return <View />;
+    const [View] = useState<ComponentType<P>>(() => loaded ?? Pending);
+    return <View {...props} />;
   }
   return [LazyView, loader];
 }
@@ -1752,7 +1752,7 @@ export default function Home() {
               onToggleRule={toggleRule}
             />
           ) : isToolView ? (
-            shellView === "PdfTools" ? <PdfTool /> : shellView === "Law" ? <LawSearch /> : <ImageTool />
+            shellView === "PdfTools" ? <PdfTool /> : shellView === "Law" ? <LawSearch workspace={{ files, selected }} /> : <ImageTool />
           ) : (
             <>
               {polishTextMode || files.length === 0 ? null : (

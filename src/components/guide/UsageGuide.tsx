@@ -144,7 +144,7 @@ const GUIDES: Guide[] = [
       { title: "결과 선택", text: "목록에서 법령을 선택합니다.", mini: <span className="mini-files"><span className="mini-row is-mark"><span className="mini-name">근로기준법</span><b className="mini-role">현행</b></span><span className="mini-row"><span className="mini-name">근로기준법 시행령</span></span></span> },
       { title: "조문 확인", text: "조문을 읽고 관련 판례·결정례로 이어갑니다.", mini: <Result title="제23조(해고 등의 제한)" status="현행" lines={["① 사용자는 근로자에게 정당한 이유 없이…"]} actions={["관련 판례·결정례"]} /> },
     ],
-    tip: "종합 리서치는 질문 후 결과·근거를 확인하세요. 문서 검토는 내용을 붙여넣고 실행해 개요·요약·조항별 수정 제안과 접힌 근거를 확인하세요.",
+    tip: "종합 리서치는 질문 후 결과·근거를 확인하세요. 문서 검토는 작업 파일에 올린 문서 하나를 고르거나 내용을 직접 붙여넣고 실행합니다. 결과에서 검토 위치·검토 원문·확인한 근거와 검토 범위를 확인하세요.",
   },
   {
     id: "pdf", label: "PDF 도구", summary: "PDF 페이지를 정리하고 원하는 형식으로 내보냅니다.",

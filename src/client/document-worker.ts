@@ -16,6 +16,7 @@ import { autoExtract } from "@/lib/extract/auto";
 import { extractRequestedFields } from "@/lib/extract/fields";
 import { documentAnalysisTopics } from "@/lib/analysis-presentation";
 import { buildSupplementDraft } from "@/lib/supplement/engine";
+import { reviewFileFor } from "@/lib/law-review-source";
 import { isSupplementFileKind, SUPPLEMENT_UNSUPPORTED_DETAIL, SUPPLEMENT_UNSUPPORTED_TITLE } from "@/domain/supplement";
 import {
   DocumentError,
@@ -250,6 +251,10 @@ async function handle(request: WorkerRequest): Promise<unknown> {
         throw new DocumentError("SUPPLEMENT_UNSUPPORTED", SUPPLEMENT_UNSUPPORTED_TITLE, SUPPLEMENT_UNSUPPORTED_DETAIL);
       }
       return buildSupplementDraft(selected.map((entry) => ({ document: entry.document, fileName: entry.file.name })));
+    }
+    case "review-source": {
+      const [entry] = requireDocuments([request.fileId]);
+      return reviewFileFor(entry.document, entry.file.name);
     }
   }
 }

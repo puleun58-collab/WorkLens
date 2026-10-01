@@ -12,15 +12,23 @@ import { lawDisplayText } from "@/lib/law-display";
 import { orderByRelevance, type ResearchEnrichment } from "@/lib/research-relevance";
 import { STATUS_TITLE, type ResearchStatus } from "@/lib/research-status";
 import { LawTextBlock } from "./LawTextBlock";
-import { ContractReviewResult } from "./ContractReviewResult";
+import { ContractReviewResult, FileReviewExcluded } from "./ContractReviewResult";
 import { SourceToggleSummary } from "./SourceToggleSummary";
+import type { ReviewableFiles } from "./LawSearch";
+import { runInWorker } from "@/client/document-client";
+import type { ReviewFile } from "@/lib/law-review-source";
 import "./legal-analysis.css";
 
 interface TaskResult {
   request: LawResearchRequest;
   outcome: LawResearchOutcome | null;
   loading: boolean;
+  /** 문서 검토 of a workspace file: its segments' sources and what part of it was reviewed. */
+  file?: ReviewFile;
 }
+
+type DocumentSource = "file" | "text";
+const FILE_READ_ERROR = "작업 파일을 읽지 못했습니다. 파일을 다시 올린 뒤 실행하세요.";
 
 const TASK_HELP: Record<LawResearchTask, { description: string; placeholder: string }> = {
   full_research: { description: "상황을 설명하면 관련 쟁점과 확인된 법령·판례를 구분해 보여줍니다.", placeholder: "예: 회사에서 업무와 관련해 지속적으로 모욕을 당했는데 어떤 법적 기준을 살펴봐야 하나요?" },
@@ -42,7 +50,10 @@ const CURRENCY_LABEL: Record<LawCurrency, string> = {
 };
 const RESULT_NOTE = "법적 판단이 필요한 경우 국가법령정보센터 원문과 관련 전문가 검토가 필요할 수 있습니다.";
 
-export function LegalResearch() {
+export function LegalResearch({ workspace }: { workspace?: ReviewableFiles }) {
+  const files = workspace?.files ?? [];
+  const [documentSource, setDocumentSource] = useState<DocumentSource>(files.length ? "file" : "text");
+  const [chosenFile, setChosenFile] = useState<string>("");
   const [task, setTask] = useState<LawResearchTask>("full_research");
   const [draft, setDraft] = useState<LawResearchDraft>(EMPTY_RESEARCH_DRAFT);
   const [results, setResults] = useState<Partial<Record<LawResearchTask, TaskResult>>>({});
@@ -53,11 +64,11 @@ export function LegalResearch() {
     return () => pending.forEach((controller) => controller.abort());
   }, []);
 
-  const run = useCallback(async (request: LawResearchRequest) => {
+  const run = useCallback(async (request: LawResearchRequest, file?: ReviewFile) => {
     requests.current.get(request.task)?.abort();
     const controller = new AbortController();
     requests.current.set(request.task, controller);
-    setResults((current) => ({ ...current, [request.task]: { request, outcome: null, loading: true } }));
+    setResults((current) => ({ ...current, [request.task]: { request, outcome: null, loading: true, ...(file ? { file } : {}) } }));
     let outcome: LawResearchOutcome;
     try {
       const response = await fetch("/api/law/research", {
@@ -73,8 +84,30 @@ export function LegalResearch() {
     }
     if (controller.signal.aborted) return;
     requests.current.delete(request.task);
-    setResults((current) => ({ ...current, [request.task]: { request, outcome, loading: false } }));
+    setResults((current) => ({ ...current, [request.task]: { request, outcome, loading: false, ...(file ? { file } : {}) } }));
   }, []);
+
+  /**
+   * Reviews one workspace file: the worker builds the bounded request from the parsed document
+   * (nothing is uploaded again), and a file with no reviewable text is reported, not sent.
+   */
+  const runFile = useCallback(async (fileId: string) => {
+    const task = "document_review";
+    let file: ReviewFile;
+    try {
+      file = await runInWorker({ kind: "review-source", fileId });
+    } catch {
+      setResults((current) => ({ ...current, [task]: { request: { task, text: "" }, outcome: { kind: "error", message: FILE_READ_ERROR }, loading: false } }));
+      return;
+    }
+    const request: LawResearchRequest = { task, document: file.document };
+    if (file.coverage.status === "excluded") {
+      requests.current.get(task)?.abort();
+      setResults((current) => ({ ...current, [task]: { request, outcome: null, loading: false, file } }));
+      return;
+    }
+    await run(request, file);
+  }, [run]);
 
   /** Leaving a task cancels its in-flight chain; finished results stay for when the user comes back. */
   function changeTask(next: LawResearchTask) {
@@ -99,10 +132,18 @@ export function LegalResearch() {
   const regionError = task === "ordinance_compare" && (regionNames.some((region) => !region) || regionNames[0] === regionNames[1]);
   const isDocument = task === "document_review";
   const reversedDates = task === "amendment_track" && draft.scenario === "time_travel" && draft.fromDate && draft.toDate && draft.fromDate > draft.toDate;
+  // Selected workspace files first; one of them is reviewed at a time, never several merged.
+  const selectedIds = workspace?.selected ?? [];
+  const reviewable = [...files].sort((left, right) => Number(selectedIds.includes(right.id)) - Number(selectedIds.includes(left.id)));
+  const fileId = reviewable.some((file) => file.id === chosenFile) ? chosenFile : reviewable[0]?.id ?? "";
+  const fromFile = isDocument && documentSource === "file";
+  const canRun = fromFile ? Boolean(fileId) : Boolean(request);
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    if (request && !loading) void run(request);
+    if (loading || !canRun) return;
+    if (fromFile) void runFile(fileId);
+    else if (request) void run(request);
   }
 
   return <div className="legal-analysis legal-research">
@@ -128,11 +169,27 @@ export function LegalResearch() {
       <p className="legal-research-description">{TASK_HELP[task].description}</p>
 
       {isDocument ? <>
-        <label htmlFor="research-document">검토할 문서 내용</label>
-        <textarea id="research-document" value={draft.text} rows={10} maxLength={LAW_RESEARCH_DOCUMENT_MAX_CHARS} placeholder={TASK_HELP.document_review.placeholder} onChange={(event) => update("text", event.target.value)} aria-describedby="research-document-help" />
-        <p id="research-document-help" className="legal-analysis-help">
-          <span className="legal-analysis-count">{draft.text.length.toLocaleString("ko-KR")} / {LAW_RESEARCH_DOCUMENT_MAX_CHARS.toLocaleString("ko-KR")}자 · 최소 {LAW_RESEARCH_DOCUMENT_MIN_CHARS}자</span>
-        </p>
+        <fieldset className="segmented research-document-source" aria-label="문서 입력 방식">
+          {(["file", "text"] as const).map((source) => <label key={source}>
+            <input type="radio" name="research-document-source" value={source} checked={documentSource === source} onChange={() => setDocumentSource(source)} />
+            <span>{source === "file" ? "작업 파일" : "직접 입력"}</span>
+          </label>)}
+        </fieldset>
+        {fromFile ? reviewable.length ? <>
+          <label htmlFor="research-file" className="legal-research-single">검토할 문서
+            <select id="research-file" value={fileId} onChange={(event) => setChosenFile(event.target.value)} aria-describedby="research-file-help">
+              {reviewable.map((file) => <option key={file.id} value={file.id}>{file.name}</option>)}
+            </select>
+          </label>
+          <p id="research-file-help" className="legal-analysis-help">작업 파일에 올린 문서 하나를 다시 올리지 않고 검토합니다. 여러 파일을 합쳐 검토하지 않습니다.</p>
+        </> : <p className="legal-analysis-help" role="status">작업 파일이 없습니다. 파일을 먼저 올리거나 직접 입력으로 검토하세요.</p>
+        : <>
+          <label htmlFor="research-document">검토할 문서 내용</label>
+          <textarea id="research-document" value={draft.text} rows={10} maxLength={LAW_RESEARCH_DOCUMENT_MAX_CHARS} placeholder={TASK_HELP.document_review.placeholder} onChange={(event) => update("text", event.target.value)} aria-describedby="research-document-help" />
+          <p id="research-document-help" className="legal-analysis-help">
+            <span className="legal-analysis-count">{draft.text.length.toLocaleString("ko-KR")} / {LAW_RESEARCH_DOCUMENT_MAX_CHARS.toLocaleString("ko-KR")}자 · 최소 {LAW_RESEARCH_DOCUMENT_MIN_CHARS}자</span>
+          </p>
+        </>}
       </> : <>
         <label htmlFor="research-query">질문 또는 검색어</label>
         <textarea id="research-query" value={draft.query} rows={3} maxLength={LAW_RESEARCH_QUERY_MAX_CHARS} placeholder={TASK_HELP[task].placeholder} onChange={(event) => update("query", event.target.value)} aria-describedby="research-query-help"
@@ -180,7 +237,7 @@ export function LegalResearch() {
             {duplicate ? "같은 지역을 두 번 입력했습니다. 서로 다른 비교 지역 2곳을 입력하세요." : "서로 다른 비교 지역 2곳을 입력하세요. 비교할 주제는 위 질문에 입력하면 됩니다."}
           </p> : null;
         })()}
-        <button type="submit" className="law-search-button" disabled={!request || loading}>
+        <button type="submit" className="law-search-button" disabled={!canRun || loading}>
           {loading ? (isDocument ? "문서 검토 중…" : "리서치 중…") : isDocument ? "문서 검토" : "리서치 실행"}
         </button>
       </div>
@@ -188,11 +245,18 @@ export function LegalResearch() {
 
     {current && <section className="legal-analysis-result" aria-labelledby="research-result-heading" aria-busy={loading}>
       <h2 id="research-result-heading">{isDocument ? "검토 결과" : "리서치 결과"}</h2>
+      {isDocument && current.file && !current.loading && (!files.some((file) => file.id === current.file!.fileId)
+        ? <p className="research-meta" role="status">작업 공간에서 삭제했거나 교체한 문서의 검토 결과입니다.</p>
+        : fromFile && fileId !== current.file.fileId
+          ? <p className="research-meta" role="status">지금 선택한 문서가 아닌 {current.file.document.name}의 검토 결과입니다.</p>
+          : null)}
       {current.loading ? <p className="law-search-note" role="status">{isDocument ? "문서 검토 중…" : "리서치 중…"} 여러 자료를 함께 조회하므로 시간이 걸릴 수 있습니다.</p>
         : current.outcome?.kind === "error" ? <div className="decision-feedback" role="alert">
           <p className="law-search-error">{current.outcome.message}</p>
-          <button type="button" className="law-search-link" onClick={() => void run(current.request)}>다시 시도</button>
+          <button type="button" className="law-search-link" onClick={() => void (current.request.task === "document_review" && "text" in current.request && !current.request.text
+            ? runFile(fileId) : run(current.request, current.file))}>다시 시도</button>
         </div>
+        : current.file && !current.outcome ? <FileReviewExcluded file={current.file} />
         : current.outcome?.kind === "missing" ? <div className="legal-analysis-missing" role="status">
           <header className="research-overview">
             <span className="research-eyebrow">{LAW_RESEARCH_TASKS.find((item) => item.value === current.request.task)?.label}</span>
@@ -206,7 +270,7 @@ export function LegalResearch() {
           </header>
         </div>
         : current.outcome?.kind === "found" ? current.outcome.data.review
-          ? <ContractReviewResult review={current.outcome.data.review} />
+          ? <ContractReviewResult review={current.outcome.data.review} file={current.file} />
           : <ResearchResult data={current.outcome.data} request={current.request} />
         : null}
     </section>}

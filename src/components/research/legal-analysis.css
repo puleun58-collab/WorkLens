@@ -58,6 +58,8 @@
 .legal-research-dates .law-search-error { grid-column: 1 / -1; }
 .legal-research-check { margin: 4px 0; }
 .legal-research-partial { margin: 0; color: var(--warning); font-size: var(--font-size-sm); }
+/* 문서 검토 input: the app's segmented control, sized to its two choices; it wraps on narrow screens. */
+.research-document-source { display: inline-flex; flex-wrap: wrap; justify-self: start; max-width: 100%; }
 .legal-analysis-section.is-unavailable h3 { color: var(--warning); }
 .research-meta { color: var(--muted); font-size: var(--font-size-xs, 12px); font-weight: 400; overflow-wrap: anywhere; }
 p.research-meta { margin: 0; }
@@ -93,6 +95,8 @@ p.research-meta { margin: 0; }
 .contract-review-facts .law-search-link { display: inline; padding: 0; font-weight: inherit; text-decoration: underline; text-underline-offset: 3px; }
 .contract-review-keyfacts { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; font-size: var(--font-size-sm); line-height: 1.6; }
 .contract-review-keyfacts span:first-child { color: var(--muted); }
+.contract-review-coverage { display: grid; gap: 2px; margin: 4px 0 0; padding: 0; list-style: none; color: var(--muted); font-size: var(--font-size-xs, 12px); }
+.contract-review-file { overflow-wrap: anywhere; }
 .contract-review-detail { min-width: 0; padding-top: 14px; border-top: 1px solid var(--line-soft, var(--line)); scroll-margin-top: calc(64px + var(--space-4)); transition: background-color .35s ease, box-shadow .35s ease, border-top-color .35s ease; }
 /* Focus grows the box outward by its own padding (negative margin = padding), so text never moves and nothing reflows when it ends. */
 .contract-review-detail.is-focused {

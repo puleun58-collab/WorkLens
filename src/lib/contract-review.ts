@@ -32,6 +32,17 @@ export interface Clause {
   number?: string;
   title?: string;
   text: string;
+  /**
+   * File review only: where the clause came from, as indices into the reviewed document's
+   * segments with the offset in `text` at which each segment's words begin (a heading-only
+   * segment covers no text). Absent for pasted text.
+   */
+  sources?: ClauseSource[];
+}
+
+export interface ClauseSource {
+  segment: number;
+  at: number;
 }
 
 export interface LawTarget {
@@ -74,6 +85,8 @@ export interface ClauseIssue {
   suggestion: string;
   /** The clause text that triggered the issue, verbatim. */
   fact: string;
+  /** File review only: the segments the triggering sentence came from. */
+  segments?: number[];
 }
 
 export interface ReviewedClause extends Clause {
@@ -178,49 +191,73 @@ const CLAUSE_HEAD = /^\s*(제\s*\d+\s*조(?:의\s*\d+)?)\.?\s*(?:\(([^)]{1,40})\
 const MARKDOWN_HEADING = /^#{1,6}\s+/u;
 const MARKDOWN_BOLD = /\*\*(.+?)\*\*/gu;
 
-export function splitClauses(text: string): Clause[] {
-  const lines = text.replace(/\r\n?/gu, "\n").split("\n")
+/**
+ * Clauses of a pasted text, or of a file's segments (one string per segment, in document
+ * order). Segments are read exactly as their newline-joined text would be, so a file and the
+ * same words pasted split identically; segments only add where each clause came from.
+ */
+export function splitClauses(input: string | readonly string[]): Clause[] {
+  const tracked = typeof input !== "string";
+  const segments = typeof input === "string" ? [input] : input;
+  const lines = segments.flatMap((segment, index) => segment.replace(/\r\n?/gu, "\n").split("\n")
     .map((line) => line.trim().replace(MARKDOWN_HEADING, "").replace(MARKDOWN_BOLD, "$1").trim())
     // A line break lost in copying can leave "…한다. 제2조(해지) …" on one line; an article
     // heading right after a sentence end starts a new clause, a cross-reference mid-sentence does not.
     .flatMap((line) => line.split(/(?<=[.다])\s+(?=제\s*\d+\s*조(?:의\s*\d+)?\s*\()/u))
-    .map((line) => line.trim()).filter(Boolean);
+    .map((line) => line.trim()).filter(Boolean)
+    .map((text) => ({ text, segment: index })));
+  const from = (segment: number): Pick<Clause, "sources"> => tracked ? { sources: [{ segment, at: 0 }] } : {};
   const clauses: Clause[] = [];
-  for (const line of lines) {
+  for (const { text: line, segment } of lines) {
     const head = CLAUSE_HEAD.exec(line);
     if (head) {
       const rest = line.slice(head[0].length).trim();
       // `제1조 목적` names the article like `제1조(목적)` when the rest of the line is a bare heading.
       const bareTitle = !head[2] && rest && isBareHeading(rest) ? rest : undefined;
       const title = head[2] ?? bareTitle;
-      clauses.push({ number: head[1].replace(/\s+/gu, ""), ...(title ? { title } : {}), text: bareTitle ? "" : rest });
+      clauses.push({ number: head[1].replace(/\s+/gu, ""), ...(title ? { title } : {}), text: bareTitle ? "" : rest, ...from(segment) });
     } else if (clauses.length && clauses.at(-1)!.number) {
       const last = clauses.at(-1)!;
+      const at = last.text ? last.text.length + 1 : 0;
       last.text = last.text ? `${last.text} ${line}` : line;
+      if (last.sources && last.sources.at(-1)!.segment !== segment) last.sources.push({ segment, at });
     } else {
-      clauses.push({ text: line });
+      clauses.push({ text: line, ...from(segment) });
     }
   }
   // Without numbered articles every sentence is its own unit, and a bare heading
   // line ("면책", "계약기간") titles the unit that follows instead of being one.
   if (!clauses.some((clause) => clause.number)) {
     const units: Clause[] = [];
-    let heading: string | undefined;
+    let heading: Clause | undefined;
     for (const clause of clauses) {
       if (isBareHeading(clause.text)) {
-        heading = clause.text;
+        heading = clause;
         continue;
       }
       clause.text.split(/(?<=[.다])\s+/u).filter(Boolean).forEach((sentence, index) => {
-        units.push({ ...(heading && index === 0 ? { title: heading } : {}), text: sentence });
+        const titled = heading !== undefined && index === 0;
+        // The heading's own segment titles the unit; it covers none of the unit's words.
+        const sources = clause.sources && [...(titled && heading!.sources ? heading!.sources : []), ...clause.sources];
+        units.push({ ...(titled ? { title: heading!.text } : {}), text: sentence, ...(sources ? { sources: sources.map((source) => ({ ...source })) } : {}) });
       });
       heading = undefined;
     }
     // A trailing heading with nothing under it is still text the reader wrote.
-    if (heading) units.push({ text: heading });
+    if (heading) units.push({ text: heading.text, ...(heading.sources ? { sources: heading.sources } : {}) });
     return units;
   }
   return clauses.filter((clause) => clause.number);
+}
+
+/** Segments a span of a clause's text came from; a heading-only segment counts only when nothing else does. */
+export function segmentsOf(clause: Clause, start = 0, end = clause.text.length): number[] {
+  const sources = clause.sources ?? [];
+  const covering = sources.filter((source, index) => {
+    const next = sources[index + 1]?.at ?? clause.text.length;
+    return next > source.at && source.at < end && next > start;
+  });
+  return [...new Set((covering.length ? covering : sources).map((source) => source.segment))];
 }
 
 /**
@@ -552,7 +589,8 @@ export interface ContractReview {
   document: DocumentProfile;
   risk: ReturnType<typeof documentRisk>;
   facts: KeyFact[];
-  clauses: Array<Clause & { issues: ReviewedIssue[] }>;
+  /** `segments`: file review only, the reviewed document's segments the clause came from (first is primary). */
+  clauses: Array<Omit<Clause, "sources"> & { segments?: number[]; issues: ReviewedIssue[] }>;
   laws: Record<string, LawReference>;
   precedents: Record<string, PrecedentReference>;
   /** Diagnostics for development; not shown to users. */
@@ -568,7 +606,12 @@ export function reviewClauses(clauses: readonly Clause[], profile: DocumentProfi
   return clauses.map((clause) => ({
     ...clause,
     issues: ISSUES.filter((issue) => (!issue.only || issue.only.includes(profile.type)) && issue.detect.test(clause.text))
-      .map((issue) => ({ id: issue.id, label: issue.label, severity: issue.severity, point: issue.point, suggestion: issue.suggestion, fact: triggeringSentence(clause.text, issue.detect) })),
+      .map((issue) => {
+        const fact = triggeringSentence(clause.text, issue.detect);
+        const start = Math.max(0, clause.text.indexOf(fact));
+        return { id: issue.id, label: issue.label, severity: issue.severity, point: issue.point, suggestion: issue.suggestion, fact,
+          ...(clause.sources ? { segments: segmentsOf(clause, start, start + fact.length) } : {}) };
+      }),
   }));
 }
 
