@@ -27,6 +27,9 @@
     "test:eval:grounding": "vitest run tests/eval-grounding.test.ts",
     "test:eval:supplement": "vitest run tests/eval-supplement.test.ts",
     "eval:supplement:live": "bun scripts/supplement-eval.ts",
+    "eval:document-review": "vitest run tests/eval/document-review.test.ts --reporter verbose",
+    "eval:document-review:holdout": "vitest run tests/eval/document-review-holdout.test.ts --reporter verbose",
+    "eval:document-review:live": "bun scripts/document-review-live.ts",
     "bench:large": "bun tests/bench/large-documents.ts",
     "bench:stress": "bun tests/bench/large-documents.ts --stress"
   },

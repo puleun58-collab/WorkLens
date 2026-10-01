@@ -15,6 +15,7 @@ import { LawTextBlock } from "./LawTextBlock";
 import { ContractReviewResult, FileReviewExcluded } from "./ContractReviewResult";
 import { SourceToggleSummary } from "./SourceToggleSummary";
 import type { ReviewableFiles } from "./LawSearch";
+import type { WorkspaceFile } from "@/client/protocol";
 import { runInWorker } from "@/client/document-client";
 import type { ReviewFile } from "@/lib/law-review-source";
 import "./legal-analysis.css";
@@ -25,6 +26,8 @@ interface TaskResult {
   loading: boolean;
   /** 문서 검토 of a workspace file: its segments' sources and what part of it was reviewed. */
   file?: ReviewFile;
+  /** The exact workspace entry used when starting this file review (not a later replacement). */
+  workspaceFile?: WorkspaceFile;
 }
 
 type DocumentSource = "file" | "text";
@@ -64,11 +67,11 @@ export function LegalResearch({ workspace }: { workspace?: ReviewableFiles }) {
     return () => pending.forEach((controller) => controller.abort());
   }, []);
 
-  const run = useCallback(async (request: LawResearchRequest, file?: ReviewFile) => {
+  const run = useCallback(async (request: LawResearchRequest, file?: ReviewFile, workspaceFile?: WorkspaceFile) => {
     requests.current.get(request.task)?.abort();
     const controller = new AbortController();
     requests.current.set(request.task, controller);
-    setResults((current) => ({ ...current, [request.task]: { request, outcome: null, loading: true, ...(file ? { file } : {}) } }));
+    setResults((current) => ({ ...current, [request.task]: { request, outcome: null, loading: true, ...(file ? { file } : {}), ...(workspaceFile ? { workspaceFile } : {}) } }));
     let outcome: LawResearchOutcome;
     try {
       const response = await fetch("/api/law/research", {
@@ -84,7 +87,7 @@ export function LegalResearch({ workspace }: { workspace?: ReviewableFiles }) {
     }
     if (controller.signal.aborted) return;
     requests.current.delete(request.task);
-    setResults((current) => ({ ...current, [request.task]: { request, outcome, loading: false, ...(file ? { file } : {}) } }));
+    setResults((current) => ({ ...current, [request.task]: { request, outcome, loading: false, ...(file ? { file } : {}), ...(workspaceFile ? { workspaceFile } : {}) } }));
   }, []);
 
   /**
@@ -93,6 +96,8 @@ export function LegalResearch({ workspace }: { workspace?: ReviewableFiles }) {
    */
   const runFile = useCallback(async (fileId: string) => {
     const task = "document_review";
+    const workspaceFile = workspace?.files.find((entry) => entry.id === fileId);
+    if (!workspaceFile) return;
     let file: ReviewFile;
     try {
       file = await runInWorker({ kind: "review-source", fileId });
@@ -103,11 +108,11 @@ export function LegalResearch({ workspace }: { workspace?: ReviewableFiles }) {
     const request: LawResearchRequest = { task, document: file.document };
     if (file.coverage.status === "excluded") {
       requests.current.get(task)?.abort();
-      setResults((current) => ({ ...current, [task]: { request, outcome: null, loading: false, file } }));
+      setResults((current) => ({ ...current, [task]: { request, outcome: null, loading: false, file, workspaceFile } }));
       return;
     }
-    await run(request, file);
-  }, [run]);
+    await run(request, file, workspaceFile);
+  }, [run, workspace?.files]);
 
   /** Leaving a task cancels its in-flight chain; finished results stay for when the user comes back. */
   function changeTask(next: LawResearchTask) {
@@ -138,6 +143,13 @@ export function LegalResearch({ workspace }: { workspace?: ReviewableFiles }) {
   const fileId = reviewable.some((file) => file.id === chosenFile) ? chosenFile : reviewable[0]?.id ?? "";
   const fromFile = isDocument && documentSource === "file";
   const canRun = fromFile ? Boolean(fileId) : Boolean(request);
+  const resultFile = current?.file;
+  const presentFile = resultFile && files.find((entry) => entry.id === resultFile.fileId);
+  const staleFileReview = Boolean(resultFile && (!presentFile || presentFile !== current?.workspaceFile
+    || resultFile.document.id !== `document:${presentFile.id}` || !resultFile.document.version
+    || resultFile.sources.length !== resultFile.document.segments.length
+    || resultFile.sources.some((source) => source.fileId !== presentFile.id
+      || source.documentId !== resultFile.document.id || source.documentVersion !== resultFile.document.version)));
 
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -245,16 +257,16 @@ export function LegalResearch({ workspace }: { workspace?: ReviewableFiles }) {
 
     {current && <section className="legal-analysis-result" aria-labelledby="research-result-heading" aria-busy={loading}>
       <h2 id="research-result-heading">{isDocument ? "검토 결과" : "리서치 결과"}</h2>
-      {isDocument && current.file && !current.loading && (!files.some((file) => file.id === current.file!.fileId)
-        ? <p className="research-meta" role="status">작업 공간에서 삭제했거나 교체한 문서의 검토 결과입니다.</p>
-        : fromFile && fileId !== current.file.fileId
-          ? <p className="research-meta" role="status">지금 선택한 문서가 아닌 {current.file.document.name}의 검토 결과입니다.</p>
+      {isDocument && resultFile && !current.loading && (staleFileReview
+        ? <p className="research-meta" role="status">삭제되었거나 현재 작업 파일의 출처·버전과 일치하지 않는 검토 결과입니다. 위치는 검토 당시 기록이며 현재 파일로 이동할 수 없습니다.</p>
+        : fromFile && fileId !== resultFile.fileId
+          ? <p className="research-meta" role="status">지금 선택한 문서가 아닌 {resultFile.document.name}의 검토 결과입니다.</p>
           : null)}
       {current.loading ? <p className="law-search-note" role="status">{isDocument ? "문서 검토 중…" : "리서치 중…"} 여러 자료를 함께 조회하므로 시간이 걸릴 수 있습니다.</p>
         : current.outcome?.kind === "error" ? <div className="decision-feedback" role="alert">
           <p className="law-search-error">{current.outcome.message}</p>
           <button type="button" className="law-search-link" onClick={() => void (current.request.task === "document_review" && "text" in current.request && !current.request.text
-            ? runFile(fileId) : run(current.request, current.file))}>다시 시도</button>
+            ? runFile(fileId) : run(current.request, current.file, current.workspaceFile))}>다시 시도</button>
         </div>
         : current.file && !current.outcome ? <FileReviewExcluded file={current.file} />
         : current.outcome?.kind === "missing" ? <div className="legal-analysis-missing" role="status">

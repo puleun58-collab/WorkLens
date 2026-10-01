@@ -278,8 +278,10 @@ regressionCase({ id: "WF-23", category: "Check", input: "Clean prose false-posit
 });
 regressionCase({ id: "WF-24", category: "Polish", input: "File prose rewrite retains name and amount", format: "DOCX", structure: "one sentence", expected: "valid rewrite accepted and source retained" }, async ({ page, note }) => {
   await page.route("**/api/ai", async (route) => {
-    const request = route.request().postDataJSON() as { text: string };
-    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { kind: "polish", proposal: { changed: true, revisedText: request.text.replace("검토 부탁드립니다", "검토해 주세요"), reasons: ["표현 정리"] } } }) });
+    const request = route.request().postDataJSON() as { items: Array<{ id: string; text: string }> };
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { kind: "polish-batch", proposals: request.items.map(({ id, text }) => ({
+      id, proposal: { changed: true, revisedText: text.replace("검토 부탁드립니다", "검토해 주세요"), reasons: ["표현 정리"] },
+    })) } }) });
   });
   await start(page, ["polish"], "윤문", false); await run(page, "윤문");
   const row = page.locator(".polish-results .polish-row"); await expect(row).toContainText("김하나"); await expect(row).toContainText("1,250만원");
@@ -288,8 +290,10 @@ regressionCase({ id: "WF-24", category: "Polish", input: "File prose rewrite ret
 });
 regressionCase({ id: "WF-25", category: "Polish", input: "Pasted text protects changed amount", format: "text", structure: "numbered sentence", expected: "model's 1500 substitution rejected, original 1250 kept", mobile: true }, async ({ page, note }) => {
   await page.route("**/api/ai", async (route) => {
-    const request = route.request().postDataJSON() as { text: string };
-    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { kind: "polish", proposal: { changed: true, revisedText: request.text.replace("1,250", "1,500"), reasons: ["표현 정리"] } } }) });
+    const request = route.request().postDataJSON() as { items: Array<{ id: string; text: string }> };
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { kind: "polish-batch", proposals: request.items.map(({ id, text }) => ({
+      id, proposal: { changed: true, revisedText: text.replace("1,250", "1,500"), reasons: ["표현 정리"] },
+    })) } }) });
   });
   await page.goto("/"); await openView(page, "윤문"); await page.getByRole("radio", { name: "텍스트 윤문" }).check();
   await page.getByLabel("윤문할 텍스트 입력").fill("1. 김하나의 매출은 1,250만원입니다."); await run(page, "윤문");

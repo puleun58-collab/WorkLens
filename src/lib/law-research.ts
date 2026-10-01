@@ -1,7 +1,7 @@
 import type { FileKind } from "@/domain/document";
 import { LAW_ARTICLE_PATTERN } from "@/lib/law-search";
 import { normalizeAnalysisDate, normalizeAnalysisJo } from "@/lib/law-analysis";
-import type { ContractReview } from "@/lib/contract-review";
+import type { ContractReview, DocumentProfile } from "@/lib/contract-review";
 import type { ResearchEnrichment } from "@/lib/research-relevance";
 
 /**
@@ -45,10 +45,9 @@ export const LAW_RESEARCH_DOCUMENT_MIN_CHARS = 20;
 /** Pasted text: kept from when the text was forwarded to the MCP (100 KB request limit; Korean text is 3 bytes/char). */
 export const LAW_RESEARCH_DOCUMENT_MAX_CHARS = 20_000;
 /**
- * A workspace file is reviewed by WorkLens itself (no text goes to the MCP). Lookups depend on
- * the distinct issues found, not the length (45 lookups for 20,000 and for 240,000 chars, about
- * half a second of review either way); the bound keeps the request and the result a reader can
- * scan reasonable. Beyond it the review is partial and says which part was not read.
+ * A workspace file is reviewed by WorkLens itself (no text goes to the MCP).
+ * Requests are bounded; longer files contribute windows distributed across
+ * the document, with omitted units explicitly counted in coverage.
  */
 export const LAW_REVIEW_FILE_MAX_CHARS = 100_000;
 export const LAW_REVIEW_FILE_MAX_SEGMENTS = 2_000;
@@ -73,8 +72,9 @@ export type LawResearchRequest =
   | { task: "document_review"; document: ReviewDocument };
 
 /**
- * One workspace file as 문서 검토 receives it: identity plus its text segments in document
- * order, each with the reader's location label. No bytes, styles, media or other files.
+ * File identity and bounded text segments in document order. A new `batch`
+ * marks a sampling gap; neighboring segments within a batch may form one article.
+ * No bytes, styles, media or other files.
  */
 export interface ReviewDocument {
   name: string;
@@ -82,7 +82,9 @@ export interface ReviewDocument {
   /** Parser document id and content-bound version: which file and which version was reviewed. */
   id: string;
   version?: string;
-  segments: Array<{ text: string; location: string }>;
+  /** Derived once from all extracted text, not just bounded evidence windows. */
+  profile?: DocumentProfile;
+  segments: Array<{ text: string; location: string; batch?: number }>;
 }
 
 /** Form state; kept per field so switching tasks never loses what was typed. */

@@ -12,10 +12,16 @@ const COVERAGE_LABEL: Record<ReviewCoverage["status"], string> = { complete: "�
 const IMAGE_NOTE = "이미지 안의 글자는 읽지 않습니다.";
 const PLACES_SHOWN = 3;
 
-/** Where in the file a clause or issue came from, as the reader's labels (page, slide, section, cells). */
+/** A review location is historical text, never an original-document link. Reject mismatched segment/source provenance. */
 function placesOf(file: ReviewFile | undefined, segments: readonly number[] | undefined, besides: readonly number[] = []): string | undefined {
   if (!file || !segments?.length) return undefined;
-  const label = (index: number) => file.document.segments[index]?.location;
+  const label = (index: number) => {
+    const source = file.sources[index];
+    if (!Number.isInteger(index) || !source || source.fileId !== file.fileId
+      || !file.document.version || source.documentId !== file.document.id
+      || source.documentVersion !== file.document.version || source.locator?.kind !== file.document.kind) return undefined;
+    return file.document.segments[index]?.location;
+  };
   const shown = new Set(besides.map(label));
   const places = [...new Set(segments.map(label).filter((place): place is string => Boolean(place) && !shown.has(place)))];
   if (!places.length) return undefined;
@@ -106,6 +112,8 @@ export function ContractReviewResult({ review, file }: { review: ContractReview;
     : review.stats.excludedPrecedents > 0 ? "weak" : "none";
   const lawCount = new Set(issues.flatMap((issue) => issue.laws.filter((key) => review.laws[key]))).size;
   const precedentCount = new Set(issues.flatMap((issue) => issue.precedents.filter((key) => review.precedents[key]))).size;
+  const lookupIncomplete = issues.some((issue) => issue.lawStatus === "failed" || issue.lawStatus === "partial"
+    || issue.precedentStatus === "failed" || issue.precedentStatus === "partial");
 
   const issueBody = (issue: ReviewedIssue, anchor: string, clauseSegments?: readonly number[]) => {
     const laws = [...new Set(issue.laws)].map((key) => review.laws[key]).filter(Boolean);
@@ -114,7 +122,7 @@ export function ContractReviewResult({ review, file }: { review: ContractReview;
     // The rest of the clause (a heading, the next paragraph or page) stays visible as related places.
     const related = placesOf(file, clauseSegments, issue.segments);
     return <dl className="contract-review-facts contract-review-issue-facts">
-      {place && <><dt>검토 위치</dt><dd className="contract-review-place">{place}{related && <span className="contract-review-meta"> · 같은 조항 {related}</span>}</dd></>}
+      {place && <><dt>검토 당시 위치</dt><dd className="contract-review-place">{place}{related && <span className="contract-review-meta"> · 같은 조항 {related}</span>}</dd></>}
       <dt>검토 원문</dt><dd>{issue.fact}</dd>
       <dt>검토 결과</dt><dd>{issue.point}</dd>
       <dt>우선순위</dt><dd>{SEVERITY_LABEL[issue.severity]}</dd>
@@ -172,7 +180,9 @@ export function ContractReviewResult({ review, file }: { review: ContractReview;
       <span className="research-eyebrow">문서 검토</span>
       <h3 className="legal-analysis-title" data-status={status}>{issues.length ? STATUS_TITLE[status] : partial ? "검토한 범위에서 쟁점을 찾지 못했습니다" : "검토할 쟁점을 찾지 못했습니다"}</h3>
       {file && <p className="research-meta contract-review-file">검토 문서: {file.document.name}</p>}
+      {file && <p className="research-meta contract-review-preview-note">원본 파일 미리보기는 제공하지 않습니다. 아래 위치는 텍스트 안내이며 원본의 해당 위치로 이동하지 않습니다. PDF 도구는 별도의 작업 공간입니다.</p>}
       {partial && <p className="research-caution">문서의 일부만 검토했습니다. 아래 결과는 검토된 범위에서 확인된 항목입니다.</p>}
+      {lookupIncomplete && <p className="research-caution">일부 법령·판례 출처 조회가 완료되지 않았습니다. 근거를 확인하지 못한 항목도 쟁점이 없다는 뜻은 아닙니다.</p>}
       {file && document.type === "unknown" && <p className="research-caution">현재 문서에서 법령 문서 검토에 필요한 계약·규정 성격을 충분히 확인하지 못했습니다.</p>}
       <p className="research-caution">{issues.length
         ? "검토 결과는 관련 쟁점을 확인하기 위한 자료이며, 구체적인 사건의 법적 결론을 의미하지 않습니다."
@@ -202,13 +212,17 @@ export function ContractReviewResult({ review, file }: { review: ContractReview;
     <section className="legal-analysis-section contract-review-results">
       <h3>조항별 검토 결과</h3>
       {review.clauses.length === 0 && <p className="law-search-note">검토할 쟁점을 찾지 못했습니다.</p>}
-      {review.clauses.map((clause, index) => <section key={`${clause.number ?? index}`} className="legal-analysis-section contract-review-clause">
-        <h4>{clause.number ?? clause.title ?? `검토 항목 ${index + 1}`}{clause.number && clause.title ? ` ${clause.title}` : ""}</h4>
-        {clause.issues.map((issue, issueIndex) => <div key={issue.id} className={`contract-review-issue is-${issue.severity}`}>
-          <h5>{issue.label}</h5>
-          {issueBody(issue, `contract-review-evidence-${index}-${issueIndex}`, clause.segments)}
-        </div>)}
-      </section>)}
+      {review.clauses.map((clause, index) => {
+        const clausePlace = placesOf(file, clause.segments);
+        return <section key={`${clause.number ?? index}`} className="legal-analysis-section contract-review-clause">
+          <h4>{clause.number ?? clause.title ?? `검토 항목 ${index + 1}`}{clause.number && clause.title ? ` ${clause.title}` : ""}</h4>
+          {clausePlace && <p className="contract-review-clause-place">검토 당시 조항 위치: {clausePlace}</p>}
+          {clause.issues.map((issue, issueIndex) => <div key={issue.id} className={`contract-review-issue is-${issue.severity}`}>
+            <h5>{issue.label}</h5>
+            {issueBody(issue, `contract-review-evidence-${index}-${issueIndex}`, clause.segments)}
+          </div>)}
+        </section>;
+      })}
     </section>
     {lawCount + precedentCount > 0 && <section className="legal-analysis-section contract-review-details">
       <h3>상세 근거</h3>

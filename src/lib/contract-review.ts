@@ -129,6 +129,11 @@ const DOMAINS: Record<DocumentType, LawDomain[]> = {
   unknown: ["civil", "procedure"],
 };
 
+export function domainsForDocumentType(type: DocumentType): readonly LawDomain[] {
+  return DOMAINS[type];
+}
+
+
 const RELATIONSHIP_LABEL: Record<PartyRelationship, string> = {
   business: "사업자 간",
   consumer: "사업자와 소비자",
@@ -576,7 +581,7 @@ export interface PrecedentReference {
   scope: "판시사항";
 }
 
-export type SourceStatus = "found" | "none" | "failed" | "not_searched";
+export type SourceStatus = "found" | "partial" | "none" | "failed" | "not_searched";
 
 export interface ReviewedIssue extends ClauseIssue {
   laws: string[];

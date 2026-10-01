@@ -30,7 +30,7 @@ const table = (rows: string[][]) => `<w:tbl>${rows.map((row) => `<w:tr>${row.map
 
 /** Each issue with where the review says it came from. */
 async function locatedIssues(file: ReviewFile) {
-  const review = await reviewContract(file.document.segments.map((segment) => segment.text), sources);
+  const review = await reviewContract(file.document.segments, sources, Date.now, undefined, file.document.profile);
   return {
     review,
     issues: review.clauses.flatMap((clause) => clause.issues.map((issue) => ({
@@ -75,7 +75,7 @@ describe("문서 검토 from a workspace file", () => {
     expect(new Set(article.flatMap((issue) => issue.clauseAt))).toEqual(new Set(["제5조 손해배상", "제5조 손해배상 · 표 1행", "제5조 손해배상 · 표 2행"]));
     expect(article.find((issue) => issue.id === "unilateral_termination")?.at).toContain("제5조 손해배상 · 표 2행");
     expect(file.document.segments.filter((segment) => segment.location === "제5조 손해배상")).toHaveLength(3);
-    expect(file.document.segments.at(-1)).toEqual({ text: "계약 해지 갑은 최고 없이 즉시 계약을 해지할 수 있다.", location: "제5조 손해배상 · 표 2행" });
+    expect(file.document.segments.at(-1)).toEqual({ text: "계약 해지 갑은 최고 없이 즉시 계약을 해지할 수 있다.", location: "제5조 손해배상 · 표 2행", batch: 0 });
     // No page is invented for a DOCX.
     expect(file.document.segments.some((segment) => /페이지/u.test(segment.location))).toBe(false);
   });
@@ -117,8 +117,8 @@ describe("문서 검토 from a workspace file", () => {
     });
     const file = reviewFileFor(await parse("계약조건.xlsx", terms), "계약조건.xlsx");
     expect(file.document.segments).toEqual([
-      { text: "제8조 자동 갱신 별도의 해지 의사표시가 없으면 계약은 1년 단위로 자동 연장된다.", location: "계약조건 / A2:B2" },
-      { text: "제9조 해지 회사는 언제든지 계약을 해지할 수 있다.", location: "계약조건 / A3:B3" },
+      { text: "제8조 자동 갱신 별도의 해지 의사표시가 없으면 계약은 1년 단위로 자동 연장된다.", location: "계약조건 / A2:B2", batch: 0 },
+      { text: "제9조 해지 회사는 언제든지 계약을 해지할 수 있다.", location: "계약조건 / A3:B3", batch: 0 },
     ]);
     expect(file.coverage).toMatchObject({ status: "complete", unit: "행", reviewed: 2, excluded: 4 });
 
@@ -127,7 +127,25 @@ describe("문서 검토 from a workspace file", () => {
     expect(raw.coverage.note).toContain("계약·규정 성격의 문장을 찾지 못했습니다");
   });
 
-  it("stops at the bound in document order and counts what was left, never sending a silent cut", async () => {
+  it("reviews short legal sheet and CSV rows with their header context but not raw-data lookalikes", async () => {
+    const workbook = await createXlsx({
+      계약조건: [["항목", "내용"], ["자동연장", "1년"], ["위약금", "30%"]],
+      매출: [["항목", "내용"], ["자동연장", "1년"]],
+    });
+    const file = reviewFileFor(await parse("표.xlsx", workbook), "표.xlsx");
+    expect(file.coverage).toMatchObject({ status: "complete", reviewed: 2, excluded: 3 });
+    expect(file.document.segments.map((segment) => segment.location)).toEqual(["계약조건 / A2:B2", "계약조건 / A3:B3"]);
+    const { issues } = await locatedIssues(file);
+    expect(issues.find((issue) => issue.id === "auto_renewal")?.at).toEqual(["계약조건 / A2:B2"]);
+    expect(issues.find((issue) => issue.id === "penalty")?.at).toEqual(["계약조건 / A3:B3"]);
+    const csv = reviewFileFor(await parse("계약조건.csv", strToU8("항목,기간\n자동연장,1년\n위약금,30%\n")), "계약조건.csv");
+    expect(csv.coverage).toMatchObject({ status: "complete", reviewed: 2, excluded: 1 });
+    expect(new Set((await locatedIssues(csv)).issues.map((issue) => issue.id))).toEqual(new Set(["auto_renewal", "penalty"]));
+    const raw = reviewFileFor(await parse("매출.csv", strToU8("항목,기간\n자동연장,1년\n")), "매출.csv");
+    expect(raw.coverage.status).toBe("excluded");
+  });
+
+  it("distributes bounded review through the last article and counts every omitted paragraph", async () => {
     const paragraphs = Array.from({ length: 1400 }, (_, index) => `제${index + 1}조(조항) 회사는 이 조항에 따라 상대방에게 서비스를 제공하며 상대방은 이에 따른 대가를 지급하여야 한다. 세부 사항은 별도 합의로 정한다.`);
     const file = reviewFileFor(await parse("긴계약.docx", createDocxParagraphs(paragraphs)), "긴계약.docx");
     const sent = file.document.segments.reduce((sum, segment) => sum + segment.text.length, 0);
@@ -137,9 +155,20 @@ describe("문서 검토 from a workspace file", () => {
     expect(file.coverage.unreviewed).toBeGreaterThan(0);
     expect(file.coverage.reasons[0]).toContain(`처리 한도`);
     expect(file.coverage.reasons[0]).toContain(`${file.coverage.unreviewed.toLocaleString("ko-KR")}개 문단`);
-    // What was sent is the start of the document, in order.
+    // The last range reaches the end rather than silently stopping at a prefix.
     expect(file.document.segments[0].location).toBe("제1조 조항");
-    expect(file.document.segments.at(-1)!.location).toBe(`제${file.coverage.reviewed}조 조항`);
+    expect(file.document.segments.at(-1)!.location).toBe("제1400조 조항");
+    expect(new Set(file.document.segments.map((segment) => segment.batch)).size).toBeGreaterThan(1);
+  });
+
+  it("classifies the full parsed document when a defining clause falls in an omitted window", async () => {
+    const paragraphs = Array.from({ length: 1400 }, (_, index) =>
+      `제${index + 1}조(일반) ${"이 항목은 업무 내용과 진행 시기를 기록하며 적용 순서는 양 당사자가 정한다. 세부 사항은 문서에 따른다. ".repeat(2)}`);
+    paragraphs[60] = "제61조(기본) 근로계약 근로자 사용자 임금 근로시간을 정한다.";
+    const file = reviewFileFor(await parse("긴규정.docx", createDocxParagraphs(paragraphs)), "긴규정.docx");
+    expect(file.coverage.status).toBe("partial");
+    expect(file.document.segments.some((segment) => segment.text.includes("근로계약 근로자 사용자"))).toBe(false);
+    expect(file.document.profile?.type).toBe("employment");
   });
 
   it("sends only identity and text segments: no bytes, styles, media or locators", async () => {
@@ -148,8 +177,8 @@ describe("문서 검토 from a workspace file", () => {
       reviewFileFor(await parse("계약조건.xlsx", terms), "계약조건.xlsx"),
       reviewFileFor(await parse("이미지.docx", createDocxWithOmissions()), "이미지.docx"),
     ]) {
-      expect(Object.keys(file.document).sort()).toEqual(["id", "kind", "name", "segments", "version"]);
-      for (const segment of file.document.segments) expect(Object.keys(segment).sort()).toEqual(["location", "text"]);
+      expect(Object.keys(file.document).sort()).toEqual(["id", "kind", "name", "profile", "segments", "version"]);
+      for (const segment of file.document.segments) expect(Object.keys(segment).sort()).toEqual(["batch", "location", "text"]);
       expect(JSON.stringify(file.document)).not.toMatch(/"(?:style|template|data|media|bytes|nodeId|quote|spans)"/u);
     }
   });

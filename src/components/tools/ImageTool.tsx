@@ -35,7 +35,7 @@ export function ImageTool() {
   const [mode, setMode] = useState<SelectionMode>(null);
   const [drag, setDrag] = useState<Rectangle | null>(null);
   const [aspectLocked, setAspectLocked] = useState(true);
-  const [sizeDraft, setSizeDraft] = useState<{ edits: ImageEdits; width: string; height: string } | null>(null);
+  const [sizeDraft, setSizeDraft] = useState<{ edits: ImageEdits; selection: string; width: string; height: string } | null>(null);
   const [merge, setMerge] = useState(false);
   const [mergeOptions, setMergeOptions] = useState<MergeOptions>({ layout: "horizontal", ratio: "1:1" });
   const [format, setFormat] = useState<ImageFormat>("jpg");
@@ -73,18 +73,26 @@ export function ImageTool() {
     scrollContainer: fileList,
     onMove: (from, to) => setItems((list) => moveItem(list, from, to)),
   });
-  const widthDraft = sizeDraft && current && sizeDraft.edits === current.edits ? sizeDraft.width : String(dimensions?.width ?? "");
-  const heightDraft = sizeDraft && current && sizeDraft.edits === current.edits ? sizeDraft.height : String(dimensions?.height ?? "");
+  const selectionKey = selected.join("\0");
+  const sameSize = selectedItems.length < 2 || selectedItems.every((item) => {
+    const size = outputSize(item);
+    const first = outputSize(selectedItems[0]);
+    return size.width === first.width && size.height === first.height;
+  });
+  const editingSize = sizeDraft && current && sizeDraft.edits === current.edits && sizeDraft.selection === selectionKey;
+  const inputSize = selectedItems.length >= 2 ? outputSize(selectedItems[0]) : dimensions;
+  const widthDraft = editingSize ? sizeDraft.width : sameSize ? String(inputSize?.width ?? "") : "";
+  const heightDraft = editingSize ? sizeDraft.height : sameSize ? String(inputSize?.height ?? "") : "";
   const previewSize = mergeActive ? mergedDimensions : dimensions;
   const previewError = previewFailure?.current === current && previewFailure.selected === selectedItems &&
     previewFailure.merge === mergeActive && previewFailure.options.layout === mergeLayout && previewFailure.options.ratio === mergeOptions.ratio ? previewFailure.text : "";
 
   function setWidthDraft(width: string) {
-    if (current) setSizeDraft({ edits: current.edits, width, height: heightDraft });
+    if (current) setSizeDraft({ edits: current.edits, selection: selectionKey, width, height: heightDraft });
   }
 
   function setHeightDraft(height: string) {
-    if (current) setSizeDraft({ edits: current.edits, width: widthDraft, height });
+    if (current) setSizeDraft({ edits: current.edits, selection: selectionKey, width: widthDraft, height });
   }
 
   useEffect(() => {
@@ -130,6 +138,13 @@ export function ImageTool() {
   function editCurrent(change: (item: ImageItem) => ImageEdits): void {
     if (!current || busyRef.current) return;
     setItems((list) => list.map((item) => item.id === current.id ? { ...item, edits: change(item) } : item));
+    setNotice(null);
+  }
+  function editSelection(change: (item: ImageItem) => ImageEdits): void {
+    if (selectedItems.length < 2) return editCurrent(change);
+    if (busyRef.current) return;
+    const ids = new Set(selectedItems.map((item) => item.id));
+    setItems((list) => list.map((item) => ids.has(item.id) ? { ...item, edits: change(item) } : item));
     setNotice(null);
   }
 
@@ -205,18 +220,37 @@ export function ImageTool() {
   }
 
   function commitDimension(axis: "width" | "height"): void {
-    if (!current) return;
+    if (!current || !editingSize) return;
+    // For mixed sizes with the lock off, a single entered dimension cannot
+    // describe a shared width × height. Wait for both fields before applying.
+    if (!aspectLocked && (!widthDraft || !heightDraft)) return;
     const value = Number(axis === "width" ? widthDraft : heightDraft);
-    const size = outputSize(current);
-    const crop = effectiveCrop(current);
-    const counterpart = aspectLocked ? Math.max(1, Math.round(value * (axis === "width" ? crop.height / crop.width : crop.width / crop.height))) : size[axis === "width" ? "height" : "width"];
-    const next = axis === "width" ? { width: value, height: counterpart } : { width: counterpart, height: value };
-    if (!Number.isSafeInteger(value) || value < 1 || next.width > MAX_SIDE || next.height > MAX_SIDE || next.width * next.height > MAX_PIXELS) {
+    const targets = selectedItems.length >= 2 ? selectedItems : [current];
+    const resized = targets.map((item) => {
+      const size = outputSize(item);
+      const crop = effectiveCrop(item);
+      const counterpart = aspectLocked
+        ? Math.max(1, Math.round(value * (axis === "width"
+          ? (targets.length > 1 ? size.height / size.width : crop.height / crop.width)
+          : (targets.length > 1 ? size.width / size.height : crop.width / crop.height))))
+        : Number(axis === "width" ? heightDraft : widthDraft);
+      return { id: item.id, size: axis === "width" ? { width: value, height: counterpart } : { width: counterpart, height: value } };
+    });
+    if (!Number.isSafeInteger(value) || value < 1 || resized.some(({ size }) =>
+      !Number.isSafeInteger(size.width) || !Number.isSafeInteger(size.height)
+      || size.width < 1 || size.height < 1 || size.width > MAX_SIDE || size.height > MAX_SIDE
+      || size.width * size.height > MAX_PIXELS)) {
       setNotice({ tone: "error", text: `각 변은 1~${MAX_SIDE.toLocaleString()}px, 전체는 80MP 이하로 입력하세요.` });
       setSizeDraft(null);
       return;
     }
-    editCurrent((item) => ({ ...item.edits, size: next }));
+    const sizes = new Map(resized.map(({ id, size }) => [id, size]));
+    setItems((list) => list.map((item) => {
+      const size = sizes.get(item.id);
+      return size ? { ...item, edits: { ...item.edits, size } } : item;
+    }));
+    setSizeDraft(null);
+    setNotice(null);
   }
 
   function point(event: PointerEvent<HTMLDivElement>): { x: number; y: number } {
@@ -451,7 +485,7 @@ export function ImageTool() {
         <aside className="image-tool-controls" aria-label="이미지 편집 설정">
           <div className="image-tool-section-heading"><div><span>03 / ADJUST</span><h3>편집 설정</h3></div></div>
           <fieldset disabled={!current || busy || mergeActive} className="image-tool-fieldset">
-            <section className="image-tool-control-section"><h4>크기 · 회전</h4><div className="image-tool-size-grid"><label>너비 px<input type="number" min="1" max={MAX_SIDE} value={widthDraft} onChange={(event) => setWidthDraft(event.target.value)} onBlur={() => commitDimension("width")} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} /></label><label>높이 px<input type="number" min="1" max={MAX_SIDE} value={heightDraft} onChange={(event) => setHeightDraft(event.target.value)} onBlur={() => commitDimension("height")} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} /></label></div><label className="image-tool-check"><input type="checkbox" checked={aspectLocked} onChange={(event) => setAspectLocked(event.target.checked)} /> 비율 유지</label><div className="image-tool-button-row"><button type="button" className="is-edit tool-rotate-button" onClick={() => editCurrent((item) => rotateEdits(item.edits, item.width, item.height, -1))}><RotateCcw aria-hidden="true" />왼쪽 90°</button><button type="button" className="is-edit tool-rotate-button" onClick={() => editCurrent((item) => rotateEdits(item.edits, item.width, item.height, 1))}>오른쪽 90°<RotateCw aria-hidden="true" /></button></div></section>
+            <section className="image-tool-control-section"><h4>크기 · 회전</h4><div className="image-tool-size-grid"><label>너비 px<input type="number" min="1" max={MAX_SIDE} value={widthDraft} placeholder={sameSize ? undefined : "서로 다른 크기"} onChange={(event) => setWidthDraft(event.target.value)} onBlur={() => commitDimension("width")} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} /></label><label>높이 px<input type="number" min="1" max={MAX_SIDE} value={heightDraft} placeholder={sameSize ? undefined : "서로 다른 크기"} onChange={(event) => setHeightDraft(event.target.value)} onBlur={() => commitDimension("height")} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} /></label></div><label className="image-tool-check"><input type="checkbox" checked={aspectLocked} onChange={(event) => setAspectLocked(event.target.checked)} /> 비율 유지</label><div className="image-tool-button-row"><button type="button" className="is-edit tool-rotate-button" onClick={() => editSelection((item) => rotateEdits(item.edits, item.width, item.height, -1))}><RotateCcw aria-hidden="true" />왼쪽 90°</button><button type="button" className="is-edit tool-rotate-button" onClick={() => editSelection((item) => rotateEdits(item.edits, item.width, item.height, 1))}>오른쪽 90°<RotateCw aria-hidden="true" /></button></div></section>
             <section className="image-tool-control-section">
               <h4>자르기</h4>
               <div className="image-tool-button-row">

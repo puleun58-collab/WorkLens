@@ -144,7 +144,7 @@ const GUIDES: Guide[] = [
       { title: "결과 선택", text: "목록에서 법령을 선택합니다.", mini: <span className="mini-files"><span className="mini-row is-mark"><span className="mini-name">근로기준법</span><b className="mini-role">현행</b></span><span className="mini-row"><span className="mini-name">근로기준법 시행령</span></span></span> },
       { title: "조문 확인", text: "조문을 읽고 관련 판례·결정례로 이어갑니다.", mini: <Result title="제23조(해고 등의 제한)" status="현행" lines={["① 사용자는 근로자에게 정당한 이유 없이…"]} actions={["관련 판례·결정례"]} /> },
     ],
-    tip: "종합 리서치는 질문 후 결과·근거를 확인하세요. 문서 검토는 작업 파일에 올린 문서 하나를 고르거나 내용을 직접 붙여넣고 실행합니다. 결과에서 검토 위치·검토 원문·확인한 근거와 검토 범위를 확인하세요.",
+    tip: "종합 리서치는 질문 후 결과·근거를 확인하세요. 문서 검토는 작업 파일 하나를 고르거나 내용을 직접 붙여넣고 실행합니다. 검토 당시 위치·검토 원문·확인한 근거와 범위를 확인하세요. 위치는 텍스트 안내이며 원본 미리보기로 이동하지 않습니다. PDF 도구는 별도 작업 공간입니다.",
   },
   {
     id: "pdf", label: "PDF 도구", summary: "PDF 페이지를 정리하고 원하는 형식으로 내보냅니다.",
@@ -158,7 +158,7 @@ const GUIDES: Guide[] = [
     id: "image", label: "이미지 도구", summary: "이미지를 편집하거나 여러 장을 결합해 내보냅니다.",
     steps: [
       { title: "이미지 추가", text: "JPG, PNG, WebP 이미지를 추가합니다.", mini: <Upload label="이미지 추가" hint="JPG · PNG · WebP" /> },
-      { title: "편집", text: "크기·회전과 영역 자르기를 조정합니다.", mini: <span className="mini-canvas"><ImageIcon className="mini-canvas-icon" /><span className="mini-crop is-mark" /></span> },
+      { title: "편집", text: "체크한 이미지에 크기·회전을 적용합니다. 자르기는 미리보기에서 연 이미지에만 적용됩니다.", mini: <span className="mini-canvas"><ImageIcon className="mini-canvas-icon" /><span className="mini-crop is-mark" /></span> },
       { title: "결과 내보내기", text: "선택한 이미지나 결합 이미지를 내보냅니다.", mini: <Run label="내보내기" before={<Field text="2개 선택됨" mark={false} />} /> },
     ],
   },

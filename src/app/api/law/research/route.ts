@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { normalizeAnalysisDate } from "@/lib/law-analysis";
+import { domainsForDocumentType } from "@/lib/contract-review";
 import { LAW_RESEARCH_ARTICLE_PATTERN, LAW_RESEARCH_BODY_MAX_BYTES, LAW_RESEARCH_DOCUMENT_MAX_CHARS,
   LAW_RESEARCH_DOCUMENT_MIN_CHARS, LAW_RESEARCH_MAX_ARTICLES, LAW_RESEARCH_NAME_MAX_CHARS,
   LAW_RESEARCH_QUERY_MAX_CHARS, LAW_REVIEW_FILE_MAX_CHARS, LAW_REVIEW_FILE_MAX_SEGMENTS, LAW_REVIEW_LOCATION_MAX_CHARS,
@@ -17,14 +18,25 @@ const regionName = z.string().trim().min(1).max(LAW_RESEARCH_NAME_MAX_CHARS).ref
 const documentText = z.string().max(LAW_RESEARCH_DOCUMENT_MAX_CHARS).trim().min(LAW_RESEARCH_DOCUMENT_MIN_CHARS);
 const label = (max: number) => z.string().trim().min(1).max(max).refine((value) => !/[\p{Cc}]/u.test(value));
 /** A workspace file's segments; only their text is reviewed, the rest identifies the file and positions. */
+const reviewProfile = z.object({
+  type: z.enum(["b2b_service", "b2c_terms", "employment", "work_rules", "lease", "outsourcing", "sale", "nda", "unknown"]),
+  label: label(80),
+  relationship: z.enum(["business", "consumer", "employment", "lease", "unknown"]),
+  relationshipLabel: label(80),
+  confidence: z.enum(["high", "medium", "low"]),
+  evidence: z.array(label(80)).max(12),
+  domains: z.array(z.enum(["civil", "terms", "privacy", "procedure", "labor", "lease", "consumer"])).max(7),
+}).strict().refine((profile) => profile.domains.join("|") === domainsForDocumentType(profile.type).join("|"));
 const reviewDocument = z.object({
   name: label(255),
   kind: z.enum(["pdf", "docx", "pptx", "xlsx", "csv"]),
   id: z.string().regex(/^[\w:-]{1,200}$/u),
   version: z.string().regex(/^[0-9a-f]{16,128}$/u).optional(),
+  profile: reviewProfile.optional(),
   segments: z.array(z.object({
     text: z.string().min(1).max(LAW_REVIEW_SEGMENT_MAX_CHARS),
     location: label(LAW_REVIEW_LOCATION_MAX_CHARS),
+    batch: z.number().int().min(0).max(LAW_REVIEW_FILE_MAX_SEGMENTS).optional(),
   }).strict()).min(1).max(LAW_REVIEW_FILE_MAX_SEGMENTS),
 }).strict().refine((document) => {
   const length = document.segments.reduce((sum, segment) => sum + segment.text.length, 0);

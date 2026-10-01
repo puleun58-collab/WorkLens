@@ -1,14 +1,13 @@
 import type { NormalizedDocument, SourceRef, TableCell } from "@/domain/document";
+import { classifyDocument } from "@/lib/contract-review";
 import {
   LAW_RESEARCH_DOCUMENT_MIN_CHARS, LAW_REVIEW_FILE_MAX_CHARS, LAW_REVIEW_FILE_MAX_SEGMENTS, LAW_REVIEW_LOCATION_MAX_CHARS,
   LAW_REVIEW_SEGMENT_MAX_CHARS, type ReviewDocument,
 } from "@/lib/law-research";
 
 /**
- * 문서 검토 on a workspace file. The parsed document stays in the browser worker; this builds the
- * bounded request (identity + text segments + reader-facing location per segment) and keeps each
- * segment's canonical SourceRef beside it, so a reviewed clause or issue can name where in the
- * file it came from. Nothing is truncated silently: what was not sent is counted and explained.
+ * Builds a bounded, distributed review request from a parsed workspace file. SourceRefs
+ * stay in the worker/UI; gaps between selected ranges are explicit batch boundaries.
  */
 
 /** complete: every reviewable part was sent. partial: some was not (limits, textless pages, omitted parts). excluded: nothing to review. */
@@ -53,6 +52,14 @@ const CLAUSE_HEAD = /^(제\s*\d+\s*조(?:의\s*\d+)?)\s*(?:\(([^)]{1,30})\))?/u;
 /** A cell that reads as a clause sentence, not a value: words, and a predicate or a sentence end. */
 const PREDICATE = /(?:[.다요함음]\s*$)|(?:한다|된다|있다|없다|하여야|해야|할\s*수|하지|않는다|따른다|으로\s*한다)/u;
 
+const LEGAL_CONTEXT = /계약|약관|규정|조건|특약|조항|인사|복무|근무|임대차|용역|위약|해지/u;
+const SHORT_TERM = /자동\s*(?:갱신|연장)|위약금|위약벌|중도\s*해지|해지\s*통지|전속\s*관할|원상\s*복구|청약\s*철회|환불|연차\s*휴가/u;
+const DISTRIBUTED_BANDS = 20;
+
+function shortLegalRow(cells: TableCell[], context: string): boolean {
+  if (!LEGAL_CONTEXT.test(context) || cells.length < 2 || !cells.some((cell) => SHORT_TERM.test(cell.display))) return false;
+  return cells.some((cell) => cell.display.trim() && !SHORT_TERM.test(cell.display));
+}
 function sentenceLike(cell: TableCell): boolean {
   if (cell.valueType && cell.valueType !== "text") return false;
   const text = cell.display.trim();
@@ -82,6 +89,7 @@ function candidates(document: NormalizedDocument): Candidate[] {
   const out: Candidate[] = [];
   let section: string | undefined;
   let paragraph = 0;
+  const sheetHeaders = new Map<string, string>();
   document.blocks.forEach((block, blockIndex) => {
     if (block.type === "paragraph") {
       const text = block.text.trim();
@@ -103,15 +111,21 @@ function candidates(document: NormalizedDocument): Candidate[] {
     block.rows.forEach((row, rowIndex) => {
       const cells = row.filter((cell) => cell.display.trim());
       if (!cells.length) return;
-      const text = cells.map((cell) => cell.display.trim()).join(" ");
       const first = cells[0].source;
       const locator = first.locator;
+      const sheet = locator?.kind === "xlsx" ? locator.sheet : locator?.kind === "csv" ? "CSV" : undefined;
+      const header = sheetHeaders.get(sheet ?? "") ?? "";
+      const context = `${locator?.kind === "csv" ? document.metadata.fileName : ""} ${sheet ?? ""} ${header}`;
+      const short = sheet !== undefined && shortLegalRow(cells, context);
+      const rowText = cells.map((cell) => cell.display.trim()).join(" ");
+      const text = short ? `계약 조항 ${context.trim()} ${rowText}` : rowText;
+      if (sheet !== undefined && rowIndex === 0) sheetHeaders.set(sheet, rowText.slice(0, 120));
       if (locator?.kind === "xlsx") {
         const last = cells.at(-1)!.source.locator;
         const range = last?.kind === "xlsx" ? spanRange(locator.range, last.range) : locator.range;
-        out.push({ unit: `${locator.sheet}\0${rowIndex}`, text, location: `${locator.sheet} / ${range}`, source: first, reviewable: cells.some(sentenceLike) });
+        out.push({ unit: `${locator.sheet}\0${rowIndex}`, text, location: `${locator.sheet} / ${range}`, source: first, reviewable: short || cells.some(sentenceLike) });
       } else if (locator?.kind === "csv") {
-        out.push({ unit: `r${locator.record}`, text, location: `${locator.record}행`, source: first, reviewable: cells.some(sentenceLike) });
+        out.push({ unit: `r${locator.record}`, text, location: `${locator.record}행`, source: first, reviewable: short || cells.some(sentenceLike) });
       } else if (locator?.kind === "pptx") {
         out.push({ unit: `s${locator.slide}`, text, location: `${locator.slide}P 표`, source: first, reviewable: true });
       } else if (locator?.kind === "pdf") {
@@ -152,38 +166,67 @@ const READ_LIMITS: Record<string, string> = {
 
 export function reviewFileFor(document: NormalizedDocument, fileName: string): ReviewFile {
   const all = candidates(document);
+  // Classify every parsed text unit once; bounded review windows reuse this
+  // profile even when a defining clause lies outside the selected ranges.
+  const profile = classifyDocument(all.map((entry) => entry.text).join("\n"));
+  const reviewable = all.map((entry, index) => ({ ...entry, index, parts: entry.reviewable ? pieces(entry.text) : [] }))
+    .filter((entry) => entry.reviewable);
   const unitWord = UNIT[document.kind];
   const segments: ReviewDocument["segments"] = [];
   const sources: SourceRef[] = [];
-  const reviewed = new Set<string>();
-  const leftOver = new Set<string>();
-  let chars = 0;
-  let full = false;
-  for (const candidate of all.filter((entry) => entry.reviewable)) {
-    const parts = pieces(candidate.text);
-    const length = parts.reduce((sum, part) => sum + part.length, 0);
-    // In document order until the bound; nothing after it is sent, and it is counted below.
-    if (full || chars + length > LAW_REVIEW_FILE_MAX_CHARS || segments.length + parts.length > LAW_REVIEW_FILE_MAX_SEGMENTS) {
-      full = true;
-      leftOver.add(candidate.unit);
-      continue;
+  const selected = new Set<number>();
+  const totalChars = reviewable.reduce((sum, entry) => sum + entry.parts.reduce((count, part) => count + part.length, 0), 0);
+  const totalParts = reviewable.reduce((sum, entry) => sum + entry.parts.length, 0);
+  if (totalChars <= LAW_REVIEW_FILE_MAX_CHARS && totalParts <= LAW_REVIEW_FILE_MAX_SEGMENTS) {
+    for (let index = 0; index < reviewable.length; index += 1) selected.add(index);
+  } else {
+    // Each band gets a contiguous, sentence-bounded window. The last window starts
+    // at the end; neither a long preamble nor a long appendix can hide the other.
+    for (let band = 0; band < DISTRIBUTED_BANDS; band += 1) {
+      const from = Math.floor(band * reviewable.length / DISTRIBUTED_BANDS);
+      const to = Math.floor((band + 1) * reviewable.length / DISTRIBUTED_BANDS);
+      let chars = 0;
+      let count = 0;
+      for (let index = band === DISTRIBUTED_BANDS - 1 ? to - 1 : from;
+        band === DISTRIBUTED_BANDS - 1 ? index >= from : index < to;
+        index += band === DISTRIBUTED_BANDS - 1 ? -1 : 1) {
+        const entry = reviewable[index];
+        const length = entry.parts.reduce((sum, part) => sum + part.length, 0);
+        if (chars + length > LAW_REVIEW_FILE_MAX_CHARS / DISTRIBUTED_BANDS
+          || count + entry.parts.length > LAW_REVIEW_FILE_MAX_SEGMENTS / DISTRIBUTED_BANDS) break;
+        selected.add(index);
+        chars += length;
+        count += entry.parts.length;
+      }
     }
-    chars += length;
-    for (const part of parts) {
-      segments.push({ text: part, location: clip(candidate.location) });
-      sources.push(candidate.source);
-    }
-    reviewed.add(candidate.unit);
   }
-  for (const unit of reviewed) leftOver.delete(unit);
-
+  const reviewedParts = new Map<string, number>();
+  const allParts = new Map<string, number>();
+  let batch = -1;
+  let previous = -2;
+  // Consecutive selected candidates (not merely consecutive reviewable rows)
+  // belong to the same source range. A skipped row or sample gap starts a new range.
+  for (let index = 0; index < reviewable.length; index += 1) {
+    const entry = reviewable[index];
+    allParts.set(entry.unit, (allParts.get(entry.unit) ?? 0) + 1);
+    if (!selected.has(index)) continue;
+    if (entry.index !== previous + 1) batch += 1;
+    previous = entry.index;
+    reviewedParts.set(entry.unit, (reviewedParts.get(entry.unit) ?? 0) + 1);
+    for (const part of entry.parts) {
+      segments.push({ text: part, location: clip(entry.location), batch });
+      sources.push(entry.source);
+    }
+  }
+  const reviewed = new Set([...allParts].filter(([unit, count]) => reviewedParts.get(unit) === count).map(([unit]) => unit));
+  const leftOver = new Set([...allParts.keys()].filter((unit) => !reviewed.has(unit)));
   const units = new Set(all.map((entry) => entry.unit));
   const pages = document.kind === "pdf" ? Math.max(document.metadata.pageCount ?? 0, ...[...units].map((unit) => Number(unit.slice(1)))) : 0;
   const textless = document.kind === "pdf" ? pages - units.size : 0;
   const excluded = [...units].filter((unit) => !reviewed.has(unit) && !leftOver.has(unit)).length;
   const total = units.size + textless;
   const reasons: string[] = [];
-  if (leftOver.size) reasons.push(`처리 한도(${LAW_REVIEW_FILE_MAX_CHARS.toLocaleString("ko-KR")}자)를 넘은 뒷부분 ${leftOver.size.toLocaleString("ko-KR")}개 ${unitWord}는 검토하지 않았습니다.`);
+  if (leftOver.size) reasons.push(`처리 한도(${LAW_REVIEW_FILE_MAX_CHARS.toLocaleString("ko-KR")}자)로 분산 검토했으며 ${leftOver.size.toLocaleString("ko-KR")}개 ${unitWord}의 전부 또는 일부는 검토하지 않았습니다.`);
   if (textless > 0) reasons.push(`글자를 추출하지 못한 ${textless.toLocaleString("ko-KR")}개 페이지는 검토하지 않았습니다. 스캔하거나 이미지로 된 페이지일 수 있습니다.`);
   for (const warning of document.warnings) if (READ_LIMITS[warning]) reasons.push(READ_LIMITS[warning]);
 
@@ -208,7 +251,7 @@ export function reviewFileFor(document: NormalizedDocument, fileName: string): R
   const version = document.version ?? document.blocks[0]?.source.documentVersion;
   return {
     fileId: document.fileId,
-    document: { name: fileName.slice(0, 255), kind: document.kind, id: document.id, ...(version ? { version } : {}), segments },
+    document: { name: fileName.slice(0, 255), kind: document.kind, id: document.id, ...(version ? { version } : {}), profile, segments },
     sources,
     coverage,
     imagesUnread: (document.media?.length ?? 0) > 0 || document.warnings.some((warning) => warning.endsWith("_IMAGE_OMITTED")),
