@@ -26,6 +26,8 @@ interface ProviderErrorMetadata {
   providerType?: string;
   providerRequestId?: string;
   providerReason?: "unsupported_parameter" | "unsupported_response_format" | "invalid_request" | "model_restriction" | "payload_constraint" | "provider_rejected";
+  /** Which rate limit a 429 hit: per-day token quota (TPD) needs hours, per-minute (TPM/RPM) seconds. */
+  providerLimit?: "TPD" | "TPM" | "RPD" | "RPM";
 }
 
 const claimContentSchema = z.object({
@@ -391,6 +393,7 @@ async function providerError(
     providerType: metadata.providerType,
     providerRequestId: metadata.providerRequestId,
     providerReason: metadata.providerReason,
+    providerLimit: metadata.providerLimit,
     requestId: context.requestId,
     operation: context.operation,
     timestamp: new Date().toISOString(),
@@ -415,11 +418,13 @@ async function providerErrorMetadata(response: Response): Promise<ProviderErrorM
     if (!parsed.success) return { providerRequestId };
     const providerCode = parsed.data.error.code === undefined ? undefined : String(parsed.data.error.code).slice(0, 120);
     const providerType = parsed.data.error.type?.slice(0, 120);
+    const limit = /\((TPD|TPM|RPD|RPM)\)/u.exec(parsed.data.error.message ?? "")?.[1] as ProviderErrorMetadata["providerLimit"];
     return {
       providerCode,
       providerType,
       providerRequestId,
       providerReason: classifyProviderReason(parsed.data.error.message, providerCode, providerType),
+      ...(limit ? { providerLimit: limit } : {}),
     };
   } catch {
     return { providerRequestId };

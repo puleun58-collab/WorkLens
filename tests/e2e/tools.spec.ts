@@ -1179,11 +1179,11 @@ test("RESEARCH distinguishes empty, low-relevance and partial evidence without a
   await expect(overview.locator("h3")).toHaveText("직접 관련된 근거가 충분하지 않습니다");
   // The specific follow-up replaces the generic uncertainty instead of repeating it.
   await expect(overview).toContainText("추가로 필요한 정보 근무 기간은 얼마나 되나요?");
-  // Distinct issues flow on one line with a separator, under their own rule.
-  const issues = overview.locator(".research-issues li");
-  await expect(issues).toHaveText(["해고의 정당성", "해고 절차", "해고예고"]);
-  const [first, last] = [await issues.nth(0).boundingBox(), await issues.nth(2).boundingBox()];
-  expect(Math.abs(first!.y - last!.y)).toBeLessThan(1);
+  // After the search, each issue is a row naming how far its evidence got; "none" never reads as "no law".
+  await expect(overview.locator(".research-issues > span").first()).toHaveText("확인한 쟁점");
+  await expect(overview.locator(".research-issue-label")).toHaveText(["해고의 정당성", "해고 절차", "해고예고"]);
+  await expect(overview.locator(".research-issue-status")).toHaveText(["직접 관련 근거 미확인", "직접 관련 근거 미확인", "직접 관련 근거 미확인"]);
+  await expect(overview).not.toContainText(/근거 없음|NONE|FOUND/u);
   await expect(overview).not.toContainText("근로계약의 형태는 확인되지 않았습니다.");
   await expect(overview).not.toContainText("근로계약이 종료되었");
   await expect(page.locator(".research-selected")).toHaveCount(0);
@@ -1196,6 +1196,12 @@ test("RESEARCH distinguishes empty, low-relevance and partial evidence without a
   await run.click();
   await expect(page.locator(".legal-analysis-missing h3")).toHaveText("관련 근거를 확인하지 못했습니다");
   await expect(page.locator(".legal-analysis-missing")).toContainText("자료 없음");
+  // Before any evidence is assessed, the issues flow on one line under their own rule.
+  const pending = page.locator(".legal-analysis-missing .research-issues li");
+  await expect(page.locator(".legal-analysis-missing .research-issues > span").first()).toHaveText("살펴볼 쟁점");
+  await expect(pending).toHaveText(["해고의 정당성", "해고 절차", "해고예고"]);
+  const [first, last] = [await pending.nth(0).boundingBox(), await pending.nth(2).boundingBox()];
+  expect(Math.abs(first!.y - last!.y)).toBeLessThan(1);
   await expect(page.locator(".legal-analysis-missing")).not.toContainText("get_law_text");
   await query.fill("일부 근거");
   await run.click();
@@ -1205,6 +1211,7 @@ test("RESEARCH distinguishes empty, low-relevance and partial evidence without a
   const selected = page.locator(".research-selected");
   const groups = selected.locator(".research-issue-evidence");
   await expect(groups.locator("h3")).toHaveText(["해고의 정당성", "해고 절차", "해고예고"]);
+  await expect(overview.locator(".research-issue-status")).toHaveText(["근거 확인", "근거 확인", "직접 관련 근거 미확인"]);
   // The article and the case; the case filed under two ids is listed once.
   await expect(groups.nth(0).locator(".research-hits > li")).toHaveCount(2);
   await expect(groups.nth(0)).toContainText("근로기준법 제23조");
@@ -1219,6 +1226,8 @@ test("RESEARCH distinguishes empty, low-relevance and partial evidence without a
   await run.click();
   await expect(overview.locator("h3")).toHaveText("관련 근거를 일부 확인했습니다");
   await expect(page.locator(".legal-research-partial")).toHaveText("일부 쟁점의 자료를 확인하지 못했습니다. 확인된 자료를 기준으로 결과를 표시합니다.");
+  // Failed and unfinished lookups are not "not found".
+  await expect(overview.locator(".research-issue-status")).toHaveText(["근거 확인", "자료 확인 실패", "조회 미완료"]);
   await expect(groups.nth(1)).toContainText("자료를 불러오지 못해 확인하지 못했습니다.");
   await expect(groups.nth(2)).toContainText("조회를 마치지 못해 확인하지 못했습니다.");
 });

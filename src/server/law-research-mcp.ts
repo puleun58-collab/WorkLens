@@ -1,4 +1,4 @@
-import type { EvidenceArticle, IssueEvidence, LawCurrency, LawResearchAbsent, LawResearchData, LawResearchRequest, ResearchIssue } from "@/lib/law-research";
+import type { EvidenceArticle, InterpretationFailure, IssueEvidence, LawCurrency, LawResearchAbsent, LawResearchData, LawResearchRequest, ResearchIssue } from "@/lib/law-research";
 import { researchResult, type ResearchDecision } from "@/lib/law-research-parse";
 import {
   questionTerms, rankPrecedent, researchEvidenceSources,
@@ -97,7 +97,23 @@ async function fullResearch(
 ): Promise<LawResearchData | LawResearchAbsent> {
   // An interpretation may be unavailable without taking away the original
   // question's existing search path. It never supplies factual evidence.
-  const interpretation = await interpretResearchQuery(query, context).catch(() => undefined);
+  // The cause is logged (never the question) so a recurring fallback can be traced:
+  // a provider quota, a schema rejection and a malformed answer look alike to the user.
+  const interpretationStarted = Date.now();
+  let interpretationFailure: InterpretationFailure | undefined;
+  const interpretation = await interpretResearchQuery(query, context).catch((error: unknown) => {
+    const failure = error instanceof ApiError ? error : undefined;
+    console.warn("[research] interpretation unavailable, searching the question as written", {
+      requestId: context.requestId,
+      operation: "research-interpretation",
+      code: failure?.code ?? (error instanceof Error ? error.name : "UNKNOWN"),
+      status: failure?.status,
+      retryAfterMs: failure?.retryAfterMs,
+      durationMs: Date.now() - interpretationStarted,
+    });
+    interpretationFailure = failure?.code === "AI_RATE_LIMITED" ? "rate-limited" : "unavailable";
+    return undefined;
+  });
   if (context.signal?.aborted) throw new ApiError("LAW_REQUEST_ABORTED", "요청이 취소되었습니다.", 499);
   // Each issue carries its own short search phrase; the question is searched as written only when it could not be read.
   const issues: Array<ResearchIssue | { label?: undefined; query: string }> = interpretation?.issues.length ? interpretation.issues : [{ query }];
@@ -127,7 +143,7 @@ async function fullResearch(
   }
   // Without an interpretation there is nothing else to search: the chain's own outcome stands.
   if (!interpretation && chain.kind === "failed") throw chain.error;
-  if (!interpretation && chain.kind === "absent") return { found: false, task: "full_research", marker: "NOT_FOUND", text: chain.text };
+  if (!interpretation && chain.kind === "absent") return { found: false, task: "full_research", marker: "NOT_FOUND", text: chain.text, ...(interpretationFailure ? { interpretationFailure } : {}) };
 
   const found = chain.kind === "found" ? chain : undefined;
   const document = researchResult(found?.text ?? "");
@@ -204,6 +220,7 @@ async function fullResearch(
       ...(chain.kind === "failed" ? { searchFailed: true as const } : {}),
     },
     ...(interpretation ? { interpretation } : {}),
+    ...(interpretationFailure ? { interpretationFailure } : {}),
   };
 }
 
