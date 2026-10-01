@@ -15,6 +15,8 @@ import { collectPolishCandidates } from "@/lib/polish/candidates";
 import { autoExtract } from "@/lib/extract/auto";
 import { extractRequestedFields } from "@/lib/extract/fields";
 import { documentAnalysisTopics } from "@/lib/analysis-presentation";
+import { buildSupplementDraft } from "@/lib/supplement/engine";
+import { isSupplementFileKind, SUPPLEMENT_UNSUPPORTED_DETAIL, SUPPLEMENT_UNSUPPORTED_TITLE } from "@/domain/supplement";
 import {
   DocumentError,
   assertWorkspaceWithinLimit,
@@ -241,6 +243,13 @@ async function handle(request: WorkerRequest): Promise<unknown> {
     case "forget": {
       for (const fileId of request.fileIds) documents.delete(fileId);
       return { released: documents.size };
+    }
+    case "supplement": {
+      const selected = requireDocuments(request.fileIds);
+      if (selected.some((entry) => !isSupplementFileKind(entry.document.kind))) {
+        throw new DocumentError("SUPPLEMENT_UNSUPPORTED", SUPPLEMENT_UNSUPPORTED_TITLE, SUPPLEMENT_UNSUPPORTED_DETAIL);
+      }
+      return buildSupplementDraft(selected.map((entry) => ({ document: entry.document, fileName: entry.file.name })));
     }
   }
 }

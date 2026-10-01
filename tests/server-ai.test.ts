@@ -73,6 +73,18 @@ describe("server AI request boundary", () => {
       expect(() => parseAiApiRequest({ kind: "polish-batch", mode: "default", items })).toThrow("AI 요청 형식이 올바르지 않습니다.");
     }
   });
+
+  it("accepts a supplement review only when every check cites transmitted evidence", () => {
+    const checks = [{ id: "C1", statement: "물류비 18% 증가", requirement: "물류비 증가의 원인", handles: [evidence[0].handle] }];
+    expect(parseAiApiRequest({ kind: "supplement-review", checks, items: evidence })).toMatchObject({ kind: "supplement-review", checks });
+    for (const invalid of [
+      [{ ...checks[0], handles: ["E99"] }],
+      [checks[0], checks[0]],
+      Array.from({ length: 7 }, (_, index) => ({ ...checks[0], id: `C${index + 1}` })),
+    ]) {
+      expect(() => parseAiApiRequest({ kind: "supplement-review", checks: invalid, items: evidence })).toThrow("AI 요청 형식이 올바르지 않습니다.");
+    }
+  });
 });
 
 describe("server AI route boundary", () => {

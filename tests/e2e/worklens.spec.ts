@@ -2434,7 +2434,7 @@ test("keeps empty upload actions singular and restores header actions after uplo
   const dropzone = page.locator(".dropzone");
 
   await expect(page.locator(".rail-group-label")).toHaveText(["WORKSPACE", "RESEARCH", "TOOLS"]);
-  await expect(page.locator(".rail-list:not(.rail-tools-list) .rail-item span")).toHaveText(["분석", "질문", "비교", "검수", "윤문", "추출", "취합"]);
+  await expect(page.locator(".rail-list:not(.rail-tools-list) .rail-item span")).toHaveText(["분석", "질문", "비교", "검수", "보완", "윤문", "추출", "취합"]);
   await expect(page.locator(".rail-tools-list .rail-item span")).toHaveText(["법령", "PDF 도구", "이미지 도구"]);
   await expect(context.locator(".context-files")).toContainText("작업 파일");
   await expect(context.locator(".context-counts")).toHaveText("0개");
@@ -2561,6 +2561,7 @@ test("uses task-focused labels and concise execution buttons", async ({ page }) 
     ["질문", "질문하기"],
     ["비교", "파일 비교"],
     ["검수", "문서 검수"],
+    ["보완", "자료 보완"],
     ["윤문", "문서 윤문"],
     ["추출", "정보 추출"],
     ["취합", "문서 취합"],

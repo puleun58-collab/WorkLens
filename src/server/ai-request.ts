@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { POLISH_BATCH_MAX_CHARS, POLISH_BATCH_MAX_ITEMS, type AiApiRequest } from "@/lib/ai/api";
+import { POLISH_BATCH_MAX_CHARS, POLISH_BATCH_MAX_ITEMS, SUPPLEMENT_REVIEW_MAX_CHECKS, type AiApiRequest } from "@/lib/ai/api";
 import { evidenceCharBudget, MAX_EVIDENCE_CHARS, MAX_EVIDENCE_ITEM_CHARS, MAX_EVIDENCE_ITEMS } from "@/lib/ai/prompt";
 import { POLISH_SEGMENT_MAX_CHARS } from "@/lib/polish/candidates";
 import { ApiError } from "@/server/http";
@@ -58,6 +58,22 @@ const aiApiRequestSchema = z.discriminatedUnion("kind", [
     field: boundedText(MAX_FIELD_CHARS),
     items: extractEvidenceSchema,
   }).strict(),
+  z.object({
+    kind: z.literal("supplement-review"),
+    checks: z.array(z.object({
+      id: z.string().trim().toUpperCase().regex(/^C[1-9]$/u),
+      statement: boundedText(MAX_EVIDENCE_ITEM_CHARS),
+      requirement: boundedText(MAX_FIELD_CHARS),
+      handles: z.array(z.string().trim().toUpperCase().regex(/^E[1-9][0-9]?$/u)).min(1).max(MAX_EVIDENCE_ITEMS),
+    }).strict()).min(1).max(SUPPLEMENT_REVIEW_MAX_CHECKS),
+    items: extractEvidenceSchema,
+  }).strict().superRefine((value, context) => {
+    const handles = new Set(value.items.map((item) => item.handle));
+    if (new Set(value.checks.map((check) => check.id)).size !== value.checks.length
+      || value.checks.some((check) => check.handles.some((handle) => !handles.has(handle)))) {
+      context.addIssue({ code: "custom", message: "점검 항목과 근거가 일치하지 않습니다." });
+    }
+  }),
 ]).superRefine((value, context) => {
   if (value.kind === "claims"
     && value.items.reduce((total, item) => total + item.text.length, 0) > evidenceCharBudget(value.request.operation)) {
