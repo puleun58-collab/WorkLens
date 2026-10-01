@@ -10,7 +10,7 @@ import { workerEnv } from "@/server/cf-env";
 import { ApiError } from "@/server/http";
 
 const GROQ_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions";
-const GROQ_MODEL = "openai/gpt-oss-20b";
+const GROQ_MODEL = "openai/gpt-oss-120b";
 const REQUEST_TIMEOUT_MS = 30_000;
 
 type Message = { role: "system" | "user"; content: string };

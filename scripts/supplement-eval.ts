@@ -2,7 +2,7 @@
  * 보완 quality evaluation with the live model.
  *
  *   bun scripts/supplement-eval.ts [--set fixed|realistic|development|holdout] [--repeat 3] [--offline]
- *     [--endpoint https://worklens.example] [--model openai/gpt-oss-20b] [--budget 1200] [--plan] [--save-baseline]
+ *     [--endpoint https://worklens.example] [--model openai/gpt-oss-120b] [--budget 1200] [--plan] [--save-baseline]
  *
  * `development` is fixed + realistic (the cases fixes may be tuned against);
  * `holdout` is final verification only. Unknown options stop the run. The
