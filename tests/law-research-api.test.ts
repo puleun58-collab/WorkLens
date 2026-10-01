@@ -90,7 +90,8 @@ describe("fixed legal_research API", () => {
       const result = await call(input);
       expect(result.status).toBe(200);
       expect(result.json.data).toEqual({ found: true, task: input.task, text: `${text}\n[NOT_FOUND] 일부 결과\n[NOT_FOUND] 다른 항목`, markers: ["NOT_FOUND"],
-        ...(input.task === "full_research" ? { evidence: { status: "unverified", articles: [], precedents: [],
+        // No AI is configured here, so the question was searched as written and the reason is kept.
+        ...(input.task === "full_research" ? { interpretationFailure: "unavailable", evidence: { status: "unverified", articles: [], precedents: [],
           issues: [{ status: "none", articles: [], precedents: [] }] } } : {}) });
       const upstream = toolCall(fetcher, i);
       expect(String(upstream.url)).toBe(ENDPOINT);
@@ -140,10 +141,10 @@ describe("fixed legal_research API", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(toolText(partial))
       .mockResolvedValueOnce(toolText(" \n[NOT_FOUND] 법령이 없습니다.", true))
       .mockResolvedValueOnce(toolText("[LAW_NOT_FOUND] 법령이 없습니다.", true)));
-    expect((await call(base)).json.data).toEqual({ found: true, task: "full_research", text: partial,
+    expect((await call(base)).json.data).toEqual({ found: true, task: "full_research", text: partial, interpretationFailure: "unavailable",
       markers: ["REQUEST_TIMEOUT"], evidence: { status: "unverified", articles: [], precedents: [], issues: [{ status: "none", articles: [], precedents: [] }] } });
-    expect((await call(base)).json.data).toEqual({ found: false, task: "full_research", marker: "NOT_FOUND", text: " \n[NOT_FOUND] 법령이 없습니다." });
-    expect((await call(base)).json.data).toEqual({ found: false, task: "full_research", marker: "NOT_FOUND", text: "[LAW_NOT_FOUND] 법령이 없습니다." });
+    expect((await call(base)).json.data).toEqual({ found: false, task: "full_research", marker: "NOT_FOUND", text: " \n[NOT_FOUND] 법령이 없습니다.", interpretationFailure: "unavailable" });
+    expect((await call(base)).json.data).toEqual({ found: false, task: "full_research", marker: "NOT_FOUND", text: "[LAW_NOT_FOUND] 법령이 없습니다.", interpretationFailure: "unavailable" });
   });
 
   it("rejects unknown tasks, missing/bad fields, cross-task fields and caller-selected transport without leaking input", async () => {

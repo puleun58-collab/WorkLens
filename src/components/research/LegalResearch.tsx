@@ -278,12 +278,23 @@ function groupOf(section: ResearchSection, task: LawResearchTask): ResearchGroup
   return "other";
 }
 
+/** Per-issue outcome in the reader's words; `none` is "not found in this search", never "no law". */
+const ISSUE_STATUS_LABEL: Record<IssueEvidence["status"], string> = {
+  found: "근거 확인",
+  none: "직접 관련 근거 미확인",
+  failed: "자료 확인 실패",
+  timeout: "조회 미완료",
+};
+
 /** 입력한 질문 → 이렇게 이해했어요 → 살펴볼 쟁점: sibling blocks, each opened by the same rule; empty ones are not rendered. */
-function ResearchUnderstanding({ interpretation }: { interpretation: ResearchInterpretation }) {
+function ResearchUnderstanding({ interpretation, evidence = [] }: { interpretation: ResearchInterpretation; evidence?: readonly IssueEvidence[] }) {
   // The model often restates the question verbatim; showing it twice adds nothing.
   const situation = interpretation.situation.replace(/\s+/gu, "") !== interpretation.original.replace(/\s+/gu, "") ? interpretation.situation : "";
   const issues = interpretation.issues.map((issue) => issue.label.trim()).filter(Boolean);
   const note = interpretation.followUp || interpretation.uncertainty;
+  // Once the issues were searched, the list says how far each one got (확인한 근거 below is grouped the same way).
+  const statusOf = (label: string) => evidence.find((entry) => entry.label?.trim() === label);
+  const assessed = issues.some((issue) => statusOf(issue));
   return <>
     {(situation || note) && <div className="research-original research-understanding">
       <span>이렇게 이해했어요</span>
@@ -293,9 +304,15 @@ function ResearchUnderstanding({ interpretation }: { interpretation: ResearchInt
         ? <p className="research-meta"><b>추가로 필요한 정보</b> {interpretation.followUp}</p>
         : interpretation.uncertainty && <p className="research-meta">{interpretation.uncertainty}</p>}
     </div>}
-    {issues.length > 0 && <div className="research-original research-issues">
-      <span>살펴볼 쟁점</span>
-      <ul>{issues.map((issue, index) => <li key={index}>{issue}</li>)}</ul>
+    {issues.length > 0 && <div className={`research-original research-issues${assessed ? " is-assessed" : ""}`}>
+      <span>{assessed ? "확인한 쟁점" : "살펴볼 쟁점"}</span>
+      <ul>{issues.map((issue, index) => {
+        const entry = statusOf(issue);
+        return <li key={index}>
+          <span className="research-issue-label">{issue}</span>
+          {entry && <span className="research-issue-status" data-status={entry.status}>{ISSUE_STATUS_LABEL[entry.status]}</span>}
+        </li>;
+      })}</ul>
     </div>}
   </>;
 }
@@ -562,7 +579,7 @@ function ResearchResult({ data, request }: { data: LawResearchData; request: Law
       <span className="research-eyebrow">{LAW_RESEARCH_TASKS.find((item) => item.value === data.task)?.label}</span>
       <h3 className="legal-analysis-title" data-status={status}>{STATUS_TITLE[status]}</h3>
       {request.task !== "document_review" && <div className="research-original"><span>입력한 질문</span><p>{request.query}</p></div>}
-      {interpretation && <ResearchUnderstanding interpretation={interpretation} />}
+      {interpretation && <ResearchUnderstanding interpretation={interpretation} evidence={issueEvidence} />}
       {full && !data.interpretation && <p className="research-meta research-uninterpreted">{UNINTERPRETED_NOTE}</p>}
       <p className="research-caution">{status === "matched" || status === "partial"
         ? `${full ? "확인한 근거는" : "조회한 자료는"} 관련 쟁점을 검토하기 위한 자료이며, 구체적인 사건의 법적 결론을 의미하지 않습니다.`

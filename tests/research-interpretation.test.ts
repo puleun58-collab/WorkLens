@@ -42,6 +42,24 @@ describe("research query interpretation", () => {
     expect(answer.issues).toEqual([{ label: "부당해고 여부", query: "부당해고" }, { label: "임금체불", query: "임금 체불" }]);
   });
 
+  it("keeps dismissal and severance pay as two issues for a short two-issue question", async () => {
+    process.env.GROQ_API_KEY = "test-provider-key";
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(completion({ ...proposal, facts: ["해고됨", "퇴직금 미지급"], issues: [
+      { label: "부당해고 여부", query: "부당해고" },
+      { label: "퇴직금", query: "퇴직금 지급" },
+    ] })));
+    const answer = await interpretResearchQuery("회사에서 잘렸는데 퇴직금도 못받았어", context);
+    expect(answer.issues.map((issue) => issue.label)).toEqual(["부당해고 여부", "퇴직금"]);
+  });
+
+  it("surfaces a daily quota 429 as a rate-limit error instead of an empty reading", async () => {
+    process.env.GROQ_API_KEY = "test-provider-key";
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: {
+      message: "Rate limit reached for model on tokens per day (TPD): Limit 200000, Used 199673, Requested 1804.", type: "tokens", code: "rate_limit_exceeded",
+    } }), { status: 429, headers: { "retry-after": "639" } })));
+    await expect(interpretResearchQuery("회사에서 잘렸어", context)).rejects.toMatchObject({ code: "AI_RATE_LIMITED", status: 429 });
+  });
+
   it("keeps an interpretation with no identifiable issue so its follow-up can ask what happened", async () => {
     process.env.GROQ_API_KEY = "test-provider-key";
     const vague = { ...proposal, situation: "회사에서 문제가 생긴 상황으로 이해했습니다.", facts: [], issues: [], uncertainty: null,

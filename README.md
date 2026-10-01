@@ -58,6 +58,7 @@ bun run dev      # http://localhost:3000
 | 변수 | 설명 |
 | --- | --- |
 | `GROQ_API_KEY` | 서버 AI 사용. 없으면 AI 기능만 비활성 |
+| `GROQ_EVAL_API_KEY` | `eval:supplement:live` 전용 키. 운영 키(`GROQ_API_KEY`)는 모델별 일일 토큰 한도를 운영 AI 기능과 공유하므로 평가에는 쓰지 않으며, 꼭 필요하면 `--shared-key`로 명시 |
 | `LAW_OC`, `LAW_MCP_URL` | 법령 서비스 인증키와 주소. 없으면 법령 기능 비활성 |
 | `WORKLENS_ADMIN_PASSWORD` | 공용 용어 관리자 로그인 |
 | `WORKLENS_ADMIN_SESSION_SECRET` | 관리자 세션 서명 키 |

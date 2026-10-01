@@ -211,3 +211,14 @@ p.research-meta { margin: 0; }
   .legal-research .research-overview { padding: 18px 16px 20px; }
   .legal-research .research-group { gap: 8px; }
 }
+
+/* After the search, each issue is a row: its label, then how far its evidence got. */
+.legal-research .research-issues.is-assessed ul { display: grid; gap: 4px; }
+.legal-research .research-issues.is-assessed li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 8px; min-width: 0; }
+.legal-research .research-issues.is-assessed li + li::before { content: none; }
+.legal-research .research-issue-label { min-width: 0; overflow-wrap: anywhere; }
+.legal-research .research-issue-status { color: var(--muted); font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); }
+.legal-research .research-issue-status::before { content: "·"; margin-right: 8px; color: var(--muted); font-weight: normal; }
+.legal-research .research-issue-status[data-status="found"] { color: var(--ink); }
+.legal-research .research-issue-status[data-status="failed"],
+.legal-research .research-issue-status[data-status="timeout"] { color: var(--warning); }

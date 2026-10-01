@@ -123,6 +123,9 @@ export function lawResearchRequestFor(task: LawResearchTask, draft: LawResearchD
   }
 }
 
+/** The AI reading was skipped: the provider quota ("rate-limited") or anything else ("unavailable"). */
+export type InterpretationFailure = "rate-limited" | "unavailable";
+
 /** One legal question: a short label to show and a short phrase to search with (never the user's whole sentence). */
 export interface ResearchIssue {
   label: string;
@@ -166,6 +169,8 @@ export interface LawResearchData {
   enrichment?: ResearchEnrichment;
   /** 종합 리서치 only: interpretation is tentative; source evidence is assessed separately. */
   interpretation?: ResearchInterpretation;
+  /** 종합 리서치 only: why the question could not be split into issues, so weak evidence is not read as "no law". */
+  interpretationFailure?: InterpretationFailure;
   /** `matched` requires source content to address an issue, not just a search hit. */
   evidence?: {
     status: "matched" | "partial" | "unverified";
@@ -214,6 +219,8 @@ export interface LawResearchAbsent {
   marker: "NOT_FOUND";
   /** Available when semantic interpretation succeeded but official search returned no material. */
   interpretation?: ResearchInterpretation;
+  /** Why the question could not be split into issues, when it could not. */
+  interpretationFailure?: InterpretationFailure;
   text: string;
 }
 
