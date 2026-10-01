@@ -5,7 +5,7 @@ import {
   AMENDMENT_SCENARIOS, DISPUTE_DOMAINS, EMPTY_RESEARCH_DRAFT, LAW_RESEARCH_DOCUMENT_MAX_CHARS, LAW_RESEARCH_DOCUMENT_MIN_CHARS,
   LAW_RESEARCH_ERROR, LAW_RESEARCH_NAME_MAX_CHARS, LAW_RESEARCH_QUERY_MAX_CHARS, LAW_RESEARCH_TASKS, lawResearchOutcome, lawResearchRequestFor,
   type AmendmentScenario, type DisputeDomain, type LawResearchData, type LawResearchDraft, type LawResearchOutcome,
-  type LawCurrency, type LawResearchRequest, type LawResearchTask, type OrdinanceRegionResult, type ResearchInterpretation,
+  type IssueEvidence, type LawCurrency, type LawResearchRequest, type LawResearchTask, type OrdinanceRegionResult, type ResearchInterpretation,
 } from "@/lib/law-research";
 import { isSupportingSection, researchResult, type ResearchDecision, type ResearchSection } from "@/lib/law-research-parse";
 import { lawDisplayText } from "@/lib/law-display";
@@ -200,6 +200,8 @@ export function LegalResearch() {
             {current.request.task !== "document_review" && <div className="research-original"><span>입력한 질문</span><p>{current.request.query}</p></div>}
             {current.request.task === "full_research" && current.outcome.data.interpretation?.original === current.request.query
               && <ResearchUnderstanding interpretation={current.outcome.data.interpretation} />}
+            {current.request.task === "full_research" && !current.outcome.data.interpretation
+              && <p className="research-meta research-uninterpreted">{UNINTERPRETED_NOTE}</p>}
             <p className="research-caution">조회되지 않았다고 관련 법령이나 판례가 없다는 뜻은 아닙니다.</p>
           </header>
         </div>
@@ -280,7 +282,7 @@ function groupOf(section: ResearchSection, task: LawResearchTask): ResearchGroup
 function ResearchUnderstanding({ interpretation }: { interpretation: ResearchInterpretation }) {
   // The model often restates the question verbatim; showing it twice adds nothing.
   const situation = interpretation.situation.replace(/\s+/gu, "") !== interpretation.original.replace(/\s+/gu, "") ? interpretation.situation : "";
-  const issues = interpretation.issues.map((issue) => issue.trim()).filter(Boolean);
+  const issues = interpretation.issues.map((issue) => issue.label.trim()).filter(Boolean);
   const note = interpretation.followUp || interpretation.uncertainty;
   return <>
     {(situation || note) && <div className="research-original research-understanding">
@@ -330,6 +332,17 @@ function SupplementView({ supplement, hasArticles, excluded }: { supplement: Non
     })}</ul>
   </div>;
 }
+
+/** Shown when the question could not be split into issues this time (e.g. the AI service was busy). */
+const UNINTERPRETED_NOTE = "질문을 쟁점별로 나누지 못해 입력한 문장으로 검색했습니다. 잠시 후 다시 실행하면 쟁점별로 확인할 수 있습니다.";
+
+/** Why an issue has no confirmed source: nothing addressed it, or its lookups could not answer. */
+const ISSUE_GAP: Record<IssueEvidence["status"], string> = {
+  found: "표시할 수 있는 근거 원문이 없습니다.",
+  none: "직접 관련된 근거를 찾지 못했습니다.",
+  failed: "자료를 불러오지 못해 확인하지 못했습니다.",
+  timeout: "조회를 마치지 못해 확인하지 못했습니다.",
+};
 
 const STATUS_NOTE: Record<Exclude<ResearchSection["status"], "available">, string> = {
   not_found: "자료 없음",
@@ -475,8 +488,12 @@ function OrdinanceArticleCell({ article, effective }: {
 
 function ResearchResult({ data, request }: { data: LawResearchData; request: LawResearchRequest }) {
   const result = researchResult(data.text);
-  const notice = partialNotice(result.sections);
   const full = data.task === "full_research";
+  const issueEvidence = full ? data.evidence?.issues ?? [] : [];
+  const notice = partialNotice(result.sections)
+    ?? (full && data.evidence?.searchFailed ? "종합 검색 결과를 불러오지 못해 쟁점별로 확인한 자료만 표시합니다."
+      : issueEvidence.some((issue) => issue.status === "failed" || issue.status === "timeout")
+        ? "일부 쟁점의 자료를 확인하지 못했습니다. 확인된 자료를 기준으로 결과를 표시합니다." : null);
   const interpretation = full && data.interpretation?.original === (request.task === "document_review" ? "" : request.query) ? data.interpretation : undefined;
   const primary = result.sections.filter((section) => !isSupportingSection(section)
     && !/^\s*(?:STEP\s*\d+|(?:OPEN\s+)?API\b)/iu.test(section.heading ?? "")
@@ -498,13 +515,23 @@ function ResearchResult({ data, request }: { data: LawResearchData; request: Law
   }))];
   const selectedArticles = [...new Map(sourceArticles.filter((article) => selectedArticleKeys.has(`${article.law}\u0000${article.jo}`) && readerText(article.excerpt))
     .map((article) => [`${article.law}\u0000${article.jo}`, article] as const)).values()];
-  const selectedCases = [...new Map(result.sections.filter((section) => section.status === "available")
-    .flatMap((section) => section.decisions?.entries ?? []).filter((entry) => selectedCaseIds.has(entry.id))
-    .map((entry) => [entry.id, entry] as const)).values()];
+  // Cases an issue found by its own search are not in the combined answer's text; the server lists them separately.
+  const caseEntries = [...result.sections.filter((section) => section.status === "available").flatMap((section) => section.decisions?.entries ?? []),
+    ...Object.entries(full ? data.evidence?.precedentEntries ?? {} : {}).map(([id, entry]) => ({ id, ...entry }))];
+  // The same case can arrive under two serial ids; it is one case, shown once. `caseOf` maps every id to the one shown.
+  const caseOf = new Map<string, string>();
+  const casesByKey = new Map<string, (typeof caseEntries)[number]>();
+  for (const entry of caseEntries.filter((item) => selectedCaseIds.has(item.id))) {
+    const key = entry.caseNumber ? `n\u0000${entry.caseNumber.replace(/\s+/gu, "")}` : `i\u0000${entry.id}`;
+    const kept = casesByKey.get(key) ?? entry;
+    casesByKey.set(key, kept);
+    caseOf.set(entry.id, kept.id);
+  }
+  const selectedCases = [...casesByKey.values()];
   const evidenceStatus = selectedArticles.length + selectedCases.length ? data.evidence?.status : "unverified";
   const unavailableCount = result.sections.filter((section) => section.status !== "available").length;
   const visibleSelectedKeys = new Set(selectedArticles.map((article) => `${article.law}\u0000${article.jo}`));
-  const visibleSelectedCaseIds = new Set(selectedCases.map((entry) => entry.id));
+  const visibleSelectedCaseIds = new Set(caseOf.keys());
   const candidatePrimary: ResearchSection[] = full ? primary.flatMap((section) => {
     if (section.articles) {
       const articles = section.articles.filter((article) => !visibleSelectedKeys.has(`${article.law}\u0000${article.jo}`));
@@ -536,6 +563,7 @@ function ResearchResult({ data, request }: { data: LawResearchData; request: Law
       <h3 className="legal-analysis-title" data-status={status}>{STATUS_TITLE[status]}</h3>
       {request.task !== "document_review" && <div className="research-original"><span>입력한 질문</span><p>{request.query}</p></div>}
       {interpretation && <ResearchUnderstanding interpretation={interpretation} />}
+      {full && !data.interpretation && <p className="research-meta research-uninterpreted">{UNINTERPRETED_NOTE}</p>}
       <p className="research-caution">{status === "matched" || status === "partial"
         ? `${full ? "확인한 근거는" : "조회한 자료는"} 관련 쟁점을 검토하기 위한 자료이며, 구체적인 사건의 법적 결론을 의미하지 않습니다.`
         : status === "weak" ? "조회된 자료가 질문과 직접 관련되는지 확인되지 않았습니다. 아래 자료는 참고용입니다."
@@ -545,9 +573,8 @@ function ResearchResult({ data, request }: { data: LawResearchData; request: Law
     {full && (selectedArticles.length > 0 || selectedCases.length > 0) && <section className="research-group research-selected" aria-label="확인한 근거">
       <h3>확인한 근거</h3>
       <p className="research-meta">질문 쟁점과 내용이 맞는 법제처 자료입니다. 법령의 적용 여부나 판결의 결론까지 확인했다는 뜻은 아닙니다.</p>
-      {selectedArticles.length > 0 && <div className="legal-analysis-section">
-        <h3>조문에서 확인한 내용</h3>
-        <ul className="research-hits">{selectedArticles.map((article) => {
+      {(() => {
+        const articleItem = (article: (typeof selectedArticles)[number]) => {
           const excerpt = readerText(article.excerpt);
           const effective = formatDate(article.effective);
           const currency = data.evidence?.articles?.find((item) => item.law === article.law && item.jo === article.jo)?.currency;
@@ -559,11 +586,9 @@ function ResearchResult({ data, request }: { data: LawResearchData; request: Law
               {[currency && CURRENCY_LABEL[currency], effective && `시행 ${effective}`].filter(Boolean).join(" · ")}
             </span>}
           </li>;
-        })}</ul>
-      </div>}
-      {selectedCases.length > 0 && <div className="legal-analysis-section">
-        <h3>판례에서 확인한 내용</h3>
-        <ul className="research-hits">{selectedCases.map((entry) => {
+        };
+        const caseName = (entry: (typeof selectedCases)[number]) => lawDisplayText(entry.title ?? entry.caseNumber ?? `판례 ${entry.id}`);
+        const caseItem = (entry: (typeof selectedCases)[number]) => {
           const source = supporting.find((section) => section.kind === "detail" && section.lines.some((line) => line.trimStart().startsWith(`[${entry.id}]`)));
           const lines = source?.lines ?? [];
           const start = lines.findIndex((line) => line.trimStart().startsWith(`[${entry.id}]`));
@@ -572,14 +597,34 @@ function ResearchResult({ data, request }: { data: LawResearchData; request: Law
             ?? (start < 0 ? "" : lines.slice(start, next < 0 ? undefined : next).join("\n")));
           const date = formatDate(entry.date);
           return <li key={entry.id}>
-            <strong>{lawDisplayText(entry.title ?? entry.caseNumber ?? `판례 ${entry.id}`)}</strong>
+            <strong>{caseName(entry)}</strong>
             <span className="research-meta">{[entry.caseNumber && `사건번호 ${entry.caseNumber}`, entry.body, date && `선고·회신 ${date}`].filter(Boolean).join(" · ")}</span>
             {excerpt
               ? <details className="law-detail-source research-more"><SourceToggleSummary label="판시사항 근거 보기" openLabel="판시사항 근거 접기" /><LawTextBlock className="legal-analysis-raw" text={excerpt} /></details>
               : <p className="research-meta">판시사항 발췌를 표시할 수 없습니다. 아래 조회 원자료도 대조해 주세요.</p>}
           </li>;
-        })}</ul>
-      </div>}
+        };
+        // Each source is shown once, under the first issue it supports; a later issue names it instead of repeating it.
+        const shown = new Set<string>();
+        const groups: IssueEvidence[] = issueEvidence.length ? issueEvidence
+          : [{ status: "found", articles: data.evidence?.articles ?? [], precedents: data.evidence?.precedents ?? [] }];
+        return groups.map((group, index) => {
+          const articles = selectedArticles.filter((article) => group.articles.some((item) => item.law === article.law && item.jo === article.jo));
+          const cases = selectedCases.filter((entry) => group.precedents.some((id) => caseOf.get(id) === entry.id));
+          const freshArticles = articles.filter((article) => !shown.has(`a\u0000${article.law}\u0000${article.jo}`));
+          const freshCases = cases.filter((entry) => !shown.has(`c\u0000${entry.id}`));
+          const repeated = [...articles.filter((article) => !freshArticles.includes(article)).map((article) => `${article.law} ${article.jo}`),
+            ...cases.filter((entry) => !freshCases.includes(entry)).map(caseName)];
+          for (const article of articles) shown.add(`a\u0000${article.law}\u0000${article.jo}`);
+          for (const entry of cases) shown.add(`c\u0000${entry.id}`);
+          return <div key={index} className="legal-analysis-section research-issue-evidence" data-status={group.status}>
+            {group.label && <h3>{group.label}</h3>}
+            {freshArticles.length + freshCases.length > 0 && <ul className="research-hits">{freshArticles.map(articleItem)}{freshCases.map(caseItem)}</ul>}
+            {repeated.length > 0 && <p className="research-meta">앞 쟁점에서 제시한 근거와 같습니다: {repeated.join(" · ")}</p>}
+            {articles.length + cases.length === 0 && <p className="research-meta">{ISSUE_GAP[group.status]}</p>}
+          </div>;
+        });
+      })()}
     </section>}
     {comparison && <section className="research-group" aria-label="조례 대조">
       <h3>지역별 조례 대조</h3>

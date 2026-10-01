@@ -123,16 +123,36 @@ export function lawResearchRequestFor(task: LawResearchTask, draft: LawResearchD
   }
 }
 
+/** One legal question: a short label to show and a short phrase to search with (never the user's whole sentence). */
+export interface ResearchIssue {
+  label: string;
+  query: string;
+}
+
 /** A tentative reading of the user's own words, never a finding about the law or facts. */
 export interface ResearchInterpretation {
   original: string;
+  /** One short sentence; a long account is summarized, not repeated. */
   situation: string;
-  issues: string[];
-  /** Retrieval hints only; never display these as findings or citations. */
-  searchTerms: string[];
+  /** What the user actually stated, apart from what they ask; contradictory statements are not settled here. */
+  facts: string[];
+  /** Distinct issues in the user's order of concern; same-meaning repeats are merged. */
+  issues: ResearchIssue[];
   confidence: "high" | "medium" | "low";
   uncertainty?: string;
   followUp?: string;
+}
+
+/**
+ * Which sources support which issue. `none`: searched, nothing addressed it; `failed`/`timeout`: its
+ * lookups could not finish, so absence is unknown. An article/case shared by issues is listed under each.
+ */
+export interface IssueEvidence {
+  /** Absent when the question could not be interpreted and was searched as written. */
+  label?: string;
+  status: "found" | "none" | "failed" | "timeout";
+  articles: Array<{ law: string; jo: string }>;
+  precedents: string[];
 }
 
 export interface LawResearchData {
@@ -147,7 +167,18 @@ export interface LawResearchData {
   /** 종합 리서치 only: interpretation is tentative; source evidence is assessed separately. */
   interpretation?: ResearchInterpretation;
   /** `matched` requires source content to address an issue, not just a search hit. */
-  evidence?: { status: "matched" | "partial" | "unverified"; articles?: EvidenceArticle[]; precedents?: string[]; precedentExcerpts?: Record<string, string> };
+  evidence?: {
+    status: "matched" | "partial" | "unverified";
+    articles?: EvidenceArticle[];
+    precedents?: string[];
+    precedentExcerpts?: Record<string, string>;
+    /** 종합 리서치: per-issue attribution of the adopted sources above. */
+    issues?: IssueEvidence[];
+    /** Precedents found by an issue's own search rather than listed in `text`. */
+    precedentEntries?: Record<string, { title?: string; caseNumber?: string; body?: string; date?: string }>;
+    /** The combined 법제처 research search failed; issue lookups alone supplied what is shown. */
+    searchFailed?: true;
+  };
   /** 조례 비교 only: each region's ordinance and the topic articles fetched from 법제처. */
   comparison?: OrdinanceComparison;
 }

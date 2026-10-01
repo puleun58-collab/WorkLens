@@ -1137,21 +1137,34 @@ test("RESEARCH distinguishes empty, low-relevance and partial evidence without a
   await page.route("**/api/law/research", (route) => {
     const { query } = route.request().postDataJSON() as { query: string };
     const interpretation = {
-      original: query, situation: "갑작스러운 해고 문제로 이해했습니다.",
-      issues: ["해고의 정당성", "해고예고"], searchTerms: ["해고", "해고예고"],
+      original: query, situation: "갑작스러운 해고 문제로 이해했습니다.", facts: ["해고 통보를 받음"],
+      issues: [{ label: "해고의 정당성", query: "해고 정당성" }, { label: "해고 절차", query: "해고 서면통지" }, { label: "해고예고", query: "해고예고" }],
       confidence: "medium", uncertainty: "근로계약의 형태는 확인되지 않았습니다.", followUp: "근무 기간은 얼마나 되나요?",
     };
     if (query === "자료 없음") return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
       data: { found: false, task: "full_research", marker: "NOT_FOUND", text: "[NOT_FOUND] get_law_text failed", interpretation },
     }) });
-    const source = query === "일부 근거";
+    const source = query === "일부 근거" || query === "일부 실패";
     const text = source
       ? "═══ 종합 리서치 ═══\n▶ AI 법령검색 결과\n지능형 법령검색 결과 (법령조문, 1건):\n\n근로기준법\n   제0023조 (해고 등의 제한)\n근로자에 대한 해고의 정당성을 판단한다.\n   시행: 2025.01.01 | 고용노동부"
       : "═══ 종합 리서치 ═══\n▶ 관련 판례\n판례 검색 결과 (총 65건, 1페이지):\n\n[9] 다른 사건\n  사건번호: 2025다1";
+    const article23 = { law: "근로기준법", jo: "제23조" };
+    const issues = query === "일부 실패"
+      ? [{ label: "해고의 정당성", status: "found", articles: [article23], precedents: [] },
+        { label: "해고 절차", status: "failed", articles: [], precedents: [] },
+        { label: "해고예고", status: "timeout", articles: [], precedents: [] }]
+      : [{ label: "해고의 정당성", status: "found", articles: [article23], precedents: ["71", "72"] },
+        { label: "해고 절차", status: "found", articles: [article23], precedents: [] },
+        { label: "해고예고", status: "none", articles: [], precedents: [] }];
     return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: {
       found: true, task: "full_research", text, markers: [], interpretation,
-      evidence: source ? { status: "partial", articles: [{ law: "근로기준법", jo: "제23조" }], precedents: [] }
-        : { status: "unverified", articles: [], precedents: [] },
+      evidence: source ? { status: "partial", articles: [article23], issues,
+        // The same case under two serial ids, as the upstream sometimes returns it.
+        ...(query === "일부 근거" ? { precedents: ["71", "72"], precedentEntries: {
+          71: { title: "미지급퇴직금", caseNumber: "95다19256", body: "대법원" },
+          72: { title: "미지급퇴직금", caseNumber: "95다19256", body: "대법원" },
+        } } : { precedents: [] }) }
+        : { status: "unverified", articles: [], precedents: [], issues: interpretation.issues.map(({ label }) => ({ label, status: "none", articles: [], precedents: [] })) },
     } }) });
   });
   await page.goto("/");
@@ -1166,11 +1179,11 @@ test("RESEARCH distinguishes empty, low-relevance and partial evidence without a
   await expect(overview.locator("h3")).toHaveText("직접 관련된 근거가 충분하지 않습니다");
   // The specific follow-up replaces the generic uncertainty instead of repeating it.
   await expect(overview).toContainText("추가로 필요한 정보 근무 기간은 얼마나 되나요?");
-  // Two issues flow on one line with a separator, under their own rule.
+  // Distinct issues flow on one line with a separator, under their own rule.
   const issues = overview.locator(".research-issues li");
-  await expect(issues).toHaveText(["해고의 정당성", "해고예고"]);
-  const [first, second] = [await issues.nth(0).boundingBox(), await issues.nth(1).boundingBox()];
-  expect(Math.abs(first!.y - second!.y)).toBeLessThan(1);
+  await expect(issues).toHaveText(["해고의 정당성", "해고 절차", "해고예고"]);
+  const [first, last] = [await issues.nth(0).boundingBox(), await issues.nth(2).boundingBox()];
+  expect(Math.abs(first!.y - last!.y)).toBeLessThan(1);
   await expect(overview).not.toContainText("근로계약의 형태는 확인되지 않았습니다.");
   await expect(overview).not.toContainText("근로계약이 종료되었");
   await expect(page.locator(".research-selected")).toHaveCount(0);
@@ -1188,8 +1201,26 @@ test("RESEARCH distinguishes empty, low-relevance and partial evidence without a
   await run.click();
   await expect(overview.locator("h3")).toHaveText("관련 근거를 일부 확인했습니다");
   await expect(overview.locator(".research-caution")).toHaveText("확인한 근거는 관련 쟁점을 검토하기 위한 자료이며, 구체적인 사건의 법적 결론을 의미하지 않습니다.");
-  await expect(page.locator(".research-selected")).toContainText("근로기준법 제23조");
+  // Evidence sits under the issue it supports; a source shared by two issues is shown once, and a gap is named.
+  const selected = page.locator(".research-selected");
+  const groups = selected.locator(".research-issue-evidence");
+  await expect(groups.locator("h3")).toHaveText(["해고의 정당성", "해고 절차", "해고예고"]);
+  // The article and the case; the case filed under two ids is listed once.
+  await expect(groups.nth(0).locator(".research-hits > li")).toHaveCount(2);
+  await expect(groups.nth(0)).toContainText("근로기준법 제23조");
+  await expect(groups.nth(0).getByText("사건번호 95다19256")).toHaveCount(1);
+  await expect(groups.nth(1).locator(".research-hits")).toHaveCount(0);
+  await expect(groups.nth(1)).toContainText("앞 쟁점에서 제시한 근거와 같습니다: 근로기준법 제23조");
+  await expect(groups.nth(2)).toContainText("직접 관련된 근거를 찾지 못했습니다.");
+  await expect(page.locator(".legal-research-partial")).toHaveCount(0);
   await expect(overview).not.toContainText("현행");
+  // Issues whose lookups could not answer are named as such, and the partial notice says so.
+  await query.fill("일부 실패");
+  await run.click();
+  await expect(overview.locator("h3")).toHaveText("관련 근거를 일부 확인했습니다");
+  await expect(page.locator(".legal-research-partial")).toHaveText("일부 쟁점의 자료를 확인하지 못했습니다. 확인된 자료를 기준으로 결과를 표시합니다.");
+  await expect(groups.nth(1)).toContainText("자료를 불러오지 못해 확인하지 못했습니다.");
+  await expect(groups.nth(2)).toContainText("조회를 마치지 못해 확인하지 못했습니다.");
 });
 
 test("RESEARCH every task applies the same result rules while keeping its own structure", async ({ page }) => {
@@ -1265,7 +1296,7 @@ test("RESEARCH every task applies the same result rules while keeping its own st
 test("RESEARCH separates a verified article from search candidates and hides internal guidance", async ({ page }) => {
   await page.route("**/api/law/research", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: {
     found: true, task: "full_research", text: fullResearchFixture(), markers: ["NOT_FOUND"],
-    interpretation: { original: "직장 내 괴롭힘 판단 기준", situation: "직장에서 괴롭힘 문제를 겪는 상황으로 이해했습니다.", issues: ["직장 내 괴롭힘"], searchTerms: ["직장 내 괴롭힘"], confidence: "high" },
+    interpretation: { original: "직장 내 괴롭힘 판단 기준", situation: "직장에서 괴롭힘 문제를 겪는 상황으로 이해했습니다.", facts: [], issues: [{ label: "직장 내 괴롭힘", query: "직장 내 괴롭힘" }], confidence: "high" },
     evidence: { status: "matched", articles: [{ law: "근로기준법", jo: "제76조의2", currency: "current" }], precedents: [] },
   } }) }));
   await page.goto("/");
