@@ -3968,8 +3968,7 @@ body {
   background: var(--paper);
 }
 
-.evidence-inspector .source-detail,
-.source-detail.embedded {
+.evidence-inspector .source-detail {
   position: static;
   width: 100%;
   margin: 0;
@@ -7685,6 +7684,8 @@ body {
   flex-wrap: nowrap;
   align-items: center;
   gap: 1px;
+  /* Filter chips carry their own inline padding and border; hang both outside so labels line up with the heading. */
+  margin-left: calc(var(--spacing) * -2.5);
   overflow-x: auto;
   font-size: var(--font-size-sm);
   white-space: nowrap;

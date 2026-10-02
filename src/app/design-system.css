@@ -69,3 +69,5 @@
   --radius-lg: calc(var(--radius) + 2px);
   --radius-xl: calc(var(--radius) + 4px);
 }
+/* A tab indicator can briefly keep its old geometry while the list resizes; never let it widen the page. */
+[data-slot="tabs-list"] { overflow-x: clip; overflow-clip-margin: 4px; }

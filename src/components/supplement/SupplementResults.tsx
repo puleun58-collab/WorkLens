@@ -2,7 +2,6 @@
 
 import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Info } from "lucide-react";
 import type { SourceRef } from "@/domain/document";
 import {
@@ -38,14 +37,14 @@ export function SupplementResults({ result, fileNames, renderSource }: {
   return (
     <div className="result-sections supplement-results">
       <section className="supplement-overview" aria-label="보완 요약">
-        <ToggleGroup className="flex-wrap" variant="outline" aria-label="보완 중요도 필터" value={[filter]} onValueChange={(values) => { if (values[0]) setFilter(values[0] as "all" | SupplementSeverity); }}>
-          <ToggleGroupItem value="all">전체 <b>{result.findings.length}</b></ToggleGroupItem>
+        <div className="check-filters-compact supplement-filters" role="group" aria-label="보완 중요도 필터">
+          <Button type="button" variant={filter === "all" ? "secondary" : "ghost"} size="sm" aria-pressed={filter === "all"} onClick={() => setFilter("all")}>전체 <b>{result.findings.length}</b></Button>
           {SEVERITIES.map((severity) => (
-            <ToggleGroupItem key={severity} value={severity} data-empty={counts[severity] === 0}>
+            <Button key={severity} type="button" variant={filter === severity ? "secondary" : "ghost"} size="sm" data-empty={counts[severity] === 0} aria-pressed={filter === severity} onClick={() => setFilter(severity)}>
               <i className={`severity-mark ${severity}`} aria-hidden="true" />{SUPPLEMENT_SEVERITY_LABELS[severity]} <b>{counts[severity]}</b>
-            </ToggleGroupItem>
+            </Button>
           ))}
-        </ToggleGroup>
+        </div>
         <dl className="supplement-meta">
           <div>
             <dt>자료 유형</dt>

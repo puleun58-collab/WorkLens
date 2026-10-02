@@ -6,7 +6,7 @@
   min-width: 0;
 }
 
-.usage-guide-tabs {
+.usage-guide-tabs[data-slot="tabs-list"] {
   display: flex;
   justify-self: start;
   box-sizing: border-box;
@@ -14,6 +14,7 @@
   max-width: 100%;
   gap: 2px;
   padding: 4px;
+  flex-wrap: nowrap;
   overflow-x: auto;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-button);

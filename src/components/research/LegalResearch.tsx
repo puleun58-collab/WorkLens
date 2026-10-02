@@ -177,7 +177,6 @@ export function LegalResearch({ workspace, initialTask = "full_research", initia
       });
     }
     setTask(next);
-    setPreferenceOverride({});
   }
   const shellEntry = useRef({ task: initialTask, settings: initialReviewSettings });
   useEffect(() => {

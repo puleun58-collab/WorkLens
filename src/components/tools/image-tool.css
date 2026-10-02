@@ -11,8 +11,10 @@
 /* Narrow file list, widest preview, and a settings column wide enough for paired inputs and buttons. */
 .image-tool-layout { display: grid; grid-template-columns: minmax(200px, 236px) minmax(0, 1fr) minmax(280px, 320px); gap: 12px; align-items: stretch; }
 .image-tool-library, .image-tool-stage, .image-tool-controls { min-width: 0; border: 1px solid var(--border-surface); border-radius: var(--radius-panel); background: var(--paper); box-shadow: var(--shadow-surface); }
-/* FILES stretches to the PREVIEW row height; a long list scrolls inside the list, not the panel. */
-.image-tool-library { align-self: stretch; display: flex; flex-direction: column; }
+/* FILES stretches to the PREVIEW row height; a long list scrolls inside the list, not the panel.
+   Size containment keeps the list's own height out of the row, so PREVIEW never grows with it. */
+.image-tool-library { align-self: stretch; display: flex; flex-direction: column; contain: size; }
+.image-tool-library .image-tool-file-list { flex: 1 1 auto; min-height: 0; }
 .image-tool-library, .image-tool-controls { padding: 17px 14px 16px; }
 /* The stage is stretched to the tallest column; the preview takes all of that height. */
 .image-tool-stage { padding: 17px 18px 15px; display: flex; flex-direction: column; }
@@ -86,7 +88,7 @@
   .image-tool-intro { flex-direction: column; gap: 7px; }
   .image-tool-layout { display: flex; flex-direction: column; }
   .image-tool-library, .image-tool-stage, .image-tool-controls { width: 100%; }
-  .image-tool-library { align-self: auto; }
+  .image-tool-library { align-self: auto; contain: none; }
   .image-tool-upload { min-height: 160px; padding: 20px 16px; }
   .image-tool-file-list { max-height: 235px; }
   .image-tool-stage { order: -1; }

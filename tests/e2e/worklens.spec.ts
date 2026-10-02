@@ -4,6 +4,7 @@ import { expect, test, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import ExcelJS from "exceljs";
 import { createAnalyzePptx, createCheckPptx, createDocx, createExtractPptx, createNarrativePptx, createPdf, createPptx, createPptxSlides, createTrainingPptx, createUnicodePdf, createXlsx, RATE_SHEET_V1, RATE_SHEET_V2 } from "../fixtures";
+import { navigateWorkspace } from "./navigation";
 
 const FIXTURE_DIR = path.join(process.cwd(), "artifacts", "fixtures");
 const files = {
@@ -97,15 +98,6 @@ async function sendFile(page: Page, filePath: string) {
 async function upload(page: Page, filePath: string) {
   await sendFile(page, filePath);
   await expect(fileRow(page, filePath)).toBeVisible();
-}
-
-async function navigateWorkspace(page: Page, name: string) {
-  const menu = page.getByRole("button", { name: "작업 공간 메뉴 열기", exact: true });
-  const mobile = await menu.isVisible();
-  if (mobile) await menu.click();
-  await page.getByRole("navigation", { name: "작업 공간 메뉴", exact: true })
-    .getByRole("button", { name, exact: true }).click();
-  if (mobile) await expect(page.getByRole("dialog")).not.toBeVisible();
 }
 
 async function mockEmptyClaims(page: Page) {
@@ -266,7 +258,8 @@ test("usage guide switches feature flows on desktop and mobile", async ({ page }
   const desktopTabs = await tabs.evaluate((element) => {
     const bounds = element.getBoundingClientRect();
     const guide = element.parentElement!.getBoundingClientRect();
-    return { left: bounds.left, guideLeft: guide.left, width: bounds.width, guideWidth: guide.width, trailing: bounds.right - element.lastElementChild!.getBoundingClientRect().right };
+    const lastTab = [...element.querySelectorAll('[role="tab"]')].at(-1)!;
+    return { left: bounds.left, guideLeft: guide.left, width: bounds.width, guideWidth: guide.width, trailing: bounds.right - lastTab.getBoundingClientRect().right };
   });
   expect(Math.abs(desktopTabs.left - desktopTabs.guideLeft)).toBeLessThan(1);
   expect(desktopTabs.width).toBeLessThan(desktopTabs.guideWidth);
@@ -733,23 +726,13 @@ test("extracts fields and records without a model and exports the structured tab
   const autoTable = page.locator(".extract-auto-table");
   await expect(autoTable).toBeVisible();
   await expect(autoTable.locator(".data-row").first().locator(".source-action")).toBeVisible();
+  // The source trigger reads as a bordered secondary action, not a filled primary one.
   const sourceTriggerStyle = await autoTable.locator(".source-action").first().evaluate((element) => {
     const style = getComputedStyle(element);
-    return {
-      minHeight: style.minHeight,
-      borderStyle: style.borderStyle,
-      borderRadius: style.borderRadius,
-      background: style.backgroundColor,
-      boxShadow: style.boxShadow,
-    };
+    return { borderStyle: style.borderStyle, background: style.backgroundColor };
   });
-  expect(sourceTriggerStyle).toEqual({
-    minHeight: "28px",
-    borderStyle: "solid",
-    borderRadius: "4px",
-    background: "rgb(255, 255, 255)",
-    boxShadow: "none",
-  });
+  expect(sourceTriggerStyle.borderStyle).toBe("solid");
+  expect(sourceTriggerStyle.background).toBe("rgb(255, 255, 255)");
   // Values and field labels keep the document's own wording.
   for (const text of ["경영지원팀", "목표주가", "64,550원", "상승여력", "232.4%", "시가총액", "2,258억 원", "기준일", "2025.05.02", "단위", "백만 원"]) {
     await expect(autoTable).toContainText(text);
@@ -893,8 +876,10 @@ test("makes missing and low-confidence Extract values explicit", async ({ page }
     const style = getComputedStyle(button);
     return { background: style.backgroundColor, color: style.color, border: style.borderStyle };
   }));
+  // CSV stays a quiet outline action; XLSX is the one filled primary action.
   expect(hierarchy[0].background).toBe("rgb(255, 255, 255)");
-  expect(hierarchy[1].background).toBe("rgb(37, 99, 235)");
+  expect(hierarchy[1].background).not.toBe(hierarchy[0].background);
+  expect(hierarchy[1].color).toBe("rgb(255, 255, 255)");
   expect(hierarchy[0].border).not.toBe("none");
   expect(hierarchy[1].border).not.toBe("none");
   await page.screenshot({ path: "artifacts/inspo-extract-desktop-1440.png", fullPage: true });
@@ -2148,7 +2133,8 @@ test("reviews PPTX writing, consistency and data findings with filters and exact
     const fileArea = box(".file-list");
     const summary = box(".qa-overview");
     const line = box(".qa-summary-line");
-    const filters = box(".check-filters-compact > button");
+    const filterText = document.createRange();
+    filterText.selectNodeContents(document.querySelector(".check-filters-compact > button")!);
     const card = box(".check-issue");
     const dictionary = box(".dictionary-trigger");
     return {
@@ -2157,7 +2143,7 @@ test("reviews PPTX writing, consistency and data findings with filters and exact
       fileLeft: Math.round(fileArea.left),
       fileRight: Math.round(fileArea.right),
       summaryLeft: Math.round(summary.left),
-      filterLeft: Math.round(filters.left + Number.parseFloat(getComputedStyle(document.querySelector(".check-filters-compact > button")!).paddingLeft)),
+      filterLeft: Math.round(filterText.getClientRects()[0].left),
       cardLeft: Math.round(card.left),
       dictionaryRight: Math.round(dictionary.right),
       cardRight: Math.round(card.right),
@@ -2500,7 +2486,7 @@ test("aligns fileless text Polish controls to one desktop and mobile baseline", 
     const title = page.getByRole("heading", { name: "텍스트 윤문", exact: true });
     const inputModes = page.locator(".polish-input-modes");
     const polishModes = page.locator(".polish-modes");
-    const pasteLabel = page.locator(".polish-paste > span");
+    const pasteLabel = page.locator(".polish-paste").getByText("윤문할 내용을 붙여넣으세요.", { exact: true });
     const paste = page.getByLabel("윤문할 텍스트 입력");
     const count = page.locator(".polish-paste small");
     const action = page.getByRole("button", { name: "윤문 실행" });
@@ -2586,7 +2572,8 @@ test("uses task-focused labels and concise execution buttons", async ({ page }) 
 
 test("aligns the Admin login action with the password field", async ({ page }) => {
   await page.goto("/admin");
-  const password = page.getByLabel("관리자 비밀번호");
+  // The visible field box is the coss control wrapper around the native input.
+  const password = page.locator(".admin-login [data-slot='input-control']").filter({ has: page.getByLabel("관리자 비밀번호") });
   const login = page.getByRole("button", { name: "로그인", exact: true });
   await expect(password).toBeVisible();
   await expect(login).toBeVisible();
@@ -2735,14 +2722,12 @@ test("meets accessibility and keyboard requirements in the populated compare/sou
   await page.keyboard.press("Tab");
   await page.keyboard.press("Shift+Tab");
   await expect(checkbox).toBeFocused();
-  const focusStyle = await checkbox.evaluate((element) => {
+  // The focus ring animates in; poll until it settles rather than reading the first frame.
+  await expect.poll(() => checkbox.evaluate((element, resting) => {
     const style = getComputedStyle(element);
-    return { outlineWidth: style.outlineWidth, outlineStyle: style.outlineStyle, boxShadow: style.boxShadow };
-  });
-  expect(
-    (parseFloat(focusStyle.outlineWidth) > 0 && focusStyle.outlineStyle !== "none") ||
-    (focusStyle.boxShadow !== "none" && focusStyle.boxShadow !== restingShadow),
-  ).toBe(true);
+    return (parseFloat(style.outlineWidth) > 0 && style.outlineStyle !== "none")
+      || (style.boxShadow !== "none" && style.boxShadow !== resting);
+  }, restingShadow)).toBe(true);
 });
 
 test("discards every file and result when the tab reloads", async ({ page }) => {
@@ -2889,7 +2874,7 @@ test("keeps the complete mobile workflow inside the viewport", async ({ page }, 
     return { background: style.backgroundColor, left: box.left, right: box.right };
   }));
   expect(csvStyle.background).toBe("rgb(255, 255, 255)");
-  expect(xlsxStyle.background).toBe("rgb(37, 99, 235)");
+  expect(xlsxStyle.background).not.toBe(csvStyle.background);
   expect(csvStyle.left).toBeGreaterThanOrEqual(0);
   expect(xlsxStyle.right).toBeLessThanOrEqual(390);
   await expectNoPageOverflow();

@@ -322,7 +322,7 @@ export function PdfTool() {
             const source = sourceById.get(page.sourceId);
             if (!source) return null;
             return <article className="pdf-tool-page tool-reorder-x" data-selected={page.selected} key={page.id} {...reorder.itemProps(page.id)}>
-              <div className="pdf-tool-page-top"><span className="pdf-tool-page-grip"><Button variant="ghost" size="icon-sm" {...reorder.handleProps(page.id, `${index + 1}번 페이지`)}><GripVertical aria-hidden="true" /></Button><span className="pdf-tool-page-number">{String(index + 1).padStart(2, "0")}</span></span><Label><Checkbox aria-label={`${index + 1}번 페이지 선택`} checked={page.selected} disabled={busy} onCheckedChange={(checked) => setPages((current) => current.map((item) => item.id === page.id ? { ...item, selected: checked } : item))} /> 선택</Label></div>
+              <div className="pdf-tool-page-top"><span className="pdf-tool-page-grip"><Button variant="ghost" size="icon-sm" {...reorder.handleProps(page.id, `${index + 1}번 페이지`)}><GripVertical aria-hidden="true" /></Button><span className="pdf-tool-page-number">{String(index + 1).padStart(2, "0")}</span></span><Label><Checkbox aria-label={`${index + 1}번 페이지 선택`} checked={page.selected} disabled={busy} onCheckedChange={(checked) => setPages((current) => current.map((item) => item.id === page.id ? { ...item, selected: checked } : item))} /> <span aria-hidden="true">선택</span></Label></div>
               <PdfThumbnail source={source} page={page} queue={queueRender} />
               <div className="pdf-tool-page-meta"><strong title={source.name}>{source.name}</strong><span>원본 {page.pageNumber}페이지 {page.rotation ? `· +${page.rotation}°` : ""}</span></div>
             </article>;

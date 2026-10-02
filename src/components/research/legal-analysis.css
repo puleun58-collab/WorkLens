@@ -220,7 +220,7 @@ p.research-meta { margin: 0; }
 .legal-research .research-issue-status[data-status="timeout"] { color: var(--warning); }
 
 /* The document work area stays primary; execution preferences and guidance form a quiet rail. */
-.legal-research .research-workspace { display: grid; gap: 24px; min-width: 0; }
+.legal-research .research-workspace { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; min-width: 0; }
 .legal-research .research-workspace-main { display: grid; align-content: start; gap: 20px; min-width: 0; }
 .legal-research .research-workspace.is-document { grid-template-columns: minmax(0, 1fr) 264px; align-items: start; }
 .legal-research .research-workspace.is-document > .legal-analysis-result { grid-column: 1; }

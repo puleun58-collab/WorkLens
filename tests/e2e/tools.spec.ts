@@ -8,6 +8,7 @@ import { fullResearchFixture } from "../fixtures/research";
 import { classifyDocument, documentRisk, extractKeyFacts, reviewClauses, segmentsOf, splitClauses, type ContractReview } from "../../src/lib/contract-review";
 import { B2B_SERVICE_CONTRACT, EMPLOYMENT_CONTRACT, SUPPLY_CONTRACT, NDA_CONTRACT } from "../fixtures/contracts";
 import { CLEAN_WORK_RULES } from "../fixtures/review-scenarios";
+import { navigateWorkspace } from "./navigation";
 
 const researchTaskLabels: Record<string, string> = {
   full_research: "종합 리서치", law_system: "법체계 확인", action_basis: "처분·허가 근거",
@@ -18,16 +19,6 @@ const researchTaskLabels: Record<string, string> = {
 async function chooseOption(page: Page, trigger: Locator, label: string) {
   await trigger.click();
   await page.getByRole("option", { name: label, exact: true }).click();
-}
-
-async function navigateWorkspace(page: Page, name: string) {
-  const menu = page.getByRole("button", { name: "작업 공간 메뉴 열기", exact: true });
-  if (await menu.isVisible()) {
-    await menu.click();
-    await page.getByRole("dialog").getByRole("button", { name, exact: true }).click();
-  } else {
-    await page.getByRole("navigation", { name: "작업 공간 메뉴", exact: true }).getByRole("button", { name, exact: true }).click();
-  }
 }
 
 test("TOOLS navigation keeps document files in their own workspace", async ({ page }) => {

@@ -208,7 +208,7 @@ export function UsageGuide() {
   return (
     <section className="usage-guide" aria-label="사용 가이드">
       <Tabs value={active} onValueChange={(value) => setActive(String(value))}>
-      <TabsList className="usage-guide-tabs max-w-full flex-wrap" aria-label="기능 선택" variant="underline">
+      <TabsList className="usage-guide-tabs max-w-full" aria-label="기능 선택" variant="underline" activateOnFocus>
         {GUIDES.map((entry) => <TabsTab key={entry.id} value={entry.id}>{entry.label}</TabsTab>)}
       </TabsList>
       {GUIDES.map((guide) => <TabsPanel key={guide.id} value={guide.id} className="usage-guide-panel">

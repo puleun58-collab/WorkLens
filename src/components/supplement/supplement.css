@@ -10,7 +10,15 @@
 .results-panel:has(> .supplement-results) > .result-inline-warning {
   padding-inline: 0;
 }
+.supplement-filters {
+  flex-wrap: wrap;
+  overflow-x: visible;
+  gap: var(--space-2) var(--space-4);
+}
 
+.supplement-filters .severity-mark {
+  margin-right: 6px;
+}
 
 /* 자료 유형 · 분석 범위 sit in the same white, bordered result surface as other results; its edge is the title line. */
 .supplement-meta {

@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { createPdf, createXlsx } from "../fixtures";
+import { navigateWorkspace } from "./navigation";
 
 const policy = "Travel regulations require approval before reimbursing exceptions.";
 const review = "The compliance team reviews exceptions quarterly and reports issues.";
@@ -14,7 +15,7 @@ async function upload(page: Page, name: string, buffer: Uint8Array, mimeType: st
 }
 
 async function runAnalyze(page: Page) {
-  await page.getByRole("button", { name: "분석", exact: true }).click();
+  await navigateWorkspace(page, "분석");
   await page.getByRole("button", { name: "분석 실행" }).click();
   const panel = page.locator(".results-panel");
   await expect(panel.getByRole("heading", { name: "분석 결과" })).toBeVisible();

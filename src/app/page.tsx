@@ -9,8 +9,6 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Radio, RadioGroup } from "@/components/ui/radio-group";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { AlertDialog, AlertDialogTrigger, AlertDialogPopup, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogClose } from "@/components/ui/alert-dialog";
-import { Sheet, SheetPopup, SheetHeader, SheetTitle, SheetDescription, SheetPanel } from "@/components/ui/sheet";
-import { useMediaQuery } from "@/hooks/use-media-query";
 import { Popover, PopoverTrigger, PopoverPopup } from "@/components/ui/popover";
 import { WorkspaceCommand } from "@/components/WorkspaceCommand";
 import { WorkspaceNavigation, type WorkspaceNavigationItem } from "@/components/WorkspaceNavigation";
@@ -625,7 +623,6 @@ export default function Home() {
   const uploadQueue = useRef<Promise<void>>(Promise.resolve());
   const detailTrigger = useRef<HTMLElement | null>(null);
   const primaryRunInFlight = useRef(false);
-  const compactInspector = useMediaQuery("(max-width: 900px)");
 
   const openSource = useCallback((entries: readonly DetailEntry[], trigger: HTMLElement | null) => {
     detailTrigger.current = trigger;
@@ -1948,14 +1945,7 @@ export default function Home() {
         </section>
       </div>
 
-      {detail ? compactInspector ? (
-        <Sheet open onOpenChange={(open) => { if (!open) closeSource(); }}>
-          <SheetPopup closeProps={{ "aria-label": "닫기" }}>
-            <SheetHeader><SheetTitle>근거 상세</SheetTitle><SheetDescription>선택한 원문과 출처를 확인합니다.</SheetDescription></SheetHeader>
-            <SheetPanel><SourceDetail entries={detail.entries} fileNames={fileNames} onClose={closeSource} embedded /></SheetPanel>
-          </SheetPopup>
-        </Sheet>
-      ) : (
+      {detail ? (
         <aside className="evidence-inspector">
           <SourceDetail entries={detail.entries} fileNames={fileNames} onClose={closeSource} />
         </aside>
@@ -2955,7 +2945,7 @@ function CheckResults({ entries, fileNames, onSource, companyTerms, userTerms, i
             <div className="check-toolbar-actions">
               <Popover open={dictionaryOpen} onOpenChange={setDictionaryOpen}>
                 <PopoverTrigger render={<Button type="button" variant="outline" className="dictionary-trigger" />}>용어 사전</PopoverTrigger>
-                <PopoverPopup className="w-[min(360px,calc(100vw-32px))]" align="end" aria-label="용어 사전">
+                <PopoverPopup className="dictionary-panel w-[min(360px,calc(100vw-32px))]" align="end" aria-label="용어 사전">
                     <section className="dictionary-section">
                       <h4>회사 용어 <span>{companyTerms.length}</span></h4>
                       <p className="dictionary-note">회사 공용 사전은 읽기 전용입니다.</p>
@@ -3600,17 +3590,15 @@ function AggregationResults({ draft, selection, busy, onSelection, onExport }: {
  * The inspector groups only byte-identical quotes from the same file. Every
  * SourceRef remains in the group so location coverage is preserved.
  */
-function SourceDetail({ entries, fileNames, onClose, embedded = false }: {
+function SourceDetail({ entries, fileNames, onClose }: {
   entries: readonly DetailEntry[];
   fileNames: Map<string, string>;
   onClose: () => void;
-  /** Inside a Sheet, which already supplies the title and close control. */
-  embedded?: boolean;
 }) {
   const panelRef = useRef<HTMLElement>(null);
   useEffect(() => {
-    if (!embedded) panelRef.current?.focus();
-  }, [embedded]);
+    panelRef.current?.focus();
+  }, []);
   const fileList = [...new Set(entries.map(({ source }) => fileNames.get(source.fileId)).filter((name): name is string => Boolean(name)))];
   const fileHeading = fileList.join(" · ");
   const multipleFiles = new Set(entries.map(({ source }) => source.fileId)).size > 1;
@@ -3628,15 +3616,13 @@ function SourceDetail({ entries, fileNames, onClose, embedded = false }: {
     }
   }
   return (
-    <aside ref={panelRef} className={embedded ? "source-detail embedded" : "source-detail"} aria-label="근거 상세" tabIndex={-1}>
-      {embedded ? null : (
-        <header>
-          <div>
-            <h2>근거 상세</h2>
-          </div>
-          <Button type="button" variant="ghost" size="sm" onClick={onClose} aria-label="닫기">닫기</Button>
-        </header>
-      )}
+    <aside ref={panelRef} className="source-detail" aria-label="근거 상세" tabIndex={-1}>
+      <header>
+        <div>
+          <h2>근거 상세</h2>
+        </div>
+        <Button type="button" variant="ghost" size="sm" onClick={onClose} aria-label="닫기">닫기</Button>
+      </header>
       {fileHeading ? <p className="evidence-file-list" title={fileHeading}>{fileHeading}</p> : null}
       <div className="evidence-type"><span>원문</span><p>문서에서 확인된 근거 · {entries.length.toLocaleString("ko-KR")}곳</p></div>
       {groups.map((group, index) => {
