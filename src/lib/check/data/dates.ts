@@ -1,5 +1,5 @@
 import type { CheckFinding } from "@/domain/operations";
-import { makeFinding, uniqueSources, type TextUnit } from "../types";
+import { appendToGroup, makeFinding, uniqueSources, type TextUnit } from "../types";
 
 export interface DateOccurrence {
   raw: string;
@@ -86,7 +86,7 @@ export function dateFindings(units: readonly TextUnit[]): CheckFinding[] {
 
   const valid = dates.filter(validDate);
   const styles = new Map<DateOccurrence["style"], DateOccurrence[]>();
-  for (const date of valid) styles.set(date.style, [...(styles.get(date.style) ?? []), date]);
+  for (const date of valid) appendToGroup(styles, date.style, date);
   if (styles.size > 1) {
     const preferred = [...styles.entries()].sort((left, right) => right[1].length - left[1].length)[0];
     findings.push(makeFinding({
@@ -108,7 +108,7 @@ export function dateFindings(units: readonly TextUnit[]): CheckFinding[] {
   const contextual = new Map<string, DateOccurrence[]>();
   for (const date of valid) {
     const keyword = date.unit.text.match(/(?:기준일|작성일|계약일|시행일|마감일|보고일)/u)?.[0];
-    if (keyword) contextual.set(keyword, [...(contextual.get(keyword) ?? []), date]);
+    if (keyword) appendToGroup(contextual, keyword, date);
   }
   for (const [keyword, entries] of contextual) {
     const values = new Set(entries.map((date) => `${date.year ?? ""}-${date.month}-${date.day}`));

@@ -275,6 +275,11 @@ describe("parseDocument", () => {
     expect(table.rows[2][0].rowSpan).toBeUndefined();
     expect(table.rows[1][1]).toMatchObject({ display: "A2" });
     expect(table.rows[2][1]).toMatchObject({ display: "B2" });
+    const continuation = table.rows[2][0].source.locator;
+    expect(continuation?.kind).toBe("docx");
+    if (continuation?.kind !== "docx") throw new Error("Missing DOCX cell locator");
+    expect(continuation.tableCell?.anchorCellId).toBe(table.rows[1][0].source.nodeId);
+    expect(document.warnings).not.toContain("MERGED_CELL_ANCHOR_DEGRADED");
   });
 
   it("emits stable DOCX warning codes for detected-but-omitted content", async () => {
@@ -323,6 +328,14 @@ describe("parseDocument", () => {
     expect(table.rows[1][0]).toMatchObject({ display: "A1", rowSpan: 2 });
     expect(table.rows[2][0]).toMatchObject({ display: "", value: null });
     expect(table.rows[2][0].rowSpan).toBeUndefined();
+    const horizontal = table.rows[0][1].source.locator;
+    const vertical = table.rows[2][0].source.locator;
+    expect(horizontal?.kind).toBe("pptx");
+    expect(vertical?.kind).toBe("pptx");
+    if (horizontal?.kind !== "pptx" || vertical?.kind !== "pptx") throw new Error("Missing PPTX cell locator");
+    expect(horizontal.tableCell?.anchorCellId).toBe(table.rows[0][0].source.nodeId);
+    expect(vertical.tableCell?.anchorCellId).toBe(table.rows[1][0].source.nodeId);
+    expect(document.warnings).not.toContain("MERGED_CELL_ANCHOR_DEGRADED");
   });
 
   it("emits stable PPTX warning codes for detected-but-omitted content", async () => {

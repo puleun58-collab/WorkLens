@@ -62,6 +62,13 @@ export function uniqueSources(sources: readonly SourceRef[]): SourceRef[] {
   });
 }
 
+/** Append without copying the accumulated group; retain occurrence order and duplicates. */
+export function appendToGroup<K, V>(groups: Map<K, V[]>, key: K, value: V): void {
+  const group = groups.get(key);
+  if (group) group.push(value);
+  else groups.set(key, [value]);
+}
+
 /**
  * Builds the public finding. The id stays stable across runs for the same
  * document position and text, so UI ignore state survives a re-run.

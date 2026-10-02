@@ -135,6 +135,13 @@ describe("document submission Check", () => {
     expect(result.findings.filter((item) => item.originalText === "향후 전먕")).toHaveLength(1);
   });
 
+  it("counts repeated unit occurrences without duplicating their source evidence", () => {
+    const result = checkDocument(paragraphDocument(["1 km 2 km 3 km 4 KM", "5 KM"]));
+    const unit = result.findings.find((item) => item.ruleId === "data/unit/distance");
+    expect(unit?.suggestedText).toBe("km");
+    expect(unit?.sources.map((source) => source.nodeId)).toEqual(["paragraph:1", "paragraph:2"]);
+  });
+
   it("detects supported 개인정보·보안정보 patterns without flagging ordinary business numbers", () => {
     const result = checkDocument(paragraphDocument([
       "API Key: sk_live_1234567890abcdefgh",

@@ -88,6 +88,8 @@ bun run eval:document-review:live --endpoint http://localhost:3000  # 설정된 
 
 문서 검토 개발 세트 26건의 baseline은 `document-review-v3`입니다. 홀드아웃 11건은 일반 `bun run test`와 coverage/CI에서 제외되며 명시적인 holdout 명령으로만 실행합니다(홀드아웃 baseline 없음). live eval은 harness와 품질 지표를 공유하며 전부 완료·무오류는 exit 0, 품질 오류는 exit 1, 조회 소스 실패·네트워크·timeout·잘못된 응답·case 미완료는 exit 2입니다. selector FN/review FN은 전체 FN의 원인 분해이므로 중복 집계하지 않습니다.
 
+대용량 처리 검증은 `bun run bench:large`로 CSV 2만 행·XLSX 2만 셀·PDF/PPTX 120페이지·DOCX 3천 문단·비교·취합을 별도 프로세스에서 실행합니다. 파서는 실제 병합 셀 참조에 필요한 ID만 사전 계산하고, 검수의 날짜·형식·중복 그룹은 기존 배열에 추가하여 반복 복사를 피합니다. 원문 ID·해시·위치, 판정 규칙과 입력 한도는 유지합니다. benchmark의 RSS는 Bun 프로세스 측정이며 브라우저 메모리 한도를 보장하지 않습니다.
+
 ## 배포
 
 Cloudflare Workers에 배포합니다.
