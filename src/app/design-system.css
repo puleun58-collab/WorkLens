@@ -19,6 +19,9 @@
   --destructive-foreground: #b42318;
   --border: #e2e7ee;
   --input: #d5dce6;
+  --control-surface: #fff;
+  --control-surface-disabled: var(--muted-surface);
+  --control-border-hover: #b8c2d0;
   --ring: #3677ed;
   --success: #16a36b;
   --success-foreground: #157347;
@@ -36,6 +39,38 @@
   --sidebar-border: var(--border);
   --sidebar-ring: var(--ring);
   --font-heading: var(--font-sans);
+}
+
+/*
+ * WorkLens control surfaces stay distinct from the grey page canvas. Coss
+ * continues to own interaction styling; these hooks only provide the light
+ * semantic surface and leave focus/error borders and rings untouched.
+ */
+html:not(.dark) :is(
+  [data-slot="input-control"],
+  [data-slot="textarea-control"],
+  [data-slot="select-trigger"],
+  [data-slot="select-button"]
+) {
+  background-color: var(--control-surface);
+}
+
+html:not(.dark) :is(
+  [data-slot="input-control"]:has(:disabled),
+  [data-slot="textarea-control"]:has(:disabled),
+  [data-slot="select-trigger"][data-disabled],
+  [data-slot="select-button"][data-disabled]
+) {
+  background-color: var(--control-surface-disabled);
+}
+
+html:not(.dark) :is(
+  [data-slot="input-control"]:not(:has(:disabled, :focus-visible, [aria-invalid="true"])):hover,
+  [data-slot="textarea-control"]:not(:has(:disabled, :focus-visible, [aria-invalid="true"])):hover,
+  [data-slot="select-trigger"]:not([data-disabled], :focus-visible, [aria-invalid="true"]):hover,
+  [data-slot="select-button"]:not([data-disabled], :focus-visible, [aria-invalid="true"]):hover
+) {
+  border-color: var(--control-border-hover);
 }
 @theme inline {
   --color-background: var(--background);
