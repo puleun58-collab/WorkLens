@@ -28,7 +28,7 @@ export const syntheticSources: ReviewSources = {
 };
 
 export interface FindingScore { tp: number; fp: number; fn: number; precision: number; recall: number }
-/** Quality counters; summed across cases. */
+/** Scoring and diagnostic counters; summed across cases. */
 const COUNTERS = ["tp", "fp", "fn", "wrongLawLinks", "wrongPrecedentLinks", "unsupportedClaims", "duplicates", "overSuggestions", "wrongLocations",
   "coverageErrors", "sourceFailures", "gold", "selectorFn", "reviewFn", "evidenceFailures",
   "candidates", "repeatedCandidates", "payloadChars", "segments", "lawLookups", "precedentLookups"] as const;
@@ -44,6 +44,19 @@ export interface EvalSummary extends FindingScore, Record<Counter, number> {
   /** Share of gold findings whose triggering text was sent for detailed review. */
   selectorRecall: number;
   positions: number[];
+}
+
+/** FN stage counters explain fn; source failures make a run unscorable, not a quality failure. */
+export const QUALITY_FAILURE_COUNTERS = ["fp", "fn", "wrongLawLinks", "wrongPrecedentLinks", "unsupportedClaims",
+  "coverageErrors", "duplicates", "overSuggestions", "wrongLocations", "evidenceFailures"] as const satisfies readonly Counter[];
+export type QualityFailureCounts = Record<typeof QUALITY_FAILURE_COUNTERS[number], number>;
+
+export function qualityFailures(score: QualityFailureCounts): QualityFailureCounts {
+  return Object.fromEntries(QUALITY_FAILURE_COUNTERS.map((field) => [field, score[field]])) as QualityFailureCounts;
+}
+
+export function hasQualityFailure(score: QualityFailureCounts): boolean {
+  return QUALITY_FAILURE_COUNTERS.some((field) => score[field] > 0);
 }
 
 const rate = (part: number, total: number) => total ? Math.round(part / total * 10000) / 100 : 0;
@@ -121,14 +134,15 @@ export function scoreCase(test: ReviewCase, file: ReviewFile, review: ContractRe
     + Number(coverage.status === "partial" && coverage.reviewed >= coverage.total)
     + Number(scan.strategy === "candidate" && scan.candidates === 0 && coverage.status !== "excluded"
       && (file.document.segments.length === 0 || !coverage.reasons.some((reason) => reason.includes("위험 항목이 없다는 뜻은 아닙니다"))));
-  const selectorFn = test.gold.filter((item) => !selected(file, item)).length;
+  const selectorFn = gold.filter((item) => !selected(file, item)).length;
   const reviewFn = gold.filter((item) => selected(file, item)).length;
   return {
     id: test.id, tp, fp, fn: gold.length, precision: rate(tp, tp + fp), recall: rate(tp, tp + gold.length),
     wrongLawLinks, wrongPrecedentLinks, unsupportedClaims, duplicates, overSuggestions, wrongLocations, coverageErrors, sourceFailures,
     gold: test.gold.length, selectorFn, reviewFn, evidenceFailures,
     candidates: scan.candidates, repeatedCandidates: scan.repeated,
-    payloadChars: file.document.segments.reduce((sum, segment) => sum + segment.text.length, 0), segments: file.document.segments.length,
+    payloadChars: file.document.segments.reduce((sum, segment) => sum + segment.text.length, 0) + (file.document.classificationContext?.length ?? 0),
+    segments: file.document.segments.length + Number(Boolean(file.document.classificationContext)),
     lawLookups: (review.diagnostics?.lookups.law ?? 0) + (review.diagnostics?.lookups.article ?? 0),
     precedentLookups: (review.diagnostics?.lookups.search ?? 0) + (review.diagnostics?.lookups.holding ?? 0),
     positions: scan.positions, latencyMs,
@@ -155,7 +169,7 @@ export async function evaluateCase(test: ReviewCase, sources: ReviewSources = sy
   // Server review imports cloudflare:workers; load only in Vitest, never in the Bun live HTTP runner.
   const { reviewContract } = await import("../../src/server/contract-review");
   const started = performance.now();
-  const review = await reviewContract(file.document.segments, sources, Date.now, undefined, file.document.profile);
+  const review = await reviewContract(file.document.segments, sources, Date.now, undefined, file.document.classificationContext);
   return scoreCase(test, file, review, 0, false, Math.round(performance.now() - started));
 }
 

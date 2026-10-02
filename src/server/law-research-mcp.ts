@@ -234,7 +234,7 @@ export async function runLegalResearch(
     // File ranges carry explicit gaps; the profile and lookup memo span them all.
     const input = "document" in request ? request.document.segments : request.text;
     const review = await reviewContract(input, mcpReviewSources(context), Date.now, context.signal,
-      "document" in request ? request.document.profile : undefined);
+      "document" in request ? request.document.classificationContext : undefined);
     return { found: true, task: request.task, text: "", markers: [], review };
   }
   if (request.task === "full_research") return fullResearch(request.query, context);

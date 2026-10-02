@@ -152,9 +152,11 @@ describe("보완 — gap detection on PPTX/PDF", () => {
     expect(baseline?.title).toBe("비교 기준 확인 필요");
     expect(baseline?.locations).toEqual(["1페이지"]);
     expect(result.findings.find((finding) => finding.check === "response")).toBeUndefined();
-    const owner = result.findings.find((finding) => finding.title === "담당 및 일정 확인 필요");
+    const owner = result.findings.find((finding) => finding.check === "owner");
+    const schedule = result.findings.find((finding) => finding.check === "schedule");
     expect(owner?.locations).toEqual(["3페이지"]);
-    expect(owner?.question).toContain("누가 언제까지 완료합니까?");
+    expect(schedule?.locations).toEqual(["3페이지"]);
+    expect(owner?.id).not.toBe(schedule?.id);
   });
 
   it("does not claim a scanned PDF page was analysed", async () => {

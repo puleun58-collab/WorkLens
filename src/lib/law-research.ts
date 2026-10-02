@@ -1,7 +1,7 @@
 import type { FileKind } from "@/domain/document";
 import { LAW_ARTICLE_PATTERN } from "@/lib/law-search";
 import { normalizeAnalysisDate, normalizeAnalysisJo } from "@/lib/law-analysis";
-import type { ContractReview, DocumentProfile } from "@/lib/contract-review";
+import type { ContractReview } from "@/lib/contract-review";
 import type { ResearchEnrichment } from "@/lib/research-relevance";
 
 /**
@@ -83,8 +83,8 @@ export interface ReviewDocument {
   /** Parser document id and content-bound version: which file and which version was reviewed. */
   id: string;
   version?: string;
-  /** Classification hint from all extracted text, with its short evidence phrases; the server re-checks it. */
-  profile?: DocumentProfile;
+  /** Optional verbatim opening text, used only for classification; shares the file/segment budget. */
+  classificationContext?: string;
   segments: Array<{ text: string; location: string; batch?: number }>;
 }
 

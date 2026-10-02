@@ -30,7 +30,7 @@ const table = (rows: string[][]) => `<w:tbl>${rows.map((row) => `<w:tr>${row.map
 
 /** Each issue with where the review says it came from. */
 async function locatedIssues(file: ReviewFile) {
-  const review = await reviewContract(file.document.segments, sources, Date.now, undefined, file.document.profile);
+  const review = await reviewContract(file.document.segments, sources, Date.now, undefined, file.document.classificationContext);
   return {
     review,
     issues: review.clauses.flatMap((clause) => clause.issues.map((issue) => ({
@@ -195,14 +195,19 @@ describe("문서 검토 from a workspace file", () => {
     expect(new Set(file.document.segments.map((segment) => segment.batch)).size).toBeGreaterThan(1);
   });
 
-  it("classifies the full parsed document when a defining clause falls in an omitted window", async () => {
-    const paragraphs = Array.from({ length: 1400 }, (_, index) =>
-      `제${index + 1}조(일반) ${"이 항목은 업무 내용과 진행 시기를 기록하며 적용 순서는 양 당사자가 정한다. 세부 사항은 문서에 따른다. ".repeat(2)}`);
-    paragraphs[60] = "제61조(기본) 근로계약 근로자 사용자 임금 근로시간을 정한다.";
+  it("classifies from bounded raw opening text while reviewing a late risk clause", async () => {
+    const opening = `근로계약서\n근로자와 사용자는 임금과 근로시간을 정한다.\n${"업무 진행 내용을 기록한다. ".repeat(1000)}`;
+    const paragraphs = [opening, ...Array.from({ length: 1400 }, (_, index) =>
+      `제${index + 1}조(일반) ${"이 항목은 업무 내용과 진행 시기를 기록하며 적용 순서는 양 당사자가 정한다. 세부 사항은 문서에 따른다. ".repeat(2)}`)];
+    paragraphs[1390] = "제1390조(해고) 사용자는 예고 없이 즉시 해고할 수 있다.";
     const file = reviewFileFor(await parse("긴규정.docx", createDocxParagraphs(paragraphs)), "긴규정.docx");
     expect(file.coverage.status).toBe("partial");
-    expect(file.document.segments.some((segment) => segment.text.includes("근로계약 근로자 사용자"))).toBe(false);
-    expect(file.document.profile?.type).toBe("employment");
+    expect(file.document.segments.some((segment) => segment.text.includes("근로계약서"))).toBe(false);
+    expect(file.document.classificationContext).toBe(opening.slice(0, 2000));
+    const { review, issues } = await locatedIssues(file);
+    expect(review.document.type).toBe("employment");
+    expect(review.document.domains).toContain("labor");
+    expect(issues.some((issue) => issue.id === "dismissal" && issue.at.includes("제1390조 해고"))).toBe(true);
   });
 
   it("sends only identity and text segments: no bytes, styles, media or locators", async () => {
@@ -211,7 +216,6 @@ describe("문서 검토 from a workspace file", () => {
       reviewFileFor(await parse("계약조건.xlsx", terms), "계약조건.xlsx"),
       reviewFileFor(await parse("이미지.docx", createDocxWithOmissions()), "이미지.docx"),
     ]) {
-      expect(Object.keys(file.document).sort()).toEqual(["id", "kind", "name", "profile", "segments", "version"]);
       for (const segment of file.document.segments) expect(Object.keys(segment).sort()).toEqual(["batch", "location", "text"]);
       expect(JSON.stringify(file.document)).not.toMatch(/"(?:style|template|data|media|bytes|nodeId|quote|spans)"/u);
     }

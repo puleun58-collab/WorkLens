@@ -1,4 +1,4 @@
-import type { SupplementCheck, SupplementFileRole } from "@/domain/supplement";
+import type { SupplementCheck, SupplementDocType, SupplementFileRole } from "@/domain/supplement";
 
 /**
  * Fixed quality set for 보완. Every case states, in human terms, what must be
@@ -57,6 +57,7 @@ export interface SupplementEvalCase {
   /** Expected coverage of each file, in upload order. */
   coverage?: Array<{ total: number; analyzed?: number; complete: boolean }>;
   roles?: SupplementFileRole[];
+  docTypes?: SupplementDocType[];
   /** The expected outcome depends on the model's meaning check; without it the case is only checked for critical failures. */
   needsModel?: boolean;
 }

@@ -1,7 +1,7 @@
 import path from "node:path";
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "src"),
@@ -12,6 +12,10 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["tests/**/*.test.ts"],
+    // Protected holdout runs only through the explicit evaluation script, never default CI/coverage.
+    exclude: mode === "document-review-holdout"
+      ? configDefaults.exclude
+      : [...configDefaults.exclude, "tests/eval/document-review-holdout.test.ts"],
     testTimeout: 30_000,
     coverage: {
       include: ["src/**/*.{ts,tsx}"],
@@ -24,4 +28,4 @@ export default defineConfig({
     },
     hookTimeout: 30_000,
   },
-});
+}));

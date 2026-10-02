@@ -36,7 +36,7 @@ export const SUPPLEMENT_DOC_TYPE_LABELS: Record<SupplementDocType, string> = {
 };
 
 /** The gap kinds this feature detects; target, period and unit apply to workbooks. */
-export type SupplementCheck = "baseline" | "cause" | "impact" | "response" | "owner" | "schedule" | "conclusion" | "target" | "period" | "unit";
+export type SupplementCheck = "baseline" | "cause" | "impact" | "response" | "owner" | "schedule" | "scope" | "budget" | "conclusion" | "target" | "period" | "unit";
 
 /**
  * How much a document of a given type needs a check.

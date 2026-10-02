@@ -8,6 +8,7 @@ import { finalizeSupplement, type SupplementReviewOutcome } from "@/lib/suppleme
 import { normalize } from "@/lib/supplement/text";
 import { createPptxSlides, createUnicodePdf } from "../fixtures";
 import type { EvalFile, Expected, SupplementEvalCase } from "./supplement-cases";
+import { createSupplementDiagnostics } from "@/lib/supplement/diagnostics";
 
 /** Failure kinds, most serious first. */
 export type EvalFailureKind =
@@ -18,12 +19,14 @@ export type EvalFailureKind =
   | "false-negative"
   | "duplicate"
   | "over-suggestion"
+  | "zero-result"
   | "classification";
 
 export const FAILURE_SEVERITY: Record<EvalFailureKind, "critical" | "major" | "minor"> = {
   "unsupported-claim": "critical",
   "wrong-linking": "critical",
   coverage: "critical",
+  "zero-result": "critical",
   "false-positive": "major",
   "false-negative": "major",
   classification: "major",
@@ -45,6 +48,7 @@ export interface EvalOutcome {
   reported: number;
   expected: number;
   modelCalls: number;
+  systemAffected: boolean;
   findings: Array<Pick<SupplementFinding, "check" | "scope" | "severity" | "status"> & { at: string }>;
 }
 
@@ -143,25 +147,30 @@ function matches(finding: SupplementFinding, expected: Expected): boolean {
 
 export async function runSupplementCase(entry: SupplementEvalCase, model?: ReviewModel): Promise<EvalOutcome & { result: SupplementResult; draft: SupplementDraft }> {
   const documents = await loadCase(entry);
-  const draft = buildSupplementDraft(documents.map((document) => ({ document, fileName: document.metadata.fileName })));
+  const diagnostics = createSupplementDiagnostics();
+  const draft = buildSupplementDraft(documents.map((document) => ({ document, fileName: document.metadata.fileName })), diagnostics);
   const outcomes = new Map<string, SupplementReviewOutcome>();
   let modelCalls = 0;
   if (model) {
     for (const batch of draft.reviews) {
       modelCalls += 1;
-      for (const answer of await model(batch)) {
-        const check = batch.checks.find((item) => item.id === answer.id);
-        if (check) outcomes.set(check.candidateId, { verdict: answer.verdict, sources: answer.handles.map((handle) => batch.sources[handle]).filter(Boolean) });
+      try {
+        for (const answer of await model(batch)) {
+          const check = batch.checks.find((item) => item.id === answer.id);
+          if (check) outcomes.set(check.candidateId, { verdict: answer.verdict, sources: answer.handles.map((handle) => batch.sources[handle]).filter(Boolean) });
+        }
+      } catch {
+        diagnostics.systemAffected = true;
       }
     }
   }
-  const result = finalizeSupplement(draft, outcomes);
+  const result = finalizeSupplement(draft, outcomes, diagnostics);
   const multi = documents.length > 1;
   const text = corpus(documents);
   const failures: EvalFailure[] = [];
   const shown = result.findings.filter((finding) => finding.severity !== "suggestion");
   // Without the model, meaning-dependent outcomes are not judged; critical checks still are.
-  const judged = !entry.needsModel || model !== undefined;
+  const judged = (!entry.needsModel || model !== undefined) && !(model && diagnostics.systemAffected);
 
   // Critical: every location, quote and number must come from the files.
   for (const finding of result.findings) {
@@ -201,6 +210,8 @@ export async function runSupplementCase(entry: SupplementEvalCase, model?: Revie
     const roles = result.files.map((file) => file.role);
     if (roles.join() !== entry.roles.join()) failures.push({ kind: "classification", stage: "classification", detail: `역할 ${roles.join()} ≠ ${entry.roles.join()}` });
   }
+  if (entry.docTypes && result.files.some((file, index) => file.docType !== entry.docTypes![index])) failures.push({ kind: "classification", stage: "classification", detail: `유형 ${result.files.map((file) => file.docType).join()} ≠ ${entry.docTypes.join()}` });
+  if (judged && (entry.must?.length ?? 0) > 0 && result.findings.length === 0) failures.push({ kind: "zero-result", stage: draft.candidates.length ? "rebuttal" : "candidate", detail: "Must-Find가 있는 문서의 최종 결과 0건" });
 
   let truePositives = 0;
   if (judged) {
@@ -236,6 +247,7 @@ export async function runSupplementCase(entry: SupplementEvalCase, model?: Revie
     reported: shown.length,
     expected: judged ? (entry.must ?? []).length : 0,
     modelCalls,
+    systemAffected: Boolean(model && diagnostics.systemAffected),
     findings: result.findings.map((finding) => ({ check: finding.check, scope: finding.scope, severity: finding.severity, status: finding.status, at: finding.locations[0] ?? "" })),
     result,
     draft,
@@ -253,6 +265,7 @@ export interface EvalSummary {
   byKind: Record<EvalFailureKind, number>;
   byStage: Partial<Record<EvalStage, number>>;
   modelCalls: number;
+  systemAffected: number;
   failures: Array<{ id: string; kind: EvalFailureKind; stage: EvalStage; detail: string }>;
 }
 
@@ -279,6 +292,7 @@ export function summarize(outcomes: readonly EvalOutcome[]): EvalSummary {
     byKind,
     byStage,
     modelCalls: outcomes.reduce((sum, outcome) => sum + outcome.modelCalls, 0),
+    systemAffected: outcomes.filter((outcome) => outcome.systemAffected).length,
     failures,
   };
 }
