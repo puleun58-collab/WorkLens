@@ -60,6 +60,7 @@ import {
 } from "./text";
 import { outlineWorkbook, type SheetTable } from "./workbook";
 import type { SupplementDiagnostics } from "./diagnostics";
+import { suppliesImplementationCheck } from "./sufficiency";
 
 /**
  * 보완 pipeline, deterministic part:
@@ -528,19 +529,13 @@ function implementationCandidates(statements: readonly Statement[], all: readonl
     && /(범위|대상).*(협의|조정|미정|추후)/u.test(line.text));
   const budgetOrigin = statements.find((line) => !line.heading && !line.tableRow && costLine(line));
   const relevant = all.filter((line) => !line.heading && !differentParties(origin.text, line.text));
-  const predicates: Record<"owner" | "schedule" | "scope" | "budget", (text: string) => boolean> = {
-    owner: (text) => OWNER_CUE.test(text) && /(담당|책임|주관|주무|PM\b|오너|owner|팀|본부|센터)/iu.test(text) && !/(관련|유관)\s?(부서|팀)|담당.*(미정|추후|협의)/u.test(text),
-    schedule: (text) => SCHEDULE_CUE.test(text) && /\d{1,4}\s?[년월일./-]|상반기|하반기|연내|연말|월말|분기\s?말|다음\s?(주|달|분기)|이내/u.test(text),
-    scope: (text) => /(대상|범위|설치|교체|도입)/u.test(text) && /\d+\s?(개|곳|대|명|건|층|실|종)/u.test(text),
-    budget: (text) => /\d[\d,.~～-]*\s?(조|억|천만|백만|만|천)?\s?원/u.test(text),
-  };
   const members: Member[] = [];
   let resolved = 0;
   for (const check of ["owner", "schedule", "scope", "budget"] as const) {
     // Scope/cost gaps need an explicit decision requirement, not a universal form.
     if (check === "scope" && !scopeOrigin) continue;
     if (check === "budget" && !budgetOrigin) continue;
-    if (relevant.some((line) => predicates[check](line.text))) { resolved += 1; continue; }
+    if (relevant.some((line) => suppliesImplementationCheck(check, line.text))) { resolved += 1; continue; }
     const anchor = check === "scope" ? scopeOrigin! : check === "budget" ? budgetOrigin! : origin;
     members.push({ statement: anchor, check, severity: "warning", groupKey: `implementation:${check}`, subject: "추진 계획", subjectTokens: origin.tokens, phrase: "추진 계획" });
   }

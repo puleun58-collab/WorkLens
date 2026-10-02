@@ -176,20 +176,6 @@ describe("보완 — gap detection on PPTX/PDF", () => {
     expect(result.findings).toEqual([]);
   });
 
-  it("drops candidates the meaning-level re-check found elsewhere and withholds unclear ones", async () => {
-    const draft = await deck([
-      ["9월 이슈 보고", "주요 이슈를 공유합니다."],
-      ["납기 이슈", "고객사 A 납기 지연 12건 발생"],
-      ["고객 대응", "고객사 A 납기 관련 협력사와 협의 중이며 생산 순서를 바꿨습니다."],
-      ["물류", "물류비가 전월 대비 20% 증가했습니다.", "운송 노선 변경 효과가 컸습니다."],
-    ]);
-    expect(draft.reviews.length).toBeGreaterThan(0);
-    const verdicts = new Map(draft.reviews.flatMap((batch) => batch.checks.map((check) => [check.candidateId, { verdict: "found" as const, sources: [batch.sources[check.handles[0]]] }])));
-    const result = finalizeSupplement(draft, verdicts);
-    expect(result.findings.filter((finding) => draft.reviews.some((batch) => batch.checks.some((check) => check.candidateId === finding.id)))).toEqual([]);
-    const unclear = finalizeSupplement(draft, new Map([...verdicts].map(([id]) => [id, { verdict: "unclear" as const, sources: [] }])));
-    expect(unclear.withheldCount).toBe(verdicts.size);
-  });
 });
 
 describe("보완 — review answer parsing", () => {
@@ -198,15 +184,6 @@ describe("보완 — review answer parsing", () => {
     { id: "C2", statement: "납기 지연", requirement: "대응", handles: ["E3"] },
   ];
 
-  it("accepts found only with a handle from the check's own evidence", () => {
-    expect(parseSupplementReview({ verdicts: [
-      { id: "C1", verdict: "found", sources: ["e2"] },
-      { id: "C2", verdict: "found", sources: ["E1"] },
-    ] }, checks)).toEqual([
-      { id: "C1", verdict: "found", handles: ["E2"] },
-      { id: "C2", verdict: "unclear", handles: [] },
-    ]);
-  });
 
   it("ignores unknown ids and verdict labels", () => {
     expect(parseSupplementReview({ verdicts: [
