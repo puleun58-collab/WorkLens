@@ -142,6 +142,12 @@ const RELATIONSHIP_LABEL: Record<PartyRelationship, string> = {
   unknown: "확인 불가",
 };
 
+const CORPORATE_PARTY = /주식회사|㈜|\(주\)|유한회사|법인/gu;
+const UNKNOWN_PROFILE: DocumentProfile = {
+  type: "unknown", label: "유형 확인 불가", relationship: "unknown", relationshipLabel: RELATIONSHIP_LABEL.unknown,
+  confidence: "low", evidence: [], domains: DOMAINS.unknown,
+};
+
 export function classifyDocument(text: string): DocumentProfile {
   const head = text.slice(0, 1500);
   const scored = TYPE_SIGNALS.map((signal) => {
@@ -155,14 +161,15 @@ export function classifyDocument(text: string): DocumentProfile {
   const type: DocumentType = decided ? best.type : "unknown";
   const confidence: Confidence = !decided ? "low" : best.score - (second?.score ?? 0) >= 3 ? "high" : "medium";
 
-  const corporateParties = (head.match(/주식회사|㈜|\(주\)|유한회사|법인/gu) ?? []).length;
+  const corporateParties = (head.match(CORPORATE_PARTY) ?? []).length;
   const relationship: PartyRelationship = type === "employment" || type === "work_rules" ? "employment"
     : type === "lease" ? "lease"
     : type === "b2c_terms" ? "consumer"
     : corporateParties >= 2 ? "business"
     : "unknown";
   const evidence = decided ? best.hits.map((pattern) => text.match(pattern)?.[0] ?? "").filter(Boolean) : [];
-  if (relationship === "business") evidence.push(`계약 당사자 ${corporateParties}곳이 법인`);
+  // The party markers themselves, so a server that sees only part of the file can check the claim.
+  if (relationship === "business") evidence.push(`법인 당사자 표시: ${(head.match(CORPORATE_PARTY) ?? []).slice(0, 4).join(", ")}`);
   return {
     type,
     label: decided ? best.label : "유형 확인 불가",
@@ -171,6 +178,35 @@ export function classifyDocument(text: string): DocumentProfile {
     confidence,
     evidence,
     domains: DOMAINS[type],
+  };
+}
+
+/**
+ * A file review's profile is computed by the worker from the whole parsed file, but the server
+ * receives only the selected text and short evidence phrases. The worker's profile is therefore a
+ * hint, never a fact: its type stands only when the received text and evidence themselves carry
+ * that type's signals and the received text does not clearly name another type. Labels, domains
+ * and the party relationship are rebuilt here from the verified type, never copied from the hint.
+ */
+export function verifyProfileHint(hint: DocumentProfile, text: string): DocumentProfile {
+  const own = classifyDocument(text);
+  const signal = TYPE_SIGNALS.find((entry) => entry.type === hint.type);
+  if (!signal) return own.type === "unknown" ? own : { ...UNKNOWN_PROFILE };
+  const pool = `${hint.evidence.join("\n")}\n${text}`;
+  const hits = signal.patterns.filter((pattern) => pattern.test(pool));
+  // Unsupported: the hint names a type the received words do not show. Use what they do show.
+  if (hits.length < 3) return own;
+  // Conflict: the received text alone clearly reads as another type. Do not settle either one.
+  if (own.type !== "unknown" && own.type !== hint.type && own.confidence === "high") return { ...UNKNOWN_PROFILE };
+  const type = hint.type;
+  const corporate = (pool.match(CORPORATE_PARTY) ?? []).length;
+  const relationship: PartyRelationship = type === "employment" || type === "work_rules" ? "employment"
+    : type === "lease" ? "lease" : type === "b2c_terms" ? "consumer" : corporate >= 2 ? "business" : "unknown";
+  // Never more certain than the hint; a type shown only by a bare minimum of signals is at most medium.
+  const confidence: Confidence = hint.confidence === "low" ? "low" : hint.confidence === "high" && hits.length >= 4 ? "high" : "medium";
+  return {
+    type, label: signal.label, relationship, relationshipLabel: RELATIONSHIP_LABEL[relationship], confidence,
+    evidence: hits.map((pattern) => pool.match(pattern)?.[0] ?? "").filter(Boolean), domains: DOMAINS[type],
   };
 }
 
@@ -581,13 +617,32 @@ export interface PrecedentReference {
   scope: "판시사항";
 }
 
+/**
+ * What a reader is told about a lookup. `none` means every lookup completed and nothing relevant
+ * was returned; any lookup that did not complete makes it `partial` or `failed`, never `none`.
+ */
 export type SourceStatus = "found" | "partial" | "none" | "failed" | "not_searched";
+
+/** Why a lookup did not complete; internal diagnostics, never shown in place of the status. */
+export type FailureReason = "timeout" | "budget" | "rate_limit" | "upstream_unavailable" | "network" | "invalid_response" | "cancelled";
 
 export interface ReviewedIssue extends ClauseIssue {
   laws: string[];
   precedents: string[];
   lawStatus: SourceStatus;
   precedentStatus: SourceStatus;
+  /** Set only when a statute lookup for this issue did not complete. */
+  lawFailure?: FailureReason;
+  /** Set only when a precedent lookup for this issue did not complete. */
+  precedentFailure?: FailureReason;
+}
+
+/** Development diagnostics: lookup counts by kind, failed lookups by reason, and evidence coverage. */
+export interface ReviewDiagnostics {
+  lookups: { law: number; article: number; search: number; holding: number };
+  failures: Partial<Record<FailureReason, number>>;
+  /** Distinct issues found, and how many of them finished every lookup (found, none or not searched). */
+  evidence: { issues: number; completed: number };
 }
 
 export interface ContractReview {
@@ -600,17 +655,26 @@ export interface ContractReview {
   precedents: Record<string, PrecedentReference>;
   /** Diagnostics for development; not shown to users. */
   stats: { calls: number; queries: number; excludedPrecedents: number; excludedLaws: number };
+  diagnostics?: ReviewDiagnostics;
 }
 
 /** The sentence of the clause that triggered the issue, verbatim. */
-function triggeringSentence(text: string, pattern: RegExp): string {
+export function triggeringSentence(text: string, pattern: RegExp): string {
   const sentences = text.split(/(?<=[.다])\s+/u);
   return (sentences.find((sentence) => pattern.test(sentence)) ?? text).trim();
 }
+/**
+ * Which issue definitions a text matches, by the taxonomy's own detection rules alone. The file
+ * selector uses this to decide which text to send; only the server's `reviewClauses` decides issues.
+ */
+export function issueSignals(text: string): IssueDefinition[] {
+  return ISSUES.filter((issue) => issue.detect.test(text));
+}
+
 export function reviewClauses(clauses: readonly Clause[], profile: DocumentProfile): ReviewedClause[] {
   return clauses.map((clause) => ({
     ...clause,
-    issues: ISSUES.filter((issue) => (!issue.only || issue.only.includes(profile.type)) && issue.detect.test(clause.text))
+    issues: issueSignals(clause.text).filter((issue) => !issue.only || issue.only.includes(profile.type))
       .map((issue) => {
         const fact = triggeringSentence(clause.text, issue.detect);
         const start = Math.max(0, clause.text.indexOf(fact));

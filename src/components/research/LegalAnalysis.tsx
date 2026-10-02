@@ -122,7 +122,6 @@ export function LegalAnalysis({ linkedRequest, onReturn, onRelatedSearch }: Lega
     cite_check: "후속 판례의 인용을 역추적해 변경·폐기 정황을 확인합니다.",
     applicable_law: "기준일은 행위·계약·처분 등 판단하려는 시점입니다.",
   };
-  const submitLabel = { verify_citations: "인용 검증", cite_check: "확인", applicable_law: "적용 법령 확인", impact_map: "영향도 확인" }[mode];
 
   return <div className="legal-analysis">
     {linkedOrigin && <button type="button" className="law-search-link" onClick={() => onReturn(linkedOrigin)}>
@@ -170,7 +169,7 @@ export function LegalAnalysis({ linkedRequest, onReturn, onRelatedSearch }: Lega
       </div>}
       <div className="legal-analysis-actions legal-analysis-action-row">
         {ACTION_HELP[mode] && <p className="legal-analysis-help"><span>{ACTION_HELP[mode]}</span></p>}
-        <button type="submit" className="law-search-button" disabled={!request || loading}>{loading ? "확인 중…" : submitLabel}</button>
+        <button type="submit" className="law-search-button" disabled={!request || loading}>{loading ? "확인 중…" : "실행"}</button>
       </div>
     </form>
 

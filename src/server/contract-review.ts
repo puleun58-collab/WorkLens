@@ -1,10 +1,11 @@
 import {
   classifyDocument, documentRisk, extractKeyFacts, holdingRelevance, issueDefinition, lawTargets, passesMetadataGate,
-  precedentQueries, reviewClauses, segmentsOf, splitClauses,
-  type Clause, type ClauseIssue, type ContractReview, type DocumentProfile, type IssueDefinition, type LawReference, type LawTarget,
-  type PrecedentReference, type ReviewedClause, type ReviewedIssue, type SourceStatus,
+  precedentQueries, reviewClauses, segmentsOf, splitClauses, verifyProfileHint,
+  type Clause, type ClauseIssue, type ContractReview, type DocumentProfile, type FailureReason, type IssueDefinition, type LawReference,
+  type LawTarget, type PrecedentReference, type ReviewDiagnostics, type ReviewedClause, type ReviewedIssue, type SourceStatus,
 } from "@/lib/contract-review";
 import { getDecisionText, searchDecisions, type DecisionEntry } from "@/server/decision-mcp";
+import { ApiError } from "@/server/http";
 import { getLawText, searchLaw } from "@/server/law-mcp";
 import { lawDisplayText } from "@/lib/law-display";
 
@@ -81,15 +82,42 @@ function caseSubjectScore(entry: DecisionEntry, issue: IssueDefinition): number 
   return (direct ? 2 : 0) + (CONTRACT_SUBJECT.test(title) ? 1 : 0);
 }
 
-/** One profile and lookup memo across every selected document range and semantic batch. */
+/** Maps a lookup error to its diagnostic reason. `budget` is this module's own time limit. */
+export function failureReason(error: unknown): FailureReason {
+  if (error instanceof ApiError) {
+    switch (error.code) {
+      case "LAW_UPSTREAM_TIMEOUT": return "timeout";
+      case "LAW_RATE_LIMITED": case "OPERATION_CAPACITY": return "rate_limit";
+      case "LAW_REQUEST_ABORTED": return "cancelled";
+      case "LAW_MCP_ERROR": return "invalid_response";
+      // A thrown fetch or body read keeps its cause; a non-OK upstream response has none.
+      case "LAW_UPSTREAM_UNAVAILABLE": return error.cause === undefined ? "upstream_unavailable" : "network";
+      default: return "upstream_unavailable";
+    }
+  }
+  if (error instanceof Error && error.message === LOOKUP_BUDGET) return "budget";
+  if (error instanceof DOMException) return error.name === "TimeoutError" ? "timeout" : error.name === "AbortError" ? "cancelled" : "network";
+  if (error instanceof TypeError) return "network";
+  return "upstream_unavailable";
+}
+
+const LOOKUP_BUDGET = "budget";
+type Resolution = { keys: string[]; status: SourceStatus; failure?: FailureReason };
+
+/**
+ * One profile and lookup memo across every selected document range and semantic batch. The input
+ * is only text (and its range boundaries): every issue, severity, fact and lookup below is decided
+ * here from that text. `profileHint` is the worker's whole-file classification, checked against the
+ * received text by `verifyProfileHint` and never taken as fact.
+ */
 export async function reviewContract(
   input: string | readonly string[] | readonly { text: string; batch?: number }[],
-  sources: ReviewSources, now: () => number = Date.now, signal?: AbortSignal, profileOverride?: DocumentProfile,
+  sources: ReviewSources, now: () => number = Date.now, signal?: AbortSignal, profileHint?: DocumentProfile,
 ): Promise<ContractReview> {
   const started = now();
   signal?.throwIfAborted();
   const texts = typeof input === "string" ? [input] : input.map((part) => typeof part === "string" ? part : part.text);
-  const profile: DocumentProfile = profileOverride ?? classifyDocument(texts.join("\n"));
+  const profile: DocumentProfile = profileHint ? verifyProfileHint(profileHint, texts.join("\n")) : classifyDocument(texts.join("\n"));
   const split: Clause[] = [];
   if (typeof input === "string") split.push(...splitClauses(input));
   else {
@@ -133,6 +161,7 @@ export async function reviewContract(
     return false;
   });
   const stats = { calls: 0, queries: 0, excludedPrecedents: 0, excludedLaws: 0 };
+  const diagnostics: ReviewDiagnostics = { lookups: { law: 0, article: 0, search: 0, holding: 0 }, failures: {}, evidence: { issues: 0, completed: 0 } };
 
   // One promise per distinct lookup: the same statute, search or judgment is never requested twice.
   const memo = new Map<string, Promise<unknown>>();
@@ -157,9 +186,10 @@ export async function reviewContract(
         });
       }
       signal?.throwIfAborted();
-      if (now() - started > BUDGET_MS) throw new Error("budget");
+      if (now() - started > BUDGET_MS) throw new Error(LOOKUP_BUDGET);
       active += 1;
       stats.calls += 1;
+      diagnostics.lookups[key.slice(0, key.indexOf(":")) as keyof ReviewDiagnostics["lookups"]] += 1;
       try {
         const result = await run();
         signal?.throwIfAborted();
@@ -170,17 +200,23 @@ export async function reviewContract(
       }
     })();
     memo.set(key, promise);
+    // Each distinct lookup that did not complete is counted once, by reason; cancellation is not a failure.
+    promise.catch((error: unknown) => {
+      if (signal?.aborted) return;
+      const reason = failureReason(error);
+      diagnostics.failures[reason] = (diagnostics.failures[reason] ?? 0) + 1;
+    });
     return promise;
   };
 
   const laws: Record<string, LawReference> = {};
   const precedents: Record<string, PrecedentReference> = {};
 
-  async function resolveLaws(issue: IssueDefinition): Promise<{ keys: string[]; status: SourceStatus }> {
+  async function resolveLaws(issue: IssueDefinition): Promise<Resolution> {
     const targets = lawTargets(issue, profile);
     stats.excludedLaws += issue.laws.length - targets.length;
     if (!targets.length) return { keys: [], status: "not_searched" };
-    let failed = 0;
+    let failure: FailureReason | undefined;
     const keys: string[] = [];
     for (const target of targets) {
       try {
@@ -192,22 +228,22 @@ export async function reviewContract(
         if (!reference) continue;
         laws[reference.key] ??= reference;
         keys.push(reference.key);
-      } catch {
+      } catch (error) {
         signal?.throwIfAborted();
-        failed += 1;
+        failure ??= failureReason(error);
       }
     }
-    return { keys, status: keys.length ? failed ? "partial" : "found" : failed ? "failed" : "none" };
+    return { keys, status: keys.length ? failure ? "partial" : "found" : failure ? "failed" : "none", ...(failure ? { failure } : {}) };
   }
 
-  async function resolvePrecedents(issue: IssueDefinition): Promise<{ keys: string[]; status: SourceStatus }> {
+  async function resolvePrecedents(issue: IssueDefinition): Promise<Resolution> {
     // An issue can have an in-domain precedent question without an applicable
     // statute (e.g. renewal in an NDA). Never search a wholly excluded area.
     const domains = issue.precedentDomains ?? issue.laws.map((law) => law.domain);
     if (!domains.some((domain) => profile.domains.includes(domain))) return { keys: [], status: "not_searched" };
     const queries = precedentQueries(issue, profile);
     if (!queries.length || !issue.holdingTerms) return { keys: [], status: "not_searched" };
-    let failed = 0;
+    let failure: FailureReason | undefined;
     let read = 0;
     // Staged search: the most specific query first, widened only while nothing relevant is found.
     for (const query of queries) {
@@ -215,9 +251,9 @@ export async function reviewContract(
       try {
         stats.queries += 1;
         entries = await lookup(`search:${query}`, () => sources.searchPrecedents(query));
-      } catch {
+      } catch (error) {
         signal?.throwIfAborted();
-        failed += 1;
+        failure ??= failureReason(error);
         continue;
       }
       // Metadata gate: excluded areas out; then only case subjects that can bear on
@@ -238,9 +274,9 @@ export async function reviewContract(
         read += 1;
         try {
           holding = await lookup(`holding:${entry.id}`, () => sources.holding(entry.id));
-        } catch {
+        } catch (error) {
           signal?.throwIfAborted();
-          failed += 1;
+          failure ??= failureReason(error);
           continue;
         }
         const sentence = holding ? holdingRelevance(holding, issue, profile) : undefined;
@@ -266,9 +302,9 @@ export async function reviewContract(
         };
         keys.push(key);
       }
-      if (keys.length) return { keys, status: failed ? "partial" : "found" };
+      if (keys.length) return { keys, status: failure ? "partial" : "found", ...(failure ? { failure } : {}) };
     }
-    return { keys: [], status: failed ? "failed" : "none" };
+    return { keys: [], status: failure ? "failed" : "none", ...(failure ? { failure } : {}) };
   }
 
   // Resolve each issue against its own search terms and holding gate. Sharing a
@@ -277,7 +313,7 @@ export async function reviewContract(
   // statute, query and holding requests across issues and clauses.
   // Resolve all high-priority stages before lower-priority searches consume
   // the fixed time budget; identical lookups remain memoized and concurrency-bound.
-  const resolved = new Map<string, Promise<[{ keys: string[]; status: SourceStatus }, { keys: string[]; status: SourceStatus }]>>();
+  const resolved = new Map<string, Promise<[Resolution, Resolution]>>();
   const issueIds = [...new Set(clauses.flatMap((clause) => clause.issues.map((issue) => issue.id)))];
   for (const severity of ["high", "medium", "low"] as const) {
     const tier = issueIds.filter((id) => issueDefinition(id)!.severity === severity);
@@ -294,11 +330,17 @@ export async function reviewContract(
     const issues: ReviewedIssue[] = [];
     for (const issue of clause.issues) {
       const [law, precedent] = await resolved.get(issue.id)!;
-      issues.push({ ...issue, laws: law.keys, precedents: precedent.keys, lawStatus: law.status, precedentStatus: precedent.status });
+      issues.push({ ...issue, laws: law.keys, precedents: precedent.keys, lawStatus: law.status, precedentStatus: precedent.status,
+        ...(law.failure ? { lawFailure: law.failure } : {}), ...(precedent.failure ? { precedentFailure: precedent.failure } : {}) });
     }
     reviewedClauses.push({ ...clause, ...(origin ? { segments: segmentsOf({ ...clause, sources: origin }) } : {}), issues });
   }
   signal?.throwIfAborted();
+  for (const id of issueIds) {
+    const [law, precedent] = await resolved.get(id)!;
+    diagnostics.evidence.issues += 1;
+    if (!law.failure && !precedent.failure) diagnostics.evidence.completed += 1;
+  }
 
   return {
     document: profile,
@@ -308,5 +350,6 @@ export async function reviewContract(
     laws,
     precedents,
     stats,
+    diagnostics,
   };
 }
