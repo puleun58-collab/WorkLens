@@ -74,15 +74,13 @@ export function ImageTool() {
     onMove: (from, to) => setItems((list) => moveItem(list, from, to)),
   });
   const selectionKey = selected.join("\0");
-  const sameSize = selectedItems.length < 2 || selectedItems.every((item) => {
-    const size = outputSize(item);
-    const first = outputSize(selectedItems[0]);
-    return size.width === first.width && size.height === first.height;
-  });
+  // Each field shows its shared value; only a differing dimension is left blank with "서로 다른 값".
+  const sameWidth = selectedItems.length < 2 || selectedItems.every((item) => outputSize(item).width === outputSize(selectedItems[0]).width);
+  const sameHeight = selectedItems.length < 2 || selectedItems.every((item) => outputSize(item).height === outputSize(selectedItems[0]).height);
   const editingSize = sizeDraft && current && sizeDraft.edits === current.edits && sizeDraft.selection === selectionKey;
   const inputSize = selectedItems.length >= 2 ? outputSize(selectedItems[0]) : dimensions;
-  const widthDraft = editingSize ? sizeDraft.width : sameSize ? String(inputSize?.width ?? "") : "";
-  const heightDraft = editingSize ? sizeDraft.height : sameSize ? String(inputSize?.height ?? "") : "";
+  const widthDraft = editingSize ? sizeDraft.width : sameWidth ? String(inputSize?.width ?? "") : "";
+  const heightDraft = editingSize ? sizeDraft.height : sameHeight ? String(inputSize?.height ?? "") : "";
   const previewSize = mergeActive ? mergedDimensions : dimensions;
   const previewError = previewFailure?.current === current && previewFailure.selected === selectedItems &&
     previewFailure.merge === mergeActive && previewFailure.options.layout === mergeLayout && previewFailure.options.ratio === mergeOptions.ratio ? previewFailure.text : "";
@@ -485,7 +483,7 @@ export function ImageTool() {
         <aside className="image-tool-controls" aria-label="이미지 편집 설정">
           <div className="image-tool-section-heading"><div><span>03 / ADJUST</span><h3>편집 설정</h3></div></div>
           <fieldset disabled={!current || busy || mergeActive} className="image-tool-fieldset">
-            <section className="image-tool-control-section"><h4>크기 · 회전</h4><div className="image-tool-size-grid"><label>너비 px<input type="number" min="1" max={MAX_SIDE} value={widthDraft} placeholder={sameSize ? undefined : "서로 다른 크기"} onChange={(event) => setWidthDraft(event.target.value)} onBlur={() => commitDimension("width")} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} /></label><label>높이 px<input type="number" min="1" max={MAX_SIDE} value={heightDraft} placeholder={sameSize ? undefined : "서로 다른 크기"} onChange={(event) => setHeightDraft(event.target.value)} onBlur={() => commitDimension("height")} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} /></label></div><label className="image-tool-check"><input type="checkbox" checked={aspectLocked} onChange={(event) => setAspectLocked(event.target.checked)} /> 비율 유지</label><div className="image-tool-button-row"><button type="button" className="is-edit tool-rotate-button" onClick={() => editSelection((item) => rotateEdits(item.edits, item.width, item.height, -1))}><RotateCcw aria-hidden="true" />왼쪽 90°</button><button type="button" className="is-edit tool-rotate-button" onClick={() => editSelection((item) => rotateEdits(item.edits, item.width, item.height, 1))}>오른쪽 90°<RotateCw aria-hidden="true" /></button></div></section>
+            <section className="image-tool-control-section"><h4>크기 · 회전</h4><div className="image-tool-size-grid"><label>너비 px<input type="number" min="1" max={MAX_SIDE} value={widthDraft} placeholder={sameWidth ? undefined : "서로 다른 값"} onChange={(event) => setWidthDraft(event.target.value)} onBlur={() => commitDimension("width")} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} /></label><label>높이 px<input type="number" min="1" max={MAX_SIDE} value={heightDraft} placeholder={sameHeight ? undefined : "서로 다른 값"} onChange={(event) => setHeightDraft(event.target.value)} onBlur={() => commitDimension("height")} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} /></label></div><label className="image-tool-check"><input type="checkbox" checked={aspectLocked} onChange={(event) => setAspectLocked(event.target.checked)} /> 비율 유지</label><div className="image-tool-button-row"><button type="button" className="is-edit tool-rotate-button" onClick={() => editSelection((item) => rotateEdits(item.edits, item.width, item.height, -1))}><RotateCcw aria-hidden="true" />왼쪽 90°</button><button type="button" className="is-edit tool-rotate-button" onClick={() => editSelection((item) => rotateEdits(item.edits, item.width, item.height, 1))}>오른쪽 90°<RotateCw aria-hidden="true" /></button></div></section>
             <section className="image-tool-control-section">
               <h4>자르기</h4>
               <div className="image-tool-button-row">
