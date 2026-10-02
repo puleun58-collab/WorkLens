@@ -2492,9 +2492,17 @@ test("aligns fileless text Polish controls to one desktop and mobile baseline", 
     const action = page.getByRole("button", { name: "윤문 실행" });
     const boxes = await Promise.all([title, inputModes, polishModes, pasteLabel, paste, count, action].map((locator) => locator.boundingBox()));
     expect(boxes.every(Boolean)).toBe(true);
+    const surface = page.locator(".operation-bar");
+    const surfaceBox = (await surface.boundingBox())!;
+    const surfaceInset = await surface.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft);
+    });
     const left = boxes[0]!.x;
-    for (const box of boxes.slice(1, 6)) expect(Math.abs(box!.x - left)).toBeLessThanOrEqual(1);
-    return { modes: boxes[2]!, paste: boxes[4]!, action: boxes[6]!, left };
+    expect(Math.abs(surfaceBox.x - left)).toBeLessThanOrEqual(1);
+    const controlLeft = left + surfaceInset;
+    for (const box of boxes.slice(1, 6)) expect(Math.abs(box!.x - controlLeft)).toBeLessThanOrEqual(1);
+    return { modes: boxes[2]!, paste: boxes[4]!, action: boxes[6]!, left: controlLeft };
   };
 
   // Desktop: 실행 follows the style choice it applies, on the same row.
