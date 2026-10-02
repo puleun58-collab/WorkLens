@@ -2,7 +2,7 @@ import type { SourceRef, TableBlock, TableCell } from "@/domain/document";
 import type { CheckFinding, ExplicitTotal } from "@/domain/operations";
 import { parseCanonicalNumber } from "@/domain/numeric";
 import { cellText, isEmptyCell } from "../text-units";
-import { makeFinding } from "../types";
+import { appendToGroup, makeFinding } from "../types";
 
 const TOTAL_LABEL = /^(?:(?:grand\s+)?total\b|합계|총계)/iu;
 
@@ -91,13 +91,13 @@ export function tableFindings(table: TableBlock): CheckFinding[] {
       if (text) {
         const byValue = duplicates.get(column) ?? new Map<string, SourceRef[]>();
         const key = text.normalize("NFKC").toLocaleLowerCase();
-        byValue.set(key, [...(byValue.get(key) ?? []), cell.source]);
+        appendToGroup(byValue, key, cell.source);
         duplicates.set(column, byValue);
       }
       const numeric = parseCanonicalNumber(text);
       if (numeric) {
         const byFormat = formats.get(column) ?? new Map<string, SourceRef[]>();
-        byFormat.set(numeric.format, [...(byFormat.get(numeric.format) ?? []), cell.source]);
+        appendToGroup(byFormat, numeric.format, cell.source);
         formats.set(column, byFormat);
       }
     });

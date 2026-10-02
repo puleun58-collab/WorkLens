@@ -1,6 +1,6 @@
 import type { SourceRef } from "@/domain/document";
 import type { CheckFinding } from "@/domain/operations";
-import { makeFinding, uniqueSources, type TextUnit } from "../types";
+import { appendToGroup, makeFinding, uniqueSources, type TextUnit } from "../types";
 
 interface NumberOccurrence {
   label: string;
@@ -22,7 +22,7 @@ export function unitAndFormatFindings(units: readonly TextUnit[]): CheckFinding[
     const used = new Map<string, SourceRef[]>();
     for (const unit of units) {
       for (const match of unit.text.matchAll(new RegExp(group.regex.source, group.regex.flags))) {
-        used.set(match[0], [...(used.get(match[0]) ?? []), unit.source]);
+        appendToGroup(used, match[0], unit.source);
       }
     }
     if (used.size < 2) continue;
@@ -49,7 +49,7 @@ export function unitAndFormatFindings(units: readonly TextUnit[]): CheckFinding[
   for (const unit of units) {
     for (const match of unit.text.matchAll(/-?\d+(?:[.,]\d+)?(\s*)%/gu)) {
       const style = match[1] ? "spaced" : "attached";
-      percentStyles.set(style, [...(percentStyles.get(style) ?? []), unit.source]);
+      appendToGroup(percentStyles, style, unit.source);
     }
     const malformed = unit.text.match(/(?:\d+(?:\.\d+)?\s*%%|%\s*\d+)/u)?.[0];
     if (malformed) findings.push(makeFinding({
@@ -66,11 +66,11 @@ export function unitAndFormatFindings(units: readonly TextUnit[]): CheckFinding[
       originalText: malformed,
     }));
     for (const match of unit.text.matchAll(/-?\d[\d,]*(?:\.\d+)?\s*(억원|백만원|천원|원)\b/gu)) {
-      currency.set(match[1], [...(currency.get(match[1]) ?? []), unit.source]);
+      appendToGroup(currency, match[1], unit.source);
     }
     for (const match of unit.text.matchAll(/\b\d{4,}\b|\b\d{1,3}(?:,\d{3})+\b/gu)) {
       const style = match[0].includes(",") ? "comma" : "plain";
-      numberGrouping.set(style, [...(numberGrouping.get(style) ?? []), unit.source]);
+      appendToGroup(numberGrouping, style, unit.source);
     }
   }
   if (percentStyles.size > 1) findings.push(makeFinding({

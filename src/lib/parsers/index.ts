@@ -1,5 +1,5 @@
 import { sha256Hex } from "@/domain/hash";
-import type { NormalizedDocument, SourceLocator, SourceRef } from "@/domain/document";
+import type { NormalizedDocument, SourceLocator, SourceRef, TableBlock } from "@/domain/document";
 
 import { parseCsv } from "./csv";
 import { parseDocx } from "./docx";
@@ -46,18 +46,46 @@ function addCanonicalProvenance(document: NormalizedDocument, contentHash: strin
   const canonicalNodeId = (structuralPath: string): string =>
     sha256Hex(`${version}\0${PARSER_REVISION}\0${structuralPath}`);
   const canonicalIds = new Map<string, string>();
-  document.blocks.forEach((block, blockIndex) => {
-    const blockPath = `block/${blockIndex + 1}`;
-    canonicalIds.set(block.source.nodeId, canonicalNodeId(`${blockPath}/${block.type}`));
-    if (block.type === "table") {
-      block.rows.forEach((row, rowIndex) => row.forEach((cell, columnIndex) => {
-        canonicalIds.set(
-          cell.source.nodeId,
-          canonicalNodeId(`${blockPath}/table/cell/${rowIndex + 1}/${columnIndex + 1}`),
-        );
-      }));
+  // Only merged-cell locators need an old-to-canonical ID lookup. Hashing
+  // every cell here would repeat the work done by enrich below.
+  const anchorIds = new Set<string>();
+  const collectAnchor = (source: SourceRef): void => {
+    const locator = source.locator;
+    if (
+      (locator?.kind === "docx" || locator?.kind === "pptx") &&
+      locator.tableCell?.anchorCellId !== undefined
+    ) {
+      anchorIds.add(locator.tableCell.anchorCellId);
     }
-  });
+  };
+  const collectTableAnchors = (table: TableBlock): void => {
+    collectAnchor(table.source);
+    for (const row of table.rows) for (const cell of row) collectAnchor(cell.source);
+  };
+  for (const block of document.blocks) {
+    if (block.type === "table") collectTableAnchors(block);
+    else collectAnchor(block.source);
+  }
+  for (const sheet of document.workbookSheets ?? []) collectTableAnchors(sheet.table);
+  for (const media of document.media ?? []) collectAnchor(media.source);
+  if (anchorIds.size > 0) {
+    document.blocks.forEach((block, blockIndex) => {
+      const blockPath = `block/${blockIndex + 1}`;
+      if (anchorIds.has(block.source.nodeId)) {
+        canonicalIds.set(block.source.nodeId, canonicalNodeId(`${blockPath}/${block.type}`));
+      }
+      if (block.type === "table") {
+        block.rows.forEach((row, rowIndex) => row.forEach((cell, columnIndex) => {
+          if (anchorIds.has(cell.source.nodeId)) {
+            canonicalIds.set(
+              cell.source.nodeId,
+              canonicalNodeId(`${blockPath}/table/cell/${rowIndex + 1}/${columnIndex + 1}`),
+            );
+          }
+        }));
+      }
+    });
+  }
   const locatorFor = (source: SourceRef): SourceLocator => {
     if (source.locator !== undefined) {
       const locator = source.locator;
