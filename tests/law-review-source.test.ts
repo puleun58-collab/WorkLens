@@ -145,6 +145,40 @@ describe("문서 검토 from a workspace file", () => {
     expect(raw.coverage.status).toBe("excluded");
   });
 
+  it.each([
+    ["계약조건", ["책임한도", "월 이용료 1개월분"], "보험통계", ["책임한도", "100"]],
+    ["계약조건", ["배상한도", "계약금액의 10%"], "매출", ["배상한도", "10%"]],
+    ["계약조건", ["계약기간", "2026.01.01 ~ 2026.12.31"], "재고현황", ["계약기간", "1년"]],
+    ["개인정보 처리조건", ["보유기간", "계약 종료 후 3년"], "재고현황", ["보유기간", "3년"]],
+    ["계약조건", ["개인정보 보관", "5년"], "로그", ["개인정보 보관", "5년"]],
+    ["계약조건", ["해지통보", "30일 전"], "일정", ["해지통보", "30일 전"]],
+    ["계약조건", ["관할법원", "서울중앙지방법원"], "주소록", ["관할법원", "서울중앙지방법원"]],
+    ["계약조건", ["관할법원", "서울중앙지방법원"], "계약조건", ["관할법원", "미정"]],
+  ])("reads the condition row under %s %j, but not under %s %j, and never makes it an issue by itself", async (sheet, row, otherSheet, otherRow) => {
+    const positive = reviewFileFor(await parse("조건.xlsx", await createXlsx({ [sheet]: [["항목", "내용"], row] })), "조건.xlsx");
+    expect(positive.document.segments.map((segment) => segment.location)).toEqual([`${sheet} / A2:B2`]);
+    expect((await locatedIssues(positive)).issues).toEqual([]);
+    const negative = reviewFileFor(await parse("값.xlsx", await createXlsx({ [otherSheet]: [["항목", "값"], otherRow] })), "값.xlsx");
+    expect(negative.coverage.status).toBe("excluded");
+  });
+
+  it("keeps every issue type when one issue repeats hundreds of times, and spreads the repeats front to back", async () => {
+    const filler = (n: number) => `제${n}조(업무 협의) 당사자는 업무 일정과 산출물의 범위를 매월 협의하여 정하고, 협의 결과는 서면으로 기록하여 각자 보관한다. 일정이 바뀌는 경우 담당자는 변경 사유와 새 일정을 함께 알린다.`;
+    const paragraphs = Array.from({ length: 1500 }, (_, index) => index % 7 === 3 ? `제${index + 1}조(위약금) 위반자는 위약금 ${index + 1}만원을 지급한다.` : filler(index + 1));
+    paragraphs[701] = "제702조(면책) 회사는 일체의 책임을 지지 않는다.";
+    paragraphs[1388] = "제1389조(갱신) 통지가 없으면 계약은 자동 갱신된다.";
+    paragraphs[1496] = "제1497조(정보) 회사는 개인정보를 제3자에게 제공할 수 있다.";
+    const file = reviewFileFor(await parse("반복.docx", createDocxParagraphs(paragraphs)), "반복.docx");
+    expect(file.scan.candidates).toBeGreaterThan(200);
+    const sent = file.document.segments.map((segment) => segment.location);
+    for (const place of ["제702조 면책", "제1389조 갱신", "제1497조 정보"]) expect(sent).toContain(place);
+    const penalties = sent.filter((place) => place.endsWith("위약금")).map((place) => Number(/\d+/u.exec(place)![0]));
+    expect(Math.min(...penalties)).toBeLessThan(150);
+    expect(Math.max(...penalties)).toBeGreaterThan(1350);
+    expect(penalties.some((n) => n > 600 && n < 900)).toBe(true);
+    expect(file.document.segments.reduce((sum, segment) => sum + segment.text.length, 0)).toBeLessThanOrEqual(LAW_REVIEW_FILE_MAX_CHARS);
+  });
+
   it("distributes bounded review through the last article and counts every omitted paragraph", async () => {
     const paragraphs = Array.from({ length: 1400 }, (_, index) => `제${index + 1}조(조항) 회사는 이 조항에 따라 상대방에게 서비스를 제공하며 상대방은 이에 따른 대가를 지급하여야 한다. 세부 사항은 별도 합의로 정한다.`);
     const file = reviewFileFor(await parse("긴계약.docx", createDocxParagraphs(paragraphs)), "긴계약.docx");

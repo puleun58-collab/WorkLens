@@ -33,8 +33,8 @@ function FileCoverage({ file }: { file: ReviewFile }) {
   return <>
     <dt>검토 범위</dt>
     <dd>
-      <strong>{COVERAGE_LABEL[coverage.status]}</strong> · {coverage.total.toLocaleString("ko-KR")}개 {coverage.unit} 중 {coverage.reviewed.toLocaleString("ko-KR")}개 검토
-      {coverage.unreviewed > 0 && ` · 미검토 ${coverage.unreviewed.toLocaleString("ko-KR")}개`}
+      <strong>{COVERAGE_LABEL[coverage.status]}</strong> · {coverage.total.toLocaleString("ko-KR")}개 {coverage.unit} 중 {coverage.reviewed.toLocaleString("ko-KR")}개 {coverage.status === "partial" ? "상세 검토" : "검토"}
+      {coverage.unreviewed > 0 && ` · ${coverage.status === "partial" ? "상세 미검토" : "미검토"} ${coverage.unreviewed.toLocaleString("ko-KR")}개`}
       {(coverage.reasons.length > 0 || coverage.excluded > 0 || file.imagesUnread) && <ul className="contract-review-coverage">
         {coverage.reasons.map((reason) => <li key={reason}>{reason}</li>)}
         {coverage.excluded > 0 && <li>조항 문장이 없는 {coverage.excluded.toLocaleString("ko-KR")}개 {coverage.unit}(숫자·코드 위주)은 검토 대상이 아니어서 제외했습니다.</li>}

@@ -73,8 +73,9 @@ export type LawResearchRequest =
 
 /**
  * File identity and bounded text segments in document order. A new `batch`
- * marks a sampling gap; neighboring segments within a batch may form one article.
- * No bytes, styles, media or other files.
+ * marks a gap between selected ranges; neighboring segments within a batch may form one article.
+ * No bytes, styles, media, other files, or any selector judgment (issue, severity, risk, law or
+ * precedent hints): the server decides those from `text` alone. Built only by `reviewRequestFor`.
  */
 export interface ReviewDocument {
   name: string;
@@ -82,7 +83,7 @@ export interface ReviewDocument {
   /** Parser document id and content-bound version: which file and which version was reviewed. */
   id: string;
   version?: string;
-  /** Derived once from all extracted text, not just bounded evidence windows. */
+  /** Classification hint from all extracted text, with its short evidence phrases; the server re-checks it. */
   profile?: DocumentProfile;
   segments: Array<{ text: string; location: string; batch?: number }>;
 }

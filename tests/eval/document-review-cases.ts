@@ -42,11 +42,11 @@ function paragraphs(id: string, kind: "docx" | "pdf" | "pptx", lines: string[], 
     }),
   };
 }
-function table(id: string, kind: "csv" | "xlsx" | "docx", rows: string[][]): NormalizedDocument {
+function table(id: string, kind: "csv" | "xlsx" | "docx", rows: string[][], sheet = "계약조건"): NormalizedDocument {
   const makeCell = (text: string, row: number, column: number): TableCell => {
     const range = `${String.fromCharCode(65 + column)}${row + 1}`;
     const locator: SourceLocator = kind === "csv" ? { kind, record: row + 1, column: column + 1 }
-      : kind === "xlsx" ? { kind, sheet: "계약조건", range }
+      : kind === "xlsx" ? { kind, sheet, range }
         : { kind, part: "body", block: 0, tableCell: { row, column } };
     return { value: text, display: text, source: source(id, row * 10 + column, locator, range) };
   };
@@ -56,12 +56,28 @@ function table(id: string, kind: "csv" | "xlsx" | "docx", rows: string[][]): Nor
 export function paragraphCase(id: string, kind: "docx" | "pdf" | "pptx", lines: string[], gold: GoldFinding[], pages?: number[], coverage: ReviewCase["coverage"] = { status: "complete" }): ReviewCase {
   return { id, kind, document: paragraphs(id, kind, lines, pages), gold, coverage };
 }
-export function tableCase(id: string, kind: "csv" | "xlsx" | "docx", rows: string[][], gold: GoldFinding[], coverage: ReviewCase["coverage"]): ReviewCase {
-  return { id, kind, document: table(id, kind, rows), gold, coverage };
+export function tableCase(id: string, kind: "csv" | "xlsx" | "docx", rows: string[][], gold: GoldFinding[], coverage: ReviewCase["coverage"], sheet?: string): ReviewCase {
+  return { id, kind, document: table(id, kind, rows, sheet), gold, coverage };
 }
 
 export const neutral = (n: number) => `제${n}조(검수) 당사자는 작업물을 확인한 뒤 인수 여부를 서면으로 알린다.`;
 const longLines = [prefix, ...Array.from({ length: 2200 }, (_, index) => index === 1989 ? "제1990조(위약금) 위반자는 위약금 100만원을 지급한다." : neutral(index + 1)), "제2201조(위약금) 위반자는 위약금 200만원을 지급한다."];
+
+/** A neutral article long enough that 1,500 of them exceed the request bound (about 150,000 characters). */
+export const filler = (n: number) => `제${n}조(업무 협의) 당사자는 업무 일정과 산출물의 범위를 매월 협의하여 정하고, 협의 결과는 서면으로 기록하여 각자 보관한다. 일정이 바뀌는 경우 담당자는 변경 사유와 새 일정을 함께 알린다.`;
+/**
+ * A long contract of `filler` articles 1..count with some replaced. Article n is reviewable unit n
+ * (unit 0 is the preamble). Distributed sampling sends roughly the first two thirds of each of its
+ * 20 bands (75 units each at 1,500 articles), so units about 55-74 past a band start fall in its gap.
+ */
+export function longContract(head: string, count: number, replaced: Record<number, string>): string[] {
+  return [head, ...Array.from({ length: count }, (_, index) => replaced[index + 1] ?? filler(index + 1))];
+}
+const boilerplate = Object.fromEntries(Array.from({ length: 150 }, (_, index) => [index * 10 + 3, `제${index * 10 + 3}조(위약금) 위반자는 위약금 100만원을 지급한다.`]));
+const traps = Object.fromEntries(Array.from({ length: 60 }, (_, index) => [index * 25 + 7, index % 3 === 0
+  ? `제${index * 25 + 7}조(손해배상) 당사자는 고의 또는 과실로 상대방에게 손해를 입힌 경우 민법에 따라 배상한다.`
+  : index % 3 === 1 ? `제${index * 25 + 7}조(해지) 당사자는 상대방이 30일 이상 의무를 이행하지 않으면 서면으로 시정을 요구한 뒤 해지할 수 있다.`
+    : `제${index * 25 + 7}조(정보 보호) 당사자는 업무상 알게 된 개인정보를 관련 법령에 따라 안전하게 보호한다.`]));
 
 export const DEVELOPMENT_CASES: ReviewCase[] = [
   paragraphCase("dev-01-penalty", "docx", [prefix, "제1조(위약금) 위반자는 위약금 100만원을 지급한다."], [at("penalty", "제1조 위약금", [penaltyLaw], ["900001"])]),
@@ -80,6 +96,29 @@ export const DEVELOPMENT_CASES: ReviewCase[] = [
   paragraphCase("dev-14-price", "pdf", [terms, "제1조(요금) 회사는 이용료를 변경할 수 있다."], [at("price_change", "1페이지")]),
   paragraphCase("dev-15-citation-trap", "docx", [prefix, "제1조(관할) 분쟁은 갑의 본점 소재지를 관할하는 법원을 전속 관할로 한다."], [at("jurisdiction", "제1조 관할")]),
   paragraphCase("dev-16-no-over-suggestion", "docx", [employment, "제1조(휴가) 근로자는 연차휴가를 사용하며 사용일은 사전 협의로 정한다."], []),
-  paragraphCase("dev-17-long-end", "docx", longLines, [at("penalty", "제1990조 위약금", [penaltyLaw], ["900001"]), at("penalty", "제2201조 위약금", [penaltyLaw], ["900001"])], undefined, { status: "partial", unreviewed: 202 }),
+  paragraphCase("dev-17-long-end", "docx", longLines, [at("penalty", "제1990조 위약금", [penaltyLaw], ["900001"]), at("penalty", "제2201조 위약금", [penaltyLaw], ["900001"])], undefined, { status: "partial" }),
+  // Adversarial long documents: each places what matters where distributed sampling does not look.
+  paragraphCase("dev-18-sampling-gap", "docx", longContract(prefix, 1500, { 590: "제590조(해지) 갑은 별도의 최고 없이 언제든 계약을 해지할 수 있다." }),
+    [at("unilateral_termination", "제590조 해지")], undefined, { status: "partial" }),
+  paragraphCase("dev-19-band-middle", "docx", longContract(prefix, 1500, { 818: "제818조(면책) 회사는 어떠한 경우에도 책임을 지지 않는다." }),
+    [at("exemption", "제818조 면책")], undefined, { status: "partial" }),
+  paragraphCase("dev-20-multi-issue", "docx", longContract(prefix, 1500, {
+    62: "제62조(위약금) 위반자는 위약금 300만원을 지급한다.",
+    745: "제745조(정보 제공) 회사는 이용자 정보를 관계 회사에 제공할 수 있다.",
+    1341: "제1341조(관할) 분쟁은 갑의 본점 소재지를 관할하는 법원을 전속 관할로 한다.",
+  }), [at("penalty", "제62조 위약금", [penaltyLaw], ["900001"]), at("data_transfer", "제745조 정보 제공"), at("jurisdiction", "제1341조 관할")], undefined, { status: "partial" }),
+  paragraphCase("dev-21-last-tail", "docx", longContract(prefix, 1500, { 1418: "제1418조(갱신) 통지가 없으면 계약은 자동 갱신된다." }),
+    [at("auto_renewal", "제1418조 갱신")], undefined, { status: "partial" }),
+  paragraphCase("dev-22-repeated-boilerplate", "docx", longContract(prefix, 1500, {
+    ...boilerplate,
+    668: "제668조(면책) 회사는 일체의 책임을 지지 않는다.",
+    1269: "제1269조(해지) 갑은 최고 없이 즉시 계약을 해지할 수 있다.",
+  }), [at("penalty", "제3조 위약금", [penaltyLaw], ["900001"]), at("exemption", "제668조 면책"), at("unilateral_termination", "제1269조 해지")], undefined, { status: "partial" }),
+  paragraphCase("dev-23-false-positive-trap", "docx", longContract(prefix, 1500, traps), [], undefined, { status: "partial" }),
+  paragraphCase("dev-24-candidate-zero", "docx", longContract(prefix, 1500, {}), [], undefined, { status: "partial" }),
+  tableCase("dev-25-short-conditions", "xlsx", [["항목", "내용"], ["책임한도", "월 이용료 1개월분"], ["계약기간", "2026.01.01 ~ 2026.12.31"], ["보유기간", "계약 종료 후 3년"],
+    ["해지통보", "30일 전"], ["관할법원", "서울중앙지방법원"], ["위약금", "계약금의 20%"]],
+  [at("penalty", "계약조건 / A7:B7", [penaltyLaw], ["900001"])], { status: "complete", reviewed: 6, excluded: 1 }),
+  tableCase("dev-26-short-negative", "xlsx", [["항목", "값"], ["책임한도", "100"], ["보유기간", "3년"], ["계약기간", "1년"]], [], { status: "excluded", reviewed: 0, excluded: 4 }, "재고현황"),
 ];
 

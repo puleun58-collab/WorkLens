@@ -60,6 +60,10 @@
 .legal-research-partial { margin: 0; color: var(--warning); font-size: var(--font-size-sm); }
 /* 문서 검토 input: the app's segmented control, sized to its two choices; it wraps on narrow screens. */
 .research-document-source { display: inline-flex; flex-wrap: wrap; justify-self: start; max-width: 100%; }
+/* 작업 파일: choice, file and 실행 share one row; the file select takes the slack so 실행 closes the row. */
+.research-file-row { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 8px 12px; min-width: 0; }
+.research-file-row .legal-research-single { flex: 1 1 240px; min-width: 0; }
+.legal-analysis .research-file-row .legal-analysis-actions { margin-top: 0; }
 .legal-analysis-section.is-unavailable h3 { color: var(--warning); }
 .research-meta { color: var(--muted); font-size: var(--font-size-xs, 12px); font-weight: 400; overflow-wrap: anywhere; }
 p.research-meta { margin: 0; }

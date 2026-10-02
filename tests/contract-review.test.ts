@@ -5,6 +5,8 @@ import {
   precedentQueries, reviewClauses, splitClauses,
 } from "@/lib/contract-review";
 import { reviewContract, type ReviewSources } from "@/server/contract-review";
+import { ApiError } from "@/server/http";
+import type { FailureReason } from "@/lib/contract-review";
 import {
   B2B_SERVICE_CONTRACT, CONSUMER_TERMS, EMPLOYMENT_CONTRACT, LEASE_CONTRACT, MIXED_SERVICE_CONTRACT, NDA_CONTRACT,
   OUTSOURCING_CONTRACT, SUPPLY_CONTRACT,
@@ -365,6 +367,29 @@ describe("reviewContract pipeline", () => {
     expect(review.risk.level).toBe("높음");
   });
 
+  it("records why a lookup did not complete without changing the status the reader sees", async () => {
+    const cases: Array<[Error, FailureReason]> = [
+      [new ApiError("LAW_UPSTREAM_TIMEOUT", "timeout", 504), "timeout"],
+      [new ApiError("LAW_RATE_LIMITED", "rate", 429), "rate_limit"],
+      [new ApiError("LAW_UPSTREAM_UNAVAILABLE", "down", 503), "upstream_unavailable"],
+      [new ApiError("LAW_UPSTREAM_UNAVAILABLE", "down", 503, undefined, { cause: new TypeError("fetch failed") }), "network"],
+      [new ApiError("LAW_MCP_ERROR", "bad", 502), "invalid_response"],
+    ];
+    for (const [error, reason] of cases) {
+      const review = await reviewContract(B2B_SERVICE_CONTRACT, fakeSources({ async findLaw() { throw error; } }));
+      const searched = review.clauses.flatMap((clause) => clause.issues).filter((issue) => issue.lawStatus !== "not_searched");
+      expect(searched.length, reason).toBeGreaterThan(0);
+      expect(searched.every((issue) => issue.lawStatus === "failed" && issue.lawFailure === reason), reason).toBe(true);
+      expect(review.diagnostics?.failures[reason], reason).toBeGreaterThan(0);
+      expect(review.diagnostics?.evidence.completed, reason).toBeLessThan(review.diagnostics!.evidence.issues);
+    }
+    const clean = await reviewContract(B2B_SERVICE_CONTRACT, fakeSources({ async findLaw() { return undefined; } }));
+    const none = clean.clauses.flatMap((clause) => clause.issues).filter((issue) => issue.lawStatus === "none");
+    expect(none.length).toBeGreaterThan(0);
+    expect(none.every((issue) => issue.lawFailure === undefined)).toBe(true);
+    expect(clean.diagnostics?.failures).toEqual({});
+  });
+
   it("computes risk from the clauses only, not from how many citations were found", async () => {
     const rich = await reviewContract(B2B_SERVICE_CONTRACT, fakeSources());
     const empty = await reviewContract(B2B_SERVICE_CONTRACT, fakeSources({ async searchPrecedents() { return []; }, async findLaw() { return undefined; } }));
@@ -378,6 +403,14 @@ describe("reviewContract pipeline", () => {
     const review = await reviewContract(B2B_SERVICE_CONTRACT, sources, () => clock);
     expect(review.clauses.length).toBeGreaterThan(0);
     expect(sources.calls.holding.length + sources.calls.searchPrecedents.length).toBeLessThan(20);
+    // Running out of time is a failure with its own reason, never "searched and found nothing".
+    const cut = review.clauses.flatMap((clause) => clause.issues).filter((issue) => issue.lawFailure === "budget" || issue.precedentFailure === "budget");
+    expect(cut.length).toBeGreaterThan(0);
+    for (const issue of cut) {
+      if (issue.lawFailure === "budget") expect(["failed", "partial"]).toContain(issue.lawStatus);
+      if (issue.precedentFailure === "budget") expect(["failed", "partial"]).toContain(issue.precedentStatus);
+    }
+    expect(review.diagnostics?.failures.budget).toBeGreaterThan(0);
   });
 
   it("sends the MCP only statute names, article numbers, issue search terms and case ids, never the document's own sentences", async () => {

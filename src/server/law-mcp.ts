@@ -153,8 +153,7 @@ export async function callLawTool(
         throw new ApiError("LAW_UPSTREAM_TIMEOUT", "법령 검색 응답 시간이 초과되었습니다. 다시 시도하세요.", 504);
       }
       if (context.signal?.aborted) throw new ApiError("LAW_REQUEST_ABORTED", "요청이 취소되었습니다.", 499);
-      void error;
-      throw new ApiError("LAW_UPSTREAM_UNAVAILABLE", "법령 검색 서비스에 연결할 수 없습니다.", 503);
+      throw new ApiError("LAW_UPSTREAM_UNAVAILABLE", "법령 검색 서비스에 연결할 수 없습니다.", 503, undefined, { cause: error });
     }
     upstreamStatus = response.status;
     if (response.status === 401 || response.status === 403) throw new ApiError("LAW_AUTH_FAILED", "법령 검색 인증에 실패했습니다.", 502);
@@ -171,7 +170,7 @@ export async function callLawTool(
         throw new ApiError("LAW_UPSTREAM_TIMEOUT", "법령 검색 응답 시간이 초과되었습니다. 다시 시도하세요.", 504);
       }
       if (context.signal?.aborted) throw new ApiError("LAW_REQUEST_ABORTED", "요청이 취소되었습니다.", 499);
-      throw new ApiError("LAW_UPSTREAM_UNAVAILABLE", "법령 검색 서비스에 연결할 수 없습니다.", 503);
+      throw new ApiError("LAW_UPSTREAM_UNAVAILABLE", "법령 검색 서비스에 연결할 수 없습니다.", 503, undefined, { cause: error });
     }
     const parsed = rpcResponseSchema.safeParse(parseEnvelope(body, response.headers.get("content-type") ?? ""));
     if (!parsed.success) throw new ApiError("LAW_MCP_ERROR", "법령 검색 응답 형식이 올바르지 않습니다.", 502);

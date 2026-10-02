@@ -17,7 +17,7 @@ import { SourceToggleSummary } from "./SourceToggleSummary";
 import type { ReviewableFiles } from "./LawSearch";
 import type { WorkspaceFile } from "@/client/protocol";
 import { runInWorker } from "@/client/document-client";
-import type { ReviewFile } from "@/lib/law-review-source";
+import { reviewRequestFor, type ReviewFile } from "@/lib/law-review-source";
 import "./legal-analysis.css";
 
 interface TaskResult {
@@ -105,7 +105,8 @@ export function LegalResearch({ workspace }: { workspace?: ReviewableFiles }) {
       setResults((current) => ({ ...current, [task]: { request: { task, text: "" }, outcome: { kind: "error", message: FILE_READ_ERROR }, loading: false } }));
       return;
     }
-    const request: LawResearchRequest = { task, document: file.document };
+    // Only the projected DTO is sent: text, positions and identity, never the selector's hints.
+    const request: LawResearchRequest = reviewRequestFor(file.document);
     if (file.coverage.status === "excluded") {
       requests.current.get(task)?.abort();
       setResults((current) => ({ ...current, [task]: { request, outcome: null, loading: false, file, workspaceFile } }));
@@ -158,6 +159,9 @@ export function LegalResearch({ workspace }: { workspace?: ReviewableFiles }) {
     else if (request) void run(request);
   }
 
+  const runButton = <button type="submit" className="law-search-button" disabled={!canRun || loading}>
+    {loading ? (isDocument ? "문서 검토 중…" : "리서치 중…") : "실행"}
+  </button>;
   return <div className="legal-analysis legal-research">
     <form className="legal-analysis-form" onSubmit={submit} aria-label="종합 리서치 입력">
       <div className="legal-analysis-fields legal-research-options">
@@ -181,21 +185,22 @@ export function LegalResearch({ workspace }: { workspace?: ReviewableFiles }) {
       <p className="legal-research-description">{TASK_HELP[task].description}</p>
 
       {isDocument ? <>
-        <fieldset className="segmented research-document-source" aria-label="문서 입력 방식">
-          {(["file", "text"] as const).map((source) => <label key={source}>
-            <input type="radio" name="research-document-source" value={source} checked={documentSource === source} onChange={() => setDocumentSource(source)} />
-            <span>{source === "file" ? "작업 파일" : "직접 입력"}</span>
-          </label>)}
-        </fieldset>
-        {fromFile ? reviewable.length ? <>
-          <label htmlFor="research-file" className="legal-research-single">검토할 문서
-            <select id="research-file" value={fileId} onChange={(event) => setChosenFile(event.target.value)} aria-describedby="research-file-help">
+        {/* 작업 파일: source choice → file → 실행 on one row, like 추출; 직접 입력 keeps the run button under the text. */}
+        <div className={fromFile ? "research-file-row" : undefined}>
+          <fieldset className="segmented research-document-source" aria-label="문서 입력 방식">
+            {(["file", "text"] as const).map((source) => <label key={source}>
+              <input type="radio" name="research-document-source" value={source} checked={documentSource === source} onChange={() => setDocumentSource(source)} />
+              <span>{source === "file" ? "작업 파일" : "직접 입력"}</span>
+            </label>)}
+          </fieldset>
+          {fromFile && reviewable.length > 0 && <label htmlFor="research-file" className="legal-research-single">검토할 문서
+            <select id="research-file" value={fileId} onChange={(event) => setChosenFile(event.target.value)}>
               {reviewable.map((file) => <option key={file.id} value={file.id}>{file.name}</option>)}
             </select>
-          </label>
-          <p id="research-file-help" className="legal-analysis-help">작업 파일에 올린 문서 하나를 다시 올리지 않고 검토합니다. 여러 파일을 합쳐 검토하지 않습니다.</p>
-        </> : <p className="legal-analysis-help" role="status">작업 파일이 없습니다. 파일을 먼저 올리거나 직접 입력으로 검토하세요.</p>
-        : <>
+          </label>}
+          {fromFile && <div className="legal-analysis-actions">{runButton}</div>}
+        </div>
+        {!fromFile && <>
           <label htmlFor="research-document">검토할 문서 내용</label>
           <textarea id="research-document" value={draft.text} rows={10} maxLength={LAW_RESEARCH_DOCUMENT_MAX_CHARS} placeholder={TASK_HELP.document_review.placeholder} onChange={(event) => update("text", event.target.value)} aria-describedby="research-document-help" />
           <p id="research-document-help" className="legal-analysis-help">
@@ -241,7 +246,7 @@ export function LegalResearch({ workspace }: { workspace?: ReviewableFiles }) {
         </div>}
       </>}
 
-      <div className={`legal-analysis-actions${task === "ordinance_compare" ? " legal-research-action-row" : ""}`}>
+      {!fromFile && <div className={`legal-analysis-actions${task === "ordinance_compare" ? " legal-research-action-row" : ""}`}>
         {task === "ordinance_compare" && (() => {
           // Guidance until both regions are filled; the same region twice is a real input error.
           const duplicate = Boolean(regionNames[0]) && regionNames[0] === regionNames[1];
@@ -249,10 +254,8 @@ export function LegalResearch({ workspace }: { workspace?: ReviewableFiles }) {
             {duplicate ? "같은 지역을 두 번 입력했습니다. 서로 다른 비교 지역 2곳을 입력하세요." : "서로 다른 비교 지역 2곳을 입력하세요. 비교할 주제는 위 질문에 입력하면 됩니다."}
           </p> : null;
         })()}
-        <button type="submit" className="law-search-button" disabled={!canRun || loading}>
-          {loading ? (isDocument ? "문서 검토 중…" : "리서치 중…") : isDocument ? "문서 검토" : "리서치 실행"}
-        </button>
-      </div>
+        {runButton}
+      </div>}
     </form>
 
     {current && <section className="legal-analysis-result" aria-labelledby="research-result-heading" aria-busy={loading}>

@@ -14,8 +14,10 @@ export class ApiError extends Error {
     message: string,
     public readonly status: number,
     public readonly retryAfterMs?: number,
+    /** The underlying failure, for diagnostics only; never serialized to clients. */
+    options?: ErrorOptions,
   ) {
-    super(message);
+    super(message, options);
     this.name = "ApiError";
   }
 }

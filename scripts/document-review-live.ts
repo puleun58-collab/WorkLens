@@ -1,9 +1,9 @@
-import type { ContractReview } from "../src/lib/contract-review";
+import type { ContractReview, FailureReason } from "../src/lib/contract-review";
 import { holdingRelevance, issueDefinition, offDomain } from "../src/lib/contract-review";
-import { reviewFileFor } from "../src/lib/law-review-source";
+import { reviewFileFor, reviewRequestFor } from "../src/lib/law-review-source";
 import { DEVELOPMENT_CASES } from "../tests/eval/document-review-cases";
 import { HOLDOUT_CASES } from "../tests/eval/document-review-holdout";
-import { evaluateCase, scoreCase, summarize } from "../tests/eval/document-review-harness";
+import { evalRun, evaluateCase, scoreCase, summarize } from "../tests/eval/document-review-harness";
 
 /** Calls the real server document_review pipeline. No deterministic sources or fixture judgments are sent. */
 const args = process.argv.slice(2);
@@ -29,10 +29,11 @@ for (const test of cases) {
   }
   const base = endpoint.replace(/\/+$/u, "");
   let response: Response;
+  const started = performance.now();
   try {
     response = await fetch(`${base}/api/law/research`, {
       method: "POST", headers: { "content-type": "application/json", origin: base, "sec-fetch-site": "same-origin" },
-      body: JSON.stringify({ task: "document_review", document: file.document }), signal: AbortSignal.timeout(120_000),
+      body: JSON.stringify(reviewRequestFor(file.document)), signal: AbortSignal.timeout(120_000),
     });
   } catch (error) {
     console.error(`${test.id}: live request failed: ${String(error)}`);
@@ -48,19 +49,22 @@ for (const test of cases) {
   const review = payload.data.review;
   // Synthetic fixture citations are not expected of live MCP; score statute domain/article
   // against issue targets and precedents against the returned holding below.
-  const row = scoreCase(test, file, review, 0, true);
+  const row = scoreCase(test, file, review, 0, true, Math.round(performance.now() - started));
   for (const clause of review.clauses) for (const issue of clause.issues) for (const key of issue.precedents) {
     const precedent = review.precedents[key];
     const definition = issueDefinition(issue.id);
     if (!precedent || !definition || offDomain(`${precedent.title ?? ""} ${precedent.holding}`, review.document)
       || !holdingRelevance(precedent.holding, definition, review.document)) row.wrongPrecedentLinks++;
   }
-  const failedSource = review.clauses.some((clause) => clause.issues.some((issue) =>
-    issue.lawStatus === "failed" || issue.lawStatus === "partial" || issue.precedentStatus === "failed" || issue.precedentStatus === "partial"));
-  if (failedSource) { row.sourceFailures++; process.exitCode = 2; }
+  // Upstream failures (법제처/MCP outage, rate limit, network, timeout, server budget) are system
+  // failures, not quality results; cancellation is neither. They make the run unscorable, never a pass.
+  const reasons = review.clauses.flatMap((clause) => clause.issues.flatMap((issue) => [issue.lawFailure, issue.precedentFailure]))
+    .filter((reason): reason is FailureReason => reason !== undefined && reason !== "cancelled");
+  if (reasons.length) { row.sourceFailures++; process.exitCode = 2; }
   rows.push(row);
-  console.log(`${test.id}: TP ${row.tp} FP ${row.fp} FN ${row.fn} wrong laws ${row.wrongLawLinks} wrong precedents ${row.wrongPrecedentLinks} source failures ${row.sourceFailures}`);
+  console.log(`${test.id}: TP ${row.tp} FP ${row.fp} FN ${row.fn} (selector ${row.selectorFn}, review ${row.reviewFn}) evidence failures ${row.evidenceFailures} wrong laws ${row.wrongLawLinks} wrong precedents ${row.wrongPrecedentLinks} source failures ${row.sourceFailures}${reasons.length ? ` [${[...new Set(reasons)].join(", ")}]` : ""} ${row.latencyMs}ms`);
 }
 if (rows.length !== cases.length) { console.error("Some live cases did not complete. No overall quality pass can be claimed."); process.exitCode = 2; }
-console.log(JSON.stringify({ mode: "live-mcp-via-worklens", baselineVersion: "document-review-v1", set: holdout ? "holdout" : "development", completed: rows.length, requested: cases.length, summary: summarize(rows), rows }, null, 2));
+console.log(JSON.stringify({ run: evalRun(holdout ? "holdout" : "development", "live", { development: DEVELOPMENT_CASES.length, holdout: HOLDOUT_CASES.length }, "document-review-v2"),
+  endpoint: endpoint.replace(/\/+$/u, ""), completed: rows.length, requested: cases.length, summary: summarize(rows), rows }, null, 2));
 if (rows.length === cases.length && process.exitCode !== 2 && rows.some((row) => row.fp || row.fn || row.wrongLawLinks || row.wrongPrecedentLinks || row.unsupportedClaims || row.coverageErrors)) process.exitCode = 1;
