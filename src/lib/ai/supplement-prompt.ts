@@ -72,8 +72,8 @@ export function buildSupplementReviewMessages(
 
 /**
  * Keeps one verdict per known check. "found" survives only with at least one
- * cited handle from that check's own evidence list; otherwise the model's
- * claim cannot be traced and the candidate is treated as undecided.
+ * cited handle from that check's own evidence list. An untraceable found is
+ * omitted, so it is an incomplete review rather than an unclear veto of a gap.
  */
 export function parseSupplementReview(
   payload: { verdicts: ReadonlyArray<{ id: string; verdict: string; sources: readonly string[] }> },
@@ -85,9 +85,7 @@ export function parseSupplementReview(
     if (!answer) continue;
     if (answer.verdict === "found") {
       const cited = answer.sources.map((source) => source.trim().toUpperCase()).filter((handle) => check.handles.includes(handle));
-      verdicts.push(cited.length > 0
-        ? { id: check.id, verdict: "found", handles: [...new Set(cited)] }
-        : { id: check.id, verdict: "unclear", handles: [] });
+      if (cited.length > 0) verdicts.push({ id: check.id, verdict: "found", handles: [...new Set(cited)] });
     } else if (answer.verdict === "not_found" || answer.verdict === "unclear") {
       verdicts.push({ id: check.id, verdict: answer.verdict, handles: [] });
     }

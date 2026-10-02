@@ -8,6 +8,7 @@ import type {
 } from "@/domain/supplement";
 import { clip } from "./text";
 import type { SupplementDiagnostics } from "./diagnostics";
+import { suppliesImplementationCheck } from "./sufficiency";
 
 const SEVERITY_ORDER = { critical: 0, warning: 1, suggestion: 2 } as const;
 const SCOPE_ORDER = { all: 0, conflict: 1, report: 2 } as const;
@@ -61,7 +62,11 @@ export function finalizeSupplement(
   for (const candidate of draft.candidates) {
     if (candidate.scope === "conflict") { findings.push(toFinding(candidate)); continue; }
     const outcome = outcomes.get(candidate.id);
-    const found = outcome?.verdict === "found" ? outcome.sources : [];
+    const found = outcome?.verdict === "found"
+      ? outcome.sources.filter((source) => suppliesImplementationCheck(candidate.check, source.quote ?? ""))
+      : [];
+    const unsupportedFound = outcome?.verdict === "found" && found.length === 0;
+    if (unsupportedFound && diagnostics) diagnostics.rejected.ai_rejected += 1;
     if (found.some((source) => source.fileId === candidate.fileId)) {
       resolvedCount += 1;
       if (diagnostics) { diagnostics.rejected.covered_elsewhere += 1; diagnostics.rebutted += 1; }
@@ -100,6 +105,11 @@ export function finalizeSupplement(
 
     // Not found anywhere: one finding per topic across the set.
     const finding = toFinding(candidate);
+    if (unsupportedFound) {
+      finding.status = "unverified";
+      finding.severity = finding.severity === "critical" ? "warning" : finding.severity;
+      finding.limitation = [finding.limitation, "AI가 제시한 근거에서 필요한 구체 정보를 확인하지 못해 누락 여부를 확정하지 않았습니다."].filter(Boolean).join(" ");
+    }
     if (reviewed.has(candidate.id) && outcome === undefined) {
       finding.status = "unverified";
       finding.limitation = [finding.limitation, "의미 기반 재확인을 완료하지 못해 누락 여부를 확정하지 않았습니다."].filter(Boolean).join(" ");
