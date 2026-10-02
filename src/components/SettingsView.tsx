@@ -1,8 +1,14 @@
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { readReviewPreferences, resetReviewPreferences, resolveReviewPreferences, saveReviewPreferences, type ReviewPreferences } from "@/client/review-preferences";
+import { ReviewSettings } from "@/components/research/ReviewSettings";
 
 export interface CompanyTermEntry { id: number; term: string; description: string | null; active: boolean }
+
+const subscribeNothing = () => () => undefined;
+const clientSnapshot = () => true;
+const serverSnapshot = () => false;
 
 /** Dictionary and Settings share one utility surface and preserve local preferences. */
 export function SettingsView({ view, companyTerms, companyTermsSource, userTerms, ignoredRules, onAddTerm, onRemoveTerm, onClearTerms, onToggleRule }: {
@@ -19,11 +25,35 @@ export function SettingsView({ view, companyTerms, companyTermsSource, userTerms
   const [draft, setDraft] = useState("");
   const [search, setSearch] = useState("");
   const [expandCompany, setExpandCompany] = useState(false);
+  const [reviewDraft, setReviewDraft] = useState<ReviewPreferences>(resolveReviewPreferences(null));
+  const [reviewReady, setReviewReady] = useState(false);
+  const [reviewError, setReviewError] = useState<string | null>(null);
+  const [reviewNotice, setReviewNotice] = useState<string | null>(null);
+  const hydrated = useSyncExternalStore(subscribeNothing, clientSnapshot, serverSnapshot);
+  if (hydrated && !reviewReady) {
+    const loaded = readReviewPreferences();
+    setReviewDraft(resolveReviewPreferences(loaded.preferences));
+    setReviewError(loaded.error);
+    setReviewReady(true);
+  }
+  function saveReviewDefaults() {
+    const result = saveReviewPreferences(reviewDraft);
+    setReviewError(result.ok ? null : result.error);
+    setReviewNotice(result.ok ? "기본값을 저장했습니다. 새 검토와 재진입 시 적용됩니다." : null);
+  }
+  function resetReviewDefaults() {
+    const result = resetReviewPreferences();
+    setReviewError(result.ok ? null : result.error);
+    setReviewNotice(result.ok ? "저장된 기본값을 삭제했습니다. 시스템 기본값을 적용합니다." : null);
+    if (result.ok) setReviewDraft(resolveReviewPreferences(null));
+  }
   const matchedCompanyTerms = companyTerms.filter((entry) =>
     !search.trim() || entry.term.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()));
   if (view === "Settings") {
     return (
       <section className="settings-surface" aria-label="Settings">
+        <ReviewSettings draft={reviewDraft} onChange={(value) => { setReviewDraft(value); setReviewNotice(null); }}
+          onSave={saveReviewDefaults} onReset={resetReviewDefaults} error={reviewError} notice={reviewNotice} ready={reviewReady} />
         <dl className="settings-list">
           <div><dt>저장 위치</dt><dd>파일과 분석 결과는 이 탭의 메모리에만 있습니다. 새로고침하면 사라집니다.</dd></div>
           <div><dt>localStorage</dt><dd>개인 사전 단어, 무시한 규칙 ID와 검토 설정(문서 입력 방식·출처 표시 기본값)만 저장합니다. 문서 본문, 근거, 질문과 답변은 브라우저 저장소에 저장하지 않습니다.</dd></div>

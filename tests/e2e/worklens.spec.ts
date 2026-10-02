@@ -2542,6 +2542,63 @@ test("keeps file context and upload controls out of utility destinations", async
   await expect(page.locator(".settings-list")).not.toContainText("30일");
 });
 
+test("keeps legal destinations inside one navigation entry and moves review defaults to Settings", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("worklens:review-preferences:v1", JSON.stringify({
+    version: 1, preferences: { documentSource: "text", expandSources: true },
+  })));
+  await page.goto("/");
+
+  const navigation = page.getByRole("navigation", { name: "작업 공간 메뉴", exact: true });
+  // At 900px and below the sidebar lives in a sheet; open it for nav
+  // assertions and close it again so palette steps see a single dialog.
+  const narrow = await page.evaluate(() => window.innerWidth <= 900);
+  const openMenu = async () => {
+    if (narrow) await page.getByRole("button", { name: "작업 공간 메뉴 열기", exact: true }).click();
+  };
+  const closeSheet = async () => {
+    if (narrow) await page.keyboard.press("Escape");
+  };
+
+  await openMenu();
+  await expect(navigation.getByRole("heading")).toHaveText(["WORKSPACE", "RESEARCH", "TOOLS", "HELP"]);
+  await expect(navigation.getByRole("button")).toHaveCount(14);
+  for (const hidden of ["판례·결정례", "종합 리서치", "문서 검토", "검토 설정"]) {
+    await expect(navigation.getByRole("button", { name: hidden, exact: true })).toHaveCount(0);
+  }
+  await closeSheet();
+
+  await navigateWorkspace(page, "법령");
+  await openMenu();
+  await expect(navigation.getByRole("button", { name: "법령", exact: true })).toHaveAttribute("aria-current", "page");
+  await closeSheet();
+  await expect(page.getByRole("tablist", { name: "법령 자료 유형" }).getByRole("tab")).toHaveText([
+    "법령 검색", "판례·결정례", "검증·분석", "종합 리서치",
+  ]);
+
+  for (const [command, heading] of [
+    ["법령 > 판례·결정례", "판례·결정례"],
+    ["법령 > 검증·분석", "검증·분석"],
+    ["법령 > 종합 리서치", "종합 리서치"],
+    ["법령 > 문서 검토", "문서 검토"],
+  ] as const) {
+    await page.keyboard.press("Control+K");
+    await page.getByRole("dialog").getByText(command, { exact: true }).click();
+    await expect(page.getByRole("heading", { name: heading, exact: true, level: 1 })).toBeVisible();
+    await openMenu();
+    await expect(navigation.getByRole("button", { name: "법령", exact: true })).toHaveAttribute("aria-current", "page");
+    await closeSheet();
+  }
+
+  await page.keyboard.press("Control+K");
+  await page.getByRole("dialog").getByText("검토 설정", { exact: true }).click();
+  await openMenu();
+  await expect(navigation.getByRole("button", { name: "Settings", exact: true })).toHaveAttribute("aria-current", "page");
+  await closeSheet();
+  await expect(page.getByRole("heading", { name: "법령 리서치 기본값", exact: true })).toBeVisible();
+  await expect(page.getByRole("radio", { name: "직접 입력", exact: true })).toBeChecked();
+  await expect(page.getByRole("switch", { name: "출처 내용을 펼쳐서 표시", exact: true })).toBeChecked();
+});
+
 test("uses task-focused labels and concise execution buttons", async ({ page }) => {
   await page.goto("/");
   await upload(page, files.v1);
