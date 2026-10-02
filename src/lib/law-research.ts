@@ -10,7 +10,7 @@ import type { ResearchEnrichment } from "@/lib/research-relevance";
  * tasks, limits and input normalization.
  */
 export const LAW_RESEARCH_TASKS = [
-  { value: "full_research", label: "종합 리서치" },
+  { value: "full_research", label: "통합 조사" },
   { value: "law_system", label: "법체계 확인" },
   { value: "action_basis", label: "처분·허가 근거" },
   { value: "dispute_prep", label: "분쟁·불복 자료" },

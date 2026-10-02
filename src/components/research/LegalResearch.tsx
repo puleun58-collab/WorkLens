@@ -18,17 +18,15 @@ import type { ReviewableFiles } from "./LawSearch";
 import type { WorkspaceFile } from "@/client/protocol";
 import { runInWorker } from "@/client/document-client";
 import { reviewRequestFor, type ReviewFile } from "@/lib/law-review-source";
-import { readReviewPreferences, resetReviewPreferences, resolveReviewPreferences, saveReviewPreferences, type ReviewPreferences } from "@/client/review-preferences";
-import { ReviewPreferenceFields, ReviewSettings } from "./ReviewSettings";
+import { readReviewPreferences, resolveReviewPreferences, type ReviewPreferences } from "@/client/review-preferences";
+import { ReviewPreferenceFields } from "./ReviewSettings";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsList, TabsTab, TabsPanel } from "@/components/ui/tabs";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Radio, RadioGroup } from "@/components/ui/radio-group";
-import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@/components/ui/collapsible";
 import "./legal-analysis.css";
 
 interface TaskResult {
@@ -46,10 +44,10 @@ const FILE_READ_ERROR = "작업 파일을 읽지 못했습니다. 파일을 다�
 
 const TASK_HELP: Record<LawResearchTask, { description: string; placeholder: string }> = {
   full_research: { description: "상황을 설명하면 관련 쟁점과 확인된 법령·판례를 구분해 보여줍니다.", placeholder: "예: 회사에서 업무와 관련해 지속적으로 모욕을 당했는데 어떤 법적 기준을 살펴봐야 하나요?" },
-  law_system: { description: "한 법령의 법률·시행령·시행규칙 관계와 관련 조문을 확인합니다.", placeholder: "예: 개인정보 보호법 제38조와 시행령의 관계" },
+  law_system: { description: "한 법령의 법률·시행령·시행규칙 관계를 함께 확인합니다.", placeholder: "예: 개인정보 보호법 제38조와 시행령의 관계" },
   action_basis: { description: "처분 또는 허가의 근거 조문과 확인 가능한 불복 자료를 찾습니다.", placeholder: "예: 식품위생법상 영업정지의 근거와 요건" },
-  dispute_prep: { description: "쟁송에 참고할 법령, 판례, 결정례를 자료별로 나눠 살펴봅니다.", placeholder: "예: 부당해고 구제 신청 관련 판례와 결정례" },
-  amendment_track: { description: "법령의 개정 이력이나 지정한 두 시점의 조문 변화를 확인합니다.", placeholder: "예: 근로기준법 제60조 개정 내용" },
+  dispute_prep: { description: "분쟁 상황을 설명하고 관련 법령·판례·결정례를 함께 조사합니다.", placeholder: "예: 부당해고 구제 신청 관련 판례와 결정례" },
+  amendment_track: { description: "특정 법령의 개정 이력과 두 시점의 조문 차이를 조사합니다.", placeholder: "예: 근로기준법 제60조 개정 내용" },
   ordinance_compare: { description: "두 지역의 같은 주제 조례를 찾아 확인된 조문 원문을 비교합니다.", placeholder: "예: 주차장 설치 기준" },
   procedure_detail: { description: "절차의 근거 조문과 제출 서식을 찾아 확인합니다.", placeholder: "예: 행정심판 청구 절차와 제출서류" },
   document_review: { description: "입력한 문서의 조항별 쟁점과 확인된 근거를 검토합니다.", placeholder: "계약서 또는 약관 등의 내용을 붙여 넣으세요." },
@@ -68,15 +66,12 @@ const subscribeNothing = () => () => undefined;
 const clientSnapshot = () => true;
 const serverSnapshot = () => false;
 
-export function LegalResearch({ workspace, initialTask = "full_research", initialReviewSettings = false }: { workspace?: ReviewableFiles; initialTask?: LawResearchTask; initialReviewSettings?: boolean }) {
+export function LegalResearch({ workspace, initialTask = "full_research" }: { workspace?: ReviewableFiles; initialTask?: LawResearchTask }) {
   const files = workspace?.files ?? [];
   const [savedPreferences, setSavedPreferences] = useState<ReviewPreferences | null>(null);
   const [preferenceOverride, setPreferenceOverride] = useState<Partial<ReviewPreferences>>({});
-  const [settingsDraft, setSettingsDraft] = useState<ReviewPreferences>(resolveReviewPreferences(null));
   const [settingsError, setSettingsError] = useState<string | null>(null);
-  const [settingsNotice, setSettingsNotice] = useState<string | null>(null);
   const [preferencesReady, setPreferencesReady] = useState(false);
-  const [researchView, setResearchView] = useState(initialReviewSettings ? "settings" : "research");
   const preferences = useMemo(() => resolveReviewPreferences(savedPreferences, preferenceOverride), [savedPreferences, preferenceOverride]);
   const documentSource = preferences.documentSource;
   // Browser storage exists only after hydration; read it once, during the first client render that can.
@@ -84,24 +79,8 @@ export function LegalResearch({ workspace, initialTask = "full_research", initia
   if (hydrated && !preferencesReady) {
     const loaded = readReviewPreferences();
     setSavedPreferences(loaded.preferences);
-    setSettingsDraft(resolveReviewPreferences(loaded.preferences));
     setSettingsError(loaded.error);
     setPreferencesReady(true);
-  }
-  function saveSettings() {
-    const result = saveReviewPreferences(settingsDraft);
-    setSettingsError(result.ok ? null : result.error);
-    setSettingsNotice(result.ok ? "기본값을 저장했습니다. 새 검토와 재진입 시 적용됩니다." : null);
-    if (result.ok) setSavedPreferences({ ...settingsDraft });
-  }
-  function resetSettings() {
-    const result = resetReviewPreferences();
-    setSettingsError(result.ok ? null : result.error);
-    setSettingsNotice(result.ok ? "저장된 기본값을 삭제했습니다. 시스템 기본값을 적용합니다." : null);
-    if (result.ok) {
-      setSavedPreferences(null);
-      setSettingsDraft(resolveReviewPreferences(null));
-    }
   }
   const [chosenFile, setChosenFile] = useState<string>("");
   const [uploadErrors, setUploadErrors] = useState<string[]>([]);
@@ -178,10 +157,10 @@ export function LegalResearch({ workspace, initialTask = "full_research", initia
     }
     setTask(next);
   }
-  const shellEntry = useRef({ task: initialTask, settings: initialReviewSettings });
+  const shellEntry = useRef(initialTask);
   useEffect(() => {
-    if (shellEntry.current.task === initialTask && shellEntry.current.settings === initialReviewSettings) return;
-    shellEntry.current = { task: initialTask, settings: initialReviewSettings };
+    if (shellEntry.current === initialTask) return;
+    shellEntry.current = initialTask;
     const pendingTasks = [...requests.current.keys()];
     requests.current.forEach((controller) => controller.abort());
     requests.current.clear();
@@ -192,8 +171,7 @@ export function LegalResearch({ workspace, initialTask = "full_research", initia
     });
     setTask(initialTask);
     setPreferenceOverride({});
-    setResearchView(initialReviewSettings ? "settings" : "research");
-  }, [initialTask, initialReviewSettings]);
+  }, [initialTask]);
 
   const update = <K extends keyof LawResearchDraft>(key: K, value: LawResearchDraft[K]) => setDraft((current) => ({ ...current, [key]: value }));
   const current = results[task];
@@ -237,34 +215,16 @@ export function LegalResearch({ workspace, initialTask = "full_research", initia
   const runButton = <Button type="submit" className="law-search-button" disabled={!canRun || loading || !preferencesReady}>
     {loading ? (isDocument ? "문서 검토 중…" : "리서치 중…") : isDocument ? "문서 검토 실행" : "실행"}
   </Button>;
-  const runSettings = <Collapsible key={task} defaultOpen={isDocument} className="research-run-settings">
-    <CollapsibleTrigger className="research-settings-trigger">
-      <span>이번 실행 설정</span><span className="research-disclosure-mark" aria-hidden="true">⌄</span>
-    </CollapsibleTrigger>
-    <CollapsiblePanel>
-      <div className="research-settings-body">
-        <ReviewPreferenceFields value={preferences} onChange={setPreferenceOverride} prefix="run-review"
-          disabled={!preferencesReady || loading} compact currentRun showDocumentSource={isDocument} />
-        <p className="research-settings-note">이번 실행에만 적용됩니다. 기본값은 검토 설정에서 저장하세요.</p>
-        <Button type="button" variant="outline" size="sm" disabled={!preferencesReady || loading}
-          onClick={() => setPreferenceOverride({})}>저장된 기본값 사용</Button>
-        {settingsError && <p className="law-search-error" role="alert">{settingsError}</p>}
-      </div>
-    </CollapsiblePanel>
-  </Collapsible>;
+  const resultDisplay = <section className="research-result-display" aria-labelledby={`research-result-display-${task}`}>
+    <h2 id={`research-result-display-${task}`}>결과 표시</h2>
+    <ReviewPreferenceFields value={preferences} onChange={setPreferenceOverride} prefix={`run-review-${task}`}
+      disabled={!preferencesReady || loading} compact currentRun showDocumentSource={false} />
+    <p className="research-settings-note">이번 실행에만 적용됩니다. 기본값은 설정에서 관리합니다.</p>
+    {settingsError && <p className="law-search-error" role="alert">{settingsError}</p>}
+  </section>;
   return <div className="legal-analysis legal-research">
-    <Tabs value={researchView} onValueChange={(value) => {
-      setResearchView(String(value));
-      if (value === "research") setPreferenceOverride({});
-    }}>
-      <TabsList aria-label="종합 리서치 메뉴"><TabsTab value="research">리서치</TabsTab><TabsTab value="settings">검토 설정</TabsTab></TabsList>
-      <TabsPanel value="settings"><ReviewSettings draft={settingsDraft} onChange={(value) => {
-        setSettingsDraft(value); setSettingsNotice(null);
-      }} onSave={saveSettings} onReset={resetSettings} error={settingsError} notice={settingsNotice} ready={preferencesReady} /></TabsPanel>
-      <TabsPanel value="research">
     <div className={`research-workspace${isDocument ? " is-document" : ""}`}>
     <div className="research-workspace-main">
-    {!isDocument && runSettings}
     <form className={`legal-analysis-form${isDocument ? " research-document-workarea" : ""}`} onSubmit={submit} aria-label={isDocument ? "문서 검토 입력" : "종합 리서치 입력"}>
       <div className="legal-analysis-fields legal-research-options">
         <Field><FieldLabel htmlFor="research-task">리서치 유형</FieldLabel>
@@ -369,6 +329,8 @@ export function LegalResearch({ workspace, initialTask = "full_research", initia
         </div>}
       </>}
 
+      {resultDisplay}
+
       {!fromFile && <div className={`legal-analysis-actions${task === "ordinance_compare" ? " legal-research-action-row" : ""}`}>
         {task === "ordinance_compare" && (() => {
           // Guidance until both regions are filled; the same region twice is a real input error.
@@ -381,8 +343,7 @@ export function LegalResearch({ workspace, initialTask = "full_research", initia
       </div>}
     </form>
     </div>
-    {isDocument && <aside className="research-workspace-rail" aria-label="문서 검토 설정과 가이드">
-      {runSettings}
+    {isDocument && <aside className="research-workspace-rail" aria-label="문서 검토 가이드">
       <section className="research-review-guide" aria-labelledby="research-guide-title">
         <h2 id="research-guide-title">문서 검토 가이드</h2>
         <p>입력부터 근거 확인까지</p>
@@ -427,8 +388,6 @@ export function LegalResearch({ workspace, initialTask = "full_research", initia
         : null}
     </section>}
     </div>
-      </TabsPanel>
-    </Tabs>
   </div>;
 }
 

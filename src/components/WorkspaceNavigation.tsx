@@ -12,7 +12,6 @@ export interface WorkspaceNavigationItem {
   group: string;
   Icon: ComponentType<{ size?: number; strokeWidth?: number; "aria-hidden"?: boolean }>;
   ariaLabel?: string;
-  nested?: boolean;
   /** Starts downloading a lazy view before activation. */
   prefetch?: () => void;
 }
@@ -22,21 +21,21 @@ export function WorkspaceNavigation({ items, active, onNavigate }: { items: Work
   const content = <nav aria-label="작업 공간 메뉴" className="workspace-navigation">
     {[...new Set(items.map((item) => item.group))].map((group) => <section key={group}>
       <h2>{group}</h2>
-      <ul>{items.filter((item) => item.group === group).map(({ value, label, Icon, ariaLabel, nested, prefetch }) => <li key={value}>
-        <Button variant="ghost" className={`workspace-nav-item${active === value ? " active" : ""}${nested ? " nested" : ""}`} aria-current={active === value ? "page" : undefined} aria-label={ariaLabel ?? label} onPointerEnter={prefetch} onFocus={prefetch} onClick={() => { setOpen(false); onNavigate(value); }}>
+      <ul>{items.filter((item) => item.group === group).map(({ value, label, Icon, ariaLabel, prefetch }) => <li key={value}>
+        <Button variant="ghost" className={`workspace-nav-item${active === value ? " active" : ""}`} aria-current={active === value ? "page" : undefined} aria-label={ariaLabel ?? label} onPointerEnter={prefetch} onFocus={prefetch} onClick={() => { setOpen(false); onNavigate(value); }}>
           <Icon size={18} strokeWidth={1.75} aria-hidden={true} /><span>{label}</span>
         </Button>
       </li>)}</ul>
     </section>)}
   </nav>;
   return <>
-    <aside className="workspace-sidebar"><div className="workspace-brand"><WorkLensLogo size={36} /></div>{content}<p className="workspace-privacy">문서는 이 탭의 작업 공간에서 처리합니다.</p></aside>
+    <aside className="workspace-sidebar"><div className="workspace-brand"><WorkLensLogo size={36} tone="light" showWordmark={false} /></div>{content}</aside>
     <div className="workspace-mobile-bar"><Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger render={<Button variant="ghost" size="icon" aria-label="작업 공간 메뉴 열기" />}><Menu /></SheetTrigger>
-      <SheetPopup side="left" closeProps={{ "aria-label": "메뉴 닫기" }}>
-        <SheetHeader><SheetTitle>WorkLens</SheetTitle><SheetDescription>작업 공간 메뉴</SheetDescription></SheetHeader>
+      <SheetPopup side="left" className="workspace-mobile-sheet" closeProps={{ "aria-label": "메뉴 닫기" }}>
+        <SheetHeader><WorkLensLogo size={36} tone="light" showWordmark={false} /><SheetTitle className="sr-only">WorkLens</SheetTitle><SheetDescription className="sr-only">작업 공간 메뉴</SheetDescription></SheetHeader>
         <SheetPanel>{content}</SheetPanel>
       </SheetPopup>
-    </Sheet><WorkLensLogo size={28} /></div>
+    </Sheet><WorkLensLogo size={28} tone="light" showWordmark={false} /></div>
   </>;
 }

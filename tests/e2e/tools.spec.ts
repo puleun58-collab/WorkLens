@@ -11,7 +11,7 @@ import { CLEAN_WORK_RULES } from "../fixtures/review-scenarios";
 import { navigateWorkspace } from "./navigation";
 
 const researchTaskLabels: Record<string, string> = {
-  full_research: "종합 리서치", law_system: "법체계 확인", action_basis: "처분·허가 근거",
+  full_research: "통합 조사", law_system: "법체계 확인", action_basis: "처분·허가 근거",
   dispute_prep: "분쟁·불복 자료", amendment_track: "개정 추적", ordinance_compare: "조례 비교",
   procedure_detail: "절차·서식", document_review: "문서 검토",
 };
@@ -1342,7 +1342,7 @@ test("RESEARCH every task applies the same result rules while keeping its own st
   await form.getByLabel("비교 지역 1").fill("인천광역시");
   await form.getByLabel("비교 지역 2").fill("서울특별시");
   const tasks = ["full_research", "law_system", "action_basis", "dispute_prep", "amendment_track", "ordinance_compare", "procedure_detail"];
-  const labels: Record<string, string> = { full_research: "종합 리서치", law_system: "법체계 확인", action_basis: "처분·허가 근거", dispute_prep: "분쟁·불복 자료",
+  const labels: Record<string, string> = { full_research: "통합 조사", law_system: "법체계 확인", action_basis: "처분·허가 근거", dispute_prep: "분쟁·불복 자료",
     amendment_track: "개정 추적", ordinance_compare: "조례 비교", procedure_detail: "절차·서식" };
   const statuses = new Set<string>();
   for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {

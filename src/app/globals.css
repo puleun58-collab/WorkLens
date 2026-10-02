@@ -4001,9 +4001,31 @@ body {
 }
 
 .settings-list {
-  margin: 0;
+  margin: var(--space-6) 0 0;
   display: grid;
   gap: 0;
+}
+
+.review-settings-section {
+  padding-bottom: var(--space-6);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.review-settings-groups {
+  display: grid;
+  gap: var(--space-5);
+}
+
+.review-settings-groups > div + div {
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.review-settings-groups h3 {
+  margin: 0 0 var(--space-3);
+  color: var(--ink-soft);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
 }
 
 .settings-list > div {

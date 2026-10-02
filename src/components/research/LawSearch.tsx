@@ -37,10 +37,10 @@ export interface LawSearchProps {
   workspace?: ReviewableFiles;
   initialView?: ResearchView;
   initialResearchTask?: LawResearchTask;
-  initialReviewSettings?: boolean;
+  onViewChange?: (view: ResearchView) => void;
 }
 
-export function LawSearch({ workspace, initialView = "law", initialResearchTask, initialReviewSettings = false }: LawSearchProps) {
+export function LawSearch({ workspace, initialView = "law", initialResearchTask, onViewChange }: LawSearchProps) {
   const [view, setView] = useState<ResearchView>(initialView);
   const [shellView, setShellView] = useState(initialView);
   if (shellView !== initialView) {
@@ -50,36 +50,40 @@ export function LawSearch({ workspace, initialView = "law", initialResearchTask,
   const [linkedRequest, setLinkedRequest] = useState<LinkedDecisionSearch | null>(null);
   const [linkedAnalysis, setLinkedAnalysis] = useState<LinkedAnalysis | null>(null);
   const returnFocus = useRef<string | null>(null);
+  function changeView(next: ResearchView) {
+    setView(next);
+    onViewChange?.(next);
+  }
 
   function relatedDecisions(law: LawEntry, jo: string) {
     setLinkedRequest({ query: `${law.name} ${jo}`, lawName: law.name, jo });
-    setView("decisions");
+    changeView("decisions");
     requestAnimationFrame(() => document.getElementById("decision-query")?.focus());
   }
 
   function returnToLaw() {
     if (linkedRequest?.origin === "analysis") {
-      setView("analysis");
+      changeView("analysis");
       return;
     }
-    setView("law");
+    changeView("law");
     requestAnimationFrame(() => document.getElementById("related-decisions")?.focus());
   }
 
   function relatedFromAnalysis(search: RelatedSearch) {
     setLinkedRequest({ query: search.query, lawName: search.query, jo: "", domain: search.domain, origin: "analysis" });
-    setView("decisions");
+    changeView("decisions");
   }
 
   /** Opens an analysis from structured law/decision state; `focusId` is the trigger to return to. */
   function openAnalysis(request: LinkedAnalysis, focusId: string) {
     returnFocus.current = focusId;
     setLinkedAnalysis(request);
-    setView("analysis");
+    changeView("analysis");
   }
 
   function returnFromAnalysis(origin: LinkedAnalysis["origin"]) {
-    setView(origin);
+    changeView(origin);
     const focusId = returnFocus.current;
     if (focusId) requestAnimationFrame(() => document.getElementById(focusId)?.focus());
   }
@@ -87,7 +91,7 @@ export function LawSearch({ workspace, initialView = "law", initialResearchTask,
   return <Tabs className="law-research" value={view} onValueChange={(value) => {
     if (value === "decisions") setLinkedRequest(null);
     if (value === "analysis") setLinkedAnalysis(null);
-    setView(value as ResearchView);
+    changeView(value as ResearchView);
   }}>
     <div className="law-view-band">
       <TabsList aria-label="법령 자료 유형" variant="underline" className="flex-wrap">
@@ -103,7 +107,7 @@ export function LawSearch({ workspace, initialView = "law", initialResearchTask,
         onCiteCheck={(caseNumber) => openAnalysis({ mode: "cite_check", caseNumber, origin: "decisions" }, "decision-cite-check")} />
     </TabsPanel>
     <TabsPanel value="analysis" keepMounted><LegalAnalysis linkedRequest={linkedAnalysis} onReturn={returnFromAnalysis} onRelatedSearch={relatedFromAnalysis} /></TabsPanel>
-    <TabsPanel value="research" keepMounted><LegalResearch workspace={workspace} initialTask={initialResearchTask} initialReviewSettings={initialReviewSettings} /></TabsPanel>
+    <TabsPanel value="research" keepMounted><LegalResearch workspace={workspace} initialTask={initialResearchTask} /></TabsPanel>
   </Tabs>;
 }
 

@@ -215,7 +215,14 @@ function warmLazyViews(): () => void {
 }
 
 type ToolView = "PdfTools" | "ImageTools";
-type ShellView = Tab | ToolView | "Law" | "Decisions" | "Research" | "DocumentReview" | "ReviewSettings" | "Guide" | "Dictionary" | "Settings";
+type ShellView = Tab | ToolView | "Law" | "Decisions" | "LegalAnalysis" | "Research" | "DocumentReview" | "Guide" | "Dictionary" | "Settings";
+type ShellViewMetadata = { title: string; description: string; activeNavigation: ShellView; commandLabel?: string };
+const internalViewMetadata: Record<"Decisions" | "LegalAnalysis" | "Research" | "DocumentReview", ShellViewMetadata> = {
+  Decisions: { title: "판례·결정례", description: "알고 있는 사건이나 키워드로 관련 자료를 직접 찾습니다.", activeNavigation: "Law", commandLabel: "법령 > 판례·결정례" },
+  LegalAnalysis: { title: "검증·분석", description: "알고 있는 인용이나 법령의 시점·유효성을 확인합니다.", activeNavigation: "Law", commandLabel: "법령 > 검증·분석" },
+  Research: { title: "종합 리서치", description: "업무 상황이나 질문에서 관련 법령·판례·절차를 함께 조사합니다.", activeNavigation: "Law", commandLabel: "법령 > 종합 리서치" },
+  DocumentReview: { title: "문서 검토", description: "작업 문서의 조항과 확인된 근거를 검토합니다.", activeNavigation: "Law", commandLabel: "법령 > 문서 검토" },
+};
 const tabIcons: Record<Tab, typeof BarChart3> = {
   Analyze: BarChart3,
   Ask: MessageSquareText,
@@ -1539,28 +1546,33 @@ export default function Home() {
    * Document features share one workspace; utility views leave its files in
    * memory while hiding document controls.
    */
-  const isResearchView = shellView === "Law" || shellView === "Decisions" || shellView === "Research" || shellView === "DocumentReview" || shellView === "ReviewSettings";
+  const isResearchView = shellView === "Law" || shellView === "Decisions" || shellView === "LegalAnalysis" || shellView === "Research" || shellView === "DocumentReview";
   const isToolView = shellView === "PdfTools" || shellView === "ImageTools" || isResearchView;
   const isUtilityView = shellView === "Guide" || shellView === "Dictionary" || shellView === "Settings";
   const isDocumentWorkspaceView = !isUtilityView && !isToolView;
   const selectedNames = files.filter((file) => selected.includes(file.id)).map((file) => file.name).join(", ");
   const navigationItems: WorkspaceNavigationItem[] = [
-    ...tabs.map((tab) => ({ value: tab, label: tabMeta[tab].label, group: "문서 작업", Icon: tabIcons[tab] })),
-    { value: "Law", label: "법령", group: "리서치", Icon: Scale, prefetch: () => prefetchView(loadLawSearch) },
-    { value: "Decisions", label: "판례·결정례", group: "리서치", Icon: Scale, prefetch: () => prefetchView(loadLawSearch) },
-    { value: "Research", label: "종합 리서치", group: "리서치", Icon: Scale, prefetch: () => prefetchView(loadLawSearch) },
-    { value: "DocumentReview", label: "문서 검토", group: "리서치", Icon: FileText, nested: true, prefetch: () => prefetchView(loadLawSearch) },
-    { value: "ReviewSettings", label: "검토 설정", group: "리서치", Icon: SlidersHorizontal, nested: true, prefetch: () => prefetchView(loadLawSearch) },
-    { value: "PdfTools", label: "PDF 도구", group: "도구", Icon: FileText, prefetch: () => prefetchView(loadPdfTool) },
-    { value: "ImageTools", label: "이미지 도구", group: "도구", Icon: ImageIcon, prefetch: () => prefetchView(loadImageTool) },
-    { value: "Guide", label: "사용 가이드", ariaLabel: "Guide", group: "도움말", Icon: CircleHelp, prefetch: () => prefetchView(loadUsageGuide) },
-    { value: "Dictionary", label: "용어 사전", ariaLabel: "Dictionary", group: "도움말", Icon: BookMarked },
-    { value: "Settings", label: "설정", ariaLabel: "Settings", group: "도움말", Icon: SlidersHorizontal },
+    ...tabs.map((tab) => ({ value: tab, label: tabMeta[tab].label, group: "WORKSPACE", Icon: tabIcons[tab] })),
+    { value: "Law", label: "법령", group: "RESEARCH", Icon: Scale, prefetch: () => prefetchView(loadLawSearch) },
+    { value: "PdfTools", label: "PDF 도구", group: "TOOLS", Icon: FileText, prefetch: () => prefetchView(loadPdfTool) },
+    { value: "ImageTools", label: "이미지 도구", group: "TOOLS", Icon: ImageIcon, prefetch: () => prefetchView(loadImageTool) },
+    { value: "Guide", label: "사용 가이드", ariaLabel: "Guide", group: "HELP", Icon: CircleHelp, prefetch: () => prefetchView(loadUsageGuide) },
+    { value: "Dictionary", label: "용어 사전", ariaLabel: "Dictionary", group: "HELP", Icon: BookMarked },
+    { value: "Settings", label: "설정", ariaLabel: "Settings", group: "HELP", Icon: SlidersHorizontal },
+  ];
+  const viewMetadata = shellView in internalViewMetadata
+    ? internalViewMetadata[shellView as keyof typeof internalViewMetadata]
+    : { title: navigationItems.find((entry) => entry.value === shellView)?.label ?? "WorkLens",
+      description: shellView === "Law" ? "알고 있는 법령이나 조문을 직접 찾습니다." : "", activeNavigation: shellView };
+  const commandItems = [
+    ...navigationItems.map((item) => ({ value: item.value, label: item.label, description: item.group })),
+    ...Object.entries(internalViewMetadata).map(([value, metadata]) => ({ value, label: metadata.commandLabel ?? metadata.title, description: "RESEARCH" })),
+    { value: "ReviewSettings", label: "검토 설정", description: "HELP · 설정" },
   ];
   function navigateWorkspace(value: string) {
-    const item = navigationItems.find((entry) => entry.value === value);
+    const item = commandItems.find((entry) => entry.value === value);
     if (!item) return;
-    const next = item.value as ShellView;
+    const next = (item.value === "ReviewSettings" ? "Settings" : item.value) as ShellView;
     setDetail(null);
     detailTrigger.current = null;
     setShellView(next);
@@ -1575,13 +1587,13 @@ export default function Home() {
       data-hydrated={hydrated ? "true" : "false"}
     >
       <a className="skip-link" href="#workspace-content">본문으로 건너뛰기</a>
-      <WorkspaceNavigation items={navigationItems} active={shellView} onNavigate={navigateWorkspace} />
+      <WorkspaceNavigation items={navigationItems} active={viewMetadata.activeNavigation} onNavigate={navigateWorkspace} />
 
       <div className="shell-main">
-        <div className="workspace-topbar"><WorkspaceCommand items={navigationItems.map((item) => ({ value: item.value, label: item.label, description: item.group }))} onNavigate={navigateWorkspace} /><span className="workspace-topbar-note">업무 문서 작업 공간</span></div>
+        <div className="workspace-topbar"><WorkspaceCommand items={commandItems} onNavigate={navigateWorkspace} /></div>
         {isUtilityView || isToolView ? (
           <header className="context-bar utility-bar">
-            <h1>{navigationItems.find((item) => item.value === shellView)?.label}</h1>
+            <h1>{viewMetadata.title}</h1>
             <span className="context-names">
               {shellView === "Guide"
                 ? "WorkLens의 주요 기능을 단계별로 확인하세요."
@@ -1591,17 +1603,9 @@ export default function Home() {
                   ? "이 브라우저에만 적용되는 항목입니다."
                   : shellView === "PdfTools"
                     ? "PDF 페이지를 정리하고 원하는 형식으로 내보낼 수 있습니다."
-                    : shellView === "Law"
-                      ? "현행 법령의 조문과 개정 이력을 조회합니다."
-                      : shellView === "Decisions"
-                        ? "판례·결정례의 내용과 출처를 조회합니다."
-                        : shellView === "Research"
-                          ? "법률 쟁점과 확인된 근거를 함께 살펴봅니다."
-                          : shellView === "DocumentReview"
-                            ? "작업 문서의 조항과 확인된 근거를 검토합니다."
-                            : shellView === "ReviewSettings"
-                              ? "새 검토에 적용할 기본값을 이 브라우저에 저장합니다."
-                              : "이미지를 편집하고 원하는 형식으로 내보낼 수 있습니다."}
+                    : isResearchView
+                      ? viewMetadata.description
+                      : "이미지를 편집하고 원하는 형식으로 내보낼 수 있습니다."}
             </span>
           </header>
         ) : (
@@ -1715,9 +1719,9 @@ export default function Home() {
           ) : isToolView ? (
             shellView === "PdfTools" ? <PdfTool /> : isResearchView ? <LawSearch
               workspace={{ files, selected, uploading, addFiles: enqueueUploads }}
-              initialView={shellView === "Law" ? "law" : shellView === "Decisions" ? "decisions" : "research"}
-              initialResearchTask={shellView === "DocumentReview" || shellView === "ReviewSettings" ? "document_review" : "full_research"}
-              initialReviewSettings={shellView === "ReviewSettings"}
+              initialView={shellView === "Law" ? "law" : shellView === "Decisions" ? "decisions" : shellView === "LegalAnalysis" ? "analysis" : "research"}
+              initialResearchTask={shellView === "DocumentReview" ? "document_review" : "full_research"}
+              onViewChange={(view) => setShellView(view === "law" ? "Law" : view === "decisions" ? "Decisions" : view === "analysis" ? "LegalAnalysis" : "Research")}
             /> : <ImageTool />
           ) : (
             <>
