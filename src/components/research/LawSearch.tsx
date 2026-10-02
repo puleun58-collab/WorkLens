@@ -22,6 +22,10 @@ type ResearchView = "law" | "decisions" | "analysis" | "research";
 export interface ReviewableFiles {
   files: readonly WorkspaceFile[];
   selected: readonly string[];
+  /** The workspace's shared upload is running; a file joins `files` only once parsed. */
+  uploading?: boolean;
+  /** The workspace's own upload: parsed files join the shared list; resolves per file to its id or error. */
+  addFiles?: (files: FileList | null) => Promise<Array<{ id: string } | { error: string }>>;
 }
 
 export function LawSearch({ workspace }: { workspace?: ReviewableFiles }) {

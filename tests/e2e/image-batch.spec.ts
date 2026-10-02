@@ -55,9 +55,11 @@ test("batch image edits use selected items, each ratio, and keep active preview 
   await openEditor(page);
   await addImages(page, [["a.png", 1000, 500], ["b.png", 1000, 1000], ["c.png", 1920, 1080]]);
   await page.getByLabel("c.png 선택").uncheck();
-  await expect(page.getByLabel("너비 px")).toHaveValue("");
+  // Same width (1000), different heights: only the differing field is blank, as a hint, never a value.
+  await expect(page.getByLabel("너비 px")).toHaveValue("1000");
+  await expect(page.getByLabel("너비 px")).not.toHaveAttribute("placeholder", /./);
   await expect(page.getByLabel("높이 px")).toHaveValue("");
-  await expect(page.getByLabel("너비 px")).toHaveAttribute("placeholder", "서로 다른 크기");
+  await expect(page.getByLabel("높이 px")).toHaveAttribute("placeholder", "서로 다른 값");
   await page.getByLabel("너비 px").fill("500");
   await page.getByLabel("너비 px").press("Tab");
   await size(page, 500, 250);

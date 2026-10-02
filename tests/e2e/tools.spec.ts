@@ -939,6 +939,11 @@ test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route wit
 
   await task.selectOption("document_review");
   await expect(form.getByLabel("질문 또는 검색어")).toHaveCount(0);
+  // 법령 entered directly with no work files: the 작업 파일 empty state offers the shared upload, nothing runs.
+  await expect(form.getByRole("radio", { name: "작업 파일" })).toBeChecked();
+  await expect(form.getByText("검토할 작업 파일이 없습니다.")).toBeVisible();
+  await expect(form.getByRole("button", { name: "파일 추가" })).toBeEnabled();
+  await form.getByRole("radio", { name: "직접 입력" }).check();
   const documentText = form.getByLabel("검토할 문서 내용");
   await expect(form).not.toContainText("Korean Law MCP");
   await expect(form.getByRole("button", { name: "실행" })).toBeDisabled();
@@ -1042,7 +1047,9 @@ test("RESEARCH 문서 검토 reviews one workspace file in place and shows where
   const form = page.getByRole("form", { name: "종합 리서치 입력" });
   await form.getByLabel("리서치 유형").selectOption("document_review");
   await expect(form.getByRole("radio", { name: "작업 파일" })).toBeChecked();
-  const choice = form.getByLabel("검토할 문서");
+  const choice = form.locator("#research-file");
+  await expect(choice).toHaveAccessibleName("검토할 문서");
+  await expect(form.getByRole("button", { name: "파일 추가" })).toBeVisible();
   // Selected files come first; one is reviewed at a time.
   await expect(choice.locator("option")).toHaveText([longName, "근로계약서.pdf", "매출.csv", "긴계약.docx"]);
   await form.getByRole("button", { name: "실행" }).click();
@@ -1510,6 +1517,7 @@ test("document review keeps issue guidance ahead of independent, grouped source 
   await page.locator(".law-view-tabs").getByRole("button", { name: "종합 리서치" }).click();
   const form = page.getByRole("form", { name: "종합 리서치 입력" });
   await form.getByLabel("리서치 유형").selectOption("document_review");
+  await form.getByRole("radio", { name: "직접 입력" }).check();
   const input = form.getByLabel("검토할 문서 내용");
 
   for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
@@ -1617,6 +1625,7 @@ test("document evidence links focus only the selected issue without changing dis
   await page.locator(".law-view-tabs").getByRole("button", { name: "종합 리서치" }).click();
   const form = page.getByRole("form", { name: "종합 리서치 입력" });
   await form.getByLabel("리서치 유형").selectOption("document_review");
+  await form.getByRole("radio", { name: "직접 입력" }).check();
   await form.getByLabel("검토할 문서 내용").fill(input);
   await form.getByRole("button", { name: "실행" }).click();
   const reviewResult = page.locator(".contract-review");

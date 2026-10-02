@@ -690,7 +690,8 @@ export default function Home() {
     interruptServerAi();
   }, []);
 
-  const upload = async (file: File) => {
+  /** The one workspace upload path; 법령 › 문서 검토 calls it too. Resolves to the new file id, or the shown error. */
+  const upload = async (file: File): Promise<{ id: string } | { error: string }> => {
     setUploading(true);
     notifyWorkspace("info", `${file.name}을(를) 분석 중입니다.`);
     try {
@@ -702,19 +703,24 @@ export default function Home() {
       setFiles((current) => [...current, summary]);
       // The new row (name, READY, structure) is the visible confirmation; only assistive tech gets a sentence.
       setNotice({ tone: "success", message: `${file.name} 분석이 완료되었습니다.`, scope: "workspace", srOnly: true });
+      return { id: summary.id };
     } catch (error) {
       const failure = error as ApiError;
       // Only WorkLens errors (string code) carry user copy; a browser exception such as a
       // DOMException from File.arrayBuffer() would otherwise leak English internals.
       const ours = typeof failure?.code === "string";
-      notifyWorkspace("error", ours && failure.message ? failure.message : "파일을 읽지 못했습니다.", ours ? failure.detail : "파일이 이동·삭제되지 않았는지 확인한 뒤 다시 추가해 주세요.");
+      const message = ours && failure.message ? failure.message : "파일을 읽지 못했습니다.";
+      notifyWorkspace("error", message, ours ? failure.detail : "파일이 이동·삭제되지 않았는지 확인한 뒤 다시 추가해 주세요.");
+      return { error: `${file.name}: ${message}` };
     } finally {
       setUploading(false);
     }
   };
 
-  const enqueueUploads = (list: FileList | null) => {
-    for (const file of Array.from(list ?? [])) uploadQueue.current = uploadQueue.current.then(() => upload(file));
+  const enqueueUploads = (list: FileList | null): Promise<Array<{ id: string } | { error: string }>> => {
+    const results: Array<{ id: string } | { error: string }> = [];
+    for (const file of Array.from(list ?? [])) uploadQueue.current = uploadQueue.current.then(async () => { results.push(await upload(file)); });
+    return uploadQueue.current.then(() => results);
   };
   const onDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -1752,7 +1758,7 @@ export default function Home() {
               onToggleRule={toggleRule}
             />
           ) : isToolView ? (
-            shellView === "PdfTools" ? <PdfTool /> : shellView === "Law" ? <LawSearch workspace={{ files, selected }} /> : <ImageTool />
+            shellView === "PdfTools" ? <PdfTool /> : shellView === "Law" ? <LawSearch workspace={{ files, selected, uploading, addFiles: enqueueUploads }} /> : <ImageTool />
           ) : (
             <>
               {polishTextMode || files.length === 0 ? null : (

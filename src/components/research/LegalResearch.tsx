@@ -55,8 +55,11 @@ const RESULT_NOTE = "법적 판단이 필요한 경우 국가법령정보센터 
 
 export function LegalResearch({ workspace }: { workspace?: ReviewableFiles }) {
   const files = workspace?.files ?? [];
-  const [documentSource, setDocumentSource] = useState<DocumentSource>(files.length ? "file" : "text");
+  // 작업 파일 first: with none yet, its empty state is where the user adds one.
+  const [documentSource, setDocumentSource] = useState<DocumentSource>("file");
   const [chosenFile, setChosenFile] = useState<string>("");
+  const [uploadErrors, setUploadErrors] = useState<string[]>([]);
+  const fileInput = useRef<HTMLInputElement>(null);
   const [task, setTask] = useState<LawResearchTask>("full_research");
   const [draft, setDraft] = useState<LawResearchDraft>(EMPTY_RESEARCH_DRAFT);
   const [results, setResults] = useState<Partial<Record<LawResearchTask, TaskResult>>>({});
@@ -159,6 +162,16 @@ export function LegalResearch({ workspace }: { workspace?: ReviewableFiles }) {
     else if (request) void run(request);
   }
 
+  /** Adds through the workspace's own upload, then selects the last file that parsed. */
+  async function addFiles(list: FileList | null) {
+    if (!workspace?.addFiles || !list?.length) return;
+    setUploadErrors([]);
+    const results = await workspace.addFiles(list);
+    const added = results.flatMap((result) => "id" in result ? [result.id] : []);
+    if (added.length) setChosenFile(added.at(-1)!);
+    setUploadErrors(results.flatMap((result) => "error" in result ? [result.error] : []));
+  }
+
   const runButton = <button type="submit" className="law-search-button" disabled={!canRun || loading}>
     {loading ? (isDocument ? "문서 검토 중…" : "리서치 중…") : "실행"}
   </button>;
@@ -184,30 +197,38 @@ export function LegalResearch({ workspace }: { workspace?: ReviewableFiles }) {
       </div>
       <p className="legal-research-description">{TASK_HELP[task].description}</p>
 
-      {isDocument ? <>
-        {/* 작업 파일: source choice → file → 실행 on one row, like 추출; 직접 입력 keeps the run button under the text. */}
-        <div className={fromFile ? "research-file-row" : undefined}>
-          <fieldset className="segmented research-document-source" aria-label="문서 입력 방식">
-            {(["file", "text"] as const).map((source) => <label key={source}>
-              <input type="radio" name="research-document-source" value={source} checked={documentSource === source} onChange={() => setDocumentSource(source)} />
-              <span>{source === "file" ? "작업 파일" : "직접 입력"}</span>
-            </label>)}
-          </fieldset>
-          {fromFile && reviewable.length > 0 && <label htmlFor="research-file" className="legal-research-single">검토할 문서
-            <select id="research-file" value={fileId} onChange={(event) => setChosenFile(event.target.value)}>
-              {reviewable.map((file) => <option key={file.id} value={file.id}>{file.name}</option>)}
-            </select>
-          </label>}
-          {fromFile && <div className="legal-analysis-actions">{runButton}</div>}
-        </div>
-        {!fromFile && <>
-          <label htmlFor="research-document">검토할 문서 내용</label>
-          <textarea id="research-document" value={draft.text} rows={10} maxLength={LAW_RESEARCH_DOCUMENT_MAX_CHARS} placeholder={TASK_HELP.document_review.placeholder} onChange={(event) => update("text", event.target.value)} aria-describedby="research-document-help" />
+      {isDocument ? <div className="research-document-input" role="group" aria-labelledby="research-document-label">
+        <p id="research-document-label" className="research-document-label">검토할 문서</p>
+        <fieldset className="segmented research-document-source" aria-label="문서 입력 방식">
+          {(["file", "text"] as const).map((source) => <label key={source}>
+            <input type="radio" name="research-document-source" value={source} checked={documentSource === source} onChange={() => setDocumentSource(source)} />
+            <span>{source === "file" ? "작업 파일" : "직접 입력"}</span>
+          </label>)}
+        </fieldset>
+        {fromFile ? <>
+          <div className="research-file-row">
+            {reviewable.length > 0
+              ? <select id="research-file" aria-labelledby="research-document-label" value={fileId} onChange={(event) => setChosenFile(event.target.value)}>
+                {reviewable.map((file) => <option key={file.id} value={file.id}>{file.name}</option>)}
+              </select>
+              : <p className="research-file-empty" role="status">검토할 작업 파일이 없습니다.</p>}
+            {workspace?.addFiles && <>
+              <input ref={fileInput} type="file" multiple hidden accept=".xlsx,.csv,.pdf,.docx,.pptx" aria-label="검토할 작업 파일 추가"
+                onChange={(event) => { void addFiles(event.target.files); event.target.value = ""; }} />
+              <button type="button" className="research-file-add" onClick={() => fileInput.current?.click()} disabled={workspace.uploading}>
+                {workspace.uploading ? "분석 중…" : "파일 추가"}
+              </button>
+            </>}
+            {reviewable.length > 0 && runButton}
+          </div>
+          {uploadErrors.map((message) => <p key={message} className="law-search-error" role="alert">{message}</p>)}
+        </> : <>
+          <textarea id="research-document" aria-label="검토할 문서 내용" value={draft.text} rows={10} maxLength={LAW_RESEARCH_DOCUMENT_MAX_CHARS} placeholder={TASK_HELP.document_review.placeholder} onChange={(event) => update("text", event.target.value)} aria-describedby="research-document-help" />
           <p id="research-document-help" className="legal-analysis-help">
             <span className="legal-analysis-count">{draft.text.length.toLocaleString("ko-KR")} / {LAW_RESEARCH_DOCUMENT_MAX_CHARS.toLocaleString("ko-KR")}자 · 최소 {LAW_RESEARCH_DOCUMENT_MIN_CHARS}자</span>
           </p>
         </>}
-      </> : <>
+      </div> : <>
         <label htmlFor="research-query">질문 또는 검색어</label>
         <textarea id="research-query" value={draft.query} rows={3} maxLength={LAW_RESEARCH_QUERY_MAX_CHARS} placeholder={TASK_HELP[task].placeholder} onChange={(event) => update("query", event.target.value)} aria-describedby="research-query-help"
           onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} />
