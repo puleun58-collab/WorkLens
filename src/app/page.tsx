@@ -2,6 +2,18 @@
 
 import { ChangeEvent, DragEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentType } from "react";
 import dynamic from "next/dynamic";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Radio, RadioGroup } from "@/components/ui/radio-group";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { AlertDialog, AlertDialogTrigger, AlertDialogPopup, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogClose } from "@/components/ui/alert-dialog";
+import { Sheet, SheetPopup, SheetHeader, SheetTitle, SheetDescription, SheetPanel } from "@/components/ui/sheet";
+import { useMediaQuery } from "@/hooks/use-media-query";
+import { Popover, PopoverTrigger, PopoverPopup } from "@/components/ui/popover";
+import { WorkspaceCommand } from "@/components/WorkspaceCommand";
+import { WorkspaceNavigation, type WorkspaceNavigationItem } from "@/components/WorkspaceNavigation";
 import type { AiAvailableResult, AiRequest, GroundedClaim } from "@/domain/ai";
 import type { ComparisonItem, ComparisonResult } from "@/domain/compare";
 import {
@@ -27,7 +39,6 @@ import {
   type CheckSeverity,
   type ExtractResult,
 } from "@/domain/operations";
-import { WorkLensLogo } from "./worklens-logo";
 import { disposeWorkspace, runInWorker } from "@/client/document-client";
 import {
   aiFailureDetail,
@@ -206,7 +217,7 @@ function warmLazyViews(): () => void {
 }
 
 type ToolView = "PdfTools" | "ImageTools";
-type ShellView = Tab | ToolView | "Law" | "Guide" | "Dictionary" | "Settings";
+type ShellView = Tab | ToolView | "Law" | "Decisions" | "Research" | "DocumentReview" | "ReviewSettings" | "Guide" | "Dictionary" | "Settings";
 const tabIcons: Record<Tab, typeof BarChart3> = {
   Analyze: BarChart3,
   Ask: MessageSquareText,
@@ -558,7 +569,6 @@ type DetailInfo = { entries: readonly DetailEntry[] };
 export default function Home() {
   const [files, setFiles] = useState<WorkspaceFile[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
-  const selectAllRef = useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTab] = useState<Tab>("Analyze");
   const [shellView, setShellView] = useState<ShellView>("Analyze");
   const [companyTerms, setCompanyTerms] = useState<CompanyTermEntry[]>([]);
@@ -615,6 +625,7 @@ export default function Home() {
   const uploadQueue = useRef<Promise<void>>(Promise.resolve());
   const detailTrigger = useRef<HTMLElement | null>(null);
   const primaryRunInFlight = useRef(false);
+  const compactInspector = useMediaQuery("(max-width: 900px)");
 
   const openSource = useCallback((entries: readonly DetailEntry[], trigger: HTMLElement | null) => {
     detailTrigger.current = trigger;
@@ -733,9 +744,6 @@ export default function Home() {
   };
   const allFilesSelected = files.length > 0 && selected.length === files.length;
   const someFilesSelected = selected.length > 0 && !allFilesSelected;
-  useEffect(() => {
-    if (selectAllRef.current) selectAllRef.current.indeterminate = someFilesSelected;
-  }, [someFilesSelected]);
   const toggleAllFiles = () => {
     setSelected(allFilesSelected ? [] : files.map((file) => file.id));
     clearResults();
@@ -1423,7 +1431,6 @@ export default function Home() {
   };
 
   const deleteAll = () => {
-    if (!window.confirm("이 탭에서 처리한 파일과 결과를 모두 지우시겠습니까?")) return;
     disposeWorkspace();
     interruptServerAi();
     setFiles([]);
@@ -1535,10 +1542,34 @@ export default function Home() {
    * Document features share one workspace; utility views leave its files in
    * memory while hiding document controls.
    */
-  const isToolView = shellView === "PdfTools" || shellView === "ImageTools" || shellView === "Law";
+  const isResearchView = shellView === "Law" || shellView === "Decisions" || shellView === "Research" || shellView === "DocumentReview" || shellView === "ReviewSettings";
+  const isToolView = shellView === "PdfTools" || shellView === "ImageTools" || isResearchView;
   const isUtilityView = shellView === "Guide" || shellView === "Dictionary" || shellView === "Settings";
   const isDocumentWorkspaceView = !isUtilityView && !isToolView;
   const selectedNames = files.filter((file) => selected.includes(file.id)).map((file) => file.name).join(", ");
+  const navigationItems: WorkspaceNavigationItem[] = [
+    ...tabs.map((tab) => ({ value: tab, label: tabMeta[tab].label, group: "문서 작업", Icon: tabIcons[tab] })),
+    { value: "Law", label: "법령", group: "리서치", Icon: Scale, prefetch: () => prefetchView(loadLawSearch) },
+    { value: "Decisions", label: "판례·결정례", group: "리서치", Icon: Scale, prefetch: () => prefetchView(loadLawSearch) },
+    { value: "Research", label: "종합 리서치", group: "리서치", Icon: Scale, prefetch: () => prefetchView(loadLawSearch) },
+    { value: "DocumentReview", label: "문서 검토", group: "리서치", Icon: FileText, nested: true, prefetch: () => prefetchView(loadLawSearch) },
+    { value: "ReviewSettings", label: "검토 설정", group: "리서치", Icon: SlidersHorizontal, nested: true, prefetch: () => prefetchView(loadLawSearch) },
+    { value: "PdfTools", label: "PDF 도구", group: "도구", Icon: FileText, prefetch: () => prefetchView(loadPdfTool) },
+    { value: "ImageTools", label: "이미지 도구", group: "도구", Icon: ImageIcon, prefetch: () => prefetchView(loadImageTool) },
+    { value: "Guide", label: "사용 가이드", ariaLabel: "Guide", group: "도움말", Icon: CircleHelp, prefetch: () => prefetchView(loadUsageGuide) },
+    { value: "Dictionary", label: "용어 사전", ariaLabel: "Dictionary", group: "도움말", Icon: BookMarked },
+    { value: "Settings", label: "설정", ariaLabel: "Settings", group: "도움말", Icon: SlidersHorizontal },
+  ];
+  function navigateWorkspace(value: string) {
+    const item = navigationItems.find((entry) => entry.value === value);
+    if (!item) return;
+    const next = item.value as ShellView;
+    setDetail(null);
+    detailTrigger.current = null;
+    setShellView(next);
+    if (tabs.some((tab) => tab === next)) setActiveTab(next as Tab);
+    if (tabs.some((tab) => tab === next) || next === "Guide" || next === "Dictionary" || next === "Settings") clearResults();
+  }
 
   return (
     // Hydration state lets file-input automation wait until change events bind.
@@ -1547,100 +1578,13 @@ export default function Home() {
       data-hydrated={hydrated ? "true" : "false"}
     >
       <a className="skip-link" href="#workspace-content">본문으로 건너뛰기</a>
-      <nav className="rail" aria-label="작업 공간 메뉴">
-        <div className="rail-brand">
-          <WorkLensLogo size={40} />
-        </div>
-        <p className="rail-group-label">WORKSPACE</p>
-        <ul className="rail-list">
-          {tabs.map((tab) => {
-            const Icon = tabIcons[tab];
-            const active = shellView === tab;
-            return (
-              <li key={tab}>
-                <button
-                  type="button"
-                  className={active ? "rail-item active" : "rail-item"}
-                  aria-current={active ? "page" : undefined}
-                  aria-label={tabMeta[tab].label}
-                  onClick={() => {
-                    setShellView(tab);
-                    setActiveTab(tab);
-                    clearResults();
-                  }}
-                >
-                  <Icon size={20} strokeWidth={1.75} aria-hidden="true" />
-                  <span>{tabMeta[tab].label}</span>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-        <p className="rail-group-label rail-tools-label">RESEARCH</p>
-        <ul className="rail-list rail-tools-list">
-          <li>
-            <button
-              type="button"
-              className={shellView === "Law" ? "rail-item active" : "rail-item"}
-              aria-current={shellView === "Law" ? "page" : undefined}
-              aria-label="법령"
-              onClick={() => { setDetail(null); detailTrigger.current = null; setShellView("Law"); }}
-              onPointerEnter={() => prefetchView(loadLawSearch)}
-              onFocus={() => prefetchView(loadLawSearch)}
-            >
-              <Scale size={20} strokeWidth={1.75} aria-hidden="true" />
-              <span>법령</span>
-            </button>
-          </li>
-        </ul>
-        <p className="rail-group-label rail-tools-label">TOOLS</p>
-        <ul className="rail-list rail-tools-list">
-          {([
-            { view: "PdfTools", label: "PDF 도구", Icon: FileText, load: loadPdfTool },
-            { view: "ImageTools", label: "이미지 도구", Icon: ImageIcon, load: loadImageTool },
-          ] as const).map(({ view, label, Icon, load }) => (
-            <li key={view}>
-              <button
-                type="button"
-                className={shellView === view ? "rail-item active" : "rail-item"}
-                aria-current={shellView === view ? "page" : undefined}
-                aria-label={label}
-                onClick={() => { setDetail(null); detailTrigger.current = null; setShellView(view); }}
-                onPointerEnter={() => prefetchView(load)}
-                onFocus={() => prefetchView(load)}
-              >
-                <Icon size={20} strokeWidth={1.75} aria-hidden="true" />
-                <span>{label}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-        <div className="rail-footer">
-          {(["Guide", "Dictionary", "Settings"] as const).map((view) => {
-            const Icon = view === "Guide" ? CircleHelp : view === "Dictionary" ? BookMarked : SlidersHorizontal;
-            return (
-              <button
-                key={view}
-                type="button"
-                className={shellView === view ? "rail-item active" : "rail-item"}
-                aria-current={shellView === view ? "page" : undefined}
-                aria-label={view}
-                onClick={() => { setShellView(view); clearResults(); }}
-                onPointerEnter={view === "Guide" ? () => prefetchView(loadUsageGuide) : undefined}
-                onFocus={view === "Guide" ? () => prefetchView(loadUsageGuide) : undefined}
-              >
-                <Icon size={20} strokeWidth={1.75} aria-hidden="true" />
-                <span>{view === "Guide" ? "사용 가이드" : view === "Dictionary" ? "용어 사전" : "설정"}</span>
-              </button>
-            );
-          })}
-        </div>
-      </nav>
+      <WorkspaceNavigation items={navigationItems} active={shellView} onNavigate={navigateWorkspace} />
 
       <div className="shell-main">
+        <div className="workspace-topbar"><WorkspaceCommand items={navigationItems.map((item) => ({ value: item.value, label: item.label, description: item.group }))} onNavigate={navigateWorkspace} /><span className="workspace-topbar-note">업무 문서 작업 공간</span></div>
         {isUtilityView || isToolView ? (
           <header className="context-bar utility-bar">
-            <h1>{shellView === "Guide" ? "사용 가이드" : shellView === "Dictionary" ? "용어 사전" : shellView === "Settings" ? "설정" : shellView === "PdfTools" ? "PDF 도구" : shellView === "Law" ? "법령" : "이미지 도구"}</h1>
+            <h1>{navigationItems.find((item) => item.value === shellView)?.label}</h1>
             <span className="context-names">
               {shellView === "Guide"
                 ? "WorkLens의 주요 기능을 단계별로 확인하세요."
@@ -1651,8 +1595,16 @@ export default function Home() {
                   : shellView === "PdfTools"
                     ? "PDF 페이지를 정리하고 원하는 형식으로 내보낼 수 있습니다."
                     : shellView === "Law"
-                      ? "현행 법령과 판례·결정례를 조회합니다."
-                      : "이미지를 편집하고 원하는 형식으로 내보낼 수 있습니다."}
+                      ? "현행 법령의 조문과 개정 이력을 조회합니다."
+                      : shellView === "Decisions"
+                        ? "판례·결정례의 내용과 출처를 조회합니다."
+                        : shellView === "Research"
+                          ? "법률 쟁점과 확인된 근거를 함께 살펴봅니다."
+                          : shellView === "DocumentReview"
+                            ? "작업 문서의 조항과 확인된 근거를 검토합니다."
+                            : shellView === "ReviewSettings"
+                              ? "새 검토에 적용할 기본값을 이 브라우저에 저장합니다."
+                              : "이미지를 편집하고 원하는 형식으로 내보낼 수 있습니다."}
             </span>
           </header>
         ) : (
@@ -1677,11 +1629,17 @@ export default function Home() {
             <div className="context-actions">
               {files.length > 0 ? (
                 <div className="file-actions">
-                  <button type="button" className="file-add" onClick={() => inputRef.current?.click()} disabled={uploading}>
+                  <Button type="button" className="file-add" onClick={() => inputRef.current?.click()} disabled={uploading}>
                     {uploading ? "분석 중…" : "파일 추가"}
-                  </button>
-                  <button type="button" className="delete-selected" onClick={() => void deleteSelected()} disabled={busy || selected.length === 0}>선택 삭제</button>
-                  <button type="button" className="delete-all" onClick={deleteAll} disabled={busy}>모두 삭제</button>
+                  </Button>
+                  <Button type="button" variant="destructive-outline" className="delete-selected" onClick={() => void deleteSelected()} disabled={busy || selected.length === 0}>선택 삭제</Button>
+                  <AlertDialog>
+                    <AlertDialogTrigger render={<Button type="button" variant="ghost" className="delete-all" disabled={busy} />}>모두 삭제</AlertDialogTrigger>
+                    <AlertDialogPopup>
+                      <AlertDialogHeader><AlertDialogTitle>작업 파일 모두 삭제</AlertDialogTitle><AlertDialogDescription>이 탭에서 처리한 파일과 결과를 모두 지웁니다. 삭제 후에는 복구할 수 없습니다.</AlertDialogDescription></AlertDialogHeader>
+                      <AlertDialogFooter><AlertDialogClose render={<Button variant="outline" />}>취소</AlertDialogClose><AlertDialogClose render={<Button variant="destructive" onClick={deleteAll} />}>삭제</AlertDialogClose></AlertDialogFooter>
+                    </AlertDialogPopup>
+                  </AlertDialog>
                 </div>
               ) : null}
               {deleteDone > 0 ? (
@@ -1719,9 +1677,9 @@ export default function Home() {
                 <span>XLSX, CSV, PDF, DOCX, PPTX · 파일당 최대 100{"\u00a0"}MB · 전체 최대 300{"\u00a0"}MB</span>
               </div>
               <div className="drop-actions">
-                <button type="button" onClick={() => inputRef.current?.click()} disabled={uploading}>
+                <Button type="button" onClick={() => inputRef.current?.click()} disabled={uploading}>
                   {uploading ? "분석 중…" : "파일 추가"}
-                </button>
+                </Button>
               </div>
             </div>
           ) : null}
@@ -1758,21 +1716,22 @@ export default function Home() {
               onToggleRule={toggleRule}
             />
           ) : isToolView ? (
-            shellView === "PdfTools" ? <PdfTool /> : shellView === "Law" ? <LawSearch workspace={{ files, selected, uploading, addFiles: enqueueUploads }} /> : <ImageTool />
+            shellView === "PdfTools" ? <PdfTool /> : isResearchView ? <LawSearch
+              workspace={{ files, selected, uploading, addFiles: enqueueUploads }}
+              initialView={shellView === "Law" ? "law" : shellView === "Decisions" ? "decisions" : "research"}
+              initialResearchTask={shellView === "DocumentReview" || shellView === "ReviewSettings" ? "document_review" : "full_research"}
+              initialReviewSettings={shellView === "ReviewSettings"}
+            /> : <ImageTool />
           ) : (
             <>
               {polishTextMode || files.length === 0 ? null : (
                 <section className="file-list" aria-labelledby="files-heading">
                   <div className="file-list-head">
                     <label className="select-all-files">
-                      <input
-                        ref={selectAllRef}
-                        type="checkbox"
-                        checked={allFilesSelected}
-                        onChange={toggleAllFiles}
-                        aria-label={allFilesSelected ? "전체 선택 해제" : "전체 선택"}
-                      />
-                      <span>선택</span>
+                      <Checkbox checked={allFilesSelected} indeterminate={someFilesSelected}
+                        onCheckedChange={toggleAllFiles}
+                        aria-label={allFilesSelected ? "전체 선택 해제" : "전체 선택"} />
+                      <span aria-hidden="true">선택</span>
                     </label>
                     <span>파일</span><span>상태</span><span>구조</span><span>주의</span>
                   </div>
@@ -1789,16 +1748,15 @@ export default function Home() {
                     return (
                       <article className={`file-row${checked ? " selected" : ""}${selectionRole ? " compare-selected-file" : ""}`} key={file.id}>
                         <label className="select-file">
-                          <input type="checkbox" checked={checked} disabled={!checked && selected.length === 10} onChange={() => toggleFile(file.id)} aria-label={`${file.name} 선택`} />
-                          <span />
+                          <Checkbox checked={checked} disabled={!checked && selected.length === 10} onCheckedChange={() => toggleFile(file.id)} aria-label={`${file.name} 선택`} />
                         </label>
                         <div className="file-info">
                           {selectionRole ? <span className="compare-selection-line">
                             <span className="compare-selection-role">{selectionRole}</span>
                             {comparisonSelectionIndex === 0 && comparisonDirection ? (
-                              <button type="button" className="compare-swap-icon" aria-label="기준/대상 바꾸기" title="기준/대상 바꾸기" disabled={busy} onClick={swapComparisonDirection}>
+                              <Button type="button" variant="ghost" size="icon" className="compare-swap-icon" aria-label="기준/대상 바꾸기" title="기준/대상 바꾸기" disabled={busy} onClick={swapComparisonDirection}>
                                 <ArrowUpDown aria-hidden="true" />
-                              </button>
+                              </Button>
                             ) : null}
                           </span> : null}
                           <strong title={file.name} tabIndex={selectionRole ? 0 : undefined}>{file.name}</strong>
@@ -1822,13 +1780,10 @@ export default function Home() {
                 {activeTab === "Ask" ? (
                   <label className="question-field">
                     <span className="question-input-wrap">
-                      <input
-                        value={question}
-                        maxLength={2000}
-                        aria-label="질문 입력"
-                        onChange={(event) => setQuestion(event.target.value)}
-                        placeholder="선택한 문서에서 확인할 내용을 입력하세요"
-                      />
+                      <Input value={question} maxLength={2000}
+                      aria-label="질문 입력"
+                      onChange={(event) => setQuestion(event.target.value)}
+                      placeholder="선택한 문서에서 확인할 내용을 입력하세요" />
                       <small>{question.length.toLocaleString("ko-KR")} / 2,000</small>
                     </span>
                   </label>
@@ -1856,64 +1811,41 @@ export default function Home() {
                 ) : null}
                 {activeTab === "Polish" ? (
                   <div className="polish-controls">
-                    <fieldset className="segmented polish-input-modes" aria-label="윤문 입력 방식">
-                      {(["file", "text"] as const).map((input) => (
-                        <label key={input}>
-                          <input
-                            type="radio"
-                            name="polish-input"
-                            value={input}
-                            checked={polishInput === input}
-                            disabled={busy}
-                            onChange={() => {
-                              setPolishInput(input);
-                              setPolish(null);
-                              setPolishTextRun(null);
-                              setNotice(null);
-                            }}
-                          />
-                          <span>{input === "file" ? "파일 윤문" : "텍스트 윤문"}</span>
-                        </label>
-                      ))}
-                    </fieldset>
+                    <RadioGroup className="polish-input-modes flex-row flex-wrap" aria-label="윤문 입력 방식" value={polishInput} disabled={busy}
+                      onValueChange={(value) => {
+                        if (value !== "file" && value !== "text") return;
+                        setPolishInput(value); setPolish(null); setPolishTextRun(null); setNotice(null);
+                      }}>
+                      {(["file", "text"] as const).map((input) => <label key={input} className="inline-flex items-center gap-2">
+                        <Radio value={input} /><span>{input === "file" ? "파일 윤문" : "텍스트 윤문"}</span>
+                      </label>)}
+                    </RadioGroup>
                     <div className="polish-mode-run">
-                    <fieldset className="segmented polish-modes" aria-label="윤문 방식">
-                      {POLISH_MODES.map((mode) => (
-                        <label key={mode}>
-                          <input
-                            type="radio"
-                            name="polish-mode"
-                            value={mode}
-                            checked={polishMode === mode}
-                            disabled={busy}
-                            onChange={() => {
-                              setPolishMode(mode);
-                              setPolish(null);
-                              setPolishTextRun(null);
-                              setNotice(null);
-                            }}
-                          />
-                          <span>{POLISH_MODE_LABELS[mode]}</span>
-                        </label>
-                      ))}
-                    </fieldset>
+                    <RadioGroup className="polish-modes flex-row flex-wrap" aria-label="윤문 방식" value={polishMode} disabled={busy}
+                      onValueChange={(value) => {
+                        const mode = POLISH_MODES.find((entry) => entry === value);
+                        if (!mode) return;
+                        setPolishMode(mode); setPolish(null); setPolishTextRun(null); setNotice(null);
+                      }}>
+                      {POLISH_MODES.map((mode) => <label key={mode} className="inline-flex items-center gap-2">
+                        <Radio value={mode} /><span>{POLISH_MODE_LABELS[mode]}</span>
+                      </label>)}
+                    </RadioGroup>
                     <div className="operation-actions">
-                      <button type="button" onClick={runActive} disabled={actionDisabled} aria-label={`${tabMeta[activeTab].label} ${RUN_LABEL}`}>{busy ? "처리 중…" : RUN_LABEL}</button>
+                      <Button type="button" onClick={runActive} disabled={actionDisabled} aria-label={`${tabMeta[activeTab].label} ${RUN_LABEL}`}>{busy ? "처리 중…" : RUN_LABEL}</Button>
                     </div>
                     </div>
                     {polishTextMode ? (
                       <label className="polish-paste">
                         <span>윤문할 내용을 붙여넣으세요.</span>
-                        <textarea
-                          value={polishText}
-                          rows={8}
-                          // No hard maxLength: a long paste is accepted and
-                          // then explained, rather than silently truncated.
-                          aria-label="윤문할 텍스트 입력"
-                          disabled={busy}
-                          onChange={(event) => setPolishText(event.target.value)}
-                          placeholder={"메일, 보고서, 공지 등에서 복사한 내용을 그대로 붙여넣으세요.\n줄바꿈과 목록 구조는 그대로 유지됩니다."}
-                        />
+                        <Textarea value={polishText}
+                        rows={8}
+                        // No hard maxLength: a long paste is accepted and
+                        // then explained, rather than silently truncated.
+                        aria-label="윤문할 텍스트 입력"
+                        disabled={busy}
+                        onChange={(event) => setPolishText(event.target.value)}
+                        placeholder={"메일, 보고서, 공지 등에서 복사한 내용을 그대로 붙여넣으세요.\n줄바꿈과 목록 구조는 그대로 유지됩니다."} />
                         <small data-over={polishText.length > POLISH_TEXT_MAX_CHARS ? "true" : undefined}>
                           {polishText.length.toLocaleString("ko-KR")} / {POLISH_TEXT_MAX_CHARS.toLocaleString("ko-KR")}자
                         </small>
@@ -1933,7 +1865,7 @@ export default function Home() {
                 ) : null}
                 {activeTab !== "Extract" && activeTab !== "Polish" ? (
                   <div className="operation-actions">
-                    <button type="button" onClick={runActive} disabled={actionDisabled} aria-label={`${tabMeta[activeTab].label} ${RUN_LABEL}`}>{busy ? "처리 중…" : RUN_LABEL}</button>
+                    <Button type="button" onClick={runActive} disabled={actionDisabled} aria-label={`${tabMeta[activeTab].label} ${RUN_LABEL}`}>{busy ? "처리 중…" : RUN_LABEL}</Button>
                   </div>
                 ) : null}
               </section>
@@ -1943,7 +1875,7 @@ export default function Home() {
                   <strong>{`윤문 처리 중 ${polishProgress.done}/${polishProgress.total}`}</strong>
                   <small>문장별 검증을 유지하며 묶음으로 처리하고 있습니다.</small>
                   <div className="ai-status-actions">
-                    <button type="button" className="secondary-action" onClick={() => { polishCancelled.current = true; interruptServerAi(); }}>중지</button>
+                    <Button type="button" variant="outline" className="secondary-action" onClick={() => { polishCancelled.current = true; interruptServerAi(); }}>중지</Button>
                   </div>
                 </div>
               ) : busy && extractProgress ? (
@@ -1951,7 +1883,7 @@ export default function Home() {
                   <strong>{`항목 확인 중 ${extractProgress.done}/${extractProgress.total}`}</strong>
                   <small>관련 근거를 확인하고 있습니다.</small>
                   <div className="ai-status-actions">
-                    <button type="button" className="secondary-action" onClick={() => { extractCancelled.current = true; interruptServerAi(); }}>중지</button>
+                    <Button type="button" variant="outline" className="secondary-action" onClick={() => { extractCancelled.current = true; interruptServerAi(); }}>중지</Button>
                   </div>
                 </div>
               ) : busy && supplementStage ? (
@@ -1960,7 +1892,7 @@ export default function Home() {
                   <small>자료 전체에서 관련 설명을 함께 확인하고 있습니다.</small>
                   {supplementStage.total ? (
                     <div className="ai-status-actions">
-                      <button type="button" className="secondary-action" onClick={() => { supplementCancelled.current = true; interruptServerAi(); }}>중지</button>
+                      <Button type="button" variant="outline" className="secondary-action" onClick={() => { supplementCancelled.current = true; interruptServerAi(); }}>중지</Button>
                     </div>
                   ) : null}
                 </div>
@@ -1983,12 +1915,10 @@ export default function Home() {
                           fileNames={fileNames}
                           renderSource={(sources, context) => (
                             <span className="result-source">
-                              <button
-                                type="button"
-                                className="source-action"
-                                aria-label={`${context.issue} 근거 보기`}
-                                onClick={(event) => openSource(sources.map((source) => ({ source, context })), event.currentTarget)}
-                              >근거 보기</button>
+                              <Button type="button" variant="outline" size="sm"
+                              className="source-action"
+                              aria-label={`${context.issue} 근거 보기`}
+                              onClick={(event) => openSource(sources.map((source) => ({ source, context })), event.currentTarget)}>근거 보기</Button>
                             </span>
                           )}
                         />
@@ -2018,7 +1948,14 @@ export default function Home() {
         </section>
       </div>
 
-      {detail ? (
+      {detail ? compactInspector ? (
+        <Sheet open onOpenChange={(open) => { if (!open) closeSource(); }}>
+          <SheetPopup closeProps={{ "aria-label": "닫기" }}>
+            <SheetHeader><SheetTitle>근거 상세</SheetTitle><SheetDescription>선택한 원문과 출처를 확인합니다.</SheetDescription></SheetHeader>
+            <SheetPanel><SourceDetail entries={detail.entries} fileNames={fileNames} onClose={closeSource} embedded /></SheetPanel>
+          </SheetPopup>
+        </Sheet>
+      ) : (
         <aside className="evidence-inspector">
           <SourceDetail entries={detail.entries} fileNames={fileNames} onClose={closeSource} />
         </aside>
@@ -2201,21 +2138,12 @@ function CompareControls({ mode, busy, onMode }: {
   return (
     <div className="compare-controls">
       <div className="compare-mode-row">
-        <fieldset className="segmented compare-modes" aria-label="비교 방식">
-          {(["version", "value-check"] as const).map((entry) => (
-            <label key={entry}>
-              <input
-                type="radio"
-                name="compare-mode"
-                value={entry}
-                checked={mode === entry}
-                disabled={busy}
-                onChange={() => onMode(entry)}
-              />
-              <span>{entry === "version" ? "버전 비교" : "값 일치 확인"}</span>
-            </label>
-          ))}
-        </fieldset>
+        <RadioGroup className="flex-row flex-wrap" aria-label="비교 방식" value={mode} disabled={busy}
+          onValueChange={(value) => { if (value === "version" || value === "value-check") onMode(value); }}>
+          {(["version", "value-check"] as const).map((entry) => <label key={entry} className="inline-flex items-center gap-2">
+            <Radio value={entry} /><span>{entry === "version" ? "버전 비교" : "값 일치 확인"}</span>
+          </label>)}
+        </RadioGroup>
       </div>
     </div>
   );
@@ -2240,15 +2168,13 @@ function ExtractControls({ mode, fields, busy, runDisabled, onMode, onFields, on
   return (
     <div className="extract-controls">
       <div className="extract-control-row">
-        <fieldset className="segmented extract-modes" aria-label="추출 방식">
-          {(["auto", "fields"] as const).map((entry) => (
-            <label key={entry}>
-              <input type="radio" name="extract-mode" value={entry} checked={mode === entry} disabled={busy} onChange={() => onMode(entry)} />
-              <span>{EXTRACT_MODE_LABELS[entry]}</span>
-            </label>
-          ))}
-        </fieldset>
-        <button type="button" className="extract-run" disabled={runDisabled} aria-label="추출 실행" onClick={onRun}>{busy ? "처리 중…" : RUN_LABEL}</button>
+        <RadioGroup className="flex-row flex-wrap" aria-label="추출 방식" value={mode} disabled={busy}
+          onValueChange={(value) => { if (value === "auto" || value === "fields") onMode(value); }}>
+          {(["auto", "fields"] as const).map((entry) => <label key={entry} className="inline-flex items-center gap-2">
+            <Radio value={entry} /><span>{EXTRACT_MODE_LABELS[entry]}</span>
+          </label>)}
+        </RadioGroup>
+        <Button type="button" className="extract-run" disabled={runDisabled} aria-label="추출 실행" onClick={onRun}>{busy ? "처리 중…" : RUN_LABEL}</Button>
       </div>
       <p className="extract-mode-description">{mode === "auto"
         ? "문서에 명시된 구조화 항목과 반복 표를 자동으로 찾습니다."
@@ -2258,19 +2184,16 @@ function ExtractControls({ mode, fields, busy, runDisabled, onMode, onFields, on
           {fields.map((field) => (
             <span className="extract-field" key={field}>
               {field}
-              <button type="button" aria-label={`${field} 삭제`} disabled={busy} onClick={() => onFields(fields.filter((entry) => entry !== field))}>×</button>
+              <Button type="button" variant="ghost" size="icon-xs" aria-label={`${field} 삭제`} disabled={busy} onClick={() => onFields(fields.filter((entry) => entry !== field))}>×</Button>
             </span>
           ))}
-          <input
-            value={draft}
-            aria-label="추출할 항목"
-            placeholder="항목명 입력 (예: 회의일시)"
-            maxLength={40}
-            disabled={busy}
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); add(); } }}
-          />
-          <button type="button" className="secondary-action" disabled={busy || !draft.trim()} onClick={add}>항목 추가</button>
+          <Input value={draft} aria-label="추출할 항목"
+          placeholder="항목명 입력 (예: 회의일시)"
+          maxLength={40}
+          disabled={busy}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); add(); } }} />
+          <Button type="button" variant="outline" className="secondary-action" disabled={busy || !draft.trim()} onClick={add}>항목 추가</Button>
         </div>
       ) : null}
     </div>
@@ -2286,8 +2209,8 @@ function ResultExportButtons({ busy, onExport, xlsxOnly = false, disabled = fals
 }) {
   return (
     <div className="extract-export-actions" aria-label={label}>
-      {!xlsxOnly ? <button type="button" className="secondary-action" onClick={() => void onExport("csv")} disabled={busy || disabled}>CSV 다운로드</button> : null}
-      <button type="button" className="extract-download-primary" onClick={() => void onExport("xlsx")} disabled={busy || disabled}>XLSX 다운로드</button>
+      {!xlsxOnly ? <Button type="button" variant="outline" className="secondary-action" onClick={() => void onExport("csv")} disabled={busy || disabled}>CSV 다운로드</Button> : null}
+      <Button type="button" className="extract-download-primary" onClick={() => void onExport("xlsx")} disabled={busy || disabled}>XLSX 다운로드</Button>
     </div>
   );
 }
@@ -2413,15 +2336,13 @@ function StructuredExtractResults({ result, fileNames, onSource, status, busy, o
 
       {!isEmpty && result.mode === "auto" && recordEntries.length ? (
         <section className="extract-records">
-          <button
-            type="button"
-            className="extract-records-toggle"
-            aria-expanded={recordsExpanded}
-            onClick={() => setExpandedResult(recordsExpanded ? null : result)}
-          >
+          <Button type="button" variant="ghost" size="sm"
+          className="extract-records-toggle"
+          aria-expanded={recordsExpanded}
+          onClick={() => setExpandedResult(recordsExpanded ? null : result)}>
             <span>세부 표 {recordEntries.length}개</span>
             <span aria-hidden="true">{recordsExpanded ? "접기 ▴" : "펼치기 ▾"}</span>
-          </button>
+          </Button>
           {recordsExpanded ? (
             <div className="extract-record-list">
               {recordEntries.map(({ file, record }) => (
@@ -2431,14 +2352,14 @@ function StructuredExtractResults({ result, fileNames, onSource, status, busy, o
                     <CompactResultSource sources={[record.source]} fileNames={fileNames} onSource={onSource} />
                   </div>
                   <div className="extract-table-wrap">
-                    <table className="extract-table">
-                      <thead><tr>{record.columns.map((column, index) => <th key={`${column}-${index}`}>{column}</th>)}</tr></thead>
-                      <tbody>
+                    <Table className="extract-table">
+                      <TableHeader ><TableRow >{record.columns.map((column, index) => <TableHead key={`${column}-${index}`}>{column}</TableHead>)}</TableRow></TableHeader>
+                      <TableBody >
                         {record.rows.map((row, index) => (
-                          <tr key={index}>{row.cells.map((cell, cellIndex) => <td key={cellIndex} title={cell}>{cell || "없음"}</td>)}</tr>
+                          <TableRow key={index}>{row.cells.map((cell, cellIndex) => <TableCell key={cellIndex} title={cell}>{cell || "없음"}</TableCell>)}</TableRow>
                         ))}
-                      </tbody>
-                    </table>
+                      </TableBody>
+                    </Table>
                   </div>
                 </section>
               ))}
@@ -2454,14 +2375,14 @@ function StructuredExtractResults({ result, fileNames, onSource, status, busy, o
             <CompactResultSource sources={[record.source]} fileNames={fileNames} onSource={onSource} />
           </div>
           <div className="extract-table-wrap">
-            <table className="extract-table">
-              <thead><tr>{record.columns.map((column, index) => <th key={`${column}-${index}`}>{column}</th>)}</tr></thead>
-              <tbody>
+            <Table className="extract-table">
+              <TableHeader ><TableRow >{record.columns.map((column, index) => <TableHead key={`${column}-${index}`}>{column}</TableHead>)}</TableRow></TableHeader>
+              <TableBody >
                 {record.rows.map((row, index) => (
-                  <tr key={index}>{row.cells.map((cell, cellIndex) => <td key={cellIndex} title={cell}>{cell || "없음"}</td>)}</tr>
+                  <TableRow key={index}>{row.cells.map((cell, cellIndex) => <TableCell key={cellIndex} title={cell}>{cell || "없음"}</TableCell>)}</TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         </section>
       )) : null}
@@ -2519,9 +2440,9 @@ function PolishFailedItems({ outcomes }: { outcomes: readonly PolishOutcome[] })
   if (!failed.length) return null;
   return (
     <div className="polish-unchanged">
-      <button type="button" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
+      <Button type="button" variant="ghost" size="sm" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
         검토 미완료 문장 {failed.length}건 {expanded ? "접기" : "보기"}
-      </button>
+      </Button>
       {expanded ? <ul>{failed.map((entry) => <li key={entry.id}><p>{entry.originalText}</p></li>)}</ul> : null}
     </div>
   );
@@ -2579,9 +2500,9 @@ function PolishResults({ result, fileNames, onSource, status }: {
 
       {unchanged.length && (changed.length > 0 || rejected.length > 0 || result.summary.failed > 0) ? (
         <div className="polish-unchanged">
-          <button type="button" aria-expanded={showUnchanged} onClick={() => setShowUnchanged(!showUnchanged)}>
+          <Button type="button" variant="ghost" size="sm" aria-expanded={showUnchanged} onClick={() => setShowUnchanged(!showUnchanged)}>
             변경 없음 {unchanged.length}건 {showUnchanged ? "접기" : "보기"}
-          </button>
+          </Button>
           {showUnchanged ? (
             <ul>
               {unchanged.map((entry) => (
@@ -2623,10 +2544,10 @@ function CopyButton({ text, label, className }: { text: string; label: string; c
     window.setTimeout(() => setCopied(false), 1_600);
   };
   return (
-    <button type="button" className={["secondary-action", className].filter(Boolean).join(" ")} onClick={() => void copy()}>
+    <Button type="button" variant="outline" size="sm" className={["secondary-action", className].filter(Boolean).join(" ")} onClick={() => void copy()}>
       <Copy size={14} strokeWidth={1.8} aria-hidden="true" />
       <span>{copied ? "복사됨" : label}</span>
-    </button>
+    </Button>
   );
 }
 
@@ -2736,12 +2657,10 @@ function ResultSource({ sources, fileNames, onSource, roleOf, emptyLabel = "근�
       <span className="source-locator" title={groups.map((entry) => entry.count > 1 ? `${entry.label} · ${entry.count}건` : entry.label).join("\n")}>
         {summary}
       </span>
-      <button
-        type="button"
-        className="source-action"
-        aria-label={ariaLabel}
-        onClick={(event) => onSource(sources.map((source) => ({ source, role: roleOf?.(source), context })), event.currentTarget)}
-      >근거 보기</button>
+      <Button type="button" variant="outline" size="sm"
+      className="source-action"
+      aria-label={ariaLabel}
+      onClick={(event) => onSource(sources.map((source) => ({ source, role: roleOf?.(source), context })), event.currentTarget)}>근거 보기</Button>
     </span>
   );
 }
@@ -2770,12 +2689,10 @@ function CompactResultSource({ sources, fileNames, onSource, locatorOf = locator
   return (
     <span className="result-source">
       <span className="source-locator" title={title}>{summary}</span>
-      <button
-        type="button"
-        className="source-action"
-        aria-label={`${summary} 근거 보기`}
-        onClick={(event) => onSource(sources.map((source) => ({ source })), event.currentTarget)}
-      >근거 보기</button>
+      <Button type="button" variant="outline" size="sm"
+      className="source-action"
+      aria-label={`${summary} 근거 보기`}
+      onClick={(event) => onSource(sources.map((source) => ({ source })), event.currentTarget)}>근거 보기</Button>
     </span>
   );
 }
@@ -2846,21 +2763,21 @@ function AnalyzeResults({ entries, enrichment, evidenceLimited, status, fileName
         <section className="analysis-report-section" aria-labelledby="analysis-metrics-title">
           <div className="subsection-heading"><h3 id="analysis-metrics-title">확인된 수치</h3><span>{metrics.length}건</span></div>
           <div className="analysis-metric-wrap">
-            <table className={`analysis-metric-table${multipleFiles ? " multi-file" : ""}`}>
-              <thead>
-                <tr>{multipleFiles ? <th>파일</th> : null}<th>항목</th><th>값</th><th>근거</th></tr>
-              </thead>
-              <tbody>
+            <Table className={`analysis-metric-table${multipleFiles ? " multi-file" : ""}`}>
+              <TableHeader >
+                <TableRow >{multipleFiles ? <TableHead >파일</TableHead> : null}<TableHead >항목</TableHead><TableHead >값</TableHead><TableHead >근거</TableHead></TableRow>
+              </TableHeader>
+              <TableBody >
                 {metrics.map((metric) => (
-                  <tr key={metric.id}>
-                    {multipleFiles ? <td className="analysis-metric-file" data-label="파일">{fileNames.get(metric.fileId) ?? metric.fileName}</td> : null}
-                    <th scope="row" data-label="항목">{metric.label}</th>
-                    <td className="numeric" data-label="값">{metric.value}</td>
-                    <td data-label="근거"><ResultSource sources={metric.sources} fileNames={fileNames} onSource={onSource} /></td>
-                  </tr>
+                  <TableRow key={metric.id}>
+                    {multipleFiles ? <TableCell className="analysis-metric-file" data-label="파일">{fileNames.get(metric.fileId) ?? metric.fileName}</TableCell> : null}
+                    <TableHead scope="row" data-label="항목">{metric.label}</TableHead>
+                    <TableCell className="numeric" data-label="값">{metric.value}</TableCell>
+                    <TableCell data-label="근거"><ResultSource sources={metric.sources} fileNames={fileNames} onSource={onSource} /></TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         </section>
       ) : null}
@@ -3030,16 +2947,15 @@ function CheckResults({ entries, fileNames, onSource, companyTerms, userTerms, i
             <div className="check-filters-compact" role="group" aria-label="검수 분류 필터">
               {filterItems.flatMap((item, index) => [
                 index > 0 ? <span className="check-filter-sep" aria-hidden="true" key={`sep-${item.key}`}>·</span> : null,
-                <button type="button" key={item.key} data-empty={item.count === 0} aria-pressed={groupFilter === item.key} onClick={() => { setGroupFilter(item.key); resetPage(); }}>
+                <Button type="button" variant={groupFilter === item.key ? "secondary" : "ghost"} size="sm" key={item.key} data-empty={item.count === 0} aria-pressed={groupFilter === item.key} onClick={() => { setGroupFilter(item.key); resetPage(); }}>
                   {item.label} <b>{item.count}</b>
-                </button>,
+                </Button>,
               ])}
             </div>
             <div className="check-toolbar-actions">
-              <div className="dictionary-anchor">
-                <button type="button" className="dictionary-trigger" aria-expanded={dictionaryOpen} onClick={() => setDictionaryOpen((open) => !open)}>용어 사전</button>
-                {dictionaryOpen ? (
-                  <div className="dictionary-panel" role="dialog" aria-label="용어 사전">
+              <Popover open={dictionaryOpen} onOpenChange={setDictionaryOpen}>
+                <PopoverTrigger render={<Button type="button" variant="outline" className="dictionary-trigger" />}>용어 사전</PopoverTrigger>
+                <PopoverPopup className="w-[min(360px,calc(100vw-32px))]" align="end" aria-label="용어 사전">
                     <section className="dictionary-section">
                       <h4>회사 용어 <span>{companyTerms.length}</span></h4>
                       <p className="dictionary-note">회사 공용 사전은 읽기 전용입니다.</p>
@@ -3051,27 +2967,26 @@ function CheckResults({ entries, fileNames, onSource, companyTerms, userTerms, i
                     <section className="dictionary-section">
                       <h4>내 용어 <span>{userTerms.length}</span></h4>
                       <form onSubmit={(event) => { event.preventDefault(); onAddTerm(termDraft); setTermDraft(""); }}>
-                        <input value={termDraft} maxLength={64} placeholder="용어 추가" aria-label="개인 용어 추가" onChange={(event) => setTermDraft(event.target.value)} />
-                        <button type="submit" disabled={!termDraft.trim()}>추가</button>
+                        <Input value={termDraft} maxLength={64} placeholder="용어 추가" aria-label="개인 용어 추가" onChange={(event) => setTermDraft(event.target.value)} />
+                        <Button type="submit" variant="outline" disabled={!termDraft.trim()}>추가</Button>
                       </form>
                       {userTerms.length ? (
                         <div className="dictionary-term-list">
                           {userTerms.map((term) => (
                             <span className="dictionary-term" key={term}>
                               {term}
-                              <button type="button" aria-label={`${term} 삭제`} onClick={() => onRemoveTerm(term)}>×</button>
+                              <Button type="button" variant="ghost" size="icon-xs" aria-label={`${term} 삭제`} onClick={() => onRemoveTerm(term)}>×</Button>
                             </span>
                           ))}
                         </div>
                       ) : <p className="dictionary-empty">등록한 개인 용어가 없습니다.</p>}
                       <div className="dictionary-actions">
-                        <button type="button" onClick={onClearTerms} disabled={!userTerms.length}>전체 초기화</button>
+                        <Button type="button" variant="ghost" size="sm" onClick={onClearTerms} disabled={!userTerms.length}>전체 초기화</Button>
                       </div>
                       <p className="dictionary-note">개인 사전은 이 브라우저에만 저장됩니다.</p>
                     </section>
-                  </div>
-                ) : null}
-              </div>
+                </PopoverPopup>
+              </Popover>
             </div>
           </div>
 
@@ -3113,10 +3028,10 @@ function CheckResults({ entries, fileNames, onSource, companyTerms, userTerms, i
                           </div>
                         </div>
                         <div className="finding-actions" aria-label={`${finding.issue} 작업`}>
-                          <button type="button" onClick={() => ignoreFinding(finding.id)}>이번 항목 제외</button>
-                          <button type="button" onClick={() => onToggleRule(finding.ruleId)}>동일 규칙 무시</button>
+                          <Button type="button" variant="outline" size="sm" onClick={() => ignoreFinding(finding.id)}>이번 항목 제외</Button>
+                          <Button type="button" variant="outline" size="sm" onClick={() => onToggleRule(finding.ruleId)}>동일 규칙 무시</Button>
                           {finding.dictionaryEligible && finding.normalizedToken
-                            ? <button type="button" onClick={() => addTerm(finding.normalizedToken!)}>내 용어에 추가</button>
+                            ? <Button type="button" variant="outline" size="sm" onClick={() => addTerm(finding.normalizedToken!)}>내 용어에 추가</Button>
                             : null}
                         </div>
                       </div>
@@ -3126,16 +3041,16 @@ function CheckResults({ entries, fileNames, onSource, companyTerms, userTerms, i
               </section>
               {pageCount > 1 ? (
                 <nav className="check-pagination" aria-label="검수 결과 페이지">
-                  <button type="button" onClick={() => setPage(currentPage - 1)} disabled={currentPage === 0}>이전</button>
+                  <Button type="button" variant="outline" size="sm" onClick={() => setPage(currentPage - 1)} disabled={currentPage === 0}>이전</Button>
                   <span>{currentPage * PAGE_SIZE + 1}-{currentPage * PAGE_SIZE + visible.length} / {filtered.length.toLocaleString("ko-KR")}</span>
-                  <button type="button" onClick={() => setPage(currentPage + 1)} disabled={currentPage >= pageCount - 1}>다음</button>
+                  <Button type="button" variant="outline" size="sm" onClick={() => setPage(currentPage + 1)} disabled={currentPage >= pageCount - 1}>다음</Button>
                 </nav>
               ) : null}
             </>
           ) : (
             <div className="filter-empty">
               <strong>필터 조건에 맞는 이슈가 없습니다.</strong>
-              <button type="button" onClick={() => { setGroupFilter("all"); setIgnoredIds([]); resetPage(); }}>필터 초기화</button>
+              <Button type="button" variant="outline" onClick={() => { setGroupFilter("all"); setIgnoredIds([]); resetPage(); }}>필터 초기화</Button>
             </div>
           )}
         </>
@@ -3154,9 +3069,9 @@ function ExtractResults({ entries, fileNames, onSource }: { entries: ExtractEntr
             <section className="result-subsection" key={table.blockId}>
               <div className="subsection-heading"><h4>표 {tableIndex + 1}</h4><CompactResultSource sources={[table.source]} fileNames={fileNames} onSource={onSource} /></div>
               <div className="extract-table-wrap">
-                <table className="extract-table">
-                  <tbody>{table.rows.map((row, rowIndex) => <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={`${rowIndex}-${cellIndex}`} title={cell.display}>{cell.display || "없음"}</td>)}</tr>)}</tbody>
-                </table>
+                <Table className="extract-table">
+                  <TableBody >{table.rows.map((row, rowIndex) => <TableRow key={rowIndex}>{row.map((cell, cellIndex) => <TableCell key={`${rowIndex}-${cellIndex}`} title={cell.display}>{cell.display || "없음"}</TableCell>)}</TableRow>)}</TableBody>
+                </Table>
               </div>
             </section>
           ))}
@@ -3398,20 +3313,12 @@ function ValueCheckView({ result, fileNames, onSource, status, busy, onExport }:
         */}
       <div className="value-check-toolbar">
         {result.groups.length ? (
-          <fieldset className="segmented value-check-filters" aria-label="값 일치 결과 필터">
-            {filters.map((entry) => (
-              <label key={entry.key} data-empty={entry.count === 0} data-key={entry.key}>
-                <input
-                  type="radio"
-                  name="value-check-filter"
-                  value={entry.key}
-                  checked={filter === entry.key}
-                  onChange={() => setFilter(entry.key)}
-                />
-                <span>{entry.label} <b>{entry.count}</b></span>
-              </label>
-            ))}
-          </fieldset>
+          <RadioGroup className="value-check-filters flex-row flex-wrap" aria-label="값 일치 결과 필터" value={filter}
+            onValueChange={(value) => { const entry = filters.find((entry) => entry.key === value); if (entry) setFilter(entry.key); }}>
+            {filters.map((entry) => <label key={entry.key} className="inline-flex items-center gap-2" data-empty={entry.count === 0} data-key={entry.key}>
+              <Radio value={entry.key} /><span>{entry.label} <b>{entry.count}</b></span>
+            </label>)}
+          </RadioGroup>
         ) : null}
       </div>
 
@@ -3595,7 +3502,7 @@ function AggregationResults({ draft, selection, busy, onSelection, onExport }: {
                 const fixed = sheet.role === "empty" || sheet.plan.kind === "summarized" || sheet.plan.kind === "ignored";
                 return (
                   <label className="aggregation-sheet" key={sheet.id} data-role={sheet.plan.kind === "unmatched" ? "review" : sheet.role}>
-                    <input type="checkbox" checked={selectedSheets.has(sheet.id)} disabled={fixed} onChange={() => toggleSheet(sheet.id)} />
+                    <Checkbox checked={selectedSheets.has(sheet.id)} disabled={fixed} onCheckedChange={() => toggleSheet(sheet.id)} />
                     <span><strong>{sheet.name}</strong><small>{sheet.visibility !== "visible" ? `${sheet.visibility} · ` : ""}{SHEET_PLAN_LABELS[sheet.plan.kind]}{sheet.plan.kind === "append" && target ? ` · ${target.name}` : ""}</small></span>
                     <span>{sheet.plan.kind === "summarized" || sheet.plan.kind === "unmatched" ? sheet.reason : sheet.regions.length ? sheet.regions.map((region) => region.recordRange ?? region.headerRange).filter(Boolean).join(", ") : sheet.reason}</span>
                     <b>{primaryRegion(sheet)?.records.length ?? 0}건</b>
@@ -3625,9 +3532,9 @@ function AggregationResults({ draft, selection, busy, onSelection, onExport }: {
             <h3 id="aggregation-mappings">확인이 필요한 항목</h3>
             <p>{reviewMappings.length ? `기준 파일 항목과 이름이 달라 확인이 필요한 항목 ${reviewMappings.length}개가 있습니다.` : unlinkedImages ? "이미지를 연결할 레코드를 확인하세요." : "모든 항목을 기준 파일 항목에 자동으로 연결했습니다."}</p>
           </div>
-          <button type="button" className="secondary-action" aria-expanded={allMappings} onClick={() => setAllMappings((value) => !value)}>
+          <Button type="button" variant="outline" className="secondary-action" aria-expanded={allMappings} onClick={() => setAllMappings((value) => !value)}>
             {allMappings ? "확인 항목만 보기" : "전체 매핑 보기"}
-          </button>
+          </Button>
         </div>
         {unlinkedImages > 0 ? <p className="aggregation-unlinked" role="status">미연결 이미지 {unlinkedImages}건 · 첨부 이미지 시트에서 출처와 위치를 확인하세요.</p> : null}
         {pendingIssues.length > 0 ? (
@@ -3643,9 +3550,9 @@ function AggregationResults({ draft, selection, busy, onSelection, onExport }: {
               const target = targetById.get(mapping.targetId);
               return (
                 <div className="aggregation-mapping" key={mapping.id}>
-                  <label><input type="checkbox" checked={mapping.included} onChange={(event) => updateMapping(mapping.id, { included: event.target.checked })} /><span>포함</span></label>
+                  <label><Checkbox checked={mapping.included} onCheckedChange={(included) => updateMapping(mapping.id, { included })} /><span>포함</span></label>
                   {mapping.targetColumn === undefined
-                    ? <input value={mapping.targetField} aria-label={`${mapping.targetField} 출력 항목명`} onChange={(event) => updateMapping(mapping.id, { targetField: event.target.value })} />
+                    ? <Input value={mapping.targetField} aria-label={`${mapping.targetField} 출력 항목명`} onChange={(event) => updateMapping(mapping.id, { targetField: event.target.value })} />
                     : <strong className="aggregation-mapping-target">{mapping.targetField}</strong>}
                   <div>{mapping.sourceFields.filter((source) => source.sheetId !== target?.sheetId).map((source) => {
                     const sheet = sheetById.get(source.sheetId);
@@ -3672,12 +3579,12 @@ function AggregationResults({ draft, selection, busy, onSelection, onExport }: {
             <section className="aggregation-preview-group" key={target.id} aria-label={`${target.name} 미리보기`}>
               <div className="aggregation-preview-heading"><h4>{target.name}</h4><span>{Math.min(records.length, 20)} / {records.length}건</span></div>
               <div className="aggregation-preview-wrap" role="region" aria-label={`${target.name} 표, 가로로 스크롤 가능`} tabIndex={0}>
-                <table className="aggregation-preview" style={{ minWidth: Math.max(760, columns.length * 150) }}>
-                  <thead><tr>{columns.map((mapping) => <th scope="col" key={mapping.id}>{mapping.targetField}</th>)}</tr></thead>
-                  <tbody>{records.slice(0, 20).map((record) => (
-                    <tr key={record.id}>{columns.map((mapping) => <td key={mapping.id}>{previewValue(record, mapping, sequences.get(target.id))}</td>)}</tr>
-                  ))}</tbody>
-                </table>
+                <Table className="aggregation-preview" style={{ minWidth: Math.max(760, columns.length * 150) }}>
+                  <TableHeader ><TableRow >{columns.map((mapping) => <TableHead scope="col" key={mapping.id}>{mapping.targetField}</TableHead>)}</TableRow></TableHeader>
+                  <TableBody >{records.slice(0, 20).map((record) => (
+                    <TableRow key={record.id}>{columns.map((mapping) => <TableCell key={mapping.id}>{previewValue(record, mapping, sequences.get(target.id))}</TableCell>)}</TableRow>
+                  ))}</TableBody>
+                </Table>
               </div>
               <p className="aggregation-preview-provenance">출처: {files.map((workbook) => workbook.fileName).join(", ")}{records.some((record) => record.duplicateOf) ? " · 중복 후보 포함" : ""}</p>
             </section>
@@ -3693,15 +3600,17 @@ function AggregationResults({ draft, selection, busy, onSelection, onExport }: {
  * The inspector groups only byte-identical quotes from the same file. Every
  * SourceRef remains in the group so location coverage is preserved.
  */
-function SourceDetail({ entries, fileNames, onClose }: {
+function SourceDetail({ entries, fileNames, onClose, embedded = false }: {
   entries: readonly DetailEntry[];
   fileNames: Map<string, string>;
   onClose: () => void;
+  /** Inside a Sheet, which already supplies the title and close control. */
+  embedded?: boolean;
 }) {
   const panelRef = useRef<HTMLElement>(null);
   useEffect(() => {
-    panelRef.current?.focus();
-  }, []);
+    if (!embedded) panelRef.current?.focus();
+  }, [embedded]);
   const fileList = [...new Set(entries.map(({ source }) => fileNames.get(source.fileId)).filter((name): name is string => Boolean(name)))];
   const fileHeading = fileList.join(" · ");
   const multipleFiles = new Set(entries.map(({ source }) => source.fileId)).size > 1;
@@ -3719,13 +3628,15 @@ function SourceDetail({ entries, fileNames, onClose }: {
     }
   }
   return (
-    <aside ref={panelRef} className="source-detail" aria-label="근거 상세" tabIndex={-1}>
-      <header>
-        <div>
-          <h2>근거 상세</h2>
-        </div>
-        <button type="button" onClick={onClose} aria-label="닫기">닫기</button>
-      </header>
+    <aside ref={panelRef} className={embedded ? "source-detail embedded" : "source-detail"} aria-label="근거 상세" tabIndex={-1}>
+      {embedded ? null : (
+        <header>
+          <div>
+            <h2>근거 상세</h2>
+          </div>
+          <Button type="button" variant="ghost" size="sm" onClick={onClose} aria-label="닫기">닫기</Button>
+        </header>
+      )}
       {fileHeading ? <p className="evidence-file-list" title={fileHeading}>{fileHeading}</p> : null}
       <div className="evidence-type"><span>원문</span><p>문서에서 확인된 근거 · {entries.length.toLocaleString("ko-KR")}곳</p></div>
       {groups.map((group, index) => {

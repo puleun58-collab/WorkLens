@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import { Button } from "@/components/ui/button";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Info } from "lucide-react";
 import type { SourceRef } from "@/domain/document";
 import {
@@ -36,14 +38,14 @@ export function SupplementResults({ result, fileNames, renderSource }: {
   return (
     <div className="result-sections supplement-results">
       <section className="supplement-overview" aria-label="보완 요약">
-        <div className="check-filters-compact supplement-filters" role="group" aria-label="보완 중요도 필터">
-          <button type="button" aria-pressed={filter === "all"} onClick={() => setFilter("all")}>전체 <b>{result.findings.length}</b></button>
+        <ToggleGroup className="flex-wrap" variant="outline" aria-label="보완 중요도 필터" value={[filter]} onValueChange={(values) => { if (values[0]) setFilter(values[0] as "all" | SupplementSeverity); }}>
+          <ToggleGroupItem value="all">전체 <b>{result.findings.length}</b></ToggleGroupItem>
           {SEVERITIES.map((severity) => (
-            <button key={severity} type="button" data-empty={counts[severity] === 0} aria-pressed={filter === severity} onClick={() => setFilter(severity)}>
+            <ToggleGroupItem key={severity} value={severity} data-empty={counts[severity] === 0}>
               <i className={`severity-mark ${severity}`} aria-hidden="true" />{SUPPLEMENT_SEVERITY_LABELS[severity]} <b>{counts[severity]}</b>
-            </button>
+            </ToggleGroupItem>
           ))}
-        </div>
+        </ToggleGroup>
         <dl className="supplement-meta">
           <div>
             <dt>자료 유형</dt>
@@ -192,7 +194,7 @@ export function SupplementResults({ result, fileNames, renderSource }: {
           {visible.length === 0 ? (
             <div className="filter-empty">
               <strong>이 중요도의 보완 항목이 없습니다.</strong>
-              <button type="button" onClick={() => setFilter("all")}>전체 보기</button>
+              <Button variant="outline" type="button" onClick={() => setFilter("all")}>전체 보기</Button>
             </div>
           ) : null}
         </>

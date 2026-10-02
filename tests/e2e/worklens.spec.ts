@@ -99,6 +99,15 @@ async function upload(page: Page, filePath: string) {
   await expect(fileRow(page, filePath)).toBeVisible();
 }
 
+async function navigateWorkspace(page: Page, name: string) {
+  const menu = page.getByRole("button", { name: "작업 공간 메뉴 열기", exact: true });
+  const mobile = await menu.isVisible();
+  if (mobile) await menu.click();
+  await page.getByRole("navigation", { name: "작업 공간 메뉴", exact: true })
+    .getByRole("button", { name, exact: true }).click();
+  if (mobile) await expect(page.getByRole("dialog")).not.toBeVisible();
+}
+
 async function mockEmptyClaims(page: Page) {
   await page.route("**/api/ai", async (route) => {
     await route.fulfill({
@@ -142,9 +151,9 @@ test("uploads XLSX files, compares them and shows source evidence", async ({ pag
   await expect(firstRow).toContainText("시트: 1");
   await expect(firstRow).toContainText("행: 5");
 
-  await page.getByLabel("운임현황_v1.xlsx 선택").check();
-  await page.getByLabel("운임현황_v2.xlsx 선택").check();
-  await page.getByRole("button", { name: "비교", exact: true }).click();
+  await page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true }).check();
+  await page.getByRole("checkbox", { name: "운임현황_v2.xlsx 선택", exact: true }).check();
+  await navigateWorkspace(page, "비교");
   await expect(page.getByText("두 파일의 추가·삭제·변경된 내용을 비교합니다.", { exact: true })).toHaveCount(0);
   await expect(page.getByText("첫 번째로 선택한 파일이 기준 파일입니다.", { exact: true })).toHaveCount(0);
   await expect(page.getByLabel("현재 비교 방향")).toHaveCount(0);
@@ -222,16 +231,16 @@ test("uploads XLSX files, compares them and shows source evidence", async ({ pag
 
 test("shows the swap action only for exactly two version files", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "비교", exact: true }).click();
+  await navigateWorkspace(page, "비교");
   await expect(page.getByLabel("현재 비교 방향")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "기준/대상 바꾸기" })).toHaveCount(0);
 
   await upload(page, files.longV1);
-  await page.getByLabel(`${path.basename(files.longV1)} 선택`).check();
+  await page.getByRole("checkbox", { name: `${path.basename(files.longV1)} 선택`, exact: true }).check();
   await expect(page.getByRole("button", { name: "기준/대상 바꾸기" })).toHaveCount(0);
 
   await upload(page, files.v2);
-  await page.getByLabel("운임현황_v2.xlsx 선택").check();
+  await page.getByRole("checkbox", { name: "운임현황_v2.xlsx 선택", exact: true }).check();
   const swap = page.getByRole("button", { name: "기준/대상 바꾸기" });
   await expect(swap).toBeVisible();
   await expect(page.getByLabel("현재 비교 방향")).toHaveCount(0);
@@ -247,11 +256,10 @@ test("shows the swap action only for exactly two version files", async ({ page }
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 });
 
-test("usage guide sits above dictionary and settings and switches feature flows", async ({ page }) => {
+test("usage guide switches feature flows on desktop and mobile", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/");
-  await page.getByRole("button", { name: "Guide" }).click();
-  await expect(page.locator(".rail-footer .rail-item span")).toHaveText(["사용 가이드", "용어 사전", "설정"]);
+  await navigateWorkspace(page, "Guide");
   await expect(page.getByRole("button", { name: "Guide" })).toHaveAttribute("aria-current", "page");
   await expect(page.getByRole("tab", { name: "분석", exact: true })).toHaveAttribute("aria-selected", "true");
   const tabs = page.getByRole("tablist", { name: "기능 선택" });
@@ -285,10 +293,10 @@ test("keeps multi-file Analyze confirmed metrics separated when the model abstai
   await page.goto("/");
   await upload(page, files.valueA);
   await upload(page, files.valueB);
-  await page.getByLabel("주요값_A.xlsx 선택").check();
-  await page.getByLabel("주요값_B.xlsx 선택").check();
+  await page.getByRole("checkbox", { name: "주요값_A.xlsx 선택", exact: true }).check();
+  await page.getByRole("checkbox", { name: "주요값_B.xlsx 선택", exact: true }).check();
 
-  await page.getByRole("button", { name: "분석", exact: true }).click();
+  await navigateWorkspace(page, "분석");
   await page.getByRole("button", { name: "분석 실행" }).click();
 
   const panel = page.locator(".results-panel");
@@ -350,8 +358,8 @@ test("keeps deterministic Analyze output stable across grounding rejection and e
 
   await page.goto("/");
   await upload(page, files.extractPptx);
-  await page.getByLabel("회의자료.pptx 선택").check();
-  await page.getByRole("button", { name: "분석", exact: true }).click();
+  await page.getByRole("checkbox", { name: "회의자료.pptx 선택", exact: true }).check();
+  await navigateWorkspace(page, "분석");
   const run = page.getByRole("button", { name: "분석 실행" });
 
   await run.click();
@@ -429,7 +437,7 @@ test("surfaces FSC Analyze failure and then grounded relational insights with al
   await page.goto("/");
   await upload(page, pdf);
   await fileRow(page, pdf).getByRole("checkbox").check();
-  await page.getByRole("button", { name: "분석", exact: true }).click();
+  await navigateWorkspace(page, "분석");
   const run = page.getByRole("button", { name: "분석 실행" });
   const panel = page.locator(".results-panel");
   await run.click();
@@ -481,8 +489,8 @@ test("keeps sourced narrative body facts when Analyze AI is unavailable", async 
   });
   await page.goto("/");
   await upload(page, files.narrativePptx);
-  await page.getByLabel("서술형_안전보건협의체.pptx 선택").check();
-  await page.getByRole("button", { name: "분석", exact: true }).click();
+  await page.getByRole("checkbox", { name: "서술형_안전보건협의체.pptx 선택", exact: true }).check();
+  await navigateWorkspace(page, "분석");
   await page.getByRole("button", { name: "분석 실행" }).click();
 
   const panel = page.locator(".results-panel");
@@ -509,9 +517,9 @@ test("checks shared values locally, keeps evidence, and exports both formats", a
   await page.goto("/");
   await upload(page, files.valueA);
   await upload(page, files.valueB);
-  await page.getByLabel("주요값_A.xlsx 선택").check();
-  await page.getByLabel("주요값_B.xlsx 선택").check();
-  await page.getByRole("button", { name: "비교", exact: true }).click();
+  await page.getByRole("checkbox", { name: "주요값_A.xlsx 선택", exact: true }).check();
+  await page.getByRole("checkbox", { name: "주요값_B.xlsx 선택", exact: true }).check();
+  await navigateWorkspace(page, "비교");
   await page.getByRole("radio", { name: "값 일치 확인" }).check();
   await page.getByRole("button", { name: "비교 실행" }).click();
 
@@ -556,9 +564,9 @@ test("scales value checks from two-file columns to compact multi-file rows", asy
   await page.goto("/");
   for (const file of [files.valueA, files.valueB, files.valueC]) {
     await upload(page, file);
-    await page.getByLabel(`${path.basename(file)} 선택`).check();
+    await page.getByRole("checkbox", { name: `${path.basename(file)} 선택`, exact: true }).check();
   }
-  await page.getByRole("button", { name: "비교", exact: true }).click();
+  await navigateWorkspace(page, "비교");
   await page.getByRole("radio", { name: "값 일치 확인" }).check();
   await expect(page.getByRole("radio", { name: "값 일치 확인" })).toBeChecked();
   await page.getByRole("button", { name: "비교 실행" }).click();
@@ -589,7 +597,7 @@ test("distinguishes same-named uploaded revisions in the evidence inspector", as
   const sameRows = page.locator(".file-row").filter({ hasText: "동일이름.xlsx" });
   await sameRows.nth(0).getByRole("checkbox").check();
   await sameRows.nth(1).getByRole("checkbox").check();
-  await page.getByRole("button", { name: "비교", exact: true }).click();
+  await navigateWorkspace(page, "비교");
   await page.getByRole("button", { name: "비교 실행" }).click();
   const row = page.getByTestId("change-row").first();
   await expect(row).toBeVisible();
@@ -634,18 +642,18 @@ test("selects, clears, and reports all work files from the table header", async 
   const selectAll = page.getByRole("checkbox", { name: "전체 선택" });
 
   await selectAll.check();
-  await expect(page.getByLabel("운임현황_v1.xlsx 선택")).toBeChecked();
-  await expect(page.getByLabel("운임현황_v2.xlsx 선택")).toBeChecked();
+  await expect(page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true })).toBeChecked();
+  await expect(page.getByRole("checkbox", { name: "운임현황_v2.xlsx 선택", exact: true })).toBeChecked();
   await expect(page.locator(".context-counts")).toContainText("선택 2개");
 
-  await page.getByLabel("운임현황_v1.xlsx 선택").uncheck();
-  await expect(selectAll).toHaveJSProperty("indeterminate", true);
+  await page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true }).uncheck();
+  await expect(selectAll).toHaveAttribute("aria-checked", "mixed");
   await expect(page.locator(".context-counts")).toContainText("선택 1개");
 
   await page.getByRole("checkbox", { name: "전체 선택" }).check();
   await page.getByRole("checkbox", { name: "전체 선택 해제" }).uncheck();
-  await expect(page.getByLabel("운임현황_v1.xlsx 선택")).not.toBeChecked();
-  await expect(page.getByLabel("운임현황_v2.xlsx 선택")).not.toBeChecked();
+  await expect(page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true })).not.toBeChecked();
+  await expect(page.getByRole("checkbox", { name: "운임현황_v2.xlsx 선택", exact: true })).not.toBeChecked();
   await expect(page.locator(".context-counts")).toContainText("선택 0개");
 
   await page.setViewportSize({ width: 390, height: 844 });
@@ -659,7 +667,7 @@ test("deletes every selected file in one secondary action", async ({ page }) => 
   await upload(page, files.v2);
   const remove = page.getByRole("button", { name: "선택 삭제" });
   await expect(remove).toBeDisabled();
-  await page.getByLabel("운임현황_v1.xlsx 선택").check();
+  await page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true }).check();
   await expect(remove).toBeEnabled();
   await remove.click();
   await expect(fileRow(page, files.v1)).toHaveCount(0);
@@ -674,7 +682,7 @@ test("runs deterministic Analyze, Check, Extract and export paths", async ({ pag
   await mockEmptyClaims(page);
   await page.goto("/");
   await upload(page, files.v1);
-  await page.getByLabel("운임현황_v1.xlsx 선택").check();
+  await page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true }).check();
 
   await page.getByRole("button", { name: "분석 실행" }).click();
   await expect(page.locator(".results-panel .result-status")).toHaveText("분석 완료");
@@ -685,11 +693,11 @@ test("runs deterministic Analyze, Check, Extract and export paths", async ({ pag
   await expect(page.getByLabel("근거 상세")).toBeVisible();
   await page.getByLabel("닫기").click();
 
-  await page.getByRole("button", { name: "검수", exact: true }).click();
+  await navigateWorkspace(page, "검수");
   await page.getByRole("button", { name: "검수 실행" }).click();
   await expect(page.locator(".results-panel .result-status")).toContainText("검수 완료");
 
-  await page.getByRole("button", { name: "추출", exact: true }).click();
+  await navigateWorkspace(page, "추출");
   await page.getByRole("button", { name: "추출 실행" }).click();
   await expect(page.locator(".results-panel .result-status")).toHaveText("추출 완료");
   const structuredDownload = page.waitForEvent("download");
@@ -713,8 +721,8 @@ test("extracts fields and records without a model and exports the structured tab
   });
   await page.goto("/");
   await upload(page, files.extractPptx);
-  await page.getByLabel("회의자료.pptx 선택").check();
-  await page.getByRole("button", { name: "추출", exact: true }).click();
+  await page.getByRole("checkbox", { name: "회의자료.pptx 선택", exact: true }).check();
+  await navigateWorkspace(page, "추출");
 
   // Automatic mode: labelled pairs become FIELD/VALUE rows with a locator.
   await page.getByRole("button", { name: "추출 실행" }).click();
@@ -776,9 +784,9 @@ test("keeps multi-file training records folded below automatic fields", async ({
   await page.goto("/");
   await upload(page, files.trainingSepPptx);
   await upload(page, files.trainingOctPptx);
-  await page.getByLabel("WL_교육운영_9월.pptx 선택").check();
-  await page.getByLabel("WL_교육운영_10월.pptx 선택").check();
-  await page.getByRole("button", { name: "추출", exact: true }).click();
+  await page.getByRole("checkbox", { name: "WL_교육운영_9월.pptx 선택", exact: true }).check();
+  await page.getByRole("checkbox", { name: "WL_교육운영_10월.pptx 선택", exact: true }).check();
+  await navigateWorkspace(page, "추출");
   await page.getByRole("button", { name: "추출 실행" }).click();
 
   const results = page.locator(".extract-results");
@@ -830,8 +838,8 @@ test("makes missing and low-confidence Extract values explicit", async ({ page }
 
   await page.goto("/");
   await upload(page, files.extractPptx);
-  await page.getByLabel("회의자료.pptx 선택").check();
-  await page.getByRole("button", { name: "추출", exact: true }).click();
+  await page.getByRole("checkbox", { name: "회의자료.pptx 선택", exact: true }).check();
+  await navigateWorkspace(page, "추출");
   await page.getByRole("radio", { name: "항목 지정" }).check();
   const field = page.getByLabel("추출할 항목");
   await field.fill("존재하지 않는 항목");
@@ -897,8 +905,8 @@ test("makes missing and low-confidence Extract values explicit", async ({ page }
 test("offers file and pasted-text polish without touching the workspace", async ({ page }) => {
   await page.goto("/");
   await upload(page, files.checkPptx);
-  await page.getByLabel("최종검수.pptx 선택").check();
-  await page.getByRole("button", { name: "윤문", exact: true }).click();
+  await page.getByRole("checkbox", { name: "최종검수.pptx 선택", exact: true }).check();
+  await navigateWorkspace(page, "윤문");
 
   // File polish is the default and keeps the workspace list in view.
   await expect(page.getByRole("radio", { name: "파일 윤문" })).toBeChecked();
@@ -934,7 +942,7 @@ test("offers file and pasted-text polish without touching the workspace", async 
   // Switching back restores the workspace file and its selection.
   await page.getByRole("radio", { name: "파일 윤문" }).check();
   await expect(page.locator(".file-row")).toHaveCount(1);
-  await expect(page.getByLabel("최종검수.pptx 선택")).toBeChecked();
+  await expect(page.getByRole("checkbox", { name: "최종검수.pptx 선택", exact: true })).toBeChecked();
   await page.getByRole("radio", { name: "텍스트 윤문" }).check();
   await expect(page.getByLabel("윤문할 텍스트 입력")).toHaveValue(/3분기 운영 보고/);
 
@@ -946,7 +954,7 @@ test("offers file and pasted-text polish without touching the workspace", async 
   expect(stored.local).not.toContain("3분기 운영 보고");
   expect(stored.session).toBe(0);
   await page.reload();
-  await page.getByRole("button", { name: "윤문", exact: true }).click();
+  await navigateWorkspace(page, "윤문");
   await expect(page.getByRole("radio", { name: "파일 윤문" })).toBeChecked();
 });
 
@@ -976,8 +984,8 @@ test("presents text Polish as an immediate original-to-revision workflow", async
 
   await page.goto("/");
   await upload(page, files.checkPptx);
-  await page.getByLabel("최종검수.pptx 선택").check();
-  await page.getByRole("button", { name: "윤문", exact: true }).click();
+  await page.getByRole("checkbox", { name: "최종검수.pptx 선택", exact: true }).check();
+  await navigateWorkspace(page, "윤문");
   await page.getByRole("radio", { name: "텍스트 윤문" }).check();
   await page.getByRole("radio", { name: "업무 문체" }).check();
   const paste = page.getByLabel("윤문할 텍스트 입력");
@@ -1122,7 +1130,7 @@ test("distinguishes partial Polish failure from unchanged text and clears stale 
   });
 
   await page.goto("/");
-  await page.getByRole("button", { name: "윤문", exact: true }).click();
+  await navigateWorkspace(page, "윤문");
   await page.getByRole("radio", { name: "텍스트 윤문" }).check();
   const paste = page.getByLabel("윤문할 텍스트 입력");
   await paste.fill("김영삼 차장님이 pc반환 요청했습니다.\n이번 내용은 확인했습니다.\n다음 문장은 확인했습니다.");
@@ -1171,8 +1179,8 @@ test("shows changed, rejected and failed outcomes independently for a document",
   });
   await page.goto("/");
   await upload(page, fixture);
-  await page.getByLabel("윤문_혼합.pptx 선택").check();
-  await page.getByRole("button", { name: "윤문", exact: true }).click();
+  await page.getByRole("checkbox", { name: "윤문_혼합.pptx 선택", exact: true }).check();
+  await navigateWorkspace(page, "윤문");
   await page.getByRole("button", { name: "윤문 실행" }).click();
   const result = page.locator(".polish-results:not(.polish-text-results)");
   await expect(result.locator(".polish-summary-line")).toContainText("변경 1");
@@ -1204,7 +1212,7 @@ test("keeps the other 57 text sentences when candidate 11 exhausts its transient
   });
 
   await page.goto("/");
-  await page.getByRole("button", { name: "윤문", exact: true }).click();
+  await navigateWorkspace(page, "윤문");
   await page.getByRole("radio", { name: "텍스트 윤문" }).check();
   const original = Array.from({ length: 58 }, (_, index) => `문장 ${index + 1}의 내용을 함께 검토 부탁드립니다.`).join("\n");
   await page.getByLabel("윤문할 텍스트 입력").fill(original);
@@ -1236,7 +1244,7 @@ test("isolates one unavailable provider sentence and continues later batches", a
     ) });
   });
   await page.goto("/");
-  await page.getByRole("button", { name: "윤문", exact: true }).click();
+  await navigateWorkspace(page, "윤문");
   await page.getByRole("radio", { name: "텍스트 윤문" }).check();
   await page.getByLabel("윤문할 텍스트 입력").fill(
     Array.from({ length: 6 }, (_, index) => `문장 ${index + 1}의 내용을 함께 검토 부탁드립니다.`).join("\n"));
@@ -1265,7 +1273,7 @@ test("recovers only missing and duplicated batch entries without accepting unkno
     }) });
   });
   await page.goto("/");
-  await page.getByRole("button", { name: "윤문", exact: true }).click();
+  await navigateWorkspace(page, "윤문");
   await page.getByRole("radio", { name: "텍스트 윤문" }).check();
   const sentences = Array.from({ length: 6 }, (_, index) => `문장 ${index + 1}의 내용을 다시 한번 검토 부탁드립니다.`);
   await page.getByLabel("윤문할 텍스트 입력").fill(sentences.join("\n"));
@@ -1298,7 +1306,7 @@ test("splits only failing Polish ranges down to a single sentence", async ({ pag
     ) });
   });
   await page.goto("/");
-  await page.getByRole("button", { name: "윤문", exact: true }).click();
+  await navigateWorkspace(page, "윤문");
   await page.getByRole("radio", { name: "텍스트 윤문" }).check();
   const sentences = Array.from({ length: 8 }, (_, index) => `문장 ${index + 1}의 내용을 검토합니다.`);
   await page.getByLabel("윤문할 텍스트 입력").fill(sentences.join("\n"));
@@ -1340,7 +1348,7 @@ test("retries malformed batch JSON once and still rejects protected-value change
     ) });
   });
   await page.goto("/");
-  await page.getByRole("button", { name: "윤문", exact: true }).click();
+  await navigateWorkspace(page, "윤문");
   await page.getByRole("radio", { name: "텍스트 윤문" }).check();
   await page.getByLabel("윤문할 텍스트 입력").fill(
     "이번 매출은 1,250만원으로 집계되었습니다.\n다음 회의를 함께 검토 부탁드립니다.");
@@ -1365,7 +1373,7 @@ test("bounds long Polish candidates by total characters as well as count", async
     ) });
   });
   await page.goto("/");
-  await page.getByRole("button", { name: "윤문", exact: true }).click();
+  await navigateWorkspace(page, "윤문");
   await page.getByRole("radio", { name: "텍스트 윤문" }).check();
   const sentences = Array.from({ length: 9 }, (_, index) =>
     `문장 ${index + 1}의 내용을 검토합니다. ` + "관련 내용을 함께 검토 부탁드립니다. ".repeat(16));
@@ -1395,8 +1403,8 @@ test("bounds PDF Polish requests while preserving every sentence", async ({ page
   });
   await page.goto("/");
   await upload(page, fixture);
-  await page.getByLabel("윤문_58문장.pdf 선택").check();
-  await page.getByRole("button", { name: "윤문", exact: true }).click();
+  await page.getByRole("checkbox", { name: "윤문_58문장.pdf 선택", exact: true }).check();
+  await navigateWorkspace(page, "윤문");
   await page.getByRole("button", { name: "윤문 실행" }).click();
   const result = page.locator(".polish-results:not(.polish-text-results)");
   await expect(result.locator(".polish-summary-line")).toContainText("변경 없음 58");
@@ -1414,7 +1422,7 @@ test("stops a pending Retry-After wait without sending another batch", async ({ 
     });
   });
   await page.goto("/");
-  await page.getByRole("button", { name: "윤문", exact: true }).click();
+  await navigateWorkspace(page, "윤문");
   await page.getByRole("radio", { name: "텍스트 윤문" }).check();
   await page.getByLabel("윤문할 텍스트 입력").fill("첫 번째 문장을 검토합니다.\n두 번째 문장을 검토합니다.");
   await page.getByRole("button", { name: "윤문 실행" }).click();
@@ -1437,7 +1445,7 @@ test("does not split or storm the provider after a persistent rate limit", async
     });
   });
   await page.goto("/");
-  await page.getByRole("button", { name: "윤문", exact: true }).click();
+  await navigateWorkspace(page, "윤문");
   await page.getByRole("radio", { name: "텍스트 윤문" }).check();
   await page.getByLabel("윤문할 텍스트 입력").fill(
     Array.from({ length: 9 }, (_, index) => `문장 ${index + 1}의 내용을 검토합니다.`).join("\n"));
@@ -1454,7 +1462,7 @@ test("stops Polish at a configuration error without retrying or accusing unattem
     await route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: { code: "AI_NOT_CONFIGURED" } }) });
   });
   await page.goto("/");
-  await page.getByRole("button", { name: "윤문", exact: true }).click();
+  await navigateWorkspace(page, "윤문");
   await page.getByRole("radio", { name: "텍스트 윤문" }).check();
   await page.getByLabel("윤문할 텍스트 입력").fill("첫 번째 문장은 그대로 둡니다.\n두 번째 문장은 검토합니다.\n세 번째 문장은 아직 남았습니다.\n네 번째 문장은 아직 남았습니다.\n다섯 번째 문장은 아직 남았습니다.");
   await page.getByRole("button", { name: "윤문 실행" }).click();
@@ -1484,7 +1492,7 @@ test("keeps completed Polish work when the user stops an in-flight sentence", as
     }
   });
   await page.goto("/");
-  await page.getByRole("button", { name: "윤문", exact: true }).click();
+  await navigateWorkspace(page, "윤문");
   await page.getByRole("radio", { name: "텍스트 윤문" }).check();
   await page.getByLabel("윤문할 텍스트 입력").fill(
     Array.from({ length: 9 }, (_, index) => `문장 ${index + 1}의 내용을 검토합니다.`).join("\n"));
@@ -1537,32 +1545,32 @@ test("runs Ask, Analyze, Polish, Check and Extract through the server AI boundar
 
   await page.goto("/");
   await upload(page, files.v1);
-  await page.getByLabel("운임현황_v1.xlsx 선택").check();
+  await page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true }).check();
 
-  await page.getByRole("button", { name: "질문", exact: true }).click();
+  await navigateWorkspace(page, "질문");
   await page.getByPlaceholder("선택한 문서에서 확인할 내용을 입력하세요").fill("SEOUL 단가는 얼마인가요?");
   await page.getByRole("button", { name: "질문 실행" }).click();
   await expect(page.locator(".results-panel .result-status")).toHaveText("답변 완료");
   expect([...seen]).toEqual(["ask"]);
 
-  await page.getByRole("button", { name: "분석", exact: true }).click();
+  await navigateWorkspace(page, "분석");
   await page.getByRole("button", { name: "분석 실행" }).click();
   await expect(page.locator(".results-panel .result-status")).toHaveText("분석 완료");
   expect([...seen].sort()).toEqual(["analyze", "ask"]);
 
-  await page.getByRole("button", { name: "윤문", exact: true }).click();
+  await navigateWorkspace(page, "윤문");
   await page.getByRole("radio", { name: "텍스트 윤문" }).check();
   await page.getByLabel("윤문할 텍스트 입력").fill("운임 현황을 검토 부탁드립니다.");
   await page.getByRole("button", { name: "윤문 실행" }).click();
   await expect(page.locator(".results-panel .result-status")).toHaveText("윤문 완료");
   expect([...seen].sort()).toEqual(["analyze", "ask", "polish"]);
 
-  await page.getByRole("button", { name: "검수", exact: true }).click();
+  await navigateWorkspace(page, "검수");
   await page.getByRole("button", { name: "검수 실행", exact: true }).click();
   await expect(page.locator(".results-panel .result-status")).toHaveText("검수 완료");
   expect([...seen].sort()).toEqual(["analyze", "ask", "polish", "semantic-check"]);
 
-  await page.getByRole("button", { name: "추출", exact: true }).click();
+  await navigateWorkspace(page, "추출");
   await page.getByRole("radio", { name: "항목 지정" }).check();
   await page.getByLabel("추출할 항목").fill("존재하지 않는 항목");
   await page.getByRole("button", { name: "항목 추가" }).click();
@@ -1601,8 +1609,8 @@ test("uses only the disabled action button for single-request progress", async (
   await expect(page.getByRole("button", { name: "요약", exact: true })).toHaveCount(0);
   await upload(page, files.v1);
   await upload(page, files.v2);
-  await page.getByLabel("운임현황_v1.xlsx 선택").check();
-  await page.getByLabel("운임현황_v2.xlsx 선택").check();
+  await page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true }).check();
+  await page.getByRole("checkbox", { name: "운임현황_v2.xlsx 선택", exact: true }).check();
 
   const runs: Array<{ tab: "Analyze" | "Ask" | "Compare" | "Check"; label: string }> = [
     { tab: "Analyze", label: "분석" },
@@ -1611,7 +1619,7 @@ test("uses only the disabled action button for single-request progress", async (
     { tab: "Check", label: "검수" },
   ];
   for (const run of runs) {
-    await page.getByRole("button", { name: run.label, exact: true }).click();
+    await navigateWorkspace(page, run.label);
     if (run.tab === "Ask") {
       await page.getByLabel("질문 입력").fill("SEOUL 단가는 얼마인가요?");
     }
@@ -1625,7 +1633,7 @@ test("uses only the disabled action button for single-request progress", async (
   }
 
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByRole("button", { name: "분석", exact: true }).click();
+  await navigateWorkspace(page, "분석");
   const mobileAction = page.locator(".operation-actions button");
   await mobileAction.click();
   await expect(mobileAction).toHaveText("처리 중…");
@@ -1654,9 +1662,9 @@ test("keeps compact counted progress for Polish and Extract", async ({ page }) =
 
   await page.goto("/");
   await upload(page, files.v1);
-  await page.getByLabel("운임현황_v1.xlsx 선택").check();
+  await page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true }).check();
 
-  await page.getByRole("button", { name: "윤문", exact: true }).click();
+  await navigateWorkspace(page, "윤문");
   await page.getByRole("radio", { name: "텍스트 윤문" }).check();
   await page.getByLabel("윤문할 텍스트 입력").fill("운임 현황을 검토 부탁드립니다.");
   const polishAction = page.getByRole("button", { name: "윤문 실행" });
@@ -1673,7 +1681,7 @@ test("keeps compact counted progress for Polish and Extract", async ({ page }) =
   await expect(polishAction).toBeEnabled();
   await expect(polishProgress).toHaveCount(0);
 
-  await page.getByRole("button", { name: "추출", exact: true }).click();
+  await navigateWorkspace(page, "추출");
   await page.getByRole("radio", { name: "항목 지정" }).check();
   await page.getByLabel("추출할 항목").fill("존재하지 않는 항목");
   await page.getByRole("button", { name: "항목 추가" }).click();
@@ -1717,8 +1725,8 @@ test("connects each Ask answer directly to its file and evidence", async ({ page
 
   await page.goto("/");
   await upload(page, files.v1);
-  await page.getByLabel("운임현황_v1.xlsx 선택").check();
-  await page.getByRole("button", { name: "질문", exact: true }).click();
+  await page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true }).check();
+  await navigateWorkspace(page, "질문");
   await page.getByLabel("질문 입력").fill("SEOUL 단가는 얼마인가요?");
   await page.getByRole("button", { name: "질문 실행" }).click();
 
@@ -1767,8 +1775,8 @@ test("shows an informational Ask alert without inventing sources", async ({ page
 
   await page.goto("/");
   await upload(page, files.v1);
-  await page.getByLabel("운임현황_v1.xlsx 선택").check();
-  await page.getByRole("button", { name: "질문", exact: true }).click();
+  await page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true }).check();
+  await navigateWorkspace(page, "질문");
   await page.getByLabel("질문 입력").fill("SEOUL 단가는 얼마인가요?");
   await page.getByRole("button", { name: "질문 실행" }).click();
 
@@ -1818,8 +1826,8 @@ test("keeps grounded Ask and Analyze summaries when another claim is rejected", 
 
   await page.goto("/");
   await upload(page, files.v1);
-  await page.getByLabel("운임현황_v1.xlsx 선택").check();
-  await page.getByRole("button", { name: "질문", exact: true }).click();
+  await page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true }).check();
+  await navigateWorkspace(page, "질문");
   await page.getByLabel("질문 입력").fill("SEOUL 단가는 얼마인가요?");
   await page.getByRole("button", { name: "질문 실행" }).click();
   const askPanel = page.locator(".results-panel");
@@ -1827,10 +1835,10 @@ test("keeps grounded Ask and Analyze summaries when another claim is rejected", 
   await expect(askPanel).not.toContainText("문서에 없는 내용");
 
   await upload(page, files.analyzePptx);
-  await page.getByLabel("운임현황_v1.xlsx 선택").uncheck();
-  await page.getByLabel("기업요약.pptx 선택").check();
+  await page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true }).uncheck();
+  await page.getByRole("checkbox", { name: "기업요약.pptx 선택", exact: true }).check();
 
-  await page.getByRole("button", { name: "분석", exact: true }).click();
+  await navigateWorkspace(page, "분석");
   await page.getByRole("button", { name: "분석 실행" }).click();
   const panel = page.locator(".results-panel");
   await expect(panel.getByRole("heading", { name: "핵심 요약", exact: true })).toBeVisible();
@@ -1872,8 +1880,8 @@ test("groups repeated Analyze summary sources without losing drawer coverage", a
   await page.goto("/");
   await upload(page, files.analyzePptx);
   await upload(page, files.analyzeCopy);
-  await page.getByLabel("기업요약.pptx 선택").check();
-  await page.getByLabel("기업요약_사본.pptx 선택").check();
+  await page.getByRole("checkbox", { name: "기업요약.pptx 선택", exact: true }).check();
+  await page.getByRole("checkbox", { name: "기업요약_사본.pptx 선택", exact: true }).check();
   await page.getByRole("button", { name: "분석 실행" }).click();
 
   const panel = page.locator(".results-panel");
@@ -1904,7 +1912,7 @@ test("keeps deterministic Analyze results when the model abstains", async ({ pag
 
   await page.goto("/");
   await upload(page, files.analyzePptx);
-  await page.getByLabel("기업요약.pptx 선택").check();
+  await page.getByRole("checkbox", { name: "기업요약.pptx 선택", exact: true }).check();
   await page.getByRole("button", { name: "분석 실행" }).click();
   const panel = page.locator(".results-panel");
   await expect(panel.locator(".result-status")).toHaveText("분석 완료");
@@ -1937,7 +1945,7 @@ test("summarizes a short notice without inventing an insight section", async ({ 
   });
   await page.goto("/");
   await upload(page, files.noticePptx);
-  await page.getByLabel("교육안내.pptx 선택").check();
+  await page.getByRole("checkbox", { name: "교육안내.pptx 선택", exact: true }).check();
   await page.getByRole("button", { name: "분석 실행" }).click();
   const panel = page.locator(".results-panel");
   await expect(panel.locator(".result-status")).toHaveText("분석 완료");
@@ -1975,7 +1983,7 @@ test("uses one Analyze request for document-wide summary and relational insight"
   });
   await page.goto("/");
   await upload(page, files.analyzePptx);
-  await page.getByLabel("기업요약.pptx 선택").check();
+  await page.getByRole("checkbox", { name: "기업요약.pptx 선택", exact: true }).check();
   await page.getByRole("button", { name: "분석 실행" }).click();
   const panel = page.locator(".results-panel");
   await expect.poll(() => requests.length).toBe(1);
@@ -2035,21 +2043,21 @@ test("integrates enrichment behind one action and preserves every deterministic 
   await upload(page, files.v2);
   await upload(page, files.checkPptx);
 
-  await page.getByLabel("운임현황_v1.xlsx 선택").check();
-  await page.getByRole("button", { name: "분석", exact: true }).click();
+  await page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true }).check();
+  await navigateWorkspace(page, "분석");
   await page.getByRole("button", { name: "분석 실행" }).click();
   await expect(page.locator(".results-panel .result-status")).toHaveText("분석 완료");
 
-  await page.getByLabel("운임현황_v2.xlsx 선택").check();
-  await page.getByRole("button", { name: "비교", exact: true }).click();
+  await page.getByRole("checkbox", { name: "운임현황_v2.xlsx 선택", exact: true }).check();
+  await navigateWorkspace(page, "비교");
   await page.getByRole("button", { name: "비교 실행" }).click();
   await expect(page.getByTestId("change-row").first()).toBeVisible();
   await expect(page.locator(".results-panel .result-status")).toHaveText("비교 완료");
 
-  await page.getByLabel("운임현황_v1.xlsx 선택").uncheck();
-  await page.getByLabel("운임현황_v2.xlsx 선택").uncheck();
-  await page.getByLabel("최종검수.pptx 선택").check();
-  await page.getByRole("button", { name: "검수", exact: true }).click();
+  await page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true }).uncheck();
+  await page.getByRole("checkbox", { name: "운임현황_v2.xlsx 선택", exact: true }).uncheck();
+  await page.getByRole("checkbox", { name: "최종검수.pptx 선택", exact: true }).check();
+  await navigateWorkspace(page, "검수");
   await page.getByRole("button", { name: "검수 실행" }).click();
   await expect(page.locator(".check-issue").first()).toBeVisible();
   await expect(page.locator(".results-panel .result-status")).toHaveText("검수 완료");
@@ -2063,17 +2071,17 @@ test("integrates enrichment behind one action and preserves every deterministic 
   await expect(page.locator(".notice.error")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "검수 실행" })).toBeEnabled();
 
-  await page.getByLabel("최종검수.pptx 선택").uncheck();
-  await page.getByLabel("운임현황_v1.xlsx 선택").check();
-  await page.getByRole("button", { name: "분석", exact: true }).click();
+  await page.getByRole("checkbox", { name: "최종검수.pptx 선택", exact: true }).uncheck();
+  await page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true }).check();
+  await navigateWorkspace(page, "분석");
   await page.getByRole("button", { name: "분석 실행" }).click();
   await expect(page.locator(".results-panel .analysis-core-items-section .analysis-reading-row").first()).toBeVisible();
   await expect(page.locator(".result-inline-warning")).toContainText("기본 분석은 완료됐습니다. 요약과 인사이트를 불러오지 못했습니다.");
   await expect(page.locator(".results-panel .result-status")).toHaveText("기본 분석 완료");
   await expect(page.locator(".results-panel .result-status")).toHaveClass(/warning/);
 
-  await page.getByLabel("운임현황_v2.xlsx 선택").check();
-  await page.getByRole("button", { name: "비교", exact: true }).click();
+  await page.getByRole("checkbox", { name: "운임현황_v2.xlsx 선택", exact: true }).check();
+  await navigateWorkspace(page, "비교");
   await page.getByRole("button", { name: "비교 실행" }).click();
   await expect(page.getByTestId("change-row").first()).toBeVisible();
   await expect(page.locator(".result-inline-warning")).toHaveCount(0);
@@ -2101,8 +2109,8 @@ test("reviews PPTX writing, consistency and data findings with filters and exact
   await mockEmptyClaims(page);
   await page.goto("/");
   await upload(page, files.checkPptx);
-  await page.getByLabel("최종검수.pptx 선택").check();
-  await page.getByRole("button", { name: "검수", exact: true }).click();
+  await page.getByRole("checkbox", { name: "최종검수.pptx 선택", exact: true }).check();
+  await navigateWorkspace(page, "검수");
   await page.getByRole("button", { name: "검수 실행" }).click();
 
   const panel = page.locator(".results-panel");
@@ -2296,8 +2304,8 @@ test("reports an English typo at one severity whichever detector finds it", asyn
   });
   await page.goto("/");
   await upload(page, deck);
-  await page.getByLabel("영문_오타.pptx 선택").check();
-  await page.getByRole("button", { name: "검수", exact: true }).click();
+  await page.getByRole("checkbox", { name: "영문_오타.pptx 선택", exact: true }).check();
+  await navigateWorkspace(page, "검수");
   await page.getByRole("button", { name: "검수 실행" }).click();
 
   const panel = page.locator(".results-panel");
@@ -2330,8 +2338,8 @@ test("reports an English typo at one severity whichever detector finds it", asyn
 test("keeps the personal dictionary and ignore actions inside this browser", async ({ page, browser }) => {
   await page.goto("/");
   await upload(page, files.checkPptx);
-  await page.getByLabel("최종검수.pptx 선택").check();
-  await page.getByRole("button", { name: "검수", exact: true }).click();
+  await page.getByRole("checkbox", { name: "최종검수.pptx 선택", exact: true }).check();
+  await navigateWorkspace(page, "검수");
   await page.getByRole("button", { name: "검수 실행" }).click();
   await expect(page.locator(".check-issue").first()).toBeVisible();
 
@@ -2395,15 +2403,15 @@ test("uses the loaded company dictionary in both the page and review popup acros
 
   const inspect = async (expected: string[], source: "d1" | "seed", expectedRequests: number) => {
     await page.goto("/");
-    await page.getByRole("button", { name: "Dictionary" }).click();
+    await navigateWorkspace(page, "Dictionary");
     const dictionary = page.locator('.settings-surface[aria-label="Dictionary"] .dictionary-section').first();
     await expect(dictionary.locator("h4")).toContainText(`COMPANY TERMS ${expected.length}`);
     if (source === "seed") await expect(dictionary).toContainText("공용 사전 저장소에 연결하지 못해 기본 목록을 표시합니다.");
     const pageTerms = await dictionary.locator(".dictionary-term").allTextContents();
-    await page.getByRole("button", { name: "분석", exact: true }).click();
+    await navigateWorkspace(page, "분석");
     await upload(page, files.checkPptx);
-    await page.getByLabel("최종검수.pptx 선택").check();
-    await page.getByRole("button", { name: "검수", exact: true }).click();
+    await page.getByRole("checkbox", { name: "최종검수.pptx 선택", exact: true }).check();
+    await navigateWorkspace(page, "검수");
     await page.getByRole("button", { name: "검수 실행" }).click();
     await expect(page.locator(".check-issue").first()).toBeVisible();
     await page.getByRole("button", { name: "용어 사전" }).click();
@@ -2433,9 +2441,6 @@ test("keeps empty upload actions singular and restores header actions after uplo
   const context = page.locator(".context-bar");
   const dropzone = page.locator(".dropzone");
 
-  await expect(page.locator(".rail-group-label")).toHaveText(["WORKSPACE", "RESEARCH", "TOOLS"]);
-  await expect(page.locator(".rail-list:not(.rail-tools-list) .rail-item span")).toHaveText(["분석", "질문", "비교", "검수", "보완", "윤문", "추출", "취합"]);
-  await expect(page.locator(".rail-tools-list .rail-item span")).toHaveText(["법령", "PDF 도구", "이미지 도구"]);
   await expect(context.locator(".context-files")).toContainText("작업 파일");
   await expect(context.locator(".context-counts")).toHaveText("0개");
   await expect(context).not.toContainText("선택 0개");
@@ -2459,7 +2464,7 @@ test("keeps empty upload actions singular and restores header actions after uplo
   await expect(context.locator(".context-counts")).toContainText("1개");
   await expect(context.locator(".context-counts")).toContainText("선택 0개");
 
-  await page.getByLabel("운임현황_v1.xlsx 선택").check();
+  await page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true }).check();
   await expect(context.locator(".context-counts")).toContainText("선택 1개");
   await upload(page, files.v2);
   await expect(context.locator(".context-counts")).toContainText("2개");
@@ -2479,7 +2484,7 @@ test("uploads a dropped file and returns to populated header actions", async ({ 
     }));
     element.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: transfer }));
   }, bytes);
-  await expect(page.getByLabel("드롭업로드.xlsx 선택")).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: "드롭업로드.xlsx 선택", exact: true })).toBeVisible();
   await expect(page.locator(".dropzone")).toHaveCount(0);
   await expect(page.locator(".context-bar").getByRole("button", { name: "파일 추가" })).toBeVisible();
   await expect(page.locator(".context-bar").getByRole("button", { name: "모두 삭제" })).toBeVisible();
@@ -2487,7 +2492,7 @@ test("uploads a dropped file and returns to populated header actions", async ({ 
 
 test("aligns fileless text Polish controls to one desktop and mobile baseline", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "윤문", exact: true }).click();
+  await navigateWorkspace(page, "윤문");
   await page.getByRole("radio", { name: "텍스트 윤문" }).check();
   await expect(page.locator(".dropzone")).toBeVisible();
 
@@ -2528,7 +2533,7 @@ test("aligns fileless text Polish controls to one desktop and mobile baseline", 
 test("keeps file context and upload controls out of utility destinations", async ({ page }) => {
   await page.goto("/");
   await upload(page, files.v1);
-  await page.getByRole("button", { name: "Dictionary" }).click();
+  await navigateWorkspace(page, "Dictionary");
 
   await expect(page.getByRole("heading", { name: "용어 사전", exact: true })).toBeVisible();
   await expect(page.locator(".notice")).toHaveCount(0);
@@ -2539,7 +2544,7 @@ test("keeps file context and upload controls out of utility destinations", async
   await expect(page.getByLabel("공용 용어 검색")).toBeVisible();
   await expect(page.getByText("등록된 개인 용어가 없습니다.")).toBeVisible();
 
-  await page.getByRole("button", { name: "Settings" }).click();
+  await navigateWorkspace(page, "Settings");
   await expect(page.getByRole("heading", { name: "설정", exact: true })).toBeVisible();
   await expect(page.locator(".notice")).toHaveCount(0);
   await expect(page.locator(".context-files")).toHaveCount(0);
@@ -2554,7 +2559,7 @@ test("keeps file context and upload controls out of utility destinations", async
 test("uses task-focused labels and concise execution buttons", async ({ page }) => {
   await page.goto("/");
   await upload(page, files.v1);
-  await page.getByLabel("운임현황_v1.xlsx 선택").check();
+  await page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true }).check();
 
   const labels = [
     ["분석", "문서 분석"],
@@ -2566,9 +2571,8 @@ test("uses task-focused labels and concise execution buttons", async ({ page }) 
     ["추출", "정보 추출"],
     ["취합", "문서 취합"],
   ] as const;
-  await expect(page.locator(".rail-list:not(.rail-tools-list) .rail-item span")).toHaveText(labels.map(([label]) => label));
   for (const [tab, title] of labels) {
-    await page.getByRole("button", { name: tab, exact: true }).click();
+    await navigateWorkspace(page, tab);
     await expect(page.getByRole("heading", { name: title, exact: true })).toBeVisible();
     const run = page.getByRole("button", { name: `${tab} 실행`, exact: true });
     await expect(run).toBeVisible();
@@ -2606,22 +2610,22 @@ test("aligns the Admin login action with the password field", async ({ page }) =
 test("keeps a feature's completion notice inside that feature", async ({ page }) => {
   await page.goto("/");
   await upload(page, files.v1);
-  await page.getByLabel("운임현황_v1.xlsx 선택").check();
+  await page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true }).check();
   await page.getByRole("button", { name: "분석 실행" }).click();
   await expect(page.locator(".results-panel .result-status")).toHaveText(/분석.*완료/);
 
   // Another feature, the dictionary and the settings page own their own
   // status, so an Analyze result never announces itself there.
   for (const destination of ["검수", "Dictionary", "Settings"]) {
-    await page.getByRole("button", { name: destination, exact: true }).click();
+    await navigateWorkspace(page, destination);
     await expect(page.locator(".notice")).toHaveCount(0);
   }
 
   // Workspace-wide upload errors also stay in document work views.
-  await page.getByRole("button", { name: "분석", exact: true }).click();
+  await navigateWorkspace(page, "분석");
   await sendFile(page, files.fake);
   await expect(page.locator(".notice.error")).toBeVisible();
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await navigateWorkspace(page, "Settings");
   await expect(page.locator(".notice")).toHaveCount(0);
 
   await page.goto("/admin");
@@ -2642,7 +2646,7 @@ test("keeps original files inside the tab and sends only bounded evidence", asyn
   });
   await page.goto("/");
   await upload(page, files.v1);
-  await page.getByLabel("운임현황_v1.xlsx 선택").check();
+  await page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true }).check();
   await page.getByRole("button", { name: "분석 실행" }).click();
   await expect(page.locator(".results-panel .result-status")).toHaveText(/분석.*완료/);
 
@@ -2668,8 +2672,8 @@ test("keeps browser requests on the same origin during integrated work", async (
   page.on("request", (request) => hosts.push(new URL(request.url()).host));
   await page.goto("/");
   await upload(page, files.v1);
-  await page.getByLabel("운임현황_v1.xlsx 선택").check();
-  await page.getByRole("button", { name: "검수", exact: true }).click();
+  await page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true }).check();
+  await navigateWorkspace(page, "검수");
   await page.getByRole("button", { name: "검수 실행" }).click();
   await expect(page.locator(".results-panel .result-status")).toHaveText("검수 완료");
 
@@ -2692,9 +2696,9 @@ test("meets accessibility and keyboard requirements in the populated compare/sou
   await page.goto("/");
   await upload(page, files.v1);
   await upload(page, files.v2);
-  await page.getByLabel("운임현황_v1.xlsx 선택").check();
-  await page.getByLabel("운임현황_v2.xlsx 선택").check();
-  await page.getByRole("button", { name: "비교", exact: true }).click();
+  await page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true }).check();
+  await page.getByRole("checkbox", { name: "운임현황_v2.xlsx 선택", exact: true }).check();
+  await navigateWorkspace(page, "비교");
   await page.getByRole("button", { name: "비교 실행" }).click();
   await expect(page.getByTestId("change-row").first()).toBeVisible();
 
@@ -2724,21 +2728,27 @@ test("meets accessibility and keyboard requirements in the populated compare/sou
   await expect(detail).toHaveCount(0);
   await expect(sourceButton).toBeFocused();
 
-  // Keyboard focus on the opacity-0 file checkbox must be visibly indicated.
-  const checkboxInput = page.locator(".select-file input").first();
-  await checkboxInput.focus();
-  await expect(checkboxInput).toBeFocused();
-  const outlineWidth = await checkboxInput.evaluate((element) => {
-    const sibling = element.nextElementSibling;
-    return sibling ? getComputedStyle(sibling).outlineWidth : "0px";
+  // Keyboard focus must remain visible on the interactive checkbox.
+  const checkbox = page.locator(".select-file").getByRole("checkbox").first();
+  const restingShadow = await checkbox.evaluate((element) => getComputedStyle(element).boxShadow);
+  await checkbox.focus();
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Shift+Tab");
+  await expect(checkbox).toBeFocused();
+  const focusStyle = await checkbox.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { outlineWidth: style.outlineWidth, outlineStyle: style.outlineStyle, boxShadow: style.boxShadow };
   });
-  expect(outlineWidth).not.toBe("0px");
+  expect(
+    (parseFloat(focusStyle.outlineWidth) > 0 && focusStyle.outlineStyle !== "none") ||
+    (focusStyle.boxShadow !== "none" && focusStyle.boxShadow !== restingShadow),
+  ).toBe(true);
 });
 
 test("discards every file and result when the tab reloads", async ({ page }) => {
   await page.goto("/");
   await upload(page, files.v1);
-  await page.getByLabel("운임현황_v1.xlsx 선택").check();
+  await page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true }).check();
   await page.getByRole("button", { name: "분석 실행" }).click();
   await expect(page.locator(".results-panel .result-status")).toHaveText(/분석.*완료/);
   await page.locator(".results-panel .source-action").first().click();
@@ -2755,8 +2765,9 @@ test("discards every file and result when the tab reloads", async ({ page }) => 
 test("explicitly clears the in-browser workspace", async ({ page }) => {
   await page.goto("/");
   await upload(page, files.v1);
-  page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "모두 삭제" }).click();
+  await page.getByRole("alertdialog", { name: "작업 파일 모두 삭제", exact: true })
+    .getByRole("button", { name: "삭제", exact: true }).click();
   const clearedStatus = page.locator(".transient-status");
   await expect(clearedStatus).toHaveText("삭제 완료");
   await expect(page.getByText("브라우저 메모리에서 파일과 결과를 모두 지웠습니다.")).toHaveCount(0);
@@ -2803,9 +2814,9 @@ test("keeps the complete mobile workflow inside the viewport", async ({ page }, 
   await expectNoPageOverflow();
   await page.screenshot({ path: "artifacts/mobile-file-workflow-390.png", fullPage: true });
 
-  await page.getByLabel("운임현황_v1.xlsx 선택").check();
-  await page.getByLabel("운임현황_v2.xlsx 선택").check();
-  await page.getByRole("button", { name: "비교", exact: true }).click();
+  await page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true }).check();
+  await page.getByRole("checkbox", { name: "운임현황_v2.xlsx 선택", exact: true }).check();
+  await navigateWorkspace(page, "비교");
   await expect(fileRow(page, files.v1).getByText("1 · 기준 파일", { exact: true })).toBeVisible();
   await expect(fileRow(page, files.v2).getByText("2 · 대상 파일", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "비교 실행" }).click();
@@ -2819,10 +2830,10 @@ test("keeps the complete mobile workflow inside the viewport", async ({ page }, 
     getComputedStyle(element).gridTemplateColumns.split(/\s+/).length)).toBe(1);
   await expectNoPageOverflow();
 
-  await page.getByLabel("운임현황_v1.xlsx 선택").uncheck();
-  await page.getByLabel("운임현황_v2.xlsx 선택").uncheck();
-  await page.getByLabel("최종검수.pptx 선택").check();
-  await page.getByRole("button", { name: "검수", exact: true }).click();
+  await page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true }).uncheck();
+  await page.getByRole("checkbox", { name: "운임현황_v2.xlsx 선택", exact: true }).uncheck();
+  await page.getByRole("checkbox", { name: "최종검수.pptx 선택", exact: true }).check();
+  await navigateWorkspace(page, "검수");
   await page.getByRole("button", { name: "검수 실행" }).click();
   const mobileFinding = page.locator(".check-issue").first();
   await expect(mobileFinding).toBeVisible();
@@ -2845,7 +2856,7 @@ test("keeps the complete mobile workflow inside the viewport", async ({ page }, 
   await expect(mobileFinding.locator(".source-action")).toBeFocused();
   await expectNoPageOverflow();
 
-  await page.getByRole("button", { name: "질문", exact: true }).click();
+  await navigateWorkspace(page, "질문");
   const askInput = page.getByLabel("질문 입력");
   const askAction = page.getByRole("button", { name: "질문 실행" });
   const [askBox, actionBox] = await Promise.all([askInput.boundingBox(), askAction.boundingBox()]);
@@ -2853,15 +2864,15 @@ test("keeps the complete mobile workflow inside the viewport", async ({ page }, 
   expect(actionBox).not.toBeNull();
   expect(actionBox!.y).toBeGreaterThan(askBox!.y + askBox!.height);
 
-  await page.getByRole("button", { name: "윤문", exact: true }).click();
+  await navigateWorkspace(page, "윤문");
   await page.getByRole("radio", { name: "텍스트 윤문" }).check();
   const paste = page.getByLabel("윤문할 텍스트 입력");
   await expect(paste).toBeVisible();
   expect((await paste.boundingBox())!.width).toBeLessThanOrEqual(358);
 
-  await page.getByRole("button", { name: "추출", exact: true }).click();
-  await page.getByLabel("최종검수.pptx 선택").uncheck();
-  await page.getByLabel("회의자료.pptx 선택").check();
+  await navigateWorkspace(page, "추출");
+  await page.getByRole("checkbox", { name: "최종검수.pptx 선택", exact: true }).uncheck();
+  await page.getByRole("checkbox", { name: "회의자료.pptx 선택", exact: true }).check();
   await page.getByRole("button", { name: "추출 실행" }).click();
   const mobileExtract = page.locator(".extract-results");
   const mobileExtractTable = mobileExtract.locator(".extract-auto-table");
@@ -2884,11 +2895,11 @@ test("keeps the complete mobile workflow inside the viewport", async ({ page }, 
   await expectNoPageOverflow();
   await page.screenshot({ path: "artifacts/inspo-extract-mobile-390.png", fullPage: true });
 
-  await page.getByRole("button", { name: "Dictionary", exact: true }).click();
+  await navigateWorkspace(page, "Dictionary");
   await expect(page.locator(".settings-surface[aria-label='Dictionary']")).toBeVisible();
   await expectNoPageOverflow();
 
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await navigateWorkspace(page, "Settings");
   const settingsRow = page.locator(".settings-list > div").first();
   const [settingsLabel, settingsDescription] = await Promise.all([
     settingsRow.locator("dt").boundingBox(),
@@ -2901,12 +2912,15 @@ test("keeps the complete mobile workflow inside the viewport", async ({ page }, 
     await page.setViewportSize({ width, height: 844 });
     await expectNoPageOverflow();
     for (const destination of ["분석", "질문", "비교", "검수", "윤문", "추출", "Dictionary", "Settings"]) {
-      await page.getByRole("button", { name: destination, exact: true }).click();
+      await navigateWorkspace(page, destination);
       await expectNoPageOverflow();
     }
-    const clippedNavItems = await page.locator(".rail-item").evaluateAll((items) =>
-      items.filter((item) => item.scrollWidth > item.clientWidth || item.scrollHeight > item.clientHeight).length);
+    await page.getByRole("button", { name: "작업 공간 메뉴 열기", exact: true }).click();
+    const clippedNavItems = await page.getByRole("navigation", { name: "작업 공간 메뉴", exact: true })
+      .getByRole("button").evaluateAll((items) =>
+        items.filter((item) => item.scrollWidth > item.clientWidth || item.scrollHeight > item.clientHeight).length);
     expect(clippedNavItems).toBe(0);
+    await page.getByRole("button", { name: "메뉴 닫기", exact: true }).click();
   }
   expect(consoleErrors).toEqual([]);
 });
@@ -2915,8 +2929,8 @@ test("aligns every workspace category to the file-list boundary", async ({ page 
   await page.goto("/");
   await upload(page, files.v1);
   await upload(page, files.v2);
-  await page.getByLabel("운임현황_v1.xlsx 선택").check();
-  await page.getByLabel("운임현황_v2.xlsx 선택").check();
+  await page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true }).check();
+  await page.getByRole("checkbox", { name: "운임현황_v2.xlsx 선택", exact: true }).check();
 
   const assertSharedBoundary = async () => {
     const boxes = await page.locator(".file-list, .work-section-heading, .operation-bar").evaluateAll((elements) =>
@@ -2931,13 +2945,13 @@ test("aligns every workspace category to the file-list boundary", async ({ page 
   };
 
   for (const destination of ["분석", "질문", "비교", "검수", "윤문", "추출", "취합"]) {
-    await page.getByRole("button", { name: destination, exact: true }).click();
+    await navigateWorkspace(page, destination);
     await assertSharedBoundary();
   }
 
   await page.setViewportSize({ width: 390, height: 844 });
   for (const destination of ["분석", "질문", "비교", "검수", "윤문", "추출", "취합"]) {
-    await page.getByRole("button", { name: destination, exact: true }).click();
+    await navigateWorkspace(page, destination);
     await assertSharedBoundary();
   }
 });
@@ -2947,9 +2961,9 @@ test("keeps compare column rules aligned and numeric values right-aligned", asyn
   await page.goto("/");
   await upload(page, files.v1);
   await upload(page, files.v2);
-  await page.getByLabel("운임현황_v1.xlsx 선택").check();
-  await page.getByLabel("운임현황_v2.xlsx 선택").check();
-  await page.getByRole("button", { name: "비교", exact: true }).click();
+  await page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true }).check();
+  await page.getByRole("checkbox", { name: "운임현황_v2.xlsx 선택", exact: true }).check();
+  await navigateWorkspace(page, "비교");
   await page.getByRole("button", { name: "비교 실행" }).click();
   await expect(page.getByTestId("change-row").first()).toBeVisible();
 
@@ -3053,9 +3067,9 @@ test("aligns mixed comparison values by their actual type", async ({ page }) => 
   await page.goto("/");
   await upload(page, files.alignmentA);
   await upload(page, files.alignmentB);
-  await page.getByLabel("정렬기준_A.xlsx 선택").check();
-  await page.getByLabel("정렬기준_B.xlsx 선택").check();
-  await page.getByRole("button", { name: "비교", exact: true }).click();
+  await page.getByRole("checkbox", { name: "정렬기준_A.xlsx 선택", exact: true }).check();
+  await page.getByRole("checkbox", { name: "정렬기준_B.xlsx 선택", exact: true }).check();
+  await navigateWorkspace(page, "비교");
   await page.getByRole("button", { name: "비교 실행" }).click();
   await expect(page.getByTestId("change-row").first()).toBeVisible();
 
@@ -3089,9 +3103,9 @@ test("shows the same continued R sequence in preview and the downloaded workbook
     ] });
     await page.locator('input[type="file"]').setInputFiles({ name, mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", buffer: Buffer.from(bytes) });
     await expect(page.locator(".file-row").filter({ hasText: name })).toBeVisible();
-    await page.getByLabel(`${name} 선택`).check();
+    await page.getByRole("checkbox", { name: `${name} 선택`, exact: true }).check();
   }
-  await page.getByRole("button", { name: "취합", exact: true }).click();
+  await navigateWorkspace(page, "취합");
   await page.getByRole("button", { name: "취합 실행" }).click();
   const preview = page.getByRole("region", { name: "개선 Bank 미리보기" }).locator(".aggregation-preview tbody tr td:first-child");
   const expected = ["BP-08-01", "BP-08-02", "BP-08-03", "BP-08-04", "BP-08-05", "BP-08-06"];
@@ -3109,16 +3123,16 @@ test("aggregates workbooks into one XLSX result without profile-specific actions
   await page.goto("/");
   await upload(page, files.v1);
   await upload(page, files.v2);
-  await page.getByLabel("운임현황_v1.xlsx 선택").check();
-  await page.getByLabel("운임현황_v2.xlsx 선택").check();
-  await page.getByRole("button", { name: "비교", exact: true }).click();
+  await page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true }).check();
+  await page.getByRole("checkbox", { name: "운임현황_v2.xlsx 선택", exact: true }).check();
+  await navigateWorkspace(page, "비교");
   const comparisonBadge = fileRow(page, files.v1).locator(".compare-selection-role");
   const appearance = (element: Element) => {
     const style = getComputedStyle(element);
     return [style.backgroundColor, style.border, style.borderRadius, style.color, style.fontFamily, style.fontSize, style.padding];
   };
   const expectedAppearance = await comparisonBadge.evaluate(appearance);
-  await page.getByRole("button", { name: "취합", exact: true }).click();
+  await navigateWorkspace(page, "취합");
   const first = fileRow(page, files.v1);
   const second = fileRow(page, files.v2);
   await expect(first.locator(".compare-selection-role")).toHaveText("기준 파일");
@@ -3188,13 +3202,13 @@ test("aggregates workbooks into one XLSX result without profile-specific actions
   const download = page.waitForEvent("download");
   await panel.getByRole("button", { name: "XLSX 다운로드" }).click();
   expect((await download).suggestedFilename()).toBe("worklens-aggregation.xlsx");
-  await page.getByLabel("운임현황_v1.xlsx 선택").uncheck();
+  await page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true }).uncheck();
   await expect(second.locator(".compare-selection-role")).toHaveText("기준 파일");
   await expect(first.locator(".compare-selection-role")).toHaveCount(0);
-  await page.getByLabel("전체 선택", { exact: true }).check();
-  await page.getByLabel("전체 선택 해제", { exact: true }).uncheck();
+  await page.getByRole("checkbox", { name: "전체 선택", exact: true }).check();
+  await page.getByRole("checkbox", { name: "전체 선택 해제", exact: true }).uncheck();
   await expect(page.locator(".file-row .compare-selection-role")).toHaveCount(0);
-  await page.getByLabel("전체 선택", { exact: true }).check();
+  await page.getByRole("checkbox", { name: "전체 선택", exact: true }).check();
   await expect(first.locator(".compare-selection-role")).toHaveText("기준 파일");
   await expect(second.locator(".compare-selection-role")).toHaveCount(0);
 });
@@ -3203,8 +3217,8 @@ test("blocks unsupported files from aggregation without offering PPTX export", a
   await mockEmptyClaims(page);
   await page.goto("/");
   await upload(page, files.trainingSepPptx);
-  await page.getByLabel("WL_교육운영_9월.pptx 선택").check();
-  await page.getByRole("button", { name: "취합", exact: true }).click();
+  await page.getByRole("checkbox", { name: "WL_교육운영_9월.pptx 선택", exact: true }).check();
+  await navigateWorkspace(page, "취합");
 
   await expect(page.getByRole("button", { name: "취합 실행" })).toBeDisabled();
   await expect(page.getByText("Excel이 아닌 파일이 포함되어 있습니다.", { exact: true })).toBeVisible();
@@ -3218,9 +3232,9 @@ test("does not silently aggregate supported files from a mixed selection", async
   await page.goto("/");
   await upload(page, files.v1);
   await upload(page, files.trainingSepPptx);
-  await page.getByLabel("운임현황_v1.xlsx 선택").check();
-  await page.getByLabel("WL_교육운영_9월.pptx 선택").check();
-  await page.getByRole("button", { name: "취합", exact: true }).click();
+  await page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true }).check();
+  await page.getByRole("checkbox", { name: "WL_교육운영_9월.pptx 선택", exact: true }).check();
+  await navigateWorkspace(page, "취합");
 
   await expect(page.getByRole("button", { name: "취합 실행" })).toBeDisabled();
   await expect(page.getByText("Excel이 아닌 파일이 포함되어 있습니다.", { exact: true })).toBeVisible();
@@ -3232,8 +3246,8 @@ test("keeps CSV out of aggregation while other features still accept it", async 
   await page.goto("/");
   await upload(page, files.v1);
   await upload(page, files.csv);
-  await page.getByLabel("운임.csv 선택").check();
-  await page.getByRole("button", { name: "취합", exact: true }).click();
+  await page.getByRole("checkbox", { name: "운임.csv 선택", exact: true }).check();
+  await navigateWorkspace(page, "취합");
 
   // CSV alone: nothing to aggregate.
   await expect(page.getByRole("button", { name: "취합 실행" })).toBeDisabled();
@@ -3241,7 +3255,7 @@ test("keeps CSV out of aggregation while other features still accept it", async 
   await expect(page.getByText("Excel 파일만 취합할 수 있습니다. 해당 파일을 선택 해제한 후 다시 실행해 주세요.", { exact: true })).toBeVisible();
 
   // Workbook plus CSV: the workbook is not aggregated behind the user's back.
-  await page.getByLabel("운임현황_v1.xlsx 선택").check();
+  await page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true }).check();
   await expect(page.getByRole("button", { name: "취합 실행" })).toBeDisabled();
   await expect(page.locator(".aggregation-results")).toHaveCount(0);
   await page.setViewportSize({ width: 390, height: 844 });
@@ -3250,13 +3264,13 @@ test("keeps CSV out of aggregation while other features still accept it", async 
   await page.setViewportSize({ width: 1440, height: 900 });
 
   // Deselecting the CSV restores the run.
-  await page.getByLabel("운임.csv 선택").uncheck();
+  await page.getByRole("checkbox", { name: "운임.csv 선택", exact: true }).uncheck();
   await expect(page.getByRole("button", { name: "취합 실행" })).toBeEnabled();
 
   // The same CSV still works in the rest of WorkLens.
-  await page.getByLabel("운임현황_v1.xlsx 선택").uncheck();
-  await page.getByLabel("운임.csv 선택").check();
-  await page.getByRole("button", { name: "분석", exact: true }).click();
+  await page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true }).uncheck();
+  await page.getByRole("checkbox", { name: "운임.csv 선택", exact: true }).check();
+  await navigateWorkspace(page, "분석");
   await page.getByRole("button", { name: "분석 실행" }).click();
   await expect(page.locator(".results-panel .result-status")).toHaveText(/분석 완료/);
 });
@@ -3266,8 +3280,8 @@ for (const [format, file] of [["PDF", files.pdf], ["DOCX", files.docx]] as const
     await mockEmptyClaims(page);
     await page.goto("/");
     await upload(page, file);
-    await page.getByLabel(`${path.basename(file)} 선택`).check();
-    await page.getByRole("button", { name: "취합", exact: true }).click();
+    await page.getByRole("checkbox", { name: `${path.basename(file)} 선택`, exact: true }).check();
+    await navigateWorkspace(page, "취합");
 
     await expect(page.getByRole("button", { name: "취합 실행" })).toBeDisabled();
     await expect(page.getByText("Excel이 아닌 파일이 포함되어 있습니다.", { exact: true })).toBeVisible();
@@ -3292,10 +3306,10 @@ test("keeps selected files and reports a worker deletion failure", async ({ page
   });
   await page.goto("/");
   await upload(page, files.v1);
-  await page.getByLabel("운임현황_v1.xlsx 선택").check();
+  await page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true }).check();
   await page.getByRole("button", { name: "선택 삭제" }).click();
   await expect(page.locator(".notice.error")).toContainText("선택한 파일을 삭제하지 못했습니다.");
-  await expect(page.getByLabel("운임현황_v1.xlsx 선택")).toBeChecked();
+  await expect(page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true })).toBeChecked();
   await expect(page.locator(".transient-status")).toHaveCount(0);
 });
 
@@ -3305,8 +3319,8 @@ test("shows incomplete AI extraction without discarding deterministic fields", a
   }));
   await page.goto("/");
   await upload(page, files.extractPptx);
-  await page.getByLabel("회의자료.pptx 선택").check();
-  await page.getByRole("button", { name: "추출", exact: true }).click();
+  await page.getByRole("checkbox", { name: "회의자료.pptx 선택", exact: true }).check();
+  await navigateWorkspace(page, "추출");
   await page.getByRole("radio", { name: "항목 지정" }).check();
   await page.getByLabel("추출할 항목").fill("존재하지 않는 항목");
   await page.getByRole("button", { name: "항목 추가" }).click();
@@ -3317,8 +3331,8 @@ test("shows incomplete AI extraction without discarding deterministic fields", a
 
 async function runSupplementOn(page: Page, deck: string) {
   await upload(page, deck);
-  await page.getByLabel(`${path.basename(deck)} 선택`).check();
-  await page.getByRole("button", { name: "보완", exact: true }).click();
+  await page.getByRole("checkbox", { name: `${path.basename(deck)} 선택`, exact: true }).check();
+  await navigateWorkspace(page, "보완");
   await page.getByRole("button", { name: "보완 실행" }).click();
 }
 

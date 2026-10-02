@@ -1,6 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectTrigger, SelectValue, SelectPopup, SelectItem } from "@/components/ui/select";
 import { DECISION_DOMAINS, type DecisionDomain } from "@/lib/decision-domain";
 import {
   DECISION_SEARCH_ERROR, DECISION_TEXT_ERROR, decisionSearchOutcome, decisionTextOutcome,
@@ -191,9 +195,9 @@ export function DecisionSearch({ linkedRequest, onReturnToLaw, onCiteCheck }: De
     setSelected(null);
   }
 
-  const returnButton = linkedRequest && <button type="button" className="law-search-link" onClick={onReturnToLaw} title={`${linkedRequest.lawName} ${linkedRequest.jo}`}>
+  const returnButton = linkedRequest && <Button variant="link" type="button" className="h-auto max-w-full whitespace-normal px-0 text-left" onClick={onReturnToLaw} title={`${linkedRequest.lawName} ${linkedRequest.jo}`}>
     {linkedRequest.origin === "analysis" ? "← 조문 영향도로" : "← 법령으로"}
-  </button>;
+  </Button>;
 
   if (selected) {
     const text = detail?.kind === "found" ? detail.data : null;
@@ -203,9 +207,9 @@ export function DecisionSearch({ linkedRequest, onReturnToLaw, onCiteCheck }: De
       ? selected.caseNumber : null;
     return <div className="decision-search decision-detail">
       <div className="decision-detail-actions">
-        <button type="button" className="law-search-link" onClick={backToResults}>← 검색 결과로</button>
+        <Button variant="link" type="button" className="h-auto max-w-full whitespace-normal px-0 text-left" onClick={backToResults}>← 검색 결과로</Button>
         {returnButton}
-        {citeCaseNumber && <button id="decision-cite-check" type="button" className="law-search-link" onClick={() => onCiteCheck(citeCaseNumber)}>판례 유효성 확인</button>}
+        {citeCaseNumber && <Button variant="link" id="decision-cite-check" type="button" className="h-auto max-w-full whitespace-normal px-0 text-left" onClick={() => onCiteCheck(citeCaseNumber)}>판례 유효성 확인</Button>}
       </div>
       <section aria-labelledby="decision-detail-heading" aria-busy={detailLoading || fullLoading}>
         <h2 id="decision-detail-heading">{text?.title || selected.title || selected.caseNumber || "판례·결정례 원문"}</h2>
@@ -219,13 +223,13 @@ export function DecisionSearch({ linkedRequest, onReturnToLaw, onCiteCheck }: De
         {detailLoading ? <p className="law-search-note" role="status">원문을 불러오는 중…</p>
           : detail?.kind === "error" ? <div className="decision-feedback" role="alert">
             <p className="law-search-error">{detail.message}</p>
-            {selected.domain !== "nts" && <button type="button" className="law-search-link" onClick={() => void loadDetail(selected)}>다시 시도</button>}
+            {selected.domain !== "nts" && <Button variant="link" type="button" className="h-auto max-w-full whitespace-normal px-0 text-left" onClick={() => void loadDetail(selected)}>다시 시도</Button>}
           </div>
           : detail?.kind === "missing" ? <p className="law-search-note" role="status">원문을 찾을 수 없습니다.</p>
           : text ? <div className="decision-detail-content">
-            {text.expandable === true && <button type="button" className="law-search-link" disabled={fullLoading} onClick={() => void loadDetail(selected, true)}>
+            {text.expandable === true && <Button variant="link" type="button" className="h-auto max-w-full whitespace-normal px-0 text-left" disabled={fullLoading} onClick={() => void loadDetail(selected, true)}>
               {fullLoading ? "전문 불러오는 중…" : "전문 보기"}
-            </button>}
+            </Button>}
             {fullError && <p className="law-search-error law-operation-error" role="alert">{fullError}</p>}
             <LawTextBlock className="decision-detail-raw" text={text.text} />
           </div> : null}
@@ -240,15 +244,18 @@ export function DecisionSearch({ linkedRequest, onReturnToLaw, onCiteCheck }: De
     {returnButton}
     <form className="decision-search-form" role="search" onSubmit={submitSearch}>
       <div className="decision-search-fields">
-        <label htmlFor="decision-domain">자료 유형
-          <select id="decision-domain" value={domain} onChange={(event) => changeDomain(event.target.value as DecisionDomain)}>
-            {DECISION_DOMAINS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-          </select>
-        </label>
-        <label htmlFor="decision-query">검색어
-          <input id="decision-query" type="search" value={query} maxLength={200} placeholder="판례·결정례 검색어" onChange={(event) => setQuery(event.target.value)} />
-        </label>
-        <button type="submit" className="law-search-button" disabled={searchLoading || !query.trim()}>{searchLoading ? "검색 중…" : "검색"}</button>
+        <div className="flex min-w-0 flex-col gap-2">
+          <Label htmlFor="decision-domain">자료 유형</Label>
+          <Select items={DECISION_DOMAINS} value={domain} onValueChange={(value) => { if (value) changeDomain(value); }}>
+            <SelectTrigger id="decision-domain"><SelectValue /></SelectTrigger>
+            <SelectPopup>{DECISION_DOMAINS.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectPopup>
+          </Select>
+        </div>
+        <div className="flex min-w-0 flex-col gap-2">
+          <Label htmlFor="decision-query">검색어</Label>
+          <Input id="decision-query" type="search" value={query} maxLength={200} placeholder="판례·결정례 검색어" onChange={(event) => setQuery(event.target.value)} />
+        </div>
+        <Button type="submit" className="law-search-button" disabled={searchLoading || !query.trim()}>{searchLoading ? "검색 중…" : "검색"}</Button>
       </div>
     </form>
     {(searchLoading || outcome) && <section className="decision-search-results" aria-labelledby="decision-results-heading" aria-busy={searchLoading}>
@@ -269,8 +276,8 @@ export function DecisionSearch({ linkedRequest, onReturnToLaw, onCiteCheck }: De
             </>}
           </> : outcome.data.entries.length > 0 ? <DecisionList entries={outcome.data.entries} onOpen={openDetail} /> : <LawTextBlock className="decision-detail-raw" text={outcome.data.text} />}
           <div className="decision-pagination">
-            {page > 1 && <button type="button" className="law-search-link" onClick={() => void runSearch(searchedQuery, domain, page - 1)}>← 이전</button>}
-            {outcome.data.hasNext === true && <button type="button" className="law-search-link" onClick={() => void runSearch(searchedQuery, domain, page + 1)}>다음 →</button>}
+            {page > 1 && <Button variant="link" type="button" className="h-auto max-w-full whitespace-normal px-0 text-left" onClick={() => void runSearch(searchedQuery, domain, page - 1)}>← 이전</Button>}
+            {outcome.data.hasNext === true && <Button variant="link" type="button" className="h-auto max-w-full whitespace-normal px-0 text-left" onClick={() => void runSearch(searchedQuery, domain, page + 1)}>다음 →</Button>}
           </div>
         </>}
     </section>}
@@ -280,7 +287,7 @@ export function DecisionSearch({ linkedRequest, onReturnToLaw, onCiteCheck }: De
 function DecisionList({ entries, onOpen }: { entries: readonly DecisionEntry[]; onOpen: (entry: DecisionEntry) => void }) {
   return <ul className="decision-search-list">
     {entries.map((entry, index) => <li key={`${entry.domain}-${entry.id}-${index}`}>
-      <button type="button" className="decision-search-result" onClick={() => onOpen(entry)}>
+      <Button variant="ghost" type="button" className="decision-search-result rounded-none" onClick={() => onOpen(entry)}>
         <strong>{entry.title || entry.caseNumber || "판례·결정례 원문"}</strong>
         {(entry.caseNumber || entry.court || entry.institution || entry.date) && <span className="decision-search-meta">
           {entry.caseNumber && entry.title && <span>{entry.caseNumber}</span>}
@@ -289,7 +296,7 @@ function DecisionList({ entries, onOpen }: { entries: readonly DecisionEntry[]; 
           {entry.date && <span>{formatLawDate(entry.date) ?? entry.date}</span>}
         </span>}
         {entry.summary && <span className="decision-search-summary">{entry.summary}</span>}
-      </button>
+      </Button>
     </li>)}
   </ul>;
 }

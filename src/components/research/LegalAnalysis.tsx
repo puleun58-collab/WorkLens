@@ -1,6 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Tabs, TabsList, TabsTab, TabsPanel } from "@/components/ui/tabs";
 import {
   LAW_ANALYSIS_CASE_MAX_CHARS, LAW_ANALYSIS_ERROR, LAW_ANALYSIS_LAW_NAME_MAX_CHARS, LAW_ANALYSIS_MODES, LAW_ANALYSIS_TEXT_MAX_CHARS,
   lawAnalysisOutcome, lawAnalysisRequestFor,
@@ -123,53 +128,52 @@ export function LegalAnalysis({ linkedRequest, onReturn, onRelatedSearch }: Lega
     applicable_law: "기준일은 행위·계약·처분 등 판단하려는 시점입니다.",
   };
 
-  return <div className="legal-analysis">
-    {linkedOrigin && <button type="button" className="law-search-link" onClick={() => onReturn(linkedOrigin)}>
+  return <Tabs className="legal-analysis" value={mode} onValueChange={(value) => setMode(value as LawAnalysisMode)}>
+    {linkedOrigin && <Button variant="link" type="button" className="h-auto max-w-full whitespace-normal px-0 text-left" onClick={() => onReturn(linkedOrigin)}>
       {linkedOrigin === "law" ? "← 법령으로" : "← 판례 상세로"}
-    </button>}
-    <div className="law-view-switch legal-analysis-modes" role="group" aria-label="검증·분석 유형">
-      {LAW_ANALYSIS_MODES.map((item) => <button key={item.value} type="button" aria-pressed={mode === item.value} onClick={() => setMode(item.value)}>
-        {item.label}
-      </button>)}
-    </div>
+    </Button>}
+    <TabsList className="flex-wrap" aria-label="검증·분석 유형" variant="underline">
+      {LAW_ANALYSIS_MODES.map((item) => <TabsTab key={item.value} value={item.value}>{item.label}</TabsTab>)}
+    </TabsList>
 
+    <TabsPanel value={mode} className="grid gap-5">
     <form className="legal-analysis-form" onSubmit={submit} aria-label={`${LAW_ANALYSIS_MODES.find((item) => item.value === mode)?.label} 입력`}>
       {mode === "verify_citations" && <>
-        <label htmlFor="analysis-text">검증할 문장을 입력하세요.</label>
-        <textarea id="analysis-text" value={text} rows={6} maxLength={LAW_ANALYSIS_TEXT_MAX_CHARS} placeholder="예: 민법 제750조에 따라 손해배상을 청구할 수 있다." onChange={(event) => setText(event.target.value)} aria-describedby="analysis-text-help" />
+        <Label htmlFor="analysis-text">검증할 문장을 입력하세요.</Label>
+        <Textarea id="analysis-text" value={text} rows={6} maxLength={LAW_ANALYSIS_TEXT_MAX_CHARS} placeholder="예: 민법 제750조에 따라 손해배상을 청구할 수 있다." onChange={(event) => setText(event.target.value)} aria-describedby="analysis-text-help" />
         <p id="analysis-text-help" className="legal-analysis-help">
           <span>법령 조문·판례 인용을 법제처 자료에서 확인합니다.</span>
           <span className="legal-analysis-count">{text.length.toLocaleString("ko-KR")} / {LAW_ANALYSIS_TEXT_MAX_CHARS.toLocaleString("ko-KR")}자</span>
         </p>
       </>}
       {mode === "cite_check" && <>
-        <label htmlFor="analysis-case">사건번호</label>
-        <input id="analysis-case" type="text" value={caseNumber} maxLength={LAW_ANALYSIS_CASE_MAX_CHARS} placeholder="예: 2013다61381" autoComplete="off" onChange={(event) => setCaseNumber(event.target.value)} />
+        <Label htmlFor="analysis-case">사건번호</Label>
+        <Input id="analysis-case" type="text" value={caseNumber} maxLength={LAW_ANALYSIS_CASE_MAX_CHARS} placeholder="예: 2013다61381" autoComplete="off" onChange={(event) => setCaseNumber(event.target.value)} />
 
       </>}
       {mode === "applicable_law" && <div className="legal-analysis-fields">
-        <label htmlFor="analysis-applicable-law">법령명
-          <input id="analysis-applicable-law" type="text" value={applicable.lawName} maxLength={LAW_ANALYSIS_LAW_NAME_MAX_CHARS} placeholder="예: 도로교통법" onChange={(event) => setApplicable({ ...applicable, lawName: event.target.value })} />
-        </label>
-        <label htmlFor="analysis-applicable-date">기준일
-          <input id="analysis-applicable-date" type="date" value={applicable.date} min="1900-01-01" max="2100-12-31" onChange={(event) => setApplicable({ ...applicable, date: event.target.value })} />
-        </label>
-        <label htmlFor="analysis-applicable-jo">조문 (선택)
-          <input id="analysis-applicable-jo" type="text" value={applicable.jo} placeholder="예: 제44조" onChange={(event) => setApplicable({ ...applicable, jo: event.target.value })} />
-        </label>
+        <Label htmlFor="analysis-applicable-law">법령명
+          <Input id="analysis-applicable-law" type="text" value={applicable.lawName} maxLength={LAW_ANALYSIS_LAW_NAME_MAX_CHARS} placeholder="예: 도로교통법" onChange={(event) => setApplicable({ ...applicable, lawName: event.target.value })} />
+        </Label>
+        <Label htmlFor="analysis-applicable-date">기준일
+          <Input id="analysis-applicable-date" nativeInput type="date" value={applicable.date} min="1900-01-01" max="2100-12-31" onChange={(event) => setApplicable({ ...applicable, date: event.target.value })} />
+        </Label>
+        <Label htmlFor="analysis-applicable-jo">조문 (선택)
+          <Input id="analysis-applicable-jo" type="text" value={applicable.jo} placeholder="예: 제44조" onChange={(event) => setApplicable({ ...applicable, jo: event.target.value })} />
+        </Label>
 
       </div>}
       {mode === "impact_map" && <div className="legal-analysis-fields legal-analysis-fields-2">
-        <label htmlFor="analysis-impact-law">법령명
-          <input id="analysis-impact-law" type="text" value={impact.lawName} maxLength={LAW_ANALYSIS_LAW_NAME_MAX_CHARS} placeholder="예: 민법" onChange={(event) => setImpact({ ...impact, lawName: event.target.value })} />
-        </label>
-        <label htmlFor="analysis-impact-jo">조문
-          <input id="analysis-impact-jo" type="text" value={impact.jo} placeholder="예: 제103조" onChange={(event) => setImpact({ ...impact, jo: event.target.value })} />
-        </label>
+        <Label htmlFor="analysis-impact-law">법령명
+          <Input id="analysis-impact-law" type="text" value={impact.lawName} maxLength={LAW_ANALYSIS_LAW_NAME_MAX_CHARS} placeholder="예: 민법" onChange={(event) => setImpact({ ...impact, lawName: event.target.value })} />
+        </Label>
+        <Label htmlFor="analysis-impact-jo">조문
+          <Input id="analysis-impact-jo" type="text" value={impact.jo} placeholder="예: 제103조" onChange={(event) => setImpact({ ...impact, jo: event.target.value })} />
+        </Label>
       </div>}
       <div className="legal-analysis-actions legal-analysis-action-row">
         {ACTION_HELP[mode] && <p className="legal-analysis-help"><span>{ACTION_HELP[mode]}</span></p>}
-        <button type="submit" className="law-search-button" disabled={!request || loading}>{loading ? "확인 중…" : "실행"}</button>
+        <Button type="submit" className="law-search-button" disabled={!request || loading}>{loading ? "확인 중…" : "실행"}</Button>
       </div>
     </form>
 
@@ -178,7 +182,7 @@ export function LegalAnalysis({ linkedRequest, onReturn, onRelatedSearch }: Lega
       {current.loading ? <p className="law-search-note" role="status">법제처 자료를 조회하는 중… 조회 범위에 따라 시간이 걸릴 수 있습니다.</p>
         : current.outcome?.kind === "error" ? <div className="decision-feedback" role="alert">
           <p className="law-search-error">{current.outcome.message}</p>
-          <button type="button" className="law-search-link" onClick={() => void run(current.request)}>다시 시도</button>
+          <Button variant="link" type="button" className="h-auto max-w-full whitespace-normal px-0 text-left" onClick={() => void run(current.request)}>다시 시도</Button>
         </div>
         : current.outcome?.kind === "missing" ? <div className="legal-analysis-missing" role="status" data-marker={current.outcome.data.marker}>
           <p className="law-search-note">요청한 법령·조문·판례를 법제처 자료에서 찾지 못했습니다. 조회 실패와는 다른 결과입니다.</p>
@@ -186,7 +190,8 @@ export function LegalAnalysis({ linkedRequest, onReturn, onRelatedSearch }: Lega
         : current.outcome?.kind === "found" && current.completedAt ? <AnalysisResult key={current.completedAt} data={current.outcome.data} request={current.request} completedAt={current.completedAt} onRelatedSearch={onRelatedSearch} />
         : null}
     </section>}
-  </div>;
+    </TabsPanel>
+  </Tabs>;
 }
 
 function analysisTitle(title: string): string {
@@ -293,9 +298,9 @@ function AnalysisResult({ data, request, completedAt, onRelatedSearch }: { data:
       {related.length > 0 && onRelatedSearch && <div className="legal-analysis-section">
         <h3>관련 조회</h3>
         <div className="law-related-actions">
-          {related.map((item) => <button key={item.query + item.label} type="button" className="law-search-link" onClick={() => onRelatedSearch({ query: item.query, domain: item.domain! })}>
+          {related.map((item) => <Button variant="link" key={item.query + item.label} type="button" className="h-auto max-w-full whitespace-normal px-0 text-left" onClick={() => onRelatedSearch({ query: item.query, domain: item.domain! })}>
             {item.label}
-          </button>)}
+          </Button>)}
         </div>
       </div>}
     </>;

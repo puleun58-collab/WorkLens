@@ -11,17 +11,6 @@
   padding-inline: 0;
 }
 
-.supplement-filters {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2) var(--space-4);
-  /* The buttons' own inline padding; the first label then sits on the title line. */
-  margin-left: -5px;
-}
-
-.supplement-filters .severity-mark {
-  margin-right: 6px;
-}
 
 /* 자료 유형 · 분석 범위 sit in the same white, bordered result surface as other results; its edge is the title line. */
 .supplement-meta {

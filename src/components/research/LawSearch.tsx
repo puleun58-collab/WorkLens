@@ -1,6 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Tabs, TabsList, TabsTab, TabsPanel } from "@/components/ui/tabs";
 import { ChartNoAxesColumn, FileText, Gavel, SearchCheck } from "lucide-react";
 import {
   exactCurrentLaw, formatLawDate, LAW_ARTICLE_PATTERN, LAW_FALLBACK_ERROR, LAW_TEXT_FALLBACK_ERROR,
@@ -14,9 +18,10 @@ import { LegalAnalysis, type LinkedAnalysis, type RelatedSearch } from "./LegalA
 import { LegalResearch } from "./LegalResearch";
 import { SourceToggleSummary } from "./SourceToggleSummary";
 import type { WorkspaceFile } from "@/client/protocol";
+import type { LawResearchTask } from "@/lib/law-research";
 import "./law-search.css";
 
-type ResearchView = "law" | "decisions" | "analysis" | "research";
+export type ResearchView = "law" | "decisions" | "analysis" | "research";
 
 /** Workspace files the 문서 검토 can review in place; read only, never changed from here. */
 export interface ReviewableFiles {
@@ -28,8 +33,20 @@ export interface ReviewableFiles {
   addFiles?: (files: FileList | null) => Promise<Array<{ id: string } | { error: string }>>;
 }
 
-export function LawSearch({ workspace }: { workspace?: ReviewableFiles }) {
-  const [view, setView] = useState<ResearchView>("law");
+export interface LawSearchProps {
+  workspace?: ReviewableFiles;
+  initialView?: ResearchView;
+  initialResearchTask?: LawResearchTask;
+  initialReviewSettings?: boolean;
+}
+
+export function LawSearch({ workspace, initialView = "law", initialResearchTask, initialReviewSettings = false }: LawSearchProps) {
+  const [view, setView] = useState<ResearchView>(initialView);
+  const [shellView, setShellView] = useState(initialView);
+  if (shellView !== initialView) {
+    setShellView(initialView);
+    setView(initialView);
+  }
   const [linkedRequest, setLinkedRequest] = useState<LinkedDecisionSearch | null>(null);
   const [linkedAnalysis, setLinkedAnalysis] = useState<LinkedAnalysis | null>(null);
   const returnFocus = useRef<string | null>(null);
@@ -67,23 +84,27 @@ export function LawSearch({ workspace }: { workspace?: ReviewableFiles }) {
     if (focusId) requestAnimationFrame(() => document.getElementById(focusId)?.focus());
   }
 
-  return <div className="law-research">
+  return <Tabs className="law-research" value={view} onValueChange={(value) => {
+    if (value === "decisions") setLinkedRequest(null);
+    if (value === "analysis") setLinkedAnalysis(null);
+    setView(value as ResearchView);
+  }}>
     <div className="law-view-band">
-      <div className="law-view-switch law-view-tabs" aria-label="법령 자료 유형">
-        <button type="button" aria-pressed={view === "law"} onClick={() => setView("law")}><FileText aria-hidden="true" />법령 검색</button>
-        <button type="button" aria-pressed={view === "decisions"} onClick={() => { setLinkedRequest(null); setView("decisions"); }}><Gavel aria-hidden="true" />판례·결정례</button>
-        <button type="button" aria-pressed={view === "analysis"} onClick={() => { setLinkedAnalysis(null); setView("analysis"); }}><SearchCheck aria-hidden="true" />검증·분석</button>
-        <button type="button" aria-pressed={view === "research"} onClick={() => setView("research")}><ChartNoAxesColumn aria-hidden="true" />종합 리서치</button>
-      </div>
+      <TabsList aria-label="법령 자료 유형" variant="underline" className="flex-wrap">
+        <TabsTab value="law"><FileText aria-hidden="true" />법령 검색</TabsTab>
+        <TabsTab value="decisions"><Gavel aria-hidden="true" />판례·결정례</TabsTab>
+        <TabsTab value="analysis"><SearchCheck aria-hidden="true" />검증·분석</TabsTab>
+        <TabsTab value="research"><ChartNoAxesColumn aria-hidden="true" />종합 리서치</TabsTab>
+      </TabsList>
     </div>
-    <div hidden={view !== "law"}><LawPane onRelated={relatedDecisions} onAnalysis={openAnalysis} /></div>
-    <div hidden={view !== "decisions"}>
+    <TabsPanel value="law" keepMounted><LawPane onRelated={relatedDecisions} onAnalysis={openAnalysis} /></TabsPanel>
+    <TabsPanel value="decisions" keepMounted>
       <DecisionSearch linkedRequest={linkedRequest} onReturnToLaw={returnToLaw}
         onCiteCheck={(caseNumber) => openAnalysis({ mode: "cite_check", caseNumber, origin: "decisions" }, "decision-cite-check")} />
-    </div>
-    <div hidden={view !== "analysis"}><LegalAnalysis linkedRequest={linkedAnalysis} onReturn={returnFromAnalysis} onRelatedSearch={relatedFromAnalysis} /></div>
-    <div hidden={view !== "research"}><LegalResearch workspace={workspace} /></div>
-  </div>;
+    </TabsPanel>
+    <TabsPanel value="analysis" keepMounted><LegalAnalysis linkedRequest={linkedAnalysis} onReturn={returnFromAnalysis} onRelatedSearch={relatedFromAnalysis} /></TabsPanel>
+    <TabsPanel value="research" keepMounted><LegalResearch workspace={workspace} initialTask={initialResearchTask} initialReviewSettings={initialReviewSettings} /></TabsPanel>
+  </Tabs>;
 }
 
 interface LawPaneProps {
@@ -223,7 +244,7 @@ function LawPane({ onRelated, onAnalysis }: LawPaneProps) {
     const promulgated = formatLawDate(data?.promulgationDate ?? selected.promulgationDate);
     const effective = formatLawDate(data?.effectiveDate ?? selected.effectiveDate);
     return <div className="law-search law-detail">
-      <button type="button" className="law-search-link" onClick={backToResults}>← 검색 결과로</button>
+      <Button variant="link" type="button" className="h-auto max-w-full whitespace-normal px-0 text-left" onClick={backToResults}>← 검색 결과로</Button>
       <section aria-labelledby="law-detail-heading" aria-busy={detailLoading}>
         <h2 id="law-detail-heading">{lawDisplayText(data?.name ?? selected.name)}</h2>
         {(promulgated || effective) && <p className="law-search-meta">
@@ -231,23 +252,23 @@ function LawPane({ onRelated, onAnalysis }: LawPaneProps) {
           {effective && <span>시행일 {effective}</span>}
         </p>}
         <form className="law-article-form" onSubmit={articleSearch}>
-          <label htmlFor="law-article-number">조문 번호로 찾기</label>
+          <Label htmlFor="law-article-number">조문 번호로 찾기</Label>
           <div className="law-search-row">
-            <input id="law-article-number" type="text" value={articleInput} placeholder="제74조 또는 제10조의2" onChange={(event) => {
+            <Input id="law-article-number" type="text" value={articleInput} placeholder="제74조 또는 제10조의2" onChange={(event) => {
               setArticleInput(event.target.value);
               setArticleInputError(false);
             }} />
-            <button type="submit" className="law-search-button" disabled={detailLoading}>조문 보기</button>
+            <Button type="submit" className="law-search-button" disabled={detailLoading}>조문 보기</Button>
           </div>
           {articleInputError && <p className="law-search-error" role="alert">조문 번호를 제74조 또는 제10조의2 형식으로 입력하세요.</p>}
         </form>
-        {activeJo && overview && <button type="button" className="law-search-link law-detail-return" onClick={backToOverview}>
+        {activeJo && overview && <Button variant="link" type="button" className="law-detail-return h-auto px-0" onClick={backToOverview}>
           {overview.mode === "toc" ? "← 목차로" : "← 법령 원문으로"}
-        </button>}
+        </Button>}
         {detailLoading ? <p className="law-search-note" role="status">법령 원문을 불러오는 중…</p>
           : detail?.kind === "error" ? <div className="law-detail-feedback" role="alert">
             <p className="law-search-error">{detail.message}</p>
-            <button type="button" className="law-search-link" onClick={() => void loadText(selected, activeJo)}>다시 시도</button>
+            <Button variant="link" type="button" className="h-auto max-w-full whitespace-normal px-0 text-left" onClick={() => void loadText(selected, activeJo)}>다시 시도</Button>
           </div>
           : detail?.kind === "missing" ? <div className="law-detail-feedback" role="status">
             <p className="law-search-note">요청한 {activeJo ? "조문" : "법령 원문"}을 찾을 수 없습니다.</p>
@@ -255,9 +276,9 @@ function LawPane({ onRelated, onAnalysis }: LawPaneProps) {
           : detail?.kind === "found" ? <div className="law-detail-content">
             <h3 className={activeJo ? undefined : "law-detail-section-heading"}>{activeJo ?? (detail.data.mode === "toc" ? "목차" : "법령 원문")}</h3>
             {activeJo && <div className="law-related-actions">
-              <button id="related-decisions" type="button" className="law-search-link" onClick={() => onRelated(selected, activeJo)}>관련 판례·결정례</button>
-              <button id="law-applicable-action" type="button" className="law-search-link" onClick={() => onAnalysis({ mode: "applicable_law", lawName: detail.data.name ?? overview?.name ?? selected.name, jo: activeJo, origin: "law" }, "law-applicable-action")}>시점별 적용 법령</button>
-              <button id="law-impact-action" type="button" className="law-search-link" onClick={() => onAnalysis({ mode: "impact_map", lawName: detail.data.name ?? overview?.name ?? selected.name, jo: activeJo, origin: "law" }, "law-impact-action")}>조문 영향도</button>
+              <Button variant="link" id="related-decisions" type="button" className="h-auto max-w-full whitespace-normal px-0 text-left" onClick={() => onRelated(selected, activeJo)}>관련 판례·결정례</Button>
+              <Button variant="link" id="law-applicable-action" type="button" className="h-auto max-w-full whitespace-normal px-0 text-left" onClick={() => onAnalysis({ mode: "applicable_law", lawName: detail.data.name ?? overview?.name ?? selected.name, jo: activeJo, origin: "law" }, "law-applicable-action")}>시점별 적용 법령</Button>
+              <Button variant="link" id="law-impact-action" type="button" className="h-auto max-w-full whitespace-normal px-0 text-left" onClick={() => onAnalysis({ mode: "impact_map", lawName: detail.data.name ?? overview?.name ?? selected.name, jo: activeJo, origin: "law" }, "law-impact-action")}>조문 영향도</Button>
             </div>}
             {detail.data.mode !== "toc" || !detail.data.articles?.length ? <LawTextBlock className="law-detail-raw" text={detail.data.text} /> : null}
             {detail.data.mode === "toc" && detail.data.articles?.length ? <details className="law-detail-source">
@@ -266,10 +287,10 @@ function LawPane({ onRelated, onAnalysis }: LawPaneProps) {
             </details> : null}
             {detail.data.mode === "toc" && detail.data.articles && detail.data.articles.length > 0 && <nav aria-label="조문 목차">
               <ul className="law-article-list">{detail.data.articles.map((article, index) => <li key={`${article.jo}-${index}`}>
-                <button type="button" onClick={() => {
+                <Button variant="ghost" className="h-auto w-full justify-start whitespace-normal rounded-none px-4 py-2.5 text-left" type="button" onClick={() => {
                   setArticleInput(article.jo);
                   void loadText(selected, article.jo);
-                }}>{article.jo} {article.title}</button>
+                }}>{article.jo} {article.title}</Button>
               </li>)}</ul>
             </nav>}
           </div> : null}
@@ -280,8 +301,8 @@ function LawPane({ onRelated, onAnalysis }: LawPaneProps) {
   return <div className="law-search">
     <form className="law-search-form" role="search" onSubmit={(event) => void search(event)}>
       <div className="law-search-row">
-        <input id="law-query" type="search" value={query} maxLength={200} placeholder="법령명 또는 조문 검색 (예: 민법 제750조)" aria-label="법령명 또는 키워드 검색" onChange={(event) => setQuery(event.target.value)} />
-        <button type="submit" className="law-search-button" disabled={searchLoading || !query.trim()}>{searchLoading ? "검색 중…" : "검색"}</button>
+        <Input id="law-query" type="search" value={query} maxLength={200} placeholder="법령명 또는 조문 검색 (예: 민법 제750조)" aria-label="법령명 또는 키워드 검색" onChange={(event) => setQuery(event.target.value)} />
+        <Button type="submit" className="law-search-button" disabled={searchLoading || !query.trim()}>{searchLoading ? "검색 중…" : "검색"}</Button>
       </div>
     </form>
 
@@ -307,7 +328,7 @@ function LawPane({ onRelated, onAnalysis }: LawPaneProps) {
             </>;
             return <li key={law.mst ?? law.lawId ?? `${law.name}-${index}`}>
               {lawTextIdentifier(law)
-                ? <button type="button" className="law-search-result" onClick={() => openLaw(law)}>{content}</button>
+                ? <Button variant="ghost" type="button" className="law-search-result rounded-none" onClick={() => openLaw(law)}>{content}</Button>
                 : <div className="law-search-unavailable">{content}<span className="law-search-note">원문 조회 불가</span></div>}
             </li>;
           })}

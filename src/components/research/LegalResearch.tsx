@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import {
   AMENDMENT_SCENARIOS, DISPUTE_DOMAINS, EMPTY_RESEARCH_DRAFT, LAW_RESEARCH_DOCUMENT_MAX_CHARS, LAW_RESEARCH_DOCUMENT_MIN_CHARS,
   LAW_RESEARCH_ERROR, LAW_RESEARCH_NAME_MAX_CHARS, LAW_RESEARCH_QUERY_MAX_CHARS, LAW_RESEARCH_TASKS, lawResearchOutcome, lawResearchRequestFor,
@@ -18,11 +18,23 @@ import type { ReviewableFiles } from "./LawSearch";
 import type { WorkspaceFile } from "@/client/protocol";
 import { runInWorker } from "@/client/document-client";
 import { reviewRequestFor, type ReviewFile } from "@/lib/law-review-source";
+import { readReviewPreferences, resetReviewPreferences, resolveReviewPreferences, saveReviewPreferences, type ReviewPreferences } from "@/client/review-preferences";
+import { ReviewPreferenceFields, ReviewSettings } from "./ReviewSettings";
+import { Button } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTab, TabsPanel } from "@/components/ui/tabs";
+import { Field, FieldLabel } from "@/components/ui/field";
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Radio, RadioGroup } from "@/components/ui/radio-group";
+import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@/components/ui/collapsible";
 import "./legal-analysis.css";
 
 interface TaskResult {
   request: LawResearchRequest;
   outcome: LawResearchOutcome | null;
+  preferences?: ReviewPreferences;
   loading: boolean;
   /** 문서 검토 of a workspace file: its segments' sources and what part of it was reviewed. */
   file?: ReviewFile;
@@ -30,7 +42,6 @@ interface TaskResult {
   workspaceFile?: WorkspaceFile;
 }
 
-type DocumentSource = "file" | "text";
 const FILE_READ_ERROR = "작업 파일을 읽지 못했습니다. 파일을 다시 올린 뒤 실행하세요.";
 
 const TASK_HELP: Record<LawResearchTask, { description: string; placeholder: string }> = {
@@ -53,14 +64,49 @@ const CURRENCY_LABEL: Record<LawCurrency, string> = {
 };
 const RESULT_NOTE = "법적 판단이 필요한 경우 국가법령정보센터 원문과 관련 전문가 검토가 필요할 수 있습니다.";
 
-export function LegalResearch({ workspace }: { workspace?: ReviewableFiles }) {
+const subscribeNothing = () => () => undefined;
+const clientSnapshot = () => true;
+const serverSnapshot = () => false;
+
+export function LegalResearch({ workspace, initialTask = "full_research", initialReviewSettings = false }: { workspace?: ReviewableFiles; initialTask?: LawResearchTask; initialReviewSettings?: boolean }) {
   const files = workspace?.files ?? [];
-  // 작업 파일 first: with none yet, its empty state is where the user adds one.
-  const [documentSource, setDocumentSource] = useState<DocumentSource>("file");
+  const [savedPreferences, setSavedPreferences] = useState<ReviewPreferences | null>(null);
+  const [preferenceOverride, setPreferenceOverride] = useState<Partial<ReviewPreferences>>({});
+  const [settingsDraft, setSettingsDraft] = useState<ReviewPreferences>(resolveReviewPreferences(null));
+  const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [settingsNotice, setSettingsNotice] = useState<string | null>(null);
+  const [preferencesReady, setPreferencesReady] = useState(false);
+  const [researchView, setResearchView] = useState(initialReviewSettings ? "settings" : "research");
+  const preferences = useMemo(() => resolveReviewPreferences(savedPreferences, preferenceOverride), [savedPreferences, preferenceOverride]);
+  const documentSource = preferences.documentSource;
+  // Browser storage exists only after hydration; read it once, during the first client render that can.
+  const hydrated = useSyncExternalStore(subscribeNothing, clientSnapshot, serverSnapshot);
+  if (hydrated && !preferencesReady) {
+    const loaded = readReviewPreferences();
+    setSavedPreferences(loaded.preferences);
+    setSettingsDraft(resolveReviewPreferences(loaded.preferences));
+    setSettingsError(loaded.error);
+    setPreferencesReady(true);
+  }
+  function saveSettings() {
+    const result = saveReviewPreferences(settingsDraft);
+    setSettingsError(result.ok ? null : result.error);
+    setSettingsNotice(result.ok ? "기본값을 저장했습니다. 새 검토와 재진입 시 적용됩니다." : null);
+    if (result.ok) setSavedPreferences({ ...settingsDraft });
+  }
+  function resetSettings() {
+    const result = resetReviewPreferences();
+    setSettingsError(result.ok ? null : result.error);
+    setSettingsNotice(result.ok ? "저장된 기본값을 삭제했습니다. 시스템 기본값을 적용합니다." : null);
+    if (result.ok) {
+      setSavedPreferences(null);
+      setSettingsDraft(resolveReviewPreferences(null));
+    }
+  }
   const [chosenFile, setChosenFile] = useState<string>("");
   const [uploadErrors, setUploadErrors] = useState<string[]>([]);
   const fileInput = useRef<HTMLInputElement>(null);
-  const [task, setTask] = useState<LawResearchTask>("full_research");
+  const [task, setTask] = useState<LawResearchTask>(initialTask);
   const [draft, setDraft] = useState<LawResearchDraft>(EMPTY_RESEARCH_DRAFT);
   const [results, setResults] = useState<Partial<Record<LawResearchTask, TaskResult>>>({});
   const requests = useRef(new Map<LawResearchTask, AbortController>());
@@ -70,11 +116,11 @@ export function LegalResearch({ workspace }: { workspace?: ReviewableFiles }) {
     return () => pending.forEach((controller) => controller.abort());
   }, []);
 
-  const run = useCallback(async (request: LawResearchRequest, file?: ReviewFile, workspaceFile?: WorkspaceFile) => {
+  const run = useCallback(async (request: LawResearchRequest, file?: ReviewFile, workspaceFile?: WorkspaceFile, runPreferences = preferences) => {
     requests.current.get(request.task)?.abort();
     const controller = new AbortController();
     requests.current.set(request.task, controller);
-    setResults((current) => ({ ...current, [request.task]: { request, outcome: null, loading: true, ...(file ? { file } : {}), ...(workspaceFile ? { workspaceFile } : {}) } }));
+    setResults((current) => ({ ...current, [request.task]: { request, preferences: { ...runPreferences }, outcome: null, loading: true, ...(file ? { file } : {}), ...(workspaceFile ? { workspaceFile } : {}) } }));
     let outcome: LawResearchOutcome;
     try {
       const response = await fetch("/api/law/research", {
@@ -90,8 +136,8 @@ export function LegalResearch({ workspace }: { workspace?: ReviewableFiles }) {
     }
     if (controller.signal.aborted) return;
     requests.current.delete(request.task);
-    setResults((current) => ({ ...current, [request.task]: { request, outcome, loading: false, ...(file ? { file } : {}), ...(workspaceFile ? { workspaceFile } : {}) } }));
-  }, []);
+    setResults((current) => ({ ...current, [request.task]: { request, preferences: { ...runPreferences }, outcome, loading: false, ...(file ? { file } : {}), ...(workspaceFile ? { workspaceFile } : {}) } }));
+  }, [preferences]);
 
   /**
    * Reviews one workspace file: the worker builds the bounded request from the parsed document
@@ -131,7 +177,24 @@ export function LegalResearch({ workspace }: { workspace?: ReviewableFiles }) {
       });
     }
     setTask(next);
+    setPreferenceOverride({});
   }
+  const shellEntry = useRef({ task: initialTask, settings: initialReviewSettings });
+  useEffect(() => {
+    if (shellEntry.current.task === initialTask && shellEntry.current.settings === initialReviewSettings) return;
+    shellEntry.current = { task: initialTask, settings: initialReviewSettings };
+    const pendingTasks = [...requests.current.keys()];
+    requests.current.forEach((controller) => controller.abort());
+    requests.current.clear();
+    setResults((current) => {
+      const copy = { ...current };
+      pendingTasks.forEach((pendingTask) => { delete copy[pendingTask]; });
+      return copy;
+    });
+    setTask(initialTask);
+    setPreferenceOverride({});
+    setResearchView(initialReviewSettings ? "settings" : "research");
+  }, [initialTask, initialReviewSettings]);
 
   const update = <K extends keyof LawResearchDraft>(key: K, value: LawResearchDraft[K]) => setDraft((current) => ({ ...current, [key]: value }));
   const current = results[task];
@@ -172,85 +235,125 @@ export function LegalResearch({ workspace }: { workspace?: ReviewableFiles }) {
     setUploadErrors(results.flatMap((result) => "error" in result ? [result.error] : []));
   }
 
-  const runButton = <button type="submit" className="law-search-button" disabled={!canRun || loading}>
-    {loading ? (isDocument ? "문서 검토 중…" : "리서치 중…") : "실행"}
-  </button>;
+  const runButton = <Button type="submit" className="law-search-button" disabled={!canRun || loading || !preferencesReady}>
+    {loading ? (isDocument ? "문서 검토 중…" : "리서치 중…") : isDocument ? "문서 검토 실행" : "실행"}
+  </Button>;
+  const runSettings = <Collapsible key={task} defaultOpen={isDocument} className="research-run-settings">
+    <CollapsibleTrigger className="research-settings-trigger">
+      <span>이번 실행 설정</span><span className="research-disclosure-mark" aria-hidden="true">⌄</span>
+    </CollapsibleTrigger>
+    <CollapsiblePanel>
+      <div className="research-settings-body">
+        <ReviewPreferenceFields value={preferences} onChange={setPreferenceOverride} prefix="run-review"
+          disabled={!preferencesReady || loading} compact currentRun showDocumentSource={isDocument} />
+        <p className="research-settings-note">이번 실행에만 적용됩니다. 기본값은 검토 설정에서 저장하세요.</p>
+        <Button type="button" variant="outline" size="sm" disabled={!preferencesReady || loading}
+          onClick={() => setPreferenceOverride({})}>저장된 기본값 사용</Button>
+        {settingsError && <p className="law-search-error" role="alert">{settingsError}</p>}
+      </div>
+    </CollapsiblePanel>
+  </Collapsible>;
   return <div className="legal-analysis legal-research">
-    <form className="legal-analysis-form" onSubmit={submit} aria-label="종합 리서치 입력">
+    <Tabs value={researchView} onValueChange={(value) => {
+      setResearchView(String(value));
+      if (value === "research") setPreferenceOverride({});
+    }}>
+      <TabsList aria-label="종합 리서치 메뉴"><TabsTab value="research">리서치</TabsTab><TabsTab value="settings">검토 설정</TabsTab></TabsList>
+      <TabsPanel value="settings"><ReviewSettings draft={settingsDraft} onChange={(value) => {
+        setSettingsDraft(value); setSettingsNotice(null);
+      }} onSave={saveSettings} onReset={resetSettings} error={settingsError} notice={settingsNotice} ready={preferencesReady} /></TabsPanel>
+      <TabsPanel value="research">
+    <div className={`research-workspace${isDocument ? " is-document" : ""}`}>
+    <div className="research-workspace-main">
+    {!isDocument && runSettings}
+    <form className={`legal-analysis-form${isDocument ? " research-document-workarea" : ""}`} onSubmit={submit} aria-label={isDocument ? "문서 검토 입력" : "종합 리서치 입력"}>
       <div className="legal-analysis-fields legal-research-options">
-        <label htmlFor="research-task">리서치 유형
-          <select id="research-task" value={task} onChange={(event) => changeTask(event.target.value as LawResearchTask)}>
-            {LAW_RESEARCH_TASKS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-          </select>
-        </label>
-        {task === "dispute_prep" && <label htmlFor="research-domain">분야
-          <select id="research-domain" value={draft.domain} onChange={(event) => update("domain", event.target.value as DisputeDomain | "")}>
-            {DISPUTE_DOMAINS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-          </select>
-        </label>}
-        {task === "amendment_track" && <label htmlFor="research-scenario">추적 방식
-          <select id="research-scenario" value={draft.scenario} onChange={(event) => update("scenario", event.target.value as AmendmentScenario | "")}>
-            <option value="">자동</option>
-            {AMENDMENT_SCENARIOS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-          </select>
-        </label>}
+        <Field><FieldLabel htmlFor="research-task">리서치 유형</FieldLabel>
+          <Select items={LAW_RESEARCH_TASKS} value={task} onValueChange={(value) => { if (value) changeTask(value as LawResearchTask); }}>
+            <SelectTrigger id="research-task"><SelectValue /></SelectTrigger>
+            <SelectPopup>{LAW_RESEARCH_TASKS.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectPopup>
+          </Select>
+        </Field>
+        {task === "dispute_prep" && <Field><FieldLabel htmlFor="research-domain">분야</FieldLabel>
+          <Select items={DISPUTE_DOMAINS} value={draft.domain} onValueChange={(value) => update("domain", (value ?? "") as DisputeDomain | "")}>
+            <SelectTrigger id="research-domain"><SelectValue /></SelectTrigger>
+            <SelectPopup>{DISPUTE_DOMAINS.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectPopup>
+          </Select>
+        </Field>}
+        {task === "amendment_track" && <Field><FieldLabel htmlFor="research-scenario">추적 방식</FieldLabel>
+          <Select items={[{ value: "", label: "자동" }, ...AMENDMENT_SCENARIOS]} value={draft.scenario} onValueChange={(value) => update("scenario", (value ?? "") as AmendmentScenario | "")}>
+            <SelectTrigger id="research-scenario"><SelectValue /></SelectTrigger>
+            <SelectPopup><SelectItem value="">자동</SelectItem>{AMENDMENT_SCENARIOS.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectPopup>
+          </Select>
+        </Field>}
       </div>
       <p className="legal-research-description">{TASK_HELP[task].description}</p>
 
       {isDocument ? <div className="research-document-input" role="group" aria-labelledby="research-document-label">
         <p id="research-document-label" className="research-document-label">검토할 문서</p>
-        <fieldset className="segmented research-document-source" aria-label="문서 입력 방식">
-          {(["file", "text"] as const).map((source) => <label key={source}>
-            <input type="radio" name="research-document-source" value={source} checked={documentSource === source} onChange={() => setDocumentSource(source)} />
-            <span>{source === "file" ? "작업 파일" : "직접 입력"}</span>
+        <RadioGroup className="mb-4 flex-row gap-5" aria-label="문서 입력 방식" value={documentSource}
+          onValueChange={(source) => { if (source === "file" || source === "text") setPreferenceOverride((current) => ({ ...current, documentSource: source })); }}>
+          {(["file", "text"] as const).map((source) => <label key={source} className="inline-flex items-center gap-2 text-sm">
+            <Radio value={source} /><span>{source === "file" ? "작업 파일" : "직접 입력"}</span>
           </label>)}
-        </fieldset>
+        </RadioGroup>
         {fromFile ? <>
+          <div className="research-file-workarea">
+            <div className="research-upload-intro">
+              <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+                <path d="M16 22V5m-6 6 6-6 6 6M6 21v5a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-5" />
+              </svg>
+              <strong>{reviewable.length ? "검토할 작업 파일을 선택하세요" : "문서를 추가하고 검토를 시작하세요"}</strong>
+              <p>PDF · DOCX · PPTX · XLSX · CSV</p>
+              <p>작업 파일의 분석된 텍스트를 사용하며, 한 번에 한 문서를 검토합니다.</p>
+            </div>
           <div className="research-file-row">
             {reviewable.length > 0
-              ? <select id="research-file" aria-labelledby="research-document-label" value={fileId} onChange={(event) => setChosenFile(event.target.value)}>
-                {reviewable.map((file) => <option key={file.id} value={file.id}>{file.name}</option>)}
-              </select>
+              ? <Select items={reviewable.map((file) => ({ value: file.id, label: file.name }))} value={fileId} onValueChange={(value) => setChosenFile(value ?? "")}>
+                <SelectTrigger id="research-file" aria-labelledby="research-document-label"><SelectValue /></SelectTrigger>
+                <SelectPopup>{reviewable.map((file) => <SelectItem key={file.id} value={file.id}>{file.name}</SelectItem>)}</SelectPopup>
+              </Select>
               : <p className="research-file-empty" role="status">검토할 작업 파일이 없습니다.</p>}
             {workspace?.addFiles && <>
               <input ref={fileInput} type="file" multiple hidden accept=".xlsx,.csv,.pdf,.docx,.pptx" aria-label="검토할 작업 파일 추가"
                 onChange={(event) => { void addFiles(event.target.files); event.target.value = ""; }} />
-              <button type="button" className="research-file-add" onClick={() => fileInput.current?.click()} disabled={workspace.uploading}>
+              <Button type="button" variant="outline" className="research-file-add" onClick={() => fileInput.current?.click()} disabled={workspace.uploading}>
                 {workspace.uploading ? "분석 중…" : "파일 추가"}
-              </button>
+              </Button>
             </>}
             {reviewable.length > 0 && runButton}
           </div>
+          </div>
           {uploadErrors.map((message) => <p key={message} className="law-search-error" role="alert">{message}</p>)}
         </> : <>
-          <textarea id="research-document" aria-label="검토할 문서 내용" value={draft.text} rows={10} maxLength={LAW_RESEARCH_DOCUMENT_MAX_CHARS} placeholder={TASK_HELP.document_review.placeholder} onChange={(event) => update("text", event.target.value)} aria-describedby="research-document-help" />
+          <Field><Textarea id="research-document" aria-label="검토할 문서 내용" value={draft.text} rows={10} maxLength={LAW_RESEARCH_DOCUMENT_MAX_CHARS} placeholder={TASK_HELP.document_review.placeholder} onChange={(event) => update("text", event.target.value)} aria-describedby="research-document-help" /></Field>
           <p id="research-document-help" className="legal-analysis-help">
             <span className="legal-analysis-count">{draft.text.length.toLocaleString("ko-KR")} / {LAW_RESEARCH_DOCUMENT_MAX_CHARS.toLocaleString("ko-KR")}자 · 최소 {LAW_RESEARCH_DOCUMENT_MIN_CHARS}자</span>
           </p>
         </>}
       </div> : <>
-        <label htmlFor="research-query">질문 또는 검색어</label>
-        <textarea id="research-query" value={draft.query} rows={3} maxLength={LAW_RESEARCH_QUERY_MAX_CHARS} placeholder={TASK_HELP[task].placeholder} onChange={(event) => update("query", event.target.value)} aria-describedby="research-query-help"
-          onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} />
+        <Field><FieldLabel htmlFor="research-query">질문 또는 검색어</FieldLabel>
+        <Textarea id="research-query" value={draft.query} rows={3} maxLength={LAW_RESEARCH_QUERY_MAX_CHARS} placeholder={TASK_HELP[task].placeholder} onChange={(event) => update("query", event.target.value)} aria-describedby="research-query-help"
+          onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} /></Field>
         <p id="research-query-help" className="legal-analysis-help legal-research-help-row">
           {task === "amendment_track" && <label className="legal-research-switch">
             전체 개정 이력 포함
-            <input type="checkbox" role="switch" checked={draft.includeHistory} onChange={(event) => update("includeHistory", event.target.checked)} />
+            <Switch checked={draft.includeHistory} onCheckedChange={(checked) => update("includeHistory", checked)} />
           </label>}
           <span className="legal-analysis-count">{draft.query.length.toLocaleString("ko-KR")} / {LAW_RESEARCH_QUERY_MAX_CHARS.toLocaleString("ko-KR")}자</span>
         </p>
       </>}
 
       {task === "law_system" && <label htmlFor="research-articles" className="legal-research-single">관련 조문 (선택)
-        <input id="research-articles" type="text" value={draft.articles} placeholder="예: 제38조, 제39조" onChange={(event) => update("articles", event.target.value)} />
+        <Input id="research-articles" type="text" value={draft.articles} placeholder="예: 제38조, 제39조" onChange={(event) => update("articles", event.target.value)} />
       </label>}
       {task === "ordinance_compare" && <label htmlFor="research-parent-law" className="legal-research-single">관련 상위 법령 (선택)
-        <input id="research-parent-law" type="text" value={draft.parentLaw} maxLength={LAW_RESEARCH_NAME_MAX_CHARS} placeholder="요청에 법령이 명시된 경우에만 입력하세요. 예: 주차장법" onChange={(event) => update("parentLaw", event.target.value)} />
+        <Input id="research-parent-law" type="text" value={draft.parentLaw} maxLength={LAW_RESEARCH_NAME_MAX_CHARS} placeholder="요청에 법령이 명시된 경우에만 입력하세요. 예: 주차장법" onChange={(event) => update("parentLaw", event.target.value)} />
       </label>}
       {task === "ordinance_compare" && <>
         <div className="legal-analysis-fields legal-research-dates legal-research-regions">
           {(["region1", "region2"] as const).map((key, index) => <label key={key} htmlFor={`research-region-${index}`}>비교 지역 {index + 1}
-            <input id={`research-region-${index}`} type="text" value={draft[key]} maxLength={LAW_RESEARCH_NAME_MAX_CHARS} placeholder={index ? "예: 서울특별시" : "예: 인천광역시"}
+            <Input id={`research-region-${index}`} type="text" value={draft[key]} maxLength={LAW_RESEARCH_NAME_MAX_CHARS} placeholder={index ? "예: 서울특별시" : "예: 인천광역시"}
               onChange={(event) => update(key, event.target.value)} />
           </label>)}
         </div>
@@ -258,10 +361,10 @@ export function LegalResearch({ workspace }: { workspace?: ReviewableFiles }) {
       {task === "amendment_track" && <>
         {draft.scenario === "time_travel" && <div className="legal-analysis-fields legal-research-dates">
           <label htmlFor="research-from">시작일
-            <input id="research-from" type="date" value={draft.fromDate} min="1900-01-01" max="2100-12-31" onChange={(event) => update("fromDate", event.target.value)} />
+            <Input id="research-from" type="date" value={draft.fromDate} min="1900-01-01" max="2100-12-31" onChange={(event) => update("fromDate", event.target.value)} />
           </label>
           <label htmlFor="research-to">종료일
-            <input id="research-to" type="date" value={draft.toDate} min="1900-01-01" max="2100-12-31" onChange={(event) => update("toDate", event.target.value)} />
+            <Input id="research-to" type="date" value={draft.toDate} min="1900-01-01" max="2100-12-31" onChange={(event) => update("toDate", event.target.value)} />
           </label>
           {reversedDates && <p className="law-search-error" role="alert">시작일은 종료일보다 늦을 수 없습니다.</p>}
         </div>}
@@ -278,6 +381,20 @@ export function LegalResearch({ workspace }: { workspace?: ReviewableFiles }) {
         {runButton}
       </div>}
     </form>
+    </div>
+    {isDocument && <aside className="research-workspace-rail" aria-label="문서 검토 설정과 가이드">
+      {runSettings}
+      <section className="research-review-guide" aria-labelledby="research-guide-title">
+        <h2 id="research-guide-title">문서 검토 가이드</h2>
+        <p>입력부터 근거 확인까지</p>
+        <ol>
+          <li><strong>문서 준비</strong><span>작업 파일을 선택하거나 문서 내용을 직접 입력하세요. 여러 파일을 합치지 않고 한 문서씩 검토합니다.</span></li>
+          <li><strong>검토 실행</strong><span>검토한 범위와 제외된 내용을 확인하세요. 직접 입력은 최소 {LAW_RESEARCH_DOCUMENT_MIN_CHARS}자, 최대 {LAW_RESEARCH_DOCUMENT_MAX_CHARS.toLocaleString("ko-KR")}자입니다.</span></li>
+          <li><strong>쟁점과 근거 확인</strong><span>조항별 쟁점과 관련 법령·판례를 읽고, 확인이 필요한 근거는 원문과 대조하세요.</span></li>
+        </ol>
+        <p className="research-guide-caution">{RESULT_NOTE}</p>
+      </section>
+    </aside>}
 
     {current && <section className="legal-analysis-result" aria-labelledby="research-result-heading" aria-busy={loading}>
       <h2 id="research-result-heading">{isDocument ? "검토 결과" : "리서치 결과"}</h2>
@@ -289,8 +406,8 @@ export function LegalResearch({ workspace }: { workspace?: ReviewableFiles }) {
       {current.loading ? <p className="law-search-note" role="status">{isDocument ? "문서 검토 중…" : "리서치 중…"} 여러 자료를 함께 조회하므로 시간이 걸릴 수 있습니다.</p>
         : current.outcome?.kind === "error" ? <div className="decision-feedback" role="alert">
           <p className="law-search-error">{current.outcome.message}</p>
-          <button type="button" className="law-search-link" onClick={() => void (current.request.task === "document_review" && "text" in current.request && !current.request.text
-            ? runFile(fileId) : run(current.request, current.file, current.workspaceFile))}>다시 시도</button>
+          <Button type="button" variant="link" className="law-search-link" onClick={() => void (current.request.task === "document_review" && "text" in current.request && !current.request.text
+            ? runFile(fileId) : run(current.request, current.file, current.workspaceFile, current.preferences))}>다시 시도</Button>
         </div>
         : current.file && !current.outcome ? <FileReviewExcluded file={current.file} />
         : current.outcome?.kind === "missing" ? <div className="legal-analysis-missing" role="status">
@@ -306,10 +423,13 @@ export function LegalResearch({ workspace }: { workspace?: ReviewableFiles }) {
           </header>
         </div>
         : current.outcome?.kind === "found" ? current.outcome.data.review
-          ? <ContractReviewResult review={current.outcome.data.review} file={current.file} />
-          : <ResearchResult data={current.outcome.data} request={current.request} />
+          ? <ContractReviewResult review={current.outcome.data.review} file={current.file} expandSources={current.preferences?.expandSources} />
+          : <ResearchResult data={current.outcome.data} request={current.request} expandSources={current.preferences?.expandSources} />
         : null}
     </section>}
+    </div>
+      </TabsPanel>
+    </Tabs>
   </div>;
 }
 
@@ -594,8 +714,8 @@ function OrdinanceArticleCell({ article, effective }: {
     <div className="research-comparison-title"><strong>{article.jo}({article.title})</strong></div>
     {excerpt && <p className="research-comparison-excerpt">원문 발췌 · {excerpt}</p>}
     {date && <span className="research-meta">시행 {date}</span>}
-    <button type="button" className="law-search-link research-comparison-toggle" aria-expanded={open}
-      onClick={() => setOpen((previous) => !previous)}>{open ? "조문 원문 닫기" : "조문 원문 보기"}</button>
+    <Button type="button" variant="link" className="law-search-link research-comparison-toggle" aria-expanded={open}
+      onClick={() => setOpen((previous) => !previous)}>{open ? "조문 원문 닫기" : "조문 원문 보기"}</Button>
     {open && <div className="research-comparison-original">
       <p className="research-comparison-original-label">법제처 조문 원문</p>
       <LawTextBlock className="legal-analysis-lines" text={article.body} />
@@ -603,7 +723,7 @@ function OrdinanceArticleCell({ article, effective }: {
   </div>;
 }
 
-function ResearchResult({ data, request }: { data: LawResearchData; request: LawResearchRequest }) {
+function ResearchResult({ data, request, expandSources = false }: { data: LawResearchData; request: LawResearchRequest; expandSources?: boolean }) {
   const result = researchResult(data.text);
   const full = data.task === "full_research";
   const issueEvidence = full ? data.evidence?.issues ?? [] : [];
@@ -796,7 +916,7 @@ function ResearchResult({ data, request }: { data: LawResearchData; request: Law
         </details>;
       })}
     </section>}
-    <details className="law-detail-source research-source">
+    <details className="law-detail-source research-source" open={expandSources}>
       <SourceToggleSummary label="출처 원문 전체 보기" openLabel="출처 원문 접기" />
       <p className="research-meta">법제처에서 받은 원문 그대로입니다. 인용 전에 시행 시점을 대조해 주세요.</p>
       <LawTextBlock className="legal-analysis-raw" text={readerText(data.text)} />

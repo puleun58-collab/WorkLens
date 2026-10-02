@@ -1,7 +1,8 @@
 "use client";
 
-import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { ArrowDown, ArrowRight, FileSpreadsheet, FileText, Image as ImageIcon } from "lucide-react";
+import { Tabs, TabsList, TabsTab, TabsPanel } from "@/components/ui/tabs";
 import "./usage-guide.css";
 
 /*
@@ -144,7 +145,35 @@ const GUIDES: Guide[] = [
       { title: "결과 선택", text: "목록에서 법령을 선택합니다.", mini: <span className="mini-files"><span className="mini-row is-mark"><span className="mini-name">근로기준법</span><b className="mini-role">현행</b></span><span className="mini-row"><span className="mini-name">근로기준법 시행령</span></span></span> },
       { title: "조문 확인", text: "조문을 읽고 관련 판례·결정례로 이어갑니다.", mini: <Result title="제23조(해고 등의 제한)" status="현행" lines={["① 사용자는 근로자에게 정당한 이유 없이…"]} actions={["관련 판례·결정례"]} /> },
     ],
-    tip: "종합 리서치는 질문 후 결과·근거를 확인하세요. 문서 검토는 작업 파일 하나를 고르거나 내용을 직접 붙여넣고 실행합니다. 검토 당시 위치·검토 원문·확인한 근거와 범위를 확인하세요. 위치는 텍스트 안내이며 원본 미리보기로 이동하지 않습니다. PDF 도구는 별도 작업 공간입니다.",
+    tip: "인용 전에 시행 시점과 국가법령정보센터 원문을 대조하세요.",
+  },
+  {
+    id: "research", label: "종합 리서치", summary: "질문과 확인된 쟁점별 법령·판례를 구분해 살펴봅니다.",
+    steps: [
+      { title: "리서치 유형 선택", text: "종합 리서치에서 목적에 맞는 리서치 유형을 고릅니다.", mini: <Field text="종합 리서치" /> },
+      { title: "질문 입력 후 실행", text: "상황과 확인할 내용을 입력하고 실행합니다.", mini: <Run before={<Field text="영업정지의 근거와 불복 절차" />} /> },
+      { title: "결과와 출처 대조", text: "확인된 근거와 추가 조회 자료, 확인하지 못한 쟁점을 구분합니다.", mini: <Result title="리서치 결과" status="자료 확인" lines={["입력한 질문 · 살펴볼 쟁점", "확인된 근거 · 출처 원문 전체 보기"]} /> },
+    ],
+    tip: "조회되지 않았다고 관련 법령이나 판례가 없다는 뜻은 아닙니다.",
+  },
+  {
+    id: "document-review", label: "문서 검토", summary: "작업 파일 하나 또는 직접 입력한 문서의 조항별 쟁점과 근거를 검토합니다.",
+    steps: [
+      { title: "문서 입력 방식 선택", text: "문서 검토에서 작업 파일 또는 직접 입력을 고릅니다.", mini: <Segments items={["작업 파일", "직접 입력"]} active={0} /> },
+      { title: "문서 선택 후 실행", text: "검토할 파일 하나를 고르거나 내용을 붙여 넣고 문서 검토 실행을 누릅니다. 오른쪽 이번 실행 설정은 이번 검토에만 적용됩니다.", mini: <Run label="문서 검토 실행" before={<Field text="용역계약서.docx" />} /> },
+      { title: "검토 범위와 근거 확인", text: "검토 당시 위치, 검토 원문과 관련 법령·판례를 확인합니다.", mini: <Result title="검토 결과" status="검토 완료" lines={["제5조 손해배상 · 검토 당시 위치", "검토 원문 · 관련 법령 · 관련 판례"]} /> },
+    ],
+    tip: "위치는 텍스트 안내이며 원본 미리보기로 이동하지 않습니다. PDF 도구는 별도 작업 공간입니다.",
+  },
+  {
+    id: "review-settings", label: "검토 설정", summary: "문서 입력 방식과 출처 표시 기본값을 이 브라우저에 저장합니다.",
+    steps: [
+      { title: "검토 설정 열기", text: "메뉴의 검토 설정 또는 종합 리서치 안의 검토 설정 탭을 누릅니다.", mini: <Segments items={["리서치", "검토 설정"]} active={1} /> },
+      { title: "기본값 저장", text: "문서 입력 방식과 출처 펼침을 고른 뒤 기본값 저장을 누릅니다.", mini: <Run label="기본값 저장" before={<Field text="직접 입력 · 출처 펼침" />} /> },
+      { title: "이번 실행만 변경", text: "리서치의 이번 실행 설정은 저장된 기본값을 바꾸지 않습니다.", mini: <Field text="이번 실행 설정 · 작업 파일" /> },
+      { title: "초기화", text: "시스템 기본값으로 초기화를 누르면 저장된 기본값을 삭제합니다.", mini: <Field text="시스템 기본값으로 초기화" /> },
+    ],
+    tip: "새 검토와 재진입 시 저장된 기본값을 적용합니다. 저장 실패 시 오류를 표시하고 기존 기본값을 유지합니다. 문서·질문·결과·근거는 브라우저 저장소에 저장하지 않습니다.",
   },
   {
     id: "pdf", label: "PDF 도구", summary: "PDF 페이지를 정리하고 원하는 형식으로 내보냅니다.",
@@ -165,7 +194,7 @@ const GUIDES: Guide[] = [
   {
     id: "dictionary", label: "용어 사전", summary: "맞춤법과 용어 오탐을 줄이기 위한 사전입니다.",
     steps: [
-      { title: "용어 사전 열기", text: "사이드바 하단의 용어 사전을 누릅니다.", mini: <span className="mini-files"><span className="mini-row"><span className="mini-name">사용 가이드</span></span><span className="mini-row is-mark is-checked"><span className="mini-name">용어 사전</span></span><span className="mini-row"><span className="mini-name">설정</span></span></span> },
+      { title: "용어 사전 열기", text: "메뉴의 도움말에서 용어 사전을 누릅니다. 좁은 화면에서는 메뉴 버튼을 먼저 엽니다.", mini: <span className="mini-files"><span className="mini-row"><span className="mini-name">사용 가이드</span></span><span className="mini-row is-mark is-checked"><span className="mini-name">용어 사전</span></span><span className="mini-row"><span className="mini-name">설정</span></span></span> },
       { title: "단어 추가", text: "회사에서 쓰는 용어를 개인 사전에 추가합니다.", mini: <span className="mini-operation"><Field text="WorkLens" /><span className="mini-button">추가</span></span> },
       { title: "검수에 반영", text: "추가한 단어는 맞춤법 오류로 표시하지 않습니다.", mini: <Result title="개인 사전" status="1개" lines={["WorkLens"]} /> },
     ],
@@ -175,40 +204,14 @@ const GUIDES: Guide[] = [
 
 export function UsageGuide() {
   const [active, setActive] = useState(GUIDES[0].id);
-  const tabs = useRef<Array<HTMLButtonElement | null>>([]);
-  const guide = GUIDES.find((entry) => entry.id === active) ?? GUIDES[0];
-
-  const onKey = (event: KeyboardEvent<HTMLDivElement>) => {
-    const keys: Record<string, number> = { ArrowRight: 1, ArrowLeft: -1, Home: -Infinity, End: Infinity };
-    if (!(event.key in keys)) return;
-    event.preventDefault();
-    const current = GUIDES.findIndex((entry) => entry.id === active);
-    const step = keys[event.key];
-    const next = step === -Infinity ? 0 : step === Infinity ? GUIDES.length - 1 : (current + step + GUIDES.length) % GUIDES.length;
-    setActive(GUIDES[next].id);
-    tabs.current[next]?.focus();
-  };
 
   return (
     <section className="usage-guide" aria-label="사용 가이드">
-      <div className="usage-guide-tabs" role="tablist" aria-label="기능 선택" onKeyDown={onKey}>
-        {GUIDES.map((entry, index) => (
-          <button
-            key={entry.id}
-            ref={(node) => { tabs.current[index] = node; }}
-            type="button"
-            role="tab"
-            id={`guide-tab-${entry.id}`}
-            aria-selected={entry.id === active}
-            aria-controls="guide-panel"
-            tabIndex={entry.id === active ? 0 : -1}
-            onClick={() => setActive(entry.id)}
-          >
-            {entry.label}
-          </button>
-        ))}
-      </div>
-      <div className="usage-guide-panel" id="guide-panel" role="tabpanel" aria-labelledby={`guide-tab-${guide.id}`}>
+      <Tabs value={active} onValueChange={(value) => setActive(String(value))}>
+      <TabsList className="usage-guide-tabs max-w-full flex-wrap" aria-label="기능 선택" variant="underline">
+        {GUIDES.map((entry) => <TabsTab key={entry.id} value={entry.id}>{entry.label}</TabsTab>)}
+      </TabsList>
+      {GUIDES.map((guide) => <TabsPanel key={guide.id} value={guide.id} className="usage-guide-panel">
         <header className="usage-guide-head">
           <h2>{guide.label}</h2>
           <p>{guide.summary}</p>
@@ -227,7 +230,8 @@ export function UsageGuide() {
           ))}
         </ol>
         {guide.tip ? <p className="usage-guide-tip"><b>TIP</b>{guide.tip}</p> : null}
-      </div>
+      </TabsPanel>)}
+      </Tabs>
     </section>
   );
 }

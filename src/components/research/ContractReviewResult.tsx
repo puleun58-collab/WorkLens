@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef } from "react";
+import { Button } from "@/components/ui/button";
 
 import type { ContractReview, ReviewedIssue } from "@/lib/contract-review";
 import type { ReviewCoverage, ReviewFile } from "@/lib/law-review-source";
@@ -68,7 +69,11 @@ const FOCUS_FRESH_MS = 450;
 const FOCUS_SETTLED_MS = 1750;
 const FOCUS_FADE_MS = 350;
 
-export function ContractReviewResult({ review, file }: { review: ContractReview; file?: ReviewFile }) {
+export function ContractReviewResult({ review, file, expandSources = false }: { review: ContractReview; file?: ReviewFile; expandSources?: boolean }) {
+  const resultRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (expandSources) resultRef.current?.querySelectorAll<HTMLDetailsElement>(".contract-review-refs").forEach((detail) => { detail.open = true; });
+  }, [expandSources, review]);
   const activeDetail = useRef<HTMLElement | null>(null);
   const focusTimer = useRef<number | undefined>(undefined);
   useEffect(() => () => {
@@ -130,7 +135,7 @@ export function ContractReviewResult({ review, file }: { review: ContractReview;
       <dt>확인한 근거</dt>
       <dd>{laws.length + precedents.length > 0
         ? <>{laws.map((law) => `${law.law} ${law.jo}`).concat(precedents.map((precedent) =>
-          precedent.title ?? precedent.caseNumber ?? "판례")).join(" · ")} <button type="button" className="law-search-link" aria-controls={anchor} onClick={() => showEvidence(anchor)}>상세 근거 보기</button></>
+          precedent.title ?? precedent.caseNumber ?? "판례")).join(" · ")} <Button variant="link" type="button" className="h-auto max-w-full whitespace-normal px-0 text-left" aria-controls={anchor} onClick={() => showEvidence(anchor)}>상세 근거 보기</Button></>
         : issue.lawStatus === "failed" || issue.precedentStatus === "failed"
           ? "직접 근거 확인이 완료되지 않았습니다."
           : "확인된 직접 근거 없음"}</dd>
@@ -175,7 +180,7 @@ export function ContractReviewResult({ review, file }: { review: ContractReview;
   };
 
   const partial = file?.coverage.status === "partial";
-  return <div className="legal-analysis-output contract-review" data-task="document_review" data-document-type={document.type} data-coverage={file?.coverage.status}>
+  return <div ref={resultRef} className="legal-analysis-output contract-review" data-task="document_review" data-document-type={document.type} data-coverage={file?.coverage.status}>
     <header className="research-overview">
       <span className="research-eyebrow">문서 검토</span>
       <h3 className="legal-analysis-title" data-status={status}>{issues.length ? STATUS_TITLE[status] : partial ? "검토한 범위에서 쟁점을 찾지 못했습니다" : "검토할 쟁점을 찾지 못했습니다"}</h3>

@@ -1,6 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Select, SelectTrigger, SelectValue, SelectPopup, SelectItem } from "@/components/ui/select";
 import { GripVertical, RotateCcw, RotateCw, Trash2 } from "lucide-react";
 import type { PDFDocumentLoadingTask } from "pdfjs-dist";
 import {
@@ -287,7 +291,7 @@ export function PdfTool() {
     <section className="pdf-tool-panel pdf-tool-upload" aria-label="PDF 파일 추가" onClick={(event) => { if (!busy && !(event.target as HTMLElement).closest("button, input")) inputRef.current?.click(); }} onDragOver={(event) => { event.preventDefault(); if (event.dataTransfer.types.includes("Files")) setDropActive(true); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDropActive(false); }} onDrop={handleDrop} data-drag-active={dropActive}>
       <div className="pdf-tool-upload-mark" aria-hidden="true">＋</div>
       <div className="pdf-tool-upload-copy"><strong>PDF를 이곳에 놓으세요</strong><span>여러 파일을 함께 추가할 수 있습니다. 원본 파일은 수정되지 않습니다.</span></div>
-      <button type="button" className="pdf-tool-button pdf-tool-button-primary pdf-tool-upload-button" onClick={() => inputRef.current?.click()} disabled={busy}>PDF 추가</button>
+      <Button type="button" className="max-sm:w-full" onClick={() => inputRef.current?.click()} disabled={busy}>PDF 추가</Button>
       <input ref={inputRef} className="pdf-tool-input-hidden" aria-label="PDF 파일 선택" type="file" accept=".pdf,application/pdf" multiple onChange={handleInput} />
     </section>
 
@@ -295,11 +299,11 @@ export function PdfTool() {
       {sources.map((source) => <div className="pdf-tool-source" key={source.id}>
         <span className="pdf-tool-source-icon" aria-hidden="true">PDF</span>
         <span className="pdf-tool-source-name" title={source.name}>{source.name}<small>{source.pageCount}페이지 · {prettyBytes(source.file.size)}</small></span>
-        <button type="button" className="pdf-tool-icon-button" aria-label={`${source.name} 제거`} title="이 파일의 모든 페이지 제거" disabled={busy} onClick={() => removeSource(source.id)}>×</button>
+        <Button variant="ghost" size="icon-sm" type="button" aria-label={`${source.name} 제거`} title="이 파일의 모든 페이지 제거" disabled={busy} onClick={() => removeSource(source.id)}>×</Button>
       </div>)}
     </div>}
 
-    {uploading && <div className="pdf-tool-notice" role="status">{uploading} <button type="button" onClick={() => importAbort.current?.abort()}>추가 취소</button></div>}
+    {uploading && <div className="pdf-tool-notice" role="status">{uploading} <Button variant="outline" type="button" onClick={() => importAbort.current?.abort()}>추가 취소</Button></div>}
     {error && <div className="pdf-tool-notice pdf-tool-notice-error" role="alert">{error}</div>}
 
     {sources.length > 0 && <section className="pdf-tool-editor" aria-label="페이지 편집">
@@ -307,18 +311,18 @@ export function PdfTool() {
       <p className="tool-reorder-live" aria-live="polite">{reorder.announcement}</p>
       {pages.length === 0 ? <div className="pdf-tool-empty"><div className="pdf-tool-empty-glyph" aria-hidden="true">▤</div><strong>{hadPages ? "내보낼 페이지가 없습니다." : "편집할 페이지가 없습니다"}</strong><span>{hadPages ? "PDF를 다시 추가하면 내보내기를 계속할 수 있습니다." : "PDF를 추가하면 페이지가 여기에 순서대로 표시됩니다."}</span></div> : <>
         <div className="pdf-tool-toolbar">
-          <label className="pdf-tool-select-all"><input type="checkbox" checked={pages.every((page) => page.selected)} onChange={(event) => setPages((current) => current.map((page) => ({ ...page, selected: event.target.checked })))} disabled={busy} /> 전체 선택</label>
+          <Label className="pdf-tool-select-all"><Checkbox checked={pages.every((page) => page.selected)} onCheckedChange={(checked) => setPages((current) => current.map((page) => ({ ...page, selected: checked })))} disabled={busy} /> 전체 선택</Label>
           <span className="pdf-tool-toolbar-divider" />
-          <button type="button" className="tool-rotate-button pdf-tool-action" disabled={!selectedCount || busy} onClick={() => { setPages((current) => current.map((page) => page.selected ? { ...page, rotation: normalizeRotation(page.rotation - 90) } : page)); setOutcome(null); }}><RotateCcw aria-hidden="true" />왼쪽 90°</button>
-          <button type="button" className="tool-rotate-button pdf-tool-action" disabled={!selectedCount || busy} onClick={() => { setPages((current) => current.map((page) => page.selected ? { ...page, rotation: normalizeRotation(page.rotation + 90) } : page)); setOutcome(null); }}><RotateCw aria-hidden="true" />오른쪽 90°</button>
-          <button type="button" className="pdf-tool-action pdf-tool-delete" disabled={!selectedCount || busy} onClick={removeSelected}><Trash2 aria-hidden="true" />선택 삭제</button>
+          <Button variant="outline" type="button" disabled={!selectedCount || busy} onClick={() => { setPages((current) => current.map((page) => page.selected ? { ...page, rotation: normalizeRotation(page.rotation - 90) } : page)); setOutcome(null); }}><RotateCcw aria-hidden="true" />왼쪽 90°</Button>
+          <Button variant="outline" type="button" disabled={!selectedCount || busy} onClick={() => { setPages((current) => current.map((page) => page.selected ? { ...page, rotation: normalizeRotation(page.rotation + 90) } : page)); setOutcome(null); }}><RotateCw aria-hidden="true" />오른쪽 90°</Button>
+          <Button variant="destructive-outline" type="button" className="ml-auto" disabled={!selectedCount || busy} onClick={removeSelected}><Trash2 aria-hidden="true" />선택 삭제</Button>
         </div>
         <div className="pdf-tool-pages">
           {pages.map((page, index) => {
             const source = sourceById.get(page.sourceId);
             if (!source) return null;
             return <article className="pdf-tool-page tool-reorder-x" data-selected={page.selected} key={page.id} {...reorder.itemProps(page.id)}>
-              <div className="pdf-tool-page-top"><span className="pdf-tool-page-grip"><button {...reorder.handleProps(page.id, `${index + 1}번 페이지`)}><GripVertical aria-hidden="true" /></button><span className="pdf-tool-page-number">{String(index + 1).padStart(2, "0")}</span></span><label><input aria-label={`${index + 1}번 페이지 선택`} type="checkbox" checked={page.selected} disabled={busy} onChange={(event) => setPages((current) => current.map((item) => item.id === page.id ? { ...item, selected: event.target.checked } : item))} /> 선택</label></div>
+              <div className="pdf-tool-page-top"><span className="pdf-tool-page-grip"><Button variant="ghost" size="icon-sm" {...reorder.handleProps(page.id, `${index + 1}번 페이지`)}><GripVertical aria-hidden="true" /></Button><span className="pdf-tool-page-number">{String(index + 1).padStart(2, "0")}</span></span><Label><Checkbox aria-label={`${index + 1}번 페이지 선택`} checked={page.selected} disabled={busy} onCheckedChange={(checked) => setPages((current) => current.map((item) => item.id === page.id ? { ...item, selected: checked } : item))} /> 선택</Label></div>
               <PdfThumbnail source={source} page={page} queue={queueRender} />
               <div className="pdf-tool-page-meta"><strong title={source.name}>{source.name}</strong><span>원본 {page.pageNumber}페이지 {page.rotation ? `· +${page.rotation}°` : ""}</span></div>
             </article>;
@@ -330,12 +334,12 @@ export function PdfTool() {
     {sources.length > 0 && <section className="tool-export pdf-tool-export" aria-label="페이지 내보내기">
       <div className="tool-export-title"><span>02 / EXPORT</span><strong>완성본 저장</strong><small>{exportCount}페이지</small></div>
       <div className="tool-export-settings pdf-tool-export-settings">
-        <label>형식<select value={format} disabled={busy} onChange={(event) => setFormat(event.target.value as PdfOutputFormat)}><option value="pdf">PDF</option><option value="jpg">JPG</option><option value="png">PNG</option></select></label>
-        <label>페이지<select value={scope} disabled={busy} onChange={(event) => setScope(event.target.value as "all" | "selected")}><option value="all">전체 ({pages.length})</option><option value="selected">선택 ({selectedCount})</option></select></label>
-        {format === "pdf" && <label>압축<select value={compression} disabled={busy} onChange={(event) => { setCompression(event.target.value as PdfCompressionLevel); setOutcome(null); }}>{COMPRESSION_LEVELS.map(({ level, label }) => <option key={level} value={level}>{label}</option>)}</select></label>}
+        <div className="flex flex-col gap-2"><Label htmlFor="pdf-format">형식</Label><Select items={[{ value: "pdf", label: "PDF" }, { value: "jpg", label: "JPG" }, { value: "png", label: "PNG" }]} value={format} disabled={busy} onValueChange={(value) => { if (value) setFormat(value as PdfOutputFormat); }}><SelectTrigger id="pdf-format"><SelectValue /></SelectTrigger><SelectPopup><SelectItem value="pdf">PDF</SelectItem><SelectItem value="jpg">JPG</SelectItem><SelectItem value="png">PNG</SelectItem></SelectPopup></Select></div>
+        <div className="flex flex-col gap-2"><Label htmlFor="pdf-scope">페이지</Label><Select items={[{ value: "all", label: `전체 (${pages.length})` }, { value: "selected", label: `선택 (${selectedCount})` }]} value={scope} disabled={busy} onValueChange={(value) => { if (value) setScope(value as "all" | "selected"); }}><SelectTrigger id="pdf-scope"><SelectValue /></SelectTrigger><SelectPopup><SelectItem value="all">전체 ({pages.length})</SelectItem><SelectItem value="selected">선택 ({selectedCount})</SelectItem></SelectPopup></Select></div>
+        {format === "pdf" && <div className="flex flex-col gap-2"><Label htmlFor="pdf-compression">압축</Label><Select items={COMPRESSION_LEVELS.map(({ level, label }) => ({ value: level, label }))} value={compression} disabled={busy} onValueChange={(value) => { if (value) { setCompression(value as PdfCompressionLevel); setOutcome(null); } }}><SelectTrigger id="pdf-compression"><SelectValue /></SelectTrigger><SelectPopup>{COMPRESSION_LEVELS.map(({ level, label }) => <SelectItem key={level} value={level}>{label}</SelectItem>)}</SelectPopup></Select></div>}
         <div className="pdf-tool-export-actions">
-          {exporting && <button type="button" className="pdf-tool-button pdf-tool-button-secondary" onClick={() => exportAbort.current?.abort()}>취소</button>}
-          <button type="button" className="tool-export-button" onClick={() => void download()} disabled={!exportCount || busy}>{exporting || "파일 다운로드"} ↗</button>
+          {exporting && <Button variant="outline" type="button" onClick={() => exportAbort.current?.abort()}>취소</Button>}
+          <Button type="button" className="tool-export-button" onClick={() => void download()} disabled={!exportCount || busy}>{exporting || "파일 다운로드"} ↗</Button>
         </div>
       </div>
       {outcome && <div className={outcome.compression && !outcome.compression.reduced ? "pdf-tool-outcome pdf-tool-notice" : "pdf-tool-outcome"} role="status">{outcome.name} 저장 · {prettyBytes(outcome.size)}{outcome.compression && (outcome.compression.reduced
