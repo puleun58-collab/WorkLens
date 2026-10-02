@@ -115,7 +115,8 @@ test("RESEARCH law search sends only the query and separates results, no result 
   await expect(page.locator(".file-row").filter({ hasText: "keep.pdf" })).toBeVisible();
 
   await navigateWorkspace(page, "법령");
-  await expect(page.getByRole("button", { name: "법령", exact: true })).toHaveAttribute("aria-current", "page");
+  // At tablet width the navigation is collapsed behind the menu button but still marks the current view.
+  await expect(page.getByRole("button", { name: "법령", exact: true, includeHidden: true }).first()).toHaveAttribute("aria-current", "page");
   await expect(page.locator(".context-bar h1")).toHaveText("법령");
   await expect(page.getByRole("heading", { name: /^검색 결과/ })).toHaveCount(0);
   await expect(page.locator(".law-search-results")).toHaveCount(0);
