@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { LogOut, Plus } from "lucide-react";
 import { WorkLensLogo } from "../worklens-logo";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { AlertDialog, AlertDialogTrigger, AlertDialogPopup, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogClose } from "@/components/ui/alert-dialog";
 
 interface CompanyTerm {
   id: number;
@@ -125,10 +128,10 @@ export default function AdminPage() {
           <p>공용 용어 사전을 관리하려면 관리자 비밀번호가 필요합니다.</p>
           <label>
             <span>관리자 비밀번호</span>
-            <input type="password" value={password} autoComplete="current-password" onChange={(event) => setPassword(event.target.value)} />
+            <Input type="password" value={password} autoComplete="current-password" onChange={(event) => setPassword(event.target.value)} />
           </label>
           {feedback ? <p className={`admin-feedback ${feedback.tone}`} role="alert">{feedback.message}</p> : null}
-          <button type="submit" disabled={busy || !password}>로그인</button>
+          <Button type="submit" disabled={busy || !password}>로그인</Button>
         </form>
       </main>
     );
@@ -144,20 +147,18 @@ export default function AdminPage() {
       <header className="admin-bar">
         <WorkLensLogo size={24} tone="dark" />
         <span className="admin-title">Admin · Company Terms</span>
-        <button type="button" className="secondary-action" onClick={logout}>
+        <Button type="button" variant="outline" className="secondary-action" onClick={logout}>
           <LogOut size={14} strokeWidth={1.75} aria-hidden="true" /> Logout
-        </button>
+        </Button>
       </header>
 
       <section className="admin-surface">
         <div className="admin-toolbar">
-          <input
-            type="search"
-            value={query}
-            placeholder="용어 검색"
-            aria-label="용어 검색"
-            onChange={(event) => setQuery(event.target.value)}
-          />
+          <Input type="search"
+          value={query}
+          placeholder="용어 검색"
+          aria-label="용어 검색"
+          onChange={(event) => setQuery(event.target.value)} />
           <form
             className="admin-add"
             onSubmit={async (event) => {
@@ -169,11 +170,11 @@ export default function AdminPage() {
               if (created) setDraft({ term: "", description: "" });
             }}
           >
-            <input value={draft.term} maxLength={64} placeholder="용어" aria-label="새 용어" onChange={(event) => setDraft((current) => ({ ...current, term: event.target.value }))} />
-            <input value={draft.description} maxLength={120} placeholder="설명" aria-label="새 용어 설명" onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} />
-            <button type="submit" disabled={busy || !draft.term.trim()}>
+            <Input value={draft.term} maxLength={64} placeholder="용어" aria-label="새 용어" onChange={(event) => setDraft((current) => ({ ...current, term: event.target.value }))} />
+            <Input value={draft.description} maxLength={120} placeholder="설명" aria-label="새 용어 설명" onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} />
+            <Button type="submit" disabled={busy || !draft.term.trim()}>
               <Plus size={14} strokeWidth={2} aria-hidden="true" /> 용어 추가
-            </button>
+            </Button>
           </form>
         </div>
 
@@ -193,22 +194,20 @@ export default function AdminPage() {
               <div className="admin-row" role="row" key={term.id}>
                 {isEditing ? (
                   <>
-                    <input value={editing.term} aria-label={`${term.term} 이름`} onChange={(event) => setEditing({ ...editing, term: event.target.value })} />
-                    <input value={editing.description} aria-label={`${term.term} 설명`} onChange={(event) => setEditing({ ...editing, description: event.target.value })} />
+                    <Input value={editing.term} aria-label={`${term.term} 이름`} onChange={(event) => setEditing({ ...editing, term: event.target.value })} />
+                    <Input value={editing.description} aria-label={`${term.term} 설명`} onChange={(event) => setEditing({ ...editing, description: event.target.value })} />
                     <span className={term.active ? "admin-state active" : "admin-state"}>{term.active ? "Active" : "Inactive"}</span>
                     <span className="admin-actions">
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          const saved = await mutate(`/api/admin/company-terms/${term.id}`, {
-                            method: "PATCH",
-                            body: JSON.stringify({ term: editing.term, description: editing.description || null }),
-                          }, "용어를 수정했습니다.");
-                          if (saved) setEditing(null);
-                        }}
-                        disabled={busy}
-                      >저장</button>
-                      <button type="button" onClick={() => setEditing(null)}>취소</button>
+                      <Button type="button" size="sm"
+                      onClick={async () => {
+                        const saved = await mutate(`/api/admin/company-terms/${term.id}`, {
+                          method: "PATCH",
+                          body: JSON.stringify({ term: editing.term, description: editing.description || null }),
+                        }, "용어를 수정했습니다.");
+                        if (saved) setEditing(null);
+                      }}
+                      disabled={busy}>저장</Button>
+                      <Button type="button" variant="outline" size="sm" onClick={() => setEditing(null)}>취소</Button>
                     </span>
                   </>
                 ) : (
@@ -217,24 +216,20 @@ export default function AdminPage() {
                     <span role="cell" className="admin-description">{term.description || "없음"}</span>
                     <span role="cell" className={term.active ? "admin-state active" : "admin-state"}>{term.active ? "Active" : "Inactive"}</span>
                     <span role="cell" className="admin-actions">
-                      <button type="button" onClick={() => setEditing({ id: term.id, term: term.term, description: term.description ?? "" })}>Edit</button>
-                      <button
-                        type="button"
-                        onClick={() => void mutate(`/api/admin/company-terms/${term.id}`, {
-                          method: "PATCH",
-                          body: JSON.stringify({ active: !term.active }),
-                        }, term.active ? "용어를 비활성화했습니다." : "용어를 활성화했습니다.")}
-                        disabled={busy}
-                      >{term.active ? "Inactive" : "Active"}</button>
-                      <button
-                        type="button"
-                        className="admin-danger"
-                        onClick={() => {
-                          if (!window.confirm(`${term.term} 공용 용어를 삭제하시겠습니까?`)) return;
-                          void mutate(`/api/admin/company-terms/${term.id}`, { method: "DELETE" }, "용어를 삭제했습니다.");
-                        }}
-                        disabled={busy}
-                      >Delete</button>
+                      <Button type="button" variant="outline" size="sm" onClick={() => setEditing({ id: term.id, term: term.term, description: term.description ?? "" })}>Edit</Button>
+                      <Button type="button" variant="outline" size="sm"
+                      onClick={() => void mutate(`/api/admin/company-terms/${term.id}`, {
+                        method: "PATCH",
+                        body: JSON.stringify({ active: !term.active }),
+                      }, term.active ? "용어를 비활성화했습니다." : "용어를 활성화했습니다.")}
+                      disabled={busy}>{term.active ? "Inactive" : "Active"}</Button>
+                      <AlertDialog>
+                        <AlertDialogTrigger render={<Button type="button" variant="destructive-outline" disabled={busy} />}>Delete</AlertDialogTrigger>
+                        <AlertDialogPopup>
+                          <AlertDialogHeader><AlertDialogTitle>공용 용어 삭제</AlertDialogTitle><AlertDialogDescription>{term.term} 공용 용어를 삭제합니다. 삭제 후에는 복구할 수 없습니다.</AlertDialogDescription></AlertDialogHeader>
+                          <AlertDialogFooter><AlertDialogClose render={<Button variant="outline" />}>취소</AlertDialogClose><AlertDialogClose render={<Button variant="destructive" onClick={() => void mutate(`/api/admin/company-terms/${term.id}`, { method: "DELETE" }, "용어를 삭제했습니다.")} />}>삭제</AlertDialogClose></AlertDialogFooter>
+                        </AlertDialogPopup>
+                      </AlertDialog>
                     </span>
                   </>
                 )}

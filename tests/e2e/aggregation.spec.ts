@@ -26,8 +26,13 @@ async function upload(page: Page, files: ReadonlyArray<readonly [string, Buffer]
 
 /** Selects the files in the given order (the first becomes the target) and runs aggregation. */
 async function aggregate(page: Page, names: readonly string[]) {
-  await page.getByRole("button", { name: "취합", exact: true }).click();
-  for (const name of names) await page.getByLabel(`${name} 선택`).check();
+  const menu = page.getByRole("button", { name: "작업 공간 메뉴 열기", exact: true });
+  const mobile = await menu.isVisible();
+  if (mobile) await menu.click();
+  await page.getByRole("navigation", { name: "작업 공간 메뉴", exact: true })
+    .getByRole("button", { name: "취합", exact: true }).click();
+  if (mobile) await expect(page.getByRole("dialog")).not.toBeVisible();
+  for (const name of names) await page.getByRole("checkbox", { name: `${name} 선택`, exact: true }).check();
   await expect(page.locator(".file-row").filter({ hasText: names[0] }).locator(".compare-selection-role")).toHaveText("기준 파일");
   await page.getByRole("button", { name: "취합 실행" }).click();
   const panel = page.locator(".aggregation-results");

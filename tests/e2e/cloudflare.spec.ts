@@ -94,14 +94,14 @@ test.describe("Cloudflare Worker production build", () => {
     // With files present the workspace leads and the add action moves to the bar.
     await expect(page.locator(".dropzone")).toHaveCount(0);
     await expect(page.getByRole("button", { name: "파일 추가" })).toBeVisible();
-    await page.getByLabel("cloudflare-rate-v1.xlsx 선택").check();
+    await page.getByRole("checkbox", { name: "cloudflare-rate-v1.xlsx 선택", exact: true }).check();
     await page.getByRole("button", { name: "분석", exact: true }).click();
     await page.getByRole("button", { name: "분석 실행" }).click();
     await expect(page.locator(".results-panel .result-status")).toHaveText("분석 완료");
     await expect(page.locator(".results-panel .numeric").first()).toBeVisible();
 
     await upload(page, files.check);
-    await page.getByLabel("cloudflare-check.pptx 선택").check();
+    await page.getByRole("checkbox", { name: "cloudflare-check.pptx 선택", exact: true }).check();
     await page.getByRole("button", { name: "검수", exact: true }).click();
     await page.getByRole("button", { name: "검수 실행" }).click();
     const finding = page.locator(".check-issue").first();
@@ -112,9 +112,9 @@ test.describe("Cloudflare Worker production build", () => {
     await expect(page.getByLabel("근거 상세")).toBeVisible();
     await page.getByLabel("닫기").click();
 
-    await page.getByLabel("cloudflare-check.pptx 선택").uncheck();
+    await page.getByRole("checkbox", { name: "cloudflare-check.pptx 선택", exact: true }).uncheck();
     await upload(page, files.v2);
-    await page.getByLabel("cloudflare-rate-v2.xlsx 선택").check();
+    await page.getByRole("checkbox", { name: "cloudflare-rate-v2.xlsx 선택", exact: true }).check();
     await page.getByRole("button", { name: "비교", exact: true }).click();
     await page.getByRole("button", { name: "비교 실행" }).click();
     await expect(page.getByTestId("change-row").first()).toBeVisible();

@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page, type Route } from "@playwright/test";
 import { createUnicodePdf, createPptxSlides, createXlsx } from "../fixtures";
+import { navigateWorkspace } from "./navigation";
 
 /**
  * Analyze through the real UI: upload, select, run, read each section and
@@ -26,7 +27,7 @@ async function upload(page: Page, files: Array<{ name: string; bytes: Uint8Array
 }
 
 async function analyze(page: Page) {
-  await page.getByRole("button", { name: "분석", exact: true }).click();
+  await navigateWorkspace(page, "분석");
   await page.getByRole("button", { name: "분석 실행" }).click();
   const panel = page.locator(".results-panel");
   await expect(panel.getByRole("heading", { name: "분석 결과" })).toBeVisible();

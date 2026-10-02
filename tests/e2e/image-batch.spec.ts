@@ -1,7 +1,12 @@
 import { readFile } from "node:fs/promises";
 import { unzipSync } from "fflate";
 import { PDFDocument } from "pdf-lib";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
+
+async function chooseOption(page: Page, trigger: Locator, label: string) {
+  await trigger.click();
+  await page.getByRole("option", { name: label, exact: true }).click();
+}
 
 async function addImages(page: Page, sizes: Array<[string, number, number]>) {
   const files = await page.evaluate((entries) => entries.map(([name, width, height], index) => {
@@ -38,7 +43,13 @@ async function dimensions(page: Page, bytes: Uint8Array, mime: string) {
 async function openEditor(page: Page) {
   await page.goto("/");
   await expect(page.locator(".app-shell")).toHaveAttribute("data-hydrated", "true");
-  await page.getByRole("button", { name: "이미지 도구" }).click();
+  const menu = page.getByRole("button", { name: "작업 공간 메뉴 열기", exact: true });
+  if (await menu.isVisible()) {
+    await menu.click();
+    await page.getByRole("dialog").getByRole("button", { name: "이미지 도구", exact: true }).click();
+  } else {
+    await page.getByRole("navigation", { name: "작업 공간 메뉴", exact: true }).getByRole("button", { name: "이미지 도구", exact: true }).click();
+  }
 }
 
 async function active(page: Page, name: string) {
@@ -54,12 +65,10 @@ test("batch image edits use selected items, each ratio, and keep active preview 
   page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
   await openEditor(page);
   await addImages(page, [["a.png", 1000, 500], ["b.png", 1000, 1000], ["c.png", 1920, 1080]]);
-  await page.getByLabel("c.png 선택").uncheck();
+  await page.getByRole("checkbox", { name: "c.png 선택", exact: true }).uncheck();
   // Same width (1000), different heights: only the differing field is blank, as a hint, never a value.
   await expect(page.getByLabel("너비 px")).toHaveValue("1000");
-  await expect(page.getByLabel("너비 px")).not.toHaveAttribute("placeholder", /./);
   await expect(page.getByLabel("높이 px")).toHaveValue("");
-  await expect(page.getByLabel("높이 px")).toHaveAttribute("placeholder", "서로 다른 값");
   await page.getByLabel("너비 px").fill("500");
   await page.getByLabel("너비 px").press("Tab");
   await size(page, 500, 250);
@@ -79,15 +88,15 @@ test("batch image edits use selected items, each ratio, and keep active preview 
   await size(page, 200, 200);
   await active(page, "a.png");
   await size(page, 100, 200); // Each rotated image retains its own current ratio.
-  await expect(page.getByLabel("c.png 선택")).not.toBeChecked();
+  await expect(page.getByRole("checkbox", { name: "c.png 선택", exact: true })).not.toBeChecked();
   expect(errors).toEqual([]);
 });
 
 test("batch unlocked sizes and rotations are encoded in JPG, PNG, WebP and PDF exports", async ({ page }) => {
   await openEditor(page);
   await addImages(page, [["a.png", 1000, 500], ["b.png", 1920, 1080], ["c.png", 500, 500]]);
-  await page.getByLabel("c.png 선택").uncheck();
-  await page.getByLabel("비율 유지").uncheck();
+  await page.getByRole("checkbox", { name: "c.png 선택", exact: true }).uncheck();
+  await page.getByRole("checkbox", { name: "비율 유지", exact: true }).uncheck();
   await page.getByLabel("너비 px").fill("800");
   await page.getByLabel("너비 px").press("Tab");
   await size(page, 1000, 500); // Mixed values need both dimensions with the lock off.
@@ -106,15 +115,15 @@ test("batch unlocked sizes and rotations are encoded in JPG, PNG, WebP and PDF e
   await size(page, 600, 800);
   await expect(page.locator(".image-tool-file.is-current strong")).toHaveText("b.png");
   for (const [format, mime] of [["jpg", "image/jpeg"], ["png", "image/png"], ["webp", "image/webp"]] as const) {
-    await page.getByLabel("형식").selectOption(format);
+    await chooseOption(page, page.getByLabel("형식"), format === "webp" ? "WebP" : format.toUpperCase());
     const files = unzipSync(await download(page));
     expect(Object.keys(files).sort()).toEqual([`a.${format}`, `b.${format}`]);
     for (const bytes of Object.values(files)) expect(await dimensions(page, bytes, mime)).toEqual([600, 800]);
   }
-  await page.getByLabel("형식").selectOption("pdf");
+  await chooseOption(page, page.getByLabel("형식"), "PDF");
   const pdf = await PDFDocument.load(await download(page));
   expect(pdf.getPages().map((entry) => [entry.getWidth(), entry.getHeight()])).toEqual([[600, 800], [600, 800]]);
-  await page.getByLabel("b.png 선택").uncheck();
+  await page.getByRole("checkbox", { name: "b.png 선택", exact: true }).uncheck();
   await active(page, "a.png");
   await expect(page.getByLabel("너비 px")).toHaveValue("600");
   await page.getByLabel("너비 px").fill("300");

@@ -6,10 +6,6 @@
   padding: 4px 0 44px;
 }
 .pdf-tool * { box-sizing: border-box; }
-.pdf-tool button, .pdf-tool select, .pdf-tool input { font: inherit; }
-.pdf-tool button { cursor: pointer; }
-.pdf-tool button:disabled { cursor: not-allowed; opacity: .44; }
-.pdf-tool :is(button, select, input):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .pdf-tool-eyebrow { color: var(--blue); font-family: var(--font-mono); font-size: 12px; font-weight: var(--font-weight-semibold); letter-spacing: var(--tracking-label); }
 .pdf-tool-section-head p { color: var(--muted); margin: 0; font-size: 14px; line-height: 1.6; }
 .pdf-tool-panel { border: 1px solid var(--border-default, var(--line)); background: var(--paper); border-radius: var(--radius-panel); box-shadow: none; }
@@ -20,24 +16,13 @@
 .pdf-tool-upload-mark { display: grid; place-items: center; flex: none; height: 36px; width: 36px; color: var(--blue); font-size: 29px; font-weight: 300; }
 .pdf-tool-upload-copy { display: grid; gap: 6px; min-width: 0; flex: 1; }
 .pdf-tool-upload-copy span { color: var(--muted); font-size: 13px; line-height: 1.5; }
-.pdf-tool-button { min-height: var(--control-height-md); display: inline-flex; align-items: center; justify-content: center; gap: 12px; border: 1px solid transparent; border-radius: var(--radius-button); padding: 9px 16px; font-weight: 700 !important; font-size: 13px !important; white-space: nowrap; transition: background var(--motion-fast) var(--motion-ease); }
-.pdf-tool-button-secondary { border-color: var(--border-default, var(--line)); background: var(--paper); color: var(--ink); }
-.pdf-tool-button-secondary:hover:not(:disabled) { background: var(--layer); }
-.pdf-tool-button-primary { background: var(--blue); color: white; padding-left: 21px; }
-.pdf-tool-button-primary:hover:not(:disabled) { background: var(--blue-hover); }
-.pdf-tool-upload-button { padding-left: 18px; padding-right: 18px; }
-.pdf-tool .pdf-tool-button-primary:disabled { border-color: var(--disabled-border); background: var(--disabled-surface); color: var(--disabled-ink); opacity: 1; }
-.pdf-tool-button-primary span { display: grid; place-items: center; width: 23px; height: 23px; border-radius: 6px; background: rgba(255,255,255,.2); font-size: 16px; line-height: 1; }
 .pdf-tool-input-hidden { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .pdf-tool-sources { display: flex; flex-wrap: wrap; gap: 8px; margin-top: -12px; }
 .pdf-tool-source { display: flex; align-items: center; gap: 10px; min-width: 0; max-width: min(100%, 330px); padding: 8px 8px 8px 10px; border-radius: var(--radius-panel); background: var(--paper); border: 1px solid var(--border-subtle); }
 .pdf-tool-source-icon { color: var(--ink-soft); background: var(--layer); border-radius: var(--radius-control); font-weight: 700; font-size: 10px; padding: 7px 5px; letter-spacing: -.04em; }
 .pdf-tool-source-name { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 650; font-size: 12px; }
 .pdf-tool-source-name small { display: block; font-size: 11px; color: var(--muted); font-weight: 450; }
-.pdf-tool-icon-button { flex: none; width: 28px; height: 28px; display: grid; place-items: center; padding: 0; border: 0; background: transparent; color: var(--muted); border-radius: var(--radius-control); font-size: 19px !important; }
-.pdf-tool-icon-button:hover:not(:disabled) { color: #a52631; background: #fff1f0; }
 .pdf-tool-notice { border: 1px solid var(--blue-border); color: var(--blue-active); background: var(--blue-soft); border-radius: var(--radius-button); padding: 12px 15px; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
-.pdf-tool-notice button { border: 0; background: none; color: inherit; font-weight: 700; text-decoration: underline; margin-left: 12px; }
 .pdf-tool-notice-error { background: var(--critical-soft); border-color: var(--critical); color: var(--critical); }
 .pdf-tool-editor { min-width: 0; }
 .pdf-tool-section-head { display: flex; justify-content: space-between; align-items: end; gap: 16px; margin: 0 2px 17px; }
@@ -50,15 +35,7 @@
 .pdf-tool-empty strong { font-size: 14px; }
 .pdf-tool-empty span { color: var(--muted); font-size: 12px; }
 .pdf-tool-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; border: 1px solid var(--border-surface); background: var(--paper); border-radius: var(--radius-panel) var(--radius-panel) 0 0; padding: 9px 12px; }
-/* Page actions: rotate is a secondary blue button, delete a destructive one; both share one size. */
-.pdf-tool-toolbar button.pdf-tool-action { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: var(--control-height-sm); padding: 0 18px; border: 1px solid var(--blue-border); border-radius: var(--radius-button); background: var(--blue-soft); color: var(--blue); font-size: var(--font-size-xs); font-weight: 600; line-height: 1; white-space: nowrap; }
-.pdf-tool-toolbar button.pdf-tool-action svg { flex: none; width: 16px; height: 16px; }
-.pdf-tool-toolbar button.pdf-tool-action:hover:not(:disabled) { border-color: var(--blue); background: var(--blue-pale); }
-.pdf-tool-toolbar button.pdf-tool-delete { margin-left: auto; border-color: color-mix(in srgb, var(--critical) 32%, var(--paper)); background: var(--critical-soft); color: var(--critical); }
-.pdf-tool-toolbar button.pdf-tool-delete:hover:not(:disabled) { border-color: var(--critical); background: var(--critical-soft); }
-.pdf-tool-toolbar button.pdf-tool-action:disabled { border-color: var(--disabled-border); background: var(--disabled-surface); color: var(--disabled-ink); cursor: not-allowed; }
 .pdf-tool-select-all { display: inline-flex; align-items: center; gap: 8px; padding: 0 8px; font-weight: 700; font-size: 12px; min-height: 34px; cursor: pointer; }
-.pdf-tool input[type="checkbox"], .pdf-tool input[type="radio"] { accent-color: var(--blue); width: 15px; height: 15px; margin: 0; cursor: pointer; }
 .pdf-tool-toolbar-divider { width: 1px; height: 20px; background: var(--border-default, var(--line)); margin: 0 6px; }
 .pdf-tool-pages { display: grid; grid-template-columns: repeat(auto-fill, minmax(166px, 1fr)); gap: 13px; padding: 17px; border: 1px solid var(--border-surface); border-top: 0; background: var(--layer); border-radius: 0 0 var(--radius-panel) var(--radius-panel); box-shadow: var(--shadow-surface); }
 .pdf-tool-page { min-width: 0; background: var(--paper); border: 1px solid var(--border-default); border-radius: var(--radius-panel); padding: 11px; box-shadow: none; }
@@ -82,7 +59,6 @@
 }
 @media (max-width: 520px) {
   .pdf-tool-upload { flex-wrap: wrap; }
-  .pdf-tool-upload .pdf-tool-button { width: 100%; }
   .pdf-tool-source { max-width: 100%; width: 100%; }
   .pdf-tool-section-head { align-items: flex-start; flex-direction: column; }
   .pdf-tool-toolbar-divider { display: none; }
@@ -92,5 +68,5 @@
   .pdf-tool-export-actions > button { flex: 1; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .pdf-tool :is(.pdf-tool-button, .pdf-tool-page, .pdf-tool-upload) { transition: none; }
+  .pdf-tool :is(.pdf-tool-page, .pdf-tool-upload) { transition: none; }
 }

@@ -41,8 +41,13 @@ test("loads the deployed workspace and runs browser-only Check", async ({ page }
     buffer: Buffer.from(createCheckPptx()),
   });
   await expect(page.locator(".file-row").filter({ hasText: "smoke-check.pptx" })).toBeVisible();
-  await page.getByLabel("smoke-check.pptx 선택").check();
-  await page.getByRole("button", { name: "검수", exact: true }).click();
+  await page.getByRole("checkbox", { name: "smoke-check.pptx 선택", exact: true }).check();
+  const menu = page.getByRole("button", { name: "작업 공간 메뉴 열기", exact: true });
+  const mobile = await menu.isVisible();
+  if (mobile) await menu.click();
+  await page.getByRole("navigation", { name: "작업 공간 메뉴", exact: true })
+    .getByRole("button", { name: "검수", exact: true }).click();
+  if (mobile) await expect(page.getByRole("dialog")).not.toBeVisible();
   await page.getByRole("button", { name: "검수 실행" }).click();
   await expect(page.locator(".check-issue").first()).toBeVisible();
   const finding = page.locator(".check-issue").first();

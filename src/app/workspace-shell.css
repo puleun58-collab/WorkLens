@@ -1,0 +1,26 @@
+.workspace-sidebar { position: sticky; top: 0; height: 100dvh; display: flex; flex-direction: column; background: var(--sidebar); border-right: 1px solid var(--border); overflow: hidden; }
+.workspace-brand { min-height: 64px; flex-shrink: 0; display: flex; align-items: center; padding: 12px 18px; }
+.workspace-navigation { padding: 4px 12px 12px; }
+.workspace-sidebar > .workspace-navigation { flex: 1; min-height: 0; overflow-y: auto; }
+.workspace-navigation section + section { margin-top: 14px; }
+.workspace-navigation h2 { color: var(--muted-foreground); font-size: 11px; font-weight: 600; margin: 8px 10px; }
+.workspace-navigation ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
+.workspace-nav-item { width: 100%; justify-content: flex-start; color: var(--sidebar-foreground); min-height: 36px; font-size: 13px; border-radius: var(--radius); }
+.workspace-nav-item.active { color: var(--sidebar-accent-foreground); background: var(--sidebar-accent); font-weight: 600; }
+.workspace-nav-item.nested { padding-left: 24px; }
+.workspace-privacy { flex-shrink: 0; margin: 12px 18px 18px; padding-top: 12px; border-top: 1px solid var(--border); color: var(--muted-foreground); font-size: 11px; line-height: 1.6; }
+.workspace-topbar { min-height: 64px; padding: 12px 24px; border-bottom: 1px solid var(--border); background: var(--card); display: flex; align-items: center; gap: 20px; }
+.workspace-command-trigger { width: min(100%, 620px); justify-content: flex-start; color: var(--muted-foreground); background: var(--background); }
+.workspace-command-trigger kbd { margin-left: auto; font-size: 11px; }
+.workspace-topbar-note { margin-left: auto; color: var(--muted-foreground); font-size: 12px; white-space: nowrap; }
+.workspace-mobile-bar { display: none; }
+.app-shell { background: var(--background); }
+.shell-main { min-width: 0; }
+.context-bar { background: var(--card); }
+@media (max-width: 900px) {
+  .workspace-sidebar { display: none; }
+  .workspace-mobile-bar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: var(--card); border-bottom: 1px solid var(--border); }
+  .workspace-topbar { min-height: auto; padding: 10px 14px; }
+  .workspace-topbar-note { display: none; }
+  .workspace-command-trigger { width: 100%; }
+}

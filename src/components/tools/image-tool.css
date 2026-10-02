@@ -6,18 +6,15 @@
   padding: 4px 0 44px;
 }
 
-.image-tool button,
-.image-tool input,
-.image-tool select { font: inherit; }
-.image-tool button:disabled { cursor: not-allowed; opacity: .48; }
-.image-tool :is(button, input, select):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .image-tool-intro { margin-bottom: 18px; }
 .image-tool-section-heading span { color: var(--blue); font-family: var(--font-mono); font-size: 12px; font-weight: var(--font-weight-semibold); letter-spacing: var(--tracking-label); }
 /* Narrow file list, widest preview, and a settings column wide enough for paired inputs and buttons. */
 .image-tool-layout { display: grid; grid-template-columns: minmax(200px, 236px) minmax(0, 1fr) minmax(280px, 320px); gap: 12px; align-items: stretch; }
 .image-tool-library, .image-tool-stage, .image-tool-controls { min-width: 0; border: 1px solid var(--border-surface); border-radius: var(--radius-panel); background: var(--paper); box-shadow: var(--shadow-surface); }
-/* FILES stretches to the PREVIEW row height; a long list scrolls inside the list, not the panel. */
-.image-tool-library { align-self: stretch; display: flex; flex-direction: column; }
+/* FILES stretches to the PREVIEW row height; a long list scrolls inside the list, not the panel.
+   Size containment keeps the list's own height out of the row, so PREVIEW never grows with it. */
+.image-tool-library { align-self: stretch; display: flex; flex-direction: column; contain: size; }
+.image-tool-library .image-tool-file-list { flex: 1 1 auto; min-height: 0; }
 .image-tool-library, .image-tool-controls { padding: 17px 14px 16px; }
 /* The stage is stretched to the tallest column; the preview takes all of that height. */
 .image-tool-stage { padding: 17px 18px 15px; display: flex; flex-direction: column; }
@@ -25,8 +22,6 @@
 .image-tool-section-heading > div { min-width: 0; flex: 1; }
 .image-tool-section-heading h3 { margin: 5px 0 0; font-size: 15px; letter-spacing: -.025em; font-weight: 650; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .image-tool-section-heading h3 small { font-size: 13px; font-family: var(--font-mono); font-weight: 500; color: var(--muted); margin-left: 5px; }
-.image-tool-section-heading > button { flex: none; min-height: var(--control-height-sm); border: 1px solid var(--blue-border); border-radius: var(--radius-control); background: var(--paper); padding: 0 10px; color: var(--blue); font-size: 13px; font-weight: 650; }
-.image-tool-section-heading > button:hover:not(:disabled) { background: var(--blue-pale); border-color: var(--blue); }
 .image-tool-hint, .image-tool-stage-caption { font-size: 12px; line-height: 1.55; color: var(--muted); }
 /* Empty tool: one full-width drop zone replaces the three-column editor. */
 .image-tool-upload { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 190px; padding: 24px; border: 1px dashed var(--dropzone-border); border-radius: var(--radius-panel); background: var(--paper); text-align: center; line-height: 1.5; cursor: pointer; transition: border-color var(--motion-fast) var(--motion-ease), background var(--motion-fast) var(--motion-ease); }
@@ -35,25 +30,20 @@
 .image-tool-upload[data-drag-active="true"] { border-color: var(--blue); background: var(--blue-soft); }
 .image-tool-upload > svg { width: 24px; height: 24px; margin-bottom: 7px; color: #a1aec0; }
 .image-tool-upload span { color: var(--muted); font-size: 13px; margin-top: 3px; }
-.image-tool-upload button { min-height: var(--control-height-md); margin-top: 12px; padding: 9px 15px; border: 1px solid var(--blue); border-radius: var(--radius-button); background: var(--blue); color: #fff; }
-.image-tool-upload button:hover:not(:disabled) { background: var(--blue-hover); }
-.image-tool-upload button:disabled { border-color: var(--disabled-border); background: var(--disabled-surface); color: var(--disabled-ink); opacity: 1; }
+.image-tool-upload [data-slot="button"] { margin-top: 12px; }
 .image-tool-upload small { margin-top: 8px; color: var(--muted); font-size: 12px; opacity: .85; }
 .image-tool-upload .image-tool-notice { margin-top: 12px; }
 .image-tool-file-list { display: flex; flex-direction: column; max-height: clamp(260px, 56vh, 510px); overflow: auto; margin: 14px -5px 0; gap: 4px; }
 .image-tool-file { display: flex; align-items: center; gap: 5px; padding: 5px 5px 5px 2px; border: 1px solid transparent; border-radius: 4px; min-width: 0; }
 .image-tool-file.is-current { border-color: var(--blue-border); background: var(--blue-pale); }
 .image-tool-file-check { display: flex; align-items: center; flex: none; padding: 5px 2px 5px 5px; }
-.image-tool-file-check input, .image-tool-check input { accent-color: var(--blue); width: 15px; height: 15px; margin: 0; }
-.image-tool-file-open { display: flex; min-width: 0; flex: 1; align-items: center; gap: 7px; text-align: left; padding: 0; border: 0; background: transparent; }
+.image-tool-file-open { display: flex; min-width: 0; flex: 1; height: auto; align-items: center; gap: 7px; text-align: left; white-space: normal; }
 .image-tool-file-open img { width: 37px; height: 37px; object-fit: cover; border: 1px solid var(--image-border); border-radius: 3px; background: var(--layer); flex: none; }
 .image-tool-file-open span { min-width: 0; }
 .image-tool-file-open strong, .image-tool-file-open small { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .image-tool-file-open strong { font-size: 12px; font-weight: 600; }
 .image-tool-file-open small { color: var(--muted); font-size: 11px; font-family: var(--font-mono); margin-top: 2px; }
 .image-tool-order { display: flex; align-items: center; flex: none; }
-.image-tool-order button { width: 24px; height: 24px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--muted); font-size: 15px; line-height: 1; }
-.image-tool-order button:hover:not(:disabled) { color: var(--blue); }
 .image-tool-hint { margin: 13px 2px 0; }
 .image-tool-dimensions { flex: none; font-size: 12px !important; font-family: var(--font-mono); color: var(--muted) !important; letter-spacing: 0 !important; font-weight: 400 !important; }
 .image-tool-preview { flex: 1 1 auto; min-height: 320px; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden; padding: 22px; border: 1px solid var(--image-border); border-radius: 4px; background-color: #edf1f5; background-image: linear-gradient(45deg, #e4eaf1 25%, transparent 25%, transparent 75%, #e4eaf1 75%), linear-gradient(45deg, #e4eaf1 25%, transparent 25%, transparent 75%, #e4eaf1 75%); background-position: 0 0, 8px 8px; background-size: 16px 16px; }
@@ -73,20 +63,11 @@
 .image-tool-merge-heading h4 { margin: 0; }
 .image-tool-merge-heading small { color: var(--muted); font-size: 12px; }
 .image-tool-control-section label:not(.image-tool-check) { display: block; min-width: 0; color: var(--muted); font-size: 12px; font-weight: 600; }
-.image-tool-control-section label > span { float: right; font-family: var(--font-mono); color: var(--ink); }
+.image-tool-control-section label > [data-slot="input-control"] { margin-top: 6px; }
 .image-tool-size-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
-.image-tool-control-section input:not([type="checkbox"]):not([type="range"]):not([type="radio"]), .image-tool-control-section select { display: block; width: 100%; height: var(--control-height-sm); margin-top: 6px; padding: 0 9px; border: 1px solid var(--image-strong-border); border-radius: var(--radius-control); color: var(--ink); background: var(--paper); font-size: 13px; }
-.image-tool-control-section :is(input:not([type="checkbox"]):not([type="range"]):not([type="radio"]), select):disabled { border-color: var(--disabled-border); background: var(--disabled-surface); color: var(--disabled-ink); cursor: not-allowed; }
 .image-tool-check { display: flex; align-items: center; gap: 8px; margin: 12px 0; font-size: 12px; color: var(--ink); cursor: pointer; }
 .image-tool-button-row { display: flex; gap: 6px; margin-top: 10px; }
-.image-tool-button-row button { flex: 1 1 0; min-width: 0; min-height: var(--control-height-sm); border: 1px solid var(--image-strong-border); border-radius: var(--radius-control); padding: 6px 7px; color: var(--ink); background: var(--paper); font-size: 12px; font-weight: 600; white-space: nowrap; }
-/* Editing actions (rotate, start a selection) read as blue outline; resets stay neutral. */
-.image-tool-button-row button.is-edit { border-color: var(--blue-border); color: var(--blue); }
-.image-tool-button-row button.is-edit:hover:not(:disabled) { border-color: var(--blue); background: var(--blue-pale); }
-.image-tool-button-row button.is-edit[aria-pressed="true"] { border-color: var(--blue); background: var(--blue-soft); color: var(--blue-active, var(--blue)); box-shadow: inset 0 0 0 1px var(--blue); }
-.image-tool-button-row button.is-reset { border-color: transparent; background: transparent; color: var(--muted); }
-.image-tool-button-row button.is-reset:hover:not(:disabled) { border-color: var(--image-strong-border); background: var(--layer); color: var(--ink); }
-.image-tool-control-section input[type="range"] { display: block; width: 100%; accent-color: var(--blue); margin-top: 9px; }
+.image-tool-button-row [data-slot="button"] { flex: 1 1 0; min-width: 0; }
 .image-tool-merge { padding-bottom: 0; }
 .image-tool-export { margin-top: 12px; }
 .image-tool-progress, .image-tool-notice { width: 100%; margin: 0; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
@@ -107,7 +88,7 @@
   .image-tool-intro { flex-direction: column; gap: 7px; }
   .image-tool-layout { display: flex; flex-direction: column; }
   .image-tool-library, .image-tool-stage, .image-tool-controls { width: 100%; }
-  .image-tool-library { align-self: auto; }
+  .image-tool-library { align-self: auto; contain: none; }
   .image-tool-upload { min-height: 160px; padding: 20px 16px; }
   .image-tool-file-list { max-height: 235px; }
   .image-tool-stage { order: -1; }
@@ -120,18 +101,9 @@
 /* One compact ratio control; layout cells depict the same geometry used for export. */
 .image-tool-merge-options { display: grid; justify-items: start; gap: 6px; margin-top: 10px; }
 .image-tool-merge-label { margin-top: 3px; color: var(--muted); font-size: 12px; font-weight: 600; }
-.image-tool .image-tool-merge-ratios { display: inline-flex; flex-wrap: wrap; width: max-content; max-width: 100%; border-color: var(--image-strong-border); border-radius: var(--radius-control); box-shadow: none; }
-.image-tool-control-section .image-tool-merge-ratios label { display: inline-flex; flex: 0 0 auto; min-height: var(--control-height-sm); padding: 0 11px; border-inline-start-color: var(--image-border); color: var(--muted); font-size: 12px; }
 .image-tool-control-section .image-tool-merge-options label > span { float: none; font-family: inherit; color: inherit; }
-.image-tool-control-section .image-tool-merge-ratios label > span { font-family: var(--font-mono); }
-.image-tool-control-section .image-tool-merge-ratios label:has(input:checked) { background: var(--blue-pale); color: var(--blue-active); }
 .image-tool-merge-layouts { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; margin: 0; padding: 0; border: 0; }
 .image-tool-control-section .image-tool-merge-layouts label { position: relative; display: flex; flex: 0 0 auto; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-width: 68px; padding: 6px 8px 5px; border: 1px solid transparent; border-radius: 4px; color: var(--muted); cursor: pointer; }
-.image-tool-merge-layouts label:hover:not(:has(input:checked)) { background: var(--layer-hover); }
-.image-tool-merge-layouts label:has(input:checked) { border-color: var(--blue); background: var(--blue-pale); color: var(--blue-active); }
-.image-tool-merge-layouts label:has(input:focus-visible) { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-.image-tool-merge-layouts label:has(input:disabled) { opacity: .48; cursor: not-allowed; }
-.image-tool-merge-layouts input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: inherit; }
 .image-tool-layout-preview { position: relative; display: block; width: 46px; height: 34px; overflow: hidden; border: 1px solid var(--image-strong-border); border-radius: 2px; background: var(--paper); }
 .image-tool-layout-cell { position: absolute; box-sizing: border-box; border: 1px solid var(--paper); background: var(--tab-divider-primary); }
 .image-tool-layout-caption { font-size: 11px; line-height: 1; white-space: nowrap; }

@@ -1,6 +1,13 @@
 "use client";
 
 import { ChangeEvent, DragEvent, PointerEvent, useEffect, useMemo, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Slider } from "@/components/ui/slider";
+import { RadioGroup, Radio } from "@/components/ui/radio-group";
+import { Select, SelectTrigger, SelectValue, SelectPopup, SelectItem } from "@/components/ui/select";
 import { GripVertical, Images, RotateCcw, RotateCw } from "lucide-react";
 import {
   cropWithinPreview, effectiveCrop, encodeCanvas, encodePdf, fileBase, initialImageEdits,
@@ -423,28 +430,28 @@ export function ImageTool() {
           <Images aria-hidden="true" />
           <strong>이미지를 추가하세요</strong>
           <span>한 장씩 편집하거나 여러 이미지를 결합할 수 있습니다.</span>
-          <button type="button" onClick={() => fileInput.current?.click()} disabled={importing}>이미지 추가</button>
+          <Button variant="outline" type="button" onClick={() => fileInput.current?.click()} disabled={importing}>이미지 추가</Button>
           {importing && <small role="status">이미지를 읽는 중…</small>}
           {notice && <p className={`image-tool-notice is-${notice.tone}`} role={notice.tone === "error" ? "alert" : "status"}>{notice.text}</p>}
         </section>
       ) : <>
       <div className="image-tool-layout">
         <aside className="image-tool-library" aria-label="이미지 목록">
-          <div className="image-tool-section-heading"><div><span>01 / FILES</span><h3>작업 이미지 <small>{items.length}</small></h3></div><button type="button" onClick={() => fileInput.current?.click()} disabled={busy || importing}>+ 이미지 추가</button></div>
+          <div className="image-tool-section-heading"><div><span>01 / FILES</span><h3>작업 이미지 <small>{items.length}</small></h3></div><Button variant="outline" type="button" onClick={() => fileInput.current?.click()} disabled={busy || importing}>+ 이미지 추가</Button></div>
           {importing && <p className="image-tool-hint" role="status">이미지를 읽는 중…</p>}
           <div ref={fileList} className="image-tool-file-list" onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }} onDrop={handleDrop}>
             <p className="tool-reorder-live" aria-live="polite">{reorder.announcement}</p>
             {items.map((item) => <div key={item.id} className={`image-tool-file tool-reorder-y${item.id === currentId ? " is-current" : ""}`} {...reorder.itemProps(item.id)}>
-              <button {...reorder.handleProps(item.id, item.file.name)}><GripVertical aria-hidden="true" /></button>
-              <label className="image-tool-file-check" title="내보내기·결합에 포함">
-                <input type="checkbox" checked={selected.includes(item.id)} disabled={busy} onChange={() => toggleSelected(item.id)} aria-label={`${item.file.name} 선택`} />
-              </label>
-              <button className="image-tool-file-open" type="button" onClick={() => { setCurrentId(item.id); setDrag(null); dragOrigin.current = null; }} aria-current={item.id === currentId ? "true" : undefined}>
+              <Button variant="ghost" size="icon-sm" {...reorder.handleProps(item.id, item.file.name)}><GripVertical aria-hidden="true" /></Button>
+              <Label className="image-tool-file-check" title="내보내기·결합에 포함">
+                <Checkbox checked={selected.includes(item.id)} disabled={busy} onCheckedChange={() => toggleSelected(item.id)} aria-label={`${item.file.name} 선택`} />
+              </Label>
+              <Button variant="ghost" className="image-tool-file-open" type="button" onClick={() => { setCurrentId(item.id); setDrag(null); dragOrigin.current = null; }} aria-current={item.id === currentId ? "true" : undefined}>
                 {/* eslint-disable-next-line @next/next/no-img-element -- Object URLs are browser-local and unavailable to an image optimizer. */}
                 <img src={item.thumbnail} alt="" />
                 <span><strong title={item.file.name}>{item.file.name}</strong><small title={formatSize(item.file.size)}>{item.width} × {item.height}</small></span>
-              </button>
-              <div className="image-tool-order"><button type="button" aria-label={`${item.file.name} 제거`} disabled={busy} onClick={() => removeItem(item.id)}>×</button></div>
+              </Button>
+              <div className="image-tool-order"><Button variant="outline" type="button" aria-label={`${item.file.name} 제거`} disabled={busy} onClick={() => removeItem(item.id)}>×</Button></div>
             </div>)}
           </div>
         </aside>
@@ -483,34 +490,34 @@ export function ImageTool() {
         <aside className="image-tool-controls" aria-label="이미지 편집 설정">
           <div className="image-tool-section-heading"><div><span>03 / ADJUST</span><h3>편집 설정</h3></div></div>
           <fieldset disabled={!current || busy || mergeActive} className="image-tool-fieldset">
-            <section className="image-tool-control-section"><h4>크기 · 회전</h4><div className="image-tool-size-grid"><label>너비 px<input type="number" min="1" max={MAX_SIDE} value={widthDraft} placeholder={sameWidth ? undefined : "서로 다른 값"} onChange={(event) => setWidthDraft(event.target.value)} onBlur={() => commitDimension("width")} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} /></label><label>높이 px<input type="number" min="1" max={MAX_SIDE} value={heightDraft} placeholder={sameHeight ? undefined : "서로 다른 값"} onChange={(event) => setHeightDraft(event.target.value)} onBlur={() => commitDimension("height")} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} /></label></div><label className="image-tool-check"><input type="checkbox" checked={aspectLocked} onChange={(event) => setAspectLocked(event.target.checked)} /> 비율 유지</label><div className="image-tool-button-row"><button type="button" className="is-edit tool-rotate-button" onClick={() => editSelection((item) => rotateEdits(item.edits, item.width, item.height, -1))}><RotateCcw aria-hidden="true" />왼쪽 90°</button><button type="button" className="is-edit tool-rotate-button" onClick={() => editSelection((item) => rotateEdits(item.edits, item.width, item.height, 1))}>오른쪽 90°<RotateCw aria-hidden="true" /></button></div></section>
+            <section className="image-tool-control-section"><h4>크기 · 회전</h4><div className="image-tool-size-grid"><Label >너비 px<Input nativeInput  type="number" min="1" max={MAX_SIDE} value={widthDraft} placeholder={sameWidth ? undefined : "서로 다른 값"} onChange={(event) => setWidthDraft(event.target.value)} onBlur={() => commitDimension("width")} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} /></Label><Label >높이 px<Input nativeInput  type="number" min="1" max={MAX_SIDE} value={heightDraft} placeholder={sameHeight ? undefined : "서로 다른 값"} onChange={(event) => setHeightDraft(event.target.value)} onBlur={() => commitDimension("height")} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} /></Label></div><Label className="image-tool-check"><Checkbox checked={aspectLocked} disabled={!current || busy || mergeActive} onCheckedChange={setAspectLocked} /> 비율 유지</Label><div className="image-tool-button-row"><Button variant="outline" type="button" onClick={() => editSelection((item) => rotateEdits(item.edits, item.width, item.height, -1))}><RotateCcw aria-hidden="true" />왼쪽 90°</Button><Button variant="outline" type="button" onClick={() => editSelection((item) => rotateEdits(item.edits, item.width, item.height, 1))}>오른쪽 90°<RotateCw aria-hidden="true" /></Button></div></section>
             <section className="image-tool-control-section">
               <h4>자르기</h4>
               <div className="image-tool-button-row">
-                <button type="button" className={mode === "crop" ? "is-edit is-chosen" : "is-edit"} aria-pressed={mode === "crop"} onClick={() => setMode(mode === "crop" ? null : "crop")}>{mode === "crop" ? "영역 선택 중" : "영역 지정"}</button>
-                <button type="button" className="is-reset" disabled={!current?.edits.crop} onClick={() => editCurrent(resetCrop)}>자르기 해제</button>
+                <Button variant={mode === "crop" ? "secondary" : "outline"} type="button" aria-pressed={mode === "crop"} onClick={() => setMode(mode === "crop" ? null : "crop")}>{mode === "crop" ? "영역 선택 중" : "영역 지정"}</Button>
+                <Button variant="ghost" type="button" disabled={!current?.edits.crop} onClick={() => editCurrent(resetCrop)}>자르기 해제</Button>
               </div>
             </section>
-            <section className="image-tool-control-section"><h4>모자이크</h4><label>강도 <span>{current?.edits.blurRadius ?? 12}px</span><input type="range" min="4" max="48" step="2" value={current?.edits.blurRadius ?? 12} onChange={(event) => editCurrent((item) => ({ ...item.edits, blurRadius: Number(event.target.value) }))} /></label><div className="image-tool-button-row"><button type="button" className={mode === "mosaic" ? "is-edit is-chosen" : "is-edit"} aria-pressed={mode === "mosaic"} onClick={() => setMode(mode === "mosaic" ? null : "mosaic")}>{mode === "mosaic" ? "영역 선택 중" : "영역 지정"}</button><button type="button" className="is-reset" disabled={!current?.edits.mosaic} onClick={() => editCurrent((item) => ({ ...item.edits, mosaic: null }))}>모자이크 해제</button></div></section>
+            <section className="image-tool-control-section"><h4>모자이크</h4><Label >강도 <span>{current?.edits.blurRadius ?? 12}px</span><Slider aria-label="모자이크 강도" min={4} max={48} step={2} value={current?.edits.blurRadius ?? 12} disabled={!current || busy || mergeActive} onValueChange={(value) => editCurrent((item) => ({ ...item.edits, blurRadius: Number(value) }))} /></Label><div className="image-tool-button-row"><Button variant={mode === "mosaic" ? "secondary" : "outline"} type="button" aria-pressed={mode === "mosaic"} onClick={() => setMode(mode === "mosaic" ? null : "mosaic")}>{mode === "mosaic" ? "영역 선택 중" : "영역 지정"}</Button><Button variant="ghost" type="button" disabled={!current?.edits.mosaic} onClick={() => editCurrent((item) => ({ ...item.edits, mosaic: null }))}>모자이크 해제</Button></div></section>
           </fieldset>
-          <section className="image-tool-control-section image-tool-merge"><div className="image-tool-merge-heading"><h4>결합</h4><small>선택 {selectedItems.length}장</small></div><label className="image-tool-check"><input type="checkbox" checked={merge} disabled={selectedItems.length < 2 || busy} onChange={(event) => { setMerge(event.target.checked); setMode(null); }} /> 선택 이미지 한 장으로 결합</label>{mergeActive && <div className="image-tool-merge-options">
+          <section className="image-tool-control-section image-tool-merge"><div className="image-tool-merge-heading"><h4>결합</h4><small>선택 {selectedItems.length}장</small></div><Label className="image-tool-check"><Checkbox checked={merge} disabled={selectedItems.length < 2 || busy} onCheckedChange={(checked) => { setMerge(checked); setMode(null); }} /> 선택 이미지 한 장으로 결합</Label>{mergeActive && <div className="image-tool-merge-options">
             <span className="image-tool-merge-label" aria-hidden="true">비율</span>
-            <fieldset className="segmented image-tool-merge-ratios" aria-label="비율" disabled={busy}>
-              {MERGE_RATIOS.map((ratio) => <label key={ratio}><input type="radio" name="merge-ratio" value={ratio} checked={mergeOptions.ratio === ratio} onChange={() => setMergeOptions((option) => ({ ...option, ratio }))} /><span>{ratio}</span></label>)}
-            </fieldset>
+            <RadioGroup className="flex-row flex-wrap" aria-label="비율" name="merge-ratio" value={mergeOptions.ratio} disabled={busy} onValueChange={(value) => setMergeOptions((option) => ({ ...option, ratio: value as MergeOptions["ratio"] }))}>
+              {MERGE_RATIOS.map((ratio) => <Label key={ratio}><Radio value={ratio} /><span>{ratio}</span></Label>)}
+            </RadioGroup>
             <span className="image-tool-merge-label" aria-hidden="true">배치</span>
-            <fieldset className="image-tool-merge-layouts" aria-label="배치" disabled={busy}>
+            <RadioGroup className="image-tool-merge-layouts" aria-label="배치" name="merge-layout" value={mergeLayout} disabled={busy} onValueChange={(value) => setMergeOptions((option) => ({ ...option, layout: value as MergeOptions["layout"] }))}>
               {mergeLayouts.map((layout) => {
                 const label = layout === "grid" && selectedItems.length > 4 ? "격자" : MERGE_LAYOUT_LABELS[layout];
-                return <label key={layout}>
-                  <input type="radio" name="merge-layout" value={layout} aria-label={label} checked={mergeLayout === layout} onChange={() => setMergeOptions((option) => ({ ...option, layout }))} />
+                return <Label key={layout} className="flex-col">
+                  <Radio value={layout} aria-label={label} />
                   <span className="image-tool-layout-preview" aria-hidden="true">
                     {mergeCells(selectedItems.length, layout).map((cell, index) => <span key={index} className="image-tool-layout-cell" style={{ left: `${cell.x * 100}%`, top: `${cell.y * 100}%`, width: `${cell.width * 100}%`, height: `${cell.height * 100}%` }} />)}
                   </span>
                   <span className="image-tool-layout-caption">{layout === "top-two" ? "2 + 1" : layout === "top-one" ? "1 + 2" : label}</span>
-                </label>;
+                </Label>;
               })}
-            </fieldset>
+            </RadioGroup>
           </div>}</section>
         </aside>
       </div>
@@ -521,22 +528,23 @@ export function ImageTool() {
           <small>{mergeActive ? "결합 이미지 1개" : `${selectedItems.length}개 선택됨`}</small>
         </div>
         <div className="tool-export-settings">
-          <label>형식
-            <select value={format} disabled={busy} onChange={(event) => setFormat(event.target.value as ImageFormat)}>
-              <option value="jpg">JPG</option><option value="png">PNG</option>
-              <option value="webp">WebP</option><option value="pdf">PDF</option>
-            </select>
-          </label>
+          <div className="flex flex-col gap-2"><Label htmlFor="image-format">형식</Label>
+            <Select items={[{ value: "jpg", label: "JPG" }, { value: "png", label: "PNG" }, { value: "webp", label: "WebP" }, { value: "pdf", label: "PDF" }]} value={format} disabled={busy} onValueChange={(value) => { if (value) setFormat(value as ImageFormat); }}>
+              <SelectTrigger id="image-format"><SelectValue /></SelectTrigger>
+              <SelectPopup><SelectItem value="jpg">JPG</SelectItem><SelectItem value="png">PNG</SelectItem><SelectItem value="webp">WebP</SelectItem><SelectItem value="pdf">PDF</SelectItem></SelectPopup>
+            </Select>
+          </div>
           {(format === "jpg" || format === "webp") && (
-            <label>품질
-              <select value={quality} disabled={busy} onChange={(event) => setQuality(event.target.value as keyof typeof QUALITY)}>
-                {(Object.keys(QUALITY) as (keyof typeof QUALITY)[]).map((level) => <option key={level} value={level}>{QUALITY_LABELS[level]}</option>)}
-              </select>
-            </label>
+            <div className="flex flex-col gap-2"><Label htmlFor="image-quality">품질</Label>
+              <Select items={(Object.keys(QUALITY) as (keyof typeof QUALITY)[]).map((value) => ({ value, label: QUALITY_LABELS[value] }))} value={quality} disabled={busy} onValueChange={(value) => { if (value) setQuality(value as keyof typeof QUALITY); }}>
+                <SelectTrigger id="image-quality"><SelectValue /></SelectTrigger>
+                <SelectPopup>{(Object.keys(QUALITY) as (keyof typeof QUALITY)[]).map((level) => <SelectItem key={level} value={level}>{QUALITY_LABELS[level]}</SelectItem>)}</SelectPopup>
+              </Select>
+            </div>
           )}
-          <button className="tool-export-button" type="button" disabled={!selectedItems.length || busy || importing} onClick={() => void exportFiles()}>
+          <Button  className="tool-export-button" type="button" disabled={!selectedItems.length || busy || importing} onClick={() => void exportFiles()}>
             {busy ? "처리 중…" : selectedItems.length > 1 && !mergeActive && format !== "pdf" ? "ZIP 다운로드 ↗" : "파일 다운로드 ↗"}
-          </button>
+          </Button>
         </div>
         {busy && <p className="image-tool-progress" role="status">{progress || "준비 중…"}</p>}
         {notice && <p className={`image-tool-notice is-${notice.tone}`} role={notice.tone === "error" ? "alert" : "status"}>{notice.text}</p>}
