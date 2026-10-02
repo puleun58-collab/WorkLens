@@ -17,12 +17,16 @@ const MIME = {
 };
 
 async function upload(page: Page, files: Array<{ name: string; bytes: Uint8Array; mime: string }>) {
+  await expect(page.locator(".app-shell")).toHaveAttribute("data-hydrated", "true");
   await page.locator('input[type="file"]').setInputFiles(files.map((file) => ({ name: file.name, mimeType: file.mime, buffer: Buffer.from(file.bytes) })));
   for (const file of files) {
     const row = page.locator(".file-row").filter({ hasText: file.name });
     await expect(row).toBeVisible();
     await expect(row).toContainText("ready");
-    await row.getByRole("checkbox").check();
+    // Base UI checkboxes can drop a toggle when a file row re-renders mid-click; retry until checked.
+    await expect(async () => {
+      await row.getByRole("checkbox").check();
+    }).toPass({ timeout: 10_000 });
   }
 }
 
