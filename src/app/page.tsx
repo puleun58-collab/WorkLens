@@ -1565,9 +1565,9 @@ export default function Home() {
     : { title: navigationItems.find((entry) => entry.value === shellView)?.label ?? "WorkLens",
       description: shellView === "Law" ? "알고 있는 법령이나 조문을 직접 찾습니다." : "", activeNavigation: shellView };
   const commandItems = [
-    ...navigationItems.map((item) => ({ value: item.value, label: item.label, description: item.group })),
-    ...Object.entries(internalViewMetadata).map(([value, metadata]) => ({ value, label: metadata.commandLabel ?? metadata.title, description: "RESEARCH" })),
-    { value: "ReviewSettings", label: "검토 설정", description: "HELP · 설정" },
+    ...navigationItems.map((item) => ({ value: item.value, label: item.label, group: item.group })),
+    ...Object.entries(internalViewMetadata).map(([value, metadata]) => ({ value, label: metadata.commandLabel ?? metadata.title, group: "RESEARCH" })),
+    { value: "ReviewSettings", label: "검토 설정", group: "HELP" },
   ];
   function navigateWorkspace(value: string) {
     const item = commandItems.find((entry) => entry.value === value);

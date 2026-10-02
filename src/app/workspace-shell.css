@@ -11,7 +11,6 @@
 .workspace-sidebar .workspace-nav-item:focus-visible, .workspace-mobile-sheet .workspace-nav-item:focus-visible { outline-color: var(--rail-focus); }
 .workspace-topbar { min-height: 64px; padding: 12px 24px; border-bottom: 1px solid var(--border); background: var(--card); display: flex; align-items: center; gap: 20px; }
 .workspace-command-trigger { width: min(100%, 620px); justify-content: flex-start; color: var(--muted-foreground); background: var(--background); }
-.workspace-command-trigger kbd { margin-left: auto; font-size: 11px; }
 .workspace-mobile-bar { display: none; }
 .app-shell { background: var(--background); }
 .shell-main { min-width: 0; }

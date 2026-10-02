@@ -2,7 +2,7 @@
 .law-research > div { min-width: 0; }
 .law-related-actions { display: flex; flex-wrap: wrap; gap: 0 20px; margin: -8px 0 4px; font-size: var(--font-size-sm); }
 .law-search { display: grid; gap: 24px; width: 100%; min-width: 0; }
-.law-search-form { display: grid; gap: 8px; }
+.law-search-form { display: grid; gap: 8px; padding: var(--space-4); border: 1px solid var(--border-surface); border-radius: var(--radius-panel); background: var(--paper); }
 .law-search-row { display: flex; gap: 8px; }
 .law-search-results h2 { margin: 0 0 var(--space-3); }
 .law-search-note { margin: 0; color: var(--muted); font-size: var(--font-size-sm); }

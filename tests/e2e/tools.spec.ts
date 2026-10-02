@@ -1700,13 +1700,17 @@ test("law views use the shared tool content width with one left and right edge",
       await page.getByRole("button", { name: "검색", exact: true }).click();
     }
     await expect(page.getByRole("heading", { name: "검색 결과 · 1건" })).toBeVisible();
-    for (const selector of [".law-search-row", "#law-results-heading", ".law-search-list"]) {
+    const surface = (await page.locator(".law-search-form").boundingBox())!;
+    expect(Math.abs(surface.x - research.x)).toBeLessThan(1);
+    expect(Math.abs(surface.x + surface.width - (research.x + research.width))).toBeLessThan(1);
+    for (const selector of ["#law-results-heading", ".law-search-list"]) {
       expect(Math.abs((await page.locator(selector).boundingBox())!.x - research.x), selector).toBeLessThan(1);
     }
-    for (const selector of [".law-search-row", ".law-search-list"]) {
-      const box = (await page.locator(selector).boundingBox())!;
-      expect(Math.abs(box.x + box.width - (research.x + research.width)), selector).toBeLessThan(1);
-    }
+    const list = (await page.locator(".law-search-list").boundingBox())!;
+    expect(Math.abs(list.x + list.width - (research.x + research.width))).toBeLessThan(1);
+    const row = (await page.locator(".law-search-row").boundingBox())!;
+    expect(row.x).toBeGreaterThan(surface.x);
+    expect(Math.abs((row.x - surface.x) - (surface.x + surface.width - (row.x + row.width)))).toBeLessThan(1);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   }
 });
