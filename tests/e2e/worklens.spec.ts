@@ -2567,6 +2567,16 @@ test("keeps legal destinations inside one navigation entry and moves review defa
   }
   await closeSheet();
 
+  const commandTrigger = page.getByRole("button", { name: "기능 검색…", exact: true });
+  await expect(commandTrigger).toBeVisible();
+  await expect(commandTrigger).not.toContainText(/Ctrl|⌘/);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await commandTrigger.click();
+  await expect(page.getByRole("dialog").getByLabel("기능 검색")).toHaveAttribute("placeholder", "기능 검색…");
+  await expect(page.getByRole("dialog").getByRole("group").filter({ hasText: /^(WORKSPACE|RESEARCH|TOOLS|HELP)/ })).toHaveCount(4);
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+
   await navigateWorkspace(page, "법령");
   await openMenu();
   await expect(navigation.getByRole("button", { name: "법령", exact: true })).toHaveAttribute("aria-current", "page");

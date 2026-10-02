@@ -3,10 +3,10 @@
 import { useEffect, useState } from "react";
 import { Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Command, CommandDialog, CommandDialogPopup, CommandDialogTrigger, CommandInput, CommandEmpty, CommandList, CommandItem, CommandPanel, CommandFooter } from "@/components/ui/command";
+import { Command, CommandCollection, CommandDialog, CommandDialogPopup, CommandDialogTrigger, CommandInput, CommandEmpty, CommandList, CommandItem, CommandPanel, CommandFooter, CommandGroup, CommandGroupLabel } from "@/components/ui/command";
 import { DialogTitle, DialogDescription } from "@/components/ui/dialog";
 
-export interface WorkspaceCommandEntry { value: string; label: string; description: string }
+export interface WorkspaceCommandEntry { value: string; label: string; group: string }
 
 export function WorkspaceCommand({ items, onNavigate }: { items: WorkspaceCommandEntry[]; onNavigate: (value: string) => void }) {
   const [open, setOpen] = useState(false);
@@ -21,20 +21,24 @@ export function WorkspaceCommand({ items, onNavigate }: { items: WorkspaceComman
     return () => window.removeEventListener("keydown", shortcut);
   }, []);
   const navigate = (value: string) => { setOpen(false); onNavigate(value); };
+  const groups = [...new Set(items.map((item) => item.group))].map((group) => ({ group, items: items.filter((item) => item.group === group) }));
   return <CommandDialog open={open} onOpenChange={setOpen}>
     <CommandDialogTrigger render={<Button variant="outline" className="workspace-command-trigger" />}>
-      <Search aria-hidden="true" /><span>기능 검색 및 이동…</span><kbd>Ctrl/⌘ K</kbd>
+      <Search aria-hidden="true" /><span>기능 검색…</span>
     </CommandDialogTrigger>
     <CommandDialogPopup>
       <DialogTitle className="sr-only">작업 공간 기능 검색</DialogTitle>
       <DialogDescription className="sr-only">기존 기능을 검색하고 Enter로 이동합니다. 문서 내용은 검색하거나 저장하지 않습니다.</DialogDescription>
-      <Command items={items} itemToStringValue={(item) => { const entry = item as WorkspaceCommandEntry; return `${entry.label} ${entry.description}`; }}>
-        <CommandInput aria-label="기능 검색" placeholder="법령, 판례, 문서 검토, 기능 검색…" />
+      <Command items={groups} itemToStringValue={(item) => { const entry = item as WorkspaceCommandEntry; return `${entry.label} ${entry.group}`; }}>
+        <CommandInput aria-label="기능 검색" placeholder="기능 검색…" />
         <CommandPanel>
           <CommandEmpty>일치하는 기능이 없습니다.</CommandEmpty>
-          <CommandList>{(item: WorkspaceCommandEntry) => <CommandItem key={item.value} value={item} onClick={() => navigate(item.value)}>
-            <div className="grid gap-1"><strong>{item.label}</strong><span className="text-xs text-muted-foreground">{item.description}</span></div>
-          </CommandItem>}</CommandList>
+          <CommandList>{(group: { group: string; items: WorkspaceCommandEntry[] }) => <CommandGroup key={group.group} items={group.items}>
+            <CommandGroupLabel>{group.group}</CommandGroupLabel>
+            <CommandCollection>{(item: WorkspaceCommandEntry) => <CommandItem key={item.value} value={item} onClick={() => navigate(item.value)}>
+              <strong>{item.label}</strong>
+            </CommandItem>}</CommandCollection>
+          </CommandGroup>}</CommandList>
         </CommandPanel>
         <CommandFooter>↑ ↓ 선택 · Enter 이동 · Esc 닫기</CommandFooter>
       </Command>
