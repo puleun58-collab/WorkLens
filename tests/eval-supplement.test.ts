@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { SUPPLEMENT_EVAL_CASES } from "./eval/supplement-cases";
 import { SUPPLEMENT_REALISTIC_CASES } from "./eval/supplement-realistic";
+import { SUPPLEMENT_ZERO_CASES } from "./eval/supplement-zero";
 import { FAILURE_SEVERITY, formatSummary, runSupplementCase, summarize, type EvalOutcome } from "./eval/supplement-harness";
 
 /**
@@ -13,7 +14,7 @@ import { FAILURE_SEVERITY, formatSummary, runSupplementCase, summarize, type Eva
 describe("보완 eval (deterministic)", () => {
   it("has no critical failure and holds precision on the fixed set", async () => {
     const outcomes: EvalOutcome[] = [];
-    for (const entry of [...SUPPLEMENT_EVAL_CASES, ...SUPPLEMENT_REALISTIC_CASES]) outcomes.push(await runSupplementCase(entry));
+    for (const entry of [...SUPPLEMENT_EVAL_CASES, ...SUPPLEMENT_REALISTIC_CASES, ...SUPPLEMENT_ZERO_CASES]) outcomes.push(await runSupplementCase(entry));
     const summary = summarize(outcomes);
     console.info(formatSummary("보완 eval (deterministic)", summary));
     const critical = summary.failures.filter((failure) => FAILURE_SEVERITY[failure.kind] === "critical");

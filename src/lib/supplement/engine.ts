@@ -59,6 +59,7 @@ import {
   UP_WORD,
 } from "./text";
 import { outlineWorkbook, type SheetTable } from "./workbook";
+import type { SupplementDiagnostics } from "./diagnostics";
 
 /**
  * 보완 pipeline, deterministic part:
@@ -312,6 +313,12 @@ const TYPE_KEYWORDS: Record<Exclude<SupplementDocType, "general">, RegExp> = {
 };
 
 function classify(fileName: string, statements: readonly Statement[]): SupplementDocType {
+  const first = statements[0];
+  const primaryTitle = first && !first.tableRow && first.text.length <= 90 && !SENTENCE_END.test(first.text)
+    ? first.text : statements.find((statement) => statement.heading)?.text ?? fileName.replace(/\.[^.]+$/u, "");
+  // A budget subsection is supporting information, not the document's purpose.
+  if (/개선.*(검토안|계획|방안|제안|과제)/u.test(primaryTitle) && !/(비용|원가|예산|지출)/u.test(primaryTitle)) return "improvement";
+  if (/(추진|실행|사업)\s?계획|로드맵/u.test(primaryTitle) && !/(비용|원가|예산|지출)/u.test(primaryTitle)) return "plan";
   const titles = [fileName.replace(/\.[^.]+$/u, ""), ...new Set(statements.filter((statement) => statement.heading).map((statement) => statement.text))].join(" ");
   const body = statements.map((statement) => statement.text).join(" ");
   // Cost words are open-ended (판관비, 외주비, 보관비 …): the metric family decides, as it does for linking.
@@ -341,6 +348,8 @@ export const NECESSITY: Record<SupplementCheck, NecessityRow> = {
   response: row({ issue: "required", project: "required", plan: "none" }, "conditional"),
   owner: row({ project: "required", issue: "required", improvement: "required", plan: "required" }, "conditional"),
   schedule: row({ project: "required", issue: "required", improvement: "required", plan: "required" }, "conditional"),
+  scope: row({}, "conditional"),
+  budget: row({}, "conditional"),
   conclusion: row({}, "conditional"),
   // Workbook-only: a report table needs its target, period and unit in KPI-centred reports; elsewhere only on a summary sheet.
   target: row({ performance: "required", cost: "required", operation: "required", management: "required" }, "conditional"),
@@ -448,6 +457,7 @@ function isAction(statement: Statement): boolean {
   const text = statement.text;
   if (ACTION_DONE.test(text) && !/예정/u.test(text)) return false;
   if (ACTION_WORD.test(text)) return true;
+  if (/(공유|보고|정리)(합니다|한다|드립니다)/u.test(text)) return false;
   // Bullets under an action heading are actions even without a verb.
   return ACTION_HEADING.test(statement.unitTitle) && text.length >= 6 && !/^[\s•\-–·]*(담당|일정|기한|완료\s?(목표|예정)|책임)\s?[:：]/u.test(text) && !/^(구분|항목|내용)$/u.test(text);
 }
@@ -471,7 +481,6 @@ interface Member {
   /** Text of the gap in the reader's words. */
   phrase: string;
   change?: Change;
-  combined?: boolean;
 }
 
 const SEVERITY_RANK: Record<SupplementSeverity, number> = { critical: 0, warning: 1, suggestion: 2 };
@@ -498,11 +507,55 @@ function rebut(all: readonly Statement[], origin: Statement, cue: RegExp, subjec
   });
 }
 
+/**
+ * A proposed implementation has tracking requirements even when a cost section
+ * makes its classifier uncertain. Only concrete answers rebut these gaps;
+ * promises to decide after consultation do not supply an owner/date/amount.
+ */
+function implementationCandidates(statements: readonly Statement[], all: readonly Statement[]): { members: Member[]; resolved: number } {
+  const titles = statements.filter((line) => line.heading).map((line) => line.text).join(" ");
+  const actions = statements.filter((line) => !line.heading && !line.tableRow && isAction(line));
+  if (!/(개선|추진|실행|구축|도입).*(안|계획|방법|방향)|추진\s?방법/u.test(titles) || actions.length === 0) return { members: [], resolved: 0 };
+  const costLine = (line: Statement) => /(예산|비용|견적|산정|집행)/u.test(`${line.unitTitle} ${line.text}`);
+  const execution = statements.filter((line) => !line.heading && !line.tableRow && !costLine(line)
+    && /(추진|진행|설치|제작|적용|교체|시행|도입)/u.test(line.text));
+  const origin = [...execution].sort((left, right) =>
+    Number(/(추진\s?방법|실행|추진\s?계획)/u.test(right.unitTitle)) - Number(/(추진\s?방법|실행|추진\s?계획)/u.test(left.unitTitle))
+    || left.index - right.index)[0];
+  // A budget promise alone is not an execution commitment.
+  if (!origin) return { members: [], resolved: 0 };
+  const scopeOrigin = statements.find((line) => !line.heading && !line.tableRow && !costLine(line)
+    && /(범위|대상).*(협의|조정|미정|추후)/u.test(line.text));
+  const budgetOrigin = statements.find((line) => !line.heading && !line.tableRow && costLine(line));
+  const relevant = all.filter((line) => !line.heading && !differentParties(origin.text, line.text));
+  const predicates: Record<"owner" | "schedule" | "scope" | "budget", (text: string) => boolean> = {
+    owner: (text) => OWNER_CUE.test(text) && /(담당|책임|주관|주무|PM\b|오너|owner|팀|본부|센터)/iu.test(text) && !/(관련|유관)\s?(부서|팀)|담당.*(미정|추후|협의)/u.test(text),
+    schedule: (text) => SCHEDULE_CUE.test(text) && /\d{1,4}\s?[년월일./-]|상반기|하반기|연내|연말|월말|분기\s?말|다음\s?(주|달|분기)|이내/u.test(text),
+    scope: (text) => /(대상|범위|설치|교체|도입)/u.test(text) && /\d+\s?(개|곳|대|명|건|층|실|종)/u.test(text),
+    budget: (text) => /\d[\d,.~～-]*\s?(조|억|천만|백만|만|천)?\s?원/u.test(text),
+  };
+  const members: Member[] = [];
+  let resolved = 0;
+  for (const check of ["owner", "schedule", "scope", "budget"] as const) {
+    // Scope/cost gaps need an explicit decision requirement, not a universal form.
+    if (check === "scope" && !scopeOrigin) continue;
+    if (check === "budget" && !budgetOrigin) continue;
+    if (relevant.some((line) => predicates[check](line.text))) { resolved += 1; continue; }
+    const anchor = check === "scope" ? scopeOrigin! : check === "budget" ? budgetOrigin! : origin;
+    members.push({ statement: anchor, check, severity: "warning", groupKey: `implementation:${check}`, subject: "추진 계획", subjectTokens: origin.tokens, phrase: "추진 계획" });
+  }
+  return { members, resolved };
+}
+
 function candidatesFor(outline: FileOutline, docType: SupplementDocType, all: readonly Statement[]): { members: Member[]; resolved: number } {
   const members: Member[] = [];
   let resolved = 0;
   const need = (check: SupplementCheck) => NECESSITY[check][docType];
   const statements = outline.statements;
+  const implementation = implementationCandidates(statements, all);
+  members.push(...implementation.members);
+  resolved += implementation.resolved;
+  const implementationPlan = implementation.members.length > 0 || implementation.resolved > 0;
 
   const changes = new Map<Statement, Change>();
   const issues = new Map<Statement, Issue>();
@@ -569,6 +622,7 @@ function candidatesFor(outline: FileOutline, docType: SupplementDocType, all: re
 
   // 담당 · 일정: commitments that cannot be tracked.
   for (const statement of statements) {
+    if (implementationPlan) continue;
     if (statement.tableRow || !isAction(statement) || issues.has(statement)) continue;
     const ownerNeed = need("owner");
     const strong = ownerNeed === "required"
@@ -583,8 +637,10 @@ function candidatesFor(outline: FileOutline, docType: SupplementDocType, all: re
     const noOwner = !covered(OWNER_CUE);
     const noSchedule = !covered(SCHEDULE_CUE);
     if (!noOwner && !noSchedule) { resolved += 1; continue; }
-    const check: SupplementCheck = noOwner ? "owner" : "schedule";
-    members.push({ statement, check, severity: "warning", groupKey: noOwner && noSchedule ? "owner+schedule" : check, subject: action, subjectTokens: actionTokens, phrase: action, combined: noOwner && noSchedule });
+    for (const check of ["owner", "schedule"] as const) {
+      if (check === "owner" ? !noOwner : !noSchedule) continue;
+      members.push({ statement, check, severity: "warning", groupKey: check, subject: action, subjectTokens: actionTokens, phrase: action });
+    }
   }
 
   // 결론 근거: judgements with nothing related that argues for them.
@@ -704,7 +760,8 @@ const TITLES: Record<string, string> = {
   response: "대응 확인 필요",
   owner: "담당 확인 필요",
   schedule: "일정 확인 필요",
-  "owner+schedule": "담당 및 일정 확인 필요",
+  scope: "구체 대상·범위 확인 필요",
+  budget: "비용 정보 확인 필요",
   conclusion: "결론 근거 확인 필요",
   target: "목표/예산 기준 확인 필요",
   period: "기준 기간 확인 필요",
@@ -718,7 +775,8 @@ const REASONS: Record<string, string> = {
   response: "문제가 제시되면 보고받는 사람은 후속 조치를 먼저 확인합니다.",
   owner: "책임 주체가 없으면 실행 여부를 추적하기 어렵습니다.",
   schedule: "완료 시점이 없으면 진행 상황을 점검하기 어렵습니다.",
-  "owner+schedule": "책임 주체와 완료 시점이 없으면 실행 여부를 추적하기 어렵습니다.",
+  scope: "구체 대상과 범위가 없으면 실행 규모를 판단하기 어렵습니다.",
+  budget: "비용 규모와 산정 근거가 없으면 실행 가능성을 판단하기 어렵습니다.",
   conclusion: "근거가 드러나지 않은 판단은 의사결정에 그대로 쓰기 어렵습니다.",
   target: "목표가 없으면 달성률이 무엇을 기준으로 계산됐는지 알 수 없습니다.",
   period: "기간이 불분명하면 다른 자료와 비교하거나 보고할 때 오해가 생깁니다.",
@@ -730,6 +788,15 @@ function wording(kind: string, members: readonly Member[]): { title: string; mes
   const title = TITLES[kind];
   const distinct = [...new Set(members.map((member) => member.subject))];
   switch (kind) {
+    case "scope":
+    case "budget":
+      return {
+        title,
+        message: kind === "scope" ? "현재 자료에서 추진 대상과 구체 범위를 확인하지 못했습니다." : "현재 자료에서 비용 규모 또는 산정 근거를 확인하지 못했습니다.",
+        additions: kind === "scope" ? ["구체 대상과 수량 또는 적용 범위"] : ["예상 비용 규모", "견적 또는 산정 근거"],
+        question: kind === "scope" ? "어떤 대상에 어느 범위까지 적용합니까?" : "예상 비용과 산정 근거는 무엇입니까?",
+        requirement: kind === "scope" ? "추진 대상과 구체 수량 또는 적용 범위" : "예상 비용 규모 또는 산정 근거",
+      };
     case "cause": {
       const change = lead.change!;
       const verb = change.direction === "up" ? "증가" : "감소";
@@ -804,7 +871,7 @@ function wording(kind: string, members: readonly Member[]): { title: string; mes
         };
     }
     default: {
-      const what = kind === "owner" ? "담당" : kind === "schedule" ? "완료 시점" : "담당과 완료 시점";
+      const what = kind === "owner" ? "담당" : "완료 시점";
       const single = members.length === 1;
       const action = `'${lead.phrase}'`;
       return {
@@ -812,9 +879,9 @@ function wording(kind: string, members: readonly Member[]): { title: string; mes
         message: single
           ? `${action} 실행 항목의 ${what}${josa(what, "을/를")} 현재 자료에서 확인하지 못했습니다.`
           : `실행 항목 ${members.length}건의 ${what}${josa(what, "을/를")} 현재 자료에서 확인하지 못했습니다.`,
-        additions: kind === "owner" ? ["담당 부서 또는 담당자"] : kind === "schedule" ? ["완료 목표 시점", "중간 점검 시점"] : ["담당 부서 또는 담당자", "완료 목표 시점"],
-        question: `${single ? `${action}${josa(lead.phrase, "은/는")} ` : ""}${kind === "owner" ? "누가 담당합니까?" : kind === "schedule" ? "언제까지 완료합니까?" : "누가 언제까지 완료합니까?"}`,
-        requirement: `이 실행 항목의 ${kind === "owner" ? "담당 부서나 담당자" : kind === "schedule" ? "완료 시점이나 기한" : "담당 부서·담당자와 완료 시점"}`,
+        additions: kind === "owner" ? ["담당 부서 또는 담당자"] : ["완료 목표 시점", "중간 점검 시점"],
+        question: `${single ? `${action}${josa(lead.phrase, "은/는")} ` : ""}${kind === "owner" ? "누가 담당합니까?" : "언제까지 완료합니까?"}`,
+        requirement: `이 실행 항목의 ${kind === "owner" ? "담당 부서나 담당자" : "완료 시점이나 기한"}`,
       };
     }
   }
@@ -959,8 +1026,9 @@ function conflictCandidates(outlines: readonly FileOutline[], label: (statement:
   return found;
 }
 
-export function buildSupplementDraft(inputs: readonly SupplementInput[]): SupplementDraft {
+export function buildSupplementDraft(inputs: readonly SupplementInput[], diagnostics?: SupplementDiagnostics): SupplementDraft {
   const outlines = inputs.map((input) => outline(input.document, input.fileName));
+  if (diagnostics) diagnostics.parsedUnits = outlines.reduce((sum, entry) => sum + entry.coverage.analyzed, 0);
   const multi = outlines.length > 1;
   const fileNameOf = new Map(outlines.map((entry) => [entry.document.fileId, entry.fileName]));
   const label = (statement: Statement) => multi ? `${fileNameOf.get(statement.fileId)} / ${statement.unitLabel}` : statement.unitLabel;
@@ -994,6 +1062,12 @@ export function buildSupplementDraft(inputs: readonly SupplementInput[]): Supple
     const own = [...entry.statements, ...entry.references];
     const { members, resolved } = candidatesFor(entry, docType, own);
     resolvedCount += resolved;
+    if (diagnostics) {
+      diagnostics.classifications.push(docType);
+      diagnostics.initialDeterministic += members.length + resolved;
+      diagnostics.rejected.covered_elsewhere += resolved;
+      diagnostics.rebutted += resolved;
+    }
     // Then the other files: their report and analysis lines, never raw data rows.
     const others = outlines.filter((other) => other !== entry).flatMap((other) => other.statements);
     const groups = new Map<string, Member[]>();
@@ -1004,7 +1078,7 @@ export function buildSupplementDraft(inputs: readonly SupplementInput[]): Supple
       : `${multi ? `${entry.fileName}: ` : ""}${entry.coverage.notes.join(" ")}`;
     for (const [key, group] of groups) {
       const ordered = [...group].sort((a, b) => a.statement.index - b.statement.index);
-      const kind = key === "owner+schedule" ? key : ordered[0].check;
+      const kind = ordered[0].check;
       const text = wording(kind, ordered);
       const severity = ordered.reduce<SupplementSeverity>((best, member) => SEVERITY_RANK[member.severity] < SEVERITY_RANK[best] ? member.severity : best, "suggestion");
       const id = `${entry.document.fileId}:${key}`;
@@ -1043,12 +1117,18 @@ export function buildSupplementDraft(inputs: readonly SupplementInput[]): Supple
   }
 
   if (multi) candidates.push(...conflictCandidates(outlines, label));
+  const reviews = reviewBatches(candidates.filter((candidate) => candidate.scope === "all"), origins, pools);
+  if (diagnostics) {
+    diagnostics.deterministicCandidates = candidates.length;
+    diagnostics.positionSearchTargets = reviews.reduce((sum, batch) => sum + batch.checks.length, 0);
+    diagnostics.rejected.duplicate = Math.max(0, diagnostics.initialDeterministic - diagnostics.rejected.covered_elsewhere - candidates.length);
+  }
 
   return {
     files,
     coverage: outlines.map((entry) => entry.coverage),
     candidates,
-    reviews: reviewBatches(candidates.filter((candidate) => candidate.scope === "all"), origins, pools),
+    reviews,
     resolvedCount,
   };
 }

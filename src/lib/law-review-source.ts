@@ -1,5 +1,5 @@
 import type { NormalizedDocument, SourceRef, TableCell } from "@/domain/document";
-import { classifyDocument, issueSignals, segmentsOf, splitClauses, triggeringSentence, type Severity } from "@/lib/contract-review";
+import { issueSignals, segmentsOf, splitClauses, triggeringSentence, type Severity } from "@/lib/contract-review";
 import {
   LAW_RESEARCH_DOCUMENT_MIN_CHARS, LAW_REVIEW_FILE_MAX_CHARS, LAW_REVIEW_FILE_MAX_SEGMENTS, LAW_REVIEW_LOCATION_MAX_CHARS,
   LAW_REVIEW_SEGMENT_MAX_CHARS, type LawResearchRequest, type ReviewDocument,
@@ -15,7 +15,7 @@ import {
  */
 
 /** Recorded with every evaluation run; bump when selection behavior changes. */
-export const REVIEW_SELECTOR_VERSION = "candidate-scan-v1";
+export const REVIEW_SELECTOR_VERSION = "candidate-scan-v2";
 
 /** complete: every reviewable part was sent. partial: some was not (limits, textless pages, omitted parts). excluded: nothing to review. */
 export type ReviewCoverageStatus = "complete" | "partial" | "excluded";
@@ -332,7 +332,9 @@ function selectionOrder(candidates: readonly LocalCandidate[]): { order: LocalCa
  * Units already selected cost nothing and are passed over.
  */
 function distribute(reviewable: readonly Reviewable[], selected: Set<number>, chars: number, segments: number): void {
-  for (let band = 0; band < DISTRIBUTED_BANDS; band += 1) {
+  const bandChars = chars / DISTRIBUTED_BANDS;
+  const bandSegments = segments / DISTRIBUTED_BANDS;
+  const fill = (band: number, limitChars: number, limitSegments: number) => {
     const from = Math.floor(band * reviewable.length / DISTRIBUTED_BANDS);
     const to = Math.floor((band + 1) * reviewable.length / DISTRIBUTED_BANDS);
     const last = band === DISTRIBUTED_BANDS - 1;
@@ -341,12 +343,18 @@ function distribute(reviewable: readonly Reviewable[], selected: Set<number>, ch
     for (let index = last ? to - 1 : from; last ? index >= from : index < to; index += last ? -1 : 1) {
       if (selected.has(index)) continue;
       const entry = reviewable[index];
-      if (used + entry.chars > chars / DISTRIBUTED_BANDS || count + entry.parts.length > segments / DISTRIBUTED_BANDS) break;
+      // A large unit must not hide smaller units behind it. Never split a unit to fill a band.
+      if (used + entry.chars > limitChars || count + entry.parts.length > limitSegments) continue;
       selected.add(index);
       used += entry.chars;
       count += entry.parts.length;
     }
-  }
+    chars -= used;
+    segments -= count;
+  };
+  for (let band = 0; band < DISTRIBUTED_BANDS; band += 1) fill(band, Math.min(chars, bandChars), Math.min(segments, bandSegments));
+  // Reuse unspent shares only after every band, including the tail, had its reserved turn.
+  for (const band of spread(Array.from({ length: DISTRIBUTED_BANDS }, (_, index) => index))) fill(band, chars, segments);
 }
 
 const READ_LIMITS: Record<string, string> = {
@@ -357,9 +365,6 @@ const READ_LIMITS: Record<string, string> = {
 
 export function reviewFileFor(document: NormalizedDocument, fileName: string, options: ReviewFileOptions = {}): ReviewFile {
   const all = units(document);
-  // Classify every parsed text unit once; bounded review windows reuse this
-  // profile even when a defining clause lies outside the selected ranges.
-  const profile = classifyDocument(all.map((entry) => entry.text).join("\n"));
   const reviewable: Reviewable[] = all.map((entry, index) => {
     const parts = entry.reviewable ? pieces(entry.text) : [];
     return { ...entry, index, parts, chars: parts.reduce((sum, part) => sum + part.length, 0) };
@@ -373,10 +378,14 @@ export function reviewFileFor(document: NormalizedDocument, fileName: string, op
   const whole = totalChars <= LAW_REVIEW_FILE_MAX_CHARS && totalParts <= LAW_REVIEW_FILE_MAX_SEGMENTS;
   const strategy: ReviewScan["strategy"] = whole ? "whole" : options.selection ?? "candidate";
   const { order, repeated } = selectionOrder(candidates);
+  // Verbatim opening fragment, not an inferred profile. It consumes the same request budget.
+  const classificationContext = whole ? undefined : reviewable[0]?.text.slice(0, LAW_REVIEW_SEGMENT_MAX_CHARS);
+  const charBudget = LAW_REVIEW_FILE_MAX_CHARS - (classificationContext?.length ?? 0);
+  const segmentBudget = LAW_REVIEW_FILE_MAX_SEGMENTS - (classificationContext ? 1 : 0);
   if (whole) {
     for (let index = 0; index < reviewable.length; index += 1) selected.add(index);
   } else if (strategy === "distributed") {
-    distribute(reviewable, selected, LAW_REVIEW_FILE_MAX_CHARS, LAW_REVIEW_FILE_MAX_SEGMENTS);
+    distribute(reviewable, selected, charBudget, segmentBudget);
   } else {
     let chars = 0;
     let count = 0;
@@ -384,13 +393,13 @@ export function reviewFileFor(document: NormalizedDocument, fileName: string, op
       const added = candidate.units.filter((unit) => !selected.has(unit));
       const size = added.reduce((sum, unit) => sum + reviewable[unit].chars, 0);
       const parts = added.reduce((sum, unit) => sum + reviewable[unit].parts.length, 0);
-      if (chars + size > LAW_REVIEW_FILE_MAX_CHARS * CANDIDATE_SHARE || count + parts > LAW_REVIEW_FILE_MAX_SEGMENTS * CANDIDATE_SHARE) continue;
+      if (chars + size > charBudget * CANDIDATE_SHARE || count + parts > segmentBudget * CANDIDATE_SHARE) continue;
       for (const unit of added) selected.add(unit);
       chars += size;
       count += parts;
     }
     // Fallback: zero or few candidates never mean "nothing to see"; the rest of the budget samples the whole file.
-    distribute(reviewable, selected, LAW_REVIEW_FILE_MAX_CHARS - chars, LAW_REVIEW_FILE_MAX_SEGMENTS - count);
+    distribute(reviewable, selected, charBudget - chars, segmentBudget - count);
   }
   const sentCandidates = candidates.filter((candidate) => candidate.units.every((unit) => selected.has(unit)));
   const positions = Array.from({ length: 10 }, () => 0);
@@ -457,7 +466,7 @@ export function reviewFileFor(document: NormalizedDocument, fileName: string, op
   const version = document.version ?? document.blocks[0]?.source.documentVersion;
   return {
     fileId: document.fileId,
-    document: reviewRequestFor({ name: fileName.slice(0, 255), kind: document.kind, id: document.id, ...(version ? { version } : {}), profile, segments }).document,
+    document: reviewRequestFor({ name: fileName.slice(0, 255), kind: document.kind, id: document.id, ...(version ? { version } : {}), ...(classificationContext ? { classificationContext } : {}), segments }).document,
     sources,
     coverage,
     scan,
@@ -471,7 +480,6 @@ export function reviewFileFor(document: NormalizedDocument, fileName: string, op
  * `ReviewFile` or to the objects passed in.
  */
 export function reviewRequestFor(document: ReviewDocument): Extract<LawResearchRequest, { document: ReviewDocument }> {
-  const { profile } = document;
   return {
     task: "document_review",
     document: {
@@ -479,10 +487,7 @@ export function reviewRequestFor(document: ReviewDocument): Extract<LawResearchR
       kind: document.kind,
       id: document.id,
       ...(document.version ? { version: document.version } : {}),
-      ...(profile ? { profile: {
-        type: profile.type, label: profile.label, relationship: profile.relationship, relationshipLabel: profile.relationshipLabel,
-        confidence: profile.confidence, evidence: profile.evidence.slice(0, 12).map((phrase) => phrase.slice(0, 80)), domains: [...profile.domains],
-      } } : {}),
+      ...(document.classificationContext ? { classificationContext: document.classificationContext } : {}),
       segments: document.segments.map(({ text, location, batch }) => ({ text, location, ...(batch === undefined ? {} : { batch }) })),
     },
   };

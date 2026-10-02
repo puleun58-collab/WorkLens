@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { POST } from "@/app/api/law/research/route";
-import { classifyDocument, lawTargets, issueDefinition, verifyProfileHint, type ContractReview, type DocumentProfile } from "@/lib/contract-review";
+import { classifyDocument, lawTargets, issueDefinition, type ContractReview } from "@/lib/contract-review";
 import { reviewFileFor, reviewRequestFor, type LocalCandidate, type ReviewFile } from "@/lib/law-review-source";
-import type { ReviewDocument } from "@/lib/law-research";
+import { LAW_REVIEW_FILE_MAX_CHARS, LAW_REVIEW_FILE_MAX_SEGMENTS, LAW_REVIEW_SEGMENT_MAX_CHARS, type ReviewDocument } from "@/lib/law-research";
 import { reviewContract, type ReviewSources } from "@/server/contract-review";
 import { longContract, paragraphCase } from "./eval/document-review-cases";
 
@@ -21,7 +21,7 @@ const LINES = longContract(HEAD, 1500, {
   1460: "제1460조(면책) 회사는 어떠한 경우에도 책임을 지지 않는다.",
 });
 const DOCUMENT = paragraphCase("boundary", "docx", LINES, []).document;
-const HINT_FIELDS = ["issueId", "issueHint", "severity", "severityHint", "risk", "riskHint", "suggestedLaw", "suggestedPrecedent", "suggestion", "selectionScore"];
+const HINT_FIELDS = ["issueId", "issueHint", "severity", "severityHint", "risk", "riskHint", "suggestedLaw", "suggestedPrecedent", "suggestion", "selectionScore", "profile", "type", "domains", "relationship", "confidence", "evidence"];
 
 const offline: ReviewSources = {
   async findLaw() { return undefined; },
@@ -55,7 +55,6 @@ describe("candidate metadata never reaches the server's judgment", () => {
     expect(original.scan.strategy).toBe("candidate");
     expect(original.scan.candidates).toBeGreaterThanOrEqual(4);
     const request = reviewRequestFor({ ...original.document, segments: original.document.segments.map((segment) => Object.assign({ ...segment }, { issueHint: "penalty", severity: "high" })) });
-    expect(Object.keys(request.document).sort()).toEqual(["id", "kind", "name", "profile", "segments", "version"]);
     for (const segment of request.document.segments) expect(Object.keys(segment).sort()).toEqual(["batch", "location", "text"]);
     const json = JSON.stringify(request);
     for (const field of HINT_FIELDS) expect(json).not.toContain(`"${field}"`);
@@ -68,13 +67,13 @@ describe("candidate metadata never reaches the server's judgment", () => {
     expect(tampered.document.segments).toEqual(original.document.segments);
     expect(JSON.stringify(reviewRequestFor(tampered.document))).toBe(JSON.stringify(reviewRequestFor(original.document)));
     const [left, right] = await Promise.all([original, tampered].map((file: ReviewFile) =>
-      reviewContract(file.document.segments, offline, Date.now, undefined, file.document.profile)));
+      reviewContract(file.document.segments, offline, Date.now, undefined, file.document.classificationContext)));
     expect(judgment(right)).toEqual(judgment(left));
   });
 
   it("decides the termination clause from its text even when the selector called it a penalty", async () => {
     const tampered = reviewFileFor(DOCUMENT, "boundary.docx", { candidates: tamperings["wrong issue hint (everything penalty)"] });
-    const review = await reviewContract(tampered.document.segments, offline, Date.now, undefined, tampered.document.profile);
+    const review = await reviewContract(tampered.document.segments, offline, Date.now, undefined, tampered.document.classificationContext);
     const clause = review.clauses.find((entry) => entry.number === "제120조")!;
     expect(clause.issues.map((issue) => [issue.id, issue.severity])).toEqual([["unilateral_termination", "medium"]]);
     expect(clause.issues[0].fact).toBe(TERMINATION);
@@ -83,33 +82,33 @@ describe("candidate metadata never reaches the server's judgment", () => {
 
   it("finds through the candidate path what a full review of the whole text finds", async () => {
     const full = await reviewContract(LINES.join("\n"), offline);
-    const candidate = await reviewContract(original.document.segments, offline, Date.now, undefined, original.document.profile);
+    const candidate = await reviewContract(original.document.segments, offline, Date.now, undefined, original.document.classificationContext);
     expect(candidate.document.type).toBe(full.document.type);
     expect(judgment(candidate)).toEqual(judgment(full));
     expect(judgment(full).map((issue) => issue.id)).toEqual(["auto_renewal", "exemption", "penalty", "unilateral_termination"]);
   });
 });
 
-describe("a client profile is a hint the server checks against what it received", () => {
-  const employment = classifyDocument("근로계약서\n근로자와 사용자는 임금과 근로시간을 정한다.");
-
-  it("keeps a type the sent text and evidence phrases support, rebuilt rather than copied", () => {
-    expect(employment.type).toBe("employment");
-    const verified = verifyProfileHint({ ...employment, label: "임의 라벨", domains: ["civil", "lease"] }, "제9조(휴가) 휴가는 협의한다.");
-    expect(verified).toMatchObject({ type: "employment", label: "근로계약", domains: ["civil", "labor", "privacy", "procedure"] });
+describe("classification is decided only from received raw text", () => {
+  it("drops conflicting client judgments before the network and produces the same classification", async () => {
+    const file = reviewFileFor(DOCUMENT, "boundary.docx");
+    const requests = ["employment", "lease"].map((type) => reviewRequestFor(Object.assign({}, file.document, {
+      profile: { type, domains: ["labor"], confidence: "high", evidence: ["근로계약"] },
+      type, domains: ["lease"], confidence: "low", issueHint: "dismissal", severityHint: "high",
+    })));
+    expect(requests[0]).toEqual(requests[1]);
+    const reviews = await Promise.all(requests.map(({ document }) =>
+      reviewContract(document.segments, offline, Date.now, undefined, document.classificationContext)));
+    expect(reviews[0].document).toEqual(reviews[1].document);
+    expect(judgment(reviews[0])).toEqual(judgment(reviews[1]));
   });
 
-  it("does not take a type the evidence does not show, and does not settle a conflict", () => {
-    const bare: DocumentProfile = { ...employment, evidence: [] };
-    expect(verifyProfileHint(bare, "제1조(목적) 이 문서는 협력 사항을 정한다.").type).toBe("unknown");
-    const lease = "상가건물 임대차계약서\n임대인과 임차인은 보증금과 차임을 정한다. 임대차 기간은 2년이다.";
-    expect(verifyProfileHint(bare, lease).type).toBe("lease");
-    const conflicted = verifyProfileHint(employment, lease);
-    expect(conflicted).toMatchObject({ type: "unknown", confidence: "low", domains: ["civil", "procedure"] });
-  });
-
-  it("never claims more certainty than the hint", () => {
-    expect(verifyProfileHint({ ...employment, confidence: "low" }, "근로자 임금").confidence).toBe("low");
+  it("does not settle tied employment and lease signals using client evidence", async () => {
+    const opening = "근로계약서\n근로자 사용자 임금 근로시간";
+    const text = "상가건물 임대차계약서\n임대인 임차인 보증금 차임 임대차 기간";
+    const review = await reviewContract([text], offline, Date.now, undefined, opening);
+    expect(review.document).toEqual(classifyDocument(`${opening}\n${text}`));
+    expect(review.document.confidence).not.toBe("high");
   });
 });
 
@@ -142,6 +141,24 @@ describe("the API rejects selector judgments instead of ignoring them", () => {
     const response = await post(reviewRequestFor(document));
     expect(response.status).toBe(200);
     expect(response.json.data?.review?.clauses.flatMap((clause) => clause.issues.map((issue) => issue.id))).toEqual(["unilateral_termination"]);
+  });
+
+  it("charges raw classification context to both global budgets and rejects structured judgments", async () => {
+    const fetcher = vi.fn();
+    vi.stubGlobal("fetch", fetcher);
+    const full = Array.from({ length: LAW_REVIEW_FILE_MAX_CHARS / LAW_REVIEW_SEGMENT_MAX_CHARS }, () => ({
+      text: "가".repeat(LAW_REVIEW_SEGMENT_MAX_CHARS), location: "문단",
+    }));
+    for (const changed of [
+      { classificationContext: "원", segments: full },
+      { classificationContext: "원", segments: Array.from({ length: LAW_REVIEW_FILE_MAX_SEGMENTS }, () => ({ text: "원문", location: "문단" })) },
+      { classificationContext: "원".repeat(LAW_REVIEW_SEGMENT_MAX_CHARS + 1) },
+      { classificationContext: { text: "근로계약", type: "employment" } },
+    ]) {
+      const response = await post({ task: "document_review", document: { ...document, ...changed } });
+      expect([response.status, response.json.error?.code]).toEqual([400, "LAW_INVALID_REQUEST"]);
+    }
+    expect(fetcher).not.toHaveBeenCalled();
   });
 
   it.each(HINT_FIELDS)("rejects %s on a segment, the document or the request", async (field) => {

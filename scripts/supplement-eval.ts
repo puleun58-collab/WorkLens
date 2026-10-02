@@ -30,6 +30,7 @@ import { loadCase } from "../tests/eval/supplement-harness";
 import { parseEvalArgs, type EvalArgs, type EvalSetName } from "./supplement-eval-args";
 import { SUPPLEMENT_REALISTIC_CASES } from "../tests/eval/supplement-realistic";
 import { SUPPLEMENT_HOLDOUT_CASES } from "../tests/eval/supplement-holdout";
+import { SUPPLEMENT_ZERO_CASES } from "../tests/eval/supplement-zero";
 import { FAILURE_SEVERITY, formatSummary, runSupplementCase, summarize, type EvalOutcome, type ReviewModel } from "../tests/eval/supplement-harness";
 import { buildSupplementReviewMessages, parseSupplementReview, SUPPLEMENT_REVIEW_PROMPT_VERSION, SUPPLEMENT_REVIEW_RESPONSE_SCHEMA } from "../src/lib/ai/supplement-prompt";
 import type { SupplementReviewVerdict } from "../src/domain/supplement";
@@ -45,7 +46,7 @@ const { model, repeat, endpoint, set } = parsed;
 const SETS: Record<EvalSetName, SupplementEvalCase[]> = {
   fixed: SUPPLEMENT_EVAL_CASES,
   realistic: SUPPLEMENT_REALISTIC_CASES,
-  development: [...SUPPLEMENT_EVAL_CASES, ...SUPPLEMENT_REALISTIC_CASES],
+  development: [...SUPPLEMENT_EVAL_CASES, ...SUPPLEMENT_REALISTIC_CASES, ...SUPPLEMENT_ZERO_CASES],
   holdout: SUPPLEMENT_HOLDOUT_CASES,
 };
 const cases = SETS[set];

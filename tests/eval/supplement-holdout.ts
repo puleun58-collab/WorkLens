@@ -41,4 +41,8 @@ export const SUPPLEMENT_HOLDOUT_CASES: SupplementEvalCase[] = [
       { name: "업계동향.pdf", pages: [["2026년 9월 업계 동향"], ["B2C 시장은 전월과 비슷한 수준을 유지했습니다."]] }] },
   { id: "HO07", category: "large", purpose: "100페이지 PDF: 부록의 원인·계획을 반증으로 사용", quiet: true, coverage: [{ total: 100, analyzed: 100, complete: true }],
     files: [longPdf] },
+  ...["추후 협의하여 진행한다", "준비 완료 후 추진한다", "업체와 조율 후 시행 예정이다", "세부 일정은 별도 협의한다"].map((expression, index): SupplementEvalCase => ({
+    id: `HO-T${index + 1}`, category: "missing", purpose: "일정 언급과 실제 시점의 구분", must: [{ check: "schedule" }], mustNot: [{ check: "owner" }, { check: "budget" }, { check: "scope" }],
+    files: [{ name: "업무개선.docx", docx: [{ heading: "고객 응대 개선 추진 계획" }, { heading: "실행 계획" }, `응대 매뉴얼을 개편하여 적용할 계획이다. ${expression}.`, "담당: 고객지원팀", "적용 대상: 상담 창구 4곳", "예산: 120만원 (기존 계약 단가 기준)" ] }],
+  })),
 ];

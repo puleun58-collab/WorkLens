@@ -7,6 +7,7 @@ import type {
   SupplementVerdict,
 } from "@/domain/supplement";
 import { clip } from "./text";
+import type { SupplementDiagnostics } from "./diagnostics";
 
 const SEVERITY_ORDER = { critical: 0, warning: 1, suggestion: 2 } as const;
 const SCOPE_ORDER = { all: 0, conflict: 1, report: 2 } as const;
@@ -36,6 +37,7 @@ function locationOf(source: SourceRef, fileName: string | undefined): string {
 export function finalizeSupplement(
   draft: SupplementDraft,
   outcomes: ReadonlyMap<string, SupplementReviewOutcome>,
+  diagnostics?: SupplementDiagnostics,
 ): SupplementResult {
   const multi = draft.files.length > 1;
   const nameOf = new Map(draft.files.map((file) => [file.fileId, file.fileName]));
@@ -60,9 +62,20 @@ export function finalizeSupplement(
     if (candidate.scope === "conflict") { findings.push(toFinding(candidate)); continue; }
     const outcome = outcomes.get(candidate.id);
     const found = outcome?.verdict === "found" ? outcome.sources : [];
-    if (found.some((source) => source.fileId === candidate.fileId)) { resolvedCount += 1; continue; }
-    if (outcome?.verdict === "unclear") { withheldCount += 1; continue; }
-    if (reviewed.has(candidate.id) && outcome === undefined) unreviewed += 1;
+    if (found.some((source) => source.fileId === candidate.fileId)) {
+      resolvedCount += 1;
+      if (diagnostics) { diagnostics.rejected.covered_elsewhere += 1; diagnostics.rebutted += 1; }
+      continue;
+    }
+    if (outcome?.verdict === "unclear") {
+      withheldCount += 1;
+      if (diagnostics) diagnostics.rejected.insufficient_evidence += 1;
+      continue;
+    }
+    if (reviewed.has(candidate.id) && outcome === undefined) {
+      unreviewed += 1;
+      if (diagnostics) { diagnostics.rejected.system_failure += 1; diagnostics.systemAffected = true; }
+    }
 
     const elsewhere = [...(candidate.evidence ?? []), ...found.filter((source) => !candidate.evidence?.some((known) => known.nodeId === source.nodeId && known.fileId === source.fileId))];
     if (elsewhere.length > 0) {
@@ -87,8 +100,13 @@ export function finalizeSupplement(
 
     // Not found anywhere: one finding per topic across the set.
     const finding = toFinding(candidate);
+    if (reviewed.has(candidate.id) && outcome === undefined) {
+      finding.status = "unverified";
+      finding.limitation = [finding.limitation, "의미 기반 재확인을 완료하지 못해 누락 여부를 확정하지 않았습니다."].filter(Boolean).join(" ");
+    }
     const existing = merged.get(candidate.topic);
     if (existing) {
+      if (diagnostics) diagnostics.rejected.duplicate += 1;
       existing.sources = [...existing.sources, ...finding.sources];
       existing.locations = [...new Set([...existing.locations, ...finding.locations])];
       if (SEVERITY_ORDER[finding.severity] < SEVERITY_ORDER[existing.severity]) existing.severity = finding.severity;
@@ -104,6 +122,7 @@ export function finalizeSupplement(
     .filter((finding) => finding.severity !== "suggestion" && finding.question)
     .sort((a, b) => SCOPE_ORDER[a.scope] - SCOPE_ORDER[b.scope])
     .map((finding) => finding.question!))].slice(0, MAX_QUESTIONS);
+  if (diagnostics) diagnostics.final = findings.length;
   return {
     files: draft.files,
     coverage: draft.coverage,

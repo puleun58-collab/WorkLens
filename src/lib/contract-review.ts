@@ -143,11 +143,6 @@ const RELATIONSHIP_LABEL: Record<PartyRelationship, string> = {
 };
 
 const CORPORATE_PARTY = /주식회사|㈜|\(주\)|유한회사|법인/gu;
-const UNKNOWN_PROFILE: DocumentProfile = {
-  type: "unknown", label: "유형 확인 불가", relationship: "unknown", relationshipLabel: RELATIONSHIP_LABEL.unknown,
-  confidence: "low", evidence: [], domains: DOMAINS.unknown,
-};
-
 export function classifyDocument(text: string): DocumentProfile {
   const head = text.slice(0, 1500);
   const scored = TYPE_SIGNALS.map((signal) => {
@@ -181,34 +176,6 @@ export function classifyDocument(text: string): DocumentProfile {
   };
 }
 
-/**
- * A file review's profile is computed by the worker from the whole parsed file, but the server
- * receives only the selected text and short evidence phrases. The worker's profile is therefore a
- * hint, never a fact: its type stands only when the received text and evidence themselves carry
- * that type's signals and the received text does not clearly name another type. Labels, domains
- * and the party relationship are rebuilt here from the verified type, never copied from the hint.
- */
-export function verifyProfileHint(hint: DocumentProfile, text: string): DocumentProfile {
-  const own = classifyDocument(text);
-  const signal = TYPE_SIGNALS.find((entry) => entry.type === hint.type);
-  if (!signal) return own.type === "unknown" ? own : { ...UNKNOWN_PROFILE };
-  const pool = `${hint.evidence.join("\n")}\n${text}`;
-  const hits = signal.patterns.filter((pattern) => pattern.test(pool));
-  // Unsupported: the hint names a type the received words do not show. Use what they do show.
-  if (hits.length < 3) return own;
-  // Conflict: the received text alone clearly reads as another type. Do not settle either one.
-  if (own.type !== "unknown" && own.type !== hint.type && own.confidence === "high") return { ...UNKNOWN_PROFILE };
-  const type = hint.type;
-  const corporate = (pool.match(CORPORATE_PARTY) ?? []).length;
-  const relationship: PartyRelationship = type === "employment" || type === "work_rules" ? "employment"
-    : type === "lease" ? "lease" : type === "b2c_terms" ? "consumer" : corporate >= 2 ? "business" : "unknown";
-  // Never more certain than the hint; a type shown only by a bare minimum of signals is at most medium.
-  const confidence: Confidence = hint.confidence === "low" ? "low" : hint.confidence === "high" && hits.length >= 4 ? "high" : "medium";
-  return {
-    type, label: signal.label, relationship, relationshipLabel: RELATIONSHIP_LABEL[relationship], confidence,
-    evidence: hits.map((pattern) => pool.match(pattern)?.[0] ?? "").filter(Boolean), domains: DOMAINS[type],
-  };
-}
 
 /** Term the precedent search uses for this document; generic when the type is unknown. */
 export function documentSearchTerm(profile: DocumentProfile): string {

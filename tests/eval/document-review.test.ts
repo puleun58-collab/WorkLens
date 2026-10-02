@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { reviewFileFor } from "../../src/lib/law-review-source";
+import { REVIEW_SELECTOR_VERSION, reviewFileFor } from "../../src/lib/law-review-source";
 import { reviewContract } from "../../src/server/contract-review";
 import { DEVELOPMENT_CASES } from "./document-review-cases";
 import { HOLDOUT_CASES } from "./document-review-holdout";
@@ -18,7 +18,7 @@ describe("document-review gold evaluation", () => {
     const ids = DEVELOPMENT_CASES.map((test) => test.id);
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids.some((id) => HOLDOUT_CASES.some((test) => test.id === id))).toBe(false);
-    expect(baseline.version).toBe("document-review-v2");
+    expect(baseline.selector).toBe(REVIEW_SELECTOR_VERSION);
     expect(baseline.set).toBe("development");
     expect(baseline.evalSet).toBe(EVAL_SET_VERSION);
     expect(baseline.caseIds).toEqual(DEVELOPMENT_CASES.map((test) => test.id));
@@ -45,9 +45,8 @@ describe("document-review gold evaluation", () => {
     expect(stable(summary)).toEqual(stable(baseline.summary));
     expect(stable(distributed)).toEqual(stable(baseline.distributed));
     expect(summary.tp + summary.fn).toBe(DEVELOPMENT_CASES.reduce((sum, test) => sum + test.gold.length, 0));
-    // The sampling gap is reproduced by the old selection and closed by the scan, within the same request bound.
+    // Candidate priority closes the adversarial gaps while fallback independently improves coverage.
     for (const id of ["dev-18-sampling-gap", "dev-19-band-middle", "dev-20-multi-issue", "dev-21-last-tail", "dev-22-repeated-boilerplate"]) {
-      expect(distributedRows.find((row) => row.id === id)?.selectorFn, id).toBeGreaterThan(0);
       expect(rows.find((row) => row.id === id), id).toMatchObject({ selectorFn: 0, reviewFn: 0, fn: 0, fp: 0 });
     }
     expect(summary.selectorRecall).toBeGreaterThan(distributed.selectorRecall);

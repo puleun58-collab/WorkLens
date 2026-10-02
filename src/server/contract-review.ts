@@ -1,6 +1,6 @@
 import {
   classifyDocument, documentRisk, extractKeyFacts, holdingRelevance, issueDefinition, lawTargets, passesMetadataGate,
-  precedentQueries, reviewClauses, segmentsOf, splitClauses, verifyProfileHint,
+  precedentQueries, reviewClauses, segmentsOf, splitClauses,
   type Clause, type ClauseIssue, type ContractReview, type DocumentProfile, type FailureReason, type IssueDefinition, type LawReference,
   type LawTarget, type PrecedentReference, type ReviewDiagnostics, type ReviewedClause, type ReviewedIssue, type SourceStatus,
 } from "@/lib/contract-review";
@@ -107,17 +107,17 @@ type Resolution = { keys: string[]; status: SourceStatus; failure?: FailureReaso
 /**
  * One profile and lookup memo across every selected document range and semantic batch. The input
  * is only text (and its range boundaries): every issue, severity, fact and lookup below is decided
- * here from that text. `profileHint` is the worker's whole-file classification, checked against the
- * received text by `verifyProfileHint` and never taken as fact.
+ * here from that text. Optional classification context is verbatim opening text, not a client judgment.
  */
 export async function reviewContract(
   input: string | readonly string[] | readonly { text: string; batch?: number }[],
-  sources: ReviewSources, now: () => number = Date.now, signal?: AbortSignal, profileHint?: DocumentProfile,
+  sources: ReviewSources, now: () => number = Date.now, signal?: AbortSignal, classificationContext?: string,
 ): Promise<ContractReview> {
   const started = now();
   signal?.throwIfAborted();
   const texts = typeof input === "string" ? [input] : input.map((part) => typeof part === "string" ? part : part.text);
-  const profile: DocumentProfile = profileHint ? verifyProfileHint(profileHint, texts.join("\n")) : classifyDocument(texts.join("\n"));
+  const text = texts.join("\n");
+  const profile: DocumentProfile = classifyDocument(classificationContext ? `${classificationContext}\n${text}` : text);
   const split: Clause[] = [];
   if (typeof input === "string") split.push(...splitClauses(input));
   else {
