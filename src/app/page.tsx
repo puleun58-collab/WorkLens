@@ -1484,7 +1484,7 @@ export default function Home() {
     && files.some((file) => selected.includes(file.id) && !isSupplementFileKind(file.kind));
   const actionDisabled = busy || (activeTab === "Check" && companyTermsSource === "pending")
     || (polishTextMode
-      ? polishText.trim().length === 0
+      ? polishText.trim().length === 0 || polishText.length > POLISH_TEXT_MAX_CHARS
       : selected.length === 0
         || (activeTab === "Aggregate" && aggregationHasUnsupportedFiles)
         || (activeTab === "Supplement" && supplementHasUnsupportedFiles)

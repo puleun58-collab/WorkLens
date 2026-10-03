@@ -15,7 +15,7 @@ import {
  */
 
 /** Recorded with every evaluation run; bump when selection behavior changes. */
-export const REVIEW_SELECTOR_VERSION = "candidate-scan-v3";
+export const REVIEW_SELECTOR_VERSION = "candidate-scan-v4";
 
 /** complete: every reviewable part was sent. partial: some was not (limits, textless pages, omitted parts). excluded: nothing to review. */
 export type ReviewCoverageStatus = "complete" | "partial" | "excluded";
@@ -334,15 +334,19 @@ function selectionOrder(candidates: readonly LocalCandidate[]): { order: LocalCa
 function distribute(reviewable: readonly Reviewable[], selected: Set<number>, chars: number, segments: number): void {
   const bandChars = chars / DISTRIBUTED_BANDS;
   // Keep location representatives in every band; punctuation/spacing changes do not
-  // let the same boilerplate consume the whole fallback. Numbers and their signs remain significant.
-  const factKey = (entry: Reviewable) => entry.text.normalize("NFKC").replace(/\s+/gu, "").replace(/[.!?。]+$/u, "");
+  // let the same boilerplate consume the whole fallback. Ignore only the leading article
+  // number of a titled heading; references, amounts and dates remain significant.
+  const originalKey = (entry: Reviewable) => entry.text.normalize("NFKC").replace(/\s+/gu, "").replace(/[.!?。]+$/u, "");
+  let representativePass = true;
+  const factKey = (entry: Reviewable) => representativePass
+    ? originalKey(entry).replace(/^제\d+조(?:의\d+)?(?=\()/u, "제조") : originalKey(entry);
   const repeats = new Map<string, number>();
   for (const index of selected) {
     const key = `${Math.floor(index * DISTRIBUTED_BANDS / reviewable.length)}:${factKey(reviewable[index])}`;
     repeats.set(key, (repeats.get(key) ?? 0) + 1);
   }
   const bandSegments = segments / DISTRIBUTED_BANDS;
-  const fill = (band: number, limitChars: number, limitSegments: number) => {
+  const fill = (band: number, limitChars: number, limitSegments: number, maxUnitChars = Infinity) => {
     const from = Math.floor(band * reviewable.length / DISTRIBUTED_BANDS);
     const to = Math.floor((band + 1) * reviewable.length / DISTRIBUTED_BANDS);
     const last = band === DISTRIBUTED_BANDS - 1;
@@ -354,7 +358,7 @@ function distribute(reviewable: readonly Reviewable[], selected: Set<number>, ch
       const key = `${band}:${factKey(entry)}`;
       if ((repeats.get(key) ?? 0) >= REPRESENTATIVES) continue;
       // A large unit must not hide smaller units behind it. Never split a unit to fill a band.
-      if (used + entry.chars > limitChars || count + entry.parts.length > limitSegments) continue;
+      if (entry.chars > maxUnitChars || used + entry.chars > limitChars || count + entry.parts.length > limitSegments) continue;
       selected.add(index);
       repeats.set(key, (repeats.get(key) ?? 0) + 1);
       used += entry.chars;
@@ -393,7 +397,18 @@ function distribute(reviewable: readonly Reviewable[], selected: Set<number>, ch
   chars -= denseChars;
   segments -= denseSegments;
   // Reuse unspent shares only after every band, including the tail, had its reserved turn.
-  for (const band of spread(Array.from({ length: DISTRIBUTED_BANDS }, (_, index) => index))) fill(band, chars, segments);
+  // Relax article-number suppression now that distinct content got its turn. This keeps
+  // surrounding numbered clauses in the remaining budget instead of shrinking coverage.
+  representativePass = false;
+  repeats.clear();
+  for (const index of selected) {
+    const key = `${Math.floor(index * DISTRIBUTED_BANDS / reviewable.length)}:${factKey(reviewable[index])}`;
+    repeats.set(key, (repeats.get(key) ?? 0) + 1);
+  }
+  // Let ordinary-sized units reuse quota before oversized units can consume it.
+  const bandOrder = spread(Array.from({ length: DISTRIBUTED_BANDS }, (_, index) => index));
+  for (const band of bandOrder) fill(band, chars, segments, bandChars);
+  for (const band of bandOrder) fill(band, chars, segments);
 }
 
 const READ_LIMITS: Record<string, string> = {

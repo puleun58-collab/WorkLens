@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import {
   AMENDMENT_SCENARIOS, DISPUTE_DOMAINS, EMPTY_RESEARCH_DRAFT, LAW_RESEARCH_DOCUMENT_MAX_CHARS, LAW_RESEARCH_DOCUMENT_MIN_CHARS,
   LAW_RESEARCH_ERROR, LAW_RESEARCH_NAME_MAX_CHARS, LAW_RESEARCH_QUERY_MAX_CHARS, LAW_RESEARCH_TASKS, lawResearchOutcome, lawResearchRequestFor,
@@ -17,6 +17,7 @@ import { SourceToggleSummary } from "./SourceToggleSummary";
 import type { ReviewableFiles } from "./LawSearch";
 import type { WorkspaceFile } from "@/client/protocol";
 import { runInWorker } from "@/client/document-client";
+import { reviewFileIdentityMatches, reviewIsStale } from "@/client/review-provenance";
 import { reviewRequestFor, type ReviewFile } from "@/lib/law-review-source";
 import { readReviewPreferences, resolveReviewPreferences, type ReviewPreferences } from "@/client/review-preferences";
 import { Plus, Upload } from "lucide-react";
@@ -67,7 +68,7 @@ const clientSnapshot = () => true;
 const serverSnapshot = () => false;
 
 export function LegalResearch({ workspace, initialTask = "full_research" }: { workspace?: ReviewableFiles; initialTask?: LawResearchTask }) {
-  const files = workspace?.files ?? [];
+  const files = useMemo(() => workspace?.files ?? [], [workspace?.files]);
   const [savedPreferences, setSavedPreferences] = useState<ReviewPreferences | null>(null);
   const [preferenceOverride, setPreferenceOverride] = useState<Partial<ReviewPreferences>>({});
   const [settingsError, setSettingsError] = useState<string | null>(null);
@@ -89,6 +90,8 @@ export function LegalResearch({ workspace, initialTask = "full_research" }: { wo
   const [task, setTask] = useState<LawResearchTask>(initialTask);
   const [draft, setDraft] = useState<LawResearchDraft>(EMPTY_RESEARCH_DRAFT);
   const [results, setResults] = useState<Partial<Record<LawResearchTask, TaskResult>>>({});
+  const liveFiles = useRef(files);
+  useLayoutEffect(() => { liveFiles.current = files; }, [files]);
   const requests = useRef(new Map<LawResearchTask, AbortController>());
 
   useEffect(() => {
@@ -96,9 +99,10 @@ export function LegalResearch({ workspace, initialTask = "full_research" }: { wo
     return () => pending.forEach((controller) => controller.abort());
   }, []);
 
-  const run = useCallback(async (request: LawResearchRequest, file?: ReviewFile, workspaceFile?: WorkspaceFile, runPreferences = preferences) => {
-    requests.current.get(request.task)?.abort();
-    const controller = new AbortController();
+  const run = useCallback(async (request: LawResearchRequest, file?: ReviewFile, workspaceFile?: WorkspaceFile, runPreferences = preferences, pendingController?: AbortController) => {
+    if (pendingController?.signal.aborted) return;
+    if (!pendingController) requests.current.get(request.task)?.abort();
+    const controller = pendingController ?? new AbortController();
     requests.current.set(request.task, controller);
     setResults((current) => ({ ...current, [request.task]: { request, preferences: { ...runPreferences }, outcome: null, loading: true, ...(file ? { file } : {}), ...(workspaceFile ? { workspaceFile } : {}) } }));
     let outcome: LawResearchOutcome;
@@ -123,26 +127,39 @@ export function LegalResearch({ workspace, initialTask = "full_research" }: { wo
    * Reviews one workspace file: the worker builds the bounded request from the parsed document
    * (nothing is uploaded again), and a file with no reviewable text is reported, not sent.
    */
-  const runFile = useCallback(async (fileId: string) => {
+  const runFile = useCallback(async (fileId: string, expectedFile?: WorkspaceFile, runPreferences = preferences) => {
     const task = "document_review";
     const workspaceFile = workspace?.files.find((entry) => entry.id === fileId);
-    if (!workspaceFile) return;
+    if (!workspaceFile || (expectedFile && !reviewFileIdentityMatches(liveFiles.current, expectedFile))) return;
+    if (requests.current.has(task)) return;
+    const controller = new AbortController();
+    requests.current.set(task, controller);
+    const requestSnapshot: LawResearchRequest = { task, text: "" };
+    setResults((current) => ({ ...current, [task]: { request: requestSnapshot, workspaceFile, preferences: { ...runPreferences }, outcome: null, loading: true } }));
     let file: ReviewFile;
     try {
       file = await runInWorker({ kind: "review-source", fileId });
     } catch {
-      setResults((current) => ({ ...current, [task]: { request: { task, text: "" }, outcome: { kind: "error", message: FILE_READ_ERROR }, loading: false } }));
+      if (controller.signal.aborted) return;
+      requests.current.delete(task);
+      setResults((current) => ({ ...current, [task]: { request: requestSnapshot, workspaceFile, preferences: { ...runPreferences }, outcome: { kind: "error", message: FILE_READ_ERROR }, loading: false } }));
+      return;
+    }
+    if (controller.signal.aborted) return;
+    if (!reviewFileIdentityMatches(liveFiles.current, workspaceFile, file)) {
+      requests.current.delete(task);
+      setResults((current) => ({ ...current, [task]: { request: requestSnapshot, workspaceFile, file, preferences: { ...runPreferences }, outcome: { kind: "error", message: FILE_READ_ERROR }, loading: false } }));
       return;
     }
     // Only the projected DTO is sent: text, positions and identity, never the selector's hints.
     const request: LawResearchRequest = reviewRequestFor(file.document);
     if (file.coverage.status === "excluded") {
-      requests.current.get(task)?.abort();
+      requests.current.delete(task);
       setResults((current) => ({ ...current, [task]: { request, outcome: null, loading: false, file, workspaceFile } }));
       return;
     }
-    await run(request, file, workspaceFile);
-  }, [run, workspace?.files]);
+    await run(request, file, workspaceFile, runPreferences, controller);
+  }, [run, workspace?.files, preferences]);
 
   /** Leaving a task cancels its in-flight chain; finished results stay for when the user comes back. */
   function changeTask(next: LawResearchTask) {
@@ -177,7 +194,11 @@ export function LegalResearch({ workspace, initialTask = "full_research" }: { wo
   const update = <K extends keyof LawResearchDraft>(key: K, value: LawResearchDraft[K]) => setDraft((current) => ({ ...current, [key]: value }));
   const current = results[task];
   const loading = current?.loading === true;
-  const request = lawResearchRequestFor(task, draft);
+  const validRequest = lawResearchRequestFor(task, draft);
+  // Keep the exact pasted input in the existing request snapshot, including whitespace.
+  // Validation remains unchanged, and the API already trims text before reviewing it.
+  const request = validRequest && task === "document_review" && "text" in validRequest
+    ? { ...validRequest, text: draft.text } : validRequest;
   const regionNames = [draft.region1.trim(), draft.region2.trim()];
   const regionError = task === "ordinance_compare" && (regionNames.some((region) => !region) || regionNames[0] === regionNames[1]);
   const isDocument = task === "document_review";
@@ -189,16 +210,22 @@ export function LegalResearch({ workspace, initialTask = "full_research" }: { wo
   const fromFile = isDocument && documentSource === "file";
   const canRun = fromFile ? Boolean(fileId) : Boolean(request);
   const resultFile = current?.file;
-  const presentFile = resultFile && files.find((entry) => entry.id === resultFile.fileId);
-  const staleFileReview = Boolean(resultFile && (!presentFile || presentFile !== current?.workspaceFile
-    || resultFile.document.id !== `document:${presentFile.id}` || !resultFile.document.version
-    || resultFile.sources.length !== resultFile.document.segments.length
-    || resultFile.sources.some((source) => source.fileId !== presentFile.id
-      || source.documentId !== resultFile.document.id || source.documentVersion !== resultFile.document.version)));
+  const staleFileReview = Boolean(current && isDocument && reviewIsStale(current, { fromFile, fileId, request, files }));
+  const retryUnavailable = Boolean(current?.workspaceFile
+    && !reviewFileIdentityMatches(files, current.workspaceFile, current.file));
+
+  function retry() {
+    if (!current || loading || requests.current.has(task) || retryUnavailable) return;
+    if (current.workspaceFile && !current.file) {
+      void runFile(current.workspaceFile.id, current.workspaceFile, current.preferences);
+    } else {
+      void run(current.request, current.file, current.workspaceFile, current.preferences);
+    }
+  }
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    if (loading || !canRun) return;
+    if (loading || requests.current.has(task) || !canRun) return;
     if (fromFile) void runFile(fileId);
     else if (request) void run(request);
   }
@@ -348,16 +375,16 @@ export function LegalResearch({ workspace, initialTask = "full_research" }: { wo
 
     {current && <section className="legal-analysis-result" aria-labelledby="research-result-heading" aria-busy={loading}>
       <h2 id="research-result-heading">{isDocument ? "검토 결과" : "리서치 결과"}</h2>
-      {isDocument && resultFile && !current.loading && (staleFileReview
-        ? <p className="research-meta" role="status">삭제되었거나 현재 작업 파일의 출처·버전과 일치하지 않는 검토 결과입니다. 위치는 검토 당시 기록이며 현재 파일로 이동할 수 없습니다.</p>
-        : fromFile && fileId !== resultFile.fileId
-          ? <p className="research-meta" role="status">지금 선택한 문서가 아닌 {resultFile.document.name}의 검토 결과입니다.</p>
-          : null)}
+      {isDocument && !current.loading && staleFileReview && <p className="research-meta" role="status" data-review-stale="true">
+        {resultFile ? (fromFile && fileId !== resultFile.fileId && reviewFileIdentityMatches(files, current.workspaceFile, resultFile)
+          ? `지금 선택한 문서가 아닌 ${resultFile.document.name}의 검토 결과입니다.`
+          : "삭제되었거나 현재 입력 또는 작업 파일의 출처·버전과 일치하지 않는 검토 결과입니다. 위치는 검토 당시 기록이며 현재 파일로 이동할 수 없습니다.") : "현재 입력과 일치하지 않는 검토 결과입니다. 실행 당시 입력을 기준으로 표시합니다."}
+      </p>}
       {current.loading ? <p className="law-search-note" role="status">{isDocument ? "문서 검토 중…" : "리서치 중…"} 여러 자료를 함께 조회하므로 시간이 걸릴 수 있습니다.</p>
         : current.outcome?.kind === "error" ? <div className="decision-feedback" role="alert">
           <p className="law-search-error">{current.outcome.message}</p>
-          <Button type="button" variant="link" className="law-search-link" onClick={() => void (current.request.task === "document_review" && "text" in current.request && !current.request.text
-            ? runFile(fileId) : run(current.request, current.file, current.workspaceFile, current.preferences))}>다시 시도</Button>
+          <Button type="button" variant="link" className="law-search-link" disabled={retryUnavailable} onClick={retry}>다시 시도</Button>
+          {retryUnavailable && <p className="research-meta" role="status">원본 파일이 삭제되었거나 변경되어 다시 시도할 수 없습니다. 파일을 선택하고 새로 실행하세요.</p>}
         </div>
         : current.file && !current.outcome ? <FileReviewExcluded file={current.file} />
         : current.outcome?.kind === "missing" ? <div className="legal-analysis-missing" role="status">

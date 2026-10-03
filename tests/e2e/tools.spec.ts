@@ -2401,3 +2401,55 @@ test("document review hides execution until a workspace file is added", async ({
   await expect(form.getByRole("button", { name: "실행", exact: true })).toBeEnabled();
   await expect(form.getByRole("button", { name: "파일 추가", exact: true })).toBeVisible();
 });
+
+test("review provenance direct snapshots, presentation and pending race", async ({ page }) => {
+  const bodies: Array<{ text: string }> = [];
+  let release: (() => void) | undefined;
+  await page.route("**/api/law/research", async (route) => {
+    const body = route.request().postDataJSON();
+    bodies.push(body);
+    if (bodies.length === 1) {
+      await route.fulfill({ status: 500, json: { error: "조회 실패" } });
+      return;
+    }
+    if (bodies.length === 3) await new Promise<void>((resolve) => { release = resolve; });
+    await route.fulfill({ json: { data: { found: true, task: "document_review", text: "검토 완료", markers: [] } } });
+  });
+  await page.goto("/");
+  await navigateWorkspace(page, "법령");
+  await page.getByRole("tab", { name: "종합 리서치", exact: true }).click();
+  const form = page.getByRole("form", { name: /^(종합 리서치|문서 검토) 입력$/ });
+  await chooseOption(page, form.getByLabel("리서치 유형"), researchTaskLabels.document_review);
+  await form.getByRole("radio", { name: "직접 입력" }).check();
+  const input = form.getByLabel("검토할 문서 내용");
+  const a = "계약서 내용 A를 검토합니다. 당사자는 조건을 확인합니다.";
+  const b = "계약서 내용 B를 검토합니다. 당사자는 내용을 협의합니다.";
+  await input.fill(a);
+  await form.getByRole("button", { name: "실행", exact: true }).click();
+  await expect(page.getByRole("button", { name: "다시 시도" })).toBeVisible();
+  await input.fill(b);
+  const stale = page.locator('[data-review-stale="true"]');
+  await expect(stale).toBeVisible();
+  await page.getByRole("button", { name: "다시 시도" }).click();
+  await expect.poll(() => bodies.length).toBe(2);
+  expect(bodies[1].text).toBe(a);
+  await expect(stale).toBeVisible();
+  await input.fill(a);
+  await expect(stale).toHaveCount(0);
+  await form.getByRole("switch", { name: "출처 펼쳐 보기" }).click();
+  await expect(stale).toHaveCount(0);
+  await form.getByRole("radio", { name: "작업 파일" }).check();
+  await expect(stale).toBeVisible();
+  await form.getByRole("radio", { name: "직접 입력" }).check();
+  await input.fill(b);
+  await form.getByRole("button", { name: "실행", exact: true }).click();
+  await expect.poll(() => Boolean(release)).toBe(true);
+  await expect(form.getByRole("button", { name: "문서 검토 중…" })).toBeDisabled();
+  await input.fill(a);
+  release!();
+  await expect(stale).toBeVisible();
+  expect(bodies[2].text).toBe(b);
+  await form.getByRole("button", { name: "실행", exact: true }).click();
+  await expect(stale).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "다시 시도" })).toHaveCount(0);
+});

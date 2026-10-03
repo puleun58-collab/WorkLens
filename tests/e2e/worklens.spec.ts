@@ -3651,3 +3651,26 @@ test("keeps long filenames and selection roles inside independent mobile cards",
   expect(info!.x + info!.width).toBeLessThanOrEqual(cardBox!.x + cardBox!.width);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 });
+
+test("polish text preflight boundaries prevent oversized execution", async ({ page }) => {
+  const { POLISH_TEXT_MAX_CHARS: max } = await import("../../src/lib/polish/text-input");
+  let calls = 0;
+  await page.route("**/api/ai/**", async (route) => { calls++; await route.abort(); });
+  await page.goto("/");
+  await navigateWorkspace(page, "윤문");
+  await page.getByRole("radio", { name: "텍스트 윤문" }).check();
+  const input = page.getByLabel("윤문할 텍스트 입력");
+  const action = page.getByRole("button", { name: "윤문 실행", exact: true });
+  for (const value of ["", "   ", "가".repeat(max + 1)]) {
+    await input.fill(value);
+    await expect(action).toBeDisabled();
+  }
+  await expect(input).not.toHaveAttribute("maxlength");
+  await expect(page.locator('.polish-paste small[data-over="true"]')).toBeVisible();
+  await action.evaluate((button: HTMLButtonElement) => button.click());
+  expect(calls).toBe(0);
+  for (const size of [1, max - 1, max]) {
+    await input.fill("가".repeat(size));
+    await expect(action).toBeEnabled();
+  }
+});
