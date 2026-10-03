@@ -951,6 +951,7 @@ test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route wit
   await expect(form.getByLabel("질문 또는 검색어")).toHaveCount(0);
   await expect(form.getByRole("heading", { name: "출처 표시", exact: true })).toBeVisible();
   await expect(form.getByText("이 화면에서 변경한 값은 이번 실행에만 적용됩니다.")).toBeVisible();
+  await expect(form.getByRole("button", { name: "실행", exact: true })).toHaveCount(0);
   // 법령 entered directly with no work files: the 작업 파일 empty state offers the shared upload, nothing runs.
   await expect(form.getByRole("radio", { name: "작업 파일" })).toBeChecked();
   await expect(form.getByText("검토할 문서를 추가하세요")).toBeVisible();
@@ -2313,4 +2314,29 @@ test("rejects oversized and excessive-page PDF imports before retaining them", a
   });
   await expect(page.locator(".pdf-tool-notice-error")).toContainText("최대 1000페이지");
   await expect(page.getByLabel("불러온 PDF")).toHaveCount(0);
+});
+
+
+test("document review hides execution until a workspace file is added", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator(".app-shell")).toHaveAttribute("data-hydrated", "true");
+  await navigateWorkspace(page, "법령");
+  await page.getByRole("tab", { name: "종합 리서치", exact: true }).click();
+  const form = page.getByRole("form", { name: /^(종합 리서치|문서 검토) 입력$/ });
+  await chooseOption(page, form.getByLabel("리서치 유형"), researchTaskLabels.document_review);
+  await form.getByRole("radio", { name: "작업 파일", exact: true }).check();
+  await expect(form.getByRole("button", { name: "실행", exact: true })).toHaveCount(0);
+  await expect(form.getByRole("button", { name: "파일 추가", exact: true })).toBeVisible();
+  await form.getByRole("radio", { name: "직접 입력", exact: true }).check();
+  await expect(form.getByRole("button", { name: "실행", exact: true })).toBeVisible();
+  await expect(form.getByRole("button", { name: "실행", exact: true })).toBeDisabled();
+  await form.getByRole("radio", { name: "작업 파일", exact: true }).check();
+  await form.getByLabel("검토할 작업 파일 추가").setInputFiles({
+    name: "review-ui.pdf", mimeType: "application/pdf",
+    buffer: Buffer.from(await createPdf(["Document review workspace UI"])),
+  });
+  await expect(form.locator("#research-file")).toContainText("review-ui.pdf");
+  await expect(form.getByRole("button", { name: "실행", exact: true })).toBeVisible();
+  await expect(form.getByRole("button", { name: "실행", exact: true })).toBeEnabled();
+  await expect(form.getByRole("button", { name: "파일 추가", exact: true })).toBeVisible();
 });

@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Radio, RadioGroup } from "@/components/ui/radio-group";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -129,11 +130,8 @@ import {
   Table2,
   Scale,
   ArrowUpDown,
-  File,
-  FileSpreadsheet,
   MoreHorizontal,
   Plus,
-  Presentation,
   Upload,
 } from "lucide-react";
 import { SettingsView, type CompanyTermEntry } from "@/components/SettingsView";
@@ -1656,10 +1654,6 @@ export default function Home() {
                   {uploading ? "분석 중…" : <><Plus aria-hidden="true" />파일 추가</>}
                 </Button>
               </div>
-              <div className="dropzone-meta">
-                <span>XLSX · CSV · PDF · DOCX · PPTX</span>
-                <span>파일당 최대 100{"\u00a0"}MB · 전체 최대 300{"\u00a0"}MB</span>
-              </div>
             </div>
           ) : null}
 
@@ -1765,15 +1759,12 @@ export default function Home() {
                       ? "1 · 기준 파일"
                       : comparisonSelectionIndex === 1 ? "2 · 대상 파일" : null;
                     const selectionRole = comparisonRole ?? (activeTab === "Aggregate" && checked && selected[0] === file.id ? "기준 파일" : null);
-                    const FileKindIcon = file.kind === "xlsx" || file.kind === "csv"
-                      ? FileSpreadsheet
-                      : file.kind === "pptx" ? Presentation : file.kind === "pdf" || file.kind === "docx" ? FileText : File;
                     return (
                       <article className={`file-row${checked ? " selected" : ""}${selectionRole ? " compare-selected-file" : ""}`} key={file.id}>
                         <label className="select-file">
                           <Checkbox checked={checked} disabled={!checked && selected.length === 10} onCheckedChange={() => toggleFile(file.id)} aria-label={`${file.name} 선택`} />
                         </label>
-                        <span className="file-kind-icon" aria-hidden="true"><FileKindIcon /></span>
+                        <span className={`file-kind-icon kind-${file.kind}`} aria-hidden="true">{file.kind.toUpperCase()}</span>
                         <div className="file-info">
                           <div className="file-name-line">
                             <strong title={file.name} tabIndex={selectionRole ? 0 : undefined}>{file.name}</strong>
@@ -1792,7 +1783,7 @@ export default function Home() {
                             <i aria-hidden="true">·</i>{file.warnings.length ? <span className="warning" title={warningText(file.warnings)}>주의 {file.warnings.length}</span> : <span className="muted">없음</span>}
                           </div>
                         </div>
-                        <span className={`status status-${file.status.toLowerCase()}`}><span aria-hidden="true" />{file.status}</span>
+                        <Badge variant={file.status === "ready" ? "success" : "secondary"} className="file-status">{file.status === "ready" ? "준비 완료" : file.status}</Badge>
                       </article>
                     );
                   })}

@@ -5447,7 +5447,7 @@ body {
     white-space: nowrap;
   }
 
-  .file-row > .status {
+  .file-row > .file-status {
     grid-column: 2;
     grid-row: 2;
     justify-self: start;
@@ -8344,9 +8344,9 @@ div.status-panel.error > strong { font-size: 14px; line-height: 1.5; }
 
 .dropzone {
   display: flex;
-  min-height: 300px;
+  min-height: 240px;
   margin-bottom: var(--space-4);
-  padding: 44px 24px;
+  padding: 28px 24px;
   flex-direction: column;
   align-items: center;
   justify-content: center;
@@ -8393,8 +8393,7 @@ div.status-panel.error > strong { font-size: 14px; line-height: 1.5; }
 }
 
 .dropzone .dropzone-copy span,
-.file-add-copy span,
-.dropzone-meta span {
+.file-add-copy span {
   color: var(--muted);
   font-size: var(--font-size-sm);
   line-height: var(--leading-relaxed);
@@ -8405,12 +8404,6 @@ div.status-panel.error > strong { font-size: 14px; line-height: 1.5; }
   margin-top: var(--space-1);
 }
 
-.dropzone-meta {
-  display: flex;
-  margin-top: var(--space-3);
-  flex-direction: column;
-  gap: 2px;
-}
 
 .dropzone.drag-active,
 .file-add-dropzone.drag-active {
@@ -8502,7 +8495,7 @@ div.status-panel.error > strong { font-size: 14px; line-height: 1.5; }
   display: grid;
   min-height: 72px;
   padding: 12px 18px;
-  grid-template-columns: 24px 38px minmax(0, 1fr) auto;
+  grid-template-columns: 24px 42px minmax(0, 1fr) auto;
   gap: 12px;
   align-items: center;
   border-bottom: 1px solid var(--line-soft);
@@ -8518,14 +8511,21 @@ div.status-panel.error > strong { font-size: 14px; line-height: 1.5; }
 .file-kind-icon {
   display: grid;
   place-items: center;
-  width: 38px;
+  width: 42px;
   height: 38px;
+  font-size: 10px;
+  font-weight: var(--font-weight-semibold);
   border-radius: var(--radius-control);
   background: var(--layer);
   color: var(--ink-soft);
 }
 
-.file-kind-icon svg { width: 19px; height: 19px; }
+.file-kind-icon.kind-xlsx,
+.file-kind-icon.kind-csv { background: color-mix(in srgb, var(--success) 8%, transparent); color: var(--success-foreground); }
+.file-kind-icon.kind-pdf { background: color-mix(in srgb, var(--destructive) 8%, transparent); color: var(--destructive-foreground); }
+.file-kind-icon.kind-docx { background: color-mix(in srgb, var(--info) 8%, transparent); color: var(--info-foreground); }
+.file-kind-icon.kind-pptx { background: color-mix(in srgb, var(--warning) 8%, transparent); color: var(--warning-foreground); }
+.file-row > .file-status { border-radius: 999px; padding-inline: 8px; }
 
 .file-info { min-width: 0; gap: 5px; }
 
@@ -8565,8 +8565,8 @@ div.status-panel.error > strong { font-size: 14px; line-height: 1.5; }
   .workspace > .workspace-heading { margin-top: 0; }
 
   .dropzone {
-    min-height: 280px;
-    padding: 36px 18px;
+    min-height: 220px;
+    padding: 24px 18px;
   }
 
   .dropzone button { width: auto; }
@@ -8594,7 +8594,7 @@ div.status-panel.error > strong { font-size: 14px; line-height: 1.5; }
 
   .file-row {
     padding: 14px 12px;
-    grid-template-columns: 24px 34px minmax(0, 1fr) auto;
+    grid-template-columns: 24px 38px minmax(0, 1fr) auto;
     grid-template-rows: auto auto;
     column-gap: 9px;
     row-gap: 6px;
@@ -8602,9 +8602,9 @@ div.status-panel.error > strong { font-size: 14px; line-height: 1.5; }
   }
 
   .select-file { grid-column: 1; grid-row: 1 / -1; }
-  .file-kind-icon { grid-column: 2; grid-row: 1 / -1; width: 34px; height: 34px; }
-  .file-info { grid-column: 3 / -1; grid-row: 1 / -1; padding-right: 60px; }
-  .file-row > .status { grid-column: 4; grid-row: 1; z-index: 1; }
+  .file-kind-icon { grid-column: 2; grid-row: 1 / -1; width: 38px; height: 34px; }
+  .file-info { grid-column: 3 / -1; grid-row: 1 / -1; padding-right: 76px; }
+  .file-row > .file-status { grid-column: 4; grid-row: 1; z-index: 1; }
   .file-name-line { align-items: flex-start; flex-direction: column; gap: 4px; }
   .file-meta-line { padding-top: 2px; }
 }
