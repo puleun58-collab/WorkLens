@@ -2364,7 +2364,39 @@ test("document review hides execution until a workspace file is added", async ({
   }, Array.from(await createPdf(["Document review workspace UI"])));
   await expect(form.locator("#research-file")).toContainText("review-ui.pdf");
   await expect(form.locator(".dropzone")).toHaveCount(0);
-  expect((await form.locator(".research-file-workarea").boundingBox())!.height).toBeLessThan(180);
+  const workarea = form.locator(".research-file-workarea");
+  expect((await workarea.boundingBox())!.height).toBeLessThan(180);
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect(workarea).toHaveClass(/file-add-dropzone/);
+    const surface = await workarea.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return { background: style.backgroundColor, border: style.borderTopStyle, radius: parseFloat(style.borderRadius), padding: parseFloat(style.paddingLeft) };
+    });
+    expect(surface.background).not.toBe("rgba(0, 0, 0, 0)");
+    expect(surface.border).toBe("dashed");
+    expect(surface.radius).toBeGreaterThan(0);
+    expect(surface.padding).toBeGreaterThan(0);
+    await expect(workarea).toHaveCSS("box-shadow", "none");
+    await expect(form.locator("#research-file")).toBeVisible();
+    await expect(form.getByRole("button", { name: "파일 추가", exact: true })).toBeVisible();
+    await expect(form.getByRole("button", { name: "실행", exact: true })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+    const selectBox = (await form.locator("#research-file").boundingBox())!;
+    const addBox = (await form.getByRole("button", { name: "파일 추가", exact: true }).boundingBox())!;
+    expect(addBox.x >= selectBox.x + selectBox.width || addBox.y >= selectBox.y + selectBox.height).toBe(true);
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const controls = await Promise.all([
+    form.locator("#research-file").boundingBox(),
+    form.getByRole("button", { name: "파일 추가", exact: true }).boundingBox(),
+    form.getByRole("button", { name: "실행", exact: true }).boundingBox(),
+  ]);
+  expect(controls[2]!.x).toBeGreaterThan(controls[1]!.x);
+  for (const box of controls.slice(1)) {
+    expect(Math.abs(box!.y + box!.height / 2 - controls[0]!.y - controls[0]!.height / 2)).toBeLessThanOrEqual(2);
+    expect(Math.abs(box!.height - controls[0]!.height)).toBeLessThanOrEqual(2);
+  }
   await expect(form.getByRole("button", { name: "실행", exact: true })).toBeVisible();
   await expect(form.getByRole("button", { name: "실행", exact: true })).toBeEnabled();
   await expect(form.getByRole("button", { name: "파일 추가", exact: true })).toBeVisible();

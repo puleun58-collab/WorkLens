@@ -7693,7 +7693,7 @@ body {
 }
 
 /* ── Action placement: each action sits beside what it controls ────────── */
-/* Polish keeps the style choices and run action on the same row. */
+/* File Polish runs beside the input choices; styles follow below. */
 .polish-mode-run {
   display: flex;
   /* Shrink-to-fit width: wrapping here would be a sub-pixel rounding artefact, not a lack of room. */
@@ -8551,9 +8551,9 @@ div.status-panel.error > strong { font-size: 14px; line-height: 1.5; }
 .file-kind-icon.kind-pdf { background: var(--color-red-800); }
 .file-kind-icon.kind-docx { background: var(--color-blue-800); }
 .file-kind-icon.kind-pptx { background: var(--color-amber-800); }
-.file-row > .file-status { border-radius: 999px; height: 26px; padding-inline: 10px; font-size: var(--font-size-xs); background: var(--color-emerald-50); }
-.file-row .file-status { color: var(--color-emerald-800); }
-.dark .file-row .file-status { background: var(--color-emerald-950); color: var(--color-emerald-300); }
+.file-row > .file-status { border-radius: 999px; height: 26px; padding-inline: 10px; font-size: var(--font-size-xs); background: var(--color-emerald-100); }
+.file-row .file-status { color: var(--color-emerald-900); font-weight: 650; }
+.dark .file-row .file-status { background: var(--color-emerald-900); color: var(--color-emerald-200); }
 .file-list .warning { color: var(--color-amber-800); }
 .dark .file-list .warning { background: var(--color-amber-950); color: var(--color-amber-300); border-radius: 999px; padding-inline: 6px; }
 
@@ -8648,5 +8648,12 @@ div.status-panel.error > strong { font-size: 14px; line-height: 1.5; }
   .workspace > .operation-bar .extract-run { margin-left: auto; }
 }
 
-.context-bar.utility-bar.workspace-context { align-items: baseline; flex-wrap: wrap; }
+.context-bar.utility-bar.workspace-context { flex-wrap: wrap; }
 .context-bar.utility-bar.workspace-context .context-names { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+
+.polish-input-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; width: 100%; min-width: 0; }
+.polish-input-row .operation-actions { margin: 0 0 0 auto; width: auto; }
+.polish-controls > .operation-actions { justify-self: stretch; }
+@media (max-width: 700px) {
+  .polish-input-row .operation-actions { margin-left: auto; }
+}
