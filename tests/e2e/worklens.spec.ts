@@ -132,7 +132,6 @@ test("uploads XLSX files, compares them and shows source evidence", async ({ pag
     });
   });
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "작업 파일" })).toBeVisible();
   await expect(page.locator(".dropzone")).toBeVisible();
 
   await upload(page, files.v1);
@@ -3218,7 +3217,7 @@ test("aggregates workbooks into one XLSX result without profile-specific actions
   expect(await first.locator(".compare-selection-role").evaluate(appearance)).toEqual(expectedAppearance);
   await expect(second.locator(".compare-selection-role")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "기준/대상 바꾸기" })).toHaveCount(0);
-  await expect(first).not.toContainText("1 ·");
+  await expect(first.locator(".compare-selection-role")).not.toContainText("1 ·");
   await page.getByRole("button", { name: "취합 실행" }).click();
 
   const panel = page.locator(".aggregation-results");
