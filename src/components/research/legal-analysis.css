@@ -245,5 +245,5 @@ p.research-meta { margin: 0; }
   .legal-research .research-file-workarea .research-file-row > button { flex: 1 1 100%; }
 }
 
-.legal-research .research-source-option { display: grid; justify-items: start; gap: 6px; }
+.legal-research .research-source-option { display: block; }
 .legal-research .research-source-row { display: inline-flex; flex-direction: row; width: fit-content; align-items: center; gap: 8px; }

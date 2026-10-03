@@ -1007,7 +1007,7 @@ test("presents text Polish as an immediate original-to-revision workflow", async
       return { top: style.borderTopWidth, left: style.borderLeftWidth };
     }),
   ]);
-  const boundaryBox = await page.locator(".work-section-heading").boundingBox();
+  const boundaryBox = await page.locator(".operation-bar").boundingBox();
   expect(inputBox).not.toBeNull();
   expect(resultBox).not.toBeNull();
   expect(boundaryBox).not.toBeNull();
@@ -2429,7 +2429,7 @@ test("moves from the full upload area to compact file management and back", asyn
   await page.goto("/");
   const dropzone = page.locator(".dropzone");
 
-  await expect(page.locator(".context-bar")).toHaveCount(0);
+  await expect(page.locator(".context-bar")).toContainText("문서 분석");
   await expect(page.getByRole("button", { name: "분석 실행", exact: true })).toHaveCount(0);
   await expect(dropzone.getByRole("button", { name: "파일 추가" })).toBeVisible();
   await expect(dropzone).toContainText("파일을 여기에 끌어 놓으세요");
@@ -3057,7 +3057,7 @@ test("aligns every workspace category to the file-list boundary", async ({ page 
   await page.getByRole("checkbox", { name: "운임현황_v2.xlsx 선택", exact: true }).check();
 
   const assertSharedBoundary = async () => {
-    const boxes = await page.locator(".file-list, .work-section-heading, .operation-bar").evaluateAll((elements) =>
+    const boxes = await page.locator(".context-bar, .file-list, .operation-bar").evaluateAll((elements) =>
       elements.slice(0, 3).map((element) => {
         const box = element.getBoundingClientRect();
         return { left: Math.round(box.left), right: Math.round(box.right) };

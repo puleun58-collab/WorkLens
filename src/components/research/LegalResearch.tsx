@@ -217,7 +217,7 @@ export function LegalResearch({ workspace, initialTask = "full_research" }: { wo
     {loading ? (isDocument ? "문서 검토 중…" : "리서치 중…") : "실행"}
   </Button>;
   const resultDisplay = isDocument ? <div className="research-source-option">
-    <Field className="research-source-row" disabled={!preferencesReady || loading}>
+    <Field className="research-source-row inline-flex flex-row items-center" disabled={!preferencesReady || loading}>
       <FieldLabel htmlFor={`run-review-${task}-sources`}>출처 펼쳐 보기</FieldLabel>
       <Switch id={`run-review-${task}-sources`} checked={preferences.expandSources}
         disabled={!preferencesReady || loading}
