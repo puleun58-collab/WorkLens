@@ -120,8 +120,8 @@ export function SupplementResults({ result, fileNames, renderSource }: {
       {result.findings.length === 0 ? (
         <div className="status-panel info notice supplement-clear" role="status">
           <span className="status-panel-icon" aria-hidden="true"><Info size={18} fill="currentColor" stroke="white" strokeWidth={2.2} /></span>
-          <strong>{result.semanticReview === "partial" ? "보완 검토 일부를 완료하지 못했습니다." : "중요한 보완 항목을 확인하지 못했습니다."}</strong>
-          <p>{result.semanticReview === "partial" ? "재확인하지 못한 항목이 있어 정상 0건으로 판단할 수 없습니다." : !complete
+          <strong>{result.semanticReview === "partial" ? "보완 검토 일부를 완료하지 못했습니다." : result.withheldCount > 0 ? "일부 항목은 보완 필요 여부를 판단하지 못했습니다." : "중요한 보완 항목을 확인하지 못했습니다."}</strong>
+          <p>{result.semanticReview === "partial" ? "재확인하지 못한 항목이 있어 정상 0건으로 판단할 수 없습니다." : result.withheldCount > 0 ? "확인을 보류한 항목이 있어 보완 항목 0건으로 확정할 수 없습니다." : !complete
             ? "읽은 범위에서는 추가할 항목을 찾지 못했습니다. 읽지 못한 영역은 판단에서 제외했습니다."
             : partialByDesign
               ? "상세 분석한 시트에서는 추가할 항목을 찾지 못했습니다. 구조만 확인한 시트는 판단에서 제외했습니다."

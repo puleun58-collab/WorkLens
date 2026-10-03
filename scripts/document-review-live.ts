@@ -28,7 +28,7 @@ async function main(): Promise<0 | 1 | 2> {
     console.error(`No case ${chosen} in ${holdout ? "holdout" : "development"} set.`);
     return 2;
   }
-  const run = evalRun(holdout ? "holdout" : "development", "live", { development: DEVELOPMENT_CASES.length, holdout: HOLDOUT_CASES.length }, holdout ? "none (holdout is never baselined)" : "document-review-v3");
+  const run = evalRun(holdout ? "holdout" : "development", "live", { development: DEVELOPMENT_CASES.length, holdout: HOLDOUT_CASES.length }, holdout ? "none (holdout is never baselined)" : "document-review-v4");
   const rows: CaseScore[] = [];
   let systemFailures = 0;
   for (const test of cases) {

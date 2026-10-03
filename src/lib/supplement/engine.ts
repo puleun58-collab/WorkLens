@@ -498,7 +498,9 @@ function inUnit(all: readonly Statement[], statement: Statement): Statement[] {
  */
 function rebut(all: readonly Statement[], origin: Statement, cue: RegExp, subjectTokens: readonly string[], options: { sameUnit?: boolean; needSubject?: boolean; analysisSection?: boolean } = {}): Statement | undefined {
   return all.find((other) => {
-    if (other === origin || !cue.test(other.text) || differentParties(origin.text, other.text)) return false;
+    if (other === origin || other.heading || !cue.test(other.text) || differentParties(origin.text, other.text)
+      || !periodsCompatible(origin.period, other.period)) return false;
+    if (cue === CAUSE_CUE && pricedMetricMismatch(subjectTokens, other, amountsInWon(origin.text))) return false;
     const sameUnit = other.fileId === origin.fileId && other.unit === origin.unit;
     if (sameUnit && !other.heading && options.sameUnit !== false && !options.needSubject) return true;
     const titleRelates = tokensRelate(subjectTokens, contentTokens(other.unitTitle));
@@ -928,6 +930,14 @@ function roleOfFile(entry: FileOutline): SupplementFileRole {
   return reportName || reportShape ? "report" : "unknown";
 }
 
+/** Equal amounts cannot join two explicitly different priced metrics. */
+function pricedMetricMismatch(subjectTokens: readonly string[], other: Statement, ownAmounts: readonly number[]): boolean {
+  const ownMetrics = subjectTokens.filter((token) => familyOf(token));
+  const otherMetrics = other.tokens.filter((token) => familyOf(token));
+  return ownAmounts.length > 0 && amountsInWon(other.text, other.unitTitle).length > 0
+    && ownMetrics.length > 0 && otherMetrics.length > 0 && !tokensRelate(ownMetrics, otherMetrics);
+}
+
 /**
  * A line of another file may speak about the same thing only when it names the
  * same subject (or the same amount after unit normalization) and no other
@@ -937,7 +947,8 @@ function roleOfFile(entry: FileOutline): SupplementFileRole {
  * upload is never offered as evidence.
  */
 function linkable(own: readonly Statement[], subjectTokens: readonly string[], other: Statement, ownAmounts: readonly number[]): boolean {
-  if (other.reference || other.heading || own.some((statement) => differentParties(statement.text, other.text))) return false;
+  if (other.reference || other.heading || own.some((statement) => differentParties(statement.text, other.text))
+    || pricedMetricMismatch(subjectTokens, other, ownAmounts)) return false;
   const otherAmounts = amountsInWon(other.text, other.unitTitle);
   if (ownAmounts.length > 0 && otherAmounts.length > 0 && Math.max(...otherAmounts) < Math.min(...ownAmounts) * 0.01) return false;
   return tokensRelate(subjectTokens, other.tokens)
@@ -1140,7 +1151,8 @@ function relatedEvidence(own: readonly Statement[], pool: readonly Statement[]):
   const subjectTokens = [...origins].flatMap((statement) => statement.tokens);
   return pool
     .filter((statement) => !origins.has(statement) && !originTexts.has(statement.text) && !statement.heading
-      && !own.some((origin) => differentParties(origin.text, statement.text)))
+      && !own.some((origin) => differentParties(origin.text, statement.text) || !periodsCompatible(origin.period, statement.period))
+      && !pricedMetricMismatch(subjectTokens, statement, own.flatMap((origin) => amountsInWon(origin.text, origin.unitTitle))))
     .map((statement) => {
       const shared = statement.tokens.filter((token) => subjectTokens.includes(token)).length;
       const family = tokensRelate(subjectTokens, statement.tokens) ? 2 : 0;
