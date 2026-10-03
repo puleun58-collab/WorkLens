@@ -12,6 +12,7 @@ const context = { requestId: "interpretation-test" };
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
   delete process.env.GROQ_API_KEY;
 });
 
@@ -20,6 +21,7 @@ describe("research query interpretation", () => {
     process.env.GROQ_API_KEY = "test-provider-key";
     const fetcher = vi.fn().mockResolvedValue(completion(proposal));
     vi.stubGlobal("fetch", fetcher);
+    const log = vi.spyOn(console, "info").mockImplementation(() => undefined);
     const answer = await interpretResearchQuery(query, context);
     // A specific follow-up question replaces the generic uncertainty.
     expect(answer).toEqual({ original: query, ...proposal, uncertainty: undefined });
@@ -27,7 +29,18 @@ describe("research query interpretation", () => {
     expect(url).toContain("api.groq.com/openai/v1/chat/completions");
     const request = JSON.parse(String(init.body));
     expect(request.response_format.json_schema.strict).toBe(true);
+    expect(request).toMatchObject({ reasoning_effort: "medium", max_completion_tokens: 1_000, temperature: 0 });
     expect(request.messages[1].content).toContain(query);
+    expect(log).toHaveBeenCalledExactlyOnceWith("[AI][Groq]", {
+      kind: "research-interpretation",
+      operation: "research-interpretation",
+      reasoningEffort: "medium",
+      model: "openai/gpt-oss-120b",
+      durationMs: expect.any(Number),
+      promptTokens: undefined,
+      completionTokens: undefined,
+      totalTokens: undefined,
+    });
   });
 
   it("merges an issue repeated under the same label or search phrase and keeps distinct ones", async () => {
@@ -101,6 +114,9 @@ describe("research query interpretation", () => {
     vi.stubGlobal("fetch", recovered);
     await expect(interpretResearchQuery(query, context)).resolves.toMatchObject({ issues: proposal.issues });
     expect(recovered).toHaveBeenCalledTimes(2);
+    for (const [, init] of recovered.mock.calls as Array<[string, RequestInit]>) {
+      expect(JSON.parse(String(init.body))).toMatchObject({ reasoning_effort: "medium", max_completion_tokens: 1_000 });
+    }
     for (const invalid of [{ ...proposal, confidence: "certain" }, { ...proposal, citation: "법령을 확인했음" }]) {
       const failing = vi.fn().mockImplementation(async () => completion(invalid));
       vi.stubGlobal("fetch", failing);
