@@ -8526,6 +8526,7 @@ div.status-panel.error > strong { font-size: 14px; line-height: 1.5; }
 .file-kind-icon.kind-docx { background: color-mix(in srgb, var(--info) 8%, transparent); color: var(--info-foreground); }
 .file-kind-icon.kind-pptx { background: color-mix(in srgb, var(--warning) 8%, transparent); color: var(--warning-foreground); }
 .file-row > .file-status { border-radius: 999px; padding-inline: 8px; }
+.file-row .file-status { color: var(--color-emerald-800); }
 
 .file-info { min-width: 0; gap: 5px; }
 

@@ -2892,7 +2892,7 @@ test("keeps the complete mobile workflow inside the viewport", async ({ page }, 
   await upload(page, files.extractPptx);
 
   const firstRow = fileRow(page, files.v1);
-  await expect(firstRow.locator(".status")).toBeVisible();
+  await expect(firstRow.locator(".file-status")).toBeVisible();
   await expect(firstRow.locator(".structure-counts")).toBeVisible();
   await expect(firstRow.locator(".muted").last()).toBeVisible();
   await expectNoPageOverflow();
