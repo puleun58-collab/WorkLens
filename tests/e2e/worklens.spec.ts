@@ -3057,14 +3057,16 @@ test("aligns every workspace category to the file-list boundary", async ({ page 
   await page.getByRole("checkbox", { name: "운임현황_v2.xlsx 선택", exact: true }).check();
 
   const assertSharedBoundary = async () => {
-    const boxes = await page.locator(".context-bar, .file-list, .operation-bar").evaluateAll((elements) =>
-      elements.slice(0, 3).map((element) => {
+    const boxes = await page.locator(".file-list, .operation-bar").evaluateAll((elements) =>
+      elements.slice(0, 2).map((element) => {
         const box = element.getBoundingClientRect();
         return { left: Math.round(box.left), right: Math.round(box.right) };
       }));
-    expect(boxes).toHaveLength(3);
+    expect(boxes).toHaveLength(2);
     expect(boxes.every((box) => box.left === boxes[0].left)).toBe(true);
     expect(boxes.every((box) => box.right === boxes[0].right)).toBe(true);
+    const headerTitleLeft = await page.locator(".context-bar h1").evaluate((element) => Math.round(element.getBoundingClientRect().left));
+    expect(headerTitleLeft).toBe(boxes[0].left);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   };
 
