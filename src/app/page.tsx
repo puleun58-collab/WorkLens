@@ -1825,15 +1825,20 @@ export default function Home() {
                 ) : null}
                 {activeTab === "Polish" ? (
                   <div className="polish-controls">
-                    <RadioGroup className="polish-input-modes flex-row flex-wrap" aria-label="윤문 입력 방식" value={polishInput} disabled={busy}
-                      onValueChange={(value) => {
-                        if (value !== "file" && value !== "text") return;
-                        setPolishInput(value); setPolish(null); setPolishTextRun(null); setNotice(null);
-                      }}>
-                      {(["file", "text"] as const).map((input) => <label key={input} className="inline-flex items-center gap-2">
-                        <Radio value={input} /><span>{input === "file" ? "파일 윤문" : "텍스트 윤문"}</span>
-                      </label>)}
-                    </RadioGroup>
+                    <div className="polish-input-row">
+                      <RadioGroup className="polish-input-modes flex-row flex-wrap" aria-label="윤문 입력 방식" value={polishInput} disabled={busy}
+                        onValueChange={(value) => {
+                          if (value !== "file" && value !== "text") return;
+                          setPolishInput(value); setPolish(null); setPolishTextRun(null); setNotice(null);
+                        }}>
+                        {(["file", "text"] as const).map((input) => <label key={input} className="inline-flex items-center gap-2">
+                          <Radio value={input} /><span>{input === "file" ? "파일 윤문" : "텍스트 윤문"}</span>
+                        </label>)}
+                      </RadioGroup>
+                      {showRunAction && !polishTextMode && <div className="operation-actions">
+                        <Button type="button" onClick={runActive} disabled={actionDisabled} aria-label={`${tabMeta[activeTab].label} ${RUN_LABEL}`}>{busy ? "처리 중…" : RUN_LABEL}</Button>
+                      </div>}
+                    </div>
                     <div className="polish-mode-run">
                     <RadioGroup className="polish-modes flex-row flex-wrap" aria-label="윤문 방식" value={polishMode} disabled={busy}
                       onValueChange={(value) => {
@@ -1845,9 +1850,6 @@ export default function Home() {
                         <Radio value={mode} /><span>{POLISH_MODE_LABELS[mode]}</span>
                       </label>)}
                     </RadioGroup>
-                    {showRunAction && <div className="operation-actions">
-                      <Button type="button" onClick={runActive} disabled={actionDisabled} aria-label={`${tabMeta[activeTab].label} ${RUN_LABEL}`}>{busy ? "처리 중…" : RUN_LABEL}</Button>
-                    </div>}
                     </div>
                     {polishTextMode ? (
                       <label className="polish-paste">
@@ -1865,6 +1867,9 @@ export default function Home() {
                         </small>
                       </label>
                     ) : null}
+                    {showRunAction && polishTextMode && <div className="operation-actions">
+                      <Button type="button" onClick={runActive} disabled={actionDisabled} aria-label={`${tabMeta[activeTab].label} ${RUN_LABEL}`}>{busy ? "처리 중…" : RUN_LABEL}</Button>
+                    </div>}
                   </div>
                 ) : null}
                 {activeTab === "Supplement" && supplementHasUnsupportedFiles ? (

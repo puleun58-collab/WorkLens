@@ -260,7 +260,7 @@ export function LegalResearch({ workspace, initialTask = "full_research" }: { wo
           </label>)}
         </RadioGroup>
         {fromFile ? <>
-          <div className={reviewable.length ? "research-file-workarea is-populated" : `dropzone${workspace?.uploading ? " busy" : ""}${dropActive ? " drag-active" : ""}`}
+          <div className={reviewable.length ? "research-file-workarea is-populated file-add-dropzone" : `dropzone${workspace?.uploading ? " busy" : ""}${dropActive ? " drag-active" : ""}`}
             onDragEnter={(event) => { if (!reviewable.length && workspace?.addFiles && !workspace.uploading) { event.preventDefault(); setDropActive(true); } }}
             onDragOver={(event) => { if (!reviewable.length && workspace?.addFiles && !workspace.uploading) { event.preventDefault(); setDropActive(true); } }}
             onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDropActive(false); }}

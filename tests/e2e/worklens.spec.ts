@@ -2540,12 +2540,10 @@ test("aligns fileless text Polish controls to one desktop and mobile baseline", 
     return { modes: boxes[2]!, paste: boxes[4]!, action: boxes[6]!, left: controlLeft };
   };
 
-  // Desktop: 실행 stays on the options row and ends at the operation edge.
+  // Text execution follows the textarea on every viewport.
   const desktop = await alignment();
-  expect(Math.abs(desktop.action.y + desktop.action.height / 2 - (desktop.modes.y + desktop.modes.height / 2))).toBeLessThanOrEqual(2);
-  expect(desktop.action.x - (desktop.modes.x + desktop.modes.width)).toBeGreaterThanOrEqual(8);
-  const operationBox = (await page.locator(".operation-bar").boundingBox())!;
-  expect(Math.abs(desktop.action.x + desktop.action.width - (operationBox.x + operationBox.width - (desktop.left - operationBox.x)))).toBeLessThanOrEqual(2);
+  expect(desktop.action.y).toBeGreaterThanOrEqual(desktop.paste.y + desktop.paste.height);
+  await expect(page.getByRole("button", { name: "윤문 실행" })).toHaveCount(1);
   const initialViewport = page.viewportSize();
   expect(desktop.paste.width).toBeGreaterThanOrEqual(initialViewport && initialViewport.width < 1000 ? 600 : 700);
   expect(desktop.paste.width).toBeLessThanOrEqual(960);
@@ -2553,10 +2551,36 @@ test("aligns fileless text Polish controls to one desktop and mobile baseline", 
   await expect(page.getByRole("button", { name: "윤문 실행" })).toBeEnabled();
 
   await page.setViewportSize({ width: 390, height: 844 });
-  // Mobile: 실행 wraps under the options onto the shared left edge.
+  // Mobile: execution remains after the textarea.
   const mobile = await alignment();
-  expect(Math.abs(mobile.action.x - mobile.left)).toBeLessThanOrEqual(1);
+  expect(mobile.action.y).toBeGreaterThanOrEqual(mobile.paste.y + mobile.paste.height);
   expect(mobile.paste.width).toBeLessThanOrEqual(358);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+});
+
+test("places file Polish execution beside input modes and keeps one action across modes", async ({ page }) => {
+  await page.goto("/");
+  await navigateWorkspace(page, "윤문");
+  const run = page.getByRole("button", { name: "윤문 실행" });
+  await expect(run).toHaveCount(0);
+  await upload(page, files.v1);
+  for (const mode of ["file", "text", "file"]) {
+    await page.getByRole("radio", { name: mode === "file" ? "파일 윤문" : "텍스트 윤문", exact: true }).check();
+    await expect(run).toHaveCount(1);
+    const action = (await run.boundingBox())!;
+    if (mode === "file") {
+      const inputs = (await page.locator(".polish-input-modes").boundingBox())!;
+      expect(action.x).toBeGreaterThanOrEqual(inputs.x + inputs.width);
+      expect(action.y).toBeLessThan(inputs.y + inputs.height);
+      expect(action.y + action.height).toBeGreaterThan(inputs.y);
+      await expect(page.locator(".polish-mode-run").getByRole("button")).toHaveCount(0);
+    } else {
+      const paste = (await page.getByLabel("윤문할 텍스트 입력").boundingBox())!;
+      expect(action.y).toBeGreaterThanOrEqual(paste.y + paste.height);
+    }
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(run).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 });
 
@@ -2691,6 +2715,15 @@ test("uses task-focused labels and concise execution buttons", async ({ page }) 
     await expect(page.locator(".utility-bar .context-names")).not.toBeEmpty();
     await expect(page.locator(".workspace-heading")).toHaveCount(0);
     await expect(page.locator(".workspace").getByRole("heading", { name: title, exact: true })).toHaveCount(0);
+    await expect(page.locator(".utility-bar")).toHaveCSS("align-items", "center");
+    const [bar, titleBox, descriptionBox] = await Promise.all([
+      page.locator(".utility-bar").boundingBox(), page.locator(".utility-bar h1").boundingBox(),
+      page.locator(".utility-bar .context-names").boundingBox(),
+    ]);
+    for (const box of [titleBox!, descriptionBox!]) {
+      expect(Math.abs(box.y + box.height / 2 - (bar!.y + bar!.height / 2))).toBeLessThanOrEqual(2);
+    }
+    expect(descriptionBox!.x).toBeGreaterThan(titleBox!.x + titleBox!.width);
     const description = await page.locator(".utility-bar .context-names").innerText();
     await expect(page.getByText(description, { exact: true })).toHaveCount(1);
     await page.setViewportSize({ width: 390, height: 844 });
@@ -3554,7 +3587,7 @@ test("file tiles and ready pills retain contrast in light and dark themes", asyn
   for (const dark of [false, true]) {
     await page.evaluate((enabled) => document.documentElement.classList.toggle("dark", enabled), dark);
     // Tiles are decorative (aria-hidden), so also measure their actual rendered colors.
-    const ratios = await page.locator(".file-kind-icon").evaluateAll((tiles) => {
+    const ratios = await page.locator(".file-kind-icon, .file-status").evaluateAll((tiles) => {
       const canvas = document.createElement("canvas");
       canvas.width = canvas.height = 1;
       const context = canvas.getContext("2d")!;
@@ -3575,7 +3608,22 @@ test("file tiles and ready pills retain contrast in light and dark themes", asyn
         return (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05);
       });
     });
+    console.log(`${dark ? "dark" : "light"} tile/pill contrast:`, ratios);
     for (const ratio of ratios) expect(ratio).toBeGreaterThanOrEqual(4.5);
+    const pill = page.locator(".file-status").first();
+    await expect(pill).toHaveCSS("font-weight", "650");
+    const colors = await pill.evaluate((element, isDark) => {
+      const style = getComputedStyle(element);
+      const probe = document.createElement("span");
+      element.appendChild(probe);
+      probe.style.backgroundColor = `var(--color-emerald-${isDark ? 900 : 100})`;
+      probe.style.color = `var(--color-emerald-${isDark ? 200 : 900})`;
+      const expected = getComputedStyle(probe);
+      const matches = style.backgroundColor === expected.backgroundColor && style.color === expected.color;
+      probe.remove();
+      return matches;
+    }, dark);
+    expect(colors).toBe(true);
     const results = await new AxeBuilder({ page }).include(".file-list").withRules(["color-contrast"]).analyze();
     expect(results.violations).toEqual([]);
   }
