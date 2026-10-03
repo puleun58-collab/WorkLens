@@ -284,10 +284,6 @@ export function PdfTool() {
   }
 
   return <div className="pdf-tool">
-    <header className="tool-intro">
-      <div><h2>페이지 편집</h2><p>여러 PDF의 페이지를 모아 순서를 바꾸고, 필요한 형식으로 저장합니다.</p></div>
-    </header>
-
     <section className="pdf-tool-panel pdf-tool-upload" aria-label="PDF 파일 추가" onClick={(event) => { if (!busy && !(event.target as HTMLElement).closest("button, input")) inputRef.current?.click(); }} onDragOver={(event) => { event.preventDefault(); if (event.dataTransfer.types.includes("Files")) setDropActive(true); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDropActive(false); }} onDrop={handleDrop} data-drag-active={dropActive}>
       <div className="pdf-tool-upload-mark" aria-hidden="true">＋</div>
       <div className="pdf-tool-upload-copy"><strong>PDF를 이곳에 놓으세요</strong><span>여러 파일을 함께 추가할 수 있습니다. 원본 파일은 수정되지 않습니다.</span></div>

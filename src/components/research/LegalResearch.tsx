@@ -19,7 +19,6 @@ import type { WorkspaceFile } from "@/client/protocol";
 import { runInWorker } from "@/client/document-client";
 import { reviewRequestFor, type ReviewFile } from "@/lib/law-review-source";
 import { readReviewPreferences, resolveReviewPreferences, type ReviewPreferences } from "@/client/review-preferences";
-import { ReviewPreferenceFields } from "./ReviewSettings";
 import { Button } from "@/components/ui/button";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -43,7 +42,7 @@ interface TaskResult {
 const FILE_READ_ERROR = "작업 파일을 읽지 못했습니다. 파일을 다시 올린 뒤 실행하세요.";
 
 const TASK_HELP: Record<LawResearchTask, { description: string; placeholder: string }> = {
-  full_research: { description: "상황을 설명하면 관련 쟁점과 확인된 법령·판례를 구분해 보여줍니다.", placeholder: "예: 회사에서 업무와 관련해 지속적으로 모욕을 당했는데 어떤 법적 기준을 살펴봐야 하나요?" },
+  full_research: { description: "질문이나 상황을 바탕으로 관련 법령·판례·결정례를 함께 조사합니다.", placeholder: "예: 회사에서 업무와 관련해 지속적으로 모욕을 당했는데 어떤 법적 기준을 살펴봐야 하나요?" },
   law_system: { description: "한 법령의 법률·시행령·시행규칙 관계를 함께 확인합니다.", placeholder: "예: 개인정보 보호법 제38조와 시행령의 관계" },
   action_basis: { description: "처분 또는 허가의 근거 조문과 확인 가능한 불복 자료를 찾습니다.", placeholder: "예: 식품위생법상 영업정지의 근거와 요건" },
   dispute_prep: { description: "분쟁 상황을 설명하고 관련 법령·판례·결정례를 함께 조사합니다.", placeholder: "예: 부당해고 구제 신청 관련 판례와 결정례" },
@@ -215,11 +214,13 @@ export function LegalResearch({ workspace, initialTask = "full_research" }: { wo
   const runButton = <Button type="submit" className="law-search-button" disabled={!canRun || loading || !preferencesReady}>
     {loading ? (isDocument ? "문서 검토 중…" : "리서치 중…") : "실행"}
   </Button>;
-  const resultDisplay = isDocument ? <section className="research-result-display" aria-labelledby={`research-result-display-${task}`}>
-    <h2 id={`research-result-display-${task}`}>출처 표시</h2>
-    <ReviewPreferenceFields value={preferences} onChange={setPreferenceOverride} prefix={`run-review-${task}`}
-      disabled={!preferencesReady || loading} compact currentRun showDocumentSource={false} />
-    <p className="research-settings-note">이 화면에서 변경한 값은 이번 실행에만 적용됩니다.</p>
+  const resultDisplay = isDocument ? <section className="research-result-display" aria-label="출처 표시">
+    <Field className="research-source-row" disabled={!preferencesReady || loading}>
+      <FieldLabel htmlFor={`run-review-${task}-sources`}>출처 표시</FieldLabel>
+      <Switch id={`run-review-${task}-sources`} checked={preferences.expandSources}
+        disabled={!preferencesReady || loading}
+        onCheckedChange={(expandSources) => setPreferenceOverride((current) => ({ ...current, expandSources }))} />
+    </Field>
     {settingsError && <p className="law-search-error" role="alert">{settingsError}</p>}
   </section> : null;
   return <div className="legal-analysis legal-research">
@@ -258,18 +259,16 @@ export function LegalResearch({ workspace, initialTask = "full_research" }: { wo
         </RadioGroup>
         {fromFile ? <>
           <div className={`research-file-workarea ${reviewable.length ? "is-populated" : "is-empty"}`}>
-            <div className="research-upload-intro">
+            {reviewable.length === 0 && <div className="research-upload-intro">
               <span className="research-upload-icon" aria-hidden="true">
                 <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="1.5">
                   <path d="M16 22V5m-6 6 6-6 6 6M6 21v5a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-5" />
                 </svg>
               </span>
               <div className="research-upload-copy">
-                <strong>{reviewable.length ? "검토할 작업 파일을 선택하세요" : "검토할 문서를 추가하세요"}</strong>
-                <p>PDF · DOCX · PPTX · XLSX · CSV</p>
-                <p>작업 파일의 분석된 텍스트를 사용하며, 한 번에 한 문서를 검토합니다.</p>
+                <strong>검토할 문서를 추가하세요</strong>
               </div>
-            </div>
+            </div>}
           <div className="research-file-row">
             {reviewable.length > 0 &&
               <Select items={reviewable.map((file) => ({ value: file.id, label: file.name }))} value={fileId} onValueChange={(value) => setChosenFile(value ?? "")}>
@@ -349,11 +348,10 @@ export function LegalResearch({ workspace, initialTask = "full_research" }: { wo
     {isDocument && <aside className="research-workspace-rail" aria-label="문서 검토 가이드">
       <section className="research-review-guide" aria-labelledby="research-guide-title">
         <h2 id="research-guide-title">문서 검토 가이드</h2>
-        <p>입력부터 근거 확인까지</p>
         <ol>
           <li><strong>문서 준비</strong><span>파일을 선택하거나 내용을 직접 입력합니다.</span></li>
           <li><strong>실행</strong><span>검토할 내용을 확인하고 실행합니다.</span></li>
-          <li><strong>근거 확인</strong><span>검토 결과와 관련 법령·판례를 확인합니다.</span></li>
+          <li><strong>근거 확인</strong><span>관련 법령·판례와 상세 근거를 확인합니다.</span></li>
         </ol>
         <p className="research-guide-caution">법적 판단이 필요한 경우 원문과 전문가 검토가 필요할 수 있습니다.</p>
       </section>

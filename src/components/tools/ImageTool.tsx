@@ -413,9 +413,6 @@ export function ImageTool() {
 
   return (
     <div className="image-tool" aria-label="이미지 편집 도구">
-      <header className="tool-intro image-tool-intro">
-        <div><h2>이미지 편집</h2><p>크기와 영역을 다듬고, 여러 장을 원하는 순서대로 결합하세요.</p></div>
-      </header>
       <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" multiple hidden onChange={handleFileInput} aria-label="이미지 파일 선택" />
       {items.length === 0 ? (
         <section

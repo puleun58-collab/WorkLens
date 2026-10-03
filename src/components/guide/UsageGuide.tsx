@@ -129,7 +129,7 @@ const GUIDES: Guide[] = [
     ],
   },
   {
-    id: "aggregate", label: "취합", summary: "여러 Excel 파일의 표 데이터를 하나의 파일로 취합합니다.",
+    id: "aggregate", label: "취합", summary: "첫 번째 파일의 서식을 기준으로 여러 Excel 표를 하나의 파일로 취합합니다.",
     steps: [
       selectFiles("취합할 Excel 파일을 선택합니다.", ["9월_실적.xlsx", "10월_실적.xlsx"]),
       { title: "기준 파일 확인", text: "첫 번째 파일이 기준 파일로 표시됩니다.", mini: <Files><Row name="9월_실적.xlsx" checked role="기준 파일" mark /><Row name="10월_실적.xlsx" checked /></Files> },
