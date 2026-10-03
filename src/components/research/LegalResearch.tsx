@@ -213,13 +213,13 @@ export function LegalResearch({ workspace, initialTask = "full_research" }: { wo
   }
 
   const runButton = <Button type="submit" className="law-search-button" disabled={!canRun || loading || !preferencesReady}>
-    {loading ? (isDocument ? "문서 검토 중…" : "리서치 중…") : isDocument ? "문서 검토 실행" : "실행"}
+    {loading ? (isDocument ? "문서 검토 중…" : "리서치 중…") : "실행"}
   </Button>;
   const resultDisplay = isDocument ? <section className="research-result-display" aria-labelledby={`research-result-display-${task}`}>
-    <h2 id={`research-result-display-${task}`}>결과 표시</h2>
+    <h2 id={`research-result-display-${task}`}>출처 표시</h2>
     <ReviewPreferenceFields value={preferences} onChange={setPreferenceOverride} prefix={`run-review-${task}`}
       disabled={!preferencesReady || loading} compact currentRun showDocumentSource={false} />
-    <p className="research-settings-note">이번 실행에만 적용됩니다. 기본값은 설정에서 관리합니다.</p>
+    <p className="research-settings-note">이 화면에서 변경한 값은 이번 실행에만 적용됩니다.</p>
     {settingsError && <p className="law-search-error" role="alert">{settingsError}</p>}
   </section> : null;
   return <div className="legal-analysis legal-research">
@@ -257,26 +257,29 @@ export function LegalResearch({ workspace, initialTask = "full_research" }: { wo
           </label>)}
         </RadioGroup>
         {fromFile ? <>
-          <div className="research-file-workarea">
+          <div className={`research-file-workarea ${reviewable.length ? "is-populated" : "is-empty"}`}>
             <div className="research-upload-intro">
-              <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-                <path d="M16 22V5m-6 6 6-6 6 6M6 21v5a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-5" />
-              </svg>
-              <strong>{reviewable.length ? "검토할 작업 파일을 선택하세요" : "문서를 추가하고 검토를 시작하세요"}</strong>
-              <p>PDF · DOCX · PPTX · XLSX · CSV</p>
-              <p>작업 파일의 분석된 텍스트를 사용하며, 한 번에 한 문서를 검토합니다.</p>
+              <span className="research-upload-icon" aria-hidden="true">
+                <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <path d="M16 22V5m-6 6 6-6 6 6M6 21v5a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-5" />
+                </svg>
+              </span>
+              <div className="research-upload-copy">
+                <strong>{reviewable.length ? "검토할 작업 파일을 선택하세요" : "검토할 문서를 추가하세요"}</strong>
+                <p>PDF · DOCX · PPTX · XLSX · CSV</p>
+                <p>작업 파일의 분석된 텍스트를 사용하며, 한 번에 한 문서를 검토합니다.</p>
+              </div>
             </div>
           <div className="research-file-row">
-            {reviewable.length > 0
-              ? <Select items={reviewable.map((file) => ({ value: file.id, label: file.name }))} value={fileId} onValueChange={(value) => setChosenFile(value ?? "")}>
+            {reviewable.length > 0 &&
+              <Select items={reviewable.map((file) => ({ value: file.id, label: file.name }))} value={fileId} onValueChange={(value) => setChosenFile(value ?? "")}>
                 <SelectTrigger id="research-file" aria-labelledby="research-document-label"><SelectValue /></SelectTrigger>
                 <SelectPopup>{reviewable.map((file) => <SelectItem key={file.id} value={file.id}>{file.name}</SelectItem>)}</SelectPopup>
-              </Select>
-              : <p className="research-file-empty" role="status">검토할 작업 파일이 없습니다.</p>}
+              </Select>}
             {workspace?.addFiles && <>
               <input ref={fileInput} type="file" multiple hidden accept=".xlsx,.csv,.pdf,.docx,.pptx" aria-label="검토할 작업 파일 추가"
                 onChange={(event) => { void addFiles(event.target.files); event.target.value = ""; }} />
-              <Button type="button" variant="outline" className="research-file-add" onClick={() => fileInput.current?.click()} disabled={workspace.uploading}>
+              <Button type="button" variant={reviewable.length ? "outline" : "default"} className="research-file-add" onClick={() => fileInput.current?.click()} disabled={workspace.uploading}>
                 {workspace.uploading ? "분석 중…" : "파일 추가"}
               </Button>
             </>}

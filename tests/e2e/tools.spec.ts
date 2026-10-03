@@ -949,17 +949,19 @@ test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route wit
 
   await chooseOption(page, task, researchTaskLabels.document_review);
   await expect(form.getByLabel("질문 또는 검색어")).toHaveCount(0);
+  await expect(form.getByRole("heading", { name: "출처 표시", exact: true })).toBeVisible();
+  await expect(form.getByText("이 화면에서 변경한 값은 이번 실행에만 적용됩니다.")).toBeVisible();
   // 법령 entered directly with no work files: the 작업 파일 empty state offers the shared upload, nothing runs.
   await expect(form.getByRole("radio", { name: "작업 파일" })).toBeChecked();
-  await expect(form.getByText("검토할 작업 파일이 없습니다.")).toBeVisible();
+  await expect(form.getByText("검토할 문서를 추가하세요")).toBeVisible();
   await expect(form.getByRole("button", { name: "파일 추가" })).toBeEnabled();
   await form.getByRole("radio", { name: "직접 입력" }).check();
   const documentText = form.getByLabel("검토할 문서 내용");
   await expect(form).not.toContainText("Korean Law MCP");
-  await expect(form.getByRole("button", { name: "문서 검토 실행", exact: true })).toBeDisabled();
+  await expect(form.getByRole("button", { name: "실행", exact: true })).toBeDisabled();
   const sample = "제1조 갑은 계약 체결 즉시 대금 전액을 지급한다.\n제2조 을은 어떠한 경우에도 계약을 해지할 수 없다.";
   await documentText.fill(sample);
-  await form.getByRole("button", { name: "문서 검토 실행", exact: true }).click();
+  await form.getByRole("button", { name: "실행", exact: true }).click();
   await expect(page.getByRole("heading", { name: "검토 결과", exact: true })).toBeVisible();
   const review = page.locator(".contract-review");
   await expect(review.locator(".research-overview .research-eyebrow")).toHaveText("문서 검토");
@@ -1055,7 +1057,7 @@ test("RESEARCH 문서 검토 reviews one workspace file in place and shows where
   await choice.click();
   await expect(page.getByRole("option")).toHaveText([longName, "근로계약서.pdf", "매출.csv", "긴계약.docx"]);
   await page.keyboard.press("Escape");
-  await form.getByRole("button", { name: "문서 검토 실행", exact: true }).click();
+  await form.getByRole("button", { name: "실행", exact: true }).click();
   const review = page.locator(".contract-review");
   await expect(review.locator(".contract-review-file")).toHaveText(`검토 문서: ${longName}`);
   await expect(review).toHaveAttribute("data-coverage", "complete");
@@ -1073,34 +1075,34 @@ test("RESEARCH 문서 검토 reviews one workspace file in place and shows where
   // Another file: the shown result says which file it belongs to until the new one is reviewed.
   await chooseOption(page, choice, "근로계약서.pdf");
   await expect(page.getByText(`지금 선택한 문서가 아닌 ${longName}의 검토 결과입니다.`)).toBeVisible();
-  await form.getByRole("button", { name: "문서 검토 실행", exact: true }).click();
+  await form.getByRole("button", { name: "실행", exact: true }).click();
   await expect(review.locator(".contract-review-file")).toHaveText("검토 문서: 근로계약서.pdf");
   await expect(review).toContainText("2개 페이지 중 2개 검토");
   await expect(review.locator(".contract-review-issue").filter({ hasText: "경고·예고 없는 징계·해고" }).locator(".contract-review-place")).toHaveText("2페이지");
 
   // Raw data is not a contract: nothing is sent and nothing is called "no risk".
   await chooseOption(page, choice, "매출.csv");
-  await form.getByRole("button", { name: "문서 검토 실행", exact: true }).click();
+  await form.getByRole("button", { name: "실행", exact: true }).click();
   await expect(page.locator("[data-coverage='excluded']")).toContainText("계약·규정 성격의 문장을 찾지 못했습니다");
   await expect(page.locator("[data-coverage='excluded']")).toContainText("위험 항목이 없다는 뜻이 아니라");
   expect(bodies).toHaveLength(2);
 
   // Past the bound: a partial review that says what was left and why.
   await chooseOption(page, choice, "긴계약.docx");
-  await form.getByRole("button", { name: "문서 검토 실행", exact: true }).click();
+  await form.getByRole("button", { name: "실행", exact: true }).click();
   await expect(review).toHaveAttribute("data-coverage", "partial");
   await expect(review.getByRole("heading", { name: "검토한 범위 요약" })).toBeVisible();
 
   // Pasting stays available.
   await form.getByRole("radio", { name: "직접 입력" }).check();
   await expect(form.getByLabel("검토할 문서 내용")).toBeVisible();
-  await expect(form.getByRole("button", { name: "문서 검토 실행", exact: true })).toBeDisabled();
+  await expect(form.getByRole("button", { name: "실행", exact: true })).toBeDisabled();
 
   for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
     await page.setViewportSize(viewport);
     await form.getByRole("radio", { name: "작업 파일" }).check();
     await chooseOption(page, choice, longName);
-    await form.getByRole("button", { name: "문서 검토 실행", exact: true }).click();
+    await form.getByRole("button", { name: "실행", exact: true }).click();
     await expect(review.locator(".contract-review-file")).toHaveText(`검토 문서: ${longName}`);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   }
@@ -1398,7 +1400,7 @@ test("RESEARCH separates a verified article from search candidates and hides int
   await navigateWorkspace(page, "법령");
   await page.getByRole("tab", { name: "종합 리서치", exact: true }).click();
   const form = page.getByRole("form", { name: /^(종합 리서치|문서 검토) 입력$/ });
-  await expect(form.getByRole("heading", { name: "결과 표시", exact: true })).toHaveCount(0);
+  await expect(form.getByRole("heading", { name: "출처 표시", exact: true })).toHaveCount(0);
   await expect(form.getByRole("switch", { name: "출처 내용을 펼쳐서 표시", exact: true })).toHaveCount(0);
   await form.getByLabel("질문 또는 검색어").fill("직장 내 괴롭힘 판단 기준");
   await form.getByRole("button", { name: "실행" }).click();
@@ -1495,7 +1497,7 @@ test("document review keeps issue guidance ahead of independent, grouped source 
     await page.setViewportSize(viewport);
     for (const [name, fixture] of Object.entries(fixtures)) {
       await input.fill(fixture.input);
-      await form.getByRole("button", { name: "문서 검토 실행", exact: true }).click();
+      await form.getByRole("button", { name: "실행", exact: true }).click();
       const review = page.locator(".contract-review");
       await expect(review.locator(".research-overview h3"), name).toHaveAttribute("data-status", fixture.status);
       await expect(review.locator(".research-overview h3"), name).toHaveText(fixture.title);
@@ -1598,7 +1600,7 @@ test("document evidence links focus only the selected issue without changing dis
   await chooseOption(page, form.getByLabel("리서치 유형"), researchTaskLabels.document_review);
   await form.getByRole("radio", { name: "직접 입력" }).check();
   await form.getByLabel("검토할 문서 내용").fill(input);
-  await form.getByRole("button", { name: "문서 검토 실행", exact: true }).click();
+  await form.getByRole("button", { name: "실행", exact: true }).click();
   const reviewResult = page.locator(".contract-review");
   const links = reviewResult.getByRole("button", { name: "상세 근거 보기" });
   const details = reviewResult.locator(".contract-review-detail");

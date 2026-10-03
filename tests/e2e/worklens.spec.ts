@@ -641,17 +641,17 @@ test("selects, clears, and reports all work files from the table header", async 
   await selectAll.check();
   await expect(page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true })).toBeChecked();
   await expect(page.getByRole("checkbox", { name: "운임현황_v2.xlsx 선택", exact: true })).toBeChecked();
-  await expect(page.locator(".context-counts")).toContainText("선택 2개");
+  await expect(page.locator(".file-list-head")).toContainText("선택 2개");
 
   await page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true }).uncheck();
   await expect(selectAll).toHaveAttribute("aria-checked", "mixed");
-  await expect(page.locator(".context-counts")).toContainText("선택 1개");
+  await expect(page.locator(".file-list-head")).toContainText("선택 1개");
 
   await page.getByRole("checkbox", { name: "전체 선택" }).check();
   await page.getByRole("checkbox", { name: "전체 선택 해제" }).uncheck();
   await expect(page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true })).not.toBeChecked();
   await expect(page.getByRole("checkbox", { name: "운임현황_v2.xlsx 선택", exact: true })).not.toBeChecked();
-  await expect(page.locator(".context-counts")).toContainText("선택 0개");
+  await expect(page.locator(".file-list-head")).toContainText("선택 0개");
 
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.getByRole("checkbox", { name: "전체 선택" })).toBeVisible();
@@ -669,8 +669,8 @@ test("deletes every selected file in one secondary action", async ({ page }) => 
   await remove.click();
   await expect(fileRow(page, files.v1)).toHaveCount(0);
   await expect(fileRow(page, files.v2)).toBeVisible();
-  await expect(page.locator(".context-counts")).toContainText("1개");
-  await expect(page.locator(".context-counts")).toContainText("선택 0개");
+  await expect(page.locator(".file-list-head")).toContainText("파일 1개");
+  await expect(page.locator(".file-list-head")).toContainText("선택 0개");
   await expect(remove).toBeDisabled();
 });
 
@@ -2426,21 +2426,15 @@ test("uses the loaded company dictionary in both the page and review popup acros
   await inspect(parsedSeed.terms, "seed", 4);
 });
 
-test("keeps empty upload actions singular and restores header actions after upload", async ({ page }) => {
+test("moves from the full upload area to compact file management and back", async ({ page }) => {
   await page.goto("/");
-  const context = page.locator(".context-bar");
   const dropzone = page.locator(".dropzone");
 
-  await expect(context.locator(".context-files")).toContainText("작업 파일");
-  await expect(context.locator(".context-counts")).toHaveText("0개");
-  await expect(context).not.toContainText("선택 0개");
-  await expect(context).not.toContainText("선택 없음");
-  await expect(context.getByRole("button", { name: "파일 추가" })).toHaveCount(0);
-  await expect(context.getByRole("button", { name: "모두 삭제" })).toHaveCount(0);
+  await expect(page.locator(".context-bar")).toHaveCount(0);
   await expect(dropzone.getByRole("button", { name: "파일 추가" })).toBeVisible();
-  await expect(dropzone).toContainText("파일 업로드");
-  await expect(dropzone).toContainText("XLSX, CSV, PDF, DOCX, PPTX · 파일당 최대 100 MB · 전체 최대 300 MB");
-  await expect(dropzone).not.toContainText("여기로 끌어놓기");
+  await expect(dropzone).toContainText("파일을 여기에 끌어 놓으세요");
+  await expect(dropzone).toContainText("XLSX · CSV · PDF · DOCX · PPTX");
+  await expect(dropzone).toContainText("파일당 최대 100 MB · 전체 최대 300 MB");
 
   await dropzone.dispatchEvent("dragenter");
   await expect(dropzone).toHaveClass(/drag-active/);
@@ -2449,22 +2443,30 @@ test("keeps empty upload actions singular and restores header actions after uplo
 
   await upload(page, files.v1);
   await expect(dropzone).toHaveCount(0);
-  await expect(context.getByRole("button", { name: "파일 추가" })).toBeVisible();
-  await expect(context.getByRole("button", { name: "모두 삭제" })).toBeVisible();
-  await expect(context.locator(".context-counts")).toContainText("1개");
-  await expect(context.locator(".context-counts")).toContainText("선택 0개");
+  await expect(page.locator(".file-add-dropzone")).toBeVisible();
+  await expect(page.locator(".file-add-dropzone").getByRole("button", { name: "파일 추가" })).toBeVisible();
+  await expect(page.locator(".file-list-head")).toContainText("파일 1개 · 선택 0개");
 
   await page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true }).check();
-  await expect(context.locator(".context-counts")).toContainText("선택 1개");
+  await expect(page.locator(".file-list-head")).toContainText("선택 1개");
+  await page.getByRole("button", { name: "선택 삭제" }).click();
+  await expect(dropzone).toBeVisible();
+
+  await upload(page, files.v1);
   await upload(page, files.v2);
-  await expect(context.locator(".context-counts")).toContainText("2개");
+  await expect(page.locator(".file-list-head")).toContainText("파일 2개");
+  await page.getByRole("button", { name: "파일 관리 메뉴" }).click();
+  await page.getByRole("menuitem", { name: "모두 삭제" }).click();
+  const dialog = page.getByRole("alertdialog", { name: "작업 파일 모두 삭제", exact: true });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "삭제", exact: true }).click();
+  await expect(dropzone).toBeVisible();
 
   await page.reload();
   await expect(page.locator(".dropzone")).toBeVisible();
-  await expect(page.locator(".context-bar").getByRole("button", { name: "모두 삭제" })).toHaveCount(0);
 });
 
-test("uploads a dropped file and returns to populated header actions", async ({ page }) => {
+test("uploads a dropped file and returns to compact file management", async ({ page }) => {
   await page.goto("/");
   const bytes = Array.from(await createXlsx(RATE_SHEET_V1));
   await page.locator(".dropzone").evaluate((element, payload) => {
@@ -2476,8 +2478,8 @@ test("uploads a dropped file and returns to populated header actions", async ({ 
   }, bytes);
   await expect(page.getByRole("checkbox", { name: "드롭업로드.xlsx 선택", exact: true })).toBeVisible();
   await expect(page.locator(".dropzone")).toHaveCount(0);
-  await expect(page.locator(".context-bar").getByRole("button", { name: "파일 추가" })).toBeVisible();
-  await expect(page.locator(".context-bar").getByRole("button", { name: "모두 삭제" })).toBeVisible();
+  await expect(page.locator(".file-add-dropzone").getByRole("button", { name: "파일 추가" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "파일 관리 메뉴" })).toBeVisible();
 });
 
 test("aligns fileless text Polish controls to one desktop and mobile baseline", async ({ page }) => {
@@ -2602,7 +2604,7 @@ test("keeps legal destinations grouped, command search shortcut-only, and review
   ]);
   await page.getByRole("tab", { name: "종합 리서치", exact: true }).click();
   const researchForm = page.getByRole("form", { name: "종합 리서치 입력", exact: true });
-  await expect(researchForm.getByRole("heading", { name: "결과 표시", exact: true })).toHaveCount(0);
+  await expect(researchForm.getByRole("heading", { name: "출처 표시", exact: true })).toHaveCount(0);
   await expect(researchForm.getByRole("switch", { name: "출처 내용을 펼쳐서 표시", exact: true })).toHaveCount(0);
 
   for (const [command, heading] of [
@@ -2841,7 +2843,8 @@ test("discards every file and result when the tab reloads", async ({ page }) => 
 test("explicitly clears the in-browser workspace", async ({ page }) => {
   await page.goto("/");
   await upload(page, files.v1);
-  await page.getByRole("button", { name: "모두 삭제" }).click();
+  await page.getByRole("button", { name: "파일 관리 메뉴" }).click();
+  await page.getByRole("menuitem", { name: "모두 삭제" }).click();
   await page.getByRole("alertdialog", { name: "작업 파일 모두 삭제", exact: true })
     .getByRole("button", { name: "삭제", exact: true }).click();
   const clearedStatus = page.locator(".transient-status");

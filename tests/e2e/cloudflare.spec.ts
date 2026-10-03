@@ -57,7 +57,7 @@ test.describe("Cloudflare Worker production build", () => {
     const documentResponse = await page.goto("/");
     expect(documentResponse?.status()).toBe(200);
     await expect(page).toHaveTitle(/WorkLens/);
-    await expect(page.getByRole("heading", { name: "작업 파일" })).toBeVisible();
+    await expect(page.locator(".workspace-heading")).toBeVisible();
 
     await expect.poll(() => responses.filter(isMainAsset).length).toBeGreaterThan(0);
     for (const response of responses.filter(isMainAsset)) await expectSaneStaticAsset(response);
@@ -74,7 +74,7 @@ test.describe("Cloudflare Worker production build", () => {
     // No files: upload owns the workspace; the only add action lives inside it.
     await expect(page.locator(".dropzone")).toBeVisible();
     await expect(page.locator(".dropzone").getByRole("button", { name: "파일 추가" })).toHaveCount(1);
-    await expect(page.locator(".context-actions").getByRole("button", { name: "파일 추가" })).toHaveCount(0);
+    await expect(page.locator(".file-add-dropzone")).toHaveCount(0);
 
     // Central company dictionary is readable by every user.
     const companyTerms = await page.request.get("/api/company-terms");
@@ -91,9 +91,9 @@ test.describe("Cloudflare Worker production build", () => {
     expect(unauthorized.status()).toBe(401);
 
     await upload(page, files.v1);
-    // With files present the workspace leads and the add action moves to the bar.
+    // With files present, the full dropzone becomes the compact add area.
     await expect(page.locator(".dropzone")).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "파일 추가" })).toBeVisible();
+    await expect(page.locator(".file-add-dropzone").getByRole("button", { name: "파일 추가" })).toBeVisible();
     await page.getByRole("checkbox", { name: "cloudflare-rate-v1.xlsx 선택", exact: true }).check();
     await page.getByRole("button", { name: "분석", exact: true }).click();
     await page.getByRole("button", { name: "분석 실행" }).click();
@@ -128,7 +128,7 @@ test.describe("Cloudflare Worker production build", () => {
 
     await page.reload();
     await expect(page.locator(".dropzone")).toBeVisible();
-    await expect(page.getByRole("heading", { name: "작업 파일" }).locator("..")).toContainText("0");
+    await expect(page.locator(".file-list")).toHaveCount(0);
     await expect(page.locator(".results-panel")).toHaveCount(0);
     expect(failedResponses).toEqual([]);
   });
