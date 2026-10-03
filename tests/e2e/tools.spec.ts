@@ -1386,6 +1386,9 @@ test("RESEARCH every task applies the same result rules while keeping its own st
 });
 
 test("RESEARCH separates a verified article from search candidates and hides internal guidance", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("worklens:review-preferences:v1", JSON.stringify({
+    version: 1, preferences: { documentSource: "text", expandSources: true },
+  })));
   await page.route("**/api/law/research", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: {
     found: true, task: "full_research", text: fullResearchFixture(), markers: ["NOT_FOUND"],
     interpretation: { original: "직장 내 괴롭힘 판단 기준", situation: "직장에서 괴롭힘 문제를 겪는 상황으로 이해했습니다.", facts: [], issues: [{ label: "직장 내 괴롭힘", query: "직장 내 괴롭힘" }], confidence: "high" },
@@ -1395,6 +1398,8 @@ test("RESEARCH separates a verified article from search candidates and hides int
   await navigateWorkspace(page, "법령");
   await page.getByRole("tab", { name: "종합 리서치", exact: true }).click();
   const form = page.getByRole("form", { name: /^(종합 리서치|문서 검토) 입력$/ });
+  await expect(form.getByRole("heading", { name: "결과 표시", exact: true })).toHaveCount(0);
+  await expect(form.getByRole("switch", { name: "출처 내용을 펼쳐서 표시", exact: true })).toHaveCount(0);
   await form.getByLabel("질문 또는 검색어").fill("직장 내 괴롭힘 판단 기준");
   await form.getByRole("button", { name: "실행" }).click();
   const output = page.locator(".legal-research .legal-analysis-output");
@@ -1418,7 +1423,9 @@ test("RESEARCH separates a verified article from search candidates and hides int
   await expect(toc).not.toHaveAttribute("open", "");
   await toc.locator("summary").click();
   await expect(toc.locator("pre")).toContainText("제132조 조문 제목 132");
-  await output.locator(".research-source summary").click();
+  const source = output.locator(".research-source");
+  await expect(source).not.toHaveAttribute("open", "");
+  await source.locator("summary").click();
   await expect(output.locator(".research-source pre")).not.toContainText(/get_law_text|검색 보정 시도|법제처 API는 공백/u);
   await expect(output).not.toContainText("searchTerms");
   await page.setViewportSize({ width: 390, height: 844 });

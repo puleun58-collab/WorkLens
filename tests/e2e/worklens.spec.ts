@@ -255,6 +255,10 @@ test("usage guide switches feature flows on desktop and mobile", async ({ page }
   await expect(page.getByRole("button", { name: "Guide" })).toHaveAttribute("aria-current", "page");
   await expect(page.getByRole("tab", { name: "분석", exact: true })).toHaveAttribute("aria-selected", "true");
   const tabs = page.getByRole("tablist", { name: "기능 선택" });
+  await expect(tabs.getByRole("tab")).toHaveText(["분석", "질문", "비교", "검수", "보완", "윤문", "추출", "취합", "법령", "PDF 도구", "이미지 도구", "용어 사전"]);
+  for (const removed of ["종합 리서치", "문서 검토", "설정"]) {
+    await expect(tabs.getByRole("tab", { name: removed, exact: true })).toHaveCount(0);
+  }
   const desktopTabs = await tabs.evaluate((element) => {
     const bounds = element.getBoundingClientRect();
     const guide = element.parentElement!.getBoundingClientRect();
@@ -2596,6 +2600,10 @@ test("keeps legal destinations grouped, command search shortcut-only, and review
   await expect(page.getByRole("tablist", { name: "법령 자료 유형" }).getByRole("tab")).toHaveText([
     "법령 검색", "판례·결정례", "검증·분석", "종합 리서치",
   ]);
+  await page.getByRole("tab", { name: "종합 리서치", exact: true }).click();
+  const researchForm = page.getByRole("form", { name: "종합 리서치 입력", exact: true });
+  await expect(researchForm.getByRole("heading", { name: "결과 표시", exact: true })).toHaveCount(0);
+  await expect(researchForm.getByRole("switch", { name: "출처 내용을 펼쳐서 표시", exact: true })).toHaveCount(0);
 
   for (const [command, heading] of [
     ["법령 > 판례·결정례", "판례·결정례"],

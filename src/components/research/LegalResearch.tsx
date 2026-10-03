@@ -215,13 +215,13 @@ export function LegalResearch({ workspace, initialTask = "full_research" }: { wo
   const runButton = <Button type="submit" className="law-search-button" disabled={!canRun || loading || !preferencesReady}>
     {loading ? (isDocument ? "문서 검토 중…" : "리서치 중…") : isDocument ? "문서 검토 실행" : "실행"}
   </Button>;
-  const resultDisplay = <section className="research-result-display" aria-labelledby={`research-result-display-${task}`}>
+  const resultDisplay = isDocument ? <section className="research-result-display" aria-labelledby={`research-result-display-${task}`}>
     <h2 id={`research-result-display-${task}`}>결과 표시</h2>
     <ReviewPreferenceFields value={preferences} onChange={setPreferenceOverride} prefix={`run-review-${task}`}
       disabled={!preferencesReady || loading} compact currentRun showDocumentSource={false} />
     <p className="research-settings-note">이번 실행에만 적용됩니다. 기본값은 설정에서 관리합니다.</p>
     {settingsError && <p className="law-search-error" role="alert">{settingsError}</p>}
-  </section>;
+  </section> : null;
   return <div className="legal-analysis legal-research">
     <div className={`research-workspace${isDocument ? " is-document" : ""}`}>
     <div className="research-workspace-main">
@@ -384,7 +384,7 @@ export function LegalResearch({ workspace, initialTask = "full_research" }: { wo
         </div>
         : current.outcome?.kind === "found" ? current.outcome.data.review
           ? <ContractReviewResult review={current.outcome.data.review} file={current.file} expandSources={current.preferences?.expandSources} />
-          : <ResearchResult data={current.outcome.data} request={current.request} expandSources={current.preferences?.expandSources} />
+          : <ResearchResult data={current.outcome.data} request={current.request} expandSources={false} />
         : null}
     </section>}
     </div>
