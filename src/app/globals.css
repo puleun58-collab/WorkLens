@@ -4122,9 +4122,28 @@ body {
   font-style: normal;
 }
 
+.worklens-logo[data-tone="light"] .worklens-frame,
+.worklens-mark[data-tone="light"] .worklens-frame {
+  fill: var(--brand-blue);
+  stroke: none;
+}
+
 .worklens-logo[data-tone="light"] .worklens-w,
 .worklens-mark[data-tone="light"] .worklens-w {
   fill: #fff;
+  stroke: none;
+}
+
+.worklens-logo[data-tone="dark"] .worklens-frame,
+.worklens-mark[data-tone="dark"] .worklens-frame {
+  fill: var(--brand-blue);
+  stroke: none;
+}
+
+.worklens-logo[data-tone="dark"] .worklens-w,
+.worklens-mark[data-tone="dark"] .worklens-w {
+  fill: var(--ink);
+  stroke: none;
 }
 
 .worklens-logo[data-tone="light"] .worklens-wordmark {
