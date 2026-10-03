@@ -57,7 +57,8 @@ test.describe("Cloudflare Worker production build", () => {
     const documentResponse = await page.goto("/");
     expect(documentResponse?.status()).toBe(200);
     await expect(page).toHaveTitle(/WorkLens/);
-    await expect(page.locator(".workspace-heading")).toBeVisible();
+    await expect(page.locator(".utility-bar h1")).toHaveText("문서 분석");
+    await expect(page.locator(".workspace-heading")).toHaveCount(0);
 
     await expect.poll(() => responses.filter(isMainAsset).length).toBeGreaterThan(0);
     for (const response of responses.filter(isMainAsset)) await expectSaneStaticAsset(response);

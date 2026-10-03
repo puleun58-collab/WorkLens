@@ -133,6 +133,7 @@ import {
   MoreHorizontal,
   Plus,
   Upload,
+  Trash2,
 } from "lucide-react";
 import { SettingsView, type CompanyTermEntry } from "@/components/SettingsView";
 
@@ -1473,9 +1474,10 @@ export default function Home() {
   // textarea, not on the workspace selection, which stays untouched.
   const polishTextMode = activeTab === "Polish" && polishInput === "text";
   const showRunAction = polishTextMode || files.length > 0;
-  const [workSectionTitle, workSectionDescription] = polishTextMode
-    ? ["텍스트 윤문", "붙여넣은 내용을 문장 단위로 다듬고 숫자·날짜·인용과 문서 구조를 유지합니다."]
-    : workSectionCopy[activeTab];
+  const workSectionTitle = workSectionCopy[activeTab][0];
+  const workSectionDescription = polishTextMode
+    ? "붙여넣은 내용을 문장 단위로 다듬고 숫자·날짜·인용과 문서 구조를 유지합니다."
+    : workSectionCopy[activeTab][1];
   const aggregationHasUnsupportedFiles = activeTab === "Aggregate"
     && files.some((file) => selected.includes(file.id) && !isAggregationFileKind(file.kind));
   const supplementHasUnsupportedFiles = activeTab === "Supplement"
@@ -1596,11 +1598,11 @@ export default function Home() {
 
       <div className="shell-main">
         <WorkspaceCommand items={commandItems} onNavigate={navigateWorkspace} />
-        {isUtilityView || isToolView ? (
-          <header className="context-bar utility-bar">
-            <h1>{viewMetadata.title}</h1>
+        {isDocumentWorkspaceView || isUtilityView || isToolView ? (
+          <header className={`context-bar utility-bar${isDocumentWorkspaceView ? " workspace-context" : ""}`}>
+            <h1>{isDocumentWorkspaceView ? workSectionTitle : viewMetadata.title}</h1>
             <span className="context-names">
-              {shellView === "Guide"
+              {isDocumentWorkspaceView ? workSectionDescription : shellView === "Guide"
                 ? "WorkLens의 주요 기능을 단계별로 확인하세요."
                 : shellView === "Dictionary"
                 ? "맞춤법과 용어 오탐을 줄이기 위한 사전입니다."
@@ -1616,13 +1618,6 @@ export default function Home() {
         ) : null}
 
         <section className="workspace" id="workspace-content" aria-busy={isDocumentWorkspaceView && (busy || uploading)}>
-          {isDocumentWorkspaceView ? (
-            <header className="work-section-heading workspace-heading">
-              <h2>{workSectionTitle}</h2>
-              <p>{workSectionDescription}</p>
-            </header>
-          ) : null}
-
           {isDocumentWorkspaceView ? (
             <input
               ref={inputRef}
@@ -1731,9 +1726,9 @@ export default function Home() {
                         onCheckedChange={toggleAllFiles}
                         aria-label={allFilesSelected ? "전체 선택 해제" : "전체 선택"} />
                     </label>
-                    <h3 id="files-heading">파일 {files.length}개 · 선택 {selected.length}개</h3>
+                    <h3 id="files-heading">업로드된 파일 {files.length}개</h3>
                     <div className="file-list-actions">
-                      <Button type="button" variant="destructive-outline" className="delete-selected" onClick={() => void deleteSelected()} disabled={busy || selected.length === 0}>선택 삭제</Button>
+                      <Button type="button" variant="outline" className="delete-selected" onClick={() => void deleteSelected()} disabled={busy || selected.length === 0}><Trash2 aria-hidden="true" />선택 삭제</Button>
                       <Menu>
                         <MenuTrigger render={<Button type="button" variant="ghost" size="icon" aria-label="파일 관리 메뉴" disabled={busy} />}>
                           <MoreHorizontal aria-hidden="true" />
@@ -1779,12 +1774,15 @@ export default function Home() {
                           </span> : null}
                           </div>
                           <div className="file-meta-line">
-                            <span>{file.kind.toUpperCase()}</span><i aria-hidden="true">·</i><span>{formatBytes(file.size)}</span><i aria-hidden="true">·</i>
-                            <span className="structure-counts">{counts.length ? counts.map((count, index) => <span key={count.label}>{index > 0 ? " · " : ""}{count.label}: <b>{count.value}</b></span>) : <span>순서 기반 구조</span>}</span>
-                            <i aria-hidden="true">·</i>{file.warnings.length ? <span className="warning" title={warningText(file.warnings)}>주의 {file.warnings.length}</span> : <span className="muted">없음</span>}
+                            <span>{file.kind.toUpperCase()}</span><i aria-hidden="true">|</i><span>{formatBytes(file.size)}</span>
                           </div>
+                          {counts.length || file.warnings.length ? <div className="file-meta-line file-structure-line">
+                            {counts.length ? <span className="structure-counts">{counts.map((count, index) => <span key={count.label}>{index > 0 ? " · " : ""}{count.label}: <b>{count.value}</b></span>)}</span> : null}
+                            {counts.length && file.warnings.length ? <i aria-hidden="true">·</i> : null}
+                            {file.warnings.length ? <span className="warning" title={warningText(file.warnings)}>주의 {file.warnings.length}건</span> : null}
+                          </div> : null}
                         </div>
-                        <Badge variant={file.status === "ready" ? "success" : "secondary"} className="file-status">{file.status === "ready" ? "준비 완료" : file.status}</Badge>
+                        <Badge variant="success" className="file-status"><CircleCheck aria-hidden="true" />준비 완료</Badge>
                       </article>
                     );
                   })}

@@ -640,17 +640,17 @@ test("selects, clears, and reports all work files from the table header", async 
   await selectAll.check();
   await expect(page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true })).toBeChecked();
   await expect(page.getByRole("checkbox", { name: "운임현황_v2.xlsx 선택", exact: true })).toBeChecked();
-  await expect(page.locator(".file-list-head")).toContainText("선택 2개");
+  await expect(page.locator(".file-row.selected")).toHaveCount(2);
 
   await page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true }).uncheck();
   await expect(selectAll).toHaveAttribute("aria-checked", "mixed");
-  await expect(page.locator(".file-list-head")).toContainText("선택 1개");
+  await expect(page.locator(".file-row.selected")).toHaveCount(1);
 
   await page.getByRole("checkbox", { name: "전체 선택" }).check();
   await page.getByRole("checkbox", { name: "전체 선택 해제" }).uncheck();
   await expect(page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true })).not.toBeChecked();
   await expect(page.getByRole("checkbox", { name: "운임현황_v2.xlsx 선택", exact: true })).not.toBeChecked();
-  await expect(page.locator(".file-list-head")).toContainText("선택 0개");
+  await expect(page.locator(".file-row.selected")).toHaveCount(0);
 
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.getByRole("checkbox", { name: "전체 선택" })).toBeVisible();
@@ -668,8 +668,8 @@ test("deletes every selected file in one secondary action", async ({ page }) => 
   await remove.click();
   await expect(fileRow(page, files.v1)).toHaveCount(0);
   await expect(fileRow(page, files.v2)).toBeVisible();
-  await expect(page.locator(".file-list-head")).toContainText("파일 1개");
-  await expect(page.locator(".file-list-head")).toContainText("선택 0개");
+  await expect(page.locator(".file-list-head")).toContainText("업로드된 파일 1개");
+  await expect(page.locator(".file-row.selected")).toHaveCount(0);
   await expect(remove).toBeDisabled();
 });
 
@@ -1007,7 +1007,7 @@ test("presents text Polish as an immediate original-to-revision workflow", async
       return { top: style.borderTopWidth, left: style.borderLeftWidth };
     }),
   ]);
-  const boundaryBox = await page.locator(".work-section-heading").boundingBox();
+  const boundaryBox = await page.locator(".operation-bar").boundingBox();
   expect(inputBox).not.toBeNull();
   expect(resultBox).not.toBeNull();
   expect(boundaryBox).not.toBeNull();
@@ -2429,7 +2429,7 @@ test("moves from the full upload area to compact file management and back", asyn
   await page.goto("/");
   const dropzone = page.locator(".dropzone");
 
-  await expect(page.locator(".context-bar")).toHaveCount(0);
+  await expect(page.locator(".context-bar")).toContainText("문서 분석");
   await expect(page.getByRole("button", { name: "분석 실행", exact: true })).toHaveCount(0);
   await expect(dropzone.getByRole("button", { name: "파일 추가" })).toBeVisible();
   await expect(dropzone).toContainText("파일을 여기에 끌어 놓으세요");
@@ -2446,20 +2446,42 @@ test("moves from the full upload area to compact file management and back", asyn
   await expect(dropzone).toHaveCount(0);
   await expect(page.locator(".file-add-dropzone")).toBeVisible();
   await expect(page.locator(".file-add-dropzone").getByRole("button", { name: "파일 추가" })).toBeVisible();
-  await expect(page.locator(".file-list-head")).toContainText("파일 1개 · 선택 0개");
+  await expect(page.locator(".file-list-head")).toContainText("업로드된 파일 1개");
   await expect(page.locator(".file-row .file-status")).toHaveText("준비 완료");
   await expect(page.locator(".file-row .file-kind-icon")).toHaveText("XLSX");
+  const card = page.locator(".file-row");
+  await expect(card).toHaveCount(1);
+  await expect(card.locator(".file-status svg[aria-hidden='true']")).toHaveCount(1);
+  await expect(card.locator(".file-meta-line").first()).toHaveText(/^XLSX\|[\d.]+ (B|KB|MB)$/);
+  await expect(card.locator(".file-structure-line")).toContainText("시트: 1");
+  await expect(card).not.toContainText(/ready|순서 기반 구조|없음|\d{4}[-./]\d{2}[-./]\d{2}/);
+  await expect(page.locator(".file-list-head")).not.toContainText(/선택 \d+개/);
+  await expect(page.getByRole("button", { name: "선택 삭제", exact: true }).locator("svg")).toHaveCount(1);
+  const appearance = await card.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { border: style.borderTopWidth, radius: style.borderRadius };
+  });
+  expect(appearance.border).toBe("1px");
+  expect(appearance.radius).not.toBe("0px");
+  await page.setViewportSize({ width: 390, height: 844 });
+  const [info, pill, cardBox] = await Promise.all([
+    card.locator(".file-info").boundingBox(), card.locator(".file-status").boundingBox(), card.boundingBox(),
+  ]);
+  expect(pill!.y).toBeGreaterThanOrEqual(info!.y + info!.height);
+  expect(pill!.x + pill!.width).toBeLessThanOrEqual(cardBox!.x + cardBox!.width);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  await page.setViewportSize({ width: 1440, height: 900 });
   await expect(page.getByRole("button", { name: "분석 실행", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "분석 실행", exact: true })).toBeDisabled();
 
   await page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true }).check();
-  await expect(page.locator(".file-list-head")).toContainText("선택 1개");
+  await expect(page.locator(".file-row.selected")).toHaveCount(1);
   await page.getByRole("button", { name: "선택 삭제" }).click();
   await expect(dropzone).toBeVisible();
 
   await upload(page, files.v1);
   await upload(page, files.v2);
-  await expect(page.locator(".file-list-head")).toContainText("파일 2개");
+  await expect(page.locator(".file-list-head")).toContainText("업로드된 파일 2개");
   await page.getByRole("button", { name: "파일 관리 메뉴" }).click();
   await page.getByRole("menuitem", { name: "모두 삭제" }).click();
   const dialog = page.getByRole("alertdialog", { name: "작업 파일 모두 삭제", exact: true });
@@ -2495,7 +2517,8 @@ test("aligns fileless text Polish controls to one desktop and mobile baseline", 
   await expect(page.locator(".dropzone")).toBeVisible();
 
   const alignment = async () => {
-    const title = page.getByRole("heading", { name: "텍스트 윤문", exact: true });
+    const title = page.locator(".operation-bar");
+    await expect(page.locator(".utility-bar h1")).toHaveText("문서 윤문");
     const inputModes = page.locator(".polish-input-modes");
     const polishModes = page.locator(".polish-modes");
     const pasteLabel = page.locator(".polish-paste").getByText("윤문할 내용을 붙여넣으세요.", { exact: true });
@@ -2614,8 +2637,8 @@ test("keeps legal destinations grouped, command search shortcut-only, and review
   ]);
   await page.getByRole("tab", { name: "종합 리서치", exact: true }).click();
   const researchForm = page.getByRole("form", { name: "종합 리서치 입력", exact: true });
-  await expect(researchForm.getByRole("heading", { name: "출처 표시", exact: true })).toHaveCount(0);
-  await expect(researchForm.getByRole("switch", { name: "출처 표시", exact: true })).toHaveCount(0);
+  await expect(researchForm.getByRole("heading", { name: "출처 펼쳐 보기", exact: true })).toHaveCount(0);
+  await expect(researchForm.getByRole("switch", { name: "출처 펼쳐 보기", exact: true })).toHaveCount(0);
 
   for (const [command, heading] of [
     ["법령 > 판례·결정례", "판례·결정례"],
@@ -2642,7 +2665,7 @@ test("keeps legal destinations grouped, command search shortcut-only, and review
   await page.getByRole("dialog").getByText("법령 > 문서 검토", { exact: true }).click();
   await expect(page.getByRole("heading", { name: "문서 검토", exact: true, level: 1 })).toBeVisible();
   await expect(page.getByRole("radio", { name: "직접 입력", exact: true })).toBeChecked();
-  await expect(page.getByRole("switch", { name: "출처 표시", exact: true })).toBeChecked();
+  await expect(page.getByRole("switch", { name: "출처 펼쳐 보기", exact: true })).toBeChecked();
 });
 
 test("uses task-focused labels and concise execution buttons", async ({ page }) => {
@@ -2662,7 +2685,19 @@ test("uses task-focused labels and concise execution buttons", async ({ page }) 
   ] as const;
   for (const [tab, title] of labels) {
     await navigateWorkspace(page, tab);
-    await expect(page.getByRole("heading", { name: title, exact: true })).toBeVisible();
+    await expect(page.locator(".utility-bar h1")).toHaveText(title);
+    await expect(page.getByRole("heading", { name: title, exact: true, level: 1 })).toHaveCount(1);
+    await expect(page.locator(".utility-bar .context-names")).toHaveCount(1);
+    await expect(page.locator(".utility-bar .context-names")).not.toBeEmpty();
+    await expect(page.locator(".workspace-heading")).toHaveCount(0);
+    await expect(page.locator(".workspace").getByRole("heading", { name: title, exact: true })).toHaveCount(0);
+    const description = await page.locator(".utility-bar .context-names").innerText();
+    await expect(page.getByText(description, { exact: true })).toHaveCount(1);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(page.locator(".utility-bar h1")).toBeVisible();
+    await expect(page.locator(".utility-bar .context-names")).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+    await page.setViewportSize({ width: 1440, height: 900 });
     const run = page.getByRole("button", { name: `${tab} 실행`, exact: true });
     await expect(run).toBeVisible();
     await expect(run).toHaveText("실행");
@@ -2899,7 +2934,7 @@ test("keeps the complete mobile workflow inside the viewport", async ({ page }, 
   const firstRow = fileRow(page, files.v1);
   await expect(firstRow.locator(".file-status")).toBeVisible();
   await expect(firstRow.locator(".structure-counts")).toBeVisible();
-  await expect(firstRow.locator(".muted").last()).toBeVisible();
+  await expect(firstRow.locator(".file-meta-line").first()).toContainText("XLSX|");
   await expectNoPageOverflow();
   await page.screenshot({ path: "artifacts/mobile-file-workflow-390.png", fullPage: true });
 
@@ -3022,14 +3057,16 @@ test("aligns every workspace category to the file-list boundary", async ({ page 
   await page.getByRole("checkbox", { name: "운임현황_v2.xlsx 선택", exact: true }).check();
 
   const assertSharedBoundary = async () => {
-    const boxes = await page.locator(".file-list, .work-section-heading, .operation-bar").evaluateAll((elements) =>
-      elements.slice(0, 3).map((element) => {
+    const boxes = await page.locator(".file-list, .operation-bar").evaluateAll((elements) =>
+      elements.slice(0, 2).map((element) => {
         const box = element.getBoundingClientRect();
         return { left: Math.round(box.left), right: Math.round(box.right) };
       }));
-    expect(boxes).toHaveLength(3);
+    expect(boxes).toHaveLength(2);
     expect(boxes.every((box) => box.left === boxes[0].left)).toBe(true);
     expect(boxes.every((box) => box.right === boxes[0].right)).toBe(true);
+    const headerTitleLeft = await page.locator(".context-bar h1").evaluate((element) => Math.round(element.getBoundingClientRect().left));
+    expect(headerTitleLeft).toBe(boxes[0].left);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   };
 
@@ -3542,4 +3579,27 @@ test("file tiles and ready pills retain contrast in light and dark themes", asyn
     const results = await new AxeBuilder({ page }).include(".file-list").withRules(["color-contrast"]).analyze();
     expect(results.violations).toEqual([]);
   }
+});
+
+
+test("keeps long filenames and selection roles inside independent mobile cards", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  const name = "매우긴파일명_".repeat(12) + ".xlsx";
+  await page.locator('input[type="file"]').setInputFiles({
+    name, mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    buffer: Buffer.from(await createXlsx(RATE_SHEET_V1)),
+  });
+  const card = page.locator(".file-row");
+  await expect(card).toBeVisible();
+  await card.getByRole("checkbox", { name: `${name} 선택`, exact: true }).check();
+  await navigateWorkspace(page, "비교");
+  await expect(card.locator(".compare-selection-role")).toHaveText("1 · 기준 파일");
+  await expect(card.locator(".file-name-line strong")).toHaveAttribute("title", name);
+  const [info, pill, cardBox] = await Promise.all([
+    card.locator(".file-info").boundingBox(), card.locator(".file-status").boundingBox(), card.boundingBox(),
+  ]);
+  expect(pill!.y).toBeGreaterThanOrEqual(info!.y + info!.height);
+  expect(info!.x + info!.width).toBeLessThanOrEqual(cardBox!.x + cardBox!.width);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 });
