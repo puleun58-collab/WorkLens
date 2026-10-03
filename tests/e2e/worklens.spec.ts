@@ -920,11 +920,11 @@ test("offers file and pasted-text polish without touching the workspace", async 
     await paste.fill(prose.slice(0, length));
     await expect(page.locator(".polish-paste small")).toContainText(`${length.toLocaleString("ko-KR")} / 10,000자`);
     await expect(page.locator(".polish-paste small")).not.toHaveAttribute("data-over", "true");
+    await expect(page.getByRole("button", { name: "윤문 실행" })).toBeEnabled();
   }
   await paste.fill(prose.slice(0, 10_001));
   await expect(page.locator(".polish-paste small")).toHaveAttribute("data-over", "true");
-  await page.getByRole("button", { name: "윤문 실행" }).click();
-  await expect(page.locator(".status-panel.error")).toContainText("10,000자 이하");
+  await expect(page.getByRole("button", { name: "윤문 실행" })).toBeDisabled();
   await paste.fill("안녕하세요.\n- 3분기 운영 보고 관련하여 검토 부탁드리고자 합니다.\n1. 매출은 1,250만원입니다.");
 
   // Switching back restores the workspace file and its selection.
