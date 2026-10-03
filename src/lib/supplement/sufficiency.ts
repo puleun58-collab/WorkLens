@@ -3,7 +3,7 @@ import { ACTION_WORD, ACTION_DONE, BASELINE_CUE, CAUSE_CUE, REASON_CUE, RESPONSE
 
 /** Concrete evidence, shared by search and AI rebuttal. Linking remains in the engine. */
 const VALUE = /\d+(?:[.,]\d+)?/u;
-const FACT = /(했다|한다|된다|되었다|하였다|있다|없다|발생|확인|증가|감소|상승|하락|확대|축소|부담|지연|중단|초래|절감|개선|달성|기여)/u;
+const FACT = /(했다|한다|된다|되었다|하였다|있다|없다|발생|확인|증가|감소|상승|하락|확대|축소|부담|지연|중단|초래|절감|개선|달성|기여|커졌|늘었|줄었)/u;
 // A label followed by a value is evidence; a bare heading is not.
 const content = (text: string) => VALUE.test(text) || FACT.test(text) || /[:：]\s*\S.{3,}/u.test(text);
 
@@ -32,14 +32,19 @@ export function suppliesImplementationCheck(check: SupplementCheck, text: string
       return text.split(/(?<=[.!?])\s+|\n/u).some((sentence) => (UNIT_EXPR.test(sentence) || KPI_VALUE.test(sentence)) && VALUE.test(sentence)
         && (KPI_TERM.test(sentence) || contentTokens(sentence).some((token) => familyOf(token) !== undefined)));
     case "cause":
-      return (CAUSE_CUE.test(text) || REASON_CUE.test(text)) && content(text);
+      // A bare result restatement ("매출이 15% 감소했다") is not a cause: require an explicit
+      // cause cue or a multi-clause explanatory construction, not just the change itself.
+      return (CAUSE_CUE.test(text) || REASON_CUE.test(text) || /(면서|으며|어서|아서|여서|으나|지만|므로|기에)/u.test(text)) && content(text);
     case "impact":
       return (IMPACT_CUE.test(text) || IMPACT_CUE.test(contentTokens(text).join(" "))) && content(text);
     case "response":
       return RESPONSE_CUE.test(text) && (ACTION_WORD.test(text) || ACTION_DONE.test(text) || FACT.test(text))
         && contentTokens(text.replace(RESPONSE_CUE, "").replace(ACTION_WORD, "")).length >= 2;
     case "conclusion":
-      return content(text) && (REASON_CUE.test(text) || BASELINE_CUE.test(text) || /조건|전제|경우|확인/u.test(text));
+      // Expectation-only text ("향후 개선이 기대된다") is not support. A concrete stated fact
+      // (value + factual state) can ground a conclusion even without a cue word.
+      return content(text) && (REASON_CUE.test(text) || BASELINE_CUE.test(text) || /조건|전제|경우|확인/u.test(text)
+        || (VALUE.test(text) && /(있다|없다|되어|유지|확정|체결|완료|동결)/u.test(text)));
     default:
       return true;
   }
