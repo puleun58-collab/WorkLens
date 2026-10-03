@@ -920,11 +920,11 @@ test("offers file and pasted-text polish without touching the workspace", async 
     await paste.fill(prose.slice(0, length));
     await expect(page.locator(".polish-paste small")).toContainText(`${length.toLocaleString("ko-KR")} / 10,000자`);
     await expect(page.locator(".polish-paste small")).not.toHaveAttribute("data-over", "true");
+    await expect(page.getByRole("button", { name: "윤문 실행" })).toBeEnabled();
   }
   await paste.fill(prose.slice(0, 10_001));
   await expect(page.locator(".polish-paste small")).toHaveAttribute("data-over", "true");
-  await page.getByRole("button", { name: "윤문 실행" }).click();
-  await expect(page.locator(".status-panel.error")).toContainText("10,000자 이하");
+  await expect(page.getByRole("button", { name: "윤문 실행" })).toBeDisabled();
   await paste.fill("안녕하세요.\n- 3분기 운영 보고 관련하여 검토 부탁드리고자 합니다.\n1. 매출은 1,250만원입니다.");
 
   // Switching back restores the workspace file and its selection.
@@ -3650,4 +3650,27 @@ test("keeps long filenames and selection roles inside independent mobile cards",
   expect(pill!.y).toBeGreaterThanOrEqual(info!.y + info!.height);
   expect(info!.x + info!.width).toBeLessThanOrEqual(cardBox!.x + cardBox!.width);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+});
+
+test("polish text preflight boundaries prevent oversized execution", async ({ page }) => {
+  const { POLISH_TEXT_MAX_CHARS: max } = await import("../../src/lib/polish/text-input");
+  let calls = 0;
+  await page.route("**/api/ai/**", async (route) => { calls++; await route.abort(); });
+  await page.goto("/");
+  await navigateWorkspace(page, "윤문");
+  await page.getByRole("radio", { name: "텍스트 윤문" }).check();
+  const input = page.getByLabel("윤문할 텍스트 입력");
+  const action = page.getByRole("button", { name: "윤문 실행", exact: true });
+  for (const value of ["", "   ", "가".repeat(max + 1)]) {
+    await input.fill(value);
+    await expect(action).toBeDisabled();
+  }
+  await expect(input).not.toHaveAttribute("maxlength");
+  await expect(page.locator('.polish-paste small[data-over="true"]')).toBeVisible();
+  await action.evaluate((button: HTMLButtonElement) => button.click());
+  expect(calls).toBe(0);
+  for (const size of [1, max - 1, max]) {
+    await input.fill("가".repeat(size));
+    await expect(action).toBeEnabled();
+  }
 });

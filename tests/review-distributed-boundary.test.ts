@@ -64,3 +64,13 @@ describe("distributed fallback boundaries A-F", () => {
     check(file);
   });
 });
+
+// Independent gold is used only by the regression, never by the selector.
+describe("distributed development gaps", () => {
+  it.each(["dev-20-multi-issue", "dev-22-repeated-boilerplate"])("selects every gold location in %s", async (id) => {
+    const { DEVELOPMENT_CASES } = await import("./eval/document-review-cases");
+    const { evaluateCase } = await import("./eval/document-review-harness");
+    const test = DEVELOPMENT_CASES.find((entry) => entry.id === id)!;
+    expect(await evaluateCase(test, undefined, { selection: "distributed" })).toMatchObject({ selectorFn: 0, fn: 0, fp: 0 });
+  });
+});
