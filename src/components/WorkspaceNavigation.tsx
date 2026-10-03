@@ -20,7 +20,7 @@ export function WorkspaceNavigation({ items, active, onNavigate }: { items: Work
   const [open, setOpen] = useState(false);
   const content = <nav aria-label="작업 공간 메뉴" className="workspace-navigation">
     {[...new Set(items.map((item) => item.group))].map((group) => <section key={group}>
-      <h2>{group}</h2>
+      {group !== "HELP" && <h2>{group}</h2>}
       <ul>{items.filter((item) => item.group === group).map(({ value, label, Icon, ariaLabel, prefetch }) => <li key={value}>
         <Button variant="ghost" className={`workspace-nav-item${active === value ? " active" : ""}`} aria-current={active === value ? "page" : undefined} aria-label={ariaLabel ?? label} onPointerEnter={prefetch} onFocus={prefetch} onClick={() => { setOpen(false); onNavigate(value); }}>
           <Icon size={18} strokeWidth={1.75} aria-hidden={true} /><span>{label}</span>
@@ -29,11 +29,11 @@ export function WorkspaceNavigation({ items, active, onNavigate }: { items: Work
     </section>)}
   </nav>;
   return <>
-    <aside className="workspace-sidebar"><div className="workspace-brand"><WorkLensLogo size={36} tone="light" /></div>{content}</aside>
+    <aside className="workspace-sidebar"><div className="workspace-brand"><WorkLensLogo size={40} tone="light" /></div>{content}</aside>
     <div className="workspace-mobile-bar"><Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger render={<Button variant="ghost" size="icon" aria-label="작업 공간 메뉴 열기" />}><Menu /></SheetTrigger>
       <SheetPopup side="left" className="workspace-mobile-sheet" closeProps={{ "aria-label": "메뉴 닫기" }}>
-        <SheetHeader><WorkLensLogo size={36} tone="light" /><SheetTitle className="sr-only">WorkLens</SheetTitle><SheetDescription className="sr-only">작업 공간 메뉴</SheetDescription></SheetHeader>
+        <SheetHeader><WorkLensLogo size={40} tone="light" /><SheetTitle className="sr-only">WorkLens</SheetTitle><SheetDescription className="sr-only">작업 공간 메뉴</SheetDescription></SheetHeader>
         <SheetPanel>{content}</SheetPanel>
       </SheetPopup>
     </Sheet><WorkLensLogo size={28} tone="light" /></div>
