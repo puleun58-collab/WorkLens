@@ -8521,10 +8521,15 @@ div.status-panel.error > strong { font-size: 14px; line-height: 1.5; }
 }
 
 .file-kind-icon.kind-xlsx,
-.file-kind-icon.kind-csv { background: color-mix(in srgb, var(--success) 8%, transparent); color: var(--success-foreground); }
-.file-kind-icon.kind-pdf { background: color-mix(in srgb, var(--destructive) 8%, transparent); color: var(--destructive-foreground); }
-.file-kind-icon.kind-docx { background: color-mix(in srgb, var(--info) 8%, transparent); color: var(--info-foreground); }
-.file-kind-icon.kind-pptx { background: color-mix(in srgb, var(--warning) 8%, transparent); color: var(--warning-foreground); }
+.file-kind-icon.kind-csv { background: color-mix(in srgb, var(--success) 8%, transparent); color: var(--color-emerald-800); }
+.file-kind-icon.kind-pdf { background: color-mix(in srgb, var(--destructive) 8%, transparent); color: var(--color-red-800); }
+.file-kind-icon.kind-docx { background: color-mix(in srgb, var(--info) 8%, transparent); color: var(--color-blue-800); }
+.file-kind-icon.kind-pptx { background: color-mix(in srgb, var(--warning) 8%, transparent); color: var(--color-amber-800); }
+.dark .file-kind-icon.kind-xlsx,
+.dark .file-kind-icon.kind-csv { color: var(--color-emerald-300); }
+.dark .file-kind-icon.kind-pdf { color: var(--color-red-300); }
+.dark .file-kind-icon.kind-docx { color: var(--color-blue-300); }
+.dark .file-kind-icon.kind-pptx { color: var(--color-amber-300); }
 .file-row > .file-status { border-radius: 999px; padding-inline: 8px; }
 .file-row .file-status { color: var(--color-emerald-800); }
 
