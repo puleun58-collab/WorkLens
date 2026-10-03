@@ -2550,7 +2550,7 @@ test("keeps file context and upload controls out of utility destinations", async
   await expect(page.locator(".settings-list")).not.toContainText("30일");
 });
 
-test("keeps legal destinations inside one navigation entry and moves review defaults to Settings", async ({ page }) => {
+test("keeps legal destinations grouped, command search shortcut-only, and review options in the review flow", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("worklens:review-preferences:v1", JSON.stringify({
     version: 1, preferences: { documentSource: "text", expandSources: true },
   })));
@@ -2575,13 +2575,12 @@ test("keeps legal destinations inside one navigation entry and moves review defa
   }
   await closeSheet();
 
-  const commandTrigger = page.getByRole("button", { name: "기능 검색…", exact: true });
-  await expect(commandTrigger).toBeVisible();
-  await expect(commandTrigger).not.toContainText(/Ctrl|⌘/);
+  await expect(page.getByRole("button", { name: "기능 검색…", exact: true })).toHaveCount(0);
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await commandTrigger.click();
+  await page.keyboard.press("Control+K");
   await expect(page.getByRole("dialog").getByLabel("기능 검색")).toHaveAttribute("placeholder", "기능 검색…");
   await expect(page.getByRole("dialog").getByRole("group").filter({ hasText: /^(WORKSPACE|RESEARCH|TOOLS|HELP)/ })).toHaveCount(4);
+  await expect(page.getByRole("dialog").getByText("검토 설정", { exact: true })).toHaveCount(0);
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toHaveCount(0);
 
@@ -2608,11 +2607,15 @@ test("keeps legal destinations inside one navigation entry and moves review defa
   }
 
   await page.keyboard.press("Control+K");
-  await page.getByRole("dialog").getByText("검토 설정", { exact: true }).click();
+  await page.getByRole("dialog").getByText("설정", { exact: true }).click();
   await openMenu();
   await expect(navigation.getByRole("button", { name: "Settings", exact: true })).toHaveAttribute("aria-current", "page");
   await closeSheet();
-  await expect(page.getByRole("heading", { name: "법령 리서치 기본값", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "법령 리서치 기본값", exact: true })).toHaveCount(0);
+
+  await page.keyboard.press("Control+K");
+  await page.getByRole("dialog").getByText("법령 > 문서 검토", { exact: true }).click();
+  await expect(page.getByRole("heading", { name: "문서 검토", exact: true, level: 1 })).toBeVisible();
   await expect(page.getByRole("radio", { name: "직접 입력", exact: true })).toBeChecked();
   await expect(page.getByRole("switch", { name: "출처 내용을 펼쳐서 표시", exact: true })).toBeChecked();
 });

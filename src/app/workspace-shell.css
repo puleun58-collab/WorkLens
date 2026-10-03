@@ -1,7 +1,9 @@
 .workspace-sidebar { position: sticky; top: 0; height: 100dvh; display: flex; flex-direction: column; background: var(--navy-950); border-right: 1px solid var(--navy-800); overflow: hidden; }
-.workspace-brand { min-height: 64px; flex-shrink: 0; display: flex; align-items: center; padding: 12px 18px; }
+.workspace-brand { min-height: 64px; flex-shrink: 0; display: flex; align-items: center; padding: 12px 18px 12px 23px; }
 .workspace-navigation { padding: 4px 12px 12px; }
-.workspace-sidebar > .workspace-navigation { flex: 1; min-height: 0; overflow-y: auto; }
+.workspace-sidebar > .workspace-navigation { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
+/* The HELP destinations sit at the foot of the rail, as in the reference layout. */
+.workspace-sidebar .workspace-navigation section:last-of-type { margin-top: auto; padding-top: 10px; border-top: 1px solid rgba(170, 187, 211, .18); }
 .workspace-navigation section + section { margin-top: 14px; }
 .workspace-navigation h2 { color: #aabbd3; font-size: 10px; font-weight: 600; letter-spacing: var(--tracking-label); margin: 8px 10px; }
 .workspace-navigation ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
@@ -9,8 +11,6 @@
 .workspace-nav-item:hover:not(.active) { color: #fff; background: var(--navy-800); }
 .workspace-nav-item.active { color: #fff; background: var(--rail-active); font-weight: 600; }
 .workspace-sidebar .workspace-nav-item:focus-visible, .workspace-mobile-sheet .workspace-nav-item:focus-visible { outline-color: var(--rail-focus); }
-.workspace-topbar { min-height: 64px; padding: 12px 24px; border-bottom: 1px solid var(--border); background: var(--card); display: flex; align-items: center; gap: 20px; }
-.workspace-command-trigger { width: min(100%, 620px); justify-content: flex-start; color: var(--muted-foreground); background: var(--background); }
 .workspace-mobile-bar { display: none; }
 .app-shell { background: var(--background); }
 .shell-main { min-width: 0; }
@@ -19,8 +19,6 @@
   .workspace-sidebar { display: none; }
   .workspace-mobile-bar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: var(--navy-950); border-bottom: 1px solid var(--navy-800); }
   .workspace-mobile-bar > button { color: #fff; }
-  .workspace-topbar { min-height: auto; padding: 10px 14px; }
-  .workspace-command-trigger { width: 100%; }
 }
 .workspace-mobile-sheet { background: var(--navy-950); color: #fff; border-color: var(--navy-800); }
 .workspace-mobile-sheet > [data-slot="sheet-close"] { color: #fff; }
