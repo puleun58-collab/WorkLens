@@ -283,7 +283,7 @@ export function LegalResearch({ workspace, initialTask = "full_research" }: { wo
                 {workspace.uploading ? "분석 중…" : "파일 추가"}
               </Button>
             </>}
-            {reviewable.length > 0 && runButton}
+            {files.length > 0 && runButton}
           </div>
           </div>
           {uploadErrors.map((message) => <p key={message} className="law-search-error" role="alert">{message}</p>)}
@@ -351,11 +351,11 @@ export function LegalResearch({ workspace, initialTask = "full_research" }: { wo
         <h2 id="research-guide-title">문서 검토 가이드</h2>
         <p>입력부터 근거 확인까지</p>
         <ol>
-          <li><strong>문서 준비</strong><span>작업 파일을 선택하거나 문서 내용을 직접 입력하세요. 여러 파일을 합치지 않고 한 문서씩 검토합니다.</span></li>
-          <li><strong>검토 실행</strong><span>검토한 범위와 제외된 내용을 확인하세요. 직접 입력은 최소 {LAW_RESEARCH_DOCUMENT_MIN_CHARS}자, 최대 {LAW_RESEARCH_DOCUMENT_MAX_CHARS.toLocaleString("ko-KR")}자입니다.</span></li>
-          <li><strong>쟁점과 근거 확인</strong><span>조항별 쟁점과 관련 법령·판례를 읽고, 확인이 필요한 근거는 원문과 대조하세요.</span></li>
+          <li><strong>문서 준비</strong><span>파일을 선택하거나 내용을 직접 입력합니다.</span></li>
+          <li><strong>실행</strong><span>검토할 내용을 확인하고 실행합니다.</span></li>
+          <li><strong>근거 확인</strong><span>검토 결과와 관련 법령·판례를 확인합니다.</span></li>
         </ol>
-        <p className="research-guide-caution">{RESULT_NOTE}</p>
+        <p className="research-guide-caution">법적 판단이 필요한 경우 원문과 전문가 검토가 필요할 수 있습니다.</p>
       </section>
     </aside>}
 

@@ -22,7 +22,7 @@ async function upload(page: Page, files: Array<{ name: string; bytes: Uint8Array
   for (const file of files) {
     const row = page.locator(".file-row").filter({ hasText: file.name });
     await expect(row).toBeVisible();
-    await expect(row).toContainText("ready");
+    await expect(row.locator(".file-status")).toHaveText("준비 완료");
     // Base UI checkboxes can drop a toggle when a file row re-renders mid-click; retry until checked.
     await expect(async () => {
       await row.getByRole("checkbox").check();

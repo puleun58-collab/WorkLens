@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { MAX_CONFIGURED_FILE_BYTES, MAX_WORKSPACE_INPUT_BYTES } from "@/lib/parsers/policy";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -25,6 +26,7 @@ export function SettingsView({ view, companyTerms, companyTermsSource, userTerms
     return (
       <section className="settings-surface" aria-label="Settings">
         <dl className="settings-list">
+          <div><dt>파일 업로드</dt><dd>지원 형식 XLSX, CSV, PDF, DOCX, PPTX · 파일당 최대 {MAX_CONFIGURED_FILE_BYTES / (1024 * 1024)}MB · 전체 최대 {MAX_WORKSPACE_INPUT_BYTES / (1024 * 1024)}MB<br />PDF 도구는 PDF만, 이미지 도구는 JPG·PNG·WebP를 사용합니다.</dd></div>
           <div><dt>저장 위치</dt><dd>파일과 분석 결과는 이 탭의 메모리에만 있습니다. 새로고침하면 사라집니다.</dd></div>
           <div><dt>localStorage</dt><dd>개인 사전 단어와 무시한 규칙 ID만 저장합니다. 문서 본문, 근거, 질문과 답변은 브라우저 저장소에 저장하지 않습니다.</dd></div>
           <div><dt>무시한 규칙</dt><dd>

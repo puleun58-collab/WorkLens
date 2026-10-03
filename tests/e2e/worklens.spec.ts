@@ -2432,8 +2432,9 @@ test("moves from the full upload area to compact file management and back", asyn
   await expect(page.locator(".context-bar")).toHaveCount(0);
   await expect(dropzone.getByRole("button", { name: "파일 추가" })).toBeVisible();
   await expect(dropzone).toContainText("파일을 여기에 끌어 놓으세요");
-  await expect(dropzone).toContainText("XLSX · CSV · PDF · DOCX · PPTX");
-  await expect(dropzone).toContainText("파일당 최대 100 MB · 전체 최대 300 MB");
+  await expect(dropzone).not.toContainText("XLSX · CSV · PDF · DOCX · PPTX");
+  await expect(dropzone).not.toContainText("파일당 최대");
+  await expect(dropzone).not.toContainText("전체 최대");
 
   await dropzone.dispatchEvent("dragenter");
   await expect(dropzone).toHaveClass(/drag-active/);
@@ -2445,6 +2446,8 @@ test("moves from the full upload area to compact file management and back", asyn
   await expect(page.locator(".file-add-dropzone")).toBeVisible();
   await expect(page.locator(".file-add-dropzone").getByRole("button", { name: "파일 추가" })).toBeVisible();
   await expect(page.locator(".file-list-head")).toContainText("파일 1개 · 선택 0개");
+  await expect(page.locator(".file-row .file-status")).toHaveText("준비 완료");
+  await expect(page.locator(".file-row .file-kind-icon")).toHaveText("XLSX");
 
   await page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true }).check();
   await expect(page.locator(".file-list-head")).toContainText("선택 1개");
@@ -2550,6 +2553,9 @@ test("keeps file context and upload controls out of utility destinations", async
   await expect(page.locator(".dropzone")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "파일 추가" })).toHaveCount(0);
   await expect(page.locator(".settings-list").getByText("AI 기능은 필요한 질문·문장·근거만 서버 AI로 전송해 처리합니다. 원본 파일은 전송하지 않습니다.", { exact: true })).toBeVisible();
+  await expect(page.locator(".settings-list")).toContainText("파일 업로드");
+  await expect(page.locator(".settings-list")).toContainText("지원 형식 XLSX, CSV, PDF, DOCX, PPTX · 파일당 최대 100MB · 전체 최대 300MB");
+  await expect(page.locator(".settings-list")).toContainText("PDF 도구는 PDF만, 이미지 도구는 JPG·PNG·WebP를 사용합니다.");
   await expect(page.locator(".settings-list")).not.toContainText("Groq");
   await expect(page.locator(".settings-list")).not.toContainText("Zero Data Retention");
   await expect(page.locator(".settings-list")).not.toContainText("30일");
@@ -2886,7 +2892,7 @@ test("keeps the complete mobile workflow inside the viewport", async ({ page }, 
   await upload(page, files.extractPptx);
 
   const firstRow = fileRow(page, files.v1);
-  await expect(firstRow.locator(".status")).toBeVisible();
+  await expect(firstRow.locator(".file-status")).toBeVisible();
   await expect(firstRow.locator(".structure-counts")).toBeVisible();
   await expect(firstRow.locator(".muted").last()).toBeVisible();
   await expectNoPageOverflow();
