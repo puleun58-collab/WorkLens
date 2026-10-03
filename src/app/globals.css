@@ -29,6 +29,7 @@ http://scripts.sil.org/OFL
 	unicode-range: U+f9ca-fa0b, U+ff03-ff05, U+ff07, U+ff0a-ff0b, U+ff0d-ff19, U+ff1b, U+ff1d, U+ff20-ff5b, U+ff5d, U+ffe0-ffe3, U+ffe5-ffe6;
 }
 
+
 /* [1] */
 @font-face {
 	font-family: 'Pretendard Variable';
@@ -3858,40 +3859,6 @@ body {
   gap: 20px;
 }
 
-.context-files {
-  min-width: 0;
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-}
-
-.context-files h1 {
-  margin: 0;
-  font-size: var(--font-size-lg);
-  font-weight: var(--font-weight-bold);
-  letter-spacing: var(--tracking-display);
-}
-
-.context-counts {
-  color: var(--muted);
-  font-size: var(--font-size-sm);
-  font-variant-numeric: tabular-nums;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.context-counts b {
-  color: var(--ink);
-  font-weight: var(--font-weight-semibold);
-}
-
-.context-counts i {
-  width: 1px;
-  height: 10px;
-  background: var(--border-strong);
-}
-
 .context-names {
   min-width: 0;
   color: var(--muted-light);
@@ -3900,14 +3867,6 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-
-.context-actions {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
 
 .workspace {
   width: 100%;
@@ -4555,17 +4514,7 @@ body {
   }
 }
 
-/* Context bar rhythm: label strongest, counts compact, selection muted. */
-.context-files {
-  gap: 10px;
-  align-items: center;
-}
-
-.context-counts {
-  gap: 10px;
-  font-weight: var(--font-weight-medium);
-}
-
+/* Context bar selection copy remains available to utility destinations. */
 .context-names {
   margin-left: 4px;
   color: #5c6675;
@@ -5283,11 +5232,6 @@ body {
   justify-content: flex-start;
 }
 
-/* File status and management actions share one quiet, aligned control row. */
-.context-actions {
-  gap: 24px;
-}
-
 /*
  * The file list is the workspace's outer grid. Every feature surface occupies
  * that same track; readable text may remain narrower inside its own panel.
@@ -5340,27 +5284,6 @@ body {
 
 .workspace > .polish-results > .panel-heading {
   padding: var(--space-4) var(--panel-inset) var(--space-3);
-}
-
-.file-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
-
-@media (max-width: 900px) {
-  .context-actions {
-    width: 100%;
-    margin-left: 0;
-    justify-content: space-between;
-    gap: 12px;
-  }
-
-  .context-actions .session-state {
-    display: inline-flex;
-    white-space: nowrap;
-  }
 }
 
 /* Dictionary destination: one compact management card on the gray workspace. */
@@ -5432,67 +5355,17 @@ body {
 
 
 
-  /* File context: counts first, selected name second, actions last. */
+  /* Utility context remains a compact, non-sticky heading on phones. */
   .context-bar {
     position: static;
     gap: var(--space-2);
     padding: 10px 16px;
   }
 
-  .context-files {
-    width: 100%;
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
-    gap: 4px 10px;
-    align-items: baseline;
-  }
-
-  .context-files h1 {
-    grid-column: 1;
-  }
-
-  .context-counts {
-    grid-column: 2;
-  }
-
   .context-names {
     grid-column: 1 / -1;
     margin-left: 0;
   }
-
-  .context-actions {
-    width: 100%;
-    margin-left: 0;
-    justify-content: space-between;
-    gap: var(--space-2);
-  }
-
-  .context-actions .session-state {
-    display: inline-flex;
-  }
-
-  .context-bar.empty {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .context-bar.empty .context-files {
-    width: 100%;
-    grid-template-columns: auto auto;
-    justify-content: start;
-  }
-
-  .context-bar.empty .context-actions {
-    width: 100%;
-    margin-left: 0;
-    justify-content: flex-start;
-  }
-
-  .file-actions {
-    width: auto;
-    justify-content: flex-end;
-  }
-
 
   .utility-bar .context-names {
     display: block;
@@ -8228,30 +8101,11 @@ div.status-panel.error > strong { font-size: 14px; line-height: 1.5; }
 }
 .check-results .check-recommendation p { color: var(--ink); }
 
-/* 삭제 완료: a quiet inline status at the right end of the 작업 파일 header row, not a toast. */
-.context-actions .transient-status {
-  position: static;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  max-width: none;
-  padding: 0;
-  border: 0;
-  background: none;
-  box-shadow: none;
-  color: var(--muted);
-  font-size: var(--font-size-xs);
-  white-space: nowrap;
-}
-.context-actions { display: flex; align-items: center; gap: 12px; margin-left: auto; }
-
 /* Tab dividers: 1px hairlines; primary groups one step clearer than secondary. */
 :root {
   --tab-divider-primary: #c9d3e1;
   --tab-divider-secondary: #dde4ee;
 }
-.context-actions .transient-status { margin-left: auto; }
-
 /*
  * Result table surface — Compare and Extract reuse the Aggregation preview:
  * a hairline frame with the surface elevation (Level 1 group above), 4px
@@ -8481,4 +8335,276 @@ div.status-panel.error > strong { font-size: 14px; line-height: 1.5; }
 	--success-foreground: var(--color-emerald-400);
 	--warning: var(--color-amber-500);
 	--warning-foreground: var(--color-amber-400);
+}
+
+/* ── File workspace: upload-first hierarchy and compact file records ───── */
+.workspace > .workspace-heading {
+  margin-top: 0;
+}
+
+.dropzone {
+  display: flex;
+  min-height: 300px;
+  margin-bottom: var(--space-4);
+  padding: 44px 24px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  border: 1px dashed var(--dropzone-border);
+  border-radius: var(--radius-panel);
+  background: var(--paper);
+  box-shadow: none;
+  text-align: center;
+}
+
+.dropzone .upload-icon,
+.file-add-dropzone .upload-icon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 auto;
+  border-radius: var(--radius-control);
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+
+.dropzone .upload-icon svg,
+.file-add-dropzone .upload-icon svg {
+  width: 21px;
+  height: 21px;
+}
+
+.dropzone-copy,
+.file-add-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dropzone .dropzone-copy strong,
+.file-add-copy strong {
+  color: var(--ink);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--leading-tight);
+}
+
+.dropzone .dropzone-copy span,
+.file-add-copy span,
+.dropzone-meta span {
+  color: var(--muted);
+  font-size: var(--font-size-sm);
+  line-height: var(--leading-relaxed);
+}
+
+.dropzone .drop-actions {
+  display: flex;
+  margin-top: var(--space-1);
+}
+
+.dropzone-meta {
+  display: flex;
+  margin-top: var(--space-3);
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dropzone.drag-active,
+.file-add-dropzone.drag-active {
+  border-color: var(--blue);
+  background: var(--blue-soft);
+}
+
+.file-add-dropzone {
+  display: flex;
+  min-width: 0;
+  min-height: 86px;
+  margin-bottom: var(--space-4);
+  padding: 16px 18px;
+  align-items: center;
+  gap: 14px;
+  border: 1px dashed var(--dropzone-border);
+  border-radius: var(--radius-panel);
+  background: var(--paper);
+  box-shadow: none;
+  transition: border-color var(--motion-fast) var(--motion-ease), background var(--motion-fast) var(--motion-ease);
+}
+
+.file-add-copy {
+  flex: 1 1 auto;
+}
+
+.file-list {
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-panel);
+  background: var(--paper);
+  box-shadow: none;
+  overflow: hidden;
+}
+
+.file-list-head {
+  display: flex;
+  min-height: 52px;
+  padding: 8px 12px 8px 18px;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid var(--line-soft);
+  background: var(--paper);
+}
+
+.file-list-head h3 {
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  white-space: nowrap;
+}
+
+.select-all-files {
+  padding-left: 0;
+}
+
+.selected-file-names {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-list-actions {
+  display: flex;
+  margin-left: auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.file-list-actions .transient-status {
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+}
+
+.workspace-delete-status {
+  display: block;
+  margin: calc(var(--space-4) * -1 + 4px) 0 var(--space-3);
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+  text-align: right;
+}
+
+.file-row {
+  display: grid;
+  min-height: 72px;
+  padding: 12px 18px;
+  grid-template-columns: 24px 38px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  border-bottom: 1px solid var(--line-soft);
+  background: var(--paper);
+  box-shadow: none;
+}
+
+.file-row:last-child { border-bottom: 0; }
+.file-row:hover { background: var(--layer); }
+.file-row.selected,
+.file-row.selected:focus-within { background: var(--blue-soft); box-shadow: none; }
+
+.file-kind-icon {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-control);
+  background: var(--layer);
+  color: var(--ink-soft);
+}
+
+.file-kind-icon svg { width: 19px; height: 19px; }
+
+.file-info { min-width: 0; gap: 5px; }
+
+.file-name-line {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.file-name-line > strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compare-selection-line { flex: 0 0 auto; }
+
+.file-meta-line {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0 5px;
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+  line-height: var(--leading-relaxed);
+}
+
+.file-meta-line i { color: var(--muted-light); font-style: normal; }
+.file-meta-line .structure-counts { display: inline; color: inherit; font-size: inherit; }
+.file-meta-line .structure-counts b { font-size: inherit; }
+.file-meta-line .warning { color: var(--warning, #9a6700); }
+
+@media (max-width: 700px) {
+  .workspace > .workspace-heading { margin-top: 0; }
+
+  .dropzone {
+    min-height: 280px;
+    padding: 36px 18px;
+  }
+
+  .dropzone button { width: auto; }
+
+  .file-add-dropzone {
+    padding: 14px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .file-add-dropzone .upload-icon { width: 38px; height: 38px; }
+  .file-add-copy { width: calc(100% - 52px); }
+  .file-add-dropzone > button { width: 100%; }
+
+  .file-list-head {
+    min-height: 0;
+    padding: 10px 12px;
+    flex-wrap: wrap;
+  }
+
+  .file-list-head h3 { flex: 1 1 auto; }
+  .selected-file-names { display: none; }
+  .file-list-actions { width: 100%; justify-content: flex-end; }
+  .file-list-actions .transient-status { margin-right: auto; }
+
+  .file-row {
+    padding: 14px 12px;
+    grid-template-columns: 24px 34px minmax(0, 1fr) auto;
+    grid-template-rows: auto auto;
+    column-gap: 9px;
+    row-gap: 6px;
+    align-items: start;
+  }
+
+  .select-file { grid-column: 1; grid-row: 1 / -1; }
+  .file-kind-icon { grid-column: 2; grid-row: 1 / -1; width: 34px; height: 34px; }
+  .file-info { grid-column: 3 / -1; grid-row: 1 / -1; padding-right: 60px; }
+  .file-row > .status { grid-column: 4; grid-row: 1; z-index: 1; }
+  .file-name-line { align-items: flex-start; flex-direction: column; gap: 4px; }
+  .file-meta-line { padding-top: 2px; }
 }

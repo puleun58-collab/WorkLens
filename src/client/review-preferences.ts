@@ -9,7 +9,7 @@ type PreferenceStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 export type PreferenceRead = { preferences: ReviewPreferences | null; error: string | null };
 export type PreferenceWrite = { ok: true } | { ok: false; error: string };
 const STORAGE_ERROR = "브라우저 저장소에 접근할 수 없습니다. 검토 설정은 이번 화면에서만 적용됩니다.";
-const INVALID_ERROR = "저장된 검토 설정이 현재 버전과 맞지 않아 시스템 기본값을 적용했습니다. 다시 저장하거나 초기화하세요.";
+const INVALID_ERROR = "저장된 검토 설정을 사용할 수 없어 기본 표시 방식으로 열었습니다.";
 function browserStorage(): PreferenceStorage {
   if (typeof window === "undefined") throw new Error("Browser storage unavailable");
   return window.localStorage;

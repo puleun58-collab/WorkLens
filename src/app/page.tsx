@@ -8,7 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Radio, RadioGroup } from "@/components/ui/radio-group";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { AlertDialog, AlertDialogTrigger, AlertDialogPopup, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogClose } from "@/components/ui/alert-dialog";
+import { AlertDialog, AlertDialogPopup, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogClose } from "@/components/ui/alert-dialog";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "@/components/ui/menu";
 import { Popover, PopoverTrigger, PopoverPopup } from "@/components/ui/popover";
 import { WorkspaceCommand } from "@/components/WorkspaceCommand";
 import { WorkspaceNavigation, type WorkspaceNavigationItem } from "@/components/WorkspaceNavigation";
@@ -128,6 +129,12 @@ import {
   Table2,
   Scale,
   ArrowUpDown,
+  File,
+  FileSpreadsheet,
+  MoreHorizontal,
+  Plus,
+  Presentation,
+  Upload,
 } from "lucide-react";
 import { SettingsView, type CompanyTermEntry } from "@/components/SettingsView";
 
@@ -584,6 +591,7 @@ export default function Home() {
   const [notice, setNotice] = useState<Notice | null>(null);
   /** Bumped on each successful delete; drives a one-off "삭제 완료" that clears itself. */
   const [deleteDone, setDeleteDone] = useState(0);
+  const [deleteAllOpen, setDeleteAllOpen] = useState(false);
   useEffect(() => {
     if (!deleteDone) return;
     const timer = window.setTimeout(() => setDeleteDone(0), 2500);
@@ -1550,7 +1558,6 @@ export default function Home() {
   const isToolView = shellView === "PdfTools" || shellView === "ImageTools" || isResearchView;
   const isUtilityView = shellView === "Guide" || shellView === "Dictionary" || shellView === "Settings";
   const isDocumentWorkspaceView = !isUtilityView && !isToolView;
-  const selectedNames = files.filter((file) => selected.includes(file.id)).map((file) => file.name).join(", ");
   const navigationItems: WorkspaceNavigationItem[] = [
     ...tabs.map((tab) => ({ value: tab, label: tabMeta[tab].label, group: "WORKSPACE", Icon: tabIcons[tab] })),
     { value: "Law", label: "법령", group: "RESEARCH", Icon: Scale, prefetch: () => prefetchView(loadLawSearch) },
@@ -1607,49 +1614,16 @@ export default function Home() {
                       : "이미지를 편집하고 원하는 형식으로 내보낼 수 있습니다."}
             </span>
           </header>
-        ) : (
-          <header className={`context-bar${files.length === 0 ? " empty" : ""}`}>
-            <div className="context-files">
-              <h1 id="files-heading">작업 파일</h1>
-              <span className="context-counts">
-                <b>{files.length}</b>개
-                {files.length > 0 ? (
-                  <>
-                    <i aria-hidden="true" />
-                    선택 <b>{selected.length}</b>개
-                  </>
-                ) : null}
-              </span>
-              {selectedNames ? (
-                <span className="context-names" title={selectedNames}>
-                  {selectedNames}
-                </span>
-              ) : null}
-            </div>
-            <div className="context-actions">
-              {files.length > 0 ? (
-                <div className="file-actions">
-                  <Button type="button" className="file-add" onClick={() => inputRef.current?.click()} disabled={uploading}>
-                    {uploading ? "분석 중…" : "파일 추가"}
-                  </Button>
-                  <Button type="button" variant="destructive-outline" className="delete-selected" onClick={() => void deleteSelected()} disabled={busy || selected.length === 0}>선택 삭제</Button>
-                  <AlertDialog>
-                    <AlertDialogTrigger render={<Button type="button" variant="ghost" className="delete-all" disabled={busy} />}>모두 삭제</AlertDialogTrigger>
-                    <AlertDialogPopup>
-                      <AlertDialogHeader><AlertDialogTitle>작업 파일 모두 삭제</AlertDialogTitle><AlertDialogDescription>이 탭에서 처리한 파일과 결과를 모두 지웁니다. 삭제 후에는 복구할 수 없습니다.</AlertDialogDescription></AlertDialogHeader>
-                      <AlertDialogFooter><AlertDialogClose render={<Button variant="outline" />}>취소</AlertDialogClose><AlertDialogClose render={<Button variant="destructive" onClick={deleteAll} />}>삭제</AlertDialogClose></AlertDialogFooter>
-                    </AlertDialogPopup>
-                  </AlertDialog>
-                </div>
-              ) : null}
-              {deleteDone > 0 ? (
-                <span key={deleteDone} className="transient-status" role="status" aria-live="polite">삭제 완료</span>
-              ) : null}
-            </div>
-          </header>
-        )}
+        ) : null}
 
         <section className="workspace" id="workspace-content" aria-busy={isDocumentWorkspaceView && (busy || uploading)}>
+          {isDocumentWorkspaceView ? (
+            <header className="work-section-heading workspace-heading">
+              <h2>{workSectionTitle}</h2>
+              <p>{workSectionDescription}</p>
+            </header>
+          ) : null}
+
           {isDocumentWorkspaceView ? (
             <input
               ref={inputRef}
@@ -1672,16 +1646,46 @@ export default function Home() {
               }}
               onDrop={onDrop}
             >
-              <div>
-                <strong>{uploading ? "파일을 읽고 구조를 분석하는 중" : "파일 업로드"}</strong>
-                <span>XLSX, CSV, PDF, DOCX, PPTX · 파일당 최대 100{"\u00a0"}MB · 전체 최대 300{"\u00a0"}MB</span>
+              <span className="upload-icon" aria-hidden="true"><Upload /></span>
+              <div className="dropzone-copy">
+                <strong>{uploading ? "파일을 읽고 구조를 분석하는 중" : "파일을 여기에 끌어 놓으세요"}</strong>
+                <span>또는 파일을 선택해 작업을 시작하세요.</span>
               </div>
               <div className="drop-actions">
                 <Button type="button" onClick={() => inputRef.current?.click()} disabled={uploading}>
-                  {uploading ? "분석 중…" : "파일 추가"}
+                  {uploading ? "분석 중…" : <><Plus aria-hidden="true" />파일 추가</>}
                 </Button>
               </div>
+              <div className="dropzone-meta">
+                <span>XLSX · CSV · PDF · DOCX · PPTX</span>
+                <span>파일당 최대 100{"\u00a0"}MB · 전체 최대 300{"\u00a0"}MB</span>
+              </div>
             </div>
+          ) : null}
+
+          {files.length > 0 && isDocumentWorkspaceView ? (
+            <div
+              className={`file-add-dropzone${uploading ? " busy" : ""}${dropActive ? " drag-active" : ""}`}
+              onDragEnter={(event) => { event.preventDefault(); setDropActive(true); }}
+              onDragOver={(event) => { event.preventDefault(); setDropActive(true); }}
+              onDragLeave={(event) => {
+                if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropActive(false);
+              }}
+              onDrop={onDrop}
+            >
+              <span className="upload-icon" aria-hidden="true"><Upload /></span>
+              <div className="file-add-copy">
+                <strong>{uploading ? "파일을 읽고 구조를 분석하는 중" : "파일을 추가하려면 여기에 끌어 놓으세요"}</strong>
+                <span>또는 버튼을 눌러 파일을 선택하세요.</span>
+              </div>
+              <Button type="button" className="file-add" onClick={() => inputRef.current?.click()} disabled={uploading}>
+                {uploading ? "분석 중…" : <><Plus aria-hidden="true" />파일 추가</>}
+              </Button>
+            </div>
+          ) : null}
+
+          {isDocumentWorkspaceView && deleteDone > 0 ? (
+            <span key={deleteDone} className="transient-status workspace-delete-status" role="status" aria-live="polite">삭제 완료</span>
           ) : null}
 
           {isDocumentWorkspaceView && notice && !inlineResultNotice && (notice.scope === "workspace" || notice.scope === shellView) ? (
@@ -1731,9 +1735,25 @@ export default function Home() {
                       <Checkbox checked={allFilesSelected} indeterminate={someFilesSelected}
                         onCheckedChange={toggleAllFiles}
                         aria-label={allFilesSelected ? "전체 선택 해제" : "전체 선택"} />
-                      <span aria-hidden="true">선택</span>
                     </label>
-                    <span>파일</span><span>상태</span><span>구조</span><span>주의</span>
+                    <h3 id="files-heading">파일 {files.length}개 · 선택 {selected.length}개</h3>
+                    <div className="file-list-actions">
+                      <Button type="button" variant="destructive-outline" className="delete-selected" onClick={() => void deleteSelected()} disabled={busy || selected.length === 0}>선택 삭제</Button>
+                      <Menu>
+                        <MenuTrigger render={<Button type="button" variant="ghost" size="icon" aria-label="파일 관리 메뉴" disabled={busy} />}>
+                          <MoreHorizontal aria-hidden="true" />
+                        </MenuTrigger>
+                        <MenuPopup align="end">
+                          <MenuItem variant="destructive" closeOnClick onClick={() => setDeleteAllOpen(true)}>모두 삭제</MenuItem>
+                        </MenuPopup>
+                      </Menu>
+                      <AlertDialog open={deleteAllOpen} onOpenChange={setDeleteAllOpen}>
+                        <AlertDialogPopup>
+                          <AlertDialogHeader><AlertDialogTitle>작업 파일 모두 삭제</AlertDialogTitle><AlertDialogDescription>이 탭에서 처리한 파일과 결과를 모두 지웁니다. 삭제 후에는 복구할 수 없습니다.</AlertDialogDescription></AlertDialogHeader>
+                          <AlertDialogFooter><AlertDialogClose render={<Button variant="outline" />}>취소</AlertDialogClose><AlertDialogClose render={<Button variant="destructive" onClick={deleteAll} />}>삭제</AlertDialogClose></AlertDialogFooter>
+                        </AlertDialogPopup>
+                      </AlertDialog>
+                    </div>
                   </div>
                   {files.map((file) => {
                     const checked = selected.includes(file.id);
@@ -1745,12 +1765,18 @@ export default function Home() {
                       ? "1 · 기준 파일"
                       : comparisonSelectionIndex === 1 ? "2 · 대상 파일" : null;
                     const selectionRole = comparisonRole ?? (activeTab === "Aggregate" && checked && selected[0] === file.id ? "기준 파일" : null);
+                    const FileKindIcon = file.kind === "xlsx" || file.kind === "csv"
+                      ? FileSpreadsheet
+                      : file.kind === "pptx" ? Presentation : file.kind === "pdf" || file.kind === "docx" ? FileText : File;
                     return (
                       <article className={`file-row${checked ? " selected" : ""}${selectionRole ? " compare-selected-file" : ""}`} key={file.id}>
                         <label className="select-file">
                           <Checkbox checked={checked} disabled={!checked && selected.length === 10} onCheckedChange={() => toggleFile(file.id)} aria-label={`${file.name} 선택`} />
                         </label>
+                        <span className="file-kind-icon" aria-hidden="true"><FileKindIcon /></span>
                         <div className="file-info">
+                          <div className="file-name-line">
+                            <strong title={file.name} tabIndex={selectionRole ? 0 : undefined}>{file.name}</strong>
                           {selectionRole ? <span className="compare-selection-line">
                             <span className="compare-selection-role">{selectionRole}</span>
                             {comparisonSelectionIndex === 0 && comparisonDirection ? (
@@ -1759,22 +1785,19 @@ export default function Home() {
                               </Button>
                             ) : null}
                           </span> : null}
-                          <strong title={file.name} tabIndex={selectionRole ? 0 : undefined}>{file.name}</strong>
-                          <span>{file.kind.toUpperCase()} · {formatBytes(file.size)}</span>
+                          </div>
+                          <div className="file-meta-line">
+                            <span>{file.kind.toUpperCase()}</span><i aria-hidden="true">·</i><span>{formatBytes(file.size)}</span><i aria-hidden="true">·</i>
+                            <span className="structure-counts">{counts.length ? counts.map((count, index) => <span key={count.label}>{index > 0 ? " · " : ""}{count.label}: <b>{count.value}</b></span>) : <span>순서 기반 구조</span>}</span>
+                            <i aria-hidden="true">·</i>{file.warnings.length ? <span className="warning" title={warningText(file.warnings)}>주의 {file.warnings.length}</span> : <span className="muted">없음</span>}
+                          </div>
                         </div>
                         <span className={`status status-${file.status.toLowerCase()}`}><span aria-hidden="true" />{file.status}</span>
-                        <div className="structure-counts">{counts.length ? counts.map((count) => <span key={count.label}>{count.label}: <b>{count.value}</b></span>) : <span>순서 기반 구조</span>}</div>
-                        {file.warnings.length ? <span className="warning" title={warningText(file.warnings)}>주의 {file.warnings.length}</span> : <span className="muted">없음</span>}
                       </article>
                     );
                   })}
                 </section>
               )}
-
-              <header className="work-section-heading">
-                <h2>{workSectionTitle}</h2>
-                <p>{workSectionDescription}</p>
-              </header>
 
               <section className="operation-bar" aria-label={`${tabMeta[activeTab].label} 작업`}>
                 {activeTab === "Ask" ? (
