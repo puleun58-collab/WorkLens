@@ -430,14 +430,14 @@ export function ImageTool() {
           <Images aria-hidden="true" />
           <strong>이미지를 추가하세요</strong>
           <span>한 장씩 편집하거나 여러 이미지를 결합할 수 있습니다.</span>
-          <Button variant="outline" type="button" onClick={() => fileInput.current?.click()} disabled={importing}>이미지 추가</Button>
+          <Button type="button" onClick={() => fileInput.current?.click()} disabled={importing}>이미지 추가</Button>
           {importing && <small role="status">이미지를 읽는 중…</small>}
           {notice && <p className={`image-tool-notice is-${notice.tone}`} role={notice.tone === "error" ? "alert" : "status"}>{notice.text}</p>}
         </section>
       ) : <>
       <div className="image-tool-layout">
         <aside className="image-tool-library" aria-label="이미지 목록">
-          <div className="image-tool-section-heading"><div><span>01 / FILES</span><h3>작업 이미지 <small>{items.length}</small></h3></div><Button variant="outline" type="button" onClick={() => fileInput.current?.click()} disabled={busy || importing}>+ 이미지 추가</Button></div>
+          <div className="image-tool-section-heading"><div><span>01 / FILES</span><h3>작업 이미지 <small>{items.length}</small></h3></div><Button type="button" onClick={() => fileInput.current?.click()} disabled={busy || importing}>+ 이미지 추가</Button></div>
           {importing && <p className="image-tool-hint" role="status">이미지를 읽는 중…</p>}
           <div ref={fileList} className="image-tool-file-list" onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }} onDrop={handleDrop}>
             <p className="tool-reorder-live" aria-live="polite">{reorder.announcement}</p>

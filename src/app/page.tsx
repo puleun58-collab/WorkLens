@@ -1567,12 +1567,11 @@ export default function Home() {
   const commandItems = [
     ...navigationItems.map((item) => ({ value: item.value, label: item.label, group: item.group })),
     ...Object.entries(internalViewMetadata).map(([value, metadata]) => ({ value, label: metadata.commandLabel ?? metadata.title, group: "RESEARCH" })),
-    { value: "ReviewSettings", label: "검토 설정", group: "HELP" },
   ];
   function navigateWorkspace(value: string) {
     const item = commandItems.find((entry) => entry.value === value);
     if (!item) return;
-    const next = (item.value === "ReviewSettings" ? "Settings" : item.value) as ShellView;
+    const next = item.value as ShellView;
     setDetail(null);
     detailTrigger.current = null;
     setShellView(next);
@@ -1590,7 +1589,7 @@ export default function Home() {
       <WorkspaceNavigation items={navigationItems} active={viewMetadata.activeNavigation} onNavigate={navigateWorkspace} />
 
       <div className="shell-main">
-        <div className="workspace-topbar"><WorkspaceCommand items={commandItems} onNavigate={navigateWorkspace} /></div>
+        <WorkspaceCommand items={commandItems} onNavigate={navigateWorkspace} />
         {isUtilityView || isToolView ? (
           <header className="context-bar utility-bar">
             <h1>{viewMetadata.title}</h1>

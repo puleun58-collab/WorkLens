@@ -29,13 +29,13 @@ export function WorkspaceNavigation({ items, active, onNavigate }: { items: Work
     </section>)}
   </nav>;
   return <>
-    <aside className="workspace-sidebar"><div className="workspace-brand"><WorkLensLogo size={36} tone="light" showWordmark={false} /></div>{content}</aside>
+    <aside className="workspace-sidebar"><div className="workspace-brand"><WorkLensLogo size={36} tone="light" /></div>{content}</aside>
     <div className="workspace-mobile-bar"><Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger render={<Button variant="ghost" size="icon" aria-label="작업 공간 메뉴 열기" />}><Menu /></SheetTrigger>
       <SheetPopup side="left" className="workspace-mobile-sheet" closeProps={{ "aria-label": "메뉴 닫기" }}>
-        <SheetHeader><WorkLensLogo size={36} tone="light" showWordmark={false} /><SheetTitle className="sr-only">WorkLens</SheetTitle><SheetDescription className="sr-only">작업 공간 메뉴</SheetDescription></SheetHeader>
+        <SheetHeader><WorkLensLogo size={36} tone="light" /><SheetTitle className="sr-only">WorkLens</SheetTitle><SheetDescription className="sr-only">작업 공간 메뉴</SheetDescription></SheetHeader>
         <SheetPanel>{content}</SheetPanel>
       </SheetPopup>
-    </Sheet><WorkLensLogo size={28} tone="light" showWordmark={false} /></div>
+    </Sheet><WorkLensLogo size={28} tone="light" /></div>
   </>;
 }
