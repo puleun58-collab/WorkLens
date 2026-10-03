@@ -951,8 +951,8 @@ test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route wit
 
   await chooseOption(page, task, researchTaskLabels.document_review);
   await expect(form.getByLabel("질문 또는 검색어")).toHaveCount(0);
-  await expect(form.getByRole("heading", { name: "출처 표시", exact: true })).toBeVisible();
-  await expect(form.getByText("이 화면에서 변경한 값은 이번 실행에만 적용됩니다.")).toBeVisible();
+  await expect(form.getByRole("switch", { name: "출처 표시", exact: true })).toBeVisible();
+  await expect(form).not.toContainText("이 화면에서 변경한 값은 이번 실행에만 적용됩니다.");
   await expect(form.getByRole("button", { name: "실행", exact: true })).toHaveCount(0);
   // 법령 entered directly with no work files: the 작업 파일 empty state offers the shared upload, nothing runs.
   await expect(form.getByRole("radio", { name: "작업 파일" })).toBeChecked();

@@ -2863,6 +2863,7 @@ a:not([data-slot]):focus-visible,
   max-width: 100%;
   min-width: 0;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 5px;
 }
 
@@ -2876,6 +2877,10 @@ a:not([data-slot]):focus-visible,
   width: 100%;
   min-height: 148px;
   resize: vertical;
+}
+
+.polish-paste > [data-slot="textarea-control"] {
+  width: 100%;
 }
 
 .polish-paste small {
@@ -4963,7 +4968,8 @@ body {
 }
 
 .operation-bar:has(.polish-paste) .polish-controls,
-.operation-bar:has(.polish-paste) .operation-actions {
+.operation-bar:has(.polish-paste) .operation-actions,
+.operation-bar:has(.polish-paste) .polish-paste {
   width: min(100%, 960px);
   max-width: 960px;
   min-width: 0;
@@ -8527,7 +8533,7 @@ div.status-panel.error > strong { font-size: 14px; line-height: 1.5; }
 .file-kind-icon.kind-pptx { background: var(--color-amber-800); }
 .file-row > .file-status { border-radius: 999px; padding-inline: 8px; }
 .file-row .file-status { color: var(--color-emerald-800); }
-.dark .file-row .file-status { color: var(--success-foreground); }
+.dark .file-row .file-status { background: var(--color-emerald-950); color: var(--color-emerald-300); }
 
 .file-info { min-width: 0; gap: 5px; }
 
