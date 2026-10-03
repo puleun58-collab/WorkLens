@@ -188,12 +188,12 @@ regressionCase(make(15, "Law", "Law upstream timeout 504", "Timeout message dist
   await expect(page.getByText("법령 서비스를 이용할 수 없습니다.")).toHaveCount(0); await noRawLawMarkers(page);
   note("504 displayed a timeout-specific alert without upstream error identifiers.");
 });
-regressionCase(make(16, "UI", "Empty workspace and disabled operation", "Upload prompt exists; run stays disabled until selection"), async ({ page, note }) => {
+regressionCase(make(16, "UI", "Empty workspace hides execution", "Upload prompt exists; run appears after upload and stays disabled until selection"), async ({ page, note }) => {
   await ready(page);
   await expect(page.locator(".dropzone")).toContainText("파일 업로드");
-  await expect(page.getByRole("button", { name: "분석 실행" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "분석 실행" })).toHaveCount(0);
   await expect(page.locator(".file-row")).toHaveCount(0);
-  note("Empty workspace showed upload affordance and disabled Analyze run.");
+  note("Empty workspace showed upload affordance without an Analyze run button.");
 });
 regressionCase(make(17, "UI", "Parsed file with no selection", "Upload alone does not enable execution"), async ({ page, note }) => {
   await ready(page);

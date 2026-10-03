@@ -2863,6 +2863,7 @@ a:not([data-slot]):focus-visible,
   max-width: 100%;
   min-width: 0;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 5px;
 }
 
@@ -2876,6 +2877,10 @@ a:not([data-slot]):focus-visible,
   width: 100%;
   min-height: 148px;
   resize: vertical;
+}
+
+.polish-paste > [data-slot="textarea-control"] {
+  width: 100%;
 }
 
 .polish-paste small {
@@ -4963,7 +4968,8 @@ body {
 }
 
 .operation-bar:has(.polish-paste) .polish-controls,
-.operation-bar:has(.polish-paste) .operation-actions {
+.operation-bar:has(.polish-paste) .operation-actions,
+.operation-bar:has(.polish-paste) .polish-paste {
   width: min(100%, 960px);
   max-width: 960px;
   min-width: 0;
@@ -7687,7 +7693,7 @@ body {
 }
 
 /* ── Action placement: each action sits beside what it controls ────────── */
-/* Polish: the run button follows the style choice it applies, not the far edge. */
+/* Polish keeps the style choices and run action on the same row. */
 .polish-mode-run {
   display: flex;
   /* Shrink-to-fit width: wrapping here would be a sub-pixel rounding artefact, not a lack of room. */
@@ -8511,27 +8517,25 @@ div.status-panel.error > strong { font-size: 14px; line-height: 1.5; }
 .file-kind-icon {
   display: grid;
   place-items: center;
-  width: 42px;
-  height: 38px;
+  width: 40px;
+  height: 40px;
   font-size: 10px;
-  font-weight: var(--font-weight-semibold);
+  font-weight: var(--font-weight-bold);
   border-radius: var(--radius-control);
-  background: var(--layer);
-  color: var(--ink-soft);
+  background: var(--color-slate-800);
+  color: var(--color-white);
 }
 
 .file-kind-icon.kind-xlsx,
-.file-kind-icon.kind-csv { background: color-mix(in srgb, var(--success) 8%, transparent); color: var(--color-emerald-800); }
-.file-kind-icon.kind-pdf { background: color-mix(in srgb, var(--destructive) 8%, transparent); color: var(--color-red-800); }
-.file-kind-icon.kind-docx { background: color-mix(in srgb, var(--info) 8%, transparent); color: var(--color-blue-800); }
-.file-kind-icon.kind-pptx { background: color-mix(in srgb, var(--warning) 8%, transparent); color: var(--color-amber-800); }
-.dark .file-kind-icon.kind-xlsx,
-.dark .file-kind-icon.kind-csv { color: var(--color-emerald-300); }
-.dark .file-kind-icon.kind-pdf { color: var(--color-red-300); }
-.dark .file-kind-icon.kind-docx { color: var(--color-blue-300); }
-.dark .file-kind-icon.kind-pptx { color: var(--color-amber-300); }
+.file-kind-icon.kind-csv { background: var(--color-emerald-800); }
+.file-kind-icon.kind-pdf { background: var(--color-red-800); }
+.file-kind-icon.kind-docx { background: var(--color-blue-800); }
+.file-kind-icon.kind-pptx { background: var(--color-amber-800); }
 .file-row > .file-status { border-radius: 999px; padding-inline: 8px; }
 .file-row .file-status { color: var(--color-emerald-800); }
+.dark .file-row .file-status { background: var(--color-emerald-950); color: var(--color-emerald-300); }
+.file-list .warning { color: var(--color-amber-800); }
+.dark .file-list .warning { background: var(--color-amber-950); color: var(--color-amber-300); border-radius: 999px; padding-inline: 6px; }
 
 .file-info { min-width: 0; gap: 5px; }
 
@@ -8608,9 +8612,19 @@ div.status-panel.error > strong { font-size: 14px; line-height: 1.5; }
   }
 
   .select-file { grid-column: 1; grid-row: 1 / -1; }
-  .file-kind-icon { grid-column: 2; grid-row: 1 / -1; width: 38px; height: 34px; }
+  .file-kind-icon { grid-column: 2; grid-row: 1 / -1; width: 40px; height: 40px; }
   .file-info { grid-column: 3 / -1; grid-row: 1 / -1; padding-right: 76px; }
   .file-row > .file-status { grid-column: 4; grid-row: 1; z-index: 1; }
   .file-name-line { align-items: flex-start; flex-direction: column; gap: 4px; }
   .file-meta-line { padding-top: 2px; }
+}
+
+/* File-based actions end at the operation area's desktop edge. */
+@media (min-width: 701px) {
+  .workspace > .operation-bar .operation-actions { margin-left: auto; justify-content: flex-end; }
+  .workspace > .operation-bar .polish-controls { width: 100%; max-width: none; grid-column: 1 / -1; }
+  .workspace > .operation-bar .polish-mode-run { width: 100%; }
+  .workspace > .operation-bar .polish-mode-run .operation-actions { width: auto; }
+  .workspace > .operation-bar .extract-control-row { width: 100%; }
+  .workspace > .operation-bar .extract-run { margin-left: auto; }
 }

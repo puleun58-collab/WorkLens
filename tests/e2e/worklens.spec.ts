@@ -2430,6 +2430,7 @@ test("moves from the full upload area to compact file management and back", asyn
   const dropzone = page.locator(".dropzone");
 
   await expect(page.locator(".context-bar")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "분석 실행", exact: true })).toHaveCount(0);
   await expect(dropzone.getByRole("button", { name: "파일 추가" })).toBeVisible();
   await expect(dropzone).toContainText("파일을 여기에 끌어 놓으세요");
   await expect(dropzone).not.toContainText("XLSX · CSV · PDF · DOCX · PPTX");
@@ -2448,6 +2449,8 @@ test("moves from the full upload area to compact file management and back", asyn
   await expect(page.locator(".file-list-head")).toContainText("파일 1개 · 선택 0개");
   await expect(page.locator(".file-row .file-status")).toHaveText("준비 완료");
   await expect(page.locator(".file-row .file-kind-icon")).toHaveText("XLSX");
+  await expect(page.getByRole("button", { name: "분석 실행", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "분석 실행", exact: true })).toBeDisabled();
 
   await page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true }).check();
   await expect(page.locator(".file-list-head")).toContainText("선택 1개");
@@ -2463,6 +2466,7 @@ test("moves from the full upload area to compact file management and back", asyn
   await expect(dialog).toBeVisible();
   await dialog.getByRole("button", { name: "삭제", exact: true }).click();
   await expect(dropzone).toBeVisible();
+  await expect(page.getByRole("button", { name: "분석 실행", exact: true })).toHaveCount(0);
 
   await page.reload();
   await expect(page.locator(".dropzone")).toBeVisible();
@@ -2513,11 +2517,12 @@ test("aligns fileless text Polish controls to one desktop and mobile baseline", 
     return { modes: boxes[2]!, paste: boxes[4]!, action: boxes[6]!, left: controlLeft };
   };
 
-  // Desktop: 실행 follows the style choice it applies, on the same row.
+  // Desktop: 실행 stays on the options row and ends at the operation edge.
   const desktop = await alignment();
   expect(Math.abs(desktop.action.y + desktop.action.height / 2 - (desktop.modes.y + desktop.modes.height / 2))).toBeLessThanOrEqual(2);
   expect(desktop.action.x - (desktop.modes.x + desktop.modes.width)).toBeGreaterThanOrEqual(8);
-  expect(desktop.action.x - (desktop.modes.x + desktop.modes.width)).toBeLessThanOrEqual(24);
+  const operationBox = (await page.locator(".operation-bar").boundingBox())!;
+  expect(Math.abs(desktop.action.x + desktop.action.width - (operationBox.x + operationBox.width - (desktop.left - operationBox.x)))).toBeLessThanOrEqual(2);
   const initialViewport = page.viewportSize();
   expect(desktop.paste.width).toBeGreaterThanOrEqual(initialViewport && initialViewport.width < 1000 ? 600 : 700);
   expect(desktop.paste.width).toBeLessThanOrEqual(960);
@@ -2610,7 +2615,7 @@ test("keeps legal destinations grouped, command search shortcut-only, and review
   await page.getByRole("tab", { name: "종합 리서치", exact: true }).click();
   const researchForm = page.getByRole("form", { name: "종합 리서치 입력", exact: true });
   await expect(researchForm.getByRole("heading", { name: "출처 표시", exact: true })).toHaveCount(0);
-  await expect(researchForm.getByRole("switch", { name: "출처 내용을 펼쳐서 표시", exact: true })).toHaveCount(0);
+  await expect(researchForm.getByRole("switch", { name: "출처 표시", exact: true })).toHaveCount(0);
 
   for (const [command, heading] of [
     ["법령 > 판례·결정례", "판례·결정례"],
@@ -2637,7 +2642,7 @@ test("keeps legal destinations grouped, command search shortcut-only, and review
   await page.getByRole("dialog").getByText("법령 > 문서 검토", { exact: true }).click();
   await expect(page.getByRole("heading", { name: "문서 검토", exact: true, level: 1 })).toBeVisible();
   await expect(page.getByRole("radio", { name: "직접 입력", exact: true })).toBeChecked();
-  await expect(page.getByRole("switch", { name: "출처 내용을 펼쳐서 표시", exact: true })).toBeChecked();
+  await expect(page.getByRole("switch", { name: "출처 표시", exact: true })).toBeChecked();
 });
 
 test("uses task-focused labels and concise execution buttons", async ({ page }) => {
@@ -3473,4 +3478,68 @@ test("보완 gives up after three rate-limited attempts and says the re-check is
   await expect(page.getByText("일부 항목의 재확인을 완료하지 못했습니다.")).toBeVisible({ timeout: 20_000 });
   expect(calls).toBe(3);
   await expect(page.locator(".supplement-item")).toContainText("원인 설명 확인 필요");
+});
+
+
+test("file-based workspace actions appear only while files exist", async ({ page }) => {
+  await page.goto("/");
+  const tabs = ["분석", "질문", "비교", "검수", "보완", "윤문", "추출", "취합"];
+  for (const tab of tabs) {
+    await navigateWorkspace(page, tab);
+    await expect(page.getByRole("button", { name: `${tab} 실행`, exact: true })).toHaveCount(0);
+  }
+  await upload(page, files.v1);
+  for (const tab of tabs) {
+    await navigateWorkspace(page, tab);
+    const action = page.getByRole("button", { name: `${tab} 실행`, exact: true });
+    await expect(action).toBeVisible();
+    await expect(action).toBeDisabled();
+    const [area, button] = await Promise.all([page.locator(".operation-bar").boundingBox(), action.boundingBox()]);
+    expect(button!.x + button!.width).toBeGreaterThan(area!.x + area!.width - 40);
+  }
+  await page.getByRole("button", { name: "파일 관리 메뉴" }).click();
+  await page.getByRole("menuitem", { name: "모두 삭제" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "삭제", exact: true }).click();
+  for (const tab of tabs) {
+    await navigateWorkspace(page, tab);
+    await expect(page.getByRole("button", { name: `${tab} 실행`, exact: true })).toHaveCount(0);
+  }
+  await navigateWorkspace(page, "윤문");
+  await page.getByRole("radio", { name: "텍스트 윤문" }).check();
+  await expect(page.getByRole("button", { name: "윤문 실행", exact: true })).toBeVisible();
+});
+
+test("file tiles and ready pills retain contrast in light and dark themes", async ({ page }) => {
+  await page.goto("/");
+  for (const file of [files.v1, files.csv, files.pdf, files.docx, files.pptx]) await upload(page, file);
+  await expect(page.locator(".file-kind-icon")).toHaveText(["XLSX", "CSV", "PDF", "DOCX", "PPTX"]);
+  await expect(page.locator(".file-status")).toHaveText(Array(5).fill("준비 완료"));
+  for (const dark of [false, true]) {
+    await page.evaluate((enabled) => document.documentElement.classList.toggle("dark", enabled), dark);
+    // Tiles are decorative (aria-hidden), so also measure their actual rendered colors.
+    const ratios = await page.locator(".file-kind-icon").evaluateAll((tiles) => {
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = 1;
+      const context = canvas.getContext("2d")!;
+      const luminance = (color: string) => {
+        context.clearRect(0, 0, 1, 1);
+        context.fillStyle = color;
+        context.fillRect(0, 0, 1, 1);
+        const rgb = [...context.getImageData(0, 0, 1, 1).data].slice(0, 3).map((channel) => {
+          const value = channel / 255;
+          return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+        });
+        return rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722;
+      };
+      return tiles.map((tile) => {
+        const style = getComputedStyle(tile);
+        const foreground = luminance(style.color);
+        const background = luminance(style.backgroundColor);
+        return (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05);
+      });
+    });
+    for (const ratio of ratios) expect(ratio).toBeGreaterThanOrEqual(4.5);
+    const results = await new AxeBuilder({ page }).include(".file-list").withRules(["color-contrast"]).analyze();
+    expect(results.violations).toEqual([]);
+  }
 });

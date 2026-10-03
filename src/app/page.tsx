@@ -1472,6 +1472,7 @@ export default function Home() {
   // Pasted text is its own input: the Polish action then depends on the
   // textarea, not on the workspace selection, which stays untouched.
   const polishTextMode = activeTab === "Polish" && polishInput === "text";
+  const showRunAction = polishTextMode || files.length > 0;
   const [workSectionTitle, workSectionDescription] = polishTextMode
     ? ["텍스트 윤문", "붙여넣은 내용을 문장 단위로 다듬고 숫자·날짜·인용과 문서 구조를 유지합니다."]
     : workSectionCopy[activeTab];
@@ -1818,6 +1819,7 @@ export default function Home() {
                     fields={extractFields}
                     busy={busy}
                     runDisabled={actionDisabled}
+                    showRun={showRunAction}
                     onMode={setExtractMode}
                     onFields={setExtractFields}
                     onRun={() => { void runActive(); }}
@@ -1845,9 +1847,9 @@ export default function Home() {
                         <Radio value={mode} /><span>{POLISH_MODE_LABELS[mode]}</span>
                       </label>)}
                     </RadioGroup>
-                    <div className="operation-actions">
+                    {showRunAction && <div className="operation-actions">
                       <Button type="button" onClick={runActive} disabled={actionDisabled} aria-label={`${tabMeta[activeTab].label} ${RUN_LABEL}`}>{busy ? "처리 중…" : RUN_LABEL}</Button>
-                    </div>
+                    </div>}
                     </div>
                     {polishTextMode ? (
                       <label className="polish-paste">
@@ -1877,7 +1879,7 @@ export default function Home() {
                     <p>{AGGREGATION_UNSUPPORTED_DETAIL}</p>
                   </StatusPanel>
                 ) : null}
-                {activeTab !== "Extract" && activeTab !== "Polish" ? (
+                {showRunAction && activeTab !== "Extract" && activeTab !== "Polish" ? (
                   <div className="operation-actions">
                     <Button type="button" onClick={runActive} disabled={actionDisabled} aria-label={`${tabMeta[activeTab].label} ${RUN_LABEL}`}>{busy ? "처리 중…" : RUN_LABEL}</Button>
                   </div>
@@ -2063,7 +2065,7 @@ const workSectionCopy: Record<Tab, [string, string]> = {
   Supplement: ["문서 보완", "문서에서 빠진 핵심 정보와 설명이 필요한 부분을 찾습니다."],
   Polish: ["문서 윤문", "선택한 파일의 번역투와 중복 표현을 문장 단위로 다듬습니다."],
   Extract: ["정보 추출", "선택한 파일에서 필요한 항목과 값을 찾아 정리합니다."],
-  Aggregate: ["문서 취합", "여러 Excel 파일의 표 데이터를 첫 번째 파일의 서식을 기준으로 하나의 파일로 취합합니다."],
+  Aggregate: ["문서 취합", "첫 번째 파일의 서식을 기준으로 여러 Excel 표를 하나의 파일로 취합합니다."],
 };
 
 function ResultHeader({ eyebrow, title, status, meta, showMessage = true }: {
@@ -2156,11 +2158,12 @@ function CompareControls({ mode, busy, onMode }: {
   );
 }
 
-function ExtractControls({ mode, fields, busy, runDisabled, onMode, onFields, onRun }: {
+function ExtractControls({ mode, fields, busy, runDisabled, showRun, onMode, onFields, onRun }: {
   mode: ExtractMode;
   fields: string[];
   busy: boolean;
   runDisabled: boolean;
+  showRun: boolean;
   onMode: (mode: ExtractMode) => void;
   onFields: (fields: string[]) => void;
   onRun: () => void;
@@ -2181,7 +2184,7 @@ function ExtractControls({ mode, fields, busy, runDisabled, onMode, onFields, on
             <Radio value={entry} /><span>{EXTRACT_MODE_LABELS[entry]}</span>
           </label>)}
         </RadioGroup>
-        <Button type="button" className="extract-run" disabled={runDisabled} aria-label="추출 실행" onClick={onRun}>{busy ? "처리 중…" : RUN_LABEL}</Button>
+        {showRun && <Button type="button" className="extract-run" disabled={runDisabled} aria-label="추출 실행" onClick={onRun}>{busy ? "처리 중…" : RUN_LABEL}</Button>}
       </div>
       <p className="extract-mode-description">{mode === "auto"
         ? "문서에 명시된 구조화 항목과 반복 표를 자동으로 찾습니다."

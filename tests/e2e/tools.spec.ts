@@ -35,10 +35,12 @@ test("TOOLS navigation keeps document files in their own workspace", async ({ pa
     await page.setViewportSize(viewport);
     await navigateWorkspace(page, "PDF 도구");
     await expect(page.locator(".context-bar h1")).toHaveText("PDF 도구");
+    await expect(page.locator(".pdf-tool").getByRole("heading", { name: "페이지 편집", exact: true })).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "작업 파일" })).toHaveCount(0);
     await expect(page.locator(".file-row")).toHaveCount(0);
     await navigateWorkspace(page, "이미지 도구");
     await expect(page.locator(".context-bar h1")).toHaveText("이미지 도구");
+    await expect(page.locator(".image-tool").getByRole("heading", { name: "이미지 편집", exact: true })).toHaveCount(0);
     await expect(page.locator(".file-row")).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await navigateWorkspace(page, "분석");
@@ -949,8 +951,8 @@ test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route wit
 
   await chooseOption(page, task, researchTaskLabels.document_review);
   await expect(form.getByLabel("질문 또는 검색어")).toHaveCount(0);
-  await expect(form.getByRole("heading", { name: "출처 표시", exact: true })).toBeVisible();
-  await expect(form.getByText("이 화면에서 변경한 값은 이번 실행에만 적용됩니다.")).toBeVisible();
+  await expect(form.getByRole("switch", { name: "출처 표시", exact: true })).toBeVisible();
+  await expect(form).not.toContainText("이 화면에서 변경한 값은 이번 실행에만 적용됩니다.");
   await expect(form.getByRole("button", { name: "실행", exact: true })).toHaveCount(0);
   // 법령 entered directly with no work files: the 작업 파일 empty state offers the shared upload, nothing runs.
   await expect(form.getByRole("radio", { name: "작업 파일" })).toBeChecked();
@@ -1402,7 +1404,7 @@ test("RESEARCH separates a verified article from search candidates and hides int
   await page.getByRole("tab", { name: "종합 리서치", exact: true }).click();
   const form = page.getByRole("form", { name: /^(종합 리서치|문서 검토) 입력$/ });
   await expect(form.getByRole("heading", { name: "출처 표시", exact: true })).toHaveCount(0);
-  await expect(form.getByRole("switch", { name: "출처 내용을 펼쳐서 표시", exact: true })).toHaveCount(0);
+  await expect(form.getByRole("switch", { name: "출처 표시", exact: true })).toHaveCount(0);
   await form.getByLabel("질문 또는 검색어").fill("직장 내 괴롭힘 판단 기준");
   await form.getByRole("button", { name: "실행" }).click();
   const output = page.locator(".legal-research .legal-analysis-output");
@@ -1781,7 +1783,7 @@ test("PDF and image tools align their workspace and share a responsive export pa
   const geometry = () => page.evaluate(() => {
     const root = document.querySelector(".pdf-tool, .image-tool")!;
     const top = root.getBoundingClientRect().top;
-    const selectors = [".tool-intro h2", ".tool-intro p", ".pdf-tool-upload, .image-tool-upload"];
+    const selectors = [".pdf-tool-upload, .image-tool-upload"];
     const boxes = selectors.map((selector) => {
       const box = root.querySelector(selector)!.getBoundingClientRect();
       return { x: box.x, y: box.y - top };
@@ -1793,7 +1795,8 @@ test("PDF and image tools align their workspace and share a responsive export pa
     await navigateWorkspace(page, "PDF 도구");
     await expect(page.locator(".pdf-tool")).toBeVisible();
     await page.evaluate(() => scrollTo(0, 0));
-    // Empty tools show only title, description and one upload zone.
+    // The utility header supplies the title; tool bodies show one upload zone.
+    await expect(page.locator(".tool-intro")).toHaveCount(0);
     await expect(page.locator(".tool-eyebrow")).toHaveCount(0);
     await expect(page.locator(".pdf-tool-editor, .pdf-tool-export, .pdf-tool-badge")).toHaveCount(0);
     await expect(page.locator(".pdf-tool-upload").getByRole("button", { name: "PDF 추가" })).toBeVisible();
@@ -2092,7 +2095,8 @@ test("image tool shows one upload zone when empty and a balanced three-column wo
   const upload = page.locator(".image-tool-upload");
   await expect(upload).toBeVisible();
   await expect(page.locator(".image-tool-layout, .image-tool-export")).toHaveCount(0);
-  const intro = (await page.locator(".image-tool-intro").boundingBox())!;
+  await expect(page.locator(".image-tool-intro")).toHaveCount(0);
+  const intro = (await page.locator(".image-tool").boundingBox())!;
   const zone = (await upload.boundingBox())!;
   expect(Math.abs(zone.x - intro.x)).toBeLessThan(1);
   expect(zone.height).toBeLessThan(215);
@@ -2323,10 +2327,28 @@ test("document review hides execution until a workspace file is added", async ({
   await navigateWorkspace(page, "법령");
   await page.getByRole("tab", { name: "종합 리서치", exact: true }).click();
   const form = page.getByRole("form", { name: /^(종합 리서치|문서 검토) 입력$/ });
+  await expect(form.locator(".legal-research-description")).toHaveText("질문이나 상황을 바탕으로 관련 법령·판례·결정례를 함께 조사합니다.");
   await chooseOption(page, form.getByLabel("리서치 유형"), researchTaskLabels.document_review);
   await form.getByRole("radio", { name: "작업 파일", exact: true }).check();
   await expect(form.getByRole("button", { name: "실행", exact: true })).toHaveCount(0);
   await expect(form.getByRole("button", { name: "파일 추가", exact: true })).toBeVisible();
+  await expect(form).not.toContainText("PDF · DOCX · PPTX · XLSX · CSV");
+  await expect(form).not.toContainText("작업 파일의 분석된 텍스트를 사용하며, 한 번에 한 문서를 검토합니다.");
+  await expect(form.locator(".research-result-display h2")).toHaveCount(0);
+  const sourceRow = form.locator(".research-source-row");
+  await expect(sourceRow.getByText("출처 표시", { exact: true })).toBeVisible();
+  await expect(sourceRow.getByRole("switch", { name: "출처 표시", exact: true })).toBeVisible();
+  const sourceBoxes = await Promise.all([sourceRow.locator("label").boundingBox(), sourceRow.getByRole("switch").boundingBox()]);
+  expect(Math.abs(sourceBoxes[0]!.y + sourceBoxes[0]!.height / 2 - sourceBoxes[1]!.y - sourceBoxes[1]!.height / 2)).toBeLessThanOrEqual(2);
+  await expect(form).not.toContainText("조회 범위와 법적 판단은 바뀌지 않습니다.");
+  await expect(form).not.toContainText("이 화면에서 변경한 값은 이번 실행에만 적용됩니다.");
+  await expect(page.locator(".research-review-guide li")).toHaveText([
+    "문서 준비파일을 선택하거나 내용을 직접 입력합니다.",
+    "실행검토할 내용을 확인하고 실행합니다.",
+    "근거 확인관련 법령·판례와 상세 근거를 확인합니다.",
+  ]);
+  expect((await form.locator(".research-file-workarea").boundingBox())!.height).toBeLessThan(220);
+
   await form.getByRole("radio", { name: "직접 입력", exact: true }).check();
   await expect(form.getByRole("button", { name: "실행", exact: true })).toBeVisible();
   await expect(form.getByRole("button", { name: "실행", exact: true })).toBeDisabled();
@@ -2336,6 +2358,8 @@ test("document review hides execution until a workspace file is added", async ({
     buffer: Buffer.from(await createPdf(["Document review workspace UI"])),
   });
   await expect(form.locator("#research-file")).toContainText("review-ui.pdf");
+  await expect(form.locator(".research-upload-intro")).toHaveCount(0);
+  expect((await form.locator(".research-file-workarea").boundingBox())!.height).toBeLessThan(180);
   await expect(form.getByRole("button", { name: "실행", exact: true })).toBeVisible();
   await expect(form.getByRole("button", { name: "실행", exact: true })).toBeEnabled();
   await expect(form.getByRole("button", { name: "파일 추가", exact: true })).toBeVisible();
