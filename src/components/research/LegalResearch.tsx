@@ -19,6 +19,7 @@ import type { WorkspaceFile } from "@/client/protocol";
 import { runInWorker } from "@/client/document-client";
 import { reviewRequestFor, type ReviewFile } from "@/lib/law-review-source";
 import { readReviewPreferences, resolveReviewPreferences, type ReviewPreferences } from "@/client/review-preferences";
+import { Plus, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -83,6 +84,7 @@ export function LegalResearch({ workspace, initialTask = "full_research" }: { wo
   }
   const [chosenFile, setChosenFile] = useState<string>("");
   const [uploadErrors, setUploadErrors] = useState<string[]>([]);
+  const [dropActive, setDropActive] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const [task, setTask] = useState<LawResearchTask>(initialTask);
   const [draft, setDraft] = useState<LawResearchDraft>(EMPTY_RESEARCH_DRAFT);
@@ -214,15 +216,15 @@ export function LegalResearch({ workspace, initialTask = "full_research" }: { wo
   const runButton = <Button type="submit" className="law-search-button" disabled={!canRun || loading || !preferencesReady}>
     {loading ? (isDocument ? "문서 검토 중…" : "리서치 중…") : "실행"}
   </Button>;
-  const resultDisplay = isDocument ? <section className="research-result-display" aria-label="출처 표시">
+  const resultDisplay = isDocument ? <div className="research-source-option">
     <Field className="research-source-row" disabled={!preferencesReady || loading}>
-      <FieldLabel htmlFor={`run-review-${task}-sources`}>출처 표시</FieldLabel>
+      <FieldLabel htmlFor={`run-review-${task}-sources`}>출처 펼쳐 보기</FieldLabel>
       <Switch id={`run-review-${task}-sources`} checked={preferences.expandSources}
         disabled={!preferencesReady || loading}
         onCheckedChange={(expandSources) => setPreferenceOverride((current) => ({ ...current, expandSources }))} />
     </Field>
     {settingsError && <p className="law-search-error" role="alert">{settingsError}</p>}
-  </section> : null;
+  </div> : null;
   return <div className="legal-analysis legal-research">
     <div className={`research-workspace${isDocument ? " is-document" : ""}`}>
     <div className="research-workspace-main">
@@ -258,18 +260,16 @@ export function LegalResearch({ workspace, initialTask = "full_research" }: { wo
           </label>)}
         </RadioGroup>
         {fromFile ? <>
-          <div className={`research-file-workarea ${reviewable.length ? "is-populated" : "is-empty"}`}>
-            {reviewable.length === 0 && <div className="research-upload-intro">
-              <span className="research-upload-icon" aria-hidden="true">
-                <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="1.5">
-                  <path d="M16 22V5m-6 6 6-6 6 6M6 21v5a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-5" />
-                </svg>
-              </span>
-              <div className="research-upload-copy">
-                <strong>검토할 문서를 추가하세요</strong>
-              </div>
-            </div>}
-          <div className="research-file-row">
+          <div className={reviewable.length ? "research-file-workarea is-populated" : `dropzone${workspace?.uploading ? " busy" : ""}${dropActive ? " drag-active" : ""}`}
+            onDragEnter={(event) => { if (!reviewable.length && workspace?.addFiles && !workspace.uploading) { event.preventDefault(); setDropActive(true); } }}
+            onDragOver={(event) => { if (!reviewable.length && workspace?.addFiles && !workspace.uploading) { event.preventDefault(); setDropActive(true); } }}
+            onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDropActive(false); }}
+            onDrop={(event) => { if (!reviewable.length && workspace?.addFiles) { event.preventDefault(); setDropActive(false); if (!workspace.uploading) void addFiles(event.dataTransfer.files); } }}>
+            {reviewable.length === 0 && <>
+              <span className="upload-icon" aria-hidden="true"><Upload /></span>
+              <div className="dropzone-copy"><strong>검토할 문서를 추가하세요</strong></div>
+            </>}
+          <div className={reviewable.length ? "research-file-row" : "drop-actions"}>
             {reviewable.length > 0 &&
               <Select items={reviewable.map((file) => ({ value: file.id, label: file.name }))} value={fileId} onValueChange={(value) => setChosenFile(value ?? "")}>
                 <SelectTrigger id="research-file" aria-labelledby="research-document-label"><SelectValue /></SelectTrigger>
@@ -279,7 +279,7 @@ export function LegalResearch({ workspace, initialTask = "full_research" }: { wo
               <input ref={fileInput} type="file" multiple hidden accept=".xlsx,.csv,.pdf,.docx,.pptx" aria-label="검토할 작업 파일 추가"
                 onChange={(event) => { void addFiles(event.target.files); event.target.value = ""; }} />
               <Button type="button" variant={reviewable.length ? "outline" : "default"} className="research-file-add" onClick={() => fileInput.current?.click()} disabled={workspace.uploading}>
-                {workspace.uploading ? "분석 중…" : "파일 추가"}
+                {workspace.uploading ? "분석 중…" : <><Plus aria-hidden="true" />파일 추가</>}
               </Button>
             </>}
             {files.length > 0 && runButton}
@@ -345,17 +345,6 @@ export function LegalResearch({ workspace, initialTask = "full_research" }: { wo
       </div>}
     </form>
     </div>
-    {isDocument && <aside className="research-workspace-rail" aria-label="문서 검토 가이드">
-      <section className="research-review-guide" aria-labelledby="research-guide-title">
-        <h2 id="research-guide-title">문서 검토 가이드</h2>
-        <ol>
-          <li><strong>문서 준비</strong><span>파일을 선택하거나 내용을 직접 입력합니다.</span></li>
-          <li><strong>실행</strong><span>검토할 내용을 확인하고 실행합니다.</span></li>
-          <li><strong>근거 확인</strong><span>관련 법령·판례와 상세 근거를 확인합니다.</span></li>
-        </ol>
-        <p className="research-guide-caution">법적 판단이 필요한 경우 원문과 전문가 검토가 필요할 수 있습니다.</p>
-      </section>
-    </aside>}
 
     {current && <section className="legal-analysis-result" aria-labelledby="research-result-heading" aria-busy={loading}>
       <h2 id="research-result-heading">{isDocument ? "검토 결과" : "리서치 결과"}</h2>
