@@ -15,7 +15,7 @@ import {
  */
 
 /** Recorded with every evaluation run; bump when selection behavior changes. */
-export const REVIEW_SELECTOR_VERSION = "candidate-scan-v2";
+export const REVIEW_SELECTOR_VERSION = "candidate-scan-v3";
 
 /** complete: every reviewable part was sent. partial: some was not (limits, textless pages, omitted parts). excluded: nothing to review. */
 export type ReviewCoverageStatus = "complete" | "partial" | "excluded";
@@ -333,6 +333,14 @@ function selectionOrder(candidates: readonly LocalCandidate[]): { order: LocalCa
  */
 function distribute(reviewable: readonly Reviewable[], selected: Set<number>, chars: number, segments: number): void {
   const bandChars = chars / DISTRIBUTED_BANDS;
+  // Keep location representatives in every band; punctuation/spacing changes do not
+  // let the same boilerplate consume the whole fallback. Numbers and their signs remain significant.
+  const factKey = (entry: Reviewable) => entry.text.normalize("NFKC").replace(/\s+/gu, "").replace(/[.!?。]+$/u, "");
+  const repeats = new Map<string, number>();
+  for (const index of selected) {
+    const key = `${Math.floor(index * DISTRIBUTED_BANDS / reviewable.length)}:${factKey(reviewable[index])}`;
+    repeats.set(key, (repeats.get(key) ?? 0) + 1);
+  }
   const bandSegments = segments / DISTRIBUTED_BANDS;
   const fill = (band: number, limitChars: number, limitSegments: number) => {
     const from = Math.floor(band * reviewable.length / DISTRIBUTED_BANDS);
@@ -343,9 +351,12 @@ function distribute(reviewable: readonly Reviewable[], selected: Set<number>, ch
     for (let index = last ? to - 1 : from; last ? index >= from : index < to; index += last ? -1 : 1) {
       if (selected.has(index)) continue;
       const entry = reviewable[index];
+      const key = `${band}:${factKey(entry)}`;
+      if ((repeats.get(key) ?? 0) >= REPRESENTATIVES) continue;
       // A large unit must not hide smaller units behind it. Never split a unit to fill a band.
       if (used + entry.chars > limitChars || count + entry.parts.length > limitSegments) continue;
       selected.add(index);
+      repeats.set(key, (repeats.get(key) ?? 0) + 1);
       used += entry.chars;
       count += entry.parts.length;
     }
@@ -353,6 +364,34 @@ function distribute(reviewable: readonly Reviewable[], selected: Set<number>, ch
     segments -= count;
   };
   for (let band = 0; band < DISTRIBUTED_BANDS; band += 1) fill(band, Math.min(chars, bandChars), Math.min(segments, bandSegments));
+  // Generic density only spends a quarter of the unused quota, after every band
+  // had a turn. It is a text selector, never an issue or a server-side hint.
+  const density = /의무|금지|제한|변경|책임|배상|해지|갱신|개인정보|통지|승인|동의/gu;
+  const densityChars = chars * 0.25;
+  const densitySegments = segments * 0.25;
+  let denseChars = 0;
+  let denseSegments = 0;
+  const remaining = spread(Array.from({ length: DISTRIBUTED_BANDS }, (_, index) => index)).flatMap((band) => {
+    const from = Math.floor(band * reviewable.length / DISTRIBUTED_BANDS);
+    const to = Math.floor((band + 1) * reviewable.length / DISTRIBUTED_BANDS);
+    return Array.from({ length: to - from }, (_, offset) => from + offset)
+      .filter((index) => !selected.has(index))
+      .sort((a, b) => (reviewable[b].text.match(density)?.length ?? 0) - (reviewable[a].text.match(density)?.length ?? 0))
+      .slice(0, 1);
+  });
+  for (const index of remaining) {
+    const entry = reviewable[index];
+    const band = Math.min(DISTRIBUTED_BANDS - 1, Math.floor(index * DISTRIBUTED_BANDS / reviewable.length));
+    const key = `${band}:${factKey(entry)}`;
+    if (!entry.text.match(density) || (repeats.get(key) ?? 0) >= REPRESENTATIVES
+      || denseChars + entry.chars > densityChars || denseSegments + entry.parts.length > densitySegments) continue;
+    selected.add(index);
+    repeats.set(key, (repeats.get(key) ?? 0) + 1);
+    denseChars += entry.chars;
+    denseSegments += entry.parts.length;
+  }
+  chars -= denseChars;
+  segments -= denseSegments;
   // Reuse unspent shares only after every band, including the tail, had its reserved turn.
   for (const band of spread(Array.from({ length: DISTRIBUTED_BANDS }, (_, index) => index))) fill(band, chars, segments);
 }
