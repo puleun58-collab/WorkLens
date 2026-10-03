@@ -8534,6 +8534,8 @@ div.status-panel.error > strong { font-size: 14px; line-height: 1.5; }
 .file-row > .file-status { border-radius: 999px; padding-inline: 8px; }
 .file-row .file-status { color: var(--color-emerald-800); }
 .dark .file-row .file-status { background: var(--color-emerald-950); color: var(--color-emerald-300); }
+.file-list .warning { color: var(--color-amber-800); }
+.dark .file-list .warning { color: var(--color-amber-300); }
 
 .file-info { min-width: 0; gap: 5px; }
 
