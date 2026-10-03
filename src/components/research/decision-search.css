@@ -1,5 +1,5 @@
 .decision-search { display: grid; gap: 24px; width: 100%; min-width: 0; }
-.decision-search-form { min-width: 0; padding: var(--space-4); border: 1px solid var(--border-surface); border-radius: var(--radius-panel); background: var(--paper); }
+.decision-search-form { min-width: 0; }
 .decision-search-fields { display: grid; grid-template-columns: minmax(150px, 220px) minmax(0, 1fr) auto; align-items: end; gap: 8px; }
 .decision-search-fields label { display: grid; min-width: 0; gap: 8px; color: var(--ink-soft); font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); }
 .decision-search-results { min-width: 0; }

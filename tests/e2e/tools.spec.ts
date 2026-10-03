@@ -1709,8 +1709,8 @@ test("law views use the shared tool content width with one left and right edge",
     const list = (await page.locator(".law-search-list").boundingBox())!;
     expect(Math.abs(list.x + list.width - (research.x + research.width))).toBeLessThan(1);
     const row = (await page.locator(".law-search-row").boundingBox())!;
-    expect(row.x).toBeGreaterThan(surface.x);
-    expect(Math.abs((row.x - surface.x) - (surface.x + surface.width - (row.x + row.width)))).toBeLessThan(1);
+    expect(Math.abs(row.x - surface.x)).toBeLessThan(1);
+    expect(Math.abs(row.x + row.width - (surface.x + surface.width))).toBeLessThan(1);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   }
 });

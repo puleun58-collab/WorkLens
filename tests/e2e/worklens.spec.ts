@@ -2568,8 +2568,13 @@ test("keeps legal destinations grouped, command search shortcut-only, and review
   };
 
   await openMenu();
-  await expect(navigation.getByRole("heading")).toHaveText(["WORKSPACE", "RESEARCH", "TOOLS", "HELP"]);
+  await expect(navigation.getByRole("heading")).toHaveText(["WORKSPACE", "RESEARCH", "TOOLS"]);
   await expect(navigation.getByRole("button")).toHaveCount(14);
+  for (const [accessibleName, visibleLabel] of [["Guide", "사용 가이드"], ["Dictionary", "용어 사전"], ["Settings", "설정"]] as const) {
+    const helpItem = navigation.getByRole("button", { name: accessibleName, exact: true });
+    await expect(helpItem).toBeVisible();
+    await expect(helpItem).toHaveText(visibleLabel);
+  }
   for (const hidden of ["판례·결정례", "종합 리서치", "문서 검토", "검토 설정"]) {
     await expect(navigation.getByRole("button", { name: hidden, exact: true })).toHaveCount(0);
   }
