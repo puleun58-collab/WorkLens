@@ -2865,6 +2865,11 @@ test("uses task-focused labels and concise execution buttons", async ({ page }) 
   ] as const;
   for (const [tab, title] of labels) {
     await navigateWorkspace(page, tab);
+    if (tab === "비교") {
+      // Compare controls (including 실행) appear only once two files are selected.
+      await upload(page, files.v2);
+      await page.getByRole("checkbox", { name: "운임현황_v2.xlsx 선택", exact: true }).check();
+    }
     await expect(page.locator(".utility-bar h1")).toHaveText(title);
     await expect(page.getByRole("heading", { name: title, exact: true, level: 1 })).toHaveCount(1);
     await expect(page.locator(".utility-bar .context-names")).toHaveCount(1);
