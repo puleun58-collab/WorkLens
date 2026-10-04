@@ -8087,6 +8087,13 @@ div.status-panel.error > strong { font-size: 14px; line-height: 1.5; }
 }
 
 /* Guide tips remain stronger than the quieter, repeated review suggestions. */
+.usage-guide-tabs {
+  justify-content: flex-start;
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
 .usage-guide-tip {
   border: 1px solid #d3e3fb;
   background: #e6f0fe;

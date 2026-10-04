@@ -1,6 +1,7 @@
 import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { expect, test as base, type Page } from "@playwright/test";
+import { navigateWorkspace } from "../e2e/navigation";
 
 /**
  * One regression case = one Playwright test declared through `regressionCase`.
@@ -76,17 +77,19 @@ export async function writeFixture(name: string, content: Buffer | Uint8Array | 
 
 /** Upload into the document workspace and wait for the row. */
 export async function upload(page: Page, ...files: string[]) {
+  // setInputFiles does not wait for React hydration/change-event binding.
+  await expect(page.locator(".app-shell")).toHaveAttribute("data-hydrated", "true");
   await page.locator('input[aria-label="작업 파일 선택"]').setInputFiles(files);
-  for (const file of files) await expect(page.locator(".file-row").filter({ hasText: path.basename(file) }).first()).toBeVisible();
+  for (const file of files) await expect(page.locator(".file-row").filter({ hasText: path.basename(file) }).first()).toBeVisible({ timeout: 30_000 });
 }
 
-/** Rail navigation works at every width (mobile rail is a grid, not a drawer). */
+/** Use the sidebar on desktop and open the workspace menu on mobile. */
 export async function openView(page: Page, label: string) {
-  await page.locator(".rail").getByRole("button", { name: label, exact: true }).click();
+  await navigateWorkspace(page, label);
 }
 
 export async function selectFiles(page: Page, ...files: string[]) {
-  for (const file of files) await page.getByLabel(`${path.basename(file)} 선택`, { exact: true }).check();
+  for (const file of files) await page.getByRole("checkbox", { name: `${path.basename(file)} 선택` }).check();
 }
 
 export async function noHorizontalOverflow(page: Page) {

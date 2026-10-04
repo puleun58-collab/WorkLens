@@ -710,7 +710,7 @@ function ResearchResult({ data, request, expandSources = false }: { data: LawRes
   const primary = result.sections.filter((section) => !isSupportingSection(section)
     && !/^\s*(?:STEP\s*\d+|(?:OPEN\s+)?API\b)/iu.test(section.heading ?? "")
     && (section.heading || readerText(section.lines.join("\n")))
-    && (!full || groupOf(section, data.task) !== "other"));
+    && (!full || groupOf(section, data.task) !== "other" || section.status !== "available"));
   const supporting = result.sections.filter(isSupportingSection);
   const articleCount = result.sections.reduce((count, section) => count + (section.articles?.length ?? 0), 0);
   const caseCount = result.sections.reduce((count, section) => count + (section.decisions?.entries.length ?? 0), 0);
