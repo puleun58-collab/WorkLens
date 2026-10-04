@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parseAiApiRequest } from "@/server/ai-request";
-import { runGroqAi } from "@/server/groq";
+import { reasoningEffortFor, runGroqAi } from "@/server/groq";
+import type { AiApiRequest } from "@/lib/ai/api";
 import { POST } from "@/app/api/ai/route";
 import { aiFailureDetail, interruptServerAi, logAiFailure, polishServerAi } from "@/client/server-ai-client";
 
@@ -27,6 +28,20 @@ const apiRequest = (
     ...headers,
   },
   body,
+});
+
+describe("Groq reasoning effort policy", () => {
+  it.each(["polish", "polish-batch", "extract", "analyze", "ask", "semantic-check"])("keeps %s at low effort", (operation) => {
+    expect(reasoningEffortFor(operation)).toBe("low");
+  });
+
+  it.each(["supplement-review", "research-interpretation"])("assigns medium effort to %s", (operation) => {
+    expect(reasoningEffortFor(operation)).toBe("medium");
+  });
+
+  it.each(["unregistered-operation", "", "high", "constructor", "__proto__", "ANALYZE", "supplement-review ", " research-interpretation"])("defaults unregistered input %j to low, never high", (operation) => {
+    expect(reasoningEffortFor(operation)).toBe("low");
+  });
 });
 
 describe("server AI request boundary", () => {
@@ -217,6 +232,71 @@ describe("server AI browser client", () => {
 });
 
 describe("Groq provider adapter", () => {
+  const policyRequests: Array<{
+    operation: string;
+    request: AiApiRequest;
+    content: unknown;
+    effort: "low" | "medium";
+    budget: number;
+  }> = [
+    { operation: "analyze", request: { kind: "claims", request: { operation: "analyze" }, items: evidence }, content: { claims: [] }, effort: "low", budget: 3_000 },
+    { operation: "ask", request: { kind: "claims", request: { operation: "ask", question: "매출은 얼마인가요?" }, items: evidence }, content: { claims: [] }, effort: "low", budget: 1_200 },
+    { operation: "semantic-check", request: { kind: "claims", request: { operation: "semantic-check", statement: "매출 증가" }, items: evidence }, content: { claims: [] }, effort: "low", budget: 1_200 },
+    { operation: "polish", request: { kind: "polish", text: "원문입니다.", mode: "default" }, content: { changed: false, revisedText: "원문입니다.", reasons: [] }, effort: "low", budget: 900 },
+    { operation: "polish-batch", request: { kind: "polish-batch", mode: "default", items: [{ id: "P1", text: "원문입니다." }] }, content: { proposals: [] }, effort: "low", budget: 3_000 },
+    { operation: "extract", request: { kind: "extract", field: "매출", items: evidence }, content: { field: "매출", value: "10억원", sources: ["E1"], confidence: "high" }, effort: "low", budget: 500 },
+    { operation: "supplement-review", request: { kind: "supplement-review", checks: [{ id: "C1", statement: "매출 증가", requirement: "증가 원인", handles: ["E1"] }], items: evidence }, content: { verdicts: [] }, effort: "medium", budget: 1_500 },
+  ];
+
+  it.each(policyRequests)("sends $operation with $effort effort and the existing budget, and logs only metadata", async ({ operation, request, content, effort, budget }) => {
+    const providerFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: JSON.stringify(content) } }],
+      usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", providerFetch);
+    const log = vi.spyOn(console, "info").mockImplementation(() => undefined);
+
+    await runGroqAi(request);
+
+    expect(providerFetch).toHaveBeenCalledOnce();
+    const [, init] = providerFetch.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      reasoning_effort: effort,
+      max_completion_tokens: budget,
+      temperature: 0,
+      response_format: { type: "json_schema", json_schema: { strict: true } },
+    });
+    expect(log).toHaveBeenCalledExactlyOnceWith("[AI][Groq]", {
+      kind: request.kind,
+      operation,
+      reasoningEffort: effort,
+      model: "openai/gpt-oss-120b",
+      durationMs: expect.any(Number),
+      promptTokens: 10,
+      completionTokens: 20,
+      totalTokens: 30,
+    });
+  });
+
+  it("keeps medium effort on the existing transient retry and never falls back after a rejection", async () => {
+    const request = policyRequests.find(({ operation }) => operation === "supplement-review")!.request;
+    const providerFetch = vi.fn()
+      .mockResolvedValueOnce(new Response("temporary", { status: 503, headers: { "Retry-After": "0" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: '{"verdicts":[]}' } }] })));
+    vi.stubGlobal("fetch", providerFetch);
+    await expect(runGroqAi(request)).resolves.toMatchObject({ kind: "supplement-review" });
+    expect(providerFetch).toHaveBeenCalledTimes(2);
+    for (const [, init] of providerFetch.mock.calls as Array<[string, RequestInit]>) {
+      expect(JSON.parse(String(init.body))).toMatchObject({ reasoning_effort: "medium", max_completion_tokens: 1_500 });
+    }
+
+    const rejected = vi.fn().mockResolvedValue(new Response("rejected", { status: 400 }));
+    vi.stubGlobal("fetch", rejected);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await expect(runGroqAi(request)).rejects.toMatchObject({ code: "AI_PROVIDER_REJECTED" });
+    expect(rejected).toHaveBeenCalledOnce();
+  });
+
   it("pins the model and strict schema without logging prompt content", async () => {
     const providerFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       choices: [{ message: { content: JSON.stringify({ claims: [{ text: "매출은 10억원입니다.", sources: ["E1"], confidence: "high" }] }) } }],
