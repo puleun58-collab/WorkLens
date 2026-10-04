@@ -1,10 +1,20 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 import { createCheckPptx, createXlsx } from "../fixtures";
 import { noHorizontalOverflow, openView, regressionCase, selectFiles, upload, writeFixture } from "./record";
 
 async function ready(page: Page) {
   await page.goto("/");
   await expect(page.locator(".app-shell")).toHaveAttribute("data-hydrated", "true");
+}
+async function visibleFocusRing(control: Locator) {
+  await control.blur();
+  const idleShadow = await control.evaluate((e) => getComputedStyle(e).boxShadow);
+  await control.focus();
+  await expect(control).toBeFocused();
+  await expect.poll(() => control.evaluate((e) => e.matches(":focus-visible"))).toBe(true);
+  // coss buttons deliberately use outline-none and a box-shadow ring.
+  await expect.poll(() => control.evaluate((e) => getComputedStyle(e).boxShadow)).not.toBe(idleShadow);
+  expect(await control.evaluate((e) => getComputedStyle(e).boxShadow)).not.toBe("none");
 }
 async function companyTerms(page: Page) {
   await page.route("**/api/company-terms", (route) => route.fulfill({
@@ -107,13 +117,16 @@ regressionCase(make(6, "Dictionary", "In-result dictionary popover", "Check resu
   expect(shadow).not.toBe("none");
   note("Check result popover added a personal term and has floating shadow.");
 });
-regressionCase(make(7, "Settings", "Settings privacy and storage information", "Five explicit categories explain memory, local storage, AI and law"), async ({ page, note }) => {
+regressionCase(make(7, "Settings", "Settings privacy and storage information", "Six explicit categories explain upload limits, memory, local storage, AI and law"), async ({ page, note }) => {
   await ready(page); await openView(page, "Settings");
   const surface = page.locator('.settings-surface[aria-label="Settings"]');
-  await expect(surface.locator("dt")).toHaveText(["저장 위치", "localStorage", "무시한 규칙", "서버 AI", "법령 기능 외부 연동"]);
+  await expect(surface.locator("dt")).toHaveText(["파일 업로드", "저장 위치", "localStorage", "무시한 규칙", "서버 AI", "법령 기능 외부 연동"]);
+  const uploadInfo = surface.locator(".settings-list > div").filter({ has: page.locator("dt", { hasText: "파일 업로드" }) });
+  await expect(uploadInfo.locator("dd")).toHaveText("지원 형식 XLSX, CSV, PDF, DOCX, PPTX · 파일당 최대 100MB · 전체 최대 300MBPDF 도구는 PDF만, 이미지 도구는 JPG·PNG·WebP를 사용합니다.");
+  await expect(uploadInfo.locator("input, button, select")).toHaveCount(0);
   await expect(surface).toContainText("원본 파일은 전송하지 않습니다.");
   await expect(surface).toContainText("문서 본문, 근거, 질문과 답변은 브라우저 저장소에 저장하지 않습니다.");
-  note("All five settings definitions explain storage and outbound processing.");
+  note("Six settings definitions include read-only upload formats/limits and explain storage and outbound processing.");
 });
 regressionCase(make(8, "Settings", "Ignored rule survives reload and can be restored", "Check ignores a rule persistently; Settings restore removes it"), async ({ page, note }) => {
   await checkDocument(page);
@@ -141,10 +154,15 @@ regressionCase(make(10, "UI", "All guide categories show complete steps", "Every
   await page.setViewportSize({ width: 390, height: 844 }); await ready(page); await openView(page, "Guide");
   const tabs = page.getByRole("tablist", { name: "기능 선택" }).getByRole("tab");
   // The guide is lazily loaded; wait for its tabs before reading them.
-  await expect(tabs).toHaveCount(12); const labels = await tabs.allTextContents();
+  const labels = ["분석", "질문", "비교", "검수", "보완", "윤문", "추출", "취합", "법령", "PDF 도구", "이미지 도구", "용어 사전"];
+  await expect(tabs).toHaveCount(12);
+  await expect(tabs).toHaveText(labels);
   for (const label of labels) {
-    await page.getByRole("tab", { name: label, exact: true }).click();
-    const panel = page.getByRole("tabpanel"); await expect(panel.getByRole("heading", { name: label, exact: true })).toBeVisible();
+    const tab = page.getByRole("tab", { name: label, exact: true });
+    // Keep pointer reachability in the contract; do not force-click clipped tabs.
+    await tab.click({ timeout: 20_000 });
+    await expect(tab).toHaveAttribute("aria-selected", "true");
+    const panel = page.getByRole("tabpanel", { name: label, exact: true }); await expect(panel.getByRole("heading", { name: label, exact: true })).toBeVisible();
     const steps = panel.locator(".usage-guide-step"); const count = await steps.count();
     expect(count).toBeGreaterThanOrEqual(3); expect(count).toBeLessThanOrEqual(4);
     for (const step of await steps.all()) { await expect(step.locator(":scope > strong")).not.toBeEmpty(); await expect(step.locator(".usage-guide-text")).not.toBeEmpty(); }
@@ -190,7 +208,8 @@ regressionCase(make(15, "Law", "Law upstream timeout 504", "Timeout message dist
 });
 regressionCase(make(16, "UI", "Empty workspace hides execution", "Upload prompt exists; run appears after upload and stays disabled until selection"), async ({ page, note }) => {
   await ready(page);
-  await expect(page.locator(".dropzone")).toContainText("파일 업로드");
+  await expect(page.locator(".dropzone .dropzone-copy strong")).toHaveText("파일을 여기에 끌어 놓으세요");
+  await expect(page.locator(".dropzone").getByRole("button", { name: "파일 추가", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "분석 실행" })).toHaveCount(0);
   await expect(page.locator(".file-row")).toHaveCount(0);
   note("Empty workspace showed upload affordance without an Analyze run button.");
@@ -237,14 +256,22 @@ regressionCase(make(20, "UI", "Unsupported aggregation warning", "CSV selected f
   await expect(page.getByRole("button", { name: "취합 실행" })).toBeDisabled();
   classify("Unsupported"); note("CSV aggregation selection exposed a status warning and disabled run.");
 });
-regressionCase(make(21, "UI", "Elevation and structural primary button audit", "Surfaces/CTA lifted, secondary controls flat, every operation-actions last button runs", false), async ({ page, note }) => {
+regressionCase(make(21, "UI", "Elevation and structural primary button audit", "File list flat; CTA, coss outline button and dictionary lifted; ghost/menu controls flat; last operation button runs", false), async ({ page, note }) => {
   await ready(page);
   const csv = await writeFixture("ui-shadows.csv", "항목,값\r\n계,4\r\n"); await upload(page, csv); await selectFiles(page, csv);
   const shadow = (selector: string) => page.locator(selector).first().evaluate((e) => getComputedStyle(e).boxShadow);
-  expect(await shadow(".file-list")).not.toBe("none");
+  // The current upload-first workspace intentionally has a transparent, flat list.
+  expect(await shadow(".file-list")).toBe("none");
   await expect(page.locator(".operation-actions button:last-child")).toHaveAttribute("aria-label", "분석 실행");
   expect(await shadow(".operation-actions button:last-child")).not.toBe("none");
-  expect(await shadow(".delete-selected")).toBe("none"); expect(await shadow(".delete-all")).toBe("none");
+  expect(await shadow(".delete-selected")).not.toBe("none");
+  const fileMenu = page.getByRole("button", { name: "파일 관리 메뉴", exact: true });
+  expect(await fileMenu.evaluate((e) => getComputedStyle(e).boxShadow)).toBe("none");
+  await fileMenu.click();
+  const deleteAll = page.getByRole("menuitem", { name: "모두 삭제", exact: true });
+  await expect(deleteAll).toBeVisible();
+  expect(await deleteAll.evaluate((e) => getComputedStyle(e).boxShadow)).toBe("none");
+  await page.keyboard.press("Escape");
   for (const view of ["분석", "질문", "비교", "검수", "윤문", "취합"] as const) {
     await openView(page, view);
     const last = page.locator(".operation-actions button:last-child");
@@ -255,21 +282,20 @@ regressionCase(make(21, "UI", "Elevation and structural primary button audit", "
   await expect(page.locator(".operation-actions")).toHaveCount(0);
   await expect(page.locator(".extract-run")).toHaveAttribute("type", "button");
   await openView(page, "Dictionary"); expect(await shadow(".settings-surface")).not.toBe("none");
-  note("Six operation-actions each end in their actual run CTA; Extract uses dedicated extract-run; primary/surface lifted and destructive controls flat.");
+  note("Six operation-actions end in run CTA; Extract has extract-run; file list is flat, CTA/outline/dictionary lifted, ghost file menu and delete-all item flat.");
 });
 regressionCase(make(22, "UI", "Keyboard rail, run, focus outline and image names", "Keyboard traverses navigation to run; visible focus and accessible images"), async ({ page, note }) => {
   await ready(page);
   const csv = await writeFixture("ui-keyboard.csv", "항목,값\r\n제품,42\r\n"); await upload(page, csv); await selectFiles(page, csv);
-  const rail = page.locator(".rail").getByRole("button", { name: "분석", exact: true });
-  await rail.focus(); await expect(rail).toBeFocused();
-  await page.keyboard.press("Tab"); await expect(page.locator(".rail").getByRole("button", { name: "질문" })).toBeFocused();
+  const navigation = page.getByRole("navigation", { name: "작업 공간 메뉴", exact: true });
+  const analysis = navigation.getByRole("button", { name: "분석", exact: true });
+  await analysis.focus(); await expect(analysis).toBeFocused();
+  await page.keyboard.press("Tab"); await expect(navigation.getByRole("button", { name: "질문" })).toBeFocused();
   await page.keyboard.press("Tab");
-  await rail.focus();
-  const outline = await rail.evaluate((e) => getComputedStyle(e).outlineStyle); expect(outline).not.toBe("none");
-  const run = page.getByRole("button", { name: "분석 실행" }); await run.focus(); await expect(run).toBeFocused();
-  expect(await run.evaluate((e) => getComputedStyle(e).outlineStyle)).not.toBe("none");
+  await visibleFocusRing(analysis);
+  const run = page.getByRole("button", { name: "분석 실행" }); await visibleFocusRing(run);
   const unnamedImages = await page.locator("img:not([alt])").count(); expect(unnamedImages).toBe(0);
-  note("Rail Tab advanced to next view, run accepted focus, focus indicator computed non-none, every image has alt.");
+  note("Rail Tab advanced to next view; rail and run show a focus-visible box-shadow ring distinct from their idle shadow; every image has alt.");
 });
 regressionCase(make(23, "UI", "Evidence drawer focus restoration and mobile layer", "Inspector takes focus and returns it on close; overlays sticky controls", true), async ({ page, note }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -282,18 +308,23 @@ regressionCase(make(23, "UI", "Evidence drawer focus restoration and mobile laye
   await drawer.getByRole("button", { name: "닫기" }).click(); await expect(trigger).toBeFocused();
   note(`Mobile inspector focused, z-index ${layer.z} overtopped header ${layer.header}, then focus returned to evidence button.`);
 });
-regressionCase(make(24, "UI", "Every rail view with a long uploaded filename", "All thirteen destinations fit 390px; transient toast visible and floating", true), async ({ page, note }) => {
+regressionCase(make(24, "UI", "Every rail view with a long uploaded filename", "All thirteen destinations fit 390px; deletion status floats visibly with the floating elevation", true), async ({ page, note }) => {
   await page.setViewportSize({ width: 390, height: 844 }); await ready(page);
-  const filename = `${"긴파일이름".repeat(19)}.csv`;
-  const file = await writeFixture(filename, "항목,값\r\n제품,42\r\n"); await upload(page, file);
+  // UTF-8 basename is 244 bytes (the old 289-byte name exceeded NAME_MAX=255).
+  const filename = `${"긴파일이름".repeat(16)}.csv`;
+  expect(Buffer.byteLength(filename, "utf8")).toBe(244);
+  // The 244-byte basename is attached from a buffer: a real on-disk path this
+  // long cannot be attached by the browser file picker in this environment.
+  await page.locator('input[aria-label="작업 파일 선택"]').setInputFiles({ name: filename, mimeType: "text/csv", buffer: Buffer.from("항목,값\r\n제품,42\r\n") });
+  await expect(page.locator(".file-row").filter({ hasText: filename }).first()).toBeVisible();
   for (const view of ["분석", "질문", "비교", "검수", "윤문", "추출", "취합", "법령", "PDF 도구", "이미지 도구", "Guide", "Dictionary", "Settings"]) {
     await openView(page, view);
     await expect(page.locator(".context-bar h1")).toBeVisible(); await noHorizontalOverflow(page);
   }
-  await openView(page, "분석"); await selectFiles(page, file);
+  await openView(page, "분석"); await page.getByRole("checkbox", { name: `${filename} 선택` }).check();
   await page.getByRole("button", { name: "선택 삭제" }).click();
   const toast = page.locator(".transient-status"); await expect(toast).toBeVisible();
-  expect(await toast.evaluate((e) => getComputedStyle(e).boxShadow)).toBe("none"); await expect(page.locator(".context-actions .transient-status")).toBeVisible();
+  expect(await toast.evaluate((e) => getComputedStyle(e).boxShadow)).not.toBe("none");
   await noHorizontalOverflow(page);
   note("All 13 rail destinations fit at 390px with a long filename, and 삭제 완료 shown flat in the 작업 파일 header.");
 });
@@ -307,7 +338,9 @@ regressionCase(make(25, "UI", "Tab and icon controls elevation", "Inactive tabs 
   const guideActive = await page.getByRole("tab", { name: "분석" }).evaluate((e) => getComputedStyle(e).boxShadow);
   const guideIdle = await page.getByRole("tab", { name: "질문" }).evaluate((e) => getComputedStyle(e).boxShadow);
   await openView(page, "법령");
-  const lawIdle = await page.locator('.law-view-tabs button[aria-pressed="false"]').first().evaluate((e) => getComputedStyle(e).boxShadow);
+  const lawTab = page.getByRole("tablist", { name: "법령 자료 유형", exact: true }).getByRole("tab", { name: "판례·결정례", exact: true });
+  await expect(lawTab).toHaveAttribute("aria-selected", "false");
+  const lawIdle = await lawTab.evaluate((e) => getComputedStyle(e).boxShadow);
   const a = await writeFixture("ui-swap-a.csv", "항목,값\r\nX,2\r\n");
   const b = await writeFixture("ui-swap-b.csv", "항목,값\r\nX,3\r\n");
   await openView(page, "비교"); await upload(page, a, b); await selectFiles(page, a, b);

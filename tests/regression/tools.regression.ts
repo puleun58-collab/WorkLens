@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import { unzipSync } from "fflate";
 import sharp from "sharp";
@@ -77,8 +77,18 @@ async function decoded(result: Result, format: "jpeg" | "png" | "webp", size: Si
   return info;
 }
 
-async function imageExport(page: Page, format: string) {
-  await page.locator(".image-tool-export").getByLabel("형식").selectOption(format);
+// coss Select exposes a combobox trigger and portal-mounted listbox options.
+async function selectToolOption(page: Page, surface: Locator, label: string, option: string | RegExp) {
+  const trigger = surface.getByRole("combobox", { name: label, exact: true });
+  await trigger.click();
+  await page.getByRole("listbox").getByRole("option", { name: option, exact: true }).click();
+  await expect(trigger).toHaveText(option);
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+}
+
+async function imageExport(page: Page, format: "jpg" | "png" | "webp" | "pdf") {
+  const labels = { jpg: "JPG", png: "PNG", webp: "WebP", pdf: "PDF" };
+  await selectToolOption(page, page.locator(".image-tool-export"), "형식", labels[format]);
   return saved(page);
 }
 
@@ -123,13 +133,13 @@ regressionCase({ id: "TOOL-02", category: "PDF", input: "Three mixed-size PDFs i
 regressionCase({ id: "TOOL-03", category: "PDF", input: "Select none, some, then all", format: "PDF", structure: "3 distinct pages", expected: "Selected export disabled at zero, contains only checked page, then all three", mobile: true }, async ({ page, note }) => {
   await enter(page, "PDF 도구");
   await pdfInput(page, "tool-selection.pdf", await sizedPdf([210, 310], [220, 320], [230, 330]));
-  await page.locator(".pdf-tool-export").getByLabel("페이지").selectOption("selected");
+  await selectToolOption(page, page.locator(".pdf-tool-export"), "페이지", /^선택 \(\d+\)$/u);
   await expect(page.locator(".tool-export-button")).toBeDisabled();
-  await page.getByLabel("2번 페이지 선택").check();
+  await page.getByRole("checkbox", { name: "2번 페이지 선택", exact: true }).check();
   const some = await pdfSizes(await saved(page));
-  await page.getByLabel("전체 선택").check();
+  await page.getByRole("checkbox", { name: "전체 선택", exact: true }).check();
   const all = await pdfSizes(await saved(page));
-  await page.getByLabel("전체 선택").uncheck();
+  await page.getByRole("checkbox", { name: "전체 선택", exact: true }).uncheck();
   await expect(page.locator(".tool-export-button")).toBeDisabled();
   note(`Selected ${JSON.stringify(some)}, all ${JSON.stringify(all)}, none disables export`);
   expect(some).toEqual([{ width: 220, height: 320 }]);
@@ -140,10 +150,10 @@ regressionCase({ id: "TOOL-03", category: "PDF", input: "Select none, some, then
 regressionCase({ id: "TOOL-04", category: "PDF", input: "Rotate selected pages both directions", format: "PDF", structure: "Portrait and landscape", expected: "Downloaded pages carry independent 270° and 90° rotations" }, async ({ page, note }) => {
   await enter(page, "PDF 도구");
   await pdfInput(page, "tool-rotation.pdf", await sizedPdf([410, 610], [810, 510]));
-  await page.getByLabel("1번 페이지 선택").check();
+  await page.getByRole("checkbox", { name: "1번 페이지 선택", exact: true }).check();
   await page.getByRole("button", { name: /왼쪽 90°/ }).click();
-  await page.getByLabel("1번 페이지 선택").uncheck();
-  await page.getByLabel("2번 페이지 선택").check();
+  await page.getByRole("checkbox", { name: "1번 페이지 선택", exact: true }).uncheck();
+  await page.getByRole("checkbox", { name: "2번 페이지 선택", exact: true }).check();
   await page.getByRole("button", { name: /오른쪽 90°/ }).click();
   const pdf = await PDFDocument.load((await saved(page)).bytes);
   const rotations = pdf.getPages().map((item) => item.getRotation().angle);
@@ -157,7 +167,7 @@ regressionCase({ id: "TOOL-05", category: "PDF", input: "Delete selection and re
   await pdfInput(page, "tool-delete-a.pdf", await sizedPdf([311, 411], [312, 412]));
   await pdfInput(page, "tool-delete-b.pdf", await sizedPdf([313, 413]));
   await pdfInput(page, "tool-delete-c.pdf", await sizedPdf([314, 414]));
-  await page.getByLabel("2번 페이지 선택").check();
+  await page.getByRole("checkbox", { name: "2번 페이지 선택", exact: true }).check();
   await page.getByRole("button", { name: "선택 삭제" }).click();
   await page.getByRole("button", { name: "tool-delete-b.pdf 제거" }).click();
   const sizes = await pdfSizes(await saved(page));
@@ -169,7 +179,7 @@ regressionCase({ id: "TOOL-05", category: "PDF", input: "Delete selection and re
 regressionCase({ id: "TOOL-06", category: "PDF", input: "Delete every page and add fresh input", format: "PDF", structure: "Empty then re-populated", expected: "Empty state disables export and later upload yields only new content" }, async ({ page, note }) => {
   await enter(page, "PDF 도구");
   await pdfInput(page, "tool-clear.pdf", await sizedPdf([340, 440], [341, 441]));
-  await page.getByLabel("전체 선택").check();
+  await page.getByRole("checkbox", { name: "전체 선택", exact: true }).check();
   await page.getByRole("button", { name: "선택 삭제" }).click();
   await expect(page.locator(".pdf-tool-page")).toHaveCount(0);
   await expect(page.locator(".pdf-tool-source")).toHaveCount(0);
@@ -183,7 +193,7 @@ regressionCase({ id: "TOOL-06", category: "PDF", input: "Delete every page and a
 regressionCase({ id: "TOOL-07", category: "PDF", input: "Single PDF page to JPG", format: "JPG", structure: "Landscape page", expected: "Download is JPEG with landscape pixel dimensions" }, async ({ page, note }) => {
   await enter(page, "PDF 도구");
   await pdfInput(page, "tool-jpeg.pdf", await sizedPdf([800, 400]));
-  await page.locator(".pdf-tool-export").getByLabel("형식").selectOption("jpg");
+  await selectToolOption(page, page.locator(".pdf-tool-export"), "형식", "JPG");
   const result = await saved(page);
   const meta = await sharp(result.bytes).metadata();
   note(`${result.name}: ${meta.format} ${meta.width}x${meta.height}`);
@@ -198,13 +208,13 @@ regressionCase({ id: "TOOL-08", category: "PDF", input: "Selected pages to PNG Z
   await pdfInput(page, "tool-z1.pdf", await sizedPdf([400, 800]));
   await pdfInput(page, "tool-z2.pdf", await sizedPdf([800, 400]));
   await pdfInput(page, "tool-z3.pdf", await sizedPdf([550, 800]));
-  await page.getByLabel("1번 페이지 선택").check();
-  await page.getByLabel("2번 페이지 선택").check();
+  await page.getByRole("checkbox", { name: "1번 페이지 선택", exact: true }).check();
+  await page.getByRole("checkbox", { name: "2번 페이지 선택", exact: true }).check();
   await page.getByRole("button", { name: /오른쪽 90°/ }).click();
-  await page.getByLabel("1번 페이지 선택").uncheck();
-  await page.getByLabel("3번 페이지 선택").check();
-  await page.locator(".pdf-tool-export").getByLabel("페이지").selectOption("selected");
-  await page.locator(".pdf-tool-export").getByLabel("형식").selectOption("png");
+  await page.getByRole("checkbox", { name: "1번 페이지 선택", exact: true }).uncheck();
+  await page.getByRole("checkbox", { name: "3번 페이지 선택", exact: true }).check();
+  await selectToolOption(page, page.locator(".pdf-tool-export"), "페이지", /^선택 \(\d+\)$/u);
+  await selectToolOption(page, page.locator(".pdf-tool-export"), "형식", "PNG");
   const result = await saved(page);
   const files = unzipSync(result.bytes);
   const names = Object.keys(files);
@@ -218,7 +228,7 @@ regressionCase({ id: "TOOL-08", category: "PDF", input: "Selected pages to PNG Z
 regressionCase({ id: "TOOL-09", category: "PDF", input: "Three PDF pages to JPG ZIP", format: "JPG ZIP", structure: "1 file, 3 page sizes", expected: "Each ZIP member is a JPEG in page order" }, async ({ page, note }) => {
   await enter(page, "PDF 도구");
   await pdfInput(page, "tool-jpg-zip.pdf", await sizedPdf([300, 600], [600, 300], [400, 400]));
-  await page.locator(".pdf-tool-export").getByLabel("형식").selectOption("jpg");
+  await selectToolOption(page, page.locator(".pdf-tool-export"), "형식", "JPG");
   const result = await saved(page);
   const files = unzipSync(result.bytes);
   const names = Object.keys(files);
@@ -243,10 +253,9 @@ regressionCase({ id: "TOOL-10", category: "PDF", input: "Three PDF compression l
   pageIn.drawImage(image, { x: 10, y: 100, width: 620, height: 620 });
   pageIn.drawText("RETAIN TEXT", { x: 20, y: 30, font: await doc.embedFont(StandardFonts.Helvetica) });
   await pdfInput(page, "tool-compression.pdf", await doc.save());
-  const level = page.locator(".pdf-tool-export").getByLabel("압축");
   const lengths: number[] = [];
-  for (const compression of ["quality", "balanced", "size"]) {
-    await level.selectOption(compression);
+  for (const compression of ["고화질", "균형 (권장)", "강력 압축"]) {
+    await selectToolOption(page, page.locator(".pdf-tool-export"), "압축", compression);
     const output = await saved(page);
     expect(await pdfSizes(output)).toEqual([{ width: 640, height: 740 }]);
     pdfjs.GlobalWorkerOptions.workerSrc = new URL("../../public/pdf.worker.mjs", import.meta.url).href;
@@ -284,12 +293,12 @@ regressionCase({ id: "TOOL-11", category: "PDF", input: "Corrupt PDF and non-PDF
 regressionCase({ id: "TOOL-12", category: "PDF", input: "Export cancellation", format: "PNG then PDF", structure: "Multi-page render cancelled mid-operation", expected: "Cancellation preserves source pages for subsequent PDF export" }, async ({ page, note }) => {
   await enter(page, "PDF 도구");
   await pdfInput(page, "tool-cancel.pdf", await sizedPdf(...Array.from({ length: 18 }, (_, index) => [450 + index, 650] as [number, number])));
-  await page.locator(".pdf-tool-export").getByLabel("형식").selectOption("png");
+  await selectToolOption(page, page.locator(".pdf-tool-export"), "형식", "PNG");
   await page.locator(".tool-export-button").click();
   await page.getByRole("button", { name: "취소", exact: true }).click();
   await expect(page.getByRole("button", { name: "취소", exact: true })).toHaveCount(0);
   await expect(page.locator(".pdf-tool-page")).toHaveCount(18);
-  await page.locator(".pdf-tool-export").getByLabel("형식").selectOption("pdf");
+  await selectToolOption(page, page.locator(".pdf-tool-export"), "형식", "PDF");
   const sizes = await pdfSizes(await saved(page));
   note(`Cancelled rendering, then ${sizes.length} pages exported`);
   expect(sizes.map(({ width }) => width)).toEqual(Array.from({ length: 18 }, (_, index) => 450 + index));
@@ -317,7 +326,7 @@ regressionCase({ id: "TOOL-17", category: "Image", input: "Tiny image and aspect
   await decoded(await imageExport(page, "png"), "png", { width: 1, height: 1 });
   await imageInput(page, "tool-resize.png", 800, 600);
   await page.locator(".image-tool-file-open").filter({ hasText: "tool-resize.png" }).click();
-  await page.getByLabel("tool-tiny.png 선택").uncheck();
+  await page.getByRole("checkbox", { name: "tool-tiny.png 선택", exact: true }).uncheck();
   await page.getByLabel("너비 px").fill("400");
   await page.getByLabel("너비 px").press("Tab");
   await expect(page.getByLabel("높이 px")).toHaveValue("300");
@@ -332,7 +341,7 @@ regressionCase({ id: "TOOL-17", category: "Image", input: "Tiny image and aspect
 regressionCase({ id: "TOOL-18", category: "Image", input: "Unlinked dimensions and both rotations", format: "PNG", structure: "300×180 asymmetric input", expected: "Unlocked resize is independent; left then right restores size" }, async ({ page, note }) => {
   await enter(page, "이미지 도구");
   await imageInput(page, "tool-unlocked.png", 300, 180);
-  await page.getByLabel("비율 유지").uncheck();
+  await page.getByRole("checkbox", { name: "비율 유지", exact: true }).uncheck();
   await page.getByLabel("너비 px").fill("200");
   await page.getByLabel("너비 px").press("Tab");
   await imageExport(page, "png").then((result) => decoded(result, "png", { width: 200, height: 180 }));
@@ -419,11 +428,11 @@ for (const [id, count, label, cells] of [
     await enter(page, "이미지 도구");
     const colors = (["red", "green", "blue", "yellow", "magenta"] as const).slice(0, count);
     await imageFiles(page, colors.map((color, index) => [`tool-merge-${id}-${index}.png`, 60 + index * 30, 90 - index * 20, color] as [string, number, number, string]));
-    await page.getByLabel("선택 이미지 한 장으로 결합").check();
+    await page.getByRole("checkbox", { name: "선택 이미지 한 장으로 결합", exact: true }).check();
     await expect(page.getByLabel("간격 px")).toHaveCount(0); await expect(page.getByLabel("배경")).toHaveCount(0);
-    await expect(page.locator('fieldset[aria-label="배치"]').getByRole("radio")).toHaveCount(count >= 4 ? 1 : 2);
-    await page.locator('fieldset[aria-label="비율"]').getByRole("radio", { name: "1:1" }).check({ force: true });
-    await page.locator('fieldset[aria-label="배치"]').getByRole("radio", { name: label }).check({ force: true });
+    await expect(page.locator('[aria-label="배치"]').getByRole("radio")).toHaveCount(count >= 4 ? 1 : 2);
+    await page.locator('[aria-label="비율"]').getByRole("radio", { name: "1:1" }).check({ force: true });
+    await page.locator('[aria-label="배치"]').getByRole("radio", { name: label }).check({ force: true });
     const output = await imageExport(page, "png");
     const meta = await sharp(output.bytes).metadata();
     expect(meta.width).toBe(meta.height);
@@ -448,9 +457,9 @@ for (const [id, count, label, cells] of [
 regressionCase({ id: "TOOL-26e", category: "Image", input: "4:3 vertical merge preview/export", format: "PNG", structure: "2 asymmetric colored images", expected: "Preview pixels and downloaded PNG share dimensions, layout and colors" }, async ({ page, note }) => {
   await enter(page, "이미지 도구");
   await imageFiles(page, [["tool-ratio-red.png", 80, 120, "red"], ["tool-ratio-blue.png", 100, 60, "blue"]]);
-  await page.getByLabel("선택 이미지 한 장으로 결합").check();
-  await page.locator('fieldset[aria-label="비율"]').getByRole("radio", { name: "4:3" }).check({ force: true });
-  await page.locator('fieldset[aria-label="배치"]').getByRole("radio", { name: "상하" }).check({ force: true });
+  await page.getByRole("checkbox", { name: "선택 이미지 한 장으로 결합", exact: true }).check();
+  await page.locator('[aria-label="비율"]').getByRole("radio", { name: "4:3" }).check({ force: true });
+  await page.locator('[aria-label="배치"]').getByRole("radio", { name: "상하" }).check({ force: true });
   const canvas = page.getByLabel("결합 이미지 미리보기");
   await expect.poll(async () => canvas.evaluate((element: HTMLCanvasElement) => element.width / element.height)).toBeCloseTo(4 / 3, 2);
   const preview = await canvas.evaluate((element: HTMLCanvasElement) => {
@@ -472,7 +481,7 @@ regressionCase({ id: "TOOL-26e", category: "Image", input: "4:3 vertical merge p
 regressionCase({ id: "TOOL-27", category: "Image", input: "Four selected images into ZIP", format: "PNG ZIP", structure: "JPG, JPEG, PNG, WebP inputs", expected: "Four independently decoded PNG entries preserve source sizes" }, async ({ page, note }) => {
   await enter(page, "이미지 도구");
   await imageFiles(page, [["tool-four-a.jpg", 80, 50, "red"], ["tool-four-b.jpeg", 90, 60, "green"], ["tool-four-c.png", 100, 70, "blue"], ["tool-four-d.webp", 110, 80, "yellow"]]);
-  await page.locator(".image-tool-export").getByLabel("형식").selectOption("png");
+  await selectToolOption(page, page.locator(".image-tool-export"), "형식", "PNG");
   const result = await saved(page);
   const files = unzipSync(result.bytes);
   const names = Object.keys(files);
@@ -495,7 +504,7 @@ regressionCase({ id: "TOOL-28", category: "Image", input: "Multiple images into 
 regressionCase({ id: "TOOL-29", category: "Image", input: "Merged image exported as PDF", format: "PDF", structure: "2 PNGs 좌우 at default 1:1", expected: "One square PDF page" }, async ({ page, note }) => {
   await enter(page, "이미지 도구");
   await imageFiles(page, [["tool-pdf-merge-a.png", 100, 70, "red"], ["tool-pdf-merge-b.png", 90, 80, "blue"]]);
-  await page.getByLabel("선택 이미지 한 장으로 결합").check();
+  await page.getByRole("checkbox", { name: "선택 이미지 한 장으로 결합", exact: true }).check();
   const result = await imageExport(page, "pdf");
   const sizes = await pdfSizes(result);
   note(`${result.name}: ${JSON.stringify(sizes)}`);

@@ -36,7 +36,7 @@ async function prepared(page: Page, name: string, data: Uint8Array | string) {
   await page.goto("/");
   const file = await writeFixture(name, data);
   await upload(page, file);
-  await expect(row(page, name)).toContainText(/ready/i);
+  await expect(row(page, name)).toContainText("준비 완료");
   await expect(row(page, name)).toContainText(path.extname(name).slice(1).toUpperCase());
   return file;
 }
@@ -94,7 +94,7 @@ async function expectedReject(page: Page, name: string, data: Uint8Array | strin
   await expect(page.locator(".notice.error")).toContainText(message);
   const error = await page.locator(".notice.error").innerText();
   expect(error).not.toMatch(/TypeError|ReferenceError|SyntaxError|Error:|at [a-zA-Z]+\s*\(/);
-  await expect(row(page, path.basename(good))).toContainText(/ready/i);
+  await expect(row(page, path.basename(good))).toContainText("준비 완료");
   // Exact match: the good file's name (DOC-good-<name>.csv) contains the rejected name.
   expect(await page.locator(".file-row .file-info strong").allInnerTexts()).not.toContain(name);
   await openView(page, "추출");
@@ -321,23 +321,35 @@ regressionCase({ id: "DOC-47", category: "Upload", input: "11 files", format: "C
   await input(page).setInputFiles(paths[10]);
   await expect(page.locator(".notice.error")).toContainText("한 번에 최대 10개 파일까지 다룰 수 있습니다.");
   await expect(page.locator(".file-row")).toHaveCount(10);
-  await expect(row(page, path.basename(paths[0]))).toContainText(/ready/i);
+  await expect(row(page, path.basename(paths[0]))).toContainText("준비 완료");
   classify("Unsupported");
   note("10 ready CSV rows; 11th denied with Korean max-count message");
 });
 regressionCase({ id: "DOC-48", category: "Upload", input: "Korean English digits spaces brackets hyphen underscore", format: "CSV", structure: "legal filename characters", expected: "Exact name in metadata and downloaded CSV file column" }, async ({ page, note }) => {
-  const file = await prepared(page, "DOC-서울 Team_2026 (final)-v2.csv", "항목,값\r\n담당자,최진호\r\n");
-  await expect(row(page, path.basename(file)).locator(".file-info strong")).toHaveText(path.basename(file));
+  await page.goto("/");
+  // setInputFiles does not wait for React hydration/change-event binding.
+  await expect(page.locator(".app-shell")).toHaveAttribute("data-hydrated", "true");
+  const name = "DOC-서울 Team_2026 (final)-v2.csv";
+  // Attached from a buffer: a path with spaces/parentheses/mixed scripts cannot
+  // be attached by the browser file picker in this environment, while the app
+  // itself accepts the exact name (verified via buffer upload).
+  await page.locator('input[aria-label="작업 파일 선택"]').setInputFiles({ name, mimeType: "text/csv", buffer: Buffer.from("항목,값\r\n담당자,최진호\r\n") });
+  const file = name;
+  await expect(page.locator(".file-row").filter({ hasText: name }).first()).toBeVisible({ timeout: 30_000 });
+  const fileRow = page.locator(".file-row").filter({ has: page.getByRole("checkbox", { name: `${name} 선택`, exact: true }) });
+  await expect(fileRow).toContainText("준비 완료");
+  await expect(fileRow.locator(".file-info strong")).toHaveText(name);
+  await expect(fileRow.locator(".file-info strong")).toHaveAttribute("title", name);
   await runExtract(page, file);
   expect((await csvRows(page)).some((r) => r[0] === path.basename(file) && r[2] === "최진호")).toBe(true);
-  note("Exact mixed-script filename in file list and downloaded CSV provenance");
+  note("After hydration, exact mixed-script filename in accessible row, title and downloaded CSV provenance");
 });
 regressionCase({ id: "DOC-49", category: "UI", input: "240-character filename", format: "CSV", structure: "long legal basename at 390×844", expected: "READY and no document-level horizontal overflow on mobile", mobile: true }, async ({ page, note }) => {
   const name = `${"가".repeat(236)}.csv`;
   // Uploaded from memory: the on-disk fixture path would exceed Windows' 260-character MAX_PATH.
   await page.goto("/");
   await input(page).setInputFiles({ name, mimeType: "text/csv", buffer: Buffer.from("항목,값\r\n담당자,김지은\r\n") });
-  await expect(row(page, name)).toContainText(/ready/i);
+  await expect(row(page, name)).toContainText("준비 완료");
   const file = name;
   await expect(row(page, name).locator(".file-info strong")).toHaveText(name);
   await noHorizontalOverflow(page);
@@ -396,7 +408,7 @@ regressionCase({ id: "DOC-52", category: "Upload", input: "four large DOCX files
   await input(page).setInputFiles(file);
   await expect(page.locator(".notice.error")).toContainText(/총 파일 용량\(300 MB\)을 초과합니다/, { timeout: 120_000 });
   await expect(page.locator(".file-row")).toHaveCount(3);
-  await expect(page.locator(".file-row").first()).toContainText(/ready/i);
+  await expect(page.locator(".file-row").first()).toContainText("준비 완료");
   classify("Unsupported");
   note("Three 76 MiB documents READY (228 MiB); fourth denied at 304 MiB total; three rows intact");
 });
