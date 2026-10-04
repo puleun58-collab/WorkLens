@@ -34,6 +34,12 @@ describe("review provenance identity", () => {
     const input = { fromFile: false, fileId: "a", request, files: [] };
     const previous = { request, preferences: { expandSources: false } };
     expect(reviewIsStale(previous, input)).toBe(false);
+    const padded = { ...request, text: ` \n${request.text}\t ` };
+    expect(reviewIsStale(previous, { ...input, request: padded })).toBe(false);
+    expect(reviewIsStale({ request: padded }, input)).toBe(false);
+    expect(padded.text).toBe(` \n${request.text}\t `);
+    expect(reviewIsStale(previous, { ...input, request: { ...request, text: request.text.replace("직접 입력", "직접  입력") } })).toBe(true);
+    expect(reviewIsStale(previous, { ...input, request: { ...request, text: request.text.replace("직접 입력", "직접\n입력") } })).toBe(true);
     const expanded = { ...previous, preferences: { expandSources: true } };
     expect(reviewIsStale(expanded, input)).toBe(false);
     expect(reviewIsStale(previous, { ...input, request: { ...request, text: "수정된 입력" } })).toBe(true);

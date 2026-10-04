@@ -39,7 +39,7 @@ describe("Groq reasoning effort policy", () => {
     expect(reasoningEffortFor(operation)).toBe("medium");
   });
 
-  it.each(["unregistered-operation", "", "high", "constructor", "__proto__", "ANALYZE", "supplement-review ", " research-interpretation"])("defaults unregistered input %j to low, never high", (operation) => {
+  it.each(["unregistered-operation", "", "high", "constructor", "__proto__", "ANALYZE", "SUPPLEMENT-REVIEW", "Research-Interpretation", "supplement-review ", " research-interpretation", "\tresearch-interpretation\n"])("defaults unregistered input %j to low, never high", (operation) => {
     expect(reasoningEffortFor(operation)).toBe("low");
   });
 });
@@ -256,7 +256,7 @@ describe("Groq provider adapter", () => {
     vi.stubGlobal("fetch", providerFetch);
     const log = vi.spyOn(console, "info").mockImplementation(() => undefined);
 
-    await runGroqAi(request);
+    await runGroqAi(request, { requestId: "policy-test" });
 
     expect(providerFetch).toHaveBeenCalledOnce();
     const [, init] = providerFetch.mock.calls[0] as [string, RequestInit];
@@ -272,6 +272,8 @@ describe("Groq provider adapter", () => {
       reasoningEffort: effort,
       model: "openai/gpt-oss-120b",
       durationMs: expect.any(Number),
+      requestId: "policy-test",
+      attempt: 1,
       promptTokens: 10,
       completionTokens: 20,
       totalTokens: 30,
@@ -380,6 +382,16 @@ describe("Groq provider adapter", () => {
       providerReason: "unsupported_response_format",
       requestId: body.requestId,
       operation: "polish",
+      kind: "polish",
+      reasoningEffort: "low",
+      model: "openai/gpt-oss-120b",
+      durationMs: expect.any(Number),
+      attempt: 1,
+      failureCode: "AI_PROVIDER_REJECTED",
+      promptTokens: undefined,
+      completionTokens: undefined,
+      totalTokens: undefined,
+      providerLimit: undefined,
       timestamp: expect.any(String),
     });
     expect(JSON.stringify(log.mock.calls)).not.toContain("기밀 문서 본문");
