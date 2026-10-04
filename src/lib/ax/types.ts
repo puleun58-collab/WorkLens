@@ -1,0 +1,11 @@
+import type { z } from "zod";
+import type { axTaskSchema, axDiagnosisSchema, axPlanSchema, axStateSchema, axDetailsSchema, axDiagnosisRequestSchema, axPlanRequestSchema, FACTOR_KEYS } from "./schema";
+export type AxTask = z.infer<typeof axTaskSchema>;
+export type AxDiagnosis = z.infer<typeof axDiagnosisSchema>;
+export type AxPlan = z.infer<typeof axPlanSchema>;
+export type AxState = z.infer<typeof axStateSchema>;
+export type AxDetails = z.infer<typeof axDetailsSchema>;
+export type AxDiagnosisRequest = z.infer<typeof axDiagnosisRequestSchema>;
+export type AxPlanRequest = z.infer<typeof axPlanRequestSchema>;
+export type FactorKey = typeof FACTOR_KEYS[number];
+export const emptyAxState = (): AxState => ({ schemaVersion: 1, tasks: [], selectedTaskId: null, step: 1 });

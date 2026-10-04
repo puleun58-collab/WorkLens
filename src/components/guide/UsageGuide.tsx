@@ -164,6 +164,16 @@ const GUIDES: Guide[] = [
     ],
   },
   {
+    id: "ax", label: "업무 자동화 진단", summary: "업무를 등록하고 자동화 가능성, 우선순위와 실행 계획을 확인합니다.",
+    steps: [
+      { title: "업무 등록", text: "설명을 입력해 등록합니다. 여러 업무는 후보를 수정·분리·합치기한 뒤 확정할 수 있습니다.", mini: <Run label="업무 등록" before={<Field text="자료 취합과 승인 절차" />} /> },
+      { title: "업무 진단", text: "업무 진단 실행을 누르고 핵심 질문에 답합니다. AI 근거를 확인해 6종 점수를 보정합니다.", mini: <Result title="진단 결과" status="진단 완료" lines={["반복성 · 규칙성 · 데이터 구조화", "시스템 접근성 · 사람 판단 · 위험"]} /> },
+      { title: "자동화 매트릭스", text: "기술 실현 가능성과 자동화 가치로 업무를 비교합니다. 모바일에서는 목록으로 확인합니다.", mini: <Result title="자동화 매트릭스" status="진단 업무" lines={["빠른 실행 후보 · 전략 과제", "검토 후보 · 수동 유지·보류"]} /> },
+      { title: "결과·로드맵", text: "우선순위, PoC와 운영·Fallback을 확인하고 Codex 또는 Claude Code용 구현 계획을 생성합니다.", mini: <Result title="결과·로드맵" status="검토 대기" actions={["Codex용 구현 계획 생성"]} lines={["우선순위 · 선정 이유 · 다음 행동"]} /> },
+    ],
+    tip: "데이터 관리에서 내보내기·가져오기·초기화가 가능합니다. 첨부 원본과 요약은 저장하지 않으며 재분석 시 다시 첨부해야 합니다.",
+  },
+  {
     id: "dictionary", label: "용어 사전", summary: "맞춤법과 용어 오탐을 줄이기 위한 사전입니다.",
     steps: [
       { title: "용어 사전 열기", text: "메뉴의 도움말에서 용어 사전을 누릅니다. 좁은 화면에서는 메뉴 버튼을 먼저 엽니다.", mini: <span className="mini-files"><span className="mini-row"><span className="mini-name">사용 가이드</span></span><span className="mini-row is-mark is-checked"><span className="mini-name">용어 사전</span></span><span className="mini-row"><span className="mini-name">설정</span></span></span> },

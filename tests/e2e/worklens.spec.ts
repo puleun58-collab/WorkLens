@@ -410,7 +410,7 @@ test("usage guide switches feature flows on desktop and mobile", async ({ page }
   await expect(page.getByRole("button", { name: "Guide" })).toHaveAttribute("aria-current", "page");
   await expect(page.getByRole("tab", { name: "분석", exact: true })).toHaveAttribute("aria-selected", "true");
   const tabs = page.getByRole("tablist", { name: "기능 선택" });
-  await expect(tabs.getByRole("tab")).toHaveText(["분석", "질문", "비교", "검수", "보완", "윤문", "추출", "취합", "법령", "PDF 도구", "이미지 도구", "용어 사전"]);
+  await expect(tabs.getByRole("tab")).toHaveText(["분석", "질문", "비교", "검수", "보완", "윤문", "추출", "취합", "법령", "PDF 도구", "이미지 도구", "업무 자동화 진단", "용어 사전"]);
   for (const removed of ["종합 리서치", "문서 검토", "설정"]) {
     await expect(tabs.getByRole("tab", { name: removed, exact: true })).toHaveCount(0);
   }
@@ -2787,8 +2787,8 @@ test("keeps legal destinations grouped, command search shortcut-only, and review
   };
 
   await openMenu();
-  await expect(navigation.getByRole("heading")).toHaveText(["WORKSPACE", "RESEARCH", "TOOLS"]);
-  await expect(navigation.getByRole("button")).toHaveCount(14);
+  await expect(navigation.getByRole("heading")).toHaveText(["WORKSPACE", "RESEARCH", "TOOLS", "AX"]);
+  await expect(navigation.getByRole("button")).toHaveCount(15);
   for (const [accessibleName, visibleLabel] of [["Guide", "사용 가이드"], ["Dictionary", "용어 사전"], ["Settings", "설정"]] as const) {
     const helpItem = navigation.getByRole("button", { name: accessibleName, exact: true });
     await expect(helpItem).toBeVisible();
@@ -2803,7 +2803,7 @@ test("keeps legal destinations grouped, command search shortcut-only, and review
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await page.keyboard.press("Control+K");
   await expect(page.getByRole("dialog").getByLabel("기능 검색")).toHaveAttribute("placeholder", "기능 검색…");
-  await expect(page.getByRole("dialog").getByRole("group").filter({ hasText: /^(WORKSPACE|RESEARCH|TOOLS|HELP)/ })).toHaveCount(4);
+  await expect(page.getByRole("dialog").getByRole("group").filter({ hasText: /^(WORKSPACE|RESEARCH|TOOLS|AX|HELP)/ })).toHaveCount(5);
   await expect(page.getByRole("dialog").getByText("검토 설정", { exact: true })).toHaveCount(0);
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toHaveCount(0);

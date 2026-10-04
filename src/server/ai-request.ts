@@ -1,3 +1,4 @@
+import { AX_LIMITS, axDiagnosisRequestSchema, axPlanRequestSchema } from "@/lib/ax/schema";
 import { z } from "zod";
 import { POLISH_BATCH_MAX_CHARS, POLISH_BATCH_MAX_ITEMS, SUPPLEMENT_REVIEW_MAX_CHECKS, type AiApiRequest } from "@/lib/ai/api";
 import { evidenceCharBudget, MAX_EVIDENCE_CHARS, MAX_EVIDENCE_ITEM_CHARS, MAX_EVIDENCE_ITEMS } from "@/lib/ai/prompt";
@@ -32,6 +33,7 @@ const taskSchema = z.discriminatedUnion("operation", [
 ]);
 
 const aiApiRequestSchema = z.discriminatedUnion("kind", [
+  axDiagnosisRequestSchema, axPlanRequestSchema,
   z.object({ kind: z.literal("claims"), request: taskSchema, items: evidenceItemsSchema }).strict(),
   z.object({
     kind: z.literal("polish"),
@@ -85,6 +87,10 @@ export function parseAiApiRequest(value: unknown): AiApiRequest {
   const parsed = aiApiRequestSchema.safeParse(value);
   if (!parsed.success) {
     throw new ApiError("INVALID_AI_REQUEST", "AI 요청 형식이 올바르지 않습니다.", 400);
+  }
+  if ((parsed.data.kind === "ax-diagnosis" || parsed.data.kind === "ax-plan")
+    && new TextEncoder().encode(JSON.stringify(parsed.data)).byteLength > AX_LIMITS.requestBytes) {
+    throw new ApiError("INVALID_AI_REQUEST", "AX 요청이 허용 크기를 초과했습니다.", 400);
   }
   return parsed.data;
 }
