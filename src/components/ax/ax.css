@@ -1,4 +1,4 @@
-.ax-view { color: var(--foreground); max-width: 1120px; margin: 0 auto; padding: 8px 0 40px; font-size: 14px; line-height: 1.7; }
+.ax-view { color: var(--foreground); max-width: 1120px; margin: 0 auto; padding: 0 0 40px; font-size: 14px; line-height: 1.7; }
 .ax-view h2 { font-size: 21px; font-weight: 650; margin: 20px 0 12px; }
 .ax-view h3 { font-size: 17px; font-weight: 650; margin: 0 0 12px; }
 .ax-view h4 { font-weight: 600; margin: 12px 0 6px; }
@@ -6,12 +6,14 @@
 .ax-view ul, .ax-view ol { padding-left: 20px; }
 .ax-view li { margin: 4px 0; overflow-wrap: anywhere; }
 .ax-muted, .ax-view small { color: var(--muted-foreground); }
-.ax-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.ax-toolbar > p { margin-right: auto; }
-.ax-save { color: var(--muted-foreground); font-size: 12px; }
+.ax-data-actions { display: flex; justify-content: flex-end; }
+.ax-required-label::after { content: " *"; color: var(--destructive-foreground); }
 .ax-notice { padding: 10px 0; border-bottom: 1px solid var(--border); }
-.ax-steps { display: flex; width: 100%; overflow-x: auto; justify-content: flex-start; margin: 24px 0; }
-.ax-steps [role=tab] { flex: 1; white-space: nowrap; gap: 8px; }
+.ax-steps { display: flex; width: 100%; overflow: visible; margin: 8px 0 24px; border-bottom: 1px solid var(--border); }
+.ax-steps [role=tab] { flex: 1 1 0; white-space: nowrap; gap: 8px; background: transparent; border: 0; border-radius: 0; box-shadow: none; color: var(--muted-foreground); font-weight: 400; }
+.ax-steps [role=tab][data-active] { color: var(--foreground); }
+.ax-steps [role=tab][data-active] .ax-step-label { font-weight: 600; }
+.ax-steps [role=tab]:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 .ax-step-number { font-size: 12px; }
 .ax-form, .ax-detail { min-width: 0; }
 .ax-form { display: flex; flex-direction: column; gap: 16px; }
@@ -20,7 +22,7 @@
 .ax-file-input > button { align-self: flex-start; }
 .ax-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 16px; padding: 12px 0; }
 .ax-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 16px 0; }
-.ax-register-layout { display: grid; grid-template-columns: minmax(0, 1.8fr) minmax(0, 1fr); gap: 40px; margin: 24px 0; }
+.ax-register-layout { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 40px; margin: 24px 0; }
 .ax-task-list { margin: 24px 0; }
 .ax-task-list ul { list-style: none; padding: 0; }
 .ax-task-list li { display: flex; border-bottom: 1px solid var(--border); align-items: center; gap: 8px; }
@@ -52,7 +54,8 @@
 .ax-view td button { white-space: normal; text-align: left; height: auto; }
 .ax-candidates { margin: 20px 0; }
 .ax-candidate { padding: 12px 0; border-bottom: 1px solid var(--border); }
-.ax-empty { padding: 32px 0; color: var(--muted-foreground); }
+.ax-empty { padding: 40px 0; }
+.ax-empty h3 { color: var(--foreground); margin-bottom: 8px; }
 .ax-matrix-desktop { padding: 40px 50px 0; }
 .ax-matrix { position: relative; height: 370px; margin: 20px 0 65px; border: 1px solid var(--border); }
 .ax-region { position: absolute; padding: 14px; font-size: 12px; color: var(--muted-foreground); }
@@ -76,9 +79,9 @@
 .ax-matrix-list { counter-reset: ax-task; }
 @media(max-width: 700px) {
   .ax-view { font-size: 13px; }
-  .ax-steps { overflow-x: visible; }
-  .ax-steps [role=tab] { flex: 1 1 0; min-width: 0; height: auto; min-height: 64px; padding: 6px 4px; flex-direction: column; gap: 4px; font-size: 12px; line-height: 1.45; white-space: normal; }
-  .ax-step-label { min-height: 2.9em; display: flex; align-items: center; justify-content: center; word-break: keep-all; }
+  .ax-steps { justify-content: flex-start; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+  .ax-steps::-webkit-scrollbar { display: none; }
+  .ax-steps [role=tab] { flex: 0 0 auto; white-space: nowrap; }
   .ax-register-layout { grid-template-columns: minmax(0,1fr); gap: 12px; }
   .ax-form-grid, .ax-columns { grid-template-columns: minmax(0,1fr); }
   .ax-definition { grid-template-columns: 80px minmax(0,1fr); gap: 10px; }

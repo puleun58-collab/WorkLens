@@ -10,7 +10,7 @@ export function AxSummary({ task }: { task: AxTask }) {
   if (!task.diagnosis) return null;
   const a = axes(task.diagnosis), l = automationLevel(task.diagnosis), action = nextAction(task.diagnosis);
   return <div className="ax-summary">
-    <Badge variant="outline">{l.label}{l.provisional ? " · 잠정" : ""}</Badge>
+    <Badge variant="outline">{l.label.replace(/^L\d+ /, "")} · Level {l.level}{l.provisional ? " · 잠정" : ""}</Badge>
     <p>자동화 가치 {a.value} · 기술 실현 가능성 {a.feasibility} · 사람 판단 {a.judgment} · 운영 위험 {a.risk}</p>
     <p><strong>{action.label}</strong> — {action.detail}</p>
   </div>;
