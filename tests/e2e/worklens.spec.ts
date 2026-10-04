@@ -100,6 +100,162 @@ async function upload(page: Page, filePath: string) {
   await expect(fileRow(page, filePath)).toBeVisible();
 }
 
+async function expectEmptyStateLayout(page: Page, showOperationBar: boolean) {
+  await expect(page.locator(".operation-bar")).toHaveCount(showOperationBar ? 1 : 0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+}
+
+for (const width of [1440, 390]) {
+  test(`empty-state Ask preserves the question across deselection and removal at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto("/");
+    await navigateWorkspace(page, "질문");
+    const question = page.getByLabel("질문 입력");
+    await expect(question).toHaveCount(0);
+    await expectEmptyStateLayout(page, false);
+
+    await upload(page, files.v1);
+    await expectEmptyStateLayout(page, false);
+    const selection = page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true });
+    await selection.check();
+    await expect(question).toBeVisible();
+    await question.fill("서울 운임은 얼마인가요?");
+    await expectEmptyStateLayout(page, true);
+    await selection.uncheck();
+    await expect(question).toHaveCount(0);
+    await expectEmptyStateLayout(page, false);
+    await selection.check();
+    await expect(question).toHaveValue("서울 운임은 얼마인가요?");
+
+    await page.getByRole("button", { name: "선택 삭제" }).click();
+    await expect(question).toHaveCount(0);
+    await expectEmptyStateLayout(page, false);
+    await upload(page, files.v1);
+    await selection.check();
+    await expect(question).toHaveValue("서울 운임은 얼마인가요?");
+    await expectEmptyStateLayout(page, true);
+  });
+
+  test(`empty-state Compare requires at least two selections at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto("/");
+    await navigateWorkspace(page, "비교");
+    const modes = page.getByRole("radiogroup", { name: "비교 방식", exact: true });
+    await expect(modes).toHaveCount(0);
+    await expectEmptyStateLayout(page, false);
+    await upload(page, files.v1);
+    const first = page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true });
+    await first.check();
+    await expect(modes).toHaveCount(0);
+    await expectEmptyStateLayout(page, false);
+    await upload(page, files.v2);
+    const second = page.getByRole("checkbox", { name: "운임현황_v2.xlsx 선택", exact: true });
+    await second.check();
+    await expect(modes).toBeVisible();
+    await expectEmptyStateLayout(page, true);
+    await page.getByRole("radio", { name: "값 일치 확인" }).check();
+    await second.uncheck();
+    await expect(modes).toHaveCount(0);
+    await expectEmptyStateLayout(page, false);
+    await second.check();
+    await expect(page.getByRole("radio", { name: "값 일치 확인" })).toBeChecked();
+    await upload(page, files.v1Copy);
+    await page.getByRole("checkbox", { name: "운임현황_v1_사본.xlsx 선택", exact: true }).check();
+    await expect(modes).toBeVisible();
+    await expectEmptyStateLayout(page, true);
+    await page.getByRole("button", { name: "선택 삭제" }).click();
+    await expect(modes).toHaveCount(0);
+    await expectEmptyStateLayout(page, false);
+  });
+
+  test(`empty-state Extract preserves fields across deselection and removal at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto("/");
+    await navigateWorkspace(page, "추출");
+    const controls = page.locator(".extract-controls");
+    await expect(controls).toHaveCount(0);
+    await expect(page.locator(".extract-mode-description")).toHaveCount(0);
+    await expectEmptyStateLayout(page, false);
+    await upload(page, files.v1);
+    await expectEmptyStateLayout(page, false);
+    const selection = page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true });
+    await selection.check();
+    await expect(controls).toBeVisible();
+    await expect(page.locator(".extract-mode-description")).toBeVisible();
+    await page.getByRole("radio", { name: "항목 지정" }).check();
+    await page.getByLabel("추출할 항목").fill("지역");
+    await page.getByRole("button", { name: "항목 추가" }).click();
+    await expectEmptyStateLayout(page, true);
+    await selection.uncheck();
+    await expect(controls).toHaveCount(0);
+    await expectEmptyStateLayout(page, false);
+    await selection.check();
+    await expect(page.getByRole("radio", { name: "항목 지정" })).toBeChecked();
+    await expect(page.locator(".extract-field")).toContainText("지역");
+    await page.getByRole("button", { name: "선택 삭제" }).click();
+    await expect(controls).toHaveCount(0);
+    await expectEmptyStateLayout(page, false);
+    await upload(page, files.v1);
+    await selection.check();
+    await expect(page.locator(".extract-field")).toContainText("지역");
+    await expectEmptyStateLayout(page, true);
+  });
+
+  test(`empty-state Polish follows the input mode and uploaded files at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto("/");
+    // Other file workspaces retain their existing section.
+    for (const name of ["분석", "검수", "보완", "취합"]) {
+      await navigateWorkspace(page, name);
+      await expectEmptyStateLayout(page, true);
+    }
+    await navigateWorkspace(page, "윤문");
+    const inputModes = page.getByRole("radiogroup", { name: "윤문 입력 방식", exact: true });
+    const modes = page.getByRole("radiogroup", { name: "윤문 방식", exact: true });
+    const action = page.getByRole("button", { name: "윤문 실행", exact: true });
+    const text = page.getByLabel("윤문할 텍스트 입력");
+    await expect(inputModes).toBeVisible();
+    await expect(modes).toHaveCount(0);
+    await expect(page.locator(".polish-mode-run")).toHaveCount(0);
+    await expect(action).toHaveCount(0);
+    await expectEmptyStateLayout(page, true);
+
+    await page.getByRole("radio", { name: "텍스트 윤문" }).check();
+    await expect(modes).toBeVisible();
+    await expect(text).toBeVisible();
+    await text.fill("이번 회의 내용을 검토해 주세요.");
+    await page.getByRole("radio", { name: "간결하게" }).check();
+    await expect(action).toHaveCount(1);
+    await expect(action).toBeEnabled();
+    await expectEmptyStateLayout(page, true);
+    await page.getByRole("radio", { name: "파일 윤문" }).check();
+    await expect(modes).toHaveCount(0);
+    await expect(text).toHaveCount(0);
+    await expect(action).toHaveCount(0);
+
+    await upload(page, files.v1);
+    // File polish modes follow uploaded files, even without selection.
+    await expect(page.locator(".file-row.selected")).toHaveCount(0);
+    await expect(modes).toBeVisible();
+    await expect(page.getByRole("radio", { name: "간결하게" })).toBeChecked();
+    await expect(action).toHaveCount(1);
+    await expect(action).toBeDisabled();
+    await expectEmptyStateLayout(page, true);
+    await page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true }).check();
+    await page.getByRole("radio", { name: "텍스트 윤문" }).check();
+    await expect(text).toHaveValue("이번 회의 내용을 검토해 주세요.");
+    await expect(action).toHaveCount(1);
+    await expectEmptyStateLayout(page, true);
+    await page.getByRole("radio", { name: "파일 윤문" }).check();
+    await expect(action).toHaveCount(1);
+    await page.getByRole("button", { name: "선택 삭제" }).click();
+    await expect(modes).toHaveCount(0);
+    await expect(inputModes).toBeVisible();
+    await expect(action).toHaveCount(0);
+    await expectEmptyStateLayout(page, true);
+  });
+}
+
 async function mockEmptyClaims(page: Page) {
   await page.route("**/api/ai", async (route) => {
     await route.fulfill({
@@ -3551,7 +3707,7 @@ test("보완 gives up after three rate-limited attempts and says the re-check is
 });
 
 
-test("file-based workspace actions appear only while files exist", async ({ page }) => {
+test("file-based workspace actions follow uploaded files and control selection thresholds", async ({ page }) => {
   await page.goto("/");
   const tabs = ["분석", "질문", "비교", "검수", "보완", "윤문", "추출", "취합"];
   for (const tab of tabs) {
@@ -3562,11 +3718,26 @@ test("file-based workspace actions appear only while files exist", async ({ page
   for (const tab of tabs) {
     await navigateWorkspace(page, tab);
     const action = page.getByRole("button", { name: `${tab} 실행`, exact: true });
+    if (["질문", "비교", "추출"].includes(tab)) {
+      await expect(action).toHaveCount(0);
+      await expect(page.locator(".operation-bar")).toHaveCount(0);
+      continue;
+    }
     await expect(action).toBeVisible();
     await expect(action).toBeDisabled();
     const [area, button] = await Promise.all([page.locator(".operation-bar").boundingBox(), action.boundingBox()]);
     expect(button!.x + button!.width).toBeGreaterThan(area!.x + area!.width - 40);
   }
+  await page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true }).check();
+  for (const tab of ["질문", "추출"]) {
+    await navigateWorkspace(page, tab);
+    await expect(page.getByRole("button", { name: `${tab} 실행`, exact: true })).toBeVisible();
+  }
+  await navigateWorkspace(page, "비교");
+  await expect(page.getByRole("button", { name: "비교 실행", exact: true })).toHaveCount(0);
+  await upload(page, files.v2);
+  await page.getByRole("checkbox", { name: "운임현황_v2.xlsx 선택", exact: true }).check();
+  await expect(page.getByRole("button", { name: "비교 실행", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "파일 관리 메뉴" }).click();
   await page.getByRole("menuitem", { name: "모두 삭제" }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: "삭제", exact: true }).click();
