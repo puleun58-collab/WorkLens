@@ -48,6 +48,7 @@ interface GroqAttemptBudget {
   attempt: number;
   failure: ApiError;
   usage?: GroqCompletion["usage"];
+  cumulativeUsage: NonNullable<GroqCompletion["usage"]>;
   rejection?: ProviderErrorMetadata & { status: number };
 }
 
@@ -62,6 +63,7 @@ async function observeGroq<T>(
     maxAttempts: context.operation === "research-interpretation" ? RESEARCH_INTERPRETATION_MAX_ATTEMPTS
       : context.operation === "polish-batch" ? 1 : 2,
     attempt: 0,
+    cumulativeUsage: {},
     failure: new ApiError("INVALID_PROVIDER_OUTPUT", "AI 응답 형식이 올바르지 않습니다.", 502),
   };
   const metadata = () => ({
@@ -72,9 +74,13 @@ async function observeGroq<T>(
     durationMs: Date.now() - started,
     requestId: context.requestId,
     attempt: budget.attempt,
+    maxAttempts: budget.maxAttempts,
     promptTokens: budget.usage?.prompt_tokens,
     completionTokens: budget.usage?.completion_tokens,
     totalTokens: budget.usage?.total_tokens,
+    cumulativePromptTokens: budget.cumulativeUsage.prompt_tokens,
+    cumulativeCompletionTokens: budget.cumulativeUsage.completion_tokens,
+    cumulativeTotalTokens: budget.cumulativeUsage.total_tokens,
   });
   try {
     const result = await run(budget);
@@ -406,6 +412,7 @@ async function complete(
         }
         throwIfAborted(context.signal);
         if (payload && typeof payload === "object" && "usage" in payload) {
+          accumulateUsage(budget, payload.usage);
           const usage = groqUsageSchema.safeParse(payload.usage);
           if (usage.success) budget.usage = usage.data;
         }
@@ -417,7 +424,9 @@ async function complete(
       if (attempt + 1 < maxAttempts && budget.attempt < budget.maxAttempts && retryable && (!interpretation || response.status === 429)) {
         const retryAfter = retryDelay(response.headers.get("retry-after"));
         if (retryAfter <= maxRetryWait) {
-          await delay(retryAfter, context.signal);
+          // Capture retry-response usage once during the existing wait. Missing
+          // or malformed error bodies do not change retry or abort policy.
+          await Promise.all([delay(retryAfter, context.signal), providerErrorMetadata(response, budget)]);
           continue;
         }
       }
@@ -466,6 +475,18 @@ const groqCompletionSchema = z.object({
 
 type GroqCompletion = z.infer<typeof groqCompletionSchema>;
 
+/** Missing counters stay unknown; provider totals are never inferred from other counters. */
+function accumulateUsage(budget: GroqAttemptBudget, usage: unknown): void {
+  if (!usage || typeof usage !== "object") return;
+  const counters = usage as Record<string, unknown>;
+  for (const key of ["prompt_tokens", "completion_tokens", "total_tokens"] as const) {
+    const value = counters[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      budget.cumulativeUsage[key] = (budget.cumulativeUsage[key] ?? 0) + value;
+    }
+  }
+}
+
 function parseCompletion(value: unknown): GroqCompletion {
   const parsed = groqCompletionSchema.safeParse(value);
   if (!parsed.success) {
@@ -486,7 +507,7 @@ async function providerError(
   response: Response,
   budget: GroqAttemptBudget,
 ): Promise<ApiError> {
-  const metadata = await providerErrorMetadata(response);
+  const metadata = await providerErrorMetadata(response, budget);
   budget.rejection = {
     status: response.status,
     providerCode: metadata.providerCode,
@@ -505,13 +526,15 @@ async function providerError(
   return new ApiError("AI_PROVIDER_REJECTED", "AI 서비스가 요청을 처리하지 못했습니다.", 502);
 }
 
-async function providerErrorMetadata(response: Response): Promise<ProviderErrorMetadata> {
+async function providerErrorMetadata(response: Response, budget: GroqAttemptBudget): Promise<ProviderErrorMetadata> {
   const providerRequestId = response.headers.get("x-request-id")
     ?? response.headers.get("x-groq-request-id")
     ?? response.headers.get("request-id")
     ?? undefined;
   try {
-    const parsed = groqErrorSchema.safeParse(JSON.parse(await response.text()));
+    const payload: unknown = JSON.parse(await response.text());
+    if (payload && typeof payload === "object" && "usage" in payload) accumulateUsage(budget, payload.usage);
+    const parsed = groqErrorSchema.safeParse(payload);
     if (!parsed.success) return { providerRequestId };
     const providerCode = parsed.data.error.code === undefined ? undefined : String(parsed.data.error.code).slice(0, 120);
     const providerType = parsed.data.error.type?.slice(0, 120);
