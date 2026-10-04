@@ -1610,7 +1610,7 @@ export default function Home() {
             <h1>{isDocumentWorkspaceView ? workSectionTitle : viewMetadata.title}</h1>
             <span className="context-names">
               {isDocumentWorkspaceView ? workSectionDescription : shellView === "AxDiagnosis"
-                ? "업무의 자동화 가능성을 진단하고 실행 우선순위와 로드맵을 정리합니다."
+                ? "반복 업무를 진단하고 자동화 우선순위와 실행 로드맵을 설계합니다."
                 : shellView === "Guide"
                 ? "WorkLens의 주요 기능을 단계별로 확인하세요."
                 : shellView === "Dictionary"
