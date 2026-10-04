@@ -172,6 +172,7 @@ function lazyView<P extends object = object>(load: () => Promise<ComponentType<P
 const [PdfTool, loadPdfTool] = lazyView(() => import("@/components/tools/PdfTool").then((module) => module.PdfTool), "PDF 도구를 불러오는 중…");
 const [ImageTool, loadImageTool] = lazyView(() => import("@/components/tools/ImageTool").then((module) => module.ImageTool), "이미지 도구를 불러오는 중…");
 const [LawSearch, loadLawSearch] = lazyView(() => import("@/components/research/LawSearch").then((module) => module.LawSearch), "법령 검색을 불러오는 중…");
+const [AxDiagnosisView, loadAxDiagnosisView] = lazyView(() => import("@/components/ax/AxDiagnosisView").then((module) => module.AxDiagnosisView), "업무 자동화 진단을 불러오는 중…");
 const [UsageGuide, loadUsageGuide] = lazyView(() => import("@/components/guide/UsageGuide").then((module) => module.UsageGuide), "사용 가이드를 불러오는 중…");
 
 /** Warm-up order: lighter, more frequently opened views first; the PDF tool is the largest. */
@@ -221,7 +222,7 @@ function warmLazyViews(): () => void {
 }
 
 type ToolView = "PdfTools" | "ImageTools";
-type ShellView = Tab | ToolView | "Law" | "Decisions" | "LegalAnalysis" | "Research" | "DocumentReview" | "Guide" | "Dictionary" | "Settings";
+type ShellView = Tab | ToolView | "Law" | "Decisions" | "LegalAnalysis" | "Research" | "DocumentReview" | "Guide" | "Dictionary" | "Settings" | "AxDiagnosis";
 type ShellViewMetadata = { title: string; description: string; activeNavigation: ShellView; commandLabel?: string };
 const internalViewMetadata: Record<"Decisions" | "LegalAnalysis" | "Research" | "DocumentReview", ShellViewMetadata> = {
   Decisions: { title: "판례·결정례", description: "알고 있는 사건이나 키워드로 관련 자료를 직접 찾습니다.", activeNavigation: "Law", commandLabel: "법령 > 판례·결정례" },
@@ -1561,7 +1562,7 @@ export default function Home() {
    * memory while hiding document controls.
    */
   const isResearchView = shellView === "Law" || shellView === "Decisions" || shellView === "LegalAnalysis" || shellView === "Research" || shellView === "DocumentReview";
-  const isToolView = shellView === "PdfTools" || shellView === "ImageTools" || isResearchView;
+  const isToolView = shellView === "AxDiagnosis" || shellView === "PdfTools" || shellView === "ImageTools" || isResearchView;
   const isUtilityView = shellView === "Guide" || shellView === "Dictionary" || shellView === "Settings";
   const isDocumentWorkspaceView = !isUtilityView && !isToolView;
   const navigationItems: WorkspaceNavigationItem[] = [
@@ -1569,6 +1570,7 @@ export default function Home() {
     { value: "Law", label: "법령", group: "RESEARCH", Icon: Scale, prefetch: () => prefetchView(loadLawSearch) },
     { value: "PdfTools", label: "PDF 도구", group: "TOOLS", Icon: FileText, prefetch: () => prefetchView(loadPdfTool) },
     { value: "ImageTools", label: "이미지 도구", group: "TOOLS", Icon: ImageIcon, prefetch: () => prefetchView(loadImageTool) },
+    { value: "AxDiagnosis", label: "업무 자동화 진단", group: "AX", Icon: BarChart3, prefetch: () => prefetchView(loadAxDiagnosisView) },
     { value: "Guide", label: "사용 가이드", ariaLabel: "Guide", group: "HELP", Icon: CircleHelp, prefetch: () => prefetchView(loadUsageGuide) },
     { value: "Dictionary", label: "용어 사전", ariaLabel: "Dictionary", group: "HELP", Icon: BookMarked },
     { value: "Settings", label: "설정", ariaLabel: "Settings", group: "HELP", Icon: SlidersHorizontal },
@@ -1607,7 +1609,9 @@ export default function Home() {
           <header className={`context-bar utility-bar${isDocumentWorkspaceView ? " workspace-context" : ""}`}>
             <h1>{isDocumentWorkspaceView ? workSectionTitle : viewMetadata.title}</h1>
             <span className="context-names">
-              {isDocumentWorkspaceView ? workSectionDescription : shellView === "Guide"
+              {isDocumentWorkspaceView ? workSectionDescription : shellView === "AxDiagnosis"
+                ? "업무의 자동화 가능성을 진단하고 실행 우선순위와 로드맵을 정리합니다."
+                : shellView === "Guide"
                 ? "WorkLens의 주요 기능을 단계별로 확인하세요."
                 : shellView === "Dictionary"
                 ? "맞춤법과 용어 오탐을 줄이기 위한 사전입니다."
@@ -1700,7 +1704,9 @@ export default function Home() {
             )
           ) : null}
 
-          {shellView === "Guide" ? (
+          {shellView === "AxDiagnosis" ? (
+            <AxDiagnosisView />
+          ) : shellView === "Guide" ? (
             <UsageGuide />
           ) : isUtilityView ? (
             <SettingsView

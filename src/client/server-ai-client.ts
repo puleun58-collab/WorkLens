@@ -1,3 +1,5 @@
+import { AX_LIMITS, axDiagnosisOutputSchema, axPlanSchema } from "@/lib/ax/schema";
+import type { AxDiagnosisRequest, AxPlanRequest } from "@/lib/ax/types";
 import { z } from "zod";
 import type { AiRequest } from "@/domain/ai";
 import type { PolishMode, PolishProposal } from "@/domain/polish";
@@ -22,6 +24,8 @@ const polishProposalSchema = z.object({
 });
 const polishBatchItemSchema = z.object({ id: z.string(), proposal: polishProposalSchema });
 const aiResultSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("ax-diagnosis"), diagnosis: axDiagnosisOutputSchema }).strict(),
+  z.object({ kind: z.literal("ax-plan"), plan: axPlanSchema }).strict(),
   z.object({
     kind: z.literal("claims"),
     claims: z.array(z.object({
@@ -165,6 +169,18 @@ export async function reviewSupplementServerAi(checks: SupplementReviewCheck[], 
   return result.verdicts;
 }
 
+export async function diagnoseAx(request: AxDiagnosisRequest) {
+  const result = await send(request);
+  if (result.kind !== "ax-diagnosis") throw failure("INVALID_OUTPUT", request.kind);
+  return result.diagnosis;
+}
+
+export async function planAx(request: AxPlanRequest) {
+  const result = await send(request);
+  if (result.kind !== "ax-plan") throw failure("INVALID_OUTPUT", request.kind);
+  return result.plan;
+}
+
 export function interruptServerAi(): void {
   activeController?.abort();
   activeRetryDelay?.();
@@ -187,6 +203,8 @@ export function waitForServerAiRetry(ms: number): Promise<boolean> {
 }
 
 async function send(request: AiApiRequest): Promise<AiApiResult> {
+  if ((request.kind === "ax-diagnosis" || request.kind === "ax-plan")
+    && new TextEncoder().encode(JSON.stringify(request)).byteLength > AX_LIMITS.requestBytes) throw failure("INVALID_REQUEST", request.kind);
   if (activeController) throw failure("BUSY", request.kind);
   const controller = new AbortController();
   activeController = controller;

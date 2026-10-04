@@ -1,3 +1,4 @@
+import type { AxDiagnosisRequest, AxPlanRequest, AxDiagnosis, AxPlan } from "@/lib/ax/types";
 import type { AiRequest } from "@/domain/ai";
 import type { PolishMode, PolishProposal } from "@/domain/polish";
 import type { SupplementReviewVerdict } from "@/domain/supplement";
@@ -12,6 +13,8 @@ export const POLISH_BATCH_MAX_ITEMS = 8;
 export const POLISH_BATCH_MAX_CHARS = 2_400;
 
 export type AiApiRequest =
+  | AxDiagnosisRequest
+  | AxPlanRequest
   | { kind: "claims"; request: AiRequest; items: EvidenceItem[] }
   | { kind: "polish"; text: string; mode: PolishMode }
   | { kind: "polish-batch"; mode: PolishMode; items: Array<{ id: string; text: string }> }
@@ -19,6 +22,8 @@ export type AiApiRequest =
   | { kind: "supplement-review"; checks: SupplementReviewCheck[]; items: EvidenceItem[] };
 
 export type AiApiResult =
+  | { kind: "ax-diagnosis"; diagnosis: Omit<AxDiagnosis, "sourceNote" | "planCodex" | "planClaude"> }
+  | { kind: "ax-plan"; plan: AxPlan }
   | { kind: "claims"; claims: ModelClaim[] }
   | { kind: "polish"; proposal: PolishProposal }
   | { kind: "polish-batch"; proposals: Array<{ id: string; proposal: PolishProposal }> }

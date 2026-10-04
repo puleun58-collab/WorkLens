@@ -154,8 +154,8 @@ regressionCase(make(10, "UI", "All guide categories show complete steps", "Every
   await page.setViewportSize({ width: 390, height: 844 }); await ready(page); await openView(page, "Guide");
   const tabs = page.getByRole("tablist", { name: "기능 선택" }).getByRole("tab");
   // The guide is lazily loaded; wait for its tabs before reading them.
-  const labels = ["분석", "질문", "비교", "검수", "보완", "윤문", "추출", "취합", "법령", "PDF 도구", "이미지 도구", "용어 사전"];
-  await expect(tabs).toHaveCount(12);
+  const labels = ["분석", "질문", "비교", "검수", "보완", "윤문", "추출", "취합", "법령", "PDF 도구", "이미지 도구", "업무 자동화 진단", "용어 사전"];
+  await expect(tabs).toHaveCount(13);
   await expect(tabs).toHaveText(labels);
   for (const label of labels) {
     const tab = page.getByRole("tab", { name: label, exact: true });

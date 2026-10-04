@@ -1,3 +1,5 @@
+import { axMessages, AX_DIAGNOSIS_RESPONSE_SCHEMA, AX_PLAN_RESPONSE_SCHEMA, copiesAttachment } from "@/lib/ax/prompt";
+import { axDiagnosisOutputSchema, axPlanSchema } from "@/lib/ax/schema";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { AiApiRequest, AiApiResult } from "@/lib/ai/api";
@@ -276,6 +278,10 @@ function requestSpecification(request: AiApiRequest): {
   maxTokens: number;
 } {
   switch (request.kind) {
+    case "ax-diagnosis":
+      return { messages: axMessages(request), schema: AX_DIAGNOSIS_RESPONSE_SCHEMA, schemaName: "worklens_ax_diagnosis", maxTokens: 3_000 };
+    case "ax-plan":
+      return { messages: axMessages(request), schema: AX_PLAN_RESPONSE_SCHEMA, schemaName: "worklens_ax_plan", maxTokens: 3_000 };
     case "claims":
       // Summary plus optional insight needs a larger completion budget, but
       // remains exactly one request to the same provider.
@@ -301,6 +307,16 @@ function parseResult(request: AiApiRequest, content: string): AiApiResult {
     throw new ApiError("INVALID_PROVIDER_OUTPUT", "AI 응답 형식이 올바르지 않습니다.", 502);
   }
   switch (request.kind) {
+    case "ax-diagnosis": {
+      const parsed = axDiagnosisOutputSchema.safeParse(payload);
+      if (!parsed.success || copiesAttachment(parsed.data, request.attachmentSummary)) throw new ApiError("INVALID_PROVIDER_OUTPUT", "AI 응답 형식이 올바르지 않습니다.", 502);
+      return { kind: "ax-diagnosis", diagnosis: parsed.data };
+    }
+    case "ax-plan": {
+      const parsed = axPlanSchema.safeParse(payload);
+      if (!parsed.success) throw new ApiError("INVALID_PROVIDER_OUTPUT", "AI 응답 형식이 올바르지 않습니다.", 502);
+      return { kind: "ax-plan", plan: parsed.data };
+    }
     case "claims": {
       const validated = (request.request.operation === "analyze" ? analyzeContentSchema : claimContentSchema).safeParse(payload);
       if (!validated.success) throw new ApiError("INVALID_PROVIDER_OUTPUT", "AI 응답 형식이 올바르지 않습니다.", 502);
