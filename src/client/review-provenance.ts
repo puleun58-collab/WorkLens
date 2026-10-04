@@ -21,5 +21,5 @@ export function reviewIsStale(
       || !reviewFileIdentityMatches(input.files, previous.workspaceFile, previous.file);
   }
   return input.fromFile || !("text" in previous.request) || !input.request
-    || !("text" in input.request) || previous.request.text !== input.request.text;
+    || !("text" in input.request) || previous.request.text.trim() !== input.request.text.trim();
 }

@@ -37,6 +37,8 @@ describe("research query interpretation", () => {
       reasoningEffort: "medium",
       model: "openai/gpt-oss-120b",
       durationMs: expect.any(Number),
+      requestId: context.requestId,
+      attempt: 1,
       promptTokens: undefined,
       completionTokens: undefined,
       totalTokens: undefined,

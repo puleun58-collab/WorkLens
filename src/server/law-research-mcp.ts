@@ -97,20 +97,10 @@ async function fullResearch(
 ): Promise<LawResearchData | LawResearchAbsent> {
   // An interpretation may be unavailable without taking away the original
   // question's existing search path. It never supplies factual evidence.
-  // The cause is logged (never the question) so a recurring fallback can be traced:
-  // a provider quota, a schema rejection and a malformed answer look alike to the user.
-  const interpretationStarted = Date.now();
+  // Groq logs the final failure once, with the request ID; this layer only selects the fallback.
   let interpretationFailure: InterpretationFailure | undefined;
   const interpretation = await interpretResearchQuery(query, context).catch((error: unknown) => {
     const failure = error instanceof ApiError ? error : undefined;
-    console.warn("[research] interpretation unavailable, searching the question as written", {
-      requestId: context.requestId,
-      operation: "research-interpretation",
-      code: failure?.code ?? (error instanceof Error ? error.name : "UNKNOWN"),
-      status: failure?.status,
-      retryAfterMs: failure?.retryAfterMs,
-      durationMs: Date.now() - interpretationStarted,
-    });
     interpretationFailure = failure?.code === "AI_RATE_LIMITED" ? "rate-limited" : "unavailable";
     return undefined;
   });

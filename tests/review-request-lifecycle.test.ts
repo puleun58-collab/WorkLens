@@ -112,7 +112,7 @@ describe("review request lifecycle", () => {
     (button("다시 시도").onClick as () => void)(); await settle();
     expect(JSON.parse(vi.mocked(fetch).mock.calls[1][1]!.body as string).text).toBe(a);
     expect(stale()).toBe(true);
-    change(a.trim()); expect(stale()).toBe(true);
+    change(a.trim()); expect(stale()).toBe(false);
     change(a); expect(stale()).toBe(false);
     (field("run-review-document_review-sources").onCheckedChange as (value: boolean) => void)(true);
     expect(stale()).toBe(false);
