@@ -39,9 +39,13 @@ describe("research query interpretation", () => {
       durationMs: expect.any(Number),
       requestId: context.requestId,
       attempt: 1,
+      maxAttempts: 4,
       promptTokens: undefined,
       completionTokens: undefined,
       totalTokens: undefined,
+      cumulativePromptTokens: undefined,
+      cumulativeCompletionTokens: undefined,
+      cumulativeTotalTokens: undefined,
     });
   });
 

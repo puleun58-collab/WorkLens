@@ -274,9 +274,13 @@ describe("Groq provider adapter", () => {
       durationMs: expect.any(Number),
       requestId: "policy-test",
       attempt: 1,
+      maxAttempts: operation === "polish-batch" ? 1 : 2,
       promptTokens: 10,
       completionTokens: 20,
       totalTokens: 30,
+      cumulativePromptTokens: 10,
+      cumulativeCompletionTokens: 20,
+      cumulativeTotalTokens: 30,
     });
   });
 
@@ -388,9 +392,13 @@ describe("Groq provider adapter", () => {
       durationMs: expect.any(Number),
       attempt: 1,
       failureCode: "AI_PROVIDER_REJECTED",
+      maxAttempts: 2,
       promptTokens: undefined,
       completionTokens: undefined,
       totalTokens: undefined,
+      cumulativePromptTokens: undefined,
+      cumulativeCompletionTokens: undefined,
+      cumulativeTotalTokens: undefined,
       providerLimit: undefined,
       timestamp: expect.any(String),
     });
