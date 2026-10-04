@@ -1474,6 +1474,11 @@ export default function Home() {
   // textarea, not on the workspace selection, which stays untouched.
   const polishTextMode = activeTab === "Polish" && polishInput === "text";
   const showRunAction = polishTextMode || files.length > 0;
+  const showOperationBar = activeTab === "Compare"
+    ? selected.length >= 2
+    : activeTab === "Ask" || activeTab === "Extract"
+      ? selected.length > 0
+      : true;
   const workSectionTitle = workSectionCopy[activeTab][0];
   const workSectionDescription = polishTextMode
     ? "붙여넣은 내용을 문장 단위로 다듬고 숫자·날짜·인용과 문서 구조를 유지합니다."
@@ -1789,8 +1794,8 @@ export default function Home() {
                 </section>
               )}
 
-              <section className="operation-bar" aria-label={`${tabMeta[activeTab].label} 작업`}>
-                {activeTab === "Ask" ? (
+              {showOperationBar && <section className="operation-bar" aria-label={`${tabMeta[activeTab].label} 작업`}>
+                {activeTab === "Ask" && selected.length > 0 ? (
                   <label className="question-field">
                     <span className="question-input-wrap">
                       <Input value={question} maxLength={2000}
@@ -1801,7 +1806,7 @@ export default function Home() {
                     </span>
                   </label>
                 ) : null}
-                {activeTab === "Compare" ? (
+                {activeTab === "Compare" && selected.length >= 2 ? (
                   <CompareControls
                     mode={compareMode}
                     busy={busy}
@@ -1811,7 +1816,7 @@ export default function Home() {
                     }}
                   />
                 ) : null}
-                {activeTab === "Extract" ? (
+                {activeTab === "Extract" && selected.length > 0 ? (
                   <ExtractControls
                     mode={extractMode}
                     fields={extractFields}
@@ -1839,7 +1844,7 @@ export default function Home() {
                         <Button type="button" onClick={runActive} disabled={actionDisabled} aria-label={`${tabMeta[activeTab].label} ${RUN_LABEL}`}>{busy ? "처리 중…" : RUN_LABEL}</Button>
                       </div>}
                     </div>
-                    <div className="polish-mode-run">
+                    {(polishTextMode || files.length > 0) && <div className="polish-mode-run">
                     <RadioGroup className="polish-modes flex-row flex-wrap" aria-label="윤문 방식" value={polishMode} disabled={busy}
                       onValueChange={(value) => {
                         const mode = POLISH_MODES.find((entry) => entry === value);
@@ -1850,7 +1855,7 @@ export default function Home() {
                         <Radio value={mode} /><span>{POLISH_MODE_LABELS[mode]}</span>
                       </label>)}
                     </RadioGroup>
-                    </div>
+                    </div>}
                     {polishTextMode ? (
                       <label className="polish-paste">
                         <span>윤문할 내용을 붙여넣으세요.</span>
@@ -1887,7 +1892,7 @@ export default function Home() {
                     <Button type="button" onClick={runActive} disabled={actionDisabled} aria-label={`${tabMeta[activeTab].label} ${RUN_LABEL}`}>{busy ? "처리 중…" : RUN_LABEL}</Button>
                   </div>
                 ) : null}
-              </section>
+              </section>}
 
               {busy && polishProgress ? (
                 <div className="processing-bar compact-progress" role="status" aria-live="polite">
