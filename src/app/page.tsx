@@ -1571,7 +1571,7 @@ export default function Home() {
     { value: "Law", label: "법령", group: "RESEARCH", Icon: Scale, prefetch: () => prefetchView(loadLawSearch) },
     { value: "PdfTools", label: "PDF 도구", group: "TOOLS", Icon: FileText, prefetch: () => prefetchView(loadPdfTool) },
     { value: "ImageTools", label: "이미지 도구", group: "TOOLS", Icon: ImageIcon, prefetch: () => prefetchView(loadImageTool) },
-    { value: "AxDiagnosis", label: "업무 자동화 진단", group: "AI AX", Icon: Workflow, prefetch: () => prefetchView(loadAxDiagnosisView) },
+    { value: "AxDiagnosis", label: "업무 자동화 진단", group: "AI•AX", Icon: Workflow, prefetch: () => prefetchView(loadAxDiagnosisView) },
     { value: "Guide", label: "사용 가이드", ariaLabel: "Guide", group: "HELP", Icon: CircleHelp, prefetch: () => prefetchView(loadUsageGuide) },
     { value: "Dictionary", label: "용어 사전", ariaLabel: "Dictionary", group: "HELP", Icon: BookMarked },
     { value: "Settings", label: "설정", ariaLabel: "Settings", group: "HELP", Icon: SlidersHorizontal },

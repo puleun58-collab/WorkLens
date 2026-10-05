@@ -2787,7 +2787,7 @@ test("keeps legal destinations grouped, command search shortcut-only, and review
   };
 
   await openMenu();
-  await expect(navigation.getByRole("heading")).toHaveText(["WORKSPACE", "RESEARCH", "TOOLS", "AI AX"]);
+  await expect(navigation.getByRole("heading")).toHaveText(["WORKSPACE", "RESEARCH", "TOOLS", "AI•AX"]);
   await expect(navigation.getByRole("button")).toHaveCount(15);
   for (const [accessibleName, visibleLabel] of [["Guide", "사용 가이드"], ["Dictionary", "용어 사전"], ["Settings", "설정"]] as const) {
     const helpItem = navigation.getByRole("button", { name: accessibleName, exact: true });
@@ -2803,7 +2803,7 @@ test("keeps legal destinations grouped, command search shortcut-only, and review
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await page.keyboard.press("Control+K");
   await expect(page.getByRole("dialog").getByLabel("기능 검색")).toHaveAttribute("placeholder", "기능 검색…");
-  await expect(page.getByRole("dialog").getByRole("group").filter({ hasText: /^(WORKSPACE|RESEARCH|TOOLS|AI AX|HELP)/ })).toHaveCount(5);
+  await expect(page.getByRole("dialog").getByRole("group").filter({ hasText: /^(WORKSPACE|RESEARCH|TOOLS|AI•AX|HELP)/ })).toHaveCount(5);
   await expect(page.getByRole("dialog").getByText("검토 설정", { exact: true })).toHaveCount(0);
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toHaveCount(0);

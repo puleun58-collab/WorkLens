@@ -28,7 +28,7 @@ async function transaction<T>(mode: IDBTransactionMode, run: (store: IDBObjectSt
 export function restoreAxRecord(record: unknown): { state: AxState; notice?: string } {
   if (record === undefined) return { state: emptyAxState() };
   try { return { state: migrateAxState(record) }; }
-  catch { return { state: emptyAxState(), notice: "저장된 AX 데이터가 손상되었거나 지원하지 않는 버전이어서 안전하게 초기화했습니다." }; }
+  catch { return { state: emptyAxState(), notice: "저장된 AI•AX 데이터가 손상되었거나 지원하지 않는 버전이어서 안전하게 초기화했습니다." }; }
 }
 export async function loadAxState() { return restoreAxRecord(await transaction("readonly", store => store.get(KEY))); }
 export async function saveAxState(state: AxState): Promise<void> { await transaction("readwrite", store => store.put(validateAxState(state), KEY)); }
