@@ -18,6 +18,7 @@ const REQUEST_TIMEOUT_MS = 30_000;
 /** Shared by provider retries and the one malformed-answer retry; never raise above four. */
 const RESEARCH_INTERPRETATION_MAX_ATTEMPTS = 4;
 const CORRECTION_MESSAGE = "이전 응답에 사용자가 제공하지 않은 정량 성과 주장(절감률·정확도·자동화율·ROI·효율 등의 수치)이 포함되어 있었습니다. 성과 수치를 생성하지 말고, 필요한 경우 수치 대신 측정 방법·대조 기준·검증 기준을 작성하세요. 동일한 JSON 스키마로 전체 응답을 다시 작성하세요.";
+const CORRECTION_MESSAGE_SUFFIX = " 특히 PoC 가설·평가·성공·실패 기준에도 백분율·비율·절감 수치를 쓰지 말고 '수동 결과와 전수 대조', '불일치 건수 기록' 같은 측정·대조 방법으로만 작성하세요. 입력에 실제로 있는 현재 상태 수치(횟수·소요 시간·인원)만 사실로 다시 쓸 수 있습니다.";
 
 export type GroqOperation = Extract<AiApiRequest, { kind: "claims" }>["request"]["operation"]
   | Exclude<AiApiRequest["kind"], "claims">
@@ -280,7 +281,8 @@ export async function runGroqAi(
     if (!violations.length) return result;
     budget.semantic = { categories: [...new Set(violations.map(violation => violation.category))], corrected: false };
     if (budget.attempt < budget.maxAttempts) {
-      const messages: Message[] = [...specification.messages, { role: "user", content: CORRECTION_MESSAGE }];
+      const correction = `${CORRECTION_MESSAGE}${CORRECTION_MESSAGE_SUFFIX} 검출된 위반 범주: ${[...new Set(violations.map(violation => violation.category))].join(", ")}. 검출 위치: ${[...new Set(violations.map(violation => violation.field.replace(/\[\d+\]/g, "")))].join(", ")}.`;
+      const messages: Message[] = [...specification.messages, { role: "user", content: correction }];
       const correctedRaw = await complete(messages, specification.schema, specification.schemaName, specification.maxTokens,
         { ...context, operation }, budget);
       const corrected = parseResult(request, correctedRaw.choices[0].message.content);
