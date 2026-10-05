@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Copy } from "lucide-react";
+import { Check, Copy, Terminal } from "lucide-react";
 import type { AxDiagnosis, AxPlan, AxTask } from "@/lib/ax/types";
 import { automationLevel, axes, executionGate, GATE_LABELS, gateBlockReasons, gatePrerequisites, nextAction } from "@/lib/ax/policy";
 import { FACTOR_KEYS, FACTOR_LABELS, PLAN_LABELS } from "@/lib/ax/schema";
@@ -91,8 +91,8 @@ export function AxCopyButton({ text, label }: { text: string; label: string }) {
     timer.current = setTimeout(() => setCopied(false), 1_600);
   }
   return <>
-    <span className="ax-copy-feedback" aria-live="polite">{copied ? "복사했습니다" : ""}</span>
-    <Button type="button" aria-label={label} onClick={() => void copy()}><Copy aria-hidden="true" />복사</Button>
+    <span className="sr-only" aria-live="polite">{copied ? "복사했습니다." : ""}</span>
+    <Button type="button" className="ax-copy-button" data-copied={copied ? "true" : undefined} aria-label={label} onClick={() => void copy()}>{copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}복사</Button>
   </>;
 }
 
@@ -105,9 +105,8 @@ export function AxExecutionPackage({ plan, target, taskName, prerequisites }: { 
   const name = TOOL_GUIDES[target].name;
   const prompt = buildAllInOnePrompt(plan, target, { taskName, prerequisites });
   return <div className="ax-package">
-    <p>{name}에서 현재 프로젝트를 열고 아래 지시문을 그대로 붙여넣으면 됩니다. AI가 현재 프로젝트의 구조와 설정을 먼저 확인한 뒤 작업합니다.</p>
     <Accordion className="ax-guide">
-      <AccordionItem value="setup"><AccordionTrigger>처음 사용하는 경우</AccordionTrigger><AccordionPanel>
+      <AccordionItem value="setup"><AccordionTrigger className="ax-guide-trigger"><span className="inline-flex items-center gap-2"><Terminal aria-hidden="true" className="size-4" />설치·시작 가이드</span></AccordionTrigger><AccordionPanel>
         <h4>STEP 0 · 개발 환경 준비</h4><AxGuideSteps steps={environmentGuide(target)} />
         <h4>{name} 설치</h4><AxGuideSteps steps={installGuide(target)} />
         <h4>프로젝트 준비</h4>{projectPrepGuide().cases.map(item => <div key={item.id}><h4>{item.title}</h4><AxGuideSteps steps={item.steps} /></div>)}
@@ -125,16 +124,21 @@ export function AxPlanSection({ diagnosis, taskName, busy, onGenerate }: { diagn
   const blockReasons = gate === "blocked" ? gateBlockReasons(diagnosis) : [];
   const prerequisites = gate === "blocked" ? [] : gatePrerequisites(diagnosis);
   const plans = { codex: diagnosis.planCodex, claude: diagnosis.planClaude };
+  const [selectedTool, setSelectedTool] = useState<AxToolId | null>(null);
+  const activeTool = selectedTool ?? (plans.codex ? "codex" : "claude");
   const generateButton = (target: AxToolId) => <Button key={target} type="button" variant="outline" disabled={!!busy || gate === "blocked"} onClick={() => onGenerate(target)}>{busy === target ? target === "codex" ? "Codex 계획 생성 중…" : "Claude 계획 생성 중…" : `${TOOL_GUIDES[target].name}용 구현 계획 생성`}</Button>;
   return <section className="ax-surface" aria-label="자동화 구현 계획">
-    <div className="ax-plan-head"><h3>자동화 구현 계획</h3></div>
+    <div className="ax-plan-head">
+      <h3>자동화 구현 계획</h3>
+      {gate !== "blocked" && (plans.codex || plans.claude) ? <span className="ax-plan-tool-hint">{TOOL_GUIDES[activeTool].name}에서 현재 프로젝트를 열고 아래 지시문을 붙여넣으세요.</span> : null}
+    </div>
     {gate === "blocked" ? <>
       <p role="status" className="ax-notice">현재 진단에서는 구현 계획을 생성할 수 없습니다.</p>
       {blockReasons.length ? <p className="ax-muted">{blockReasons[0]}</p> : null}
       <div className="ax-actions">{generateButton("codex")}{generateButton("claude")}</div>
     </> : <>
       {!plans.codex && !plans.claude ? <div className="ax-actions">{generateButton("codex")}{generateButton("claude")}</div> :
-        <Tabs className="ax-tool-tabs" defaultValue={plans.codex ? "codex" : "claude"}>
+        <Tabs className="ax-tool-tabs" value={activeTool} onValueChange={value => { if (value === "codex" || value === "claude") setSelectedTool(value); }}>
           <TabsList aria-label="AI 코딩 도구 선택"><TabsTab value="codex">Codex</TabsTab><TabsTab value="claude">Claude Code</TabsTab></TabsList>
           {(["codex", "claude"] as const).map(target => <TabsPanel key={target} value={target}>{plans[target] ? <AxExecutionPackage plan={plans[target]} target={target} taskName={taskName} prerequisites={prerequisites} /> : <><p>{TOOL_GUIDES[target].name}용 구현 계획을 생성하면 올인원 지시문을 확인할 수 있습니다.</p>{generateButton(target)}</>}</TabsPanel>)}
         </Tabs>}
