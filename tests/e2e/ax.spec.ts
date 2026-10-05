@@ -231,7 +231,7 @@ test("AX styled file selection shows filenames and removes draft/session attachm
   await expect(page.locator(".ax-attachment")).toContainText("selected.csv · 세션 요약 준비됨");
   await page.getByRole("button", { name: "첨부 해제", exact: true }).click();
   await expect(page.locator(".ax-attachment")).toHaveCount(0);
-  await page.getByRole("button", { name: "등록정보 수정", exact: true }).click();
+  await page.getByRole("button", { name: "등록 정보 수정", exact: true }).click();
   await expect(input).toBeHidden();
   await selectFile();
   await page.getByRole("button", { name: "수정 저장", exact: true }).click();
