@@ -56,6 +56,8 @@ export function AxDiagnosisView() {
   const nameHelpId = useId();
   const selected = state.tasks.find(t => t.id === state.selectedTaskId);
   const selectedGate = selected?.diagnosis ? executionGate(selected.diagnosis) : null;
+  const selectedBlockReasons = selected?.diagnosis && selectedGate === "blocked" ? gateBlockReasons(selected.diagnosis) : [];
+  const selectedPrereqs = selected?.diagnosis ? gatePrerequisites(selected.diagnosis).filter(item => !selectedBlockReasons.includes(item)) : [];
   const ranked = priority(state.tasks);
   useEffect(() => {
     alive.current = true;
@@ -289,8 +291,8 @@ export function AxDiagnosisView() {
             <section className="ax-surface"><h3>구현 계획</h3>
               {selectedGate === "blocked" ? <>
                 <p role="status" className="ax-notice">현재 조건에서는 구현 계획을 생성할 수 없습니다.</p>
-                <ul className="ax-prereq-list">{gateBlockReasons(selected.diagnosis).map((reason, i) => <li key={i}>{reason}</li>)}</ul>
-                <h4>선행 조치</h4><ul className="ax-prereq-list">{gatePrerequisites(selected.diagnosis).map((item, i) => <li key={i}>{item}</li>)}</ul>
+                <ul className="ax-prereq-list">{selectedBlockReasons.map((reason, i) => <li key={i}>{reason}</li>)}</ul>
+                {selectedPrereqs.length ? <><h4>선행 조치</h4><ul className="ax-prereq-list">{selectedPrereqs.map((item, i) => <li key={i}>{item}</li>)}</ul></> : null}
               </> : selectedGate === "conditional" ? <>
                 <p className="ax-notice">조건부 진행 — 아래 선행 확인을 먼저 해결한 뒤 계획을 확정하세요.</p>
                 <h4>선행 확인</h4><ul className="ax-prereq-list">{gatePrerequisites(selected.diagnosis).map((item, i) => <li key={i}>{item}</li>)}</ul>
@@ -327,7 +329,7 @@ function AxKpiCards({ tasks }: { tasks: AxTask[] }) {
   return <div className="ax-kpi-cards">
     <div className="ax-surface ax-kpi"><span className="ax-kpi-label"><ClipboardList size={14} aria-hidden="true" />등록 업무</span><strong>{tasks.length}개</strong></div>
     <div className="ax-surface ax-kpi"><span className="ax-kpi-label"><CircleCheck size={14} aria-hidden="true" />진단 완료</span><strong>{diagnosedCount}개</strong></div>
-    {diagnosedCount ? <div className="ax-surface ax-kpi"><span className="ax-kpi-label"><Zap size={14} aria-hidden="true" />우선 검토 후보</span><strong>{ranked.filter(r => matrixPosition(r.task.diagnosis).region === "quick").length}개</strong></div> : null}
+    {diagnosedCount ? <div className="ax-surface ax-kpi"><span className="ax-kpi-label"><Zap size={14} aria-hidden="true" />우선 검토 후보</span><strong>{ranked.filter(r => matrixPosition(r.task.diagnosis).region === "quick" && executionGate(r.task.diagnosis) !== "blocked").length}개</strong></div> : null}
     {knownMinutes.length ? <div className="ax-surface ax-kpi"><span className="ax-kpi-label"><Clock3 size={14} aria-hidden="true" />월 투입시간 합 · 입력 {knownMinutes.length}개</span><strong>{(knownMinutes.reduce((sum, m) => sum + m, 0) / 60).toLocaleString("ko-KR", { maximumFractionDigits: 1 })}시간</strong></div> : null}
   </div>;
 }

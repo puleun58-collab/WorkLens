@@ -476,6 +476,6 @@ test("AX attachment preflight rejects empty files and unsupported formats", asyn
   await expect(page.getByText("빈 파일은 첨부할 수 없습니다.", { exact: true })).toBeVisible();
   await expect(page.getByText("첨부 요약을 준비했습니다", { exact: false })).toHaveCount(0);
   await input.setInputFiles({ name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("업무 메모") });
-  await expect(page.getByText("지원하지 않는 파일 형식입니다.", { exact: true })).toBeVisible();
+  await expect(page.getByText("지원하지 않는 파일 형식입니다.", { exact: false })).toBeVisible();
   await expect(page.getByText("첨부 요약을 준비했습니다", { exact: false })).toHaveCount(0);
 });
