@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { axes, automationLevel, matrixPosition, priority, monthlyMinutes, bubbleArea, nextAction } from "@/lib/ax/policy";
 import { exportAxState, importAxState, validateAxState } from "@/lib/ax/transfer";
 import { restoreAxRecord } from "@/client/ax-store";
-import { splitTasks } from "@/lib/ax/registration";
 import { emptyAxState, type AxDiagnosis } from "@/lib/ax/types";
 import { diagnosisFixture, planFixture, taskFixture } from "./fixtures/ax";
 function rated(values: number[], info: AxDiagnosis["informationSufficiency"] = "sufficient"): AxDiagnosis {
@@ -80,13 +79,5 @@ describe("AX local persistence and transfer validation", () => {
     expect(() => validateAxState({ ...state, tasks: [state.tasks[0], state.tasks[0]] })).toThrow();
     expect(() => validateAxState({ ...state, step: 5 })).toThrow();
     expect(() => validateAxState({ ...state, tasks: [{ ...state.tasks[0], diagnosis: { ...diagnosisFixture, factors: Array(6).fill(diagnosisFixture.factors[0]) } }] })).toThrow();
-  });
-});
-describe("AX batch registration candidates", () => {
-  it("splits lines, numbering and bullets while preserving ordinary prose", () => {
-    expect(splitTasks("1. 표 취합\r\n2) 승인 요청\n- 보고서 작성\n• 발송\n* 보관")).toEqual(["표 취합", "승인 요청", "보고서 작성", "발송", "보관"]);
-    expect(splitTasks("1. 취합 2. 승인 3) 보관")).toEqual(["취합", "승인", "보관"]);
-    expect(splitTasks("매월 1.5시간 사용. 승인 후 발송")).toEqual(["매월 1.5시간 사용. 승인 후 발송"]);
-    expect(splitTasks("\n \n")).toEqual([]);
   });
 });

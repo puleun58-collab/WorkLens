@@ -11,7 +11,7 @@ export function axMessages(request: AxDiagnosisRequest | AxPlanRequest): { role:
     ? `정보가 부족해도 사용자가 준 사실로 AS-IS를 정리하고 불명확한 부분을 드러내세요. 결과를 바꾸는 핵심 추가 질문만 최대 3개 제시하세요.
 Factor는 repetition, regularity, dataStructure, systemAccess, humanJudgment, operationalRisk를 각각 한 번 포함하고 1~5점과 근거를 제시하세요. 사람판단과 위험은 높을수록 의존도·위험이 높습니다.
 정보 충분성 sufficient/partial/needs-check, 단계별 자동화/AI 보조/사람 유지 판정, 시스템/AI/사용자 역할, 기술 확인, 위험, 검증 가능한 PoC, go/conditional/no-go 근거, 단계별 로드맵, 운영·Fallback과 다음 행동을 작성하세요.
-가치축·실현성축·Level·Matrix·우선순위 점수는 계산하거나 출력하지 마세요. 배열 항목은 필수 사항 위주로 1~4개, 각 설명은 100자 이내로 간결하게 작성하세요.`
+가치축·실현성축·Level·Matrix·우선순위 점수는 계산하거나 출력하지 마세요. PoC 가설·평가·성공 기준에도 절감률·효율·자동화율 같은 수치를 만들지 말고, 정량 목표 대신 측정 방법과 대조 기준만 적으세요. 배열 항목은 필수 사항 위주로 1~4개, 각 설명은 100자 이내로 간결하게 작성하세요.`
     : `${request.target === "codex" ? "Codex" : "Claude Code"}에서 실행할 구현 계획을 확정 진단과 사용자 보정값에 맞춰 작성하세요.
 repositoryFirst에는 다음 문구를 정확히 넣으세요: ${REPOSITORY_FIRST}
 목표/AS-IS/TO-BE/범위/제외/사전확인/HITL/PoC/구현순서/데이터흐름/연동/예외/Fallback/보안/운영/테스트/완료조건을 각각 작성하세요.

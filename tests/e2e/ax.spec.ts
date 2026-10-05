@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { navigateWorkspace } from "./navigation";
-import { outputFixture, planFixture, taskFixture } from "../fixtures/ax";
+import { diagnosisFixture, outputFixture, planFixture, taskFixture } from "../fixtures/ax";
 import { emptyAxState, type AxState } from "../../src/lib/ax/types";
 import { exportAxState } from "../../src/lib/ax/transfer";
 async function ax(page: Page) {
@@ -331,4 +331,151 @@ test("AX attachment cleanup leaves another view's AI request running", async ({ 
   release?.();
   expect(await outcome).toBe("finished");
   expect(failed).toHaveLength(0);
+});
+test("AX Execution Gate blocks no-go plans and displays ready tasks before higher-scoring blocked tasks", async ({ page }) => {
+  await page.route("**/api/ai", async route => {
+    const req = route.request().postDataJSON();
+    const output = outputFixture();
+    const diagnosis = req.name === "차단 업무" ? {
+      ...output,
+      decisionGate: { verdict: "no-go", reasons: ["필수 시스템 접근 불가"] },
+      factors: output.factors.map(f => ({ ...f, aiValue: f.key === "humanJudgment" || f.key === "operationalRisk" ? 2 : 5 })),
+    } : {
+      ...output,
+      decisionGate: { verdict: "go", reasons: [] },
+      technicalChecks: [{ topic: "시스템 접근", status: "확인됨", note: "API 확인" }],
+    };
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { kind: "ax-diagnosis", diagnosis } }) });
+  });
+  await page.goto("/"); await ax(page);
+  await register(page, "차단 업무"); await register(page, "가능 업무");
+  await page.getByRole("tab", { name: "업무 진단", exact: true }).click();
+  const tasks = page.getByLabel("등록 업무 목록");
+  await tasks.getByRole("button", { name: "차단 업무", exact: false }).click();
+  await page.getByRole("button", { name: "업무 진단 실행", exact: true }).click();
+  await expect(page.locator('.ax-gate-badge[data-gate="blocked"]')).toHaveText("실행 보류");
+  await tasks.getByRole("button", { name: "가능 업무", exact: false }).click();
+  await page.getByRole("button", { name: "업무 진단 실행", exact: true }).click();
+  await expect(page.locator('.ax-gate-badge[data-gate="ready"]')).toHaveText("실행 가능");
+  await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();
+  const top = page.getByRole("list", { name: "자동화 우선순위 TOP 목록", exact: true });
+  await expect(top.locator("li .ax-task-name")).toHaveText(["가능 업무", "차단 업무"]);
+  const blocked = top.getByRole("listitem").filter({ hasText: "차단 업무" });
+  const ready = top.getByRole("listitem").filter({ hasText: "가능 업무" });
+  await expect(blocked).toContainText("점수 12.5");
+  await expect(ready).toContainText("점수 9");
+  await expect(blocked.getByText("실행 보류", { exact: true })).toBeVisible();
+  await blocked.getByRole("button").click();
+  await expect(page.getByRole("button", { name: "Codex용 구현 계획 생성", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Claude Code용 구현 계획 생성", exact: true })).toBeDisabled();
+  const plans = page.locator("section.ax-surface").filter({ has: page.getByRole("heading", { name: "구현 계획", exact: true }) });
+  await expect(plans.getByText("현재 조건에서는 구현 계획을 생성할 수 없습니다.", { exact: true })).toBeVisible();
+  await expect(plans.getByRole("list").first()).toContainText("필수 시스템 접근 불가");
+  await expect(plans.getByRole("heading", { name: "선행 조치", exact: true })).toBeVisible();
+  await ready.getByRole("button").click();
+  await expect(page.getByRole("button", { name: "Codex용 구현 계획 생성", exact: true })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Claude Code용 구현 계획 생성", exact: true })).toBeEnabled();
+  await page.getByRole("tab", { name: "업무 진단", exact: true }).click();
+  await tasks.getByRole("button", { name: "차단 업무", exact: false }).click();
+  await expect(page.locator('.ax-gate-badge[data-gate="blocked"]')).toBeVisible();
+  await expect(page.locator('.ax-gate-badge[data-gate="blocked"]')).toHaveText("실행 보류");
+});
+test("AX repeated follow-up diagnoses preserve the original stored description", async ({ page }) => {
+  const calls: Record<string, unknown>[] = [];
+  await page.route("**/api/ai", async route => {
+    calls.push(route.request().postDataJSON());
+    const question = ["최종 승인자는 누구인가요?", "사용 시스템은 무엇인가요?"][calls.length - 1];
+    const diagnosis = question ? { ...outputFixture(), informationSufficiency: "needs-check", followUpQuestions: [question] } : outputFixture();
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { kind: "ax-diagnosis", diagnosis } }) });
+  });
+  const description = "매월 입력 표를 취합하고 담당자가 최종 승인합니다.";
+  await page.goto("/"); await ax(page); await register(page);
+  await page.getByRole("button", { name: "다음 단계", exact: true }).click();
+  await page.getByRole("button", { name: "업무 진단 실행", exact: true }).click();
+  await page.getByLabel("최종 승인자는 누구인가요?", { exact: true }).fill("업무 담당 팀장");
+  await page.getByRole("button", { name: "답변 반영 재진단", exact: true }).click();
+  await expect(page.getByLabel("사용 시스템은 무엇인가요?", { exact: true })).toBeVisible();
+  await expect.poll(() => record(page)).toMatchObject({ tasks: [{ description, status: "needs-info", diagnosis: { followUpQuestions: ["사용 시스템은 무엇인가요?"] } }] });
+  expect(calls).toHaveLength(2);
+  expect(calls[1].description).toContain("업무 담당 팀장");
+  await page.getByLabel("사용 시스템은 무엇인가요?", { exact: true }).fill("사내 ERP");
+  await page.getByRole("button", { name: "답변 반영 재진단", exact: true }).click();
+  await expect(page.getByText("정보 충분", { exact: true })).toBeVisible();
+  await expect.poll(() => record(page)).toMatchObject({ tasks: [{ description, status: "diagnosed", diagnosis: { informationSufficiency: "sufficient", followUpQuestions: [] } }] });
+  expect((await record(page))?.tasks[0].description).not.toContain("추가 확인");
+  expect(calls).toHaveLength(3);
+  expect(calls[2].description).toContain("사내 ERP");
+});
+test("AX factor corrections and re-diagnosis invalidate existing implementation plans", async ({ page }) => {
+  await mock(page);
+  await page.goto("/"); await ax(page); await register(page);
+  await page.getByRole("button", { name: "다음 단계", exact: true }).click();
+  await page.getByRole("button", { name: "업무 진단 실행", exact: true }).click();
+  await expect(page.getByText("정보 충분", { exact: true })).toBeVisible();
+  await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();
+  await page.getByRole("button", { name: "Codex용 구현 계획 생성", exact: true }).click();
+  const codex = page.getByRole("heading", { name: "Codex용 구현 계획", exact: true });
+  const claude = page.getByRole("heading", { name: "Claude Code용 구현 계획", exact: true });
+  await expect(codex).toBeVisible();
+  await page.getByRole("button", { name: "Claude Code용 구현 계획 생성", exact: true }).click();
+  await expect(claude).toBeVisible();
+  await expect.poll(() => record(page)).toMatchObject({ tasks: [{ diagnosis: { planCodex: planFixture, planClaude: planFixture } }] });
+  await page.getByRole("tab", { name: "업무 진단", exact: true }).click();
+  await page.getByRole("button", { name: "반복성 1점", exact: true }).click();
+  await expect.poll(async () => {
+    const diagnosis = (await record(page))?.tasks[0].diagnosis;
+    return { repetition: diagnosis?.factors.find(f => f.key === "repetition")?.finalValue, planCodex: diagnosis?.planCodex, planClaude: diagnosis?.planClaude };
+  }).toEqual({ repetition: 1, planCodex: undefined, planClaude: undefined });
+  await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();
+  await expect(codex).toHaveCount(0); await expect(claude).toHaveCount(0);
+  await page.getByRole("button", { name: "Codex용 구현 계획 생성", exact: true }).click();
+  await expect(codex).toBeVisible();
+  await expect.poll(() => record(page)).toMatchObject({ tasks: [{ diagnosis: { planCodex: planFixture } }] });
+  await page.getByRole("tab", { name: "업무 진단", exact: true }).click();
+  await page.getByRole("button", { name: "업무 다시 진단", exact: true }).click();
+  await expect.poll(() => record(page)).toMatchObject({ tasks: [{ status: "diagnosed", diagnosis: { informationSufficiency: "sufficient" } }] });
+  expect((await record(page))?.tasks[0].diagnosis?.planCodex).toBeUndefined();
+  await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();
+  await expect(codex).toHaveCount(0); await expect(claude).toHaveCount(0);
+});
+test("AX registration edits preserve hidden legacy fields and invalidate the diagnosis", async ({ page }) => {
+  const task = { ...taskFixture("legacy", diagnosisFixture), people: 3, painPoints: "수작업 오류", goal: "월말 마감 단축" };
+  await page.goto("/");
+  await seed(page, { ...emptyAxState(), tasks: [task], selectedTaskId: task.id, step: 2 });
+  await ax(page);
+  await expect(page.getByRole("tab", { name: "업무 진단", exact: true })).toHaveAttribute("aria-selected", "true");
+  await page.getByRole("button", { name: "등록 정보 수정", exact: true }).click();
+  await page.getByLabel("업무명", { exact: true }).fill("수정된 업무");
+  await page.getByRole("button", { name: "수정 저장", exact: true }).click();
+  await expect.poll(() => record(page)).toMatchObject({ tasks: [{
+    id: "legacy", name: "수정된 업무", description: task.description,
+    people: 3, painPoints: "수작업 오류", goal: "월말 마감 단축", status: "registered",
+  }] });
+  expect((await record(page))?.tasks[0].diagnosis).toBeUndefined();
+});
+test("AX saves warn another tab and refresh loads the registered task", async ({ page, context }) => {
+  await page.goto("/"); await ax(page);
+  const other = await context.newPage();
+  await other.goto("/"); await ax(other);
+  await expect(other.getByRole("heading", { name: "등록된 업무가 없습니다", exact: true })).toBeVisible();
+  await register(page, "A 탭에서 등록한 업무");
+  await expect.poll(() => record(page)).toMatchObject({ tasks: [{ name: "A 탭에서 등록한 업무" }] });
+  const notice = other.getByRole("status").filter({ hasText: "다른 탭에서 AI•AX 데이터가 변경되었습니다" });
+  await expect(notice).toBeVisible();
+  await expect(other.getByRole("heading", { name: "등록된 업무가 없습니다", exact: true })).toBeVisible();
+  await notice.getByRole("button", { name: "새로고침", exact: true }).click();
+  await ax(other);
+  await expect(other.getByLabel("등록 업무 목록")).toContainText("A 탭에서 등록한 업무");
+  await expect(notice).toHaveCount(0);
+  await other.close();
+});
+test("AX attachment preflight rejects empty files and unsupported formats", async ({ page }) => {
+  await page.goto("/"); await ax(page);
+  const input = page.getByLabel("파일 추가", { exact: true });
+  await input.setInputFiles({ name: "empty.csv", mimeType: "text/csv", buffer: Buffer.alloc(0) });
+  await expect(page.getByText("빈 파일은 첨부할 수 없습니다.", { exact: true })).toBeVisible();
+  await expect(page.getByText("첨부 요약을 준비했습니다", { exact: false })).toHaveCount(0);
+  await input.setInputFiles({ name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("업무 메모") });
+  await expect(page.getByText("지원하지 않는 파일 형식입니다.", { exact: false })).toBeVisible();
+  await expect(page.getByText("첨부 요약을 준비했습니다", { exact: false })).toHaveCount(0);
 });

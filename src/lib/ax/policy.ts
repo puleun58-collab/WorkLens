@@ -52,3 +52,43 @@ export function taskStatus(d?: AxDiagnosis): AxTask["status"] {
 export function factorScale(key: FactorKey) {
   return key === "humanJudgment" ? "1: 판단 적음 → 5: 판단 많음" : key === "operationalRisk" ? "1: 위험 낮음 → 5: 위험 높음" : `1: ${FACTOR_LABELS[key]} 낮음 → 5: 높음`;
 }
+
+export type ExecutionGate = "ready" | "conditional" | "blocked";
+export const GATE_LABELS: Record<ExecutionGate, string> = {
+  ready: "실행 가능", conditional: "조건부 진행", blocked: "실행 보류",
+};
+
+export function executionGate(d: AxDiagnosis): ExecutionGate {
+  // 1. no-go만 hard blocker다. 개별 기술 항목이 업무 필수 조건인지 스키마로
+  // 식별할 수 없으므로 technicalChecks의 "불가"만으로 전체를 차단하지 않는다.
+  if (d.decisionGate.verdict === "no-go") return "blocked";
+  // 2. 조건부 판정, 정보 부족, 미확인·불가 기술 항목은 선행 확인이 필요하다.
+  if (d.decisionGate.verdict === "conditional" || d.informationSufficiency === "needs-check"
+    || d.technicalChecks.some(c => c.status !== "확인됨")) return "conditional";
+  // 3. go이고 남은 확인 항목이 없으면 실행 가능하다. 원본 진단은 변경하지 않는다.
+  return "ready";
+}
+
+export function gatePrerequisites(d: AxDiagnosis): string[] {
+  if (executionGate(d) === "ready") return [];
+  const items = d.technicalChecks.filter(c => c.status !== "확인됨")
+    .map(c => c.note ? `${c.topic} — ${c.note}` : c.topic);
+  if (d.informationSufficiency === "needs-check") items.push(...d.followUpQuestions);
+  if (d.decisionGate.verdict !== "go") items.push(...d.decisionGate.reasons);
+  const unique = [...new Set(items)].slice(0, 10);
+  return unique.length ? unique : ["진단에서 제시된 조건부 진행 사유를 확인하세요."];
+}
+
+export function gateBlockReasons(d: AxDiagnosis): string[] {
+  const reasons = [...d.decisionGate.reasons, ...d.technicalChecks.filter(c => c.status === "불가")
+    .map(c => c.note ? `${c.topic} 불가 — ${c.note}` : `${c.topic} 불가`)];
+  return reasons.length ? reasons : ["Decision Gate에서 진행 불가(no-go)로 판정되었습니다."];
+}
+
+export function planAllowed(d: AxDiagnosis): boolean {
+  return executionGate(d) !== "blocked";
+}
+
+export function priorityDisplayLabel(d: AxDiagnosis): string {
+  return executionGate(d) === "blocked" ? "실행 보류" : matrixPosition(d).label;
+}

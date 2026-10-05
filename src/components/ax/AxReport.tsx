@@ -1,5 +1,5 @@
 import type { AxDiagnosis, AxPlan, AxTask } from "@/lib/ax/types";
-import { automationLevel, axes, nextAction } from "@/lib/ax/policy";
+import { automationLevel, axes, executionGate, GATE_LABELS, nextAction } from "@/lib/ax/policy";
 import { FACTOR_KEYS, FACTOR_LABELS, PLAN_LABELS } from "@/lib/ax/schema";
 import { Badge } from "@/components/ui/badge";
 import { Accordion, AccordionItem, AccordionPanel, AccordionTrigger } from "@/components/ui/accordion";
@@ -8,9 +8,10 @@ export function AxList({ items }: { items: string[] }) {
 }
 export function AxSummary({ task }: { task: AxTask }) {
   if (!task.diagnosis) return null;
-  const a = axes(task.diagnosis), l = automationLevel(task.diagnosis), action = nextAction(task.diagnosis);
+  const a = axes(task.diagnosis), l = automationLevel(task.diagnosis), action = nextAction(task.diagnosis), gate = executionGate(task.diagnosis);
   return <div className="ax-summary">
     <Badge variant="outline" className="ax-level-badge">{l.label.replace(/^L\d+ /, "")} · Level {l.level}{l.provisional ? " · 잠정" : ""}</Badge>
+    <p className="ax-gate-line"><span>실행 가능성</span><span className="ax-gate-badge" data-gate={gate}>{GATE_LABELS[gate]}</span>{gate === "conditional" ? <span className="ax-muted">선행 확인 필요</span> : null}</p>
     <p>자동화 가치 {a.value} · 기술 실현 가능성 {a.feasibility} · 사람 판단 {a.judgment} · 운영 위험 {a.risk}</p>
     <p><strong>{action.label}</strong> — {action.detail}</p>
   </div>;

@@ -13,8 +13,8 @@ import { useAxState } from "@/client/use-ax-state";
 import { runInWorker } from "@/client/document-client";
 import { diagnoseAx, planAx, interruptServerAi, aiFailureDetail } from "@/client/server-ai-client";
 import { AX_LIMITS, FACTOR_LABELS, axTaskSchema, confirmedAxDiagnosis } from "@/lib/ax/schema";
-import { axes, automationLevel, bubbleArea, factorScale, matrixPosition, monthlyMinutes, nextAction, priority, REGION_LABELS, taskStatus } from "@/lib/ax/policy";
-import { candidateTask, taskDetails } from "@/lib/ax/registration";
+import { axes, automationLevel, bubbleArea, executionGate, GATE_LABELS, gatePrerequisites, gateBlockReasons, planAllowed, priorityDisplayLabel, factorScale, matrixPosition, monthlyMinutes, nextAction, priority, REGION_LABELS, taskStatus } from "@/lib/ax/policy";
+import { candidateTask, taskDetails, followUpDescription, legacyDetailValues, validateAttachmentPreflight } from "@/lib/ax/registration";
 import { exportAxState, importAxState } from "@/lib/ax/transfer";
 import { emptyAxState, type AxState, type AxTask, type AxDiagnosis, type AxDetails, type FactorKey } from "@/lib/ax/types";
 import { AxSummary, AxProcess, AxRoadmap, AxPlanReport, AxRadar } from "./AxReport";
@@ -39,7 +39,7 @@ type SessionAttachment = { meta: NonNullable<AxTask["attachmentMeta"]>; summary:
 type Confirmation = { kind: "import"; state: AxState } | { kind: "reset" } | { kind: "delete"; id: string };
 
 export function AxDiagnosisView() {
-  const { state, update, replace, ready, saveStatus, loadNotice } = useAxState();
+  const { state, update, replace, ready, saveStatus, loadNotice, externalChange } = useAxState();
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const activeRun = useRef(false), activeAi = useRef(false), alive = useRef(true);
@@ -55,6 +55,9 @@ export function AxDiagnosisView() {
   const importInput = useRef<HTMLInputElement>(null);
   const nameHelpId = useId();
   const selected = state.tasks.find(t => t.id === state.selectedTaskId);
+  const selectedGate = selected?.diagnosis ? executionGate(selected.diagnosis) : null;
+  const selectedBlockReasons = selected?.diagnosis && selectedGate === "blocked" ? gateBlockReasons(selected.diagnosis) : [];
+  const selectedPrereqs = selected?.diagnosis ? gatePrerequisites(selected.diagnosis).filter(item => !selectedBlockReasons.includes(item)) : [];
   const ranked = priority(state.tasks);
   useEffect(() => {
     alive.current = true;
@@ -80,7 +83,7 @@ export function AxDiagnosisView() {
         const value = details[key]?.trim(); return value ? [[key, numeric ? Number(value) : value]] : [];
       }));
       const previous = state.tasks.find(t => t.id === editingId);
-      const task = axTaskSchema.parse({ ...candidateTask(description), ...inputs, name: name.trim() || description.trim().slice(0, 60),
+      const task = axTaskSchema.parse({ ...candidateTask(description), ...(previous ? legacyDetailValues(previous) : {}), ...inputs, name: name.trim() || description.trim().slice(0, 60),
         ...(previous ? { id: previous.id, createdAt: previous.createdAt } : {}),
         ...((draftAttachment?.meta ?? previous?.attachmentMeta) ? { attachmentMeta: draftAttachment?.meta ?? previous?.attachmentMeta } : {}),
       });
@@ -91,6 +94,7 @@ export function AxDiagnosisView() {
   }
   async function attach(file: File, taskId?: string) {
     if (activeRun.current) return;
+    try { validateAttachmentPreflight(file); } catch (error) { setMessage(error instanceof Error ? error.message : "첨부 파일을 확인하세요."); return; }
     activeRun.current = true; setBusy("attachment"); setMessage("");
     const fileId = `ax-${crypto.randomUUID()}`;
     try {
@@ -112,11 +116,9 @@ export function AxDiagnosisView() {
     if (activeRun.current) return;
     const attachment = attachments.current.get(task.id);
     if (task.attachmentMeta && !attachment) { setMessage("첨부 파일이 사용됨 — 재분석 시 재첨부 필요"); return; }
-    let revised = task.description;
+    const revised = withAnswers ? followUpDescription(task.description, task.diagnosis?.followUpQuestions ?? [], answers[task.id] ?? []) : task.description;
     if (withAnswers) {
-      const rows = (task.diagnosis?.followUpQuestions ?? []).flatMap((q, i) => answers[task.id]?.[i]?.trim() ? [`${q}: ${answers[task.id][i].trim()}`] : []);
-      if (!rows.length) { setMessage("추가 질문에 답변을 입력하세요."); return; }
-      revised += `\n추가 확인:\n${rows.join("\n")}`;
+      if (revised === task.description) { setMessage("추가 질문에 답변을 입력하세요."); return; }
       if (revised.length > AX_LIMITS.description) { setMessage("답변을 포함한 설명은 3,000자 이하여야 합니다. 등록 정보를 수정해 정리하세요."); return; }
     }
     activeRun.current = true; activeAi.current = true; setBusy(task.id); setMessage("");
@@ -124,7 +126,7 @@ export function AxDiagnosisView() {
       const output = await diagnoseAx({ kind: "ax-diagnosis", name: task.name, description: revised, details: taskDetails(task), ...(attachment ? { attachmentSummary: attachment.summary } : {}) });
       if (!alive.current) return;
       const diagnosis: AxDiagnosis = { ...output, sourceNote: attachment ? "첨부 파일 요약 기반 진단 · 첨부 파일이 사용됨 — 재분석 시 재첨부 필요" : "사용자 등록 정보 기반 진단" };
-      patchTask(task.id, { description: revised, diagnosis, status: taskStatus(diagnosis) });
+      patchTask(task.id, { diagnosis, status: taskStatus(diagnosis) });
       setAnswers(current => ({ ...current, [task.id]: [] })); setMessage("업무 진단을 완료했습니다. AI 근거를 확인하고 필요하면 점수를 보정하세요.");
     } catch (error) { if (alive.current) setMessage(`진단 실패 · ${aiFailureDetail(error)}`); }
     finally { activeAi.current = false; activeRun.current = false; if (alive.current) setBusy(null); }
@@ -137,6 +139,7 @@ export function AxDiagnosisView() {
   }
   async function generatePlan(task: AxTask, target: "codex" | "claude") {
     if (!task.diagnosis || activeRun.current) return;
+    if (!planAllowed(task.diagnosis)) { setMessage("현재 조건에서는 구현 계획을 생성할 수 없습니다. 선행 조치를 먼저 해결하세요."); return; }
     activeRun.current = true; activeAi.current = true; setBusy(target); setMessage("");
     try {
       const confirmed = confirmedAxDiagnosis(task.diagnosis);
@@ -190,10 +193,12 @@ export function AxDiagnosisView() {
     })}</ul>;
   }
   function priorityRows(top = false) {
-    return <ol className="ax-priority-list" aria-label={top ? "자동화 우선순위 TOP 목록" : "자동화 우선순위 목록"}>{(top ? ranked.slice(0, 3) : ranked).map((r, i) => {
-      const l = automationLevel(r.task.diagnosis), m = matrixPosition(r.task.diagnosis);
+    const gateOrder = { ready: 0, conditional: 1, blocked: 2 };
+    const displayed = [...ranked].sort((a, b) => gateOrder[executionGate(a.task.diagnosis)] - gateOrder[executionGate(b.task.diagnosis)]);
+    return <ol className="ax-priority-list" aria-label={top ? "자동화 우선순위 TOP 목록" : "자동화 우선순위 목록"}>{(top ? displayed.slice(0, 3) : displayed).map((r, i) => {
+      const l = automationLevel(r.task.diagnosis), m = matrixPosition(r.task.diagnosis), gate = executionGate(r.task.diagnosis);
       return <li key={r.task.id}><Button type="button" variant="ghost" className="ax-priority-row" aria-pressed={selected?.id === r.task.id} onClick={() => select(r.task.id)} disabled={!!busy}>
-        <strong className="ax-rank">#{i + 1}</strong><span className="ax-priority-content"><span className="ax-priority-head"><span className="ax-task-name">{r.task.name}</span><span className="ax-region-chip" data-region={m.region}>{m.label}</span></span>
+        <strong className="ax-rank">#{i + 1}</strong><span className="ax-priority-content"><span className="ax-priority-head"><span className="ax-task-name">{r.task.name}</span><span className="ax-region-chip" data-region={m.region}>{priorityDisplayLabel(r.task.diagnosis)}</span>{gate === "conditional" ? <span className="ax-gate-cond" title={GATE_LABELS[gate]}>조건부</span> : null}</span>
         <span>{l.label.replace(/^L\d+ /, "")} · Level {l.level}{l.provisional ? " · 잠정" : ""}</span>{top ? <small className="ax-next-action"><span>다음 권장 행동</span>{nextAction(r.task.diagnosis).label}</small> : <small>{r.reason}</small>}{top ? <small>점수 {r.score}</small> : null}</span>
       </Button></li>;
     })}</ol>;
@@ -221,6 +226,7 @@ export function AxDiagnosisView() {
     </div>
     {saveStatus === "저장 실패" ? <p role="status" className="ax-notice">자동 저장에 실패했습니다. 필요하면 AI•AX 데이터를 내보내 백업해주세요.</p> : null}
     {loadNotice ? <p role="status" className="ax-notice">{loadNotice}</p> : null}
+    {externalChange ? <p role="status" className="ax-notice">다른 탭에서 AI•AX 데이터가 변경되었습니다. 최신 내용을 보려면 새로고침하세요. <Button type="button" variant="outline" size="sm" onClick={() => window.location.reload()}>새로고침</Button></p> : null}
     {message ? <p role="status" className="ax-notice">{message}</p> : null}
     {!ready ? <p role="status">AI•AX 데이터를 불러오는 중…</p> : <Tabs value={String(state.step)} onValueChange={value => changeStep(Number(value))}>
       <TabsList className="ax-steps" aria-label="진단 단계">{STEPS.map((s, i) => { const Icon = STEP_ICONS[i]; return <TabsTab key={s} value={String(i + 1)} disabled={!!busy}><Icon size={15} aria-hidden="true" /><span>{s}</span></TabsTab>; })}</TabsList>
@@ -282,7 +288,17 @@ export function AxDiagnosisView() {
             <section className="ax-surface"><h3>분류 현황</h3><div className="ax-region-tiles">{Object.entries(REGION_LABELS).map(([region, label]) => <div className="ax-region-tile" data-region={region} key={region}><span>{label}</span><strong>{ranked.filter(r => matrixPosition(r.task.diagnosis).region === region).length}개</strong></div>)}</div></section>
           </div><section className="ax-roadmap-panel"><h3>실행 로드맵</h3>{selected?.diagnosis ? <><p className="ax-roadmap-task">{selected.name}</p><ol className="ax-timeline">{selected.diagnosis.roadmap.map((r, i) => <li key={i}><span className="ax-timeline-node">{i + 1}</span><div><h4>Phase {r.phase} · {r.title}</h4><ul>{r.items.map((item, j) => <li key={j}>{item}</li>)}</ul></div></li>)}</ol></> : <p>우선순위에서 업무를 선택하면 실행 로드맵을 확인할 수 있습니다.</p>}</section></div>
           {selected?.diagnosis ? <div className="ax-detail-stack"><section className="ax-surface"><h2>{selected.name}</h2><p className="ax-muted">{selected.diagnosis.sourceNote}</p><AxSummary task={selected} /></section><AxRoadmap diagnosis={selected.diagnosis} roadmapSection={false} />
-            <section className="ax-surface"><h3>구현 계획</h3><div className="ax-actions"><Button type="button" variant="outline" disabled={!!busy} onClick={() => void generatePlan(selected, "codex")}>{busy === "codex" ? "Codex 계획 생성 중…" : "Codex용 구현 계획 생성"}</Button><Button type="button" variant="outline" disabled={!!busy} onClick={() => void generatePlan(selected, "claude")}>{busy === "claude" ? "Claude 계획 생성 중…" : "Claude Code용 구현 계획 생성"}</Button></div></section>{selected.diagnosis.planCodex ? <AxPlanReport plan={selected.diagnosis.planCodex} title="Codex용 구현 계획" /> : null}{selected.diagnosis.planClaude ? <AxPlanReport plan={selected.diagnosis.planClaude} title="Claude Code용 구현 계획" /> : null}
+            <section className="ax-surface"><h3>구현 계획</h3>
+              {selectedGate === "blocked" ? <>
+                <p role="status" className="ax-notice">현재 조건에서는 구현 계획을 생성할 수 없습니다.</p>
+                <ul className="ax-prereq-list">{selectedBlockReasons.map((reason, i) => <li key={i}>{reason}</li>)}</ul>
+                {selectedPrereqs.length ? <><h4>선행 조치</h4><ul className="ax-prereq-list">{selectedPrereqs.map((item, i) => <li key={i}>{item}</li>)}</ul></> : null}
+              </> : selectedGate === "conditional" ? <>
+                <p className="ax-notice">조건부 진행 — 아래 선행 확인을 먼저 해결한 뒤 계획을 확정하세요.</p>
+                <h4>선행 확인</h4><ul className="ax-prereq-list">{gatePrerequisites(selected.diagnosis).map((item, i) => <li key={i}>{item}</li>)}</ul>
+              </> : null}
+              <div className="ax-actions"><Button type="button" variant="outline" disabled={!!busy || selectedGate === "blocked"} onClick={() => void generatePlan(selected, "codex")}>{busy === "codex" ? "Codex 계획 생성 중…" : "Codex용 구현 계획 생성"}</Button><Button type="button" variant="outline" disabled={!!busy || selectedGate === "blocked"} onClick={() => void generatePlan(selected, "claude")}>{busy === "claude" ? "Claude 계획 생성 중…" : "Claude Code용 구현 계획 생성"}</Button></div>
+            </section>{selected.diagnosis.planCodex ? <AxPlanReport plan={selected.diagnosis.planCodex} title="Codex용 구현 계획" /> : null}{selected.diagnosis.planClaude ? <AxPlanReport plan={selected.diagnosis.planClaude} title="Claude Code용 구현 계획" /> : null}
           </div> : <p className="ax-muted">우선순위 목록에서 업무를 선택해 상세 결과를 확인하세요.</p>}
         </>}
       </TabsPanel>
@@ -313,7 +329,7 @@ function AxKpiCards({ tasks }: { tasks: AxTask[] }) {
   return <div className="ax-kpi-cards">
     <div className="ax-surface ax-kpi"><span className="ax-kpi-label"><ClipboardList size={14} aria-hidden="true" />등록 업무</span><strong>{tasks.length}개</strong></div>
     <div className="ax-surface ax-kpi"><span className="ax-kpi-label"><CircleCheck size={14} aria-hidden="true" />진단 완료</span><strong>{diagnosedCount}개</strong></div>
-    {diagnosedCount ? <div className="ax-surface ax-kpi"><span className="ax-kpi-label"><Zap size={14} aria-hidden="true" />우선 검토 후보</span><strong>{ranked.filter(r => matrixPosition(r.task.diagnosis).region === "quick").length}개</strong></div> : null}
+    {diagnosedCount ? <div className="ax-surface ax-kpi"><span className="ax-kpi-label"><Zap size={14} aria-hidden="true" />우선 검토 후보</span><strong>{ranked.filter(r => matrixPosition(r.task.diagnosis).region === "quick" && executionGate(r.task.diagnosis) !== "blocked").length}개</strong></div> : null}
     {knownMinutes.length ? <div className="ax-surface ax-kpi"><span className="ax-kpi-label"><Clock3 size={14} aria-hidden="true" />월 투입시간 합 · 입력 {knownMinutes.length}개</span><strong>{(knownMinutes.reduce((sum, m) => sum + m, 0) / 60).toLocaleString("ko-KR", { maximumFractionDigits: 1 })}시간</strong></div> : null}
   </div>;
 }
