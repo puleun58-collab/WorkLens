@@ -33,7 +33,7 @@ const DETAILS: { key: keyof AxDetails; label: string; numeric?: boolean }[] = [
   { key: "cycle", label: "수행 주기" }, { key: "minutesPerRun", label: "1회 소요 시간(분)", numeric: true },
   { key: "runsPerMonth", label: "월 수행 횟수", numeric: true },
   { key: "systems", label: "사용 시스템" }, { key: "inputs", label: "입력 자료" }, { key: "outputs", label: "산출물" },
-  { key: "humanSteps", label: "사람이 처리/판단하는 단계" },
+  { key: "humanSteps", label: "담당자가 처리·판단하는 단계" },
 ];
 type SessionAttachment = { meta: NonNullable<AxTask["attachmentMeta"]>; summary: string };
 type Confirmation = { kind: "import"; state: AxState } | { kind: "reset" } | { kind: "delete"; id: string };
@@ -324,7 +324,7 @@ function AxAxisBars({ diagnosis }: { diagnosis: AxDiagnosis }) {
   const a = axes(diagnosis);
   return <div className="ax-axis-bars">{([
     ["자동화 가치", a.value, "var(--primary)"], ["기술 실현 가능성", a.feasibility, "var(--primary)"],
-    ["사람 판단 의존도", a.judgment, "#db2777"], ["운영 위험", a.risk, "#dc2626"],
+    ["담당자 판단 의존도", a.judgment, "#db2777"], ["운영 위험", a.risk, "#dc2626"],
   ] as const).map(([label, value, color]) => <div className="ax-axis-row" key={label}><span>{label}</span><div className="ax-axis-track"><span style={{ width: `${value / 5 * 100}%`, background: color }} /></div><strong>{value}</strong></div>)}</div>;
 }
 function AxMatrix({ tasks, selectedId, onSelect }: { tasks: (AxTask & { diagnosis: AxDiagnosis })[]; selectedId?: string; onSelect: (id: string) => void }) {
