@@ -1,5 +1,6 @@
 import { axMessages, AX_DIAGNOSIS_RESPONSE_SCHEMA, AX_PLAN_RESPONSE_SCHEMA, copiesAttachment } from "@/lib/ax/prompt";
 import { axDiagnosisOutputSchema, axPlanSchema } from "@/lib/ax/schema";
+import { validateAxSemantics } from "@/lib/ax/semantic";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { AiApiRequest, AiApiResult } from "@/lib/ai/api";
@@ -16,6 +17,7 @@ const GROQ_MODEL = "openai/gpt-oss-120b";
 const REQUEST_TIMEOUT_MS = 30_000;
 /** Shared by provider retries and the one malformed-answer retry; never raise above four. */
 const RESEARCH_INTERPRETATION_MAX_ATTEMPTS = 4;
+const CORRECTION_MESSAGE = "이전 응답에 사용자가 제공하지 않은 정량 성과 주장(절감률·정확도·자동화율·ROI·효율 등의 수치)이 포함되어 있었습니다. 성과 수치를 생성하지 말고, 필요한 경우 수치 대신 측정 방법·대조 기준·검증 기준을 작성하세요. 동일한 JSON 스키마로 전체 응답을 다시 작성하세요.";
 
 export type GroqOperation = Extract<AiApiRequest, { kind: "claims" }>["request"]["operation"]
   | Exclude<AiApiRequest["kind"], "claims">
@@ -52,6 +54,7 @@ interface GroqAttemptBudget {
   usage?: GroqCompletion["usage"];
   cumulativeUsage: NonNullable<GroqCompletion["usage"]>;
   rejection?: ProviderErrorMetadata & { status: number };
+  semantic?: { categories: string[]; corrected: boolean };
 }
 
 /** Only the request boundary logs outcomes, after every retry and validation has finished. */
@@ -83,6 +86,10 @@ async function observeGroq<T>(
     cumulativePromptTokens: budget.cumulativeUsage.prompt_tokens,
     cumulativeCompletionTokens: budget.cumulativeUsage.completion_tokens,
     cumulativeTotalTokens: budget.cumulativeUsage.total_tokens,
+    ...(budget.semantic ? {
+      semanticViolationCategories: budget.semantic.categories,
+      semanticCorrected: budget.semantic.corrected,
+    } : {}),
   });
   try {
     const result = await run(budget);
@@ -267,7 +274,26 @@ export async function runGroqAi(
     const specification = requestSpecification(request);
     const raw = await complete(specification.messages, specification.schema, specification.schemaName, specification.maxTokens,
       { ...context, operation }, budget);
-    return parseResult(request, raw.choices[0].message.content);
+    const result = parseResult(request, raw.choices[0].message.content);
+    if (request.kind !== "ax-diagnosis" || result.kind !== "ax-diagnosis") return result;
+    let violations = validateAxSemantics(result.diagnosis, request);
+    if (!violations.length) return result;
+    budget.semantic = { categories: [...new Set(violations.map(violation => violation.category))], corrected: false };
+    if (budget.attempt < budget.maxAttempts) {
+      const messages: Message[] = [...specification.messages, { role: "user", content: CORRECTION_MESSAGE }];
+      const correctedRaw = await complete(messages, specification.schema, specification.schemaName, specification.maxTokens,
+        { ...context, operation }, budget);
+      const corrected = parseResult(request, correctedRaw.choices[0].message.content);
+      if (corrected.kind === "ax-diagnosis") {
+        violations = validateAxSemantics(corrected.diagnosis, request);
+        if (!violations.length) {
+          budget.semantic.corrected = true;
+          return corrected;
+        }
+      }
+    }
+    budget.semantic.categories = [...new Set(violations.map(violation => violation.category))];
+    throw new ApiError("INVALID_PROVIDER_OUTPUT", "AI 진단 결과를 검증하지 못했습니다. 다시 시도하세요.", 502);
   });
 }
 

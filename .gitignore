@@ -55,3 +55,6 @@ next-env.d.ts
 # Local-only secrets for wrangler dev
 .dev.vars
 .dev.vars.*
+
+# opt-in AX reasoning evaluation outputs (including sealed scoring metadata)
+/eval/ax-reasoning/results/
