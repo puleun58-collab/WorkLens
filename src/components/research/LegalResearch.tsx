@@ -315,9 +315,15 @@ export function LegalResearch({ workspace, initialTask = "full_research" }: { wo
           {uploadErrors.map((message) => <p key={message} className="law-search-error" role="alert">{message}</p>)}
         </> : <>
           <Field><Textarea id="research-document" aria-label="검토할 문서 내용" value={draft.text} rows={10} maxLength={LAW_RESEARCH_DOCUMENT_MAX_CHARS} placeholder={TASK_HELP.document_review.placeholder} onChange={(event) => update("text", event.target.value)} aria-describedby="research-document-help" /></Field>
-          <p id="research-document-help" className="legal-analysis-help">
-            <span className="legal-analysis-count">{draft.text.length.toLocaleString("ko-KR")} / {LAW_RESEARCH_DOCUMENT_MAX_CHARS.toLocaleString("ko-KR")}자 · 최소 {LAW_RESEARCH_DOCUMENT_MIN_CHARS}자</span>
-          </p>
+          <div className="research-input-footer">
+            {resultDisplay}
+            <div className="research-input-submit">
+              <p id="research-document-help" className="legal-analysis-help">
+                <span className="legal-analysis-count">{draft.text.length.toLocaleString("ko-KR")} / {LAW_RESEARCH_DOCUMENT_MAX_CHARS.toLocaleString("ko-KR")}자 · 최소 {LAW_RESEARCH_DOCUMENT_MIN_CHARS}자</span>
+              </p>
+              {runButton}
+            </div>
+          </div>
         </>}
       </div> : <>
         <Field><FieldLabel htmlFor="research-query">질문 또는 검색어</FieldLabel>
@@ -358,9 +364,9 @@ export function LegalResearch({ workspace, initialTask = "full_research" }: { wo
         </div>}
       </>}
 
-      {resultDisplay}
+      {fromFile ? resultDisplay : null}
 
-      {!fromFile && <div className={`legal-analysis-actions${task === "ordinance_compare" ? " legal-research-action-row" : ""}`}>
+      {!isDocument && <div className={`legal-analysis-actions${task === "ordinance_compare" ? " legal-research-action-row" : ""}`}>
         {task === "ordinance_compare" && (() => {
           // Guidance until both regions are filled; the same region twice is a real input error.
           const duplicate = Boolean(regionNames[0]) && regionNames[0] === regionNames[1];

@@ -135,7 +135,7 @@ export function ContractReviewResult({ review, file, expandSources = false }: { 
       <dt>확인한 근거</dt>
       <dd>{laws.length + precedents.length > 0
         ? <>{laws.map((law) => `${law.law} ${law.jo}`).concat(precedents.map((precedent) =>
-          precedent.title ?? precedent.caseNumber ?? "판례")).join(" · ")} <Button variant="link" type="button" className="h-auto max-w-full whitespace-normal px-0 text-left" aria-controls={anchor} onClick={() => showEvidence(anchor)}>상세 근거 보기</Button></>
+          precedent.title ?? precedent.caseNumber ?? "판례")).join(" · ")} <Button variant="link" type="button" className="h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" aria-controls={anchor} onClick={() => showEvidence(anchor)}>상세 근거 보기</Button></>
         : issue.lawStatus === "failed" || issue.precedentStatus === "failed"
           ? "직접 근거 확인이 완료되지 않았습니다."
           : "확인된 직접 근거 없음"}</dd>

@@ -208,7 +208,7 @@ function EvidenceEntry({ target, state, onRetry }: { target: EvidenceTarget; sta
   return <div className="legal-analysis-evidence" data-evidence={state?.status ?? "idle"}>
     <h4>{lawDisplayText(title)}</h4>
     {!state || state.status === "loading" ? <p className="law-search-note" role="status">근거를 불러오는 중…</p>
-      : state.status === "error" ? <p className="law-search-note">{state.message} <Button variant="link" type="button" className="h-auto max-w-full whitespace-normal px-0 text-left" onClick={onRetry}>다시 시도</Button></p>
+      : state.status === "error" ? <p className="law-search-note">{state.message} <Button variant="link" type="button" className="h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" onClick={onRetry}>다시 시도</Button></p>
         : state.status === "unavailable" ? <p className="law-search-note">{state.message}</p>
           : state.value.kind === "law" ? <LawEvidenceView target={target} law={state.value.law} evidence={state.value.evidence} />
             : <CaseEvidenceView entry={state.value.entry} sections={state.value.sections} />}

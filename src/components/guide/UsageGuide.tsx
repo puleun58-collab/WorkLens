@@ -90,7 +90,7 @@ const GUIDES: Guide[] = [
         title: "기준/대상 확인", text: "필요하면 기준/대상 바꾸기를 누릅니다.",
         mini: <span className="mini-map"><span><small>기준 파일</small>v1.xlsx</span><ArrowRight className="mini-arrow-icon" /><span className="is-mark"><small>대상 파일</small>v2.xlsx</span></span>,
       },
-      { title: "실행", text: "버전 비교 또는 값 일치 확인을 고르고 실행합니다.", mini: <Run before={<Segments items={["버전 비교", "값 일치 확인"]} active={0} />} /> },
+      { title: "실행", text: "버전 비교나 값 일치 확인을 골라 실행합니다.", mini: <Run before={<Segments items={["버전 비교", "값 일치 확인"]} active={0} />} /> },
       { title: "결과 확인", text: "변경 내역을 확인하고 내려받습니다.", mini: <Result title="버전 비교 결과" status="비교 완료" lines={["중요 변경 2 · 추가 1 · 삭제 1"]} actions={["CSV", "XLSX 다운로드"]} /> },
     ],
     tip: "첫 번째로 선택한 파일이 기준 파일입니다.",
@@ -106,11 +106,11 @@ const GUIDES: Guide[] = [
   {
     id: "supplement", label: "보완", summary: "문서에서 빠진 핵심 정보와 설명이 필요한 부분을 찾습니다.",
     steps: [
-      selectFiles("보완할 PPTX, PDF, XLSX 또는 DOCX 파일을 선택합니다.", ["3분기_비용보고.pptx"]),
+      selectFiles("보완할 문서 파일을 선택합니다.", ["3분기_비용보고.pptx"]),
       { title: "실행", text: "보완 탭에서 실행을 누릅니다.", mini: <Run /> },
-      { title: "결과 확인", text: "중요도, 원문 위치, 추가하면 좋은 정보를 확인합니다.", mini: <Result title="보완 결과" status="검토 완료" lines={["중요 · 원인 설명 확인 필요 · 3P", "상사가 물어보기 전에"]} /> },
+      { title: "결과 확인", text: "중요도와 원문 위치, 추가할 정보를 확인합니다.", mini: <Result title="보완 결과" status="검토 완료" lines={["중요 · 원인 설명 확인 필요 · 3P", "상사가 물어보기 전에"]} /> },
     ],
-    tip: "다른 페이지나 슬라이드에 설명이 있으면 누락으로 표시하지 않습니다. 읽지 못한 영역은 분석 범위에 표시됩니다.",
+    tip: "다른 페이지에 설명이 있으면 누락으로 표시하지 않으며, 읽지 못한 영역은 분석 범위에 표시됩니다.",
   },
   {
     id: "polish", label: "윤문", summary: "번역투와 중복 표현을 문장 단위로 다듬습니다.",
@@ -158,25 +158,25 @@ const GUIDES: Guide[] = [
   {
     id: "image", label: "이미지 도구", summary: "이미지를 편집하거나 여러 장을 결합해 내보냅니다.",
     steps: [
-      { title: "이미지 추가", text: "JPG, PNG, WebP 이미지를 추가합니다.", mini: <Upload label="이미지 추가" hint="JPG · PNG · WebP" /> },
-      { title: "편집", text: "체크한 이미지에 크기·회전을 적용합니다. 자르기는 미리보기에서 연 이미지에만 적용됩니다.", mini: <span className="mini-canvas"><ImageIcon className="mini-canvas-icon" /><span className="mini-crop is-mark" /></span> },
-      { title: "결과 내보내기", text: "선택한 이미지나 결합 이미지를 내보냅니다.", mini: <Run label="내보내기" before={<Field text="2개 선택됨" mark={false} />} /> },
+      { title: "이미지 추가", text: "편집할 JPG·PNG·WebP 이미지를 추가합니다.", mini: <Upload label="이미지 추가" hint="JPG · PNG · WebP" /> },
+      { title: "편집", text: "크기·회전 등 필요한 편집을 적용합니다.", mini: <span className="mini-canvas"><ImageIcon className="mini-canvas-icon" /><span className="mini-crop is-mark" /></span> },
+      { title: "결과 내보내기", text: "편집하거나 결합한 이미지를 내보냅니다.", mini: <Run label="내보내기" before={<Field text="2개 선택됨" mark={false} />} /> },
     ],
   },
   {
     id: "ax", label: "업무 자동화 진단", summary: "업무를 등록하고 자동화 가능성, 우선순위와 실행 계획을 확인합니다.",
     steps: [
-      { title: "업무 등록", text: "업무명과 업무 설명을 입력해 등록합니다. 추가 정보와 파일을 추가하면 진단이 더 정확해집니다.", mini: <Run label="업무 등록" before={<Field text="자료 취합과 승인 절차" />} /> },
-      { title: "업무 진단", text: "업무 진단 실행을 누르고 핵심 질문에 답합니다. AI 근거를 확인해 6종 점수를 보정합니다. 검증되지 않은 성과 수치가 포함된 진단은 재시도 한도 내에서 자동으로 한 번 다시 생성되며, 반복되면 오류로 표시됩니다.", mini: <Result title="진단 결과" status="진단 완료" lines={["반복성 · 규칙성 · 데이터 구조화", "시스템 접근성 · 담당자 판단 · 위험"]} /> },
-      { title: "자동화 매트릭스", text: "기술 실현 가능성과 자동화 가치로 업무를 비교합니다.", mini: <Result title="자동화 매트릭스" status="진단 업무" lines={["빠른 실행 후보 · 전략 과제", "검토 후보 · 수동 유지·보류"]} /> },
-      { title: "결과·로드맵", text: "우선순위와 사전 검증(PoC)을 확인하고 자동화 구현 계획에서 Codex 또는 Claude Code용 올인원 지시문을 복사해 실제 구현을 시작합니다. 계획 생성 후 도구 탭 옆의 설치·시작 가이드에서 환경 준비와 도구 실행 방법을 확인할 수 있습니다. 실행 보류인 업무는 표시된 보류 사유를 먼저 해결해야 계획을 만들 수 있습니다.", mini: <Result title="결과·로드맵" status="검토 대기" actions={["Codex용 구현 계획 생성"]} lines={["우선순위 · 선정 이유 · 다음 행동"]} /> },
+      { title: "업무 등록", text: "업무명과 설명을 입력하고 자료를 추가합니다.", mini: <Run label="업무 등록" before={<Field text="자료 취합과 승인 절차" />} /> },
+      { title: "업무 진단", text: "업무 특성과 자동화 가능성을 진단합니다.", mini: <Result title="진단 결과" status="진단 완료" lines={["반복성 · 규칙성 · 데이터 구조화", "시스템 접근성 · 담당자 판단 · 위험"]} /> },
+      { title: "자동화 매트릭스", text: "업무별 가치와 실현 가능성을 비교합니다.", mini: <Result title="자동화 매트릭스" status="진단 업무" lines={["빠른 실행 후보 · 전략 과제", "검토 후보 · 수동 유지·보류"]} /> },
+      { title: "결과·로드맵", text: "우선순위를 확인하고 구현 지시문을 만듭니다.", mini: <Result title="결과·로드맵" status="검토 대기" actions={["Codex용 구현 계획 생성"]} lines={["우선순위 · 선정 이유 · 다음 행동"]} /> },
     ],
-    tip: "우측 상단의 ··· 메뉴에서 AI•AX 데이터 내보내기·가져오기·초기화가 가능합니다. 첨부 원본과 요약은 저장하지 않으며 재분석 시 다시 첨부해야 합니다.",
+    tip: "우측 상단 ··· 메뉴에서 데이터를 내보내거나 가져오고 초기화할 수 있습니다. 첨부 파일은 저장되지 않아 재분석 시 다시 첨부해야 합니다.",
   },
   {
     id: "dictionary", label: "용어 사전", summary: "맞춤법과 용어 오탐을 줄이기 위한 사전입니다.",
     steps: [
-      { title: "용어 사전 열기", text: "메뉴의 도움말에서 용어 사전을 누릅니다. 좁은 화면에서는 메뉴 버튼을 먼저 엽니다.", mini: <span className="mini-files"><span className="mini-row"><span className="mini-name">사용 가이드</span></span><span className="mini-row is-mark is-checked"><span className="mini-name">용어 사전</span></span><span className="mini-row"><span className="mini-name">설정</span></span></span> },
+      { title: "용어 사전 열기", text: "도움말 메뉴에서 용어 사전을 엽니다.", mini: <span className="mini-files"><span className="mini-row"><span className="mini-name">사용 가이드</span></span><span className="mini-row is-mark is-checked"><span className="mini-name">용어 사전</span></span><span className="mini-row"><span className="mini-name">설정</span></span></span> },
       { title: "단어 추가", text: "회사에서 쓰는 용어를 개인 사전에 추가합니다.", mini: <span className="mini-operation"><Field text="WorkLens" /><span className="mini-button">추가</span></span> },
       { title: "검수에 반영", text: "추가한 단어는 맞춤법 오류로 표시하지 않습니다.", mini: <Result title="개인 사전" status="1개" lines={["WorkLens"]} /> },
     ],

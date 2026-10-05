@@ -33,13 +33,13 @@ async function record(page: Page): Promise<AxState | undefined> {
     db.close(); return value;
   });
 }
-async function dataAction(page: Page, name: "AI•AX 데이터 내보내기" | "AI•AX 데이터 가져오기" | "AI•AX 데이터 초기화") {
+async function dataAction(page: Page, name: "데이터 내보내기" | "데이터 가져오기" | "데이터 초기화") {
   await page.getByRole("button", { name: "AI•AX 데이터 작업", exact: true }).click();
   await page.getByRole("menuitem", { name, exact: true }).click();
 }
 async function importData(page: Page, content: string) {
   const chooser = page.waitForEvent("filechooser");
-  await dataAction(page, "AI•AX 데이터 가져오기");
+  await dataAction(page, "데이터 가져오기");
   await (await chooser).setFiles({ name: "ax.json", mimeType: "application/json", buffer: Buffer.from(content) });
 }
 function mock(page: Page, calls: Record<string, unknown>[] = []) {
@@ -129,11 +129,12 @@ test("AX ellipsis menu, keyboard controls and segmented steps", async ({ page })
   await trigger.click();
   const menu = page.getByRole("menu");
   await expect(menu).toBeVisible(); await expect(menu.getByRole("menuitem")).toHaveCount(3);
-  for (const name of ["AI•AX 데이터 내보내기", "AI•AX 데이터 가져오기", "AI•AX 데이터 초기화"]) {
+  for (const name of ["데이터 내보내기", "데이터 가져오기", "데이터 초기화"]) {
     await expect(menu.getByRole("menuitem", { name, exact: true })).toBeVisible();
   }
   await expect(menu.getByRole("separator")).toHaveCount(1);
-  await expect(menu.getByRole("menuitem", { name: "AI•AX 데이터 초기화", exact: true })).toHaveAttribute("data-variant", "destructive");
+  await expect(menu.getByRole("menuitem", { name: "데이터 초기화", exact: true })).toHaveAttribute("data-variant", "destructive");
+  await expect(menu).not.toContainText("AI•AX");
   await page.keyboard.press("Escape"); await expect(menu).not.toBeVisible();
   await trigger.focus(); await page.keyboard.press("Enter"); await expect(menu).toBeVisible();
   await page.keyboard.press("Escape"); await expect(menu).not.toBeVisible(); await expect(trigger).toBeFocused();
@@ -153,10 +154,25 @@ test("AX registration labels and common empty states", async ({ page }) => {
   await expect(page.getByLabel("업무명", { exact: true })).toHaveAccessibleDescription("비워두면 업무 설명을 기준으로 자동 생성됩니다.");
   await expect(page.getByLabel("업무 설명", { exact: true })).toHaveAttribute("required", "");
   await expect(page.getByLabel("업무 설명", { exact: true })).toHaveAttribute("placeholder", "어떤 업무를 반복하고 있으며, 어떤 자료를 받아 어떤 결과를 만드는지 설명해주세요.");
-  await expect(page.getByRole("heading", { name: "등록된 업무가 없습니다", exact: true })).toBeVisible();
-  await expect(page.getByText("왼쪽에서 첫 업무를 등록해주세요.", { exact: true })).toBeVisible();
+  await expect(page.locator("form.ax-register")).toBeVisible();
+  await expect(page.getByLabel("등록 업무 목록")).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "업무 목록", exact: true })).toHaveCount(0);
+  await expect(page.getByText("등록된 업무가 없습니다", { exact: false })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "여러 업무 일괄 추가" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "다음 단계", exact: true })).toBeDisabled();
+  const details = page.getByRole("button", { name: "추가 정보", exact: true });
+  const closedBackground = await details.evaluate(element => getComputedStyle(element).backgroundColor);
+  await details.click(); await expect(details).toHaveAttribute("aria-expanded", "true");
+  await page.mouse.move(0, 0);
+  expect(await details.evaluate(element => getComputedStyle(element).backgroundColor)).toBe(closedBackground);
+  for (const [label, placeholder] of [
+    ["수행 주기", "예: 매주 월요일, 매월 말일, 필요 시"], ["1회 소요 시간(분)", "예: 30"], ["월 수행 횟수", "예: 8"],
+    ["사용 시스템", "예: Excel, ERP, 사내 시스템"], ["입력 자료", "예: 정산 Excel, 청구서, 시스템 조회 데이터"],
+    ["산출물", "예: 월간 정산표, 검토 결과, 보고서"], ["담당자 판단·승인 단계", "예: 예외 건 검토, 금액 확인, 최종 승인"],
+  ]) await expect(page.getByLabel(label, { exact: true })).toHaveAttribute("placeholder", placeholder);
+  await expect(page.getByLabel("1회 소요 시간(분)", { exact: true })).toHaveAttribute("type", "number");
+  await expect(page.getByLabel("월 수행 횟수", { exact: true })).toHaveAttribute("type", "number");
+  await expect(page.getByText("담당자가 처리·판단하는 단계", { exact: true })).toHaveCount(0);
   for (const [tab, title, description] of [
     ["업무 진단", "진단할 업무가 없습니다", "업무를 먼저 등록해주세요."],
     ["자동화 매트릭스", "비교할 진단 결과가 없습니다", "진단이 완료된 업무가 표시됩니다."],
@@ -263,12 +279,13 @@ test("AX registration → diagnosis → correction → matrix → plans → relo
   await expect(page.getByRole("button", { name: "Codex용 지시문 복사", exact: true })).toBeVisible();
   await page.getByRole("tab", { name: "Claude Code", exact: true }).click();
   await expect(page.getByRole("button", { name: "Claude Code용 지시문 복사", exact: true })).toBeVisible();
-  const downloaded = page.waitForEvent("download"); await dataAction(page, "AI•AX 데이터 내보내기");
+  const downloaded = page.waitForEvent("download"); await dataAction(page, "데이터 내보내기");
   const path = await (await downloaded).path(); const content = await readFile(path!, "utf8");
   expect(JSON.parse(content).data).toEqual(saved);
   await page.evaluate(() => localStorage.setItem("ax-unrelated-fixture", "keep"));
-  await dataAction(page, "AI•AX 데이터 초기화"); await page.getByRole("alertdialog").getByRole("button", { name: "초기화", exact: true }).click();
-  await expect(page.getByText("등록된 업무가 없습니다", { exact: false })).toBeVisible();
+  await dataAction(page, "데이터 초기화"); await page.getByRole("alertdialog").getByRole("button", { name: "초기화", exact: true }).click();
+  await expect(page.getByLabel("업무 설명", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("등록 업무 목록")).toHaveCount(0);
   await expect.poll(() => record(page)).toBeUndefined();
   expect(await page.evaluate(() => localStorage.getItem("ax-unrelated-fixture"))).toBe("keep");
   await importData(page, content);
@@ -359,7 +376,13 @@ test("AX mobile steps scroll, bottom navigation and task delete", async ({ page 
   await expect(page.getByRole("tab", { name: "업무 등록", exact: true })).toHaveAttribute("aria-selected", "true");
   await page.getByLabel("등록 업무 목록").locator("li", { hasText: "월간 취합" }).getByRole("button", { name: "업무 삭제", exact: true }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: "삭제", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "등록된 업무가 없습니다", exact: true })).toBeVisible();
+  await expect(page.getByLabel("등록 업무 목록")).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "업무 목록", exact: true })).toHaveCount(0);
+  await expect(page.getByText("등록된 업무가 없습니다", { exact: false })).toHaveCount(0);
+  await expect.poll(async () => (await record(page))?.tasks.length).toBe(0);
+  await page.reload(); await ax(page);
+  await expect(page.getByLabel("업무 설명", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("등록 업무 목록")).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   await navigateWorkspace(page, "Guide"); await page.getByRole("tab", { name: "업무 자동화 진단", exact: true }).click();
   await expect(page.getByRole("tabpanel").locator(".usage-guide-step")).toHaveCount(4);
@@ -374,14 +397,14 @@ test("AX validates imports before replacement, cancel preserves existing data an
   await expect(page.getByLabel("등록 업무 목록")).toContainText("기존 업무");
   await importData(page, imported); await page.getByRole("alertdialog").getByRole("button", { name: "덮어쓰기", exact: true }).click();
   await expect(page.getByLabel("등록 업무 목록")).toContainText("업무 imported");
-  await dataAction(page, "AI•AX 데이터 초기화"); await page.getByRole("alertdialog").getByRole("button", { name: "취소", exact: true }).click();
+  await dataAction(page, "데이터 초기화"); await page.getByRole("alertdialog").getByRole("button", { name: "취소", exact: true }).click();
   await expect(page.getByLabel("등록 업무 목록")).toContainText("업무 imported");
   await expect.poll(() => record(page)).toEqual(JSON.parse(imported).data);
 });
 test("AX safely resets unsupported/corrupt IndexedDB records", async ({ page }) => {
   await page.goto("/"); await seed(page, { schemaVersion: 99, tasks: "broken" }); await ax(page);
   await expect(page.getByText("안전하게 초기화했습니다", { exact: false })).toBeVisible();
-  await expect(page.getByText("등록된 업무가 없습니다", { exact: false })).toBeVisible();
+  await expect(page.getByLabel("등록 업무 목록")).toHaveCount(0);
   await expect.poll(async () => (await record(page))?.schemaVersion).toBe(1);
   expect((await record(page))?.tasks).toEqual([]);
 });
@@ -438,7 +461,7 @@ test("AX attachment summaries stay out of storage/export and reload requires rea
   }] });
   const stored = await record(page); expect(stored?.tasks[0].attachmentMeta?.fingerprint).toHaveLength(64);
   expect(JSON.stringify(stored)).not.toContain("attachmentSummary"); expect(JSON.stringify(stored)).not.toContain("bytes");
-  const download = page.waitForEvent("download"); await dataAction(page, "AI•AX 데이터 내보내기");
+  const download = page.waitForEvent("download"); await dataAction(page, "데이터 내보내기");
   const exported = await readFile((await (await download).path())!, "utf8");
   expect(exported).not.toContain("attachmentSummary"); expect(exported).not.toContain("bytes");
   expect(JSON.parse(exported).data.tasks[0].attachmentMeta).toEqual(stored?.tasks[0].attachmentMeta);
@@ -472,7 +495,7 @@ test("AX works and exports when IndexedDB is unavailable and rejects failed AI o
   await expect(page.getByLabel("등록 업무 목록")).toContainText("월간 취합");
   await page.getByRole("button", { name: "다음 단계" }).click(); await page.getByRole("button", { name: "업무 진단 실행" }).click();
   await expect(page.getByText("진단 실패", { exact: false })).toBeVisible(); await expect(page.getByText("진단 결과", { exact: true })).toHaveCount(0);
-  const download = page.waitForEvent("download"); await dataAction(page, "AI•AX 데이터 내보내기"); const exported = JSON.parse(await readFile((await (await download).path())!, "utf8")); expect(exported.data.tasks).toHaveLength(1);
+  const download = page.waitForEvent("download"); await dataAction(page, "데이터 내보내기"); const exported = JSON.parse(await readFile((await (await download).path())!, "utf8")); expect(exported.data.tasks).toHaveLength(1);
 });
 test("AX flushes pending changes on navigation and preserves the existing workspace", async ({ page }) => {
   await page.goto("/"); await ax(page); await register(page, "화면 이동 전에 등록");
@@ -544,6 +567,8 @@ test("AX Execution Gate blocks no-go plans and displays ready tasks before highe
   await expect(ready).toContainText("점수 9");
   await expect(blocked.getByText("실행 보류", { exact: true })).toBeVisible();
   await blocked.getByRole("button").click();
+  await expect(page.locator(".ax-detail-stack .ax-summary")).toBeVisible();
+  await expect(page.locator(".ax-detail-stack .ax-gate-line")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Codex용 구현 계획 생성", exact: true })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Claude Code용 구현 계획 생성", exact: true })).toBeDisabled();
   const plans = page.locator("section.ax-surface").filter({ has: page.getByRole("heading", { name: "자동화 구현 계획", exact: true }) });
@@ -646,12 +671,13 @@ test("AX saves warn another tab and refresh loads the registered task", async ({
   await page.goto("/"); await ax(page);
   const other = await context.newPage();
   await other.goto("/"); await ax(other);
-  await expect(other.getByRole("heading", { name: "등록된 업무가 없습니다", exact: true })).toBeVisible();
+  await expect(other.getByLabel("업무 설명", { exact: true })).toBeVisible();
+  await expect(other.getByLabel("등록 업무 목록")).toHaveCount(0);
   await register(page, "A 탭에서 등록한 업무");
   await expect.poll(() => record(page)).toMatchObject({ tasks: [{ name: "A 탭에서 등록한 업무" }] });
   const notice = other.getByRole("status").filter({ hasText: "다른 탭에서 AI•AX 데이터가 변경되었습니다" });
   await expect(notice).toBeVisible();
-  await expect(other.getByRole("heading", { name: "등록된 업무가 없습니다", exact: true })).toBeVisible();
+  await expect(other.getByLabel("등록 업무 목록")).toHaveCount(0);
   await notice.getByRole("button", { name: "새로고침", exact: true }).click();
   await ax(other);
   await expect(other.getByLabel("등록 업무 목록")).toContainText("A 탭에서 등록한 업무");

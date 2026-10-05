@@ -29,11 +29,11 @@ const FACTOR_META = {
 };
 const STATUS = { registered: "등록됨", "needs-info": "정보 확인 필요", diagnosed: "진단 완료", adjusted: "사용자 보정 완료" };
 const SUFFICIENCY = { sufficient: "정보 충분", partial: "정보 일부 부족", "needs-check": "핵심 정보 확인 필요" };
-const DETAILS: { key: keyof AxDetails; label: string; numeric?: boolean }[] = [
-  { key: "cycle", label: "수행 주기" }, { key: "minutesPerRun", label: "1회 소요 시간(분)", numeric: true },
-  { key: "runsPerMonth", label: "월 수행 횟수", numeric: true },
-  { key: "systems", label: "사용 시스템" }, { key: "inputs", label: "입력 자료" }, { key: "outputs", label: "산출물" },
-  { key: "humanSteps", label: "담당자가 처리·판단하는 단계" },
+const DETAILS: { key: keyof AxDetails; label: string; placeholder: string; numeric?: boolean }[] = [
+  { key: "cycle", label: "수행 주기", placeholder: "예: 매주 월요일, 매월 말일, 필요 시" }, { key: "minutesPerRun", label: "1회 소요 시간(분)", placeholder: "예: 30", numeric: true },
+  { key: "runsPerMonth", label: "월 수행 횟수", placeholder: "예: 8", numeric: true },
+  { key: "systems", label: "사용 시스템", placeholder: "예: Excel, ERP, 사내 시스템" }, { key: "inputs", label: "입력 자료", placeholder: "예: 정산 Excel, 청구서, 시스템 조회 데이터" }, { key: "outputs", label: "산출물", placeholder: "예: 월간 정산표, 검토 결과, 보고서" },
+  { key: "humanSteps", label: "담당자 판단·승인 단계", placeholder: "예: 예외 건 검토, 금액 확인, 최종 승인" },
 ];
 type SessionAttachment = { meta: NonNullable<AxTask["attachmentMeta"]>; summary: string };
 type Confirmation = { kind: "import"; state: AxState } | { kind: "reset" } | { kind: "delete"; id: string };
@@ -214,10 +214,10 @@ export function AxDiagnosisView() {
   return <section className="ax-view" aria-label="업무 자동화 진단" aria-busy={!!busy}>
     <div className="ax-data-actions">
       <Menu><MenuTrigger render={<Button type="button" variant="outline" size="icon" aria-label="AI•AX 데이터 작업" disabled={!ready || !!busy} />}><MoreHorizontal aria-hidden="true" /></MenuTrigger><MenuPopup align="end">
-        <MenuItem onClick={download}><Upload aria-hidden="true" />AI•AX 데이터 내보내기</MenuItem>
-        <MenuItem onClick={() => importInput.current?.click()}><Download aria-hidden="true" />AI•AX 데이터 가져오기</MenuItem>
+        <MenuItem onClick={download}><Upload aria-hidden="true" />데이터 내보내기</MenuItem>
+        <MenuItem onClick={() => importInput.current?.click()}><Download aria-hidden="true" />데이터 가져오기</MenuItem>
         <MenuSeparator />
-        <MenuItem variant="destructive" onClick={() => setConfirmation({ kind: "reset" })}><Trash2 aria-hidden="true" />AI•AX 데이터 초기화</MenuItem>
+        <MenuItem variant="destructive" onClick={() => setConfirmation({ kind: "reset" })}><Trash2 aria-hidden="true" />데이터 초기화</MenuItem>
       </MenuPopup></Menu>
       <input ref={importInput} type="file" hidden accept=".json,application/json" aria-label="AI•AX 데이터 가져오기 파일" onChange={e => { const file = e.target.files?.[0]; e.target.value = ""; if (file) void acceptImport(file); }} />
     </div>
@@ -238,10 +238,10 @@ export function AxDiagnosisView() {
             </div>
             <Accordion><AccordionItem value="details">
               <div className="ax-register-actions"><AccordionTrigger type="button" className="ax-details-trigger" disabled={!!busy}>추가 정보</AccordionTrigger><div className="ax-register-submit">{editingId ? <Button type="button" variant="ghost" onClick={clearDraft}>수정 취소</Button> : null}<Button type="submit" disabled={!!busy || !description.trim()}>{editingId ? "수정 저장" : "업무 등록"}</Button></div></div>
-              <AccordionPanel><div className="ax-form-grid">{DETAILS.map(({ key, label, numeric }) => <label className="ax-field" key={key}>{label}<Input type={numeric ? "number" : "text"} min={numeric ? 0 : undefined} max={numeric ? 100000 : undefined} step="any" maxLength={numeric ? undefined : AX_LIMITS.detail} value={details[key] ?? ""} onChange={e => setDetails(current => ({ ...current, [key]: e.target.value }))} disabled={!!busy} /></label>)}</div></AccordionPanel>
+              <AccordionPanel><div className="ax-form-grid">{DETAILS.map(({ key, label, placeholder, numeric }) => <label className="ax-field" key={key}>{label}<Input type={numeric ? "number" : "text"} min={numeric ? 0 : undefined} max={numeric ? 100000 : undefined} step="any" maxLength={numeric ? undefined : AX_LIMITS.detail} placeholder={placeholder} value={details[key] ?? ""} onChange={e => setDetails(current => ({ ...current, [key]: e.target.value }))} disabled={!!busy} /></label>)}</div></AccordionPanel>
             </AccordionItem></Accordion>
           </form>
-          <section className="ax-surface ax-area-list" aria-label="등록 업무 목록"><h3>업무 목록</h3>{state.tasks.length ? taskRows(true) : <AxEmptyState title="등록된 업무가 없습니다" description="왼쪽에서 첫 업무를 등록해주세요." />}</section>
+          {state.tasks.length ? <section className="ax-surface ax-area-list" aria-label="등록 업무 목록"><h3>업무 목록</h3>{taskRows(true)}</section> : null}
           {state.tasks.length ? <aside className="ax-step1-side ax-area-side"><AxKpiCards tasks={state.tasks} /></aside> : null}
         </div>
       </TabsPanel>
@@ -284,7 +284,7 @@ export function AxDiagnosisView() {
             <section className="ax-surface"><h3>자동화 우선순위 TOP {Math.min(3, ranked.length)}</h3>{priorityRows(true)}</section>
             <section className="ax-surface"><h3>분류 현황</h3><div className="ax-region-tiles">{Object.entries(REGION_LABELS).map(([region, label]) => <div className="ax-region-tile" data-region={region} key={region}><span>{label}</span><strong>{ranked.filter(r => matrixPosition(r.task.diagnosis).region === region).length}개</strong></div>)}</div></section>
           </div><section className="ax-roadmap-panel"><h3>실행 로드맵</h3>{selected?.diagnosis ? <><p className="ax-roadmap-task">{selected.name}</p><ol className="ax-timeline">{selected.diagnosis.roadmap.map((r, i) => <li key={i}><span className="ax-timeline-node">{i + 1}</span><div><h4>Phase {r.phase} · {r.title}</h4><ul>{r.items.map((item, j) => <li key={j}>{item}</li>)}</ul></div></li>)}</ol></> : <p>우선순위에서 업무를 선택하면 실행 로드맵을 확인할 수 있습니다.</p>}</section></div>
-          {selected?.diagnosis ? <div className="ax-detail-stack"><section className="ax-surface"><h2>{selected.name}</h2><p className="ax-muted">{selected.diagnosis.sourceNote}</p><AxSummary task={selected} /></section><AxRoadmap diagnosis={selected.diagnosis} roadmapSection={false} />
+          {selected?.diagnosis ? <div className="ax-detail-stack"><section className="ax-surface"><h2>{selected.name}</h2><p className="ax-muted">{selected.diagnosis.sourceNote}</p><AxSummary task={selected} showGate={false} /></section><AxRoadmap diagnosis={selected.diagnosis} roadmapSection={false} />
             <AxPlanSection key={selected.id} diagnosis={selected.diagnosis} taskName={selected.name} busy={busy} onGenerate={target => void generatePlan(selected, target)} />
           </div> : <p className="ax-muted">우선순위 목록에서 업무를 선택해 상세 결과를 확인하세요.</p>}
         </>}

@@ -245,6 +245,15 @@ p.research-meta { margin: 0; }
 
 .legal-research .research-source-option { display: block; }
 .legal-research .research-source-row { display: inline-flex; flex-direction: row; width: fit-content; align-items: center; gap: 8px; }
+/* 직접 입력: textarea → (출처 옵션 | 글자 수 → 실행), one input block. */
+.legal-research .research-input-footer { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: var(--space-2) var(--space-4); min-width: 0; }
+.legal-research .research-input-footer .legal-analysis-help { min-height: 24px; align-items: center; }
+.legal-research .research-input-submit { display: grid; justify-items: end; gap: var(--space-2); margin-left: auto; }
+@media (max-width: 700px) {
+  .legal-research .research-input-footer { flex-direction: column; align-items: stretch; }
+  .legal-research .research-input-submit { justify-items: stretch; margin-left: 0; }
+  .legal-research .research-input-submit .law-search-button { width: 100%; }
+}
 
 /* Use the shared Compact Add surface without a second wrapper. */
 .legal-research .research-file-workarea.is-populated { margin-bottom: 0; gap: 14px; }

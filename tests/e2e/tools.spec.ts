@@ -2355,6 +2355,18 @@ test("document review hides execution until a workspace file is added", async ({
   await form.getByRole("radio", { name: "직접 입력", exact: true }).check();
   await expect(form.getByRole("button", { name: "실행", exact: true })).toBeVisible();
   await expect(form.getByRole("button", { name: "실행", exact: true })).toBeDisabled();
+  const footerBoxes = await form.evaluate((element) => {
+    const box = (selector: string) => element.querySelector(selector)!.getBoundingClientRect();
+    const [text, toggle, count, run] = [box("#research-document"), box(".research-source-row"), box(".research-input-footer .legal-analysis-count"), box(".research-input-submit button")];
+    return { text: { bottom: text.bottom, left: text.left, right: text.right }, toggle: { top: toggle.top, left: toggle.left, mid: toggle.top + toggle.height / 2 }, count: { bottom: count.bottom, right: count.right, mid: count.top + count.height / 2 }, run: { top: run.top, right: run.right } };
+  });
+  expect(footerBoxes.toggle.top - footerBoxes.text.bottom).toBeLessThanOrEqual(24);
+  expect(Math.abs(footerBoxes.toggle.left - footerBoxes.text.left)).toBeLessThanOrEqual(2);
+  expect(Math.abs(footerBoxes.toggle.mid - footerBoxes.count.mid)).toBeLessThanOrEqual(4);
+  expect(Math.abs(footerBoxes.count.right - footerBoxes.text.right)).toBeLessThanOrEqual(2);
+  expect(footerBoxes.run.top).toBeGreaterThanOrEqual(footerBoxes.count.bottom);
+  expect(footerBoxes.run.top - footerBoxes.count.bottom).toBeLessThanOrEqual(16);
+  expect(Math.abs(footerBoxes.run.right - footerBoxes.text.right)).toBeLessThanOrEqual(2);
   await form.getByRole("radio", { name: "작업 파일", exact: true }).check();
   await emptyUpload.evaluate((element, bytes) => {
     const dataTransfer = new DataTransfer();
