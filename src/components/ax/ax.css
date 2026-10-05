@@ -190,3 +190,10 @@
   .ax-register-submit { flex-wrap: wrap; }
   .ax-section-heading { gap: 8px; }
 }
+.ax-gate-line { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: inherit; color: var(--foreground); }
+.ax-gate-badge { display: inline-flex; align-items: center; border-radius: 999px; padding: 2px 8px; font-size: 11px; font-weight: 500; box-shadow: none; }
+.ax-gate-badge[data-gate=ready] { background: #e9f7ee; color: #166534; }
+.ax-gate-badge[data-gate=conditional] { background: #fdf3df; color: #92400e; }
+.ax-gate-badge[data-gate=blocked] { background: #f8eeee; color: #991b1b; }
+.ax-gate-cond { border: 1px solid var(--border); border-radius: 6px; padding: 1px 6px; color: var(--muted-foreground); font-size: 11px; font-weight: 400; }
+.ax-prereq-list { margin: 6px 0 12px; padding-left: 20px; color: var(--foreground); }
