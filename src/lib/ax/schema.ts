@@ -38,7 +38,7 @@ const uniqueFactors = (value: { factors: { key: string }[] }) => new Set(value.f
 export const axDiagnosisOutputSchema = axDiagnosisJsonSchema.refine(uniqueFactors, "6종 Factor가 각각 필요합니다.");
 export const REPOSITORY_FIRST = "Repository-first: 실제 저장소의 지침·구조·구현·테스트를 먼저 확인하고, 확인되지 않은 파일명·함수명·API를 추측하지 않는다.";
 export const PLAN_LABELS = {
-  goal: "목표", asIs: "AS-IS", toBe: "TO-BE", inScope: "범위", outOfScope: "제외", prerequisites: "사전 확인", humanInLoop: "사람 승인·검토", poc: "PoC", implementation: "구현 순서", dataFlow: "데이터 흐름", integrations: "연동", exceptions: "예외", fallback: "Fallback", security: "보안", operation: "운영", tests: "테스트", acceptance: "완료 조건",
+  goal: "목표", asIs: "AS-IS", toBe: "TO-BE", inScope: "범위", outOfScope: "제외", prerequisites: "구현 전 확인사항", humanInLoop: "승인·검토", poc: "PoC", implementation: "구현 순서", dataFlow: "데이터 흐름", integrations: "연동", exceptions: "예외", fallback: "문제 발생 시 대응", security: "보안", operation: "운영", tests: "테스트", acceptance: "완료 조건",
 } as const;
 export const axPlanJsonSchema = z.object({
   repositoryFirst: text.min(1), goal: list, asIs: list, toBe: list, inScope: list, outOfScope: list, prerequisites: list,

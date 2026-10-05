@@ -13,11 +13,11 @@ import { useAxState } from "@/client/use-ax-state";
 import { runInWorker } from "@/client/document-client";
 import { diagnoseAx, planAx, interruptServerAi, aiFailureDetail } from "@/client/server-ai-client";
 import { AX_LIMITS, FACTOR_LABELS, axTaskSchema, confirmedAxDiagnosis } from "@/lib/ax/schema";
-import { axes, automationLevel, bubbleArea, executionGate, GATE_LABELS, gatePrerequisites, gateBlockReasons, planAllowed, priorityDisplayLabel, factorScale, matrixPosition, monthlyMinutes, nextAction, priority, REGION_LABELS, taskStatus } from "@/lib/ax/policy";
+import { axes, automationLevel, bubbleArea, executionGate, GATE_LABELS, planAllowed, priorityDisplayLabel, factorScale, matrixPosition, monthlyMinutes, nextAction, priority, REGION_LABELS, taskStatus } from "@/lib/ax/policy";
 import { candidateTask, taskDetails, followUpDescription, legacyDetailValues, validateAttachmentPreflight } from "@/lib/ax/registration";
 import { exportAxState, importAxState } from "@/lib/ax/transfer";
 import { emptyAxState, type AxState, type AxTask, type AxDiagnosis, type AxDetails, type FactorKey } from "@/lib/ax/types";
-import { AxSummary, AxProcess, AxRoadmap, AxPlanReport, AxRadar } from "./AxReport";
+import { AxSummary, AxProcess, AxRoadmap, AxPlanSection, AxRadar } from "./AxReport";
 import "./ax.css";
 
 const STEPS = ["업무 등록", "업무 진단", "자동화 매트릭스", "결과·로드맵"];
@@ -55,9 +55,6 @@ export function AxDiagnosisView() {
   const importInput = useRef<HTMLInputElement>(null);
   const nameHelpId = useId();
   const selected = state.tasks.find(t => t.id === state.selectedTaskId);
-  const selectedGate = selected?.diagnosis ? executionGate(selected.diagnosis) : null;
-  const selectedBlockReasons = selected?.diagnosis && selectedGate === "blocked" ? gateBlockReasons(selected.diagnosis) : [];
-  const selectedPrereqs = selected?.diagnosis ? gatePrerequisites(selected.diagnosis).filter(item => !selectedBlockReasons.includes(item)) : [];
   const ranked = priority(state.tasks);
   useEffect(() => {
     alive.current = true;
@@ -288,17 +285,7 @@ export function AxDiagnosisView() {
             <section className="ax-surface"><h3>분류 현황</h3><div className="ax-region-tiles">{Object.entries(REGION_LABELS).map(([region, label]) => <div className="ax-region-tile" data-region={region} key={region}><span>{label}</span><strong>{ranked.filter(r => matrixPosition(r.task.diagnosis).region === region).length}개</strong></div>)}</div></section>
           </div><section className="ax-roadmap-panel"><h3>실행 로드맵</h3>{selected?.diagnosis ? <><p className="ax-roadmap-task">{selected.name}</p><ol className="ax-timeline">{selected.diagnosis.roadmap.map((r, i) => <li key={i}><span className="ax-timeline-node">{i + 1}</span><div><h4>Phase {r.phase} · {r.title}</h4><ul>{r.items.map((item, j) => <li key={j}>{item}</li>)}</ul></div></li>)}</ol></> : <p>우선순위에서 업무를 선택하면 실행 로드맵을 확인할 수 있습니다.</p>}</section></div>
           {selected?.diagnosis ? <div className="ax-detail-stack"><section className="ax-surface"><h2>{selected.name}</h2><p className="ax-muted">{selected.diagnosis.sourceNote}</p><AxSummary task={selected} /></section><AxRoadmap diagnosis={selected.diagnosis} roadmapSection={false} />
-            <section className="ax-surface"><h3>구현 계획</h3>
-              {selectedGate === "blocked" ? <>
-                <p role="status" className="ax-notice">현재 조건에서는 구현 계획을 생성할 수 없습니다.</p>
-                <ul className="ax-prereq-list">{selectedBlockReasons.map((reason, i) => <li key={i}>{reason}</li>)}</ul>
-                {selectedPrereqs.length ? <><h4>선행 조치</h4><ul className="ax-prereq-list">{selectedPrereqs.map((item, i) => <li key={i}>{item}</li>)}</ul></> : null}
-              </> : selectedGate === "conditional" ? <>
-                <p className="ax-notice">조건부 진행 — 아래 선행 확인을 먼저 해결한 뒤 계획을 확정하세요.</p>
-                <h4>선행 확인</h4><ul className="ax-prereq-list">{gatePrerequisites(selected.diagnosis).map((item, i) => <li key={i}>{item}</li>)}</ul>
-              </> : null}
-              <div className="ax-actions"><Button type="button" variant="outline" disabled={!!busy || selectedGate === "blocked"} onClick={() => void generatePlan(selected, "codex")}>{busy === "codex" ? "Codex 계획 생성 중…" : "Codex용 구현 계획 생성"}</Button><Button type="button" variant="outline" disabled={!!busy || selectedGate === "blocked"} onClick={() => void generatePlan(selected, "claude")}>{busy === "claude" ? "Claude 계획 생성 중…" : "Claude Code용 구현 계획 생성"}</Button></div>
-            </section>{selected.diagnosis.planCodex ? <AxPlanReport plan={selected.diagnosis.planCodex} title="Codex용 구현 계획" /> : null}{selected.diagnosis.planClaude ? <AxPlanReport plan={selected.diagnosis.planClaude} title="Claude Code용 구현 계획" /> : null}
+            <AxPlanSection key={selected.id} diagnosis={selected.diagnosis} busy={busy} onGenerate={target => void generatePlan(selected, target)} />
           </div> : <p className="ax-muted">우선순위 목록에서 업무를 선택해 상세 결과를 확인하세요.</p>}
         </>}
       </TabsPanel>
