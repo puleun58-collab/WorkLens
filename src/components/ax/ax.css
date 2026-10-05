@@ -196,17 +196,15 @@
 .ax-gate-badge[data-gate=conditional] { background: #fdf3df; color: #92400e; }
 .ax-gate-badge[data-gate=blocked] { background: #f8eeee; color: #991b1b; }
 .ax-gate-cond { border: 1px solid var(--border); border-radius: 6px; padding: 1px 6px; color: var(--muted-foreground); font-size: 11px; font-weight: 400; }
-.ax-prereq-list { margin: 6px 0 12px; padding-left: 20px; color: var(--foreground); }
 
 .ax-plan-head { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .ax-plan-head h3 { margin: 0; }
 .ax-tool-tabs { margin-top: 16px; gap: 16px; min-width: 0; }
 .ax-tool-tabs [data-slot=tabs-content], .ax-package { min-width: 0; }
-.ax-prompt { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12.5px; white-space: pre-wrap; word-break: break-word; max-width: 100%; max-height: 420px; overflow: auto; background: color-mix(in srgb, var(--muted) 55%, var(--card)); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin: 12px 0; }
+.ax-prompt { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12.5px; white-space: pre-wrap; word-break: break-word; max-width: 100%; max-height: 420px; overflow: auto; background: color-mix(in srgb, var(--muted) 14%, var(--card)); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin: 12px 0; }
+.ax-prompt-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin-top: 8px; }
+.ax-copy-feedback { font-size: 12px; color: var(--muted-foreground); }
 .ax-cmd { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; background: color-mix(in srgb, var(--muted) 55%, var(--card)); border: 1px solid var(--border); border-radius: 4px; padding: 2px 4px; }
-.ax-fallback-block { background: color-mix(in srgb, var(--muted) 35%, transparent); border-left: 3px solid var(--primary); padding: 12px 16px; margin: 16px 0; }
-.ax-fallback-block h4, .ax-fallback-block p { margin: 0; }
-.ax-fallback-block p { margin-top: 6px; }
 .ax-guide h4 { margin: 18px 0 8px; }
 .ax-guide li { margin-bottom: 8px; overflow-wrap: anywhere; }
 .ax-package > p { margin: 4px 0 16px; }

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type Locator } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { navigateWorkspace } from "./navigation";
 import { diagnosisFixture, outputFixture, planFixture, taskFixture } from "../fixtures/ax";
@@ -46,6 +46,30 @@ function mock(page: Page, calls: Record<string, unknown>[] = []) {
     const req = route.request().postDataJSON(); calls.push(req);
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: req.kind === "ax-plan" ? { kind: "ax-plan", plan: planFixture } : { kind: "ax-diagnosis", diagnosis: outputFixture() } }) });
   });
+}
+async function expectCopyUX(page: Page, section: Locator, tool: "Codex" | "Claude Code") {
+  const button = section.getByRole("button", { name: `${tool}용 지시문 복사`, exact: true });
+  const prompt = section.locator(".ax-prompt");
+  await expect(button).toHaveText("복사");
+  await expect(button.locator('svg[aria-hidden="true"]')).toHaveCount(1);
+  const expectRightAlignment = async () => {
+    const buttonBox = await button.boundingBox();
+    const promptBox = await prompt.boundingBox();
+    expect(buttonBox).not.toBeNull(); expect(promptBox).not.toBeNull();
+    expect(Math.abs(buttonBox!.x + buttonBox!.width - promptBox!.x - promptBox!.width)).toBeLessThanOrEqual(10);
+  };
+  await expectRightAlignment();
+  if (test.info().project.name.startsWith("chromium")) {
+    await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: new URL(page.url()).origin });
+    await button.click();
+    await expect(button).toHaveText("복사");
+    const feedback = section.locator('.ax-copy-feedback[aria-live="polite"]');
+    await expect(feedback).toHaveText("복사했습니다");
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(await prompt.textContent());
+    await expectRightAlignment();
+    await expect(feedback).toBeEmpty();
+    await expect(button).toHaveText("복사");
+  }
 }
 test("AX ellipsis menu, keyboard controls and segmented steps", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -118,25 +142,31 @@ test("AX registration → diagnosis → correction → matrix → plans → relo
   await expect(top).toContainText("점수 7");
   await expect(page.locator('.ax-summary [data-slot="badge"]')).toHaveText("부분 자동화 · Level 2");
   const packageSection = page.getByRole("region", { name: "자동화 구현 계획", exact: true });
-  await expect(packageSection.locator(".ax-gate-badge")).toHaveText("조건부 진행");
-  await expect(packageSection.getByRole("heading", { name: "먼저 확인할 사항", exact: true })).toBeVisible();
+  await expect(packageSection.locator(".ax-gate-badge")).toHaveCount(0);
+  await expect(packageSection.getByText("조건부 진행", { exact: true })).toHaveCount(0);
+  await expect(packageSection.getByText("먼저 확인할 사항", { exact: false })).toHaveCount(0);
+  await expect(packageSection.getByRole("button", { name: "Codex용 구현 계획 생성", exact: true })).toBeEnabled();
+  await expect(packageSection.getByRole("button", { name: "Claude Code용 구현 계획 생성", exact: true })).toBeEnabled();
   await page.getByRole("button", { name: "Codex용 구현 계획 생성", exact: true }).click();
   await expect(page.getByRole("button", { name: "Codex용 지시문 복사", exact: true })).toBeVisible();
-  await expect(packageSection.locator(".ax-prompt")).toContainText("Repository-first");
+  const prompt = packageSection.locator(".ax-prompt");
+  for (const heading of ["# 월간 취합 자동화 구현 지시문", "## 2. 작업 전 현재 프로젝트 확인", "## 7. 구현 원칙", "## 16. GitHub 반영", "## 19. 완료 조건"]) await expect(prompt).toContainText(heading);
+  const prerequisites = (await prompt.textContent())!.split("## 6. 구현 전 확인사항")[1].split("## 7.")[0];
+  expect(prerequisites).toContain("실제 저장소와 API 확인");
+  expect(prerequisites).toContain("시스템 접근 — API와 권한 실제 확인");
+  expect(prerequisites).toContain("권한 확인 후 진행");
+  for (const name of ["구현 후 확인 · GitHub 반영", "배포 방법", "상세 구현 계획 보기"]) await expect(packageSection.getByRole("button", { name, exact: true })).toHaveCount(0);
+  for (const name of ["운영·복구 계획", "실행 판단 · 조건부 진행"]) await expect(page.getByRole("heading", { name, exact: true })).toHaveCount(0);
+  await expect(packageSection.getByRole("button", { name: "처음 사용하는 경우", exact: true })).toHaveAttribute("aria-expanded", "false");
   await page.getByRole("button", { name: "처음 사용하는 경우", exact: false }).click();
   await expect(packageSection.getByText("git --version", { exact: true }).first()).toBeVisible();
-  await page.getByRole("button", { name: "상세 구현 계획 보기", exact: true }).click();
-  await expect(packageSection.getByRole("button", { name: "구현 전 확인사항", exact: true })).toBeVisible();
-  if (test.info().project.name.startsWith("chromium")) {
-    await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: new URL(page.url()).origin });
-    await page.getByRole("button", { name: "Codex용 지시문 복사", exact: true }).click();
-    await expect(page.getByRole("button", { name: "Codex용 지시문 복사", exact: true })).toHaveText("복사했습니다");
-    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(await packageSection.locator(".ax-prompt").textContent());
-  }
+  await expectCopyUX(page, packageSection, "Codex");
 
   await page.getByRole("tab", { name: "Claude Code", exact: true }).click();
   await page.getByRole("button", { name: "Claude Code용 구현 계획 생성", exact: true }).click();
   await expect(page.getByRole("button", { name: "Claude Code용 지시문 복사", exact: true })).toBeVisible();
+  await expectCopyUX(page, packageSection, "Claude Code");
+  await expect(prompt).toContainText("# 월간 취합 자동화 구현 지시문");
   expect(calls.map(c => c.kind)).toEqual(["ax-diagnosis", "ax-plan", "ax-plan"]);
   expect(calls[1]).toMatchObject({ target: "codex", diagnosis: { factors: expect.arrayContaining([expect.objectContaining({ key: "repetition", finalValue: 1 })]) } });
   expect(calls[2]).toHaveProperty("target", "claude");
@@ -355,7 +385,7 @@ test("AX Execution Gate blocks no-go plans and displays ready tasks before highe
     const output = outputFixture();
     const diagnosis = req.name === "차단 업무" ? {
       ...output,
-      decisionGate: { verdict: "no-go", reasons: ["필수 시스템 접근 불가"] },
+      decisionGate: { verdict: "no-go", reasons: ["필수 시스템 접근 불가", "두 번째 보류 사유"] },
       factors: output.factors.map(f => ({ ...f, aiValue: f.key === "humanJudgment" || f.key === "operationalRisk" ? 2 : 5 })),
     } : {
       ...output,
@@ -386,14 +416,18 @@ test("AX Execution Gate blocks no-go plans and displays ready tasks before highe
   await expect(page.getByRole("button", { name: "Codex용 구현 계획 생성", exact: true })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Claude Code용 구현 계획 생성", exact: true })).toBeDisabled();
   const plans = page.locator("section.ax-surface").filter({ has: page.getByRole("heading", { name: "자동화 구현 계획", exact: true }) });
-  await expect(plans.getByText("선행 조건을 해결한 후 구현 계획을 생성할 수 있습니다.", { exact: true })).toBeVisible();
-  await expect(plans.getByRole("heading", { name: "구현 전 필수 조건", exact: true })).toBeVisible();
-  await expect(plans.getByRole("list").first()).toContainText("필수 시스템 접근 불가");
-  await expect(plans.getByRole("button", { name: "Codex용 지시문 복사", exact: true })).toHaveCount(0);
+  await expect(plans.getByRole("status")).toHaveText("현재 진단에서는 구현 계획을 생성할 수 없습니다.");
+  await expect(plans.getByRole("heading", { name: "구현 전 필수 조건", exact: true })).toHaveCount(0);
+  await expect(plans.getByText("필수 시스템 접근 불가", { exact: true })).toBeVisible();
+  await expect(plans.getByText("두 번째 보류 사유", { exact: true })).toHaveCount(0);
+  await expect(plans.getByRole("list")).toHaveCount(0);
+  await expect(plans.locator(".ax-gate-badge")).toHaveCount(0);
+  await expect(plans.locator(".ax-prompt")).toHaveCount(0);
+  await expect(plans.getByRole("button", { name: /용 지시문 복사$/ })).toHaveCount(0);
   await expect(plans.getByRole("button", { name: "처음 사용하는 경우", exact: false })).toHaveCount(0);
-  await expect(plans.getByRole("heading", { name: "먼저 확인할 사항", exact: true })).toBeVisible();
+  await expect(plans.getByRole("heading", { name: "먼저 확인할 사항", exact: true })).toHaveCount(0);
   await ready.getByRole("button").click();
-  await expect(plans.locator('.ax-gate-badge')).toHaveText("실행 가능");
+  await expect(plans.locator(".ax-gate-badge")).toHaveCount(0);
   await expect(plans.getByRole("heading", { name: "먼저 확인할 사항", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Codex용 구현 계획 생성", exact: true })).toBeEnabled();
   await expect(page.getByRole("button", { name: "Claude Code용 구현 계획 생성", exact: true })).toBeEnabled();
@@ -504,31 +538,38 @@ test("AX attachment preflight rejects empty files and unsupported formats", asyn
 });
 
 
-test("AX execution package remains readable on mobile and keeps optional guides collapsed", async ({ page }) => {
+test("AX execution package remains readable on mobile with the setup guide collapsed", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
   const task = taskFixture("mobile-package", { ...diagnosisFixture, planCodex: planFixture, planClaude: planFixture, operation: { ...diagnosisFixture.operation, notes: [] } });
   await seed(page, { ...emptyAxState(), tasks: [task], selectedTaskId: task.id, step: 4 });
   await ax(page);
   const section = page.getByRole("region", { name: "자동화 구현 계획", exact: true });
-  for (const name of ["처음 사용하는 경우 — 개발 환경 준비부터 실행까지", "구현 후 확인 · GitHub 반영", "배포 방법", "상세 구현 계획 보기"]) {
-    await expect(section.getByRole("button", { name, exact: true })).toHaveAttribute("aria-expanded", "false");
-  }
+  await expect(section.getByRole("button", { name: "처음 사용하는 경우", exact: true })).toHaveAttribute("aria-expanded", "false");
+  for (const name of ["구현 후 확인 · GitHub 반영", "배포 방법", "상세 구현 계획 보기"]) await expect(section.getByRole("button", { name, exact: true })).toHaveCount(0);
+  await expect(section.locator(".ax-gate-badge")).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "운영 시 참고사항", exact: true })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "자동화 적용 범위", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "담당자 수행", exact: true })).toBeVisible();
   for (const [tool, copy] of [["Codex", "Codex용 지시문 복사"], ["Claude Code", "Claude Code용 지시문 복사"]]) {
     await section.getByRole("tab", { name: tool, exact: true }).click();
-    await expect(section.getByRole("button", { name: copy, exact: true })).toBeVisible();
+    const button = section.getByRole("button", { name: copy, exact: true });
+    await expect(button).toBeVisible();
+    await expect(button).toHaveText("복사");
+    await expect(button.locator("svg")).toHaveCount(1);
     const prompt = section.locator(".ax-prompt");
-    await expect(prompt).toContainText("Repository-first");
+    await expect(prompt).toContainText(`# ${task.name} 자동화 구현 지시문`);
+    await expect(prompt).toContainText("## 7. 구현 원칙");
+    await expect(prompt).toContainText("## 19. 완료 조건");
+    const buttonBox = await button.boundingBox(), promptBox = await prompt.boundingBox();
+    expect(buttonBox).not.toBeNull(); expect(promptBox).not.toBeNull();
+    expect(Math.abs(buttonBox!.x + buttonBox!.width - promptBox!.x - promptBox!.width)).toBeLessThanOrEqual(10);
     expect(await prompt.evaluate(element => {
       const box = element.getBoundingClientRect();
       return box.left >= 0 && box.right <= window.innerWidth && element.clientHeight <= 420;
     })).toBe(true);
   }
-  await section.getByRole("button", { name: "배포 방법", exact: true }).click();
-  await expect(section.getByText("배포 방식 확인 필요", { exact: true })).toBeVisible();
+  await expect(section.locator(".ax-prompt")).toContainText("배포 방식 확인 필요");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   await page.screenshot({ path: `artifacts/ax/execution-package-mobile-${test.info().project.name}.png` });
 });

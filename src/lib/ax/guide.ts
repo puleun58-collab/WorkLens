@@ -38,52 +38,116 @@ export function runGuide(tool: AxToolId): string[] {
   return ["PowerShell을 실행합니다.", '`cd "프로젝트 경로"`로 작업할 폴더로 이동합니다.', "`Get-Location`, `dir`로 위치와 내용을 확인합니다.", `\`${guide.runCommand}\`을 실행합니다.`, guide.loginNote, `아래 ${guide.name}용 올인원 지시문 전체를 복사합니다.`, "실행한 AI 도구에 지시문을 붙여넣습니다.", "AI가 저장소를 분석하고 구현·검증을 진행합니다. 승인·검토 요청이 있으면 내용을 확인합니다."];
 }
 
-export function postImplementationGuide(): string[] {
-  return ["배포 URL을 확인합니다. 배포가 없는 로컬 실행형이면 실제 실행 환경에서 같은 순서로 확인합니다.", "배포 URL에 접속하거나 실제 실행 환경을 실행합니다.", "핵심 기능을 실행합니다.", "입력 → 처리 → 결과를 확인합니다.", "네트워크와 브라우저 콘솔 오류를 확인합니다.", "Desktop에서 확인합니다.", "모바일 대응이면 Mobile에서도 확인합니다.", "오류가 있으면 수정·재배포하고 동일 시나리오를 재검증합니다. 로컬 실행형은 수정 후 다시 실행해 재검증합니다."];
-}
-
-export function githubGuide(): string[] {
-  return ["저장소의 branch/PR 정책을 먼저 확인합니다.", "`git status`로 변경 상태를 확인합니다.", "`git branch --show-current`로 현재 브랜치를 확인합니다.", "`git remote -v`로 원격을 확인합니다. remote가 없는 신규 프로젝트는 Git 초기화·GitHub 저장소 생성·remote 연결이 별도 단계입니다.", "`git diff`로 변경 내용을 검토합니다.", "프로젝트에 실제 있는 테스트·lint·typecheck·build 명령만 실행하고 실패하면 수정합니다.", "변경 파일을 확인해 필요한 파일만 `git add <파일>`로 추가합니다. 전체 파일 일괄 추가는 금지합니다.", '`git commit -m "작업 내용"`으로 커밋합니다.', "현재 브랜치와 원격을 확인한 뒤 `git push`합니다. 확인 없는 main 직접 push, force push와 파괴적인 초기화를 기본 절차로 사용하지 않습니다."];
-}
-
-export type DeploymentKind = "ci" | "vercel" | "cloudflare" | "manual" | "unknown" | "none";
-export function resolveDeploymentGuide(signals: { ci?: boolean; vercel?: boolean; cloudflare?: boolean; manualScript?: boolean; webDeploy?: boolean }): { kind: DeploymentKind; steps: string[] } {
-  const principle = "프로젝트에서 확인된 방식만 따릅니다. Vercel/Cloudflare CLI를 임의로 설치하지 않습니다.";
-  const kind: DeploymentKind = signals.webDeploy === false ? "none" : signals.ci ? "ci" : signals.vercel ? "vercel" : signals.cloudflare ? "cloudflare" : signals.manualScript ? "manual" : "unknown";
-  const steps: Record<DeploymentKind, string[]> = {
-    ci: ["저장소 정책에 따라 Push/merge합니다.", "CI 배포 상태를 확인합니다.", "Production URL을 확인합니다."],
-    vercel: ["기존 GitHub 연동 자동 배포를 우선합니다.", "배포 상태와 Production URL을 확인합니다."],
-    cloudflare: ["기존 Wrangler, package script, GitHub Actions 중 실제 방식을 확인합니다. 기존 script를 우선합니다.", "배포 상태와 Production URL을 확인합니다."],
-    manual: ["저장소에서 확인한 기존 수동 배포 script와 운영 지침을 따릅니다.", "배포 상태와 실제 접속 URL을 확인합니다."],
-    unknown: ["배포 방식 확인 필요", "확인 후보: vercel.json, wrangler.toml/json/jsonc, GitHub Actions, package scripts, README, AGENTS.md. 확인되지 않으면 임의로 플랫폼을 선택하지 않습니다."],
-    none: ["웹 배포 대신 실제 실행 환경을 구성하고 운영에 적용합니다.", "해당 환경에서 핵심 기능과 수동 처리 전환을 확인합니다."],
-  };
-  return { kind, steps: [principle, ...steps[kind]] };
-}
-
 export function buildAllInOnePrompt(plan: AxPlan, tool: AxToolId, options?: { taskName?: string; prerequisites?: string[] }): string {
-  const sections: [string, string[]][] = [
-    ["작업 목표", plan.goal], ["현재 상태 (AS-IS)", plan.asIs], ["목표 상태 (TO-BE)", plan.toBe],
-    ["작업 범위", plan.inScope], ["제외 범위", plan.outOfScope],
-    ["구현 전 확인사항", [...new Set([...plan.prerequisites, ...(options?.prerequisites ?? [])])]],
-    ["승인·검토 필요 단계", plan.humanInLoop], ["사전 검증(PoC)", plan.poc], ["구현 순서", plan.implementation],
-    ["데이터 흐름", plan.dataFlow], ["외부 연동", plan.integrations], ["예외 처리", plan.exceptions],
-    ["문제 발생 시 대응", plan.fallback], ["운영·수동 처리 전환", plan.operation], ["보안", plan.security],
-    ["테스트", plan.tests], ["완료 조건", plan.acceptance],
-    ["Repository-first 원칙", [plan.repositoryFirst, "저장소 지침(AGENTS.md 등)을 우선 확인하세요.", "현재 구조를 확인한 후 기존 패턴을 재사용하세요.", "package manager·테스트 명령·배포 방식을 저장소에서 확인하세요.", "확인되지 않은 파일명·API를 추측하지 마세요.", "불필요한 신규 패키지를 추가하지 마세요.", "요청 범위 외 파일 변경을 최소화하세요."]],
+  const bullets = (items: string[]) => items.map(item => `- ${item}`).join("\n");
+  const numbered = (items: string[]) => items.map((item, i) => `${i + 1}. ${item}`).join("\n");
+  const sections: string[] = [
+    `# ${options?.taskName ?? "업무 자동화"} 자동화 구현 지시문`,
+    `다음 지시를 현재 프로젝트 저장소에서 ${TOOL_GUIDES[tool].name}으로 수행하세요. 저장소를 확인하기 전에는 파일명·함수명·API를 추측하지 마세요.`,
   ];
-  const procedure = [
-    "구현 전 `git status`로 저장소 상태를 확인하세요.",
-    "구현 후 `git diff`로 변경 파일을 검토하세요.",
-    "저장소의 기존 테스트·lint·typecheck·build를 실행하고 실패하면 수정하세요.",
-    "저장소의 branch/PR 정책을 확인해 그 방식으로 GitHub에 반영하세요. force push, 확인 없는 main 직접 push, 전체 파일 일괄 add는 금지합니다.",
-    "배포가 필요한 프로젝트면 저장소에서 확인된 기존 배포 방식만 사용하세요. vercel.json·wrangler 설정·GitHub Actions·package scripts·README/AGENTS.md를 확인하세요. 확인되지 않으면 임의로 플랫폼을 고르지 말고 확인 필요로 보고하세요. 웹 배포가 필요 없는 자동화면 실행 환경 구성으로 대체하세요.",
-    "배포 후 실제 배포 URL에서 핵심 기능을 검증하세요. 입력 → 처리 → 결과, 브라우저 콘솔·네트워크 오류, Desktop, 모바일 대응 시 Mobile을 확인하세요. 오류가 있으면 수정·재배포·동일 시나리오 재검증하세요. 로컬 실행형이면 실제 실행 환경에서 같은 순서로 검증하세요.",
-    "실행하지 않은 단계는 완료로 보고하지 말고 미실행이라고 보고하세요.",
-  ];
-  return [
-    `# ${options?.taskName ?? "업무 자동화"} 구현 지시문 (${TOOL_GUIDES[tool].name}용)\n\n다음 지시를 현재 프로젝트 저장소에서 수행하세요.`,
-    ...sections.filter(([, items]) => items.length).map(([title, items]) => `## ${title}\n${items.map(item => `- ${item}`).join("\n")}`),
-    `## 작업 진행·완료 절차\n${procedure.map((item, i) => `${i + 1}. ${item}`).join("\n")}`,
-  ].join("\n\n");
+  const section = (title: string, ...content: string[]) => sections.push(`## ${title}\n\n${content.join("\n\n")}`);
+  const prerequisites = [...new Set([...plan.prerequisites, ...(options?.prerequisites ?? [])])];
+
+  if (plan.goal.length) section("1. 작업 목표", "이 작업의 목표는 다음과 같습니다.", bullets(plan.goal));
+  section("2. 작업 전 현재 프로젝트 확인", "작업을 시작하기 전에 현재 저장소를 먼저 확인하세요.", bullets([
+    "저장소 지침 파일(AGENTS.md 등)이 있으면 먼저 읽고 그 규칙을 따르세요.",
+    "`git status`로 현재 작업 상태와 변경 파일을 확인하세요.",
+    "현재 branch를 확인하세요.",
+    "프로젝트 구조와 사용 중인 framework를 확인하세요.",
+    "package manager와 lockfile(package-lock.json, pnpm-lock.yaml, bun.lock, yarn.lock)을 확인하세요.",
+    "이 작업과 관련된 기존 기능·컴포넌트·함수가 있는지 확인하고 재사용 가능 여부를 판단하세요.",
+    "package scripts에서 테스트·typecheck·빌드·배포 명령을 확인하세요.",
+    "확인되지 않은 파일명·함수명·API를 추측하지 마세요.",
+  ]));
+  if (plan.asIs.length) section("3. 현재 업무 상태 (AS-IS)", "현재 업무는 다음과 같이 수행됩니다. 자동화 후에도 이 흐름의 목적과 담당자 역할을 유지하세요.", bullets(plan.asIs));
+  if (plan.toBe.length) section("4. 목표 상태 (TO-BE)", "구현 후 업무는 다음과 같은 상태가 되어야 합니다. 담당자의 승인·검토 역할은 임의로 제거하지 마세요.", bullets(plan.toBe));
+  if (plan.inScope.length || plan.outOfScope.length) section("5. 작업 범위",
+    ...(plan.inScope.length ? [`### 포함\n\n${bullets(plan.inScope)}`] : []),
+    ...(plan.outOfScope.length ? [`### 제외\n\n${bullets(plan.outOfScope)}`, "제외 범위의 기능은 요청 없이 확장하지 마세요."] : []),
+  );
+  if (prerequisites.length) section("6. 구현 전 확인사항", bullets(prerequisites), "위 항목은 구현 전에 확인하세요. 확인되지 않은 항목은 '확인 필요'로 남기고, 확인되지 않은 API나 권한이 있다고 가정해 구현하지 마세요.");
+  section("7. 구현 원칙", bullets([
+    ...(plan.repositoryFirst ? [plan.repositoryFirst] : []),
+    "현재 프로젝트 구조를 먼저 확인하세요.",
+    "기존 구현을 우선 재사용하세요. 기존 컴포넌트·함수가 있으면 새로 만들기 전에 재사용을 검토하세요.",
+    "요청 범위 안에서 최소 범위로 수정하세요.",
+    "불필요한 신규 라이브러리를 추가하지 마세요.",
+    "값을 하드코딩하지 마세요.",
+    "테스트용 임시 데이터를 실제 로직에 남기지 마세요.",
+    "기존 데이터와 기능의 호환성을 유지하세요.",
+    "기존 인증·보안·권한 구조를 유지하세요.",
+    "확인되지 않은 값이나 API를 추측하지 마세요.",
+    "타입·빌드·런타임 오류를 남긴 채 완료로 처리하지 마세요.",
+  ]));
+  if (plan.implementation.length) section("8. 세부 구현 요구사항", "다음 순서로 구현하세요.", numbered(plan.implementation));
+  if (plan.dataFlow.length) section("9. 데이터 흐름", "데이터는 다음 흐름을 따르도록 구현하세요.", bullets(plan.dataFlow));
+  if (plan.integrations.length) section("10. 외부 시스템·연동", bullets(plan.integrations), "연동 대상의 실제 API·권한·인증 방식은 저장소와 공식 설정에서 확인하세요. 확인되지 않은 연동 방식은 추측하지 마세요.");
+  if (plan.humanInLoop.length) section("11. 승인·검토가 필요한 단계", bullets(plan.humanInLoop), "위 단계는 자동화 범위를 확장하면서 임의로 제거하지 마세요.");
+  if (plan.exceptions.length) section("12. 예외 처리", "다음 예외 상황을 처리하세요.", bullets(plan.exceptions));
+  if (plan.fallback.length || plan.operation.length) section("13. 문제 발생 시 대응",
+    ...(plan.fallback.length ? [`### 자동화 실패 시\n\n${bullets(plan.fallback)}`] : []),
+    ...(plan.operation.length ? [`### 운영·수동 처리\n\n${bullets(plan.operation)}`] : []),
+    "자동화가 실패하면 기존 수동 업무 방식으로 안전하게 처리할 수 있어야 합니다.",
+  );
+  if (plan.security.length) section("14. 보안", bullets([
+    ...plan.security,
+    "secret을 코드에 하드코딩하지 마세요. 기존 환경변수 등 저장소의 secret 관리 방식을 사용하세요.",
+    "민감한 데이터를 불필요하게 로그에 남기지 마세요.",
+    "기존 접근 권한 정책을 유지하세요.",
+  ]));
+  section("15. 테스트 및 검증",
+    "현재 저장소에 실제로 존재하는 테스트 명령을 확인한 뒤 실행하세요. 존재하지 않는 test script를 추측하지 마세요.",
+    ...(plan.tests.length ? [`### 정상 케이스\n\n${bullets(plan.tests)}`] : []),
+    ...(plan.exceptions.length ? ["### 예외 케이스\n\n12번 예외 처리의 각 상황을 재현해 정상적으로 처리되는지 확인하세요."] : []),
+    ...(plan.poc.length ? [`### 사전 검증\n\n${bullets(plan.poc)}`] : []),
+    "### 회귀 검증\n\n이 작업과 관련된 기존 기능이 이전과 동일하게 동작하는지 확인하세요.",
+    "이 작업이 웹 UI를 포함하면 저장소에 기존 브라우저/E2E 도구(예: Playwright)가 있는지 확인하세요. 도구가 있으면 기존 흐름으로 주요 화면을 Desktop과 Mobile에서 확인하세요. 도구가 없으면 새로 설치하지 말고 그 사실을 보고하세요.",
+  );
+  section("16. GitHub 반영", numbered([
+    "`git status`로 변경 상태를 확인하세요.",
+    "`git diff`로 변경 내용을 검토하세요.",
+    "현재 branch와 `git remote -v`로 원격을 확인하세요.",
+    "의도하지 않은 파일 변경이 없는지 확인하세요.",
+    "저장소의 branch/PR 정책을 확인하세요.",
+    "필요한 파일만 골라 `git add <파일>`로 stage하세요.",
+    "작업 내용을 설명하는 commit 메시지로 commit하세요.",
+    "저장소 정책에 맞는 방식으로 push 또는 PR을 진행하세요.",
+  ]), bullets([
+    "`git add .`로 전체 파일을 한 번에 추가하지 마세요.",
+    "확인 없이 main branch에 직접 push하지 마세요.",
+    "force push를 사용하지 마세요.",
+    "저장소 정책을 확인하지 않고 branch를 삭제하지 마세요.",
+    "`git reset --hard` 같은 파괴적인 명령을 기본 흐름에 넣지 마세요.",
+  ]));
+  section("17. 배포",
+    "배포 방식을 추측하지 마세요. 저장소에서 vercel.json, wrangler.toml·wrangler.json·wrangler.jsonc, GitHub Actions, package scripts, README, AGENTS.md를 확인해 기존 배포 방식을 먼저 찾으세요.",
+    "기존 CI/CD가 있으면 그 방식을 우선하세요. 다음으로 GitHub 연동 자동 배포, 기존 package deploy script, 기존 CLI 배포 방식 순으로 확인하세요.",
+    "Vercel과 Cloudflare 중 하나를 임의로 선택하거나 새 배포 도구를 설치하지 마세요.",
+    "배포 방식을 확인할 수 없으면 임의로 진행하지 말고 '배포 방식 확인 필요'로 보고하세요.",
+    "웹 배포가 필요 없는 자동화(CLI, 스크립트, Excel 자동화, 로컬 실행형 등)이면 배포 대신 실행 환경 구성 또는 운영 적용으로 처리하세요.",
+  );
+  section("18. 배포 후 검증", "실제 배포를 수행했다면 다음을 확인하세요.", bullets([
+    "배포 성공 여부와 실제 URL",
+    "핵심 기능 동작",
+    "입력 → 처리 → 결과 흐름",
+    "브라우저 콘솔 오류",
+    "네트워크 오류",
+    "Desktop 화면",
+    "모바일 영향이 있으면 Mobile 화면",
+  ]), "문제가 발견되면 수정 → 재배포 → 동일 시나리오 재검증 순서로 진행하세요.", "로컬 실행형이면 실제 운영 환경에서 같은 원칙으로 검증하세요.");
+  section("19. 완료 조건", bullets([
+    ...plan.acceptance,
+    "요청한 기능이 정상 작동합니다.",
+    "기존 기능과 기존 데이터가 유지됩니다.",
+    "승인·검토 단계가 유지됩니다.",
+    "주요 예외가 정상 처리됩니다.",
+    "관련 테스트가 통과합니다.",
+    "타입 오류와 빌드 오류가 없습니다.",
+    "배포한 경우 실제 환경에서 정상 동작합니다.",
+    "실행하지 않은 검증은 완료로 보고하지 말고 미실행으로 명시합니다.",
+  ]));
+  section("20. 작업 완료 보고", "작업이 끝나면 다음 형식으로 보고하세요.", numbered([
+    "확인한 프로젝트 구조", "수정한 파일", "구현한 내용", "재사용한 기존 코드·컴포넌트", "주요 로직", "예외 처리", "테스트 결과", "Git 상태", "배포 방식", "배포 여부", "배포 후 검증 결과", "남은 위험", "미실행 항목",
+  ]), "실제로 수행하지 않은 작업을 완료했다고 보고하지 마세요.");
+  return sections.join("\n\n");
 }
