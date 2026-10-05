@@ -199,11 +199,16 @@
 
 .ax-plan-head { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .ax-plan-head h3 { margin: 0; }
+.ax-plan-tool-hint { font-size: 13px; color: var(--muted-foreground); }
 .ax-tool-tabs { margin-top: 16px; gap: 16px; min-width: 0; }
 .ax-tool-tabs [data-slot=tabs-content], .ax-package { min-width: 0; }
-.ax-prompt { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12.5px; white-space: pre-wrap; word-break: break-word; max-width: 100%; max-height: 420px; overflow: auto; background: color-mix(in srgb, var(--muted) 14%, var(--card)); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin: 12px 0; }
+.ax-prompt { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12.5px; white-space: pre-wrap; word-break: break-word; max-width: 100%; max-height: 420px; overflow: auto; background: color-mix(in srgb, var(--muted) 9%, var(--card)); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin: 12px 0; }
 .ax-prompt-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin-top: 8px; }
-.ax-copy-feedback { font-size: 12px; color: var(--muted-foreground); }
+.ax-prompt-actions .ax-copy-button { transition: background-color 0.15s ease, border-color 0.15s ease; }
+.ax-prompt-actions .ax-copy-button[data-copied="true"] { background: color-mix(in srgb, var(--primary) 86%, #1e3a8a); border-color: transparent; }
+.ax-guide .ax-guide-trigger { border: 1px solid color-mix(in srgb, var(--primary) 32%, var(--border)); background: color-mix(in srgb, var(--primary) 6%, var(--card)); border-radius: 8px; padding: 10px 14px; align-items: center; }
+.ax-guide .ax-guide-trigger:hover { background: color-mix(in srgb, var(--primary) 11%, var(--card)); }
+.ax-guide .ax-guide-trigger svg { flex: none; }
 .ax-cmd { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; background: color-mix(in srgb, var(--muted) 55%, var(--card)); border: 1px solid var(--border); border-radius: 4px; padding: 2px 4px; }
 .ax-guide h4 { margin: 18px 0 8px; }
 .ax-guide li { margin-bottom: 8px; overflow-wrap: anywhere; }
