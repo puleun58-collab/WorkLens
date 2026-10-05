@@ -5,7 +5,7 @@ z.config({ jitless: true });
 export const AX_LIMITS = { tasks: 100, name: 120, description: 3000, detail: 500, attachmentSummary: 2000, requestBytes: 60 * 1024, transferBytes: 8 * 1024 * 1024 } as const;
 export const FACTOR_KEYS = ["repetition", "regularity", "dataStructure", "systemAccess", "humanJudgment", "operationalRisk"] as const;
 export const FACTOR_LABELS: Record<typeof FACTOR_KEYS[number], string> = {
-  repetition: "반복성", regularity: "규칙성", dataStructure: "데이터 구조화", systemAccess: "시스템 접근성", humanJudgment: "사람 판단 의존도", operationalRisk: "운영 위험",
+  repetition: "반복성", regularity: "규칙성", dataStructure: "데이터 구조화", systemAccess: "시스템 접근성", humanJudgment: "담당자 판단 의존도", operationalRisk: "운영 위험",
 };
 const text = z.string().trim().max(500);
 const list = z.array(text).max(10);
@@ -37,9 +37,6 @@ export const axDiagnosisJsonSchema = z.object(axDiagnosisShape).strict();
 const uniqueFactors = (value: { factors: { key: string }[] }) => new Set(value.factors.map(f => f.key)).size === 6;
 export const axDiagnosisOutputSchema = axDiagnosisJsonSchema.refine(uniqueFactors, "6종 Factor가 각각 필요합니다.");
 export const REPOSITORY_FIRST = "Repository-first: 실제 저장소의 지침·구조·구현·테스트를 먼저 확인하고, 확인되지 않은 파일명·함수명·API를 추측하지 않는다.";
-export const PLAN_LABELS = {
-  goal: "목표", asIs: "AS-IS", toBe: "TO-BE", inScope: "범위", outOfScope: "제외", prerequisites: "구현 전 확인사항", humanInLoop: "승인·검토", poc: "PoC", implementation: "구현 순서", dataFlow: "데이터 흐름", integrations: "연동", exceptions: "예외", fallback: "문제 발생 시 대응", security: "보안", operation: "운영", tests: "테스트", acceptance: "완료 조건",
-} as const;
 export const axPlanJsonSchema = z.object({
   repositoryFirst: text.min(1), goal: list, asIs: list, toBe: list, inScope: list, outOfScope: list, prerequisites: list,
   humanInLoop: list, poc: list, implementation: list, dataFlow: list, integrations: list, exceptions: list, fallback: list,

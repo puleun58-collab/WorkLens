@@ -1,8 +1,31 @@
 import { describe, expect, it } from "vitest";
 import { buildAllInOnePrompt, environmentGuide, installGuide, projectPrepGuide, TOOL_GUIDES } from "../src/lib/ax/guide";
+import { FACTOR_LABELS } from "../src/lib/ax/schema";
 import { planFixture } from "./fixtures/ax";
 
+function expectContinuousSections(prompt: string) {
+  const numbers = [...prompt.matchAll(/^## (\d+)\./gm)].map(match => Number(match[1]));
+  expect(numbers.length).toBeGreaterThan(0);
+  expect(numbers).toEqual(numbers.map((_, index) => index + 1));
+  expect(prompt).not.toMatch(/\d+번/);
+}
+
 describe("AX execution guides", () => {
+  it.each([
+    ["월간 정산", "월간 정산 자동화"],
+    ["월간 정산 자동화", "월간 정산 자동화"],
+    ["  월간 정산 자동화  ", "월간 정산 자동화"],
+    [undefined, "업무 자동화"],
+    ["", "업무 자동화"],
+    ["   ", "업무 자동화"],
+  ])("normalizes the prompt title for %s", (taskName, normalized) => {
+    const prompt = buildAllInOnePrompt(planFixture, "codex", { taskName });
+    expect(prompt.split("\n")[0]).toBe(`# ${normalized} 구현 지시문`);
+    expect(prompt).not.toContain("자동화 자동화");
+  });
+  it("uses the 담당자 label without changing the factor key", () => {
+    expect(FACTOR_LABELS.humanJudgment).toBe("담당자 판단 의존도");
+  });
   it("keeps tool commands distinct and guides scoped to the selected tool", () => {
     for (const key of ["installCommand", "versionCommand", "runCommand", "doctorCommand"] as const) {
       expect(TOOL_GUIDES.codex[key]).toBeTruthy();
@@ -14,11 +37,15 @@ describe("AX execution guides", () => {
       expect(environmentGuide(tool).join("\n")).not.toContain(TOOL_GUIDES[other].installCommand);
       expect(installGuide(tool).join("\n")).toContain(TOOL_GUIDES[tool].installCommand);
       expect(environmentGuide(tool).join("\n")).toContain(TOOL_GUIDES[tool].versionCommand);
+      expect(installGuide(tool).join("\n")).toContain(TOOL_GUIDES[tool].doctorCommand);
+      expect(installGuide(tool).join("\n")).not.toContain(TOOL_GUIDES[other].installCommand);
+      expect(installGuide(tool).join("\n")).not.toContain(TOOL_GUIDES[other].doctorCommand);
     }
   });
   it("builds numbered professional instructions in order with task-specific requirements", () => {
     const prompt = buildAllInOnePrompt(planFixture, "codex", { taskName: "월간 취합" });
     expect(prompt).toMatch(/^# 월간 취합 자동화 구현 지시문\n/);
+    expectContinuousSections(prompt);
     expect(prompt.match(/^## \d+\. .+$/gm)).toEqual([
       "## 1. 작업 목표", "## 2. 작업 전 현재 프로젝트 확인", "## 3. AS-IS",
       "## 4. TO-BE", "## 5. 작업 범위", "## 6. 구현 전 확인사항", "## 7. 구현 원칙",
@@ -45,7 +72,7 @@ describe("AX execution guides", () => {
     expect(section(13)).toContain("### 운영·수동 처리\n\n- 담당자 지정");
     expect(section(13)).toContain("자동화가 실패하면 기존 수동 업무 방식으로 안전하게 처리할 수 있어야 합니다.");
     expect(section(15)).toContain("### 정상 케이스\n\n- 샘플 대조");
-    expect(section(15)).toContain("### 주요 예외 케이스\n\n12번 예외 처리의 각 상황을 재현해 정상적으로 처리되는지 확인하세요.");
+    expect(section(15)).toContain("### 주요 예외 케이스\n\n'예외 처리' 섹션에 정의된 각 상황을 재현해 정상적으로 처리되는지 확인하세요.");
     expect(section(15)).toContain("### 사전 검증\n\n- 샘플 대조");
     expect(section(18).indexOf("- 대조 통과")).toBeLessThan(section(18).indexOf("- 요청한 기능이 정상 작동합니다."));
     expect(section(19).match(/^\d+\. .+$/gm)).toEqual([
@@ -101,29 +128,38 @@ describe("AX execution guides", () => {
     const onlyDiagnostic = buildAllInOnePrompt({ ...planFixture, prerequisites: [] }, "codex", { prerequisites: ["진단 조건 확인"] });
     expect(onlyDiagnostic).toContain("## 6. 구현 전 확인사항\n\n- 진단 조건 확인");
   });
-  it("is deterministic and varies only the tool name between Codex and Claude Code", () => {
+  it("is deterministic and identical between Codex and Claude Code", () => {
     const options = { taskName: "월간 취합", prerequisites: ["권한 확인"] };
     const codex = buildAllInOnePrompt(planFixture, "codex", options);
     expect(codex).toBe(buildAllInOnePrompt(planFixture, "codex", options));
     const claude = buildAllInOnePrompt(planFixture, "claude", options);
-    expect(claude).toContain("이 지시문은 Claude Code에서 실행하는 것을 전제로 합니다.");
-    expect(claude.replace("Claude Code", "Codex")).toBe(codex);
-    expect(buildAllInOnePrompt(planFixture, "codex")).toMatch(/^# 업무 자동화 자동화 구현 지시문\n/);
+    expect(claude).toBe(codex);
+    expect(codex).not.toContain("에서 실행하는 것을 전제로 합니다");
   });
-  it("omits every empty task-specific section without renumbering common sections", () => {
+  it("renumbers sections when integrations and security are omitted", () => {
+    const prompt = buildAllInOnePrompt({ ...planFixture, integrations: [], security: [] }, "codex");
+    expectContinuousSections(prompt);
+    expect(prompt.match(/^## \d+\. .+$/gm)).toHaveLength(17);
+    expect(prompt).not.toMatch(/^## \d+\. (외부 연동|보안)$/m);
+    expect(prompt).toContain("## 10. 승인·검토");
+    expect(prompt).toContain("## 13. 검증 방법");
+    expect(prompt).toContain("## 17. 완료 보고");
+  });
+  it("omits empty task-specific sections and consecutively numbers required sections", () => {
     const prompt = buildAllInOnePrompt({
       repositoryFirst: planFixture.repositoryFirst, goal: [], asIs: [], toBe: [], inScope: [], outOfScope: [], prerequisites: [],
       humanInLoop: [], poc: [], implementation: [], dataFlow: [], integrations: [], exceptions: [],
       fallback: [], security: [], operation: [], tests: [], acceptance: [],
     }, "codex");
     expect(prompt.match(/^## \d+\. .+$/gm)).toEqual([
-      "## 2. 작업 전 현재 프로젝트 확인", "## 7. 구현 원칙", "## 15. 검증 방법",
-      "## 16. Git 반영", "## 17. 배포 및 운영 적용", "## 18. 완료 조건", "## 19. 완료 보고",
+      "## 1. 작업 전 현재 프로젝트 확인", "## 2. 구현 원칙", "## 3. 검증 방법",
+      "## 4. Git 반영", "## 5. 배포 및 운영 적용", "## 6. 완료 조건", "## 7. 완료 보고",
     ]);
+    expectContinuousSections(prompt);
     for (const text of ["## 10.", "해당 없음", "### 정상 케이스", "### 주요 예외 케이스", "### 사전 검증"]) expect(prompt).not.toContain(text);
-    expect(prompt).toContain(`## 7. 구현 원칙\n\n- ${planFixture.repositoryFirst}\n- 현재 프로젝트 구조를 먼저 확인하세요.`);
+    expect(prompt).toContain(`## 2. 구현 원칙\n\n- ${planFixture.repositoryFirst}\n- 현재 프로젝트 구조를 먼저 확인하세요.`);
     expect(prompt).toContain("### 회귀 검증");
-    expect(prompt).toContain("## 18. 완료 조건\n\n- 요청한 기능이 정상 작동합니다.");
+    expect(prompt).toContain("## 6. 완료 조건\n\n- 요청한 기능이 정상 작동합니다.");
   });
   it.each(["inScope", "outOfScope"] as const)("keeps scope with only %s populated", key => {
     const prompt = buildAllInOnePrompt({ ...planFixture, inScope: [], outOfScope: [], [key]: ["범위 항목"] }, "codex");
