@@ -285,7 +285,7 @@ export function AxDiagnosisView() {
             <section className="ax-surface"><h3>분류 현황</h3><div className="ax-region-tiles">{Object.entries(REGION_LABELS).map(([region, label]) => <div className="ax-region-tile" data-region={region} key={region}><span>{label}</span><strong>{ranked.filter(r => matrixPosition(r.task.diagnosis).region === region).length}개</strong></div>)}</div></section>
           </div><section className="ax-roadmap-panel"><h3>실행 로드맵</h3>{selected?.diagnosis ? <><p className="ax-roadmap-task">{selected.name}</p><ol className="ax-timeline">{selected.diagnosis.roadmap.map((r, i) => <li key={i}><span className="ax-timeline-node">{i + 1}</span><div><h4>Phase {r.phase} · {r.title}</h4><ul>{r.items.map((item, j) => <li key={j}>{item}</li>)}</ul></div></li>)}</ol></> : <p>우선순위에서 업무를 선택하면 실행 로드맵을 확인할 수 있습니다.</p>}</section></div>
           {selected?.diagnosis ? <div className="ax-detail-stack"><section className="ax-surface"><h2>{selected.name}</h2><p className="ax-muted">{selected.diagnosis.sourceNote}</p><AxSummary task={selected} /></section><AxRoadmap diagnosis={selected.diagnosis} roadmapSection={false} />
-            <AxPlanSection key={selected.id} diagnosis={selected.diagnosis} busy={busy} onGenerate={target => void generatePlan(selected, target)} />
+            <AxPlanSection key={selected.id} diagnosis={selected.diagnosis} taskName={selected.name} busy={busy} onGenerate={target => void generatePlan(selected, target)} />
           </div> : <p className="ax-muted">우선순위 목록에서 업무를 선택해 상세 결과를 확인하세요.</p>}
         </>}
       </TabsPanel>
