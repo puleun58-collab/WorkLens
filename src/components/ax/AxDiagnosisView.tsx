@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useId, useRef, useState, type CSSProperties, type FormEvent } from "react";
-import { MoreHorizontal, Upload, Download, Trash2, ClipboardList, CircleCheck, Zap, Clock3, Stethoscope, LayoutGrid, Map as MapIcon, ArrowLeft, ArrowRight, Paperclip, Repeat, CalendarCheck, Database, Plug, UserCheck, AlertTriangle } from "lucide-react";
+import { MoreHorizontal, Upload, Download, Trash2, ClipboardList, CircleCheck, Zap, Clock3, Stethoscope, LayoutGrid, Map as MapIcon, ArrowLeft, ArrowRight, Paperclip, FileText, X, Repeat, CalendarCheck, Database, Plug, UserCheck, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -151,15 +151,15 @@ export function AxDiagnosisView() {
     try {
       const url = URL.createObjectURL(new Blob([exportAxState(state)], { type: "application/json" }));
       const anchor = document.createElement("a"); anchor.href = url; anchor.download = `worklens-ax-${new Date().toISOString().slice(0, 10)}.json`;
-      anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); setMessage("AX 데이터를 내보냈습니다.");
-    } catch (error) { setMessage(error instanceof Error ? error.message : "AX 데이터를 내보내지 못했습니다."); }
+      anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); setMessage("AI•AX 데이터를 내보냈습니다.");
+    } catch (error) { setMessage(error instanceof Error ? error.message : "AI•AX 데이터를 내보내지 못했습니다."); }
   }
   async function acceptImport(file: File) {
     try {
       if (file.size > AX_LIMITS.transferBytes) throw new Error("가져오기 파일은 8MB 이하여야 합니다.");
       const imported = importAxState(await file.text());
       if (state.tasks.length) setConfirmation({ kind: "import", state: imported });
-      else { const saved = await replace(imported); attachments.current.clear(); setAttachmentIds([]); clearDraft(); setMessage(saved ? "AX 데이터를 가져왔습니다." : "AX 데이터를 가져왔으나 브라우저 저장에 실패했습니다. 내보내기로 보관하세요."); }
+      else { const saved = await replace(imported); attachments.current.clear(); setAttachmentIds([]); clearDraft(); setMessage(saved ? "AI•AX 데이터를 가져왔습니다." : "AI•AX 데이터를 가져왔으나 브라우저 저장에 실패했습니다. 내보내기로 보관하세요."); }
     } catch (error) { setMessage((error as Error).message); }
   }
   async function confirm() {
@@ -173,7 +173,7 @@ export function AxDiagnosisView() {
     } else {
       const saved = await replace(action.kind === "reset" ? emptyAxState() : action.state, action.kind === "reset");
       attachments.current.clear(); setAttachmentIds([]); clearDraft(); setAnswers({});
-      setMessage(saved ? action.kind === "reset" ? "AX 데이터를 초기화했습니다." : "AX 데이터를 가져왔습니다." : "화면 데이터를 변경했으나 브라우저 저장에 실패했습니다. 새로고침 시 이전 데이터가 복원될 수 있습니다.");
+      setMessage(saved ? action.kind === "reset" ? "AI•AX 데이터를 초기화했습니다." : "AI•AX 데이터를 가져왔습니다." : "화면 데이터를 변경했으나 브라우저 저장에 실패했습니다. 새로고침 시 이전 데이터가 복원될 수 있습니다.");
     }
   }
   const diagnosedCount = state.tasks.filter(t => !!t.diagnosis).length;
@@ -184,9 +184,9 @@ export function AxDiagnosisView() {
       const l = task.diagnosis ? automationLevel(task.diagnosis) : null;
       const a = task.diagnosis ? axes(task.diagnosis) : null;
       const meta = state.step === 3 && a ? `가치 ${a.value} · 실현 ${a.feasibility}` : l ? `${l.label.replace(/^L\d+ /, "")} · Level ${l.level}` : STATUS[task.status];
-      return <li key={task.id}><Button type="button" variant="ghost" className="ax-task-row-btn" aria-pressed={selected?.id === task.id} onClick={() => select(task.id)} disabled={!!busy}>
+      return <li key={task.id} className={selected?.id === task.id ? "is-selected" : undefined}><Button type="button" variant="ghost" className="ax-task-row-btn" aria-pressed={selected?.id === task.id} onClick={() => select(task.id)} disabled={!!busy}>
         <span className={`ax-dot ax-dot-${task.status}`} aria-hidden="true" /><span className="ax-task-name">{task.name}</span><span className="ax-task-meta">{meta}</span>
-      </Button>{showDelete && state.step === 1 ? <Button type="button" variant="ghost" className="ax-delete-button" aria-label={`${task.name} 삭제`} disabled={!!busy} onClick={() => setConfirmation({ kind: "delete", id: task.id })}><Trash2 size={15} aria-hidden="true" /></Button> : null}</li>;
+      </Button>{showDelete && state.step === 1 ? <Button type="button" variant="ghost" className="ax-delete-button" aria-label="업무 삭제" disabled={!!busy} onClick={() => setConfirmation({ kind: "delete", id: task.id })}><Trash2 size={15} aria-hidden="true" /></Button> : null}</li>;
     })}</ul>;
   }
   function priorityRows(top = false) {
@@ -207,33 +207,36 @@ export function AxDiagnosisView() {
     if (!task.attachmentMeta) return null;
     const inSession = attachmentIds.includes(task.id);
     return <div className="ax-attachment"><p>{task.attachmentMeta.name} · {inSession ? "세션 요약 준비됨" : "첨부 파일이 사용됨 — 재분석 시 재첨부 필요"}</p>
-      {inSession ? <Button type="button" variant="ghost" disabled={!!busy} onClick={() => detach(task)}>첨부 해제</Button> : <AxAttachmentInput label="파일 다시 추가" buttonText="파일 다시 추가" disabled={!!busy} onSelect={file => void attach(file, task.id)} />}</div>;
+      {inSession ? <Button type="button" variant="ghost" disabled={!!busy} onClick={() => detach(task)}>첨부 해제</Button> : <AxAttachmentInput disabled={!!busy} onSelect={file => void attach(file, task.id)} />}</div>;
   }
   return <section className="ax-view" aria-label="업무 자동화 진단" aria-busy={!!busy}>
     <div className="ax-data-actions">
-      <Menu><MenuTrigger render={<Button type="button" variant="outline" size="icon" aria-label="AX 데이터 작업" disabled={!ready || !!busy} />}><MoreHorizontal aria-hidden="true" /></MenuTrigger><MenuPopup align="end">
-        <MenuItem onClick={download}><Upload aria-hidden="true" />AX 데이터 내보내기</MenuItem>
-        <MenuItem onClick={() => importInput.current?.click()}><Download aria-hidden="true" />AX 데이터 가져오기</MenuItem>
+      <Menu><MenuTrigger render={<Button type="button" variant="outline" size="icon" aria-label="AI•AX 데이터 작업" disabled={!ready || !!busy} />}><MoreHorizontal aria-hidden="true" /></MenuTrigger><MenuPopup align="end">
+        <MenuItem onClick={download}><Upload aria-hidden="true" />AI•AX 데이터 내보내기</MenuItem>
+        <MenuItem onClick={() => importInput.current?.click()}><Download aria-hidden="true" />AI•AX 데이터 가져오기</MenuItem>
         <MenuSeparator />
-        <MenuItem variant="destructive" onClick={() => setConfirmation({ kind: "reset" })}><Trash2 aria-hidden="true" />AX 데이터 초기화</MenuItem>
+        <MenuItem variant="destructive" onClick={() => setConfirmation({ kind: "reset" })}><Trash2 aria-hidden="true" />AI•AX 데이터 초기화</MenuItem>
       </MenuPopup></Menu>
-      <input ref={importInput} type="file" hidden accept=".json,application/json" aria-label="AX 데이터 가져오기 파일" onChange={e => { const file = e.target.files?.[0]; e.target.value = ""; if (file) void acceptImport(file); }} />
+      <input ref={importInput} type="file" hidden accept=".json,application/json" aria-label="AI•AX 데이터 가져오기 파일" onChange={e => { const file = e.target.files?.[0]; e.target.value = ""; if (file) void acceptImport(file); }} />
     </div>
-    {saveStatus === "저장 실패" ? <p role="status" className="ax-notice">자동 저장에 실패했습니다. 필요하면 AX 데이터를 내보내 백업해주세요.</p> : null}
+    {saveStatus === "저장 실패" ? <p role="status" className="ax-notice">자동 저장에 실패했습니다. 필요하면 AI•AX 데이터를 내보내 백업해주세요.</p> : null}
     {loadNotice ? <p role="status" className="ax-notice">{loadNotice}</p> : null}
     {message ? <p role="status" className="ax-notice">{message}</p> : null}
-    {!ready ? <p role="status">AX 데이터를 불러오는 중…</p> : <Tabs value={String(state.step)} onValueChange={value => changeStep(Number(value))}>
+    {!ready ? <p role="status">AI•AX 데이터를 불러오는 중…</p> : <Tabs value={String(state.step)} onValueChange={value => changeStep(Number(value))}>
       <TabsList className="ax-steps" aria-label="진단 단계">{STEPS.map((s, i) => { const Icon = STEP_ICONS[i]; return <TabsTab key={s} value={String(i + 1)} disabled={!!busy}><Icon size={15} aria-hidden="true" /><span>{s}</span></TabsTab>; })}</TabsList>
       <TabsPanel value="1">
         <div className="ax-step1-grid">
           <form className="ax-surface ax-register ax-area-form" onSubmit={register}><h2>{editingId ? "등록 정보 수정" : "업무 등록"}</h2>
             <div className="ax-field"><label className="ax-field">업무명<Input type="text" value={name} maxLength={AX_LIMITS.name} onChange={e => setName(e.target.value)} disabled={!!busy} aria-describedby={nameHelpId} /></label><small id={nameHelpId}>비워두면 업무 설명을 기준으로 자동 생성됩니다.</small></div>
             <label className="ax-field"><span className="ax-required-label">업무 설명</span><Textarea value={description} required maxLength={AX_LIMITS.description} onChange={e => setDescription(e.target.value)} disabled={!!busy} placeholder="어떤 업무를 반복하고 있으며, 어떤 자료를 받아 어떤 결과를 만드는지 설명해주세요." rows={5} /></label>
+            <div className="ax-register-files">
+              <AxAttachmentInput disabled={!!busy} onSelect={file => void attach(file)} />
+              {draftAttachment ? <div className="ax-file-row"><FileText className="size-4" aria-hidden="true" /><span className="ax-file-name">{draftAttachment.meta.name}</span><span className="ax-file-status">준비됨</span><Button type="button" variant="ghost" size="icon-xs" aria-label="첨부 취소" onClick={() => setDraftAttachment(null)} disabled={!!busy}><X aria-hidden="true" /></Button></div> : null}
+            </div>
             <Accordion><AccordionItem value="details">
-              <div className="ax-register-actions"><AccordionTrigger type="button" className="ax-details-trigger" disabled={!!busy}>추가 정보</AccordionTrigger><AxAttachmentInput label="참고 파일" disabled={!!busy} onSelect={file => void attach(file)} /><div className="ax-register-submit">{editingId ? <Button type="button" variant="ghost" onClick={clearDraft}>수정 취소</Button> : null}<Button type="submit" disabled={!!busy || !description.trim()}>{editingId ? "수정 저장" : "업무 등록"}</Button></div></div>
+              <div className="ax-register-actions"><AccordionTrigger type="button" className="ax-details-trigger" disabled={!!busy}>추가 정보</AccordionTrigger><div className="ax-register-submit">{editingId ? <Button type="button" variant="ghost" onClick={clearDraft}>수정 취소</Button> : null}<Button type="submit" disabled={!!busy || !description.trim()}>{editingId ? "수정 저장" : "업무 등록"}</Button></div></div>
               <AccordionPanel><div className="ax-form-grid">{DETAILS.map(({ key, label, numeric }) => <label className="ax-field" key={key}>{label}<Input type={numeric ? "number" : "text"} min={numeric ? 0 : undefined} max={numeric ? 100000 : undefined} step="any" maxLength={numeric ? undefined : AX_LIMITS.detail} value={details[key] ?? ""} onChange={e => setDetails(current => ({ ...current, [key]: e.target.value }))} disabled={!!busy} /></label>)}</div></AccordionPanel>
             </AccordionItem></Accordion>
-            {draftAttachment ? <p className="ax-muted">{draftAttachment.meta.name} · 세션 요약 준비됨 <Button type="button" variant="ghost" onClick={() => setDraftAttachment(null)} disabled={!!busy}>첨부 취소</Button></p> : null}
           </form>
           <section className="ax-surface ax-area-list" aria-label="등록 업무 목록"><h3>업무 목록</h3>{state.tasks.length ? taskRows(true) : <AxEmptyState title="등록된 업무가 없습니다" description="왼쪽에서 첫 업무를 등록해주세요." />}</section>
           {state.tasks.length ? <aside className="ax-step1-side ax-area-side"><AxKpiCards tasks={state.tasks} /></aside> : null}
@@ -243,7 +246,7 @@ export function AxDiagnosisView() {
         {!state.tasks.length ? <AxEmptyState title="진단할 업무가 없습니다" description="업무를 먼저 등록해주세요." /> : <div className="ax-step2-grid">
           <section className="ax-surface" aria-label="등록 업무 목록"><h3>업무 목록</h3>{taskRows(false)}</section>
           <div className="ax-detail-col">{selected ? <>
-            <section className="ax-surface"><div className="ax-section-heading"><h2>{selected.name}</h2><div className="ax-header-actions"><Badge variant="outline">{STATUS[selected.status]}</Badge><Button type="button" variant="outline" size="sm" className="ax-edit-button" onClick={() => editTask(selected)} disabled={!!busy}>등록 정보 수정</Button></div></div><p>{selected.description}</p>
+            <section className="ax-surface"><div className="ax-section-heading"><div className="ax-title-group"><h2>{selected.name}</h2><Badge className="ax-status-badge">{STATUS[selected.status]}</Badge></div><Button type="button" variant="outline" size="sm" className="ax-edit-button" onClick={() => editTask(selected)} disabled={!!busy}>등록 정보 수정</Button></div><p>{selected.description}</p>
               {attachmentStatus(selected)}<div className="ax-actions"><Button type="button" disabled={!!busy} onClick={() => void diagnose(selected)}>{busy === selected.id ? "진단 중…" : selected.diagnosis ? "업무 다시 진단" : "업무 진단 실행"}</Button>{busy && busy !== "attachment" ? <Button type="button" variant="ghost" onClick={interruptServerAi}>AI 작업 중지</Button> : null}</div>
               {selected.diagnosis ? <AxSummary task={selected} /> : null}
             </section>
@@ -288,21 +291,19 @@ export function AxDiagnosisView() {
       {state.step > 1 ? <Button type="button" variant="outline" onClick={() => changeStep(state.step - 1)} disabled={!!busy}><ArrowLeft aria-hidden="true" />이전 단계</Button> : <span aria-hidden="true" />}
       {state.step < 4 ? <Button type="button" onClick={() => changeStep(state.step + 1)} disabled={!!busy || nextStepDisabled}><span>다음 단계</span><ArrowRight aria-hidden="true" /></Button> : <span aria-hidden="true" />}
     </nav> : null}
-    <AlertDialog open={confirmation !== null} onOpenChange={open => { if (!open) setConfirmation(null); }}><AlertDialogPopup><AlertDialogHeader><AlertDialogTitle>{confirmation?.kind === "import" ? "AX 데이터를 덮어쓸까요?" : confirmation?.kind === "delete" ? "업무를 삭제할까요?" : "AX 데이터를 초기화할까요?"}</AlertDialogTitle><AlertDialogDescription>{confirmation?.kind === "import" ? "검증된 가져오기 데이터로 현재 AX 업무·진단·계획을 교체합니다." : confirmation?.kind === "delete" ? "선택한 업무와 진단·계획을 삭제합니다." : "현재 AX 업무·진단·계획만 삭제합니다. 다른 작업 공간은 유지됩니다."}</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogClose render={<Button type="button" variant="ghost" />}>취소</AlertDialogClose><Button type="button" variant="destructive" onClick={() => void confirm()}>{confirmation?.kind === "import" ? "덮어쓰기" : confirmation?.kind === "delete" ? "삭제" : "초기화"}</Button></AlertDialogFooter></AlertDialogPopup></AlertDialog>
+    <AlertDialog open={confirmation !== null} onOpenChange={open => { if (!open) setConfirmation(null); }}><AlertDialogPopup><AlertDialogHeader><AlertDialogTitle>{confirmation?.kind === "import" ? "AI•AX 데이터를 덮어쓸까요?" : confirmation?.kind === "delete" ? "업무를 삭제할까요?" : "AI•AX 데이터를 초기화할까요?"}</AlertDialogTitle><AlertDialogDescription>{confirmation?.kind === "import" ? "검증된 가져오기 데이터로 현재 AI•AX 업무·진단·계획을 교체합니다." : confirmation?.kind === "delete" ? "선택한 업무와 진단·계획을 삭제합니다." : "현재 AI•AX 업무·진단·계획만 삭제합니다. 다른 작업 공간은 유지됩니다."}</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogClose render={<Button type="button" variant="ghost" />}>취소</AlertDialogClose><Button type="button" variant="destructive" onClick={() => void confirm()}>{confirmation?.kind === "import" ? "덮어쓰기" : confirmation?.kind === "delete" ? "삭제" : "초기화"}</Button></AlertDialogFooter></AlertDialogPopup></AlertDialog>
   </section>;
 }
 function AxEmptyState({ title, description }: { title: string; description: string }) {
   return <div className="ax-empty"><h3>{title}</h3><p className="ax-muted">{description}</p></div>;
 }
-function AxAttachmentInput({ label, buttonText = "파일 선택", disabled, onSelect }: { label: string; buttonText?: string; disabled: boolean; onSelect: (file: File) => void }) {
+function AxAttachmentInput({ disabled, onSelect }: { disabled: boolean; onSelect: (file: File) => void }) {
   const input = useRef<HTMLInputElement>(null);
-  const labelId = useId();
   return <div className="ax-field ax-file-input">
-    <span id={labelId}>{label}</span>
-    <input ref={input} type="file" hidden accept=".xlsx,.csv,.pdf,.docx,.pptx" aria-label={label} disabled={disabled} onChange={event => {
+    <input ref={input} type="file" hidden accept=".xlsx,.csv,.pdf,.docx,.pptx" aria-label="파일 추가" disabled={disabled} onChange={event => {
       const file = event.target.files?.[0]; event.target.value = ""; if (file) onSelect(file);
     }} />
-    <Button type="button" variant="outline" disabled={disabled} aria-describedby={labelId} onClick={() => input.current?.click()}><Paperclip aria-hidden="true" />{buttonText}</Button>
+    <Button type="button" variant="outline" disabled={disabled} onClick={() => input.current?.click()}><Paperclip aria-hidden="true" />파일 추가</Button>
   </div>;
 }
 function AxKpiCards({ tasks }: { tasks: AxTask[] }) {
@@ -330,6 +331,6 @@ function AxMatrix({ tasks, selectedId, onSelect }: { tasks: (AxTask & { diagnosi
     {[1, 2, 3, 4, 5].map(v => <span key={v} className="ax-y-tick" style={{ bottom: `${(v - 1) / 4 * 100}%` }}>{v}</span>)}
     {[1, 2, 3, 4, 5].map(v => <span key={v} className="ax-x-tick" style={{ left: `${(v - 1) / 4 * 100}%` }}>{v}</span>)}
     {tasks.map((task, i) => { const m = matrixPosition(task.diagnosis); const diameter = Math.sqrt(bubbleArea(task, max) / Math.PI) * 2; return <button type="button" key={task.id} className={`ax-bubble${m.region === "hold" ? " is-hold" : ""}`} style={{ left: `${m.x}%`, bottom: `${m.y}%`, width: Math.max(24, diameter), height: Math.max(24, diameter), zIndex: selectedId === task.id ? 3 : 2 }} aria-label={`${task.name} · ${m.label}`} aria-pressed={selectedId === task.id} title={`${task.name} · ${m.label}`} onClick={() => onSelect(task.id)}><span className="ax-bubble-dot" style={{ width: diameter, height: diameter }} /><span className="ax-bubble-number">{i + 1}</span></button>; })}
-    <span className="ax-y-label">↑ 자동화 가치</span><span className="ax-x-label">기술 실현 가능성 →</span>
+    <span className="ax-y-label"><span className="ax-y-arrow" aria-hidden="true">↑</span><span className="ax-y-text">자동화 가치</span></span><span className="ax-x-label">기술 실현 가능성 →</span>
   </div></div>;
 }

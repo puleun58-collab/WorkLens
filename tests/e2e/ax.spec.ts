@@ -32,13 +32,13 @@ async function record(page: Page): Promise<AxState | undefined> {
     db.close(); return value;
   });
 }
-async function dataAction(page: Page, name: "AX 데이터 내보내기" | "AX 데이터 가져오기" | "AX 데이터 초기화") {
-  await page.getByRole("button", { name: "AX 데이터 작업", exact: true }).click();
+async function dataAction(page: Page, name: "AI•AX 데이터 내보내기" | "AI•AX 데이터 가져오기" | "AI•AX 데이터 초기화") {
+  await page.getByRole("button", { name: "AI•AX 데이터 작업", exact: true }).click();
   await page.getByRole("menuitem", { name, exact: true }).click();
 }
 async function importData(page: Page, content: string) {
   const chooser = page.waitForEvent("filechooser");
-  await dataAction(page, "AX 데이터 가져오기");
+  await dataAction(page, "AI•AX 데이터 가져오기");
   await (await chooser).setFiles({ name: "ax.json", mimeType: "application/json", buffer: Buffer.from(content) });
 }
 function mock(page: Page, calls: Record<string, unknown>[] = []) {
@@ -51,21 +51,21 @@ test("AX ellipsis menu, keyboard controls and segmented steps", async ({ page })
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/"); await ax(page);
   const view = page.getByRole("region", { name: "업무 자동화 진단", exact: true });
-  await expect(view.getByText("AX 데이터는 현재 브라우저에 저장됩니다", { exact: true })).toHaveCount(0);
+  await expect(view.getByText("AI•AX 데이터는 현재 브라우저에 저장됩니다", { exact: true })).toHaveCount(0);
   await expect(view.getByText("이 브라우저에 저장됨", { exact: true })).toHaveCount(0);
   await expect(view.getByText("저장 중", { exact: true })).toHaveCount(0);
   await expect(view.getByRole("button", { name: "데이터 관리", exact: true })).toHaveCount(0);
-  const trigger = view.getByRole("button", { name: "AX 데이터 작업", exact: true });
+  const trigger = view.getByRole("button", { name: "AI•AX 데이터 작업", exact: true });
   await expect(trigger).toBeVisible(); await expect(trigger).toBeEnabled();
-  await expect(page.getByLabel("AX 데이터 가져오기 파일")).toBeHidden();
+  await expect(page.getByLabel("AI•AX 데이터 가져오기 파일")).toBeHidden();
   await trigger.click();
   const menu = page.getByRole("menu");
   await expect(menu).toBeVisible(); await expect(menu.getByRole("menuitem")).toHaveCount(3);
-  for (const name of ["AX 데이터 내보내기", "AX 데이터 가져오기", "AX 데이터 초기화"]) {
+  for (const name of ["AI•AX 데이터 내보내기", "AI•AX 데이터 가져오기", "AI•AX 데이터 초기화"]) {
     await expect(menu.getByRole("menuitem", { name, exact: true })).toBeVisible();
   }
   await expect(menu.getByRole("separator")).toHaveCount(1);
-  await expect(menu.getByRole("menuitem", { name: "AX 데이터 초기화", exact: true })).toHaveAttribute("data-variant", "destructive");
+  await expect(menu.getByRole("menuitem", { name: "AI•AX 데이터 초기화", exact: true })).toHaveAttribute("data-variant", "destructive");
   await page.keyboard.press("Escape"); await expect(menu).not.toBeVisible();
   await trigger.focus(); await page.keyboard.press("Enter"); await expect(menu).toBeVisible();
   await page.keyboard.press("Escape"); await expect(menu).not.toBeVisible(); await expect(trigger).toBeFocused();
@@ -133,11 +133,11 @@ test("AX registration → diagnosis → correction → matrix → plans → relo
   await expect(page.getByRole("tab", { name: "결과·로드맵" })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByRole("heading", { name: "Codex용 구현 계획", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Claude Code용 구현 계획", exact: true })).toBeVisible();
-  const downloaded = page.waitForEvent("download"); await dataAction(page, "AX 데이터 내보내기");
+  const downloaded = page.waitForEvent("download"); await dataAction(page, "AI•AX 데이터 내보내기");
   const path = await (await downloaded).path(); const content = await readFile(path!, "utf8");
   expect(JSON.parse(content).data).toEqual(saved);
   await page.evaluate(() => localStorage.setItem("ax-unrelated-fixture", "keep"));
-  await dataAction(page, "AX 데이터 초기화"); await page.getByRole("alertdialog").getByRole("button", { name: "초기화", exact: true }).click();
+  await dataAction(page, "AI•AX 데이터 초기화"); await page.getByRole("alertdialog").getByRole("button", { name: "초기화", exact: true }).click();
   await expect(page.getByText("등록된 업무가 없습니다", { exact: false })).toBeVisible();
   await expect.poll(() => record(page)).toBeUndefined();
   expect(await page.evaluate(() => localStorage.getItem("ax-unrelated-fixture"))).toBe("keep");
@@ -179,7 +179,7 @@ test("AX mobile steps scroll, bottom navigation and task delete", async ({ page 
   await expect(page.getByRole("button", { name: "다음 단계", exact: true })).toBeDisabled();
   await page.getByRole("button", { name: "이전 단계", exact: true }).click();
   await expect(page.getByRole("tab", { name: "업무 등록", exact: true })).toHaveAttribute("aria-selected", "true");
-  await page.getByLabel("등록 업무 목록").getByRole("button", { name: "월간 취합 삭제", exact: true }).click();
+  await page.getByLabel("등록 업무 목록").locator("li", { hasText: "월간 취합" }).getByRole("button", { name: "업무 삭제", exact: true }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: "삭제", exact: true }).click();
   await expect(page.getByRole("heading", { name: "등록된 업무가 없습니다", exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
@@ -196,7 +196,7 @@ test("AX validates imports before replacement, cancel preserves existing data an
   await expect(page.getByLabel("등록 업무 목록")).toContainText("기존 업무");
   await importData(page, imported); await page.getByRole("alertdialog").getByRole("button", { name: "덮어쓰기", exact: true }).click();
   await expect(page.getByLabel("등록 업무 목록")).toContainText("업무 imported");
-  await dataAction(page, "AX 데이터 초기화"); await page.getByRole("alertdialog").getByRole("button", { name: "취소", exact: true }).click();
+  await dataAction(page, "AI•AX 데이터 초기화"); await page.getByRole("alertdialog").getByRole("button", { name: "취소", exact: true }).click();
   await expect(page.getByLabel("등록 업무 목록")).toContainText("업무 imported");
   await expect.poll(() => record(page)).toEqual(JSON.parse(imported).data);
 });
@@ -211,14 +211,14 @@ test("AX styled file selection shows filenames and removes draft/session attachm
   const calls: Record<string, unknown>[] = []; await mock(page, calls);
   await page.goto("/"); await ax(page);
   const file = { name: "selected.csv", mimeType: "text/csv", buffer: Buffer.from("업무,주기\n취합,매월") };
-  const input = page.getByLabel("참고 파일");
+  const input = page.getByRole("region", { name: "업무 자동화 진단", exact: true }).getByLabel("파일 추가", { exact: true });
   await expect(input).toBeHidden();
   const selectFile = async () => {
     const chooser = page.waitForEvent("filechooser");
-    await page.getByRole("button", { name: "파일 선택", exact: true }).click();
+    await page.getByRole("region", { name: "업무 자동화 진단", exact: true }).getByRole("button", { name: "파일 추가", exact: true }).click();
     await (await chooser).setFiles(file);
     await expect(page.getByText("첨부 요약을 준비했습니다.", { exact: false })).toBeVisible();
-    await expect(page.getByText("selected.csv · 세션 요약 준비됨", { exact: false })).toBeVisible();
+    await expect(page.locator(".ax-file-row").filter({ hasText: /selected\.csv\s*준비됨/ })).toBeVisible();
   };
   await selectFile();
   await page.getByRole("button", { name: "첨부 취소", exact: true }).click();
@@ -226,7 +226,7 @@ test("AX styled file selection shows filenames and removes draft/session attachm
   await selectFile(); // The same file can be selected again after removal.
   await register(page);
   await page.getByRole("button", { name: "다음 단계" }).click();
-  await expect(page.getByLabel("참고 파일")).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "업무 자동화 진단", exact: true }).getByLabel("파일 추가", { exact: true })).toHaveCount(0);
   await expect(page.locator(".ax-attachment input[type=file]")).toHaveCount(0);
   await expect(page.locator(".ax-attachment")).toContainText("selected.csv · 세션 요약 준비됨");
   await page.getByRole("button", { name: "첨부 해제", exact: true }).click();
@@ -247,7 +247,7 @@ test("AX styled file selection shows filenames and removes draft/session attachm
 test("AX attachment summaries stay out of storage/export and reload requires reattachment", async ({ page }) => {
   const calls: Record<string, unknown>[] = []; await mock(page, calls);
   await page.goto("/"); await ax(page);
-  await page.getByLabel("참고 파일").setInputFiles({ name: "monthly.csv", mimeType: "text/csv", buffer: Buffer.from("업무,주기,처리\n표취합,매월,승인\n보고,매월,담당자 검토") });
+  await page.getByRole("region", { name: "업무 자동화 진단", exact: true }).getByLabel("파일 추가", { exact: true }).setInputFiles({ name: "monthly.csv", mimeType: "text/csv", buffer: Buffer.from("업무,주기,처리\n표취합,매월,승인\n보고,매월,담당자 검토") });
   await expect(page.getByText("첨부 요약을 준비했습니다.", { exact: false })).toBeVisible();
   await register(page);
   await page.getByRole("button", { name: "다음 단계" }).click();
@@ -260,14 +260,14 @@ test("AX attachment summaries stay out of storage/export and reload requires rea
   }] });
   const stored = await record(page); expect(stored?.tasks[0].attachmentMeta?.fingerprint).toHaveLength(64);
   expect(JSON.stringify(stored)).not.toContain("attachmentSummary"); expect(JSON.stringify(stored)).not.toContain("bytes");
-  const download = page.waitForEvent("download"); await dataAction(page, "AX 데이터 내보내기");
+  const download = page.waitForEvent("download"); await dataAction(page, "AI•AX 데이터 내보내기");
   const exported = await readFile((await (await download).path())!, "utf8");
   expect(exported).not.toContain("attachmentSummary"); expect(exported).not.toContain("bytes");
   expect(JSON.parse(exported).data.tasks[0].attachmentMeta).toEqual(stored?.tasks[0].attachmentMeta);
   await page.reload(); await ax(page);
   await expect(page.locator(".ax-attachment")).toContainText("첨부 파일이 사용됨 — 재분석 시 재첨부 필요");
   await page.getByRole("button", { name: "업무 다시 진단" }).click(); expect(calls).toHaveLength(1);
-  await page.getByLabel("파일 다시 추가").setInputFiles({ name: "monthly.csv", mimeType: "text/csv", buffer: Buffer.from("업무,주기\n표취합,매월") });
+  await page.getByRole("region", { name: "업무 자동화 진단", exact: true }).getByLabel("파일 추가", { exact: true }).setInputFiles({ name: "monthly.csv", mimeType: "text/csv", buffer: Buffer.from("업무,주기\n표취합,매월") });
   await expect(page.getByText("첨부 요약을 준비했습니다.", { exact: false })).toBeVisible();
   await page.getByRole("button", { name: "업무 진단 실행" }).click(); await expect(page.getByText("정보 충분", { exact: true })).toBeVisible(); expect(calls).toHaveLength(2);
 });
@@ -290,11 +290,11 @@ test("AX works and exports when IndexedDB is unavailable and rejects failed AI o
   await page.addInitScript(() => { Object.defineProperty(window, "indexedDB", { get() { throw new Error("storage disabled"); } }); });
   await page.route("**/api/ai", route => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { kind: "ax-diagnosis", diagnosis: { informationSufficiency: "sufficient" } } }) }));
   await page.goto("/"); await navigateWorkspace(page, "업무 자동화 진단");
-  await expect(page.getByRole("status").filter({ hasText: "자동 저장에 실패했습니다. 필요하면 AX 데이터를 내보내 백업해주세요." })).toBeVisible(); await register(page);
+  await expect(page.getByRole("status").filter({ hasText: "자동 저장에 실패했습니다. 필요하면 AI•AX 데이터를 내보내 백업해주세요." })).toBeVisible(); await register(page);
   await expect(page.getByLabel("등록 업무 목록")).toContainText("월간 취합");
   await page.getByRole("button", { name: "다음 단계" }).click(); await page.getByRole("button", { name: "업무 진단 실행" }).click();
   await expect(page.getByText("진단 실패", { exact: false })).toBeVisible(); await expect(page.getByText("진단 결과", { exact: true })).toHaveCount(0);
-  const download = page.waitForEvent("download"); await dataAction(page, "AX 데이터 내보내기"); const exported = JSON.parse(await readFile((await (await download).path())!, "utf8")); expect(exported.data.tasks).toHaveLength(1);
+  const download = page.waitForEvent("download"); await dataAction(page, "AI•AX 데이터 내보내기"); const exported = JSON.parse(await readFile((await (await download).path())!, "utf8")); expect(exported.data.tasks).toHaveLength(1);
 });
 test("AX flushes pending changes on navigation and preserves the existing workspace", async ({ page }) => {
   await page.goto("/"); await ax(page); await register(page, "화면 이동 전에 등록");
@@ -325,8 +325,8 @@ test("AX attachment cleanup leaves another view's AI request running", async ({ 
   // Keep the main-thread AX fingerprint operation pending during navigation;
   // the original document worker has its own crypto implementation.
   await page.evaluate(() => { Object.defineProperty(crypto.subtle, "digest", { configurable: true, value: () => new Promise(() => {}) }); });
-  await page.getByLabel("참고 파일").setInputFiles({ name: "ax.csv", mimeType: "text/csv", buffer: Buffer.from("업무,주기\n취합,월") });
-  await expect(page.getByRole("button", { name: "파일 선택", exact: true })).toBeDisabled();
+  await page.getByRole("region", { name: "업무 자동화 진단", exact: true }).getByLabel("파일 추가", { exact: true }).setInputFiles({ name: "ax.csv", mimeType: "text/csv", buffer: Buffer.from("업무,주기\n취합,월") });
+  await expect(page.getByRole("region", { name: "업무 자동화 진단", exact: true }).getByRole("button", { name: "파일 추가", exact: true })).toBeDisabled();
   await navigateWorkspace(page, "Guide");
   release?.();
   expect(await outcome).toBe("finished");
