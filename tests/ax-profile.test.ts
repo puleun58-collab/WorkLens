@@ -60,6 +60,7 @@ describe("AX execution profile (Level ∩ Gate)", () => {
 
   it("Level 2 + ready: rule steps automate, pilot and operation allowed, approvals stay", () => {
     const d = build(2, "ready"), profile = executionProfile(d);
+    expect(profile).toMatchObject({ executionCandidate: true, readyExecutionCandidate: true });
     expect(titles(d)).toEqual(["입력·규칙 검증", "부분 자동화 구현", "예외·실패 검증", "파일럿", "운영 적용"]);
     expect(profile.roadmap[1].items).toEqual(["자료 수집 규칙 기반 처리", "형식 검증 AI 보조"]);
     expect(profile.roadmap[3].items).toContain("담당자 승인 담당자 수행 유지");
@@ -91,6 +92,12 @@ describe("AX execution profile (Level ∩ Gate)", () => {
     expect(profile.poc.inScope[0]).toBe("선행 확인사항 해결 후 샘플 범위에서 진행");
   });
 
+  it("Level 2 + conditional: prerequisites stay open but immediate execution stays closed", () => {
+    const profile = executionProfile(build(2, "conditional"));
+    expect(profile).toMatchObject({ executionCandidate: false, readyExecutionCandidate: false, planAllowed: true });
+    expect(profile.roadmap.map(phase => phase.title)).toEqual(["선행 확인", "제한 PoC", "결과 확인·다음 단계 판단"]);
+  });
+
   it("keeps Matrix and priority as comparison only and does not mutate the stored diagnosis", () => {
     const quickBlocked = build(3, "blocked"), before = structuredClone(quickBlocked);
     expect(matrixPosition(quickBlocked).region).toBe("quick");
@@ -103,7 +110,10 @@ describe("AX execution profile (Level ∩ Gate)", () => {
     const profiles = (...ds: AxDiagnosis[]) => priority(ds.map((d, i) => taskFixture(`t${i}`, d))).map(r => executionProfile(r.task.diagnosis));
     expect(priorityHeading(profiles(build(0, "ready")))).toBe("업무 진단 결과");
     expect(priorityHeading(profiles(build(0, "ready"), build(2, "blocked")))).toBe("현재 검토 업무");
-    expect(priorityHeading(profiles(build(2, "ready"), build(0, "ready")))).toBe("자동화 우선순위 TOP 2");
+    expect(priorityHeading(profiles(build(2, "ready"), build(0, "ready")))).toBe("자동화 우선순위 TOP 1");
+    expect(priorityHeading(profiles(build(2, "ready"), build(3, "ready"), build(2, "conditional")))).toBe("자동화 우선순위 TOP 2");
+    expect(priorityHeading(profiles(build(2, "conditional"), build(3, "conditional")))).toBe("확인 후 진행 업무");
+    expect(priorityHeading(profiles(build(1, "ready"), build(2, "ready"), build(3, "ready"), build(2, "ready")))).toBe("자동화 우선순위 TOP 3");
   });
 
   it("sends the plan model the aligned roadmap, PoC and next action instead of the raw narrative", () => {

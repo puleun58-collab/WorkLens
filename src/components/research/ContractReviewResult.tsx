@@ -16,7 +16,7 @@ const SEVERITY_BADGE = { high: "error", medium: "warning", low: "secondary" } as
 function SeverityBadge({ severity }: { severity: ReviewedIssue["severity"] }) {
   return <Badge variant={SEVERITY_BADGE[severity]} className="contract-review-severity" data-severity={severity}>{SEVERITY_LABEL[severity]}</Badge>;
 }
-const RESULT_NOTE = "판례는 판시사항 기준이며 판결 전문은 포함되지 않습니다. 법적 판단은 원문 및 전문가 검토가 필요할 수 있습니다.";
+const RESULT_NOTE = "판례는 판시사항 기준이며 판결 전문은 포함되지 않습니다.";
 const COVERAGE_LABEL: Record<ReviewCoverage["status"], string> = { complete: "전체 검토", partial: "부분 검토", excluded: "검토 제외" };
 const IMAGE_NOTE = "이미지 안의 글자는 읽지 않습니다.";
 const PLACES_SHOWN = 3;
@@ -39,16 +39,18 @@ function placesOf(file: ReviewFile | undefined, segments: readonly number[] | un
 
 function FileCoverage({ file }: { file: ReviewFile }) {
   const { coverage } = file;
+  const items = [...coverage.reasons];
+  if (coverage.excluded > 0) items.push(`조항 문장이 없는 ${coverage.excluded.toLocaleString("ko-KR")}개 ${coverage.unit}(숫자·코드 위주)은 검토 대상이 아니어서 제외했습니다.`);
+  if (file.imagesUnread) items.push(IMAGE_NOTE);
+  const details = items.length > 0 && <ul className="contract-review-coverage">
+    {items.map((item, index) => <li key={index}>{item}</li>)}
+  </ul>;
   return <>
     <dt>검토 범위</dt>
     <dd>
       <strong>{COVERAGE_LABEL[coverage.status]}</strong> · {coverage.total.toLocaleString("ko-KR")}개 {coverage.unit} 중 {coverage.reviewed.toLocaleString("ko-KR")}개 {coverage.status === "partial" ? "상세 검토" : "검토"}
       {coverage.unreviewed > 0 && ` · ${coverage.status === "partial" ? "상세 미검토" : "미검토"} ${coverage.unreviewed.toLocaleString("ko-KR")}개`}
-      {(coverage.reasons.length > 0 || coverage.excluded > 0 || file.imagesUnread) && <ul className="contract-review-coverage">
-        {coverage.reasons.map((reason) => <li key={reason}>{reason}</li>)}
-        {coverage.excluded > 0 && <li>조항 문장이 없는 {coverage.excluded.toLocaleString("ko-KR")}개 {coverage.unit}(숫자·코드 위주)은 검토 대상이 아니어서 제외했습니다.</li>}
-        {file.imagesUnread && <li>{IMAGE_NOTE}</li>}
-      </ul>}
+      {items.length > 2 ? <details className="contract-review-coverage-detail"><summary>검토 범위 상세</summary>{details}</details> : details}
     </dd>
   </>;
 }
@@ -134,7 +136,11 @@ export function ContractReviewResult({ review, file, expandSources = false }: { 
     const place = placesOf(file, issue.segments);
     // The rest of the clause (a heading, the next paragraph or page) stays visible as related places.
     const related = placesOf(file, clauseSegments, issue.segments);
-    const unverified = issue.lawStatus === "failed" || issue.precedentStatus === "failed";
+    const unverified = issue.lawStatus === "failed" || issue.lawStatus === "partial" || issue.lawStatus === "not_searched"
+      || issue.precedentStatus === "failed" || issue.precedentStatus === "partial" || issue.precedentStatus === "not_searched";
+    const parts: string[] = [];
+    if (laws.length) parts.push(`법령 ${laws.length}건`);
+    if (precedents.length) parts.push(`판례 ${precedents.length}건`);
     return <>
       <dl className="contract-review-issue-facts">
         <div className="contract-review-point"><dt>검토 결과</dt><dd>{issue.point}</dd></div>
@@ -143,7 +149,7 @@ export function ContractReviewResult({ review, file, expandSources = false }: { 
       <div className="contract-review-evidence">
         {laws.length + precedents.length > 0
           ? <><Button variant="outline" size="sm" type="button" className="contract-review-evidence-button" aria-controls={anchor} onClick={() => showEvidence(anchor)}>근거 보기</Button>
-            <span className="contract-review-meta">{laws.map((law) => `${law.law} ${law.jo}`).concat(precedents.map((precedent) => precedent.title ?? precedent.caseNumber ?? "판례")).join(" · ")}</span></>
+            <span className="contract-review-meta">{parts.join(" · ")}</span></>
           : unverified
             ? <><Badge variant="warning" className="contract-review-unverified">근거 미확인</Badge><span className="contract-review-meta">직접 근거 확인이 완료되지 않았습니다.</span></>
             : <span className="contract-review-meta">확인된 직접 근거 없음</span>}

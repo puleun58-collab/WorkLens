@@ -62,6 +62,29 @@ describe("AX AI boundaries", () => {
     for (const constraint of ["CAPTCHA/MFA", "사람 승인 제거", "ROI", "법률·안전", "추측하지", "secret"]) expect(prompt).toContain(constraint);
     expect(axMessages({ kind: "ax-plan", target: "claude", task: { name: "취합", description: "설명", details: {} }, diagnosis: confirmedAxDiagnosis(diagnosisFixture) })[0].content).toContain("Repository-first");
   });
+  it("limits confirmed technical checks to explicit input without inventing technical specifics", () => {
+    const prompt = axMessages(request)[0].content;
+    for (const rule of ['기술 확인(technicalChecks)의 status는 사용자가 입력에서 명시적으로 확인한 사실만 "확인됨"으로 표시하세요.',
+      "그 경우에도 입력에 없는 구체 기술·방식(인증 방식 종류, 특정 API 기능, 실행 환경 등)을 지어내지 말고",
+      '확인되지 않은 항목은 "확인 필요"로 두세요.']) expect(prompt).toContain(rule);
+  });
+  it("scores system access by automation access and rates manual-only access low", () => {
+    const prompt = axMessages(request)[0].content;
+    for (const rule of ["systemAccess 점수는 자동화·시스템이 접근할 수 있는 정도를 기준으로 매기세요.",
+      "입력에서 API 등 시스템 간 자동 연동이 확인되면 담당자의 확인 단계가 있어도 자동화 접근성을 기준으로 평가하고",
+      "담당자가 직접 로그인해 수기로만 조회·입력하는 경우에만 낮게 평가하세요."]) expect(prompt).toContain(rule);
+  });
+  it("prohibits invented organization names and uses 담당자 for approval and review actors", () => {
+    const prompt = axMessages(request)[0].content;
+    for (const rule of ["입력에 없는 조직·부서·승인 주체 이름을 만들지 마세요.",
+      '승인과 검토 주체는 "담당자"로 표현하세요.']) expect(prompt).toContain(rule);
+  });
+  it("requires needs-check and decisive questions when most core task information is missing", () => {
+    const prompt = axMessages(request)[0].content;
+    for (const rule of ["수행 주기·입력 자료·산출물·담당자 판단 단계 네 가지 핵심 정보 중 세 가지 이상이 없을 때만 informationSufficiency를 needs-check로 하고",
+      "핵심 정보가 이미 주어졌으면 부족한 세부 사항이 있어도 partial로 분류하세요.",
+      "결과를 바꿀 수 있는 핵심 질문을 제시하세요.", "핵심 추가 질문만 최대 3개", "배열 항목은 필수 사항 위주로 1~4개", "각 설명은 100자 이내"]) expect(prompt).toContain(rule);
+  });
   it("binds the plan prompt to the diagnosed level, gate and human steps with an internal self-check", () => {
     const confirmed = confirmedAxDiagnosis(diagnosisFixture);
     const planPrompt = (factors: number[], patch: Partial<typeof confirmed> = {}) => axMessages({ kind: "ax-plan", target: "codex", task: { name: "취합", description: "설명", details: {} },
