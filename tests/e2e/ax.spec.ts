@@ -213,6 +213,16 @@ test("AX registration → diagnosis → correction → matrix → plans → relo
   await page.screenshot({ path: `artifacts/ax/diagnosis-${test.info().project.name}.png`, fullPage: true });
   await page.getByRole("button", { name: "반복성 1점", exact: true }).click();
   await expect(page.getByText("사용자 보정 완료", { exact: true }).last()).toBeVisible();
+  const reset = page.getByRole("button", { name: "AI 제안값으로 되돌리기", exact: true });
+  await expect(page.getByRole("button", { name: "AI 값으로", exact: true })).toHaveCount(0);
+  await expect(reset).toHaveCount(1); await expect(reset).toBeEnabled();
+  await expect(reset.locator("svg.lucide-rotate-ccw")).toHaveCount(1);
+  await reset.hover(); await expect(page.getByRole("tooltip").or(page.locator('[data-slot="tooltip-popup"]')).first()).toContainText("AI 제안값으로 되돌리기");
+  await page.locator(".ax-factor-row").first().screenshot({ path: `artifacts/ax/factor-reset-${test.info().project.name}.png` });
+  await reset.click(); await expect(reset).toHaveCount(0);
+  // A correction equal to the AI suggestion leaves nothing to restore.
+  await page.getByRole("button", { name: "반복성 4점", exact: true }).click(); await expect(reset).toBeDisabled();
+  await page.getByRole("button", { name: "반복성 1점", exact: true }).click(); await expect(reset).toBeEnabled();
   await page.getByRole("tab", { name: "자동화 매트릭스", exact: false }).click();
   await expect(page.getByLabel("매트릭스 업무 목록")).toContainText("가치 3 · 실현 4");
   await expect(page.getByRole("list", { name: "자동화 우선순위 목록", exact: true })).toContainText("검토 후보");

@@ -80,7 +80,9 @@
 .ax-factor-main p { margin: 6px 0; }
 .ax-factor-corrected { color: var(--primary); }
 .ax-factor-control { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px; width: 150px; padding-top: 4px; }
-.ax-factor-control > button { font-size: 11px; }
+/* AI 제안값 복원: outlined icon action on white, pale-blue hover; keeps the shared Button focus ring. */
+.ax-factor-control > .ax-factor-reset { background: var(--card); color: var(--muted-foreground); border-color: var(--border); }
+.ax-factor-control > .ax-factor-reset:not(:disabled):hover { background: var(--blue-soft); color: var(--primary); border-color: color-mix(in srgb, var(--primary) 30%, var(--border)); }
 .ax-segments { display: flex; gap: 4px; }
 .ax-segments button { width: 18px; height: 24px; border-radius: 4px; background: var(--muted); cursor: pointer; }
 .ax-segments button.is-on { background: var(--ax-factor); }
