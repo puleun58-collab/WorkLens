@@ -50,7 +50,9 @@
 .ax-step2-grid, .ax-step3-grid { display: grid; grid-template-columns: 300px minmax(0,1fr); gap: 24px; align-items: start; }
 .ax-step2-sub-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 20px; }
 .ax-edit-button { background: var(--card); box-shadow: 0 1px 2px color-mix(in srgb, var(--foreground) 7%, transparent); }
-.ax-delete-button { flex: none; }
+.ax-task-actions { display: flex; flex: none; gap: 2px; padding-right: 6px; }
+.ax-task-rows .ax-task-action { background: transparent; color: var(--muted-foreground); }
+.ax-task-rows .ax-task-action:hover { background: color-mix(in srgb, var(--primary) 8%, transparent); color: var(--foreground); }
 .ax-view .ax-task-rows { list-style: none; padding: 0; margin: 12px 0 0; }
 .ax-task-rows li { display: flex; align-items: center; gap: 4px; border-bottom: 1px solid var(--border); }
 .ax-task-rows li:last-child:not(.is-selected) { border-bottom: 0; }
