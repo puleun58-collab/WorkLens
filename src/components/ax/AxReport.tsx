@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, Copy, FileCode2, Terminal } from "lucide-react";
 import type { AxDiagnosis, AxPlan, AxTask } from "@/lib/ax/types";
-import { automationLevel, axes, executionGate, GATE_LABELS, gateBlockReasons, gatePrerequisites, nextAction } from "@/lib/ax/policy";
+import { automationLevel, axes, executionGate, executionProfile, GATE_LABELS, gateBlockReasons, gatePrerequisites, nextAction, type ExecutionProfile } from "@/lib/ax/policy";
 import { FACTOR_KEYS } from "@/lib/ax/schema";
 import { Badge } from "@/components/ui/badge";
 import { Accordion, AccordionItem, AccordionPanel, AccordionTrigger } from "@/components/ui/accordion";
@@ -51,13 +51,27 @@ function AxStepTable({ diagnosis: d, headers }: { diagnosis: AxDiagnosis; header
 function AxToBe({ diagnosis: d }: { diagnosis: AxDiagnosis }) {
   return <section className="ax-section ax-panel"><h3>TO-BE · 역할과 흐름</h3><ol className="ax-tobe-list">{d.toBe.map((s, i) => <li key={i}><strong>{s.step} · {OWNER_LABELS[s.owner]}</strong><p>{s.description}</p></li>)}</ol></section>;
 }
+/** Prerequisites come from the gate policy; a ready gate shows the confirmed technical checks instead. */
+function AxChecks({ diagnosis: d, profile }: { diagnosis: AxDiagnosis; profile: ExecutionProfile }) {
+  const rows = profile.prerequisites.length
+    ? profile.prerequisites.map(item => { const [topic, ...note] = item.split(" — "); return { topic, detail: note.length ? `확인 필요 · ${note.join(" — ")}` : "확인 필요" }; })
+    : d.technicalChecks.map(c => ({ topic: c.topic, detail: `${c.status}${c.note ? ` · ${c.note}` : ""}` }));
+  return <section className="ax-section ax-panel"><h3>진행 전 확인사항</h3>{rows.length ? <ul className="ax-check-list">{rows.map((row, i) => <li key={i}><strong>{row.topic}</strong><span>{row.detail}</span></li>)}</ul> : <p className="ax-muted">선행 확인사항 없음</p>}{d.risks.length ? <div className="ax-risk-block"><h4>주의사항·위험요소</h4><ul className="ax-risk-list">{d.risks.map((risk, i) => <li key={i}>{risk}</li>)}</ul></div> : null}</section>;
+}
+/** Roadmap timeline shared by the dark Step 4 panel and the report; content always comes from the execution profile. */
+export function AxRoadmapPhases({ profile, timeline = false }: { profile: ExecutionProfile; timeline?: boolean }) {
+  return timeline
+    ? <ol className="ax-timeline">{profile.roadmap.map((r, i) => <li key={i}><span className="ax-timeline-node">{i + 1}</span><div><h4>Phase {r.phase} · {r.title}</h4><ul>{r.items.map((item, j) => <li key={j}>{item}</li>)}</ul></div></li>)}</ol>
+    : <ol>{profile.roadmap.map((r, i) => <li key={i}><h4>{r.phase} · {r.title}</h4><AxList items={r.items} /></li>)}</ol>;
+}
 export function AxRoadmap({ diagnosis: d, roadmapSection = true }: { diagnosis: AxDiagnosis; roadmapSection?: boolean }) {
+  const profile = executionProfile(d);
   return <>
     <AxToBe diagnosis={d} />
     <section className="ax-section ax-panel"><h3>자동화 적용 범위</h3><AxStepTable diagnosis={d} headers={["업무 단계", "처리 방식", "담당", "이유"]} />{d.humanInLoop.length ? <><h4>승인·검토가 필요한 단계</h4><AxList items={d.humanInLoop} /></> : null}</section>
-    <section className="ax-section ax-panel"><h3>진행 전 확인사항</h3><ul className="ax-check-list">{d.technicalChecks.map((c, i) => <li key={i}><strong>{c.topic}</strong><span>{c.status}{c.note ? ` · ${c.note}` : ""}</span></li>)}</ul>{d.risks.length ? <div className="ax-risk-block"><h4>주의사항·위험요소</h4><ul className="ax-risk-list">{d.risks.map((risk, i) => <li key={i}>{risk}</li>)}</ul></div> : null}</section>
-    <section className="ax-section ax-panel"><h3>사전 검증(PoC)</h3><dl className="ax-definition">{([['inScope', '포함'], ['outOfScope', '제외'], ['inputs', '입력'], ['outputs', '출력'], ['evaluation', '평가 방법'], ['success', '성공 기준'], ['failure', '실패 기준']] as const).map(([key, label]) => <div className="ax-definition-row" key={key}><dt>{label}</dt><dd><AxList items={d.poc[key]} /></dd></div>)}</dl></section>
-    {roadmapSection ? <section className="ax-section ax-panel"><h3>실행 로드맵</h3><ol>{d.roadmap.map((r, i) => <li key={i}><h4>{r.phase} · {r.title}</h4><AxList items={r.items} /></li>)}</ol></section> : null}
+    <AxChecks diagnosis={d} profile={profile} />
+    <section className="ax-section ax-panel"><h3>사전 검증(PoC)</h3><dl className="ax-definition">{([['inScope', '포함'], ['outOfScope', '제외'], ['inputs', '입력'], ['outputs', '출력'], ['evaluation', '평가 방법'], ['success', '성공 기준'], ['failure', '실패 기준']] as const).map(([key, label]) => <div className="ax-definition-row" key={key}><dt>{label}</dt><dd><AxList items={profile.poc[key]} /></dd></div>)}</dl></section>
+    {roadmapSection ? <section className="ax-section ax-panel"><h3>{profile.roadmapTitle}</h3><AxRoadmapPhases profile={profile} /></section> : null}
   </>;
 }
 export function AxRadar({ diagnosis }: { diagnosis: AxDiagnosis }) {

@@ -233,6 +233,14 @@ test("AX registration → diagnosis → correction → matrix → plans → relo
   await expect(top).toContainText("부분 자동화 · Level 2");
   await expect(top).toContainText("점수 7");
   await expect(page.locator('.ax-summary [data-slot="badge"]')).toHaveText("부분 자동화 · Level 2");
+  // Step 4 shows the policy-derived scope (Level 2 ∩ 확인 후 진행), not the AI's raw roadmap.
+  await expect(page.locator(".ax-step4-left h3").first()).toHaveText("자동화 우선순위 TOP 1");
+  await expect(page.locator(".ax-roadmap-panel h3")).toHaveText("부분 자동화 로드맵");
+  await expect(page.locator(".ax-roadmap-panel .ax-timeline > li h4")).toHaveText(["Phase 1 · 선행 확인", "Phase 2 · 제한 PoC", "Phase 3 · 결과 확인·다음 단계 판단"]);
+  await expect(page.locator(".ax-roadmap-panel .ax-timeline > li").first()).toContainText("시스템 접근 — API와 권한 실제 확인");
+  const pocScope = page.locator(".ax-panel").filter({ has: page.getByRole("heading", { name: "사전 검증(PoC)", exact: true }) }).locator(".ax-definition-row").first();
+  await expect(pocScope.locator("li").first()).toHaveText("선행 확인사항 해결 후 샘플 범위에서 진행");
+  await expect(page.locator(".ax-summary").first()).toContainText("선행 확인사항 확인");
   expect(await page.evaluate(() => [...document.querySelectorAll(".ax-roadmap-panel *, .ax-detail-stack .ax-panel *")]
     .filter(element => element.getBoundingClientRect().width && getComputedStyle(element).textAlign === "center").map(element => element.textContent))).toEqual([]);
   await page.screenshot({ path: `artifacts/ax/roadmap-${test.info().project.name}.png`, fullPage: true });
