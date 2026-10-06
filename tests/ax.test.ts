@@ -20,11 +20,12 @@ describe("AX transparent policy", () => {
     [[2, 2, 2, 5, 1, 1], 0], [[5, 5, 5, 5, 4, 4], 0], [[4, 4, 4, 4, 2, 2], 3],
     [[3, 3, 3, 3, 3, 5], 2], [[4, 4, 4, 4, 4, 2], 1], [[3, 3, 3, 1, 2, 2], 1],
   ])("assigns Level for %j", (values, level) => expect(automationLevel(rated(values as number[])).level).toBe(level));
-  it("marks needs-check provisional and overrides only its next action", () => {
+  it("marks needs-check provisional and derives next action from the gate before the AI narrative", () => {
     const d = rated([4, 4, 4, 4, 2, 2], "needs-check");
     expect(automationLevel(d)).toMatchObject({ level: 3, provisional: true });
     expect(nextAction(d).label).toBe("핵심 확인사항 확인 필요");
-    expect(nextAction(rated([4, 4, 4, 4, 2, 2], "partial"))).toEqual(diagnosisFixture.nextAction);
+    // The fixture gate is conditional: prerequisites come first even when the AI suggested another action.
+    expect(nextAction(rated([4, 4, 4, 4, 2, 2], "partial"))).toEqual({ label: "선행 확인사항 확인", detail: "시스템 접근 — API와 권한 실제 확인 · 권한 확인 후 진행" });
   });
   it.each([
     [[4, 4, 4, 4, 2, 2], "quick"], [[5, 5, 1, 1, 2, 2], "strategic"],

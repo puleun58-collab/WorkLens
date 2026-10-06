@@ -13,11 +13,11 @@ import { useAxState } from "@/client/use-ax-state";
 import { runInWorker } from "@/client/document-client";
 import { diagnoseAx, planAx, interruptServerAi, aiFailureDetail } from "@/client/server-ai-client";
 import { AX_LIMITS, FACTOR_LABELS, axTaskSchema, confirmedAxDiagnosis } from "@/lib/ax/schema";
-import { axes, automationLevel, bubbleArea, executionGate, GATE_LABELS, planAllowed, priorityDisplayLabel, factorScale, matrixPosition, monthlyMinutes, nextAction, priority, REGION_LABELS, taskStatus } from "@/lib/ax/policy";
+import { axes, automationLevel, bubbleArea, executionGate, executionProfile, GATE_LABELS, planAllowed, priorityDisplayLabel, priorityHeading, factorScale, matrixPosition, monthlyMinutes, nextAction, priority, REGION_LABELS, taskStatus } from "@/lib/ax/policy";
 import { candidateTask, taskDetails, followUpDescription, legacyDetailValues, validateAttachmentPreflight } from "@/lib/ax/registration";
 import { exportAxState, importAxState } from "@/lib/ax/transfer";
 import { emptyAxState, type AxState, type AxTask, type AxDiagnosis, type AxDetails, type FactorKey } from "@/lib/ax/types";
-import { AxSummary, AxProcess, AxRoadmap, AxPlanSection, AxRadar } from "./AxReport";
+import { AxSummary, AxProcess, AxRoadmap, AxRoadmapPhases, AxPlanSection, AxRadar } from "./AxReport";
 import "./ax.css";
 
 const STEPS = ["업무 등록", "업무 진단", "자동화 매트릭스", "결과·로드맵"];
@@ -56,6 +56,7 @@ export function AxDiagnosisView() {
   const nameHelpId = useId();
   const selected = state.tasks.find(t => t.id === state.selectedTaskId);
   const ranked = priority(state.tasks);
+  const selectedProfile = selected?.diagnosis ? executionProfile(selected.diagnosis) : null;
   useEffect(() => {
     alive.current = true;
     const sessionAttachments = attachments.current;
@@ -284,9 +285,9 @@ export function AxDiagnosisView() {
         {!ranked.length ? <p className="ax-empty ax-muted">완료된 진단 결과가 없습니다.</p> : <>
           <AxKpiCards tasks={state.tasks} />
           <div className="ax-step4-grid"><div className="ax-step4-left">
-            <section className="ax-surface"><h3>자동화 우선순위 TOP {Math.min(3, ranked.length)}</h3>{priorityRows(true)}</section>
+            <section className="ax-surface"><h3>{priorityHeading(ranked.map(r => executionProfile(r.task.diagnosis)))}</h3>{priorityRows(true)}</section>
             <section className="ax-surface"><h3>분류 현황</h3><div className="ax-region-tiles">{Object.entries(REGION_LABELS).map(([region, label]) => <div className="ax-region-tile" data-region={region} key={region}><span>{label}</span><strong>{ranked.filter(r => matrixPosition(r.task.diagnosis).region === region).length}개</strong></div>)}</div></section>
-          </div><section className="ax-roadmap-panel"><h3>실행 로드맵</h3>{selected?.diagnosis ? <><p className="ax-roadmap-task">{selected.name}</p><ol className="ax-timeline">{selected.diagnosis.roadmap.map((r, i) => <li key={i}><span className="ax-timeline-node">{i + 1}</span><div><h4>Phase {r.phase} · {r.title}</h4><ul>{r.items.map((item, j) => <li key={j}>{item}</li>)}</ul></div></li>)}</ol></> : <p>우선순위에서 업무를 선택하면 실행 로드맵을 확인할 수 있습니다.</p>}</section></div>
+          </div><section className="ax-roadmap-panel">{selected && selectedProfile ? <><h3>{selectedProfile.roadmapTitle}</h3><p className="ax-roadmap-task">{selected.name}</p><AxRoadmapPhases profile={selectedProfile} timeline /></> : <><h3>실행 로드맵</h3><p>우선순위에서 업무를 선택하면 실행 로드맵을 확인할 수 있습니다.</p></>}</section></div>
           {selected?.diagnosis ? <div className="ax-detail-stack"><section className="ax-surface"><h2>{selected.name}</h2><p className="ax-muted">{selected.diagnosis.sourceNote}</p><AxSummary task={selected} showGate={false} /></section><AxRoadmap diagnosis={selected.diagnosis} roadmapSection={false} />
             <AxPlanSection key={selected.id} diagnosis={selected.diagnosis} taskName={selected.name} taskContext={[selected.description, ...Object.values(taskDetails(selected)).filter(value => value !== undefined).map(String)].join("\n")} busy={busy} onGenerate={target => void generatePlan(selected, target)} />
           </div> : <p className="ax-muted">우선순위 목록에서 업무를 선택해 상세 결과를 확인하세요.</p>}

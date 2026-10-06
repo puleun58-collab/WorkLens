@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { axDiagnosisJsonSchema, axPlanJsonSchema, REPOSITORY_FIRST } from "./schema";
-import { automationLevel, executionGate, GATE_LABELS } from "./policy";
+import { automationLevel, executionGate, executionProfile, GATE_LABELS } from "./policy";
 import type { AxDiagnosisRequest, AxPlanRequest } from "./types";
 /** Scope each level allows; a higher level is never a target in itself. */
 const LEVEL_SCOPE = [
@@ -21,6 +21,7 @@ function planInstructions(request: AxPlanRequest): string {
   return `${request.target === "codex" ? "Codex" : "Claude Code"}에서 실행할 구현 계획을 확정 진단과 사용자 보정값에 맞춰 작성하세요.
 repositoryFirst에는 다음 문구를 정확히 넣으세요: ${REPOSITORY_FIRST}
 정보 우선순위: 사용자 입력·업무 등록 > 확정 진단 > 합리적 추론. 하위 정보로 상위 정보를 덮어쓰지 말고, 확인되지 않은 내용은 '확인 필요'로 쓰세요.
+진단의 roadmap·poc·nextAction은 확정 Level·실행 상태에 맞춰 정리된 참고 범위입니다. 구현 계획은 이 범위와 stepAssessments·humanInLoop를 넘어서지 마세요.
 현재 진단 ${level.label.replace(/^L\d+ /, "")} · Level ${level.level}: ${LEVEL_SCOPE[level.level]} 실행 상태 ${GATE_LABELS[gate]}: ${GATE_SCOPE[gate]}
 ${manual.length ? `담당자 수행 단계(${manual.join(", ")})는 implementation에 넣지 말고 outOfScope 또는 humanInLoop에 두세요.\n` : ""}규칙:
 - 업무 규칙 근거 없이 자동 삭제·수정·승인·등록·전송·결재, 권한 변경, 담당 조직 지정을 정하지 마세요. 예외는 발생 가능성만 쓰고 처리는 '표시 후 담당자 확인'으로 두세요(예: 중복 후보 표시).
@@ -44,7 +45,12 @@ Factor는 repetition, regularity, dataStructure, systemAccess, humanJudgment, op
 정보 충분성 sufficient/partial/needs-check, 단계별 자동화/AI 보조/사람 유지 판정, 시스템/AI/사용자 역할, 기술 확인, 위험, 검증 가능한 PoC, go/conditional/no-go 근거, 단계별 로드맵, 운영·Fallback과 다음 행동을 작성하세요.
 가치축·실현성축·Level·Matrix·우선순위 점수는 계산하거나 출력하지 마세요. PoC 가설·평가·성공 기준에도 절감률·효율·자동화율 같은 수치를 만들지 말고, 정량 목표 대신 측정 방법과 대조 기준만 적으세요. 배열 항목은 필수 사항 위주로 1~4개, 각 설명은 100자 이내로 간결하게 작성하세요.`
     : planInstructions(request);
-  return [{ role: "system", content: `${SAFETY}\n${instructions}` }, { role: "user", content: JSON.stringify(request) }];
+  return [{ role: "system", content: `${SAFETY}\n${instructions}` }, { role: "user", content: JSON.stringify(request.kind === "ax-plan" ? alignedPlanRequest(request) : request) }];
+}
+/** The plan model sees the policy-aligned roadmap/PoC/next action, never the raw AI narrative that predates Level/Gate. */
+function alignedPlanRequest(request: AxPlanRequest): AxPlanRequest {
+  const profile = executionProfile({ ...request.diagnosis, sourceNote: "" });
+  return { ...request, diagnosis: { ...request.diagnosis, roadmap: profile.roadmap, poc: profile.poc, nextAction: profile.nextAction } };
 }
 function strictJson(schema: typeof axDiagnosisJsonSchema | typeof axPlanJsonSchema): Record<string, unknown> {
   const json = z.toJSONSchema(schema);
