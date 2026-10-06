@@ -54,21 +54,51 @@ describe("AX execution guides", () => {
     for (const tool of ["codex", "claude"] as const) {
       const other = tool === "codex" ? "claude" : "codex";
       const guide = setupGuide(tool);
-      expect(guide.map(step => step.title)).toEqual(["STEP 0 · 개발 환경 준비", "STEP 1 · 프로젝트 준비", "STEP 2 · 도구 실행"]);
+      expect(guide.map(step => step.title)).toEqual([
+        "시작하기 전에 · 전체 흐름", "STEP 1 · 처음 한 번 환경 준비", "STEP 2 · 프로젝트 준비",
+        "STEP 3 · Codex / Claude Code 실행", "STEP 4 · 올인원 지시문으로 작업", "STEP 5 · AI 작업 결과 검증",
+        "STEP 6 · .gitignore / Secret 확인 후 Git 저장", "STEP 7 · GitHub CI / PR 확인",
+        "STEP 8 · 배포 (Vercel / Cloudflare)", "STEP 9 · Production 최종 확인",
+      ]);
       const all = guide.flatMap(step => step.sections.map(sectionText)).join("\n");
       for (const command of ["installCommand", "doctorCommand", "versionCommand"] as const) {
         expect(all).toContain(TOOL_GUIDES[tool][command]);
         expect(all).not.toContain(TOOL_GUIDES[other][command]);
       }
-      const [check, ...installs] = guide[0].sections;
+      const [check, ...installs] = guide[1].sections;
       expect(check.title).toBe("필요한 프로그램 확인");
-      expect(check.blocks).toContainEqual({ kind: "code", lines: ["git --version", "node --version", "npm --version", TOOL_GUIDES[tool].versionCommand] });
+      expect(check.blocks).toContainEqual({
+        kind: "code", lines: ["git --version", "node --version", "npm --version", TOOL_GUIDES[tool].versionCommand],
+        notes: ["Git 설치 여부와 버전을 확인합니다.", "Node.js 설치 여부와 버전을 확인합니다.", "npm 설치 여부와 버전을 확인합니다.", `${TOOL_GUIDES[tool].name} 설치 여부와 버전을 확인합니다.`],
+      });
       expect(sectionText(check)).toContain("해당 설치 단계를 건너뜁니다");
       for (const install of installs) expect(install.when).toMatch(/에만|때만/);
-      expect(installs.at(-1)!.title).toBe(`${TOOL_GUIDES[tool].name} 설치`);
-      expect(installs.at(-1)!.blocks[0]).toEqual({ kind: "code", lines: [TOOL_GUIDES[tool].installCommand] });
-      expect(guide[1]).toEqual(setupGuide(other)[1]);
+      const toolInstall = installs[3];
+      expect(toolInstall.title).toBe(`${TOOL_GUIDES[tool].name} 설치`);
+      expect(toolInstall.blocks[0]).toEqual({ kind: "code", lines: [TOOL_GUIDES[tool].installCommand], notes: [`${TOOL_GUIDES[tool].name}를 설치합니다.`] });
+      expect(installs[4].title).toBe("GitHub 인증 확인");
+      expect(installs[4].when).toBe("GitHub CLI(gh)가 설치된 경우에만");
+      expect(installs[4].blocks).toContainEqual({ kind: "code", lines: ["gh auth status"], notes: ["GitHub CLI의 로그인 상태를 확인합니다."] });
+      expect(guide[2]).toEqual(setupGuide(other)[2]);
+      for (const index of [0, 5, 6, 7, 8, 9]) expect(guide[index]).toEqual(setupGuide(other)[index]);
     }
+  });
+  it.each(["codex", "claude"] as const)("explains every code line and covers the complete %s workflow", tool => {
+    const guide = setupGuide(tool);
+    const all = JSON.stringify(guide);
+    for (const term of ["작업할 때마다", "Preview", "Production", "되돌리기(Rollback)"]) expect(all).toContain(term);
+    for (const block of guide.flatMap(step => step.sections.flatMap(section => section.blocks))) {
+      if (block.kind !== "code") continue;
+      expect(block.notes).toHaveLength(block.lines.length);
+      for (const note of block.notes!) expect(note.trim()).not.toBe("");
+    }
+    expect(guide[6].sections.map(section => section.title)).toEqual([
+      ".gitignore란", "기존 .gitignore 확인", ".env와 .env.example", "이미 추적 중인 파일", "올리기 전 체크리스트", "Git 저장 순서",
+    ]);
+    const gitSave = guide[6].sections.at(-1)!;
+    expect(gitSave.blocks.flatMap(block => block.kind === "code" ? block.lines : [])).toEqual([
+      "git add .", "git status", "git branch --show-current", 'git commit -m "작업 내용 요약"', "git push",
+    ]);
   });
   it("builds dynamic, consecutively numbered sections grounded in the diagnosis", () => {
     const prompt = buildAllInOnePrompt(planFixture, "codex", { taskName: "월간 취합", diagnosis: diagnosisFixture });
@@ -242,7 +272,7 @@ describe("AX execution guides", () => {
     expect(recovery).not.toContain(`### ${key === "fallback" ? "운영" : "자동화 실패 시"}`);
   });
   it("distinguishes repository preparation cases without choosing a framework", () => {
-    const sections = setupGuide("codex")[1].sections.filter(section => /^[ABC]\. /.test(section.title));
+    const sections = setupGuide("codex")[2].sections.filter(section => /^[ABC]\. /.test(section.title));
     expect(sections.map(section => section.title)).toEqual(["A. GitHub에 있는 기존 프로젝트", "B. PC에 이미 있는 프로젝트", "C. 새 프로젝트"]);
     for (const section of sections) expect(section.when).toBeTruthy();
     const commands = sections.map(section => section.blocks.flatMap(block => block.kind === "code" ? block.lines : []));
@@ -251,7 +281,12 @@ describe("AX execution guides", () => {
     expect(commands[2].join("\n")).not.toContain("git clone");
     const newProject = sections[2].blocks.map(block => block.kind === "text" ? block.text : "").join("\n");
     expect(newProject).toContain("특정 프레임워크를 임의로 정하지 않습니다");
-    const run = setupGuide("codex")[2].sections[0];
-    expect(run.blocks).toContainEqual({ kind: "code", lines: ['cd "프로젝트 경로"', "Get-Location", "dir", TOOL_GUIDES.codex.runCommand] });
+    const existingProject = sections[1].blocks.map(block => block.kind === "text" ? block.text : "").join("\n");
+    expect(existingProject).toContain("미커밋 변경이 있으면 무조건 `git pull`부터 실행하지 마세요");
+    const run = setupGuide("codex")[3].sections[0];
+    expect(run.blocks).toContainEqual({
+      kind: "code", lines: ['cd "프로젝트 경로"', "Get-Location", "dir", TOOL_GUIDES.codex.runCommand],
+      notes: ["실제 프로젝트 경로로 바꾸어 이동합니다.", "현재 위치가 프로젝트 폴더인지 확인합니다.", "프로젝트 폴더의 파일과 하위 폴더를 확인합니다.", "Codex를 현재 프로젝트에서 실행합니다."],
+    });
   });
 });
