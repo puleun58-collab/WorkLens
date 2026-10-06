@@ -152,8 +152,23 @@
 .ax-view .ax-panel ul, .ax-view .ax-panel ol, .ax-view .ax-timeline ul { padding-left: 0; }
 .ax-tobe-list p { margin: 2px 0 0; }
 .ax-questions { display: flex; flex-direction: column; gap: 12px; }
+.ax-questions > .ax-rediagnose { align-self: flex-end; width: auto; }
+.ax-gate-checks { display: flex; flex-wrap: wrap; gap: 4px 8px; margin: 4px 0 8px; color: var(--muted-foreground); }
+.ax-gate-checks > span:first-child { color: var(--foreground); font-weight: 600; }
+.ax-gate-checks > span:first-child::after { content: ":"; }
+/* 진행 전 확인사항: one block per check (topic, then status · note), risks as their own subsection. */
+.ax-view .ax-check-list { display: grid; gap: 0; margin: 0; }
+.ax-check-list > li { display: grid; gap: 2px; margin: 0; padding: 10px 0; border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent); }
+.ax-check-list > li:first-child { border-top: 0; }
+.ax-check-list > li > span { color: var(--muted-foreground); }
+.ax-risk-block { margin-top: 12px; padding-top: 14px; border-top: 1px solid var(--border); }
+.ax-risk-block > h4 { margin-top: 0; }
+.ax-view .ax-panel .ax-risk-list { padding-left: 20px; list-style: disc; }
 .ax-attachment { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-top: 12px; }
-.ax-columns { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 24px; }
+/* Plan generation is a secondary action: white surface, stronger outline/text, pale-blue hover — not a primary fill. */
+.ax-view .ax-plan-generate { background: var(--card); color: var(--foreground); border-color: color-mix(in srgb, var(--foreground) 22%, var(--border)); }
+.ax-view .ax-plan-generate:not(:disabled):hover { background: color-mix(in srgb, var(--primary) 7%, var(--card)); border-color: color-mix(in srgb, var(--primary) 35%, var(--border)); }
+.ax-view .ax-plan-generate svg { color: var(--primary); }
 .ax-table-wrap { width: 100%; overflow-x: auto; }
 .ax-view table { width: 100%; border-collapse: collapse; font-size: var(--font-size-sm); text-align: left; }
 .ax-step-table th:nth-child(2), .ax-step-table th:nth-child(3), .ax-step-table td:nth-child(2), .ax-step-table td:nth-child(3) { width: 1%; white-space: nowrap; }
@@ -169,10 +184,10 @@
 .ax-matrix-desktop { padding: 4px 50px 0 96px; }
 .ax-matrix { position: relative; height: 370px; margin: 16px 0 60px; border: 1px solid var(--border); }
 .ax-region { position: absolute; padding: 14px; font-size: 12px; color: var(--muted-foreground); }
-.ax-region-strategic { top: 0; left: 0; width: 62.5%; height: 37.5%; background: #e9f1fb; }
-.ax-region-quick { top: 0; right: 0; width: 37.5%; height: 37.5%; background: #e9f7ee; border-left: 1px dashed var(--border); }
-.ax-region-hold { background: #f2f4f7; bottom: 0; left: 0; width: 62.5%; height: 62.5%; border-top: 1px dashed var(--border); }
-.ax-region-maybe { bottom: 0; right: 0; width: 37.5%; height: 62.5%; background: #fdf3df; border-top: 1px dashed var(--border); border-left: 1px dashed var(--border); }
+.ax-region-strategic { top: 0; left: 0; width: 62.5%; height: 37.5%; background: #dde9f8; }
+.ax-region-quick { top: 0; right: 0; width: 37.5%; height: 37.5%; background: #dcf1e3; border-left: 1px dashed var(--border); }
+.ax-region-hold { background: #eaedf2; bottom: 0; left: 0; width: 62.5%; height: 62.5%; border-top: 1px dashed var(--border); }
+.ax-region-maybe { bottom: 0; right: 0; width: 37.5%; height: 62.5%; background: #fbebd1; border-top: 1px dashed var(--border); border-left: 1px dashed var(--border); }
 .ax-bubble { position: absolute; transform: translate(-50%,50%); border-radius: 50%; background: transparent; color: var(--primary); cursor: pointer; font-size: 11px; border: 0; padding: 0; display: flex; align-items: center; justify-content: center; }
 .ax-bubble-dot { position: absolute; border-radius: 50%; background: var(--primary); }
 .ax-bubble.is-hold .ax-bubble-dot { outline: 3px double var(--muted-foreground); }
@@ -182,7 +197,7 @@
 .ax-y-tick { position: absolute; left: -25px; transform: translateY(50%); color: var(--muted-foreground); }
 .ax-x-tick { position: absolute; bottom: -26px; transform: translateX(-50%); color: var(--muted-foreground); }
 /* The x "1" doubles as the shared origin of both 1–5 axes, so it sits at the corner instead of under it. */
-.ax-x-tick.is-origin { transform: translateX(-100%); margin-left: -6px; bottom: -22px; }
+.ax-x-tick.is-origin { right: calc(100% + 8px); top: calc(100% + 8px); bottom: auto; transform: none; line-height: 1; }
 .ax-x-label, .ax-y-label { background: var(--card); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 1px 3px color-mix(in srgb, var(--foreground) 8%, transparent); padding: 4px 10px; font-size: 12px; font-weight: 600; color: var(--foreground); white-space: nowrap; }
 .ax-y-label { position: absolute; left: -84px; top: 50%; transform: translateY(-50%); display: inline-flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 5px; }
 .ax-y-text { writing-mode: vertical-rl; }
@@ -197,7 +212,7 @@
   .ax-steps { justify-content: flex-start; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
   .ax-steps::-webkit-scrollbar { display: none; }
   .ax-steps [role=tab] { flex: 0 0 auto; padding-left: 14px; padding-right: 14px; white-space: nowrap; }
-  .ax-step1-grid, .ax-step2-grid, .ax-step2-sub-grid, .ax-step3-grid, .ax-step4-grid, .ax-form-grid, .ax-columns { grid-template-columns: minmax(0,1fr); }
+  .ax-step1-grid, .ax-step2-grid, .ax-step2-sub-grid, .ax-step3-grid, .ax-step4-grid, .ax-form-grid { grid-template-columns: minmax(0,1fr); }
   .ax-step1-grid { grid-template-areas: "form" "side" "list"; }
   .ax-step1-side .ax-kpi-cards, .ax-kpi-cards { grid-template-columns: repeat(2,minmax(0,1fr)); }
   .ax-definition { grid-template-columns: 80px minmax(0,1fr); }

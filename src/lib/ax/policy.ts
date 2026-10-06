@@ -44,7 +44,7 @@ export function priority(tasks: AxTask[]) {
   }).sort((a, b) => b.score - a.score || (b.monthlyMinutes ?? -1) - (a.monthlyMinutes ?? -1));
 }
 export function nextAction(d: AxDiagnosis) {
-  return d.informationSufficiency === "needs-check" ? { label: "핵심 확인사항 먼저 확인", detail: d.followUpQuestions.join(" · ") || "입력·승인·시스템 접근 가능 여부를 확인하세요." } : d.nextAction;
+  return d.informationSufficiency === "needs-check" ? { label: "핵심 확인사항 확인 필요", detail: d.followUpQuestions.join(" · ") || "입력·승인·시스템 접근 가능 여부를 확인하세요." } : d.nextAction;
 }
 export function taskStatus(d?: AxDiagnosis): AxTask["status"] {
   return !d ? "registered" : d.factors.some(f => f.finalValue !== undefined) ? "adjusted" : d.informationSufficiency === "needs-check" ? "needs-info" : "diagnosed";
