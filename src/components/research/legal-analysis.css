@@ -255,7 +255,7 @@ p.research-meta { margin: 0; }
   .legal-research .research-input-submit .law-search-button { width: 100%; }
 }
 
-/* Use the shared Compact Add surface without a second wrapper. */
+/* With files present the select, 파일 추가 and 실행 sit directly on the page background — no surrounding surface. */
 .legal-research .research-file-workarea.is-populated { margin-bottom: 0; gap: 14px; }
 .legal-research .research-file-workarea.is-populated .research-file-row { width: 100%; gap: 14px; }
 .legal-research .research-file-workarea.is-populated .law-search-button { margin-left: auto; }

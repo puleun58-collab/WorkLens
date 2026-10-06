@@ -197,6 +197,21 @@ test("RESEARCH law detail browses raw TOC and articles, recovers, and preserves 
   const [backBox, headingBox] = await Promise.all([page.getByRole("button", { name: "← 검색 결과로" }).boundingBox(), page.getByRole("heading", { name: "근로기준법" }).boundingBox()]);
   expect(Math.abs(backBox!.x - headingBox!.x)).toBeLessThanOrEqual(2);
   expect(backBox!.width).toBeLessThan(200);
+  const nav = await page.evaluate(() => {
+    const probe = document.createElement("span"); probe.style.color = "var(--blue)"; document.body.append(probe);
+    const blue = getComputedStyle(probe).color; probe.remove();
+    const list = document.querySelector('[aria-label="법령 자료 유형"]')!, active = list.querySelector('[role="tab"][aria-selected="true"]')!, idle = list.querySelector('[role="tab"][aria-selected="false"]')!;
+    const back = [...document.querySelectorAll("button")].find(button => button.textContent === "← 검색 결과로")!;
+    const style = (element: Element) => getComputedStyle(element);
+    return {
+      activeBorder: style(active).borderTopColor === blue, activeText: style(active).color === blue, activeFill: style(active).backgroundColor,
+      idleBorder: style(idle).borderTopColor, listFill: style(list).backgroundColor, listBorder: parseFloat(style(list).borderTopWidth),
+      backColor: style(back).color === blue, backFill: style(back).backgroundColor, backBorder: style(back).borderTopColor,
+      backBelowNav: back.getBoundingClientRect().top >= list.getBoundingClientRect().bottom, listLeft: list.getBoundingClientRect().left, backLeft: back.getBoundingClientRect().left,
+    };
+  });
+  expect(nav).toMatchObject({ activeBorder: true, activeText: true, activeFill: "rgb(255, 255, 255)", idleBorder: "rgba(0, 0, 0, 0)", listFill: "rgb(255, 255, 255)", listBorder: 1, backColor: true, backFill: "rgba(0, 0, 0, 0)", backBorder: "rgba(0, 0, 0, 0)", backBelowNav: true });
+  expect(Math.abs(nav.listLeft - nav.backLeft)).toBeLessThanOrEqual(2);
   await expect(page.locator(".law-detail-raw")).toContainText("목차 (총 132개 조문)");
   await page.getByText("원문 보기", { exact: true }).click();
   await expect(page.locator(".law-detail-raw")).toBeVisible();
@@ -852,6 +867,14 @@ test("law article and precedent detail open analyses with their structured ident
   await expect(page.locator("#analysis-case")).toHaveValue("2013다61381");
   await expect(page.locator(".legal-analysis-verdict")).toBeVisible();
   expect(analysis.at(-1)).toEqual({ mode: "cite_check", caseNumber: "2013다61381" });
+  const tiers = await page.evaluate(() => {
+    const primary = document.querySelector('[aria-label="법령 자료 유형"] [role="tab"][aria-selected="true"]')!, secondary = document.querySelector('[aria-label="검증·분석 유형"] [role="tab"][aria-selected="true"]')!;
+    const back = [...document.querySelectorAll("button")].find(button => button.textContent === "← 판례 상세로")!;
+    return { primary: primary.getBoundingClientRect().height, secondary: secondary.getBoundingClientRect().height, secondaryText: secondary.textContent, backAbove: back.getBoundingClientRect().bottom <= secondary.getBoundingClientRect().top, onlyOneBack: [...document.querySelectorAll(".legal-analysis > .law-back-link")].length };
+  });
+  expect(tiers.secondary).toBeLessThan(tiers.primary);
+  expect(tiers).toMatchObject({ secondaryText: "판례 유효성", backAbove: true, onlyOneBack: 1 });
+  await page.screenshot({ path: `artifacts/law-nav-analysis-${test.info().project.name}.png` });
   await page.getByRole("button", { name: "← 판례 상세로" }).click();
   await expect(page.locator(".decision-detail-raw")).toContainText("판결문 원문");
   await expect(page.getByRole("button", { name: "판례 유효성 확인" })).toBeFocused();
@@ -2399,15 +2422,12 @@ test("document review hides execution until a workspace file is added", async ({
   expect((await workarea.boundingBox())!.height).toBeLessThan(180);
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
-    await expect(workarea).toHaveClass(/file-add-dropzone/);
+    await expect(workarea).not.toHaveClass(/file-add-dropzone/);
     const surface = await workarea.evaluate((element) => {
       const style = getComputedStyle(element);
-      return { background: style.backgroundColor, border: style.borderTopStyle, radius: parseFloat(style.borderRadius), padding: parseFloat(style.paddingLeft) };
+      return { background: style.backgroundColor, border: parseFloat(style.borderTopWidth), radius: parseFloat(style.borderRadius), padding: parseFloat(style.paddingLeft) };
     });
-    expect(surface.background).not.toBe("rgba(0, 0, 0, 0)");
-    expect(surface.border).toBe("dashed");
-    expect(surface.radius).toBeGreaterThan(0);
-    expect(surface.padding).toBeGreaterThan(0);
+    expect(surface).toEqual({ background: "rgba(0, 0, 0, 0)", border: 0, radius: 0, padding: 0 });
     await expect(workarea).toHaveCSS("box-shadow", "none");
     await expect(form.locator("#research-file")).toBeVisible();
     await expect(form.getByRole("button", { name: "파일 추가", exact: true })).toBeVisible();
@@ -2424,6 +2444,10 @@ test("document review hides execution until a workspace file is added", async ({
     form.getByRole("button", { name: "실행", exact: true }).boundingBox(),
   ]);
   expect(controls[2]!.x).toBeGreaterThan(controls[1]!.x);
+  const textareaRight = (await form.locator(".research-document-input").boundingBox())!;
+  expect(Math.abs(controls[2]!.x + controls[2]!.width - textareaRight.x - textareaRight.width)).toBeLessThanOrEqual(2);
+  await expect(form.getByRole("button", { name: "파일 추가", exact: true })).not.toHaveClass(/bg-primary/);
+  await expect(form.getByRole("button", { name: "실행", exact: true })).toHaveClass(/bg-primary/);
   for (const box of controls.slice(1)) {
     expect(Math.abs(box!.y + box!.height / 2 - controls[0]!.y - controls[0]!.height / 2)).toBeLessThanOrEqual(2);
     expect(Math.abs(box!.height - controls[0]!.height)).toBeLessThanOrEqual(2);
