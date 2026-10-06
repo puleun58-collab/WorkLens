@@ -185,9 +185,18 @@ test("RESEARCH law detail browses raw TOC and articles, recovers, and preserves 
   await expect(page.getByRole("heading", { name: "검색 결과 · 3건" })).toBeVisible();
   await expect(page.locator(".law-search-unavailable")).toContainText("원문 조회 불가");
   await expect(page.locator(".law-search-list button")).toHaveCount(2);
+  const resultRow = page.locator(".law-search-list button").first();
+  const [rowBox, nameBox] = await Promise.all([resultRow.boundingBox(), resultRow.locator("strong").boundingBox()]);
+  expect(rowBox!.width).toBeGreaterThan(400);
+  expect(nameBox!.x - rowBox!.x).toBeLessThanOrEqual(20);
+  const searchButton = page.getByRole("button", { name: "검색", exact: true });
+  expect(await searchButton.evaluate(element => getComputedStyle(element).justifyContent)).toBe("center");
 
   await page.locator(".law-search-list button").first().click();
   await expect(page.getByRole("heading", { name: "근로기준법" })).toBeVisible();
+  const [backBox, headingBox] = await Promise.all([page.getByRole("button", { name: "← 검색 결과로" }).boundingBox(), page.getByRole("heading", { name: "근로기준법" }).boundingBox()]);
+  expect(Math.abs(backBox!.x - headingBox!.x)).toBeLessThanOrEqual(2);
+  expect(backBox!.width).toBeLessThan(200);
   await expect(page.locator(".law-detail-raw")).toContainText("목차 (총 132개 조문)");
   await page.getByText("원문 보기", { exact: true }).click();
   await expect(page.locator(".law-detail-raw")).toBeVisible();

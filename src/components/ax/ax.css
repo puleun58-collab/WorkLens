@@ -17,7 +17,9 @@
 .ax-steps [role=tab] { flex: 1 1 0; min-width: 0; white-space: nowrap; gap: 8px; background: transparent; border: 0; border-radius: 10px; box-shadow: none; color: var(--muted-foreground); font-weight: 400; }
 .ax-steps [data-slot="tab-indicator"] { background: var(--primary); border-radius: 10px; }
 .ax-steps [role=tab][data-active] { color: var(--primary-foreground); font-weight: 600; }
-.ax-steps [role=tab]:not([data-active]):hover { background: color-mix(in srgb, var(--muted) 55%, transparent); }
+/* Only the current step is filled (indicator); hover/press get a faint blue tint, never a gray segment. */
+.ax-steps [role=tab]:not([data-active]):is(:hover, :active, [data-pressed]) { background: color-mix(in srgb, var(--primary) 5%, transparent); color: var(--foreground); }
+.ax-steps [role=tab][data-disabled] { background: transparent; }
 .ax-steps [role=tab]:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 .ax-steps [role=tab] svg { width: 15px; height: 15px; flex-shrink: 0; }
 .ax-step-nav { display: flex; justify-content: space-between; margin-top: 28px; padding-top: 20px; border-top: 1px solid var(--border); }
@@ -144,8 +146,7 @@
 .ax-view th, .ax-view td { padding: 12px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
 .ax-view td { min-width: 80px; overflow-wrap: anywhere; }
 .ax-view td button { white-space: normal; text-align: left; height: auto; }
-.ax-empty { padding: 40px 0; }
-.ax-empty h3 { color: var(--foreground); margin-bottom: 8px; }
+.ax-view .ax-empty { margin: 0; padding: 4px 0; }
 .ax-matrix-header { display: flex; align-items: center; gap: 6px 16px; flex-wrap: wrap; margin-bottom: 4px; }
 .ax-matrix-header h2 { margin: 0; }
 .ax-matrix-header p { margin: 0; }

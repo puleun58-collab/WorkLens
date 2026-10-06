@@ -164,7 +164,7 @@ test("AX registration labels and common empty states", async ({ page }) => {
   const closedBackground = await details.evaluate(element => getComputedStyle(element).backgroundColor);
   await details.click(); await expect(details).toHaveAttribute("aria-expanded", "true");
   await page.mouse.move(0, 0);
-  expect(await details.evaluate(element => getComputedStyle(element).backgroundColor)).toBe(closedBackground);
+  await expect.poll(() => details.evaluate(element => getComputedStyle(element).backgroundColor)).toBe(closedBackground);
   for (const [label, placeholder] of [
     ["수행 주기", "예: 매주 월요일, 매월 말일, 필요 시"], ["1회 소요 시간(분)", "예: 30"], ["월 수행 횟수", "예: 8"],
     ["사용 시스템", "예: Excel, ERP, 사내 시스템"], ["입력 자료", "예: 정산 Excel, 청구서, 시스템 조회 데이터"],
@@ -173,14 +173,22 @@ test("AX registration labels and common empty states", async ({ page }) => {
   await expect(page.getByLabel("1회 소요 시간(분)", { exact: true })).toHaveAttribute("type", "number");
   await expect(page.getByLabel("월 수행 횟수", { exact: true })).toHaveAttribute("type", "number");
   await expect(page.getByText("담당자가 처리·판단하는 단계", { exact: true })).toHaveCount(0);
-  for (const [tab, title, description] of [
-    ["업무 진단", "진단할 업무가 없습니다", "업무를 먼저 등록해주세요."],
-    ["자동화 매트릭스", "비교할 진단 결과가 없습니다", "진단이 완료된 업무가 표시됩니다."],
-    ["결과·로드맵", "아직 결과가 없습니다", "업무 진단이 완료되면 실행 계획을 확인할 수 있습니다."],
+  const steps = page.getByRole("tablist", { name: "진단 단계", exact: true });
+  const target = steps.getByRole("tab", { name: "자동화 매트릭스", exact: true }); const box = (await target.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2); await page.mouse.down();
+  const pressed = await steps.evaluate(list => [...list.querySelectorAll('[role="tab"]')].map(tab => ({ active: tab.hasAttribute("data-active"), alpha: Number(/\/\s*([\d.]+)\)$/.exec(getComputedStyle(tab).backgroundColor)?.[1] ?? (getComputedStyle(tab).backgroundColor === "rgba(0, 0, 0, 0)" ? 0 : 1)) })));
+  await page.mouse.up();
+  expect(pressed.filter(tab => tab.active)).toHaveLength(1);
+  for (const tab of pressed.filter(tab => !tab.active)) expect(tab.alpha).toBeLessThanOrEqual(0.06);
+  for (const [tab, text, removed] of [
+    ["업무 진단", "먼저 업무를 등록해주세요.", "진단할 업무가 없습니다"],
+    ["자동화 매트릭스", "진단이 완료된 업무가 없습니다.", "비교할 진단 결과가 없습니다"],
+    ["결과·로드맵", "완료된 진단 결과가 없습니다.", "아직 결과가 없습니다"],
   ]) {
     await page.getByRole("tab", { name: tab }).click();
-    await expect(page.getByRole("heading", { name: title, exact: true })).toBeVisible();
-    await expect(page.getByText(description, { exact: true })).toBeVisible();
+    await expect(page.getByRole("tabpanel").getByText(text, { exact: true })).toBeVisible();
+    await expect(page.getByRole("tabpanel").getByRole("heading")).toHaveCount(0);
+    await expect(page.getByText(removed, { exact: false })).toHaveCount(0);
   }
 });
 test("AX registration → diagnosis → correction → matrix → plans → reload → export/reset/import", async ({ page }) => {

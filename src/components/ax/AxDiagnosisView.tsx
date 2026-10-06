@@ -246,7 +246,7 @@ export function AxDiagnosisView() {
         </div>
       </TabsPanel>
       <TabsPanel value="2">
-        {!state.tasks.length ? <AxEmptyState title="진단할 업무가 없습니다" description="업무를 먼저 등록해주세요." /> : <div className="ax-step2-grid">
+        {!state.tasks.length ? <p className="ax-empty ax-muted">먼저 업무를 등록해주세요.</p> : <div className="ax-step2-grid">
           <section className="ax-surface" aria-label="등록 업무 목록"><h3>업무 목록</h3>{taskRows(false)}</section>
           <div className="ax-detail-col">{selected ? <>
             <section className="ax-surface"><div className="ax-section-heading"><div className="ax-title-group"><h2>{selected.name}</h2><Badge className="ax-status-badge">{STATUS[selected.status]}</Badge></div><Button type="button" variant="outline" size="sm" className="ax-edit-button" onClick={() => editTask(selected)} disabled={!!busy}>등록 정보 수정</Button></div><p>{selected.description}</p>
@@ -269,7 +269,7 @@ export function AxDiagnosisView() {
         </div>}
       </TabsPanel>
       <TabsPanel value="3">
-        {!ranked.length ? <AxEmptyState title="비교할 진단 결과가 없습니다" description="진단이 완료된 업무가 표시됩니다." /> : <div className="ax-step3-grid">
+        {!ranked.length ? <p className="ax-empty ax-muted">진단이 완료된 업무가 없습니다.</p> : <div className="ax-step3-grid">
           <section className="ax-surface" aria-label="매트릭스 업무 목록"><h3>업무 목록</h3>{taskRows(false)}</section>
           <div className="ax-step3-main"><section className="ax-surface ax-matrix-surface"><div className="ax-matrix-header"><h2>자동화 매트릭스</h2><p className="ax-muted">자동화 가치와 기술 실현 가능성을 기준으로 업무를 비교합니다.</p></div><AxMatrix tasks={ranked.map(r => r.task)} selectedId={selected?.id} onSelect={select} /></section>
             <section className="ax-surface"><h3>자동화 우선순위</h3>{priorityRows()}</section>
@@ -278,7 +278,7 @@ export function AxDiagnosisView() {
         </div>}
       </TabsPanel>
       <TabsPanel value="4">
-        {!ranked.length ? <AxEmptyState title="아직 결과가 없습니다" description="업무 진단이 완료되면 실행 계획을 확인할 수 있습니다." /> : <>
+        {!ranked.length ? <p className="ax-empty ax-muted">완료된 진단 결과가 없습니다.</p> : <>
           <AxKpiCards tasks={state.tasks} />
           <div className="ax-step4-grid"><div className="ax-step4-left">
             <section className="ax-surface"><h3>자동화 우선순위 TOP {Math.min(3, ranked.length)}</h3>{priorityRows(true)}</section>
@@ -296,9 +296,6 @@ export function AxDiagnosisView() {
     </nav> : null}
     <AlertDialog open={confirmation !== null} onOpenChange={open => { if (!open) setConfirmation(null); }}><AlertDialogPopup><AlertDialogHeader><AlertDialogTitle>{confirmation?.kind === "import" ? "AI•AX 데이터를 덮어쓸까요?" : confirmation?.kind === "delete" ? "업무를 삭제할까요?" : "AI•AX 데이터를 초기화할까요?"}</AlertDialogTitle><AlertDialogDescription>{confirmation?.kind === "import" ? "검증된 가져오기 데이터로 현재 AI•AX 업무·진단·계획을 교체합니다." : confirmation?.kind === "delete" ? "선택한 업무와 진단·계획을 삭제합니다." : "현재 AI•AX 업무·진단·계획만 삭제합니다. 다른 작업 공간은 유지됩니다."}</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogClose render={<Button type="button" variant="ghost" />}>취소</AlertDialogClose><Button type="button" variant="destructive" onClick={() => void confirm()}>{confirmation?.kind === "import" ? "덮어쓰기" : confirmation?.kind === "delete" ? "삭제" : "초기화"}</Button></AlertDialogFooter></AlertDialogPopup></AlertDialog>
   </section>;
-}
-function AxEmptyState({ title, description }: { title: string; description: string }) {
-  return <div className="ax-empty"><h3>{title}</h3><p className="ax-muted">{description}</p></div>;
 }
 function AxAttachmentInput({ disabled, onSelect }: { disabled: boolean; onSelect: (file: File) => void }) {
   const input = useRef<HTMLInputElement>(null);
