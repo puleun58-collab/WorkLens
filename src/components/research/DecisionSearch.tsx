@@ -195,7 +195,7 @@ export function DecisionSearch({ linkedRequest, onReturnToLaw, onCiteCheck }: De
     setSelected(null);
   }
 
-  const returnButton = linkedRequest && <Button variant="link" type="button" className="h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" onClick={onReturnToLaw} title={`${linkedRequest.lawName} ${linkedRequest.jo}`}>
+  const returnButton = linkedRequest && <Button variant="link" type="button" className="law-back-link h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" onClick={onReturnToLaw} title={`${linkedRequest.lawName} ${linkedRequest.jo}`}>
     {linkedRequest.origin === "analysis" ? "← 조문 영향도로" : "← 법령으로"}
   </Button>;
 
@@ -206,11 +206,11 @@ export function DecisionSearch({ linkedRequest, onReturnToLaw, onCiteCheck }: De
       && selected.caseNumber.length <= LAW_ANALYSIS_CASE_MAX_CHARS && LAW_ANALYSIS_CASE_PATTERN.test(selected.caseNumber)
       ? selected.caseNumber : null;
     return <div className="decision-search decision-detail">
-      <div className="decision-detail-actions">
-        <Button variant="link" type="button" className="h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" onClick={backToResults}>← 검색 결과로</Button>
+      <div className="law-back-links">
+        <Button variant="link" type="button" className="law-back-link h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" onClick={backToResults}>← 검색 결과로</Button>
         {returnButton}
-        {citeCaseNumber && <Button variant="link" id="decision-cite-check" type="button" className="h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" onClick={() => onCiteCheck(citeCaseNumber)}>판례 유효성 확인</Button>}
       </div>
+      {citeCaseNumber && <div className="decision-detail-actions"><Button variant="link" id="decision-cite-check" type="button" className="h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" onClick={() => onCiteCheck(citeCaseNumber)}>판례 유효성 확인</Button></div>}
       <section aria-labelledby="decision-detail-heading" aria-busy={detailLoading || fullLoading}>
         <h2 id="decision-detail-heading">{text?.title || selected.title || selected.caseNumber || "판례·결정례 원문"}</h2>
         <p className="decision-search-meta">

@@ -129,10 +129,10 @@ export function LegalAnalysis({ linkedRequest, onReturn, onRelatedSearch }: Lega
   };
 
   return <Tabs className="legal-analysis" value={mode} onValueChange={(value) => setMode(value as LawAnalysisMode)}>
-    {linkedOrigin && <Button variant="link" type="button" className="h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" onClick={() => onReturn(linkedOrigin)}>
+    {linkedOrigin && <Button variant="link" type="button" className="law-back-link h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" onClick={() => onReturn(linkedOrigin)}>
       {linkedOrigin === "law" ? "← 법령으로" : "← 판례 상세로"}
     </Button>}
-    <TabsList className="flex-wrap" aria-label="검증·분석 유형" variant="underline">
+    <TabsList className="law-subnav-tabs flex-wrap" aria-label="검증·분석 유형" variant="underline">
       {LAW_ANALYSIS_MODES.map((item) => <TabsTab key={item.value} value={item.value}>{item.label}</TabsTab>)}
     </TabsList>
 

@@ -50,6 +50,28 @@
 
 .law-view-band { min-width: 0; }
 
+/* Law navigation hierarchy: primary tabs (white surface, blue outlined active) > analysis sub-tabs (smaller, neutral) > blue back links. */
+.law-research .law-nav-tabs { gap: 0; max-width: 100%; padding: 4px; border: 1px solid var(--border-surface); border-radius: var(--radius-panel); background: var(--paper); box-shadow: var(--elevation-surface); }
+.law-research .law-subnav-tabs { gap: 0; max-width: 100%; padding: 2px; border: 1px solid var(--border-surface); border-radius: var(--radius-control); background: var(--paper); }
+.law-research :is(.law-nav-tabs, .law-subnav-tabs) { justify-content: flex-start; }
+.law-research :is(.law-nav-tabs, .law-subnav-tabs) > [data-slot="tab-indicator"] { display: none; }
+.law-research :is(.law-nav-tabs, .law-subnav-tabs) > [data-slot="tabs-tab"] { position: relative; flex: 0 0 auto; border: 1px solid transparent; color: var(--muted); background: transparent; }
+.law-research .law-nav-tabs > [data-slot="tabs-tab"] { min-height: 40px; padding: 0 20px; border-radius: var(--radius-control); font-size: var(--font-size-sm); }
+.law-research .law-subnav-tabs > [data-slot="tabs-tab"] { min-height: 30px; padding: 0 12px; border-radius: calc(var(--radius-control) - 2px); font-size: var(--font-size-xs); }
+.law-research :is(.law-nav-tabs, .law-subnav-tabs) > [data-slot="tabs-tab"]:hover { background: transparent; color: var(--ink); }
+.law-research :is(.law-nav-tabs, .law-subnav-tabs) > [data-slot="tabs-tab"] + [data-slot="tabs-tab"]::before { content: ""; position: absolute; top: 25%; bottom: 25%; left: -1px; width: 1px; background: var(--line-soft, var(--line)); }
+.law-research :is(.law-nav-tabs, .law-subnav-tabs) > [data-slot="tabs-tab"][data-active]::before,
+.law-research :is(.law-nav-tabs, .law-subnav-tabs) > [data-slot="tabs-tab"][data-active] + [data-slot="tabs-tab"]::before { display: none; }
+.law-research .law-nav-tabs > [data-slot="tabs-tab"][data-active] { border-color: var(--blue); background: var(--paper); color: var(--blue); font-weight: var(--font-weight-semibold); }
+.law-research .law-subnav-tabs > [data-slot="tabs-tab"][data-active] { border-color: var(--border-surface); background: var(--blue-pale, #eef4ff); color: var(--ink); font-weight: var(--font-weight-semibold); }
+.law-research .law-back-links { display: flex; flex-wrap: wrap; justify-content: flex-start; gap: 4px 24px; }
+.law-research .law-back-link { color: var(--blue); font-size: var(--font-size-sm); font-weight: var(--font-weight-medium); text-decoration: none; }
+.law-research .law-back-link:hover { text-decoration: underline; text-underline-offset: 3px; }
+@media (max-width: 520px) {
+  .law-research :is(.law-nav-tabs, .law-subnav-tabs) > [data-slot="tabs-tab"] { flex: 1 1 calc(50% - 4px); padding: 0 10px; }
+  .law-research :is(.law-nav-tabs, .law-subnav-tabs) > [data-slot="tabs-tab"]:nth-child(3)::before { display: none; }
+}
+
 /* The five reading levels belong to law views only; controls keep their own blue. */
 .law-research :is(.law-search-results, .decision-search-results, .legal-analysis-result) > h2,
 .law-research :is(.law-detail, .decision-detail) > section > h2 {

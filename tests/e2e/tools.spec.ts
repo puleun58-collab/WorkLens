@@ -197,6 +197,21 @@ test("RESEARCH law detail browses raw TOC and articles, recovers, and preserves 
   const [backBox, headingBox] = await Promise.all([page.getByRole("button", { name: "← 검색 결과로" }).boundingBox(), page.getByRole("heading", { name: "근로기준법" }).boundingBox()]);
   expect(Math.abs(backBox!.x - headingBox!.x)).toBeLessThanOrEqual(2);
   expect(backBox!.width).toBeLessThan(200);
+  const nav = await page.evaluate(() => {
+    const probe = document.createElement("span"); probe.style.color = "var(--blue)"; document.body.append(probe);
+    const blue = getComputedStyle(probe).color; probe.remove();
+    const list = document.querySelector('[aria-label="법령 자료 유형"]')!, active = list.querySelector('[role="tab"][aria-selected="true"]')!, idle = list.querySelector('[role="tab"][aria-selected="false"]')!;
+    const back = [...document.querySelectorAll("button")].find(button => button.textContent === "← 검색 결과로")!;
+    const style = (element: Element) => getComputedStyle(element);
+    return {
+      activeBorder: style(active).borderTopColor === blue, activeText: style(active).color === blue, activeFill: style(active).backgroundColor,
+      idleBorder: style(idle).borderTopColor, listFill: style(list).backgroundColor, listBorder: parseFloat(style(list).borderTopWidth),
+      backColor: style(back).color === blue, backFill: style(back).backgroundColor, backBorder: style(back).borderTopColor,
+      backBelowNav: back.getBoundingClientRect().top >= list.getBoundingClientRect().bottom, listLeft: list.getBoundingClientRect().left, backLeft: back.getBoundingClientRect().left,
+    };
+  });
+  expect(nav).toMatchObject({ activeBorder: true, activeText: true, activeFill: "rgb(255, 255, 255)", idleBorder: "rgba(0, 0, 0, 0)", listFill: "rgb(255, 255, 255)", listBorder: 1, backColor: true, backFill: "rgba(0, 0, 0, 0)", backBorder: "rgba(0, 0, 0, 0)", backBelowNav: true });
+  expect(Math.abs(nav.listLeft - nav.backLeft)).toBeLessThanOrEqual(2);
   await expect(page.locator(".law-detail-raw")).toContainText("목차 (총 132개 조문)");
   await page.getByText("원문 보기", { exact: true }).click();
   await expect(page.locator(".law-detail-raw")).toBeVisible();
@@ -852,6 +867,14 @@ test("law article and precedent detail open analyses with their structured ident
   await expect(page.locator("#analysis-case")).toHaveValue("2013다61381");
   await expect(page.locator(".legal-analysis-verdict")).toBeVisible();
   expect(analysis.at(-1)).toEqual({ mode: "cite_check", caseNumber: "2013다61381" });
+  const tiers = await page.evaluate(() => {
+    const primary = document.querySelector('[aria-label="법령 자료 유형"] [role="tab"][aria-selected="true"]')!, secondary = document.querySelector('[aria-label="검증·분석 유형"] [role="tab"][aria-selected="true"]')!;
+    const back = [...document.querySelectorAll("button")].find(button => button.textContent === "← 판례 상세로")!;
+    return { primary: primary.getBoundingClientRect().height, secondary: secondary.getBoundingClientRect().height, secondaryText: secondary.textContent, backAbove: back.getBoundingClientRect().bottom <= secondary.getBoundingClientRect().top, onlyOneBack: [...document.querySelectorAll(".legal-analysis > .law-back-link")].length };
+  });
+  expect(tiers.secondary).toBeLessThan(tiers.primary);
+  expect(tiers).toMatchObject({ secondaryText: "판례 유효성", backAbove: true, onlyOneBack: 1 });
+  await page.screenshot({ path: `artifacts/law-nav-analysis-${test.info().project.name}.png` });
   await page.getByRole("button", { name: "← 판례 상세로" }).click();
   await expect(page.locator(".decision-detail-raw")).toContainText("판결문 원문");
   await expect(page.getByRole("button", { name: "판례 유효성 확인" })).toBeFocused();

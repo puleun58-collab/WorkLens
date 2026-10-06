@@ -94,7 +94,7 @@ export function LawSearch({ workspace, initialView = "law", initialResearchTask,
     changeView(value as ResearchView);
   }}>
     <div className="law-view-band">
-      <TabsList aria-label="법령 자료 유형" variant="underline" className="flex-wrap">
+      <TabsList aria-label="법령 자료 유형" variant="underline" className="law-nav-tabs flex-wrap">
         <TabsTab value="law"><FileText aria-hidden="true" />법령 검색</TabsTab>
         <TabsTab value="decisions"><Gavel aria-hidden="true" />판례·결정례</TabsTab>
         <TabsTab value="analysis"><SearchCheck aria-hidden="true" />검증·분석</TabsTab>
@@ -248,7 +248,7 @@ function LawPane({ onRelated, onAnalysis }: LawPaneProps) {
     const promulgated = formatLawDate(data?.promulgationDate ?? selected.promulgationDate);
     const effective = formatLawDate(data?.effectiveDate ?? selected.effectiveDate);
     return <div className="law-search law-detail">
-      <Button variant="link" type="button" className="h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" onClick={backToResults}>← 검색 결과로</Button>
+      <Button variant="link" type="button" className="law-back-link h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" onClick={backToResults}>← 검색 결과로</Button>
       <section aria-labelledby="law-detail-heading" aria-busy={detailLoading}>
         <h2 id="law-detail-heading">{lawDisplayText(data?.name ?? selected.name)}</h2>
         {(promulgated || effective) && <p className="law-search-meta">
