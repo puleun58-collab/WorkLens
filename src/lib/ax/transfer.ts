@@ -1,10 +1,13 @@
 import { z } from "zod";
 import { AX_LIMITS, axStateSchema } from "./schema";
+import { taskStatus } from "./policy";
 import type { AxState } from "./types";
 const envelope = z.object({ format: z.literal("worklens-ax"), schemaVersion: z.literal(1), exportedAt: z.iso.datetime(), data: axStateSchema }).strict();
 export function validateAxState(input: unknown): AxState {
   const result = axStateSchema.safeParse(input);
   if (!result.success) throw new Error("AI•AX 데이터 필드·타입·업무 상태가 올바르지 않습니다.");
+  // Interpret legacy equal-value corrections in memory without changing factor values.
+  for (const task of result.data.tasks) task.status = taskStatus(task.diagnosis);
   // IndexedDB and JSON exports use the same canonical optional-field representation.
   return JSON.parse(JSON.stringify(result.data)) as AxState;
 }

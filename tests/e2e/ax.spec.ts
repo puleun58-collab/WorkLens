@@ -221,7 +221,8 @@ test("AX registration → diagnosis → correction → matrix → plans → relo
   await page.locator(".ax-factor-row").first().screenshot({ path: `artifacts/ax/factor-reset-${test.info().project.name}.png` });
   await reset.click(); await expect(reset).toHaveCount(0);
   // A correction equal to the AI suggestion leaves nothing to restore.
-  await page.getByRole("button", { name: "반복성 4점", exact: true }).click(); await expect(reset).toBeDisabled();
+  await page.getByRole("button", { name: "반복성 4점", exact: true }).click(); await expect(reset).toHaveCount(0);
+  await expect(page.locator(".ax-factor-corrected")).toHaveCount(0);
   await page.getByRole("button", { name: "반복성 1점", exact: true }).click(); await expect(reset).toBeEnabled();
   await page.getByRole("tab", { name: "자동화 매트릭스", exact: false }).click();
   await expect(page.getByLabel("매트릭스 업무 목록")).toContainText("가치 3 · 실현 4");
@@ -244,7 +245,7 @@ test("AX registration → diagnosis → correction → matrix → plans → relo
   await expect(top).toContainText("점수 7");
   await expect(page.locator('.ax-summary [data-slot="badge"]')).toHaveText("부분 자동화 · Level 2");
   // Step 4 shows the policy-derived scope (Level 2 ∩ 확인 후 진행), not the AI's raw roadmap.
-  await expect(page.locator(".ax-step4-left h3").first()).toHaveText("자동화 우선순위 TOP 1");
+  await expect(page.locator(".ax-step4-left h3").first()).toHaveText("확인 후 진행 업무");
   await expect(page.locator(".ax-roadmap-panel h3")).toHaveText("부분 자동화 로드맵");
   await expect(page.locator(".ax-roadmap-panel .ax-timeline > li h4")).toHaveText(["Phase 1 · 선행 확인", "Phase 2 · 제한 PoC", "Phase 3 · 결과 확인·다음 단계 판단"]);
   await expect(page.locator(".ax-roadmap-panel .ax-timeline > li").first()).toContainText("시스템 접근 — API와 권한 실제 확인");
@@ -644,6 +645,8 @@ test("AX Execution Gate blocks no-go plans and displays ready tasks before highe
   const ready = top.getByRole("listitem").filter({ hasText: "가능 업무" });
   await expect(blocked).toContainText("점수 12.5");
   await expect(ready).toContainText("점수 9");
+  await expect(blocked.locator(".ax-region-chip")).toHaveText("빠른 실행 후보");
+  await expect(blocked.locator(".ax-gate-cond")).toHaveText("진행 보류");
   await expect(blocked.getByText("진행 보류", { exact: true })).toBeVisible();
   await blocked.getByRole("button").click();
   await expect(page.locator(".ax-detail-stack .ax-summary")).toBeVisible();
@@ -714,6 +717,13 @@ test("AX factor corrections and re-diagnosis invalidate existing implementation 
   await expect(claude).toBeVisible();
   await expect.poll(() => record(page)).toMatchObject({ tasks: [{ diagnosis: { planCodex: planFixture, planClaude: planFixture } }] });
   await page.getByRole("tab", { name: "업무 진단", exact: true }).click();
+  await page.getByRole("button", { name: "반복성 4점", exact: true }).click();
+  await expect(page.getByRole("button", { name: "AI 제안값으로 되돌리기", exact: true })).toHaveCount(0);
+  await expect(page.locator(".ax-factor-corrected")).toHaveCount(0);
+  await expect.poll(async () => {
+    const task = (await record(page))?.tasks[0];
+    return { status: task?.status, repetition: task?.diagnosis?.factors.find(f => f.key === "repetition")?.finalValue, planCodex: task?.diagnosis?.planCodex, planClaude: task?.diagnosis?.planClaude };
+  }).toEqual({ status: "diagnosed", repetition: undefined, planCodex: planFixture, planClaude: planFixture });
   await page.getByRole("button", { name: "반복성 1점", exact: true }).click();
   await expect.poll(async () => {
     const diagnosis = (await record(page))?.tasks[0].diagnosis;

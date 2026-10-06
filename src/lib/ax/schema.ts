@@ -58,8 +58,10 @@ export const axTaskSchema = z.object({
   diagnosis: axDiagnosisSchema.optional(),
   createdAt: z.iso.datetime(), updatedAt: z.iso.datetime(),
 }).strict().superRefine((task, ctx) => {
-  const expected = !task.diagnosis ? "registered" : task.diagnosis.factors.some(f => f.finalValue !== undefined) ? "adjusted" : task.diagnosis.informationSufficiency === "needs-check" ? "needs-info" : "diagnosed";
-  if (task.status !== expected) ctx.addIssue({ code: "custom", message: "업무 상태와 진단이 일치하지 않습니다." });
+  const expected = !task.diagnosis ? "registered" : task.diagnosis.factors.some(f => f.finalValue !== undefined && f.finalValue !== f.aiValue) ? "adjusted" : task.diagnosis.informationSufficiency === "needs-check" ? "needs-info" : "diagnosed";
+  const legacyAdjustment = task.status === "adjusted" && expected !== "adjusted" && task.diagnosis
+    && task.diagnosis.factors.some(f => f.finalValue !== undefined && f.finalValue === f.aiValue);
+  if (task.status !== expected && !legacyAdjustment) ctx.addIssue({ code: "custom", message: "업무 상태와 진단이 일치하지 않습니다." });
 });
 export const axStateSchema = z.object({
   schemaVersion: z.literal(1), tasks: z.array(axTaskSchema).max(AX_LIMITS.tasks), selectedTaskId: z.string().max(120).nullable(), step: z.number().int().min(1).max(4),

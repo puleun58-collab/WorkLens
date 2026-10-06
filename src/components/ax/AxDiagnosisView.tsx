@@ -14,7 +14,7 @@ import { useAxState } from "@/client/use-ax-state";
 import { runInWorker } from "@/client/document-client";
 import { diagnoseAx, planAx, interruptServerAi, aiFailureDetail } from "@/client/server-ai-client";
 import { AX_LIMITS, FACTOR_LABELS, axTaskSchema, confirmedAxDiagnosis } from "@/lib/ax/schema";
-import { axes, automationLevel, bubbleArea, executionGate, executionProfile, GATE_LABELS, planAllowed, priorityDisplayLabel, priorityHeading, factorScale, matrixPosition, monthlyMinutes, nextAction, priority, REGION_LABELS, taskStatus } from "@/lib/ax/policy";
+import { axes, automationLevel, bubbleArea, executionGate, executionProfile, GATE_LABELS, planAllowed, priorityHeading, factorEffectiveValue, factorHasAdjustment, factorScale, matrixPosition, monthlyMinutes, nextAction, priority, REGION_LABELS, taskStatus } from "@/lib/ax/policy";
 import { candidateTask, taskDetails, followUpDescription, legacyDetailValues, validateAttachmentPreflight } from "@/lib/ax/registration";
 import { exportAxState, importAxState } from "@/lib/ax/transfer";
 import { emptyAxState, type AxState, type AxTask, type AxDiagnosis, type AxDetails, type FactorKey } from "@/lib/ax/types";
@@ -134,7 +134,17 @@ export function AxDiagnosisView() {
   function adjust(task: AxTask, key: FactorKey, input: string) {
     const value = input === "" ? undefined : Number(input);
     if (!task.diagnosis || (value !== undefined && (!Number.isInteger(value) || value < 1 || value > 5))) return;
-    const diagnosis: AxDiagnosis = { ...task.diagnosis, planCodex: undefined, planClaude: undefined, factors: task.diagnosis.factors.map(f => f.key === key ? { ...f, finalValue: value } : f) };
+    const factor = task.diagnosis.factors.find(f => f.key === key);
+    if (!factor) return;
+    const prevEffective = factorEffectiveValue(factor);
+    const nextFinal = input === "" || value === factor.aiValue ? undefined : value;
+    const nextFactor = { ...factor, finalValue: nextFinal };
+    const nextEffective = factorEffectiveValue(nextFactor);
+    const effectiveChanged = prevEffective !== nextEffective;
+    const diagnosis: AxDiagnosis = { ...task.diagnosis,
+      ...(effectiveChanged ? { planCodex: undefined, planClaude: undefined } : {}),
+      factors: task.diagnosis.factors.map(f => f.key === key ? nextFactor : f),
+    };
     patchTask(task.id, { diagnosis, status: taskStatus(diagnosis) });
   }
   async function generatePlan(task: AxTask, target: "codex" | "claude") {
@@ -200,7 +210,7 @@ export function AxDiagnosisView() {
     return <ol className="ax-priority-list" aria-label={top ? "자동화 우선순위 TOP 목록" : "자동화 우선순위 목록"}>{(top ? displayed.slice(0, 3) : displayed).map((r, i) => {
       const l = automationLevel(r.task.diagnosis), m = matrixPosition(r.task.diagnosis), gate = executionGate(r.task.diagnosis);
       return <li key={r.task.id}><Button type="button" variant="ghost" className="ax-priority-row" aria-pressed={selected?.id === r.task.id} onClick={() => select(r.task.id)} disabled={!!busy}>
-        <strong className="ax-rank">#{i + 1}</strong><span className="ax-priority-content"><span className="ax-priority-head"><span className="ax-task-name">{r.task.name}</span><span className="ax-region-chip" data-region={m.region}>{priorityDisplayLabel(r.task.diagnosis)}</span>{gate === "conditional" ? <span className="ax-gate-cond">{GATE_LABELS[gate]}</span> : null}</span>
+        <strong className="ax-rank">#{i + 1}</strong><span className="ax-priority-content"><span className="ax-priority-head"><span className="ax-task-name">{r.task.name}</span><span className="ax-region-chip" data-region={m.region}>{m.label}</span>{gate !== "ready" ? <span className="ax-gate-cond">{GATE_LABELS[gate]}</span> : null}</span>
         <span>{l.label.replace(/^L\d+ /, "")} · Level {l.level}{l.provisional ? " · 잠정" : ""}</span>{top ? <small className="ax-next-action"><span>다음 권장 행동</span>{nextAction(r.task.diagnosis).label}</small> : <small>{r.reason}</small>}{top ? <small>점수 {r.score}</small> : null}</span>
       </Button></li>;
     })}</ol>;
@@ -260,10 +270,10 @@ export function AxDiagnosisView() {
             </section>
             {selected.diagnosis ? <>
               <section className="ax-surface"><h3>진단 항목</h3><p className="ax-muted">필요하면 AI 평가값을 조정할 수 있습니다. 변경한 값은 자동화 수준과 우선순위에 바로 반영됩니다.</p>
-                {selected.diagnosis.factors.map(f => { const { icon: Icon, color } = FACTOR_META[f.key], effective = f.finalValue ?? f.aiValue; const style = { "--ax-factor": color } as CSSProperties; return <div className="ax-factor-row" key={f.key}>
+                {selected.diagnosis.factors.map(f => { const { icon: Icon, color } = FACTOR_META[f.key], effective = factorEffectiveValue(f), adjusted = factorHasAdjustment(f); const style = { "--ax-factor": color } as CSSProperties; return <div className="ax-factor-row" key={f.key}>
                   <span className="ax-factor-icon" style={style}><Icon size={16} aria-hidden="true" /></span>
-                  <div className="ax-factor-main"><div className="ax-factor-head"><h4>{FACTOR_LABELS[f.key]}</h4><span className="ax-muted">AI {f.aiValue}점</span>{f.finalValue !== undefined ? <span className="ax-factor-corrected">사용자 보정</span> : null}</div><p>{f.rationale}</p><small>{factorScale(f.key)}</small></div>
-                  <div className="ax-factor-control"><div className="ax-segments" role="group" aria-label={`${FACTOR_LABELS[f.key]} 보정`}>{[1, 2, 3, 4, 5].map(v => <button type="button" key={v} className={v <= effective ? "is-on" : ""} style={style} aria-label={`${FACTOR_LABELS[f.key]} ${v}점`} aria-pressed={v === effective} disabled={!!busy} onClick={() => adjust(selected, f.key, String(v))} />)}</div><strong className="ax-factor-value" style={{ color }}>{effective}</strong>{f.finalValue !== undefined ? <AiValueReset disabled={!!busy || f.finalValue === f.aiValue} onReset={() => adjust(selected, f.key, "")} /> : null}</div>
+                  <div className="ax-factor-main"><div className="ax-factor-head"><h4>{FACTOR_LABELS[f.key]}</h4><span className="ax-muted">AI {f.aiValue}점</span>{adjusted ? <span className="ax-factor-corrected">사용자 보정</span> : null}</div><p>{f.rationale}</p><small>{factorScale(f.key)}</small></div>
+                  <div className="ax-factor-control"><div className="ax-segments" role="group" aria-label={`${FACTOR_LABELS[f.key]} 보정`}>{[1, 2, 3, 4, 5].map(v => <button type="button" key={v} className={v <= effective ? "is-on" : ""} style={style} aria-label={`${FACTOR_LABELS[f.key]} ${v}점`} aria-pressed={v === effective} disabled={!!busy} onClick={() => adjust(selected, f.key, String(v))} />)}</div><strong className="ax-factor-value" style={{ color }}>{effective}</strong>{adjusted ? <AiValueReset disabled={!!busy} onReset={() => adjust(selected, f.key, "")} /> : null}</div>
                 </div>; })}
               </section>
               <div className="ax-step2-sub-grid"><section className="ax-surface"><h3>진단 요약</h3><Badge variant={selected.diagnosis.informationSufficiency === "sufficient" ? "success" : "warning"}>{SUFFICIENCY[selected.diagnosis.informationSufficiency]}</Badge><p className="ax-muted">{selected.diagnosis.sourceNote}</p><p className="ax-summary-level">자동화 수준 <strong>{automationLevel(selected.diagnosis).label.replace(/^L\d+ /, "")} · Level {automationLevel(selected.diagnosis).level}</strong></p><AxAxisBars diagnosis={selected.diagnosis} /></section><section className="ax-surface"><h3>진단 항목 분포</h3><AxRadar diagnosis={selected.diagnosis} /></section></div>

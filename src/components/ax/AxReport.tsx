@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, Copy, FileCode2, Terminal } from "lucide-react";
 import type { AxDiagnosis, AxPlan, AxTask } from "@/lib/ax/types";
-import { automationLevel, axes, executionGate, executionProfile, GATE_LABELS, gateBlockReasons, gatePrerequisites, nextAction, type ExecutionProfile } from "@/lib/ax/policy";
+import { automationLevel, axes, executionGate, executionProfile, factorEffectiveValue, GATE_LABELS, gateBlockReasons, gatePrerequisites, nextAction, type ExecutionProfile } from "@/lib/ax/policy";
 import { FACTOR_KEYS } from "@/lib/ax/schema";
 import { Badge } from "@/components/ui/badge";
 import { Accordion, AccordionItem, AccordionPanel, AccordionTrigger } from "@/components/ui/accordion";
@@ -84,7 +84,7 @@ export function AxRadar({ diagnosis }: { diagnosis: AxDiagnosis }) {
   return <svg className="ax-radar" viewBox="0 0 220 200" role="img" aria-label="진단 항목 레이더">
     {[1, 2, 3, 4, 5].map(v => <polygon key={v} points={polygon(FACTOR_KEYS.map(() => v / 5 * 62))} fill="none" stroke="var(--border)" />)}
     {FACTOR_KEYS.map((key, i) => { const p = point(i, 62); return <line key={key} x1={110} y1={100} x2={p.x} y2={p.y} stroke="var(--border)" />; })}
-    <polygon points={polygon(factors.map(f => (f.finalValue ?? f.aiValue) / 5 * 62))} fill="color-mix(in srgb, var(--primary) 16%, transparent)" stroke="var(--primary)" strokeWidth={1.5} />
+    <polygon points={polygon(factors.map(f => factorEffectiveValue(f) / 5 * 62))} fill="color-mix(in srgb, var(--primary) 16%, transparent)" stroke="var(--primary)" strokeWidth={1.5} />
     {FACTOR_KEYS.map((key, i) => { const p = point(i, 76), lines = RADAR_LABEL_LINES[key]; return <text key={key} x={p.x} y={p.y} dominantBaseline="middle" textAnchor={Math.abs(p.x - 110) < 1 ? "middle" : p.x > 110 ? "start" : "end"} fontSize={9.5} fill="var(--muted-foreground)">{lines.map((line, j) => <tspan key={j} x={p.x} dy={j === 0 ? -(lines.length - 1) * 5.5 : 11}>{line}</tspan>)}</text>; })}
   </svg>;
 }
