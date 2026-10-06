@@ -4,8 +4,17 @@ import { FACTOR_LABELS } from "./schema";
 export const AX_POLICY = { priority: { value: 2, feasibility: 1.5, judgment: -1, risk: -1.5, needsCheck: -1, partial: -0.5 }, matrixThreshold: 3.5, holdRisk: 4, holdJudgment: 4.5 } as const;
 export const LEVEL_LABELS = ["L0 수동 유지", "L1 AI 보조", "L2 부분 자동화", "L3 고도 자동화"] as const;
 export const REGION_LABELS = { quick: "빠른 실행 후보", strategic: "전략 과제", maybe: "검토 후보", hold: "수동 유지·보류" } as const;
+export function factorEffectiveValue(f: AxDiagnosis["factors"][number]): number {
+  return f.finalValue !== undefined && f.finalValue !== f.aiValue ? f.finalValue : f.aiValue;
+}
+export function factorHasAdjustment(f: AxDiagnosis["factors"][number]): boolean {
+  return f.finalValue !== undefined && f.finalValue !== f.aiValue;
+}
+export function diagnosisHasAdjustment(d: AxDiagnosis): boolean {
+  return d.factors.some(factorHasAdjustment);
+}
 export function axes(diagnosis: AxDiagnosis) {
-  const value = (key: FactorKey) => { const f = diagnosis.factors.find(f => f.key === key); if (!f) throw new Error("Factor 누락"); return f.finalValue ?? f.aiValue; };
+  const value = (key: FactorKey) => { const f = diagnosis.factors.find(f => f.key === key); if (!f) throw new Error("Factor 누락"); return factorEffectiveValue(f); };
   return {
     value: Math.round((value("repetition") + value("regularity") + value("dataStructure")) / 3),
     feasibility: Math.round((value("regularity") + value("dataStructure") + value("systemAccess")) / 3),
@@ -62,7 +71,7 @@ export function nextAction(d: AxDiagnosis): AxDiagnosis["nextAction"] {
   return d.nextAction;
 }
 export function taskStatus(d?: AxDiagnosis): AxTask["status"] {
-  return !d ? "registered" : d.factors.some(f => f.finalValue !== undefined) ? "adjusted" : d.informationSufficiency === "needs-check" ? "needs-info" : "diagnosed";
+  return !d ? "registered" : diagnosisHasAdjustment(d) ? "adjusted" : d.informationSufficiency === "needs-check" ? "needs-info" : "diagnosed";
 }
 export function factorScale(key: FactorKey) {
   return key === "humanJudgment" ? "1: 판단 적음 → 5: 판단 많음" : key === "operationalRisk" ? "1: 위험 낮음 → 5: 위험 높음" : `1: ${FACTOR_LABELS[key]} 낮음 → 5: 높음`;
@@ -168,8 +177,9 @@ export interface ExecutionProfile {
   manualSteps: string[];
   automationSteps: string[];
   assistSteps: string[];
-  /** Level 0 or blocked tasks are reviewed, not executed, regardless of priority score. */
+  /** Level 0, conditional or blocked tasks are not immediate execution candidates. */
   executionCandidate: boolean;
+  readyExecutionCandidate: boolean;
   planAllowed: boolean;
   roadmapTitle: string;
   roadmap: RoadmapPhase[];
@@ -207,7 +217,8 @@ export function executionProfile(d: AxDiagnosis): ExecutionProfile {
   };
   return {
     level, gate, region, prerequisites, blockReasons, manualSteps, automationSteps, assistSteps,
-    executionCandidate: gate !== "blocked" && level > 0,
+    executionCandidate: gate === "ready" && level > 0,
+    readyExecutionCandidate: gate === "ready" && level > 0,
     planAllowed: planAllowed(d),
     roadmapTitle: gate === "blocked" ? "선행 조치" : ROADMAP_TITLES[level],
     roadmap, poc, nextAction: nextAction(d),
@@ -216,6 +227,8 @@ export function executionProfile(d: AxDiagnosis): ExecutionProfile {
 
 /** Section heading for the ranked list: ranking language only when something can run. */
 export function priorityHeading(profiles: ExecutionProfile[]): string {
-  if (profiles.some(profile => profile.executionCandidate)) return `자동화 우선순위 TOP ${Math.min(3, profiles.length)}`;
+  const ready = profiles.filter(profile => profile.readyExecutionCandidate);
+  if (ready.length) return `자동화 우선순위 TOP ${Math.min(3, ready.length)}`;
+  if (profiles.some(profile => profile.gate === "conditional")) return "확인 후 진행 업무";
   return profiles.length === 1 ? "업무 진단 결과" : "현재 검토 업무";
 }
