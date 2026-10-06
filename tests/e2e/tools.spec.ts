@@ -1008,7 +1008,10 @@ test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route wit
   await expect(clause.getByRole("heading", { level: 4 })).toContainText("제2조");
   await expect(clause).toContainText("중도해지 제한");
   await expect(clause).toContainText("을은 어떠한 경우에도 계약을 해지할 수 없다.");
-  await expect(clause.locator(".contract-review-issue dt")).toHaveText(["검토 원문", "검토 결과", "우선순위", "확인한 근거"]);
+  await expect(clause.locator(".contract-review-issue-facts dt")).toHaveText(["검토 결과"]);
+  await expect(clause.locator(".contract-review-source dt")).toHaveText(["검토 원문"]);
+  await expect(clause.locator(".contract-review-source")).not.toHaveAttribute("open", "");
+  await expect(clause.locator(".contract-review-clause-head [data-slot=badge]")).toHaveText(/^(높음|보통|낮음)$/u);
   const lawEvidence = review.locator(".contract-review-details .law-detail-source");
   await expect(lawEvidence.locator("summary")).toHaveText(/관련 법령 1건 보기/u);
   await expect(lawEvidence).not.toHaveAttribute("open", "");
@@ -1099,7 +1102,7 @@ test("RESEARCH 문서 검토 reviews one workspace file in place and shows where
   await expect(review).not.toContainText("이미지 안의 글자는 읽지 않습니다");
   const dismissal = review.locator(".contract-review-issue").filter({ hasText: "경고·예고 없는 징계·해고" });
   await expect(dismissal.locator(".contract-review-place")).toHaveText("제4조 해고");
-  await dismissal.getByRole("button", { name: "상세 근거 보기" }).click();
+  await dismissal.getByRole("button", { name: "근거 보기", exact: true }).click();
   await expect(review.locator(".contract-review-details")).toContainText("근로기준법 제23조");
 
   // Only this file's identity and text segments were sent: no bytes, styles, other files or locators.
@@ -1504,12 +1507,12 @@ test("document review keeps issue guidance ahead of independent, grouped source 
     };
   };
   const fixtures = {
-    both: { input: penalty, review: fixtureReview(penalty, "both"), status: "matched", title: "관련 근거를 확인했습니다", law: 2, precedent: 2, summary: "검토 조항 1개 · 높은 우선순위 1건" },
-    statute: { input: sale, review: fixtureReview(sale, "statute"), status: "matched", title: "관련 근거를 확인했습니다", law: 1, precedent: 0, summary: "검토 조항 1개 · 높은 우선순위 1건" },
-    precedent: { input: nda, review: fixtureReview(nda, "precedent"), status: "matched", title: "관련 근거를 확인했습니다", law: 0, precedent: 2, summary: "검토 조항 1개 · 높은 우선순위 1건" },
-    partial: { input: partial, review: fixtureReview(partial, "partial"), status: "partial", title: "관련 근거를 일부 확인했습니다", law: 0, precedent: 2, summary: "검토 조항 2개 · 높은 우선순위 1건" },
-    excluded: { input: `${penalty}\n제7조(중복) 이용자는 잔여기간 이용료의 50%를 위약금으로 지급한다.`, review: fixtureReview(`${penalty}\n제7조(중복) 이용자는 잔여기간 이용료의 50%를 위약금으로 지급한다.`, "excluded"), status: "weak", title: "직접 관련된 근거가 충분하지 않습니다", law: 0, precedent: 0, summary: "검토 조항 2개 · 높은 우선순위 1건" },
-    clean: { input: CLEAN_WORK_RULES, review: fixtureReview(CLEAN_WORK_RULES, "empty"), status: "none", title: "검토할 쟁점을 찾지 못했습니다", law: 0, precedent: 0, summary: "검토 조항 0개 · 높은 우선순위 0건" },
+    both: { input: penalty, review: fixtureReview(penalty, "both"), status: "matched", title: "관련 근거를 확인했습니다", law: 2, precedent: 2, clauses: 1, high: 1 },
+    statute: { input: sale, review: fixtureReview(sale, "statute"), status: "matched", title: "관련 근거를 확인했습니다", law: 1, precedent: 0, clauses: 1, high: 1 },
+    precedent: { input: nda, review: fixtureReview(nda, "precedent"), status: "matched", title: "관련 근거를 확인했습니다", law: 0, precedent: 2, clauses: 1, high: 1 },
+    partial: { input: partial, review: fixtureReview(partial, "partial"), status: "partial", title: "관련 근거를 일부 확인했습니다", law: 0, precedent: 2, clauses: 2, high: 1 },
+    excluded: { input: `${penalty}\n제7조(중복) 이용자는 잔여기간 이용료의 50%를 위약금으로 지급한다.`, review: fixtureReview(`${penalty}\n제7조(중복) 이용자는 잔여기간 이용료의 50%를 위약금으로 지급한다.`, "excluded"), status: "weak", title: "직접 관련된 근거가 충분하지 않습니다", law: 0, precedent: 0, clauses: 2, high: 1 },
+    clean: { input: CLEAN_WORK_RULES, review: fixtureReview(CLEAN_WORK_RULES, "empty"), status: "none", title: "검토할 쟁점을 찾지 못했습니다", law: 0, precedent: 0, clauses: 0, high: 0 },
   };
   const errors: string[] = [];
   page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
@@ -1540,21 +1543,33 @@ test("document review keeps issue guidance ahead of independent, grouped source 
       expect(sections.slice(0, 3), name).toEqual(["contract-review-overview", "contract-review-summary", "contract-review-results"]);
       await expect(review.locator(".contract-review-overview"), name).toContainText(fixture.review.document.label);
       await expect(review.locator(".contract-review-overview"), name).toContainText(fixture.review.risk.level);
-      await expect(review.locator(".contract-review-summary"), name).toContainText(fixture.summary);
+      const counts = review.locator(".contract-review-summary .contract-review-count");
+      await expect(counts.first(), name).toHaveText(`높음 ${fixture.high}건`);
+      await expect(counts, name).toHaveText([`높음 ${fixture.review.risk.high}건`, `보통 ${fixture.review.risk.medium}건`, `낮음 ${fixture.review.risk.low}건`]);
+      await expect(review.locator(".contract-review-summary .contract-review-meta"), name).toContainText(`검토 조항 ${fixture.clauses}개`);
+      await expect(review.locator(".contract-review-file, .contract-review-preview-note"), name).toHaveCount(0);
+      if (name === "both" || name === "partial") await review.screenshot({ path: `artifacts/review-${name}-${viewport.width}-${test.info().project.name}.png` });
       const firstIssue = review.locator(".contract-review-issue").first();
       if (name === "clean") {
         await expect(firstIssue).toHaveCount(0);
         await expect(review.locator(".contract-review-results")).toContainText("검토할 쟁점을 찾지 못했습니다.");
       } else {
-        await expect(firstIssue.locator("dt"), name).toHaveText(["검토 원문", "검토 결과", "우선순위", "수정 제안", "확인한 근거"]);
-        await expect(firstIssue.locator("dd").nth(0), name).toHaveText(fixture.review.clauses[0].issues[0].fact);
-        await expect(firstIssue.locator("dd").nth(3), name).toHaveText(fixture.review.clauses[0].issues[0].suggestion);
+        // 핵심 쟁점 → 검토 결과 → 수정 제안 → 근거 are visible; the original text waits behind a closed disclosure.
+        await expect(firstIssue.locator(".contract-review-issue-facts dt"), name).toHaveText(["검토 결과", "수정 제안"]);
+        await expect(firstIssue.locator(".contract-review-suggestion dd"), name).toHaveText(fixture.review.clauses[0].issues[0].suggestion);
+        await expect(firstIssue.locator(".contract-review-source"), name).not.toHaveAttribute("open", "");
+        await expect(firstIssue.locator(".contract-review-fact"), name).toBeHidden();
+        await firstIssue.locator(".contract-review-source summary").click();
+        await expect(firstIssue.locator(".contract-review-fact"), name).toHaveText(fixture.review.clauses[0].issues[0].fact);
+        await firstIssue.locator(".contract-review-source summary").click();
+        const severity = fixture.review.clauses[0].issues[0].severity;
+        await expect(review.locator(".contract-review-clause-head [data-slot=badge]").first(), name).toHaveAttribute("data-severity", severity);
       }
       const detail = review.locator(".contract-review-detail").first();
       const disclosures = detail.locator(".law-detail-source");
       if (fixture.law + fixture.precedent === 0) {
         await expect(review.locator(".contract-review-details")).toHaveCount(0);
-        if (name !== "clean") await expect(firstIssue.locator("dd").last()).toContainText("확인된 직접 근거 없음");
+        if (name !== "clean") await expect(firstIssue.locator(".contract-review-evidence")).toContainText("확인된 직접 근거 없음");
       } else {
         await expect(review.locator(".contract-review-details")).toBeVisible();
         await expect(disclosures).toHaveCount(Number(fixture.law > 0) + Number(fixture.precedent > 0));
@@ -1637,7 +1652,7 @@ test("document evidence links focus only the selected issue without changing dis
   await form.getByLabel("검토할 문서 내용").fill(input);
   await form.getByRole("button", { name: "실행", exact: true }).click();
   const reviewResult = page.locator(".contract-review");
-  const links = reviewResult.getByRole("button", { name: "상세 근거 보기" });
+  const links = reviewResult.getByRole("button", { name: "근거 보기", exact: true });
   const details = reviewResult.locator(".contract-review-detail");
   await expect(links).toHaveCount(3);
   await expect(details).toHaveCount(3);
