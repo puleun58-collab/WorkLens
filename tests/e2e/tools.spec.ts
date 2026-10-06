@@ -2399,15 +2399,12 @@ test("document review hides execution until a workspace file is added", async ({
   expect((await workarea.boundingBox())!.height).toBeLessThan(180);
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
-    await expect(workarea).toHaveClass(/file-add-dropzone/);
+    await expect(workarea).not.toHaveClass(/file-add-dropzone/);
     const surface = await workarea.evaluate((element) => {
       const style = getComputedStyle(element);
-      return { background: style.backgroundColor, border: style.borderTopStyle, radius: parseFloat(style.borderRadius), padding: parseFloat(style.paddingLeft) };
+      return { background: style.backgroundColor, border: parseFloat(style.borderTopWidth), radius: parseFloat(style.borderRadius), padding: parseFloat(style.paddingLeft) };
     });
-    expect(surface.background).not.toBe("rgba(0, 0, 0, 0)");
-    expect(surface.border).toBe("dashed");
-    expect(surface.radius).toBeGreaterThan(0);
-    expect(surface.padding).toBeGreaterThan(0);
+    expect(surface).toEqual({ background: "rgba(0, 0, 0, 0)", border: 0, radius: 0, padding: 0 });
     await expect(workarea).toHaveCSS("box-shadow", "none");
     await expect(form.locator("#research-file")).toBeVisible();
     await expect(form.getByRole("button", { name: "파일 추가", exact: true })).toBeVisible();
@@ -2424,6 +2421,10 @@ test("document review hides execution until a workspace file is added", async ({
     form.getByRole("button", { name: "실행", exact: true }).boundingBox(),
   ]);
   expect(controls[2]!.x).toBeGreaterThan(controls[1]!.x);
+  const textareaRight = (await form.locator(".research-document-input").boundingBox())!;
+  expect(Math.abs(controls[2]!.x + controls[2]!.width - textareaRight.x - textareaRight.width)).toBeLessThanOrEqual(2);
+  await expect(form.getByRole("button", { name: "파일 추가", exact: true })).not.toHaveClass(/bg-primary/);
+  await expect(form.getByRole("button", { name: "실행", exact: true })).toHaveClass(/bg-primary/);
   for (const box of controls.slice(1)) {
     expect(Math.abs(box!.y + box!.height / 2 - controls[0]!.y - controls[0]!.height / 2)).toBeLessThanOrEqual(2);
     expect(Math.abs(box!.height - controls[0]!.height)).toBeLessThanOrEqual(2);
