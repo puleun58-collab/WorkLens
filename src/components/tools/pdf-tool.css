@@ -13,7 +13,6 @@
 .pdf-tool-upload { cursor: pointer; }
 .pdf-tool-upload:hover, .pdf-tool-upload:focus-within { border-color: var(--blue); background: var(--paper); }
 .pdf-tool-upload[data-drag-active="true"] { border-color: var(--blue); background: var(--blue-soft); }
-.pdf-tool-upload-mark { display: grid; place-items: center; flex: none; height: 36px; width: 36px; color: var(--blue); font-size: 29px; font-weight: 300; }
 .pdf-tool-upload-copy { display: grid; gap: 6px; min-width: 0; flex: 1; }
 .pdf-tool-upload-copy span { color: var(--muted); font-size: 13px; line-height: 1.5; }
 .pdf-tool-input-hidden { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }

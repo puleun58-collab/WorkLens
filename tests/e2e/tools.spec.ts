@@ -1809,6 +1809,16 @@ test("PDF and image tools align their workspace and share a responsive export pa
     await expect(page.locator(".tool-eyebrow")).toHaveCount(0);
     await expect(page.locator(".pdf-tool-editor, .pdf-tool-export, .pdf-tool-badge")).toHaveCount(0);
     await expect(page.locator(".pdf-tool-upload").getByRole("button", { name: "PDF 추가" })).toBeVisible();
+    const pdfIcon = page.locator(".pdf-tool-upload .upload-icon");
+    await expect(pdfIcon.locator("svg.lucide-upload")).toHaveCount(1);
+    await expect(page.locator(".pdf-tool-upload")).not.toContainText("＋");
+    const pdfIconStyle = await pdfIcon.evaluate((element) => {
+      const probe = document.createElement("span"); probe.style.background = "var(--blue-soft)"; probe.style.color = "var(--blue)"; document.body.append(probe);
+      const expected = getComputedStyle(probe); const style = getComputedStyle(element);
+      const result = { background: style.backgroundColor === expected.backgroundColor, color: style.color === expected.color, width: element.getBoundingClientRect().width };
+      probe.remove(); return result;
+    });
+    expect(pdfIconStyle).toEqual({ background: true, color: true, width: 42 });
     await expect(page.getByText("PDF 파일 선택", { exact: true })).toHaveCount(0);
     const pdf = await geometry();
     await navigateWorkspace(page, "이미지 도구");

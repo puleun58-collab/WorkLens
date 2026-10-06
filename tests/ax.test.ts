@@ -23,7 +23,7 @@ describe("AX transparent policy", () => {
   it("marks needs-check provisional and overrides only its next action", () => {
     const d = rated([4, 4, 4, 4, 2, 2], "needs-check");
     expect(automationLevel(d)).toMatchObject({ level: 3, provisional: true });
-    expect(nextAction(d).label).toBe("핵심 확인사항 먼저 확인");
+    expect(nextAction(d).label).toBe("핵심 확인사항 확인 필요");
     expect(nextAction(rated([4, 4, 4, 4, 2, 2], "partial"))).toEqual(diagnosisFixture.nextAction);
   });
   it.each([

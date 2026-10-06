@@ -8369,7 +8369,8 @@ div.status-panel.error > strong { font-size: 14px; line-height: 1.5; }
 }
 
 .dropzone .upload-icon,
-.file-add-dropzone .upload-icon {
+.file-add-dropzone .upload-icon,
+.pdf-tool-upload .upload-icon {
   display: grid;
   place-items: center;
   width: 42px;
@@ -8381,7 +8382,8 @@ div.status-panel.error > strong { font-size: 14px; line-height: 1.5; }
 }
 
 .dropzone .upload-icon svg,
-.file-add-dropzone .upload-icon svg {
+.file-add-dropzone .upload-icon svg,
+.pdf-tool-upload .upload-icon svg {
   width: 21px;
   height: 21px;
 }

@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectTrigger, SelectValue, SelectPopup, SelectItem } from "@/components/ui/select";
-import { GripVertical, RotateCcw, RotateCw, Trash2 } from "lucide-react";
+import { GripVertical, RotateCcw, RotateCw, Trash2, Upload } from "lucide-react";
 import type { PDFDocumentLoadingTask } from "pdfjs-dist";
 import {
   exportPdfPages,
@@ -285,7 +285,7 @@ export function PdfTool() {
 
   return <div className="pdf-tool">
     <section className="pdf-tool-panel pdf-tool-upload" aria-label="PDF 파일 추가" onClick={(event) => { if (!busy && !(event.target as HTMLElement).closest("button, input")) inputRef.current?.click(); }} onDragOver={(event) => { event.preventDefault(); if (event.dataTransfer.types.includes("Files")) setDropActive(true); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDropActive(false); }} onDrop={handleDrop} data-drag-active={dropActive}>
-      <div className="pdf-tool-upload-mark" aria-hidden="true">＋</div>
+      <span className="upload-icon" aria-hidden="true"><Upload /></span>
       <div className="pdf-tool-upload-copy"><strong>PDF를 이곳에 놓으세요</strong><span>여러 파일을 함께 추가할 수 있습니다. 원본 파일은 수정되지 않습니다.</span></div>
       <Button type="button" className="max-sm:w-full" onClick={() => inputRef.current?.click()} disabled={busy}>PDF 추가</Button>
       <input ref={inputRef} className="pdf-tool-input-hidden" aria-label="PDF 파일 선택" type="file" accept=".pdf,application/pdf" multiple onChange={handleInput} />
