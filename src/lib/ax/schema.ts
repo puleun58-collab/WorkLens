@@ -5,7 +5,7 @@ z.config({ jitless: true });
 export const AX_LIMITS = { tasks: 100, name: 120, description: 3000, detail: 500, attachmentSummary: 2000, requestBytes: 60 * 1024, transferBytes: 8 * 1024 * 1024 } as const;
 export const FACTOR_KEYS = ["repetition", "regularity", "dataStructure", "systemAccess", "humanJudgment", "operationalRisk"] as const;
 export const FACTOR_LABELS: Record<typeof FACTOR_KEYS[number], string> = {
-  repetition: "반복성", regularity: "규칙성", dataStructure: "데이터 구조화", systemAccess: "시스템 접근성", humanJudgment: "담당자 판단 의존도", operationalRisk: "운영 위험",
+  repetition: "반복성", regularity: "규칙성", dataStructure: "데이터 구조화", systemAccess: "시스템 접근성", humanJudgment: "담당자 판단 필요도", operationalRisk: "운영 위험",
 };
 const text = z.string().trim().max(500);
 const list = z.array(text).max(10);

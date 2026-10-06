@@ -55,7 +55,7 @@ export function factorScale(key: FactorKey) {
 
 export type ExecutionGate = "ready" | "conditional" | "blocked";
 export const GATE_LABELS: Record<ExecutionGate, string> = {
-  ready: "실행 가능", conditional: "조건부 진행", blocked: "실행 보류",
+  ready: "진행 가능", conditional: "확인 후 진행", blocked: "진행 보류",
 };
 
 export function executionGate(d: AxDiagnosis): ExecutionGate {
@@ -90,5 +90,5 @@ export function planAllowed(d: AxDiagnosis): boolean {
 }
 
 export function priorityDisplayLabel(d: AxDiagnosis): string {
-  return executionGate(d) === "blocked" ? "실행 보류" : matrixPosition(d).label;
+  return executionGate(d) === "blocked" ? GATE_LABELS.blocked : matrixPosition(d).label;
 }

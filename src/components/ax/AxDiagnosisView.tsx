@@ -125,7 +125,7 @@ export function AxDiagnosisView() {
       if (!alive.current) return;
       const diagnosis: AxDiagnosis = { ...output, sourceNote: attachment ? "첨부 파일 요약 기반 진단 · 첨부 파일이 사용됨 — 재분석 시 재첨부 필요" : "사용자 등록 정보 기반 진단" };
       patchTask(task.id, { diagnosis, status: taskStatus(diagnosis) });
-      setAnswers(current => ({ ...current, [task.id]: [] })); setMessage("업무 진단을 완료했습니다. AI 근거를 확인하고 필요하면 점수를 보정하세요.");
+      setAnswers(current => ({ ...current, [task.id]: [] })); setMessage("업무 진단을 완료했습니다. 필요한 경우 점수를 조정하세요.");
     } catch (error) { if (alive.current) setMessage(`진단 실패 · ${aiFailureDetail(error)}`); }
     finally { activeAi.current = false; activeRun.current = false; if (alive.current) setBusy(null); }
   }
@@ -198,7 +198,7 @@ export function AxDiagnosisView() {
     return <ol className="ax-priority-list" aria-label={top ? "자동화 우선순위 TOP 목록" : "자동화 우선순위 목록"}>{(top ? displayed.slice(0, 3) : displayed).map((r, i) => {
       const l = automationLevel(r.task.diagnosis), m = matrixPosition(r.task.diagnosis), gate = executionGate(r.task.diagnosis);
       return <li key={r.task.id}><Button type="button" variant="ghost" className="ax-priority-row" aria-pressed={selected?.id === r.task.id} onClick={() => select(r.task.id)} disabled={!!busy}>
-        <strong className="ax-rank">#{i + 1}</strong><span className="ax-priority-content"><span className="ax-priority-head"><span className="ax-task-name">{r.task.name}</span><span className="ax-region-chip" data-region={m.region}>{priorityDisplayLabel(r.task.diagnosis)}</span>{gate === "conditional" ? <span className="ax-gate-cond" title={GATE_LABELS[gate]}>조건부</span> : null}</span>
+        <strong className="ax-rank">#{i + 1}</strong><span className="ax-priority-content"><span className="ax-priority-head"><span className="ax-task-name">{r.task.name}</span><span className="ax-region-chip" data-region={m.region}>{priorityDisplayLabel(r.task.diagnosis)}</span>{gate === "conditional" ? <span className="ax-gate-cond">{GATE_LABELS[gate]}</span> : null}</span>
         <span>{l.label.replace(/^L\d+ /, "")} · Level {l.level}{l.provisional ? " · 잠정" : ""}</span>{top ? <small className="ax-next-action"><span>다음 권장 행동</span>{nextAction(r.task.diagnosis).label}</small> : <small>{r.reason}</small>}{top ? <small>점수 {r.score}</small> : null}</span>
       </Button></li>;
     })}</ol>;
@@ -216,6 +216,7 @@ export function AxDiagnosisView() {
   }
   return <section className="ax-view" aria-label="업무 자동화 진단" aria-busy={!!busy}>
     <div className="ax-data-actions">
+      {message ? <p role="status" className="ax-utility-message">{message}</p> : null}
       <Menu><MenuTrigger render={<Button type="button" variant="outline" size="icon" aria-label="AI•AX 데이터 작업" disabled={!ready || !!busy} />}><MoreHorizontal aria-hidden="true" /></MenuTrigger><MenuPopup align="end">
         <MenuItem onClick={download}><Upload aria-hidden="true" />데이터 내보내기</MenuItem>
         <MenuItem onClick={() => importInput.current?.click()}><Download aria-hidden="true" />데이터 가져오기</MenuItem>
@@ -227,7 +228,6 @@ export function AxDiagnosisView() {
     {saveStatus === "저장 실패" ? <p role="status" className="ax-notice">자동 저장에 실패했습니다. 필요하면 AI•AX 데이터를 내보내 백업해주세요.</p> : null}
     {loadNotice ? <p role="status" className="ax-notice">{loadNotice}</p> : null}
     {externalChange ? <p role="status" className="ax-notice">다른 탭에서 AI•AX 데이터가 변경되었습니다. 최신 내용을 보려면 새로고침하세요. <Button type="button" variant="outline" size="sm" onClick={() => window.location.reload()}>새로고침</Button></p> : null}
-    {message ? <p role="status" className="ax-notice">{message}</p> : null}
     {!ready ? <p role="status">AI•AX 데이터를 불러오는 중…</p> : <Tabs value={String(state.step)} onValueChange={value => changeStep(Number(value))}>
       <TabsList className="ax-steps" aria-label="진단 단계">{STEPS.map((s, i) => { const Icon = STEP_ICONS[i]; return <TabsTab key={s} value={String(i + 1)} disabled={!!busy}><Icon size={15} aria-hidden="true" /><span>{s}</span></TabsTab>; })}</TabsList>
       <TabsPanel value="1">
@@ -265,7 +265,7 @@ export function AxDiagnosisView() {
                 </div>; })}
               </section>
               <div className="ax-step2-sub-grid"><section className="ax-surface"><h3>진단 요약</h3><Badge variant={selected.diagnosis.informationSufficiency === "sufficient" ? "success" : "warning"}>{SUFFICIENCY[selected.diagnosis.informationSufficiency]}</Badge><p className="ax-muted">{selected.diagnosis.sourceNote}</p><p className="ax-summary-level">자동화 수준 <strong>{automationLevel(selected.diagnosis).label.replace(/^L\d+ /, "")} · Level {automationLevel(selected.diagnosis).level}</strong></p><AxAxisBars diagnosis={selected.diagnosis} /></section><section className="ax-surface"><h3>진단 항목 분포</h3><AxRadar diagnosis={selected.diagnosis} /></section></div>
-              {selected.diagnosis.followUpQuestions.length ? <section className="ax-surface ax-questions"><h3>추가 확인이 필요합니다</h3>{selected.diagnosis.followUpQuestions.map((q, i) => <label className="ax-field" key={i}>{q}<Textarea rows={2} maxLength={500} disabled={!!busy} value={answers[selected.id]?.[i] ?? ""} onChange={e => setAnswers(current => { const values = [...(current[selected.id] ?? [])]; values[i] = e.target.value; return { ...current, [selected.id]: values }; })} /></label>)}<Button type="button" variant="outline" disabled={!!busy} onClick={() => void diagnose(selected, true)}>답변 반영 재진단</Button></section> : null}
+              {selected.diagnosis.followUpQuestions.length ? <section className="ax-surface ax-questions"><h3>추가 확인이 필요합니다</h3>{selected.diagnosis.followUpQuestions.map((q, i) => <label className="ax-field" key={i}>{q}<Textarea rows={2} maxLength={500} disabled={!!busy} value={answers[selected.id]?.[i] ?? ""} onChange={e => setAnswers(current => { const values = [...(current[selected.id] ?? [])]; values[i] = e.target.value; return { ...current, [selected.id]: values }; })} /></label>)}<Button type="button" className="ax-rediagnose" disabled={!!busy} onClick={() => void diagnose(selected, true)}>답변 반영 후 재진단</Button></section> : null}
               <AxProcess diagnosis={selected.diagnosis} />
             </> : null}
           </> : null}</div>
@@ -288,7 +288,7 @@ export function AxDiagnosisView() {
             <section className="ax-surface"><h3>분류 현황</h3><div className="ax-region-tiles">{Object.entries(REGION_LABELS).map(([region, label]) => <div className="ax-region-tile" data-region={region} key={region}><span>{label}</span><strong>{ranked.filter(r => matrixPosition(r.task.diagnosis).region === region).length}개</strong></div>)}</div></section>
           </div><section className="ax-roadmap-panel"><h3>실행 로드맵</h3>{selected?.diagnosis ? <><p className="ax-roadmap-task">{selected.name}</p><ol className="ax-timeline">{selected.diagnosis.roadmap.map((r, i) => <li key={i}><span className="ax-timeline-node">{i + 1}</span><div><h4>Phase {r.phase} · {r.title}</h4><ul>{r.items.map((item, j) => <li key={j}>{item}</li>)}</ul></div></li>)}</ol></> : <p>우선순위에서 업무를 선택하면 실행 로드맵을 확인할 수 있습니다.</p>}</section></div>
           {selected?.diagnosis ? <div className="ax-detail-stack"><section className="ax-surface"><h2>{selected.name}</h2><p className="ax-muted">{selected.diagnosis.sourceNote}</p><AxSummary task={selected} showGate={false} /></section><AxRoadmap diagnosis={selected.diagnosis} roadmapSection={false} />
-            <AxPlanSection key={selected.id} diagnosis={selected.diagnosis} taskName={selected.name} busy={busy} onGenerate={target => void generatePlan(selected, target)} />
+            <AxPlanSection key={selected.id} diagnosis={selected.diagnosis} taskName={selected.name} taskContext={[selected.description, ...Object.values(taskDetails(selected)).filter(value => value !== undefined).map(String)].join("\n")} busy={busy} onGenerate={target => void generatePlan(selected, target)} />
           </div> : <p className="ax-muted">우선순위 목록에서 업무를 선택해 상세 결과를 확인하세요.</p>}
         </>}
       </TabsPanel>
@@ -324,7 +324,7 @@ function AxAxisBars({ diagnosis }: { diagnosis: AxDiagnosis }) {
   const a = axes(diagnosis);
   return <div className="ax-axis-bars">{([
     ["자동화 가치", a.value, "var(--primary)"], ["기술 실현 가능성", a.feasibility, "var(--primary)"],
-    ["담당자 판단 의존도", a.judgment, "#db2777"], ["운영 위험", a.risk, "#dc2626"],
+    ["담당자 판단 필요도", a.judgment, "#db2777"], ["운영 위험", a.risk, "#dc2626"],
   ] as const).map(([label, value, color]) => <div className="ax-axis-row" key={label}><span>{label}</span><div className="ax-axis-track"><span style={{ width: `${value / 5 * 100}%`, background: color }} /></div><strong>{value}</strong></div>)}</div>;
 }
 function AxMatrix({ tasks, selectedId, onSelect }: { tasks: (AxTask & { diagnosis: AxDiagnosis })[]; selectedId?: string; onSelect: (id: string) => void }) {
@@ -332,7 +332,7 @@ function AxMatrix({ tasks, selectedId, onSelect }: { tasks: (AxTask & { diagnosi
   return <div className="ax-matrix-desktop"><div className="ax-matrix" aria-label="자동화 매트릭스 산점도">
     <div className="ax-region ax-region-strategic">전략 과제</div><div className="ax-region ax-region-quick">빠른 실행 후보</div><div className="ax-region ax-region-hold">수동 유지·보류</div><div className="ax-region ax-region-maybe">검토 후보</div>
     {[1, 2, 3, 4, 5].map(v => <span key={v} className="ax-y-tick" style={{ bottom: `${(v - 1) / 4 * 100}%` }}>{v === 1 ? "" : v}</span>)}
-    {[1, 2, 3, 4, 5].map(v => <span key={v} className="ax-x-tick" style={{ left: `${(v - 1) / 4 * 100}%` }}>{v}</span>)}
+    {[1, 2, 3, 4, 5].map(v => <span key={v} className={`ax-x-tick${v === 1 ? " is-origin" : ""}`} style={{ left: `${(v - 1) / 4 * 100}%` }}>{v}</span>)}
     {tasks.map((task, i) => { const m = matrixPosition(task.diagnosis); const diameter = Math.sqrt(bubbleArea(task, max) / Math.PI) * 2; return <button type="button" key={task.id} className={`ax-bubble${m.region === "hold" ? " is-hold" : ""}`} style={{ left: `${m.x}%`, bottom: `${m.y}%`, width: Math.max(24, diameter), height: Math.max(24, diameter), zIndex: selectedId === task.id ? 3 : 2 }} aria-label={`${task.name} · ${m.label}`} aria-pressed={selectedId === task.id} title={`${task.name} · ${m.label}`} onClick={() => onSelect(task.id)}><span className="ax-bubble-dot" style={{ width: diameter, height: diameter }} /><span className="ax-bubble-number">{i + 1}</span></button>; })}
     <span className="ax-y-label"><span className="ax-y-arrow" aria-hidden="true">↑</span><span className="ax-y-text">자동화 가치</span></span><span className="ax-x-label">기술 실현 가능성 →</span>
   </div></div>;

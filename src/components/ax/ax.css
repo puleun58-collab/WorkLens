@@ -7,7 +7,8 @@
 .ax-view li { margin: 4px 0; overflow-wrap: anywhere; }
 .ax-muted, .ax-view small { color: var(--muted-foreground); }
 .ax-view small { font-size: var(--font-size-xs); }
-.ax-data-actions { display: flex; justify-content: flex-end; }
+.ax-data-actions { display: flex; justify-content: flex-end; align-items: center; gap: 12px; min-height: 36px; }
+.ax-utility-message { margin: 0 auto 0 0; min-width: 0; color: var(--foreground); overflow-wrap: anywhere; }
 .ax-required-label::after { content: " *"; color: var(--destructive-foreground); }
 .ax-notice { padding: 10px 0; border-bottom: 1px solid var(--border); }
 /* AX surfaces and segmented workflow */
@@ -134,16 +135,29 @@
 .ax-status-badge { background: color-mix(in srgb, var(--primary) 9%, var(--card)); border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--border)); border-radius: 999px; box-shadow: none; font-size: 11px; padding: 2px 8px; color: color-mix(in srgb, var(--primary) 78%, var(--foreground)); }
 .ax-level-badge { background: #fdf4c8; border-color: #e7d488; color: #6d5c07; box-shadow: none; }
 .ax-summary { margin: 12px 0; }
-.ax-definition { display: grid; grid-template-columns: 130px minmax(0,1fr); gap: 10px 20px; }
+/* Result panels: heading separator + low-contrast row separators, one label column, left aligned. */
+.ax-panel > h3 { padding-bottom: 10px; margin-bottom: 4px; border-bottom: 1px solid var(--border); text-align: left; }
+.ax-definition { display: grid; grid-template-columns: 130px minmax(0,1fr); gap: 0; margin: 0; text-align: left; }
+.ax-definition dt, .ax-definition dd { margin: 0; padding: 10px 0; border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent); }
+.ax-definition dt { padding-right: 20px; }
+.ax-definition > dt:first-child, .ax-definition > dt:first-child + dd, .ax-definition-row:first-child > * { border-top: 0; }
 .ax-definition dt { color: var(--muted-foreground); }
 .ax-definition dd { min-width: 0; overflow-wrap: anywhere; }
 .ax-definition-row { display: contents; }
 .ax-definition ul { margin: 0; }
+.ax-definition li { margin: 2px 0; }
+.ax-tobe-list { text-align: left; }
+.ax-tobe-list > li { padding: 6px 0; }
+/* Lists carry no visible markers, so they start on the same left baseline as headings and values. */
+.ax-view .ax-panel ul, .ax-view .ax-panel ol, .ax-view .ax-timeline ul { padding-left: 0; }
+.ax-tobe-list p { margin: 2px 0 0; }
 .ax-questions { display: flex; flex-direction: column; gap: 12px; }
 .ax-attachment { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-top: 12px; }
 .ax-columns { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 24px; }
 .ax-table-wrap { width: 100%; overflow-x: auto; }
-.ax-view table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.ax-view table { width: 100%; border-collapse: collapse; font-size: var(--font-size-sm); text-align: left; }
+.ax-step-table th:nth-child(2), .ax-step-table th:nth-child(3), .ax-step-table td:nth-child(2), .ax-step-table td:nth-child(3) { width: 1%; white-space: nowrap; }
+.ax-step-table td:first-child { width: 28%; }
 .ax-view th { text-align: left; font-weight: 600; color: var(--muted-foreground); white-space: nowrap; }
 .ax-view th, .ax-view td { padding: 12px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
 .ax-view td { min-width: 80px; overflow-wrap: anywhere; }
@@ -152,8 +166,8 @@
 .ax-matrix-header { display: flex; align-items: center; gap: 6px 16px; flex-wrap: wrap; margin-bottom: 4px; }
 .ax-matrix-header h2 { margin: 0; }
 .ax-matrix-header p { margin: 0; }
-.ax-matrix-desktop { padding: 40px 50px 0 96px; }
-.ax-matrix { position: relative; height: 370px; margin: 20px 0 60px; border: 1px solid var(--border); }
+.ax-matrix-desktop { padding: 4px 50px 0 96px; }
+.ax-matrix { position: relative; height: 370px; margin: 16px 0 60px; border: 1px solid var(--border); }
 .ax-region { position: absolute; padding: 14px; font-size: 12px; color: var(--muted-foreground); }
 .ax-region-strategic { top: 0; left: 0; width: 62.5%; height: 37.5%; background: #e9f1fb; }
 .ax-region-quick { top: 0; right: 0; width: 37.5%; height: 37.5%; background: #e9f7ee; border-left: 1px dashed var(--border); }
@@ -167,6 +181,8 @@
 .ax-bubble:focus-visible { outline: 3px solid var(--ring); outline-offset: 4px; }
 .ax-y-tick { position: absolute; left: -25px; transform: translateY(50%); color: var(--muted-foreground); }
 .ax-x-tick { position: absolute; bottom: -26px; transform: translateX(-50%); color: var(--muted-foreground); }
+/* The x "1" doubles as the shared origin of both 1–5 axes, so it sits at the corner instead of under it. */
+.ax-x-tick.is-origin { transform: translateX(-100%); margin-left: -6px; bottom: -22px; }
 .ax-x-label, .ax-y-label { background: var(--card); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 1px 3px color-mix(in srgb, var(--foreground) 8%, transparent); padding: 4px 10px; font-size: 12px; font-weight: 600; color: var(--foreground); white-space: nowrap; }
 .ax-y-label { position: absolute; left: -84px; top: 50%; transform: translateY(-50%); display: inline-flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 5px; }
 .ax-y-text { writing-mode: vertical-rl; }
@@ -184,10 +200,11 @@
   .ax-step1-grid, .ax-step2-grid, .ax-step2-sub-grid, .ax-step3-grid, .ax-step4-grid, .ax-form-grid, .ax-columns { grid-template-columns: minmax(0,1fr); }
   .ax-step1-grid { grid-template-areas: "form" "side" "list"; }
   .ax-step1-side .ax-kpi-cards, .ax-kpi-cards { grid-template-columns: repeat(2,minmax(0,1fr)); }
-  .ax-definition { grid-template-columns: 80px minmax(0,1fr); gap: 10px; }
+  .ax-definition { grid-template-columns: 80px minmax(0,1fr); }
+  .ax-definition dt { padding-right: 12px; }
   .ax-factor-row { grid-template-columns: 32px minmax(0,1fr); }
   .ax-factor-control { grid-column: 2; width: auto; justify-content: flex-start; }
-  .ax-matrix-desktop { padding: 20px 12px 0 76px; }
+  .ax-matrix-desktop { padding: 4px 12px 0 76px; }
   .ax-matrix { height: 300px; }
   .ax-y-label { left: -66px; font-size: 10px; padding: 6px 4px; }
   .ax-region { padding: 8px; font-size: 10px; }
@@ -206,7 +223,7 @@
 .ax-plan-tool-hint { font-size: var(--font-size-xs); color: var(--muted-foreground); }
 .ax-tool-tabs { gap: 16px; min-width: 0; }
 .ax-tool-tabs [data-slot=tabs-content], .ax-package { min-width: 0; }
-.ax-prompt { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12.5px; white-space: pre-wrap; word-break: break-word; max-width: 100%; max-height: 420px; overflow: auto; background: color-mix(in srgb, var(--muted) 9%, var(--card)); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin: 12px 0; }
+.ax-prompt { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 13px; line-height: 1.65; text-align: left; color: var(--foreground); white-space: pre-wrap; word-break: break-word; max-width: 100%; max-height: 420px; overflow: auto; background: color-mix(in srgb, var(--muted) 9%, var(--card)); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin: 12px 0; }
 .ax-prompt-actions { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .ax-prompt-actions .ax-copy-button { transition: background-color 0.15s ease, border-color 0.15s ease; }
 .ax-prompt-actions .ax-copy-button[data-copied="true"] { background: color-mix(in srgb, var(--primary) 86%, var(--foreground)); border-color: transparent; }
@@ -220,9 +237,20 @@
 .ax-guide .ax-guide-trigger { width: fit-content; flex: 0 0 auto; margin-left: auto; white-space: nowrap; border: 1px solid color-mix(in srgb, var(--primary) 32%, var(--border)); background: color-mix(in srgb, var(--primary) 6%, var(--card)); border-radius: 6px; padding: 7px 12px; align-items: center; }
 .ax-guide .ax-guide-trigger:hover, .ax-guide .ax-guide-trigger[data-panel-open] { background: color-mix(in srgb, var(--primary) 11%, var(--card)); }
 .ax-guide .ax-guide-trigger svg { flex: none; }
-.ax-cmd { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; background: color-mix(in srgb, var(--muted) 25%, var(--card)); border: 1px solid var(--border); border-radius: 4px; padding: 2px 4px; }
-.ax-guide h4 { margin: 18px 0 8px; }
-.ax-guide li { margin-bottom: 8px; overflow-wrap: anywhere; }
+.ax-cmd { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.9em; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--foreground); background: color-mix(in srgb, var(--muted) 45%, var(--card)); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; }
+/* Setup guide: readable body, STEP > section > body > command hierarchy, left aligned. */
+.ax-guide-panel { color: var(--foreground); font-size: var(--font-size-sm); line-height: 1.7; text-align: left; }
+.ax-guide-step + .ax-guide-step { margin-top: 28px; }
+.ax-guide-step > h4 { margin: 16px 0 4px; padding-bottom: 8px; border-bottom: 1px solid var(--border); font-size: var(--font-size-md); font-weight: 650; }
+.ax-guide-section { margin-top: 18px; }
+.ax-guide-section > h5 { margin: 0 0 4px; font-size: var(--font-size-sm); font-weight: 650; }
+.ax-guide-section > p { margin: 6px 0; overflow-wrap: anywhere; }
+.ax-guide-section > .ax-guide-when { margin: 0 0 8px; color: var(--muted-foreground); font-size: var(--font-size-xs); }
+.ax-guide-section > .ax-guide-when::before { content: "→ "; }
+.ax-guide-code { position: relative; margin: 8px 0; padding: 26px 14px 12px; overflow-x: auto; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 13px; line-height: 1.7; white-space: pre; color: var(--foreground); background: color-mix(in srgb, var(--muted) 30%, var(--card)); border: 1px solid var(--border); border-radius: 8px; }
+.ax-guide-code-label { position: absolute; top: 6px; left: 14px; font-family: var(--font-sans); font-size: 11px; color: var(--muted-foreground); letter-spacing: .04em; }
+.ax-view .ax-guide-list { margin: 6px 0; padding-left: 22px; }
+.ax-guide-list li { margin-bottom: 6px; overflow-wrap: anywhere; }
 .ax-package > p { margin: 4px 0 16px; }
 .ax-package > h4 { margin-top: 20px; }
 @media(max-width: 700px) {
