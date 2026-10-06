@@ -94,8 +94,8 @@ const scenarios: Scenario[] = [
   { id: 28, name: "AI 보조 적합", factors: [4, 4, 3, 3, 4, 2], verdict: "go", sufficiency: "sufficient", level: 1, region: "strategic", gate: "ready", allowed: true, humanInLoop: true },
   { id: 29, name: "부분 자동화 적합", factors: [4, 4, 4, 4, 3, 2], verdict: "go", sufficiency: "sufficient", level: 2, region: "quick", gate: "ready", allowed: true },
   {
-    id: 30, name: "고도 자동화 후보이나 실행 보류", factors: [5, 5, 5, 5, 1, 1], verdict: "no-go", sufficiency: "sufficient",
-    level: 3, region: "quick", gate: "blocked", allowed: false, displayLabel: "실행 보류", fallback: true,
+    id: 30, name: "고도 자동화 후보이나 진행 보류", factors: [5, 5, 5, 5, 1, 1], verdict: "no-go", sufficiency: "sufficient",
+    level: 3, region: "quick", gate: "blocked", allowed: false, displayLabel: "진행 보류", fallback: true,
   },
 ];
 

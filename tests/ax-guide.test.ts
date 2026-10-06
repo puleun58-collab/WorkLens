@@ -1,7 +1,25 @@
 import { describe, expect, it } from "vitest";
-import { buildAllInOnePrompt, environmentGuide, installGuide, projectPrepGuide, TOOL_GUIDES } from "../src/lib/ax/guide";
+import { buildAllInOnePrompt, setupGuide, TOOL_GUIDES, type AxGuideSection } from "../src/lib/ax/guide";
 import { FACTOR_LABELS } from "../src/lib/ax/schema";
-import { planFixture } from "./fixtures/ax";
+import { diagnosisFixture, planFixture } from "./fixtures/ax";
+import type { AxDiagnosis, AxPlan } from "../src/lib/ax/types";
+
+const sectionsOf = (prompt: string) => prompt.match(/^## \d+\. .+$/gm)?.map(line => line.replace(/^## \d+\. /, "")) ?? [];
+const sectionBody = (prompt: string, title: string) => prompt.split(new RegExp(`^## \\d+\\. ${title}$`, "m"))[1]?.split(/\n## \d+\. /)[0] ?? "";
+const withFactors = (values: [number, number, number, number, number, number], patch: Partial<AxDiagnosis> = {}): AxDiagnosis => ({
+  ...diagnosisFixture, ...patch, factors: diagnosisFixture.factors.map((factor, i) => ({ ...factor, aiValue: values[i] })),
+});
+// Level 1 · AI 보조: value 4, feasibility 3, judgment 4, risk 3; conditional gate from the fixture's unconfirmed check.
+const levelOne = withFactors([4, 4, 3, 2, 4, 3]);
+const freightPlan: AxPlan = {
+  ...planFixture,
+  goal: ["월간 운임 정산을 자동 파싱·계산·보고 단계로 전환", "작업 시간 50% 절감"],
+  implementation: ["파싱·형식 검증", "키 매핑·금액 계산", "누락·중복 보고"],
+  exceptions: ["중복 데이터 발견 시 자동 제거 후 재계산", "운임표 미매칭"],
+  operation: ["재무팀이 주관, 오류 시 시스템 운영팀이 대응"],
+  acceptance: ["자동 결과와 수동 결과 차이 0% 목표", "샘플 정산표 대조 통과"],
+  tests: ["정확도 95% 이상", "샘플 정산표 대조"],
+};
 
 function expectContinuousSections(prompt: string) {
   const numbers = [...prompt.matchAll(/^## (\d+)\./gm)].map(match => Number(match[1]));
@@ -24,7 +42,7 @@ describe("AX execution guides", () => {
     expect(prompt).not.toContain("자동화 자동화");
   });
   it("uses the 담당자 label without changing the factor key", () => {
-    expect(FACTOR_LABELS.humanJudgment).toBe("담당자 판단 의존도");
+    expect(FACTOR_LABELS.humanJudgment).toBe("담당자 판단 필요도");
   });
   it("keeps tool commands distinct and guides scoped to the selected tool", () => {
     for (const key of ["installCommand", "versionCommand", "runCommand", "doctorCommand"] as const) {
@@ -32,126 +50,120 @@ describe("AX execution guides", () => {
       expect(TOOL_GUIDES.claude[key]).toBeTruthy();
       expect(TOOL_GUIDES.codex[key]).not.toBe(TOOL_GUIDES.claude[key]);
     }
+    const sectionText = (section: AxGuideSection) => [section.when ?? "", ...section.blocks.map(block => block.kind === "text" ? block.text : block.kind === "code" ? block.lines.join("\n") : block.items.join("\n"))].join("\n");
     for (const tool of ["codex", "claude"] as const) {
       const other = tool === "codex" ? "claude" : "codex";
-      expect(environmentGuide(tool).join("\n")).not.toContain(TOOL_GUIDES[other].installCommand);
-      expect(installGuide(tool).join("\n")).toContain(TOOL_GUIDES[tool].installCommand);
-      expect(environmentGuide(tool).join("\n")).toContain(TOOL_GUIDES[tool].versionCommand);
-      expect(installGuide(tool).join("\n")).toContain(TOOL_GUIDES[tool].doctorCommand);
-      expect(installGuide(tool).join("\n")).not.toContain(TOOL_GUIDES[other].installCommand);
-      expect(installGuide(tool).join("\n")).not.toContain(TOOL_GUIDES[other].doctorCommand);
+      const guide = setupGuide(tool);
+      expect(guide.map(step => step.title)).toEqual(["STEP 0 · 개발 환경 준비", "STEP 1 · 프로젝트 준비", "STEP 2 · 도구 실행"]);
+      const all = guide.flatMap(step => step.sections.map(sectionText)).join("\n");
+      for (const command of ["installCommand", "doctorCommand", "versionCommand"] as const) {
+        expect(all).toContain(TOOL_GUIDES[tool][command]);
+        expect(all).not.toContain(TOOL_GUIDES[other][command]);
+      }
+      const [check, ...installs] = guide[0].sections;
+      expect(check.title).toBe("필요한 프로그램 확인");
+      expect(check.blocks).toContainEqual({ kind: "code", lines: ["git --version", "node --version", "npm --version", TOOL_GUIDES[tool].versionCommand] });
+      expect(sectionText(check)).toContain("해당 설치 단계를 건너뜁니다");
+      for (const install of installs) expect(install.when).toMatch(/에만|때만/);
+      expect(installs.at(-1)!.title).toBe(`${TOOL_GUIDES[tool].name} 설치`);
+      expect(installs.at(-1)!.blocks[0]).toEqual({ kind: "code", lines: [TOOL_GUIDES[tool].installCommand] });
+      expect(guide[1]).toEqual(setupGuide(other)[1]);
     }
   });
-  it("builds numbered professional instructions in order with task-specific requirements", () => {
-    const prompt = buildAllInOnePrompt(planFixture, "codex", { taskName: "월간 취합" });
+  it("builds dynamic, consecutively numbered sections grounded in the diagnosis", () => {
+    const prompt = buildAllInOnePrompt(planFixture, "codex", { taskName: "월간 취합", diagnosis: diagnosisFixture });
     expect(prompt).toMatch(/^# 월간 취합 자동화 구현 지시문\n/);
     expectContinuousSections(prompt);
-    expect(prompt.match(/^## \d+\. .+$/gm)).toEqual([
-      "## 1. 작업 목표", "## 2. 작업 전 현재 프로젝트 확인", "## 3. AS-IS",
-      "## 4. TO-BE", "## 5. 작업 범위", "## 6. 구현 전 확인사항", "## 7. 구현 원칙",
-      "## 8. 구현 요구사항", "## 9. 데이터 흐름", "## 10. 외부 연동",
-      "## 11. 승인·검토", "## 12. 예외 처리", "## 13. 문제 발생 시 대응",
-      "## 14. 보안", "## 15. 검증 방법", "## 16. Git 반영", "## 17. 배포 및 운영 적용",
-      "## 18. 완료 조건", "## 19. 완료 보고",
+    expect(sectionsOf(prompt)).toEqual([
+      "작업 목표", "현재 진단 기준", "작업 전 현재 프로젝트 확인", "AS-IS", "TO-BE", "작업 범위", "구현 전 확인사항", "구현 원칙",
+      "구현 요구사항", "외부 연동", "예외 처리", "문제 발생 시 대응", "보안", "검증 방법", "Git 반영", "배포 및 운영 적용", "완료 조건", "완료 보고",
     ]);
-    const section = (number: number) => prompt.split(`## ${number}. `)[1].split(/\n## \d+\. /)[0];
-    for (const [number, items] of [
-      [1, planFixture.goal], [3, planFixture.asIs], [4, planFixture.toBe], [6, planFixture.prerequisites],
-      [9, planFixture.dataFlow], [10, planFixture.integrations], [11, planFixture.humanInLoop],
-      [12, planFixture.exceptions], [14, planFixture.security], [18, planFixture.acceptance],
-    ] as const) {
-      for (const item of items) expect(section(number)).toContain(`- ${item}`);
-    }
-    expect(section(1)).not.toContain(planFixture.toBe[0]);
-    expect(section(5)).toContain("### 포함\n\n- 취합");
-    expect(section(5)).toContain("### 제외\n\n- 자동 승인");
-    expect(section(5)).toContain("제외 범위에 해당하는 기능은 이번 작업에서 임의로 추가하지 마세요.");
-    expect(section(7)).toContain(`- ${planFixture.repositoryFirst}\n- 기존 구현을 우선 재사용하세요.`);
-    expect(section(7)).not.toContain("현재 프로젝트 구조를 먼저 확인하세요.");
-    expect(section(2)).not.toContain("추측하지 마세요");
-    expect(section(8)).toContain("1. 저장소 확인\n2. 샘플 실험\n3. 검증 후 구현");
-    expect(section(13)).toContain("### 자동화 실패 시\n\n- 수동 취합");
-    expect(section(13)).toContain("### 운영·수동 처리\n\n- 담당자 지정");
-    expect(section(13)).toContain("자동화가 실패하면 기존 수동 업무 방식으로 안전하게 처리할 수 있어야 합니다.");
-    expect(section(15)).toContain("### 정상 케이스\n\n- 샘플 대조");
-    expect(section(15)).toContain("### 주요 예외 케이스\n\n'예외 처리' 섹션에 정의된 각 상황을 재현해 정상적으로 처리되는지 확인하세요.");
-    expect(section(15)).toContain("### 사전 검증\n\n- 샘플 대조");
-    expect(section(18).indexOf("- 대조 통과")).toBeLessThan(section(18).indexOf("- 요청한 기능이 정상 작동합니다."));
-    expect(section(19).match(/^\d+\. .+$/gm)).toEqual([
-      "1. 확인한 현재 구조", "2. 수정한 파일", "3. 구현한 내용", "4. 테스트·검증 결과",
-      "5. Git 상태", "6. 배포/운영 적용 결과", "7. 남은 위험 또는 미실행 항목",
-    ]);
+    expect(sectionBody(prompt, "AS-IS")).toContain("1. 자료 수집\n2. 형식 검증\n3. 담당자 승인");
+    expect(sectionBody(prompt, "TO-BE")).toContain("2. 승인 — 담당자: 결과 대조 후 승인");
+    expect(sectionBody(prompt, "작업 범위")).toContain("### 제외\n\n- 자동 승인\n- 담당자 승인 (담당자 수행)");
+    const requirements = sectionBody(prompt, "구현 요구사항");
+    for (const heading of ["### 입력 확인", "### 검증", "### 처리 순서", "### 데이터 흐름", "### 예외 분리", "### 결과 생성", "### 담당자 검토"]) expect(requirements).toContain(heading);
+    expect(requirements).toContain("1. 저장소 확인\n2. 샘플 실험\n3. 검증 후 구현");
+    expect(requirements).toContain("확인 전에는 컬럼명이나 시트 이름을 하드코딩하지 마세요.");
+    const verification = sectionBody(prompt, "검증 방법");
+    for (const heading of ["### 정상 케이스", "### 경계값", "### 실패·예외 케이스", "### 사전 검증", "### 회귀 검증"]) expect(verification).toContain(heading);
+    expect(sectionBody(prompt, "예외 처리")).toContain("- 누락 시 검토\n- 누락");
+    expect(sectionBody(prompt, "완료 조건").indexOf("- 대조 통과")).toBeLessThan(sectionBody(prompt, "완료 조건").indexOf("- 요청한 기능이 정상 작동"));
   });
-  it("includes repository, security, validation and safe Git/deployment rules", () => {
-    const prompt = buildAllInOnePrompt(planFixture, "codex");
+  it("states the Level 1 diagnosis and keeps the automation scope inside it", () => {
+    const prompt = buildAllInOnePrompt(planFixture, "codex", { taskName: "월간 취합", diagnosis: levelOne });
+    const criteria = sectionBody(prompt, "현재 진단 기준");
+    expect(criteria).toContain("- 자동화 수준: AI 보조 · Level 1");
+    for (const line of ["- 자동화 가치: 4/5", "- 기술 실현 가능성: 3/5", "- 담당자 판단 필요도: 4/5", "- 운영 위험: 3/5", "- 실행 상태: 확인 후 진행"]) expect(criteria).toContain(line);
+    expect(criteria).toContain("자동화 범위를 Level 2~3 수준으로 확대하지 마세요.");
+    expect(criteria).toContain("'구현 전 확인사항'을 확인하기 전에는 관련 기능을 확정 구현하지 마세요.");
+    expect(sectionBody(prompt, "작업 범위")).toContain("진단에서 제외되거나 담당자 유지로 분류된 단계를 임의로 자동화하지 마세요.");
+    expect(sectionBody(prompt, "작업 목표")).toContain("다음 담당자 검토·승인 단계는 유지합니다");
+    expect(sectionBody(prompt, "완료 조건")).toContain("담당자 검토·승인 단계가 유지됩니다.");
+    const ready = buildAllInOnePrompt(planFixture, "codex", { diagnosis: withFactors([5, 5, 5, 5, 1, 1], { decisionGate: { verdict: "go", reasons: [] }, technicalChecks: [] }) });
+    expect(sectionBody(ready, "현재 진단 기준")).toContain("- 실행 상태: 진행 가능");
+    expect(sectionBody(ready, "현재 진단 기준")).toContain("Level 3");
+    expect(ready).not.toContain("진단에서 제외되거나 담당자 유지로 분류된 단계를 임의로 자동화하지 마세요.");
+  });
+  it("drops unsupported metrics and organizations and never invents deletion policy", () => {
+    const prompt = buildAllInOnePrompt(freightPlan, "codex", { taskName: "월간 운임 정산", diagnosis: levelOne, context: "매월 사업장별 운송 실적 Excel을 운임표와 대조해 정산합니다." });
+    for (const text of ["50%", "0% 목표", "95%", "재무팀", "운영팀"]) expect(prompt).not.toContain(text);
+    expect(prompt).toContain("- 샘플 정산표 대조 통과");
+    expect(prompt).toContain("자동 삭제·자동 보정은 기존 업무 규칙에 명시된 경우에만 적용하고, 그렇지 않으면 대상 건을 표시만 하세요.");
+    expect(prompt).toContain("허용 오차가 기존 업무에 정의되어 있으면 그 기준을 사용하고, 없으면 임의의 허용 오차를 만들지 마세요.");
+    expect(prompt).not.toContain("문제 발생 시 대응\n\n### 운영");
+    const named = buildAllInOnePrompt(freightPlan, "codex", { diagnosis: levelOne, context: "정산은 재무팀이 검토하고 시스템 운영팀이 장애를 맡습니다." });
+    expect(sectionBody(named, "문제 발생 시 대응")).toContain("- 재무팀이 주관, 오류 시 시스템 운영팀이 대응");
+    expect(sectionBody(named, "문제 발생 시 대응")).toContain("현재 조직의 실제 운영 체계를 확인한 뒤 반영하세요.");
+  });
+  it("varies the instruction with the task instead of repeating one template", () => {
+    const excel = buildAllInOnePrompt(freightPlan, "codex", { taskName: "월간 운임 정산", diagnosis: levelOne });
+    const contract = buildAllInOnePrompt({ ...planFixture, goal: ["계약서 조항 위험 후보 표시"], implementation: ["조항 분리", "위험 후보 표시"], integrations: [] }, "codex", {
+      taskName: "계약 검토 보조", diagnosis: withFactors([3, 2, 2, 2, 5, 4], { asIs: { ...diagnosisFixture.asIs, steps: ["계약서 수령", "조항 검토", "법무 판단"], inputs: ["계약서 PDF"] } }),
+    });
+    expect(sectionBody(contract, "현재 진단 기준")).toContain("Level 0");
+    expect(sectionBody(contract, "현재 진단 기준")).toContain("시스템이 업무를 자동 실행하는 기능을 임의로 추가하지 마세요.");
+    expect(sectionsOf(contract)).not.toContain("외부 연동");
+    expect(sectionBody(contract, "AS-IS")).toContain("2. 조항 검토");
+    expect(sectionBody(contract, "구현 요구사항")).toContain("- 계약서 PDF");
+    expect(sectionBody(excel, "구현 요구사항")).toContain("1. 파싱·형식 검증");
+    expect(sectionBody(excel, "현재 진단 기준")).not.toBe(sectionBody(contract, "현재 진단 기준"));
+  });
+  it("keeps repository, Git and deployment safety without platform boilerplate", () => {
+    const prompt = buildAllInOnePrompt(planFixture, "codex", { diagnosis: diagnosisFixture });
     for (const text of [
-      "작업을 시작하기 전에 현재 저장소를 먼저 확인하세요.",
-      "확인되지 않은 파일명·함수명·API·배포 방식을 추측하지 말고",
-      "기존 구현을 우선 재사용하세요. 기존 컴포넌트·함수가 있으면 새로 만들기 전에 재사용을 검토하세요.",
-      "현재 저장소에 실제로 존재하는 검증 명령과 도구를 먼저 확인한 뒤 실행하세요. 존재하지 않는 테스트 framework나 명령을 추측하거나 임의로 설치하지 마세요.",
-      "실제로 수행하지 않은 작업을 완료했다고 보고하지 마세요.",
-      "제외 범위에 해당하는 기능은 이번 작업에서 임의로 추가하지 마세요.",
-      "실패를 정상 처리처럼 숨기지 말고",
-      "요청하지 않은 기능을 추가하지 마세요.",
-      "불필요한 신규 라이브러리나 패키지를 추가하지 마세요.",
-      "관련 없는 파일 변경을 최소화하세요.",
-      "확인되지 않은 API나 권한이 있다고 가정해 구현하지 마세요.",
-      "secret을 코드에 하드코딩하지 마세요. 기존 환경변수 등 저장소의 secret 관리 방식을 사용하세요.",
-      "민감한 데이터를 불필요하게 로그에 남기지 마세요.",
-      "최소 권한 원칙을 유지하세요.",
-      "도구가 있으면 기존 흐름으로 주요 화면을 Desktop과 Mobile에서 확인하세요.",
+      "현재 프로젝트 저장소를 먼저 확인한 뒤 아래 요구사항을 구현하세요.",
+      "이 프로젝트가 웹 애플리케이션인지, 로컬 스크립트·CLI·Excel 자동화인지 확인하세요.",
+      "확인되지 않은 항목은 '확인 필요'로 유지하고, 확인되지 않은 API나 권한이 있다고 가정해 구현하지 마세요.",
+      "실패·미매칭·확인 불가 데이터를 정상 처리 결과에 섞지 말고",
+      "secret은 코드에 하드코딩하지 말고 저장소의 기존 secret 관리 방식을 사용하세요.",
       "도구가 없으면 새로 설치하지 말고 그 사실을 보고하세요.",
-      "### 회귀 검증\n\n이 작업과 관련된 기존 기능이 이전과 동일하게 동작하는지 확인하세요.",
-      "`git status`로 변경 상태를 확인하세요.",
-      "`git diff`로 변경 내용을 검토하세요.",
-      "현재 branch와 `git remote -v`로 원격을 확인하세요.",
-      "저장소의 branch/PR 정책을 확인하세요.",
-      "필요한 파일만 골라 `git add <파일>`로 stage하세요.",
-      "stage·commit·push·PR은 사용자 요청 범위, 도구 권한, 저장소 정책이 모두 허용할 때만 진행하세요.",
+      "의도한 파일만 `git add <파일>`로 stage하세요. `git add .`로 전체를 추가하지 마세요.",
+      "force push, `git reset --hard` 같은 파괴적인 명령을 사용하지 마세요.",
+      "stage·commit·push·PR은 사용자 요청 범위, 도구 권한, 저장소 branch/PR 정책이 모두 허용할 때만 진행하세요.",
       "허용되지 않으면 실행하지 말고 현재 Git 상태, 추천 commit 메시지, 다음에 실행할 명령을 보고하세요.",
-      "Production 배포는 사용자가 배포를 요청했고 권한이 확인된 경우에만 기존 방식을 재사용해 실행하세요.",
+      "배포 플랫폼을 임의로 선택하거나 새 배포 도구를 설치하지 마세요.",
+      "로컬 스크립트·CLI·Excel 자동화처럼 웹 배포가 필요 없으면 배포 대신 실행 환경 구성과 운영 적용으로 처리하세요.",
+      "Production 배포는 사용자가 배포를 요청했고 권한이 확인된 경우에만 기존 방식으로 실행하세요.",
       "배포 또는 운영 적용을 수행한 경우 실제 환경에서 핵심 기능을 검증합니다. 수행하지 않은 경우 사유와 미실행 항목을 명확히 보고합니다.",
-      "`git add .`로 전체 파일을 한 번에 추가하지 마세요.",
-      "확인 없이 main branch에 직접 push하지 마세요.",
-      "force push를 사용하지 마세요.",
-      "저장소 정책을 확인하지 않고 branch를 삭제하지 마세요.",
-      "`git reset --hard` 같은 파괴적인 명령을 기본 흐름에 넣지 마세요.",
-      "Vercel과 Cloudflare 중 하나를 임의로 선택하거나 새 배포 도구를 설치하지 마세요.",
-      "배포 방식을 확인할 수 없으면 임의로 진행하지 말고 '배포 방식 확인 필요'로 보고하세요.",
-      "wrangler.toml·wrangler.json·wrangler.jsonc",
-      "웹 배포가 필요 없는 자동화(CLI, 스크립트, Excel 자동화, 로컬 실행형 등)이면 배포 대신 실행 환경 구성 또는 운영 적용으로 처리하세요.",
-      "문제가 발견되면 수정 → 재배포 또는 재적용 → 동일 시나리오 재검증 순서로 진행하세요.",
-      "실행하지 않은 검증은 완료로 보고하지 말고 미실행으로 명시합니다.",
+      "실제로 수행하지 않은 작업을 완료했다고 보고하지 마세요.",
     ]) expect(prompt).toContain(text);
-    for (const text of ["npm install -g", "winget", "PowerShell", "mkdir", "해당 없음", "## 16. GitHub 반영", "## 20.", "실제 배포·운영 환경에서 검증했습니다."]) expect(prompt).not.toContain(text);
-    const git = prompt.split("## 16. Git 반영")[1].split("\n## ")[0];
-    expect(git.indexOf("검증 결과를 확인하세요.")).toBeLessThan(git.indexOf("`git add <파일>`"));
+    for (const text of ["npm install -g", "winget", "PowerShell", "해당 없음", "vercel.json", "wrangler.toml", "Vercel과 Cloudflare", "실제 배포·운영 환경에서 검증했습니다."]) expect(prompt).not.toContain(text);
+    expect(prompt.match(/저장소를 먼저 확인/g)).toHaveLength(1);
   });
   it("deduplicates plan and diagnostic prerequisites while preserving their order", () => {
     const options = { taskName: "월간 취합", prerequisites: [planFixture.prerequisites[0], "권한 확인", "권한 확인", "승인자 확인"] };
     const prompt = buildAllInOnePrompt(planFixture, "codex", options);
     expect(prompt.match(/^- 실제 저장소와 API 확인$/gm)).toHaveLength(1);
-    expect(prompt.match(/^- 권한 확인$/gm)).toHaveLength(1);
     expect(prompt).toContain("- 실제 저장소와 API 확인\n- 권한 확인\n- 승인자 확인");
     const onlyDiagnostic = buildAllInOnePrompt({ ...planFixture, prerequisites: [] }, "codex", { prerequisites: ["진단 조건 확인"] });
-    expect(onlyDiagnostic).toContain("## 6. 구현 전 확인사항\n\n- 진단 조건 확인");
+    expect(sectionBody(onlyDiagnostic, "구현 전 확인사항")).toMatch(/^\n+- 진단 조건 확인/);
   });
   it("is deterministic and identical between Codex and Claude Code", () => {
-    const options = { taskName: "월간 취합", prerequisites: ["권한 확인"] };
+    const options = { taskName: "월간 취합", prerequisites: ["권한 확인"], diagnosis: levelOne };
     const codex = buildAllInOnePrompt(planFixture, "codex", options);
     expect(codex).toBe(buildAllInOnePrompt(planFixture, "codex", options));
-    const claude = buildAllInOnePrompt(planFixture, "claude", options);
-    expect(claude).toBe(codex);
-    expect(codex).not.toContain("에서 실행하는 것을 전제로 합니다");
-  });
-  it("renumbers sections when integrations and security are omitted", () => {
-    const prompt = buildAllInOnePrompt({ ...planFixture, integrations: [], security: [] }, "codex");
-    expectContinuousSections(prompt);
-    expect(prompt.match(/^## \d+\. .+$/gm)).toHaveLength(17);
-    expect(prompt).not.toMatch(/^## \d+\. (외부 연동|보안)$/m);
-    expect(prompt).toContain("## 10. 승인·검토");
-    expect(prompt).toContain("## 13. 검증 방법");
-    expect(prompt).toContain("## 17. 완료 보고");
+    expect(buildAllInOnePrompt(planFixture, "claude", options)).toBe(codex);
   });
   it("omits empty task-specific sections and consecutively numbers required sections", () => {
     const prompt = buildAllInOnePrompt({
@@ -159,37 +171,34 @@ describe("AX execution guides", () => {
       humanInLoop: [], poc: [], implementation: [], dataFlow: [], integrations: [], exceptions: [],
       fallback: [], security: [], operation: [], tests: [], acceptance: [],
     }, "codex");
-    expect(prompt.match(/^## \d+\. .+$/gm)).toEqual([
-      "## 1. 작업 전 현재 프로젝트 확인", "## 2. 구현 원칙", "## 3. 검증 방법",
-      "## 4. Git 반영", "## 5. 배포 및 운영 적용", "## 6. 완료 조건", "## 7. 완료 보고",
-    ]);
+    expect(sectionsOf(prompt)).toEqual(["작업 전 현재 프로젝트 확인", "구현 원칙", "검증 방법", "Git 반영", "배포 및 운영 적용", "완료 조건", "완료 보고"]);
     expectContinuousSections(prompt);
-    for (const text of ["## 10.", "해당 없음", "### 정상 케이스", "### 주요 예외 케이스", "### 사전 검증"]) expect(prompt).not.toContain(text);
-    expect(prompt).toContain(`## 2. 구현 원칙\n\n- ${planFixture.repositoryFirst}\n- 기존 구현을 우선 재사용하세요.`);
-    expect(prompt).toContain("### 회귀 검증");
-    expect(prompt).toContain("## 6. 완료 조건\n\n- 요청한 기능이 정상 작동합니다.");
+    for (const text of ["해당 없음", "### 사전 검증", "### 담당자 검토", "담당자 검토·승인 단계가 유지됩니다.", "현재 진단 기준"]) expect(prompt).not.toContain(text);
+    expect(prompt).toContain(`## 2. 구현 원칙\n\n- ${planFixture.repositoryFirst}\n- 기존 구현을 우선 재사용하고`);
+    expect(prompt).toContain("## 6. 완료 조건\n\n- 요청한 기능이 정상 작동하고");
   });
   it.each(["inScope", "outOfScope"] as const)("keeps scope with only %s populated", key => {
     const prompt = buildAllInOnePrompt({ ...planFixture, inScope: [], outOfScope: [], [key]: ["범위 항목"] }, "codex");
-    expect(prompt).toContain("## 5. 작업 범위");
-    expect(prompt).toContain(`### ${key === "inScope" ? "포함" : "제외"}\n\n- 범위 항목`);
-    expect(prompt).not.toContain(`### ${key === "inScope" ? "제외" : "포함"}`);
-    expect(prompt).toContain("제외 범위에 해당하는 기능은 이번 작업에서 임의로 추가하지 마세요.");
+    expect(sectionBody(prompt, "작업 범위")).toContain(`### ${key === "inScope" ? "포함" : "제외"}\n\n- 범위 항목`);
+    expect(sectionBody(prompt, "작업 범위")).not.toContain(`### ${key === "inScope" ? "제외" : "포함"}`);
   });
   it.each(["fallback", "operation"] as const)("keeps recovery with only %s populated", key => {
     const prompt = buildAllInOnePrompt({ ...planFixture, fallback: [], operation: [], [key]: ["복구 항목"] }, "codex");
-    expect(prompt).toContain("## 13. 문제 발생 시 대응");
-    expect(prompt).toContain(`### ${key === "fallback" ? "자동화 실패 시" : "운영·수동 처리"}\n\n- 복구 항목`);
-    expect(prompt).not.toContain(`### ${key === "fallback" ? "운영·수동 처리" : "자동화 실패 시"}`);
-    expect(prompt).toContain("자동화가 실패하면 기존 수동 업무 방식으로 안전하게 처리할 수 있어야 합니다.");
+    const recovery = sectionBody(prompt, "문제 발생 시 대응");
+    expect(recovery).toContain(`### ${key === "fallback" ? "자동화 실패 시" : "운영"}\n\n- 복구 항목`);
+    expect(recovery).not.toContain(`### ${key === "fallback" ? "운영" : "자동화 실패 시"}`);
   });
   it("distinguishes repository preparation cases without choosing a framework", () => {
-    const { cases } = projectPrepGuide();
-    expect(cases.map(c => c.id)).toEqual(["github", "local", "new"]);
-    expect(cases[0].steps.join("\n")).toContain("git clone");
-    expect(cases[1].steps.join("\n")).not.toContain("git clone");
-    expect(cases[2].steps.join("\n")).not.toContain("Next.js로 생성");
-    expect(cases[2].steps.join("\n")).toContain("특정 프레임워크를 임의로 정하지 않습니다");
-    for (const item of cases) expect(item.steps.join("\n")).toContain("Get-Location");
+    const sections = setupGuide("codex")[1].sections.filter(section => /^[ABC]\. /.test(section.title));
+    expect(sections.map(section => section.title)).toEqual(["A. GitHub에 있는 기존 프로젝트", "B. PC에 이미 있는 프로젝트", "C. 새 프로젝트"]);
+    for (const section of sections) expect(section.when).toBeTruthy();
+    const commands = sections.map(section => section.blocks.flatMap(block => block.kind === "code" ? block.lines : []));
+    expect(commands[0]).toContain("git clone <저장소 URL>");
+    expect(commands[1].join("\n")).not.toContain("git clone");
+    expect(commands[2].join("\n")).not.toContain("git clone");
+    const newProject = sections[2].blocks.map(block => block.kind === "text" ? block.text : "").join("\n");
+    expect(newProject).toContain("특정 프레임워크를 임의로 정하지 않습니다");
+    const run = setupGuide("codex")[2].sections[0];
+    expect(run.blocks).toContainEqual({ kind: "code", lines: ['cd "프로젝트 경로"', "Get-Location", "dir", TOOL_GUIDES.codex.runCommand] });
   });
 });

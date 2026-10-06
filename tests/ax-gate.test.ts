@@ -17,16 +17,16 @@ function diagnosis(overrides: Partial<AxDiagnosis> = {}): AxDiagnosis {
 
 describe("AX execution gate", () => {
   it("exposes the three execution labels", () => {
-    expect(GATE_LABELS).toEqual({ ready: "실행 가능", conditional: "조건부 진행", blocked: "실행 보류" });
+    expect(GATE_LABELS).toEqual({ ready: "진행 가능", conditional: "확인 후 진행", blocked: "진행 보류" });
   });
 
-  it("blocks no-go while preserving the original quick region and showing 실행 보류", () => {
+  it("blocks no-go while preserving the original quick region and showing 진행 보류", () => {
     const d = diagnosis({ decisionGate: { verdict: "no-go", reasons: ["실행 승인 불가"] } });
     d.factors.forEach(f => { f.aiValue = f.key === "humanJudgment" || f.key === "operationalRisk" ? 1 : 5; });
     const before = structuredClone(d);
     expect(matrixPosition(d).region).toBe("quick");
     expect(executionGate(d)).toBe("blocked");
-    expect(priorityDisplayLabel(d)).toBe("실행 보류");
+    expect(priorityDisplayLabel(d)).toBe("진행 보류");
     expect(planAllowed(d)).toBe(false);
     expect(matrixPosition(d).region).toBe("quick");
     expect(d).toEqual(before);
