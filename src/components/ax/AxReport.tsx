@@ -129,10 +129,14 @@ function AxGuideText({ text }: { text: string }) {
   return <>{text.split(/(`[^`]+`)/g).map((part, i) => part.startsWith("`") ? <code className="ax-cmd" key={i}>{part.slice(1, -1)}</code> : part)}</>;
 }
 function AxGuideBlockView({ block }: { block: AxGuideBlock }) {
-  if (block.kind === "code") return <>
-    <pre className="ax-guide-code" aria-label="PowerShell 명령"><span className="ax-guide-code-label" aria-hidden="true">PowerShell</span><code>{block.lines.join("\n")}</code></pre>
-    {block.notes ? <ul className="ax-guide-code-notes">{block.notes.map((note, i) => <li key={i}>{note}</li>)}</ul> : null}
-  </>;
+  if (block.kind === "code") {
+    const label = block.label ?? "PowerShell";
+    const ariaLabel = label === "PowerShell" ? "PowerShell 명령" : label === ".gitignore" ? ".gitignore 예시" : "예시";
+    return <>
+      <pre className="ax-guide-code" aria-label={ariaLabel}><span className="ax-guide-code-label" aria-hidden="true">{label}</span><code>{block.lines.join("\n")}</code></pre>
+      {block.notes ? <ul className="ax-guide-code-notes">{block.notes.map((note, i) => <li key={i}>{note}</li>)}</ul> : null}
+    </>;
+  }
   if (block.kind === "steps") return <ol className="ax-guide-list">{block.items.map((item, i) => <li key={i}><AxGuideText text={item} /></li>)}</ol>;
   return <p><AxGuideText text={block.text} /></p>;
 }

@@ -350,6 +350,11 @@ test("AX registration → diagnosis → correction → matrix → plans → relo
   ]);
   await expect(guidePanel.locator(".ax-guide-section > h5").filter({ hasText: /^[ABC]\. / })).toHaveText(["A. GitHub에 있는 기존 프로젝트", "B. PC에 이미 있는 프로젝트", "C. 새 프로젝트"]);
   await expect(guidePanel.locator(".ax-guide-code").first()).toContainText("git --version");
+  await expect(guidePanel.locator(".ax-guide-code").first()).toHaveAttribute("aria-label", "PowerShell 명령");
+  await expect(guidePanel.locator(".ax-guide-code").first().locator(".ax-guide-code-label")).toHaveText("PowerShell");
+  const gitignoreExample = guidePanel.locator(".ax-guide-code").filter({ hasText: "node_modules/" });
+  await expect(gitignoreExample.locator(".ax-guide-code-label")).toHaveText(".gitignore");
+  await expect(gitignoreExample).toHaveAttribute("aria-label", ".gitignore 예시");
   const guideStyle = await guidePanel.evaluate(element => {
     const body = element.querySelector(".ax-guide-section > p")!, step = element.querySelector(".ax-guide-step > h4")!, code = element.querySelector(".ax-guide-code")!;
     return { align: getComputedStyle(element).textAlign, body: parseFloat(getComputedStyle(body).fontSize), step: parseFloat(getComputedStyle(step).fontSize), code: parseFloat(getComputedStyle(code).fontSize), color: getComputedStyle(body).color, muted: getComputedStyle(element.querySelector(".ax-guide-when")!).color };

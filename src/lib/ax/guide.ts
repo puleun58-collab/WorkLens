@@ -10,13 +10,13 @@ export const TOOL_GUIDES: Record<AxToolId, {
   claude: { name: "Claude Code", versionCommand: "claude --version", installCommand: "npm install -g @anthropic-ai/claude-code", runCommand: "claude", doctorCommand: "claude doctor", loginNote: "첫 실행 시 브라우저에서 로그인합니다." },
 };
 
-/** Inline text marks commands with backticks; `code` blocks hold PowerShell lines run in order. */
-export type AxGuideBlock = { kind: "text"; text: string } | { kind: "code"; lines: string[]; notes?: string[] } | { kind: "steps"; items: string[] };
+/** Inline text marks commands with backticks; `code` blocks default to PowerShell unless labeled as examples. */
+export type AxGuideBlock = { kind: "text"; text: string } | { kind: "code"; lines: string[]; notes?: string[]; label?: "PowerShell" | ".gitignore" | "예시" } | { kind: "steps"; items: string[] };
 export interface AxGuideSection { title: string; when?: string; blocks: AxGuideBlock[] }
 export interface AxGuideStep { title: string; sections: AxGuideSection[] }
 
 const text = (value: string): AxGuideBlock => ({ kind: "text", text: value });
-const code = (lines: string[], notes: string[]): AxGuideBlock => ({ kind: "code", lines, notes });
+const code = (lines: string[], notes: string[], label?: Extract<AxGuideBlock, { kind: "code" }>["label"]): AxGuideBlock => ({ kind: "code", lines, notes, ...(label ? { label } : {}) });
 
 export function setupGuide(tool: AxToolId): AxGuideStep[] {
   const guide = TOOL_GUIDES[tool];
@@ -92,14 +92,15 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
           "<프로젝트 폴더>를 내려받은 폴더 이름으로 바꾸어 이동합니다.",
           "현재 브랜치와 변경된 파일을 확인합니다.",
         ]),
-        text("clone 후 lockfile, package.json과 저장소 지침을 함께 확인해 설치 명령을 정합니다. package-lock.json → npm, pnpm-lock.yaml → pnpm, bun.lock → Bun, yarn.lock → Yarn이 단서이며 파일 하나로 단정하지 않습니다."),
       ] },
       { title: "B. PC에 이미 있는 프로젝트", when: "이 PC에 기존 프로젝트 폴더가 있는 경우", blocks: [
-        code(['cd "C:\\프로젝트\\경로"', "git status"], [
+        code(['cd "C:\\프로젝트\\경로"', "git status", "git branch --show-current", "git remote -v"], [
           "실제 프로젝트 경로로 바꾸어 이동합니다.",
           "현재 브랜치와 미커밋 변경을 먼저 확인합니다.",
+          "현재 작업 중인 브랜치 이름을 확인합니다.",
+          "연결된 원격 URL이 작업할 GitHub 저장소인지 확인합니다.",
         ]),
-        text("이미 Git 저장소면 그대로 사용합니다. 미커밋 변경이 있으면 무조건 `git pull`부터 실행하지 마세요. 충돌이 우려되면 AI 도구에 현재 상태를 먼저 확인시킵니다."),
+        text("이미 Git 저장소면 그대로 사용합니다. 미커밋 변경이 있으면 `git pull`을 실행하지 말고 AI 도구에 현재 상태를 먼저 확인시킵니다."),
       ] },
       { title: "C. 새 프로젝트", when: "새 폴더에서 처음 시작하는 경우", blocks: [
         code(["mkdir C:\\Work\\MyProject", "cd C:\\Work\\MyProject"], [
@@ -107,6 +108,22 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
           "방금 만든 프로젝트 폴더로 이동합니다.",
         ]),
         text("이후 AI 도구가 요구사항을 확인해 프레임워크, Git 초기화와 GitHub 연결 필요성을 결정합니다. 특정 프레임워크를 임의로 정하지 않습니다."),
+        text("작업 후 Git 저장 전에 현재 폴더가 Git 저장소인지, 원격이 연결됐는지, 맞는 GitHub 저장소인지 확인합니다."),
+        code(["git status", "git remote -v"], [
+          "현재 폴더가 Git 저장소인지와 변경 상태를 확인합니다.",
+          "원격 연결 여부와 대상 GitHub 저장소 URL을 확인합니다.",
+        ]),
+        text("Git 저장소가 아닌 경우에만 초기화할 수 있습니다. 기존 저장소를 재초기화하거나 기존 remote를 덮어쓰지 않고, branch 이름을 main으로 강제하지 않습니다."),
+        text("remote가 없으면 GitHub CLI 또는 웹 등 현재 방식대로 GitHub 저장소를 만들고 연결합니다. 첫 push 전에 `git remote -v`로 대상을 다시 확인합니다."),
+      ] },
+      { title: "의존성 준비", blocks: [
+        { kind: "steps", items: [
+          "저장소 지침(AGENTS.md·README·packageManager 필드)을 먼저 확인합니다.",
+          "package.json이 있으면 scripts와 의존성을 확인합니다.",
+          "lockfile 단서를 확인합니다: package-lock.json → npm, pnpm-lock.yaml → pnpm, yarn.lock → Yarn, bun.lock/bun.lockb → Bun일 가능성이 있습니다.",
+          "확인한 저장소의 기존 방식대로 의존성을 설치합니다. 설치 명령은 지침과 실제 설정을 따릅니다.",
+        ] },
+        text("lockfile 단서 하나로 package manager를 바꾸지 않습니다. 기존 lockfile과 package manager를 우선하며, 설치 과정에서 다른 매니저의 lockfile을 새로 만들거나 기존 lockfile을 교체하지 않습니다. migration은 별도 작업입니다."),
       ] },
       { title: "현재 위치 확인", blocks: [
         code(["Get-Location", "git status"], [
@@ -160,7 +177,7 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
       ] },
       { title: "실제 기능 확인", blocks: [text("가능하면 프로젝트를 직접 실행해 핵심 동작을 확인합니다.")] },
       { title: "오류가 나면", blocks: [{ kind: "steps", items: [
-        "Git 단계로 넘어가지 말고 오류 메시지를 AI 도구에 전달합니다.",
+        "Git 단계로 넘어가지 말고 오류 메시지·로그의 API Key·Token·Password·개인정보를 [REDACTED]로 가린 뒤 필요한 부분만 AI 도구에 전달합니다. 로그 전체를 무조건 복사하지 않습니다.",
         "AI가 오류를 수정합니다.",
         "같은 검증을 다시 실행합니다.",
         "성공한 뒤 다음 단계로 넘어갑니다.",
@@ -181,7 +198,7 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
           "프로젝트가 build 폴더에 만드는 빌드 결과를 제외합니다.",
           "프로젝트와 관계없는 항목은 넣지 마세요 (Next.js가 아니면 .next/ 불필요)",
           "로그 파일을 제외합니다.",
-        ]),
+        ], ".gitignore"),
       ] },
       { title: ".env와 .env.example", blocks: [
         text(".env에는 실제 Secret이 들어갈 수 있어 일반적으로 제외합니다. .env.example은 변수 이름을 공유하는 예제일 수 있으므로 무조건 제외하지 않습니다. 기존 프로젝트 정책을 우선합니다."),
@@ -195,12 +212,16 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
           "□ 테스트·빌드가 정상인가", "□ git status에 이상한 파일이 없는가",
         ] },
         text("Secret에는 API Key·Token·Password·서비스 계정 키·개인 인증 파일이 포함됩니다."),
-        text("이미 올린 Secret은 .gitignore만으로 보호되지 않습니다. 키를 폐기·재발급하고 필요하면 기록 정리도 검토합니다. 기록 재작성은 자동 실행하지 않습니다."),
+        text("실제 Secret 값을 Git뿐 아니라 AI 대화·터미널 로그·스크린샷에도 붙여넣지 않습니다. 로그를 AI 도구에 전달하기 전에 API Key·Token·Password·개인정보를 [REDACTED]로 가리고 필요한 부분만 전달합니다. 로그 전체를 무조건 복사하지 않습니다."),
+        text("이미 노출된 Secret은 .gitignore만으로 보호되지 않습니다. 키를 폐기 → 재발급 → 플랫폼 설정 교체 순서로 대응하고, 필요하면 기록 정리도 검토합니다. 기록 재작성은 자동 실행하지 않습니다."),
       ] },
       { title: "Git 저장 순서", blocks: [
         code(["git add ."], ["현재 폴더 아래 변경 전체를 커밋 후보(스테이지)에 올립니다. 필요한 파일만 올려도 됩니다."]),
         code(["git status"], ["커밋에 포함할 파일을 최종 확인합니다. 이상하면 커밋을 중단합니다."]),
+        code(["git diff --cached --stat"], ["커밋에 실제로 들어갈 파일 요약을 확인합니다. 파일 수가 과다하거나 대량 삭제·관계없는 파일이 있으면 중단합니다."]),
+        text("필요하면 `git diff --cached`로 스테이지에 올린 변경 내용까지 확인합니다."),
         code(["git branch --show-current"], ["현재 브랜치를 확인합니다. main 직접 push인지 PR 방식인지 프로젝트 방식을 확인합니다."]),
+        code(["git remote -v"], ["어느 GitHub 저장소로 push되는지 원격 URL을 확인합니다. 잘못된 저장소에 올리지 않도록 대상을 다시 확인합니다."]),
         code(['git commit -m "작업 내용 요약"'], ["요약을 실제 작업 내용으로 바꿉니다. 커밋은 스테이지의 변경을 Git에 기록하는 작업입니다."]),
         code(["git push"], ["프로젝트 방식대로 원격 저장소에 올립니다. push 후에도 배포가 완료된 것은 아닐 수 있습니다."]),
       ] },
@@ -221,12 +242,13 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
     ] },
     { title: "STEP 8 · 배포 (Vercel / Cloudflare)", sections: [
       { title: "먼저 현재 배포 환경 확인", blocks: [
-        text("Vercel과 Cloudflare를 둘 다 쓰는 것이 아닙니다. 현재 프로젝트가 배포되는 곳 하나만 확인합니다. 기존 배포 환경을 임의로 바꾸지 않습니다."),
-        text("Preview는 반영 전 확인용이고 Production은 실제 서비스입니다. 지금 배포할 환경을 먼저 확인합니다."),
+        text("Vercel과 Cloudflare를 모두 사용해야 하는 것은 아닙니다. 현재 프로젝트의 실제 배포 구성을 확인하고 사용하는 경로만 따르세요. 프론트엔드와 Worker/API를 나누어 두 플랫폼을 함께 쓰는 프로젝트도 있습니다."),
+        text("어떤 서비스가 어느 플랫폼에 어느 branch에서 어떤 방식으로 배포되는지 먼저 확인합니다. Vercel·Cloudflare Workers/Pages·GitHub Actions·Wrangler 등 현재 저장소 설정을 기준으로 하며, 배포 구성을 임의로 변경하거나 추가하지 않습니다."),
+        text("Preview는 반영 전 확인용이고 Production은 실제 서비스입니다. feature branch·PR → Preview, main/production branch → Production일 수 있지만 예시이며 실제 설정이 우선합니다. 지금 배포할 환경을 먼저 확인합니다. Preview 확인만으로 Production 배포가 완료된 것은 아닙니다."),
       ] },
       { title: "Vercel인 경우", when: "현재 프로젝트가 Vercel에 배포되는 경우에만", blocks: [
         { kind: "steps", items: ["프로젝트 방식대로 push 또는 main merge를 진행합니다.", "Vercel build 결과를 확인합니다.", "Preview 또는 Production 배포를 확인합니다.", "배포 상태를 확인합니다."] },
-        text("Git 연동 자동 배포라면 별도 수동 명령이 필요하지 않을 수 있습니다."),
+        text("Git 연동 자동 배포라면 별도 수동 명령이 필요하지 않을 수 있습니다. 자동 배포에 수동 명령을 중복 실행하지 않습니다."),
         text("로컬 .env를 GitHub에 올리지 않고 Vercel Environment Variables에 설정합니다. 변수 이름은 프로젝트에서 확인합니다. Preview·Production 값을 따로 설정할 수 있습니다."),
         { kind: "steps", items: ["실패하면 배포 로그를 확인합니다.", "로그를 AI 도구에 전달합니다.", "오류를 수정합니다.", "테스트합니다.", "commit/push합니다.", "재배포 결과를 확인합니다."] },
       ] },
@@ -244,9 +266,10 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
           "Production URL에 접속합니다.", "첫 화면이 로딩되는지 확인합니다.", "핵심 기능 1~2개를 실행합니다.",
           "주요 요청이 정상인지 확인합니다.", "Desktop에서 확인합니다.", "Mobile에서 확인합니다.", "브라우저 Console 오류를 확인합니다.",
         ] },
+        text("로그인·환경변수·API처럼 Production에서만 달라질 수 있는 기능이 있다면 실제 Production 환경에서도 확인합니다."),
       ] },
       { title: "문제가 생기면", blocks: [{ kind: "steps", items: [
-        "로그·브라우저 오류를 확인합니다.", "오류를 AI 도구에 전달합니다.", "문제를 수정합니다.", "다시 검증합니다.", "commit/push합니다.", "재배포하고 결과를 확인합니다.",
+        "로그·브라우저 오류를 확인합니다.", "API Key·Token·Password·개인정보를 [REDACTED]로 가린 뒤 필요한 오류 내용만 AI 도구에 전달합니다. 로그 전체를 무조건 복사하지 않습니다.", "문제를 수정합니다.", "다시 검증합니다.", "commit/push합니다.", "재배포하고 결과를 확인합니다.",
       ] }] },
       { title: "되돌리기(Rollback)", blocks: [
         text("무작정 계속 고치기보다 Vercel·Cloudflare에서 이전 정상 배포로 되돌릴 수 있는지 먼저 확인합니다. 실제 방식은 플랫폼 설정을 확인한 뒤 정합니다. 되돌리기는 자동 실행하지 않습니다."),
