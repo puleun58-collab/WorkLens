@@ -338,7 +338,16 @@ test("AX registration → diagnosis → correction → matrix → plans → relo
   await guide.click();
   await expect(guide).toHaveAttribute("aria-expanded", "true");
   const guidePanel = packageSection.locator(".ax-guide-panel");
-  await expect(guidePanel.locator(".ax-guide-step > h4")).toHaveText(["STEP 0 · 개발 환경 준비", "STEP 1 · 프로젝트 준비", "STEP 2 · 도구 실행"]);
+  await expect(guidePanel.locator(".ax-guide-step > h4")).toHaveText([
+    "시작하기 전에 · 전체 흐름", "STEP 1 · 처음 한 번 환경 준비", "STEP 2 · 프로젝트 준비",
+    "STEP 3 · Codex / Claude Code 실행", "STEP 4 · 올인원 지시문으로 작업", "STEP 5 · AI 작업 결과 검증",
+    "STEP 6 · .gitignore / Secret 확인 후 Git 저장", "STEP 7 · GitHub CI / PR 확인",
+    "STEP 8 · 배포 (Vercel / Cloudflare)", "STEP 9 · Production 최종 확인",
+  ]);
+  await expect(guidePanel.locator(".ax-guide-code-notes").first().locator("li")).toHaveText([
+    "Git 설치 여부와 버전을 확인합니다.", "Node.js 설치 여부와 버전을 확인합니다.",
+    "npm 설치 여부와 버전을 확인합니다.", "Codex 설치 여부와 버전을 확인합니다.",
+  ]);
   await expect(guidePanel.locator(".ax-guide-section > h5").filter({ hasText: /^[ABC]\. / })).toHaveText(["A. GitHub에 있는 기존 프로젝트", "B. PC에 이미 있는 프로젝트", "C. 새 프로젝트"]);
   await expect(guidePanel.locator(".ax-guide-code").first()).toContainText("git --version");
   const guideStyle = await guidePanel.evaluate(element => {
