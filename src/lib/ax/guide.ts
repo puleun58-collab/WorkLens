@@ -100,8 +100,12 @@ const ORGANIZATION = /[가-힣A-Za-z]+(?:팀|부서|본부)/gu;
 
 export function buildAllInOnePrompt(plan: AxPlan, _tool: AxToolId, options?: { taskName?: string; prerequisites?: string[]; diagnosis?: AxDiagnosis; context?: string }): string {
   const bullets = (items: string[]) => items.map(item => `- ${item}`).join("\n");
-  const numbered = (items: string[]) => items.map((item, i) => `${i + 1}. ${item}`).join("\n");
+  // AI items sometimes carry their own "1)" prefix; the prompt numbers them itself.
+  const numbered = (items: string[]) => items.map((item, i) => `${i + 1}. ${item.replace(/^\s*(?:\d+[.)]|[①-⑳])\s*/u, "")}`).join("\n");
   const unique = (items: string[]) => [...new Set(items.map(item => item.trim()).filter(Boolean))];
+  const compact = (value: string) => value.replace(/\s+/gu, "");
+  /** Adds extra items unless one already says the same thing (either contains the other). */
+  const mergeDistinct = (base: string[], extra: string[]) => unique([...base, ...extra.filter(item => !base.some(existing => compact(existing).includes(compact(item).replace(/\(담당자수행\)$/u, "")) || compact(item).includes(compact(existing))))]);
   const context = [options?.taskName ?? "", options?.context ?? ""].join("\n");
   // Organizations are kept only when the user named them; numbers only when they are not unsupported targets.
   const grounded = (items: string[]) => items.filter(item => !UNSUPPORTED_METRIC.test(item) && [...item.matchAll(ORGANIZATION)].every(([org]) => context.includes(org)));
@@ -109,10 +113,11 @@ export function buildAllInOnePrompt(plan: AxPlan, _tool: AxToolId, options?: { t
   const level = d ? automationLevel(d) : null;
   const gate = d ? executionGate(d) : null;
   const manualSteps = d ? d.stepAssessments.filter(s => s.verdict === "사람 유지").map(s => s.step) : [];
-  const humanReview = unique([...plan.humanInLoop, ...manualSteps.map(step => `${step} (담당자 수행)`)]);
+  const manualLabels = manualSteps.map(step => `${step} (담당자 수행)`);
+  const humanReview = mergeDistinct(plan.humanInLoop, manualLabels);
   const goals = grounded(plan.goal), acceptance = grounded(plan.acceptance), tests = grounded(plan.tests), poc = grounded(plan.poc), operation = grounded(plan.operation), fallback = grounded(plan.fallback);
   const prerequisites = unique([...plan.prerequisites, ...(options?.prerequisites ?? [])]);
-  const exceptions = unique([...plan.exceptions, ...(d?.asIs.exceptions ?? [])]);
+  const exceptions = mergeDistinct(plan.exceptions, d?.asIs.exceptions ?? []);
   const introduction = [
     axPromptTitle(options?.taskName),
     "현재 프로젝트 저장소를 먼저 확인한 뒤 아래 요구사항을 구현하세요. 확인되지 않은 파일명·함수명·API·업무 규칙을 추측하지 말고 기존 구현과 실제 업무 자료를 우선 확인하세요.",
@@ -141,9 +146,9 @@ export function buildAllInOnePrompt(plan: AxPlan, _tool: AxToolId, options?: { t
   ]));
   if (d?.asIs.steps.length) section("AS-IS", `현재 업무는 다음 순서로 수행됩니다.${d.asIs.purpose ? ` 목적: ${d.asIs.purpose}` : ""}`, numbered(d.asIs.steps), "자동화 후에도 이 흐름의 목적과 담당자 역할을 유지하세요.");
   else if (plan.asIs.length) section("AS-IS", "현재 업무는 다음과 같이 수행됩니다. 자동화 후에도 이 흐름의 목적과 담당자 역할을 유지하세요.", bullets(plan.asIs));
-  if (d?.toBe.length) section("TO-BE", "구현 후에는 다음 역할로 업무가 진행되어야 합니다.", numbered(d.toBe.map(s => `${s.step} — ${OWNER_LABELS[s.owner]}: ${s.description}`)), "담당자 역할로 표시된 단계는 자동화로 대체하지 마세요.");
+  if (d?.toBe.length) section("TO-BE", "구현 후에는 다음 역할로 업무가 진행되어야 합니다.", numbered(d.toBe.map(s => `${s.step} — ${OWNER_LABELS[s.owner]}: ${s.description}`)), "담당자 역할로 표시된 단계는 자동화로 대체하지 마세요. 이 중 '작업 범위'의 제외 항목에 해당하는 부분은 이번 작업에서 구현하지 마세요.");
   else if (plan.toBe.length) section("TO-BE", "구현 후 업무는 다음과 같은 상태가 되어야 합니다. 담당자의 승인·검토 역할은 임의로 제거하지 마세요.", bullets(plan.toBe));
-  const excluded = unique([...plan.outOfScope, ...manualSteps.map(step => `${step} (담당자 수행)`)]);
+  const excluded = mergeDistinct(plan.outOfScope, manualLabels);
   if (plan.inScope.length || excluded.length) section("작업 범위",
     plan.inScope.length ? `### 포함\n\n${bullets(plan.inScope)}` : "",
     excluded.length ? `### 제외\n\n${bullets(excluded)}` : "",
