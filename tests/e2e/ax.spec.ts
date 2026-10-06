@@ -195,7 +195,10 @@ test("AX registration → diagnosis → correction → matrix → plans → relo
   const calls: Record<string, unknown>[] = []; await mock(page, calls);
   await page.goto("/"); await ax(page); await register(page);
   await page.getByRole("button", { name: "다음 단계" }).click();
+  await page.route("**/api/ai", async route => { await page.waitForTimeout(800); await route.fallback(); }, { times: 1 });
   await page.getByRole("button", { name: "업무 진단 실행" }).click();
+  await expect(page.getByRole("button", { name: "진단 중…", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "AI 작업 중지" })).toHaveCount(0);
   await expect(page.getByText("정보 충분", { exact: true })).toBeVisible();
   await expect(page.locator(".ax-axis-bars").getByText("담당자 판단 필요도", { exact: true })).toBeVisible();
   for (const old of ["사람 판단 의존도", "담당자 판단 의존도", "선행 확인 필요", "실행 가능성"]) await expect(page.getByText(old, { exact: false })).toHaveCount(0);
