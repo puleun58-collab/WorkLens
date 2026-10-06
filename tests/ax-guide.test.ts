@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildAllInOnePrompt, setupGuide, TOOL_GUIDES, type AxGuideSection } from "../src/lib/ax/guide";
+import { buildAllInOnePrompt, guardPlan, setupGuide, TOOL_GUIDES, type AxGuideSection } from "../src/lib/ax/guide";
 import { FACTOR_LABELS } from "../src/lib/ax/schema";
 import { diagnosisFixture, planFixture } from "./fixtures/ax";
 import type { AxDiagnosis, AxPlan } from "../src/lib/ax/types";
@@ -106,16 +106,56 @@ describe("AX execution guides", () => {
     expect(sectionBody(ready, "현재 진단 기준")).toContain("Level 3");
     expect(ready).not.toContain("진단에서 제외되거나 담당자 유지로 분류된 단계를 임의로 자동화하지 마세요.");
   });
-  it("drops unsupported metrics and organizations and never invents deletion policy", () => {
+  it("qualifies unverified policy in place, drops unsupported metrics and leaves no conflicting rule", () => {
     const prompt = buildAllInOnePrompt(freightPlan, "codex", { taskName: "월간 운임 정산", diagnosis: levelOne, context: "매월 사업장별 운송 실적 Excel을 운임표와 대조해 정산합니다." });
     for (const text of ["50%", "0% 목표", "95%", "재무팀", "운영팀"]) expect(prompt).not.toContain(text);
     expect(prompt).toContain("- 샘플 정산표 대조 통과");
-    expect(prompt).toContain("자동 삭제·자동 보정은 기존 업무 규칙에 명시된 경우에만 적용하고, 그렇지 않으면 대상 건을 표시만 하세요.");
+    expect(prompt).toContain("- 중복 데이터 발견 시 자동 제거 후 재계산 (확인 필요: 업무 규칙에서 확인된 경우에만 적용하고, 아니면 대상 건을 표시만 하세요)");
+    expect(prompt).not.toMatch(/^- 중복 데이터 발견 시 자동 제거 후 재계산$/m);
     expect(prompt).toContain("허용 오차가 기존 업무에 정의되어 있으면 그 기준을 사용하고, 없으면 임의의 허용 오차를 만들지 마세요.");
-    expect(prompt).not.toContain("문제 발생 시 대응\n\n### 운영");
+    expect(sectionBody(prompt, "문제 발생 시 대응")).toContain("담당 조직이 주관");
+    expect(sectionBody(prompt, "문제 발생 시 대응")).toContain("(확인 필요: 실제 담당 조직을 확인하세요)");
     const named = buildAllInOnePrompt(freightPlan, "codex", { diagnosis: levelOne, context: "정산은 재무팀이 검토하고 시스템 운영팀이 장애를 맡습니다." });
-    expect(sectionBody(named, "문제 발생 시 대응")).toContain("- 재무팀이 주관, 오류 시 시스템 운영팀이 대응");
-    expect(sectionBody(named, "문제 발생 시 대응")).toContain("현재 조직의 실제 운영 체계를 확인한 뒤 반영하세요.");
+    expect(sectionBody(named, "문제 발생 시 대응")).toContain("- 재무팀이 주관, 오류 시 시스템 운영팀이 대응\n");
+  });
+  it("guards forbidden AI statements and is idempotent", () => {
+    const plan: AxPlan = { ...planFixture,
+      implementation: ["중복 데이터는 자동 삭제한다.", "내부 API를 호출해 자동 등록한다.", "사내 시스템 API로 업로드한다.", "형식 검증 결과를 표시한다."],
+      goal: ["업무 시간을 50% 절감한다.", "검토용 정산표를 만든다."], acceptance: ["정확도 95%를 달성한다.", "샘플 대조 통과"],
+      humanInLoop: ["재무팀이 최종 승인한다."], outOfScope: ["자동 승인", "ERP 자동 전송"], prerequisites: ["ERP API 존재 여부 확인"] };
+    const once = guardPlan(plan, "매월 정산표를 만들어 담당자가 승인합니다.");
+    expect(once.goal).toEqual(["검토용 정산표를 만든다."]);
+    expect(once.acceptance).toEqual(["샘플 대조 통과"]);
+    expect(once.implementation).toEqual([
+      "중복 데이터는 자동 삭제한다. (확인 필요: 업무 규칙에서 확인된 경우에만 적용하고, 아니면 대상 건을 표시만 하세요)",
+      "내부 API를 호출해 자동 등록한다. (확인 필요: 업무 규칙에서 확인된 경우에만 적용하고, 아니면 대상 건을 표시만 하세요)",
+      "사내 시스템 API로 업로드한다. (확인 필요: 실제 연동 방식과 권한을 확인한 뒤 확인된 방식만 사용하세요)",
+      "형식 검증 결과를 표시한다.",
+    ]);
+    expect(once.humanInLoop).toEqual(["담당 조직이 최종 승인한다. (확인 필요: 실제 담당 조직을 확인하세요)"]);
+    expect(once.outOfScope).toEqual(["자동 승인", "ERP 자동 전송"]);
+    expect(once.prerequisites).toEqual(["ERP API 존재 여부 확인"]);
+    expect(guardPlan(once, "매월 정산표를 만들어 담당자가 승인합니다.")).toEqual(once);
+    const prompt = buildAllInOnePrompt(plan, "codex", { diagnosis: levelOne });
+    expect(buildAllInOnePrompt(once, "codex", { diagnosis: levelOne })).toBe(prompt);
+    expect(prompt.match(/\(확인 필요:/g)).toHaveLength(5);
+    expect(guardPlan(planFixture, "")).toEqual(planFixture);
+    const allowed = guardPlan({ ...planFixture, implementation: ["중복 건은 자동 삭제한다."] }, "규정상 중복 건은 자동 삭제합니다.");
+    expect(allowed.implementation).toEqual(["중복 건은 자동 삭제한다."]);
+  });
+  it("keeps the diagnosed level and gate across all four levels and three gates", () => {
+    const cases: [AxDiagnosis, string, string][] = [
+      [withFactors([3, 2, 2, 2, 5, 4]), "Level 0", "확인 후 진행"],
+      [levelOne, "Level 1", "확인 후 진행"],
+      [withFactors([4, 4, 4, 3, 3, 3], { decisionGate: { verdict: "go", reasons: [] }, technicalChecks: [] }), "Level 2", "진행 가능"],
+      [withFactors([5, 5, 5, 5, 1, 1], { decisionGate: { verdict: "no-go", reasons: ["권한 없음"] } }), "Level 3", "진행 보류"],
+    ];
+    for (const [diagnosis, level, gate] of cases) {
+      const criteria = sectionBody(buildAllInOnePrompt(planFixture, "codex", { diagnosis }), "현재 진단 기준");
+      expect(criteria).toContain(level); expect(criteria).toContain(`- 실행 상태: ${gate}`);
+    }
+    expect(sectionBody(buildAllInOnePrompt(planFixture, "codex", { diagnosis: cases[2][0] }), "현재 진단 기준")).toContain("주요 예외와 승인 단계는 담당자에게 유지합니다.");
+    expect(sectionBody(buildAllInOnePrompt(planFixture, "codex", { diagnosis: cases[3][0] }), "현재 진단 기준")).toContain("검증용 PoC 또는 준비 작업까지만 진행하세요.");
   });
   it("varies the instruction with the task instead of repeating one template", () => {
     const excel = buildAllInOnePrompt(freightPlan, "codex", { taskName: "월간 운임 정산", diagnosis: levelOne });

@@ -94,11 +94,40 @@ const GATE_CONSTRAINTS = {
 } as const;
 
 const OWNER_LABELS = { 시스템: "시스템", AI: "AI", 사용자: "담당자" } as const;
-/** Quantified targets (절감률·정확도·배수) need evidence the plan cannot carry, so such items are dropped. */
+/** Quantified targets (절감률·정확도·배수) need evidence the plan cannot carry, so such items are removed. */
 const UNSUPPORTED_METRIC = /\d+(?:\.\d+)?\s*(?:%|퍼센트|배)/u;
 const ORGANIZATION = /[가-힣A-Za-z]+(?:팀|부서|본부)/gu;
+const AUTO_ACTION = /자동(?:으로)?\s*(삭제|제거|승인|등록|전송|결재|수정|보정)/u;
+const SYSTEM_INTERFACE = /\bAPI\b|SDK|엔드포인트|endpoint/iu;
+const UNCONFIRMED = "(확인 필요:";
+type PlanListKey = Exclude<keyof AxPlan, "repositoryFirst">;
 
-export function buildAllInOnePrompt(plan: AxPlan, _tool: AxToolId, options?: { taskName?: string; prerequisites?: string[]; diagnosis?: AxDiagnosis; context?: string }): string {
+/**
+ * Second line of defense after the generation prompt: keep grounded items, qualify plausible but unverified
+ * ones in place, drop unsupported metrics. Qualified items carry the marker, so applying it twice changes nothing.
+ */
+export function guardPlan(plan: AxPlan, context: string): AxPlan {
+  // Exclusions and prerequisites already name what must not happen or must be checked; only metrics and orgs apply there.
+  const guardItem = (item: string, qualify: boolean): string | null => {
+    if (UNSUPPORTED_METRIC.test(item)) return null;
+    let value = item.replace(ORGANIZATION, org => context.includes(org) ? org : "담당 조직");
+    if (value.includes(UNCONFIRMED)) return value;
+    const action = qualify ? AUTO_ACTION.exec(value)?.[1] : undefined;
+    if (action && !new RegExp(`자동(?:으로)?\\s*${action}`, "u").test(context)) value = `${value} ${UNCONFIRMED} 업무 규칙에서 확인된 경우에만 적용하고, 아니면 대상 건을 표시만 하세요)`;
+    else if (qualify && SYSTEM_INTERFACE.test(value) && !/확인/u.test(value) && !SYSTEM_INTERFACE.test(context)) value = `${value} ${UNCONFIRMED} 실제 연동 방식과 권한을 확인한 뒤 확인된 방식만 사용하세요)`;
+    if (value !== item && value.includes("담당 조직") && !value.includes(UNCONFIRMED)) value = `${value} ${UNCONFIRMED} 실제 담당 조직을 확인하세요)`;
+    return value;
+  };
+  const guarded = { ...plan };
+  for (const key of Object.keys(plan) as (keyof AxPlan)[]) {
+    if (key === "repositoryFirst") continue;
+    const qualify = key !== "outOfScope" && key !== "prerequisites";
+    guarded[key as PlanListKey] = plan[key as PlanListKey].map(item => guardItem(item, qualify)).filter((item): item is string => item !== null);
+  }
+  return guarded;
+}
+
+export function buildAllInOnePrompt(rawPlan: AxPlan, _tool: AxToolId, options?: { taskName?: string; prerequisites?: string[]; diagnosis?: AxDiagnosis; context?: string }): string {
   const bullets = (items: string[]) => items.map(item => `- ${item}`).join("\n");
   // AI items sometimes carry their own "1)" prefix; the prompt numbers them itself.
   const numbered = (items: string[]) => items.map((item, i) => `${i + 1}. ${item.replace(/^\s*(?:\d+[.)]|[①-⑳])\s*/u, "")}`).join("\n");
@@ -107,15 +136,14 @@ export function buildAllInOnePrompt(plan: AxPlan, _tool: AxToolId, options?: { t
   /** Adds extra items unless one already says the same thing (either contains the other). */
   const mergeDistinct = (base: string[], extra: string[]) => unique([...base, ...extra.filter(item => !base.some(existing => compact(existing).includes(compact(item).replace(/\(담당자수행\)$/u, "")) || compact(item).includes(compact(existing))))]);
   const context = [options?.taskName ?? "", options?.context ?? ""].join("\n");
-  // Organizations are kept only when the user named them; numbers only when they are not unsupported targets.
-  const grounded = (items: string[]) => items.filter(item => !UNSUPPORTED_METRIC.test(item) && [...item.matchAll(ORGANIZATION)].every(([org]) => context.includes(org)));
+  const plan = guardPlan(rawPlan, context);
   const d = options?.diagnosis;
   const level = d ? automationLevel(d) : null;
   const gate = d ? executionGate(d) : null;
   const manualSteps = d ? d.stepAssessments.filter(s => s.verdict === "사람 유지").map(s => s.step) : [];
   const manualLabels = manualSteps.map(step => `${step} (담당자 수행)`);
   const humanReview = mergeDistinct(plan.humanInLoop, manualLabels);
-  const goals = grounded(plan.goal), acceptance = grounded(plan.acceptance), tests = grounded(plan.tests), poc = grounded(plan.poc), operation = grounded(plan.operation), fallback = grounded(plan.fallback);
+  const goals = plan.goal, acceptance = plan.acceptance, tests = plan.tests, poc = plan.poc, operation = plan.operation, fallback = plan.fallback;
   const prerequisites = unique([...plan.prerequisites, ...(options?.prerequisites ?? [])]);
   const exceptions = mergeDistinct(plan.exceptions, d?.asIs.exceptions ?? []);
   const introduction = [
