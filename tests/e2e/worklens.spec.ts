@@ -2802,9 +2802,38 @@ test("keeps legal destinations grouped, command search shortcut-only, and review
   await expect(page.getByRole("button", { name: "기능 검색…", exact: true })).toHaveCount(0);
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await page.keyboard.press("Control+K");
-  await expect(page.getByRole("dialog").getByLabel("기능 검색")).toHaveAttribute("placeholder", "기능 검색…");
-  await expect(page.getByRole("dialog").getByRole("group").filter({ hasText: /^(WORKSPACE|RESEARCH|TOOLS|AI•AX|HELP)/ })).toHaveCount(5);
-  await expect(page.getByRole("dialog").getByText("검토 설정", { exact: true })).toHaveCount(0);
+  const palette = page.getByRole("dialog");
+  const search = palette.getByLabel("기능 검색");
+  await expect(search).toHaveAttribute("placeholder", "기능 검색…");
+  await expect(search).toBeFocused();
+  await expect(palette.getByRole("listbox")).toHaveCount(0);
+  await expect(palette.getByRole("option")).toHaveCount(0);
+  for (const hidden of ["WORKSPACE", "RESEARCH", "TOOLS", "AI•AX", "분석", "일치하는 기능이 없습니다.", "↑ ↓ 선택 · Enter 이동 · Esc 닫기"]) await expect(palette.getByText(hidden, { exact: true })).toHaveCount(0);
+  await search.fill("법");
+  await expect(palette.getByRole("group").filter({ hasText: /^RESEARCH/ })).toHaveCount(1);
+  await expect(palette.getByRole("option", { name: "법령", exact: true })).toBeVisible();
+  await expect(palette.getByText("↑ ↓ 선택 · Enter 이동 · Esc 닫기", { exact: true })).toBeVisible();
+  await search.fill("업무");
+  await expect(palette.getByRole("group").filter({ hasText: /^AI•AX/ })).toHaveCount(1);
+  await expect(palette.getByRole("option", { name: "업무 자동화 진단", exact: true })).toBeVisible();
+  await expect(palette.getByRole("option", { name: "법령", exact: true })).toHaveCount(0);
+  await search.fill("존재하지않는기능");
+  await expect(palette.getByText("일치하는 기능이 없습니다.", { exact: true })).toBeVisible();
+  await expect(palette.getByRole("option")).toHaveCount(0);
+  await expect(palette.getByText("↑ ↓ 선택 · Enter 이동 · Esc 닫기", { exact: true })).toBeHidden();
+  await search.fill("");
+  await expect(palette.getByRole("listbox")).toHaveCount(0);
+  await expect(palette.getByText("일치하는 기능이 없습니다.", { exact: true })).toHaveCount(0);
+  await page.keyboard.press("Enter");
+  await expect(palette).toBeVisible();
+  await search.fill("업무");
+  await page.keyboard.press("Enter");
+  await expect(palette).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "업무 자동화 진단", exact: true, level: 1 })).toBeVisible();
+  await page.keyboard.press("Control+K");
+  await expect(palette.getByRole("listbox")).toHaveCount(0);
+  await palette.getByLabel("기능 검색").fill("검토 설정");
+  await expect(palette.getByRole("option", { name: "검토 설정", exact: true })).toHaveCount(0);
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toHaveCount(0);
 
@@ -2827,6 +2856,7 @@ test("keeps legal destinations grouped, command search shortcut-only, and review
     ["법령 > 문서 검토", "문서 검토"],
   ] as const) {
     await page.keyboard.press("Control+K");
+    await page.getByRole("dialog").getByLabel("기능 검색").fill(command);
     await page.getByRole("dialog").getByText(command, { exact: true }).click();
     await expect(page.getByRole("heading", { name: heading, exact: true, level: 1 })).toBeVisible();
     await openMenu();
@@ -2835,6 +2865,7 @@ test("keeps legal destinations grouped, command search shortcut-only, and review
   }
 
   await page.keyboard.press("Control+K");
+  await page.getByRole("dialog").getByLabel("기능 검색").fill("설정");
   await page.getByRole("dialog").getByText("설정", { exact: true }).click();
   await openMenu();
   await expect(navigation.getByRole("button", { name: "Settings", exact: true })).toHaveAttribute("aria-current", "page");
@@ -2842,6 +2873,7 @@ test("keeps legal destinations grouped, command search shortcut-only, and review
   await expect(page.getByRole("heading", { name: "법령 리서치 기본값", exact: true })).toHaveCount(0);
 
   await page.keyboard.press("Control+K");
+  await page.getByRole("dialog").getByLabel("기능 검색").fill("문서 검토");
   await page.getByRole("dialog").getByText("법령 > 문서 검토", { exact: true }).click();
   await expect(page.getByRole("heading", { name: "문서 검토", exact: true, level: 1 })).toBeVisible();
   await expect(page.getByRole("radio", { name: "직접 입력", exact: true })).toBeChecked();

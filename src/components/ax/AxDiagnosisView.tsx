@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useId, useRef, useState, type CSSProperties, type FormEvent } from "react";
-import { MoreHorizontal, Upload, Download, Trash2, ClipboardList, CircleCheck, Zap, Clock3, Stethoscope, LayoutGrid, Map as MapIcon, ArrowLeft, ArrowRight, Paperclip, FileText, X, Repeat, CalendarCheck, Database, Plug, UserCheck, AlertTriangle } from "lucide-react";
+import { MoreHorizontal, Upload, Download, Trash2, Pencil, ClipboardList, CircleCheck, Zap, Clock3, Stethoscope, LayoutGrid, Map as MapIcon, ArrowLeft, ArrowRight, Paperclip, FileText, X, Repeat, CalendarCheck, Database, Plug, UserCheck, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -68,6 +68,7 @@ export function AxDiagnosisView() {
   function changeStep(step: number) { update(current => ({ ...current, step })); setMessage(""); }
   function clearDraft() { setName(""); setDescription(""); setDetails({}); setDraftAttachment(null); setEditingId(null); }
   function editTask(task: AxTask) {
+    select(task.id);
     setEditingId(task.id); setName(task.name); setDescription(task.description);
     setDetails(Object.fromEntries(Object.entries(taskDetails(task)).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)])));
     setDraftAttachment(attachments.current.get(task.id) ?? null); changeStep(1);
@@ -169,7 +170,6 @@ export function AxDiagnosisView() {
       attachments.current.delete(action.id); setAttachmentIds(current => current.filter(id => id !== action.id));
       if (editingId === action.id) clearDraft();
       update(current => { const tasks = current.tasks.filter(t => t.id !== action.id); return { ...current, tasks, selectedTaskId: current.selectedTaskId === action.id ? tasks[0]?.id ?? null : current.selectedTaskId }; });
-      setMessage("업무를 삭제했습니다.");
     } else {
       const saved = await replace(action.kind === "reset" ? emptyAxState() : action.state, action.kind === "reset");
       attachments.current.clear(); setAttachmentIds([]); clearDraft(); setAnswers({});
@@ -178,7 +178,7 @@ export function AxDiagnosisView() {
   }
   const diagnosedCount = state.tasks.filter(t => !!t.diagnosis).length;
   const nextStepDisabled = state.step === 1 ? state.tasks.length === 0 : diagnosedCount === 0;
-  function taskRows(showDelete: boolean) {
+  function taskRows(showActions: boolean) {
     const tasks = state.step === 3 ? ranked.map(r => r.task) : state.tasks;
     return <ul className={`ax-task-rows${state.step === 3 ? " ax-matrix-list" : ""}`}>{tasks.map(task => {
       const l = task.diagnosis ? automationLevel(task.diagnosis) : null;
@@ -186,7 +186,10 @@ export function AxDiagnosisView() {
       const meta = state.step === 3 && a ? `가치 ${a.value} · 실현 ${a.feasibility}` : l ? `${l.label.replace(/^L\d+ /, "")} · Level ${l.level}` : STATUS[task.status];
       return <li key={task.id} className={selected?.id === task.id ? "is-selected" : undefined}><Button type="button" variant="ghost" className="ax-task-row-btn" aria-pressed={selected?.id === task.id} onClick={() => select(task.id)} disabled={!!busy}>
         <span className={`ax-dot ax-dot-${task.status}`} aria-hidden="true" /><span className="ax-task-name">{task.name}</span><span className="ax-task-meta">{meta}</span>
-      </Button>{showDelete && state.step === 1 ? <Button type="button" variant="ghost" className="ax-delete-button" aria-label="업무 삭제" disabled={!!busy} onClick={() => setConfirmation({ kind: "delete", id: task.id })}><Trash2 size={15} aria-hidden="true" /></Button> : null}</li>;
+      </Button>{showActions && state.step === 1 ? <span className="ax-task-actions">
+        <Button type="button" variant="ghost" size="icon-sm" className="ax-task-action" aria-label="업무 수정" disabled={!!busy} onClick={() => editTask(task)}><Pencil size={15} aria-hidden="true" /></Button>
+        <Button type="button" variant="ghost" size="icon-sm" className="ax-task-action" aria-label="업무 삭제" disabled={!!busy} onClick={() => setConfirmation({ kind: "delete", id: task.id })}><Trash2 size={15} aria-hidden="true" /></Button>
+      </span> : null}</li>;
     })}</ul>;
   }
   function priorityRows(top = false) {
@@ -237,7 +240,7 @@ export function AxDiagnosisView() {
               {draftAttachment ? <div className="ax-file-row"><FileText className="size-4" aria-hidden="true" /><span className="ax-file-name">{draftAttachment.meta.name}</span><span className="ax-file-status">준비됨</span><Button type="button" variant="ghost" size="icon-xs" aria-label="첨부 취소" onClick={() => setDraftAttachment(null)} disabled={!!busy}><X aria-hidden="true" /></Button></div> : null}
             </div>
             <Accordion><AccordionItem value="details">
-              <div className="ax-register-actions"><AccordionTrigger type="button" className="ax-details-trigger" disabled={!!busy}>추가 정보</AccordionTrigger><div className="ax-register-submit">{editingId ? <Button type="button" variant="ghost" onClick={clearDraft}>수정 취소</Button> : null}<Button type="submit" disabled={!!busy || !description.trim()}>{editingId ? "수정 저장" : "업무 등록"}</Button></div></div>
+              <div className="ax-register-actions"><AccordionTrigger type="button" className="ax-details-trigger" disabled={!!busy}>추가 정보</AccordionTrigger><div className="ax-register-submit">{editingId ? <Button type="button" variant="ghost" onClick={clearDraft}>수정 취소</Button> : null}<Button type="submit" disabled={!!busy || !description.trim()}>{editingId ? "수정 등록" : "업무 등록"}</Button></div></div>
               <AccordionPanel><div className="ax-form-grid">{DETAILS.map(({ key, label, placeholder, numeric }) => <label className="ax-field" key={key}>{label}<Input type={numeric ? "number" : "text"} min={numeric ? 0 : undefined} max={numeric ? 100000 : undefined} step="any" maxLength={numeric ? undefined : AX_LIMITS.detail} placeholder={placeholder} value={details[key] ?? ""} onChange={e => setDetails(current => ({ ...current, [key]: e.target.value }))} disabled={!!busy} /></label>)}</div></AccordionPanel>
             </AccordionItem></Accordion>
           </form>

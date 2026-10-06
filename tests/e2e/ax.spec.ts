@@ -443,7 +443,7 @@ test("AX styled file selection shows filenames and removes draft/session attachm
   await page.getByRole("button", { name: "등록 정보 수정", exact: true }).click();
   await expect(input).toBeHidden();
   await selectFile();
-  await page.getByRole("button", { name: "수정 저장", exact: true }).click();
+  await page.getByRole("button", { name: "수정 등록", exact: true }).click();
   await page.getByRole("button", { name: "다음 단계", exact: true }).click();
   await expect(page.locator(".ax-attachment")).toContainText("selected.csv · 세션 요약 준비됨");
   await page.getByRole("button", { name: "첨부 해제", exact: true }).click();
@@ -667,13 +667,53 @@ test("AX registration edits preserve hidden legacy fields and invalidate the dia
   await ax(page);
   await expect(page.getByRole("tab", { name: "업무 진단", exact: true })).toHaveAttribute("aria-selected", "true");
   await page.getByRole("button", { name: "등록 정보 수정", exact: true }).click();
+  await expect(page.getByRole("tab", { name: "업무 등록", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("heading", { name: "등록 정보 수정", exact: true })).toBeVisible();
+  await expect(page.locator("form.ax-register textarea")).toHaveValue(task.description);
+  await expect(page.getByRole("button", { name: "수정 저장", exact: true })).toHaveCount(0);
   await page.getByLabel("업무명", { exact: true }).fill("수정된 업무");
-  await page.getByRole("button", { name: "수정 저장", exact: true }).click();
+  await page.getByRole("button", { name: "수정 등록", exact: true }).click();
   await expect.poll(() => record(page)).toMatchObject({ tasks: [{
     id: "legacy", name: "수정된 업무", description: task.description,
     people: 3, painPoints: "수작업 오류", goal: "월말 마감 단축", status: "registered",
   }] });
   expect((await record(page))?.tasks[0].diagnosis).toBeUndefined();
+});
+test("AX Step 1 edit icon reuses the registration edit flow, keeps one selected row and deletes quietly", async ({ page }) => {
+  const first = { ...taskFixture("first"), name: "월간 운임 정산 취합" }, second = { ...taskFixture("second"), name: "주간 고객사 뉴스 동향 보고", description: "매주 고객사 뉴스를 모아 동향 보고서를 작성합니다." };
+  await page.goto("/");
+  await seed(page, { ...emptyAxState(), tasks: [first, second], selectedTaskId: first.id, step: 1 });
+  await ax(page);
+  const list = page.getByLabel("등록 업무 목록");
+  const row = (name: string) => list.locator("li", { hasText: name });
+  await expect(row(first.name)).toHaveClass(/is-selected/);
+  const surface = await row(first.name).evaluate(element => ({ row: getComputedStyle(element).backgroundColor, actions: [...element.querySelectorAll(".ax-task-action")].map(button => getComputedStyle(button).backgroundColor) }));
+  expect(surface.row).not.toBe("rgba(0, 0, 0, 0)");
+  expect(surface.actions).toEqual(["rgba(0, 0, 0, 0)", "rgba(0, 0, 0, 0)"]);
+  await row(second.name).getByRole("button", { name: second.name }).click();
+  await expect(row(second.name)).toHaveClass(/is-selected/); await expect(row(first.name)).not.toHaveClass(/is-selected/);
+  await expect(page.getByRole("heading", { name: "업무 등록", exact: true })).toBeVisible();
+  await row(first.name).getByRole("button", { name: "업무 수정", exact: true }).click();
+  await expect(row(first.name)).toHaveClass(/is-selected/); await expect(row(second.name)).not.toHaveClass(/is-selected/);
+  await expect(page.getByRole("heading", { name: "등록 정보 수정", exact: true })).toBeVisible();
+  await expect(page.getByLabel("업무명", { exact: true })).toHaveValue(first.name);
+  await expect(page.locator("form.ax-register textarea")).toHaveValue(first.description);
+  await page.getByLabel("업무명", { exact: true }).fill("월간 운임 정산 취합 v2");
+  await page.getByRole("button", { name: "수정 등록", exact: true }).click();
+  await expect.poll(async () => (await record(page))?.tasks.map(t => [t.id, t.name])).toEqual([["first", "월간 운임 정산 취합 v2"], ["second", second.name]]);
+  expect((await record(page))?.selectedTaskId).toBe("first");
+  await expect(page.getByRole("heading", { name: "업무 등록", exact: true })).toBeVisible();
+  const stepsTop = (await page.getByRole("tablist", { name: "진단 단계" }).boundingBox())!.y;
+  await row(second.name).getByRole("button", { name: "업무 삭제", exact: true }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "삭제", exact: true }).click();
+  await expect(row(second.name)).toHaveCount(0);
+  await expect(page.getByText("업무를 삭제했습니다.", { exact: false })).toHaveCount(0);
+  expect((await page.getByRole("tablist", { name: "진단 단계" }).boundingBox())!.y).toBe(stepsTop);
+  await expect(page.getByRole("alertdialog")).toHaveCount(0);
+  await row("월간 운임 정산 취합 v2").getByRole("button", { name: "업무 삭제", exact: true }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "삭제", exact: true }).click();
+  await expect(list).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "다음 단계", exact: true })).toBeDisabled();
 });
 test("AX saves warn another tab and refresh loads the registered task", async ({ page, context }) => {
   await page.goto("/"); await ax(page);

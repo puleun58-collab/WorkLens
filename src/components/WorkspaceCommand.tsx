@@ -8,34 +8,40 @@ export interface WorkspaceCommandEntry { value: string; label: string; group: st
 
 export function WorkspaceCommand({ items, onNavigate }: { items: WorkspaceCommandEntry[]; onNavigate: (value: string) => void }) {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
   useEffect(() => {
     const shortcut = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
         setOpen((value) => !value);
+        setQuery("");
       }
     };
     window.addEventListener("keydown", shortcut);
     return () => window.removeEventListener("keydown", shortcut);
   }, []);
-  const navigate = (value: string) => { setOpen(false); onNavigate(value); };
+  const navigate = (value: string) => { setOpen(false); setQuery(""); onNavigate(value); };
   const groups = [...new Set(items.map((item) => item.group))].map((group) => ({ group, items: items.filter((item) => item.group === group) }));
-  return <CommandDialog open={open} onOpenChange={setOpen}>
+  const searching = query.trim().length > 0;
+  return <CommandDialog open={open} onOpenChange={(next) => { setOpen(next); if (!next) setQuery(""); }}>
     <CommandDialogPopup>
       <DialogTitle className="sr-only">작업 공간 기능 검색</DialogTitle>
       <DialogDescription className="sr-only">기존 기능을 검색하고 Enter로 이동합니다. 문서 내용은 검색하거나 저장하지 않습니다.</DialogDescription>
-      <Command items={groups} itemToStringValue={(item) => { const entry = item as WorkspaceCommandEntry; return `${entry.label} ${entry.group}`; }}>
+      <Command items={groups} value={query} onValueChange={setQuery} itemToStringValue={(item) => { const entry = item as WorkspaceCommandEntry; return `${entry.label} ${entry.group}`; }}>
         <CommandInput aria-label="기능 검색" placeholder="기능 검색…" />
-        <CommandPanel>
-          <CommandEmpty>일치하는 기능이 없습니다.</CommandEmpty>
-          <CommandList>{(group: { group: string; items: WorkspaceCommandEntry[] }) => <CommandGroup key={group.group} items={group.items}>
-            <CommandGroupLabel>{group.group}</CommandGroupLabel>
-            <CommandCollection>{(item: WorkspaceCommandEntry) => <CommandItem key={item.value} value={item} onClick={() => navigate(item.value)}>
-              <strong>{item.label}</strong>
-            </CommandItem>}</CommandCollection>
-          </CommandGroup>}</CommandList>
-        </CommandPanel>
-        <CommandFooter>↑ ↓ 선택 · Enter 이동 · Esc 닫기</CommandFooter>
+        {/* Empty query shows the input only: the sidebar already lists every destination. */}
+        {searching ? <>
+          <CommandPanel className="command-results rounded-none border-x-0 border-t border-b-0 bg-transparent shadow-none before:hidden [clip-path:none]">
+            <CommandEmpty className="px-5 text-left text-muted-foreground text-sm not-empty:py-3">일치하는 기능이 없습니다.</CommandEmpty>
+            <CommandList>{(group: { group: string; items: WorkspaceCommandEntry[] }) => <CommandGroup key={group.group} items={group.items}>
+              <CommandGroupLabel>{group.group}</CommandGroupLabel>
+              <CommandCollection>{(item: WorkspaceCommandEntry) => <CommandItem key={item.value} value={item} onClick={() => navigate(item.value)}>
+                <strong>{item.label}</strong>
+              </CommandItem>}</CommandCollection>
+            </CommandGroup>}</CommandList>
+          </CommandPanel>
+          <CommandFooter className="[.command-results:has([data-slot=command-empty]:not(:empty))+&]:hidden">↑ ↓ 선택 · Enter 이동 · Esc 닫기</CommandFooter>
+        </> : null}
       </Command>
     </CommandDialogPopup>
   </CommandDialog>;
