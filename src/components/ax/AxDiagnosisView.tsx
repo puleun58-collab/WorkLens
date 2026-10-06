@@ -253,7 +253,7 @@ export function AxDiagnosisView() {
           <section className="ax-surface" aria-label="등록 업무 목록"><h3>업무 목록</h3>{taskRows(false)}</section>
           <div className="ax-detail-col">{selected ? <>
             <section className="ax-surface"><div className="ax-section-heading"><div className="ax-title-group"><h2>{selected.name}</h2><Badge className="ax-status-badge">{STATUS[selected.status]}</Badge></div><Button type="button" variant="outline" size="sm" className="ax-edit-button" onClick={() => editTask(selected)} disabled={!!busy}>등록 정보 수정</Button></div><p>{selected.description}</p>
-              {attachmentStatus(selected)}<div className="ax-actions"><Button type="button" disabled={!!busy} onClick={() => void diagnose(selected)}>{busy === selected.id ? "진단 중…" : selected.diagnosis ? "업무 다시 진단" : "업무 진단 실행"}</Button>{busy && busy !== "attachment" ? <Button type="button" variant="ghost" onClick={interruptServerAi}>AI 작업 중지</Button> : null}</div>
+              {attachmentStatus(selected)}<div className="ax-actions"><Button type="button" disabled={!!busy} onClick={() => void diagnose(selected)}>{busy === selected.id ? "진단 중…" : selected.diagnosis ? "업무 다시 진단" : "업무 진단 실행"}</Button></div>
               {selected.diagnosis ? <AxSummary task={selected} /> : null}
             </section>
             {selected.diagnosis ? <>
