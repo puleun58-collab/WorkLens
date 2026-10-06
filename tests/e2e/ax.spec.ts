@@ -939,6 +939,11 @@ test("AX execution package remains readable on mobile with the setup guide colla
   const poc = page.locator(".ax-panel").filter({ has: page.getByRole("heading", { name: "사전 검증(PoC)", exact: true }) });
   await expect(poc.locator(":scope > p")).toHaveCount(0);
   await expect(poc.locator("dt")).toHaveText(["포함", "제외", "입력", "출력", "평가 방법", "성공 기준", "실패 기준"]);
+  // Fixture is Level 3 · 확인 후 진행: the dark panel shows the derived prerequisite-first roadmap on mobile too.
+  await expect(page.locator(".ax-roadmap-panel h3")).toHaveText("자동화 도입 로드맵");
+  await expect(page.locator(".ax-roadmap-panel .ax-timeline > li h4").first()).toHaveText("Phase 1 · 선행 확인");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: `artifacts/ax/roadmap-mobile-${test.info().project.name}.png`, fullPage: true });
   for (const [tool, copy] of [["Codex", "Codex용 지시문 복사"], ["Claude Code", "Claude Code용 지시문 복사"]]) {
     await section.getByRole("tab", { name: tool, exact: true }).click();
     const hint = section.locator(".ax-plan-head .ax-plan-tool-hint");
