@@ -71,7 +71,8 @@ describe("AX AI boundaries", () => {
   it("scores system access by automation access and rates manual-only access low", () => {
     const prompt = axMessages(request)[0].content;
     for (const rule of ["systemAccess 점수는 자동화·시스템이 접근할 수 있는 정도를 기준으로 매기세요.",
-      "담당자가 직접 로그인해 수기로만 조회·입력하는 경우는 낮게 평가하세요."]) expect(prompt).toContain(rule);
+      "입력에서 API 등 시스템 간 자동 연동이 확인되면 담당자의 확인 단계가 있어도 자동화 접근성을 기준으로 평가하고",
+      "담당자가 직접 로그인해 수기로만 조회·입력하는 경우에만 낮게 평가하세요."]) expect(prompt).toContain(rule);
   });
   it("prohibits invented organization names and uses 담당자 for approval and review actors", () => {
     const prompt = axMessages(request)[0].content;
@@ -80,7 +81,8 @@ describe("AX AI boundaries", () => {
   });
   it("requires needs-check and decisive questions when most core task information is missing", () => {
     const prompt = axMessages(request)[0].content;
-    for (const rule of ["수행 주기·입력 자료·산출물·담당자 판단 단계 같은 핵심 정보가 대부분 없으면 informationSufficiency를 needs-check로 하고",
+    for (const rule of ["수행 주기·입력 자료·산출물·담당자 판단 단계 네 가지 핵심 정보 중 세 가지 이상이 없을 때만 informationSufficiency를 needs-check로 하고",
+      "핵심 정보가 이미 주어졌으면 부족한 세부 사항이 있어도 partial로 분류하세요.",
       "결과를 바꿀 수 있는 핵심 질문을 제시하세요.", "핵심 추가 질문만 최대 3개", "배열 항목은 필수 사항 위주로 1~4개", "각 설명은 100자 이내"]) expect(prompt).toContain(rule);
   });
   it("binds the plan prompt to the diagnosed level, gate and human steps with an internal self-check", () => {
