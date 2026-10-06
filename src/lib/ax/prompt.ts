@@ -43,6 +43,10 @@ export function axMessages(request: AxDiagnosisRequest | AxPlanRequest): { role:
     ? `정보가 부족해도 사용자가 준 사실로 AS-IS를 정리하고 불명확한 부분을 드러내세요. 결과를 바꾸는 핵심 추가 질문만 최대 3개 제시하세요.
 Factor는 repetition, regularity, dataStructure, systemAccess, humanJudgment, operationalRisk를 각각 한 번 포함하고 1~5점과 근거를 제시하세요. 사람판단과 위험은 높을수록 의존도·위험이 높습니다.
 정보 충분성 sufficient/partial/needs-check, 단계별 자동화/AI 보조/사람 유지 판정, 시스템/AI/사용자 역할, 기술 확인, 위험, 검증 가능한 PoC, go/conditional/no-go 근거, 단계별 로드맵, 운영·Fallback과 다음 행동을 작성하세요.
+기술 확인(technicalChecks)의 status는 사용자가 입력에서 명시적으로 확인한 사실만 "확인됨"으로 표시하세요. 그 경우에도 입력에 없는 구체 기술·방식(인증 방식 종류, 특정 API 기능, 실행 환경 등)을 지어내지 말고, 확인되지 않은 항목은 "확인 필요"로 두세요.
+systemAccess 점수는 자동화·시스템이 접근할 수 있는 정도를 기준으로 매기세요. 담당자가 직접 로그인해 수기로만 조회·입력하는 경우는 낮게 평가하세요.
+입력에 없는 조직·부서·승인 주체 이름을 만들지 마세요. 승인과 검토 주체는 "담당자"로 표현하세요.
+수행 주기·입력 자료·산출물·담당자 판단 단계 같은 핵심 정보가 대부분 없으면 informationSufficiency를 needs-check로 하고 결과를 바꿀 수 있는 핵심 질문을 제시하세요.
 가치축·실현성축·Level·Matrix·우선순위 점수는 계산하거나 출력하지 마세요. PoC 가설·평가·성공 기준에도 절감률·효율·자동화율 같은 수치를 만들지 말고, 정량 목표 대신 측정 방법과 대조 기준만 적으세요. 배열 항목은 필수 사항 위주로 1~4개, 각 설명은 100자 이내로 간결하게 작성하세요.`
     : planInstructions(request);
   return [{ role: "system", content: `${SAFETY}\n${instructions}` }, { role: "user", content: JSON.stringify(request.kind === "ax-plan" ? alignedPlanRequest(request) : request) }];
