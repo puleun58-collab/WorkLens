@@ -87,7 +87,8 @@ describe("AX execution guides", () => {
     expect(requirements).toContain("확인 전에는 컬럼명이나 시트 이름을 하드코딩하지 마세요.");
     const verification = sectionBody(prompt, "검증 방법");
     for (const heading of ["### 정상 케이스", "### 경계값", "### 실패·예외 케이스", "### 사전 검증", "### 회귀 검증"]) expect(verification).toContain(heading);
-    expect(sectionBody(prompt, "예외 처리")).toContain("- 누락 시 검토\n- 누락");
+    expect(sectionBody(prompt, "예외 처리")).toContain("- 누락 시 검토\n\n");
+    expect(sectionBody(prompt, "예외 처리")).not.toMatch(/^- 누락$/m);
     expect(sectionBody(prompt, "완료 조건").indexOf("- 대조 통과")).toBeLessThan(sectionBody(prompt, "완료 조건").indexOf("- 요청한 기능이 정상 작동"));
   });
   it("states the Level 1 diagnosis and keeps the automation scope inside it", () => {
@@ -128,6 +129,18 @@ describe("AX execution guides", () => {
     expect(sectionBody(contract, "구현 요구사항")).toContain("- 계약서 PDF");
     expect(sectionBody(excel, "구현 요구사항")).toContain("1. 파싱·형식 검증");
     expect(sectionBody(excel, "현재 진단 기준")).not.toBe(sectionBody(contract, "현재 진단 기준"));
+  });
+  it("removes AI enumerators and near-duplicate review, scope and exception items", () => {
+    const plan: AxPlan = { ...planFixture, implementation: ["1) 공유 폴더 감시", "2) 운임 계산", "③ 대조"], humanInLoop: ["예외 건 검토 및 사유 기록", "정산표 최종 승인"], exceptions: ["운임표 업데이트 지연 시 오류 보고"] };
+    const diagnosis: AxDiagnosis = { ...levelOne, asIs: { ...levelOne.asIs, exceptions: ["운임표 업데이트 지연", "데이터 형식 불일치"] },
+      stepAssessments: [{ step: "예외 건 검토", verdict: "사람 유지", owner: "사용자", note: "판단 필요" }, { step: "최종 승인", verdict: "사람 유지", owner: "사용자", note: "승인 유지" }, { step: "대외 보고", verdict: "사람 유지", owner: "사용자", note: "직접 보고" }] };
+    const prompt = buildAllInOnePrompt(plan, "codex", { diagnosis });
+    expect(sectionBody(prompt, "구현 요구사항")).toContain("1. 공유 폴더 감시\n2. 운임 계산\n3. 대조");
+    const review = sectionBody(prompt, "구현 요구사항").split("### 담당자 검토")[1];
+    expect(review).toContain("- 예외 건 검토 및 사유 기록\n- 정산표 최종 승인\n- 대외 보고 (담당자 수행)");
+    expect(review).not.toContain("최종 승인 (담당자 수행)");
+    expect(sectionBody(prompt, "예외 처리")).toContain("- 운임표 업데이트 지연 시 오류 보고\n- 데이터 형식 불일치\n");
+    expect(sectionBody(prompt, "예외 처리")).not.toMatch(/^- 운임표 업데이트 지연$/m);
   });
   it("keeps repository, Git and deployment safety without platform boilerplate", () => {
     const prompt = buildAllInOnePrompt(planFixture, "codex", { diagnosis: diagnosisFixture });
