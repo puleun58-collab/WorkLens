@@ -97,8 +97,61 @@ describe("AX execution guides", () => {
     ]);
     const gitSave = guide[6].sections.at(-1)!;
     expect(gitSave.blocks.flatMap(block => block.kind === "code" ? block.lines : [])).toEqual([
-      "git add .", "git status", "git branch --show-current", 'git commit -m "작업 내용 요약"', "git push",
+      "git add .", "git status", "git diff --cached --stat", "git branch --show-current", "git remote -v", 'git commit -m "작업 내용 요약"', "git push",
     ]);
+  });
+  it.each(["codex", "claude"] as const)("labels file examples and preserves default command labels for %s", tool => {
+    const blocks = setupGuide(tool).flatMap(step => step.sections.flatMap(section => section.blocks));
+    const codeBlocks = blocks.filter(block => block.kind === "code");
+    const gitignore = codeBlocks.find(block => block.lines.includes("node_modules/"));
+    expect(gitignore?.label).toBe(".gitignore");
+    expect(gitignore?.notes?.join("\n")).toContain("제외");
+    for (const block of codeBlocks.filter(block => block !== gitignore)) {
+      expect(block.label).toBeUndefined();
+      expect(block.label ?? "PowerShell").toBe("PowerShell");
+    }
+  });
+  it.each(["codex", "claude"] as const)("covers repository, dependency, Secret and deployment safeguards for %s", tool => {
+    const guide = setupGuide(tool);
+    const all = JSON.stringify(guide);
+    for (const command of ["git remote -v", "git diff --cached --stat", "git diff --cached"]) expect(all).toContain(command);
+    const project = JSON.stringify(guide[2]);
+    expect(project).toMatch(/미커밋 변경[^.]*git pull[^.]*실행하지/u);
+    expect(project).toMatch(/AI 도구[^.]*현재 상태[^.]*확인/u);
+    const dependencies = guide[2].sections.find(section => section.title === "의존성 준비")!;
+    const dependencySteps = dependencies.blocks.find(block => block.kind === "steps")!;
+    expect(dependencySteps.items).toHaveLength(4);
+    expect(dependencySteps.items[0]).toMatch(/AGENTS\.md.*README.*packageManager/u);
+    expect(dependencySteps.items[1]).toContain("package.json");
+    for (const lockfile of ["package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun.lockb"]) expect(dependencySteps.items[2]).toContain(lockfile);
+    expect(dependencySteps.items[3]).toMatch(/기존 방식.*의존성.*설치/u);
+    const dependencyText = JSON.stringify(dependencies);
+    expect(dependencyText).toMatch(/lockfile[^.]*package manager[^.]*바꾸지/u);
+    expect(dependencyText).toMatch(/다른 매니저[^.]*lockfile[^.]*새로 만들거나[^.]*lockfile[^.]*교체하지/u);
+    const newProject = JSON.stringify(guide[2].sections.find(section => section.title.startsWith("C.")));
+    expect(newProject).toMatch(/Git 저장 전[^.]*Git 저장소인지[^.]*원격[^.]*GitHub 저장소인지[^.]*확인/u);
+    expect(newProject).toMatch(/Git 저장소가 아닌 경우에만[^.]*초기화/u);
+    expect(newProject).toMatch(/기존 저장소[^.]*재초기화[^.]*remote[^.]*덮어쓰지/u);
+    expect(newProject).toMatch(/branch 이름[^.]*main[^.]*강제하지/u);
+    expect(newProject).toMatch(/첫 push 전[^.]*git remote -v[^.]*다시 확인/u);
+    const secrets = JSON.stringify(guide[6]);
+    expect(secrets).toMatch(/AI 대화·터미널 로그·스크린샷[^.]*붙여넣지/u);
+    expect(secrets).toMatch(/폐기.*재발급.*플랫폼 설정 교체/u);
+    expect(secrets).toMatch(/기록 재작성[^.]*자동 실행하지/u);
+    for (const index of [5, 6, 9]) {
+      const step = JSON.stringify(guide[index]);
+      for (const term of ["API Key", "Token", "Password", "개인정보", "[REDACTED]", "AI 도구"]) expect(step).toContain(term);
+      expect(step).toMatch(/필요한[^.]*전달/u);
+      expect(step).toMatch(/로그 전체[^.]*무조건 복사하지/u);
+    }
+    const deployment = JSON.stringify(guide[8]);
+    expect(deployment).toMatch(/모두 사용해야[^.]*아닙니다/u);
+    expect(deployment).toMatch(/두 플랫폼[^.]*함께/u);
+    expect(deployment).toMatch(/어떤 서비스[^.]*플랫폼[^.]*branch[^.]*방식[^.]*확인/u);
+    expect(deployment).toMatch(/Preview 확인[^.]*Production[^.]*완료[^.]*아닙니다/u);
+    expect(deployment).toMatch(/자동 배포[^.]*수동 명령[^.]*중복 실행하지/u);
+    expect(JSON.stringify(guide[9])).toMatch(/로그인·환경변수·API[^.]*실제 Production 환경[^.]*확인/u);
+    for (const command of ["git reset --hard", "git clean -fd", "git push --force", "git branch -D", "git remote remove", "git rm --cached -r ."]) expect(all).not.toContain(command);
   });
   it("builds dynamic, consecutively numbered sections grounded in the diagnosis", () => {
     const prompt = buildAllInOnePrompt(planFixture, "codex", { taskName: "월간 취합", diagnosis: diagnosisFixture });
@@ -282,7 +335,7 @@ describe("AX execution guides", () => {
     const newProject = sections[2].blocks.map(block => block.kind === "text" ? block.text : "").join("\n");
     expect(newProject).toContain("특정 프레임워크를 임의로 정하지 않습니다");
     const existingProject = sections[1].blocks.map(block => block.kind === "text" ? block.text : "").join("\n");
-    expect(existingProject).toContain("미커밋 변경이 있으면 무조건 `git pull`부터 실행하지 마세요");
+    expect(existingProject).toMatch(/미커밋 변경[^.]*git pull[^.]*실행하지/u);
     const run = setupGuide("codex")[3].sections[0];
     expect(run.blocks).toContainEqual({
       kind: "code", lines: ['cd "프로젝트 경로"', "Get-Location", "dir", TOOL_GUIDES.codex.runCommand],
