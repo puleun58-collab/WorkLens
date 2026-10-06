@@ -58,3 +58,4 @@ next-env.d.ts
 
 # opt-in AX reasoning evaluation outputs (including sealed scoring metadata)
 /eval/ax-reasoning/results/
+/eval/ax-live/results/

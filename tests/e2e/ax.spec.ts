@@ -366,6 +366,52 @@ test("AX registration → diagnosis → correction → matrix → plans → relo
   await expect.poll(() => record(page)).toEqual(saved);
   await page.reload(); await ax(page); await page.getByRole("tab", { name: "Claude Code", exact: true }).click(); await expect(page.getByRole("button", { name: "Claude Code용 지시문 복사", exact: true })).toBeVisible();
 });
+test("AX matrix markers stay numerically aligned on a 390px mobile viewport", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  const diagnosed = taskFixture("mobile-matrix", diagnosisFixture);
+  await seed(page, { ...emptyAxState(), tasks: [diagnosed], selectedTaskId: diagnosed.id, step: 3 });
+  await ax(page);
+  const alignment = await page.evaluate(() => {
+    const chart = document.querySelector(".ax-matrix")!.getBoundingClientRect();
+    const center = (box: DOMRect) => ({ x: (box.left + box.right) / 2, y: (box.top + box.bottom) / 2 });
+    const bubbles = [...document.querySelectorAll<HTMLElement>(".ax-bubble")].map(bubble => {
+      const button = center(bubble.getBoundingClientRect());
+      const number = center(bubble.querySelector(".ax-bubble-number")!.getBoundingClientRect());
+      const dot = center(bubble.querySelector(".ax-bubble-dot")!.getBoundingClientRect());
+      return {
+        xError: Math.abs(button.x - (chart.left + parseFloat(bubble.style.left) / 100 * chart.width)),
+        yError: Math.abs(button.y - (chart.bottom - parseFloat(bubble.style.bottom) / 100 * chart.height)),
+        numberError: Math.max(Math.abs(number.x - button.x), Math.abs(number.y - button.y)),
+        dotError: Math.max(Math.abs(dot.x - button.x), Math.abs(dot.y - button.y)),
+      };
+    });
+    const yTicks = [...document.querySelectorAll(".ax-y-tick")].filter(tick => tick.textContent?.trim()).map(tick => {
+      const point = center(tick.getBoundingClientRect()), value = Number(tick.textContent);
+      return { value, ...point, error: Math.abs(point.y - (chart.bottom - (value - 1) / 4 * chart.height)) };
+    });
+    const xTicks = [...document.querySelectorAll(".ax-x-tick:not(.is-origin)")].map(tick => {
+      const point = center(tick.getBoundingClientRect()), value = Number(tick.textContent);
+      return { value, ...point, error: Math.abs(point.x - (chart.left + (value - 1) / 4 * chart.width)) };
+    });
+    const originCenter = center(document.querySelector(".ax-x-tick.is-origin")!.getBoundingClientRect());
+    return {
+      bubbles, yTicks, xTicks,
+      originXError: Math.abs(originCenter.x - yTicks.find(tick => tick.value === 2)!.x),
+      originYError: Math.abs(originCenter.y - xTicks.find(tick => tick.value === 2)!.y),
+      overflow: document.documentElement.scrollWidth > window.innerWidth,
+    };
+  });
+  expect(alignment.bubbles.length).toBeGreaterThan(0);
+  for (const bubble of alignment.bubbles) {
+    expect(bubble.xError).toBeLessThanOrEqual(1.5); expect(bubble.yError).toBeLessThanOrEqual(1.5);
+    expect(bubble.numberError).toBeLessThanOrEqual(1); expect(bubble.dotError).toBeLessThanOrEqual(1);
+  }
+  for (const tick of [...alignment.yTicks, ...alignment.xTicks]) expect(tick.error).toBeLessThanOrEqual(1.5);
+  expect(alignment.originXError).toBeLessThanOrEqual(1.5);
+  expect(alignment.originYError).toBeLessThanOrEqual(1.5);
+  expect(alignment.overflow).toBe(false);
+});
 // Permission denial alone can still copy through execCommand. Control both API outcomes
 // so this regression deterministically exercises total failure and recovery.
 for (const fallbackFailure of ["false", "throw"] as const) {
