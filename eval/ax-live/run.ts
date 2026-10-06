@@ -7,7 +7,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { axDiagnosisOutputSchema, confirmedAxDiagnosis } from "../../src/lib/ax/schema";
 import { axes, automationLevel, executionGate, matrixPosition, executionProfile } from "../../src/lib/ax/policy";
 import { buildAllInOnePrompt } from "../../src/lib/ax/guide";
-import type { AxDiagnosis } from "../../src/lib/ax/types";
+import type { AxDiagnosis, AxPlan } from "../../src/lib/ax/types";
 import { SCENARIOS } from "./scenarios";
 import { runChecks, verdict, type EvalRecord } from "./checks";
 
@@ -20,16 +20,16 @@ const stamp = new Date().toISOString().replace(/[:.]/g, "-");
 const OUT = new URL(`./results/${stamp}/`, import.meta.url).pathname;
 mkdirSync(OUT, { recursive: true });
 
-async function callAi(body: unknown): Promise<any> {
+async function callAi(body: unknown): Promise<{ diagnosis?: unknown; plan?: unknown }> {
   const res = await fetch(`${BASE}/api/ai`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Origin: BASE },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(240_000),
   });
-  const payload: any = await res.json().catch(() => null);
+  const payload = await res.json().catch(() => null) as { data?: { diagnosis?: unknown; plan?: unknown } } | null;
   if (!res.ok) throw new Error(`HTTP ${res.status} ${JSON.stringify(payload)?.slice(0, 300)}`);
-  return payload.data;
+  return payload?.data ?? {};
 }
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 const only = process.argv[2]?.split(",").filter(Boolean);
@@ -51,9 +51,9 @@ for (const s of SCENARIOS) {
     if (rec.computed.profile.planAllowed) {
       const confirmed = confirmedAxDiagnosis(diagnosis);
       const task = { name: s.name, description: s.description, details: s.details };
-      rec.planCodex = (await callAi({ kind: "ax-plan", target: "codex", task, diagnosis: confirmed })).plan;
+      rec.planCodex = (await callAi({ kind: "ax-plan", target: "codex", task, diagnosis: confirmed })).plan as AxPlan;
       await sleep(1000);
-      rec.planClaude = (await callAi({ kind: "ax-plan", target: "claude", task, diagnosis: confirmed })).plan;
+      rec.planClaude = (await callAi({ kind: "ax-plan", target: "claude", task, diagnosis: confirmed })).plan as AxPlan;
       const context = [s.description, ...Object.values(s.details).filter(v => v !== undefined).map(String)].join("\n");
       rec.promptCodex = buildAllInOnePrompt(rec.planCodex, "codex", { taskName: s.name, prerequisites: rec.computed.profile.prerequisites, diagnosis, context });
       rec.promptClaude = buildAllInOnePrompt(rec.planClaude, "claude", { taskName: s.name, prerequisites: rec.computed.profile.prerequisites, diagnosis, context });

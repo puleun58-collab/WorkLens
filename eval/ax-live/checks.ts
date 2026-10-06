@@ -3,14 +3,23 @@
 // the output asserts in context (e.g. a technology named inside a
 // "확인 필요" item is a question to verify, not an invention).
 import type { AxLiveScenario } from "./scenarios";
+import type { AxDiagnosis, AxPlan } from "../../src/lib/ax/types";
+import type { axes, automationLevel, executionGate, matrixPosition, executionProfile } from "../../src/lib/ax/policy";
 
 export interface CheckIssue { severity: "fail" | "issue"; rule: string; detail: string }
+export interface ComputedSummary {
+  axes: ReturnType<typeof axes>;
+  level: ReturnType<typeof automationLevel>;
+  gate: ReturnType<typeof executionGate>;
+  matrix: ReturnType<typeof matrixPosition>;
+  profile: ReturnType<typeof executionProfile>;
+}
 export interface EvalRecord {
   scenario: AxLiveScenario;
-  diagnosis?: any;
-  computed?: any;
-  planCodex?: any;
-  planClaude?: any;
+  diagnosis?: AxDiagnosis;
+  computed?: ComputedSummary;
+  planCodex?: AxPlan;
+  planClaude?: AxPlan;
   promptCodex?: string;
   promptClaude?: string;
   planBlocked?: boolean;
@@ -34,7 +43,7 @@ export function runChecks(rec: EvalRecord): CheckIssue[] {
     return [{ severity: "fail", rule: "run-error", detail: rec.error ?? "no diagnosis" }];
   }
   const d = rec.diagnosis, input = inputText(s);
-  const factor = (k: string) => d.factors.find((f: any) => f.key === k)?.aiValue;
+  const factor = (k: string) => d.factors.find(f => f.key === k)?.aiValue;
 
   // "확인됨" technical checks must not assert specific technologies absent from the input.
   for (const t of d.technicalChecks ?? []) {
@@ -58,7 +67,7 @@ export function runChecks(rec: EvalRecord): CheckIssue[] {
     }
   }
   // Human-maintained steps must survive into the plan stage.
-  const humanSteps = (d.stepAssessments ?? []).filter((x: any) => x.verdict === "사람 유지");
+  const humanSteps = (d.stepAssessments ?? []).filter(x => x.verdict === "사람 유지");
   if (humanSteps.length === 0) {
     issues.push({ severity: "issue", rule: "no-human-step", detail: "diagnosis has no 사람 유지 step" });
   }
