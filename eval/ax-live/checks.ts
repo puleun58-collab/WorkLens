@@ -70,8 +70,9 @@ export function runChecks(rec: EvalRecord): CheckIssue[] {
   if (!rec.computed.profile.planAllowed && !rec.planBlocked) {
     issues.push({ severity: "fail", rule: "plan-despite-blocked", detail: "plan generated while planAllowed=false" });
   }
-  if (rec.computed.gate === "conditional" && rec.promptCodex && !rec.promptCodex.includes("선행 확인")) {
-    issues.push({ severity: "issue", rule: "conditional-without-prerequisite", detail: "conditional prompt lacks 선행 확인" });
+  if (rec.computed.gate === "conditional" && rec.promptCodex
+    && !rec.promptCodex.includes("구현 전 확인사항") && !rec.promptCodex.includes("선행 확인")) {
+    issues.push({ severity: "issue", rule: "conditional-without-prerequisite", detail: "conditional prompt lacks a prerequisites-first section" });
   }
   if (rec.computed.level.level === 0 && rec.promptCodex && /전체 자동화|전면 자동화/.test(rec.promptCodex)) {
     issues.push({ severity: "fail", rule: "level0-full-automation", detail: "Level 0 prompt claims full automation" });
