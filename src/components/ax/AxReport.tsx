@@ -16,12 +16,12 @@ const VERDICT_LABELS = { 자동화: "자동화", "AI 보조": "AI 보조", "사�
 export function AxList({ items }: { items: string[] }) {
   return items.length ? <ul>{items.map((item, i) => <li key={i}>{item}</li>)}</ul> : <p className="ax-muted">기재된 내용 없음</p>;
 }
-export function AxSummary({ task }: { task: AxTask }) {
+export function AxSummary({ task, showGate = true }: { task: AxTask; showGate?: boolean }) {
   if (!task.diagnosis) return null;
   const a = axes(task.diagnosis), l = automationLevel(task.diagnosis), action = nextAction(task.diagnosis), gate = executionGate(task.diagnosis);
   return <div className="ax-summary">
     <Badge variant="outline" className="ax-level-badge">{l.label.replace(/^L\d+ /, "")} · Level {l.level}{l.provisional ? " · 잠정" : ""}</Badge>
-    <p className="ax-gate-line"><span>실행 가능성</span><span className="ax-gate-badge" data-gate={gate}>{GATE_LABELS[gate]}</span>{gate === "conditional" ? <span className="ax-muted">선행 확인 필요</span> : null}</p>
+    {showGate ? <p className="ax-gate-line"><span>실행 가능성</span><span className="ax-gate-badge" data-gate={gate}>{GATE_LABELS[gate]}</span>{gate === "conditional" ? <span className="ax-muted">선행 확인 필요</span> : null}</p> : null}
     <p>자동화 가치 {a.value} · 기술 실현 가능성 {a.feasibility} · 담당자 판단 {a.judgment} · 운영 위험 {a.risk}</p>
     <p><strong>{action.label}</strong> — {action.detail}</p>
   </div>;
@@ -108,7 +108,7 @@ export function AxExecutionPackage({ plan, target, taskName, prerequisites }: { 
   return <div className="ax-package">
     <h4>{name}용 올인원 지시문</h4>
     <pre className="ax-prompt">{prompt}</pre>
-    <div className="ax-prompt-actions"><AxCopyButton text={prompt} label={`${name}용 지시문 복사`} /></div>
+    <div className="ax-prompt-actions"><AxCopyButton key={prompt} text={prompt} label={`${name}용 지시문 복사`} /></div>
   </div>;
 }
 

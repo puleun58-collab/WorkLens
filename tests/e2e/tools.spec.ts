@@ -185,9 +185,18 @@ test("RESEARCH law detail browses raw TOC and articles, recovers, and preserves 
   await expect(page.getByRole("heading", { name: "검색 결과 · 3건" })).toBeVisible();
   await expect(page.locator(".law-search-unavailable")).toContainText("원문 조회 불가");
   await expect(page.locator(".law-search-list button")).toHaveCount(2);
+  const resultRow = page.locator(".law-search-list button").first();
+  const [rowBox, nameBox] = await Promise.all([resultRow.boundingBox(), resultRow.locator("strong").boundingBox()]);
+  expect(rowBox!.width).toBeGreaterThan(400);
+  expect(nameBox!.x - rowBox!.x).toBeLessThanOrEqual(20);
+  const searchButton = page.getByRole("button", { name: "검색", exact: true });
+  expect(await searchButton.evaluate(element => getComputedStyle(element).justifyContent)).toBe("center");
 
   await page.locator(".law-search-list button").first().click();
   await expect(page.getByRole("heading", { name: "근로기준법" })).toBeVisible();
+  const [backBox, headingBox] = await Promise.all([page.getByRole("button", { name: "← 검색 결과로" }).boundingBox(), page.getByRole("heading", { name: "근로기준법" }).boundingBox()]);
+  expect(Math.abs(backBox!.x - headingBox!.x)).toBeLessThanOrEqual(2);
+  expect(backBox!.width).toBeLessThan(200);
   await expect(page.locator(".law-detail-raw")).toContainText("목차 (총 132개 조문)");
   await page.getByText("원문 보기", { exact: true }).click();
   await expect(page.locator(".law-detail-raw")).toBeVisible();
@@ -2355,6 +2364,18 @@ test("document review hides execution until a workspace file is added", async ({
   await form.getByRole("radio", { name: "직접 입력", exact: true }).check();
   await expect(form.getByRole("button", { name: "실행", exact: true })).toBeVisible();
   await expect(form.getByRole("button", { name: "실행", exact: true })).toBeDisabled();
+  const footerBoxes = await form.evaluate((element) => {
+    const box = (selector: string) => element.querySelector(selector)!.getBoundingClientRect();
+    const [text, toggle, count, run] = [box("#research-document"), box(".research-source-row"), box(".research-input-footer .legal-analysis-count"), box(".research-input-submit button")];
+    return { text: { bottom: text.bottom, left: text.left, right: text.right }, toggle: { top: toggle.top, left: toggle.left, mid: toggle.top + toggle.height / 2 }, count: { bottom: count.bottom, right: count.right, mid: count.top + count.height / 2 }, run: { top: run.top, right: run.right } };
+  });
+  expect(footerBoxes.toggle.top - footerBoxes.text.bottom).toBeLessThanOrEqual(24);
+  expect(Math.abs(footerBoxes.toggle.left - footerBoxes.text.left)).toBeLessThanOrEqual(2);
+  expect(Math.abs(footerBoxes.toggle.mid - footerBoxes.count.mid)).toBeLessThanOrEqual(4);
+  expect(Math.abs(footerBoxes.count.right - footerBoxes.text.right)).toBeLessThanOrEqual(2);
+  expect(footerBoxes.run.top).toBeGreaterThanOrEqual(footerBoxes.count.bottom);
+  expect(footerBoxes.run.top - footerBoxes.count.bottom).toBeLessThanOrEqual(16);
+  expect(Math.abs(footerBoxes.run.right - footerBoxes.text.right)).toBeLessThanOrEqual(2);
   await form.getByRole("radio", { name: "작업 파일", exact: true }).check();
   await emptyUpload.evaluate((element, bytes) => {
     const dataTransfer = new DataTransfer();

@@ -248,7 +248,7 @@ function LawPane({ onRelated, onAnalysis }: LawPaneProps) {
     const promulgated = formatLawDate(data?.promulgationDate ?? selected.promulgationDate);
     const effective = formatLawDate(data?.effectiveDate ?? selected.effectiveDate);
     return <div className="law-search law-detail">
-      <Button variant="link" type="button" className="h-auto max-w-full whitespace-normal px-0 text-left" onClick={backToResults}>← 검색 결과로</Button>
+      <Button variant="link" type="button" className="h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" onClick={backToResults}>← 검색 결과로</Button>
       <section aria-labelledby="law-detail-heading" aria-busy={detailLoading}>
         <h2 id="law-detail-heading">{lawDisplayText(data?.name ?? selected.name)}</h2>
         {(promulgated || effective) && <p className="law-search-meta">
@@ -266,13 +266,13 @@ function LawPane({ onRelated, onAnalysis }: LawPaneProps) {
           </div>
           {articleInputError && <p className="law-search-error" role="alert">조문 번호를 제74조 또는 제10조의2 형식으로 입력하세요.</p>}
         </form>
-        {activeJo && overview && <Button variant="link" type="button" className="law-detail-return h-auto px-0" onClick={backToOverview}>
+        {activeJo && overview && <Button variant="link" type="button" className="law-detail-return h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" onClick={backToOverview}>
           {overview.mode === "toc" ? "← 목차로" : "← 법령 원문으로"}
         </Button>}
         {detailLoading ? <p className="law-search-note" role="status">법령 원문을 불러오는 중…</p>
           : detail?.kind === "error" ? <div className="law-detail-feedback" role="alert">
             <p className="law-search-error">{detail.message}</p>
-            <Button variant="link" type="button" className="h-auto max-w-full whitespace-normal px-0 text-left" onClick={() => void loadText(selected, activeJo)}>다시 시도</Button>
+            <Button variant="link" type="button" className="h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" onClick={() => void loadText(selected, activeJo)}>다시 시도</Button>
           </div>
           : detail?.kind === "missing" ? <div className="law-detail-feedback" role="status">
             <p className="law-search-note">요청한 {activeJo ? "조문" : "법령 원문"}을 찾을 수 없습니다.</p>
@@ -280,9 +280,9 @@ function LawPane({ onRelated, onAnalysis }: LawPaneProps) {
           : detail?.kind === "found" ? <div className="law-detail-content">
             <h3 className={activeJo ? undefined : "law-detail-section-heading"}>{activeJo ?? (detail.data.mode === "toc" ? "목차" : "법령 원문")}</h3>
             {activeJo && <div className="law-related-actions">
-              <Button variant="link" id="related-decisions" type="button" className="h-auto max-w-full whitespace-normal px-0 text-left" onClick={() => onRelated(selected, activeJo)}>관련 판례·결정례</Button>
-              <Button variant="link" id="law-applicable-action" type="button" className="h-auto max-w-full whitespace-normal px-0 text-left" onClick={() => onAnalysis({ mode: "applicable_law", lawName: detail.data.name ?? overview?.name ?? selected.name, jo: activeJo, origin: "law" }, "law-applicable-action")}>시점별 적용 법령</Button>
-              <Button variant="link" id="law-impact-action" type="button" className="h-auto max-w-full whitespace-normal px-0 text-left" onClick={() => onAnalysis({ mode: "impact_map", lawName: detail.data.name ?? overview?.name ?? selected.name, jo: activeJo, origin: "law" }, "law-impact-action")}>조문 영향도</Button>
+              <Button variant="link" id="related-decisions" type="button" className="h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" onClick={() => onRelated(selected, activeJo)}>관련 판례·결정례</Button>
+              <Button variant="link" id="law-applicable-action" type="button" className="h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" onClick={() => onAnalysis({ mode: "applicable_law", lawName: detail.data.name ?? overview?.name ?? selected.name, jo: activeJo, origin: "law" }, "law-applicable-action")}>시점별 적용 법령</Button>
+              <Button variant="link" id="law-impact-action" type="button" className="h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" onClick={() => onAnalysis({ mode: "impact_map", lawName: detail.data.name ?? overview?.name ?? selected.name, jo: activeJo, origin: "law" }, "law-impact-action")}>조문 영향도</Button>
             </div>}
             {detail.data.mode !== "toc" || !detail.data.articles?.length ? <LawTextBlock className="law-detail-raw" text={detail.data.text} /> : null}
             {detail.data.mode === "toc" && detail.data.articles?.length ? <details className="law-detail-source">

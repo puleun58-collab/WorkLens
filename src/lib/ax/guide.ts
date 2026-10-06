@@ -67,7 +67,7 @@ export function buildAllInOnePrompt(plan: AxPlan, _tool: AxToolId, options?: { t
     "package scripts에서 테스트·typecheck·빌드·배포 명령을 확인하세요.",
     "테스트 방식을 확인하세요.",
     "배포 방식을 확인하세요.",
-  ]), "현재 구현을 확인하기 전에 파일명·함수명·API·DB 구조를 추측하지 마세요.");
+  ]));
   if (plan.asIs.length) section("AS-IS", "현재 업무는 다음과 같이 수행됩니다. 자동화 후에도 이 흐름의 목적과 담당자 역할을 유지하세요.", bullets(plan.asIs));
   if (plan.toBe.length) section("TO-BE", "구현 후 업무는 다음과 같은 상태가 되어야 합니다. 담당자의 승인·검토 역할은 임의로 제거하지 마세요.", bullets(plan.toBe));
   if (plan.inScope.length || plan.outOfScope.length) section("작업 범위",
@@ -78,7 +78,6 @@ export function buildAllInOnePrompt(plan: AxPlan, _tool: AxToolId, options?: { t
   if (prerequisites.length) section("구현 전 확인사항", bullets(prerequisites), "위 항목은 구현 전에 확인하세요. 확인되지 않은 항목은 '확인 필요'로 유지하고, 확인되지 않은 API나 권한이 있다고 가정해 구현하지 마세요.");
   section("구현 원칙", bullets([
     ...(plan.repositoryFirst ? [plan.repositoryFirst] : []),
-    "현재 프로젝트 구조를 먼저 확인하세요.",
     "기존 구현을 우선 재사용하세요. 기존 컴포넌트·함수가 있으면 새로 만들기 전에 재사용을 검토하세요.",
     "요청 범위 안에서 최소 범위로 수정하세요.",
     "요청하지 않은 기능을 추가하지 마세요.",
@@ -88,7 +87,6 @@ export function buildAllInOnePrompt(plan: AxPlan, _tool: AxToolId, options?: { t
     "기존 데이터와 기능의 호환성을 유지하세요.",
     "기존 인증·보안·권한 구조를 유지하세요.",
     "관련 없는 파일 변경을 최소화하세요.",
-    "확인되지 않은 값이나 API를 추측하지 마세요.",
     "타입·빌드·런타임 오류를 남긴 채 완료로 처리하지 마세요.",
   ]));
   if (plan.implementation.length) section("구현 요구사항", "다음 순서로 구현하세요.", numbered(plan.implementation));
@@ -115,16 +113,18 @@ export function buildAllInOnePrompt(plan: AxPlan, _tool: AxToolId, options?: { t
     "### 회귀 검증\n\n이 작업과 관련된 기존 기능이 이전과 동일하게 동작하는지 확인하세요.",
     "이 작업이 웹 UI를 포함하면 저장소에 기존 브라우저/E2E 도구(예: Playwright)가 있는지 확인하세요. 도구가 있으면 기존 흐름으로 주요 화면을 Desktop과 Mobile에서 확인하세요. 도구가 없으면 새로 설치하지 말고 그 사실을 보고하세요.",
   );
-  section("Git 반영", numbered([
+  section("Git 반영", "먼저 다음을 확인하세요.", numbered([
     "`git status`로 변경 상태를 확인하세요.",
     "`git diff`로 변경 내용을 검토하세요.",
     "현재 branch와 `git remote -v`로 원격을 확인하세요.",
-    "의도하지 않은 파일 변경이 없는지 확인하세요.",
+    "변경 파일 목록에 의도하지 않은 파일이 없는지 확인하세요.",
     "저장소의 branch/PR 정책을 확인하세요.",
+    "검증 결과를 확인하세요.",
+  ]), "stage·commit·push·PR은 사용자 요청 범위, 도구 권한, 저장소 정책이 모두 허용할 때만 진행하세요.", bullets([
     "필요한 파일만 골라 `git add <파일>`로 stage하세요.",
     "작업 내용을 설명하는 commit 메시지로 commit하세요.",
     "저장소 정책에 맞는 방식으로 push 또는 PR을 진행하세요.",
-  ]), bullets([
+  ]), "허용되지 않으면 실행하지 말고 현재 Git 상태, 추천 commit 메시지, 다음에 실행할 명령을 보고하세요.", bullets([
     "`git add .`로 전체 파일을 한 번에 추가하지 마세요.",
     "확인 없이 main branch에 직접 push하지 마세요.",
     "force push를 사용하지 마세요.",
@@ -136,6 +136,7 @@ export function buildAllInOnePrompt(plan: AxPlan, _tool: AxToolId, options?: { t
     "기존 CI/CD가 있으면 그 방식을 우선하세요. 다음으로 GitHub 연동 자동 배포, 기존 package deploy script, 기존 CLI 배포 방식 순으로 확인하세요.",
     "Vercel과 Cloudflare 중 하나를 임의로 선택하거나 새 배포 도구를 설치하지 마세요.",
     "배포 방식을 확인할 수 없으면 임의로 진행하지 말고 '배포 방식 확인 필요'로 보고하세요.",
+    "배포 방식 확인과 실제 배포 실행을 구분하세요. Production 배포는 사용자가 배포를 요청했고 권한이 확인된 경우에만 기존 방식을 재사용해 실행하세요. 실행하지 않았다면 그 이유와 다음 행동을 보고하세요.",
     "웹 배포가 필요 없는 자동화(CLI, 스크립트, Excel 자동화, 로컬 실행형 등)이면 배포 대신 실행 환경 구성 또는 운영 적용으로 처리하세요.",
     "실제 배포 또는 운영 적용을 수행했다면 다음을 확인하세요.", bullets([
     "실제 환경에서 실행되는지 여부",
@@ -154,7 +155,7 @@ export function buildAllInOnePrompt(plan: AxPlan, _tool: AxToolId, options?: { t
     "주요 예외가 정상 처리됩니다.",
     "관련 검증이 통과합니다.",
     "타입 오류와 빌드 오류가 없습니다.",
-    "실제 배포·운영 환경에서 검증했습니다.",
+    "배포 또는 운영 적용을 수행한 경우 실제 환경에서 핵심 기능을 검증합니다. 수행하지 않은 경우 사유와 미실행 항목을 명확히 보고합니다.",
     "실행하지 않은 검증은 완료로 보고하지 말고 미실행으로 명시합니다.",
   ]));
   section("완료 보고", "작업이 끝나면 다음 형식으로 보고하세요.", numbered([

@@ -129,7 +129,7 @@ export function LegalAnalysis({ linkedRequest, onReturn, onRelatedSearch }: Lega
   };
 
   return <Tabs className="legal-analysis" value={mode} onValueChange={(value) => setMode(value as LawAnalysisMode)}>
-    {linkedOrigin && <Button variant="link" type="button" className="h-auto max-w-full whitespace-normal px-0 text-left" onClick={() => onReturn(linkedOrigin)}>
+    {linkedOrigin && <Button variant="link" type="button" className="h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" onClick={() => onReturn(linkedOrigin)}>
       {linkedOrigin === "law" ? "← 법령으로" : "← 판례 상세로"}
     </Button>}
     <TabsList className="flex-wrap" aria-label="검증·분석 유형" variant="underline">
@@ -182,7 +182,7 @@ export function LegalAnalysis({ linkedRequest, onReturn, onRelatedSearch }: Lega
       {current.loading ? <p className="law-search-note" role="status">법제처 자료를 조회하는 중… 조회 범위에 따라 시간이 걸릴 수 있습니다.</p>
         : current.outcome?.kind === "error" ? <div className="decision-feedback" role="alert">
           <p className="law-search-error">{current.outcome.message}</p>
-          <Button variant="link" type="button" className="h-auto max-w-full whitespace-normal px-0 text-left" onClick={() => void run(current.request)}>다시 시도</Button>
+          <Button variant="link" type="button" className="h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" onClick={() => void run(current.request)}>다시 시도</Button>
         </div>
         : current.outcome?.kind === "missing" ? <div className="legal-analysis-missing" role="status" data-marker={current.outcome.data.marker}>
           <p className="law-search-note">요청한 법령·조문·판례를 법제처 자료에서 찾지 못했습니다. 조회 실패와는 다른 결과입니다.</p>
@@ -298,7 +298,7 @@ function AnalysisResult({ data, request, completedAt, onRelatedSearch }: { data:
       {related.length > 0 && onRelatedSearch && <div className="legal-analysis-section">
         <h3>관련 조회</h3>
         <div className="law-related-actions">
-          {related.map((item) => <Button variant="link" key={item.query + item.label} type="button" className="h-auto max-w-full whitespace-normal px-0 text-left" onClick={() => onRelatedSearch({ query: item.query, domain: item.domain! })}>
+          {related.map((item) => <Button variant="link" key={item.query + item.label} type="button" className="h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" onClick={() => onRelatedSearch({ query: item.query, domain: item.domain! })}>
             {item.label}
           </Button>)}
         </div>

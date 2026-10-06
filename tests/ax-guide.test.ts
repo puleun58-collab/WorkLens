@@ -66,7 +66,9 @@ describe("AX execution guides", () => {
     expect(section(5)).toContain("### 포함\n\n- 취합");
     expect(section(5)).toContain("### 제외\n\n- 자동 승인");
     expect(section(5)).toContain("제외 범위에 해당하는 기능은 이번 작업에서 임의로 추가하지 마세요.");
-    expect(section(7)).toContain(`- ${planFixture.repositoryFirst}\n- 현재 프로젝트 구조를 먼저 확인하세요.`);
+    expect(section(7)).toContain(`- ${planFixture.repositoryFirst}\n- 기존 구현을 우선 재사용하세요.`);
+    expect(section(7)).not.toContain("현재 프로젝트 구조를 먼저 확인하세요.");
+    expect(section(2)).not.toContain("추측하지 마세요");
     expect(section(8)).toContain("1. 저장소 확인\n2. 샘플 실험\n3. 검증 후 구현");
     expect(section(13)).toContain("### 자동화 실패 시\n\n- 수동 취합");
     expect(section(13)).toContain("### 운영·수동 처리\n\n- 담당자 지정");
@@ -84,7 +86,7 @@ describe("AX execution guides", () => {
     const prompt = buildAllInOnePrompt(planFixture, "codex");
     for (const text of [
       "작업을 시작하기 전에 현재 저장소를 먼저 확인하세요.",
-      "현재 구현을 확인하기 전에 파일명·함수명·API·DB 구조를 추측하지 마세요.",
+      "확인되지 않은 파일명·함수명·API·배포 방식을 추측하지 말고",
       "기존 구현을 우선 재사용하세요. 기존 컴포넌트·함수가 있으면 새로 만들기 전에 재사용을 검토하세요.",
       "현재 저장소에 실제로 존재하는 검증 명령과 도구를 먼저 확인한 뒤 실행하세요. 존재하지 않는 테스트 framework나 명령을 추측하거나 임의로 설치하지 마세요.",
       "실제로 수행하지 않은 작업을 완료했다고 보고하지 마세요.",
@@ -105,6 +107,10 @@ describe("AX execution guides", () => {
       "현재 branch와 `git remote -v`로 원격을 확인하세요.",
       "저장소의 branch/PR 정책을 확인하세요.",
       "필요한 파일만 골라 `git add <파일>`로 stage하세요.",
+      "stage·commit·push·PR은 사용자 요청 범위, 도구 권한, 저장소 정책이 모두 허용할 때만 진행하세요.",
+      "허용되지 않으면 실행하지 말고 현재 Git 상태, 추천 commit 메시지, 다음에 실행할 명령을 보고하세요.",
+      "Production 배포는 사용자가 배포를 요청했고 권한이 확인된 경우에만 기존 방식을 재사용해 실행하세요.",
+      "배포 또는 운영 적용을 수행한 경우 실제 환경에서 핵심 기능을 검증합니다. 수행하지 않은 경우 사유와 미실행 항목을 명확히 보고합니다.",
       "`git add .`로 전체 파일을 한 번에 추가하지 마세요.",
       "확인 없이 main branch에 직접 push하지 마세요.",
       "force push를 사용하지 마세요.",
@@ -117,7 +123,9 @@ describe("AX execution guides", () => {
       "문제가 발견되면 수정 → 재배포 또는 재적용 → 동일 시나리오 재검증 순서로 진행하세요.",
       "실행하지 않은 검증은 완료로 보고하지 말고 미실행으로 명시합니다.",
     ]) expect(prompt).toContain(text);
-    for (const text of ["npm install -g", "winget", "PowerShell", "mkdir", "해당 없음", "## 16. GitHub 반영", "## 20."]) expect(prompt).not.toContain(text);
+    for (const text of ["npm install -g", "winget", "PowerShell", "mkdir", "해당 없음", "## 16. GitHub 반영", "## 20.", "실제 배포·운영 환경에서 검증했습니다."]) expect(prompt).not.toContain(text);
+    const git = prompt.split("## 16. Git 반영")[1].split("\n## ")[0];
+    expect(git.indexOf("검증 결과를 확인하세요.")).toBeLessThan(git.indexOf("`git add <파일>`"));
   });
   it("deduplicates plan and diagnostic prerequisites while preserving their order", () => {
     const options = { taskName: "월간 취합", prerequisites: [planFixture.prerequisites[0], "권한 확인", "권한 확인", "승인자 확인"] };
@@ -157,7 +165,7 @@ describe("AX execution guides", () => {
     ]);
     expectContinuousSections(prompt);
     for (const text of ["## 10.", "해당 없음", "### 정상 케이스", "### 주요 예외 케이스", "### 사전 검증"]) expect(prompt).not.toContain(text);
-    expect(prompt).toContain(`## 2. 구현 원칙\n\n- ${planFixture.repositoryFirst}\n- 현재 프로젝트 구조를 먼저 확인하세요.`);
+    expect(prompt).toContain(`## 2. 구현 원칙\n\n- ${planFixture.repositoryFirst}\n- 기존 구현을 우선 재사용하세요.`);
     expect(prompt).toContain("### 회귀 검증");
     expect(prompt).toContain("## 6. 완료 조건\n\n- 요청한 기능이 정상 작동합니다.");
   });

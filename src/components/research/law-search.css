@@ -12,7 +12,8 @@
 .law-search-list { min-width: 0; margin: 0; padding: 0; overflow: hidden; list-style: none; background: var(--paper); border: 1px solid var(--border-surface); border-radius: var(--radius-panel); box-shadow: var(--elevation-surface); }
 .law-search-list li { border-top: 1px solid var(--line-soft, var(--line)); }
 .law-search-list li:first-child { border-top: 0; }
-.law-search-result, .law-search-unavailable { display: grid; gap: 4px; width: 100%; height: auto; min-width: 0; padding: 12px 16px; text-align: left; white-space: normal; }
+/* Result rows are full-width ghost Buttons: keep the click area, start the grid content at the left edge. */
+.law-search-result, .law-search-unavailable { display: grid; justify-content: stretch; justify-items: start; gap: 4px; width: 100%; height: auto; min-width: 0; padding: 12px 16px; text-align: left; white-space: normal; }
 .law-search-list strong { overflow-wrap: anywhere; }
 .law-search-meta { display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--muted); font-size: var(--font-size-xs); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .law-search-status { padding: 0 6px; border-radius: 4px; font-size: var(--font-size-xs); line-height: 1.6; }

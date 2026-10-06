@@ -195,7 +195,7 @@ export function DecisionSearch({ linkedRequest, onReturnToLaw, onCiteCheck }: De
     setSelected(null);
   }
 
-  const returnButton = linkedRequest && <Button variant="link" type="button" className="h-auto max-w-full whitespace-normal px-0 text-left" onClick={onReturnToLaw} title={`${linkedRequest.lawName} ${linkedRequest.jo}`}>
+  const returnButton = linkedRequest && <Button variant="link" type="button" className="h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" onClick={onReturnToLaw} title={`${linkedRequest.lawName} ${linkedRequest.jo}`}>
     {linkedRequest.origin === "analysis" ? "← 조문 영향도로" : "← 법령으로"}
   </Button>;
 
@@ -207,9 +207,9 @@ export function DecisionSearch({ linkedRequest, onReturnToLaw, onCiteCheck }: De
       ? selected.caseNumber : null;
     return <div className="decision-search decision-detail">
       <div className="decision-detail-actions">
-        <Button variant="link" type="button" className="h-auto max-w-full whitespace-normal px-0 text-left" onClick={backToResults}>← 검색 결과로</Button>
+        <Button variant="link" type="button" className="h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" onClick={backToResults}>← 검색 결과로</Button>
         {returnButton}
-        {citeCaseNumber && <Button variant="link" id="decision-cite-check" type="button" className="h-auto max-w-full whitespace-normal px-0 text-left" onClick={() => onCiteCheck(citeCaseNumber)}>판례 유효성 확인</Button>}
+        {citeCaseNumber && <Button variant="link" id="decision-cite-check" type="button" className="h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" onClick={() => onCiteCheck(citeCaseNumber)}>판례 유효성 확인</Button>}
       </div>
       <section aria-labelledby="decision-detail-heading" aria-busy={detailLoading || fullLoading}>
         <h2 id="decision-detail-heading">{text?.title || selected.title || selected.caseNumber || "판례·결정례 원문"}</h2>
@@ -223,11 +223,11 @@ export function DecisionSearch({ linkedRequest, onReturnToLaw, onCiteCheck }: De
         {detailLoading ? <p className="law-search-note" role="status">원문을 불러오는 중…</p>
           : detail?.kind === "error" ? <div className="decision-feedback" role="alert">
             <p className="law-search-error">{detail.message}</p>
-            {selected.domain !== "nts" && <Button variant="link" type="button" className="h-auto max-w-full whitespace-normal px-0 text-left" onClick={() => void loadDetail(selected)}>다시 시도</Button>}
+            {selected.domain !== "nts" && <Button variant="link" type="button" className="h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" onClick={() => void loadDetail(selected)}>다시 시도</Button>}
           </div>
           : detail?.kind === "missing" ? <p className="law-search-note" role="status">원문을 찾을 수 없습니다.</p>
           : text ? <div className="decision-detail-content">
-            {text.expandable === true && <Button variant="link" type="button" className="h-auto max-w-full whitespace-normal px-0 text-left" disabled={fullLoading} onClick={() => void loadDetail(selected, true)}>
+            {text.expandable === true && <Button variant="link" type="button" className="h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" disabled={fullLoading} onClick={() => void loadDetail(selected, true)}>
               {fullLoading ? "전문 불러오는 중…" : "전문 보기"}
             </Button>}
             {fullError && <p className="law-search-error law-operation-error" role="alert">{fullError}</p>}
@@ -276,8 +276,8 @@ export function DecisionSearch({ linkedRequest, onReturnToLaw, onCiteCheck }: De
             </>}
           </> : outcome.data.entries.length > 0 ? <DecisionList entries={outcome.data.entries} onOpen={openDetail} /> : <LawTextBlock className="decision-detail-raw" text={outcome.data.text} />}
           <div className="decision-pagination">
-            {page > 1 && <Button variant="link" type="button" className="h-auto max-w-full whitespace-normal px-0 text-left" onClick={() => void runSearch(searchedQuery, domain, page - 1)}>← 이전</Button>}
-            {outcome.data.hasNext === true && <Button variant="link" type="button" className="h-auto max-w-full whitespace-normal px-0 text-left" onClick={() => void runSearch(searchedQuery, domain, page + 1)}>다음 →</Button>}
+            {page > 1 && <Button variant="link" type="button" className="h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" onClick={() => void runSearch(searchedQuery, domain, page - 1)}>← 이전</Button>}
+            {outcome.data.hasNext === true && <Button variant="link" type="button" className="h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" onClick={() => void runSearch(searchedQuery, domain, page + 1)}>다음 →</Button>}
           </div>
         </>}
     </section>}

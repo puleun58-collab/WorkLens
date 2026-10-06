@@ -5,9 +5,9 @@
 /* The HELP destinations sit at the foot of the rail, as in the reference layout. */
 .workspace-sidebar .workspace-navigation section:last-of-type { margin-top: auto; padding-top: 10px; border-top: 1px solid rgba(170, 187, 211, .18); }
 .workspace-navigation section + section { margin-top: 14px; }
-.workspace-navigation h2 { color: #aabbd3; font-size: 10px; font-weight: 600; letter-spacing: var(--tracking-label); margin: 8px 10px; }
+.workspace-navigation h2 { color: #aabbd3; font-size: 11px; font-weight: 600; letter-spacing: var(--tracking-label); margin: 8px 10px; }
 .workspace-navigation ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
-.workspace-nav-item { width: 100%; justify-content: flex-start; color: rgba(255, 255, 255, .76); min-height: 36px; font-size: 13px; font-weight: 400; border-radius: var(--radius-control); }
+.workspace-nav-item { width: 100%; justify-content: flex-start; color: rgba(255, 255, 255, .76); min-height: 36px; font-size: var(--font-size-xs); font-weight: 400; border-radius: var(--radius-control); }
 .workspace-nav-item:hover:not(.active) { color: #fff; background: var(--navy-800); }
 .workspace-nav-item.active { color: #fff; background: var(--rail-active); font-weight: 600; }
 .workspace-sidebar .workspace-nav-item:focus-visible, .workspace-mobile-sheet .workspace-nav-item:focus-visible { outline-color: var(--rail-focus); }
