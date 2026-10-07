@@ -233,8 +233,8 @@ export async function runSupplementCase(entry: SupplementEvalCase, model?: Revie
         failures.push({ kind: "over-suggestion", stage: "candidate", detail: `참고 ${finding.check} @${finding.locations.join(",")}` });
       }
     }
-    // Duplicate: the same check and scope reported twice for the same place.
-    const keys = shown.map((finding) => `${finding.check}:${finding.scope}:${finding.locations[0]}`);
+    // A displayed section/table can contain different rows or paragraphs with independent gaps.
+    const keys = shown.map(finding => `${finding.check}:${finding.scope}:${finding.sources.map(source => `${source.fileId}:${source.nodeId}`).sort().join("|")}`);
     for (const key of new Set(keys)) if (keys.filter((item) => item === key).length > 1) failures.push({ kind: "duplicate", stage: "deduplication", detail: key });
   }
 

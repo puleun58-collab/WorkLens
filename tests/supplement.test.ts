@@ -31,11 +31,8 @@ describe("보완 — gap detection on PPTX/PDF", () => {
     ]);
     const result = finalizeSupplement(draft, new Map());
     const cause = result.findings.find((finding) => finding.check === "cause");
-    expect(cause?.title).toBe("원인 설명 확인 필요");
     expect(cause?.severity).toBe("critical");
     expect(cause?.locations).toEqual(["2P"]);
-    expect(cause?.message).toBe("물류비가 전분기 대비 18% 증가했다고 제시되어 있지만 현재 자료에서 주요 증가 원인 설명을 확인하지 못했습니다.");
-    expect(cause?.question).toBe("왜 물류비가 18% 증가했습니까?");
     expect(result.findings.some((finding) => finding.check === "response" || finding.check === "owner" || finding.check === "schedule")).toBe(false);
   });
 

@@ -63,7 +63,7 @@ export function finalizeSupplement(
     if (candidate.scope === "conflict") { findings.push(toFinding(candidate)); continue; }
     const outcome = outcomes.get(candidate.id);
     const found = outcome?.verdict === "found"
-      ? outcome.sources.filter((source) => suppliesImplementationCheck(candidate.check, source.quote ?? ""))
+      ? outcome.sources.filter((source) => suppliesImplementationCheck(candidate.check, source.quote ?? "", candidate.requirement))
       : [];
     const unsupportedFound = outcome?.verdict === "found" && found.length === 0;
     if (unsupportedFound && diagnostics) diagnostics.rejected.ai_rejected += 1;

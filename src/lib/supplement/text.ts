@@ -120,19 +120,20 @@ export function differentParties(a: string, b: string): boolean {
   return left.length > 0 && right.length > 0 && !left.some((name) => right.includes(name));
 }
 
-export interface Period { year?: number; month?: number; quarter?: number }
+export interface Period { year?: number; month?: number; quarter?: number; cumulative?: true }
 
 /** The reporting period a text states, normalized; relative words (전월) are not a period. */
 export function periodOf(text: string): Period | undefined {
   const value = normalize(text);
   const period: Period = {};
-  const dated = /(20\d{2})\s?[.\-/년]\s?(\d{1,2})(?!\d)\s?월?/u.exec(value);
+  const dated = /(20\d{2})\s?(?:[.\-/]\s?(\d{1,2})(?!\d)|년\s?(\d{1,2})\s?월)/u.exec(value);
   const year = dated?.[1] ?? /(20\d{2})\s?년?/u.exec(value)?.[1];
   if (year) period.year = Number(year);
-  const month = dated?.[2] ?? /(?<![\d.])(\d{1,2})\s?월(?!\s?(말|초|중))/u.exec(value)?.[1];
+  const month = dated?.[2] ?? dated?.[3] ?? /(?<![\d.])(\d{1,2})\s?월(?!\s?(말|초|중))/u.exec(value)?.[1];
   if (month && Number(month) >= 1 && Number(month) <= 12) period.month = Number(month);
   const quarter = /([1-4])\s?분기|Q([1-4])/u.exec(value);
   if (quarter) period.quarter = Number(quarter[1] ?? quarter[2]);
+  if (/YTD|누적|누계|\d{1,2}\s*[~～–-]\s*\d{1,2}\s?월/iu.test(value)) period.cumulative = true;
   return Object.keys(period).length ? period : undefined;
 }
 
@@ -140,6 +141,7 @@ export function periodOf(text: string): Period | undefined {
 export function periodsCompatible(a: Period | undefined, b: Period | undefined): boolean {
   if (!a || !b) return true;
   if (a.year && b.year && a.year !== b.year) return false;
+  if (!!a.cumulative !== !!b.cumulative) return false;
   if (a.month && b.month) return a.month === b.month;
   if (a.quarter && b.quarter) return a.quarter === b.quarter;
   if (a.month && b.quarter) return Math.ceil(a.month / 3) === b.quarter;
@@ -149,7 +151,7 @@ export function periodsCompatible(a: Period | undefined, b: Period | undefined):
 
 export function periodLabel(period: Period | undefined): string | undefined {
   if (!period) return undefined;
-  const parts = [period.year ? `${period.year}년` : "", period.month ? `${period.month}월` : period.quarter ? `${period.quarter}분기` : ""].filter(Boolean);
+  const parts = [period.year ? `${period.year}년` : "", period.month ? `${period.month}월` : period.quarter ? `${period.quarter}분기` : "", period.cumulative ? "누적" : ""].filter(Boolean);
   return parts.length ? parts.join(" ") : undefined;
 }
 
