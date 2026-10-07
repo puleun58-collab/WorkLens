@@ -475,6 +475,43 @@ describe("AX plan display boundaries", () => {
     expect(commonPlanView(diagnosis)).toEqual(view);
     expect(diagnosis).toEqual(before);
   });
+  it.each(["conditional", "no-go"] as const)("shows overlapping preliminary verification once for a %s gate while retaining distinct tool actions", verdict => {
+    const diagnosis: AxDiagnosis = {
+      ...levelOne,
+      decisionGate: { verdict, reasons: ["접근 권한 확인"] }, technicalChecks: [],
+      humanInLoop: ["최종 승인"],
+      poc: {
+        ...levelOne.poc,
+        evaluation: ["샘플 대조", "① 샘플  대조", "누락 건 확인"],
+        success: ["대조 통과"], failure: ["누락 발생"],
+      },
+    };
+    const plan: AxPlan = {
+      ...planFixture,
+      poc: ["원본 샘플 보관", "1) 샘플  대조", "누락 건 확인", "결과 기록", "샘플 대조 후 오류 표시", "대조 통과"],
+      prerequisites: ["접근 권한 확인", "샘플 보관 위치 확인"],
+      humanInLoop: ["최종 승인 (담당자 수행)", "최종 승인 후 전송"],
+      outOfScope: ["자동 승인", "승인 없이 외부 전송"],
+      tests: ["• 샘플 대조", "누락 건 확인", "결과 파일 재열기"],
+      acceptance: ["대조 통과", "결과 파일 재열기", "담당자 확인 기록 완료"],
+    };
+    const before = structuredClone({ diagnosis, plan });
+    const common = commonPlanView(diagnosis), tool = planView(plan, { diagnosis });
+    expect(common.tests).toEqual(["샘플 대조", "누락 건 확인"]);
+    expect(common.acceptance).toEqual(["성공: 대조 통과", "실패: 누락 발생"]);
+    expect(tool.poc).toEqual(["원본 샘플 보관", "결과 기록", "샘플 대조 후 오류 표시", "대조 통과"]);
+    expect(tool.tests).toEqual(["결과 파일 재열기"]);
+    expect(tool.acceptance).toEqual(["담당자 확인 기록 완료"]);
+    expect(common.prerequisites).toEqual(["접근 권한 확인"]);
+    expect(tool.prerequisites).toEqual(["샘플 보관 위치 확인"]);
+    expect(common.humanKept).toEqual(["담당자 승인 (담당자 수행)", "최종 승인"]);
+    expect(tool.humanKept).toEqual(["최종 승인 후 전송"]);
+    expect(common.excluded).toContain("자동 승인");
+    expect(tool.excluded).toEqual(["승인 없이 외부 전송"]);
+    expect(common.glance.find(row => row.label === "진행 상태")?.value).toBe(verdict === "no-go" ? "진행 보류" : "확인 후 진행");
+    expect({ diagnosis, plan }).toEqual(before);
+  });
+
   it("subtracts common same-role facts exactly without hiding qualified tool requirements", () => {
     const diagnosis: AxDiagnosis = {
       ...levelOne,

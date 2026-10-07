@@ -411,7 +411,7 @@ export function commonPlanView(diagnosis: AxDiagnosis): AxPlanView {
   };
 }
 
-/** Tool-only detail; diagnosis only subtracts exact same-role content already shown in the common direction. */
+/** Tool-only detail; exact same-role facts stay in common direction, including PoC checks already shown as verification. */
 export function planView(rawPlan: AxPlan, options: { diagnosis: AxDiagnosis; prerequisites?: string[]; context?: string }): AxPlanView {
   const plan = guardPlan(rawPlan, options.context ?? ""), common = commonPlanView(options.diagnosis);
   const humanKept = without(plan.humanInLoop, common.humanKept), goals = without(plan.goal, common.goals);
@@ -422,7 +422,7 @@ export function planView(rawPlan: AxPlan, options: { diagnosis: AxDiagnosis; pre
     glance: [],
     goals,
     include: without(plan.inScope, common.include), humanKept, excluded: without(plan.outOfScope, [...plan.humanInLoop, ...common.excluded]),
-    poc: without(plan.poc, common.poc), steps: without(plan.implementation, common.steps),
+    poc: without(plan.poc, [...common.poc, ...common.tests]), steps: without(plan.implementation, common.steps),
     data: [
       { label: "변경 후 흐름", items: without(plan.toBe, [...plan.goal, ...common.goals, ...options.diagnosis.toBe.map(step => step.description)]) },
       { label: "데이터 흐름", items: unique(plan.dataFlow) }, { label: "외부 연동", items: unique(plan.integrations) },
