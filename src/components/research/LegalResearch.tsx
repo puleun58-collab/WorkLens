@@ -245,7 +245,7 @@ export function LegalResearch({ workspace, initialTask = "full_research" }: { wo
   </Button>;
   const resultDisplay = isDocument ? <div className="research-source-option">
     <Field className="research-source-row inline-flex flex-row items-center" disabled={!preferencesReady || loading}>
-      <FieldLabel htmlFor={`run-review-${task}-sources`}>출처 펼쳐 보기</FieldLabel>
+      <FieldLabel htmlFor={`run-review-${task}-sources`}>결과 출처 자동 펼치기</FieldLabel>
       <Switch id={`run-review-${task}-sources`} checked={preferences.expandSources}
         disabled={!preferencesReady || loading}
         onCheckedChange={(expandSources) => setPreferenceOverride((current) => ({ ...current, expandSources }))} />
@@ -406,7 +406,7 @@ export function LegalResearch({ workspace, initialTask = "full_research" }: { wo
           </header>
         </div>
         : current.outcome?.kind === "found" ? current.outcome.data.review
-          ? <ContractReviewResult review={current.outcome.data.review} file={current.file} expandSources={current.preferences?.expandSources} />
+          ? <ContractReviewResult review={current.outcome.data.review} file={current.file} expandSources={preferences.expandSources} />
           : <ResearchResult data={current.outcome.data} request={current.request} expandSources={false} />
         : null}
     </section>}

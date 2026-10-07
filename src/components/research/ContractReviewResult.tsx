@@ -82,7 +82,7 @@ const FOCUS_FADE_MS = 350;
 export function ContractReviewResult({ review, file, expandSources = false }: { review: ContractReview; file?: ReviewFile; expandSources?: boolean }) {
   const resultRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (expandSources) resultRef.current?.querySelectorAll<HTMLDetailsElement>(".contract-review-refs").forEach((detail) => { detail.open = true; });
+    resultRef.current?.querySelectorAll<HTMLDetailsElement>(".contract-review-refs").forEach((detail) => { detail.open = expandSources; });
   }, [expandSources, review]);
   const activeDetail = useRef<HTMLElement | null>(null);
   const focusTimer = useRef<number | undefined>(undefined);
