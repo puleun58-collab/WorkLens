@@ -272,29 +272,36 @@
 .ax-guide-list li { margin-bottom: 6px; overflow-wrap: anywhere; }
 .ax-package > p { margin: 4px 0 16px; }
 .ax-package > h4 { margin-top: 20px; }
-/* Human plan view: one left content column, sections divided by rules and spacing — no gray boxes; only the prompt is boxed. */
-.ax-plan-view { display: grid; gap: 0; max-width: 920px; text-align: left; }
-.ax-plan-view h4 { margin: 0 0 10px; font-size: var(--font-size-md); font-weight: var(--font-weight-semibold); color: var(--foreground); }
+/* Content text shares one rail; list/step markers occupy a non-cumulative gutter. */
+.ax-plan-view { --ax-marker-rail: 1.75rem; display: grid; gap: 0; max-width: 920px; padding-left: var(--ax-marker-rail); text-align: left; }
+.ax-plan-view h4 { margin: 0 0 8px; font-size: var(--font-size-md); font-weight: var(--font-weight-semibold); color: var(--foreground); }
 .ax-plan-view h5 { margin: 0 0 4px; font-size: var(--font-size-xs); font-weight: var(--font-weight-semibold); color: var(--muted-foreground); }
-.ax-plan-glance { padding: 4px 0 18px; }
-.ax-plan-glance dl { display: grid; gap: 6px; margin: 0; }
-.ax-plan-glance dl > div { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px; align-items: baseline; }
+.ax-plan-glance { padding: 4px 0 14px; }
+.ax-plan-glance dl { display: flex; flex-wrap: wrap; gap: 10px 24px; margin: 0; }
+.ax-plan-glance dl > div { display: grid; gap: 2px; flex: 1 1 14rem; min-width: 0; }
 .ax-plan-glance dt { font-size: var(--font-size-xs); color: var(--muted-foreground); }
 .ax-plan-glance dd { margin: 0; font-size: var(--font-size-sm); font-weight: var(--font-weight-medium); color: var(--foreground); overflow-wrap: anywhere; }
-.ax-plan-block { padding: 18px 0; border-top: 1px solid var(--border); }
-.ax-plan-group + .ax-plan-group, .ax-plan-group + .ax-plan-steps, .ax-plan-group + .ax-plan-details { margin-top: 12px; }
-.ax-plan-list { margin: 0; padding-left: 18px; list-style: disc; font-size: var(--font-size-sm); line-height: 1.65; }
-.ax-plan-list li { overflow-wrap: anywhere; }
+.ax-plan-block { padding: 14px 0; border-top: 1px solid var(--border); }
+.ax-plan-group + .ax-plan-group, .ax-plan-group + .ax-plan-steps, .ax-plan-group + .ax-plan-details { margin-top: 10px; }
+.ax-view .ax-plan-list { margin: 0; padding: 0; list-style: none; font-size: var(--font-size-sm); line-height: 1.65; }
+.ax-plan-list li { position: relative; overflow-wrap: anywhere; }
+.ax-plan-list li::before { content: "•"; position: absolute; right: calc(100% + .65rem); color: var(--muted-foreground); }
 .ax-plan-list li + li { margin-top: 2px; }
-.ax-plan-steps { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; font-size: var(--font-size-sm); line-height: 1.6; }
-.ax-plan-steps li { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 8px; overflow-wrap: anywhere; }
-.ax-plan-step-no { font-weight: var(--font-weight-semibold); color: var(--primary); font-variant-numeric: tabular-nums; }
+.ax-view .ax-plan-steps { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; font-size: var(--font-size-sm); line-height: 1.6; }
+.ax-plan-steps li { position: relative; overflow-wrap: anywhere; }
+.ax-plan-step-no { position: absolute; right: calc(100% + .45rem); width: 1.3rem; white-space: nowrap; text-align: right; font-weight: var(--font-weight-semibold); color: var(--primary); font-variant-numeric: tabular-nums; }
 .ax-plan-status { margin-left: 6px; padding: 1px 6px; border-radius: 4px; font-weight: var(--font-weight-medium); color: var(--warning-foreground, #8a5a00); background: color-mix(in srgb, var(--warning, #f5a524) 12%, transparent); }
-.ax-plan-details { margin-top: 12px; border-top: 1px solid var(--border); }
-.ax-plan-details .ax-plan-detail:not(:last-child) { border-bottom: 1px solid var(--border); }
-.ax-plan-details .ax-plan-detail-trigger { padding: 8px 0; font-size: var(--font-size-sm); font-weight: var(--font-weight-medium); text-align: left; }
-.ax-plan-detail-panel { padding-bottom: 10px; }
-.ax-package > .ax-package-title { margin-top: 8px; padding-top: 18px; border-top: 1px solid var(--border); }
+.ax-plan-details { margin-top: 8px; margin-left: calc(-1 * var(--ax-marker-rail)); max-width: 36rem; }
+.ax-plan-details .ax-plan-detail { border: 0; }
+.ax-plan-details .ax-plan-detail-trigger { flex: initial; justify-content: flex-start; align-items: center; gap: .6rem; padding: .75em 0 .75em var(--ax-marker-rail); min-height: calc(1lh + 2em); font-size: var(--font-size-sm); font-weight: var(--font-weight-regular); text-align: left; }
+.ax-plan-detail-count { color: var(--muted-foreground); font-size: var(--font-size-xs); }
+.ax-plan-detail-panel { padding: 0 0 .75em var(--ax-marker-rail); }
+.ax-common-plan > h4, .ax-tool-plan > h4 { margin: 14px 0 8px; padding-left: 1.75rem; }
+.ax-package > .ax-package-title { margin-top: 8px; padding-top: 14px; border-top: 1px solid var(--border); }
+.ax-tool-plan { margin-top: 14px; }
+@media(max-width: 700px) {
+  .ax-plan-glance dl { display: grid; gap: 8px; }
+}
 @media(max-width: 700px) {
   .ax-package > button, .ax-tool-tabs [data-slot=tabs-content] > button { max-width: 100%; height: auto; min-height: 36px; white-space: normal; overflow-wrap: anywhere; }
   .ax-prompt { padding: 12px; }
