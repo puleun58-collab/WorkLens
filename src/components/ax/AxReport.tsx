@@ -91,7 +91,7 @@ export function AxRadar({ diagnosis }: { diagnosis: AxDiagnosis }) {
   </svg>;
 }
 
-export function AxCopyButton({ text, label }: { text: string; label: string }) {
+export function AxCopyButton({ text, label, iconOnly = false }: { text: string; label: string; iconOnly?: boolean }) {
   const [copied, setCopied] = useState(false);
   const [failed, setFailed] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -121,7 +121,7 @@ export function AxCopyButton({ text, label }: { text: string; label: string }) {
   }
   return <>
     <span className="sr-only" aria-live="polite">{copied ? "복사했습니다." : ""}</span>
-    <Button type="button" className="ax-copy-button" data-copied={copied ? "true" : undefined} aria-label={label} onClick={() => void copy()}>{copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}복사</Button>
+    <Button type="button" variant={iconOnly ? "ghost" : "default"} size={iconOnly ? "icon-xs" : "default"} className={iconOnly ? "ax-guide-copy-button" : "ax-copy-button"} data-copied={copied ? "true" : undefined} aria-label={label} onClick={() => void copy()}>{copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}{iconOnly ? null : "복사"}</Button>
     {failed ? <p className="ax-copy-error" role="status">복사하지 못했습니다. 직접 선택해 복사해주세요.</p> : null}
   </>;
 }
@@ -135,7 +135,7 @@ function AxGuideBlockView({ block }: { block: AxGuideBlock }) {
     const label = block.label ?? "PowerShell";
     const ariaLabel = label === "PowerShell" ? "PowerShell 명령" : label === ".gitignore" ? ".gitignore 예시" : "예시";
     return <>
-      <pre className="ax-guide-code" aria-label={ariaLabel}><span className="ax-guide-code-label" aria-hidden="true">{label}</span><code>{block.lines.join("\n")}</code></pre>
+      <div className="ax-guide-code-wrap"><pre className="ax-guide-code" aria-label={ariaLabel}><span className="ax-guide-code-label" aria-hidden="true">{label}</span><code>{block.lines.join("\n")}</code></pre><AxCopyButton key={block.lines.join("\n")} text={block.lines.join("\n")} label={`${ariaLabel} 복사`} iconOnly /></div>
       {block.notes ? <ul className="ax-guide-code-notes">{block.notes.map((note, i) => <li key={i}>{note}</li>)}</ul> : null}
     </>;
   }
