@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildAllInOnePrompt, guardPlan, setupGuide, TOOL_GUIDES, type AxGuideSection } from "../src/lib/ax/guide";
+import { buildAllInOnePrompt, guardPlan, planView, setupGuide, TOOL_GUIDES, type AxGuideSection } from "../src/lib/ax/guide";
 import { FACTOR_LABELS } from "../src/lib/ax/schema";
 import { diagnosisFixture, planFixture } from "./fixtures/ax";
 import type { AxDiagnosis, AxPlan } from "../src/lib/ax/types";
@@ -341,5 +341,35 @@ describe("AX execution guides", () => {
       kind: "code", lines: ['cd "프로젝트 경로"', "Get-Location", "dir", TOOL_GUIDES.codex.runCommand],
       notes: ["실제 프로젝트 경로로 바꾸어 이동합니다.", "현재 위치가 프로젝트 폴더인지 확인합니다.", "프로젝트 폴더의 파일과 하위 폴더를 확인합니다.", "Codex를 현재 프로젝트에서 실행합니다."],
     });
+  });
+});
+
+describe("AX plan view (human review)", () => {
+  const plan: AxPlan = {
+    ...planFixture,
+    goal: ["검토용 표 생성"], toBe: ["검토용 표 생성", "규칙 기반 취합과 사람 승인"],
+    humanInLoop: ["최종 승인"], outOfScope: ["자동 승인", "최종 승인"],
+    exceptions: ["누락 시 검토"], fallback: ["누락 시 검토", "수동 취합"], operation: ["수동 취합", "담당자 지정"],
+    tests: ["샘플 대조"], acceptance: ["샘플 대조", "대조 통과"],
+  };
+  it("places each meaning once, keeps human and prerequisite items, and leaves inputs untouched", () => {
+    const before = structuredClone(plan), diagnosis = structuredClone(levelOne);
+    const view = planView(plan, { diagnosis, prerequisites: ["시스템 접근 — API와 권한 실제 확인"], context: "월간 취합" });
+    expect(plan).toEqual(before); expect(diagnosis).toEqual(levelOne);
+    expect(view.goals).toEqual(["검토용 표 생성", "규칙 기반 취합과 사람 승인"]);
+    expect(view.humanKept).toEqual(["최종 승인", "담당자 승인 (담당자 수행)"]);
+    expect(view.excluded).toEqual(["자동 승인"]);
+    expect(view.exceptions).toContain("누락 시 검토");
+    expect(view.details.find(d => d.title === "실패 시 대응")?.items).toEqual(["수동 취합"]);
+    expect(view.details.find(d => d.title === "운영")?.items).toEqual(["담당자 지정"]);
+    expect(view.acceptance).toEqual(["대조 통과"]);
+    expect(view.prerequisites).toEqual(["실제 저장소와 API 확인", "시스템 접근 — API와 권한 실제 확인"]);
+    expect(view.glance.map(row => row.label)).toEqual(["자동화 수준", "진행 상태", "핵심 구현", "사람 유지", "선행 확인", "구현 방식"]);
+    expect(view.glance[0].value).toBe("Level 1 · AI 보조");
+    expect(view.glance[1].value).toBe("확인 후 진행");
+  });
+  it("drops unsupported metrics through the same guard as the prompt", () => {
+    const view = planView({ ...plan, goal: ["작업 시간 50% 절감", "검토용 표 생성"] }, { diagnosis: levelOne });
+    expect(view.goals.join(" ")).not.toMatch(/50%/u);
   });
 });

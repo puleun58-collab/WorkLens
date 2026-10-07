@@ -272,6 +272,29 @@
 .ax-guide-list li { margin-bottom: 6px; overflow-wrap: anywhere; }
 .ax-package > p { margin: 4px 0 16px; }
 .ax-package > h4 { margin-top: 20px; }
+/* Human plan view: one left content column, sections divided by rules and spacing — no gray boxes; only the prompt is boxed. */
+.ax-plan-view { display: grid; gap: 0; max-width: 920px; text-align: left; }
+.ax-plan-view h4 { margin: 0 0 10px; font-size: var(--font-size-md); font-weight: var(--font-weight-semibold); color: var(--foreground); }
+.ax-plan-view h5 { margin: 0 0 4px; font-size: var(--font-size-xs); font-weight: var(--font-weight-semibold); color: var(--muted-foreground); }
+.ax-plan-glance { padding: 4px 0 18px; }
+.ax-plan-glance dl { display: grid; gap: 6px; margin: 0; }
+.ax-plan-glance dl > div { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px; align-items: baseline; }
+.ax-plan-glance dt { font-size: var(--font-size-xs); color: var(--muted-foreground); }
+.ax-plan-glance dd { margin: 0; font-size: var(--font-size-sm); font-weight: var(--font-weight-medium); color: var(--foreground); overflow-wrap: anywhere; }
+.ax-plan-block { padding: 18px 0; border-top: 1px solid var(--border); }
+.ax-plan-group + .ax-plan-group, .ax-plan-group + .ax-plan-steps, .ax-plan-group + .ax-plan-details { margin-top: 12px; }
+.ax-plan-list { margin: 0; padding-left: 18px; list-style: disc; font-size: var(--font-size-sm); line-height: 1.65; }
+.ax-plan-list li { overflow-wrap: anywhere; }
+.ax-plan-list li + li { margin-top: 2px; }
+.ax-plan-steps { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; font-size: var(--font-size-sm); line-height: 1.6; }
+.ax-plan-steps li { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 8px; overflow-wrap: anywhere; }
+.ax-plan-step-no { font-weight: var(--font-weight-semibold); color: var(--primary); font-variant-numeric: tabular-nums; }
+.ax-plan-status { margin-left: 6px; padding: 1px 6px; border-radius: 4px; font-weight: var(--font-weight-medium); color: var(--warning-foreground, #8a5a00); background: color-mix(in srgb, var(--warning, #f5a524) 12%, transparent); }
+.ax-plan-details { margin-top: 12px; border-top: 1px solid var(--border); }
+.ax-plan-details .ax-plan-detail:not(:last-child) { border-bottom: 1px solid var(--border); }
+.ax-plan-details .ax-plan-detail-trigger { padding: 8px 0; font-size: var(--font-size-sm); font-weight: var(--font-weight-medium); text-align: left; }
+.ax-plan-detail-panel { padding-bottom: 10px; }
+.ax-package > .ax-package-title { margin-top: 8px; padding-top: 18px; border-top: 1px solid var(--border); }
 @media(max-width: 700px) {
   .ax-package > button, .ax-tool-tabs [data-slot=tabs-content] > button { max-width: 100%; height: auto; min-height: 36px; white-space: normal; overflow-wrap: anywhere; }
   .ax-prompt { padding: 12px; }
