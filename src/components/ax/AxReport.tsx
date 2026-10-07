@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Accordion, AccordionItem, AccordionPanel, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTab, TabsPanel } from "@/components/ui/tabs";
-import { buildAllInOnePrompt, commonPlanView, planView, setupGuide, TOOL_GUIDES, type AxGuideBlock, type AxPlanView, type AxToolId } from "@/lib/ax/guide";
+import { buildAllInOnePrompt, commonPlanView, planView, setupGuide, TOOL_GUIDES, type AxGuideBlock, type AxGuideSection, type AxPlanView, type AxToolId } from "@/lib/ax/guide";
 
 const VERDICT_LABELS = { 자동화: "자동화", "AI 보조": "AI 보조", "사람 유지": "담당자 수행" } as const;
 const OWNER_LABELS = { 시스템: "시스템", AI: "AI", 사용자: "담당자" } as const;
@@ -130,26 +130,40 @@ export function AxCopyButton({ text, label, iconOnly = false }: { text: string; 
 function AxGuideText({ text }: { text: string }) {
   return <>{text.split(/(`[^`]+`)/g).map((part, i) => part.startsWith("`") ? <code className="ax-cmd" key={i}>{part.slice(1, -1)}</code> : part)}</>;
 }
-function AxGuideBlockView({ block }: { block: AxGuideBlock }) {
+function AxGuideBlockView({ block, listStyle }: { block: AxGuideBlock; listStyle?: "bullets" }) {
   if (block.kind === "code") {
     const label = block.label ?? "PowerShell";
     const ariaLabel = label === "PowerShell" ? "PowerShell 명령" : label === ".gitignore" ? ".gitignore 예시" : "예시";
     return <>
       <div className="ax-guide-code-wrap"><pre className="ax-guide-code" aria-label={ariaLabel}><span className="ax-guide-code-label" aria-hidden="true">{label}</span><code>{block.lines.join("\n")}</code></pre><AxCopyButton key={block.lines.join("\n")} text={block.lines.join("\n")} label={`${ariaLabel} 복사`} iconOnly /></div>
-      {block.notes ? <ul className="ax-guide-code-notes">{block.notes.map((note, i) => <li key={i}>{note}</li>)}</ul> : null}
+      {block.notes?.length ? <div className="ax-guide-code-notes">{block.notes.map((note, i) => <p key={i}>{note}</p>)}</div> : null}
     </>;
   }
-  if (block.kind === "steps") return <ol className="ax-guide-list">{block.items.map((item, i) => <li key={i}><AxGuideText text={item} /></li>)}</ol>;
+  if (block.kind === "steps") {
+    const checklist = block.items.every(item => item.startsWith("□ "));
+    const items = block.items.map((item, i) => <li key={i}><span className="ax-guide-marker" aria-hidden="true">{checklist ? "□" : listStyle === "bullets" ? "•" : String(i + 1).padStart(2, "0")}</span><span className="ax-guide-text"><AxGuideText text={checklist ? item.slice(2) : item} /></span></li>);
+    return checklist || listStyle === "bullets" ? <ul className="ax-guide-list" role="list">{items}</ul> : <ol className="ax-guide-list" role="list">{items}</ol>;
+  }
   return <p><AxGuideText text={block.text} /></p>;
+}
+function AxGuideSectionView({ section }: { section: AxGuideSection }) {
+  const content = <>
+    {section.when ? <p className="ax-guide-when"><AxGuideText text={section.when} /></p> : null}
+    {section.blocks.map((block, i) => <AxGuideBlockView key={i} block={block} listStyle={section.listStyle} />)}
+  </>;
+  return <section className="ax-guide-section">
+    <h5>{section.title}</h5>
+    {section.collapsed ? <Accordion className="ax-guide-terms"><AccordionItem value="terms">
+      <AccordionTrigger className="ax-guide-terms-trigger">용어 설명 보기</AccordionTrigger>
+      <AccordionPanel className="ax-guide-terms-panel">{content}</AccordionPanel>
+    </AccordionItem></Accordion> : content}
+  </section>;
 }
 function AxSetupGuide({ tool }: { tool: AxToolId }) {
   return <>{setupGuide(tool).map(step => <div className="ax-guide-step" key={step.title}>
     <h4>{step.title}</h4>
-    {step.sections.map(section => <section className="ax-guide-section" key={section.title}>
-      <h5>{section.title}</h5>
-      {section.when ? <p className="ax-guide-when"><AxGuideText text={section.when} /></p> : null}
-      {section.blocks.map((block, i) => <AxGuideBlockView key={i} block={block} />)}
-    </section>)}
+    <p className="ax-guide-purpose">{step.purpose}</p>
+    {step.sections.map(section => <AxGuideSectionView key={section.title} section={section} />)}
   </div>)}</>;
 }
 
@@ -197,7 +211,7 @@ function AxPrompt({ prompt, name }: { prompt: string; name: string }) {
   return <>
     <pre id={contentId} className="ax-prompt" data-expanded={expanded ? "true" : "false"}>{prompt}</pre>
     <div className="ax-prompt-actions">
-      <Button type="button" variant="ghost" className="ax-prompt-toggle" aria-expanded={expanded} aria-controls={contentId} onClick={() => setExpanded(value => !value)}>{expanded ? "접기" : "전체 보기"}</Button>
+      <Button type="button" variant="outline" className="ax-prompt-toggle" aria-expanded={expanded} aria-controls={contentId} onClick={() => setExpanded(value => !value)}>{expanded ? "접기" : "전체 보기"}</Button>
       <AxCopyButton text={prompt} label={`${name}용 지시문 복사`} />
     </div>
   </>;

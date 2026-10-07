@@ -54,12 +54,6 @@ describe("AX execution guides", () => {
     for (const tool of ["codex", "claude"] as const) {
       const other = tool === "codex" ? "claude" : "codex";
       const guide = setupGuide(tool);
-      expect(guide.map(step => step.title)).toEqual([
-        "시작하기 전에 · 전체 흐름", "STEP 1 · 처음 한 번 환경 준비", "STEP 2 · 프로젝트 준비",
-        "STEP 3 · Codex / Claude Code 실행", "STEP 4 · 올인원 지시문으로 작업", "STEP 5 · AI 작업 결과 검증",
-        "STEP 6 · .gitignore / Secret 확인 후 Git 저장", "STEP 7 · GitHub CI / PR 확인",
-        "STEP 8 · 배포 (Vercel / Cloudflare)", "STEP 9 · Production 최종 확인",
-      ]);
       const all = guide.flatMap(step => step.sections.map(sectionText)).join("\n");
       for (const command of ["installCommand", "doctorCommand", "versionCommand"] as const) {
         expect(all).toContain(TOOL_GUIDES[tool][command]);
@@ -80,7 +74,7 @@ describe("AX execution guides", () => {
       expect(installs[4].when).toBe("GitHub CLI(gh)가 설치된 경우에만");
       expect(installs[4].blocks).toContainEqual({ kind: "code", lines: ["gh auth status"], notes: ["GitHub CLI의 로그인 상태를 확인합니다."] });
       expect(guide[2]).toEqual(setupGuide(other)[2]);
-      for (const index of [0, 5, 6, 7, 8, 9]) expect(guide[index]).toEqual(setupGuide(other)[index]);
+      for (const index of [5, 6, 7, 8, 9]) expect(guide[index]).toEqual(setupGuide(other)[index]);
     }
   });
   it.each(["codex", "claude"] as const)("explains every code line and covers the complete %s workflow", tool => {
@@ -92,11 +86,8 @@ describe("AX execution guides", () => {
       expect(block.notes).toHaveLength(block.lines.length);
       for (const note of block.notes!) expect(note.trim()).not.toBe("");
     }
-    expect(guide[6].sections.map(section => section.title)).toEqual([
-      ".gitignore란", "기존 .gitignore 확인", ".env와 .env.example", "이미 추적 중인 파일", "올리기 전 체크리스트", "Git 저장 순서",
-    ]);
-    const gitSave = guide[6].sections.at(-1)!;
-    expect(gitSave.blocks.flatMap(block => block.kind === "code" ? block.lines : [])).toEqual([
+    const gitSaveBlocks = guide[6].sections.flatMap(section => section.blocks);
+    expect(gitSaveBlocks.flatMap(block => block.kind === "code" && !block.label ? block.lines : [])).toEqual([
       "git add .", "git status", "git diff --cached --stat", "git branch --show-current", "git remote -v", 'git commit -m "작업 내용 요약"', "git push",
     ]);
   });

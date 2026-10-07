@@ -243,7 +243,7 @@
 .ax-prompt { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 13px; line-height: 1.65; text-align: left; color: var(--foreground); white-space: pre-wrap; word-break: break-word; max-width: 100%; max-height: calc(12lh + 2rem); overflow: hidden; background: color-mix(in srgb, var(--muted) 9%, var(--card)); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin: 12px 0; }
 .ax-prompt[data-expanded="true"] { max-height: none; overflow: visible; }
 .ax-prompt-actions { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
-.ax-prompt-actions .ax-prompt-toggle { margin-right: auto; color: var(--muted-foreground); }
+.ax-prompt-actions .ax-prompt-toggle { margin-right: auto; color: var(--foreground); background: var(--card); border-color: var(--border); border-radius: 6px; }
 .ax-prompt-actions .ax-copy-button { transition: background-color 0.15s ease, border-color 0.15s ease; }
 .ax-prompt-actions .ax-copy-button[data-copied="true"] { background: color-mix(in srgb, var(--primary) 86%, var(--foreground)); border-color: transparent; }
 .ax-copy-error { flex: 1 1 100%; margin: 0; text-align: right; font-size: var(--font-size-xs); color: var(--destructive); }
@@ -258,27 +258,31 @@
 .ax-guide .ax-guide-trigger svg { flex: none; }
 .ax-cmd { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.9em; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--foreground); background: color-mix(in srgb, var(--muted) 18%, var(--card)); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; }
 /* Setup guide: readable body, STEP > section > body > command hierarchy, left aligned. */
-.ax-guide-panel { color: var(--foreground); font-size: var(--font-size-sm); line-height: 1.7; text-align: left; }
-.ax-guide-step + .ax-guide-step { margin-top: 28px; }
-.ax-guide-step > h4 { margin: 16px 0 4px; padding-bottom: 8px; border-bottom: 1px solid var(--border); font-size: var(--font-size-md); font-weight: 650; }
+.ax-guide-panel { --ax-marker-rail: 1.75rem; color: var(--foreground); font-size: var(--font-size-sm); line-height: 1.7; text-align: left; min-width: 0; }
+.ax-guide-step + .ax-guide-step { margin-top: 32px; }
+.ax-guide-step > h4 { margin: 16px 0 8px; padding-bottom: 10px; border-bottom: 1px solid var(--border); font-size: var(--font-size-md); font-weight: var(--font-weight-semibold); }
+.ax-guide-step > .ax-guide-purpose { margin: 0 0 16px; color: var(--muted-foreground); overflow-wrap: anywhere; }
 .ax-guide-section { margin-top: 18px; }
 .ax-guide-section > h5 { margin: 0 0 4px; font-size: var(--font-size-sm); font-weight: 650; }
 .ax-guide-section > p { margin: 6px 0; overflow-wrap: anywhere; }
 .ax-guide-section > .ax-guide-when { margin: 0 0 8px; color: var(--muted-foreground); font-size: var(--font-size-xs); }
-.ax-guide-section > .ax-guide-when::before { content: "→ "; }
 .ax-guide-code { position: relative; margin: 8px 0; padding: 26px 14px 12px; overflow-x: auto; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 13px; line-height: 1.7; white-space: pre; color: var(--foreground); background: color-mix(in srgb, var(--muted) 14%, var(--card)); border: 1px solid var(--border); border-radius: 8px; }
 .ax-guide-code-label { position: absolute; top: 6px; left: 14px; font-family: var(--font-sans); font-size: 11px; color: var(--muted-foreground); letter-spacing: .04em; }
 .ax-guide-code-wrap { position: relative; }
 .ax-guide-code-wrap > .ax-guide-copy-button { position: absolute; top: 3px; right: 5px; color: var(--muted-foreground); }
 .ax-guide-code-wrap > .ax-guide-copy-button[data-copied="true"] { color: var(--primary); }
-.ax-view .ax-guide-code-notes { margin: 4px 0 8px; padding-left: 20px; color: var(--muted-foreground); font-size: var(--font-size-xs); line-height: 1.5; }
-.ax-guide-code-notes li { margin: 2px 0; overflow-wrap: anywhere; }
-.ax-view .ax-guide-list { margin: 6px 0; padding-left: 22px; }
-.ax-guide-list li { margin-bottom: 6px; overflow-wrap: anywhere; }
+.ax-view .ax-guide-code-notes { margin: 4px 0 12px; padding: 0; color: var(--muted-foreground); font-size: var(--font-size-sm); line-height: 1.6; }
+.ax-guide-code-notes > p { margin: 2px 0; overflow-wrap: anywhere; }
+.ax-view .ax-guide-list { margin: 6px 0; padding: 0; list-style: none; }
+.ax-guide-list li { position: relative; padding-left: var(--ax-marker-rail); margin-bottom: 6px; overflow-wrap: anywhere; }
+.ax-guide-marker { position: absolute; left: 0; width: 1.3rem; text-align: left; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+.ax-guide-terms > [data-slot=accordion-item] { border: 0; }
+.ax-guide-terms .ax-guide-terms-trigger { justify-content: flex-start; gap: 8px; padding: 8px 0; font-size: var(--font-size-sm); font-weight: var(--font-weight-medium); }
+.ax-guide-terms .ax-guide-terms-panel { padding: 0; }
 .ax-package > p { margin: 4px 0 16px; }
 .ax-package > h4 { margin-top: 20px; }
-/* Content text shares one rail; list/step markers occupy a non-cumulative gutter. */
-.ax-plan-view { --ax-marker-rail: 1.75rem; display: grid; gap: 0; max-width: 920px; padding-left: var(--ax-marker-rail); text-align: left; }
+/* Headings start on the marker rail; bodies share a separate, non-cumulative text rail. */
+.ax-plan-view { --ax-marker-rail: 1.75rem; display: grid; gap: 0; max-width: 920px; text-align: left; }
 .ax-plan-view h4 { margin: 0 0 8px; font-size: var(--font-size-md); font-weight: var(--font-weight-semibold); color: var(--foreground); }
 .ax-plan-view h5 { margin: 0 0 6px; font-size: var(--font-size-xs); font-weight: var(--font-weight-semibold); color: var(--foreground); }
 .ax-plan-glance { padding: 4px 0 14px; }
@@ -290,20 +294,20 @@
 .ax-plan-group + .ax-plan-group, .ax-plan-group + .ax-plan-details { margin-top: 14px; }
 .ax-view .ax-plan-group + .ax-plan-steps { margin-top: 22px; }
 .ax-view .ax-plan-list { margin: 0; padding: 0; list-style: none; font-size: var(--font-size-sm); line-height: 1.65; }
-.ax-plan-list li { position: relative; overflow-wrap: anywhere; }
+.ax-plan-list li { position: relative; padding-left: var(--ax-marker-rail); overflow-wrap: anywhere; }
 .ax-plan-list li + li { margin-top: 2px; }
 .ax-view .ax-plan-steps { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; font-size: var(--font-size-sm); line-height: 1.6; }
-.ax-plan-steps li { position: relative; overflow-wrap: anywhere; }
-.ax-plan-marker, .ax-plan-step-no { position: absolute; right: calc(100% + .45rem); width: 1.3rem; white-space: nowrap; text-align: right; }
+.ax-plan-steps li { position: relative; padding-left: var(--ax-marker-rail); overflow-wrap: anywhere; }
+.ax-plan-marker, .ax-plan-step-no { position: absolute; left: 0; width: 1.3rem; white-space: nowrap; text-align: left; }
 .ax-plan-marker { color: var(--muted-foreground); }
 .ax-plan-step-no { font-weight: var(--font-weight-semibold); color: var(--primary); font-variant-numeric: tabular-nums; }
 .ax-plan-status { margin-left: 6px; padding: 1px 6px; border-radius: 4px; font-weight: var(--font-weight-medium); color: var(--warning-foreground, #8a5a00); background: color-mix(in srgb, var(--warning, #f5a524) 12%, transparent); }
-.ax-plan-details { margin-top: 8px; margin-left: calc(-1 * var(--ax-marker-rail)); max-width: 36rem; }
+.ax-plan-details { margin-top: 8px; max-width: 36rem; }
 .ax-plan-details .ax-plan-detail { border: 0; }
-.ax-plan-details .ax-plan-detail-trigger { flex: initial; justify-content: flex-start; align-items: center; gap: .6rem; padding: .75em 0 .75em var(--ax-marker-rail); min-height: calc(1lh + 2em); font-size: var(--font-size-sm); font-weight: var(--font-weight-regular); text-align: left; }
+.ax-plan-details .ax-plan-detail-trigger { flex: initial; justify-content: flex-start; align-items: center; gap: .6rem; padding: .75em 0; min-height: calc(1lh + 2em); font-size: var(--font-size-sm); font-weight: var(--font-weight-regular); text-align: left; }
 .ax-plan-detail-count { color: var(--muted-foreground); font-size: var(--font-size-xs); }
-.ax-plan-detail-panel { padding: 0 0 .75em var(--ax-marker-rail); }
-.ax-common-plan > h4, .ax-tool-plan > h4 { margin: 14px 0 8px; padding-left: 1.75rem; }
+.ax-plan-detail-panel { padding: 0 0 .75em; }
+.ax-common-plan > h4, .ax-tool-plan > h4 { margin: 14px 0 8px; }
 .ax-package > .ax-package-title { margin-top: 8px; padding-top: 14px; border-top: 1px solid var(--border); }
 .ax-tool-plan { margin-top: 14px; }
 @media(max-width: 700px) {

@@ -345,17 +345,7 @@ test("AX registration → diagnosis → correction → matrix → plans → relo
   await guide.click();
   await expect(guide).toHaveAttribute("aria-expanded", "true");
   const guidePanel = packageSection.locator(".ax-guide-panel");
-  await expect(guidePanel.locator(".ax-guide-step > h4")).toHaveText([
-    "시작하기 전에 · 전체 흐름", "STEP 1 · 처음 한 번 환경 준비", "STEP 2 · 프로젝트 준비",
-    "STEP 3 · Codex / Claude Code 실행", "STEP 4 · 올인원 지시문으로 작업", "STEP 5 · AI 작업 결과 검증",
-    "STEP 6 · .gitignore / Secret 확인 후 Git 저장", "STEP 7 · GitHub CI / PR 확인",
-    "STEP 8 · 배포 (Vercel / Cloudflare)", "STEP 9 · Production 최종 확인",
-  ]);
-  await expect(guidePanel.locator(".ax-guide-code-notes").first().locator("li")).toHaveText([
-    "Git 설치 여부와 버전을 확인합니다.", "Node.js 설치 여부와 버전을 확인합니다.",
-    "npm 설치 여부와 버전을 확인합니다.", "Codex 설치 여부와 버전을 확인합니다.",
-  ]);
-  await expect(guidePanel.locator(".ax-guide-section > h5").filter({ hasText: /^[ABC]\. / })).toHaveText(["A. GitHub에 있는 기존 프로젝트", "B. PC에 이미 있는 프로젝트", "C. 새 프로젝트"]);
+  await expectGuideTutorial(page, guidePanel, "Codex");
   await expect(guidePanel.locator(".ax-guide-code").first()).toContainText("git --version");
   await expect(guidePanel.locator(".ax-guide-code").first()).toHaveAttribute("aria-label", "PowerShell 명령");
   await expect(guidePanel.locator(".ax-guide-code").first().locator(".ax-guide-code-label")).toHaveText("PowerShell");
@@ -394,6 +384,7 @@ test("AX registration → diagnosis → correction → matrix → plans → relo
   await expectPromptStructure(prompt, "월간 취합");
   expect(await prompt.textContent()).toBe(codexPrompt);
   await guide.click();
+  await expectGuideTutorial(page, guidePanel, "Claude Code");
   await expect(packageSection.locator(".ax-guide-panel")).toContainText(TOOL_GUIDES.claude.installCommand);
   await expect(packageSection.locator(".ax-guide-panel")).toContainText(TOOL_GUIDES.claude.doctorCommand);
   await expect(packageSection.locator(".ax-guide-panel")).not.toContainText(TOOL_GUIDES.codex.installCommand);
@@ -1027,42 +1018,115 @@ function longPlan(tool: "Codex" | "Claude Code"): AxPlan {
 }
 
 async function expectPlanTextAlignment(view: Locator, implementation = false) {
-  const positions = await view.locator("span.ax-plan-text, h4, h5, .ax-plan-detail-title").evaluateAll(elements =>
+  const positions = await view.locator("span.ax-plan-text, h4, h5, .ax-plan-detail-title, .ax-plan-marker, .ax-plan-step-no").evaluateAll(elements =>
     elements.flatMap(element => {
       if (!element.getBoundingClientRect().width || getComputedStyle(element).visibility === "hidden") return [];
       const range = document.createRange(); range.selectNodeContents(element);
       const rects = [...range.getClientRects()].filter(item => item.width > 0);
-      return rects.length ? [{ text: element.textContent, x: rects[0].x,
-        lines: element.matches(".ax-plan-text") ? rects.map(rect => ({ x: rect.x, y: rect.y })) : [] }] : [];
+      const content = element.matches(".ax-plan-text");
+      const marker = element.matches(".ax-plan-marker, .ax-plan-step-no");
+      const lines = [...new Set(rects.map(rect => rect.y))].map(y => Math.min(...rects.filter(rect => rect.y === y).map(rect => rect.x)));
+      return rects.length ? [{ text: element.textContent, x: rects[0].x, content, marker,
+        box: element.getBoundingClientRect().x, width: element.getBoundingClientRect().width,
+        lines: content ? lines : [] }] : [];
     }));
-  const left = Math.min(...positions.map(position => position.x));
+  const headings = positions.filter(position => !position.content && !position.marker);
+  const markers = positions.filter(position => position.marker);
+  const content = positions.filter(position => position.content);
+  expect(headings.length).toBeGreaterThan(0);
+  expect(markers.length).toBeGreaterThan(0);
+  expect(content.length).toBeGreaterThan(0);
+  const headingRail = headings[0].x;
+  const gutter = await view.evaluate(() => 1.75 * parseFloat(getComputedStyle(document.documentElement).fontSize));
   for (const position of positions) {
-    expect(Math.abs(position.x - left), position.text ?? "").toBeLessThanOrEqual(2);
-    for (const line of position.lines) expect(Math.abs(line.x - left), `Wrapped line: ${position.text}`).toBeLessThanOrEqual(2);
+    const rail = position.content ? headingRail + gutter : headingRail;
+    expect(Math.abs(position.x - rail), position.text ?? "").toBeLessThanOrEqual(2);
+    for (const x of position.lines) expect(Math.abs(x - rail), `Wrapped line: ${position.text}`).toBeLessThanOrEqual(2);
   }
-  const markers = view.locator(".ax-plan-marker, .ax-plan-step-no");
-  await expect(view.locator(".ax-plan-marker").first()).toBeVisible();
-  const markerBoxes = [];
-  for (const marker of await markers.all()) {
-    if (!await marker.isVisible()) continue;
-    await expect(marker).toHaveAttribute("aria-hidden", "true");
-    markerBoxes.push((await marker.boundingBox())!);
+  const slot = markers[0];
+  for (const marker of markers) {
+    expect(Math.abs(marker.box - slot.box)).toBeLessThanOrEqual(1);
+    expect(Math.abs(marker.width - slot.width)).toBeLessThanOrEqual(1);
+    expect(Math.abs(marker.x - marker.box)).toBeLessThanOrEqual(1);
+    expect(marker.box + marker.width).toBeLessThanOrEqual(headingRail + gutter);
   }
-  const slot = markerBoxes[0];
-  for (const box of markerBoxes) {
-    expect(Math.abs(box.x - slot.x)).toBeLessThanOrEqual(1);
-    expect(Math.abs(box.width - slot.width)).toBeLessThanOrEqual(1);
-    expect(Math.abs(box.x + box.width - slot.x - slot.width)).toBeLessThanOrEqual(1);
-    expect(box.x + box.width).toBeLessThanOrEqual(left);
+  for (const marker of await view.locator(".ax-plan-marker, .ax-plan-step-no").all()) {
+    if (await marker.isVisible()) await expect(marker).toHaveAttribute("aria-hidden", "true");
   }
   if (implementation) {
     await expect(view.locator(".ax-plan-step-no").first()).toBeVisible();
-    expect(positions.some(position => new Set(position.lines.map(line => Math.round(line.y))).size > 1)).toBe(true);
+    expect(content.some(position => position.lines.length > 1)).toBe(true);
     const poc = view.locator(".ax-plan-group").filter({ has: view.page().getByRole("heading", { name: "먼저 사전 검증", exact: true }) });
     const pocList = (await poc.locator(".ax-plan-list").boundingBox())!;
     const steps = (await view.locator(".ax-plan-steps").boundingBox())!;
     expect(steps.y - pocList.y - pocList.height).toBeGreaterThanOrEqual(12);
   }
+}
+
+async function expectGuideTutorial(page: Page, panel: Locator, tool: "Codex" | "Claude Code") {
+  const steps = panel.locator(".ax-guide-step");
+  await expect(steps).toHaveCount(10);
+  for (const step of await steps.all()) {
+    await expect(step.locator(":scope > h4 + p.ax-guide-purpose")).toBeVisible();
+  }
+  await expect(steps.locator(":scope > h4").filter({ hasText: /^STEP 3\b/ })).toContainText(tool);
+  await expect(steps.locator(":scope > h4").filter({ hasText: /^STEP 3\b/ })).not.toContainText(tool === "Codex" ? "Claude Code" : "Codex");
+  const terms = panel.locator(".ax-guide-terms");
+  const trigger = terms.getByRole("button", { name: "용어 설명 보기", exact: true });
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  await expect(terms.locator(".ax-guide-list")).toBeHidden();
+  await trigger.focus(); await page.keyboard.press("Enter");
+  await expect(trigger).toHaveAttribute("aria-expanded", "true");
+  await expect(panel.locator(".ax-guide-section").filter({ has: page.locator(".ax-guide-terms") }).locator(":scope > h5")).toBeVisible();
+  await expect(terms.locator(".ax-guide-list")).toBeVisible();
+  await expect(panel.getByRole("checkbox")).toHaveCount(0);
+  await expect(panel.locator('input[type="checkbox"]')).toHaveCount(0);
+  const positions = await panel.locator(".ax-guide-step > h4, .ax-guide-section > h5, .ax-guide-list .ax-guide-marker, .ax-guide-list .ax-guide-text").evaluateAll(elements =>
+    elements.flatMap(element => {
+      if (!element.getBoundingClientRect().width) return [];
+      const range = document.createRange(); range.selectNodeContents(element);
+      const rects = [...range.getClientRects()].filter(rect => rect.width > 0);
+      const content = element.matches(".ax-guide-text");
+      return rects.length ? [{
+        text: element.textContent, x: rects[0].x, box: element.getBoundingClientRect().x,
+        marker: element.matches(".ax-guide-marker"), content,
+        lines: content ? [...new Set(rects.map(rect => rect.y))].map(y => Math.min(...rects.filter(rect => rect.y === y).map(rect => rect.x))) : [],
+      }] : [];
+    }));
+  const headingRail = positions.find(position => !position.marker && !position.content)!.x;
+  const gutter = await panel.evaluate(() => 1.75 * parseFloat(getComputedStyle(document.documentElement).fontSize));
+  for (const position of positions) {
+    const rail = headingRail + (position.content ? gutter : 0);
+    expect(Math.abs(position.x - rail), position.text ?? "").toBeLessThanOrEqual(2);
+    if (position.marker) expect(Math.abs(position.box - position.x)).toBeLessThanOrEqual(1);
+    for (const x of position.lines) expect(Math.abs(x - rail), `Guide wrapped line: ${position.text}`).toBeLessThanOrEqual(2);
+  }
+  const markers = positions.filter(position => position.marker);
+  for (const symbol of ["•", "01", "□"]) expect(markers.some(marker => marker.text?.trim() === symbol), `Guide marker ${symbol}`).toBe(true);
+  if (page.viewportSize()!.width === 390) expect(positions.some(position => position.content && position.lines.length > 1)).toBe(true);
+  await expect(panel.locator(".ax-guide-code-notes li, .ax-guide-code-notes ul, .ax-guide-code-notes .ax-guide-marker")).toHaveCount(0);
+  const notes = await panel.locator(".ax-guide-code-notes").evaluateAll(elements => elements.map(element => {
+    const pre = element.previousElementSibling!.querySelector("pre")!;
+    const range = document.createRange();
+    const paragraphs = [...element.querySelectorAll(":scope > p")];
+    const lefts = paragraphs.map(paragraph => { range.selectNodeContents(paragraph); return range.getBoundingClientRect().x; });
+    const following = element.nextElementSibling;
+    let followingX: number | undefined;
+    if (following?.tagName === "P") { range.selectNodeContents(following); followingX = range.getBoundingClientRect().x; }
+    return { preX: pre.getBoundingClientRect().x, lefts, followingX };
+  }));
+  expect(notes.some(note => note.followingX !== undefined)).toBe(true);
+  for (const note of notes) {
+    expect(note.lefts.length).toBeGreaterThan(0);
+    for (const x of note.lefts) expect(Math.abs(x - note.preX)).toBeLessThanOrEqual(1);
+    if (note.followingX !== undefined) expect(Math.abs(note.followingX - note.preX)).toBeLessThanOrEqual(1);
+  }
+  const screenshotName = `${page.viewportSize()!.width === 1440 ? "Desktop1440" : "Mobile390"}-${tool === "Codex" ? "codex" : "claude"}-${test.info().project.name}`;
+  await panel.screenshot({ path: `artifacts/ax/tutorial-terms-expanded-${screenshotName}.png` });
+  await trigger.focus(); await page.keyboard.press("Space");
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  await expect(terms.locator(".ax-guide-list")).toBeHidden();
+  await panel.screenshot({ path: `artifacts/ax/tutorial-${screenshotName}.png` });
 }
 
 async function expectPromptDisclosure(page: Page, section: Locator, tool: "Codex" | "Claude Code", width: number) {
@@ -1081,6 +1145,27 @@ async function expectPromptDisclosure(page: Page, section: Locator, tool: "Codex
     return tool === "Codex" ? task?.diagnosis?.planCodex : task?.diagnosis?.planClaude;
   }).toBeDefined();
   const beforeState = await record(page);
+  await toggle.scrollIntoViewIfNeeded(); await page.mouse.move(0, 0);
+  const copy = section.getByRole("button", { name: `${tool}용 지시문 복사`, exact: true });
+  const toggleBox = (await toggle.boundingBox())!, copyBox = (await copy.boundingBox())!;
+  const promptBox = (await prompt.boundingBox())!;
+  expect(Math.abs(toggleBox.x - promptBox.x)).toBeLessThanOrEqual(1);
+  expect(toggleBox.x + toggleBox.width).toBeLessThanOrEqual(copyBox.x);
+  expect(toggleBox.height).toBeGreaterThanOrEqual(32);
+  const outline = await toggle.evaluate(element => {
+    const style = getComputedStyle(element);
+    return { background: style.backgroundColor, border: style.borderTopColor, borderWidth: parseFloat(style.borderTopWidth),
+      borderStyle: style.borderTopStyle, color: style.color, shadow: style.boxShadow,
+      surface: getComputedStyle(element.closest(".ax-surface")!).backgroundColor };
+  });
+  const primary = await copy.evaluate(element => ({ background: getComputedStyle(element).backgroundColor, color: getComputedStyle(element).color }));
+  expect(outline.background).toBe(outline.surface);
+  expect(outline.background).not.toBe(primary.background);
+  expect(outline.color).not.toBe(primary.color);
+  expect(outline.borderWidth).toBeGreaterThanOrEqual(1);
+  expect(outline.borderStyle).toBe("solid");
+  expect(outline.border).not.toBe(outline.background);
+  expect(outline.shadow).not.toBe("none");
   const geometry = () => prompt.evaluate(element => ({
     height: element.getBoundingClientRect().height, clientHeight: element.clientHeight, scrollHeight: element.scrollHeight,
     overflowY: getComputedStyle(element).overflowY, documentHeight: document.documentElement.scrollHeight,
@@ -1198,6 +1283,27 @@ for (const width of [1440, 390]) {
     await section.getByRole("tab", { name: "Codex", exact: true }).click();
     expect(await common.innerText()).toBe(initialCommon);
     await expect(section.locator(".ax-tool-plan").getByText(codex.goal[0], { exact: true })).toBeVisible();
+    const beforeSwitch = await record(page);
+    const prompt = section.locator(".ax-prompt");
+    const codexPrompt = await prompt.textContent();
+    await section.getByRole("tab", { name: "Claude Code", exact: true }).click();
+    const claudePrompt = await prompt.textContent();
+    await section.getByRole("tab", { name: "Codex", exact: true }).click();
+    await section.getByRole("button", { name: "전체 보기", exact: true }).click();
+    await expect(prompt).toHaveAttribute("data-expanded", "true");
+    expect(await prompt.textContent()).toBe(codexPrompt);
+    await section.getByRole("tab", { name: "Claude Code", exact: true }).click();
+    await expect(section.getByRole("button", { name: "전체 보기", exact: true })).toHaveAttribute("aria-expanded", "false");
+    await expect(prompt).toHaveAttribute("data-expanded", "false");
+    expect(await prompt.textContent()).toBe(claudePrompt);
+    await section.getByRole("button", { name: "전체 보기", exact: true }).click();
+    expect(await prompt.textContent()).toBe(claudePrompt);
+    await expect(prompt).toHaveAttribute("data-expanded", "true");
+    await section.getByRole("tab", { name: "Codex", exact: true }).click();
+    await expect(section.getByRole("button", { name: "전체 보기", exact: true })).toHaveAttribute("aria-expanded", "false");
+    await expect(prompt).toHaveAttribute("data-expanded", "false");
+    expect(await prompt.textContent()).toBe(codexPrompt);
+    expect(await record(page)).toEqual(beforeSwitch);
   });
 }
 
@@ -1285,10 +1391,11 @@ for (const width of [1440, 390]) {
     const task = taskFixture("guide-copy", { ...diagnosisFixture, planCodex: planFixture, planClaude: planFixture });
     await seed(page, { ...emptyAxState(), tasks: [task], selectedTaskId: task.id, step: 4 }); await ax(page);
     const section = page.getByRole("region", { name: "자동화 구현 계획", exact: true });
-    for (const tool of ["Codex", "Claude Code"]) {
+    for (const tool of ["Codex", "Claude Code"] as const) {
       await section.getByRole("tab", { name: tool, exact: true }).click();
       const guide = section.getByRole("button", { name: "설치·시작 가이드", exact: true });
       await guide.click();
+      await expectGuideTutorial(page, section.locator(".ax-guide-panel"), tool);
       for (const label of ["PowerShell 명령", ".gitignore 예시"]) {
         const block = section.locator(".ax-guide-code-wrap").filter({ has: page.locator(`pre[aria-label="${label}"]`) }).first();
         const code = await block.locator("code").innerText();
