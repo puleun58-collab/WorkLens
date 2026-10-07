@@ -2846,8 +2846,8 @@ test("keeps legal destinations grouped, command search shortcut-only, and review
   ]);
   await page.getByRole("tab", { name: "종합 리서치", exact: true }).click();
   const researchForm = page.getByRole("form", { name: "종합 리서치 입력", exact: true });
-  await expect(researchForm.getByRole("heading", { name: "출처 펼쳐 보기", exact: true })).toHaveCount(0);
-  await expect(researchForm.getByRole("switch", { name: "출처 펼쳐 보기", exact: true })).toHaveCount(0);
+  await expect(researchForm.getByRole("heading", { name: "결과 출처 자동 펼치기", exact: true })).toHaveCount(0);
+  await expect(researchForm.getByRole("switch", { name: "결과 출처 자동 펼치기", exact: true })).toHaveCount(0);
 
   for (const [command, heading] of [
     ["법령 > 판례·결정례", "판례·결정례"],
@@ -2877,7 +2877,7 @@ test("keeps legal destinations grouped, command search shortcut-only, and review
   await page.getByRole("dialog").getByText("법령 > 문서 검토", { exact: true }).click();
   await expect(page.getByRole("heading", { name: "문서 검토", exact: true, level: 1 })).toBeVisible();
   await expect(page.getByRole("radio", { name: "직접 입력", exact: true })).toBeChecked();
-  await expect(page.getByRole("switch", { name: "출처 펼쳐 보기", exact: true })).toBeChecked();
+  await expect(page.getByRole("switch", { name: "결과 출처 자동 펼치기", exact: true })).toBeChecked();
 });
 
 test("uses task-focused labels and concise execution buttons", async ({ page }) => {
