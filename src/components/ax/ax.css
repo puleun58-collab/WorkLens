@@ -240,8 +240,10 @@
 .ax-plan-tool-hint { font-size: var(--font-size-xs); color: var(--muted-foreground); }
 .ax-tool-tabs { gap: 16px; min-width: 0; }
 .ax-tool-tabs [data-slot=tabs-content], .ax-package { min-width: 0; }
-.ax-prompt { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 13px; line-height: 1.65; text-align: left; color: var(--foreground); white-space: pre-wrap; word-break: break-word; max-width: 100%; max-height: 420px; overflow: auto; background: color-mix(in srgb, var(--muted) 9%, var(--card)); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin: 12px 0; }
+.ax-prompt { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 13px; line-height: 1.65; text-align: left; color: var(--foreground); white-space: pre-wrap; word-break: break-word; max-width: 100%; max-height: calc(12lh + 2rem); overflow: hidden; background: color-mix(in srgb, var(--muted) 9%, var(--card)); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin: 12px 0; }
+.ax-prompt[data-expanded="true"] { max-height: none; overflow: visible; }
 .ax-prompt-actions { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.ax-prompt-actions .ax-prompt-toggle { margin-right: auto; color: var(--muted-foreground); }
 .ax-prompt-actions .ax-copy-button { transition: background-color 0.15s ease, border-color 0.15s ease; }
 .ax-prompt-actions .ax-copy-button[data-copied="true"] { background: color-mix(in srgb, var(--primary) 86%, var(--foreground)); border-color: transparent; }
 .ax-copy-error { flex: 1 1 100%; margin: 0; text-align: right; font-size: var(--font-size-xs); color: var(--destructive); }
@@ -278,21 +280,23 @@
 /* Content text shares one rail; list/step markers occupy a non-cumulative gutter. */
 .ax-plan-view { --ax-marker-rail: 1.75rem; display: grid; gap: 0; max-width: 920px; padding-left: var(--ax-marker-rail); text-align: left; }
 .ax-plan-view h4 { margin: 0 0 8px; font-size: var(--font-size-md); font-weight: var(--font-weight-semibold); color: var(--foreground); }
-.ax-plan-view h5 { margin: 0 0 4px; font-size: var(--font-size-xs); font-weight: var(--font-weight-semibold); color: var(--muted-foreground); }
+.ax-plan-view h5 { margin: 0 0 6px; font-size: var(--font-size-xs); font-weight: var(--font-weight-semibold); color: var(--foreground); }
 .ax-plan-glance { padding: 4px 0 14px; }
 .ax-plan-glance dl { display: flex; flex-wrap: wrap; gap: 10px 24px; margin: 0; }
 .ax-plan-glance dl > div { display: grid; gap: 2px; flex: 1 1 14rem; min-width: 0; }
 .ax-plan-glance dt { font-size: var(--font-size-xs); color: var(--muted-foreground); }
 .ax-plan-glance dd { margin: 0; font-size: var(--font-size-sm); font-weight: var(--font-weight-medium); color: var(--foreground); overflow-wrap: anywhere; }
 .ax-plan-block { padding: 14px 0; border-top: 1px solid var(--border); }
-.ax-plan-group + .ax-plan-group, .ax-plan-group + .ax-plan-steps, .ax-plan-group + .ax-plan-details { margin-top: 10px; }
+.ax-plan-group + .ax-plan-group, .ax-plan-group + .ax-plan-details { margin-top: 14px; }
+.ax-view .ax-plan-group + .ax-plan-steps { margin-top: 22px; }
 .ax-view .ax-plan-list { margin: 0; padding: 0; list-style: none; font-size: var(--font-size-sm); line-height: 1.65; }
 .ax-plan-list li { position: relative; overflow-wrap: anywhere; }
-.ax-plan-list li::before { content: "•"; position: absolute; right: calc(100% + .65rem); color: var(--muted-foreground); }
 .ax-plan-list li + li { margin-top: 2px; }
 .ax-view .ax-plan-steps { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; font-size: var(--font-size-sm); line-height: 1.6; }
 .ax-plan-steps li { position: relative; overflow-wrap: anywhere; }
-.ax-plan-step-no { position: absolute; right: calc(100% + .45rem); width: 1.3rem; white-space: nowrap; text-align: right; font-weight: var(--font-weight-semibold); color: var(--primary); font-variant-numeric: tabular-nums; }
+.ax-plan-marker, .ax-plan-step-no { position: absolute; right: calc(100% + .45rem); width: 1.3rem; white-space: nowrap; text-align: right; }
+.ax-plan-marker { color: var(--muted-foreground); }
+.ax-plan-step-no { font-weight: var(--font-weight-semibold); color: var(--primary); font-variant-numeric: tabular-nums; }
 .ax-plan-status { margin-left: 6px; padding: 1px 6px; border-radius: 4px; font-weight: var(--font-weight-medium); color: var(--warning-foreground, #8a5a00); background: color-mix(in srgb, var(--warning, #f5a524) 12%, transparent); }
 .ax-plan-details { margin-top: 8px; margin-left: calc(-1 * var(--ax-marker-rail)); max-width: 36rem; }
 .ax-plan-details .ax-plan-detail { border: 0; }

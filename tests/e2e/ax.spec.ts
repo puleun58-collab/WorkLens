@@ -1014,7 +1014,7 @@ function longPlan(tool: "Codex" | "Claude Code"): AxPlan {
     prerequisites: [`${tool}: 실제 샘플 구조 확인`, `${tool}: 승인 권한 확인`],
     humanInLoop: [`${tool}: 청구 금액 승인`, `${tool}: 미매칭 고객 확인`, `${tool}: 예외 지급 판단`],
     poc: [`${tool}: 승인된 월말 샘플 대조`, `${tool}: 예외 레코드 검토`],
-    implementation: implementationActions.map(action => `${tool}: ${action}`),
+    implementation: implementationActions.map((action, index) => `${tool}: ${action}${index === 0 ? " — 실제 월말 샘플의 날짜·금액·고객 식별자와 승인 이력을 기존 수동 취합 결과에 대조하고, 확인되지 않은 항목은 담당자가 원본을 확인할 수 있도록 검토표에 근거와 함께 남긴다.".repeat(3) : ""}`),
     dataFlow: [`${tool}: 입력 → 분리 → 검토`, `${tool}: 승인 → 내보내기`],
     integrations: [`${tool}: 확인된 읽기 권한 사용`, `${tool}: 승인된 결과만 전달`, `${tool}: 응답 실패를 분리`],
     exceptions: [`${tool}: 누락 날짜는 검토 대기`, `${tool}: 다른 통화는 별도 검토`, `${tool}: 불명확한 고객은 보류`],
@@ -1026,17 +1026,105 @@ function longPlan(tool: "Codex" | "Claude Code"): AxPlan {
   };
 }
 
-async function expectPlanTextAlignment(view: Locator) {
+async function expectPlanTextAlignment(view: Locator, implementation = false) {
   const positions = await view.locator("span.ax-plan-text, h4, h5, .ax-plan-detail-title").evaluateAll(elements =>
     elements.flatMap(element => {
       if (!element.getBoundingClientRect().width || getComputedStyle(element).visibility === "hidden") return [];
       const range = document.createRange(); range.selectNodeContents(element);
-      const rect = [...range.getClientRects()].find(item => item.width > 0);
-      return rect ? [{ text: element.textContent, x: rect.x }] : [];
+      const rects = [...range.getClientRects()].filter(item => item.width > 0);
+      return rects.length ? [{ text: element.textContent, x: rects[0].x,
+        lines: element.matches(".ax-plan-text") ? rects.map(rect => ({ x: rect.x, y: rect.y })) : [] }] : [];
     }));
-  expect(positions.length).toBeGreaterThan(10);
   const left = Math.min(...positions.map(position => position.x));
-  for (const position of positions) expect(Math.abs(position.x - left), position.text ?? "").toBeLessThanOrEqual(2);
+  for (const position of positions) {
+    expect(Math.abs(position.x - left), position.text ?? "").toBeLessThanOrEqual(2);
+    for (const line of position.lines) expect(Math.abs(line.x - left), `Wrapped line: ${position.text}`).toBeLessThanOrEqual(2);
+  }
+  const markers = view.locator(".ax-plan-marker, .ax-plan-step-no");
+  await expect(view.locator(".ax-plan-marker").first()).toBeVisible();
+  const markerBoxes = [];
+  for (const marker of await markers.all()) {
+    if (!await marker.isVisible()) continue;
+    await expect(marker).toHaveAttribute("aria-hidden", "true");
+    markerBoxes.push((await marker.boundingBox())!);
+  }
+  const slot = markerBoxes[0];
+  for (const box of markerBoxes) {
+    expect(Math.abs(box.x - slot.x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(box.width - slot.width)).toBeLessThanOrEqual(1);
+    expect(Math.abs(box.x + box.width - slot.x - slot.width)).toBeLessThanOrEqual(1);
+    expect(box.x + box.width).toBeLessThanOrEqual(left);
+  }
+  if (implementation) {
+    await expect(view.locator(".ax-plan-step-no").first()).toBeVisible();
+    expect(positions.some(position => new Set(position.lines.map(line => Math.round(line.y))).size > 1)).toBe(true);
+    const poc = view.locator(".ax-plan-group").filter({ has: view.page().getByRole("heading", { name: "먼저 사전 검증", exact: true }) });
+    const pocList = (await poc.locator(".ax-plan-list").boundingBox())!;
+    const steps = (await view.locator(".ax-plan-steps").boundingBox())!;
+    expect(steps.y - pocList.y - pocList.height).toBeGreaterThanOrEqual(12);
+  }
+}
+
+async function expectPromptDisclosure(page: Page, section: Locator, tool: "Codex" | "Claude Code", width: number) {
+  const prompt = section.locator(".ax-prompt");
+  const toggle = section.getByRole("button", { name: "전체 보기", exact: true });
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(prompt).toHaveAttribute("data-expanded", "false");
+  const controls = await toggle.getAttribute("aria-controls");
+  expect(controls).toBeTruthy();
+  await expect(prompt).toHaveAttribute("id", controls!);
+  expect(await page.locator("[id]").evaluateAll((elements, id) => elements.filter(element => element.id === id).length, controls)).toBe(1);
+  const original = (await prompt.textContent())!;
+  await expect.poll(async () => {
+    const saved = await record(page);
+    const task = saved?.tasks.find(item => item.id === saved?.selectedTaskId);
+    return tool === "Codex" ? task?.diagnosis?.planCodex : task?.diagnosis?.planClaude;
+  }).toBeDefined();
+  const beforeState = await record(page);
+  const geometry = () => prompt.evaluate(element => ({
+    height: element.getBoundingClientRect().height, clientHeight: element.clientHeight, scrollHeight: element.scrollHeight,
+    overflowY: getComputedStyle(element).overflowY, documentHeight: document.documentElement.scrollHeight,
+  }));
+  const collapsed = await geometry();
+  expect(collapsed.scrollHeight).toBeGreaterThan(collapsed.clientHeight);
+  expect(collapsed.overflowY).toBe("hidden");
+  await expectCopyUX(page, section, tool);
+  await prompt.scrollIntoViewIfNeeded();
+  const screenshotName = `${width === 1440 ? "Desktop1440" : "Mobile390"}-${tool === "Codex" ? "codex" : "claude"}-${test.info().project.name}`;
+  await page.screenshot({ path: `artifacts/ax/prompt-collapsed-${screenshotName}.png` });
+  await toggle.focus(); await page.keyboard.press("Enter");
+  const collapse = section.getByRole("button", { name: "접기", exact: true });
+  await expect(collapse).toHaveAttribute("aria-expanded", "true");
+  await expect(collapse).toHaveAttribute("aria-controls", controls!);
+  await expect(collapse).toBeFocused();
+  await expect(prompt).toHaveAttribute("data-expanded", "true");
+  expect(await prompt.textContent()).toBe(original);
+  const expanded = await geometry();
+  expect(expanded.height).toBeGreaterThan(collapsed.height + 100);
+  expect(expanded.documentHeight - collapsed.documentHeight).toBeGreaterThanOrEqual(expanded.height - collapsed.height - 2);
+  expect(expanded.scrollHeight - expanded.clientHeight).toBeLessThanOrEqual(1);
+  expect(expanded.overflowY).toBe("visible");
+  const finalLine = await prompt.evaluate(element => {
+    const text = element.firstChild!;
+    const range = document.createRange();
+    const lastLine = text.textContent!.lastIndexOf("\n") + 1;
+    range.setStart(text, lastLine); range.setEnd(text, text.textContent!.length);
+    const rect = range.getBoundingClientRect(), parent = element.getBoundingClientRect();
+    return { top: rect.top - parent.top, bottom: rect.bottom - parent.top, height: parent.height };
+  });
+  expect(finalLine.top).toBeGreaterThan(collapsed.height);
+  expect(finalLine.bottom).toBeLessThanOrEqual(finalLine.height);
+  await expectCopyUX(page, section, tool);
+  expect(await record(page)).toEqual(beforeState);
+  await prompt.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: `artifacts/ax/prompt-expanded-${screenshotName}.png`, fullPage: true });
+  await collapse.focus(); await page.keyboard.press("Space");
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(toggle).toBeFocused();
+  await expect(prompt).toHaveAttribute("data-expanded", "false");
+  expect(await prompt.textContent()).toBe(original);
+  expect((await geometry()).height).toBeCloseTo(collapsed.height, 1);
+  expect(await record(page)).toEqual(beforeState);
 }
 
 for (const width of [1440, 390]) {
@@ -1096,7 +1184,7 @@ for (const width of [1440, 390]) {
       for (const items of [plan.inScope, plan.outOfScope, plan.toBe, plan.tests, plan.fallback, plan.security, plan.operation, plan.integrations, plan.humanInLoop, plan.exceptions]) {
         for (const item of items) await expect(view.getByText(item, { exact: true })).toBeVisible();
       }
-      await expectPlanTextAlignment(view);
+      await expectPlanTextAlignment(view, true);
       const testDetails = triggers.filter({ has: page.locator(".ax-plan-detail-title", { hasText: "검증" }) });
       await expect(testDetails.locator(".ax-plan-detail-title")).toContainText("검증");
       await expect(testDetails.locator(".ax-plan-detail-count")).toHaveText(`${plan.tests.length - 4}건`);
@@ -1104,7 +1192,7 @@ for (const width of [1440, 390]) {
       await expect(testDetails).toHaveAttribute("aria-expanded", "false");
       for (const item of plan.tests.slice(4)) await expect(view.getByText(item, { exact: true })).toBeHidden();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
-      await expectCopyUX(page, section, tool);
+      await expectPromptDisclosure(page, section, tool, width);
       await view.screenshot({ path: `artifacts/ax/long-${width}-${tool === "Codex" ? "codex" : "claude"}-${test.info().project.name}.png` });
     }
     await section.getByRole("tab", { name: "Codex", exact: true }).click();

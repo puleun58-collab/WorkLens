@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Check, Copy, FileCode2, Terminal } from "lucide-react";
 import type { AxDiagnosis, AxPlan, AxTask } from "@/lib/ax/types";
 import { automationLevel, axes, executionGate, executionProfile, factorEffectiveValue, GATE_LABELS, gateBlockReasons, gatePrerequisites, nextAction, type ExecutionProfile } from "@/lib/ax/policy";
@@ -154,7 +154,7 @@ function AxSetupGuide({ tool }: { tool: AxToolId }) {
 }
 
 function AxPlanList({ items }: { items: string[] }) {
-  return <ul className="ax-plan-list" role="list">{items.map((item, i) => <li key={i}><span className="ax-plan-text">{item}</span></li>)}</ul>;
+  return <ul className="ax-plan-list" role="list">{items.map((item, i) => <li key={i}><span className="ax-plan-marker" aria-hidden="true">•</span><span className="ax-plan-text">{item}</span></li>)}</ul>;
 }
 /** Human review of the plan: 한눈에 보기 then six document sections; long secondary detail stays collapsed. */
 function AxPlanOverview({ view, summary = true }: { view: AxPlanView; summary?: boolean }) {
@@ -191,6 +191,17 @@ function AxPlanDetails({ details }: { details: AxPlanView["details"] }) {
     <AccordionPanel className="ax-plan-detail-panel"><AxPlanList items={detail.items} /></AccordionPanel>
   </AccordionItem>)}</Accordion>;
 }
+function AxPrompt({ prompt, name }: { prompt: string; name: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const contentId = useId();
+  return <>
+    <pre id={contentId} className="ax-prompt" data-expanded={expanded ? "true" : "false"}>{prompt}</pre>
+    <div className="ax-prompt-actions">
+      <Button type="button" variant="ghost" className="ax-prompt-toggle" aria-expanded={expanded} aria-controls={contentId} onClick={() => setExpanded(value => !value)}>{expanded ? "접기" : "전체 보기"}</Button>
+      <AxCopyButton text={prompt} label={`${name}용 지시문 복사`} />
+    </div>
+  </>;
+}
 export function AxExecutionPackage({ plan, target, taskName, taskContext, prerequisites, diagnosis }: { plan: AxPlan; target: AxToolId; taskName: string; taskContext: string; prerequisites: string[]; diagnosis: AxDiagnosis }) {
   const name = TOOL_GUIDES[target].name;
   const context = [taskName, taskContext].join("\n");
@@ -198,8 +209,7 @@ export function AxExecutionPackage({ plan, target, taskName, taskContext, prereq
   return <div className="ax-package">
     <div className="ax-tool-plan"><h4>{name} 구현 상세</h4><AxPlanOverview view={planView(plan, { diagnosis, prerequisites, context })} summary={false} /></div>
     <h4 className="ax-package-title">{name}용 올인원 지시문</h4>
-    <pre className="ax-prompt">{prompt}</pre>
-    <div className="ax-prompt-actions"><AxCopyButton key={prompt} text={prompt} label={`${name}용 지시문 복사`} /></div>
+    <AxPrompt key={prompt} prompt={prompt} name={name} />
   </div>;
 }
 
