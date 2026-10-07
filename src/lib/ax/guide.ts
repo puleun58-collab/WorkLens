@@ -1,5 +1,5 @@
 import type { AxDiagnosis, AxPlan } from "./types";
-import { automationLevel, axes, executionGate, GATE_LABELS } from "./policy";
+import { automationLevel, axes, executionGate, executionProfile, GATE_LABELS } from "./policy";
 
 export type AxToolId = "codex" | "claude";
 
@@ -331,16 +331,28 @@ export function guardPlan(plan: AxPlan, context: string): AxPlan {
   return guarded;
 }
 
-const unique = (items: string[]) => [...new Set(items.map(item => item.trim()).filter(Boolean))];
-const compact = (value: string) => value.replace(/\s+/gu, "").replace(/\(담당자수행\)$/u, "");
-/** Two items say the same thing when one (whitespace-free) contains the other. */
-const similar = (a: string, b: string) => { const x = compact(a), y = compact(b); return !!x && !!y && (x.includes(y) || y.includes(x)); };
-/** Adds extra items unless one already says the same thing. */
-const mergeDistinct = (base: string[], extra: string[]) => unique([...base, ...extra.filter(item => !base.some(existing => similar(existing, item)))]);
-const without = (items: string[], shown: string[]) => unique(items).filter(item => !shown.some(other => similar(other, item)));
+/** Only presentation labels and whitespace are ignored; longer or qualified statements remain distinct. */
+const normalizedItem = (item: string) => item.trim()
+  .replace(/^(?:(?:\d+[.)]|[①-⑳]|[-*•·])\s*)+/u, "")
+  .replace(/\s+/gu, "")
+  .replace(/\(담당자수행\)$/u, "");
+const unique = (items: string[]) => {
+  const seen = new Set<string>();
+  return items.map(item => item.trim()).filter(item => {
+    const key = normalizedItem(item);
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+const mergeDistinct = (base: string[], extra: string[]) => unique([...base, ...extra]);
+const without = (items: string[], shown: string[]) => {
+  const keys = new Set(shown.map(normalizedItem));
+  return unique(items).filter(item => !keys.has(normalizedItem(item)));
+};
 
 export interface AxPlanViewRow { label: string; value: string }
-/** Read-only display model of one plan: every list field lands in exactly one place, nothing is persisted. */
+/** Read-only display model: common diagnosis direction or one tool's generated detail; nothing is persisted. */
 export interface AxPlanView {
   glance: AxPlanViewRow[];
   goals: string[];
@@ -352,44 +364,78 @@ export interface AxPlanView {
   tests: string[]; acceptance: string[];
 }
 
-/**
- * Human review view of a generated plan. Uses the same guarded plan and diagnosis policy as the
- * all-in-one prompt, merges near-duplicate wording across fields, and never mutates its inputs.
- */
-export function planView(rawPlan: AxPlan, options: { diagnosis: AxDiagnosis; prerequisites?: string[]; context?: string }): AxPlanView {
-  const d = options.diagnosis, plan = guardPlan(rawPlan, options.context ?? "");
-  const level = automationLevel(d), gate = executionGate(d);
-  const manual = d.stepAssessments.filter(s => s.verdict === "사람 유지").map(s => `${s.step} (담당자 수행)`);
-  const humanKept = mergeDistinct(plan.humanInLoop, manual);
-  const goals = mergeDistinct(plan.goal, plan.toBe);
-  const prerequisites = mergeDistinct(plan.prerequisites, options.prerequisites ?? []);
-  const exceptions = mergeDistinct(plan.exceptions, d.asIs.exceptions);
-  const fallback = without(plan.fallback, exceptions), operation = without(plan.operation, [...exceptions, ...fallback]);
-  const short = (items: string[], limit: number) => items.length > limit ? `${items.slice(0, limit).join(" · ")} 외 ${items.length - limit}건` : items.join(" · ");
-  const topics = unique(prerequisites.map(item => item.split(" — ")[0]));
-  const levelName = level.label.replace(/^L\d+ /, "");
+/** Diagnosis-only execution direction, constrained by the existing Level × Gate policy. */
+export function commonPlanView(diagnosis: AxDiagnosis): AxPlanView {
+  const profile = executionProfile(diagnosis), level = automationLevel(diagnosis);
+  const humanKept = mergeDistinct(profile.manualSteps.map(step => `${step} (담당자 수행)`), diagnosis.humanInLoop);
+  const prerequisites = unique(profile.gate === "blocked" ? profile.blockReasons : profile.prerequisites);
+  const include = unique(profile.poc.inScope), tests = unique(profile.poc.evaluation);
+  const exceptions = mergeDistinct(diagnosis.asIs.exceptions, diagnosis.risks);
+  const acceptance = [
+    ...without(profile.poc.success, tests).map(item => `성공: ${item}`),
+    ...without(profile.poc.failure, tests).map(item => `실패: ${item}`),
+  ];
+  const short = (items: string[]) => items.length > 2 ? `${items.slice(0, 2).join(" · ")} 외 ${items.length - 2}건` : items.join(" · ");
+  const scopeSummary = without(include, ["선행 확인사항 해결 후 샘플 범위에서 진행"]);
+  const scopeKeys = new Set(include.map(normalizedItem));
+  const roadmapItems = profile.roadmap.flatMap(phase => phase.items)
+    .filter(item => !scopeKeys.has(normalizedItem(item.replace(/^샘플 범위:\s*/u, ""))));
   return {
     glance: [
-      { label: "자동화 수준", value: `Level ${level.level} · ${levelName}${level.provisional ? " (잠정)" : ""}` },
-      { label: "진행 상태", value: GATE_LABELS[gate] },
-      ...(goals.length ? [{ label: "핵심 구현", value: goals[0] }] : []),
-      ...(humanKept.length ? [{ label: "사람 유지", value: short(humanKept, 2) }] : []),
-      ...(topics.length ? [{ label: "선행 확인", value: short(topics, 2) }] : []),
-      { label: "구현 방식", value: "저장소 확인 후 기존 구조 기준" },
+      { label: "자동화 수준", value: `Level ${level.level} · ${level.label.replace(/^L\d+ /u, "")}${level.provisional ? " (잠정)" : ""}` },
+      { label: "진행 상태", value: GATE_LABELS[profile.gate] },
+      scopeSummary.length ? { label: "핵심 구현", value: short(scopeSummary) } : { label: "다음 행동", value: profile.nextAction.label },
+      ...(humanKept.length ? [{ label: "사람 유지", value: short(humanKept) }] : []),
+      ...(prerequisites.length ? [{ label: "선행 확인", value: short(unique(prerequisites.map(item => item.split(" — ")[0]))) }] : []),
     ],
-    goals,
-    include: unique(plan.inScope), humanKept, excluded: without(plan.outOfScope, humanKept),
-    poc: unique(plan.poc), steps: unique(plan.implementation),
+    goals: unique([diagnosis.asIs.purpose]),
+    include,
+    humanKept,
+    excluded: unique(profile.poc.outOfScope),
+    poc: [],
+    steps: without(roadmapItems, [
+      ...prerequisites, ...tests, ...include, ...humanKept, ...exceptions, ...profile.poc.success, ...profile.poc.failure,
+    ]),
     data: [
-      { label: "입력", items: unique(d.asIs.inputs) }, { label: "출력", items: unique(d.asIs.outputs) },
+      { label: "입력", items: unique(diagnosis.asIs.inputs) },
+      { label: "출력", items: unique(diagnosis.asIs.outputs) },
+      { label: "사용 시스템", items: unique(diagnosis.asIs.systems) },
+      { label: "PoC 입력", items: without(profile.poc.inputs, diagnosis.asIs.inputs) },
+      { label: "PoC 출력", items: without(profile.poc.outputs, diagnosis.asIs.outputs) },
+    ].filter(row => row.items.length),
+    prerequisites,
+    exceptions,
+    details: [],
+    tests,
+    acceptance,
+  };
+}
+
+/** Tool-only detail; diagnosis only subtracts exact same-role content already shown in the common direction. */
+export function planView(rawPlan: AxPlan, options: { diagnosis: AxDiagnosis; prerequisites?: string[]; context?: string }): AxPlanView {
+  const plan = guardPlan(rawPlan, options.context ?? ""), common = commonPlanView(options.diagnosis);
+  const humanKept = without(plan.humanInLoop, common.humanKept), goals = without(plan.goal, common.goals);
+  const prerequisites = without(plan.prerequisites, common.prerequisites), exceptions = without(plan.exceptions, common.exceptions);
+  const fallback = without(plan.fallback, [...plan.exceptions, ...common.exceptions]);
+  const operation = without(plan.operation, [...plan.exceptions, ...common.exceptions, ...plan.fallback]);
+  return {
+    glance: [],
+    goals,
+    include: without(plan.inScope, common.include), humanKept, excluded: without(plan.outOfScope, [...plan.humanInLoop, ...common.excluded]),
+    poc: without(plan.poc, common.poc), steps: without(plan.implementation, common.steps),
+    data: [
+      { label: "변경 후 흐름", items: without(plan.toBe, [...plan.goal, ...common.goals, ...options.diagnosis.toBe.map(step => step.description)]) },
       { label: "데이터 흐름", items: unique(plan.dataFlow) }, { label: "외부 연동", items: unique(plan.integrations) },
     ].filter(row => row.items.length),
     prerequisites, exceptions,
     details: [
       { title: "실패 시 대응", items: fallback }, { title: "운영", items: operation }, { title: "보안", items: unique(plan.security) },
-      { title: "현재 업무(AS-IS)", items: unique(plan.asIs) }, { title: "저장소 확인 원칙", items: [plan.repositoryFirst] },
+      { title: "기타 구현 참고", items: [
+        ...unique(plan.asIs).map(item => `현재 업무: ${item}`), ...unique([plan.repositoryFirst]),
+      ] },
     ].filter(row => row.items.length),
-    tests: unique(plan.tests), acceptance: without(plan.acceptance, plan.tests),
+    tests: without(plan.tests, common.tests),
+    acceptance: without(plan.acceptance, [...plan.tests, ...common.tests, ...options.diagnosis.poc.success, ...options.diagnosis.poc.failure]),
   };
 }
 

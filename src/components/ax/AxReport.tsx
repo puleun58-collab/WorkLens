@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Accordion, AccordionItem, AccordionPanel, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTab, TabsPanel } from "@/components/ui/tabs";
-import { buildAllInOnePrompt, planView, setupGuide, TOOL_GUIDES, type AxGuideBlock, type AxPlanView, type AxToolId } from "@/lib/ax/guide";
+import { buildAllInOnePrompt, commonPlanView, planView, setupGuide, TOOL_GUIDES, type AxGuideBlock, type AxPlanView, type AxToolId } from "@/lib/ax/guide";
 
 const VERDICT_LABELS = { 자동화: "자동화", "AI 보조": "AI 보조", "사람 유지": "담당자 수행" } as const;
 const OWNER_LABELS = { 시스템: "시스템", AI: "AI", 사용자: "담당자" } as const;
@@ -32,7 +32,7 @@ export function AxSummary({ task, showGate = true }: { task: AxTask; showGate?: 
     {showGate ? <p className="ax-gate-line"><span>실행 상태</span><span className="ax-gate-badge" data-gate={gate}>{GATE_LABELS[gate]}</span></p> : null}
     {showGate && (checks.length || blocker) ? <p className="ax-gate-checks"><span>{checks.length ? "확인 필요" : "보류 사유"}</span>{checks.length ? checks.join(" · ") : blocker}</p> : null}
     <p>자동화 가치 {a.value} · 기술 실현 가능성 {a.feasibility} · 담당자 판단 필요도 {a.judgment} · 운영 위험 {a.risk}</p>
-    <p><strong>{action.label}</strong> — {action.detail}</p>
+    {showGate ? <p><strong>{action.label}</strong> — {action.detail}</p> : null}
   </div>;
 }
 export function AxProcess({ diagnosis: d }: { diagnosis: AxDiagnosis }) {
@@ -61,16 +61,18 @@ function AxChecks({ diagnosis: d, profile }: { diagnosis: AxDiagnosis; profile: 
 /** Roadmap timeline shared by the dark Step 4 panel and the report; content always comes from the execution profile. */
 export function AxRoadmapPhases({ profile, timeline = false }: { profile: ExecutionProfile; timeline?: boolean }) {
   return timeline
-    ? <ol className="ax-timeline">{profile.roadmap.map((r, i) => <li key={i}><span className="ax-timeline-node">{i + 1}</span><div><h4>Phase {r.phase} · {r.title}</h4><ul>{r.items.map((item, j) => <li key={j}>{item}</li>)}</ul></div></li>)}</ol>
+    ? <ol className="ax-timeline">{profile.roadmap.map((r, i) => <li key={i}><span className="ax-timeline-node">{i + 1}</span><div><h4>Phase {r.phase} · {r.title}</h4></div></li>)}</ol>
     : <ol>{profile.roadmap.map((r, i) => <li key={i}><h4>{r.phase} · {r.title}</h4><AxList items={r.items} /></li>)}</ol>;
 }
 export function AxRoadmap({ diagnosis: d, roadmapSection = true }: { diagnosis: AxDiagnosis; roadmapSection?: boolean }) {
   const profile = executionProfile(d);
   return <>
     <AxToBe diagnosis={d} />
-    <section className="ax-section ax-panel"><h3>자동화 적용 범위</h3><AxStepTable diagnosis={d} headers={["업무 단계", "처리 방식", "담당", "이유"]} />{d.humanInLoop.length ? <><h4>승인·검토가 필요한 단계</h4><AxList items={d.humanInLoop} /></> : null}</section>
-    <AxChecks diagnosis={d} profile={profile} />
-    <section className="ax-section ax-panel"><h3>사전 검증(PoC)</h3><dl className="ax-definition">{([['inScope', '포함'], ['outOfScope', '제외'], ['inputs', '입력'], ['outputs', '출력'], ['evaluation', '평가 방법'], ['success', '성공 기준'], ['failure', '실패 기준']] as const).map(([key, label]) => <div className="ax-definition-row" key={key}><dt>{label}</dt><dd><AxList items={profile.poc[key]} /></dd></div>)}</dl></section>
+    {roadmapSection ? <>
+      <section className="ax-section ax-panel"><h3>자동화 적용 범위</h3><AxStepTable diagnosis={d} headers={["업무 단계", "처리 방식", "담당", "이유"]} /></section>
+      <AxChecks diagnosis={d} profile={profile} />
+      <section className="ax-section ax-panel"><h3>사전 검증(PoC)</h3><dl className="ax-definition">{([['inScope', '포함'], ['outOfScope', '제외'], ['inputs', '입력'], ['outputs', '출력'], ['evaluation', '평가 방법'], ['success', '성공 기준'], ['failure', '실패 기준']] as const).map(([key, label]) => <div className="ax-definition-row" key={key}><dt>{label}</dt><dd><AxList items={profile.poc[key]} /></dd></div>)}</dl></section>
+    </> : <section className="ax-section ax-panel"><h3>자동화 판단 근거</h3><AxStepTable diagnosis={d} headers={["업무 단계", "판단", "담당", "근거"]} /></section>}
     {roadmapSection ? <section className="ax-section ax-panel"><h3>{profile.roadmapTitle}</h3><AxRoadmapPhases profile={profile} /></section> : null}
   </>;
 }
@@ -152,22 +154,22 @@ function AxSetupGuide({ tool }: { tool: AxToolId }) {
 }
 
 function AxPlanList({ items }: { items: string[] }) {
-  return <ul className="ax-plan-list">{items.map((item, i) => <li key={i}>{item}</li>)}</ul>;
+  return <ul className="ax-plan-list" role="list">{items.map((item, i) => <li key={i}><span className="ax-plan-text">{item}</span></li>)}</ul>;
 }
 /** Human review of the plan: 한눈에 보기 then six document sections; long secondary detail stays collapsed. */
-function AxPlanOverview({ view }: { view: AxPlanView }) {
+function AxPlanOverview({ view, summary = true }: { view: AxPlanView; summary?: boolean }) {
   const scope: [string, string[]][] = [["포함", view.include], ["사람이 계속 확인", view.humanKept], ["제외", view.excluded]];
   return <div className="ax-plan-view">
-    <section className="ax-plan-glance" aria-label="한눈에 보기"><h4>한눈에 보기</h4>
+    {summary ? <section className="ax-plan-glance" aria-label="한눈에 보기"><h4>한눈에 보기</h4>
       <dl>{view.glance.map(row => <div key={row.label}><dt>{row.label}</dt><dd>{row.value}</dd></div>)}</dl>
-    </section>
+    </section> : null}
     {view.goals.length ? <section className="ax-plan-block"><h4>구현 목표</h4><AxPlanList items={view.goals} /></section> : null}
     {scope.some(([, items]) => items.length) ? <section className="ax-plan-block"><h4>구현 범위</h4>
       {scope.map(([label, items]) => items.length ? <div className="ax-plan-group" key={label}><h5>{label}</h5><AxPlanList items={items} /></div> : null)}
     </section> : null}
     {view.steps.length || view.poc.length ? <section className="ax-plan-block"><h4>구현 순서</h4>
       {view.poc.length ? <div className="ax-plan-group"><h5>먼저 사전 검증</h5><AxPlanList items={view.poc} /></div> : null}
-      {view.steps.length ? <ol className="ax-plan-steps">{view.steps.map((step, i) => <li key={i}><span className="ax-plan-step-no" aria-hidden="true">{String(i + 1).padStart(2, "0")}</span><span>{step.replace(/^\s*(?:\d+[.)]|[①-⑳])\s*/u, "")}</span></li>)}</ol> : null}
+      {view.steps.length ? <ol className="ax-plan-steps">{view.steps.map((step, i) => <li key={i}><span className="ax-plan-step-no" aria-hidden="true">{String(i + 1).padStart(2, "0")}</span><span className="ax-plan-text">{step.replace(/^\s*(?:\d+[.)]|[①-⑳])\s*/u, "")}</span></li>)}</ol> : null}
     </section> : null}
     {view.data.length ? <section className="ax-plan-block"><h4>데이터·연동</h4>
       {view.data.map(row => <div className="ax-plan-group" key={row.label}><h5>{row.label}</h5><AxPlanList items={row.items} /></div>)}
@@ -175,23 +177,26 @@ function AxPlanOverview({ view }: { view: AxPlanView }) {
     {view.prerequisites.length || view.exceptions.length || view.details.length ? <section className="ax-plan-block"><h4>예외·안전</h4>
       {view.prerequisites.length ? <div className="ax-plan-group"><h5>선행 확인 <span className="ax-plan-status">확인 필요</span></h5><AxPlanList items={view.prerequisites} /></div> : null}
       {view.exceptions.length ? <div className="ax-plan-group"><h5>예외 처리</h5><AxPlanList items={view.exceptions} /></div> : null}
-      {view.details.length ? <Accordion className="ax-plan-details" multiple>{view.details.map(detail => <AccordionItem key={detail.title} value={detail.title} className="ax-plan-detail">
-        <AccordionTrigger className="ax-plan-detail-trigger">{detail.title}</AccordionTrigger>
-        <AccordionPanel className="ax-plan-detail-panel"><AxPlanList items={detail.items} /></AccordionPanel>
-      </AccordionItem>)}</Accordion> : null}
+      {view.details.length ? <AxPlanDetails details={view.details} /> : null}
     </section> : null}
     {view.tests.length || view.acceptance.length ? <section className="ax-plan-block"><h4>검증·완료 조건</h4>
-      {view.tests.length ? <div className="ax-plan-group"><h5>검증</h5><AxPlanList items={view.tests} /></div> : null}
+      {view.tests.length ? <div className="ax-plan-group"><h5>검증</h5><AxPlanList items={view.tests.slice(0, 4)} />{view.tests.length > 4 ? <AxPlanDetails details={[{ title: "검증 상세 보기", items: view.tests.slice(4) }]} /> : null}</div> : null}
       {view.acceptance.length ? <div className="ax-plan-group"><h5>완료 조건</h5><AxPlanList items={view.acceptance} /></div> : null}
     </section> : null}
   </div>;
+}
+function AxPlanDetails({ details }: { details: AxPlanView["details"] }) {
+  return <Accordion className="ax-plan-details" multiple>{details.map(detail => <AccordionItem key={detail.title} value={detail.title} className="ax-plan-detail">
+    <AccordionTrigger className="ax-plan-detail-trigger"><span className="ax-plan-detail-title">{detail.title}</span><span className="ax-plan-detail-count">{detail.items.length}건</span></AccordionTrigger>
+    <AccordionPanel className="ax-plan-detail-panel"><AxPlanList items={detail.items} /></AccordionPanel>
+  </AccordionItem>)}</Accordion>;
 }
 export function AxExecutionPackage({ plan, target, taskName, taskContext, prerequisites, diagnosis }: { plan: AxPlan; target: AxToolId; taskName: string; taskContext: string; prerequisites: string[]; diagnosis: AxDiagnosis }) {
   const name = TOOL_GUIDES[target].name;
   const context = [taskName, taskContext].join("\n");
   const prompt = buildAllInOnePrompt(plan, target, { taskName, prerequisites, diagnosis, context: taskContext });
   return <div className="ax-package">
-    <AxPlanOverview view={planView(plan, { diagnosis, prerequisites, context })} />
+    <div className="ax-tool-plan"><h4>{name} 구현 상세</h4><AxPlanOverview view={planView(plan, { diagnosis, prerequisites, context })} summary={false} /></div>
     <h4 className="ax-package-title">{name}용 올인원 지시문</h4>
     <pre className="ax-prompt">{prompt}</pre>
     <div className="ax-prompt-actions"><AxCopyButton key={prompt} text={prompt} label={`${name}용 지시문 복사`} /></div>
@@ -213,9 +218,10 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
     </div>
     {gate === "blocked" ? <>
       <p role="status" className="ax-notice">현재 진단에서는 구현 계획을 생성할 수 없습니다.</p>
-      {blockReasons.length ? <p className="ax-muted">{blockReasons[0]}</p> : null}
+      {blockReasons.length ? <AxList items={blockReasons} /> : null}
       <div className="ax-actions">{generateButton("codex")}{generateButton("claude")}</div>
     </> : <>
+      <div className="ax-common-plan"><h4>공통 실행 방향</h4><AxPlanOverview view={commonPlanView(diagnosis)} /></div>
       {!plans.codex && !plans.claude ? <div className="ax-actions">{generateButton("codex")}{generateButton("claude")}</div> :
         <Tabs className="ax-tool-tabs" value={activeTool} onValueChange={value => { if (value === "codex" || value === "claude") setSelectedTool(value); }}>
           <div className="ax-plan-toolbar">

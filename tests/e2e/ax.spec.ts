@@ -2,7 +2,7 @@ import { expect, test, type Page, type Locator } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { navigateWorkspace } from "./navigation";
 import { diagnosisFixture, outputFixture, planFixture, taskFixture } from "../fixtures/ax";
-import { emptyAxState, type AxState } from "../../src/lib/ax/types";
+import { emptyAxState, type AxState, type AxDiagnosis, type AxPlan } from "../../src/lib/ax/types";
 import { TOOL_GUIDES } from "../../src/lib/ax/guide";
 import { exportAxState } from "../../src/lib/ax/transfer";
 async function ax(page: Page) {
@@ -106,7 +106,8 @@ async function expectCopyUX(page: Page, section: Locator, tool: "Codex" | "Claud
     const after = await button.boundingBox();
     expect(after!.width).toBeCloseTo(before!.width, 1);
     expect(after!.x).toBeCloseTo(before!.x, 1);
-    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(await prompt.textContent());
+    expect((await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/g, "\n"))
+      .toBe((await prompt.textContent())!.replace(/\r\n/g, "\n"));
     await expectRightAlignment();
     await expect(button).not.toHaveAttribute("data-copied", "true", { timeout: 3_000 });
     await expect(button.locator('svg.lucide-copy[aria-hidden="true"]')).toHaveCount(1);
@@ -282,14 +283,6 @@ test("AX registration → diagnosis → correction → matrix → plans → relo
   await expect(top).toContainText("부분 자동화 · Level 2");
   await expect(top).toContainText("점수 7");
   await expect(page.locator('.ax-summary [data-slot="badge"]')).toHaveText("부분 자동화 · Level 2");
-  // Step 4 shows the policy-derived scope (Level 2 ∩ 확인 후 진행), not the AI's raw roadmap.
-  await expect(page.locator(".ax-step4-left h3").first()).toHaveText("확인 후 진행 업무");
-  await expect(page.locator(".ax-roadmap-panel h3")).toHaveText("부분 자동화 로드맵");
-  await expect(page.locator(".ax-roadmap-panel .ax-timeline > li h4")).toHaveText(["Phase 1 · 선행 확인", "Phase 2 · 제한 PoC", "Phase 3 · 결과 확인·다음 단계 판단"]);
-  await expect(page.locator(".ax-roadmap-panel .ax-timeline > li").first()).toContainText("시스템 접근 — API와 권한 실제 확인");
-  const pocScope = page.locator(".ax-panel").filter({ has: page.getByRole("heading", { name: "사전 검증(PoC)", exact: true }) }).locator(".ax-definition-row").first();
-  await expect(pocScope.locator("li").first()).toHaveText("선행 확인사항 해결 후 샘플 범위에서 진행");
-  await expect(page.locator(".ax-summary").first()).toContainText("선행 확인사항 확인");
   expect(await page.evaluate(() => [...document.querySelectorAll(".ax-roadmap-panel *, .ax-detail-stack .ax-panel *")]
     .filter(element => element.getBoundingClientRect().width && getComputedStyle(element).textAlign === "center").map(element => element.textContent))).toEqual([]);
   await page.screenshot({ path: `artifacts/ax/roadmap-${test.info().project.name}.png`, fullPage: true });
@@ -319,21 +312,18 @@ test("AX registration → diagnosis → correction → matrix → plans → relo
   const titleBox = await head.getByRole("heading").boundingBox(), hintBox = await head.locator(".ax-plan-tool-hint").boundingBox();
   if (page.viewportSize()!.width >= 1024) expect(hintBox!.x).toBeGreaterThan(titleBox!.x + titleBox!.width);
   for (const text of ["AI가 현재 프로젝트를 확인한 뒤 작업합니다.", "AI가 현재 프로젝트의 구조와 설정을 먼저 확인한 뒤 작업합니다."]) await expect(packageSection.getByText(text, { exact: false })).toHaveCount(0);
-  // Human review view sits above the copyable prompt: glance first, core sections open, secondary detail collapsed.
-  const view = packageSection.locator(".ax-plan-view").first();
-  await expect(view.locator(".ax-plan-glance dt")).toHaveText(["자동화 수준", "진행 상태", "핵심 구현", "사람 유지", "선행 확인", "구현 방식"]);
-  await expect(view.locator(".ax-plan-glance dd").nth(1)).toHaveText("확인 후 진행");
-  await expect(view.locator(".ax-plan-block > h4")).toHaveText(["구현 목표", "구현 범위", "구현 순서", "데이터·연동", "예외·안전", "검증·완료 조건"]);
+  const common = page.locator(".ax-common-plan .ax-plan-view");
+  const view = packageSection.locator(".ax-tool-plan .ax-plan-view");
+  await expect(common).toBeVisible();
+  await expect(common.locator(".ax-plan-glance dd").nth(1)).toHaveText("확인 후 진행");
+  await expect(view.locator(".ax-plan-glance")).toHaveCount(0);
+  await expect(packageSection.getByRole("heading", { name: "Codex 구현 상세", exact: true })).toBeVisible();
   await expect(view.locator(".ax-plan-steps > li")).toHaveCount(3);
-  await expect(view.locator(".ax-plan-group").filter({ hasText: "사람이 계속 확인" })).toContainText("담당자 승인 (담당자 수행)");
-  await expect(view.locator(".ax-plan-group").filter({ hasText: "선행 확인" })).toContainText("시스템 접근 — API와 권한 실제 확인");
-  const detailTrigger = view.getByRole("button", { name: "실패 시 대응", exact: true });
+  const detailTrigger = view.getByRole("button").filter({ has: page.locator(".ax-plan-detail-title", { hasText: "실패 시 대응" }) });
   await expect(detailTrigger).toHaveAttribute("aria-expanded", "false");
-  await detailTrigger.click(); await expect(detailTrigger).toHaveAttribute("aria-expanded", "true");
-  await expect(view.locator(".ax-plan-detail-panel").first()).toContainText("수동 취합");
-  expect(await view.evaluate(root => [...root.querySelectorAll("*")].filter(el => el.getBoundingClientRect().width && getComputedStyle(el).textAlign === "center").length)).toBe(0);
-  const [viewBox, glanceBox] = await Promise.all([view.boundingBox(), view.locator(".ax-plan-glance").boundingBox()]);
-  expect(Math.abs(viewBox!.x - glanceBox!.x)).toBeLessThanOrEqual(1);
+  await detailTrigger.focus(); await page.keyboard.press("Enter");
+  await expect(detailTrigger).toHaveAttribute("aria-expanded", "true");
+  await expect(view.getByText("수동 취합", { exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await view.scrollIntoViewIfNeeded(); await page.screenshot({ path: `artifacts/ax/plan-view-${test.info().project.name}.png` });
   const prompt = packageSection.locator(".ax-prompt");
@@ -772,8 +762,6 @@ test("AX Execution Gate blocks no-go plans and displays ready tasks before highe
   await expect(plans.getByRole("status")).toHaveText("현재 진단에서는 구현 계획을 생성할 수 없습니다.");
   await expect(plans.getByRole("heading", { name: "구현 전 필수 조건", exact: true })).toHaveCount(0);
   await expect(plans.getByText("필수 시스템 접근 불가", { exact: true })).toBeVisible();
-  await expect(plans.getByText("두 번째 보류 사유", { exact: true })).toHaveCount(0);
-  await expect(plans.getByRole("list")).toHaveCount(0);
   await expect(plans.locator(".ax-gate-badge")).toHaveCount(0);
   await expect(plans.locator(".ax-prompt")).toHaveCount(0);
   await expect(plans.locator(".ax-plan-tool-hint")).toHaveCount(0);
@@ -951,23 +939,12 @@ test("AX execution package remains readable on mobile with the setup guide colla
   for (const name of ["구현 후 확인 · GitHub 반영", "배포 방법", "상세 구현 계획 보기"]) await expect(section.getByRole("button", { name, exact: true })).toHaveCount(0);
   await expect(section.locator(".ax-gate-badge")).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "운영 시 참고사항", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "자동화 적용 범위", exact: true })).toBeVisible();
-  const scope = page.locator(".ax-panel").filter({ has: page.getByRole("heading", { name: "자동화 적용 범위", exact: true }) });
-  await expect(scope.locator("thead th")).toHaveText(["업무 단계", "처리 방식", "담당", "이유"]);
-  await expect(scope.locator("tbody tr").filter({ hasText: "담당자 승인" })).toContainText("담당자 수행");
-  const checks = page.locator(".ax-panel").filter({ has: page.getByRole("heading", { name: "진행 전 확인사항", exact: true }) });
-  await expect(checks.locator(".ax-check-list > li").first()).toContainText("시스템 접근");
-  await expect(checks.locator(".ax-risk-block h4")).toHaveText("주의사항·위험요소");
-  const poc = page.locator(".ax-panel").filter({ has: page.getByRole("heading", { name: "사전 검증(PoC)", exact: true }) });
-  await expect(poc.locator(":scope > p")).toHaveCount(0);
-  await expect(poc.locator("dt")).toHaveText(["포함", "제외", "입력", "출력", "평가 방법", "성공 기준", "실패 기준"]);
-  // Fixture is Level 3 · 확인 후 진행: the dark panel shows the derived prerequisite-first roadmap on mobile too.
-  await expect(page.locator(".ax-roadmap-panel h3")).toHaveText("자동화 도입 로드맵");
-  await expect(page.locator(".ax-roadmap-panel .ax-timeline > li h4").first()).toHaveText("Phase 1 · 선행 확인");
+  await expect(page.locator(".ax-panel tbody tr").filter({ hasText: "담당자 승인" })).toContainText("담당자 수행");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: `artifacts/ax/roadmap-mobile-${test.info().project.name}.png`, fullPage: true });
-  const mobileView = section.locator(".ax-plan-view").first();
-  await expect(mobileView.locator(".ax-plan-glance")).toBeVisible();
+  const mobileView = section.locator(".ax-tool-plan .ax-plan-view");
+  await expect(mobileView.locator(".ax-plan-glance")).toHaveCount(0);
+  await expect(page.locator(".ax-common-plan .ax-plan-glance")).toBeVisible();
   expect(await mobileView.evaluate(root => [...root.querySelectorAll("li, dd")].every(el => el.getBoundingClientRect().right <= innerWidth + 0.5))).toBe(true);
   await mobileView.screenshot({ path: `artifacts/ax/plan-view-mobile-${test.info().project.name}.png` });
   for (const [tool, copy] of [["Codex", "Codex용 지시문 복사"], ["Claude Code", "Claude Code용 지시문 복사"]]) {
@@ -1010,4 +987,204 @@ test("AX execution package remains readable on mobile with the setup guide colla
   await expect(guide).toHaveAttribute("aria-expanded", "false");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   await page.screenshot({ path: `artifacts/ax/execution-package-mobile-${test.info().project.name}.png` });
+});
+
+const implementationActions = [
+  "입력 파일 인코딩을 확인하고 원본을 보존한다", "헤더와 업무 항목의 매핑을 검토한다",
+  "빈 레코드를 검토 대상으로 분리한다", "중복 후보를 삭제하지 않고 표시한다",
+  "승인된 규칙으로 취합한다", "불일치 행을 별도 검토표로 만든다",
+  "담당자 검토 결과를 기록한다", "승인 전에는 외부 시스템에 전송하지 않는다",
+  "결과 파일의 변경 내역을 남긴다", "실패 시 원본과 수동 절차를 복구한다",
+];
+const verificationCases = [
+  "정상 월말 입력과 수동 취합 결과를 대조한다", "빈 입력에서 결과를 생성하지 않는다",
+  "누락 날짜가 있는 행은 검토 대상으로 남긴다", "음수 금액의 원래 부호를 보존한다",
+  "같은 고객의 서로 다른 청구 건을 합치지 않는다", "재실행해도 승인 기록을 중복하지 않는다",
+  "권한 만료 시 전송 성공으로 표시하지 않는다", "잘못된 인코딩을 사용자에게 알린다",
+  "승인하지 않은 결과가 전송되지 않는다", "장애 후 원본 데이터가 그대로 남는다",
+];
+function longPlan(tool: "Codex" | "Claude Code"): AxPlan {
+  return {
+    ...planFixture,
+    goal: [`${tool}: 월말 청구 내역의 정확한 취합`, `${tool}: 담당자 검토 근거를 결과에 보존`],
+    asIs: [`${tool}: 원본 파일을 수동 대조`, `${tool}: 승인 내역을 별도 기록`],
+    toBe: [`${tool}: 검토 대상과 정상 건을 분리`, `${tool}: 승인 후 결과 내보내기`],
+    inScope: [`${tool}: 원본 읽기`, `${tool}: 날짜 정규화`, `${tool}: 금액 대조`, `${tool}: 검토표 생성`, `${tool}: 승인 이력 보존`],
+    outOfScope: [`${tool}: 자동 승인`, `${tool}: 자동 지급`, `${tool}: 원본 삭제`, `${tool}: 미확인 규칙 추측`, `${tool}: 신규 연동 도입`],
+    prerequisites: [`${tool}: 실제 샘플 구조 확인`, `${tool}: 승인 권한 확인`],
+    humanInLoop: [`${tool}: 청구 금액 승인`, `${tool}: 미매칭 고객 확인`, `${tool}: 예외 지급 판단`],
+    poc: [`${tool}: 승인된 월말 샘플 대조`, `${tool}: 예외 레코드 검토`],
+    implementation: implementationActions.map(action => `${tool}: ${action}`),
+    dataFlow: [`${tool}: 입력 → 분리 → 검토`, `${tool}: 승인 → 내보내기`],
+    integrations: [`${tool}: 확인된 읽기 권한 사용`, `${tool}: 승인된 결과만 전달`, `${tool}: 응답 실패를 분리`],
+    exceptions: [`${tool}: 누락 날짜는 검토 대기`, `${tool}: 다른 통화는 별도 검토`, `${tool}: 불명확한 고객은 보류`],
+    fallback: [`${tool}: 원본으로 수동 취합`, `${tool}: 전송 중단 후 담당자에게 알림`, `${tool}: 승인 기록 복구`],
+    security: [`${tool}: 최소 읽기 권한`, `${tool}: 고객 식별자 로그 마스킹`, `${tool}: 인증 값은 기존 보관 방식 사용`],
+    operation: [`${tool}: 규칙 변경 시 재검토`, `${tool}: 담당자가 장애 기록 확인`, `${tool}: 월말 결과 보관`],
+    tests: verificationCases.map(item => `${tool}: ${item}`),
+    acceptance: [`${tool}: 승인된 결과만 전달됨`, `${tool}: 모든 예외의 처리 근거가 남음`],
+  };
+}
+
+async function expectPlanTextAlignment(view: Locator) {
+  const positions = await view.locator("span.ax-plan-text, h4, h5, .ax-plan-detail-title").evaluateAll(elements =>
+    elements.flatMap(element => {
+      if (!element.getBoundingClientRect().width || getComputedStyle(element).visibility === "hidden") return [];
+      const range = document.createRange(); range.selectNodeContents(element);
+      const rect = [...range.getClientRects()].find(item => item.width > 0);
+      return rect ? [{ text: element.textContent, x: rect.x }] : [];
+    }));
+  expect(positions.length).toBeGreaterThan(10);
+  const left = Math.min(...positions.map(position => position.x));
+  for (const position of positions) expect(Math.abs(position.x - left), position.text ?? "").toBeLessThanOrEqual(2);
+}
+
+for (const width of [1440, 390]) {
+  test(`AX long tool plans preserve common direction and readable text at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+    const codex = longPlan("Codex"), claude = longPlan("Claude Code");
+    await page.route("**/api/ai", async route => {
+      const request = route.request().postDataJSON();
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+        data: { kind: "ax-plan", plan: request.target === "claude" ? claude : codex },
+      }) });
+    });
+    await page.goto("/");
+    const task = taskFixture(`long-${width}`, diagnosisFixture);
+    await seed(page, { ...emptyAxState(), tasks: [task], selectedTaskId: task.id, step: 4 });
+    await ax(page);
+    const common = page.locator(".ax-common-plan");
+    const commonView = common.locator(".ax-plan-view");
+    await expect(common.getByRole("heading", { name: "공통 실행 방향", exact: true })).toBeVisible();
+    expect(await commonView.locator(".ax-plan-glance dt").count()).toBeLessThanOrEqual(5);
+    await expect(common).not.toContainText("저장소 확인 후 기존 구조 기준");
+    const initialCommon = await common.innerText();
+    await common.evaluate(element => window.scrollTo({ top: window.scrollY + element.getBoundingClientRect().top - 80, behavior: "instant" }));
+    for (const core of [commonView.locator(".ax-plan-glance"), commonView.getByRole("heading", { name: "구현 범위", exact: true })]) {
+      const box = (await core.boundingBox())!;
+      expect(box.y).toBeGreaterThanOrEqual(0); expect(box.y + box.height).toBeLessThanOrEqual(page.viewportSize()!.height);
+    }
+    await expectPlanTextAlignment(commonView);
+    const section = page.getByRole("region", { name: "자동화 구현 계획", exact: true });
+    for (const [tool, plan, other] of [["Codex", codex, claude], ["Claude Code", claude, codex]] as const) {
+      if (tool === "Claude Code") await section.getByRole("tab", { name: tool, exact: true }).click();
+      await section.getByRole("button", { name: `${tool}용 구현 계획 생성`, exact: true }).click();
+      await expect(section.getByRole("heading", { name: `${tool} 구현 상세`, exact: true })).toBeVisible();
+      expect(await common.innerText()).toBe(initialCommon);
+      const view = section.locator(".ax-tool-plan .ax-plan-view");
+      await expect(view.locator(".ax-plan-glance")).toHaveCount(0);
+      for (const goal of plan.goal) await expect(view.getByText(goal, { exact: true })).toBeVisible();
+      await expect(view.getByText(other.goal[0], { exact: true })).toHaveCount(0);
+      await expect(view.locator(".ax-plan-steps > li span.ax-plan-text")).toHaveText(plan.implementation);
+      await view.evaluate(element => window.scrollTo({ top: window.scrollY + element.getBoundingClientRect().top - 80, behavior: "instant" }));
+      for (const name of ["구현 목표", "구현 범위"]) {
+        const box = (await view.getByRole("heading", { name, exact: true }).boundingBox())!;
+        expect(box.y).toBeGreaterThanOrEqual(0);
+        expect(box.y + box.height).toBeLessThanOrEqual(page.viewportSize()!.height);
+      }
+      const validation = view.locator(".ax-plan-group").filter({ has: page.getByRole("heading", { name: "검증", exact: true }) });
+      await expect(validation.locator(":scope > .ax-plan-list span.ax-plan-text")).toHaveText(plan.tests.slice(0, 4));
+      for (const item of plan.tests.slice(4)) await expect(view.getByText(item, { exact: true })).toBeHidden();
+      const triggers = view.getByRole("button").filter({ has: page.locator(".ax-plan-detail-title") });
+      for (const trigger of await triggers.all()) {
+        await expect(trigger).toHaveAttribute("aria-expanded", "false");
+        const hitArea = (await trigger.boundingBox())!;
+        if (width === 390) expect(hitArea.height).toBeGreaterThanOrEqual(44);
+        await trigger.focus(); await page.keyboard.press("Enter");
+        await expect(trigger).toHaveAttribute("aria-expanded", "true");
+      }
+      for (const items of [plan.inScope, plan.outOfScope, plan.toBe, plan.tests, plan.fallback, plan.security, plan.operation, plan.integrations, plan.humanInLoop, plan.exceptions]) {
+        for (const item of items) await expect(view.getByText(item, { exact: true })).toBeVisible();
+      }
+      await expectPlanTextAlignment(view);
+      const testDetails = triggers.filter({ has: page.locator(".ax-plan-detail-title", { hasText: "검증" }) });
+      await expect(testDetails.locator(".ax-plan-detail-title")).toContainText("검증");
+      await expect(testDetails.locator(".ax-plan-detail-count")).toHaveText(`${plan.tests.length - 4}건`);
+      await testDetails.focus(); await page.keyboard.press("Space");
+      await expect(testDetails).toHaveAttribute("aria-expanded", "false");
+      for (const item of plan.tests.slice(4)) await expect(view.getByText(item, { exact: true })).toBeHidden();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+      await expectCopyUX(page, section, tool);
+      await view.screenshot({ path: `artifacts/ax/long-${width}-${tool === "Codex" ? "codex" : "claude"}-${test.info().project.name}.png` });
+    }
+    await section.getByRole("tab", { name: "Codex", exact: true }).click();
+    expect(await common.innerText()).toBe(initialCommon);
+    await expect(section.locator(".ax-tool-plan").getByText(codex.goal[0], { exact: true })).toBeVisible();
+  });
+}
+
+for (const level of [0, 1, 2, 3]) {
+  for (const gate of ["ready", "conditional", "blocked"] as const) {
+    test(`AX common direction respects Level ${level} and ${gate} without a generated plan`, async ({ page }) => {
+      const diagnosis: AxDiagnosis = {
+        ...diagnosisFixture,
+        factors: diagnosisFixture.factors.map(factor => ({
+          ...factor,
+          aiValue: factor.key === "humanJudgment" ? level === 1 ? 4 : 2
+            : factor.key === "operationalRisk" ? 2 : level === 0 ? 1 : level === 3 ? 4 : 3,
+        })),
+        decisionGate: gate === "blocked" ? { verdict: "no-go", reasons: ["보안 정책상 자료 반출 불가"] }
+          : gate === "conditional" ? diagnosisFixture.decisionGate : { verdict: "go", reasons: [] },
+        technicalChecks: gate === "ready" ? [{ topic: "시스템 접근", status: "확인됨", note: "API 확인" }] : diagnosisFixture.technicalChecks,
+      };
+      await page.goto("/");
+      const task = taskFixture(`level-${level}-${gate}`, diagnosis);
+      await seed(page, { ...emptyAxState(), tasks: [task], selectedTaskId: task.id, step: 4 });
+      await ax(page);
+      const section = page.getByRole("region", { name: "자동화 구현 계획", exact: true });
+      const common = section.locator(".ax-common-plan");
+      await expect(section.locator(".ax-tool-plan")).toHaveCount(0);
+      if (gate === "blocked") {
+        await expect(common).toHaveCount(0);
+        await expect(section.getByRole("status")).toContainText("구현 계획을 생성할 수 없습니다.");
+        await expect(section.getByText("보안 정책상 자료 반출 불가", { exact: true })).toBeVisible();
+        await expect(section.getByRole("button", { name: "Codex용 구현 계획 생성", exact: true })).toBeDisabled();
+      } else {
+        await expect(common).toBeVisible();
+        await expect(common.locator(".ax-plan-glance dd").first()).toContainText(`Level ${level}`);
+        await expect(common.locator(".ax-plan-glance dd").nth(1)).toHaveText(gate === "ready" ? "진행 가능" : "확인 후 진행");
+        await expect(common.getByText("담당자 최종 승인", { exact: true })).toBeVisible();
+        await expect(section.getByRole("button", { name: "Codex용 구현 계획 생성", exact: true })).toBeEnabled();
+        const included = common.locator(".ax-plan-group").filter({ has: page.getByRole("heading", { name: "포함", exact: true }) });
+        if (level <= 1) {
+          await expect(included).not.toContainText("자료 수집 자동 처리");
+          await expect(common.getByText("운영 자동화 적용", { exact: true })).toBeVisible();
+        }
+        if (level === 0) await expect(included).not.toContainText("형식 검증 AI 보조");
+        if (level === 1) await expect(included).toContainText("형식 검증");
+        if (gate === "conditional") await expect(common.getByText("시스템 접근 — API와 권한 실제 확인", { exact: true })).toBeVisible();
+      }
+    });
+  }
+}
+
+test("AX Step 4 displays full check and PoC details once while keeping distinct exception meanings", async ({ page }) => {
+  const diagnosis: AxDiagnosis = {
+    ...diagnosisFixture,
+    technicalChecks: [{ topic: "월말 연동 접근", status: "확인 필요", note: "청구 원본의 읽기 권한을 관리자에게 확인" }],
+    asIs: { ...diagnosisFixture.asIs, exceptions: ["고객 코드 누락", "고객 코드 누락 시 담당자에게 고객 식별 근거 요청"] },
+    risks: ["원본 청구 금액과 취합 결과의 불일치"],
+    poc: {
+      ...diagnosisFixture.poc,
+      evaluation: ["지난달 승인 결과와 거래별 금액을 대조"],
+      success: ["거래별 차이가 없고 담당자가 검토 완료"],
+      failure: ["하나라도 원본 거래가 사라지면 적용 중지"],
+    },
+  };
+  await page.goto("/");
+  const task = taskFixture("distinct-step4", diagnosis);
+  await seed(page, { ...emptyAxState(), tasks: [task], selectedTaskId: task.id, step: 4 });
+  await ax(page);
+  const step4 = page.getByRole("tabpanel", { name: "결과·로드맵", exact: true });
+  for (const text of [
+    "월말 연동 접근 — 청구 원본의 읽기 권한을 관리자에게 확인",
+    ...diagnosis.asIs.exceptions, ...diagnosis.risks, ...diagnosis.poc.evaluation,
+  ]) {
+    await expect(step4.getByText(text, { exact: true }).locator("visible=true")).toHaveCount(1);
+  }
+  for (const text of [...diagnosis.poc.success, ...diagnosis.poc.failure]) {
+    await expect(step4.locator("span.ax-plan-text:visible").filter({ hasText: text })).toHaveCount(1);
+  }
+  await expect(step4.getByRole("heading", { name: "진행 전 확인사항", exact: true })).toHaveCount(0);
+  await expect(step4.getByRole("heading", { name: "사전 검증(PoC)", exact: true })).toHaveCount(0);
 });
