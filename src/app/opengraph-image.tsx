@@ -51,8 +51,8 @@ export default function OpenGraphImage() {
             style={{
               display: "flex",
               color: "#0f172a",
-              fontSize: 44,
-              fontWeight: 600,
+              fontSize: 46,
+              fontWeight: 700,
               letterSpacing: -1,
               lineHeight: 1.3,
             }}
@@ -60,19 +60,6 @@ export default function OpenGraphImage() {
             업무 문서 작업 공간
           </div>
           <div style={{ display: "flex", width: 64, height: 3, background: "#3b82f6" }} />
-          <div
-            style={{
-              display: "flex",
-              maxWidth: 940,
-              color: "#64748b",
-              fontSize: 30,
-              fontWeight: 500,
-              letterSpacing: -0.5,
-              lineHeight: 1.45,
-            }}
-          >
-            문서 분석·비교·검수·추출·취합과 법령 리서치를 한곳에서 처리합니다.
-          </div>
         </div>
       </div>
     </div>,
