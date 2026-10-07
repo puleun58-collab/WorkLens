@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Accordion, AccordionItem, AccordionPanel, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTab, TabsPanel } from "@/components/ui/tabs";
-import { buildAllInOnePrompt, setupGuide, TOOL_GUIDES, type AxGuideBlock, type AxToolId } from "@/lib/ax/guide";
+import { buildAllInOnePrompt, planView, setupGuide, TOOL_GUIDES, type AxGuideBlock, type AxPlanView, type AxToolId } from "@/lib/ax/guide";
 
 const VERDICT_LABELS = { 자동화: "자동화", "AI 보조": "AI 보조", "사람 유지": "담당자 수행" } as const;
 const OWNER_LABELS = { 시스템: "시스템", AI: "AI", 사용자: "담당자" } as const;
@@ -151,11 +151,48 @@ function AxSetupGuide({ tool }: { tool: AxToolId }) {
   </div>)}</>;
 }
 
+function AxPlanList({ items }: { items: string[] }) {
+  return <ul className="ax-plan-list">{items.map((item, i) => <li key={i}>{item}</li>)}</ul>;
+}
+/** Human review of the plan: 한눈에 보기 then six document sections; long secondary detail stays collapsed. */
+function AxPlanOverview({ view }: { view: AxPlanView }) {
+  const scope: [string, string[]][] = [["포함", view.include], ["사람이 계속 확인", view.humanKept], ["제외", view.excluded]];
+  return <div className="ax-plan-view">
+    <section className="ax-plan-glance" aria-label="한눈에 보기"><h4>한눈에 보기</h4>
+      <dl>{view.glance.map(row => <div key={row.label}><dt>{row.label}</dt><dd>{row.value}</dd></div>)}</dl>
+    </section>
+    {view.goals.length ? <section className="ax-plan-block"><h4>구현 목표</h4><AxPlanList items={view.goals} /></section> : null}
+    {scope.some(([, items]) => items.length) ? <section className="ax-plan-block"><h4>구현 범위</h4>
+      {scope.map(([label, items]) => items.length ? <div className="ax-plan-group" key={label}><h5>{label}</h5><AxPlanList items={items} /></div> : null)}
+    </section> : null}
+    {view.steps.length || view.poc.length ? <section className="ax-plan-block"><h4>구현 순서</h4>
+      {view.poc.length ? <div className="ax-plan-group"><h5>먼저 사전 검증</h5><AxPlanList items={view.poc} /></div> : null}
+      {view.steps.length ? <ol className="ax-plan-steps">{view.steps.map((step, i) => <li key={i}><span className="ax-plan-step-no" aria-hidden="true">{String(i + 1).padStart(2, "0")}</span><span>{step.replace(/^\s*(?:\d+[.)]|[①-⑳])\s*/u, "")}</span></li>)}</ol> : null}
+    </section> : null}
+    {view.data.length ? <section className="ax-plan-block"><h4>데이터·연동</h4>
+      {view.data.map(row => <div className="ax-plan-group" key={row.label}><h5>{row.label}</h5><AxPlanList items={row.items} /></div>)}
+    </section> : null}
+    {view.prerequisites.length || view.exceptions.length || view.details.length ? <section className="ax-plan-block"><h4>예외·안전</h4>
+      {view.prerequisites.length ? <div className="ax-plan-group"><h5>선행 확인 <span className="ax-plan-status">확인 필요</span></h5><AxPlanList items={view.prerequisites} /></div> : null}
+      {view.exceptions.length ? <div className="ax-plan-group"><h5>예외 처리</h5><AxPlanList items={view.exceptions} /></div> : null}
+      {view.details.length ? <Accordion className="ax-plan-details" multiple>{view.details.map(detail => <AccordionItem key={detail.title} value={detail.title} className="ax-plan-detail">
+        <AccordionTrigger className="ax-plan-detail-trigger">{detail.title}</AccordionTrigger>
+        <AccordionPanel className="ax-plan-detail-panel"><AxPlanList items={detail.items} /></AccordionPanel>
+      </AccordionItem>)}</Accordion> : null}
+    </section> : null}
+    {view.tests.length || view.acceptance.length ? <section className="ax-plan-block"><h4>검증·완료 조건</h4>
+      {view.tests.length ? <div className="ax-plan-group"><h5>검증</h5><AxPlanList items={view.tests} /></div> : null}
+      {view.acceptance.length ? <div className="ax-plan-group"><h5>완료 조건</h5><AxPlanList items={view.acceptance} /></div> : null}
+    </section> : null}
+  </div>;
+}
 export function AxExecutionPackage({ plan, target, taskName, taskContext, prerequisites, diagnosis }: { plan: AxPlan; target: AxToolId; taskName: string; taskContext: string; prerequisites: string[]; diagnosis: AxDiagnosis }) {
   const name = TOOL_GUIDES[target].name;
+  const context = [taskName, taskContext].join("\n");
   const prompt = buildAllInOnePrompt(plan, target, { taskName, prerequisites, diagnosis, context: taskContext });
   return <div className="ax-package">
-    <h4>{name}용 올인원 지시문</h4>
+    <AxPlanOverview view={planView(plan, { diagnosis, prerequisites, context })} />
+    <h4 className="ax-package-title">{name}용 올인원 지시문</h4>
     <pre className="ax-prompt">{prompt}</pre>
     <div className="ax-prompt-actions"><AxCopyButton key={prompt} text={prompt} label={`${name}용 지시문 복사`} /></div>
   </div>;

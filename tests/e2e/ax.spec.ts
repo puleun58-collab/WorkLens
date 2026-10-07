@@ -319,6 +319,23 @@ test("AX registration → diagnosis → correction → matrix → plans → relo
   const titleBox = await head.getByRole("heading").boundingBox(), hintBox = await head.locator(".ax-plan-tool-hint").boundingBox();
   if (page.viewportSize()!.width >= 1024) expect(hintBox!.x).toBeGreaterThan(titleBox!.x + titleBox!.width);
   for (const text of ["AI가 현재 프로젝트를 확인한 뒤 작업합니다.", "AI가 현재 프로젝트의 구조와 설정을 먼저 확인한 뒤 작업합니다."]) await expect(packageSection.getByText(text, { exact: false })).toHaveCount(0);
+  // Human review view sits above the copyable prompt: glance first, core sections open, secondary detail collapsed.
+  const view = packageSection.locator(".ax-plan-view").first();
+  await expect(view.locator(".ax-plan-glance dt")).toHaveText(["자동화 수준", "진행 상태", "핵심 구현", "사람 유지", "선행 확인", "구현 방식"]);
+  await expect(view.locator(".ax-plan-glance dd").nth(1)).toHaveText("확인 후 진행");
+  await expect(view.locator(".ax-plan-block > h4")).toHaveText(["구현 목표", "구현 범위", "구현 순서", "데이터·연동", "예외·안전", "검증·완료 조건"]);
+  await expect(view.locator(".ax-plan-steps > li")).toHaveCount(3);
+  await expect(view.locator(".ax-plan-group").filter({ hasText: "사람이 계속 확인" })).toContainText("담당자 승인 (담당자 수행)");
+  await expect(view.locator(".ax-plan-group").filter({ hasText: "선행 확인" })).toContainText("시스템 접근 — API와 권한 실제 확인");
+  const detailTrigger = view.getByRole("button", { name: "실패 시 대응", exact: true });
+  await expect(detailTrigger).toHaveAttribute("aria-expanded", "false");
+  await detailTrigger.click(); await expect(detailTrigger).toHaveAttribute("aria-expanded", "true");
+  await expect(view.locator(".ax-plan-detail-panel").first()).toContainText("수동 취합");
+  expect(await view.evaluate(root => [...root.querySelectorAll("*")].filter(el => el.getBoundingClientRect().width && getComputedStyle(el).textAlign === "center").length)).toBe(0);
+  const [viewBox, glanceBox] = await Promise.all([view.boundingBox(), view.locator(".ax-plan-glance").boundingBox()]);
+  expect(Math.abs(viewBox!.x - glanceBox!.x)).toBeLessThanOrEqual(1);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await view.scrollIntoViewIfNeeded(); await page.screenshot({ path: `artifacts/ax/plan-view-${test.info().project.name}.png` });
   const prompt = packageSection.locator(".ax-prompt");
   for (const heading of ["# 월간 취합 자동화 구현 지시문", "## 2. 현재 진단 기준", "## 3. 작업 전 현재 프로젝트 확인", "## 4. AS-IS", "## 8. 구현 원칙", "## 9. 구현 요구사항", "## 15. Git 반영", "## 16. 배포 및 운영 적용", "## 17. 완료 조건", "## 18. 완료 보고"]) await expect(prompt).toContainText(heading);
   await expectPromptStructure(prompt, "월간 취합");
@@ -370,7 +387,7 @@ test("AX registration → diagnosis → correction → matrix → plans → relo
   const expandedGuideBox = await guide.boundingBox();
   expect(expandedGuideBox!.width).toBeCloseTo(collapsedGuideBox!.width, 1);
   const toolbarBox = await packageSection.locator(".ax-plan-toolbar").boundingBox();
-  const panelBox = await packageSection.locator('[data-slot="accordion-panel"]').boundingBox();
+  const panelBox = await packageSection.locator('.ax-plan-toolbar [data-slot="accordion-panel"]').boundingBox();
   expect(panelBox!.width).toBeCloseTo(toolbarBox!.width, 1);
   expect(panelBox!.y).toBeGreaterThanOrEqual(expandedGuideBox!.y + expandedGuideBox!.height);
   await page.screenshot({ path: `artifacts/ax/setup-toolbar-${test.info().project.name}.png` });
@@ -949,6 +966,10 @@ test("AX execution package remains readable on mobile with the setup guide colla
   await expect(page.locator(".ax-roadmap-panel .ax-timeline > li h4").first()).toHaveText("Phase 1 · 선행 확인");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: `artifacts/ax/roadmap-mobile-${test.info().project.name}.png`, fullPage: true });
+  const mobileView = section.locator(".ax-plan-view").first();
+  await expect(mobileView.locator(".ax-plan-glance")).toBeVisible();
+  expect(await mobileView.evaluate(root => [...root.querySelectorAll("li, dd")].every(el => el.getBoundingClientRect().right <= innerWidth + 0.5))).toBe(true);
+  await mobileView.screenshot({ path: `artifacts/ax/plan-view-mobile-${test.info().project.name}.png` });
   for (const [tool, copy] of [["Codex", "Codex용 지시문 복사"], ["Claude Code", "Claude Code용 지시문 복사"]]) {
     await section.getByRole("tab", { name: tool, exact: true }).click();
     const hint = section.locator(".ax-plan-head .ax-plan-tool-hint");

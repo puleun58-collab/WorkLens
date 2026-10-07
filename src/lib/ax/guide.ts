@@ -331,14 +331,72 @@ export function guardPlan(plan: AxPlan, context: string): AxPlan {
   return guarded;
 }
 
+const unique = (items: string[]) => [...new Set(items.map(item => item.trim()).filter(Boolean))];
+const compact = (value: string) => value.replace(/\s+/gu, "").replace(/\(담당자수행\)$/u, "");
+/** Two items say the same thing when one (whitespace-free) contains the other. */
+const similar = (a: string, b: string) => { const x = compact(a), y = compact(b); return !!x && !!y && (x.includes(y) || y.includes(x)); };
+/** Adds extra items unless one already says the same thing. */
+const mergeDistinct = (base: string[], extra: string[]) => unique([...base, ...extra.filter(item => !base.some(existing => similar(existing, item)))]);
+const without = (items: string[], shown: string[]) => unique(items).filter(item => !shown.some(other => similar(other, item)));
+
+export interface AxPlanViewRow { label: string; value: string }
+/** Read-only display model of one plan: every list field lands in exactly one place, nothing is persisted. */
+export interface AxPlanView {
+  glance: AxPlanViewRow[];
+  goals: string[];
+  include: string[]; humanKept: string[]; excluded: string[];
+  poc: string[]; steps: string[];
+  data: { label: string; items: string[] }[];
+  prerequisites: string[]; exceptions: string[];
+  details: { title: string; items: string[] }[];
+  tests: string[]; acceptance: string[];
+}
+
+/**
+ * Human review view of a generated plan. Uses the same guarded plan and diagnosis policy as the
+ * all-in-one prompt, merges near-duplicate wording across fields, and never mutates its inputs.
+ */
+export function planView(rawPlan: AxPlan, options: { diagnosis: AxDiagnosis; prerequisites?: string[]; context?: string }): AxPlanView {
+  const d = options.diagnosis, plan = guardPlan(rawPlan, options.context ?? "");
+  const level = automationLevel(d), gate = executionGate(d);
+  const manual = d.stepAssessments.filter(s => s.verdict === "사람 유지").map(s => `${s.step} (담당자 수행)`);
+  const humanKept = mergeDistinct(plan.humanInLoop, manual);
+  const goals = mergeDistinct(plan.goal, plan.toBe);
+  const prerequisites = mergeDistinct(plan.prerequisites, options.prerequisites ?? []);
+  const exceptions = mergeDistinct(plan.exceptions, d.asIs.exceptions);
+  const fallback = without(plan.fallback, exceptions), operation = without(plan.operation, [...exceptions, ...fallback]);
+  const short = (items: string[], limit: number) => items.length > limit ? `${items.slice(0, limit).join(" · ")} 외 ${items.length - limit}건` : items.join(" · ");
+  const topics = unique(prerequisites.map(item => item.split(" — ")[0]));
+  const levelName = level.label.replace(/^L\d+ /, "");
+  return {
+    glance: [
+      { label: "자동화 수준", value: `Level ${level.level} · ${levelName}${level.provisional ? " (잠정)" : ""}` },
+      { label: "진행 상태", value: GATE_LABELS[gate] },
+      ...(goals.length ? [{ label: "핵심 구현", value: goals[0] }] : []),
+      ...(humanKept.length ? [{ label: "사람 유지", value: short(humanKept, 2) }] : []),
+      ...(topics.length ? [{ label: "선행 확인", value: short(topics, 2) }] : []),
+      { label: "구현 방식", value: "저장소 확인 후 기존 구조 기준" },
+    ],
+    goals,
+    include: unique(plan.inScope), humanKept, excluded: without(plan.outOfScope, humanKept),
+    poc: unique(plan.poc), steps: unique(plan.implementation),
+    data: [
+      { label: "입력", items: unique(d.asIs.inputs) }, { label: "출력", items: unique(d.asIs.outputs) },
+      { label: "데이터 흐름", items: unique(plan.dataFlow) }, { label: "외부 연동", items: unique(plan.integrations) },
+    ].filter(row => row.items.length),
+    prerequisites, exceptions,
+    details: [
+      { title: "실패 시 대응", items: fallback }, { title: "운영", items: operation }, { title: "보안", items: unique(plan.security) },
+      { title: "현재 업무(AS-IS)", items: unique(plan.asIs) }, { title: "저장소 확인 원칙", items: [plan.repositoryFirst] },
+    ].filter(row => row.items.length),
+    tests: unique(plan.tests), acceptance: without(plan.acceptance, plan.tests),
+  };
+}
+
 export function buildAllInOnePrompt(rawPlan: AxPlan, _tool: AxToolId, options?: { taskName?: string; prerequisites?: string[]; diagnosis?: AxDiagnosis; context?: string }): string {
   const bullets = (items: string[]) => items.map(item => `- ${item}`).join("\n");
   // AI items sometimes carry their own "1)" prefix; the prompt numbers them itself.
   const numbered = (items: string[]) => items.map((item, i) => `${i + 1}. ${item.replace(/^\s*(?:\d+[.)]|[①-⑳])\s*/u, "")}`).join("\n");
-  const unique = (items: string[]) => [...new Set(items.map(item => item.trim()).filter(Boolean))];
-  const compact = (value: string) => value.replace(/\s+/gu, "");
-  /** Adds extra items unless one already says the same thing (either contains the other). */
-  const mergeDistinct = (base: string[], extra: string[]) => unique([...base, ...extra.filter(item => !base.some(existing => compact(existing).includes(compact(item).replace(/\(담당자수행\)$/u, "")) || compact(item).includes(compact(existing))))]);
   const context = [options?.taskName ?? "", options?.context ?? ""].join("\n");
   const plan = guardPlan(rawPlan, context);
   const d = options?.diagnosis;
