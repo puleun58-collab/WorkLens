@@ -21,6 +21,62 @@ async function chooseOption(page: Page, trigger: Locator, label: string) {
   await page.getByRole("option", { name: label, exact: true }).click();
 }
 
+test("usage guide keeps automation steps aligned and tabs horizontally browsable", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/");
+  await navigateWorkspace(page, "Guide");
+  const tabs = page.getByRole("tablist", { name: "기능 선택" });
+  await tabs.getByRole("tab", { name: "업무 자동화 진단", exact: true }).click();
+  const panel = page.getByRole("tabpanel");
+  await expect(panel.getByRole("heading", { name: "업무 자동화 진단", exact: true })).toBeVisible();
+  await page.evaluate(() => document.fonts.ready);
+
+  const minis = await panel.locator(".usage-guide-mini").evaluateAll((elements) => elements.map((element) => {
+    const { top, left, width, height } = element.getBoundingClientRect();
+    return { top, left, width, height };
+  }));
+  expect(minis).toHaveLength(4);
+  for (const mini of minis.slice(1)) {
+    expect(Math.abs(mini.top - minis[0].top)).toBeLessThanOrEqual(1);
+    expect(Math.abs(mini.height - minis[0].height)).toBeLessThanOrEqual(1);
+    expect(Math.abs(mini.width - minis[0].width)).toBeLessThanOrEqual(1);
+  }
+  const gaps = minis.slice(1).map((mini, index) => mini.left - minis[index].left - minis[index].width);
+  expect(Math.max(...gaps) - Math.min(...gaps)).toBeLessThanOrEqual(1);
+  const finalInstruction = panel.locator(".usage-guide-text").last();
+  const instructionLayout = await finalInstruction.evaluate((element) => {
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    const lines = [...range.getClientRects()];
+    const bounds = element.getBoundingClientRect();
+    return { lines: lines.length, contained: lines.every((line) => line.left >= bounds.left - 1 && line.right <= bounds.right + 1) };
+  });
+  expect(instructionLayout.lines).toBe(1);
+  expect(instructionLayout.contained).toBe(true);
+
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    const tabLayout = await tabs.evaluate((element) => ({
+      overflowY: getComputedStyle(element).overflowY,
+      clientHeight: element.clientHeight,
+      scrollHeight: element.scrollHeight,
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+    }));
+    expect(tabLayout.overflowY).toBe("hidden");
+    expect(tabLayout.scrollHeight).toBeLessThanOrEqual(tabLayout.clientHeight + 1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    if (viewport.width < 720) {
+      expect(tabLayout.scrollWidth).toBeGreaterThan(tabLayout.clientWidth);
+      await tabs.getByRole("tab", { name: "용어 사전", exact: true }).click();
+      await expect(tabs.getByRole("tab", { name: "용어 사전", exact: true })).toHaveAttribute("aria-selected", "true");
+      await expect(panel.getByRole("heading", { name: "용어 사전", exact: true })).toBeVisible();
+      expect(await tabs.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    }
+  }
+});
+
 test("TOOLS navigation keeps document files in their own workspace", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".app-shell")).toHaveAttribute("data-hydrated", "true");

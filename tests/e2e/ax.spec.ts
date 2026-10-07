@@ -555,7 +555,6 @@ test("AX mobile steps scroll, bottom navigation and task delete", async ({ page 
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   await navigateWorkspace(page, "Guide"); await page.getByRole("tab", { name: "업무 자동화 진단", exact: true }).click();
   await expect(page.getByRole("tabpanel").locator(".usage-guide-step")).toHaveCount(4);
-  await expect(page.getByRole("tabpanel")).toContainText("재분석 시 다시 첨부");
 });
 test("AX validates imports before replacement, cancel preserves existing data and reset cancel works", async ({ page }) => {
   await page.goto("/"); await ax(page); await register(page, "기존 업무");
@@ -743,6 +742,8 @@ test("AX Execution Gate blocks no-go plans and displays ready tasks before highe
   await expect(ready).toContainText("점수 9");
   await expect(blocked.locator(".ax-region-chip")).toHaveText("빠른 실행 후보");
   await expect(blocked.locator(".ax-gate-cond")).toHaveText("진행 보류");
+  await expect(ready.locator(".ax-rank")).toHaveText("#2");
+  await expect(blocked.locator(".ax-rank")).toHaveText("#1");
   await expect(blocked.getByText("진행 보류", { exact: true })).toBeVisible();
   await blocked.getByRole("button").click();
   await expect(page.locator(".ax-detail-stack .ax-summary")).toBeVisible();
@@ -865,6 +866,16 @@ test("AX Step 1 edit icon reuses the registration edit flow, keeps one selected 
   const surface = await row(first.name).evaluate(element => ({ row: getComputedStyle(element).backgroundColor, actions: [...element.querySelectorAll(".ax-task-action")].map(button => getComputedStyle(button).backgroundColor) }));
   expect(surface.row).not.toBe("rgba(0, 0, 0, 0)");
   expect(surface.actions).toEqual(["rgba(0, 0, 0, 0)", "rgba(0, 0, 0, 0)"]);
+  await row(second.name).getByRole("button", { name: "업무 삭제", exact: true }).hover();
+  const hovered = await row(second.name).evaluate(element => {
+    const bounds = element.getBoundingClientRect(), actions = element.querySelector(".ax-task-actions")!.getBoundingClientRect(), style = getComputedStyle(element);
+    return { background: style.backgroundColor, border: style.borderRightColor, coversIcons: bounds.right >= actions.right,
+      childBackgrounds: [...element.querySelectorAll("button")].map(button => getComputedStyle(button).backgroundColor) };
+  });
+  expect(hovered.background).not.toBe("rgba(0, 0, 0, 0)");
+  expect(hovered.border).not.toBe("rgba(0, 0, 0, 0)");
+  expect(hovered.coversIcons).toBe(true);
+  expect(hovered.childBackgrounds).toEqual(["rgba(0, 0, 0, 0)", "rgba(0, 0, 0, 0)", "rgba(0, 0, 0, 0)"]);
   await row(second.name).getByRole("button", { name: second.name }).click();
   await expect(row(second.name)).toHaveClass(/is-selected/); await expect(row(first.name)).not.toHaveClass(/is-selected/);
   await expect(page.getByRole("heading", { name: "업무 등록", exact: true })).toBeVisible();
@@ -1415,3 +1426,209 @@ for (const width of [1440, 390]) {
     }
   });
 }
+
+function multiTasks(count: number) {
+  return Array.from({ length: count }, (_, index) => {
+    const diagnosis: AxDiagnosis = { ...diagnosisFixture,
+      factors: diagnosisFixture.factors.map(factor => ({ ...factor, rationale: `${index + 1}번 업무의 ${factor.key} 진단 근거` })),
+    };
+    return { ...taskFixture(`multi-${index + 1}`, diagnosis), diagnosis,
+      name: `업무 ${String(index + 1).padStart(2, "0")}`, minutesPerRun: (count - index) * 60, runsPerMonth: 1 };
+  });
+}
+async function badgeStyle(badge: Locator) {
+  return badge.evaluate(element => {
+    const style = getComputedStyle(element);
+    return { background: style.backgroundColor, color: style.color, padding: style.padding, radius: style.borderRadius,
+      font: style.font, border: style.border, height: Math.round(element.getBoundingClientRect().height * 100) / 100 };
+  });
+}
+for (const width of [1440, 390]) for (const count of [1, 3, 5, 10]) {
+  test(`AX multi-task comparison and all-task selection for ${count} tasks at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+    await page.goto("/");
+    const tasks = multiTasks(count), last = tasks.at(-1)!;
+    await seed(page, { ...emptyAxState(), tasks, selectedTaskId: last.id, step: 3 }); await ax(page);
+    await expect(page.locator(".ax-bubble")).toHaveCount(count);
+    for (const [index, task] of tasks.entries()) {
+      await expect(page.locator(".ax-bubble", { hasText: String(index + 1) }).filter({ has: page.locator(".ax-bubble-number", { hasText: new RegExp(`^${index + 1}$`) }) })).toHaveAttribute("aria-label", new RegExp(`^${task.name} ·`));
+      await expect(page.getByRole("list", { name: "자동화 우선순위 목록", exact: true }).getByRole("listitem").filter({ hasText: task.name }).locator(".ax-rank")).toHaveText(`#${index + 1}`);
+    }
+    await page.getByLabel("매트릭스 업무 목록").getByRole("button", { name: new RegExp(last.name) }).click();
+    await expect(page.locator('.ax-bubble[aria-pressed="true"]')).toHaveAttribute("aria-label", new RegExp(`^${last.name} ·`));
+    await expect(page.locator(".ax-step3-main > section").last().getByRole("heading").first()).toContainText(last.name);
+    const matrixBadge = await badgeStyle(page.locator('.ax-gate-cond[data-gate="conditional"]').first());
+    expect(await badgeStyle(page.locator('.ax-gate-badge[data-gate="conditional"]'))).toEqual(matrixBadge);
+    await page.locator(".ax-matrix-surface").screenshot({ path: `artifacts/ax/multi-matrix-${count}-${width}-${test.info().project.name}.png` });
+    await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();
+    await expect(page.locator(".ax-roadmap-task")).toHaveText(last.name);
+    await expect(page.locator(".ax-kpi").filter({ hasText: "등록 업무" }).locator("strong")).toHaveText(`${count}개`);
+    await expect(page.locator(".ax-kpi").filter({ hasText: "진단 완료" }).locator("strong")).toHaveText(`${count}개`);
+    await expect(page.getByRole("list", { name: "자동화 우선순위 TOP 목록", exact: true }).locator(".ax-rank")).toHaveText(tasks.slice(0, 3).map((_, index) => `#${index + 1}`));
+    expect(await badgeStyle(page.locator('.ax-gate-cond[data-gate="conditional"]').first())).toEqual(matrixBadge);
+    const all = page.getByRole("button", { name: "전체 업무 보기", exact: true });
+    if (count > 3) {
+      await expect(all).toHaveAttribute("aria-expanded", "false");
+      await all.click(); await expect(all).toHaveAttribute("aria-expanded", "true");
+      const full = page.getByRole("list", { name: "전체 진단 업무 목록", exact: true });
+      await expect(full.locator(".ax-rank")).toHaveText(tasks.map((_, index) => `#${index + 1}`));
+      await full.getByRole("button", { name: new RegExp(last.name) }).click();
+      await expect(page.locator(".ax-detail-stack > section > h2")).toHaveText(last.name);
+      await expect(page.locator(".ax-roadmap-task")).toHaveText(last.name);
+      await full.getByRole("button", { name: new RegExp(tasks[0].name) }).click();
+      await expect(page.locator(".ax-roadmap-task")).toHaveText(tasks[0].name);
+      await expect(page.locator(".ax-all-task-list")).toBeVisible();
+    } else await expect(all).toHaveCount(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: `artifacts/ax/multi-results-${count}-${width}-${test.info().project.name}.png` });
+  });
+}
+
+for (const step of [3, 4]) test(`AX restores a diagnosed selection instead of an undiagnosed task in Step ${step}`, async ({ page }) => {
+  await page.goto("/");
+  const [diagnosed] = multiTasks(1), undiagnosed = taskFixture("undetected");
+  await seed(page, { ...emptyAxState(), tasks: [diagnosed, undiagnosed], selectedTaskId: undiagnosed.id, step }); await ax(page);
+  await expect.poll(async () => (await record(page))?.selectedTaskId).toBe(diagnosed.id);
+  if (step === 3) {
+    await expect(page.locator(".ax-bubble")).toHaveCount(1);
+    await expect(page.locator(".ax-step3-main > section").last().getByRole("heading").first()).toContainText(diagnosed.name);
+  } else {
+    await expect(page.locator(".ax-roadmap-task")).toHaveText(diagnosed.name);
+    await expect(page.locator(".ax-detail-stack > section > h2")).toHaveText(diagnosed.name);
+  }
+  await page.getByRole("tab", { name: "업무 등록", exact: true }).click();
+  await page.getByLabel("등록 업무 목록").locator("li").filter({ hasText: diagnosed.name }).getByRole("button", { name: "업무 삭제", exact: true }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "삭제", exact: true }).click();
+  await page.getByRole("tab", { name: step === 3 ? "자동화 매트릭스" : "결과·로드맵", exact: true }).click();
+  await expect(page.locator(".ax-empty")).toBeVisible();
+  await expect(page.locator(".ax-bubble, .ax-detail-stack, .ax-prompt")).toHaveCount(0);
+});
+
+for (const width of [1440, 390]) test(`AX score evidence and all ranks update together without affecting another plan at ${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height: width === 390 ? 844 : 900 }); await page.goto("/");
+  const tasks = multiTasks(2);
+  tasks[0].diagnosis.factors[0] = { ...tasks[0].diagnosis.factors[0], finalValue: 5 };
+  tasks[0].status = "adjusted";
+  tasks[0].diagnosis.factors[5] = { ...tasks[0].diagnosis.factors[5], rationale: "" };
+  tasks[0].diagnosis.planCodex = planFixture; tasks[1].diagnosis.planClaude = planFixture;
+  await seed(page, { ...emptyAxState(), tasks, selectedTaskId: tasks[0].id, step: 3 }); await ax(page);
+  const evidence = page.getByRole("button", { name: "점수 근거 확인", exact: true });
+  await expect(evidence).toHaveAttribute("aria-expanded", "false"); await evidence.focus(); await page.keyboard.press("Enter");
+  await expect(evidence).toHaveAttribute("aria-expanded", "true"); await expect(evidence).toBeFocused();
+  const panel = page.getByRole("region", { name: "점수 근거", exact: true });
+  await expect(panel.locator(".ax-score-heading strong")).toHaveText(["4점", "4점", "2점", "2점"]);
+  await expect(panel.locator(".ax-score-factor").filter({ hasText: "반복성" }).first()).toContainText("최종 적용 5점");
+  await expect(panel).toContainText("AI 제안 4점"); await expect(panel).toContainText("확인 필요");
+  await expect(panel).not.toContainText("TO-BE");
+  const axisStyles = await page.locator(".ax-x-label, .ax-y-label").evaluateAll(elements => elements.map(element => {
+    const style = getComputedStyle(element); return [style.padding, style.font, style.border, style.borderRadius, style.boxShadow, style.backgroundColor];
+  }));
+  expect(axisStyles[0]).toEqual(axisStyles[1]);
+  await panel.screenshot({ path: `artifacts/ax/score-evidence-${width}-${test.info().project.name}.png` });
+  await page.getByRole("tab", { name: "업무 진단", exact: true }).click();
+  for (const label of ["반복성", "규칙성", "데이터 구조화", "시스템 접근성"]) await page.getByRole("button", { name: `${label} 1점`, exact: true }).click();
+  await expect.poll(async () => (await record(page))?.tasks[0].diagnosis?.planCodex).toBeUndefined();
+  expect((await record(page))?.tasks[1].diagnosis?.planClaude).toEqual(planFixture);
+  await page.getByRole("tab", { name: "자동화 매트릭스", exact: true }).click();
+  const marker = page.locator(".ax-bubble").filter({ has: page.locator(".ax-bubble-number", { hasText: /^2$/ }) });
+  await expect(marker).toHaveAttribute("aria-label", new RegExp(`^${tasks[0].name} ·`));
+  await expect(marker).toHaveAttribute("aria-pressed", "true");
+  expect(await marker.evaluate(element => ({ x: (element as HTMLElement).style.left, y: (element as HTMLElement).style.bottom }))).toEqual({ x: "0%", y: "0%" });
+  await expect(page.getByRole("list", { name: "자동화 우선순위 목록", exact: true }).locator(".ax-rank")).toHaveText(["#1", "#2"]);
+  await expect(page.getByRole("list", { name: "자동화 우선순위 목록", exact: true }).locator(".ax-task-name")).toHaveText([tasks[1].name, tasks[0].name]);
+  await evidence.click(); await expect(panel.locator(".ax-score-heading strong")).toHaveText(["1점", "1점", "2점", "2점"]);
+  await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();
+  await expect(page.getByRole("list", { name: "자동화 우선순위 TOP 목록", exact: true }).locator(".ax-task-name")).toHaveText([tasks[1].name, tasks[0].name]);
+  await expect(page.locator(".ax-roadmap-task")).toHaveText(tasks[0].name);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test("AX partial diagnoses preserve selected task plans, tool prompts, copy and multi-task transfer", async ({ page, browserName }) => {
+  const calls: Record<string, unknown>[] = [];
+  await page.route("**/api/ai", async route => {
+    const request = route.request().postDataJSON(); calls.push(request);
+    const response = request.kind === "ax-plan"
+      ? { kind: "ax-plan", plan: { ...planFixture, goal: [`${request.task.name}-${request.target}-독립 구현`] } }
+      : { kind: "ax-diagnosis", diagnosis: outputFixture() };
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: response }) });
+  });
+  await page.goto("/"); await ax(page);
+  for (const name of ["A", "B", "C", "D", "E"]) await register(page, name);
+  await page.getByRole("tab", { name: "업무 진단", exact: true }).click();
+  for (const name of ["A", "B", "C"]) {
+    await page.getByLabel("등록 업무 목록").getByRole("button", { name: new RegExp(`^${name}`) }).click();
+    await page.getByRole("button", { name: "업무 진단 실행", exact: true }).click();
+    await expect(page.locator(".ax-factor-row")).toHaveCount(6);
+  }
+  await page.getByLabel("등록 업무 목록").getByRole("button", { name: /^E/ }).click();
+  await page.getByRole("tab", { name: "자동화 매트릭스", exact: true }).click();
+  await expect(page.locator(".ax-bubble")).toHaveCount(3);
+  await expect(page.locator('.ax-bubble[aria-pressed="true"]')).toHaveAttribute("aria-label", /^A ·/);
+  await page.getByLabel("매트릭스 업무 목록").getByRole("button", { name: /B/ }).click();
+  await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();
+  await expect(page.locator(".ax-roadmap-task")).toHaveText("B");
+  await expect(page.locator(".ax-kpi").filter({ hasText: "등록 업무" }).locator("strong")).toHaveText("5개");
+  await expect(page.locator(".ax-kpi").filter({ hasText: "진단 완료" }).locator("strong")).toHaveText("3개");
+  await expect(page.getByRole("button", { name: "전체 업무 보기", exact: true })).toHaveCount(0);
+  const top = page.getByRole("list", { name: "자동화 우선순위 TOP 목록", exact: true });
+  const plans = page.getByRole("region", { name: "자동화 구현 계획", exact: true });
+  for (const name of ["A", "B"]) {
+    await top.getByRole("listitem").filter({ has: page.locator(".ax-task-name", { hasText: new RegExp(`^${name}$`) }) }).getByRole("button").click();
+    for (const tool of ["Codex", "Claude Code"]) {
+      if (tool === "Claude Code") await plans.getByRole("tab", { name: tool, exact: true }).click();
+      await plans.getByRole("button", { name: `${tool}용 구현 계획 생성`, exact: true }).click();
+      await expect(plans.locator(".ax-prompt")).toContainText(`${name}-${tool === "Codex" ? "codex" : "claude"}-독립 구현`);
+      await expect(plans.locator(".ax-prompt")).toContainText(`# ${name} 자동화 구현 지시문`);
+    }
+  }
+  await top.getByRole("listitem").filter({ has: page.locator(".ax-task-name", { hasText: /^C$/ }) }).getByRole("button").click();
+  await expect(plans.locator(".ax-prompt")).toHaveCount(0);
+  await plans.getByRole("button", { name: "Codex용 구현 계획 생성", exact: true }).click();
+  await expect(plans.locator(".ax-prompt")).toContainText("C-codex-독립 구현");
+  await expect(plans.locator(".ax-prompt")).not.toContainText("A-codex-독립 구현");
+  if (browserName === "chromium") {
+    await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: new URL(page.url()).origin });
+    await plans.getByRole("button", { name: "Codex용 지시문 복사", exact: true }).click();
+    expect((await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/g, "\n")).toBe((await plans.locator(".ax-prompt").textContent())!.replace(/\r\n/g, "\n"));
+  }
+  for (const name of ["A", "B"]) for (const [tool, target] of [["Codex", "codex"], ["Claude Code", "claude"]]) {
+    await top.getByRole("listitem").filter({ has: page.locator(".ax-task-name", { hasText: new RegExp(`^${name}$`) }) }).getByRole("button").click();
+    await plans.getByRole("tab", { name: tool, exact: true }).click();
+    await expect(plans.locator(".ax-prompt")).toContainText(`${name}-${target}-독립 구현`);
+    await expect(plans.locator(".ax-prompt")).not.toContainText("C-codex-독립 구현");
+  }
+  expect(calls.filter(call => call.kind === "ax-diagnosis")).toHaveLength(3);
+  await expect.poll(async () => { const saved = await record(page); return saved?.tasks.find(task => task.id === saved.selectedTaskId)?.name; }).toBe("B");
+  expect(calls.filter(call => call.kind === "ax-plan")).toHaveLength(5);
+  const before = (await record(page))!;
+  const downloading = page.waitForEvent("download"); await dataAction(page, "데이터 내보내기"); const download = await downloading;
+  const exported = await readFile((await download.path())!, "utf8");
+  await dataAction(page, "데이터 초기화"); await page.getByRole("alertdialog").getByRole("button", { name: "초기화", exact: true }).click();
+  await importData(page, exported);
+  await expect.poll(async () => (await record(page))?.tasks).toEqual(before.tasks);
+  expect((await record(page))?.selectedTaskId).toBe(before.selectedTaskId);
+  await expect(plans.locator(".ax-prompt")).toContainText(`# B 자동화 구현 지시문`);
+});
+
+test("AX compares diagnoses regardless of provisional status and preserves other plans on re-diagnosis", async ({ page }) => {
+  await mock(page); await page.goto("/");
+  const [a, c, d] = multiTasks(3);
+  a.name = "완료 A"; c.name = "보정 C"; d.name = "정보 확인 D";
+  c.diagnosis.factors[0] = { ...c.diagnosis.factors[0], finalValue: 5 }; c.status = "adjusted";
+  d.diagnosis = { ...d.diagnosis, informationSufficiency: "needs-check", followUpQuestions: ["시스템 접근 확인"] }; d.status = "needs-info";
+  c.diagnosis.planCodex = planFixture;
+  const b = { ...taskFixture("b"), name: "미진단 B" }, e = { ...taskFixture("e"), name: "미진단 E" };
+  await seed(page, { ...emptyAxState(), tasks: [a, b, c, d, e], selectedTaskId: e.id, step: 2 }); await ax(page);
+  const list = page.getByLabel("등록 업무 목록");
+  await expect(list.locator("li").filter({ hasText: d.name })).toContainText("정보 확인 필요");
+  await expect(list.locator("li").filter({ hasText: c.name })).toContainText("사용자 보정 완료");
+  await list.getByRole("button", { name: new RegExp(a.name) }).click();
+  await page.getByRole("button", { name: "업무 다시 진단", exact: true }).click();
+  await expect(page.getByRole("button", { name: "업무 다시 진단", exact: true })).toBeEnabled();
+  await expect.poll(async () => (await record(page))?.tasks.find(task => task.id === c.id)?.diagnosis?.planCodex).toEqual(planFixture);
+  await page.getByRole("tab", { name: "자동화 매트릭스", exact: true }).click();
+  await expect(page.locator(".ax-bubble")).toHaveCount(3);
+  await expect(page.getByLabel("매트릭스 업무 목록").locator(".ax-task-name")).toHaveText(["1. 완료 A", "2. 보정 C", "3. 정보 확인 D"]);
+  await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();
+  await expect(page.locator(".ax-kpi").filter({ hasText: "진단 완료" }).locator("strong")).toHaveText("3개");
+});

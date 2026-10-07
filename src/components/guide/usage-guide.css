@@ -12,10 +12,14 @@
   box-sizing: border-box;
   width: max-content;
   max-width: 100%;
+  height: auto;
+  min-height: 46px;
+  align-self: flex-start;
   gap: 2px;
   padding: 4px;
   flex-wrap: nowrap;
   overflow-x: auto;
+  overflow-y: hidden;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-button);
   background: var(--canvas);
@@ -110,7 +114,8 @@
 .usage-guide-step {
   position: relative;
   display: grid;
-  grid-template-rows: auto 132px auto auto;
+  grid-template-rows: max-content 132px max-content auto;
+  align-content: start;
   gap: 8px;
   min-width: 0;
 }
