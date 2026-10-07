@@ -12,8 +12,8 @@ export const TOOL_GUIDES: Record<AxToolId, {
 
 /** Inline text marks commands with backticks; `code` blocks default to PowerShell unless labeled as examples. */
 export type AxGuideBlock = { kind: "text"; text: string } | { kind: "code"; lines: string[]; notes?: string[]; label?: "PowerShell" | ".gitignore" | "예시" } | { kind: "steps"; items: string[] };
-export interface AxGuideSection { title: string; when?: string; blocks: AxGuideBlock[] }
-export interface AxGuideStep { title: string; sections: AxGuideSection[] }
+export interface AxGuideSection { title: string; when?: string; collapsed?: boolean; listStyle?: "bullets"; blocks: AxGuideBlock[] }
+export interface AxGuideStep { title: string; purpose: string; sections: AxGuideSection[] }
 
 const text = (value: string): AxGuideBlock => ({ kind: "text", text: value });
 const code = (lines: string[], notes: string[], label?: Extract<AxGuideBlock, { kind: "code" }>["label"]): AxGuideBlock => ({ kind: "code", lines, notes, ...(label ? { label } : {}) });
@@ -21,16 +21,16 @@ const code = (lines: string[], notes: string[], label?: Extract<AxGuideBlock, { 
 export function setupGuide(tool: AxToolId): AxGuideStep[] {
   const guide = TOOL_GUIDES[tool];
   return [
-    { title: "시작하기 전에 · 전체 흐름", sections: [
+    { title: "시작하기 전에 · 전체 흐름", purpose: `${guide.name}로 작업을 시작하기 전 준비부터 Production 확인까지의 전체 흐름을 살펴봅니다.`, sections: [
       { title: "한눈에 보기", blocks: [{ kind: "steps", items: [
-        "처음 준비", "프로젝트 열기", "Codex/Claude Code 실행", "올인원 지시문", "작업 결과 확인",
+        "처음 준비", "프로젝트 열기", `${guide.name} 실행`, "올인원 지시문", "작업 결과 확인",
         ".gitignore/Secret 확인", "Git 저장", "CI/PR 확인", "Vercel 또는 Cloudflare 배포", "Production 확인",
       ] }] },
       { title: "처음 한 번만 준비 / 작업할 때마다", blocks: [
         text("Git·GitHub 인증·AI 도구 설치는 STEP 1에서 처음 한 번만 준비합니다. 설치는 처음 한 번만, 매번 반복하지 않습니다. 작업할 때마다 STEP 2부터 진행합니다."),
         text("Codex와 Claude Code 중 하나만 사용하면 됩니다. 두 개 다 설치할 필요는 없습니다."),
       ] },
-      { title: "자주 나오는 용어", blocks: [{ kind: "steps", items: [
+      { title: "자주 나오는 용어", collapsed: true, listStyle: "bullets", blocks: [{ kind: "steps", items: [
         "저장소(Repository): 프로젝트 파일과 변경 기록을 모아 둔 곳입니다.",
         "브랜치(Branch): 다른 작업과 나누어 변경을 진행하는 작업 갈래입니다.",
         "커밋(Commit): 변경 내용을 설명과 함께 Git에 기록하는 단위입니다.",
@@ -43,7 +43,7 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
         ".gitignore: Git에 새로 포함하지 않을 파일·폴더 규칙을 적는 파일입니다.",
       ] }] },
     ] },
-    { title: "STEP 1 · 처음 한 번 환경 준비", sections: [
+    { title: "STEP 1 · 처음 한 번 환경 준비", purpose: `설치 여부를 먼저 확인하고 필요한 프로그램과 ${guide.name}, Git 사용자 정보 및 GitHub 인증을 준비합니다.`, sections: [
       { title: "필요한 프로그램 확인", blocks: [
         text("PowerShell을 열고 먼저 설치 여부를 확인합니다. 버전이 표시되는 프로그램은 이미 설치된 것이므로 해당 설치 단계를 건너뜁니다."),
         text("Node.js는 프로젝트가 필요로 할 때만 준비합니다."),
@@ -82,7 +82,7 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
         text("로그인되어 있지 않으면 `gh auth login`의 안내를 따릅니다. gh가 없으면 GitHub 웹사이트 로그인·토큰 등 프로젝트의 기존 인증 방식을 그대로 사용합니다. 인증 방식을 추측해 바꾸지 않습니다."),
       ] },
     ] },
-    { title: "STEP 2 · 프로젝트 준비", sections: [
+    { title: "STEP 2 · 프로젝트 준비", purpose: "프로젝트 상황에 맞게 폴더를 준비하고 기존 지침에 따라 의존성과 현재 Git 상태를 확인합니다.", sections: [
       { title: "기본 명령", blocks: [text("`mkdir` 새 폴더 만들기 · `cd` 폴더 이동 · `dir` 폴더 내용 확인 · `Get-Location` 현재 위치 확인")] },
       { title: "A. GitHub에 있는 기존 프로젝트", when: "GitHub에는 프로젝트가 있지만 이 PC에는 아직 없는 경우", blocks: [
         code(["mkdir C:\\Work", "cd C:\\Work", "git clone <저장소 URL>", "cd <프로젝트 폴더>", "git status"], [
@@ -133,7 +133,7 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
         text("명령은 실제 프로젝트 폴더에서 실행합니다. 새 프로젝트에 Git 저장소가 아직 없으면 AI 도구와 초기화 필요성을 확인합니다."),
       ] },
     ] },
-    { title: "STEP 3 · Codex / Claude Code 실행", sections: [
+    { title: `STEP 3 · ${guide.name} 실행`, purpose: `작업할 프로젝트 폴더에서 ${guide.name}를 실행하고 저장소 지침과 기존 구현을 먼저 확인합니다.`, sections: [
       { title: "프로젝트 폴더에서 실행", blocks: [
         text("AI 도구는 반드시 작업할 프로젝트 폴더 안에서 실행합니다. `Get-Location`과 `dir`로 위치와 내용을 확인한 뒤 실행하세요."),
         code(['cd "프로젝트 경로"', "Get-Location", "dir", guide.runCommand], [
@@ -150,7 +150,7 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
         "기존 구현·테스트를 확인한 뒤 작업을 시작합니다.",
       ] }] },
     ] },
-    { title: "STEP 4 · 올인원 지시문으로 작업", sections: [
+    { title: "STEP 4 · 올인원 지시문으로 작업", purpose: `${guide.name}용 올인원 지시문을 복사해 작업을 요청하고 승인·검토 요청을 확인합니다.`, sections: [
       { title: "올인원 지시문 실행", blocks: [
         text("아래 올인원 지시문 영역에서 복사합니다."),
         { kind: "steps", items: [
@@ -160,7 +160,7 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
         ] },
       ] },
     ] },
-    { title: "STEP 5 · AI 작업 결과 검증", sections: [
+    { title: "STEP 5 · AI 작업 결과 검증", purpose: "변경 파일과 내용을 살펴보고 실제 테스트·빌드 및 핵심 기능을 확인해 오류를 해결합니다.", sections: [
       { title: "변경 파일 확인", blocks: [
         code(["git status"], ["AI 작업 후 변경되거나 새로 생긴 파일을 확인합니다."]),
         { kind: "steps", items: [
@@ -183,7 +183,7 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
         "성공한 뒤 다음 단계로 넘어갑니다.",
       ] }] },
     ] },
-    { title: "STEP 6 · .gitignore / Secret 확인 후 Git 저장", sections: [
+    { title: "STEP 6 · .gitignore / Secret 확인 후 Git 저장", purpose: "불필요한 파일과 Secret이 포함되지 않았는지 확인한 뒤 프로젝트 방식대로 커밋하고 푸시합니다.", sections: [
       { title: ".gitignore란", blocks: [
         text("GitHub에 올리면 안 되는 파일·저장할 필요 없는 파일을 제외하는 설정입니다. `git add` 전에 확인하면 Secret·불필요한 파일이 포함되는 것을 막을 수 있습니다."),
       ] },
@@ -215,18 +215,22 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
         text("실제 Secret 값을 Git뿐 아니라 AI 대화·터미널 로그·스크린샷에도 붙여넣지 않습니다. 로그를 AI 도구에 전달하기 전에 API Key·Token·Password·개인정보를 [REDACTED]로 가리고 필요한 부분만 전달합니다. 로그 전체를 무조건 복사하지 않습니다."),
         text("이미 노출된 Secret은 .gitignore만으로 보호되지 않습니다. 키를 폐기 → 재발급 → 플랫폼 설정 교체 순서로 대응하고, 필요하면 기록 정리도 검토합니다. 기록 재작성은 자동 실행하지 않습니다."),
       ] },
-      { title: "Git 저장 순서", blocks: [
+      { title: "Git 저장 · 스테이지 및 변경 확인", blocks: [
         code(["git add ."], ["현재 폴더 아래 변경 전체를 커밋 후보(스테이지)에 올립니다. 필요한 파일만 올려도 됩니다."]),
         code(["git status"], ["커밋에 포함할 파일을 최종 확인합니다. 이상하면 커밋을 중단합니다."]),
         code(["git diff --cached --stat"], ["커밋에 실제로 들어갈 파일 요약을 확인합니다. 파일 수가 과다하거나 대량 삭제·관계없는 파일이 있으면 중단합니다."]),
         text("필요하면 `git diff --cached`로 스테이지에 올린 변경 내용까지 확인합니다."),
+      ] },
+      { title: "Git 저장 · 브랜치 및 원격 확인", blocks: [
         code(["git branch --show-current"], ["현재 브랜치를 확인합니다. main 직접 push인지 PR 방식인지 프로젝트 방식을 확인합니다."]),
         code(["git remote -v"], ["어느 GitHub 저장소로 push되는지 원격 URL을 확인합니다. 잘못된 저장소에 올리지 않도록 대상을 다시 확인합니다."]),
+      ] },
+      { title: "Git 저장 · 커밋 및 푸시", blocks: [
         code(['git commit -m "작업 내용 요약"'], ["요약을 실제 작업 내용으로 바꿉니다. 커밋은 스테이지의 변경을 Git에 기록하는 작업입니다."]),
         code(["git push"], ["프로젝트 방식대로 원격 저장소에 올립니다. push 후에도 배포가 완료된 것은 아닐 수 있습니다."]),
       ] },
     ] },
-    { title: "STEP 7 · GitHub CI / PR 확인", sections: [
+    { title: "STEP 7 · GitHub CI / PR 확인", purpose: "GitHub에서 커밋과 CI·PR 상태를 확인하고 실제 배포 흐름을 확인합니다.", sections: [
       { title: "GitHub에서 확인할 것", blocks: [{ kind: "steps", items: [
         "방금 올린 커밋이 올바른 브랜치에 있는지 확인합니다.",
         "GitHub Actions/CI의 테스트·빌드 상태를 확인합니다.",
@@ -240,7 +244,7 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
         text("CI 실패를 둔 채 Production 배포만 계속 진행하지 않습니다."),
       ] },
     ] },
-    { title: "STEP 8 · 배포 (Vercel / Cloudflare)", sections: [
+    { title: "STEP 8 · 배포 (Vercel / Cloudflare)", purpose: "현재 프로젝트의 배포 플랫폼과 환경을 확인하고 기존 방식대로 배포 결과와 설정을 확인합니다.", sections: [
       { title: "먼저 현재 배포 환경 확인", blocks: [
         text("Vercel과 Cloudflare를 모두 사용해야 하는 것은 아닙니다. 현재 프로젝트의 실제 배포 구성을 확인하고 사용하는 경로만 따르세요. 프론트엔드와 Worker/API를 나누어 두 플랫폼을 함께 쓰는 프로젝트도 있습니다."),
         text("어떤 서비스가 어느 플랫폼에 어느 branch에서 어떤 방식으로 배포되는지 먼저 확인합니다. Vercel·Cloudflare Workers/Pages·GitHub Actions·Wrangler 등 현재 저장소 설정을 기준으로 하며, 배포 구성을 임의로 변경하거나 추가하지 않습니다."),
@@ -259,7 +263,7 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
         text("Secret은 코드에 넣지 않고 Cloudflare Variables/Secrets에 설정합니다."),
       ] },
     ] },
-    { title: "STEP 9 · Production 최종 확인", sections: [
+    { title: "STEP 9 · Production 최종 확인", purpose: "실제 Production에서 화면과 핵심 기능을 확인하고 문제가 있으면 수정·재배포 또는 되돌리기 방식을 확인합니다.", sections: [
       { title: "실제 서비스 확인", blocks: [
         text("URL이 생겼다고 완료된 것은 아닙니다."),
         { kind: "steps", items: [

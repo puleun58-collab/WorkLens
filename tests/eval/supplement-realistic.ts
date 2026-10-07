@@ -1,4 +1,5 @@
 import type { EvalFile, SupplementEvalCase } from "./supplement-cases";
+import { SUPPLEMENT_UNRESOLVED_CASES } from "./supplement-unresolved-cases";
 
 /**
  * Realistic 보완 cases: synthetic, anonymised material shaped like real
@@ -30,6 +31,7 @@ export const longPdf: EvalFile = {
 };
 
 export const SUPPLEMENT_REALISTIC_CASES: SupplementEvalCase[] = [
+  ...SUPPLEMENT_UNRESOLVED_CASES,
   // ── Information present in realistic, non-keyword places ──────────────
   { id: "RW01", category: "rebuttal", purpose: "원인이 제목이 아닌 ※ 주석에 있음", quiet: true,
     files: [{ name: "9월_비용보고.pptx", slides: slides("2026년 9월 비용 보고",
