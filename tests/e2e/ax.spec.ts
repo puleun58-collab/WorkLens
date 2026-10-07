@@ -1188,3 +1188,35 @@ test("AX Step 4 displays full check and PoC details once while keeping distinct 
   await expect(step4.getByRole("heading", { name: "진행 전 확인사항", exact: true })).toHaveCount(0);
   await expect(step4.getByRole("heading", { name: "사전 검증(PoC)", exact: true })).toHaveCount(0);
 });
+
+for (const width of [1440, 390]) {
+  test(`AX guide code copy preserves only code and shows icon feedback at ${width}px`, async ({ page, browserName }) => {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+    await page.goto("/");
+    if (browserName === "chromium") await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: new URL(page.url()).origin });
+    const task = taskFixture("guide-copy", { ...diagnosisFixture, planCodex: planFixture, planClaude: planFixture });
+    await seed(page, { ...emptyAxState(), tasks: [task], selectedTaskId: task.id, step: 4 }); await ax(page);
+    const section = page.getByRole("region", { name: "자동화 구현 계획", exact: true });
+    for (const tool of ["Codex", "Claude Code"]) {
+      await section.getByRole("tab", { name: tool, exact: true }).click();
+      const guide = section.getByRole("button", { name: "설치·시작 가이드", exact: true });
+      await guide.click();
+      for (const label of ["PowerShell 명령", ".gitignore 예시"]) {
+        const block = section.locator(".ax-guide-code-wrap").filter({ has: page.locator(`pre[aria-label="${label}"]`) }).first();
+        const code = await block.locator("code").innerText();
+        const button = block.getByRole("button", { name: `${label} 복사`, exact: true });
+        await expect(button).toHaveText("");
+        await button.click();
+        await expect(button.locator("svg.lucide-check")).toBeVisible();
+        if (browserName === "chromium") expect((await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/g, "\n")).toBe(code);
+        const before = (await button.boundingBox())!;
+        await expect(button.locator("svg.lucide-copy")).toBeVisible();
+        const after = (await button.boundingBox())!;
+        expect(after.x).toBeCloseTo(before.x, 1); expect(after.y).toBeCloseTo(before.y, 1);
+        await block.screenshot({ path: `artifacts/ax/guide-copy-${width}-${tool === "Codex" ? "codex" : "claude"}-${label === "PowerShell 명령" ? "ps" : "ignore"}-${test.info().project.name}.png` });
+      }
+      await expect(section.locator(".ax-guide-section > p .ax-guide-copy-button")).toHaveCount(0);
+      await guide.click();
+    }
+  });
+}

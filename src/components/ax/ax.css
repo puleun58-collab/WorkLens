@@ -266,6 +266,9 @@
 .ax-guide-section > .ax-guide-when::before { content: "→ "; }
 .ax-guide-code { position: relative; margin: 8px 0; padding: 26px 14px 12px; overflow-x: auto; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 13px; line-height: 1.7; white-space: pre; color: var(--foreground); background: color-mix(in srgb, var(--muted) 14%, var(--card)); border: 1px solid var(--border); border-radius: 8px; }
 .ax-guide-code-label { position: absolute; top: 6px; left: 14px; font-family: var(--font-sans); font-size: 11px; color: var(--muted-foreground); letter-spacing: .04em; }
+.ax-guide-code-wrap { position: relative; }
+.ax-guide-code-wrap > .ax-guide-copy-button { position: absolute; top: 3px; right: 5px; color: var(--muted-foreground); }
+.ax-guide-code-wrap > .ax-guide-copy-button[data-copied="true"] { color: var(--primary); }
 .ax-view .ax-guide-code-notes { margin: 4px 0 8px; padding-left: 20px; color: var(--muted-foreground); font-size: var(--font-size-xs); line-height: 1.5; }
 .ax-guide-code-notes li { margin: 2px 0; overflow-wrap: anywhere; }
 .ax-view .ax-guide-list { margin: 6px 0; padding-left: 22px; }
