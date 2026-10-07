@@ -19,6 +19,7 @@ import { candidateTask, taskDetails, followUpDescription, legacyDetailValues, va
 import { exportAxState, importAxState } from "@/lib/ax/transfer";
 import { emptyAxState, type AxState, type AxTask, type AxDiagnosis, type AxDetails, type FactorKey } from "@/lib/ax/types";
 import { AxSummary, AxProcess, AxRoadmap, AxRoadmapPhases, AxPlanSection, AxRadar } from "./AxReport";
+import { AxScoreEvidence } from "./AxScoreEvidence";
 import "./ax.css";
 
 const STEPS = ["업무 등록", "업무 진단", "자동화 매트릭스", "결과·로드맵"];
@@ -38,6 +39,7 @@ const DETAILS: { key: keyof AxDetails; label: string; placeholder: string; numer
 ];
 type SessionAttachment = { meta: NonNullable<AxTask["attachmentMeta"]>; summary: string };
 type Confirmation = { kind: "import"; state: AxState } | { kind: "reset" } | { kind: "delete"; id: string };
+type RankedTask = { task: AxTask & { diagnosis: AxDiagnosis }; rank: number };
 
 export function AxDiagnosisView() {
   const { state, update, replace, ready, saveStatus, loadNotice, externalChange } = useAxState();
@@ -55,9 +57,16 @@ export function AxDiagnosisView() {
   const [answers, setAnswers] = useState<Record<string, string[]>>({});
   const importInput = useRef<HTMLInputElement>(null);
   const nameHelpId = useId();
-  const selected = state.tasks.find(t => t.id === state.selectedTaskId);
-  const ranked = priority(state.tasks);
+  const ranked = priority(state.tasks).map((row, index) => ({ ...row, rank: index + 1 }));
+  const gateOrder = { ready: 0, conditional: 1, blocked: 2 };
+  const displayed = [...ranked].sort((a, b) => gateOrder[executionGate(a.task.diagnosis)] - gateOrder[executionGate(b.task.diagnosis)]);
+  const currentSelection = state.tasks.find(task => task.id === state.selectedTaskId);
+  const selected = state.step >= 3 ? currentSelection?.diagnosis ? currentSelection : displayed[0]?.task : currentSelection ?? state.tasks[0];
   const selectedProfile = selected?.diagnosis ? executionProfile(selected.diagnosis) : null;
+  const selectedId = selected?.id ?? null;
+  useEffect(() => {
+    if (ready && state.selectedTaskId !== selectedId) update(current => ({ ...current, selectedTaskId: selectedId }));
+  }, [ready, state.selectedTaskId, selectedId, update]);
   useEffect(() => {
     alive.current = true;
     const sessionAttachments = attachments.current;
@@ -181,7 +190,7 @@ export function AxDiagnosisView() {
     if (action.kind === "delete") {
       attachments.current.delete(action.id); setAttachmentIds(current => current.filter(id => id !== action.id));
       if (editingId === action.id) clearDraft();
-      update(current => { const tasks = current.tasks.filter(t => t.id !== action.id); return { ...current, tasks, selectedTaskId: current.selectedTaskId === action.id ? tasks[0]?.id ?? null : current.selectedTaskId }; });
+      update(current => { const tasks = current.tasks.filter(t => t.id !== action.id); return { ...current, tasks, selectedTaskId: current.selectedTaskId === action.id ? displayed.find(row => row.task.id !== action.id)?.task.id ?? tasks[0]?.id ?? null : current.selectedTaskId }; });
     } else {
       const saved = await replace(action.kind === "reset" ? emptyAxState() : action.state, action.kind === "reset");
       attachments.current.clear(); setAttachmentIds([]); clearDraft(); setAnswers({});
@@ -191,29 +200,27 @@ export function AxDiagnosisView() {
   const diagnosedCount = state.tasks.filter(t => !!t.diagnosis).length;
   const nextStepDisabled = state.step === 1 ? state.tasks.length === 0 : diagnosedCount === 0;
   function taskRows(showActions: boolean) {
-    const tasks = state.step === 3 ? ranked.map(r => r.task) : state.tasks;
-    return <ul className={`ax-task-rows${state.step === 3 ? " ax-matrix-list" : ""}`}>{tasks.map(task => {
+    const rows = state.step === 3 ? ranked : state.tasks.map(task => ({ task, rank: undefined }));
+    return <ul className={`ax-task-rows${state.step === 3 ? " ax-matrix-list" : ""}`}>{rows.map(({ task, rank }) => {
       const l = task.diagnosis ? automationLevel(task.diagnosis) : null;
       const a = task.diagnosis ? axes(task.diagnosis) : null;
-      const meta = state.step === 3 && a ? `가치 ${a.value} · 실현 ${a.feasibility}` : l ? `${l.label.replace(/^L\d+ /, "")} · Level ${l.level}` : STATUS[task.status];
+      const meta = state.step === 3 && a ? `가치 ${a.value} · 실현 ${a.feasibility}` : l ? `${STATUS[task.status]} · ${l.label.replace(/^L\d+ /, "")} · Level ${l.level}` : STATUS[task.status];
       return <li key={task.id} className={selected?.id === task.id ? "is-selected" : undefined}><Button type="button" variant="ghost" className="ax-task-row-btn" aria-pressed={selected?.id === task.id} onClick={() => select(task.id)} disabled={!!busy}>
-        <span className={`ax-dot ax-dot-${task.status}`} aria-hidden="true" /><span className="ax-task-name">{task.name}</span><span className="ax-task-meta">{meta}</span>
+        <span className={`ax-dot ax-dot-${task.status}`} aria-hidden="true" /><span className="ax-task-name">{rank ? `${rank}. ` : ""}{task.name}</span><span className="ax-task-meta">{meta}</span>
       </Button>{showActions && state.step === 1 ? <span className="ax-task-actions">
         <Button type="button" variant="ghost" size="icon-sm" className="ax-task-action" aria-label="업무 수정" disabled={!!busy} onClick={() => editTask(task)}><Pencil size={15} aria-hidden="true" /></Button>
         <Button type="button" variant="ghost" size="icon-sm" className="ax-task-action" aria-label="업무 삭제" disabled={!!busy} onClick={() => setConfirmation({ kind: "delete", id: task.id })}><Trash2 size={15} aria-hidden="true" /></Button>
       </span> : null}</li>;
     })}</ul>;
   }
-  function priorityRows(top = false) {
-    const gateOrder = { ready: 0, conditional: 1, blocked: 2 };
-    const displayed = [...ranked].sort((a, b) => gateOrder[executionGate(a.task.diagnosis)] - gateOrder[executionGate(b.task.diagnosis)]);
-    return <ol className="ax-priority-list" aria-label={top ? "자동화 우선순위 TOP 목록" : "자동화 우선순위 목록"}>{(top ? displayed.slice(0, 3) : displayed).map((r, i) => {
+  function priorityRows(top = false, all = false) {
+    return <>{displayed.some((row, index) => row.rank !== index + 1) ? <p className="ax-muted ax-priority-order">번호는 우선순위 점수 기준이며, 실행 상태별로 표시합니다.</p> : null}<ol className="ax-priority-list" aria-label={top ? "자동화 우선순위 TOP 목록" : all ? "전체 진단 업무 목록" : "자동화 우선순위 목록"}>{(top ? displayed.slice(0, 3) : displayed).map(r => {
       const l = automationLevel(r.task.diagnosis), m = matrixPosition(r.task.diagnosis), gate = executionGate(r.task.diagnosis);
       return <li key={r.task.id}><Button type="button" variant="ghost" className="ax-priority-row" aria-pressed={selected?.id === r.task.id} onClick={() => select(r.task.id)} disabled={!!busy}>
-        <strong className="ax-rank">#{i + 1}</strong><span className="ax-priority-content"><span className="ax-priority-head"><span className="ax-task-name">{r.task.name}</span><span className="ax-region-chip" data-region={m.region}>{m.label}</span>{gate !== "ready" ? <span className="ax-gate-cond">{GATE_LABELS[gate]}</span> : null}</span>
+        <strong className="ax-rank">#{r.rank}</strong><span className="ax-priority-content"><span className="ax-priority-head"><span className="ax-task-name">{r.task.name}</span><span className="ax-region-chip" data-region={m.region}>{m.label}</span>{gate !== "ready" ? <span className="ax-gate-cond" data-gate={gate}>{GATE_LABELS[gate]}</span> : null}</span>
         <span>{l.label.replace(/^L\d+ /, "")} · Level {l.level}{l.provisional ? " · 잠정" : ""}</span>{top ? <small className="ax-next-action"><span>다음 권장 행동</span>{nextAction(r.task.diagnosis).label}</small> : <small>{r.reason}</small>}{top ? <small>점수 {r.score}</small> : null}</span>
       </Button></li>;
-    })}</ol>;
+    })}</ol></>;
   }
   function detach(task: AxTask) {
     attachments.current.delete(task.id); setAttachmentIds(current => current.filter(id => id !== task.id));
@@ -286,9 +293,9 @@ export function AxDiagnosisView() {
       <TabsPanel value="3">
         {!ranked.length ? <p className="ax-empty ax-muted">진단이 완료된 업무가 없습니다.</p> : <div className="ax-step3-grid">
           <section className="ax-surface" aria-label="매트릭스 업무 목록"><h3>업무 목록</h3>{taskRows(false)}</section>
-          <div className="ax-step3-main"><section className="ax-surface ax-matrix-surface"><div className="ax-matrix-header"><h2>자동화 매트릭스</h2><p className="ax-muted">자동화 가치와 기술 실현 가능성을 기준으로 업무를 비교합니다.</p></div><AxMatrix tasks={ranked.map(r => r.task)} selectedId={selected?.id} onSelect={select} /></section>
+          <div className="ax-step3-main"><section className="ax-surface ax-matrix-surface"><div className="ax-matrix-header"><h2>자동화 매트릭스</h2><p className="ax-muted">등록 {state.tasks.length}개 · 진단 완료/Matrix 표시 {ranked.length}개 · 미진단 업무는 비교에서 제외됩니다.</p></div><AxMatrix rows={ranked} selectedId={selected?.id} onSelect={select} /></section>
             <section className="ax-surface"><h3>자동화 우선순위</h3>{priorityRows()}</section>
-            {selected?.diagnosis ? <section className="ax-surface"><h3>{selected.name} · {matrixPosition(selected.diagnosis).label}</h3><AxSummary task={selected} /><Button type="button" variant="outline" onClick={() => changeStep(2)}>점수·근거 확인</Button></section> : null}
+            {selected?.diagnosis ? <section className="ax-surface"><h3>{selected.name} · {matrixPosition(selected.diagnosis).label}</h3><AxSummary task={selected} /><AxScoreEvidence key={selected.id} diagnosis={selected.diagnosis} /></section> : null}
           </div>
         </div>}
       </TabsPanel>
@@ -296,7 +303,7 @@ export function AxDiagnosisView() {
         {!ranked.length ? <p className="ax-empty ax-muted">완료된 진단 결과가 없습니다.</p> : <>
           <AxKpiCards tasks={state.tasks} />
           <div className="ax-step4-grid"><div className="ax-step4-left">
-            <section className="ax-surface"><h3>{priorityHeading(ranked.map(r => executionProfile(r.task.diagnosis)))}</h3>{priorityRows(true)}</section>
+            <section className="ax-surface"><h3>{priorityHeading(ranked.map(r => executionProfile(r.task.diagnosis)))}</h3>{priorityRows(true)}{ranked.length > 3 ? <Accordion className="ax-all-tasks"><AccordionItem value="all-tasks"><AccordionTrigger>전체 업무 보기</AccordionTrigger><AccordionPanel><div className="ax-all-task-list">{priorityRows(false, true)}</div></AccordionPanel></AccordionItem></Accordion> : null}</section>
             <section className="ax-surface"><h3>분류 현황</h3><div className="ax-region-tiles">{Object.entries(REGION_LABELS).map(([region, label]) => <div className="ax-region-tile" data-region={region} key={region}><span>{label}</span><strong>{ranked.filter(r => matrixPosition(r.task.diagnosis).region === region).length}개</strong></div>)}</div></section>
           </div><section className="ax-roadmap-panel">{selected && selectedProfile ? <><h3>{selectedProfile.roadmapTitle}</h3><p className="ax-roadmap-task">{selected.name}</p><AxRoadmapPhases profile={selectedProfile} timeline /></> : <><h3>실행 로드맵</h3><p>우선순위에서 업무를 선택하면 실행 로드맵을 확인할 수 있습니다.</p></>}</section></div>
           {selected?.diagnosis ? <div className="ax-detail-stack"><section className="ax-surface"><h2>{selected.name}</h2><p className="ax-muted">{selected.diagnosis.sourceNote}</p><AxSummary task={selected} showGate={false} /></section><AxRoadmap diagnosis={selected.diagnosis} roadmapSection={false} />
@@ -344,13 +351,13 @@ function AxAxisBars({ diagnosis }: { diagnosis: AxDiagnosis }) {
     ["담당자 판단 필요도", a.judgment, "#db2777"], ["운영 위험", a.risk, "#dc2626"],
   ] as const).map(([label, value, color]) => <div className="ax-axis-row" key={label}><span>{label}</span><div className="ax-axis-track"><span style={{ width: `${value / 5 * 100}%`, background: color }} /></div><strong>{value}</strong></div>)}</div>;
 }
-function AxMatrix({ tasks, selectedId, onSelect }: { tasks: (AxTask & { diagnosis: AxDiagnosis })[]; selectedId?: string; onSelect: (id: string) => void }) {
-  const max = Math.max(0, ...tasks.map(t => monthlyMinutes(t) ?? 0));
+function AxMatrix({ rows, selectedId, onSelect }: { rows: RankedTask[]; selectedId?: string; onSelect: (id: string) => void }) {
+  const max = Math.max(0, ...rows.map(({ task }) => monthlyMinutes(task) ?? 0));
   return <div className="ax-matrix-desktop"><div className="ax-matrix" aria-label="자동화 매트릭스 산점도">
     <div className="ax-region ax-region-strategic">전략 과제</div><div className="ax-region ax-region-quick">빠른 실행 후보</div><div className="ax-region ax-region-hold">수동 유지·보류</div><div className="ax-region ax-region-maybe">검토 후보</div>
     {[1, 2, 3, 4, 5].map(v => <span key={v} className="ax-y-tick" style={{ bottom: `${(v - 1) / 4 * 100}%` }}>{v === 1 ? "" : v}</span>)}
     {[1, 2, 3, 4, 5].map(v => <span key={v} className={`ax-x-tick${v === 1 ? " is-origin" : ""}`} style={v === 1 ? undefined : { left: `${(v - 1) / 4 * 100}%` }}>{v}</span>)}
-    {tasks.map((task, i) => { const m = matrixPosition(task.diagnosis); const diameter = Math.sqrt(bubbleArea(task, max) / Math.PI) * 2; return <button type="button" key={task.id} className={`ax-bubble${m.region === "hold" ? " is-hold" : ""}`} style={{ left: `${m.x}%`, bottom: `${m.y}%`, width: Math.max(24, diameter), height: Math.max(24, diameter), zIndex: selectedId === task.id ? 3 : 2 }} aria-label={`${task.name} · ${m.label}`} aria-pressed={selectedId === task.id} title={`${task.name} · ${m.label}`} onClick={() => onSelect(task.id)}><span className="ax-bubble-dot" style={{ width: diameter, height: diameter }} /><span className="ax-bubble-number">{i + 1}</span></button>; })}
+    {rows.map(({ task, rank }) => { const m = matrixPosition(task.diagnosis); const diameter = Math.sqrt(bubbleArea(task, max) / Math.PI) * 2; return <button type="button" key={task.id} className={`ax-bubble${m.region === "hold" ? " is-hold" : ""}`} style={{ left: `${m.x}%`, bottom: `${m.y}%`, width: Math.max(24, diameter), height: Math.max(24, diameter), zIndex: selectedId === task.id ? 3 : 2 }} aria-label={`${task.name} · ${m.label} · 우선순위 ${rank}`} aria-pressed={selectedId === task.id} title={`${task.name} · ${m.label} · 우선순위 ${rank}`} onClick={() => onSelect(task.id)}><span className="ax-bubble-dot" style={{ width: diameter, height: diameter }} /><span className="ax-bubble-number">{rank}</span></button>; })}
     <span className="ax-y-label"><span className="ax-y-arrow" aria-hidden="true">↑</span><span className="ax-y-text">자동화 가치</span></span><span className="ax-x-label">기술 실현 가능성 →</span>
   </div></div>;
 }
