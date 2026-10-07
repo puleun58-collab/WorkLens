@@ -12,8 +12,8 @@ export default function OpenGraphImage() {
         width: "100%",
         height: "100%",
         padding: "0 104px",
-        background: "#0f172a",
-        color: "#ffffff",
+        background: "#ffffff",
+        color: "#0f172a",
         display: "flex",
         alignItems: "center",
         fontFamily: "sans-serif",
@@ -30,7 +30,7 @@ export default function OpenGraphImage() {
         <div style={{ display: "flex", alignItems: "center", gap: 28 }}>
           <svg width="104" height="104" viewBox="0 0 32 32" aria-label="WorkLens">
             <path d={WORKLENS_FRAME_PATH} fill="#3b82f6" />
-            <path d={WORKLENS_W_PATH} fill="#ffffff" />
+            <path d={WORKLENS_W_PATH} fill="#0f172a" />
           </svg>
           <div
             style={{
@@ -42,22 +42,37 @@ export default function OpenGraphImage() {
               lineHeight: 1,
             }}
           >
-            <span style={{ display: "flex", color: "#ffffff" }}>Work</span>
+            <span style={{ display: "flex", color: "#0f172a" }}>Work</span>
             <span style={{ display: "flex", color: "#3b82f6" }}>Lens</span>
           </div>
         </div>
-        <div
-          style={{
-            display: "flex",
-            maxWidth: 900,
-            color: "#d7e0ec",
-            fontSize: 40,
-            fontWeight: 500,
-            letterSpacing: -1,
-            lineHeight: 1.35,
-          }}
-        >
-          업무 문서 작업 공간
+        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+          <div
+            style={{
+              display: "flex",
+              color: "#0f172a",
+              fontSize: 44,
+              fontWeight: 600,
+              letterSpacing: -1,
+              lineHeight: 1.3,
+            }}
+          >
+            업무 문서 작업 공간
+          </div>
+          <div style={{ display: "flex", width: 64, height: 3, background: "#3b82f6" }} />
+          <div
+            style={{
+              display: "flex",
+              maxWidth: 940,
+              color: "#64748b",
+              fontSize: 30,
+              fontWeight: 500,
+              letterSpacing: -0.5,
+              lineHeight: 1.45,
+            }}
+          >
+            문서 분석·비교·검수·추출·취합과 법령 리서치를 한곳에서 처리합니다.
+          </div>
         </div>
       </div>
     </div>,
