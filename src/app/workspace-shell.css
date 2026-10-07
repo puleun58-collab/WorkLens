@@ -1,4 +1,4 @@
-.workspace-sidebar { position: sticky; top: 0; height: 100dvh; display: flex; flex-direction: column; background: #ffffff; border-right: 1px solid var(--line-soft); box-shadow: 0 1px 2px rgba(0, 0, 0, .04); overflow: hidden; }
+.workspace-sidebar { position: sticky; top: 0; height: 100dvh; display: flex; flex-direction: column; background: #ffffff; border-right: 1px solid var(--line-soft); border-radius: 0 12px 12px 0; box-shadow: 2px 0 8px rgba(15, 23, 42, .05); overflow: hidden; }
 .workspace-brand { min-height: 64px; flex-shrink: 0; display: flex; align-items: center; padding: 12px 18px 12px 23px; }
 .workspace-navigation { padding: 4px 12px 12px; }
 .workspace-sidebar > .workspace-navigation { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
@@ -16,10 +16,10 @@
 .workspace-mobile-bar { display: none; }
 .app-shell { background: var(--background); }
 .shell-main { min-width: 0; }
-.context-bar { background: var(--card); }
+.context-bar { background: var(--card); border-bottom: 1px solid var(--line-soft); box-shadow: 0 2px 8px rgba(15, 23, 42, .05); }
 @media (max-width: 900px) {
   .workspace-sidebar { display: none; }
-  .workspace-mobile-bar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: #ffffff; border-bottom: 1px solid var(--line-soft); }
+  .workspace-mobile-bar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: #ffffff; border-bottom: 1px solid var(--line-soft); box-shadow: 0 2px 8px rgba(15, 23, 42, .05); }
   .workspace-mobile-bar > button { color: #374151; }
 }
 .workspace-mobile-sheet { background: #ffffff; color: #374151; border-color: var(--line-soft); }
