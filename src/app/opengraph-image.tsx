@@ -59,7 +59,6 @@ export default function OpenGraphImage() {
           >
             업무 문서 작업 공간
           </div>
-          <div style={{ display: "flex", width: 64, height: 3, background: "#3b82f6" }} />
         </div>
       </div>
     </div>,
