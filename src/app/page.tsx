@@ -114,6 +114,7 @@ import {
 import {
   BarChart3,
   BookMarked,
+  Check,
   CircleCheck,
   CircleHelp,
   FileText,
@@ -590,12 +591,13 @@ export default function Home() {
   const [uploading, setUploading] = useState(false);
   const [dropActive, setDropActive] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
-  /** Bumped on each successful delete; drives a one-off "삭제 완료" that clears itself. */
+  /** Successful delete token; navigation and a newer delete invalidate late completions. */
   const [deleteDone, setDeleteDone] = useState(0);
+  const deleteOperation = useRef(0);
   const [deleteAllOpen, setDeleteAllOpen] = useState(false);
   useEffect(() => {
     if (!deleteDone) return;
-    const timer = window.setTimeout(() => setDeleteDone(0), 2500);
+    const timer = window.setTimeout(() => setDeleteDone(0), 3000);
     return () => window.clearTimeout(timer);
   }, [deleteDone]);
   const [comparison, setComparison] = useState<ComparisonResult | null>(null);
@@ -1444,17 +1446,21 @@ export default function Home() {
   };
 
   const deleteAll = () => {
+    const operation = ++deleteOperation.current;
+    setDeleteDone(0);
     disposeWorkspace();
     interruptServerAi();
     setFiles([]);
     setSelected([]);
     clearResults();
     setNotice(null);
-    setDeleteDone((count) => count + 1);
+    setDeleteDone(operation);
   };
 
   const deleteSelected = async () => {
     if (busy || selected.length === 0) return;
+    const operation = ++deleteOperation.current;
+    setDeleteDone(0);
     const removing = new Set(selected);
     try {
       await runInWorker({ kind: "forget", fileIds: selected });
@@ -1466,7 +1472,7 @@ export default function Home() {
       setPolish(null);
       setPolishTextRun(null);
       setNotice(null);
-      setDeleteDone((count) => count + 1);
+      if (deleteOperation.current === operation) setDeleteDone(operation);
     } catch {
       notifyWorkspace("error", "선택한 파일을 삭제하지 못했습니다. 다시 시도하거나 페이지를 새로고침하세요.");
     }
@@ -1588,6 +1594,8 @@ export default function Home() {
     const item = commandItems.find((entry) => entry.value === value);
     if (!item) return;
     const next = item.value as ShellView;
+    deleteOperation.current++;
+    setDeleteDone(0);
     setDetail(null);
     detailTrigger.current = null;
     setShellView(next);
@@ -1605,7 +1613,6 @@ export default function Home() {
       <WorkspaceNavigation items={navigationItems} active={viewMetadata.activeNavigation} onNavigate={navigateWorkspace} />
 
       <div className="shell-main">
-        <WorkspaceCommand items={commandItems} onNavigate={navigateWorkspace} />
         {isDocumentWorkspaceView || isUtilityView || isToolView ? (
           <header className={`context-bar utility-bar${isDocumentWorkspaceView ? " workspace-context" : ""}`}>
             <h1>{isDocumentWorkspaceView ? workSectionTitle : viewMetadata.title}</h1>
@@ -1624,6 +1631,12 @@ export default function Home() {
                       ? viewMetadata.description
                       : "이미지를 편집하고 원하는 형식으로 내보낼 수 있습니다."}
             </span>
+            <div className="workspace-header-actions">
+              {isDocumentWorkspaceView && <span className="workspace-delete-status" role="status" aria-live="polite" aria-atomic="true">
+                {deleteDone > 0 && <span key={deleteDone}><Check aria-hidden="true" />삭제 완료</span>}
+              </span>}
+              <WorkspaceCommand items={commandItems} onNavigate={navigateWorkspace} />
+            </div>
           </header>
         ) : null}
 
@@ -1684,9 +1697,6 @@ export default function Home() {
             </div>
           ) : null}
 
-          {isDocumentWorkspaceView && deleteDone > 0 ? (
-            <span key={deleteDone} className="transient-status workspace-delete-status" role="status" aria-live="polite">삭제 완료</span>
-          ) : null}
 
           {isDocumentWorkspaceView && notice && !inlineResultNotice && (notice.scope === "workspace" || notice.scope === shellView) ? (
             notice.tone === "error" || notice.tone === "warning" || (notice.tone === "info" && notice.scope === "Ask" && Boolean(notice.detail)) ? (

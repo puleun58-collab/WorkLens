@@ -9,6 +9,7 @@ const costDeck = path.join(fixtureDir, "보완_UX_비용.pptx");
 const clearDeck = path.join(fixtureDir, "보완_UX_안내.pptx");
 const baselineDeck = path.join(fixtureDir, "보완_UX_실적.pptx");
 const manyDeck = path.join(fixtureDir, "보완_UX_다수항목.pptx");
+const issueDeck = path.join(fixtureDir, "보완_UX_납기.pptx");
 
 test.beforeAll(async () => {
   await mkdir(fixtureDir, { recursive: true });
@@ -22,6 +23,11 @@ test.beforeAll(async () => {
   await writeFile(baselineDeck, createPptxSlides([
     ["2026년 9월 실적 보고", "실적 현황"],
     ["고객 만족도 현황", "고객 만족도 82점"],
+  ]));
+  await writeFile(issueDeck, createPptxSlides([
+    ["9월 이슈 보고", "주요 이슈를 공유합니다."],
+    ["납기 이슈", "고객사 A 납기 지연 12건 발생"],
+    ["기타", "10월 생산 계획은 전월과 동일합니다."],
   ]));
   await writeFile(manyDeck, createPptxSlides([
     ["2026년 9월 실적 보고", "센터별 실적 현황"],
@@ -49,17 +55,27 @@ function completeReview(route: Route) {
 }
 
 for (const width of [1440, 390]) {
-  test(`보완은 ${width}px에서 질문·이유·세 가지 추가 정보와 근거를 보존한다`, async ({ page }) => {
+  test(`보완은 ${width}px에서 부족한 내용·확인할 정보·접힌 원문과 바로 보이는 근거를 구분한다`, async ({ page }) => {
     await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
     await page.route("**/api/ai", completeReview);
     await prepare(page);
     await page.getByRole("button", { name: "보완 실행", exact: true }).click();
     const results = page.locator(".supplement-results");
-    const cause = results.locator(".supplement-item").filter({ has: page.getByRole("heading", { name: /^원인 설명/ }) });
+    const cause = results.locator(".supplement-item").filter({ has: page.getByRole("heading", { name: "증가 원인 미확인", exact: true }) });
     await expect(cause).toBeVisible();
     await expect(cause.locator(".check-severity")).toHaveText("중요");
-    await expect(cause.locator(".supplement-fields")).toContainText("물류비가 전월 대비 18% 증가했습니다.");
-    await expect(cause.locator(".supplement-fields")).toContainText("변화 폭이 커서 보고받는 사람이 먼저 원인을 물을 가능성이 높습니다.");
+    const fields = cause.locator(".supplement-fields").first();
+    await expect(cause.getByRole("button", { name: /근거 보기/ })).toBeVisible();
+    await expect(fields.locator("dt")).toHaveText(["확인할 정보", "확인 이유", "근거"]);
+    await expect(fields.locator(".supplement-message")).toHaveText("물류비가 전월 대비 18% 증가했다고 제시되어 있지만 현재 자료에서 주요 증가 원인 설명을 확인하지 못했습니다.");
+    await expect(fields).not.toContainText("보고받는 사람이 먼저 원인을 물을 가능성");
+    const original = cause.locator("details.supplement-original");
+    await expect(original).not.toHaveAttribute("open", "");
+    await expect(original.getByText("현재 자료", { exact: true })).toBeHidden();
+    await expect(original.getByText("2P", { exact: true })).toBeHidden();
+    await original.getByText("현재 자료 및 원문 위치 보기").click();
+    await expect(original.locator("q")).toHaveText("물류비가 전월 대비 18% 증가했습니다.");
+    await expect(original.locator(".supplement-location")).toHaveText("2P");
     const additions = cause.locator("ul.supplement-readable-list > li > span:last-child");
     await expect(additions).toHaveText(["주요 증가 요인", "요인별 영향 규모", "일회성 여부"]);
     await expect(results.getByRole("heading", { name: "보고 전 확인할 질문", exact: true })).toBeVisible();
@@ -97,6 +113,19 @@ for (const width of [1440, 390]) {
   });
 }
 
+test("후속 대응의 추측성 이유는 반복하지 않고 영향의 판단 이유는 보여 준다", async ({ page }) => {
+  await page.route("**/api/ai", completeReview);
+  await prepare(page, issueDeck);
+  await page.getByRole("button", { name: "보완 실행", exact: true }).click();
+  const response = page.locator(".supplement-item").filter({ has: page.getByRole("heading", { name: "대응 내용 미확인", exact: true }) });
+  await expect(response).toBeVisible();
+  await expect(response.locator(".supplement-fields").first().locator("dt")).toHaveText(["확인할 정보", "확인 이유", "근거"]);
+  await expect(response).not.toContainText("보고받는 사람은 후속 조치를 먼저 확인");
+  const impact = page.locator(".supplement-item").filter({ has: page.getByRole("heading", { name: "영향 설명 미확인", exact: true }) });
+  await expect(impact.locator(".supplement-fields").first().locator("dt").filter({ hasText: "확인 이유" })).toHaveCount(1);
+  await expect(impact).toContainText("영향 범위를 알아야 우선순위와 대응 수준을 정할 수 있습니다.");
+});
+
 test("보완 실행 중에는 실행 버튼만 처리 상태를 보이고 연속 클릭으로 요청을 중복하지 않는다", async ({ page }) => {
   const gate = Promise.withResolvers<void>();
   let calls = 0;
@@ -133,7 +162,7 @@ test("보완 API 오류 뒤 결정적 결과와 한계를 보존하고 다시 �
   const run = page.getByRole("button", { name: "보완 실행", exact: true });
   await run.click();
   await expect(page.getByText("일부 항목의 재확인을 완료하지 못했습니다.", { exact: true })).toBeVisible();
-  await expect(page.locator(".supplement-item").getByRole("heading", { name: /^원인 설명/ })).toBeVisible();
+  await expect(page.locator(".supplement-item").getByRole("heading", { name: /원인 미확인$/ })).toBeVisible();
   await expect(page.locator(".supplement-results")).toContainText("일부 항목은 의미 기반 재확인을 마치지 못했습니다.");
   await expect(run).toBeEnabled();
   fail = false;
@@ -207,14 +236,17 @@ test("숫자는 있으나 목표·이전 기간이 없는 자료는 원문 값�
   await page.route("**/api/ai", completeReview);
   await prepare(page, baselineDeck);
   await page.getByRole("button", { name: "보완 실행", exact: true }).click();
-  const baseline = page.locator(".supplement-item").filter({ has: page.getByRole("heading", { name: "비교 기준", exact: true }) });
+  const baseline = page.locator(".supplement-item").filter({ has: page.getByRole("heading", { name: "비교 기준 미확인", exact: true }) });
   await expect(baseline).toBeVisible();
   await expect(baseline.locator(".check-severity")).toHaveText("확인 필요");
-  await expect(baseline.locator(".supplement-item-head")).toContainText("비교 기준");
   expect((await baseline.locator(".supplement-item-head").innerText()).match(/확인 필요/g)).toHaveLength(1);
-  await expect(baseline.locator("q")).toHaveText("고객 만족도 82점");
+  await expect(baseline.locator(".supplement-fields").first().locator("dt")).toHaveText(["확인할 정보", "확인 이유", "근거"]);
   await expect(baseline.locator("ul.supplement-readable-list > li > span:last-child")).toHaveText(["목표값 또는 기준값", "이전 기간 값"]);
-  await expect(baseline.locator(".supplement-fields")).toContainText("기준이 없으면 이 수치가 좋은지 나쁜지 판단하기 어렵습니다.");
+  await expect(baseline.locator(".supplement-explanation").last()).toContainText("기준이 없으면 이 수치가 좋은지 나쁜지 판단하기 어렵습니다.");
+  const original = baseline.locator("details.supplement-original");
+  await expect(original).not.toHaveAttribute("open", "");
+  await original.getByText("현재 자료 및 원문 위치 보기").click();
+  await expect(original.locator("q")).toHaveText("고객 만족도 82점");
 });
 
 test("모바일의 많은 긴 질문은 줄바꿈되어도 번호와 본문이 겹치지 않고 개별 질문을 잃지 않는다", async ({ page }) => {
@@ -248,6 +280,11 @@ test("모바일의 많은 긴 질문은 줄바꿈되어도 번호와 본문이 �
   expect(layout.gap).toBeGreaterThanOrEqual(8);
   expect(layout.gap).toBeLessThanOrEqual(12);
   expect(layout.overflow).toBe(false);
+  const original = results.locator(".supplement-item details.supplement-original").first();
+  await expect(original).not.toHaveAttribute("open", "");
+  await original.getByText("현재 자료 및 원문 위치 보기").click();
+  await expect(original.locator("q")).toContainText("서울동부생활물류고객지원운영센터");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
 });
 
 test("재확인이 근거 없이 설명을 찾았다고 답해도 기존 위치와 확인 제한을 잃지 않는다", async ({ page }) => {
@@ -260,12 +297,16 @@ test("재확인이 근거 없이 설명을 찾았다고 답해도 기존 위치�
   });
   await prepare(page);
   await page.getByRole("button", { name: "보완 실행", exact: true }).click();
-  const cause = page.locator(".supplement-item").filter({ has: page.getByRole("heading", { name: /^원인 설명/ }) });
+  const cause = page.locator(".supplement-item").filter({ has: page.getByRole("heading", { name: "증가 원인 미확인", exact: true }) });
   await expect(cause).toBeVisible();
   await expect(cause.locator(".supplement-limitation")).toContainText("AI가 제시한 근거에서 필요한 구체 정보를 확인하지 못해 누락 여부를 확정하지 않았습니다.");
   await expect(cause.locator(".check-severity")).toHaveText("확인 필요");
-  await expect(cause.locator("q")).toHaveText("물류비가 전월 대비 18% 증가했습니다.");
-  await expect(cause.locator(".supplement-location")).toContainText("2P");
+  await expect(cause.getByRole("heading", { name: "증가 원인 미확인" })).toBeVisible();
+  const original = cause.locator("details.supplement-original");
+  await expect(original).not.toHaveAttribute("open", "");
+  await original.getByText("현재 자료 및 원문 위치 보기").click();
+  await expect(original.locator("q")).toHaveText("물류비가 전월 대비 18% 증가했습니다.");
+  await expect(original.locator(".supplement-location")).toContainText("2P");
   await cause.getByRole("button", { name: /근거 보기/ }).click();
   await expect(page.getByLabel("근거 상세", { exact: true }).locator("blockquote")).toContainText("물류비가 전월 대비 18% 증가했습니다.");
 });

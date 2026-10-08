@@ -1063,16 +1063,42 @@ async function expectGuideTutorial(page: Page, panel: Locator, tool: "Codex" | "
   const toc = panel.locator(".ax-tutorial-toc");
   const size = page.viewportSize()!;
   const screenshotName = `${tool === "Codex" ? "codex" : "claude"}-${size.width}x${size.height}-${test.info().project.name}`;
-  const terms = panel.locator(".ax-guide-terms").filter({ has: page.getByRole("button", { name: "용어 설명 보기", exact: true }) });
-  const trigger = terms.getByRole("button", { name: "용어 설명 보기", exact: true });
+  const intro = panel.locator(".ax-setup-tutorial");
+  await expect(intro.locator(":scope > .ax-tutorial-course")).toHaveCount(3);
+  await expect(toc.getByRole("button")).toHaveCount(9);
+  expect(await intro.locator(":scope > *").evaluateAll(elements => elements.map(element => element.className))).toEqual([
+    "ax-tutorial-intro", "ax-tutorial-toc", "ax-tutorial-context",
+    "ax-tutorial-course", "ax-tutorial-course", "ax-tutorial-course",
+  ]);
+  const context = intro.locator(".ax-tutorial-context");
+  await expect(context.locator(":scope > section").first().getByRole("heading", { name: "시작 전 알아두세요" })).toBeVisible();
+  await expect(context.getByRole("heading", { name: "처음 시작할 때" })).toBeVisible();
+  await expect(context.getByRole("heading", { name: "이후 작업할 때" })).toBeVisible();
+  await expect(context).toContainText("STEP 01");
+  await expect(context).toContainText("STEP 02");
+  await expect(context).toContainText("두 개 다 설치할 필요는 없습니다");
+  await expect(context).toContainText("이미 설치되어 있으면 해당 설치는 건너뜁니다");
+  await expect(context).not.toContainText("한눈에 보기");
+  await expect(context.getByRole("button", { name: /한눈에 보기 자세히 보기/ })).toHaveCount(0);
+  const terms = context.locator(".ax-tutorial-glossary");
+  const trigger = terms.getByRole("button", { name: "용어 알아보기", exact: true });
   const basics = panel.getByRole("button", { name: /기본 명령/ });
   const ignoreHelp = panel.getByRole("button", { name: /^\.gitignore란/ });
   for (const detail of [trigger, basics, ignoreHelp]) await expect(detail).toHaveAttribute("aria-expanded", "false");
-  await expect(terms.locator(".ax-guide-list")).toBeHidden();
+  await expect(trigger.locator(".lucide-book-open")).toHaveCount(1);
+  await expect(trigger.locator(".ax-tutorial-terms-action > span:first-child")).toBeVisible();
+  await expect(trigger.locator(".ax-tutorial-terms-action > span:last-child")).toBeHidden();
+  await expect(terms.locator("dl")).toBeHidden();
 
   await trigger.focus(); await page.keyboard.press("Enter");
   await expect(trigger).toHaveAttribute("aria-expanded", "true");
-  await expect(terms.locator(".ax-guide-list")).toBeVisible();
+  await expect(trigger.locator(".ax-tutorial-terms-action > span:last-child")).toBeVisible();
+  await expect(terms.locator("dl > div")).toHaveCount(10);
+  await expect(terms.locator("dl")).toBeVisible();
+  const weights = await terms.locator("dl > div").first().evaluate(row => [
+    getComputedStyle(row.querySelector("dt")!).fontWeight, getComputedStyle(row.querySelector("dd")!).fontWeight,
+  ]);
+  expect(weights).toEqual(["700", "400"]);
   await panel.screenshot({ path: `artifacts/ax/setup-tutorial-terms-expanded-${screenshotName}.png` });
   for (const detail of [basics, ignoreHelp]) await expect(detail).toHaveAttribute("aria-expanded", "false");
   await basics.click();
@@ -1082,7 +1108,7 @@ async function expectGuideTutorial(page: Page, panel: Locator, tool: "Codex" | "
   await basics.click();
   await trigger.focus(); await page.keyboard.press("Space");
   await expect(trigger).toHaveAttribute("aria-expanded", "false");
-  await expect(terms.locator(".ax-guide-list")).toBeHidden();
+  await expect(terms.locator("dl")).toBeHidden();
 
   // A selected tool must change the instructions the user can actually execute.
   const install = panel.locator(".ax-guide-code").filter({ hasText: TOOL_GUIDES[tool === "Codex" ? "codex" : "claude"].installCommand });
@@ -1521,9 +1547,14 @@ for (const width of [1440, 390]) test(`AX score evidence and all ranks update to
   await expect(evidence).toHaveAttribute("aria-expanded", "false"); await evidence.focus(); await page.keyboard.press("Enter");
   await expect(evidence).toHaveAttribute("aria-expanded", "true"); await expect(evidence).toBeFocused();
   const panel = page.getByRole("region", { name: "점수 근거", exact: true });
-  await expect(panel.locator(".ax-score-badge")).toHaveText(["4점", "4점", "2점", "2점"]);
-  await expect(panel.locator(".ax-score-factor").filter({ hasText: "반복성" }).first()).toContainText("최종 적용 5점");
-  await expect(panel).toContainText("AI 제안 4점"); await expect(panel).toContainText("확인 필요");
+  await expect(panel.locator(".ax-score-result strong")).toHaveText(["4", "4"]);
+  await expect(panel.locator(".ax-score-extra-list strong")).toHaveText(["2점", "2점"]);
+  const details = panel.locator(".ax-score-details");
+  await expect(details).not.toHaveAttribute("open");
+  await details.locator("summary").click();
+  await expect(details.locator(".ax-score-factor")).toHaveCount(6);
+  await expect(details.locator(".ax-score-factor").filter({ hasText: "반복성" })).toContainText("최종 적용 5점");
+  await expect(details).toContainText("AI 제안 4점"); await expect(details).toContainText("확인 필요");
   await expect(panel).not.toContainText("TO-BE");
   const axisStyles = await page.locator(".ax-x-label, .ax-y-label").evaluateAll(elements => elements.map(element => {
     const style = getComputedStyle(element); return [style.padding, style.font, style.border, style.borderRadius, style.boxShadow, style.backgroundColor];
@@ -1541,7 +1572,7 @@ for (const width of [1440, 390]) test(`AX score evidence and all ranks update to
   expect(await marker.evaluate(element => ({ x: (element as HTMLElement).style.left, y: (element as HTMLElement).style.bottom }))).toEqual({ x: "0%", y: "0%" });
   await expect(page.getByRole("list", { name: "자동화 우선순위 목록", exact: true }).locator(".ax-rank")).toHaveText(["#1", "#2"]);
   await expect(page.getByRole("list", { name: "자동화 우선순위 목록", exact: true }).locator(".ax-task-name")).toHaveText([tasks[1].name, tasks[0].name]);
-  await evidence.click(); await expect(panel.locator(".ax-score-badge")).toHaveText(["1점", "1점", "2점", "2점"]);
+  await evidence.click(); await expect(panel.locator(".ax-score-result strong")).toHaveText(["1", "1"]);
   await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();
   await expect(page.getByRole("list", { name: "자동화 우선순위 TOP 목록", exact: true }).locator(".ax-task-name")).toHaveText([tasks[1].name, tasks[0].name]);
   await expect(page.locator(".ax-roadmap-task")).toHaveText(tasks[0].name);

@@ -42,15 +42,20 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       }
       for (let index = 0; index < count; index++) {
         await expect(sections.nth(index).locator("h3")).toContainText(String(index + 1).padStart(2, "0"));
+        await expect(sections.nth(index)).toHaveAttribute("id", `research-issue-${index + 1}`);
+        for (const label of ["핵심 검토 결과", "근거 상태", "추가 확인"]) await expect(sections.nth(index).locator(".research-issue-findings")).toContainText(label);
       }
+      await expect(output.getByRole("button", { name: "전체 펼치기", exact: true })).toHaveAttribute("aria-pressed", "false");
       await expect(output.locator(".research-issue-refs[open]")).toHaveCount(0);
       if (count === 2) await output.screenshot({ path: `artifacts/research-issues-${viewport.width}.png` });
       await sections.first().locator("summary").click();
       await expect(sections.first().locator(".research-issue-refs")).toHaveAttribute("open", "");
+      await expect(output.getByRole("button", { name: count === 1 ? "전체 접기" : "전체 펼치기", exact: true })).toBeVisible();
       await expect(sections.first().locator(".research-hits")).toContainText("② 원문 마지막 항도 그대로 확인한다.");
       await expect(sections.first().locator(".research-hits")).toContainText("퇴직금 근거 원문 마지막 문장");
       if (count > 1) {
         await expect(sections.nth(1).locator(".research-issue-refs")).not.toHaveAttribute("open", "");
+        await expect(output.getByRole("navigation").getByRole("button").nth(1)).toHaveAttribute("aria-controls", "research-issue-2");
         await output.getByRole("navigation").getByRole("button").nth(1).click();
         await expect(sections.nth(1)).toHaveClass(/is-focused/);
         await expect(sections.nth(1).locator("h3")).toBeFocused();
@@ -59,14 +64,25 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
         await expect(sections.nth(1).locator(".research-hits")).toContainText("해고 근거 원문 마지막 문장");
         await expect(sections.nth(1).locator(".research-hits")).not.toContainText("퇴직금 근거 원문 마지막 문장");
         await expect(sections.nth(1).locator(".research-hits")).toContainText("② 원문 마지막 항도 그대로 확인한다.");
+        if (count === 2) await expect(output.getByRole("button", { name: "전체 접기", exact: true })).toBeVisible();
+        await sections.nth(1).locator("summary").click();
+        await expect(output.getByRole("button", { name: "전체 펼치기", exact: true })).toBeVisible();
       }
+      await sections.first().locator("summary").click();
+      await expect(output.getByRole("button", { name: "전체 펼치기", exact: true })).toHaveAttribute("aria-pressed", "false");
       const rawSource = output.locator(".research-source");
       await rawSource.locator("summary").click();
       const rawOpen = await rawSource.evaluate((element) => (element as HTMLDetailsElement).open);
-      await output.getByRole("button", { name: "근거 펼치기", exact: true }).click();
+      await output.getByRole("button", { name: "전체 펼치기", exact: true }).click();
       await expect(output.locator(".research-issue-refs[open]")).toHaveCount(Math.min(count, 3));
+      await expect(output.getByRole("button", { name: "전체 접기", exact: true })).toHaveAttribute("aria-pressed", "true");
       expect(await rawSource.evaluate((element) => (element as HTMLDetailsElement).open)).toBe(rawOpen);
-      await output.getByRole("button", { name: "근거 접기", exact: true }).click();
+      await sections.first().locator("summary").click();
+      await expect(output.getByRole("button", { name: "전체 펼치기", exact: true })).toHaveAttribute("aria-pressed", "false");
+      await expect(output.locator(".research-issue-refs[open]")).toHaveCount(Math.min(count, 3) - 1);
+      await output.getByRole("button", { name: "전체 펼치기", exact: true }).click();
+      await expect(output.locator(".research-issue-refs[open]")).toHaveCount(Math.min(count, 3));
+      await output.getByRole("button", { name: "전체 접기", exact: true }).click();
       await expect(output.locator(".research-issue-refs[open]")).toHaveCount(0);
       expect(await rawSource.evaluate((element) => (element as HTMLDetailsElement).open)).toBe(rawOpen);
       if (count === 5) {
@@ -101,8 +117,85 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     await expect(second.locator(".research-issue-findings")).toContainText("직접 관련 근거 미확인");
     await expect(second.locator(".research-issue-refs")).toHaveCount(0);
     await expect(second).not.toContainText("2025다71");
-    await output.getByRole("button", { name: "근거 접기", exact: true }).click();
+    await output.getByRole("button", { name: "전체 접기", exact: true }).click();
     await expect(output.locator(".research-issue-refs")).not.toHaveAttribute("open", "");
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  });
+
+  test(`중복 쟁점 바로가기의 여백·일시 강조·무근거 버튼 ${viewport.width}`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    const now = new Date("2026-10-08T00:00:00Z");
+    await page.clock.install({ time: now });
+    const errors: string[] = [];
+    page.on("pageerror", error => errors.push(error.message));
+    let calls = 0;
+    await page.route("**/api/law/research", route => {
+      calls++;
+      const empty = route.request().postDataJSON().query === "근거 없음";
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: {
+        found: true, task: "full_research", markers: [],
+        text: `═══ 종합 리서치 ═══\n▶ AI 법령검색 결과\n지능형 법령검색 결과 (법령조문, 1건):\n\n근로기준법\n   제0023조 (해고 등의 제한)\n① 원문 법령 근거\n   시행: 2025.01.01 | 고용노동부`,
+        interpretation: { original: empty ? "근거 없음" : "중복 쟁점", situation: "", facts: [], issues: [{ label: longTitle, query: "해고" }, { label: longTitle, query: "해고" }], confidence: "high" },
+        evidence: { status: "matched", articles: [article], precedents: ["71"],
+          precedentEntries: { "71": { title: "해고 판례", caseNumber: "2025다71" } }, precedentExcerpts: { "71": "원문 판례 근거" },
+          issues: [{ label: longTitle, status: empty ? "none" : "found", articles: empty ? [] : [article], precedents: [] },
+            { label: longTitle, status: empty ? "none" : "found", articles: [], precedents: empty ? [] : ["71"] }] },
+      } }) });
+    });
+    await page.goto("/");
+    await navigateWorkspace(page, "법령");
+    await page.getByRole("tab", { name: "종합 리서치", exact: true }).click();
+    const form = page.getByRole("form", { name: "종합 리서치 입력" });
+    await form.getByLabel("질문 또는 검색어").fill("중복 쟁점");
+    await form.getByRole("button", { name: "실행", exact: true }).click();
+    const output = page.locator(".legal-research .legal-analysis-output");
+    const sections = output.locator(".research-issue-evidence");
+    await expect(sections).toHaveCount(2);
+    await page.clock.pauseAt(new Date(now.getTime() + 60_000));
+    const geometry = () => sections.last().evaluate(element => {
+      const box = element.getBoundingClientRect();
+      const heading = element.querySelector("h3")!.getBoundingClientRect();
+      const findings = element.querySelector("dl")!.getBoundingClientRect();
+      const summary = element.querySelector("summary")!.getBoundingClientRect();
+      return { width: box.width, height: box.height, headingLeft: heading.left - box.left,
+        headingTop: heading.top - box.top, findingsLeft: findings.left - box.left, summaryLeft: summary.left - box.left };
+    });
+    const before = await geometry();
+    expect(before.headingLeft).toBeGreaterThanOrEqual(16);
+    expect(before.headingLeft).toBeLessThanOrEqual(20);
+    expect(before.headingTop).toBeGreaterThanOrEqual(12);
+    expect(before.headingTop).toBeLessThanOrEqual(16);
+    expect(before.findingsLeft).toBe(before.headingLeft);
+    expect(before.summaryLeft).toBe(before.headingLeft);
+    const links = output.getByRole("navigation", { name: "쟁점 바로가기" }).getByRole("button");
+    await links.first().focus();
+    await links.first().press("Enter");
+    await expect(sections.first().locator("h3")).toBeFocused();
+    await links.last().click();
+    await expect(sections.first()).not.toHaveClass(/is-focused/);
+    await expect(sections.last()).toHaveClass(/is-focused/);
+    await expect(sections.last().locator("h3")).toBeFocused();
+    expect(await geometry()).toEqual(before);
+    expect(await sections.last().evaluate(element => element.getBoundingClientRect().top)).toBeGreaterThanOrEqual(64);
+    await output.screenshot({ path: `artifacts/research-issue-focus-${viewport.width}.png` });
+    await page.clock.runFor(900);
+    await expect(sections.last()).not.toHaveClass(/is-focus-fresh/);
+    await links.last().click();
+    await expect(sections.last()).toHaveClass(/is-focus-fresh/);
+    await page.clock.runFor(3000);
+    await expect(sections.last()).not.toHaveClass(/is-focused/);
+    expect(await geometry()).toEqual(before);
+    await output.getByRole("button", { name: "전체 펼치기", exact: true }).click();
+    await expect(sections.first().locator(".research-hits")).toContainText("원문 법령 근거");
+    await expect(sections.last().locator(".research-hits")).toContainText("원문 판례 근거");
+    expect(calls).toBe(1);
+    await form.getByLabel("질문 또는 검색어").fill("근거 없음");
+    await form.getByRole("button", { name: "실행", exact: true }).click();
+    await expect(output.locator(".research-issue-refs")).toHaveCount(0);
+    await expect(output.locator(".research-expand")).toHaveCount(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    expect(errors).toEqual([]);
+    expect(calls).toBe(2);
   });
 }

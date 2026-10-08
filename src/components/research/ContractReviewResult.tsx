@@ -1,7 +1,8 @@
 "use client";
-import { Fragment, useCallback, useEffect, useLayoutEffect, useRef } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ChevronDown } from "lucide-react";
 
 import type { ContractReview, ReviewedIssue } from "@/lib/contract-review";
 import type { ReviewCoverage, ReviewFile } from "@/lib/law-review-source";
@@ -81,9 +82,17 @@ const FOCUS_FADE_MS = 350;
 
 export function ContractReviewResult({ review, file, expandSources = false, onExpandSourcesChange }: { review: ContractReview; file?: ReviewFile; expandSources?: boolean; onExpandSourcesChange: (expanded: boolean) => void }) {
   const resultRef = useRef<HTMLDivElement>(null);
+  // Synced from the details' own toggle events; a new review starts from the applied preference.
+  const [referencesState, setReferencesState] = useState<{ review: ContractReview; open: boolean } | null>(null);
+  const allReferencesOpen = referencesState?.review === review ? referencesState.open : expandSources;
+  const references = useCallback(() => resultRef.current?.querySelectorAll<HTMLDetailsElement>(".contract-review-refs"), []);
+  const syncReferences = useCallback(() => {
+    const details = references();
+    setReferencesState({ review, open: !!details && details.length > 0 && [...details].every((detail) => detail.open) });
+  }, [references, review]);
   const setReferencesOpen = useCallback((expanded: boolean) => {
-    resultRef.current?.querySelectorAll<HTMLDetailsElement>(".contract-review-refs").forEach((detail) => { detail.open = expanded; });
-  }, []);
+    references()?.forEach((detail) => { detail.open = expanded; });
+  }, [references]);
   useLayoutEffect(() => {
     setReferencesOpen(expandSources);
   }, [expandSources, review, setReferencesOpen]);
@@ -178,7 +187,7 @@ export function ContractReviewResult({ review, file, expandSources = false, onEx
     const laws = [...new Set(issue.laws)].map((key) => review.laws[key]).filter(Boolean);
     const precedents = [...new Set(issue.precedents)].map((key) => review.precedents[key]).filter(Boolean);
     return <>
-      {laws.length > 0 && <details className="law-detail-source contract-review-refs">
+      {laws.length > 0 && <details className="law-detail-source contract-review-refs" onToggle={syncReferences}>
         <SourceToggleSummary label={`관련 법령 ${laws.length}건 보기`} openLabel="관련 법령 접기" />
         <ul>{laws.map((law) => {
           const repeated = shownLaws.has(law.key);
@@ -194,7 +203,7 @@ export function ContractReviewResult({ review, file, expandSources = false, onEx
           </li>;
         })}</ul>
       </details>}
-      {precedents.length > 0 && <details className="law-detail-source contract-review-refs">
+      {precedents.length > 0 && <details className="law-detail-source contract-review-refs" onToggle={syncReferences}>
         <SourceToggleSummary label={`관련 판례 ${precedents.length}건 보기`} openLabel="관련 판례 접기" />
         <ul>{precedents.map((precedent) => {
           const repeated = shownPrecedents.has(precedent.key);
@@ -265,12 +274,14 @@ export function ContractReviewResult({ review, file, expandSources = false, onEx
       })}
     </section>
     {lawCount + precedentCount > 0 && <section className="legal-analysis-section contract-review-details">
-      <h3>상세 근거</h3>
-      <Button type="button" variant="ghost" size="xs" className="contract-review-expand" aria-pressed={expandSources}
-        onClick={() => {
-          setReferencesOpen(!expandSources);
-          onExpandSourcesChange(!expandSources);
-        }}>{expandSources ? "근거 접기" : "근거 펼치기"}</Button>
+      <div className="contract-review-details-heading">
+        <h3>상세 근거</h3>
+        <Button type="button" variant="ghost" size="xs" className="contract-review-expand" aria-pressed={allReferencesOpen}
+          onClick={() => {
+            setReferencesOpen(!allReferencesOpen);
+            onExpandSourcesChange(!allReferencesOpen);
+          }}>{allReferencesOpen ? "전체 접기" : "전체 펼치기"} <ChevronDown aria-hidden="true" /></Button>
+      </div>
       {review.clauses.flatMap((clause, clauseIndex) => clause.issues.map((issue, issueIndex) => {
         if (!issue.laws.some((key) => review.laws[key]) && !issue.precedents.some((key) => review.precedents[key])) return null;
         return <div key={`${clauseIndex}-${issueIndex}`} id={`contract-review-evidence-${clauseIndex}-${issueIndex}`} className="contract-review-detail">

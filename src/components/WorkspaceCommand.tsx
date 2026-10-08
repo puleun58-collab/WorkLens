@@ -1,8 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Command, CommandCollection, CommandDialog, CommandDialogPopup, CommandInput, CommandEmpty, CommandList, CommandItem, CommandPanel, CommandFooter, CommandGroup, CommandGroupLabel } from "@/components/ui/command";
+import { Command, CommandCollection, CommandDialog, CommandDialogTrigger, CommandDialogPopup, CommandInput, CommandEmpty, CommandList, CommandItem, CommandPanel, CommandFooter, CommandGroup, CommandGroupLabel } from "@/components/ui/command";
 import { DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Search } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Kbd } from "@/components/ui/kbd";
 
 export interface WorkspaceCommandEntry { value: string; label: string; group: string }
 
@@ -24,6 +27,11 @@ export function WorkspaceCommand({ items, onNavigate }: { items: WorkspaceComman
   const groups = [...new Set(items.map((item) => item.group))].map((group) => ({ group, items: items.filter((item) => item.group === group) }));
   const searching = query.trim().length > 0;
   return <CommandDialog open={open} onOpenChange={(next) => { setOpen(next); if (!next) setQuery(""); }}>
+    <CommandDialogTrigger aria-label="메뉴·기능 검색" render={<Button variant="outline" className="workspace-search-trigger" />}>
+      <Search aria-hidden="true" />
+      <span className="workspace-search-label">메뉴·기능 검색</span>
+      <Kbd className="workspace-search-shortcut" aria-hidden="true">Ctrl K</Kbd>
+    </CommandDialogTrigger>
     <CommandDialogPopup>
       <DialogTitle className="sr-only">작업 공간 기능 검색</DialogTitle>
       <DialogDescription className="sr-only">기존 기능을 검색하고 Enter로 이동합니다. 문서 내용은 검색하거나 저장하지 않습니다.</DialogDescription>

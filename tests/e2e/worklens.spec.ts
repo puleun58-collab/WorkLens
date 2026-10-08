@@ -2876,7 +2876,6 @@ test("keeps legal destinations grouped, command search shortcut-only, and review
   await page.getByRole("dialog").getByText("법령 > 문서 검토", { exact: true }).click();
   await expect(page.getByRole("heading", { name: "문서 검토", exact: true, level: 1 })).toBeVisible();
   await expect(page.getByRole("radio", { name: "직접 입력", exact: true })).toBeChecked();
-  await expect(page.getByRole("button", { name: /근거 (펼치기|접기)/u })).toHaveCount(0);
   let reviewCalls = 0;
   await page.route("**/api/law/research", async (route) => {
     reviewCalls += 1;
@@ -2894,22 +2893,25 @@ test("keeps legal destinations grouped, command search shortcut-only, and review
     } }) });
   });
   const reviewForm = page.getByRole("form", { name: "문서 검토 입력", exact: true });
+  const savedPreferences = await page.evaluate(() => localStorage.getItem("worklens:review-preferences:v1"));
   await reviewForm.getByLabel("검토할 문서 내용").fill(EMPLOYMENT_CONTRACT);
   await reviewForm.getByRole("button", { name: "실행", exact: true }).click();
   const review = page.locator(".contract-review");
   const refs = review.locator(".contract-review-refs");
-  await expect(review.getByRole("button", { name: "근거 접기", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(review.getByRole("button", { name: "전체 접기", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect.poll(() => refs.evaluateAll((els) => els.every((el) => (el as HTMLDetailsElement).open))).toBe(true);
   await expect.poll(() => review.locator(".contract-review-source").evaluateAll((els) => els.every((el) => !(el as HTMLDetailsElement).open))).toBe(true);
-  await review.getByRole("button", { name: "근거 접기", exact: true }).click();
+  await refs.first().locator("summary").click();
+  await expect(review.getByRole("button", { name: "전체 펼치기", exact: true })).toHaveAttribute("aria-pressed", "false");
+  await review.getByRole("button", { name: "전체 펼치기", exact: true }).click();
+  await expect(review.getByRole("button", { name: "전체 접기", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await review.getByRole("button", { name: "전체 접기", exact: true }).click();
   await expect.poll(() => refs.evaluateAll((els) => els.every((el) => !(el as HTMLDetailsElement).open))).toBe(true);
   expect(reviewCalls).toBe(1);
-  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("worklens:review-preferences:v1")!))).toEqual({
-    version: 1, preferences: { documentSource: "text", expandSources: true },
-  });
+  expect(await page.evaluate(() => localStorage.getItem("worklens:review-preferences:v1"))).toBe(savedPreferences);
   await reviewForm.getByRole("button", { name: "실행", exact: true }).click();
   await expect.poll(() => reviewCalls).toBe(2);
-  await expect(review.getByRole("button", { name: "근거 펼치기", exact: true })).toHaveAttribute("aria-pressed", "false");
+  await expect(review.getByRole("button", { name: "전체 펼치기", exact: true })).toHaveAttribute("aria-pressed", "false");
   await expect.poll(() => refs.evaluateAll((els) => els.every((el) => !(el as HTMLDetailsElement).open))).toBe(true);
 });
 
@@ -3151,7 +3153,7 @@ test("explicitly clears the in-browser workspace", async ({ page }) => {
   await page.getByRole("menuitem", { name: "모두 삭제" }).click();
   await page.getByRole("alertdialog", { name: "작업 파일 모두 삭제", exact: true })
     .getByRole("button", { name: "삭제", exact: true }).click();
-  const clearedStatus = page.locator(".transient-status");
+  const clearedStatus = page.locator(".workspace-delete-status > span");
   await expect(clearedStatus).toHaveText("삭제 완료");
   await expect(page.getByText("브라우저 메모리에서 파일과 결과를 모두 지웠습니다.")).toHaveCount(0);
   await expect(page.locator(".notice-inline")).toHaveCount(0);
@@ -3164,6 +3166,150 @@ test("explicitly clears the in-browser workspace", async ({ page }) => {
   // The worker was torn down; a new upload must still work in the same tab.
   await upload(page, files.v2);
   await expect(fileRow(page, files.v2)).toContainText("시트: 1");
+});
+
+for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+  test(`file deletion uses a stable header status across document categories at ${viewport.width}px`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    const now = new Date("2026-10-08T00:00:00Z");
+    await page.clock.install({ time: now });
+    await page.goto("/");
+    await expect(page.locator(".app-shell")).toHaveAttribute("data-hydrated", "true");
+    const status = page.locator(".workspace-context .workspace-delete-status");
+    const message = status.locator("span");
+    for (const category of ["검수", "분석", "질문", "비교", "보완", "윤문", "추출", "취합"]) {
+      await page.clock.resume();
+      await navigateWorkspace(page, category);
+      await expect(message).toHaveCount(0);
+      await upload(page, files.v1);
+      await upload(page, files.v2);
+      await upload(page, files.v1Copy);
+      await page.clock.pauseAt(await page.evaluate(() => Date.now() + 100));
+      const geometry = () => page.locator(".workspace-context").evaluate(element => {
+        const box = element.getBoundingClientRect();
+        const title = element.querySelector("h1")!.getBoundingClientRect();
+        const description = element.querySelector(".context-names")!.getBoundingClientRect();
+        const search = element.querySelector(".workspace-search-trigger")!.getBoundingClientRect();
+        return { height: box.height, titleX: title.x - box.x, titleY: title.y - box.y,
+          descriptionX: description.x - box.x, descriptionY: description.y - box.y,
+          searchX: search.x - box.x, searchY: search.y - box.y, searchWidth: search.width };
+      });
+      const before = await geometry();
+      await page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true }).check();
+      await page.getByRole("button", { name: "선택 삭제", exact: true }).click();
+      await expect(page.locator(".file-row")).toHaveCount(2);
+      await expect(page.locator(".select-file").getByRole("checkbox", { checked: true })).toHaveCount(0);
+      await expect(message).toBeVisible();
+      await expect(status).toHaveAttribute("role", "status");
+      await expect(page.locator(".transient-status")).toHaveCount(0);
+      expect(await geometry()).toEqual(before);
+      const overlap = await status.evaluate(element => {
+        const status = element.getBoundingClientRect();
+        const title = element.closest("header")!.querySelector("h1")!.getBoundingClientRect();
+        const description = element.closest("header")!.querySelector(".context-names")!.getBoundingClientRect();
+        return { title: status.left < title.right && status.top < title.bottom && status.bottom > title.top,
+          description: status.left < description.right && status.top < description.bottom && status.bottom > description.top,
+          verticalGap: Math.abs((status.top + status.bottom - title.top - title.bottom) / 2) };
+      });
+      expect(overlap).toMatchObject({ title: false, description: false });
+      expect(overlap.verticalGap).toBeLessThanOrEqual(2);
+      const [statusBox, searchBox] = await Promise.all([status.boundingBox(), page.getByRole("button", { name: "메뉴·기능 검색", exact: true }).boundingBox()]);
+      expect(statusBox!.x + statusBox!.width).toBeLessThan(searchBox!.x);
+      if (category === "검수") await page.screenshot({ path: `artifacts/delete-header-${viewport.width}.png` });
+      await page.clock.runFor(2000);
+      await expect(message).toBeVisible();
+      await page.getByRole("checkbox", { name: "운임현황_v2.xlsx 선택", exact: true }).check();
+      await page.getByRole("button", { name: "선택 삭제", exact: true }).click();
+      await expect(page.locator(".file-row")).toHaveCount(1);
+      await page.clock.runFor(2000);
+      await expect(message).toBeVisible();
+      await page.clock.runFor(1001);
+      await expect(message).toHaveCount(0);
+      expect(await geometry()).toEqual(before);
+      await page.getByRole("checkbox", { name: "운임현황_v1_사본.xlsx 선택", exact: true }).check();
+      await page.getByRole("button", { name: "선택 삭제", exact: true }).click();
+      await expect(page.locator(".file-row")).toHaveCount(0);
+      await expect(message).toBeVisible();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    }
+    await page.clock.resume();
+    await navigateWorkspace(page, "PDF 도구");
+    await expect(page.locator(".workspace-delete-status")).toHaveCount(0);
+    await navigateWorkspace(page, "검수");
+    await expect(message).toHaveCount(0);
+  });
+  test(`header search coexists with deletion success and upload at ${viewport.width}px`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await page.goto("/");
+    await navigateWorkspace(page, "검수");
+    await upload(page, files.v1);
+    const trigger = page.getByRole("button", { name: "메뉴·기능 검색", exact: true });
+    const message = page.locator(".workspace-delete-status > span");
+    const dialog = page.getByRole("dialog", { name: "작업 공간 기능 검색" });
+    const before = await trigger.boundingBox();
+    await page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true }).check();
+    await page.getByRole("button", { name: "선택 삭제", exact: true }).click();
+    await expect(message).toBeVisible();
+    await trigger.click();
+    await expect(dialog.getByRole("combobox", { name: "기능 검색" })).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(dialog).not.toBeVisible();
+    await expect(trigger).toBeFocused();
+    await expect(message).toBeVisible();
+    await upload(page, files.v2);
+    await expect(page.locator(".file-row")).toHaveCount(1);
+    expect(await trigger.boundingBox()).toEqual(before);
+    await expect(message).toHaveCount(0, { timeout: 5000 });
+    expect(await trigger.boundingBox()).toEqual(before);
+    await page.getByRole("checkbox", { name: "운임현황_v2.xlsx 선택", exact: true }).check();
+    await page.getByRole("button", { name: "선택 삭제", exact: true }).click();
+    await expect(message).toBeVisible();
+    await trigger.click();
+    await dialog.getByRole("combobox", { name: "기능 검색" }).fill("설정");
+    await dialog.getByRole("option", { name: "설정", exact: true }).click();
+    await expect(page.locator(".context-bar h1")).toHaveText("설정");
+    await expect(page.locator(".workspace-delete-status")).toHaveCount(0);
+    await navigateWorkspace(page, "검수");
+    await expect(message).toHaveCount(0);
+  });
+}
+
+test("a pending deletion clears prior success and cannot announce success in another category", async ({ page }) => {
+  await page.addInitScript(() => {
+    const NativeWorker = window.Worker;
+    window.Worker = class extends NativeWorker {
+      override postMessage(message: unknown, options?: StructuredSerializeOptions | Transferable[]) {
+        const request = message && typeof message === "object" && "request" in message ? message.request : null;
+        if (request && typeof request === "object" && "kind" in request && request.kind === "forget" && Reflect.get(window, "holdDelete")) {
+          Reflect.set(window, "releaseDelete", () => super.postMessage(message, options as StructuredSerializeOptions));
+          return;
+        }
+        super.postMessage(message, options as StructuredSerializeOptions);
+      }
+    };
+  });
+  await page.goto("/");
+  await upload(page, files.v1);
+  await upload(page, files.v2);
+  await navigateWorkspace(page, "검수");
+  await page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true }).check();
+  await page.getByRole("button", { name: "선택 삭제", exact: true }).click();
+  const message = page.locator(".workspace-delete-status > span");
+  await expect(message).toBeVisible();
+  await page.evaluate(() => Reflect.set(window, "holdDelete", true));
+  await page.getByRole("checkbox", { name: "운임현황_v2.xlsx 선택", exact: true }).check();
+  await page.getByRole("button", { name: "선택 삭제", exact: true }).click();
+  await expect(message).toHaveCount(0);
+  await navigateWorkspace(page, "분석");
+  await page.evaluate(() => {
+    const release = Reflect.get(window, "releaseDelete");
+    if (typeof release !== "function") throw new Error("Deletion did not reach the worker boundary");
+    release();
+  });
+  await expect(page.locator(".file-row")).toHaveCount(0);
+  await expect(message).toHaveCount(0);
+  await navigateWorkspace(page, "검수");
+  await expect(message).toHaveCount(0);
 });
 
 test("keeps the complete mobile workflow inside the viewport", async ({ page }, testInfo) => {
@@ -3695,7 +3841,7 @@ test("keeps selected files and reports a worker deletion failure", async ({ page
   await page.getByRole("button", { name: "선택 삭제" }).click();
   await expect(page.locator(".notice.error")).toContainText("선택한 파일을 삭제하지 못했습니다.");
   await expect(page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true })).toBeChecked();
-  await expect(page.locator(".transient-status")).toHaveCount(0);
+  await expect(page.locator(".workspace-delete-status > span")).toHaveCount(0);
 });
 
 test("shows incomplete AI extraction without discarding deterministic fields", async ({ page }) => {

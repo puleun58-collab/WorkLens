@@ -299,7 +299,7 @@ export function PdfTool() {
       </div>)}
     </div>}
 
-    {uploading && <div className="pdf-tool-notice" role="status">{uploading} <Button variant="outline" type="button" onClick={() => importAbort.current?.abort()}>추가 취소</Button></div>}
+    {uploading && <div className="pdf-tool-notice" role="status">{uploading}</div>}
     {error && <div className="pdf-tool-notice pdf-tool-notice-error" role="alert">{error}</div>}
 
     {sources.length > 0 && <section className="pdf-tool-editor" aria-label="페이지 편집">
