@@ -1,5 +1,5 @@
 "use client";
-import { Fragment, useEffect, useRef } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
@@ -79,17 +79,26 @@ const FOCUS_FRESH_MS = 450;
 const FOCUS_SETTLED_MS = 1750;
 const FOCUS_FADE_MS = 350;
 
-export function ContractReviewResult({ review, file, expandSources = false }: { review: ContractReview; file?: ReviewFile; expandSources?: boolean }) {
+export function ContractReviewResult({ review, file, expandSources = false, onExpandSourcesChange }: { review: ContractReview; file?: ReviewFile; expandSources?: boolean; onExpandSourcesChange: (expanded: boolean) => void }) {
   const resultRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    resultRef.current?.querySelectorAll<HTMLDetailsElement>(".contract-review-refs").forEach((detail) => { detail.open = expandSources; });
-  }, [expandSources, review]);
+  const setReferencesOpen = useCallback((expanded: boolean) => {
+    resultRef.current?.querySelectorAll<HTMLDetailsElement>(".contract-review-refs").forEach((detail) => { detail.open = expanded; });
+  }, []);
+  useLayoutEffect(() => {
+    setReferencesOpen(expandSources);
+  }, [expandSources, review, setReferencesOpen]);
   const activeDetail = useRef<HTMLElement | null>(null);
   const focusTimer = useRef<number | undefined>(undefined);
   useEffect(() => () => {
     window.clearTimeout(focusTimer.current);
     activeDetail.current?.classList.remove(...FOCUS_CLASSES);
   }, []);
+  useLayoutEffect(() => {
+    resultRef.current?.querySelectorAll<HTMLDetailsElement>(".contract-review-source").forEach((detail) => { detail.open = false; });
+    window.clearTimeout(focusTimer.current);
+    activeDetail.current?.classList.remove(...FOCUS_CLASSES);
+    activeDetail.current = null;
+  }, [review]);
 
   function showEvidence(anchor: string) {
     const target = window.document.getElementById(anchor);
@@ -155,11 +164,11 @@ export function ContractReviewResult({ review, file, expandSources = false }: { 
             : <span className="contract-review-meta">확인된 직접 근거 없음</span>}
       </div>
       <details className="law-detail-source contract-review-source">
-        <SourceToggleSummary label="검토 원문 보기" openLabel="검토 원문 접기" />
+        <SourceToggleSummary label="검토한 내용 보기" openLabel="검토한 내용 접기" />
         <dl className="contract-review-facts">
-          {place ? <><dt>검토 당시 위치</dt><dd className="contract-review-place">{place}{related && <span className="contract-review-meta"> · 같은 조항 {related}</span>}</dd></>
-            : related && <><dt>검토 당시 조항 위치</dt><dd className="contract-review-place">{related}</dd></>}
-          <dt>검토 원문</dt><dd className="contract-review-fact">{issue.fact}</dd>
+          {place ? <><dt>문서 내 위치</dt><dd className="contract-review-place">{place}{related && <span className="contract-review-meta"> · 같은 조항 {related}</span>}</dd></>
+            : related && <><dt>문서 내 위치</dt><dd className="contract-review-place">{related}</dd></>}
+          <dt>검토한 내용</dt><dd className="contract-review-fact">{issue.fact}</dd>
         </dl>
       </details>
     </>;
@@ -257,6 +266,11 @@ export function ContractReviewResult({ review, file, expandSources = false }: { 
     </section>
     {lawCount + precedentCount > 0 && <section className="legal-analysis-section contract-review-details">
       <h3>상세 근거</h3>
+      <Button type="button" variant="ghost" size="xs" className="contract-review-expand" aria-pressed={expandSources}
+        onClick={() => {
+          setReferencesOpen(!expandSources);
+          onExpandSourcesChange(!expandSources);
+        }}>{expandSources ? "근거 접기" : "근거 펼치기"}</Button>
       {review.clauses.flatMap((clause, clauseIndex) => clause.issues.map((issue, issueIndex) => {
         if (!issue.laws.some((key) => review.laws[key]) && !issue.precedents.some((key) => review.precedents[key])) return null;
         return <div key={`${clauseIndex}-${issueIndex}`} id={`contract-review-evidence-${clauseIndex}-${issueIndex}`} className="contract-review-detail">

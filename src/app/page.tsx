@@ -611,8 +611,8 @@ export default function Home() {
   const [aggregation, setAggregation] = useState<AggregationDraft | null>(null);
   const [aggregationSelection, setAggregationSelection] = useState<AggregationSelection | null>(null);
   const [supplement, setSupplement] = useState<SupplementResult | null>(null);
-  /** Plain-language stage of a 보완 run; review batches report their count. */
-  const [supplementStage, setSupplementStage] = useState<{ label: string; done?: number; total?: number } | null>(null);
+  /** Stage updates remain internal; the execution button is the only busy UI. */
+  const [, setSupplementStage] = useState<{ label: string; done?: number; total?: number } | null>(null);
   const supplementCancelled = useRef(false);
   const extractCancelled = useRef(false);
   const [operationResult, setOperationResult] = useState<unknown>(null);
@@ -1916,16 +1916,6 @@ export default function Home() {
                   <div className="ai-status-actions">
                     <Button type="button" variant="outline" className="secondary-action" onClick={() => { extractCancelled.current = true; interruptServerAi(); }}>중지</Button>
                   </div>
-                </div>
-              ) : busy && supplementStage ? (
-                <div className="processing-bar compact-progress" role="status" aria-live="polite">
-                  <strong>{supplementStage.total ? `${supplementStage.label} ${supplementStage.done}/${supplementStage.total}` : supplementStage.label}</strong>
-                  <small>자료 전체에서 관련 설명을 함께 확인하고 있습니다.</small>
-                  {supplementStage.total ? (
-                    <div className="ai-status-actions">
-                      <Button type="button" variant="outline" className="secondary-action" onClick={() => { supplementCancelled.current = true; interruptServerAi(); }}>중지</Button>
-                    </div>
-                  ) : null}
                 </div>
               ) : null}
 

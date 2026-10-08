@@ -112,8 +112,8 @@ export function SupplementResults({ result, fileNames, renderSource }: {
 
       {result.questions.length > 0 ? (
         <section className="supplement-questions" aria-labelledby="supplement-questions-heading">
-          <h3 id="supplement-questions-heading">상사가 물어보기 전에</h3>
-          <ol>{result.questions.map((question) => <li key={question}>{question}</li>)}</ol>
+          <h3 id="supplement-questions-heading">보고 전 확인할 질문</h3>
+          <ol className="supplement-readable-list" role="list">{result.questions.map((question, index) => <li key={question}><span className="supplement-list-marker" aria-hidden="true">{index + 1}.</span><span>{question}</span></li>)}</ol>
         </section>
       ) : null}
 
@@ -144,39 +144,41 @@ export function SupplementResults({ result, fileNames, renderSource }: {
                   <article key={finding.id} className={`supplement-item check-issue severity-${finding.severity}`}>
                     <header className="supplement-item-head">
                       <span className="check-severity"><i className={`severity-mark ${finding.severity}`} aria-hidden="true" />{SUPPLEMENT_SEVERITY_LABELS[finding.severity]}</span>
-                      <h3>{finding.title}</h3>
+                      <h3>{finding.severity === "warning" ? finding.title.replace(/\s*확인 필요$/, "") || finding.title : finding.title}</h3>
                     </header>
-                    <p className="supplement-message">{finding.message}</p>
                     <dl className="supplement-fields">
-                      <div>
-                        <dt>현재 확인</dt>
+                      {finding.current ? <div>
+                        <dt>현재 자료</dt>
                         <dd><q>{finding.current}</q></dd>
-                      </div>
-                      <div>
+                      </div> : null}
+                      {finding.additions.length > 0 ? <div>
+                        <dt>{finding.scope === "report" ? "확인된 내용" : finding.severity === "suggestion" ? "추가하면 좋은 정보" : "필요한 정보"}</dt>
+                        <dd><ul className="supplement-readable-list" role="list">{finding.additions.map((addition) => <li key={addition}><span className="supplement-list-marker" aria-hidden="true">•</span><span>{addition}</span></li>)}</ul></dd>
+                      </div> : null}
+                      {finding.message || finding.reason ? <div className="supplement-explanation">
+                        <dt className="sr-only">확인 이유</dt>
+                        <dd>
+                          {finding.message ? <p className="supplement-message">{finding.message}</p> : null}
+                          {finding.reason && finding.reason !== finding.message ? <p>{finding.reason}</p> : null}
+                        </dd>
+                      </div> : null}
+                      {finding.locations.length > 0 || finding.sources.length > 0 ? <div>
                         <dt>{finding.scope === "report" ? "보완 대상" : "원문 위치"}</dt>
                         <dd className="supplement-location">
-                          <span>{finding.locations.join(", ")}</span>
-                          {renderSource(finding.sources, { issue: finding.title, recommendation: finding.additions.join(", ") })}
+                          {finding.locations.length > 0 ? <span>{finding.locations.join(", ")}</span> : null}
+                          {finding.sources.length > 0 ? renderSource(finding.sources, { issue: finding.title, recommendation: finding.additions.join(", ") }) : null}
                         </dd>
-                      </div>
-                      {finding.evidence?.length ? (
+                      </div> : null}
+                      {finding.evidence?.length || finding.evidenceLocations?.length ? (
                         <div>
                           <dt>{finding.scope === "conflict" ? "자료별 설명" : "관련 근거"}</dt>
                           <dd className="supplement-location">
-                            <span>{finding.evidenceLocations?.join(", ")}</span>
-                            {renderSource(finding.evidence, { issue: finding.title, recommendation: "" })}
+                            {finding.evidenceLocations?.length ? <span>{finding.evidenceLocations.join(", ")}</span> : null}
+                            {finding.evidence?.length ? renderSource(finding.evidence, { issue: finding.title, recommendation: "" }) : null}
                           </dd>
                         </div>
                       ) : null}
-                      <div>
-                        <dt>확인이 필요한 이유</dt>
-                        <dd>{finding.reason}</dd>
-                      </div>
-                      <div>
-                        <dt>{finding.scope === "report" ? "확인된 내용" : "추가하면 좋은 정보"}</dt>
-                        <dd><ul>{finding.additions.map((addition) => <li key={addition}>{addition}</li>)}</ul></dd>
-                      </div>
-                      {finding.question ? (
+                      {finding.question && !result.questions.includes(finding.question) ? (
                         <div>
                           <dt>예상 질문</dt>
                           <dd>{finding.question}</dd>

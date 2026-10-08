@@ -170,12 +170,15 @@ function AxSetupGuide({ tool }: { tool: AxToolId }) {
 function AxPlanList({ items }: { items: string[] }) {
   return <ul className="ax-plan-list" role="list">{items.map((item, i) => <li key={i}><span className="ax-plan-marker" aria-hidden="true">•</span><span className="ax-plan-text">{item}</span></li>)}</ul>;
 }
+const PLAN_SUMMARY_FIELDS: Record<string, string> = {
+  "자동화 수준": "level", "진행 상태": "gate", "핵심 구현": "core", "다음 행동": "core", "사람 유지": "human", "선행 확인": "prerequisites",
+};
 /** Human review of the plan: 한눈에 보기 then six document sections; long secondary detail stays collapsed. */
-function AxPlanOverview({ view, summary = true }: { view: AxPlanView; summary?: boolean }) {
+function AxPlanOverview({ view, summary = true, gate }: { view: AxPlanView; summary?: boolean; gate?: ExecutionProfile["gate"] }) {
   const scope: [string, string[]][] = [["포함", view.include], ["사람이 계속 확인", view.humanKept], ["제외", view.excluded]];
   return <div className="ax-plan-view">
     {summary ? <section className="ax-plan-glance" aria-label="한눈에 보기"><h4>한눈에 보기</h4>
-      <dl>{view.glance.map(row => <div key={row.label}><dt>{row.label}</dt><dd>{row.value}</dd></div>)}</dl>
+      <dl>{view.glance.map(row => <div key={row.label} data-summary={PLAN_SUMMARY_FIELDS[row.label]}><dt>{row.label}</dt><dd>{row.label === "진행 상태" && gate ? <span className="ax-gate-badge" data-gate={gate}>{row.value}</span> : row.value}</dd></div>)}</dl>
     </section> : null}
     {view.goals.length ? <section className="ax-plan-block"><h4>구현 목표</h4><AxPlanList items={view.goals} /></section> : null}
     {scope.some(([, items]) => items.length) ? <section className="ax-plan-block"><h4>구현 범위</h4>
@@ -245,7 +248,7 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
       {blockReasons.length ? <AxList items={blockReasons} /> : null}
       <div className="ax-actions">{generateButton("codex")}{generateButton("claude")}</div>
     </> : <>
-      <div className="ax-common-plan"><h4>공통 실행 방향</h4><AxPlanOverview view={commonPlanView(diagnosis)} /></div>
+      <div className="ax-common-plan"><h4>공통 실행 방향</h4><AxPlanOverview view={commonPlanView(diagnosis)} gate={gate} /></div>
       {!plans.codex && !plans.claude ? <div className="ax-actions">{generateButton("codex")}{generateButton("claude")}</div> :
         <Tabs className="ax-tool-tabs" value={activeTool} onValueChange={value => { if (value === "codex" || value === "claude") setSelectedTool(value); }}>
           <div className="ax-plan-toolbar">

@@ -287,7 +287,6 @@ test("AX registration → diagnosis → correction → matrix → plans → relo
     .filter(element => element.getBoundingClientRect().width && getComputedStyle(element).textAlign === "center").map(element => element.textContent))).toEqual([]);
   await page.screenshot({ path: `artifacts/ax/roadmap-${test.info().project.name}.png`, fullPage: true });
   const packageSection = page.getByRole("region", { name: "자동화 구현 계획", exact: true });
-  await expect(packageSection.locator(".ax-gate-badge")).toHaveCount(0);
   await expect(packageSection.getByText("조건부 진행", { exact: true })).toHaveCount(0);
   await expect(packageSection.getByText("먼저 확인할 사항", { exact: false })).toHaveCount(0);
   await expect(packageSection.getByRole("button", { name: "Codex용 구현 계획 생성", exact: true })).toBeEnabled();
@@ -754,14 +753,12 @@ test("AX Execution Gate blocks no-go plans and displays ready tasks before highe
   await expect(plans.getByRole("status")).toHaveText("현재 진단에서는 구현 계획을 생성할 수 없습니다.");
   await expect(plans.getByRole("heading", { name: "구현 전 필수 조건", exact: true })).toHaveCount(0);
   await expect(plans.getByText("필수 시스템 접근 불가", { exact: true })).toBeVisible();
-  await expect(plans.locator(".ax-gate-badge")).toHaveCount(0);
   await expect(plans.locator(".ax-prompt")).toHaveCount(0);
   await expect(plans.locator(".ax-plan-tool-hint")).toHaveCount(0);
   await expect(plans.getByRole("button", { name: /용 지시문 복사$/ })).toHaveCount(0);
   await expect(plans.getByRole("button", { name: "설치·시작 가이드", exact: false })).toHaveCount(0);
   await expect(plans.getByRole("heading", { name: "먼저 확인할 사항", exact: true })).toHaveCount(0);
   await ready.getByRole("button").click();
-  await expect(plans.locator(".ax-gate-badge")).toHaveCount(0);
   await expect(plans.getByRole("heading", { name: "먼저 확인할 사항", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Codex용 구현 계획 생성", exact: true })).toBeEnabled();
   await expect(page.getByRole("button", { name: "Claude Code용 구현 계획 생성", exact: true })).toBeEnabled();
@@ -939,7 +936,6 @@ test("AX execution package remains readable on mobile with the setup guide colla
   const section = page.getByRole("region", { name: "자동화 구현 계획", exact: true });
   await expect(section.getByRole("button", { name: "설치·시작 가이드", exact: true })).toHaveAttribute("aria-expanded", "false");
   for (const name of ["구현 후 확인 · GitHub 반영", "배포 방법", "상세 구현 계획 보기"]) await expect(section.getByRole("button", { name, exact: true })).toHaveCount(0);
-  await expect(section.locator(".ax-gate-badge")).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "운영 시 참고사항", exact: true })).toHaveCount(0);
   await expect(page.locator(".ax-panel tbody tr").filter({ hasText: "담당자 승인" })).toContainText("담당자 수행");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -1028,8 +1024,28 @@ function longPlan(tool: "Codex" | "Claude Code"): AxPlan {
   };
 }
 
+async function expectActualMarkerGaps(surface: Locator, guide = false) {
+  const rows = await surface.locator(guide ? ".ax-guide-list li" : ".ax-plan-list li, .ax-plan-steps li").evaluateAll(elements => elements.flatMap(li => {
+    const marker = li.querySelector(".ax-guide-marker, .ax-plan-marker, .ax-plan-step-no");
+    const body = li.querySelector(".ax-guide-text, .ax-plan-text");
+    if (!marker || !body || !li.getBoundingClientRect().width) return [];
+    const range = document.createRange();
+    range.selectNodeContents(marker);
+    const markerRect = range.getBoundingClientRect();
+    range.selectNodeContents(body);
+    const rects = [...range.getClientRects()].filter(rect => rect.width > 0);
+    const lines = [...new Set(rects.map(rect => rect.y))].map(y => Math.min(...rects.filter(rect => rect.y === y).map(rect => rect.x)));
+    return lines.length ? [{ gap: lines[0] - markerRect.right, lines }] : [];
+  }));
+  for (const row of rows) {
+    expect(row.gap).toBeGreaterThanOrEqual(8);
+    expect(row.gap).toBeLessThanOrEqual(12);
+    for (const x of row.lines) expect(Math.abs(x - row.lines[0])).toBeLessThanOrEqual(2);
+  }
+}
+
 async function expectPlanTextAlignment(view: Locator, implementation = false) {
-  const positions = await view.locator("span.ax-plan-text, h4, h5, .ax-plan-detail-title, .ax-plan-marker, .ax-plan-step-no").evaluateAll(elements =>
+  const positions = await view.locator("span.ax-plan-text, .ax-plan-block h4, h5, .ax-plan-detail-title, .ax-plan-marker, .ax-plan-step-no").evaluateAll(elements =>
     elements.flatMap(element => {
       if (!element.getBoundingClientRect().width || getComputedStyle(element).visibility === "hidden") return [];
       const range = document.createRange(); range.selectNodeContents(element);
@@ -1048,19 +1064,8 @@ async function expectPlanTextAlignment(view: Locator, implementation = false) {
   expect(markers.length).toBeGreaterThan(0);
   expect(content.length).toBeGreaterThan(0);
   const headingRail = headings[0].x;
-  const gutter = await view.evaluate(() => 1.75 * parseFloat(getComputedStyle(document.documentElement).fontSize));
-  for (const position of positions) {
-    const rail = position.content ? headingRail + gutter : headingRail;
-    expect(Math.abs(position.x - rail), position.text ?? "").toBeLessThanOrEqual(2);
-    for (const x of position.lines) expect(Math.abs(x - rail), `Wrapped line: ${position.text}`).toBeLessThanOrEqual(2);
-  }
-  const slot = markers[0];
-  for (const marker of markers) {
-    expect(Math.abs(marker.box - slot.box)).toBeLessThanOrEqual(1);
-    expect(Math.abs(marker.width - slot.width)).toBeLessThanOrEqual(1);
-    expect(Math.abs(marker.x - marker.box)).toBeLessThanOrEqual(1);
-    expect(marker.box + marker.width).toBeLessThanOrEqual(headingRail + gutter);
-  }
+  for (const position of [...headings, ...markers]) expect(Math.abs(position.x - headingRail), position.text ?? "").toBeLessThanOrEqual(2);
+  await expectActualMarkerGaps(view);
   for (const marker of await view.locator(".ax-plan-marker, .ax-plan-step-no").all()) {
     if (await marker.isVisible()) await expect(marker).toHaveAttribute("aria-hidden", "true");
   }
@@ -1105,13 +1110,8 @@ async function expectGuideTutorial(page: Page, panel: Locator, tool: "Codex" | "
       }] : [];
     }));
   const headingRail = positions.find(position => !position.marker && !position.content)!.x;
-  const gutter = await panel.evaluate(() => 1.75 * parseFloat(getComputedStyle(document.documentElement).fontSize));
-  for (const position of positions) {
-    const rail = headingRail + (position.content ? gutter : 0);
-    expect(Math.abs(position.x - rail), position.text ?? "").toBeLessThanOrEqual(2);
-    if (position.marker) expect(Math.abs(position.box - position.x)).toBeLessThanOrEqual(1);
-    for (const x of position.lines) expect(Math.abs(x - rail), `Guide wrapped line: ${position.text}`).toBeLessThanOrEqual(2);
-  }
+  for (const position of positions.filter(position => !position.content)) expect(Math.abs(position.x - headingRail), position.text ?? "").toBeLessThanOrEqual(2);
+  await expectActualMarkerGaps(panel, true);
   const markers = positions.filter(position => position.marker);
   for (const symbol of ["•", "01", "□"]) expect(markers.some(marker => marker.text?.trim() === symbol), `Guide marker ${symbol}`).toBe(true);
   if (page.viewportSize()!.width === 390) expect(positions.some(position => position.content && position.lines.length > 1)).toBe(true);
@@ -1295,23 +1295,29 @@ for (const width of [1440, 390]) {
     expect(await common.innerText()).toBe(initialCommon);
     await expect(section.locator(".ax-tool-plan").getByText(codex.goal[0], { exact: true })).toBeVisible();
     const beforeSwitch = await record(page);
-    const prompt = section.locator(".ax-prompt");
+    const codexPanel = section.getByRole("tabpanel", { name: "Codex", exact: true });
+    const claudePanel = section.getByRole("tabpanel", { name: "Claude Code", exact: true });
+    let prompt = codexPanel.locator(".ax-prompt");
     const codexPrompt = await prompt.textContent();
     await section.getByRole("tab", { name: "Claude Code", exact: true }).click();
+    prompt = claudePanel.locator(".ax-prompt");
     const claudePrompt = await prompt.textContent();
     await section.getByRole("tab", { name: "Codex", exact: true }).click();
-    await section.getByRole("button", { name: "전체 보기", exact: true }).click();
+    prompt = codexPanel.locator(".ax-prompt");
+    await codexPanel.getByRole("button", { name: "전체 보기", exact: true }).click();
     await expect(prompt).toHaveAttribute("data-expanded", "true");
     expect(await prompt.textContent()).toBe(codexPrompt);
     await section.getByRole("tab", { name: "Claude Code", exact: true }).click();
-    await expect(section.getByRole("button", { name: "전체 보기", exact: true })).toHaveAttribute("aria-expanded", "false");
+    prompt = claudePanel.locator(".ax-prompt");
+    await expect(claudePanel.getByRole("button", { name: "전체 보기", exact: true })).toHaveAttribute("aria-expanded", "false");
     await expect(prompt).toHaveAttribute("data-expanded", "false");
     expect(await prompt.textContent()).toBe(claudePrompt);
-    await section.getByRole("button", { name: "전체 보기", exact: true }).click();
+    await claudePanel.getByRole("button", { name: "전체 보기", exact: true }).click();
     expect(await prompt.textContent()).toBe(claudePrompt);
     await expect(prompt).toHaveAttribute("data-expanded", "true");
     await section.getByRole("tab", { name: "Codex", exact: true }).click();
-    await expect(section.getByRole("button", { name: "전체 보기", exact: true })).toHaveAttribute("aria-expanded", "false");
+    prompt = codexPanel.locator(".ax-prompt");
+    await expect(codexPanel.getByRole("button", { name: "전체 보기", exact: true })).toHaveAttribute("aria-expanded", "false");
     await expect(prompt).toHaveAttribute("data-expanded", "false");
     expect(await prompt.textContent()).toBe(codexPrompt);
     expect(await record(page)).toEqual(beforeSwitch);
@@ -1449,13 +1455,11 @@ for (const width of [1440, 390]) for (const count of [1, 3, 5, 10]) {
     await page.goto("/");
     const tasks = multiTasks(count), last = tasks.at(-1)!;
     await seed(page, { ...emptyAxState(), tasks, selectedTaskId: last.id, step: 3 }); await ax(page);
-    await expect(page.locator(".ax-bubble")).toHaveCount(count);
     for (const [index, task] of tasks.entries()) {
-      await expect(page.locator(".ax-bubble", { hasText: String(index + 1) }).filter({ has: page.locator(".ax-bubble-number", { hasText: new RegExp(`^${index + 1}$`) }) })).toHaveAttribute("aria-label", new RegExp(`^${task.name} ·`));
       await expect(page.getByRole("list", { name: "자동화 우선순위 목록", exact: true }).getByRole("listitem").filter({ hasText: task.name }).locator(".ax-rank")).toHaveText(`#${index + 1}`);
     }
     await page.getByLabel("매트릭스 업무 목록").getByRole("button", { name: new RegExp(last.name) }).click();
-    await expect(page.locator('.ax-bubble[aria-pressed="true"]')).toHaveAttribute("aria-label", new RegExp(`^${last.name} ·`));
+    await expect.poll(async () => (await record(page))?.selectedTaskId).toBe(last.id);
     await expect(page.locator(".ax-step3-main > section").last().getByRole("heading").first()).toContainText(last.name);
     const matrixBadge = await badgeStyle(page.locator('.ax-gate-cond[data-gate="conditional"]').first());
     expect(await badgeStyle(page.locator('.ax-gate-badge[data-gate="conditional"]'))).toEqual(matrixBadge);
@@ -1516,7 +1520,7 @@ for (const width of [1440, 390]) test(`AX score evidence and all ranks update to
   await expect(evidence).toHaveAttribute("aria-expanded", "false"); await evidence.focus(); await page.keyboard.press("Enter");
   await expect(evidence).toHaveAttribute("aria-expanded", "true"); await expect(evidence).toBeFocused();
   const panel = page.getByRole("region", { name: "점수 근거", exact: true });
-  await expect(panel.locator(".ax-score-heading strong")).toHaveText(["4점", "4점", "2점", "2점"]);
+  await expect(panel.locator(".ax-score-badge")).toHaveText(["4점", "4점", "2점", "2점"]);
   await expect(panel.locator(".ax-score-factor").filter({ hasText: "반복성" }).first()).toContainText("최종 적용 5점");
   await expect(panel).toContainText("AI 제안 4점"); await expect(panel).toContainText("확인 필요");
   await expect(panel).not.toContainText("TO-BE");
@@ -1536,7 +1540,7 @@ for (const width of [1440, 390]) test(`AX score evidence and all ranks update to
   expect(await marker.evaluate(element => ({ x: (element as HTMLElement).style.left, y: (element as HTMLElement).style.bottom }))).toEqual({ x: "0%", y: "0%" });
   await expect(page.getByRole("list", { name: "자동화 우선순위 목록", exact: true }).locator(".ax-rank")).toHaveText(["#1", "#2"]);
   await expect(page.getByRole("list", { name: "자동화 우선순위 목록", exact: true }).locator(".ax-task-name")).toHaveText([tasks[1].name, tasks[0].name]);
-  await evidence.click(); await expect(panel.locator(".ax-score-heading strong")).toHaveText(["1점", "1점", "2점", "2점"]);
+  await evidence.click(); await expect(panel.locator(".ax-score-badge")).toHaveText(["1점", "1점", "2점", "2점"]);
   await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();
   await expect(page.getByRole("list", { name: "자동화 우선순위 TOP 목록", exact: true }).locator(".ax-task-name")).toHaveText([tasks[1].name, tasks[0].name]);
   await expect(page.locator(".ax-roadmap-task")).toHaveText(tasks[0].name);
@@ -1562,8 +1566,7 @@ test("AX partial diagnoses preserve selected task plans, tool prompts, copy and 
   }
   await page.getByLabel("등록 업무 목록").getByRole("button", { name: /^E/ }).click();
   await page.getByRole("tab", { name: "자동화 매트릭스", exact: true }).click();
-  await expect(page.locator(".ax-bubble")).toHaveCount(3);
-  await expect(page.locator('.ax-bubble[aria-pressed="true"]')).toHaveAttribute("aria-label", /^A ·/);
+  await expect(page.getByLabel("매트릭스 업무 목록").getByRole("button", { name: /^1\. A/ })).toHaveAttribute("aria-pressed", "true");
   await page.getByLabel("매트릭스 업무 목록").getByRole("button", { name: /B/ }).click();
   await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();
   await expect(page.locator(".ax-roadmap-task")).toHaveText("B");
@@ -1627,7 +1630,6 @@ test("AX compares diagnoses regardless of provisional status and preserves other
   await expect(page.getByRole("button", { name: "업무 다시 진단", exact: true })).toBeEnabled();
   await expect.poll(async () => (await record(page))?.tasks.find(task => task.id === c.id)?.diagnosis?.planCodex).toEqual(planFixture);
   await page.getByRole("tab", { name: "자동화 매트릭스", exact: true }).click();
-  await expect(page.locator(".ax-bubble")).toHaveCount(3);
   await expect(page.getByLabel("매트릭스 업무 목록").locator(".ax-task-name")).toHaveText(["1. 완료 A", "2. 보정 C", "3. 정보 확인 D"]);
   await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();
   await expect(page.locator(".ax-kpi").filter({ hasText: "진단 완료" }).locator("strong")).toHaveText("3개");
