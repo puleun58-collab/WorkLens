@@ -2,7 +2,7 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ChevronDown } from "lucide-react";
+import { ArrowDownRight, ChevronDown } from "lucide-react";
 
 import type { ContractReview, ReviewedIssue } from "@/lib/contract-review";
 import type { ReviewCoverage, ReviewFile } from "@/lib/law-review-source";
@@ -109,9 +109,11 @@ export function ContractReviewResult({ review, file, expandSources = false, onEx
     activeDetail.current = null;
   }, [review]);
 
-  function showEvidence(anchor: string) {
-    const target = window.document.getElementById(anchor);
+  function focusBlock(anchor: string, heading: string, openReferences = false) {
+    const target = resultRef.current?.querySelector<HTMLElement>(`#${anchor}`);
     if (!target) return;
+    if (openReferences) target.querySelectorAll<HTMLDetailsElement>(".contract-review-refs").forEach((detail) => { detail.open = true; });
+    target.querySelector<HTMLElement>(heading)?.focus({ preventScroll: true });
     window.clearTimeout(focusTimer.current);
     activeDetail.current?.classList.remove(...FOCUS_CLASSES);
     target.classList.remove(...FOCUS_CLASSES);
@@ -132,11 +134,11 @@ export function ContractReviewResult({ review, file, expandSources = false, onEx
       }, FOCUS_SETTLED_MS);
     }, FOCUS_FRESH_MS);
   }
-
-  const shownLaws = new Set<string>();
-  const shownPrecedents = new Set<string>();
   const { document, risk } = review;
   const issues = review.clauses.flatMap((clause) => clause.issues);
+  const issueEntries = review.clauses.flatMap((clause, clauseIndex) => clause.issues.map((issue, issueIndex) => ({
+    issue, anchor: `contract-review-issue-${clauseIndex}-${issueIndex}`,
+  })));
   const grounded = issues.filter((issue) =>
     issue.laws.some((key) => review.laws[key]) || issue.precedents.some((key) => review.precedents[key])).length;
   const status: ResearchStatus = !issues.length ? "none"
@@ -166,7 +168,7 @@ export function ContractReviewResult({ review, file, expandSources = false, onEx
       </dl>
       <div className="contract-review-evidence">
         {laws.length + precedents.length > 0
-          ? <><Button variant="outline" size="sm" type="button" className="contract-review-evidence-button" aria-controls={anchor} onClick={() => showEvidence(anchor)}>근거 보기</Button>
+          ? <><Button variant="outline" size="sm" type="button" className="contract-review-evidence-button" aria-controls={anchor} onClick={() => focusBlock(anchor, "h4", true)}>근거 보기</Button>
             <span className="contract-review-meta">{parts.join(" · ")}</span></>
           : unverified
             ? <><Badge variant="warning" className="contract-review-unverified">근거 미확인</Badge><span className="contract-review-meta">직접 근거 확인이 완료되지 않았습니다.</span></>
@@ -190,30 +192,23 @@ export function ContractReviewResult({ review, file, expandSources = false, onEx
       {laws.length > 0 && <details className="law-detail-source contract-review-refs" onToggle={syncReferences}>
         <SourceToggleSummary label={`관련 법령 ${laws.length}건 보기`} openLabel="관련 법령 접기" />
         <ul>{laws.map((law) => {
-          const repeated = shownLaws.has(law.key);
-          shownLaws.add(law.key);
           const name = `${law.law} ${law.jo}${law.title ? ` (${law.title})` : ""}`;
           return <li key={law.key}>
             <strong>{name}</strong>
             {law.effectiveDate && <span className="contract-review-meta">시행 {formatDate(law.effectiveDate)}</span>}
-            {repeated ? <p className="contract-review-meta">앞선 쟁점에서 제시한 근거입니다.</p> : <>
-              {law.condition && <p className="contract-review-condition">{law.condition}</p>}
-              {law.excerpt && <pre className="legal-analysis-lines">{law.excerpt}</pre>}
-            </>}
+            {law.condition && <p className="contract-review-condition">{law.condition}</p>}
+            {law.excerpt && <pre className="legal-analysis-lines">{law.excerpt}</pre>}
           </li>;
         })}</ul>
       </details>}
       {precedents.length > 0 && <details className="law-detail-source contract-review-refs" onToggle={syncReferences}>
         <SourceToggleSummary label={`관련 판례 ${precedents.length}건 보기`} openLabel="관련 판례 접기" />
         <ul>{precedents.map((precedent) => {
-          const repeated = shownPrecedents.has(precedent.key);
-          shownPrecedents.add(precedent.key);
           const metadata = [precedent.court, precedent.caseNumber, formatDate(precedent.date)].filter(Boolean).join(" · ");
           return <li key={precedent.key}>
             <strong>{precedent.title ?? precedent.caseNumber ?? "판례"}</strong>
             {metadata && <span className="contract-review-meta">{metadata}</span>}
-            {repeated ? <p className="contract-review-meta">앞선 쟁점에서 제시한 근거입니다.</p>
-              : <p className="contract-review-holding">{precedent.holding}</p>}
+            <p className="contract-review-holding">{precedent.holding}</p>
           </li>;
         })}</ul>
       </details>}
@@ -221,6 +216,7 @@ export function ContractReviewResult({ review, file, expandSources = false, onEx
   };
 
   const partial = file?.coverage.status === "partial";
+  let renderedIssueNumber = 0;
   return <div ref={resultRef} className="legal-analysis-output contract-review" data-task="document_review" data-document-type={document.type} data-coverage={file?.coverage.status}>
     <header className="research-overview">
       <span className="research-eyebrow">문서 검토</span>
@@ -255,6 +251,16 @@ export function ContractReviewResult({ review, file, expandSources = false, onEx
       <p className="contract-review-meta">검토 조항 {review.clauses.length}개 · 관련 근거 확인 {grounded}/{issues.length}건
         {lawCount + precedentCount > 0 && ` (법령 ${lawCount}건 · 판례 ${precedentCount}건)`}</p>
     </section>
+    {issueEntries.length > 1 && <nav className="research-issue-nav" aria-label="쟁점 바로가기">
+      <span>쟁점 바로가기</span>
+      <ol>{issueEntries.map(({ issue, anchor }, issueNumber) => <li key={anchor}>
+        <Button type="button" variant="outline" size="sm" aria-controls={anchor} onClick={() => focusBlock(anchor, "h5")}>
+          <span className="research-issue-number">{String(issueNumber + 1).padStart(2, "0")}</span>
+          <span className="research-issue-nav-label">{issue.label}</span>
+          <ArrowDownRight aria-hidden="true" />
+        </Button>
+      </li>)}</ol>
+    </nav>}
     <section className="legal-analysis-section contract-review-results">
       <h3>조항별 검토 결과</h3>
       {review.clauses.length === 0 && <p className="law-search-note">검토할 쟁점을 찾지 못했습니다.</p>}
@@ -266,8 +272,8 @@ export function ContractReviewResult({ review, file, expandSources = false, onEx
             <h4>{clause.number ?? clause.title ?? `검토 항목 ${index + 1}`}{clause.number && clause.title ? ` ${clause.title}` : ""}</h4>
             {top && <SeverityBadge severity={top} />}
           </div>
-          {clause.issues.map((issue, issueIndex) => <div key={issue.id} className={`contract-review-issue is-${issue.severity}`}>
-            <div className="contract-review-issue-head"><h5>{issue.label}</h5>{several && <SeverityBadge severity={issue.severity} />}</div>
+          {clause.issues.map((issue, issueIndex) => <div key={`${index}-${issueIndex}`} id={`contract-review-issue-${index}-${issueIndex}`} className={`contract-review-issue is-${issue.severity}`}>
+            <div className="contract-review-issue-head"><h5 tabIndex={-1}><span className="research-issue-number">{String(++renderedIssueNumber).padStart(2, "0")}</span>{issue.label}</h5>{several && <SeverityBadge severity={issue.severity} />}</div>
             {issueBody(issue, `contract-review-evidence-${index}-${issueIndex}`, clause.segments)}
           </div>)}
         </section>;
@@ -275,8 +281,8 @@ export function ContractReviewResult({ review, file, expandSources = false, onEx
     </section>
     {lawCount + precedentCount > 0 && <section className="legal-analysis-section contract-review-details">
       <div className="contract-review-details-heading">
-        <h3>상세 근거</h3>
-        <Button type="button" variant="ghost" size="xs" className="contract-review-expand" aria-pressed={allReferencesOpen}
+        <h3 id="contract-review-details-heading">상세 근거</h3>
+        <Button type="button" variant="ghost" size="xs" className="contract-review-expand" aria-describedby="contract-review-details-heading" aria-pressed={allReferencesOpen}
           onClick={() => {
             setReferencesOpen(!allReferencesOpen);
             onExpandSourcesChange(!allReferencesOpen);
@@ -285,7 +291,7 @@ export function ContractReviewResult({ review, file, expandSources = false, onEx
       {review.clauses.flatMap((clause, clauseIndex) => clause.issues.map((issue, issueIndex) => {
         if (!issue.laws.some((key) => review.laws[key]) && !issue.precedents.some((key) => review.precedents[key])) return null;
         return <div key={`${clauseIndex}-${issueIndex}`} id={`contract-review-evidence-${clauseIndex}-${issueIndex}`} className="contract-review-detail">
-          <h4>{clause.number ?? clause.title ?? `검토 항목 ${clauseIndex + 1}`}{clause.number && clause.title ? ` ${clause.title}` : ""} · {issue.label}</h4>
+          <h4 tabIndex={-1}>{clause.number ?? clause.title ?? `검토 항목 ${clauseIndex + 1}`}{clause.number && clause.title ? ` ${clause.title}` : ""} · {issue.label}</h4>
           {issueEvidence(issue)}
         </div>;
       }))}

@@ -1939,8 +1939,8 @@ export default function Home() {
                   ? <PolishResults result={polish} fileNames={fileNames} onSource={openSource} status={resultStatus} />
                   : activeTab === "Supplement"
                     ? supplement ? (
-                      <section className="panel results-panel">
-                        <ResultHeader title="보완 결과" status={resultStatus} />
+                      <section className="panel results-panel" aria-label="문서 보완 결과">
+                        <ResultHeader status={resultStatus} />
                         <SupplementResults
                           result={supplement}
                           fileNames={fileNames}
@@ -2083,22 +2083,25 @@ const workSectionCopy: Record<Tab, [string, string]> = {
   Aggregate: ["문서 취합", "첫 번째 파일의 서식을 기준으로 여러 Excel 표를 하나의 파일로 취합합니다."],
 };
 
-function ResultHeader({ eyebrow, title, status, meta, showMessage = true }: {
-  eyebrow?: string;
-  title: string;
+function ResultHeader({ title, status, meta, showMessage = true }: {
+  title?: string;
   status: ResultStatus | null;
   meta?: React.ReactNode;
   showMessage?: boolean;
 }) {
   return (
     <>
-      <div className="panel-heading result-heading">
-        <div>{eyebrow ? <p className="eyebrow">{eyebrow}</p> : null}<h2>{title}</h2></div>
-        <div className="result-heading-meta">
-          {status ? <span className={`result-status ${status.tone}`} role="status">{status.label}</span> : null}
-          {meta}
+      {title || status || meta ? (
+        <div className="panel-heading result-heading">
+          {title ? <h2>{title}</h2> : null}
+          {status || meta ? (
+            <div className="result-heading-meta">
+              {status ? <span className={`result-status ${status.tone}`} role="status">{status.label}</span> : null}
+              {meta}
+            </div>
+          ) : null}
         </div>
-      </div>
+      ) : null}
       {showMessage && status?.message ? (
         <p className="result-inline-warning" role="status">
           <span>{status.message}</span>
@@ -2128,15 +2131,11 @@ function ResultView({ tab, result, enrichment, analyzeEvidenceLimited, status, f
   }
 
   return (
-    <section className={`panel results-panel${tab === "Analyze" ? " analysis-results-panel" : ""}`}>
+    <section className={`panel results-panel${tab === "Analyze" ? " analysis-results-panel" : ""}`} aria-label={`${tabMeta[tab].label} 결과`}>
       <ResultHeader
-        {...(tab === "Ask" || tab === "Check" || tab === "Extract" || tab === "Analyze" ? {} : { eyebrow: `${tab.toUpperCase()} RESULT` })}
-        title={tab === "Analyze" ? "분석 결과" : tab === "Ask" ? "답변" : tab === "Check" ? "검수 결과" : tab === "Extract" ? "추출 결과" : "작업 결과"}
         status={status}
         showMessage={tab !== "Analyze"}
-        {...(tab === "Extract"
-          ? { meta: resultActions }
-          : tab === "Ask" || tab === "Check" || tab === "Analyze" ? {} : { meta: <span className="result-provenance">근거 연결 결과</span> })}
+        meta={tab === "Extract" ? resultActions : undefined}
       />
       {content}
       {detail ? <SourceDetail entries={detail.entries} fileNames={fileNames} onClose={onCloseSource} /> : null}
@@ -2271,8 +2270,8 @@ function StructuredExtractResults({ result, fileNames, onSource, status, busy, o
     : "자동으로 추출할 수 있는 구조화된 항목을 찾지 못했습니다.";
 
   return (
-    <section className="panel results-panel extract-results">
-      <ResultHeader title="추출 결과" status={status} />
+    <section className="panel results-panel extract-results" aria-label="정보 추출 결과">
+      <ResultHeader status={status} />
       <div className="extract-result-toolbar">
         <p className="check-summary-line">
           <span className="metric">추출 항목 <b>{result.summary.fields}</b></span>
@@ -2486,9 +2485,8 @@ function PolishResults({ result, fileNames, onSource, status }: {
   const rejected = result.outcomes.filter((entry) => entry.status === "rejected");
 
   return (
-    <section className="panel results-panel polish-results">
+    <section className="panel results-panel polish-results" aria-label="문서 윤문 결과">
       <ResultHeader
-        title="윤문 결과"
         status={status}
         meta={<span className="polish-mode-meta">{POLISH_MODE_LABELS[result.mode]}</span>}
       />
@@ -2596,9 +2594,8 @@ function PolishTextResults({ result, status }: { result: PolishTextResult | null
   ) : null;
 
   return (
-    <section className="panel results-panel polish-results polish-text-results">
+    <section className="panel results-panel polish-results polish-text-results" aria-label="텍스트 윤문 결과">
       <ResultHeader
-        title="윤문 결과"
         status={status}
         meta={<span className="polish-mode-meta">{POLISH_MODE_LABELS[result.mode]}</span>}
       />
@@ -3229,7 +3226,7 @@ function ComparisonView({ comparison, compareIds, enrichment, fileNames, detail,
   };
   /** Only a numbers-only column reads from the right; values and prose read from the left. */
   return (
-    <section className="panel results-panel comparison-panel">
+    <section className="panel results-panel comparison-panel" aria-label="버전 비교 결과">
       <ResultHeader
         title="버전 비교 결과"
         status={status}
@@ -3326,7 +3323,7 @@ function ValueCheckView({ result, fileNames, onSource, status, busy, onExport }:
   const comparedFileNames = result.fileIds.map((fileId) => fileNames.get(fileId) ?? fileId);
 
   return (
-    <section className="panel results-panel value-check-panel">
+    <section className="panel results-panel value-check-panel" aria-label="값 일치 확인 결과">
       <ResultHeader
         title="값 일치 확인 결과"
         status={status}
@@ -3500,8 +3497,8 @@ function AggregationResults({ draft, selection, busy, onSelection, onExport }: {
   const planTarget = (sheet: AggregationSheet) => "targetId" in sheet.plan && sheet.plan.targetId ? targetById.get(sheet.plan.targetId) : undefined;
 
   return (
-    <section className="panel results-panel aggregation-results">
-      <ResultHeader title="취합 결과" status={{ tone: "success", label: "취합 완료" }} />
+    <section className="panel results-panel aggregation-results" aria-label="문서 취합 결과">
+      <ResultHeader status={{ tone: "success", label: "취합 완료" }} />
       <div className="extract-result-toolbar aggregation-result-toolbar">
         <p className="check-summary-line">
           <span className="metric">파일 <b>{draft.workbooks.length}</b></span>

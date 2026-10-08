@@ -258,12 +258,11 @@ export function DecisionSearch({ linkedRequest, onReturnToLaw, onCiteCheck }: De
         <Button type="submit" className="law-search-button" disabled={searchLoading || !query.trim()}>{searchLoading ? "검색 중…" : "검색"}</Button>
       </div>
     </form>
-    {(searchLoading || outcome) && <section className="decision-search-results" aria-labelledby="decision-results-heading" aria-busy={searchLoading}>
+    <span className="sr-only" role="status">{searchLoading ? "검색 중…" : ""}</span>
+    {!searchLoading && outcome && <section className="decision-search-results" aria-labelledby="decision-results-heading">
       <h2 id="decision-results-heading">{split ? <>일치 결과<span className="law-section-count"> · {split.exact.length}건</span></>
-        : <>검색 결과{outcome?.kind === "found" && outcome.data.totalCount !== undefined ? <span className="law-section-count"> · {outcome.data.totalCount}건</span> : outcome?.kind === "missing" ? <span className="law-section-count"> · 0건</span> : null}</>}</h2>
-      {searchLoading ? <p className="law-search-note" role="status">검색 중…</p>
-        : !outcome ? null
-        : outcome.kind === "error" ? <p className="law-search-error law-operation-error" role="alert">{outcome.message}</p>
+        : <>검색 결과{outcome.kind === "found" && outcome.data.totalCount !== undefined ? <span className="law-section-count"> · {outcome.data.totalCount}건</span> : outcome.kind === "missing" ? <span className="law-section-count"> · 0건</span> : null}</>}</h2>
+      {outcome.kind === "error" ? <p className="law-search-error law-operation-error" role="alert">{outcome.message}</p>
         : outcome.kind === "missing" ? <p className="law-search-note" role="status">검색 결과가 없습니다. 다른 검색어로 검색해보세요.</p>
         : <>
           {split ? <>

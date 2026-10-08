@@ -1,5 +1,5 @@
 /* 보완 result: the Check result vocabulary (severity marks, filters, rows), no new surfaces. */
-/* Summary, status and notice text start on the 보완 결과 title's left line; findings keep their own row inset. */
+/* Summary, status and notice text share the same inset; findings keep their own row inset. */
 .supplement-overview {
   display: grid;
   gap: var(--space-3);

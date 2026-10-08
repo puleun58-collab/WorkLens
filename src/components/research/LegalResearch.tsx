@@ -366,17 +366,16 @@ export function LegalResearch({ workspace, initialTask = "full_research" }: { wo
         {runButton}
       </div>}
     </form>
+    <span className="sr-only" role="status">{loading ? (isDocument ? "문서 검토 중…" : "리서치 중…") : ""}</span>
     </div>
 
-    {current && <section className="legal-analysis-result" aria-labelledby="research-result-heading" aria-busy={loading}>
-      <h2 id="research-result-heading">{isDocument ? "검토 결과" : "리서치 결과"}</h2>
+    {current && !current.loading && <section className="legal-analysis-result" aria-label={isDocument ? "검토 결과" : "리서치 결과"}>
       {isDocument && !current.loading && staleFileReview && <p className="research-meta" role="status" data-review-stale="true">
         {resultFile ? (fromFile && fileId !== resultFile.fileId && reviewFileIdentityMatches(files, current.workspaceFile, resultFile)
           ? `지금 선택한 문서가 아닌 ${resultFile.document.name}의 검토 결과입니다.`
           : "삭제되었거나 현재 입력 또는 작업 파일의 출처·버전과 일치하지 않는 검토 결과입니다. 위치는 검토 당시 기록이며 현재 파일로 이동할 수 없습니다.") : "현재 입력과 일치하지 않는 검토 결과입니다. 실행 당시 입력을 기준으로 표시합니다."}
       </p>}
-      {current.loading ? <p className="law-search-note" role="status">{isDocument ? "문서 검토 중…" : "리서치 중…"} 여러 자료를 함께 조회하므로 시간이 걸릴 수 있습니다.</p>
-        : current.outcome?.kind === "error" ? <div className="decision-feedback" role="alert">
+      {current.outcome?.kind === "error" ? <div className="decision-feedback" role="alert">
           <p className="law-search-error">{current.outcome.message}</p>
           <Button type="button" variant="link" className="law-search-link" disabled={retryUnavailable} onClick={retry}>다시 시도</Button>
           {retryUnavailable && <p className="research-meta" role="status">원본 파일이 삭제되었거나 변경되어 다시 시도할 수 없습니다. 파일을 선택하고 새로 실행하세요.</p>}
@@ -837,13 +836,16 @@ function ResearchResult({ data, request, expandSources = false, onExpandSourcesC
     {full && (issueEvidence.length > 0 || selectedArticles.length > 0 || selectedCases.length > 0) && <section className="research-group research-selected" aria-label="확인한 근거">
       <div className="research-evidence-heading">
         <h3>{issueEvidence.length ? <>확인된 쟁점 <span className="research-meta">{issueEvidence.length}건</span></> : "확인한 근거"}</h3>
-        {hasIssueReferences && <Button type="button" variant="ghost" size="xs" className="research-expand" aria-pressed={allReferencesOpen}
+      </div>
+      <p className="research-meta">질문 쟁점과 내용이 맞는 법제처 자료입니다. 법령의 적용 여부나 판결의 결론까지 확인했다는 뜻은 아닙니다.</p>
+      {hasIssueReferences && <div className="research-evidence-heading">
+        <h3 id="research-details-heading">상세 근거</h3>
+        <Button type="button" variant="ghost" size="xs" className="research-expand" aria-describedby="research-details-heading" aria-pressed={allReferencesOpen}
           onClick={() => {
             setReferencesOpen(!allReferencesOpen);
             onExpandSourcesChange(!allReferencesOpen);
-          }}>{allReferencesOpen ? "전체 접기" : "전체 펼치기"} <ChevronDown aria-hidden="true" /></Button>}
-      </div>
-      <p className="research-meta">질문 쟁점과 내용이 맞는 법제처 자료입니다. 법령의 적용 여부나 판결의 결론까지 확인했다는 뜻은 아닙니다.</p>
+          }}>{allReferencesOpen ? "전체 접기" : "전체 펼치기"} <ChevronDown aria-hidden="true" /></Button>
+      </div>}
       {(() => {
         const articleItem = (article: (typeof selectedArticles)[number]) => {
           const excerpt = readerText(article.excerpt);

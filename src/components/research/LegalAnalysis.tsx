@@ -175,12 +175,11 @@ export function LegalAnalysis({ linkedRequest, onReturn, onRelatedSearch }: Lega
         {ACTION_HELP[mode] && <p className="legal-analysis-help"><span>{ACTION_HELP[mode]}</span></p>}
         <Button type="submit" className="law-search-button" disabled={!request || loading}>{loading ? "확인 중…" : "실행"}</Button>
       </div>
+      <span className="sr-only" role="status">{loading ? "확인 중…" : ""}</span>
     </form>
 
-    {current && <section className="legal-analysis-result" aria-labelledby="analysis-result-heading" aria-busy={loading}>
-      <h2 id="analysis-result-heading">{mode === "verify_citations" || mode === "cite_check" ? "검증 결과" : "분석 결과"}</h2>
-      {current.loading ? <p className="law-search-note" role="status">법제처 자료를 조회하는 중… 조회 범위에 따라 시간이 걸릴 수 있습니다.</p>
-        : current.outcome?.kind === "error" ? <div className="decision-feedback" role="alert">
+    {current && !current.loading && <section className="legal-analysis-result" aria-label={current.request.mode === "verify_citations" || current.request.mode === "cite_check" ? "검증 결과" : "분석 결과"}>
+      {current.outcome?.kind === "error" ? <div className="decision-feedback" role="alert">
           <p className="law-search-error">{current.outcome.message}</p>
           <Button variant="link" type="button" className="h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" onClick={() => void run(current.request)}>다시 시도</Button>
         </div>

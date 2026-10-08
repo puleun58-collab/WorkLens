@@ -235,12 +235,10 @@ test("AX registration → diagnosis → correction → matrix → plans → relo
     const center = (box: DOMRect) => ({ x: (box.left + box.right) / 2, y: (box.top + box.bottom) / 2 });
     const bubbles = [...document.querySelectorAll<HTMLElement>(".ax-bubble")].map(bubble => {
       const button = center(bubble.getBoundingClientRect());
-      const number = center(bubble.querySelector(".ax-bubble-number")!.getBoundingClientRect());
       const dot = center(bubble.querySelector(".ax-bubble-dot")!.getBoundingClientRect());
       return {
         xError: Math.abs(button.x - (chart.left + parseFloat(bubble.style.left) / 100 * chart.width)),
         yError: Math.abs(button.y - (chart.bottom - parseFloat(bubble.style.bottom) / 100 * chart.height)),
-        numberXError: Math.abs(number.x - button.x), numberYError: Math.abs(number.y - button.y),
         dotXError: Math.abs(dot.x - button.x), dotYError: Math.abs(dot.y - button.y),
       };
     });
@@ -267,8 +265,6 @@ test("AX registration → diagnosis → correction → matrix → plans → relo
   for (const bubble of matrix.bubbles) {
     expect(bubble.xError).toBeLessThanOrEqual(1.5);
     expect(bubble.yError).toBeLessThanOrEqual(1.5);
-    expect(bubble.numberXError).toBeLessThanOrEqual(1);
-    expect(bubble.numberYError).toBeLessThanOrEqual(1);
     expect(bubble.dotXError).toBeLessThanOrEqual(1);
     expect(bubble.dotYError).toBeLessThanOrEqual(1);
   }
@@ -395,7 +391,7 @@ test("AX registration → diagnosis → correction → matrix → plans → relo
   await expect.poll(() => record(page)).toEqual(saved);
   await page.reload(); await ax(page); await page.getByRole("tab", { name: "Claude Code", exact: true }).click(); await expect(page.getByRole("button", { name: "Claude Code용 지시문 복사", exact: true })).toBeVisible();
 });
-test("AX matrix markers stay numerically aligned on a 390px mobile viewport", async ({ page }) => {
+test("AX matrix markers retain rendered coordinates on a 390px mobile viewport", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
   const diagnosed = taskFixture("mobile-matrix", diagnosisFixture);
@@ -406,12 +402,10 @@ test("AX matrix markers stay numerically aligned on a 390px mobile viewport", as
     const center = (box: DOMRect) => ({ x: (box.left + box.right) / 2, y: (box.top + box.bottom) / 2 });
     const bubbles = [...document.querySelectorAll<HTMLElement>(".ax-bubble")].map(bubble => {
       const button = center(bubble.getBoundingClientRect());
-      const number = center(bubble.querySelector(".ax-bubble-number")!.getBoundingClientRect());
       const dot = center(bubble.querySelector(".ax-bubble-dot")!.getBoundingClientRect());
       return {
         xError: Math.abs(button.x - (chart.left + parseFloat(bubble.style.left) / 100 * chart.width)),
         yError: Math.abs(button.y - (chart.bottom - parseFloat(bubble.style.bottom) / 100 * chart.height)),
-        numberError: Math.max(Math.abs(number.x - button.x), Math.abs(number.y - button.y)),
         dotError: Math.max(Math.abs(dot.x - button.x), Math.abs(dot.y - button.y)),
       };
     });
@@ -434,7 +428,7 @@ test("AX matrix markers stay numerically aligned on a 390px mobile viewport", as
   expect(alignment.bubbles.length).toBeGreaterThan(0);
   for (const bubble of alignment.bubbles) {
     expect(bubble.xError).toBeLessThanOrEqual(1.5); expect(bubble.yError).toBeLessThanOrEqual(1.5);
-    expect(bubble.numberError).toBeLessThanOrEqual(1); expect(bubble.dotError).toBeLessThanOrEqual(1);
+    expect(bubble.dotError).toBeLessThanOrEqual(1);
   }
   for (const tick of [...alignment.yTicks, ...alignment.xTicks]) expect(tick.error).toBeLessThanOrEqual(1.5);
   expect(alignment.originXError).toBeLessThanOrEqual(1.5);
@@ -1083,8 +1077,7 @@ async function expectGuideTutorial(page: Page, panel: Locator, tool: "Codex" | "
   const terms = context.locator(".ax-tutorial-glossary");
   const trigger = terms.getByRole("button", { name: "용어 알아보기", exact: true });
   const basics = panel.getByRole("button", { name: /기본 명령/ });
-  const ignoreHelp = panel.getByRole("button", { name: /^\.gitignore란/ });
-  for (const detail of [trigger, basics, ignoreHelp]) await expect(detail).toHaveAttribute("aria-expanded", "false");
+  for (const detail of [trigger, basics]) await expect(detail).toHaveAttribute("aria-expanded", "false");
   await expect(trigger.locator(".lucide-book-open")).toHaveCount(1);
   await expect(trigger.locator(".ax-tutorial-terms-action > span:first-child")).toBeVisible();
   await expect(trigger.locator(".ax-tutorial-terms-action > span:last-child")).toBeHidden();
@@ -1100,11 +1093,10 @@ async function expectGuideTutorial(page: Page, panel: Locator, tool: "Codex" | "
   ]);
   expect(weights).toEqual(["700", "400"]);
   await panel.screenshot({ path: `artifacts/ax/setup-tutorial-terms-expanded-${screenshotName}.png` });
-  for (const detail of [basics, ignoreHelp]) await expect(detail).toHaveAttribute("aria-expanded", "false");
+  await expect(basics).toHaveAttribute("aria-expanded", "false");
   await basics.click();
   await expect(basics).toHaveAttribute("aria-expanded", "true");
   await expect(trigger).toHaveAttribute("aria-expanded", "true");
-  await expect(ignoreHelp).toHaveAttribute("aria-expanded", "false");
   await basics.click();
   await trigger.focus(); await page.keyboard.press("Space");
   await expect(trigger).toHaveAttribute("aria-expanded", "false");
@@ -1117,12 +1109,13 @@ async function expectGuideTutorial(page: Page, panel: Locator, tool: "Codex" | "
   const secretStep = panel.locator('.ax-guide-step[data-setup-step="6"]');
   await expect(secretStep.getByText(/실제 Secret 값을 Git뿐 아니라/)).toBeVisible();
   await expect(secretStep.getByText(/이미 노출된 Secret은/)).toBeVisible();
-  await ignoreHelp.click();
-  await expect(ignoreHelp).toHaveAttribute("aria-expanded", "true");
-  await expect(trigger).toHaveAttribute("aria-expanded", "false");
-  await expect(basics).toHaveAttribute("aria-expanded", "false");
-  await expect(secretStep.getByText(/이미 노출된 Secret은/)).toBeVisible();
-  await ignoreHelp.click();
+
+  await expect(secretStep.getByRole("heading", { name: ".gitignore란" })).toHaveCount(0);
+  await expect(secretStep.getByRole("button", { name: /^\.gitignore란/ })).toHaveCount(0);
+  for (const number of [5, 6, 7]) {
+    await toc.getByRole("button", { name: new RegExp(`STEP\\s*0?${number}\\b`) }).click();
+    await expect(panel.locator(`.ax-guide-step[data-setup-step="${number}"] > h4`)).toBeFocused();
+  }
 
   for (const number of [9, 3]) {
     await toc.getByRole("button", { name: new RegExp(`STEP\\s*0?${number}\\b`) }).click();
@@ -1550,8 +1543,17 @@ for (const width of [1440, 390]) test(`AX score evidence and all ranks update to
   await expect(panel.locator(".ax-score-result strong")).toHaveText(["4", "4"]);
   await expect(panel.locator(".ax-score-extra-list strong")).toHaveText(["2점", "2점"]);
   const details = panel.locator(".ax-score-details");
-  await expect(details).not.toHaveAttribute("open");
-  await details.locator("summary").click();
+  const factorToggle = details.getByRole("button", { name: "평가 근거 자세히 보기", exact: true });
+  await expect(factorToggle).toHaveAttribute("aria-expanded", "false");
+  await factorToggle.focus(); await factorToggle.press("Enter");
+  const factorCollapse = details.getByRole("button", { name: "평가 근거 접기", exact: true });
+  await expect(factorCollapse).toHaveAttribute("aria-expanded", "true");
+  const factorPanelId = await factorCollapse.getAttribute("aria-controls");
+  await expect(details.locator(`[id="${factorPanelId}"]`)).toBeVisible();
+  await factorCollapse.press("Space");
+  await expect(factorToggle).toHaveAttribute("aria-expanded", "false");
+  await factorToggle.locator("svg").click();
+  await expect(factorCollapse).toHaveAttribute("aria-expanded", "true");
   await expect(details.locator(".ax-score-factor")).toHaveCount(6);
   await expect(details.locator(".ax-score-factor").filter({ hasText: "반복성" })).toContainText("최종 적용 5점");
   await expect(details).toContainText("AI 제안 4점"); await expect(details).toContainText("확인 필요");
@@ -1566,7 +1568,7 @@ for (const width of [1440, 390]) test(`AX score evidence and all ranks update to
   await expect.poll(async () => (await record(page))?.tasks[0].diagnosis?.planCodex).toBeUndefined();
   expect((await record(page))?.tasks[1].diagnosis?.planClaude).toEqual(planFixture);
   await page.getByRole("tab", { name: "자동화 매트릭스", exact: true }).click();
-  const marker = page.locator(".ax-bubble").filter({ has: page.locator(".ax-bubble-number", { hasText: /^2$/ }) });
+  const marker = page.locator(".ax-bubble").and(page.getByRole("button", { name: new RegExp(`^${tasks[0].name} ·`) }));
   await expect(marker).toHaveAttribute("aria-label", new RegExp(`^${tasks[0].name} ·`));
   await expect(marker).toHaveAttribute("aria-pressed", "true");
   expect(await marker.evaluate(element => ({ x: (element as HTMLElement).style.left, y: (element as HTMLElement).style.bottom }))).toEqual({ x: "0%", y: "0%" });

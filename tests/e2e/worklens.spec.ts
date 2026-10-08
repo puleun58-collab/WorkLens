@@ -454,7 +454,6 @@ test("keeps multi-file Analyze confirmed metrics separated when the model abstai
   await page.getByRole("button", { name: "분석 실행" }).click();
 
   const panel = page.locator(".results-panel");
-  await expect(panel.getByRole("heading", { name: "분석 결과", exact: true })).toBeVisible();
   await expect(panel.locator(".result-status")).toHaveText("분석 완료");
   await expect(panel.locator(".result-status")).toHaveClass(/success/);
   await expect(panel).not.toContainText("ANALYZE RESULT");
@@ -614,9 +613,7 @@ test("surfaces FSC Analyze failure and then grounded relational insights with al
     const left = (selector: string) => root.querySelector(selector)!.getBoundingClientRect().left;
     const right = (selector: string) => root.querySelector(selector)!.getBoundingClientRect().right;
     return {
-      leftDrift: Math.abs(left(".result-heading h2") - left(".analysis-summary-section h3")),
       topicDrift: Math.abs(left(".analysis-summary-section h3") - left(".analysis-core-items-section h3")),
-      countDrift: Math.abs(right(".result-status") - right(".analysis-summary-section .subsection-heading span")),
       sourceDrift: Math.abs(right(".analysis-summary-section .source-action") - right(".analysis-core-items-section .source-action")),
     };
   });
@@ -840,7 +837,6 @@ test("runs deterministic Analyze, Check, Extract and export paths", async ({ pag
 
   await page.getByRole("button", { name: "분석 실행" }).click();
   await expect(page.locator(".results-panel .result-status")).toHaveText("분석 완료");
-  await expect(page.locator(".results-panel").getByRole("heading", { name: "분석 결과" })).toBeVisible();
   await expect(page.locator(".results-panel")).not.toContainText("기본 분석 세부 정보");
   await expect(page.locator(".results-panel .source-action").first()).toBeVisible();
   await page.locator(".results-panel .source-action").first().click();
@@ -1139,7 +1135,6 @@ test("presents text Polish as an immediate original-to-revision workflow", async
   await page.getByRole("button", { name: "윤문 실행" }).click();
 
   const result = page.locator(".polish-text-results");
-  await expect(result.getByRole("heading", { name: "윤문 결과", exact: true })).toBeVisible();
   await expect(result.getByText("POLISH RESULT", { exact: true })).toHaveCount(0);
   await expect(result.getByRole("heading", { name: "텍스트 윤문", exact: true })).toHaveCount(0);
   await expect(result.locator(".result-heading-meta")).toContainText("업무 문체");
@@ -1253,7 +1248,6 @@ test("presents text Polish as an immediate original-to-revision workflow", async
   await page.getByRole("radio", { name: "파일 윤문" }).check();
   await page.getByRole("button", { name: "윤문 실행" }).click();
   const fileResult = page.locator(".polish-results:not(.polish-text-results)");
-  await expect(fileResult.getByRole("heading", { name: "윤문 결과", exact: true })).toBeVisible();
   await expect(fileResult).not.toContainText("POLISH RESULT");
   await expect(fileResult).not.toContainText("문장 윤문");
 });
@@ -1877,7 +1871,6 @@ test("connects each Ask answer directly to its file and evidence", async ({ page
   await page.getByRole("button", { name: "질문 실행" }).click();
 
   const panel = page.locator(".results-panel");
-  await expect(panel.getByRole("heading", { name: "답변", exact: true })).toBeVisible();
   await expect(panel.locator(".result-status")).toHaveText("답변 완료");
   await expect(page.locator(".notice.success")).toHaveCount(0);
   await expect(panel).not.toContainText("ASK RESULT");
@@ -2261,7 +2254,6 @@ test("reviews PPTX writing, consistency and data findings with filters and exact
 
   const panel = page.locator(".results-panel");
   const overview = page.locator(".qa-overview");
-  await expect(panel.getByRole("heading", { name: "검수 결과", exact: true })).toHaveCount(1);
   await expect(panel).not.toContainText("문서 품질 검수");
   await expect(overview.locator(".qa-summary-line")).toContainText("중요");
   await expect(overview.locator(".qa-summary-line")).toContainText("주의");
@@ -2286,11 +2278,9 @@ test("reviews PPTX writing, consistency and data findings with filters and exact
   expect(await page.getByRole("button", { name: "용어 사전" }).evaluate((element) => getComputedStyle(element).borderTopWidth)).toBe("1px");
   await expect(page.locator(".check-filter-status")).toHaveCount(0);
 
-  // The result heading and file area define the outer grid. Summary, filter
-  // text, issue accent and dictionary share those edges without extra inset.
+  // Summary, filter text, issue accent and dictionary align to the file area.
   const edges = await page.evaluate(() => {
     const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
-    const heading = box(".result-heading");
     const fileArea = box(".file-list");
     const summary = box(".qa-overview");
     const line = box(".qa-summary-line");
@@ -2299,8 +2289,6 @@ test("reviews PPTX writing, consistency and data findings with filters and exact
     const card = box(".check-issue");
     const dictionary = box(".dictionary-trigger");
     return {
-      headingLeft: Math.round(heading.left),
-      headingRight: Math.round(heading.right),
       fileLeft: Math.round(fileArea.left),
       fileRight: Math.round(fileArea.right),
       summaryLeft: Math.round(summary.left),
@@ -2311,13 +2299,11 @@ test("reviews PPTX writing, consistency and data findings with filters and exact
       slack: Math.round(summary.right - line.right),
     };
   });
-  expect(edges.summaryLeft).toBe(edges.headingLeft);
-  expect(edges.filterLeft).toBe(edges.headingLeft);
-  expect(edges.cardLeft).toBe(edges.headingLeft);
-  expect(edges.fileLeft).toBe(edges.headingLeft);
-  expect(edges.dictionaryRight).toBe(edges.headingRight);
-  expect(edges.cardRight).toBe(edges.headingRight);
-  expect(edges.fileRight).toBe(edges.headingRight);
+  expect(edges.summaryLeft).toBe(edges.fileLeft);
+  expect(edges.filterLeft).toBe(edges.fileLeft);
+  expect(edges.cardLeft).toBe(edges.fileLeft);
+  expect(edges.dictionaryRight).toBe(edges.fileRight);
+  expect(edges.cardRight).toBe(edges.fileRight);
   expect(edges.slack).toBeLessThanOrEqual(16);
 
   const typo = page.locator(".check-issue").filter({ hasText: "한글 맞춤법 오류 가능성" });
@@ -2405,12 +2391,12 @@ test("reviews PPTX writing, consistency and data findings with filters and exact
   await expect(typo).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   const mobileEdges = await page.evaluate(() => ({
-    heading: document.querySelector(".result-heading")!.getBoundingClientRect().right,
+    fileArea: document.querySelector(".file-list")!.getBoundingClientRect().right,
     dictionary: document.querySelector(".dictionary-trigger")!.getBoundingClientRect().right,
     filters: document.querySelector(".check-filters-compact")!.scrollWidth,
     visibleFilters: document.querySelector(".check-filters-compact")!.clientWidth,
   }));
-  expect(Math.abs(mobileEdges.dictionary - mobileEdges.heading)).toBeLessThanOrEqual(1);
+  expect(Math.abs(mobileEdges.dictionary - mobileEdges.fileArea)).toBeLessThanOrEqual(1);
   expect(mobileEdges.filters).toBeGreaterThan(mobileEdges.visibleFilters);
   const mobileOrder = await typo.locator(".check-recommendation, .check-source").evaluateAll((nodes) =>
     nodes.map((node) => node.getBoundingClientRect().top));
@@ -3707,7 +3693,6 @@ test("aggregates workbooks into one XLSX result without profile-specific actions
     const background = (selector: string) => getComputedStyle(element.querySelector(selector) ?? element).backgroundColor;
     return {
       panel: getComputedStyle(element).backgroundColor,
-      heading: background(".result-heading"),
       toolbar: background(".aggregation-result-toolbar"),
       section: background(".aggregation-section"),
       sectionRadius: getComputedStyle(element.querySelector(".aggregation-section")!).borderRadius,
@@ -3717,7 +3702,6 @@ test("aggregates workbooks into one XLSX result without profile-specific actions
   });
   expect(surfaces).toEqual({
     panel: "rgba(0, 0, 0, 0)",
-    heading: "rgba(0, 0, 0, 0)",
     toolbar: "rgba(0, 0, 0, 0)",
     section: "rgba(0, 0, 0, 0)",
     sectionRadius: "0px",
@@ -3891,16 +3875,6 @@ test("보완 waits out a rate-limited re-check and still completes it, on deskto
     await expect(page.getByRole("button", { name: "보완 실행", exact: true })).toBeEnabled();
     await expect(page.getByText("일부 항목의 재확인을 완료하지 못했습니다.")).toHaveCount(0);
     await expect(page.locator(".supplement-results")).not.toContainText("의미 기반 재확인을 마치지 못했습니다");
-    // Title, summary text and the white meta box start on one line; nothing overflows.
-    const lines = await page.evaluate(() => {
-      const textLeft = (selector: string) => {
-        const range = document.createRange();
-        range.selectNodeContents(document.querySelector(selector)!);
-        return Math.round(range.getClientRects()[0].left);
-      };
-      return { title: textLeft(".results-panel h2"), filters: textLeft(".supplement-filters button"), box: Math.round(document.querySelector(".supplement-meta")!.getBoundingClientRect().left) };
-    });
-    expect(new Set(Object.values(lines)).size).toBe(1);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   }
 });

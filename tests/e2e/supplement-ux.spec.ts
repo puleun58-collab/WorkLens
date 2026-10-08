@@ -190,7 +190,6 @@ test("보완의 늦은 응답은 이동한 분석 화면에 보완 결과나 알
   await expect(page.getByRole("button", { name: "분석 실행", exact: true })).toBeEnabled();
   await expect(page.locator(".supplement-results")).toHaveCount(0);
   await expect(page.getByText("보완 항목을 확인했습니다.", { exact: true })).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "보완 결과", exact: true })).toHaveCount(0);
 });
 
 test("보완 35초 타임아웃은 세 번의 기존 시도 후 한계를 알리고 버튼을 복구한다", async ({ page }) => {

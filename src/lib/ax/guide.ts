@@ -183,9 +183,6 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
       ] }] },
     ] },
     { title: "STEP 6 · .gitignore / Secret 확인 후 Git 저장", purpose: "불필요한 파일과 Secret이 포함되지 않았는지 확인한 뒤 프로젝트 방식대로 커밋하고 푸시합니다.", sections: [
-      { title: ".gitignore란", blocks: [
-        text("GitHub에 올리면 안 되는 파일·저장할 필요 없는 파일을 제외하는 설정입니다. `git add` 전에 확인하면 Secret·불필요한 파일이 포함되는 것을 막을 수 있습니다."),
-      ] },
       { title: "기존 .gitignore 확인", blocks: [
         text(".gitignore가 있으면 덮어쓰지 않습니다. 기존 규칙을 유지하고 필요한 항목만 추가합니다. 새 프로젝트에 없으면 실제 스택을 확인한 뒤 기본 규칙을 만듭니다. 아래는 .gitignore에 적는 예시이며 PowerShell에서 실행하는 명령이 아닙니다."),
         code(["node_modules/", ".env", ".env.local", ".env.*.local", "dist/", "build/", ".next/", "*.log"], [

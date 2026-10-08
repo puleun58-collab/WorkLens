@@ -34,7 +34,6 @@ async function analyze(page: Page) {
   await navigateWorkspace(page, "분석");
   await page.getByRole("button", { name: "분석 실행" }).click();
   const panel = page.locator(".results-panel");
-  await expect(panel.getByRole("heading", { name: "분석 결과" })).toBeVisible();
   await expect(panel.locator(".result-status")).toHaveText(/분석 완료/u);
   return panel;
 }
