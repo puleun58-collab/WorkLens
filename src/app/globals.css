@@ -8498,14 +8498,6 @@ div.status-panel.error > strong { font-size: 14px; line-height: 1.5; }
   white-space: nowrap;
 }
 
-.workspace-delete-status {
-  display: block;
-  margin: calc(var(--space-4) * -1 + 4px) 0 var(--space-3);
-  color: var(--muted);
-  font-size: var(--font-size-xs);
-  text-align: right;
-}
-
 .file-row {
   display: grid;
   min-height: 88px;
@@ -8657,8 +8649,23 @@ div.status-panel.error > strong { font-size: 14px; line-height: 1.5; }
   .workspace > .operation-bar .extract-run { margin-left: auto; }
 }
 
-.context-bar.utility-bar.workspace-context { flex-wrap: wrap; }
-.context-bar.utility-bar.workspace-context .context-names { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+.context-bar.utility-bar { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; column-gap: 12px; }
+.context-bar.utility-bar .context-names { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+.workspace-header-actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
+.workspace-search-trigger { width: 240px; justify-content: flex-start; color: var(--ink-soft); background: var(--paper); border-color: var(--line-soft); box-shadow: none; }
+.workspace-search-trigger::before { box-shadow: none; }
+.workspace-search-shortcut { margin-left: auto; }
+.workspace-delete-status { display: flex; width: 90px; flex-shrink: 0; justify-content: flex-end; align-items: center; min-height: 20px; color: var(--ink-soft); font-size: var(--font-size-sm); white-space: nowrap; }
+.workspace-delete-status > span { display: inline-flex; align-items: center; gap: 6px; }
+.workspace-delete-status svg { width: 14px; height: 14px; color: var(--success-foreground); }
+@media (max-width: 700px) {
+  .context-bar.utility-bar { grid-template-columns: minmax(0, 1fr) auto; }
+  .utility-bar .context-names { grid-column: 1 / -1; grid-row: 2; }
+  .workspace-header-actions { grid-column: 2; grid-row: 1; }
+  .workspace-search-trigger { width: 44px; height: calc(var(--font-size-lg) * var(--leading-base)); padding: 0; justify-content: center; }
+  .workspace-search-trigger::after { content: ""; position: absolute; min-height: 44px; width: 44px; }
+  .workspace-search-label, .workspace-search-shortcut { display: none; }
+}
 
 .polish-input-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; width: 100%; min-width: 0; }
 .polish-input-row .operation-actions { margin: 0 0 0 auto; width: auto; }

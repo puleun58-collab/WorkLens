@@ -155,6 +155,7 @@ const GUIDES: Guide[] = [
       { title: "페이지 정리", text: "끌어서 순서를 바꾸고 회전·삭제합니다.", mini: <span className="mini-pages">{[1, 2, 3].map((page) => <span key={page} className={page === 2 ? "is-mark" : undefined}>{page}</span>)}</span> },
       { title: "완성본 저장", text: "PDF, JPG, PNG 중 형식을 골라 저장합니다.", mini: <Run label="저장" before={<Segments items={["PDF", "JPG", "PNG"]} active={0} />} /> },
     ],
+    tip: "파일을 읽는 동안 진행 개수와 파일명을 표시합니다. 다른 메뉴로 이동하면 불러오기를 중단하고 PDF 도구의 편집 작업을 정리합니다. 편집 내용을 유지하려면 화면을 이동하기 전에 결과를 저장하세요.",
   },
   {
     id: "image", label: "이미지 도구", summary: "이미지를 편집하거나 여러 장을 결합해 내보냅니다.",
@@ -190,6 +191,7 @@ export function UsageGuide() {
 
   return (
     <section className="usage-guide" aria-label="사용 가이드">
+      <p className="usage-guide-text">모든 화면의 헤더 오른쪽에서 ‘메뉴·기능 검색’을 누르거나 Ctrl/⌘ K를 눌러 기능을 찾습니다. 모바일에서는 돋보기 버튼을 사용하세요. 검색 결과를 선택하면 해당 화면으로 이동하고, Escape로 닫으면 검색을 열었던 위치로 돌아갑니다. 파일 삭제가 성공하면 검색 버튼 왼쪽의 ‘삭제 완료’가 3초간 표시됩니다.</p>
       <Tabs value={active} onValueChange={(value) => setActive(String(value))}>
       <TabsList className="usage-guide-tabs max-w-full" aria-label="기능 선택" variant="underline" activateOnFocus>
         {GUIDES.map((entry) => <TabsTab key={entry.id} value={entry.id}>{entry.label}</TabsTab>)}

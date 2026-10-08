@@ -2067,6 +2067,68 @@ test("PDF editor composes reordered, rotated and deleted pages into real files",
   expect(errors).toEqual([]);
 });
 
+for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+  test(`PDF import keeps progress, ignores duplicate input and aborts safely on exit at ${viewport.width}px`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await page.addInitScript(() => {
+      const read = File.prototype.arrayBuffer;
+      File.prototype.arrayBuffer = async function () {
+        if (this.name.startsWith("slow")) {
+          Reflect.set(window, "pdfReads", Number(Reflect.get(window, "pdfReads") ?? 0) + 1);
+          await new Promise<void>(resolve => { Reflect.set(window, "releasePdfRead", resolve); });
+        }
+        const bytes = await read.call(this);
+        if (this.name.startsWith("slow")) Reflect.set(window, "pdfReadsFinished", Number(Reflect.get(window, "pdfReadsFinished") ?? 0) + 1);
+        return bytes;
+      };
+    });
+    const errors: string[] = [];
+    page.on("pageerror", error => errors.push(error.message));
+    await page.goto("/");
+    await navigateWorkspace(page, "PDF 도구");
+    const bytes = Buffer.from(await createPdf(["PDF import lifecycle"]));
+    const input = page.getByLabel("PDF 파일 선택");
+    await input.setInputFiles([{ name: "slow.pdf", mimeType: "application/pdf", buffer: bytes }, { name: "second.pdf", mimeType: "application/pdf", buffer: bytes }]);
+    const progress = page.locator(".pdf-tool > .pdf-tool-notice[role=status]");
+    await expect(progress).toContainText("파일 1/2 읽는 중 · slow.pdf");
+    await expect(page.getByRole("button", { name: "추가 취소", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "PDF 추가", exact: true })).toBeDisabled();
+    await input.setInputFiles({ name: "ignored.pdf", mimeType: "application/pdf", buffer: bytes });
+    await expect.poll(() => page.evaluate(() => Reflect.get(window, "pdfReads"))).toBe(1);
+    await page.screenshot({ path: `artifacts/pdf-upload-progress-${viewport.width}.png` });
+    await page.evaluate(() => {
+      const release = Reflect.get(window, "releasePdfRead");
+      if (typeof release !== "function") throw new Error("PDF import did not reach the read boundary");
+      release();
+    });
+    await expect(page.locator(".pdf-tool-page")).toHaveCount(2);
+    await expect(progress).toHaveCount(0);
+    await expect(page.getByLabel("불러온 PDF")).not.toContainText("ignored.pdf");
+    await input.setInputFiles({ name: "broken.pdf", mimeType: "application/pdf", buffer: Buffer.from("not a PDF") });
+    await expect(page.locator(".pdf-tool-notice-error")).toContainText("broken.pdf");
+    await expect(page.locator(".pdf-tool-page")).toHaveCount(2);
+    await expect(page.getByRole("button", { name: "PDF 추가", exact: true })).toBeEnabled();
+    await input.setInputFiles({ name: "slow-exit.pdf", mimeType: "application/pdf", buffer: bytes });
+    await expect(progress).toContainText("파일 1/1 읽는 중 · slow-exit.pdf");
+    await expect.poll(() => page.evaluate(() => Reflect.get(window, "pdfReads"))).toBe(2);
+    await navigateWorkspace(page, "분석");
+    await page.evaluate(() => {
+      const release = Reflect.get(window, "releasePdfRead");
+      if (typeof release !== "function") throw new Error("PDF import did not reach the read boundary");
+      release();
+    });
+    await expect.poll(() => page.evaluate(() => Reflect.get(window, "pdfReadsFinished"))).toBe(2);
+    await expect(page.locator(".pdf-tool")).toHaveCount(0);
+    await navigateWorkspace(page, "PDF 도구");
+    await expect(page.locator(".pdf-tool-page, .pdf-tool-notice")).toHaveCount(0);
+    await input.setInputFiles({ name: "fresh.pdf", mimeType: "application/pdf", buffer: bytes });
+    await expect(page.locator(".pdf-tool-page")).toHaveCount(1);
+    await expect(progress).toHaveCount(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    expect(errors).toEqual([]);
+  });
+}
+
 test("PDF export keeps the byte-identical text original when compression does not shrink it", async ({ page }) => {
   await page.goto("/");
   await navigateWorkspace(page, "PDF 도구");
@@ -2596,3 +2658,69 @@ test("review provenance direct snapshots, presentation and pending race", async 
   await expect(stale).toHaveCount(0);
   await expect(page.getByRole("button", { name: "다시 시도" })).toHaveCount(0);
 });
+
+for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+  test(`shared header search preserves palette navigation and focus at ${viewport.width}px`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    const errors: string[] = [];
+    page.on("pageerror", error => errors.push(error.message));
+    await page.goto("/");
+    await expect(page.locator(".app-shell")).toHaveAttribute("data-hydrated", "true");
+    const trigger = page.getByRole("button", { name: "메뉴·기능 검색", exact: true });
+    const dialog = page.getByRole("dialog", { name: "작업 공간 기능 검색" });
+    const input = dialog.getByRole("combobox", { name: "기능 검색" });
+    for (const category of ["분석", "질문", "비교", "검수", "보완", "윤문", "추출", "취합", "법령", "PDF 도구", "이미지 도구", "업무 자동화 진단", "Guide", "Dictionary", "Settings"]) {
+      await navigateWorkspace(page, category);
+      const header = page.locator(".context-bar");
+      const before = await header.evaluate(element => {
+        const box = element.getBoundingClientRect();
+        const search = element.querySelector(".workspace-search-trigger")!.getBoundingClientRect();
+        const title = element.querySelector("h1")!.getBoundingClientRect();
+        const description = element.querySelector(".context-names")!.getBoundingClientRect();
+        return { height: box.height, width: box.width, searchX: search.x - box.x, searchY: search.y - box.y,
+          titleX: title.x - box.x, titleY: title.y - box.y, descriptionX: description.x - box.x, descriptionY: description.y - box.y };
+      });
+      await trigger.click();
+      await expect(dialog).toHaveCount(1);
+      await expect(input).toBeFocused();
+      await input.fill("설정");
+      await expect(dialog.getByRole("option", { name: "설정", exact: true })).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(dialog).not.toBeVisible();
+      await expect(trigger).toBeFocused();
+      expect(await header.evaluate(element => {
+        const box = element.getBoundingClientRect();
+        const search = element.querySelector(".workspace-search-trigger")!.getBoundingClientRect();
+        const title = element.querySelector("h1")!.getBoundingClientRect();
+        const description = element.querySelector(".context-names")!.getBoundingClientRect();
+        return { height: box.height, width: box.width, searchX: search.x - box.x, searchY: search.y - box.y,
+          titleX: title.x - box.x, titleY: title.y - box.y, descriptionX: description.x - box.x, descriptionY: description.y - box.y };
+      })).toEqual(before);
+      if (["법령", "PDF 도구", "이미지 도구", "업무 자동화 진단", "Guide", "Dictionary", "Settings"].includes(category)) {
+        await expect(header.locator(".workspace-delete-status")).toHaveCount(0);
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    }
+    await trigger.focus();
+    await page.keyboard.press("Control+k");
+    await expect(input).toBeFocused();
+    await input.fill("PDF");
+    await page.keyboard.press("Enter");
+    await expect(page.locator(".context-bar h1")).toHaveText("PDF 도구");
+    await expect(dialog).not.toBeVisible();
+    await expect(trigger).toBeFocused();
+    await page.keyboard.press("Meta+k");
+    await expect(input).toBeFocused();
+    await expect(input).toHaveValue("");
+    await input.fill("설정");
+    await dialog.getByRole("option", { name: "설정", exact: true }).click();
+    await expect(page.locator(".context-bar h1")).toHaveText("설정");
+    await expect(dialog).not.toBeVisible();
+    await trigger.click();
+    await expect(input).toHaveValue("");
+    await page.keyboard.press("Escape");
+    await expect(trigger).toBeFocused();
+    await page.screenshot({ path: `artifacts/shared-header-search-${viewport.width}.png` });
+    expect(errors).toEqual([]);
+  });
+}
