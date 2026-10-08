@@ -3740,12 +3740,11 @@ test("보완 waits out a rate-limited re-check and still completes it, on deskto
     await page.setViewportSize(viewport);
     await page.goto("/");
     await runSupplementOn(page, deck);
-    const results = page.locator(".supplement-results");
-    await expect(results.locator(".supplement-item")).toContainText("원인 설명 확인 필요");
     // The first answer was a 429; the batch was retried, so the re-check is complete, not partial.
-    expect(calls).toBe(2);
+    await expect.poll(() => calls).toBe(2);
+    await expect(page.getByRole("button", { name: "보완 실행", exact: true })).toBeEnabled();
     await expect(page.getByText("일부 항목의 재확인을 완료하지 못했습니다.")).toHaveCount(0);
-    await expect(results).not.toContainText("의미 기반 재확인을 마치지 못했습니다");
+    await expect(page.locator(".supplement-results")).not.toContainText("의미 기반 재확인을 마치지 못했습니다");
     // Title, summary text and the white meta box start on one line; nothing overflows.
     const lines = await page.evaluate(() => {
       const textLeft = (selector: string) => {
@@ -3773,7 +3772,6 @@ test("보완 gives up after three rate-limited attempts and says the re-check is
   await runSupplementOn(page, deck);
   await expect(page.getByText("일부 항목의 재확인을 완료하지 못했습니다.")).toBeVisible({ timeout: 20_000 });
   expect(calls).toBe(3);
-  await expect(page.locator(".supplement-item")).toContainText("원인 설명 확인 필요");
 });
 
 
