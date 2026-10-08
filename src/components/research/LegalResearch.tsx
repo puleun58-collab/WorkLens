@@ -941,7 +941,7 @@ function ResearchResult({ data, request, expandSources = false, onExpandSourcesC
         </details>;
       })}
     </section>}
-    <details className="law-detail-source research-source" open={expandSources}>
+    <details className="law-detail-source research-source" open={full ? undefined : expandSources}>
       <SourceToggleSummary label="출처 원문 전체 보기" openLabel="출처 원문 접기" />
       <p className="research-meta">법제처에서 받은 원문 그대로입니다. 인용 전에 시행 시점을 대조해 주세요.</p>
       <LawTextBlock className="legal-analysis-raw" text={readerText(data.text)} />

@@ -60,10 +60,15 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
         await expect(sections.nth(1).locator(".research-hits")).not.toContainText("퇴직금 근거 원문 마지막 문장");
         await expect(sections.nth(1).locator(".research-hits")).toContainText("② 원문 마지막 항도 그대로 확인한다.");
       }
+      const rawSource = output.locator(".research-source");
+      await rawSource.locator("summary").click();
+      const rawOpen = await rawSource.evaluate((element) => (element as HTMLDetailsElement).open);
       await output.getByRole("button", { name: "근거 펼치기", exact: true }).click();
       await expect(output.locator(".research-issue-refs[open]")).toHaveCount(Math.min(count, 3));
+      expect(await rawSource.evaluate((element) => (element as HTMLDetailsElement).open)).toBe(rawOpen);
       await output.getByRole("button", { name: "근거 접기", exact: true }).click();
       await expect(output.locator(".research-issue-refs[open]")).toHaveCount(0);
+      expect(await rawSource.evaluate((element) => (element as HTMLDetailsElement).open)).toBe(rawOpen);
       if (count === 5) {
         await expect(sections.nth(3)).toHaveAttribute("data-status", "failed");
         await expect(sections.nth(4)).toHaveAttribute("data-status", "timeout");
