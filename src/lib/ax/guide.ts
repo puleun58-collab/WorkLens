@@ -22,15 +22,14 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
   const guide = TOOL_GUIDES[tool];
   return [
     { title: "시작하기 전에 · 전체 흐름", purpose: `${guide.name}로 작업을 시작하기 전 준비부터 Production 확인까지의 전체 흐름을 살펴봅니다.`, sections: [
-      { title: "한눈에 보기", blocks: [{ kind: "steps", items: [
-        "처음 준비", "프로젝트 열기", `${guide.name} 실행`, "올인원 지시문", "작업 결과 확인",
-        ".gitignore/Secret 확인", "Git 저장", "CI/PR 확인", "Vercel 또는 Cloudflare 배포", "Production 확인",
-      ] }] },
-      { title: "처음 한 번만 준비 / 작업할 때마다", blocks: [
-        text("Git·GitHub 인증·AI 도구 설치는 STEP 1에서 처음 한 번만 준비합니다. 설치는 처음 한 번만, 매번 반복하지 않습니다. 작업할 때마다 STEP 2부터 진행합니다."),
+      { title: "처음 시작할 때", blocks: [
+        text(`STEP 01에서 Git·GitHub 인증과 ${guide.name} 설치 여부를 확인하고 필요한 것만 처음 한 번 준비합니다. 이미 설치되어 있으면 해당 설치는 건너뜁니다.`),
         text("Codex와 Claude Code 중 하나만 사용하면 됩니다. 두 개 다 설치할 필요는 없습니다."),
       ] },
-      { title: "자주 나오는 용어", collapsed: true, listStyle: "bullets", blocks: [{ kind: "steps", items: [
+      { title: "이후 작업할 때", blocks: [
+        text("이후 작업할 때는 STEP 02부터 프로젝트를 열고 진행합니다. 설치 단계를 매번 반복하지 않습니다."),
+      ] },
+      { title: "용어 알아보기", collapsed: true, blocks: [{ kind: "steps", items: [
         "저장소(Repository): 프로젝트 파일과 변경 기록을 모아 둔 곳입니다.",
         "브랜치(Branch): 다른 작업과 나누어 변경을 진행하는 작업 갈래입니다.",
         "커밋(Commit): 변경 내용을 설명과 함께 Git에 기록하는 단위입니다.",

@@ -31,12 +31,17 @@
   background: var(--paper);
 }
 
-.supplement-meta > div,
-.supplement-fields > div {
+.supplement-meta > div {
   display: grid;
   grid-template-columns: 128px minmax(0, 1fr);
   gap: var(--space-3);
   align-items: baseline;
+}
+
+.supplement-fields > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 3px;
 }
 
 .supplement-meta dt,
@@ -141,7 +146,7 @@
 .supplement-item-head h3 {
   margin: 0;
   color: var(--ink);
-  font-size: var(--font-size-md);
+  font-size: 1rem;
 }
 
 .supplement-file {
@@ -151,7 +156,6 @@
 }
 
 .supplement-message {
-  margin: 0;
   color: var(--ink-soft);
   font-size: var(--font-size-sm);
   overflow-wrap: anywhere;
@@ -163,18 +167,21 @@
   margin: 0;
 }
 
-.supplement-fields > .supplement-explanation {
-  grid-template-columns: minmax(0, 1fr);
-}
-
 .supplement-explanation dd {
   display: grid;
   gap: var(--space-1);
-  color: var(--muted);
+  color: var(--ink-soft);
+  line-height: 1.55;
 }
 
-.supplement-explanation p {
+.supplement-explanation dd > p {
   margin: 0;
+}
+
+.supplement-additions dd {
+  color: var(--ink);
+  font-weight: 600;
+  line-height: 1.55;
 }
 
 .supplement-fields ul {
@@ -191,6 +198,44 @@
   gap: var(--space-2) var(--space-3);
 }
 
+.supplement-location > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.supplement-original {
+  min-width: 0;
+  font-size: var(--font-size-sm);
+}
+
+.supplement-original summary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  width: fit-content;
+  color: var(--ink-soft);
+  cursor: pointer;
+  list-style: none;
+}
+
+.supplement-original summary::-webkit-details-marker { display: none; }
+.supplement-original summary svg { width: 16px; height: 16px; flex: none; transition: transform .15s ease; }
+.supplement-original[open] summary svg { transform: rotate(180deg); }
+.supplement-original summary:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+
+.supplement-original .supplement-fields {
+  margin-top: var(--space-2);
+}
+
+.supplement-original .supplement-note {
+  margin-top: var(--space-2);
+}
+
+.supplement-original q,
+.supplement-original .supplement-location {
+  overflow-wrap: anywhere;
+}
+
 .supplement-limitation {
   margin: 0;
   color: var(--warning);
@@ -202,8 +247,7 @@
     padding-inline: var(--space-4);
   }
 
-  .supplement-meta > div,
-  .supplement-fields > div {
+  .supplement-meta > div {
     grid-template-columns: minmax(0, 1fr);
     gap: 2px;
   }

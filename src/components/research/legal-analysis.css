@@ -77,8 +77,9 @@ p.research-meta { margin: 0; }
 .research-supporting .law-detail-source { margin-bottom: 0; }
 .research-supporting .legal-analysis-raw { margin: 8px 0 12px; }
 .legal-research .contract-review { gap: 22px; }
-.contract-review :is(.contract-review-overview, .contract-review-summary, .contract-review-results, .contract-review-details) > h3 {
-  color: var(--blue-active); font-size: var(--font-size-md); font-weight: var(--font-weight-semibold); letter-spacing: -.015em;
+.contract-review :is(.contract-review-overview, .contract-review-summary, .contract-review-results, .contract-review-details) > h3,
+.contract-review .contract-review-details-heading > h3 {
+  margin: 0; color: var(--blue-active); font-size: var(--font-size-md); font-weight: var(--font-weight-semibold); letter-spacing: -.015em;
 }
 .contract-review-overview, .contract-review-summary { gap: 10px; }
 .contract-review-summary { padding-top: 18px; border-top: 1px solid var(--line-soft, var(--line)); }
@@ -88,7 +89,7 @@ p.research-meta { margin: 0; }
 .contract-review-count strong { margin: 0 2px 0 4px; color: var(--ink); font-size: var(--font-size-lg); font-weight: var(--font-weight-bold); font-variant-numeric: tabular-nums; }
 .contract-review-count[data-severity="high"] strong { color: var(--critical); }
 .contract-review-results, .contract-review-details { gap: 12px; padding-top: 20px; border-top: 1px solid var(--line-soft, var(--line)); }
-.contract-review-expand { justify-self: start; }
+.contract-review-details-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px 12px; min-width: 0; }
 .contract-review-clause { gap: 14px; padding: 20px 0 8px; border-top: 1px solid var(--line-soft, var(--line)); }
 .contract-review-clause-head, .contract-review-issue-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0; }
 .contract-review-clause-head { justify-content: space-between; }
@@ -111,6 +112,9 @@ p.research-meta { margin: 0; }
 .contract-review-evidence-button { color: var(--blue-active); }
 .contract-review-source { margin: 0; }
 .contract-review-source .source-toggle { padding: 6px 2px; color: var(--ink-soft); font-size: var(--font-size-xs); font-weight: var(--font-weight-medium); }
+/* Per-item evidence rows are secondary controls inside an already-divided section: no second rule. */
+.law-detail-source:is(.contract-review-refs, .research-issue-refs) > .source-toggle { padding: 6px 2px; border-bottom: 0; color: var(--ink-soft); font-size: var(--font-size-xs); font-weight: var(--font-weight-medium); }
+.contract-review-refs + .contract-review-refs { margin-top: 2px; }
 .contract-review-source > .contract-review-facts { margin-top: 8px; }
 .contract-review-facts { display: grid; grid-template-columns: minmax(96px, 140px) minmax(0, 1fr); gap: 5px 12px; margin: 0; font-size: var(--font-size-sm); line-height: 1.65; }
 .contract-review-facts dt { color: var(--muted); }
@@ -248,14 +252,18 @@ p.research-meta { margin: 0; }
 .legal-research .research-issue-nav ol { display: flex; flex-wrap: wrap; gap: 4px 8px; margin: 0; padding: 0; list-style: none; }
 .legal-research .research-issue-nav li { min-width: 0; max-width: 100%; }
 .legal-research .research-issue-nav button { height: auto; max-width: 100%; justify-content: flex-start; white-space: normal; text-align: left; overflow-wrap: anywhere; }
-.legal-research .research-issue-number { flex-shrink: 0; margin-right: 10px; color: var(--muted); font-weight: var(--font-weight-semibold); font-variant-numeric: tabular-nums; }
-.legal-research .research-expand { justify-self: start; }
-.legal-research .research-selected > .research-issue-evidence { display: grid; gap: 12px; padding: 20px 0; min-width: 0; scroll-margin-top: calc(64px + var(--space-4)); transition: background-color .35s ease, box-shadow .35s ease; }
+.legal-research .research-issue-number { flex-shrink: 0; margin-right: 10px; color: var(--blue); font-weight: var(--font-weight-semibold); font-variant-numeric: tabular-nums; }
+.legal-research .research-evidence-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px 12px; min-width: 0; }
+.legal-research .research-evidence-heading > h3 { margin: 0; font-size: var(--font-size-md); font-weight: var(--font-weight-semibold); letter-spacing: -.015em; }
+.legal-research :is(.research-expand, .contract-review-expand) { margin-left: auto; color: var(--ink-soft); font-weight: var(--font-weight-medium); }
+.legal-research :is(.research-expand, .contract-review-expand) svg { width: 14px; height: 14px; transition: transform .15s ease; }
+.legal-research :is(.research-expand, .contract-review-expand)[aria-pressed="true"] svg { transform: rotate(180deg); }
+.legal-research .research-selected > .research-issue-evidence { display: grid; gap: 9px; padding: 16px 0; min-width: 0; scroll-margin-top: calc(64px + var(--space-4)); transition: background-color .35s ease, box-shadow .35s ease; }
 .legal-research .research-selected > .research-issue-evidence > h3 { display: flex; align-items: baseline; margin: 0; font-size: var(--font-size-md); font-weight: var(--font-weight-semibold); line-height: 1.55; overflow-wrap: anywhere; }
-.legal-research .research-issue-findings { display: grid; gap: 10px; margin: 0; }
-.legal-research .research-issue-findings > div { display: grid; grid-template-columns: minmax(90px, 110px) minmax(0, 1fr); gap: 8px 14px; }
+.legal-research .research-issue-findings { display: grid; gap: 7px; margin: 0; }
+.legal-research .research-issue-findings > div { display: grid; grid-template-columns: minmax(90px, 110px) minmax(0, 1fr); gap: 6px 14px; }
 .legal-research .research-issue-findings dt { color: var(--muted); font-size: var(--font-size-xs); font-weight: var(--font-weight-semibold); }
-.legal-research .research-issue-findings dd { min-width: 0; margin: 0; line-height: 1.7; font-size: var(--font-size-sm); overflow-wrap: anywhere; }
+.legal-research .research-issue-findings dd { min-width: 0; margin: 0; line-height: 1.65; font-size: var(--font-size-sm); overflow-wrap: anywhere; }
 .legal-research .research-issue-findings .research-issue-status::before { content: none; }
 .legal-research .research-issue-refs { min-width: 0; margin: 0; }
 .legal-research .research-issue-evidence.is-focused { border-radius: var(--radius-panel); background: var(--blue-soft); box-shadow: inset 0 0 0 1px var(--blue-border); }

@@ -2,7 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
-import { Info } from "lucide-react";
+import { ChevronDown, Info } from "lucide-react";
 import type { SourceRef } from "@/domain/document";
 import {
   SUPPLEMENT_DOC_TYPE_LABELS,
@@ -15,6 +15,40 @@ import {
 import "./supplement.css";
 
 const SEVERITIES: readonly SupplementSeverity[] = ["critical", "warning", "suggestion"];
+const CHECK_TITLES: Record<SupplementResult["findings"][number]["check"], string> = {
+  baseline: "비교 기준 미확인",
+  cause: "원인 미확인",
+  impact: "영향 설명 미확인",
+  response: "대응 내용 미확인",
+  owner: "담당자 미확인",
+  schedule: "완료 시점 미확인",
+  scope: "구체 대상·범위 미확인",
+  budget: "비용 정보 미확인",
+  conclusion: "결론 근거 미확인",
+  target: "목표/예산 기준 미확인",
+  period: "기준 기간 미확인",
+  unit: "단위 미확인",
+};
+
+function findingTitle(finding: SupplementResult["findings"][number]): string {
+  // Report-only information exists elsewhere; conflicting explanations are not
+  // missing either. Preserve those and optional suggestion titles.
+  if (finding.severity === "suggestion" || finding.scope !== "all") return finding.title;
+  if (finding.check === "cause") {
+    const verb = /주요\s*(증가|감소)\s*원인 설명/u.exec(finding.message)?.[1];
+    if (verb) return `${verb} 원인 미확인`;
+  }
+  return CHECK_TITLES[finding.check];
+}
+
+function informativeReason(message: string, reason: string): string {
+  const concise = reason.trim();
+  const context = message.trim();
+  if (!concise || (context && (context.includes(concise) || concise.includes(context)))) return "";
+  if (/보고받는 사람이 .*원인을 물을 가능성|보고받는 사람은 후속 조치를 먼저 확인/u.test(concise)) return "";
+  return concise;
+}
+
 
 /**
  * 보완 result body. Findings read top-down by importance; the questions a
@@ -140,55 +174,65 @@ export function SupplementResults({ result, fileNames, renderSource }: {
                     <p>{scope === "report" ? "다른 자료에는 있지만 핵심 보고자료에서는 확인하기 어려운 내용입니다." : "업로드한 자료 전체를 확인해도 찾지 못했거나 자료 간 설명이 다른 내용입니다."}</p>
                   </header>
                 ) : null}
-                {items.map((finding) => (
-                  <article key={finding.id} className={`supplement-item check-issue severity-${finding.severity}`}>
+                {items.map((finding) => {
+                  const reason = informativeReason(finding.message, finding.reason);
+                  const hasOriginal = Boolean(finding.current || finding.locations.length || finding.evidence?.length || finding.evidenceLocations?.length || finding.linkNote);
+                  return (
+                    <article key={finding.id} className={`supplement-item check-issue severity-${finding.severity}`}>
                     <header className="supplement-item-head">
                       <span className="check-severity"><i className={`severity-mark ${finding.severity}`} aria-hidden="true" />{SUPPLEMENT_SEVERITY_LABELS[finding.severity]}</span>
-                      <h3>{finding.severity === "warning" ? finding.title.replace(/\s*확인 필요$/, "") || finding.title : finding.title}</h3>
+                      <h3>{findingTitle(finding)}</h3>
                     </header>
                     <dl className="supplement-fields">
-                      {finding.current ? <div>
-                        <dt>현재 자료</dt>
-                        <dd><q>{finding.current}</q></dd>
-                      </div> : null}
-                      {finding.additions.length > 0 ? <div>
-                        <dt>{finding.scope === "report" ? "확인된 내용" : finding.severity === "suggestion" ? "추가하면 좋은 정보" : "필요한 정보"}</dt>
+                      {finding.additions.length > 0 ? <div className="supplement-additions">
+                        <dt>{finding.scope === "report" ? "확인된 내용" : finding.severity === "suggestion" ? "추가하면 좋은 정보" : "확인할 정보"}</dt>
                         <dd><ul className="supplement-readable-list" role="list">{finding.additions.map((addition) => <li key={addition}><span className="supplement-list-marker" aria-hidden="true">•</span><span>{addition}</span></li>)}</ul></dd>
                       </div> : null}
-                      {finding.message || finding.reason ? <div className="supplement-explanation">
-                        <dt className="sr-only">확인 이유</dt>
+                      {finding.message || reason ? <div className="supplement-explanation">
+                        <dt>{finding.scope === "conflict" ? "무엇이 다른가" : "확인 이유"}</dt>
                         <dd>
                           {finding.message ? <p className="supplement-message">{finding.message}</p> : null}
-                          {finding.reason && finding.reason !== finding.message ? <p>{finding.reason}</p> : null}
+                          {reason ? <p>{reason}</p> : null}
                         </dd>
                       </div> : null}
-                      {finding.locations.length > 0 || finding.sources.length > 0 ? <div>
-                        <dt>{finding.scope === "report" ? "보완 대상" : "원문 위치"}</dt>
-                        <dd className="supplement-location">
-                          {finding.locations.length > 0 ? <span>{finding.locations.join(", ")}</span> : null}
-                          {finding.sources.length > 0 ? renderSource(finding.sources, { issue: finding.title, recommendation: finding.additions.join(", ") }) : null}
-                        </dd>
-                      </div> : null}
-                      {finding.evidence?.length || finding.evidenceLocations?.length ? (
-                        <div>
-                          <dt>{finding.scope === "conflict" ? "자료별 설명" : "관련 근거"}</dt>
-                          <dd className="supplement-location">
-                            {finding.evidenceLocations?.length ? <span>{finding.evidenceLocations.join(", ")}</span> : null}
-                            {finding.evidence?.length ? renderSource(finding.evidence, { issue: finding.title, recommendation: "" }) : null}
-                          </dd>
-                        </div>
-                      ) : null}
                       {finding.question && !result.questions.includes(finding.question) ? (
                         <div>
                           <dt>예상 질문</dt>
                           <dd>{finding.question}</dd>
                         </div>
                       ) : null}
+                      {finding.sources.length > 0 ? <div className="supplement-source">
+                        <dt>근거</dt>
+                        <dd>{renderSource(finding.sources, { issue: finding.title, recommendation: finding.additions.join(", ") })}</dd>
+                      </div> : null}
                     </dl>
-                    {finding.linkNote ? <p className="supplement-note">{finding.linkNote}</p> : null}
+                    {hasOriginal ? <details className="supplement-original">
+                      <summary>현재 자료 및 원문 위치 보기<ChevronDown aria-hidden="true" /></summary>
+                      <dl className="supplement-fields">
+                        {finding.current ? <div>
+                          <dt>현재 자료</dt>
+                          <dd><q>{finding.current}</q></dd>
+                        </div> : null}
+                        {finding.locations.length > 0 ? <div>
+                          <dt>{finding.scope === "report" ? "보완 대상" : "원문 위치"}</dt>
+                          <dd className="supplement-location"><span>{finding.locations.join(", ")}</span></dd>
+                        </div> : null}
+                        {finding.evidence?.length || finding.evidenceLocations?.length ? (
+                          <div>
+                            <dt>{finding.scope === "conflict" ? "자료별 설명" : "관련 근거"}</dt>
+                            <dd className="supplement-location">
+                              {finding.evidenceLocations?.length ? <span>{finding.evidenceLocations.join(", ")}</span> : null}
+                              {finding.evidence?.length ? renderSource(finding.evidence, { issue: finding.title, recommendation: "" }) : null}
+                            </dd>
+                          </div>
+                        ) : null}
+                      </dl>
+                      {finding.linkNote ? <p className="supplement-note">{finding.linkNote}</p> : null}
+                    </details> : null}
                     {finding.limitation ? <p className="supplement-limitation">{finding.limitation}</p> : null}
-                  </article>
-                ))}
+                    </article>
+                  );
+                })}
               </section>
             );
           })}

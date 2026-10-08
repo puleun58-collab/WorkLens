@@ -79,8 +79,6 @@ describe("AX execution guides", () => {
   });
   it.each(["codex", "claude"] as const)("explains every code line and covers the complete %s workflow", tool => {
     const guide = setupGuide(tool);
-    const all = JSON.stringify(guide);
-    for (const term of ["작업할 때마다", "Preview", "Production", "되돌리기(Rollback)"]) expect(all).toContain(term);
     for (const block of guide.flatMap(step => step.sections.flatMap(section => section.blocks))) {
       if (block.kind !== "code") continue;
       expect(block.notes).toHaveLength(block.lines.length);

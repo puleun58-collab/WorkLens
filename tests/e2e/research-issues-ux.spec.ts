@@ -42,15 +42,20 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       }
       for (let index = 0; index < count; index++) {
         await expect(sections.nth(index).locator("h3")).toContainText(String(index + 1).padStart(2, "0"));
+        await expect(sections.nth(index)).toHaveAttribute("id", `research-issue-${index + 1}`);
+        for (const label of ["핵심 검토 결과", "근거 상태", "추가 확인"]) await expect(sections.nth(index).locator(".research-issue-findings")).toContainText(label);
       }
+      await expect(output.getByRole("button", { name: "전체 펼치기", exact: true })).toHaveAttribute("aria-pressed", "false");
       await expect(output.locator(".research-issue-refs[open]")).toHaveCount(0);
       if (count === 2) await output.screenshot({ path: `artifacts/research-issues-${viewport.width}.png` });
       await sections.first().locator("summary").click();
       await expect(sections.first().locator(".research-issue-refs")).toHaveAttribute("open", "");
+      await expect(output.getByRole("button", { name: count === 1 ? "전체 접기" : "전체 펼치기", exact: true })).toBeVisible();
       await expect(sections.first().locator(".research-hits")).toContainText("② 원문 마지막 항도 그대로 확인한다.");
       await expect(sections.first().locator(".research-hits")).toContainText("퇴직금 근거 원문 마지막 문장");
       if (count > 1) {
         await expect(sections.nth(1).locator(".research-issue-refs")).not.toHaveAttribute("open", "");
+        await expect(output.getByRole("navigation").getByRole("button").nth(1)).toHaveAttribute("aria-controls", "research-issue-2");
         await output.getByRole("navigation").getByRole("button").nth(1).click();
         await expect(sections.nth(1)).toHaveClass(/is-focused/);
         await expect(sections.nth(1).locator("h3")).toBeFocused();
@@ -59,14 +64,20 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
         await expect(sections.nth(1).locator(".research-hits")).toContainText("해고 근거 원문 마지막 문장");
         await expect(sections.nth(1).locator(".research-hits")).not.toContainText("퇴직금 근거 원문 마지막 문장");
         await expect(sections.nth(1).locator(".research-hits")).toContainText("② 원문 마지막 항도 그대로 확인한다.");
+        if (count === 2) await expect(output.getByRole("button", { name: "전체 접기", exact: true })).toBeVisible();
+        await sections.nth(1).locator("summary").click();
+        await expect(output.getByRole("button", { name: "전체 펼치기", exact: true })).toBeVisible();
       }
+      await sections.first().locator("summary").click();
+      await expect(output.getByRole("button", { name: "전체 펼치기", exact: true })).toHaveAttribute("aria-pressed", "false");
       const rawSource = output.locator(".research-source");
       await rawSource.locator("summary").click();
       const rawOpen = await rawSource.evaluate((element) => (element as HTMLDetailsElement).open);
-      await output.getByRole("button", { name: "근거 펼치기", exact: true }).click();
+      await output.getByRole("button", { name: "전체 펼치기", exact: true }).click();
       await expect(output.locator(".research-issue-refs[open]")).toHaveCount(Math.min(count, 3));
+      await expect(output.getByRole("button", { name: "전체 접기", exact: true })).toHaveAttribute("aria-pressed", "true");
       expect(await rawSource.evaluate((element) => (element as HTMLDetailsElement).open)).toBe(rawOpen);
-      await output.getByRole("button", { name: "근거 접기", exact: true }).click();
+      await output.getByRole("button", { name: "전체 접기", exact: true }).click();
       await expect(output.locator(".research-issue-refs[open]")).toHaveCount(0);
       expect(await rawSource.evaluate((element) => (element as HTMLDetailsElement).open)).toBe(rawOpen);
       if (count === 5) {
@@ -101,7 +112,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     await expect(second.locator(".research-issue-findings")).toContainText("직접 관련 근거 미확인");
     await expect(second.locator(".research-issue-refs")).toHaveCount(0);
     await expect(second).not.toContainText("2025다71");
-    await output.getByRole("button", { name: "근거 접기", exact: true }).click();
+    await output.getByRole("button", { name: "전체 접기", exact: true }).click();
     await expect(output.locator(".research-issue-refs")).not.toHaveAttribute("open", "");
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   });

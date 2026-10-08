@@ -2876,7 +2876,6 @@ test("keeps legal destinations grouped, command search shortcut-only, and review
   await page.getByRole("dialog").getByText("법령 > 문서 검토", { exact: true }).click();
   await expect(page.getByRole("heading", { name: "문서 검토", exact: true, level: 1 })).toBeVisible();
   await expect(page.getByRole("radio", { name: "직접 입력", exact: true })).toBeChecked();
-  await expect(page.getByRole("button", { name: /근거 (펼치기|접기)/u })).toHaveCount(0);
   let reviewCalls = 0;
   await page.route("**/api/law/research", async (route) => {
     reviewCalls += 1;
@@ -2898,18 +2897,22 @@ test("keeps legal destinations grouped, command search shortcut-only, and review
   await reviewForm.getByRole("button", { name: "실행", exact: true }).click();
   const review = page.locator(".contract-review");
   const refs = review.locator(".contract-review-refs");
-  await expect(review.getByRole("button", { name: "근거 접기", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(review.getByRole("button", { name: "전체 접기", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect.poll(() => refs.evaluateAll((els) => els.every((el) => (el as HTMLDetailsElement).open))).toBe(true);
   await expect.poll(() => review.locator(".contract-review-source").evaluateAll((els) => els.every((el) => !(el as HTMLDetailsElement).open))).toBe(true);
-  await review.getByRole("button", { name: "근거 접기", exact: true }).click();
+  await refs.first().locator("summary").click();
+  await expect(review.getByRole("button", { name: "전체 펼치기", exact: true })).toHaveAttribute("aria-pressed", "false");
+  await review.getByRole("button", { name: "전체 펼치기", exact: true }).click();
+  await expect(review.getByRole("button", { name: "전체 접기", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await review.getByRole("button", { name: "전체 접기", exact: true }).click();
   await expect.poll(() => refs.evaluateAll((els) => els.every((el) => !(el as HTMLDetailsElement).open))).toBe(true);
   expect(reviewCalls).toBe(1);
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem("worklens:review-preferences:v1")!))).toEqual({
-    version: 1, preferences: { documentSource: "text", expandSources: true },
+    version: 1, preferences: { documentSource: "text", expandSources: false },
   });
   await reviewForm.getByRole("button", { name: "실행", exact: true }).click();
   await expect.poll(() => reviewCalls).toBe(2);
-  await expect(review.getByRole("button", { name: "근거 펼치기", exact: true })).toHaveAttribute("aria-pressed", "false");
+  await expect(review.getByRole("button", { name: "전체 펼치기", exact: true })).toHaveAttribute("aria-pressed", "false");
   await expect.poll(() => refs.evaluateAll((els) => els.every((el) => !(el as HTMLDetailsElement).open))).toBe(true);
 });
 

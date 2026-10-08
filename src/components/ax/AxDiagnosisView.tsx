@@ -380,11 +380,20 @@ function AxMatrix({ rows, selectedId, onSelect, step }: { rows: RankedTask[]; se
       const members = [...group.rows].sort((a, b) => a.rank - b.rank);
       const selected = members.some(({ task }) => task.id === selectedId);
       const open = step === 3 && openCluster?.key === key && openCluster.selectedId === selectedId && openCluster.groupSignature === groupSignature && openCluster.step === step;
+      // Keep the list on the roomy side of the point, inside the plot rather than over its axes.
+      const side = m.y < 50 ? "top" : "bottom";
+      const align = m.x < 25 ? "start" : m.x > 75 ? "end" : "center";
+      const plotRoom = Math.max(80, Math.floor((side === "top" ? 100 - m.y : m.y) * 3.7 - 44));
       return <Menu key={key} modal={false} open={open} onOpenChange={nextOpen => setOpenCluster(nextOpen ? { key, selectedId, groupSignature, step } : null)}>
-        <MenuTrigger render={<button type="button" />} className="ax-matrix-cluster" style={{ left: `${m.x}%`, bottom: `${m.y}%`, zIndex: selected ? 3 : 2 }} data-selected={selected} aria-label={`같은 위치의 업무 ${members.length}개 보기`}>{members.length}개</MenuTrigger>
-        <MenuPopup className="ax-matrix-cluster-popup" aria-label={`같은 위치의 업무 ${members.length}개`}>
-          <div className="ax-matrix-cluster-count">{members.length}개</div>
-          {members.map(({ task, rank }) => <MenuItem key={task.id} closeOnClick className="ax-matrix-cluster-item" aria-current={task.id === selectedId ? "true" : undefined} onClick={() => onSelect(task.id)}><span className="ax-matrix-cluster-name">{task.name}</span><span className="ax-matrix-cluster-rank">#{rank}</span></MenuItem>)}
+        <MenuTrigger render={<button type="button" />} className="ax-matrix-cluster" style={{ left: `${m.x}%`, bottom: `${m.y}%`, zIndex: selected ? 3 : 2 }} data-selected={selected} aria-label={`동일 위치의 업무 ${members.length}개`} title={`동일 위치의 업무 ${members.length}개`}>
+          <span className="ax-matrix-cluster-circle ax-matrix-cluster-circle-left" aria-hidden="true" />
+          <span className="ax-matrix-cluster-circle ax-matrix-cluster-circle-right" aria-hidden="true" />
+          <span className="ax-matrix-cluster-circle ax-matrix-cluster-circle-front" aria-hidden="true" />
+          <span className="ax-matrix-cluster-number" aria-hidden="true">{members.length}</span>
+        </MenuTrigger>
+        <MenuPopup className="ax-matrix-cluster-popup" side={side} align={align} alignOffset={align === "center" ? 0 : align === "start" ? 28 : -28} sideOffset={12} style={{ "--ax-matrix-popup-height": `${plotRoom}px` } as CSSProperties} aria-label={`동일 위치의 업무 ${members.length}개`}>
+          <div className="ax-matrix-cluster-count">동일 위치의 업무 · {members.length}개</div>
+          {members.map(({ task, rank }) => <MenuItem key={task.id} closeOnClick className="ax-matrix-cluster-item" aria-current={task.id === selectedId ? "true" : undefined} onClick={() => onSelect(task.id)}><span className="ax-matrix-cluster-rank">#{rank}</span><span className="ax-matrix-cluster-name">{task.name}</span></MenuItem>)}
         </MenuPopup>
       </Menu>;
     })}
