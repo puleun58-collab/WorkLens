@@ -58,6 +58,7 @@ export function AxDiagnosisView() {
   const importInput = useRef<HTMLInputElement>(null);
   const nameHelpId = useId();
   const ranked = priority(state.tasks).map((row, index) => ({ ...row, rank: index + 1 }));
+  const matrixStatus = <p className="ax-muted">등록 {state.tasks.length}개 · 진단 완료 {ranked.length}개{state.tasks.length > ranked.length ? ` · 미진단 ${state.tasks.length - ranked.length}개 제외` : ""}</p>;
   const gateOrder = { ready: 0, conditional: 1, blocked: 2 };
   const displayed = [...ranked].sort((a, b) => gateOrder[executionGate(a.task.diagnosis)] - gateOrder[executionGate(b.task.diagnosis)]);
   const currentSelection = state.tasks.find(task => task.id === state.selectedTaskId);
@@ -291,9 +292,9 @@ export function AxDiagnosisView() {
         </div>}
       </TabsPanel>
       <TabsPanel value="3">
-        {!ranked.length ? <p className="ax-empty ax-muted">진단이 완료된 업무가 없습니다.</p> : <div className="ax-step3-grid">
+        {!ranked.length ? <><div className="ax-matrix-header">{matrixStatus}</div><p className="ax-empty ax-muted">진단이 완료된 업무가 없습니다.</p></> : <div className="ax-step3-grid">
           <section className="ax-surface" aria-label="매트릭스 업무 목록"><h3>업무 목록</h3>{taskRows(false)}</section>
-          <div className="ax-step3-main"><section className="ax-surface ax-matrix-surface"><div className="ax-matrix-header"><h2>자동화 매트릭스</h2><p className="ax-muted">등록 {state.tasks.length}개 · 진단 완료/Matrix 표시 {ranked.length}개 · 미진단 업무는 비교에서 제외됩니다.</p></div><AxMatrix rows={ranked} selectedId={selected?.id} onSelect={select} /></section>
+          <div className="ax-step3-main"><section className="ax-surface ax-matrix-surface"><div className="ax-matrix-header"><h2>자동화 매트릭스</h2>{matrixStatus}</div><AxMatrix rows={ranked} selectedId={selected?.id} onSelect={select} step={state.step} /></section>
             <section className="ax-surface"><h3>자동화 우선순위</h3>{priorityRows()}</section>
             {selected?.diagnosis ? <section className="ax-surface"><h3>{selected.name} · {matrixPosition(selected.diagnosis).label}</h3><AxSummary task={selected} /><AxScoreEvidence key={selected.id} diagnosis={selected.diagnosis} /></section> : null}
           </div>
@@ -351,13 +352,42 @@ function AxAxisBars({ diagnosis }: { diagnosis: AxDiagnosis }) {
     ["담당자 판단 필요도", a.judgment, "#db2777"], ["운영 위험", a.risk, "#dc2626"],
   ] as const).map(([label, value, color]) => <div className="ax-axis-row" key={label}><span>{label}</span><div className="ax-axis-track"><span style={{ width: `${value / 5 * 100}%`, background: color }} /></div><strong>{value}</strong></div>)}</div>;
 }
-function AxMatrix({ rows, selectedId, onSelect }: { rows: RankedTask[]; selectedId?: string; onSelect: (id: string) => void }) {
+function AxMatrix({ rows, selectedId, onSelect, step }: { rows: RankedTask[]; selectedId?: string; onSelect: (id: string) => void; step: number }) {
   const max = Math.max(0, ...rows.map(({ task }) => monthlyMinutes(task) ?? 0));
+  const groups = new Map<string, { position: { x: number; y: number; region: string; label: string }; rows: RankedTask[] }>();
+  for (const row of rows) {
+    const position = matrixPosition(row.task.diagnosis);
+    // Serialize the renderer's final coordinates exactly: no rounding or policy recomputation.
+    const key = JSON.stringify([position.x, position.y]);
+    const group = groups.get(key);
+    if (group) group.rows.push(row);
+    else groups.set(key, { position, rows: [row] });
+  }
+  const groupSignature = JSON.stringify([...groups].map(([key, group]) => [key, group.rows.map(row => row.task.id).sort()]));
+  const [openCluster, setOpenCluster] = useState<{ key: string; selectedId?: string; groupSignature: string; step: number } | null>(null);
+  if (openCluster && (openCluster.selectedId !== selectedId || openCluster.groupSignature !== groupSignature || openCluster.step !== step)) setOpenCluster(null);
   return <div className="ax-matrix-desktop"><div className="ax-matrix" aria-label="자동화 매트릭스 산점도">
     <div className="ax-region ax-region-strategic">전략 과제</div><div className="ax-region ax-region-quick">빠른 실행 후보</div><div className="ax-region ax-region-hold">수동 유지·보류</div><div className="ax-region ax-region-maybe">검토 후보</div>
     {[1, 2, 3, 4, 5].map(v => <span key={v} className="ax-y-tick" style={{ bottom: `${(v - 1) / 4 * 100}%` }}>{v === 1 ? "" : v}</span>)}
     {[1, 2, 3, 4, 5].map(v => <span key={v} className={`ax-x-tick${v === 1 ? " is-origin" : ""}`} style={v === 1 ? undefined : { left: `${(v - 1) / 4 * 100}%` }}>{v}</span>)}
-    {rows.map(({ task, rank }) => { const m = matrixPosition(task.diagnosis); const diameter = Math.sqrt(bubbleArea(task, max) / Math.PI) * 2; return <button type="button" key={task.id} className={`ax-bubble${m.region === "hold" ? " is-hold" : ""}`} style={{ left: `${m.x}%`, bottom: `${m.y}%`, width: Math.max(24, diameter), height: Math.max(24, diameter), zIndex: selectedId === task.id ? 3 : 2 }} aria-label={`${task.name} · ${m.label} · 우선순위 ${rank}`} aria-pressed={selectedId === task.id} title={`${task.name} · ${m.label} · 우선순위 ${rank}`} onClick={() => onSelect(task.id)}><span className="ax-bubble-dot" style={{ width: diameter, height: diameter }} /><span className="ax-bubble-number">{rank}</span></button>; })}
+    {[...groups].map(([key, group]) => {
+      const m = group.position;
+      if (group.rows.length === 1) {
+        const { task, rank } = group.rows[0];
+        const diameter = Math.sqrt(bubbleArea(task, max) / Math.PI) * 2;
+        return <button type="button" key={task.id} className={`ax-bubble${m.region === "hold" ? " is-hold" : ""}`} style={{ left: `${m.x}%`, bottom: `${m.y}%`, width: Math.max(24, diameter), height: Math.max(24, diameter), zIndex: selectedId === task.id ? 3 : 2 }} aria-label={`${task.name} · ${m.label} · 우선순위 ${rank}`} aria-pressed={selectedId === task.id} title={`${task.name} · ${m.label} · 우선순위 ${rank}`} onClick={() => onSelect(task.id)}><span className="ax-bubble-dot" style={{ width: diameter, height: diameter }} /><span className="ax-bubble-number">{rank}</span></button>;
+      }
+      const members = [...group.rows].sort((a, b) => a.rank - b.rank);
+      const selected = members.some(({ task }) => task.id === selectedId);
+      const open = step === 3 && openCluster?.key === key && openCluster.selectedId === selectedId && openCluster.groupSignature === groupSignature && openCluster.step === step;
+      return <Menu key={key} modal={false} open={open} onOpenChange={nextOpen => setOpenCluster(nextOpen ? { key, selectedId, groupSignature, step } : null)}>
+        <MenuTrigger render={<button type="button" />} className="ax-matrix-cluster" style={{ left: `${m.x}%`, bottom: `${m.y}%`, zIndex: selected ? 3 : 2 }} data-selected={selected} aria-label={`같은 위치의 업무 ${members.length}개 보기`}>{members.length}개</MenuTrigger>
+        <MenuPopup className="ax-matrix-cluster-popup" aria-label={`같은 위치의 업무 ${members.length}개`}>
+          <div className="ax-matrix-cluster-count">{members.length}개</div>
+          {members.map(({ task, rank }) => <MenuItem key={task.id} closeOnClick className="ax-matrix-cluster-item" aria-current={task.id === selectedId ? "true" : undefined} onClick={() => onSelect(task.id)}><span className="ax-matrix-cluster-name">{task.name}</span><span className="ax-matrix-cluster-rank">#{rank}</span></MenuItem>)}
+        </MenuPopup>
+      </Menu>;
+    })}
     <span className="ax-y-label"><span className="ax-y-arrow" aria-hidden="true">↑</span><span className="ax-y-text">자동화 가치</span></span><span className="ax-x-label">기술 실현 가능성 →</span>
   </div></div>;
 }

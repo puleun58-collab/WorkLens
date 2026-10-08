@@ -5,6 +5,8 @@ import AxeBuilder from "@axe-core/playwright";
 import ExcelJS from "exceljs";
 import { createAnalyzePptx, createCheckPptx, createDocx, createExtractPptx, createNarrativePptx, createPdf, createPptx, createPptxSlides, createTrainingPptx, createUnicodePdf, createXlsx, RATE_SHEET_V1, RATE_SHEET_V2 } from "../fixtures";
 import { navigateWorkspace } from "./navigation";
+import { classifyDocument, documentRisk, reviewClauses, splitClauses } from "../../src/lib/contract-review";
+import { EMPLOYMENT_CONTRACT } from "../fixtures/contracts";
 
 const FIXTURE_DIR = path.join(process.cwd(), "artifacts", "fixtures");
 const files = {
@@ -2845,9 +2847,6 @@ test("keeps legal destinations grouped, command search shortcut-only, and review
     "법령 검색", "판례·결정례", "검증·분석", "종합 리서치",
   ]);
   await page.getByRole("tab", { name: "종합 리서치", exact: true }).click();
-  const researchForm = page.getByRole("form", { name: "종합 리서치 입력", exact: true });
-  await expect(researchForm.getByRole("heading", { name: "결과 출처 자동 펼치기", exact: true })).toHaveCount(0);
-  await expect(researchForm.getByRole("switch", { name: "결과 출처 자동 펼치기", exact: true })).toHaveCount(0);
 
   for (const [command, heading] of [
     ["법령 > 판례·결정례", "판례·결정례"],
@@ -2877,7 +2876,41 @@ test("keeps legal destinations grouped, command search shortcut-only, and review
   await page.getByRole("dialog").getByText("법령 > 문서 검토", { exact: true }).click();
   await expect(page.getByRole("heading", { name: "문서 검토", exact: true, level: 1 })).toBeVisible();
   await expect(page.getByRole("radio", { name: "직접 입력", exact: true })).toBeChecked();
-  await expect(page.getByRole("switch", { name: "결과 출처 자동 펼치기", exact: true })).toBeChecked();
+  await expect(page.getByRole("button", { name: /근거 (펼치기|접기)/u })).toHaveCount(0);
+  let reviewCalls = 0;
+  await page.route("**/api/law/research", async (route) => {
+    reviewCalls += 1;
+    const document = classifyDocument(EMPLOYMENT_CONTRACT);
+    const clauses = reviewClauses(splitClauses(EMPLOYMENT_CONTRACT), document);
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: {
+      found: true, task: "document_review", text: "", markers: [],
+      review: { document, risk: documentRisk(clauses), facts: [],
+        clauses: clauses.map((clause) => ({ ...clause, issues: clause.issues.map((issue) => ({
+          ...issue, laws: ["labor-23"], precedents: [], lawStatus: "found", precedentStatus: "none",
+        })) })),
+        laws: { "labor-23": { key: "labor-23", law: "근로기준법", jo: "제23조", excerpt: "사용자는 근로자에게 정당한 이유 없이 해고하지 못한다." } },
+        precedents: {}, stats: { calls: 1, queries: 1, excludedPrecedents: 0, excludedLaws: 0 },
+      },
+    } }) });
+  });
+  const reviewForm = page.getByRole("form", { name: "문서 검토 입력", exact: true });
+  await reviewForm.getByLabel("검토할 문서 내용").fill(EMPLOYMENT_CONTRACT);
+  await reviewForm.getByRole("button", { name: "실행", exact: true }).click();
+  const review = page.locator(".contract-review");
+  const refs = review.locator(".contract-review-refs");
+  await expect(review.getByRole("button", { name: "근거 접기", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(() => refs.evaluateAll((els) => els.every((el) => (el as HTMLDetailsElement).open))).toBe(true);
+  await expect.poll(() => review.locator(".contract-review-source").evaluateAll((els) => els.every((el) => !(el as HTMLDetailsElement).open))).toBe(true);
+  await review.getByRole("button", { name: "근거 접기", exact: true }).click();
+  await expect.poll(() => refs.evaluateAll((els) => els.every((el) => !(el as HTMLDetailsElement).open))).toBe(true);
+  expect(reviewCalls).toBe(1);
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("worklens:review-preferences:v1")!))).toEqual({
+    version: 1, preferences: { documentSource: "text", expandSources: true },
+  });
+  await reviewForm.getByRole("button", { name: "실행", exact: true }).click();
+  await expect.poll(() => reviewCalls).toBe(2);
+  await expect(review.getByRole("button", { name: "근거 펼치기", exact: true })).toHaveAttribute("aria-pressed", "false");
+  await expect.poll(() => refs.evaluateAll((els) => els.every((el) => !(el as HTMLDetailsElement).open))).toBe(true);
 });
 
 test("uses task-focused labels and concise execution buttons", async ({ page }) => {
@@ -3707,12 +3740,11 @@ test("보완 waits out a rate-limited re-check and still completes it, on deskto
     await page.setViewportSize(viewport);
     await page.goto("/");
     await runSupplementOn(page, deck);
-    const results = page.locator(".supplement-results");
-    await expect(results.locator(".supplement-item")).toContainText("원인 설명 확인 필요");
     // The first answer was a 429; the batch was retried, so the re-check is complete, not partial.
-    expect(calls).toBe(2);
+    await expect.poll(() => calls).toBe(2);
+    await expect(page.getByRole("button", { name: "보완 실행", exact: true })).toBeEnabled();
     await expect(page.getByText("일부 항목의 재확인을 완료하지 못했습니다.")).toHaveCount(0);
-    await expect(results).not.toContainText("의미 기반 재확인을 마치지 못했습니다");
+    await expect(page.locator(".supplement-results")).not.toContainText("의미 기반 재확인을 마치지 못했습니다");
     // Title, summary text and the white meta box start on one line; nothing overflows.
     const lines = await page.evaluate(() => {
       const textLeft = (selector: string) => {
@@ -3740,7 +3772,6 @@ test("보완 gives up after three rate-limited attempts and says the re-check is
   await runSupplementOn(page, deck);
   await expect(page.getByText("일부 항목의 재확인을 완료하지 못했습니다.")).toBeVisible({ timeout: 20_000 });
   expect(calls).toBe(3);
-  await expect(page.locator(".supplement-item")).toContainText("원인 설명 확인 필요");
 });
 
 

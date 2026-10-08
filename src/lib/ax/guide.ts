@@ -379,7 +379,15 @@ export function commonPlanView(diagnosis: AxDiagnosis): AxPlanView {
     ...without(profile.poc.success, tests).map(item => `성공: ${item}`),
     ...without(profile.poc.failure, tests).map(item => `실패: ${item}`),
   ];
-  const short = (items: string[]) => items.length > 2 ? `${items.slice(0, 2).join(" · ")} 외 ${items.length - 2}건` : items.join(" · ");
+  // Extract one existing topic, never two full requirements; full lists remain in the document below.
+  const short = (items: string[]) => {
+    if (!items.length) return "기재된 내용 없음";
+    const topic = items[0].trim().replace(/^(?:(?:\d+[.)]|[①-⑳]|[-*•·□])\s*)+/u, "")
+      .replace(/\s*\(담당자 수행\)$/u, "").split(/\s+—\s+|[:：]|\s+·\s+|[.!?]\s+/u)[0].trim();
+    const characters = Array.from(topic);
+    const extract = characters.length > 32 ? `${characters.slice(0, 31).join("")}…` : topic;
+    return `${extract}${items.length > 1 ? ` 외 ${items.length - 1}건` : ""}`;
+  };
   const scopeSummary = without(include, ["선행 확인사항 해결 후 샘플 범위에서 진행"]);
   const scopeKeys = new Set(include.map(normalizedItem));
   const roadmapItems = profile.roadmap.flatMap(phase => phase.items)
@@ -390,7 +398,7 @@ export function commonPlanView(diagnosis: AxDiagnosis): AxPlanView {
       { label: "진행 상태", value: GATE_LABELS[profile.gate] },
       scopeSummary.length ? { label: "핵심 구현", value: short(scopeSummary) } : { label: "다음 행동", value: profile.nextAction.label },
       ...(humanKept.length ? [{ label: "사람 유지", value: short(humanKept) }] : []),
-      ...(prerequisites.length ? [{ label: "선행 확인", value: short(unique(prerequisites.map(item => item.split(" — ")[0]))) }] : []),
+      ...(prerequisites.length ? [{ label: "선행 확인", value: short(prerequisites) }] : []),
     ],
     goals: unique([diagnosis.asIs.purpose]),
     include,

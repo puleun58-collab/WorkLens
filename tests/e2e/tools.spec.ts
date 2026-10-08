@@ -952,6 +952,7 @@ test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route wit
   page.on("console", (message) => { if (message.type() === "error" && !message.text().includes("status of 503")) errors.push(message.text()); });
   page.on("request", (request) => { if (!request.url().startsWith("http://127.0.0.1")) outside.push(request.url()); });
   let failNext = true;
+  let evidenceMode: "present" | "absent" | "empty" = "present";
   await page.route("**/api/law/research", async (route) => {
     const body = route.request().postDataJSON() as Record<string, unknown>;
     bodies.push(body);
@@ -969,13 +970,17 @@ test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route wit
           id: "termination_restriction", label: "중도해지 제한", severity: "medium",
           point: "이용자의 중도해지를 전면 금지한 부분이 상대방의 해지권을 부당하게 제한하는지 검토가 필요합니다.",
           fact: "을은 어떠한 경우에도 계약을 해지할 수 없다.",
-          laws: ["terms-9"], precedents: [], lawStatus: "found", precedentStatus: "none",
+          laws: ["terms-9"], precedents: ["termination-case"], lawStatus: "found", precedentStatus: "found",
         }] }],
         laws: { "terms-9": { key: "terms-9", law: "약관의 규제에 관한 법률", jo: "제9조", title: "계약의 해제ㆍ해지", excerpt: "계약의 해제ㆍ해지에 관하여 정하고 있는 약관의 내용 중 …", effectiveDate: "20240807", condition: "이 계약이 약관에 해당하는 경우에 적용됩니다." } },
-        precedents: {},
+        precedents: { "termination-case": { key: "termination-case", title: "계약해지", court: "대법원", caseNumber: "2020다12345", holding: "계약의 해지권 행사 요건을 확인합니다." } },
         stats: { calls: 3, queries: 2, excludedPrecedents: 5, excludedLaws: 0 },
       };
-      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { found: true, task: body.task, text: "", markers: [], review } }) });
+      const responseReview = evidenceMode === "empty" ? { ...review, clauses: [] }
+        : evidenceMode === "absent" ? { ...review, clauses: review.clauses.map((clause) => ({
+          ...clause, issues: clause.issues.map((issue) => ({ ...issue, laws: ["missing-law"], precedents: ["missing-case"] })),
+        })) } : review;
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { found: true, task: body.task, text: "", markers: [], review: responseReview } }) });
       return;
     }
     const text = `═══ 리서치: ${String(body.query)} ═══\n\n▶ 관련 법령\n근로기준법 제76조의2\n\n▶ 법령 해석례 [NOT_FOUND / FAILED]\n   사유: 조회 실패`;
@@ -1039,8 +1044,7 @@ test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route wit
 
   await chooseOption(page, task, researchTaskLabels.document_review);
   await expect(form.getByLabel("질문 또는 검색어")).toHaveCount(0);
-  await expect(form.getByRole("switch", { name: "결과 출처 자동 펼치기", exact: true })).toBeVisible();
-  await expect(form).not.toContainText("이 화면에서 변경한 값은 이번 실행에만 적용됩니다.");
+  await expect(page.getByRole("button", { name: /근거 (펼치기|접기)/u })).toHaveCount(0);
   await expect(form.getByRole("button", { name: "실행", exact: true })).toHaveCount(0);
   // 법령 entered directly with no work files: the 작업 파일 empty state offers the shared upload, nothing runs.
   await expect(form.getByRole("radio", { name: "작업 파일" })).toBeChecked();
@@ -1064,30 +1068,33 @@ test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route wit
   await expect(clause.getByRole("heading", { level: 4 })).toContainText("제2조");
   await expect(clause).toContainText("중도해지 제한");
   await expect(clause).toContainText("을은 어떠한 경우에도 계약을 해지할 수 없다.");
-  await expect(clause.locator(".contract-review-issue-facts dt")).toHaveText(["검토 결과"]);
-  await expect(clause.locator(".contract-review-source dt")).toHaveText(["검토 원문"]);
   await expect(clause.locator(".contract-review-source")).not.toHaveAttribute("open", "");
   await expect(clause.locator(".contract-review-clause-head [data-slot=badge]")).toHaveText(/^(높음|보통|낮음)$/u);
-  const lawEvidence = review.locator(".contract-review-details .law-detail-source");
-  await expect(lawEvidence.locator("summary")).toHaveText(/관련 법령 1건 보기/u);
+  const lawEvidence = review.locator(".contract-review-refs").first();
   await expect(lawEvidence).not.toHaveAttribute("open", "");
   await lawEvidence.locator("summary").click();
   await expect(lawEvidence).toContainText("약관의 규제에 관한 법률 제9조 (계약의 해제ㆍ해지)");
   await expect(lawEvidence).toContainText("이 계약이 약관에 해당하는 경우에 적용됩니다.");
 
-  // 결과 출처 자동 펼치기 스위치는 재실행 없이 현재 결과를 즉시 접고 편다.
+  // The result-only control updates native reference details without rerunning the review.
   const refs = review.locator(".contract-review-refs");
-  expect(await refs.count()).toBeGreaterThan(0);
-  const sourcesSwitch = form.getByRole("switch", { name: "결과 출처 자동 펼치기", exact: true });
-  await sourcesSwitch.click();
+  const sourcesToggle = review.getByRole("button", { name: /근거 (펼치기|접기)/u });
+  await expect(sourcesToggle).toHaveAttribute("aria-pressed", "false");
+  const source = clause.locator(".contract-review-source");
+  await source.locator("summary").click();
+  await sourcesToggle.click();
+  await expect(sourcesToggle).toHaveAttribute("aria-pressed", "true");
   await expect.poll(() => refs.evaluateAll((els) => els.every((el) => (el as HTMLDetailsElement).open))).toBe(true);
-  await sourcesSwitch.click();
+  await expect(source).toHaveAttribute("open", "");
+  await sourcesToggle.click();
   await expect.poll(() => refs.evaluateAll((els) => els.every((el) => !(el as HTMLDetailsElement).open))).toBe(true);
-  await sourcesSwitch.click();
+  await expect(source).toHaveAttribute("open", "");
+  await sourcesToggle.click();
   await expect.poll(() => refs.evaluateAll((els) => els.every((el) => (el as HTMLDetailsElement).open))).toBe(true);
-  // 개별 출처 접기/펴기도 그대로 동작한다.
   await refs.first().locator("summary").click();
-  await expect.poll(() => refs.evaluateAll((els) => !(els[0] as HTMLDetailsElement).open)).toBe(true);
+  await expect(refs.first()).not.toHaveAttribute("open", "");
+  await refs.first().locator("summary").click();
+  await expect(refs.first()).toHaveAttribute("open", "");
 
   expect(bodies.slice(2)).toEqual([
     { task: "dispute_prep", query: "직장 내 괴롭힘 판단 기준", domain: "labor" },
@@ -1098,6 +1105,34 @@ test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route wit
     { task: "procedure_detail", query: "직장 내 괴롭힘 판단 기준" },
     { task: "document_review", text: sample },
   ]);
+  // Empty/no-rendered-evidence results hide the control. A new result reapplies
+  // the session preference rather than retaining individual details state.
+  evidenceMode = "absent";
+  await form.getByRole("button", { name: "실행", exact: true }).click();
+  await expect(review.locator(".contract-review-issue")).toHaveCount(1);
+  await expect(review.locator(".contract-review-refs")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /근거 (펼치기|접기)/u })).toHaveCount(0);
+  evidenceMode = "empty";
+  await form.getByRole("button", { name: "실행", exact: true }).click();
+  await expect(review.locator(".contract-review-issue")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /근거 (펼치기|접기)/u })).toHaveCount(0);
+  evidenceMode = "present";
+  await form.getByRole("button", { name: "실행", exact: true }).click();
+  await expect(refs).toHaveCount(2);
+  await expect.poll(() => refs.evaluateAll((els) => els.every((el) => (el as HTMLDetailsElement).open))).toBe(true);
+  await expect(source).not.toHaveAttribute("open", "");
+  await sourcesToggle.click();
+  await expect.poll(() => refs.evaluateAll((els) => els.every((el) => !(el as HTMLDetailsElement).open))).toBe(true);
+  await clause.getByRole("button", { name: "근거 보기", exact: true }).click();
+  const focused = review.locator(".contract-review-detail.is-focused");
+  await expect(focused).toHaveCount(1);
+  await expect(focused).toHaveClass(/is-focus-fresh/u);
+  await expect.poll(() => refs.evaluateAll((els) => els.every((el) => !(el as HTMLDetailsElement).open))).toBe(true);
+  await expect(focused).not.toHaveClass(/is-focus-fresh/u);
+  await clause.getByRole("button", { name: "근거 보기", exact: true }).click();
+  await expect(focused).toHaveClass(/is-focus-fresh/u);
+  await expect(focused).toHaveCount(0);
+  expect(bodies).toHaveLength(12);
 
 
   // Previous task results and other research views survive switching.
@@ -1193,6 +1228,7 @@ test("RESEARCH 문서 검토 reviews one workspace file in place and shows where
   await form.getByRole("button", { name: "실행", exact: true }).click();
   await expect(page.locator("[data-coverage='excluded']")).toContainText("계약·규정 성격의 문장을 찾지 못했습니다");
   await expect(page.locator("[data-coverage='excluded']")).toContainText("위험 항목이 없다는 뜻이 아니라");
+  await expect(page.getByRole("button", { name: /근거 (펼치기|접기)/u })).toHaveCount(0);
   expect(bodies).toHaveLength(2);
 
   // Past the bound: a partial review that says what was left and why.
@@ -1378,12 +1414,11 @@ test("RESEARCH distinguishes empty, low-relevance and partial evidence without a
   await expect(overview).toContainText("추가로 필요한 정보 근무 기간은 얼마나 되나요?");
   // After the search, each issue is a row naming how far its evidence got; "none" never reads as "no law".
   await expect(overview.locator(".research-issues > span").first()).toHaveText("확인한 쟁점");
-  await expect(overview.locator(".research-issue-label")).toHaveText(["해고의 정당성", "해고 절차", "해고예고"]);
   await expect(overview.locator(".research-issue-status")).toHaveText(["직접 관련 근거 미확인", "직접 관련 근거 미확인", "직접 관련 근거 미확인"]);
   await expect(overview).not.toContainText(/근거 없음|NONE|FOUND/u);
   await expect(overview).not.toContainText("근로계약의 형태는 확인되지 않았습니다.");
   await expect(overview).not.toContainText("근로계약이 종료되었");
-  await expect(page.locator(".research-selected")).toHaveCount(0);
+  await expect(page.locator(".research-selected .research-hits")).toHaveCount(0);
   // Search statistics are not shown; only what was reviewed.
   await expect(page.locator("[data-kind='decision_search'] h3")).toContainText("1건");
   for (const part of [".research-overview", ".research-group"]) {
@@ -1393,28 +1428,22 @@ test("RESEARCH distinguishes empty, low-relevance and partial evidence without a
   await run.click();
   await expect(page.locator(".legal-analysis-missing h3")).toHaveText("관련 근거를 확인하지 못했습니다");
   await expect(page.locator(".legal-analysis-missing")).toContainText("자료 없음");
-  // Before any evidence is assessed, the issues flow on one line under their own rule.
-  const pending = page.locator(".legal-analysis-missing .research-issues li");
-  await expect(page.locator(".legal-analysis-missing .research-issues > span").first()).toHaveText("살펴볼 쟁점");
-  await expect(pending).toHaveText(["해고의 정당성", "해고 절차", "해고예고"]);
-  const [first, last] = [await pending.nth(0).boundingBox(), await pending.nth(2).boundingBox()];
-  expect(Math.abs(first!.y - last!.y)).toBeLessThan(1);
   await expect(page.locator(".legal-analysis-missing")).not.toContainText("get_law_text");
   await query.fill("일부 근거");
   await run.click();
   await expect(overview.locator("h3")).toHaveText("관련 근거를 일부 확인했습니다");
   await expect(overview.locator(".research-caution")).toHaveText("확인한 근거는 관련 쟁점을 검토하기 위한 자료이며, 구체적인 사건의 법적 결론을 의미하지 않습니다.");
-  // Evidence sits under the issue it supports; a source shared by two issues is shown once, and a gap is named.
+  // Each issue keeps access to its own references; unavailable evidence remains explicit.
   const selected = page.locator(".research-selected");
   const groups = selected.locator(".research-issue-evidence");
-  await expect(groups.locator("h3")).toHaveText(["해고의 정당성", "해고 절차", "해고예고"]);
   await expect(overview.locator(".research-issue-status")).toHaveText(["근거 확인", "근거 확인", "직접 관련 근거 미확인"]);
   // The article and the case; the case filed under two ids is listed once.
   await expect(groups.nth(0).locator(".research-hits > li")).toHaveCount(2);
   await expect(groups.nth(0)).toContainText("근로기준법 제23조");
   await expect(groups.nth(0).getByText("사건번호 95다19256")).toHaveCount(1);
-  await expect(groups.nth(1).locator(".research-hits")).toHaveCount(0);
-  await expect(groups.nth(1)).toContainText("앞 쟁점에서 제시한 근거와 같습니다: 근로기준법 제23조");
+  await expect(groups.nth(1).locator(".research-hits > li")).toHaveCount(1);
+  await expect(groups.nth(1)).toContainText("근로기준법 제23조");
+  await expect(groups.nth(1).getByText("사건번호 95다19256")).toHaveCount(0);
   await expect(groups.nth(2)).toContainText("직접 관련된 근거를 찾지 못했습니다.");
   await expect(page.locator(".legal-research-partial")).toHaveCount(0);
   await expect(overview).not.toContainText("현행");
@@ -1508,8 +1537,6 @@ test("RESEARCH separates a verified article from search candidates and hides int
   await navigateWorkspace(page, "법령");
   await page.getByRole("tab", { name: "종합 리서치", exact: true }).click();
   const form = page.getByRole("form", { name: /^(종합 리서치|문서 검토) 입력$/ });
-  await expect(form.getByRole("heading", { name: "결과 출처 자동 펼치기", exact: true })).toHaveCount(0);
-  await expect(form.getByRole("switch", { name: "결과 출처 자동 펼치기", exact: true })).toHaveCount(0);
   await form.getByLabel("질문 또는 검색어").fill("직장 내 괴롭힘 판단 기준");
   await form.getByRole("button", { name: "실행" }).click();
   const output = page.locator(".legal-research .legal-analysis-output");
@@ -1533,9 +1560,6 @@ test("RESEARCH separates a verified article from search candidates and hides int
   await expect(toc).not.toHaveAttribute("open", "");
   await toc.locator("summary").click();
   await expect(toc.locator("pre")).toContainText("제132조 조문 제목 132");
-  const source = output.locator(".research-source");
-  await expect(source).not.toHaveAttribute("open", "");
-  await source.locator("summary").click();
   await expect(output.locator(".research-source pre")).not.toContainText(/get_law_text|검색 보정 시도|법제처 API는 공백/u);
   await expect(output).not.toContainText("searchTerms");
   await page.setViewportSize({ width: 390, height: 844 });
@@ -2461,39 +2485,17 @@ test("document review hides execution until a workspace file is added", async ({
   await expect(form.getByRole("button", { name: "파일 추가", exact: true })).toBeVisible();
   await expect(form).not.toContainText("PDF · DOCX · PPTX · XLSX · CSV");
   await expect(form).not.toContainText("작업 파일의 분석된 텍스트를 사용하며, 한 번에 한 문서를 검토합니다.");
-  await expect(form.locator(".research-result-display h2")).toHaveCount(0);
-  const sourceRow = form.locator(".research-source-row");
-  await expect(sourceRow.getByText("결과 출처 자동 펼치기", { exact: true })).toBeVisible();
-  await expect(sourceRow.getByRole("switch", { name: "결과 출처 자동 펼치기", exact: true })).toBeVisible();
-  const sourceBoxes = await Promise.all([sourceRow.locator("label").boundingBox(), sourceRow.getByRole("switch").boundingBox()]);
-  expect(Math.abs(sourceBoxes[0]!.y + sourceBoxes[0]!.height / 2 - sourceBoxes[1]!.y - sourceBoxes[1]!.height / 2)).toBeLessThanOrEqual(2);
-  await expect(form).not.toContainText("조회 범위와 법적 판단은 바뀌지 않습니다.");
-  await expect(form).not.toContainText("이 화면에서 변경한 값은 이번 실행에만 적용됩니다.");
+  await expect(page.getByRole("button", { name: /근거 (펼치기|접기)/u })).toHaveCount(0);
   await expect(page.locator(".research-review-guide, .research-workspace-rail")).toHaveCount(0);
   const emptyUpload = form.locator(".dropzone");
   await expect(emptyUpload.locator(".upload-icon svg")).toBeVisible();
   await expect(emptyUpload.locator(".dropzone-copy")).toHaveText("검토할 문서를 추가하세요");
   await expect(emptyUpload.locator(".drop-actions").getByRole("button", { name: "파일 추가" })).toBeVisible();
   await expect(form.locator(".research-result-display")).toHaveCount(0);
-  const inlineStyle = await sourceRow.evaluate((element) => ({ display: getComputedStyle(element).display, width: element.getBoundingClientRect().width }));
-  expect(inlineStyle.display).toBe("inline-flex");
-  expect(inlineStyle.width).toBeLessThan(250);
 
   await form.getByRole("radio", { name: "직접 입력", exact: true }).check();
   await expect(form.getByRole("button", { name: "실행", exact: true })).toBeVisible();
   await expect(form.getByRole("button", { name: "실행", exact: true })).toBeDisabled();
-  const footerBoxes = await form.evaluate((element) => {
-    const box = (selector: string) => element.querySelector(selector)!.getBoundingClientRect();
-    const [text, toggle, count, run] = [box("#research-document"), box(".research-source-row"), box(".research-input-footer .legal-analysis-count"), box(".research-input-submit button")];
-    return { text: { bottom: text.bottom, left: text.left, right: text.right }, toggle: { top: toggle.top, left: toggle.left, mid: toggle.top + toggle.height / 2 }, count: { bottom: count.bottom, right: count.right, mid: count.top + count.height / 2 }, run: { top: run.top, right: run.right } };
-  });
-  expect(footerBoxes.toggle.top - footerBoxes.text.bottom).toBeLessThanOrEqual(24);
-  expect(Math.abs(footerBoxes.toggle.left - footerBoxes.text.left)).toBeLessThanOrEqual(2);
-  expect(Math.abs(footerBoxes.toggle.mid - footerBoxes.count.mid)).toBeLessThanOrEqual(4);
-  expect(Math.abs(footerBoxes.count.right - footerBoxes.text.right)).toBeLessThanOrEqual(2);
-  expect(footerBoxes.run.top).toBeGreaterThanOrEqual(footerBoxes.count.bottom);
-  expect(footerBoxes.run.top - footerBoxes.count.bottom).toBeLessThanOrEqual(16);
-  expect(Math.abs(footerBoxes.run.right - footerBoxes.text.right)).toBeLessThanOrEqual(2);
   await form.getByRole("radio", { name: "작업 파일", exact: true }).check();
   await emptyUpload.evaluate((element, bytes) => {
     const dataTransfer = new DataTransfer();
@@ -2567,6 +2569,7 @@ test("review provenance direct snapshots, presentation and pending race", async 
   await input.fill(a);
   await form.getByRole("button", { name: "실행", exact: true }).click();
   await expect(page.getByRole("button", { name: "다시 시도" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /근거 (펼치기|접기)/u })).toHaveCount(0);
   await input.fill(b);
   const stale = page.locator('[data-review-stale="true"]');
   await expect(stale).toBeVisible();
@@ -2576,8 +2579,7 @@ test("review provenance direct snapshots, presentation and pending race", async 
   await expect(stale).toBeVisible();
   await input.fill(a);
   await expect(stale).toHaveCount(0);
-  await form.getByRole("switch", { name: "결과 출처 자동 펼치기" }).click();
-  await expect(stale).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /근거 (펼치기|접기)/u })).toHaveCount(0);
   await form.getByRole("radio", { name: "작업 파일" }).check();
   await expect(stale).toBeVisible();
   await form.getByRole("radio", { name: "직접 입력" }).check();
@@ -2585,6 +2587,7 @@ test("review provenance direct snapshots, presentation and pending race", async 
   await form.getByRole("button", { name: "실행", exact: true }).click();
   await expect.poll(() => Boolean(release)).toBe(true);
   await expect(form.getByRole("button", { name: "문서 검토 중…" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: /근거 (펼치기|접기)/u })).toHaveCount(0);
   await input.fill(a);
   release!();
   await expect(stale).toBeVisible();

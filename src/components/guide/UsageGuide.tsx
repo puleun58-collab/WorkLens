@@ -107,8 +107,8 @@ const GUIDES: Guide[] = [
     id: "supplement", label: "보완", summary: "문서에서 빠진 핵심 정보와 설명이 필요한 부분을 찾습니다.",
     steps: [
       selectFiles("보완할 문서 파일을 선택합니다.", ["3분기_비용보고.pptx"]),
-      { title: "실행", text: "보완 탭에서 실행을 누릅니다.", mini: <Run /> },
-      { title: "결과 확인", text: "중요도와 원문 위치, 추가할 정보를 확인합니다.", mini: <Result title="보완 결과" status="검토 완료" lines={["중요 · 원인 설명 확인 필요 · 3P", "상사가 물어보기 전에"]} /> },
+      { title: "실행", text: "보완 실행을 누릅니다. 처리 중에는 실행 버튼에 진행 상태가 표시됩니다.", mini: <Run /> },
+      { title: "결과 확인", text: "보고 전 확인할 질문을 읽고, 항목별 현재 자료·필요한 정보·확인 이유·원문 위치를 확인합니다.", mini: <Result title="보완 결과" status="검토 완료" lines={["중요 · 원인 설명 확인 필요 · 3P", "보고 전 확인할 질문"]} /> },
     ],
     tip: "다른 페이지에 설명이 있으면 누락으로 표시하지 않으며, 읽지 못한 영역은 분석 범위에 표시됩니다.",
   },
@@ -144,8 +144,9 @@ const GUIDES: Guide[] = [
       { title: "법령 검색", text: "법령명을 입력하고 검색합니다.", mini: <span className="mini-operation"><Field text="근로기준법" /><span className="mini-button">검색</span></span> },
       { title: "결과 선택", text: "목록에서 법령을 선택합니다.", mini: <span className="mini-files"><span className="mini-row is-mark"><span className="mini-name">근로기준법</span><b className="mini-role">현행</b></span><span className="mini-row"><span className="mini-name">근로기준법 시행령</span></span></span> },
       { title: "조문 확인", text: "조문을 읽고 관련 판례·결정례로 이어갑니다.", mini: <Result title="제23조(해고 등의 제한)" status="현행" lines={["① 사용자는 근로자에게 정당한 이유 없이…"]} actions={["관련 판례·결정례"]} /> },
+      { title: "종합 리서치", text: "질문을 실행한 뒤 쟁점별 핵심 검토 결과와 추가 확인을 읽습니다. 상세 근거는 개별로 펼치거나 근거 펼치기로 전체 확인합니다. 쟁점이 두 개 이상이면 바로가기로 이동합니다.", mini: <Result title="01 퇴직금 · 02 해고" status="근거 확인" lines={["핵심 검토 결과 · 추가 확인"]} actions={["관련 법령·판례 상세 보기"]} /> },
     ],
-    tip: "인용 전에 시행 시점과 국가법령정보센터 원문을 대조하세요.",
+    tip: "인용 전에 시행 시점과 국가법령정보센터 원문을 대조하세요. 문서 검토 결과의 ‘검토한 내용 보기’는 업로드 문서의 해당 부분을 보여줍니다. ‘근거 보기’는 연결된 법령·판례 위치로 이동하며, 근거가 있는 결과의 ‘근거 펼치기 / 근거 접기’는 관련 법령·판례만 전체 조작합니다.",
   },
   {
     id: "pdf", label: "PDF 도구", summary: "PDF 페이지를 정리하고 원하는 형식으로 내보냅니다.",
@@ -171,7 +172,7 @@ const GUIDES: Guide[] = [
       { title: "자동화 매트릭스", text: "업무별 가치와 실현 가능성을 비교합니다.", mini: <Result title="자동화 매트릭스" status="진단 업무" lines={["빠른 실행 후보 · 전략 과제", "검토 후보 · 수동 유지·보류"]} /> },
       { title: "결과·로드맵", text: "결과·실행 방향 확인, 구현 지시문 생성", mini: <Result title="결과·로드맵" status="검토 대기" actions={["Codex용 구현 계획 생성"]} lines={["진단 근거 → 공통 실행 방향", "도구별 구현 상세 · 지시문 복사"]} /> },
     ],
-    tip: "매트릭스에서 업무를 선택해 점수 근거를 확인하고, 결과·로드맵에서 선택한 업무의 구현 계획과 지시문을 확인하세요. 진단 업무가 4개 이상이면 ‘전체 업무 보기’에서 다른 업무로 전환할 수 있습니다.",
+    tip: "매트릭스의 개별 점은 순위, ‘N개’는 같은 위치의 업무 수입니다. ‘N개’를 눌러 순위별 업무를 선택하고 점수 근거를 확인하세요. 결과·로드맵의 ‘한눈에 보기’에서 선택 업무의 실행 방향을 확인한 뒤 구현 계획과 지시문을 확인하세요. 진단 업무가 4개 이상이면 ‘전체 업무 보기’에서 다른 업무로 전환할 수 있습니다.",
   },
   {
     id: "dictionary", label: "용어 사전", summary: "맞춤법과 용어 오탐을 줄이기 위한 사전입니다.",
