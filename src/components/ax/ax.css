@@ -296,26 +296,56 @@
 .ax-cmd { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.9em; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--foreground); background: color-mix(in srgb, var(--muted) 18%, var(--card)); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; }
 /* Setup guide: readable body, STEP > section > body > command hierarchy, left aligned. */
 .ax-guide-panel { color: var(--foreground); font-size: var(--font-size-sm); line-height: 1.7; text-align: left; min-width: 0; }
-.ax-guide-step + .ax-guide-step { margin-top: 32px; }
-.ax-guide-step > h4 { margin: 16px 0 8px; padding-bottom: 10px; border-bottom: 1px solid var(--border); font-size: var(--font-size-md); font-weight: var(--font-weight-semibold); }
+.ax-guide-step { min-width: 0; padding: 26px 0; border-top: 1px solid var(--border); }
+.ax-guide-step > h4 { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; margin: 0 0 10px; font-size: var(--font-size-md); font-weight: var(--font-weight-semibold); scroll-margin-top: 100px; }
+.ax-guide-step > h4 > svg { align-self: center; }
+.ax-guide-step > h4 > span:last-child { flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; }
+.ax-guide-step > h4:focus-visible { outline: 2px solid var(--primary); outline-offset: 4px; }
+.ax-tutorial-step-no { color: var(--primary); font-size: var(--font-size-xs); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .ax-guide-step > .ax-guide-purpose { margin: 0 0 16px; color: var(--muted-foreground); overflow-wrap: anywhere; }
 .ax-guide-section { margin-top: 18px; }
-.ax-guide-section > h5 { margin: 0 0 4px; font-size: var(--font-size-sm); font-weight: 650; }
+.ax-guide-section > h5 { display: flex; align-items: baseline; gap: 6px; margin: 0 0 6px; font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); }
 .ax-guide-section > p { margin: 6px 0; overflow-wrap: anywhere; }
 .ax-guide-section > .ax-guide-when { margin: 0 0 8px; color: var(--muted-foreground); font-size: var(--font-size-xs); }
-.ax-guide-code { position: relative; margin: 8px 0; padding: 26px 14px 12px; overflow-x: auto; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 13px; line-height: 1.7; white-space: pre; color: var(--foreground); background: color-mix(in srgb, var(--muted) 14%, var(--card)); border: 1px solid var(--border); border-radius: 8px; }
+.ax-guide-code { position: relative; min-width: 0; max-width: 100%; margin: 8px 0; padding: 34px 14px 12px; overflow-x: auto; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 13px; line-height: 1.7; white-space: pre; color: var(--foreground); background: color-mix(in srgb, var(--muted) 14%, var(--card)); border: 1px solid var(--border); border-radius: 8px; }
 .ax-guide-code-label { position: absolute; top: 6px; left: 14px; font-family: var(--font-sans); font-size: 11px; color: var(--muted-foreground); letter-spacing: .04em; }
 .ax-guide-code-wrap { position: relative; }
-.ax-guide-code-wrap > .ax-guide-copy-button { position: absolute; top: 3px; right: 5px; color: var(--muted-foreground); }
+.ax-guide-code-wrap > .ax-guide-copy-button { position: absolute; top: 3px; right: 5px; width: 32px; height: 32px; color: var(--muted-foreground); }
 .ax-guide-code-wrap > .ax-guide-copy-button[data-copied="true"] { color: var(--primary); }
 .ax-view .ax-guide-code-notes { margin: 4px 0 12px; padding: 0; color: var(--muted-foreground); font-size: var(--font-size-sm); line-height: 1.6; }
-.ax-guide-code-notes > p { margin: 2px 0; overflow-wrap: anywhere; }
 .ax-view .ax-guide-list { margin: 6px 0; padding: 0; list-style: none; }
 .ax-guide-list li { display: grid; grid-template-columns: max-content minmax(0, 1fr); column-gap: 10px; align-items: baseline; margin-bottom: 6px; overflow-wrap: anywhere; }
 .ax-guide-marker { white-space: nowrap; text-align: left; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
 .ax-guide-terms > [data-slot=accordion-item] { border: 0; }
 .ax-guide-terms .ax-guide-terms-trigger { justify-content: flex-start; gap: 8px; padding: 8px 0; font-size: var(--font-size-sm); font-weight: var(--font-weight-medium); }
 .ax-guide-terms .ax-guide-terms-panel { padding: 0; }
+.ax-setup-tutorial { min-width: 0; }
+.ax-setup-tutorial svg { flex: none; width: 18px; height: 18px; stroke-width: 1.75; color: var(--muted-foreground); }
+.ax-tutorial-intro { margin: 24px 0 14px; }
+.ax-tutorial-intro > h3 { margin: 0 0 6px; font-size: var(--font-size-lg); font-weight: var(--font-weight-semibold); }
+.ax-tutorial-intro > p, .ax-tutorial-course-head p { margin: 4px 0; color: var(--muted-foreground); }
+.ax-view .ax-tutorial-flow { display: flex; flex-wrap: wrap; gap: 8px 20px; margin: 18px 0 0; padding: 0; list-style: none; }
+.ax-tutorial-flow > li { display: flex; align-items: center; gap: 8px; margin: 0; font-weight: var(--font-weight-medium); }
+.ax-tutorial-flow svg { color: var(--primary); }
+.ax-tutorial-toc { display: flex; flex-wrap: wrap; gap: 4px 8px; padding: 12px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.ax-tutorial-toc > button { height: auto; min-height: 36px; max-width: 100%; justify-content: flex-start; gap: 8px; padding: 6px 8px; white-space: normal; text-align: left; overflow-wrap: anywhere; }
+.ax-tutorial-toc > button > span { color: var(--primary); white-space: nowrap; font-size: var(--font-size-xs); font-variant-numeric: tabular-nums; }
+.ax-tutorial-context { margin: 18px 0 28px; }
+.ax-tutorial-context .ax-guide-section { margin-top: 12px; }
+.ax-tutorial-course-head { display: flex; gap: 12px; align-items: flex-start; padding: 22px 0 16px; }
+.ax-tutorial-course-head > svg { width: 22px; height: 22px; margin-top: 2px; color: var(--primary); }
+.ax-tutorial-course-head h3 { margin: 0; font-size: var(--font-size-lg); font-weight: var(--font-weight-semibold); }
+.ax-tutorial-action-label { display: flex; align-items: center; gap: 8px; margin: 18px 0 0; color: var(--muted-foreground); font-size: var(--font-size-xs); font-weight: var(--font-weight-medium); }
+.ax-guide-completion { border-top: 1px solid var(--border); padding-top: 16px; }
+.ax-guide-completion > h5 svg { color: var(--primary); }
+.ax-guide-warning > h5 svg { color: var(--warning); }
+.ax-guide-section > h5 svg { align-self: center; }
+@media(max-width: 700px) {
+  .ax-guide-step { padding: 22px 0; }
+  .ax-tutorial-toc { gap: 4px; }
+  .ax-tutorial-toc > button { width: 100%; }
+  .ax-tutorial-flow { flex-direction: column; }
+}
 .ax-package > p { margin: 4px 0 16px; }
 .ax-package > h4 { margin-top: 20px; }
 /* Headings start on the marker rail; bodies share a separate, non-cumulative text rail. */

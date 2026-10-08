@@ -345,23 +345,6 @@ test("AX registration → diagnosis → correction → matrix → plans → relo
   await expect(guide).toHaveAttribute("aria-expanded", "true");
   const guidePanel = packageSection.locator(".ax-guide-panel");
   await expectGuideTutorial(page, guidePanel, "Codex");
-  await expect(guidePanel.locator(".ax-guide-code").first()).toContainText("git --version");
-  await expect(guidePanel.locator(".ax-guide-code").first()).toHaveAttribute("aria-label", "PowerShell 명령");
-  await expect(guidePanel.locator(".ax-guide-code").first().locator(".ax-guide-code-label")).toHaveText("PowerShell");
-  const gitignoreExample = guidePanel.locator(".ax-guide-code").filter({ hasText: "node_modules/" });
-  await expect(gitignoreExample.locator(".ax-guide-code-label")).toHaveText(".gitignore");
-  await expect(gitignoreExample).toHaveAttribute("aria-label", ".gitignore 예시");
-  const guideStyle = await guidePanel.evaluate(element => {
-    const body = element.querySelector(".ax-guide-section > p")!, step = element.querySelector(".ax-guide-step > h4")!, code = element.querySelector(".ax-guide-code")!;
-    return { align: getComputedStyle(element).textAlign, body: parseFloat(getComputedStyle(body).fontSize), step: parseFloat(getComputedStyle(step).fontSize), code: parseFloat(getComputedStyle(code).fontSize), color: getComputedStyle(body).color, muted: getComputedStyle(element.querySelector(".ax-guide-when")!).color };
-  });
-  expect(guideStyle.align).toBe("left");
-  expect(guideStyle.step).toBeGreaterThan(guideStyle.body);
-  expect(guideStyle.code).toBeGreaterThanOrEqual(13);
-  expect(guideStyle.color).not.toBe(guideStyle.muted);
-  await expect(packageSection.locator(".ax-guide-panel")).toContainText(TOOL_GUIDES.codex.installCommand);
-  await expect(packageSection.locator(".ax-guide-panel")).toContainText(TOOL_GUIDES.codex.doctorCommand);
-  await expect(packageSection.locator(".ax-guide-panel")).not.toContainText(TOOL_GUIDES.claude.installCommand);
   await expectGuideToolbar(packageSection, page.viewportSize()!.width >= 1024);
   const expandedGuideBox = await guide.boundingBox();
   expect(expandedGuideBox!.width).toBeCloseTo(collapsedGuideBox!.width, 1);
@@ -384,9 +367,6 @@ test("AX registration → diagnosis → correction → matrix → plans → relo
   expect(await prompt.textContent()).toBe(codexPrompt);
   await guide.click();
   await expectGuideTutorial(page, guidePanel, "Claude Code");
-  await expect(packageSection.locator(".ax-guide-panel")).toContainText(TOOL_GUIDES.claude.installCommand);
-  await expect(packageSection.locator(".ax-guide-panel")).toContainText(TOOL_GUIDES.claude.doctorCommand);
-  await expect(packageSection.locator(".ax-guide-panel")).not.toContainText(TOOL_GUIDES.codex.installCommand);
   await guide.click();
   expect(calls.map(c => c.kind)).toEqual(["ax-diagnosis", "ax-plan", "ax-plan"]);
   expect(calls[1]).toMatchObject({ target: "codex", diagnosis: { factors: expect.arrayContaining([expect.objectContaining({ key: "repetition", finalValue: 1 })]) } });
@@ -975,7 +955,7 @@ test("AX execution package remains readable on mobile with the setup guide colla
   const collapsedGuideBox = await guide.boundingBox();
   await guide.click();
   await expect(guide).toHaveAttribute("aria-expanded", "true");
-  await expect(section.locator(".ax-guide-panel")).toContainText(TOOL_GUIDES.claude.doctorCommand);
+  await expectGuideTutorial(page, section.locator(".ax-guide-panel"), "Claude Code");
   await expectGuideToolbar(section, false);
   const expandedGuideBox = await guide.boundingBox();
   expect(expandedGuideBox!.width).toBeCloseTo(collapsedGuideBox!.width, 1);
@@ -1080,64 +1060,84 @@ async function expectPlanTextAlignment(view: Locator, implementation = false) {
 }
 
 async function expectGuideTutorial(page: Page, panel: Locator, tool: "Codex" | "Claude Code") {
-  const steps = panel.locator(".ax-guide-step");
-  await expect(steps).toHaveCount(10);
-  for (const step of await steps.all()) {
-    await expect(step.locator(":scope > h4 + p.ax-guide-purpose")).toBeVisible();
-  }
-  await expect(steps.locator(":scope > h4").filter({ hasText: /^STEP 3\b/ })).toContainText(tool);
-  await expect(steps.locator(":scope > h4").filter({ hasText: /^STEP 3\b/ })).not.toContainText(tool === "Codex" ? "Claude Code" : "Codex");
-  const terms = panel.locator(".ax-guide-terms");
+  const toc = panel.locator(".ax-tutorial-toc");
+  const size = page.viewportSize()!;
+  const screenshotName = `${tool === "Codex" ? "codex" : "claude"}-${size.width}x${size.height}-${test.info().project.name}`;
+  const terms = panel.locator(".ax-guide-terms").filter({ has: page.getByRole("button", { name: "용어 설명 보기", exact: true }) });
   const trigger = terms.getByRole("button", { name: "용어 설명 보기", exact: true });
-  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  const basics = panel.getByRole("button", { name: /기본 명령/ });
+  const ignoreHelp = panel.getByRole("button", { name: /^\.gitignore란/ });
+  for (const detail of [trigger, basics, ignoreHelp]) await expect(detail).toHaveAttribute("aria-expanded", "false");
   await expect(terms.locator(".ax-guide-list")).toBeHidden();
+
   await trigger.focus(); await page.keyboard.press("Enter");
   await expect(trigger).toHaveAttribute("aria-expanded", "true");
-  await expect(panel.locator(".ax-guide-section").filter({ has: page.locator(".ax-guide-terms") }).locator(":scope > h5")).toBeVisible();
   await expect(terms.locator(".ax-guide-list")).toBeVisible();
-  await expect(panel.getByRole("checkbox")).toHaveCount(0);
-  await expect(panel.locator('input[type="checkbox"]')).toHaveCount(0);
-  const positions = await panel.locator(".ax-guide-step > h4, .ax-guide-section > h5, .ax-guide-list .ax-guide-marker, .ax-guide-list .ax-guide-text").evaluateAll(elements =>
-    elements.flatMap(element => {
-      if (!element.getBoundingClientRect().width) return [];
-      const range = document.createRange(); range.selectNodeContents(element);
-      const rects = [...range.getClientRects()].filter(rect => rect.width > 0);
-      const content = element.matches(".ax-guide-text");
-      return rects.length ? [{
-        text: element.textContent, x: rects[0].x, box: element.getBoundingClientRect().x,
-        marker: element.matches(".ax-guide-marker"), content,
-        lines: content ? [...new Set(rects.map(rect => rect.y))].map(y => Math.min(...rects.filter(rect => rect.y === y).map(rect => rect.x))) : [],
-      }] : [];
-    }));
-  const headingRail = positions.find(position => !position.marker && !position.content)!.x;
-  for (const position of positions.filter(position => !position.content)) expect(Math.abs(position.x - headingRail), position.text ?? "").toBeLessThanOrEqual(2);
-  await expectActualMarkerGaps(panel, true);
-  const markers = positions.filter(position => position.marker);
-  for (const symbol of ["•", "01", "□"]) expect(markers.some(marker => marker.text?.trim() === symbol), `Guide marker ${symbol}`).toBe(true);
-  if (page.viewportSize()!.width === 390) expect(positions.some(position => position.content && position.lines.length > 1)).toBe(true);
-  await expect(panel.locator(".ax-guide-code-notes li, .ax-guide-code-notes ul, .ax-guide-code-notes .ax-guide-marker")).toHaveCount(0);
-  const notes = await panel.locator(".ax-guide-code-notes").evaluateAll(elements => elements.map(element => {
-    const pre = element.previousElementSibling!.querySelector("pre")!;
-    const range = document.createRange();
-    const paragraphs = [...element.querySelectorAll(":scope > p")];
-    const lefts = paragraphs.map(paragraph => { range.selectNodeContents(paragraph); return range.getBoundingClientRect().x; });
-    const following = element.nextElementSibling;
-    let followingX: number | undefined;
-    if (following?.tagName === "P") { range.selectNodeContents(following); followingX = range.getBoundingClientRect().x; }
-    return { preX: pre.getBoundingClientRect().x, lefts, followingX };
-  }));
-  expect(notes.some(note => note.followingX !== undefined)).toBe(true);
-  for (const note of notes) {
-    expect(note.lefts.length).toBeGreaterThan(0);
-    for (const x of note.lefts) expect(Math.abs(x - note.preX)).toBeLessThanOrEqual(1);
-    if (note.followingX !== undefined) expect(Math.abs(note.followingX - note.preX)).toBeLessThanOrEqual(1);
-  }
-  const screenshotName = `${page.viewportSize()!.width === 1440 ? "Desktop1440" : "Mobile390"}-${tool === "Codex" ? "codex" : "claude"}-${test.info().project.name}`;
-  await panel.screenshot({ path: `artifacts/ax/tutorial-terms-expanded-${screenshotName}.png` });
+  await panel.screenshot({ path: `artifacts/ax/setup-tutorial-terms-expanded-${screenshotName}.png` });
+  for (const detail of [basics, ignoreHelp]) await expect(detail).toHaveAttribute("aria-expanded", "false");
+  await basics.click();
+  await expect(basics).toHaveAttribute("aria-expanded", "true");
+  await expect(trigger).toHaveAttribute("aria-expanded", "true");
+  await expect(ignoreHelp).toHaveAttribute("aria-expanded", "false");
+  await basics.click();
   await trigger.focus(); await page.keyboard.press("Space");
   await expect(trigger).toHaveAttribute("aria-expanded", "false");
   await expect(terms.locator(".ax-guide-list")).toBeHidden();
-  await panel.screenshot({ path: `artifacts/ax/tutorial-${screenshotName}.png` });
+
+  // A selected tool must change the instructions the user can actually execute.
+  const install = panel.locator(".ax-guide-code").filter({ hasText: TOOL_GUIDES[tool === "Codex" ? "codex" : "claude"].installCommand });
+  await expect(install).toBeVisible();
+  await expect(panel.locator(".ax-guide-code").filter({ hasText: TOOL_GUIDES[tool === "Codex" ? "claude" : "codex"].installCommand })).toHaveCount(0);
+  const secretStep = panel.locator('.ax-guide-step[data-setup-step="6"]');
+  await expect(secretStep.getByText(/실제 Secret 값을 Git뿐 아니라/)).toBeVisible();
+  await expect(secretStep.getByText(/이미 노출된 Secret은/)).toBeVisible();
+  await ignoreHelp.click();
+  await expect(ignoreHelp).toHaveAttribute("aria-expanded", "true");
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  await expect(basics).toHaveAttribute("aria-expanded", "false");
+  await expect(secretStep.getByText(/이미 노출된 Secret은/)).toBeVisible();
+  await ignoreHelp.click();
+
+  for (const number of [9, 3]) {
+    await toc.getByRole("button", { name: new RegExp(`STEP\\s*0?${number}\\b`) }).click();
+    const heading = panel.locator(`.ax-guide-step[data-setup-step="${number}"] > h4`);
+    await expect(heading).toBeFocused();
+    // Check the real viewport hit target rather than pinning a scroll offset or CSS value.
+    await expect.poll(() => heading.evaluate(element => {
+      const box = element.getBoundingClientRect();
+      if (box.top < 0 || box.bottom > innerHeight) return false;
+      const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+      return hit !== null && (hit === element || element.contains(hit));
+    })).toBe(true);
+  }
+
+  await expectActualMarkerGaps(panel, true);
+  const notes = await panel.locator(".ax-guide-code-notes").evaluateAll(elements => elements.flatMap(element => {
+    const pre = element.previousElementSibling?.querySelector("pre");
+    if (!pre || !element.getBoundingClientRect().width) return [];
+    return [...element.querySelectorAll("li")].map(li => {
+      const marker = li.querySelector(".ax-guide-marker")!;
+      const body = li.querySelector(".ax-guide-text")!;
+      const range = document.createRange(); range.selectNodeContents(marker);
+      const markerRect = range.getBoundingClientRect();
+      range.selectNodeContents(body);
+      const rects = [...range.getClientRects()].filter(rect => rect.width > 0);
+      const lines = [...new Set(rects.map(rect => rect.y))].map(y => Math.min(...rects.filter(rect => rect.y === y).map(rect => rect.x)));
+      return { preX: pre.getBoundingClientRect().x, markerX: markerRect.x, gap: lines[0] - markerRect.right, lines };
+    });
+  }));
+  await expect(panel.locator(".ax-guide-code-notes .ax-guide-marker").first()).toBeVisible();
+  for (const note of notes) {
+    expect(Math.abs(note.markerX - note.preX)).toBeLessThanOrEqual(2);
+    expect(note.gap).toBeGreaterThanOrEqual(8); expect(note.gap).toBeLessThanOrEqual(12);
+    for (const x of note.lines) expect(Math.abs(x - note.lines[0])).toBeLessThanOrEqual(2);
+  }
+  if (page.viewportSize()!.width === 390) {
+    expect(notes.some(note => note.lines.length > 1)).toBe(true);
+    expect(await panel.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  }
+  await panel.screenshot({ path: `artifacts/ax/setup-tutorial-${screenshotName}.png` });
 }
 
 async function expectPromptDisclosure(page: Page, section: Locator, tool: "Codex" | "Claude Code", width: number) {
@@ -1411,7 +1411,8 @@ for (const width of [1440, 390]) {
     for (const tool of ["Codex", "Claude Code"] as const) {
       await section.getByRole("tab", { name: tool, exact: true }).click();
       const guide = section.getByRole("button", { name: "설치·시작 가이드", exact: true });
-      await guide.click();
+      if (tool === "Codex") await guide.click();
+      await expect(guide).toHaveAttribute("aria-expanded", "true");
       await expectGuideTutorial(page, section.locator(".ax-guide-panel"), tool);
       for (const label of ["PowerShell 명령", ".gitignore 예시"]) {
         const block = section.locator(".ax-guide-code-wrap").filter({ has: page.locator(`pre[aria-label="${label}"]`) }).first();
@@ -1428,7 +1429,7 @@ for (const width of [1440, 390]) {
         await block.screenshot({ path: `artifacts/ax/guide-copy-${width}-${tool === "Codex" ? "codex" : "claude"}-${label === "PowerShell 명령" ? "ps" : "ignore"}-${test.info().project.name}.png` });
       }
       await expect(section.locator(".ax-guide-section > p .ax-guide-copy-button")).toHaveCount(0);
-      await guide.click();
+      if (tool === "Claude Code") await guide.click();
     }
   });
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { Check, Copy, FileCode2, Terminal } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle2, Clipboard, CloudUpload, Copy, Download, FileCode2, Folder, GitBranch, Globe, ShieldCheck, Terminal } from "lucide-react";
 import type { AxDiagnosis, AxPlan, AxTask } from "@/lib/ax/types";
 import { automationLevel, axes, executionGate, executionProfile, factorEffectiveValue, GATE_LABELS, gateBlockReasons, gatePrerequisites, nextAction, type ExecutionProfile } from "@/lib/ax/policy";
 import { FACTOR_KEYS } from "@/lib/ax/schema";
@@ -136,7 +136,7 @@ function AxGuideBlockView({ block, listStyle }: { block: AxGuideBlock; listStyle
     const ariaLabel = label === "PowerShell" ? "PowerShell 명령" : label === ".gitignore" ? ".gitignore 예시" : "예시";
     return <>
       <div className="ax-guide-code-wrap"><pre className="ax-guide-code" aria-label={ariaLabel}><span className="ax-guide-code-label" aria-hidden="true">{label}</span><code>{block.lines.join("\n")}</code></pre><AxCopyButton key={block.lines.join("\n")} text={block.lines.join("\n")} label={`${ariaLabel} 복사`} iconOnly /></div>
-      {block.notes?.length ? <div className="ax-guide-code-notes">{block.notes.map((note, i) => <p key={i}>{note}</p>)}</div> : null}
+      {block.notes?.length ? <ul className="ax-guide-code-notes ax-guide-list" role="list">{block.notes.map((note, i) => <li key={i}><span className="ax-guide-marker" aria-hidden="true">•</span><span className="ax-guide-text">{note}</span></li>)}</ul> : null}
     </>;
   }
   if (block.kind === "steps") {
@@ -146,25 +146,64 @@ function AxGuideBlockView({ block, listStyle }: { block: AxGuideBlock; listStyle
   }
   return <p><AxGuideText text={block.text} /></p>;
 }
-function AxGuideSectionView({ section }: { section: AxGuideSection }) {
+function AxGuideSectionView({ section, completion = false, warning = false, collapsed = section.collapsed }: { section: AxGuideSection; completion?: boolean; warning?: boolean; collapsed?: boolean }) {
   const content = <>
     {section.when ? <p className="ax-guide-when"><AxGuideText text={section.when} /></p> : null}
     {section.blocks.map((block, i) => <AxGuideBlockView key={i} block={block} listStyle={section.listStyle} />)}
   </>;
-  return <section className="ax-guide-section">
-    <h5>{section.title}</h5>
-    {section.collapsed ? <Accordion className="ax-guide-terms"><AccordionItem value="terms">
-      <AccordionTrigger className="ax-guide-terms-trigger">용어 설명 보기</AccordionTrigger>
+  return <section className={`ax-guide-section${completion ? " ax-guide-completion" : ""}${warning ? " ax-guide-warning" : ""}`}>
+    <h5>{completion ? <><CheckCircle2 aria-hidden="true" />완료 확인 · </> : warning ? <AlertTriangle aria-hidden="true" /> : null}{section.title}</h5>
+    {collapsed ? <Accordion className="ax-guide-terms"><AccordionItem value="terms">
+      <AccordionTrigger className="ax-guide-terms-trigger">{section.collapsed ? "용어 설명 보기" : `${section.title} 자세히 보기`}</AccordionTrigger>
       <AccordionPanel className="ax-guide-terms-panel">{content}</AccordionPanel>
     </AccordionItem></Accordion> : content}
   </section>;
 }
+
+const SETUP_COURSES = [
+  { title: "처음 한 번 준비", description: "설치 여부부터 확인하고 필요한 도구만 준비합니다.", Icon: Download, first: 1, last: 1 },
+  { title: "프로젝트 작업", description: "프로젝트를 열고 AI 작업과 실제 결과를 확인합니다.", Icon: Folder, first: 2, last: 5 },
+  { title: "GitHub·배포", description: "안전하게 저장한 뒤 배포와 실제 서비스를 확인합니다.", Icon: CloudUpload, first: 6, last: 9 },
+] as const;
+const SETUP_ICONS = [Download, Folder, Terminal, Clipboard, CheckCircle2, ShieldCheck, GitBranch, CloudUpload, Globe] as const;
+const SETUP_COMPLETIONS = new Set(["GitHub 인증 확인", "현재 위치 확인", "작업 시작 전 AI가 먼저 확인할 것", "테스트·빌드 확인", "실제 기능 확인", "GitHub에서 확인할 것", "실제 서비스 확인"]);
+const SETUP_WARNINGS = new Set(["기존 .gitignore 확인", ".env와 .env.example", "이미 추적 중인 파일", "올리기 전 체크리스트", "git push가 곧 Production은 아닙니다", "먼저 현재 배포 환경 확인", "오류가 나면", "CI가 실패하면", "문제가 생기면", "되돌리기(Rollback)"]);
+const SETUP_DETAILS = new Set(["한눈에 보기", "기본 명령", ".gitignore란"]);
+
 function AxSetupGuide({ tool }: { tool: AxToolId }) {
-  return <>{setupGuide(tool).map(step => <div className="ax-guide-step" key={step.title}>
-    <h4>{step.title}</h4>
-    <p className="ax-guide-purpose">{step.purpose}</p>
-    {step.sections.map(section => <AxGuideSectionView key={section.title} section={section} />)}
-  </div>)}</>;
+  const id = useId();
+  const root = useRef<HTMLDivElement>(null);
+  const [intro, ...steps] = setupGuide(tool);
+  const title = (value: string) => value.replace(/^STEP \d+ · /, "");
+  function goToStep(index: number) {
+    const heading = root.current?.querySelector<HTMLElement>(`[data-setup-step="${index + 1}"] > h4`);
+    heading?.scrollIntoView({ block: "start" });
+    heading?.focus({ preventScroll: true });
+  }
+  return <div className="ax-setup-tutorial" ref={root}>
+    <header className="ax-tutorial-intro">
+      <h3>설치부터 배포까지 따라 하기</h3>
+      <p>{intro.purpose}</p>
+      <ol className="ax-tutorial-flow" aria-label="진행 흐름">{SETUP_COURSES.map(({ title: name, Icon }) => <li key={name}><Icon aria-hidden="true" /><span>{name}</span></li>)}</ol>
+    </header>
+    <nav className="ax-tutorial-toc" aria-label="설치·시작 단계 목차">
+      {steps.map((step, index) => <Button key={index} type="button" variant="ghost" size="sm" aria-controls={`${id}-step-${index + 1}`} onClick={() => goToStep(index)}><span>STEP {String(index + 1).padStart(2, "0")}</span>{title(step.title)}</Button>)}
+    </nav>
+    <div className="ax-tutorial-context">{intro.sections.map(section => <AxGuideSectionView key={section.title} section={section} collapsed={section.collapsed || SETUP_DETAILS.has(section.title)} />)}</div>
+    {SETUP_COURSES.map(course => <section className="ax-tutorial-course" aria-label={course.title} key={course.title}>
+      <header className="ax-tutorial-course-head"><course.Icon aria-hidden="true" /><div><h3>{course.title}</h3><p>{course.description}</p></div></header>
+      {steps.slice(course.first - 1, course.last).map((step, offset) => {
+        const index = course.first - 1 + offset;
+        const Icon = SETUP_ICONS[index];
+        return <section className="ax-guide-step" data-setup-step={index + 1} aria-labelledby={`${id}-step-${index + 1}`} key={step.title}>
+          <h4 id={`${id}-step-${index + 1}`} tabIndex={-1}><span className="ax-tutorial-step-no">STEP {String(index + 1).padStart(2, "0")}</span><Icon aria-hidden="true" /><span>{title(step.title)}</span></h4>
+          <p className="ax-guide-purpose">{step.purpose}</p>
+          <p className="ax-tutorial-action-label"><Terminal aria-hidden="true" />실행 방법</p>
+          {step.sections.map(section => <AxGuideSectionView key={section.title} section={section} completion={SETUP_COMPLETIONS.has(section.title)} warning={SETUP_WARNINGS.has(section.title)} collapsed={section.collapsed || SETUP_DETAILS.has(section.title)} />)}
+        </section>;
+      })}
+    </section>)}
+  </div>;
 }
 
 function AxPlanList({ items }: { items: string[] }) {
