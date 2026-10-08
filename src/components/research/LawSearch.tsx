@@ -309,12 +309,11 @@ function LawPane({ onRelated, onAnalysis }: LawPaneProps) {
         <Button type="submit" className="law-search-button" disabled={searchLoading || !query.trim()}>{searchLoading ? "검색 중…" : "검색"}</Button>
       </div>
     </form>
+    <span className="sr-only" role="status">{searchLoading ? "검색 중…" : ""}</span>
 
-    {(searchLoading || outcome) && <section className="law-search-results" aria-labelledby="law-results-heading" aria-busy={searchLoading}>
-      <h2 id="law-results-heading">검색 결과{outcome?.kind === "found" ? <span className="law-section-count"> · {outcome.laws.length}건</span> : outcome?.kind === "empty" ? <span className="law-section-count"> · 0건</span> : null}</h2>
-      {searchLoading ? <p className="law-search-note" role="status">검색 중…</p>
-        : !outcome ? null
-        : outcome.kind === "error" ? <p className="law-search-error law-operation-error" role="alert">{outcome.message}</p>
+    {!searchLoading && outcome && <section className="law-search-results" aria-labelledby="law-results-heading">
+      <h2 id="law-results-heading">검색 결과{outcome.kind === "found" ? <span className="law-section-count"> · {outcome.laws.length}건</span> : outcome.kind === "empty" ? <span className="law-section-count"> · 0건</span> : null}</h2>
+      {outcome.kind === "error" ? <p className="law-search-error law-operation-error" role="alert">{outcome.message}</p>
         : outcome.kind === "empty" ? <p className="law-search-note" role="status">검색 결과가 없습니다. 다른 법령명이나 키워드로 검색해보세요.</p>
         : <ul className="law-search-list">
           {outcome.laws.map((law, index) => {

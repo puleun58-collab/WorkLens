@@ -42,8 +42,13 @@ export function AxScoreEvidence({ diagnosis }: { diagnosis: AxDiagnosis }) {
               {EXTRA_FACTORS.map(({ key, score }) => <div key={key}><span>{FACTOR_LABELS[key]}</span><strong>{scores[score]}점</strong></div>)}
             </div>
           </section>
-          <details className="ax-score-details">
-            <summary>항목별 AI 평가 근거</summary>
+          <Accordion className="ax-score-details">
+            <AccordionItem value="factor-evidence">
+              <AccordionTrigger className="ax-score-details-trigger">
+                <span className="ax-score-details-closed">평가 근거 자세히 보기</span>
+                <span className="ax-score-details-open">평가 근거 접기</span>
+              </AccordionTrigger>
+              <AccordionPanel className="ax-score-details-panel">
             <p className="ax-muted">최종 적용값으로 계산합니다. AI 평가 근거는 원래 제안값에 대한 설명이며, 사용자 보정값의 근거는 아닙니다.</p>
             <dl className="ax-score-factors">
               {FACTOR_KEYS.map(key => {
@@ -54,7 +59,9 @@ export function AxScoreEvidence({ diagnosis }: { diagnosis: AxDiagnosis }) {
                 </div>;
               })}
             </dl>
-          </details>
+              </AccordionPanel>
+            </AccordionItem>
+          </Accordion>
         </section>
       </AccordionPanel>
     </AccordionItem>

@@ -18,7 +18,6 @@ async function runAnalyze(page: Page) {
   await navigateWorkspace(page, "분석");
   await page.getByRole("button", { name: "분석 실행" }).click();
   const panel = page.locator(".results-panel");
-  await expect(panel.getByRole("heading", { name: "분석 결과" })).toBeVisible();
   return panel;
 }
 
@@ -136,14 +135,11 @@ test("analyzes generated regulation and workbook within one aligned result surfa
   await expect(sections.nth(4)).toHaveClass(/analysis-concern-section/);
   await expectSectionHierarchy(panel);
   const desktop = await panel.evaluate((root) => {
-    const heading = root.querySelector(".result-heading h2")!.getBoundingClientRect();
-    const summary = root.querySelector(".analysis-summary-section h3")!.getBoundingClientRect();
     const count = root.querySelector(".analysis-summary-section .subsection-heading span")!.getBoundingClientRect();
     const status = root.querySelector(".result-status")!.getBoundingClientRect();
     const report = root.querySelector(".analysis-report")!;
-    return { left: Math.abs(heading.left - summary.left), right: Math.abs(status.right - count.right), surface: getComputedStyle(report).backgroundColor };
+    return { right: Math.abs(status.right - count.right), surface: getComputedStyle(report).backgroundColor };
   });
-  expect(desktop.left).toBeLessThanOrEqual(1);
   expect(desktop.right).toBeLessThanOrEqual(1);
   expect(desktop.surface).toBe("rgb(255, 255, 255)");
   expect(await sections.evaluateAll((items) => items.every((item) =>
@@ -162,14 +158,9 @@ test("analyzes generated regulation and workbook within one aligned result surfa
   await expect(panel.locator(".analysis-metric-table")).toBeVisible();
   await expectSectionHierarchy(panel, true);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
-  const mobile = await panel.evaluate((root) => ({
-    heading: root.querySelector(".result-heading h2")!.getBoundingClientRect().left,
-    summary: root.querySelector(".analysis-summary-section h3")!.getBoundingClientRect().left,
-  }));
   await panel.locator(".analysis-insight-section .source-action").first().click();
   await expect(drawer).toContainText("Travel regulation.pdf");
   await drawer.getByRole("button", { name: "닫기" }).click();
-  expect(Math.abs(mobile.heading - mobile.summary)).toBeLessThanOrEqual(1);
 });
 
 test("keeps separate workbook values while grounding their comparison across files", async ({ page }) => {

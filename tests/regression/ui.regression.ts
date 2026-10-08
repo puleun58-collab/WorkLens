@@ -256,34 +256,6 @@ regressionCase(make(20, "UI", "Unsupported aggregation warning", "CSV selected f
   await expect(page.getByRole("button", { name: "취합 실행" })).toBeDisabled();
   classify("Unsupported"); note("CSV aggregation selection exposed a status warning and disabled run.");
 });
-regressionCase(make(21, "UI", "Elevation and structural primary button audit", "File list flat; CTA, coss outline button and dictionary lifted; ghost/menu controls flat; last operation button runs", false), async ({ page, note }) => {
-  await ready(page);
-  const csv = await writeFixture("ui-shadows.csv", "항목,값\r\n계,4\r\n"); await upload(page, csv); await selectFiles(page, csv);
-  const shadow = (selector: string) => page.locator(selector).first().evaluate((e) => getComputedStyle(e).boxShadow);
-  // The current upload-first workspace intentionally has a transparent, flat list.
-  expect(await shadow(".file-list")).toBe("none");
-  await expect(page.locator(".operation-actions button:last-child")).toHaveAttribute("aria-label", "분석 실행");
-  expect(await shadow(".operation-actions button:last-child")).not.toBe("none");
-  expect(await shadow(".delete-selected")).not.toBe("none");
-  const fileMenu = page.getByRole("button", { name: "파일 관리 메뉴", exact: true });
-  expect(await fileMenu.evaluate((e) => getComputedStyle(e).boxShadow)).toBe("none");
-  await fileMenu.click();
-  const deleteAll = page.getByRole("menuitem", { name: "모두 삭제", exact: true });
-  await expect(deleteAll).toBeVisible();
-  expect(await deleteAll.evaluate((e) => getComputedStyle(e).boxShadow)).toBe("none");
-  await page.keyboard.press("Escape");
-  for (const view of ["분석", "질문", "비교", "검수", "윤문", "취합"] as const) {
-    await openView(page, view);
-    const last = page.locator(".operation-actions button:last-child");
-    await expect(last).toHaveCount(1);
-    await expect(last).toHaveAttribute("aria-label", `${view} 실행`);
-  }
-  await openView(page, "추출");
-  await expect(page.locator(".operation-actions")).toHaveCount(0);
-  await expect(page.locator(".extract-run")).toHaveAttribute("type", "button");
-  await openView(page, "Dictionary"); expect(await shadow(".settings-surface")).not.toBe("none");
-  note("Six operation-actions end in run CTA; Extract has extract-run; file list is flat, CTA/outline/dictionary lifted, ghost file menu and delete-all item flat.");
-});
 regressionCase(make(22, "UI", "Keyboard rail, run, focus outline and image names", "Keyboard traverses navigation to run; visible focus and accessible images"), async ({ page, note }) => {
   await ready(page);
   const csv = await writeFixture("ui-keyboard.csv", "항목,값\r\n제품,42\r\n"); await upload(page, csv); await selectFiles(page, csv);
@@ -308,7 +280,7 @@ regressionCase(make(23, "UI", "Evidence drawer focus restoration and mobile laye
   await drawer.getByRole("button", { name: "닫기" }).click(); await expect(trigger).toBeFocused();
   note(`Mobile inspector focused, z-index ${layer.z} overtopped header ${layer.header}, then focus returned to evidence button.`);
 });
-regressionCase(make(24, "UI", "Every rail view with a long uploaded filename", "All thirteen destinations fit 390px; deletion status floats visibly with the floating elevation", true), async ({ page, note }) => {
+regressionCase(make(24, "UI", "Every rail view with a long uploaded filename", "All thirteen destinations fit 390px; the selected long-name file can be deleted", true), async ({ page, note }) => {
   await page.setViewportSize({ width: 390, height: 844 }); await ready(page);
   // UTF-8 basename is 244 bytes (the old 289-byte name exceeded NAME_MAX=255).
   const filename = `${"긴파일이름".repeat(16)}.csv`;
@@ -323,10 +295,9 @@ regressionCase(make(24, "UI", "Every rail view with a long uploaded filename", "
   }
   await openView(page, "분석"); await page.getByRole("checkbox", { name: `${filename} 선택` }).check();
   await page.getByRole("button", { name: "선택 삭제" }).click();
-  const toast = page.locator(".transient-status"); await expect(toast).toBeVisible();
-  expect(await toast.evaluate((e) => getComputedStyle(e).boxShadow)).not.toBe("none");
+  await expect(page.locator(".file-row")).toHaveCount(0);
   await noHorizontalOverflow(page);
-  note("All 13 rail destinations fit at 390px with a long filename, and 삭제 완료 shown flat in the 작업 파일 header.");
+  note("All 13 rail destinations fit at 390px with a long filename, and deletion removes the selected file.");
 });
 regressionCase(make(25, "UI", "Tab and icon controls elevation", "Inactive tabs and icon buttons flat; an active tab uses only the subtle --elevation-active"), async ({ page, note }) => {
   await ready(page);

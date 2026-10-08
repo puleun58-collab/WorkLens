@@ -988,18 +988,18 @@ test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route wit
   });
   await page.goto("/");
   await expect(page.locator(".app-shell")).toHaveAttribute("data-hydrated", "true");
+  const savedPreference = await page.evaluate(() => localStorage.getItem("worklens:review-preferences:v1"));
   await navigateWorkspace(page, "법령");
   await page.getByRole("tab", { name: "종합 리서치", exact: true }).click();
   const form = page.getByRole("form", { name: /^(종합 리서치|문서 검토) 입력$/ });
   const task = form.getByLabel("리서치 유형");
-  await expect(page.getByRole("heading", { name: "리서치 결과" })).toHaveCount(0);
+  await expect(page.locator(".legal-research .legal-analysis-result")).toHaveCount(0);
 
   const query = form.getByLabel("질문 또는 검색어");
   await query.fill("직장 내 괴롭힘 판단 기준");
   await form.getByRole("button", { name: "실행" }).click();
   await expect(page.locator(".legal-analysis-result [role='alert']")).toContainText("일시적으로 응답하지 않습니다");
   await page.getByRole("button", { name: "다시 시도" }).click();
-  await expect(page.getByRole("heading", { name: "리서치 결과" })).toBeVisible();
   await expect(page.locator(".legal-research-partial")).toHaveText("일부 자료를 불러오지 못했습니다. 확인된 자료를 기준으로 결과를 표시합니다.");
   await expect(page.locator("[data-status='failed']")).toContainText("불러오지 못했습니다");
   await expect(page.locator(".legal-analysis-section.is-unavailable")).toHaveCount(1);
@@ -1007,10 +1007,10 @@ test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route wit
   expect(bodies).toEqual([{ task: "full_research", query: "직장 내 괴롭힘 판단 기준" }, { task: "full_research", query: "직장 내 괴롭힘 판단 기준" }]);
 
   await chooseOption(page, task, researchTaskLabels.dispute_prep);
-  await expect(page.getByRole("heading", { name: "리서치 결과" })).toHaveCount(0);
+  await expect(page.locator(".legal-research .legal-analysis-result")).toHaveCount(0);
   await chooseOption(page, form.getByLabel("분야"), "노동");
   await form.getByRole("button", { name: "실행" }).click();
-  await expect(page.getByRole("heading", { name: "리서치 결과" })).toBeVisible();
+  await expect(page.locator(".legal-research .legal-analysis-output[data-task='dispute_prep'] .research-overview h3")).toBeVisible();
 
   await chooseOption(page, task, researchTaskLabels.amendment_track);
   await expect(form.getByLabel("분야")).toHaveCount(0);
@@ -1023,7 +1023,7 @@ test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route wit
   await form.getByLabel("시작일").fill("2022-01-01");
   await expect(form.getByRole("switch", { name: "전체 개정 이력 포함" })).not.toBeChecked();
   await form.getByRole("button", { name: "실행" }).click();
-  await expect(page.getByRole("heading", { name: "리서치 결과" })).toBeVisible();
+  await expect(page.locator(".legal-research .legal-analysis-output[data-task='amendment_track'] .research-overview h3")).toBeVisible();
 
   await chooseOption(page, task, researchTaskLabels.law_system);
   await form.getByLabel("관련 조문 (선택)").fill("38, 제39조");
@@ -1039,7 +1039,7 @@ test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route wit
   for (const value of ["action_basis", "procedure_detail"]) {
     await chooseOption(page, task, researchTaskLabels[value]);
     await form.getByRole("button", { name: "실행" }).click();
-    await expect(page.getByRole("heading", { name: "리서치 결과" })).toBeVisible();
+    await expect(page.locator(`.legal-research .legal-analysis-output[data-task='${value}'] .research-overview h3`)).toBeVisible();
   }
 
   await chooseOption(page, task, researchTaskLabels.document_review);
@@ -1057,7 +1057,7 @@ test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route wit
   const sample = "제1조 갑은 계약 체결 즉시 대금 전액을 지급한다.\n제2조 을은 어떠한 경우에도 계약을 해지할 수 없다.";
   await documentText.fill(sample);
   await form.getByRole("button", { name: "실행", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "검토 결과", exact: true })).toBeVisible();
+  await expect(page.locator(".legal-research .legal-analysis-result .contract-review")).toBeVisible();
   const review = page.locator(".contract-review");
   await expect(review.locator(".research-overview .research-eyebrow")).toHaveText("문서 검토");
   await expect(review.locator(".research-overview h3")).toHaveText("관련 근거를 확인했습니다");
@@ -1123,15 +1123,23 @@ test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route wit
   await expect(source).not.toHaveAttribute("open", "");
   await sourcesToggle.click();
   await expect.poll(() => refs.evaluateAll((els) => els.every((el) => !(el as HTMLDetailsElement).open))).toBe(true);
-  await clause.getByRole("button", { name: "근거 보기", exact: true }).click();
-  const focused = review.locator(".contract-review-detail.is-focused");
+  const evidenceJump = clause.getByRole("button", { name: "근거 보기", exact: true });
+  await expect(evidenceJump).toHaveAttribute("aria-controls", "contract-review-evidence-0-0");
+  await evidenceJump.click();
+  const focused = review.locator("#contract-review-evidence-0-0.contract-review-detail.is-focused");
   await expect(focused).toHaveCount(1);
+  await expect(focused.locator("h4")).toBeFocused();
   await expect(focused).toHaveClass(/is-focus-fresh/u);
-  await expect.poll(() => refs.evaluateAll((els) => els.every((el) => !(el as HTMLDetailsElement).open))).toBe(true);
+  await expect(focused.locator(".contract-review-refs[open]")).toHaveCount(2);
+  await expect(focused).toContainText("계약의 해지권 행사 요건을 확인합니다.");
+  await expect(source).not.toHaveAttribute("open", "");
   await expect(focused).not.toHaveClass(/is-focus-fresh/u);
-  await clause.getByRole("button", { name: "근거 보기", exact: true }).click();
+  await evidenceJump.click();
   await expect(focused).toHaveClass(/is-focus-fresh/u);
+  await expect(focused.locator("h4")).toBeFocused();
+  await expect(focused.locator(".contract-review-refs[open]")).toHaveCount(2);
   await expect(focused).toHaveCount(0);
+  expect(await page.evaluate(() => localStorage.getItem("worklens:review-preferences:v1"))).toBe(savedPreference);
   expect(bodies).toHaveLength(12);
 
 
@@ -1148,6 +1156,70 @@ test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route wit
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   expect(outside).toEqual([]);
   expect(errors).toEqual([]);
+});
+
+test("document review resolves repeated issue labels to distinct evidence without opening unrelated references", async ({ page }) => {
+  let requests = 0;
+  await page.route("**/api/law/research", route => {
+    requests++;
+    const issue = (id: string, laws: string[]) => ({
+      id, label: "해지 제한", severity: "medium", point: `${id} 검토 결과`, fact: `${id} 계약 조항`,
+      laws, precedents: [], lawStatus: "found", precedentStatus: "none",
+    });
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: {
+      found: true, task: "document_review", text: "", markers: [],
+      review: {
+        document: { type: "b2b_service", label: "서비스 계약", relationship: "business", relationshipLabel: "사업자 간", confidence: "high", evidence: [], domains: ["civil"] },
+        risk: { score: 2, level: "보통", high: 0, medium: 2, low: 0 }, facts: [],
+        clauses: [{ number: "제1조", text: "두 해지 조건", issues: [issue("첫째", ["first"]), issue("둘째", ["first", "second"])] }],
+        laws: {
+          first: { key: "first", law: "민법", jo: "제1조", excerpt: "첫 번째 근거 원문" },
+          second: { key: "second", law: "민법", jo: "제2조", excerpt: "두 번째 근거 원문" },
+        },
+        precedents: {}, stats: { calls: 1, queries: 1, excludedPrecedents: 0, excludedLaws: 0 },
+      },
+    } }) });
+  });
+  await page.goto("/");
+  await navigateWorkspace(page, "법령");
+  await page.getByRole("tab", { name: "종합 리서치", exact: true }).click();
+  const form = page.getByRole("form", { name: /^(종합 리서치|문서 검토) 입력$/ });
+  await chooseOption(page, form.getByLabel("리서치 유형"), researchTaskLabels.document_review);
+  await form.getByRole("radio", { name: "직접 입력" }).check();
+  await form.getByLabel("검토할 문서 내용").fill("제1조 갑과 을은 계약을 체결한다. 제2조 이용자는 계약을 해지할 수 없다.");
+  await form.getByRole("button", { name: "실행", exact: true }).click();
+  const review = page.locator(".contract-review");
+  const issues = review.locator(".contract-review-issue");
+  const details = review.locator(".contract-review-detail");
+  await expect(issues).toHaveCount(2);
+  await expect(details).toHaveCount(2);
+  const nav = review.getByRole("navigation", { name: "쟁점 바로가기" }).getByRole("button");
+  await expect(nav).toHaveCount(2);
+  await expect(nav.nth(0)).toHaveAttribute("aria-controls", "contract-review-issue-0-0");
+  await expect(nav.nth(1)).toHaveAttribute("aria-controls", "contract-review-issue-0-1");
+  await nav.nth(1).click();
+  await expect(issues.nth(1).locator("h5")).toBeFocused();
+  await expect(issues.nth(0).locator("h5")).not.toBeFocused();
+  await expect(issues.nth(1)).toBeInViewport();
+  await expect(details.locator(".contract-review-refs[open]")).toHaveCount(0);
+  const jumps = issues.getByRole("button", { name: "근거 보기", exact: true });
+  await expect(jumps.nth(0)).toHaveAttribute("aria-controls", "contract-review-evidence-0-0");
+  await expect(jumps.nth(1)).toHaveAttribute("aria-controls", "contract-review-evidence-0-1");
+  await jumps.nth(1).click();
+  await expect(details.nth(1).locator("h4")).toBeFocused();
+  await expect(details.nth(1).locator(".contract-review-refs")).toHaveAttribute("open", "");
+  await expect(details.nth(1)).toContainText("두 번째 근거 원문");
+  await expect(details.nth(1)).toContainText("첫 번째 근거 원문");
+  await expect(details.nth(0).locator(".contract-review-refs")).not.toHaveAttribute("open", "");
+  await jumps.nth(1).click();
+  await expect(details.nth(1)).toHaveClass(/is-focus-fresh/);
+  await expect(details.nth(0).locator(".contract-review-refs")).not.toHaveAttribute("open", "");
+  await jumps.nth(0).click();
+  await expect(details.nth(0).locator("h4")).toBeFocused();
+  await expect(details.nth(0).locator(".contract-review-refs")).toHaveAttribute("open", "");
+  await expect(details.nth(0)).toContainText("첫 번째 근거 원문");
+  await expect(details.nth(0)).not.toContainText("두 번째 근거 원문");
+  expect(requests).toBe(1);
 });
 
 test("RESEARCH 문서 검토 reviews one workspace file in place and shows where each issue is", async ({ page }) => {
@@ -1698,7 +1770,7 @@ test("document review keeps issue guidance ahead of independent, grouped source 
   expect(errors).toEqual([]);
 });
 
-test("document evidence links focus only the selected issue without changing disclosures or history", async ({ page }) => {
+test("document evidence links open only the selected issue, focus its heading and preserve history", async ({ page }) => {
   const input = "제6조 휴가와 미사용 휴가를 정한다.\n제10조 개인정보 및 모니터링을 정한다.";
   const longExcerpt = `① 개인정보 처리 조건을 확인한다.\n${"관련 요건을 확인하고 해당 조항의 적용 여부를 대조한다. ".repeat(45)}`;
   const issue = (id: string, label: string, laws: string[], precedents: string[] = []) => ({
@@ -1757,73 +1829,35 @@ test("document evidence links focus only the selected issue without changing dis
     const first = details.nth(0);
     const sameClause = details.nth(1);
     const last = details.nth(2);
-    const layout = () => first.evaluate((node) => {
-      const box = node.getBoundingClientRect();
-      const title = node.querySelector("h4")!.getBoundingClientRect();
-      const row = node.querySelector("summary")!.getBoundingClientRect();
-      const next = node.nextElementSibling!.getBoundingClientRect();
-      return { boxLeft: box.left, boxRight: box.right, titleLeft: title.left, rowLeft: row.left, rowRight: row.right, nextOffset: next.top - title.top };
-    });
-    const resting = await layout();
+    const collapse = reviewResult.getByRole("button", { name: "전체 접기", exact: true });
+    if (await collapse.count()) await collapse.click();
+    await expect(reviewResult.locator(".contract-review-refs[open]")).toHaveCount(0);
+    await expect(links.nth(0)).toHaveAttribute("aria-controls", "contract-review-evidence-0-0");
+    await expect(links.nth(1)).toHaveAttribute("aria-controls", "contract-review-evidence-0-1");
+    await expect(links.nth(2)).toHaveAttribute("aria-controls", "contract-review-evidence-1-0");
     await links.nth(0).click();
-    const fresh = await first.evaluate((node) => ({ fresh: node.classList.contains("is-focus-fresh"), bg: getComputedStyle(node).backgroundColor }));
-    expect(fresh.fresh).toBe(true);
-    const focused = await layout();
-    // The box grows outward to give the text an inner margin; text and the following blocks stay put.
-    expect(focused.titleLeft).toBeCloseTo(resting.titleLeft, 1);
-    expect(focused.rowLeft).toBeCloseTo(focused.titleLeft, 1);
-    expect(focused.nextOffset).toBeCloseTo(resting.nextOffset, 1);
-    expect(focused.titleLeft - focused.boxLeft).toBeGreaterThanOrEqual(12);
-    expect(focused.boxRight - focused.rowRight).toBeGreaterThanOrEqual(12);
-    expect(focused.boxLeft).toBeGreaterThanOrEqual(0);
-    expect(focused.boxRight).toBeLessThanOrEqual(viewport.width);
-    await expect(first).not.toHaveClass(/is-focus-fresh/u);
-    await expect(first).toHaveClass(/is-focused/u);
-    const settled = await first.evaluate((node) => getComputedStyle(node).backgroundColor);
-    const lightness = (color: string) => {
-      const values = color.match(/[\d.]+/gu)!.slice(0, 3).map(Number);
-      return values.reduce((sum, value) => sum + (color.startsWith("color(") ? value * 255 : value), 0);
-    };
-    expect(lightness(fresh.bg)).toBeLessThan(lightness(settled));
-    expect(lightness(settled)).toBeLessThan(255 * 3);
+    await expect(first).toHaveClass(/is-focus-fresh/u);
+    await expect(first.locator("h4")).toBeFocused();
     await expect(reviewResult.locator(".contract-review-detail.is-focused")).toHaveCount(1);
-    await expect(first.locator(".law-detail-source")).toHaveCount(2);
-    const firstLaw = first.locator(".law-detail-source").first();
-    if (viewport.width > 700) await expect(firstLaw).not.toHaveAttribute("open", "");
-    else await expect(firstLaw).toHaveAttribute("open", "");
-    expect(await first.evaluate((node) => getComputedStyle(node).boxShadow)).not.toBe("none");
-    if (viewport.width > 700) await firstLaw.locator("summary").click();
-    await expect(firstLaw).toHaveAttribute("open", "");
+    await expect(first.locator(".contract-review-refs[open]")).toHaveCount(2);
+    await expect(first).toContainText("연차휴가 관련 판시사항");
+    await expect(sameClause.locator(".contract-review-refs[open]")).toHaveCount(0);
     await links.nth(1).click();
     await expect(sameClause).toHaveClass(/is-focused/u);
+    await expect(sameClause.locator("h4")).toBeFocused();
     await expect(first).not.toHaveClass(/is-focused/u);
-    await expect(firstLaw).toHaveAttribute("open", "");
-    await links.nth(0).click();
+    await expect(first.locator(".contract-review-refs[open]")).toHaveCount(2);
+    await expect(sameClause.locator(".contract-review-refs[open]")).toHaveCount(1);
     await links.nth(2).click();
     await expect(last).toHaveClass(/is-focused/u);
+    await expect(last.locator("h4")).toBeFocused();
     await expect(reviewResult.locator(".contract-review-detail.is-focused")).toHaveCount(1);
-    await expect(first).not.toHaveClass(/is-focused/u);
-    await expect(last.locator(".law-detail-source[open]")).toHaveCount(0);
-    // Desktop keeps the 64px context bar sticky; on phones it scrolls away.
-    const headerOffset = viewport.width < 700 ? 0 : 64;
-    await expect.poll(async () => last.evaluate((node, minTop) => {
-      const { top, bottom } = node.getBoundingClientRect();
-      return top >= minTop && bottom <= innerHeight;
-    }, headerOffset)).toBe(true);
+    await expect(last.locator(".contract-review-refs[open]")).toHaveCount(2);
+    await expect(last).toBeInViewport();
     await expect(last).not.toHaveClass(/is-focused/u, { timeout: 4_000 });
-    // Back to the resting block: no tint, no inset.
-    const rest = await last.evaluate((node) => ({
-      bg: getComputedStyle(node).backgroundColor,
-      inset: node.querySelector("h4")!.getBoundingClientRect().left - node.getBoundingClientRect().left,
-    }));
-    expect(rest.bg).toBe("rgba(0, 0, 0, 0)");
-    expect(rest.inset).toBeCloseTo(0, 1);
     await links.nth(2).click();
-    await expect(last).toHaveClass(/is-focused/u);
-    await expect(reviewResult.locator(".contract-review-detail.is-focused")).toHaveCount(1);
-    await expect(last).not.toHaveClass(/is-focus-fresh/u);
-    await links.nth(2).click();
-    expect(await last.evaluate((node) => node.classList.contains("is-focus-fresh"))).toBe(true);
+    await expect(last).toHaveClass(/is-focus-fresh/u);
+    await expect(last.locator(".contract-review-refs[open]")).toHaveCount(2);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     expect(page.url()).not.toContain("#");
     expect(await page.evaluate(() => history.length)).toBe(historyLength);
@@ -2724,3 +2758,24 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     expect(errors).toEqual([]);
   });
 }
+
+test("mobile navigation row stays the same height before and after long search results", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.route("**/api/law", route => route.fulfill({
+    status: 200, contentType: "application/json", body: JSON.stringify({ data: {
+      found: true, text: "", laws: Array.from({ length: 20 }, (_, index) => ({
+        name: `조회 법령 ${index + 1}`, status: "현행", lawId: String(index + 1),
+        mst: String(index + 1), effectiveDate: "20260820", kind: "법률",
+      })),
+    } }),
+  }));
+  await page.goto("/");
+  await navigateWorkspace(page, "법령");
+  const row = page.locator(".workspace-mobile-bar");
+  const emptyHeight = (await row.boundingBox())!.height;
+  await page.getByLabel("법령명 또는 키워드 검색").fill("조회 법령");
+  await page.getByRole("button", { name: "검색", exact: true }).click();
+  await expect(page.locator(".law-search-list > li")).toHaveCount(20);
+  expect(Math.abs((await row.boundingBox())!.height - emptyHeight)).toBeLessThanOrEqual(1);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});

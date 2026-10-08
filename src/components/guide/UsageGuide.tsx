@@ -43,10 +43,10 @@ const Segments = ({ items, active }: { items: string[]; active: number }) => (
 
 const Field = ({ text, mark = true }: { text: string; mark?: boolean }) => <span className={`mini-field${mark ? " is-mark" : ""}`}>{text}</span>;
 
-function Result({ title, status, lines, actions }: { title: string; status: string; lines: string[]; actions?: string[] }) {
+function Result({ title, status, lines, actions }: { title?: string; status: string; lines: string[]; actions?: string[] }) {
   return (
     <span className="mini-result">
-      <span className="mini-result-head"><strong>{title}</strong><em>{status}</em></span>
+      <span className="mini-result-head">{title ? <strong>{title}</strong> : null}<em>{status}</em></span>
       {lines.map((line) => <span className="mini-line" key={line}>{line}</span>)}
       {actions ? <span className="mini-actions">{actions.map((action, index) => <span key={action} className={index === actions.length - 1 ? "mini-button is-mark" : "mini-button is-quiet"}>{action}</span>)}</span> : null}
     </span>
@@ -69,7 +69,7 @@ const GUIDES: Guide[] = [
       upload,
       selectFiles("분석할 파일을 선택합니다.", ["회의자료.pptx"]),
       { title: "실행", text: "분석 탭에서 실행을 누릅니다.", mini: <Run /> },
-      { title: "결과 확인", text: "요약과 수치의 근거 위치를 확인합니다.", mini: <Result title="분석 결과" status="분석 완료" lines={["핵심 요약", "확인된 수치 · 근거 Slide 3"]} /> },
+      { title: "결과 확인", text: "요약과 수치의 근거 위치를 확인합니다.", mini: <Result status="분석 완료" lines={["핵심 요약", "확인된 수치 · 근거 Slide 3"]} /> },
     ],
     tip: "파일은 이 탭의 메모리에만 있으며, 새로고침하면 사라집니다.",
   },
@@ -79,7 +79,7 @@ const GUIDES: Guide[] = [
       selectFiles("근거로 삼을 파일을 선택합니다.", ["계약.docx"]),
       { title: "질문 입력", text: "확인할 내용을 입력합니다.", mini: <Field text="계약 기간은 언제까지인가요?" /> },
       { title: "실행", text: "실행을 누릅니다.", mini: <Run before={<Field text="질문 입력됨" mark={false} />} /> },
-      { title: "답변 확인", text: "답변과 근거 위치를 함께 확인합니다.", mini: <Result title="답변" status="답변 완료" lines={["계약 기간 · 근거 2페이지"]} /> },
+      { title: "답변 확인", text: "답변과 근거 위치를 함께 확인합니다.", mini: <Result status="답변 완료" lines={["계약 기간 · 근거 2페이지"]} /> },
     ],
   },
   {
@@ -100,7 +100,7 @@ const GUIDES: Guide[] = [
     steps: [
       selectFiles("검수할 파일을 선택합니다.", ["최종검수.pptx"]),
       { title: "실행", text: "검수 탭에서 실행을 누릅니다.", mini: <Run /> },
-      { title: "결과 확인", text: "발견 항목과 근거 위치를 확인합니다.", mini: <Result title="검수 결과" status="검수 완료" lines={["문장 · 일관성 · 개인정보", "근거 Slide 2"]} /> },
+      { title: "결과 확인", text: "발견 항목과 근거 위치를 확인합니다.", mini: <Result status="검수 완료" lines={["문장 · 일관성 · 개인정보", "근거 Slide 2"]} /> },
     ],
   },
   {
@@ -108,7 +108,7 @@ const GUIDES: Guide[] = [
     steps: [
       selectFiles("보완할 문서 파일을 선택합니다.", ["3분기_비용보고.pptx"]),
       { title: "실행", text: "보완 실행을 누릅니다. 처리 중에는 실행 버튼에 진행 상태가 표시됩니다.", mini: <Run /> },
-      { title: "결과 확인", text: "보고 전 확인할 질문을 읽고, 항목별 확인할 정보와 확인 이유를 확인합니다. 근거 보기로 원문에 이동하거나 ‘현재 자료 및 원문 위치 보기’를 펼쳐 인용과 위치를 살펴볼 수 있습니다.", mini: <Result title="보완 결과" status="검토 완료" lines={["확인 필요 · 증가 원인 미확인", "보고 전 확인할 질문"]} /> },
+      { title: "결과 확인", text: "보고 전 확인할 질문을 읽고, 항목별 확인할 정보와 확인 이유를 확인합니다. 근거 보기로 원문에 이동하거나 ‘현재 자료 및 원문 위치 보기’를 펼쳐 인용과 위치를 살펴볼 수 있습니다.", mini: <Result status="검토 완료" lines={["확인 필요 · 증가 원인 미확인", "보고 전 확인할 질문"]} /> },
     ],
     tip: "다른 페이지에 설명이 있으면 누락으로 표시하지 않으며, 읽지 못한 영역은 분석 범위에 표시됩니다.",
   },
@@ -117,7 +117,7 @@ const GUIDES: Guide[] = [
     steps: [
       { title: "입력 방식 선택", text: "파일 또는 붙여넣은 텍스트를 고릅니다.", mini: <Segments items={["파일 윤문", "텍스트 윤문"]} active={1} /> },
       { title: "윤문 방식 선택 후 실행", text: "기본, 간결하게, 업무 문체 중 고릅니다.", mini: <Run before={<Segments items={["기본", "간결하게", "업무 문체"]} active={0} />} /> },
-      { title: "결과 확인", text: "원문과 수정문을 비교해 확인합니다.", mini: <Result title="윤문 결과" status="윤문 완료" lines={["원문 → 수정문"]} /> },
+      { title: "결과 확인", text: "원문과 수정문을 비교해 확인합니다.", mini: <Result status="윤문 완료" lines={["원문 → 수정문"]} /> },
     ],
   },
   {
@@ -125,7 +125,7 @@ const GUIDES: Guide[] = [
     steps: [
       selectFiles("추출할 파일을 선택합니다.", ["주요값_A.xlsx"]),
       { title: "방식 선택 후 실행", text: "자동 추출, 항목 지정, 전체 텍스트 중 고릅니다.", mini: <Run before={<Segments items={["자동 추출", "항목 지정", "전체 텍스트"]} active={0} />} /> },
-      { title: "결과 내려받기", text: "표를 확인하고 내려받습니다.", mini: <Result title="추출 결과" status="추출 완료" lines={["항목 · 값 · 근거"]} actions={["CSV", "XLSX 다운로드"]} /> },
+      { title: "결과 내려받기", text: "표를 확인하고 내려받습니다.", mini: <Result status="추출 완료" lines={["항목 · 값 · 근거"]} actions={["CSV", "XLSX 다운로드"]} /> },
     ],
   },
   {
@@ -134,7 +134,7 @@ const GUIDES: Guide[] = [
       selectFiles("취합할 Excel 파일을 선택합니다.", ["9월_실적.xlsx", "10월_실적.xlsx"]),
       { title: "기준 파일 확인", text: "첫 번째 파일이 기준 파일로 표시됩니다.", mini: <Files><Row name="9월_실적.xlsx" checked role="기준 파일" mark /><Row name="10월_실적.xlsx" checked /></Files> },
       { title: "실행", text: "취합 탭에서 실행을 누릅니다.", mini: <Run /> },
-      { title: "결과 내려받기", text: "결과 시트를 확인하고 내려받습니다.", mini: <Result title="취합 결과" status="취합 완료" lines={["결과 시트 1개"]} actions={["XLSX 다운로드"]} /> },
+      { title: "결과 내려받기", text: "결과 시트를 확인하고 내려받습니다.", mini: <Result status="취합 완료" lines={["결과 시트 1개"]} actions={["XLSX 다운로드"]} /> },
     ],
     tip: "첫 번째 파일의 서식을 기준으로 취합하며, Excel 파일만 취합할 수 있습니다.",
   },
@@ -146,7 +146,7 @@ const GUIDES: Guide[] = [
       { title: "조문 확인", text: "조문을 읽고 관련 판례·결정례로 이어갑니다.", mini: <Result title="제23조(해고 등의 제한)" status="현행" lines={["① 사용자는 근로자에게 정당한 이유 없이…"]} actions={["관련 판례·결정례"]} /> },
       { title: "종합 리서치", text: "질문을 실행한 뒤 번호가 붙은 쟁점의 핵심 검토 결과·근거 상태·추가 확인을 먼저 읽습니다. 쟁점이 두 개 이상이면 ‘쟁점 바로가기’의 작은 버튼으로 이동합니다. 이동한 쟁점은 잠시 강조되며, 관련 법령·판례는 쟁점별로 펼쳐 봅니다.", mini: <Result title="01 퇴직금 · 02 해고" status="근거 확인" lines={["핵심 검토 결과 · 근거 상태 · 추가 확인"]} actions={["관련 법령·판례 상세 보기"]} /> },
     ],
-    tip: "인용 전에 시행 시점과 국가법령정보센터 원문을 대조하세요. 문서 검토의 ‘검토한 내용 보기’는 업로드 문서의 해당 부분을 보여줍니다. ‘근거 보기’는 연결된 법령·판례로 이동합니다. ‘확인된 쟁점’ 또는 ‘상세 근거’ 제목 옆 ‘전체 펼치기 / 전체 접기’는 관련 법령·판례만 조작하며, 개별 항목을 접거나 펴면 버튼 표시도 바뀝니다.",
+    tip: "인용 전에 시행 시점과 국가법령정보센터 원문을 대조하세요. 문서 검토의 ‘검토한 내용 보기’는 업로드 문서의 해당 부분을 보여줍니다. ‘근거 보기’는 해당 법령·판례만 펼쳐 제목으로 이동합니다. ‘상세 근거’ 제목 옆 ‘전체 펼치기 / 전체 접기’는 관련 법령·판례만 조작하며, 개별 항목을 접거나 펴면 버튼 표시도 바뀝니다.",
   },
   {
     id: "pdf", label: "PDF 도구", summary: "PDF 페이지를 정리하고 원하는 형식으로 내보냅니다.",
@@ -173,7 +173,7 @@ const GUIDES: Guide[] = [
       { title: "자동화 매트릭스", text: "업무별 가치와 실현 가능성을 비교합니다.", mini: <Result title="자동화 매트릭스" status="진단 업무" lines={["빠른 실행 후보 · 전략 과제", "검토 후보 · 수동 유지·보류"]} /> },
       { title: "결과·로드맵", text: "결과·실행 방향 확인, 구현 지시문 생성", mini: <Result title="결과·로드맵" status="검토 대기" actions={["Codex용 구현 계획 생성"]} lines={["진단 근거 → 공통 실행 방향", "도구별 구현 상세 · 지시문 복사"]} /> },
     ],
-    tip: "매트릭스의 개별 점은 순위, ‘N개’는 같은 위치의 업무 수입니다. ‘N개’를 눌러 순위별 업무를 선택하고 점수 근거를 확인하세요. 결과·로드맵의 ‘한눈에 보기’에서 선택 업무의 실행 방향을 확인한 뒤 구현 계획과 지시문을 확인하세요. 진단 업무가 4개 이상이면 ‘전체 업무 보기’에서 다른 업무로 전환할 수 있습니다. ‘설치·시작 가이드’는 처음 한 번 준비 → 프로젝트 작업 → GitHub·배포 순서입니다. STEP 목차로 이동하고 선택한 도구의 명령을 복사하세요. 추가 설명은 필요할 때 펼칩니다.",
+    tip: "매트릭스의 개별 점은 숫자 없는 업무 표시이며, 겹친 원의 숫자는 같은 위치의 업무 수입니다. 겹친 원을 눌러 순위별 업무를 선택하고 점수 근거를 확인하세요. ‘평가 근거 자세히 보기 / 평가 근거 접기’는 항목별 평가값과 설명을 펼치거나 접습니다. 결과·로드맵의 ‘한눈에 보기’에서 선택 업무의 실행 방향을 확인한 뒤 구현 계획과 지시문을 확인하세요. 진단 업무가 4개 이상이면 ‘전체 업무 보기’에서 다른 업무로 전환할 수 있습니다. ‘설치·시작 가이드’는 처음 한 번 준비 → 프로젝트 작업 → GitHub·배포 순서입니다. STEP 목차로 이동하고 선택한 도구의 명령을 복사하세요. 용어 정의는 ‘용어 알아보기’에서 확인합니다.",
   },
   {
     id: "dictionary", label: "용어 사전", summary: "맞춤법과 용어 오탐을 줄이기 위한 사전입니다.",
@@ -191,7 +191,6 @@ export function UsageGuide() {
 
   return (
     <section className="usage-guide" aria-label="사용 가이드">
-      <p className="usage-guide-text">모든 화면의 헤더 오른쪽에서 ‘메뉴·기능 검색’을 누르거나 Ctrl/⌘ K를 눌러 기능을 찾습니다. 모바일에서는 돋보기 버튼을 사용하세요. 검색 결과를 선택하면 해당 화면으로 이동하고, Escape로 닫으면 검색을 열었던 위치로 돌아갑니다. 파일 삭제가 성공하면 검색 버튼 왼쪽의 ‘삭제 완료’가 3초간 표시됩니다.</p>
       <Tabs value={active} onValueChange={(value) => setActive(String(value))}>
       <TabsList className="usage-guide-tabs max-w-full" aria-label="기능 선택" variant="underline" activateOnFocus>
         {GUIDES.map((entry) => <TabsTab key={entry.id} value={entry.id}>{entry.label}</TabsTab>)}

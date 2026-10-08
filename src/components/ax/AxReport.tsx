@@ -168,7 +168,7 @@ const SETUP_COURSES = [
 const SETUP_ICONS = [Download, Folder, Terminal, Clipboard, CheckCircle2, ShieldCheck, GitBranch, CloudUpload, Globe] as const;
 const SETUP_COMPLETIONS = new Set(["GitHub 인증 확인", "현재 위치 확인", "작업 시작 전 AI가 먼저 확인할 것", "테스트·빌드 확인", "실제 기능 확인", "GitHub에서 확인할 것", "실제 서비스 확인"]);
 const SETUP_WARNINGS = new Set(["기존 .gitignore 확인", ".env와 .env.example", "이미 추적 중인 파일", "올리기 전 체크리스트", "git push가 곧 Production은 아닙니다", "먼저 현재 배포 환경 확인", "오류가 나면", "CI가 실패하면", "문제가 생기면", "되돌리기(Rollback)"]);
-const SETUP_DETAILS: Record<string, true> = { "기본 명령": true, ".gitignore란": true };
+const SETUP_DETAILS: Record<string, true> = { "기본 명령": true };
 
 function AxSetupGuide({ tool }: { tool: AxToolId }) {
   const id = useId();

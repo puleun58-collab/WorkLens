@@ -195,7 +195,6 @@
 .ax-bubble { position: absolute; transform: translate(-50%,50%); border-radius: 50%; background: transparent; color: var(--primary); cursor: pointer; font-size: 11px; border: 0; padding: 0; display: flex; align-items: center; justify-content: center; }
 .ax-bubble-dot { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); border-radius: 50%; background: var(--primary); }
 .ax-bubble.is-hold .ax-bubble-dot { outline: 3px double var(--muted-foreground); }
-.ax-bubble-number { position: relative; display: inline-flex; align-items: center; justify-content: center; text-align: center; background: var(--card); border-radius: 50%; width: 16px; height: 16px; line-height: 1; }
 .ax-bubble[aria-pressed=true] { outline: 2px solid var(--primary); outline-offset: 3px; }
 .ax-bubble:focus-visible { outline: 3px solid var(--ring); outline-offset: 4px; }
 .ax-matrix-cluster { position: absolute; transform: translate(-50%,50%); display: block; width: 42px; height: 42px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: #fff; cursor: pointer; }
@@ -270,9 +269,12 @@
 .ax-score-extra-list > div { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding-bottom: 10px; border-bottom: 1px solid var(--border); font-size: var(--font-size-sm); }
 .ax-score-extra-list strong { color: var(--foreground); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .ax-score-details { margin-top: 24px; border-top: 1px solid var(--border); }
-.ax-score-details > summary { padding: 14px 0; cursor: pointer; font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); }
-.ax-score-details > summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
-.ax-score-details > p { margin: 0 0 12px; font-size: var(--font-size-xs); }
+.ax-score-details-trigger { min-height: 44px; padding: 10px 14px; align-items: center; color: var(--foreground); font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); }
+.ax-score-details-trigger:hover { background: color-mix(in srgb, var(--primary) 5%, var(--card)); }
+.ax-score-details-trigger:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.ax-score-details-open, .ax-score-details-trigger[data-panel-open] > .ax-score-details-closed { display: none; }
+.ax-score-details-trigger[data-panel-open] > .ax-score-details-open { display: inline; }
+.ax-score-details-panel > p { margin: 0 0 12px; font-size: var(--font-size-xs); }
 .ax-score-factors { margin: 0; }
 .ax-score-factor { padding: 12px 0; border-top: 1px solid var(--border); }
 .ax-score-factor > dt { font-weight: var(--font-weight-semibold); font-size: var(--font-size-sm); }
