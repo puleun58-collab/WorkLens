@@ -1044,7 +1044,7 @@ test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route wit
 
   await chooseOption(page, task, researchTaskLabels.document_review);
   await expect(form.getByLabel("질문 또는 검색어")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: /근거 (펼치기|접기)/u })).toHaveCount(0);
+  await expect(page.locator(".contract-review-expand")).toHaveCount(0);
   await expect(form.getByRole("button", { name: "실행", exact: true })).toHaveCount(0);
   // 법령 entered directly with no work files: the 작업 파일 empty state offers the shared upload, nothing runs.
   await expect(form.getByRole("radio", { name: "작업 파일" })).toBeChecked();
@@ -1078,7 +1078,7 @@ test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route wit
 
   // The result-only control updates native reference details without rerunning the review.
   const refs = review.locator(".contract-review-refs");
-  const sourcesToggle = review.getByRole("button", { name: /근거 (펼치기|접기)/u });
+  const sourcesToggle = review.locator(".contract-review-expand");
   await expect(sourcesToggle).toHaveAttribute("aria-pressed", "false");
   const source = clause.locator(".contract-review-source");
   await source.locator("summary").click();
@@ -1111,11 +1111,11 @@ test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route wit
   await form.getByRole("button", { name: "실행", exact: true }).click();
   await expect(review.locator(".contract-review-issue")).toHaveCount(1);
   await expect(review.locator(".contract-review-refs")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: /근거 (펼치기|접기)/u })).toHaveCount(0);
+  await expect(page.locator(".contract-review-expand")).toHaveCount(0);
   evidenceMode = "empty";
   await form.getByRole("button", { name: "실행", exact: true }).click();
   await expect(review.locator(".contract-review-issue")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: /근거 (펼치기|접기)/u })).toHaveCount(0);
+  await expect(page.locator(".contract-review-expand")).toHaveCount(0);
   evidenceMode = "present";
   await form.getByRole("button", { name: "실행", exact: true }).click();
   await expect(refs).toHaveCount(2);
@@ -1228,7 +1228,7 @@ test("RESEARCH 문서 검토 reviews one workspace file in place and shows where
   await form.getByRole("button", { name: "실행", exact: true }).click();
   await expect(page.locator("[data-coverage='excluded']")).toContainText("계약·규정 성격의 문장을 찾지 못했습니다");
   await expect(page.locator("[data-coverage='excluded']")).toContainText("위험 항목이 없다는 뜻이 아니라");
-  await expect(page.getByRole("button", { name: /근거 (펼치기|접기)/u })).toHaveCount(0);
+  await expect(page.locator(".contract-review-expand")).toHaveCount(0);
   expect(bodies).toHaveLength(2);
 
   // Past the bound: a partial review that says what was left and why.
@@ -2485,7 +2485,7 @@ test("document review hides execution until a workspace file is added", async ({
   await expect(form.getByRole("button", { name: "파일 추가", exact: true })).toBeVisible();
   await expect(form).not.toContainText("PDF · DOCX · PPTX · XLSX · CSV");
   await expect(form).not.toContainText("작업 파일의 분석된 텍스트를 사용하며, 한 번에 한 문서를 검토합니다.");
-  await expect(page.getByRole("button", { name: /근거 (펼치기|접기)/u })).toHaveCount(0);
+  await expect(page.locator(".contract-review-expand")).toHaveCount(0);
   await expect(page.locator(".research-review-guide, .research-workspace-rail")).toHaveCount(0);
   const emptyUpload = form.locator(".dropzone");
   await expect(emptyUpload.locator(".upload-icon svg")).toBeVisible();
@@ -2569,7 +2569,7 @@ test("review provenance direct snapshots, presentation and pending race", async 
   await input.fill(a);
   await form.getByRole("button", { name: "실행", exact: true }).click();
   await expect(page.getByRole("button", { name: "다시 시도" })).toBeVisible();
-  await expect(page.getByRole("button", { name: /근거 (펼치기|접기)/u })).toHaveCount(0);
+  await expect(page.locator(".contract-review-expand")).toHaveCount(0);
   await input.fill(b);
   const stale = page.locator('[data-review-stale="true"]');
   await expect(stale).toBeVisible();
@@ -2579,7 +2579,7 @@ test("review provenance direct snapshots, presentation and pending race", async 
   await expect(stale).toBeVisible();
   await input.fill(a);
   await expect(stale).toHaveCount(0);
-  await expect(page.getByRole("button", { name: /근거 (펼치기|접기)/u })).toHaveCount(0);
+  await expect(page.locator(".contract-review-expand")).toHaveCount(0);
   await form.getByRole("radio", { name: "작업 파일" }).check();
   await expect(stale).toBeVisible();
   await form.getByRole("radio", { name: "직접 입력" }).check();
@@ -2587,7 +2587,7 @@ test("review provenance direct snapshots, presentation and pending race", async 
   await form.getByRole("button", { name: "실행", exact: true }).click();
   await expect.poll(() => Boolean(release)).toBe(true);
   await expect(form.getByRole("button", { name: "문서 검토 중…" })).toBeDisabled();
-  await expect(page.getByRole("button", { name: /근거 (펼치기|접기)/u })).toHaveCount(0);
+  await expect(page.locator(".contract-review-expand")).toHaveCount(0);
   await input.fill(a);
   release!();
   await expect(stale).toBeVisible();

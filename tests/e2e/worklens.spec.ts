@@ -2893,6 +2893,7 @@ test("keeps legal destinations grouped, command search shortcut-only, and review
     } }) });
   });
   const reviewForm = page.getByRole("form", { name: "문서 검토 입력", exact: true });
+  const savedPreferences = await page.evaluate(() => localStorage.getItem("worklens:review-preferences:v1"));
   await reviewForm.getByLabel("검토할 문서 내용").fill(EMPLOYMENT_CONTRACT);
   await reviewForm.getByRole("button", { name: "실행", exact: true }).click();
   const review = page.locator(".contract-review");
@@ -2907,9 +2908,7 @@ test("keeps legal destinations grouped, command search shortcut-only, and review
   await review.getByRole("button", { name: "전체 접기", exact: true }).click();
   await expect.poll(() => refs.evaluateAll((els) => els.every((el) => !(el as HTMLDetailsElement).open))).toBe(true);
   expect(reviewCalls).toBe(1);
-  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("worklens:review-preferences:v1")!))).toEqual({
-    version: 1, preferences: { documentSource: "text", expandSources: false },
-  });
+  expect(await page.evaluate(() => localStorage.getItem("worklens:review-preferences:v1"))).toBe(savedPreferences);
   await reviewForm.getByRole("button", { name: "실행", exact: true }).click();
   await expect.poll(() => reviewCalls).toBe(2);
   await expect(review.getByRole("button", { name: "전체 펼치기", exact: true })).toHaveAttribute("aria-pressed", "false");

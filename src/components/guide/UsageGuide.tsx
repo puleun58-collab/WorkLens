@@ -144,9 +144,9 @@ const GUIDES: Guide[] = [
       { title: "법령 검색", text: "법령명을 입력하고 검색합니다.", mini: <span className="mini-operation"><Field text="근로기준법" /><span className="mini-button">검색</span></span> },
       { title: "결과 선택", text: "목록에서 법령을 선택합니다.", mini: <span className="mini-files"><span className="mini-row is-mark"><span className="mini-name">근로기준법</span><b className="mini-role">현행</b></span><span className="mini-row"><span className="mini-name">근로기준법 시행령</span></span></span> },
       { title: "조문 확인", text: "조문을 읽고 관련 판례·결정례로 이어갑니다.", mini: <Result title="제23조(해고 등의 제한)" status="현행" lines={["① 사용자는 근로자에게 정당한 이유 없이…"]} actions={["관련 판례·결정례"]} /> },
-      { title: "종합 리서치", text: "질문을 실행한 뒤 번호가 붙은 쟁점의 핵심 검토 결과·근거 상태·추가 확인을 먼저 읽습니다. 쟁점이 두 개 이상이면 바로가기로 이동하고 관련 법령·판례는 쟁점별로 펼쳐 봅니다.", mini: <Result title="01 퇴직금 · 02 해고" status="근거 확인" lines={["핵심 검토 결과 · 근거 상태 · 추가 확인"]} actions={["관련 법령·판례 상세 보기"]} /> },
+      { title: "종합 리서치", text: "질문을 실행한 뒤 번호가 붙은 쟁점의 핵심 검토 결과·근거 상태·추가 확인을 먼저 읽습니다. 쟁점이 두 개 이상이면 ‘쟁점 바로가기’의 작은 버튼으로 이동합니다. 이동한 쟁점은 잠시 강조되며, 관련 법령·판례는 쟁점별로 펼쳐 봅니다.", mini: <Result title="01 퇴직금 · 02 해고" status="근거 확인" lines={["핵심 검토 결과 · 근거 상태 · 추가 확인"]} actions={["관련 법령·판례 상세 보기"]} /> },
     ],
-    tip: "인용 전에 시행 시점과 국가법령정보센터 원문을 대조하세요. 문서 검토의 ‘검토한 내용 보기’는 업로드 문서의 해당 부분을 보여줍니다. ‘근거 보기’는 연결된 법령·판례로 이동합니다. 상세 근거 옆 ‘전체 펼치기 / 전체 접기’는 관련 법령·판례만 조작하며, 개별 항목을 접거나 펴면 버튼 표시도 바뀝니다.",
+    tip: "인용 전에 시행 시점과 국가법령정보센터 원문을 대조하세요. 문서 검토의 ‘검토한 내용 보기’는 업로드 문서의 해당 부분을 보여줍니다. ‘근거 보기’는 연결된 법령·판례로 이동합니다. ‘확인된 쟁점’ 또는 ‘상세 근거’ 제목 옆 ‘전체 펼치기 / 전체 접기’는 관련 법령·판례만 조작하며, 개별 항목을 접거나 펴면 버튼 표시도 바뀝니다.",
   },
   {
     id: "pdf", label: "PDF 도구", summary: "PDF 페이지를 정리하고 원하는 형식으로 내보냅니다.",

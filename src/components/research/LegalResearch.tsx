@@ -20,7 +20,7 @@ import { runInWorker } from "@/client/document-client";
 import { reviewFileIdentityMatches, reviewIsStale } from "@/client/review-provenance";
 import { reviewRequestFor, type ReviewFile } from "@/lib/law-review-source";
 import { readReviewPreferences, resolveReviewPreferences, type ReviewPreferences } from "@/client/review-preferences";
-import { ChevronDown, Plus, Upload } from "lucide-react";
+import { ArrowDownRight, ChevronDown, Plus, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -778,6 +778,10 @@ function ResearchResult({ data, request, expandSources = false, onExpandSourcesC
     caseOf.set(entry.id, kept.id);
   }
   const selectedCases = [...casesByKey.values()];
+  const hasIssueReferences = issueEvidence.length
+    ? issueEvidence.some((issue) => selectedArticles.some((article) => issue.articles.some((reference) => reference.law === article.law && reference.jo === article.jo))
+      || issue.precedents.some((id) => caseOf.has(id)))
+    : selectedArticles.length + selectedCases.length > 0;
   const evidenceStatus = selectedArticles.length + selectedCases.length ? data.evidence?.status : "unverified";
   const unavailableCount = result.sections.filter((section) => section.status !== "available").length;
   const visibleSelectedKeys = new Set(selectedArticles.map((article) => `${article.law}\u0000${article.jo}`));
@@ -823,15 +827,17 @@ function ResearchResult({ data, request, expandSources = false, onExpandSourcesC
     {full && issueEvidence.length > 1 && <nav className="research-issue-nav" aria-label="쟁점 바로가기">
       <span>쟁점 바로가기</span>
       <ol>{issueEvidence.map((issue, index) => <li key={`${issue.label ?? ""}-${index}`}>
-        <Button type="button" variant="ghost" size="sm" aria-controls={`research-issue-${index + 1}`} onClick={() => showIssue(index)}>
-          <span className="research-issue-number">{String(index + 1).padStart(2, "0")}</span>{issue.label || "질문 쟁점"}
+        <Button type="button" variant="outline" size="sm" aria-controls={`research-issue-${index + 1}`} onClick={() => showIssue(index)}>
+          <span className="research-issue-number">{String(index + 1).padStart(2, "0")}</span>
+          <span className="research-issue-nav-label">{issue.label || "질문 쟁점"}</span>
+          <ArrowDownRight aria-hidden="true" />
         </Button>
       </li>)}</ol>
     </nav>}
     {full && (issueEvidence.length > 0 || selectedArticles.length > 0 || selectedCases.length > 0) && <section className="research-group research-selected" aria-label="확인한 근거">
       <div className="research-evidence-heading">
         <h3>{issueEvidence.length ? <>확인된 쟁점 <span className="research-meta">{issueEvidence.length}건</span></> : "확인한 근거"}</h3>
-        {selectedArticles.length + selectedCases.length > 0 && <Button type="button" variant="ghost" size="xs" className="research-expand" aria-pressed={allReferencesOpen}
+        {hasIssueReferences && <Button type="button" variant="ghost" size="xs" className="research-expand" aria-pressed={allReferencesOpen}
           onClick={() => {
             setReferencesOpen(!allReferencesOpen);
             onExpandSourcesChange(!allReferencesOpen);
