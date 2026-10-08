@@ -243,15 +243,6 @@ export function LegalResearch({ workspace, initialTask = "full_research" }: { wo
   const runButton = <Button type="submit" className="law-search-button" disabled={!canRun || loading || !preferencesReady}>
     {loading ? (isDocument ? "문서 검토 중…" : "리서치 중…") : "실행"}
   </Button>;
-  const resultDisplay = isDocument ? <div className="research-source-option">
-    <Field className="research-source-row inline-flex flex-row items-center" disabled={!preferencesReady || loading}>
-      <FieldLabel htmlFor={`run-review-${task}-sources`}>결과 출처 자동 펼치기</FieldLabel>
-      <Switch id={`run-review-${task}-sources`} checked={preferences.expandSources}
-        disabled={!preferencesReady || loading}
-        onCheckedChange={(expandSources) => setPreferenceOverride((current) => ({ ...current, expandSources }))} />
-    </Field>
-    {settingsError && <p className="law-search-error" role="alert">{settingsError}</p>}
-  </div> : null;
   return <div className="legal-analysis legal-research">
     <div className={`research-workspace${isDocument ? " is-document" : ""}`}>
     <div className="research-workspace-main">
@@ -263,6 +254,7 @@ export function LegalResearch({ workspace, initialTask = "full_research" }: { wo
             <SelectPopup>{LAW_RESEARCH_TASKS.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectPopup>
           </Select>
         </Field>
+        {isDocument && settingsError && <p className="law-search-error" role="alert">{settingsError}</p>}
         {task === "dispute_prep" && <Field><FieldLabel htmlFor="research-domain">분야</FieldLabel>
           <Select items={DISPUTE_DOMAINS} value={draft.domain} onValueChange={(value) => update("domain", (value ?? "") as DisputeDomain | "")}>
             <SelectTrigger id="research-domain"><SelectValue /></SelectTrigger>
@@ -316,7 +308,6 @@ export function LegalResearch({ workspace, initialTask = "full_research" }: { wo
         </> : <>
           <Field><Textarea id="research-document" aria-label="검토할 문서 내용" value={draft.text} rows={10} maxLength={LAW_RESEARCH_DOCUMENT_MAX_CHARS} placeholder={TASK_HELP.document_review.placeholder} onChange={(event) => update("text", event.target.value)} aria-describedby="research-document-help" /></Field>
           <div className="research-input-footer">
-            {resultDisplay}
             <div className="research-input-submit">
               <p id="research-document-help" className="legal-analysis-help">
                 <span className="legal-analysis-count">{draft.text.length.toLocaleString("ko-KR")} / {LAW_RESEARCH_DOCUMENT_MAX_CHARS.toLocaleString("ko-KR")}자 · 최소 {LAW_RESEARCH_DOCUMENT_MIN_CHARS}자</span>
@@ -364,8 +355,6 @@ export function LegalResearch({ workspace, initialTask = "full_research" }: { wo
         </div>}
       </>}
 
-      {fromFile ? resultDisplay : null}
-
       {!isDocument && <div className={`legal-analysis-actions${task === "ordinance_compare" ? " legal-research-action-row" : ""}`}>
         {task === "ordinance_compare" && (() => {
           // Guidance until both regions are filled; the same region twice is a real input error.
@@ -406,7 +395,8 @@ export function LegalResearch({ workspace, initialTask = "full_research" }: { wo
           </header>
         </div>
         : current.outcome?.kind === "found" ? current.outcome.data.review
-          ? <ContractReviewResult review={current.outcome.data.review} file={current.file} expandSources={preferences.expandSources} />
+          ? <ContractReviewResult review={current.outcome.data.review} file={current.file} expandSources={preferences.expandSources}
+            onExpandSourcesChange={(expandSources) => setPreferenceOverride((current) => ({ ...current, expandSources }))} />
           : <ResearchResult data={current.outcome.data} request={current.request} expandSources={false} />
         : null}
     </section>}

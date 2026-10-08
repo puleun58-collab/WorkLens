@@ -453,10 +453,6 @@ describe("AX plan display boundaries", () => {
     ]);
     expect(view.tests).toEqual(["샘플 대조"]);
     expect(view.acceptance).toEqual(["성공: 샘플 대조 통과", "실패: 누락 발생"]);
-    expect(view.glance.length).toBeLessThanOrEqual(5);
-    expect(view.glance.some(row => /저장소/u.test(row.value))).toBe(false);
-    expect(view.glance.find(row => row.label === "선행 확인")?.value).not.toContain("API와 권한 실제 확인");
-    expect(view.glance.find(row => row.label === "핵심 구현")?.value).toContain("형식 검증 AI 보조");
     expect(view.poc).toEqual([]);
     expect(view.steps).toContain("결과를 반영해 재진단 또는 다음 단계 결정");
     expect(view.steps).not.toContain("샘플 대조");

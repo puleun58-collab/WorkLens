@@ -5,7 +5,7 @@
 /* The HELP destinations sit at the foot of the rail, as in the reference layout. */
 .workspace-sidebar .workspace-navigation section:last-of-type { margin-top: auto; padding-top: 10px; border-top: 1px solid var(--line-soft); }
 .workspace-navigation section + section { margin-top: 14px; }
-.workspace-navigation h2 { color: #6b7280; font-size: 11px; font-weight: 600; letter-spacing: var(--tracking-label); margin: 8px 10px; }
+.workspace-navigation h2 { color: #526784; font-size: 11px; font-weight: 600; letter-spacing: calc(var(--tracking-label) + .01em); margin: 8px 10px; }
 .workspace-navigation ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
 .workspace-nav-item { width: 100%; justify-content: flex-start; gap: 10px; color: #374151; height: 40px; min-height: 40px; padding-inline: 12px; font-size: 14px; font-weight: 500; border-radius: 8px; }
 .workspace-nav-item > svg { width: 18px; height: 18px; margin-inline: 0; opacity: 1; }
