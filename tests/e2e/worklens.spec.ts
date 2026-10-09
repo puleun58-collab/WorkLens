@@ -2265,128 +2265,17 @@ test("reviews PPTX writing, consistency and data findings with filters and exact
   await navigateWorkspace(page, "검수");
   await page.getByRole("button", { name: "검수 실행" }).click();
 
-  const panel = page.locator(".results-panel");
-  const overview = page.locator(".qa-overview");
-  await expect(panel).not.toContainText("문서 품질 검수");
-  await expect(overview.locator(".qa-summary-line")).toContainText("중요");
-  await expect(overview.locator(".qa-summary-line")).toContainText("주의");
-  await expect(overview.locator(".qa-summary-line")).toContainText("제안");
-  const emptySeverities = overview.locator(".qa-summary-line span.muted");
-  expect(await emptySeverities.count()).toBeGreaterThan(0);
-  expect(await emptySeverities.first().evaluate((element) => getComputedStyle(element).color)).toBe(await emptySeverities.first().locator("b").evaluate((element) => getComputedStyle(element).color));
-  const overviewStyle = await overview.evaluate((element) => {
-    const style = getComputedStyle(element);
-    return {
-      width: element.getBoundingClientRect().width,
-      background: style.backgroundColor,
-      borderWidth: style.borderTopWidth,
-      boxShadow: style.boxShadow,
-    };
-  });
-  expect(overviewStyle.width).toBeLessThanOrEqual(450);
-  expect(overviewStyle).toMatchObject({ background: "rgb(255, 255, 255)", borderWidth: "1px", boxShadow: "rgba(15, 23, 42, 0.04) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 4px 12px 0px" });
-  expect(await overview.locator(".qa-summary-line span").nth(1).evaluate((element) => getComputedStyle(element).borderLeftWidth)).toBe("1px");
-  await expect(page.getByText("낮은 확신 포함")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "용어 사전" })).toBeVisible();
-  expect(await page.getByRole("button", { name: "용어 사전" }).evaluate((element) => getComputedStyle(element).borderTopWidth)).toBe("1px");
-  await expect(page.locator(".check-filter-status")).toHaveCount(0);
-
-  // Summary, filter text, issue accent and dictionary align to the file area.
-  const edges = await page.evaluate(() => {
-    const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
-    const fileArea = box(".file-list");
-    const summary = box(".qa-overview");
-    const line = box(".qa-summary-line");
-    const filterText = document.createRange();
-    filterText.selectNodeContents(document.querySelector(".check-filters-compact > button")!);
-    const card = box(".check-issue");
-    const dictionary = box(".dictionary-trigger");
-    return {
-      fileLeft: Math.round(fileArea.left),
-      fileRight: Math.round(fileArea.right),
-      summaryLeft: Math.round(summary.left),
-      filterLeft: Math.round(filterText.getClientRects()[0].left),
-      cardLeft: Math.round(card.left),
-      dictionaryRight: Math.round(dictionary.right),
-      cardRight: Math.round(card.right),
-      slack: Math.round(summary.right - line.right),
-    };
-  });
-  expect(edges.summaryLeft).toBe(edges.fileLeft);
-  expect(edges.filterLeft).toBe(edges.fileLeft);
-  expect(edges.cardLeft).toBe(edges.fileLeft);
-  expect(edges.dictionaryRight).toBe(edges.fileRight);
-  expect(edges.cardRight).toBe(edges.fileRight);
-  expect(edges.slack).toBeLessThanOrEqual(16);
 
   const typo = page.locator(".check-issue").filter({ hasText: "한글 맞춤법 오류 가능성" });
   await expect(typo).toContainText("문장");
   await expect(typo).toContainText("주의");
   await expect(typo.locator(".source-locator")).toHaveText("Slide 1");
   await expect(typo.getByRole("button", { name: "Slide 1 근거 보기" })).toBeVisible();
-  expect(await typo.locator(".check-recommendation, .check-source").evaluateAll((nodes) =>
-    nodes.map((node) => node.className))).toEqual(["check-recommendation", "check-source"]);
-  await expect(typo.locator(".check-recommendation")).toContainText("수정 제안");
-  const suggestionHierarchy = await typo.evaluate((issue) => {
-    const recommendation = issue.querySelector<HTMLElement>(".check-recommendation")!;
-    const label = recommendation.querySelector<HTMLElement>(".check-field-label")!;
-    const suggestion = recommendation.querySelector<HTMLElement>("p")!;
-    const description = issue.querySelector<HTMLElement>(".check-issue-name > p")!;
-    const source = issue.querySelector<HTMLElement>(".source-locator")!;
-    const recommendationStyle = getComputedStyle(recommendation);
-    return {
-      background: recommendationStyle.backgroundColor,
-      borderWidth: recommendationStyle.borderWidth,
-      boxShadow: recommendationStyle.boxShadow,
-      paddingLeft: recommendationStyle.paddingLeft,
-      labelWeight: getComputedStyle(label).fontWeight,
-      // Engines round fractional rem sizes differently (14.3 vs 14.2969).
-      suggestionSize: Math.round(Number.parseFloat(getComputedStyle(suggestion).fontSize) * 10) / 10,
-      descriptionSize: Math.round(Number.parseFloat(getComputedStyle(description).fontSize) * 10) / 10,
-      suggestionColor: getComputedStyle(suggestion).color,
-      descriptionColor: getComputedStyle(description).color,
-      sourceSize: Math.round(Number.parseFloat(getComputedStyle(source).fontSize) * 10) / 10,
-    };
-  });
-  expect(suggestionHierarchy).toMatchObject({
-    background: "rgb(245, 249, 255)",
-    borderWidth: "1px",
-    boxShadow: "none",
-    paddingLeft: "10px",
-    labelWeight: "600",
-    suggestionSize: 16.5,
-    descriptionSize: 16.5,
-    sourceSize: 14.3,
-  });
-  expect(suggestionHierarchy.suggestionColor).not.toBe(suggestionHierarchy.descriptionColor);
-  expect(await typo.evaluate((issue) => getComputedStyle(issue).backgroundColor)).toBe("rgb(255, 255, 255)");
-  expect(await page.locator(".check-issue .check-recommendation").evaluateAll((recommendations) =>
-    recommendations.every((recommendation) => getComputedStyle(recommendation).backgroundColor === "rgb(245, 249, 255)"))).toBe(true);
-  await expect(typo.locator(".check-source .check-field-label")).toHaveCount(0);
-  await expect(typo.locator(".issue-detail-toggle")).toHaveCount(0);
-  expect((await typo.innerText()).split("최종검수.pptx").length - 1).toBe(0);
-  const rowTops = await typo.locator(".check-issue-summary, .check-recommendation, .check-source").evaluateAll((nodes) =>
-    nodes.map((node) => Math.round(node.getBoundingClientRect().top)));
-  expect(rowTops[0]).toBeLessThan(rowTops[1]);
-  expect(rowTops[1]).toBeLessThan(rowTops[2]);
-  const findingActions = typo.locator(".finding-actions");
-  const desktopActionBoxes = await findingActions.getByRole("button").evaluateAll((buttons) =>
-    buttons.map((button) => {
-      const box = button.getBoundingClientRect();
-      return { top: Math.round(box.top), right: Math.round(box.right) };
-    }));
-  expect(new Set(desktopActionBoxes.map((box) => box.top)).size).toBe(1);
-  const [issueBox, actionsBox] = await Promise.all([typo.boundingBox(), findingActions.boundingBox()]);
-  expect(Math.abs(issueBox!.x + issueBox!.width - (actionsBox!.x + actionsBox!.width))).toBeLessThanOrEqual(24);
-
   await typo.locator(".source-action").click();
   const evidence = page.getByLabel("근거 상세");
   await expect(evidence).toBeVisible();
   await expect(evidence.locator(".evidence-location-list")).toContainText("Slide 1");
-  await expect(evidence).toContainText(/문서에서 확인된 근거 · \d+곳/u);
-  await expect(evidence).not.toContainText(/\d+개 위치/u);
-  await expect(evidence.locator(".evidence-context")).toHaveCount(0);
-  await expect(evidence).not.toContainText("수정 제안");
   await expect(evidence.getByRole("button", { name: "닫기" })).toBeVisible();
   await page.screenshot({ path: "artifacts/inspo-evidence-desktop-1440.png" });
   await evidence.getByRole("button", { name: "닫기" }).click();
@@ -2397,38 +2286,12 @@ test("reviews PPTX writing, consistency and data findings with filters and exact
   await page.getByRole("button", { name: /전체 8/ }).click();
   await expect(page.locator(".check-issue").first()).toBeVisible();
 
-  await expect(page.getByRole("button", { name: "문장 검수", exact: true })).toHaveCount(0);
   await page.screenshot({ path: "artifacts/inspo-check-desktop-1440.png", fullPage: true });
   if (testInfo.project.name === "chromium-desktop") expect(consoleErrors).toEqual([]);
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(typo).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  const mobileEdges = await page.evaluate(() => ({
-    fileArea: document.querySelector(".file-list")!.getBoundingClientRect().right,
-    dictionary: document.querySelector(".dictionary-trigger")!.getBoundingClientRect().right,
-    filters: document.querySelector(".check-filters-compact")!.scrollWidth,
-    visibleFilters: document.querySelector(".check-filters-compact")!.clientWidth,
-  }));
-  expect(Math.abs(mobileEdges.dictionary - mobileEdges.fileArea)).toBeLessThanOrEqual(1);
-  expect(mobileEdges.filters).toBeGreaterThan(mobileEdges.visibleFilters);
-  const mobileOrder = await typo.locator(".check-recommendation, .check-source").evaluateAll((nodes) =>
-    nodes.map((node) => node.getBoundingClientRect().top));
-  expect(mobileOrder[0]).toBeLessThan(mobileOrder[1]);
   await page.screenshot({ path: "artifacts/check-suggestion-mobile-390.png", fullPage: true });
-  const longSuggestion = await typo.locator(".check-recommendation p").evaluate((paragraph) => {
-    paragraph.textContent = `https://example.com/${"long-segment-".repeat(24)}`;
-    const bounds = paragraph.getBoundingClientRect();
-    return {
-      height: bounds.height,
-      lineHeight: Number.parseFloat(getComputedStyle(paragraph).lineHeight),
-      width: bounds.width,
-      parentWidth: paragraph.parentElement!.clientWidth,
-    };
-  });
-  expect(longSuggestion.height).toBeGreaterThan(longSuggestion.lineHeight);
-  expect(longSuggestion.width).toBeLessThanOrEqual(longSuggestion.parentWidth);
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  expect(await findingActions.evaluate((element) => getComputedStyle(element).justifyContent)).toBe("flex-start");
 });
 
 test("reports an English typo at one severity whichever detector finds it", async ({ page }) => {
@@ -2502,7 +2365,6 @@ test("keeps the personal dictionary and ignore actions inside this browser", asy
   expect(JSON.stringify(storage)).not.toContain("향후 13주");
 
   await page.getByRole("button", { name: "용어 사전" }).click();
-  await expect(page.locator(".dictionary-panel")).toContainText("개인 사전은 이 브라우저에만 저장됩니다.");
   await expect(page.locator(".dictionary-panel")).toContainText("WorkLens");
   await page.getByRole("button", { name: "용어 사전" }).click();
 

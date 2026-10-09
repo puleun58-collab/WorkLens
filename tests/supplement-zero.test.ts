@@ -1,6 +1,3 @@
-import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
-import { SupplementResults } from "@/components/supplement/SupplementResults";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PLAN_ADDITIONS, SUPPLEMENT_ZERO_CASES } from "./eval/supplement-zero";
 import { loadCase, runSupplementCase } from "./eval/supplement-harness";

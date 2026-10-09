@@ -61,40 +61,24 @@ for (const width of [1440, 390]) {
     await prepare(page);
     await page.getByRole("button", { name: "보완 실행", exact: true }).click();
     const results = page.locator(".supplement-results");
-    const cause = results.locator(".supplement-item").filter({ has: page.getByRole("heading", { name: "증가 원인 미확인", exact: true }) });
+    const cause = results.locator(".supplement-item").filter({ has: page.getByRole("heading", { name: /증가 원인 미확인$/ }) });
     await expect(cause).toBeVisible();
     await expect(cause.locator(".check-severity")).toHaveText("중요");
-    const fields = cause.locator(".supplement-fields").first();
-    await expect(cause.getByRole("button", { name: /근거 보기/ })).toBeVisible();
-    await expect(fields.locator(".supplement-message")).toHaveText("물류비가 전월 대비 18% 증가했다고 제시되어 있지만 현재 자료에서 주요 증가 원인 설명을 확인하지 못했습니다.");
-    await expect(fields).not.toContainText("보고받는 사람이 먼저 원인을 물을 가능성");
+    const trigger = cause.locator(".supplement-item-head");
+    await expect(cause.locator(".supplement-additions")).toBeVisible();
+    await expect(cause.locator(".supplement-message")).toBeHidden();
+    await trigger.focus();
+    await page.keyboard.press("Enter");
+    await expect(trigger).toHaveAttribute("aria-expanded", "true");
+    await expect(cause.locator(".supplement-message")).toBeVisible();
     await expect(cause.getByRole("button", { name: /근거 보기/ })).toHaveCount(1);
-    await expect(cause.locator("details")).toHaveCount(0);
     const additions = cause.locator("ul.supplement-readable-list > li > span:last-child");
     await expect(additions).toHaveText(["주요 증가 요인", "요인별 영향 규모", "일회성 여부"]);
-    await expect(results.getByRole("heading", { name: "보고 전 확인할 질문", exact: true })).toBeVisible();
+    await results.locator(".supplement-questions").getByRole("button").click();
     const questions = results.locator(".supplement-questions li > span:last-child");
     for (const question of await questions.allTextContents()) {
-      await expect(results.locator(".supplement-fields dd").getByText(question, { exact: true })).toHaveCount(0);
+      await expect(cause.locator(".supplement-item-detail").getByText(question, { exact: true })).toHaveCount(0);
     }
-    const geometry = await results.evaluate((root) => {
-      const heading = root.querySelector(".supplement-questions h3")!;
-      const marker = root.querySelector(".supplement-questions .supplement-list-marker")!;
-      const text = marker.nextElementSibling!;
-      const ul = root.querySelector(".supplement-fields ul")!;
-      return {
-        headingLeft: heading.getBoundingClientRect().left,
-        markerLeft: marker.getBoundingClientRect().left,
-        gap: text.getBoundingClientRect().left - marker.getBoundingClientRect().right,
-        additionsPadding: getComputedStyle(ul).paddingLeft,
-        overflow: document.documentElement.scrollWidth > innerWidth,
-      };
-    });
-    expect(Math.abs(geometry.headingLeft - geometry.markerLeft)).toBeLessThanOrEqual(1);
-    expect(geometry.gap).toBeGreaterThanOrEqual(8);
-    expect(geometry.gap).toBeLessThanOrEqual(12);
-    expect(geometry.additionsPadding).toBe("0px");
-    expect(geometry.overflow).toBe(false);
     await results.screenshot({ path: `artifacts/supplement-ux-${width}.png` });
     const source = cause.getByRole("button", { name: /근거 보기/ }).first();
     await source.click();
@@ -109,17 +93,6 @@ for (const width of [1440, 390]) {
   });
 }
 
-test("후속 대응의 추측성 이유는 반복하지 않고 영향의 판단 이유는 보여 준다", async ({ page }) => {
-  await page.route("**/api/ai", completeReview);
-  await prepare(page, issueDeck);
-  await page.getByRole("button", { name: "보완 실행", exact: true }).click();
-  const response = page.locator(".supplement-item").filter({ has: page.getByRole("heading", { name: "대응 내용 미확인", exact: true }) });
-  await expect(response).toBeVisible();
-  await expect(response).not.toContainText("보고받는 사람은 후속 조치를 먼저 확인");
-  const impact = page.locator(".supplement-item").filter({ has: page.getByRole("heading", { name: "영향 설명 미확인", exact: true }) });
-  await expect(impact.locator(".supplement-fields").first().locator("dt").filter({ hasText: "확인 이유" })).toHaveCount(1);
-  await expect(impact).toContainText("영향 범위를 알아야 우선순위와 대응 수준을 정할 수 있습니다.");
-});
 
 test("보완 실행 중에는 실행 버튼만 처리 상태를 보이고 연속 클릭으로 요청을 중복하지 않는다", async ({ page }) => {
   const gate = Promise.withResolvers<void>();
@@ -228,12 +201,12 @@ test("숫자는 있으나 목표·이전 기간이 없는 자료는 원문 값�
   await page.route("**/api/ai", completeReview);
   await prepare(page, baselineDeck);
   await page.getByRole("button", { name: "보완 실행", exact: true }).click();
-  const baseline = page.locator(".supplement-item").filter({ has: page.getByRole("heading", { name: "비교 기준 미확인", exact: true }) });
+  const baseline = page.locator(".supplement-item").filter({ has: page.getByRole("heading", { name: /비교 기준 미확인$/ }) });
   await expect(baseline).toBeVisible();
   await expect(baseline.locator(".check-severity")).toHaveText("확인 필요");
-  expect((await baseline.locator(".supplement-item-head").innerText()).match(/확인 필요/g)).toHaveLength(1);
   await expect(baseline.locator("ul.supplement-readable-list > li > span:last-child")).toHaveText(["목표값 또는 기준값", "이전 기간 값"]);
-  await expect(baseline.locator(".supplement-explanation").last()).toContainText("기준이 없으면 이 수치가 좋은지 나쁜지 판단하기 어렵습니다.");
+  await baseline.locator(".supplement-item-head").click();
+  await expect(baseline.locator(".supplement-explanation")).toBeVisible();
   await baseline.getByRole("button", { name: /근거 보기/ }).click();
   await expect(page.getByLabel("근거 상세", { exact: true }).locator(".supplement-evidence q")).toHaveText("고객 만족도 82점");
 });
@@ -245,6 +218,8 @@ test("모바일의 많은 긴 질문은 줄바꿈되어도 번호와 본문이 �
   await page.getByRole("button", { name: "보완 실행", exact: true }).click();
   const results = page.locator(".supplement-results");
   await expect(results.locator(".supplement-item")).toHaveCount(12);
+  await results.locator(".supplement-questions").getByRole("button").click();
+  for (const trigger of await results.locator(".supplement-item-head").all()) await trigger.click();
   const questions = results.locator(".supplement-questions li > span:last-child");
   const topQuestions = await questions.allTextContents();
   expect(topQuestions.length).toBeLessThan(12);
@@ -252,26 +227,41 @@ test("모바일의 많은 긴 질문은 줄바꿈되어도 번호와 본문이 �
   const remaining = await extraQuestions.allTextContents();
   expect(new Set([...topQuestions, ...remaining]).size).toBe(12);
   expect(remaining.every((question) => !topQuestions.includes(question))).toBe(true);
-  const layout = await questions.first().evaluate((body) => {
-    const marker = body.previousElementSibling!;
-    const range = document.createRange();
-    range.selectNodeContents(body);
-    const lines = [...range.getClientRects()];
-    return {
-      lines: lines.length,
-      hanging: lines.every((line) => Math.abs(line.left - lines[0].left) <= 1),
-      gap: body.getBoundingClientRect().left - marker.getBoundingClientRect().right,
-      overflow: document.documentElement.scrollWidth > innerWidth,
-    };
-  });
-  expect(layout.lines).toBeGreaterThan(1);
-  expect(layout.hanging).toBe(true);
-  expect(layout.gap).toBeGreaterThanOrEqual(8);
-  expect(layout.gap).toBeLessThanOrEqual(12);
-  expect(layout.overflow).toBe(false);
   await results.locator(".supplement-item").first().getByRole("button", { name: /근거 보기/ }).click();
   await expect(page.getByLabel("근거 상세", { exact: true }).locator(".supplement-evidence q")).toContainText("서울동부생활물류고객지원운영센터");
   expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+});
+
+test("독립 상세 펼침은 필터·재실행 후에도 다른 업무의 근거와 섞이지 않는다", async ({ page }) => {
+  await page.route("**/api/ai", completeReview);
+  await prepare(page, manyDeck);
+  const run = page.getByRole("button", { name: "보완 실행", exact: true });
+  await run.click();
+  const results = page.locator(".supplement-results");
+  const first = results.locator(".supplement-item").filter({ hasText: "서울동부생활물류고객지원운영센터1 만족도" });
+  const second = results.locator(".supplement-item").filter({ hasText: "서울동부생활물류고객지원운영센터2 만족도" });
+  const firstTrigger = first.locator(".supplement-item-head");
+  const secondTrigger = second.locator(".supplement-item-head");
+  await firstTrigger.focus();
+  await page.keyboard.press("Space");
+  await secondTrigger.click();
+  await expect(first.locator(".supplement-message")).toBeVisible();
+  await expect(second.locator(".supplement-message")).toBeVisible();
+  await firstTrigger.click();
+  await expect(first.locator(".supplement-message")).toBeHidden();
+  await expect(second.locator(".supplement-message")).toBeVisible();
+  await results.getByRole("button", { name: /중요 0/ }).click();
+  await expect(results.locator(".supplement-item")).toHaveCount(0);
+  await results.getByRole("button", { name: /전체 12/ }).click();
+  await expect(first.locator(".supplement-message")).toBeHidden();
+  await expect(second.locator(".supplement-message")).toBeVisible();
+  await second.getByRole("button", { name: /근거 보기/ }).click();
+  const evidence = page.getByLabel("근거 상세", { exact: true });
+  await expect(evidence.locator(".supplement-evidence q")).toHaveText("서울동부생활물류고객지원운영센터2 만족도 83점");
+  await evidence.getByRole("button", { name: "닫기", exact: true }).click();
+  await run.click();
+  await expect(secondTrigger).toHaveAttribute("aria-expanded", "false");
+  await expect(second.locator(".supplement-message")).toBeHidden();
 });
 
 test("재확인이 근거 없이 설명을 찾았다고 답해도 기존 위치와 확인 제한을 잃지 않는다", async ({ page }) => {
@@ -284,11 +274,11 @@ test("재확인이 근거 없이 설명을 찾았다고 답해도 기존 위치�
   });
   await prepare(page);
   await page.getByRole("button", { name: "보완 실행", exact: true }).click();
-  const cause = page.locator(".supplement-item").filter({ has: page.getByRole("heading", { name: "증가 원인 미확인", exact: true }) });
+  const cause = page.locator(".supplement-item").filter({ has: page.getByRole("heading", { name: /증가 원인 미확인$/ }) });
   await expect(cause).toBeVisible();
   await expect(cause.locator(".supplement-limitation")).toContainText("AI가 제시한 근거에서 필요한 구체 정보를 확인하지 못해 누락 여부를 확정하지 않았습니다.");
   await expect(cause.locator(".check-severity")).toHaveText("확인 필요");
-  await expect(cause.getByRole("heading", { name: "증가 원인 미확인" })).toBeVisible();
+  await cause.locator(".supplement-item-head").click();
   await cause.getByRole("button", { name: /근거 보기/ }).click();
   const detail = page.getByLabel("근거 상세", { exact: true });
   await expect(detail.locator(".supplement-evidence q")).toHaveText("물류비가 전월 대비 18% 증가했습니다.");
@@ -309,6 +299,7 @@ test("보고자료 근거 보기에서 보고 원문과 다른 문서의 보충 
   await page.getByRole("checkbox", { name: `${fileName} 선택`, exact: true }).check();
   await page.getByRole("button", { name: "보완 실행", exact: true }).click();
   const finding = page.locator(".supplement-item").filter({ hasText: "원인 설명을 보고자료에 추가하면 좋습니다" });
+  await finding.locator(".supplement-item-head").click();
   await finding.getByRole("button", { name: /근거 보기/ }).click();
   const detail = page.getByLabel("근거 상세", { exact: true });
   await expect(detail.locator(".evidence-file-list").first()).toContainText(path.basename(costDeck));

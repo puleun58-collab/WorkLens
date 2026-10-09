@@ -2518,27 +2518,6 @@ a:not([data-slot]):focus-visible,
   border-bottom: 0;
 }
 
-.check-issue::before {
-  position: absolute;
-  inset: 0 auto 1px 0;
-  width: 3px;
-  background: var(--blue);
-  content: "";
-}
-
-.check-issue.severity-critical::before {
-  background: var(--critical);
-}
-
-.check-issue.severity-warning::before {
-  background: var(--warning);
-}
-
-/* Hover names the current row; it never becomes a highlight. */
-.check-issue:hover,
-.check-issue.expanded {
-  background: #f7fafd;
-}
 
 .check-issue-row > [role="cell"] {
   padding-block: 16px;
@@ -5143,7 +5122,6 @@ body {
 
 /* A row being read keeps its own quiet highlight while a control inside it
  * holds focus, so keyboard users never lose their place in a long table. */
-.check-issue:focus-within,
 .file-row:focus-within {
   background: #f7fafd;
 }
@@ -5932,22 +5910,18 @@ body {
   gap: 7px;
 }
 
-.check-results .check-issue + .check-issue {
-  margin-top: 8px;
-  border-top: 1px solid var(--line-strong);
-}
 
 .check-issue-summary {
   min-width: 0;
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
+  display: grid;
+  gap: var(--space-1);
 }
 
 .check-issue-meta {
-  min-width: fit-content;
+  min-width: 0;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 7px;
   color: var(--muted);
   font-size: var(--font-size-xs);
@@ -5986,11 +5960,11 @@ body {
   line-height: 1.45;
 }
 
-.check-results .check-issue-name > p {
+.check-results .check-issue-description {
   min-width: 0;
   margin: 0;
   color: var(--ink-soft);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-sm);
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
@@ -6002,7 +5976,7 @@ body {
   border-top: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 5px;
+  gap: var(--space-2);
 }
 
 .check-field-label {
@@ -6022,26 +5996,34 @@ body {
 }
 
 .check-results .check-recommendation {
-  padding: 8px 10px;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  padding: 0;
   border: 0;
-  background: var(--layer);
+  border-radius: 0;
+  background: transparent;
   box-shadow: none;
 }
 
 .check-results .check-recommendation .check-field-label {
-  color: var(--ink-soft);
+  color: var(--blue-active);
   font-weight: var(--font-weight-semibold);
 }
 
 .check-results .check-source .result-source {
   min-width: 0;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
 }
 
 .check-results .check-recommendation p {
   min-width: 0;
   margin: 0;
   color: var(--ink);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-sm);
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
@@ -6096,7 +6078,14 @@ body {
 
 .check-results .finding-actions {
   justify-content: flex-end;
-  border-top-color: var(--line-soft);
+  border-top: 0;
+  padding-top: 0;
+  gap: var(--space-1);
+}
+
+.check-results .finding-actions > button {
+  color: var(--muted);
+  font-size: var(--font-size-xs);
 }
 
 
@@ -6173,6 +6162,10 @@ body {
   .check-results .check-recommendation {
     display: grid;
     gap: 5px;
+  }
+
+  .check-results .check-recommendation {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .evidence-inspector,
@@ -7491,10 +7484,10 @@ body {
   width: min(420px, calc(100% - 48px));
   min-height: 0;
   margin: 14px 24px 8px;
-  padding: 9px 12px;
-  border: 1px solid var(--line-soft);
-  border-radius: var(--radius-control);
-  background: var(--paper);
+  padding: var(--space-2) 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   box-shadow: none;
   display: block;
   grid-template-columns: none;
@@ -7502,7 +7495,7 @@ body {
 
 .qa-summary-line {
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   align-items: baseline;
   margin: 0;
   color: var(--ink);
@@ -7511,7 +7504,7 @@ body {
 
 .qa-summary-line span {
   min-width: 0;
-  padding: 0 14px;
+  padding: 0 var(--space-2);
   display: inline-flex;
   align-items: baseline;
   gap: 5px;
@@ -7534,8 +7527,8 @@ body {
 }
 
 .qa-summary-line b {
-  color: var(--blue-active);
-  font-family: var(--font-mono);
+  color: inherit;
+  font-weight: var(--font-weight-semibold);
   font-size: var(--font-size-base);
   font-variant-numeric: tabular-nums;
 }
@@ -7629,7 +7622,7 @@ body {
 
 
 .check-results .check-issue-row {
-  padding-inline: 18px;
+  padding-inline: 0;
 }
 
 /* The revision carries the visual emphasis; the row itself adds no card. */
@@ -7666,7 +7659,7 @@ body {
 
 @media (max-width: 700px) {
   .check-results .check-issue-row {
-    padding-inline: 14px;
+    padding-inline: 0;
   }
 }
 
@@ -8084,19 +8077,6 @@ div.status-panel.error > strong { font-size: 14px; line-height: 1.5; }
   box-shadow: none;
 }
 .usage-guide-tip b { color: var(--blue-active); }
-.check-results .check-recommendation {
-  padding: 8px 10px;
-  border: 1px solid var(--blue-border);
-  border-radius: var(--radius-control);
-  background: var(--blue-pale);
-  box-shadow: none;
-  cursor: default;
-}
-.check-results .check-recommendation .check-field-label {
-  color: var(--blue-active);
-  font-weight: var(--font-weight-semibold);
-}
-.check-results .check-recommendation p { color: var(--ink); }
 
 /* Tab dividers: 1px hairlines; primary groups one step clearer than secondary. */
 :root {

@@ -2951,9 +2951,10 @@ function CheckResults({ entries, fileNames, onSource, companyTerms, userTerms, i
     <div className="result-sections check-results">
       <section className="qa-overview" aria-label="검수 요약">
         <p className="qa-summary-line" aria-label="심각도 요약">
+          <span>전체 <b>{active.length}</b></span>
           {(["critical", "warning", "suggestion"] as const).map((severity) => (
             <span key={severity} className={counts[severity] === 0 ? "muted" : undefined}>
-              {severityLabels[severity]} <b>{counts[severity]}</b>
+              <i className={`severity-mark ${severity}`} aria-hidden="true" />{severityLabels[severity]} <b>{counts[severity]}</b>
             </span>
           ))}
         </p>
@@ -3025,16 +3026,14 @@ function CheckResults({ entries, fileNames, onSource, companyTerms, userTerms, i
                     <article className={`check-issue severity-${finding.severity}`} key={finding.id} data-confidence={finding.confidence}>
                       <div className="check-issue-row">
                         <div className="check-issue-summary">
+                          <div className="check-issue-name"><strong>{finding.issue}</strong></div>
                           <div className="check-issue-meta">
                             <span className="check-severity"><i className={`severity-mark ${finding.severity}`} aria-hidden="true" />{severityLabels[finding.severity]}</span>
                             <span aria-hidden="true">·</span>
                             <span className="check-category">{checkGroupLabels[group]}</span>
                             <span className="check-category-detail">{checkCategoryLabels[finding.category]}</span>
                           </div>
-                          <div className="check-issue-name">
-                            <strong>{finding.issue}</strong>
-                            <p>{finding.message}</p>
-                          </div>
+                          <p className="check-issue-description">{finding.message}</p>
                         </div>
                         <div className="check-issue-support">
                           {finding.recommendation.trim() ? (
@@ -3053,10 +3052,10 @@ function CheckResults({ entries, fileNames, onSource, companyTerms, userTerms, i
                           </div>
                         </div>
                         <div className="finding-actions" aria-label={`${finding.issue} 작업`}>
-                          <Button type="button" variant="outline" size="sm" onClick={() => ignoreFinding(finding.id)}>이번 항목 제외</Button>
-                          <Button type="button" variant="outline" size="sm" onClick={() => onToggleRule(finding.ruleId)}>동일 규칙 무시</Button>
+                          <Button type="button" variant="ghost" size="sm" onClick={() => ignoreFinding(finding.id)}>이번 항목 제외</Button>
+                          <Button type="button" variant="ghost" size="sm" onClick={() => onToggleRule(finding.ruleId)}>동일 규칙 무시</Button>
                           {finding.dictionaryEligible && finding.normalizedToken
-                            ? <Button type="button" variant="outline" size="sm" onClick={() => addTerm(finding.normalizedToken!)}>내 용어에 추가</Button>
+                            ? <Button type="button" variant="ghost" size="sm" onClick={() => addTerm(finding.normalizedToken!)}>내 용어에 추가</Button>
                             : null}
                         </div>
                       </div>
