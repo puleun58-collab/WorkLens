@@ -225,7 +225,16 @@ for (const width of [1440, 390]) {
     await page.getByRole("radio", { name: "텍스트 윤문" }).check();
     await expect(modes).toBeVisible();
     await expect(text).toBeVisible();
+    await expect(page.locator(".dropzone, .file-add-dropzone, .file-list")).toHaveCount(0);
     await text.fill("이번 회의 내용을 검토해 주세요.");
+    const [inputBox, countBox, actionBox] = await Promise.all([
+      text.boundingBox(), page.locator(".polish-paste small").boundingBox(), action.boundingBox(),
+    ]);
+    expect(inputBox!.width).toBeGreaterThanOrEqual(width === 390 ? 300 : 600);
+    expect(Math.abs(inputBox!.x + inputBox!.width - actionBox!.x - actionBox!.width)).toBeLessThanOrEqual(2);
+    expect(Math.abs(countBox!.x + countBox!.width - actionBox!.x - actionBox!.width)).toBeLessThanOrEqual(2);
+    expect(actionBox!.y - countBox!.y - countBox!.height).toBeGreaterThanOrEqual(8);
+    expect(actionBox!.y - countBox!.y - countBox!.height).toBeLessThanOrEqual(12);
     await page.getByRole("radio", { name: "간결하게" }).check();
     await expect(action).toHaveCount(1);
     await expect(action).toBeEnabled();
@@ -234,6 +243,7 @@ for (const width of [1440, 390]) {
     await expect(modes).toHaveCount(0);
     await expect(text).toHaveCount(0);
     await expect(action).toHaveCount(0);
+    await expect(page.locator(".dropzone")).toBeVisible();
 
     await upload(page, files.v1);
     // File polish modes follow uploaded files, even without selection.
@@ -246,9 +256,12 @@ for (const width of [1440, 390]) {
     await page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true }).check();
     await page.getByRole("radio", { name: "텍스트 윤문" }).check();
     await expect(text).toHaveValue("이번 회의 내용을 검토해 주세요.");
+    await expect(page.locator(".dropzone, .file-add-dropzone, .file-list")).toHaveCount(0);
     await expect(action).toHaveCount(1);
     await expectEmptyStateLayout(page, true);
     await page.getByRole("radio", { name: "파일 윤문" }).check();
+    await expect(page.locator(".file-add-dropzone")).toBeVisible();
+    await expect(page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true })).toBeChecked();
     await expect(action).toHaveCount(1);
     await page.getByRole("button", { name: "선택 삭제" }).click();
     await expect(modes).toHaveCount(0);
@@ -841,7 +854,7 @@ test("runs deterministic Analyze, Check, Extract and export paths", async ({ pag
   await expect(page.locator(".results-panel .source-action").first()).toBeVisible();
   await page.locator(".results-panel .source-action").first().click();
   await expect(page.getByLabel("근거 상세")).toBeVisible();
-  await page.getByLabel("닫기").click();
+  await page.getByLabel("근거 상세").getByRole("button", { name: "닫기" }).click();
 
   await navigateWorkspace(page, "검수");
   await page.getByRole("button", { name: "검수 실행" }).click();
@@ -2654,54 +2667,6 @@ test("uploads a dropped file and returns to compact file management", async ({ p
   await expect(page.getByRole("button", { name: "파일 관리 메뉴" })).toBeVisible();
 });
 
-test("aligns fileless text Polish controls to one desktop and mobile baseline", async ({ page }) => {
-  await page.goto("/");
-  await navigateWorkspace(page, "윤문");
-  await page.getByRole("radio", { name: "텍스트 윤문" }).check();
-  await expect(page.locator(".dropzone")).toBeVisible();
-
-  const alignment = async () => {
-    const title = page.locator(".operation-bar");
-    await expect(page.locator(".utility-bar h1")).toHaveText("문서 윤문");
-    const inputModes = page.locator(".polish-input-modes");
-    const polishModes = page.locator(".polish-modes");
-    const pasteLabel = page.locator(".polish-paste").getByText("윤문할 내용을 붙여넣으세요.", { exact: true });
-    const paste = page.getByLabel("윤문할 텍스트 입력");
-    const count = page.locator(".polish-paste small");
-    const action = page.getByRole("button", { name: "윤문 실행" });
-    const boxes = await Promise.all([title, inputModes, polishModes, pasteLabel, paste, count, action].map((locator) => locator.boundingBox()));
-    expect(boxes.every(Boolean)).toBe(true);
-    const surface = page.locator(".operation-bar");
-    const surfaceBox = (await surface.boundingBox())!;
-    const surfaceInset = await surface.evaluate((element) => {
-      const style = getComputedStyle(element);
-      return parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft);
-    });
-    const left = boxes[0]!.x;
-    expect(Math.abs(surfaceBox.x - left)).toBeLessThanOrEqual(1);
-    const controlLeft = left + surfaceInset;
-    for (const box of boxes.slice(1, 6)) expect(Math.abs(box!.x - controlLeft)).toBeLessThanOrEqual(1);
-    return { modes: boxes[2]!, paste: boxes[4]!, action: boxes[6]!, left: controlLeft };
-  };
-
-  // Text execution follows the textarea on every viewport.
-  const desktop = await alignment();
-  expect(desktop.action.y).toBeGreaterThanOrEqual(desktop.paste.y + desktop.paste.height);
-  await expect(page.getByRole("button", { name: "윤문 실행" })).toHaveCount(1);
-  const initialViewport = page.viewportSize();
-  expect(desktop.paste.width).toBeGreaterThanOrEqual(initialViewport && initialViewport.width < 1000 ? 600 : 700);
-  expect(desktop.paste.width).toBeLessThanOrEqual(960);
-  await page.getByLabel("윤문할 텍스트 입력").fill("파일 없이도 텍스트 윤문을 실행할 수 있습니다.");
-  await expect(page.getByRole("button", { name: "윤문 실행" })).toBeEnabled();
-
-  await page.setViewportSize({ width: 390, height: 844 });
-  // Mobile: execution remains after the textarea.
-  const mobile = await alignment();
-  expect(mobile.action.y).toBeGreaterThanOrEqual(mobile.paste.y + mobile.paste.height);
-  expect(mobile.paste.width).toBeLessThanOrEqual(358);
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
-});
-
 test("places file Polish execution beside input modes and keeps one action across modes", async ({ page }) => {
   await page.goto("/");
   await navigateWorkspace(page, "윤문");
@@ -2757,15 +2722,14 @@ test("keeps file context and upload controls out of utility destinations", async
   await expect(page.locator(".settings-list")).not.toContainText("30일");
 });
 
-test("keeps legal destinations grouped, command search shortcut-only, and review options in the review flow", async ({ page }) => {
+test("keeps legal destinations grouped and review options in the review flow", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("worklens:review-preferences:v1", JSON.stringify({
     version: 1, preferences: { documentSource: "text", expandSources: true },
   })));
   await page.goto("/");
 
   const navigation = page.getByRole("navigation", { name: "작업 공간 메뉴", exact: true });
-  // At 900px and below the sidebar lives in a sheet; open it for nav
-  // assertions and close it again so palette steps see a single dialog.
+  // Narrow viewports use the menu sheet; close it before interacting with the header.
   const narrow = await page.evaluate(() => window.innerWidth <= 900);
   const openMenu = async () => {
     if (narrow) await page.getByRole("button", { name: "작업 공간 메뉴 열기", exact: true }).click();
@@ -2787,43 +2751,32 @@ test("keeps legal destinations grouped, command search shortcut-only, and review
   }
   await closeSheet();
 
-  await expect(page.getByRole("button", { name: "기능 검색…", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("dialog")).toHaveCount(0);
+  const initialTitle = (await page.locator(".context-bar h1").textContent())!;
   await page.keyboard.press("Control+K");
-  const palette = page.getByRole("dialog");
-  const search = palette.getByLabel("기능 검색");
-  await expect(search).toHaveAttribute("placeholder", "기능 검색…");
+  const search = page.getByRole("combobox", { name: "메뉴·기능 검색" });
+  const results = page.locator(".workspace-search-results");
   await expect(search).toBeFocused();
-  await expect(palette.getByRole("listbox")).toHaveCount(0);
-  await expect(palette.getByRole("option")).toHaveCount(0);
-  for (const hidden of ["WORKSPACE", "RESEARCH", "TOOLS", "AI•AX", "분석", "일치하는 기능이 없습니다.", "↑ ↓ 선택 · Enter 이동 · Esc 닫기"]) await expect(palette.getByText(hidden, { exact: true })).toHaveCount(0);
+  await expect(results).not.toBeVisible();
   await search.fill("법");
-  await expect(palette.getByRole("group").filter({ hasText: /^RESEARCH/ })).toHaveCount(1);
-  await expect(palette.getByRole("option", { name: "법령", exact: true })).toBeVisible();
-  await expect(palette.getByText("↑ ↓ 선택 · Enter 이동 · Esc 닫기", { exact: true })).toBeVisible();
+  await expect(page.getByRole("option", { name: "법령", exact: true })).toBeVisible();
   await search.fill("업무");
-  await expect(palette.getByRole("group").filter({ hasText: /^AI•AX/ })).toHaveCount(1);
-  await expect(palette.getByRole("option", { name: "업무 자동화 진단", exact: true })).toBeVisible();
-  await expect(palette.getByRole("option", { name: "법령", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("option", { name: "업무 자동화 진단", exact: true })).toBeVisible();
+  await expect(page.getByRole("option", { name: "법령", exact: true })).toHaveCount(0);
   await search.fill("존재하지않는기능");
-  await expect(palette.getByText("일치하는 기능이 없습니다.", { exact: true })).toBeVisible();
-  await expect(palette.getByRole("option")).toHaveCount(0);
-  await expect(palette.getByText("↑ ↓ 선택 · Enter 이동 · Esc 닫기", { exact: true })).toBeHidden();
+  await expect(results).toContainText("일치하는 기능이 없습니다.");
+  await expect(page.getByRole("option")).toHaveCount(0);
   await search.fill("");
-  await expect(palette.getByRole("listbox")).toHaveCount(0);
-  await expect(palette.getByText("일치하는 기능이 없습니다.", { exact: true })).toHaveCount(0);
+  await expect(results).not.toBeVisible();
   await page.keyboard.press("Enter");
-  await expect(palette).toBeVisible();
+  await expect(page.locator(".context-bar h1")).toHaveText(initialTitle);
   await search.fill("업무");
   await page.keyboard.press("Enter");
-  await expect(palette).toHaveCount(0);
+  await expect(results).not.toBeVisible();
   await expect(page.getByRole("heading", { name: "업무 자동화 진단", exact: true, level: 1 })).toBeVisible();
   await page.keyboard.press("Control+K");
-  await expect(palette.getByRole("listbox")).toHaveCount(0);
-  await palette.getByLabel("기능 검색").fill("검토 설정");
-  await expect(palette.getByRole("option", { name: "검토 설정", exact: true })).toHaveCount(0);
+  await search.fill("검토 설정");
+  await expect(page.getByRole("option", { name: "검토 설정", exact: true })).toHaveCount(0);
   await page.keyboard.press("Escape");
-  await expect(page.getByRole("dialog")).toHaveCount(0);
 
   await navigateWorkspace(page, "법령");
   await openMenu();
@@ -2841,8 +2794,8 @@ test("keeps legal destinations grouped, command search shortcut-only, and review
     ["법령 > 문서 검토", "문서 검토"],
   ] as const) {
     await page.keyboard.press("Control+K");
-    await page.getByRole("dialog").getByLabel("기능 검색").fill(command);
-    await page.getByRole("dialog").getByText(command, { exact: true }).click();
+    await search.fill(command);
+    await page.getByRole("option", { name: command, exact: true }).click();
     await expect(page.getByRole("heading", { name: heading, exact: true, level: 1 })).toBeVisible();
     await openMenu();
     await expect(navigation.getByRole("button", { name: "법령", exact: true })).toHaveAttribute("aria-current", "page");
@@ -2850,16 +2803,16 @@ test("keeps legal destinations grouped, command search shortcut-only, and review
   }
 
   await page.keyboard.press("Control+K");
-  await page.getByRole("dialog").getByLabel("기능 검색").fill("설정");
-  await page.getByRole("dialog").getByText("설정", { exact: true }).click();
+  await search.fill("설정");
+  await page.getByRole("option", { name: "설정", exact: true }).click();
   await openMenu();
   await expect(navigation.getByRole("button", { name: "Settings", exact: true })).toHaveAttribute("aria-current", "page");
   await closeSheet();
   await expect(page.getByRole("heading", { name: "법령 리서치 기본값", exact: true })).toHaveCount(0);
 
   await page.keyboard.press("Control+K");
-  await page.getByRole("dialog").getByLabel("기능 검색").fill("문서 검토");
-  await page.getByRole("dialog").getByText("법령 > 문서 검토", { exact: true }).click();
+  await search.fill("문서 검토");
+  await page.getByRole("option", { name: "법령 > 문서 검토", exact: true }).click();
   await expect(page.getByRole("heading", { name: "문서 검토", exact: true, level: 1 })).toBeVisible();
   await expect(page.getByRole("radio", { name: "직접 입력", exact: true })).toBeChecked();
   let reviewCalls = 0;
@@ -3175,7 +3128,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
         const box = element.getBoundingClientRect();
         const title = element.querySelector("h1")!.getBoundingClientRect();
         const description = element.querySelector(".context-names")!.getBoundingClientRect();
-        const search = element.querySelector(".workspace-search-trigger")!.getBoundingClientRect();
+        const search = element.querySelector(".workspace-search")!.getBoundingClientRect();
         return { height: box.height, titleX: title.x - box.x, titleY: title.y - box.y,
           descriptionX: description.x - box.x, descriptionY: description.y - box.y,
           searchX: search.x - box.x, searchY: search.y - box.y, searchWidth: search.width };
@@ -3199,7 +3152,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       });
       expect(overlap).toMatchObject({ title: false, description: false });
       expect(overlap.verticalGap).toBeLessThanOrEqual(2);
-      const [statusBox, searchBox] = await Promise.all([status.boundingBox(), page.getByRole("button", { name: "메뉴·기능 검색", exact: true }).boundingBox()]);
+      const [statusBox, searchBox] = await Promise.all([status.boundingBox(), page.locator(".workspace-search").boundingBox()]);
       expect(statusBox!.x + statusBox!.width).toBeLessThan(searchBox!.x);
       if (category === "검수") await page.screenshot({ path: `artifacts/delete-header-${viewport.width}.png` });
       await page.clock.runFor(2000);
@@ -3231,28 +3184,32 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     await upload(page, files.v1);
     const trigger = page.getByRole("button", { name: "메뉴·기능 검색", exact: true });
     const message = page.locator(".workspace-delete-status > span");
-    const dialog = page.getByRole("dialog", { name: "작업 공간 기능 검색" });
-    const before = await trigger.boundingBox();
+    const input = page.getByRole("combobox", { name: "메뉴·기능 검색" });
+    const results = page.locator(".workspace-search-results");
+    const before = await page.locator(".workspace-search").boundingBox();
     await page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true }).check();
     await page.getByRole("button", { name: "선택 삭제", exact: true }).click();
     await expect(message).toBeVisible();
-    await trigger.click();
-    await expect(dialog.getByRole("combobox", { name: "기능 검색" })).toBeFocused();
+    await page.keyboard.press("Control+k");
+    await expect(input).toBeFocused();
+    await input.fill("법령");
+    await expect(page.getByRole("option", { name: "법령", exact: true })).toBeVisible();
+    await expect(message).toBeVisible();
     await page.keyboard.press("Escape");
-    await expect(dialog).not.toBeVisible();
-    await expect(trigger).toBeFocused();
+    await expect(results).not.toBeVisible();
+    await expect(viewport.width === 390 ? trigger : input).toBeFocused();
     await expect(message).toBeVisible();
     await upload(page, files.v2);
     await expect(page.locator(".file-row")).toHaveCount(1);
-    expect(await trigger.boundingBox()).toEqual(before);
+    expect(await page.locator(".workspace-search").boundingBox()).toEqual(before);
     await expect(message).toHaveCount(0, { timeout: 5000 });
-    expect(await trigger.boundingBox()).toEqual(before);
+    expect(await page.locator(".workspace-search").boundingBox()).toEqual(before);
     await page.getByRole("checkbox", { name: "운임현황_v2.xlsx 선택", exact: true }).check();
     await page.getByRole("button", { name: "선택 삭제", exact: true }).click();
     await expect(message).toBeVisible();
-    await trigger.click();
-    await dialog.getByRole("combobox", { name: "기능 검색" }).fill("설정");
-    await dialog.getByRole("option", { name: "설정", exact: true }).click();
+    await page.keyboard.press("Control+k");
+    await input.fill("설정");
+    await page.getByRole("option", { name: "설정", exact: true }).click();
     await expect(page.locator(".context-bar h1")).toHaveText("설정");
     await expect(page.locator(".workspace-delete-status")).toHaveCount(0);
     await navigateWorkspace(page, "검수");

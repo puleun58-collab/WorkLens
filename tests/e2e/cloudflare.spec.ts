@@ -111,7 +111,7 @@ test.describe("Cloudflare Worker production build", () => {
     await expect(source).toBeVisible();
     await source.click();
     await expect(page.getByLabel("근거 상세")).toBeVisible();
-    await page.getByLabel("닫기").click();
+    await page.getByLabel("근거 상세", { exact: true }).getByRole("button", { name: "닫기", exact: true }).click();
 
     await page.getByRole("checkbox", { name: "cloudflare-check.pptx 선택", exact: true }).uncheck();
     await upload(page, files.v2);

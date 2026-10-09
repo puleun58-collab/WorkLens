@@ -71,7 +71,7 @@ const GUIDES: Guide[] = [
       { title: "실행", text: "분석 탭에서 실행을 누릅니다.", mini: <Run /> },
       { title: "결과 확인", text: "요약과 수치의 근거 위치를 확인합니다.", mini: <Result status="분석 완료" lines={["핵심 요약", "확인된 수치 · 근거 Slide 3"]} /> },
     ],
-    tip: "파일은 이 탭의 메모리에만 있으며, 새로고침하면 사라집니다.",
+    tip: "작업 파일은 브라우저 탭 메모리에만 있으며, 새로고침하면 사라집니다.",
   },
   {
     id: "ask", label: "질문", summary: "선택한 파일을 근거로 질문에 답합니다.",
@@ -108,15 +108,15 @@ const GUIDES: Guide[] = [
     steps: [
       selectFiles("보완할 문서 파일을 선택합니다.", ["3분기_비용보고.pptx"]),
       { title: "실행", text: "보완 실행을 누릅니다. 처리 중에는 실행 버튼에 진행 상태가 표시됩니다.", mini: <Run /> },
-      { title: "결과 확인", text: "보고 전 확인할 질문을 읽고, 항목별 확인할 정보와 확인 이유를 확인합니다. 근거 보기로 원문에 이동하거나 ‘현재 자료 및 원문 위치 보기’를 펼쳐 인용과 위치를 살펴볼 수 있습니다.", mini: <Result status="검토 완료" lines={["확인 필요 · 증가 원인 미확인", "보고 전 확인할 질문"]} /> },
+      { title: "결과 확인", text: "보고 전 확인할 질문을 읽고, 항목별 확인할 정보와 확인 이유를 확인합니다. ‘근거 보기’에서 현재 자료·인용 원문·문서명과 위치를 함께 확인하고 닫으면 해당 항목으로 돌아옵니다.", mini: <Result status="검토 완료" lines={["확인 필요 · 증가 원인 미확인", "보고 전 확인할 질문"]} /> },
     ],
     tip: "다른 페이지에 설명이 있으면 누락으로 표시하지 않으며, 읽지 못한 영역은 분석 범위에 표시됩니다.",
   },
   {
     id: "polish", label: "윤문", summary: "번역투와 중복 표현을 문장 단위로 다듬습니다.",
     steps: [
-      { title: "입력 방식 선택", text: "파일 또는 붙여넣은 텍스트를 고릅니다.", mini: <Segments items={["파일 윤문", "텍스트 윤문"]} active={1} /> },
-      { title: "윤문 방식 선택 후 실행", text: "기본, 간결하게, 업무 문체 중 고릅니다.", mini: <Run before={<Segments items={["기본", "간결하게", "업무 문체"]} active={0} />} /> },
+      { title: "입력 방식 선택", text: "파일 윤문은 업로드한 파일을 선택하고, 텍스트 윤문은 파일 영역 없이 내용을 붙여넣습니다. 모드를 바꿔도 기존 파일과 입력 내용은 유지됩니다.", mini: <Segments items={["파일 윤문", "텍스트 윤문"]} active={1} /> },
+      { title: "윤문 방식 선택 후 실행", text: "기본, 간결하게, 업무 문체 중 고릅니다. 텍스트 윤문은 입력창 오른쪽 글자 수 아래의 실행 버튼을 누릅니다.", mini: <Run before={<Segments items={["기본", "간결하게", "업무 문체"]} active={0} />} /> },
       { title: "결과 확인", text: "원문과 수정문을 비교해 확인합니다.", mini: <Result status="윤문 완료" lines={["원문 → 수정문"]} /> },
     ],
   },
@@ -124,7 +124,7 @@ const GUIDES: Guide[] = [
     id: "extract", label: "추출", summary: "필요한 항목과 값을 찾아 표로 정리합니다.",
     steps: [
       selectFiles("추출할 파일을 선택합니다.", ["주요값_A.xlsx"]),
-      { title: "방식 선택 후 실행", text: "자동 추출, 항목 지정, 전체 텍스트 중 고릅니다.", mini: <Run before={<Segments items={["자동 추출", "항목 지정", "전체 텍스트"]} active={0} />} /> },
+      { title: "방식 선택 후 실행", text: "자동 추출 또는 항목 지정을 골라 실행합니다.", mini: <Run before={<Segments items={["자동 추출", "항목 지정"]} active={0} />} /> },
       { title: "결과 내려받기", text: "표를 확인하고 내려받습니다.", mini: <Result status="추출 완료" lines={["항목 · 값 · 근거"]} actions={["CSV", "XLSX 다운로드"]} /> },
     ],
   },
@@ -168,17 +168,17 @@ const GUIDES: Guide[] = [
   {
     id: "ax", label: "업무 자동화 진단", summary: "업무를 등록하고 자동화 가능성, 우선순위와 실행 계획을 확인합니다.",
     steps: [
-      { title: "업무 등록", text: "업무명과 설명을 입력하고 자료를 추가합니다.", mini: <Run label="업무 등록" before={<Field text="자료 취합과 승인 절차" />} /> },
+      { title: "업무 등록", text: "업무 설명을 입력하고 필요하면 업무명·자료를 추가합니다.", mini: <Run label="업무 등록" before={<Field text="자료 취합과 승인 절차" />} /> },
       { title: "업무 진단", text: "업무 특성과 자동화 가능성을 진단합니다.", mini: <Result title="진단 결과" status="진단 완료" lines={["반복성 · 규칙성 · 데이터 구조화", "시스템 접근성 · 담당자 판단 · 위험"]} /> },
       { title: "자동화 매트릭스", text: "업무별 가치와 실현 가능성을 비교합니다.", mini: <Result title="자동화 매트릭스" status="진단 업무" lines={["빠른 실행 후보 · 전략 과제", "검토 후보 · 수동 유지·보류"]} /> },
-      { title: "결과·로드맵", text: "결과·실행 방향 확인, 구현 지시문 생성", mini: <Result title="결과·로드맵" status="검토 대기" actions={["Codex용 구현 계획 생성"]} lines={["진단 근거 → 공통 실행 방향", "도구별 구현 상세 · 지시문 복사"]} /> },
+      { title: "결과·로드맵", text: "선택 업무의 구현 범위·시작 전 확인·완료 기준을 검토하고 Codex 또는 Claude Code용 지시문을 생성합니다. 지시문은 접힌 상태에서도 전체를 복사할 수 있습니다.", mini: <Result title="결과·로드맵" status="검토 대기" actions={["Codex · Claude Code"]} lines={["01 구현 범위 → 02 시작 전 확인 → 03 완료 기준", "04 코딩 에이전트 지시문 · 전체 복사"]} /> },
     ],
-    tip: "매트릭스의 개별 점은 숫자 없는 업무 표시이며, 겹친 원의 숫자는 같은 위치의 업무 수입니다. 겹친 원을 눌러 순위별 업무를 선택하고 점수 근거를 확인하세요. ‘평가 근거 자세히 보기 / 평가 근거 접기’는 항목별 평가값과 설명을 펼치거나 접습니다. 결과·로드맵의 ‘한눈에 보기’에서 선택 업무의 실행 방향을 확인한 뒤 구현 계획과 지시문을 확인하세요. 진단 업무가 4개 이상이면 ‘전체 업무 보기’에서 다른 업무로 전환할 수 있습니다. ‘설치·시작 가이드’는 처음 한 번 준비 → 프로젝트 작업 → GitHub·배포 순서입니다. STEP 목차로 이동하고 선택한 도구의 명령을 복사하세요. 용어 정의는 ‘용어 알아보기’에서 확인합니다.",
+    tip: "매트릭스의 위치나 우선순위만으로 구현을 승인할 수 없습니다. 진행 전 선행 조건과 담당자 검토·승인 단계를 확인하고, 필요한 검증을 거치세요.",
   },
   {
     id: "dictionary", label: "용어 사전", summary: "맞춤법과 용어 오탐을 줄이기 위한 사전입니다.",
     steps: [
-      { title: "용어 사전 열기", text: "도움말 메뉴에서 용어 사전을 엽니다.", mini: <span className="mini-files"><span className="mini-row"><span className="mini-name">사용 가이드</span></span><span className="mini-row is-mark is-checked"><span className="mini-name">용어 사전</span></span><span className="mini-row"><span className="mini-name">설정</span></span></span> },
+      { title: "용어 사전 열기", text: "왼쪽 메뉴(좁은 화면에서는 메뉴 버튼)의 HELP에서 용어 사전을 엽니다.", mini: <span className="mini-files"><span className="mini-row"><span className="mini-name">사용 가이드</span></span><span className="mini-row is-mark is-checked"><span className="mini-name">용어 사전</span></span><span className="mini-row"><span className="mini-name">설정</span></span></span> },
       { title: "단어 추가", text: "회사에서 쓰는 용어를 개인 사전에 추가합니다.", mini: <span className="mini-operation"><Field text="WorkLens" /><span className="mini-button">추가</span></span> },
       { title: "검수에 반영", text: "추가한 단어는 맞춤법 오류로 표시하지 않습니다.", mini: <Result title="개인 사전" status="1개" lines={["WorkLens"]} /> },
     ],
@@ -191,6 +191,7 @@ export function UsageGuide() {
 
   return (
     <section className="usage-guide" aria-label="사용 가이드">
+      <p className="m-0 text-sm text-muted-foreground">화면 이동은 헤더의 ‘메뉴·기능 검색’에 직접 입력하세요. Ctrl/⌘ K로 입력에 초점을 맞출 수 있고, 좁은 화면에서는 돋보기 버튼으로 헤더 입력을 펼칩니다.</p>
       <Tabs value={active} onValueChange={(value) => setActive(String(value))}>
       <TabsList className="usage-guide-tabs max-w-full" aria-label="기능 선택" variant="underline" activateOnFocus>
         {GUIDES.map((entry) => <TabsTab key={entry.id} value={entry.id}>{entry.label}</TabsTab>)}
