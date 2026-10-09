@@ -290,7 +290,7 @@
 
 .ax-plan-head { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .ax-plan-head h3 { margin: 0; }
-.ax-plan-tool-hint { font-size: var(--font-size-xs); color: var(--muted-foreground); }
+.ax-plan-task { font-weight: var(--font-weight-semibold); overflow-wrap: anywhere; }
 .ax-tool-tabs { gap: 16px; min-width: 0; }
 .ax-tool-tabs [data-slot=tabs-content], .ax-package { min-width: 0; }
 .ax-prompt { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 13px; line-height: 1.65; text-align: left; color: var(--foreground); white-space: pre-wrap; word-break: break-word; max-width: 100%; max-height: calc(12lh + 2rem); overflow: hidden; background: color-mix(in srgb, var(--muted) 9%, var(--card)); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin: 12px 0; }
@@ -382,46 +382,24 @@
   .ax-tutorial-terms-panel dl > div { grid-template-columns: minmax(0, 1fr); gap: 0; }
 }
 .ax-package > p { margin: 4px 0 16px; }
-.ax-package > h4 { margin-top: 20px; }
-/* Headings start on the marker rail; bodies share a separate, non-cumulative text rail. */
+/* The three decision sections share a left rail, with the raw tool prompt below. */
 .ax-plan-view { display: grid; gap: 0; max-width: 920px; text-align: left; }
-.ax-plan-view h4 { margin: 0 0 8px; font-size: var(--font-size-md); font-weight: var(--font-weight-semibold); color: var(--foreground); }
+.ax-plan-view h4, .ax-plan-instructions > h4 { margin: 0 0 8px; font-size: var(--font-size-md); font-weight: var(--font-weight-semibold); color: var(--foreground); }
 .ax-plan-view h5 { margin: 0 0 6px; font-size: var(--font-size-xs); font-weight: var(--font-weight-semibold); color: var(--foreground); }
-.ax-plan-glance { margin-bottom: 14px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 12px; background: color-mix(in srgb, var(--muted) 14%, var(--card)); }
-.ax-plan-glance dl { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px 16px; margin: 0; }
-.ax-plan-glance dl > div { display: grid; align-content: start; gap: 3px; min-width: 0; }
-.ax-plan-glance [data-summary="level"] { grid-column: span 1; }
-.ax-plan-glance [data-summary="gate"] { grid-column: span 2; }
-.ax-plan-glance [data-summary="core"], .ax-plan-glance [data-summary="human"], .ax-plan-glance [data-summary="prerequisites"] { grid-column: span 3; }
-.ax-plan-glance [data-summary="human"], .ax-plan-glance [data-summary="prerequisites"] { border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent); padding-top: 10px; }
-.ax-plan-glance dt { font-size: var(--font-size-xs); color: var(--muted-foreground); }
-.ax-plan-glance dd { margin: 0; font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); color: var(--foreground); overflow-wrap: anywhere; }
-.ax-plan-block { padding: 14px 0; border-top: 1px solid var(--border); }
+.ax-plan-block, .ax-plan-instructions { padding: 18px 0; border-top: 1px solid var(--border); }
+.ax-plan-context { margin: 0 0 12px; }
 .ax-plan-group + .ax-plan-group, .ax-plan-group + .ax-plan-details { margin-top: 14px; }
-.ax-view .ax-plan-group + .ax-plan-steps { margin-top: 22px; }
 .ax-view .ax-plan-list { margin: 0; padding: 0; list-style: none; font-size: var(--font-size-sm); line-height: 1.65; }
 .ax-plan-list li { display: grid; grid-template-columns: max-content minmax(0, 1fr); column-gap: 10px; align-items: baseline; overflow-wrap: anywhere; }
 .ax-plan-list li + li { margin-top: 2px; }
-.ax-view .ax-plan-steps { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; font-size: var(--font-size-sm); line-height: 1.6; }
-.ax-plan-steps li { display: grid; grid-template-columns: max-content minmax(0, 1fr); column-gap: 10px; align-items: baseline; overflow-wrap: anywhere; }
-.ax-plan-marker, .ax-plan-step-no { white-space: nowrap; text-align: left; }
-.ax-plan-marker { color: var(--muted-foreground); }
-.ax-plan-step-no { font-weight: var(--font-weight-semibold); color: var(--primary); font-variant-numeric: tabular-nums; }
+.ax-plan-marker { white-space: nowrap; text-align: left; color: var(--muted-foreground); }
 .ax-plan-status { margin-left: 6px; padding: 1px 6px; border-radius: 4px; font-weight: var(--font-weight-medium); color: var(--warning-foreground, #8a5a00); background: color-mix(in srgb, var(--warning, #f5a524) 12%, transparent); }
 .ax-plan-details { margin-top: 8px; max-width: 36rem; }
 .ax-plan-details .ax-plan-detail { border: 0; }
 .ax-plan-details .ax-plan-detail-trigger { flex: initial; justify-content: flex-start; align-items: center; gap: .6rem; padding: .75em 0; min-height: calc(1lh + 2em); font-size: var(--font-size-sm); font-weight: var(--font-weight-regular); text-align: left; }
 .ax-plan-detail-count { color: var(--muted-foreground); font-size: var(--font-size-xs); }
 .ax-plan-detail-panel { padding: 0 0 .75em; }
-.ax-common-plan > h4, .ax-tool-plan > h4 { margin: 14px 0 8px; }
-.ax-package > .ax-package-title { margin-top: 8px; padding-top: 14px; border-top: 1px solid var(--border); }
-.ax-tool-plan { margin-top: 14px; }
-@media(max-width: 700px) {
-  .ax-plan-glance { padding: 12px; }
-  .ax-plan-glance dl { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-  .ax-plan-glance [data-summary="level"], .ax-plan-glance [data-summary="gate"] { grid-column: span 1; }
-  .ax-plan-glance [data-summary="core"], .ax-plan-glance [data-summary="human"], .ax-plan-glance [data-summary="prerequisites"] { grid-column: 1 / -1; }
-}
+.ax-plan-instructions { min-width: 0; }
 @media(max-width: 700px) {
   .ax-package > button, .ax-tool-tabs [data-slot=tabs-content] > button { max-width: 100%; height: auto; min-height: 36px; white-space: normal; overflow-wrap: anywhere; }
   .ax-prompt { padding: 12px; }

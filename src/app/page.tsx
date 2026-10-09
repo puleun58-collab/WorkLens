@@ -58,6 +58,7 @@ import {
   SUPPLEMENT_UNSUPPORTED_DETAIL,
   SUPPLEMENT_UNSUPPORTED_TITLE,
   type SupplementResult,
+  type SupplementFinding,
 } from "@/domain/supplement";
 import { finalizeSupplement, type SupplementReviewOutcome } from "@/lib/supplement/finalize";
 import { SupplementResults } from "@/components/supplement/SupplementResults";
@@ -577,7 +578,7 @@ type DetailEntry = {
   role?: SourceRole;
   context?: { issue: string; recommendation: string };
 };
-type DetailInfo = { entries: readonly DetailEntry[] };
+type DetailInfo = { entries: readonly DetailEntry[]; supplement?: SupplementFinding };
 
 
 export default function Home() {
@@ -642,9 +643,9 @@ export default function Home() {
   const detailTrigger = useRef<HTMLElement | null>(null);
   const primaryRunInFlight = useRef(false);
 
-  const openSource = useCallback((entries: readonly DetailEntry[], trigger: HTMLElement | null) => {
+  const openSource = useCallback((entries: readonly DetailEntry[], trigger: HTMLElement | null, supplement?: SupplementFinding) => {
     detailTrigger.current = trigger;
-    setDetail({ entries });
+    setDetail({ entries, supplement });
   }, []);
   const closeSource = useCallback(() => {
     const trigger = detailTrigger.current;
@@ -1653,7 +1654,7 @@ export default function Home() {
             />
           ) : null}
 
-          {files.length === 0 && isDocumentWorkspaceView ? (
+          {files.length === 0 && isDocumentWorkspaceView && !polishTextMode ? (
             <div
               className={`dropzone${uploading ? " busy" : ""}${dropActive ? " drag-active" : ""}`}
               onDragEnter={(event) => { event.preventDefault(); setDropActive(true); }}
@@ -1676,7 +1677,7 @@ export default function Home() {
             </div>
           ) : null}
 
-          {files.length > 0 && isDocumentWorkspaceView ? (
+          {files.length > 0 && isDocumentWorkspaceView && !polishTextMode ? (
             <div
               className={`file-add-dropzone${uploading ? " busy" : ""}${dropActive ? " drag-active" : ""}`}
               onDragEnter={(event) => { event.preventDefault(); setDropActive(true); }}
@@ -1755,8 +1756,8 @@ export default function Home() {
                         <MenuTrigger render={<Button type="button" variant="ghost" size="icon" aria-label="파일 관리 메뉴" disabled={busy} />}>
                           <MoreHorizontal aria-hidden="true" />
                         </MenuTrigger>
-                        <MenuPopup align="end">
-                          <MenuItem variant="destructive" closeOnClick onClick={() => setDeleteAllOpen(true)}>모두 삭제</MenuItem>
+                        <MenuPopup align="end" className="w-max" style={{ minWidth: 104 }}>
+                          <MenuItem className="px-3" variant="destructive" closeOnClick onClick={() => setDeleteAllOpen(true)}>모두 삭제</MenuItem>
                         </MenuPopup>
                       </Menu>
                       <AlertDialog open={deleteAllOpen} onOpenChange={setDeleteAllOpen}>
@@ -1874,24 +1875,26 @@ export default function Home() {
                     </RadioGroup>
                     </div>}
                     {polishTextMode ? (
-                      <label className="polish-paste">
-                        <span>윤문할 내용을 붙여넣으세요.</span>
-                        <Textarea value={polishText}
-                        rows={8}
-                        // No hard maxLength: a long paste is accepted and
-                        // then explained, rather than silently truncated.
-                        aria-label="윤문할 텍스트 입력"
-                        disabled={busy}
-                        onChange={(event) => setPolishText(event.target.value)}
-                        placeholder={"메일, 보고서, 공지 등에서 복사한 내용을 그대로 붙여넣으세요.\n줄바꿈과 목록 구조는 그대로 유지됩니다."} />
-                        <small data-over={polishText.length > POLISH_TEXT_MAX_CHARS ? "true" : undefined}>
-                          {polishText.length.toLocaleString("ko-KR")} / {POLISH_TEXT_MAX_CHARS.toLocaleString("ko-KR")}자
-                        </small>
-                      </label>
+                      <div className="polish-text-input">
+                        <label className="polish-paste">
+                          <span>윤문할 내용을 붙여넣으세요.</span>
+                          <Textarea value={polishText}
+                          rows={8}
+                          // No hard maxLength: a long paste is accepted and
+                          // then explained, rather than silently truncated.
+                          aria-label="윤문할 텍스트 입력"
+                          disabled={busy}
+                          onChange={(event) => setPolishText(event.target.value)}
+                          placeholder={"메일, 보고서, 공지 등에서 복사한 내용을 그대로 붙여넣으세요.\n줄바꿈과 목록 구조는 그대로 유지됩니다."} />
+                          <small data-over={polishText.length > POLISH_TEXT_MAX_CHARS ? "true" : undefined}>
+                            {polishText.length.toLocaleString("ko-KR")} / {POLISH_TEXT_MAX_CHARS.toLocaleString("ko-KR")}자
+                          </small>
+                        </label>
+                        <div className="operation-actions">
+                          <Button type="button" onClick={runActive} disabled={actionDisabled} aria-label={`${tabMeta[activeTab].label} ${RUN_LABEL}`}>{busy ? "처리 중…" : RUN_LABEL}</Button>
+                        </div>
+                      </div>
                     ) : null}
-                    {showRunAction && polishTextMode && <div className="operation-actions">
-                      <Button type="button" onClick={runActive} disabled={actionDisabled} aria-label={`${tabMeta[activeTab].label} ${RUN_LABEL}`}>{busy ? "처리 중…" : RUN_LABEL}</Button>
-                    </div>}
                   </div>
                 ) : null}
                 {activeTab === "Supplement" && supplementHasUnsupportedFiles ? (
@@ -1944,12 +1947,12 @@ export default function Home() {
                         <SupplementResults
                           result={supplement}
                           fileNames={fileNames}
-                          renderSource={(sources, context) => (
+                          renderSource={(sources, context, finding) => (
                             <span className="result-source">
                               <Button type="button" variant="outline" size="sm"
                               className="source-action"
                               aria-label={`${context.issue} 근거 보기`}
-                              onClick={(event) => openSource(sources.map((source) => ({ source, context })), event.currentTarget)}>근거 보기</Button>
+                              onClick={(event) => openSource(sources.map((source) => ({ source, context })), event.currentTarget, finding)}>근거 보기</Button>
                             </span>
                           )}
                         />
@@ -1981,7 +1984,7 @@ export default function Home() {
 
       {detail ? (
         <aside className="evidence-inspector">
-          <SourceDetail entries={detail.entries} fileNames={fileNames} onClose={closeSource} />
+          <SourceDetail entries={detail.entries} supplement={detail.supplement} fileNames={fileNames} onClose={closeSource} />
         </aside>
       ) : null}
     </div>
@@ -3622,8 +3625,9 @@ function AggregationResults({ draft, selection, busy, onSelection, onExport }: {
  * The inspector groups only byte-identical quotes from the same file. Every
  * SourceRef remains in the group so location coverage is preserved.
  */
-function SourceDetail({ entries, fileNames, onClose }: {
+function SourceDetail({ entries, supplement, fileNames, onClose }: {
   entries: readonly DetailEntry[];
+  supplement?: SupplementFinding;
   fileNames: Map<string, string>;
   onClose: () => void;
 }) {
@@ -3656,6 +3660,17 @@ function SourceDetail({ entries, fileNames, onClose }: {
         <Button type="button" variant="ghost" size="sm" onClick={onClose} aria-label="닫기">닫기</Button>
       </header>
       {fileHeading ? <p className="evidence-file-list" title={fileHeading}>{fileHeading}</p> : null}
+      {supplement ? <section className="evidence-entry supplement-evidence" aria-label="보완 판단 근거">
+        <h3>{supplement.title}</h3>
+        {entries.length === 0 && fileNames.get(supplement.fileId) ? <p className="evidence-file-list">{fileNames.get(supplement.fileId)}</p> : null}
+        <dl className="supplement-fields">
+          {supplement.current ? <div><dt>현재 자료</dt><dd><q>{supplement.current}</q></dd></div> : null}
+          {supplement.locations.length > 0 ? <div><dt>{supplement.scope === "report" ? "보완 대상" : "원문 위치"}</dt><dd>{supplement.locations.join(", ")}</dd></div> : null}
+          {supplement.evidenceLocations?.length ? <div><dt>{supplement.scope === "conflict" ? "자료별 설명" : "관련 근거 위치"}</dt><dd>{supplement.evidenceLocations.join(", ")}</dd></div> : null}
+        </dl>
+        {supplement.linkNote ? <p className="supplement-note">{supplement.linkNote}</p> : null}
+        {supplement.limitation ? <p className="supplement-limitation">{supplement.limitation}</p> : null}
+      </section> : null}
       <div className="evidence-type"><span>원문</span><p>문서에서 확인된 근거 · {entries.length.toLocaleString("ko-KR")}곳</p></div>
       {groups.map((group, index) => {
         const [lead] = group.entries;

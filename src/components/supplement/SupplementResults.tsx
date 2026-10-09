@@ -2,13 +2,14 @@
 
 import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
-import { ChevronDown, Info } from "lucide-react";
+import { Info } from "lucide-react";
 import type { SourceRef } from "@/domain/document";
 import {
   SUPPLEMENT_DOC_TYPE_LABELS,
   SUPPLEMENT_FILE_ROLE_LABELS,
   SUPPLEMENT_SEVERITY_LABELS,
   SUPPLEMENT_SHEET_STATUS_LABELS,
+  type SupplementFinding,
   type SupplementResult,
   type SupplementSeverity,
 } from "@/domain/supplement";
@@ -58,7 +59,7 @@ function informativeReason(message: string, reason: string): string {
 export function SupplementResults({ result, fileNames, renderSource }: {
   result: SupplementResult;
   fileNames: Map<string, string>;
-  renderSource: (sources: readonly SourceRef[], context: { issue: string; recommendation: string }) => ReactNode;
+  renderSource: (sources: readonly SourceRef[], context: { issue: string; recommendation: string }, finding: SupplementFinding) => ReactNode;
 }) {
   const [filter, setFilter] = useState<"all" | SupplementSeverity>("all");
   const counts = Object.fromEntries(SEVERITIES.map((severity) => [severity, result.findings.filter((finding) => finding.severity === severity).length])) as Record<SupplementSeverity, number>;
@@ -201,34 +202,10 @@ export function SupplementResults({ result, fileNames, renderSource }: {
                           <dd>{finding.question}</dd>
                         </div>
                       ) : null}
-                      {finding.sources.length > 0 ? <div className="supplement-source">
-                        <dt>근거</dt>
-                        <dd>{renderSource(finding.sources, { issue: finding.title, recommendation: finding.additions.join(", ") })}</dd>
-                      </div> : null}
                     </dl>
-                    {hasOriginal ? <details className="supplement-original">
-                      <summary>현재 자료 및 원문 위치 보기<ChevronDown aria-hidden="true" /></summary>
-                      <dl className="supplement-fields">
-                        {finding.current ? <div>
-                          <dt>현재 자료</dt>
-                          <dd><q>{finding.current}</q></dd>
-                        </div> : null}
-                        {finding.locations.length > 0 ? <div>
-                          <dt>{finding.scope === "report" ? "보완 대상" : "원문 위치"}</dt>
-                          <dd className="supplement-location"><span>{finding.locations.join(", ")}</span></dd>
-                        </div> : null}
-                        {finding.evidence?.length || finding.evidenceLocations?.length ? (
-                          <div>
-                            <dt>{finding.scope === "conflict" ? "자료별 설명" : "관련 근거"}</dt>
-                            <dd className="supplement-location">
-                              {finding.evidenceLocations?.length ? <span>{finding.evidenceLocations.join(", ")}</span> : null}
-                              {finding.evidence?.length ? renderSource(finding.evidence, { issue: finding.title, recommendation: "" }) : null}
-                            </dd>
-                          </div>
-                        ) : null}
-                      </dl>
-                      {finding.linkNote ? <p className="supplement-note">{finding.linkNote}</p> : null}
-                    </details> : null}
+                    {hasOriginal || finding.sources.length > 0 ? <div className="supplement-source">
+                      {renderSource([...finding.sources, ...(finding.evidence ?? [])], { issue: finding.title, recommendation: finding.additions.join(", ") }, finding)}
+                    </div> : null}
                     {finding.limitation ? <p className="supplement-limitation">{finding.limitation}</p> : null}
                     </article>
                   );

@@ -2694,66 +2694,75 @@ test("review provenance direct snapshots, presentation and pending race", async 
 });
 
 for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
-  test(`shared header search preserves palette navigation and focus at ${viewport.width}px`, async ({ page }) => {
+  test(`shared inline header search navigates without a dialog at ${viewport.width}px`, async ({ page }) => {
     await page.setViewportSize(viewport);
     const errors: string[] = [];
     page.on("pageerror", error => errors.push(error.message));
     await page.goto("/");
     await expect(page.locator(".app-shell")).toHaveAttribute("data-hydrated", "true");
     const trigger = page.getByRole("button", { name: "메뉴·기능 검색", exact: true });
-    const dialog = page.getByRole("dialog", { name: "작업 공간 기능 검색" });
-    const input = dialog.getByRole("combobox", { name: "기능 검색" });
+    const input = page.getByRole("combobox", { name: "메뉴·기능 검색" });
+    const results = page.locator(".workspace-search-results");
     for (const category of ["분석", "질문", "비교", "검수", "보완", "윤문", "추출", "취합", "법령", "PDF 도구", "이미지 도구", "업무 자동화 진단", "Guide", "Dictionary", "Settings"]) {
       await navigateWorkspace(page, category);
-      const header = page.locator(".context-bar");
-      const before = await header.evaluate(element => {
-        const box = element.getBoundingClientRect();
-        const search = element.querySelector(".workspace-search-trigger")!.getBoundingClientRect();
-        const title = element.querySelector("h1")!.getBoundingClientRect();
-        const description = element.querySelector(".context-names")!.getBoundingClientRect();
-        return { height: box.height, width: box.width, searchX: search.x - box.x, searchY: search.y - box.y,
-          titleX: title.x - box.x, titleY: title.y - box.y, descriptionX: description.x - box.x, descriptionY: description.y - box.y };
-      });
-      await trigger.click();
-      await expect(dialog).toHaveCount(1);
+      if (viewport.width === 390) await trigger.click();
+      else await input.click();
       await expect(input).toBeFocused();
+      await expect(results).not.toBeVisible();
+      await expect(page.getByRole("dialog")).toHaveCount(0);
       await input.fill("설정");
-      await expect(dialog.getByRole("option", { name: "설정", exact: true })).toBeVisible();
+      await expect(page.getByRole("option", { name: "설정", exact: true })).toBeVisible();
+      const [inputBox, resultsBox] = await Promise.all([input.boundingBox(), results.boundingBox()]);
+      expect(resultsBox!.y).toBeGreaterThanOrEqual(inputBox!.y + inputBox!.height);
+      expect(resultsBox!.x).toBeGreaterThanOrEqual(0);
+      expect(resultsBox!.x + resultsBox!.width).toBeLessThanOrEqual(viewport.width);
       await page.keyboard.press("Escape");
-      await expect(dialog).not.toBeVisible();
-      await expect(trigger).toBeFocused();
-      expect(await header.evaluate(element => {
-        const box = element.getBoundingClientRect();
-        const search = element.querySelector(".workspace-search-trigger")!.getBoundingClientRect();
-        const title = element.querySelector("h1")!.getBoundingClientRect();
-        const description = element.querySelector(".context-names")!.getBoundingClientRect();
-        return { height: box.height, width: box.width, searchX: search.x - box.x, searchY: search.y - box.y,
-          titleX: title.x - box.x, titleY: title.y - box.y, descriptionX: description.x - box.x, descriptionY: description.y - box.y };
-      })).toEqual(before);
+      await expect(results).not.toBeVisible();
+      await expect(viewport.width === 390 ? trigger : input).toBeFocused();
       if (["법령", "PDF 도구", "이미지 도구", "업무 자동화 진단", "Guide", "Dictionary", "Settings"].includes(category)) {
-        await expect(header.locator(".workspace-delete-status")).toHaveCount(0);
+        await expect(page.locator(".context-bar .workspace-delete-status")).toHaveCount(0);
       }
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     }
-    await trigger.focus();
     await page.keyboard.press("Control+k");
     await expect(input).toBeFocused();
     await input.fill("PDF");
     await page.keyboard.press("Enter");
     await expect(page.locator(".context-bar h1")).toHaveText("PDF 도구");
-    await expect(dialog).not.toBeVisible();
-    await expect(trigger).toBeFocused();
+    await expect(results).not.toBeVisible();
     await page.keyboard.press("Meta+k");
     await expect(input).toBeFocused();
     await expect(input).toHaveValue("");
     await input.fill("설정");
-    await dialog.getByRole("option", { name: "설정", exact: true }).click();
+    await page.keyboard.press("Control+k");
+    await expect(input).toHaveValue("설정");
+    await expect(input).toBeFocused();
+    await input.dispatchEvent("compositionstart");
+    await input.dispatchEvent("keydown", { key: "Enter", code: "Enter", isComposing: true });
+    await expect(page.locator(".context-bar h1")).toHaveText("PDF 도구");
+    await input.dispatchEvent("compositionend", { data: "설정" });
+    await page.getByRole("option", { name: "설정", exact: true }).click();
     await expect(page.locator(".context-bar h1")).toHaveText("설정");
-    await expect(dialog).not.toBeVisible();
-    await trigger.click();
+    await expect(results).not.toBeVisible();
+    await page.keyboard.press("Control+k");
+    await input.fill("없음xyz");
+    await expect(results).toContainText("일치하는 기능이 없습니다.");
+    await page.getByRole("button", { name: "검색어 지우기", includeHidden: true }).click();
     await expect(input).toHaveValue("");
+    await expect(input).toBeFocused();
+    await expect(results).not.toBeVisible();
+    await input.fill("법령");
+    await page.locator("#workspace-content").click({ position: { x: 2, y: 2 } });
+    await expect(results).not.toBeVisible();
+    await page.keyboard.press("Control+k");
+    await input.fill("도구");
+    await expect(page.getByRole("option", { name: "PDF 도구", exact: true })).toBeVisible();
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("ArrowUp");
+    await page.keyboard.press("Enter");
+    await expect(page.locator(".context-bar h1")).toHaveText("PDF 도구");
+    await expect(results).not.toBeVisible();
     await page.keyboard.press("Escape");
-    await expect(trigger).toBeFocused();
     await page.screenshot({ path: `artifacts/shared-header-search-${viewport.width}.png` });
     expect(errors).toEqual([]);
   });
