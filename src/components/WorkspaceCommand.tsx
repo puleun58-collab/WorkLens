@@ -57,7 +57,12 @@ export function WorkspaceCommand({ items, onNavigate }: { items: WorkspaceComman
     </Button>
     <div className="workspace-search-field">
       <Command inline={false} open={open && searching} items={groups} value={query}
-        onValueChange={(value) => { setQuery(value); setOpen(value.trim().length > 0); }}
+        onValueChange={(value, details) => {
+          // This picker runs an action; do not fill its input with the selected menu label.
+          if (details.reason === "item-press") { details.cancel(); return; }
+          setQuery(value);
+          setOpen(value.trim().length > 0);
+        }}
         onOpenChange={(next, details) => {
           setOpen(next);
           if (!next && ["outside-press", "focus-out", "escape-key"].includes(details.reason)) close(details.reason === "escape-key");

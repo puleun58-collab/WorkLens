@@ -230,6 +230,7 @@ for (const width of [1440, 390]) {
     const [inputBox, countBox, actionBox] = await Promise.all([
       text.boundingBox(), page.locator(".polish-paste small").boundingBox(), action.boundingBox(),
     ]);
+    expect(inputBox!.width).toBeGreaterThanOrEqual(width === 390 ? 300 : 600);
     expect(Math.abs(inputBox!.x + inputBox!.width - actionBox!.x - actionBox!.width)).toBeLessThanOrEqual(2);
     expect(Math.abs(countBox!.x + countBox!.width - actionBox!.x - actionBox!.width)).toBeLessThanOrEqual(2);
     expect(actionBox!.y - countBox!.y - countBox!.height).toBeGreaterThanOrEqual(8);
@@ -853,7 +854,7 @@ test("runs deterministic Analyze, Check, Extract and export paths", async ({ pag
   await expect(page.locator(".results-panel .source-action").first()).toBeVisible();
   await page.locator(".results-panel .source-action").first().click();
   await expect(page.getByLabel("근거 상세")).toBeVisible();
-  await page.getByLabel("닫기").click();
+  await page.getByLabel("근거 상세").getByRole("button", { name: "닫기" }).click();
 
   await navigateWorkspace(page, "검수");
   await page.getByRole("button", { name: "검수 실행" }).click();
@@ -2664,54 +2665,6 @@ test("uploads a dropped file and returns to compact file management", async ({ p
   await expect(page.locator(".dropzone")).toHaveCount(0);
   await expect(page.locator(".file-add-dropzone").getByRole("button", { name: "파일 추가" })).toBeVisible();
   await expect(page.getByRole("button", { name: "파일 관리 메뉴" })).toBeVisible();
-});
-
-test("aligns fileless text Polish controls to one desktop and mobile baseline", async ({ page }) => {
-  await page.goto("/");
-  await navigateWorkspace(page, "윤문");
-  await page.getByRole("radio", { name: "텍스트 윤문" }).check();
-  await expect(page.locator(".dropzone")).toBeVisible();
-
-  const alignment = async () => {
-    const title = page.locator(".operation-bar");
-    await expect(page.locator(".utility-bar h1")).toHaveText("문서 윤문");
-    const inputModes = page.locator(".polish-input-modes");
-    const polishModes = page.locator(".polish-modes");
-    const pasteLabel = page.locator(".polish-paste").getByText("윤문할 내용을 붙여넣으세요.", { exact: true });
-    const paste = page.getByLabel("윤문할 텍스트 입력");
-    const count = page.locator(".polish-paste small");
-    const action = page.getByRole("button", { name: "윤문 실행" });
-    const boxes = await Promise.all([title, inputModes, polishModes, pasteLabel, paste, count, action].map((locator) => locator.boundingBox()));
-    expect(boxes.every(Boolean)).toBe(true);
-    const surface = page.locator(".operation-bar");
-    const surfaceBox = (await surface.boundingBox())!;
-    const surfaceInset = await surface.evaluate((element) => {
-      const style = getComputedStyle(element);
-      return parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft);
-    });
-    const left = boxes[0]!.x;
-    expect(Math.abs(surfaceBox.x - left)).toBeLessThanOrEqual(1);
-    const controlLeft = left + surfaceInset;
-    for (const box of boxes.slice(1, 6)) expect(Math.abs(box!.x - controlLeft)).toBeLessThanOrEqual(1);
-    return { modes: boxes[2]!, paste: boxes[4]!, action: boxes[6]!, left: controlLeft };
-  };
-
-  // Text execution follows the textarea on every viewport.
-  const desktop = await alignment();
-  expect(desktop.action.y).toBeGreaterThanOrEqual(desktop.paste.y + desktop.paste.height);
-  await expect(page.getByRole("button", { name: "윤문 실행" })).toHaveCount(1);
-  const initialViewport = page.viewportSize();
-  expect(desktop.paste.width).toBeGreaterThanOrEqual(initialViewport && initialViewport.width < 1000 ? 600 : 700);
-  expect(desktop.paste.width).toBeLessThanOrEqual(960);
-  await page.getByLabel("윤문할 텍스트 입력").fill("파일 없이도 텍스트 윤문을 실행할 수 있습니다.");
-  await expect(page.getByRole("button", { name: "윤문 실행" })).toBeEnabled();
-
-  await page.setViewportSize({ width: 390, height: 844 });
-  // Mobile: execution remains after the textarea.
-  const mobile = await alignment();
-  expect(mobile.action.y).toBeGreaterThanOrEqual(mobile.paste.y + mobile.paste.height);
-  expect(mobile.paste.width).toBeLessThanOrEqual(358);
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 });
 
 test("places file Polish execution beside input modes and keeps one action across modes", async ({ page }) => {

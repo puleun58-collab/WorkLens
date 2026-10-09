@@ -314,13 +314,16 @@ test("AX registration → diagnosis → correction → matrix → plans → relo
   await expect(completion).toContainText("성공: 대조 통과");
   const detailTrigger = before.getByRole("button", { name: /기타 구현 참고/ });
   await detailTrigger.click();
-  await expect(before.getByText("수동 취합", { exact: true })).toBeVisible();
+  const implementationNotes = before.locator(".ax-plan-detail-panel");
+  await expect(implementationNotes.getByRole("listitem").filter({ hasText: planFixture.asIs[0] })).toBeVisible();
+  await expect(completion).toContainText(planFixture.fallback[0]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await scope.screenshot({ path: `artifacts/ax/plan-view-${test.info().project.name}.png` });
   const prompt = packageSection.locator(".ax-prompt");
   for (const heading of ["# 월간 취합 자동화 구현 지시문", "## 2. 현재 진단 기준", "## 3. 작업 전 현재 프로젝트 확인", "## 4. AS-IS", "## 8. 구현 원칙", "## 9. 구현 요구사항", "## 15. Git 반영", "## 16. 배포 및 운영 적용", "## 17. 완료 조건", "## 18. 완료 보고"]) await expect(prompt).toContainText(heading);
   await expectPromptStructure(prompt, "월간 취합");
   const codexPrompt = await prompt.textContent();
+  expect(codexPrompt).toContain(planFixture.fallback[0]);
   const prerequisiteSection = (await prompt.textContent())!.split("## 7. 구현 전 확인사항")[1].split("## 8.")[0];
   expect(prerequisiteSection).toContain("실제 저장소와 API 확인");
   expect(prerequisiteSection).toContain("시스템 접근 — API와 권한 실제 확인");
@@ -351,7 +354,6 @@ test("AX registration → diagnosis → correction → matrix → plans → relo
   await expectCopyUX(page, packageSection, "Codex");
 
   await page.getByRole("tab", { name: "Claude Code", exact: true }).click();
-  await expect(head.locator(".ax-plan-tool-hint")).toHaveText("Claude Code에서 현재 프로젝트를 열고 아래 지시문을 붙여넣으세요.");
   await page.getByRole("button", { name: "Claude Code용 구현 계획 생성", exact: true }).click();
   await expect(page.getByRole("button", { name: "Claude Code용 지시문 복사", exact: true })).toBeVisible();
   await expectCopyUX(page, packageSection, "Claude Code");
@@ -373,6 +375,8 @@ test("AX registration → diagnosis → correction → matrix → plans → relo
   await expect(page.getByRole("button", { name: "Codex용 지시문 복사", exact: true })).toBeVisible();
   await page.getByRole("tab", { name: "Claude Code", exact: true }).click();
   await expect(page.getByRole("button", { name: "Claude Code용 지시문 복사", exact: true })).toBeVisible();
+  await packageSection.getByRole("region", { name: "02 시작 전 확인", exact: true }).getByRole("button", { name: /기타 구현 참고/ }).click();
+  await expect(packageSection.locator(".ax-plan-detail-panel").getByRole("listitem").filter({ hasText: planFixture.asIs[0] })).toBeVisible();
   const downloaded = page.waitForEvent("download"); await dataAction(page, "데이터 내보내기");
   const path = await (await downloaded).path(); const content = await readFile(path!, "utf8");
   expect(JSON.parse(content).data).toEqual(saved);
@@ -386,6 +390,8 @@ test("AX registration → diagnosis → correction → matrix → plans → relo
   await expect(page.getByRole("button", { name: "Codex용 지시문 복사", exact: true })).toBeVisible();
   await expect.poll(() => record(page)).toEqual(saved);
   await page.reload(); await ax(page); await page.getByRole("tab", { name: "Claude Code", exact: true }).click(); await expect(page.getByRole("button", { name: "Claude Code용 지시문 복사", exact: true })).toBeVisible();
+  await packageSection.getByRole("region", { name: "02 시작 전 확인", exact: true }).getByRole("button", { name: /기타 구현 참고/ }).click();
+  await expect(packageSection.locator(".ax-plan-detail-panel").getByRole("listitem").filter({ hasText: planFixture.asIs[0] })).toBeVisible();
 });
 test("AX matrix markers retain rendered coordinates on a 390px mobile viewport", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });

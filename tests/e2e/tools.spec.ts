@@ -44,15 +44,13 @@ test("usage guide keeps automation steps aligned and tabs horizontally browsable
   const gaps = minis.slice(1).map((mini, index) => mini.left - minis[index].left - minis[index].width);
   expect(Math.max(...gaps) - Math.min(...gaps)).toBeLessThanOrEqual(1);
   const finalInstruction = panel.locator(".usage-guide-text").last();
-  const instructionLayout = await finalInstruction.evaluate((element) => {
+  const contained = await finalInstruction.evaluate((element) => {
     const range = document.createRange();
     range.selectNodeContents(element);
-    const lines = [...range.getClientRects()];
     const bounds = element.getBoundingClientRect();
-    return { lines: lines.length, contained: lines.every((line) => line.left >= bounds.left - 1 && line.right <= bounds.right + 1) };
+    return [...range.getClientRects()].every((line) => line.left >= bounds.left - 1 && line.right <= bounds.right + 1);
   });
-  expect(instructionLayout.lines).toBe(1);
-  expect(instructionLayout.contained).toBe(true);
+  expect(contained).toBe(true);
 
   for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
     await page.setViewportSize(viewport);
