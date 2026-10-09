@@ -178,7 +178,7 @@ function AxSetupGuide({ tool }: { tool: AxToolId }) {
   const title = (value: string) => value.replace(/^STEP \d+ · /, "");
   function goToStep(index: number) {
     const heading = root.current?.querySelector<HTMLElement>(`[data-setup-step="${index + 1}"] > h4`);
-    heading?.scrollIntoView({ block: "start" });
+    heading?.scrollIntoView({ behavior: "instant", block: "start" });
     heading?.focus({ preventScroll: true });
   }
   return <div className="ax-setup-tutorial" ref={root}>

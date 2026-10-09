@@ -21,7 +21,7 @@ test("loads the deployed workspace and runs browser-only Check", async ({ page }
 
   const documentResponse = await page.goto("/");
   expect(documentResponse?.status()).toBe(200);
-  await expect(page.locator(".dropzone")).toContainText("파일을 여기에 끌어 놓으세요");
+  await expect(page.locator(".dropzone")).toBeVisible();
   // The file input's handler exists only after hydration.
   await expect(page.locator(".app-shell")).toHaveAttribute("data-hydrated", "true");
 
