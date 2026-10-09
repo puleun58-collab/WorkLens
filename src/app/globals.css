@@ -8619,9 +8619,9 @@ div.status-panel.error > strong { font-size: 14px; line-height: 1.5; }
 .workspace-search { width: 360px; max-width: 100%; min-width: 0; }
 .workspace-search-trigger, .workspace-search-close { display: none; }
 .workspace-search-field { position: relative; min-width: 0; }
-.workspace-search-input { background: var(--paper); border-color: var(--line-soft); box-shadow: none; }
+.workspace-search-input { --control-surface: color-mix(in srgb, var(--paper) 65%, transparent); background: var(--control-surface); border-color: rgb(148 163 184 / .28); backdrop-filter: blur(8px); box-shadow: none; }
 .workspace-search-input::before { box-shadow: none; }
-.workspace-search-input:has(input:focus-visible) { border-color: var(--primary); }
+.workspace-search-input:has(input:focus) { --control-surface: color-mix(in srgb, var(--paper) 95%, transparent); border-color: var(--primary); }
 .workspace-search-input input { padding-right: 72px; }
 .workspace-search-shortcut { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); pointer-events: none; }
 .workspace-search-results { width: var(--anchor-width); background: var(--paper); border-color: var(--line-soft); box-shadow: 0 4px 12px rgb(15 23 42 / .06); }
