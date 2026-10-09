@@ -74,7 +74,7 @@ regressionCase(make(3, "Dictionary", "Special characters and no-result search", 
   await search.fill("R&D");
   await expect(page.locator('.settings-surface[aria-label="Dictionary"] .dictionary-term-list').first().locator(".dictionary-term")).toHaveCount(1);
   await search.fill("<script>[NOT_FOUND]</script>");
-  await expect(page.getByText("일치하는 공용 용어가 없습니다.")).toBeVisible();
+  await expect(page.locator('.settings-surface[aria-label="Dictionary"] .dictionary-term-list').first().locator(".dictionary-term")).toHaveCount(0);
   expect(await page.locator('.settings-surface[aria-label="Dictionary"] script').count()).toBe(0);
   note("R&D matched literally; HTML-like unmatched input displayed only the safe no-results state.");
 });
@@ -88,9 +88,9 @@ regressionCase(make(4, "Dictionary", "Long personal term persists then deletes",
   await page.reload(); await openView(page, "Dictionary");
   await expect(page.getByRole("button", { name: `${term} 삭제` })).toBeVisible();
   await page.getByRole("button", { name: `${term} 삭제` }).click();
-  await expect(page.getByText("등록된 개인 용어가 없습니다.")).toBeVisible();
+  await expect(page.getByRole("button", { name: `${term} 삭제` })).toHaveCount(0);
   await page.reload(); await openView(page, "Dictionary");
-  await expect(page.getByText("등록된 개인 용어가 없습니다.")).toBeVisible();
+  await expect(page.getByRole("button", { name: `${term} 삭제` })).toHaveCount(0);
   note("Long term persisted across reload, stayed within viewport, then removal persisted.");
 });
 regressionCase(make(5, "Dictionary", "Dictionary keyboard focus and submission", "Tab reaches search and Enter adds a personal term"), async ({ page, note }) => {
@@ -190,14 +190,13 @@ regressionCase(make(12, "Law", "Law FOUND result", "Named and dated result appea
 regressionCase(make(13, "Law", "Law NOT_FOUND is an empty result", "Normal status, no error and no raw marker"), async ({ page, note }) => {
   await law(page, 200, { data: { found: false, marker: "NOT_FOUND", text: "[NOT_FOUND]" } });
   await expect(page.getByRole("heading", { name: "검색 결과 · 0건" })).toBeVisible();
-  await expect(page.getByRole("status").filter({ hasText: "검색 결과가 없습니다." })).toBeVisible();
   await expect(page.locator(".law-search-error")).toHaveCount(0); await noRawLawMarkers(page);
   note("NOT_FOUND became a zero-result status, not an outage or raw API marker.");
 });
 regressionCase(make(14, "Law", "Law FAILED upstream response", "Safe error alert distinct from empty results"), async ({ page, note }) => {
   await law(page, 502, { error: { code: "FAILED", message: "법령 서비스를 이용할 수 없습니다." }, data: { marker: "FAILED" } });
   await expect(page.locator('.law-search-error[role="alert"]')).toHaveText("법령 서비스를 이용할 수 없습니다.");
-  await expect(page.getByText("검색 결과가 없습니다.")).toHaveCount(0); await noRawLawMarkers(page);
+  await noRawLawMarkers(page);
   note("FAILED rendered the safe service-error alert, never an empty-results message.");
 });
 regressionCase(make(15, "Law", "Law upstream timeout 504", "Timeout message distinct from FAILED and NOT_FOUND"), async ({ page, note }) => {

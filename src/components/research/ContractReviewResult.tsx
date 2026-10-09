@@ -171,7 +171,7 @@ export function ContractReviewResult({ review, file, expandSources = false, onEx
           ? <><Button variant="outline" size="sm" type="button" className="contract-review-evidence-button" aria-controls={anchor} onClick={() => focusBlock(anchor, "h4", true)}>근거 보기</Button>
             <span className="contract-review-meta">{parts.join(" · ")}</span></>
           : unverified
-            ? <><Badge variant="warning" className="contract-review-unverified">근거 미확인</Badge><span className="contract-review-meta">직접 근거 확인이 완료되지 않았습니다.</span></>
+            ? <><Badge variant="warning" className="contract-review-unverified">근거 미확인</Badge><span className="contract-review-meta">직접 근거 확인 미완료</span></>
             : <span className="contract-review-meta">확인된 직접 근거 없음</span>}
       </div>
       <details className="law-detail-source contract-review-source">
@@ -222,9 +222,9 @@ export function ContractReviewResult({ review, file, expandSources = false, onEx
       <span className="research-eyebrow">문서 검토</span>
       <h3 className="legal-analysis-title" data-status={status}>{issues.length ? STATUS_TITLE[status] : partial ? "검토한 범위에서 쟁점을 찾지 못했습니다" : "검토할 쟁점을 찾지 못했습니다"}</h3>
       {file && <p className="research-meta contract-review-file">검토 문서: {file.document.name}</p>}
-      {partial && <p className="research-caution">문서의 일부만 검토했습니다. 결과는 검토한 범위 기준입니다.</p>}
-      {lookupIncomplete && <p className="research-caution contract-review-lookup"><strong>관련 근거 일부 미확인</strong> 일부 법령·판례 출처 조회가 완료되지 않아 추가 확인이 필요합니다.</p>}
-      {file && document.type === "unknown" && <p className="research-caution">현재 문서에서 법령 문서 검토에 필요한 계약·규정 성격을 충분히 확인하지 못했습니다.</p>}
+      {partial && <p className="research-caution">문서의 일부만 검토했습니다. 결과는 검토한 범위 기준입니다</p>}
+      {lookupIncomplete && <p className="research-caution contract-review-lookup"><strong>관련 근거 일부 미확인</strong> 일부 법령·판례 출처 조회가 완료되지 않아 추가 확인이 필요합니다</p>}
+      {file && document.type === "unknown" && <p className="research-caution">현재 문서에서 법령 문서 검토에 필요한 계약·규정 성격을 충분히 확인하지 못했습니다</p>}
       <p className="research-meta contract-review-disclaimer">{issues.length
         ? "※ 검토 참고용이며 최종 법률 판단을 대신하지 않습니다."
         : "※ 쟁점을 찾지 못했다는 것이 법적 위험이 없다는 뜻은 아닙니다."}</p>
@@ -263,7 +263,7 @@ export function ContractReviewResult({ review, file, expandSources = false, onEx
     </nav>}
     <section className="legal-analysis-section contract-review-results">
       <h3>조항별 검토 결과</h3>
-      {review.clauses.length === 0 && <p className="law-search-note">검토할 쟁점을 찾지 못했습니다.</p>}
+      {review.clauses.length === 0 && <p className="law-search-note">검토할 쟁점을 찾지 못했습니다</p>}
       {review.clauses.map((clause, index) => {
         const top = SEVERITY_ORDER.find((severity) => clause.issues.some((issue) => issue.severity === severity));
         const several = clause.issues.length > 1;

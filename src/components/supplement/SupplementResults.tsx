@@ -92,7 +92,7 @@ export function SupplementResults({ result, fileNames, renderSource }: {
                       <small>{[SUPPLEMENT_FILE_ROLE_LABELS[file.role], SUPPLEMENT_DOC_TYPE_LABELS[file.docType], file.period].filter(Boolean).join(" · ")}</small>
                     </li>
                   ))}
-                  {result.files.every((file) => file.role !== "report") ? <li><small>핵심 보고자료를 확정하지 못했습니다. 다른 자료에만 있는 내용은 보고자료 보완으로 분류하지 않았습니다.</small></li> : null}
+                  {result.files.every((file) => file.role !== "report") ? <li><small>핵심 보고자료를 확정하지 못했습니다. 다른 자료에만 있는 내용은 보고자료 보완으로 분류하지 않았습니다</small></li> : null}
                 </ul>
               )
               : SUPPLEMENT_DOC_TYPE_LABELS[result.files[0]?.docType ?? "general"]}</dd>
@@ -137,11 +137,11 @@ export function SupplementResults({ result, fileNames, renderSource }: {
           <p className="supplement-note">
             {result.resolvedCount > 0 ? `같은 자료의 다른 위치에서 설명을 확인한 후보 ${result.resolvedCount}건` : ""}
             {result.resolvedCount > 0 && result.confirmedCount > 0 ? ", " : ""}
-            {result.confirmedCount > 0 ? `다른 자료에서 확인한 후보 ${result.confirmedCount}건` : ""}은 결과에서 제외했습니다.
+            {result.confirmedCount > 0 ? `다른 자료에서 확인한 후보 ${result.confirmedCount}건` : ""}은 결과에서 제외
           </p>
         ) : null}
         {result.semanticReview === "partial" ? (
-          <p className="supplement-note">일부 항목은 의미 기반 재확인을 마치지 못했습니다. 다른 표현으로 설명된 내용이 있을 수 있습니다.</p>
+          <p className="supplement-note">일부 항목은 의미 기반 재확인을 마치지 못했습니다. 다른 표현으로 설명된 내용이 있을 수 있습니다</p>
         ) : null}
       </section>
 
@@ -155,12 +155,12 @@ export function SupplementResults({ result, fileNames, renderSource }: {
       {result.findings.length === 0 ? (
         <div className="status-panel info notice supplement-clear" role="status">
           <span className="status-panel-icon" aria-hidden="true"><Info size={18} fill="currentColor" stroke="white" strokeWidth={2.2} /></span>
-          <strong>{result.semanticReview === "partial" ? "보완 검토 일부를 완료하지 못했습니다." : result.withheldCount > 0 ? "일부 항목은 보완 필요 여부를 판단하지 못했습니다." : "중요한 보완 항목을 확인하지 못했습니다."}</strong>
-          <p>{result.semanticReview === "partial" ? "재확인하지 못한 항목이 있어 정상 0건으로 판단할 수 없습니다." : result.withheldCount > 0 ? "확인을 보류한 항목이 있어 보완 항목 0건으로 확정할 수 없습니다." : !complete
-            ? "읽은 범위에서는 추가할 항목을 찾지 못했습니다. 읽지 못한 영역은 판단에서 제외했습니다."
+          <strong>{result.semanticReview === "partial" ? "보완 검토 일부 미완료" : result.withheldCount > 0 ? "일부 항목의 보완 필요 여부 미확인" : "중요한 보완 항목 미확인"}</strong>
+          <p>{result.semanticReview === "partial" ? "재확인하지 못한 항목이 있어 정상 0건으로 판단할 수 없습니다" : result.withheldCount > 0 ? "확인을 보류한 항목이 있어 보완 항목 0건으로 확정할 수 없습니다" : !complete
+            ? "읽은 범위에서는 추가할 항목을 찾지 못했습니다. 읽지 못한 영역은 판단에서 제외했습니다"
             : partialByDesign
-              ? "상세 분석한 시트에서는 추가할 항목을 찾지 못했습니다. 구조만 확인한 시트는 판단에서 제외했습니다."
-              : "비교 기준, 원인, 영향, 대응, 담당, 일정, 결론 근거를 점검한 범위에서 추가할 항목을 찾지 못했습니다."}</p>
+              ? "상세 분석한 시트에서는 추가할 항목을 찾지 못했습니다. 구조만 확인한 시트는 판단에서 제외했습니다"
+              : "비교 기준, 원인, 영향, 대응, 담당, 일정, 결론 근거를 점검한 범위에서 추가할 항목을 찾지 못했습니다"}</p>
         </div>
       ) : (
         <>
@@ -172,7 +172,7 @@ export function SupplementResults({ result, fileNames, renderSource }: {
                 {multipleFiles ? (
                   <header className="supplement-scope">
                     <h3>{scope === "report" ? "보고자료 보완" : "전체 자료 보완"}</h3>
-                    <p>{scope === "report" ? "다른 자료에는 있지만 핵심 보고자료에서는 확인하기 어려운 내용입니다." : "업로드한 자료 전체를 확인해도 찾지 못했거나 자료 간 설명이 다른 내용입니다."}</p>
+                    <p>{scope === "report" ? "다른 자료에는 있지만 핵심 보고자료에서 확인하기 어려운 내용" : "전체 자료에서 찾지 못했거나 자료 간 설명이 다른 내용"}</p>
                   </header>
                 ) : null}
                 {items.map((finding) => {
@@ -215,7 +215,7 @@ export function SupplementResults({ result, fileNames, renderSource }: {
           })}
           {visible.length === 0 ? (
             <div className="filter-empty">
-              <strong>이 중요도의 보완 항목이 없습니다.</strong>
+              <strong>이 중요도의 보완 항목 없음</strong>
               <Button variant="outline" type="button" onClick={() => setFilter("all")}>전체 보기</Button>
             </div>
           ) : null}

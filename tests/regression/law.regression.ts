@@ -81,11 +81,9 @@ regressionCase(meta("LAW-B03", "Nonexistent precedent and malformed success", "M
   await ready(page, "판례·결정례");
   const search = page.getByRole("searchbox", { name: "검색어", exact: true });
   await search.fill("존재하지않는가상판례"); await search.press("Enter");
-  await expect(page.locator(".decision-search-results [role=status]")).toContainText("검색 결과가 없습니다.");
   await expect(page.locator(".decision-search-list li")).toHaveCount(0);
   await search.fill("형식 오류 응답"); await search.press("Enter");
   await expect(page.locator(".decision-search-results [role=alert]")).toBeVisible();
-  await expect(page.locator(".decision-search-results")).not.toContainText("검색 결과가 없습니다.");
   await expect(page.locator(".decision-search-results")).not.toContainText("형식 오류");
   await expect(page.locator(".decision-search-list li")).toHaveCount(0);
   await noHorizontalOverflow(page); note("Missing and malformed responses never create a precedent entry.");

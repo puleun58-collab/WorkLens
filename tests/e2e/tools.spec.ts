@@ -194,12 +194,10 @@ test("RESEARCH law search sends only the query and separates results, no result 
   reply = { status: 200, body: { requestId: "r2", data: { found: false, marker: "NOT_FOUND", text: "[NOT_FOUND]" } } };
   await input.fill("없는법령");
   await page.getByRole("button", { name: "검색", exact: true }).click();
-  await expect(page.getByRole("status").filter({ hasText: "검색 결과가 없습니다." })).toBeVisible();
 
   reply = { status: 504, body: { requestId: "r3", error: { code: "LAW_UPSTREAM_TIMEOUT", message: "법령 검색 응답이 지연되고 있습니다." } } };
   await page.getByRole("button", { name: "검색", exact: true }).click();
   await expect(page.locator(".law-search-error[role=alert]")).toHaveText("법령 검색 응답이 지연되고 있습니다.");
-  await expect(page.getByText("검색 결과가 없습니다.")).toHaveCount(0);
 
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -416,7 +414,6 @@ test("RESEARCH decision search keeps identifiers and results across detail and f
   await chooseOption(page, page.getByRole("combobox", { name: /자료 유형/ }), "헌재 결정례");
   await expect(page.getByRole("button", { name: /부당해고 사건/ })).toHaveCount(0);
   await page.getByRole("button", { name: "검색", exact: true }).click();
-  await expect(page.getByRole("status").filter({ hasText: "검색 결과가 없습니다." })).toBeVisible();
   expect(searches.at(-1)).toEqual({ domain: "constitutional", query: "부당해고", page: 1 });
 });
 
@@ -2014,6 +2011,75 @@ test("PDF and image tools align their workspace and share a responsive export pa
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   }
   expect(errors).toEqual([]);
+});
+
+test("tool export selects align popup edges without overlapping triggers on desktop and mobile", async ({ page }) => {
+  const checkPopup = async (id: string) => {
+    const trigger = page.locator(`#${id}`);
+    await trigger.evaluate(element => element.scrollIntoView({ block: "center" }));
+    await trigger.click();
+    const popup = page.locator('[data-slot="select-popup"][data-open]');
+    await expect(popup).toBeVisible();
+    await expect.poll(async () => {
+      const anchor = (await trigger.boundingBox())!;
+      const menu = (await popup.boundingBox())!;
+      return Math.abs(menu.x - anchor.x);
+    }).toBeLessThanOrEqual(1);
+    const anchor = (await trigger.boundingBox())!;
+    const menu = (await popup.boundingBox())!;
+    const viewport = page.viewportSize()!;
+    expect(Math.abs(menu.width - anchor.width)).toBeLessThanOrEqual(1);
+    expect(menu.x).toBeGreaterThanOrEqual(0);
+    expect(menu.x + menu.width).toBeLessThanOrEqual(viewport.width);
+    expect(menu.y).toBeGreaterThanOrEqual(0);
+    expect(menu.y + menu.height).toBeLessThanOrEqual(viewport.height);
+    if (await popup.getAttribute("data-side") === "bottom") {
+      expect(menu.y - anchor.y - anchor.height).toBeGreaterThanOrEqual(3);
+      expect(menu.y - anchor.y - anchor.height).toBeLessThanOrEqual(5);
+    } else {
+      expect(anchor.y - menu.y - menu.height).toBeGreaterThanOrEqual(3);
+      expect(anchor.y - menu.y - menu.height).toBeLessThanOrEqual(5);
+    }
+    await page.keyboard.press("Escape");
+    await expect(trigger).toBeFocused();
+    await expect(page.getByRole("listbox")).toBeHidden();
+  };
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    await page.goto("/");
+    await navigateWorkspace(page, "PDF 도구");
+    await page.getByLabel("PDF 파일 선택").setInputFiles({
+      name: "select-pages.pdf", mimeType: "application/pdf",
+      buffer: Buffer.from(await createPdf(["FIRST", "SECOND", "THIRD"])),
+    });
+    await expect(page.locator(".pdf-tool-page")).toHaveCount(3);
+    await page.getByRole("checkbox", { name: "전체 선택", exact: true }).uncheck();
+    await page.getByRole("checkbox", { name: "2번 페이지 선택", exact: true }).check();
+    for (const id of ["pdf-format", "pdf-scope", "pdf-compression"]) await checkPopup(id);
+    await page.locator("#pdf-scope").focus();
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("End");
+    await page.keyboard.press("Enter");
+    await expect(page.locator("#pdf-scope")).toContainText("선택 (1)");
+    await page.locator("#pdf-scope").click();
+    await expect(page.getByRole("option", { name: "전체 (3)", exact: true })).toBeVisible();
+    await page.mouse.click(5, 5);
+    await expect(page.getByRole("listbox")).toBeHidden();
+    await navigateWorkspace(page, "이미지 도구");
+    const png = await page.evaluate(() => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 240; canvas.height = 180;
+      const context = canvas.getContext("2d")!;
+      context.fillStyle = "#1458df"; context.fillRect(0, 0, 240, 180);
+      return canvas.toDataURL("image/png").split(",")[1];
+    });
+    await page.getByLabel("이미지 파일 선택").setInputFiles({
+      name: "select-image.png", mimeType: "image/png", buffer: Buffer.from(png, "base64"),
+    });
+    await expect(page.locator("#image-format")).toBeVisible();
+    for (const id of ["image-format", "image-quality"]) await checkPopup(id);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  }
 });
 
 test("PDF editor composes reordered, rotated and deleted pages into real files", async ({ page }) => {

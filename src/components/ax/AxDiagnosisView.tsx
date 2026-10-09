@@ -166,7 +166,7 @@ export function AxDiagnosisView() {
       const plan = await planAx({ kind: "ax-plan", target, task: { name: task.name, description: task.description, details: taskDetails(task) }, diagnosis: confirmed });
       if (!alive.current) return;
       patchTask(task.id, { diagnosis: { ...task.diagnosis, [target === "codex" ? "planCodex" : "planClaude"]: plan } });
-      setMessage("구현 계획을 생성했습니다.");
+      setMessage("구현 계획 생성 완료");
     } catch (error) { if (alive.current) setMessage(`계획 생성 실패 · ${aiFailureDetail(error)}`); }
     finally { activeAi.current = false; activeRun.current = false; if (alive.current) setBusy(null); }
   }
@@ -253,8 +253,8 @@ export function AxDiagnosisView() {
       <TabsPanel value="1">
         <div className="ax-step1-grid">
           <form className="ax-surface ax-register ax-area-form" onSubmit={register}><h2>{editingId ? "등록 정보 수정" : "업무 등록"}</h2>
-            <div className="ax-field"><label className="ax-field">업무명<Input type="text" value={name} maxLength={AX_LIMITS.name} onChange={e => setName(e.target.value)} disabled={!!busy} aria-describedby={nameHelpId} /></label><small id={nameHelpId}>비워두면 업무 설명을 기준으로 자동 생성됩니다.</small></div>
-            <label className="ax-field"><span className="ax-required-label">업무 설명</span><Textarea value={description} required maxLength={AX_LIMITS.description} onChange={e => setDescription(e.target.value)} disabled={!!busy} placeholder="어떤 업무를 반복하고 있으며, 어떤 자료를 받아 어떤 결과를 만드는지 설명해주세요." rows={5} /></label>
+            <div className="ax-field"><label className="ax-field">업무명<Input type="text" value={name} maxLength={AX_LIMITS.name} onChange={e => setName(e.target.value)} disabled={!!busy} aria-describedby={nameHelpId} /></label><small id={nameHelpId}>비워두면 업무 설명을 기준으로 자동 생성</small></div>
+            <label className="ax-field"><span className="ax-required-label">업무 설명</span><Textarea value={description} required maxLength={AX_LIMITS.description} onChange={e => setDescription(e.target.value)} disabled={!!busy} placeholder="반복 업무·입력 자료·결과물 설명" rows={5} /></label>
             <div className="ax-register-files">
               <AxAttachmentInput disabled={!!busy} onSelect={file => void attach(file)} />
               {draftAttachment ? <div className="ax-file-row"><FileText className="size-4" aria-hidden="true" /><span className="ax-file-name">{draftAttachment.meta.name}</span><span className="ax-file-status">준비됨</span><Button type="button" variant="ghost" size="icon-xs" aria-label="첨부 취소" onClick={() => setDraftAttachment(null)} disabled={!!busy}><X aria-hidden="true" /></Button></div> : null}
@@ -269,7 +269,7 @@ export function AxDiagnosisView() {
         </div>
       </TabsPanel>
       <TabsPanel value="2">
-        {!state.tasks.length ? <p className="ax-empty ax-muted">먼저 업무를 등록해주세요.</p> : <div className="ax-step2-grid">
+        {!state.tasks.length ? <p className="ax-empty ax-muted">진단할 업무를 먼저 등록하세요</p> : <div className="ax-step2-grid">
           <section className="ax-surface" aria-label="등록 업무 목록"><h3>업무 목록</h3>{taskRows(false)}</section>
           <div className="ax-detail-col">{selected ? <>
             <section className="ax-surface"><div className="ax-section-heading"><div className="ax-title-group"><h2>{selected.name}</h2><Badge className="ax-status-badge">{STATUS[selected.status]}</Badge></div><Button type="button" variant="outline" size="sm" className="ax-edit-button" onClick={() => editTask(selected)} disabled={!!busy}>등록 정보 수정</Button></div><p>{selected.description}</p>
@@ -285,14 +285,14 @@ export function AxDiagnosisView() {
                 </div>; })}
               </section>
               <div className="ax-step2-sub-grid"><section className="ax-surface"><h3>진단 요약</h3><Badge variant={selected.diagnosis.informationSufficiency === "sufficient" ? "success" : "warning"}>{SUFFICIENCY[selected.diagnosis.informationSufficiency]}</Badge><p className="ax-muted">{selected.diagnosis.sourceNote}</p><p className="ax-summary-level">자동화 수준 <strong>{automationLevel(selected.diagnosis).label.replace(/^L\d+ /, "")} · Level {automationLevel(selected.diagnosis).level}</strong></p><AxAxisBars diagnosis={selected.diagnosis} /></section><section className="ax-surface"><h3>진단 항목 분포</h3><AxRadar diagnosis={selected.diagnosis} /></section></div>
-              {selected.diagnosis.followUpQuestions.length ? <section className="ax-surface ax-questions"><h3>추가 확인이 필요합니다</h3>{selected.diagnosis.followUpQuestions.map((q, i) => <label className="ax-field" key={i}>{q}<Textarea rows={2} maxLength={500} disabled={!!busy} value={answers[selected.id]?.[i] ?? ""} onChange={e => setAnswers(current => { const values = [...(current[selected.id] ?? [])]; values[i] = e.target.value; return { ...current, [selected.id]: values }; })} /></label>)}<Button type="button" className="ax-rediagnose" disabled={!!busy} onClick={() => void diagnose(selected, true)}>답변 반영 후 재진단</Button></section> : null}
+              {selected.diagnosis.followUpQuestions.length ? <section className="ax-surface ax-questions"><h3>추가 확인 필요</h3>{selected.diagnosis.followUpQuestions.map((q, i) => <label className="ax-field" key={i}>{q}<Textarea rows={2} maxLength={500} disabled={!!busy} value={answers[selected.id]?.[i] ?? ""} onChange={e => setAnswers(current => { const values = [...(current[selected.id] ?? [])]; values[i] = e.target.value; return { ...current, [selected.id]: values }; })} /></label>)}<Button type="button" className="ax-rediagnose" disabled={!!busy} onClick={() => void diagnose(selected, true)}>답변 반영 후 재진단</Button></section> : null}
               <AxProcess diagnosis={selected.diagnosis} />
             </> : null}
           </> : null}</div>
         </div>}
       </TabsPanel>
       <TabsPanel value="3">
-        {!ranked.length ? <><div className="ax-matrix-header">{matrixStatus}</div><p className="ax-empty ax-muted">진단이 완료된 업무가 없습니다.</p></> : <div className="ax-step3-grid">
+        {!ranked.length ? <><div className="ax-matrix-header">{matrixStatus}</div><p className="ax-empty ax-muted">진단 완료 업무 없음</p></> : <div className="ax-step3-grid">
           <section className="ax-surface" aria-label="매트릭스 업무 목록"><h3>업무 목록</h3>{taskRows(false)}</section>
           <div className="ax-step3-main"><section className="ax-surface ax-matrix-surface"><div className="ax-matrix-header"><h2>자동화 매트릭스</h2>{matrixStatus}</div><AxMatrix rows={ranked} selectedId={selected?.id} onSelect={select} step={state.step} /></section>
             <section className="ax-surface"><h3>자동화 우선순위</h3>{priorityRows()}</section>
@@ -301,15 +301,15 @@ export function AxDiagnosisView() {
         </div>}
       </TabsPanel>
       <TabsPanel value="4">
-        {!ranked.length ? <p className="ax-empty ax-muted">완료된 진단 결과가 없습니다.</p> : <>
+        {!ranked.length ? <p className="ax-empty ax-muted">완료된 진단 결과 없음</p> : <>
           <AxKpiCards tasks={state.tasks} />
           <div className="ax-step4-grid"><div className="ax-step4-left">
             <section className="ax-surface"><h3>{priorityHeading(ranked.map(r => executionProfile(r.task.diagnosis)))}</h3>{priorityRows(true)}{ranked.length > 3 ? <Accordion className="ax-all-tasks"><AccordionItem value="all-tasks"><AccordionTrigger>전체 업무 보기</AccordionTrigger><AccordionPanel><div className="ax-all-task-list">{priorityRows(false, true)}</div></AccordionPanel></AccordionItem></Accordion> : null}</section>
             <section className="ax-surface"><h3>분류 현황</h3><div className="ax-region-tiles">{Object.entries(REGION_LABELS).map(([region, label]) => <div className="ax-region-tile" data-region={region} key={region}><span>{label}</span><strong>{ranked.filter(r => matrixPosition(r.task.diagnosis).region === region).length}개</strong></div>)}</div></section>
-          </div><section className="ax-roadmap-panel">{selected && selectedProfile ? <><h3>{selectedProfile.roadmapTitle}</h3><p className="ax-roadmap-task">{selected.name}</p><AxRoadmapPhases profile={selectedProfile} timeline /></> : <><h3>실행 로드맵</h3><p>우선순위에서 업무를 선택하면 실행 로드맵을 확인할 수 있습니다.</p></>}</section></div>
+          </div><section className="ax-roadmap-panel">{selected && selectedProfile ? <><h3>{selectedProfile.roadmapTitle}</h3><p className="ax-roadmap-task">{selected.name}</p><AxRoadmapPhases profile={selectedProfile} timeline /></> : <><h3>실행 로드맵</h3><p>우선순위에서 업무 선택 후 실행 로드맵 확인</p></>}</section></div>
           {selected?.diagnosis ? <div className="ax-detail-stack"><section className="ax-surface"><h2>{selected.name}</h2><p className="ax-muted">{selected.diagnosis.sourceNote}</p><AxSummary task={selected} showGate={false} /></section><AxRoadmap diagnosis={selected.diagnosis} roadmapSection={false} />
             <AxPlanSection key={selected.id} diagnosis={selected.diagnosis} taskName={selected.name} taskContext={[selected.description, ...Object.values(taskDetails(selected)).filter(value => value !== undefined).map(String)].join("\n")} busy={busy} onGenerate={target => void generatePlan(selected, target)} />
-          </div> : <p className="ax-muted">우선순위 목록에서 업무를 선택해 상세 결과를 확인하세요.</p>}
+          </div> : <p className="ax-muted">우선순위에서 업무 선택 후 상세 결과 확인</p>}
         </>}
       </TabsPanel>
     </Tabs>}

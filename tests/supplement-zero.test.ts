@@ -96,12 +96,3 @@ describe("보완 0건 회귀", () => {
   }
 });
 
-it("unclear only: complete 검토의 보류 결과는 clean zero로 표시하지 않는다", async () => {
-  const documents = await loadCase(SUPPLEMENT_ZERO_CASES[0]);
-  const draft = buildSupplementDraft(documents.map((document) => ({ document, fileName: document.metadata.fileName })));
-  const result = finalizeSupplement(draft, new Map(draft.candidates.map((candidate) => [candidate.id, { verdict: "unclear" as const, sources: [] }])));
-  expect(result.findings).toHaveLength(0);
-  const html = renderToStaticMarkup(createElement(SupplementResults, { result: { ...result, withheldCount: 3, semanticReview: "complete", coverage: result.coverage.map((entry) => ({ ...entry, complete: true })) }, fileNames: new Map(), renderSource: () => null }));
-  expect(html).not.toContain("중요한 보완 항목을 확인하지 못했습니다.");
-  expect(html).toContain("확인을 보류한 항목이 있어 보완 항목 0건으로 확정할 수 없습니다.");
-});

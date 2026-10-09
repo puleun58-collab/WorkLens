@@ -124,8 +124,8 @@ export function LegalAnalysis({ linkedRequest, onReturn, onRelatedSearch }: Lega
   }
 
   const ACTION_HELP: Partial<Record<typeof mode, string>> = {
-    cite_check: "후속 판례의 인용을 역추적해 변경·폐기 정황을 확인합니다.",
-    applicable_law: "기준일은 행위·계약·처분 등 판단하려는 시점입니다.",
+    cite_check: "후속 판례의 인용을 역추적해 변경·폐기 정황 확인",
+    applicable_law: "기준일: 행위·계약·처분 등 판단하려는 시점",
   };
 
   return <Tabs className="legal-analysis" value={mode} onValueChange={(value) => setMode(value as LawAnalysisMode)}>
@@ -142,7 +142,7 @@ export function LegalAnalysis({ linkedRequest, onReturn, onRelatedSearch }: Lega
         <Label htmlFor="analysis-text">검증할 문장을 입력하세요.</Label>
         <Textarea id="analysis-text" value={text} rows={6} maxLength={LAW_ANALYSIS_TEXT_MAX_CHARS} placeholder="예: 민법 제750조에 따라 손해배상을 청구할 수 있다." onChange={(event) => setText(event.target.value)} aria-describedby="analysis-text-help" />
         <p id="analysis-text-help" className="legal-analysis-help">
-          <span>법령 조문·판례 인용을 법제처 자료에서 확인합니다.</span>
+          <span>법령 조문·판례 인용을 법제처 자료에서 확인</span>
           <span className="legal-analysis-count">{text.length.toLocaleString("ko-KR")} / {LAW_ANALYSIS_TEXT_MAX_CHARS.toLocaleString("ko-KR")}자</span>
         </p>
       </>}
@@ -184,7 +184,7 @@ export function LegalAnalysis({ linkedRequest, onReturn, onRelatedSearch }: Lega
           <Button variant="link" type="button" className="h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" onClick={() => void run(current.request)}>다시 시도</Button>
         </div>
         : current.outcome?.kind === "missing" ? <div className="legal-analysis-missing" role="status" data-marker={current.outcome.data.marker}>
-          <p className="law-search-note">요청한 법령·조문·판례를 법제처 자료에서 찾지 못했습니다. 조회 실패와는 다른 결과입니다.</p>
+          <p className="law-search-note">요청한 법령·조문·판례를 법제처 자료에서 찾지 못했습니다. 조회 실패와는 다른 결과입니다</p>
         </div>
         : current.outcome?.kind === "found" && current.completedAt ? <AnalysisResult key={current.completedAt} data={current.outcome.data} request={current.request} completedAt={current.completedAt} onRelatedSearch={onRelatedSearch} />
         : null}
@@ -259,10 +259,10 @@ function AnalysisResult({ data, request, completedAt, onRelatedSearch }: { data:
     </>;
     source = <details className="law-detail-source">
       <SourceToggleSummary label="근거 보기" openLabel="근거 접기" />
-      <p className="law-search-note">대상 판례 정보와 후속 인용·본문 확인 결과입니다. 판결문 원문은 이 결과에 포함되지 않습니다.</p>
+      <p className="law-search-note">대상 판례 정보와 후속 인용·본문 확인 결과입니다. 판결문 원문은 포함되지 않습니다</p>
       <Lines lines={targetDetails} />
       {result.sections.length > 0 ? <Sections sections={result.sections} />
-        : <p className="law-search-note">제공된 후속 판례 목록이 없습니다.</p>}
+        : <p className="law-search-note">제공된 후속 판례 목록 없음</p>}
     </details>;
   } else if (data.mode === "impact_map") {
     const view = impactMapPresentation(data.text);
@@ -276,7 +276,7 @@ function AnalysisResult({ data, request, completedAt, onRelatedSearch }: { data:
       <Sections sections={[...sourceFailures, ...view.other]} />
       {view.axes.length > 0 && <div className="legal-analysis-section">
         <h3>인용 현황</h3>
-        <p className="law-search-note">이 조문을 인용한 판례·헌재 결정례·법령해석례·행정심판례와 이 법령을 언급한 자치법규를 확인합니다.</p>
+        <p className="law-search-note">이 조문을 인용한 판례·헌재 결정례·법령해석례·행정심판례와 이 법령을 언급한 자치법규 확인</p>
         <ul className="legal-analysis-axes">
           {view.axes.map((axis) => <li key={axis.label} className={axis.state === "failed" ? "is-failed" : undefined} data-state={axis.state}>
             <AxisLabel label={axis.label} />
@@ -286,7 +286,7 @@ function AnalysisResult({ data, request, completedAt, onRelatedSearch }: { data:
             </span>
           </li>)}
         </ul>
-        <p className="law-search-note">법제처 검색 결과에는 유사 조문이나 다른 법령이 함께 포함될 수 있어, 실제 법령명과 조문이 일치하는 결과만 집계합니다.</p>
+        <p className="law-search-note">법제처 검색 결과에는 유사 조문이나 다른 법령이 포함될 수 있어, 실제 법령명과 조문이 일치하는 결과만 집계</p>
         <Lines lines={view.notes} />
       </div>}
       {view.total && <div className="legal-analysis-section">
@@ -307,7 +307,7 @@ function AnalysisResult({ data, request, completedAt, onRelatedSearch }: { data:
       <SourceToggleSummary label="근거·원문 보기" openLabel="근거·원문 접기" />
       {sourceSections.length > 0
         ? <LawTextBlock className="legal-analysis-raw" text={sourceSections.map((section) => `${section.heading}\n${section.lines.join("\n")}`).join("\n\n")} />
-        : <p className="law-search-note">조회된 조문 원문이 이 결과에 포함되지 않습니다.</p>}
+        : <p className="law-search-note">조회된 조문 원문은 이 결과에 포함되지 않음</p>}
       {references.length > 0 && <Sections sections={references.map((axis) => ({ heading: `${axis.label} · 조회된 항목`, lines: axis.items }))} />}
     </details>;
   } else {

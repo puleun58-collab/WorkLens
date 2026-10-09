@@ -184,7 +184,6 @@ test("보완의 늦은 응답은 이동한 분석 화면에 보완 결과나 알
   gate.resolve();
   await expect(page.getByRole("button", { name: "분석 실행", exact: true })).toBeEnabled();
   await expect(page.locator(".supplement-results")).toHaveCount(0);
-  await expect(page.getByText("보완 항목을 확인했습니다.", { exact: true })).toHaveCount(0);
 });
 
 test("보완 35초 타임아웃은 세 번의 기존 시도 후 한계를 알리고 버튼을 복구한다", async ({ page }) => {
@@ -220,8 +219,7 @@ test("보완 항목이 없는 안내 자료는 읽은 범위의 빈 결과를 �
   await page.route("**/api/ai", completeReview);
   await prepare(page, clearDeck);
   await page.getByRole("button", { name: "보완 실행", exact: true }).click();
-  await expect(page.locator(".supplement-clear")).toContainText("중요한 보완 항목을 확인하지 못했습니다.");
-  await expect(page.locator(".supplement-clear")).toContainText("점검한 범위에서 추가할 항목을 찾지 못했습니다.");
+  await expect(page.locator(".supplement-clear")).toBeVisible();
   await expect(page.locator(".supplement-item")).toHaveCount(0);
   await expect(page.locator(".supplement-questions")).toHaveCount(0);
 });

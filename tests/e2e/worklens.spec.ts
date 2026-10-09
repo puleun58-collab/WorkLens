@@ -2705,7 +2705,6 @@ test("keeps file context and upload controls out of utility destinations", async
   await expect(page.getByRole("button", { name: "파일 추가" })).toHaveCount(0);
   await expect(page.getByText("회사 공통 용어입니다. 관리자만 수정할 수 있습니다.", { exact: false })).toBeVisible();
   await expect(page.getByLabel("공용 용어 검색")).toBeVisible();
-  await expect(page.getByText("등록된 개인 용어가 없습니다.")).toBeVisible();
 
   await navigateWorkspace(page, "Settings");
   await expect(page.getByRole("heading", { name: "설정", exact: true })).toBeVisible();

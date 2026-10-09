@@ -6,8 +6,8 @@ export type AxToolId = "codex" | "claude";
 export const TOOL_GUIDES: Record<AxToolId, {
   name: string; versionCommand: string; installCommand: string; runCommand: string; doctorCommand: string; loginNote: string;
 }> = {
-  codex: { name: "Codex", versionCommand: "codex --version", installCommand: "npm install -g @openai/codex@latest", runCommand: "codex", doctorCommand: "codex doctor", loginNote: "첫 실행 시 ChatGPT 계정으로 로그인합니다." },
-  claude: { name: "Claude Code", versionCommand: "claude --version", installCommand: "npm install -g @anthropic-ai/claude-code", runCommand: "claude", doctorCommand: "claude doctor", loginNote: "첫 실행 시 브라우저에서 로그인합니다." },
+  codex: { name: "Codex", versionCommand: "codex --version", installCommand: "npm install -g @openai/codex@latest", runCommand: "codex", doctorCommand: "codex doctor", loginNote: "첫 실행 시 ChatGPT 계정으로 로그인" },
+  claude: { name: "Claude Code", versionCommand: "claude --version", installCommand: "npm install -g @anthropic-ai/claude-code", runCommand: "claude", doctorCommand: "claude doctor", loginNote: "첫 실행 시 브라우저에서 로그인" },
 };
 
 /** Inline text marks commands with backticks; `code` blocks default to PowerShell unless labeled as examples. */
@@ -21,96 +21,96 @@ const code = (lines: string[], notes: string[], label?: Extract<AxGuideBlock, { 
 export function setupGuide(tool: AxToolId): AxGuideStep[] {
   const guide = TOOL_GUIDES[tool];
   return [
-    { title: "시작하기 전에 · 전체 흐름", purpose: `${guide.name}로 작업을 시작하기 전 준비부터 Production 확인까지의 전체 흐름을 살펴봅니다.`, sections: [
+    { title: "시작하기 전에 · 전체 흐름", purpose: `준비부터 Production 확인까지 ${guide.name} 작업 흐름`, sections: [
       { title: "처음 시작할 때", blocks: [
-        text(`STEP 01에서 Git·GitHub 인증과 ${guide.name} 설치 여부를 확인하고 필요한 것만 처음 한 번 준비합니다. 이미 설치되어 있으면 해당 설치는 건너뜁니다.`),
-        text("Codex와 Claude Code 중 하나만 사용하면 됩니다. 두 개 다 설치할 필요는 없습니다."),
+        text(`STEP 01에서 Git·GitHub 인증과 ${guide.name} 설치 여부를 확인하고 필요한 것만 처음 한 번 준비합니다. 이미 설치된 항목은 건너뜁니다.`),
+        text("Codex와 Claude Code 중 하나만 사용하면 됩니다"),
       ] },
       { title: "이후 작업할 때", blocks: [
-        text("이후 작업할 때는 STEP 02부터 프로젝트를 열고 진행합니다. 설치 단계를 매번 반복하지 않습니다."),
+        text("이후 작업은 STEP 02부터 시작합니다. 설치 단계는 반복하지 않습니다."),
       ] },
       { title: "용어 알아보기", collapsed: true, blocks: [{ kind: "steps", items: [
-        "저장소(Repository): 프로젝트 파일과 변경 기록을 모아 둔 곳입니다.",
-        "브랜치(Branch): 다른 작업과 나누어 변경을 진행하는 작업 갈래입니다.",
-        "커밋(Commit): 변경 내용을 설명과 함께 Git에 기록하는 단위입니다.",
-        "푸시(Push): PC의 커밋을 GitHub 같은 원격 저장소에 올리는 작업입니다.",
-        "CI: 코드를 올렸을 때 테스트·빌드 등을 자동으로 확인하는 과정입니다.",
-        "Preview: 실제 서비스 반영 전에 확인하는 배포 환경입니다.",
-        "Production: 사용자가 실제로 이용하는 서비스 환경입니다.",
-        "환경변수(Environment Variable): 코드 밖에서 설정하는 변수로 서비스 주소나 인증 값 등을 담습니다.",
-        "Secret: API Key나 비밀번호처럼 공개하면 안 되는 인증 정보입니다.",
-        ".gitignore: Git에 새로 포함하지 않을 파일·폴더 규칙을 적는 파일입니다.",
+        "저장소(Repository): 프로젝트 파일과 변경 기록을 모아 둔 곳",
+        "브랜치(Branch): 변경을 나누어 진행하는 작업 갈래",
+        "커밋(Commit): 변경을 설명과 함께 Git에 기록하는 단위",
+        "푸시(Push): PC의 커밋을 GitHub 같은 원격 저장소에 올리는 작업",
+        "CI: 코드를 올리면 테스트·빌드 등을 자동 확인하는 과정",
+        "Preview: 실제 서비스 반영 전 확인하는 배포 환경",
+        "Production: 사용자가 실제 이용하는 서비스 환경",
+        "환경변수(Environment Variable): 서비스 주소·인증 값 등을 코드 밖에 설정하는 변수",
+        "Secret: API Key·비밀번호처럼 공개하면 안 되는 인증 정보",
+        ".gitignore: Git에 새로 포함하지 않을 파일·폴더 규칙을 적는 파일",
       ] }] },
     ] },
-    { title: "STEP 1 · 처음 한 번 환경 준비", purpose: `설치 여부를 먼저 확인하고 필요한 프로그램과 ${guide.name}, Git 사용자 정보 및 GitHub 인증을 준비합니다.`, sections: [
+    { title: "STEP 1 · 처음 한 번 환경 준비", purpose: `설치 상태와 Git 사용자 정보·GitHub 인증 확인`, sections: [
       { title: "필요한 프로그램 확인", blocks: [
-        text("PowerShell을 열고 먼저 설치 여부를 확인합니다. 버전이 표시되는 프로그램은 이미 설치된 것이므로 해당 설치 단계를 건너뜁니다."),
-        text("Node.js는 프로젝트가 필요로 할 때만 준비합니다."),
+        text("PowerShell에서 버전을 확인합니다. 표시되는 프로그램은 이미 설치됐으므로 설치를 건너뜁니다."),
+        text("Node.js는 프로젝트에 필요한 경우에만 준비합니다"),
         code(["git --version", "node --version", "npm --version", guide.versionCommand], [
-          "Git 설치 여부와 버전을 확인합니다.",
-          "Node.js 설치 여부와 버전을 확인합니다.",
-          "npm 설치 여부와 버전을 확인합니다.",
-          `${guide.name} 설치 여부와 버전을 확인합니다.`,
+          "Git 버전 확인",
+          "Node.js 버전 확인",
+          "npm 버전 확인",
+          `${guide.name} 버전 확인`,
         ]),
       ] },
       { title: "Git 설치", when: "Git 버전이 표시되지 않는 경우에만", blocks: [
-        code(["winget install --id Git.Git -e --source winget"], ["Windows 패키지 관리자로 Git을 설치합니다."]),
+        code(["winget install --id Git.Git -e --source winget"], ["Windows 패키지 관리자로 Git 설치"]),
         text("설치 후 새 PowerShell을 열고 `git --version`으로 다시 확인합니다."),
       ] },
       { title: "Node.js 설치", when: "프로젝트에 Node.js가 필요하고 버전이 표시되지 않는 경우에만", blocks: [
         text("nodejs.org에서 LTS를 설치하고 `node --version`으로 다시 확인합니다. 프로젝트에 .nvmrc, .node-version 또는 package.json engines가 있으면 해당 요구사항을 우선합니다."),
       ] },
       { title: "Git 사용자 정보", when: "처음 한 번, 값이 비어 있을 때만", blocks: [
-        text("현재 값을 확인합니다."),
+        text("현재 값 확인"),
         code(["git config --global user.name", "git config --global user.email"], [
-          "커밋에 기록할 사용자 이름이 설정되어 있는지 확인합니다.",
-          "커밋에 기록할 이메일이 설정되어 있는지 확인합니다.",
+          "커밋에 기록할 사용자 이름 확인",
+          "커밋에 기록할 이메일 확인",
         ]),
         text("비어 있을 때만 설정합니다. 기존 값은 덮어쓰지 않습니다."),
         code(['git config --global user.name "이름"', 'git config --global user.email "메일주소"'], [
-          "이름을 본인 이름으로 바꾸어 설정합니다.",
-          "메일주소를 본인 이메일로 바꾸어 설정합니다.",
+          "이름을 본인 이름으로 바꾸어 설정",
+          "메일주소를 본인 이메일로 바꾸어 설정",
         ]),
       ] },
       { title: `${guide.name} 설치`, when: `\`${guide.versionCommand}\`이 실패하는 경우에만`, blocks: [
-        code([guide.installCommand], [`${guide.name}를 설치합니다.`]),
+        code([guide.installCommand], [`${guide.name} 설치`]),
         text(`설치 후 \`${guide.versionCommand}\`으로 다시 확인합니다. 문제가 있으면 \`${guide.doctorCommand}\`으로 점검합니다.`),
       ] },
       { title: "GitHub 인증 확인", when: "GitHub CLI(gh)가 설치된 경우에만", blocks: [
-        code(["gh auth status"], ["GitHub CLI의 로그인 상태를 확인합니다."]),
+        code(["gh auth status"], ["GitHub CLI 로그인 상태 확인"]),
         text("로그인되어 있지 않으면 `gh auth login`의 안내를 따릅니다. gh가 없으면 GitHub 웹사이트 로그인·토큰 등 프로젝트의 기존 인증 방식을 그대로 사용합니다. 인증 방식을 추측해 바꾸지 않습니다."),
       ] },
     ] },
-    { title: "STEP 2 · 프로젝트 준비", purpose: "프로젝트 상황에 맞게 폴더를 준비하고 기존 지침에 따라 의존성과 현재 Git 상태를 확인합니다.", sections: [
-      { title: "기본 명령", blocks: [text("`mkdir` 새 폴더 만들기 · `cd` 폴더 이동 · `dir` 폴더 내용 확인 · `Get-Location` 현재 위치 확인")] },
+    { title: "STEP 2 · 프로젝트 준비", purpose: "프로젝트 폴더·의존성·Git 상태 확인", sections: [
+      { title: "기본 명령", blocks: [text("`mkdir` 새 폴더 · `cd` 폴더 이동 · `dir` 폴더 내용 · `Get-Location` 현재 위치")] },
       { title: "A. GitHub에 있는 기존 프로젝트", when: "GitHub에는 프로젝트가 있지만 이 PC에는 아직 없는 경우", blocks: [
         code(["mkdir C:\\Work", "cd C:\\Work", "git clone <저장소 URL>", "cd <프로젝트 폴더>", "git status"], [
-          "작업용 폴더를 만듭니다. 이미 있으면 건너뜁니다.",
-          "작업용 폴더로 이동합니다.",
-          "<저장소 URL>을 실제 URL로 바꾸어 프로젝트를 내려받습니다.",
-          "<프로젝트 폴더>를 내려받은 폴더 이름으로 바꾸어 이동합니다.",
-          "현재 브랜치와 변경된 파일을 확인합니다.",
+          "작업용 폴더 만들기 (이미 있으면 건너뜀)",
+          "작업용 폴더로 이동",
+          "<저장소 URL>을 실제 URL로 바꾸어 프로젝트 내려받기",
+          "<프로젝트 폴더>를 내려받은 폴더 이름으로 바꾸어 이동",
+          "현재 브랜치와 변경 파일 확인",
         ]),
       ] },
       { title: "B. PC에 이미 있는 프로젝트", when: "이 PC에 기존 프로젝트 폴더가 있는 경우", blocks: [
         code(['cd "C:\\프로젝트\\경로"', "git status", "git branch --show-current", "git remote -v"], [
-          "실제 프로젝트 경로로 바꾸어 이동합니다.",
-          "현재 브랜치와 미커밋 변경을 먼저 확인합니다.",
-          "현재 작업 중인 브랜치 이름을 확인합니다.",
-          "연결된 원격 URL이 작업할 GitHub 저장소인지 확인합니다.",
+          "실제 프로젝트 경로로 바꾸어 이동",
+          "현재 브랜치와 미커밋 변경 확인",
+          "현재 브랜치 이름 확인",
+          "연결된 원격 URL이 작업할 GitHub 저장소인지 확인",
         ]),
         text("이미 Git 저장소면 그대로 사용합니다. 미커밋 변경이 있으면 `git pull`을 실행하지 말고 AI 도구에 현재 상태를 먼저 확인시킵니다."),
       ] },
       { title: "C. 새 프로젝트", when: "새 폴더에서 처음 시작하는 경우", blocks: [
         code(["mkdir C:\\Work\\MyProject", "cd C:\\Work\\MyProject"], [
-          "새 프로젝트 폴더를 만듭니다. 경로와 이름은 원하는 값으로 바꿉니다.",
-          "방금 만든 프로젝트 폴더로 이동합니다.",
+          "새 프로젝트 폴더 만들기 (경로·이름은 원하는 값으로 변경)",
+          "새 프로젝트 폴더로 이동",
         ]),
         text("이후 AI 도구가 요구사항을 확인해 프레임워크, Git 초기화와 GitHub 연결 필요성을 결정합니다. 특정 프레임워크를 임의로 정하지 않습니다."),
         text("작업 후 Git 저장 전에 현재 폴더가 Git 저장소인지, 원격이 연결됐는지, 맞는 GitHub 저장소인지 확인합니다."),
         code(["git status", "git remote -v"], [
-          "현재 폴더가 Git 저장소인지와 변경 상태를 확인합니다.",
-          "원격 연결 여부와 대상 GitHub 저장소 URL을 확인합니다.",
+          "Git 저장소 여부와 변경 상태 확인",
+          "원격 연결과 대상 GitHub 저장소 URL 확인",
         ]),
         text("Git 저장소가 아닌 경우에만 초기화할 수 있습니다. 기존 저장소를 재초기화하거나 기존 remote를 덮어쓰지 않고, branch 이름을 main으로 강제하지 않습니다."),
         text("remote가 없으면 GitHub CLI 또는 웹 등 현재 방식대로 GitHub 저장소를 만들고 연결합니다. 첫 push 전에 `git remote -v`로 대상을 다시 확인합니다."),
@@ -119,62 +119,62 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
         { kind: "steps", items: [
           "저장소 지침(AGENTS.md·README·packageManager 필드)을 먼저 확인합니다.",
           "package.json이 있으면 scripts와 의존성을 확인합니다.",
-          "lockfile 단서를 확인합니다: package-lock.json → npm, pnpm-lock.yaml → pnpm, yarn.lock → Yarn, bun.lock/bun.lockb → Bun일 가능성이 있습니다.",
-          "확인한 저장소의 기존 방식대로 의존성을 설치합니다. 설치 명령은 지침과 실제 설정을 따릅니다.",
+          "lockfile 단서 확인: package-lock.json → npm, pnpm-lock.yaml → pnpm, yarn.lock → Yarn, bun.lock/bun.lockb → Bun일 가능성",
+          "저장소 지침과 실제 설정에 맞는 기존 방식으로 의존성을 설치합니다.",
         ] },
         text("lockfile 단서 하나로 package manager를 바꾸지 않습니다. 기존 lockfile과 package manager를 우선하며, 설치 과정에서 다른 매니저의 lockfile을 새로 만들거나 기존 lockfile을 교체하지 않습니다. migration은 별도 작업입니다."),
       ] },
       { title: "현재 위치 확인", blocks: [
         code(["Get-Location", "git status"], [
-          "현재 PowerShell이 열려 있는 폴더를 확인합니다.",
-          "Git 저장소의 브랜치와 변경 상태를 확인합니다.",
+          "현재 PowerShell 위치 확인",
+          "Git 브랜치와 변경 상태 확인",
         ]),
         text("명령은 실제 프로젝트 폴더에서 실행합니다. 새 프로젝트에 Git 저장소가 아직 없으면 AI 도구와 초기화 필요성을 확인합니다."),
       ] },
     ] },
-    { title: `STEP 3 · ${guide.name} 실행`, purpose: `작업할 프로젝트 폴더에서 ${guide.name}를 실행하고 저장소 지침과 기존 구현을 먼저 확인합니다.`, sections: [
+    { title: `STEP 3 · ${guide.name} 실행`, purpose: `프로젝트 폴더에서 ${guide.name} 실행 후 기존 지침·구현 확인`, sections: [
       { title: "프로젝트 폴더에서 실행", blocks: [
         text("AI 도구는 반드시 작업할 프로젝트 폴더 안에서 실행합니다. `Get-Location`과 `dir`로 위치와 내용을 확인한 뒤 실행하세요."),
         code(['cd "프로젝트 경로"', "Get-Location", "dir", guide.runCommand], [
-          "실제 프로젝트 경로로 바꾸어 이동합니다.",
-          "현재 위치가 프로젝트 폴더인지 확인합니다.",
-          "프로젝트 폴더의 파일과 하위 폴더를 확인합니다.",
-          `${guide.name}를 현재 프로젝트에서 실행합니다.`,
+          "실제 프로젝트 경로로 바꾸어 이동",
+          "프로젝트 폴더인지 확인",
+          "프로젝트 파일·하위 폴더 확인",
+          `현재 프로젝트에서 ${guide.name} 실행`,
         ]),
         text(guide.loginNote),
       ] },
       { title: "작업 시작 전 AI가 먼저 확인할 것", blocks: [{ kind: "steps", items: [
-        "저장소 구조를 확인합니다.",
+        "저장소 구조 확인",
         "AGENTS.md 같은 프로젝트 지침 파일이 있으면 우선 확인합니다. 없으면 새로 만들라고 강제하지 않습니다.",
         "기존 구현·테스트를 확인한 뒤 작업을 시작합니다.",
       ] }] },
     ] },
-    { title: "STEP 4 · 올인원 지시문으로 작업", purpose: `${guide.name}용 올인원 지시문을 복사해 작업을 요청하고 승인·검토 요청을 확인합니다.`, sections: [
+    { title: "STEP 4 · 올인원 지시문으로 작업", purpose: "올인원 지시문 전달 및 승인·검토 요청 확인", sections: [
       { title: "올인원 지시문 실행", blocks: [
-        text("아래 올인원 지시문 영역에서 복사합니다."),
+        text("아래 올인원 지시문 영역에서 복사"),
         { kind: "steps", items: [
-          `WorkLens에서 ${guide.name}용 올인원 지시문 전체를 복사합니다.`,
-          "실행한 AI 도구에 지시문을 붙여넣습니다.",
+          `WorkLens에서 ${guide.name}용 올인원 지시문 전체 복사`,
+          "실행한 AI 도구에 지시문 붙여넣기",
           "AI가 저장소를 분석하고 구현·검증을 진행합니다. 승인·검토 요청이 있으면 내용을 확인합니다.",
         ] },
       ] },
     ] },
-    { title: "STEP 5 · AI 작업 결과 검증", purpose: "변경 파일과 내용을 살펴보고 실제 테스트·빌드 및 핵심 기능을 확인해 오류를 해결합니다.", sections: [
+    { title: "STEP 5 · AI 작업 결과 검증", purpose: "변경 내용·테스트·빌드·핵심 기능 확인", sections: [
       { title: "변경 파일 확인", blocks: [
-        code(["git status"], ["AI 작업 후 변경되거나 새로 생긴 파일을 확인합니다."]),
+        code(["git status"], ["AI 작업 후 변경·추가된 파일 확인"]),
         { kind: "steps", items: [
           "예상한 파일만 변경됐는지 확인합니다.",
           "관계없는 파일·.env·불필요한 build/cache/log가 없는지 확인합니다.",
         ] },
       ] },
       { title: "변경 내용 확인", blocks: [
-        code(["git diff"], ["아직 스테이지에 올리지 않은 변경 내용을 확인합니다."]),
+        code(["git diff"], ["스테이지에 올리지 않은 변경 내용 확인"]),
         text("입문자는 전부 해석할 필요는 없습니다. 예상 밖 대량 삭제·관계없는 수정·Secret·임시 코드가 있는지 확인합니다."),
       ] },
       { title: "테스트·빌드 확인", blocks: [
         text("package.json·프로젝트 지침에서 실제 존재하는 명령만 확인해 실행합니다. AI가 실행했다고 해도 결과를 직접 확인합니다."),
       ] },
-      { title: "실제 기능 확인", blocks: [text("가능하면 프로젝트를 직접 실행해 핵심 동작을 확인합니다.")] },
+      { title: "실제 기능 확인", blocks: [text("가능하면 프로젝트를 직접 실행해 핵심 동작을 확인")] },
       { title: "오류가 나면", blocks: [{ kind: "steps", items: [
         "Git 단계로 넘어가지 말고 오류 메시지·로그의 API Key·Token·Password·개인정보를 [REDACTED]로 가린 뒤 필요한 부분만 AI 도구에 전달합니다. 로그 전체를 무조건 복사하지 않습니다.",
         "AI가 오류를 수정합니다.",
@@ -182,18 +182,18 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
         "성공한 뒤 다음 단계로 넘어갑니다.",
       ] }] },
     ] },
-    { title: "STEP 6 · .gitignore / Secret 확인 후 Git 저장", purpose: "불필요한 파일과 Secret이 포함되지 않았는지 확인한 뒤 프로젝트 방식대로 커밋하고 푸시합니다.", sections: [
+    { title: "STEP 6 · .gitignore / Secret 확인 후 Git 저장", purpose: "파일·Secret 확인 후 프로젝트 방식대로 커밋·푸시", sections: [
       { title: "기존 .gitignore 확인", blocks: [
         text(".gitignore가 있으면 덮어쓰지 않습니다. 기존 규칙을 유지하고 필요한 항목만 추가합니다. 새 프로젝트에 없으면 실제 스택을 확인한 뒤 기본 규칙을 만듭니다. 아래는 .gitignore에 적는 예시이며 PowerShell에서 실행하는 명령이 아닙니다."),
         code(["node_modules/", ".env", ".env.local", ".env.*.local", "dist/", "build/", ".next/", "*.log"], [
-          "Node.js 의존성 폴더를 제외합니다.",
-          "실제 인증 정보가 들어갈 수 있는 환경변수 파일을 제외합니다.",
-          "로컬 환경변수 파일을 제외합니다.",
-          "환경별 로컬 환경변수 파일을 제외합니다.",
-          "프로젝트가 dist 폴더에 만드는 빌드 결과를 제외합니다.",
-          "프로젝트가 build 폴더에 만드는 빌드 결과를 제외합니다.",
-          "프로젝트와 관계없는 항목은 넣지 마세요 (Next.js가 아니면 .next/ 불필요)",
-          "로그 파일을 제외합니다.",
+          "Node.js 의존성 폴더 제외",
+          "실제 인증 정보가 들어갈 수 있는 환경변수 파일 제외",
+          "로컬 환경변수 파일 제외",
+          "환경별 로컬 환경변수 파일 제외",
+          "dist 빌드 결과 제외 (프로젝트가 사용하는 경우)",
+          "build 빌드 결과 제외 (프로젝트가 사용하는 경우)",
+          "Next.js 프로젝트에서만 .next/ 추가",
+          "로그 파일 제외",
         ], ".gitignore"),
       ] },
       { title: ".env와 .env.example", blocks: [
@@ -212,21 +212,21 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
         text("이미 노출된 Secret은 .gitignore만으로 보호되지 않습니다. 키를 폐기 → 재발급 → 플랫폼 설정 교체 순서로 대응하고, 필요하면 기록 정리도 검토합니다. 기록 재작성은 자동 실행하지 않습니다."),
       ] },
       { title: "Git 저장 · 스테이지 및 변경 확인", blocks: [
-        code(["git add ."], ["현재 폴더 아래 변경 전체를 커밋 후보(스테이지)에 올립니다. 필요한 파일만 올려도 됩니다."]),
-        code(["git status"], ["커밋에 포함할 파일을 최종 확인합니다. 이상하면 커밋을 중단합니다."]),
-        code(["git diff --cached --stat"], ["커밋에 실제로 들어갈 파일 요약을 확인합니다. 파일 수가 과다하거나 대량 삭제·관계없는 파일이 있으면 중단합니다."]),
+        code(["git add ."], ["현재 폴더 아래 변경 전체를 스테이지에 올립니다. 필요한 파일만 올려도 됩니다."]),
+        code(["git status"], ["커밋 대상 확인. 이상하면 커밋을 중단합니다."]),
+        code(["git diff --cached --stat"], ["커밋 대상 파일 요약 확인. 파일 수가 과다하거나 대량 삭제·관계없는 파일이 있으면 중단합니다."]),
         text("필요하면 `git diff --cached`로 스테이지에 올린 변경 내용까지 확인합니다."),
       ] },
       { title: "Git 저장 · 브랜치 및 원격 확인", blocks: [
-        code(["git branch --show-current"], ["현재 브랜치를 확인합니다. main 직접 push인지 PR 방식인지 프로젝트 방식을 확인합니다."]),
-        code(["git remote -v"], ["어느 GitHub 저장소로 push되는지 원격 URL을 확인합니다. 잘못된 저장소에 올리지 않도록 대상을 다시 확인합니다."]),
+        code(["git branch --show-current"], ["현재 브랜치 확인. main 직접 push인지 PR 방식인지 프로젝트 방식을 확인합니다."]),
+        code(["git remote -v"], ["push 대상 원격 URL 확인. 잘못된 저장소에 올리지 않도록 다시 확인합니다."]),
       ] },
       { title: "Git 저장 · 커밋 및 푸시", blocks: [
-        code(['git commit -m "작업 내용 요약"'], ["요약을 실제 작업 내용으로 바꿉니다. 커밋은 스테이지의 변경을 Git에 기록하는 작업입니다."]),
+        code(['git commit -m "작업 내용 요약"'], ["요약을 실제 작업 내용으로 바꾸어 커밋"]),
         code(["git push"], ["프로젝트 방식대로 원격 저장소에 올립니다. push 후에도 배포가 완료된 것은 아닐 수 있습니다."]),
       ] },
     ] },
-    { title: "STEP 7 · GitHub CI / PR 확인", purpose: "GitHub에서 커밋과 CI·PR 상태를 확인하고 실제 배포 흐름을 확인합니다.", sections: [
+    { title: "STEP 7 · GitHub CI / PR 확인", purpose: "커밋·CI·PR과 실제 배포 흐름 확인", sections: [
       { title: "GitHub에서 확인할 것", blocks: [{ kind: "steps", items: [
         "방금 올린 커밋이 올바른 브랜치에 있는지 확인합니다.",
         "GitHub Actions/CI의 테스트·빌드 상태를 확인합니다.",
@@ -236,40 +236,40 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
         text("프로젝트마다 배포 흐름이 다릅니다. feature 브랜치 → Preview/CI → PR → main merge → Production일 수도 있고, main push → 자동 Production일 수도 있습니다. 실제 배포 브랜치·workflow를 먼저 확인합니다."),
       ] },
       { title: "CI가 실패하면", blocks: [
-        { kind: "steps", items: ["실패 로그를 확인합니다.", "로그를 AI 도구에 전달합니다.", "오류를 수정합니다.", "다시 검증합니다.", "다시 push하고 CI 결과를 확인합니다."] },
+        { kind: "steps", items: ["실패 로그 확인", "민감정보를 가리고 필요한 로그만 AI 도구에 전달", "오류 수정", "다시 검증", "다시 push하고 CI 결과 확인"] },
         text("CI 실패를 둔 채 Production 배포만 계속 진행하지 않습니다."),
       ] },
     ] },
-    { title: "STEP 8 · 배포 (Vercel / Cloudflare)", purpose: "현재 프로젝트의 배포 플랫폼과 환경을 확인하고 기존 방식대로 배포 결과와 설정을 확인합니다.", sections: [
+    { title: "STEP 8 · 배포 (Vercel / Cloudflare)", purpose: "기존 배포 플랫폼·환경·설정에 맞춰 배포 결과 확인", sections: [
       { title: "먼저 현재 배포 환경 확인", blocks: [
         text("Vercel과 Cloudflare를 모두 사용해야 하는 것은 아닙니다. 현재 프로젝트의 실제 배포 구성을 확인하고 사용하는 경로만 따르세요. 프론트엔드와 Worker/API를 나누어 두 플랫폼을 함께 쓰는 프로젝트도 있습니다."),
         text("어떤 서비스가 어느 플랫폼에 어느 branch에서 어떤 방식으로 배포되는지 먼저 확인합니다. Vercel·Cloudflare Workers/Pages·GitHub Actions·Wrangler 등 현재 저장소 설정을 기준으로 하며, 배포 구성을 임의로 변경하거나 추가하지 않습니다."),
         text("Preview는 반영 전 확인용이고 Production은 실제 서비스입니다. feature branch·PR → Preview, main/production branch → Production일 수 있지만 예시이며 실제 설정이 우선합니다. 지금 배포할 환경을 먼저 확인합니다. Preview 확인만으로 Production 배포가 완료된 것은 아닙니다."),
       ] },
       { title: "Vercel인 경우", when: "현재 프로젝트가 Vercel에 배포되는 경우에만", blocks: [
-        { kind: "steps", items: ["프로젝트 방식대로 push 또는 main merge를 진행합니다.", "Vercel build 결과를 확인합니다.", "Preview 또는 Production 배포를 확인합니다.", "배포 상태를 확인합니다."] },
+        { kind: "steps", items: ["프로젝트 방식대로 push 또는 main merge", "Vercel build 결과 확인", "Preview 또는 Production 배포 확인", "배포 상태 확인"] },
         text("Git 연동 자동 배포라면 별도 수동 명령이 필요하지 않을 수 있습니다. 자동 배포에 수동 명령을 중복 실행하지 않습니다."),
         text("로컬 .env를 GitHub에 올리지 않고 Vercel Environment Variables에 설정합니다. 변수 이름은 프로젝트에서 확인합니다. Preview·Production 값을 따로 설정할 수 있습니다."),
-        { kind: "steps", items: ["실패하면 배포 로그를 확인합니다.", "로그를 AI 도구에 전달합니다.", "오류를 수정합니다.", "테스트합니다.", "commit/push합니다.", "재배포 결과를 확인합니다."] },
+        { kind: "steps", items: ["실패 시 배포 로그 확인", "민감정보를 가리고 필요한 로그만 AI 도구에 전달", "오류 수정", "테스트", "commit/push", "재배포 결과 확인"] },
       ] },
       { title: "Cloudflare인 경우", when: "현재 프로젝트가 Cloudflare에 배포되는 경우에만", blocks: [
         text("Workers인지 Pages인지 먼저 확인합니다. Git 자동 배포인지 Wrangler 등 기존 CLI 방식인지 현재 프로젝트 설정을 확인합니다."),
-        { kind: "steps", items: ["Git 자동 배포라면 프로젝트 방식대로 push/merge합니다.", "배포 진행을 확인합니다.", "배포 상태를 확인합니다."] },
+        { kind: "steps", items: ["Git 자동 배포라면 프로젝트 방식대로 push/merge", "배포 진행 확인", "배포 상태 확인"] },
         text("자동 배포에 수동 명령을 중복 실행하지 않습니다. CLI 방식이면 프로젝트에 실제 있는 배포 명령만 실행합니다. `wrangler deploy`를 모든 프로젝트에 강제하지 않습니다."),
         text("Secret은 코드에 넣지 않고 Cloudflare Variables/Secrets에 설정합니다."),
       ] },
     ] },
-    { title: "STEP 9 · Production 최종 확인", purpose: "실제 Production에서 화면과 핵심 기능을 확인하고 문제가 있으면 수정·재배포 또는 되돌리기 방식을 확인합니다.", sections: [
+    { title: "STEP 9 · Production 최종 확인", purpose: "실제 서비스의 화면·기능 확인과 문제 대응", sections: [
       { title: "실제 서비스 확인", blocks: [
-        text("URL이 생겼다고 완료된 것은 아닙니다."),
+        text("URL만 생겼다고 완료된 것은 아닙니다"),
         { kind: "steps", items: [
-          "Production URL에 접속합니다.", "첫 화면이 로딩되는지 확인합니다.", "핵심 기능 1~2개를 실행합니다.",
-          "주요 요청이 정상인지 확인합니다.", "Desktop에서 확인합니다.", "Mobile에서 확인합니다.", "브라우저 Console 오류를 확인합니다.",
+          "Production URL 접속", "첫 화면 로딩 확인", "핵심 기능 1~2개 실행",
+          "주요 요청 확인", "Desktop 확인", "Mobile 확인", "브라우저 Console 오류 확인",
         ] },
         text("로그인·환경변수·API처럼 Production에서만 달라질 수 있는 기능이 있다면 실제 Production 환경에서도 확인합니다."),
       ] },
       { title: "문제가 생기면", blocks: [{ kind: "steps", items: [
-        "로그·브라우저 오류를 확인합니다.", "API Key·Token·Password·개인정보를 [REDACTED]로 가린 뒤 필요한 오류 내용만 AI 도구에 전달합니다. 로그 전체를 무조건 복사하지 않습니다.", "문제를 수정합니다.", "다시 검증합니다.", "commit/push합니다.", "재배포하고 결과를 확인합니다.",
+        "로그·브라우저 오류 확인", "API Key·Token·Password·개인정보를 [REDACTED]로 가린 뒤 필요한 오류 내용만 AI 도구에 전달합니다. 로그 전체를 무조건 복사하지 않습니다.", "문제 수정", "다시 검증", "commit/push", "재배포 결과 확인",
       ] }] },
       { title: "되돌리기(Rollback)", blocks: [
         text("무작정 계속 고치기보다 Vercel·Cloudflare에서 이전 정상 배포로 되돌릴 수 있는지 먼저 확인합니다. 실제 방식은 플랫폼 설정을 확인한 뒤 정합니다. 되돌리기는 자동 실행하지 않습니다."),

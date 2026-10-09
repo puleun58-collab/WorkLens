@@ -228,10 +228,10 @@ type ToolView = "PdfTools" | "ImageTools";
 type ShellView = Tab | ToolView | "Law" | "Decisions" | "LegalAnalysis" | "Research" | "DocumentReview" | "Guide" | "Dictionary" | "Settings" | "AxDiagnosis";
 type ShellViewMetadata = { title: string; description: string; activeNavigation: ShellView; commandLabel?: string };
 const internalViewMetadata: Record<"Decisions" | "LegalAnalysis" | "Research" | "DocumentReview", ShellViewMetadata> = {
-  Decisions: { title: "판례·결정례", description: "알고 있는 사건이나 키워드로 관련 자료를 직접 찾습니다.", activeNavigation: "Law", commandLabel: "법령 > 판례·결정례" },
-  LegalAnalysis: { title: "검증·분석", description: "알고 있는 인용이나 법령의 시점·유효성을 확인합니다.", activeNavigation: "Law", commandLabel: "법령 > 검증·분석" },
-  Research: { title: "종합 리서치", description: "업무 상황이나 질문에서 관련 법령·판례·절차를 함께 조사합니다.", activeNavigation: "Law", commandLabel: "법령 > 종합 리서치" },
-  DocumentReview: { title: "문서 검토", description: "작업 문서의 조항과 확인된 근거를 검토합니다.", activeNavigation: "Law", commandLabel: "법령 > 문서 검토" },
+  Decisions: { title: "판례·결정례", description: "사건번호·키워드로 관련 자료 검색", activeNavigation: "Law", commandLabel: "법령 > 판례·결정례" },
+  LegalAnalysis: { title: "검증·분석", description: "법령·판례 인용과 적용 시점 확인", activeNavigation: "Law", commandLabel: "법령 > 검증·분석" },
+  Research: { title: "종합 리서치", description: "업무 상황과 관련된 법령·판례·절차 조사", activeNavigation: "Law", commandLabel: "법령 > 종합 리서치" },
+  DocumentReview: { title: "문서 검토", description: "작업 문서의 조항과 확인된 근거 검토", activeNavigation: "Law", commandLabel: "법령 > 문서 검토" },
 };
 const tabIcons: Record<Tab, typeof BarChart3> = {
   Analyze: BarChart3,
@@ -720,7 +720,7 @@ export default function Home() {
   /** The one workspace upload path; 법령 › 문서 검토 calls it too. Resolves to the new file id, or the shown error. */
   const upload = async (file: File): Promise<{ id: string } | { error: string }> => {
     setUploading(true);
-    notifyWorkspace("info", `${file.name}을(를) 분석 중입니다.`);
+    notifyWorkspace("info", `${file.name} 분석 중…`);
     try {
       const bytes = new Uint8Array(await file.arrayBuffer());
       const summary = await runInWorker(
@@ -800,7 +800,7 @@ export default function Home() {
     const failure = error as Partial<ServerAiFailure>;
     logAiFailure(error);
     if (failure.code === "CANCELLED") {
-      notifyView("info", "작업을 취소했습니다.");
+      notifyView("info", "작업 취소 완료");
       return;
     }
     // Retrying only helps for transient provider states, so the second line
@@ -879,7 +879,7 @@ export default function Home() {
         return;
       }
       setOperationResult(result);
-      notifyView("success", "질문 결과를 준비했습니다.");
+      notifyView("success", "질문 결과 준비 완료");
       return result;
     } catch (error) {
       setOperationResult(null);
@@ -1034,7 +1034,7 @@ export default function Home() {
           return deterministic;
         }
       }
-      notifyView("success", "문서 분석을 완료했습니다.");
+      notifyView("success", "문서 분석 완료");
       return deterministic;
     } finally {
       setBusy(false);
@@ -1056,7 +1056,7 @@ export default function Home() {
           setValueCheck(result);
           setComparison(null);
           setCompareIds(null);
-          notifyView("success", "주요 값 일치 여부를 확인했습니다.");
+          notifyView("success", "주요 값 일치 여부 확인 완료");
           return result;
         } catch (error) {
           setValueCheck(null);
@@ -1091,7 +1091,7 @@ export default function Home() {
       } catch (error) {
         noteAiDiagnostics(error);
       }
-      notifyView("success", "파일 비교를 완료했습니다.");
+      notifyView("success", "파일 비교 완료");
       return deterministic;
     } finally {
       setBusy(false);
@@ -1148,7 +1148,7 @@ export default function Home() {
           noteAiDiagnostics(error);
         }
       }
-      notifyView("success", "문서 검수를 완료했습니다.");
+      notifyView("success", "문서 검수 완료");
       return merged;
     } finally {
       setBusy(false);
@@ -1222,7 +1222,7 @@ export default function Home() {
       } else if (reviewFailure) {
         notifyView("warning", "일부 항목의 재확인을 완료하지 못했습니다.", undefined, `${aiFailureDetail(reviewFailure)} · 다른 표현으로 설명된 내용이 있을 수 있습니다.`);
       } else {
-        notifyView("success", "보완 항목을 확인했습니다.");
+        notifyView("success", "보완 항목 확인 완료");
       }
     } finally {
       setBusy(false);
@@ -1246,7 +1246,7 @@ export default function Home() {
         sheetIds: draft.workbooks.flatMap((workbook) => workbook.sheets.filter((sheet) => sheet.selectedByDefault).map((sheet) => sheet.id)),
         mappings: draft.mappings.map(({ id, targetField, sourceFields, included }) => ({ id, targetField, sourceFields, included })),
       });
-      notifyView("success", `시트 ${draft.workbooks.reduce((sum, workbook) => sum + workbook.sheets.length, 0)}개 · 레코드 ${draft.records.length}건을 분석했습니다.`);
+      notifyView("success", `시트 ${draft.workbooks.reduce((sum, workbook) => sum + workbook.sheets.length, 0)}개 · 레코드 ${draft.records.length}건 분석 완료`);
     } catch (error) {
       notifyView("error", (error as ApiError).message ?? "문서 취합 구조를 분석하지 못했습니다.");
     } finally {
@@ -1490,7 +1490,7 @@ export default function Home() {
       : true;
   const workSectionTitle = workSectionCopy[activeTab][0];
   const workSectionDescription = polishTextMode
-    ? "붙여넣은 내용을 문장 단위로 다듬고 숫자·날짜·인용과 문서 구조를 유지합니다."
+    ? "붙여넣은 내용을 문장 단위로 다듬고 숫자·날짜·인용·문서 구조 유지"
     : workSectionCopy[activeTab][1];
   const aggregationHasUnsupportedFiles = activeTab === "Aggregate"
     && files.some((file) => selected.includes(file.id) && !isAggregationFileKind(file.kind));
@@ -1586,7 +1586,7 @@ export default function Home() {
   const viewMetadata = shellView in internalViewMetadata
     ? internalViewMetadata[shellView as keyof typeof internalViewMetadata]
     : { title: navigationItems.find((entry) => entry.value === shellView)?.label ?? "WorkLens",
-      description: shellView === "Law" ? "알고 있는 법령이나 조문을 직접 찾습니다." : "", activeNavigation: shellView };
+      description: shellView === "Law" ? "법령명·조문으로 직접 검색" : "", activeNavigation: shellView };
   const commandItems = [
     ...navigationItems.map((item) => ({ value: item.value, label: item.label, group: item.group })),
     ...Object.entries(internalViewMetadata).map(([value, metadata]) => ({ value, label: metadata.commandLabel ?? metadata.title, group: "RESEARCH" })),
@@ -1619,18 +1619,18 @@ export default function Home() {
             <h1>{isDocumentWorkspaceView ? workSectionTitle : viewMetadata.title}</h1>
             <span className="context-names">
               {isDocumentWorkspaceView ? workSectionDescription : shellView === "AxDiagnosis"
-                ? "반복 업무를 진단하고 자동화 우선순위와 실행 로드맵을 설계합니다."
+                ? "반복 업무 진단과 자동화 우선순위·실행 로드맵 설계"
                 : shellView === "Guide"
-                ? "WorkLens의 주요 기능을 단계별로 확인하세요."
+                ? "WorkLens 주요 기능을 단계별로 안내"
                 : shellView === "Dictionary"
-                ? "맞춤법과 용어 오탐을 줄이기 위한 사전입니다."
+                ? "맞춤법·용어 오탐을 줄이는 사전"
                 : shellView === "Settings"
-                  ? "이 브라우저에만 적용되는 항목입니다."
+                  ? "파일·저장·외부 연동 안내"
                   : shellView === "PdfTools"
-                    ? "PDF 페이지를 정리하고 원하는 형식으로 내보낼 수 있습니다."
+                    ? "PDF 페이지 정리 및 원하는 형식으로 내보내기"
                     : isResearchView
                       ? viewMetadata.description
-                      : "이미지를 편집하고 원하는 형식으로 내보낼 수 있습니다."}
+                      : "이미지 편집 및 원하는 형식으로 내보내기"}
             </span>
             <div className="workspace-header-actions">
               {isDocumentWorkspaceView && <span className="workspace-delete-status" role="status" aria-live="polite" aria-atomic="true">
@@ -1666,8 +1666,8 @@ export default function Home() {
             >
               <span className="upload-icon" aria-hidden="true"><Upload /></span>
               <div className="dropzone-copy">
-                <strong>{uploading ? "파일을 읽고 구조를 분석하는 중" : "파일을 여기에 끌어 놓으세요"}</strong>
-                <span>또는 파일을 선택해 작업을 시작하세요.</span>
+                <strong>{uploading ? "파일 구조 분석 중" : "파일을 여기에 끌어 놓으세요"}</strong>
+                <span>또는 파일을 선택해 작업 시작</span>
               </div>
               <div className="drop-actions">
                 <Button type="button" onClick={() => inputRef.current?.click()} disabled={uploading}>
@@ -1689,8 +1689,8 @@ export default function Home() {
             >
               <span className="upload-icon" aria-hidden="true"><Upload /></span>
               <div className="file-add-copy">
-                <strong>{uploading ? "파일을 읽고 구조를 분석하는 중" : "파일을 추가하려면 여기에 끌어 놓으세요"}</strong>
-                <span>또는 버튼을 눌러 파일을 선택하세요.</span>
+                <strong>{uploading ? "파일 구조 분석 중" : "추가할 파일을 여기에 끌어 놓으세요"}</strong>
+                <span>또는 버튼으로 파일 선택</span>
               </div>
               <Button type="button" className="file-add" onClick={() => inputRef.current?.click()} disabled={uploading}>
                 {uploading ? "분석 중…" : <><Plus aria-hidden="true" />파일 추가</>}
@@ -1877,7 +1877,7 @@ export default function Home() {
                     {polishTextMode ? (
                       <div className="polish-text-input">
                         <label className="polish-paste">
-                          <span>윤문할 내용을 붙여넣으세요.</span>
+                          <span>윤문할 내용 붙여넣기</span>
                           <Textarea value={polishText}
                           rows={8}
                           // No hard maxLength: a long paste is accepted and
@@ -1885,7 +1885,7 @@ export default function Home() {
                           aria-label="윤문할 텍스트 입력"
                           disabled={busy}
                           onChange={(event) => setPolishText(event.target.value)}
-                          placeholder={"메일, 보고서, 공지 등에서 복사한 내용을 그대로 붙여넣으세요.\n줄바꿈과 목록 구조는 그대로 유지됩니다."} />
+                          placeholder={"메일·보고서·공지 등에서 복사한 내용 붙여넣기\n줄바꿈과 목록 구조는 그대로 유지됩니다"} />
                           <small data-over={polishText.length > POLISH_TEXT_MAX_CHARS ? "true" : undefined}>
                             {polishText.length.toLocaleString("ko-KR")} / {POLISH_TEXT_MAX_CHARS.toLocaleString("ko-KR")}자
                           </small>
@@ -1917,7 +1917,7 @@ export default function Home() {
               {busy && polishProgress ? (
                 <div className="processing-bar compact-progress" role="status" aria-live="polite">
                   <strong>{`윤문 처리 중 ${polishProgress.done}/${polishProgress.total}`}</strong>
-                  <small>문장별 검증을 유지하며 묶음으로 처리하고 있습니다.</small>
+                  <small>문장별 검증을 유지하며 묶음으로 처리 중</small>
                   <div className="ai-status-actions">
                     <Button type="button" variant="outline" className="secondary-action" onClick={() => { polishCancelled.current = true; interruptServerAi(); }}>중지</Button>
                   </div>
@@ -1925,7 +1925,7 @@ export default function Home() {
               ) : busy && extractProgress ? (
                 <div className="processing-bar compact-progress" role="status" aria-live="polite">
                   <strong>{`항목 확인 중 ${extractProgress.done}/${extractProgress.total}`}</strong>
-                  <small>관련 근거를 확인하고 있습니다.</small>
+                  <small>관련 근거 확인 중</small>
                   <div className="ai-status-actions">
                     <Button type="button" variant="outline" className="secondary-action" onClick={() => { extractCancelled.current = true; interruptServerAi(); }}>중지</Button>
                   </div>
@@ -2076,14 +2076,14 @@ interface ResultViewProps {
 
 /** Shared heading copy for every category's lower work section. */
 const workSectionCopy: Record<Tab, [string, string]> = {
-  Analyze: ["문서 분석", "선택한 파일의 핵심 요약과 확인된 항목·수치를 분석합니다."],
-  Ask: ["질문하기", "선택한 파일을 근거로 질문에 답합니다."],
-  Compare: ["파일 비교", "같은 파일의 전·후 변경 내용과 여러 파일의 공통 항목 값을 비교합니다."],
-  Check: ["문서 검수", "선택한 파일의 문장·일관성·데이터·개인정보·보안정보를 검수합니다."],
-  Supplement: ["문서 보완", "문서에서 빠진 핵심 정보와 설명이 필요한 부분을 찾습니다."],
-  Polish: ["문서 윤문", "선택한 파일의 번역투와 중복 표현을 문장 단위로 다듬습니다."],
-  Extract: ["정보 추출", "선택한 파일에서 필요한 항목과 값을 찾아 정리합니다."],
-  Aggregate: ["문서 취합", "첫 번째 파일의 서식을 기준으로 여러 Excel 표를 하나의 파일로 취합합니다."],
+  Analyze: ["문서 분석", "선택한 파일의 핵심 요약과 확인된 항목·수치"],
+  Ask: ["질문하기", "선택한 파일을 근거로 질문에 답변"],
+  Compare: ["파일 비교", "파일의 전·후 변경 내용과 여러 파일의 공통 항목 값 비교"],
+  Check: ["문서 검수", "선택한 파일의 문장·일관성·데이터·개인정보·보안정보 검수"],
+  Supplement: ["문서 보완", "문서에서 빠진 핵심 정보와 설명이 필요한 부분 확인"],
+  Polish: ["문서 윤문", "선택한 파일의 번역투와 중복 표현을 문장 단위로 정리"],
+  Extract: ["정보 추출", "선택한 파일에서 필요한 항목과 값을 찾아 정리"],
+  Aggregate: ["문서 취합", "첫 번째 파일의 서식을 기준으로 여러 Excel 표 취합"],
 };
 
 function ResultHeader({ title, status, meta, showMessage = true }: {
@@ -2204,8 +2204,8 @@ function ExtractControls({ mode, fields, busy, runDisabled, showRun, onMode, onF
         {showRun && <Button type="button" className="extract-run" disabled={runDisabled} aria-label="추출 실행" onClick={onRun}>{busy ? "처리 중…" : RUN_LABEL}</Button>}
       </div>
       <p className="extract-mode-description">{mode === "auto"
-        ? "문서에 명시된 구조화 항목과 반복 표를 자동으로 찾습니다."
-        : "필요한 항목명을 지정해 파일별 값을 같은 열로 정리합니다."}</p>
+        ? "문서에 명시된 구조화 항목과 반복 표 자동 검색"
+        : "항목명을 지정해 파일별 값을 같은 열로 정리"}</p>
       {mode === "fields" ? (
         <div className="extract-fields">
           {fields.map((field) => (
@@ -2268,9 +2268,9 @@ function StructuredExtractResults({ result, fileNames, onSource, status, busy, o
   const isEmpty = result.summary.fields === 0 && result.summary.records === 0;
   const emptyTitle = result.mode === "fields"
     ? result.requestedFields.length === 1
-      ? `'${result.requestedFields[0]}'을(를) 찾지 못했습니다.`
-      : "요청한 항목을 찾지 못했습니다."
-    : "자동으로 추출할 수 있는 구조화된 항목을 찾지 못했습니다.";
+      ? `'${result.requestedFields[0]}'을(를) 찾지 못했습니다`
+      : "요청한 항목을 찾지 못했습니다"
+    : "자동 추출 가능한 구조화 항목을 찾지 못했습니다";
 
   return (
     <section className="panel results-panel extract-results" aria-label="정보 추출 결과">
@@ -2299,8 +2299,8 @@ function StructuredExtractResults({ result, fileNames, onSource, status, busy, o
           title={emptyTitle}
         >
           <p>{result.mode === "fields"
-            ? "선택한 문서에서 해당 항목이나 값을 확인할 수 없습니다."
-            : "필요한 항목이 정해져 있다면 항목 지정을 사용할 수 있습니다."}</p>
+            ? "선택한 문서에서 해당 항목이나 값을 확인할 수 없습니다"
+            : "필요한 항목이 정해져 있다면 ‘항목 지정’을 사용하세요"}</p>
         </StatusPanel>
       ) : null}
 
@@ -2959,13 +2959,13 @@ function CheckResults({ entries, fileNames, onSource, companyTerms, userTerms, i
         </p>
         {totals.truncated ? (
           <small className="check-truncation" data-testid="check-truncation">
-            전체 {totals.totalFound.toLocaleString("ko-KR")}건 중 우선순위가 높은 {totals.returned.toLocaleString("ko-KR")}건을 표시합니다.
+            전체 {totals.totalFound.toLocaleString("ko-KR")}건 중 우선순위가 높은 {totals.returned.toLocaleString("ko-KR")}건 표시
           </small>
         ) : null}
       </section>
 
       {indexed.length === 0 ? (
-        <StatusPanel variant="success" className="result-clear" title="확인된 문제가 없습니다." icon={<CircleCheck size={18} fill="currentColor" stroke="white" strokeWidth={2.2} />}><p>현재 규칙 범위에서 문장, 일관성, 데이터와 개인정보 문제를 찾지 못했습니다.</p></StatusPanel>
+        <StatusPanel variant="success" className="result-clear" title="확인된 문제 없음" icon={<CircleCheck size={18} fill="currentColor" stroke="white" strokeWidth={2.2} />}><p>현재 규칙 범위에서 문장·일관성·데이터·개인정보 문제를 찾지 못했습니다</p></StatusPanel>
       ) : (
         <>
           <div className="check-toolbar check-toolbar-compact">
@@ -2983,7 +2983,7 @@ function CheckResults({ entries, fileNames, onSource, companyTerms, userTerms, i
                 <PopoverPopup className="dictionary-panel w-[min(360px,calc(100vw-32px))]" align="end" aria-label="용어 사전">
                     <section className="dictionary-section">
                       <h4>회사 용어 <span>{companyTerms.length}</span></h4>
-                      <p className="dictionary-note">회사 공용 사전은 읽기 전용입니다.</p>
+                      <p className="dictionary-note">회사 공용 사전 · 읽기 전용</p>
                       <div className="dictionary-term-list">
                         {companyTerms.slice(0, 12).map((entry) => <span className="dictionary-term" key={entry.id}>{entry.term}</span>)}
                         {companyTerms.length > 12 ? <span className="dictionary-term muted">외 {companyTerms.length - 12}개</span> : null}
@@ -3004,11 +3004,11 @@ function CheckResults({ entries, fileNames, onSource, companyTerms, userTerms, i
                             </span>
                           ))}
                         </div>
-                      ) : <p className="dictionary-empty">등록한 개인 용어가 없습니다.</p>}
+                      ) : <p className="dictionary-empty">등록된 개인 용어 없음</p>}
                       <div className="dictionary-actions">
                         <Button type="button" variant="ghost" size="sm" onClick={onClearTerms} disabled={!userTerms.length}>전체 초기화</Button>
                       </div>
-                      <p className="dictionary-note">개인 사전은 이 브라우저에만 저장됩니다.</p>
+                      <p className="dictionary-note">개인 사전은 이 브라우저에만 저장</p>
                     </section>
                 </PopoverPopup>
               </Popover>
@@ -3074,7 +3074,7 @@ function CheckResults({ entries, fileNames, onSource, companyTerms, userTerms, i
             </>
           ) : (
             <div className="filter-empty">
-              <strong>필터 조건에 맞는 이슈가 없습니다.</strong>
+              <strong>필터 조건에 맞는 이슈 없음</strong>
               <Button type="button" variant="outline" onClick={() => { setGroupFilter("all"); setIgnoredIds([]); resetPage(); }}>필터 초기화</Button>
             </div>
           )}
@@ -3154,7 +3154,7 @@ function AskResults({ result, fileNames, onSource }: {
           </div>
         </section>
       ) : (
-        <p className="ask-result-info" role="status">선택한 파일에서 답변에 필요한 근거를 찾지 못했습니다.</p>
+        <p className="ask-result-info" role="status">선택한 파일에서 답변에 필요한 근거를 찾지 못했습니다</p>
       )}
     </div>
   );
@@ -3248,7 +3248,7 @@ function ComparisonView({ comparison, compareIds, enrichment, fileNames, detail,
       </div>
       <dl className="summary executive-summary">{summaryItems.map((item) => <div key={item.key} className={`summary-${item.key}`} data-empty={item.value === 0}><dt>{item.label}</dt><dd>{item.value.toLocaleString("ko-KR")}</dd></div>)}</dl>
       {comparison.items.length === 0 ? (
-        <StatusPanel variant="success" className="result-clear" title="비교된 변경 사항이 없습니다."><p>지원되는 내용, 수치 및 구조 범위에서 두 파일이 같습니다.</p></StatusPanel>
+        <StatusPanel variant="success" className="result-clear" title="비교된 변경 사항 없음"><p>지원되는 내용·수치·구조 범위에서 두 파일이 같습니다</p></StatusPanel>
       ) : (
         <div className="comparison-content">
           <div className="change-table" role="table" aria-label="버전 비교 변경 상세">
@@ -3348,11 +3348,11 @@ function ValueCheckView({ result, fileNames, onSource, status, busy, onExport }:
       </div>
 
       {result.groups.length === 0 ? (
-        <StatusPanel variant="info" className="result-clear notice" title="비교할 공통 항목이 없습니다." icon={<Info size={18} fill="currentColor" stroke="white" strokeWidth={2.2} />}>
-          <p>선택한 파일에서 공통으로 확인되는 항목이 있어야 값 일치 여부를 비교할 수 있습니다.</p>
+        <StatusPanel variant="info" className="result-clear notice" title="비교할 공통 항목 없음" icon={<Info size={18} fill="currentColor" stroke="white" strokeWidth={2.2} />}>
+          <p>공통으로 확인된 항목이 있어야 값 일치 여부를 비교할 수 있습니다</p>
         </StatusPanel>
       ) : visible.length === 0 ? (
-        <p className="value-check-filter-empty">이 상태에 해당하는 항목이 없습니다.</p>
+        <p className="value-check-filter-empty">이 상태에 해당하는 항목 없음</p>
       ) : twoFiles ? (
         <div className="value-check-matrix" role="table" aria-label="두 파일 값 일치 확인">
           <div className="value-check-matrix-head" role="row">
@@ -3515,13 +3515,13 @@ function AggregationResults({ draft, selection, busy, onSelection, onExport }: {
 
       <section className="aggregation-section" aria-labelledby="aggregation-sheets">
         <div className="aggregation-section-heading">
-          <div><h3 id="aggregation-sheets">취합할 시트</h3><p>첫 번째 파일의 시트 구성을 결과로 사용하고, 나머지 파일의 같은 표는 그 아래에 이어 붙입니다.</p></div>
+          <div><h3 id="aggregation-sheets">취합할 시트</h3><p>첫 번째 파일의 시트 구성을 기준으로, 나머지 파일의 같은 표를 아래에 이어 붙입니다</p></div>
         </div>
         <div className="aggregation-workbooks">
           {draft.workbooks.map((workbook) => (
             <section className="aggregation-workbook" key={workbook.id}>
               <h4>{workbook.fileName}</h4>
-              {workbook.sheets.length === 0 ? <p className="aggregation-sheet-empty">취합할 표를 찾지 못했습니다. 표 형태의 내용이 있는 파일을 선택하세요.</p> : null}
+              {workbook.sheets.length === 0 ? <p className="aggregation-sheet-empty">취합할 표를 찾지 못했습니다. 표 형태의 내용이 있는 파일을 선택하세요</p> : null}
               {workbook.sheets.map((sheet) => {
                 const target = planTarget(sheet);
                 const fixed = sheet.role === "empty" || sheet.plan.kind === "summarized" || sheet.plan.kind === "ignored";
@@ -3540,7 +3540,7 @@ function AggregationResults({ draft, selection, busy, onSelection, onExport }: {
       </section>
 
       <section className="aggregation-section" aria-labelledby="aggregation-result-sheets">
-        <div className="aggregation-section-heading"><div><h3 id="aggregation-result-sheets">결과 시트 {resultTargets.length}개</h3><p>기준 파일의 시트 이름과 구성을 그대로 유지합니다.</p></div></div>
+        <div className="aggregation-section-heading"><div><h3 id="aggregation-result-sheets">결과 시트 {resultTargets.length}개</h3><p>기준 파일의 시트 이름과 구성 유지</p></div></div>
         <ul className="aggregation-result-sheets">
           {resultTargets.map((target) => (
             <li key={target.id}>
@@ -3555,13 +3555,13 @@ function AggregationResults({ draft, selection, busy, onSelection, onExport }: {
         <div className="aggregation-section-heading">
           <div>
             <h3 id="aggregation-mappings">확인이 필요한 항목</h3>
-            <p>{reviewMappings.length ? `기준 파일 항목과 이름이 달라 확인이 필요한 항목 ${reviewMappings.length}개가 있습니다.` : unlinkedImages ? "이미지를 연결할 레코드를 확인하세요." : "모든 항목을 기준 파일 항목에 자동으로 연결했습니다."}</p>
+            <p>{reviewMappings.length ? `기준 파일과 항목명이 달라 확인 필요 ${reviewMappings.length}개` : unlinkedImages ? "이미지를 연결할 레코드 확인" : "모든 항목을 기준 파일 항목에 자동 연결"}</p>
           </div>
           <Button type="button" variant="outline" className="secondary-action" aria-expanded={allMappings} onClick={() => setAllMappings((value) => !value)}>
             {allMappings ? "확인 항목만 보기" : "전체 매핑 보기"}
           </Button>
         </div>
-        {unlinkedImages > 0 ? <p className="aggregation-unlinked" role="status">미연결 이미지 {unlinkedImages}건 · 첨부 이미지 시트에서 출처와 위치를 확인하세요.</p> : null}
+        {unlinkedImages > 0 ? <p className="aggregation-unlinked" role="status">미연결 이미지 {unlinkedImages}건 · 첨부 이미지 시트에서 출처와 위치 확인</p> : null}
         {pendingIssues.length > 0 ? (
           <ul className="aggregation-issues">
             {pendingIssues.map((issue) => (
@@ -3592,12 +3592,12 @@ function AggregationResults({ draft, selection, busy, onSelection, onExport }: {
       </section>
 
       <section className="aggregation-section" aria-labelledby="aggregation-preview">
-        <div className="aggregation-section-heading"><div><h3 id="aggregation-preview">결과 미리보기</h3><p>다운로드할 결과 시트와 같은 기준 항목으로 시트당 최대 20건을 표시합니다.</p></div></div>
+        <div className="aggregation-section-heading"><div><h3 id="aggregation-preview">결과 미리보기</h3><p>다운로드할 결과 시트의 기준 항목으로 시트당 최대 20건 표시</p></div></div>
         {tableTargets.map((target) => {
           const columns = columnsOf(target);
           const records = recordsByTarget.get(target.id) ?? [];
           if (records.length === 0 || columns.length === 0) {
-            return <p className="aggregation-preview-empty" key={target.id}>{target.name}: {records.length ? "포함된 항목이 없습니다." : "표시할 레코드가 없습니다."}</p>;
+            return <p className="aggregation-preview-empty" key={target.id}>{target.name}: {records.length ? "포함된 항목 없음" : "표시할 레코드 없음"}</p>;
           }
           const files = draft.workbooks.filter((workbook) => workbook.sheets.some((sheet) => target.sheetIds.includes(sheet.id) && selectedSheets.has(sheet.id)));
           return (
@@ -3615,7 +3615,7 @@ function AggregationResults({ draft, selection, busy, onSelection, onExport }: {
             </section>
           );
         })}
-        {resultTargets.length === 0 ? <p className="aggregation-preview-empty">시트를 선택하면 결과를 미리 볼 수 있습니다.</p> : null}
+        {resultTargets.length === 0 ? <p className="aggregation-preview-empty">시트 선택 후 결과 미리보기</p> : null}
       </section>
     </section>
   );
