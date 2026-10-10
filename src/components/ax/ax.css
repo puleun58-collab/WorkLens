@@ -389,18 +389,17 @@
 .ax-plan-view h4, .ax-plan-instructions > h4 { margin: 0 0 8px; font-size: var(--font-size-md); font-weight: var(--font-weight-semibold); color: var(--foreground); }
 .ax-plan-view h5 { margin: 0 0 6px; font-size: var(--font-size-xs); font-weight: var(--font-weight-semibold); color: var(--foreground); }
 .ax-plan-block, .ax-plan-instructions { padding: 18px 0; border-top: 1px solid var(--border); }
-.ax-plan-context { margin: 0 0 12px; }
-.ax-plan-group + .ax-plan-group, .ax-plan-group + .ax-plan-details { margin-top: 14px; }
+.ax-plan-group + .ax-plan-group, .ax-plan-group + .ax-plan-data, .ax-plan-data + .ax-plan-group, .ax-plan-group + .ax-plan-note { margin-top: 14px; }
 .ax-view .ax-plan-list { margin: 0; padding: 0; list-style: none; font-size: var(--font-size-sm); line-height: 1.65; }
 .ax-plan-list li { display: grid; grid-template-columns: max-content minmax(0, 1fr); column-gap: 10px; align-items: baseline; overflow-wrap: anywhere; }
 .ax-plan-list li + li { margin-top: 2px; }
 .ax-plan-marker { white-space: nowrap; text-align: left; color: var(--muted-foreground); }
 .ax-plan-status { margin-left: 6px; padding: 1px 6px; border-radius: 4px; font-weight: var(--font-weight-medium); color: var(--warning-foreground, #8a5a00); background: color-mix(in srgb, var(--warning, #f5a524) 12%, transparent); }
-.ax-plan-details { margin-top: 8px; max-width: 36rem; }
-.ax-plan-details .ax-plan-detail { border: 0; }
-.ax-plan-details .ax-plan-detail-trigger { flex: initial; justify-content: flex-start; align-items: center; gap: .6rem; padding: .75em 0; min-height: calc(1lh + 2em); font-size: var(--font-size-sm); font-weight: var(--font-weight-regular); text-align: left; }
-.ax-plan-detail-count { color: var(--muted-foreground); font-size: var(--font-size-xs); }
-.ax-plan-detail-panel { padding: 0 0 .75em; }
+.ax-plan-data { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 16px; margin: 0; font-size: var(--font-size-sm); line-height: 1.6; }
+.ax-plan-data > div { display: contents; }
+.ax-plan-data dt { color: var(--muted-foreground); font-size: var(--font-size-xs); font-weight: var(--font-weight-semibold); line-height: 1.85; }
+.ax-plan-data dd { margin: 0; min-width: 0; color: var(--foreground); overflow-wrap: anywhere; }
+.ax-plan-note { margin: 0; color: var(--muted-foreground); font-size: var(--font-size-xs); }
 .ax-plan-instructions { min-width: 0; }
 @media(max-width: 700px) {
   .ax-package > button, .ax-tool-tabs [data-slot=tabs-content] > button { max-width: 100%; height: auto; min-height: 36px; white-space: normal; overflow-wrap: anywhere; }
