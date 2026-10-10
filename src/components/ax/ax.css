@@ -82,6 +82,9 @@
 /* AI 제안값 복원: outlined icon action on white, pale-blue hover; keeps the shared Button focus ring. */
 .ax-factor-control > .ax-factor-reset { background: var(--card); color: var(--muted-foreground); border-color: var(--border); }
 .ax-factor-control > .ax-factor-reset:not(:disabled):hover { background: var(--blue-soft); color: var(--primary); border-color: color-mix(in srgb, var(--primary) 30%, var(--border)); }
+@media(min-width: 1001px) {
+  .ax-factor-control { align-self: center; }
+}
 .ax-segments { display: flex; gap: 4px; }
 .ax-segments button { width: 18px; height: 24px; border-radius: 4px; background: var(--muted); cursor: pointer; }
 .ax-segments button.is-on { background: var(--ax-factor); }

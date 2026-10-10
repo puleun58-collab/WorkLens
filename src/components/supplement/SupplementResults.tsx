@@ -98,15 +98,8 @@ export function SupplementResults({ result, fileNames, renderSource }: {
               <ul className="supplement-coverage">
                 {result.coverage.map((entry) => (
                   <li key={entry.fileId}>
-                    <span className="supplement-coverage-count">{multipleFiles ? `${fileNames.get(entry.fileId) ?? entry.fileName} · ` : ""}{entry.kind.toUpperCase()} {entry.analyzed} / {entry.total} {entry.unit}</span>
-                    {entry.sheets ? (
-                      <small>{(["detailed", "limited", "structure", "failed"] as const)
-                        .map((status) => [status, entry.sheets!.filter((sheet) => sheet.status === status).length] as const)
-                        .filter(([, count]) => count > 0)
-                        .map(([status, count]) => `${SUPPLEMENT_SHEET_STATUS_LABELS[status]} ${count}`)
-                        .join(" · ")}</small>
-                    ) : null}
-                    {entry.notes.map((note) => <small key={note}>{note}</small>)}
+                    {multipleFiles && (!entry.complete || partialByDesign) ? <span>{fileNames.get(entry.fileId) ?? entry.fileName}</span> : null}
+                    {!entry.complete || partialByDesign ? entry.notes.map((note) => <small key={note}>{note}</small>) : null}
                     {entry.sheets ? (
                       <details className="supplement-sheets">
                         <summary>시트별 처리 상태</summary>
@@ -127,13 +120,6 @@ export function SupplementResults({ result, fileNames, renderSource }: {
             </dd>
           </div>
         </dl>
-        {result.resolvedCount + result.confirmedCount > 0 ? (
-          <p className="supplement-note">
-            {result.resolvedCount > 0 ? `같은 자료의 다른 위치에서 설명을 확인한 후보 ${result.resolvedCount}건` : ""}
-            {result.resolvedCount > 0 && result.confirmedCount > 0 ? ", " : ""}
-            {result.confirmedCount > 0 ? `다른 자료에서 확인한 후보 ${result.confirmedCount}건` : ""}은 결과에서 제외
-          </p>
-        ) : null}
         {result.semanticReview === "partial" ? (
           <p className="supplement-note">일부 항목은 의미 기반 재확인을 마치지 못했습니다. 다른 표현으로 설명된 내용이 있을 수 있습니다</p>
         ) : null}

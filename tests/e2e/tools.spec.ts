@@ -2043,7 +2043,10 @@ test("tool export selects align popup edges without overlapping triggers on desk
     for (const id of ["pdf-format", "pdf-scope", "pdf-compression"]) await checkPopup(id);
     await page.locator("#pdf-scope").focus();
     await page.keyboard.press("ArrowDown");
+    // Opening positions the popup and transfers focus asynchronously.
+    await expect(page.getByRole("option", { name: "전체 (3)", exact: true })).toBeFocused();
     await page.keyboard.press("End");
+    await expect(page.getByRole("option", { name: "선택 (1)", exact: true })).toBeFocused();
     await page.keyboard.press("Enter");
     await expect(page.locator("#pdf-scope")).toContainText("선택 (1)");
     await page.locator("#pdf-scope").click();
