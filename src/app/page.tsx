@@ -1220,7 +1220,7 @@ export default function Home() {
       if (supplementCancelled.current) {
         notifyView("warning", "보완 확인을 중지했습니다.", undefined, "재확인하지 못한 항목은 다른 위치에 설명이 있을 수 있습니다.");
       } else if (reviewFailure) {
-        notifyView("warning", "일부 항목의 재확인을 완료하지 못했습니다.", undefined, `${aiFailureDetail(reviewFailure)} · 다른 표현으로 설명된 내용이 있을 수 있습니다.`);
+        notifyView("warning", "일부 항목은 표현 방식 차이로 자동 확인이 충분하지 않을 수 있습니다. 근거를 함께 확인해 주세요.");
       } else {
         notifyView("success", "보완 항목 확인 완료");
       }
@@ -2949,7 +2949,7 @@ function CheckResults({ entries, fileNames, onSource, companyTerms, userTerms, i
 
   return (
     <div className="result-sections check-results">
-      <div className="check-summary-card">
+      <div className="check-summary">
       <section className="qa-overview" aria-label="검수 요약">
         <p className="qa-summary-line" aria-label="심각도 요약">
           <span>전체 <b>{active.length}</b></span>

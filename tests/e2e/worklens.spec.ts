@@ -3697,8 +3697,8 @@ test("보완 waits out a rate-limited re-check and still completes it, on deskto
     // The first answer was a 429; the batch was retried, so the re-check is complete, not partial.
     await expect.poll(() => calls).toBe(2);
     await expect(page.getByRole("button", { name: "보완 실행", exact: true })).toBeEnabled();
-    await expect(page.getByText("일부 항목의 재확인을 완료하지 못했습니다.")).toHaveCount(0);
-    await expect(page.locator(".supplement-results")).not.toContainText("의미 기반 재확인을 마치지 못했습니다");
+    await expect(page.getByText("일부 항목은 표현 방식 차이로 자동 확인이 충분하지 않을 수 있습니다.", { exact: false })).toHaveCount(0);
+    await expect(page.locator(".supplement-item .supplement-limitation").filter({ hasText: "의미 기반 재확인" })).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   }
 });
@@ -3714,7 +3714,7 @@ test("보완 gives up after three rate-limited attempts and says the re-check is
   });
   await page.goto("/");
   await runSupplementOn(page, deck);
-  await expect(page.getByText("일부 항목의 재확인을 완료하지 못했습니다.")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText("일부 항목은 표현 방식 차이로 자동 확인이 충분하지 않을 수 있습니다.", { exact: false })).toBeVisible({ timeout: 20_000 });
   expect(calls).toBe(3);
 });
 
