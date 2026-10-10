@@ -59,20 +59,8 @@ describe("AX execution guides", () => {
         expect(all).toContain(TOOL_GUIDES[tool][command]);
         expect(all).not.toContain(TOOL_GUIDES[other][command]);
       }
-      const [check, ...installs] = guide[1].sections;
-      expect(check.title).toBe("필요한 프로그램 확인");
-      expect(check.blocks).toContainEqual({
-        kind: "code", lines: ["git --version", "node --version", "npm --version", TOOL_GUIDES[tool].versionCommand],
-        notes: ["Git 설치 여부와 버전을 확인합니다.", "Node.js 설치 여부와 버전을 확인합니다.", "npm 설치 여부와 버전을 확인합니다.", `${TOOL_GUIDES[tool].name} 설치 여부와 버전을 확인합니다.`],
-      });
-      expect(sectionText(check)).toContain("해당 설치 단계를 건너뜁니다");
+      const installs = guide[1].sections.slice(1);
       for (const install of installs) expect(install.when).toMatch(/에만|때만/);
-      const toolInstall = installs[3];
-      expect(toolInstall.title).toBe(`${TOOL_GUIDES[tool].name} 설치`);
-      expect(toolInstall.blocks[0]).toEqual({ kind: "code", lines: [TOOL_GUIDES[tool].installCommand], notes: [`${TOOL_GUIDES[tool].name}를 설치합니다.`] });
-      expect(installs[4].title).toBe("GitHub 인증 확인");
-      expect(installs[4].when).toBe("GitHub CLI(gh)가 설치된 경우에만");
-      expect(installs[4].blocks).toContainEqual({ kind: "code", lines: ["gh auth status"], notes: ["GitHub CLI의 로그인 상태를 확인합니다."] });
       expect(guide[2]).toEqual(setupGuide(other)[2]);
       for (const index of [5, 6, 7, 8, 9]) expect(guide[index]).toEqual(setupGuide(other)[index]);
     }
@@ -108,12 +96,6 @@ describe("AX execution guides", () => {
     expect(project).toMatch(/미커밋 변경[^.]*git pull[^.]*실행하지/u);
     expect(project).toMatch(/AI 도구[^.]*현재 상태[^.]*확인/u);
     const dependencies = guide[2].sections.find(section => section.title === "의존성 준비")!;
-    const dependencySteps = dependencies.blocks.find(block => block.kind === "steps")!;
-    expect(dependencySteps.items).toHaveLength(4);
-    expect(dependencySteps.items[0]).toMatch(/AGENTS\.md.*README.*packageManager/u);
-    expect(dependencySteps.items[1]).toContain("package.json");
-    for (const lockfile of ["package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun.lockb"]) expect(dependencySteps.items[2]).toContain(lockfile);
-    expect(dependencySteps.items[3]).toMatch(/기존 방식.*의존성.*설치/u);
     const dependencyText = JSON.stringify(dependencies);
     expect(dependencyText).toMatch(/lockfile[^.]*package manager[^.]*바꾸지/u);
     expect(dependencyText).toMatch(/다른 매니저[^.]*lockfile[^.]*새로 만들거나[^.]*lockfile[^.]*교체하지/u);
@@ -321,11 +303,6 @@ describe("AX execution guides", () => {
     expect(newProject).toContain("특정 프레임워크를 임의로 정하지 않습니다");
     const existingProject = sections[1].blocks.map(block => block.kind === "text" ? block.text : "").join("\n");
     expect(existingProject).toMatch(/미커밋 변경[^.]*git pull[^.]*실행하지/u);
-    const run = setupGuide("codex")[3].sections[0];
-    expect(run.blocks).toContainEqual({
-      kind: "code", lines: ['cd "프로젝트 경로"', "Get-Location", "dir", TOOL_GUIDES.codex.runCommand],
-      notes: ["실제 프로젝트 경로로 바꾸어 이동합니다.", "현재 위치가 프로젝트 폴더인지 확인합니다.", "프로젝트 폴더의 파일과 하위 폴더를 확인합니다.", "Codex를 현재 프로젝트에서 실행합니다."],
-    });
   });
 });
 

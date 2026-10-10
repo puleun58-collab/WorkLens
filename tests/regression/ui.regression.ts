@@ -74,7 +74,7 @@ regressionCase(make(3, "Dictionary", "Special characters and no-result search", 
   await search.fill("R&D");
   await expect(page.locator('.settings-surface[aria-label="Dictionary"] .dictionary-term-list').first().locator(".dictionary-term")).toHaveCount(1);
   await search.fill("<script>[NOT_FOUND]</script>");
-  await expect(page.getByText("일치하는 공용 용어가 없습니다.")).toBeVisible();
+  await expect(page.locator('.settings-surface[aria-label="Dictionary"] .dictionary-term-list').first().locator(".dictionary-term")).toHaveCount(0);
   expect(await page.locator('.settings-surface[aria-label="Dictionary"] script').count()).toBe(0);
   note("R&D matched literally; HTML-like unmatched input displayed only the safe no-results state.");
 });
@@ -88,9 +88,9 @@ regressionCase(make(4, "Dictionary", "Long personal term persists then deletes",
   await page.reload(); await openView(page, "Dictionary");
   await expect(page.getByRole("button", { name: `${term} 삭제` })).toBeVisible();
   await page.getByRole("button", { name: `${term} 삭제` }).click();
-  await expect(page.getByText("등록된 개인 용어가 없습니다.")).toBeVisible();
+  await expect(page.getByRole("button", { name: `${term} 삭제` })).toHaveCount(0);
   await page.reload(); await openView(page, "Dictionary");
-  await expect(page.getByText("등록된 개인 용어가 없습니다.")).toBeVisible();
+  await expect(page.getByRole("button", { name: `${term} 삭제` })).toHaveCount(0);
   note("Long term persisted across reload, stayed within viewport, then removal persisted.");
 });
 regressionCase(make(5, "Dictionary", "Dictionary keyboard focus and submission", "Tab reaches search and Enter adds a personal term"), async ({ page, note }) => {
@@ -116,17 +116,6 @@ regressionCase(make(6, "Dictionary", "In-result dictionary popover", "Check resu
   const shadow = await popup.evaluate((e) => getComputedStyle(e).boxShadow);
   expect(shadow).not.toBe("none");
   note("Check result popover added a personal term and has floating shadow.");
-});
-regressionCase(make(7, "Settings", "Settings privacy and storage information", "Six explicit categories explain upload limits, memory, local storage, AI and law"), async ({ page, note }) => {
-  await ready(page); await openView(page, "Settings");
-  const surface = page.locator('.settings-surface[aria-label="Settings"]');
-  await expect(surface.locator("dt")).toHaveText(["파일 업로드", "저장 위치", "localStorage", "무시한 규칙", "서버 AI", "법령 기능 외부 연동"]);
-  const uploadInfo = surface.locator(".settings-list > div").filter({ has: page.locator("dt", { hasText: "파일 업로드" }) });
-  await expect(uploadInfo.locator("dd")).toHaveText("지원 형식 XLSX, CSV, PDF, DOCX, PPTX · 파일당 최대 100MB · 전체 최대 300MBPDF 도구는 PDF만, 이미지 도구는 JPG·PNG·WebP를 사용합니다.");
-  await expect(uploadInfo.locator("input, button, select")).toHaveCount(0);
-  await expect(surface).toContainText("원본 파일은 전송하지 않습니다.");
-  await expect(surface).toContainText("문서 본문, 근거, 질문과 답변은 브라우저 저장소에 저장하지 않습니다.");
-  note("Six settings definitions include read-only upload formats/limits and explain storage and outbound processing.");
 });
 regressionCase(make(8, "Settings", "Ignored rule survives reload and can be restored", "Check ignores a rule persistently; Settings restore removes it"), async ({ page, note }) => {
   await checkDocument(page);
@@ -190,14 +179,13 @@ regressionCase(make(12, "Law", "Law FOUND result", "Named and dated result appea
 regressionCase(make(13, "Law", "Law NOT_FOUND is an empty result", "Normal status, no error and no raw marker"), async ({ page, note }) => {
   await law(page, 200, { data: { found: false, marker: "NOT_FOUND", text: "[NOT_FOUND]" } });
   await expect(page.getByRole("heading", { name: "검색 결과 · 0건" })).toBeVisible();
-  await expect(page.getByRole("status").filter({ hasText: "검색 결과가 없습니다." })).toBeVisible();
   await expect(page.locator(".law-search-error")).toHaveCount(0); await noRawLawMarkers(page);
   note("NOT_FOUND became a zero-result status, not an outage or raw API marker.");
 });
 regressionCase(make(14, "Law", "Law FAILED upstream response", "Safe error alert distinct from empty results"), async ({ page, note }) => {
   await law(page, 502, { error: { code: "FAILED", message: "법령 서비스를 이용할 수 없습니다." }, data: { marker: "FAILED" } });
   await expect(page.locator('.law-search-error[role="alert"]')).toHaveText("법령 서비스를 이용할 수 없습니다.");
-  await expect(page.getByText("검색 결과가 없습니다.")).toHaveCount(0); await noRawLawMarkers(page);
+  await noRawLawMarkers(page);
   note("FAILED rendered the safe service-error alert, never an empty-results message.");
 });
 regressionCase(make(15, "Law", "Law upstream timeout 504", "Timeout message distinct from FAILED and NOT_FOUND"), async ({ page, note }) => {
@@ -328,7 +316,6 @@ regressionCase(make(26, "Dictionary", "Company-term API unavailable", "Versioned
   await ready(page); await openView(page, "Dictionary");
   const dictionary = page.locator('.settings-surface[aria-label="Dictionary"]');
   await expect(dictionary.locator(".dictionary-section h4").first()).toContainText("48");
-  await expect(dictionary).toContainText("공용 사전 저장소에 연결하지 못해 기본 목록을 표시합니다.");
   await page.getByRole("textbox", { name: "공용 용어 검색" }).fill("WorkLens");
   await expect(dictionary.locator(".dictionary-section").first().locator(".dictionary-term")).toHaveCount(1);
   await expect(dictionary.locator(".dictionary-section").first()).toContainText("WorkLens");

@@ -120,7 +120,7 @@ export function AxCopyButton({ text, label, iconOnly = false }: { text: string; 
     }
   }
   return <>
-    <span className="sr-only" aria-live="polite">{copied ? "복사했습니다." : ""}</span>
+    <span className="sr-only" aria-live="polite">{copied ? "복사 완료" : ""}</span>
     <Button type="button" variant={iconOnly ? "ghost" : "default"} size={iconOnly ? "icon-xs" : "default"} className={iconOnly ? "ax-guide-copy-button" : "ax-copy-button"} data-copied={copied ? "true" : undefined} aria-label={label} onClick={() => void copy()}>{copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}{iconOnly ? null : "복사"}</Button>
     {failed ? <p className="ax-copy-error" role="status">복사하지 못했습니다. 직접 선택해 복사해주세요.</p> : null}
   </>;
@@ -161,9 +161,9 @@ function AxGuideSectionView({ section, completion = false, warning = false, coll
 }
 
 const SETUP_COURSES = [
-  { title: "처음 한 번 준비", description: "설치 여부부터 확인하고 필요한 도구만 준비합니다.", Icon: Download, first: 1, last: 1 },
-  { title: "프로젝트 작업", description: "프로젝트를 열고 AI 작업과 실제 결과를 확인합니다.", Icon: Folder, first: 2, last: 5 },
-  { title: "GitHub·배포", description: "안전하게 저장한 뒤 배포와 실제 서비스를 확인합니다.", Icon: CloudUpload, first: 6, last: 9 },
+  { title: "처음 한 번 준비", description: "설치 여부 확인 후 필요한 도구만 준비", Icon: Download, first: 1, last: 1 },
+  { title: "프로젝트 작업", description: "프로젝트 열기 → AI 작업 → 실제 결과 확인", Icon: Folder, first: 2, last: 5 },
+  { title: "GitHub·배포", description: "안전하게 저장 → 배포 → 실제 서비스 확인", Icon: CloudUpload, first: 6, last: 9 },
 ] as const;
 const SETUP_ICONS = [Download, Folder, Terminal, Clipboard, CheckCircle2, ShieldCheck, GitBranch, CloudUpload, Globe] as const;
 const SETUP_COMPLETIONS = new Set(["GitHub 인증 확인", "현재 위치 확인", "작업 시작 전 AI가 먼저 확인할 것", "테스트·빌드 확인", "실제 기능 확인", "GitHub에서 확인할 것", "실제 서비스 확인"]);
@@ -178,7 +178,7 @@ function AxSetupGuide({ tool }: { tool: AxToolId }) {
   const title = (value: string) => value.replace(/^STEP \d+ · /, "");
   function goToStep(index: number) {
     const heading = root.current?.querySelector<HTMLElement>(`[data-setup-step="${index + 1}"] > h4`);
-    heading?.scrollIntoView({ block: "start" });
+    heading?.scrollIntoView({ behavior: "instant", block: "start" });
     heading?.focus({ preventScroll: true });
   }
   return <div className="ax-setup-tutorial" ref={root}>
@@ -274,23 +274,28 @@ function AxPlanOverview({ diagnosis, profile, view, toolView }: { diagnosis: AxD
       {view.data.map(row => <AxPlanGroup key={row.label} title={row.label} items={row.items} />)}
       {toolView?.data.map(row => <AxPlanGroup key={row.label} title={`생성 계획의 ${row.label}`} items={proposalItems(row.items)} />)}
       <AxPlanGroup title="사전 검증" items={proposalItems(toolView?.poc)} />
-      <AxPlanGroup title="진행 순서" items={view.steps} />
-      <AxPlanGroup title={profile.level === 0 || profile.gate !== "ready" ? "생성 계획의 구현 순서 · 현재 실행 범위 아님" : "생성 계획의 구현 순서 · 진단 범위 내에서 검토"} items={proposalItems(toolView?.steps)} />
-      {planNotes.length ? <AxPlanDetails details={planNotes.map(detail => ({ ...detail, items: proposalItems(detail.items) })).filter(detail => detail.items.length > 0)} /> : null}
+      <AxPlanDetails details={[
+        { title: "구현 순서 상세", items: view.steps },
+        { title: profile.level === 0 || profile.gate !== "ready" ? "생성 계획의 구현 순서 · 현재 실행 범위 아님" : "생성 계획의 구현 순서 · 진단 범위 내에서 검토", items: proposalItems(toolView?.steps) },
+        ...planNotes.map(detail => ({ ...detail, items: proposalItems(detail.items) })),
+      ].filter(detail => detail.items.length > 0)} />
     </section>
     <section className="ax-plan-block" aria-label="03 완료 기준"><h4>03 완료 기준</h4>
-      <AxPlanGroup title="검증" items={view.tests} />
-      <AxPlanGroup title="생성 계획의 검증" items={proposalItems(toolView?.tests)} />
       <AxPlanGroup title="성공·실패 기준" items={view.acceptance} />
       <AxPlanGroup title="생성 계획의 완료 조건" items={proposalItems(toolView?.acceptance)} />
-      {view.humanKept.length ? <p>담당자 검토·승인은 01 구현 범위의 담당자 수행 단계대로 유지합니다.</p> : null}
+      {view.humanKept.length ? <p>담당자 검토·승인 유지 · 01 구현 범위의 담당자 수행 단계 기준</p> : null}
       <AxPlanGroup title="예외·위험" items={view.exceptions} />
       <AxPlanGroup title="생성 계획의 예외" items={proposalItems(toolView?.exceptions)} />
       {toolView?.details.filter(detail => detail.title !== "기타 구현 참고").map(detail => <AxPlanGroup key={detail.title} title={`생성 계획의 ${detail.title}`} items={proposalItems(detail.items)} />)}
+      <AxPlanDetails details={[
+        { title: "검증 절차 상세", items: view.tests },
+        { title: "생성 계획의 검증", items: proposalItems(toolView?.tests) },
+      ].filter(detail => detail.items.length > 0)} />
     </section>
   </div>;
 }
 function AxPlanDetails({ details }: { details: AxPlanView["details"] }) {
+  if (!details.length) return null;
   return <Accordion className="ax-plan-details" multiple>{details.map(detail => <AccordionItem key={detail.title} value={detail.title} className="ax-plan-detail">
     <AccordionTrigger className="ax-plan-detail-trigger"><span className="ax-plan-detail-title">{detail.title}</span><span className="ax-plan-detail-count">{detail.items.length}건</span></AccordionTrigger>
     <AccordionPanel className="ax-plan-detail-panel"><AxPlanList items={detail.items} /></AccordionPanel>
@@ -300,7 +305,7 @@ function AxPrompt({ prompt, name }: { prompt: string; name: string }) {
   const [expanded, setExpanded] = useState(false);
   const contentId = useId();
   return <>
-    <pre id={contentId} className="ax-prompt" data-expanded={expanded ? "true" : "false"}>{prompt}</pre>
+    <pre id={contentId} className="ax-prompt" hidden={!expanded} data-expanded={expanded ? "true" : "false"}>{prompt}</pre>
     <div className="ax-prompt-actions">
       <Button type="button" variant="outline" className="ax-prompt-toggle" aria-expanded={expanded} aria-controls={contentId} onClick={() => setExpanded(value => !value)}>{expanded ? "전체 접기" : "전체 보기"}</Button>
       <AxCopyButton text={prompt} label={`${name}용 지시문 복사`} />
@@ -311,7 +316,7 @@ export function AxExecutionPackage({ plan, target, taskName, taskContext, prereq
   const name = TOOL_GUIDES[target].name;
   const prompt = buildAllInOnePrompt(plan, target, { taskName, prerequisites, diagnosis, context: taskContext });
   return <div className="ax-package">
-    <p className="ax-muted">{name}용 전체 지시문 · 펼치지 않아도 전문을 복사할 수 있습니다.</p>
+    <p className="ax-muted">{name}용 전체 지시문 · 접힌 상태에서도 원문 복사</p>
     <AxPrompt key={prompt} prompt={prompt} name={name} />
   </div>;
 }
@@ -340,7 +345,7 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
       {!plans.codex && !plans.claude ? <div className="ax-actions">{generateButton("codex")}{generateButton("claude")}</div> : null}
     </>}
     <section className="ax-plan-instructions" aria-label="04 코딩 에이전트 지시문"><h4>04 코딩 에이전트 지시문</h4>
-      {gate === "blocked" ? <p role="status" className="ax-notice">현재 진단에서는 구현 계획을 생성할 수 없습니다.</p> : <>
+      {gate === "blocked" ? <p role="status" className="ax-notice">현재 진단에서는 구현 계획 생성 불가</p> : <>
         {plans.codex || plans.claude ?
           <Tabs className="ax-tool-tabs" value={activeTool} onValueChange={value => { if (value === "codex" || value === "claude") setSelectedTool(value); }}>
             <div className="ax-plan-toolbar">
@@ -351,8 +356,8 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
                 </AccordionPanel></AccordionItem>
               </Accordion>
             </div>
-            {(["codex", "claude"] as const).map(target => <TabsPanel key={target} value={target}>{target === activeTool ? plans[target] ? <><p className="ax-plan-tool-hint">{TOOL_GUIDES[target].name}에서 현재 프로젝트를 열고 아래 지시문을 붙여넣으세요.</p><AxExecutionPackage plan={plans[target]} target={target} taskName={taskName} taskContext={taskContext} prerequisites={prerequisites} diagnosis={diagnosis} /></> : <><p>{TOOL_GUIDES[target].name}용 구현 계획을 생성하면 올인원 지시문을 확인할 수 있습니다.</p>{generateButton(target)}</> : null}</TabsPanel>)}
-          </Tabs> : <p className="ax-muted">도구별 구현 계획을 생성하면 지시문을 확인할 수 있습니다.</p>}
+            {(["codex", "claude"] as const).map(target => <TabsPanel key={target} value={target}>{target === activeTool ? plans[target] ? <><p className="ax-plan-tool-hint">{TOOL_GUIDES[target].name}에서 현재 프로젝트를 열고 지시문 붙여넣기</p><AxExecutionPackage plan={plans[target]} target={target} taskName={taskName} taskContext={taskContext} prerequisites={prerequisites} diagnosis={diagnosis} /></> : <><p>{TOOL_GUIDES[target].name}용 구현 계획 생성 후 올인원 지시문 확인</p>{generateButton(target)}</> : null}</TabsPanel>)}
+          </Tabs> : <p className="ax-muted">도구별 구현 계획 생성 후 지시문 확인</p>}
       </>}
     </section>
   </section>;

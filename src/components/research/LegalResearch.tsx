@@ -44,14 +44,14 @@ interface TaskResult {
 const FILE_READ_ERROR = "작업 파일을 읽지 못했습니다. 파일을 다시 올린 뒤 실행하세요.";
 
 const TASK_HELP: Record<LawResearchTask, { description: string; placeholder: string }> = {
-  full_research: { description: "질문이나 상황을 바탕으로 관련 법령·판례·결정례를 함께 조사합니다.", placeholder: "예: 회사에서 업무와 관련해 지속적으로 모욕을 당했는데 어떤 법적 기준을 살펴봐야 하나요?" },
-  law_system: { description: "한 법령의 법률·시행령·시행규칙 관계를 함께 확인합니다.", placeholder: "예: 개인정보 보호법 제38조와 시행령의 관계" },
-  action_basis: { description: "처분 또는 허가의 근거 조문과 확인 가능한 불복 자료를 찾습니다.", placeholder: "예: 식품위생법상 영업정지의 근거와 요건" },
-  dispute_prep: { description: "분쟁 상황을 설명하고 관련 법령·판례·결정례를 함께 조사합니다.", placeholder: "예: 부당해고 구제 신청 관련 판례와 결정례" },
-  amendment_track: { description: "특정 법령의 개정 이력과 두 시점의 조문 차이를 조사합니다.", placeholder: "예: 근로기준법 제60조 개정 내용" },
-  ordinance_compare: { description: "두 지역의 같은 주제 조례를 찾아 확인된 조문 원문을 비교합니다.", placeholder: "예: 주차장 설치 기준" },
-  procedure_detail: { description: "절차의 근거 조문과 제출 서식을 찾아 확인합니다.", placeholder: "예: 행정심판 청구 절차와 제출서류" },
-  document_review: { description: "입력한 문서의 조항별 쟁점과 확인된 근거를 검토합니다.", placeholder: "계약서 또는 약관 등의 내용을 붙여 넣으세요." },
+  full_research: { description: "질문·상황과 관련된 법령·판례·결정례 조사", placeholder: "예: 회사에서 업무와 관련해 지속적으로 모욕을 당했는데 어떤 법적 기준을 살펴봐야 하나요?" },
+  law_system: { description: "한 법령의 법률·시행령·시행규칙 관계 확인", placeholder: "예: 개인정보 보호법 제38조와 시행령의 관계" },
+  action_basis: { description: "처분·허가의 근거 조문과 확인 가능한 불복 자료 검색", placeholder: "예: 식품위생법상 영업정지의 근거와 요건" },
+  dispute_prep: { description: "분쟁 상황과 관련된 법령·판례·결정례 조사", placeholder: "예: 부당해고 구제 신청 관련 판례와 결정례" },
+  amendment_track: { description: "법령 개정 이력과 두 시점의 조문 차이 조사", placeholder: "예: 근로기준법 제60조 개정 내용" },
+  ordinance_compare: { description: "두 지역의 같은 주제 조례와 확인된 조문 원문 비교", placeholder: "예: 주차장 설치 기준" },
+  procedure_detail: { description: "절차의 근거 조문과 제출 서식 확인", placeholder: "예: 행정심판 청구 절차와 제출서류" },
+  document_review: { description: "입력한 문서의 조항별 쟁점과 확인된 근거 검토", placeholder: "계약서 또는 약관 등의 내용을 붙여 넣으세요" },
 };
 
 /** 법제처 status plus the article's 시행일; only `current` means in force today. */
@@ -333,7 +333,7 @@ export function LegalResearch({ workspace, initialTask = "full_research" }: { wo
         <Input id="research-articles" type="text" value={draft.articles} placeholder="예: 제38조, 제39조" onChange={(event) => update("articles", event.target.value)} />
       </label>}
       {task === "ordinance_compare" && <label htmlFor="research-parent-law" className="legal-research-single">관련 상위 법령 (선택)
-        <Input id="research-parent-law" type="text" value={draft.parentLaw} maxLength={LAW_RESEARCH_NAME_MAX_CHARS} placeholder="요청에 법령이 명시된 경우에만 입력하세요. 예: 주차장법" onChange={(event) => update("parentLaw", event.target.value)} />
+        <Input id="research-parent-law" type="text" value={draft.parentLaw} maxLength={LAW_RESEARCH_NAME_MAX_CHARS} placeholder="요청에 법령이 명시된 경우만 입력 · 예: 주차장법" onChange={(event) => update("parentLaw", event.target.value)} />
       </label>}
       {task === "ordinance_compare" && <>
         <div className="legal-analysis-fields legal-research-dates legal-research-regions">
@@ -524,12 +524,12 @@ function SupplementView({ supplement, hasArticles, excluded }: { supplement: Non
   if (!articles.length) {
     if (supplement.articles.length || hasArticles || supplement.status === "not_searched") return null;
     return <div className="legal-analysis-section" data-kind="supplement" data-status={supplement.status}>
-      <p className="research-meta">{supplement.status === "failed" ? "관련 조문 추가 조회에 실패했습니다." : "관련 법령을 충분히 확인하지 못했습니다."}</p>
+      <p className="research-meta">{supplement.status === "failed" ? "관련 조문 추가 조회 실패" : "관련 법령을 충분히 확인하지 못했습니다"}</p>
     </div>;
   }
   return <div className="legal-analysis-section" data-kind="supplement" data-status={supplement.status}>
     <h3>질문 용어가 제목에 있는 조문 <span className="research-meta">{articles.length}건</span></h3>
-    <p className="research-meta">질문의 용어가 조문 제목에 있는 조문을 법제처에서 추가로 조회했습니다.</p>
+    <p className="research-meta">질문 용어가 제목에 포함된 조문을 법제처에서 추가 조회</p>
     <ul className="research-hits">{articles.map((article) => {
       const effective = formatDate(article.effectiveDate);
       return <li key={`${article.law}-${article.jo}`}>
@@ -555,16 +555,16 @@ const ISSUE_GAP: Record<IssueEvidence["status"], string> = {
 const STATUS_NOTE: Record<Exclude<ResearchSection["status"], "available">, string> = {
   not_found: "자료 없음",
   failed: "불러오지 못했습니다",
-  timeout: "조회를 마치지 못했습니다",
+  timeout: "조회 미완료",
 };
 
 /** Top notice only for sections that failed or timed out; an empty search is a normal result. */
 function partialNotice(sections: readonly ResearchSection[]): string | null {
   const failed = sections.some((section) => section.status === "failed");
   const timeout = sections.some((section) => section.status === "timeout");
-  if (failed && timeout) return "일부 자료를 확인하지 못해 현재 조회된 결과만 표시합니다.";
-  if (failed) return "일부 자료를 불러오지 못했습니다. 확인된 자료를 기준으로 결과를 표시합니다.";
-  if (timeout) return "일부 자료 조회가 완료되지 않아 확인된 결과만 표시합니다.";
+  if (failed && timeout) return "일부 자료를 확인하지 못해 현재 조회된 결과만 표시합니다";
+  if (failed) return "일부 자료를 불러오지 못했습니다. 확인된 자료를 기준으로 결과를 표시합니다";
+  if (timeout) return "일부 자료 조회가 완료되지 않아 확인된 결과만 표시합니다";
   return null;
 }
 
@@ -585,7 +585,7 @@ function ResearchSectionView({ section, task, relevance, retried }: {
     }
     return <div className={className} data-kind={section.kind} data-status={section.status}>
       {heading && <h3>{heading}<span className="research-meta"> {found.entries.length}건</span></h3>}
-      <p className="research-meta">질문의 핵심어로 다시 찾은 자료입니다. 사건과의 관련성은 원문으로 확인해 주세요.</p>
+      <p className="research-meta">질문의 핵심어로 다시 찾은 자료입니다. 사건과의 관련성은 원문으로 확인해 주세요</p>
       <DecisionList entries={found.entries} />
     </div>;
   }
@@ -603,7 +603,7 @@ function ResearchSectionView({ section, task, relevance, retried }: {
     })}</ul>;
     return <div className={className} data-kind={section.kind}>
       <h3>관련 조문 <span className="research-meta">{articles.length}건</span></h3>
-      <p className="research-meta">조문 발췌입니다. 실제 적용 여부는 사실관계와 법령 원문으로 확인해 주세요.</p>
+      <p className="research-meta">조문 발췌입니다. 실제 적용 여부는 사실관계와 법령 원문으로 확인해 주세요</p>
       {items(0, 3)}
       {articles.length > 3 && <details className="law-detail-source research-more"><SourceToggleSummary label={`나머지 조문 ${articles.length - 3}건 보기`} openLabel="나머지 조문 접기" />{items(3, articles.length)}</details>}
     </div>;
@@ -618,10 +618,10 @@ function ResearchSectionView({ section, task, relevance, retried }: {
     const rest = shown.slice(DECISION_PREVIEW);
     return <div className={className} data-kind={section.kind}>
       <h3>{heading} <span className="research-meta">{entries.length}건</span></h3>
-      {rated && <p className="research-meta">판시사항을 기준으로 질문과 관련성이 높은 판례를 먼저 보여줍니다.</p>}
+      {rated && <p className="research-meta">판시사항을 기준으로 관련성이 높은 판례부터 표시</p>}
       {shown.length > 0
         ? <DecisionList entries={shown.slice(0, DECISION_PREVIEW)} />
-        : <p className="research-meta research-empty">관련성이 높은 판례를 충분히 확인하지 못했습니다.</p>}
+        : <p className="research-meta research-empty">관련성이 높은 판례를 충분히 확인하지 못했습니다</p>}
       {rest.length > 0 && <details className="law-detail-source research-more">
         <SourceToggleSummary label={`판례 ${rest.length}건 더 보기`} openLabel="판례 접기" />
         <DecisionList entries={rest} />
@@ -740,9 +740,9 @@ function ResearchResult({ data, request, expandSources = false, onExpandSourcesC
   const full = data.task === "full_research";
   const issueEvidence = full ? data.evidence?.issues ?? [] : [];
   const notice = partialNotice(result.sections)
-    ?? (full && data.evidence?.searchFailed ? "종합 검색 결과를 불러오지 못해 쟁점별로 확인한 자료만 표시합니다."
+    ?? (full && data.evidence?.searchFailed ? "종합 검색 결과를 불러오지 못해 쟁점별로 확인한 자료만 표시합니다"
       : issueEvidence.some((issue) => issue.status === "failed" || issue.status === "timeout")
-        ? "일부 쟁점의 자료를 확인하지 못했습니다. 확인된 자료를 기준으로 결과를 표시합니다." : null);
+        ? "일부 쟁점의 자료를 확인하지 못했습니다. 확인된 자료를 기준으로 결과를 표시합니다" : null);
   const interpretation = full && data.interpretation?.original === (request.task === "document_review" ? "" : request.query) ? data.interpretation : undefined;
   const primary = result.sections.filter((section) => !isSupportingSection(section)
     && !/^\s*(?:STEP\s*\d+|(?:OPEN\s+)?API\b)/iu.test(section.heading ?? "")
@@ -837,7 +837,7 @@ function ResearchResult({ data, request, expandSources = false, onExpandSourcesC
       <div className="research-evidence-heading">
         <h3>{issueEvidence.length ? <>확인된 쟁점 <span className="research-meta">{issueEvidence.length}건</span></> : "확인한 근거"}</h3>
       </div>
-      <p className="research-meta">질문 쟁점과 내용이 맞는 법제처 자료입니다. 법령의 적용 여부나 판결의 결론까지 확인했다는 뜻은 아닙니다.</p>
+      <p className="research-meta">질문 쟁점과 내용이 맞는 법제처 자료입니다. 법령의 적용 여부나 판결의 결론까지 확인했다는 뜻은 아닙니다</p>
       {hasIssueReferences && <div className="research-evidence-heading">
         <h3 id="research-details-heading">상세 근거</h3>
         <Button type="button" variant="ghost" size="xs" className="research-expand" aria-describedby="research-details-heading" aria-pressed={allReferencesOpen}
@@ -873,7 +873,7 @@ function ResearchResult({ data, request, expandSources = false, onExpandSourcesC
             <span className="research-meta">{[entry.caseNumber && `사건번호 ${entry.caseNumber}`, entry.body, date && `선고·회신 ${date}`].filter(Boolean).join(" · ")}</span>
             {excerpt
               ? <LawTextBlock className="legal-analysis-raw" text={excerpt} />
-              : <p className="research-meta">판시사항 발췌를 표시할 수 없습니다. 아래 조회 원자료도 대조해 주세요.</p>}
+              : <p className="research-meta">판시사항 발췌를 표시할 수 없습니다. 아래 조회 원자료도 대조해 주세요</p>}
           </li>;
         };
         const groups: IssueEvidence[] = issueEvidence.length ? issueEvidence
@@ -930,7 +930,7 @@ function ResearchResult({ data, request, expandSources = false, onExpandSourcesC
           })}
         </tbody>
       </table></div>
-      <p className="research-meta">조문은 법제처 자치법규 원문에서 조회했습니다. 나란히 놓인 원문은 차이의 법적 의미를 판단한 결과가 아닙니다.</p>
+      <p className="research-meta">조문은 법제처 자치법규 원문에서 조회했습니다. 나란히 놓인 원문은 차이의 법적 의미를 판단한 결과가 아닙니다</p>
     </section>}
     {taskGroups.map((group) => {
       const sections = candidatePrimary.filter((section) => groupOf(section, data.task) === group);
@@ -961,7 +961,7 @@ function ResearchResult({ data, request, expandSources = false, onExpandSourcesC
     </section>}
     <details className="law-detail-source research-source" open={full ? undefined : expandSources}>
       <SourceToggleSummary label="출처 원문 전체 보기" openLabel="출처 원문 접기" />
-      <p className="research-meta">법제처에서 받은 원문 그대로입니다. 인용 전에 시행 시점을 대조해 주세요.</p>
+      <p className="research-meta">법제처에서 받은 원문 그대로입니다. 인용 전에 시행 시점을 대조해 주세요</p>
       <LawTextBlock className="legal-analysis-raw" text={readerText(data.text)} />
     </details>
     <p className="legal-analysis-note">조회 경로: {result.sources.map((source) => source.replace(" OPEN API", "")).join(" · ")}. {RESULT_NOTE}</p>

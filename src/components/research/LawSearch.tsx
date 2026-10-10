@@ -264,7 +264,7 @@ function LawPane({ onRelated, onAnalysis }: LawPaneProps) {
             }} />
             <Button type="submit" className="law-search-button" disabled={detailLoading}>조문 보기</Button>
           </div>
-          {articleInputError && <p className="law-search-error" role="alert">조문 번호를 제74조 또는 제10조의2 형식으로 입력하세요.</p>}
+          {articleInputError && <p className="law-search-error" role="alert">조문 번호 형식: 제74조 또는 제10조의2</p>}
         </form>
         {activeJo && overview && <Button variant="link" type="button" className="law-detail-return h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" onClick={backToOverview}>
           {overview.mode === "toc" ? "← 목차로" : "← 법령 원문으로"}
@@ -275,7 +275,7 @@ function LawPane({ onRelated, onAnalysis }: LawPaneProps) {
             <Button variant="link" type="button" className="h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" onClick={() => void loadText(selected, activeJo)}>다시 시도</Button>
           </div>
           : detail?.kind === "missing" ? <div className="law-detail-feedback" role="status">
-            <p className="law-search-note">요청한 {activeJo ? "조문" : "법령 원문"}을 찾을 수 없습니다.</p>
+            <p className="law-search-note">요청한 {activeJo ? "조문" : "법령 원문"}을 찾을 수 없습니다</p>
           </div>
           : detail?.kind === "found" ? <div className="law-detail-content">
             <h3 className={activeJo ? undefined : "law-detail-section-heading"}>{activeJo ?? (detail.data.mode === "toc" ? "목차" : "법령 원문")}</h3>
@@ -314,7 +314,7 @@ function LawPane({ onRelated, onAnalysis }: LawPaneProps) {
     {!searchLoading && outcome && <section className="law-search-results" aria-labelledby="law-results-heading">
       <h2 id="law-results-heading">검색 결과{outcome.kind === "found" ? <span className="law-section-count"> · {outcome.laws.length}건</span> : outcome.kind === "empty" ? <span className="law-section-count"> · 0건</span> : null}</h2>
       {outcome.kind === "error" ? <p className="law-search-error law-operation-error" role="alert">{outcome.message}</p>
-        : outcome.kind === "empty" ? <p className="law-search-note" role="status">검색 결과가 없습니다. 다른 법령명이나 키워드로 검색해보세요.</p>
+        : outcome.kind === "empty" ? <p className="law-search-note" role="status">검색 결과 없음 · 다른 법령명이나 키워드로 검색해 보세요</p>
         : <ul className="law-search-list">
           {outcome.laws.map((law, index) => {
             const effective = formatLawDate(law.effectiveDate);

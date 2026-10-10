@@ -11,6 +11,10 @@
 .tool-export-settings { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; min-width: 0; margin-left: auto; }
 .tool-export-settings label { min-width: 128px; color: var(--muted); font-size: 12px; font-weight: 600; }
 
+/* Export selects share COSS trigger styling and one portal-safe option surface. */
+.tool-export-select-list { max-width: var(--available-width); }
+.tool-export-select-list [data-slot="select-item"][data-selected] { background: var(--accent); color: var(--accent-foreground); }
+
 @media (max-width: 760px) {
   .tool-export { align-items: stretch; }
   .tool-export-settings { margin: 0; width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: end; }

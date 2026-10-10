@@ -293,8 +293,7 @@
 .ax-plan-task { font-weight: var(--font-weight-semibold); overflow-wrap: anywhere; }
 .ax-tool-tabs { gap: 16px; min-width: 0; }
 .ax-tool-tabs [data-slot=tabs-content], .ax-package { min-width: 0; }
-.ax-prompt { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 13px; line-height: 1.65; text-align: left; color: var(--foreground); white-space: pre-wrap; word-break: break-word; max-width: 100%; max-height: calc(12lh + 2rem); overflow: hidden; background: color-mix(in srgb, var(--muted) 9%, var(--card)); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin: 12px 0; }
-.ax-prompt[data-expanded="true"] { max-height: none; overflow: visible; }
+.ax-prompt { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 13px; line-height: 1.65; text-align: left; color: var(--foreground); white-space: pre-wrap; word-break: break-word; max-width: 100%; background: color-mix(in srgb, var(--muted) 9%, var(--card)); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin: 12px 0; }
 .ax-prompt-actions { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .ax-prompt-actions .ax-prompt-toggle { margin-right: auto; color: var(--foreground); background: var(--card); border-color: var(--border); border-radius: 6px; }
 .ax-prompt-actions .ax-copy-button { transition: background-color 0.15s ease, border-color 0.15s ease; }
@@ -347,7 +346,7 @@
 .ax-tutorial-toc > button { height: auto; min-height: 36px; max-width: 100%; justify-content: flex-start; gap: 8px; padding: 6px 8px; white-space: normal; text-align: left; overflow-wrap: anywhere; }
 .ax-tutorial-toc > button > span { color: var(--primary); white-space: nowrap; font-size: var(--font-size-xs); font-variant-numeric: tabular-nums; }
 .ax-tutorial-context { margin: 18px 0 28px; }
-.ax-tutorial-preflight { padding: 16px 20px; border: 1px solid color-mix(in srgb, var(--primary) 22%, var(--border)); border-radius: 10px; background: color-mix(in srgb, var(--primary) 4%, var(--card)); }
+.ax-tutorial-preflight { padding: 0; }
 .ax-tutorial-preflight h4 { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; font-size: var(--font-size-md); font-weight: var(--font-weight-semibold); }
 .ax-tutorial-preflight h4 svg { color: var(--primary); }
 .ax-tutorial-preflight-group + .ax-tutorial-preflight-group { margin-top: 14px; }
@@ -378,7 +377,7 @@
   .ax-tutorial-toc { gap: 4px; }
   .ax-tutorial-toc > button { width: 100%; }
   .ax-tutorial-flow { flex-direction: column; }
-  .ax-tutorial-preflight { padding: 14px; }
+.ax-tutorial-preflight { padding: 0; }
   .ax-tutorial-terms-panel dl > div { grid-template-columns: minmax(0, 1fr); gap: 0; }
 }
 .ax-package > p { margin: 4px 0 16px; }

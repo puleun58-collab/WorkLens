@@ -26,9 +26,9 @@ export function SettingsView({ view, companyTerms, companyTermsSource, userTerms
     return (
       <section className="settings-surface" aria-label="Settings">
         <dl className="settings-list">
-          <div><dt>파일 업로드</dt><dd>지원 형식 XLSX, CSV, PDF, DOCX, PPTX · 파일당 최대 {MAX_CONFIGURED_FILE_BYTES / (1024 * 1024)}MB · 전체 최대 {MAX_WORKSPACE_INPUT_BYTES / (1024 * 1024)}MB<br />PDF 도구는 PDF만, 이미지 도구는 JPG·PNG·WebP를 사용합니다.</dd></div>
-          <div><dt>저장 위치</dt><dd>파일과 분석 결과는 이 탭의 메모리에만 있습니다. 새로고침하면 사라집니다.</dd></div>
-          <div><dt>localStorage</dt><dd>개인 사전 단어와 무시한 규칙 ID만 저장합니다. 문서 본문, 근거, 질문과 답변은 브라우저 저장소에 저장하지 않습니다.</dd></div>
+          <div><dt>파일 업로드</dt><dd>지원 형식 XLSX, CSV, PDF, DOCX, PPTX · 파일당 최대 {MAX_CONFIGURED_FILE_BYTES / (1024 * 1024)}MB · 전체 최대 {MAX_WORKSPACE_INPUT_BYTES / (1024 * 1024)}MB<br />PDF 도구는 PDF만, 이미지 도구는 JPG·PNG·WebP만 지원</dd></div>
+          <div><dt>저장 위치</dt><dd>파일과 분석 결과는 이 탭의 메모리에만 있습니다. 새로고침하면 사라집니다</dd></div>
+          <div><dt>localStorage</dt><dd>개인 사전 단어와 무시한 규칙 ID만 저장합니다. 문서 본문·근거·질문·답변은 브라우저 저장소에 저장하지 않습니다</dd></div>
           <div><dt>무시한 규칙</dt><dd>
             {ignoredRules.length
               ? <div className="dictionary-term-list">{ignoredRules.map((rule) => (
@@ -38,8 +38,8 @@ export function SettingsView({ view, companyTerms, companyTermsSource, userTerms
               ))}</div>
               : "없음"}
           </dd></div>
-          <div><dt>서버 AI</dt><dd>AI 기능은 필요한 질문·문장·근거만 서버 AI로 전송해 처리합니다. 원본 파일은 전송하지 않습니다.</dd></div>
-          <div><dt>법령 기능 외부 연동</dt><dd>법령 기능 사용 시 필요한 검색어·검증 문구가 Korean Law MCP로 전송될 수 있으며, 문서 검토는 원문이 아닌 관련 법령·판례 조회용 검색어만 전송됩니다.<br />입력 내용은 WorkLens에 저장되지 않습니다.</dd></div>
+          <div><dt>서버 AI</dt><dd>필요한 질문·문장·근거만 서버 AI로 전송해 처리합니다. 원본 파일은 전송하지 않습니다</dd></div>
+          <div><dt>법령 기능 외부 연동</dt><dd>법령 기능 사용 시 필요한 검색어·검증 문구가 Korean Law MCP로 전송될 수 있으며, 문서 검토는 원문이 아닌 관련 법령·판례 조회용 검색어만 전송됩니다.<br />입력 내용은 WorkLens에 저장되지 않습니다</dd></div>
         </dl>
       </section>
     );
@@ -49,8 +49,8 @@ export function SettingsView({ view, companyTerms, companyTermsSource, userTerms
       <div className="dictionary-section">
         <h4>COMPANY TERMS <span>{companyTerms.length}</span></h4>
         <p className="dictionary-note">
-          회사 공통 용어입니다. 관리자만 수정할 수 있습니다.
-          {companyTermsSource === "seed" ? " 공용 사전 저장소에 연결하지 못해 기본 목록을 표시합니다." : null}
+          회사 공통 용어 · 관리자만 수정 가능
+          {companyTermsSource === "seed" ? " · 공용 사전 저장소에 연결하지 못해 기본 목록 표시" : null}
         </p>
         <form onSubmit={(event) => event.preventDefault()}>
           <Input value={search} placeholder="용어 검색" aria-label="공용 용어 검색" onChange={(event) => setSearch(event.target.value)} />
@@ -59,7 +59,7 @@ export function SettingsView({ view, companyTerms, companyTermsSource, userTerms
           {matchedCompanyTerms.map((entry) => (
             <span className="dictionary-term quiet" key={entry.id} title={entry.description ?? undefined}>{entry.term}</span>
           ))}
-          {matchedCompanyTerms.length === 0 ? <span className="dictionary-empty">일치하는 공용 용어가 없습니다.</span> : null}
+          {matchedCompanyTerms.length === 0 ? <span className="dictionary-empty">일치하는 공용 용어 없음</span> : null}
         </div>
         {!search.trim() && companyTerms.length > 0 ? (
           <Button variant="outline" type="button" className="dictionary-more" onClick={() => setExpandCompany((open) => !open)}>
@@ -79,13 +79,13 @@ export function SettingsView({ view, companyTerms, companyTermsSource, userTerms
               <Button variant="outline" type="button" aria-label={`${term} 삭제`} onClick={() => onRemoveTerm(term)}>×</Button>
             </span>
           ))}</div>
-          : <p className="dictionary-empty">등록된 개인 용어가 없습니다.</p>}
+          : <p className="dictionary-empty">등록된 개인 용어 없음</p>}
         {userTerms.length ? (
           <div className="dictionary-actions">
             <Button variant="outline" type="button" className="dictionary-reset" onClick={onClearTerms}>전체 초기화</Button>
           </div>
         ) : null}
-        <p className="dictionary-note">개인 사전은 이 브라우저에만 저장됩니다.</p>
+        <p className="dictionary-note">개인 사전은 이 브라우저에만 저장</p>
       </div>
     </section>
   );

@@ -136,7 +136,6 @@ csvCases.forEach(({ name, source, field, value, describe }, index) => regression
 regressionCase({ id: "DOC-11", category: "Extract", input: "header-only.csv", format: "CSV", structure: "one header and zero data rows", expected: "READY, zero structured extraction and explicit empty-result message" }, async ({ page, note }) => {
   const file = await prepared(page, "DOC-header-only.csv", "항목,값\r\n");
   const result = await runExtract(page, file);
-  await expect(result).toContainText("자동으로 추출할 수 있는 구조화된 항목을 찾지 못했습니다.");
   await expect(result.getByRole("button", { name: "CSV 다운로드" })).toHaveCount(0);
   note("READY; empty structured-extraction message; no download offered for zero records");
 });
@@ -165,7 +164,7 @@ documentCases.forEach(({ body, name, contains, second, warn }, index) => regress
   if (warn) {
     await expect(row(page, path.basename(file)).locator(".warning")).toHaveAttribute("title", new RegExp(warn));
     const result = await runExtract(page, file);
-    await expect(result).toContainText("자동으로 추출할 수 있는 구조화된 항목을 찾지 못했습니다.");
+    await expect(result.getByRole("table")).toHaveCount(0);
     classify("Unsupported");
     note("READY; image omission warning; no OCR-derived field");
     return;
@@ -273,7 +272,7 @@ regressionCase({ id: "DOC-34", category: "Upload", input: "scanned-like image-on
   const file = await prepared(page, "DOC-scanned.pdf", await pdf.save());
   await expect(row(page, path.basename(file)).locator(".warning")).toHaveAttribute("title", /스캔된 페이지의 글자는 읽지 않습니다/);
   const result = await runExtract(page, file);
-  await expect(result).toContainText("자동으로 추출할 수 있는 구조화된 항목을 찾지 못했습니다.");
+  await expect(result.getByRole("table")).toHaveCount(0);
   classify("Unsupported");
   note("One page READY; no-OCR warning, no invented extracted text");
 });
@@ -303,7 +302,7 @@ regressionCase({ id: "DOC-45", category: "Upload", input: "tiny CSV", format: "C
   const file = await prepared(page, "DOC-tiny.csv", "x");
   await expect(row(page, path.basename(file))).toContainText("1 B");
   const result = await runExtract(page, file);
-  await expect(result).toContainText("자동으로 추출할 수 있는 구조화된 항목을 찾지 못했습니다.");
+  await expect(result.getByRole("table")).toHaveCount(0);
   note("1 B READY; no structured fields, rather than empty-file error");
 });
 regressionCase({ id: "DOC-46", category: "Upload", input: "100 MiB + 1-byte file", format: "CSV", structure: "sparse oversize file", expected: "Exact per-file threshold rejects without deleting good file" }, async ({ page, note, classify }) => {

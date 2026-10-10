@@ -17,14 +17,14 @@ export function ReviewPreferenceFields({ value, onChange, prefix, disabled = fal
         <label className="inline-flex items-center gap-2 text-sm"><Radio value="file" /><span>작업 파일</span></label>
         <label className="inline-flex items-center gap-2 text-sm"><Radio value="text" /><span>직접 입력</span></label>
       </RadioGroup>
-      <p className="text-xs text-muted-foreground">{currentRun ? "작업 영역의 입력 방식과 함께 변경됩니다." : "문서 검토를 새로 열 때 선택할 입력 방식입니다."}</p>
+      <p className="text-xs text-muted-foreground">{currentRun ? "작업 영역의 입력 방식과 함께 변경" : "문서 검토를 새로 열 때 적용"}</p>
     </div>}
     {showExpandSources && <Field disabled={disabled}>
       <div className="flex w-full items-center justify-between gap-4">
         <FieldLabel htmlFor={`${prefix}-sources`}>출처 내용을 펼쳐서 표시</FieldLabel>
         <Switch id={`${prefix}-sources`} checked={value.expandSources} disabled={disabled} onCheckedChange={(expandSources) => onChange({ ...value, expandSources })} />
       </div>
-      <FieldDescription>{compact ? "실행 결과의 근거 내용을 처음부터 펼칩니다. 조회 범위와 법적 판단은 바뀌지 않습니다." : "리서치 출처 원문과 문서 검토의 관련 법령·판례를 처음부터 펼칩니다. 조회 범위와 법적 판단은 바뀌지 않습니다."}</FieldDescription>
+      <FieldDescription>{compact ? "실행 결과의 근거 내용을 처음부터 펼칩니다. 조회 범위와 법적 판단은 바뀌지 않습니다" : "리서치 출처 원문과 문서 검토의 관련 법령·판례를 처음부터 펼칩니다. 조회 범위와 법적 판단은 바뀌지 않습니다"}</FieldDescription>
     </Field>}
   </div>;
 }
