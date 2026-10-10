@@ -2045,7 +2045,7 @@ a:not([data-slot]):focus-visible,
 
 .analysis-report .result-source {
   flex-direction: row;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
 }
 
@@ -2710,7 +2710,7 @@ a:not([data-slot]):focus-visible,
   min-width: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
+  align-items: center;
   gap: 12px 24px;
 }
 
