@@ -1,10 +1,11 @@
-/* 보완 result: the Check result vocabulary (severity marks, filters, rows), no new surfaces. */
-/* Summary, status and notice text share the same inset; findings keep their own row inset. */
+/* 보완 and Check share white, inset result surfaces and the existing COSS controls. */
 .supplement-overview {
   display: grid;
   gap: var(--space-3);
-  padding: var(--space-4) 0;
-  border-bottom: 1px solid var(--line-soft);
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--input);
+  border-radius: var(--radius-panel);
+  background: var(--paper);
 }
 
 .results-panel:has(> .supplement-results) > .result-inline-warning {
@@ -20,19 +21,19 @@
   margin-right: 6px;
 }
 
-/* Type and coverage are metadata, not a second result card. */
 .supplement-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-2) var(--space-5);
+  gap: var(--space-3) var(--space-5);
   margin: 0;
   padding: 0;
 }
 
 .supplement-meta > div {
+  min-width: 0;
   display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  gap: var(--space-2);
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-1);
   align-items: baseline;
 }
 
@@ -159,10 +160,15 @@
   margin: var(--space-4) 0;
 }
 
+.supplement-list {
+  display: grid;
+  gap: var(--space-3);
+}
+
 .supplement-item {
   display: grid;
   gap: var(--space-2);
-  padding: var(--space-3) 0;
+  padding: var(--space-4) var(--space-5);
   min-width: 0;
 }
 
@@ -281,6 +287,11 @@
 }
 
 @media (max-width: 720px) {
+  .supplement-overview,
+  .supplement-item {
+    padding-inline: var(--space-4);
+  }
+
 
   .supplement-meta > div {
     grid-template-columns: minmax(0, 1fr);

@@ -3042,6 +3042,8 @@ function CheckResults({ entries, fileNames, onSource, companyTerms, userTerms, i
                               <p><RecommendationText text={finding.recommendation} suggestedText={finding.suggestedText} /></p>
                             </div>
                           ) : null}
+                        </div>
+                        <div className="check-actions">
                           <div className="check-source">
                             <ResultSource
                               sources={sources}
@@ -3050,13 +3052,13 @@ function CheckResults({ entries, fileNames, onSource, companyTerms, userTerms, i
                               context={{ issue: finding.issue, recommendation: finding.recommendation }}
                             />
                           </div>
-                        </div>
-                        <div className="finding-actions" aria-label={`${finding.issue} 작업`}>
-                          <Button type="button" variant="ghost" size="sm" onClick={() => ignoreFinding(finding.id)}>이번 항목 제외</Button>
-                          <Button type="button" variant="ghost" size="sm" onClick={() => onToggleRule(finding.ruleId)}>동일 규칙 무시</Button>
-                          {finding.dictionaryEligible && finding.normalizedToken
-                            ? <Button type="button" variant="ghost" size="sm" onClick={() => addTerm(finding.normalizedToken!)}>내 용어에 추가</Button>
-                            : null}
+                          <div className="finding-actions" aria-label={`${finding.issue} 작업`}>
+                            <Button type="button" variant="secondary" size="sm" onClick={() => ignoreFinding(finding.id)}>이번 항목 제외</Button>
+                            <Button type="button" variant="secondary" size="sm" onClick={() => onToggleRule(finding.ruleId)}>동일 규칙 무시</Button>
+                            {finding.dictionaryEligible && finding.normalizedToken
+                              ? <Button type="button" variant="secondary" size="sm" onClick={() => addTerm(finding.normalizedToken!)}>내 용어에 추가</Button>
+                              : null}
+                          </div>
                         </div>
                       </div>
                     </article>
@@ -3670,7 +3672,6 @@ function SourceDetail({ entries, supplement, fileNames, onClose }: {
         {supplement.linkNote ? <p className="supplement-note">{supplement.linkNote}</p> : null}
         {supplement.limitation ? <p className="supplement-limitation">{supplement.limitation}</p> : null}
       </section> : null}
-      <div className="evidence-type"><span>원문</span><p>문서에서 확인된 근거 · {entries.length.toLocaleString("ko-KR")}곳</p></div>
       {groups.map((group, index) => {
         const [lead] = group.entries;
         const locations = [...new Set(group.entries.map(({ source, role }) => {

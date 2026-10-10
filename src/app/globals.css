@@ -3503,11 +3503,11 @@ a:not([data-slot]):focus-visible,
 }
 
 .source-detail {
+  --inspector-inset: var(--space-5);
   margin: 16px 18px 18px;
-  border: 1px solid #8ab5d8;
-  border-left: 3px solid var(--blue);
+  border: 1px solid var(--input);
   border-radius: var(--radius-panel);
-  background: var(--blue-pale);
+  background: var(--paper);
 }
 
 .source-detail:focus {
@@ -3522,8 +3522,8 @@ a:not([data-slot]):focus-visible,
  */
 .source-detail header {
   min-height: 54px;
-  padding: 12px var(--inspector-inset);
-  border-bottom: 1px solid #c5d9e9;
+  padding: var(--space-4) var(--inspector-inset);
+  border-bottom: 1px solid var(--input);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -3550,25 +3550,6 @@ a:not([data-slot]):focus-visible,
   flex: 0 0 auto;
 }
 
-.evidence-type {
-  padding: 10px var(--inspector-inset) 0;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-}
-
-.evidence-type span {
-  color: var(--success);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-bold);
-}
-
-.evidence-type p {
-  margin: 0;
-  color: var(--muted);
-  font-size: var(--font-size-xs);
-}
 
 .evidence-context {
   margin: 10px var(--inspector-inset) 2px;
@@ -3600,16 +3581,16 @@ a:not([data-slot]):focus-visible,
 
 /* Evidence blocks: numbered header, then the quote, then the weakest meta. */
 .evidence-entry {
-  padding-top: 4px;
+  padding: var(--space-4) var(--inspector-inset);
 }
 
 .evidence-entry + .evidence-entry {
-  margin-top: 4px;
-  border-top: 1px solid #d7e5f1;
+  margin-top: 0;
+  border-top: 1px solid var(--input);
 }
 
 .evidence-entry h3 {
-  margin: 10px var(--inspector-inset) 0;
+  margin: 0;
   overflow-wrap: anywhere;
   color: var(--ink);
   font-size: var(--font-size-sm);
@@ -3617,11 +3598,10 @@ a:not([data-slot]):focus-visible,
 }
 
 .source-detail blockquote {
-  margin: 8px var(--inspector-inset) 10px;
-  padding: 10px 14px;
+  margin: var(--space-3) 0 0;
+  padding: 0;
   border: 0;
-  border-left: 2px solid #8ab5d8;
-  background: var(--paper);
+  background: transparent;
   color: var(--ink-soft);
   font-size: 13px;
   line-height: 1.65;
@@ -3630,16 +3610,14 @@ a:not([data-slot]):focus-visible,
 
 .source-detail dl {
   margin: 0;
-  padding: 0 var(--inspector-inset) 12px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 22px;
+  padding: var(--space-3) 0 0;
+  display: grid;
+  gap: var(--space-3);
 }
 
 .source-detail dl > div {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
+  display: grid;
+  gap: var(--space-1);
 }
 
 .source-detail dt {
@@ -3649,9 +3627,9 @@ a:not([data-slot]):focus-visible,
 
 .source-detail dd {
   margin: 0;
-  color: var(--muted);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
+  color: var(--ink-soft);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
 }
 
 .result-object {
@@ -5893,10 +5871,17 @@ body {
 
 .check-list {
   min-width: 0;
+  display: grid;
+  gap: var(--space-3);
 }
 
-.check-results .check-issue {
+.check-results .check-issue,
+.supplement-list .supplement-item {
   min-width: 0;
+  border: 1px solid var(--input);
+  border-radius: var(--radius-panel);
+  background: var(--paper);
+  box-shadow: none;
 }
 
 .check-results .check-issue.severity-suggestion::before {
@@ -5904,10 +5889,10 @@ body {
 }
 
 .check-results .check-issue-row {
-  padding: 14px 22px 12px;
+  padding: var(--space-4) var(--space-5);
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 7px;
+  gap: var(--space-3);
 }
 
 
@@ -6013,9 +5998,8 @@ body {
 .check-results .check-source .result-source {
   min-width: 0;
   display: flex;
-  flex-direction: row;
-  flex-wrap: wrap;
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-start;
   gap: var(--space-2);
 }
 
@@ -6049,7 +6033,7 @@ body {
 }
 
 .evidence-location-list {
-  margin: 8px var(--inspector-inset) 0;
+  margin: var(--space-2) 0 0;
   padding: 0;
   display: grid;
   gap: 5px;
@@ -6076,16 +6060,26 @@ body {
   content: "";
 }
 
+.check-actions {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-3) var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+
 .check-results .finding-actions {
   justify-content: flex-end;
   border-top: 0;
   padding-top: 0;
-  gap: var(--space-1);
+  gap: var(--space-2);
 }
 
-.check-results .finding-actions > button {
-  color: var(--muted);
-  font-size: var(--font-size-xs);
+.check-actions button {
+  min-height: 32px;
 }
 
 
@@ -6096,13 +6090,12 @@ body {
 .evidence-file-list {
   max-width: 100%;
   margin: 0;
-  padding: 12px var(--inspector-inset) 0;
+  padding: var(--space-4) var(--inspector-inset) 0;
   overflow: hidden;
   color: var(--ink-soft);
   font-size: var(--font-size-xs);
   line-height: 1.45;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .evidence-entry h3 {
@@ -7621,8 +7614,10 @@ body {
 }
 
 
-.check-results .check-issue-row {
-  padding-inline: 0;
+@media (max-width: 700px) {
+  .source-detail {
+    --inspector-inset: var(--space-4);
+  }
 }
 
 /* The revision carries the visual emphasis; the row itself adds no card. */
@@ -7659,7 +7654,7 @@ body {
 
 @media (max-width: 700px) {
   .check-results .check-issue-row {
-    padding-inline: 0;
+    padding-inline: var(--space-4);
   }
 }
 
