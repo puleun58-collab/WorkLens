@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildAllInOnePrompt, commonPlanView, guardPlan, planView, setupGuide, TOOL_GUIDES, type AxGuideSection } from "../src/lib/ax/guide";
+import { buildAllInOnePrompt, guardPlan, planSummary, setupGuide, TOOL_GUIDES, type AxGuideSection } from "../src/lib/ax/guide";
 import { FACTOR_LABELS } from "../src/lib/ax/schema";
 import { diagnosisFixture, planFixture } from "./fixtures/ax";
 import type { AxDiagnosis, AxPlan } from "../src/lib/ax/types";
@@ -307,42 +307,6 @@ describe("AX execution guides", () => {
 });
 
 describe("AX plan display boundaries", () => {
-  it("keeps generated detail separate from diagnosis and removes only exact normalized duplicates", () => {
-    const plan: AxPlan = {
-      ...planFixture,
-      goal: ["검토용 표 생성", "1) 검토용  표 생성"], toBe: ["검토용 표 생성", "규칙 기반 취합과 사람 승인"],
-      humanInLoop: ["최종 승인", "최종 승인 (담당자 수행)", "최종 승인 후 전송"],
-      outOfScope: ["최종 승인", "자동 승인", "최종 승인 없이 전송"],
-      exceptions: ["누락", " - 누락 ", "누락 시 검토"],
-      fallback: ["1. 누락", "수동 승인", "자동화 실패 시 수동 승인으로 전환"],
-      operation: ["수동 승인", "담당자 지정"],
-      tests: ["샘플 대조", "① 샘플 대조"], acceptance: ["샘플 대조", "샘플 대조 통과"],
-    };
-    const before = structuredClone(plan), diagnosis = structuredClone(levelOne);
-    const options = { diagnosis, prerequisites: ["진단 전용 확인"], context: "월간 취합" };
-    const view = planView(plan, options);
-    expect(view.goals).toEqual(["검토용 표 생성"]);
-    expect(view.data.find(row => row.label === "변경 후 흐름")?.items).toEqual(["규칙 기반 취합과 사람 승인"]);
-    expect(view.humanKept).toEqual(["최종 승인", "최종 승인 후 전송"]);
-    expect(view.excluded).toEqual(["최종 승인 없이 전송"]);
-    expect(view.exceptions).toEqual(["누락 시 검토"]);
-    expect(view.details.find(row => row.title === "실패 시 대응")?.items).toEqual(["수동 승인", "자동화 실패 시 수동 승인으로 전환"]);
-    expect(view.details.find(row => row.title === "운영")?.items).toEqual(["담당자 지정"]);
-    expect(view.tests).toEqual(["샘플 대조"]);
-    expect(view.acceptance).toEqual(["샘플 대조 통과"]);
-    expect(view.prerequisites).toEqual(plan.prerequisites);
-    expect(view.data.some(row => row.label === "입력" || row.label === "출력")).toBe(false);
-    expect(planView(plan, { ...options, prerequisites: ["다른 진단 확인"] })).toEqual(view);
-    expect(planView(plan, options)).toEqual(view);
-    expect(plan).toEqual(before);
-    expect(diagnosis).toEqual(levelOne);
-  });
-
-  it("uses the same guard for unsupported metrics without losing grounded goals", () => {
-    const view = planView({ ...planFixture, goal: ["작업 시간 50% 절감", "검토용 표 생성"] }, { diagnosis: levelOne });
-    expect(view.goals).toEqual(["검토용 표 생성"]);
-  });
-
   it("retains distinct manual and exception requirements in the full prompt", () => {
     const diagnosis: AxDiagnosis = {
       ...levelOne, asIs: { ...levelOne.asIs, exceptions: ["누락", "누락", "누락 시 검토"] },
@@ -372,45 +336,38 @@ describe("AX plan display boundaries", () => {
     [1, [4, 4, 3, 2, 4, 3]],
     [2, [4, 4, 4, 3, 3, 3]],
     [3, [5, 5, 5, 5, 1, 1]],
-  ] as const)("constrains Level %s common direction across all execution gates", (level, factors) => {
+  ] as const)("constrains the Level %s summary across all execution gates", (level, factors) => {
     for (const verdict of ["go", "conditional", "no-go"] as const) {
       const diagnosis = withFactors([...factors], {
         decisionGate: { verdict, reasons: verdict === "go" ? [] : ["권한 확인"] }, technicalChecks: [],
         roadmap: [{ phase: "1", title: "진단의 무제한 자동화", items: ["전체 자동 승인"] }],
         poc: { ...diagnosisFixture.poc, inScope: ["전체 자동 승인"] },
       });
-      const view = commonPlanView(diagnosis);
-      expect(view.glance[0].value).toContain(`Level ${level}`);
-      expect(view.glance.find(row => row.label === "진행 상태")?.value).toBe(
-        verdict === "go" ? "진행 가능" : verdict === "conditional" ? "확인 후 진행" : "진행 보류",
-      );
-      expect(view.include).not.toContain("전체 자동 승인");
-      expect(view.steps).not.toContain("진단의 무제한 자동화");
+      const summary = planSummary(diagnosis);
+      expect(summary.include).not.toContain("전체 자동 승인");
+      expect(summary.humanKept).toContain("담당자 승인 (담당자 수행)");
+      expect(summary.excluded).not.toContain("담당자 승인 자동화 (담당자 수행)");
+      const scopeLevel = verdict === "no-go" ? 0 : level;
       if (level === 0 || verdict === "no-go") {
-        expect(view.include).toContain("자료 수집 처리 가능성 검증");
-        expect(view.include.join("\n")).not.toMatch(/규칙 기반 처리|자동 처리|결과\(후보·초안\) 생성/u);
-        expect(view.excluded).toContain("운영 자동화 적용");
+        expect(summary.include).toContain("자료 수집 처리 가능성 검증");
+        expect(summary.include.join("\n")).not.toMatch(/규칙 기반 처리|자동 처리|결과\(후보·초안\) 생성/u);
+        expect(summary.excluded).toContain("운영 자동화 적용");
       } else if (level === 1) {
-        expect(view.include).toContain("형식 검증 AI 보조 결과(후보·초안) 생성");
-        expect(view.include.join("\n")).not.toMatch(/규칙 기반 처리|자동 처리/u);
-        expect(view.excluded).toContain("운영 자동화 적용");
+        expect(summary.include).toContain("형식 검증 AI 보조 결과(후보·초안) 생성");
+        expect(summary.include.join("\n")).not.toMatch(/규칙 기반 처리|자동 처리/u);
+        expect(summary.excluded).toContain("운영 자동화 적용");
       } else {
-        expect(view.include).toContain(level === 2 ? "자료 수집 규칙 기반 처리" : "자료 수집 자동 처리");
+        expect(summary.include).toContain(level === 2 ? "자료 수집 규칙 기반 처리" : "자료 수집 자동 처리");
       }
-      if (verdict !== "go") expect(view.prerequisites).toContain("권한 확인");
-      if (verdict === "conditional") {
-        expect(view.steps).not.toContain("권한 확인");
-        expect(view.steps).toContain("결과를 반영해 재진단 또는 다음 단계 결정");
-      }
-      if (verdict === "no-go") {
-        expect(view.steps).not.toContain("권한 확인");
-        expect(view.steps).toContain("해결된 조건을 샘플 데이터로 확인");
-        expect(view.steps).toContain("해결 결과를 반영해 다시 진단");
-      }
+      // Diagnosed steps outside the permitted Level × Gate scope are listed as current exclusions.
+      expect(summary.excluded.includes("자료 수집 자동 실행")).toBe(scopeLevel < 2);
+      expect(summary.excluded.includes("형식 검증 AI 보조 구현")).toBe(scopeLevel < 1);
+      if (verdict !== "go") expect(summary.prerequisites).toContain("권한 확인");
+      else expect(summary.prerequisites).toEqual([]);
     }
   });
 
-  it("builds common direction before tools exist, keeps diagnosis content, and never mutates it", () => {
+  it("builds the summary from the diagnosis only and never mutates it", () => {
     const diagnosis: AxDiagnosis = {
       ...levelOne,
       asIs: { ...levelOne.asIs, exceptions: ["누락", "1) 누락"], systems: ["표 도구"] },
@@ -418,87 +375,49 @@ describe("AX plan display boundaries", () => {
       humanInLoop: ["담당자 승인", "최종 승인"],
       poc: { ...levelOne.poc, evaluation: ["샘플 대조", " - 샘플 대조"], success: ["샘플 대조 통과"], failure: ["누락 발생"] },
     };
-    const before = structuredClone(diagnosis), view = commonPlanView(diagnosis);
-    expect(view.goals).toEqual(["매월 자료 취합"]);
-    expect(view.humanKept).toEqual(["담당자 승인 (담당자 수행)", "최종 승인"]);
-    expect(view.exceptions).toEqual(["누락", "누락 데이터"]);
-    expect(view.data).toEqual([
+    const before = structuredClone(diagnosis), summary = planSummary(diagnosis);
+    expect(summary.humanKept).toEqual(["담당자 승인 (담당자 수행)", "최종 승인"]);
+    expect(summary.exceptions).toEqual(["누락", "누락 데이터"]);
+    expect(summary.data).toEqual([
       { label: "입력", items: ["입력 표"] }, { label: "출력", items: ["검토용 표"] }, { label: "사용 시스템", items: ["표 도구"] },
-      { label: "PoC 입력", items: ["샘플 표"] },
+      { label: "검증용 입력", items: ["샘플 표"] },
     ]);
-    expect(view.tests).toEqual(["샘플 대조"]);
-    expect(view.acceptance).toEqual(["성공: 샘플 대조 통과", "실패: 누락 발생"]);
-    expect(view.poc).toEqual([]);
-    expect(view.steps).toContain("결과를 반영해 재진단 또는 다음 단계 결정");
-    expect(view.steps).not.toContain("샘플 대조");
-    expect(view.steps).not.toContain("시스템 접근 — API와 권한 실제 확인");
-    expect(view.steps.some(item => item.startsWith("샘플 범위:"))).toBe(false);
-    expect(commonPlanView({ ...diagnosis, planCodex: freightPlan, planClaude: planFixture })).toEqual(view);
-    expect(commonPlanView(diagnosis)).toEqual(view);
+    expect(summary.tests).toEqual(["샘플 대조"]);
+    expect(summary.acceptance).toEqual(["성공: 샘플 대조 통과", "실패: 누락 발생"]);
+    // Confirmed checks are not open conditions.
+    expect(planSummary({ ...diagnosis, technicalChecks: [{ topic: "샘플 파일", status: "확인됨", note: "헤더 확인" }, ...diagnosis.technicalChecks] }).prerequisites.join("\n")).not.toContain("샘플 파일");
+    expect(planSummary({ ...diagnosis, planCodex: freightPlan, planClaude: planFixture })).toEqual(summary);
+    expect(planSummary(diagnosis)).toEqual(summary);
     expect(diagnosis).toEqual(before);
   });
-  it.each(["conditional", "no-go"] as const)("shows overlapping preliminary verification once for a %s gate while retaining distinct tool actions", verdict => {
-    const diagnosis: AxDiagnosis = {
-      ...levelOne,
-      decisionGate: { verdict, reasons: ["접근 권한 확인"] }, technicalChecks: [],
-      humanInLoop: ["최종 승인"],
-      poc: {
-        ...levelOne.poc,
-        evaluation: ["샘플 대조", "① 샘플  대조", "누락 건 확인"],
-        success: ["대조 통과"], failure: ["누락 발생"],
-      },
-    };
+
+  it.each(["conditional", "no-go"] as const)("adds only a generated plan's own prerequisites for a %s gate", verdict => {
+    const diagnosis: AxDiagnosis = { ...levelOne, decisionGate: { verdict, reasons: ["접근 권한 확인"] }, technicalChecks: [], humanInLoop: ["최종 승인"] };
     const plan: AxPlan = {
-      ...planFixture,
-      poc: ["원본 샘플 보관", "1) 샘플  대조", "누락 건 확인", "결과 기록", "샘플 대조 후 오류 표시", "대조 통과"],
+      ...freightPlan,
       prerequisites: ["접근 권한 확인", "샘플 보관 위치 확인"],
-      humanInLoop: ["최종 승인 (담당자 수행)", "최종 승인 후 전송"],
-      outOfScope: ["자동 승인", "승인 없이 외부 전송"],
-      tests: ["• 샘플 대조", "누락 건 확인", "결과 파일 재열기"],
-      acceptance: ["대조 통과", "결과 파일 재열기", "담당자 확인 기록 완료"],
+      inScope: ["원본 읽기", "운임 계산"], humanInLoop: ["최종 승인 후 전송"], outOfScope: ["승인 없이 외부 전송"],
+      poc: ["원본 샘플 보관"], tests: ["결과 파일 재열기"], acceptance: ["담당자 확인 기록 완료"], exceptions: ["운임표 미매칭"],
     };
     const before = structuredClone({ diagnosis, plan });
-    const common = commonPlanView(diagnosis), tool = planView(plan, { diagnosis });
-    expect(common.tests).toEqual(["샘플 대조", "누락 건 확인"]);
-    expect(common.acceptance).toEqual(["성공: 대조 통과", "실패: 누락 발생"]);
-    expect(tool.poc).toEqual(["원본 샘플 보관", "결과 기록", "샘플 대조 후 오류 표시", "대조 통과"]);
-    expect(tool.tests).toEqual(["결과 파일 재열기"]);
-    expect(tool.acceptance).toEqual(["담당자 확인 기록 완료"]);
-    expect(common.prerequisites).toEqual(["접근 권한 확인"]);
-    expect(tool.prerequisites).toEqual(["샘플 보관 위치 확인"]);
-    expect(common.humanKept).toEqual(["담당자 승인 (담당자 수행)", "최종 승인"]);
-    expect(tool.humanKept).toEqual(["최종 승인 후 전송"]);
-    expect(common.excluded).toContain("자동 승인");
-    expect(tool.excluded).toEqual(["승인 없이 외부 전송"]);
-    expect(common.glance.find(row => row.label === "진행 상태")?.value).toBe(verdict === "no-go" ? "진행 보류" : "확인 후 진행");
+    const base = planSummary(diagnosis), withPlan = planSummary(diagnosis, plan, "월간 운임 정산");
+    expect(withPlan).toEqual({ ...base, prerequisites: verdict === "no-go" ? base.prerequisites : [...base.prerequisites, "샘플 보관 위치 확인"] });
+    expect(JSON.stringify(withPlan)).not.toMatch(/원본 읽기|운임 계산|최종 승인 후 전송|승인 없이 외부 전송|원본 샘플 보관|결과 파일 재열기|담당자 확인 기록 완료|운임표 미매칭/u);
     expect({ diagnosis, plan }).toEqual(before);
   });
 
-  it("subtracts common same-role facts exactly without hiding qualified tool requirements", () => {
-    const diagnosis: AxDiagnosis = {
-      ...levelOne,
-      humanInLoop: ["최종 승인"],
-      asIs: { ...levelOne.asIs, purpose: "자료 취합", exceptions: ["누락"] },
-      poc: { ...levelOne.poc, evaluation: ["샘플 대조"], success: ["대조 통과"] },
-    };
-    const plan: AxPlan = {
-      ...planFixture,
-      goal: ["자료 취합", "자료 취합 결과 기록"],
-      toBe: ["규칙 기반 변환", "규칙 기반 변환 후 결과 기록"],
-      humanInLoop: ["최종 승인", "최종 승인 후 전송"],
-      exceptions: ["① 누락", "누락 시 검토"],
-      tests: ["1) 샘플 대조", "샘플 대조 후 오류 표시"],
-      acceptance: ["대조 통과", "대조 통과 후 확인"],
-    };
-    const common = commonPlanView(diagnosis), tool = planView(plan, { diagnosis });
-    expect(common.goals).toEqual(["자료 취합"]);
-    expect(tool.goals).toEqual(["자료 취합 결과 기록"]);
-    expect(tool.humanKept).toEqual(["최종 승인 후 전송"]);
-    expect(tool.exceptions).toEqual(["누락 시 검토"]);
-    expect(tool.tests).toEqual(["샘플 대조 후 오류 표시"]);
-    expect(tool.acceptance).toEqual(["대조 통과 후 확인"]);
-    expect(tool.data.find(row => row.label === "변경 후 흐름")?.items).toEqual(["규칙 기반 변환 후 결과 기록"]);
-    expect(tool.details.find(row => row.title === "기타 구현 참고")?.items).toEqual(["현재 업무: 수동 취합", plan.repositoryFirst]);
-    expect(tool.data.some(row => /PoC 입력|입력|출력|사용 시스템/u.test(row.label))).toBe(false);
+  it("keeps generated inclusions outside a Level 0 or blocked scope as non-executable reference", () => {
+    const levelZero = withFactors([3, 2, 2, 2, 5, 4]);
+    const blocked = withFactors([5, 5, 5, 5, 1, 1], { decisionGate: { verdict: "no-go", reasons: ["권한 없음"] } });
+    for (const diagnosis of [levelZero, blocked]) {
+      const scope = sectionBody(buildAllInOnePrompt(planFixture, "codex", { diagnosis }), "작업 범위");
+      const included = scope.split("### 포함")[1].split("###")[0];
+      expect(included).toContain("- 샘플 데이터 형식·필수 항목 확인");
+      expect(included).not.toContain("- 취합");
+      expect(scope.split("### 생성 계획의 제안 (현재 구현 범위 아님)")[1].split("###")[0]).toContain("- 취합");
+    }
+    const ready = sectionBody(buildAllInOnePrompt(planFixture, "codex", { diagnosis: withFactors([4, 4, 4, 3, 3, 3], { decisionGate: { verdict: "go", reasons: [] }, technicalChecks: [] }) }), "작업 범위");
+    expect(ready).toContain("### 포함\n\n- 취합");
+    expect(ready).not.toContain("생성 계획의 제안");
   });
 });

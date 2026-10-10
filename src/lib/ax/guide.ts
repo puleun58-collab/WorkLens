@@ -351,99 +351,48 @@ const without = (items: string[], shown: string[]) => {
   return unique(items).filter(item => !keys.has(normalizedItem(item)));
 };
 
-export interface AxPlanViewRow { label: string; value: string }
-/** Read-only display model: common diagnosis direction or one tool's generated detail; nothing is persisted. */
-export interface AxPlanView {
-  glance: AxPlanViewRow[];
-  goals: string[];
+/**
+ * Read-only Step 4 summary of the diagnosed execution scope. A generated tool plan contributes only its own
+ * prerequisites; its proposals stay in the full instruction. Nothing is persisted.
+ */
+export interface AxPlanSummary {
   include: string[]; humanKept: string[]; excluded: string[];
-  poc: string[]; steps: string[];
+  prerequisites: string[];
   data: { label: string; items: string[] }[];
-  prerequisites: string[]; exceptions: string[];
-  details: { title: string; items: string[] }[];
-  tests: string[]; acceptance: string[];
+  tests: string[]; acceptance: string[]; exceptions: string[];
 }
 
-/** Diagnosis-only execution direction, constrained by the existing Level × Gate policy. */
-export function commonPlanView(diagnosis: AxDiagnosis): AxPlanView {
-  const profile = executionProfile(diagnosis), level = automationLevel(diagnosis);
+export function planSummary(diagnosis: AxDiagnosis, rawPlan?: AxPlan, context = ""): AxPlanSummary {
+  const profile = executionProfile(diagnosis);
   const humanKept = mergeDistinct(profile.manualSteps.map(step => `${step} (담당자 수행)`), diagnosis.humanInLoop);
-  const prerequisites = unique(profile.gate === "blocked" ? profile.blockReasons : profile.prerequisites);
-  const include = unique(profile.poc.inScope), tests = unique(profile.poc.evaluation);
-  const exceptions = mergeDistinct(diagnosis.asIs.exceptions, diagnosis.risks);
-  const acceptance = [
-    ...without(profile.poc.success, tests).map(item => `성공: ${item}`),
-    ...without(profile.poc.failure, tests).map(item => `실패: ${item}`),
+  // Diagnosed steps beyond the permitted scope (a blocked gate permits Level 0 work); manual steps are listed as human work.
+  const scopeLevel = profile.gate === "blocked" ? 0 : profile.level;
+  const restricted = [
+    ...(scopeLevel >= 2 ? [] : profile.automationSteps.map(step => `${step} 자동 실행`)),
+    ...(scopeLevel >= 1 ? [] : profile.assistSteps.map(step => `${step} AI 보조 구현`)),
   ];
-  // Extract one existing topic, never two full requirements; full lists remain in the document below.
-  const short = (items: string[]) => {
-    if (!items.length) return "기재된 내용 없음";
-    const topic = items[0].trim().replace(/^(?:(?:\d+[.)]|[①-⑳]|[-*•·□])\s*)+/u, "")
-      .replace(/\s*\(담당자 수행\)$/u, "").split(/\s+—\s+|[:：]|\s+·\s+|[.!?]\s+/u)[0].trim();
-    const characters = Array.from(topic);
-    const extract = characters.length > 32 ? `${characters.slice(0, 31).join("")}…` : topic;
-    return `${extract}${items.length > 1 ? ` 외 ${items.length - 1}건` : ""}`;
-  };
-  const scopeSummary = without(include, ["선행 확인사항 해결 후 샘플 범위에서 진행"]);
-  const scopeKeys = new Set(include.map(normalizedItem));
-  const roadmapItems = profile.roadmap.flatMap(phase => phase.items)
-    .filter(item => !scopeKeys.has(normalizedItem(item.replace(/^샘플 범위:\s*/u, ""))));
+  const manualAutomation = profile.manualSteps.map(step => `${step} 자동화 (담당자 수행)`);
+  const prerequisites = unique(profile.gate === "blocked" ? profile.blockReasons : profile.prerequisites);
+  const planPrerequisites = rawPlan && profile.gate !== "blocked" ? without(guardPlan(rawPlan, context).prerequisites, prerequisites) : [];
+  const tests = unique(profile.poc.evaluation);
   return {
-    glance: [
-      { label: "자동화 수준", value: `Level ${level.level} · ${level.label.replace(/^L\d+ /u, "")}${level.provisional ? " (잠정)" : ""}` },
-      { label: "진행 상태", value: GATE_LABELS[profile.gate] },
-      scopeSummary.length ? { label: "핵심 구현", value: short(scopeSummary) } : { label: "다음 행동", value: profile.nextAction.label },
-      ...(humanKept.length ? [{ label: "사람 유지", value: short(humanKept) }] : []),
-      ...(prerequisites.length ? [{ label: "선행 확인", value: short(prerequisites) }] : []),
-    ],
-    goals: unique([diagnosis.asIs.purpose]),
-    include,
+    include: unique(profile.poc.inScope),
     humanKept,
-    excluded: unique(profile.poc.outOfScope),
-    poc: [],
-    steps: without(roadmapItems, [
-      ...prerequisites, ...tests, ...include, ...humanKept, ...exceptions, ...profile.poc.success, ...profile.poc.failure,
-    ]),
+    excluded: mergeDistinct(restricted, without(profile.poc.outOfScope, manualAutomation)),
+    prerequisites: [...prerequisites, ...planPrerequisites],
     data: [
       { label: "입력", items: unique(diagnosis.asIs.inputs) },
       { label: "출력", items: unique(diagnosis.asIs.outputs) },
       { label: "사용 시스템", items: unique(diagnosis.asIs.systems) },
-      { label: "PoC 입력", items: without(profile.poc.inputs, diagnosis.asIs.inputs) },
-      { label: "PoC 출력", items: without(profile.poc.outputs, diagnosis.asIs.outputs) },
+      { label: "검증용 입력", items: without(profile.poc.inputs, diagnosis.asIs.inputs) },
+      { label: "검증용 출력", items: without(profile.poc.outputs, diagnosis.asIs.outputs) },
     ].filter(row => row.items.length),
-    prerequisites,
-    exceptions,
-    details: [],
     tests,
-    acceptance,
-  };
-}
-
-/** Tool-only detail; exact same-role facts stay in common direction, including PoC checks already shown as verification. */
-export function planView(rawPlan: AxPlan, options: { diagnosis: AxDiagnosis; prerequisites?: string[]; context?: string }): AxPlanView {
-  const plan = guardPlan(rawPlan, options.context ?? ""), common = commonPlanView(options.diagnosis);
-  const humanKept = without(plan.humanInLoop, common.humanKept), goals = without(plan.goal, common.goals);
-  const prerequisites = without(plan.prerequisites, common.prerequisites), exceptions = without(plan.exceptions, common.exceptions);
-  const fallback = without(plan.fallback, [...plan.exceptions, ...common.exceptions]);
-  const operation = without(plan.operation, [...plan.exceptions, ...common.exceptions, ...plan.fallback]);
-  return {
-    glance: [],
-    goals,
-    include: without(plan.inScope, common.include), humanKept, excluded: without(plan.outOfScope, [...plan.humanInLoop, ...common.excluded]),
-    poc: without(plan.poc, [...common.poc, ...common.tests]), steps: without(plan.implementation, common.steps),
-    data: [
-      { label: "변경 후 흐름", items: without(plan.toBe, [...plan.goal, ...common.goals, ...options.diagnosis.toBe.map(step => step.description)]) },
-      { label: "데이터 흐름", items: unique(plan.dataFlow) }, { label: "외부 연동", items: unique(plan.integrations) },
-    ].filter(row => row.items.length),
-    prerequisites, exceptions,
-    details: [
-      { title: "실패 시 대응", items: fallback }, { title: "운영", items: operation }, { title: "보안", items: unique(plan.security) },
-      { title: "기타 구현 참고", items: [
-        ...unique(plan.asIs).map(item => `현재 업무: ${item}`), ...unique([plan.repositoryFirst]),
-      ] },
-    ].filter(row => row.items.length),
-    tests: without(plan.tests, common.tests),
-    acceptance: without(plan.acceptance, [...plan.tests, ...common.tests, ...options.diagnosis.poc.success, ...options.diagnosis.poc.failure]),
+    acceptance: [
+      ...without(profile.poc.success, tests).map(item => `성공: ${item}`),
+      ...without(profile.poc.failure, tests).map(item => `실패: ${item}`),
+    ],
+    exceptions: mergeDistinct(diagnosis.asIs.exceptions, diagnosis.risks),
   };
 }
 
@@ -493,8 +442,13 @@ export function buildAllInOnePrompt(rawPlan: AxPlan, _tool: AxToolId, options?: 
   if (d?.toBe.length) section("TO-BE", "구현 후에는 다음 역할로 업무가 진행되어야 합니다.", numbered(d.toBe.map(s => `${s.step} — ${OWNER_LABELS[s.owner]}: ${s.description}`)), "담당자 역할로 표시된 단계는 자동화로 대체하지 마세요. 이 중 '작업 범위'의 제외 항목에 해당하는 부분은 이번 작업에서 구현하지 마세요.");
   else if (plan.toBe.length) section("TO-BE", "구현 후 업무는 다음과 같은 상태가 되어야 합니다. 담당자의 승인·검토 역할은 임의로 제거하지 마세요.", bullets(plan.toBe));
   const excluded = mergeDistinct(plan.outOfScope, manualLabels);
-  if (plan.inScope.length || excluded.length) section("작업 범위",
-    plan.inScope.length ? `### 포함\n\n${bullets(plan.inScope)}` : "",
+  // Level 0 and blocked diagnoses permit preparation and validation only; generated inclusions beyond that stay reference.
+  const preparationOnly = !!d && (level?.level === 0 || gate === "blocked");
+  const included = d && preparationOnly ? unique(executionProfile(d).poc.inScope) : plan.inScope;
+  const proposed = preparationOnly ? without(plan.inScope, included) : [];
+  if (included.length || proposed.length || excluded.length) section("작업 범위",
+    included.length ? `### 포함\n\n${bullets(included)}` : "",
+    proposed.length ? `### 생성 계획의 제안 (현재 구현 범위 아님)\n\n${bullets(proposed)}\n\n위 제안은 준비·검증 결과로 다시 진단해 실행 범위가 바뀐 뒤에만 검토하세요.` : "",
     excluded.length ? `### 제외\n\n${bullets(excluded)}` : "",
     "제외 범위에 해당하는 기능은 이번 작업에서 임의로 추가하지 마세요.",
     level && level.level <= 2 ? "진단에서 제외되거나 담당자 유지로 분류된 단계를 임의로 자동화하지 마세요." : "",
@@ -515,7 +469,7 @@ export function buildAllInOnePrompt(rawPlan: AxPlan, _tool: AxToolId, options?: 
   if (plan.implementation.length || inputs.length || plan.dataFlow.length) section("구현 요구사항",
     inputs.length ? `### 입력 확인\n\n${bullets(inputs)}\n\n실제 샘플의 구조(시트·헤더·필수 항목·데이터 형식)를 확인한 뒤 처리하세요. 확인 전에는 컬럼명이나 시트 이름을 하드코딩하지 마세요.` : "",
     "### 검증\n\n필수 항목 누락, 빈 행, 읽을 수 없는 값은 정상 데이터와 구분하세요. 오류가 있는 입력을 조용히 정상 처리하지 마세요.",
-    plan.implementation.length ? `### 처리 순서\n\n${numbered(plan.implementation)}` : "",
+    plan.implementation.length ? `### 처리 순서\n\n${preparationOnly ? "아래 순서는 '작업 범위'의 포함 항목인 준비·검증 작업에만 적용하세요.\n\n" : ""}${numbered(plan.implementation)}` : "",
     plan.dataFlow.length ? `### 데이터 흐름\n\n${bullets(plan.dataFlow)}` : "",
     "### 예외 분리\n\n매칭되지 않거나 확인할 수 없는 데이터에 임의의 값을 적용하지 말고 별도로 분리하세요. 자동 삭제·자동 보정은 기존 업무 규칙에 명시된 경우에만 적용하고, 그렇지 않으면 대상 건을 표시만 하세요.",
     `### 결과 생성\n\n${outputs.length ? `결과물: ${outputs.join(", ")}\n\n` : ""}결과에서 정상 처리 건과 검토 필요·처리 실패 건을 구분할 수 있어야 합니다.`,
