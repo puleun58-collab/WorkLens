@@ -5980,13 +5980,15 @@ body {
   gap: 4px 10px;
 }
 
+/* 수정 제안 is the one emphasised block in a finding: a pale blue tint, label above the sentence. Meta stays outside it. */
 .check-results .check-recommendation {
   display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+  padding: 10px 14px;
+  border: 1px solid color-mix(in srgb, var(--blue) 16%, var(--paper));
+  border-radius: var(--radius-panel);
+  background: color-mix(in srgb, var(--blue) 5%, var(--paper));
   box-shadow: none;
 }
 
@@ -6158,7 +6160,7 @@ body {
   }
 
   .check-results .check-recommendation {
-    grid-template-columns: minmax(0, 1fr);
+    padding: 8px 12px;
   }
 
   .evidence-inspector,
@@ -7599,17 +7601,14 @@ body {
  * not nested inside a second content column.
  */
 
-/* Severity summary and category filters are one white status card on the result surface. */
-.check-results .check-summary-card {
-  margin: var(--space-3) 0 var(--space-2);
-  padding: var(--space-4) var(--space-5);
-  border: 1px solid var(--input);
-  border-radius: var(--radius-panel);
-  background: var(--paper);
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+/* Severity summary and category filters are one flat section, like the 보완 summary: spacing and one divider, no card. */
+.check-results .check-summary {
+  margin: var(--space-3) 0 0;
+  padding: var(--space-2) 0 var(--space-4);
+  border-bottom: 1px solid var(--line-soft);
 }
 
-.check-results .check-summary-card .qa-overview {
+.check-results .check-summary .qa-overview {
   width: auto;
   max-width: 100%;
   margin: 0;
@@ -7621,15 +7620,14 @@ body {
 
 .check-results .check-toolbar.check-toolbar-compact {
   margin-top: var(--space-3);
-  padding: var(--space-3) 0 0;
-  border-top: 1px solid var(--line-soft);
-  border-bottom: 0;
+  padding: 0;
+  border: 0;
 }
 
-@media (max-width: 700px) {
-  .check-results .check-summary-card {
-    padding: var(--space-3) var(--space-4);
-  }
+/* Location is metadata: quieter than the description and the suggestion. */
+.check-results .check-source .source-locator {
+  color: var(--muted);
+  font-size: var(--font-size-xs);
 }
 
 .check-results .check-list {

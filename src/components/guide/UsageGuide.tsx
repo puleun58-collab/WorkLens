@@ -193,7 +193,6 @@ export function UsageGuide() {
 
   return (
     <section className="usage-guide" aria-label="사용 가이드">
-      <p className="m-0 text-sm text-muted-foreground">헤더의 ‘메뉴·기능 검색’에서 화면 이동. Ctrl/⌘ K로 검색에 초점을 맞추거나, 좁은 화면에서는 돋보기 버튼으로 검색창을 펼칩니다</p>
       <Tabs value={active} onValueChange={(value) => setActive(String(value))}>
       <TabsList className="usage-guide-tabs max-w-full" aria-label="기능 선택" variant="underline" activateOnFocus>
         {GUIDES.map((entry) => <TabsTab key={entry.id} value={entry.id}>{entry.label}</TabsTab>)}

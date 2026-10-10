@@ -120,9 +120,6 @@ export function SupplementResults({ result, fileNames, renderSource }: {
             </dd>
           </div>
         </dl>
-        {result.semanticReview === "partial" ? (
-          <p className="supplement-note">일부 항목은 의미 기반 재확인을 마치지 못했습니다. 다른 표현으로 설명된 내용이 있을 수 있습니다</p>
-        ) : null}
       </section>
 
       {result.questions.length > 0 ? (

@@ -314,13 +314,16 @@
 .ax-cmd { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.9em; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--foreground); background: color-mix(in srgb, var(--muted) 18%, var(--card)); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; }
 /* Setup guide: readable body, STEP > section > body > command hierarchy, left aligned. */
 .ax-guide-panel { color: var(--foreground); font-size: var(--font-size-sm); line-height: 1.7; text-align: left; min-width: 0; }
-.ax-guide-step { min-width: 0; padding: 26px 0; border-top: 1px solid var(--border); }
-.ax-guide-step > h4 { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; margin: 0 0 10px; font-size: var(--font-size-md); font-weight: var(--font-weight-semibold); scroll-margin-top: 100px; }
-.ax-guide-step > h4 > svg { align-self: center; }
-.ax-guide-step > h4 > span:last-child { flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; }
+/* Each STEP is one unit: a stronger divider than the in-step completion line, a fixed number column, and a body that starts under the title. */
+.ax-setup-tutorial { --ax-step-no: 4.5rem; --ax-step-divider: color-mix(in srgb, var(--foreground) 16%, var(--border)); }
+.ax-guide-step { min-width: 0; padding: 28px 0 30px; border-top: 1px solid var(--ax-step-divider); }
+.ax-guide-step > h4 { display: grid; grid-template-columns: var(--ax-step-no) minmax(0, 1fr); align-items: baseline; margin: 0 0 6px; color: var(--foreground); font-size: var(--font-size-md); font-weight: var(--font-weight-semibold); scroll-margin-top: 100px; }
+.ax-guide-step-title { display: flex; align-items: baseline; gap: 8px; min-width: 0; overflow-wrap: anywhere; }
+.ax-guide-step-title > svg { align-self: center; }
 .ax-guide-step > h4:focus-visible { outline: 2px solid var(--primary); outline-offset: 4px; }
-.ax-tutorial-step-no { color: var(--primary); font-size: var(--font-size-xs); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.ax-guide-step > .ax-guide-purpose { margin: 0 0 16px; color: var(--muted-foreground); overflow-wrap: anywhere; }
+.ax-tutorial-step-no { color: var(--primary); font-size: var(--font-size-xs); font-weight: var(--font-weight-semibold); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ax-guide-step > :not(h4) { margin-left: var(--ax-step-no); }
+.ax-guide-step > .ax-guide-purpose { margin-top: 0; margin-bottom: 16px; color: var(--muted-foreground); overflow-wrap: anywhere; }
 .ax-guide-section { margin-top: 18px; }
 .ax-guide-section > h5 { display: flex; align-items: baseline; gap: 6px; margin: 0 0 6px; font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); }
 .ax-guide-section > p { margin: 6px 0; overflow-wrap: anywhere; }
@@ -345,9 +348,18 @@
 .ax-view .ax-tutorial-flow { display: flex; flex-wrap: wrap; gap: 8px 20px; margin: 18px 0 0; padding: 0; list-style: none; }
 .ax-tutorial-flow > li { display: flex; align-items: center; gap: 8px; margin: 0; font-weight: var(--font-weight-medium); }
 .ax-tutorial-flow svg { color: var(--primary); }
-.ax-tutorial-toc { display: flex; flex-wrap: wrap; gap: 4px 8px; padding: 12px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
-.ax-tutorial-toc > button { height: auto; min-height: 36px; max-width: 100%; justify-content: flex-start; gap: 8px; padding: 6px 8px; white-space: normal; text-align: left; overflow-wrap: anywhere; }
-.ax-tutorial-toc > button > span { color: var(--primary); white-space: nowrap; font-size: var(--font-size-xs); font-variant-numeric: tabular-nums; }
+/* Jump links, not tabs: plain text with short dividers between neighbours. The nav is shifted left by one gap and clipped so a
+   divider never dangles at the start of a wrapped line; the clip keeps a few px for focus rings. */
+.ax-tutorial-toc { --ax-toc-gap: 20px; position: relative; display: flex; flex-wrap: wrap; row-gap: 4px; margin-left: calc(var(--ax-toc-gap) * -1); padding: 10px 0; clip-path: inset(-4px -4px -4px calc(var(--ax-toc-gap) - 4px)); }
+.ax-tutorial-toc::before, .ax-tutorial-toc::after { content: ""; position: absolute; left: var(--ax-toc-gap); right: 0; height: 1px; background: var(--border); }
+.ax-tutorial-toc::before { top: 0; }
+.ax-tutorial-toc::after { bottom: 0; }
+.ax-tutorial-toc > button { position: relative; height: auto; min-height: 32px; max-width: 100%; margin-left: var(--ax-toc-gap); justify-content: flex-start; gap: 6px; padding: 4px 2px; border: 0; background: transparent; color: var(--foreground); font-weight: var(--font-weight-regular, 400); white-space: normal; text-align: left; overflow-wrap: anywhere; }
+/* The Button primitive owns its own ::before/::after, so the divider hangs off the number span (positioned by the button). */
+.ax-tutorial-toc > button > span:first-child::before { content: ""; position: absolute; top: 50%; left: calc(var(--ax-toc-gap) / -2); width: 1px; height: 1em; transform: translateY(-50%); background: var(--border); }
+.ax-tutorial-toc > button:hover, .ax-tutorial-toc > button[data-pressed] { background: transparent; }
+.ax-tutorial-toc > button:hover .ax-tutorial-toc-title { color: var(--primary); text-decoration: underline; text-underline-offset: 3px; }
+.ax-tutorial-toc > button > span:first-child { color: var(--primary); font-size: var(--font-size-xs); font-weight: var(--font-weight-semibold); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .ax-tutorial-context { margin: 18px 0 28px; }
 .ax-tutorial-preflight { padding: 0; }
 .ax-tutorial-preflight h4 { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; font-size: var(--font-size-md); font-weight: var(--font-weight-semibold); }
@@ -367,18 +379,21 @@
 .ax-tutorial-terms-panel dl > div { display: grid; grid-template-columns: minmax(0, 190px) minmax(0, 1fr); gap: 4px 16px; padding: 7px 0; }
 .ax-tutorial-terms-panel dt { font-weight: 700; overflow-wrap: anywhere; }
 .ax-tutorial-terms-panel dd { margin: 0; font-weight: 400; overflow-wrap: anywhere; }
-.ax-tutorial-course-head { display: flex; gap: 12px; align-items: flex-start; padding: 22px 0 16px; }
+.ax-tutorial-course { margin-top: 12px; }
+.ax-tutorial-course-head { display: flex; gap: 12px; align-items: flex-start; padding: 24px 0 18px; }
 .ax-tutorial-course-head > svg { width: 22px; height: 22px; margin-top: 2px; color: var(--primary); }
 .ax-tutorial-course-head h3 { margin: 0; font-size: var(--font-size-lg); font-weight: var(--font-weight-semibold); }
-.ax-tutorial-action-label { display: flex; align-items: center; gap: 8px; margin: 18px 0 0; color: var(--muted-foreground); font-size: var(--font-size-xs); font-weight: var(--font-weight-medium); }
+.ax-guide-step > .ax-tutorial-action-label { display: flex; align-items: center; gap: 8px; margin-top: 18px; margin-bottom: 0; color: var(--muted-foreground); font-size: var(--font-size-xs); font-weight: var(--font-weight-medium); }
 .ax-guide-completion { border-top: 1px solid var(--border); padding-top: 16px; }
 .ax-guide-completion > h5 svg { color: var(--primary); }
 .ax-guide-warning > h5 svg { color: var(--warning); }
 .ax-guide-section > h5 svg { align-self: center; }
 @media(max-width: 700px) {
-  .ax-guide-step { padding: 22px 0; }
-  .ax-tutorial-toc { gap: 4px; }
-  .ax-tutorial-toc > button { width: 100%; }
+  .ax-guide-step { padding: 22px 0 24px; }
+  /* Narrow screens stack the STEP number above the title and use the full width for commands. */
+  .ax-guide-step > h4 { grid-template-columns: minmax(0, 1fr); row-gap: 2px; }
+  .ax-guide-step > :not(h4) { margin-left: 0; }
+  .ax-tutorial-toc { --ax-toc-gap: 16px; }
   .ax-tutorial-flow { flex-direction: column; }
 .ax-tutorial-preflight { padding: 0; }
   .ax-tutorial-terms-panel dl > div { grid-template-columns: minmax(0, 1fr); gap: 0; }
@@ -386,22 +401,29 @@
 .ax-package > p { margin: 4px 0 16px; }
 /* The three decision sections share a left rail, with the raw tool prompt below. */
 .ax-plan-view { display: grid; gap: 0; max-width: 920px; text-align: left; }
-.ax-plan-view h4, .ax-plan-instructions > h4 { margin: 0 0 8px; font-size: var(--font-size-md); font-weight: var(--font-weight-semibold); color: var(--foreground); }
+.ax-plan-view h4, .ax-plan-instructions > h4 { display: flex; align-items: baseline; gap: 8px; margin: 0; font-size: var(--font-size-md); font-weight: var(--font-weight-semibold); color: var(--foreground); }
+.ax-plan-no { color: var(--primary); font-variant-numeric: tabular-nums; }
+.ax-plan-desc { margin: 4px 0 0; color: var(--muted-foreground); font-size: var(--font-size-sm); }
 .ax-plan-view h5 { margin: 0 0 6px; font-size: var(--font-size-xs); font-weight: var(--font-weight-semibold); color: var(--foreground); }
-.ax-plan-block, .ax-plan-instructions { padding: 18px 0; border-top: 1px solid var(--border); }
-.ax-plan-group + .ax-plan-group, .ax-plan-group + .ax-plan-data, .ax-plan-data + .ax-plan-group, .ax-plan-group + .ax-plan-note { margin-top: 14px; }
+.ax-plan-block, .ax-plan-instructions { padding: 24px 0; border-top: 1px solid var(--border); }
+.ax-plan-block > :is(h4, .ax-plan-desc) + :not(.ax-plan-desc), .ax-plan-instructions > :is(h4, .ax-plan-desc) + :not(.ax-plan-desc) { margin-top: 16px; }
+.ax-plan-group + .ax-plan-group, .ax-plan-group + .ax-plan-note { margin-top: 16px; }
+.ax-plan-block > .ax-plan-group:has(> .ax-plan-data) { margin-top: 20px; }
 .ax-view .ax-plan-list { margin: 0; padding: 0; list-style: none; font-size: var(--font-size-sm); line-height: 1.65; }
 .ax-plan-list li { display: grid; grid-template-columns: max-content minmax(0, 1fr); column-gap: 10px; align-items: baseline; overflow-wrap: anywhere; }
 .ax-plan-list li + li { margin-top: 2px; }
 .ax-plan-marker { white-space: nowrap; text-align: left; color: var(--muted-foreground); }
 .ax-plan-status { margin-left: 6px; padding: 1px 6px; border-radius: 4px; font-weight: var(--font-weight-medium); color: var(--warning-foreground, #8a5a00); background: color-mix(in srgb, var(--warning, #f5a524) 12%, transparent); }
-.ax-plan-data { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 16px; margin: 0; font-size: var(--font-size-sm); line-height: 1.6; }
-.ax-plan-data > div { display: contents; }
-.ax-plan-data dt { color: var(--muted-foreground); font-size: var(--font-size-xs); font-weight: var(--font-weight-semibold); line-height: 1.85; }
+/* Structured task facts: one white bordered definition list, fixed label column, row dividers. */
+.ax-plan-data { margin: 0; border: 1px solid var(--border); border-radius: 8px; background: var(--card); font-size: var(--font-size-sm); line-height: 1.6; }
+.ax-plan-data > div { display: grid; grid-template-columns: 7rem minmax(0, 1fr); column-gap: 16px; padding: 10px 16px; }
+.ax-plan-data > div + div { border-top: 1px solid var(--border); }
+.ax-plan-data dt { color: var(--foreground); font-weight: var(--font-weight-semibold); overflow-wrap: anywhere; }
 .ax-plan-data dd { margin: 0; min-width: 0; color: var(--foreground); overflow-wrap: anywhere; }
 .ax-plan-note { margin: 0; color: var(--muted-foreground); font-size: var(--font-size-xs); }
 .ax-plan-instructions { min-width: 0; }
 @media(max-width: 700px) {
   .ax-package > button, .ax-tool-tabs [data-slot=tabs-content] > button { max-width: 100%; height: auto; min-height: 36px; white-space: normal; overflow-wrap: anywhere; }
   .ax-prompt { padding: 12px; }
+  .ax-plan-data > div { grid-template-columns: 5.75rem minmax(0, 1fr); column-gap: 12px; padding: 10px 12px; }
 }

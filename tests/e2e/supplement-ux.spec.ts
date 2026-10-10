@@ -46,6 +46,9 @@ async function prepare(page: Page, deck = costDeck) {
   await navigateWorkspace(page, "보완");
 }
 
+// One notice for an incomplete re-check; the items it affects keep their own limitation line.
+const PARTIAL_NOTICE = "일부 항목은 표현 방식 차이로 자동 확인이 충분하지 않을 수 있습니다. 근거를 함께 확인해 주세요.";
+
 function completeReview(route: Route) {
   const { checks } = route.request().postDataJSON() as { checks: Array<{ id: string }> };
   return route.fulfill({
@@ -132,15 +135,16 @@ test("보완 API 오류 뒤 결정적 결과와 한계를 보존하고 다시 �
   await prepare(page);
   const run = page.getByRole("button", { name: "보완 실행", exact: true });
   await run.click();
-  await expect(page.getByText("일부 항목의 재확인을 완료하지 못했습니다.", { exact: true })).toBeVisible();
+  await expect(page.getByText(PARTIAL_NOTICE, { exact: true })).toHaveCount(1);
+  await expect(page.getByText(/AI 요청 처리 실패/)).toHaveCount(0);
   await expect(page.locator(".supplement-item").getByRole("heading", { name: /원인 미확인$/ })).toBeVisible();
-  await expect(page.locator(".supplement-results")).toContainText("일부 항목은 의미 기반 재확인을 마치지 못했습니다.");
+  await expect(page.locator(".supplement-item .supplement-limitation").first()).toContainText("의미 기반 재확인을 완료하지 못해");
   await expect(run).toBeEnabled();
   fail = false;
   await run.click();
   await expect(page.locator(".supplement-results")).toBeVisible();
-  await expect(page.locator(".supplement-results")).not.toContainText("의미 기반 재확인을 마치지 못했습니다.");
-  await expect(page.getByText("일부 항목의 재확인을 완료하지 못했습니다.", { exact: true })).toHaveCount(0);
+  await expect(page.locator(".supplement-item .supplement-limitation").filter({ hasText: "의미 기반 재확인" })).toHaveCount(0);
+  await expect(page.getByText(PARTIAL_NOTICE, { exact: true })).toHaveCount(0);
   expect(calls).toBe(2);
 });
 
@@ -180,14 +184,13 @@ test("보완 35초 타임아웃은 세 번의 기존 시도 후 한계를 알리
       await expect.poll(() => calls).toBe(attempt + 1);
     }
   }
-  await expect(page.getByText("일부 항목의 재확인을 완료하지 못했습니다.", { exact: true })).toBeVisible();
-  await expect(page.locator(".supplement-results")).toContainText("일부 항목은 의미 기반 재확인을 마치지 못했습니다.");
+  await expect(page.getByText(PARTIAL_NOTICE, { exact: true })).toHaveCount(1);
   await expect(run).toBeEnabled();
   expect(calls).toBe(3);
   await page.unroute("**/api/ai");
   await page.route("**/api/ai", completeReview);
   await run.click();
-  await expect(page.locator(".supplement-results")).not.toContainText("의미 기반 재확인을 마치지 못했습니다.");
+  await expect(page.getByText(PARTIAL_NOTICE, { exact: true })).toHaveCount(0);
   await expect(run).toBeEnabled();
 });
 
