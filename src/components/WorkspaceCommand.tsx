@@ -68,7 +68,7 @@ export function WorkspaceCommand({ items, onNavigate }: { items: WorkspaceComman
           if (!next && ["outside-press", "focus-out", "escape-key"].includes(details.reason)) close(details.reason === "escape-key");
         }}
         itemToStringValue={(item) => { const entry = item as WorkspaceCommandEntry; return `${entry.label} ${entry.group}`; }}>
-        <AutocompleteInput ref={input} className="workspace-search-input" aria-label="메뉴·기능 검색" placeholder="메뉴·기능 검색…" startAddon={<Search />} showClear={searching}
+        <AutocompleteInput ref={input} className="workspace-search-input" aria-label="메뉴·기능 검색" placeholder="메뉴·기능 검색" startAddon={<Search />} showClear={searching}
           clearProps={{ "aria-label": "검색어 지우기" }}
           onFocus={() => { if (searching) setOpen(true); }}
           onCompositionStart={() => { composing.current = true; }}

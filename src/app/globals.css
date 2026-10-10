@@ -7599,14 +7599,37 @@ body {
  * not nested inside a second content column.
  */
 
-.check-results .qa-overview {
-  width: fit-content;
-  max-width: 100%;
+/* Severity summary and category filters are one white status card on the result surface. */
+.check-results .check-summary-card {
   margin: var(--space-3) 0 var(--space-2);
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--input);
+  border-radius: var(--radius-panel);
+  background: var(--paper);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+}
+
+.check-results .check-summary-card .qa-overview {
+  width: auto;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .check-results .check-toolbar.check-toolbar-compact {
-  padding: var(--space-1) 0 var(--space-3);
+  margin-top: var(--space-3);
+  padding: var(--space-3) 0 0;
+  border-top: 1px solid var(--line-soft);
+  border-bottom: 0;
+}
+
+@media (max-width: 700px) {
+  .check-results .check-summary-card {
+    padding: var(--space-3) var(--space-4);
+  }
 }
 
 .check-results .check-list {
