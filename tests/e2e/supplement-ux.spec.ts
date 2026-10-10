@@ -86,8 +86,11 @@ for (const width of [1440, 390]) {
     await expect(detail).toBeFocused();
     await expect(detail).toContainText("Slide 2");
     await expect(detail.locator("blockquote")).toContainText("물류비가 전월 대비 18% 증가했습니다.");
-    await expect(detail.locator(".supplement-evidence q")).toHaveText("물류비가 전월 대비 18% 증가했습니다.");
-    await expect(detail.locator(".supplement-evidence")).toContainText("2P");
+    const first = detail.locator(".evidence-entry").first();
+    await expect(first).toHaveClass(/supplement-evidence/);
+    await expect(first.getByRole("heading", { level: 3 })).toHaveText("근거 1");
+    await expect(first).toContainText("2P");
+    await expect(detail.getByText("물류비가 전월 대비 18% 증가했습니다.", { exact: true })).toHaveCount(1);
     await detail.getByRole("button", { name: "닫기", exact: true }).click();
     await expect(source).toBeFocused();
   });
@@ -208,7 +211,7 @@ test("숫자는 있으나 목표·이전 기간이 없는 자료는 원문 값�
   await baseline.locator(".supplement-item-head").click();
   await expect(baseline.locator(".supplement-explanation")).toBeVisible();
   await baseline.getByRole("button", { name: /근거 보기/ }).click();
-  await expect(page.getByLabel("근거 상세", { exact: true }).locator(".supplement-evidence q")).toHaveText("고객 만족도 82점");
+  await expect(page.getByLabel("근거 상세", { exact: true }).locator(".supplement-evidence blockquote")).toHaveText("고객 만족도 82점");
 });
 
 test("모바일의 많은 긴 질문은 줄바꿈되어도 번호와 본문이 겹치지 않고 개별 질문을 잃지 않는다", async ({ page }) => {
@@ -228,7 +231,7 @@ test("모바일의 많은 긴 질문은 줄바꿈되어도 번호와 본문이 �
   expect(new Set([...topQuestions, ...remaining]).size).toBe(12);
   expect(remaining.every((question) => !topQuestions.includes(question))).toBe(true);
   await results.locator(".supplement-item").first().getByRole("button", { name: /근거 보기/ }).click();
-  await expect(page.getByLabel("근거 상세", { exact: true }).locator(".supplement-evidence q")).toContainText("서울동부생활물류고객지원운영센터");
+  await expect(page.getByLabel("근거 상세", { exact: true }).locator(".supplement-evidence blockquote")).toContainText("서울동부생활물류고객지원운영센터");
   expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
 });
 
@@ -257,7 +260,7 @@ test("독립 상세 펼침은 필터·재실행 후에도 다른 업무의 근�
   await expect(second.locator(".supplement-message")).toBeVisible();
   await second.getByRole("button", { name: /근거 보기/ }).click();
   const evidence = page.getByLabel("근거 상세", { exact: true });
-  await expect(evidence.locator(".supplement-evidence q")).toHaveText("서울동부생활물류고객지원운영센터2 만족도 83점");
+  await expect(evidence.locator(".supplement-evidence blockquote")).toHaveText("서울동부생활물류고객지원운영센터2 만족도 83점");
   await evidence.getByRole("button", { name: "닫기", exact: true }).click();
   await run.click();
   await expect(secondTrigger).toHaveAttribute("aria-expanded", "false");
@@ -281,7 +284,7 @@ test("재확인이 근거 없이 설명을 찾았다고 답해도 기존 위치�
   await cause.locator(".supplement-item-head").click();
   await cause.getByRole("button", { name: /근거 보기/ }).click();
   const detail = page.getByLabel("근거 상세", { exact: true });
-  await expect(detail.locator(".supplement-evidence q")).toHaveText("물류비가 전월 대비 18% 증가했습니다.");
+  await expect(detail.locator(".supplement-evidence blockquote")).toHaveText("물류비가 전월 대비 18% 증가했습니다.");
   await expect(detail.locator(".supplement-evidence")).toContainText("2P");
   await expect(detail.locator("blockquote")).toContainText("물류비가 전월 대비 18% 증가했습니다.");
 });

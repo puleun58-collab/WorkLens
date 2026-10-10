@@ -1,11 +1,9 @@
-/* 보완 and Check share white, inset result surfaces and the existing COSS controls. */
+/* 보완 summary is metadata on the result surface: spacing and one divider, no card. */
 .supplement-overview {
   display: grid;
   gap: var(--space-3);
-  padding: var(--space-4) var(--space-5);
-  border: 1px solid var(--input);
-  border-radius: var(--radius-panel);
-  background: var(--paper);
+  padding: var(--space-2) 0 var(--space-4);
+  border-bottom: 1px solid var(--line-soft);
 }
 
 .results-panel:has(> .supplement-results) > .result-inline-warning {
@@ -280,6 +278,13 @@
   overflow-wrap: anywhere;
 }
 
+.supplement-evidence-title {
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+}
+
 .supplement-limitation {
   margin: 0;
   color: var(--warning);
@@ -287,7 +292,6 @@
 }
 
 @media (max-width: 720px) {
-  .supplement-overview,
   .supplement-item {
     padding-inline: var(--space-4);
   }
