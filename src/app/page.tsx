@@ -2949,6 +2949,7 @@ function CheckResults({ entries, fileNames, onSource, companyTerms, userTerms, i
 
   return (
     <div className="result-sections check-results">
+      <div className="check-summary-card">
       <section className="qa-overview" aria-label="검수 요약">
         <p className="qa-summary-line" aria-label="심각도 요약">
           <span>전체 <b>{active.length}</b></span>
@@ -2965,10 +2966,7 @@ function CheckResults({ entries, fileNames, onSource, companyTerms, userTerms, i
         ) : null}
       </section>
 
-      {indexed.length === 0 ? (
-        <StatusPanel variant="success" className="result-clear" title="확인된 문제 없음" icon={<CircleCheck size={18} fill="currentColor" stroke="white" strokeWidth={2.2} />}><p>현재 규칙 범위에서 문장·일관성·데이터·개인정보 문제를 찾지 못했습니다</p></StatusPanel>
-      ) : (
-        <>
+      {indexed.length ? (
           <div className="check-toolbar check-toolbar-compact">
             <div className="check-filters-compact" role="group" aria-label="검수 분류 필터">
               {filterItems.flatMap((item, index) => [
@@ -3015,7 +3013,13 @@ function CheckResults({ entries, fileNames, onSource, companyTerms, userTerms, i
               </Popover>
             </div>
           </div>
+      ) : null}
+      </div>
 
+      {indexed.length === 0 ? (
+        <StatusPanel variant="success" className="result-clear" title="확인된 문제 없음" icon={<CircleCheck size={18} fill="currentColor" stroke="white" strokeWidth={2.2} />}><p>현재 규칙 범위에서 문장·일관성·데이터·개인정보 문제를 찾지 못했습니다</p></StatusPanel>
+      ) : (
+        <>
           {filtered.length ? (
             <>
               <section className="check-list" aria-label="문서 검수 이슈">
@@ -3661,16 +3665,10 @@ function SourceDetail({ entries, supplement, fileNames, onClose }: {
         <Button type="button" variant="ghost" size="sm" onClick={onClose} aria-label="닫기">닫기</Button>
       </header>
       {fileHeading ? <p className="evidence-file-list" title={fileHeading}>{fileHeading}</p> : null}
-      {supplement ? <section className="evidence-entry supplement-evidence" aria-label="보완 판단 근거">
+      {supplement && groups.length === 0 ? <section className="evidence-entry supplement-evidence" aria-label="보완 판단 근거">
         <h3>{supplement.title}</h3>
-        {entries.length === 0 && fileNames.get(supplement.fileId) ? <p className="evidence-file-list">{fileNames.get(supplement.fileId)}</p> : null}
-        <dl className="supplement-fields">
-          {supplement.current ? <div><dt>현재 자료</dt><dd><q>{supplement.current}</q></dd></div> : null}
-          {supplement.locations.length > 0 ? <div><dt>{supplement.scope === "report" ? "보완 대상" : "원문 위치"}</dt><dd>{supplement.locations.join(", ")}</dd></div> : null}
-          {supplement.evidenceLocations?.length ? <div><dt>{supplement.scope === "conflict" ? "자료별 설명" : "관련 근거 위치"}</dt><dd>{supplement.evidenceLocations.join(", ")}</dd></div> : null}
-        </dl>
-        {supplement.linkNote ? <p className="supplement-note">{supplement.linkNote}</p> : null}
-        {supplement.limitation ? <p className="supplement-limitation">{supplement.limitation}</p> : null}
+        {fileNames.get(supplement.fileId) ? <p className="evidence-file-list">{fileNames.get(supplement.fileId)}</p> : null}
+        <SupplementEvidenceFields supplement={supplement} />
       </section> : null}
       {groups.map((group, index) => {
         const [lead] = group.entries;
@@ -3679,9 +3677,13 @@ function SourceDetail({ entries, supplement, fileNames, onClose }: {
           return `${locatorText(source)}${roleLabel ? ` · ${roleLabel}` : ""}`;
         }))];
         const fileName = multipleFiles ? fileNames.get(lead.source.fileId) : undefined;
+        // The finding's own fields belong to its first evidence entry; the same quote is shown once.
+        const finding = index === 0 ? supplement : undefined;
         return (
-          <section className="evidence-entry" key={group.key}>
+          <section className={finding ? "evidence-entry supplement-evidence" : "evidence-entry"} key={group.key}>
             <h3>근거 {index + 1}{fileName ? ` · ${fileName}` : ""}</h3>
+            {finding ? <p className="supplement-evidence-title">{finding.title}</p> : null}
+            {finding ? <SupplementEvidenceFields supplement={finding} quote={lead.source.quote} /> : null}
             <ul className="evidence-location-list" aria-label={`근거 ${index + 1} 위치`}>
               {locations.map((location) => <li key={location}>{location}</li>)}
             </ul>
@@ -3691,4 +3693,18 @@ function SourceDetail({ entries, supplement, fileNames, onClose }: {
       })}
     </aside>
   );
+}
+
+/** Supplement fields inside one evidence entry; a current excerpt equal to the entry quote is not repeated. */
+function SupplementEvidenceFields({ supplement, quote }: { supplement: SupplementFinding; quote?: string }) {
+  const current = supplement.current && supplement.current.trim() !== quote?.trim() ? supplement.current : undefined;
+  return <>
+    <dl className="supplement-fields">
+      {current ? <div><dt>현재 자료</dt><dd><q>{current}</q></dd></div> : null}
+      {supplement.locations.length > 0 ? <div><dt>{supplement.scope === "report" ? "보완 대상" : "원문 위치"}</dt><dd>{supplement.locations.join(", ")}</dd></div> : null}
+      {supplement.evidenceLocations?.length ? <div><dt>{supplement.scope === "conflict" ? "자료별 설명" : "관련 근거 위치"}</dt><dd>{supplement.evidenceLocations.join(", ")}</dd></div> : null}
+    </dl>
+    {supplement.linkNote ? <p className="supplement-note">{supplement.linkNote}</p> : null}
+    {supplement.limitation ? <p className="supplement-limitation">{supplement.limitation}</p> : null}
+  </>;
 }
