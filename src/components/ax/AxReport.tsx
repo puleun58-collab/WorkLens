@@ -188,7 +188,7 @@ function AxSetupGuide({ tool }: { tool: AxToolId }) {
       <ol className="ax-tutorial-flow" aria-label="진행 흐름">{SETUP_COURSES.map(({ title: name, Icon }) => <li key={name}><Icon aria-hidden="true" /><span>{name}</span></li>)}</ol>
     </header>
     <nav className="ax-tutorial-toc" aria-label="설치·시작 단계 목차">
-      {steps.map((step, index) => <Button key={index} type="button" variant="ghost" size="sm" aria-controls={`${id}-step-${index + 1}`} onClick={() => goToStep(index)}><span>STEP {String(index + 1).padStart(2, "0")}</span>{title(step.title)}</Button>)}
+      {steps.map((step, index) => <Button key={index} type="button" variant="ghost" size="sm" aria-controls={`${id}-step-${index + 1}`} onClick={() => goToStep(index)}><span>STEP {String(index + 1).padStart(2, "0")}</span><span className="ax-tutorial-toc-title">{title(step.title)}</span></Button>)}
     </nav>
     <div className="ax-tutorial-context">
       <section className="ax-tutorial-preflight" aria-labelledby={`${id}-preflight`}>
@@ -219,7 +219,7 @@ function AxSetupGuide({ tool }: { tool: AxToolId }) {
         const index = course.first - 1 + offset;
         const Icon = SETUP_ICONS[index];
         return <section className="ax-guide-step" data-setup-step={index + 1} aria-labelledby={`${id}-step-${index + 1}`} key={step.title}>
-          <h4 id={`${id}-step-${index + 1}`} tabIndex={-1}><span className="ax-tutorial-step-no">STEP {String(index + 1).padStart(2, "0")}</span><Icon aria-hidden="true" /><span>{title(step.title)}</span></h4>
+          <h4 id={`${id}-step-${index + 1}`} tabIndex={-1}><span className="ax-tutorial-step-no">STEP {String(index + 1).padStart(2, "0")}</span><span className="ax-guide-step-title"><Icon aria-hidden="true" /><span>{title(step.title)}</span></span></h4>
           <p className="ax-guide-purpose">{step.purpose}</p>
           <p className="ax-tutorial-action-label"><Terminal aria-hidden="true" />실행 방법</p>
           {step.sections.map(section => <AxGuideSectionView key={section.title} section={section} completion={SETUP_COMPLETIONS.has(section.title)} warning={SETUP_WARNINGS.has(section.title)} collapsed={section.collapsed || (section.title in SETUP_DETAILS)} />)}
@@ -236,19 +236,26 @@ function AxPlanGroup({ title, items, status }: { title: string; items: string[];
   if (!items.length) return null;
   return <div className="ax-plan-group"><h5>{title}{status ? <span className="ax-plan-status">{status}</span> : null}</h5><AxPlanList items={items} /></div>;
 }
+/** One heading pattern for 01~04: blue number, title, muted purpose line; sections are separated by dividers only. */
+function AxPlanHeading({ no, title, description }: { no: string; title: string; description?: string }) {
+  return <><h4><span className="ax-plan-no">{no}</span> {title}</h4>{description ? <p className="ax-plan-desc">{description}</p> : null}</>;
+}
 /** Diagnosis policy is authoritative: the summary shows only the permitted scope, open conditions and completion checks. */
 function AxPlanOverview({ profile, summary }: { profile: ExecutionProfile; summary: AxPlanSummary }) {
   return <div className="ax-plan-view">
-    <section className="ax-plan-block" aria-label="01 구현 범위"><h4>01 구현 범위</h4>
+    <section className="ax-plan-block" aria-label="01 구현 범위"><AxPlanHeading no="01" title="구현 범위" description="현재 구현·보조할 작업과 사람에게 남길 작업" />
       <AxPlanGroup title={profile.level === 0 || profile.gate === "blocked" ? "허용된 준비·검증" : profile.gate === "conditional" ? "조건 해결 후 샘플 범위" : "구현·보조 작업"} items={summary.include} />
       <AxPlanGroup title="담당자 수행 유지" items={summary.humanKept} />
       <AxPlanGroup title="현재 자동화 제외" items={summary.excluded} />
     </section>
-    <section className="ax-plan-block" aria-label="02 시작 전 확인"><h4>02 시작 전 확인</h4>
-      <AxPlanGroup title={profile.gate === "blocked" ? "차단 사유" : "확인 필요 · 선행 조건"} items={summary.prerequisites} status={profile.gate === "blocked" ? undefined : "확인 필요"} />
-      {summary.data.length ? <dl className="ax-plan-data">{summary.data.map(row => <div key={row.label}><dt>{row.label}</dt><dd>{row.items.join(" · ")}</dd></div>)}</dl> : null}
+    <section className="ax-plan-block" aria-label="02 시작 전 확인"><AxPlanHeading no="02" title="시작 전 확인" description="구현 전 해결해야 할 조건과 데이터 정보" />
+      <AxPlanGroup title={profile.gate === "blocked" ? "차단 사유" : "선행 확인사항"} items={summary.prerequisites} status={profile.gate === "blocked" ? undefined : "확인 필요"} />
+      {summary.data.length ? <div className="ax-plan-group">
+        <h5>데이터·시스템 정보</h5>
+        <dl className="ax-plan-data">{summary.data.map(row => <div key={row.label}><dt>{row.label}</dt><dd>{row.items.join(" · ")}</dd></div>)}</dl>
+      </div> : null}
     </section>
-    <section className="ax-plan-block" aria-label="03 완료 기준"><h4>03 완료 기준</h4>
+    <section className="ax-plan-block" aria-label="03 완료 기준"><AxPlanHeading no="03" title="완료 기준" description="기능·예외·검증·담당자 승인 조건" />
       <AxPlanGroup title="성공·실패 기준" items={summary.acceptance} />
       <AxPlanGroup title="검증 방법" items={summary.tests} />
       <AxPlanGroup title="예외·위험 확인" items={summary.exceptions} />
@@ -299,7 +306,7 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
     </> : <>
       {!plans.codex && !plans.claude ? <div className="ax-actions">{generateButton("codex")}{generateButton("claude")}</div> : null}
     </>}
-    <section className="ax-plan-instructions" aria-label="04 코딩 에이전트 지시문"><h4>04 코딩 에이전트 지시문</h4>
+    <section className="ax-plan-instructions" aria-label="04 코딩 에이전트 지시문"><AxPlanHeading no="04" title="코딩 에이전트 지시문" />
       {gate === "blocked" ? <p role="status" className="ax-notice">현재 진단에서는 구현 계획 생성 불가</p> : <>
         {plans.codex || plans.claude ?
           <Tabs className="ax-tool-tabs" value={activeTool} onValueChange={value => { if (value === "codex" || value === "claude") setSelectedTool(value); }}>
