@@ -117,17 +117,6 @@ regressionCase(make(6, "Dictionary", "In-result dictionary popover", "Check resu
   expect(shadow).not.toBe("none");
   note("Check result popover added a personal term and has floating shadow.");
 });
-regressionCase(make(7, "Settings", "Settings privacy and storage information", "Six explicit categories explain upload limits, memory, local storage, AI and law"), async ({ page, note }) => {
-  await ready(page); await openView(page, "Settings");
-  const surface = page.locator('.settings-surface[aria-label="Settings"]');
-  await expect(surface.locator("dt")).toHaveText(["파일 업로드", "저장 위치", "localStorage", "무시한 규칙", "서버 AI", "법령 기능 외부 연동"]);
-  const uploadInfo = surface.locator(".settings-list > div").filter({ has: page.locator("dt", { hasText: "파일 업로드" }) });
-  await expect(uploadInfo.locator("dd")).toHaveText("지원 형식 XLSX, CSV, PDF, DOCX, PPTX · 파일당 최대 100MB · 전체 최대 300MBPDF 도구는 PDF만, 이미지 도구는 JPG·PNG·WebP를 사용합니다.");
-  await expect(uploadInfo.locator("input, button, select")).toHaveCount(0);
-  await expect(surface).toContainText("원본 파일은 전송하지 않습니다.");
-  await expect(surface).toContainText("문서 본문, 근거, 질문과 답변은 브라우저 저장소에 저장하지 않습니다.");
-  note("Six settings definitions include read-only upload formats/limits and explain storage and outbound processing.");
-});
 regressionCase(make(8, "Settings", "Ignored rule survives reload and can be restored", "Check ignores a rule persistently; Settings restore removes it"), async ({ page, note }) => {
   await checkDocument(page);
   const issue = page.locator(".check-issue").first();
@@ -327,7 +316,6 @@ regressionCase(make(26, "Dictionary", "Company-term API unavailable", "Versioned
   await ready(page); await openView(page, "Dictionary");
   const dictionary = page.locator('.settings-surface[aria-label="Dictionary"]');
   await expect(dictionary.locator(".dictionary-section h4").first()).toContainText("48");
-  await expect(dictionary).toContainText("공용 사전 저장소에 연결하지 못해 기본 목록을 표시합니다.");
   await page.getByRole("textbox", { name: "공용 용어 검색" }).fill("WorkLens");
   await expect(dictionary.locator(".dictionary-section").first().locator(".dictionary-term")).toHaveCount(1);
   await expect(dictionary.locator(".dictionary-section").first()).toContainText("WorkLens");

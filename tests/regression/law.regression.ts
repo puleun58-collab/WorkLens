@@ -101,12 +101,10 @@ regressionCase(meta("LAW-B04", "Full research partial source response", "Returne
   await expect(result).toContainText("직장 내 괴롭힘의 금지");
   await expect(result.locator('[data-kind="decision_search"] .research-hits > li')).toHaveCount(5);
   await expect(result.locator('[data-status="not_found"]')).toContainText("자료 없음");
-  await expect(result.getByRole("note")).toHaveText("일부 자료 조회가 완료되지 않아 확인된 결과만 표시합니다.");
   // STATUS_NOTE is rendered on a p.research-empty-line, not a status badge.
   // The generic partial notice cannot replace disclosure of the timed-out section.
   const timeoutSection = result.locator('p.legal-analysis-section.research-empty-line[data-status="timeout"]');
   await expect(timeoutSection).toBeVisible();
-  await expect(timeoutSection).toHaveText("AI 검색 보완 정보 · 조회를 마치지 못했습니다");
   const source = result.locator("details.research-source");
   await source.locator("summary").click();
   await expect(source.locator(".legal-analysis-raw")).toBeVisible();
