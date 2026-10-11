@@ -193,6 +193,26 @@ test.describe("Analyze browser matrix", () => {
     await expect(drawer).toContainText("지표 · B23");
   });
 
+  test("VOLUME shortlisted evidence limit is disclosed at the report end", async ({ page }) => {
+    let evidenceItems = 0;
+    await page.route("**/api/ai", (route) => {
+      const body: unknown = route.request().postDataJSON();
+      if (!body || typeof body !== "object" || !("items" in body) || !Array.isArray(body.items)) {
+        throw new Error("Analyze request must contain shortlisted evidence.");
+      }
+      evidenceItems = body.items.length;
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { kind: "claims", claims: [] } }) });
+    });
+    const rows: (string | number)[][] = [["항목", "값"], ...Array.from({ length: 48 }, (_, index) => [`지표 ${index + 1}`, `${(index + 1) * 1250}원`])];
+    await page.goto("/");
+    await upload(page, [{ name: "월간 지표.xlsx", bytes: await createXlsx({ 지표: rows }), mime: MIME.xlsx }]);
+    const panel = await analyze(page);
+    expect(evidenceItems).toBe(40);
+    await expect(panel.locator(".analysis-metric-table tbody tr")).toHaveCount(48);
+    await expect(panel.locator(".analysis-warning-section")).toBeVisible();
+    await expect(panel.locator(".analysis-report-section").last()).toHaveClass(/analysis-warning-section/u);
+  });
+
   for (const failure of [
     { name: "429 rate limit", fulfill: { status: 429, body: { error: { code: "AI_RATE_LIMITED" } } }, detail: "사용 한도" },
     { name: "500 provider error", fulfill: { status: 500, body: { error: { code: "AI_PROVIDER_UNAVAILABLE" } } }, detail: "AI 서비스 일시 오류" },

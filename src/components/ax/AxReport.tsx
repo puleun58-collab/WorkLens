@@ -320,7 +320,6 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
         <AccordionItem value="setup" className="ax-guide-item">
           <AccordionTrigger className="ax-guide-trigger" aria-label="설치·시작 가이드">
             <span className="inline-flex items-center gap-2"><Terminal aria-hidden="true" className="size-4" />설치·시작 가이드</span>
-            <span className="ax-guide-action" aria-hidden="true"><span>펼치기</span><span>접기</span></span>
           </AccordionTrigger>
           <AccordionPanel className="ax-guide-panel">
             <AxSetupGuide tool={activeTool} instructionsId={`${instructionsId}-section`} onGoToInstructions={goToInstructions} />

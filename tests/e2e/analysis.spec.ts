@@ -123,6 +123,7 @@ test("analyzes generated regulation and workbook within one aligned result surfa
   await expect(panel.getByRole("table").getByRole("columnheader", { name: "근거" })).toBeVisible();
   await expect(panel.getByRole("table").getByRole("rowheader", { name: "총예산" })).toBeVisible();
   await expect(panel.locator(".analysis-report .status-panel")).toHaveCount(0);
+  await expect(panel.locator(".analysis-warning-section")).toHaveCount(0);
   await expect(panel.locator(".analysis-report .panel")).toHaveCount(0);
   expect(requests).toBe(1);
 

@@ -2767,17 +2767,12 @@ function AnalyzeResults({ entries, enrichment, evidenceLimited, status, fileName
   );
   const hasContent = presentation.summary.length + coreItems.length + metrics.length + presentation.insights.length
     + presentation.concerns.length + mismatches.length > 0;
-  const hasWarnings = Boolean(status?.message || presentation.warnings.length);
+  const hasWarnings = Boolean(status?.message || presentation.warnings.length || (enrichment && evidenceLimited));
   const multipleFiles = entries.length > 1;
 
   return (
     <>
-    {/* Status, scope notice and result surface are three units: the white report card starts at the first result section. */}
-    {enrichment && evidenceLimited ? (
-      <StatusPanel className="notice analysis-scope-notice" variant="info"
-        title="분석 결과는 주요 내용을 중심으로 정리되며, 일부 세부 내용은 포함되지 않을 수 있습니다."
-        icon={<Info size={18} fill="currentColor" stroke="white" strokeWidth={2.2} />} />
-    ) : null}
+    {/* The white report card begins with the first result section; concrete limitations follow the results. */}
     <div className="analysis-report">
       {presentation.summary.length ? (
         <section className="analysis-report-section analysis-summary-section" aria-labelledby="analysis-summary-title">
@@ -2878,6 +2873,11 @@ function AnalyzeResults({ entries, enrichment, evidenceLimited, status, fileName
             </p>
           ) : null}
           {presentation.warnings.map((warning) => <p className="analysis-warning-line" key={warning.code}>{warning.message}</p>)}
+          {enrichment && evidenceLimited ? (
+            <p className="analysis-warning-line">
+              AI 요약·인사이트에는 최대 40개 항목·10,000자의 문서 근거가 전달됩니다. 이번 분석에서 일부 근거 후보는 AI 요약·인사이트에 전달되지 않았습니다.
+            </p>
+          ) : null}
         </section>
       ) : null}
     </div>
