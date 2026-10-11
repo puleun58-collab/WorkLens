@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { AlertCircle, CheckCircle2, Info } from "lucide-react";
+import { Info } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import type { ResearchStatus } from "@/lib/research-status";
@@ -15,8 +15,16 @@ export const STATUS_BADGE: Record<ResearchStatus, { tone: SummaryTone; label: st
 };
 
 const BADGE_VARIANT = { success: "success", warning: "warning", error: "error", info: "info", neutral: "secondary" } as const;
-const ToneIcon = ({ tone }: { tone: SummaryTone }) => tone === "success" ? <CheckCircle2 aria-hidden="true" />
-  : tone === "info" ? <Info aria-hidden="true" /> : tone === "neutral" ? null : <AlertCircle aria-hidden="true" />;
+function ToneIcon({ tone }: { tone: SummaryTone }) {
+  if (tone === "neutral") return null;
+  if (tone === "info") return <Info aria-hidden="true" />;
+  return <svg className="research-status-icon size-[14px] opacity-100" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+    <circle cx="12" cy="12" r="12" fill="currentColor" />
+    {tone === "success"
+      ? <path d="m6.5 12 3.5 3.5 7.5-7.5" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+      : <><path d="M12 6.5v6.5" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" /><circle cx="12" cy="17" r="1.2" fill="#fff" /></>}
+  </svg>;
+}
 
 /**
  * One white result summary for every 종합 리서치 task: label and status badge, the result sentence,

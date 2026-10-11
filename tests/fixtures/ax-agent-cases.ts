@@ -81,6 +81,35 @@ export const equipmentCase: AxAgentCase = {
   }),
 };
 
+/** The AI-assisted draft and rule-based validation remain permitted; unattended report publication is future work. */
+export const equipmentRuleCase: AxAgentCase = {
+  ...equipmentCase,
+  diagnosis: {
+    ...equipmentCase.diagnosis,
+    asIs: { ...equipmentCase.diagnosis.asIs, steps: [...equipmentCase.diagnosis.asIs.steps.filter(s => s !== "데이터 표준화"), "일일 보고서 자동 발행"] },
+    stepAssessments: [
+      ...equipmentCase.diagnosis.stepAssessments.slice(0, -1).filter(s => s.step !== "데이터 표준화").map(s => s.step === "누락·중복 검증"
+        ? step(s.step, "AI 보조", "AI", "확정된 필수값·중복 식별 기준을 적용하는 규칙 기반 검증, 담당자 예외 검토")
+        : s.step === "AI 컬럼 매핑" ? step("컬럼 매핑 및 표준화", "AI 보조", "AI", "표준 항목 후보와 변환 결과를 담당자가 검토") : s),
+      step("일일 보고서 자동 발행", "자동화", "시스템", "승인 후 발행 조건 미확정"),
+      equipmentCase.diagnosis.stepAssessments.at(-1)!,
+    ],
+    poc: {
+      ...equipmentCase.diagnosis.poc,
+      outputs: [...equipmentCase.diagnosis.poc.outputs, "일일 보고서 자동 발행 결과"],
+      evaluation: [...equipmentCase.diagnosis.poc.evaluation, "일일 보고서 자동 발행 결과 대조"],
+      success: [...equipmentCase.diagnosis.poc.success, "일일 보고서 자동 발행 성공"],
+    },
+  },
+  plan: plan({
+    ...equipmentCase.plan,
+    inScope: [...equipmentCase.plan.inScope.filter(s => s !== "AI 컬럼 매핑 후보 제안"), "컬럼 매핑 및 표준화 후보 제안", "일일 보고서 자동 발행"],
+    implementation: [...equipmentCase.plan.implementation.filter(s => s !== "AI 컬럼 매핑 후보 제안"), "컬럼 매핑 및 표준화 후보 제안", "일일 보고서 자동 발행", "테스트: 일일 보고서 자동 발행 결과 파일 재열기"],
+    tests: ["일일 보고서 자동 발행 결과 파일 재열기", "보고서 초안 작성 후 담당자 검토 확인"],
+    acceptance: ["일일 보고서 자동 발행 완료", "보고서 초안 작성 후 담당자가 확인"],
+  }),
+};
+
 /** Level 2 · 부분 자동화 (가치 4, 실현 4, 판단 3, 위험 2), 진행 가능. */
 export const contractCase: AxAgentCase = {
   name: "계약 갱신 일정 관리",

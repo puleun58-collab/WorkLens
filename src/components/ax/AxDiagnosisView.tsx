@@ -18,7 +18,7 @@ import { axes, automationLevel, bubbleArea, executionGate, executionProfile, GAT
 import { candidateTask, taskDetails, followUpDescription, legacyDetailValues, validateAttachmentPreflight } from "@/lib/ax/registration";
 import { exportAxState, importAxState } from "@/lib/ax/transfer";
 import { emptyAxState, type AxState, type AxTask, type AxDiagnosis, type AxDetails, type FactorKey } from "@/lib/ax/types";
-import { AxSummary, AxProcess, AxRoadmap, AxRoadmapPhases, AxPlanSection, AxRadar } from "./AxReport";
+import { AxSummary, AxProcess, AxResultSummary, AxExecutionTimeline, AxPlanSection, AxRadar } from "./AxReport";
 import { AxScoreEvidence } from "./AxScoreEvidence";
 import "./ax.css";
 
@@ -63,7 +63,6 @@ export function AxDiagnosisView() {
   const displayed = [...ranked].sort((a, b) => gateOrder[executionGate(a.task.diagnosis)] - gateOrder[executionGate(b.task.diagnosis)]);
   const currentSelection = state.tasks.find(task => task.id === state.selectedTaskId);
   const selected = state.step >= 3 ? currentSelection?.diagnosis ? currentSelection : displayed[0]?.task : currentSelection ?? state.tasks[0];
-  const selectedProfile = selected?.diagnosis ? executionProfile(selected.diagnosis) : null;
   const selectedId = selected?.id ?? null;
   useEffect(() => {
     if (ready && state.selectedTaskId !== selectedId) update(current => ({ ...current, selectedTaskId: selectedId }));
@@ -302,14 +301,19 @@ export function AxDiagnosisView() {
       </TabsPanel>
       <TabsPanel value="4">
         {!ranked.length ? <p className="ax-empty ax-muted">완료된 진단 결과 없음</p> : <>
-          <AxKpiCards tasks={state.tasks} />
-          <div className="ax-step4-grid"><div className="ax-step4-left">
-            <section className="ax-surface"><h3>{priorityHeading(ranked.map(r => executionProfile(r.task.diagnosis)))}</h3>{priorityRows(true)}{ranked.length > 3 ? <Accordion className="ax-all-tasks"><AccordionItem value="all-tasks"><AccordionTrigger>전체 업무 보기</AccordionTrigger><AccordionPanel><div className="ax-all-task-list">{priorityRows(false, true)}</div></AccordionPanel></AccordionItem></Accordion> : null}</section>
-            <section className="ax-surface"><h3>분류 현황</h3><div className="ax-region-tiles">{Object.entries(REGION_LABELS).map(([region, label]) => <div className="ax-region-tile" data-region={region} key={region}><span>{label}</span><strong>{ranked.filter(r => matrixPosition(r.task.diagnosis).region === region).length}개</strong></div>)}</div></section>
-          </div><section className="ax-roadmap-panel">{selected && selectedProfile ? <><h3>{selectedProfile.roadmapTitle}</h3><p className="ax-roadmap-task">{selected.name}</p><AxRoadmapPhases profile={selectedProfile} timeline /></> : <><h3>실행 로드맵</h3><p>우선순위에서 업무 선택 후 실행 로드맵 확인</p></>}</section></div>
-          {selected?.diagnosis ? <div className="ax-detail-stack"><section className="ax-surface"><h2>{selected.name}</h2><p className="ax-muted">{selected.diagnosis.sourceNote}</p><AxSummary task={selected} showGate={false} /></section><AxRoadmap diagnosis={selected.diagnosis} roadmapSection={false} />
+          <aside className="ax-step4-overview" aria-label="전체 업무 현황">
+            <AxKpiCards tasks={state.tasks} />
+            <div className="ax-step4-overview-grid">
+              <section className="ax-surface"><h3>{priorityHeading(ranked.map(r => executionProfile(r.task.diagnosis)))}</h3>{priorityRows(true)}{ranked.length > 3 ? <Accordion className="ax-all-tasks"><AccordionItem value="all-tasks"><AccordionTrigger>전체 업무 보기</AccordionTrigger><AccordionPanel><div className="ax-all-task-list">{priorityRows(false, true)}</div></AccordionPanel></AccordionItem></Accordion> : null}</section>
+              <section className="ax-surface"><h3>분류 현황</h3><div className="ax-region-tiles">{Object.entries(REGION_LABELS).map(([region, label]) => <div className="ax-region-tile" data-region={region} key={region}><span>{label}</span><strong>{ranked.filter(r => matrixPosition(r.task.diagnosis).region === region).length}개</strong></div>)}</div></section>
+            </div>
+          </aside>
+          {selected?.diagnosis ? <article className="ax-selected-report" aria-label={`${selected.name} 결과·로드맵`}>
+            <header className="ax-report-intro"><div><span className="ax-report-eyebrow">선택한 업무 · 결과·로드맵</span><h2>{selected.name}</h2><p>{selected.description}</p></div><Badge className="ax-status-badge">{STATUS[selected.status]}</Badge></header>
+            <AxResultSummary task={selected} />
+            <AxExecutionTimeline diagnosis={selected.diagnosis} />
             <AxPlanSection key={selected.id} diagnosis={selected.diagnosis} taskName={selected.name} taskContext={[selected.description, ...Object.values(taskDetails(selected)).filter(value => value !== undefined).map(String)].join("\n")} busy={busy} onGenerate={target => void generatePlan(selected, target)} />
-          </div> : <p className="ax-muted">우선순위에서 업무 선택 후 상세 결과 확인</p>}
+          </article> : <p className="ax-muted">우선순위에서 업무 선택 후 상세 결과 확인</p>}
         </>}
       </TabsPanel>
     </Tabs>}
