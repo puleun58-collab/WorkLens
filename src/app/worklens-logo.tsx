@@ -10,10 +10,6 @@ interface WorkLensLogoProps extends WorkLensMarkProps {
   showWordmark?: boolean;
 }
 
-/** Four independent focus brackets. Kept thick enough to read at 24px on navy. */
-export const WORKLENS_FRAME_PATH = "M3 12V5.5A2.5 2.5 0 0 1 5.5 3H12v3H6v6ZM20 3h6.5A2.5 2.5 0 0 1 29 5.5V12h-3V6h-6ZM3 20h3v6h6v3H5.5A2.5 2.5 0 0 1 3 26.5ZM26 20h3v6.5A2.5 2.5 0 0 1 26.5 29H20v-3h6Z";
-/** Geometric W shared by the product shell and generated brand assets. */
-export const WORKLENS_W_PATH = "M8.4 10.6h3.3l1.7 7.2 2.1-7.2h1l2.1 7.2 1.7-7.2h3.3l-3.2 11.8h-3.1L16 16.4l-1.3 6h-3.1Z";
 
 export function WorkLensMark({ size = 33, tone = "default", title }: WorkLensMarkProps) {
   return (
@@ -22,15 +18,20 @@ export function WorkLensMark({ size = 33, tone = "default", title }: WorkLensMar
       data-tone={tone}
       width={size}
       height={size}
-      viewBox="0 0 32 32"
+      viewBox="0 0 64 64"
       fill="none"
       role={title ? "img" : undefined}
       aria-hidden={title ? undefined : true}
       aria-label={title}
       focusable="false"
     >
-      <path className="worklens-frame" d={WORKLENS_FRAME_PATH} />
-      <path className="worklens-w" d={WORKLENS_W_PATH} />
+      <path fill="#1d4ed8" d="M4 38 23 28 44 39 25 49a5 5 0 0 1-4 0L4 41a1.7 1.7 0 0 1 0-3Z" />
+      <path fill="#3b82f6" d="M4 28 23 18 44 29 25 39a5 5 0 0 1-4 0L4 31a1.7 1.7 0 0 1 0-3Z" />
+      <path fill="#93c5fd" d="M4 18 23 8 44 19 25 29a5 5 0 0 1-4 0L4 21a1.7 1.7 0 0 1 0-3Z" />
+      <path fill={tone === "light" ? "#3b82f6" : "#172033"} d="m48 39 12 12a4.2 4.2 0 0 1-6 6L42 45Z" />
+      <circle cx="36" cy="27" r="19" fill="#2563eb" />
+      <circle cx="36" cy="27" r="14.5" fill="#eff6ff" />
+      <path d="m27 25 16-8m-14 17 16-8" stroke="#3b82f6" strokeWidth="4.5" strokeLinecap="round" />
     </svg>
   );
 }

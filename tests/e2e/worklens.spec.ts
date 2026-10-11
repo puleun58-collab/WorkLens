@@ -2258,6 +2258,36 @@ test("integrates enrichment behind one action and preserves every deterministic 
   ]);
 });
 
+test("a check response that arrives after navigating to analysis does not replace the analysis view", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  let semanticRequested!: () => void;
+  const semantic = new Promise<void>((resolve) => { semanticRequested = resolve; });
+  await page.route("**/api/ai", async (route) => {
+    const request = route.request().postDataJSON() as { request: { operation: string }; items: Array<{ handle: string; text: string }> };
+    if (request.request.operation === "semantic-check") { semanticRequested(); await held; }
+    const evidence = request.items[0];
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { kind: "claims", claims: [{ text: evidence.text, handles: [evidence.handle], confidence: "high" }] } }) });
+  });
+  await page.goto("/");
+  await upload(page, files.checkPptx);
+  await page.getByRole("checkbox", { name: "최종검수.pptx 선택", exact: true }).check();
+  await navigateWorkspace(page, "검수");
+  await page.getByRole("button", { name: "검수 실행", exact: true }).click();
+  await semantic;
+  await navigateWorkspace(page, "분석");
+  release();
+  // The retired check run still finishes, releasing the shared busy state, without committing into the analysis view.
+  await expect(page.getByRole("button", { name: "분석 실행", exact: true })).toBeEnabled();
+  await expect(page.locator(".results-panel")).toHaveCount(0);
+  await expect(page.locator(".check-issue")).toHaveCount(0);
+  await page.getByRole("button", { name: "분석 실행", exact: true }).click();
+  await expect(page.locator(".results-panel .result-status")).toHaveText(/분석 완료/);
+  expect(errors).toEqual([]);
+});
+
 
 test("reviews PPTX writing, consistency and data findings with filters and exact slide evidence", async ({ page }, testInfo) => {
   const consoleErrors: string[] = [];
