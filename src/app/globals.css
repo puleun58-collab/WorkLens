@@ -1394,6 +1394,17 @@ a:not([data-slot]):focus-visible,
   text-transform: none;
 }
 
+/* Aggregate: the base workbook is a soft blue pill, distinct from Compare's numbered roles. */
+.file-info .compare-selection-role[data-role="aggregate-base"] {
+  margin-bottom: 0;
+  padding: 2px 8px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--blue-callout);
+  color: #245bdb;
+  font-weight: 600;
+}
+
 .compare-selected-file .file-info strong:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
