@@ -127,13 +127,49 @@ function distinct(items: string[], limit: number): string[] {
 }
 export const ROADMAP_TITLES = ["자동화 준비 로드맵", "AI 보조 도입 로드맵", "부분 자동화 로드맵", "자동화 도입 로드맵"] as const;
 
+/** What the effective Level permits for one diagnosed step; null leaves the step outside the current scope. */
+function stepTreatment(level: number, verdict: Verdict, hasAssisted: boolean): string | null {
+  if (verdict === "사람 유지") return null;
+  if (level === 0) return "처리 가능성 검증";
+  if (level === 1) return verdict === "AI 보조" || !hasAssisted ? "AI 보조 결과(후보·초안) 생성" : null;
+  if (level === 2) return verdict === "자동화" ? "규칙 기반 처리" : "AI 보조";
+  return verdict === "자동화" ? "자동 처리" : "AI 보조";
+}
+/** Checks each Level's scope carries besides the diagnosed steps: [before, after]. */
+const SCOPE_SUPPORT: ReadonlyArray<readonly [string[], string[]]> = [
+  [["샘플 데이터 형식·필수 항목 확인", "업무 규칙·예외 기준 확인"], ["자동화 가능성 판단"]],
+  [[], ["담당자 검토 흐름 확인"]],
+  [[], ["예외 분리 후 담당자 확인"]],
+  [[], ["실패 복구·Fallback 확인", "운영 모니터링 확인"]],
+];
+
 /** PoC inclusion by the effective Level; a blocked gate falls back to Level 0 validation. */
 function pocScope(d: AxDiagnosis, level: number): string[] {
-  const automated = stepsBy(d, "자동화"), assisted = stepsBy(d, "AI 보조");
-  if (level === 0) return ["샘플 데이터 형식·필수 항목 확인", "업무 규칙·예외 기준 확인", ...[...automated, ...assisted].map(step => `${step} 처리 가능성 검증`), "자동화 가능성 판단"];
-  if (level === 1) return [...(assisted.length ? assisted : automated).map(step => `${step} AI 보조 결과(후보·초안) 생성`), "담당자 검토 흐름 확인"];
-  if (level === 2) return [...automated.map(step => `${step} 규칙 기반 처리`), ...assisted.map(step => `${step} AI 보조`), "예외 분리 후 담당자 확인"];
-  return [...automated.map(step => `${step} 자동 처리`), ...assisted.map(step => `${step} AI 보조`), "실패 복구·Fallback 확인", "운영 모니터링 확인"];
+  const hasAssisted = stepsBy(d, "AI 보조").length > 0;
+  const steps = [...stepsBy(d, "자동화").map(step => [step, "자동화"] as const), ...stepsBy(d, "AI 보조").map(step => [step, "AI 보조"] as const)]
+    .flatMap(([step, verdict]) => { const treatment = stepTreatment(level, verdict, hasAssisted); return treatment ? [`${step} ${treatment}`] : []; });
+  const [before, after] = SCOPE_SUPPORT[level];
+  return [...before, ...steps, ...after];
+}
+
+/**
+ * How the permitted Level × Gate scope treats one diagnosed step. The same rule builds the PoC scope above, so
+ * Step 4 and the coding-agent instruction never disagree about a step:
+ * implement (ready) · after-check (conditional) · verify (Level 0 or blocked: review only) · future (outside the Level) · human.
+ */
+export interface StepScope {
+  step: string; verdict: Verdict; owner: AxDiagnosis["stepAssessments"][number]["owner"]; note: string;
+  scope: "implement" | "after-check" | "verify" | "future" | "human";
+  treatment: string | null;
+}
+function stepScopes(d: AxDiagnosis, scopeLevel: number, gate: ExecutionGate): StepScope[] {
+  const hasAssisted = stepsBy(d, "AI 보조").length > 0;
+  return d.stepAssessments.map(({ step, verdict, owner, note }) => {
+    const treatment = stepTreatment(scopeLevel, verdict, hasAssisted);
+    const scope: StepScope["scope"] = verdict === "사람 유지" ? "human" : !treatment ? "future"
+      : scopeLevel === 0 ? "verify" : gate === "ready" ? "implement" : "after-check";
+    return { step, verdict, owner, note, scope, treatment };
+  });
 }
 
 function readyRoadmap(d: AxDiagnosis, level: number, manual: string[]): Array<[string, string[]]> {
@@ -185,6 +221,10 @@ export interface ExecutionProfile {
   roadmap: RoadmapPhase[];
   poc: AxDiagnosis["poc"];
   nextAction: AxDiagnosis["nextAction"];
+  /** Every diagnosed step with its treatment inside the permitted scope (blocked gates use Level 0 review). */
+  stepScope: StepScope[];
+  /** Non-step checks the permitted scope includes, in order. */
+  scopeSupport: string[];
 }
 
 /**
@@ -222,6 +262,7 @@ export function executionProfile(d: AxDiagnosis): ExecutionProfile {
     planAllowed: planAllowed(d),
     roadmapTitle: gate === "blocked" ? "선행 조치" : ROADMAP_TITLES[level],
     roadmap, poc, nextAction: nextAction(d),
+    stepScope: stepScopes(d, pocLevel, gate), scopeSupport: SCOPE_SUPPORT[pocLevel].flat(),
   };
 }
 
