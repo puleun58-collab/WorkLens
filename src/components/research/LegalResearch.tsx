@@ -14,13 +14,14 @@ import { STATUS_TITLE, type ResearchStatus } from "@/lib/research-status";
 import { LawTextBlock } from "./LawTextBlock";
 import { ContractReviewResult, FileReviewExcluded } from "./ContractReviewResult";
 import { SourceToggleSummary } from "./SourceToggleSummary";
+import { ResearchResultSummary, ResearchSummaryNotice, ResearchSummaryNotices, STATUS_BADGE } from "./ResearchResultSummary";
 import type { ReviewableFiles } from "./LawSearch";
 import type { WorkspaceFile } from "@/client/protocol";
 import { runInWorker } from "@/client/document-client";
 import { reviewFileIdentityMatches, reviewIsStale } from "@/client/review-provenance";
 import { reviewRequestFor, type ReviewFile } from "@/lib/law-review-source";
 import { readReviewPreferences, resolveReviewPreferences, type ReviewPreferences } from "@/client/review-preferences";
-import { Plus, Upload } from "lucide-react";
+import { ArrowDownRight, ChevronDown, Plus, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -35,23 +36,31 @@ interface TaskResult {
   outcome: LawResearchOutcome | null;
   preferences?: ReviewPreferences;
   loading: boolean;
+  /** Monotonic id of the execution that produced this entry; result-local UI state never outlives it. */
+  run: number;
   /** 문서 검토 of a workspace file: its segments' sources and what part of it was reviewed. */
   file?: ReviewFile;
   /** The exact workspace entry used when starting this file review (not a later replacement). */
   workspaceFile?: WorkspaceFile;
 }
 
+/** 문서 검토 keeps one result per review target: the direct input, and each workspace file. */
+type ResultKey = LawResearchTask | "document_review:text" | `document_review:file:${string}`;
+const TEXT_RESULT_KEY: ResultKey = "document_review:text";
+const fileResultKey = (fileId: string): ResultKey => `document_review:file:${fileId}`;
+const keyBelongsTo = (key: ResultKey, task: LawResearchTask) => key === task || key.startsWith(`${task}:`);
+
 const FILE_READ_ERROR = "작업 파일을 읽지 못했습니다. 파일을 다시 올린 뒤 실행하세요.";
 
 const TASK_HELP: Record<LawResearchTask, { description: string; placeholder: string }> = {
-  full_research: { description: "질문이나 상황을 바탕으로 관련 법령·판례·결정례를 함께 조사합니다.", placeholder: "예: 회사에서 업무와 관련해 지속적으로 모욕을 당했는데 어떤 법적 기준을 살펴봐야 하나요?" },
-  law_system: { description: "한 법령의 법률·시행령·시행규칙 관계를 함께 확인합니다.", placeholder: "예: 개인정보 보호법 제38조와 시행령의 관계" },
-  action_basis: { description: "처분 또는 허가의 근거 조문과 확인 가능한 불복 자료를 찾습니다.", placeholder: "예: 식품위생법상 영업정지의 근거와 요건" },
-  dispute_prep: { description: "분쟁 상황을 설명하고 관련 법령·판례·결정례를 함께 조사합니다.", placeholder: "예: 부당해고 구제 신청 관련 판례와 결정례" },
-  amendment_track: { description: "특정 법령의 개정 이력과 두 시점의 조문 차이를 조사합니다.", placeholder: "예: 근로기준법 제60조 개정 내용" },
-  ordinance_compare: { description: "두 지역의 같은 주제 조례를 찾아 확인된 조문 원문을 비교합니다.", placeholder: "예: 주차장 설치 기준" },
-  procedure_detail: { description: "절차의 근거 조문과 제출 서식을 찾아 확인합니다.", placeholder: "예: 행정심판 청구 절차와 제출서류" },
-  document_review: { description: "입력한 문서의 조항별 쟁점과 확인된 근거를 검토합니다.", placeholder: "계약서 또는 약관 등의 내용을 붙여 넣으세요." },
+  full_research: { description: "질문·상황과 관련된 법령·판례·결정례 조사", placeholder: "예: 회사에서 업무와 관련해 지속적으로 모욕을 당했는데 어떤 법적 기준을 살펴봐야 하나요?" },
+  law_system: { description: "한 법령의 법률·시행령·시행규칙 관계 확인", placeholder: "예: 개인정보 보호법 제38조와 시행령의 관계" },
+  action_basis: { description: "처분·허가의 근거 조문과 확인 가능한 불복 자료 검색", placeholder: "예: 식품위생법상 영업정지의 근거와 요건" },
+  dispute_prep: { description: "분쟁 상황과 관련된 법령·판례·결정례 조사", placeholder: "예: 부당해고 구제 신청 관련 판례와 결정례" },
+  amendment_track: { description: "법령 개정 이력과 두 시점의 조문 차이 조사", placeholder: "예: 근로기준법 제60조 개정 내용" },
+  ordinance_compare: { description: "두 지역의 같은 주제 조례와 확인된 조문 원문 비교", placeholder: "예: 주차장 설치 기준" },
+  procedure_detail: { description: "절차의 근거 조문과 제출 서식 확인", placeholder: "예: 행정심판 청구 절차와 제출서류" },
+  document_review: { description: "입력한 문서의 조항별 쟁점과 확인된 근거 검토", placeholder: "계약서 또는 약관 등의 내용을 붙여 넣으세요" },
 };
 
 /** 법제처 status plus the article's 시행일; only `current` means in force today. */
@@ -89,22 +98,25 @@ export function LegalResearch({ workspace, initialTask = "full_research" }: { wo
   const fileInput = useRef<HTMLInputElement>(null);
   const [task, setTask] = useState<LawResearchTask>(initialTask);
   const [draft, setDraft] = useState<LawResearchDraft>(EMPTY_RESEARCH_DRAFT);
-  const [results, setResults] = useState<Partial<Record<LawResearchTask, TaskResult>>>({});
+  const [results, setResults] = useState<Partial<Record<ResultKey, TaskResult>>>({});
   const liveFiles = useRef(files);
   useLayoutEffect(() => { liveFiles.current = files; }, [files]);
-  const requests = useRef(new Map<LawResearchTask, AbortController>());
+  const requests = useRef(new Map<ResultKey, AbortController>());
+  const runs = useRef(0);
 
   useEffect(() => {
     const pending = requests.current;
     return () => pending.forEach((controller) => controller.abort());
   }, []);
 
-  const run = useCallback(async (request: LawResearchRequest, file?: ReviewFile, workspaceFile?: WorkspaceFile, runPreferences = preferences, pendingController?: AbortController) => {
+  /** Publishes into `key` only while `controller` still owns it: superseded or cancelled runs never land. */
+  const run = useCallback(async (key: ResultKey, request: LawResearchRequest, file?: ReviewFile, workspaceFile?: WorkspaceFile, runPreferences = preferences, pendingController?: AbortController) => {
     if (pendingController?.signal.aborted) return;
-    if (!pendingController) requests.current.get(request.task)?.abort();
+    if (!pendingController) requests.current.get(key)?.abort();
     const controller = pendingController ?? new AbortController();
-    requests.current.set(request.task, controller);
-    setResults((current) => ({ ...current, [request.task]: { request, preferences: { ...runPreferences }, outcome: null, loading: true, ...(file ? { file } : {}), ...(workspaceFile ? { workspaceFile } : {}) } }));
+    requests.current.set(key, controller);
+    const snapshot = { request, preferences: { ...runPreferences }, run: ++runs.current, ...(file ? { file } : {}), ...(workspaceFile ? { workspaceFile } : {}) };
+    setResults((current) => ({ ...current, [key]: { ...snapshot, outcome: null, loading: true } }));
     let outcome: LawResearchOutcome;
     try {
       const response = await fetch("/api/law/research", {
@@ -118,9 +130,9 @@ export function LegalResearch({ workspace, initialTask = "full_research" }: { wo
     } catch {
       outcome = { kind: "error", message: LAW_RESEARCH_ERROR };
     }
-    if (controller.signal.aborted) return;
-    requests.current.delete(request.task);
-    setResults((current) => ({ ...current, [request.task]: { request, preferences: { ...runPreferences }, outcome, loading: false, ...(file ? { file } : {}), ...(workspaceFile ? { workspaceFile } : {}) } }));
+    if (controller.signal.aborted || requests.current.get(key) !== controller) return;
+    requests.current.delete(key);
+    setResults((current) => ({ ...current, [key]: { ...snapshot, outcome, loading: false } }));
   }, [preferences]);
 
   /**
@@ -129,47 +141,48 @@ export function LegalResearch({ workspace, initialTask = "full_research" }: { wo
    */
   const runFile = useCallback(async (fileId: string, expectedFile?: WorkspaceFile, runPreferences = preferences) => {
     const task = "document_review";
+    const key = fileResultKey(fileId);
     const workspaceFile = workspace?.files.find((entry) => entry.id === fileId);
     if (!workspaceFile || (expectedFile && !reviewFileIdentityMatches(liveFiles.current, expectedFile))) return;
-    if (requests.current.has(task)) return;
+    if (requests.current.has(key)) return;
     const controller = new AbortController();
-    requests.current.set(task, controller);
+    requests.current.set(key, controller);
+    const runId = ++runs.current;
     const requestSnapshot: LawResearchRequest = { task, text: "" };
-    setResults((current) => ({ ...current, [task]: { request: requestSnapshot, workspaceFile, preferences: { ...runPreferences }, outcome: null, loading: true } }));
+    setResults((current) => ({ ...current, [key]: { request: requestSnapshot, workspaceFile, preferences: { ...runPreferences }, outcome: null, loading: true, run: runId } }));
     let file: ReviewFile;
     try {
       file = await runInWorker({ kind: "review-source", fileId });
     } catch {
       if (controller.signal.aborted) return;
-      requests.current.delete(task);
-      setResults((current) => ({ ...current, [task]: { request: requestSnapshot, workspaceFile, preferences: { ...runPreferences }, outcome: { kind: "error", message: FILE_READ_ERROR }, loading: false } }));
+      requests.current.delete(key);
+      setResults((current) => ({ ...current, [key]: { request: requestSnapshot, workspaceFile, preferences: { ...runPreferences }, outcome: { kind: "error", message: FILE_READ_ERROR }, loading: false, run: runId } }));
       return;
     }
     if (controller.signal.aborted) return;
     if (!reviewFileIdentityMatches(liveFiles.current, workspaceFile, file)) {
-      requests.current.delete(task);
-      setResults((current) => ({ ...current, [task]: { request: requestSnapshot, workspaceFile, file, preferences: { ...runPreferences }, outcome: { kind: "error", message: FILE_READ_ERROR }, loading: false } }));
+      requests.current.delete(key);
+      setResults((current) => ({ ...current, [key]: { request: requestSnapshot, workspaceFile, file, preferences: { ...runPreferences }, outcome: { kind: "error", message: FILE_READ_ERROR }, loading: false, run: runId } }));
       return;
     }
     // Only the projected DTO is sent: text, positions and identity, never the selector's hints.
     const request: LawResearchRequest = reviewRequestFor(file.document);
     if (file.coverage.status === "excluded") {
-      requests.current.delete(task);
-      setResults((current) => ({ ...current, [task]: { request, outcome: null, loading: false, file, workspaceFile } }));
+      requests.current.delete(key);
+      setResults((current) => ({ ...current, [key]: { request, outcome: null, loading: false, file, workspaceFile, run: runId } }));
       return;
     }
-    await run(request, file, workspaceFile, runPreferences, controller);
+    await run(key, request, file, workspaceFile, runPreferences, controller);
   }, [run, workspace?.files, preferences]);
 
-  /** Leaving a task cancels its in-flight chain; finished results stay for when the user comes back. */
+  /** Leaving a task cancels its in-flight chains; finished results stay for when the user comes back. */
   function changeTask(next: LawResearchTask) {
-    const pending = requests.current.get(task);
-    if (pending) {
-      pending.abort();
-      requests.current.delete(task);
+    const pending = [...requests.current.keys()].filter((key) => keyBelongsTo(key, task));
+    if (pending.length) {
+      pending.forEach((key) => { requests.current.get(key)?.abort(); requests.current.delete(key); });
       setResults((current) => {
         const copy = { ...current };
-        delete copy[task];
+        pending.forEach((key) => { delete copy[key]; });
         return copy;
       });
     }
@@ -192,8 +205,6 @@ export function LegalResearch({ workspace, initialTask = "full_research" }: { wo
   }, [initialTask]);
 
   const update = <K extends keyof LawResearchDraft>(key: K, value: LawResearchDraft[K]) => setDraft((current) => ({ ...current, [key]: value }));
-  const current = results[task];
-  const loading = current?.loading === true;
   const validRequest = lawResearchRequestFor(task, draft);
   // Keep the exact pasted input in the existing request snapshot, including whitespace.
   // Validation remains unchanged, and the API already trims text before reviewing it.
@@ -209,25 +220,29 @@ export function LegalResearch({ workspace, initialTask = "full_research" }: { wo
   const fileId = reviewable.some((file) => file.id === chosenFile) ? chosenFile : reviewable[0]?.id ?? "";
   const fromFile = isDocument && documentSource === "file";
   const canRun = fromFile ? Boolean(fileId) : Boolean(request);
-  const resultFile = current?.file;
-  const staleFileReview = Boolean(current && isDocument && reviewIsStale(current, { fromFile, fileId, request, files }));
-  const retryUnavailable = Boolean(current?.workspaceFile
+  // The current input decides which stored result is shown; other targets' results are kept, not shown.
+  const resultKey: ResultKey = !isDocument ? task : fromFile ? fileResultKey(fileId) : TEXT_RESULT_KEY;
+  const stored = results[resultKey];
+  const current = stored && (fromFile || !isDocument || !reviewIsStale(stored, { fromFile, fileId, request, files })) ? stored : undefined;
+  const loading = current?.loading === true;
+  // The reviewed workspace entry was replaced since: its locations are historical and it cannot be re-run.
+  const sourceChanged = Boolean(current?.workspaceFile
     && !reviewFileIdentityMatches(files, current.workspaceFile, current.file));
 
   function retry() {
-    if (!current || loading || requests.current.has(task) || retryUnavailable) return;
+    if (!current || loading || sourceChanged) return;
     if (current.workspaceFile && !current.file) {
       void runFile(current.workspaceFile.id, current.workspaceFile, current.preferences);
     } else {
-      void run(current.request, current.file, current.workspaceFile, current.preferences);
+      void run(resultKey, current.request, current.file, current.workspaceFile, current.preferences);
     }
   }
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    if (loading || requests.current.has(task) || !canRun) return;
+    if (loading || !canRun) return;
     if (fromFile) void runFile(fileId);
-    else if (request) void run(request);
+    else if (request) void run(resultKey, request);
   }
 
   /** Adds through the workspace's own upload, then selects the last file that parsed. */
@@ -333,7 +348,7 @@ export function LegalResearch({ workspace, initialTask = "full_research" }: { wo
         <Input id="research-articles" type="text" value={draft.articles} placeholder="예: 제38조, 제39조" onChange={(event) => update("articles", event.target.value)} />
       </label>}
       {task === "ordinance_compare" && <label htmlFor="research-parent-law" className="legal-research-single">관련 상위 법령 (선택)
-        <Input id="research-parent-law" type="text" value={draft.parentLaw} maxLength={LAW_RESEARCH_NAME_MAX_CHARS} placeholder="요청에 법령이 명시된 경우에만 입력하세요. 예: 주차장법" onChange={(event) => update("parentLaw", event.target.value)} />
+        <Input id="research-parent-law" type="text" value={draft.parentLaw} maxLength={LAW_RESEARCH_NAME_MAX_CHARS} placeholder="요청에 법령이 명시된 경우만 입력 · 예: 주차장법" onChange={(event) => update("parentLaw", event.target.value)} />
       </label>}
       {task === "ordinance_compare" && <>
         <div className="legal-analysis-fields legal-research-dates legal-research-regions">
@@ -366,33 +381,39 @@ export function LegalResearch({ workspace, initialTask = "full_research" }: { wo
         {runButton}
       </div>}
     </form>
+    <span className="sr-only" role="status">{loading ? (isDocument ? "문서 검토 중…" : "리서치 중…") : ""}</span>
     </div>
 
-    {current && <section className="legal-analysis-result" aria-labelledby="research-result-heading" aria-busy={loading}>
-      <h2 id="research-result-heading">{isDocument ? "검토 결과" : "리서치 결과"}</h2>
-      {isDocument && !current.loading && staleFileReview && <p className="research-meta" role="status" data-review-stale="true">
-        {resultFile ? (fromFile && fileId !== resultFile.fileId && reviewFileIdentityMatches(files, current.workspaceFile, resultFile)
-          ? `지금 선택한 문서가 아닌 ${resultFile.document.name}의 검토 결과입니다.`
-          : "삭제되었거나 현재 입력 또는 작업 파일의 출처·버전과 일치하지 않는 검토 결과입니다. 위치는 검토 당시 기록이며 현재 파일로 이동할 수 없습니다.") : "현재 입력과 일치하지 않는 검토 결과입니다. 실행 당시 입력을 기준으로 표시합니다."}
+    {current && !current.loading && <section key={current.run} className="legal-analysis-result" aria-label={isDocument ? "검토 결과" : "리서치 결과"}>
+      {isDocument && sourceChanged && current.outcome?.kind !== "error" && <p className="research-meta" role="status" data-review-stale="true">
+        원본 파일이 변경되거나 삭제되어 이전 검토 위치를 확인할 수 없습니다.
       </p>}
-      {current.loading ? <p className="law-search-note" role="status">{isDocument ? "문서 검토 중…" : "리서치 중…"} 여러 자료를 함께 조회하므로 시간이 걸릴 수 있습니다.</p>
-        : current.outcome?.kind === "error" ? <div className="decision-feedback" role="alert">
+      {current.outcome?.kind === "error" ? isDocument ? <div className="contract-review">
+          <ResearchResultSummary label="문서 검토" badge={{ tone: "error", label: "검토 오류" }} title="문서 검토를 완료하지 못했습니다">
+            {current.file && <p className="research-meta research-summary-meta contract-review-file">검토 문서: {current.file.document.name}</p>}
+            <ResearchSummaryNotices>
+              <ResearchSummaryNotice tone="error" title="검토 오류"><p className="law-search-error">{current.outcome.message}</p></ResearchSummaryNotice>
+            </ResearchSummaryNotices>
+            <Button type="button" variant="link" className="law-search-link" disabled={sourceChanged} onClick={retry}>다시 시도</Button>
+            {sourceChanged && <p className="research-meta" role="status">원본 파일이 삭제되었거나 변경되어 다시 시도할 수 없습니다. 파일을 선택하고 새로 실행하세요.</p>}
+          </ResearchResultSummary>
+        </div> : <div className="decision-feedback" role="alert">
           <p className="law-search-error">{current.outcome.message}</p>
-          <Button type="button" variant="link" className="law-search-link" disabled={retryUnavailable} onClick={retry}>다시 시도</Button>
-          {retryUnavailable && <p className="research-meta" role="status">원본 파일이 삭제되었거나 변경되어 다시 시도할 수 없습니다. 파일을 선택하고 새로 실행하세요.</p>}
+          <Button type="button" variant="link" className="law-search-link" disabled={sourceChanged} onClick={retry}>다시 시도</Button>
+          {sourceChanged && <p className="research-meta" role="status">원본 파일이 삭제되었거나 변경되어 다시 시도할 수 없습니다. 파일을 선택하고 새로 실행하세요.</p>}
         </div>
         : current.file && !current.outcome ? <FileReviewExcluded file={current.file} />
-        : current.outcome?.kind === "missing" ? <div className="legal-analysis-missing" role="status">
-          <header className="research-overview">
-            <span className="research-eyebrow">{LAW_RESEARCH_TASKS.find((item) => item.value === current.request.task)?.label}</span>
-            <h3 className="legal-analysis-title">{STATUS_TITLE.none}</h3>
-            {current.request.task !== "document_review" && <div className="research-original"><span>입력한 질문</span><p>{current.request.query}</p></div>}
+        : current.outcome?.kind === "missing" ? <div className={`legal-analysis-missing${isDocument ? " contract-review" : ""}`} role="status">
+          <ResearchResultSummary label={isDocument ? "문서 검토" : LAW_RESEARCH_TASKS.find((item) => item.value === current.request.task)?.label}
+            badge={STATUS_BADGE.none} status="none" title={STATUS_TITLE.none}
+            caution="※ 조회되지 않았다고 관련 법령이나 판례가 없다는 뜻은 아닙니다." cautionClassName="research-caution">
+            {isDocument && current.file && <p className="research-meta research-summary-meta contract-review-file">검토 문서: {current.file.document.name}</p>}
+            {current.request.task !== "document_review" && <p className="research-meta research-summary-meta research-query">입력한 질문: {current.request.query}</p>}
             {current.request.task === "full_research" && current.outcome.data.interpretation?.original === current.request.query
               && <ResearchUnderstanding interpretation={current.outcome.data.interpretation} />}
             {current.request.task === "full_research" && !current.outcome.data.interpretation
               && <p className="research-meta research-uninterpreted">{UNINTERPRETED_NOTE}</p>}
-            <p className="research-caution">조회되지 않았다고 관련 법령이나 판례가 없다는 뜻은 아닙니다.</p>
-          </header>
+          </ResearchResultSummary>
         </div>
         : current.outcome?.kind === "found" ? current.outcome.data.review
           ? <ContractReviewResult review={current.outcome.data.review} file={current.file} expandSources={preferences.expandSources}
@@ -525,12 +546,12 @@ function SupplementView({ supplement, hasArticles, excluded }: { supplement: Non
   if (!articles.length) {
     if (supplement.articles.length || hasArticles || supplement.status === "not_searched") return null;
     return <div className="legal-analysis-section" data-kind="supplement" data-status={supplement.status}>
-      <p className="research-meta">{supplement.status === "failed" ? "관련 조문 추가 조회에 실패했습니다." : "관련 법령을 충분히 확인하지 못했습니다."}</p>
+      <p className="research-meta">{supplement.status === "failed" ? "관련 조문 추가 조회 실패" : "관련 법령을 충분히 확인하지 못했습니다"}</p>
     </div>;
   }
   return <div className="legal-analysis-section" data-kind="supplement" data-status={supplement.status}>
     <h3>질문 용어가 제목에 있는 조문 <span className="research-meta">{articles.length}건</span></h3>
-    <p className="research-meta">질문의 용어가 조문 제목에 있는 조문을 법제처에서 추가로 조회했습니다.</p>
+    <p className="research-meta">질문 용어가 제목에 포함된 조문을 법제처에서 추가 조회</p>
     <ul className="research-hits">{articles.map((article) => {
       const effective = formatDate(article.effectiveDate);
       return <li key={`${article.law}-${article.jo}`}>
@@ -556,16 +577,16 @@ const ISSUE_GAP: Record<IssueEvidence["status"], string> = {
 const STATUS_NOTE: Record<Exclude<ResearchSection["status"], "available">, string> = {
   not_found: "자료 없음",
   failed: "불러오지 못했습니다",
-  timeout: "조회를 마치지 못했습니다",
+  timeout: "조회 미완료",
 };
 
 /** Top notice only for sections that failed or timed out; an empty search is a normal result. */
 function partialNotice(sections: readonly ResearchSection[]): string | null {
   const failed = sections.some((section) => section.status === "failed");
   const timeout = sections.some((section) => section.status === "timeout");
-  if (failed && timeout) return "일부 자료를 확인하지 못해 현재 조회된 결과만 표시합니다.";
-  if (failed) return "일부 자료를 불러오지 못했습니다. 확인된 자료를 기준으로 결과를 표시합니다.";
-  if (timeout) return "일부 자료 조회가 완료되지 않아 확인된 결과만 표시합니다.";
+  if (failed && timeout) return "일부 자료를 확인하지 못해 현재 조회된 결과만 표시합니다";
+  if (failed) return "일부 자료를 불러오지 못했습니다. 확인된 자료를 기준으로 결과를 표시합니다";
+  if (timeout) return "일부 자료 조회가 완료되지 않아 확인된 결과만 표시합니다";
   return null;
 }
 
@@ -586,7 +607,7 @@ function ResearchSectionView({ section, task, relevance, retried }: {
     }
     return <div className={className} data-kind={section.kind} data-status={section.status}>
       {heading && <h3>{heading}<span className="research-meta"> {found.entries.length}건</span></h3>}
-      <p className="research-meta">질문의 핵심어로 다시 찾은 자료입니다. 사건과의 관련성은 원문으로 확인해 주세요.</p>
+      <p className="research-meta">질문의 핵심어로 다시 찾은 자료입니다. 사건과의 관련성은 원문으로 확인해 주세요</p>
       <DecisionList entries={found.entries} />
     </div>;
   }
@@ -604,7 +625,7 @@ function ResearchSectionView({ section, task, relevance, retried }: {
     })}</ul>;
     return <div className={className} data-kind={section.kind}>
       <h3>관련 조문 <span className="research-meta">{articles.length}건</span></h3>
-      <p className="research-meta">조문 발췌입니다. 실제 적용 여부는 사실관계와 법령 원문으로 확인해 주세요.</p>
+      <p className="research-meta">조문 발췌입니다. 실제 적용 여부는 사실관계와 법령 원문으로 확인해 주세요</p>
       {items(0, 3)}
       {articles.length > 3 && <details className="law-detail-source research-more"><SourceToggleSummary label={`나머지 조문 ${articles.length - 3}건 보기`} openLabel="나머지 조문 접기" />{items(3, articles.length)}</details>}
     </div>;
@@ -619,10 +640,10 @@ function ResearchSectionView({ section, task, relevance, retried }: {
     const rest = shown.slice(DECISION_PREVIEW);
     return <div className={className} data-kind={section.kind}>
       <h3>{heading} <span className="research-meta">{entries.length}건</span></h3>
-      {rated && <p className="research-meta">판시사항을 기준으로 질문과 관련성이 높은 판례를 먼저 보여줍니다.</p>}
+      {rated && <p className="research-meta">판시사항을 기준으로 관련성이 높은 판례부터 표시</p>}
       {shown.length > 0
         ? <DecisionList entries={shown.slice(0, DECISION_PREVIEW)} />
-        : <p className="research-meta research-empty">관련성이 높은 판례를 충분히 확인하지 못했습니다.</p>}
+        : <p className="research-meta research-empty">관련성이 높은 판례를 충분히 확인하지 못했습니다</p>}
       {rest.length > 0 && <details className="law-detail-source research-more">
         <SourceToggleSummary label={`판례 ${rest.length}건 더 보기`} openLabel="판례 접기" />
         <DecisionList entries={rest} />
@@ -699,16 +720,24 @@ function ResearchResult({ data, request, expandSources = false, onExpandSourcesC
   const resultRef = useRef<HTMLDivElement>(null);
   const activeIssue = useRef<HTMLElement | null>(null);
   const focusTimer = useRef<number | undefined>(undefined);
+  // Synced from the details' own toggle events; a new result starts from the applied preference.
+  const [referencesState, setReferencesState] = useState<{ data: LawResearchData; open: boolean } | null>(null);
+  const allReferencesOpen = referencesState?.data === data ? referencesState.open : expandSources;
+  const references = useCallback(() => resultRef.current?.querySelectorAll<HTMLDetailsElement>(".research-issue-refs"), []);
+  const syncReferences = useCallback(() => {
+    const details = references();
+    setReferencesState({ data, open: !!details && details.length > 0 && [...details].every((detail) => detail.open) });
+  }, [references, data]);
   const setReferencesOpen = useCallback((expanded: boolean) => {
-    resultRef.current?.querySelectorAll<HTMLDetailsElement>(".research-issue-refs").forEach((detail) => { detail.open = expanded; });
-  }, []);
+    references()?.forEach((detail) => { detail.open = expanded; });
+  }, [references]);
   useLayoutEffect(() => { setReferencesOpen(expandSources); }, [expandSources, data, setReferencesOpen]);
   useEffect(() => () => {
     window.clearTimeout(focusTimer.current);
     activeIssue.current?.classList.remove("is-focused", "is-focus-fresh", "is-focus-leaving");
   }, [data]);
   function showIssue(index: number) {
-    const target = resultRef.current?.querySelector<HTMLElement>(`[data-issue-index="${index}"]`);
+    const target = resultRef.current?.querySelector<HTMLElement>(`#research-issue-${index + 1}`);
     if (!target) return;
     window.clearTimeout(focusTimer.current);
     activeIssue.current?.classList.remove("is-focused", "is-focus-fresh", "is-focus-leaving");
@@ -733,9 +762,9 @@ function ResearchResult({ data, request, expandSources = false, onExpandSourcesC
   const full = data.task === "full_research";
   const issueEvidence = full ? data.evidence?.issues ?? [] : [];
   const notice = partialNotice(result.sections)
-    ?? (full && data.evidence?.searchFailed ? "종합 검색 결과를 불러오지 못해 쟁점별로 확인한 자료만 표시합니다."
+    ?? (full && data.evidence?.searchFailed ? "종합 검색 결과를 불러오지 못해 쟁점별로 확인한 자료만 표시합니다"
       : issueEvidence.some((issue) => issue.status === "failed" || issue.status === "timeout")
-        ? "일부 쟁점의 자료를 확인하지 못했습니다. 확인된 자료를 기준으로 결과를 표시합니다." : null);
+        ? "일부 쟁점의 자료를 확인하지 못했습니다. 확인된 자료를 기준으로 결과를 표시합니다" : null);
   const interpretation = full && data.interpretation?.original === (request.task === "document_review" ? "" : request.query) ? data.interpretation : undefined;
   const primary = result.sections.filter((section) => !isSupportingSection(section)
     && !/^\s*(?:STEP\s*\d+|(?:OPEN\s+)?API\b)/iu.test(section.heading ?? "")
@@ -770,6 +799,10 @@ function ResearchResult({ data, request, expandSources = false, onExpandSourcesC
     caseOf.set(entry.id, kept.id);
   }
   const selectedCases = [...casesByKey.values()];
+  const hasIssueReferences = issueEvidence.length
+    ? issueEvidence.some((issue) => selectedArticles.some((article) => issue.articles.some((reference) => reference.law === article.law && reference.jo === article.jo))
+      || issue.precedents.some((id) => caseOf.has(id)))
+    : selectedArticles.length + selectedCases.length > 0;
   const evidenceStatus = selectedArticles.length + selectedCases.length ? data.evidence?.status : "unverified";
   const unavailableCount = result.sections.filter((section) => section.status !== "available").length;
   const visibleSelectedKeys = new Set(selectedArticles.map((article) => `${article.law}\u0000${article.jo}`));
@@ -800,34 +833,42 @@ function ResearchResult({ data, request, expandSources = false, onExpandSourcesC
       : !available ? "none" : notice || unavailableCount ? "partial" : "matched";
 
   return <div ref={resultRef} className="legal-analysis-output" data-task={data.task}>
-    <header className="research-overview">
-      <span className="research-eyebrow">{LAW_RESEARCH_TASKS.find((item) => item.value === data.task)?.label}</span>
-      <h3 className="legal-analysis-title" data-status={status}>{STATUS_TITLE[status]}</h3>
-      {request.task !== "document_review" && <div className="research-original"><span>입력한 질문</span><p>{request.query}</p></div>}
+    <ResearchResultSummary label={LAW_RESEARCH_TASKS.find((item) => item.value === data.task)?.label} badge={STATUS_BADGE[status]} status={status} title={STATUS_TITLE[status]}
+      caution={status === "matched" || status === "partial"
+        ? `※ ${full ? "확인한 근거는" : "조회한 자료는"} 관련 쟁점을 검토하기 위한 자료이며, 구체적인 사건의 법적 결론을 의미하지 않습니다.`
+        : status === "none" ? "※ 조회되지 않았다고 관련 법령이나 판례가 없다는 뜻은 아닙니다." : undefined}
+      cautionClassName="research-caution">
+      {request.task !== "document_review" && <p className="research-meta research-summary-meta research-query">입력한 질문: {request.query}</p>}
       {interpretation && <ResearchUnderstanding interpretation={interpretation} evidence={issueEvidence} />}
       {full && !data.interpretation && <p className="research-meta research-uninterpreted">{UNINTERPRETED_NOTE}</p>}
-      <p className="research-caution">{status === "matched" || status === "partial"
-        ? `${full ? "확인한 근거는" : "조회한 자료는"} 관련 쟁점을 검토하기 위한 자료이며, 구체적인 사건의 법적 결론을 의미하지 않습니다.`
-        : status === "weak" ? "조회된 자료가 질문과 직접 관련되는지 확인되지 않았습니다. 아래 자료는 참고용입니다."
-        : "조회되지 않았다고 관련 법령이나 판례가 없다는 뜻은 아닙니다."}</p>
-    </header>
-    {notice && <p className="legal-research-partial" role="note">{notice}</p>}
+      <ResearchSummaryNotices>
+        {notice && <ResearchSummaryNotice tone="warning" title="관련 근거 일부 미확인" className="legal-research-partial">{notice}</ResearchSummaryNotice>}
+        {status === "weak" && <ResearchSummaryNotice tone="info" title="직접 관련성 확인 필요">조회된 자료가 질문과 직접 관련되는지 확인되지 않았습니다. 아래 자료는 참고용입니다.</ResearchSummaryNotice>}
+      </ResearchSummaryNotices>
+    </ResearchResultSummary>
     {full && issueEvidence.length > 1 && <nav className="research-issue-nav" aria-label="쟁점 바로가기">
       <span>쟁점 바로가기</span>
       <ol>{issueEvidence.map((issue, index) => <li key={`${issue.label ?? ""}-${index}`}>
-        <Button type="button" variant="ghost" size="sm" onClick={() => showIssue(index)}>
-          <span className="research-issue-number">{String(index + 1).padStart(2, "0")}</span>{issue.label || "질문 쟁점"}
+        <Button type="button" variant="outline" size="sm" aria-controls={`research-issue-${index + 1}`} onClick={() => showIssue(index)}>
+          <span className="research-issue-number">{String(index + 1).padStart(2, "0")}</span>
+          <span className="research-issue-nav-label">{issue.label || "질문 쟁점"}</span>
+          <ArrowDownRight aria-hidden="true" />
         </Button>
       </li>)}</ol>
     </nav>}
     {full && (issueEvidence.length > 0 || selectedArticles.length > 0 || selectedCases.length > 0) && <section className="research-group research-selected" aria-label="확인한 근거">
-      <h3>{issueEvidence.length ? <>확인된 쟁점 <span className="research-meta">{issueEvidence.length}건</span></> : "확인한 근거"}</h3>
-      <p className="research-meta">질문 쟁점과 내용이 맞는 법제처 자료입니다. 법령의 적용 여부나 판결의 결론까지 확인했다는 뜻은 아닙니다.</p>
-      {selectedArticles.length + selectedCases.length > 0 && <Button type="button" variant="ghost" size="xs" className="research-expand" aria-pressed={expandSources}
-        onClick={() => {
-          setReferencesOpen(!expandSources);
-          onExpandSourcesChange(!expandSources);
-        }}>{expandSources ? "근거 접기" : "근거 펼치기"}</Button>}
+      <div className="research-evidence-heading">
+        <h3>{issueEvidence.length ? <>확인된 쟁점 <span className="research-meta">{issueEvidence.length}건</span></> : "확인한 근거"}</h3>
+      </div>
+      <p className="research-meta">질문 쟁점과 내용이 맞는 법제처 자료입니다. 법령의 적용 여부나 판결의 결론까지 확인했다는 뜻은 아닙니다</p>
+      {hasIssueReferences && <div className="research-evidence-heading">
+        <h3 id="research-details-heading">상세 근거</h3>
+        <Button type="button" variant="ghost" size="xs" className="research-expand" aria-describedby="research-details-heading" aria-pressed={allReferencesOpen}
+          onClick={() => {
+            setReferencesOpen(!allReferencesOpen);
+            onExpandSourcesChange(!allReferencesOpen);
+          }}>{allReferencesOpen ? "전체 접기" : "전체 펼치기"} <ChevronDown aria-hidden="true" /></Button>
+      </div>}
       {(() => {
         const articleItem = (article: (typeof selectedArticles)[number]) => {
           const excerpt = readerText(article.excerpt);
@@ -855,7 +896,7 @@ function ResearchResult({ data, request, expandSources = false, onExpandSourcesC
             <span className="research-meta">{[entry.caseNumber && `사건번호 ${entry.caseNumber}`, entry.body, date && `선고·회신 ${date}`].filter(Boolean).join(" · ")}</span>
             {excerpt
               ? <LawTextBlock className="legal-analysis-raw" text={excerpt} />
-              : <p className="research-meta">판시사항 발췌를 표시할 수 없습니다. 아래 조회 원자료도 대조해 주세요.</p>}
+              : <p className="research-meta">판시사항 발췌를 표시할 수 없습니다. 아래 조회 원자료도 대조해 주세요</p>}
           </li>;
         };
         const groups: IssueEvidence[] = issueEvidence.length ? issueEvidence
@@ -867,7 +908,7 @@ function ResearchResult({ data, request, expandSources = false, onExpandSourcesC
             if (!id) return [];
             return [{ ...entry, ...caseEntries.find((item) => item.id === id), id }];
           });
-          return <section key={`${group.label ?? ""}-${index}`} className="legal-analysis-section research-issue-evidence" data-status={group.status} data-issue-index={index}>
+          return <section key={`${group.label ?? ""}-${index}`} id={`research-issue-${index + 1}`} className="legal-analysis-section research-issue-evidence" data-status={group.status} data-issue-index={index}>
             <h3 tabIndex={-1}><span className="research-issue-number">{String(index + 1).padStart(2, "0")}</span>{group.label || "질문 쟁점"}</h3>
             <dl className="research-issue-findings">
               <div><dt>핵심 검토 결과</dt><dd>{articles.length + cases.length > 0
@@ -880,7 +921,7 @@ function ResearchResult({ data, request, expandSources = false, onExpandSourcesC
                   ? "원문 시행 시점과 구체적인 사실관계에 대한 적용 여부를 대조해 주세요."
                   : "이번 검색에서 직접 관련 근거가 확인되지 않았습니다. 관련 법령이나 판례가 없다는 뜻은 아닙니다."}</dd></div>
             </dl>
-            {articles.length + cases.length > 0 && <details className="law-detail-source research-issue-refs">
+            {articles.length + cases.length > 0 && <details className="law-detail-source research-issue-refs" onToggle={syncReferences}>
               <SourceToggleSummary label={`관련 법령·판례 상세 보기 · ${articles.length + cases.length}건`} openLabel="관련 법령·판례 상세 접기" />
               <ul className="research-hits">{articles.map(articleItem)}{cases.map(caseItem)}</ul>
             </details>}
@@ -912,7 +953,7 @@ function ResearchResult({ data, request, expandSources = false, onExpandSourcesC
           })}
         </tbody>
       </table></div>
-      <p className="research-meta">조문은 법제처 자치법규 원문에서 조회했습니다. 나란히 놓인 원문은 차이의 법적 의미를 판단한 결과가 아닙니다.</p>
+      <p className="research-meta">조문은 법제처 자치법규 원문에서 조회했습니다. 나란히 놓인 원문은 차이의 법적 의미를 판단한 결과가 아닙니다</p>
     </section>}
     {taskGroups.map((group) => {
       const sections = candidatePrimary.filter((section) => groupOf(section, data.task) === group);
@@ -943,7 +984,7 @@ function ResearchResult({ data, request, expandSources = false, onExpandSourcesC
     </section>}
     <details className="law-detail-source research-source" open={full ? undefined : expandSources}>
       <SourceToggleSummary label="출처 원문 전체 보기" openLabel="출처 원문 접기" />
-      <p className="research-meta">법제처에서 받은 원문 그대로입니다. 인용 전에 시행 시점을 대조해 주세요.</p>
+      <p className="research-meta">법제처에서 받은 원문 그대로입니다. 인용 전에 시행 시점을 대조해 주세요</p>
       <LawTextBlock className="legal-analysis-raw" text={readerText(data.text)} />
     </details>
     <p className="legal-analysis-note">조회 경로: {result.sources.map((source) => source.replace(" OPEN API", "")).join(" · ")}. {RESULT_NOTE}</p>

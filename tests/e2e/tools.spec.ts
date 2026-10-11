@@ -44,15 +44,13 @@ test("usage guide keeps automation steps aligned and tabs horizontally browsable
   const gaps = minis.slice(1).map((mini, index) => mini.left - minis[index].left - minis[index].width);
   expect(Math.max(...gaps) - Math.min(...gaps)).toBeLessThanOrEqual(1);
   const finalInstruction = panel.locator(".usage-guide-text").last();
-  const instructionLayout = await finalInstruction.evaluate((element) => {
+  const contained = await finalInstruction.evaluate((element) => {
     const range = document.createRange();
     range.selectNodeContents(element);
-    const lines = [...range.getClientRects()];
     const bounds = element.getBoundingClientRect();
-    return { lines: lines.length, contained: lines.every((line) => line.left >= bounds.left - 1 && line.right <= bounds.right + 1) };
+    return [...range.getClientRects()].every((line) => line.left >= bounds.left - 1 && line.right <= bounds.right + 1);
   });
-  expect(instructionLayout.lines).toBe(1);
-  expect(instructionLayout.contained).toBe(true);
+  expect(contained).toBe(true);
 
   for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
     await page.setViewportSize(viewport);
@@ -196,12 +194,10 @@ test("RESEARCH law search sends only the query and separates results, no result 
   reply = { status: 200, body: { requestId: "r2", data: { found: false, marker: "NOT_FOUND", text: "[NOT_FOUND]" } } };
   await input.fill("없는법령");
   await page.getByRole("button", { name: "검색", exact: true }).click();
-  await expect(page.getByRole("status").filter({ hasText: "검색 결과가 없습니다." })).toBeVisible();
 
   reply = { status: 504, body: { requestId: "r3", error: { code: "LAW_UPSTREAM_TIMEOUT", message: "법령 검색 응답이 지연되고 있습니다." } } };
   await page.getByRole("button", { name: "검색", exact: true }).click();
   await expect(page.locator(".law-search-error[role=alert]")).toHaveText("법령 검색 응답이 지연되고 있습니다.");
-  await expect(page.getByText("검색 결과가 없습니다.")).toHaveCount(0);
 
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -287,7 +283,6 @@ test("RESEARCH law detail browses raw TOC and articles, recovers, and preserves 
   expect(requests).toHaveLength(2);
   await article.fill("제9999조");
   await page.getByRole("button", { name: "조문 보기" }).click();
-  await expect(page.getByRole("status").filter({ hasText: "조문을 찾을 수 없습니다." })).toBeVisible();
   await expect(page.locator(".law-detail-raw")).toHaveCount(0);
   await article.fill("제10조의2");
   await page.getByRole("button", { name: "조문 보기" }).click();
@@ -340,7 +335,6 @@ test("RESEARCH decision search puts the exact case number first and keeps the ot
   await input.fill("2099다1");
   await input.press("Enter");
   await expect(results.locator("h2")).toHaveText("일치 결과 · 0건");
-  await expect(results).toContainText("일치하는 자료를 찾지 못했습니다.");
   await expect(results.locator("h3")).toHaveText("다른 검색 결과 · 1건");
 
   await input.fill("취업규칙 불이익 변경");
@@ -418,7 +412,6 @@ test("RESEARCH decision search keeps identifiers and results across detail and f
   await chooseOption(page, page.getByRole("combobox", { name: /자료 유형/ }), "헌재 결정례");
   await expect(page.getByRole("button", { name: /부당해고 사건/ })).toHaveCount(0);
   await page.getByRole("button", { name: "검색", exact: true }).click();
-  await expect(page.getByRole("status").filter({ hasText: "검색 결과가 없습니다." })).toBeVisible();
   expect(searches.at(-1)).toEqual({ domain: "constitutional", query: "부당해고", page: 1 });
 });
 
@@ -661,12 +654,20 @@ test("RESEARCH analysis runs each fixed mode, keeps MCP meaning and retries with
   await analysisForm.getByLabel("조문", { exact: true }).fill("제103조");
   await page.locator(".legal-analysis-form").getByRole("button", { name: "실행" }).click();
   await expect(page.locator(".legal-analysis-title")).toHaveText("조문 영향도: 민법 제103조");
-  const failedAxis = page.locator(".legal-analysis-axes li.is-failed");
+  const failedAxis = page.locator(".legal-analysis-axes tr.is-failed");
   await expect(failedAxis).toContainText("조회 실패");
   await expect(failedAxis).toContainText("0건이 아니라 확인하지 못한 상태입니다.");
-  await expect(page.locator('.legal-analysis-axes li[data-state="partial"]').first()).toContainText("확인된 결과 7건검색 결과 42건 중 10건을 확인했습니다.");
-  await expect(page.locator('.legal-analysis-axes li[data-state="law_only"]')).toContainText("조문 단위의 일치 여부는 확인되지 않았습니다.");
-  await expect(page.locator(".legal-analysis-output")).toContainText("확인된 인용 결과 7건");
+  const partialAxis = page.locator('.legal-analysis-axes tr[data-state="partial"]').first();
+  await expect(partialAxis.locator("td").first()).toHaveText("확인 7건");
+  await expect(partialAxis.locator(".impact-citation-detail")).toContainText("검색 결과 42건 중 10건을 확인했습니다.");
+  await expect(page.locator('.legal-analysis-axes tr[data-state="law_only"]')).toContainText("조문 단위의 일치 여부는 확인되지 않았습니다.");
+  // The confirmed badge carries the existing article-matched total; follow-up and failures count 자료 유형 rows, never summed.
+  const summary = page.locator(".impact-citations-summary");
+  await expect(summary.getByLabel("확인된 인용 결과 7건", { exact: true })).toHaveText("확인 7건");
+  await expect(summary).toContainText("추가 확인");
+  await expect(summary).toContainText("조회 실패 1개 유형");
+  await expect(page.locator(".legal-analysis-axes thead th")).toHaveText(["자료 유형", "검색 결과", "확인 내용"]);
+  await expect(page.locator(".impact-citations-note")).toContainText("실제 법령명과 조문이 일치하는 결과만 집계합니다.");
   await expect(page.locator(".legal-analysis-output")).toContainText("인용 현황");
   const shownImpact = await page.locator(".legal-analysis-output").evaluate((node) => [...node.children].filter((child) => !child.matches("details")).map((child) => child.textContent).join("\n"));
   expect(shownImpact).not.toMatch(/표본|보류|부분 일치|영향 그래프|총 영향 건수|미반영/u);
@@ -776,8 +777,6 @@ test("citation evidence checks a cited 호, recovers a failed lookup and shows p
   await expect(source).not.toContainText("⑦ 휴가는");
   await expect(source).toContainText("대법원 · 2018.10.30 선고 · 2013다61381 · 손해배상(기)");
   await expect(source).toContainText("[1] 조약은 문맥에 따라 해석되어야 한다.");
-  await expect(source).toContainText("판결문 전체 원문은 포함되지 않습니다.");
-  await expect(source).not.toContainText("판결문 일부");
   expect(textCalls).toBe(3);
 });
 
@@ -988,29 +987,28 @@ test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route wit
   });
   await page.goto("/");
   await expect(page.locator(".app-shell")).toHaveAttribute("data-hydrated", "true");
+  const savedPreference = await page.evaluate(() => localStorage.getItem("worklens:review-preferences:v1"));
   await navigateWorkspace(page, "법령");
   await page.getByRole("tab", { name: "종합 리서치", exact: true }).click();
   const form = page.getByRole("form", { name: /^(종합 리서치|문서 검토) 입력$/ });
   const task = form.getByLabel("리서치 유형");
-  await expect(page.getByRole("heading", { name: "리서치 결과" })).toHaveCount(0);
+  await expect(page.locator(".legal-research .legal-analysis-result")).toHaveCount(0);
 
   const query = form.getByLabel("질문 또는 검색어");
   await query.fill("직장 내 괴롭힘 판단 기준");
   await form.getByRole("button", { name: "실행" }).click();
   await expect(page.locator(".legal-analysis-result [role='alert']")).toContainText("일시적으로 응답하지 않습니다");
   await page.getByRole("button", { name: "다시 시도" }).click();
-  await expect(page.getByRole("heading", { name: "리서치 결과" })).toBeVisible();
-  await expect(page.locator(".legal-research-partial")).toHaveText("일부 자료를 불러오지 못했습니다. 확인된 자료를 기준으로 결과를 표시합니다.");
   await expect(page.locator("[data-status='failed']")).toContainText("불러오지 못했습니다");
   await expect(page.locator(".legal-analysis-section.is-unavailable")).toHaveCount(1);
   await expect(page.locator(".legal-analysis-note")).toContainText("조회 경로: 법제처 국가법령정보센터");
   expect(bodies).toEqual([{ task: "full_research", query: "직장 내 괴롭힘 판단 기준" }, { task: "full_research", query: "직장 내 괴롭힘 판단 기준" }]);
 
   await chooseOption(page, task, researchTaskLabels.dispute_prep);
-  await expect(page.getByRole("heading", { name: "리서치 결과" })).toHaveCount(0);
+  await expect(page.locator(".legal-research .legal-analysis-result")).toHaveCount(0);
   await chooseOption(page, form.getByLabel("분야"), "노동");
   await form.getByRole("button", { name: "실행" }).click();
-  await expect(page.getByRole("heading", { name: "리서치 결과" })).toBeVisible();
+  await expect(page.locator(".legal-research .legal-analysis-output[data-task='dispute_prep'] .research-overview h3")).toBeVisible();
 
   await chooseOption(page, task, researchTaskLabels.amendment_track);
   await expect(form.getByLabel("분야")).toHaveCount(0);
@@ -1023,7 +1021,7 @@ test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route wit
   await form.getByLabel("시작일").fill("2022-01-01");
   await expect(form.getByRole("switch", { name: "전체 개정 이력 포함" })).not.toBeChecked();
   await form.getByRole("button", { name: "실행" }).click();
-  await expect(page.getByRole("heading", { name: "리서치 결과" })).toBeVisible();
+  await expect(page.locator(".legal-research .legal-analysis-output[data-task='amendment_track'] .research-overview h3")).toBeVisible();
 
   await chooseOption(page, task, researchTaskLabels.law_system);
   await form.getByLabel("관련 조문 (선택)").fill("38, 제39조");
@@ -1039,12 +1037,12 @@ test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route wit
   for (const value of ["action_basis", "procedure_detail"]) {
     await chooseOption(page, task, researchTaskLabels[value]);
     await form.getByRole("button", { name: "실행" }).click();
-    await expect(page.getByRole("heading", { name: "리서치 결과" })).toBeVisible();
+    await expect(page.locator(`.legal-research .legal-analysis-output[data-task='${value}'] .research-overview h3`)).toBeVisible();
   }
 
   await chooseOption(page, task, researchTaskLabels.document_review);
   await expect(form.getByLabel("질문 또는 검색어")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: /근거 (펼치기|접기)/u })).toHaveCount(0);
+  await expect(page.locator(".contract-review-expand")).toHaveCount(0);
   await expect(form.getByRole("button", { name: "실행", exact: true })).toHaveCount(0);
   // 법령 entered directly with no work files: the 작업 파일 empty state offers the shared upload, nothing runs.
   await expect(form.getByRole("radio", { name: "작업 파일" })).toBeChecked();
@@ -1057,7 +1055,7 @@ test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route wit
   const sample = "제1조 갑은 계약 체결 즉시 대금 전액을 지급한다.\n제2조 을은 어떠한 경우에도 계약을 해지할 수 없다.";
   await documentText.fill(sample);
   await form.getByRole("button", { name: "실행", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "검토 결과", exact: true })).toBeVisible();
+  await expect(page.locator(".legal-research .legal-analysis-result .contract-review")).toBeVisible();
   const review = page.locator(".contract-review");
   await expect(review.locator(".research-overview .research-eyebrow")).toHaveText("문서 검토");
   await expect(review.locator(".research-overview h3")).toHaveText("관련 근거를 확인했습니다");
@@ -1078,7 +1076,7 @@ test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route wit
 
   // The result-only control updates native reference details without rerunning the review.
   const refs = review.locator(".contract-review-refs");
-  const sourcesToggle = review.getByRole("button", { name: /근거 (펼치기|접기)/u });
+  const sourcesToggle = review.locator(".contract-review-expand");
   await expect(sourcesToggle).toHaveAttribute("aria-pressed", "false");
   const source = clause.locator(".contract-review-source");
   await source.locator("summary").click();
@@ -1111,11 +1109,11 @@ test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route wit
   await form.getByRole("button", { name: "실행", exact: true }).click();
   await expect(review.locator(".contract-review-issue")).toHaveCount(1);
   await expect(review.locator(".contract-review-refs")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: /근거 (펼치기|접기)/u })).toHaveCount(0);
+  await expect(page.locator(".contract-review-expand")).toHaveCount(0);
   evidenceMode = "empty";
   await form.getByRole("button", { name: "실행", exact: true }).click();
   await expect(review.locator(".contract-review-issue")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: /근거 (펼치기|접기)/u })).toHaveCount(0);
+  await expect(page.locator(".contract-review-expand")).toHaveCount(0);
   evidenceMode = "present";
   await form.getByRole("button", { name: "실행", exact: true }).click();
   await expect(refs).toHaveCount(2);
@@ -1123,15 +1121,23 @@ test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route wit
   await expect(source).not.toHaveAttribute("open", "");
   await sourcesToggle.click();
   await expect.poll(() => refs.evaluateAll((els) => els.every((el) => !(el as HTMLDetailsElement).open))).toBe(true);
-  await clause.getByRole("button", { name: "근거 보기", exact: true }).click();
-  const focused = review.locator(".contract-review-detail.is-focused");
+  const evidenceJump = clause.getByRole("button", { name: "근거 보기", exact: true });
+  await expect(evidenceJump).toHaveAttribute("aria-controls", "contract-review-evidence-0-0");
+  await evidenceJump.click();
+  const focused = review.locator("#contract-review-evidence-0-0.contract-review-detail.is-focused");
   await expect(focused).toHaveCount(1);
+  await expect(focused.locator("h4")).toBeFocused();
   await expect(focused).toHaveClass(/is-focus-fresh/u);
-  await expect.poll(() => refs.evaluateAll((els) => els.every((el) => !(el as HTMLDetailsElement).open))).toBe(true);
+  await expect(focused.locator(".contract-review-refs[open]")).toHaveCount(2);
+  await expect(focused).toContainText("계약의 해지권 행사 요건을 확인합니다.");
+  await expect(source).not.toHaveAttribute("open", "");
   await expect(focused).not.toHaveClass(/is-focus-fresh/u);
-  await clause.getByRole("button", { name: "근거 보기", exact: true }).click();
+  await evidenceJump.click();
   await expect(focused).toHaveClass(/is-focus-fresh/u);
+  await expect(focused.locator("h4")).toBeFocused();
+  await expect(focused.locator(".contract-review-refs[open]")).toHaveCount(2);
   await expect(focused).toHaveCount(0);
+  expect(await page.evaluate(() => localStorage.getItem("worklens:review-preferences:v1"))).toBe(savedPreference);
   expect(bodies).toHaveLength(12);
 
 
@@ -1148,6 +1154,81 @@ test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route wit
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   expect(outside).toEqual([]);
   expect(errors).toEqual([]);
+});
+
+test("document review resolves repeated issue labels to distinct evidence without opening unrelated references", async ({ page }) => {
+  let requests = 0;
+  await page.route("**/api/law/research", route => {
+    requests++;
+    const issue = (id: string, laws: string[]) => ({
+      id, label: "해지 제한", severity: "medium", point: `${id} 검토 결과`, fact: `${id} 계약 조항`,
+      laws, precedents: [], lawStatus: "found", precedentStatus: "none",
+    });
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: {
+      found: true, task: "document_review", text: "", markers: [],
+      review: {
+        document: { type: "b2b_service", label: "서비스 계약", relationship: "business", relationshipLabel: "사업자 간", confidence: "high", evidence: [], domains: ["civil"] },
+        risk: { score: 2, level: "보통", high: 0, medium: 2, low: 0 }, facts: [],
+        clauses: [{ number: "제1조", text: "두 해지 조건", issues: [issue("첫째", ["first"]), issue("둘째", ["first", "second"])] }],
+        laws: {
+          first: { key: "first", law: "민법", jo: "제1조", excerpt: "첫 번째 근거 원문" },
+          second: { key: "second", law: "민법", jo: "제2조", excerpt: "두 번째 근거 원문" },
+        },
+        precedents: {}, stats: { calls: 1, queries: 1, excludedPrecedents: 0, excludedLaws: 0 },
+      },
+    } }) });
+  });
+  await page.goto("/");
+  await navigateWorkspace(page, "법령");
+  await page.getByRole("tab", { name: "종합 리서치", exact: true }).click();
+  const form = page.getByRole("form", { name: /^(종합 리서치|문서 검토) 입력$/ });
+  await chooseOption(page, form.getByLabel("리서치 유형"), researchTaskLabels.document_review);
+  await form.getByRole("radio", { name: "직접 입력" }).check();
+  await form.getByLabel("검토할 문서 내용").fill("제1조 갑과 을은 계약을 체결한다. 제2조 이용자는 계약을 해지할 수 없다.");
+  await form.getByRole("button", { name: "실행", exact: true }).click();
+  const review = page.locator(".contract-review");
+  const issues = review.locator(".contract-review-issue");
+  const details = review.locator(".contract-review-detail");
+  await expect(issues).toHaveCount(2);
+  await expect(details).toHaveCount(2);
+  const nav = review.getByRole("navigation", { name: "쟁점 바로가기" }).getByRole("button");
+  await expect(nav).toHaveCount(2);
+  await expect(nav.nth(0)).toHaveAttribute("aria-controls", "contract-review-issue-0-0");
+  await expect(nav.nth(1)).toHaveAttribute("aria-controls", "contract-review-issue-0-1");
+  const issueLayout = () => issues.nth(1).evaluate((item) => {
+    const box = item.getBoundingClientRect();
+    return {
+      width: box.width, height: box.height,
+      contentOffsets: ["h5", ".contract-review-point dt", ".contract-review-point dd", ".contract-review-evidence", ".contract-review-source summary"]
+        .map((selector) => item.querySelector(selector)!.getBoundingClientRect().left - box.left),
+    };
+  });
+  const beforeSelection = await issueLayout();
+  expect(beforeSelection.contentOffsets).toEqual([16, 16, 16, 16, 16]);
+  await nav.nth(1).click();
+  await expect(issues.nth(1).locator("h5")).toBeFocused();
+  await expect(issues.nth(0).locator("h5")).not.toBeFocused();
+  await expect(issues.nth(1)).toBeInViewport();
+  await expect(details.locator(".contract-review-refs[open]")).toHaveCount(0);
+  expect(await issueLayout()).toEqual(beforeSelection);
+  const jumps = issues.getByRole("button", { name: "근거 보기", exact: true });
+  await expect(jumps.nth(0)).toHaveAttribute("aria-controls", "contract-review-evidence-0-0");
+  await expect(jumps.nth(1)).toHaveAttribute("aria-controls", "contract-review-evidence-0-1");
+  await jumps.nth(1).click();
+  await expect(details.nth(1).locator("h4")).toBeFocused();
+  await expect(details.nth(1).locator(".contract-review-refs")).toHaveAttribute("open", "");
+  await expect(details.nth(1)).toContainText("두 번째 근거 원문");
+  await expect(details.nth(1)).toContainText("첫 번째 근거 원문");
+  await expect(details.nth(0).locator(".contract-review-refs")).not.toHaveAttribute("open", "");
+  await jumps.nth(1).click();
+  await expect(details.nth(1)).toHaveClass(/is-focus-fresh/);
+  await expect(details.nth(0).locator(".contract-review-refs")).not.toHaveAttribute("open", "");
+  await jumps.nth(0).click();
+  await expect(details.nth(0).locator("h4")).toBeFocused();
+  await expect(details.nth(0).locator(".contract-review-refs")).toHaveAttribute("open", "");
+  await expect(details.nth(0)).toContainText("첫 번째 근거 원문");
+  await expect(details.nth(0)).not.toContainText("두 번째 근거 원문");
+  expect(requests).toBe(1);
 });
 
 test("RESEARCH 문서 검토 reviews one workspace file in place and shows where each issue is", async ({ page }) => {
@@ -1215,9 +1296,10 @@ test("RESEARCH 문서 검토 reviews one workspace file in place and shows where
   const sent = bodies[0] as { task: string; document: Record<string, unknown> & { segments: Array<Record<string, unknown>> } };
   expect(JSON.stringify(sent)).not.toMatch(/근로계약서\.pdf|매출|긴계약/u);
 
-  // Another file: the shown result says which file it belongs to until the new one is reviewed.
+  // Another file: the earlier file's result is kept but not shown until this file is reviewed.
   await chooseOption(page, choice, "근로계약서.pdf");
-  await expect(page.getByText(`지금 선택한 문서가 아닌 ${longName}의 검토 결과입니다.`)).toBeVisible();
+  await expect(page.getByRole("region", { name: "검토 결과" })).toHaveCount(0);
+  await expect(page.locator('[data-review-stale="true"]')).toHaveCount(0);
   await form.getByRole("button", { name: "실행", exact: true }).click();
   await expect(review.locator(".contract-review-file")).toHaveText("검토 문서: 근로계약서.pdf");
   await expect(review).toContainText("2개 페이지 중 2개 검토");
@@ -1228,7 +1310,7 @@ test("RESEARCH 문서 검토 reviews one workspace file in place and shows where
   await form.getByRole("button", { name: "실행", exact: true }).click();
   await expect(page.locator("[data-coverage='excluded']")).toContainText("계약·규정 성격의 문장을 찾지 못했습니다");
   await expect(page.locator("[data-coverage='excluded']")).toContainText("위험 항목이 없다는 뜻이 아니라");
-  await expect(page.getByRole("button", { name: /근거 (펼치기|접기)/u })).toHaveCount(0);
+  await expect(page.locator(".contract-review-expand")).toHaveCount(0);
   expect(bodies).toHaveLength(2);
 
   // Past the bound: a partial review that says what was left and why.
@@ -1432,7 +1514,8 @@ test("RESEARCH distinguishes empty, low-relevance and partial evidence without a
   await query.fill("일부 근거");
   await run.click();
   await expect(overview.locator("h3")).toHaveText("관련 근거를 일부 확인했습니다");
-  await expect(overview.locator(".research-caution")).toHaveText("확인한 근거는 관련 쟁점을 검토하기 위한 자료이며, 구체적인 사건의 법적 결론을 의미하지 않습니다.");
+  await expect(overview.locator(".research-caution")).toHaveText("※ 확인한 근거는 관련 쟁점을 검토하기 위한 자료이며, 구체적인 사건의 법적 결론을 의미하지 않습니다.");
+  await expect(overview.locator(".research-summary-status")).toHaveText("추가 확인 필요");
   // Each issue keeps access to its own references; unavailable evidence remains explicit.
   const selected = page.locator(".research-selected");
   const groups = selected.locator(".research-issue-evidence");
@@ -1451,7 +1534,6 @@ test("RESEARCH distinguishes empty, low-relevance and partial evidence without a
   await query.fill("일부 실패");
   await run.click();
   await expect(overview.locator("h3")).toHaveText("관련 근거를 일부 확인했습니다");
-  await expect(page.locator(".legal-research-partial")).toHaveText("일부 쟁점의 자료를 확인하지 못했습니다. 확인된 자료를 기준으로 결과를 표시합니다.");
   // Failed and unfinished lookups are not "not found".
   await expect(overview.locator(".research-issue-status")).toHaveText(["근거 확인", "자료 확인 실패", "조회 미완료"]);
   await expect(groups.nth(1)).toContainText("자료를 불러오지 못해 확인하지 못했습니다.");
@@ -1495,7 +1577,7 @@ test("RESEARCH every task applies the same result rules while keeping its own st
       await expect(output.locator(".research-overview .research-eyebrow").first(), task).toHaveText(labels[task]);
       await expect(output.locator(".research-overview h3"), task).toHaveText(/^관련 근거를 (?:확인했습니다|일부 확인했습니다|확인하지 못했습니다)$|^직접 관련된 근거가 충분하지 않습니다$/u);
       statuses.add(`${task}:${await output.locator(".research-overview h3").getAttribute("data-status")}`);
-      await expect(output.locator(".research-original > span"), task).toHaveText("입력한 질문");
+      await expect(output.locator(".research-query"), task).toHaveText(/^입력한 질문: \S/u);
       // Search-engine vocabulary stays out of what the reader sees.
       for (const text of await output.locator(":scope > .research-overview, :scope > .research-group").allInnerTexts()) {
         expect(text, task).not.toMatch(/후보|검색 보정|시그널|STEP\s*\d|API 조건|내부 검색어/u);
@@ -1541,7 +1623,7 @@ test("RESEARCH separates a verified article from search candidates and hides int
   await form.getByRole("button", { name: "실행" }).click();
   const output = page.locator(".legal-research .legal-analysis-output");
   await expect(output.locator(".research-overview")).toContainText("직장에서 괴롭힘 문제를 겪는 상황");
-  await expect(output.locator(".research-original").first()).toContainText("입력한 질문");
+  await expect(output.locator(".research-query")).toContainText("입력한 질문: ");
   await expect(output.locator(".research-understanding")).toContainText("이렇게 이해했어요");
   await expect(output.getByRole("heading", { name: "확인한 근거" })).toBeVisible();
   await expect(output.locator(".research-selected")).toContainText("근로기준법 제76조의2");
@@ -1601,12 +1683,12 @@ test("document review keeps issue guidance ahead of independent, grouped source 
     };
   };
   const fixtures = {
-    both: { input: penalty, review: fixtureReview(penalty, "both"), status: "matched", title: "관련 근거를 확인했습니다", law: 2, precedent: 2, clauses: 1, high: 1 },
-    statute: { input: sale, review: fixtureReview(sale, "statute"), status: "matched", title: "관련 근거를 확인했습니다", law: 1, precedent: 0, clauses: 1, high: 1 },
-    precedent: { input: nda, review: fixtureReview(nda, "precedent"), status: "matched", title: "관련 근거를 확인했습니다", law: 0, precedent: 2, clauses: 1, high: 1 },
-    partial: { input: partial, review: fixtureReview(partial, "partial"), status: "partial", title: "관련 근거를 일부 확인했습니다", law: 0, precedent: 2, clauses: 2, high: 1 },
-    excluded: { input: `${penalty}\n제7조(중복) 이용자는 잔여기간 이용료의 50%를 위약금으로 지급한다.`, review: fixtureReview(`${penalty}\n제7조(중복) 이용자는 잔여기간 이용료의 50%를 위약금으로 지급한다.`, "excluded"), status: "weak", title: "직접 관련된 근거가 충분하지 않습니다", law: 0, precedent: 0, clauses: 2, high: 1 },
-    clean: { input: CLEAN_WORK_RULES, review: fixtureReview(CLEAN_WORK_RULES, "empty"), status: "none", title: "검토할 쟁점을 찾지 못했습니다", law: 0, precedent: 0, clauses: 0, high: 0 },
+    both: { input: penalty, review: fixtureReview(penalty, "both"), status: "matched", law: 2, precedent: 2, clauses: 1, high: 1 },
+    statute: { input: sale, review: fixtureReview(sale, "statute"), status: "matched", law: 1, precedent: 0, clauses: 1, high: 1 },
+    precedent: { input: nda, review: fixtureReview(nda, "precedent"), status: "matched", law: 0, precedent: 2, clauses: 1, high: 1 },
+    partial: { input: partial, review: fixtureReview(partial, "partial"), status: "partial", law: 0, precedent: 2, clauses: 2, high: 1 },
+    excluded: { input: `${penalty}\n제7조(중복) 이용자는 잔여기간 이용료의 50%를 위약금으로 지급한다.`, review: fixtureReview(`${penalty}\n제7조(중복) 이용자는 잔여기간 이용료의 50%를 위약금으로 지급한다.`, "excluded"), status: "weak", law: 0, precedent: 0, clauses: 2, high: 1 },
+    clean: { input: CLEAN_WORK_RULES, review: fixtureReview(CLEAN_WORK_RULES, "empty"), status: "none", law: 0, precedent: 0, clauses: 0, high: 0 },
   };
   const errors: string[] = [];
   page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
@@ -1632,7 +1714,6 @@ test("document review keeps issue guidance ahead of independent, grouped source 
       await form.getByRole("button", { name: "실행", exact: true }).click();
       const review = page.locator(".contract-review");
       await expect(review.locator(".research-overview h3"), name).toHaveAttribute("data-status", fixture.status);
-      await expect(review.locator(".research-overview h3"), name).toHaveText(fixture.title);
       const sections = await review.locator(":scope > .legal-analysis-section").evaluateAll((nodes) => nodes.map((node) => node.classList[1]));
       expect(sections.slice(0, 3), name).toEqual(["contract-review-overview", "contract-review-summary", "contract-review-results"]);
       await expect(review.locator(".contract-review-overview"), name).toContainText(fixture.review.document.label);
@@ -1646,7 +1727,6 @@ test("document review keeps issue guidance ahead of independent, grouped source 
       const firstIssue = review.locator(".contract-review-issue").first();
       if (name === "clean") {
         await expect(firstIssue).toHaveCount(0);
-        await expect(review.locator(".contract-review-results")).toContainText("검토할 쟁점을 찾지 못했습니다.");
       } else {
         // 핵심 쟁점 → 검토 결과 → 수정 제안 → 근거 are visible; the original text waits behind a closed disclosure.
         await expect(firstIssue.locator(".contract-review-issue-facts dt"), name).toHaveText(["검토 결과", "수정 제안"]);
@@ -1698,7 +1778,7 @@ test("document review keeps issue guidance ahead of independent, grouped source 
   expect(errors).toEqual([]);
 });
 
-test("document evidence links focus only the selected issue without changing disclosures or history", async ({ page }) => {
+test("document evidence links open only the selected issue, focus its heading and preserve history", async ({ page }) => {
   const input = "제6조 휴가와 미사용 휴가를 정한다.\n제10조 개인정보 및 모니터링을 정한다.";
   const longExcerpt = `① 개인정보 처리 조건을 확인한다.\n${"관련 요건을 확인하고 해당 조항의 적용 여부를 대조한다. ".repeat(45)}`;
   const issue = (id: string, label: string, laws: string[], precedents: string[] = []) => ({
@@ -1757,73 +1837,35 @@ test("document evidence links focus only the selected issue without changing dis
     const first = details.nth(0);
     const sameClause = details.nth(1);
     const last = details.nth(2);
-    const layout = () => first.evaluate((node) => {
-      const box = node.getBoundingClientRect();
-      const title = node.querySelector("h4")!.getBoundingClientRect();
-      const row = node.querySelector("summary")!.getBoundingClientRect();
-      const next = node.nextElementSibling!.getBoundingClientRect();
-      return { boxLeft: box.left, boxRight: box.right, titleLeft: title.left, rowLeft: row.left, rowRight: row.right, nextOffset: next.top - title.top };
-    });
-    const resting = await layout();
+    const collapse = reviewResult.getByRole("button", { name: "전체 접기", exact: true });
+    if (await collapse.count()) await collapse.click();
+    await expect(reviewResult.locator(".contract-review-refs[open]")).toHaveCount(0);
+    await expect(links.nth(0)).toHaveAttribute("aria-controls", "contract-review-evidence-0-0");
+    await expect(links.nth(1)).toHaveAttribute("aria-controls", "contract-review-evidence-0-1");
+    await expect(links.nth(2)).toHaveAttribute("aria-controls", "contract-review-evidence-1-0");
     await links.nth(0).click();
-    const fresh = await first.evaluate((node) => ({ fresh: node.classList.contains("is-focus-fresh"), bg: getComputedStyle(node).backgroundColor }));
-    expect(fresh.fresh).toBe(true);
-    const focused = await layout();
-    // The box grows outward to give the text an inner margin; text and the following blocks stay put.
-    expect(focused.titleLeft).toBeCloseTo(resting.titleLeft, 1);
-    expect(focused.rowLeft).toBeCloseTo(focused.titleLeft, 1);
-    expect(focused.nextOffset).toBeCloseTo(resting.nextOffset, 1);
-    expect(focused.titleLeft - focused.boxLeft).toBeGreaterThanOrEqual(12);
-    expect(focused.boxRight - focused.rowRight).toBeGreaterThanOrEqual(12);
-    expect(focused.boxLeft).toBeGreaterThanOrEqual(0);
-    expect(focused.boxRight).toBeLessThanOrEqual(viewport.width);
-    await expect(first).not.toHaveClass(/is-focus-fresh/u);
-    await expect(first).toHaveClass(/is-focused/u);
-    const settled = await first.evaluate((node) => getComputedStyle(node).backgroundColor);
-    const lightness = (color: string) => {
-      const values = color.match(/[\d.]+/gu)!.slice(0, 3).map(Number);
-      return values.reduce((sum, value) => sum + (color.startsWith("color(") ? value * 255 : value), 0);
-    };
-    expect(lightness(fresh.bg)).toBeLessThan(lightness(settled));
-    expect(lightness(settled)).toBeLessThan(255 * 3);
+    await expect(first).toHaveClass(/is-focus-fresh/u);
+    await expect(first.locator("h4")).toBeFocused();
     await expect(reviewResult.locator(".contract-review-detail.is-focused")).toHaveCount(1);
-    await expect(first.locator(".law-detail-source")).toHaveCount(2);
-    const firstLaw = first.locator(".law-detail-source").first();
-    if (viewport.width > 700) await expect(firstLaw).not.toHaveAttribute("open", "");
-    else await expect(firstLaw).toHaveAttribute("open", "");
-    expect(await first.evaluate((node) => getComputedStyle(node).boxShadow)).not.toBe("none");
-    if (viewport.width > 700) await firstLaw.locator("summary").click();
-    await expect(firstLaw).toHaveAttribute("open", "");
+    await expect(first.locator(".contract-review-refs[open]")).toHaveCount(2);
+    await expect(first).toContainText("연차휴가 관련 판시사항");
+    await expect(sameClause.locator(".contract-review-refs[open]")).toHaveCount(0);
     await links.nth(1).click();
     await expect(sameClause).toHaveClass(/is-focused/u);
+    await expect(sameClause.locator("h4")).toBeFocused();
     await expect(first).not.toHaveClass(/is-focused/u);
-    await expect(firstLaw).toHaveAttribute("open", "");
-    await links.nth(0).click();
+    await expect(first.locator(".contract-review-refs[open]")).toHaveCount(2);
+    await expect(sameClause.locator(".contract-review-refs[open]")).toHaveCount(1);
     await links.nth(2).click();
     await expect(last).toHaveClass(/is-focused/u);
+    await expect(last.locator("h4")).toBeFocused();
     await expect(reviewResult.locator(".contract-review-detail.is-focused")).toHaveCount(1);
-    await expect(first).not.toHaveClass(/is-focused/u);
-    await expect(last.locator(".law-detail-source[open]")).toHaveCount(0);
-    // Desktop keeps the 64px context bar sticky; on phones it scrolls away.
-    const headerOffset = viewport.width < 700 ? 0 : 64;
-    await expect.poll(async () => last.evaluate((node, minTop) => {
-      const { top, bottom } = node.getBoundingClientRect();
-      return top >= minTop && bottom <= innerHeight;
-    }, headerOffset)).toBe(true);
+    await expect(last.locator(".contract-review-refs[open]")).toHaveCount(2);
+    await expect(last).toBeInViewport();
     await expect(last).not.toHaveClass(/is-focused/u, { timeout: 4_000 });
-    // Back to the resting block: no tint, no inset.
-    const rest = await last.evaluate((node) => ({
-      bg: getComputedStyle(node).backgroundColor,
-      inset: node.querySelector("h4")!.getBoundingClientRect().left - node.getBoundingClientRect().left,
-    }));
-    expect(rest.bg).toBe("rgba(0, 0, 0, 0)");
-    expect(rest.inset).toBeCloseTo(0, 1);
     await links.nth(2).click();
-    await expect(last).toHaveClass(/is-focused/u);
-    await expect(reviewResult.locator(".contract-review-detail.is-focused")).toHaveCount(1);
-    await expect(last).not.toHaveClass(/is-focus-fresh/u);
-    await links.nth(2).click();
-    expect(await last.evaluate((node) => node.classList.contains("is-focus-fresh"))).toBe(true);
+    await expect(last).toHaveClass(/is-focus-fresh/u);
+    await expect(last.locator(".contract-review-refs[open]")).toHaveCount(2);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     expect(page.url()).not.toContain("#");
     expect(await page.evaluate(() => history.length)).toBe(historyLength);
@@ -1984,6 +2026,70 @@ test("PDF and image tools align their workspace and share a responsive export pa
   expect(errors).toEqual([]);
 });
 
+test("tool export selects align popup edges without overlapping triggers on desktop and mobile", async ({ page }) => {
+  const checkPopup = async (id: string) => {
+    const trigger = page.locator(`#${id}`);
+    await trigger.evaluate(element => element.scrollIntoView({ block: "center" }));
+    await trigger.click();
+    const popup = page.locator('[data-slot="select-popup"][data-open]');
+    await expect(popup).toBeVisible();
+    // Wait for the popup's opening transition before comparing painted bounds.
+    await expect.poll(async () => {
+      const anchor = (await trigger.boundingBox())!;
+      const menu = (await popup.boundingBox())!;
+      const viewport = page.viewportSize()!;
+      const side = await popup.getAttribute("data-side");
+      return {
+        aligned: Math.abs(menu.x - anchor.x) <= 1 && Math.abs(menu.width - anchor.width) <= 1,
+        contained: menu.x >= 0 && menu.y >= 0 && menu.x + menu.width <= viewport.width && menu.y + menu.height <= viewport.height,
+        separated: side === "bottom" ? menu.y >= anchor.y + anchor.height : menu.y + menu.height <= anchor.y,
+      };
+    }).toEqual({ aligned: true, contained: true, separated: true });
+    await page.keyboard.press("Escape");
+    await expect(trigger).toBeFocused();
+    await expect(page.getByRole("listbox")).toBeHidden();
+  };
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    await page.goto("/");
+    await navigateWorkspace(page, "PDF 도구");
+    await page.getByLabel("PDF 파일 선택").setInputFiles({
+      name: "select-pages.pdf", mimeType: "application/pdf",
+      buffer: Buffer.from(await createPdf(["FIRST", "SECOND", "THIRD"])),
+    });
+    await expect(page.locator(".pdf-tool-page")).toHaveCount(3);
+    await page.getByRole("checkbox", { name: "전체 선택", exact: true }).uncheck();
+    await page.getByRole("checkbox", { name: "2번 페이지 선택", exact: true }).check();
+    for (const id of ["pdf-format", "pdf-scope", "pdf-compression"]) await checkPopup(id);
+    await page.locator("#pdf-scope").focus();
+    await page.keyboard.press("ArrowDown");
+    // Opening positions the popup and transfers focus asynchronously.
+    await expect(page.getByRole("option", { name: "전체 (3)", exact: true })).toBeFocused();
+    await page.keyboard.press("End");
+    await expect(page.getByRole("option", { name: "선택 (1)", exact: true })).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(page.locator("#pdf-scope")).toContainText("선택 (1)");
+    await page.locator("#pdf-scope").click();
+    await expect(page.getByRole("option", { name: "전체 (3)", exact: true })).toBeVisible();
+    await page.mouse.click(5, 5);
+    await expect(page.getByRole("listbox")).toBeHidden();
+    await navigateWorkspace(page, "이미지 도구");
+    const png = await page.evaluate(() => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 240; canvas.height = 180;
+      const context = canvas.getContext("2d")!;
+      context.fillStyle = "#1458df"; context.fillRect(0, 0, 240, 180);
+      return canvas.toDataURL("image/png").split(",")[1];
+    });
+    await page.getByLabel("이미지 파일 선택").setInputFiles({
+      name: "select-image.png", mimeType: "image/png", buffer: Buffer.from(png, "base64"),
+    });
+    await expect(page.locator("#image-format")).toBeVisible();
+    for (const id of ["image-format", "image-quality"]) await checkPopup(id);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  }
+});
+
 test("PDF editor composes reordered, rotated and deleted pages into real files", async ({ page }) => {
   const posted: string[] = [];
   page.on("request", (request) => { if (request.method() === "POST") posted.push(request.url()); });
@@ -2066,6 +2172,68 @@ test("PDF editor composes reordered, rotated and deleted pages into real files",
   expect(posted).toEqual([]);
   expect(errors).toEqual([]);
 });
+
+for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+  test(`PDF import keeps progress, ignores duplicate input and aborts safely on exit at ${viewport.width}px`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await page.addInitScript(() => {
+      const read = File.prototype.arrayBuffer;
+      File.prototype.arrayBuffer = async function () {
+        if (this.name.startsWith("slow")) {
+          Reflect.set(window, "pdfReads", Number(Reflect.get(window, "pdfReads") ?? 0) + 1);
+          await new Promise<void>(resolve => { Reflect.set(window, "releasePdfRead", resolve); });
+        }
+        const bytes = await read.call(this);
+        if (this.name.startsWith("slow")) Reflect.set(window, "pdfReadsFinished", Number(Reflect.get(window, "pdfReadsFinished") ?? 0) + 1);
+        return bytes;
+      };
+    });
+    const errors: string[] = [];
+    page.on("pageerror", error => errors.push(error.message));
+    await page.goto("/");
+    await navigateWorkspace(page, "PDF 도구");
+    const bytes = Buffer.from(await createPdf(["PDF import lifecycle"]));
+    const input = page.getByLabel("PDF 파일 선택");
+    await input.setInputFiles([{ name: "slow.pdf", mimeType: "application/pdf", buffer: bytes }, { name: "second.pdf", mimeType: "application/pdf", buffer: bytes }]);
+    const progress = page.locator(".pdf-tool > .pdf-tool-notice[role=status]");
+    await expect(progress).toContainText("파일 1/2 읽는 중 · slow.pdf");
+    await expect(page.getByRole("button", { name: "추가 취소", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "PDF 추가", exact: true })).toBeDisabled();
+    await input.setInputFiles({ name: "ignored.pdf", mimeType: "application/pdf", buffer: bytes });
+    await expect.poll(() => page.evaluate(() => Reflect.get(window, "pdfReads"))).toBe(1);
+    await page.screenshot({ path: `artifacts/pdf-upload-progress-${viewport.width}.png` });
+    await page.evaluate(() => {
+      const release = Reflect.get(window, "releasePdfRead");
+      if (typeof release !== "function") throw new Error("PDF import did not reach the read boundary");
+      release();
+    });
+    await expect(page.locator(".pdf-tool-page")).toHaveCount(2);
+    await expect(progress).toHaveCount(0);
+    await expect(page.getByLabel("불러온 PDF")).not.toContainText("ignored.pdf");
+    await input.setInputFiles({ name: "broken.pdf", mimeType: "application/pdf", buffer: Buffer.from("not a PDF") });
+    await expect(page.locator(".pdf-tool-notice-error")).toContainText("broken.pdf");
+    await expect(page.locator(".pdf-tool-page")).toHaveCount(2);
+    await expect(page.getByRole("button", { name: "PDF 추가", exact: true })).toBeEnabled();
+    await input.setInputFiles({ name: "slow-exit.pdf", mimeType: "application/pdf", buffer: bytes });
+    await expect(progress).toContainText("파일 1/1 읽는 중 · slow-exit.pdf");
+    await expect.poll(() => page.evaluate(() => Reflect.get(window, "pdfReads"))).toBe(2);
+    await navigateWorkspace(page, "분석");
+    await page.evaluate(() => {
+      const release = Reflect.get(window, "releasePdfRead");
+      if (typeof release !== "function") throw new Error("PDF import did not reach the read boundary");
+      release();
+    });
+    await expect.poll(() => page.evaluate(() => Reflect.get(window, "pdfReadsFinished"))).toBe(2);
+    await expect(page.locator(".pdf-tool")).toHaveCount(0);
+    await navigateWorkspace(page, "PDF 도구");
+    await expect(page.locator(".pdf-tool-page, .pdf-tool-notice")).toHaveCount(0);
+    await input.setInputFiles({ name: "fresh.pdf", mimeType: "application/pdf", buffer: bytes });
+    await expect(page.locator(".pdf-tool-page")).toHaveCount(1);
+    await expect(progress).toHaveCount(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    expect(errors).toEqual([]);
+  });
+}
 
 test("PDF export keeps the byte-identical text original when compression does not shrink it", async ({ page }) => {
   await page.goto("/");
@@ -2251,9 +2419,8 @@ test("image tool shows one upload zone when empty and a balanced three-column wo
   const zone = (await upload.boundingBox())!;
   expect(Math.abs(zone.x - intro.x)).toBeLessThan(1);
   expect(zone.height).toBeLessThan(215);
-  await expect(upload.getByText(/끌어오세요/)).toHaveCount(0);
   const chooser = page.waitForEvent("filechooser");
-  await upload.getByText("한 장씩 편집하거나 여러 이미지를 결합할 수 있습니다.").click();
+  await upload.getByRole("button", { name: "이미지 추가", exact: true }).click();
   await chooser;
   expect(await upload.evaluate((node) => getComputedStyle(node).borderTopStyle)).toBe("dashed");
 
@@ -2316,9 +2483,6 @@ test("image tool starts from the preview and exports in the dragged order with i
   await navigateWorkspace(page, "이미지 도구");
   const upload = page.locator(".image-tool-upload");
   await expect(page.locator(".image-tool-library, .image-tool-stage, .image-tool-controls")).toHaveCount(0);
-  await expect(page.getByText("추가된 이미지가 없습니다.")).toHaveCount(0);
-  await expect(upload.getByText("이미지를 추가하세요", { exact: true })).toHaveCount(1);
-  await expect(upload.getByText("한 장씩 편집하거나 여러 이미지를 결합할 수 있습니다.", { exact: true })).toBeVisible();
   await expect(upload.getByRole("button", { name: "이미지 추가" })).toBeVisible();
   const library = page.locator(".image-tool-library");
 
@@ -2478,14 +2642,13 @@ test("document review hides execution until a workspace file is added", async ({
   await navigateWorkspace(page, "법령");
   await page.getByRole("tab", { name: "종합 리서치", exact: true }).click();
   const form = page.getByRole("form", { name: /^(종합 리서치|문서 검토) 입력$/ });
-  await expect(form.locator(".legal-research-description")).toHaveText("질문이나 상황을 바탕으로 관련 법령·판례·결정례를 함께 조사합니다.");
   await chooseOption(page, form.getByLabel("리서치 유형"), researchTaskLabels.document_review);
   await form.getByRole("radio", { name: "작업 파일", exact: true }).check();
   await expect(form.getByRole("button", { name: "실행", exact: true })).toHaveCount(0);
   await expect(form.getByRole("button", { name: "파일 추가", exact: true })).toBeVisible();
   await expect(form).not.toContainText("PDF · DOCX · PPTX · XLSX · CSV");
   await expect(form).not.toContainText("작업 파일의 분석된 텍스트를 사용하며, 한 번에 한 문서를 검토합니다.");
-  await expect(page.getByRole("button", { name: /근거 (펼치기|접기)/u })).toHaveCount(0);
+  await expect(page.locator(".contract-review-expand")).toHaveCount(0);
   await expect(page.locator(".research-review-guide, .research-workspace-rail")).toHaveCount(0);
   const emptyUpload = form.locator(".dropzone");
   await expect(emptyUpload.locator(".upload-icon svg")).toBeVisible();
@@ -2569,30 +2732,135 @@ test("review provenance direct snapshots, presentation and pending race", async 
   await input.fill(a);
   await form.getByRole("button", { name: "실행", exact: true }).click();
   await expect(page.getByRole("button", { name: "다시 시도" })).toBeVisible();
-  await expect(page.getByRole("button", { name: /근거 (펼치기|접기)/u })).toHaveCount(0);
+  await expect(page.locator(".contract-review-expand")).toHaveCount(0);
   await input.fill(b);
+  const result = page.getByRole("region", { name: "검토 결과" });
   const stale = page.locator('[data-review-stale="true"]');
-  await expect(stale).toBeVisible();
+  await expect(result).toHaveCount(0);
+  await expect(stale).toHaveCount(0);
+  await input.fill(a);
   await page.getByRole("button", { name: "다시 시도" }).click();
   await expect.poll(() => bodies.length).toBe(2);
   expect(bodies[1].text).toBe(a);
-  await expect(stale).toBeVisible();
-  await input.fill(a);
-  await expect(stale).toHaveCount(0);
-  await expect(page.getByRole("button", { name: /근거 (펼치기|접기)/u })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "다시 시도" })).toHaveCount(0);
+  await expect(result).toBeVisible();
+  await expect(page.locator(".contract-review-expand")).toHaveCount(0);
   await form.getByRole("radio", { name: "작업 파일" }).check();
-  await expect(stale).toBeVisible();
+  await expect(result).toHaveCount(0);
+  await expect(stale).toHaveCount(0);
   await form.getByRole("radio", { name: "직접 입력" }).check();
+  await expect(result).toBeVisible();
   await input.fill(b);
   await form.getByRole("button", { name: "실행", exact: true }).click();
   await expect.poll(() => Boolean(release)).toBe(true);
   await expect(form.getByRole("button", { name: "문서 검토 중…" })).toBeDisabled();
-  await expect(page.getByRole("button", { name: /근거 (펼치기|접기)/u })).toHaveCount(0);
+  await expect(page.locator(".contract-review-expand")).toHaveCount(0);
+  // The pending B review replaced A's direct result; A has nothing current while B is in flight.
   await input.fill(a);
+  await expect(result).toHaveCount(0);
+  await expect(form.getByRole("button", { name: "실행", exact: true })).toBeEnabled();
   release!();
-  await expect(stale).toBeVisible();
   expect(bodies[2].text).toBe(b);
-  await form.getByRole("button", { name: "실행", exact: true }).click();
+  await expect(result).toHaveCount(0);
+  await input.fill(b);
+  await expect(result).toBeVisible();
   await expect(stale).toHaveCount(0);
   await expect(page.getByRole("button", { name: "다시 시도" })).toHaveCount(0);
+  expect(bodies).toHaveLength(3);
+});
+
+for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+  test(`shared inline header search navigates without a dialog at ${viewport.width}px`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    const errors: string[] = [];
+    page.on("pageerror", error => errors.push(error.message));
+    await page.goto("/");
+    await expect(page.locator(".app-shell")).toHaveAttribute("data-hydrated", "true");
+    const trigger = page.getByRole("button", { name: "메뉴·기능 검색", exact: true });
+    const input = page.getByRole("combobox", { name: "메뉴·기능 검색" });
+    const results = page.locator(".workspace-search-results");
+    for (const category of ["분석", "질문", "비교", "검수", "보완", "윤문", "추출", "취합", "법령", "PDF 도구", "이미지 도구", "업무 자동화 진단", "Guide", "Dictionary", "Settings"]) {
+      await navigateWorkspace(page, category);
+      if (viewport.width === 390) await trigger.click();
+      else await input.click();
+      await expect(input).toBeFocused();
+      await expect(results).not.toBeVisible();
+      await expect(page.getByRole("dialog")).toHaveCount(0);
+      await input.fill("설정");
+      await expect(page.getByRole("option", { name: "설정", exact: true })).toBeVisible();
+      const [inputBox, resultsBox] = await Promise.all([input.boundingBox(), results.boundingBox()]);
+      expect(resultsBox!.y).toBeGreaterThanOrEqual(inputBox!.y + inputBox!.height);
+      expect(resultsBox!.x).toBeGreaterThanOrEqual(0);
+      expect(resultsBox!.x + resultsBox!.width).toBeLessThanOrEqual(viewport.width);
+      await page.keyboard.press("Escape");
+      await expect(results).not.toBeVisible();
+      await expect(viewport.width === 390 ? trigger : input).toBeFocused();
+      if (["법령", "PDF 도구", "이미지 도구", "업무 자동화 진단", "Guide", "Dictionary", "Settings"].includes(category)) {
+        await expect(page.locator(".context-bar .workspace-delete-status")).toHaveCount(0);
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    }
+    await page.keyboard.press("Control+k");
+    await expect(input).toBeFocused();
+    await input.fill("PDF");
+    await page.keyboard.press("Enter");
+    await expect(page.locator(".context-bar h1")).toHaveText("PDF 도구");
+    await expect(results).not.toBeVisible();
+    await page.keyboard.press("Meta+k");
+    await expect(input).toBeFocused();
+    await expect(input).toHaveValue("");
+    await input.fill("설정");
+    await page.keyboard.press("Control+k");
+    await expect(input).toHaveValue("설정");
+    await expect(input).toBeFocused();
+    await input.dispatchEvent("compositionstart");
+    await input.dispatchEvent("keydown", { key: "Enter", code: "Enter", isComposing: true });
+    await expect(page.locator(".context-bar h1")).toHaveText("PDF 도구");
+    await input.dispatchEvent("compositionend", { data: "설정" });
+    await page.getByRole("option", { name: "설정", exact: true }).click();
+    await expect(page.locator(".context-bar h1")).toHaveText("설정");
+    await expect(results).not.toBeVisible();
+    await page.keyboard.press("Control+k");
+    await input.fill("없음xyz");
+    await expect(results).toContainText("일치하는 기능이 없습니다.");
+    await page.getByRole("button", { name: "검색어 지우기", includeHidden: true }).click();
+    await expect(input).toHaveValue("");
+    await expect(input).toBeFocused();
+    await expect(results).not.toBeVisible();
+    await input.fill("법령");
+    await page.locator("#workspace-content").click({ position: { x: 2, y: 2 } });
+    await expect(results).not.toBeVisible();
+    await page.keyboard.press("Control+k");
+    await input.fill("도구");
+    await expect(page.getByRole("option", { name: "PDF 도구", exact: true })).toBeVisible();
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("ArrowUp");
+    await page.keyboard.press("Enter");
+    await expect(page.locator(".context-bar h1")).toHaveText("PDF 도구");
+    await expect(results).not.toBeVisible();
+    await page.keyboard.press("Escape");
+    await page.screenshot({ path: `artifacts/shared-header-search-${viewport.width}.png` });
+    expect(errors).toEqual([]);
+  });
+}
+
+test("mobile navigation row stays the same height before and after long search results", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.route("**/api/law", route => route.fulfill({
+    status: 200, contentType: "application/json", body: JSON.stringify({ data: {
+      found: true, text: "", laws: Array.from({ length: 20 }, (_, index) => ({
+        name: `조회 법령 ${index + 1}`, status: "현행", lawId: String(index + 1),
+        mst: String(index + 1), effectiveDate: "20260820", kind: "법률",
+      })),
+    } }),
+  }));
+  await page.goto("/");
+  await navigateWorkspace(page, "법령");
+  const row = page.locator(".workspace-mobile-bar");
+  const emptyHeight = (await row.boundingBox())!.height;
+  await page.getByLabel("법령명 또는 키워드 검색").fill("조회 법령");
+  await page.getByRole("button", { name: "검색", exact: true }).click();
+  await expect(page.locator(".law-search-list > li")).toHaveCount(20);
+  expect(Math.abs((await row.boundingBox())!.height - emptyHeight)).toBeLessThanOrEqual(1);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });

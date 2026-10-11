@@ -82,6 +82,9 @@
 /* AI 제안값 복원: outlined icon action on white, pale-blue hover; keeps the shared Button focus ring. */
 .ax-factor-control > .ax-factor-reset { background: var(--card); color: var(--muted-foreground); border-color: var(--border); }
 .ax-factor-control > .ax-factor-reset:not(:disabled):hover { background: var(--blue-soft); color: var(--primary); border-color: color-mix(in srgb, var(--primary) 30%, var(--border)); }
+@media(min-width: 1001px) {
+  .ax-factor-control { align-self: center; }
+}
 .ax-segments { display: flex; gap: 4px; }
 .ax-segments button { width: 18px; height: 24px; border-radius: 4px; background: var(--muted); cursor: pointer; }
 .ax-segments button.is-on { background: var(--ax-factor); }
@@ -195,18 +198,22 @@
 .ax-bubble { position: absolute; transform: translate(-50%,50%); border-radius: 50%; background: transparent; color: var(--primary); cursor: pointer; font-size: 11px; border: 0; padding: 0; display: flex; align-items: center; justify-content: center; }
 .ax-bubble-dot { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); border-radius: 50%; background: var(--primary); }
 .ax-bubble.is-hold .ax-bubble-dot { outline: 3px double var(--muted-foreground); }
-.ax-bubble-number { position: relative; display: inline-flex; align-items: center; justify-content: center; text-align: center; background: var(--card); border-radius: 50%; width: 16px; height: 16px; line-height: 1; }
 .ax-bubble[aria-pressed=true] { outline: 2px solid var(--primary); outline-offset: 3px; }
 .ax-bubble:focus-visible { outline: 3px solid var(--ring); outline-offset: 4px; }
-.ax-matrix-cluster { position: absolute; transform: translate(-50%,50%); display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 32px; padding: 0; border: 1px solid var(--card); border-radius: 9px; background: var(--primary); color: var(--primary-foreground); box-shadow: 3px 3px 0 var(--card); font-size: var(--font-size-xs); font-weight: 700; line-height: 1; cursor: pointer; }
-.ax-matrix-cluster[data-selected=true] { outline: 2px solid var(--primary); outline-offset: 4px; }
-.ax-matrix-cluster:focus-visible { outline: 3px solid var(--ring); outline-offset: 5px; }
+.ax-matrix-cluster { position: absolute; transform: translate(-50%,50%); display: block; width: 42px; height: 42px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: #fff; cursor: pointer; }
+.ax-matrix-cluster-circle { position: absolute; width: 27px; height: 27px; border: 1px solid var(--card); border-radius: 50%; background: color-mix(in srgb, var(--primary) 45%, var(--card)); }
+.ax-matrix-cluster-circle-left { top: 5px; left: 1px; }
+.ax-matrix-cluster-circle-right { top: 5px; right: 1px; }
+.ax-matrix-cluster-circle-front { bottom: 1px; left: 7px; background: var(--primary); }
+.ax-matrix-cluster-number { position: absolute; bottom: 7px; left: 7px; width: 27px; text-align: center; font-size: 11px; font-weight: var(--font-weight-semibold); line-height: 1; font-variant-numeric: tabular-nums; }
+.ax-matrix-cluster[data-selected=true] { outline: 2px solid var(--primary); outline-offset: 3px; }
+.ax-matrix-cluster:focus-visible { outline: 3px solid var(--ring); outline-offset: 4px; }
 .ax-matrix-cluster-popup { width: min(20rem,calc(100vw - 24px)); }
-.ax-matrix-cluster-popup > div { max-height: min(320px,var(--available-height)); }
-.ax-matrix-cluster-count { padding: 6px 8px; color: var(--muted-foreground); font-size: var(--font-size-xs); font-weight: 600; }
-.ax-matrix-cluster-item { align-items: flex-start; }
+.ax-matrix-cluster-popup > div { max-height: min(320px,var(--available-height),var(--ax-matrix-popup-height)); }
+.ax-matrix-cluster-count { padding: 6px 8px 8px; color: var(--muted-foreground); font-size: var(--font-size-xs); font-weight: 600; }
+.ax-matrix-cluster-item { align-items: flex-start; gap: 8px; }
 .ax-matrix-cluster-item[aria-current=true] { background: var(--accent); color: var(--accent-foreground); }
-.ax-matrix-cluster-name { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.ax-matrix-cluster-name { min-width: 0; flex: 1; overflow-wrap: anywhere; white-space: normal; }
 .ax-matrix-cluster-rank { flex: none; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
 .ax-y-tick { position: absolute; left: -26px; width: 16px; text-align: center; line-height: 1; transform: translateY(50%); color: var(--muted-foreground); }
 .ax-x-tick { position: absolute; bottom: -26px; height: 16px; line-height: 1; transform: translateX(-50%); color: var(--muted-foreground); }
@@ -250,114 +257,189 @@
 
 .ax-score-evidence { border-top: 1px solid var(--border); margin-top: 16px; }
 .ax-score-content { color: var(--foreground); min-width: 0; }
-.ax-score-content > h3 { margin-bottom: 6px; }
-.ax-score-content > p { margin: 0 0 16px; font-size: var(--font-size-xs); }
-.ax-score-groups { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
-.ax-score-group { border-top: 1px solid var(--border); padding: 14px 0; min-width: 0; }
-.ax-score-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.ax-score-heading > h4 { margin: 0; font-size: var(--font-size-sm); }
-.ax-score-heading > .ax-score-badge { flex: none; background: var(--accent); color: var(--primary); font-weight: var(--font-weight-semibold); white-space: nowrap; }
-.ax-score-formula { margin: 6px 0 12px; color: var(--muted-foreground); font-size: var(--font-size-xs); }
+.ax-score-content > h3, .ax-score-extra > h3 { margin: 0 0 12px; font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); }
+.ax-score-groups { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 1px; overflow: hidden; border: 1px solid var(--border); border-radius: 10px; background: var(--border); }
+.ax-score-group { min-width: 0; padding: 18px; background: color-mix(in srgb, var(--primary) 5%, var(--card)); }
+.ax-score-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.ax-score-heading h4 { margin: 4px 0 0; font-size: var(--font-size-sm); }
+.ax-score-axis { color: var(--primary); font-size: var(--font-size-xs); font-weight: var(--font-weight-semibold); }
+.ax-score-result { flex: none; display: flex; align-items: baseline; gap: 2px; color: var(--primary); font-variant-numeric: tabular-nums; }
+.ax-score-result strong { font-size: 32px; line-height: 1; font-weight: var(--font-weight-semibold); }
+.ax-score-result span { color: var(--muted-foreground); font-size: var(--font-size-sm); }
+.ax-score-formula { margin: 12px 0 0; color: var(--muted-foreground); font-size: var(--font-size-xs); line-height: 1.6; overflow-wrap: anywhere; }
+.ax-score-extra { margin-top: 24px; }
+.ax-score-extra-list { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
+.ax-score-extra-list > div { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding-bottom: 10px; border-bottom: 1px solid var(--border); font-size: var(--font-size-sm); }
+.ax-score-extra-list strong { color: var(--foreground); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ax-score-details { margin-top: 24px; border-top: 1px solid var(--border); }
+.ax-score-details-trigger { min-height: 44px; padding: 10px 14px; align-items: center; color: var(--foreground); font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); }
+.ax-score-details-trigger:hover { background: color-mix(in srgb, var(--primary) 5%, var(--card)); }
+.ax-score-details-trigger:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.ax-score-details-open, .ax-score-details-trigger[data-panel-open] > .ax-score-details-closed { display: none; }
+.ax-score-details-trigger[data-panel-open] > .ax-score-details-open { display: inline; }
+.ax-score-details-panel > p { margin: 0 0 12px; font-size: var(--font-size-xs); }
 .ax-score-factors { margin: 0; }
-.ax-score-factor { padding: 10px 0; border-top: 1px solid var(--border); }
-.ax-score-factor:last-child { padding-bottom: 0; }
-.ax-score-factor > dt { font-weight: 600; }
+.ax-score-factor { padding: 12px 0; border-top: 1px solid var(--border); }
+.ax-score-factor > dt { font-weight: var(--font-weight-semibold); font-size: var(--font-size-sm); }
 .ax-score-factor > dd { margin: 4px 0 0; min-width: 0; }
-.ax-score-factor p { margin: 4px 0 0; font-size: var(--font-size-xs); }
+.ax-score-factor p { margin: 4px 0 0; font-size: var(--font-size-xs); overflow-wrap: anywhere; }
 .ax-score-values { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; font-size: var(--font-size-xs); }
 .ax-score-values > span { color: var(--muted-foreground); }
 .ax-score-values > span:first-child { color: var(--foreground); }
 .ax-score-applied { color: var(--primary); font-weight: var(--font-weight-semibold); }
 @media(max-width: 700px) {
-  .ax-score-groups { grid-template-columns: minmax(0,1fr); }
+  .ax-score-groups, .ax-score-extra-list { grid-template-columns: minmax(0,1fr); }
 }
 
 .ax-plan-head { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .ax-plan-head h3 { margin: 0; }
-.ax-plan-tool-hint { font-size: var(--font-size-xs); color: var(--muted-foreground); }
+.ax-plan-task { font-weight: var(--font-weight-semibold); overflow-wrap: anywhere; }
 .ax-tool-tabs { gap: 16px; min-width: 0; }
 .ax-tool-tabs [data-slot=tabs-content], .ax-package { min-width: 0; }
-.ax-prompt { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 13px; line-height: 1.65; text-align: left; color: var(--foreground); white-space: pre-wrap; word-break: break-word; max-width: 100%; max-height: calc(12lh + 2rem); overflow: hidden; background: color-mix(in srgb, var(--muted) 9%, var(--card)); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin: 12px 0; }
-.ax-prompt[data-expanded="true"] { max-height: none; overflow: visible; }
+.ax-prompt { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 13px; line-height: 1.65; text-align: left; color: var(--foreground); white-space: pre-wrap; word-break: break-word; max-width: 100%; background: color-mix(in srgb, var(--muted) 9%, var(--card)); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin: 12px 0; }
 .ax-prompt-actions { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .ax-prompt-actions .ax-prompt-toggle { margin-right: auto; color: var(--foreground); background: var(--card); border-color: var(--border); border-radius: 6px; }
 .ax-prompt-actions .ax-copy-button { transition: background-color 0.15s ease, border-color 0.15s ease; }
 .ax-prompt-actions .ax-copy-button[data-copied="true"] { background: color-mix(in srgb, var(--primary) 86%, var(--foreground)); border-color: transparent; }
 .ax-copy-error { flex: 1 1 100%; margin: 0; text-align: right; font-size: var(--font-size-xs); color: var(--destructive); }
 .ax-plan-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 16px; }
-.ax-plan-toolbar .ax-guide { display: contents; }
-.ax-plan-toolbar .ax-guide-item { display: contents; border: 0; }
-/* The shared trigger has a header wrapper; the panel class is on its inner content. */
-.ax-plan-toolbar .ax-guide-item > h3 { display: contents; }
-.ax-guide-panel, .ax-plan-toolbar .ax-guide-item > [data-slot=accordion-panel] { flex: 1 1 100%; order: 10; min-width: 0; }
-.ax-guide .ax-guide-trigger { width: fit-content; flex: 0 0 auto; margin-left: auto; white-space: nowrap; border: 1px solid color-mix(in srgb, var(--primary) 32%, var(--border)); background: color-mix(in srgb, var(--primary) 6%, var(--card)); border-radius: 6px; padding: 7px 12px; align-items: center; }
-.ax-guide .ax-guide-trigger:hover, .ax-guide .ax-guide-trigger[data-panel-open] { background: color-mix(in srgb, var(--primary) 11%, var(--card)); }
+.ax-plan-guide { min-width: 0; border-top: 1px solid var(--border); padding-top: 16px; }
+.ax-guide .ax-guide-item { border: 0; }
+/* The trigger sits at the right edge of the separator row in both states (margin-left: auto); the opened guide keeps the full width. */
+.ax-guide .ax-guide-trigger { flex: none; width: max-content; max-width: 100%; min-height: 44px; margin-left: auto; padding: 10px 14px; align-items: center; justify-content: center; gap: 10px; border: 1px solid var(--primary); border-radius: var(--radius-md); background: color-mix(in srgb, var(--primary) 6%, var(--card)); color: var(--primary); font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); box-shadow: none; }
+.ax-guide .ax-guide-trigger:hover, .ax-guide .ax-guide-trigger[data-panel-open]:hover { background: color-mix(in srgb, var(--primary) 12%, var(--card)); }
+.ax-guide .ax-guide-trigger:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .ax-guide .ax-guide-trigger svg { flex: none; }
+.ax-guide .ax-guide-panel { padding-bottom: 24px; }
+.ax-guide .ax-tutorial-intro { margin-top: 0; }
 .ax-cmd { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.9em; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--foreground); background: color-mix(in srgb, var(--muted) 18%, var(--card)); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; }
 /* Setup guide: readable body, STEP > section > body > command hierarchy, left aligned. */
 .ax-guide-panel { color: var(--foreground); font-size: var(--font-size-sm); line-height: 1.7; text-align: left; min-width: 0; }
-.ax-guide-step + .ax-guide-step { margin-top: 32px; }
-.ax-guide-step > h4 { margin: 16px 0 8px; padding-bottom: 10px; border-bottom: 1px solid var(--border); font-size: var(--font-size-md); font-weight: var(--font-weight-semibold); }
-.ax-guide-step > .ax-guide-purpose { margin: 0 0 16px; color: var(--muted-foreground); overflow-wrap: anywhere; }
+/* Each STEP is one unit: a stronger divider than the in-step completion line, a fixed number column, and a body that starts under the title. */
+.ax-setup-tutorial { --ax-step-no: 5.5rem; --ax-step-divider: color-mix(in srgb, var(--foreground) 16%, var(--border)); }
+.ax-guide-step { min-width: 0; padding: 28px 0 30px; border-top: 1px solid var(--ax-step-divider); }
+.ax-guide-step > h4 { display: grid; grid-template-columns: var(--ax-step-no) minmax(0, 1fr); align-items: baseline; margin: 0 0 6px; color: var(--foreground); font-size: var(--font-size-md); font-weight: var(--font-weight-semibold); scroll-margin-top: 100px; }
+.ax-guide-step-title { display: flex; align-items: baseline; gap: 8px; min-width: 0; overflow-wrap: anywhere; }
+.ax-guide-step > h4:focus-visible { outline: 2px solid var(--primary); outline-offset: 4px; }
+.ax-tutorial-step-no { display: inline-flex; align-items: center; gap: 8px; color: var(--primary); font-size: var(--font-size-xs); font-weight: var(--font-weight-semibold); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ax-guide-step > :not(h4) { margin-left: var(--ax-step-no); }
+.ax-guide-step > .ax-guide-purpose { margin-top: 0; margin-bottom: 16px; color: var(--muted-foreground); overflow-wrap: anywhere; }
 .ax-guide-section { margin-top: 18px; }
-.ax-guide-section > h5 { margin: 0 0 4px; font-size: var(--font-size-sm); font-weight: 650; }
+.ax-guide-section > h5 { display: flex; align-items: baseline; gap: 6px; margin: 0 0 6px; font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); }
 .ax-guide-section > p { margin: 6px 0; overflow-wrap: anywhere; }
 .ax-guide-section > .ax-guide-when { margin: 0 0 8px; color: var(--muted-foreground); font-size: var(--font-size-xs); }
-.ax-guide-code { position: relative; margin: 8px 0; padding: 26px 14px 12px; overflow-x: auto; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 13px; line-height: 1.7; white-space: pre; color: var(--foreground); background: color-mix(in srgb, var(--muted) 14%, var(--card)); border: 1px solid var(--border); border-radius: 8px; }
+/* One content rail; section icons hang beside it instead of indenting their text. */
+.ax-setup-tutorial .ax-guide-section { margin-top: 24px; }
+.ax-setup-tutorial .ax-tutorial-action-label + .ax-guide-section { margin-top: 16px; }
+.ax-setup-tutorial .ax-guide-section > h5, .ax-setup-tutorial .ax-tutorial-action-label { position: relative; }
+.ax-setup-tutorial .ax-guide-section > h5 > svg, .ax-setup-tutorial .ax-tutorial-action-label > svg { position: absolute; left: -26px; top: calc((1lh - 18px) / 2); }
+.ax-setup-tutorial .ax-guide-section > h5, .ax-setup-tutorial .ax-guide-section > p, .ax-setup-tutorial .ax-guide-section > .ax-guide-list { margin: 0; }
+.ax-setup-tutorial .ax-guide-section > * + * { margin-top: 8px; }
+.ax-setup-tutorial .ax-guide-section > h5 + .ax-guide-when { margin-top: 4px; }
+.ax-setup-tutorial .ax-guide-code { margin: 0; }
+.ax-guide-code { position: relative; min-width: 0; max-width: 100%; margin: 8px 0; padding: 34px 14px 12px; overflow-x: auto; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 13px; line-height: 1.7; white-space: pre; color: var(--foreground); background: color-mix(in srgb, var(--muted) 14%, var(--card)); border: 1px solid var(--border); border-radius: 8px; }
 .ax-guide-code-label { position: absolute; top: 6px; left: 14px; font-family: var(--font-sans); font-size: 11px; color: var(--muted-foreground); letter-spacing: .04em; }
 .ax-guide-code-wrap { position: relative; }
-.ax-guide-code-wrap > .ax-guide-copy-button { position: absolute; top: 3px; right: 5px; color: var(--muted-foreground); }
+.ax-guide-code-wrap > .ax-guide-copy-button { position: absolute; top: 3px; right: 5px; width: 32px; height: 32px; color: var(--muted-foreground); }
 .ax-guide-code-wrap > .ax-guide-copy-button[data-copied="true"] { color: var(--primary); }
 .ax-view .ax-guide-code-notes { margin: 4px 0 12px; padding: 0; color: var(--muted-foreground); font-size: var(--font-size-sm); line-height: 1.6; }
-.ax-guide-code-notes > p { margin: 2px 0; overflow-wrap: anywhere; }
 .ax-view .ax-guide-list { margin: 6px 0; padding: 0; list-style: none; }
 .ax-guide-list li { display: grid; grid-template-columns: max-content minmax(0, 1fr); column-gap: 10px; align-items: baseline; margin-bottom: 6px; overflow-wrap: anywhere; }
 .ax-guide-marker { white-space: nowrap; text-align: left; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
 .ax-guide-terms > [data-slot=accordion-item] { border: 0; }
 .ax-guide-terms .ax-guide-terms-trigger { justify-content: flex-start; gap: 8px; padding: 8px 0; font-size: var(--font-size-sm); font-weight: var(--font-weight-medium); }
 .ax-guide-terms .ax-guide-terms-panel { padding: 0; }
+.ax-setup-tutorial { min-width: 0; }
+.ax-setup-tutorial svg { flex: none; width: 18px; height: 18px; stroke-width: 1.75; color: var(--muted-foreground); }
+.ax-tutorial-intro { margin: 24px 0 14px; }
+.ax-tutorial-intro > h3 { margin: 0 0 6px; font-size: var(--font-size-lg); font-weight: var(--font-weight-semibold); }
+.ax-tutorial-intro > p, .ax-tutorial-course-head p { margin: 4px 0; color: var(--muted-foreground); }
+.ax-view .ax-tutorial-flow { display: flex; flex-wrap: wrap; gap: 8px 20px; margin: 18px 0 0; padding: 0; list-style: none; }
+.ax-tutorial-flow > li { display: flex; align-items: center; gap: 8px; margin: 0; font-weight: var(--font-weight-medium); }
+.ax-tutorial-flow svg { color: var(--primary); }
+/* Jump links, not tabs: plain text with short dividers between neighbours. The nav is shifted left by one gap and clipped so a
+   divider never dangles at the start of a wrapped line; the clip keeps a few px for focus rings. */
+.ax-tutorial-toc { --ax-toc-gap: 28px; position: relative; display: flex; flex-wrap: wrap; row-gap: 8px; margin-left: calc(var(--ax-toc-gap) * -1); padding: 12px 0; clip-path: inset(-4px -4px -4px calc(var(--ax-toc-gap) - 4px)); }
+.ax-tutorial-toc::before, .ax-tutorial-toc::after { content: ""; position: absolute; left: var(--ax-toc-gap); right: 0; height: 1px; background: var(--border); }
+.ax-tutorial-toc::before { top: 0; }
+.ax-tutorial-toc::after { bottom: 0; }
+.ax-tutorial-toc > button { position: relative; height: auto; min-height: 32px; max-width: 100%; margin-left: var(--ax-toc-gap); justify-content: flex-start; gap: 8px; padding: 4px 2px; border: 0; background: transparent; color: var(--foreground); font-weight: var(--font-weight-regular, 400); white-space: normal; text-align: left; overflow-wrap: anywhere; }
+/* The Button primitive owns its own ::before/::after, so the divider hangs off the number span (positioned by the button). */
+.ax-tutorial-toc > button > span:first-child::before { content: ""; position: absolute; top: 50%; left: calc(var(--ax-toc-gap) / -2); width: 1px; height: 1em; transform: translateY(-50%); background: var(--border); }
+.ax-tutorial-toc > button:hover, .ax-tutorial-toc > button[data-pressed] { background: transparent; }
+.ax-tutorial-toc > button:hover .ax-tutorial-toc-title { color: var(--primary); text-decoration: underline; text-underline-offset: 3px; }
+.ax-tutorial-toc > button > span:first-child { color: var(--primary); font-size: var(--font-size-xs); font-weight: var(--font-weight-semibold); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ax-tutorial-context { margin: 18px 0 28px; }
+.ax-tutorial-preflight { padding: 0; }
+.ax-tutorial-preflight h4 { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; font-size: var(--font-size-md); font-weight: var(--font-weight-semibold); }
+.ax-tutorial-preflight h4 svg { color: var(--primary); }
+.ax-tutorial-preflight-group + .ax-tutorial-preflight-group { margin-top: 14px; }
+.ax-tutorial-preflight-group h5 { margin: 0 0 3px; font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); }
+.ax-tutorial-preflight-group p { margin: 2px 0; overflow-wrap: anywhere; }
+.ax-tutorial-glossary { margin-top: 14px; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.ax-tutorial-glossary .ax-tutorial-terms-trigger { width: 100%; align-items: center; gap: 10px; padding: 13px 2px; color: var(--foreground); font-weight: var(--font-weight-semibold); }
+.ax-tutorial-terms-title { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.ax-tutorial-terms-title svg { color: var(--primary); }
+.ax-tutorial-terms-action { margin-left: auto; color: var(--muted-foreground); font-size: var(--font-size-xs); font-weight: 400; white-space: nowrap; }
+.ax-tutorial-terms-action > span:last-child, .ax-tutorial-terms-trigger[data-panel-open] .ax-tutorial-terms-action > span:first-child { display: none; }
+.ax-tutorial-terms-trigger[data-panel-open] .ax-tutorial-terms-action > span:last-child { display: inline; }
+.ax-tutorial-glossary .ax-tutorial-terms-panel { padding: 0 2px 14px; color: var(--foreground); }
+.ax-tutorial-terms-panel dl { margin: 0; }
+.ax-tutorial-terms-panel dl > div { display: grid; grid-template-columns: minmax(0, 190px) minmax(0, 1fr); gap: 4px 16px; padding: 7px 0; }
+.ax-tutorial-terms-panel dt { font-weight: 700; overflow-wrap: anywhere; }
+.ax-tutorial-terms-panel dd { margin: 0; font-weight: 400; overflow-wrap: anywhere; }
+.ax-tutorial-term-translation { display: block; color: var(--muted-foreground); font-size: var(--font-size-xs); font-weight: var(--font-weight-regular, 400); white-space: nowrap; }
+.ax-tutorial-course { margin-top: 24px; }
+/* Course headers (처음 한 번 준비 · 프로젝트 작업 · GitHub·배포) share one light-blue band; the STEP bodies stay white. */
+.ax-tutorial-course-head { display: flex; gap: 12px; align-items: flex-start; padding: 14px 18px; border-radius: 8px; background: var(--blue-soft); }
+.ax-tutorial-course-head > svg { width: 22px; height: 22px; margin-top: 2px; color: var(--primary); }
+.ax-tutorial-course-head h3 { margin: 0; font-size: var(--font-size-lg); font-weight: var(--font-weight-semibold); }
+/* The band already separates the course, so its first STEP drops the divider that would sit right under it. */
+.ax-tutorial-course-head + .ax-guide-step { border-top: 0; padding-top: 22px; }
+.ax-guide-step > .ax-tutorial-action-label { display: flex; align-items: center; gap: 8px; margin-top: 0; margin-bottom: 0; color: var(--muted-foreground); font-size: var(--font-size-xs); font-weight: var(--font-weight-medium); }
+.ax-guide-completion { border-top: 1px solid var(--border); padding-top: 16px; }
+.ax-guide-completion > h5 svg { color: var(--primary); }
+.ax-guide-warning > h5 svg { color: var(--warning); }
+.ax-guide-section > h5 svg { align-self: center; }
+@media(max-width: 700px) {
+  .ax-guide-step { padding: 22px 0 24px; }
+  /* Narrow screens stack the STEP number above the title and use the full width for commands. */
+  .ax-guide-step > h4 { grid-template-columns: minmax(0, 1fr); row-gap: 2px; }
+  .ax-guide-step > :not(h4) { margin-left: 0; }
+  .ax-tutorial-toc { --ax-toc-gap: 24px; }
+  .ax-setup-tutorial .ax-guide-section > h5 > svg, .ax-setup-tutorial .ax-tutorial-action-label > svg { position: static; order: 1; }
+  .ax-tutorial-flow { flex-direction: column; }
+.ax-tutorial-preflight { padding: 0; }
+  .ax-tutorial-terms-panel dl > div { grid-template-columns: minmax(0, 1fr); gap: 0; }
+}
 .ax-package > p { margin: 4px 0 16px; }
-.ax-package > h4 { margin-top: 20px; }
-/* Headings start on the marker rail; bodies share a separate, non-cumulative text rail. */
+/* The three decision sections share a left rail, with the raw tool prompt below. */
 .ax-plan-view { display: grid; gap: 0; max-width: 920px; text-align: left; }
-.ax-plan-view h4 { margin: 0 0 8px; font-size: var(--font-size-md); font-weight: var(--font-weight-semibold); color: var(--foreground); }
+.ax-plan-view h4, .ax-plan-instructions > h4 { display: flex; align-items: baseline; gap: 8px; margin: 0; font-size: var(--font-size-md); font-weight: var(--font-weight-semibold); color: var(--foreground); }
+.ax-plan-no { color: var(--primary); font-variant-numeric: tabular-nums; }
+.ax-plan-desc { margin: 4px 0 0; color: var(--muted-foreground); font-size: var(--font-size-sm); }
 .ax-plan-view h5 { margin: 0 0 6px; font-size: var(--font-size-xs); font-weight: var(--font-weight-semibold); color: var(--foreground); }
-.ax-plan-glance { margin-bottom: 14px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 12px; background: color-mix(in srgb, var(--muted) 14%, var(--card)); }
-.ax-plan-glance dl { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px 16px; margin: 0; }
-.ax-plan-glance dl > div { display: grid; align-content: start; gap: 3px; min-width: 0; }
-.ax-plan-glance [data-summary="level"] { grid-column: span 1; }
-.ax-plan-glance [data-summary="gate"] { grid-column: span 2; }
-.ax-plan-glance [data-summary="core"], .ax-plan-glance [data-summary="human"], .ax-plan-glance [data-summary="prerequisites"] { grid-column: span 3; }
-.ax-plan-glance [data-summary="human"], .ax-plan-glance [data-summary="prerequisites"] { border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent); padding-top: 10px; }
-.ax-plan-glance dt { font-size: var(--font-size-xs); color: var(--muted-foreground); }
-.ax-plan-glance dd { margin: 0; font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); color: var(--foreground); overflow-wrap: anywhere; }
-.ax-plan-block { padding: 14px 0; border-top: 1px solid var(--border); }
-.ax-plan-group + .ax-plan-group, .ax-plan-group + .ax-plan-details { margin-top: 14px; }
-.ax-view .ax-plan-group + .ax-plan-steps { margin-top: 22px; }
+.ax-plan-block, .ax-plan-instructions { padding: 24px 0; border-top: 1px solid var(--border); }
+.ax-plan-block > :is(h4, .ax-plan-desc) + :not(.ax-plan-desc), .ax-plan-instructions > :is(h4, .ax-plan-desc) + :not(.ax-plan-desc) { margin-top: 16px; }
+.ax-plan-group + .ax-plan-group, .ax-plan-group + .ax-plan-note { margin-top: 16px; }
+.ax-plan-block > .ax-plan-group:has(> .ax-plan-data) { margin-top: 20px; }
 .ax-view .ax-plan-list { margin: 0; padding: 0; list-style: none; font-size: var(--font-size-sm); line-height: 1.65; }
 .ax-plan-list li { display: grid; grid-template-columns: max-content minmax(0, 1fr); column-gap: 10px; align-items: baseline; overflow-wrap: anywhere; }
 .ax-plan-list li + li { margin-top: 2px; }
-.ax-view .ax-plan-steps { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; font-size: var(--font-size-sm); line-height: 1.6; }
-.ax-plan-steps li { display: grid; grid-template-columns: max-content minmax(0, 1fr); column-gap: 10px; align-items: baseline; overflow-wrap: anywhere; }
-.ax-plan-marker, .ax-plan-step-no { white-space: nowrap; text-align: left; }
-.ax-plan-marker { color: var(--muted-foreground); }
-.ax-plan-step-no { font-weight: var(--font-weight-semibold); color: var(--primary); font-variant-numeric: tabular-nums; }
+.ax-plan-marker { white-space: nowrap; text-align: left; color: var(--muted-foreground); }
 .ax-plan-status { margin-left: 6px; padding: 1px 6px; border-radius: 4px; font-weight: var(--font-weight-medium); color: var(--warning-foreground, #8a5a00); background: color-mix(in srgb, var(--warning, #f5a524) 12%, transparent); }
-.ax-plan-details { margin-top: 8px; max-width: 36rem; }
-.ax-plan-details .ax-plan-detail { border: 0; }
-.ax-plan-details .ax-plan-detail-trigger { flex: initial; justify-content: flex-start; align-items: center; gap: .6rem; padding: .75em 0; min-height: calc(1lh + 2em); font-size: var(--font-size-sm); font-weight: var(--font-weight-regular); text-align: left; }
-.ax-plan-detail-count { color: var(--muted-foreground); font-size: var(--font-size-xs); }
-.ax-plan-detail-panel { padding: 0 0 .75em; }
-.ax-common-plan > h4, .ax-tool-plan > h4 { margin: 14px 0 8px; }
-.ax-package > .ax-package-title { margin-top: 8px; padding-top: 14px; border-top: 1px solid var(--border); }
-.ax-tool-plan { margin-top: 14px; }
-@media(max-width: 700px) {
-  .ax-plan-glance { padding: 12px; }
-  .ax-plan-glance dl { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-  .ax-plan-glance [data-summary="level"], .ax-plan-glance [data-summary="gate"] { grid-column: span 1; }
-  .ax-plan-glance [data-summary="core"], .ax-plan-glance [data-summary="human"], .ax-plan-glance [data-summary="prerequisites"] { grid-column: 1 / -1; }
-}
+/* Structured task facts: one white bordered definition list, fixed label column, row dividers. */
+.ax-plan-data { margin: 0; border: 1px solid var(--border); border-radius: 8px; background: var(--card); font-size: var(--font-size-sm); line-height: 1.6; }
+.ax-plan-data > div { display: grid; grid-template-columns: 7rem minmax(0, 1fr); column-gap: 16px; padding: 10px 16px; }
+.ax-plan-data > div + div { border-top: 1px solid var(--border); }
+.ax-plan-data dt { color: var(--foreground); font-weight: var(--font-weight-semibold); overflow-wrap: anywhere; }
+.ax-plan-data dd { margin: 0; min-width: 0; color: var(--foreground); overflow-wrap: anywhere; }
+.ax-plan-note { margin: 0; color: var(--muted-foreground); font-size: var(--font-size-xs); }
+.ax-plan-instructions { min-width: 0; }
+.ax-plan-instructions > h4 { scroll-margin-top: 100px; }
+.ax-plan-instructions > h4:focus-visible { outline: 2px solid var(--primary); outline-offset: 4px; }
 @media(max-width: 700px) {
   .ax-package > button, .ax-tool-tabs [data-slot=tabs-content] > button { max-width: 100%; height: auto; min-height: 36px; white-space: normal; overflow-wrap: anywhere; }
   .ax-prompt { padding: 12px; }
+  .ax-plan-data > div { grid-template-columns: 5.75rem minmax(0, 1fr); column-gap: 12px; padding: 10px 12px; }
 }

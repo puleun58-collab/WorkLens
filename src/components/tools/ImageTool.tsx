@@ -426,7 +426,7 @@ export function ImageTool() {
         >
           <Images aria-hidden="true" />
           <strong>이미지를 추가하세요</strong>
-          <span>한 장씩 편집하거나 여러 이미지를 결합할 수 있습니다.</span>
+          <span>개별 편집 또는 여러 이미지 결합</span>
           <Button type="button" onClick={() => fileInput.current?.click()} disabled={importing}>이미지 추가</Button>
           {importing && <small role="status">이미지를 읽는 중…</small>}
           {notice && <p className={`image-tool-notice is-${notice.tone}`} role={notice.tone === "error" ? "alert" : "status"}>{notice.text}</p>}
@@ -482,7 +482,7 @@ export function ImageTool() {
               </>
             ) : null}
           </div>
-          <p className="image-tool-stage-caption">{mode && !mergeActive ? `${mode === "crop" ? "자르기" : "모자이크"} 영역을 이미지 위에서 드래그하세요 · 터치 가능` : mergeActive ? "선택된 이미지의 편집 상태가 순서대로 적용된 결과입니다." : "원본은 유지됩니다. 내보낼 때 편집한 복사본만 생성합니다."}</p>
+          <p className="image-tool-stage-caption">{mode && !mergeActive ? `${mode === "crop" ? "자르기" : "모자이크"} 영역을 이미지 위에서 드래그 · 터치 가능` : mergeActive ? "선택 이미지의 편집 상태를 순서대로 적용한 결과" : "원본 유지 · 내보낼 때 편집한 복사본 생성"}</p>
         </main>
         <aside className="image-tool-controls" aria-label="이미지 편집 설정">
           <div className="image-tool-section-heading"><div><span>03 / ADJUST</span><h3>편집 설정</h3></div></div>
@@ -528,14 +528,14 @@ export function ImageTool() {
           <div className="flex flex-col gap-2"><Label htmlFor="image-format">형식</Label>
             <Select items={[{ value: "jpg", label: "JPG" }, { value: "png", label: "PNG" }, { value: "webp", label: "WebP" }, { value: "pdf", label: "PDF" }]} value={format} disabled={busy} onValueChange={(value) => { if (value) setFormat(value as ImageFormat); }}>
               <SelectTrigger id="image-format"><SelectValue /></SelectTrigger>
-              <SelectPopup><SelectItem value="jpg">JPG</SelectItem><SelectItem value="png">PNG</SelectItem><SelectItem value="webp">WebP</SelectItem><SelectItem value="pdf">PDF</SelectItem></SelectPopup>
+              <SelectPopup alignItemWithTrigger={false} className="tool-export-select-list"><SelectItem value="jpg">JPG</SelectItem><SelectItem value="png">PNG</SelectItem><SelectItem value="webp">WebP</SelectItem><SelectItem value="pdf">PDF</SelectItem></SelectPopup>
             </Select>
           </div>
           {(format === "jpg" || format === "webp") && (
             <div className="flex flex-col gap-2"><Label htmlFor="image-quality">품질</Label>
               <Select items={(Object.keys(QUALITY) as (keyof typeof QUALITY)[]).map((value) => ({ value, label: QUALITY_LABELS[value] }))} value={quality} disabled={busy} onValueChange={(value) => { if (value) setQuality(value as keyof typeof QUALITY); }}>
                 <SelectTrigger id="image-quality"><SelectValue /></SelectTrigger>
-                <SelectPopup>{(Object.keys(QUALITY) as (keyof typeof QUALITY)[]).map((level) => <SelectItem key={level} value={level}>{QUALITY_LABELS[level]}</SelectItem>)}</SelectPopup>
+                <SelectPopup alignItemWithTrigger={false} className="tool-export-select-list">{(Object.keys(QUALITY) as (keyof typeof QUALITY)[]).map((level) => <SelectItem key={level} value={level}>{QUALITY_LABELS[level]}</SelectItem>)}</SelectPopup>
               </Select>
             </div>
           )}

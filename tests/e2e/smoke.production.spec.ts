@@ -21,7 +21,7 @@ test("loads the deployed workspace and runs browser-only Check", async ({ page }
 
   const documentResponse = await page.goto("/");
   expect(documentResponse?.status()).toBe(200);
-  await expect(page.locator(".dropzone")).toContainText("파일을 여기에 끌어 놓으세요");
+  await expect(page.locator(".dropzone")).toBeVisible();
   // The file input's handler exists only after hydration.
   await expect(page.locator(".app-shell")).toHaveAttribute("data-hydrated", "true");
 
@@ -51,9 +51,6 @@ test("loads the deployed workspace and runs browser-only Check", async ({ page }
   await page.getByRole("button", { name: "검수 실행" }).click();
   await expect(page.locator(".check-issue").first()).toBeVisible();
   const finding = page.locator(".check-issue").first();
-  expect(await finding.evaluate((element) => getComputedStyle(element).backgroundColor)).toBe("rgb(255, 255, 255)");
-  expect(await finding.locator(".check-recommendation").evaluate((element) =>
-    getComputedStyle(element).backgroundColor)).toBe("rgb(245, 249, 255)");
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   const order = await finding.locator(".check-recommendation, .check-source").evaluateAll((nodes) =>

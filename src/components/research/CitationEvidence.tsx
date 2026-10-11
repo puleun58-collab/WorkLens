@@ -187,8 +187,8 @@ export function CitationResult({ items, groups, overallMarker, notes, input, ver
     {targets.length > 0 && <details className="law-detail-source" onToggle={(event) => { if (event.currentTarget.open) load(targets); }}>
       <SourceToggleSummary label="근거 보기" openLabel="근거 접기" />
       <p className="law-search-note">
-        확인된 법령 조문과 판례 정보를 {SOURCE} 자료로 보여 줍니다. 법령은 검증 시점의 현행 법령 기준입니다.
-        {hasCases ? " 판결문 전체 원문은 포함되지 않습니다." : ""}
+        확인된 법령 조문과 판례 정보를 {SOURCE} 자료로 표시합니다. 법령은 검증 시점의 현행 법령 기준입니다.
+        {hasCases ? " 판결문 전체 원문은 포함되지 않습니다" : ""}
       </p>
       {byGroup.map(({ group, entries }) => entries.length ? <div key={group} className="legal-analysis-section">
         <h3>{group === "law" ? "법령 인용" : "판례 인용"}</h3>
@@ -224,7 +224,7 @@ function LawEvidenceView({ target, law, evidence }: { target: EvidenceTarget; la
     `출처 ${SOURCE}`,
   ].filter(Boolean).join(" · ");
   return <>
-    {evidence.kind === "part-missing" && <p className="law-search-note">인용한 {scope}을(를) 이 조문에서 찾지 못했습니다. 확인한 조문 범위를 아래에 표시합니다.</p>}
+    {evidence.kind === "part-missing" && <p className="law-search-note">인용한 {scope}을(를) 이 조문에서 찾지 못했습니다. 확인한 조문 범위를 아래에 표시합니다</p>}
     <LawTextBlock className="legal-analysis-raw" text={evidence.lines.join("\n")} />
     <p className="legal-analysis-evidence-meta">{meta}</p>
   </>;
@@ -239,7 +239,7 @@ function CaseEvidenceView({ entry, sections }: { entry: DecisionEntry; sections:
         <strong>{section.heading}</strong>
         <LawTextBlock className="legal-analysis-lines" text={section.text} />
       </div>)
-      : <p className="law-search-note">이 판례의 판시사항·판결요지는 제공되지 않았습니다.</p>}
-    <p className="legal-analysis-evidence-meta">출처 {SOURCE} · 판결문 전체 원문은 포함되지 않습니다.</p>
+      : <p className="law-search-note">이 판례의 판시사항·판결요지는 제공되지 않았습니다</p>}
+    <p className="legal-analysis-evidence-meta">출처 {SOURCE} · 판결문 전체 원문은 포함되지 않음</p>
   </>;
 }

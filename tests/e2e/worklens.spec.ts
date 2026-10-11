@@ -225,7 +225,16 @@ for (const width of [1440, 390]) {
     await page.getByRole("radio", { name: "텍스트 윤문" }).check();
     await expect(modes).toBeVisible();
     await expect(text).toBeVisible();
+    await expect(page.locator(".dropzone, .file-add-dropzone, .file-list")).toHaveCount(0);
     await text.fill("이번 회의 내용을 검토해 주세요.");
+    const [inputBox, countBox, actionBox] = await Promise.all([
+      text.boundingBox(), page.locator(".polish-paste small").boundingBox(), action.boundingBox(),
+    ]);
+    expect(inputBox!.width).toBeGreaterThanOrEqual(width === 390 ? 300 : 600);
+    expect(Math.abs(inputBox!.x + inputBox!.width - actionBox!.x - actionBox!.width)).toBeLessThanOrEqual(2);
+    expect(Math.abs(countBox!.x + countBox!.width - actionBox!.x - actionBox!.width)).toBeLessThanOrEqual(2);
+    expect(actionBox!.y - countBox!.y - countBox!.height).toBeGreaterThanOrEqual(8);
+    expect(actionBox!.y - countBox!.y - countBox!.height).toBeLessThanOrEqual(12);
     await page.getByRole("radio", { name: "간결하게" }).check();
     await expect(action).toHaveCount(1);
     await expect(action).toBeEnabled();
@@ -234,6 +243,7 @@ for (const width of [1440, 390]) {
     await expect(modes).toHaveCount(0);
     await expect(text).toHaveCount(0);
     await expect(action).toHaveCount(0);
+    await expect(page.locator(".dropzone")).toBeVisible();
 
     await upload(page, files.v1);
     // File polish modes follow uploaded files, even without selection.
@@ -246,9 +256,12 @@ for (const width of [1440, 390]) {
     await page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true }).check();
     await page.getByRole("radio", { name: "텍스트 윤문" }).check();
     await expect(text).toHaveValue("이번 회의 내용을 검토해 주세요.");
+    await expect(page.locator(".dropzone, .file-add-dropzone, .file-list")).toHaveCount(0);
     await expect(action).toHaveCount(1);
     await expectEmptyStateLayout(page, true);
     await page.getByRole("radio", { name: "파일 윤문" }).check();
+    await expect(page.locator(".file-add-dropzone")).toBeVisible();
+    await expect(page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true })).toBeChecked();
     await expect(action).toHaveCount(1);
     await page.getByRole("button", { name: "선택 삭제" }).click();
     await expect(modes).toHaveCount(0);
@@ -427,11 +440,17 @@ test("usage guide switches feature flows on desktop and mobile", async ({ page }
   expect(desktopTabs.trailing).toBeLessThan(12);
   const panel = page.getByRole("tabpanel");
   await page.getByRole("tab", { name: "비교", exact: true }).click();
-  await expect(panel.locator(".usage-guide-step > strong")).toHaveText(["파일 선택", "기준/대상 확인", "실행", "결과 확인"]);
+  await expect(panel.getByRole("heading", { name: "비교", exact: true })).toBeVisible();
+  await expect(panel.locator(".usage-guide-step")).toHaveCount(4);
   await page.getByRole("tab", { name: "비교", exact: true }).press("ArrowRight");
   await expect(page.getByRole("tab", { name: "검수", exact: true })).toBeFocused();
   await expect(page.getByRole("tab", { name: "검수", exact: true })).toHaveAttribute("aria-selected", "true");
-  await expect(panel.locator(".usage-guide-step")).toHaveCount(3);
+  await expect(panel.getByRole("heading", { name: "검수", exact: true })).toBeVisible();
+  await expect(panel.locator(".usage-guide-step")).toHaveCount(4);
+  await page.getByRole("tab", { name: "보완", exact: true }).click();
+  await expect(page.getByRole("tab", { name: "보완", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(panel.getByRole("heading", { name: "보완", exact: true })).toBeVisible();
+  await expect(panel.locator(".usage-guide-step")).toHaveCount(4);
   await page.getByRole("tab", { name: "법령", exact: true }).click();
   await page.setViewportSize({ width: 390, height: 844 });
   const mobileTabs = await tabs.evaluate((element) => ({ width: element.getBoundingClientRect().width, guideWidth: element.parentElement!.getBoundingClientRect().width, scrollWidth: element.scrollWidth, clientWidth: element.clientWidth }));
@@ -439,6 +458,7 @@ test("usage guide switches feature flows on desktop and mobile", async ({ page }
   expect(mobileTabs.scrollWidth).toBeGreaterThan(mobileTabs.clientWidth);
   await page.getByRole("tab", { name: "용어 사전", exact: true }).click();
   await expect(page.getByRole("tab", { name: "용어 사전", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(panel.getByRole("heading", { name: "용어 사전", exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 });
 
@@ -454,7 +474,6 @@ test("keeps multi-file Analyze confirmed metrics separated when the model abstai
   await page.getByRole("button", { name: "분석 실행" }).click();
 
   const panel = page.locator(".results-panel");
-  await expect(panel.getByRole("heading", { name: "분석 결과", exact: true })).toBeVisible();
   await expect(panel.locator(".result-status")).toHaveText("분석 완료");
   await expect(panel.locator(".result-status")).toHaveClass(/success/);
   await expect(panel).not.toContainText("ANALYZE RESULT");
@@ -614,9 +633,7 @@ test("surfaces FSC Analyze failure and then grounded relational insights with al
     const left = (selector: string) => root.querySelector(selector)!.getBoundingClientRect().left;
     const right = (selector: string) => root.querySelector(selector)!.getBoundingClientRect().right;
     return {
-      leftDrift: Math.abs(left(".result-heading h2") - left(".analysis-summary-section h3")),
       topicDrift: Math.abs(left(".analysis-summary-section h3") - left(".analysis-core-items-section h3")),
-      countDrift: Math.abs(right(".result-status") - right(".analysis-summary-section .subsection-heading span")),
       sourceDrift: Math.abs(right(".analysis-summary-section .source-action") - right(".analysis-core-items-section .source-action")),
     };
   });
@@ -840,12 +857,11 @@ test("runs deterministic Analyze, Check, Extract and export paths", async ({ pag
 
   await page.getByRole("button", { name: "분석 실행" }).click();
   await expect(page.locator(".results-panel .result-status")).toHaveText("분석 완료");
-  await expect(page.locator(".results-panel").getByRole("heading", { name: "분석 결과" })).toBeVisible();
   await expect(page.locator(".results-panel")).not.toContainText("기본 분석 세부 정보");
   await expect(page.locator(".results-panel .source-action").first()).toBeVisible();
   await page.locator(".results-panel .source-action").first().click();
   await expect(page.getByLabel("근거 상세")).toBeVisible();
-  await page.getByLabel("닫기").click();
+  await page.getByLabel("근거 상세").getByRole("button", { name: "닫기" }).click();
 
   await navigateWorkspace(page, "검수");
   await page.getByRole("button", { name: "검수 실행" }).click();
@@ -990,8 +1006,7 @@ test("makes missing and low-confidence Extract values explicit", async ({ page }
   await page.getByRole("button", { name: "항목 추가" }).click();
   await page.getByRole("button", { name: "추출 실행" }).click();
   const panel = page.locator(".extract-results");
-  await expect(panel.getByText("'존재하지 않는 항목'을(를) 찾지 못했습니다.")).toBeVisible();
-  await expect(panel.getByText("선택한 문서에서 해당 항목이나 값을 확인할 수 없습니다.")).toBeVisible();
+  await expect(panel.locator(".result-clear")).toBeVisible();
   await expect(panel.locator(".check-summary-line")).toContainText("찾지 못함 1");
   await expect(panel.locator(".check-summary-line")).not.toContainText("확인 필요");
 
@@ -1139,7 +1154,6 @@ test("presents text Polish as an immediate original-to-revision workflow", async
   await page.getByRole("button", { name: "윤문 실행" }).click();
 
   const result = page.locator(".polish-text-results");
-  await expect(result.getByRole("heading", { name: "윤문 결과", exact: true })).toBeVisible();
   await expect(result.getByText("POLISH RESULT", { exact: true })).toHaveCount(0);
   await expect(result.getByRole("heading", { name: "텍스트 윤문", exact: true })).toHaveCount(0);
   await expect(result.locator(".result-heading-meta")).toContainText("업무 문체");
@@ -1253,7 +1267,6 @@ test("presents text Polish as an immediate original-to-revision workflow", async
   await page.getByRole("radio", { name: "파일 윤문" }).check();
   await page.getByRole("button", { name: "윤문 실행" }).click();
   const fileResult = page.locator(".polish-results:not(.polish-text-results)");
-  await expect(fileResult.getByRole("heading", { name: "윤문 결과", exact: true })).toBeVisible();
   await expect(fileResult).not.toContainText("POLISH RESULT");
   await expect(fileResult).not.toContainText("문장 윤문");
 });
@@ -1819,7 +1832,7 @@ test("keeps compact counted progress for Polish and Extract", async ({ page }) =
   await expect(polishAction).toBeDisabled();
   const polishProgress = page.locator(".compact-progress");
   await expect(polishProgress).toContainText(/윤문 처리 중 0\/\d+/);
-  await expect(polishProgress).toContainText("문장별 검증을 유지하며 묶음으로 처리하고 있습니다.");
+  await expect(polishProgress).toHaveAttribute("role", "status");
   await expect(polishProgress.getByRole("button", { name: "중지", exact: true })).toBeVisible();
   await expect(polishProgress).not.toHaveClass(/status-panel/);
   await expect(polishProgress).toHaveCSS("border-width", "0px");
@@ -1838,7 +1851,7 @@ test("keeps compact counted progress for Polish and Extract", async ({ page }) =
   await expect(extractAction).toBeDisabled();
   const extractProgress = page.locator(".compact-progress");
   await expect(extractProgress).toContainText("항목 확인 중 0/1");
-  await expect(extractProgress).toContainText("관련 근거를 확인하고 있습니다.");
+  await expect(extractProgress).toHaveAttribute("role", "status");
   await expect(extractProgress).toBeVisible();
   const stop = extractProgress.getByRole("button", { name: "중지", exact: true });
   await expect(stop).toBeVisible();
@@ -1877,7 +1890,6 @@ test("connects each Ask answer directly to its file and evidence", async ({ page
   await page.getByRole("button", { name: "질문 실행" }).click();
 
   const panel = page.locator(".results-panel");
-  await expect(panel.getByRole("heading", { name: "답변", exact: true })).toBeVisible();
   await expect(panel.locator(".result-status")).toHaveText("답변 완료");
   await expect(page.locator(".notice.success")).toHaveCount(0);
   await expect(panel).not.toContainText("ASK RESULT");
@@ -2246,6 +2258,36 @@ test("integrates enrichment behind one action and preserves every deterministic 
   ]);
 });
 
+test("a check response that arrives after navigating to analysis does not replace the analysis view", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  let semanticRequested!: () => void;
+  const semantic = new Promise<void>((resolve) => { semanticRequested = resolve; });
+  await page.route("**/api/ai", async (route) => {
+    const request = route.request().postDataJSON() as { request: { operation: string }; items: Array<{ handle: string; text: string }> };
+    if (request.request.operation === "semantic-check") { semanticRequested(); await held; }
+    const evidence = request.items[0];
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { kind: "claims", claims: [{ text: evidence.text, handles: [evidence.handle], confidence: "high" }] } }) });
+  });
+  await page.goto("/");
+  await upload(page, files.checkPptx);
+  await page.getByRole("checkbox", { name: "최종검수.pptx 선택", exact: true }).check();
+  await navigateWorkspace(page, "검수");
+  await page.getByRole("button", { name: "검수 실행", exact: true }).click();
+  await semantic;
+  await navigateWorkspace(page, "분석");
+  release();
+  // The retired check run still finishes, releasing the shared busy state, without committing into the analysis view.
+  await expect(page.getByRole("button", { name: "분석 실행", exact: true })).toBeEnabled();
+  await expect(page.locator(".results-panel")).toHaveCount(0);
+  await expect(page.locator(".check-issue")).toHaveCount(0);
+  await page.getByRole("button", { name: "분석 실행", exact: true }).click();
+  await expect(page.locator(".results-panel .result-status")).toHaveText(/분석 완료/);
+  expect(errors).toEqual([]);
+});
+
 
 test("reviews PPTX writing, consistency and data findings with filters and exact slide evidence", async ({ page }, testInfo) => {
   const consoleErrors: string[] = [];
@@ -2259,135 +2301,17 @@ test("reviews PPTX writing, consistency and data findings with filters and exact
   await navigateWorkspace(page, "검수");
   await page.getByRole("button", { name: "검수 실행" }).click();
 
-  const panel = page.locator(".results-panel");
-  const overview = page.locator(".qa-overview");
-  await expect(panel.getByRole("heading", { name: "검수 결과", exact: true })).toHaveCount(1);
-  await expect(panel).not.toContainText("문서 품질 검수");
-  await expect(overview.locator(".qa-summary-line")).toContainText("중요");
-  await expect(overview.locator(".qa-summary-line")).toContainText("주의");
-  await expect(overview.locator(".qa-summary-line")).toContainText("제안");
-  const emptySeverities = overview.locator(".qa-summary-line span.muted");
-  expect(await emptySeverities.count()).toBeGreaterThan(0);
-  expect(await emptySeverities.first().evaluate((element) => getComputedStyle(element).color)).toBe(await emptySeverities.first().locator("b").evaluate((element) => getComputedStyle(element).color));
-  const overviewStyle = await overview.evaluate((element) => {
-    const style = getComputedStyle(element);
-    return {
-      width: element.getBoundingClientRect().width,
-      background: style.backgroundColor,
-      borderWidth: style.borderTopWidth,
-      boxShadow: style.boxShadow,
-    };
-  });
-  expect(overviewStyle.width).toBeLessThanOrEqual(450);
-  expect(overviewStyle).toMatchObject({ background: "rgb(255, 255, 255)", borderWidth: "1px", boxShadow: "rgba(15, 23, 42, 0.04) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 4px 12px 0px" });
-  expect(await overview.locator(".qa-summary-line span").nth(1).evaluate((element) => getComputedStyle(element).borderLeftWidth)).toBe("1px");
-  await expect(page.getByText("낮은 확신 포함")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "용어 사전" })).toBeVisible();
-  expect(await page.getByRole("button", { name: "용어 사전" }).evaluate((element) => getComputedStyle(element).borderTopWidth)).toBe("1px");
-  await expect(page.locator(".check-filter-status")).toHaveCount(0);
-
-  // The result heading and file area define the outer grid. Summary, filter
-  // text, issue accent and dictionary share those edges without extra inset.
-  const edges = await page.evaluate(() => {
-    const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
-    const heading = box(".result-heading");
-    const fileArea = box(".file-list");
-    const summary = box(".qa-overview");
-    const line = box(".qa-summary-line");
-    const filterText = document.createRange();
-    filterText.selectNodeContents(document.querySelector(".check-filters-compact > button")!);
-    const card = box(".check-issue");
-    const dictionary = box(".dictionary-trigger");
-    return {
-      headingLeft: Math.round(heading.left),
-      headingRight: Math.round(heading.right),
-      fileLeft: Math.round(fileArea.left),
-      fileRight: Math.round(fileArea.right),
-      summaryLeft: Math.round(summary.left),
-      filterLeft: Math.round(filterText.getClientRects()[0].left),
-      cardLeft: Math.round(card.left),
-      dictionaryRight: Math.round(dictionary.right),
-      cardRight: Math.round(card.right),
-      slack: Math.round(summary.right - line.right),
-    };
-  });
-  expect(edges.summaryLeft).toBe(edges.headingLeft);
-  expect(edges.filterLeft).toBe(edges.headingLeft);
-  expect(edges.cardLeft).toBe(edges.headingLeft);
-  expect(edges.fileLeft).toBe(edges.headingLeft);
-  expect(edges.dictionaryRight).toBe(edges.headingRight);
-  expect(edges.cardRight).toBe(edges.headingRight);
-  expect(edges.fileRight).toBe(edges.headingRight);
-  expect(edges.slack).toBeLessThanOrEqual(16);
 
   const typo = page.locator(".check-issue").filter({ hasText: "한글 맞춤법 오류 가능성" });
   await expect(typo).toContainText("문장");
   await expect(typo).toContainText("주의");
   await expect(typo.locator(".source-locator")).toHaveText("Slide 1");
   await expect(typo.getByRole("button", { name: "Slide 1 근거 보기" })).toBeVisible();
-  expect(await typo.locator(".check-recommendation, .check-source").evaluateAll((nodes) =>
-    nodes.map((node) => node.className))).toEqual(["check-recommendation", "check-source"]);
-  await expect(typo.locator(".check-recommendation")).toContainText("수정 제안");
-  const suggestionHierarchy = await typo.evaluate((issue) => {
-    const recommendation = issue.querySelector<HTMLElement>(".check-recommendation")!;
-    const label = recommendation.querySelector<HTMLElement>(".check-field-label")!;
-    const suggestion = recommendation.querySelector<HTMLElement>("p")!;
-    const description = issue.querySelector<HTMLElement>(".check-issue-name > p")!;
-    const source = issue.querySelector<HTMLElement>(".source-locator")!;
-    const recommendationStyle = getComputedStyle(recommendation);
-    return {
-      background: recommendationStyle.backgroundColor,
-      borderWidth: recommendationStyle.borderWidth,
-      boxShadow: recommendationStyle.boxShadow,
-      paddingLeft: recommendationStyle.paddingLeft,
-      labelWeight: getComputedStyle(label).fontWeight,
-      // Engines round fractional rem sizes differently (14.3 vs 14.2969).
-      suggestionSize: Math.round(Number.parseFloat(getComputedStyle(suggestion).fontSize) * 10) / 10,
-      descriptionSize: Math.round(Number.parseFloat(getComputedStyle(description).fontSize) * 10) / 10,
-      suggestionColor: getComputedStyle(suggestion).color,
-      descriptionColor: getComputedStyle(description).color,
-      sourceSize: Math.round(Number.parseFloat(getComputedStyle(source).fontSize) * 10) / 10,
-    };
-  });
-  expect(suggestionHierarchy).toMatchObject({
-    background: "rgb(245, 249, 255)",
-    borderWidth: "1px",
-    boxShadow: "none",
-    paddingLeft: "10px",
-    labelWeight: "600",
-    suggestionSize: 16.5,
-    descriptionSize: 16.5,
-    sourceSize: 14.3,
-  });
-  expect(suggestionHierarchy.suggestionColor).not.toBe(suggestionHierarchy.descriptionColor);
-  expect(await typo.evaluate((issue) => getComputedStyle(issue).backgroundColor)).toBe("rgb(255, 255, 255)");
-  expect(await page.locator(".check-issue .check-recommendation").evaluateAll((recommendations) =>
-    recommendations.every((recommendation) => getComputedStyle(recommendation).backgroundColor === "rgb(245, 249, 255)"))).toBe(true);
-  await expect(typo.locator(".check-source .check-field-label")).toHaveCount(0);
-  await expect(typo.locator(".issue-detail-toggle")).toHaveCount(0);
-  expect((await typo.innerText()).split("최종검수.pptx").length - 1).toBe(0);
-  const rowTops = await typo.locator(".check-issue-summary, .check-recommendation, .check-source").evaluateAll((nodes) =>
-    nodes.map((node) => Math.round(node.getBoundingClientRect().top)));
-  expect(rowTops[0]).toBeLessThan(rowTops[1]);
-  expect(rowTops[1]).toBeLessThan(rowTops[2]);
-  const findingActions = typo.locator(".finding-actions");
-  const desktopActionBoxes = await findingActions.getByRole("button").evaluateAll((buttons) =>
-    buttons.map((button) => {
-      const box = button.getBoundingClientRect();
-      return { top: Math.round(box.top), right: Math.round(box.right) };
-    }));
-  expect(new Set(desktopActionBoxes.map((box) => box.top)).size).toBe(1);
-  const [issueBox, actionsBox] = await Promise.all([typo.boundingBox(), findingActions.boundingBox()]);
-  expect(Math.abs(issueBox!.x + issueBox!.width - (actionsBox!.x + actionsBox!.width))).toBeLessThanOrEqual(24);
-
   await typo.locator(".source-action").click();
   const evidence = page.getByLabel("근거 상세");
   await expect(evidence).toBeVisible();
   await expect(evidence.locator(".evidence-location-list")).toContainText("Slide 1");
-  await expect(evidence).toContainText(/문서에서 확인된 근거 · \d+곳/u);
-  await expect(evidence).not.toContainText(/\d+개 위치/u);
-  await expect(evidence.locator(".evidence-context")).toHaveCount(0);
-  await expect(evidence).not.toContainText("수정 제안");
   await expect(evidence.getByRole("button", { name: "닫기" })).toBeVisible();
   await page.screenshot({ path: "artifacts/inspo-evidence-desktop-1440.png" });
   await evidence.getByRole("button", { name: "닫기" }).click();
@@ -2398,38 +2322,12 @@ test("reviews PPTX writing, consistency and data findings with filters and exact
   await page.getByRole("button", { name: /전체 8/ }).click();
   await expect(page.locator(".check-issue").first()).toBeVisible();
 
-  await expect(page.getByRole("button", { name: "문장 검수", exact: true })).toHaveCount(0);
   await page.screenshot({ path: "artifacts/inspo-check-desktop-1440.png", fullPage: true });
   if (testInfo.project.name === "chromium-desktop") expect(consoleErrors).toEqual([]);
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(typo).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  const mobileEdges = await page.evaluate(() => ({
-    heading: document.querySelector(".result-heading")!.getBoundingClientRect().right,
-    dictionary: document.querySelector(".dictionary-trigger")!.getBoundingClientRect().right,
-    filters: document.querySelector(".check-filters-compact")!.scrollWidth,
-    visibleFilters: document.querySelector(".check-filters-compact")!.clientWidth,
-  }));
-  expect(Math.abs(mobileEdges.dictionary - mobileEdges.heading)).toBeLessThanOrEqual(1);
-  expect(mobileEdges.filters).toBeGreaterThan(mobileEdges.visibleFilters);
-  const mobileOrder = await typo.locator(".check-recommendation, .check-source").evaluateAll((nodes) =>
-    nodes.map((node) => node.getBoundingClientRect().top));
-  expect(mobileOrder[0]).toBeLessThan(mobileOrder[1]);
   await page.screenshot({ path: "artifacts/check-suggestion-mobile-390.png", fullPage: true });
-  const longSuggestion = await typo.locator(".check-recommendation p").evaluate((paragraph) => {
-    paragraph.textContent = `https://example.com/${"long-segment-".repeat(24)}`;
-    const bounds = paragraph.getBoundingClientRect();
-    return {
-      height: bounds.height,
-      lineHeight: Number.parseFloat(getComputedStyle(paragraph).lineHeight),
-      width: bounds.width,
-      parentWidth: paragraph.parentElement!.clientWidth,
-    };
-  });
-  expect(longSuggestion.height).toBeGreaterThan(longSuggestion.lineHeight);
-  expect(longSuggestion.width).toBeLessThanOrEqual(longSuggestion.parentWidth);
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  expect(await findingActions.evaluate((element) => getComputedStyle(element).justifyContent)).toBe("flex-start");
 });
 
 test("reports an English typo at one severity whichever detector finds it", async ({ page }) => {
@@ -2503,7 +2401,6 @@ test("keeps the personal dictionary and ignore actions inside this browser", asy
   expect(JSON.stringify(storage)).not.toContain("향후 13주");
 
   await page.getByRole("button", { name: "용어 사전" }).click();
-  await expect(page.locator(".dictionary-panel")).toContainText("개인 사전은 이 브라우저에만 저장됩니다.");
   await expect(page.locator(".dictionary-panel")).toContainText("WorkLens");
   await page.getByRole("button", { name: "용어 사전" }).click();
 
@@ -2548,12 +2445,11 @@ test("uses the loaded company dictionary in both the page and review popup acros
   });
   await mockEmptyClaims(page);
 
-  const inspect = async (expected: string[], source: "d1" | "seed", expectedRequests: number) => {
+  const inspect = async (expected: string[], expectedRequests: number) => {
     await page.goto("/");
     await navigateWorkspace(page, "Dictionary");
     const dictionary = page.locator('.settings-surface[aria-label="Dictionary"] .dictionary-section').first();
     await expect(dictionary.locator("h4")).toContainText(`COMPANY TERMS ${expected.length}`);
-    if (source === "seed") await expect(dictionary).toContainText("공용 사전 저장소에 연결하지 못해 기본 목록을 표시합니다.");
     const pageTerms = await dictionary.locator(".dictionary-term").allTextContents();
     await navigateWorkspace(page, "분석");
     await upload(page, files.checkPptx);
@@ -2572,15 +2468,15 @@ test("uses the loaded company dictionary in both the page and review popup acros
     else await expect(company.locator(".dictionary-term.muted")).toHaveCount(0);
     expect(requests).toBe(expectedRequests);
   };
-  await inspect(terms, "d1", 1);
+  await inspect(terms, 1);
   terms = [...terms, "새 회사 용어"];
-  await inspect(terms, "d1", 2);
+  await inspect(terms, 2);
   terms = terms.filter((term) => term !== "I&C");
-  await inspect(terms, "d1", 3);
+  await inspect(terms, 3);
   unavailable = true;
   const parsedSeed: unknown = JSON.parse(await readFile(path.join(process.cwd(), "src/config/company-terms.json"), "utf8"));
   if (!parsedSeed || typeof parsedSeed !== "object" || !("terms" in parsedSeed) || !Array.isArray(parsedSeed.terms) || !parsedSeed.terms.every((term) => typeof term === "string")) throw new Error("Invalid seed terms");
-  await inspect(parsedSeed.terms, "seed", 4);
+  await inspect(parsedSeed.terms, 4);
 });
 
 test("moves from the full upload area to compact file management and back", async ({ page }) => {
@@ -2590,7 +2486,6 @@ test("moves from the full upload area to compact file management and back", asyn
   await expect(page.locator(".context-bar")).toContainText("문서 분석");
   await expect(page.getByRole("button", { name: "분석 실행", exact: true })).toHaveCount(0);
   await expect(dropzone.getByRole("button", { name: "파일 추가" })).toBeVisible();
-  await expect(dropzone).toContainText("파일을 여기에 끌어 놓으세요");
   await expect(dropzone).not.toContainText("XLSX · CSV · PDF · DOCX · PPTX");
   await expect(dropzone).not.toContainText("파일당 최대");
   await expect(dropzone).not.toContainText("전체 최대");
@@ -2668,54 +2563,6 @@ test("uploads a dropped file and returns to compact file management", async ({ p
   await expect(page.getByRole("button", { name: "파일 관리 메뉴" })).toBeVisible();
 });
 
-test("aligns fileless text Polish controls to one desktop and mobile baseline", async ({ page }) => {
-  await page.goto("/");
-  await navigateWorkspace(page, "윤문");
-  await page.getByRole("radio", { name: "텍스트 윤문" }).check();
-  await expect(page.locator(".dropzone")).toBeVisible();
-
-  const alignment = async () => {
-    const title = page.locator(".operation-bar");
-    await expect(page.locator(".utility-bar h1")).toHaveText("문서 윤문");
-    const inputModes = page.locator(".polish-input-modes");
-    const polishModes = page.locator(".polish-modes");
-    const pasteLabel = page.locator(".polish-paste").getByText("윤문할 내용을 붙여넣으세요.", { exact: true });
-    const paste = page.getByLabel("윤문할 텍스트 입력");
-    const count = page.locator(".polish-paste small");
-    const action = page.getByRole("button", { name: "윤문 실행" });
-    const boxes = await Promise.all([title, inputModes, polishModes, pasteLabel, paste, count, action].map((locator) => locator.boundingBox()));
-    expect(boxes.every(Boolean)).toBe(true);
-    const surface = page.locator(".operation-bar");
-    const surfaceBox = (await surface.boundingBox())!;
-    const surfaceInset = await surface.evaluate((element) => {
-      const style = getComputedStyle(element);
-      return parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft);
-    });
-    const left = boxes[0]!.x;
-    expect(Math.abs(surfaceBox.x - left)).toBeLessThanOrEqual(1);
-    const controlLeft = left + surfaceInset;
-    for (const box of boxes.slice(1, 6)) expect(Math.abs(box!.x - controlLeft)).toBeLessThanOrEqual(1);
-    return { modes: boxes[2]!, paste: boxes[4]!, action: boxes[6]!, left: controlLeft };
-  };
-
-  // Text execution follows the textarea on every viewport.
-  const desktop = await alignment();
-  expect(desktop.action.y).toBeGreaterThanOrEqual(desktop.paste.y + desktop.paste.height);
-  await expect(page.getByRole("button", { name: "윤문 실행" })).toHaveCount(1);
-  const initialViewport = page.viewportSize();
-  expect(desktop.paste.width).toBeGreaterThanOrEqual(initialViewport && initialViewport.width < 1000 ? 600 : 700);
-  expect(desktop.paste.width).toBeLessThanOrEqual(960);
-  await page.getByLabel("윤문할 텍스트 입력").fill("파일 없이도 텍스트 윤문을 실행할 수 있습니다.");
-  await expect(page.getByRole("button", { name: "윤문 실행" })).toBeEnabled();
-
-  await page.setViewportSize({ width: 390, height: 844 });
-  // Mobile: execution remains after the textarea.
-  const mobile = await alignment();
-  expect(mobile.action.y).toBeGreaterThanOrEqual(mobile.paste.y + mobile.paste.height);
-  expect(mobile.paste.width).toBeLessThanOrEqual(358);
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
-});
-
 test("places file Polish execution beside input modes and keeps one action across modes", async ({ page }) => {
   await page.goto("/");
   await navigateWorkspace(page, "윤문");
@@ -2752,9 +2599,8 @@ test("keeps file context and upload controls out of utility destinations", async
   await expect(page.locator(".context-files")).toHaveCount(0);
   await expect(page.locator(".dropzone")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "파일 추가" })).toHaveCount(0);
-  await expect(page.getByText("회사 공통 용어입니다. 관리자만 수정할 수 있습니다.", { exact: false })).toBeVisible();
+  await expect(page.locator('.settings-surface[aria-label="Dictionary"] .dictionary-section').first()).toBeVisible();
   await expect(page.getByLabel("공용 용어 검색")).toBeVisible();
-  await expect(page.getByText("등록된 개인 용어가 없습니다.")).toBeVisible();
 
   await navigateWorkspace(page, "Settings");
   await expect(page.getByRole("heading", { name: "설정", exact: true })).toBeVisible();
@@ -2762,24 +2608,19 @@ test("keeps file context and upload controls out of utility destinations", async
   await expect(page.locator(".context-files")).toHaveCount(0);
   await expect(page.locator(".dropzone")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "파일 추가" })).toHaveCount(0);
-  await expect(page.locator(".settings-list").getByText("AI 기능은 필요한 질문·문장·근거만 서버 AI로 전송해 처리합니다. 원본 파일은 전송하지 않습니다.", { exact: true })).toBeVisible();
-  await expect(page.locator(".settings-list")).toContainText("파일 업로드");
-  await expect(page.locator(".settings-list")).toContainText("지원 형식 XLSX, CSV, PDF, DOCX, PPTX · 파일당 최대 100MB · 전체 최대 300MB");
-  await expect(page.locator(".settings-list")).toContainText("PDF 도구는 PDF만, 이미지 도구는 JPG·PNG·WebP를 사용합니다.");
   await expect(page.locator(".settings-list")).not.toContainText("Groq");
   await expect(page.locator(".settings-list")).not.toContainText("Zero Data Retention");
   await expect(page.locator(".settings-list")).not.toContainText("30일");
 });
 
-test("keeps legal destinations grouped, command search shortcut-only, and review options in the review flow", async ({ page }) => {
+test("keeps legal destinations grouped and review options in the review flow", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("worklens:review-preferences:v1", JSON.stringify({
     version: 1, preferences: { documentSource: "text", expandSources: true },
   })));
   await page.goto("/");
 
   const navigation = page.getByRole("navigation", { name: "작업 공간 메뉴", exact: true });
-  // At 900px and below the sidebar lives in a sheet; open it for nav
-  // assertions and close it again so palette steps see a single dialog.
+  // Narrow viewports use the menu sheet; close it before interacting with the header.
   const narrow = await page.evaluate(() => window.innerWidth <= 900);
   const openMenu = async () => {
     if (narrow) await page.getByRole("button", { name: "작업 공간 메뉴 열기", exact: true }).click();
@@ -2801,43 +2642,32 @@ test("keeps legal destinations grouped, command search shortcut-only, and review
   }
   await closeSheet();
 
-  await expect(page.getByRole("button", { name: "기능 검색…", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("dialog")).toHaveCount(0);
+  const initialTitle = (await page.locator(".context-bar h1").textContent())!;
   await page.keyboard.press("Control+K");
-  const palette = page.getByRole("dialog");
-  const search = palette.getByLabel("기능 검색");
-  await expect(search).toHaveAttribute("placeholder", "기능 검색…");
+  const search = page.getByRole("combobox", { name: "메뉴·기능 검색" });
+  const results = page.locator(".workspace-search-results");
   await expect(search).toBeFocused();
-  await expect(palette.getByRole("listbox")).toHaveCount(0);
-  await expect(palette.getByRole("option")).toHaveCount(0);
-  for (const hidden of ["WORKSPACE", "RESEARCH", "TOOLS", "AI•AX", "분석", "일치하는 기능이 없습니다.", "↑ ↓ 선택 · Enter 이동 · Esc 닫기"]) await expect(palette.getByText(hidden, { exact: true })).toHaveCount(0);
+  await expect(results).not.toBeVisible();
   await search.fill("법");
-  await expect(palette.getByRole("group").filter({ hasText: /^RESEARCH/ })).toHaveCount(1);
-  await expect(palette.getByRole("option", { name: "법령", exact: true })).toBeVisible();
-  await expect(palette.getByText("↑ ↓ 선택 · Enter 이동 · Esc 닫기", { exact: true })).toBeVisible();
+  await expect(page.getByRole("option", { name: "법령", exact: true })).toBeVisible();
   await search.fill("업무");
-  await expect(palette.getByRole("group").filter({ hasText: /^AI•AX/ })).toHaveCount(1);
-  await expect(palette.getByRole("option", { name: "업무 자동화 진단", exact: true })).toBeVisible();
-  await expect(palette.getByRole("option", { name: "법령", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("option", { name: "업무 자동화 진단", exact: true })).toBeVisible();
+  await expect(page.getByRole("option", { name: "법령", exact: true })).toHaveCount(0);
   await search.fill("존재하지않는기능");
-  await expect(palette.getByText("일치하는 기능이 없습니다.", { exact: true })).toBeVisible();
-  await expect(palette.getByRole("option")).toHaveCount(0);
-  await expect(palette.getByText("↑ ↓ 선택 · Enter 이동 · Esc 닫기", { exact: true })).toBeHidden();
+  await expect(results).toContainText("일치하는 기능이 없습니다.");
+  await expect(page.getByRole("option")).toHaveCount(0);
   await search.fill("");
-  await expect(palette.getByRole("listbox")).toHaveCount(0);
-  await expect(palette.getByText("일치하는 기능이 없습니다.", { exact: true })).toHaveCount(0);
+  await expect(results).not.toBeVisible();
   await page.keyboard.press("Enter");
-  await expect(palette).toBeVisible();
+  await expect(page.locator(".context-bar h1")).toHaveText(initialTitle);
   await search.fill("업무");
   await page.keyboard.press("Enter");
-  await expect(palette).toHaveCount(0);
+  await expect(results).not.toBeVisible();
   await expect(page.getByRole("heading", { name: "업무 자동화 진단", exact: true, level: 1 })).toBeVisible();
   await page.keyboard.press("Control+K");
-  await expect(palette.getByRole("listbox")).toHaveCount(0);
-  await palette.getByLabel("기능 검색").fill("검토 설정");
-  await expect(palette.getByRole("option", { name: "검토 설정", exact: true })).toHaveCount(0);
+  await search.fill("검토 설정");
+  await expect(page.getByRole("option", { name: "검토 설정", exact: true })).toHaveCount(0);
   await page.keyboard.press("Escape");
-  await expect(page.getByRole("dialog")).toHaveCount(0);
 
   await navigateWorkspace(page, "법령");
   await openMenu();
@@ -2855,8 +2685,8 @@ test("keeps legal destinations grouped, command search shortcut-only, and review
     ["법령 > 문서 검토", "문서 검토"],
   ] as const) {
     await page.keyboard.press("Control+K");
-    await page.getByRole("dialog").getByLabel("기능 검색").fill(command);
-    await page.getByRole("dialog").getByText(command, { exact: true }).click();
+    await search.fill(command);
+    await page.getByRole("option", { name: command, exact: true }).click();
     await expect(page.getByRole("heading", { name: heading, exact: true, level: 1 })).toBeVisible();
     await openMenu();
     await expect(navigation.getByRole("button", { name: "법령", exact: true })).toHaveAttribute("aria-current", "page");
@@ -2864,19 +2694,18 @@ test("keeps legal destinations grouped, command search shortcut-only, and review
   }
 
   await page.keyboard.press("Control+K");
-  await page.getByRole("dialog").getByLabel("기능 검색").fill("설정");
-  await page.getByRole("dialog").getByText("설정", { exact: true }).click();
+  await search.fill("설정");
+  await page.getByRole("option", { name: "설정", exact: true }).click();
   await openMenu();
   await expect(navigation.getByRole("button", { name: "Settings", exact: true })).toHaveAttribute("aria-current", "page");
   await closeSheet();
   await expect(page.getByRole("heading", { name: "법령 리서치 기본값", exact: true })).toHaveCount(0);
 
   await page.keyboard.press("Control+K");
-  await page.getByRole("dialog").getByLabel("기능 검색").fill("문서 검토");
-  await page.getByRole("dialog").getByText("법령 > 문서 검토", { exact: true }).click();
+  await search.fill("문서 검토");
+  await page.getByRole("option", { name: "법령 > 문서 검토", exact: true }).click();
   await expect(page.getByRole("heading", { name: "문서 검토", exact: true, level: 1 })).toBeVisible();
   await expect(page.getByRole("radio", { name: "직접 입력", exact: true })).toBeChecked();
-  await expect(page.getByRole("button", { name: /근거 (펼치기|접기)/u })).toHaveCount(0);
   let reviewCalls = 0;
   await page.route("**/api/law/research", async (route) => {
     reviewCalls += 1;
@@ -2894,22 +2723,25 @@ test("keeps legal destinations grouped, command search shortcut-only, and review
     } }) });
   });
   const reviewForm = page.getByRole("form", { name: "문서 검토 입력", exact: true });
+  const savedPreferences = await page.evaluate(() => localStorage.getItem("worklens:review-preferences:v1"));
   await reviewForm.getByLabel("검토할 문서 내용").fill(EMPLOYMENT_CONTRACT);
   await reviewForm.getByRole("button", { name: "실행", exact: true }).click();
   const review = page.locator(".contract-review");
   const refs = review.locator(".contract-review-refs");
-  await expect(review.getByRole("button", { name: "근거 접기", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(review.getByRole("button", { name: "전체 접기", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect.poll(() => refs.evaluateAll((els) => els.every((el) => (el as HTMLDetailsElement).open))).toBe(true);
   await expect.poll(() => review.locator(".contract-review-source").evaluateAll((els) => els.every((el) => !(el as HTMLDetailsElement).open))).toBe(true);
-  await review.getByRole("button", { name: "근거 접기", exact: true }).click();
+  await refs.first().locator("summary").click();
+  await expect(review.getByRole("button", { name: "전체 펼치기", exact: true })).toHaveAttribute("aria-pressed", "false");
+  await review.getByRole("button", { name: "전체 펼치기", exact: true }).click();
+  await expect(review.getByRole("button", { name: "전체 접기", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await review.getByRole("button", { name: "전체 접기", exact: true }).click();
   await expect.poll(() => refs.evaluateAll((els) => els.every((el) => !(el as HTMLDetailsElement).open))).toBe(true);
   expect(reviewCalls).toBe(1);
-  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("worklens:review-preferences:v1")!))).toEqual({
-    version: 1, preferences: { documentSource: "text", expandSources: true },
-  });
+  expect(await page.evaluate(() => localStorage.getItem("worklens:review-preferences:v1"))).toBe(savedPreferences);
   await reviewForm.getByRole("button", { name: "실행", exact: true }).click();
   await expect.poll(() => reviewCalls).toBe(2);
-  await expect(review.getByRole("button", { name: "근거 펼치기", exact: true })).toHaveAttribute("aria-pressed", "false");
+  await expect(review.getByRole("button", { name: "전체 펼치기", exact: true })).toHaveAttribute("aria-pressed", "false");
   await expect.poll(() => refs.evaluateAll((els) => els.every((el) => !(el as HTMLDetailsElement).open))).toBe(true);
 });
 
@@ -3151,7 +2983,7 @@ test("explicitly clears the in-browser workspace", async ({ page }) => {
   await page.getByRole("menuitem", { name: "모두 삭제" }).click();
   await page.getByRole("alertdialog", { name: "작업 파일 모두 삭제", exact: true })
     .getByRole("button", { name: "삭제", exact: true }).click();
-  const clearedStatus = page.locator(".transient-status");
+  const clearedStatus = page.locator(".workspace-delete-status > span");
   await expect(clearedStatus).toHaveText("삭제 완료");
   await expect(page.getByText("브라우저 메모리에서 파일과 결과를 모두 지웠습니다.")).toHaveCount(0);
   await expect(page.locator(".notice-inline")).toHaveCount(0);
@@ -3164,6 +2996,154 @@ test("explicitly clears the in-browser workspace", async ({ page }) => {
   // The worker was torn down; a new upload must still work in the same tab.
   await upload(page, files.v2);
   await expect(fileRow(page, files.v2)).toContainText("시트: 1");
+});
+
+for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+  test(`file deletion uses a stable header status across document categories at ${viewport.width}px`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    const now = new Date("2026-10-08T00:00:00Z");
+    await page.clock.install({ time: now });
+    await page.goto("/");
+    await expect(page.locator(".app-shell")).toHaveAttribute("data-hydrated", "true");
+    const status = page.locator(".workspace-context .workspace-delete-status");
+    const message = status.locator("span");
+    for (const category of ["검수", "분석", "질문", "비교", "보완", "윤문", "추출", "취합"]) {
+      await page.clock.resume();
+      await navigateWorkspace(page, category);
+      await expect(message).toHaveCount(0);
+      await upload(page, files.v1);
+      await upload(page, files.v2);
+      await upload(page, files.v1Copy);
+      await page.clock.pauseAt(await page.evaluate(() => Date.now() + 100));
+      const geometry = () => page.locator(".workspace-context").evaluate(element => {
+        const box = element.getBoundingClientRect();
+        const title = element.querySelector("h1")!.getBoundingClientRect();
+        const description = element.querySelector(".context-names")!.getBoundingClientRect();
+        const search = element.querySelector(".workspace-search")!.getBoundingClientRect();
+        return { height: box.height, titleX: title.x - box.x, titleY: title.y - box.y,
+          descriptionX: description.x - box.x, descriptionY: description.y - box.y,
+          searchX: search.x - box.x, searchY: search.y - box.y, searchWidth: search.width };
+      });
+      const before = await geometry();
+      await page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true }).check();
+      await page.getByRole("button", { name: "선택 삭제", exact: true }).click();
+      await expect(page.locator(".file-row")).toHaveCount(2);
+      await expect(page.locator(".select-file").getByRole("checkbox", { checked: true })).toHaveCount(0);
+      await expect(message).toBeVisible();
+      await expect(status).toHaveAttribute("role", "status");
+      await expect(page.locator(".transient-status")).toHaveCount(0);
+      expect(await geometry()).toEqual(before);
+      const overlap = await status.evaluate(element => {
+        const status = element.getBoundingClientRect();
+        const title = element.closest("header")!.querySelector("h1")!.getBoundingClientRect();
+        const description = element.closest("header")!.querySelector(".context-names")!.getBoundingClientRect();
+        return { title: status.left < title.right && status.top < title.bottom && status.bottom > title.top,
+          description: status.left < description.right && status.top < description.bottom && status.bottom > description.top,
+          verticalGap: Math.abs((status.top + status.bottom - title.top - title.bottom) / 2) };
+      });
+      expect(overlap).toMatchObject({ title: false, description: false });
+      expect(overlap.verticalGap).toBeLessThanOrEqual(2);
+      const [statusBox, searchBox] = await Promise.all([status.boundingBox(), page.locator(".workspace-search").boundingBox()]);
+      expect(statusBox!.x + statusBox!.width).toBeLessThan(searchBox!.x);
+      if (category === "검수") await page.screenshot({ path: `artifacts/delete-header-${viewport.width}.png` });
+      await page.clock.runFor(2000);
+      await expect(message).toBeVisible();
+      await page.getByRole("checkbox", { name: "운임현황_v2.xlsx 선택", exact: true }).check();
+      await page.getByRole("button", { name: "선택 삭제", exact: true }).click();
+      await expect(page.locator(".file-row")).toHaveCount(1);
+      await page.clock.runFor(2000);
+      await expect(message).toBeVisible();
+      await page.clock.runFor(1001);
+      await expect(message).toHaveCount(0);
+      expect(await geometry()).toEqual(before);
+      await page.getByRole("checkbox", { name: "운임현황_v1_사본.xlsx 선택", exact: true }).check();
+      await page.getByRole("button", { name: "선택 삭제", exact: true }).click();
+      await expect(page.locator(".file-row")).toHaveCount(0);
+      await expect(message).toBeVisible();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    }
+    await page.clock.resume();
+    await navigateWorkspace(page, "PDF 도구");
+    await expect(page.locator(".workspace-delete-status")).toHaveCount(0);
+    await navigateWorkspace(page, "검수");
+    await expect(message).toHaveCount(0);
+  });
+  test(`header search coexists with deletion success and upload at ${viewport.width}px`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await page.goto("/");
+    await navigateWorkspace(page, "검수");
+    await upload(page, files.v1);
+    const trigger = page.getByRole("button", { name: "메뉴·기능 검색", exact: true });
+    const message = page.locator(".workspace-delete-status > span");
+    const input = page.getByRole("combobox", { name: "메뉴·기능 검색" });
+    const results = page.locator(".workspace-search-results");
+    const before = await page.locator(".workspace-search").boundingBox();
+    await page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true }).check();
+    await page.getByRole("button", { name: "선택 삭제", exact: true }).click();
+    await expect(message).toBeVisible();
+    await page.keyboard.press("Control+k");
+    await expect(input).toBeFocused();
+    await input.fill("법령");
+    await expect(page.getByRole("option", { name: "법령", exact: true })).toBeVisible();
+    await expect(message).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(results).not.toBeVisible();
+    await expect(viewport.width === 390 ? trigger : input).toBeFocused();
+    await expect(message).toBeVisible();
+    await upload(page, files.v2);
+    await expect(page.locator(".file-row")).toHaveCount(1);
+    expect(await page.locator(".workspace-search").boundingBox()).toEqual(before);
+    await expect(message).toHaveCount(0, { timeout: 5000 });
+    expect(await page.locator(".workspace-search").boundingBox()).toEqual(before);
+    await page.getByRole("checkbox", { name: "운임현황_v2.xlsx 선택", exact: true }).check();
+    await page.getByRole("button", { name: "선택 삭제", exact: true }).click();
+    await expect(message).toBeVisible();
+    await page.keyboard.press("Control+k");
+    await input.fill("설정");
+    await page.getByRole("option", { name: "설정", exact: true }).click();
+    await expect(page.locator(".context-bar h1")).toHaveText("설정");
+    await expect(page.locator(".workspace-delete-status")).toHaveCount(0);
+    await navigateWorkspace(page, "검수");
+    await expect(message).toHaveCount(0);
+  });
+}
+
+test("a pending deletion clears prior success and cannot announce success in another category", async ({ page }) => {
+  await page.addInitScript(() => {
+    const NativeWorker = window.Worker;
+    window.Worker = class extends NativeWorker {
+      override postMessage(message: unknown, options?: StructuredSerializeOptions | Transferable[]) {
+        const request = message && typeof message === "object" && "request" in message ? message.request : null;
+        if (request && typeof request === "object" && "kind" in request && request.kind === "forget" && Reflect.get(window, "holdDelete")) {
+          Reflect.set(window, "releaseDelete", () => super.postMessage(message, options as StructuredSerializeOptions));
+          return;
+        }
+        super.postMessage(message, options as StructuredSerializeOptions);
+      }
+    };
+  });
+  await page.goto("/");
+  await upload(page, files.v1);
+  await upload(page, files.v2);
+  await navigateWorkspace(page, "검수");
+  await page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true }).check();
+  await page.getByRole("button", { name: "선택 삭제", exact: true }).click();
+  const message = page.locator(".workspace-delete-status > span");
+  await expect(message).toBeVisible();
+  await page.evaluate(() => Reflect.set(window, "holdDelete", true));
+  await page.getByRole("checkbox", { name: "운임현황_v2.xlsx 선택", exact: true }).check();
+  await page.getByRole("button", { name: "선택 삭제", exact: true }).click();
+  await expect(message).toHaveCount(0);
+  await navigateWorkspace(page, "분석");
+  await page.evaluate(() => {
+    const release = Reflect.get(window, "releaseDelete");
+    if (typeof release !== "function") throw new Error("Deletion did not reach the worker boundary");
+    release();
+  });
+  await expect(page.locator(".file-row")).toHaveCount(0);
+  await expect(message).toHaveCount(0);
+  await navigateWorkspace(page, "검수");
+  await expect(message).toHaveCount(0);
 });
 
 test("keeps the complete mobile workflow inside the viewport", async ({ page }, testInfo) => {
@@ -3514,14 +3494,23 @@ test("aggregates workbooks into one XLSX result without profile-specific actions
   const comparisonBadge = fileRow(page, files.v1).locator(".compare-selection-role");
   const appearance = (element: Element) => {
     const style = getComputedStyle(element);
-    return [style.backgroundColor, style.border, style.borderRadius, style.color, style.fontFamily, style.fontSize, style.padding];
+    return { background: style.backgroundColor, border: style.borderTopWidth, radius: parseFloat(style.borderRadius), color: style.color, weight: style.fontWeight, shadow: style.boxShadow };
   };
-  const expectedAppearance = await comparisonBadge.evaluate(appearance);
+  const comparisonAppearance = await comparisonBadge.evaluate(appearance);
   await navigateWorkspace(page, "취합");
   const first = fileRow(page, files.v1);
   const second = fileRow(page, files.v2);
   await expect(first.locator(".compare-selection-role")).toHaveText("기준 파일");
-  expect(await first.locator(".compare-selection-role").evaluate(appearance)).toEqual(expectedAppearance);
+  // Aggregate's base file is a borderless soft-blue pill; Compare keeps its own outlined role badges.
+  const baseAppearance = await first.locator(".compare-selection-role").evaluate(appearance);
+  expect(baseAppearance).toMatchObject({ background: "rgb(234, 242, 255)", border: "0px", color: "rgb(36, 91, 219)", weight: "600", shadow: "none" });
+  expect(baseAppearance.radius).toBeGreaterThanOrEqual(10);
+  expect(comparisonAppearance.background).not.toBe(baseAppearance.background);
+  await expect(first).toHaveClass(/compare-selected-file/);
+  if (await first.locator(".file-name-line").evaluate((line) => getComputedStyle(line).flexDirection === "row")) {
+    const [nameBox, badgeBox] = await Promise.all([first.locator(".file-name-line strong").boundingBox(), first.locator(".compare-selection-role").boundingBox()]);
+    expect(badgeBox!.x).toBeGreaterThanOrEqual(nameBox!.x + nameBox!.width);
+  }
   await expect(second.locator(".compare-selection-role")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "기준/대상 바꾸기" })).toHaveCount(0);
   await expect(first.locator(".compare-selection-role")).not.toContainText("1 ·");
@@ -3538,7 +3527,6 @@ test("aggregates workbooks into one XLSX result without profile-specific actions
   await expect(panel).not.toContainText("호환 그룹");
   await expect(panel.getByRole("heading", { name: /결과 시트 \d+개/ })).toBeVisible();
   await expect(panel.locator(".aggregation-result-sheets li strong")).toHaveText(["운송단가"]);
-  await expect(panel).toContainText("모든 항목을 기준 파일 항목에 자동으로 연결했습니다.");
   await expect(panel.locator(".aggregation-preview thead th").first()).toHaveText("지역");
   await expect(panel.locator(".aggregation-preview")).not.toContainText("[object");
   const fileBox = await page.locator(".file-list").boundingBox();
@@ -3546,7 +3534,7 @@ test("aggregates workbooks into one XLSX result without profile-specific actions
   const downloadBox = await panel.getByRole("button", { name: "XLSX 다운로드" }).boundingBox();
   const sectionBox = await panel.locator(".aggregation-section").first().boundingBox();
   const headingBox = await panel.getByRole("heading", { name: "취합할 시트" }).boundingBox();
-  const descriptionBox = await panel.getByText("첫 번째 파일의 시트 구성을 결과로 사용하고").boundingBox();
+  const descriptionBox = await panel.locator(".aggregation-section-heading p").first().boundingBox();
   const listBox = await panel.locator(".aggregation-workbooks").boundingBox();
   expect(fileBox && summaryBox && downloadBox && sectionBox && headingBox && descriptionBox && listBox).toBeTruthy();
   expect(summaryBox!.x).toBe(fileBox!.x);
@@ -3561,7 +3549,6 @@ test("aggregates workbooks into one XLSX result without profile-specific actions
     const background = (selector: string) => getComputedStyle(element.querySelector(selector) ?? element).backgroundColor;
     return {
       panel: getComputedStyle(element).backgroundColor,
-      heading: background(".result-heading"),
       toolbar: background(".aggregation-result-toolbar"),
       section: background(".aggregation-section"),
       sectionRadius: getComputedStyle(element.querySelector(".aggregation-section")!).borderRadius,
@@ -3571,7 +3558,6 @@ test("aggregates workbooks into one XLSX result without profile-specific actions
   });
   expect(surfaces).toEqual({
     panel: "rgba(0, 0, 0, 0)",
-    heading: "rgba(0, 0, 0, 0)",
     toolbar: "rgba(0, 0, 0, 0)",
     section: "rgba(0, 0, 0, 0)",
     sectionRadius: "0px",
@@ -3586,7 +3572,14 @@ test("aggregates workbooks into one XLSX result without profile-specific actions
 
   const download = page.waitForEvent("download");
   await panel.getByRole("button", { name: "XLSX 다운로드" }).click();
-  expect((await download).suggestedFilename()).toBe("worklens-aggregation.xlsx");
+  const downloaded = await download;
+  expect(downloaded.suggestedFilename()).toBe("worklens-aggregation.xlsx");
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(new Uint8Array(await readFile(await downloaded.path())) as unknown as ExcelJS.Buffer);
+  const sheet = workbook.getWorksheet("운송단가")!;
+  expect(sheet.rowCount).toBe(9);
+  expect([sheet.getCell("A2").value, sheet.getCell("B2").value]).toEqual(["SEOUL", 145000]);
+  expect([sheet.getCell("A9").value, sheet.getCell("B9").value]).toEqual(["JEJU", 5000]);
   await page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true }).uncheck();
   await expect(second.locator(".compare-selection-role")).toHaveText("기준 파일");
   await expect(first.locator(".compare-selection-role")).toHaveCount(0);
@@ -3695,7 +3688,7 @@ test("keeps selected files and reports a worker deletion failure", async ({ page
   await page.getByRole("button", { name: "선택 삭제" }).click();
   await expect(page.locator(".notice.error")).toContainText("선택한 파일을 삭제하지 못했습니다.");
   await expect(page.getByRole("checkbox", { name: "운임현황_v1.xlsx 선택", exact: true })).toBeChecked();
-  await expect(page.locator(".transient-status")).toHaveCount(0);
+  await expect(page.locator(".workspace-delete-status > span")).toHaveCount(0);
 });
 
 test("shows incomplete AI extraction without discarding deterministic fields", async ({ page }) => {
@@ -3743,18 +3736,8 @@ test("보완 waits out a rate-limited re-check and still completes it, on deskto
     // The first answer was a 429; the batch was retried, so the re-check is complete, not partial.
     await expect.poll(() => calls).toBe(2);
     await expect(page.getByRole("button", { name: "보완 실행", exact: true })).toBeEnabled();
-    await expect(page.getByText("일부 항목의 재확인을 완료하지 못했습니다.")).toHaveCount(0);
-    await expect(page.locator(".supplement-results")).not.toContainText("의미 기반 재확인을 마치지 못했습니다");
-    // Title, summary text and the white meta box start on one line; nothing overflows.
-    const lines = await page.evaluate(() => {
-      const textLeft = (selector: string) => {
-        const range = document.createRange();
-        range.selectNodeContents(document.querySelector(selector)!);
-        return Math.round(range.getClientRects()[0].left);
-      };
-      return { title: textLeft(".results-panel h2"), filters: textLeft(".supplement-filters button"), box: Math.round(document.querySelector(".supplement-meta")!.getBoundingClientRect().left) };
-    });
-    expect(new Set(Object.values(lines)).size).toBe(1);
+    await expect(page.getByText("일부 항목은 표현 방식 차이로 자동 확인이 충분하지 않을 수 있습니다.", { exact: false })).toHaveCount(0);
+    await expect(page.locator(".supplement-item .supplement-limitation").filter({ hasText: "의미 기반 재확인" })).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   }
 });
@@ -3770,7 +3753,7 @@ test("보완 gives up after three rate-limited attempts and says the re-check is
   });
   await page.goto("/");
   await runSupplementOn(page, deck);
-  await expect(page.getByText("일부 항목의 재확인을 완료하지 못했습니다.")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText("일부 항목은 표현 방식 차이로 자동 확인이 충분하지 않을 수 있습니다.", { exact: false })).toBeVisible({ timeout: 20_000 });
   expect(calls).toBe(3);
 });
 

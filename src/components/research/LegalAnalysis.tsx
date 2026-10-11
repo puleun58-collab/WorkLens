@@ -1,6 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { AlertCircle, CheckCircle2, CircleMinus, Info } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,7 +16,7 @@ import {
 } from "@/lib/law-analysis";
 import {
   applicableLawPresentation, citeCheckResult, impactMapPresentation, verifyCitationsResult,
-  type AnalysisSection,
+  type AnalysisSection, type ImpactAxisState, type ImpactAxisView, type ImpactMapPresentation,
 } from "@/lib/law-analysis-parse";
 import { lawDisplayText } from "@/lib/law-display";
 import { lawTextOutcome, type LawTextOutcome } from "@/lib/law-search";
@@ -124,8 +127,8 @@ export function LegalAnalysis({ linkedRequest, onReturn, onRelatedSearch }: Lega
   }
 
   const ACTION_HELP: Partial<Record<typeof mode, string>> = {
-    cite_check: "후속 판례의 인용을 역추적해 변경·폐기 정황을 확인합니다.",
-    applicable_law: "기준일은 행위·계약·처분 등 판단하려는 시점입니다.",
+    cite_check: "후속 판례의 인용을 역추적해 변경·폐기 정황 확인",
+    applicable_law: "기준일: 행위·계약·처분 등 판단하려는 시점",
   };
 
   return <Tabs className="legal-analysis" value={mode} onValueChange={(value) => setMode(value as LawAnalysisMode)}>
@@ -142,7 +145,7 @@ export function LegalAnalysis({ linkedRequest, onReturn, onRelatedSearch }: Lega
         <Label htmlFor="analysis-text">검증할 문장을 입력하세요.</Label>
         <Textarea id="analysis-text" value={text} rows={6} maxLength={LAW_ANALYSIS_TEXT_MAX_CHARS} placeholder="예: 민법 제750조에 따라 손해배상을 청구할 수 있다." onChange={(event) => setText(event.target.value)} aria-describedby="analysis-text-help" />
         <p id="analysis-text-help" className="legal-analysis-help">
-          <span>법령 조문·판례 인용을 법제처 자료에서 확인합니다.</span>
+          <span>법령 조문·판례 인용을 법제처 자료에서 확인</span>
           <span className="legal-analysis-count">{text.length.toLocaleString("ko-KR")} / {LAW_ANALYSIS_TEXT_MAX_CHARS.toLocaleString("ko-KR")}자</span>
         </p>
       </>}
@@ -175,17 +178,16 @@ export function LegalAnalysis({ linkedRequest, onReturn, onRelatedSearch }: Lega
         {ACTION_HELP[mode] && <p className="legal-analysis-help"><span>{ACTION_HELP[mode]}</span></p>}
         <Button type="submit" className="law-search-button" disabled={!request || loading}>{loading ? "확인 중…" : "실행"}</Button>
       </div>
+      <span className="sr-only" role="status">{loading ? "확인 중…" : ""}</span>
     </form>
 
-    {current && <section className="legal-analysis-result" aria-labelledby="analysis-result-heading" aria-busy={loading}>
-      <h2 id="analysis-result-heading">{mode === "verify_citations" || mode === "cite_check" ? "검증 결과" : "분석 결과"}</h2>
-      {current.loading ? <p className="law-search-note" role="status">법제처 자료를 조회하는 중… 조회 범위에 따라 시간이 걸릴 수 있습니다.</p>
-        : current.outcome?.kind === "error" ? <div className="decision-feedback" role="alert">
+    {current && !current.loading && <section className="legal-analysis-result" aria-label={current.request.mode === "verify_citations" || current.request.mode === "cite_check" ? "검증 결과" : "분석 결과"}>
+      {current.outcome?.kind === "error" ? <div className="decision-feedback" role="alert">
           <p className="law-search-error">{current.outcome.message}</p>
           <Button variant="link" type="button" className="h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" onClick={() => void run(current.request)}>다시 시도</Button>
         </div>
         : current.outcome?.kind === "missing" ? <div className="legal-analysis-missing" role="status" data-marker={current.outcome.data.marker}>
-          <p className="law-search-note">요청한 법령·조문·판례를 법제처 자료에서 찾지 못했습니다. 조회 실패와는 다른 결과입니다.</p>
+          <p className="law-search-note">요청한 법령·조문·판례를 법제처 자료에서 찾지 못했습니다. 조회 실패와는 다른 결과입니다</p>
         </div>
         : current.outcome?.kind === "found" && current.completedAt ? <AnalysisResult key={current.completedAt} data={current.outcome.data} request={current.request} completedAt={current.completedAt} onRelatedSearch={onRelatedSearch} />
         : null}
@@ -228,6 +230,71 @@ function AxisLabel({ label }: { label: string }) {
   </span>;
 }
 
+type CitationTone = "success" | "warning" | "error" | "neutral";
+/** Presentation of the parser's existing state; no count or verdict is derived here. */
+const AXIS_TONE: Record<ImpactAxisState, CitationTone> = {
+  found: "success", partial: "warning", law_only: "warning", failed: "error", none: "neutral", empty: "neutral", unknown: "neutral",
+};
+const BADGE_VARIANT = { success: "success", warning: "warning", error: "error", neutral: "secondary" } as const;
+const FAILED_AXIS_NOTE = "조회에 실패한 자료 유형은 0건이 아니라 확인하지 못한 것입니다.";
+
+function ToneIcon({ tone }: { tone: CitationTone }) {
+  return tone === "success" ? <CheckCircle2 aria-hidden="true" /> : tone === "neutral" ? <CircleMinus aria-hidden="true" /> : <AlertCircle aria-hidden="true" />;
+}
+
+/** 인용 현황: one white box — title and summary badges, a 자료 유형 · 검색 결과 · 확인 내용 table, one scope note. */
+function CitationStatus({ axes, total, notes }: Pick<ImpactMapPresentation, "axes" | "total" | "notes">) {
+  const id = useId();
+  // Counts keep their own basis: the confirmed total is the MCP's article-matched figure; the others count 자료 유형 rows.
+  const followUp = axes.filter((axis) => axis.state === "partial" || axis.state === "law_only").length;
+  const failed = axes.filter((axis) => axis.state === "failed").length;
+  const summary: { tone: CitationTone; label: string; title: string }[] = [
+    // Zero confirmed citations is a count, not a confirmation, so it stays neutral.
+    ...(total ? [{ tone: total.count > 0 ? "success" as const : "neutral" as const, label: `확인 ${total.count}건`, title: total.headline }] : []),
+    ...(followUp ? [{ tone: "warning" as const, label: `추가 확인 ${followUp}개 유형`, title: "일부만 확인했거나 조문 단위 일치가 확인되지 않은 자료 유형" }] : []),
+    ...(failed ? [{ tone: "error" as const, label: `조회 실패 ${failed}개 유형`, title: "조회하지 못한 자료 유형" }] : []),
+  ];
+  // The failed rows already say they are unchecked, not zero; every other note is kept once.
+  const otherNotes = notes.filter((note) => !(failed && note === FAILED_AXIS_NOTE));
+  const shown = (axis: ImpactAxisView) => /^확인된 결과 (\d+)건$/u.exec(axis.headline)?.[1];
+  return <section className="legal-analysis-section impact-citations" aria-labelledby={`${id}-title`}>
+    <header className="impact-citations-head">
+      <div>
+        <h3 id={`${id}-title`}>인용 현황</h3>
+        <p className="impact-citations-desc">이 조문을 인용한 판례·헌재 결정례·법령해석례·행정심판례와 이 법령을 언급한 자치법규 확인</p>
+      </div>
+      {summary.length > 0 && <div className="impact-citations-summary">
+        {summary.map((item) => <Badge key={item.tone} variant={BADGE_VARIANT[item.tone]} data-tone={item.tone} title={item.title} aria-label={item.title === total?.headline ? item.title : `${item.label} · ${item.title}`}>
+          <ToneIcon tone={item.tone} />{item.label}
+        </Badge>)}
+      </div>}
+    </header>
+    <table className="legal-analysis-axes impact-citations-table">
+      <thead><tr><th scope="col">자료 유형</th><th scope="col">검색 결과</th><th scope="col">확인 내용</th></tr></thead>
+      <tbody>{axes.map((axis) => {
+        const tone = AXIS_TONE[axis.state], count = shown(axis);
+        return <tr key={axis.label} className={axis.state === "failed" ? "is-failed" : undefined} data-state={axis.state}>
+          <th scope="row"><AxisLabel label={axis.label} /></th>
+          <td><Badge variant={BADGE_VARIANT[tone]} data-tone={tone} className="impact-citation-result"><ToneIcon tone={tone} />{count ? `확인 ${count}건` : axis.headline}</Badge></td>
+          <td className="impact-citation-detail">{axis.detail ?? (axis.state === "empty" ? "검색 결과가 없습니다." : "")}</td>
+        </tr>;
+      })}</tbody>
+    </table>
+    <Alert variant="info" className="impact-citations-note">
+      <Info aria-hidden="true" />
+      <AlertDescription>
+        <p>법제처 검색 결과에는 유사 조문이나 다른 법령이 포함될 수 있어, 실제 법령명과 조문이 일치하는 결과만 집계합니다.</p>
+        {/* "이 건수" in these lines refers to the confirmed total, so they stay under its existing headline. */}
+        {total && total.lines.length > 0 && <div className="impact-citations-total">
+          <p>{total.headline}</p>
+          <ul>{total.lines.map((line) => <li key={line}>{line}</li>)}</ul>
+        </div>}
+        {otherNotes.length > 0 && <ul>{otherNotes.map((line) => <li key={line}>{line}</li>)}</ul>}
+      </AlertDescription>
+    </Alert>
+  </section>;
+}
+
 function AnalysisResult({ data, request, completedAt, onRelatedSearch }: { data: LawAnalysisData; request: LawAnalysisRequest; completedAt: number; onRelatedSearch?: (search: RelatedSearch) => void }) {
   let body: ReactNode;
   let source: ReactNode;
@@ -260,10 +327,10 @@ function AnalysisResult({ data, request, completedAt, onRelatedSearch }: { data:
     </>;
     source = <details className="law-detail-source">
       <SourceToggleSummary label="근거 보기" openLabel="근거 접기" />
-      <p className="law-search-note">대상 판례 정보와 후속 인용·본문 확인 결과입니다. 판결문 원문은 이 결과에 포함되지 않습니다.</p>
+      <p className="law-search-note">대상 판례 정보와 후속 인용·본문 확인 결과입니다. 판결문 원문은 포함되지 않습니다</p>
       <Lines lines={targetDetails} />
       {result.sections.length > 0 ? <Sections sections={result.sections} />
-        : <p className="law-search-note">제공된 후속 판례 목록이 없습니다.</p>}
+        : <p className="law-search-note">제공된 후속 판례 목록 없음</p>}
     </details>;
   } else if (data.mode === "impact_map") {
     const view = impactMapPresentation(data.text);
@@ -275,25 +342,11 @@ function AnalysisResult({ data, request, completedAt, onRelatedSearch }: { data:
       {view.title && <h3 className="legal-analysis-title">{analysisTitle(view.title)}</h3>}
       {view.law && <p className="legal-analysis-lines">법령: {lawDisplayText(view.law)}</p>}
       <Sections sections={[...sourceFailures, ...view.other]} />
-      {view.axes.length > 0 && <div className="legal-analysis-section">
-        <h3>인용 현황</h3>
-        <p className="law-search-note">이 조문을 인용한 판례·헌재 결정례·법령해석례·행정심판례와 이 법령을 언급한 자치법규를 확인합니다.</p>
-        <ul className="legal-analysis-axes">
-          {view.axes.map((axis) => <li key={axis.label} className={axis.state === "failed" ? "is-failed" : undefined} data-state={axis.state}>
-            <AxisLabel label={axis.label} />
-            <span className="legal-analysis-axis-value">
-              <strong>{axis.headline}</strong>
-              {axis.detail && <span className="legal-analysis-axis-detail">{axis.detail}</span>}
-            </span>
-          </li>)}
-        </ul>
-        <p className="law-search-note">법제처 검색 결과에는 유사 조문이나 다른 법령이 함께 포함될 수 있어, 실제 법령명과 조문이 일치하는 결과만 집계합니다.</p>
-        <Lines lines={view.notes} />
-      </div>}
-      {view.total && <div className="legal-analysis-section">
-        <h3>{view.total.headline}</h3>
-        <Lines lines={view.total.lines} />
-      </div>}
+      {view.axes.length > 0 ? <CitationStatus axes={view.axes} total={view.total} notes={view.notes} />
+        : view.total && <div className="legal-analysis-section">
+          <h3>{view.total.headline}</h3>
+          <Lines lines={view.total.lines} />
+        </div>}
       {view.citedLaws.length > 0 && <Sections sections={[{ heading: `이 조문이 인용한 다른 법령 ${view.citedLaws.length}건`, lines: view.citedLaws }]} />}
       {related.length > 0 && onRelatedSearch && <div className="legal-analysis-section">
         <h3>관련 조회</h3>
@@ -308,7 +361,7 @@ function AnalysisResult({ data, request, completedAt, onRelatedSearch }: { data:
       <SourceToggleSummary label="근거·원문 보기" openLabel="근거·원문 접기" />
       {sourceSections.length > 0
         ? <LawTextBlock className="legal-analysis-raw" text={sourceSections.map((section) => `${section.heading}\n${section.lines.join("\n")}`).join("\n\n")} />
-        : <p className="law-search-note">조회된 조문 원문이 이 결과에 포함되지 않습니다.</p>}
+        : <p className="law-search-note">조회된 조문 원문은 이 결과에 포함되지 않음</p>}
       {references.length > 0 && <Sections sections={references.map((axis) => ({ heading: `${axis.label} · 조회된 항목`, lines: axis.items }))} />}
     </details>;
   } else {

@@ -35,7 +35,7 @@ describe("impact map presentation of real 법제처 results", () => {
   it("drops internal wording and counts only article-confirmed citations", () => {
     const view = impactMapPresentation(real.civil1);
     expect(view.law).toBe("민법 · 법률");
-    expect(view.total).toEqual({ headline: "확인된 인용 결과 0건", lines: [
+    expect(view.total).toEqual({ count: 0, headline: "확인된 인용 결과 0건", lines: [
       "아직 확인하지 않은 검색 결과가 있어 실제로는 더 많을 수 있습니다.",
       "판례 0 · 헌재 결정례 0 · 법령해석례 0 · 행정심판례 0",
       "자치법규 2건은 조문 단위로 확인되지 않아 이 건수에 포함하지 않았습니다.",

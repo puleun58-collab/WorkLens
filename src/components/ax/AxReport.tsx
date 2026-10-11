@@ -1,15 +1,15 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { Check, Copy, FileCode2, Terminal } from "lucide-react";
+import { AlertTriangle, BookOpen, Check, CheckCircle2, Clipboard, CloudUpload, Copy, Download, FileCode2, Folder, GitBranch, Globe, Info, ShieldCheck, Terminal } from "lucide-react";
 import type { AxDiagnosis, AxPlan, AxTask } from "@/lib/ax/types";
-import { automationLevel, axes, executionGate, executionProfile, factorEffectiveValue, GATE_LABELS, gateBlockReasons, gatePrerequisites, nextAction, type ExecutionProfile } from "@/lib/ax/policy";
+import { automationLevel, axes, executionGate, executionProfile, factorEffectiveValue, GATE_LABELS, nextAction, type ExecutionProfile } from "@/lib/ax/policy";
 import { FACTOR_KEYS } from "@/lib/ax/schema";
 import { Badge } from "@/components/ui/badge";
 import { Accordion, AccordionItem, AccordionPanel, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTab, TabsPanel } from "@/components/ui/tabs";
-import { buildAllInOnePrompt, commonPlanView, planView, setupGuide, TOOL_GUIDES, type AxGuideBlock, type AxGuideSection, type AxPlanView, type AxToolId } from "@/lib/ax/guide";
+import { buildAllInOnePrompt, planSummary, setupGuide, TOOL_GUIDES, type AxGuideBlock, type AxGuideSection, type AxPlanSummary, type AxToolId } from "@/lib/ax/guide";
 
 const VERDICT_LABELS = { 자동화: "자동화", "AI 보조": "AI 보조", "사람 유지": "담당자 수행" } as const;
 const OWNER_LABELS = { 시스템: "시스템", AI: "AI", 사용자: "담당자" } as const;
@@ -120,7 +120,7 @@ export function AxCopyButton({ text, label, iconOnly = false }: { text: string; 
     }
   }
   return <>
-    <span className="sr-only" aria-live="polite">{copied ? "복사했습니다." : ""}</span>
+    <span className="sr-only" aria-live="polite">{copied ? "복사 완료" : ""}</span>
     <Button type="button" variant={iconOnly ? "ghost" : "default"} size={iconOnly ? "icon-xs" : "default"} className={iconOnly ? "ax-guide-copy-button" : "ax-copy-button"} data-copied={copied ? "true" : undefined} aria-label={label} onClick={() => void copy()}>{copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}{iconOnly ? null : "복사"}</Button>
     {failed ? <p className="ax-copy-error" role="status">복사하지 못했습니다. 직접 선택해 복사해주세요.</p> : null}
   </>;
@@ -136,7 +136,7 @@ function AxGuideBlockView({ block, listStyle }: { block: AxGuideBlock; listStyle
     const ariaLabel = label === "PowerShell" ? "PowerShell 명령" : label === ".gitignore" ? ".gitignore 예시" : "예시";
     return <>
       <div className="ax-guide-code-wrap"><pre className="ax-guide-code" aria-label={ariaLabel}><span className="ax-guide-code-label" aria-hidden="true">{label}</span><code>{block.lines.join("\n")}</code></pre><AxCopyButton key={block.lines.join("\n")} text={block.lines.join("\n")} label={`${ariaLabel} 복사`} iconOnly /></div>
-      {block.notes?.length ? <div className="ax-guide-code-notes">{block.notes.map((note, i) => <p key={i}>{note}</p>)}</div> : null}
+      {block.notes?.length ? <ul className="ax-guide-code-notes ax-guide-list" role="list">{block.notes.map((note, i) => <li key={i}><span className="ax-guide-marker" aria-hidden="true">•</span><span className="ax-guide-text">{note}</span></li>)}</ul> : null}
     </>;
   }
   if (block.kind === "steps") {
@@ -146,121 +146,197 @@ function AxGuideBlockView({ block, listStyle }: { block: AxGuideBlock; listStyle
   }
   return <p><AxGuideText text={block.text} /></p>;
 }
-function AxGuideSectionView({ section }: { section: AxGuideSection }) {
+function AxGuideSectionView({ section, completion = false, warning = false, collapsed = section.collapsed }: { section: AxGuideSection; completion?: boolean; warning?: boolean; collapsed?: boolean }) {
   const content = <>
     {section.when ? <p className="ax-guide-when"><AxGuideText text={section.when} /></p> : null}
     {section.blocks.map((block, i) => <AxGuideBlockView key={i} block={block} listStyle={section.listStyle} />)}
   </>;
-  return <section className="ax-guide-section">
-    <h5>{section.title}</h5>
-    {section.collapsed ? <Accordion className="ax-guide-terms"><AccordionItem value="terms">
-      <AccordionTrigger className="ax-guide-terms-trigger">용어 설명 보기</AccordionTrigger>
+  return <section className={`ax-guide-section${completion ? " ax-guide-completion" : ""}${warning ? " ax-guide-warning" : ""}`}>
+    <h5>{completion ? <><CheckCircle2 aria-hidden="true" />완료 확인 · </> : warning ? <AlertTriangle aria-hidden="true" /> : null}{section.title}</h5>
+    {collapsed ? <Accordion className="ax-guide-terms"><AccordionItem value="terms">
+      <AccordionTrigger className="ax-guide-terms-trigger">{section.collapsed ? "용어 설명 보기" : `${section.title} 자세히 보기`}</AccordionTrigger>
       <AccordionPanel className="ax-guide-terms-panel">{content}</AccordionPanel>
     </AccordionItem></Accordion> : content}
   </section>;
 }
-function AxSetupGuide({ tool }: { tool: AxToolId }) {
-  return <>{setupGuide(tool).map(step => <div className="ax-guide-step" key={step.title}>
-    <h4>{step.title}</h4>
-    <p className="ax-guide-purpose">{step.purpose}</p>
-    {step.sections.map(section => <AxGuideSectionView key={section.title} section={section} />)}
-  </div>)}</>;
+
+const SETUP_COURSES = [
+  { title: "처음 한 번 준비", description: "설치 여부 확인 후 필요한 도구만 준비", Icon: Download, first: 1, last: 1 },
+  { title: "프로젝트 작업", description: "프로젝트 열기 → AI 작업 → 실제 결과 확인", Icon: Folder, first: 2, last: 5 },
+  { title: "GitHub·배포", description: "안전하게 저장 → 배포 → 실제 서비스 확인", Icon: CloudUpload, first: 6, last: 9 },
+] as const;
+const SETUP_ICONS = [Download, Folder, Terminal, Clipboard, CheckCircle2, ShieldCheck, GitBranch, CloudUpload, Globe] as const;
+const SETUP_COMPLETIONS = new Set(["GitHub 인증 확인", "현재 위치 확인", "작업 시작 전 AI가 먼저 확인할 것", "테스트·빌드 확인", "실제 기능 확인", "GitHub에서 확인할 것", "실제 서비스 확인"]);
+const SETUP_WARNINGS = new Set(["기존 .gitignore 확인", ".env와 .env.example", "이미 추적 중인 파일", "올리기 전 체크리스트", "git push가 곧 Production은 아닙니다", "먼저 현재 배포 환경 확인", "오류가 나면", "CI가 실패하면", "문제가 생기면", "되돌리기(Rollback)"]);
+const SETUP_DETAILS: Record<string, true> = { "기본 명령": true };
+
+function AxSetupGuide({ tool, instructionsId, onGoToInstructions }: { tool: AxToolId; instructionsId: string; onGoToInstructions: () => void }) {
+  const id = useId();
+  const root = useRef<HTMLDivElement>(null);
+  const [intro, ...steps] = setupGuide(tool);
+  const [firstTime, repeatWork, glossary] = intro.sections;
+  const title = (value: string) => value.replace(/^STEP \d+ · /, "");
+  function goToStep(index: number) {
+    const heading = root.current?.querySelector<HTMLElement>(`[data-setup-step="${index + 1}"] > h4`);
+    heading?.scrollIntoView({ behavior: "instant", block: "start" });
+    heading?.focus({ preventScroll: true });
+  }
+  return <div className="ax-setup-tutorial" ref={root}>
+    <header className="ax-tutorial-intro">
+      <h3>설치부터 배포까지 따라 하기</h3>
+      <p>{intro.purpose}</p>
+      <ol className="ax-tutorial-flow" aria-label="진행 흐름">{SETUP_COURSES.map(({ title: name, Icon }) => <li key={name}><Icon aria-hidden="true" /><span>{name}</span></li>)}</ol>
+    </header>
+    <nav className="ax-tutorial-toc" aria-label="설치·시작 단계 목차">
+      {steps.map((step, index) => <Button key={index} type="button" variant="ghost" size="sm" aria-controls={`${id}-step-${index + 1}`} onClick={() => goToStep(index)}><span>STEP {String(index + 1).padStart(2, "0")}</span><span className="ax-tutorial-toc-title">{title(step.title)}</span></Button>)}
+      <Button type="button" variant="ghost" size="sm" aria-controls={instructionsId} onClick={onGoToInstructions}><span className="ax-tutorial-toc-title">지시문으로 이동</span></Button>
+    </nav>
+    <div className="ax-tutorial-context">
+      <section className="ax-tutorial-preflight" aria-labelledby={`${id}-preflight`}>
+        <h4 id={`${id}-preflight`}><Info aria-hidden="true" />시작 전 알아두세요</h4>
+        {[firstTime, repeatWork].map(section => <div className="ax-tutorial-preflight-group" key={section.title}>
+          <h5>{section.title}</h5>
+          {section.blocks.map((block, index) => <AxGuideBlockView block={block} key={index} />)}
+        </div>)}
+      </section>
+      <section className="ax-tutorial-glossary" aria-label={glossary.title}>
+        <Accordion className="ax-guide-terms"><AccordionItem value="terms">
+          <AccordionTrigger className="ax-tutorial-terms-trigger" aria-label={glossary.title}>
+            <span className="ax-tutorial-terms-title"><BookOpen aria-hidden="true" />{glossary.title}</span>
+            <span className="ax-tutorial-terms-action" aria-hidden="true"><span>펼치기</span><span>접기</span></span>
+          </AccordionTrigger>
+          <AccordionPanel className="ax-tutorial-terms-panel">
+            <dl>{glossary.blocks.map(block => block.kind === "steps" ? block.items.map(term => {
+              const split = term.indexOf(":");
+              const name = term.slice(0, split);
+              return <div key={term}><dt>{name === "환경변수(Environment Variable)" ? <><span>환경변수</span><span className="ax-tutorial-term-translation">(Environment Variable)</span></> : name}</dt><dd>{term.slice(split + 2)}</dd></div>;
+            }) : null)}</dl>
+          </AccordionPanel>
+        </AccordionItem></Accordion>
+      </section>
+    </div>
+    {SETUP_COURSES.map(course => <section className="ax-tutorial-course" aria-label={course.title} key={course.title}>
+      <header className="ax-tutorial-course-head"><course.Icon aria-hidden="true" /><div><h3>{course.title}</h3><p>{course.description}</p></div></header>
+      {steps.slice(course.first - 1, course.last).map((step, offset) => {
+        const index = course.first - 1 + offset;
+        const Icon = SETUP_ICONS[index];
+        return <section className="ax-guide-step" data-setup-step={index + 1} aria-labelledby={`${id}-step-${index + 1}`} key={step.title}>
+          <h4 id={`${id}-step-${index + 1}`} tabIndex={-1}><span className="ax-tutorial-step-no">STEP {String(index + 1).padStart(2, "0")}<Icon aria-hidden="true" /></span><span className="ax-guide-step-title"><span>{title(step.title)}</span></span></h4>
+          <p className="ax-guide-purpose">{step.purpose}</p>
+          <p className="ax-tutorial-action-label"><Terminal aria-hidden="true" />실행 방법</p>
+          {step.sections.map(section => <AxGuideSectionView key={section.title} section={section} completion={SETUP_COMPLETIONS.has(section.title)} warning={SETUP_WARNINGS.has(section.title)} collapsed={section.collapsed || (section.title in SETUP_DETAILS)} />)}
+        </section>;
+      })}
+    </section>)}
+  </div>;
 }
 
 function AxPlanList({ items }: { items: string[] }) {
   return <ul className="ax-plan-list" role="list">{items.map((item, i) => <li key={i}><span className="ax-plan-marker" aria-hidden="true">•</span><span className="ax-plan-text">{item}</span></li>)}</ul>;
 }
-const PLAN_SUMMARY_FIELDS: Record<string, string> = {
-  "자동화 수준": "level", "진행 상태": "gate", "핵심 구현": "core", "다음 행동": "core", "사람 유지": "human", "선행 확인": "prerequisites",
-};
-/** Human review of the plan: 한눈에 보기 then six document sections; long secondary detail stays collapsed. */
-function AxPlanOverview({ view, summary = true, gate }: { view: AxPlanView; summary?: boolean; gate?: ExecutionProfile["gate"] }) {
-  const scope: [string, string[]][] = [["포함", view.include], ["사람이 계속 확인", view.humanKept], ["제외", view.excluded]];
-  return <div className="ax-plan-view">
-    {summary ? <section className="ax-plan-glance" aria-label="한눈에 보기"><h4>한눈에 보기</h4>
-      <dl>{view.glance.map(row => <div key={row.label} data-summary={PLAN_SUMMARY_FIELDS[row.label]}><dt>{row.label}</dt><dd>{row.label === "진행 상태" && gate ? <span className="ax-gate-badge" data-gate={gate}>{row.value}</span> : row.value}</dd></div>)}</dl>
-    </section> : null}
-    {view.goals.length ? <section className="ax-plan-block"><h4>구현 목표</h4><AxPlanList items={view.goals} /></section> : null}
-    {scope.some(([, items]) => items.length) ? <section className="ax-plan-block"><h4>구현 범위</h4>
-      {scope.map(([label, items]) => items.length ? <div className="ax-plan-group" key={label}><h5>{label}</h5><AxPlanList items={items} /></div> : null)}
-    </section> : null}
-    {view.steps.length || view.poc.length ? <section className="ax-plan-block"><h4>구현 순서</h4>
-      {view.poc.length ? <div className="ax-plan-group"><h5>먼저 사전 검증</h5><AxPlanList items={view.poc} /></div> : null}
-      {view.steps.length ? <ol className="ax-plan-steps">{view.steps.map((step, i) => <li key={i}><span className="ax-plan-step-no" aria-hidden="true">{String(i + 1).padStart(2, "0")}</span><span className="ax-plan-text">{step.replace(/^\s*(?:\d+[.)]|[①-⑳])\s*/u, "")}</span></li>)}</ol> : null}
-    </section> : null}
-    {view.data.length ? <section className="ax-plan-block"><h4>데이터·연동</h4>
-      {view.data.map(row => <div className="ax-plan-group" key={row.label}><h5>{row.label}</h5><AxPlanList items={row.items} /></div>)}
-    </section> : null}
-    {view.prerequisites.length || view.exceptions.length || view.details.length ? <section className="ax-plan-block"><h4>예외·안전</h4>
-      {view.prerequisites.length ? <div className="ax-plan-group"><h5>선행 확인 <span className="ax-plan-status">확인 필요</span></h5><AxPlanList items={view.prerequisites} /></div> : null}
-      {view.exceptions.length ? <div className="ax-plan-group"><h5>예외 처리</h5><AxPlanList items={view.exceptions} /></div> : null}
-      {view.details.length ? <AxPlanDetails details={view.details} /> : null}
-    </section> : null}
-    {view.tests.length || view.acceptance.length ? <section className="ax-plan-block"><h4>검증·완료 조건</h4>
-      {view.tests.length ? <div className="ax-plan-group"><h5>검증</h5><AxPlanList items={view.tests.slice(0, 4)} />{view.tests.length > 4 ? <AxPlanDetails details={[{ title: "검증 상세 보기", items: view.tests.slice(4) }]} /> : null}</div> : null}
-      {view.acceptance.length ? <div className="ax-plan-group"><h5>완료 조건</h5><AxPlanList items={view.acceptance} /></div> : null}
-    </section> : null}
-  </div>;
+function AxPlanGroup({ title, items, status }: { title: string; items: string[]; status?: string }) {
+  if (!items.length) return null;
+  return <div className="ax-plan-group"><h5>{title}{status ? <span className="ax-plan-status">{status}</span> : null}</h5><AxPlanList items={items} /></div>;
 }
-function AxPlanDetails({ details }: { details: AxPlanView["details"] }) {
-  return <Accordion className="ax-plan-details" multiple>{details.map(detail => <AccordionItem key={detail.title} value={detail.title} className="ax-plan-detail">
-    <AccordionTrigger className="ax-plan-detail-trigger"><span className="ax-plan-detail-title">{detail.title}</span><span className="ax-plan-detail-count">{detail.items.length}건</span></AccordionTrigger>
-    <AccordionPanel className="ax-plan-detail-panel"><AxPlanList items={detail.items} /></AccordionPanel>
-  </AccordionItem>)}</Accordion>;
+/** One heading pattern for 01~04: blue number, title, muted purpose line; sections are separated by dividers only. */
+function AxPlanHeading({ no, title, description, id }: { no: string; title: string; description?: string; id?: string }) {
+  return <><h4 id={id} tabIndex={id ? -1 : undefined}><span className="ax-plan-no">{no}</span> {title}</h4>{description ? <p className="ax-plan-desc">{description}</p> : null}</>;
+}
+/** Diagnosis policy is authoritative: the summary shows only the permitted scope, open conditions and completion checks. */
+function AxPlanOverview({ profile, summary }: { profile: ExecutionProfile; summary: AxPlanSummary }) {
+  return <div className="ax-plan-view">
+    <section className="ax-plan-block" aria-label="01 구현 범위"><AxPlanHeading no="01" title="구현 범위" description="현재 구현·보조할 작업과 사람에게 남길 작업" />
+      <AxPlanGroup title={profile.level === 0 || profile.gate === "blocked" ? "허용된 준비·검증" : profile.gate === "conditional" ? "조건 해결 후 샘플 범위" : "구현·보조 작업"} items={summary.include} />
+      <AxPlanGroup title="담당자 수행 유지" items={summary.humanKept} />
+      <AxPlanGroup title="현재 자동화 제외" items={summary.excluded} />
+    </section>
+    <section className="ax-plan-block" aria-label="02 시작 전 확인"><AxPlanHeading no="02" title="시작 전 확인" description="구현 전 해결해야 할 조건과 데이터 정보" />
+      <AxPlanGroup title={profile.gate === "blocked" ? "차단 사유" : "선행 확인사항"} items={summary.prerequisites} status={profile.gate === "blocked" ? undefined : "확인 필요"} />
+      {summary.data.length ? <div className="ax-plan-group">
+        <h5>데이터·시스템 정보</h5>
+        <dl className="ax-plan-data">{summary.data.map(row => <div key={row.label}><dt>{row.label}</dt><dd>{row.items.join(" · ")}</dd></div>)}</dl>
+      </div> : null}
+    </section>
+    <section className="ax-plan-block" aria-label="03 완료 기준"><AxPlanHeading no="03" title="완료 기준" description="기능·예외·검증·담당자 승인 조건" />
+      <AxPlanGroup title="성공·실패 기준" items={summary.acceptance} />
+      <AxPlanGroup title="검증 방법" items={summary.tests} />
+      <AxPlanGroup title="예외·위험 확인" items={summary.exceptions} />
+      {summary.humanKept.length ? <p className="ax-plan-note">담당자 검토·승인 단계 유지</p> : null}
+    </section>
+  </div>;
 }
 function AxPrompt({ prompt, name }: { prompt: string; name: string }) {
   const [expanded, setExpanded] = useState(false);
   const contentId = useId();
   return <>
-    <pre id={contentId} className="ax-prompt" data-expanded={expanded ? "true" : "false"}>{prompt}</pre>
+    <pre id={contentId} className="ax-prompt" hidden={!expanded} data-expanded={expanded ? "true" : "false"}>{prompt}</pre>
     <div className="ax-prompt-actions">
-      <Button type="button" variant="outline" className="ax-prompt-toggle" aria-expanded={expanded} aria-controls={contentId} onClick={() => setExpanded(value => !value)}>{expanded ? "접기" : "전체 보기"}</Button>
+      <Button type="button" variant="outline" className="ax-prompt-toggle" aria-expanded={expanded} aria-controls={contentId} onClick={() => setExpanded(value => !value)}>{expanded ? "전체 접기" : "전체 보기"}</Button>
       <AxCopyButton text={prompt} label={`${name}용 지시문 복사`} />
     </div>
   </>;
 }
 export function AxExecutionPackage({ plan, target, taskName, taskContext, prerequisites, diagnosis }: { plan: AxPlan; target: AxToolId; taskName: string; taskContext: string; prerequisites: string[]; diagnosis: AxDiagnosis }) {
   const name = TOOL_GUIDES[target].name;
-  const context = [taskName, taskContext].join("\n");
   const prompt = buildAllInOnePrompt(plan, target, { taskName, prerequisites, diagnosis, context: taskContext });
   return <div className="ax-package">
-    <div className="ax-tool-plan"><h4>{name} 구현 상세</h4><AxPlanOverview view={planView(plan, { diagnosis, prerequisites, context })} summary={false} /></div>
-    <h4 className="ax-package-title">{name}용 올인원 지시문</h4>
+    <p className="ax-muted">{name}용 전체 지시문 · 접힌 상태에서도 원문 복사</p>
     <AxPrompt key={prompt} prompt={prompt} name={name} />
   </div>;
 }
 
 export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenerate }: { diagnosis: AxDiagnosis; taskName: string; taskContext: string; busy: string | null; onGenerate: (target: AxToolId) => void }) {
-  const gate = executionGate(diagnosis);
-  const blockReasons = gate === "blocked" ? gateBlockReasons(diagnosis) : [];
-  const prerequisites = gate === "blocked" ? [] : gatePrerequisites(diagnosis);
+  const profile = executionProfile(diagnosis);
+  const gate = profile.gate;
+  const prerequisites = gate === "blocked" ? [] : profile.prerequisites;
   const plans = { codex: diagnosis.planCodex, claude: diagnosis.planClaude };
   const [selectedTool, setSelectedTool] = useState<AxToolId | null>(null);
   const activeTool = selectedTool ?? (plans.codex ? "codex" : "claude");
+  const activePlan = plans[activeTool];
+  const summary = planSummary(diagnosis, gate !== "blocked" ? activePlan : undefined, [taskName, taskContext].join("\n"));
+  const instructionsId = useId();
+  const instructionsRef = useRef<HTMLElement>(null);
+  function goToInstructions() {
+    const heading = instructionsRef.current?.querySelector<HTMLElement>("h4");
+    heading?.scrollIntoView({ behavior: "instant", block: "start" });
+    heading?.focus({ preventScroll: true });
+  }
   const generateButton = (target: AxToolId) => <Button key={target} type="button" variant="outline" className="ax-plan-generate" disabled={!!busy || gate === "blocked"} onClick={() => onGenerate(target)}><FileCode2 aria-hidden="true" />{busy === target ? target === "codex" ? "Codex 계획 생성 중…" : "Claude 계획 생성 중…" : `${TOOL_GUIDES[target].name}용 구현 계획 생성`}</Button>;
+  const level = automationLevel(diagnosis);
   return <section className="ax-surface" aria-label="자동화 구현 계획">
-    <div className="ax-plan-head">
-      <h3>자동화 구현 계획</h3>
-      {gate !== "blocked" && (plans.codex || plans.claude) ? <span className="ax-plan-tool-hint">{TOOL_GUIDES[activeTool].name}에서 현재 프로젝트를 열고 아래 지시문을 붙여넣으세요.</span> : null}
+    <div className="ax-plan-head"><h3>자동화 구현 계획</h3>
+      <span className="ax-plan-task">{taskName}</span>
+      <span className="ax-status-badge">{`Level ${profile.level} · ${level.label.replace(/^L\d+ /u, "")}${level.provisional ? " (잠정)" : ""}`}</span>
+      <span className="ax-gate-badge" data-gate={gate}>{GATE_LABELS[gate]}</span>
     </div>
+    <AxPlanOverview profile={profile} summary={summary} />
     {gate === "blocked" ? <>
-      <p role="status" className="ax-notice">현재 진단에서는 구현 계획을 생성할 수 없습니다.</p>
-      {blockReasons.length ? <AxList items={blockReasons} /> : null}
       <div className="ax-actions">{generateButton("codex")}{generateButton("claude")}</div>
     </> : <>
-      <div className="ax-common-plan"><h4>공통 실행 방향</h4><AxPlanOverview view={commonPlanView(diagnosis)} gate={gate} /></div>
-      {!plans.codex && !plans.claude ? <div className="ax-actions">{generateButton("codex")}{generateButton("claude")}</div> :
-        <Tabs className="ax-tool-tabs" value={activeTool} onValueChange={value => { if (value === "codex" || value === "claude") setSelectedTool(value); }}>
-          <div className="ax-plan-toolbar">
-            <TabsList aria-label="AI 코딩 도구 선택"><TabsTab value="codex">Codex</TabsTab><TabsTab value="claude">Claude Code</TabsTab></TabsList>
-            <Accordion className="ax-guide">
-              <AccordionItem value="setup" className="ax-guide-item"><AccordionTrigger className="ax-guide-trigger"><span className="inline-flex items-center gap-2"><Terminal aria-hidden="true" className="size-4" />설치·시작 가이드</span></AccordionTrigger><AccordionPanel className="ax-guide-panel">
-                <AxSetupGuide tool={activeTool} />
-              </AccordionPanel></AccordionItem>
-            </Accordion>
-          </div>
-          {(["codex", "claude"] as const).map(target => <TabsPanel key={target} value={target}>{plans[target] ? <AxExecutionPackage plan={plans[target]} target={target} taskName={taskName} taskContext={taskContext} prerequisites={prerequisites} diagnosis={diagnosis} /> : <><p>{TOOL_GUIDES[target].name}용 구현 계획을 생성하면 올인원 지시문을 확인할 수 있습니다.</p>{generateButton(target)}</>}</TabsPanel>)}
-        </Tabs>}
+      {!plans.codex && !plans.claude ? <div className="ax-actions">{generateButton("codex")}{generateButton("claude")}</div> : null}
     </>}
+    {gate !== "blocked" && (plans.codex || plans.claude) ? <section className="ax-plan-guide" aria-label="설치·시작 가이드">
+      <Accordion className="ax-guide">
+        <AccordionItem value="setup" className="ax-guide-item">
+          <AccordionTrigger className="ax-guide-trigger" aria-label="설치·시작 가이드">
+            <span className="inline-flex items-center gap-2"><Terminal aria-hidden="true" className="size-4" />설치·시작 가이드</span>
+          </AccordionTrigger>
+          <AccordionPanel className="ax-guide-panel">
+            <AxSetupGuide tool={activeTool} instructionsId={`${instructionsId}-section`} onGoToInstructions={goToInstructions} />
+          </AccordionPanel>
+        </AccordionItem>
+      </Accordion>
+    </section> : null}
+    <section ref={instructionsRef} id={`${instructionsId}-section`} className="ax-plan-instructions" aria-labelledby={instructionsId}><AxPlanHeading id={instructionsId} no="04" title="코딩 에이전트 지시문" />
+      {gate === "blocked" ? <p role="status" className="ax-notice">현재 진단에서는 구현 계획 생성 불가</p> : <>
+        {plans.codex || plans.claude ?
+          <Tabs className="ax-tool-tabs" value={activeTool} onValueChange={value => { if (value === "codex" || value === "claude") setSelectedTool(value); }}>
+            <div className="ax-plan-toolbar">
+              <TabsList aria-label="AI 코딩 도구 선택"><TabsTab value="codex">Codex</TabsTab><TabsTab value="claude">Claude Code</TabsTab></TabsList>
+            </div>
+            {(["codex", "claude"] as const).map(target => <TabsPanel key={target} value={target}>{target === activeTool ? plans[target] ? <><p className="ax-plan-tool-hint">{TOOL_GUIDES[target].name}에서 현재 프로젝트를 열고 지시문 붙여넣기</p><AxExecutionPackage plan={plans[target]} target={target} taskName={taskName} taskContext={taskContext} prerequisites={prerequisites} diagnosis={diagnosis} /></> : <><p>{TOOL_GUIDES[target].name}용 구현 계획 생성 후 올인원 지시문 확인</p>{generateButton(target)}</> : null}</TabsPanel>)}
+          </Tabs> : <p className="ax-muted">도구별 구현 계획 생성 후 지시문 확인</p>}
+      </>}
+    </section>
   </section>;
 }

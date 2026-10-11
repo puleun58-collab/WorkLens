@@ -225,7 +225,7 @@ export function DecisionSearch({ linkedRequest, onReturnToLaw, onCiteCheck }: De
             <p className="law-search-error">{detail.message}</p>
             {selected.domain !== "nts" && <Button variant="link" type="button" className="h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" onClick={() => void loadDetail(selected)}>다시 시도</Button>}
           </div>
-          : detail?.kind === "missing" ? <p className="law-search-note" role="status">원문을 찾을 수 없습니다.</p>
+          : detail?.kind === "missing" ? <p className="law-search-note" role="status">원문을 찾을 수 없습니다</p>
           : text ? <div className="decision-detail-content">
             {text.expandable === true && <Button variant="link" type="button" className="h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" disabled={fullLoading} onClick={() => void loadDetail(selected, true)}>
               {fullLoading ? "전문 불러오는 중…" : "전문 보기"}
@@ -258,17 +258,16 @@ export function DecisionSearch({ linkedRequest, onReturnToLaw, onCiteCheck }: De
         <Button type="submit" className="law-search-button" disabled={searchLoading || !query.trim()}>{searchLoading ? "검색 중…" : "검색"}</Button>
       </div>
     </form>
-    {(searchLoading || outcome) && <section className="decision-search-results" aria-labelledby="decision-results-heading" aria-busy={searchLoading}>
+    <span className="sr-only" role="status">{searchLoading ? "검색 중…" : ""}</span>
+    {!searchLoading && outcome && <section className="decision-search-results" aria-labelledby="decision-results-heading">
       <h2 id="decision-results-heading">{split ? <>일치 결과<span className="law-section-count"> · {split.exact.length}건</span></>
-        : <>검색 결과{outcome?.kind === "found" && outcome.data.totalCount !== undefined ? <span className="law-section-count"> · {outcome.data.totalCount}건</span> : outcome?.kind === "missing" ? <span className="law-section-count"> · 0건</span> : null}</>}</h2>
-      {searchLoading ? <p className="law-search-note" role="status">검색 중…</p>
-        : !outcome ? null
-        : outcome.kind === "error" ? <p className="law-search-error law-operation-error" role="alert">{outcome.message}</p>
-        : outcome.kind === "missing" ? <p className="law-search-note" role="status">검색 결과가 없습니다. 다른 검색어로 검색해보세요.</p>
+        : <>검색 결과{outcome.kind === "found" && outcome.data.totalCount !== undefined ? <span className="law-section-count"> · {outcome.data.totalCount}건</span> : outcome.kind === "missing" ? <span className="law-section-count"> · 0건</span> : null}</>}</h2>
+      {outcome.kind === "error" ? <p className="law-search-error law-operation-error" role="alert">{outcome.message}</p>
+        : outcome.kind === "missing" ? <p className="law-search-note" role="status">검색 결과 없음 · 다른 검색어로 검색해 보세요</p>
         : <>
           {split ? <>
             {split.exact.length ? <DecisionList entries={split.exact} onOpen={openDetail} /> : <p className="law-search-note" role="status">
-              {page > 1 || outcome.data.hasNext ? "이 페이지에서는 일치하는 자료를 찾지 못했습니다. 다른 페이지에 있을 수 있습니다." : "일치하는 자료를 찾지 못했습니다."}
+              {page > 1 || outcome.data.hasNext ? "이 페이지에서 일치하는 자료를 찾지 못했습니다. 다른 페이지에 있을 수 있습니다" : "일치하는 자료를 찾지 못했습니다"}
             </p>}
             {split.others.length > 0 && <>
               <h3 className="decision-search-subheading">다른 검색 결과<span className="law-section-count"> · {split.others.length}건</span></h3>

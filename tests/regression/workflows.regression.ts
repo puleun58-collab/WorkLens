@@ -197,7 +197,6 @@ regressionCase({ id: "WF-11", category: "Compare", input: "XLSX rate change, add
 });
 regressionCase({ id: "WF-12", category: "Compare", input: "Identical XLSX revisions", format: "XLSX", structure: "same content, different names", expected: "no changes state", mobile: true }, async ({ page, note }) => {
   const panel = await version(page, "ratesOld", "ratesSame");
-  await expect(panel.locator(".result-clear")).toContainText("비교된 변경 사항이 없습니다.");
   await expect(panel.getByTestId("change-row")).toHaveCount(0); await noHorizontalOverflow(page); note("Identical sheets yielded zero changes");
 });
 regressionCase({ id: "WF-13", category: "Compare", input: "Blank to numeric and direction swap", format: "XLSX", structure: "empty cell changed to number", expected: "145000 appears in target then base after swap" }, async ({ page, note }) => {

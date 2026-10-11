@@ -294,10 +294,29 @@ regressionCase({ id: "TOOL-12", category: "PDF", input: "Export cancellation", f
   await enter(page, "PDF 도구");
   await pdfInput(page, "tool-cancel.pdf", await sizedPdf(...Array.from({ length: 18 }, (_, index) => [450 + index, 650] as [number, number])));
   await selectToolOption(page, page.locator(".pdf-tool-export"), "형식", "PNG");
+  // Hold the real PNG encoder callback so cancellation cannot race a fast export.
+  await page.evaluate(() => {
+    const original = HTMLCanvasElement.prototype.toBlob;
+    HTMLCanvasElement.prototype.toBlob = function (callback, type, quality) {
+      if (type !== "image/png") return original.call(this, callback, type, quality);
+      original.call(this, (blob) => {
+        Reflect.set(window, "releasePdfExportEncoding", () => {
+          HTMLCanvasElement.prototype.toBlob = original;
+          Reflect.deleteProperty(window, "releasePdfExportEncoding");
+          callback(blob);
+        });
+      }, type, quality);
+    };
+  });
+  const downloads: string[] = [];
+  page.on("download", (download) => downloads.push(download.suggestedFilename()));
   await page.locator(".tool-export-button").click();
+  await expect.poll(() => page.evaluate(() => typeof Reflect.get(window, "releasePdfExportEncoding"))).toBe("function");
   await page.getByRole("button", { name: "취소", exact: true }).click();
+  await page.evaluate(() => Reflect.get(window, "releasePdfExportEncoding")());
   await expect(page.getByRole("button", { name: "취소", exact: true })).toHaveCount(0);
   await expect(page.locator(".pdf-tool-page")).toHaveCount(18);
+  expect(downloads).toEqual([]);
   await selectToolOption(page, page.locator(".pdf-tool-export"), "형식", "PDF");
   const sizes = await pdfSizes(await saved(page));
   note(`Cancelled rendering, then ${sizes.length} pages exported`);

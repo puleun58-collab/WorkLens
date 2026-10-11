@@ -34,7 +34,6 @@ async function analyze(page: Page) {
   await navigateWorkspace(page, "분석");
   await page.getByRole("button", { name: "분석 실행" }).click();
   const panel = page.locator(".results-panel");
-  await expect(panel.getByRole("heading", { name: "분석 결과" })).toBeVisible();
   await expect(panel.locator(".result-status")).toHaveText(/분석 완료/u);
   return panel;
 }
@@ -192,6 +191,26 @@ test.describe("Analyze browser matrix", () => {
     expect(await noOverflow(page)).toBe(true);
     const drawer = await openEvidence(page, panel.locator(".analysis-metric-table tbody tr").last().locator(".source-action"));
     await expect(drawer).toContainText("지표 · B23");
+  });
+
+  test("VOLUME shortlisted evidence limit is disclosed at the report end", async ({ page }) => {
+    let evidenceItems = 0;
+    await page.route("**/api/ai", (route) => {
+      const body: unknown = route.request().postDataJSON();
+      if (!body || typeof body !== "object" || !("items" in body) || !Array.isArray(body.items)) {
+        throw new Error("Analyze request must contain shortlisted evidence.");
+      }
+      evidenceItems = body.items.length;
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { kind: "claims", claims: [] } }) });
+    });
+    const rows: (string | number)[][] = [["항목", "값"], ...Array.from({ length: 48 }, (_, index) => [`지표 ${index + 1}`, `${(index + 1) * 1250}원`])];
+    await page.goto("/");
+    await upload(page, [{ name: "월간 지표.xlsx", bytes: await createXlsx({ 지표: rows }), mime: MIME.xlsx }]);
+    const panel = await analyze(page);
+    expect(evidenceItems).toBe(40);
+    await expect(panel.locator(".analysis-metric-table tbody tr")).toHaveCount(48);
+    await expect(panel.locator(".analysis-warning-section")).toBeVisible();
+    await expect(panel.locator(".analysis-report-section").last()).toHaveClass(/analysis-warning-section/u);
   });
 
   for (const failure of [

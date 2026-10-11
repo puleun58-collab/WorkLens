@@ -58,6 +58,7 @@ import {
   SUPPLEMENT_UNSUPPORTED_DETAIL,
   SUPPLEMENT_UNSUPPORTED_TITLE,
   type SupplementResult,
+  type SupplementFinding,
 } from "@/domain/supplement";
 import { finalizeSupplement, type SupplementReviewOutcome } from "@/lib/supplement/finalize";
 import { SupplementResults } from "@/components/supplement/SupplementResults";
@@ -114,6 +115,7 @@ import {
 import {
   BarChart3,
   BookMarked,
+  Check,
   CircleCheck,
   CircleHelp,
   FileText,
@@ -226,10 +228,10 @@ type ToolView = "PdfTools" | "ImageTools";
 type ShellView = Tab | ToolView | "Law" | "Decisions" | "LegalAnalysis" | "Research" | "DocumentReview" | "Guide" | "Dictionary" | "Settings" | "AxDiagnosis";
 type ShellViewMetadata = { title: string; description: string; activeNavigation: ShellView; commandLabel?: string };
 const internalViewMetadata: Record<"Decisions" | "LegalAnalysis" | "Research" | "DocumentReview", ShellViewMetadata> = {
-  Decisions: { title: "판례·결정례", description: "알고 있는 사건이나 키워드로 관련 자료를 직접 찾습니다.", activeNavigation: "Law", commandLabel: "법령 > 판례·결정례" },
-  LegalAnalysis: { title: "검증·분석", description: "알고 있는 인용이나 법령의 시점·유효성을 확인합니다.", activeNavigation: "Law", commandLabel: "법령 > 검증·분석" },
-  Research: { title: "종합 리서치", description: "업무 상황이나 질문에서 관련 법령·판례·절차를 함께 조사합니다.", activeNavigation: "Law", commandLabel: "법령 > 종합 리서치" },
-  DocumentReview: { title: "문서 검토", description: "작업 문서의 조항과 확인된 근거를 검토합니다.", activeNavigation: "Law", commandLabel: "법령 > 문서 검토" },
+  Decisions: { title: "판례·결정례", description: "사건번호·키워드로 관련 자료 검색", activeNavigation: "Law", commandLabel: "법령 > 판례·결정례" },
+  LegalAnalysis: { title: "검증·분석", description: "법령·판례 인용과 적용 시점 확인", activeNavigation: "Law", commandLabel: "법령 > 검증·분석" },
+  Research: { title: "종합 리서치", description: "업무 상황과 관련된 법령·판례·절차 조사", activeNavigation: "Law", commandLabel: "법령 > 종합 리서치" },
+  DocumentReview: { title: "문서 검토", description: "작업 문서의 조항과 확인된 근거 검토", activeNavigation: "Law", commandLabel: "법령 > 문서 검토" },
 };
 const tabIcons: Record<Tab, typeof BarChart3> = {
   Analyze: BarChart3,
@@ -576,7 +578,7 @@ type DetailEntry = {
   role?: SourceRole;
   context?: { issue: string; recommendation: string };
 };
-type DetailInfo = { entries: readonly DetailEntry[] };
+type DetailInfo = { entries: readonly DetailEntry[]; supplement?: SupplementFinding };
 
 
 export default function Home() {
@@ -590,12 +592,13 @@ export default function Home() {
   const [uploading, setUploading] = useState(false);
   const [dropActive, setDropActive] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
-  /** Bumped on each successful delete; drives a one-off "삭제 완료" that clears itself. */
+  /** Successful delete token; navigation and a newer delete invalidate late completions. */
   const [deleteDone, setDeleteDone] = useState(0);
+  const deleteOperation = useRef(0);
   const [deleteAllOpen, setDeleteAllOpen] = useState(false);
   useEffect(() => {
     if (!deleteDone) return;
-    const timer = window.setTimeout(() => setDeleteDone(0), 2500);
+    const timer = window.setTimeout(() => setDeleteDone(0), 3000);
     return () => window.clearTimeout(timer);
   }, [deleteDone]);
   const [comparison, setComparison] = useState<ComparisonResult | null>(null);
@@ -640,9 +643,9 @@ export default function Home() {
   const detailTrigger = useRef<HTMLElement | null>(null);
   const primaryRunInFlight = useRef(false);
 
-  const openSource = useCallback((entries: readonly DetailEntry[], trigger: HTMLElement | null) => {
+  const openSource = useCallback((entries: readonly DetailEntry[], trigger: HTMLElement | null, supplement?: SupplementFinding) => {
     detailTrigger.current = trigger;
-    setDetail({ entries });
+    setDetail({ entries, supplement });
   }, []);
   const closeSource = useCallback(() => {
     const trigger = detailTrigger.current;
@@ -692,7 +695,10 @@ export default function Home() {
   const notifyWorkspace = (tone: Notice["tone"], message: string, detail?: string) =>
     setNotice({ tone, message, scope: "workspace", ...(detail ? { detail } : {}) });
 
+  /** Navigation and selection changes retire the shared result; a run commits only into the generation it started in. */
+  const resultGeneration = useRef(0);
   const clearResults = useCallback(() => {
+    resultGeneration.current++;
     setOperationResult(null);
     setComparison(null);
     setCompareIds(null);
@@ -717,7 +723,7 @@ export default function Home() {
   /** The one workspace upload path; 법령 › 문서 검토 calls it too. Resolves to the new file id, or the shown error. */
   const upload = async (file: File): Promise<{ id: string } | { error: string }> => {
     setUploading(true);
-    notifyWorkspace("info", `${file.name}을(를) 분석 중입니다.`);
+    notifyWorkspace("info", `${file.name} 분석 중…`);
     try {
       const bytes = new Uint8Array(await file.arrayBuffer());
       const summary = await runInWorker(
@@ -771,11 +777,14 @@ export default function Home() {
     setBusy(true);
     setNotice(null);
     setDetail(null);
+    const generation = resultGeneration.current;
     try {
       const result = await runInWorker({ kind: "extract", fileIds: selected });
+      if (generation !== resultGeneration.current) return;
       setOperationResult(result);
       notifyView("success", "전체 텍스트를 준비했습니다.");
     } catch (error) {
+      if (generation !== resultGeneration.current) return;
       setOperationResult(null);
       notifyView("error", (error as ApiError).message ?? "작업에 실패했습니다.");
     } finally {
@@ -797,7 +806,7 @@ export default function Home() {
     const failure = error as Partial<ServerAiFailure>;
     logAiFailure(error);
     if (failure.code === "CANCELLED") {
-      notifyView("info", "작업을 취소했습니다.");
+      notifyView("info", "작업 취소 완료");
       return;
     }
     // Retrying only helps for transient provider states, so the second line
@@ -868,17 +877,20 @@ export default function Home() {
     setBusy(true);
     setNotice(null);
     setDetail(null);
+    const generation = resultGeneration.current;
     try {
       const result = await generateGroundedResult({ operation: "ask", question: question.trim() });
+      if (generation !== resultGeneration.current) return;
       if (result.claims.length === 0) {
         setOperationResult(null);
         notifyView("info", empty.message, undefined, empty.detail);
         return;
       }
       setOperationResult(result);
-      notifyView("success", "질문 결과를 준비했습니다.");
+      notifyView("success", "질문 결과 준비 완료");
       return result;
     } catch (error) {
+      if (generation !== resultGeneration.current) return;
       setOperationResult(null);
       const code = (error as Partial<ServerAiFailure>).code;
       if (code === "NO_EVIDENCE" || code === "GROUNDING_REJECTED") {
@@ -996,12 +1008,15 @@ export default function Home() {
     setDetail(null);
     setEnrichmentResult(null);
     setAnalyzeEvidenceLimited(false);
+    const generation = resultGeneration.current;
     try {
       let deterministic: AnalyzeEntry[];
       try {
         deterministic = await runInWorker({ kind: "analyze", fileIds: selected });
+        if (generation !== resultGeneration.current) return;
         setOperationResult(deterministic);
       } catch (error) {
+        if (generation !== resultGeneration.current) return;
         setOperationResult(null);
         notifyView("error", (error as ApiError).message ?? "문서 분석에 실패했습니다.");
         return;
@@ -1018,6 +1033,7 @@ export default function Home() {
         };
         try {
           const enriched = await generateGroundedResult({ operation: "analyze" }, undefined, onStage);
+          if (generation !== resultGeneration.current) return;
           setEnrichmentResult(enriched);
           setAnalyzeEvidenceLimited(stages.candidates > stages.selected);
           if (process.env.NODE_ENV !== "production") {
@@ -1026,12 +1042,13 @@ export default function Home() {
           }
         } catch (error) {
           noteAiDiagnostics(error);
+          if (generation !== resultGeneration.current) return;
           if (process.env.NODE_ENV !== "production") console.info("[worklens] analyze stages", { ...stages, failure: (error as Partial<ServerAiFailure>).code ?? "UNKNOWN" });
           notifyView("warning", "기본 분석은 완료됐습니다. 요약과 인사이트를 불러오지 못했습니다.", undefined, aiFailureDetail(error));
           return deterministic;
         }
       }
-      notifyView("success", "문서 분석을 완료했습니다.");
+      notifyView("success", "문서 분석 완료");
       return deterministic;
     } finally {
       setBusy(false);
@@ -1053,7 +1070,7 @@ export default function Home() {
           setValueCheck(result);
           setComparison(null);
           setCompareIds(null);
-          notifyView("success", "주요 값 일치 여부를 확인했습니다.");
+          notifyView("success", "주요 값 일치 여부 확인 완료");
           return result;
         } catch (error) {
           setValueCheck(null);
@@ -1088,7 +1105,7 @@ export default function Home() {
       } catch (error) {
         noteAiDiagnostics(error);
       }
-      notifyView("success", "파일 비교를 완료했습니다.");
+      notifyView("success", "파일 비교 완료");
       return deterministic;
     } finally {
       setBusy(false);
@@ -1109,11 +1126,14 @@ export default function Home() {
     setDetail(null);
     setEnrichmentResult(null);
     let base: WorkerCheckEntry[];
+    const generation = resultGeneration.current;
     try {
       try {
         base = await runInWorker({ kind: "check", fileIds: selected, userTerms, companyTerms: companyTermNames });
+        if (generation !== resultGeneration.current) return;
         setOperationResult(base);
       } catch (error) {
+        if (generation !== resultGeneration.current) return;
         setOperationResult(null);
         notifyView("error", (error as ApiError).message ?? "문서 검수에 실패했습니다.");
         return;
@@ -1127,6 +1147,7 @@ export default function Home() {
         };
         try {
           const aiResult = await generateGroundedResult(request);
+          if (generation !== resultGeneration.current) return;
           const dictionary = createDictionary(userTerms, companyTermNames);
           merged = base.map((entry) => {
             const forFile = aiResult.claims.filter((claim) =>
@@ -1145,7 +1166,8 @@ export default function Home() {
           noteAiDiagnostics(error);
         }
       }
-      notifyView("success", "문서 검수를 완료했습니다.");
+      if (generation !== resultGeneration.current) return;
+      notifyView("success", "문서 검수 완료");
       return merged;
     } finally {
       setBusy(false);
@@ -1217,9 +1239,9 @@ export default function Home() {
       if (supplementCancelled.current) {
         notifyView("warning", "보완 확인을 중지했습니다.", undefined, "재확인하지 못한 항목은 다른 위치에 설명이 있을 수 있습니다.");
       } else if (reviewFailure) {
-        notifyView("warning", "일부 항목의 재확인을 완료하지 못했습니다.", undefined, `${aiFailureDetail(reviewFailure)} · 다른 표현으로 설명된 내용이 있을 수 있습니다.`);
+        notifyView("warning", "일부 항목은 표현 방식 차이로 자동 확인이 충분하지 않을 수 있습니다. 근거를 함께 확인해 주세요.");
       } else {
-        notifyView("success", "보완 항목을 확인했습니다.");
+        notifyView("success", "보완 항목 확인 완료");
       }
     } finally {
       setBusy(false);
@@ -1243,7 +1265,7 @@ export default function Home() {
         sheetIds: draft.workbooks.flatMap((workbook) => workbook.sheets.filter((sheet) => sheet.selectedByDefault).map((sheet) => sheet.id)),
         mappings: draft.mappings.map(({ id, targetField, sourceFields, included }) => ({ id, targetField, sourceFields, included })),
       });
-      notifyView("success", `시트 ${draft.workbooks.reduce((sum, workbook) => sum + workbook.sheets.length, 0)}개 · 레코드 ${draft.records.length}건을 분석했습니다.`);
+      notifyView("success", `시트 ${draft.workbooks.reduce((sum, workbook) => sum + workbook.sheets.length, 0)}개 · 레코드 ${draft.records.length}건 분석 완료`);
     } catch (error) {
       notifyView("error", (error as ApiError).message ?? "문서 취합 구조를 분석하지 못했습니다.");
     } finally {
@@ -1444,17 +1466,21 @@ export default function Home() {
   };
 
   const deleteAll = () => {
+    const operation = ++deleteOperation.current;
+    setDeleteDone(0);
     disposeWorkspace();
     interruptServerAi();
     setFiles([]);
     setSelected([]);
     clearResults();
     setNotice(null);
-    setDeleteDone((count) => count + 1);
+    setDeleteDone(operation);
   };
 
   const deleteSelected = async () => {
     if (busy || selected.length === 0) return;
+    const operation = ++deleteOperation.current;
+    setDeleteDone(0);
     const removing = new Set(selected);
     try {
       await runInWorker({ kind: "forget", fileIds: selected });
@@ -1466,7 +1492,7 @@ export default function Home() {
       setPolish(null);
       setPolishTextRun(null);
       setNotice(null);
-      setDeleteDone((count) => count + 1);
+      if (deleteOperation.current === operation) setDeleteDone(operation);
     } catch {
       notifyWorkspace("error", "선택한 파일을 삭제하지 못했습니다. 다시 시도하거나 페이지를 새로고침하세요.");
     }
@@ -1483,7 +1509,7 @@ export default function Home() {
       : true;
   const workSectionTitle = workSectionCopy[activeTab][0];
   const workSectionDescription = polishTextMode
-    ? "붙여넣은 내용을 문장 단위로 다듬고 숫자·날짜·인용과 문서 구조를 유지합니다."
+    ? "붙여넣은 내용을 문장 단위로 다듬고 숫자·날짜·인용·문서 구조 유지"
     : workSectionCopy[activeTab][1];
   const aggregationHasUnsupportedFiles = activeTab === "Aggregate"
     && files.some((file) => selected.includes(file.id) && !isAggregationFileKind(file.kind));
@@ -1579,7 +1605,7 @@ export default function Home() {
   const viewMetadata = shellView in internalViewMetadata
     ? internalViewMetadata[shellView as keyof typeof internalViewMetadata]
     : { title: navigationItems.find((entry) => entry.value === shellView)?.label ?? "WorkLens",
-      description: shellView === "Law" ? "알고 있는 법령이나 조문을 직접 찾습니다." : "", activeNavigation: shellView };
+      description: shellView === "Law" ? "법령명·조문으로 직접 검색" : "", activeNavigation: shellView };
   const commandItems = [
     ...navigationItems.map((item) => ({ value: item.value, label: item.label, group: item.group })),
     ...Object.entries(internalViewMetadata).map(([value, metadata]) => ({ value, label: metadata.commandLabel ?? metadata.title, group: "RESEARCH" })),
@@ -1588,6 +1614,8 @@ export default function Home() {
     const item = commandItems.find((entry) => entry.value === value);
     if (!item) return;
     const next = item.value as ShellView;
+    deleteOperation.current++;
+    setDeleteDone(0);
     setDetail(null);
     detailTrigger.current = null;
     setShellView(next);
@@ -1605,25 +1633,30 @@ export default function Home() {
       <WorkspaceNavigation items={navigationItems} active={viewMetadata.activeNavigation} onNavigate={navigateWorkspace} />
 
       <div className="shell-main">
-        <WorkspaceCommand items={commandItems} onNavigate={navigateWorkspace} />
         {isDocumentWorkspaceView || isUtilityView || isToolView ? (
           <header className={`context-bar utility-bar${isDocumentWorkspaceView ? " workspace-context" : ""}`}>
             <h1>{isDocumentWorkspaceView ? workSectionTitle : viewMetadata.title}</h1>
             <span className="context-names">
               {isDocumentWorkspaceView ? workSectionDescription : shellView === "AxDiagnosis"
-                ? "반복 업무를 진단하고 자동화 우선순위와 실행 로드맵을 설계합니다."
+                ? "반복 업무 진단과 자동화 우선순위·실행 로드맵 설계"
                 : shellView === "Guide"
-                ? "WorkLens의 주요 기능을 단계별로 확인하세요."
+                ? "WorkLens 주요 기능을 단계별로 안내"
                 : shellView === "Dictionary"
-                ? "맞춤법과 용어 오탐을 줄이기 위한 사전입니다."
+                ? "맞춤법·용어 오탐을 줄이는 사전"
                 : shellView === "Settings"
-                  ? "이 브라우저에만 적용되는 항목입니다."
+                  ? "파일·저장·외부 연동 안내"
                   : shellView === "PdfTools"
-                    ? "PDF 페이지를 정리하고 원하는 형식으로 내보낼 수 있습니다."
+                    ? "PDF 페이지 정리 및 원하는 형식으로 내보내기"
                     : isResearchView
                       ? viewMetadata.description
-                      : "이미지를 편집하고 원하는 형식으로 내보낼 수 있습니다."}
+                      : "이미지 편집 및 원하는 형식으로 내보내기"}
             </span>
+            <div className="workspace-header-actions">
+              {isDocumentWorkspaceView && <span className="workspace-delete-status" role="status" aria-live="polite" aria-atomic="true">
+                {deleteDone > 0 && <span key={deleteDone}><Check aria-hidden="true" />삭제 완료</span>}
+              </span>}
+              <WorkspaceCommand items={commandItems} onNavigate={navigateWorkspace} />
+            </div>
           </header>
         ) : null}
 
@@ -1640,7 +1673,7 @@ export default function Home() {
             />
           ) : null}
 
-          {files.length === 0 && isDocumentWorkspaceView ? (
+          {files.length === 0 && isDocumentWorkspaceView && !polishTextMode ? (
             <div
               className={`dropzone${uploading ? " busy" : ""}${dropActive ? " drag-active" : ""}`}
               onDragEnter={(event) => { event.preventDefault(); setDropActive(true); }}
@@ -1652,8 +1685,8 @@ export default function Home() {
             >
               <span className="upload-icon" aria-hidden="true"><Upload /></span>
               <div className="dropzone-copy">
-                <strong>{uploading ? "파일을 읽고 구조를 분석하는 중" : "파일을 여기에 끌어 놓으세요"}</strong>
-                <span>또는 파일을 선택해 작업을 시작하세요.</span>
+                <strong>{uploading ? "파일 구조 분석 중" : "파일을 여기에 끌어 놓으세요"}</strong>
+                <span>또는 파일을 선택해 작업 시작</span>
               </div>
               <div className="drop-actions">
                 <Button type="button" onClick={() => inputRef.current?.click()} disabled={uploading}>
@@ -1663,7 +1696,7 @@ export default function Home() {
             </div>
           ) : null}
 
-          {files.length > 0 && isDocumentWorkspaceView ? (
+          {files.length > 0 && isDocumentWorkspaceView && !polishTextMode ? (
             <div
               className={`file-add-dropzone${uploading ? " busy" : ""}${dropActive ? " drag-active" : ""}`}
               onDragEnter={(event) => { event.preventDefault(); setDropActive(true); }}
@@ -1675,8 +1708,8 @@ export default function Home() {
             >
               <span className="upload-icon" aria-hidden="true"><Upload /></span>
               <div className="file-add-copy">
-                <strong>{uploading ? "파일을 읽고 구조를 분석하는 중" : "파일을 추가하려면 여기에 끌어 놓으세요"}</strong>
-                <span>또는 버튼을 눌러 파일을 선택하세요.</span>
+                <strong>{uploading ? "파일 구조 분석 중" : "추가할 파일을 여기에 끌어 놓으세요"}</strong>
+                <span>또는 버튼으로 파일 선택</span>
               </div>
               <Button type="button" className="file-add" onClick={() => inputRef.current?.click()} disabled={uploading}>
                 {uploading ? "분석 중…" : <><Plus aria-hidden="true" />파일 추가</>}
@@ -1684,9 +1717,6 @@ export default function Home() {
             </div>
           ) : null}
 
-          {isDocumentWorkspaceView && deleteDone > 0 ? (
-            <span key={deleteDone} className="transient-status workspace-delete-status" role="status" aria-live="polite">삭제 완료</span>
-          ) : null}
 
           {isDocumentWorkspaceView && notice && !inlineResultNotice && (notice.scope === "workspace" || notice.scope === shellView) ? (
             notice.tone === "error" || notice.tone === "warning" || (notice.tone === "info" && notice.scope === "Ask" && Boolean(notice.detail)) ? (
@@ -1745,13 +1775,14 @@ export default function Home() {
                         <MenuTrigger render={<Button type="button" variant="ghost" size="icon" aria-label="파일 관리 메뉴" disabled={busy} />}>
                           <MoreHorizontal aria-hidden="true" />
                         </MenuTrigger>
-                        <MenuPopup align="end">
-                          <MenuItem variant="destructive" closeOnClick onClick={() => setDeleteAllOpen(true)}>모두 삭제</MenuItem>
+                        {/* One short item: size to its text so the equal px-3 insets read as balanced; the shared popup minimum would leave a blank right edge. */}
+                        <MenuPopup align="end" className="w-max" style={{ minWidth: 0 }}>
+                          <MenuItem className="px-3" variant="destructive" closeOnClick onClick={() => setDeleteAllOpen(true)}>모두 삭제</MenuItem>
                         </MenuPopup>
                       </Menu>
                       <AlertDialog open={deleteAllOpen} onOpenChange={setDeleteAllOpen}>
                         <AlertDialogPopup>
-                          <AlertDialogHeader><AlertDialogTitle>작업 파일 모두 삭제</AlertDialogTitle><AlertDialogDescription>이 탭에서 처리한 파일과 결과를 모두 지웁니다. 삭제 후에는 복구할 수 없습니다.</AlertDialogDescription></AlertDialogHeader>
+                          <AlertDialogHeader><AlertDialogTitle>작업 파일 모두 삭제</AlertDialogTitle><AlertDialogDescription>이 탭의 파일과 결과가 삭제되며 복구할 수 없습니다.</AlertDialogDescription></AlertDialogHeader>
                           <AlertDialogFooter><AlertDialogClose render={<Button variant="outline" />}>취소</AlertDialogClose><AlertDialogClose render={<Button variant="destructive" onClick={deleteAll} />}>삭제</AlertDialogClose></AlertDialogFooter>
                         </AlertDialogPopup>
                       </AlertDialog>
@@ -1777,7 +1808,7 @@ export default function Home() {
                           <div className="file-name-line">
                             <strong title={file.name} tabIndex={selectionRole ? 0 : undefined}>{file.name}</strong>
                           {selectionRole ? <span className="compare-selection-line">
-                            <span className="compare-selection-role">{selectionRole}</span>
+                            <span className="compare-selection-role" data-role={comparisonRole ? "comparison" : "aggregate-base"}>{selectionRole}</span>
                             {comparisonSelectionIndex === 0 && comparisonDirection ? (
                               <Button type="button" variant="ghost" size="icon" className="compare-swap-icon" aria-label="기준/대상 바꾸기" title="기준/대상 바꾸기" disabled={busy} onClick={swapComparisonDirection}>
                                 <ArrowUpDown aria-hidden="true" />
@@ -1864,24 +1895,26 @@ export default function Home() {
                     </RadioGroup>
                     </div>}
                     {polishTextMode ? (
-                      <label className="polish-paste">
-                        <span>윤문할 내용을 붙여넣으세요.</span>
-                        <Textarea value={polishText}
-                        rows={8}
-                        // No hard maxLength: a long paste is accepted and
-                        // then explained, rather than silently truncated.
-                        aria-label="윤문할 텍스트 입력"
-                        disabled={busy}
-                        onChange={(event) => setPolishText(event.target.value)}
-                        placeholder={"메일, 보고서, 공지 등에서 복사한 내용을 그대로 붙여넣으세요.\n줄바꿈과 목록 구조는 그대로 유지됩니다."} />
-                        <small data-over={polishText.length > POLISH_TEXT_MAX_CHARS ? "true" : undefined}>
-                          {polishText.length.toLocaleString("ko-KR")} / {POLISH_TEXT_MAX_CHARS.toLocaleString("ko-KR")}자
-                        </small>
-                      </label>
+                      <div className="polish-text-input">
+                        <label className="polish-paste">
+                          <span>윤문할 내용 붙여넣기</span>
+                          <Textarea value={polishText}
+                          rows={8}
+                          // No hard maxLength: a long paste is accepted and
+                          // then explained, rather than silently truncated.
+                          aria-label="윤문할 텍스트 입력"
+                          disabled={busy}
+                          onChange={(event) => setPolishText(event.target.value)}
+                          placeholder={"메일·보고서·공지 등에서 복사한 내용 붙여넣기\n줄바꿈과 목록 구조는 그대로 유지됩니다"} />
+                          <small data-over={polishText.length > POLISH_TEXT_MAX_CHARS ? "true" : undefined}>
+                            {polishText.length.toLocaleString("ko-KR")} / {POLISH_TEXT_MAX_CHARS.toLocaleString("ko-KR")}자
+                          </small>
+                        </label>
+                        <div className="operation-actions">
+                          <Button type="button" onClick={runActive} disabled={actionDisabled} aria-label={`${tabMeta[activeTab].label} ${RUN_LABEL}`}>{busy ? "처리 중…" : RUN_LABEL}</Button>
+                        </div>
+                      </div>
                     ) : null}
-                    {showRunAction && polishTextMode && <div className="operation-actions">
-                      <Button type="button" onClick={runActive} disabled={actionDisabled} aria-label={`${tabMeta[activeTab].label} ${RUN_LABEL}`}>{busy ? "처리 중…" : RUN_LABEL}</Button>
-                    </div>}
                   </div>
                 ) : null}
                 {activeTab === "Supplement" && supplementHasUnsupportedFiles ? (
@@ -1904,7 +1937,7 @@ export default function Home() {
               {busy && polishProgress ? (
                 <div className="processing-bar compact-progress" role="status" aria-live="polite">
                   <strong>{`윤문 처리 중 ${polishProgress.done}/${polishProgress.total}`}</strong>
-                  <small>문장별 검증을 유지하며 묶음으로 처리하고 있습니다.</small>
+                  <small>문장별 검증을 유지하며 묶음으로 처리 중</small>
                   <div className="ai-status-actions">
                     <Button type="button" variant="outline" className="secondary-action" onClick={() => { polishCancelled.current = true; interruptServerAi(); }}>중지</Button>
                   </div>
@@ -1912,7 +1945,7 @@ export default function Home() {
               ) : busy && extractProgress ? (
                 <div className="processing-bar compact-progress" role="status" aria-live="polite">
                   <strong>{`항목 확인 중 ${extractProgress.done}/${extractProgress.total}`}</strong>
-                  <small>관련 근거를 확인하고 있습니다.</small>
+                  <small>관련 근거 확인 중</small>
                   <div className="ai-status-actions">
                     <Button type="button" variant="outline" className="secondary-action" onClick={() => { extractCancelled.current = true; interruptServerAi(); }}>중지</Button>
                   </div>
@@ -1929,17 +1962,17 @@ export default function Home() {
                   ? <PolishResults result={polish} fileNames={fileNames} onSource={openSource} status={resultStatus} />
                   : activeTab === "Supplement"
                     ? supplement ? (
-                      <section className="panel results-panel">
-                        <ResultHeader title="보완 결과" status={resultStatus} />
+                      <section className="panel results-panel" aria-label="문서 보완 결과">
+                        <ResultHeader status={resultStatus} />
                         <SupplementResults
                           result={supplement}
                           fileNames={fileNames}
-                          renderSource={(sources, context) => (
+                          renderSource={(sources, context, finding) => (
                             <span className="result-source">
                               <Button type="button" variant="outline" size="sm"
                               className="source-action"
                               aria-label={`${context.issue} 근거 보기`}
-                              onClick={(event) => openSource(sources.map((source) => ({ source, context })), event.currentTarget)}>근거 보기</Button>
+                              onClick={(event) => openSource(sources.map((source) => ({ source, context })), event.currentTarget, finding)}>근거 보기</Button>
                             </span>
                           )}
                         />
@@ -1971,7 +2004,7 @@ export default function Home() {
 
       {detail ? (
         <aside className="evidence-inspector">
-          <SourceDetail entries={detail.entries} fileNames={fileNames} onClose={closeSource} />
+          <SourceDetail entries={detail.entries} supplement={detail.supplement} fileNames={fileNames} onClose={closeSource} />
         </aside>
       ) : null}
     </div>
@@ -2063,32 +2096,35 @@ interface ResultViewProps {
 
 /** Shared heading copy for every category's lower work section. */
 const workSectionCopy: Record<Tab, [string, string]> = {
-  Analyze: ["문서 분석", "선택한 파일의 핵심 요약과 확인된 항목·수치를 분석합니다."],
-  Ask: ["질문하기", "선택한 파일을 근거로 질문에 답합니다."],
-  Compare: ["파일 비교", "같은 파일의 전·후 변경 내용과 여러 파일의 공통 항목 값을 비교합니다."],
-  Check: ["문서 검수", "선택한 파일의 문장·일관성·데이터·개인정보·보안정보를 검수합니다."],
-  Supplement: ["문서 보완", "문서에서 빠진 핵심 정보와 설명이 필요한 부분을 찾습니다."],
-  Polish: ["문서 윤문", "선택한 파일의 번역투와 중복 표현을 문장 단위로 다듬습니다."],
-  Extract: ["정보 추출", "선택한 파일에서 필요한 항목과 값을 찾아 정리합니다."],
-  Aggregate: ["문서 취합", "첫 번째 파일의 서식을 기준으로 여러 Excel 표를 하나의 파일로 취합합니다."],
+  Analyze: ["문서 분석", "선택한 파일의 핵심 요약과 확인된 항목·수치"],
+  Ask: ["질문하기", "선택한 파일을 근거로 질문에 답변"],
+  Compare: ["파일 비교", "파일의 전·후 변경 내용과 여러 파일의 공통 항목 값 비교"],
+  Check: ["문서 검수", "선택한 파일의 문장·일관성·데이터·개인정보·보안정보 검수"],
+  Supplement: ["문서 보완", "문서에서 빠진 핵심 정보와 설명이 필요한 부분 확인"],
+  Polish: ["문서 윤문", "선택한 파일의 번역투와 중복 표현을 문장 단위로 정리"],
+  Extract: ["정보 추출", "선택한 파일에서 필요한 항목과 값을 찾아 정리"],
+  Aggregate: ["문서 취합", "첫 번째 파일의 서식을 기준으로 여러 Excel 표 취합"],
 };
 
-function ResultHeader({ eyebrow, title, status, meta, showMessage = true }: {
-  eyebrow?: string;
-  title: string;
+function ResultHeader({ title, status, meta, showMessage = true }: {
+  title?: string;
   status: ResultStatus | null;
   meta?: React.ReactNode;
   showMessage?: boolean;
 }) {
   return (
     <>
-      <div className="panel-heading result-heading">
-        <div>{eyebrow ? <p className="eyebrow">{eyebrow}</p> : null}<h2>{title}</h2></div>
-        <div className="result-heading-meta">
-          {status ? <span className={`result-status ${status.tone}`} role="status">{status.label}</span> : null}
-          {meta}
+      {title || status || meta ? (
+        <div className="panel-heading result-heading">
+          {title ? <h2>{title}</h2> : null}
+          {status || meta ? (
+            <div className="result-heading-meta">
+              {status ? <span className={`result-status ${status.tone}`} role="status">{status.label}</span> : null}
+              {meta}
+            </div>
+          ) : null}
         </div>
-      </div>
+      ) : null}
       {showMessage && status?.message ? (
         <p className="result-inline-warning" role="status">
           <span>{status.message}</span>
@@ -2118,15 +2154,11 @@ function ResultView({ tab, result, enrichment, analyzeEvidenceLimited, status, f
   }
 
   return (
-    <section className={`panel results-panel${tab === "Analyze" ? " analysis-results-panel" : ""}`}>
+    <section className={`panel results-panel${tab === "Analyze" ? " analysis-results-panel" : ""}`} aria-label={`${tabMeta[tab].label} 결과`}>
       <ResultHeader
-        {...(tab === "Ask" || tab === "Check" || tab === "Extract" || tab === "Analyze" ? {} : { eyebrow: `${tab.toUpperCase()} RESULT` })}
-        title={tab === "Analyze" ? "분석 결과" : tab === "Ask" ? "답변" : tab === "Check" ? "검수 결과" : tab === "Extract" ? "추출 결과" : "작업 결과"}
         status={status}
         showMessage={tab !== "Analyze"}
-        {...(tab === "Extract"
-          ? { meta: resultActions }
-          : tab === "Ask" || tab === "Check" || tab === "Analyze" ? {} : { meta: <span className="result-provenance">근거 연결 결과</span> })}
+        meta={tab === "Extract" ? resultActions : undefined}
       />
       {content}
       {detail ? <SourceDetail entries={detail.entries} fileNames={fileNames} onClose={onCloseSource} /> : null}
@@ -2192,8 +2224,8 @@ function ExtractControls({ mode, fields, busy, runDisabled, showRun, onMode, onF
         {showRun && <Button type="button" className="extract-run" disabled={runDisabled} aria-label="추출 실행" onClick={onRun}>{busy ? "처리 중…" : RUN_LABEL}</Button>}
       </div>
       <p className="extract-mode-description">{mode === "auto"
-        ? "문서에 명시된 구조화 항목과 반복 표를 자동으로 찾습니다."
-        : "필요한 항목명을 지정해 파일별 값을 같은 열로 정리합니다."}</p>
+        ? "문서에 명시된 구조화 항목과 반복 표 자동 검색"
+        : "항목명을 지정해 파일별 값을 같은 열로 정리"}</p>
       {mode === "fields" ? (
         <div className="extract-fields">
           {fields.map((field) => (
@@ -2256,13 +2288,13 @@ function StructuredExtractResults({ result, fileNames, onSource, status, busy, o
   const isEmpty = result.summary.fields === 0 && result.summary.records === 0;
   const emptyTitle = result.mode === "fields"
     ? result.requestedFields.length === 1
-      ? `'${result.requestedFields[0]}'을(를) 찾지 못했습니다.`
-      : "요청한 항목을 찾지 못했습니다."
-    : "자동으로 추출할 수 있는 구조화된 항목을 찾지 못했습니다.";
+      ? `'${result.requestedFields[0]}'을(를) 찾지 못했습니다`
+      : "요청한 항목을 찾지 못했습니다"
+    : "자동 추출 가능한 구조화 항목을 찾지 못했습니다";
 
   return (
-    <section className="panel results-panel extract-results">
-      <ResultHeader title="추출 결과" status={status} />
+    <section className="panel results-panel extract-results" aria-label="정보 추출 결과">
+      <ResultHeader status={status} />
       <div className="extract-result-toolbar">
         <p className="check-summary-line">
           <span className="metric">추출 항목 <b>{result.summary.fields}</b></span>
@@ -2287,8 +2319,8 @@ function StructuredExtractResults({ result, fileNames, onSource, status, busy, o
           title={emptyTitle}
         >
           <p>{result.mode === "fields"
-            ? "선택한 문서에서 해당 항목이나 값을 확인할 수 없습니다."
-            : "필요한 항목이 정해져 있다면 항목 지정을 사용할 수 있습니다."}</p>
+            ? "선택한 문서에서 해당 항목이나 값을 확인할 수 없습니다"
+            : "필요한 항목이 정해져 있다면 ‘항목 지정’을 사용하세요"}</p>
         </StatusPanel>
       ) : null}
 
@@ -2476,9 +2508,8 @@ function PolishResults({ result, fileNames, onSource, status }: {
   const rejected = result.outcomes.filter((entry) => entry.status === "rejected");
 
   return (
-    <section className="panel results-panel polish-results">
+    <section className="panel results-panel polish-results" aria-label="문서 윤문 결과">
       <ResultHeader
-        title="윤문 결과"
         status={status}
         meta={<span className="polish-mode-meta">{POLISH_MODE_LABELS[result.mode]}</span>}
       />
@@ -2586,9 +2617,8 @@ function PolishTextResults({ result, status }: { result: PolishTextResult | null
   ) : null;
 
   return (
-    <section className="panel results-panel polish-results polish-text-results">
+    <section className="panel results-panel polish-results polish-text-results" aria-label="텍스트 윤문 결과">
       <ResultHeader
-        title="윤문 결과"
         status={status}
         meta={<span className="polish-mode-meta">{POLISH_MODE_LABELS[result.mode]}</span>}
       />
@@ -2737,12 +2767,13 @@ function AnalyzeResults({ entries, enrichment, evidenceLimited, status, fileName
   );
   const hasContent = presentation.summary.length + coreItems.length + metrics.length + presentation.insights.length
     + presentation.concerns.length + mismatches.length > 0;
-  const hasWarnings = Boolean(status?.message || presentation.warnings.length);
+  const hasWarnings = Boolean(status?.message || presentation.warnings.length || (enrichment && evidenceLimited));
   const multipleFiles = entries.length > 1;
 
   return (
+    <>
+    {/* The white report card begins with the first result section; concrete limitations follow the results. */}
     <div className="analysis-report">
-      {enrichment && evidenceLimited ? <p className="result-inline-warning" role="status">AI 해석은 확인된 근거를 바탕으로 제공되며, 문서 전체 내용을 모두 포함하지 않을 수 있습니다.</p> : null}
       {presentation.summary.length ? (
         <section className="analysis-report-section analysis-summary-section" aria-labelledby="analysis-summary-title">
           <div className="subsection-heading">
@@ -2842,9 +2873,15 @@ function AnalyzeResults({ entries, enrichment, evidenceLimited, status, fileName
             </p>
           ) : null}
           {presentation.warnings.map((warning) => <p className="analysis-warning-line" key={warning.code}>{warning.message}</p>)}
+          {enrichment && evidenceLimited ? (
+            <p className="analysis-warning-line">
+              AI 요약·인사이트에는 최대 40개 항목·10,000자의 문서 근거가 전달됩니다. 이번 분석에서 일부 근거 후보는 AI 요약·인사이트에 전달되지 않았습니다.
+            </p>
+          ) : null}
         </section>
       ) : null}
     </div>
+    </>
   );
 }
 
@@ -2939,25 +2976,24 @@ function CheckResults({ entries, fileNames, onSource, companyTerms, userTerms, i
 
   return (
     <div className="result-sections check-results">
+      <div className="check-summary">
       <section className="qa-overview" aria-label="검수 요약">
         <p className="qa-summary-line" aria-label="심각도 요약">
+          <span>전체 <b>{active.length}</b></span>
           {(["critical", "warning", "suggestion"] as const).map((severity) => (
             <span key={severity} className={counts[severity] === 0 ? "muted" : undefined}>
-              {severityLabels[severity]} <b>{counts[severity]}</b>
+              <i className={`severity-mark ${severity}`} aria-hidden="true" />{severityLabels[severity]} <b>{counts[severity]}</b>
             </span>
           ))}
         </p>
         {totals.truncated ? (
           <small className="check-truncation" data-testid="check-truncation">
-            전체 {totals.totalFound.toLocaleString("ko-KR")}건 중 우선순위가 높은 {totals.returned.toLocaleString("ko-KR")}건을 표시합니다.
+            전체 {totals.totalFound.toLocaleString("ko-KR")}건 중 우선순위가 높은 {totals.returned.toLocaleString("ko-KR")}건 표시
           </small>
         ) : null}
       </section>
 
-      {indexed.length === 0 ? (
-        <StatusPanel variant="success" className="result-clear" title="확인된 문제가 없습니다." icon={<CircleCheck size={18} fill="currentColor" stroke="white" strokeWidth={2.2} />}><p>현재 규칙 범위에서 문장, 일관성, 데이터와 개인정보 문제를 찾지 못했습니다.</p></StatusPanel>
-      ) : (
-        <>
+      {indexed.length ? (
           <div className="check-toolbar check-toolbar-compact">
             <div className="check-filters-compact" role="group" aria-label="검수 분류 필터">
               {filterItems.flatMap((item, index) => [
@@ -2973,7 +3009,7 @@ function CheckResults({ entries, fileNames, onSource, companyTerms, userTerms, i
                 <PopoverPopup className="dictionary-panel w-[min(360px,calc(100vw-32px))]" align="end" aria-label="용어 사전">
                     <section className="dictionary-section">
                       <h4>회사 용어 <span>{companyTerms.length}</span></h4>
-                      <p className="dictionary-note">회사 공용 사전은 읽기 전용입니다.</p>
+                      <p className="dictionary-note">회사 공용 사전 · 읽기 전용</p>
                       <div className="dictionary-term-list">
                         {companyTerms.slice(0, 12).map((entry) => <span className="dictionary-term" key={entry.id}>{entry.term}</span>)}
                         {companyTerms.length > 12 ? <span className="dictionary-term muted">외 {companyTerms.length - 12}개</span> : null}
@@ -2994,17 +3030,23 @@ function CheckResults({ entries, fileNames, onSource, companyTerms, userTerms, i
                             </span>
                           ))}
                         </div>
-                      ) : <p className="dictionary-empty">등록한 개인 용어가 없습니다.</p>}
+                      ) : <p className="dictionary-empty">등록된 개인 용어 없음</p>}
                       <div className="dictionary-actions">
                         <Button type="button" variant="ghost" size="sm" onClick={onClearTerms} disabled={!userTerms.length}>전체 초기화</Button>
                       </div>
-                      <p className="dictionary-note">개인 사전은 이 브라우저에만 저장됩니다.</p>
+                      <p className="dictionary-note">개인 사전은 이 브라우저에만 저장</p>
                     </section>
                 </PopoverPopup>
               </Popover>
             </div>
           </div>
+      ) : null}
+      </div>
 
+      {indexed.length === 0 ? (
+        <StatusPanel variant="success" className="result-clear" title="확인된 문제 없음" icon={<CircleCheck size={18} fill="currentColor" stroke="white" strokeWidth={2.2} />}><p>현재 규칙 범위에서 문장·일관성·데이터·개인정보 문제를 찾지 못했습니다</p></StatusPanel>
+      ) : (
+        <>
           {filtered.length ? (
             <>
               <section className="check-list" aria-label="문서 검수 이슈">
@@ -3015,16 +3057,14 @@ function CheckResults({ entries, fileNames, onSource, companyTerms, userTerms, i
                     <article className={`check-issue severity-${finding.severity}`} key={finding.id} data-confidence={finding.confidence}>
                       <div className="check-issue-row">
                         <div className="check-issue-summary">
+                          <div className="check-issue-name"><strong>{finding.issue}</strong></div>
                           <div className="check-issue-meta">
                             <span className="check-severity"><i className={`severity-mark ${finding.severity}`} aria-hidden="true" />{severityLabels[finding.severity]}</span>
                             <span aria-hidden="true">·</span>
                             <span className="check-category">{checkGroupLabels[group]}</span>
                             <span className="check-category-detail">{checkCategoryLabels[finding.category]}</span>
                           </div>
-                          <div className="check-issue-name">
-                            <strong>{finding.issue}</strong>
-                            <p>{finding.message}</p>
-                          </div>
+                          <p className="check-issue-description">{finding.message}</p>
                         </div>
                         <div className="check-issue-support">
                           {finding.recommendation.trim() ? (
@@ -3033,6 +3073,8 @@ function CheckResults({ entries, fileNames, onSource, companyTerms, userTerms, i
                               <p><RecommendationText text={finding.recommendation} suggestedText={finding.suggestedText} /></p>
                             </div>
                           ) : null}
+                        </div>
+                        <div className="check-actions">
                           <div className="check-source">
                             <ResultSource
                               sources={sources}
@@ -3041,13 +3083,13 @@ function CheckResults({ entries, fileNames, onSource, companyTerms, userTerms, i
                               context={{ issue: finding.issue, recommendation: finding.recommendation }}
                             />
                           </div>
-                        </div>
-                        <div className="finding-actions" aria-label={`${finding.issue} 작업`}>
-                          <Button type="button" variant="outline" size="sm" onClick={() => ignoreFinding(finding.id)}>이번 항목 제외</Button>
-                          <Button type="button" variant="outline" size="sm" onClick={() => onToggleRule(finding.ruleId)}>동일 규칙 무시</Button>
-                          {finding.dictionaryEligible && finding.normalizedToken
-                            ? <Button type="button" variant="outline" size="sm" onClick={() => addTerm(finding.normalizedToken!)}>내 용어에 추가</Button>
-                            : null}
+                          <div className="finding-actions" aria-label={`${finding.issue} 작업`}>
+                            <Button type="button" variant="secondary" size="sm" onClick={() => ignoreFinding(finding.id)}>이번 항목 제외</Button>
+                            <Button type="button" variant="secondary" size="sm" onClick={() => onToggleRule(finding.ruleId)}>동일 규칙 무시</Button>
+                            {finding.dictionaryEligible && finding.normalizedToken
+                              ? <Button type="button" variant="secondary" size="sm" onClick={() => addTerm(finding.normalizedToken!)}>내 용어에 추가</Button>
+                              : null}
+                          </div>
                         </div>
                       </div>
                     </article>
@@ -3064,7 +3106,7 @@ function CheckResults({ entries, fileNames, onSource, companyTerms, userTerms, i
             </>
           ) : (
             <div className="filter-empty">
-              <strong>필터 조건에 맞는 이슈가 없습니다.</strong>
+              <strong>필터 조건에 맞는 이슈 없음</strong>
               <Button type="button" variant="outline" onClick={() => { setGroupFilter("all"); setIgnoredIds([]); resetPage(); }}>필터 초기화</Button>
             </div>
           )}
@@ -3144,7 +3186,7 @@ function AskResults({ result, fileNames, onSource }: {
           </div>
         </section>
       ) : (
-        <p className="ask-result-info" role="status">선택한 파일에서 답변에 필요한 근거를 찾지 못했습니다.</p>
+        <p className="ask-result-info" role="status">선택한 파일에서 답변에 필요한 근거를 찾지 못했습니다</p>
       )}
     </div>
   );
@@ -3219,7 +3261,7 @@ function ComparisonView({ comparison, compareIds, enrichment, fileNames, detail,
   };
   /** Only a numbers-only column reads from the right; values and prose read from the left. */
   return (
-    <section className="panel results-panel comparison-panel">
+    <section className="panel results-panel comparison-panel" aria-label="버전 비교 결과">
       <ResultHeader
         title="버전 비교 결과"
         status={status}
@@ -3238,7 +3280,7 @@ function ComparisonView({ comparison, compareIds, enrichment, fileNames, detail,
       </div>
       <dl className="summary executive-summary">{summaryItems.map((item) => <div key={item.key} className={`summary-${item.key}`} data-empty={item.value === 0}><dt>{item.label}</dt><dd>{item.value.toLocaleString("ko-KR")}</dd></div>)}</dl>
       {comparison.items.length === 0 ? (
-        <StatusPanel variant="success" className="result-clear" title="비교된 변경 사항이 없습니다."><p>지원되는 내용, 수치 및 구조 범위에서 두 파일이 같습니다.</p></StatusPanel>
+        <StatusPanel variant="success" className="result-clear" title="비교된 변경 사항 없음"><p>지원되는 내용·수치·구조 범위에서 두 파일이 같습니다</p></StatusPanel>
       ) : (
         <div className="comparison-content">
           <div className="change-table" role="table" aria-label="버전 비교 변경 상세">
@@ -3316,7 +3358,7 @@ function ValueCheckView({ result, fileNames, onSource, status, busy, onExport }:
   const comparedFileNames = result.fileIds.map((fileId) => fileNames.get(fileId) ?? fileId);
 
   return (
-    <section className="panel results-panel value-check-panel">
+    <section className="panel results-panel value-check-panel" aria-label="값 일치 확인 결과">
       <ResultHeader
         title="값 일치 확인 결과"
         status={status}
@@ -3338,11 +3380,11 @@ function ValueCheckView({ result, fileNames, onSource, status, busy, onExport }:
       </div>
 
       {result.groups.length === 0 ? (
-        <StatusPanel variant="info" className="result-clear notice" title="비교할 공통 항목이 없습니다." icon={<Info size={18} fill="currentColor" stroke="white" strokeWidth={2.2} />}>
-          <p>선택한 파일에서 공통으로 확인되는 항목이 있어야 값 일치 여부를 비교할 수 있습니다.</p>
+        <StatusPanel variant="info" className="result-clear notice" title="비교할 공통 항목 없음" icon={<Info size={18} fill="currentColor" stroke="white" strokeWidth={2.2} />}>
+          <p>공통으로 확인된 항목이 있어야 값 일치 여부를 비교할 수 있습니다</p>
         </StatusPanel>
       ) : visible.length === 0 ? (
-        <p className="value-check-filter-empty">이 상태에 해당하는 항목이 없습니다.</p>
+        <p className="value-check-filter-empty">이 상태에 해당하는 항목 없음</p>
       ) : twoFiles ? (
         <div className="value-check-matrix" role="table" aria-label="두 파일 값 일치 확인">
           <div className="value-check-matrix-head" role="row">
@@ -3490,8 +3532,8 @@ function AggregationResults({ draft, selection, busy, onSelection, onExport }: {
   const planTarget = (sheet: AggregationSheet) => "targetId" in sheet.plan && sheet.plan.targetId ? targetById.get(sheet.plan.targetId) : undefined;
 
   return (
-    <section className="panel results-panel aggregation-results">
-      <ResultHeader title="취합 결과" status={{ tone: "success", label: "취합 완료" }} />
+    <section className="panel results-panel aggregation-results" aria-label="문서 취합 결과">
+      <ResultHeader status={{ tone: "success", label: "취합 완료" }} />
       <div className="extract-result-toolbar aggregation-result-toolbar">
         <p className="check-summary-line">
           <span className="metric">파일 <b>{draft.workbooks.length}</b></span>
@@ -3505,13 +3547,13 @@ function AggregationResults({ draft, selection, busy, onSelection, onExport }: {
 
       <section className="aggregation-section" aria-labelledby="aggregation-sheets">
         <div className="aggregation-section-heading">
-          <div><h3 id="aggregation-sheets">취합할 시트</h3><p>첫 번째 파일의 시트 구성을 결과로 사용하고, 나머지 파일의 같은 표는 그 아래에 이어 붙입니다.</p></div>
+          <div><h3 id="aggregation-sheets">취합할 시트</h3><p>첫 번째 파일의 시트 구성을 기준으로, 나머지 파일의 같은 표를 아래에 이어 붙입니다</p></div>
         </div>
         <div className="aggregation-workbooks">
           {draft.workbooks.map((workbook) => (
             <section className="aggregation-workbook" key={workbook.id}>
               <h4>{workbook.fileName}</h4>
-              {workbook.sheets.length === 0 ? <p className="aggregation-sheet-empty">취합할 표를 찾지 못했습니다. 표 형태의 내용이 있는 파일을 선택하세요.</p> : null}
+              {workbook.sheets.length === 0 ? <p className="aggregation-sheet-empty">취합할 표를 찾지 못했습니다. 표 형태의 내용이 있는 파일을 선택하세요</p> : null}
               {workbook.sheets.map((sheet) => {
                 const target = planTarget(sheet);
                 const fixed = sheet.role === "empty" || sheet.plan.kind === "summarized" || sheet.plan.kind === "ignored";
@@ -3530,7 +3572,7 @@ function AggregationResults({ draft, selection, busy, onSelection, onExport }: {
       </section>
 
       <section className="aggregation-section" aria-labelledby="aggregation-result-sheets">
-        <div className="aggregation-section-heading"><div><h3 id="aggregation-result-sheets">결과 시트 {resultTargets.length}개</h3><p>기준 파일의 시트 이름과 구성을 그대로 유지합니다.</p></div></div>
+        <div className="aggregation-section-heading"><div><h3 id="aggregation-result-sheets">결과 시트 {resultTargets.length}개</h3><p>기준 파일의 시트 이름과 구성 유지</p></div></div>
         <ul className="aggregation-result-sheets">
           {resultTargets.map((target) => (
             <li key={target.id}>
@@ -3545,13 +3587,13 @@ function AggregationResults({ draft, selection, busy, onSelection, onExport }: {
         <div className="aggregation-section-heading">
           <div>
             <h3 id="aggregation-mappings">확인이 필요한 항목</h3>
-            <p>{reviewMappings.length ? `기준 파일 항목과 이름이 달라 확인이 필요한 항목 ${reviewMappings.length}개가 있습니다.` : unlinkedImages ? "이미지를 연결할 레코드를 확인하세요." : "모든 항목을 기준 파일 항목에 자동으로 연결했습니다."}</p>
+            <p>{reviewMappings.length ? `기준 파일과 항목명이 달라 확인 필요 ${reviewMappings.length}개` : unlinkedImages ? "이미지를 연결할 레코드 확인" : "모든 항목을 기준 파일 항목에 자동 연결"}</p>
           </div>
           <Button type="button" variant="outline" className="secondary-action" aria-expanded={allMappings} onClick={() => setAllMappings((value) => !value)}>
             {allMappings ? "확인 항목만 보기" : "전체 매핑 보기"}
           </Button>
         </div>
-        {unlinkedImages > 0 ? <p className="aggregation-unlinked" role="status">미연결 이미지 {unlinkedImages}건 · 첨부 이미지 시트에서 출처와 위치를 확인하세요.</p> : null}
+        {unlinkedImages > 0 ? <p className="aggregation-unlinked" role="status">미연결 이미지 {unlinkedImages}건 · 첨부 이미지 시트에서 출처와 위치 확인</p> : null}
         {pendingIssues.length > 0 ? (
           <ul className="aggregation-issues">
             {pendingIssues.map((issue) => (
@@ -3582,12 +3624,12 @@ function AggregationResults({ draft, selection, busy, onSelection, onExport }: {
       </section>
 
       <section className="aggregation-section" aria-labelledby="aggregation-preview">
-        <div className="aggregation-section-heading"><div><h3 id="aggregation-preview">결과 미리보기</h3><p>다운로드할 결과 시트와 같은 기준 항목으로 시트당 최대 20건을 표시합니다.</p></div></div>
+        <div className="aggregation-section-heading"><div><h3 id="aggregation-preview">결과 미리보기</h3><p>다운로드할 결과 시트의 기준 항목으로 시트당 최대 20건 표시</p></div></div>
         {tableTargets.map((target) => {
           const columns = columnsOf(target);
           const records = recordsByTarget.get(target.id) ?? [];
           if (records.length === 0 || columns.length === 0) {
-            return <p className="aggregation-preview-empty" key={target.id}>{target.name}: {records.length ? "포함된 항목이 없습니다." : "표시할 레코드가 없습니다."}</p>;
+            return <p className="aggregation-preview-empty" key={target.id}>{target.name}: {records.length ? "포함된 항목 없음" : "표시할 레코드 없음"}</p>;
           }
           const files = draft.workbooks.filter((workbook) => workbook.sheets.some((sheet) => target.sheetIds.includes(sheet.id) && selectedSheets.has(sheet.id)));
           return (
@@ -3605,7 +3647,7 @@ function AggregationResults({ draft, selection, busy, onSelection, onExport }: {
             </section>
           );
         })}
-        {resultTargets.length === 0 ? <p className="aggregation-preview-empty">시트를 선택하면 결과를 미리 볼 수 있습니다.</p> : null}
+        {resultTargets.length === 0 ? <p className="aggregation-preview-empty">시트 선택 후 결과 미리보기</p> : null}
       </section>
     </section>
   );
@@ -3615,8 +3657,9 @@ function AggregationResults({ draft, selection, busy, onSelection, onExport }: {
  * The inspector groups only byte-identical quotes from the same file. Every
  * SourceRef remains in the group so location coverage is preserved.
  */
-function SourceDetail({ entries, fileNames, onClose }: {
+function SourceDetail({ entries, supplement, fileNames, onClose }: {
   entries: readonly DetailEntry[];
+  supplement?: SupplementFinding;
   fileNames: Map<string, string>;
   onClose: () => void;
 }) {
@@ -3649,7 +3692,11 @@ function SourceDetail({ entries, fileNames, onClose }: {
         <Button type="button" variant="ghost" size="sm" onClick={onClose} aria-label="닫기">닫기</Button>
       </header>
       {fileHeading ? <p className="evidence-file-list" title={fileHeading}>{fileHeading}</p> : null}
-      <div className="evidence-type"><span>원문</span><p>문서에서 확인된 근거 · {entries.length.toLocaleString("ko-KR")}곳</p></div>
+      {supplement && groups.length === 0 ? <section className="evidence-entry supplement-evidence" aria-label="보완 판단 근거">
+        <h3>{supplement.title}</h3>
+        {fileNames.get(supplement.fileId) ? <p className="evidence-file-list">{fileNames.get(supplement.fileId)}</p> : null}
+        <SupplementEvidenceFields supplement={supplement} />
+      </section> : null}
       {groups.map((group, index) => {
         const [lead] = group.entries;
         const locations = [...new Set(group.entries.map(({ source, role }) => {
@@ -3657,9 +3704,13 @@ function SourceDetail({ entries, fileNames, onClose }: {
           return `${locatorText(source)}${roleLabel ? ` · ${roleLabel}` : ""}`;
         }))];
         const fileName = multipleFiles ? fileNames.get(lead.source.fileId) : undefined;
+        // The finding's own fields belong to its first evidence entry; the same quote is shown once.
+        const finding = index === 0 ? supplement : undefined;
         return (
-          <section className="evidence-entry" key={group.key}>
+          <section className={finding ? "evidence-entry supplement-evidence" : "evidence-entry"} key={group.key}>
             <h3>근거 {index + 1}{fileName ? ` · ${fileName}` : ""}</h3>
+            {finding ? <p className="supplement-evidence-title">{finding.title}</p> : null}
+            {finding ? <SupplementEvidenceFields supplement={finding} quote={lead.source.quote} /> : null}
             <ul className="evidence-location-list" aria-label={`근거 ${index + 1} 위치`}>
               {locations.map((location) => <li key={location}>{location}</li>)}
             </ul>
@@ -3669,4 +3720,18 @@ function SourceDetail({ entries, fileNames, onClose }: {
       })}
     </aside>
   );
+}
+
+/** Supplement fields inside one evidence entry; a current excerpt equal to the entry quote is not repeated. */
+function SupplementEvidenceFields({ supplement, quote }: { supplement: SupplementFinding; quote?: string }) {
+  const current = supplement.current && supplement.current.trim() !== quote?.trim() ? supplement.current : undefined;
+  return <>
+    <dl className="supplement-fields">
+      {current ? <div><dt>현재 자료</dt><dd><q>{current}</q></dd></div> : null}
+      {supplement.locations.length > 0 ? <div><dt>{supplement.scope === "report" ? "보완 대상" : "원문 위치"}</dt><dd>{supplement.locations.join(", ")}</dd></div> : null}
+      {supplement.evidenceLocations?.length ? <div><dt>{supplement.scope === "conflict" ? "자료별 설명" : "관련 근거 위치"}</dt><dd>{supplement.evidenceLocations.join(", ")}</dd></div> : null}
+    </dl>
+    {supplement.linkNote ? <p className="supplement-note">{supplement.linkNote}</p> : null}
+    {supplement.limitation ? <p className="supplement-limitation">{supplement.limitation}</p> : null}
+  </>;
 }
