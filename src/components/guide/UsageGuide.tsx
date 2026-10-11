@@ -173,7 +173,7 @@ const GUIDES: Guide[] = [
       { title: "업무 등록", text: "업무 설명 입력, 필요하면 업무명·자료 추가", mini: <Run label="업무 등록" before={<Field text="자료 취합과 승인 절차" />} /> },
       { title: "업무 진단", text: "업무 특성과 자동화 가능성 진단", mini: <Result title="진단 결과" status="진단 완료" lines={["반복성 · 규칙성 · 데이터 구조화", "시스템 접근성 · 담당자 판단 · 위험"]} /> },
       { title: "자동화 매트릭스", text: "업무별 가치와 실현 가능성 비교", mini: <Result title="자동화 매트릭스" status="진단 업무" lines={["빠른 실행 후보 · 전략 과제", "검토 후보 · 수동 유지·보류"]} /> },
-      { title: "결과·로드맵", text: "구현 범위·시작 전 확인·완료 기준 검토 후 Codex 또는 Claude Code용 지시문 생성. 접힌 지시문도 전체 복사 가능", mini: <Result title="결과·로드맵" status="검토 대기" actions={["Codex · Claude Code"]} lines={["01 구현 범위 → 02 시작 전 확인 → 03 완료 기준", "04 코딩 에이전트 지시문 · 전체 복사"]} /> },
+      { title: "결과·로드맵", text: "구현 범위·시작 전 확인·완료 기준 검토 후 Codex 또는 Claude Code용 지시문 생성. 필요하면 03 아래의 ‘설치·시작 가이드’를 펼친 뒤 04 지시문을 복사합니다. 접힌 지시문도 전체 복사 가능", mini: <Result title="결과·로드맵" status="검토 대기" actions={["Codex · Claude Code"]} lines={["01 구현 범위 → 02 시작 전 확인 → 03 완료 기준", "설치·시작 가이드 → 04 코딩 에이전트 지시문"]} /> },
     ],
     tip: "매트릭스의 위치나 우선순위만으로 구현을 승인할 수 없습니다. 진행 전 선행 조건과 담당자 검토·승인 및 필요한 검증을 확인하세요",
   },

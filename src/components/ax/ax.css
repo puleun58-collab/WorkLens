@@ -303,14 +303,16 @@
 .ax-prompt-actions .ax-copy-button[data-copied="true"] { background: color-mix(in srgb, var(--primary) 86%, var(--foreground)); border-color: transparent; }
 .ax-copy-error { flex: 1 1 100%; margin: 0; text-align: right; font-size: var(--font-size-xs); color: var(--destructive); }
 .ax-plan-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 16px; }
-.ax-plan-toolbar .ax-guide { display: contents; }
-.ax-plan-toolbar .ax-guide-item { display: contents; border: 0; }
-/* The shared trigger has a header wrapper; the panel class is on its inner content. */
-.ax-plan-toolbar .ax-guide-item > h3 { display: contents; }
-.ax-guide-panel, .ax-plan-toolbar .ax-guide-item > [data-slot=accordion-panel] { flex: 1 1 100%; order: 10; min-width: 0; }
-.ax-guide .ax-guide-trigger { width: fit-content; flex: 0 0 auto; margin-left: auto; white-space: nowrap; border: 1px solid color-mix(in srgb, var(--primary) 32%, var(--border)); background: color-mix(in srgb, var(--primary) 6%, var(--card)); border-radius: 6px; padding: 7px 12px; align-items: center; }
-.ax-guide .ax-guide-trigger:hover, .ax-guide .ax-guide-trigger[data-panel-open] { background: color-mix(in srgb, var(--primary) 11%, var(--card)); }
+.ax-plan-guide { min-width: 0; border-top: 1px solid var(--border); }
+.ax-guide .ax-guide-item { border: 0; }
+.ax-guide .ax-guide-trigger { width: 100%; padding: 24px 0; align-items: center; border: 0; border-radius: 0; background: transparent; color: var(--foreground); font-size: var(--font-size-md); font-weight: var(--font-weight-semibold); }
+.ax-guide .ax-guide-trigger:hover, .ax-guide .ax-guide-trigger[data-panel-open] { background: transparent; }
 .ax-guide .ax-guide-trigger svg { flex: none; }
+.ax-guide-action { margin-left: auto; color: var(--muted-foreground); font-size: var(--font-size-xs); font-weight: var(--font-weight-regular, 400); white-space: nowrap; }
+.ax-guide-action > span:last-child, .ax-guide-trigger[data-panel-open] .ax-guide-action > span:first-child { display: none; }
+.ax-guide-trigger[data-panel-open] .ax-guide-action > span:last-child { display: inline; }
+.ax-guide .ax-guide-panel { padding-bottom: 24px; }
+.ax-guide .ax-tutorial-intro { margin-top: 0; }
 .ax-cmd { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.9em; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--foreground); background: color-mix(in srgb, var(--muted) 18%, var(--card)); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; }
 /* Setup guide: readable body, STEP > section > body > command hierarchy, left aligned. */
 .ax-guide-panel { color: var(--foreground); font-size: var(--font-size-sm); line-height: 1.7; text-align: left; min-width: 0; }
@@ -387,6 +389,7 @@
 .ax-tutorial-terms-panel dl > div { display: grid; grid-template-columns: minmax(0, 190px) minmax(0, 1fr); gap: 4px 16px; padding: 7px 0; }
 .ax-tutorial-terms-panel dt { font-weight: 700; overflow-wrap: anywhere; }
 .ax-tutorial-terms-panel dd { margin: 0; font-weight: 400; overflow-wrap: anywhere; }
+.ax-tutorial-term-translation { display: block; color: var(--muted-foreground); font-size: var(--font-size-xs); font-weight: var(--font-weight-regular, 400); white-space: nowrap; }
 .ax-tutorial-course { margin-top: 12px; }
 .ax-tutorial-course-head { display: flex; gap: 12px; align-items: flex-start; padding: 24px 0 18px; }
 .ax-tutorial-course-head > svg { width: 22px; height: 22px; margin-top: 2px; color: var(--primary); }
@@ -431,6 +434,8 @@
 .ax-plan-data dd { margin: 0; min-width: 0; color: var(--foreground); overflow-wrap: anywhere; }
 .ax-plan-note { margin: 0; color: var(--muted-foreground); font-size: var(--font-size-xs); }
 .ax-plan-instructions { min-width: 0; }
+.ax-plan-instructions > h4 { scroll-margin-top: 100px; }
+.ax-plan-instructions > h4:focus-visible { outline: 2px solid var(--primary); outline-offset: 4px; }
 @media(max-width: 700px) {
   .ax-package > button, .ax-tool-tabs [data-slot=tabs-content] > button { max-width: 100%; height: auto; min-height: 36px; white-space: normal; overflow-wrap: anywhere; }
   .ax-prompt { padding: 12px; }
