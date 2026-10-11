@@ -654,12 +654,20 @@ test("RESEARCH analysis runs each fixed mode, keeps MCP meaning and retries with
   await analysisForm.getByLabel("조문", { exact: true }).fill("제103조");
   await page.locator(".legal-analysis-form").getByRole("button", { name: "실행" }).click();
   await expect(page.locator(".legal-analysis-title")).toHaveText("조문 영향도: 민법 제103조");
-  const failedAxis = page.locator(".legal-analysis-axes li.is-failed");
+  const failedAxis = page.locator(".legal-analysis-axes tr.is-failed");
   await expect(failedAxis).toContainText("조회 실패");
   await expect(failedAxis).toContainText("0건이 아니라 확인하지 못한 상태입니다.");
-  await expect(page.locator('.legal-analysis-axes li[data-state="partial"]').first()).toContainText("확인된 결과 7건검색 결과 42건 중 10건을 확인했습니다.");
-  await expect(page.locator('.legal-analysis-axes li[data-state="law_only"]')).toContainText("조문 단위의 일치 여부는 확인되지 않았습니다.");
-  await expect(page.locator(".legal-analysis-output")).toContainText("확인된 인용 결과 7건");
+  const partialAxis = page.locator('.legal-analysis-axes tr[data-state="partial"]').first();
+  await expect(partialAxis.locator("td").first()).toHaveText("확인 7건");
+  await expect(partialAxis.locator(".impact-citation-detail")).toContainText("검색 결과 42건 중 10건을 확인했습니다.");
+  await expect(page.locator('.legal-analysis-axes tr[data-state="law_only"]')).toContainText("조문 단위의 일치 여부는 확인되지 않았습니다.");
+  // The confirmed badge carries the existing article-matched total; follow-up and failures count 자료 유형 rows, never summed.
+  const summary = page.locator(".impact-citations-summary");
+  await expect(summary.getByLabel("확인된 인용 결과 7건", { exact: true })).toHaveText("확인 7건");
+  await expect(summary).toContainText("추가 확인");
+  await expect(summary).toContainText("조회 실패 1개 유형");
+  await expect(page.locator(".legal-analysis-axes thead th")).toHaveText(["자료 유형", "검색 결과", "확인 내용"]);
+  await expect(page.locator(".impact-citations-note")).toContainText("실제 법령명과 조문이 일치하는 결과만 집계합니다.");
   await expect(page.locator(".legal-analysis-output")).toContainText("인용 현황");
   const shownImpact = await page.locator(".legal-analysis-output").evaluate((node) => [...node.children].filter((child) => !child.matches("details")).map((child) => child.textContent).join("\n"));
   expect(shownImpact).not.toMatch(/표본|보류|부분 일치|영향 그래프|총 영향 건수|미반영/u);

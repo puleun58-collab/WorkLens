@@ -473,7 +473,8 @@ export interface ImpactMapPresentation {
   law?: string;
   axes: ImpactAxisView[];
   notes: string[];
-  total?: { headline: string; lines: string[] };
+  /** `count` is the MCP total minus 자치법규 (matched by law name only), the same number as `headline`. */
+  total?: { count: number; headline: string; lines: string[] };
   citedLaws: string[];
   related: ImpactRelatedSearch[];
   /** Official article text (and failure notes about it) for the evidence disclosure. */
@@ -530,7 +531,8 @@ export function impactMapPresentation(text: string): ImpactMapPresentation {
         const note = impactNote(line);
         if (note) lines.push(note);
       }
-      result.total = { headline: `확인된 인용 결과 ${Number(total[1]) - ordinances}건`, lines };
+      const count = Number(total[1]) - ordinances;
+      result.total = { count, headline: `확인된 인용 결과 ${count}건`, lines };
       return;
     }
     if (/^이 조문이 인용한 다른 법령/u.test(heading)) {

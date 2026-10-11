@@ -1,6 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { AlertCircle, CheckCircle2, CircleMinus, Info } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,7 +16,7 @@ import {
 } from "@/lib/law-analysis";
 import {
   applicableLawPresentation, citeCheckResult, impactMapPresentation, verifyCitationsResult,
-  type AnalysisSection,
+  type AnalysisSection, type ImpactAxisState, type ImpactAxisView, type ImpactMapPresentation,
 } from "@/lib/law-analysis-parse";
 import { lawDisplayText } from "@/lib/law-display";
 import { lawTextOutcome, type LawTextOutcome } from "@/lib/law-search";
@@ -227,6 +230,71 @@ function AxisLabel({ label }: { label: string }) {
   </span>;
 }
 
+type CitationTone = "success" | "warning" | "error" | "neutral";
+/** Presentation of the parser's existing state; no count or verdict is derived here. */
+const AXIS_TONE: Record<ImpactAxisState, CitationTone> = {
+  found: "success", partial: "warning", law_only: "warning", failed: "error", none: "neutral", empty: "neutral", unknown: "neutral",
+};
+const BADGE_VARIANT = { success: "success", warning: "warning", error: "error", neutral: "secondary" } as const;
+const FAILED_AXIS_NOTE = "조회에 실패한 자료 유형은 0건이 아니라 확인하지 못한 것입니다.";
+
+function ToneIcon({ tone }: { tone: CitationTone }) {
+  return tone === "success" ? <CheckCircle2 aria-hidden="true" /> : tone === "neutral" ? <CircleMinus aria-hidden="true" /> : <AlertCircle aria-hidden="true" />;
+}
+
+/** 인용 현황: one white box — title and summary badges, a 자료 유형 · 검색 결과 · 확인 내용 table, one scope note. */
+function CitationStatus({ axes, total, notes }: Pick<ImpactMapPresentation, "axes" | "total" | "notes">) {
+  const id = useId();
+  // Counts keep their own basis: the confirmed total is the MCP's article-matched figure; the others count 자료 유형 rows.
+  const followUp = axes.filter((axis) => axis.state === "partial" || axis.state === "law_only").length;
+  const failed = axes.filter((axis) => axis.state === "failed").length;
+  const summary: { tone: CitationTone; label: string; title: string }[] = [
+    // Zero confirmed citations is a count, not a confirmation, so it stays neutral.
+    ...(total ? [{ tone: total.count > 0 ? "success" as const : "neutral" as const, label: `확인 ${total.count}건`, title: total.headline }] : []),
+    ...(followUp ? [{ tone: "warning" as const, label: `추가 확인 ${followUp}개 유형`, title: "일부만 확인했거나 조문 단위 일치가 확인되지 않은 자료 유형" }] : []),
+    ...(failed ? [{ tone: "error" as const, label: `조회 실패 ${failed}개 유형`, title: "조회하지 못한 자료 유형" }] : []),
+  ];
+  // The failed rows already say they are unchecked, not zero; every other note is kept once.
+  const otherNotes = notes.filter((note) => !(failed && note === FAILED_AXIS_NOTE));
+  const shown = (axis: ImpactAxisView) => /^확인된 결과 (\d+)건$/u.exec(axis.headline)?.[1];
+  return <section className="legal-analysis-section impact-citations" aria-labelledby={`${id}-title`}>
+    <header className="impact-citations-head">
+      <div>
+        <h3 id={`${id}-title`}>인용 현황</h3>
+        <p className="impact-citations-desc">이 조문을 인용한 판례·헌재 결정례·법령해석례·행정심판례와 이 법령을 언급한 자치법규 확인</p>
+      </div>
+      {summary.length > 0 && <div className="impact-citations-summary">
+        {summary.map((item) => <Badge key={item.tone} variant={BADGE_VARIANT[item.tone]} data-tone={item.tone} title={item.title} aria-label={item.title === total?.headline ? item.title : `${item.label} · ${item.title}`}>
+          <ToneIcon tone={item.tone} />{item.label}
+        </Badge>)}
+      </div>}
+    </header>
+    <table className="legal-analysis-axes impact-citations-table">
+      <thead><tr><th scope="col">자료 유형</th><th scope="col">검색 결과</th><th scope="col">확인 내용</th></tr></thead>
+      <tbody>{axes.map((axis) => {
+        const tone = AXIS_TONE[axis.state], count = shown(axis);
+        return <tr key={axis.label} className={axis.state === "failed" ? "is-failed" : undefined} data-state={axis.state}>
+          <th scope="row"><AxisLabel label={axis.label} /></th>
+          <td><Badge variant={BADGE_VARIANT[tone]} data-tone={tone} className="impact-citation-result"><ToneIcon tone={tone} />{count ? `확인 ${count}건` : axis.headline}</Badge></td>
+          <td className="impact-citation-detail">{axis.detail ?? (axis.state === "empty" ? "검색 결과가 없습니다." : "")}</td>
+        </tr>;
+      })}</tbody>
+    </table>
+    <Alert variant="info" className="impact-citations-note">
+      <Info aria-hidden="true" />
+      <AlertDescription>
+        <p>법제처 검색 결과에는 유사 조문이나 다른 법령이 포함될 수 있어, 실제 법령명과 조문이 일치하는 결과만 집계합니다.</p>
+        {/* "이 건수" in these lines refers to the confirmed total, so they stay under its existing headline. */}
+        {total && total.lines.length > 0 && <div className="impact-citations-total">
+          <p>{total.headline}</p>
+          <ul>{total.lines.map((line) => <li key={line}>{line}</li>)}</ul>
+        </div>}
+        {otherNotes.length > 0 && <ul>{otherNotes.map((line) => <li key={line}>{line}</li>)}</ul>}
+      </AlertDescription>
+    </Alert>
+  </section>;
+}
+
 function AnalysisResult({ data, request, completedAt, onRelatedSearch }: { data: LawAnalysisData; request: LawAnalysisRequest; completedAt: number; onRelatedSearch?: (search: RelatedSearch) => void }) {
   let body: ReactNode;
   let source: ReactNode;
@@ -274,25 +342,11 @@ function AnalysisResult({ data, request, completedAt, onRelatedSearch }: { data:
       {view.title && <h3 className="legal-analysis-title">{analysisTitle(view.title)}</h3>}
       {view.law && <p className="legal-analysis-lines">법령: {lawDisplayText(view.law)}</p>}
       <Sections sections={[...sourceFailures, ...view.other]} />
-      {view.axes.length > 0 && <div className="legal-analysis-section">
-        <h3>인용 현황</h3>
-        <p className="law-search-note">이 조문을 인용한 판례·헌재 결정례·법령해석례·행정심판례와 이 법령을 언급한 자치법규 확인</p>
-        <ul className="legal-analysis-axes">
-          {view.axes.map((axis) => <li key={axis.label} className={axis.state === "failed" ? "is-failed" : undefined} data-state={axis.state}>
-            <AxisLabel label={axis.label} />
-            <span className="legal-analysis-axis-value">
-              <strong>{axis.headline}</strong>
-              {axis.detail && <span className="legal-analysis-axis-detail">{axis.detail}</span>}
-            </span>
-          </li>)}
-        </ul>
-        <p className="law-search-note">법제처 검색 결과에는 유사 조문이나 다른 법령이 포함될 수 있어, 실제 법령명과 조문이 일치하는 결과만 집계</p>
-        <Lines lines={view.notes} />
-      </div>}
-      {view.total && <div className="legal-analysis-section">
-        <h3>{view.total.headline}</h3>
-        <Lines lines={view.total.lines} />
-      </div>}
+      {view.axes.length > 0 ? <CitationStatus axes={view.axes} total={view.total} notes={view.notes} />
+        : view.total && <div className="legal-analysis-section">
+          <h3>{view.total.headline}</h3>
+          <Lines lines={view.total.lines} />
+        </div>}
       {view.citedLaws.length > 0 && <Sections sections={[{ heading: `이 조문이 인용한 다른 법령 ${view.citedLaws.length}건`, lines: view.citedLaws }]} />}
       {related.length > 0 && onRelatedSearch && <div className="legal-analysis-section">
         <h3>관련 조회</h3>
