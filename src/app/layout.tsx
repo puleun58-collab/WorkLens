@@ -6,7 +6,7 @@ import "./workspace-shell.css";
 const origin = new URL(process.env.WORKLENS_ORIGIN ?? "https://worklens.puleun58.workers.dev");
 const title = "WorkLens | 업무 문서 작업 공간";
 const description = "문서 분석·비교·검수·추출·취합과 법령 리서치를 한곳에서 처리합니다.";
-const shareImage = "/brand/worklens-og-document-lens.png?v=2";
+const shareImage = "/brand/worklens-og-document-lens.png?v=3";
 const shareImageAlt = "WorkLens 문서 레이어와 돋보기 로고 | 업무 문서 작업 공간";
 
 export const metadata: Metadata = {
