@@ -1506,7 +1506,8 @@ test("RESEARCH distinguishes empty, low-relevance and partial evidence without a
   await query.fill("일부 근거");
   await run.click();
   await expect(overview.locator("h3")).toHaveText("관련 근거를 일부 확인했습니다");
-  await expect(overview.locator(".research-caution")).toHaveText("확인한 근거는 관련 쟁점을 검토하기 위한 자료이며, 구체적인 사건의 법적 결론을 의미하지 않습니다.");
+  await expect(overview.locator(".research-caution")).toHaveText("※ 확인한 근거는 관련 쟁점을 검토하기 위한 자료이며, 구체적인 사건의 법적 결론을 의미하지 않습니다.");
+  await expect(overview.locator(".research-summary-status")).toHaveText("추가 확인 필요");
   // Each issue keeps access to its own references; unavailable evidence remains explicit.
   const selected = page.locator(".research-selected");
   const groups = selected.locator(".research-issue-evidence");
@@ -1568,7 +1569,7 @@ test("RESEARCH every task applies the same result rules while keeping its own st
       await expect(output.locator(".research-overview .research-eyebrow").first(), task).toHaveText(labels[task]);
       await expect(output.locator(".research-overview h3"), task).toHaveText(/^관련 근거를 (?:확인했습니다|일부 확인했습니다|확인하지 못했습니다)$|^직접 관련된 근거가 충분하지 않습니다$/u);
       statuses.add(`${task}:${await output.locator(".research-overview h3").getAttribute("data-status")}`);
-      await expect(output.locator(".research-original > span"), task).toHaveText("입력한 질문");
+      await expect(output.locator(".research-query"), task).toHaveText(/^입력한 질문: \S/u);
       // Search-engine vocabulary stays out of what the reader sees.
       for (const text of await output.locator(":scope > .research-overview, :scope > .research-group").allInnerTexts()) {
         expect(text, task).not.toMatch(/후보|검색 보정|시그널|STEP\s*\d|API 조건|내부 검색어/u);
@@ -1614,7 +1615,7 @@ test("RESEARCH separates a verified article from search candidates and hides int
   await form.getByRole("button", { name: "실행" }).click();
   const output = page.locator(".legal-research .legal-analysis-output");
   await expect(output.locator(".research-overview")).toContainText("직장에서 괴롭힘 문제를 겪는 상황");
-  await expect(output.locator(".research-original").first()).toContainText("입력한 질문");
+  await expect(output.locator(".research-query")).toContainText("입력한 질문: ");
   await expect(output.locator(".research-understanding")).toContainText("이렇게 이해했어요");
   await expect(output.getByRole("heading", { name: "확인한 근거" })).toBeVisible();
   await expect(output.locator(".research-selected")).toContainText("근로기준법 제76조의2");
