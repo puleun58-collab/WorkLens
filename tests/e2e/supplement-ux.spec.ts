@@ -64,7 +64,7 @@ for (const width of [1440, 390]) {
     await prepare(page);
     await page.getByRole("button", { name: "보완 실행", exact: true }).click();
     const results = page.locator(".supplement-results");
-    const cause = results.locator(".supplement-item").filter({ has: page.getByRole("heading", { name: /증가 원인 미확인$/ }) });
+    const cause = results.locator(".supplement-item").filter({ hasText: "주요 증가 요인" });
     await expect(cause).toBeVisible();
     await expect(cause.locator(".check-severity")).toHaveText("중요");
     const trigger = cause.locator(".supplement-item-head");
@@ -137,7 +137,7 @@ test("보완 API 오류 뒤 결정적 결과와 한계를 보존하고 다시 �
   await run.click();
   await expect(page.getByText(PARTIAL_NOTICE, { exact: true })).toHaveCount(1);
   await expect(page.getByText(/AI 요청 처리 실패/)).toHaveCount(0);
-  await expect(page.locator(".supplement-item").getByRole("heading", { name: /원인 미확인$/ })).toBeVisible();
+  await expect(page.locator(".supplement-item").filter({ hasText: "주요 증가 요인" })).toBeVisible();
   await expect(page.locator(".supplement-item .supplement-limitation").first()).toContainText("의미 기반 재확인을 완료하지 못해");
   await expect(run).toBeEnabled();
   fail = false;
@@ -207,7 +207,7 @@ test("숫자는 있으나 목표·이전 기간이 없는 자료는 원문 값�
   await page.route("**/api/ai", completeReview);
   await prepare(page, baselineDeck);
   await page.getByRole("button", { name: "보완 실행", exact: true }).click();
-  const baseline = page.locator(".supplement-item").filter({ has: page.getByRole("heading", { name: /비교 기준 미확인$/ }) });
+  const baseline = page.locator(".supplement-item").filter({ hasText: "목표값 또는 기준값" });
   await expect(baseline).toBeVisible();
   await expect(baseline.locator(".check-severity")).toHaveText("확인 필요");
   await expect(baseline.locator("ul.supplement-readable-list > li > span:last-child")).toHaveText(["목표값 또는 기준값", "이전 기간 값"]);
@@ -280,7 +280,7 @@ test("재확인이 근거 없이 설명을 찾았다고 답해도 기존 위치�
   });
   await prepare(page);
   await page.getByRole("button", { name: "보완 실행", exact: true }).click();
-  const cause = page.locator(".supplement-item").filter({ has: page.getByRole("heading", { name: /증가 원인 미확인$/ }) });
+  const cause = page.locator(".supplement-item").filter({ hasText: "주요 증가 요인" });
   await expect(cause).toBeVisible();
   await expect(cause.locator(".supplement-limitation")).toContainText("AI가 제시한 근거에서 필요한 구체 정보를 확인하지 못해 누락 여부를 확정하지 않았습니다.");
   await expect(cause.locator(".check-severity")).toHaveText("확인 필요");

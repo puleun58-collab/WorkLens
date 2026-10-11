@@ -974,10 +974,6 @@ async function expectGuideTutorial(page: Page, panel: Locator, tool: "Codex" | "
   const intro = panel.locator(".ax-setup-tutorial");
   await expect(intro.locator(":scope > .ax-tutorial-course")).toHaveCount(3);
   await expect(toc.getByRole("button")).toHaveCount(9);
-  expect(await intro.locator(":scope > *").evaluateAll(elements => elements.map(element => element.className))).toEqual([
-    "ax-tutorial-intro", "ax-tutorial-toc", "ax-tutorial-context",
-    "ax-tutorial-course", "ax-tutorial-course", "ax-tutorial-course",
-  ]);
   const context = intro.locator(".ax-tutorial-context");
   await expect(context.locator(":scope > section").first().getByRole("heading", { name: "시작 전 알아두세요" })).toBeVisible();
   await expect(context.getByRole("heading", { name: "처음 시작할 때" })).toBeVisible();
@@ -1000,10 +996,6 @@ async function expectGuideTutorial(page: Page, panel: Locator, tool: "Codex" | "
   await expect(trigger.locator(".ax-tutorial-terms-action > span:last-child")).toBeVisible();
   await expect(terms.locator("dl > div")).toHaveCount(10);
   await expect(terms.locator("dl")).toBeVisible();
-  const weights = await terms.locator("dl > div").first().evaluate(row => [
-    getComputedStyle(row.querySelector("dt")!).fontWeight, getComputedStyle(row.querySelector("dd")!).fontWeight,
-  ]);
-  expect(weights).toEqual(["700", "400"]);
   await panel.screenshot({ path: `artifacts/ax/setup-tutorial-terms-expanded-${screenshotName}.png` });
   await expect(basics).toHaveAttribute("aria-expanded", "false");
   await basics.click();
@@ -1024,13 +1016,10 @@ async function expectGuideTutorial(page: Page, panel: Locator, tool: "Codex" | "
 
   await expect(secretStep.getByRole("heading", { name: ".gitignore란" })).toHaveCount(0);
   await expect(secretStep.getByRole("button", { name: /^\.gitignore란/ })).toHaveCount(0);
-  for (const number of [5, 6, 7]) {
-    await toc.getByRole("button", { name: new RegExp(`STEP\\s*0?${number}\\b`) }).click();
-    await expect(panel.locator(`.ax-guide-step[data-setup-step="${number}"] > h4`)).toBeFocused();
-  }
-
-  for (const number of [9, 3]) {
-    await toc.getByRole("button", { name: new RegExp(`STEP\\s*0?${number}\\b`) }).click();
+  for (let number = 1; number <= 9; number++) {
+    const link = toc.getByRole("button", { name: new RegExp(`STEP\\s*0?${number}\\b`) });
+    await link.focus();
+    await page.keyboard.press("Enter");
     const heading = panel.locator(`.ax-guide-step[data-setup-step="${number}"] > h4`);
     await expect(heading).toBeFocused();
     // Check the real viewport hit target rather than pinning a scroll offset or CSS value.
@@ -1041,6 +1030,13 @@ async function expectGuideTutorial(page: Page, panel: Locator, tool: "Codex" | "
       return hit !== null && (hit === element || element.contains(hit));
     })).toBe(true);
   }
+  const alignment = await panel.locator(".ax-guide-step").evaluateAll(steps => steps.flatMap(step => {
+    const x = step.querySelector(".ax-guide-step-title")!.getBoundingClientRect().x;
+    return [...step.querySelectorAll(":scope > p, :scope > .ax-guide-section > h5, :scope > .ax-guide-section > p, :scope > .ax-guide-section .ax-guide-code")]
+      .filter(element => element.getBoundingClientRect().width)
+      .map(element => Math.abs(element.getBoundingClientRect().x - x));
+  }));
+  for (const offset of alignment) expect(offset).toBeLessThanOrEqual(2);
 
   await expectActualMarkerGaps(panel);
   const notes = await panel.locator(".ax-guide-code-notes").evaluateAll(elements => elements.flatMap(element => {

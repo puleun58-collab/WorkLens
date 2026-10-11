@@ -315,19 +315,27 @@
 /* Setup guide: readable body, STEP > section > body > command hierarchy, left aligned. */
 .ax-guide-panel { color: var(--foreground); font-size: var(--font-size-sm); line-height: 1.7; text-align: left; min-width: 0; }
 /* Each STEP is one unit: a stronger divider than the in-step completion line, a fixed number column, and a body that starts under the title. */
-.ax-setup-tutorial { --ax-step-no: 4.5rem; --ax-step-divider: color-mix(in srgb, var(--foreground) 16%, var(--border)); }
+.ax-setup-tutorial { --ax-step-no: 5.5rem; --ax-step-divider: color-mix(in srgb, var(--foreground) 16%, var(--border)); }
 .ax-guide-step { min-width: 0; padding: 28px 0 30px; border-top: 1px solid var(--ax-step-divider); }
 .ax-guide-step > h4 { display: grid; grid-template-columns: var(--ax-step-no) minmax(0, 1fr); align-items: baseline; margin: 0 0 6px; color: var(--foreground); font-size: var(--font-size-md); font-weight: var(--font-weight-semibold); scroll-margin-top: 100px; }
 .ax-guide-step-title { display: flex; align-items: baseline; gap: 8px; min-width: 0; overflow-wrap: anywhere; }
-.ax-guide-step-title > svg { align-self: center; }
 .ax-guide-step > h4:focus-visible { outline: 2px solid var(--primary); outline-offset: 4px; }
-.ax-tutorial-step-no { color: var(--primary); font-size: var(--font-size-xs); font-weight: var(--font-weight-semibold); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ax-tutorial-step-no { display: inline-flex; align-items: center; gap: 8px; color: var(--primary); font-size: var(--font-size-xs); font-weight: var(--font-weight-semibold); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .ax-guide-step > :not(h4) { margin-left: var(--ax-step-no); }
 .ax-guide-step > .ax-guide-purpose { margin-top: 0; margin-bottom: 16px; color: var(--muted-foreground); overflow-wrap: anywhere; }
 .ax-guide-section { margin-top: 18px; }
 .ax-guide-section > h5 { display: flex; align-items: baseline; gap: 6px; margin: 0 0 6px; font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); }
 .ax-guide-section > p { margin: 6px 0; overflow-wrap: anywhere; }
 .ax-guide-section > .ax-guide-when { margin: 0 0 8px; color: var(--muted-foreground); font-size: var(--font-size-xs); }
+/* One content rail; section icons hang beside it instead of indenting their text. */
+.ax-setup-tutorial .ax-guide-section { margin-top: 24px; }
+.ax-setup-tutorial .ax-tutorial-action-label + .ax-guide-section { margin-top: 16px; }
+.ax-setup-tutorial .ax-guide-section > h5, .ax-setup-tutorial .ax-tutorial-action-label { position: relative; }
+.ax-setup-tutorial .ax-guide-section > h5 > svg, .ax-setup-tutorial .ax-tutorial-action-label > svg { position: absolute; left: -26px; top: calc((1lh - 18px) / 2); }
+.ax-setup-tutorial .ax-guide-section > h5, .ax-setup-tutorial .ax-guide-section > p, .ax-setup-tutorial .ax-guide-section > .ax-guide-list { margin: 0; }
+.ax-setup-tutorial .ax-guide-section > * + * { margin-top: 8px; }
+.ax-setup-tutorial .ax-guide-section > h5 + .ax-guide-when { margin-top: 4px; }
+.ax-setup-tutorial .ax-guide-code { margin: 0; }
 .ax-guide-code { position: relative; min-width: 0; max-width: 100%; margin: 8px 0; padding: 34px 14px 12px; overflow-x: auto; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 13px; line-height: 1.7; white-space: pre; color: var(--foreground); background: color-mix(in srgb, var(--muted) 14%, var(--card)); border: 1px solid var(--border); border-radius: 8px; }
 .ax-guide-code-label { position: absolute; top: 6px; left: 14px; font-family: var(--font-sans); font-size: 11px; color: var(--muted-foreground); letter-spacing: .04em; }
 .ax-guide-code-wrap { position: relative; }
@@ -350,11 +358,11 @@
 .ax-tutorial-flow svg { color: var(--primary); }
 /* Jump links, not tabs: plain text with short dividers between neighbours. The nav is shifted left by one gap and clipped so a
    divider never dangles at the start of a wrapped line; the clip keeps a few px for focus rings. */
-.ax-tutorial-toc { --ax-toc-gap: 20px; position: relative; display: flex; flex-wrap: wrap; row-gap: 4px; margin-left: calc(var(--ax-toc-gap) * -1); padding: 10px 0; clip-path: inset(-4px -4px -4px calc(var(--ax-toc-gap) - 4px)); }
+.ax-tutorial-toc { --ax-toc-gap: 28px; position: relative; display: flex; flex-wrap: wrap; row-gap: 8px; margin-left: calc(var(--ax-toc-gap) * -1); padding: 12px 0; clip-path: inset(-4px -4px -4px calc(var(--ax-toc-gap) - 4px)); }
 .ax-tutorial-toc::before, .ax-tutorial-toc::after { content: ""; position: absolute; left: var(--ax-toc-gap); right: 0; height: 1px; background: var(--border); }
 .ax-tutorial-toc::before { top: 0; }
 .ax-tutorial-toc::after { bottom: 0; }
-.ax-tutorial-toc > button { position: relative; height: auto; min-height: 32px; max-width: 100%; margin-left: var(--ax-toc-gap); justify-content: flex-start; gap: 6px; padding: 4px 2px; border: 0; background: transparent; color: var(--foreground); font-weight: var(--font-weight-regular, 400); white-space: normal; text-align: left; overflow-wrap: anywhere; }
+.ax-tutorial-toc > button { position: relative; height: auto; min-height: 32px; max-width: 100%; margin-left: var(--ax-toc-gap); justify-content: flex-start; gap: 8px; padding: 4px 2px; border: 0; background: transparent; color: var(--foreground); font-weight: var(--font-weight-regular, 400); white-space: normal; text-align: left; overflow-wrap: anywhere; }
 /* The Button primitive owns its own ::before/::after, so the divider hangs off the number span (positioned by the button). */
 .ax-tutorial-toc > button > span:first-child::before { content: ""; position: absolute; top: 50%; left: calc(var(--ax-toc-gap) / -2); width: 1px; height: 1em; transform: translateY(-50%); background: var(--border); }
 .ax-tutorial-toc > button:hover, .ax-tutorial-toc > button[data-pressed] { background: transparent; }
@@ -383,7 +391,7 @@
 .ax-tutorial-course-head { display: flex; gap: 12px; align-items: flex-start; padding: 24px 0 18px; }
 .ax-tutorial-course-head > svg { width: 22px; height: 22px; margin-top: 2px; color: var(--primary); }
 .ax-tutorial-course-head h3 { margin: 0; font-size: var(--font-size-lg); font-weight: var(--font-weight-semibold); }
-.ax-guide-step > .ax-tutorial-action-label { display: flex; align-items: center; gap: 8px; margin-top: 18px; margin-bottom: 0; color: var(--muted-foreground); font-size: var(--font-size-xs); font-weight: var(--font-weight-medium); }
+.ax-guide-step > .ax-tutorial-action-label { display: flex; align-items: center; gap: 8px; margin-top: 0; margin-bottom: 0; color: var(--muted-foreground); font-size: var(--font-size-xs); font-weight: var(--font-weight-medium); }
 .ax-guide-completion { border-top: 1px solid var(--border); padding-top: 16px; }
 .ax-guide-completion > h5 svg { color: var(--primary); }
 .ax-guide-warning > h5 svg { color: var(--warning); }
@@ -393,7 +401,8 @@
   /* Narrow screens stack the STEP number above the title and use the full width for commands. */
   .ax-guide-step > h4 { grid-template-columns: minmax(0, 1fr); row-gap: 2px; }
   .ax-guide-step > :not(h4) { margin-left: 0; }
-  .ax-tutorial-toc { --ax-toc-gap: 16px; }
+  .ax-tutorial-toc { --ax-toc-gap: 24px; }
+  .ax-setup-tutorial .ax-guide-section > h5 > svg, .ax-setup-tutorial .ax-tutorial-action-label > svg { position: static; order: 1; }
   .ax-tutorial-flow { flex-direction: column; }
 .ax-tutorial-preflight { padding: 0; }
   .ax-tutorial-terms-panel dl > div { grid-template-columns: minmax(0, 1fr); gap: 0; }

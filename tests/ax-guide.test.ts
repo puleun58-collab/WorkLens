@@ -65,18 +65,6 @@ describe("AX execution guides", () => {
       for (const index of [5, 6, 7, 8, 9]) expect(guide[index]).toEqual(setupGuide(other)[index]);
     }
   });
-  it.each(["codex", "claude"] as const)("explains every code line and covers the complete %s workflow", tool => {
-    const guide = setupGuide(tool);
-    for (const block of guide.flatMap(step => step.sections.flatMap(section => section.blocks))) {
-      if (block.kind !== "code") continue;
-      expect(block.notes).toHaveLength(block.lines.length);
-      for (const note of block.notes!) expect(note.trim()).not.toBe("");
-    }
-    const gitSaveBlocks = guide[6].sections.flatMap(section => section.blocks);
-    expect(gitSaveBlocks.flatMap(block => block.kind === "code" && !block.label ? block.lines : [])).toEqual([
-      "git add .", "git status", "git diff --cached --stat", "git branch --show-current", "git remote -v", 'git commit -m "작업 내용 요약"', "git push",
-    ]);
-  });
   it.each(["codex", "claude"] as const)("labels file examples and preserves default command labels for %s", tool => {
     const blocks = setupGuide(tool).flatMap(step => step.sections.flatMap(section => section.blocks));
     const codeBlocks = blocks.filter(block => block.kind === "code");

@@ -165,8 +165,7 @@
 
 .supplement-item {
   display: grid;
-  gap: var(--space-2);
-  padding: var(--space-4) var(--space-5);
+  gap: var(--space-3);
   min-width: 0;
 }
 
@@ -187,7 +186,7 @@
   min-width: 0;
   overflow-wrap: anywhere;
   font-size: var(--font-size-md);
-  line-height: 1.5;
+  line-height: 1.45;
 }
 
 .supplement-item-detail {
@@ -218,16 +217,6 @@
   margin: 0;
 }
 
-.supplement-explanation dd {
-  display: grid;
-  gap: var(--space-1);
-  color: var(--ink-soft);
-  line-height: 1.55;
-}
-
-.supplement-explanation dd > p {
-  margin: 0;
-}
 
 .supplement-additions dd {
   color: var(--ink);
@@ -292,11 +281,6 @@
 }
 
 @media (max-width: 720px) {
-  .supplement-item {
-    padding-inline: var(--space-4);
-  }
-
-
   .supplement-meta > div {
     grid-template-columns: minmax(0, 1fr);
     gap: 2px;
