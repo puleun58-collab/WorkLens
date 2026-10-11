@@ -14,15 +14,14 @@ import { STATUS_TITLE, type ResearchStatus } from "@/lib/research-status";
 import { LawTextBlock } from "./LawTextBlock";
 import { ContractReviewResult, FileReviewExcluded } from "./ContractReviewResult";
 import { SourceToggleSummary } from "./SourceToggleSummary";
+import { ResearchResultSummary, ResearchSummaryNotice, ResearchSummaryNotices, STATUS_BADGE } from "./ResearchResultSummary";
 import type { ReviewableFiles } from "./LawSearch";
 import type { WorkspaceFile } from "@/client/protocol";
 import { runInWorker } from "@/client/document-client";
 import { reviewFileIdentityMatches, reviewIsStale } from "@/client/review-provenance";
 import { reviewRequestFor, type ReviewFile } from "@/lib/law-review-source";
 import { readReviewPreferences, resolveReviewPreferences, type ReviewPreferences } from "@/client/review-preferences";
-import { AlertCircle, ArrowDownRight, ChevronDown, Plus, Upload } from "lucide-react";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
+import { ArrowDownRight, ChevronDown, Plus, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -390,21 +389,14 @@ export function LegalResearch({ workspace, initialTask = "full_research" }: { wo
         원본 파일이 변경되거나 삭제되어 이전 검토 위치를 확인할 수 없습니다.
       </p>}
       {current.outcome?.kind === "error" ? isDocument ? <div className="contract-review">
-          <header className="research-overview">
-            <div className="contract-review-result-head">
-              <span className="research-eyebrow">문서 검토</span>
-              <Badge variant="error" className="contract-review-status"><AlertCircle aria-hidden="true" />검토 오류</Badge>
-            </div>
-            <h3 className="legal-analysis-title">문서 검토를 완료하지 못했습니다</h3>
-            {current.file && <p className="research-meta contract-review-file">검토 문서: {current.file.document.name}</p>}
-            <Alert variant="error" className="contract-review-notice">
-              <AlertCircle />
-              <AlertTitle>검토 오류</AlertTitle>
-              <AlertDescription><p className="law-search-error">{current.outcome.message}</p></AlertDescription>
-            </Alert>
+          <ResearchResultSummary label="문서 검토" badge={{ tone: "error", label: "검토 오류" }} title="문서 검토를 완료하지 못했습니다">
+            {current.file && <p className="research-meta research-summary-meta contract-review-file">검토 문서: {current.file.document.name}</p>}
+            <ResearchSummaryNotices>
+              <ResearchSummaryNotice tone="error" title="검토 오류"><p className="law-search-error">{current.outcome.message}</p></ResearchSummaryNotice>
+            </ResearchSummaryNotices>
             <Button type="button" variant="link" className="law-search-link" disabled={sourceChanged} onClick={retry}>다시 시도</Button>
             {sourceChanged && <p className="research-meta" role="status">원본 파일이 삭제되었거나 변경되어 다시 시도할 수 없습니다. 파일을 선택하고 새로 실행하세요.</p>}
-          </header>
+          </ResearchResultSummary>
         </div> : <div className="decision-feedback" role="alert">
           <p className="law-search-error">{current.outcome.message}</p>
           <Button type="button" variant="link" className="law-search-link" disabled={sourceChanged} onClick={retry}>다시 시도</Button>
@@ -412,20 +404,16 @@ export function LegalResearch({ workspace, initialTask = "full_research" }: { wo
         </div>
         : current.file && !current.outcome ? <FileReviewExcluded file={current.file} />
         : current.outcome?.kind === "missing" ? <div className={`legal-analysis-missing${isDocument ? " contract-review" : ""}`} role="status">
-          <header className="research-overview">
-            {isDocument ? <div className="contract-review-result-head">
-              <span className="research-eyebrow">문서 검토</span>
-              <Badge variant="secondary" className="contract-review-status">확인 근거 없음</Badge>
-            </div> : <span className="research-eyebrow">{LAW_RESEARCH_TASKS.find((item) => item.value === current.request.task)?.label}</span>}
-            <h3 className="legal-analysis-title">{STATUS_TITLE.none}</h3>
-            {isDocument && current.file && <p className="research-meta contract-review-file">검토 문서: {current.file.document.name}</p>}
-            {current.request.task !== "document_review" && <div className="research-original"><span>입력한 질문</span><p>{current.request.query}</p></div>}
+          <ResearchResultSummary label={isDocument ? "문서 검토" : LAW_RESEARCH_TASKS.find((item) => item.value === current.request.task)?.label}
+            badge={STATUS_BADGE.none} status="none" title={STATUS_TITLE.none}
+            caution="※ 조회되지 않았다고 관련 법령이나 판례가 없다는 뜻은 아닙니다." cautionClassName="research-caution">
+            {isDocument && current.file && <p className="research-meta research-summary-meta contract-review-file">검토 문서: {current.file.document.name}</p>}
+            {current.request.task !== "document_review" && <p className="research-meta research-summary-meta research-query">입력한 질문: {current.request.query}</p>}
             {current.request.task === "full_research" && current.outcome.data.interpretation?.original === current.request.query
               && <ResearchUnderstanding interpretation={current.outcome.data.interpretation} />}
             {current.request.task === "full_research" && !current.outcome.data.interpretation
               && <p className="research-meta research-uninterpreted">{UNINTERPRETED_NOTE}</p>}
-            <p className="research-caution">조회되지 않았다고 관련 법령이나 판례가 없다는 뜻은 아닙니다.</p>
-          </header>
+          </ResearchResultSummary>
         </div>
         : current.outcome?.kind === "found" ? current.outcome.data.review
           ? <ContractReviewResult review={current.outcome.data.review} file={current.file} expandSources={preferences.expandSources}
@@ -845,18 +833,19 @@ function ResearchResult({ data, request, expandSources = false, onExpandSourcesC
       : !available ? "none" : notice || unavailableCount ? "partial" : "matched";
 
   return <div ref={resultRef} className="legal-analysis-output" data-task={data.task}>
-    <header className="research-overview">
-      <span className="research-eyebrow">{LAW_RESEARCH_TASKS.find((item) => item.value === data.task)?.label}</span>
-      <h3 className="legal-analysis-title" data-status={status}>{STATUS_TITLE[status]}</h3>
-      {request.task !== "document_review" && <div className="research-original"><span>입력한 질문</span><p>{request.query}</p></div>}
+    <ResearchResultSummary label={LAW_RESEARCH_TASKS.find((item) => item.value === data.task)?.label} badge={STATUS_BADGE[status]} status={status} title={STATUS_TITLE[status]}
+      caution={status === "matched" || status === "partial"
+        ? `※ ${full ? "확인한 근거는" : "조회한 자료는"} 관련 쟁점을 검토하기 위한 자료이며, 구체적인 사건의 법적 결론을 의미하지 않습니다.`
+        : status === "none" ? "※ 조회되지 않았다고 관련 법령이나 판례가 없다는 뜻은 아닙니다." : undefined}
+      cautionClassName="research-caution">
+      {request.task !== "document_review" && <p className="research-meta research-summary-meta research-query">입력한 질문: {request.query}</p>}
       {interpretation && <ResearchUnderstanding interpretation={interpretation} evidence={issueEvidence} />}
       {full && !data.interpretation && <p className="research-meta research-uninterpreted">{UNINTERPRETED_NOTE}</p>}
-      <p className="research-caution">{status === "matched" || status === "partial"
-        ? `${full ? "확인한 근거는" : "조회한 자료는"} 관련 쟁점을 검토하기 위한 자료이며, 구체적인 사건의 법적 결론을 의미하지 않습니다.`
-        : status === "weak" ? "조회된 자료가 질문과 직접 관련되는지 확인되지 않았습니다. 아래 자료는 참고용입니다."
-        : "조회되지 않았다고 관련 법령이나 판례가 없다는 뜻은 아닙니다."}</p>
-    </header>
-    {notice && <p className="legal-research-partial" role="note">{notice}</p>}
+      <ResearchSummaryNotices>
+        {notice && <ResearchSummaryNotice tone="warning" title="관련 근거 일부 미확인" className="legal-research-partial">{notice}</ResearchSummaryNotice>}
+        {status === "weak" && <ResearchSummaryNotice tone="info" title="직접 관련성 확인 필요">조회된 자료가 질문과 직접 관련되는지 확인되지 않았습니다. 아래 자료는 참고용입니다.</ResearchSummaryNotice>}
+      </ResearchSummaryNotices>
+    </ResearchResultSummary>
     {full && issueEvidence.length > 1 && <nav className="research-issue-nav" aria-label="쟁점 바로가기">
       <span>쟁점 바로가기</span>
       <ol>{issueEvidence.map((issue, index) => <li key={`${issue.label ?? ""}-${index}`}>

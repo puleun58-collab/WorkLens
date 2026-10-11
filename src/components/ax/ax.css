@@ -305,7 +305,8 @@
 .ax-plan-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 16px; }
 .ax-plan-guide { min-width: 0; border-top: 1px solid var(--border); padding-top: 16px; }
 .ax-guide .ax-guide-item { border: 0; }
-.ax-guide .ax-guide-trigger { flex: none; width: max-content; max-width: 100%; min-height: 44px; padding: 10px 14px; align-items: center; justify-content: center; gap: 10px; border: 1px solid var(--primary); border-radius: var(--radius-md); background: color-mix(in srgb, var(--primary) 6%, var(--card)); color: var(--primary); font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); box-shadow: none; }
+/* The trigger sits at the right edge of the separator row in both states (margin-left: auto); the opened guide keeps the full width. */
+.ax-guide .ax-guide-trigger { flex: none; width: max-content; max-width: 100%; min-height: 44px; margin-left: auto; padding: 10px 14px; align-items: center; justify-content: center; gap: 10px; border: 1px solid var(--primary); border-radius: var(--radius-md); background: color-mix(in srgb, var(--primary) 6%, var(--card)); color: var(--primary); font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); box-shadow: none; }
 .ax-guide .ax-guide-trigger:hover, .ax-guide .ax-guide-trigger[data-panel-open]:hover { background: color-mix(in srgb, var(--primary) 12%, var(--card)); }
 .ax-guide .ax-guide-trigger:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .ax-guide .ax-guide-trigger svg { flex: none; }
@@ -388,10 +389,13 @@
 .ax-tutorial-terms-panel dt { font-weight: 700; overflow-wrap: anywhere; }
 .ax-tutorial-terms-panel dd { margin: 0; font-weight: 400; overflow-wrap: anywhere; }
 .ax-tutorial-term-translation { display: block; color: var(--muted-foreground); font-size: var(--font-size-xs); font-weight: var(--font-weight-regular, 400); white-space: nowrap; }
-.ax-tutorial-course { margin-top: 12px; }
-.ax-tutorial-course-head { display: flex; gap: 12px; align-items: flex-start; padding: 24px 0 18px; }
+.ax-tutorial-course { margin-top: 24px; }
+/* Course headers (처음 한 번 준비 · 프로젝트 작업 · GitHub·배포) share one light-blue band; the STEP bodies stay white. */
+.ax-tutorial-course-head { display: flex; gap: 12px; align-items: flex-start; padding: 14px 18px; border-radius: 8px; background: var(--blue-soft); }
 .ax-tutorial-course-head > svg { width: 22px; height: 22px; margin-top: 2px; color: var(--primary); }
 .ax-tutorial-course-head h3 { margin: 0; font-size: var(--font-size-lg); font-weight: var(--font-weight-semibold); }
+/* The band already separates the course, so its first STEP drops the divider that would sit right under it. */
+.ax-tutorial-course-head + .ax-guide-step { border-top: 0; padding-top: 22px; }
 .ax-guide-step > .ax-tutorial-action-label { display: flex; align-items: center; gap: 8px; margin-top: 0; margin-bottom: 0; color: var(--muted-foreground); font-size: var(--font-size-xs); font-weight: var(--font-weight-medium); }
 .ax-guide-completion { border-top: 1px solid var(--border); padding-top: 16px; }
 .ax-guide-completion > h5 svg { color: var(--primary); }

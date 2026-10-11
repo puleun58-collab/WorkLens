@@ -654,12 +654,20 @@ test("RESEARCH analysis runs each fixed mode, keeps MCP meaning and retries with
   await analysisForm.getByLabel("조문", { exact: true }).fill("제103조");
   await page.locator(".legal-analysis-form").getByRole("button", { name: "실행" }).click();
   await expect(page.locator(".legal-analysis-title")).toHaveText("조문 영향도: 민법 제103조");
-  const failedAxis = page.locator(".legal-analysis-axes li.is-failed");
+  const failedAxis = page.locator(".legal-analysis-axes tr.is-failed");
   await expect(failedAxis).toContainText("조회 실패");
   await expect(failedAxis).toContainText("0건이 아니라 확인하지 못한 상태입니다.");
-  await expect(page.locator('.legal-analysis-axes li[data-state="partial"]').first()).toContainText("확인된 결과 7건검색 결과 42건 중 10건을 확인했습니다.");
-  await expect(page.locator('.legal-analysis-axes li[data-state="law_only"]')).toContainText("조문 단위의 일치 여부는 확인되지 않았습니다.");
-  await expect(page.locator(".legal-analysis-output")).toContainText("확인된 인용 결과 7건");
+  const partialAxis = page.locator('.legal-analysis-axes tr[data-state="partial"]').first();
+  await expect(partialAxis.locator("td").first()).toHaveText("확인 7건");
+  await expect(partialAxis.locator(".impact-citation-detail")).toContainText("검색 결과 42건 중 10건을 확인했습니다.");
+  await expect(page.locator('.legal-analysis-axes tr[data-state="law_only"]')).toContainText("조문 단위의 일치 여부는 확인되지 않았습니다.");
+  // The confirmed badge carries the existing article-matched total; follow-up and failures count 자료 유형 rows, never summed.
+  const summary = page.locator(".impact-citations-summary");
+  await expect(summary.getByLabel("확인된 인용 결과 7건", { exact: true })).toHaveText("확인 7건");
+  await expect(summary).toContainText("추가 확인");
+  await expect(summary).toContainText("조회 실패 1개 유형");
+  await expect(page.locator(".legal-analysis-axes thead th")).toHaveText(["자료 유형", "검색 결과", "확인 내용"]);
+  await expect(page.locator(".impact-citations-note")).toContainText("실제 법령명과 조문이 일치하는 결과만 집계합니다.");
   await expect(page.locator(".legal-analysis-output")).toContainText("인용 현황");
   const shownImpact = await page.locator(".legal-analysis-output").evaluate((node) => [...node.children].filter((child) => !child.matches("details")).map((child) => child.textContent).join("\n"));
   expect(shownImpact).not.toMatch(/표본|보류|부분 일치|영향 그래프|총 영향 건수|미반영/u);
@@ -1506,7 +1514,8 @@ test("RESEARCH distinguishes empty, low-relevance and partial evidence without a
   await query.fill("일부 근거");
   await run.click();
   await expect(overview.locator("h3")).toHaveText("관련 근거를 일부 확인했습니다");
-  await expect(overview.locator(".research-caution")).toHaveText("확인한 근거는 관련 쟁점을 검토하기 위한 자료이며, 구체적인 사건의 법적 결론을 의미하지 않습니다.");
+  await expect(overview.locator(".research-caution")).toHaveText("※ 확인한 근거는 관련 쟁점을 검토하기 위한 자료이며, 구체적인 사건의 법적 결론을 의미하지 않습니다.");
+  await expect(overview.locator(".research-summary-status")).toHaveText("추가 확인 필요");
   // Each issue keeps access to its own references; unavailable evidence remains explicit.
   const selected = page.locator(".research-selected");
   const groups = selected.locator(".research-issue-evidence");
@@ -1568,7 +1577,7 @@ test("RESEARCH every task applies the same result rules while keeping its own st
       await expect(output.locator(".research-overview .research-eyebrow").first(), task).toHaveText(labels[task]);
       await expect(output.locator(".research-overview h3"), task).toHaveText(/^관련 근거를 (?:확인했습니다|일부 확인했습니다|확인하지 못했습니다)$|^직접 관련된 근거가 충분하지 않습니다$/u);
       statuses.add(`${task}:${await output.locator(".research-overview h3").getAttribute("data-status")}`);
-      await expect(output.locator(".research-original > span"), task).toHaveText("입력한 질문");
+      await expect(output.locator(".research-query"), task).toHaveText(/^입력한 질문: \S/u);
       // Search-engine vocabulary stays out of what the reader sees.
       for (const text of await output.locator(":scope > .research-overview, :scope > .research-group").allInnerTexts()) {
         expect(text, task).not.toMatch(/후보|검색 보정|시그널|STEP\s*\d|API 조건|내부 검색어/u);
@@ -1614,7 +1623,7 @@ test("RESEARCH separates a verified article from search candidates and hides int
   await form.getByRole("button", { name: "실행" }).click();
   const output = page.locator(".legal-research .legal-analysis-output");
   await expect(output.locator(".research-overview")).toContainText("직장에서 괴롭힘 문제를 겪는 상황");
-  await expect(output.locator(".research-original").first()).toContainText("입력한 질문");
+  await expect(output.locator(".research-query")).toContainText("입력한 질문: ");
   await expect(output.locator(".research-understanding")).toContainText("이렇게 이해했어요");
   await expect(output.getByRole("heading", { name: "확인한 근거" })).toBeVisible();
   await expect(output.locator(".research-selected")).toContainText("근로기준법 제76조의2");
