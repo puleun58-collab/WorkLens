@@ -12,7 +12,6 @@ const appDirectory = path.join(root, "src", "app");
 const fontDirectory = path.join(root, "public", "fonts", "pretendard", "woff2-dynamic-subset");
 const navy = "#172033";
 const blue = "#2563eb";
-const description = "문서 분석·비교·검수·추출·취합과 법령 리서치를 한곳에서 처리합니다.";
 
 // The JSX component remains the sole source of truth for the full-size symbol.
 function fullMark(tone: "default" | "light" = "default") {
@@ -121,20 +120,19 @@ try {
   }
   await Bun.write(path.join(appDirectory, "favicon.ico"), icoFromPngs(iconPngs));
 
-  const ogFonts = await embeddedFontFaces(`WorkLens업무 문서 작업 공간${description}`);
+  const ogFonts = await embeddedFontFaces("WorkLens업무 문서 작업 공간");
   const page = await browser.newPage({ viewport: { width: 1200, height: 630 }, deviceScaleFactor: 1 });
   const html = `<!DOCTYPE html><html lang="ko"><head><meta charset="utf-8"><style>
     ${ogFonts}
-    *{box-sizing:border-box}html,body{margin:0;width:1200px;height:630px;background:#fff;color:${navy}}
+    *{box-sizing:border-box}html,body{margin:0;width:1200px;height:630px;background:#f6f7fb;color:${navy}}
     body{font-family:"Pretendard Brand",sans-serif;-webkit-font-smoothing:antialiased}
     .sheet{position:relative;width:1200px;height:630px}
-    .brand{position:absolute;left:88px;top:143px;display:flex;align-items:center;gap:24px;height:104px}
+    .brand{position:absolute;left:88px;top:190px;display:flex;align-items:center;gap:24px;height:104px;transform:scale(1.15);transform-origin:top left}
     .brand svg{width:104px;height:104px;flex:none}
     .brand-name{font-size:70px;font-weight:700;letter-spacing:-1.05px;line-height:1}
     .brand-name span{color:${blue}}
-    h1{position:absolute;left:88px;top:313px;margin:0;font-size:52px;letter-spacing:-1.6px;line-height:1.25;font-weight:700}
-    .description{position:absolute;left:88px;top:408px;font-size:30px;line-height:1.52;font-weight:450;letter-spacing:-.4px;color:#48566d}
-  </style></head><body><main class="sheet"><div class="brand">${symbolSvg(full, 64)}<div class="brand-name">Work<span>Lens</span></div></div><h1>업무 문서 작업 공간</h1><div class="description">문서 분석·비교·검수·추출·취합과 <br>법령 리서치를 한곳에서 처리합니다.</div></main></body></html>`;
+    h1{position:absolute;left:88px;top:364px;margin:0;font-size:61px;letter-spacing:-1.6px;line-height:1.25;font-weight:700}
+  </style></head><body><main class="sheet"><div class="brand">${symbolSvg(full, 64)}<div class="brand-name">Work<span>Lens</span></div></div><h1>업무 문서 작업 공간</h1></main></body></html>`;
   await page.setContent(html);
   await page.evaluate(() => document.fonts.ready);
   await Bun.write(path.join(brandDirectory, "worklens-og-document-lens.png"), await page.screenshot({ type: "png" }));

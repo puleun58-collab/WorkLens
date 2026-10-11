@@ -1187,11 +1187,22 @@ test("document review resolves repeated issue labels to distinct evidence withou
   await expect(nav).toHaveCount(2);
   await expect(nav.nth(0)).toHaveAttribute("aria-controls", "contract-review-issue-0-0");
   await expect(nav.nth(1)).toHaveAttribute("aria-controls", "contract-review-issue-0-1");
+  const issueLayout = () => issues.nth(1).evaluate((item) => {
+    const box = item.getBoundingClientRect();
+    return {
+      width: box.width, height: box.height,
+      contentOffsets: ["h5", ".contract-review-point dt", ".contract-review-point dd", ".contract-review-evidence", ".contract-review-source summary"]
+        .map((selector) => item.querySelector(selector)!.getBoundingClientRect().left - box.left),
+    };
+  });
+  const beforeSelection = await issueLayout();
+  expect(beforeSelection.contentOffsets).toEqual([16, 16, 16, 16, 16]);
   await nav.nth(1).click();
   await expect(issues.nth(1).locator("h5")).toBeFocused();
   await expect(issues.nth(0).locator("h5")).not.toBeFocused();
   await expect(issues.nth(1)).toBeInViewport();
   await expect(details.locator(".contract-review-refs[open]")).toHaveCount(0);
+  expect(await issueLayout()).toEqual(beforeSelection);
   const jumps = issues.getByRole("button", { name: "근거 보기", exact: true });
   await expect(jumps.nth(0)).toHaveAttribute("aria-controls", "contract-review-evidence-0-0");
   await expect(jumps.nth(1)).toHaveAttribute("aria-controls", "contract-review-evidence-0-1");
@@ -1277,9 +1288,10 @@ test("RESEARCH 문서 검토 reviews one workspace file in place and shows where
   const sent = bodies[0] as { task: string; document: Record<string, unknown> & { segments: Array<Record<string, unknown>> } };
   expect(JSON.stringify(sent)).not.toMatch(/근로계약서\.pdf|매출|긴계약/u);
 
-  // Another file: the shown result says which file it belongs to until the new one is reviewed.
+  // Another file: the earlier file's result is kept but not shown until this file is reviewed.
   await chooseOption(page, choice, "근로계약서.pdf");
-  await expect(page.getByText(`지금 선택한 문서가 아닌 ${longName}의 검토 결과입니다.`)).toBeVisible();
+  await expect(page.getByRole("region", { name: "검토 결과" })).toHaveCount(0);
+  await expect(page.locator('[data-review-stale="true"]')).toHaveCount(0);
   await form.getByRole("button", { name: "실행", exact: true }).click();
   await expect(review.locator(".contract-review-file")).toHaveText("검토 문서: 근로계약서.pdf");
   await expect(review).toContainText("2개 페이지 중 2개 검토");
@@ -1662,12 +1674,12 @@ test("document review keeps issue guidance ahead of independent, grouped source 
     };
   };
   const fixtures = {
-    both: { input: penalty, review: fixtureReview(penalty, "both"), status: "matched", title: "관련 근거를 확인했습니다", law: 2, precedent: 2, clauses: 1, high: 1 },
-    statute: { input: sale, review: fixtureReview(sale, "statute"), status: "matched", title: "관련 근거를 확인했습니다", law: 1, precedent: 0, clauses: 1, high: 1 },
-    precedent: { input: nda, review: fixtureReview(nda, "precedent"), status: "matched", title: "관련 근거를 확인했습니다", law: 0, precedent: 2, clauses: 1, high: 1 },
-    partial: { input: partial, review: fixtureReview(partial, "partial"), status: "partial", title: "관련 근거를 일부 확인했습니다", law: 0, precedent: 2, clauses: 2, high: 1 },
-    excluded: { input: `${penalty}\n제7조(중복) 이용자는 잔여기간 이용료의 50%를 위약금으로 지급한다.`, review: fixtureReview(`${penalty}\n제7조(중복) 이용자는 잔여기간 이용료의 50%를 위약금으로 지급한다.`, "excluded"), status: "weak", title: "직접 관련된 근거가 충분하지 않습니다", law: 0, precedent: 0, clauses: 2, high: 1 },
-    clean: { input: CLEAN_WORK_RULES, review: fixtureReview(CLEAN_WORK_RULES, "empty"), status: "none", title: "검토할 쟁점을 찾지 못했습니다", law: 0, precedent: 0, clauses: 0, high: 0 },
+    both: { input: penalty, review: fixtureReview(penalty, "both"), status: "matched", law: 2, precedent: 2, clauses: 1, high: 1 },
+    statute: { input: sale, review: fixtureReview(sale, "statute"), status: "matched", law: 1, precedent: 0, clauses: 1, high: 1 },
+    precedent: { input: nda, review: fixtureReview(nda, "precedent"), status: "matched", law: 0, precedent: 2, clauses: 1, high: 1 },
+    partial: { input: partial, review: fixtureReview(partial, "partial"), status: "partial", law: 0, precedent: 2, clauses: 2, high: 1 },
+    excluded: { input: `${penalty}\n제7조(중복) 이용자는 잔여기간 이용료의 50%를 위약금으로 지급한다.`, review: fixtureReview(`${penalty}\n제7조(중복) 이용자는 잔여기간 이용료의 50%를 위약금으로 지급한다.`, "excluded"), status: "weak", law: 0, precedent: 0, clauses: 2, high: 1 },
+    clean: { input: CLEAN_WORK_RULES, review: fixtureReview(CLEAN_WORK_RULES, "empty"), status: "none", law: 0, precedent: 0, clauses: 0, high: 0 },
   };
   const errors: string[] = [];
   page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
@@ -1693,7 +1705,6 @@ test("document review keeps issue guidance ahead of independent, grouped source 
       await form.getByRole("button", { name: "실행", exact: true }).click();
       const review = page.locator(".contract-review");
       await expect(review.locator(".research-overview h3"), name).toHaveAttribute("data-status", fixture.status);
-      await expect(review.locator(".research-overview h3"), name).toHaveText(fixture.title);
       const sections = await review.locator(":scope > .legal-analysis-section").evaluateAll((nodes) => nodes.map((node) => node.classList[1]));
       expect(sections.slice(0, 3), name).toEqual(["contract-review-overview", "contract-review-summary", "contract-review-results"]);
       await expect(review.locator(".contract-review-overview"), name).toContainText(fixture.review.document.label);
@@ -2714,30 +2725,39 @@ test("review provenance direct snapshots, presentation and pending race", async 
   await expect(page.getByRole("button", { name: "다시 시도" })).toBeVisible();
   await expect(page.locator(".contract-review-expand")).toHaveCount(0);
   await input.fill(b);
+  const result = page.getByRole("region", { name: "검토 결과" });
   const stale = page.locator('[data-review-stale="true"]');
-  await expect(stale).toBeVisible();
+  await expect(result).toHaveCount(0);
+  await expect(stale).toHaveCount(0);
+  await input.fill(a);
   await page.getByRole("button", { name: "다시 시도" }).click();
   await expect.poll(() => bodies.length).toBe(2);
   expect(bodies[1].text).toBe(a);
-  await expect(stale).toBeVisible();
-  await input.fill(a);
-  await expect(stale).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "다시 시도" })).toHaveCount(0);
+  await expect(result).toBeVisible();
   await expect(page.locator(".contract-review-expand")).toHaveCount(0);
   await form.getByRole("radio", { name: "작업 파일" }).check();
-  await expect(stale).toBeVisible();
+  await expect(result).toHaveCount(0);
+  await expect(stale).toHaveCount(0);
   await form.getByRole("radio", { name: "직접 입력" }).check();
+  await expect(result).toBeVisible();
   await input.fill(b);
   await form.getByRole("button", { name: "실행", exact: true }).click();
   await expect.poll(() => Boolean(release)).toBe(true);
   await expect(form.getByRole("button", { name: "문서 검토 중…" })).toBeDisabled();
   await expect(page.locator(".contract-review-expand")).toHaveCount(0);
+  // The pending B review replaced A's direct result; A has nothing current while B is in flight.
   await input.fill(a);
+  await expect(result).toHaveCount(0);
+  await expect(form.getByRole("button", { name: "실행", exact: true })).toBeEnabled();
   release!();
-  await expect(stale).toBeVisible();
   expect(bodies[2].text).toBe(b);
-  await form.getByRole("button", { name: "실행", exact: true }).click();
+  await expect(result).toHaveCount(0);
+  await input.fill(b);
+  await expect(result).toBeVisible();
   await expect(stale).toHaveCount(0);
   await expect(page.getByRole("button", { name: "다시 시도" })).toHaveCount(0);
+  expect(bodies).toHaveLength(3);
 });
 
 for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {

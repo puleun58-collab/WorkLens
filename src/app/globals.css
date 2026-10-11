@@ -5135,7 +5135,7 @@ body {
   padding-left: 0;
 }
 
-/* The analysis panel is flat: status and the scope notice sit on the canvas, the report is the white surface. */
+/* The analysis panel is flat: status sits on the canvas, and the report is the white surface. */
 .workspace > .analysis-results-panel > .panel-heading {
   padding: 0 0 var(--space-2);
   border-bottom: 0;
@@ -5145,11 +5145,6 @@ body {
 /* The lone status ends on the report's right edge at every width (narrow screens otherwise space-between it to the left). */
 .workspace > .analysis-results-panel > .panel-heading .result-heading-meta {
   justify-content: flex-end;
-}
-
-/* Beats the shared alert's 12px top margin; the panel heading already separates status from the notice. */
-.workspace > .analysis-results-panel > div.status-panel.analysis-scope-notice {
-  margin: 0 0 var(--space-3);
 }
 
 .workspace > .analysis-results-panel > .analysis-report {

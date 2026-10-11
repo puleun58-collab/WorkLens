@@ -303,14 +303,12 @@
 .ax-prompt-actions .ax-copy-button[data-copied="true"] { background: color-mix(in srgb, var(--primary) 86%, var(--foreground)); border-color: transparent; }
 .ax-copy-error { flex: 1 1 100%; margin: 0; text-align: right; font-size: var(--font-size-xs); color: var(--destructive); }
 .ax-plan-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 16px; }
-.ax-plan-guide { min-width: 0; border-top: 1px solid var(--border); }
+.ax-plan-guide { min-width: 0; border-top: 1px solid var(--border); padding-top: 16px; }
 .ax-guide .ax-guide-item { border: 0; }
-.ax-guide .ax-guide-trigger { width: 100%; padding: 24px 0; align-items: center; border: 0; border-radius: 0; background: transparent; color: var(--foreground); font-size: var(--font-size-md); font-weight: var(--font-weight-semibold); }
-.ax-guide .ax-guide-trigger:hover, .ax-guide .ax-guide-trigger[data-panel-open] { background: transparent; }
+.ax-guide .ax-guide-trigger { flex: none; width: max-content; max-width: 100%; min-height: 44px; padding: 10px 14px; align-items: center; justify-content: center; gap: 10px; border: 1px solid var(--primary); border-radius: var(--radius-md); background: color-mix(in srgb, var(--primary) 6%, var(--card)); color: var(--primary); font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); box-shadow: none; }
+.ax-guide .ax-guide-trigger:hover, .ax-guide .ax-guide-trigger[data-panel-open]:hover { background: color-mix(in srgb, var(--primary) 12%, var(--card)); }
+.ax-guide .ax-guide-trigger:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .ax-guide .ax-guide-trigger svg { flex: none; }
-.ax-guide-action { margin-left: auto; color: var(--muted-foreground); font-size: var(--font-size-xs); font-weight: var(--font-weight-regular, 400); white-space: nowrap; }
-.ax-guide-action > span:last-child, .ax-guide-trigger[data-panel-open] .ax-guide-action > span:first-child { display: none; }
-.ax-guide-trigger[data-panel-open] .ax-guide-action > span:last-child { display: inline; }
 .ax-guide .ax-guide-panel { padding-bottom: 24px; }
 .ax-guide .ax-tutorial-intro { margin-top: 0; }
 .ax-cmd { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.9em; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--foreground); background: color-mix(in srgb, var(--muted) 18%, var(--card)); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; }

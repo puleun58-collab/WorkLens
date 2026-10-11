@@ -52,104 +52,198 @@ function submit() {
   const form = render().find((node) => node.props.onSubmit)!;
   (form.props.onSubmit as (event: { preventDefault(): void }) => void)({ preventDefault() {} });
 }
-function stale() { return render().some((node) => node.props["data-review-stale"] === "true"
-  || (node.props.className === "research-meta" && typeof node.props.children === "string"
-    && /지금 선택한 문서가 아닌|삭제되었거나/.test(node.props.children))); }
+/** What the result area currently shows: a found outcome's text, an error message, or nothing. */
+function shown(): string | null {
+  const section = render().find((node) => node.props["aria-label"] === "검토 결과");
+  if (!section) return null;
+  const tree = nodes(section);
+  const data = tree.find((node) => node.props.data)?.props.data as { text?: string } | undefined;
+  if (data) return `found:${data.text}`;
+  const failure = tree.find((node) => node.props.className === "law-search-error");
+  return failure ? `error:${failure.props.children as string}` : "other";
+}
+function sourceChanged() { return render().some((node) => node.props["data-review-stale"] === "true"); }
+function hasButton(label: string) { return render().some((node) => node.props.children === label); }
+function selectFile(id: string) { (field("research-file").onValueChange as (value: string) => void)(id); }
+function source(mode: "file" | "text") { (field("review-document-source").onValueChange as (value: string) => void)(mode); }
+function changeText(text: string) {
+  (field("research-document").onChange as (event: { target: { value: string } }) => void)({ target: { value: text } });
+}
+function changeTask(task: string) { (field("research-task").onValueChange as (value: string) => void)(task); }
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: Error) => void;
+  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+}
+function error(message: string) { return Response.json({ error: { message } }, { status: 500 }); }
+function found(text: string) { return Response.json({ data: { found: true, task: "document_review", text, markers: [] } }); }
+function sent(index: number) { return JSON.parse(vi.mocked(fetch).mock.calls[index][1]!.body as string) as { text?: string; document?: { id: string } }; }
 async function settle() { await new Promise((resolve) => setTimeout(resolve, 0)); }
 async function fixture(id: string) {
   const document = await parseDocument({ fileId: id, fileName: `${id}.docx`, bytes: createDocxParagraphs(["용역 계약서", "당사자는 조건을 협의하여 업무를 진행한다."]) });
   const workspaceFile: WorkspaceFile = { id, name: `${id}.docx`, kind: "docx", size: 1, status: "ready", metadata: document.metadata, warnings: [] };
   return { workspaceFile, file: reviewFileFor(document, workspaceFile.name) };
 }
-const failure = () => Promise.resolve(Response.json({ error: { message: "조회 실패" } }, { status: 500 }));
-const success = () => Promise.resolve(Response.json({ data: { found: true, task: "document_review", text: "검토 완료", markers: [] } }));
-beforeEach(() => { hooks.values = []; hooks.cursor = 0; files = []; vi.resetAllMocks(); vi.mocked(runInWorker).mockRejectedValue(new Error("Unexpected worker request")); vi.stubGlobal("fetch", vi.fn(failure)); render(); });
+beforeEach(() => { hooks.values = []; hooks.cursor = 0; files = []; vi.resetAllMocks(); vi.mocked(runInWorker).mockRejectedValue(new Error("Unexpected worker request")); vi.stubGlobal("fetch", vi.fn(async () => error("조회 실패"))); render(); });
 
 describe("review request lifecycle", () => {
-  it("A fails, B is selected, retry sends A; ordinary execution sends B", async () => {
+  it("keeps each file's outcome for that file only; retry re-runs the shown file", async () => {
     const a = await fixture("a"), b = await fixture("b");
     files = [a.workspaceFile, b.workspaceFile];
     vi.mocked(runInWorker).mockResolvedValueOnce(a.file).mockResolvedValueOnce(b.file);
     submit(); await settle();
-    (field("research-file").onValueChange as (value: string) => void)("b");
-    expect(stale()).toBe(true);
-    (button("다시 시도").onClick as () => void)(); await settle();
-    expect(JSON.parse(vi.mocked(fetch).mock.calls[1][1]!.body as string).document.id).toBe(a.file.document.id);
-    expect(runInWorker).toHaveBeenCalledTimes(1);
+    expect(shown()).toBe("error:조회 실패");
+    selectFile("b");
+    expect(shown()).toBeNull();
+    expect(hasButton("다시 시도")).toBe(false);
+    vi.mocked(fetch).mockImplementation(async () => found("B 결과"));
     submit(); await settle();
-    expect(JSON.parse(vi.mocked(fetch).mock.calls[2][1]!.body as string).document.id).toBe(b.file.document.id);
+    expect(sent(1).document!.id).toBe(b.file.document.id);
+    expect(shown()).toBe("found:B 결과");
+    selectFile("a");
+    expect(shown()).toBe("error:조회 실패");
+    (button("다시 시도").onClick as () => void)(); await settle();
+    expect(sent(2).document!.id).toBe(a.file.document.id);
+    expect(runInWorker).toHaveBeenCalledTimes(2);
+    expect(shown()).toBe("found:B 결과");
+    selectFile("b"); expect(shown()).toBe("found:B 결과");
   });
 
-  it("worker read failure retains A rather than using selected B on retry", async () => {
+  it("switching mode hides, never deletes or re-runs, the other mode's result", async () => {
+    const a = await fixture("a"); files = [a.workspaceFile];
+    vi.mocked(runInWorker).mockResolvedValueOnce(a.file);
+    vi.mocked(fetch).mockImplementation(async (_url, init) => found(JSON.parse(init!.body as string).document ? "파일 결과" : "입력 결과"));
+    submit(); await settle();
+    expect(shown()).toBe("found:파일 결과");
+    source("text");
+    expect(shown()).toBeNull();
+    expect(sourceChanged()).toBe(false);
+    const text = "직접 입력한 계약서 내용입니다. 당사자는 조건을 확인하여 업무를 진행합니다.";
+    changeText(text);
+    expect(shown()).toBeNull();
+    submit(); await settle();
+    expect(shown()).toBe("found:입력 결과");
+    for (let round = 0; round < 2; round++) {
+      source("file"); expect(shown()).toBe("found:파일 결과");
+      source("text"); expect(shown()).toBe("found:입력 결과");
+    }
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(runInWorker).toHaveBeenCalledTimes(1);
+    expect(field("research-document").value).toBe(text);
+  });
+
+  it("worker read failure retains A rather than the later-selected B on retry", async () => {
     const a = await fixture("a"), b = await fixture("b"); files = [a.workspaceFile, b.workspaceFile];
     vi.mocked(runInWorker).mockRejectedValueOnce(new Error("worker read failure")).mockResolvedValueOnce(a.file);
     submit(); await settle();
-    expect(runInWorker).toHaveBeenCalledTimes(1);
-    (field("research-file").onValueChange as (value: string) => void)("b");
+    selectFile("b"); expect(hasButton("다시 시도")).toBe(false);
+    selectFile("a");
     (button("다시 시도").onClick as () => void)(); await settle();
     expect(runInWorker).toHaveBeenLastCalledWith({ kind: "review-source", fileId: "a" });
-    expect(JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string).document.id).toBe(a.file.document.id);
+    expect(sent(0).document!.id).toBe(a.file.document.id);
   });
 
-  it.each(["delete", "replace"])("%s original A blocks retry and never executes B", async (mode) => {
+  it("a same-id replacement keeps the historical result with a source notice and blocks retry", async () => {
     const a = await fixture("a"), b = await fixture("b"); files = [a.workspaceFile, b.workspaceFile];
     vi.mocked(runInWorker).mockResolvedValueOnce(a.file); submit(); await settle();
-    files = mode === "delete" ? [b.workspaceFile] : [{ ...a.workspaceFile }, b.workspaceFile];
-    expect(stale()).toBe(true);
+    expect(sourceChanged()).toBe(false);
+    files = [{ ...a.workspaceFile }, b.workspaceFile];
+    expect(shown()).toBe("error:조회 실패");
     expect(button("다시 시도").disabled).toBe(true);
     (button("다시 시도").onClick as () => void)(); await settle();
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(runInWorker).toHaveBeenCalledTimes(1);
   });
 
-  it("direct retry uses failed text and success clears failure", async () => {
-    (field("review-document-source").onValueChange as (value: string) => void)("text");
-    const change = (text: string) => (field("research-document").onChange as (event: { target: { value: string } }) => void)({ target: { value: text } });
+  it("a deleted file's result is not shown for the remaining file", async () => {
+    const a = await fixture("a"), b = await fixture("b"); files = [a.workspaceFile, b.workspaceFile];
+    vi.mocked(runInWorker).mockResolvedValueOnce(a.file); submit(); await settle();
+    files = [b.workspaceFile];
+    expect(shown()).toBeNull();
+    expect(sourceChanged()).toBe(false);
+    expect(hasButton("다시 시도")).toBe(false);
+  });
+
+  it("direct input shows its result only for the reviewed text, trimmed at the edges", async () => {
+    source("text");
     const a = "\n계약서 내용 A를 검토합니다. 당사자는 조건을 확인합니다.\n";
-    const b = "계약서 내용 B를 검토합니다. 당사자는 내용을 협의합니다.";
-    change(a); submit(); await settle(); change(b); expect(stale()).toBe(true);
-    vi.mocked(fetch).mockImplementation(success);
+    const sameLength = a.replace("A", "B");
+    changeText(a); submit(); await settle();
+    expect(shown()).toBe("error:조회 실패");
+    changeText(sameLength); expect(shown()).toBeNull();
+    expect(sourceChanged()).toBe(false);
+    changeText(a.trim()); expect(shown()).toBe("error:조회 실패");
+    vi.mocked(fetch).mockImplementation(async () => found("A 결과"));
     (button("다시 시도").onClick as () => void)(); await settle();
-    expect(JSON.parse(vi.mocked(fetch).mock.calls[1][1]!.body as string).text).toBe(a);
-    expect(stale()).toBe(true);
-    change(a.trim()); expect(stale()).toBe(false);
-    change(a); expect(stale()).toBe(false);
-    change(b); submit(); await settle(); expect(stale()).toBe(false);
-    expect(render().some((node) => node.props.children === "다시 시도")).toBe(false);
+    expect(sent(1).text).toBe(a);
+    expect(shown()).toBe("found:A 결과");
+    vi.mocked(fetch).mockImplementation(async () => found("B 결과"));
+    changeText(sameLength); submit(); await settle();
+    expect(sent(2).text).toBe(sameLength);
+    expect(shown()).toBe("found:B 결과");
+    changeText(a); expect(shown()).toBeNull();
   });
 
-  it("pending file preparation belongs to A, prevents duplicate execution, and cancelled tasks cannot publish it", async () => {
-    const a = await fixture("a"), b = await fixture("b"); files = [a.workspaceFile, b.workspaceFile];
-    let release!: (value: typeof a.file) => void;
-    vi.mocked(runInWorker).mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }));
+  it("pending file preparation blocks duplicates; leaving the task cancels it and a fresh run works after", async () => {
+    const a = await fixture("a"); files = [a.workspaceFile];
+    const read = deferred<typeof a.file>();
+    vi.mocked(runInWorker).mockImplementationOnce(() => read.promise);
     submit(); submit(); expect(runInWorker).toHaveBeenCalledTimes(1);
-    (field("research-file").onValueChange as (value: string) => void)("b");
-    release(a.file); await settle(); expect(stale()).toBe(true);
-    expect(JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string).document.id).toBe(a.file.document.id);
-    vi.mocked(runInWorker).mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }));
-    submit();
-    (field("research-task").onValueChange as (value: string) => void)("full_research");
-    release(b.file); await settle(); expect(fetch).toHaveBeenCalledTimes(1);
+    changeTask("full_research");
+    read.resolve(a.file); await settle();
+    expect(fetch).not.toHaveBeenCalled();
+    changeTask("document_review");
+    expect(shown()).toBeNull();
+    vi.mocked(runInWorker).mockResolvedValueOnce(a.file);
+    vi.mocked(fetch).mockImplementation(async () => found("새 결과"));
+    submit(); await settle();
+    expect(runInWorker).toHaveBeenCalledTimes(2);
+    expect(shown()).toBe("found:새 결과");
   });
 
-  it("deleting A during worker preparation stops the request and blocks retry", async () => {
+  it("deleting A during worker preparation stops the request", async () => {
     const a = await fixture("a"), b = await fixture("b"); files = [a.workspaceFile, b.workspaceFile];
-    let release!: (value: typeof a.file) => void;
-    vi.mocked(runInWorker).mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }));
-    submit(); files = [b.workspaceFile]; render(); release(a.file); await settle();
-    expect(stale()).toBe(true); expect(button("다시 시도").disabled).toBe(true);
-    (button("다시 시도").onClick as () => void)(); await settle();
+    const read = deferred<typeof a.file>();
+    vi.mocked(runInWorker).mockImplementationOnce(() => read.promise);
+    submit(); files = [b.workspaceFile]; render(); read.resolve(a.file); await settle();
     expect(fetch).not.toHaveBeenCalled(); expect(runInWorker).toHaveBeenCalledTimes(1);
+    expect(shown()).toBeNull();
   });
 
-  it("direct response arriving after an edit remains attached to its request snapshot", async () => {
-    (field("review-document-source").onValueChange as (value: string) => void)("text");
-    const change = (text: string) => (field("research-document").onChange as (event: { target: { value: string } }) => void)({ target: { value: text } });
-    change("실행 당시 계약서 내용을 검토합니다. 당사자는 조건을 확인합니다.");
-    let release!: (value: Awaited<ReturnType<typeof success>>) => void;
-    vi.mocked(fetch).mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }));
-    submit(); submit(); change("수정된 계약서 내용을 검토합니다. 당사자는 조건을 확인합니다.");
-    release(await success()); await settle(); expect(stale()).toBe(true); expect(fetch).toHaveBeenCalledTimes(1);
+  it("a superseded direct request arriving late never overrides the newer text's result", async () => {
+    source("text");
+    const older = deferred<Response>(), newer = deferred<Response>();
+    vi.mocked(fetch).mockImplementationOnce(() => older.promise).mockImplementationOnce(() => newer.promise);
+    const first = "실행 당시 계약서 내용을 검토합니다. 당사자는 조건을 확인합니다.";
+    const second = "수정된 계약서 내용을 검토합니다. 당사자는 조건을 확인합니다.";
+    changeText(first); submit(); submit();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    changeText(second); submit();
+    expect(fetch).toHaveBeenCalledTimes(2);
+    newer.resolve(found("새 입력 결과")); await settle();
+    expect(shown()).toBe("found:새 입력 결과");
+    older.resolve(found("이전 입력 결과")); await settle();
+    expect(shown()).toBe("found:새 입력 결과");
+    changeText(first); expect(shown()).toBeNull();
+  });
+
+  it("a file request finishing after the user moved to direct input lands on the file only", async () => {
+    const a = await fixture("a"); files = [a.workspaceFile];
+    const fileResponse = deferred<Response>();
+    vi.mocked(runInWorker).mockResolvedValueOnce(a.file);
+    vi.mocked(fetch).mockImplementationOnce(() => fileResponse.promise).mockImplementationOnce(async () => found("입력 결과"));
+    submit(); await settle();
+    expect(button("문서 검토 중…").disabled).toBe(true);
+    source("text");
+    changeText("직접 입력한 계약서 내용입니다. 당사자는 조건을 확인하여 업무를 진행합니다.");
+    expect(hasButton("문서 검토 중…")).toBe(false);
+    submit(); await settle();
+    expect(shown()).toBe("found:입력 결과");
+    fileResponse.resolve(error("파일 검토 실패")); await settle();
+    expect(shown()).toBe("found:입력 결과");
+    source("file");
+    expect(shown()).toBe("error:파일 검토 실패");
   });
 });
 

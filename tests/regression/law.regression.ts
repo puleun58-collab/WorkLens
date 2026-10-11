@@ -113,7 +113,7 @@ regressionCase(meta("LAW-B04", "Full research partial source response", "Returne
   note("Captured partial-chain fixture preserves statutes, reported total and unavailable sections without inventing a sixth hit.");
 });
 
-regressionCase(meta("LAW-B05", "Pasted review stale input and retry snapshot", "Retry sends failed A after edit to B; no evidence creates no legal findings"), async ({ page, note }) => {
+regressionCase(meta("LAW-B05", "Pasted review result follows its input", "Edited input hides the failed A result; returning to A restores retry of A; B runs separately"), async ({ page, note }) => {
   const a = "계약서 내용 A를 검토합니다. 당사자는 조건을 확인합니다.";
   const b = "계약서 내용 B를 검토합니다. 당사자는 다른 조건을 확인합니다.";
   const requests: unknown[] = [];
@@ -126,23 +126,26 @@ regressionCase(meta("LAW-B05", "Pasted review stale input and retry snapshot", "
   await ready(page, "문서 검토");
   await page.getByRole("radio", { name: "직접 입력", exact: true }).check();
   const text = page.getByLabel("검토할 문서 내용", { exact: true });
+  const result = page.getByRole("region", { name: "검토 결과" });
   await text.fill(a); await page.getByRole("button", { name: "실행", exact: true }).click();
   await expect(page.getByRole("button", { name: "다시 시도", exact: true })).toBeVisible();
   await text.fill(b);
-  await expect(page.locator('[data-review-stale="true"]')).toBeVisible();
+  await expect(result).toHaveCount(0);
+  await expect(page.locator('[data-review-stale="true"]')).toHaveCount(0);
+  await text.fill(a);
   await page.getByRole("button", { name: "다시 시도", exact: true }).click();
   await expect(page.locator(".legal-analysis-missing")).toContainText("관련 근거를 확인하지 못했습니다");
   expect(requests).toEqual([{ task: "document_review", text: a }, { task: "document_review", text: a }]);
-  await expect(page.locator('[data-review-stale="true"]')).toBeVisible();
+  await text.fill(b);
+  await expect(result).toHaveCount(0);
   await page.getByRole("button", { name: "실행", exact: true }).click();
   await expect.poll(() => requests.length).toBe(3);
   expect(requests[2]).toEqual({ task: "document_review", text: b });
-  await expect(page.locator('[data-review-stale="true"]')).toHaveCount(0);
   await expect(page.locator(".legal-analysis-missing")).toContainText("조회되지 않았다고 관련 법령이나 판례가 없다는 뜻은 아닙니다.");
-  note("Failed text snapshot stays attached to retry; ordinary execution adopts edited input and clears stale state.");
+  note("A result is shown only for the text it reviewed; retry re-sends A; B is reviewed as its own input.");
 });
 
-regressionCase(meta("LAW-B06", "File review retry after selecting another file", "Retry retains original document identity and segment provenance"), async ({ page, note }) => {
+regressionCase(meta("LAW-B06", "File review result follows the selected file", "B shows no A result; reselecting A restores A retry with A's identity; B runs separately"), async ({ page, note }) => {
   const requests: Array<{ document: { id: string; name: string; segments: unknown[] } }> = [];
   await page.route("**/api/law/research", async (route) => {
     requests.push(route.request().postDataJSON());
@@ -152,23 +155,29 @@ regressionCase(meta("LAW-B06", "File review retry after selecting another file",
   const a = await writeFixture("registry-review-a.docx", createDocxParagraphs(["용역 계약서 A", "당사자는 조건을 협의하여 업무를 진행한다."]));
   const b = await writeFixture("registry-review-b.docx", createDocxParagraphs(["용역 계약서 B", "당사자는 다른 조건을 협의하여 업무를 진행한다."]));
   await upload(page, a, b); await navigate(page, "문서 검토");
+  const result = page.getByRole("region", { name: "검토 결과" });
+  const choose = async (name: string) => {
+    await page.getByRole("combobox", { name: "검토할 문서", exact: true }).click();
+    await page.getByRole("option", { name, exact: true }).click();
+  };
   await page.getByRole("button", { name: "실행", exact: true }).click();
   await expect(page.getByRole("button", { name: "다시 시도", exact: true })).toBeVisible();
   expect(requests[0].document.name).toBe("registry-review-a.docx");
   expect(requests[0].document.segments.length).toBeGreaterThan(0);
-  await page.getByRole("combobox", { name: "검토할 문서", exact: true }).click();
-  await page.getByRole("option", { name: "registry-review-b.docx", exact: true }).click();
-  await expect(page.locator('[data-review-stale="true"]')).toBeVisible();
+  await choose("registry-review-b.docx");
+  await expect(result).toHaveCount(0);
+  await choose("registry-review-a.docx");
   await page.getByRole("button", { name: "다시 시도", exact: true }).click();
   await expect(page.locator(".legal-analysis-missing")).toBeVisible();
   expect(requests[1]).toEqual(requests[0]);
-  await expect(page.locator('[data-review-stale="true"]')).toBeVisible();
+  await choose("registry-review-b.docx");
+  await expect(result).toHaveCount(0);
   await page.getByRole("button", { name: "실행", exact: true }).click();
   await expect.poll(() => requests.length).toBe(3);
   expect(requests[2].document.name).toBe("registry-review-b.docx");
   expect(requests[2].document.id).not.toBe(requests[0].document.id);
   await expect(page.locator('[data-review-stale="true"]')).toHaveCount(0);
-  note("File retry preserves A's exact projected DTO; a new execution reviews B.");
+  note("Each file keeps its own result; retry preserves A's exact projected DTO; a new execution reviews B.");
 });
 
 regressionCase(meta("COMMON-B01", "Research repeated Enter, task cancellation and healthy console", "One pending request; cancelled result cannot publish; fresh result has no console/page errors"), async ({ page, note }) => {
