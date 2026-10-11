@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Accordion, AccordionItem, AccordionPanel, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTab, TabsPanel } from "@/components/ui/tabs";
-import { buildAllInOnePrompt, planSummary, setupGuide, TOOL_GUIDES, type AxGuideBlock, type AxGuideSection, type AxPlanSummary, type AxToolId } from "@/lib/ax/guide";
+import { buildAgentInstructionModel, buildAllInOnePrompt, planSummary, scopeItemLabel, setupGuide, stepMethodLabel, TOOL_GUIDES, type AxGuideBlock, type AxGuideSection, type AxPlanSummary, type AxToolId } from "@/lib/ax/guide";
 
 const VERDICT_LABELS = { 자동화: "자동화", "AI 보조": "AI 보조", "사람 유지": "담당자 수행" } as const;
 const OWNER_LABELS = { 시스템: "시스템", AI: "AI", 사용자: "담당자" } as const;
@@ -73,7 +73,8 @@ export function AxResultSummary({ task }: { task: AxTask }) {
 const SCOPE_LABELS = { implement: "이번 구현", "after-check": "확인 후 구현", verify: "검토·검증만", future: "향후 확장", human: "담당자 유지" } as const;
 
 export function AxExecutionTimeline({ diagnosis: d }: { diagnosis: AxDiagnosis }) {
-  const profile = executionProfile(d);
+  const model = buildAgentInstructionModel(undefined, { diagnosis: d });
+  const profile = model.profile ?? executionProfile(d);
   return <section className="ax-section ax-panel ax-execution-timeline" aria-label="실행 로드맵">
     <header className="ax-result-head"><h3>실행 로드맵</h3><small>Level {profile.level} 기준 · {GATE_LABELS[profile.gate]}</small></header>
     <p className="ax-execution-intro">{profile.gate === "blocked" ? "진행 보류 · 차단 사유를 해결하고 재진단하기 전까지 구현하지 않습니다."
@@ -84,13 +85,13 @@ export function AxExecutionTimeline({ diagnosis: d }: { diagnosis: AxDiagnosis }
       <span className="ax-execution-node">{i + 1}</span>
       <div className="ax-execution-content"><strong>{step.step} · {OWNER_LABELS[step.owner]}</strong>
         {step.note ? <p>{step.note}</p> : null}
-        {step.treatment ? <small>{step.scope === "future" ? "향후 범위: " : "처리 방식: "}{step.treatment}</small> : null}
+        {step.treatment ? <small>{step.scope === "future" ? "향후 범위: " : "처리 방식: "}{stepMethodLabel(model, i)}</small> : null}
       </div>
       <Badge variant="outline" className="ax-scope-badge" data-scope={step.scope}>{SCOPE_LABELS[step.scope]}</Badge>
     </li>)}</ol> : <p className="ax-muted">진단된 업무 단계 없음</p>}
     {profile.roadmap.length ? <div className="ax-execution-phases"><h4>{profile.roadmapTitle} · 단계별 진행 계획</h4>
       <ol>{profile.roadmap.map((phase, i) => <li className="ax-execution-phase" key={i}>
-        <strong>Phase {phase.phase} · {phase.title}</strong><AxList items={phase.items} />
+        <strong>Phase {phase.phase} · {phase.title}</strong><AxList items={phase.items.map(item => scopeItemLabel(model, item))} />
       </li>)}</ol>
     </div> : null}
   </section>;
@@ -334,6 +335,7 @@ function AxPlanOverview({ diagnosis, profile, summary }: { diagnosis: AxDiagnosi
       <AxPlanGroup title="성공·실패 기준" items={summary.acceptance} />
       <AxPlanGroup title="검증 방법" items={summary.tests} />
       <AxPlanGroup title="예외·위험 확인" items={summary.exceptions} />
+      <AxPlanGroup title="승인·담당자 유지 제약" items={summary.constraints} />
       {summary.humanKept.length ? <p className="ax-plan-note">담당자 검토·승인 단계 유지</p> : null}
     </section>
   </div>;

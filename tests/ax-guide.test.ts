@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildAgentInstructionModel, buildAllInOnePrompt, guardPlan, planSummary, setupGuide, TOOL_GUIDES, type AxGuideSection } from "../src/lib/ax/guide";
+import { buildAgentInstructionModel, buildAllInOnePrompt, guardPlan, planSummary, setupGuide, stepMethodLabel, TOOL_GUIDES, type AxGuideSection } from "../src/lib/ax/guide";
 import { FACTOR_LABELS } from "../src/lib/ax/schema";
 import { diagnosisFixture, planFixture } from "./fixtures/ax";
 import type { AxDiagnosis, AxPlan } from "../src/lib/ax/types";
@@ -180,16 +180,19 @@ describe("AX plan display boundaries", () => {
       expect(summary.humanKept).toContain("담당자 승인 (담당자 수행)");
       expect(summary.excluded).not.toContain("담당자 승인 자동화 (담당자 수행)");
       const scopeLevel = verdict === "no-go" ? 0 : level;
+      const model = buildAgentInstructionModel(undefined, { diagnosis });
+      for (const [index, step] of model.steps.entries()) {
+        if (step.scope === "implement" || step.scope === "after-check" || step.scope === "verify") {
+          expect(summary.include).toContain(`${step.step} ${stepMethodLabel(model, index)}`);
+        }
+      }
       if (level === 0 || verdict === "no-go") {
-        expect(summary.include).toContain("자료 수집 처리 가능성 검증");
         expect(summary.include.join("\n")).not.toMatch(/규칙 기반 처리|자동 처리|결과\(후보·초안\) 생성/u);
         expect(summary.excluded).toContain("운영 자동화 적용");
       } else if (level === 1) {
-        expect(summary.include).toContain("형식 검증 AI 보조 결과(후보·초안) 생성");
+        expect(model.methods[model.steps.findIndex(step => step.step === "형식 검증")]).toBe("confirm");
         expect(summary.include.join("\n")).not.toMatch(/규칙 기반 처리|자동 처리/u);
         expect(summary.excluded).toContain("운영 자동화 적용");
-      } else {
-        expect(summary.include).toContain(level === 2 ? "자료 수집 규칙 기반 처리" : "자료 수집 자동 처리");
       }
       // Diagnosed steps outside the permitted Level × Gate scope are listed as current exclusions.
       expect(summary.excluded.includes("자료 수집 자동 실행")).toBe(scopeLevel < 2);
@@ -214,6 +217,9 @@ describe("AX plan display boundaries", () => {
       { label: "입력", items: ["입력 표"] }, { label: "출력", items: ["검토용 표"] }, { label: "사용 시스템", items: ["표 도구"] },
       { label: "검증용 입력", items: ["샘플 표"] },
     ]);
+    const model = buildAgentInstructionModel(undefined, { diagnosis });
+    expect(model.scoped.tests).toContainEqual(expect.objectContaining({ text: "샘플 대조" }));
+    expect(model.scoped.criteria.map(item => item.text)).toContain("샘플 대조 통과");
     expect(summary.tests).toEqual(["샘플 대조"]);
     expect(summary.acceptance).toEqual(["성공: 샘플 대조 통과", "실패: 누락 발생"]);
     // Confirmed checks are not open conditions.
@@ -233,8 +239,14 @@ describe("AX plan display boundaries", () => {
     };
     const before = structuredClone({ diagnosis, plan });
     const base = planSummary(diagnosis), withPlan = planSummary(diagnosis, plan, "월간 운임 정산");
-    expect(withPlan).toEqual({ ...base, prerequisites: verdict === "no-go" ? base.prerequisites : [...base.prerequisites, "샘플 보관 위치 확인"] });
-    expect(JSON.stringify(withPlan)).not.toMatch(/원본 읽기|운임 계산|최종 승인 후 전송|승인 없이 외부 전송|원본 샘플 보관|결과 파일 재열기|담당자 확인 기록 완료|운임표 미매칭/u);
+    expect(withPlan.prerequisites).toEqual(verdict === "no-go" ? base.prerequisites : [...base.prerequisites, "샘플 보관 위치 확인"]);
+    expect(withPlan.constraints.join("\n")).toContain("최종 승인 후 전송");
+    expect(withPlan.constraints.join("\n")).toContain("승인 없이 외부 전송");
+    expect(withPlan.constraints.join("\n")).toContain("plan.humanInLoop");
+    expect(withPlan.constraints.join("\n")).toContain("plan.outOfScope");
+    expect(withPlan.include).toEqual(base.include);
+    expect(withPlan.tests).toEqual(base.tests);
+    expect(withPlan.acceptance).toEqual(base.acceptance);
     expect({ diagnosis, plan }).toEqual(before);
   });
 });

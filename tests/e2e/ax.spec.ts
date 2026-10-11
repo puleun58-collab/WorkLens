@@ -5,6 +5,7 @@ import { diagnosisFixture, outputFixture, planFixture, taskFixture } from "../fi
 import { emptyAxState, type AxState, type AxDiagnosis, type AxPlan } from "../../src/lib/ax/types";
 import { buildAllInOnePrompt, TOOL_GUIDES } from "../../src/lib/ax/guide";
 import { exportAxState } from "../../src/lib/ax/transfer";
+import { equipmentRuleCase } from "../fixtures/ax-agent-cases";
 async function ax(page: Page) {
   await navigateWorkspace(page, "업무 자동화 진단");
   await expect(page.getByRole("heading", { name: "업무 자동화 진단", exact: true })).toBeVisible();
@@ -1618,3 +1619,35 @@ test("AX compares diagnoses regardless of provisional status and preserves other
   await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();
   await expect(page.locator(".ax-kpi").filter({ hasText: "진단 완료" }).locator("strong")).toHaveText("3개");
 });
+
+for (const width of [1440, 390]) {
+  test(`AX rule validation preserves its method and approval boundary across report and tools at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+    const c = equipmentRuleCase;
+    const diagnosis = { ...c.diagnosis, planCodex: c.plan, planClaude: c.plan };
+    const task = { ...taskFixture("rule-method-consistency", diagnosis), name: c.name, description: c.description };
+    await page.goto("/");
+    await seed(page, { ...emptyAxState(), tasks: [task], selectedTaskId: task.id, step: 4 });
+    await ax(page);
+    const timeline = page.getByRole("region", { name: "실행 로드맵", exact: true });
+    const rule = timeline.locator(".ax-execution-item").filter({ hasText: "누락·중복 검증" });
+    await expect(rule).toHaveAttribute("data-scope", "after-check");
+    await expect(rule.locator("small")).toContainText("규칙");
+    await expect(rule.locator("small")).not.toContainText("후보·초안");
+    await expect(timeline.locator('.ax-execution-item[data-scope="human"]')).toContainText("최종 승인");
+    const plan = page.getByRole("region", { name: "자동화 구현 계획", exact: true });
+    const scope = plan.getByRole("region", { name: "01 구현 범위", exact: true });
+    await expect(scope.getByRole("listitem").filter({ hasText: "누락·중복 검증" }).first()).toContainText("규칙");
+    const completion = plan.getByRole("region", { name: "03 완료 기준", exact: true });
+    await expect(completion).toContainText("최종 승인");
+    for (const tool of ["Codex", "Claude Code"]) {
+      await plan.getByRole("tab", { name: tool, exact: true }).click();
+      const prompt = plan.locator(".ax-prompt");
+      await expect(prompt).toContainText("누락·중복 검증");
+      await expect(prompt).toContainText("이 단계에 AI 호출을 추가하지 마세요");
+      await expect(prompt).toContainText("승인");
+      await expectCopyUX(page, plan, tool as "Codex" | "Claude Code");
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+  });
+}
