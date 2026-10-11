@@ -178,7 +178,7 @@ test("Case C: five tasks form three-member and two-member clusters without colla
   await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();
   await expect(page.locator(".ax-kpi").filter({ hasText: "등록 업무" }).locator("strong")).toHaveText("5개");
   await expect(page.locator(".ax-kpi").filter({ hasText: "진단 완료" }).locator("strong")).toHaveText("5개");
-  await expect(page.locator(".ax-roadmap-task")).toHaveText(tasks[4].name);
+  await expect(page.locator(".ax-report-intro h2")).toHaveText(tasks[4].name);
 });
 
 test("Case D: factor correction splits a cluster and AI reset restores it without stale popup", async ({ page }) => {

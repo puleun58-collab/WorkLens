@@ -228,9 +228,7 @@ test("AX registration → diagnosis → correction → matrix → plans → relo
   const top = page.getByRole("list", { name: "자동화 우선순위 TOP 목록", exact: true });
   await expect(top).toContainText("부분 자동화 · Level 2");
   await expect(top).toContainText("점수 7");
-  await expect(page.locator('.ax-summary [data-slot="badge"]')).toHaveText("부분 자동화 · Level 2");
-  expect(await page.evaluate(() => [...document.querySelectorAll(".ax-roadmap-panel *, .ax-detail-stack .ax-panel *")]
-    .filter(element => element.getBoundingClientRect().width && getComputedStyle(element).textAlign === "center").map(element => element.textContent))).toEqual([]);
+  await expect(page.getByRole("region", { name: "진단 요약", exact: true })).toContainText("Level 2");
   await page.screenshot({ path: `artifacts/ax/roadmap-${test.info().project.name}.png`, fullPage: true });
   const packageSection = page.getByRole("region", { name: "자동화 구현 계획", exact: true });
   await expect(packageSection.getByText("조건부 진행", { exact: true })).toHaveCount(0);
@@ -260,7 +258,7 @@ test("AX registration → diagnosis → correction → matrix → plans → relo
   const completion = packageSection.getByRole("region", { name: "03 완료 기준", exact: true });
   await expect(scope).toContainText("담당자 승인");
   await expect(scope).toContainText("담당자 수행 유지");
-  await expect(before).toContainText("시스템 접근 — API와 권한 실제 확인");
+  await expect(before.locator('.ax-gate-card[data-status="확인 필요"]')).toContainText("API와 권한 실제 확인");
   await expect(before).toContainText(planFixture.prerequisites[0]);
   await expect(before).toContainText("샘플 표");
   await expect(before).toContainText("검토용 표");
@@ -660,8 +658,7 @@ test("AX Execution Gate blocks no-go plans and displays ready tasks before highe
   await expect(blocked.locator(".ax-rank")).toHaveText("#1");
   await expect(blocked.getByText("진행 보류", { exact: true })).toBeVisible();
   await blocked.getByRole("button").click();
-  await expect(page.locator(".ax-detail-stack .ax-summary")).toBeVisible();
-  await expect(page.locator(".ax-detail-stack .ax-gate-line")).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "진단 요약", exact: true })).toContainText("진행 보류");
   await expect(page.getByRole("button", { name: "Codex용 구현 계획 생성", exact: true })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Claude Code용 구현 계획 생성", exact: true })).toBeDisabled();
   const plans = page.locator("section.ax-surface").filter({ has: page.getByRole("heading", { name: "자동화 구현 계획", exact: true }) });
@@ -848,7 +845,8 @@ test("AX execution package remains readable on mobile with the setup guide colla
   await expect(section.getByRole("button", { name: "설치·시작 가이드", exact: true })).toHaveAttribute("aria-expanded", "false");
   for (const name of ["구현 후 확인 · GitHub 반영", "배포 방법", "상세 구현 계획 보기"]) await expect(section.getByRole("button", { name, exact: true })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "운영 시 참고사항", exact: true })).toHaveCount(0);
-  await expect(page.locator(".ax-panel tbody tr").filter({ hasText: "담당자 승인" })).toContainText("담당자 수행");
+  await expect(page.getByRole("region", { name: "실행 로드맵", exact: true }).locator('.ax-execution-item[data-scope="human"]')).toContainText("담당자 승인");
+  await expect(section.getByRole("region", { name: "01 구현 범위", exact: true })).toContainText("담당자 수행 유지");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: `artifacts/ax/roadmap-mobile-${test.info().project.name}.png`, fullPage: true });
   const mobileView = section.locator(".ax-plan-view");
@@ -1248,6 +1246,17 @@ for (const level of [0, 1, 2, 3]) {
       await expect(section.locator(".ax-plan-head")).toContainText(task.name);
       await expect(scope).toContainText("담당자 승인");
       await expect(done).toContainText("실패: 누락 발생");
+      // Target suitability counts never become the count of steps permitted for this Level × Gate.
+      const resultSummary = page.getByRole("region", { name: "진단 요약", exact: true });
+      for (const verdict of ["자동화", "AI 보조", "사람 유지"]) {
+        await expect(resultSummary.locator(`.ax-result-count[data-verdict="${verdict}"] strong`)).toHaveText("1개");
+      }
+      const treatments = gate === "blocked" || level === 0 ? ["verify", "verify", "human"]
+        : level === 1 ? ["future", gate === "ready" ? "implement" : "after-check", "human"]
+        : [gate === "ready" ? "implement" : "after-check", gate === "ready" ? "implement" : "after-check", "human"];
+      const execution = page.getByRole("region", { name: "실행 로드맵", exact: true });
+      await expect(execution.locator(".ax-execution-item")).toHaveCount(3);
+      expect(await execution.locator(".ax-execution-item").evaluateAll(rows => rows.map(row => row.getAttribute("data-scope")))).toEqual(treatments);
       if (gate === "blocked") {
         await expect(before).toContainText("보안 정책상 자료 반출 불가");
         await expect(section.getByRole("button", { name: "Codex용 구현 계획 생성", exact: true })).toBeDisabled();
@@ -1256,8 +1265,7 @@ for (const level of [0, 1, 2, 3]) {
         await expect(section.getByRole("button", { name: /용 지시문 복사$/ })).toHaveCount(0);
       } else {
         await expect(section.getByRole("button", { name: "Codex용 구현 계획 생성", exact: true })).toBeEnabled();
-        if (gate === "ready") await expect(before).not.toContainText("시스템 접근 — API 확인");
-        if (gate === "conditional") await expect(before).toContainText("시스템 접근 — API와 권한 실제 확인");
+        await expect(before.locator(`.ax-gate-card[data-status="${gate === "ready" ? "확인됨" : "확인 필요"}"]`)).toContainText("시스템 접근");
       }
       if (level === 0) {
         await expect(scope).toContainText("허용된 준비·검증");
@@ -1271,7 +1279,7 @@ for (const level of [0, 1, 2, 3]) {
   }
 }
 
-test("AX shows only unresolved conditions before implementation, not confirmed checks", async ({ page }) => {
+test("AX separates confirmed checks from unresolved prerequisites without duplicating check notes", async ({ page }) => {
   const diagnosis: AxDiagnosis = {
     ...diagnosisFixture,
     technicalChecks: [
@@ -1284,9 +1292,11 @@ test("AX shows only unresolved conditions before implementation, not confirmed c
   await seed(page, { ...emptyAxState(), tasks: [task], selectedTaskId: task.id, step: 4 });
   await ax(page);
   const before = page.getByRole("region", { name: "02 시작 전 확인", exact: true });
-  await expect(before).toContainText("연동 인증 — 관리자에게 접근 권한 확인");
+  await expect(before.locator('.ax-gate-card[data-status="확인 필요"]')).toContainText("연동 인증");
+  await expect(before.getByText("관리자에게 접근 권한 확인", { exact: true })).toHaveCount(1);
   await expect(before).toContainText("권한 확인 후 진행");
-  await expect(before).not.toContainText("샘플 파일 — 헤더와 실제 행 확인");
+  await expect(before.locator('.ax-gate-card[data-status="확인됨"]')).toContainText("샘플 파일");
+  await expect(before.getByText("헤더와 실제 행 확인", { exact: true })).toHaveCount(1);
 });
 
 test("AX Level 0 keeps generated implementation suggestions subordinate to diagnosis", async ({ page }) => {
@@ -1338,7 +1348,8 @@ test("AX completion keeps separate evidence, failure and risk meanings", async (
   const plan = page.getByRole("region", { name: "자동화 구현 계획", exact: true });
   const before = plan.getByRole("region", { name: "02 시작 전 확인", exact: true });
   const done = plan.getByRole("region", { name: "03 완료 기준", exact: true });
-  await expect(before).toContainText("월말 연동 접근 — 청구 원본의 읽기 권한을 관리자에게 확인");
+  await expect(before.locator('.ax-gate-card[data-status="확인 필요"]')).toContainText("월말 연동 접근");
+  await expect(before.getByText("청구 원본의 읽기 권한을 관리자에게 확인", { exact: true })).toHaveCount(1);
   for (const item of [...diagnosis.asIs.exceptions, ...diagnosis.risks]) await expect(done).toContainText(item);
   for (const item of diagnosis.poc.evaluation) await expect(done.getByRole("listitem").filter({ hasText: item })).toBeVisible();
   await expect(done).toContainText("성공: 거래별 차이가 없고 담당자가 검토 완료");
@@ -1411,7 +1422,7 @@ for (const width of [1440, 390]) for (const count of [1, 3, 5, 10]) {
     expect(await badgeStyle(page.locator('.ax-gate-badge[data-gate="conditional"]'))).toEqual(matrixBadge);
     await page.locator(".ax-matrix-surface").screenshot({ path: `artifacts/ax/multi-matrix-${count}-${width}-${test.info().project.name}.png` });
     await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();
-    await expect(page.locator(".ax-roadmap-task")).toHaveText(last.name);
+    await expect(page.locator(".ax-report-intro h2")).toHaveText(last.name);
     await expect(page.locator(".ax-kpi").filter({ hasText: "등록 업무" }).locator("strong")).toHaveText(`${count}개`);
     await expect(page.locator(".ax-kpi").filter({ hasText: "진단 완료" }).locator("strong")).toHaveText(`${count}개`);
     await expect(page.getByRole("list", { name: "자동화 우선순위 TOP 목록", exact: true }).locator(".ax-rank")).toHaveText(tasks.slice(0, 3).map((_, index) => `#${index + 1}`));
@@ -1423,10 +1434,9 @@ for (const width of [1440, 390]) for (const count of [1, 3, 5, 10]) {
       const full = page.getByRole("list", { name: "전체 진단 업무 목록", exact: true });
       await expect(full.locator(".ax-rank")).toHaveText(tasks.map((_, index) => `#${index + 1}`));
       await full.getByRole("button", { name: new RegExp(last.name) }).click();
-      await expect(page.locator(".ax-detail-stack > section > h2")).toHaveText(last.name);
-      await expect(page.locator(".ax-roadmap-task")).toHaveText(last.name);
+      await expect(page.locator(".ax-report-intro h2")).toHaveText(last.name);
       await full.getByRole("button", { name: new RegExp(tasks[0].name) }).click();
-      await expect(page.locator(".ax-roadmap-task")).toHaveText(tasks[0].name);
+      await expect(page.locator(".ax-report-intro h2")).toHaveText(tasks[0].name);
       await expect(page.locator(".ax-all-task-list")).toBeVisible();
     } else await expect(all).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -1443,15 +1453,14 @@ for (const step of [3, 4]) test(`AX restores a diagnosed selection instead of an
     await expect(page.locator(".ax-bubble")).toHaveCount(1);
     await expect(page.locator(".ax-step3-main > section").last().getByRole("heading").first()).toContainText(diagnosed.name);
   } else {
-    await expect(page.locator(".ax-roadmap-task")).toHaveText(diagnosed.name);
-    await expect(page.locator(".ax-detail-stack > section > h2")).toHaveText(diagnosed.name);
+    await expect(page.locator(".ax-report-intro h2")).toHaveText(diagnosed.name);
   }
   await page.getByRole("tab", { name: "업무 등록", exact: true }).click();
   await page.getByLabel("등록 업무 목록").locator("li").filter({ hasText: diagnosed.name }).getByRole("button", { name: "업무 삭제", exact: true }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: "삭제", exact: true }).click();
   await page.getByRole("tab", { name: step === 3 ? "자동화 매트릭스" : "결과·로드맵", exact: true }).click();
   await expect(page.locator(".ax-empty")).toBeVisible();
-  await expect(page.locator(".ax-bubble, .ax-detail-stack, .ax-prompt")).toHaveCount(0);
+  await expect(page.locator(".ax-bubble, .ax-selected-report, .ax-prompt")).toHaveCount(0);
 });
 
 for (const width of [1440, 390]) test(`AX score evidence and all ranks update together without affecting another plan at ${width}px`, async ({ page }) => {
@@ -1503,7 +1512,7 @@ for (const width of [1440, 390]) test(`AX score evidence and all ranks update to
   await evidence.click(); await expect(panel.locator(".ax-score-result strong")).toHaveText(["1", "1"]);
   await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();
   await expect(page.getByRole("list", { name: "자동화 우선순위 TOP 목록", exact: true }).locator(".ax-task-name")).toHaveText([tasks[1].name, tasks[0].name]);
-  await expect(page.locator(".ax-roadmap-task")).toHaveText(tasks[0].name);
+  await expect(page.locator(".ax-report-intro h2")).toHaveText(tasks[0].name);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
@@ -1529,7 +1538,7 @@ test("AX partial diagnoses preserve selected task plans, tool prompts, copy and 
   await expect(page.getByLabel("매트릭스 업무 목록").getByRole("button", { name: /^1\. A/ })).toHaveAttribute("aria-pressed", "true");
   await page.getByLabel("매트릭스 업무 목록").getByRole("button", { name: /B/ }).click();
   await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();
-  await expect(page.locator(".ax-roadmap-task")).toHaveText("B");
+  await expect(page.locator(".ax-report-intro h2")).toHaveText("B");
   await expect(page.locator(".ax-kpi").filter({ hasText: "등록 업무" }).locator("strong")).toHaveText("5개");
   await expect(page.locator(".ax-kpi").filter({ hasText: "진단 완료" }).locator("strong")).toHaveText("3개");
   await expect(page.getByRole("button", { name: "전체 업무 보기", exact: true })).toHaveCount(0);

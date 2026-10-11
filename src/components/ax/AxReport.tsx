@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { AlertTriangle, BookOpen, Check, CheckCircle2, Clipboard, CloudUpload, Copy, Download, FileCode2, Folder, GitBranch, Globe, Info, ShieldCheck, Terminal } from "lucide-react";
+import { AlertCircle, AlertTriangle, ArrowRight, BookOpen, Bot, BrainCircuit, Check, CheckCircle2, Clipboard, ClipboardList, CloudUpload, Copy, Database, Download, FileCode2, FileOutput, Folder, GitBranch, Globe, Info, MonitorCog, Play, Settings2, ShieldCheck, Target, Terminal, UserRound } from "lucide-react";
 import type { AxDiagnosis, AxPlan, AxTask } from "@/lib/ax/types";
 import { automationLevel, axes, executionGate, executionProfile, factorEffectiveValue, GATE_LABELS, nextAction, type ExecutionProfile } from "@/lib/ax/policy";
 import { FACTOR_KEYS } from "@/lib/ax/schema";
@@ -35,46 +35,110 @@ export function AxSummary({ task, showGate = true }: { task: AxTask; showGate?: 
     {showGate ? <p><strong>{action.label}</strong> — {action.detail}</p> : null}
   </div>;
 }
+export function AxResultSummary({ task }: { task: AxTask }) {
+  const d = task.diagnosis;
+  if (!d) return null;
+  const level = automationLevel(d), profile = executionProfile(d), metrics = axes(d);
+  const indicators = [
+    { label: "자동화 가치", value: metrics.value },
+    { label: "기술 실현 가능성", value: metrics.feasibility },
+    { label: "담당자 판단 필요도", value: metrics.judgment },
+    { label: "운영 위험", value: metrics.risk },
+  ];
+  const groups = [
+    { verdict: "자동화", label: "자동화 적합 단계", icon: Settings2 },
+    { verdict: "AI 보조", label: "AI 보조 단계", icon: BrainCircuit },
+    { verdict: "사람 유지", label: "담당자 수행 단계", icon: UserRound },
+  ] as const;
+  return <section className="ax-section ax-panel ax-result-summary" aria-label="진단 요약">
+    <header className="ax-result-head"><h3>진단 요약</h3><small>현재 상태와 핵심 결과</small></header>
+    <div className="ax-result-band">
+      <div className="ax-result-meta">
+        <Badge variant="info" className="ax-result-level">{level.label.replace(/^L\d+ /u, "")} · Level {level.level}{level.provisional ? " · 잠정" : ""}</Badge>
+        <span className="ax-gate-badge" data-gate={profile.gate}>{GATE_LABELS[profile.gate]}</span>
+        {d.sourceNote ? <p>{d.sourceNote}</p> : null}
+        <small>아래 단계별 건수는 진단상 목표 적합성으로, 현재 구현·배포 가능 범위가 아닙니다.</small>
+      </div>
+      <div className="ax-result-metrics" aria-label="진단 지표 · 1점부터 5점까지">{indicators.map(({ label, value }) => <div className="ax-result-metric" key={label}>
+        <span>{label}</span><strong>{value} / 5</strong><span className="ax-result-meter" aria-hidden="true">{[1, 2, 3, 4, 5].map(n => <i key={n} data-on={n <= value ? "true" : "false"} />)}</span>
+      </div>)}</div>
+    </div>
+    <div className="ax-result-counts">{groups.map(({ verdict, label, icon: Icon }) => <div className="ax-result-count" data-verdict={verdict} key={verdict}>
+      <span className="ax-result-count-icon"><Icon aria-hidden="true" /></span><span>{label}</span>
+      <strong>{d.stepAssessments.filter(step => step.verdict === verdict).length}개</strong>
+    </div>)}</div>
+  </section>;
+}
+
+const SCOPE_LABELS = { implement: "이번 구현", "after-check": "확인 후 구현", verify: "검토·검증만", future: "향후 확장", human: "담당자 유지" } as const;
+
+export function AxExecutionTimeline({ diagnosis: d }: { diagnosis: AxDiagnosis }) {
+  const profile = executionProfile(d);
+  return <section className="ax-section ax-panel ax-execution-timeline" aria-label="실행 로드맵">
+    <header className="ax-result-head"><h3>실행 로드맵</h3><small>Level {profile.level} 기준 · {GATE_LABELS[profile.gate]}</small></header>
+    <p className="ax-execution-intro">{profile.gate === "blocked" ? "진행 보류 · 차단 사유를 해결하고 재진단하기 전까지 구현하지 않습니다."
+      : profile.level === 0 ? "Level 0 · 현재 단계는 처리 가능성 검토·검증만 진행합니다."
+      : profile.gate === "conditional" ? "선행 조건 확인 후 범위를 결정합니다. 아래 항목은 지금 구현 가능한 작업이 아닙니다."
+      : "현재 진단에서 허용된 처리 범위와 담당자를 표시합니다."}</p>
+    {profile.stepScope.length ? <ol className="ax-execution-list">{profile.stepScope.map((step, i) => <li className="ax-execution-item" data-scope={step.scope} data-owner={step.owner} key={i}>
+      <span className="ax-execution-node">{i + 1}</span>
+      <div className="ax-execution-content"><strong>{step.step} · {OWNER_LABELS[step.owner]}</strong>
+        {step.note ? <p>{step.note}</p> : null}
+        {step.treatment ? <small>{step.scope === "future" ? "향후 범위: " : "처리 방식: "}{step.treatment}</small> : null}
+      </div>
+      <Badge variant="outline" className="ax-scope-badge" data-scope={step.scope}>{SCOPE_LABELS[step.scope]}</Badge>
+    </li>)}</ol> : <p className="ax-muted">진단된 업무 단계 없음</p>}
+    {profile.roadmap.length ? <div className="ax-execution-phases"><h4>{profile.roadmapTitle} · 단계별 진행 계획</h4>
+      <ol>{profile.roadmap.map((phase, i) => <li className="ax-execution-phase" key={i}>
+        <strong>Phase {phase.phase} · {phase.title}</strong><AxList items={phase.items} />
+      </li>)}</ol>
+    </div> : null}
+  </section>;
+}
 export function AxProcess({ diagnosis: d }: { diagnosis: AxDiagnosis }) {
+  const core = [
+    { label: "업무 목적", icon: Target, value: d.asIs.purpose || "기재된 내용 없음" },
+    { label: "시작 조건", icon: Play, value: d.asIs.trigger || "기재된 내용 없음" },
+    { label: "입력 데이터", icon: Database, value: <AxList items={d.asIs.inputs} /> },
+    { label: "출력 결과", icon: FileOutput, value: <AxList items={d.asIs.outputs} /> },
+  ];
   return <>
-    <section className="ax-section ax-panel"><h3>AS-IS · 현재 업무</h3>
-      <dl className="ax-definition"><dt>목적</dt><dd>{d.asIs.purpose}</dd><dt>시작 조건</dt><dd>{d.asIs.trigger}</dd><dt>입력</dt><dd><AxList items={d.asIs.inputs} /></dd><dt>업무 단계</dt><dd><AxList items={d.asIs.steps} /></dd><dt>출력</dt><dd><AxList items={d.asIs.outputs} /></dd><dt>예외</dt><dd><AxList items={d.asIs.exceptions} /></dd><dt>담당자 판단</dt><dd><AxList items={d.asIs.humanDecisions} /></dd><dt>시스템</dt><dd><AxList items={d.asIs.systems} /></dd></dl>
+    <section className="ax-section ax-panel ax-process-card">
+      <header className="ax-process-head"><h3>AS-IS · 현재 업무</h3><small>현재 업무 구조 분석</small></header>
+      <div className="ax-process-core">{core.map(({ label, icon: Icon, value }) => <div className="ax-process-field" key={label}>
+        <span className="ax-process-icon"><Icon aria-hidden="true" /></span><div><h4>{label}</h4>{typeof value === "string" ? <p>{value}</p> : value}</div>
+      </div>)}</div>
+      <div className="ax-process-steps"><h4>현재 업무 단계 ({d.asIs.steps.length}단계)</h4>
+        {d.asIs.steps.length ? <ol className="ax-process-flow">{d.asIs.steps.map((step, i) => <li className="ax-process-node" key={i}>
+          <span className="ax-process-node-number">{String(i + 1).padStart(2, "0")}</span><span>{step}</span>
+          {i < d.asIs.steps.length - 1 ? <ArrowRight className="ax-process-arrow" aria-hidden="true" /> : null}
+        </li>)}</ol> : <p className="ax-muted">기재된 내용 없음</p>}
+      </div>
+      {d.asIs.exceptions.length || d.asIs.humanDecisions.length ? <div className="ax-process-extras">
+        {d.asIs.exceptions.length ? <div className="ax-process-extra" data-kind="exception"><AlertTriangle aria-hidden="true" /><div><h4>주요 예외 상황</h4><AxList items={d.asIs.exceptions} /></div></div> : null}
+        {d.asIs.humanDecisions.length ? <div className="ax-process-extra" data-kind="human"><ClipboardList aria-hidden="true" /><div><h4>담당자 판단 사항</h4><AxList items={d.asIs.humanDecisions} /></div></div> : null}
+      </div> : null}
+      {d.asIs.systems.length ? <div className="ax-process-systems"><MonitorCog aria-hidden="true" /><div><h4>사용 시스템</h4><AxList items={d.asIs.systems} /></div></div> : null}
     </section>
-    <section className="ax-section ax-panel"><h3>단계별 자동화 판단</h3><AxStepTable diagnosis={d} headers={["단계", "판정", "담당", "근거"]} /></section>
+    <section className="ax-section ax-panel"><h3>단계별 자동화 판단</h3><AxStepTable diagnosis={d} headers={["업무 단계", "판정", "담당", "판단 근거"]} /></section>
     <AxToBe diagnosis={d} />
   </>;
 }
-/** One step-assessment source for both the diagnosis table and the result scope view. */
 function AxStepTable({ diagnosis: d, headers }: { diagnosis: AxDiagnosis; headers: [string, string, string, string] }) {
-  return <div className="ax-table-wrap"><table className="ax-step-table"><thead><tr>{headers.map(header => <th key={header}>{header}</th>)}</tr></thead><tbody>{d.stepAssessments.map((s, i) => <tr key={i}><td>{s.step}</td><td>{VERDICT_LABELS[s.verdict]}</td><td>{OWNER_LABELS[s.owner]}</td><td>{s.note}</td></tr>)}</tbody></table></div>;
+  return <div className="ax-table-wrap"><table className="ax-step-table"><thead><tr>{headers.map(header => <th key={header}>{header}</th>)}</tr></thead><tbody>{d.stepAssessments.length ? d.stepAssessments.map((s, i) => <tr key={i}>
+    <td><span className="ax-step-number">{String(i + 1).padStart(2, "0")}</span>{s.step}</td>
+    <td><Badge variant="outline" className="ax-verdict-badge" data-verdict={s.verdict}>{VERDICT_LABELS[s.verdict]}</Badge></td>
+    <td>{OWNER_LABELS[s.owner]}</td><td>{s.note}</td>
+  </tr>) : <tr><td colSpan={4}>기재된 단계 없음</td></tr>}</tbody></table></div>;
 }
 function AxToBe({ diagnosis: d }: { diagnosis: AxDiagnosis }) {
-  return <section className="ax-section ax-panel"><h3>TO-BE · 역할과 흐름</h3><ol className="ax-tobe-list">{d.toBe.map((s, i) => <li key={i}><strong>{s.step} · {OWNER_LABELS[s.owner]}</strong><p>{s.description}</p></li>)}</ol></section>;
-}
-/** Prerequisites come from the gate policy; a ready gate shows the confirmed technical checks instead. */
-function AxChecks({ diagnosis: d, profile }: { diagnosis: AxDiagnosis; profile: ExecutionProfile }) {
-  const rows = profile.prerequisites.length
-    ? profile.prerequisites.map(item => { const [topic, ...note] = item.split(" — "); return { topic, detail: note.length ? `확인 필요 · ${note.join(" — ")}` : "확인 필요" }; })
-    : d.technicalChecks.map(c => ({ topic: c.topic, detail: `${c.status}${c.note ? ` · ${c.note}` : ""}` }));
-  return <section className="ax-section ax-panel"><h3>진행 전 확인사항</h3>{rows.length ? <ul className="ax-check-list">{rows.map((row, i) => <li key={i}><strong>{row.topic}</strong><span>{row.detail}</span></li>)}</ul> : <p className="ax-muted">선행 확인사항 없음</p>}{d.risks.length ? <div className="ax-risk-block"><h4>주의사항·위험요소</h4><ul className="ax-risk-list">{d.risks.map((risk, i) => <li key={i}>{risk}</li>)}</ul></div> : null}</section>;
-}
-/** Roadmap timeline shared by the dark Step 4 panel and the report; content always comes from the execution profile. */
-export function AxRoadmapPhases({ profile, timeline = false }: { profile: ExecutionProfile; timeline?: boolean }) {
-  return timeline
-    ? <ol className="ax-timeline">{profile.roadmap.map((r, i) => <li key={i}><span className="ax-timeline-node">{i + 1}</span><div><h4>Phase {r.phase} · {r.title}</h4></div></li>)}</ol>
-    : <ol>{profile.roadmap.map((r, i) => <li key={i}><h4>{r.phase} · {r.title}</h4><AxList items={r.items} /></li>)}</ol>;
-}
-export function AxRoadmap({ diagnosis: d, roadmapSection = true }: { diagnosis: AxDiagnosis; roadmapSection?: boolean }) {
-  const profile = executionProfile(d);
-  return <>
-    <AxToBe diagnosis={d} />
-    {roadmapSection ? <>
-      <section className="ax-section ax-panel"><h3>자동화 적용 범위</h3><AxStepTable diagnosis={d} headers={["업무 단계", "처리 방식", "담당", "이유"]} /></section>
-      <AxChecks diagnosis={d} profile={profile} />
-      <section className="ax-section ax-panel"><h3>사전 검증(PoC)</h3><dl className="ax-definition">{([['inScope', '포함'], ['outOfScope', '제외'], ['inputs', '입력'], ['outputs', '출력'], ['evaluation', '평가 방법'], ['success', '성공 기준'], ['failure', '실패 기준']] as const).map(([key, label]) => <div className="ax-definition-row" key={key}><dt>{label}</dt><dd><AxList items={profile.poc[key]} /></dd></div>)}</dl></section>
-    </> : <section className="ax-section ax-panel"><h3>자동화 판단 근거</h3><AxStepTable diagnosis={d} headers={["업무 단계", "판단", "담당", "근거"]} /></section>}
-    {roadmapSection ? <section className="ax-section ax-panel"><h3>{profile.roadmapTitle}</h3><AxRoadmapPhases profile={profile} /></section> : null}
-  </>;
+  const icons = { 시스템: Settings2, AI: Bot, 사용자: UserRound } as const;
+  return <section className="ax-section ax-panel ax-tobe-card"><header className="ax-process-head"><h3>TO-BE · 역할과 흐름 (목표 프로세스)</h3><small>자동화 도입 후 예상 업무 흐름 · 구현 완료 아님</small></header>
+    {d.toBe.length ? <ol className="ax-tobe-flow">{d.toBe.map((s, i) => { const Icon = icons[s.owner]; return <li className="ax-tobe-item" data-owner={s.owner} key={i}>
+      <span className="ax-tobe-icon"><Icon aria-hidden="true" /></span><strong>{s.step}</strong><span>{OWNER_LABELS[s.owner]}</span><p>{s.description}</p>
+      {i < d.toBe.length - 1 ? <ArrowRight className="ax-tobe-arrow" aria-hidden="true" /> : null}
+    </li>; })}</ol> : <p className="ax-muted">기재된 목표 업무 단계 없음</p>}
+  </section>;
 }
 export function AxRadar({ diagnosis }: { diagnosis: AxDiagnosis }) {
   const point = (index: number, radius: number) => {
@@ -243,7 +307,12 @@ function AxPlanHeading({ no, title, description, id }: { no: string; title: stri
   return <><h4 id={id} tabIndex={id ? -1 : undefined}><span className="ax-plan-no">{no}</span> {title}</h4>{description ? <p className="ax-plan-desc">{description}</p> : null}</>;
 }
 /** Diagnosis policy is authoritative: the summary shows only the permitted scope, open conditions and completion checks. */
-function AxPlanOverview({ profile, summary }: { profile: ExecutionProfile; summary: AxPlanSummary }) {
+function AxPlanOverview({ diagnosis, profile, summary }: { diagnosis: AxDiagnosis; profile: ExecutionProfile; summary: AxPlanSummary }) {
+  const shownChecks = new Set(diagnosis.technicalChecks.flatMap(check => [
+    check.note ? `${check.topic} — ${check.note}` : check.topic,
+    ...(check.status === "불가" ? [check.note ? `${check.topic} 불가 — ${check.note}` : `${check.topic} 불가`] : []),
+  ]));
+  const remainingPrerequisites = summary.prerequisites.filter(item => !shownChecks.has(item));
   return <div className="ax-plan-view">
     <section className="ax-plan-block" aria-label="01 구현 범위"><AxPlanHeading no="01" title="구현 범위" description="현재 구현·보조할 작업과 사람에게 남길 작업" />
       <AxPlanGroup title={profile.level === 0 || profile.gate === "blocked" ? "허용된 준비·검증" : profile.gate === "conditional" ? "조건 해결 후 샘플 범위" : "구현·보조 작업"} items={summary.include} />
@@ -251,7 +320,11 @@ function AxPlanOverview({ profile, summary }: { profile: ExecutionProfile; summa
       <AxPlanGroup title="현재 자동화 제외" items={summary.excluded} />
     </section>
     <section className="ax-plan-block" aria-label="02 시작 전 확인"><AxPlanHeading no="02" title="시작 전 확인" description="구현 전 해결해야 할 조건과 데이터 정보" />
-      <AxPlanGroup title={profile.gate === "blocked" ? "차단 사유" : "선행 확인사항"} items={summary.prerequisites} status={profile.gate === "blocked" ? undefined : "확인 필요"} />
+      {diagnosis.technicalChecks.length ? <div className="ax-gate-cards">{diagnosis.technicalChecks.map((check, i) => <div className="ax-gate-card" data-status={check.status} key={i}>
+        {check.status === "확인됨" ? <CheckCircle2 aria-hidden="true" /> : check.status === "불가" ? <AlertTriangle aria-hidden="true" /> : <AlertCircle aria-hidden="true" />}
+        <div><h5>{check.topic}</h5><span>{check.status}</span>{check.note ? <p>{check.note}</p> : null}</div>
+      </div>)}</div> : null}
+      <AxPlanGroup title={profile.gate === "blocked" ? "차단 사유" : "선행 확인사항"} items={remainingPrerequisites} status={profile.gate === "conditional" ? "확인 필요" : undefined} />
       {summary.data.length ? <div className="ax-plan-group">
         <h5>데이터·시스템 정보</h5>
         <dl className="ax-plan-data">{summary.data.map(row => <div key={row.label}><dt>{row.label}</dt><dd>{row.items.join(" · ")}</dd></div>)}</dl>
@@ -309,7 +382,7 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
       <span className="ax-status-badge">{`Level ${profile.level} · ${level.label.replace(/^L\d+ /u, "")}${level.provisional ? " (잠정)" : ""}`}</span>
       <span className="ax-gate-badge" data-gate={gate}>{GATE_LABELS[gate]}</span>
     </div>
-    <AxPlanOverview profile={profile} summary={summary} />
+    <AxPlanOverview diagnosis={diagnosis} profile={profile} summary={summary} />
     {gate === "blocked" ? <>
       <div className="ax-actions">{generateButton("codex")}{generateButton("claude")}</div>
     </> : <>

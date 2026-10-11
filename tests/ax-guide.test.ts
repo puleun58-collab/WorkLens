@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildAllInOnePrompt, guardPlan, planSummary, setupGuide, TOOL_GUIDES, type AxGuideSection } from "../src/lib/ax/guide";
+import { buildAgentInstructionModel, buildAllInOnePrompt, guardPlan, planSummary, setupGuide, TOOL_GUIDES, type AxGuideSection } from "../src/lib/ax/guide";
 import { FACTOR_LABELS } from "../src/lib/ax/schema";
 import { diagnosisFixture, planFixture } from "./fixtures/ax";
 import type { AxDiagnosis, AxPlan } from "../src/lib/ax/types";
@@ -121,11 +121,31 @@ describe("AX execution guides", () => {
     expect(once.outOfScope).toEqual(["자동 승인", "ERP 자동 전송"]);
     expect(once.prerequisites).toEqual(["ERP API 존재 여부 확인"]);
     expect(guardPlan(once, "매월 정산표를 만들어 담당자가 승인합니다.")).toEqual(once);
+    // The raw unsupported metric stays visible for confirmation and never becomes a pass/fail criterion.
     const prompt = buildAllInOnePrompt(plan, "codex", { diagnosis: levelOne });
-    expect(buildAllInOnePrompt(once, "codex", { diagnosis: levelOne })).toBe(prompt);
+    expect(prompt).toContain("업무 시간을 50% 절감한다. (범위 확인 필요: 근거 없는 성능 수치");
+    expect(prompt.split("### 판정 기준")[1]?.split("\n### ")[0] ?? "").not.toContain("정확도 95%");
     expect(guardPlan(planFixture, "")).toEqual(planFixture);
     const allowed = guardPlan({ ...planFixture, implementation: ["중복 건은 자동 삭제한다."] }, "규정상 중복 건은 자동 삭제합니다.");
     expect(allowed.implementation).toEqual(["중복 건은 자동 삭제한다."]);
+  });
+  it("keeps conditional integration dependencies visible without attaching them to an invented step", () => {
+    const diagnosis = { ...levelOne,
+      decisionGate: { verdict: "conditional" as const, reasons: ["접근 권한 확인"] },
+      technicalChecks: [{ topic: "외부 서비스 사용", status: "확인 필요" as const, note: "실제 연동 방식 미확정" }],
+    };
+    const plan = { ...planFixture, prerequisites: ["미확정 ERP 연결 권한 확인"], integrations: ["미확정 ERP 연결"] };
+    const before = structuredClone({ diagnosis, plan });
+    const model = buildAgentInstructionModel(plan, { diagnosis });
+    expect(model.gate).toBe("conditional");
+    expect(model.steps.every(s => s.scope !== "implement")).toBe(true);
+    const dependency = model.classified.find(item => item.text === "미확정 ERP 연결 권한 확인");
+    expect(dependency).toBeDefined();
+    expect(dependency?.scope).not.toBe("implement");
+    expect(model.scoped.conditions).not.toContainEqual(expect.objectContaining({ text: "미확정 ERP 연결 권한 확인" }));
+    const prompt = buildAllInOnePrompt(plan, "codex", { diagnosis });
+    expect(prompt).toContain("미확정 ERP 연결 권한 확인");
+    expect({ diagnosis, plan }).toEqual(before);
   });
   it("distinguishes repository preparation cases without choosing a framework", () => {
     const sections = setupGuide("codex")[2].sections.filter(section => /^[ABC]\. /.test(section.title));
