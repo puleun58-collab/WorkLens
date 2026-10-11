@@ -127,11 +127,11 @@ try {
     *{box-sizing:border-box}html,body{margin:0;width:1200px;height:630px;background:#f6f7fb;color:${navy}}
     body{font-family:"Pretendard Brand",sans-serif;-webkit-font-smoothing:antialiased}
     .sheet{position:relative;width:1200px;height:630px}
-    .brand{position:absolute;left:88px;top:190px;display:flex;align-items:center;gap:24px;height:104px;transform:scale(1.15);transform-origin:top left}
+    .brand{position:absolute;left:88px;top:197px;display:flex;align-items:center;gap:24px;height:104px;transform:scale(1.15);transform-origin:top left}
     .brand svg{width:104px;height:104px;flex:none}
     .brand-name{font-size:70px;font-weight:700;letter-spacing:-1.05px;line-height:1}
     .brand-name span{color:${blue}}
-    h1{position:absolute;left:88px;top:364px;margin:0;font-size:61px;letter-spacing:-1.6px;line-height:1.25;font-weight:700}
+    h1{position:absolute;left:88px;top:365px;margin:0;font-size:54px;letter-spacing:-1.4px;line-height:1.25;font-weight:500}
   </style></head><body><main class="sheet"><div class="brand">${symbolSvg(full, 64)}<div class="brand-name">Work<span>Lens</span></div></div><h1>업무 문서 작업 공간</h1></main></body></html>`;
   await page.setContent(html);
   await page.evaluate(() => document.fonts.ready);

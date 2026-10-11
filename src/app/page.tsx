@@ -1782,7 +1782,7 @@ export default function Home() {
                       </Menu>
                       <AlertDialog open={deleteAllOpen} onOpenChange={setDeleteAllOpen}>
                         <AlertDialogPopup>
-                          <AlertDialogHeader><AlertDialogTitle>작업 파일 모두 삭제</AlertDialogTitle><AlertDialogDescription>이 탭에서 처리한 파일과 결과를 모두 지웁니다. 삭제 후에는 복구할 수 없습니다.</AlertDialogDescription></AlertDialogHeader>
+                          <AlertDialogHeader><AlertDialogTitle>작업 파일 모두 삭제</AlertDialogTitle><AlertDialogDescription>이 탭의 파일과 결과가 삭제되며 복구할 수 없습니다.</AlertDialogDescription></AlertDialogHeader>
                           <AlertDialogFooter><AlertDialogClose render={<Button variant="outline" />}>취소</AlertDialogClose><AlertDialogClose render={<Button variant="destructive" onClick={deleteAll} />}>삭제</AlertDialogClose></AlertDialogFooter>
                         </AlertDialogPopup>
                       </AlertDialog>
@@ -1808,7 +1808,7 @@ export default function Home() {
                           <div className="file-name-line">
                             <strong title={file.name} tabIndex={selectionRole ? 0 : undefined}>{file.name}</strong>
                           {selectionRole ? <span className="compare-selection-line">
-                            <span className="compare-selection-role">{selectionRole}</span>
+                            <span className="compare-selection-role" data-role={comparisonRole ? "comparison" : "aggregate-base"}>{selectionRole}</span>
                             {comparisonSelectionIndex === 0 && comparisonDirection ? (
                               <Button type="button" variant="ghost" size="icon" className="compare-swap-icon" aria-label="기준/대상 바꾸기" title="기준/대상 바꾸기" disabled={busy} onClick={swapComparisonDirection}>
                                 <ArrowUpDown aria-hidden="true" />

@@ -3494,14 +3494,23 @@ test("aggregates workbooks into one XLSX result without profile-specific actions
   const comparisonBadge = fileRow(page, files.v1).locator(".compare-selection-role");
   const appearance = (element: Element) => {
     const style = getComputedStyle(element);
-    return [style.backgroundColor, style.border, style.borderRadius, style.color, style.fontFamily, style.fontSize, style.padding];
+    return { background: style.backgroundColor, border: style.borderTopWidth, radius: parseFloat(style.borderRadius), color: style.color, weight: style.fontWeight, shadow: style.boxShadow };
   };
-  const expectedAppearance = await comparisonBadge.evaluate(appearance);
+  const comparisonAppearance = await comparisonBadge.evaluate(appearance);
   await navigateWorkspace(page, "취합");
   const first = fileRow(page, files.v1);
   const second = fileRow(page, files.v2);
   await expect(first.locator(".compare-selection-role")).toHaveText("기준 파일");
-  expect(await first.locator(".compare-selection-role").evaluate(appearance)).toEqual(expectedAppearance);
+  // Aggregate's base file is a borderless soft-blue pill; Compare keeps its own outlined role badges.
+  const baseAppearance = await first.locator(".compare-selection-role").evaluate(appearance);
+  expect(baseAppearance).toMatchObject({ background: "rgb(234, 242, 255)", border: "0px", color: "rgb(36, 91, 219)", weight: "600", shadow: "none" });
+  expect(baseAppearance.radius).toBeGreaterThanOrEqual(10);
+  expect(comparisonAppearance.background).not.toBe(baseAppearance.background);
+  await expect(first).toHaveClass(/compare-selected-file/);
+  if (await first.locator(".file-name-line").evaluate((line) => getComputedStyle(line).flexDirection === "row")) {
+    const [nameBox, badgeBox] = await Promise.all([first.locator(".file-name-line strong").boundingBox(), first.locator(".compare-selection-role").boundingBox()]);
+    expect(badgeBox!.x).toBeGreaterThanOrEqual(nameBox!.x + nameBox!.width);
+  }
   await expect(second.locator(".compare-selection-role")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "기준/대상 바꾸기" })).toHaveCount(0);
   await expect(first.locator(".compare-selection-role")).not.toContainText("1 ·");
