@@ -2771,8 +2771,14 @@ function AnalyzeResults({ entries, enrichment, evidenceLimited, status, fileName
   const multipleFiles = entries.length > 1;
 
   return (
+    <>
+    {/* Status, scope notice and result surface are three units: the white report card starts at the first result section. */}
+    {enrichment && evidenceLimited ? (
+      <StatusPanel className="notice analysis-scope-notice" variant="info"
+        title="분석 결과는 주요 내용을 중심으로 정리되며, 일부 세부 내용은 포함되지 않을 수 있습니다."
+        icon={<Info size={18} fill="currentColor" stroke="white" strokeWidth={2.2} />} />
+    ) : null}
     <div className="analysis-report">
-      {enrichment && evidenceLimited ? <p className="analysis-scope-note">분석 결과는 문서의 주요 내용을 중심으로 정리되며, 일부 세부 내용은 포함되지 않을 수 있습니다.</p> : null}
       {presentation.summary.length ? (
         <section className="analysis-report-section analysis-summary-section" aria-labelledby="analysis-summary-title">
           <div className="subsection-heading">
@@ -2875,6 +2881,7 @@ function AnalyzeResults({ entries, enrichment, evidenceLimited, status, fileName
         </section>
       ) : null}
     </div>
+    </>
   );
 }
 

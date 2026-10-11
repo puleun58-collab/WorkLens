@@ -135,12 +135,13 @@ test("analyzes generated regulation and workbook within one aligned result surfa
   await expect(sections.nth(4)).toHaveClass(/analysis-concern-section/);
   await expectSectionHierarchy(panel);
   const desktop = await panel.evaluate((root) => {
-    const count = root.querySelector(".analysis-summary-section .subsection-heading span")!.getBoundingClientRect();
     const status = root.querySelector(".result-status")!.getBoundingClientRect();
     const report = root.querySelector(".analysis-report")!;
-    return { right: Math.abs(status.right - count.right), surface: getComputedStyle(report).backgroundColor };
+    // Status sits outside the white report card and shares its right edge.
+    return { right: Math.abs(status.right - report.getBoundingClientRect().right), statusAbove: status.bottom <= report.getBoundingClientRect().top, surface: getComputedStyle(report).backgroundColor };
   });
   expect(desktop.right).toBeLessThanOrEqual(1);
+  expect(desktop.statusAbove).toBe(true);
   expect(desktop.surface).toBe("rgb(255, 255, 255)");
   expect(await sections.evaluateAll((items) => items.every((item) =>
     Math.abs(item.getBoundingClientRect().width - items[0].getBoundingClientRect().width) <= 1))).toBe(true);

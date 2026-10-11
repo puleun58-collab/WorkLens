@@ -1982,17 +1982,6 @@ a:not([data-slot]):focus-visible,
   border-bottom: 0;
 }
 
-/* A scope note, not a warning: muted text on the same content edge as the section headings below. */
-.analysis-report > .analysis-scope-note {
-  margin: 0;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--line-soft);
-  color: var(--muted);
-  font-size: var(--font-size-xs);
-  line-height: 1.55;
-  overflow-wrap: anywhere;
-}
-
 .analysis-warning-section .analysis-warning-line:first-of-type {
   border-top: 0;
 }
@@ -5225,17 +5214,28 @@ body {
   padding-left: 0;
 }
 
-.workspace > .analysis-results-panel {
-  border: 1px solid var(--line-soft);
-  border-radius: var(--radius-panel);
-  background: var(--paper);
-  box-shadow: var(--shadow-panel);
-  overflow: hidden;
+/* The analysis panel is flat: status and the scope notice sit on the canvas, the report is the white surface. */
+.workspace > .analysis-results-panel > .panel-heading {
+  padding: 0 0 var(--space-2);
+  border-bottom: 0;
+  background: transparent;
 }
 
-.workspace > .analysis-results-panel > .panel-heading {
-  padding: var(--space-4) var(--panel-inset) var(--space-3);
-  background: var(--paper);
+/* The lone status ends on the report's right edge at every width (narrow screens otherwise space-between it to the left). */
+.workspace > .analysis-results-panel > .panel-heading .result-heading-meta {
+  justify-content: flex-end;
+}
+
+/* Beats the shared alert's 12px top margin; the panel heading already separates status from the notice. */
+.workspace > .analysis-results-panel > div.status-panel.analysis-scope-notice {
+  margin: 0 0 var(--space-3);
+}
+
+.workspace > .analysis-results-panel > .analysis-report {
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-panel);
+  overflow: hidden;
 }
 
 /* Polish uses the same white panel treatment for its separate result view. */
@@ -7834,7 +7834,7 @@ body {
 
 /* Level 1 — Surface: colour + hairline + the surface elevation, top-level only. */
 .workspace .file-list,
-.workspace > .analysis-results-panel,
+.workspace > .analysis-results-panel > .analysis-report,
 .workspace .qa-overview,
 .workspace .change-table,
 .workspace .extract-auto-table,
