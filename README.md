@@ -29,6 +29,8 @@ WorkLens는 XLSX, CSV, PDF, DOCX, PPTX 파일을 브라우저에서 읽어 분�
 
 UI는 [coss ui](https://coss.com/ui)(Base UI + Tailwind CSS v4) 컴포넌트를 `src/components/ui`에 소스로 두고 사용하며, WorkLens 색·간격 토큰은 `src/app/design-system.css`에서 관리합니다.
 
+브랜드 원본은 `src/app/worklens-logo.tsx`의 문서 레이어·돋보기 마크입니다. `bun scripts/generate-brand-assets.ts`로 `public/brand/worklens-logo.svg`, `worklens-logo-light.svg`, `worklens-mark.svg`, `worklens-mark-dark.svg`, `worklens-mark-light.svg`, `worklens-mark-small.svg`, `worklens-icon-{16,32,64,128}.png`, `worklens-og-document-lens.png`와 `src/app/icon.svg`, `src/app/favicon.ico`를 다시 생성합니다. 공유 미리보기는 `public/brand/worklens-og-document-lens.png`(1200×630)를 Open Graph·Twitter에 함께 사용합니다. 브라우저·검색엔진·메신저의 외부 캐시는 배포 후에도 예전 아이콘이나 공유 이미지를 한동안 보여 줄 수 있습니다.
+
 버튼은 해당 입력·액션 행의 세로 중심에 맞춥니다. 분석 결과의 원문 위치와 근거 버튼, 질문 답변의 근거 영역, 데스크톱 AI·AX 진단 항목의 평가값 조절 영역은 같은 행의 내용과 중앙 정렬합니다. 라벨이 있는 Select·입력 행은 실제 컨트롤과 실행 버튼을 맞추며, 모바일의 기존 줄바꿈과 텍스트 윤문의 독립 실행 버튼 위치는 유지합니다.
 
 짧은 정적 UI 제목·라벨·상태·단일 동작 안내는 끝 온점 없이 간결하게 표시합니다. 여러 문장의 구분과 안전·보안 경고는 유지하며, AI 결과·법률 인용 원문·URL·파일명·코드·명령어에는 이 규칙을 일괄 적용하지 않습니다. AI·AX의 3+1 구조는 유지하고, 01~04는 파란 번호·제목·목적 한 줄과 구분선으로 나눕니다. `02 시작 전 확인`은 선행 확인사항 목록과 테두리가 있는 데이터·시스템 정보 표를 구분합니다. 전체 지시문은 기본 화면에서 숨기며 `전체 보기 / 전체 접기`와 접힌 상태의 전문 복사를 지원합니다. 선행 조건·실행 제한·담당자 유지·성공/실패 기준은 기본 화면에 남깁니다. 설치 STEP 01~09의 일반 안내는 문서형 배경, 실행 명령·설정 파일 예시·복사 가능한 지시문은 코드 블록으로 구분합니다.

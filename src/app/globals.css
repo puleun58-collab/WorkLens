@@ -1082,47 +1082,6 @@ a:not([data-slot]):focus-visible,
   overflow: visible;
 }
 
-.worklens-frame {
-  fill: var(--blue);
-}
-
-.worklens-w {
-  fill: none;
-  stroke: var(--ink);
-  stroke-width: 3.2;
-  stroke-linecap: square;
-  stroke-linejoin: miter;
-}
-
-.worklens-logo[data-tone="dark"],
-.worklens-mark[data-tone="dark"] {
-  color: var(--ink);
-}
-
-.worklens-logo[data-tone="light"],
-.worklens-mark[data-tone="light"] {
-  color: #fff;
-}
-
-.worklens-logo[data-tone="dark"] .worklens-frame,
-.worklens-logo[data-tone="dark"] .worklens-w,
-.worklens-mark[data-tone="dark"] .worklens-frame,
-.worklens-mark[data-tone="dark"] .worklens-w,
-.worklens-logo[data-tone="light"] .worklens-frame,
-.worklens-logo[data-tone="light"] .worklens-w,
-.worklens-mark[data-tone="light"] .worklens-frame,
-.worklens-mark[data-tone="light"] .worklens-w {
-  fill: none;
-  stroke: currentColor;
-}
-
-.worklens-logo[data-tone="dark"] .worklens-frame,
-.worklens-mark[data-tone="dark"] .worklens-frame,
-.worklens-logo[data-tone="light"] .worklens-frame,
-.worklens-mark[data-tone="light"] .worklens-frame {
-  fill: currentColor;
-  stroke: none;
-}
 
 .worklens-wordmark {
   color: currentColor;
@@ -3996,11 +3955,8 @@ body {
 }
 
 
-/* ── Brand logo: blue focus frame, white W, Work white + Lens blue ─────── */
+/* Brand lockup: flat document/lens symbol, navy Work and blue Lens. */
 
-:root {
-  --brand-blue: #3b82f6;
-}
 
 .worklens-logo {
   display: inline-flex;
@@ -4009,18 +3965,9 @@ body {
   line-height: 1;
 }
 
-.worklens-mark .worklens-frame {
-  fill: var(--brand-blue);
-  stroke: none;
-}
-
-.worklens-mark .worklens-w {
-  fill: var(--ink);
-  stroke: none;
-}
 
 .worklens-wordmark {
-  color: var(--ink);
+  color: var(--navy-800);
   font-size: 22px;
   font-weight: 700;
   letter-spacing: -0.015em;
@@ -4031,33 +3978,10 @@ body {
 }
 
 .worklens-wordmark em {
-  color: var(--brand-blue);
+  color: var(--blue);
   font-style: normal;
 }
 
-.worklens-logo[data-tone="light"] .worklens-frame,
-.worklens-mark[data-tone="light"] .worklens-frame {
-  fill: var(--brand-blue);
-  stroke: none;
-}
-
-.worklens-logo[data-tone="light"] .worklens-w,
-.worklens-mark[data-tone="light"] .worklens-w {
-  fill: #fff;
-  stroke: none;
-}
-
-.worklens-logo[data-tone="dark"] .worklens-frame,
-.worklens-mark[data-tone="dark"] .worklens-frame {
-  fill: var(--brand-blue);
-  stroke: none;
-}
-
-.worklens-logo[data-tone="dark"] .worklens-w,
-.worklens-mark[data-tone="dark"] .worklens-w {
-  fill: var(--ink);
-  stroke: none;
-}
 
 .worklens-logo[data-tone="light"] .worklens-wordmark {
   color: #fff;
@@ -4491,9 +4415,6 @@ body {
   gap: 16px;
 }
 
-.admin-bar .worklens-mark .worklens-w {
-  fill: #fff;
-}
 
 .admin-bar .worklens-wordmark {
   color: #fff;
