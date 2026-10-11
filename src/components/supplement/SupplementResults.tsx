@@ -34,12 +34,24 @@ const CHECK_TITLES: Record<SupplementResult["findings"][number]["check"], string
 
 function findingTitle(finding: SupplementFinding): string {
   if (finding.severity === "suggestion" || finding.scope !== "all") return finding.title;
-  const change = finding.check === "cause" ? /주요\s*(증가|감소)\s*원인 설명/u.exec(finding.message)?.[1] : undefined;
-  const problem = change ? `${change} 원인 미확인` : CHECK_TITLES[finding.check];
-  // Only extract from the existing result's explicit subject template; never
-  // infer a new metric or change the diagnosis when that template is absent.
-  const target = /^(.*?)(?:이|가) (?:.+?했다고 )?제시되어 있지만/u.exec(finding.message)?.[1] || finding.current;
-  return target ? `${target} — ${problem}` : problem;
+  // The final finding has no separate subject field. Use only the engine's
+  // explicit wording templates, not dashes or arbitrary document sentences.
+  if (finding.check === "baseline" && finding.title === "비교 기준 확인 필요" && finding.message.endsWith("제시되어 있지만 현재 자료에서 판단할 비교 기준(목표·이전 기간·기준값)을 확인하지 못했습니다.")) {
+    return /^(.+)(?:은|는) 목표 대비 어느 수준입니까\?$/u.exec(finding.question ?? "")?.[1]
+      || /^(.+)(?:이|가) 제시되어 있지만/u.exec(finding.message)?.[1] || finding.title;
+  }
+  if (finding.check === "cause") {
+    const match = /^(.+)(?:이|가) .*?(증가|감소)했다고 제시되어 있지만 현재 자료에서 주요 (?:증가|감소) 원인 설명을 확인하지 못했습니다\.$/u.exec(finding.message);
+    return match && (finding.title === "원인 설명 확인 필요" || finding.title === `${match[1]} ${match[2]} 원인 설명 확인 필요`) ? match[1] : finding.title;
+  }
+  if (finding.check === "impact" || finding.check === "response") {
+    const suffix = finding.check === "impact" ? "고객·비용·운영에 미치는 영향 설명" : "후속 대응 내용";
+    const generatedTitle = finding.check === "impact" ? "영향 설명 확인 필요" : "대응 확인 필요";
+    if (finding.title === generatedTitle && finding.message.endsWith(`제시되어 있지만 현재 자료에서 ${suffix}을 확인하지 못했습니다.`)) {
+      return /^(.+)(?:이|가) 제시되어 있지만/u.exec(finding.message)?.[1] || finding.title;
+    }
+  }
+  return finding.title;
 }
 
 
@@ -62,6 +74,9 @@ export function SupplementResults({ result, fileNames, renderSource }: {
   // Deliberately excluded sheets are disclosed; the analysis is complete but not "전체".
   const partialByDesign = complete && result.coverage.some((entry) => entry.sheets?.some((sheet) => sheet.status === "structure"));
   const multipleFiles = result.files.length > 1;
+  const titles = new Map(result.findings.map(finding => [finding.id, findingTitle(finding)]));
+  const titleCounts = new Map<string, number>();
+  for (const title of titles.values()) titleCounts.set(title, (titleCounts.get(title) ?? 0) + 1);
 
   return (
     <div className="result-sections supplement-results">
@@ -161,16 +176,20 @@ export function SupplementResults({ result, fileNames, renderSource }: {
                   {items.map((finding) => {
                     const reason = finding.reason.trim() !== finding.message.trim() ? finding.reason : "";
                     const hasOriginal = Boolean(finding.current || finding.locations.length || finding.evidence?.length || finding.evidenceLocations?.length || finding.linkNote);
+                    const subject = titles.get(finding.id)!;
+                    const title = subject !== finding.title && titleCounts.get(subject)! > 1
+                      ? `${subject} · ${CHECK_TITLES[finding.check]}${finding.locations[0] ? ` · ${finding.locations[0]}` : ""}`
+                      : subject;
                     return (
                       <AccordionItem key={finding.id} value={finding.id} render={<article />} className={`supplement-item check-issue severity-${finding.severity}`}>
                         <AccordionTrigger className="supplement-item-head">
-                          <span className="supplement-item-title">{findingTitle(finding)}</span>
+                          <span className="supplement-item-title">{title}</span>
                         </AccordionTrigger>
                         <span className="check-severity"><i className={`severity-mark ${finding.severity}`} aria-hidden="true" />{SUPPLEMENT_SEVERITY_LABELS[finding.severity]}</span>
                         {finding.additions.length > 0 ? (
                           <dl className="supplement-fields supplement-additions">
                             <div>
-                              <dt>{finding.scope === "report" ? "확인된 내용" : finding.severity === "suggestion" ? "추가하면 좋은 정보" : "필요한 정보"}</dt>
+                              <dt>{finding.scope === "report" ? "확인된 내용" : finding.severity === "suggestion" ? "추가하면 좋은 정보" : "확인할 정보"}</dt>
                               <dd><ul className="supplement-readable-list" role="list">{finding.additions.map((addition) => <li key={addition}><span className="supplement-list-marker" aria-hidden="true">•</span><span>{addition}</span></li>)}</ul></dd>
                             </div>
                           </dl>
@@ -178,11 +197,11 @@ export function SupplementResults({ result, fileNames, renderSource }: {
                         {finding.limitation ? <p className="supplement-limitation">{finding.limitation}</p> : null}
                         <AccordionPanel className="supplement-item-detail">
                           <dl className="supplement-fields">
-                            {finding.message || reason ? <div className="supplement-explanation">
+                            {finding.message.trim() || reason.trim() ? <div className="supplement-explanation">
                               <dt>{finding.scope === "conflict" ? "무엇이 다른가" : "확인 이유"}</dt>
                               <dd>
-                                {finding.message ? <p className="supplement-message">{finding.message}</p> : null}
-                                {reason ? <p>{reason}</p> : null}
+                                {finding.message.trim() ? <p className="supplement-message">{finding.message}</p> : null}
+                                {reason.trim() ? <p>{reason}</p> : null}
                               </dd>
                             </div> : null}
                             {finding.question && !result.questions.includes(finding.question) ? <div><dt>예상 질문</dt><dd>{finding.question}</dd></div> : null}

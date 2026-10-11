@@ -42,30 +42,22 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
         ".gitignore: Git에 새로 포함하지 않을 파일·폴더 규칙을 적는 파일",
       ] }] },
     ] },
-    { title: "STEP 1 · 처음 한 번 환경 준비", purpose: `설치 상태와 Git 사용자 정보·GitHub 인증 확인`, sections: [
+    { title: "STEP 1 · 개발 도구·인증 확인", purpose: `설치 상태와 Git 사용자 정보·GitHub 인증 확인`, sections: [
       { title: "필요한 프로그램 확인", blocks: [
         text("PowerShell에서 버전을 확인합니다. 표시되는 프로그램은 이미 설치됐으므로 설치를 건너뜁니다."),
         text("Node.js는 프로젝트에 필요한 경우에만 준비합니다"),
-        code(["git --version", "node --version", "npm --version", guide.versionCommand], [
-          "Git 버전 확인",
-          "Node.js 버전 확인",
-          "npm 버전 확인",
-          `${guide.name} 버전 확인`,
-        ]),
+        code(["git --version", "node --version", "npm --version", guide.versionCommand], []),
       ] },
       { title: "Git 설치", when: "Git 버전이 표시되지 않는 경우에만", blocks: [
-        code(["winget install --id Git.Git -e --source winget"], ["Windows 패키지 관리자로 Git 설치"]),
+        code(["winget install --id Git.Git -e --source winget"], []),
         text("설치 후 새 PowerShell을 열고 `git --version`으로 다시 확인합니다."),
       ] },
       { title: "Node.js 설치", when: "프로젝트에 Node.js가 필요하고 버전이 표시되지 않는 경우에만", blocks: [
         text("nodejs.org에서 LTS를 설치하고 `node --version`으로 다시 확인합니다. 프로젝트에 .nvmrc, .node-version 또는 package.json engines가 있으면 해당 요구사항을 우선합니다."),
       ] },
       { title: "Git 사용자 정보", when: "처음 한 번, 값이 비어 있을 때만", blocks: [
-        text("현재 값 확인"),
-        code(["git config --global user.name", "git config --global user.email"], [
-          "커밋에 기록할 사용자 이름 확인",
-          "커밋에 기록할 이메일 확인",
-        ]),
+        text("커밋에 기록할 사용자 이름·이메일 확인"),
+        code(["git config --global user.name", "git config --global user.email"], []),
         text("비어 있을 때만 설정합니다. 기존 값은 덮어쓰지 않습니다."),
         code(['git config --global user.name "이름"', 'git config --global user.email "메일주소"'], [
           "이름을 본인 이름으로 바꾸어 설정",
@@ -73,11 +65,11 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
         ]),
       ] },
       { title: `${guide.name} 설치`, when: `\`${guide.versionCommand}\`이 실패하는 경우에만`, blocks: [
-        code([guide.installCommand], [`${guide.name} 설치`]),
+        code([guide.installCommand], []),
         text(`설치 후 \`${guide.versionCommand}\`으로 다시 확인합니다. 문제가 있으면 \`${guide.doctorCommand}\`으로 점검합니다.`),
       ] },
       { title: "GitHub 인증 확인", when: "GitHub CLI(gh)가 설치된 경우에만", blocks: [
-        code(["gh auth status"], ["GitHub CLI 로그인 상태 확인"]),
+        code(["gh auth status"], []),
         text("로그인되어 있지 않으면 `gh auth login`의 안내를 따릅니다. gh가 없으면 GitHub 웹사이트 로그인·토큰 등 프로젝트의 기존 인증 방식을 그대로 사용합니다. 인증 방식을 추측해 바꾸지 않습니다."),
       ] },
     ] },
@@ -86,17 +78,13 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
       { title: "A. GitHub에 있는 기존 프로젝트", when: "GitHub에는 프로젝트가 있지만 이 PC에는 아직 없는 경우", blocks: [
         code(["mkdir C:\\Work", "cd C:\\Work", "git clone <저장소 URL>", "cd <프로젝트 폴더>", "git status"], [
           "작업용 폴더 만들기 (이미 있으면 건너뜀)",
-          "작업용 폴더로 이동",
           "<저장소 URL>을 실제 URL로 바꾸어 프로젝트 내려받기",
           "<프로젝트 폴더>를 내려받은 폴더 이름으로 바꾸어 이동",
-          "현재 브랜치와 변경 파일 확인",
         ]),
       ] },
       { title: "B. PC에 이미 있는 프로젝트", when: "이 PC에 기존 프로젝트 폴더가 있는 경우", blocks: [
         code(['cd "C:\\프로젝트\\경로"', "git status", "git branch --show-current", "git remote -v"], [
           "실제 프로젝트 경로로 바꾸어 이동",
-          "현재 브랜치와 미커밋 변경 확인",
-          "현재 브랜치 이름 확인",
           "연결된 원격 URL이 작업할 GitHub 저장소인지 확인",
         ]),
         text("이미 Git 저장소면 그대로 사용합니다. 미커밋 변경이 있으면 `git pull`을 실행하지 말고 AI 도구에 현재 상태를 먼저 확인시킵니다."),
@@ -104,14 +92,10 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
       { title: "C. 새 프로젝트", when: "새 폴더에서 처음 시작하는 경우", blocks: [
         code(["mkdir C:\\Work\\MyProject", "cd C:\\Work\\MyProject"], [
           "새 프로젝트 폴더 만들기 (경로·이름은 원하는 값으로 변경)",
-          "새 프로젝트 폴더로 이동",
         ]),
         text("이후 AI 도구가 요구사항을 확인해 프레임워크, Git 초기화와 GitHub 연결 필요성을 결정합니다. 특정 프레임워크를 임의로 정하지 않습니다."),
         text("작업 후 Git 저장 전에 현재 폴더가 Git 저장소인지, 원격이 연결됐는지, 맞는 GitHub 저장소인지 확인합니다."),
-        code(["git status", "git remote -v"], [
-          "Git 저장소 여부와 변경 상태 확인",
-          "원격 연결과 대상 GitHub 저장소 URL 확인",
-        ]),
+        code(["git status", "git remote -v"], []),
         text("Git 저장소가 아닌 경우에만 초기화할 수 있습니다. 기존 저장소를 재초기화하거나 기존 remote를 덮어쓰지 않고, branch 이름을 main으로 강제하지 않습니다."),
         text("remote가 없으면 GitHub CLI 또는 웹 등 현재 방식대로 GitHub 저장소를 만들고 연결합니다. 첫 push 전에 `git remote -v`로 대상을 다시 확인합니다."),
       ] },
@@ -125,10 +109,7 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
         text("lockfile 단서 하나로 package manager를 바꾸지 않습니다. 기존 lockfile과 package manager를 우선하며, 설치 과정에서 다른 매니저의 lockfile을 새로 만들거나 기존 lockfile을 교체하지 않습니다. migration은 별도 작업입니다."),
       ] },
       { title: "현재 위치 확인", blocks: [
-        code(["Get-Location", "git status"], [
-          "현재 PowerShell 위치 확인",
-          "Git 브랜치와 변경 상태 확인",
-        ]),
+        code(["Get-Location", "git status"], []),
         text("명령은 실제 프로젝트 폴더에서 실행합니다. 새 프로젝트에 Git 저장소가 아직 없으면 AI 도구와 초기화 필요성을 확인합니다."),
       ] },
     ] },
@@ -137,9 +118,6 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
         text("AI 도구는 반드시 작업할 프로젝트 폴더 안에서 실행합니다. `Get-Location`과 `dir`로 위치와 내용을 확인한 뒤 실행하세요."),
         code(['cd "프로젝트 경로"', "Get-Location", "dir", guide.runCommand], [
           "실제 프로젝트 경로로 바꾸어 이동",
-          "프로젝트 폴더인지 확인",
-          "프로젝트 파일·하위 폴더 확인",
-          `현재 프로젝트에서 ${guide.name} 실행`,
         ]),
         text(guide.loginNote),
       ] },
@@ -161,7 +139,7 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
     ] },
     { title: "STEP 5 · AI 작업 결과 검증", purpose: "변경 내용·테스트·빌드·핵심 기능 확인", sections: [
       { title: "변경 파일 확인", blocks: [
-        code(["git status"], ["AI 작업 후 변경·추가된 파일 확인"]),
+        code(["git status"], []),
         { kind: "steps", items: [
           "예상한 파일만 변경됐는지 확인합니다.",
           "관계없는 파일·.env·불필요한 build/cache/log가 없는지 확인합니다.",

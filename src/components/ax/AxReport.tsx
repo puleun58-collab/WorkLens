@@ -219,7 +219,7 @@ function AxSetupGuide({ tool }: { tool: AxToolId }) {
         const index = course.first - 1 + offset;
         const Icon = SETUP_ICONS[index];
         return <section className="ax-guide-step" data-setup-step={index + 1} aria-labelledby={`${id}-step-${index + 1}`} key={step.title}>
-          <h4 id={`${id}-step-${index + 1}`} tabIndex={-1}><span className="ax-tutorial-step-no">STEP {String(index + 1).padStart(2, "0")}</span><span className="ax-guide-step-title"><Icon aria-hidden="true" /><span>{title(step.title)}</span></span></h4>
+          <h4 id={`${id}-step-${index + 1}`} tabIndex={-1}><span className="ax-tutorial-step-no">STEP {String(index + 1).padStart(2, "0")}<Icon aria-hidden="true" /></span><span className="ax-guide-step-title"><span>{title(step.title)}</span></span></h4>
           <p className="ax-guide-purpose">{step.purpose}</p>
           <p className="ax-tutorial-action-label"><Terminal aria-hidden="true" />실행 방법</p>
           {step.sections.map(section => <AxGuideSectionView key={section.title} section={section} completion={SETUP_COMPLETIONS.has(section.title)} warning={SETUP_WARNINGS.has(section.title)} collapsed={section.collapsed || (section.title in SETUP_DETAILS)} />)}
