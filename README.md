@@ -36,7 +36,7 @@ UI는 [coss ui](https://coss.com/ui)(Base UI + Tailwind CSS v4) 컴포넌트를 
 
 브랜드 원본은 `src/app/worklens-logo.tsx`의 문서 레이어·돋보기 마크입니다. `bun scripts/generate-brand-assets.ts`로 `public/brand/worklens-logo.svg`, `worklens-logo-light.svg`, `worklens-mark.svg`, `worklens-mark-dark.svg`, `worklens-mark-light.svg`, `worklens-mark-small.svg`, `worklens-icon-{16,32,64,128}.png`, `worklens-og-document-lens.png`와 `src/app/icon.svg`, `src/app/favicon.ico`를 다시 생성합니다. 공유 미리보기는 `public/brand/worklens-og-document-lens.png`(1200×630)를 Open Graph·Twitter에 함께 사용합니다. 브라우저·검색엔진·메신저의 외부 캐시는 배포 후에도 예전 아이콘이나 공유 이미지를 한동안 보여 줄 수 있습니다.
 OG 이미지 내부는 `#F6F7FB` 단색 배경에 기존 비율의 로고 그룹과 보조 문구 `업무 문서 작업 공간`만 표시합니다. 로고 그룹은 15% 확대 비율을 유지하고, 보조 문구는 54px Medium(500)으로 로고보다 낮은 위계에 두며 로고와의 간격을 줄여 상하 여백을 같게 맞춥니다. 공유 제목·설명·URL은 유지하며, OG·Twitter 이미지 URL의 `?v=3`으로 이전 공유 이미지 캐시와 구분합니다.
-사이드바의 `WORKSPACE`·`RESEARCH`·`TOOLS`·`AI•AX` 그룹 제목은 Desktop·Mobile 공통으로 12px / 600 / 0.04em과 브랜드 블루(`--blue`, `#2563EB`)를 사용하며 그룹 간격을 유지합니다. 설치·시작 가이드는 터미널 아이콘·문구·Chevron을 감싼 콘텐츠 너비의 연한 블루 테두리 버튼으로 펼칩니다. 기본 접힘, 03 → 가이드 → 04 순서와 STEP 바로가기·도구 선택·독립적인 전문 보기·복사는 그대로 유지합니다.
+사이드바의 `WORKSPACE`·`RESEARCH`·`TOOLS`·`AI•AX` 그룹 제목은 Desktop·Mobile 공통으로 12px / 600 / 0.04em과 브랜드 블루(`--blue`, `#2563EB`)를 사용하며 그룹 간격을 유지합니다. 설치·시작 가이드는 터미널 아이콘·문구·Chevron을 감싼 콘텐츠 너비의 연한 블루 테두리 버튼으로 펼치며, 버튼은 펼침 여부와 관계없이 03 아래 구분 영역의 오른쪽 끝에 둡니다. 가이드 안 `처음 한 번 준비`·`프로젝트 작업`·`GitHub·배포` 제목 영역(아이콘·제목·보조 설명)은 같은 연한 블루 배경(`--blue-soft`, 14/18px, 8px)을 쓰고 STEP 본문과 상단 바로가기는 그대로 둡니다. 기본 접힘, 03 → 가이드 → 04 순서와 STEP 바로가기·도구 선택·독립적인 전문 보기·복사는 그대로 유지합니다.
 
 버튼은 해당 입력·액션 행의 세로 중심에 맞춥니다. 분석 결과의 원문 위치와 근거 버튼, 질문 답변의 근거 영역, 데스크톱 AI·AX 진단 항목의 평가값 조절 영역은 같은 행의 내용과 중앙 정렬합니다. 라벨이 있는 Select·입력 행은 실제 컨트롤과 실행 버튼을 맞추며, 모바일의 기존 줄바꿈과 텍스트 윤문의 독립 실행 버튼 위치는 유지합니다.
 
