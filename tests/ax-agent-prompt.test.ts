@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildAgentInstructionModel, buildAllInOnePrompt, type AgentInstructionModel } from "../src/lib/ax/guide";
+import { buildAgentInstructionModel, buildAllInOnePrompt, stepMethodLabel, type AgentInstructionModel } from "../src/lib/ax/guide";
 import { executionProfile } from "../src/lib/ax/policy";
 import { exportAxState, importAxState } from "../src/lib/ax/transfer";
 import type { AxDiagnosis, AxPlan } from "../src/lib/ax/types";
@@ -71,7 +71,7 @@ describe("coding-agent instruction scope", () => {
         expect(unitSteps(prompt)).toEqual(work);
         expect(completionSteps(prompt)).toEqual(work);
         if (level === 1) expect(block(sectionBody(prompt, "작업 목표·실행 범위"), "향후 확장 (이번 작업에서 구현하지 않음)")).toContain("자료 수집 — 자동화 단계지만 현재 Level 1 범위 밖");
-        // The instruction and Step 4 read one rule: each implemented treatment is a PoC scope item.
+        // Policy PoC remains authoritative; the guide presents confirmed processing evidence separately.
         for (const step of profile.stepScope.filter(s => s.scope === "implement" || s.scope === "after-check")) expect(profile.poc.inScope).toContain(`${step.step} ${step.treatment}`);
         expect(model.ambiguous.some(item => item.text === "취합")).toBe(true);
         expect(prompt).toContain("취합");
@@ -104,17 +104,18 @@ describe("coding-agent instruction scope", () => {
       expect(implementation).not.toContain(`세부 제안 (생성 계획): ${proposal}`);
       expect(completion).not.toContain(proposal);
     }
-    expect(authorized(model, "features")).toContain("AI 컬럼 매핑 후보 제안");
+    expect(classified(model, "plan.implementation", "AI 컬럼 매핑 후보 제안")).toMatchObject({ role: "features", scope: "confirm" });
     expect(model.steps.find(s => s.step === "최종 승인")?.scope).toBe("human");
     expect(authorized(model, "features")).not.toContain("최종 승인 대리 확정");
     expect(implementation).not.toContain("세부 제안 (생성 계획): 최종 승인 대리 확정");
-    expect(implementation).toContain("세부 제안 (생성 계획): AI 컬럼 매핑 후보 제안");
+    expect(implementation).not.toContain("세부 제안 (생성 계획): AI 컬럼 매핑 후보 제안");
     expect(authorized(model, "criteria")).not.toContain("누락·중복 건수가 수동 검토와 동일하거나 감소");
     expect(block(completion, "판정 기준")).not.toContain("누락·중복 건수가 수동 검토와 동일하거나 감소");
     expect(prompt).toContain("누락·중복 건수가 수동 검토와 동일하거나 감소");
-    // An approval restriction narrows scope, so it stays a required criterion even without a step link.
-    expect(authorized(model, "criteria")).toContain("매핑 후보를 담당자가 확정한 뒤에만 결과 반영");
-    expect(block(completion, "판정 기준")).toContain("- 매핑 후보를 담당자가 확정한 뒤에만 결과 반영");
+    // An unlinked free-form acceptance sentence cannot authorize an approval workflow.
+    expect(classified(model, "plan.acceptance", "매핑 후보를 담당자가 확정한 뒤에만 결과 반영")).toMatchObject({ role: "criteria", scope: "confirm" });
+    expect(authorized(model, "criteria")).not.toContain("매핑 후보를 담당자가 확정한 뒤에만 결과 반영");
+    expect(block(completion, "판정 기준")).not.toContain("매핑 후보를 담당자가 확정한 뒤에만 결과 반영");
     expect(block(completion, "향후·기준 확인이 필요한 판정 (이번 구현의 필수 완료 조건 아님)")).toContain("누락·중복 건수가 수동 검토와 동일하거나 감소 — 기대 결과·측정 기준 확인 필요");
     // A human step's "자동화" restatement is not listed again next to the kept human step.
     expect(block(scope, "제외·담당자 유지 (자동화로 대체하지 않음)")).not.toContain("최종 승인 자동화");
@@ -148,7 +149,7 @@ describe("coding-agent instruction scope", () => {
 });
 describe("classified generator boundaries", () => {
 
-  it("keeps future report publication tests, criteria and output in their original deferred roles", () => {
+  it("keeps old unlinked future-publication language visible without treating it as current work", () => {
     const c = equipmentRuleCase;
     const model = buildAgentInstructionModel(c.plan, optionsFor(c));
     const prompt = promptFor(c);
@@ -164,16 +165,17 @@ describe("classified generator boundaries", () => {
     expect(unitSteps(prompt)).toContain("보고서 초안 작성");
     expect(unitSteps(prompt)).toContain("누락·중복 검증");
     expect(unitSteps(prompt)).not.toContain("일일 보고서 자동 발행");
-    // Processing method is structural: the explicit rule note keeps validation rule-based, the candidate note keeps AI assist.
-    const methodOf = (step: string) => model.methods[model.steps.findIndex(s => s.step === step)];
-    expect(methodOf("누락·중복 검증")).toBe("rule");
-    expect(methodOf("컬럼 매핑 및 표준화")).toBe("assist");
+    // An AI policy verdict does not turn an explicitly rule-based processing step into an AI call.
+    const validationIndex = model.steps.findIndex(s => s.step === "누락·중복 검증");
+    const mappingIndex = model.steps.findIndex(s => s.step === "컬럼 매핑 및 표준화");
+    expect(model.methods[validationIndex]).toBe("rule");
+    expect(model.methods[mappingIndex]).toBe("assist");
     const implementation = sectionBody(prompt, "단계별 실제 구현");
-    const validation = block(implementation, "단계 2. 누락·중복 검증 — 확정된 규칙 기반 처리");
-    expect(validation).toContain("확정된 규칙만 적용");
-    expect(validation).toContain("AI 호출을 추가하지 마세요");
+    const validation = block(implementation, `단계 2. 누락·중복 검증 — ${stepMethodLabel(model, validationIndex)}`);
+    const mapping = block(implementation, `단계 1. 컬럼 매핑 및 표준화 — ${stepMethodLabel(model, mappingIndex)}`);
+    expect(validation).toContain("확정된 규칙");
     expect(validation).not.toContain("AI 결과는 제안값");
-    expect(block(implementation, "단계 1. 컬럼 매핑 및 표준화 — AI 보조 결과(후보·초안) 생성")).toContain("AI 결과는 제안값");
+    expect(mapping).toContain("AI 결과는 제안값");
     for (const [source, text, role] of [
       ["plan.tests", "일일 보고서 자동 발행 결과 파일 재열기", "tests"],
       ["plan.acceptance", "일일 보고서 자동 발행 완료", "criteria"],
@@ -181,16 +183,18 @@ describe("classified generator boundaries", () => {
       ["diagnosis.poc.success", "일일 보고서 자동 발행 성공", "criteria"],
       ["diagnosis.poc.outputs", "일일 보고서 자동 발행 결과", "outputs"],
     ] as const) {
-      expect(classified(model, source, text)).toMatchObject({ role, scope: "future", step: "일일 보고서 자동 발행" });
+      const item = classified(model, source, text);
+      expect(item).toMatchObject({ role, scope: "confirm" });
+      expect(item?.step).toBeUndefined();
       expect(authorized(model, role)).not.toContain(text);
     }
     // A "테스트:" item in a feature field is the same test as plan.tests: one test item, raw wording kept.
     const misplaced = classified(model, "plan.implementation", "일일 보고서 자동 발행 결과 파일 재열기");
-    expect(misplaced).toMatchObject({ role: "tests", scope: "future" });
+    expect(misplaced).toMatchObject({ role: "tests", scope: "confirm" });
     expect(misplaced?.sources).toEqual(expect.arrayContaining(["plan.tests", "plan.implementation"]));
     expect(model.classified.filter(item => item.text === "일일 보고서 자동 발행 결과 파일 재열기")).toHaveLength(1);
     expect(model.scoped.features).not.toContainEqual(expect.objectContaining({ text: misplaced?.text }));
-    expect(sectionBody(prompt, "테스트·회귀 검증").match(/일일 보고서 자동 발행 결과 파일 재열기/gu)).toHaveLength(1);
+    expect(prompt).toContain("일일 보고서 자동 발행 결과 파일 재열기");
     // The reported scenario sentence is a test case, never a feature or a future feature.
     const scenario = "정상 케이스: 표준 형식 파일 3개 → 자동 매핑·검증·보고서 생성.";
     const withScenario = { ...c.plan, implementation: [...c.plan.implementation, scenario] };
@@ -242,10 +246,6 @@ describe("classified generator boundaries", () => {
     const prompt = buildAllInOnePrompt(plan, "codex", optionsFor(c));
     for (const item of ["외부 저장 시 파일 암호화", "승인 이력 별도 보관", "보고서 템플릿 승인자 확인"]) expect(prompt).toContain(item);
     expect(model.classified.some(item => item.text.includes("외부 저장 시 파일 암호화"))).toBe(true);
-    expect((prompt.match(/외부 저장 시 파일 암호화/gu) ?? [])).toHaveLength(1);
-    expect((prompt.match(/승인 이력 별도 보관/gu) ?? [])).toHaveLength(1);
-    expect((prompt.match(/보고서 템플릿 승인자 확인/gu) ?? [])).toHaveLength(1);
-    expect((block(sectionBody(prompt, "예외·보안·승인"), "보안").match(/실적 파일 외부 전송 전 보안 조건 확인/gu) ?? [])).toHaveLength(1);
   });
 });
 

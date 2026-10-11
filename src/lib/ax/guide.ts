@@ -338,10 +338,23 @@ const without = (items: string[], shown: string[]) => {
   const keys = new Set(shown.map(normalizedItem));
   return unique(items).filter(item => !keys.has(normalizedItem(item)));
 };
+/** Step relation normalization preserves interior word boundaries unlike general item dedupe. */
+const normalizedStepText = (value: string) => value.trim().replace(/\s+/gu, " ").replace(/[.。]\s*$/u, "").trim();
+const explicitStep = (value: string, step: StepScope) => {
+  const clean = normalizedStepText(value), name = normalizedStepText(step.step);
+  if (!name) return false;
+  if (clean === name) return true;
+  const delimiter = /\s+[—–-]\s+|:\s+/u.exec(clean);
+  if (delimiter && normalizedStepText(clean.slice(0, delimiter.index)) === name) return true;
+  return !!step.treatment && clean === normalizedStepText(`${step.step} ${step.treatment}`);
+};
+const HUMAN_DECISION_CHECK = "담당자 유지 항목의 확정·시스템 반영·외부 전송 조건을 해당 단계에서 확인하세요. 확인 전 최종 처리는 대기하지만, 허용된 독립 후보·초안·규칙 검토는 각 단계의 선행 조건 안에서 진행할 수 있습니다.";
 /** Read-only Step 4 summary; tentative PoC claims are visible but never promoted to required checks. */
 export interface AxPlanSummary {
   include: string[]; humanKept: string[]; excluded: string[];
   prerequisites: string[];
+  /** Existing structured human/exclusion fields, with their source retained. */
+  constraints: string[];
   data: { label: string; items: string[] }[];
   tests: string[]; acceptance: string[]; exceptions: string[];
 }
@@ -349,7 +362,8 @@ export interface AxPlanSummary {
 export function planSummary(diagnosis: AxDiagnosis, rawPlan?: AxPlan, context = ""): AxPlanSummary {
   const model = buildAgentInstructionModel(rawPlan, { diagnosis, context });
   const profile = model.profile;
-  const humanKept = mergeDistinct((profile?.manualSteps ?? []).map(step => `${step} (담당자 수행)`), diagnosis.humanInLoop ?? []);
+  const humanKept = mergeDistinct((profile?.manualSteps ?? []).map(step => `${step} (담당자 수행)`),
+    [...(diagnosis.humanInLoop ?? []), ...(rawPlan?.humanInLoop ?? [])]);
   const scopeLevel = model.scopeLevel;
   const restricted = [
     ...(scopeLevel !== undefined && scopeLevel >= 2 ? [] : (profile?.automationSteps ?? []).map(step => `${step} 자동 실행`)),
@@ -362,15 +376,26 @@ export function planSummary(diagnosis: AxDiagnosis, rawPlan?: AxPlan, context = 
   const prerequisites = unique(model.gate === "blocked" ? profile?.blockReasons ?? [] : [
     ...own,
     ...planOwn.map(text => model.classified.find(item => item.role === "conditions" && item.text === text)?.scope === "future" ? `${text} (향후 단계 조건)` : text),
+    ...model.classified.filter(item => item.role === "human" && /확인 필요|미확정|미정|불명/u.test(item.original ?? item.text))
+      .map(item => `${item.original ?? item.text} (해당 담당자 단계의 최종 확정·반영·전송 전 확인; 출처: ${item.sources.join(", ")})`),
     ...model.gaps,
   ]);
   const pocTests = model.classified.filter(item => item.source === "diagnosis.poc.evaluation");
   const pocCriteria = model.classified.filter(item => item.source === "diagnosis.poc.success" || item.source === "diagnosis.poc.failure");
   return {
-    include: unique(profile?.poc.inScope ?? []),
+    include: unique((profile?.poc.inScope ?? []).flatMap(line => {
+      const matches = model.steps.map((step, index) => ({ step, index }))
+        .filter(({ step }) => step.treatment && normalizedStepText(`${step.step} ${step.treatment}`) === normalizedStepText(line));
+      return matches.length > 1
+        ? matches.map(({ step, index }) => `${step.step} ${stepMethodLabel(model, index)} (진단 단계 ${index + 1}; 진단 메모: ${step.note || "없음"})`)
+        : [scopeItemLabel(model, line)];
+    })),
     humanKept,
-    excluded: mergeDistinct(restricted, without(profile?.poc.outOfScope ?? [], manualAutomation)),
+    excluded: mergeDistinct(restricted, without([
+      ...(profile?.poc.outOfScope ?? []), ...(diagnosis.poc?.outOfScope ?? []), ...(rawPlan?.outOfScope ?? []),
+    ], manualAutomation)),
     prerequisites,
+    constraints: approvalConstraints(model),
     data: [
       { label: "입력", items: unique(diagnosis.asIs?.inputs ?? []) },
       { label: "출력", items: unique(diagnosis.asIs?.outputs ?? []) },
@@ -400,9 +425,7 @@ const TEST_LABEL = /^(?:테스트(?:\s*시나리오)?|(?:정상|경계|경계값
 const UNATTENDED_METHOD = /(무인|자동\s*(?:생성|작성|실행|전송|발행|승인|확정|수집|계산))/u;
 const REQUESTED = /(담당자 요청|담당자 확인 후|수동 요청|요청 시)/u;
 const RULE_NOTE = /(규칙 기반|확정된 규칙|정해진 규칙)/u;
-const CANDIDATE_NOTE = /(후보|초안|AI 생성)/u;
-/** Criteria that only restrict (confirm before applying, never auto-confirm) and so cannot enlarge scope. */
-const APPROVAL_CONSTRAINT = /(뒤에만|후에만|전에는|하지 않|금지|확정한 뒤|승인 후)/u;
+const CANDIDATE_NOTE = /(?:AI\s*(?:후보|초안|생성)|(?:후보|초안)(?:\s*·\s*(?:후보|초안))?\s*(?:생성|제안|검토)|후보와 변환 결과)/u;
 export interface AgentInstructionItem {
   /** First source field; `sources` lists every field that carried the same item. */
   source: string;
@@ -415,8 +438,8 @@ export interface AgentInstructionItem {
   step?: string;
   reason?: string;
 }
-/** How a permitted step is processed: AI candidates, confirmed rules, review only, or not yet decided. */
-export type StepMethod = "assist" | "rule" | "verify" | "confirm";
+/** Actual processing evidence, independent of the Level/Gate execution restriction. */
+export type StepMethod = "assist" | "rule" | "confirm";
 export interface AgentInstructionModel {
   profile?: ExecutionProfile;
   level?: { level: number; label: string; provisional: boolean };
@@ -424,7 +447,7 @@ export interface AgentInstructionModel {
   scopeLevel?: number;
   /** Policy step scope, unchanged and in diagnosis order. */
   steps: StepScope[];
-  /** Index-aligned with `steps`; derived from the treatment and explicit diagnosis note only. */
+  /** Index-aligned with `steps`; explicit diagnosis note evidence only, never inferred from policy/verdict. */
   methods: StepMethod[];
   classified: AgentInstructionItem[];
   ambiguous: AgentInstructionItem[];
@@ -434,14 +457,42 @@ export interface AgentInstructionModel {
   prerequisites: string[];
   gaps: string[];
 }
-function stepMethod(s: StepScope): StepMethod {
-  if (s.scope === "verify") return "verify";
-  if (s.scope === "human" || !s.treatment) return "confirm";
-  if (!s.treatment.startsWith("AI 보조")) return "rule";
+function stepMethod(s: StepScope, duplicate: boolean): StepMethod {
+  if (duplicate) return "confirm";
   const rule = RULE_NOTE.test(s.note), candidate = CANDIDATE_NOTE.test(s.note);
-  if (rule && candidate) return "confirm";
-  if (rule) return "rule";
-  return candidate || s.verdict === "AI 보조" ? "assist" : "confirm";
+  if (rule === candidate) return "confirm";
+  return rule ? "rule" : "assist";
+}
+/** One user-facing processing label shared across timeline, summary and prompt. */
+export function stepMethodLabel(model: AgentInstructionModel, index: number): string {
+  const step = model.steps[index];
+  if (!step) return "처리 방식 확인 필요";
+  const method = model.methods[index];
+  if (step.scope === "verify") return `${method === "rule" ? "확정된 규칙 기반 처리" : method === "assist" ? "AI 후보·초안 생성" : "처리 방식 확인 필요"} · 검토·검증만 (운영 구현 금지)`;
+  if (step.scope === "human") return "담당자 수행 유지 (자동화·판단 대체 금지)";
+  if (method === "confirm") return model.steps.filter(s => normalizedStepText(s.step) === normalizedStepText(step.step)).length > 1
+    ? "동일 이름의 진단 단계 중복: 처리 방식·적용 단계 확인 필요"
+    : "처리 방식 확인 필요 (AI 후보 생성 또는 확정된 규칙 처리; 확인 전 방식 선택·구현 금지)";
+  if (method === "assist") return "AI 후보·초안 생성 (담당자 확정 전 운영 반영 금지)";
+  return model.scopeLevel === 1
+    ? "확정된 규칙 기반 처리 (담당자 요청 시 실행·결과는 담당자 확인 후 확정)"
+    : "확정된 규칙 기반 처리 (예외는 담당자 확인)";
+}
+/** Rewrite an exact policy-generated step/treatment line, leaving support and narrative text untouched. */
+export function scopeItemLabel(model: AgentInstructionModel, text: string): string {
+  const prefix = text.startsWith("샘플 범위: ") ? "샘플 범위: " : "";
+  const line = prefix ? text.slice(prefix.length) : text;
+  const matches = model.steps.map((step, index) => ({ step, index }))
+    .filter(({ step }) => step.treatment && normalizedStepText(`${step.step} ${step.treatment}`) === normalizedStepText(line));
+  if (matches.length > 1) return `${prefix}${matches[0].step.step} 동일 이름의 진단 단계 중복: 처리 방식·적용 단계 확인 필요 (진단 단계 ${matches.map(({ index }) => index + 1).join(", ")})`;
+  return matches.length === 1 ? `${prefix}${matches[0].step.step} ${stepMethodLabel(model, matches[0].index)}` : text;
+}
+/** Existing human/exclusion fields are restrictive evidence; preserve wording and provenance. */
+export function approvalConstraints(model: AgentInstructionModel): string[] {
+  const entries = model.classified.filter(item => item.role === "human" || item.role === "excluded")
+    .filter(item => item.sources.some(source => source === "diagnosis.humanInLoop" || source === "diagnosis.poc.outOfScope"
+      || source === "plan.humanInLoop" || source === "plan.outOfScope" || source === "policy.manualSteps"));
+  return unique(entries.map(item => `${item.original ?? item.text}${item.original ? ` (현재 계획 문구: ${item.text})` : ""} (출처: ${item.sources.join(", ")})`));
 }
 const openCheckTopics = (model: Pick<AgentInstructionModel, "diagnosis">) => new Set((model.diagnosis?.technicalChecks ?? [])
   .filter(c => c.status !== "확인됨").flatMap(c => [c.topic, `${c.topic} 확인`]).map(normalizedItem));
@@ -477,7 +528,7 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
   const guarded = rawPlan ? guardPlan(rawPlan, [options.taskName ?? "", options.context ?? ""].join("\n")) : undefined;
   const classified: AgentInstructionItem[] = [];
   const closed = new Set([
-    ...(profile?.poc.outOfScope ?? []), ...(d?.humanInLoop ?? []), ...(rawPlan?.outOfScope ?? []),
+    ...(profile?.poc.outOfScope ?? []), ...(d?.humanInLoop ?? []), ...(rawPlan?.outOfScope ?? []), ...(rawPlan?.humanInLoop ?? []),
     ...steps.filter(s => s.scope === "human").flatMap(s => [s.step, `${s.step} 자동화`, `담당자 ${s.step}`, `${s.step} (담당자 수행)`]),
   ].map(normalizedItem));
   const hasWork = steps.some(s => s.scope === "implement" || s.scope === "after-check");
@@ -491,20 +542,27 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
       // A bare "테스트:" label adds nothing; 정상·경계·실패 labels name the case type and stay.
       clean = clean.replace(/^테스트(?:\s*시나리오)?\s*:\s*/u, "");
     }
-    const relation = normalizedItem(clean.replace(/\s*\(확인 필요:[^)]*\)\s*$/u, ""));
+    const relation = normalizedStepText(clean.replace(/\s*\(확인 필요:[^)]*\)\s*$/u, ""));
     if (source === "plan.poc") {
       const field = /^(?:PoC\s*)?(성공|실패|평가|검증|출력)\s*:/iu.exec(clean)?.[1];
       if (field === "성공" || field === "실패") role = "criteria";
       else if (field === "평가" || field === "검증") role = "tests";
       else if (field === "출력") role = "outputs";
     }
-    // Only an explicit full step name, or a check topic named in exactly one step note, links an item to a step.
-    const directMatches = steps.filter(s => normalizedItem(s.step) && relation.includes(normalizedItem(s.step)));
-    const topic = source === "diagnosis.technicalChecks" ? normalizedItem(clean.split(" — ")[0]) : "";
-    const matches = directMatches.length || !topic ? directMatches : steps.filter(s => normalizedItem(s.note).includes(topic));
+    // Only a whole name or an explicit name-prefix relation links a step; check topics are not step IDs.
+    // A detail that itself starts with another whole diagnosed name makes the relation ambiguous.
+    const directMatches = steps.filter(s => explicitStep(relation, s));
+    const detail = relation.split(/\s+[—–-]\s+|:\s+/u).slice(1).join(" ");
+    const otherMatches = directMatches.length === 1 && detail ? steps.filter(s => s !== directMatches[0]
+      && normalizedStepText(s.step) && (detail === normalizedStepText(s.step) || detail.startsWith(`${normalizedStepText(s.step)} `))) : [];
+    const matches = [...directMatches, ...otherMatches];
+    // A bare-space prefix is NOT a link. It only prevents an unlinked PoC item from silently
+    // becoming a current required check when it may instead describe future/human work.
+    const deferredMention = !matches.length ? steps.filter(s => (s.scope === "future" || s.scope === "human")
+      && normalizedStepText(s.step) && relation.startsWith(`${normalizedStepText(s.step)} `)) : [];
     let scope: AgentInstructionItem["scope"] = "confirm";
     let reason: string | undefined;
-    if (closed.has(relation) || role === "excluded" || role === "human") {
+    if (closed.has(normalizedItem(relation)) || role === "excluded" || role === "human") {
       scope = "excluded";
       reason = "제외·담당자 유지";
     } else if (override) {
@@ -513,15 +571,15 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
       // Level 0 and a blocked gate permit review only: no generated feature is implementable, linked or not.
       scope = "future";
       reason = gate === "blocked" ? "진행 보류 상태" : "Level 0은 검토·검증만 허용";
+    } else if (deferredMention.length && source.startsWith("diagnosis.poc.")
+      && ["tests", "criteria", "outputs"].includes(role)) {
+      reason = `향후·담당자 단계 이름으로 시작하나 명시적 연결 없음 (${deferredMention.map(s => s.step).join(", ")}): 현재 PoC 필수 항목으로 승격 금지`;
     } else if (!matches.length && taskScope && source.startsWith("diagnosis.poc.") && ["tests", "criteria", "outputs"].includes(role)) {
-      // The diagnosis PoC is the task-level validation already aligned by executionProfile; only an explicit
-      // link to a future or human step takes it out of the current scope.
+      // Unlinked task-wide PoC checks remain current only without a known deferred-step prefix.
       scope = taskScope;
       reason = scope === "verify" ? (gate === "blocked" ? "진행 보류 상태" : "검토·검증만 허용") : "진단 PoC 기준 (업무 전체)";
-    } else if (!matches.length && taskScope && role === "criteria" && APPROVAL_CONSTRAINT.test(clean)) {
-      // A restriction never widens scope, so an approval or safety constraint stays required without a step link.
-      scope = taskScope;
-      reason = "승인·안전 제약 (업무 전체)";
+    } else if (!matches.length && role === "criteria" && source.startsWith("plan.")) {
+      reason = "생성 계획의 판정 기준: 연결된 현재 진단 단계와 담당자 확정 조건 확인 전 필수 완료 조건 아님";
     } else if (matches.length !== 1) {
       reason = matches.length ? "여러 진단 단계에 연결되어 적용 범위를 확인해야 합니다." : source === "diagnosis.technicalChecks" ? "적용 단계 미확인: 전역 Gate 조건은 계속 유효합니다." : "연결된 진단 단계가 확인되지 않았습니다.";
     } else {
@@ -537,7 +595,7 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
       }
     }
     const step = matches.length === 1 ? matches[0].step : undefined;
-    const same = classified.find(item => item.role === role && item.scope === scope && item.step === step && normalizedItem(item.text) === relation);
+    const same = matches.length > 1 ? undefined : classified.find(item => item.role === role && item.scope === scope && item.step === step && normalizedStepText(item.text) === relation);
     if (same) {
       if (!same.sources.includes(source)) same.sources.push(source);
       return;
@@ -556,6 +614,7 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
     for (const [source, role, values] of [
       ["diagnosis.asIs.steps", "reference", d.asIs?.steps ?? []],
       ["diagnosis.asIs.outputs", "outputs", d.asIs?.outputs ?? []],
+      ["diagnosis.humanInLoop", "human", d.humanInLoop ?? []],
       ["diagnosis.toBe", "reference", (d.toBe ?? []).map(s => `${s.step} — ${s.description}`)],
       ["diagnosis.poc.inScope", "features", d.poc?.inScope ?? []],
       ["diagnosis.poc.outOfScope", "excluded", d.poc?.outOfScope ?? []],
@@ -565,6 +624,7 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
       ["diagnosis.poc.success", "criteria", d.poc?.success ?? []],
       ["diagnosis.poc.failure", "criteria", d.poc?.failure ?? []],
     ] as const) for (const item of values) append(source, role, item);
+    for (const step of steps.filter(s => s.scope === "human")) append("policy.manualSteps", "human", step.step);
     // Confirmed checks are reference facts, not open conditions.
     for (const check of d.technicalChecks ?? []) append("diagnosis.technicalChecks", check.status === "확인됨" ? "reference" : "conditions",
       `${check.topic}${check.note ? ` — ${check.note}` : ""}`, check.status === "확인됨" ? "이미 확인된 기술 조건 (참고)" : undefined);
@@ -585,7 +645,8 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
     ...(d.asIs?.outputs?.length ? [] : ["결과물 형식과 보고 양식 (진단에 출력 정보 없음)"]),
     ...(steps.length ? [] : ["업무 단계별 진단 정보 없음: 구현할 단계와 담당자 단계를 먼저 확인"]),
   ];
-  return { profile, level, gate, scopeLevel, steps, methods: steps.map(stepMethod), classified,
+  return { profile, level, gate, scopeLevel, steps, methods: steps.map((s, index) =>
+    stepMethod(s, steps.some((other, otherIndex) => otherIndex !== index && normalizedStepText(other.step) === normalizedStepText(s.step)))), classified,
     ambiguous: classified.filter(item => item.scope === "confirm" && item.role !== "reference"),
     scoped, diagnosis: d, plan: guarded, prerequisites: options.prerequisites ?? [], gaps };
 }
@@ -629,14 +690,11 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
   const conditions = conditionTexts.map(linkedCondition);
   const unassignedConditions = conditionTexts.some(text => !conditionItem(text)?.step) && work.length;
   const exceptions = unique([...model.classified.filter(item => item.role === "exception").map(item => item.text), ...(d?.asIs?.exceptions ?? []), ...(d?.risks ?? [])]);
+  const constraints = approvalConstraints(model);
+  const humanConstraints = model.classified.some(item => item.role === "human"
+    && item.sources.some(source => source === "diagnosis.humanInLoop" || source === "plan.humanInLoop" || source === "policy.manualSteps"));
   const method = (s: StepScope) => model.methods[steps.indexOf(s)] ?? "confirm";
-  const methodLabel = (s: StepScope) => {
-    const m = method(s);
-    if (m === "assist" || m === "verify") return s.treatment ?? "";
-    if (m === "confirm") return "처리 방식 확인 필요 (AI 후보 생성 또는 확정된 규칙 처리)";
-    if (scopeLevel === 1) return "확정된 규칙 기반 처리 (담당자 요청 시 실행·결과는 담당자 확인 후 확정)";
-    return s.treatment?.startsWith("AI 보조") ? "확정된 규칙 기반 처리 (예외는 담당자 확인)" : s.treatment ?? "";
-  };
+  const methodLabel = (s: StepScope) => stepMethodLabel(model, steps.indexOf(s));
   const doneWhen = (s: StepScope) => method(s) === "assist"
     ? "실제 입력으로 후보·초안이 생성되고, 담당자 확정 전에는 운영 결과로 반영되지 않으며, 생성할 수 없는 건은 검토 필요·실패로 표시됩니다."
     : method(s) === "rule" ? "확인된 규칙으로 실제 입력이 처리되고, 확정된 테스트 데이터의 기대 판정과 결과가 일치하며 각 결과가 원본과 대응됩니다. 규칙에 맞지 않거나 확인할 수 없는 건은 정상 결과와 분리됩니다. 기대 판정 데이터가 없으면 '기준 확인 필요'로 보고합니다."
@@ -691,6 +749,8 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
     gate ? `실행 상태는 \`${GATE_LABELS[gate]}\`입니다. ${GATE_CONSTRAINTS[gate]}` : "",
     gate === "blocked" && profile?.blockReasons.length ? `### 차단 사유\n\n${bullets(profile.blockReasons)}` : "",
     conditions.length ? `### 확인할 항목\n\n${bullets(conditions)}` : "",
+    humanConstraints ? HUMAN_DECISION_CHECK : "",
+    constraints.length ? `### 기존 담당자·제외 제약 (원문·출처)\n\n${bullets(constraints)}` : "",
     unassignedConditions ? "관련 단계가 표시되지 않은 항목은 적용 단계가 확인되기 전까지 모든 구현 대상 단계의 확인 대상으로 취급하세요. 관련 없다고 임의로 판단하지 마세요." : "",
     "확인되지 않은 API·권한·파일 형식·연동 방식·계산식·반올림·중복 기준·승인 주체를 가정해 구현하지 마세요.",
   );
@@ -730,7 +790,7 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
       ...linkedTo(s.step).map(item => `세부 제안 (생성 계획): ${item}`),
       `완료 기준: ${doneWhen(s)}`,
     ])}`).join("\n\n")}` : "",
-    review.length ? `### 검토·검증 작업\n\n${bullets([...review.map(s => `${s.step} ${s.treatment}`), ...(profile?.scopeSupport ?? [])])}\n\n샘플과 업무 규칙으로 확인한 결과를 보고하는 범위입니다. ${gate === "blocked" ? "운영 기능·자동 실행 코드·스캐폴딩을" : "운영 기능이나 자동 실행 코드를"} 만들지 마세요.` : "",
+    review.length ? `### 검토·검증 작업\n\n${bullets([...review.map(s => `${s.step} ${methodLabel(s)}`), ...(profile?.scopeSupport ?? [])])}\n\n샘플과 업무 규칙으로 확인한 결과를 보고하는 범위입니다. ${gate === "blocked" ? "운영 기능·자동 실행 코드·스캐폴딩을" : "운영 기능이나 자동 실행 코드를"} 만들지 마세요.` : "",
     unlinked.length ? `### 범위 확인이 필요한 생성 계획 제안\n\n${bullets(unlinked)}\n\n위 제안은 '작업 목표·실행 범위'의 어느 단계에 속하는지 확인되기 전에는 구현하지 마세요.` : "",
     work.length ? "### 실제 동작하는 기본 토대\n\n필요한 자료와 확인이 갖춰진 단계는 실제 입력을 받고, 정의된 처리를 실행하고, 잘못된 입력과 실패를 정상 결과와 구분하고, 필요한 담당자 확인을 유지하고, 실행·검증 방법을 제공해야 완료입니다.\n\n처리 없는 화면, 읽지 못하는 업로드, 더미 데이터 결과, 가짜 API 응답, TODO만 있는 핵심 함수, 실행되지 않는 샘플 코드, 검증하지 않은 계산, 미확인 규칙을 가정한 구현, 승인 없이 확정되는 AI 결과는 완료가 아닙니다.\n\n필수 자료가 없으면 전체 흐름을 억지로 완성하지 말고 허용된 독립 단계만 완성하세요. 허용된 독립 단계가 없으면 코드를 만들지 말고 필요한 선행 확인사항을 보고하세요." : "",
     "기존 구현을 우선 재사용하고 요청 범위 안에서 최소한으로 수정하세요. 요청하지 않은 기능·라이브러리, 하드코딩 값, 실제 로직에 남은 테스트용 임시 데이터, 근거 없는 수치 목표, 확인되지 않은 담당 조직·승인 주체를 만들지 마세요.",
@@ -740,7 +800,7 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
     exceptions.length ? `### 예외\n\n${bullets(exceptions)}` : "",
     "실패·미매칭·확인 불가 데이터는 정상 결과와 분리해 원인과 대상을 확인할 수 있게 하세요. 자동 삭제·자동 보정은 업무 규칙에 명시된 경우에만 적용하고, 아니면 대상 건을 표시만 하세요.",
     work.length ? "### 반복 실행\n\n같은 입력 재처리, 같은 이름의 다른 파일, 일부 성공 후 실패, 처리 중단·재시도, 이전 요청의 뒤늦은 완료, 입력 변경 후 기존 결과 재사용 중 이 업무에 해당하는 경우를 확인하세요. 기존 처리 정책을 먼저 따르고, 중복 반영·기존 데이터 삭제·미검증 데이터의 정상 집계가 없게 하되 필요 없는 작업 큐·트랜잭션 구조는 추가하지 마세요." : "",
-    `### 담당자 확인·승인\n\n${humanKept.length ? "'제외·담당자 유지' 항목은 자동화하지 마세요. " : ""}AI 제안과 담당자 확정값을 구분하고, 승인 전에는 결과를 확정하거나 외부로 전송하지 마세요. 승인 주체·권한이 확인되지 않았으면 지정하지 마세요.`,
+    `### 담당자 확인·승인\n\n${constraints.length ? "'선행 조건·차단 사항'의 기존 담당자·제외 제약을 그대로 지키세요. " : ""}담당자 판단·확정이 필요한 결과는 확인되지 않은 승인으로 확정·시스템 반영·외부 전송하거나 담당자 판단을 대체하지 마세요. 허용된 후보·초안·규칙 검토는 각 단계의 선행 조건 내에서 진행할 수 있습니다. 승인 주체·권한이 확인되지 않았으면 지정하지 마세요.`,
     `### 보안\n\n${bullets([
       ...unique(model.classified.filter(item => item.role === "security").map(item => `${stripEnumerator(item.text)}${item.reason && item.reason.includes("성능 수치") ? ` (기준 확인 필요: ${item.reason})` : ""}`)),
       "secret은 코드에 하드코딩하지 말고 저장소의 기존 secret 관리 방식을 사용하세요.",
