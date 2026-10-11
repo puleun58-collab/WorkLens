@@ -1288,9 +1288,10 @@ test("RESEARCH 문서 검토 reviews one workspace file in place and shows where
   const sent = bodies[0] as { task: string; document: Record<string, unknown> & { segments: Array<Record<string, unknown>> } };
   expect(JSON.stringify(sent)).not.toMatch(/근로계약서\.pdf|매출|긴계약/u);
 
-  // Another file: the shown result says which file it belongs to until the new one is reviewed.
+  // Another file: the earlier file's result is kept but not shown until this file is reviewed.
   await chooseOption(page, choice, "근로계약서.pdf");
-  await expect(page.getByText(`지금 선택한 문서가 아닌 ${longName}의 검토 결과입니다.`)).toBeVisible();
+  await expect(page.getByRole("region", { name: "검토 결과" })).toHaveCount(0);
+  await expect(page.locator('[data-review-stale="true"]')).toHaveCount(0);
   await form.getByRole("button", { name: "실행", exact: true }).click();
   await expect(review.locator(".contract-review-file")).toHaveText("검토 문서: 근로계약서.pdf");
   await expect(review).toContainText("2개 페이지 중 2개 검토");
@@ -2724,30 +2725,39 @@ test("review provenance direct snapshots, presentation and pending race", async 
   await expect(page.getByRole("button", { name: "다시 시도" })).toBeVisible();
   await expect(page.locator(".contract-review-expand")).toHaveCount(0);
   await input.fill(b);
+  const result = page.getByRole("region", { name: "검토 결과" });
   const stale = page.locator('[data-review-stale="true"]');
-  await expect(stale).toBeVisible();
+  await expect(result).toHaveCount(0);
+  await expect(stale).toHaveCount(0);
+  await input.fill(a);
   await page.getByRole("button", { name: "다시 시도" }).click();
   await expect.poll(() => bodies.length).toBe(2);
   expect(bodies[1].text).toBe(a);
-  await expect(stale).toBeVisible();
-  await input.fill(a);
-  await expect(stale).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "다시 시도" })).toHaveCount(0);
+  await expect(result).toBeVisible();
   await expect(page.locator(".contract-review-expand")).toHaveCount(0);
   await form.getByRole("radio", { name: "작업 파일" }).check();
-  await expect(stale).toBeVisible();
+  await expect(result).toHaveCount(0);
+  await expect(stale).toHaveCount(0);
   await form.getByRole("radio", { name: "직접 입력" }).check();
+  await expect(result).toBeVisible();
   await input.fill(b);
   await form.getByRole("button", { name: "실행", exact: true }).click();
   await expect.poll(() => Boolean(release)).toBe(true);
   await expect(form.getByRole("button", { name: "문서 검토 중…" })).toBeDisabled();
   await expect(page.locator(".contract-review-expand")).toHaveCount(0);
+  // The pending B review replaced A's direct result; A has nothing current while B is in flight.
   await input.fill(a);
+  await expect(result).toHaveCount(0);
+  await expect(form.getByRole("button", { name: "실행", exact: true })).toBeEnabled();
   release!();
-  await expect(stale).toBeVisible();
   expect(bodies[2].text).toBe(b);
-  await form.getByRole("button", { name: "실행", exact: true }).click();
+  await expect(result).toHaveCount(0);
+  await input.fill(b);
+  await expect(result).toBeVisible();
   await expect(stale).toHaveCount(0);
   await expect(page.getByRole("button", { name: "다시 시도" })).toHaveCount(0);
+  expect(bodies).toHaveLength(3);
 });
 
 for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
