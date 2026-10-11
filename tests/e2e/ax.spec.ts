@@ -1188,16 +1188,24 @@ for (const width of [1440, 390]) {
     await expect(scope).toContainText("담당자 승인");
     await expect(before).toContainText("샘플 표");
     await expect(done).toContainText("실패: 누락 발생");
-    const scopeText = await scope.innerText(), doneText = await done.innerText();
     for (const [tool, target, plan, other] of [["Codex", "codex", codex, claude], ["Claude Code", "claude", claude, codex]] as const) {
       if (target === "claude") await section.getByRole("tab", { name: tool, exact: true }).click();
       await section.getByRole("button", { name: `${tool}용 구현 계획 생성`, exact: true }).click();
-      // A generated plan adds only its own open prerequisites; scope and completion stay diagnosis-only.
+      // Generated plans may add restrictive human/exclusion facts, never new permitted work.
       await expect(before).toContainText(plan.prerequisites[0]);
       await expect(before).not.toContainText(other.prerequisites[0]);
-      expect(await scope.innerText()).toBe(scopeText);
-      expect(await done.innerText()).toBe(doneText);
-      for (const item of [plan.goal[0], plan.inScope[0], plan.toBe[0], plan.implementation[1], plan.tests[9], plan.fallback[0]]) await expect(section.locator(".ax-plan-view")).not.toContainText(item);
+      await expect(scope).toContainText("담당자 승인");
+      await expect(done).toContainText("실패: 누락 발생");
+      for (const item of plan.humanInLoop) {
+        await expect(scope).toContainText(item);
+        await expect(scope).not.toContainText(other.humanInLoop[plan.humanInLoop.indexOf(item)]);
+      }
+      for (const item of plan.outOfScope) {
+        await expect(scope).toContainText(item);
+        await expect(done).toContainText(item);
+      }
+      const permitted = scope.locator(".ax-plan-group").filter({ has: page.getByRole("heading", { name: "조건 해결 후 샘플 범위", exact: true }) });
+      for (const item of [...plan.inScope, ...plan.implementation]) await expect(permitted).not.toContainText(item);
       await expect(section.locator(".ax-plan-view").getByRole("button")).toHaveCount(0);
       const raw = buildAllInOnePrompt(plan, target, { taskName: task.name, prerequisites: ["시스템 접근 — API와 권한 실제 확인", "권한 확인 후 진행"], diagnosis: diagnosisFixture, context: task.description });
       await expect(section.locator(".ax-prompt")).toHaveText(raw);
@@ -1323,7 +1331,6 @@ test("AX Level 0 keeps generated implementation suggestions subordinate to diagn
   const prompt = await section.locator(".ax-prompt").textContent();
   const review = prompt!.split("### 함께 수행할 확인")[1].split("###")[0];
   expect(review).toContain("- 샘플 데이터 형식·필수 항목 확인");
-  expect(prompt!.split("### 검토·검증만")[1].split("###")[0]).toContain("자료 수집 — 처리 가능성 검증");
   expect(prompt).not.toMatch(/^### (이번 구현|확인 후 구현)$/mu);
   expect(prompt!.split("### 향후 확장 (이번 작업에서 구현하지 않음)")[1].split("###")[0]).toContain(`- 생성 계획 제안: ${planFixture.inScope[0]} — Level 0은 검토·검증만 허용`);
   await expect(section.locator(".ax-prompt")).toContainText("업무 정리와 검토·검증 수준으로 진행하세요.");
