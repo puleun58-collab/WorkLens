@@ -20,7 +20,9 @@ import { runInWorker } from "@/client/document-client";
 import { reviewFileIdentityMatches, reviewIsStale } from "@/client/review-provenance";
 import { reviewRequestFor, type ReviewFile } from "@/lib/law-review-source";
 import { readReviewPreferences, resolveReviewPreferences, type ReviewPreferences } from "@/client/review-preferences";
-import { ArrowDownRight, ChevronDown, Plus, Upload } from "lucide-react";
+import { AlertCircle, ArrowDownRight, ChevronDown, Plus, Upload } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -375,16 +377,36 @@ export function LegalResearch({ workspace, initialTask = "full_research" }: { wo
           ? `지금 선택한 문서가 아닌 ${resultFile.document.name}의 검토 결과입니다.`
           : "삭제되었거나 현재 입력 또는 작업 파일의 출처·버전과 일치하지 않는 검토 결과입니다. 위치는 검토 당시 기록이며 현재 파일로 이동할 수 없습니다.") : "현재 입력과 일치하지 않는 검토 결과입니다. 실행 당시 입력을 기준으로 표시합니다."}
       </p>}
-      {current.outcome?.kind === "error" ? <div className="decision-feedback" role="alert">
+      {current.outcome?.kind === "error" ? isDocument ? <div className="contract-review">
+          <header className="research-overview">
+            <div className="contract-review-result-head">
+              <span className="research-eyebrow">문서 검토</span>
+              <Badge variant="error" className="contract-review-status"><AlertCircle aria-hidden="true" />검토 오류</Badge>
+            </div>
+            <h3 className="legal-analysis-title">문서 검토를 완료하지 못했습니다</h3>
+            {current.file && <p className="research-meta contract-review-file">검토 문서: {current.file.document.name}</p>}
+            <Alert variant="error" className="contract-review-notice">
+              <AlertCircle />
+              <AlertTitle>검토 오류</AlertTitle>
+              <AlertDescription><p className="law-search-error">{current.outcome.message}</p></AlertDescription>
+            </Alert>
+            <Button type="button" variant="link" className="law-search-link" disabled={retryUnavailable} onClick={retry}>다시 시도</Button>
+            {retryUnavailable && <p className="research-meta" role="status">원본 파일이 삭제되었거나 변경되어 다시 시도할 수 없습니다. 파일을 선택하고 새로 실행하세요.</p>}
+          </header>
+        </div> : <div className="decision-feedback" role="alert">
           <p className="law-search-error">{current.outcome.message}</p>
           <Button type="button" variant="link" className="law-search-link" disabled={retryUnavailable} onClick={retry}>다시 시도</Button>
           {retryUnavailable && <p className="research-meta" role="status">원본 파일이 삭제되었거나 변경되어 다시 시도할 수 없습니다. 파일을 선택하고 새로 실행하세요.</p>}
         </div>
         : current.file && !current.outcome ? <FileReviewExcluded file={current.file} />
-        : current.outcome?.kind === "missing" ? <div className="legal-analysis-missing" role="status">
+        : current.outcome?.kind === "missing" ? <div className={`legal-analysis-missing${isDocument ? " contract-review" : ""}`} role="status">
           <header className="research-overview">
-            <span className="research-eyebrow">{LAW_RESEARCH_TASKS.find((item) => item.value === current.request.task)?.label}</span>
+            {isDocument ? <div className="contract-review-result-head">
+              <span className="research-eyebrow">문서 검토</span>
+              <Badge variant="secondary" className="contract-review-status">확인 근거 없음</Badge>
+            </div> : <span className="research-eyebrow">{LAW_RESEARCH_TASKS.find((item) => item.value === current.request.task)?.label}</span>}
             <h3 className="legal-analysis-title">{STATUS_TITLE.none}</h3>
+            {isDocument && current.file && <p className="research-meta contract-review-file">검토 문서: {current.file.document.name}</p>}
             {current.request.task !== "document_review" && <div className="research-original"><span>입력한 질문</span><p>{current.request.query}</p></div>}
             {current.request.task === "full_research" && current.outcome.data.interpretation?.original === current.request.query
               && <ResearchUnderstanding interpretation={current.outcome.data.interpretation} />}

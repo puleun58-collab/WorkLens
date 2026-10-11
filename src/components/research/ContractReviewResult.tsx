@@ -1,8 +1,9 @@
 "use client";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ArrowDownRight, ChevronDown } from "lucide-react";
+import { AlertCircle, ArrowDownRight, CheckCircle2, ChevronDown } from "lucide-react";
 
 import type { ContractReview, ReviewedIssue } from "@/lib/contract-review";
 import type { ReviewCoverage, ReviewFile } from "@/lib/law-review-source";
@@ -60,12 +61,21 @@ function FileCoverage({ file }: { file: ReviewFile }) {
 export function FileReviewExcluded({ file }: { file: ReviewFile }) {
   return <div className="legal-analysis-missing contract-review" role="status" data-coverage="excluded">
     <header className="research-overview">
-      <span className="research-eyebrow">문서 검토</span>
+      <div className="contract-review-result-head">
+        <span className="research-eyebrow">문서 검토</span>
+        <Badge variant="secondary" className="contract-review-status">검토 제외</Badge>
+      </div>
       <h3 className="legal-analysis-title">검토할 수 있는 내용을 확인하지 못했습니다</h3>
       <p className="research-meta">검토 문서: {file.document.name}</p>
-      <p>{file.coverage.note}</p>
-      {file.imagesUnread && <p className="research-caution">{IMAGE_NOTE}</p>}
-      <p className="research-caution">위험 항목이 없다는 뜻이 아니라 이 문서를 검토하지 못했다는 뜻입니다.</p>
+      <Alert variant="warning" className="contract-review-notice">
+        <AlertCircle />
+        <AlertTitle>검토할 내용 확인 필요</AlertTitle>
+        <AlertDescription>
+          <p>{file.coverage.note}</p>
+          {file.imagesUnread && <p>{IMAGE_NOTE}</p>}
+        </AlertDescription>
+      </Alert>
+      <p className="research-meta contract-review-disclaimer">위험 항목이 없다는 뜻이 아니라 이 문서를 검토하지 못했다는 뜻입니다.</p>
     </header>
   </div>;
 }
@@ -149,6 +159,7 @@ export function ContractReviewResult({ review, file, expandSources = false, onEx
   const precedentCount = new Set(issues.flatMap((issue) => issue.precedents.filter((key) => review.precedents[key]))).size;
   const lookupIncomplete = issues.some((issue) => issue.lawStatus === "failed" || issue.lawStatus === "partial"
     || issue.precedentStatus === "failed" || issue.precedentStatus === "partial");
+  const lookupFailed = issues.some((issue) => issue.lawStatus === "failed" || issue.precedentStatus === "failed");
 
   const issueBody = (issue: ReviewedIssue, anchor: string, clauseSegments?: readonly number[]) => {
     const laws = [...new Set(issue.laws)].map((key) => review.laws[key]).filter(Boolean);
@@ -216,15 +227,48 @@ export function ContractReviewResult({ review, file, expandSources = false, onEx
   };
 
   const partial = file?.coverage.status === "partial";
+  // Presentation of existing evidence/coverage flags, not a new review verdict.
+  const badge = status === "none" && lookupFailed
+    ? { variant: "error", label: "근거 조회 오류" } as const
+    : lookupIncomplete || partial || status === "partial"
+      ? { variant: "warning", label: "추가 확인 필요" } as const
+      : status === "matched"
+        ? { variant: "success", label: "관련 근거 확인" } as const
+        : { variant: "secondary", label: status === "weak" ? "근거 부족" : issues.length ? "확인 근거 없음" : "검토 쟁점 없음" } as const;
   let renderedIssueNumber = 0;
   return <div ref={resultRef} className="legal-analysis-output contract-review" data-task="document_review" data-document-type={document.type} data-coverage={file?.coverage.status}>
     <header className="research-overview">
-      <span className="research-eyebrow">문서 검토</span>
+      <div className="contract-review-result-head">
+        <span className="research-eyebrow">문서 검토</span>
+        <Badge variant={badge.variant} className="contract-review-status">
+          {badge.variant === "success" ? <CheckCircle2 aria-hidden="true" /> : badge.variant === "warning" || badge.variant === "error" ? <AlertCircle aria-hidden="true" /> : null}
+          {badge.label}
+        </Badge>
+      </div>
       <h3 className="legal-analysis-title" data-status={status}>{issues.length ? STATUS_TITLE[status] : partial ? "검토한 범위에서 쟁점을 찾지 못했습니다" : "검토할 쟁점을 찾지 못했습니다"}</h3>
       {file && <p className="research-meta contract-review-file">검토 문서: {file.document.name}</p>}
-      {partial && <p className="research-caution">문서의 일부만 검토했습니다. 결과는 검토한 범위 기준입니다</p>}
-      {lookupIncomplete && <p className="research-caution contract-review-lookup"><strong>관련 근거 일부 미확인</strong> 일부 법령·판례 출처 조회가 완료되지 않아 추가 확인이 필요합니다</p>}
-      {file && document.type === "unknown" && <p className="research-caution">현재 문서에서 법령 문서 검토에 필요한 계약·규정 성격을 충분히 확인하지 못했습니다</p>}
+      {(partial || lookupIncomplete || status === "partial" || (file && document.type === "unknown")) && <div className="contract-review-notices">
+        {partial && <Alert variant="warning" className="contract-review-notice">
+          <AlertCircle />
+          <AlertTitle>부분 검토</AlertTitle>
+          <AlertDescription><p>문서의 일부만 검토했습니다. 결과는 검토한 범위 기준입니다</p></AlertDescription>
+        </Alert>}
+        {lookupIncomplete && <Alert variant={badge.variant === "error" ? "error" : "warning"} className="contract-review-notice contract-review-lookup">
+          <AlertCircle />
+          <AlertTitle>{badge.variant === "error" ? "관련 근거 조회 오류" : "관련 근거 일부 미확인"}</AlertTitle>
+          <AlertDescription><p>일부 법령·판례 출처 조회가 완료되지 않아 추가 확인이 필요합니다</p></AlertDescription>
+        </Alert>}
+        {status === "partial" && !lookupIncomplete && <Alert variant="warning" className="contract-review-notice">
+          <AlertCircle />
+          <AlertTitle>일부 쟁점의 직접 근거 부족</AlertTitle>
+          <AlertDescription><p>확인된 직접 근거가 없는 쟁점은 항목별 검토 결과와 상세 근거를 함께 확인하세요</p></AlertDescription>
+        </Alert>}
+        {file && document.type === "unknown" && <Alert variant="warning" className="contract-review-notice">
+          <AlertCircle />
+          <AlertTitle>문서 내용 확인 필요</AlertTitle>
+          <AlertDescription><p>현재 문서에서 법령 문서 검토에 필요한 계약·규정 성격을 충분히 확인하지 못했습니다</p></AlertDescription>
+        </Alert>}
+      </div>}
       <p className="research-meta contract-review-disclaimer">{issues.length
         ? "※ 검토 참고용이며 최종 법률 판단을 대신하지 않습니다."
         : "※ 쟁점을 찾지 못했다는 것이 법적 위험이 없다는 뜻은 아닙니다."}</p>
