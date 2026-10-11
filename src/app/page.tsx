@@ -695,7 +695,10 @@ export default function Home() {
   const notifyWorkspace = (tone: Notice["tone"], message: string, detail?: string) =>
     setNotice({ tone, message, scope: "workspace", ...(detail ? { detail } : {}) });
 
+  /** Navigation and selection changes retire the shared result; a run commits only into the generation it started in. */
+  const resultGeneration = useRef(0);
   const clearResults = useCallback(() => {
+    resultGeneration.current++;
     setOperationResult(null);
     setComparison(null);
     setCompareIds(null);
@@ -774,11 +777,14 @@ export default function Home() {
     setBusy(true);
     setNotice(null);
     setDetail(null);
+    const generation = resultGeneration.current;
     try {
       const result = await runInWorker({ kind: "extract", fileIds: selected });
+      if (generation !== resultGeneration.current) return;
       setOperationResult(result);
       notifyView("success", "전체 텍스트를 준비했습니다.");
     } catch (error) {
+      if (generation !== resultGeneration.current) return;
       setOperationResult(null);
       notifyView("error", (error as ApiError).message ?? "작업에 실패했습니다.");
     } finally {
@@ -871,8 +877,10 @@ export default function Home() {
     setBusy(true);
     setNotice(null);
     setDetail(null);
+    const generation = resultGeneration.current;
     try {
       const result = await generateGroundedResult({ operation: "ask", question: question.trim() });
+      if (generation !== resultGeneration.current) return;
       if (result.claims.length === 0) {
         setOperationResult(null);
         notifyView("info", empty.message, undefined, empty.detail);
@@ -882,6 +890,7 @@ export default function Home() {
       notifyView("success", "질문 결과 준비 완료");
       return result;
     } catch (error) {
+      if (generation !== resultGeneration.current) return;
       setOperationResult(null);
       const code = (error as Partial<ServerAiFailure>).code;
       if (code === "NO_EVIDENCE" || code === "GROUNDING_REJECTED") {
@@ -999,12 +1008,15 @@ export default function Home() {
     setDetail(null);
     setEnrichmentResult(null);
     setAnalyzeEvidenceLimited(false);
+    const generation = resultGeneration.current;
     try {
       let deterministic: AnalyzeEntry[];
       try {
         deterministic = await runInWorker({ kind: "analyze", fileIds: selected });
+        if (generation !== resultGeneration.current) return;
         setOperationResult(deterministic);
       } catch (error) {
+        if (generation !== resultGeneration.current) return;
         setOperationResult(null);
         notifyView("error", (error as ApiError).message ?? "문서 분석에 실패했습니다.");
         return;
@@ -1021,6 +1033,7 @@ export default function Home() {
         };
         try {
           const enriched = await generateGroundedResult({ operation: "analyze" }, undefined, onStage);
+          if (generation !== resultGeneration.current) return;
           setEnrichmentResult(enriched);
           setAnalyzeEvidenceLimited(stages.candidates > stages.selected);
           if (process.env.NODE_ENV !== "production") {
@@ -1029,6 +1042,7 @@ export default function Home() {
           }
         } catch (error) {
           noteAiDiagnostics(error);
+          if (generation !== resultGeneration.current) return;
           if (process.env.NODE_ENV !== "production") console.info("[worklens] analyze stages", { ...stages, failure: (error as Partial<ServerAiFailure>).code ?? "UNKNOWN" });
           notifyView("warning", "기본 분석은 완료됐습니다. 요약과 인사이트를 불러오지 못했습니다.", undefined, aiFailureDetail(error));
           return deterministic;
@@ -1112,11 +1126,14 @@ export default function Home() {
     setDetail(null);
     setEnrichmentResult(null);
     let base: WorkerCheckEntry[];
+    const generation = resultGeneration.current;
     try {
       try {
         base = await runInWorker({ kind: "check", fileIds: selected, userTerms, companyTerms: companyTermNames });
+        if (generation !== resultGeneration.current) return;
         setOperationResult(base);
       } catch (error) {
+        if (generation !== resultGeneration.current) return;
         setOperationResult(null);
         notifyView("error", (error as ApiError).message ?? "문서 검수에 실패했습니다.");
         return;
@@ -1130,6 +1147,7 @@ export default function Home() {
         };
         try {
           const aiResult = await generateGroundedResult(request);
+          if (generation !== resultGeneration.current) return;
           const dictionary = createDictionary(userTerms, companyTermNames);
           merged = base.map((entry) => {
             const forFile = aiResult.claims.filter((claim) =>
@@ -1148,6 +1166,7 @@ export default function Home() {
           noteAiDiagnostics(error);
         }
       }
+      if (generation !== resultGeneration.current) return;
       notifyView("success", "문서 검수 완료");
       return merged;
     } finally {
@@ -1756,7 +1775,8 @@ export default function Home() {
                         <MenuTrigger render={<Button type="button" variant="ghost" size="icon" aria-label="파일 관리 메뉴" disabled={busy} />}>
                           <MoreHorizontal aria-hidden="true" />
                         </MenuTrigger>
-                        <MenuPopup align="end" className="w-max" style={{ minWidth: 104 }}>
+                        {/* One short item: size to its text so the equal px-3 insets read as balanced; the shared popup minimum would leave a blank right edge. */}
+                        <MenuPopup align="end" className="w-max" style={{ minWidth: 0 }}>
                           <MenuItem className="px-3" variant="destructive" closeOnClick onClick={() => setDeleteAllOpen(true)}>모두 삭제</MenuItem>
                         </MenuPopup>
                       </Menu>
@@ -2752,7 +2772,7 @@ function AnalyzeResults({ entries, enrichment, evidenceLimited, status, fileName
 
   return (
     <div className="analysis-report">
-      {enrichment && evidenceLimited ? <p className="result-inline-warning" role="status">AI 해석은 확인된 근거를 바탕으로 제공되며, 문서 전체 내용을 모두 포함하지 않을 수 있습니다.</p> : null}
+      {enrichment && evidenceLimited ? <p className="analysis-scope-note">분석 결과는 문서의 주요 내용을 중심으로 정리되며, 일부 세부 내용은 포함되지 않을 수 있습니다.</p> : null}
       {presentation.summary.length ? (
         <section className="analysis-report-section analysis-summary-section" aria-labelledby="analysis-summary-title">
           <div className="subsection-heading">

@@ -1982,6 +1982,17 @@ a:not([data-slot]):focus-visible,
   border-bottom: 0;
 }
 
+/* A scope note, not a warning: muted text on the same content edge as the section headings below. */
+.analysis-report > .analysis-scope-note {
+  margin: 0;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
 .analysis-warning-section .analysis-warning-line:first-of-type {
   border-top: 0;
 }
@@ -3972,6 +3983,9 @@ body {
   --blue-soft: #eff6ff;
   --blue-pale: #f5f9ff;
   --blue-border: #bfd4f1;
+  /* Labelled suggestion/reason callouts in result cards: one step above --blue-soft so they separate from white cards. */
+  --blue-callout: #eaf2ff;
+  --blue-callout-border: #c8daff;
   --focus-ring: #2563eb;
   /* One tone below white so data surfaces separate from the page without cards. */
   --canvas: #f3f5f8;
@@ -5991,9 +6005,9 @@ body {
   grid-template-columns: minmax(0, 1fr);
   gap: 4px;
   padding: 10px 14px;
-  border: 1px solid color-mix(in srgb, var(--blue) 16%, var(--paper));
+  border: 1px solid var(--blue-callout-border);
   border-radius: var(--radius-panel);
-  background: color-mix(in srgb, var(--blue) 5%, var(--paper));
+  background: var(--blue-callout);
   box-shadow: none;
 }
 
