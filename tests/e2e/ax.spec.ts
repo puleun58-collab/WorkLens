@@ -272,11 +272,11 @@ test("AX registration → diagnosis → correction → matrix → plans → relo
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await scope.screenshot({ path: `artifacts/ax/plan-view-${test.info().project.name}.png` });
   const prompt = packageSection.locator(".ax-prompt");
-  for (const heading of ["# 월간 취합 자동화 구현 지시문", "## 2. 현재 진단 기준", "## 3. 작업 전 현재 프로젝트 확인", "## 4. AS-IS", "## 8. 구현 원칙", "## 9. 구현 요구사항", "## 15. Git 반영", "## 16. 배포 및 운영 적용", "## 17. 완료 조건", "## 18. 완료 보고"]) await expect(prompt).toContainText(heading);
+  for (const heading of ["# 월간 취합 자동화 구현 지시문", "## 1. 작업 목표·실행 범위", "## 2. 프로젝트 사전 확인", "## 3. 선행 조건·차단 사항", "## 4. 업무 데이터 흐름", "## 5. 단계별 실제 구현", "## 6. 예외·보안·승인", "## 7. 테스트·회귀 검증", "## 8. Git·배포·운영", "## 9. 완료 조건", "## 10. 인수인계·완료 보고"]) await expect(prompt).toContainText(heading);
   await expectPromptStructure(prompt, "월간 취합");
   const codexPrompt = await prompt.textContent();
   expect(codexPrompt).toContain(planFixture.fallback[0]);
-  const prerequisiteSection = (await prompt.textContent())!.split("## 7. 구현 전 확인사항")[1].split("## 8.")[0];
+  const prerequisiteSection = (await prompt.textContent())!.split("## 3. 선행 조건·차단 사항")[1].split("## 4.")[0];
   expect(prerequisiteSection).toContain("실제 저장소와 API 확인");
   expect(prerequisiteSection).toContain("시스템 접근 — API와 권한 실제 확인");
   expect(prerequisiteSection).toContain("권한 확인 후 진행");
@@ -862,10 +862,10 @@ test("AX execution package remains readable on mobile with the setup guide colla
     await expect(button.locator("svg")).toHaveCount(1);
     const prompt = section.locator(".ax-prompt");
     await expectPromptStructure(prompt, task.name);
-    await expect(prompt).toContainText("## 2. 현재 진단 기준");
-    await expect(prompt).toContainText(/## \d+\. 구현 원칙/);
+    await expect(prompt).toContainText("## 1. 작업 목표·실행 범위");
+    await expect(prompt).toContainText(/## \d+\. 단계별 실제 구현/);
     await expect(prompt).toContainText(/## \d+\. 완료 조건/);
-    expect((await prompt.textContent())!.trimEnd()).toMatch(/## \d+\. 완료 보고[\s\S]*실제로 수행하지 않은 작업을 완료했다고 보고하지 마세요\.$/);
+    expect((await prompt.textContent())!.trimEnd()).toMatch(/## \d+\. 인수인계·완료 보고[\s\S]*실제로 수행하지 않은 작업을 완료했다고 보고하지 마세요\.$/);
     await expect(prompt).toBeHidden();
   }
   await expect(section.locator(".ax-prompt")).toContainText("배포 방식 확인 필요");
@@ -1310,11 +1310,12 @@ test("AX Level 0 keeps generated implementation suggestions subordinate to diagn
   await expect(permitted).toContainText("샘플 데이터 형식·필수 항목 확인");
   await expect(scope).not.toContainText(planFixture.inScope[0]);
   const prompt = await section.locator(".ax-prompt").textContent();
-  const included = prompt!.split("### 포함")[1].split("###")[0];
-  expect(included).toContain("샘플 데이터 형식·필수 항목 확인");
-  expect(included).not.toContain(`- ${planFixture.inScope[0]}`);
-  expect(prompt!.split("### 생성 계획의 제안 (현재 구현 범위 아님)")[1].split("###")[0]).toContain(`- ${planFixture.inScope[0]}`);
-  await expect(section.locator(".ax-prompt")).toContainText("업무 정리와 보조 도구 수준으로 구현하세요.");
+  const review = prompt!.split("### 함께 수행할 확인")[1].split("###")[0];
+  expect(review).toContain("- 샘플 데이터 형식·필수 항목 확인");
+  expect(prompt!.split("### 검토·검증만")[1].split("###")[0]).toContain("자료 수집 — 처리 가능성 검증");
+  expect(prompt).not.toMatch(/^### (이번 구현|확인 후 구현)$/mu);
+  expect(prompt!.split("### 향후 확장 (이번 작업에서 구현하지 않음)")[1].split("###")[0]).toContain(`- 생성 계획 제안: ${planFixture.inScope[0]} — Level 0은 검토·검증만 허용`);
+  await expect(section.locator(".ax-prompt")).toContainText("업무 정리와 검토·검증 수준으로 진행하세요.");
 });
 
 test("AX completion keeps separate evidence, failure and risk meanings", async ({ page }) => {
