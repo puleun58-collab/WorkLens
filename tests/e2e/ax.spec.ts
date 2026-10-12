@@ -1263,6 +1263,12 @@ for (const level of [0, 1, 2, 3]) {
       const execution = page.getByRole("region", { name: "실행 로드맵", exact: true });
       await expect(execution.locator(".ax-execution-item")).toHaveCount(3);
       expect(await execution.locator(".ax-execution-item").evaluateAll(rows => rows.map(row => row.getAttribute("data-scope")))).toEqual(treatments);
+      // Phase status follows the gate; a non-ready gate never shows its later phases as runnable.
+      const statuses = await execution.locator(".ax-phase-status").allTextContents();
+      expect(statuses.length).toBeGreaterThan(0);
+      expect(statuses).toEqual(gate === "ready" ? statuses.map(() => "진행 가능")
+        : gate === "blocked" ? ["진행 보류", ...statuses.slice(1).map(() => "향후 단계")]
+        : ["확인 필요", "조건부 진행", ...statuses.slice(2).map(() => "향후 단계")]);
       if (gate === "blocked") {
         await expect(before).toContainText("보안 정책상 자료 반출 불가");
         await expect(section.getByRole("button", { name: "Codex용 구현 계획 생성", exact: true })).toBeDisabled();

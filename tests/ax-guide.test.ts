@@ -261,6 +261,8 @@ describe("AX plan display boundaries", () => {
       poc: { ...diagnosisFixture.poc, evaluation: ["자동 초안과 수동 작성 초안을 전수 대조", "샘플 체크리스트 필수 항목 대조"] },
     };
     const levelZero = withFactors([3, 2, 2, 2, 5, 4], patch);
+    expect(buildAgentInstructionModel(undefined, { diagnosis: withFactors([3, 2, 2, 2, 5, 4], { ...patch, poc: { ...patch.poc!, outputs: ["자동 생성된 점검 기록 초안", "점검 결과 요약표"] } }) })
+      .scoped.outputs.map(item => item.text)).toEqual(["점검 결과 요약표"]);
     const summary = planSummary(levelZero);
     expect(summary.checks.map(check => check.tone)).toEqual(["required", "future"]);
     expect(summary.tests).toEqual(["향후 검증: 자동 초안과 수동 작성 초안을 전수 대조", "샘플 체크리스트 필수 항목 대조"]);

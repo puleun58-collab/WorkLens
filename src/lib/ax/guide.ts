@@ -606,9 +606,9 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
     } else if (scopeLevel === 0 && !matches.length && (source === "diagnosis.technicalChecks" || source.startsWith("plan.")) && role === "conditions" && INTEGRATION_CHECK.test(clean)) {
       scope = "future";
       reason = `${gate === "blocked" ? "진행 보류 상태(검토·검증만 허용)" : "Level 0"}에서는 시스템 연동·AI 구현을 하지 않아 현재 검토·검증의 선행 조건이 아님 (전체 실행 상태는 그대로 적용)`;
-    } else if (scopeLevel === 0 && !matches.length && source.startsWith("diagnosis.poc.") && ["tests", "criteria"].includes(role) && AUTOMATED_RESULT.test(clean)) {
+    } else if (scopeLevel === 0 && !matches.length && source.startsWith("diagnosis.poc.") && ["tests", "criteria", "outputs"].includes(role) && AUTOMATED_RESULT.test(clean)) {
       scope = "future";
-      reason = `${gate === "blocked" ? "진행 보류 상태" : "Level 0"}에는 비교할 자동·AI 결과물이 없음: 검증을 위해 생성 기능을 만들지 말고, 기존 비교 자료가 없으면 검증 불가 사유를 기록`;
+      reason = `${gate === "blocked" ? "진행 보류 상태" : "Level 0"}에는 자동·AI 결과물이 없음: 검증·출력을 위해 생성 기능을 만들지 말고, 기존 비교 자료가 없으면 검증 불가 사유를 기록`;
     } else if (scopeLevel === 0 && ["features", "goal"].includes(role) && source.startsWith("plan.") && !(matches.length === 1 && matches[0].scope === "human")) {
       // Level 0 and a blocked gate permit review only: no generated feature is implementable, linked or not.
       scope = "future";

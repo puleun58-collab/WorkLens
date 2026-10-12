@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { AlertTriangle, ArrowRight, Ban, BookOpen, Bot, BrainCircuit, Check, CheckCircle2, CircleAlert, CircleCheck, CircleX, Clipboard, ClipboardCheck, ClipboardList, Clock, CloudUpload, Copy, Database, Download, FileCode2, FileOutput, FileText, Folder, GitBranch, Globe, Info, MonitorCog, Play, Search, Settings2, ShieldCheck, Target, Terminal, TriangleAlert, UserRound } from "lucide-react";
+import { AlertTriangle, ArrowRight, Ban, BookOpen, Bot, BrainCircuit, ChartNoAxesColumnIncreasing, Check, CheckCircle2, CircleAlert, CircleCheck, CircleX, Clipboard, ClipboardCheck, ClipboardList, Clock, CloudUpload, Copy, Database, Download, FileCode2, FileOutput, FileText, Flag, FlaskConical, Folder, GitBranch, Globe, Info, MonitorCog, Play, Search, Settings2, ShieldCheck, Target, Terminal, TriangleAlert, UserRound } from "lucide-react";
 import type { AxDiagnosis, AxPlan, AxTask } from "@/lib/ax/types";
 import { automationLevel, axes, executionGate, executionProfile, factorEffectiveValue, GATE_LABELS, nextAction, type ExecutionProfile } from "@/lib/ax/policy";
 import { FACTOR_KEYS } from "@/lib/ax/schema";
@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Accordion, AccordionItem, AccordionPanel, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTab, TabsPanel } from "@/components/ui/tabs";
-import { buildAgentInstructionModel, buildAllInOnePrompt, planSummary, scopeItemLabel, setupGuide, stepMethodLabel, TOOL_GUIDES, type AxCheckTone, type AxGuideBlock, type AxGuideSection, type AxPlanSummary, type AxToolId } from "@/lib/ax/guide";
+import { buildAgentInstructionModel, buildAllInOnePrompt, planSummary, scopeItemLabel, setupGuide, stepMethodLabel, TOOL_GUIDES, type AgentInstructionModel, type AxCheckTone, type AxGuideBlock, type AxGuideSection, type AxPlanSummary, type AxToolId } from "@/lib/ax/guide";
 
 const VERDICT_LABELS = { 자동화: "자동화", "AI 보조": "AI 보조", "사람 유지": "담당자 수행" } as const;
 const OWNER_LABELS = { 시스템: "시스템", AI: "AI", 사용자: "담당자" } as const;
@@ -71,6 +71,79 @@ export function AxResultSummary({ task }: { task: AxTask }) {
 }
 
 const SCOPE_LABELS = { implement: "이번 구현", "after-check": "확인 후 구현", verify: "검토·검증만", future: "향후 확장", human: "담당자 유지" } as const;
+/** Display copy for the fixed phase titles `executionProfile` emits; `poc` marks the phase judged by the diagnosis' PoC success criteria. */
+const PHASE_COPY: Record<string, { description: string; poc?: true }> = {
+  "선행 확인": { description: "진행 범위를 정하기 위한 필수 정보 확인" },
+  "제한 PoC": { description: "선행 확인 후 샘플 범위에서 처리 방식 검증", poc: true },
+  "결과 확인·다음 단계 판단": { description: "검증 결과를 반영해 재진단 또는 다음 단계 결정" },
+  "차단 사유 확인": { description: "진행 보류 사유와 근거 확인" },
+  "조건 해결": { description: "차단 사유별 해결 방안 확인" },
+  "검증": { description: "해결된 조건을 샘플 데이터로 확인" },
+  "재진단": { description: "확인 결과를 반영해 다시 진단" },
+  "데이터 형식 확인": { description: "입력 자료의 구조와 필수 항목 확인" },
+  "업무 규칙 정리": { description: "판단 기준과 예외 기준 정리" },
+  "사전 검증": { description: "처리 가능성 검토·검증 (운영 구현 없음)", poc: true },
+  "입력·규칙 확인": { description: "입력 자료와 업무 규칙 확인" },
+  "AI 보조 기능 검증": { description: "AI 후보·초안 생성 기능 검증", poc: true },
+  "담당자 검토": { description: "담당자 검토·승인 흐름 유지" },
+  "제한 적용·결과 평가": { description: "담당자 검토를 유지한 채 일부 건에 적용" },
+  "입력·규칙 검증": { description: "입력 자료와 처리 규칙 검증" },
+  "부분 자동화 구현": { description: "규칙 기반 처리와 AI 보조 구현" },
+  "예외·실패 검증": { description: "예외 분리와 실패 처리 검증" },
+  "파일럿": { description: "제한 범위에서 결과 확인", poc: true },
+  "운영 적용": { description: "운영 담당과 운영 기준 적용" },
+  "자동화 흐름 구현": { description: "자동 처리와 AI 보조 흐름 구현" },
+  "실패 복구·Fallback": { description: "실패 시 복구와 수동 전환 확인" },
+  "단계적 도입": { description: "일부 범위 적용 후 확대" },
+  "운영·모니터링": { description: "운영 담당과 모니터링 기준 적용" },
+};
+const PHASE_STATUS = {
+  check: { label: "확인 필요", Icon: CircleAlert }, conditional: { label: "조건부 진행", Icon: Clock },
+  ready: { label: "진행 가능", Icon: CircleCheck }, blocked: { label: "진행 보류", Icon: Ban }, future: { label: "향후 단계", Icon: CircleCheck },
+} as const;
+/** Phase cards of the policy roadmap. Status follows the gate only: a ready roadmap is wholly within the permitted scope; otherwise the first phase is current, a conditional gate's second phase waits on it and the rest are future. */
+function AxRoadmapPhases({ model, profile }: { model: AgentInstructionModel; profile: ExecutionProfile }) {
+  const success = [...new Set(model.scoped.criteria.filter(item => item.source === "diagnosis.poc.success").map(item => item.text))];
+  const outputs = [...new Set(model.scoped.outputs.map(item => item.text))];
+  const last = profile.roadmap.length - 1;
+  return <div className="ax-execution-phases">
+    <header className="ax-phases-head">
+      <div><h4>{profile.roadmapTitle} · 단계별 진행 계획</h4><p>현재 진단 결과를 기반으로 한 단계별 실행 계획과 전환 조건입니다.</p></div>
+      <span className="ax-phases-badge"><Info aria-hidden="true" />진단 기반 계획</span>
+    </header>
+    <ol className="ax-phase-cards" data-count={profile.roadmap.length}>{profile.roadmap.map((phase, i) => {
+      const copy = PHASE_COPY[phase.title];
+      const status = PHASE_STATUS[profile.gate === "ready" ? "ready" : i === 0 ? profile.gate === "blocked" ? "blocked" : "check"
+        : i === 1 && profile.gate === "conditional" ? "conditional" : "future"];
+      const Icon = i === 0 ? FileText : i === last ? ChartNoAxesColumnIncreasing : FlaskConical;
+      // Concise card wording: policy step lines drop the parenthetical restriction (kept in the timeline above and the instruction).
+      const items = [...new Set(phase.items.map(item => {
+        const label = scopeItemLabel(model, item);
+        const short = label === item ? item : label.replace(/\s*\([^()]*\)\s*$/u, "");
+        // The deferred checks and conditions the instruction lists separately are never shown as current work.
+        const deferred = model.classified.find(entry => entry.scope === "future" && (entry.role === "tests" || entry.role === "conditions") && entry.text === item);
+        return `${copy?.poc ? short.replace(/^샘플 범위: /u, "") : short}${deferred ? deferred.role === "tests" ? " (향후 검증)" : " (향후 단계 조건)" : ""}`;
+      }))];
+      const footer = i === last ? { title: "최종 산출물", Icon: FileText, text: outputs.length ? outputs.join(" · ") : "산출물 기준 확인 필요" }
+        : { title: "다음 단계 조건", Icon: Flag, text: i === 0 && profile.gate === "conditional" ? "선행 확인 항목이 모두 확인되어야 합니다."
+          : i === 0 && profile.gate === "blocked" ? "차단 사유가 해결되고 재진단에서 진행 보류가 해제되어야 합니다."
+          : copy?.poc && success.length ? success.join(" · ") : "전환 기준 확인 필요" };
+      return <li className="ax-execution-phase" data-position={i === 0 ? "first" : i === last ? "last" : "middle"} key={i}>
+        <div className="ax-phase-head">
+          <span className="ax-phase-icon" aria-hidden="true"><Icon /></span>
+          <div className="ax-phase-title">
+            <div className="ax-phase-topline"><span className="ax-phase-no">Phase {phase.phase}</span><span className="ax-phase-status" data-status={status.label}><status.Icon aria-hidden="true" />{status.label}</span></div>
+            <strong>{phase.title}</strong>{copy ? <p>{copy.description}</p> : null}
+          </div>
+        </div>
+        <div className="ax-phase-body"><h5>주요 작업</h5><ul role="list">{items.map((item, j) => <li key={j}>{item}</li>)}</ul></div>
+        <div className="ax-phase-footer"><footer.Icon aria-hidden="true" /><div><strong>{footer.title}</strong><p>{footer.text}</p></div></div>
+        {i < last ? <span className="ax-phase-arrow" aria-hidden="true"><ArrowRight /></span> : null}
+      </li>;
+    })}</ol>
+    <p className="ax-phases-note"><Info aria-hidden="true" />단계별 상태와 전환 조건은 실제 진단 결과(Level·Gate)와 업무 특성에 따라 달라질 수 있습니다. ‘향후 단계’는 현재 실행 범위가 아니며, 이 화면의 표시만으로 Level·Gate가 바뀌지 않습니다.</p>
+  </div>;
+}
 
 export function AxExecutionTimeline({ diagnosis: d }: { diagnosis: AxDiagnosis }) {
   const model = buildAgentInstructionModel(undefined, { diagnosis: d });
@@ -89,11 +162,7 @@ export function AxExecutionTimeline({ diagnosis: d }: { diagnosis: AxDiagnosis }
       </div>
       <Badge variant="outline" className="ax-scope-badge" data-scope={step.scope}>{SCOPE_LABELS[step.scope]}</Badge>
     </li>)}</ol> : <p className="ax-muted">진단된 업무 단계 없음</p>}
-    {profile.roadmap.length ? <div className="ax-execution-phases"><h4>{profile.roadmapTitle} · 단계별 진행 계획</h4>
-      <ol>{profile.roadmap.map((phase, i) => <li className="ax-execution-phase" key={i}>
-        <strong>Phase {phase.phase} · {phase.title}</strong><AxList items={phase.items.map(item => scopeItemLabel(model, item))} />
-      </li>)}</ol>
-    </div> : null}
+    {profile.roadmap.length ? <AxRoadmapPhases model={model} profile={profile} /> : null}
   </section>;
 }
 export function AxProcess({ diagnosis: d }: { diagnosis: AxDiagnosis }) {

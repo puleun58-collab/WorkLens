@@ -239,13 +239,57 @@
 .ax-scope-badge { justify-self: end; max-width: min(100%, 165px); padding: 5px 10px; border: 0; border-radius: 7px; background: color-mix(in srgb, var(--primary) 9%, var(--card)); color: var(--primary); text-align: center; white-space: normal; }
 .ax-scope-badge[data-scope="after-check"], .ax-scope-badge[data-scope="future"] { color: #7c3aed; background: #f2edfc; }
 .ax-scope-badge[data-scope="verify"], .ax-scope-badge[data-scope="human"] { color: #475569; background: var(--muted-surface); }
-.ax-execution-phases { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); }
-.ax-execution-phases > h4 { margin: 0 0 10px; }
-.ax-view .ax-execution-phases > ol { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,200px),1fr)); gap: 10px; margin: 0; padding: 0; list-style: none; }
-.ax-execution-phase { min-width: 0; margin: 0; padding: 12px; border: 1px solid var(--border); border-radius: 8px; }
-.ax-execution-phase > strong { display: block; color: var(--primary); overflow-wrap: anywhere; }
-.ax-execution-phase > ul { margin: 6px 0 0; list-style: none; }
-.ax-execution-phase li { margin: 2px 0; font-size: var(--font-size-xs); }
+/* Phase roadmap: bordered report box, tone cards with arrows in the gaps, full-width note. Arrows show order, not completion. */
+.ax-execution-phases { margin-top: 20px; padding: 22px 24px 20px; border: 1px solid var(--border); border-radius: 12px; background: var(--card); text-align: left; }
+.ax-phases-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px 16px; flex-wrap: wrap; }
+.ax-phases-head h4 { margin: 0; font-size: 20px; font-weight: var(--font-weight-bold, 700); overflow-wrap: anywhere; }
+.ax-phases-head p { margin: 4px 0 0; color: var(--muted-foreground); font-size: 14px; }
+.ax-phases-badge { display: inline-flex; flex: none; align-items: center; gap: 6px; padding: 6px 14px; border: 1px solid #d6e4fb; border-radius: 10px; background: #eef4fe; color: var(--primary); font-size: 13px; font-weight: var(--font-weight-semibold); }
+.ax-phases-badge svg, .ax-phases-note svg { width: 16px; height: 16px; flex: none; }
+.ax-view .ax-phase-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px 48px; margin: 18px 0 0; padding: 0; list-style: none; }
+.ax-view .ax-execution-phase { --tone-bg: #f4f8fe; --tone-line: #dce7f8; position: relative; display: flex; flex-direction: column; min-width: 0; margin: 0; padding: 20px; border: 1px solid var(--tone-line); border-radius: 12px; background: var(--tone-bg); }
+.ax-execution-phase[data-position=middle] { --tone-bg: #fcfaf4; --tone-line: #efe8d8; }
+.ax-execution-phase[data-position=last] { --tone-bg: #f3faf5; --tone-line: #d9eedf; }
+.ax-phase-head { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 4px 16px; align-items: start; padding-bottom: 16px; border-bottom: 1px solid color-mix(in srgb, var(--foreground) 9%, transparent); }
+.ax-phase-icon { display: inline-flex; align-items: center; justify-content: center; width: 52px; height: 52px; border-radius: 12px; background: #dfeafc; color: var(--primary); }
+.ax-phase-icon svg { width: 26px; height: 26px; }
+.ax-phase-title { min-width: 0; overflow-wrap: anywhere; }
+.ax-phase-topline { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 6px 10px; }
+.ax-phase-no { display: block; padding-top: 2px; color: var(--primary); font-size: 14px; font-weight: var(--font-weight-semibold); }
+.ax-phase-title strong { display: block; margin-top: 2px; font-size: 18px; font-weight: var(--font-weight-bold, 700); color: var(--foreground); }
+.ax-phase-title p { margin: 4px 0 0; color: var(--muted-foreground); font-size: 14px; }
+.ax-phase-status { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 999px; background: #eef0f3; color: #475569; font-size: 13px; font-weight: var(--font-weight-semibold); white-space: nowrap; }
+.ax-phase-status svg { width: 15px; height: 15px; }
+.ax-phase-status[data-status="확인 필요"] { background: #fdf0dc; color: #b45309; }
+.ax-phase-status[data-status="조건부 진행"] { background: #e6efff; color: var(--primary); }
+.ax-phase-status[data-status="진행 가능"] { background: #e3f4e9; color: #15803d; }
+.ax-phase-status[data-status="진행 보류"] { background: #fbe9e7; color: #b91c1c; }
+.ax-phase-body { flex: 1; padding-top: 16px; }
+.ax-phase-body h5 { margin: 0 0 8px; font-size: 15px; font-weight: var(--font-weight-bold, 700); }
+.ax-phase-body ul { margin: 0; padding: 0; list-style: none; font-size: 14px; line-height: 1.55; }
+.ax-phase-body li { position: relative; margin: 0; padding-left: 18px; overflow-wrap: anywhere; }
+.ax-phase-body li + li { margin-top: 6px; }
+.ax-phase-body li::before { content: ""; position: absolute; left: 4px; top: 0.6em; width: 6px; height: 6px; border-radius: 999px; background: var(--primary); }
+.ax-phase-footer { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 12px; margin-top: 20px; padding: 12px 16px; border: 1px solid color-mix(in srgb, var(--foreground) 9%, transparent); border-radius: 8px; background: var(--card); }
+.ax-phase-footer > svg { width: 20px; height: 20px; margin-top: 1px; color: var(--primary); }
+.ax-phase-footer strong { display: block; color: var(--primary); font-size: 14px; font-weight: var(--font-weight-semibold); }
+.ax-phase-footer p { margin: 2px 0 0; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.ax-phase-arrow { position: absolute; top: 50%; right: -36px; display: inline-flex; color: #9aa3af; transform: translateY(-50%); }
+.ax-phase-arrow svg { width: 24px; height: 24px; }
+.ax-execution-phase:nth-child(3n) .ax-phase-arrow { display: none; }
+.ax-phases-note { display: flex; align-items: center; gap: 10px; margin: 16px 0 0; padding: 10px 16px; border: 1px solid var(--border); border-radius: 8px; background: #f5f7fa; color: var(--muted-foreground); font-size: 13px; line-height: 1.5; }
+@media (max-width: 1100px) {
+  .ax-view .ax-phase-cards { grid-template-columns: minmax(0, 1fr); gap: 40px; }
+  .ax-phase-arrow { top: auto; right: auto; bottom: -34px; left: 50%; transform: translateX(-50%) rotate(90deg); }
+  .ax-execution-phase:nth-child(3n) .ax-phase-arrow { display: inline-flex; }
+}
+@media (max-width: 700px) {
+  .ax-execution-phases { padding: 16px; }
+  .ax-view .ax-execution-phase { padding: 16px; }
+  .ax-phase-head { grid-template-columns: 44px minmax(0, 1fr); }
+  .ax-phase-icon { width: 44px; height: 44px; }
+  .ax-phases-note { align-items: flex-start; }
+}
 .ax-questions { display: flex; flex-direction: column; gap: 12px; }
 .ax-questions > .ax-rediagnose { align-self: flex-end; width: auto; }
 .ax-gate-checks { display: flex; flex-wrap: wrap; gap: 4px 8px; margin: 4px 0 8px; color: var(--muted-foreground); }
