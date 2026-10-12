@@ -20,6 +20,21 @@ export function followUpDescription(description: string, questions: string[], an
   return rows.length ? `${description}\n추가 확인:\n${rows.join("\n")}` : description;
 }
 
+/** Canonical snapshot of the fields a user can change in the registration form. Parsed schemas normalize whitespace and numbers, so two snapshots are equal exactly when the registration is effectively unchanged. Diagnosis, plans, statuses and timestamps are intentionally excluded. */
+export function registrationSnapshot(task: AxTask): string {
+  const details = taskDetails(task);
+  const legacy = legacyDetailValues(task);
+  const attachment = task.attachmentMeta ? {
+    name: task.attachmentMeta.name, type: task.attachmentMeta.type, size: task.attachmentMeta.size,
+    lastModified: task.attachmentMeta.lastModified, fingerprint: task.attachmentMeta.fingerprint,
+  } : null;
+  return JSON.stringify({ name: task.name, description: task.description, details, legacy, attachment });
+}
+/** True when the parsed edit result holds the same registration content as the stored task. */
+export function isRegistrationUnchanged(previous: AxTask, updated: AxTask): boolean {
+  return registrationSnapshot(previous) === registrationSnapshot(updated);
+}
+
 export function legacyDetailValues(task: AxTask): Partial<Pick<AxTask, "people" | "painPoints" | "goal">> {
   return {
     ...(task.people !== undefined ? { people: task.people } : {}),
