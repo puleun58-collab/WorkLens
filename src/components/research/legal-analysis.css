@@ -234,6 +234,8 @@ p.research-meta { margin: 0; }
 .research-summary-notice:not([data-tone="info"]) { grid-template-columns: 20px minmax(0, 1fr); column-gap: 12px; padding: 14px 16px; }
 .research-summary .research-summary-notice > .research-status-icon { grid-column: 1; grid-row: 1 / span 2; align-self: center; width: 20px; height: 20px; color: var(--summary-icon); }
 .research-summary-notice [data-slot="alert-title"] { min-width: 0; overflow-wrap: anywhere; }
+/* Document review only: center every notice icon on the title row, not the title-plus-description block. */
+.contract-review .research-summary .research-summary-notice > svg { grid-row: 1; align-self: center; }
 .legal-research .research-original { display: grid; gap: 4px; min-width: 0; padding-top: 10px; border-top: 1px solid var(--line-soft, var(--line)); }
 .legal-research .research-original > span { color: var(--muted); font-size: var(--font-size-xs, 12px); font-weight: 600; }
 .legal-research .research-original p { max-width: 72ch; margin: 0; overflow-wrap: anywhere; line-height: 1.65; white-space: pre-wrap; }
