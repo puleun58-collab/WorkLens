@@ -140,6 +140,11 @@
 .ax-section-heading h2 { margin: 0; }
 .ax-title-group { display: flex; align-items: center; gap: 10px; min-width: 0; flex-wrap: wrap; }
 .ax-status-badge { background: color-mix(in srgb, var(--primary) 9%, var(--card)); border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--border)); border-radius: 999px; box-shadow: none; font-size: 11px; padding: 2px 8px; color: color-mix(in srgb, var(--primary) 78%, var(--foreground)); }
+/* Only the two task-status headers match the existing small edit button; inline badges stay compact. */
+.ax-title-group > .ax-status-badge, .ax-report-intro > .ax-status-badge { height: calc(var(--spacing) * 8); padding: 0 calc(var(--spacing) * 2.5 - 1px); border-radius: var(--radius-lg); font-size: var(--text-base); line-height: var(--text-base--line-height); }
+@media (min-width: 640px) {
+  .ax-title-group > .ax-status-badge, .ax-report-intro > .ax-status-badge { height: calc(var(--spacing) * 7); font-size: var(--text-sm); line-height: var(--text-sm--line-height); }
+}
 .ax-level-badge { background: #fdf4c8; border-color: #e7d488; color: #6d5c07; box-shadow: none; }
 .ax-summary { margin: 12px 0; }
 /* Section titles on legacy panels remain separated without changing the shared surface primitive. */
@@ -170,7 +175,8 @@
 .ax-process-arrow, .ax-tobe-arrow { position: absolute; top: 24px; right: -14px; width: 14px; height: 14px; color: color-mix(in srgb, var(--primary) 50%, var(--muted-foreground)); }
 .ax-process-extras { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; margin-top: 12px; }
 .ax-process-extra, .ax-process-systems { display: grid; grid-template-columns: 22px minmax(0,1fr); gap: 10px; align-items: start; min-width: 0; padding: 14px; border-radius: 8px; background: color-mix(in srgb, var(--warning) 6%, var(--card)); }
-.ax-process-extra > svg, .ax-process-systems > svg { width: 18px; height: 18px; color: var(--warning); }
+/* Match the first title line, independent of wrapped titles and the list below. */
+.ax-process-extra > svg, .ax-process-systems > svg { width: 18px; height: 18px; font-size: var(--font-size-sm); line-height: inherit; margin-top: calc((1lh - 18px) / 2); color: var(--warning); }
 .ax-process-extra[data-kind="human"] { background: var(--muted-surface); }
 .ax-process-extra[data-kind="human"] > svg { color: #d97706; }
 .ax-process-systems { margin-top: 10px; background: color-mix(in srgb, var(--primary) 5%, var(--card)); }
@@ -515,7 +521,7 @@
 .ax-tutorial-course { margin-top: 24px; }
 /* Course headers (처음 한 번 준비 · 프로젝트 작업 · GitHub·배포) share one light-blue band; the STEP bodies stay white. */
 .ax-tutorial-course-head { display: flex; gap: 12px; align-items: flex-start; padding: 14px 18px; border-radius: 8px; background: var(--blue-soft); }
-.ax-tutorial-course-head > svg { width: 22px; height: 22px; margin-top: 2px; color: var(--primary); }
+.ax-tutorial-course-head > svg { width: 22px; height: 22px; flex-shrink: 0; font-size: var(--font-size-lg); line-height: inherit; margin-top: calc((1lh - 22px) / 2); color: var(--primary); }
 .ax-tutorial-course-head h3 { margin: 0; font-size: var(--font-size-lg); font-weight: var(--font-weight-semibold); }
 /* The band already separates the course, so its first STEP drops the divider that would sit right under it. */
 .ax-tutorial-course-head + .ax-guide-step { border-top: 0; padding-top: 22px; }
