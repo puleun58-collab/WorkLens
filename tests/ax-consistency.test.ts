@@ -4,7 +4,7 @@ import { executionProfile } from "../src/lib/ax/policy";
 import { exportAxState, importAxState } from "../src/lib/ax/transfer";
 import type { AxDiagnosis, AxPlan } from "../src/lib/ax/types";
 import { taskFixture } from "./fixtures/ax";
-import { agentCases, contractCase, equipmentCase, equipmentRuleCase, facilityCase, inquiryCase, permitCase } from "./fixtures/ax-agent-cases";
+import { agentCases, contractCase, equipmentCase, equipmentRuleCase, facilityCase, freightCase, inquiryCase, permitCase } from "./fixtures/ax-agent-cases";
 
 const modelFor = (diagnosis: AxDiagnosis, plan?: AxPlan) => buildAgentInstructionModel(plan, { diagnosis });
 const from = (model: AgentInstructionModel, source: string, text: string) =>
@@ -52,6 +52,11 @@ describe("AX shared processing and relational scope", () => {
     const blocked = modelFor({ ...c.diagnosis, decisionGate: { verdict: "no-go", reasons: ["권한 미확인"] } }, c.plan);
     expect(blocked.methods).toEqual(model.methods);
     expect(blocked.steps[ruleIndex].scope).toBe("verify");
+    const algorithm: AxDiagnosis = { ...unknown, stepAssessments: unknown.stepAssessments.map(step => step.step === "누락·중복 검증"
+      ? { ...step, note: "필수 항목 누락과 운송장 번호 중복 여부를 검사하는 알고리즘" } : step) };
+    const algorithmModel = modelFor(algorithm, c.plan);
+    expect(algorithmModel.methods[ruleIndex]).toBe("rule");
+    expect(algorithmModel.methodReasons[ruleIndex]).toContain("알고리즘");
     expect(blocked.scoped.features).toEqual([]);
   });
 
@@ -110,6 +115,11 @@ describe("AX shared processing and relational scope", () => {
     const text = "누락·중복 검증 — 샘플 비교";
     const model = modelFor(repeated, { ...c.plan, tests: [text] });
     expect(model.steps.filter(step => step.step === "누락·중복 검증")).toHaveLength(2);
+    const duplicateIndices = model.steps.flatMap((step, index) => step.step === "누락·중복 검증" ? [index] : []);
+    for (const index of duplicateIndices) {
+      expect(model.methods[index]).toBe("confirm");
+      expect(model.methodReasons[index]).toBeTruthy();
+    }
     expect(from(model, "plan.tests", text)).toMatchObject({ scope: "confirm" });
     expect(from(model, "plan.tests", text)?.step).toBeUndefined();
     expect(from(model, "diagnosis.technicalChecks", "검증 — 미확정")?.step).toBeUndefined();
@@ -128,6 +138,10 @@ describe("AX shared processing and relational scope", () => {
     expect(model.scoped.features.map(item => item.text)).not.toContain(risky);
     expect(summary.humanKept.join("\n")).toContain("담당자");
     expect(summary.excluded.join("\n")).toContain("자동 승인");
+    expect(summary.humanKept).not.toContain("보고서 자동 승인");
+    expect(summary.excluded).not.toContain("담당자 최종 검토·승인");
+    expect(model.classified).toContainEqual(expect.objectContaining({ role: "human", text: "담당자 최종 검토·승인", sources: expect.arrayContaining(["diagnosis.humanInLoop"]) }));
+    expect(model.classified).toContainEqual(expect.objectContaining({ role: "excluded", text: "보고서 자동 승인", sources: expect.arrayContaining(["diagnosis.poc.outOfScope"]) }));
     expect(summary.constraints.join("\n")).toContain("담당자 최종 검토·승인");
     expect(summary.constraints.join("\n")).toContain("최종 승인 자동화");
     expect(from(model, "plan.acceptance", acceptance)).toMatchObject({ scope: "confirm" });
@@ -164,6 +178,123 @@ describe("AX shared processing and relational scope", () => {
     expect(modelFor(permitCase.diagnosis, { ...permitCase.plan, acceptance: ["허가 승인 — 담당자 확인 후 자동 발송"] }).scoped.criteria).toEqual([]);
   });
 
+
+  it("derives freight processing from evidence without expanding the Level 1 conditional policy", () => {
+    const c = freightCase;
+    const before = structuredClone(c);
+    const model = modelFor(c.diagnosis, c.plan);
+    expect(model.steps).toEqual(executionProfile(c.diagnosis).stepScope);
+    expect(model.gate).toBe("conditional");
+    expect(model.scopeLevel).toBe(1);
+    expect(model.methods).toEqual(["script", "rule", "confirm", "manual"]);
+    expect(model.steps.map(step => step.scope)).toEqual(["after-check", "after-check", "future", "human"]);
+    expect(model.scoped.outputs).toContainEqual(expect.objectContaining({ text: "실적 파일 병합 — 병합 검토 파일", step: "실적 파일 병합", scope: "after-check" }));
+    const test = from(model, "plan.tests", "누락·중복 검증 — 샘플 누락·중복 검사");
+    expect(test).toMatchObject({ role: "tests", step: "누락·중복 검증", scope: "after-check" });
+    expect(test?.sources).toEqual(expect.arrayContaining(["plan.tests", "diagnosis.poc.evaluation"]));
+    expect(model.scoped.tests).toContainEqual(test);
+    for (const [source, text, role] of [
+      ["diagnosis.poc.outputs", "정산표 생성 결과", "outputs"],
+      ["diagnosis.poc.evaluation", "정산표 생성 결과 대조", "tests"],
+      ["plan.tests", "정산표 생성 결과 대조", "tests"],
+      ["diagnosis.poc.success", "정산표 생성 완료", "criteria"],
+    ] as const) {
+      const item = from(model, source, text);
+      expect(item).toMatchObject({ role, scope: "confirm" });
+      expect(item?.step).toBeUndefined();
+      expect(model.scoped[role]).not.toContainEqual(item);
+    }
+    const explicit = "정산표 생성 — 정산 결과 재열기";
+    expect(from(modelFor(c.diagnosis, { ...c.plan, tests: [explicit] }), "plan.tests", explicit))
+      .toMatchObject({ step: "정산표 생성", scope: "future" });
+    expect(c).toEqual(before);
+  });
+
+  it("retains conflicting method evidence while requiring confirmation", () => {
+    const c = freightCase;
+    const conflicting: AxDiagnosis = { ...c.diagnosis, toBe: c.diagnosis.toBe.map(step => step.step === "실적 파일 병합"
+      ? { ...step, owner: "AI", description: "AI 모델을 호출하여 파일 병합 후보를 제안" } : step) };
+    const model = modelFor(conflicting, c.plan);
+    const index = model.steps.findIndex(step => step.step === "실적 파일 병합");
+    expect(model.methods[index]).toBe("confirm");
+    expect(model.methodReasons[index]).toContain("로컬 스크립트");
+    expect(model.methodReasons[index]).toContain("AI 모델");
+    expect(model.steps).toEqual(executionProfile(conflicting).stepScope);
+    const noteConflict: AxDiagnosis = { ...c.diagnosis, stepAssessments: c.diagnosis.stepAssessments.map(step => step.step === "누락·중복 검증"
+      ? { ...step, note: "규칙 기반 알고리즘과 AI 모델 호출로 누락·중복 후보 제안" } : step) };
+    const noteModel = modelFor(noteConflict, c.plan);
+    const ruleIndex = noteModel.steps.findIndex(step => step.step === "누락·중복 검증");
+    expect(noteModel.methods[ruleIndex]).toBe("confirm");
+    expect(noteModel.methodReasons[ruleIndex]).toContain("규칙 기반 알고리즘");
+    expect(noteModel.methodReasons[ruleIndex]).toContain("AI 모델");
+  });
+
+  it("keeps diagnosis metrics and comparison-recording methods out of pass conditions", () => {
+    const c = freightCase;
+    const model = modelFor(c.diagnosis, c.plan);
+    const metric = from(model, "diagnosis.poc.success", "누락·중복 검증 — 정확도 95% 이상");
+    expect(metric).toMatchObject({ scope: "confirm" });
+    expect(model.scoped.criteria).not.toContainEqual(metric);
+    const method = from(model, "diagnosis.poc.success", "누락·중복 검증 — 수동 결과와 대조하고 차이 기록");
+    expect(model.scoped.validationMethods).toContainEqual(method);
+    expect(model.scoped.criteria).not.toContainEqual(method);
+    const criterion = from(model, "diagnosis.poc.success", "누락·중복 검증 — 누락 건이 모두 검토 대상으로 표시");
+    expect(model.scoped.criteria).toContainEqual(criterion);
+    const passing = "누락·중복 검증 — 수동 결과와 대조하여 모두 일치";
+    const passingModel = modelFor({ ...c.diagnosis, poc: { ...c.diagnosis.poc, success: [passing] } }, c.plan);
+    expect(passingModel.scoped.criteria).toContainEqual(expect.objectContaining({ text: passing }));
+    expect(passingModel.scoped.validationMethods).not.toContainEqual(expect.objectContaining({ text: passing }));
+    const recording = "누락·중복 검증 — 수동 결과와 전수 대조해 불일치 항목과 사유를 기록한다.";
+    const recordingModel = modelFor({ ...c.diagnosis, poc: { ...c.diagnosis.poc, success: [recording] } }, c.plan);
+    expect(recordingModel.scoped.validationMethods).toContainEqual(expect.objectContaining({ text: recording }));
+    expect(recordingModel.scoped.criteria).not.toContainEqual(expect.objectContaining({ text: recording }));
+  });
+
+  it("groups exact conditions without losing sources, step links, or distinct systems", () => {
+    const c = freightCase;
+    const current = "실적 파일 병합 — Excel 샘플 확보";
+    const required = "누락·중복 검증 — 필수 항목 정의 사용";
+    const future = "정산표 생성 — 운임표 확정";
+    const unknown = "적용 업무 확인";
+    const global = "외부 전송 전 개인정보 제거";
+    const diagnosis: AxDiagnosis = { ...c.diagnosis,
+      technicalChecks: [...c.diagnosis.technicalChecks, { topic: "WMS", status: "확인 필요", note: "읽기 권한 확인" }],
+    };
+    const plan: AxPlan = { ...c.plan, prerequisites: [current, ` 1) ${current}.`, required, future, "ERP — 읽기 권한 확인", "WMS — 읽기 권한 확인", unknown],
+      security: [global, `1) ${global}.`] };
+    const model = buildAgentInstructionModel(plan, { diagnosis, prerequisites: [current] });
+    const conditions = Object.values(model.conditions).flat();
+    const linked = conditions.filter(item => item.text === current);
+    expect(linked).toHaveLength(1);
+    expect(linked[0]).toMatchObject({ step: "실적 파일 병합" });
+    expect(linked[0].sources).toEqual(expect.arrayContaining(["plan.prerequisites", "diagnosis.technicalChecks", "options.prerequisites"]));
+    expect(model.conditions.current).toContainEqual(expect.objectContaining({ text: required, step: "누락·중복 검증", scope: "after-check" }));
+    expect(model.conditions.future).toContainEqual(expect.objectContaining({ text: future, step: "정산표 생성" }));
+    expect(model.conditions.confirm).toContainEqual(expect.objectContaining({ text: unknown }));
+    expect(model.conditions.global).toContainEqual(expect.objectContaining({ text: global, sources: ["plan.security"] }));
+    for (const system of ["ERP", "WMS"]) {
+      expect(conditions).toContainEqual(expect.objectContaining({ text: `${system} — 읽기 권한 확인` }));
+    }
+    expect(conditions.some(item => item.sources.includes("policy.prerequisites"))).toBe(true);
+    expect(conditions).not.toContainEqual(expect.objectContaining({ text: "Excel — 로컬 파일 사용 가능" }));
+    expect(from(model, "diagnosis.technicalChecks", "Excel — 로컬 파일 사용 가능")).toMatchObject({ role: "reference" });
+  });
+
+  it("preserves freight behavioral groups through the unchanged storage schema", () => {
+    const c = freightCase;
+    const task = taskFixture("freight", { ...c.diagnosis, planCodex: c.plan });
+    const state = { schemaVersion: 1 as const, tasks: [task], selectedTaskId: task.id, step: 4 };
+    const before = structuredClone(state);
+    const restored = importAxState(exportAxState(state));
+    expect(restored).toEqual(state);
+    const diagnosis = restored.tasks[0].diagnosis!;
+    const semantic = (model: AgentInstructionModel) => ({
+      steps: model.steps, methods: model.methods, methodReasons: model.methodReasons, gate: model.gate,
+      scoped: model.scoped, classified: model.classified, conditions: model.conditions,
+    });
+    expect(semantic(modelFor(diagnosis, diagnosis.planCodex))).toEqual(semantic(modelFor(c.diagnosis, c.plan)));
+    expect(state).toEqual(before);
+  });
 
   it("repeats deterministically across export/import and sparse older in-memory data without mutating input", () => {
     const c = equipmentRuleCase;

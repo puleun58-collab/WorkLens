@@ -120,12 +120,13 @@ function AxRoadmapPhases({ model, profile }: { model: AgentInstructionModel; pro
       const items = [...new Set(phase.items.map(item => {
         const label = scopeItemLabel(model, item);
         const short = label === item ? item : label.replace(/\s*\([^()]*\)\s*$/u, "");
-        // The deferred checks and conditions the instruction lists separately are never shown as current work.
-        const deferred = model.classified.find(entry => entry.scope === "future" && (entry.role === "tests" || entry.role === "conditions") && entry.text === item);
-        return `${copy?.poc ? short.replace(/^샘플 범위: /u, "") : short}${deferred ? deferred.role === "tests" ? " (향후 검증)" : " (향후 단계 조건)" : ""}`;
+        const linked = model.classified.find(entry => (entry.role === "tests" || entry.role === "conditions") && entry.originals.some(text => text === item));
+        const qualifier = linked?.scope === "future" ? linked.role === "tests" ? "향후 검증" : "향후 단계 조건"
+          : linked?.scope === "confirm" ? "적용 단계 확인 필요" : "";
+        return `${copy?.poc ? short.replace(/^샘플 범위: /u, "") : short}${qualifier ? ` (${qualifier})` : ""}`;
       }))];
       const footer = i === last ? { title: "최종 산출물", Icon: FileText, text: outputs.length ? outputs.join(" · ") : "산출물 기준 확인 필요" }
-        : { title: "다음 단계 조건", Icon: Flag, text: i === 0 && profile.gate === "conditional" ? "선행 확인 항목이 모두 확인되어야 합니다."
+        : { title: "다음 단계 조건", Icon: Flag, text: i === 0 && profile.gate === "conditional" ? "다음 작업이 의존하는 필수 조건과 미연결 조건의 적용 범위를 확인해야 합니다. 독립 작업은 근거 확인 후 진행합니다."
           : i === 0 && profile.gate === "blocked" ? "차단 사유가 해결되고 재진단에서 진행 보류가 해제되어야 합니다."
           : copy?.poc && success.length ? success.join(" · ") : "전환 기준 확인 필요" };
       return <li className="ax-execution-phase" data-position={i === 0 ? "first" : i === last ? "last" : "middle"} key={i}>
@@ -413,10 +414,10 @@ function AxPlanOverview({ profile, summary }: { profile: ExecutionProfile; summa
     </section>
     <section className="ax-plan-block" aria-label="02 시작 전 확인"><AxPlanHeading no="02" title="시작 전 확인" description="구현 전 해결해야 할 조건과 데이터 정보를 확인합니다." />
       {summary.checks.length || summary.conditions.current.length || summary.conditions.future.length ? <div className="ax-gate-cards">
-        {summary.checks.map((check, i) => <AxCheckCard key={i} tone={check.tone} title={check.topic} status={check.status} note={check.note} />)}
+        {summary.checks.map((check, i) => <AxCheckCard key={i} tone={check.tone} title={check.topic} status={check.status} badge={check.badge} note={check.note} />)}
         {summary.conditions.current.length ? profile.gate === "blocked"
           ? <AxCheckCard tone="blocked" title="차단 사유" badge="진행 보류" items={summary.conditions.current} />
-          : <AxCheckCard tone="required" title="선행 확인사항" items={summary.conditions.current} /> : null}
+          : <AxCheckCard tone="required" title="선행 조건·적용 범위 확인" items={summary.conditions.current} /> : null}
         {summary.conditions.future.length ? <AxCheckCard tone="future" title="향후 단계 조건" items={summary.conditions.future} /> : null}
       </div> : null}
       {summary.data.length ? <div className="ax-plan-data-group">

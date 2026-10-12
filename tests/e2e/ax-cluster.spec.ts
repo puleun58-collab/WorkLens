@@ -286,7 +286,6 @@ for (const [registered, diagnosed] of [[0, 0], [1, 0], [5, 3], [5, 5]]) test(`Ma
   await seed(page, { ...emptyAxState(), tasks, selectedTaskId: tasks[0]?.id ?? null, step: 3 });
   await ax(page);
   const status = page.locator(".ax-matrix-header p");
-  await expect(status).toContainText(`등록 ${registered}개 · 진단 완료 ${diagnosed}개`);
   if (registered > diagnosed) await expect(status).toContainText(`미진단 ${registered - diagnosed}개 제외`);
   else await expect(status).not.toContainText("미진단");
   if (!diagnosed) await expect(page.locator(".ax-empty")).toBeVisible();

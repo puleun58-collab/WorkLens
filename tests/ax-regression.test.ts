@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AX_POLICY, axes, automationLevel, matrixPosition, priority } from "@/lib/ax/policy";
+import { AX_POLICY, axes, automationLevel, matrixPosition, priority, executionGate, executionProfile } from "@/lib/ax/policy";
 import { followUpDescription, legacyDetailValues, validateAttachmentPreflight } from "@/lib/ax/registration";
 import { inputLimitFor } from "@/lib/parsers/policy";
 import type { AxDiagnosis } from "@/lib/ax/types";
@@ -108,6 +108,50 @@ describe("AX Tier 1 policy boundaries", () => {
     for (const judgment of [4, 5]) for (const risk of [4, 5]) {
       expect(automationLevel(rated([5, 5, 5, 5, judgment, risk])).level).toBe(0);
     }
+  });
+});
+
+describe("AX independent calculation and Gate invariants", () => {
+  it.each([
+    { values: [2, 2, 2, 5, 1, 1], axis: [2, 3, 1, 1], level: 0, position: [50, 25, "hold"], score: 6 },
+    { values: [3, 3, 3, 3, 3, 2], axis: [3, 3, 3, 2], level: 2, position: [50, 50, "hold"], score: 4.5 },
+    { values: [4, 4, 4, 2, 4, 3], axis: [4, 3, 4, 3], level: 1, position: [50, 75, "strategic"], score: 4 },
+    { values: [4, 4, 4, 4, 2, 2], axis: [4, 4, 2, 2], level: 3, position: [75, 75, "quick"], score: 9 },
+    { values: [5, 5, 5, 5, 4, 4], axis: [5, 5, 4, 4], level: 0, position: [100, 100, "hold"], score: 7.5 },
+  ])("matches independently tabulated axes, Level, coordinates and priority: $values", ({ values, axis, level, position, score }) => {
+    const d = rated(values);
+    expect(axes(d)).toEqual({ value: axis[0], feasibility: axis[1], judgment: axis[2], risk: axis[3] });
+    expect(automationLevel(d).level).toBe(level);
+    expect(matrixPosition(d)).toMatchObject({ x: position[0], y: position[1], region: position[2] });
+    expect(priority([taskFixture("table", d)])[0].score).toBe(score);
+  });
+
+  it.each(["ready", "conditional", "blocked"] as const)("keeps %s Gate while corrections change Level and step execution scope", gate => {
+    const d = rated([4, 4, 4, 4, 2, 2]);
+    d.technicalChecks = [];
+    d.decisionGate = { verdict: gate === "ready" ? "go" : gate === "conditional" ? "conditional" : "no-go", reasons: ["원본 결정 근거"] };
+    expect(executionGate(d)).toBe(gate);
+    expect(automationLevel(d).level).toBe(3);
+    const originalGate = structuredClone(d.decisionGate);
+    for (const key of ["repetition", "regularity", "dataStructure"] as const) d.factors.find(f => f.key === key)!.finalValue = 1;
+    expect(axes(d)).toEqual({ value: 1, feasibility: 2, judgment: 2, risk: 2 });
+    expect(automationLevel(d).level).toBe(0);
+    expect(executionGate(d)).toBe(gate);
+    expect(d.decisionGate).toEqual(originalGate);
+    expect(executionProfile(d).stepScope.filter(s => s.verdict !== "사람 유지").map(s => s.scope)).toEqual(["verify", "verify"]);
+  });
+
+  it("breaks priority ties by known workload and preserves input order for exact ties", () => {
+    const d = rated([4, 4, 4, 4, 2, 2]);
+    const tasks = [
+      taskFixture("unknown", d),
+      { ...taskFixture("zero", d), minutesPerRun: 0, runsPerMonth: 1 },
+      { ...taskFixture("known-first", d), minutesPerRun: 10, runsPerMonth: 2 },
+      { ...taskFixture("known-second", d), minutesPerRun: 20, runsPerMonth: 1 },
+    ];
+    expect(priority(tasks).map(row => [row.task.id, row.score, row.monthlyMinutes])).toEqual([
+      ["known-first", 9, 20], ["known-second", 9, 20], ["zero", 9, 0], ["unknown", 9, null],
+    ]);
   });
 });
 
