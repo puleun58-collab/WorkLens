@@ -212,4 +212,51 @@ export const permitCase: AxAgentCase = {
   plan: plan({ goal: ["작업 허가 자동 승인"], inScope: ["허가 자동 승인", "신청서 접수"], implementation: ["허가 자동 승인"], acceptance: ["허가 처리 시간 단축"] }),
 };
 
+
+/** Level 1 conditional freight work keeps local assistance separate from settlement automation. */
+export const freightCase: AxAgentCase = {
+  name: "월간 운임 정산",
+  description: "운송 실적 파일을 합치고 누락·중복을 검증한 뒤 정산표를 생성해 담당자가 승인합니다. 월말 일정은 담당자가 실행 시점을 정하는 기준입니다.",
+  diagnosis: diagnosis([4, 4, 3, 2, 4, 3], {
+    asIs: {
+      purpose: "월간 운임 정산 검토", trigger: "매월 말 담당자 실행",
+      inputs: ["운송 실적 Excel", "운임표"], steps: ["실적 파일 병합", "누락·중복 검증", "정산표 생성", "정산 승인"],
+      outputs: ["정산표 생성 결과"], exceptions: ["운임표 미매칭", "운송장 중복"],
+      humanDecisions: ["정산 승인"], systems: ["Excel", "ERP"],
+    },
+    stepAssessments: [
+      step("실적 파일 병합", "AI 보조", "AI", "로컬 스크립트로 Excel 파일을 병합하고 담당자가 결과를 확인"),
+      step("누락·중복 검증", "AI 보조", "AI", "필수 항목 누락과 운송장 번호 중복 여부를 검사하는 규칙 기반 알고리즘"),
+      step("정산표 생성", "자동화", "시스템", "확정 운임표에 따라 금액 계산 후 정산표 생성"),
+      step("정산 승인", "사람 유지", "사용자", "담당자가 금액 검토 후 승인"),
+    ],
+    toBe: [
+      { step: "실적 파일 병합", owner: "시스템", description: "로컬 스크립트로 병합" },
+      { step: "누락·중복 검증", owner: "시스템", description: "확정 규칙으로 누락·중복 검사" },
+      { step: "정산 승인", owner: "사용자", description: "담당자가 승인" },
+    ],
+    humanInLoop: ["정산 승인"],
+    technicalChecks: [
+      { topic: "실적 파일 병합", status: "확인 필요", note: "Excel 샘플 확보" },
+      { topic: "ERP", status: "확인 필요", note: "읽기 권한 확인" },
+      { topic: "Excel", status: "확인됨", note: "로컬 파일 사용 가능" },
+    ],
+    poc: {
+      hypothesis: "검토할 누락·중복을 표시할 수 있다", inScope: [], outOfScope: ["정산 자동 승인", "ERP 자동 전송"],
+      inputs: ["운송 실적 샘플"], outputs: ["실적 파일 병합 — 병합 검토 파일", "정산표 생성 결과"],
+      evaluation: ["누락·중복 검증 — 샘플 누락·중복 검사", "정산표 생성 결과 대조"],
+      success: ["누락·중복 검증 — 누락 건이 모두 검토 대상으로 표시", "누락·중복 검증 — 정확도 95% 이상", "누락·중복 검증 — 수동 결과와 대조하고 차이 기록", "정산표 생성 완료"],
+      failure: ["누락 건이 정상 결과로 표시"],
+    },
+    decisionGate: { verdict: "conditional", reasons: ["Excel 샘플과 운임표 확인 후 진행"] },
+  }),
+  plan: plan({
+    inScope: ["실적 파일 병합", "누락·중복 검증", "정산표 생성"],
+    implementation: ["실적 파일 병합", "누락·중복 검증", "정산표 생성"],
+    prerequisites: ["실적 파일 병합 — Excel 샘플 확보", "정산표 생성 — 운임표 확정", "ERP — 읽기 권한 확인"],
+    tests: ["누락·중복 검증 — 샘플 누락·중복 검사", "정산표 생성 결과 대조"],
+    acceptance: ["누락·중복 검증 — 누락 건이 모두 검토 대상으로 표시", "정산표 생성 완료"],
+    outOfScope: ["정산 자동 승인", "ERP 자동 전송"], humanInLoop: ["정산 승인"],
+  }),
+};
 export const agentCases = [equipmentCase, contractCase, inquiryCase, facilityCase, permitCase] as const;

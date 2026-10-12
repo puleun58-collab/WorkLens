@@ -356,7 +356,7 @@ export interface AxPlanSummary {
   include: string[]; humanKept: string[]; excluded: string[];
   prerequisites: string[];
   /** Technical checks as status cards, in diagnosis order. */
-  checks: { topic: string; status: AxDiagnosis["technicalChecks"][number]["status"]; note: string; tone: AxCheckTone }[];
+  checks: { topic: string; status: AxDiagnosis["technicalChecks"][number]["status"]; note: string; tone: AxCheckTone; badge?: string }[];
   /** Prerequisites not already shown as a check card; blocked gates list block reasons as `current`. */
   conditions: { current: string[]; future: string[] };
   /** Existing structured human/exclusion fields, with their source retained. */
@@ -371,26 +371,18 @@ export function planSummary(diagnosis: AxDiagnosis, rawPlan?: AxPlan, context = 
   const model = buildAgentInstructionModel(rawPlan, { diagnosis, context });
   const profile = model.profile;
   const humanKept = mergeDistinct((profile?.manualSteps ?? []).map(step => `${step} (담당자 수행)`),
-    [...(diagnosis.humanInLoop ?? []), ...(rawPlan?.humanInLoop ?? [])]);
+    model.classified.filter(item => item.role === "human").map(item => item.original ?? item.text));
   const scopeLevel = model.scopeLevel;
   const restricted = [
     ...(scopeLevel !== undefined && scopeLevel >= 2 ? [] : (profile?.automationSteps ?? []).map(step => `${step} 자동 실행`)),
     ...(scopeLevel !== undefined && scopeLevel >= 1 ? [] : (profile?.assistSteps ?? []).map(step => `${step} AI 보조 구현`)),
   ];
   const manualAutomation = (profile?.manualSteps ?? []).map(step => `${step} 자동화 (담당자 수행)`);
-  const openTopics = openCheckTopics(model);
-  const own = unique(profile?.prerequisites ?? []);
-  const planOwn = without(model.classified.filter(item => item.role === "conditions" && item.sources.includes("plan.prerequisites") && !openTopics.has(normalizedItem(item.text))).map(item => item.text), own);
-  // Same lookup as the prompt's condition list: the diagnosis check's policy scope wins over an identically worded plan line.
-  const isFuture = (text: string) => {
-    const matches = model.classified.filter(item => item.role === "conditions" && normalizedItem(item.text) === normalizedItem(text));
-    return (matches.find(item => item.sources.includes("diagnosis.technicalChecks")) ?? matches[0])?.scope === "future";
-  };
-  const conditionEntries = model.gate === "blocked" ? (profile?.blockReasons ?? []).map(text => ({ text, future: false })) : [
-    ...own.map(text => ({ text, future: isFuture(text) })),
-    ...planOwn.map(text => ({ text, future: isFuture(text) })),
-    ...model.classified.filter(item => item.role === "human" && /확인 필요|미확정|미정|불명/u.test(item.original ?? item.text))
-      .map(item => ({ text: `${item.original ?? item.text} (해당 담당자 단계의 최종 확정·반영·전송 전 확인; 출처: ${item.sources.join(", ")})`, future: false })),
+  const conditionEntries = [
+    ...(model.gate === "blocked" ? profile?.blockReasons ?? [] : []).map(text => ({ text, future: false })),
+    ...model.conditions.current.map(item => ({ text: item.text, future: false })),
+    ...model.conditions.confirm.map(item => ({ text: `${item.text} (적용 단계 확인 필요)`, future: false })),
+    ...model.conditions.future.map(item => ({ text: item.text, future: true })),
     ...model.gaps.map(text => ({ text, future: false })),
   ];
   const prerequisites = unique(conditionEntries.map(entry => entry.future ? `${entry.text} (향후 단계 조건)` : entry.text));
@@ -399,19 +391,19 @@ export function planSummary(diagnosis: AxDiagnosis, rawPlan?: AxPlan, context = 
     check.note ? `${check.topic} — ${check.note}` : check.topic,
     ...(check.status === "불가" ? [check.note ? `${check.topic} 불가 — ${check.note}` : `${check.topic} 불가`] : []),
   ]).map(normalizedItem));
-  const openConditions = conditionEntries.filter(entry => !checkTexts.has(normalizedItem(entry.text)));
+  const openConditions = conditionEntries.filter(entry => !checkTexts.has(normalizedItem(entry.text.replace(/ \(적용 단계 확인 필요\)$/u, ""))));
   const checks = technicalChecks.map(check => {
     const text = `${check.topic}${check.note ? ` — ${check.note}` : ""}`;
     const linked = model.classified.find(item => item.sources.includes("diagnosis.technicalChecks") && item.text === text);
     const tone: AxCheckTone = check.status === "확인됨" ? "done" : check.status === "불가" ? "blocked" : linked?.scope === "future" ? "future" : "required";
-    return { topic: check.topic, status: check.status, note: check.note, tone };
+    return { topic: check.topic, status: check.status, note: check.note, tone, ...(check.status === "확인 필요" && linked?.scope === "confirm" ? { badge: "적용 단계 확인 필요" } : {}) };
   });
   const excluded = mergeDistinct(restricted, without([
-    ...(profile?.poc.outOfScope ?? []), ...(diagnosis.poc?.outOfScope ?? []), ...(rawPlan?.outOfScope ?? []),
-  ], manualAutomation));
+    ...(profile?.poc.outOfScope ?? []), ...model.classified.filter(item => item.role === "excluded").map(item => item.original ?? item.text),
+  ], [...manualAutomation, ...humanKept]));
   const shownScope = new Set([...humanKept, ...excluded].map(normalizedItem));
-  const pocTests = model.classified.filter(item => item.source === "diagnosis.poc.evaluation");
-  const criteria = (source: string) => unique(model.classified.filter(item => item.source === source).map(item => model.scoped.criteria.includes(item)
+  const pocTests = model.classified.filter(item => item.role === "tests");
+  const criteria = (source: string) => unique(model.classified.filter(item => item.sources.includes(source) && !model.scoped.validationMethods.includes(item)).map(item => model.scoped.criteria.includes(item)
     ? item.text : `${item.scope === "future" ? "향후 판정" : "기준 확인 필요"}: ${item.text}`));
   return {
     include: unique((profile?.poc.inScope ?? []).flatMap(line => {
@@ -433,16 +425,16 @@ export function planSummary(diagnosis: AxDiagnosis, rawPlan?: AxPlan, context = 
     approvals: approvalConstraints(model, entry => !shownScope.has(normalizedItem(entry.original ?? entry.text)) && !shownScope.has(normalizedItem(entry.text))),
     data: [
       { label: "입력", items: unique(diagnosis.asIs?.inputs ?? []) },
-      { label: "출력", items: unique(diagnosis.asIs?.outputs ?? []) },
+      { label: "출력", items: unique((diagnosis.asIs?.outputs ?? []).map(text => `${text} (기존 업무 출력·참고)`)) },
       { label: "사용 시스템", items: unique(diagnosis.asIs?.systems ?? []) },
       { label: "검증용 입력", items: without(diagnosis.poc?.inputs ?? [], diagnosis.asIs?.inputs ?? []) },
-      { label: "검증용 출력", items: without(diagnosis.poc?.outputs ?? [], diagnosis.asIs?.outputs ?? []) },
+      { label: "검증용 출력", items: unique(model.classified.filter(item => item.sources.includes("diagnosis.poc.outputs")).map(item => `${item.text}${model.scoped.outputs.includes(item) ? item.scope === "after-check" ? " (현재 조건부 출력)" : " (현재 출력)" : item.scope === "future" ? " (향후 출력)" : " (연결 근거 확인 필요)"}`)) },
     ].filter(row => row.items.length),
-    tests: unique(pocTests.map(item => model.scoped.tests.includes(item) ? item.text
-      : `${item.scope === "future" ? "향후 검증" : "적용 범위 확인 필요"}: ${item.text}`)),
-    success: criteria("diagnosis.poc.success"),
+    tests: unique([...pocTests.map(item => model.scoped.tests.includes(item) ? item.text
+      : `${item.scope === "future" ? "향후 검증" : "적용 범위 확인 필요"}: ${item.text}`), ...model.scoped.validationMethods.map(item => item.text)]),
+    success: mergeDistinct(criteria("diagnosis.poc.success"), criteria("plan.acceptance")),
     failure: criteria("diagnosis.poc.failure"),
-    exceptions: mergeDistinct(diagnosis.asIs?.exceptions ?? [], diagnosis.risks ?? []),
+    exceptions: unique([...(diagnosis.asIs?.exceptions ?? []), ...(diagnosis.risks ?? []), ...model.classified.filter(item => item.role === "exception").map(item => item.text)]),
   };
 }
 
@@ -455,8 +447,12 @@ const TEST_LABEL = /^(?:테스트(?:\s*시나리오)?|(?:정상|경계|경계값
 /** Level 1 never runs unattended; a proposal describing that method needs confirmation, not authorization. */
 const UNATTENDED_METHOD = /(무인|자동\s*(?:생성|작성|실행|전송|발행|승인|확정|수집|계산))/u;
 const REQUESTED = /(담당자 요청|담당자 확인 후|수동 요청|요청 시)/u;
-const RULE_NOTE = /(규칙 기반|확정된 규칙|정해진 규칙)/u;
-const CANDIDATE_NOTE = /(?:AI\s*(?:후보|초안|생성)|(?:후보|초안)(?:\s*·\s*(?:후보|초안))?\s*(?:생성|제안|검토)|후보와 변환 결과)/u;
+const RULE_NOTE = /(규칙\s*기반|확정된 규칙|정해진 규칙|알고리즘|계산식(?:을|에 따라))/u;
+const SCRIPT_NOTE = /(?:스크립트|프로그램|시스템).*(?:파일|데이터|자료).*(?:읽|병합|취합|추출)|(?:API|SDK)\s*(?:호출|연동)/iu;
+const CANDIDATE_NOTE = /(?:AI\s*(?:후보|초안|생성|모델|처리)|인공지능|언어\s*모델|LLM|(?:후보|초안)(?:\s*·\s*(?:후보|초안))?\s*(?:생성|제안|검토)|후보와 변환 결과)/iu;
+const MANUAL_NOTE = /(?:담당자|사람)(?:가|이)?\s*(?:직접|수동으로)\s*(?:처리|검토|판단|작성|승인)/u;
+const VALIDATION_METHOD = /대조|비교|기록/u;
+const PASS_CONDITION = /통과|(?<!불)일치|동일|모두|빠짐없이|않(?:아야|음)|없(?:어야|음)|실패|정상.*(?:섞|처리)|분리/u;
 /** Level 0 permits no system integration or AI implementation, so a check about one cannot gate the current review work. */
 const INTEGRATION_CHECK = /(API|연동|인증|라이선스|AI\s*(?:모델|서비스|엔진)|생성\s*모델|외부\s*시스템|자동\s*(?:저장|전송|업로드))/iu;
 /** A Level 0 review has no automated or AI output to compare against. */
@@ -469,12 +465,14 @@ export interface AgentInstructionItem {
   text: string;
   /** Raw wording when the plan guard qualified or replaced part of it. */
   original?: string;
+  /** Original variants retained when presentation duplicates share a classification. */
+  originals: string[];
   scope: StepScope["scope"] | "confirm" | "excluded";
   step?: string;
   reason?: string;
 }
 /** Actual processing evidence, independent of the Level/Gate execution restriction. */
-export type StepMethod = "assist" | "rule" | "confirm";
+export type StepMethod = "assist" | "rule" | "script" | "manual" | "confirm";
 export interface AgentInstructionModel {
   profile?: ExecutionProfile;
   level?: { level: number; label: string; provisional: boolean };
@@ -484,34 +482,55 @@ export interface AgentInstructionModel {
   steps: StepScope[];
   /** Index-aligned with `steps`; explicit diagnosis note evidence only, never inferred from policy/verdict. */
   methods: StepMethod[];
+  methodReasons: string[];
+  conditions: { current: AgentInstructionItem[]; future: AgentInstructionItem[]; global: AgentInstructionItem[]; confirm: AgentInstructionItem[] };
   classified: AgentInstructionItem[];
   ambiguous: AgentInstructionItem[];
-  scoped: { features: AgentInstructionItem[]; tests: AgentInstructionItem[]; criteria: AgentInstructionItem[]; outputs: AgentInstructionItem[]; conditions: AgentInstructionItem[] };
+  scoped: { features: AgentInstructionItem[]; tests: AgentInstructionItem[]; criteria: AgentInstructionItem[]; validationMethods: AgentInstructionItem[]; outputs: AgentInstructionItem[]; conditions: AgentInstructionItem[] };
   diagnosis?: AxDiagnosis;
   plan?: AxPlan;
   prerequisites: string[];
   gaps: string[];
 }
-function stepMethod(s: StepScope, duplicate: boolean): StepMethod {
-  if (duplicate) return "confirm";
-  const rule = RULE_NOTE.test(s.note), candidate = CANDIDATE_NOTE.test(s.note);
-  if (rule === candidate) return "confirm";
-  return rule ? "rule" : "assist";
+function stepMethod(s: StepScope, duplicate: boolean, diagnosis?: AxDiagnosis): { method: StepMethod; reason: string } {
+  if (duplicate) return { method: "confirm", reason: "동일 이름의 진단 단계 중복: 적용 단계 확인 필요" };
+  if (s.scope === "human") return { method: "manual", reason: s.note };
+  // Owner/verdict describe responsibility and policy, not an implementation-method enum.
+  // Only exactly linked descriptions contribute evidence; similar names never establish a relation.
+  const evidence = [
+    ...(s.note ? [{ source: "diagnosis.stepAssessments.note", text: s.note }] : []),
+    ...(diagnosis?.toBe ?? []).filter(item => normalizedStepText(item.step) === normalizedStepText(s.step))
+      .map(item => ({ source: "diagnosis.toBe.description", text: item.description })),
+  ];
+  const found = new Set<StepMethod>();
+  for (const item of evidence) {
+    if (RULE_NOTE.test(item.text)) found.add("rule");
+    if (SCRIPT_NOTE.test(item.text)) found.add("script");
+    if (CANDIDATE_NOTE.test(item.text)) found.add("assist");
+    if (MANUAL_NOTE.test(item.text)) found.add("manual");
+  }
+  const reason = evidence.map(item => `${item.source}: ${item.text}`).join("; ");
+  return { method: found.size === 1 ? [...found][0] : "confirm", reason: [found.size > 1 ? "처리 방식 근거 충돌" : found.size === 0 ? "명시적 처리 방식 확인 필요" : "", reason].filter(Boolean).join("; ") };
 }
 /** One user-facing processing label shared across timeline, summary and prompt. */
 export function stepMethodLabel(model: AgentInstructionModel, index: number): string {
   const step = model.steps[index];
   if (!step) return "처리 방식 확인 필요";
   const method = model.methods[index];
-  if (step.scope === "verify") return `${method === "rule" ? "확정된 규칙 기반 처리" : method === "assist" ? "AI 후보·초안 생성" : "처리 방식 확인 필요"} · 검토·검증만 (운영 구현 금지)`;
+  const processing = method === "rule" ? "규칙 기반 처리 (구체 규칙 확인 필요)" : method === "script" ? "일반 시스템·스크립트 처리" : method === "assist" ? "AI 후보·초안 생성" : method === "manual" ? "담당자 수동 처리" : "처리 방식 확인 필요";
+  if (step.scope === "verify") return `${processing} · 검토·검증만 (운영 구현 금지)`;
   if (step.scope === "human") return "담당자 수행 유지 (자동화·판단 대체 금지)";
   if (method === "confirm") return model.steps.filter(s => normalizedStepText(s.step) === normalizedStepText(step.step)).length > 1
     ? "동일 이름의 진단 단계 중복: 처리 방식·적용 단계 확인 필요"
-    : "처리 방식 확인 필요 (AI 후보 생성 또는 확정된 규칙 처리; 확인 전 방식 선택·구현 금지)";
+    : `처리 방식 확인 필요 (확인 전 방식 선택·구현 금지)${model.methodReasons[index] ? ` — ${model.methodReasons[index]}` : ""}`;
   if (method === "assist") return "AI 후보·초안 생성 (담당자 확정 전 운영 반영 금지)";
+  if (method === "manual") return "담당자 수동 처리 (시스템 구현 전 역할·범위 확인 필요)";
+  if (method === "script") return model.scopeLevel === 1
+    ? "일반 시스템·스크립트 처리 (담당자 요청 시 실행·형식·병합 키·예외 기준 확인 후 구현)"
+    : "일반 시스템·스크립트 처리 (형식·업무 규칙 확인 후 구현)";
   return model.scopeLevel === 1
-    ? "확정된 규칙 기반 처리 (담당자 요청 시 실행·결과는 담당자 확인 후 확정)"
-    : "확정된 규칙 기반 처리 (예외는 담당자 확인)";
+    ? "규칙 기반 처리 (규칙 확인 후 담당자 요청 시 실행·결과는 담당자 확인 후 확정)"
+    : "규칙 기반 처리 (규칙 확인 후 구현·예외는 담당자 확인)";
 }
 /** Rewrite an exact policy-generated step/treatment line, leaving support and narrative text untouched. */
 export function scopeItemLabel(model: AgentInstructionModel, text: string): string {
@@ -530,8 +549,6 @@ export function approvalConstraints(model: AgentInstructionModel, keep: (item: A
     .filter(keep);
   return unique(entries.map(item => `${item.original ?? item.text}${item.original ? ` (현재 계획 문구: ${item.text})` : ""} (출처: ${item.sources.join(", ")})`));
 }
-const openCheckTopics = (model: Pick<AgentInstructionModel, "diagnosis">) => new Set((model.diagnosis?.technicalChecks ?? [])
-  .filter(c => c.status !== "확인됨").flatMap(c => [c.topic, `${c.topic} 확인`]).map(normalizedItem));
 type PromptOptions = { taskName?: string; prerequisites?: string[]; diagnosis?: AxDiagnosis; context?: string };
 const PLAN_ROLES: Record<Exclude<keyof AxPlan, "repositoryFirst">, string> = {
   goal: "goal", asIs: "reference", toBe: "reference", inScope: "features", outOfScope: "excluded",
@@ -567,12 +584,21 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
     ...(profile?.poc.outOfScope ?? []), ...(d?.humanInLoop ?? []), ...(rawPlan?.outOfScope ?? []), ...(rawPlan?.humanInLoop ?? []),
     ...steps.filter(s => s.scope === "human").flatMap(s => [s.step, `${s.step} 자동화`, `담당자 ${s.step}`, `${s.step} (담당자 수행)`]),
   ].map(normalizedItem));
-  const hasWork = steps.some(s => s.scope === "implement" || s.scope === "after-check");
-  const taskScope: AgentInstructionItem["scope"] | undefined = scopeLevel === undefined ? undefined
-    : scopeLevel === 0 ? "verify" : !hasWork ? undefined : gate === "ready" ? "implement" : "after-check";
   const append = (source: string, role: string, text: string, override?: string, original?: string) => {
     if (!text?.trim()) return;
+    // A whole technical-check topic is stable source evidence, not a substring-based step guess.
+    if (role === "conditions" && source !== "diagnosis.technicalChecks") {
+      const checks = (d?.technicalChecks ?? []).filter(check =>
+        [check.topic, `${check.topic} 확인`, `${check.topic}${check.note ? ` — ${check.note}` : ""}`].some(value => normalizedItem(value) === normalizedItem(text)));
+      if (checks.length === 1) {
+        const check = checks[0];
+        original ??= text;
+        text = `${check.topic}${check.note ? ` — ${check.note}` : ""}`;
+        if (check.status === "확인됨") { role = "reference"; override = "이미 확인된 기술 조건 (참고)"; }
+      }
+    }
     let clean = stripEnumerator(text);
+    if (role === "human" && /(?:승인|판단|결재|확정)\s*자동화|자동\s*(?:승인|판단|결재|확정)/u.test(clean)) role = "excluded";
     if (["features", "goal"].includes(role) && TEST_LABEL.test(clean)) {
       role = "tests";
       // A bare "테스트:" label adds nothing; 정상·경계·실패 labels name the case type and stay.
@@ -600,13 +626,16 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
     let reason: string | undefined;
     if (closed.has(normalizedItem(relation)) || role === "excluded" || role === "human") {
       scope = "excluded";
-      reason = "제외·담당자 유지";
+      reason = role === "human" ? "담당자 수행 유지" : "현재 자동화 제외";
+    } else if (source === "diagnosis.asIs.outputs") {
+      scope = matches.length === 1 && matches[0].scope === "future" ? "future" : "confirm";
+      reason = "기존 업무의 전체 출력·참고: 현재 생성 단계와 재사용 조건 확인 전 필수 출력 아님";
     } else if (override) {
       reason = override;
     } else if (scopeLevel === 0 && !matches.length && (source === "diagnosis.technicalChecks" || source.startsWith("plan.")) && role === "conditions" && INTEGRATION_CHECK.test(clean)) {
       scope = "future";
       reason = `${gate === "blocked" ? "진행 보류 상태(검토·검증만 허용)" : "Level 0"}에서는 시스템 연동·AI 구현을 하지 않아 현재 검토·검증의 선행 조건이 아님 (전체 실행 상태는 그대로 적용)`;
-    } else if (scopeLevel === 0 && !matches.length && source.startsWith("diagnosis.poc.") && ["tests", "criteria", "outputs"].includes(role) && AUTOMATED_RESULT.test(clean)) {
+    } else if (scopeLevel === 0 && ["tests", "criteria", "outputs"].includes(role) && AUTOMATED_RESULT.test(clean)) {
       scope = "future";
       reason = `${gate === "blocked" ? "진행 보류 상태" : "Level 0"}에는 자동·AI 결과물이 없음: 검증·출력을 위해 생성 기능을 만들지 말고, 기존 비교 자료가 없으면 검증 불가 사유를 기록`;
     } else if (scopeLevel === 0 && ["features", "goal"].includes(role) && source.startsWith("plan.") && !(matches.length === 1 && matches[0].scope === "human")) {
@@ -616,12 +645,8 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
     } else if (deferredMention.length && source.startsWith("diagnosis.poc.")
       && ["tests", "criteria", "outputs"].includes(role)) {
       reason = `향후·담당자 단계 이름으로 시작하나 명시적 연결 없음 (${deferredMention.map(s => s.step).join(", ")}): 현재 PoC 필수 항목으로 승격 금지`;
-    } else if (!matches.length && taskScope && source.startsWith("diagnosis.poc.") && ["tests", "criteria", "outputs"].includes(role)) {
-      // Unlinked task-wide PoC checks remain current only without a known deferred-step prefix.
-      scope = taskScope;
-      reason = scope === "verify" ? (gate === "blocked" ? "진행 보류 상태" : "검토·검증만 허용") : "진단 PoC 기준 (업무 전체)";
-    } else if (!matches.length && role === "criteria" && source.startsWith("plan.")) {
-      reason = "생성 계획의 판정 기준: 연결된 현재 진단 단계와 담당자 확정 조건 확인 전 필수 완료 조건 아님";
+    } else if (!matches.length && ["outputs", "tests", "criteria"].includes(role)) {
+      reason = "생성·검증 대상 단계의 연결 근거 확인 필요: 업무 전체 산출물·PoC 문구만으로 현재 필수 항목으로 승격하지 않음";
     } else if (matches.length !== 1) {
       reason = matches.length ? "여러 진단 단계에 연결되어 적용 범위를 확인해야 합니다." : source === "diagnosis.technicalChecks" ? "적용 단계 미확인: 전역 Gate 조건은 계속 유효합니다." : "연결된 진단 단계가 확인되지 않았습니다.";
     } else {
@@ -636,13 +661,18 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
         reason = "Level 1은 담당자 요청 없는 무인 실행·자동 확정을 허용하지 않습니다. 담당자 요청 기반 후보·초안 방식으로 적용할 수 있는지 확인하세요.";
       }
     }
+    if (["criteria", "tests"].includes(role) && UNSUPPORTED_METRIC.test(clean)) {
+      scope = "confirm";
+      reason = "수치 기준 확인 필요: 측정 대상·방법·데이터 범위·비교 기준·판정 근거가 확인되지 않음";
+    }
     const step = matches.length === 1 ? matches[0].step : undefined;
-    const same = matches.length > 1 ? undefined : classified.find(item => item.role === role && item.scope === scope && item.step === step && normalizedStepText(item.text) === relation);
+    const same = matches.length > 1 ? undefined : classified.find(item => item.role === role && item.scope === scope && item.step === step && normalizedItem(item.text) === normalizedItem(clean));
     if (same) {
       if (!same.sources.includes(source)) same.sources.push(source);
+      if (!same.originals.includes(original ?? text)) same.originals.push(original ?? text);
       return;
     }
-    classified.push({ source, sources: [source], role, text: clean, ...(original && stripEnumerator(original) !== clean ? { original } : {}), scope, ...(step ? { step } : {}), ...(reason ? { reason } : {}) });
+    classified.push({ source, sources: [source], originals: [original ?? text], role, text: clean, ...(original && stripEnumerator(original) !== clean ? { original } : {}), scope, ...(step ? { step } : {}), ...(reason ? { reason } : {}) });
   };
   if (rawPlan) for (const key of Object.keys(PLAN_ROLES) as (keyof typeof PLAN_ROLES)[]) {
     let guardedIndex = 0;
@@ -672,14 +702,28 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
       `${check.topic}${check.note ? ` — ${check.note}` : ""}`, check.status === "확인됨" ? "이미 확인된 기술 조건 (참고)" : undefined);
   }
   for (const item of options.prerequisites ?? []) append("options.prerequisites", "conditions", item);
+  for (const item of profile?.prerequisites ?? []) {
+    // Reuse the technical check's exact evidence instead of creating a second, unlinked condition.
+    const existing = classified.find(entry => entry.role === "conditions" && normalizedItem(entry.text) === normalizedItem(item));
+    if (existing) {
+      if (!existing.sources.includes("policy.prerequisites")) existing.sources.push("policy.prerequisites");
+    } else append("policy.prerequisites", "conditions", item);
+  }
   // Review-only scope (Level 0 or blocked) is still the permitted scope for its checks, criteria and outputs.
   const permitted = (item: AgentInstructionItem) => item.scope === "implement" || item.scope === "after-check" || item.scope === "verify";
   const scoped = {
     features: classified.filter(item => item.role === "features" && (item.scope === "implement" || item.scope === "after-check")),
     tests: classified.filter(item => item.role === "tests" && permitted(item)),
-    criteria: classified.filter(item => item.role === "criteria" && permitted(item) && !VAGUE_CRITERION.test(item.text)),
+    criteria: classified.filter(item => item.role === "criteria" && permitted(item) && !VAGUE_CRITERION.test(item.text) && !(VALIDATION_METHOD.test(item.text) && !PASS_CONDITION.test(item.text))),
+    validationMethods: classified.filter(item => item.role === "criteria" && permitted(item) && VALIDATION_METHOD.test(item.text) && !PASS_CONDITION.test(item.text)),
     outputs: classified.filter(item => item.role === "outputs" && permitted(item)),
     conditions: classified.filter(item => item.role === "conditions" && permitted(item)),
+  };
+  const conditions: AgentInstructionModel["conditions"] = {
+    current: scoped.conditions,
+    future: classified.filter(item => item.role === "conditions" && item.scope === "future"),
+    global: classified.filter(item => item.role === "human" || item.role === "security" && item.scope !== "future" && item.scope !== "human"),
+    confirm: classified.filter(item => item.role === "conditions" && !permitted(item) && item.scope !== "future"),
   };
   const gaps = !d ? ["진단 결과 없음: Level·실행 상태를 확인하기 전에는 생성 계획의 제안을 확정 구현하지 마세요."] : [
     ...(!profile ? ["Factor·Decision Gate 등 실행 범위의 필수 진단 정보가 누락됨: 확인 전 구현 금지"] : []),
@@ -687,8 +731,9 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
     ...(d.asIs?.outputs?.length ? [] : ["결과물 형식과 보고 양식 (진단에 출력 정보 없음)"]),
     ...(steps.length ? [] : ["업무 단계별 진단 정보 없음: 구현할 단계와 담당자 단계를 먼저 확인"]),
   ];
-  return { profile, level, gate, scopeLevel, steps, methods: steps.map((s, index) =>
-    stepMethod(s, steps.some((other, otherIndex) => otherIndex !== index && normalizedStepText(other.step) === normalizedStepText(s.step)))), classified,
+  const methodEvidence = steps.map((s, index) => stepMethod(s,
+    steps.some((other, otherIndex) => otherIndex !== index && normalizedStepText(other.step) === normalizedStepText(s.step)), d));
+  return { profile, level, gate, scopeLevel, steps, methods: methodEvidence.map(item => item.method), methodReasons: methodEvidence.map(item => item.reason), conditions, classified,
     ambiguous: classified.filter(item => item.scope === "confirm" && item.role !== "reference"),
     scoped, diagnosis: d, plan: guarded, prerequisites: options.prerequisites ?? [], gaps };
 }
@@ -704,7 +749,7 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
   const review = steps.filter(s => s.scope === "verify");
   const future = steps.filter(s => s.scope === "future");
   const human = steps.filter(s => s.scope === "human");
-  const humanKept = unique([...human.map(s => `${s.step} (담당자 수행)`), ...(d?.humanInLoop ?? []), ...model.classified.filter(item => item.role === "human").map(item => item.text)]);
+  const humanKept = unique([...human.map(s => `${s.step} (담당자 수행)`), ...model.classified.filter(item => item.role === "human").map(item => item.original ?? item.text)]);
   // "<human step> 자동화" only restates that a human step is kept; the human line above already says so.
   const humanRestatements = new Set(human.flatMap(s => [`${s.step} 자동화`, `${s.step} 자동화 (담당자 수행)`]).map(normalizedItem));
   const excluded = without([...(profile?.poc.outOfScope ?? []), ...model.classified.filter(item => item.role === "excluded").map(item => item.text)], humanKept)
@@ -717,27 +762,10 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
   // Only generated proposals are labelled as plan proposals; raw diagnosis PoC scope is superseded by the policy scope above.
   const unlinked = unique(model.ambiguous.filter(item => item.role === "features" && proposal(item)).map(item => `${item.text} — ${item.reason}`));
   const goals = model.classified.filter(item => item.role === "goal");
-  const openTopics = openCheckTopics(model);
-  // A diagnosis check carries the policy scope; a generated plan line with the same wording does not override it.
-  const conditionItem = (text: string) => {
-    const matches = model.classified.filter(item => item.role === "conditions" && normalizedItem(item.text) === normalizedItem(text));
-    return matches.find(item => item.sources.includes("diagnosis.technicalChecks")) ?? matches[0];
-  };
-  const linkedCondition = (text: string) => {
-    const item = conditionItem(text), s = item?.step ? steps.find(x => x.step === item.step) : undefined;
-    if (!s) return text;
-    return `${text} (관련 단계: ${s.step} — ${s.scope === "future" ? "향후 확장 단계의 조건으로 현재 단계 구현을 막지 않지만 전체 실행 상태는 그대로 적용" : s.scope === "human" ? "담당자 수행 단계" : SCOPE_TITLES[s.scope]})`;
-  };
-  const conditionTexts = unique([
-    ...(gate === "blocked" ? [] : profile?.prerequisites ?? []),
-    ...model.classified.filter(item => item.role === "conditions" && item.source !== "diagnosis.technicalChecks" && !openTopics.has(normalizedItem(item.text))).map(item => item.text),
-    ...gaps,
-  ]);
-  const currentConditionTexts = conditionTexts.filter(text => conditionItem(text)?.scope !== "future");
-  const conditions = currentConditionTexts.map(linkedCondition);
-  const futureConditions = conditionTexts.filter(text => conditionItem(text)?.scope === "future")
-    .map(text => conditionItem(text)?.step ? linkedCondition(text) : `${text} — ${conditionItem(text)?.reason ?? "현재 범위 밖"}`);
-  const unassignedConditions = currentConditionTexts.some(text => !conditionItem(text)?.step) && work.length;
+  const evidenceLine = (item: AgentInstructionItem) => `${item.text}${item.step ? ` (관련 단계: ${item.step})` : ""}${item.reason ? ` — ${item.reason}` : ""} (출처: ${item.sources.join(", ")})${item.originals.some(text => normalizedItem(text) !== normalizedItem(item.text)) ? `; 원문: ${item.originals.join(" / ")}` : ""}`;
+  const conditions = model.conditions.current.map(evidenceLine);
+  const futureConditions = model.conditions.future.map(evidenceLine);
+  const unassignedConditions = model.conditions.confirm.map(evidenceLine);
   const exceptions = unique([...model.classified.filter(item => item.role === "exception").map(item => item.text), ...(d?.asIs?.exceptions ?? []), ...(d?.risks ?? [])]);
   const constraints = approvalConstraints(model);
   const humanConstraints = model.classified.some(item => item.role === "human"
@@ -746,8 +774,9 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
   const methodLabel = (s: StepScope) => stepMethodLabel(model, steps.indexOf(s));
   const doneWhen = (s: StepScope) => method(s) === "assist"
     ? "실제 입력으로 후보·초안이 생성되고, 담당자 확정 전에는 운영 결과로 반영되지 않으며, 생성할 수 없는 건은 검토 필요·실패로 표시됩니다."
-    : method(s) === "rule" ? "확인된 규칙으로 실제 입력이 처리되고, 확정된 테스트 데이터의 기대 판정과 결과가 일치하며 각 결과가 원본과 대응됩니다. 규칙에 맞지 않거나 확인할 수 없는 건은 정상 결과와 분리됩니다. 기대 판정 데이터가 없으면 '기준 확인 필요'로 보고합니다."
-    : "처리 방식(AI 후보 생성 또는 확인된 규칙 처리)을 담당자와 확인하고, 실제 입력·담당자 확정·실패 분리를 검증한 뒤 완료로 보고합니다.";
+    : method(s) === "rule" || method(s) === "script" ? "확인된 형식·키·업무 규칙으로 실제 입력이 처리되고, 담당자가 확정한 기대 결과와 대조한 기록 및 원본 대응 관계가 남습니다. 기대 결과·판정 기준이 없으면 '기준 확인 필요'로 보고하고 합격으로 단정하지 마세요."
+    : method(s) === "manual" ? "담당자가 수행할 작업과 시스템이 보조할 범위를 확인하고, 담당자 수행 결과와 미확인 조건만 기록합니다. 수동 업무를 신규 자동화 기능으로 바꾸지 마세요."
+    : "처리 방식의 근거와 충돌 내용을 확인하기 전에는 방식 선택·구현을 보류하고, 확인된 정보·추가 자료·재개 조건을 보고합니다.";
   const stepLine = (s: StepScope) => `${s.step} — ${methodLabel(s)}${s.note ? ` (진단 메모: ${s.note})` : ""}`;
   const sections: { title: string; body: string }[] = [];
   const section = (title: string, ...content: string[]) => sections.push({ title, body: content.filter(Boolean).join("\n\n") });
@@ -769,17 +798,10 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
       `실행 상태: ${GATE_LABELS[gate]}`,
     ])}\n\n${LEVEL_CONSTRAINTS[level.level]} 실제 실행 범위는 Level 정책과 실행 상태가 함께 허용한 범위이며, TO-BE·생성 계획·매트릭스 위치는 이 범위를 넓히지 않습니다.` : "",
     `### 이번 작업 목표\n\n${objective}`,
-    goals.length ? `생성 계획의 목표 (참고, 위 범위 안에서만 적용)\n\n${bullets(unique(goals.map(item => `${item.text}${item.scope === "confirm" ? ` (범위 확인 필요: ${item.reason})` : item.scope === "future" || item.scope === "human" || item.scope === "excluded" ? ` (현재 구현 제외: ${item.reason ?? "제외"})` : ""}`)))}` : "",
     ...scopeGroups,
     profile?.scopeSupport.length ? `### 함께 수행할 확인\n\n${bullets(profile.scopeSupport)}` : "",
-    future.length || outside.length ? `### 향후 확장 (이번 작업에서 구현하지 않음)\n\n${bullets([
-      ...future.map(s => {
-        const related = relatedFuture(s.step);
-        return `${s.step} — ${s.verdict} 단계지만 현재 Level ${scopeLevel} 범위 밖${s.note ? ` (진단 메모: ${s.note})` : ""}${related.length ? `; 관련 생성 계획: ${related.join(", ")}` : ""}`;
-      }),
-      ...outside,
-    ])}` : "",
-    humanKept.length || excluded.length || outsideHuman.length ? `### 제외·담당자 유지 (자동화로 대체하지 않음)\n\n${bullets([...humanKept, ...excluded, ...outsideHuman])}` : "",
+    humanKept.length ? `### 담당자 수행 유지 (자동화로 대체하지 않음)\n\n${bullets(humanKept)}` : "",
+    excluded.length || outsideHuman.length ? `### 현재 자동화 제외\n\n${bullets([...excluded, ...outsideHuman])}` : "",
   );
   section("프로젝트 사전 확인",
     "WorkLens는 진단 시점에 대상 저장소를 보지 않았습니다. 파일 경로·함수명·기술 스택·DB·API·인증·계산식·테스트 명령·배포 환경은 저장소와 실제 자료에서 확인한 내용만 사용하세요.",
@@ -799,11 +821,11 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
       ? "Level 0 범위는 검토·검증만 허용합니다. 각 검토 작업이 의존하는 항목이 확인되지 않았으면 그 검토만 보류하고 '확인·승인 대기'로 보고하세요. 의존하지 않는 검토(프로젝트 구조·기존 자료 확인 등)는 진행할 수 있습니다."
       : GATE_CONSTRAINTS[gate]}` : "",
     gate === "blocked" && profile?.blockReasons.length ? `### 차단 사유\n\n${bullets(profile.blockReasons)}` : "",
-    conditions.length ? `### 확인할 항목\n\n${bullets(conditions)}` : "",
-    futureConditions.length ? `### 향후 단계 확인 조건 (현재 작업의 선행 조건 아님)\n\n${bullets(futureConditions)}\n\n위 조건은 해당 기능을 구현하는 단계에서 확인하세요. 이번 작업에서 이를 위한 연동·인증·AI 기능을 만들지 마세요.` : "",
+    conditions.length ? `### 현재 필수 조건\n\n${bullets(conditions)}` : "",
+    unassignedConditions.length || gaps.length ? `### 적용 단계 확인 필요\n\n${bullets([...unassignedConditions, ...gaps])}` : "",
     humanConstraints ? HUMAN_DECISION_CHECK : "",
     constraints.length ? `### 기존 담당자·제외 제약 (원문·출처)\n\n${bullets(constraints)}` : "",
-    unassignedConditions ? "관련 단계가 표시되지 않은 항목은 적용 단계가 확인되기 전까지 모든 구현 대상 단계의 확인 대상으로 취급하세요. 관련 없다고 임의로 판단하지 마세요." : "",
+    unassignedConditions.length ? "미연결 조건의 적용 대상과 의존 관계를 실제 자료로 확인하세요. 무관하다고 임의로 해제하지 말고, 영향 가능성이 있는 작업은 확인·승인 대기로 두세요. 해당 조건과 독립적이라는 근거가 확인된 허용 작업만 계속 진행할 수 있습니다. 전역 안전·승인 제약과 전체 Gate 차단은 그대로 적용됩니다." : "",
     "확인되지 않은 API·권한·파일 형식·연동 방식·계산식·반올림·중복 기준·승인 주체를 가정해 구현하지 마세요.",
   );
   const inputs = d ? unique([...(d.asIs?.inputs ?? []), ...without(d.poc?.inputs ?? [], d.asIs?.inputs ?? []).map(item => `검증용: ${item}`)]) : [];
@@ -814,15 +836,13 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
     .map(item => `${item.source}: ${item.text}`));
   section("업무 데이터 흐름",
     inputs.length || d?.asIs?.trigger || d?.asIs?.systems?.length ? `### 입력\n\n${bullets([
-      ...inputs, ...(d?.asIs?.trigger ? [`시작 시점: ${d.asIs.trigger}`] : []), ...(d?.asIs?.systems?.length ? [`사용 시스템: ${d.asIs.systems.join(", ")}`] : []),
+      ...inputs, ...(d?.asIs?.trigger ? [`업무 발생 주기·시점: ${d.asIs.trigger} (자동 실행 요구사항 아님)`] : []), ...(d?.asIs?.systems?.length ? [`사용 시스템: ${d.asIs.systems.join(", ")}`] : []),
     ])}\n\n실제 샘플의 형식과 필수 항목을 확인한 뒤 처리하고, 확인 전에는 항목명·경로를 하드코딩하지 마세요.` : "",
     d?.asIs?.steps?.length ? `### 현재 업무 흐름 (AS-IS)\n\n${numbered(d.asIs.steps)}` : "",
-    d?.toBe?.length ? `### 목표 업무 흐름 (TO-BE, 참고)\n\n${numbered(d.toBe.map(s => `${s.step} — ${OWNER_LABELS[s.owner]}: ${s.description}`))}\n\nTO-BE는 장기 방향입니다. 이번 구현 범위는 '작업 목표·실행 범위'를 따르세요.` : "",
-    model.classified.some(item => item.role === "flow") ? `### 처리 흐름 (생성 계획·참고)\n\n${bullets(unique(model.classified.filter(item => item.role === "flow").map(item => item.text)))}` : "",
-    planReferences.length ? `### 생성 계획의 AS-IS·TO-BE·PoC (참고)\n\n${bullets(planReferences)}\n\n이 설명만으로 새로운 구현 범위를 정하지 마세요.` : "",
-    `### 출력\n\n${outputs.length ? `${bullets(unique(outputs.map(item => `${item.text} — ${item.scope === "implement" || item.scope === "after-check" ? "연결된 단계의 결과" : item.scope === "verify" ? "검토·검증 결과" : item.scope === "future" ? "향후 단계의 결과 (현재 생성 금지)" : "참고·연결 확인 필요 (현재 필수 출력 아님)"}`)))}\n\n` : ""}결과는 정상·검토 필요·확인 불가·처리 실패로 구분하고, 실패·확인 불가 건을 정상 결과에 섞지 마세요.`,
+    `### 현재 출력\n\n${model.scoped.outputs.length ? `${bullets(model.scoped.outputs.map(item => `${evidenceLine(item)} — ${item.scope === "after-check" ? "관련 조건 충족 후 생성 가능한 조건부 출력" : item.scope === "verify" ? "기존 자료를 이용한 검토·검증 결과; 신규 생성 기능 금지" : "허용된 단계의 출력"}`))}\n\n` : "연결된 현재 출력 없음: 생성 단계와 형식을 확인하기 전 필수 출력으로 확정하지 마세요.\n\n"}결과는 정상·검토 필요·확인 불가·처리 실패로 구분하고, 실패·확인 불가 건을 정상 결과에 섞지 마세요.`,
     "### 계산·판정 기준\n\n업무에 계산·판정이 있으면 확인된 계산식·입력·순서·반올림·누락 처리 기준만 사용하세요. 정의되지 않은 기준은 구현하지 말고 '확인 필요'로 보고하세요.",
     "### 추적\n\n원본 추적이 필요한 업무라면 결과에서 원본 출처·처리 단계·오류 위치·담당자 확인 결과를 확인할 수 있게 유지하세요. 업무와 관계없는 식별 정보(예: 시트·행 번호)를 강제하지 마세요.",
+    `### 실행 방식\n\n${scopeLevel === 1 ? "담당자 요청 기반 실행만 허용합니다. 스케줄러·폴더 감시 등 정기 무인 실행을 구현하지 마세요." : scopeLevel === 0 ? "검토·검증만 허용하며 업무 자동 실행을 추가하지 마세요." : "업무 발생 주기와 시스템 자동 실행은 별개입니다. 실제 자동 실행 요청·근거·정책 허용 여부가 확인되지 않았다면 실행 방식 확인 필요로 보고하세요."}`,
   );
   const linkedTo = (step: string) => model.scoped.features.filter(item => item.step === step && item.sources.some(source => source.startsWith("plan."))).map(item => item.text);
   const currentOutputs = unique(model.scoped.outputs.map(item => item.text));
@@ -838,7 +858,7 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
     work.length ? `### 최소 실행 흐름\n\n${minimalFlow}\n\n구현은 위 흐름에서 이 업무에 해당하는 단계만 의존 순서대로 연결하세요.\n\n${work.map((s, i) => `### 단계 ${i + 1}. ${s.step} — ${methodLabel(s)}\n\n${bullets([
       `처리 상태: ${s.scope === "implement" ? SCOPE_TITLES.implement : `${SCOPE_TITLES["after-check"]} (관련 확인 항목이 확인되기 전에는 보류)`}`,
       ...(s.note ? [`진단 메모: ${s.note}`] : []),
-      `담당자 확인: ${method(s) === "assist" ? "AI 결과는 제안값으로 표시하고 담당자가 확정한 값과 구분하세요. 규칙으로 판정할 부분에 별도 AI 호출을 추가하지 마세요." : method(s) === "rule" ? "확정된 규칙만 적용하고, 규칙에 맞지 않는 건은 담당자 확인으로 넘기세요. 이 단계에 AI 호출을 추가하지 마세요." : "처리 방식(AI 후보 또는 확정된 규칙)을 담당자에게 확인하기 전에는 선택·구현하지 마세요."}`,
+      `담당자 확인: ${method(s) === "assist" ? "AI 결과는 제안값으로 표시하고 담당자가 확정한 값과 구분하세요. 규칙으로 판정할 부분에 별도 AI 호출을 추가하지 마세요." : method(s) === "rule" || method(s) === "script" ? "파일 형식·병합 키·계산식·예외 규칙 등 이 단계에 필요한 실제 기준을 확인한 뒤 적용하세요. 규칙 미확인 건은 담당자 확인으로 넘기고 AI 호출을 추가하지 마세요." : method(s) === "manual" ? "담당자 수동 수행을 유지하고 자동화 구현으로 대체하지 마세요." : "AI·규칙·스크립트·수동 처리의 근거와 충돌을 담당자에게 확인하기 전에는 선택·구현하지 마세요."}`,
       ...linkedTo(s.step).map(item => `세부 제안 (생성 계획): ${item}`),
       `완료 기준: ${doneWhen(s)}`,
     ])}`).join("\n\n")}` : "",
@@ -847,17 +867,18 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
     work.length ? "### 실제 동작하는 기본 토대\n\n필요한 자료와 확인이 갖춰진 단계는 실제 입력을 받고, 정의된 처리를 실행하고, 잘못된 입력과 실패를 정상 결과와 구분하고, 필요한 담당자 확인을 유지하고, 실행·검증 방법을 제공해야 완료입니다.\n\n처리 없는 화면, 읽지 못하는 업로드, 더미 데이터 결과, 가짜 API 응답, TODO만 있는 핵심 함수, 실행되지 않는 샘플 코드, 검증하지 않은 계산, 미확인 규칙을 가정한 구현, 승인 없이 확정되는 AI 결과는 완료가 아닙니다.\n\n필수 자료가 없으면 전체 흐름을 억지로 완성하지 말고 허용된 독립 단계만 완성하세요. 허용된 독립 단계가 없으면 코드를 만들지 말고 필요한 선행 확인사항을 보고하세요." : "",
     "기존 구현을 우선 재사용하고 요청 범위 안에서 최소한으로 수정하세요. 요청하지 않은 기능·라이브러리, 하드코딩 값, 실제 로직에 남은 테스트용 임시 데이터, 근거 없는 수치 목표, 확인되지 않은 담당 조직·승인 주체를 만들지 마세요.",
   );
-  const fallback = unique([...(d?.operation?.fallback ? [d.operation.fallback] : []), ...model.classified.filter(item => item.role === "fallback" || item.role === "operation").map(item => item.text)]);
+  const fallback = unique([...(d?.operation?.fallback ? [d.operation.fallback] : []), ...model.classified.filter(item => (item.role === "fallback" || item.role === "operation") && ["implement", "after-check", "verify"].includes(item.scope)).map(item => item.text)]);
   section("예외·보안·승인",
     exceptions.length ? `### 예외\n\n${bullets(exceptions)}` : "",
     "실패·미매칭·확인 불가 데이터는 정상 결과와 분리해 원인과 대상을 확인할 수 있게 하세요. 자동 삭제·자동 보정은 업무 규칙에 명시된 경우에만 적용하고, 아니면 대상 건을 표시만 하세요.",
     work.length ? "### 반복 실행\n\n같은 입력 재처리, 같은 이름의 다른 파일, 일부 성공 후 실패, 처리 중단·재시도, 이전 요청의 뒤늦은 완료, 입력 변경 후 기존 결과 재사용 중 이 업무에 해당하는 경우를 확인하세요. 기존 처리 정책을 먼저 따르고, 중복 반영·기존 데이터 삭제·미검증 데이터의 정상 집계가 없게 하되 필요 없는 작업 큐·트랜잭션 구조는 추가하지 마세요." : "",
     `### 담당자 확인·승인\n\n${constraints.length ? "'선행 조건·차단 사항'의 기존 담당자·제외 제약을 그대로 지키세요. " : ""}담당자 판단·확정이 필요한 결과는 확인되지 않은 승인으로 확정·시스템 반영·외부 전송하거나 담당자 판단을 대체하지 마세요. 허용된 후보·초안·규칙 검토는 각 단계의 선행 조건 내에서 진행할 수 있습니다. 승인 주체·권한이 확인되지 않았으면 지정하지 마세요.`,
     `### 보안\n\n${bullets([
-      ...unique(model.classified.filter(item => item.role === "security").map(item => `${stripEnumerator(item.text)}${item.reason && item.reason.includes("성능 수치") ? ` (기준 확인 필요: ${item.reason})` : ""}`)),
+      ...model.conditions.global.filter(item => item.role === "security").map(evidenceLine),
       "secret은 코드에 하드코딩하지 말고 저장소의 기존 secret 관리 방식을 사용하세요.",
       "기존 인증·권한 구조와 최소 권한 원칙을 유지하고, 민감한 데이터를 불필요하게 로그에 남기지 마세요.",
       "외부 AI 서비스로 업무 자료를 보내기 전에 보안 조건을 확인하고, 확인되지 않은 연동은 자동 실행하지 마세요.",
+      "보안 제약은 관련 작업에 적용하되 현재 수행하지 않는 저장·전송·운영 기능의 보안 구현을 새로 개발하지 마세요. 미연결 보안 항목은 영향 범위를 확인하고 안전하다고 임의로 해제하지 마세요.",
     ])}`,
     `### 수동 전환\n\n${fallback.length ? `${bullets(fallback)}\n\n` : ""}자동화가 실패해도 기존 수동 업무를 계속할 수 있게 유지하세요. 실제 수동 절차와 운영 담당이 확인되지 않았으면 새로 정하지 마세요.`,
   );
@@ -866,10 +887,9 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
     "저장소에 실제로 존재하는 검증 명령과 도구를 확인한 뒤 실행하세요. 없는 테스트 framework나 명령을 임의로 설치하지 마세요.",
     work.length ? `### 정상 케이스\n\n${tests.length ? `${bullets(tests)}\n\n` : ""}기대 결과가 확정된 샘플로 결과를 대조하세요. 기대 결과·허용 오차가 정의되지 않았으면 합격 기준을 만들지 말고 '확인 필요'로 보고하세요.`
       : `### 현재 검토·검증\n\n${tests.length ? `${bullets(tests)}\n\n` : ""}확보한 샘플과 기존 자료로 확인할 수 있는 범위만 검증하세요. 검증을 위해 새 기능·자동 생성 코드를 만들지 말고, 비교 자료가 없으면 '검증 불가'와 사유를 기록하세요. 수행하지 않은 검증을 성공·실패로 판정하지 마세요.`,
-    model.classified.some(item => item.role === "tests" && !model.scoped.tests.includes(item))
-      ? `### 향후·범위 확인 테스트 (이번 구현의 필수 검증 아님)\n\n${bullets(unique(model.classified.filter(item => item.role === "tests" && !model.scoped.tests.includes(item)).map(item => `${item.text} — ${item.reason ?? "현재 범위 밖"}${item.scope === "future" ? " (향후 검증)" : ""}`)))}` : "",
+    model.scoped.validationMethods.length ? `### 검증 방법·기록 (합격 조건 아님)\n\n${bullets(model.scoped.validationMethods.map(evidenceLine))}` : "",
     work.length ? "### 경계값\n\n입력 1건, 빈 입력, 같은 기준값이 여러 건인 경우, 선택 항목이 비어 있는 경우처럼 이 업무의 입력에 해당하는 경계 상황을 확인하세요." : "",
-    work.length ? `### 실패·예외 케이스\n\n${exceptions.length ? "'예외·보안·승인'의 각 예외를 재현하고, " : ""}잘못된 형식·필수 항목 누락 같은 실패가 정상 결과로 표시되지 않는지 확인하세요.` : "",
+    work.length ? "### 실패·예외 케이스\n\n현재 구현 단계와 연결되고 실제로 재현 가능한 입력·처리 예외만 검증하세요. 인적 판단 오류·외부 장애 등 재현 근거가 없는 위험은 검토 항목으로 기록하세요. 모든 업무 예외를 E2E로 구현하지 마세요. 해당 단계의 잘못된 형식·필수 항목 누락 같은 실패가 정상 결과로 표시되지 않는지 확인하세요." : "",
     "### 범위·승인\n\n담당자 확인 전 결과가 확정·전송되지 않는지, '향후 확장'·'제외' 항목이 실행되지 않는지 확인하세요.",
     "### 회귀 검증\n\n이 작업과 관련된 기존 기능이 이전과 동일하게 동작하는지 확인하세요. 웹 UI를 포함하면 기존 브라우저/E2E 도구가 있을 때 주요 화면을 Desktop과 Mobile에서 확인하고, 도구가 없으면 새로 설치하지 말고 그 사실을 보고하세요.",
   );
@@ -885,9 +905,9 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
     "배포 또는 운영 적용을 수행했다면 실제 환경에서 입력 → 처리 → 결과 흐름과 오류 여부를 확인하세요. 배포하지 않았다면 운영 검증 완료로 보고하지 마세요.",
     ...(gate === "blocked" || !profile ? ["실행 범위가 차단·미확정 상태에서는 배포·운영 적용·연결을 수행하지 마세요. 차단 해제에 필요한 조건만 보고하세요."] : []),
   ]));
-  const criteria = unique(model.scoped.criteria.map(item => `${item.source === "diagnosis.poc.success" ? "성공: " : item.source === "diagnosis.poc.failure" ? "실패: " : ""}${item.text}`));
-  const deferredCriteria = unique(model.classified.filter(item => item.role === "criteria" && !model.scoped.criteria.includes(item))
-    .map(item => `${item.text} — ${VAGUE_CRITERION.test(item.text) ? "기대 결과·측정 기준 확인 필요" : item.reason ?? "현재 범위 밖"}${item.scope === "future" ? " (향후 판정)" : ""}`));
+  const criteria = unique(model.scoped.criteria.map(evidenceLine));
+  const deferredCriteria = model.classified.filter(item => item.role === "criteria" && !model.scoped.criteria.includes(item) && !model.scoped.validationMethods.includes(item))
+    .map(item => `${evidenceLine(item)} — ${VAGUE_CRITERION.test(item.text) ? "기대 결과·측정 기준 확인 필요" : "현재 필수 완료 조건 아님"}`);
   section("완료 조건",
     work.length ? `### 단계별\n\n${bullets(work.map(s => s.scope === "implement" ? `${s.step}: ${doneWhen(s)}` : `${s.step}: 확인 항목이 확인되어 구현했다면 ${doneWhen(s)} 확인하지 못했다면 '확인·승인 대기'로 보고합니다.`))}` : "",
     review.length ? `### 검토·검증\n\n${bullets([
@@ -899,7 +919,6 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
       "다음 진단에 필요한 정보가 보고됩니다.",
     ])}` : "",
     criteria.length ? `### 판정 기준\n\n${bullets(criteria)}` : "",
-    deferredCriteria.length ? `### 향후·기준 확인이 필요한 판정 (이번 구현의 필수 완료 조건 아님)\n\n${bullets(deferredCriteria)}` : "",
     `### 공통\n\n${bullets([
       "기존 기능과 데이터가 유지됩니다.",
       ...(humanKept.length ? ["담당자 검토·승인 단계가 유지됩니다."] : []),
@@ -921,6 +940,22 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
     "실제로 확인한 실행 방법과 명령", "검증 결과 (실행하지 않은 검증은 미실행)", "담당자 확인이 필요한 항목", "미구현·보류·차단된 기능과 해결 조건",
     "다음 개발 단계", "Git 상태", "배포·운영 적용 상태",
   ]), "확인하지 않은 환경변수·API·파일 경로를 적지 말고, 계획이나 미구현 기능을 실행 가능한 코드와 구분하세요. 실제로 수행하지 않은 작업을 완료했다고 보고하지 마세요.");
+  section("향후 계획·연결 확인 참고",
+    "아래는 현재 필수 구현·출력·테스트·완료 조건이 아닙니다. 해당 단계의 Level·Gate와 의존 조건을 다시 확인하기 전 구현 범위를 확장하지 마세요.",
+    future.length || outside.length ? `### 향후 확장 (이번 작업에서 구현하지 않음)\n\n${bullets([
+      ...future.map(s => `${s.step} — 현재 Level ${scopeLevel} 범위 밖 (진단 메모: ${s.note || "없음"})${relatedFuture(s.step).length ? `; 관련 생성 계획: ${relatedFuture(s.step).join(", ")}` : ""}`),
+      ...outside,
+    ])}` : "",
+    goals.some(item => item.scope !== "future") ? `### 생성 계획 목표 (참고)\n\n${bullets(goals.filter(item => item.scope !== "future").map(evidenceLine))}` : "",
+    futureConditions.length ? `### 향후 단계 확인 조건 (현재 작업의 선행 조건 아님)\n\n${bullets(futureConditions)}` : "",
+    d?.toBe?.length ? `### 목표 업무 흐름 (TO-BE, 참고)\n\n${numbered(d.toBe.map(s => `${s.step} — ${OWNER_LABELS[s.owner]}: ${s.description}`))}` : "",
+    model.classified.some(item => item.role === "flow") ? `### 처리 흐름 (생성 계획·참고)\n\n${bullets(model.classified.filter(item => item.role === "flow").map(evidenceLine))}` : "",
+    planReferences.length ? `### 생성 계획의 AS-IS·TO-BE·PoC (참고)\n\n${bullets(planReferences)}` : "",
+    outputs.some(item => !model.scoped.outputs.includes(item)) ? `### 향후·참고·연결 확인 출력\n\n${bullets(outputs.filter(item => !model.scoped.outputs.includes(item)).map(item => `${evidenceLine(item)} — ${item.sources.includes("diagnosis.asIs.outputs") ? "기존 업무의 전체 출력·참고" : item.scope === "future" ? "향후 출력" : "생성 단계 연결 확인 필요"}`))}` : "",
+    model.classified.some(item => item.role === "tests" && !model.scoped.tests.includes(item)) ? `### 향후·범위 확인 테스트 (이번 구현의 필수 검증 아님)\n\n${bullets(model.classified.filter(item => item.role === "tests" && !model.scoped.tests.includes(item)).map(evidenceLine))}` : "",
+    deferredCriteria.length ? `### 향후·기준 확인이 필요한 판정 (이번 구현의 필수 완료 조건 아님)\n\n${bullets(deferredCriteria)}` : "",
+    model.classified.some(item => item.role === "security" && !model.conditions.global.includes(item) || (item.role === "operation" || item.role === "fallback") && !["implement", "after-check", "verify"].includes(item.scope)) ? `### 향후·범위 확인 운영·보안 제안\n\n${bullets(model.classified.filter(item => item.role === "security" && !model.conditions.global.includes(item) || (item.role === "operation" || item.role === "fallback") && !["implement", "after-check", "verify"].includes(item.scope)).map(evidenceLine))}` : "",
+  );
   return [
     axPromptTitle(options.taskName),
     "WorkLens 업무 자동화 진단 결과로 만든 실행 지시문입니다. Codex·Claude Code·OMP 등 어떤 코딩 에이전트에서도 같은 실행 범위와 완료 기준을 따르세요. 대상 저장소를 먼저 확인한 뒤 '작업 목표·실행 범위' 안에서만 구현하세요.",

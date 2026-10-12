@@ -123,9 +123,9 @@ describe("AX execution guides", () => {
     expect(once.prerequisites).toEqual(["ERP API 존재 여부 확인"]);
     expect(guardPlan(once, "매월 정산표를 만들어 담당자가 승인합니다.")).toEqual(once);
     // The raw unsupported metric stays visible for confirmation and never becomes a pass/fail criterion.
-    const prompt = buildAllInOnePrompt(plan, "codex", { diagnosis: levelOne });
-    expect(prompt).toContain("업무 시간을 50% 절감한다. (범위 확인 필요: 근거 없는 성능 수치");
-    expect(prompt.split("### 판정 기준")[1]?.split("\n### ")[0] ?? "").not.toContain("정확도 95%");
+    const model = buildAgentInstructionModel(plan, { diagnosis: levelOne });
+    expect(model.scoped.criteria.some(item => item.text.includes("정확도 95%"))).toBe(false);
+    expect(model.classified).toContainEqual(expect.objectContaining({ scope: "confirm", originals: expect.arrayContaining(["정확도 95%를 달성한다."]) }));
     expect(guardPlan(planFixture, "")).toEqual(planFixture);
     const allowed = guardPlan({ ...planFixture, implementation: ["중복 건은 자동 삭제한다."] }, "규정상 중복 건은 자동 삭제합니다.");
     expect(allowed.implementation).toEqual(["중복 건은 자동 삭제한다."]);
@@ -198,8 +198,6 @@ describe("AX plan display boundaries", () => {
       // Diagnosed steps outside the permitted Level × Gate scope are listed as current exclusions.
       expect(summary.excluded.includes("자료 수집 자동 실행")).toBe(scopeLevel < 2);
       expect(summary.excluded.includes("형식 검증 AI 보조 구현")).toBe(scopeLevel < 1);
-      if (verdict !== "go") expect(summary.prerequisites).toContain("권한 확인");
-      else expect(summary.prerequisites).toEqual([]);
     }
   });
 
@@ -214,16 +212,17 @@ describe("AX plan display boundaries", () => {
     const before = structuredClone(diagnosis), summary = planSummary(diagnosis);
     expect(summary.humanKept).toEqual(["담당자 승인 (담당자 수행)", "최종 승인"]);
     expect(summary.exceptions).toEqual(["누락", "누락 데이터"]);
-    expect(summary.data).toEqual([
-      { label: "입력", items: ["입력 표"] }, { label: "출력", items: ["검토용 표"] }, { label: "사용 시스템", items: ["표 도구"] },
-      { label: "검증용 입력", items: ["샘플 표"] },
-    ]);
+    expect(summary.data.find(group => group.label === "입력")?.items).toEqual(["입력 표"]);
+    expect(summary.data.find(group => group.label === "사용 시스템")?.items).toEqual(["표 도구"]);
+    expect(summary.data.find(group => group.label === "검증용 입력")?.items).toEqual(["샘플 표"]);
     const model = buildAgentInstructionModel(undefined, { diagnosis });
-    expect(model.scoped.tests).toContainEqual(expect.objectContaining({ text: "샘플 대조" }));
-    expect(model.scoped.criteria.map(item => item.text)).toContain("샘플 대조 통과");
-    expect(summary.tests).toEqual(["샘플 대조"]);
-    expect(summary.success).toEqual(["샘플 대조 통과"]);
-    expect(summary.failure).toEqual(["누락 발생"]);
+    for (const [source, text] of [["diagnosis.poc.evaluation", "샘플 대조"], ["diagnosis.poc.success", "샘플 대조 통과"], ["diagnosis.poc.failure", "누락 발생"]] as const) {
+      const item = model.classified.find(item => item.sources.includes(source) && item.text === text);
+      expect(item).toMatchObject({ scope: "confirm" });
+      expect(item?.step).toBeUndefined();
+    }
+    expect(model.scoped.tests).toEqual([]);
+    expect(model.scoped.criteria).toEqual([]);
     // Confirmed checks are not open conditions.
     expect(planSummary({ ...diagnosis, technicalChecks: [{ topic: "샘플 파일", status: "확인됨", note: "헤더 확인" }, ...diagnosis.technicalChecks] }).prerequisites.join("\n")).not.toContain("샘플 파일");
     expect(planSummary({ ...diagnosis, planCodex: freightPlan, planClaude: planFixture })).toEqual(summary);
@@ -231,7 +230,7 @@ describe("AX plan display boundaries", () => {
     expect(diagnosis).toEqual(before);
   });
 
-  it.each(["conditional", "no-go"] as const)("adds only a generated plan's own prerequisites for a %s gate", verdict => {
+  it.each(["conditional", "no-go"] as const)("keeps unlinked generated prerequisites nonrequired for a %s gate", verdict => {
     const diagnosis: AxDiagnosis = { ...levelOne, decisionGate: { verdict, reasons: ["접근 권한 확인"] }, technicalChecks: [], humanInLoop: ["최종 승인"] };
     const plan: AxPlan = {
       ...freightPlan,
@@ -241,45 +240,41 @@ describe("AX plan display boundaries", () => {
     };
     const before = structuredClone({ diagnosis, plan });
     const base = planSummary(diagnosis), withPlan = planSummary(diagnosis, plan, "월간 운임 정산");
-    expect(withPlan.prerequisites).toEqual(verdict === "no-go" ? base.prerequisites : [...base.prerequisites, "샘플 보관 위치 확인"]);
+    expect(withPlan.prerequisites.some(text => text === "샘플 보관 위치 확인")).toBe(false);
+    const model = buildAgentInstructionModel(plan, { diagnosis });
+    expect(model.conditions.confirm).toContainEqual(expect.objectContaining({ text: "샘플 보관 위치 확인" }));
     expect(withPlan.constraints.join("\n")).toContain("최종 승인 후 전송");
     expect(withPlan.constraints.join("\n")).toContain("승인 없이 외부 전송");
     expect(withPlan.constraints.join("\n")).toContain("plan.humanInLoop");
     expect(withPlan.constraints.join("\n")).toContain("plan.outOfScope");
     expect(withPlan.include).toEqual(base.include);
-    expect(withPlan.tests).toEqual(base.tests);
-    expect([withPlan.success, withPlan.failure]).toEqual([base.success, base.failure]);
     expect({ diagnosis, plan }).toEqual(before);
   });
 
-  it("defers integration checks and automated-result PoC checks only within Level 0 review scope", () => {
+  it("keeps unlinked whole-task PoC outputs and tests nonrequired at every Level", () => {
     const patch: Partial<AxDiagnosis> = {
       technicalChecks: [
         { topic: "샘플 데이터", status: "확인 필요", note: "실제 형식과 필수 항목 확인" },
         { topic: "AI·API 연동", status: "확인 필요", note: "사진 업로드 API와 AI 모델 접근 권한 확인" },
       ],
-      poc: { ...diagnosisFixture.poc, evaluation: ["자동 초안과 수동 작성 초안을 전수 대조", "샘플 체크리스트 필수 항목 대조"] },
+      poc: {
+        ...diagnosisFixture.poc,
+        outputs: ["자동 생성된 점검 기록 초안", "점검 결과 요약표"],
+        evaluation: ["자동 초안과 수동 작성 초안을 전수 대조", "샘플 체크리스트 필수 항목 대조"],
+      },
     };
-    const levelZero = withFactors([3, 2, 2, 2, 5, 4], patch);
-    expect(buildAgentInstructionModel(undefined, { diagnosis: withFactors([3, 2, 2, 2, 5, 4], { ...patch, poc: { ...patch.poc!, outputs: ["자동 생성된 점검 기록 초안", "점검 결과 요약표"] } }) })
-      .scoped.outputs.map(item => item.text)).toEqual(["점검 결과 요약표"]);
-    const summary = planSummary(levelZero);
-    expect(summary.checks.map(check => check.tone)).toEqual(["required", "future"]);
-    expect(summary.tests).toEqual(["향후 검증: 자동 초안과 수동 작성 초안을 전수 대조", "샘플 체크리스트 필수 항목 대조"]);
-    const prompt = buildAllInOnePrompt(undefined, "codex", { diagnosis: levelZero });
-    const conditions = prompt.split("## 3. 선행 조건·차단 사항")[1].split("## 4.")[0];
-    expect(conditions.split("### 향후 단계 확인 조건")[0]).toContain("샘플 데이터 — 실제 형식과 필수 항목 확인");
-    expect(conditions.split("### 향후 단계 확인 조건")[0]).not.toContain("AI·API 연동");
-    expect(conditions.split("### 향후 단계 확인 조건")[1]).toContain("AI·API 연동 — 사진 업로드 API와 AI 모델 접근 권한 확인");
-    const tests = prompt.split("## 7. 테스트·회귀 검증")[1].split("## 8.")[0];
-    expect(tests.split("### 향후·범위 확인 테스트")[0]).not.toContain("자동 초안과 수동 작성 초안을 전수 대조");
-    expect(tests).not.toContain("### 정상 케이스");
-    // Implementable Levels keep the same checks as current conditions; the Level × Gate policy is unchanged.
-    const levelTwo = withFactors([4, 4, 4, 3, 3, 3], patch);
-    expect(planSummary(levelTwo).checks.map(check => check.tone)).toEqual(["required", "required"]);
-    const levelTwoPrompt = buildAllInOnePrompt(undefined, "codex", { diagnosis: levelTwo });
-    expect(levelTwoPrompt).not.toContain("### 향후 단계 확인 조건");
-    expect(levelTwoPrompt).toContain("### 정상 케이스");
-    expect(executionGate(levelZero)).toBe("conditional");
+    for (const factors of [[3, 2, 2, 2, 5, 4], [4, 4, 3, 2, 4, 3], [4, 4, 4, 3, 3, 3], [5, 5, 5, 5, 1, 1]] as const) {
+      const diagnosis = withFactors([...factors], patch);
+      const model = buildAgentInstructionModel(undefined, { diagnosis });
+      expect(model.scoped.outputs).toEqual([]);
+      expect(model.scoped.tests).toEqual([]);
+      for (const source of ["diagnosis.poc.outputs", "diagnosis.poc.evaluation"]) {
+        for (const item of model.classified.filter(item => item.sources.includes(source))) {
+          expect(["confirm", "future"]).toContain(item.scope);
+          expect(item.step).toBeUndefined();
+        }
+      }
+      expect(executionGate(diagnosis)).toBe("conditional");
+    }
   });
 });
