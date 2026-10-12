@@ -294,12 +294,20 @@ const UNCONFIRMED = "(확인 필요:";
 type PlanListKey = Exclude<keyof AxPlan, "repositoryFirst">;
 
 /**
- * A quantified target is a confirmed business fact when its exact number+unit already appears
- * in the registration/diagnosis context; otherwise it is an unverified performance goal.
+ * A quantified target is a confirmed business fact only when its number+unit AND its
+ * measurement target both appear in the registration/diagnosis context. The same number
+ * with a different meaning (e.g. 정산 오차율 0.5% vs 시스템 오류율 0.5%) is not confirmed.
  */
+const METRIC_VALUE = /(\d+(?:\.\d+)?\s*(?:%|퍼센트|배))/u;
+/** The noun phrase (up to 3 words) directly before the number: the measurement target. */
+const METRIC_SUBJECT = /([가-힣A-Za-z]{2,}(?:\s+[가-힣A-Za-z]{2,}){0,2})\s*\d+(?:\.\d+)?\s*(?:%|퍼센트|배)/u;
 export function isConfirmedMetric(item: string, context: string): boolean {
-  const metric = /(\d+(?:\.\d+)?\s*(?:%|퍼센트|배))/u.exec(item);
-  return !!metric && context.includes(metric[1]);
+  const metric = METRIC_VALUE.exec(item);
+  if (!metric || !context.includes(metric[1])) return false;
+  const subject = METRIC_SUBJECT.exec(item)?.[1]?.replace(/\s+/gu, " ").trim();
+  // Without an identifiable measurement target, the number alone cannot confirm the meaning.
+  if (!subject) return false;
+  return context.includes(subject);
 }
 
 /**
@@ -307,14 +315,16 @@ export function isConfirmedMetric(item: string, context: string): boolean {
  * ones in place, drop unsupported metrics. Qualified items carry the marker, so applying it twice changes nothing.
  */
 export function guardPlan(plan: AxPlan, context: string): AxPlan {
-  // Exclusions and prerequisites already name what must not happen or must be checked; only metrics and orgs apply there.
+  // A confirmed metric is preserved, but every other safety check still applies to the same sentence.
+  // Each risk (auto action, unconfirmed API, unconfirmed org) is checked independently, so one
+  // confirmed fact never suppresses the remaining checks.
   const guardItem = (item: string, qualify: boolean): string | null => {
-    if (UNSUPPORTED_METRIC.test(item)) return isConfirmedMetric(item, context) ? item : null;
+    if (UNSUPPORTED_METRIC.test(item) && !isConfirmedMetric(item, context)) return null;
     let value = item.replace(ORGANIZATION, org => context.includes(org) ? org : "담당 조직");
     if (value.includes(UNCONFIRMED)) return value;
     const action = qualify ? AUTO_ACTION.exec(value)?.[1] : undefined;
     if (action && !new RegExp(`자동(?:으로)?\\s*${action}`, "u").test(context)) value = `${value} ${UNCONFIRMED} 업무 규칙에서 확인된 경우에만 적용하고, 아니면 대상 건을 표시만 하세요)`;
-    else if (qualify && SYSTEM_INTERFACE.test(value) && !/확인/u.test(value) && !SYSTEM_INTERFACE.test(context)) value = `${value} ${UNCONFIRMED} 실제 연동 방식과 권한을 확인한 뒤 확인된 방식만 사용하세요)`;
+    if (qualify && SYSTEM_INTERFACE.test(item) && !/확인/u.test(item) && !SYSTEM_INTERFACE.test(context)) value = `${value} ${UNCONFIRMED} 실제 연동 방식과 권한을 확인한 뒤 확인된 방식만 사용하세요)`;
     if (value !== item && value.includes("담당 조직") && !value.includes(UNCONFIRMED)) value = `${value} ${UNCONFIRMED} 실제 담당 조직을 확인하세요)`;
     return value;
   };
@@ -494,6 +504,8 @@ export interface AgentInstructionModel {
   methodReasons: string[];
   /** Index-aligned with `steps`; the ordered roles of a composite method, or undefined. */
   methodChains: (StepMethod[] | undefined)[];
+  /** Index-aligned with `steps`; execution order of a composite method: explicit sequence or parallel. */
+  methodOrders: (MethodOrder | undefined)[];
   conditions: { current: AgentInstructionItem[]; future: AgentInstructionItem[]; global: AgentInstructionItem[]; confirm: AgentInstructionItem[] };
   classified: AgentInstructionItem[];
   ambiguous: AgentInstructionItem[];
@@ -503,8 +515,14 @@ export interface AgentInstructionModel {
   prerequisites: string[];
   gaps: string[];
 }
-/** Sequence words in note evidence mean the listed roles form one confirmed composite flow, not a conflict. */
-const SEQUENCE_WORD = /(먼저|다음|그\s*뒤|뒤에|그\s*후|후에|한\s*뒤|→|그리고|하고|이어서|병행)/u;
+/** Strong markers of an explicit execution order; weak connectors need an explicit actor to count. */
+const STRONG_SEQUENCE = /(먼저|다음|그\s*뒤|뒤에|그\s*후|후에|한\s*뒤|→|이후|그다음)/u;
+const PARALLEL_WORD = /(병행|동시에|나란히)/u;
+const WEAK_SEQUENCE = /(그리고|하고|이어서)/u;
+/** An explicit actor as grammatical subject after a weak connector signals a real sequence. */
+const ACTOR_SUBJECT = /(담당자|사람|AI|시스템)(가|이|는|은)/u;
+/** Order of a composite flow: an explicit sequence, or an explicit parallel execution. */
+export type MethodOrder = "sequence" | "parallel";
 /** Ordered processing roles inside one evidence text, by first occurrence. */
 const methodsIn = (text: string): StepMethod[] => {
   const ordered: { method: StepMethod; at: number }[] = [];
@@ -515,7 +533,7 @@ const methodsIn = (text: string): StepMethod[] => {
   push("rule", RULE_NOTE); push("script", SCRIPT_NOTE); push("assist", CANDIDATE_NOTE); push("manual", MANUAL_NOTE);
   return [...new Set(ordered.sort((a, b) => a.at - b.at).map(entry => entry.method))];
 };
-function stepMethod(s: StepScope, duplicate: boolean, diagnosis?: AxDiagnosis): { method: StepMethod; reason: string; chain?: StepMethod[] } {
+function stepMethod(s: StepScope, duplicate: boolean, diagnosis?: AxDiagnosis): { method: StepMethod; reason: string; chain?: StepMethod[]; order?: MethodOrder } {
   if (duplicate) return { method: "confirm", reason: "동일 이름의 진단 단계 중복: 적용 단계 확인 필요" };
   if (s.scope === "human") return { method: "manual", reason: s.note };
   // Owner/verdict describe responsibility and policy, not an implementation-method enum.
@@ -529,14 +547,25 @@ function stepMethod(s: StepScope, duplicate: boolean, diagnosis?: AxDiagnosis): 
   const itemChains = evidence.map(item => ({ item, chain: methodsIn(item.text) }));
   const all = methodsIn(evidence.map(item => item.text).join("\n"));
   const processing = (chain: StepMethod[]) => chain.filter(method => method !== "manual");
-  // A confirmed composite is one coherent statement describing an ordered flow across distinct
-  // processing roles (script/rule/assist with a trailing human review). The same processing role
-  // described differently by different sources is a conflict, not a composite.
-  const sequenced = itemChains.find(({ item, chain }) => chain.length >= 2 && processing(chain).length >= 1 && SEQUENCE_WORD.test(item.text));
+  // A confirmed composite is one coherent statement: distinct processing roles with either an
+  // explicit order (sequential) or an explicit parallel relation. Mere enumeration never
+  // establishes an order, and the same processing role described differently by different
+  // sources is a conflict, not a composite.
+  const orderOf = (text: string, chain: StepMethod[]): MethodOrder | undefined => {
+    if (chain.length < 2 || processing(chain).length < 1) return undefined;
+    if (PARALLEL_WORD.test(text)) return "parallel";
+    if (STRONG_SEQUENCE.test(text)) return "sequence";
+    const weak = WEAK_SEQUENCE.exec(text);
+    if (weak && ACTOR_SUBJECT.test(text.slice(weak.index + weak[0].length))) return "sequence";
+    return undefined;
+  };
+  const sequenced = itemChains
+    .map(({ item, chain }) => ({ item, chain, order: orderOf(item.text, chain) }))
+    .find(entry => entry.order);
   if (sequenced) {
     const chain = sequenced.chain;
     const consistent = itemChains.every(({ chain: other }) => processing(other).every(method => processing(chain).includes(method)));
-    if (consistent) return { method: "composite", reason, chain };
+    if (consistent) return { method: "composite", reason, chain, order: sequenced.order };
     return { method: "confirm", reason: ["처리 방식 근거 충돌", reason].filter(Boolean).join("; ") };
   }
   if (all.length > 1 && processing(all).length >= 2) return { method: "confirm", reason: ["처리 방식 근거 충돌", reason].filter(Boolean).join("; ") };
@@ -555,8 +584,14 @@ export function stepMethodLabel(model: AgentInstructionModel, index: number): st
   const method = model.methods[index];
   const chain = model.methodChains[index];
   if (method === "composite" && chain?.length) {
+    const order = model.methodOrders[index];
+    const verifySuffix = step.scope === "verify" ? " · 검토·검증만 (운영 구현 금지)" : "";
+    if (order === "parallel") {
+      const parts = chain.map(stepMethodShortLabel).join(" · ");
+      return `복합 처리 (병행): ${parts} — 실행 순서·의존성 확인 필요${verifySuffix}`;
+    }
     const ordered = chain.map(stepMethodShortLabel).join(" → ");
-    return `복합 처리 (확인된 순서): ${ordered}${step.scope === "verify" ? " · 검토·검증만 (운영 구현 금지)" : ""}`;
+    return `복합 처리 (확인된 순서): ${ordered}${verifySuffix}`;
   }
   const processing = method === "rule" ? "규칙 기반 처리 (구체 규칙 확인 필요)" : method === "script" ? "일반 시스템·스크립트 처리" : method === "assist" ? "AI 후보·초안 생성" : method === "manual" ? "담당자 수동 처리" : "처리 방식 확인 필요";
   if (step.scope === "verify") return `${processing} · 검토·검증만 (운영 구현 금지)`;
@@ -776,7 +811,7 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
   const methodEvidence = steps.map((s, index) => stepMethod(s,
     steps.some((other, otherIndex) => otherIndex !== index && normalizedStepText(other.step) === normalizedStepText(s.step)), d));
   return { profile, level, gate, scopeLevel, steps, methods: methodEvidence.map(item => item.method), methodReasons: methodEvidence.map(item => item.reason),
-    methodChains: methodEvidence.map(item => item.chain), conditions, classified,
+    methodChains: methodEvidence.map(item => item.chain), methodOrders: methodEvidence.map(item => item.order), conditions, classified,
     ambiguous: classified.filter(item => item.scope === "confirm" && item.role !== "reference"),
     scoped, diagnosis: d, plan: guarded, prerequisites: options.prerequisites ?? [], gaps };
 }
@@ -815,8 +850,11 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
     && item.sources.some(source => source === "diagnosis.humanInLoop" || source === "plan.humanInLoop" || source === "policy.manualSteps"));
   const method = (s: StepScope) => model.methods[steps.indexOf(s)] ?? "confirm";
   const methodLabel = (s: StepScope) => stepMethodLabel(model, steps.indexOf(s));
+  const methodOrder = (s: StepScope) => model.methodOrders[steps.indexOf(s)];
   const doneWhen = (s: StepScope) => method(s) === "assist"
     ? "실제 입력으로 후보·초안이 생성되고, 담당자 확정 전에는 운영 결과로 반영되지 않으며, 생성할 수 없는 건은 검토 필요·실패로 표시됩니다."
+    : method(s) === "composite" && methodOrder(s) === "parallel"
+    ? "병행 처리가 확인되었으나 실행 순서와 의존성이 확정되지 않았습니다. 실제 실행 전 처리 순서를 담당자에게 확인하고, 각 역할의 완료 기준을 모두 만족할 때 완료로 인정합니다. 확인 전에는 순차 실행을 가정하지 마세요."
     : method(s) === "composite"
     ? "확인된 처리 순서대로 각 역할이 실제 입력으로 동작하고, AI 결과는 담당자 확정 전 운영 결과로 반영되지 않으며, 규칙·스크립트는 확인된 기준만 적용되고, 담당자 확인이 유지됩니다. 각 단계의 완료는 해당 역할의 완료 기준을 모두 만족할 때 인정됩니다."
     : method(s) === "rule" || method(s) === "script" ? "확인된 형식·키·업무 규칙으로 실제 입력이 처리되고, 담당자가 확정한 기대 결과와 대조한 기록 및 원본 대응 관계가 남습니다. 기대 결과·판정 기준이 없으면 '기준 확인 필요'로 보고하고 합격으로 단정하지 마세요."
@@ -903,7 +941,7 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
     work.length ? `### 최소 실행 흐름\n\n${minimalFlow}\n\n구현은 위 흐름에서 이 업무에 해당하는 단계만 의존 순서대로 연결하세요.\n\n${work.map((s, i) => `### 단계 ${i + 1}. ${s.step} — ${methodLabel(s)}\n\n${bullets([
       `처리 상태: ${s.scope === "implement" ? SCOPE_TITLES.implement : `${SCOPE_TITLES["after-check"]} (관련 확인 항목이 확인되기 전에는 보류)`}`,
       ...(s.note ? [`진단 메모: ${s.note}`] : []),
-      `담당자 확인: ${method(s) === "assist" ? "AI 결과는 제안값으로 표시하고 담당자가 확정한 값과 구분하세요. 규칙으로 판정할 부분에 별도 AI 호출을 추가하지 마세요." : method(s) === "composite" ? "확인된 복합 처리 순서를 유지하고, 각 역할을 담당자 확인·승인 단계로 승격하거나 무인 실행으로 바꾸지 마세요. AI 결과는 제안값으로, 규칙·스크립트는 확인된 기준으로, 최종 확인은 담당자가 수행합니다." : method(s) === "rule" || method(s) === "script" ? "파일 형식·병합 키·계산식·예외 규칙 등 이 단계에 필요한 실제 기준을 확인한 뒤 적용하세요. 규칙 미확인 건은 담당자 확인으로 넘기고 AI 호출을 추가하지 마세요." : method(s) === "manual" ? "담당자 수동 수행을 유지하고 자동화 구현으로 대체하지 마세요." : "AI·규칙·스크립트·수동 처리의 근거와 충돌을 담당자에게 확인하기 전에는 선택·구현하지 마세요."}`,
+      `담당자 확인: ${method(s) === "assist" ? "AI 결과는 제안값으로 표시하고 담당자가 확정한 값과 구분하세요. 규칙으로 판정할 부분에 별도 AI 호출을 추가하지 마세요." : method(s) === "composite" && methodOrder(s) === "parallel" ? "병행 처리 관계가 확인되었으므로 순차 실행을 가정하지 말고, 실제 실행 순서와 의존성을 담당자에게 먼저 확인하세요. 각 역할을 담당자 확인·승인 단계로 승격하거나 무인 실행으로 바꾸지 마세요." : method(s) === "composite" ? "확인된 복합 처리 순서를 유지하고, 각 역할을 담당자 확인·승인 단계로 승격하거나 무인 실행으로 바꾸지 마세요. AI 결과는 제안값으로, 규칙·스크립트는 확인된 기준으로, 최종 확인은 담당자가 수행합니다." : method(s) === "rule" || method(s) === "script" ? "파일 형식·병합 키·계산식·예외 규칙 등 이 단계에 필요한 실제 기준을 확인한 뒤 적용하세요. 규칙 미확인 건은 담당자 확인으로 넘기고 AI 호출을 추가하지 마세요." : method(s) === "manual" ? "담당자 수동 수행을 유지하고 자동화 구현으로 대체하지 마세요." : "AI·규칙·스크립트·수동 처리의 근거와 충돌을 담당자에게 확인하기 전에는 선택·구현하지 마세요."}`,
       ...linkedTo(s.step).map(item => `세부 제안 (생성 계획): ${item}`),
       `완료 기준: ${doneWhen(s)}`,
     ])}`).join("\n\n")}` : "",
