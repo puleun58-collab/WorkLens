@@ -41,8 +41,14 @@ type SessionAttachment = { meta: NonNullable<AxTask["attachmentMeta"]>; summary:
 type Confirmation = { kind: "import"; state: AxState } | { kind: "reset" } | { kind: "delete"; id: string };
 type RankedTask = { task: AxTask & { diagnosis: AxDiagnosis }; rank: number };
 
+function diagnosisCounts(tasks: AxTask[]) {
+  const results = tasks.filter(task => !!task.diagnosis);
+  const needsInfo = results.filter(task => task.diagnosis?.informationSufficiency === "needs-check").length;
+  return { results: results.length, completed: results.length - needsInfo, needsInfo };
+}
+
 export function AxDiagnosisView() {
-  const { state, update, replace, ready, saveStatus, loadNotice, externalChange } = useAxState();
+  const { state, update, replace, ready, saveStatus, loadNotice, externalChange, storageProtection } = useAxState();
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const activeRun = useRef(false), activeAi = useRef(false), alive = useRef(true);
@@ -58,9 +64,18 @@ export function AxDiagnosisView() {
   const importInput = useRef<HTMLInputElement>(null);
   const nameHelpId = useId();
   const ranked = priority(state.tasks).map((row, index) => ({ ...row, rank: index + 1 }));
-  const matrixStatus = <p className="ax-muted">등록 {state.tasks.length}개 · 진단 완료 {ranked.length}개{state.tasks.length > ranked.length ? ` · 미진단 ${state.tasks.length - ranked.length}개 제외` : ""}</p>;
+  const counts = diagnosisCounts(state.tasks);
+  const matrixStatus = <p className="ax-muted">등록 {state.tasks.length}개 · 진단 결과 {counts.results}개 · 진단 완료 {counts.completed}개 · 추가 확인 필요 {counts.needsInfo}개{state.tasks.length > counts.results ? ` · 미진단 ${state.tasks.length - counts.results}개 제외` : ""}</p>;
   const gateOrder = { ready: 0, conditional: 1, blocked: 2 };
-  const displayed = [...ranked].sort((a, b) => gateOrder[executionGate(a.task.diagnosis)] - gateOrder[executionGate(b.task.diagnosis)]);
+  const profiles = ranked.map(row => ({ row, profile: executionProfile(row.task.diagnosis) }));
+  const displayed = [...profiles].sort((a, b) => gateOrder[a.profile.gate] - gateOrder[b.profile.gate]).map(({ row }) => row);
+  const readyCandidates = profiles.filter(({ profile }) => profile.readyExecutionCandidate);
+  const conditional = profiles.filter(({ profile }) => profile.gate === "conditional");
+  const review = profiles.filter(({ profile }) => profile.gate !== "blocked");
+  const overviewProfiles = (readyCandidates.length ? readyCandidates : conditional.length ? conditional : review.length ? review : profiles).slice(0, 3);
+  const overviewRows = overviewProfiles.map(({ row }) => row);
+  const overviewHeading = priorityHeading(overviewProfiles.map(({ profile }) => profile));
+  const overviewIsTop = readyCandidates.length > 0;
   const currentSelection = state.tasks.find(task => task.id === state.selectedTaskId);
   const selected = state.step >= 3 ? currentSelection?.diagnosis ? currentSelection : displayed[0]?.task : currentSelection ?? state.tasks[0];
   const selectedId = selected?.id ?? null;
@@ -180,7 +195,7 @@ export function AxDiagnosisView() {
     try {
       if (file.size > AX_LIMITS.transferBytes) throw new Error("가져오기 파일은 8MB 이하여야 합니다.");
       const imported = importAxState(await file.text());
-      if (state.tasks.length) setConfirmation({ kind: "import", state: imported });
+      if (state.tasks.length || storageProtection !== "writable") setConfirmation({ kind: "import", state: imported });
       else { const saved = await replace(imported); attachments.current.clear(); setAttachmentIds([]); clearDraft(); setMessage(saved ? "AI•AX 데이터를 가져왔습니다." : "AI•AX 데이터를 가져왔으나 브라우저 저장에 실패했습니다. 내보내기로 보관하세요."); }
     } catch (error) { setMessage((error as Error).message); }
   }
@@ -214,7 +229,7 @@ export function AxDiagnosisView() {
     })}</ul>;
   }
   function priorityRows(top = false, all = false) {
-    return <>{displayed.some((row, index) => row.rank !== index + 1) ? <p className="ax-muted ax-priority-order">번호는 우선순위 점수 기준이며, 실행 상태별로 표시합니다.</p> : null}<ol className="ax-priority-list" aria-label={top ? "자동화 우선순위 TOP 목록" : all ? "전체 진단 업무 목록" : "자동화 우선순위 목록"}>{(top ? displayed.slice(0, 3) : displayed).map(r => {
+    return <>{displayed.some((row, index) => row.rank !== index + 1) ? <p className="ax-muted ax-priority-order">번호는 우선순위 점수 기준이며, 실행 상태별로 표시합니다.</p> : null}<ol className="ax-priority-list" aria-label={top ? overviewIsTop ? "자동화 우선순위 TOP 목록" : "우선 확인 업무 목록" : all ? "전체 진단 업무 목록" : "자동화 우선순위 목록"}>{(top ? overviewRows : displayed).map(r => {
       const l = automationLevel(r.task.diagnosis), m = matrixPosition(r.task.diagnosis), gate = executionGate(r.task.diagnosis);
       return <li key={r.task.id}><Button type="button" variant="ghost" className="ax-priority-row" aria-pressed={selected?.id === r.task.id} onClick={() => select(r.task.id)} disabled={!!busy}>
         <strong className="ax-rank">#{r.rank}</strong><span className="ax-priority-content"><span className="ax-priority-head"><span className="ax-task-name">{r.task.name}</span><span className="ax-region-chip" data-region={m.region}>{m.label}</span>{gate !== "ready" ? <span className="ax-gate-cond" data-gate={gate}>{GATE_LABELS[gate]}</span> : null}</span>
@@ -246,7 +261,7 @@ export function AxDiagnosisView() {
     </div>
     {saveStatus === "저장 실패" ? <p role="status" className="ax-notice">자동 저장에 실패했습니다. 필요하면 AI•AX 데이터를 내보내 백업해주세요.</p> : null}
     {loadNotice ? <p role="status" className="ax-notice">{loadNotice}</p> : null}
-    {externalChange ? <p role="status" className="ax-notice">다른 탭에서 AI•AX 데이터가 변경되었습니다. 최신 내용을 보려면 새로고침하세요. <Button type="button" variant="outline" size="sm" onClick={() => window.location.reload()}>새로고침</Button></p> : null}
+    {externalChange ? <p role="status" className="ax-notice">다른 탭에서 AI•AX 데이터가 변경되어 원본 보호를 위해 자동 저장을 중단했습니다. 현재 화면의 변경은 먼저 내보내기로 보관하세요. 새로고침하면 다른 탭의 최신 데이터를 불러옵니다. <Button type="button" variant="outline" size="sm" onClick={() => window.location.reload()}>새로고침</Button></p> : null}
     {!ready ? <p role="status">AI•AX 데이터를 불러오는 중…</p> : <Tabs value={String(state.step)} onValueChange={value => changeStep(Number(value))}>
       <TabsList className="ax-steps" aria-label="진단 단계">{STEPS.map((s, i) => { const Icon = STEP_ICONS[i]; return <TabsTab key={s} value={String(i + 1)} disabled={!!busy}><Icon size={15} aria-hidden="true" /><span>{s}</span></TabsTab>; })}</TabsList>
       <TabsPanel value="1">
@@ -291,7 +306,7 @@ export function AxDiagnosisView() {
         </div>}
       </TabsPanel>
       <TabsPanel value="3">
-        {!ranked.length ? <><div className="ax-matrix-header">{matrixStatus}</div><p className="ax-empty ax-muted">진단 완료 업무 없음</p></> : <div className="ax-step3-grid">
+        {!ranked.length ? <><div className="ax-matrix-header">{matrixStatus}</div><p className="ax-empty ax-muted">진단 결과 업무 없음</p></> : <div className="ax-step3-grid">
           <section className="ax-surface" aria-label="매트릭스 업무 목록"><h3>업무 목록</h3>{taskRows(false)}</section>
           <div className="ax-step3-main"><section className="ax-surface ax-matrix-surface"><div className="ax-matrix-header"><h2>자동화 매트릭스</h2>{matrixStatus}</div><AxMatrix rows={ranked} selectedId={selected?.id} onSelect={select} step={state.step} /></section>
             <section className="ax-surface"><h3>자동화 우선순위</h3>{priorityRows()}</section>
@@ -304,7 +319,7 @@ export function AxDiagnosisView() {
           <aside className="ax-step4-overview" aria-label="전체 업무 현황">
             <AxKpiCards tasks={state.tasks} />
             <div className="ax-step4-overview-grid">
-              <section className="ax-surface"><h3>{priorityHeading(ranked.map(r => executionProfile(r.task.diagnosis)))}</h3>{priorityRows(true)}{ranked.length > 3 ? <Accordion className="ax-all-tasks"><AccordionItem value="all-tasks"><AccordionTrigger>전체 업무 보기</AccordionTrigger><AccordionPanel><div className="ax-all-task-list">{priorityRows(false, true)}</div></AccordionPanel></AccordionItem></Accordion> : null}</section>
+              <section className="ax-surface"><h3>{overviewHeading}</h3>{priorityRows(true)}{ranked.length > overviewRows.length ? <Accordion className="ax-all-tasks"><AccordionItem value="all-tasks"><AccordionTrigger>전체 업무 보기</AccordionTrigger><AccordionPanel><div className="ax-all-task-list">{priorityRows(false, true)}</div></AccordionPanel></AccordionItem></Accordion> : null}</section>
               <section className="ax-surface"><h3>분류 현황</h3><div className="ax-region-tiles">{Object.entries(REGION_LABELS).map(([region, label]) => <div className="ax-region-tile" data-region={region} key={region}><span>{label}</span><strong>{ranked.filter(r => matrixPosition(r.task.diagnosis).region === region).length}개</strong></div>)}</div></section>
             </div>
           </aside>
@@ -339,13 +354,13 @@ function AxAttachmentInput({ disabled, onSelect }: { disabled: boolean; onSelect
   </div>;
 }
 function AxKpiCards({ tasks }: { tasks: AxTask[] }) {
-  const diagnosedCount = tasks.filter(t => !!t.diagnosis).length;
+  const counts = diagnosisCounts(tasks);
   const ranked = priority(tasks);
   const knownMinutes = tasks.map(monthlyMinutes).filter((m): m is number => m !== null);
   return <div className="ax-kpi-cards">
     <div className="ax-surface ax-kpi"><span className="ax-kpi-label"><ClipboardList size={14} aria-hidden="true" />등록 업무</span><strong>{tasks.length}개</strong></div>
-    <div className="ax-surface ax-kpi"><span className="ax-kpi-label"><CircleCheck size={14} aria-hidden="true" />진단 완료</span><strong>{diagnosedCount}개</strong></div>
-    {diagnosedCount ? <div className="ax-surface ax-kpi"><span className="ax-kpi-label"><Zap size={14} aria-hidden="true" />우선 검토 후보</span><strong>{ranked.filter(r => matrixPosition(r.task.diagnosis).region === "quick" && executionGate(r.task.diagnosis) !== "blocked").length}개</strong></div> : null}
+    <div className="ax-surface ax-kpi"><span className="ax-kpi-label"><CircleCheck size={14} aria-hidden="true" />진단 결과</span><strong>{counts.results}개</strong><small className="ax-muted">진단 완료 {counts.completed}개 · 추가 확인 필요 {counts.needsInfo}개</small></div>
+    {counts.results ? <div className="ax-surface ax-kpi"><span className="ax-kpi-label"><Zap size={14} aria-hidden="true" />우선 검토 후보</span><strong>{ranked.filter(r => matrixPosition(r.task.diagnosis).region === "quick" && executionGate(r.task.diagnosis) !== "blocked").length}개</strong></div> : null}
     {knownMinutes.length ? <div className="ax-surface ax-kpi"><span className="ax-kpi-label"><Clock3 size={14} aria-hidden="true" />월 투입시간 합 · 입력 {knownMinutes.length}개</span><strong>{(knownMinutes.reduce((sum, m) => sum + m, 0) / 60).toLocaleString("ko-KR", { maximumFractionDigits: 1 })}시간</strong></div> : null}
   </div>;
 }

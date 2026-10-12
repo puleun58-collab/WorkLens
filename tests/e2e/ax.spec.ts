@@ -216,7 +216,7 @@ test("AX registration → diagnosis → correction → matrix → plans → relo
   expect(matrix.originYError).toBeLessThanOrEqual(1.5);
   await page.screenshot({ path: `artifacts/ax/matrix-${test.info().project.name}.png` });
   await page.getByRole("tab", { name: "결과·로드맵", exact: false }).click();
-  const top = page.getByRole("list", { name: "자동화 우선순위 TOP 목록", exact: true });
+  const top = page.locator(".ax-step4-overview .ax-priority-list").first();
   await expect(top).toContainText("부분 자동화 · Level 2");
   await expect(top).toContainText("점수 7");
   await expect(page.getByRole("region", { name: "진단 요약", exact: true })).toContainText("Level 2");
@@ -464,12 +464,22 @@ test("AX validates imports before replacement, cancel preserves existing data an
   await expect(page.getByLabel("등록 업무 목록")).toContainText("업무 imported");
   await expect.poll(() => record(page)).toEqual(JSON.parse(imported).data);
 });
-test("AX safely resets unsupported/corrupt IndexedDB records", async ({ page }) => {
-  await page.goto("/"); await seed(page, { schemaVersion: 99, tasks: "broken" }); await ax(page);
-  await expect(page.getByText("안전하게 초기화했습니다", { exact: false })).toBeVisible();
+test("AX preserves unsupported IndexedDB records until an explicit reset", async ({ page }) => {
+  const original = { schemaVersion: 99, tasks: "broken" };
+  await page.goto("/"); await seed(page, original); await ax(page);
+  await expect(page.getByRole("status").filter({ hasText: "원본" })).toBeVisible();
+  await register(page, "임시 화면 업무");
+  await page.getByRole("button", { name: "다음 단계" }).click();
+  await navigateWorkspace(page, "분석");
+  expect(await record(page)).toEqual(original);
+  await ax(page);
   await expect(page.getByLabel("등록 업무 목록")).toHaveCount(0);
-  await expect.poll(async () => (await record(page))?.schemaVersion).toBe(1);
-  expect((await record(page))?.tasks).toEqual([]);
+  await dataAction(page, "데이터 초기화");
+  await page.getByRole("alertdialog").getByRole("button", { name: "취소", exact: true }).click();
+  expect(await record(page)).toEqual(original);
+  await dataAction(page, "데이터 초기화");
+  await page.getByRole("alertdialog").getByRole("button", { name: "초기화", exact: true }).click();
+  await expect.poll(() => record(page)).toBeUndefined();
 });
 test("AX styled file selection shows filenames and removes draft/session attachments", async ({ page }) => {
   const calls: Record<string, unknown>[] = []; await mock(page, calls);
@@ -630,10 +640,10 @@ test("AX Execution Gate blocks no-go plans and displays ready tasks before highe
   await expect(page.locator(".ax-gate-checks")).toHaveCount(0);
   await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();
   const top = page.getByRole("list", { name: "자동화 우선순위 TOP 목록", exact: true });
-  await expect(top.locator("li .ax-task-name")).toHaveText(["가능 업무", "차단 업무"]);
-  const blocked = top.getByRole("listitem").filter({ hasText: "차단 업무" });
+  await expect(top.locator("li .ax-task-name")).toHaveText(["가능 업무"]);
+  await page.getByRole("button", { name: "전체 업무 보기", exact: true }).click();
+  const blocked = page.getByRole("list", { name: "전체 진단 업무 목록", exact: true }).getByRole("listitem").filter({ hasText: "차단 업무" });
   const ready = top.getByRole("listitem").filter({ hasText: "가능 업무" });
-  await expect(blocked).toContainText("점수 12.5");
   await expect(ready).toContainText("점수 9");
   await expect(blocked.locator(".ax-region-chip")).toHaveText("빠른 실행 후보");
   await expect(blocked.locator(".ax-gate-cond")).toHaveText("진행 보류");
@@ -1409,8 +1419,8 @@ for (const width of [1440, 390]) for (const count of [1, 3, 5, 10]) {
     await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();
     await expect(page.locator(".ax-report-intro h2")).toHaveText(last.name);
     await expect(page.locator(".ax-kpi").filter({ hasText: "등록 업무" }).locator("strong")).toHaveText(`${count}개`);
-    await expect(page.locator(".ax-kpi").filter({ hasText: "진단 완료" }).locator("strong")).toHaveText(`${count}개`);
-    await expect(page.getByRole("list", { name: "자동화 우선순위 TOP 목록", exact: true }).locator(".ax-rank")).toHaveText(tasks.slice(0, 3).map((_, index) => `#${index + 1}`));
+    await expect(page.locator(".ax-kpi").filter({ has: page.locator(".ax-kpi-label", { hasText: "진단 결과" }) }).locator("strong")).toHaveText(`${count}개`);
+    await expect(page.locator(".ax-step4-overview .ax-priority-list").first().locator(".ax-rank")).toHaveText(tasks.slice(0, 3).map((_, index) => `#${index + 1}`));
     expect(await badgeStyle(page.locator('.ax-gate-cond[data-gate="conditional"]').first())).toEqual(matrixBadge);
     const all = page.getByRole("button", { name: "전체 업무 보기", exact: true });
     if (count > 3) {
@@ -1496,7 +1506,7 @@ for (const width of [1440, 390]) test(`AX score evidence and all ranks update to
   await expect(page.getByRole("list", { name: "자동화 우선순위 목록", exact: true }).locator(".ax-task-name")).toHaveText([tasks[1].name, tasks[0].name]);
   await evidence.click(); await expect(panel.locator(".ax-score-result strong")).toHaveText(["1", "1"]);
   await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();
-  await expect(page.getByRole("list", { name: "자동화 우선순위 TOP 목록", exact: true }).locator(".ax-task-name")).toHaveText([tasks[1].name, tasks[0].name]);
+  await expect(page.locator(".ax-step4-overview .ax-priority-list").first().locator(".ax-task-name")).toHaveText([tasks[1].name, tasks[0].name]);
   await expect(page.locator(".ax-report-intro h2")).toHaveText(tasks[0].name);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
@@ -1525,9 +1535,9 @@ test("AX partial diagnoses preserve selected task plans, tool prompts, copy and 
   await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();
   await expect(page.locator(".ax-report-intro h2")).toHaveText("B");
   await expect(page.locator(".ax-kpi").filter({ hasText: "등록 업무" }).locator("strong")).toHaveText("5개");
-  await expect(page.locator(".ax-kpi").filter({ hasText: "진단 완료" }).locator("strong")).toHaveText("3개");
+  await expect(page.locator(".ax-kpi").filter({ has: page.locator(".ax-kpi-label", { hasText: "진단 결과" }) }).locator("strong")).toHaveText("3개");
   await expect(page.getByRole("button", { name: "전체 업무 보기", exact: true })).toHaveCount(0);
-  const top = page.getByRole("list", { name: "자동화 우선순위 TOP 목록", exact: true });
+  const top = page.locator(".ax-step4-overview .ax-priority-list").first();
   const plans = page.getByRole("region", { name: "자동화 구현 계획", exact: true });
   for (const name of ["A", "B"]) {
     await top.getByRole("listitem").filter({ has: page.locator(".ax-task-name", { hasText: new RegExp(`^${name}$`) }) }).getByRole("button").click();
@@ -1601,7 +1611,9 @@ test("AX compares diagnoses regardless of provisional status and preserves other
   await page.getByRole("tab", { name: "자동화 매트릭스", exact: true }).click();
   await expect(page.getByLabel("매트릭스 업무 목록").locator(".ax-task-name")).toHaveText(["1. 완료 A", "2. 보정 C", "3. 정보 확인 D"]);
   await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();
-  await expect(page.locator(".ax-kpi").filter({ hasText: "진단 완료" }).locator("strong")).toHaveText("3개");
+  const resultKpi = page.locator(".ax-kpi").filter({ has: page.locator(".ax-kpi-label", { hasText: "진단 결과" }) });
+  await expect(resultKpi.locator("strong")).toHaveText("3개");
+  await expect(resultKpi.locator("small")).toContainText("진단 완료 2개 · 추가 확인 필요 1개");
 });
 
 for (const width of [1440, 390]) {

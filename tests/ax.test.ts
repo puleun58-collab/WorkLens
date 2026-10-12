@@ -68,9 +68,12 @@ describe("AX local persistence and transfer validation", () => {
     expect(importAxState(exportAxState(canonical))).toEqual(canonical);
   });
   it("handles absent, corrupt and unsupported records without crashing", () => {
-    expect(restoreAxRecord(undefined)).toEqual({ state: emptyAxState() });
+    expect(restoreAxRecord(undefined)).toEqual({ state: emptyAxState(), protection: "writable" });
     for (const record of [null, {}, { schemaVersion: 2 }, { ...state, tasks: [{ id: "bad" }] }, { ...state, selectedTaskId: "missing" }]) {
-      expect(restoreAxRecord(record)).toMatchObject({ state: emptyAxState(), notice: expect.stringContaining("초기화") });
+      const restored = restoreAxRecord(record);
+      expect(restored.state).toEqual(emptyAxState());
+      expect(restored.protection).toBe("invalid");
+      expect(restored.notice).toBeTruthy();
     }
   });
   it("rejects JSON, format, version, required fields, unexpected payloads and inconsistent task states", () => {
