@@ -324,7 +324,7 @@ export function AxDiagnosisView() {
             </div>
           </aside>
           {selected?.diagnosis ? <article className="ax-selected-report" aria-label={`${selected.name} 결과·로드맵`}>
-            <header className="ax-report-intro"><div><span className="ax-report-eyebrow">선택한 업무 · 결과·로드맵</span><h2>{selected.name}</h2><p>{selected.description}</p></div><Badge className="ax-status-badge">{STATUS[selected.status]}</Badge></header>
+            <header className="ax-report-intro"><div><span className="ax-report-eyebrow">선택한 업무 · 결과·로드맵</span><div className="ax-title-group"><h2>{selected.name}</h2><Badge className="ax-status-badge">{STATUS[selected.status]}</Badge></div><p>{selected.description}</p></div></header>
             <AxResultSummary task={selected} />
             <AxExecutionTimeline diagnosis={selected.diagnosis} />
             <AxPlanSection key={selected.id} diagnosis={selected.diagnosis} taskName={selected.name} taskContext={[selected.description, ...Object.values(taskDetails(selected)).filter(value => value !== undefined).map(String)].join("\n")} busy={busy} onGenerate={target => void generatePlan(selected, target)} />
