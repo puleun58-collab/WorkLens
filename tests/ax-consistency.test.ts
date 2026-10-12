@@ -186,7 +186,8 @@ describe("AX shared processing and relational scope", () => {
     expect(model.steps).toEqual(executionProfile(c.diagnosis).stepScope);
     expect(model.gate).toBe("conditional");
     expect(model.scopeLevel).toBe(1);
-    expect(model.methods).toEqual(["script", "rule", "confirm", "manual"]);
+    expect(model.methods).toEqual(["composite", "rule", "confirm", "manual"]);
+    expect(model.methodChains[0]).toEqual(["script", "manual"]);
     expect(model.steps.map(step => step.scope)).toEqual(["after-check", "after-check", "future", "human"]);
     expect(model.scoped.outputs).toContainEqual(expect.objectContaining({ text: "실적 파일 병합 — 병합 검토 파일", step: "실적 파일 병합", scope: "after-check" }));
     const test = from(model, "plan.tests", "누락·중복 검증 — 샘플 누락·중복 검사");
