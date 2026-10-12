@@ -807,7 +807,7 @@ test("AX saves warn another tab and refresh loads the registered task", async ({
   await expect(other.getByLabel("등록 업무 목록")).toHaveCount(0);
   await register(page, "A 탭에서 등록한 업무");
   await expect.poll(() => record(page)).toMatchObject({ tasks: [{ name: "A 탭에서 등록한 업무" }] });
-  const notice = other.getByRole("status").filter({ hasText: "다른 탭에서 AI•AX 데이터가 변경되었습니다" });
+  const notice = other.getByRole("status").filter({ has: other.getByRole("button", { name: "새로고침", exact: true }) });
   await expect(notice).toBeVisible();
   await expect(other.getByLabel("등록 업무 목록")).toHaveCount(0);
   await notice.getByRole("button", { name: "새로고침", exact: true }).click();
