@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildAgentInstructionModel, buildAllInOnePrompt, guardPlan, planSummary, setupGuide, stepMethodLabel, TOOL_GUIDES, type AxGuideSection } from "../src/lib/ax/guide";
+import { executionGate } from "../src/lib/ax/policy";
 import { FACTOR_LABELS } from "../src/lib/ax/schema";
 import { diagnosisFixture, planFixture } from "./fixtures/ax";
 import type { AxDiagnosis, AxPlan } from "../src/lib/ax/types";
@@ -221,7 +222,8 @@ describe("AX plan display boundaries", () => {
     expect(model.scoped.tests).toContainEqual(expect.objectContaining({ text: "샘플 대조" }));
     expect(model.scoped.criteria.map(item => item.text)).toContain("샘플 대조 통과");
     expect(summary.tests).toEqual(["샘플 대조"]);
-    expect(summary.acceptance).toEqual(["성공: 샘플 대조 통과", "실패: 누락 발생"]);
+    expect(summary.success).toEqual(["샘플 대조 통과"]);
+    expect(summary.failure).toEqual(["누락 발생"]);
     // Confirmed checks are not open conditions.
     expect(planSummary({ ...diagnosis, technicalChecks: [{ topic: "샘플 파일", status: "확인됨", note: "헤더 확인" }, ...diagnosis.technicalChecks] }).prerequisites.join("\n")).not.toContain("샘플 파일");
     expect(planSummary({ ...diagnosis, planCodex: freightPlan, planClaude: planFixture })).toEqual(summary);
@@ -246,7 +248,38 @@ describe("AX plan display boundaries", () => {
     expect(withPlan.constraints.join("\n")).toContain("plan.outOfScope");
     expect(withPlan.include).toEqual(base.include);
     expect(withPlan.tests).toEqual(base.tests);
-    expect(withPlan.acceptance).toEqual(base.acceptance);
+    expect([withPlan.success, withPlan.failure]).toEqual([base.success, base.failure]);
     expect({ diagnosis, plan }).toEqual(before);
+  });
+
+  it("defers integration checks and automated-result PoC checks only within Level 0 review scope", () => {
+    const patch: Partial<AxDiagnosis> = {
+      technicalChecks: [
+        { topic: "샘플 데이터", status: "확인 필요", note: "실제 형식과 필수 항목 확인" },
+        { topic: "AI·API 연동", status: "확인 필요", note: "사진 업로드 API와 AI 모델 접근 권한 확인" },
+      ],
+      poc: { ...diagnosisFixture.poc, evaluation: ["자동 초안과 수동 작성 초안을 전수 대조", "샘플 체크리스트 필수 항목 대조"] },
+    };
+    const levelZero = withFactors([3, 2, 2, 2, 5, 4], patch);
+    expect(buildAgentInstructionModel(undefined, { diagnosis: withFactors([3, 2, 2, 2, 5, 4], { ...patch, poc: { ...patch.poc!, outputs: ["자동 생성된 점검 기록 초안", "점검 결과 요약표"] } }) })
+      .scoped.outputs.map(item => item.text)).toEqual(["점검 결과 요약표"]);
+    const summary = planSummary(levelZero);
+    expect(summary.checks.map(check => check.tone)).toEqual(["required", "future"]);
+    expect(summary.tests).toEqual(["향후 검증: 자동 초안과 수동 작성 초안을 전수 대조", "샘플 체크리스트 필수 항목 대조"]);
+    const prompt = buildAllInOnePrompt(undefined, "codex", { diagnosis: levelZero });
+    const conditions = prompt.split("## 3. 선행 조건·차단 사항")[1].split("## 4.")[0];
+    expect(conditions.split("### 향후 단계 확인 조건")[0]).toContain("샘플 데이터 — 실제 형식과 필수 항목 확인");
+    expect(conditions.split("### 향후 단계 확인 조건")[0]).not.toContain("AI·API 연동");
+    expect(conditions.split("### 향후 단계 확인 조건")[1]).toContain("AI·API 연동 — 사진 업로드 API와 AI 모델 접근 권한 확인");
+    const tests = prompt.split("## 7. 테스트·회귀 검증")[1].split("## 8.")[0];
+    expect(tests.split("### 향후·범위 확인 테스트")[0]).not.toContain("자동 초안과 수동 작성 초안을 전수 대조");
+    expect(tests).not.toContain("### 정상 케이스");
+    // Implementable Levels keep the same checks as current conditions; the Level × Gate policy is unchanged.
+    const levelTwo = withFactors([4, 4, 4, 3, 3, 3], patch);
+    expect(planSummary(levelTwo).checks.map(check => check.tone)).toEqual(["required", "required"]);
+    const levelTwoPrompt = buildAllInOnePrompt(undefined, "codex", { diagnosis: levelTwo });
+    expect(levelTwoPrompt).not.toContain("### 향후 단계 확인 조건");
+    expect(levelTwoPrompt).toContain("### 정상 케이스");
+    expect(executionGate(levelZero)).toBe("conditional");
   });
 });

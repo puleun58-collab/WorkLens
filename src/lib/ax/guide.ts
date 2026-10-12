@@ -349,14 +349,22 @@ const explicitStep = (value: string, step: StepScope) => {
   return !!step.treatment && clean === normalizedStepText(`${step.step} ${step.treatment}`);
 };
 const HUMAN_DECISION_CHECK = "담당자 유지 항목의 확정·시스템 반영·외부 전송 조건을 해당 단계에서 확인하세요. 확인 전 최종 처리는 대기하지만, 허용된 독립 후보·초안·규칙 검토는 각 단계의 선행 조건 안에서 진행할 수 있습니다.";
+/** Card tone for one technical check; `future` only when the check is explicitly linked to a step outside the current Level scope. */
+export type AxCheckTone = "required" | "future" | "done" | "blocked";
 /** Read-only Step 4 summary; tentative PoC claims are visible but never promoted to required checks. */
 export interface AxPlanSummary {
   include: string[]; humanKept: string[]; excluded: string[];
   prerequisites: string[];
+  /** Technical checks as status cards, in diagnosis order. */
+  checks: { topic: string; status: AxDiagnosis["technicalChecks"][number]["status"]; note: string; tone: AxCheckTone }[];
+  /** Prerequisites not already shown as a check card; blocked gates list block reasons as `current`. */
+  conditions: { current: string[]; future: string[] };
   /** Existing structured human/exclusion fields, with their source retained. */
   constraints: string[];
+  /** Constraints whose item is not already listed in `humanKept` or `excluded`. */
+  approvals: string[];
   data: { label: string; items: string[] }[];
-  tests: string[]; acceptance: string[]; exceptions: string[];
+  tests: string[]; success: string[]; failure: string[]; exceptions: string[];
 }
 
 export function planSummary(diagnosis: AxDiagnosis, rawPlan?: AxPlan, context = ""): AxPlanSummary {
@@ -373,15 +381,38 @@ export function planSummary(diagnosis: AxDiagnosis, rawPlan?: AxPlan, context = 
   const openTopics = openCheckTopics(model);
   const own = unique(profile?.prerequisites ?? []);
   const planOwn = without(model.classified.filter(item => item.role === "conditions" && item.sources.includes("plan.prerequisites") && !openTopics.has(normalizedItem(item.text))).map(item => item.text), own);
-  const prerequisites = unique(model.gate === "blocked" ? profile?.blockReasons ?? [] : [
-    ...own,
-    ...planOwn.map(text => model.classified.find(item => item.role === "conditions" && item.text === text)?.scope === "future" ? `${text} (향후 단계 조건)` : text),
+  // Same lookup as the prompt's condition list: the diagnosis check's policy scope wins over an identically worded plan line.
+  const isFuture = (text: string) => {
+    const matches = model.classified.filter(item => item.role === "conditions" && normalizedItem(item.text) === normalizedItem(text));
+    return (matches.find(item => item.sources.includes("diagnosis.technicalChecks")) ?? matches[0])?.scope === "future";
+  };
+  const conditionEntries = model.gate === "blocked" ? (profile?.blockReasons ?? []).map(text => ({ text, future: false })) : [
+    ...own.map(text => ({ text, future: isFuture(text) })),
+    ...planOwn.map(text => ({ text, future: isFuture(text) })),
     ...model.classified.filter(item => item.role === "human" && /확인 필요|미확정|미정|불명/u.test(item.original ?? item.text))
-      .map(item => `${item.original ?? item.text} (해당 담당자 단계의 최종 확정·반영·전송 전 확인; 출처: ${item.sources.join(", ")})`),
-    ...model.gaps,
-  ]);
+      .map(item => ({ text: `${item.original ?? item.text} (해당 담당자 단계의 최종 확정·반영·전송 전 확인; 출처: ${item.sources.join(", ")})`, future: false })),
+    ...model.gaps.map(text => ({ text, future: false })),
+  ];
+  const prerequisites = unique(conditionEntries.map(entry => entry.future ? `${entry.text} (향후 단계 조건)` : entry.text));
+  const technicalChecks = diagnosis.technicalChecks ?? [];
+  const checkTexts = new Set(technicalChecks.flatMap(check => [
+    check.note ? `${check.topic} — ${check.note}` : check.topic,
+    ...(check.status === "불가" ? [check.note ? `${check.topic} 불가 — ${check.note}` : `${check.topic} 불가`] : []),
+  ]).map(normalizedItem));
+  const openConditions = conditionEntries.filter(entry => !checkTexts.has(normalizedItem(entry.text)));
+  const checks = technicalChecks.map(check => {
+    const text = `${check.topic}${check.note ? ` — ${check.note}` : ""}`;
+    const linked = model.classified.find(item => item.sources.includes("diagnosis.technicalChecks") && item.text === text);
+    const tone: AxCheckTone = check.status === "확인됨" ? "done" : check.status === "불가" ? "blocked" : linked?.scope === "future" ? "future" : "required";
+    return { topic: check.topic, status: check.status, note: check.note, tone };
+  });
+  const excluded = mergeDistinct(restricted, without([
+    ...(profile?.poc.outOfScope ?? []), ...(diagnosis.poc?.outOfScope ?? []), ...(rawPlan?.outOfScope ?? []),
+  ], manualAutomation));
+  const shownScope = new Set([...humanKept, ...excluded].map(normalizedItem));
   const pocTests = model.classified.filter(item => item.source === "diagnosis.poc.evaluation");
-  const pocCriteria = model.classified.filter(item => item.source === "diagnosis.poc.success" || item.source === "diagnosis.poc.failure");
+  const criteria = (source: string) => unique(model.classified.filter(item => item.source === source).map(item => model.scoped.criteria.includes(item)
+    ? item.text : `${item.scope === "future" ? "향후 판정" : "기준 확인 필요"}: ${item.text}`));
   return {
     include: unique((profile?.poc.inScope ?? []).flatMap(line => {
       const matches = model.steps.map((step, index) => ({ step, index }))
@@ -391,11 +422,15 @@ export function planSummary(diagnosis: AxDiagnosis, rawPlan?: AxPlan, context = 
         : [scopeItemLabel(model, line)];
     })),
     humanKept,
-    excluded: mergeDistinct(restricted, without([
-      ...(profile?.poc.outOfScope ?? []), ...(diagnosis.poc?.outOfScope ?? []), ...(rawPlan?.outOfScope ?? []),
-    ], manualAutomation)),
+    excluded,
     prerequisites,
+    checks,
+    conditions: {
+      current: unique(openConditions.filter(entry => !entry.future).map(entry => entry.text)),
+      future: unique(openConditions.filter(entry => entry.future).map(entry => entry.text)),
+    },
     constraints: approvalConstraints(model),
+    approvals: approvalConstraints(model, entry => !shownScope.has(normalizedItem(entry.original ?? entry.text)) && !shownScope.has(normalizedItem(entry.text))),
     data: [
       { label: "입력", items: unique(diagnosis.asIs?.inputs ?? []) },
       { label: "출력", items: unique(diagnosis.asIs?.outputs ?? []) },
@@ -405,12 +440,8 @@ export function planSummary(diagnosis: AxDiagnosis, rawPlan?: AxPlan, context = 
     ].filter(row => row.items.length),
     tests: unique(pocTests.map(item => model.scoped.tests.includes(item) ? item.text
       : `${item.scope === "future" ? "향후 검증" : "적용 범위 확인 필요"}: ${item.text}`)),
-    acceptance: unique(pocCriteria.map(item => {
-      const label = item.source === "diagnosis.poc.success" ? "성공" : "실패";
-      return model.scoped.criteria.includes(item)
-        ? `${label}: ${item.text}`
-        : `${item.scope === "future" ? "향후 판정" : "기준 확인 필요"} (${label}): ${item.text}`;
-    })),
+    success: criteria("diagnosis.poc.success"),
+    failure: criteria("diagnosis.poc.failure"),
     exceptions: mergeDistinct(diagnosis.asIs?.exceptions ?? [], diagnosis.risks ?? []),
   };
 }
@@ -426,6 +457,10 @@ const UNATTENDED_METHOD = /(무인|자동\s*(?:생성|작성|실행|전송|발�
 const REQUESTED = /(담당자 요청|담당자 확인 후|수동 요청|요청 시)/u;
 const RULE_NOTE = /(규칙 기반|확정된 규칙|정해진 규칙)/u;
 const CANDIDATE_NOTE = /(?:AI\s*(?:후보|초안|생성)|(?:후보|초안)(?:\s*·\s*(?:후보|초안))?\s*(?:생성|제안|검토)|후보와 변환 결과)/u;
+/** Level 0 permits no system integration or AI implementation, so a check about one cannot gate the current review work. */
+const INTEGRATION_CHECK = /(API|연동|인증|라이선스|AI\s*(?:모델|서비스|엔진)|생성\s*모델|외부\s*시스템|자동\s*(?:저장|전송|업로드))/iu;
+/** A Level 0 review has no automated or AI output to compare against. */
+const AUTOMATED_RESULT = /(?:자동|AI|인공지능)\s*(?:생성|작성|초안|결과|처리|판단|판정|분류|추출)/iu;
 export interface AgentInstructionItem {
   /** First source field; `sources` lists every field that carried the same item. */
   source: string;
@@ -488,10 +523,11 @@ export function scopeItemLabel(model: AgentInstructionModel, text: string): stri
   return matches.length === 1 ? `${prefix}${matches[0].step.step} ${stepMethodLabel(model, matches[0].index)}` : text;
 }
 /** Existing human/exclusion fields are restrictive evidence; preserve wording and provenance. */
-export function approvalConstraints(model: AgentInstructionModel): string[] {
+export function approvalConstraints(model: AgentInstructionModel, keep: (item: AgentInstructionItem) => boolean = () => true): string[] {
   const entries = model.classified.filter(item => item.role === "human" || item.role === "excluded")
     .filter(item => item.sources.some(source => source === "diagnosis.humanInLoop" || source === "diagnosis.poc.outOfScope"
-      || source === "plan.humanInLoop" || source === "plan.outOfScope" || source === "policy.manualSteps"));
+      || source === "plan.humanInLoop" || source === "plan.outOfScope" || source === "policy.manualSteps"))
+    .filter(keep);
   return unique(entries.map(item => `${item.original ?? item.text}${item.original ? ` (현재 계획 문구: ${item.text})` : ""} (출처: ${item.sources.join(", ")})`));
 }
 const openCheckTopics = (model: Pick<AgentInstructionModel, "diagnosis">) => new Set((model.diagnosis?.technicalChecks ?? [])
@@ -567,6 +603,12 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
       reason = "제외·담당자 유지";
     } else if (override) {
       reason = override;
+    } else if (scopeLevel === 0 && !matches.length && (source === "diagnosis.technicalChecks" || source.startsWith("plan.")) && role === "conditions" && INTEGRATION_CHECK.test(clean)) {
+      scope = "future";
+      reason = `${gate === "blocked" ? "진행 보류 상태(검토·검증만 허용)" : "Level 0"}에서는 시스템 연동·AI 구현을 하지 않아 현재 검토·검증의 선행 조건이 아님 (전체 실행 상태는 그대로 적용)`;
+    } else if (scopeLevel === 0 && !matches.length && source.startsWith("diagnosis.poc.") && ["tests", "criteria", "outputs"].includes(role) && AUTOMATED_RESULT.test(clean)) {
+      scope = "future";
+      reason = `${gate === "blocked" ? "진행 보류 상태" : "Level 0"}에는 자동·AI 결과물이 없음: 검증·출력을 위해 생성 기능을 만들지 말고, 기존 비교 자료가 없으면 검증 불가 사유를 기록`;
     } else if (scopeLevel === 0 && ["features", "goal"].includes(role) && source.startsWith("plan.") && !(matches.length === 1 && matches[0].scope === "human")) {
       // Level 0 and a blocked gate permit review only: no generated feature is implementable, linked or not.
       scope = "future";
@@ -676,7 +718,11 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
   const unlinked = unique(model.ambiguous.filter(item => item.role === "features" && proposal(item)).map(item => `${item.text} — ${item.reason}`));
   const goals = model.classified.filter(item => item.role === "goal");
   const openTopics = openCheckTopics(model);
-  const conditionItem = (text: string) => model.classified.find(item => item.role === "conditions" && normalizedItem(item.text) === normalizedItem(text));
+  // A diagnosis check carries the policy scope; a generated plan line with the same wording does not override it.
+  const conditionItem = (text: string) => {
+    const matches = model.classified.filter(item => item.role === "conditions" && normalizedItem(item.text) === normalizedItem(text));
+    return matches.find(item => item.sources.includes("diagnosis.technicalChecks")) ?? matches[0];
+  };
   const linkedCondition = (text: string) => {
     const item = conditionItem(text), s = item?.step ? steps.find(x => x.step === item.step) : undefined;
     if (!s) return text;
@@ -687,8 +733,11 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
     ...model.classified.filter(item => item.role === "conditions" && item.source !== "diagnosis.technicalChecks" && !openTopics.has(normalizedItem(item.text))).map(item => item.text),
     ...gaps,
   ]);
-  const conditions = conditionTexts.map(linkedCondition);
-  const unassignedConditions = conditionTexts.some(text => !conditionItem(text)?.step) && work.length;
+  const currentConditionTexts = conditionTexts.filter(text => conditionItem(text)?.scope !== "future");
+  const conditions = currentConditionTexts.map(linkedCondition);
+  const futureConditions = conditionTexts.filter(text => conditionItem(text)?.scope === "future")
+    .map(text => conditionItem(text)?.step ? linkedCondition(text) : `${text} — ${conditionItem(text)?.reason ?? "현재 범위 밖"}`);
+  const unassignedConditions = currentConditionTexts.some(text => !conditionItem(text)?.step) && work.length;
   const exceptions = unique([...model.classified.filter(item => item.role === "exception").map(item => item.text), ...(d?.asIs?.exceptions ?? []), ...(d?.risks ?? [])]);
   const constraints = approvalConstraints(model);
   const humanConstraints = model.classified.some(item => item.role === "human"
@@ -746,9 +795,12 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
     "확인한 사실과 추정을 구분해 기록하고, 추정은 '확인 필요'로 남기세요.",
   );
   section("선행 조건·차단 사항",
-    gate ? `실행 상태는 \`${GATE_LABELS[gate]}\`입니다. ${GATE_CONSTRAINTS[gate]}` : "",
+    gate ? `실행 상태는 \`${GATE_LABELS[gate]}\`입니다. ${gate === "conditional" && scopeLevel === 0
+      ? "Level 0 범위는 검토·검증만 허용합니다. 각 검토 작업이 의존하는 항목이 확인되지 않았으면 그 검토만 보류하고 '확인·승인 대기'로 보고하세요. 의존하지 않는 검토(프로젝트 구조·기존 자료 확인 등)는 진행할 수 있습니다."
+      : GATE_CONSTRAINTS[gate]}` : "",
     gate === "blocked" && profile?.blockReasons.length ? `### 차단 사유\n\n${bullets(profile.blockReasons)}` : "",
     conditions.length ? `### 확인할 항목\n\n${bullets(conditions)}` : "",
+    futureConditions.length ? `### 향후 단계 확인 조건 (현재 작업의 선행 조건 아님)\n\n${bullets(futureConditions)}\n\n위 조건은 해당 기능을 구현하는 단계에서 확인하세요. 이번 작업에서 이를 위한 연동·인증·AI 기능을 만들지 마세요.` : "",
     humanConstraints ? HUMAN_DECISION_CHECK : "",
     constraints.length ? `### 기존 담당자·제외 제약 (원문·출처)\n\n${bullets(constraints)}` : "",
     unassignedConditions ? "관련 단계가 표시되지 않은 항목은 적용 단계가 확인되기 전까지 모든 구현 대상 단계의 확인 대상으로 취급하세요. 관련 없다고 임의로 판단하지 마세요." : "",
@@ -812,11 +864,12 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
   const tests = unique(model.scoped.tests.map(item => item.text));
   section("테스트·회귀 검증",
     "저장소에 실제로 존재하는 검증 명령과 도구를 확인한 뒤 실행하세요. 없는 테스트 framework나 명령을 임의로 설치하지 마세요.",
-    `### 정상 케이스\n\n${tests.length ? `${bullets(tests)}\n\n` : ""}기대 결과가 확정된 샘플로 결과를 대조하세요. 기대 결과·허용 오차가 정의되지 않았으면 합격 기준을 만들지 말고 '확인 필요'로 보고하세요.`,
+    work.length ? `### 정상 케이스\n\n${tests.length ? `${bullets(tests)}\n\n` : ""}기대 결과가 확정된 샘플로 결과를 대조하세요. 기대 결과·허용 오차가 정의되지 않았으면 합격 기준을 만들지 말고 '확인 필요'로 보고하세요.`
+      : `### 현재 검토·검증\n\n${tests.length ? `${bullets(tests)}\n\n` : ""}확보한 샘플과 기존 자료로 확인할 수 있는 범위만 검증하세요. 검증을 위해 새 기능·자동 생성 코드를 만들지 말고, 비교 자료가 없으면 '검증 불가'와 사유를 기록하세요. 수행하지 않은 검증을 성공·실패로 판정하지 마세요.`,
     model.classified.some(item => item.role === "tests" && !model.scoped.tests.includes(item))
       ? `### 향후·범위 확인 테스트 (이번 구현의 필수 검증 아님)\n\n${bullets(unique(model.classified.filter(item => item.role === "tests" && !model.scoped.tests.includes(item)).map(item => `${item.text} — ${item.reason ?? "현재 범위 밖"}${item.scope === "future" ? " (향후 검증)" : ""}`)))}` : "",
-    "### 경계값\n\n입력 1건, 빈 입력, 같은 기준값이 여러 건인 경우, 선택 항목이 비어 있는 경우처럼 이 업무의 입력에 해당하는 경계 상황을 확인하세요.",
-    `### 실패·예외 케이스\n\n${exceptions.length ? "'예외·보안·승인'의 각 예외를 재현하고, " : ""}잘못된 형식·필수 항목 누락 같은 실패가 정상 결과로 표시되지 않는지 확인하세요.`,
+    work.length ? "### 경계값\n\n입력 1건, 빈 입력, 같은 기준값이 여러 건인 경우, 선택 항목이 비어 있는 경우처럼 이 업무의 입력에 해당하는 경계 상황을 확인하세요." : "",
+    work.length ? `### 실패·예외 케이스\n\n${exceptions.length ? "'예외·보안·승인'의 각 예외를 재현하고, " : ""}잘못된 형식·필수 항목 누락 같은 실패가 정상 결과로 표시되지 않는지 확인하세요.` : "",
     "### 범위·승인\n\n담당자 확인 전 결과가 확정·전송되지 않는지, '향후 확장'·'제외' 항목이 실행되지 않는지 확인하세요.",
     "### 회귀 검증\n\n이 작업과 관련된 기존 기능이 이전과 동일하게 동작하는지 확인하세요. 웹 UI를 포함하면 기존 브라우저/E2E 도구가 있을 때 주요 화면을 Desktop과 Mobile에서 확인하고, 도구가 없으면 새로 설치하지 말고 그 사실을 보고하세요.",
   );
@@ -837,21 +890,31 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
     .map(item => `${item.text} — ${VAGUE_CRITERION.test(item.text) ? "기대 결과·측정 기준 확인 필요" : item.reason ?? "현재 범위 밖"}${item.scope === "future" ? " (향후 판정)" : ""}`));
   section("완료 조건",
     work.length ? `### 단계별\n\n${bullets(work.map(s => s.scope === "implement" ? `${s.step}: ${doneWhen(s)}` : `${s.step}: 확인 항목이 확인되어 구현했다면 ${doneWhen(s)} 확인하지 못했다면 '확인·승인 대기'로 보고합니다.`))}` : "",
-    review.length ? "### 검토·검증\n\n각 검토·검증 항목의 결과와 근거 자료, 다음 진단에 필요한 정보가 보고됩니다." : "",
+    review.length ? `### 검토·검증\n\n${bullets([
+      "확인한 프로젝트 구조와 재사용 가능한 기존 구현이 정리됩니다.",
+      ...(d?.asIs?.inputs?.length || d?.poc?.inputs?.length ? ["확보한 샘플의 데이터 형식과 필수·누락 항목이 기록됩니다."] : []),
+      ...(d?.asIs?.humanDecisions?.length || d?.asIs?.exceptions?.length ? ["업무 규칙·예외 기준의 확인 결과가 정리됩니다."] : []),
+      ...review.map(s => `${s.step}: 처리 가능성과 기술적 제약이 근거 자료와 함께 정리됩니다.`),
+      ...(conditions.length || futureConditions.length ? ["추가로 확보할 자료와 미확인 조건이 정리됩니다."] : []),
+      "다음 진단에 필요한 정보가 보고됩니다.",
+    ])}` : "",
     criteria.length ? `### 판정 기준\n\n${bullets(criteria)}` : "",
     deferredCriteria.length ? `### 향후·기준 확인이 필요한 판정 (이번 구현의 필수 완료 조건 아님)\n\n${bullets(deferredCriteria)}` : "",
     `### 공통\n\n${bullets([
       "기존 기능과 데이터가 유지됩니다.",
       ...(humanKept.length ? ["담당자 검토·승인 단계가 유지됩니다."] : []),
       "'향후 확장'·'제외' 항목이 구현되거나 실행되지 않습니다.",
-      ...(gate === "blocked" || !profile ? ["운영 구현과 실행은 차단되고 검토·검증 결과와 차단 해제 조건만 기록됩니다."] : ["정상·경계·실패 케이스 검증이 통과하고, 실패 건이 정상 결과와 구분됩니다."]),
-      "타입 오류와 빌드 오류가 없습니다.",
+      ...(gate === "blocked" || !profile ? ["운영 구현과 실행은 차단되고 검토·검증 결과와 차단 해제 조건만 기록됩니다."] : work.length ? ["정상·경계·실패 케이스 검증이 통과하고, 실패 건이 정상 결과와 구분됩니다."] : ["운영 기능·자동 실행 코드 없이 검토·검증 결과가 근거와 함께 보고됩니다."]),
+      work.length ? "타입 오류와 빌드 오류가 없습니다." : "코드를 변경했다면 타입 오류와 빌드 오류가 없습니다.",
       "실행하지 않은 검증은 완료로 보고하지 말고 미실행으로 명시합니다.",
     ])}`,
-    `### 완료 상태 구분\n\n${bullets([
+    `### 완료 상태 구분\n\n${bullets(work.length ? [
       "구현·검증 완료: 실제 구현 후 검증 통과", "구현 완료·검증 미완료: 구현했지만 정상 동작 확인 부족", "부분 구현: 허용된 일부 기능만 구현",
       "확인·승인 대기: 필수 정보 또는 승인 부족", "정책상 제외·차단: 현재 실행 대상 아님", "구현 실패: 구현 또는 검증 실패",
-    ])}\n\n스캐폴딩·TODO·모의 구현만 있는 기능은 완료로 보고하지 마세요.`,
+    ] : [
+      "검토 완료: 확인한 자료로 검토를 마침", "검증 완료: 실제 자료로 검증을 마침", "일부 확인: 일부 자료만 확인", "확인 필요: 근거 자료 부족",
+      "확인·승인 대기: 필수 정보 또는 승인 부족", "정책상 제외·차단: 현재 실행 대상 아님", "검증 실패: 검증했지만 기준 미충족", "미실행: 수행하지 않음",
+    ])}\n\n${work.length ? "스캐폴딩·TODO·모의 구현만 있는 기능은 완료로 보고하지 마세요." : "수행하지 않은 검토·검증을 완료로 보고하지 마세요."}`,
   );
   section("인수인계·완료 보고", "작업이 끝나면 다음 형식으로 보고하세요.", numbered([
     "확인한 프로젝트 구조", "현재 Level·실행 상태와 허용 범위", "단계별 완료 상태 (위 완료 상태 구분 사용)", "수정·생성한 파일", "입력·처리·출력 구조",
