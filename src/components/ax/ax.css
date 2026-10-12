@@ -140,6 +140,9 @@
 .ax-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .ax-section-heading h2 { margin: 0; }
 .ax-title-group { display: flex; align-items: center; gap: 10px; min-width: 0; flex-wrap: wrap; }
+/* Secondary sufficiency flag shown only when a user-adjusted task still needs core facts confirmed. */
+.ax-status-note { font-size: var(--text-xs); line-height: var(--text-xs--line-height); color: var(--muted-foreground); white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; }
+.ax-status-note::before { content: ""; width: 4px; height: 4px; border-radius: 999px; background: currentColor; }
 .ax-status-badge { background: color-mix(in srgb, var(--primary) 9%, var(--card)); border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--border)); border-radius: 999px; box-shadow: none; font-size: 11px; padding: 2px 8px; color: color-mix(in srgb, var(--primary) 78%, var(--foreground)); }
 /* Only the two task-status headers match the existing small edit button; inline badges stay compact. */
 .ax-title-group > .ax-status-badge { height: calc(var(--spacing) * 8); padding: 0 calc(var(--spacing) * 2.5 - 1px); border-radius: var(--radius-lg); font-size: var(--text-base); line-height: var(--text-base--line-height); }

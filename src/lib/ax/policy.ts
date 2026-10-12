@@ -73,6 +73,15 @@ export function nextAction(d: AxDiagnosis): AxDiagnosis["nextAction"] {
 export function taskStatus(d?: AxDiagnosis): AxTask["status"] {
   return !d ? "registered" : diagnosisHasAdjustment(d) ? "adjusted" : d.informationSufficiency === "needs-check" ? "needs-info" : "diagnosed";
 }
+/**
+ * Display state for a task header/list: the adjustment badge stays primary,
+ * but a task that is both user-adjusted and needs-check keeps a visible
+ * "추가 확인 필요" flag so the sufficiency state is not hidden.
+ */
+export function taskDisplayStatus(task: AxTask): { status: AxTask["status"]; needsCheck: boolean } {
+  const needsCheck = task.status === "adjusted" && !!task.diagnosis && task.diagnosis.informationSufficiency === "needs-check";
+  return { status: task.status, needsCheck };
+}
 export function factorScale(key: FactorKey) {
   return key === "humanJudgment" ? "1: 판단 적음 → 5: 판단 많음" : key === "operationalRisk" ? "1: 위험 낮음 → 5: 위험 높음" : `1: ${FACTOR_LABELS[key]} 낮음 → 5: 높음`;
 }
