@@ -5,6 +5,8 @@ import type { SupplementReviewVerdict } from "@/domain/supplement";
 import type { ExtractProposal } from "@/lib/ai/extract-prompt";
 import type { EvidenceItem, ModelClaim } from "@/lib/ai/prompt";
 import type { SupplementReviewCheck } from "@/lib/ai/supplement-prompt";
+import type { AssistantContextNote } from "@/lib/assistant/prompt";
+import type { AssistantEvidence } from "@/lib/assistant/evidence";
 
 export const SERVER_AI_MAX_FILES = 5;
 /** Candidates re-checked per request; each brings its own few evidence lines. */
@@ -19,7 +21,8 @@ export type AiApiRequest =
   | { kind: "polish"; text: string; mode: PolishMode }
   | { kind: "polish-batch"; mode: PolishMode; items: Array<{ id: string; text: string }> }
   | { kind: "extract"; field: string; items: EvidenceItem[] }
-  | { kind: "supplement-review"; checks: SupplementReviewCheck[]; items: EvidenceItem[] };
+  | { kind: "supplement-review"; checks: SupplementReviewCheck[]; items: EvidenceItem[] }
+  | { kind: "assistant"; question: string; evidence: AssistantEvidence[]; context?: AssistantContextNote };
 
 export type AiApiResult =
   | { kind: "ax-diagnosis"; diagnosis: Omit<AxDiagnosis, "sourceNote" | "planCodex" | "planClaude"> }
@@ -28,7 +31,8 @@ export type AiApiResult =
   | { kind: "polish"; proposal: PolishProposal }
   | { kind: "polish-batch"; proposals: Array<{ id: string; proposal: PolishProposal }> }
   | { kind: "extract"; proposal: ExtractProposal }
-  | { kind: "supplement-review"; verdicts: SupplementReviewVerdict[] };
+  | { kind: "supplement-review"; verdicts: SupplementReviewVerdict[] }
+  | { kind: "assistant"; answer: string; citedIds: string[] };
 
 export type ServerAiErrorCode =
   | "BUSY"

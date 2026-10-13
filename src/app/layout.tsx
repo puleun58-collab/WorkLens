@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import "./globals.css";
 import "./workspace-shell.css";
+import { AssistantWidget } from "@/components/assistant/AssistantWidget";
 
 const origin = new URL(process.env.WORKLENS_ORIGIN ?? "https://worklens.puleun58.workers.dev");
 const title = "WorkLens | 업무 문서 작업 공간";
@@ -34,7 +35,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="ko" className="h-full antialiased">
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">{children}<AssistantWidget /></body>
     </html>
   );
 }
