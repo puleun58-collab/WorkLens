@@ -100,9 +100,15 @@ test("scenario E: long task names keep badge alignment without overflow", async 
     const title = page.locator(".ax-report-intro .ax-title-group h2");
     const badge = page.locator(".ax-report-intro .ax-title-group .ax-status-badge");
     await expect(title).toContainText(prefix);
-    const t = await title.boundingBox(), b = await badge.boundingBox();
-    expect(t && b && b.x >= t.x - 1 && b.y >= t.y - 1, "badge overlaps title").toBe(true);
-    expect(t && b && Math.abs(b.y - t.y) < 200, "badge far from title").toBe(true);
+    // Wait for layout to stabilize: poll until badge is positioned without overlapping the title.
+    // A single boundingBox() right after click can catch the layout mid-transition (flaky).
+    await expect.poll(async () => {
+      const t = await title.boundingBox(), b = await badge.boundingBox();
+      if (!t || !b) return "missing";
+      if (!(b.x >= t.x - 1 && b.y >= t.y - 1)) return "overlap";
+      if (!(Math.abs(b.y - t.y) < 200)) return "far";
+      return "ok";
+    }, { timeout: 10000 }).toBe("ok");
   }
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(0);
