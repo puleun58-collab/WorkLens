@@ -421,9 +421,9 @@ function AxPrereqTable({ rows }: { rows: AxAdditionalCheck[] }) {
 function AxPlanOverview({ profile, summary }: { profile: ExecutionProfile; summary: AxPlanSummary }) {
   const reviewOnly = profile.level === 0 || profile.gate === "blocked";
   const criteria = [
-    { label: "검증 방법", Icon: Search, items: summary.tests },
-    { label: "통과 조건", Icon: ClipboardCheck, items: summary.success },
-    { label: "실패 기준", Icon: CircleX, items: summary.failure },
+    { label: "검증 방법", Icon: Search, items: summary.tests, notice: summary.testsNotice },
+    { label: "통과 조건", Icon: ClipboardCheck, items: summary.success, notice: summary.criteriaNotice },
+    { label: "실패 기준", Icon: CircleX, items: summary.failure, notice: summary.criteriaNotice },
     { label: "최종 승인", Icon: ShieldCheck, items: summary.approvals.length ? summary.approvals : summary.humanKept.length ? ["담당자 수행 유지 항목은 담당자 검토·승인 후 확정"] : [] },
   ].filter(row => row.items.length);
   return <div className="ax-plan-view">
@@ -453,9 +453,9 @@ function AxPlanOverview({ profile, summary }: { profile: ExecutionProfile; summa
     </section>
     <section className="ax-plan-block" aria-label="03 완료 기준"><AxPlanHeading no="03" title="완료 기준" description="기능·예외·검증·담당자 승인 조건을 충족해야 합니다." />
       {criteria.length || summary.exceptions.length ? <div className="ax-done-grid" data-split={criteria.length && summary.exceptions.length ? "true" : undefined}>
-        {criteria.length ? <dl className="ax-done-criteria">{criteria.map(({ label, Icon, items }) => <div key={label}>
+        {criteria.length ? <dl className="ax-done-criteria">{criteria.map(({ label, Icon, items, notice }) => <div key={label}>
           <dt><Icon aria-hidden="true" />{label}</dt>
-          <dd>{items.length === 1 ? items[0] : <ul role="list">{items.map((item, i) => <li key={i}>{item}</li>)}</ul>}</dd>
+          <dd>{items.length === 1 && !notice ? items[0] : <>{items.length === 1 ? items[0] : <ul role="list">{items.map((item, i) => <li key={i}>{item}</li>)}</ul>}{notice ? <p className="ax-criteria-notice">{notice}</p> : null}</>}</dd>
         </div>)}</dl> : null}
         {summary.exceptions.length ? <div className="ax-risk-panel">
           <h5><TriangleAlert aria-hidden="true" />주요 예외·위험 사항</h5>
