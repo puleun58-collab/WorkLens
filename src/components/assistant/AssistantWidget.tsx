@@ -19,6 +19,24 @@ interface AssistantMessage {
   relatedScreens?: AssistantSource[];
   error?: string;
   pending?: boolean;
+  /** Set on assistant messages that ask the user to pick a clarification option. */
+  clarify?: { clarifyId: string; originalQuestion: string; options: string[] };
+  /** Set on assistant messages that ask for task-data consent. */
+  consent?: { question: string };
+}
+
+/** Remove duplicated trailing path segments: "A > B > B 위치" → "A > B". */
+export function dedupeScreenPath(screen: string, title: string): string {
+  const full = `${screen} > ${title}`;
+  const parts = full.split(" > ").map((part) => part.trim()).filter(Boolean);
+  const deduped: string[] = [];
+  for (const part of parts) {
+    const last = deduped[deduped.length - 1];
+    // Drop the part when it merely repeats the previous segment's core term.
+    if (last && (part === last || part.startsWith(`${last} `) || last.startsWith(`${part} `))) continue;
+    deduped.push(part);
+  }
+  return deduped.join(" > ");
 }
 
 /** Mascot image with accessible icon fallback when the image fails to load. */
@@ -84,13 +102,30 @@ async function readScreenContext(): Promise<ScreenContext | null> {
   }
 }
 
-async function askAssistant(question: string, context: ScreenContext | null, signal: AbortSignal): Promise<{ answer: string; sources: AssistantSource[]; relatedScreens: AssistantSource[] }> {
+interface AssistantApiResult {
+  answer: string;
+  sources: AssistantSource[];
+  relatedScreens: AssistantSource[];
+  kind: string;
+  clarify?: { clarifyId: string; originalQuestion: string; options: string[] };
+}
+
+async function askAssistant(
+  question: string,
+  context: ScreenContext | null,
+  clarify: { clarifyId: string; originalQuestion: string; options: string[] } | null,
+  signal: AbortSignal,
+): Promise<AssistantApiResult> {
   const response = await fetch("/api/assistant", {
     method: "POST",
     credentials: "same-origin",
     cache: "no-store",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ question, ...(context ? { context } : {}) }),
+    body: JSON.stringify({
+      question,
+      ...(context ? { context } : {}),
+      ...(clarify ? { clarify } : {}),
+    }),
     signal,
   });
   const payload: unknown = await response.json().catch(() => null);
@@ -99,13 +134,25 @@ async function askAssistant(question: string, context: ScreenContext | null, sig
     if (code === "AI_RATE_LIMITED") throw new Error("요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.");
     throw new Error("지금은 응답할 수 없습니다. 네트워크 상태를 확인한 뒤 다시 시도해 주세요.");
   }
-  const data = (payload as { data?: { answer?: unknown; sources?: unknown; relatedScreens?: unknown } } | null)?.data;
+  const data = (payload as { data?: { answer?: unknown; sources?: unknown; relatedScreens?: unknown; kind?: unknown; clarify?: unknown } } | null)?.data;
   if (!data || typeof data.answer !== "string") throw new Error("응답 형식이 올바르지 않습니다. 다시 시도해 주세요.");
   const toSources = (value: unknown): AssistantSource[] => Array.isArray(value)
     ? value.filter((source): source is AssistantSource =>
       !!source && typeof source === "object" && typeof (source as AssistantSource).screen === "string")
     : [];
-  return { answer: data.answer, sources: toSources(data.sources), relatedScreens: toSources(data.relatedScreens) };
+  const toClarify = (value: unknown): AssistantApiResult["clarify"] => {
+    if (!value || typeof value !== "object") return undefined;
+    const record = value as Record<string, unknown>;
+    if (typeof record.clarifyId !== "string" || typeof record.originalQuestion !== "string" || !Array.isArray(record.options)) return undefined;
+    return { clarifyId: record.clarifyId, originalQuestion: record.originalQuestion, options: record.options.filter((o): o is string => typeof o === "string") };
+  };
+  return {
+    answer: data.answer,
+    sources: toSources(data.sources),
+    relatedScreens: toSources(data.relatedScreens),
+    kind: typeof data.kind === "string" ? data.kind : "answer",
+    clarify: toClarify(data.clarify),
+  };
 }
 
 export function AssistantWidget() {
@@ -118,6 +165,12 @@ export function AssistantWidget() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const controllerRef = useRef<AbortController | null>(null);
+  /** Monotonic request id: each send() owns its pending message; stale responses are ignored. */
+  const requestSeqRef = useRef(0);
+  /** Pending clarification the next user message may resolve ("첫 번째요"). */
+  const clarifyRef = useRef<{ clarifyId: string; originalQuestion: string; options: string[] } | null>(null);
+  /** Task-data consent pending for a specific question. */
+  const consentRef = useRef<{ question: string } | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fabRef = useRef<HTMLButtonElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -167,24 +220,48 @@ export function AssistantWidget() {
     controllerRef.current?.abort();
     const controller = new AbortController();
     controllerRef.current = controller;
+    const requestId = (requestSeqRef.current += 1);
     const timeout = setTimeout(() => controller.abort("timeout"), ASSISTANT_TIMEOUT_MS);
-    setMessages((prev) => [...prev, { id: nextId(), role: "user", text: question }, { id: nextId(), role: "assistant", text: "", pending: true }]);
+    const pendingId = nextId();
+    setMessages((prev) => [...prev, { id: nextId(), role: "user", text: question }, { id: pendingId, role: "assistant", text: "", pending: true }]);
     setInput("");
     setLoading(true);
+    // Capture the pending clarification for this request; a new question clears it afterwards.
+    const pendingClarify = clarifyRef.current;
+    clarifyRef.current = null;
     try {
       const context = withContext ? await readScreenContext() : null;
-      const { answer, sources, relatedScreens } = await askAssistant(question, context, controller.signal);
+      // If the panel was closed/reset while reading context, drop the stale request.
+      if (requestId !== requestSeqRef.current) return;
+      const { answer, sources, relatedScreens, kind, clarify } = await askAssistant(question, context, pendingClarify, controller.signal);
+      if (requestId !== requestSeqRef.current) return;
+      if (kind === "clarify" && clarify) clarifyRef.current = clarify;
+      if (kind === "consent") consentRef.current = { question };
+      else consentRef.current = null;
       setMessages((prev) => prev.map((message) =>
-        message.pending ? { ...message, pending: false, text: answer, sources, relatedScreens } : message));
+        message.id === pendingId
+          ? {
+              ...message,
+              pending: false,
+              text: answer,
+              sources,
+              relatedScreens,
+              ...(kind === "clarify" && clarify ? { clarify } : {}),
+              ...(kind === "consent" ? { consent: { question } } : {}),
+            }
+          : message));
     } catch (error) {
+      if (requestId !== requestSeqRef.current) return;
       const cancelled = controller.signal.aborted && (error as Error)?.name === "AbortError";
       const text = cancelled ? "요청이 취소되었습니다." : error instanceof Error ? error.message : "응답할 수 없습니다.";
       setMessages((prev) => prev.map((message) =>
-        message.pending ? { ...message, pending: false, text, error: cancelled ? undefined : question } : message));
+        message.id === pendingId ? { ...message, pending: false, text, error: cancelled ? undefined : question } : message));
     } finally {
       clearTimeout(timeout);
-      setLoading(false);
-      if (controllerRef.current === controller) controllerRef.current = null;
+      if (requestId === requestSeqRef.current) {
+        setLoading(false);
+        if (controllerRef.current === controller) controllerRef.current = null;
+      }
     }
   }, [loading]);
 
@@ -195,7 +272,28 @@ export function AssistantWidget() {
 
   const clearConversation = useCallback(() => {
     controllerRef.current?.abort();
+    // Invalidate any in-flight request so its late response cannot touch the new conversation.
+    requestSeqRef.current += 1;
+    clarifyRef.current = null;
+    consentRef.current = null;
     setMessages([{ id: nextId(), role: "assistant", text: "대화를 초기화했습니다. WorkLens의 기능과 사용 방법에 대해 질문해 주세요." }]);
+    setLoading(false);
+  }, []);
+
+  const acceptConsent = useCallback(() => {
+    const pending = consentRef.current;
+    consentRef.current = null;
+    if (!pending) return;
+    // Re-send the original question with the selected task's diagnosis data.
+    void send(pending.question, true);
+  }, [send]);
+
+  const declineConsent = useCallback(() => {
+    consentRef.current = null;
+    setMessages((prev) => [
+      ...prev,
+      { id: nextId(), role: "assistant", text: "진단 정보를 사용하지 않고 일반 정책으로 안내해 드리겠습니다. Level·Gate의 일반적인 의미가 궁금하시면 질문해 주세요." },
+    ]);
   }, []);
 
   if (!mounted) return null;
@@ -245,13 +343,19 @@ export function AssistantWidget() {
                   {message.relatedScreens && message.relatedScreens.length ? (
                     <div className="wl-assistant-related">
                       <strong>관련 화면</strong>
-                      <ul>{message.relatedScreens.map((source) => <li key={`${source.screen}${source.title}`}>{source.screen} &gt; {source.title}</li>)}</ul>
+                      <ul>{message.relatedScreens.map((source) => <li key={`${source.screen}${source.title}`}>{dedupeScreenPath(source.screen, source.title)}</li>)}</ul>
                     </div>
                   ) : null}
                   {message.sources && message.sources.length ? (
                     <div className="wl-assistant-sources">
                       <strong>참고 근거</strong>
-                      <ul>{message.sources.map((source) => <li key={`${source.screen}${source.title}`}>{source.screen} &gt; {source.title}</li>)}</ul>
+                      <ul>{message.sources.map((source) => <li key={`${source.screen}${source.title}`}>{dedupeScreenPath(source.screen, source.title)}</li>)}</ul>
+                    </div>
+                  ) : null}
+                  {message.consent ? (
+                    <div className="wl-assistant-consent" role="group" aria-label="진단 정보 사용 확인">
+                      <button type="button" className="wl-assistant-consent-allow" onClick={acceptConsent}>진단 정보 사용</button>
+                      <button type="button" className="wl-assistant-consent-deny" onClick={declineConsent}>사용하지 않음</button>
                     </div>
                   ) : null}
                   {message.error ? (
