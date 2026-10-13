@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Accordion, AccordionItem, AccordionPanel, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTab, TabsPanel } from "@/components/ui/tabs";
-import { buildAgentInstructionModel, buildAllInOnePrompt, planSummary, scopeItemLabel, setupGuide, stepMethodLabel, TOOL_GUIDES, type AgentInstructionModel, type AxCheckTone, type AxGuideBlock, type AxGuideSection, type AxPlanSummary, type AxToolId } from "@/lib/ax/guide";
+import { buildAgentInstructionModel, buildAllInOnePrompt, planSummary, scopeItemLabel, setupGuide, stepMethodLabel, TOOL_GUIDES, type AgentInstructionModel, type AxAdditionalCheck, type AxCheckTone, type AxGuideBlock, type AxGuideSection, type AxPlanSummary, type AxToolId } from "@/lib/ax/guide";
 
 const VERDICT_LABELS = { 자동화: "자동화", "AI 보조": "AI 보조", "사람 유지": "담당자 수행" } as const;
 const OWNER_LABELS = { 시스템: "시스템", AI: "AI", 사용자: "담당자" } as const;
@@ -382,15 +382,39 @@ const CHECK_TONES: Record<AxCheckTone, { label: string; Icon: typeof CircleAlert
   required: { label: "확인 필요", Icon: CircleAlert }, future: { label: "향후 검토", Icon: Clock },
   done: { label: "확인 완료", Icon: CircleCheck }, blocked: { label: "불가", Icon: TriangleAlert },
 };
-function AxCheckCard({ tone, title, badge, status, note, items = [] }: { tone: AxCheckTone; title: string; badge?: string; status?: string; note?: string; items?: string[] }) {
-  const { label, Icon } = CHECK_TONES[tone];
-  return <div className="ax-gate-card" data-tone={tone} data-status={status}>
-    <span className="ax-gate-icon" aria-hidden="true"><Icon /></span>
-    <div>
-      <div className="ax-gate-card-head"><h5>{title}</h5><span className="ax-check-badge">{badge ?? label}</span></div>
-      {note ? <p>{note}</p> : null}
-      {items.length ? <ul role="list">{items.map((item, i) => <li key={i}>{item}</li>)}</ul> : null}
+/** Topical icon for a prerequisite card; presentation only, never a data claim. */
+function prereqIcon(topic: string) {
+  const Icon = /(api|연동|인터페이스|시스템)/iu.test(topic) ? MonitorCog
+    : /(인증|권한|보안|승인|결재)/u.test(topic) ? ShieldCheck
+    : /(데이터|형식|파일|컬럼|db|스키마)/iu.test(topic) ? Database
+    : ClipboardList;
+  return <Icon aria-hidden="true" />;
+}
+function AxPrereqCard({ topic, note, tone, status }: { topic: string; note: string; tone: AxCheckTone; status: string }) {
+  const { label } = CHECK_TONES[tone];
+  return <div className="ax-prereq-card" data-tone={tone} data-status={status}>
+    <span className="ax-prereq-icon" aria-hidden="true">{prereqIcon(topic)}</span>
+    <div className="ax-prereq-card-head"><h5>{topic}</h5><span className="ax-check-badge">{label}</span></div>
+    {note ? <p>{note}</p> : null}
+  </div>;
+}
+function AxPrereqTable({ rows }: { rows: AxAdditionalCheck[] }) {
+  const unstaged = rows.some(row => !row.future && row.stage === null);
+  return <div className="ax-prereq-extra">
+    <div className="ax-prereq-extra-head">
+      <h4><ClipboardList aria-hidden="true" />추가 확인 사항</h4>
+      {unstaged ? <span className="ax-check-badge" data-tone="required">적용 단계 미확정</span> : null}
     </div>
+    <div className="ax-prereq-table-wrap"><table className="ax-prereq-table">
+      <thead><tr><th scope="col">확인 항목</th><th scope="col">확인 필요 내용</th><th scope="col">적용 단계</th><th scope="col">상태</th></tr></thead>
+      <tbody>{rows.map((row, i) => <tr key={i} data-tone={row.tone}>
+        <td data-label="확인 항목"><span className="ax-prereq-item">{row.item}</span></td>
+        <td data-label="확인 필요 내용">{row.content}</td>
+        <td data-label="적용 단계">{row.stage ?? <span className="ax-muted">적용 단계 미확정</span>}</td>
+        <td data-label="상태"><span className="ax-check-badge">{row.status}</span></td>
+      </tr>)}</tbody>
+    </table></div>
+    {unstaged ? <p className="ax-prereq-note"><Info aria-hidden="true" /><span>실제 구현 단계와의 연결이 아직 확인되지 않은 항목은 임의로 필수 선행 조건으로 지정하지 않습니다.</span></p> : null}
   </div>;
 }
 /** Diagnosis policy is authoritative: the summary shows only the permitted scope, open conditions and completion checks. */
@@ -412,14 +436,16 @@ function AxPlanOverview({ profile, summary }: { profile: ExecutionProfile; summa
         <AxScopeCard tone="excluded" icon={<Ban />} title="현재 자동화 제외" description="현재 단계에서 구현하지 않는 항목입니다." items={summary.excluded} />
       </div>
     </section>
-    <section className="ax-plan-block" aria-label="02 시작 전 확인"><AxPlanHeading no="02" title="시작 전 확인" description="구현 전 해결해야 할 조건과 데이터 정보를 확인합니다." />
-      {summary.checks.length || summary.conditions.current.length || summary.conditions.future.length ? <div className="ax-gate-cards">
-        {summary.checks.map((check, i) => <AxCheckCard key={i} tone={check.tone} title={check.topic} status={check.status} badge={check.badge} note={check.note} />)}
-        {summary.conditions.current.length ? profile.gate === "blocked"
-          ? <AxCheckCard tone="blocked" title="차단 사유" badge="진행 보류" items={summary.conditions.current} />
-          : <AxCheckCard tone="required" title="선행 조건·적용 범위 확인" items={summary.conditions.current} /> : null}
-        {summary.conditions.future.length ? <AxCheckCard tone="future" title="향후 단계 조건" items={summary.conditions.future} /> : null}
+    <section className="ax-plan-block" aria-label="02 시작 전 확인"><AxPlanHeading no="02" title="시작 전 확인" description="구현 전에 필요한 조건과 적용 범위를 확인합니다." />
+      {summary.blockReasons.length ? <div className="ax-prereq-blocked" data-tone="blocked">
+        <span className="ax-prereq-icon" aria-hidden="true"><TriangleAlert /></span>
+        <div><div className="ax-prereq-card-head"><h5>차단 사유</h5><span className="ax-check-badge">진행 보류</span></div>
+          <ul role="list">{summary.blockReasons.map((reason, i) => <li key={i}>{reason}</li>)}</ul></div>
       </div> : null}
+      {summary.checks.length ? <div className="ax-prereq-cards">
+        {summary.checks.map((check, i) => <AxPrereqCard key={i} topic={check.topic} note={check.note} tone={check.tone} status={check.status} />)}
+      </div> : null}
+      {summary.additionalChecks.length ? <AxPrereqTable rows={summary.additionalChecks} /> : null}
       {summary.data.length ? <div className="ax-plan-data-group">
         <h5>데이터·시스템 정보</h5>
         <dl className="ax-plan-data">{summary.data.map(row => <div key={row.label}><dt>{row.label}</dt><dd>{row.items.join(" · ")}</dd></div>)}</dl>
