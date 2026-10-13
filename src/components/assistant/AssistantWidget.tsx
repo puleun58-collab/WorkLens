@@ -161,7 +161,7 @@ export function AssistantWidget() {
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [messages, setMessages] = useState<AssistantMessage[]>([
-    { id: nextId(), role: "assistant", text: "안녕하세요!\nWorkLens AI 도우미입니다.\n업무 분석, 자동화 진단, 기능 사용 방법 등\n무엇이든 질문해 주세요.", greeting: true },
+    { id: nextId(), role: "assistant", text: "안녕하세요! 렌즈봇입니다.\n업무 분석, 자동화 진단, 기능 사용 방법 등\n무엇이든 질문해 주세요.", greeting: true },
   ]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -277,7 +277,7 @@ export function AssistantWidget() {
     requestSeqRef.current += 1;
     clarifyRef.current = null;
     consentRef.current = null;
-    setMessages([{ id: nextId(), role: "assistant", text: "안녕하세요!\nWorkLens AI 도우미입니다.\n업무 분석, 자동화 진단, 기능 사용 방법 등\n무엇이든 질문해 주세요.", greeting: true }]);
+    setMessages([{ id: nextId(), role: "assistant", text: "안녕하세요! 렌즈봇입니다.\n업무 분석, 자동화 진단, 기능 사용 방법 등\n무엇이든 질문해 주세요.", greeting: true }]);
     setLoading(false);
   }, []);
 
@@ -305,12 +305,11 @@ export function AssistantWidget() {
           <Mascot size={40} label="AI 도우미 열기" />
         </button>
       ) : (
-        <section className="wl-assistant-panel" data-expanded={expanded || undefined} role="dialog" aria-modal="false" aria-label="WorkLens AI 도우미">
+        <section className="wl-assistant-panel" data-expanded={expanded || undefined} role="dialog" aria-modal="false" aria-label="렌즈봇">
           <header className="wl-assistant-header">
-            <Mascot size={48} label="WorkLens AI 도우미" />
+            <Mascot size={48} label="렌즈봇" />
             <span className="wl-assistant-titles">
-              <strong>WorkLens AI 도우미</strong>
-              <span>업무 분석부터 자동화까지, 무엇이든 물어보세요.</span>
+              <strong>렌즈봇</strong>
             </span>
             <span className="wl-assistant-controls">
               <button type="button" aria-label="대화 초기화" title="대화 초기화" onClick={clearConversation}><RotateCcw aria-hidden="true" /></button>

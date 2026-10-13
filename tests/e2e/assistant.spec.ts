@@ -30,15 +30,14 @@ async function openAssistant(page: Page) {
   await mockAssistant(page);
   await navigateWorkspace(page, "업무 자동화 진단");
   await page.getByRole("button", { name: "AI 도우미 열기" }).click();
-  await expect(page.getByRole("dialog", { name: "WorkLens AI 도우미" })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "렌즈봇" })).toBeVisible();
 }
 
 test("assistant: panel opens with reference layout elements", async ({ page }) => {
   await openAssistant(page);
-  const panel = page.getByRole("dialog", { name: "WorkLens AI 도우미" });
+  const panel = page.getByRole("dialog", { name: "렌즈봇" });
   // Header: mascot + title + subtitle
-  await expect(panel.locator(".wl-assistant-titles strong")).toHaveText("WorkLens AI 도우미");
-  await expect(panel.getByText("업무 분석부터 자동화까지, 무엇이든 물어보세요.")).toBeVisible();
+  await expect(panel.locator(".wl-assistant-titles strong")).toHaveText("렌즈봇");
   // 3 control buttons only: reset, expand, close (no minimize)
   await expect(panel.getByRole("button", { name: "대화 초기화" })).toBeVisible();
   await expect(panel.getByRole("button", { name: "패널 확장" })).toBeVisible();
@@ -59,7 +58,7 @@ test("assistant: panel opens with reference layout elements", async ({ page }) =
 
 test("assistant: example question sends and shows answer with sources", async ({ page }) => {
   await openAssistant(page);
-  const panel = page.getByRole("dialog", { name: "WorkLens AI 도우미" });
+  const panel = page.getByRole("dialog", { name: "렌즈봇" });
   await panel.getByRole("button", { name: "자동화 Level은 어떻게 결정되나요?" }).click();
   await expect(panel.getByText("모의 답변: 자동화 Level은 어떻게 결정되나요?")).toBeVisible();
   await expect(panel.getByText("참고 근거")).toBeVisible();
@@ -68,7 +67,7 @@ test("assistant: example question sends and shows answer with sources", async ({
 
 test("assistant: Enter sends, Shift+Enter does not", async ({ page }) => {
   await openAssistant(page);
-  const panel = page.getByRole("dialog", { name: "WorkLens AI 도우미" });
+  const panel = page.getByRole("dialog", { name: "렌즈봇" });
   const input = panel.getByLabel("질문 입력");
   await input.fill("Level 설명해줘");
   await input.press("Shift+Enter");
@@ -79,7 +78,7 @@ test("assistant: Enter sends, Shift+Enter does not", async ({ page }) => {
 
 test("assistant: minimize/expand/close and Escape", async ({ page }) => {
   await openAssistant(page);
-  const panel = page.getByRole("dialog", { name: "WorkLens AI 도우미" });
+  const panel = page.getByRole("dialog", { name: "렌즈봇" });
   await panel.getByRole("button", { name: "패널 확장" }).click();
   await expect(panel).toHaveAttribute("data-expanded", "true");
   await panel.getByRole("button", { name: "패널 복원" }).click();
@@ -89,15 +88,15 @@ test("assistant: minimize/expand/close and Escape", async ({ page }) => {
   const fab = page.getByRole("button", { name: "AI 도우미 열기" });
   await expect(fab).toBeVisible();
   await fab.click();
-  await expect(page.getByRole("dialog", { name: "WorkLens AI 도우미" })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "렌즈봇" })).toBeVisible();
   await page.keyboard.press("Escape");
-  await expect(page.getByRole("dialog", { name: "WorkLens AI 도우미" })).toHaveCount(0);
+  await expect(page.getByRole("dialog", { name: "렌즈봇" })).toHaveCount(0);
   await expect(fab).toBeFocused();
 });
 
 test("assistant: error shows retry and conversation is cleared on demand", async ({ page }) => {
   await openAssistant(page);
-  const panel = page.getByRole("dialog", { name: "WorkLens AI 도우미" });
+  const panel = page.getByRole("dialog", { name: "렌즈봇" });
   const input = panel.getByLabel("질문 입력");
   await input.fill("오류를 발생시켜줘");
   await input.press("Enter");
@@ -123,7 +122,7 @@ test("assistant: does not disturb body layout or scroll", async ({ page }) => {
     scrollY: window.scrollY,
   }));
   await page.getByRole("button", { name: "AI 도우미 열기" }).click();
-  await expect(page.getByRole("dialog", { name: "WorkLens AI 도우미" })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "렌즈봇" })).toBeVisible();
   const after = await page.evaluate(() => ({
     width: document.documentElement.scrollWidth,
     clientWidth: document.documentElement.clientWidth,
@@ -164,7 +163,7 @@ test("assistant: sends question without task context by default", async ({ page 
   await page.reload();
   await navigateWorkspace(page, "업무 자동화 진단");
   await page.getByRole("button", { name: "AI 도우미 열기" }).click();
-  const panel = page.getByRole("dialog", { name: "WorkLens AI 도우미" });
+  const panel = page.getByRole("dialog", { name: "렌즈봇" });
   // No context checkbox: questions send without task data by default.
   await panel.getByRole("button", { name: "자동화 Level은 어떻게 결정되나요?" }).click();
   await expect(panel.getByText("ok")).toBeVisible();
@@ -189,7 +188,7 @@ test("assistant: related screens shown separately from evidence", async ({ page 
   });
   await navigateWorkspace(page, "업무 자동화 진단");
   await page.getByRole("button", { name: "AI 도우미 열기" }).click();
-  const panel = page.getByRole("dialog", { name: "WorkLens AI 도우미" });
+  const panel = page.getByRole("dialog", { name: "렌즈봇" });
   const input = panel.getByLabel("질문 입력");
   await input.fill("법령 리서치 메뉴는 어디인가요?");
   await input.press("Enter");
@@ -202,7 +201,7 @@ test("assistant: related screens shown separately from evidence", async ({ page 
 test("assistant: mobile layout fits 390x844", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await openAssistant(page);
-  const panel = page.getByRole("dialog", { name: "WorkLens AI 도우미" });
+  const panel = page.getByRole("dialog", { name: "렌즈봇" });
   await expect(panel).toBeVisible();
   const box = await panel.boundingBox();
   expect(box).not.toBeNull();
