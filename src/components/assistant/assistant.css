@@ -190,6 +190,33 @@
 }
 .wl-assistant-retry svg { width: 14px; height: 14px; }
 
+/* Task-data consent: compact inline buttons inside the assistant bubble. */
+.wl-assistant-consent {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+}
+.wl-assistant-consent button {
+  flex: 1;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 9px 12px;
+  cursor: pointer;
+}
+.wl-assistant-consent-allow {
+  border: none;
+  background: var(--wl-assistant-blue);
+  color: #fff;
+}
+.wl-assistant-consent-allow:hover { filter: brightness(1.08); }
+.wl-assistant-consent-deny {
+  border: 1px solid var(--wl-assistant-border);
+  background: #fff;
+  color: var(--wl-assistant-blue);
+}
+.wl-assistant-consent-deny:hover { background: var(--wl-assistant-blue-soft); }
+
 .wl-assistant-examples { padding: 6px 16px 0; flex: none; display: flex; flex-direction: column; gap: 10px; }
 .wl-assistant-examples button {
   border: 1.5px solid var(--wl-assistant-border);

@@ -2,6 +2,28 @@
 
 export type AssistantTopic = "in-scope" | "out-of-scope" | "injection" | "execution-request" | "clarify";
 
+/** A pending clarification: the server asked which intent the user meant. */
+export interface ClarifyState {
+  /** The original ambiguous question. */
+  originalQuestion: string;
+  /** Short labels for each offered option, in order. */
+  options: string[];
+  /** Opaque id tying the follow-up answer to this clarification. */
+  clarifyId: string;
+}
+
+/** Follow-up answers that select one of the offered clarification options. */
+const CLARIFY_SELECT_PATTERNS: { index: number; pattern: RegExp }[] = [
+  { index: 0, pattern: /^(첫\s*번째|1\s*번|첫째|1)(요|예요|입니다)?$/u },
+  { index: 1, pattern: /^(두\s*번째|2\s*번|둘째|2)(요|예요|입니다)?$/u },
+  { index: 2, pattern: /^(세\s*번째|3\s*번|셋째|3)(요|예요|입니다)?$/u },
+];
+
+/** Affirmative follow-ups confirming the offered interpretation. */
+const CLARIFY_AFFIRM = /^(네|예|응|어|맞아요|맞습니다|그래요|그렇습니다|좋아요)(,?\s*(요|맞아요|맞습니다))?$/u;
+/** Negative follow-ups rejecting the offered interpretation. */
+const CLARIFY_DENY = /^(아니요|아니오|아니야|틀렸어요|다른\s*뜻)/u;
+
 /** Attempts to override assistant behavior, extract hidden data, or bypass policy. */
 const INJECTION = [
   /이전\s*지침\s*무시/u, /지침을\s*무시/u, /ignore\s*(previous|all)?\s*instructions?/iu,
@@ -37,11 +59,12 @@ const OUT_OF_SCOPE = [
 /**
  * Ambiguous questions: WorkLens-related but the intent is unclear.
  * These should trigger a clarification question, not an out-of-scope rejection.
- * Pattern: mentions a WorkLens concept but with unclear action/target.
+ *
+ * IMPORTANT: Only genuinely ambiguous fragments trigger clarification. A clear
+ * question that happens to contain an ambiguous keyword (e.g. "문서 취합 시
+ * 중복 데이터는 어떻게 처리하나요?") must NOT be treated as ambiguous.
  */
-const AMBIGUOUS = [
-  // "중복" without clear context (could be duplicate question handling, duplicate tasks, etc.)
-  /중복/u,
+const AMBIGUOUS_FRAGMENT = [
   // "자동으로" without clear target
   /^자동으로\s*(되나요|되는거야|돼)\??$/u,
   // "검토" without clear target
@@ -50,9 +73,17 @@ const AMBIGUOUS = [
   /^(리서치|검색|레벨|게이트|승인)\s*(어디|뭐|뭔데)\??$/u,
 ] as const;
 
+/**
+ * "중복" is ambiguous only in short fragments where two intents are plausible
+ * (natural-language questions vs duplicate handling). A question with a clear
+ * verb structure ("어떻게 처리하나요", "어떻게 되나요") is NOT ambiguous.
+ */
+const DUPLICATE_AMBIGUOUS = /중복/u;
+const CLEAR_QUESTION_VERB = /(어떻게|어떤|무엇|뭐).*(처리|동작|되나|인가|인가요|하나요|해요|합니까)|처리.*(방법|방식)/u;
+
 /** WorkLens topics the assistant may answer. Used as a positive signal, not a gate. */
 const IN_SCOPE = [
-  /worklens|워크렌즈/u, /사용(법|방법|가이드)/u, /기능/u, /화면/u, /메뉴/u,
+  /worklens|워크렌즈/iu, /사용(법|방법|가이드)/u, /기능/u, /화면/u, /메뉴/u,
   /업무\s*(등록|진단|자동화)/u, /factor|팩터/u, /level|레벨/u, /gate|게이트/u,
   /매트릭스/u, /로드맵/u, /우선순위/u, /올인원\s*지시문/u, /codex|claude/iu,
   /완료\s*기준/u, /검증\s*방법/u, /통과\s*조건/u, /실패\s*기준/u, /승인/u,
@@ -70,15 +101,13 @@ const matches = (patterns: readonly RegExp[], text: string) => patterns.some((pa
 /**
  * Normalize question for better matching: remove extra spaces, handle common variations.
  * This helps with short questions, colloquial speech, and spacing differences.
+ * Normalization must NOT change the question's meaning: it only trims whitespace
+ * and normalizes spacing. The original text is always preserved for the model.
  */
 export function normalizeQuestion(question: string): string {
   return question
     .trim()
-    // Normalize spacing around common terms
-    .replace(/\s+/gu, " ")
-    // Handle common colloquial endings
-    .replace(/(되나요|되는거야|되냐고|가능하냐고)\s*$/u, "가능?")
-    .replace(/(어디야|어디있어|어디에있어)\s*$/u, "어디?");
+    .replace(/\s+/gu, " ");
 }
 
 /**
@@ -89,6 +118,9 @@ export function normalizeQuestion(question: string): string {
  * - out-of-scope: genuinely not about WorkLens
  * - clarify: WorkLens-related but intent unclear (ask for clarification, don't reject)
  * - in-scope: clear WorkLens question
+ *
+ * Ambiguity is judged separately from relevance: a question containing an
+ * ambiguous keyword is only "clarify" when its structure is genuinely unclear.
  */
 export function classifyQuestion(question: string): AssistantTopic {
   const text = question.trim();
@@ -97,9 +129,25 @@ export function classifyQuestion(question: string): AssistantTopic {
   if (matches(EXECUTION, text)) return "execution-request";
   // Check ambiguous before out-of-scope: WorkLens-related but unclear intent
   // should trigger clarification, not rejection.
-  if (matches(AMBIGUOUS, normalized) && matches(IN_SCOPE, normalized)) return "clarify";
+  if (isAmbiguous(normalized)) return "clarify";
   if (matches(OUT_OF_SCOPE, text) && !matches(IN_SCOPE, text)) return "out-of-scope";
   return "in-scope";
+}
+
+/**
+ * True when the question is WorkLens-related but its intent is genuinely unclear.
+ * Clear questions with a concrete verb structure are never ambiguous, even when
+ * they contain keywords like "중복".
+ */
+function isAmbiguous(normalized: string): boolean {
+  const inScope = matches(IN_SCOPE, normalized);
+  if (!inScope) return false;
+  // Clear verb structure → not ambiguous, even with "중복"
+  if (CLEAR_QUESTION_VERB.test(normalized)) return false;
+  if (matches(AMBIGUOUS_FRAGMENT, normalized)) return true;
+  // "중복" without a clear question structure: short fragment with two plausible intents
+  if (DUPLICATE_AMBIGUOUS.test(normalized) && normalized.length <= 30) return true;
+  return false;
 }
 
 export const OUT_OF_SCOPE_RESPONSE = "이 도우미는 WorkLens에 구현된 기능과 사용 방법만 안내할 수 있습니다.";
@@ -122,6 +170,65 @@ export function clarifyResponse(question: string): string {
     return "어떤 작업을 자동으로 하고 싶으신가요? (예: 문서 분석, 업무 진단, 리서치 검색)";
   }
   return CLARIFY_RESPONSE;
+}
+
+/**
+ * Structured clarification options matching clarifyResponse(). The client shows
+ * these so the user can pick; the server resolves "첫 번째요" style answers.
+ */
+export function clarifyOptions(question: string): string[] {
+  if (/중복/u.test(question)) {
+    return ["자연어 질문 기능", "중복 질문 처리 기능"];
+  }
+  if (/자동으로/u.test(question)) {
+    return ["문서 분석", "업무 진단", "리서치 검색"];
+  }
+  return [];
+}
+
+/** Result of attempting to resolve a follow-up answer against a pending clarification. */
+export type ClarifyResolution =
+  | { kind: "select"; optionIndex: number; option: string }
+  | { kind: "affirm" }
+  | { kind: "deny" }
+  | { kind: "none" };
+
+/**
+ * Match a short follow-up answer ("첫 번째요", "네", "아니요"...) against the
+ * pending clarification. Returns "none" when the answer is a new question or
+ * does not address the clarification.
+ */
+export function resolveClarifyFollowUp(answer: string, clarify: ClarifyState): ClarifyResolution {
+  const text = answer.trim();
+  // A longer message that is itself a question is a topic change, not a selection.
+  if (text.length > 24 && /[?？]/.test(text)) return { kind: "none" };
+  for (const { index, pattern } of CLARIFY_SELECT_PATTERNS) {
+    if (pattern.test(text) && index < clarify.options.length) {
+      return { kind: "select", optionIndex: index, option: clarify.options[index] };
+    }
+  }
+  if (CLARIFY_AFFIRM.test(text)) return { kind: "affirm" };
+  if (CLARIFY_DENY.test(text)) return { kind: "deny" };
+  return { kind: "none" };
+}
+
+/** Questions about the currently selected task's own diagnosis (not general policy). */
+const TASK_SPECIFIC = [
+  /이\s*업무/u, /지금\s*(선택|열).{0,8}업무/u, /현재\s*업무/u,
+  /왜\s*(level|레벨)/iu, /왜\s*(진행\s*보류|보류)/u, /왜\s*(gate|게이트)/iu,
+  /우리\s*업무/u, /이\s*건/u,
+] as const;
+
+/**
+ * True when the question asks about the selected task's own diagnosis rather
+ * than general WorkLens policy. Such questions need the task's actual diagnosis
+ * data (with user consent); a general policy answer would be misleading.
+ */
+export function isTaskSpecificQuestion(question: string): boolean {
+  const text = question.trim();
+  // Injection/execution checks run first in classifyQuestion; here we only
+  // distinguish task-specific from general within in-scope questions.
+  return matches(TASK_SPECIFIC, text);
 }
 
 export function executionRequestResponse(question: string): string {
