@@ -2,20 +2,47 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Bot, Loader2, Maximize2, MessageCircle, Minimize2, RotateCcw, Send, TriangleAlert, X } from "lucide-react";
+import { Bot, Loader2, Maximize2, Minimize2, RotateCcw, Send, TriangleAlert, X } from "lucide-react";
 import { loadAxState } from "@/client/ax-store";
 import { automationLevel, executionGate, GATE_LABELS } from "@/lib/ax/policy";
 import { planSummary } from "@/lib/ax/guide";
 import "./assistant.css";
 
-interface AssistantSource { screen: string; title: string }
+const MASCOT_SRC = "/brand/wl-assistant-mascot.png";
+
+interface AssistantSource { screen: string; title: string; kind?: "evidence" | "screen" }
 interface AssistantMessage {
   id: number;
   role: "user" | "assistant";
   text: string;
   sources?: AssistantSource[];
+  relatedScreens?: AssistantSource[];
   error?: string;
   pending?: boolean;
+}
+
+/** Mascot image with accessible icon fallback when the image fails to load. */
+function Mascot({ size, label }: { size: number; label: string }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return (
+      <span className="wl-assistant-mascot-fallback" style={{ width: size, height: size }} aria-hidden="true">
+        <Bot />
+      </span>
+    );
+  }
+  return (
+    <img
+      src={MASCOT_SRC}
+      alt=""
+      width={size}
+      height={size}
+      className="wl-assistant-mascot"
+      aria-label={label}
+      onError={() => setFailed(true)}
+      draggable={false}
+    />
+  );
 }
 
 const EXAMPLE_QUESTIONS = [
@@ -57,7 +84,7 @@ async function readScreenContext(): Promise<ScreenContext | null> {
   }
 }
 
-async function askAssistant(question: string, context: ScreenContext | null, signal: AbortSignal): Promise<{ answer: string; sources: AssistantSource[] }> {
+async function askAssistant(question: string, context: ScreenContext | null, signal: AbortSignal): Promise<{ answer: string; sources: AssistantSource[]; relatedScreens: AssistantSource[] }> {
   const response = await fetch("/api/assistant", {
     method: "POST",
     credentials: "same-origin",
@@ -72,13 +99,13 @@ async function askAssistant(question: string, context: ScreenContext | null, sig
     if (code === "AI_RATE_LIMITED") throw new Error("요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.");
     throw new Error("지금은 응답할 수 없습니다. 네트워크 상태를 확인한 뒤 다시 시도해 주세요.");
   }
-  const data = (payload as { data?: { answer?: unknown; sources?: unknown } } | null)?.data;
+  const data = (payload as { data?: { answer?: unknown; sources?: unknown; relatedScreens?: unknown } } | null)?.data;
   if (!data || typeof data.answer !== "string") throw new Error("응답 형식이 올바르지 않습니다. 다시 시도해 주세요.");
-  const sources = Array.isArray(data.sources)
-    ? data.sources.filter((source): source is AssistantSource =>
+  const toSources = (value: unknown): AssistantSource[] => Array.isArray(value)
+    ? value.filter((source): source is AssistantSource =>
       !!source && typeof source === "object" && typeof (source as AssistantSource).screen === "string")
     : [];
-  return { answer: data.answer, sources };
+  return { answer: data.answer, sources: toSources(data.sources), relatedScreens: toSources(data.relatedScreens) };
 }
 
 export function AssistantWidget() {
@@ -90,8 +117,6 @@ export function AssistantWidget() {
   ]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [useScreenContext, setUseScreenContext] = useState(false);
-  const [contextNote, setContextNote] = useState<string | null>(null);
   const controllerRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fabRef = useRef<HTMLButtonElement>(null);
@@ -136,7 +161,7 @@ export function AssistantWidget() {
 
   useEffect(() => { scrollToBottom(); }, [messages, scrollToBottom]);
 
-  const send = useCallback(async (rawQuestion: string) => {
+  const send = useCallback(async (rawQuestion: string, withContext: boolean = false) => {
     const question = rawQuestion.trim();
     if (!question || loading || question.length > MAX_QUESTION_CHARS) return;
     controllerRef.current?.abort();
@@ -147,11 +172,10 @@ export function AssistantWidget() {
     setInput("");
     setLoading(true);
     try {
-      const context = useScreenContext ? await readScreenContext() : null;
-      if (useScreenContext) setContextNote(context ? `현재 화면 기준: ${context.taskName}` : "현재 화면 기준: 선택된 진단 업무가 없습니다.");
-      const { answer, sources } = await askAssistant(question, context, controller.signal);
+      const context = withContext ? await readScreenContext() : null;
+      const { answer, sources, relatedScreens } = await askAssistant(question, context, controller.signal);
       setMessages((prev) => prev.map((message) =>
-        message.pending ? { ...message, pending: false, text: answer, sources } : message));
+        message.pending ? { ...message, pending: false, text: answer, sources, relatedScreens } : message));
     } catch (error) {
       const cancelled = controller.signal.aborted && (error as Error)?.name === "AbortError";
       const text = cancelled ? "요청이 취소되었습니다." : error instanceof Error ? error.message : "응답할 수 없습니다.";
@@ -162,7 +186,7 @@ export function AssistantWidget() {
       setLoading(false);
       if (controllerRef.current === controller) controllerRef.current = null;
     }
-  }, [loading, useScreenContext]);
+  }, [loading]);
 
   const retry = useCallback((question: string) => {
     setMessages((prev) => prev.filter((message) => !message.error));
@@ -172,7 +196,6 @@ export function AssistantWidget() {
   const clearConversation = useCallback(() => {
     controllerRef.current?.abort();
     setMessages([{ id: nextId(), role: "assistant", text: "대화를 초기화했습니다. WorkLens의 기능과 사용 방법에 대해 질문해 주세요." }]);
-    setContextNote(null);
   }, []);
 
   if (!mounted) return null;
@@ -180,32 +203,23 @@ export function AssistantWidget() {
     <div className="wl-assistant-root" data-open={open || undefined}>
       {!open ? (
         <button ref={fabRef} type="button" className="wl-assistant-fab" aria-label="AI 도우미 열기" onClick={() => setOpen(true)}>
-          <MessageCircle aria-hidden="true" />
+          <Mascot size={40} label="AI 도우미 열기" />
         </button>
       ) : (
         <section className="wl-assistant-panel" data-expanded={expanded || undefined} role="dialog" aria-modal="false" aria-label="WorkLens AI 도우미">
           <header className="wl-assistant-header">
-            <span className="wl-assistant-logo" aria-hidden="true"><Bot /></span>
+            <Mascot size={36} label="WorkLens AI 도우미" />
             <span className="wl-assistant-titles">
               <strong>WorkLens AI 도우미</strong>
-              <small>WorkLens 기능과 사용 방법을 안내합니다.</small>
             </span>
             <span className="wl-assistant-controls">
               <button type="button" aria-label="대화 초기화" title="대화 초기화" onClick={clearConversation}><RotateCcw aria-hidden="true" /></button>
-              <button type="button" aria-label={expanded ? "패널 복원" : "패널 확장"} onClick={() => setExpanded((value) => !value)}>
+              <button type="button" aria-label={expanded ? "패널 복원" : "패널 확장"} title={expanded ? "패널 복원" : "패널 확장"} onClick={() => setExpanded((value) => !value)}>
                 {expanded ? <Minimize2 aria-hidden="true" /> : <Maximize2 aria-hidden="true" />}
               </button>
-              <button type="button" aria-label="AI 도우미 최소화" onClick={() => setOpen(false)}><Minimize2 aria-hidden="true" /></button>
-              <button type="button" aria-label="AI 도우미 닫기" onClick={() => setOpen(false)}><X aria-hidden="true" /></button>
+              <button type="button" aria-label="AI 도우미 닫기" title="AI 도우미 닫기" onClick={() => setOpen(false)}><X aria-hidden="true" /></button>
             </span>
           </header>
-          <div className="wl-assistant-context">
-            <label className="wl-assistant-toggle">
-              <input type="checkbox" checked={useScreenContext} onChange={(event) => { setUseScreenContext(event.target.checked); setContextNote(null); }} />
-              <span>현재 화면 기준</span>
-            </label>
-            {contextNote ? <small className="wl-assistant-context-note">{contextNote}</small> : null}
-          </div>
           <div
             ref={listRef}
             className="wl-assistant-messages"
@@ -219,11 +233,21 @@ export function AssistantWidget() {
           >
             {messages.map((message) => (
               <div key={message.id} className={`wl-assistant-row${message.role === "user" ? " is-user" : ""}`}>
-                {message.role === "assistant" ? <span className="wl-assistant-avatar" aria-hidden="true"><Bot /></span> : null}
+                {message.role === "assistant" ? (
+                  <span className="wl-assistant-avatar" aria-hidden="true">
+                    <Mascot size={26} label="" />
+                  </span>
+                ) : null}
                 <div className="wl-assistant-bubble">
                   {message.pending
                     ? <span className="wl-assistant-typing" aria-label="답변 작성 중"><Loader2 className="wl-spin" aria-hidden="true" /></span>
                     : <p>{message.text}</p>}
+                  {message.relatedScreens && message.relatedScreens.length ? (
+                    <div className="wl-assistant-related">
+                      <strong>관련 화면</strong>
+                      <ul>{message.relatedScreens.map((source) => <li key={`${source.screen}${source.title}`}>{source.screen} &gt; {source.title}</li>)}</ul>
+                    </div>
+                  ) : null}
                   {message.sources && message.sources.length ? (
                     <div className="wl-assistant-sources">
                       <strong>참고 근거</strong>
