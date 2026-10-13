@@ -42,7 +42,7 @@ describe("AX execution guides", () => {
       expect(TOOL_GUIDES.claude[key]).toBeTruthy();
       expect(TOOL_GUIDES.codex[key]).not.toBe(TOOL_GUIDES.claude[key]);
     }
-    const sectionText = (section: AxGuideSection) => [section.when ?? "", ...section.blocks.map(block => block.kind === "text" ? block.text : block.kind === "code" ? block.lines.join("\n") : block.items.join("\n"))].join("\n");
+    const sectionText = (section: AxGuideSection) => [section.when ?? "", ...section.blocks.map(block => block.kind === "text" ? block.text : block.kind === "code" ? [...block.lines, ...(block.notes ?? [])].join("\n") : block.items.join("\n"))].join("\n");
     for (const tool of ["codex", "claude"] as const) {
       const other = tool === "codex" ? "claude" : "codex";
       const guide = setupGuide(tool);
@@ -51,8 +51,11 @@ describe("AX execution guides", () => {
         expect(all).toContain(TOOL_GUIDES[tool][command]);
         expect(all).not.toContain(TOOL_GUIDES[other][command]);
       }
-      const installs = guide[1].sections.slice(1);
-      for (const install of installs) expect(install.when).toMatch(/에만|때만/);
+      // STEP 01: install-first order (install → verify → git config → auth → login)
+      const step01 = guide[1];
+      expect(step01.title).toContain("STEP 01");
+      expect(step01.sections[0].title).toBe("필요한 프로그램 설치");
+      expect(step01.sections[1].title).toBe("설치 확인");
       expect(guide[2]).toEqual(setupGuide(other)[2]);
       for (const index of [5, 6, 7, 8, 9]) expect(guide[index]).toEqual(setupGuide(other)[index]);
     }
