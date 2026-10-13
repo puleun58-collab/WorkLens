@@ -648,6 +648,7 @@
 .ax-done-criteria dt svg { flex: none; width: 18px; height: 18px; margin-top: 1px; color: var(--primary); }
 .ax-done-criteria dd li { position: relative; padding-left: 14px; }
 .ax-done-criteria dd li::before, .ax-risk-panel li::before { content: ""; position: absolute; left: 2px; top: 0.7em; width: 4px; height: 4px; border-radius: 999px; background: currentColor; }
+.ax-criteria-notice { margin: 8px 0 0; font-size: 13px; color: var(--muted-foreground); }
 .ax-risk-panel { min-width: 0; padding: 16px 20px; border: 1px solid #dfe6f2; border-radius: 10px; background: #f6f8fc; }
 .ax-risk-panel h5 { display: flex; align-items: center; gap: 10px; font-size: 16px; font-weight: var(--font-weight-bold, 700); }
 .ax-risk-panel h5 svg { width: 22px; height: 22px; color: #dc2626; }
