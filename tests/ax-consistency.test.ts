@@ -161,8 +161,13 @@ describe("AX shared processing and relational scope", () => {
     expect(model.scoped.criteria.map(item => item.text)).not.toContain(approval);
     expect(from(model, "plan.acceptance", approval)?.scope).toBe("confirm");
     expect(summary.constraints.join("\n")).toContain(excluded);
-    expect(summary.constraints.some(text => text.includes("diagnosis.humanInLoop"))).toBe(true);
-    expect(summary.constraints.some(text => text.includes("diagnosis.poc.outOfScope"))).toBe(true);
+    // Provenance stays in the internal model; rendered constraints omit internal field names.
+    const constraintFrom = (source: string) => {
+      const entry = model.classified.find(item => (item.role === "human" || item.role === "excluded") && item.sources.includes(source));
+      return !!entry && summary.constraints.some(t => t.includes(entry.original ?? entry.text));
+    };
+    expect(constraintFrom("diagnosis.humanInLoop")).toBe(true);
+    expect(constraintFrom("diagnosis.poc.outOfScope")).toBe(true);
   });
 
   it("does not make future-step conditions required for independent current steps or bypass Gate and Level 1", () => {
