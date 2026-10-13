@@ -19,6 +19,7 @@ interface AssistantMessage {
   relatedScreens?: AssistantSource[];
   error?: string;
   pending?: boolean;
+  greeting?: boolean;
   /** Set on assistant messages that ask the user to pick a clarification option. */
   clarify?: { clarifyId: string; originalQuestion: string; options: string[] };
   /** Set on assistant messages that ask for task-data consent. */
@@ -160,7 +161,7 @@ export function AssistantWidget() {
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [messages, setMessages] = useState<AssistantMessage[]>([
-    { id: nextId(), role: "assistant", text: "안녕하세요! WorkLens AI 도우미입니다. WorkLens의 기능과 사용 방법에 대해 질문해 주세요." },
+    { id: nextId(), role: "assistant", text: "안녕하세요!\nWorkLens AI 도우미입니다.\n업무 분석, 자동화 진단, 기능 사용 방법 등\n무엇이든 질문해 주세요.", greeting: true },
   ]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -276,7 +277,7 @@ export function AssistantWidget() {
     requestSeqRef.current += 1;
     clarifyRef.current = null;
     consentRef.current = null;
-    setMessages([{ id: nextId(), role: "assistant", text: "대화를 초기화했습니다. WorkLens의 기능과 사용 방법에 대해 질문해 주세요." }]);
+    setMessages([{ id: nextId(), role: "assistant", text: "안녕하세요!\nWorkLens AI 도우미입니다.\n업무 분석, 자동화 진단, 기능 사용 방법 등\n무엇이든 질문해 주세요.", greeting: true }]);
     setLoading(false);
   }, []);
 
@@ -306,9 +307,10 @@ export function AssistantWidget() {
       ) : (
         <section className="wl-assistant-panel" data-expanded={expanded || undefined} role="dialog" aria-modal="false" aria-label="WorkLens AI 도우미">
           <header className="wl-assistant-header">
-            <Mascot size={36} label="WorkLens AI 도우미" />
+            <Mascot size={48} label="WorkLens AI 도우미" />
             <span className="wl-assistant-titles">
               <strong>WorkLens AI 도우미</strong>
+              <span>업무 분석부터 자동화까지, 무엇이든 물어보세요.</span>
             </span>
             <span className="wl-assistant-controls">
               <button type="button" aria-label="대화 초기화" title="대화 초기화" onClick={clearConversation}><RotateCcw aria-hidden="true" /></button>
@@ -336,10 +338,17 @@ export function AssistantWidget() {
                     <Mascot size={26} label="" />
                   </span>
                 ) : null}
-                <div className="wl-assistant-bubble">
+                <div className={`wl-assistant-bubble${message.greeting ? " is-greeting" : ""}`}>
                   {message.pending
                     ? <span className="wl-assistant-typing" aria-label="답변 작성 중"><Loader2 className="wl-spin" aria-hidden="true" /></span>
-                    : <p>{message.text}</p>}
+                    : message.greeting
+                      ? <p>{message.text.split("\n").map((line, index) => (
+                          <span key={index} className={index === 0 ? "wl-greeting-first" : undefined}>
+                            {line}
+                            {index < message.text.split("\n").length - 1 ? <br /> : null}
+                          </span>
+                        ))}</p>
+                      : <p>{message.text}</p>}
                   {message.relatedScreens && message.relatedScreens.length ? (
                     <div className="wl-assistant-related">
                       <strong>관련 화면</strong>
@@ -369,12 +378,9 @@ export function AssistantWidget() {
           </div>
           {messages.length <= 2 && !loading ? (
             <div className="wl-assistant-examples" aria-label="예시 질문">
-              <strong>예시 질문</strong>
-              <div>
-                {EXAMPLE_QUESTIONS.map((question) => (
-                  <button key={question} type="button" onClick={() => void send(question)}>{question}</button>
-                ))}
-              </div>
+              {EXAMPLE_QUESTIONS.map((question) => (
+                <button key={question} type="button" onClick={() => void send(question)}>{question}</button>
+              ))}
             </div>
           ) : null}
           <form
@@ -402,7 +408,6 @@ export function AssistantWidget() {
               {loading ? <Loader2 className="wl-spin" aria-hidden="true" /> : <Send aria-hidden="true" />}
             </button>
           </form>
-          <p className="wl-assistant-footnote">WorkLens 기능과 정책에 대한 안내만 제공합니다.</p>
         </section>
       )}
     </div>,

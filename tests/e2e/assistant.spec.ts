@@ -36,9 +36,9 @@ async function openAssistant(page: Page) {
 test("assistant: panel opens with reference layout elements", async ({ page }) => {
   await openAssistant(page);
   const panel = page.getByRole("dialog", { name: "WorkLens AI 도우미" });
-  // Header: mascot + title only, no subtitle
+  // Header: mascot + title + subtitle
   await expect(panel.locator(".wl-assistant-titles strong")).toHaveText("WorkLens AI 도우미");
-  await expect(panel.getByText("WorkLens 기능과 사용 방법을 안내합니다.")).toHaveCount(0);
+  await expect(panel.getByText("업무 분석부터 자동화까지, 무엇이든 물어보세요.")).toBeVisible();
   // 3 control buttons only: reset, expand, close (no minimize)
   await expect(panel.getByRole("button", { name: "대화 초기화" })).toBeVisible();
   await expect(panel.getByRole("button", { name: "패널 확장" })).toBeVisible();
@@ -46,11 +46,13 @@ test("assistant: panel opens with reference layout elements", async ({ page }) =
   await expect(panel.getByRole("button", { name: "AI 도우미 최소화" })).toHaveCount(0);
   // No screen context checkbox
   await expect(panel.getByText("현재 화면 기준")).toHaveCount(0);
-  await expect(panel.getByText("예시 질문")).toBeVisible();
+  // No "예시 질문" label (removed in reference UI), buttons have aria-label container
+  await expect(panel.locator(".wl-assistant-examples")).toHaveAttribute("aria-label", "예시 질문");
   await expect(panel.getByRole("button", { name: "자동화 Level은 어떻게 결정되나요?" })).toBeVisible();
   await expect(panel.getByRole("button", { name: "진행 보류와 확인 후 진행의 차이는?" })).toBeVisible();
   await expect(panel.getByRole("button", { name: "올인원 지시문은 어떻게 사용하나요?" })).toBeVisible();
-  await expect(panel.getByText("WorkLens 기능과 정책에 대한 안내만 제공합니다.")).toBeVisible();
+  // Footnote removed in reference UI
+  await expect(panel.getByText("WorkLens 기능과 정책에 대한 안내만 제공합니다.")).toHaveCount(0);
   // Mascot images present
   await expect(panel.locator("img.wl-assistant-mascot").first()).toBeVisible();
 });
@@ -107,7 +109,8 @@ test("assistant: error shows retry and conversation is cleared on demand", async
   await retry.click();
   await expect(panel.getByText("모의 답변: 정상 질문")).toBeVisible();
   await panel.getByRole("button", { name: "대화 초기화" }).click();
-  await expect(panel.getByText("대화를 초기화했습니다.")).toBeVisible();
+  // Reset restores the greeting message (reference UI)
+  await expect(panel.getByText("안녕하세요!")).toBeVisible();
 });
 
 test("assistant: does not disturb body layout or scroll", async ({ page }) => {
