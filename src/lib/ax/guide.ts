@@ -298,16 +298,97 @@ type PlanListKey = Exclude<keyof AxPlan, "repositoryFirst">;
  * measurement target both appear in the registration/diagnosis context. The same number
  * with a different meaning (e.g. 정산 오차율 0.5% vs 시스템 오류율 0.5%) is not confirmed.
  */
-const METRIC_VALUE = /(\d+(?:\.\d+)?\s*(?:%|퍼센트|배))/u;
-/** The noun phrase (up to 3 words) directly before the number: the measurement target. */
-const METRIC_SUBJECT = /([가-힣A-Za-z]{2,}(?:\s+[가-힣A-Za-z]{2,}){0,2})\s*\d+(?:\.\d+)?\s*(?:%|퍼센트|배)/u;
+/** Every metric occurrence in the item, each verified against its own measurement target. */
+const METRIC_GLOBAL = /(\d+(?:\.\d+)?\s*(?:%|퍼센트|배))/gu;
+/** The noun phrase (up to 3 words) directly before a metric: the measurement target. */
+const METRIC_SUBJECT_TAIL = /([가-힣A-Za-z]{2,}(?:\s+[가-힣A-Za-z]{2,}){0,2})\s*$/u;
+/**
+ * Deictic modifiers that never change what is measured. Quantitative modifiers
+ * (목표/예상/평균/최대/최소/실제/기존값…) are deliberately kept: they can change the meaning.
+ */
+const NEUTRAL_SUBJECT_PREFIX = /^(?:기존|현재|해당)\s+/u;
+const normalizeSubject = (subject: string) => subject.replace(/\s+/gu, " ").trim().replace(NEUTRAL_SUBJECT_PREFIX, "");
+const normalizeMetric = (metric: string) => metric.replace(/퍼센트/u, "%").replace(/\s+/gu, "");
+/** Words that change what a measurement means; never ignored when only one side has them. */
+const MEANING_MODIFIER = /^(?:목표|예상|평균|최대|최소|실제|기준|표준|한도|상한|하한)$/u;
+/** The core nouns of one subject are all present in the other: same measurement target, different wording. */
+const subjectMatches = (itemSubject: string, ctxSubject: string) => {
+  const wi = itemSubject.split(" ").filter(Boolean), wc = ctxSubject.split(" ").filter(Boolean);
+  if (!wi.length || !wc.length) return false;
+  if (wi.every(word => wc.includes(word))) return true;
+  const extra = wi.filter(word => !wc.includes(word));
+  return wc.every(word => wi.includes(word)) && extra.every(word => !MEANING_MODIFIER.test(word));
+};
+interface MetricClaim { text: string; subject: string; value: string; confirmed: boolean }
+/** One claim per metric in the item; a confirmed first metric never covers the rest. */
+function metricClaims(item: string, context: string): MetricClaim[] {
+  return [...item.matchAll(METRIC_GLOBAL)].map(match => {
+    const value = normalizeMetric(match[1]);
+    const subject = normalizeSubject(METRIC_SUBJECT_TAIL.exec(item.slice(0, match.index))?.[1] ?? "");
+    let confirmed = false;
+    if (subject) {
+      for (const ctx of context.matchAll(METRIC_GLOBAL)) {
+        if (normalizeMetric(ctx[1]) !== value) continue;
+        const ctxSubject = normalizeSubject(METRIC_SUBJECT_TAIL.exec(context.slice(0, ctx.index))?.[1] ?? "");
+        if (ctxSubject && subjectMatches(subject, ctxSubject)) { confirmed = true; break; }
+      }
+    }
+    return { text: `${METRIC_SUBJECT_TAIL.exec(item.slice(0, match.index))?.[1]?.trim() ?? ""} ${match[1]}`.trim(), subject, value, confirmed };
+  });
+}
+/**
+ * A quantified target is a confirmed business fact only when every metric in the item has its
+ * number+unit AND its measurement target confirmed in the registration/diagnosis context.
+ * The same number with a different meaning (e.g. 정산 오차율 0.5% vs 시스템 오류율 0.5%) is not confirmed.
+ */
 export function isConfirmedMetric(item: string, context: string): boolean {
-  const metric = METRIC_VALUE.exec(item);
-  if (!metric || !context.includes(metric[1])) return false;
-  const subject = METRIC_SUBJECT.exec(item)?.[1]?.replace(/\s+/gu, " ").trim();
-  // Without an identifiable measurement target, the number alone cannot confirm the meaning.
-  if (!subject) return false;
-  return context.includes(subject);
+  const claims = metricClaims(item, context);
+  return claims.length > 0 && claims.every(claim => claim.confirmed);
+}
+/** System names before "API"; generic words are not an identifiable system. */
+const API_SYSTEM = /([가-힣A-Za-z]+(?:\s+[가-힣A-Za-z]+){0,2})\s*API/giu;
+const SYSTEM_STOP = /^(?:시스템|내부|외부|신규|기존|해당|관련|사내|전체|업무|전송|조회|읽기|등록|수정|삭제|승인|연동)$/u;
+/** Last non-generic word of the phrase before "API": the system the API belongs to. */
+const systemName = (phrase: string) => {
+  const words = phrase.split(/\s+/u).filter(word => !SYSTEM_STOP.test(word));
+  return words.length ? words[words.length - 1] : "";
+};
+const API_WRITE_OP = /(등록|생성|수정|삭제|전송|승인|결재|보정|반영|업로드|발행|확정)/u;
+const API_READ_OP = /(조회|읽기|검색|확인|가져오|불러오|다운로드)/u;
+/**
+ * One confirmed API never confirms another: a read API does not grant write permission,
+ * and system A's API says nothing about system B. Each system+operation is checked
+ * independently against the context; confirmed normal reads are not blocked.
+ */
+function qualifyApi(value: string, item: string, context: string): string {
+  if (!SYSTEM_INTERFACE.test(item) || /확인/u.test(item)) return value;
+  const sentences = context.split(/[.\n。]/u);
+  const sentenceHas = (name: string, op: RegExp) => sentences.some(sentence => sentence.includes(name) && op.test(sentence));
+  let specific = false;
+  for (const match of item.matchAll(API_SYSTEM)) {
+    const system = systemName(match[1]);
+    if (!system) continue;
+    specific = true;
+    const itemWrite = API_WRITE_OP.exec(item)?.[1];
+    const itemRead = itemWrite ? undefined : API_READ_OP.exec(item)?.[1];
+    if (itemWrite && !sentenceHas(system, API_WRITE_OP)) {
+      value = `${value} ${UNCONFIRMED} ${system} API의 ${itemWrite} 기능과 실제 권한을 확인한 뒤 확인된 범위에서만 사용하세요)`;
+    } else if (itemRead && !sentenceHas(system, API_READ_OP) && !sentenceHas(system, API_WRITE_OP)) {
+      value = `${value} ${UNCONFIRMED} ${system} API의 ${itemRead} 가능 여부와 권한을 확인하세요)`;
+    } else if (!sentences.some(sentence => sentence.includes(system))) {
+      value = `${value} ${UNCONFIRMED} ${system} API의 존재·연동 방식·권한을 확인하세요)`;
+    }
+  }
+  if (!specific && !SYSTEM_INTERFACE.test(context)) {
+    value = `${value} ${UNCONFIRMED} 실제 연동 방식과 권한을 확인한 뒤 확인된 방식만 사용하세요)`;
+  }
+  return value;
+}
+/** The item carries metrics and none of them are confirmed: guardPlan drops it. */
+function hasOnlyUnconfirmedMetrics(item: string, context: string): boolean {
+  if (!UNSUPPORTED_METRIC.test(item)) return false;
+  const claims = metricClaims(item, context);
+  return claims.length > 0 && claims.every(claim => !claim.confirmed);
 }
 
 /**
@@ -319,12 +400,21 @@ export function guardPlan(plan: AxPlan, context: string): AxPlan {
   // Each risk (auto action, unconfirmed API, unconfirmed org) is checked independently, so one
   // confirmed fact never suppresses the remaining checks.
   const guardItem = (item: string, qualify: boolean): string | null => {
-    if (UNSUPPORTED_METRIC.test(item) && !isConfirmedMetric(item, context)) return null;
+    if (item.includes(UNCONFIRMED)) return item;
+    if (UNSUPPORTED_METRIC.test(item)) {
+      const claims = metricClaims(item, context);
+      const unconfirmed = claims.filter(claim => !claim.confirmed);
+      // Every metric unconfirmed: drop the performance goal as before.
+      if (unconfirmed.length === claims.length) return null;
+      // Partially confirmed: keep the original, but the unconfirmed metrics must not become criteria.
+      // Remaining safety checks still apply below; the item is already marked, never marked twice.
+      if (unconfirmed.length > 0) item = `${item} ${UNCONFIRMED} 다음 수치의 근거를 먼저 확인하세요: ${unconfirmed.map(claim => claim.text).join(", ")})`;
+      // All metrics confirmed: the fact is preserved, remaining safety checks still apply below.
+    }
     let value = item.replace(ORGANIZATION, org => context.includes(org) ? org : "담당 조직");
-    if (value.includes(UNCONFIRMED)) return value;
     const action = qualify ? AUTO_ACTION.exec(value)?.[1] : undefined;
     if (action && !new RegExp(`자동(?:으로)?\\s*${action}`, "u").test(context)) value = `${value} ${UNCONFIRMED} 업무 규칙에서 확인된 경우에만 적용하고, 아니면 대상 건을 표시만 하세요)`;
-    if (qualify && SYSTEM_INTERFACE.test(item) && !/확인/u.test(item) && !SYSTEM_INTERFACE.test(context)) value = `${value} ${UNCONFIRMED} 실제 연동 방식과 권한을 확인한 뒤 확인된 방식만 사용하세요)`;
+    if (qualify) value = qualifyApi(value, item, context);
     if (value !== item && value.includes("담당 조직") && !value.includes(UNCONFIRMED)) value = `${value} ${UNCONFIRMED} 실제 담당 조직을 확인하세요)`;
     return value;
   };
@@ -754,7 +844,7 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
     let guardedIndex = 0;
     const planContext = [options.taskName ?? "", options.context ?? ""].join("\n");
     for (const item of rawPlan[key] ?? []) {
-      const unsupported = UNSUPPORTED_METRIC.test(item) && !isConfirmedMetric(item, planContext);
+      const unsupported = hasOnlyUnconfirmedMetrics(item, planContext);
       append(`plan.${key}`, PLAN_ROLES[key], unsupported ? item : guarded?.[key]?.[guardedIndex++] ?? item,
         unsupported ? "근거 없는 성능 수치: 측정 근거와 판정 기준 확인 필요" : undefined, item);
     }

@@ -47,7 +47,7 @@ describe("AX guardPlan applies every safety check even for confirmed metrics", (
   it("case A: confirmed metric + unconfirmed API", () => {
     const [item] = confirmed(["정산 오차율 0.5% 이내를 유지하고 신규 ERP API로 자동 전송"]);
     expect(item).toContain("0.5%");
-    expect(item).toContain("(확인 필요: 실제 연동 방식과 권한을 확인한 뒤 확인된 방식만 사용하세요)");
+    expect(item).toContain("(확인 필요: ERP API의 전송 기능과 실제 권한을 확인한 뒤 확인된 범위에서만 사용하세요)");
   });
   it("case B: confirmed metric + auto approval", () => {
     const [item] = confirmed(["정산 오차율 0.5% 이내면 자동 승인"]);
@@ -111,5 +111,94 @@ describe("AX composite order: sequence, parallel, enumeration, conflict", () => 
   it("E: a single processing role stays a single method", () => {
     const model = modelOf("확정된 계산식에 따라 운임을 계산한다.");
     expect(model.methods[0]).toBe("rule");
+  });
+});
+
+describe("AX boundary: every metric in one sentence is verified independently", () => {
+  const ctx = (s: string) => s;
+  it.each([
+    ["오차율 0.5%", "오차율 0.5% 유지", true],
+    ["오차율 0.5%", "오차율 0.5% 유지·정확도 99% 달성", false],
+    ["오차율 0.5% 이내, 불량률 2% 이내", "오차율 0.5%와 불량률 2%를 대조", true],
+    ["응답률 95% 유지", "응답률 95%·정확도 95% 달성", false],
+    ["기존 처리량 100건", "100건 자동 처리 보장", false],
+    ["", "정확도 99%·시간 80% 단축", false],
+  ])("isConfirmedMetric(%s, %s)", (context, generated, expected) => {
+    expect(isConfirmedMetric(generated, ctx(context))).toBe(expected);
+  });
+  it("keeps a partially confirmed sentence but names the unconfirmed metrics", () => {
+    const plan = structuredClone(planFixture);
+    plan.acceptance = ["정산 오차율 0.5% 유지 및 정확도 99% 달성"];
+    const guarded = guardPlan(plan, "정산 오차율 0.5% 이내");
+    expect(guarded.acceptance).toHaveLength(1);
+    expect(guarded.acceptance[0]).toContain("정산 오차율 0.5% 유지 및 정확도 99% 달성");
+    expect(guarded.acceptance[0]).toContain("(확인 필요: 다음 수치의 근거를 먼저 확인하세요: 정확도 99%)");
+  });
+  it("drops a sentence whose metrics are all unconfirmed", () => {
+    const plan = structuredClone(planFixture);
+    plan.acceptance = ["정확도 99%·시간 80% 단축 달성"];
+    expect(guardPlan(plan, "").acceptance).toEqual([]);
+  });
+  it("is idempotent for partially confirmed sentences", () => {
+    const plan = structuredClone(planFixture);
+    plan.acceptance = ["정산 오차율 0.5% 유지 및 정확도 99% 달성"];
+    const once = guardPlan(plan, "정산 오차율 0.5% 이내");
+    expect(guardPlan(once, "정산 오차율 0.5% 이내")).toEqual(once);
+  });
+  it("verifies metrics at the start, middle and end of a sentence", () => {
+    const context = "오차율 0.5% 이내, 불량률 2% 이내";
+    expect(isConfirmedMetric("오차율 0.5% 유지 후 불량률 2% 대조", context)).toBe(true);
+    expect(isConfirmedMetric("불량률 2% 대조 후 오차율 0.5% 유지", context)).toBe(true);
+    expect(isConfirmedMetric("정확도 99% 달성 후 오차율 0.5% 유지", context)).toBe(false);
+  });
+});
+
+describe("AX boundary: per-API existence, function and permission", () => {
+  const guarded = (items: string[], context: string) =>
+    guardPlan({ ...structuredClone(planFixture), implementation: items }, context).implementation;
+  it("does not block a confirmed read API", () => {
+    expect(guarded(["ERP API로 데이터 조회"], "ERP 읽기 API 연동 가능")).toEqual(["ERP API로 데이터 조회"]);
+  });
+  it("flags a write through a read-only API", () => {
+    const [item] = guarded(["ERP API를 통해 정산 결과 등록"], "ERP 읽기 API 연동 가능");
+    expect(item).toContain("(확인 필요: ERP API의 등록 기능과 실제 권한을 확인한 뒤 확인된 범위에서만 사용하세요)");
+  });
+  it("distinguishes a different integration on the same system", () => {
+    const [item] = guarded(["ERP 외부 전송 API 연동"], "ERP 조회 API 사용 가능");
+    expect(item).toContain("(확인 필요: ERP API의 전송 기능과 실제 권한을 확인한 뒤 확인된 범위에서만 사용하세요)");
+  });
+  it("distinguishes the same API name on another system", () => {
+    const [item] = guarded(["시스템 B API 호출"], "시스템 A API 연동 가능");
+    expect(item).toContain("(확인 필요:");
+    expect(item).not.toContain("확인된 범위에서만 사용하세요");
+  });
+  it("keeps the auto-action check independent from the API check", () => {
+    const [item] = guarded(["ERP API를 통해 정산 결과 자동 등록·전송"], "ERP 읽기 API 연동 가능");
+    expect(item).toContain("(확인 필요: 업무 규칙에서 확인된 경우에만 적용하고, 아니면 대상 건을 표시만 하세요)");
+    expect(item).toContain("ERP API의");
+  });
+  it("does not expand a confirmed write into an unrelated approval", () => {
+    const [item] = guarded(["ERP API를 통해 정산 결과 등록"], "ERP 등록 API 사용 가능. 등록 권한 확인됨.");
+    expect(item).toBe("ERP API를 통해 정산 결과 등록");
+  });
+});
+
+describe("AX boundary: same measurement target with different wording", () => {
+  it.each([
+    ["정산 오차율 0.5% 이내", "기존 정산 오차율 0.5% 확인", true],
+    ["정산 오차율 0.5% 이내", "현재 정산 오차율 0.5% 유지", true],
+    ["정산 오차율 0.5% 이내", "정산 오차율 0.5% 확인", true],
+    ["정산 오차율 0.5% 이내", "목표 정산 오차율 0.5% 달성", false],
+    ["최대 처리율 95% 유지", "평균 처리율 95% 달성", false],
+    ["할인율 10% 적용", "할인율 10퍼센트 적용", true],
+    ["정산 오차율 0.5% 이내", "시스템 오류율 0.5% 달성", false],
+  ])("isConfirmedMetric(context=%s, item=%s)", (context, item, expected) => {
+    expect(isConfirmedMetric(item, context)).toBe(expected);
+  });
+  it("keeps the original wording when a neutral modifier is present", () => {
+    const plan = structuredClone(planFixture);
+    plan.acceptance = ["기존 정산 오차율 0.5% 이내 확인"];
+    const guarded = guardPlan(plan, "정산 오차율 0.5% 이내");
+    expect(guarded.acceptance).toEqual(["기존 정산 오차율 0.5% 이내 확인"]);
   });
 });
