@@ -2,7 +2,6 @@
 
 import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
-import { Accordion, AccordionItem, AccordionPanel, AccordionTrigger } from "@/components/ui/accordion";
 import { Info } from "lucide-react";
 import type { SourceRef } from "@/domain/document";
 import {
@@ -17,6 +16,12 @@ import {
 import "./supplement.css";
 
 const SEVERITIES: readonly SupplementSeverity[] = ["critical", "warning", "suggestion"];
+/** Display-only titles for the blue explanation box, keyed by finding severity. */
+const SEVERITY_REASON_TITLES: Record<SupplementSeverity, string> = {
+  critical: "중요하게 판단한 이유",
+  warning: "확인이 필요한 이유",
+  suggestion: "참고할 내용",
+};
 const CHECK_TITLES: Record<SupplementResult["findings"][number]["check"], string> = {
   baseline: "비교 기준 미확인",
   cause: "원인 미확인",
@@ -138,14 +143,10 @@ export function SupplementResults({ result, fileNames, renderSource }: {
       </section>
 
       {result.questions.length > 0 ? (
-        <Accordion className="supplement-questions">
-          <AccordionItem value="report-questions">
-            <AccordionTrigger>보고 전 확인할 질문 <span className="supplement-question-count">{result.questions.length}개</span></AccordionTrigger>
-            <AccordionPanel>
-              <ol className="supplement-readable-list" role="list">{result.questions.map((question, index) => <li key={question}><span className="supplement-list-marker" aria-hidden="true">{index + 1}.</span><span>{question}</span></li>)}</ol>
-            </AccordionPanel>
-          </AccordionItem>
-        </Accordion>
+        <section className="supplement-questions" aria-label="확인할 질문">
+          <h3>확인할 질문 <span className="supplement-question-count">{result.questions.length}개</span></h3>
+          <ol className="supplement-readable-list" role="list">{result.questions.map((question, index) => <li key={question}><span className="supplement-list-marker" aria-hidden="true">{index + 1}.</span><span>{question}</span></li>)}</ol>
+        </section>
       ) : null}
 
       {result.findings.length === 0 ? (
@@ -161,7 +162,7 @@ export function SupplementResults({ result, fileNames, renderSource }: {
       ) : (
         <>
           <header className="supplement-list-heading"><h3>보완 필요 항목</h3><span>{filter === "all" ? `전체 ${result.findings.length}건` : `${SUPPLEMENT_SEVERITY_LABELS[filter]} ${visible.length}건 · 전체 ${result.findings.length}건`}</span></header>
-          <Accordion multiple className="supplement-findings" key={display.revision}>
+          <div className="supplement-findings" key={display.revision}>
           {(["all", "report"] as const).map((scope) => {
             const items = visible.filter((finding) => scope === "report" ? finding.scope === "report" : finding.scope !== "report");
             if (items.length === 0) return null;
@@ -181,10 +182,10 @@ export function SupplementResults({ result, fileNames, renderSource }: {
                       ? `${subject} · ${CHECK_TITLES[finding.check]}${finding.locations[0] ? ` · ${finding.locations[0]}` : ""}`
                       : subject;
                     return (
-                      <AccordionItem key={finding.id} value={finding.id} render={<article />} className={`supplement-item check-issue severity-${finding.severity}`}>
-                        <AccordionTrigger className="supplement-item-head">
+                      <article key={finding.id} className={`supplement-item check-issue severity-${finding.severity}`}>
+                        <div className="supplement-item-head">
                           <span className="supplement-item-title">{title}</span>
-                        </AccordionTrigger>
+                        </div>
                         <span className="check-severity"><i className={`severity-mark ${finding.severity}`} aria-hidden="true" />{SUPPLEMENT_SEVERITY_LABELS[finding.severity]}</span>
                         {finding.additions.length > 0 ? (
                           <dl className="supplement-fields supplement-additions">
@@ -195,10 +196,10 @@ export function SupplementResults({ result, fileNames, renderSource }: {
                           </dl>
                         ) : null}
                         {finding.limitation ? <p className="supplement-limitation">{finding.limitation}</p> : null}
-                        <AccordionPanel className="supplement-item-detail">
+                        <div className="supplement-item-detail">
                           <dl className="supplement-fields">
                             {finding.message.trim() || reason.trim() ? <div className="supplement-explanation">
-                              <dt>{finding.scope === "conflict" ? "무엇이 다른가" : "확인 이유"}</dt>
+                              <dt>{finding.scope === "conflict" ? "무엇이 다른가" : SEVERITY_REASON_TITLES[finding.severity] ?? "검토 의견"}</dt>
                               <dd>
                                 {finding.message.trim() ? <p className="supplement-message">{finding.message}</p> : null}
                                 {reason.trim() ? <p>{reason}</p> : null}
@@ -209,14 +210,14 @@ export function SupplementResults({ result, fileNames, renderSource }: {
                           {hasOriginal || finding.sources.length > 0 ? <div className="supplement-source">
                             {renderSource([...finding.sources, ...(finding.evidence ?? [])], { issue: finding.title, recommendation: finding.additions.join(", ") }, finding)}
                           </div> : null}
-                        </AccordionPanel>
-                      </AccordionItem>
+                        </div>
+                      </article>
                     );
                   })}
               </section>
             );
           })}
-          </Accordion>
+          </div>
           {visible.length === 0 ? (
             <div className="filter-empty">
               <strong>이 중요도의 보완 항목 없음</strong>
