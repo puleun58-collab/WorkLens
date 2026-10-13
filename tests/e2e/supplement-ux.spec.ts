@@ -67,17 +67,12 @@ for (const width of [1440, 390]) {
     const cause = results.locator(".supplement-item").filter({ hasText: "주요 증가 요인" });
     await expect(cause).toBeVisible();
     await expect(cause.locator(".check-severity")).toHaveText("중요");
-    const trigger = cause.locator(".supplement-item-head");
     await expect(cause.locator(".supplement-additions")).toBeVisible();
-    await expect(cause.locator(".supplement-message")).toBeHidden();
-    await trigger.focus();
-    await page.keyboard.press("Enter");
-    await expect(trigger).toHaveAttribute("aria-expanded", "true");
+    // PR #150: 모든 항목이 항상 펼쳐진 상태로 표시됨 (접기·펼치기 제거)
     await expect(cause.locator(".supplement-message")).toBeVisible();
     await expect(cause.getByRole("button", { name: /근거 보기/ })).toHaveCount(1);
     const additions = cause.locator("ul.supplement-readable-list > li > span:last-child");
     await expect(additions).toHaveText(["주요 증가 요인", "요인별 영향 규모", "일회성 여부"]);
-    await results.locator(".supplement-questions").getByRole("button").click();
     const questions = results.locator(".supplement-questions li > span:last-child");
     for (const question of await questions.allTextContents()) {
       await expect(cause.locator(".supplement-item-detail").getByText(question, { exact: true })).toHaveCount(0);
@@ -211,7 +206,6 @@ test("숫자는 있으나 목표·이전 기간이 없는 자료는 원문 값�
   await expect(baseline).toBeVisible();
   await expect(baseline.locator(".check-severity")).toHaveText("확인 필요");
   await expect(baseline.locator("ul.supplement-readable-list > li > span:last-child")).toHaveText(["목표값 또는 기준값", "이전 기간 값"]);
-  await baseline.locator(".supplement-item-head").click();
   await expect(baseline.locator(".supplement-explanation")).toBeVisible();
   await baseline.getByRole("button", { name: /근거 보기/ }).click();
   await expect(page.getByLabel("근거 상세", { exact: true }).locator(".supplement-evidence blockquote")).toHaveText("고객 만족도 82점");
@@ -224,8 +218,6 @@ test("모바일의 많은 긴 질문은 줄바꿈되어도 번호와 본문이 �
   await page.getByRole("button", { name: "보완 실행", exact: true }).click();
   const results = page.locator(".supplement-results");
   await expect(results.locator(".supplement-item")).toHaveCount(12);
-  await results.locator(".supplement-questions").getByRole("button").click();
-  for (const trigger of await results.locator(".supplement-item-head").all()) await trigger.click();
   const questions = results.locator(".supplement-questions li > span:last-child");
   const topQuestions = await questions.allTextContents();
   expect(topQuestions.length).toBeLessThan(12);
@@ -238,7 +230,7 @@ test("모바일의 많은 긴 질문은 줄바꿈되어도 번호와 본문이 �
   expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
 });
 
-test("독립 상세 펼침은 필터·재실행 후에도 다른 업무의 근거와 섞이지 않는다", async ({ page }) => {
+test("상시 펼침 상태에서 필터·재실행 후에도 다른 업무의 근거와 섞이지 않는다", async ({ page }) => {
   await page.route("**/api/ai", completeReview);
   await prepare(page, manyDeck);
   const run = page.getByRole("button", { name: "보완 실행", exact: true });
@@ -246,28 +238,20 @@ test("독립 상세 펼침은 필터·재실행 후에도 다른 업무의 근�
   const results = page.locator(".supplement-results");
   const first = results.locator(".supplement-item").filter({ hasText: "서울동부생활물류고객지원운영센터1 만족도" });
   const second = results.locator(".supplement-item").filter({ hasText: "서울동부생활물류고객지원운영센터2 만족도" });
-  const firstTrigger = first.locator(".supplement-item-head");
-  const secondTrigger = second.locator(".supplement-item-head");
-  await firstTrigger.focus();
-  await page.keyboard.press("Space");
-  await secondTrigger.click();
+  // PR #150: 모든 항목이 항상 펼쳐진 상태 (접기·펼치기 없음)
   await expect(first.locator(".supplement-message")).toBeVisible();
-  await expect(second.locator(".supplement-message")).toBeVisible();
-  await firstTrigger.click();
-  await expect(first.locator(".supplement-message")).toBeHidden();
   await expect(second.locator(".supplement-message")).toBeVisible();
   await results.getByRole("button", { name: /중요 0/ }).click();
   await expect(results.locator(".supplement-item")).toHaveCount(0);
   await results.getByRole("button", { name: /전체 12/ }).click();
-  await expect(first.locator(".supplement-message")).toBeHidden();
+  await expect(first.locator(".supplement-message")).toBeVisible();
   await expect(second.locator(".supplement-message")).toBeVisible();
   await second.getByRole("button", { name: /근거 보기/ }).click();
   const evidence = page.getByLabel("근거 상세", { exact: true });
   await expect(evidence.locator(".supplement-evidence blockquote")).toHaveText("서울동부생활물류고객지원운영센터2 만족도 83점");
   await evidence.getByRole("button", { name: "닫기", exact: true }).click();
   await run.click();
-  await expect(secondTrigger).toHaveAttribute("aria-expanded", "false");
-  await expect(second.locator(".supplement-message")).toBeHidden();
+  await expect(second.locator(".supplement-message")).toBeVisible();
 });
 
 test("재확인이 근거 없이 설명을 찾았다고 답해도 기존 위치와 확인 제한을 잃지 않는다", async ({ page }) => {
@@ -284,7 +268,6 @@ test("재확인이 근거 없이 설명을 찾았다고 답해도 기존 위치�
   await expect(cause).toBeVisible();
   await expect(cause.locator(".supplement-limitation")).toContainText("AI가 제시한 근거에서 필요한 구체 정보를 확인하지 못해 누락 여부를 확정하지 않았습니다.");
   await expect(cause.locator(".check-severity")).toHaveText("확인 필요");
-  await cause.locator(".supplement-item-head").click();
   await cause.getByRole("button", { name: /근거 보기/ }).click();
   const detail = page.getByLabel("근거 상세", { exact: true });
   await expect(detail.locator(".supplement-evidence blockquote")).toHaveText("물류비가 전월 대비 18% 증가했습니다.");
@@ -305,7 +288,6 @@ test("보고자료 근거 보기에서 보고 원문과 다른 문서의 보충 
   await page.getByRole("checkbox", { name: `${fileName} 선택`, exact: true }).check();
   await page.getByRole("button", { name: "보완 실행", exact: true }).click();
   const finding = page.locator(".supplement-item").filter({ hasText: "원인 설명을 보고자료에 추가하면 좋습니다" });
-  await finding.locator(".supplement-item-head").click();
   await finding.getByRole("button", { name: /근거 보기/ }).click();
   const detail = page.getByLabel("근거 상세", { exact: true });
   await expect(detail.locator(".evidence-file-list").first()).toContainText(path.basename(costDeck));
