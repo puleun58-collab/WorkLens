@@ -124,7 +124,8 @@
 .ax-selected-report > .ax-panel, .ax-selected-report > .ax-surface { box-shadow: none; }
 .ax-report-intro { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; min-width: 0; padding: 4px 0 0; }
 .ax-report-intro > div { min-width: 0; }
-.ax-report-intro .ax-title-group { margin: 2px 0 4px; flex-wrap: nowrap; }
+.ax-report-intro .ax-title-group { margin: 2px 0 4px; align-items: flex-start; }
+.ax-report-intro .ax-title-group .ax-status-badge { margin-top: 2px; }
 .ax-report-intro h2 { min-width: 0; margin: 0; overflow-wrap: anywhere; }
 .ax-report-intro p { margin: 0; color: var(--muted-foreground); overflow-wrap: anywhere; }
 .ax-report-eyebrow { color: var(--primary); font-size: var(--font-size-xs); font-weight: var(--font-weight-semibold); }
