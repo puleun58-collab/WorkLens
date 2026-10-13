@@ -25,15 +25,15 @@ interface AssistantMessage {
   consent?: { question: string };
 }
 
-/** Remove duplicated trailing path segments: "A > B > B 위치" → "A > B". */
+/** Remove duplicated trailing path segments: "A > B > B" → "A > B". */
 export function dedupeScreenPath(screen: string, title: string): string {
   const full = `${screen} > ${title}`;
   const parts = full.split(" > ").map((part) => part.trim()).filter(Boolean);
   const deduped: string[] = [];
   for (const part of parts) {
     const last = deduped[deduped.length - 1];
-    // Drop the part when it merely repeats the previous segment's core term.
-    if (last && (part === last || part.startsWith(`${last} `) || last.startsWith(`${part} `))) continue;
+    // Drop only exact duplicates; a title like "B 위치" after "B" is informative, not redundant.
+    if (last && part === last) continue;
     deduped.push(part);
   }
   return deduped.join(" > ");
