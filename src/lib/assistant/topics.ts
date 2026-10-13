@@ -1,6 +1,6 @@
 /** Server-side question classification for the WorkLens assistant. Pure functions: no I/O, unit-testable. */
 
-export type AssistantTopic = "in-scope" | "out-of-scope" | "injection" | "execution-request";
+export type AssistantTopic = "in-scope" | "out-of-scope" | "injection" | "execution-request" | "clarify";
 
 /** Attempts to override assistant behavior, extract hidden data, or bypass policy. */
 const INJECTION = [
@@ -34,6 +34,22 @@ const OUT_OF_SCOPE = [
   /잡담/u, /심심/u, /농담/u,
 ] as const;
 
+/**
+ * Ambiguous questions: WorkLens-related but the intent is unclear.
+ * These should trigger a clarification question, not an out-of-scope rejection.
+ * Pattern: mentions a WorkLens concept but with unclear action/target.
+ */
+const AMBIGUOUS = [
+  // "중복" without clear context (could be duplicate question handling, duplicate tasks, etc.)
+  /중복/u,
+  // "자동으로" without clear target
+  /^자동으로\s*(되나요|되는거야|돼)\??$/u,
+  // "검토" without clear target
+  /^검토\s*(자동으로\s*)?(되나요|되는거야)\??$/u,
+  // Very short fragments mentioning WorkLens concepts without a clear question
+  /^(리서치|검색|레벨|게이트|승인)\s*(어디|뭐|뭔데)\??$/u,
+] as const;
+
 /** WorkLens topics the assistant may answer. Used as a positive signal, not a gate. */
 const IN_SCOPE = [
   /worklens|워크렌즈/u, /사용(법|방법|가이드)/u, /기능/u, /화면/u, /메뉴/u,
@@ -44,18 +60,44 @@ const IN_SCOPE = [
   /법령|리서치/u, /문서\s*(검토|처리|분석)/u, /파일\s*업로드/u,
   /진단\s*(결과|정책)/u, /구현\s*(범위|계획)/u, /mvp/iu, /배포\s*(방법|절차|준비)/u,
   /도우미/u, /오류/u, /에러/u,
+  // Colloquial/short forms
+  /자연어/u, /말로/u, /문장으로/u,
+  /어디\s*(있|계시)/u, /어떻게\s*(써|해|해요)/u,
 ] as const;
 
 const matches = (patterns: readonly RegExp[], text: string) => patterns.some((pattern) => pattern.test(text));
 
 /**
+ * Normalize question for better matching: remove extra spaces, handle common variations.
+ * This helps with short questions, colloquial speech, and spacing differences.
+ */
+export function normalizeQuestion(question: string): string {
+  return question
+    .trim()
+    // Normalize spacing around common terms
+    .replace(/\s+/gu, " ")
+    // Handle common colloquial endings
+    .replace(/(되나요|되는거야|되냐고|가능하냐고)\s*$/u, "가능?")
+    .replace(/(어디야|어디있어|어디에있어)\s*$/u, "어디?");
+}
+
+/**
  * Classify a question. Injection is checked first: a policy-bypass attempt is never
  * treated as a normal question even when it mentions WorkLens features.
+ *
+ * Distinguishes:
+ * - out-of-scope: genuinely not about WorkLens
+ * - clarify: WorkLens-related but intent unclear (ask for clarification, don't reject)
+ * - in-scope: clear WorkLens question
  */
 export function classifyQuestion(question: string): AssistantTopic {
   const text = question.trim();
+  const normalized = normalizeQuestion(text);
   if (matches(INJECTION, text)) return "injection";
   if (matches(EXECUTION, text)) return "execution-request";
+  // Check ambiguous before out-of-scope: WorkLens-related but unclear intent
+  // should trigger clarification, not rejection.
+  if (matches(AMBIGUOUS, normalized) && matches(IN_SCOPE, normalized)) return "clarify";
   if (matches(OUT_OF_SCOPE, text) && !matches(IN_SCOPE, text)) return "out-of-scope";
   return "in-scope";
 }
@@ -67,6 +109,20 @@ export const INJECTION_RESPONSE =
 
 export const NO_EVIDENCE_RESPONSE =
   "현재 WorkLens에서 확인할 수 있는 근거가 없어 정확하게 안내하기 어렵습니다.";
+
+export const CLARIFY_RESPONSE =
+  "어떤 기능을 말씀하시는지 조금 더 알려주세요.";
+
+export function clarifyResponse(question: string): string {
+  // Provide specific clarification based on ambiguous terms
+  if (/중복/u.test(question)) {
+    return "종합 리서치에서 자연어로 질문할 수 있는지 궁금하신가요, 아니면 중복 질문 처리 기능을 말씀하시는 건가요?";
+  }
+  if (/자동으로/u.test(question)) {
+    return "어떤 작업을 자동으로 하고 싶으신가요? (예: 문서 분석, 업무 진단, 리서치 검색)";
+  }
+  return CLARIFY_RESPONSE;
+}
 
 export function executionRequestResponse(question: string): string {
   if (/배포/u.test(question)) {

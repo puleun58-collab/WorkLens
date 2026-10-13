@@ -5,6 +5,7 @@ import { hasInventedMetric, selectEvidence, validCitations } from "@/lib/assista
 import type { AssistantContextNote } from "@/lib/assistant/prompt";
 import {
   classifyQuestion,
+  clarifyResponse,
   executionRequestResponse,
   INJECTION_RESPONSE,
   NO_EVIDENCE_RESPONSE,
@@ -58,14 +59,17 @@ export async function POST(request: Request) {
     const context = sanitizeContext(parsed.data.context);
 
     const topic = classifyQuestion(question);
-    if (topic === "injection") return ok({ answer: INJECTION_RESPONSE, sources: [], kind: "rejected" as const }, 200, requestId);
-    if (topic === "out-of-scope") return ok({ answer: OUT_OF_SCOPE_RESPONSE, sources: [], kind: "rejected" as const }, 200, requestId);
+    if (topic === "injection") return ok({ answer: INJECTION_RESPONSE, sources: [], relatedScreens: [], kind: "rejected" as const }, 200, requestId);
+    if (topic === "out-of-scope") return ok({ answer: OUT_OF_SCOPE_RESPONSE, sources: [], relatedScreens: [], kind: "rejected" as const }, 200, requestId);
+    if (topic === "clarify") {
+      return ok({ answer: clarifyResponse(question), sources: [], relatedScreens: [], kind: "clarify" as const }, 200, requestId);
+    }
     if (topic === "execution-request") {
-      return ok({ answer: executionRequestResponse(question), sources: [], kind: "guidance" as const }, 200, requestId);
+      return ok({ answer: executionRequestResponse(question), sources: [], relatedScreens: [], kind: "guidance" as const }, 200, requestId);
     }
 
     const evidence = selectEvidence(question);
-    if (!evidence.length) return ok({ answer: NO_EVIDENCE_RESPONSE, sources: [], kind: "no-evidence" as const }, 200, requestId);
+    if (!evidence.length) return ok({ answer: NO_EVIDENCE_RESPONSE, sources: [], relatedScreens: [], kind: "no-evidence" as const }, 200, requestId);
 
     const result = await runBoundedOperation(() => runGroqAi(
       { kind: "assistant", question, evidence, ...(context ? { context } : {}) },
@@ -76,13 +80,20 @@ export async function POST(request: Request) {
     // Server-side verification: citations must come from the provided evidence,
     // and quantitative claims must be grounded. Otherwise fall back safely.
     if (!validCitations(result.citedIds, evidence) || hasInventedMetric(result.answer, evidence, question)) {
-      return ok({ answer: NO_EVIDENCE_RESPONSE, sources: [], kind: "no-evidence" as const }, 200, requestId);
+      return ok({ answer: NO_EVIDENCE_RESPONSE, sources: [], relatedScreens: [], kind: "no-evidence" as const }, 200, requestId);
     }
-    const sources = result.citedIds
+    // Separate evidence by kind: policy/diagnosis → "참고 근거", menu → "관련 화면", guide → hidden
+    const cited = result.citedIds
       .map((id) => evidence.find((entry) => entry.id === id))
-      .filter((entry) => entry !== undefined)
+      .filter((entry) => entry !== undefined);
+    const sources = cited
+      .filter((entry) => entry.kind === "policy" || entry.kind === "diagnosis")
       .map((entry) => ({ screen: entry.screen, title: entry.title }));
-    return ok({ answer: result.answer, sources, kind: "answer" as const }, 200, requestId);
+    const relatedScreens = cited
+      .filter((entry) => entry.kind === "menu")
+      .map((entry) => ({ screen: entry.screen, title: entry.title }));
+    // guide kind: shown in answer body only, no separate UI section
+    return ok({ answer: result.answer, sources, relatedScreens, kind: "answer" as const }, 200, requestId);
   } catch (error) {
     return apiError(error, requestId);
   }
