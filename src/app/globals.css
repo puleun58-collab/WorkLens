@@ -6339,8 +6339,11 @@ body {
 
 
 /* Real batch progress stays compact; single-request operations report only on the action button. */
+/* 진행 바는 AI 도우미 플로팅 버튼(z 44)보다 위에 표시되어 중지 버튼 클릭을 가로막지 않는다. 열린 채팅 패널(z 46)보다는 아래다. */
 .compact-progress {
   box-sizing: border-box;
+  position: relative;
+  z-index: 45;
   width: min(100%, calc(960px + var(--panel-inset) + var(--panel-inset)));
   min-height: 0;
   padding: 7px var(--panel-inset);

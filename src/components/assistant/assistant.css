@@ -3,10 +3,6 @@
   --wl-assistant-blue: var(--primary, #1458df);
   --wl-assistant-blue-soft: color-mix(in srgb, var(--primary, #1458df) 12%, #fff);
   --wl-assistant-border: color-mix(in srgb, var(--primary, #1458df) 45%, #fff);
-  --wl-assistant-z: 45;
-  position: fixed;
-  inset: auto 0 0 auto;
-  z-index: var(--wl-assistant-z);
   pointer-events: none;
   font-size: 14px;
   line-height: 1.5;
@@ -17,9 +13,10 @@
   pointer-events: auto;
 }
 
-/* 플로팅 버튼: 우측 하단 고정 */
+/* 플로팅 버튼: 우측 하단 고정. 진행 바의 중지 버튼보다 아래에 표시되어 클릭을 가로막지 않는다. */
 .wl-assistant-fab {
   position: fixed;
+  z-index: 44;
   right: max(20px, env(safe-area-inset-right));
   bottom: max(20px, env(safe-area-inset-bottom));
   width: 56px;
@@ -38,9 +35,10 @@
 .wl-assistant-fab:focus-visible { outline: 2px solid var(--wl-assistant-blue); outline-offset: 3px; }
 .wl-assistant-fab svg { width: 26px; height: 26px; }
 
-/* 채팅 패널: 버튼 위쪽에 독립 배치 */
+/* 채팅 패널: 버튼 위쪽에 독립 배치. 열린 패널은 진행 바보다 위에 표시된다. */
 .wl-assistant-panel {
   position: fixed;
+  z-index: 46;
   right: max(20px, env(safe-area-inset-right));
   bottom: calc(max(20px, env(safe-area-inset-bottom)) + 68px);
   width: min(380px, calc(100vw - 40px));
