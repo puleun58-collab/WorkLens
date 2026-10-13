@@ -9,6 +9,7 @@ import { buildExtractMessages, EXTRACT_RESPONSE_SCHEMA, parseExtractResponse } f
 import { buildPolishBatchMessages, buildPolishMessages, parsePolishResponse, POLISH_BATCH_RESPONSE_SCHEMA, POLISH_RESPONSE_SCHEMA } from "@/lib/ai/polish-prompt";
 import { ANALYZE_RESPONSE_SCHEMA, buildMessages, CLAIM_RESPONSE_SCHEMA, parseModelResponse } from "@/lib/ai/prompt";
 import { buildSupplementReviewMessages, parseSupplementReview, SUPPLEMENT_REVIEW_RESPONSE_SCHEMA } from "@/lib/ai/supplement-prompt";
+import { ASSISTANT_RESPONSE_SCHEMA, buildAssistantMessages, parseAssistantResponse } from "@/lib/assistant/prompt";
 import { workerEnv } from "@/server/cf-env";
 import { ApiError } from "@/server/http";
 
@@ -324,6 +325,8 @@ function requestSpecification(request: AiApiRequest): {
       return { messages: buildExtractMessages(request.field, request.items), schema: EXTRACT_RESPONSE_SCHEMA, schemaName: "worklens_extract", maxTokens: 500 };
     case "supplement-review":
       return { messages: buildSupplementReviewMessages(request.checks, request.items), schema: SUPPLEMENT_REVIEW_RESPONSE_SCHEMA, schemaName: "worklens_supplement_review", maxTokens: 1_500 };
+    case "assistant":
+      return { messages: buildAssistantMessages(request.question, request.evidence, request.context), schema: ASSISTANT_RESPONSE_SCHEMA, schemaName: "worklens_assistant", maxTokens: 800 };
   }
 }
 
@@ -396,6 +399,11 @@ function parseResult(request: AiApiRequest, content: string): AiApiResult {
       const validated = supplementReviewContentSchema.safeParse(payload);
       if (!validated.success) throw new ApiError("INVALID_PROVIDER_OUTPUT", "AI 응답 형식이 올바르지 않습니다.", 502);
       return { kind: "supplement-review", verdicts: parseSupplementReview(validated.data, request.checks) };
+    }
+    case "assistant": {
+      const parsed = parseAssistantResponse(payload);
+      if (!parsed) throw new ApiError("INVALID_PROVIDER_OUTPUT", "AI 응답 형식이 올바르지 않습니다.", 502);
+      return { kind: "assistant", answer: parsed.answer, citedIds: parsed.citedIds };
     }
   }
 }
