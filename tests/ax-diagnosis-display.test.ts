@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { diagnosisCheckItems, diagnosisSummarySentences, matrixRationaleBullets } from "../src/components/ax/AxReport";
 import { outputFixture } from "./fixtures/ax";
 
