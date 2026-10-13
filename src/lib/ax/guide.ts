@@ -920,7 +920,7 @@ export function approvalConstraints(model: AgentInstructionModel, keep: (item: A
     .filter(item => item.sources.some(source => source === "diagnosis.humanInLoop" || source === "diagnosis.poc.outOfScope"
       || source === "plan.humanInLoop" || source === "plan.outOfScope" || source === "policy.manualSteps"))
     .filter(keep);
-  return unique(entries.map(item => `${item.original ?? item.text}${item.original ? ` (현재 계획 문구: ${item.text})` : ""} (출처: ${item.sources.join(", ")})`));
+  return unique(entries.map(item => `${item.original ?? item.text}${item.original ? ` (현재 계획 문구: ${item.text})` : ""}`));
 }
 type PromptOptions = { taskName?: string; prerequisites?: string[]; diagnosis?: AxDiagnosis; context?: string };
 const PLAN_ROLES: Record<Exclude<keyof AxPlan, "repositoryFirst">, string> = {
@@ -1137,7 +1137,7 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
   // Only generated proposals are labelled as plan proposals; raw diagnosis PoC scope is superseded by the policy scope above.
   const unlinked = unique(model.ambiguous.filter(item => item.role === "features" && proposal(item)).map(item => `${item.text} — ${item.reason}`));
   const goals = model.classified.filter(item => item.role === "goal");
-  const evidenceLine = (item: AgentInstructionItem) => `${item.text}${item.step ? ` (관련 단계: ${item.step})` : ""}${item.reason ? ` — ${item.reason}` : ""} (출처: ${item.sources.join(", ")})${item.originals.some(text => normalizedItem(text) !== normalizedItem(item.text)) ? `; 원문: ${item.originals.join(" / ")}` : ""}`;
+  const evidenceLine = (item: AgentInstructionItem) => `${item.text}${item.step ? ` (관련 단계: ${item.step})` : ""}${item.reason ? ` — ${item.reason}` : ""}${item.originals.some(text => normalizedItem(text) !== normalizedItem(item.text)) ? `; 원문: ${item.originals.join(" / ")}` : ""}`;
   const conditions = model.conditions.current.map(evidenceLine);
   const futureConditions = model.conditions.future.map(evidenceLine);
   const unassignedConditions = model.conditions.confirm.map(evidenceLine);
@@ -1156,7 +1156,7 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
     ? "확인된 처리 순서대로 각 역할이 실제 입력으로 동작하고, AI 결과는 담당자 확정 전 운영 결과로 반영되지 않으며, 규칙·스크립트는 확인된 기준만 적용되고, 담당자 확인이 유지됩니다. 각 단계의 완료는 해당 역할의 완료 기준을 모두 만족할 때 인정됩니다."
     : method(s) === "rule" || method(s) === "script" ? "확인된 형식·키·업무 규칙으로 실제 입력이 처리되고, 담당자가 확정한 기대 결과와 대조한 기록 및 원본 대응 관계가 남습니다. 기대 결과·판정 기준이 없으면 '기준 확인 필요'로 보고하고 합격으로 단정하지 마세요."
     : method(s) === "manual" ? "담당자가 수행할 작업과 시스템이 보조할 범위를 확인하고, 담당자 수행 결과와 미확인 조건만 기록합니다. 수동 업무를 신규 자동화 기능으로 바꾸지 마세요."
-    : "처리 방식의 근거와 충돌 내용을 확인하기 전에는 방식 선택·구현을 보류하고, 확인된 정보·추가 자료·재개 조건을 보고합니다.";
+    : "처리 방식이 확정되지 않았습니다. 처리 방식의 근거·충돌 내용·필수 기준을 먼저 확인하고, 미확정 사항과 재개 조건을 보고하세요. 방식이 확정되기 전에는 구현을 시작하지 마세요.";
   const stepLine = (s: StepScope) => `${s.step} — ${methodLabel(s)}${s.note ? ` (진단 메모: ${s.note})` : ""}`;
   const sections: { title: string; body: string }[] = [];
   const section = (title: string, ...content: string[]) => sections.push({ title, body: content.filter(Boolean).join("\n\n") });
@@ -1204,7 +1204,7 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
     conditions.length ? `### 현재 필수 조건\n\n${bullets(conditions)}` : "",
     unassignedConditions.length || gaps.length ? `### 적용 단계 확인 필요\n\n${bullets([...unassignedConditions, ...gaps])}` : "",
     humanConstraints ? HUMAN_DECISION_CHECK : "",
-    constraints.length ? `### 기존 담당자·제외 제약 (원문·출처)\n\n${bullets(constraints)}` : "",
+    constraints.length ? `### 기존 담당자·제외 제약\n\n${bullets(constraints)}` : "",
     unassignedConditions.length ? "미연결 조건의 적용 대상과 의존 관계를 실제 자료로 확인하세요. 무관하다고 임의로 해제하지 말고, 영향 가능성이 있는 작업은 확인·승인 대기로 두세요. 해당 조건과 독립적이라는 근거가 확인된 허용 작업만 계속 진행할 수 있습니다. 전역 안전·승인 제약과 전체 Gate 차단은 그대로 적용됩니다." : "",
     "확인되지 않은 API·권한·파일 형식·연동 방식·계산식·반올림·중복 기준·승인 주체를 가정해 구현하지 마세요.",
   );
