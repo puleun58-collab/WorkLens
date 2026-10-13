@@ -211,7 +211,8 @@ describe("AX plan display boundaries", () => {
     };
     const before = structuredClone(diagnosis), summary = planSummary(diagnosis);
     expect(summary.humanKept).toEqual(["담당자 승인 (담당자 수행)", "최종 승인"]);
-    expect(summary.exceptions).toEqual(["누락", "누락 데이터"]);
+    // "누락"은 "누락 데이터"의 부분집합이므로 의미 중복으로 통합 (03 완료 기준 중복 제거)
+    expect(summary.exceptions).toEqual(["누락 데이터"]);
     expect(summary.data.find(group => group.label === "입력")?.items).toEqual(["입력 표"]);
     expect(summary.data.find(group => group.label === "사용 시스템")?.items).toEqual(["표 도구"]);
     expect(summary.data.find(group => group.label === "검증용 입력")?.items).toEqual(["샘플 표"]);

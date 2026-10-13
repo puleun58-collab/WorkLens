@@ -447,6 +447,55 @@ const without = (items: string[], shown: string[]) => {
   const keys = new Set(shown.map(normalizedItem));
   return unique(items).filter(item => !keys.has(normalizedItem(item)));
 };
+/** Prefixes stripped from 03 completion criteria when all items share the same unconfirmed status. */
+const TEST_SCOPE_PREFIX = /^적용 범위 확인 필요\s*:\s*/u;
+const CRITERION_PREFIX = /^기준 확인 필요\s*:\s*/u;
+const FUTURE_TEST_PREFIX = /^향후 검증\s*:\s*/u;
+const FUTURE_CRITERION_PREFIX = /^향후 판정\s*:\s*/u;
+/** Content words of a completion-criteria text, used for conservative semantic duplicate comparison. */
+const criteriaWords = (text: string): Set<string> => new Set(
+  stripEnumerator(text)
+    .replace(TEST_SCOPE_PREFIX, "").replace(CRITERION_PREFIX, "")
+    .replace(FUTURE_TEST_PREFIX, "").replace(FUTURE_CRITERION_PREFIX, "")
+    .toLowerCase()
+    .split(/[\s·・,，.。、；;:\-—–/()（）"“”']+/u)
+    .map(word => {
+      if (CONFIRM_BOILERPLATE.has(word)) return "";
+      for (const tail of ["미확인", "미확정", "여부", "필요"]) {
+        if (word.endsWith(tail) && word.length > tail.length + 1) return word.slice(0, -tail.length);
+      }
+      return word;
+    })
+    .filter(Boolean)
+);
+/**
+ * Conservative semantic dedup for 03 completion criteria.
+ * Merges items only when one's content words are a subset of another's
+ * (i.e., the shorter adds no new information). Items with distinct causes,
+ * conditions, or actions are preserved.
+ */
+const dedupCriteria = (items: string[]): string[] => {
+  const result: string[] = [];
+  for (const item of items) {
+    const words = criteriaWords(item);
+    if (!words.size) continue;
+    const isSubset = result.some(existing => {
+      const existingWords = criteriaWords(existing);
+      if (!existingWords.size) return false;
+      // item's words are all in existing → item adds nothing new
+      if ([...words].every(w => existingWords.has(w))) return true;
+      // existing's words are all in item → existing adds nothing new; replace it
+      if ([...existingWords].every(w => words.has(w))) {
+        const idx = result.indexOf(existing);
+        result[idx] = item;
+        return true;
+      }
+      return false;
+    });
+    if (!isSubset && !result.includes(item)) result.push(item);
+  }
+  return result;
+};
 /** Presentation-only suffixes; the stage column and card badges already carry this meaning. */
 const CONDITION_SUFFIX = /\s*\((?:적용 단계 확인 필요|향후 단계 조건)\)\s*$/u;
 /** Words that only describe the confirmation act, never the condition itself. */
@@ -558,6 +607,10 @@ export interface AxPlanSummary {
   approvals: string[];
   data: { label: string; items: string[] }[];
   tests: string[]; success: string[]; failure: string[]; exceptions: string[];
+  /** Common notice when all tests share the same unconfirmed scope; individual prefixes are stripped. */
+  testsNotice?: string;
+  /** Common notice when all criteria share the same unconfirmed status; individual prefixes are stripped. */
+  criteriaNotice?: string;
 }
 
 export function planSummary(diagnosis: AxDiagnosis, rawPlan?: AxPlan, context = ""): AxPlanSummary {
@@ -627,11 +680,57 @@ export function planSummary(diagnosis: AxDiagnosis, rawPlan?: AxPlan, context = 
       { label: "검증용 입력", items: without(diagnosis.poc?.inputs ?? [], diagnosis.asIs?.inputs ?? []) },
       { label: "검증용 출력", items: unique(model.classified.filter(item => item.sources.includes("diagnosis.poc.outputs")).map(item => `${item.text}${model.scoped.outputs.includes(item) ? item.scope === "after-check" ? " (현재 조건부 출력)" : " (현재 출력)" : item.scope === "future" ? " (향후 출력)" : " (연결 근거 확인 필요)"}`)) },
     ].filter(row => row.items.length),
-    tests: unique([...pocTests.map(item => model.scoped.tests.includes(item) ? item.text
-      : `${item.scope === "future" ? "향후 검증" : "적용 범위 확인 필요"}: ${item.text}`), ...model.scoped.validationMethods.map(item => item.text)]),
-    success: mergeDistinct(criteria("diagnosis.poc.success"), criteria("plan.acceptance")),
-    failure: criteria("diagnosis.poc.failure"),
-    exceptions: unique([...(diagnosis.asIs?.exceptions ?? []), ...(diagnosis.risks ?? []), ...model.classified.filter(item => item.role === "exception").map(item => item.text)]),
+    ...completionCriteria(model, pocTests, criteria, diagnosis),
+  };
+}
+
+/**
+ * 03 완료 기준: repeated unconfirmed-status prefixes are folded into a single
+ * common notice, and semantically duplicate items are merged. Original data,
+ * Level × Gate policy, and the all-in-one prompt (which reads the model
+ * directly) are unchanged — this only affects the summary presentation.
+ */
+function completionCriteria(
+  model: AgentInstructionModel,
+  pocTests: AgentInstructionItem[],
+  criteria: (source: string) => string[],
+  diagnosis: AxDiagnosis,
+): Pick<AxPlanSummary, "tests" | "success" | "failure" | "exceptions" | "testsNotice" | "criteriaNotice"> {
+  const rawTests = unique([...pocTests.map(item => model.scoped.tests.includes(item) ? item.text
+    : `${item.scope === "future" ? "향후 검증" : "적용 범위 확인 필요"}: ${item.text}`), ...model.scoped.validationMethods.map(item => item.text)]);
+  const rawSuccess = mergeDistinct(criteria("diagnosis.poc.success"), criteria("plan.acceptance"));
+  const rawFailure = criteria("diagnosis.poc.failure");
+  // Fold the repeated "적용 범위 확인 필요:" prefix into one notice when every
+  // test item shares that unconfirmed status (mixed confirmed/unconfirmed stays explicit).
+  let tests = rawTests;
+  let testsNotice: string | undefined;
+  if (tests.length > 1 && tests.every(item => TEST_SCOPE_PREFIX.test(item))) {
+    tests = tests.map(item => item.replace(TEST_SCOPE_PREFIX, ""));
+    testsNotice = "검증 대상 단계와 적용 범위는 확인이 필요합니다.";
+  }
+  // Same for the "기준 확인 필요:" prefix on pass/fail criteria.
+  let success = rawSuccess;
+  let failure = rawFailure;
+  let criteriaNotice: string | undefined;
+  const unconfirmed = (items: string[]) => items.length > 1 && items.every(item => CRITERION_PREFIX.test(item));
+  if (unconfirmed(success) && unconfirmed(failure)) {
+    success = success.map(item => item.replace(CRITERION_PREFIX, ""));
+    failure = failure.map(item => item.replace(CRITERION_PREFIX, ""));
+    criteriaNotice = "정확한 합격 판정 기준은 실제 업무 규칙 확인 후 확정합니다.";
+  } else if (unconfirmed(success)) {
+    success = success.map(item => item.replace(CRITERION_PREFIX, ""));
+    criteriaNotice = "정확한 합격 판정 기준은 실제 업무 규칙 확인 후 확정합니다.";
+  } else if (unconfirmed(failure)) {
+    failure = failure.map(item => item.replace(CRITERION_PREFIX, ""));
+    criteriaNotice = "정확한 실패 판정 기준은 실제 업무 규칙 확인 후 확정합니다.";
+  }
+  return {
+    tests: dedupCriteria(tests),
+    success: dedupCriteria(success),
+    failure: dedupCriteria(failure),
+    exceptions: dedupCriteria(unique([...(diagnosis.asIs?.exceptions ?? []), ...(diagnosis.risks ?? []), ...model.classified.filter(item => item.role === "exception").map(item => item.text)])),
+    ...(testsNotice ? { testsNotice } : {}),
+    ...(criteriaNotice ? { criteriaNotice } : {}),
   };
 }
 
