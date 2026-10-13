@@ -447,6 +447,74 @@ const without = (items: string[], shown: string[]) => {
   const keys = new Set(shown.map(normalizedItem));
   return unique(items).filter(item => !keys.has(normalizedItem(item)));
 };
+/** Presentation-only suffixes; the stage column and card badges already carry this meaning. */
+const CONDITION_SUFFIX = /\s*\((?:적용 단계 확인 필요|향후 단계 조건)\)\s*$/u;
+/** Words that only describe the confirmation act, never the condition itself. */
+const CONFIRM_BOILERPLATE = new Set(["확인", "필요", "미확인", "미확정", "여부", "검토", "체크", "확정"]);
+/** Content words of a condition text, used for conservative duplicate comparison against check cards. */
+const conditionWords = (text: string): Set<string> => new Set(
+  stripEnumerator(text).replace(CONDITION_SUFFIX, "").toLowerCase()
+    .split(/[\s·・,，.。、；;:\-—–/()（）"“”']+/u)
+    .map(word => {
+      if (CONFIRM_BOILERPLATE.has(word)) return "";
+      for (const tail of ["미확인", "미확정", "여부", "필요"]) {
+        if (word.endsWith(tail) && word.length > tail.length + 1) return word.slice(0, -tail.length);
+      }
+      return word;
+    })
+    .filter(word => word.length > 1 && !CONFIRM_BOILERPLATE.has(word)),
+);
+/** An entry adds nothing when every content word already appears in the check card. Distinct conditions
+ * (존재 여부 vs 접근 권한 vs 인증 방식) keep at least one uncovered word and are never merged. */
+const coveredByCheck = (entryWords: Set<string>, checkWords: Set<string>) =>
+  entryWords.size > 0 && [...entryWords].every(word => checkWords.has(word));
+const shortConditionLabel = (text: string) => {
+  const clean = stripEnumerator(text).replace(CONDITION_SUFFIX, "").replace(/\s+(?:확인이?\s*필요|미확인|확인)\s*$/u, "").trim();
+  return clean || text;
+};
+/**
+ * Conditions for the "추가 확인 사항" table: everything not already shown as a top check card.
+ * Block reasons stay out (차단 사유 card). Diagnosis order is preserved; policy scopes are untouched.
+ */
+function buildAdditionalChecks(
+  model: AgentInstructionModel,
+  technicalChecks: AxDiagnosis["technicalChecks"],
+  checkTexts: Set<string>,
+  excludeTexts: Set<string>,
+): AxAdditionalCheck[] {
+  const checkWordSets = technicalChecks.map(check =>
+    conditionWords(check.note ? `${check.topic} — ${check.note}` : check.topic));
+  const isCheckDuplicate = (item: AgentInstructionItem | null, text: string): boolean => {
+    if (item?.sources.includes("diagnosis.technicalChecks")) return true;
+    const clean = text.replace(CONDITION_SUFFIX, "");
+    if (checkTexts.has(normalizedItem(clean))) return true;
+    const words = conditionWords(clean);
+    return checkWordSets.some(checkWords => coveredByCheck(words, checkWords));
+  };
+  const toRow = (text: string, item: AgentInstructionItem | null, future: boolean): AxAdditionalCheck => {
+    const content = text.replace(CONDITION_SUFFIX, "").trim();
+    return {
+      item: shortConditionLabel(content), content,
+      stage: item?.step ?? null,
+      status: future ? "향후 검토" : "확인 필요",
+      tone: future ? "future" : "required",
+      future,
+    };
+  };
+  const rows: AxAdditionalCheck[] = [];
+  const seen = new Set<string>();
+  const push = (text: string, item: AgentInstructionItem | null, future: boolean) => {
+    const key = normalizedItem(text.replace(CONDITION_SUFFIX, ""));
+    if (!key || seen.has(key) || excludeTexts.has(key) || isCheckDuplicate(item, text)) return;
+    seen.add(key);
+    rows.push(toRow(text, item, future));
+  };
+  for (const item of model.conditions.current) push(item.text, item, false);
+  for (const item of model.conditions.confirm) push(`${item.text} (적용 단계 확인 필요)`, item, false);
+  for (const item of model.conditions.future) push(item.text, item, true);
+  for (const text of model.gaps) push(text, null, false);
+  return rows;
+}
 /** Step relation normalization preserves interior word boundaries unlike general item dedupe. */
 const normalizedStepText = (value: string) => value.trim().replace(/\s+/gu, " ").replace(/[.。]\s*$/u, "").trim();
 const explicitStep = (value: string, step: StepScope) => {
@@ -460,12 +528,28 @@ const explicitStep = (value: string, step: StepScope) => {
 const HUMAN_DECISION_CHECK = "담당자 유지 항목의 확정·시스템 반영·외부 전송 조건을 해당 단계에서 확인하세요. 확인 전 최종 처리는 대기하지만, 허용된 독립 후보·초안·규칙 검토는 각 단계의 선행 조건 안에서 진행할 수 있습니다.";
 /** Card tone for one technical check; `future` only when the check is explicitly linked to a step outside the current Level scope. */
 export type AxCheckTone = "required" | "future" | "done" | "blocked";
+/** One row of the "추가 확인 사항" table: a condition not already shown as a top check card. */
+export interface AxAdditionalCheck {
+  /** Short label for the 확인 항목 column. */
+  item: string;
+  /** Full detail for the 확인 필요 내용 column. */
+  content: string;
+  /** Linked diagnosis step, or null when the stage link is unconfirmed (never guessed). */
+  stage: string | null;
+  status: "확인 필요" | "확인됨" | "향후 검토" | "불가";
+  tone: AxCheckTone;
+  future: boolean;
+}
 /** Read-only Step 4 summary; tentative PoC claims are visible but never promoted to required checks. */
 export interface AxPlanSummary {
   include: string[]; humanKept: string[]; excluded: string[];
   prerequisites: string[];
   /** Technical checks as status cards, in diagnosis order. */
-  checks: { topic: string; status: AxDiagnosis["technicalChecks"][number]["status"]; note: string; tone: AxCheckTone; badge?: string }[];
+  checks: { topic: string; status: AxDiagnosis["technicalChecks"][number]["status"]; note: string; tone: AxCheckTone }[];
+  /** Block reasons, shown as the 차단 사유 card; never mixed into the additional-checks table. */
+  blockReasons: string[];
+  /** Conditions not already shown as a check card, with stage linkage kept explicit. */
+  additionalChecks: AxAdditionalCheck[];
   /** Prerequisites not already shown as a check card; blocked gates list block reasons as `current`. */
   conditions: { current: string[]; future: string[] };
   /** Existing structured human/exclusion fields, with their source retained. */
@@ -505,8 +589,10 @@ export function planSummary(diagnosis: AxDiagnosis, rawPlan?: AxPlan, context = 
     const text = `${check.topic}${check.note ? ` — ${check.note}` : ""}`;
     const linked = model.classified.find(item => item.sources.includes("diagnosis.technicalChecks") && item.text === text);
     const tone: AxCheckTone = check.status === "확인됨" ? "done" : check.status === "불가" ? "blocked" : linked?.scope === "future" ? "future" : "required";
-    return { topic: check.topic, status: check.status, note: check.note, tone, ...(check.status === "확인 필요" && linked?.scope === "confirm" ? { badge: "적용 단계 확인 필요" } : {}) };
+    return { topic: check.topic, status: check.status, note: check.note, tone };
   });
+  const additionalChecks = buildAdditionalChecks(model, technicalChecks, checkTexts,
+    new Set((model.gate === "blocked" ? profile?.blockReasons ?? [] : []).map(normalizedItem)));
   const excluded = mergeDistinct(restricted, without([
     ...(profile?.poc.outOfScope ?? []), ...model.classified.filter(item => item.role === "excluded").map(item => item.original ?? item.text),
   ], [...manualAutomation, ...humanKept]));
@@ -526,6 +612,8 @@ export function planSummary(diagnosis: AxDiagnosis, rawPlan?: AxPlan, context = 
     excluded,
     prerequisites,
     checks,
+    blockReasons: model.gate === "blocked" ? [...(profile?.blockReasons ?? [])] : [],
+    additionalChecks,
     conditions: {
       current: unique(openConditions.filter(entry => !entry.future).map(entry => entry.text)),
       future: unique(openConditions.filter(entry => entry.future).map(entry => entry.text)),
