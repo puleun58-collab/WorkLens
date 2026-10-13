@@ -49,9 +49,9 @@ test("scenario A: adjusted + needs-check shows both badges", async ({ page }) =>
   const task = makeTask("t1", "월간 정산", makeDiagnosis(3, "conditional", "needs-check", true));
   expect(task.status).toBe("adjusted");
   await seedAndOpen(page, [task], 2);
-  const header = page.locator(".ax-section-heading .ax-title-group");
-  await expect(header.locator(".ax-status-badge", { hasText: "사용자 보정 완료" })).toBeVisible();
-  await expect(header.locator(".ax-status-note", { hasText: "추가 확인 필요" })).toBeVisible();
+  const badges = page.locator(".ax-diag-card .ax-diag-badges");
+  await expect(badges.locator(".ax-status-badge", { hasText: "사용자 보정 완료" })).toBeVisible();
+  await expect(badges.locator(".ax-status-badge", { hasText: "정보 확인 필요" })).toBeVisible();
   const row = page.locator(".ax-task-rows .ax-task-meta").first();
   await expect(row).toContainText("사용자 보정 완료 · 추가 확인 필요");
 });
@@ -79,13 +79,13 @@ test("scenario C: no-change registration edit preserves diagnosis", async ({ pag
   await page.getByRole("tab", { name: "업무 진단", exact: true }).click();
   await expect(page.getByRole("tab", { name: "업무 진단", exact: true })).toHaveAttribute("data-active", "");
   await page.waitForTimeout(500);
-  const header = page.locator(".ax-section-heading .ax-title-group");
-  await expect(header.locator(".ax-status-badge", { hasText: "사용자 보정 완료" })).toBeVisible();
-  await expect(header.locator(".ax-status-note")).toHaveCount(0);
+  const badges = page.locator(".ax-diag-card .ax-diag-badges");
+  await expect(badges.locator(".ax-status-badge", { hasText: "사용자 보정 완료" })).toBeVisible();
+  await expect(badges.locator(".ax-status-badge", { hasText: "정보 확인 필요" })).toHaveCount(0);
   await page.reload();
   await navigateWorkspace(page, "업무 자동화 진단");
-  const header2 = page.locator(".ax-section-heading .ax-title-group");
-  await expect(header2.locator(".ax-status-badge", { hasText: "사용자 보정 완료" })).toBeVisible();
+  const badges2 = page.locator(".ax-diag-card .ax-diag-badges");
+  await expect(badges2.locator(".ax-status-badge", { hasText: "사용자 보정 완료" })).toBeVisible();
 });
 
 test("scenario E: long task names keep badge alignment without overflow", async ({ page }) => {
@@ -100,9 +100,15 @@ test("scenario E: long task names keep badge alignment without overflow", async 
     const title = page.locator(".ax-report-intro .ax-title-group h2");
     const badge = page.locator(".ax-report-intro .ax-title-group .ax-status-badge");
     await expect(title).toContainText(prefix);
-    const t = await title.boundingBox(), b = await badge.boundingBox();
-    expect(t && b && b.x >= t.x - 1 && b.y >= t.y - 1, "badge overlaps title").toBe(true);
-    expect(t && b && Math.abs(b.y - t.y) < 200, "badge far from title").toBe(true);
+    // Wait for layout to stabilize: poll until badge is positioned without overlapping the title.
+    // A single boundingBox() right after click can catch the layout mid-transition (flaky).
+    await expect.poll(async () => {
+      const t = await title.boundingBox(), b = await badge.boundingBox();
+      if (!t || !b) return "missing";
+      if (!(b.x >= t.x - 1 && b.y >= t.y - 1)) return "overlap";
+      if (!(Math.abs(b.y - t.y) < 200)) return "far";
+      return "ok";
+    }, { timeout: 10000 }).toBe("ok");
   }
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(0);

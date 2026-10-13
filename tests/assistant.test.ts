@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
+  clarifyOptions,
   clarifyResponse,
   classifyQuestion,
   executionRequestResponse,
+  isTaskSpecificQuestion,
+  resolveClarifyFollowUp,
   INJECTION_RESPONSE,
   NO_EVIDENCE_RESPONSE,
   OUT_OF_SCOPE_RESPONSE,
+  type ClarifyState,
 } from "../src/lib/assistant/topics";
 import {
   ASSISTANT_EVIDENCE,
@@ -62,11 +66,66 @@ describe("assistant topic classification", () => {
     expect(classifyQuestion("종합리서치는 자연어로 중복 가능?")).toBe("clarify");
     expect(clarifyResponse("종합리서치는 자연어로 중복 가능?")).toContain("자연어로 질문할 수 있는지");
   });
+  it("clear questions with '중복' are in-scope, not clarify", () => {
+    // "문서 취합 시 중복 데이터는 어떻게 처리하나요?" has a clear verb structure.
+    expect(classifyQuestion("문서 취합 시 중복 데이터는 어떻게 처리하나요?")).toBe("in-scope");
+    expect(classifyQuestion("중복 파일은 어떻게 처리되나요?")).toBe("in-scope");
+  });
+  it("execution-request vs usage question are distinguished", () => {
+    // "Factor 값을 보정해줘" → execution request (assistant must not run it)
+    expect(classifyQuestion("Factor 값을 보정해줘")).toBe("execution-request");
+    // "Factor 값을 어떻게 보정하나요?" → usage guidance (in-scope)
+    expect(classifyQuestion("Factor 값을 어떻게 보정하나요?")).toBe("in-scope");
+  });
+  it("WorkLens feature questions vs external info requests", () => {
+    expect(classifyQuestion("WorkLens에서 뉴스를 검색할 수 있어?")).toBe("in-scope");
+    expect(classifyQuestion("오늘 뉴스 알려줘")).toBe("out-of-scope");
+  });
   it("fixed responses are defined", () => {
     expect(OUT_OF_SCOPE_RESPONSE).toContain("WorkLens에 구현된 기능과 사용 방법만");
     expect(INJECTION_RESPONSE.length).toBeGreaterThan(0);
     expect(NO_EVIDENCE_RESPONSE).toContain("근거가 없어");
     expect(executionRequestResponse("배포해줘")).toContain("배포");
+  });
+});
+
+describe("assistant clarification follow-up", () => {
+  const clarify: ClarifyState = {
+    originalQuestion: "종합리서치는 자연어로 중복 가능?",
+    options: ["자연어 질문 기능", "중복 질문 처리 기능"],
+    clarifyId: "test-id",
+  };
+  it("resolves '첫 번째요' to the first option", () => {
+    const result = resolveClarifyFollowUp("첫 번째요", clarify);
+    expect(result).toEqual({ kind: "select", optionIndex: 0, option: "자연어 질문 기능" });
+  });
+  it("resolves '두 번째요' to the second option", () => {
+    const result = resolveClarifyFollowUp("두 번째요", clarify);
+    expect(result).toEqual({ kind: "select", optionIndex: 1, option: "중복 질문 처리 기능" });
+  });
+  it("treats affirmation as affirm", () => {
+    expect(resolveClarifyFollowUp("네, 맞아요", clarify).kind).toBe("affirm");
+  });
+  it("treats denial as deny", () => {
+    expect(resolveClarifyFollowUp("아니요, 다른 뜻이에요", clarify).kind).toBe("deny");
+  });
+  it("treats a new question as topic change", () => {
+    expect(resolveClarifyFollowUp("Level은 어떻게 결정되나요?", clarify).kind).toBe("none");
+  });
+  it("clarifyOptions matches clarifyResponse", () => {
+    expect(clarifyOptions("종합리서치는 자연어로 중복 가능?")).toEqual(["자연어 질문 기능", "중복 질문 처리 기능"]);
+  });
+});
+
+describe("assistant task-specific questions", () => {
+  it("detects questions about the selected task's own diagnosis", () => {
+    expect(isTaskSpecificQuestion("이 업무가 왜 Level 1인가요?")).toBe(true);
+    expect(isTaskSpecificQuestion("왜 진행 보류야?")).toBe(true);
+    expect(isTaskSpecificQuestion("이 업무의 Gate가 왜 보류인지 설명해줘")).toBe(true);
+  });
+  it("does not flag general policy questions", () => {
+    expect(isTaskSpecificQuestion("Level 1은 무엇인가요?")).toBe(false);
+    expect(isTaskSpecificQuestion("진행 보류와 확인 후 진행의 차이는?")).toBe(false);
   });
 });
 
@@ -91,6 +150,10 @@ describe("assistant evidence", () => {
     const evidence = ASSISTANT_EVIDENCE.filter((entry) => entry.id === "ax-level");
     expect(hasInventedMetric("정확도가 99% 향상됩니다.", evidence, "Level은?")).toBe(true);
     expect(hasInventedMetric("Level 0부터 3까지 있습니다.", evidence, "Level은?")).toBe(false);
+    // Absolute claims without % marker
+    expect(hasInventedMetric("정확도 95를 달성합니다.", evidence, "Level은?")).toBe(true);
+    // "2배" with improvement context
+    expect(hasInventedMetric("처리 속도가 2배 향상됩니다.", evidence, "Level은?")).toBe(true);
   });
   it("evidence screens never expose code paths", () => {
     for (const entry of ASSISTANT_EVIDENCE) {
