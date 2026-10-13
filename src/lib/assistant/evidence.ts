@@ -115,15 +115,143 @@ export const ASSISTANT_EVIDENCE: AssistantEvidence[] = [
     keywords: /도우미|예시\s*질문/iu,
     kind: "guide",
   },
+  {
+    id: "doc-analyze",
+    screen: "문서 작업 > 분석",
+    title: "문서 분석",
+    text: "문서 분석은 선택한 파일의 핵심 요약과 확인된 항목·수치를 보여줍니다. 파일을 선택한 뒤 분석 탭에서 실행하면 요약·수치와 근거 위치를 확인할 수 있습니다.",
+    keywords: /문서\s*분석|분석\s*기능/iu,
+    kind: "guide",
+  },
+  {
+    id: "doc-ask",
+    screen: "문서 작업 > 질문",
+    title: "문서 질문",
+    text: "문서 질문은 선택한 파일을 근거로 질문에 답변합니다. 확인할 내용을 입력하고 실행하면 답변과 근거 위치를 확인할 수 있습니다.",
+    keywords: /문서\s*질문/iu,
+    kind: "guide",
+  },
+  {
+    id: "doc-compare",
+    screen: "문서 작업 > 비교",
+    title: "문서 비교",
+    text: "문서 비교는 두 파일의 변경 사항 또는 여러 파일의 값 차이를 확인합니다. 기준/대상을 확인하고 버전 비교 또는 값 일치 확인 중 선택해 실행합니다.",
+    keywords: /문서\s*비교|버전\s*비교|값\s*일치/iu,
+    kind: "guide",
+  },
+  {
+    id: "doc-check",
+    screen: "문서 작업 > 검수",
+    title: "문서 검수",
+    text: "문서 검수는 문장·일관성·데이터·개인정보·보안정보를 검수합니다. 검수 탭에서 실행하면 문제와 수정 제안을 카드로 보여주고, 근거 보기에서 원문 위치를 확인할 수 있습니다.",
+    keywords: /문서\s*검수|검수\s*기능/iu,
+    kind: "guide",
+  },
+  {
+    id: "doc-supplement",
+    screen: "문서 작업 > 보완",
+    title: "문서 보완",
+    text: "문서 보완은 문서에서 빠진 핵심 정보와 설명이 필요한 부분을 확인합니다. 보완 실행 후 항목을 펼쳐 확인 이유와 근거 보기를 확인할 수 있습니다.",
+    keywords: /문서\s*보완|보완\s*기능/iu,
+    kind: "guide",
+  },
+  {
+    id: "doc-polish",
+    screen: "문서 작업 > 윤문",
+    title: "문서 윤문",
+    text: "윤문은 번역투와 중복 표현을 문장 단위로 다듬습니다. 파일 윤문과 텍스트 윤문을 선택할 수 있으며, 기본·간결하게·업무 문체 중 방식을 골라 실행합니다.",
+    keywords: /윤문/iu,
+    kind: "guide",
+  },
+  {
+    id: "doc-extract",
+    screen: "문서 작업 > 추출",
+    title: "문서 추출",
+    text: "추출은 필요한 항목과 값을 찾아 표로 정리합니다. 자동 추출 또는 항목 지정을 골라 실행하면 표를 확인하고 CSV·XLSX로 내려받을 수 있습니다.",
+    keywords: /추출/iu,
+    kind: "guide",
+  },
+  {
+    id: "doc-aggregate",
+    screen: "문서 작업 > 취합",
+    title: "문서 취합",
+    text: "취합은 첫 번째 파일의 서식을 기준으로 여러 Excel 표를 취합합니다. Excel 파일만 지원하며, 취합 탭에서 실행하면 결과 시트를 확인하고 내려받을 수 있습니다.",
+    keywords: /취합/iu,
+    kind: "guide",
+  },
+  {
+    id: "tool-pdf",
+    screen: "PDF 도구",
+    title: "PDF 도구",
+    text: "PDF 도구는 PDF 페이지를 정리하고 원하는 형식으로 내보냅니다. 여러 PDF를 추가한 뒤 끌어서 순서를 변경·회전·삭제하고, PDF·JPG·PNG 중 형식을 골라 저장합니다.",
+    keywords: /pdf\s*도구/iu,
+    kind: "menu",
+  },
+  {
+    id: "tool-image",
+    screen: "이미지 도구",
+    title: "이미지 도구",
+    text: "이미지 도구는 이미지를 편집하거나 여러 장을 결합한 뒤 내보냅니다. JPG·PNG·WebP 이미지를 추가하고 크기·회전 등 편집을 적용한 뒤 내보냅니다.",
+    keywords: /이미지\s*도구/iu,
+    kind: "menu",
+  },
+  {
+    id: "guide-usage",
+    screen: "사용 가이드",
+    title: "사용 가이드",
+    text: "사용 가이드는 WorkLens 각 기능의 사용 순서를 단계별로 안내합니다. 왼쪽 메뉴의 HELP에서 사용 가이드를 선택하면 기능별 단계와 팁을 확인할 수 있습니다.",
+    keywords: /사용\s*가이드|가이드/iu,
+    kind: "menu",
+  },
+  {
+    id: "guide-dictionary",
+    screen: "용어 사전",
+    title: "용어 사전",
+    text: "용어 사전은 맞춤법·용어 오탐을 줄이는 사전입니다. 왼쪽 메뉴의 HELP에서 용어 사전을 선택해 확인할 수 있습니다.",
+    keywords: /용어\s*사전|사전/iu,
+    kind: "menu",
+  },
+  {
+    id: "research-general",
+    screen: "종합 리서치",
+    title: "종합 리서치",
+    text: "종합 리서치는 쟁점별 핵심 검토 결과·근거 상태·추가 확인을 보여줍니다. 자연어로 질문할 수 있으며, 관련 법령·판례는 쟁점별로 펼쳐 봅니다. 중복 질문 처리에 대한 별도 기능은 제공하지 않습니다.",
+    keywords: /종합\s*리서치/iu,
+    kind: "guide",
+  },
 ];
 
 const MAX_EVIDENCE = 3;
 
-/** Select up to 3 evidence entries matching the question. Empty when nothing matches. */
+/**
+ * Select up to 3 evidence entries matching the question, ranked by relevance.
+ * Relevance prefers: more keyword matches, longer matched terms, and entries
+ * whose id/title directly names the asked topic. Array order is only a tiebreak.
+ */
 export function selectEvidence(question: string): AssistantEvidence[] {
   const lowered = question.toLowerCase();
-  const matched = ASSISTANT_EVIDENCE.filter((entry) => entry.keywords.test(lowered));
-  return matched.slice(0, MAX_EVIDENCE);
+  const scored = ASSISTANT_EVIDENCE
+    .map((entry) => ({ entry, score: relevanceScore(entry, lowered) }))
+    .filter(({ score }) => score > 0)
+    .sort((a, b) => b.score - a.score);
+  return scored.slice(0, MAX_EVIDENCE).map(({ entry }) => entry);
+}
+
+/** Simple relevance score: count distinct keyword alternatives that match, weighted by length. */
+function relevanceScore(entry: AssistantEvidence, lowered: string): number {
+  let score = 0;
+  const alternatives = entry.keywords.source.split("|");
+  for (const alt of alternatives) {
+    try {
+      if (new RegExp(alt, "iu").test(lowered)) score += Math.min(alt.length, 12);
+    } catch {
+      // Ignore malformed alternatives.
+    }
+  }
+  // Bonus when the entry title's core term appears in the question.
+  const titleCore = entry.title.replace(/\s+/gu, "");
+  if (titleCore.length >= 2 && lowered.replace(/\s+/gu, "").includes(titleCore)) score += 10;
+  return score;
 }
 
 /** Server-side guard: cited ids must be a subset of the evidence provided to the model. */
@@ -132,20 +260,30 @@ export function validCitations(citedIds: string[], provided: AssistantEvidence[]
   return citedIds.every((id) => allowed.has(id));
 }
 
-const INVENTED_METRIC = /\d+(?:\.\d+)?\s*(%|퍼센트|배)\s*(단축|절감|향상|개선|달성|정확도|일치율|자동화율)/u;
+const INVENTED_METRIC = /\d+(?:\.\d+)?\s*(%|퍼센트|배)\s*(단축|절감|향상|개선|달성|정확도|일치율|자동화율|오류율|처리\s*시간|소요\s*시간)/u;
+
+/** Additional patterns for invented quantitative claims without %/배 markers. */
+const INVENTED_ABSOLUTE = /(정확도|오류율|일치율|자동화율)\s*\d+/u;
 
 /**
  * Server-side guard: the model must not invent quantitative performance claims.
  * A metric is grounded only when it appears in the evidence text or the question.
+ * User-provided numbers are never treated as verified WorkLens policy/performance.
  */
 export function hasInventedMetric(answer: string, evidence: AssistantEvidence[], question: string): boolean {
   const grounded = `${evidence.map((entry) => entry.text).join("\n")}\n${question}`;
+  const normalized = (text: string) => text.replace(/\s+/gu, "");
+  const groundedNorm = normalized(grounded);
   for (const match of answer.matchAll(/\d+(?:\.\d+)?\s*(?:%|퍼센트|배)/gu)) {
     const token = match[0].replace(/\s+/gu, "");
-    const normalized = (text: string) => text.replace(/\s+/gu, "");
-    if (!normalized(grounded).includes(token) && !normalized(grounded).includes(token.replace("퍼센트", "%"))) {
+    if (!groundedNorm.includes(token) && !groundedNorm.includes(token.replace("퍼센트", "%"))) {
       if (INVENTED_METRIC.test(answer.slice(Math.max(0, (match.index ?? 0) - 12), (match.index ?? 0) + match[0].length + 12))) return true;
     }
+  }
+  // Absolute claims like "정확도 95" without % marker.
+  if (INVENTED_ABSOLUTE.test(answer)) {
+    const claim = answer.match(INVENTED_ABSOLUTE)?.[0] ?? "";
+    if (!groundedNorm.includes(normalized(claim))) return true;
   }
   return false;
 }
