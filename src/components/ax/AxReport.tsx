@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { AlertTriangle, ArrowRight, Ban, BookOpen, Bot, BrainCircuit, ChartNoAxesColumnIncreasing, Check, CheckCircle2, CircleAlert, CircleCheck, CircleX, Clipboard, ClipboardCheck, ClipboardList, Clock, CloudUpload, Copy, Database, Download, FileCode2, FileOutput, FileText, Flag, FlaskConical, Folder, GitBranch, Globe, Info, MonitorCog, Play, Search, Settings2, ShieldCheck, Target, Terminal, TriangleAlert, UserRound } from "lucide-react";
+import { AlertTriangle, ArrowRight, Ban, BookOpen, Bot, BrainCircuit, ChartNoAxesColumnIncreasing, Check, CheckCircle2, CircleAlert, CircleCheck, CircleX, Clipboard, ClipboardCheck, ClipboardList, Clock, CloudUpload, Copy, Database, Download, FileCode2, FileOutput, FileSpreadsheet, FileText, Flag, FlaskConical, Folder, GitBranch, Globe, Info, MonitorCog, Play, Plug, Search, Settings2, ShieldCheck, Target, Terminal, TriangleAlert, UserRound } from "lucide-react";
 import type { AxDiagnosis, AxPlan, AxTask } from "@/lib/ax/types";
-import { automationLevel, axes, executionGate, executionProfile, factorEffectiveValue, GATE_LABELS, nextAction, type ExecutionProfile } from "@/lib/ax/policy";
-import { FACTOR_KEYS } from "@/lib/ax/schema";
+import { automationLevel, axes, executionGate, executionProfile, factorEffectiveValue, GATE_LABELS, gateBlockReasons, gatePrerequisites, matrixPosition, nextAction, type ExecutionProfile } from "@/lib/ax/policy";
+import { FACTOR_KEYS, FACTOR_LABELS } from "@/lib/ax/schema";
 import { Badge } from "@/components/ui/badge";
 import { Accordion, AccordionItem, AccordionPanel, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
@@ -34,6 +34,85 @@ export function AxSummary({ task, showGate = true }: { task: AxTask; showGate?: 
     <p>자동화 가치 {a.value} · 기술 실현 가능성 {a.feasibility} · 담당자 판단 필요도 {a.judgment} · 운영 위험 {a.risk}</p>
     {showGate ? <p><strong>{action.label}</strong> — {action.detail}</p> : null}
   </div>;
+}
+/** Shared 4-card factor score display used by the diagnosis and matrix views. Colors follow the reference: blue for value/feasibility, orange for judgment, red for risk. */
+export function AxScoreCards({ diagnosis }: { diagnosis: AxDiagnosis }) {
+  const a = axes(diagnosis);
+  const cards = [
+    { label: "자동화 가치", value: a.value, color: "var(--primary)" },
+    { label: "기술 실현 가능성", value: a.feasibility, color: "var(--primary)" },
+    { label: "담당자 판단 필요도", value: a.judgment, color: "#ea580c" },
+    { label: "운영 위험", value: a.risk, color: "#dc2626" },
+  ];
+  return <div className="ax-score-cards" role="list" aria-label="진단 점수">
+    {cards.map(({ label, value, color }) => <div className="ax-score-card" role="listitem" key={label}>
+      <span className="ax-score-card-label">{label}</span>
+      <span className="ax-score-card-value"><strong>{value}</strong><span aria-hidden="true"> / 5</span><span className="sr-only">{label} 5점 만점에 {value}점</span></span>
+      <span className="ax-score-card-bar" aria-hidden="true"><span style={{ width: `${value / 5 * 100}%`, background: color }} /></span>
+    </div>)}
+  </div>;
+}
+/** Display-only summary sentences composed from confirmed diagnosis data; no AI call, no invented facts. */
+export function diagnosisSummarySentences(d: AxDiagnosis): string[] {
+  const names = (list: string[]) => list.length > 3 ? `${list.slice(0, 3).join("·")} 등 ${list.length}개` : list.join("·");
+  const steps = (verdict: "자동화" | "AI 보조" | "사람 유지") => d.stepAssessments.filter(s => s.verdict === verdict).map(s => s.step);
+  const auto = [...steps("자동화"), ...steps("AI 보조")];
+  const human = steps("사람 유지");
+  const sentences: string[] = [];
+  if (auto.length && human.length) sentences.push(`${names(auto)} 단계는 자동화 후보지만, ${names(human)} 단계는 담당자 판단이 필요한 단계로 남아 있습니다.`);
+  else if (auto.length) sentences.push(`${names(auto)} 단계가 자동화 후보입니다.`);
+  else if (human.length) sentences.push(`${names(human)} 단계는 담당자 판단이 필요한 단계로 남아 있습니다.`);
+  const pending = d.technicalChecks.filter(c => c.status !== "확인됨").map(c => c.topic);
+  if (pending.length) sentences.push(`${names(pending.slice(0, 3))} 확인 결과에 따라 구현 범위가 달라질 수 있습니다.`);
+  const gate = executionGate(d);
+  const levelName = automationLevel(d).label.replace(/^L\d+ /, "");
+  if (gate === "blocked") sentences.push(`현재 ${levelName}·진행 보류 상태로, 차단 사유 해결 후 재진단이 필요합니다.`);
+  else if (gate === "conditional") sentences.push(`현재 ${levelName}·확인 후 진행 상태로, 선행 조건 확인 후 구현 범위를 확정합니다.`);
+  else sentences.push(`현재 ${levelName}·진행 가능 상태입니다.`);
+  return sentences.slice(0, 3);
+}
+export type AxCheckItem = { title: string; desc?: string; badge: string; kind: "need" | "done" | "block" };
+/** Deduped display items for the diagnosis "확인할 사항" area. Same topic from multiple sources shows once; independent conditions are kept. */
+export function diagnosisCheckItems(d: AxDiagnosis): AxCheckItem[] {
+  const items: AxCheckItem[] = [];
+  if (executionGate(d) === "blocked") {
+    for (const reason of gateBlockReasons(d)) items.push({ title: reason, badge: "보류 사유", kind: "block" });
+  }
+  const seen = new Set<string>();
+  for (const c of d.technicalChecks) {
+    const key = c.topic.trim().toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    items.push({ title: c.topic, desc: c.note.trim() || undefined, badge: c.status === "확인됨" ? "확인됨" : "확인 필요", kind: c.status === "확인됨" ? "done" : "need" });
+  }
+  return items;
+}
+/** Data-only bullets for the matrix "핵심 판단 근거" area: classification, strongest value driver, and the binding constraint. */
+export function matrixRationaleBullets(d: AxDiagnosis): string[] {
+  const a = axes(d), m = matrixPosition(d), gate = executionGate(d);
+  const bullets = [`자동화 가치 ${a.value}점 · 기술 실현 가능성 ${a.feasibility}점 → 「${m.label}」 분류`];
+  const driver = (["repetition", "regularity", "dataStructure", "systemAccess"] as const)
+    .map(key => d.factors.find(f => f.key === key)!)
+    .sort((x, y) => factorEffectiveValue(y) - factorEffectiveValue(x))[0];
+  if (driver && driver.rationale.trim()) bullets.push(`${FACTOR_LABELS[driver.key]} ${factorEffectiveValue(driver)}점 — ${driver.rationale.trim()}`);
+  const constraints: string[] = [];
+  if (gate === "blocked") { const reason = gateBlockReasons(d)[0]; if (reason) constraints.push(`진행 보류: ${reason}`); }
+  else {
+    if (a.judgment >= 4) constraints.push(`담당자 판단 필요도 ${a.judgment}점 — 담당자 수행 유지`);
+    if (a.risk >= 4) constraints.push(`운영 위험 ${a.risk}점`);
+    if (gate === "conditional") constraints.push(`확인 후 진행 — 선행 조건 ${gatePrerequisites(d).length}개`);
+  }
+  if (constraints.length) bullets.push(constraints.join(" · "));
+  return bullets.slice(0, 3);
+}
+/** Icon for a check item chosen by topic keywords; visual only, never changes the underlying condition. */
+export function AxCheckIcon({ title }: { title: string }) {
+  const t = title.toLowerCase();
+  const Icon = /excel|스프레드시트|csv|파일|파싱/.test(t) ? FileSpreadsheet
+    : /api|시스템|연동|인터페이스/.test(t) ? Plug
+    : /보안|권한|접근|인증/.test(t) ? ShieldCheck
+    : /데이터/.test(t) ? Database : ClipboardList;
+  return <Icon size={18} aria-hidden="true" />;
 }
 export function AxResultSummary({ task }: { task: AxTask }) {
   const d = task.diagnosis;
