@@ -1,8 +1,24 @@
 import { expect, test, type Page } from "@playwright/test";
+import { mkdirSync } from "node:fs";
+import { dirname } from "node:path";
 import { navigateWorkspace } from "./navigation";
 import { diagnosisFixture, planFixture, taskFixture } from "../fixtures/ax";
 import { emptyAxState } from "../../src/lib/ax/types";
 import type { AxDiagnosis } from "../../src/lib/ax/types";
+
+// Review screenshots go to a local dir when available (dev machine),
+// otherwise to Playwright's test output dir (CI).
+function reviewShotPath(name: string): string {
+  const preferred = `/home/hatch/workspace/prereq-review/${name}`;
+  try {
+    mkdirSync(dirname(preferred), { recursive: true });
+    return preferred;
+  } catch {
+    const fallback = test.info().outputPath(name);
+    mkdirSync(dirname(fallback), { recursive: true });
+    return fallback;
+  }
+}
 
 async function ax(page: Page) {
   await navigateWorkspace(page, "업무 자동화 진단");
@@ -69,7 +85,7 @@ test("02 시작 전 확인: 상단 카드 3열 + 추가 확인 표 + 중복 제�
   // No horizontal overflow from the redesigned section
   const overflow = await block.evaluate(el => el.scrollWidth - el.clientWidth);
   expect(overflow).toBeLessThanOrEqual(1);
-  await block.screenshot({ path: "/home/hatch/workspace/prereq-review/prereq-desktop-1440x900.png" });
+  await block.screenshot({ path: reviewShotPath("prereq-desktop-1440x900.png") });
 });
 
 test("02 시작 전 확인: 모바일 390px 세로 배치 + 가로 스크롤 없음", async ({ page }) => {
@@ -93,7 +109,7 @@ test("02 시작 전 확인: 모바일 390px 세로 배치 + 가로 스크롤 없
   expect(overlap).toBe(false);
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(1);
-  await block.screenshot({ path: "/home/hatch/workspace/prereq-review/prereq-mobile-390x844.png" });
+  await block.screenshot({ path: reviewShotPath("prereq-mobile-390x844.png") });
 });
 
 test("02 시작 전 확인: 차단 사유 카드는 별도로 유지된다", async ({ page }) => {
