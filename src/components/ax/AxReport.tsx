@@ -564,7 +564,6 @@ export function AxExecutionPackage({ plan, target, taskName, taskContext, prereq
   const name = TOOL_GUIDES[target].name;
   const prompt = buildAllInOnePrompt(plan, target, { taskName, prerequisites, diagnosis, context: taskContext });
   return <div className="ax-package">
-    <p className="ax-muted">{name}용 올인원 지시문 · 접힌 상태에서도 원문 복사</p>
     <AxPrompt key={prompt} prompt={prompt} name={name} />
   </div>;
 }

@@ -249,8 +249,10 @@ describe("AX plan display boundaries", () => {
     expect(model.conditions.confirm).toContainEqual(expect.objectContaining({ text: "샘플 보관 위치 확인" }));
     expect(withPlan.constraints.join("\n")).toContain("최종 승인 후 전송");
     expect(withPlan.constraints.join("\n")).toContain("승인 없이 외부 전송");
-    expect(withPlan.constraints.join("\n")).toContain("plan.humanInLoop");
-    expect(withPlan.constraints.join("\n")).toContain("plan.outOfScope");
+    // Internal source paths (plan.humanInLoop, plan.outOfScope) are tracked in the model
+    // but not exposed in the final output (Goal 8: 내부 출처 필드명 노출 최소화)
+    expect(withPlan.constraints.join("\n")).not.toContain("plan.humanInLoop");
+    expect(withPlan.constraints.join("\n")).not.toContain("plan.outOfScope");
     expect(withPlan.include).toEqual(base.include);
     expect({ diagnosis, plan }).toEqual(before);
   });
