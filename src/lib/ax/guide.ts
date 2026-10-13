@@ -8,12 +8,12 @@ export const TOOL_GUIDES: Record<AxToolId, {
   name: string; versionCommand: string; installCommand: string; runCommand: string; doctorCommand: string; loginNote: string;
 }> = {
   codex: { name: "Codex", versionCommand: "codex --version", installCommand: "npm install -g @openai/codex@latest", runCommand: "codex", doctorCommand: "codex doctor", loginNote: "첫 실행 시 ChatGPT 계정으로 로그인" },
-  claude: { name: "Claude Code", versionCommand: "claude --version", installCommand: "npm install -g @anthropic-ai/claude-code", runCommand: "claude", doctorCommand: "claude doctor", loginNote: "첫 실행 시 브라우저에서 로그인" },
+  claude: { name: "Claude Code", versionCommand: "claude --version", installCommand: "winget install --id Anthropic.ClaudeCode -e --source winget", runCommand: "claude", doctorCommand: "claude doctor", loginNote: "첫 실행 시 브라우저에서 로그인" },
 };
 
 /** Inline text marks commands with backticks; `code` blocks default to PowerShell unless labeled as examples. */
 export type AxGuideBlock = { kind: "text"; text: string } | { kind: "code"; lines: string[]; notes?: string[]; label?: "PowerShell" | ".gitignore" | "예시" } | { kind: "steps"; items: string[] };
-export interface AxGuideSection { title: string; when?: string; collapsed?: boolean; listStyle?: "bullets"; blocks: AxGuideBlock[] }
+export interface AxGuideSection { title: string; when?: string; collapsed?: boolean; listStyle?: "bullets"; brand?: "vercel" | "cloudflare"; blocks: AxGuideBlock[] }
 export interface AxGuideStep { title: string; purpose: string; sections: AxGuideSection[] }
 
 const text = (value: string): AxGuideBlock => ({ kind: "text", text: value });
@@ -24,7 +24,7 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
   return [
     { title: "시작하기 전에 · 전체 흐름", purpose: `준비부터 Production 확인까지 ${guide.name} 작업 흐름`, sections: [
       { title: "처음 시작할 때", blocks: [
-        text(`STEP 01에서 Git·GitHub 인증과 ${guide.name} 설치 여부를 확인하고 필요한 것만 처음 한 번 준비합니다. 이미 설치된 항목은 건너뜁니다.`),
+        text(`STEP 01에서 필요한 프로그램을 설치하고 Git·GitHub 인증과 ${guide.name} 연결을 확인합니다. 이미 설치된 항목은 건너뜁니다.`),
         text("Codex와 Claude Code 중 하나만 사용하면 됩니다"),
       ] },
       { title: "이후 작업할 때", blocks: [
@@ -50,35 +50,55 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
         "롤백(Rollback): 문제가 발생했을 때 이전 정상 상태로 되돌리는 작업",
       ] }] },
     ] },
-    { title: "STEP 1 · 개발 도구·인증 확인", purpose: `설치 상태와 Git 사용자 정보·GitHub 인증 확인`, sections: [
-      { title: "필요한 프로그램 확인", blocks: [
-        text("PowerShell에서 버전을 확인합니다. 표시되는 프로그램은 이미 설치됐으므로 설치를 건너뜁니다."),
-        text("Node.js는 프로젝트에 필요한 경우에만 준비합니다"),
-        code(["git --version", "node --version", "npm --version", guide.versionCommand], []),
-      ] },
-      { title: "Git 설치", when: "Git 버전이 표시되지 않는 경우에만", blocks: [
+    { title: "STEP 01 · 개발 환경 준비", purpose: "필요한 프로그램을 설치하고 정상 설치와 계정 연결을 확인합니다.", sections: [
+      { title: "필요한 프로그램 설치", blocks: [
+        text("Windows PowerShell에서 아래 명령어로 필요한 프로그램을 설치하세요. 이미 설치된 프로그램은 건너뛰면 됩니다."),
+        text("코드 변경 이력을 관리하고 GitHub와 프로젝트를 연결합니다."),
         code(["winget install --id Git.Git -e --source winget"], []),
-        text("설치 후 새 PowerShell을 열고 `git --version`으로 다시 확인합니다."),
-      ] },
-      { title: "Node.js 설치", when: "프로젝트에 Node.js가 필요하고 버전이 표시되지 않는 경우에만", blocks: [
-        text("nodejs.org에서 LTS를 설치하고 `node --version`으로 다시 확인합니다. 프로젝트에 .nvmrc, .node-version 또는 package.json engines가 있으면 해당 요구사항을 우선합니다."),
-      ] },
-      { title: "Git 사용자 정보", when: "처음 한 번, 값이 비어 있을 때만", blocks: [
-        text("커밋에 기록할 사용자 이름·이메일 확인"),
-        code(["git config --global user.name", "git config --global user.email"], []),
-        text("비어 있을 때만 설정합니다. 기존 값은 덮어쓰지 않습니다."),
-        code(['git config --global user.name "이름"', 'git config --global user.email "메일주소"'], [
-          "이름을 본인 이름으로 바꾸어 설정",
-          "메일주소를 본인 이메일로 바꾸어 설정",
+        text("Node.js 기반 프로젝트 실행과 npm 개발 도구 설치에 사용합니다."),
+        code(["winget install --id OpenJS.NodeJS.LTS -e --source winget"], [
+          "프로젝트에 별도의 Node.js 버전 요구사항이 있으면 해당 요구사항을 우선합니다.",
+        ]),
+        text("GitHub 로그인과 저장소·PR 작업을 터미널에서 관리할 때 사용합니다."),
+        code(["winget install --id GitHub.cli -e --source winget"], [
+          "GitHub CLI는 권장 도구입니다. 기존 GitHub 인증 방식이 이미 정상이라면 설치를 강제하지 않습니다.",
+        ]),
+        text(`${guide.name} 설치`),
+        code([guide.installCommand], [
+          `설치 후 \`${guide.versionCommand}\`으로 확인합니다. 문제가 있으면 \`${guide.doctorCommand}\`으로 점검합니다.`,
         ]),
       ] },
-      { title: `${guide.name} 설치`, when: `\`${guide.versionCommand}\`이 실패하는 경우에만`, blocks: [
-        code([guide.installCommand], []),
-        text(`설치 후 \`${guide.versionCommand}\`으로 다시 확인합니다. 문제가 있으면 \`${guide.doctorCommand}\`으로 점검합니다.`),
+      { title: "설치 확인", blocks: [
+        text("설치 후 PowerShell을 새로 열고 정상 설치 여부를 확인하세요."),
+        code(["git --version", "node --version", "npm --version", "gh --version", guide.versionCommand], [
+          "실제로 필요하거나 설치한 프로그램의 확인 명령어만 실행합니다. 이미 설치된 프로그램의 재설치를 요구하지 않습니다.",
+        ]),
       ] },
-      { title: "GitHub 인증 확인", when: "GitHub CLI(gh)가 설치된 경우에만", blocks: [
+      { title: "Git 사용자 정보 설정", blocks: [
+        text("커밋에 기록할 이름과 이메일을 확인합니다. 이미 설정되어 있다면 변경할 필요가 없습니다."),
+        code(["git config user.name", "git config user.email"], [
+          "현재 프로젝트에 적용되는 작성자 설정을 확인합니다. 값이 표시되면 변경하지 않습니다.",
+        ]),
+        text("비어 있을 때만 설정합니다."),
+        code(['git config --global user.name "본인 GitHub 사용자명"', 'git config --global user.email "GitHub에 등록된 이메일"'], [
+          "이름은 실제 GitHub 사용자명 또는 원하는 작성자 이름 사용",
+          "이메일은 GitHub에 등록·인증된 이메일 사용 (GitHub 비공개 이메일도 사용 가능)",
+          "예시 문구를 반드시 실제 정보로 바꾼 후 실행",
+          "기존 값은 덮어쓰지 않음",
+          "`--global`은 현재 PC 사용자 환경의 전체 Git 저장소에 적용됩니다.",
+          "이메일 확인 경로: GitHub → Settings → Emails",
+        ]),
+      ] },
+      { title: "GitHub 로그인 확인", blocks: [
         code(["gh auth status"], []),
-        text("로그인되어 있지 않으면 `gh auth login`의 안내를 따릅니다. gh가 없으면 GitHub 웹사이트 로그인·토큰 등 프로젝트의 기존 인증 방식을 그대로 사용합니다. 인증 방식을 추측해 바꾸지 않습니다."),
+        text("로그인되어 있지 않으면 아래 명령어의 안내를 따릅니다. 이미 로그인한 사용자에게 재인증을 요구하지 않습니다."),
+        code(["gh auth login"], []),
+        text("GitHub CLI를 사용하지 않는 환경에서는 기존 인증 방식을 유지합니다. 토큰·비밀번호를 가이드나 소스 코드에 직접 입력하도록 안내하지 않습니다."),
+      ] },
+      { title: `${guide.name} 로그인`, blocks: [
+        code([guide.runCommand], []),
+        text(guide.loginNote),
+        text("GitHub 인증과 Codex·Claude Code 계정 인증은 별개입니다."),
       ] },
     ] },
     { title: "STEP 2 · 프로젝트 준비", purpose: "프로젝트 폴더·의존성·Git 상태 확인", sections: [
@@ -123,9 +143,9 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
     ] },
     { title: `STEP 3 · ${guide.name} 실행`, purpose: `프로젝트 폴더에서 ${guide.name} 실행 후 기존 지침·구현 확인`, sections: [
       { title: "프로젝트 폴더에서 실행", blocks: [
-        text("AI 도구는 반드시 작업할 프로젝트 폴더 안에서 실행합니다. `Get-Location`과 `dir`로 위치와 내용을 확인한 뒤 실행하세요."),
-        code(['cd "프로젝트 경로"', "Get-Location", "dir", guide.runCommand], [
-          "실제 프로젝트 경로로 바꾸어 이동",
+        text("PowerShell에서 프로젝트 폴더로 이동한 뒤 코딩 에이전트를 실행하세요."),
+        code(['cd "실제 프로젝트 경로"', guide.runCommand], [
+          "실제 프로젝트 경로로 변경한 후 실행합니다.",
         ]),
         text(guide.loginNote),
       ] },
@@ -232,13 +252,13 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
         text("어떤 서비스가 어느 플랫폼에 어느 branch에서 어떤 방식으로 배포되는지 먼저 확인합니다. Vercel·Cloudflare Workers/Pages·GitHub Actions·Wrangler 등 현재 저장소 설정을 기준으로 하며, 배포 구성을 임의로 변경하거나 추가하지 않습니다."),
         text("Preview는 반영 전 확인용이고 Production은 실제 서비스입니다. feature branch·PR → Preview, main/production branch → Production일 수 있지만 예시이며 실제 설정이 우선합니다. 지금 배포할 환경을 먼저 확인합니다. Preview 확인만으로 Production 배포가 완료된 것은 아닙니다."),
       ] },
-      { title: "Vercel인 경우", when: "현재 프로젝트가 Vercel에 배포되는 경우에만", blocks: [
+      { title: "Vercel인 경우", when: "현재 프로젝트가 Vercel에 배포되는 경우에만", brand: "vercel", blocks: [
         { kind: "steps", items: ["프로젝트 방식대로 push 또는 main merge", "Vercel build 결과 확인", "Preview 또는 Production 배포 확인", "배포 상태 확인"] },
         text("Git 연동 자동 배포라면 별도 수동 명령이 필요하지 않을 수 있습니다. 자동 배포에 수동 명령을 중복 실행하지 않습니다."),
         text("로컬 .env를 GitHub에 올리지 않고 Vercel Environment Variables에 설정합니다. 변수 이름은 프로젝트에서 확인합니다. Preview·Production 값을 따로 설정할 수 있습니다."),
         { kind: "steps", items: ["실패 시 배포 로그 확인", "민감정보를 가리고 필요한 로그만 AI 도구에 전달", "오류 수정", "테스트", "commit/push", "재배포 결과 확인"] },
       ] },
-      { title: "Cloudflare인 경우", when: "현재 프로젝트가 Cloudflare에 배포되는 경우에만", blocks: [
+      { title: "Cloudflare인 경우", when: "현재 프로젝트가 Cloudflare에 배포되는 경우에만", brand: "cloudflare", blocks: [
         text("Workers인지 Pages인지 먼저 확인합니다. Git 자동 배포인지 Wrangler 등 기존 CLI 방식인지 현재 프로젝트 설정을 확인합니다."),
         { kind: "steps", items: ["Git 자동 배포라면 프로젝트 방식대로 push/merge", "배포 진행 확인", "배포 상태 확인"] },
         text("자동 배포에 수동 명령을 중복 실행하지 않습니다. CLI 방식이면 프로젝트에 실제 있는 배포 명령만 실행합니다. `wrangler deploy`를 모든 프로젝트에 강제하지 않습니다."),

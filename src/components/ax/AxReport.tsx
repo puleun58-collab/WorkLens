@@ -365,8 +365,13 @@ function AxGuideSectionView({ section, completion = false, warning = false, coll
     {section.when ? <p className="ax-guide-when"><AxGuideText text={section.when} /></p> : null}
     {section.blocks.map((block, i) => <AxGuideBlockView key={i} block={block} listStyle={section.listStyle} />)}
   </>;
+  const brandLogo = section.brand === "vercel"
+    ? <img src="/brand/vercel-logo.svg" alt="" aria-hidden="true" className="ax-guide-brand-logo" />
+    : section.brand === "cloudflare"
+    ? <img src="/brand/cloudflare-logo.svg" alt="" aria-hidden="true" className="ax-guide-brand-logo" />
+    : null;
   return <section className={`ax-guide-section${completion ? " ax-guide-completion" : ""}${warning ? " ax-guide-warning" : ""}`}>
-    <h5>{completion ? <><CheckCircle2 aria-hidden="true" />완료 확인 · </> : warning ? <AlertTriangle aria-hidden="true" /> : null}{section.title}</h5>
+    <h5>{brandLogo}{completion ? <><CheckCircle2 aria-hidden="true" />완료 확인 · </> : warning ? <AlertTriangle aria-hidden="true" /> : null}{section.title}</h5>
     {collapsed ? <Accordion className="ax-guide-terms"><AccordionItem value="terms">
       <AccordionTrigger className="ax-guide-terms-trigger">{section.collapsed ? "용어 설명 보기" : `${section.title} 자세히 보기`}</AccordionTrigger>
       <AccordionPanel className="ax-guide-terms-panel">{content}</AccordionPanel>
@@ -375,12 +380,12 @@ function AxGuideSectionView({ section, completion = false, warning = false, coll
 }
 
 const SETUP_COURSES = [
-  { title: "처음 한 번 준비", description: "설치 여부 확인 후 필요한 도구만 준비", Icon: Download, first: 1, last: 1 },
+  { title: "처음 한 번 준비", description: "필요한 프로그램 설치 후 정상 동작 확인", Icon: Download, first: 1, last: 1 },
   { title: "프로젝트 작업", description: "프로젝트 열기 → AI 작업 → 실제 결과 확인", Icon: Folder, first: 2, last: 5 },
   { title: "GitHub·배포", description: "안전하게 저장 → 배포 → 실제 서비스 확인", Icon: CloudUpload, first: 6, last: 9 },
 ] as const;
 const SETUP_ICONS = [Download, Folder, Terminal, Clipboard, CheckCircle2, ShieldCheck, GitBranch, CloudUpload, Globe] as const;
-const SETUP_COMPLETIONS = new Set(["GitHub 인증 확인", "현재 위치 확인", "작업 시작 전 AI가 먼저 확인할 것", "테스트·빌드 확인", "실제 기능 확인", "GitHub에서 확인할 것", "실제 서비스 확인"]);
+const SETUP_COMPLETIONS = new Set(["GitHub 로그인 확인", "현재 위치 확인", "작업 시작 전 AI가 먼저 확인할 것", "테스트·빌드 확인", "실제 기능 확인", "GitHub에서 확인할 것", "실제 서비스 확인"]);
 const SETUP_WARNINGS = new Set(["기존 .gitignore 확인", ".env와 .env.example", "이미 추적 중인 파일", "올리기 전 체크리스트", "git push가 곧 Production은 아닙니다", "먼저 현재 배포 환경 확인", "오류가 나면", "CI가 실패하면", "문제가 생기면", "되돌리기(Rollback)"]);
 const SETUP_DETAILS: Record<string, true> = { "기본 명령": true };
 
