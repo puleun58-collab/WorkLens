@@ -20,7 +20,7 @@ async function stored(page: Page): Promise<AxState> {
 }
 async function enter(page: Page) { await navigateWorkspace(page, "업무 자동화 진단"); await expect(page.getByRole("tablist", { name: "진단 단계" })).toBeVisible(); }
 async function step(page: Page, name: string) { await page.getByRole("tab", { name, exact: true }).click(); }
-async function select(page: Page, name: string) { await page.locator(".ax-task-row-btn").filter({ has: page.locator(".ax-task-name", { hasText: new RegExp(`^${name}$`) }) }).click(); }
+async function select(page: Page, name: string) { const panel = page.getByRole("tabpanel", { name: "업무 진단" }); await panel.locator(".ax-task-row-btn").filter({ has: panel.locator(".ax-task-name", { hasText: new RegExp(`^${name}$`) }) }).click(); }
 
 for (const width of [1440, 390]) test(`AX two-task ID-linked four-stage flow, independent calculations and transfer at ${width}px`, async ({ page }) => {
   await page.setViewportSize({ width, height: width === 1440 ? 900 : 844 });
