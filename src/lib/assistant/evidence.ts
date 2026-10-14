@@ -109,9 +109,9 @@ export const ASSISTANT_EVIDENCE: AssistantEvidence[] = [
   },
   {
     id: "assistant-self",
-    screen: "WorkLens AI 도우미",
+    screen: "렌즈봇",
     title: "도우미 사용 방법",
-    text: "WorkLens AI 도우미는 WorkLens 기능과 사용 방법만 안내합니다. 도우미는 읽기 전용으로 동작하며 업무 데이터를 수정하거나 실행하지 않습니다.",
+    text: "렌즈봇은 WorkLens 기능과 사용 방법만 안내합니다. 도우미는 읽기 전용으로 동작하며 업무 데이터를 수정하거나 실행하지 않습니다.",
     keywords: /도우미|예시\s*질문/iu,
     kind: "guide",
   },
