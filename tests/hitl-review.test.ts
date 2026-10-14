@@ -8,6 +8,7 @@ import {
   shouldMarkStale,
   findReview,
   getConfirmedReviews,
+  reconcileReviews,
 } from "../src/lib/ax/hitl";
 import type { AxDiagnosis, AxPlan, AxTaskV2, HitlReview } from "../src/lib/ax/types";
 
@@ -96,5 +97,57 @@ describe("HITL review logic", () => {
     expect(findReview(task, "k1")?.status).toBe("confirmed");
     expect(findReview(task, "k3")).toBeUndefined();
     expect(getConfirmedReviews(task)).toHaveLength(1);
+  });
+
+  it("duplicate text gets distinct keys", () => {
+    const dupDiagnosis = {
+      stepAssessments: [
+        { step: "데이터 입력", verdict: "자동화", owner: "시스템", note: "" },
+        { step: "데이터 입력", verdict: "자동화", owner: "시스템", note: "" },
+      ],
+      risks: [],
+      technicalChecks: [],
+    } as unknown as AxDiagnosis;
+    const items = extractReviewableItems(dupDiagnosis);
+    expect(items).toHaveLength(2);
+    expect(items[0].key).not.toBe(items[1].key);
+  });
+
+  it("reconcileReviews distinguishes matched/changed/gone", () => {
+    const items = extractReviewableItems(mockDiagnosis);
+    const reviews = items.map((item, i) => ({
+      id: `r${i}`,
+      target: { key: item.key, sourceHash: item.sourceHash, type: item.type, source: item.source, sourceText: item.text },
+      status: "confirmed",
+      action: "keep",
+      reviewedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    })) as unknown as HitlReview[];
+
+    // 동일한 원본 → matched
+    const result1 = reconcileReviews(reviews, items);
+    for (const [, v] of result1) {
+      expect(v.status).toBe("matched");
+    }
+
+    // 원본 변경 → changed
+    const changedItems = items.map(it => ({ ...it, sourceHash: "different-hash" }));
+    const result2 = reconcileReviews(reviews, changedItems);
+    for (const [, v] of result2) {
+      expect(v.status).toBe("changed");
+    }
+
+    // 대상 소멸 → gone
+    const result3 = reconcileReviews(reviews, []);
+    for (const [, v] of result3) {
+      expect(v.status).toBe("gone");
+    }
+  });
+
+  it("canTransition allows confirmed->editing and stale->confirmed", () => {
+    expect(canTransition("confirmed", "editing")).toBe(true);
+    expect(canTransition("stale", "editing")).toBe(true);
+    expect(canTransition("stale", "confirmed")).toBe(true);
+    expect(canTransition("confirmed", "pending")).toBe(false);
   });
 });

@@ -2,12 +2,14 @@
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { AlertTriangle, ArrowRight, Ban, BookOpen, Bot, BrainCircuit, ChartNoAxesColumnIncreasing, Check, CheckCircle2, CircleAlert, CircleCheck, CircleX, Clipboard, ClipboardCheck, ClipboardList, Clock, CloudUpload, Copy, Database, Download, FileCode2, FileOutput, FileSpreadsheet, FileText, Flag, FlaskConical, Folder, GitBranch, Globe, Info, MonitorCog, Play, Plug, Search, Settings2, ShieldCheck, Target, Terminal, TriangleAlert, UserRound } from "lucide-react";
-import type { AxDiagnosis, AxPlan, AxTask } from "@/lib/ax/types";
+import type { AxDiagnosis, AxPlan, AxTask, AxTaskV2, HitlReview } from "@/lib/ax/types";
 import { automationLevel, axes, executionGate, executionProfile, factorEffectiveValue, GATE_LABELS, gateBlockReasons, gatePrerequisites, matrixPosition, nextAction, type ExecutionProfile } from "@/lib/ax/policy";
 import { FACTOR_KEYS, FACTOR_LABELS } from "@/lib/ax/schema";
 import { Badge } from "@/components/ui/badge";
 import { Accordion, AccordionItem, AccordionPanel, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
+import { HitlReviewPanel, HitlStatusBadge } from "./HitlReview";
+import { extractReviewableItems, findReview, type ReviewableItem } from "@/lib/ax/hitl";
 import { Tabs, TabsList, TabsTab, TabsPanel } from "@/components/ui/tabs";
 import { buildAgentInstructionModel, buildAllInOnePrompt, planSummary, scopeItemLabel, setupGuide, stepMethodLabel, TOOL_GUIDES, type AgentInstructionModel, type AxAdditionalCheck, type AxCheckTone, type AxGuideBlock, type AxGuideSection, type AxPlanSummary, type AxToolId } from "@/lib/ax/guide";
 
@@ -245,7 +247,13 @@ export function AxExecutionTimeline({ diagnosis: d }: { diagnosis: AxDiagnosis }
     {profile.roadmap.length ? <AxRoadmapPhases model={model} profile={profile} /> : null}
   </section>;
 }
-export function AxProcess({ diagnosis: d }: { diagnosis: AxDiagnosis }) {
+export interface AxProcessReviewProps {
+  taskId: string;
+  reviews: HitlReview[];
+  onSaveReview: (review: Omit<HitlReview, "id" | "reviewedAt" | "updatedAt"> & { id?: string }) => void;
+}
+
+export function AxProcess({ diagnosis: d, reviewProps }: { diagnosis: AxDiagnosis; reviewProps?: AxProcessReviewProps }) {
   const core = [
     { label: "업무 목적", icon: Target, value: d.asIs.purpose || "기재된 내용 없음" },
     { label: "시작 조건", icon: Play, value: d.asIs.trigger || "기재된 내용 없음" },
@@ -270,16 +278,53 @@ export function AxProcess({ diagnosis: d }: { diagnosis: AxDiagnosis }) {
       </div> : null}
       {d.asIs.systems.length ? <div className="ax-process-systems"><MonitorCog aria-hidden="true" /><div><h4>사용 시스템</h4><AxList items={d.asIs.systems} /></div></div> : null}
     </section>
-    <section className="ax-section ax-panel"><h3>단계별 자동화 판단</h3><AxStepTable diagnosis={d} headers={["업무 단계", "판정", "담당", "판단 근거"]} /></section>
+    <section className="ax-section ax-panel"><h3>단계별 자동화 판단</h3><AxStepTable diagnosis={d} headers={["업무 단계", "판정", "담당", "판단 근거"]} reviewProps={reviewProps} /></section>
     <AxToBe diagnosis={d} />
   </>;
 }
-function AxStepTable({ diagnosis: d, headers }: { diagnosis: AxDiagnosis; headers: [string, string, string, string] }) {
-  return <div className="ax-table-wrap"><table className="ax-step-table"><thead><tr>{headers.map(header => <th key={header}>{header}</th>)}</tr></thead><tbody>{d.stepAssessments.length ? d.stepAssessments.map((s, i) => <tr key={i}>
-    <td><span className="ax-step-number">{String(i + 1).padStart(2, "0")}</span>{s.step}</td>
-    <td><Badge variant="outline" className="ax-verdict-badge" data-verdict={s.verdict}>{VERDICT_LABELS[s.verdict]}</Badge></td>
-    <td>{OWNER_LABELS[s.owner]}</td><td>{s.note}</td>
-  </tr>) : <tr><td colSpan={4}>기재된 단계 없음</td></tr>}</tbody></table></div>;
+function AxStepTable({ diagnosis: d, headers, reviewProps }: { diagnosis: AxDiagnosis; headers: [string, string, string, string]; reviewProps?: AxProcessReviewProps }) {
+  const [openKey, setOpenKey] = useState<string | null>(null);
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const items = reviewProps ? extractReviewableItems(d) : [];
+  const itemByStep = new Map<string, ReviewableItem>();
+  for (const item of items) {
+    if (item.type === "step" && !itemByStep.has(item.text.split(":")[0])) {
+      // step 이름으로 매칭 (첫 번째 occurrence)
+      const stepName = d.stepAssessments.find(s => item.key.includes(s.step.slice(0, 8)))?.step;
+      if (stepName) itemByStep.set(stepName, item);
+    }
+  }
+  // 간단한 매칭: 순서대로 step 항목과 연결
+  const stepItems = items.filter(i => i.type === "step");
+
+  return <div className="ax-table-wrap"><table className="ax-step-table"><thead><tr>{headers.map(header => <th key={header}>{header}</th>)}{reviewProps ? <th>검토</th> : null}</tr></thead><tbody>{d.stepAssessments.length ? d.stepAssessments.map((s, i) => {
+    const item = stepItems[i];
+    const review = item && reviewProps ? findReview({ reviews: reviewProps.reviews } as AxTaskV2, item.key) : undefined;
+    const isOpen = item && openKey === item.key;
+    return <>
+      <tr key={i}>
+        <td><span className="ax-step-number">{String(i + 1).padStart(2, "0")}</span>{s.step}</td>
+        <td><Badge variant="outline" className="ax-verdict-badge" data-verdict={s.verdict}>{VERDICT_LABELS[s.verdict]}</Badge></td>
+        <td>{OWNER_LABELS[s.owner]}</td><td>{s.note}</td>
+        {reviewProps && item ? <td>
+          {review ? <HitlStatusBadge status={review.status} /> : <span className="ax-muted">검토 전</span>}
+          <Button type="button" variant="ghost" size="sm" onClick={() => setOpenKey(isOpen ? null : item.key)}>
+            {isOpen ? "닫기" : review ? "보기" : "검토"}
+          </Button>
+        </td> : null}
+      </tr>
+      {isOpen && item && reviewProps ? <tr key={`${i}-review`}><td colSpan={reviewProps ? 5 : 4}>
+        <HitlReviewPanel
+          key={item.key}
+          item={item}
+          review={editingKey === item.key ? { ...review!, status: "editing" as const } : review}
+          onSave={(r) => { reviewProps.onSaveReview(r); setEditingKey(null); }}
+          onCancel={() => { setEditingKey(null); setOpenKey(null); }}
+          onEdit={() => setEditingKey(item.key)}
+        />
+      </td></tr> : null}
+    </>;
+  }) : <tr><td colSpan={reviewProps ? 5 : 4}>기재된 단계 없음</td></tr>}</tbody></table></div>;
 }
 function AxToBe({ diagnosis: d }: { diagnosis: AxDiagnosis }) {
   const icons = { 시스템: Settings2, AI: Bot, 사용자: UserRound } as const;

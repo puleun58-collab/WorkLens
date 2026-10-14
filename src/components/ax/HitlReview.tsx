@@ -67,10 +67,12 @@ export interface HitlReviewPanelProps {
   review?: HitlReview;
   onSave: (review: Omit<HitlReview, "id" | "reviewedAt" | "updatedAt"> & { id?: string }) => void;
   onCancel?: () => void;
+  onEdit?: () => void;
 }
 
-/** 개별 검토 항목 패널 */
-export function HitlReviewPanel({ item, review, onSave, onCancel }: HitlReviewPanelProps) {
+/** 개별 검토 항목 패널
+ * 주의: 대상 변경 시 부모에서 key={item.key}로 리마운트해야 입력값이 초기화됨 */
+export function HitlReviewPanel({ item, review, onSave, onCancel, onEdit }: HitlReviewPanelProps) {
   const isStale = review?.status === "stale";
   const [action, setAction] = useState<HitlAction>(review?.action ?? "keep");
   const [comment, setComment] = useState(review?.comment ?? "");
@@ -228,6 +230,11 @@ export function HitlReviewPanel({ item, review, onSave, onCancel }: HitlReviewPa
             {(review!.action === "defer" || review!.action === "exclude") && review!.reason ? ` — ${review!.reason}` : null}
             {review!.comment ? ` (${review!.comment})` : null}
           </p>
+          {onEdit ? (
+            <div className="ax-hitl-buttons">
+              <Button type="button" variant="outline" onClick={onEdit}>검토 수정</Button>
+            </div>
+          ) : null}
         </div>
       )}
     </div>
