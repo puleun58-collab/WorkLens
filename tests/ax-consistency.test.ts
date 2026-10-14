@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildAgentInstructionModel, buildAllInOnePrompt, planSummary, stepMethodLabel, type AgentInstructionModel } from "../src/lib/ax/guide";
 import { executionProfile } from "../src/lib/ax/policy";
 import { exportAxState, importAxState } from "../src/lib/ax/transfer";
+import { migrateV1ToV2 } from "../src/lib/ax/schema";
 import type { AxDiagnosis, AxPlan } from "../src/lib/ax/types";
 import { taskFixture } from "./fixtures/ax";
 import { agentCases, contractCase, equipmentCase, equipmentRuleCase, facilityCase, freightCase, inquiryCase, permitCase } from "./fixtures/ax-agent-cases";
@@ -292,7 +293,8 @@ describe("AX shared processing and relational scope", () => {
     const state = { schemaVersion: 1 as const, tasks: [task], selectedTaskId: task.id, step: 4 };
     const before = structuredClone(state);
     const restored = importAxState(exportAxState(state));
-    expect(restored).toEqual(state);
+    // v1 입력은 export/import 과정에서 v2로 마이그레이션된다 (reviews 빈 배열 초기화).
+    expect(restored).toEqual(migrateV1ToV2(state));
     const diagnosis = restored.tasks[0].diagnosis!;
     const semantic = (model: AgentInstructionModel) => ({
       steps: model.steps, methods: model.methods, methodReasons: model.methodReasons, gate: model.gate,

@@ -1,14 +1,14 @@
 import { expect, test, type Page } from "@playwright/test";
 import { navigateWorkspace } from "./navigation";
 import { diagnosisFixture, outputFixture, taskFixture } from "../fixtures/ax";
-import { emptyAxState, type AxState, type AxDiagnosis, type AxTask } from "../../src/lib/ax/types";
+import { emptyAxState, type AxStateV2, type AxDiagnosis, type AxTask } from "../../src/lib/ax/types";
 import { exportAxState } from "../../src/lib/ax/transfer";
 
 async function ax(page: Page) {
   await navigateWorkspace(page, "업무 자동화 진단");
   await expect(page.getByRole("tablist", { name: "진단 단계" })).toBeVisible();
 }
-async function seed(page: Page, value: AxState) {
+async function seed(page: Page, value: AxStateV2) {
   await page.evaluate(async state => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
       const request = indexedDB.open("worklens-ax", 1);
@@ -32,7 +32,7 @@ async function record(page: Page) {
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
     });
-    const value = await new Promise<AxState | undefined>((resolve, reject) => {
+    const value = await new Promise<AxStateV2 | undefined>((resolve, reject) => {
       const request = db.transaction("state", "readonly").objectStore("state").get("current");
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
@@ -41,7 +41,7 @@ async function record(page: Page) {
     return value;
   });
 }
-async function importData(page: Page, state: AxState) {
+async function importData(page: Page, state: AxStateV2) {
   const chooser = page.waitForEvent("filechooser");
   await page.getByRole("button", { name: "AI•AX 데이터 작업", exact: true }).click();
   await page.getByRole("menuitem", { name: "데이터 가져오기", exact: true }).click();
