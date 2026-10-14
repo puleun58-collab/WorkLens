@@ -302,6 +302,8 @@
   .ax-phases-note { align-items: flex-start; }
 }
 .ax-questions { display: flex; flex-direction: column; gap: 12px; }
+/* 답변 작성하기 버튼 클릭 시 고정 헤더에 가려지지 않도록 상단 여백 확보 */
+#ax-answer-section { scroll-margin-top: 88px; }
 .ax-questions > .ax-rediagnose { align-self: flex-end; width: auto; }
 .ax-gate-checks { display: flex; flex-wrap: wrap; gap: 4px 8px; margin: 4px 0 8px; color: var(--muted-foreground); }
 .ax-gate-checks > span:first-child { color: var(--foreground); font-weight: 600; }

@@ -92,14 +92,25 @@ export function AxDiagnosisView() {
   }
   function select(id: string) { update(current => ({ ...current, selectedTaskId: id })); }
   function changeStep(step: number) { update(current => ({ ...current, step })); setMessage(""); }
+  // 단계 전환 후 새 단계의 최상단으로 스크롤 (이전 화면의 스크롤 위치가 유지되지 않도록)
+  // 스크롤 컨테이너는 window가 아닌 #workspace-content 요소임
+  const stepRef = useRef(state.step);
+  useEffect(() => {
+    if (stepRef.current !== state.step) {
+      stepRef.current = state.step;
+      const container = document.getElementById("workspace-content");
+      if (container) container.scrollTo({ top: 0, behavior: "instant" });
+      else window.scrollTo({ top: 0, behavior: "instant" });
+    }
+  }, [state.step]);
   function scrollToAnswers() {
     const el = document.getElementById("ax-answer-section");
     if (!el) return;
     el.scrollIntoView({ behavior: "smooth", block: "start" });
-    window.setTimeout(() => {
-      const first = el.querySelector("textarea");
-      if (first instanceof HTMLTextAreaElement) first.focus({ preventScroll: true });
-    }, 450);
+    // 포커스가 브라우저 자동 스크롤을 유발하지 않도록 preventScroll 사용
+    // scroll-margin-top CSS가 고정 헤더 여백을 처리함
+    const first = el.querySelector("textarea");
+    if (first instanceof HTMLTextAreaElement) first.focus({ preventScroll: true });
   }
   function clearDraft() { setName(""); setDescription(""); setDetails({}); setDraftAttachment(null); setEditingId(null); }
   function editTask(task: AxTask) {
