@@ -19,8 +19,18 @@ async function stored(page: Page): Promise<AxState> {
   });
 }
 async function enter(page: Page) { await navigateWorkspace(page, "업무 자동화 진단"); await expect(page.getByRole("tablist", { name: "진단 단계" })).toBeVisible(); }
-async function step(page: Page, name: string) { await page.getByRole("tab", { name, exact: true }).click(); }
-async function select(page: Page, name: string) { await page.locator(".ax-task-row-btn:visible").filter({ has: page.locator(".ax-task-name", { hasText: new RegExp(`^${name}$`) }) }).click(); }
+async function step(page: Page, name: string) {
+  const tab = page.getByRole("tab", { name, exact: true });
+  await tab.click();
+  // 탭 전환이 완전히 반영될 때까지 대기 (이전 패널이 사라지고 새 패널만 남음)
+  await expect(tab).toHaveAttribute("aria-selected", "true");
+}
+async function select(page: Page, name: string) {
+  const btn = page.locator(".ax-task-row-btn:visible").filter({ has: page.locator(".ax-task-name", { hasText: new RegExp(`^${name}$`) }) });
+  // 탭 전환 중 이전/새 패널이 동시에 보일 수 있어 정확히 1개일 때까지 대기
+  await expect(btn).toHaveCount(1);
+  await btn.click();
+}
 
 for (const width of [1440, 390]) test(`AX two-task ID-linked four-stage flow, independent calculations and transfer at ${width}px`, async ({ page }) => {
   await page.setViewportSize({ width, height: width === 1440 ? 900 : 844 });

@@ -428,7 +428,19 @@ export function AxDiagnosisView() {
             <header className="ax-report-intro"><div><span className="ax-report-eyebrow">선택한 업무 · 결과·로드맵</span><div className="ax-title-group"><h2>{selected.name}</h2><Badge className="ax-status-badge">{STATUS[taskDisplayStatus(selected).status]}</Badge>{taskDisplayStatus(selected).needsCheck ? <span className="ax-status-note">추가 확인 필요</span> : null}</div><p>{selected.description}</p></div></header>
             <AxResultSummary task={selected} />
             <AxExecutionTimeline diagnosis={selected.diagnosis} />
-            <AxPlanSection key={selected.id} diagnosis={selected.diagnosis} taskName={selected.name} taskContext={[selected.description, ...Object.values(taskDetails(selected)).filter(value => value !== undefined).map(String)].join("\n")} busy={busy} onGenerate={target => void generatePlan(selected, target)} />
+            <AxPlanSection
+              key={selected.id}
+              diagnosis={selected.diagnosis}
+              taskName={selected.name}
+              taskContext={[selected.description, ...Object.values(taskDetails(selected)).filter(value => value !== undefined).map(String)].join("\n")}
+              busy={busy}
+              onGenerate={target => void generatePlan(selected, target)}
+              reviewProps={{
+                taskId: selected.id,
+                reviews: (selected as import("@/lib/ax/types").AxTaskV2).reviews ?? [],
+                onSaveReview: (r) => saveHitlReview(selected.id, r),
+              }}
+            />
           </article> : <p className="ax-muted">우선순위에서 업무 선택 후 상세 결과 확인</p>}
         </>}
       </TabsPanel>
