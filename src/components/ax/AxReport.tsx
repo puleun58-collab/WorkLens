@@ -640,9 +640,24 @@ function AxPrompt({ prompt, name }: { prompt: string; name: string }) {
     </div>
   </>;
 }
-export function AxExecutionPackage({ plan, target, taskName, taskContext, prerequisites, diagnosis }: { plan: AxPlan; target: AxToolId; taskName: string; taskContext: string; prerequisites: string[]; diagnosis: AxDiagnosis }) {
+export function AxExecutionPackage({ plan, target, taskName, taskContext, prerequisites, diagnosis, hitlReviews }: {
+  plan: AxPlan;
+  target: AxToolId;
+  taskName: string;
+  taskContext: string;
+  prerequisites: string[];
+  diagnosis: AxDiagnosis;
+  hitlReviews?: import("@/lib/ax/types").HitlReview[];
+}) {
   const name = TOOL_GUIDES[target].name;
-  const prompt = buildAllInOnePrompt(plan, target, { taskName, prerequisites, diagnosis, context: taskContext });
+  const prompt = buildAllInOnePrompt(plan, target, {
+    taskName,
+    prerequisites,
+    diagnosis,
+    context: taskContext,
+    hitlReviews,
+    hitlTool: target === "codex" ? "codex" : "claude",
+  });
   return <div className="ax-package">
     <AxPrompt key={prompt} prompt={prompt} name={name} />
   </div>;
@@ -704,7 +719,7 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
             <div className="ax-plan-toolbar">
               <TabsList aria-label="AI 코딩 도구 선택"><TabsTab value="codex">Codex</TabsTab><TabsTab value="claude">Claude Code</TabsTab></TabsList>
             </div>
-            {(["codex", "claude"] as const).map(target => <TabsPanel key={target} value={target}>{target === activeTool ? plans[target] ? <><p className="ax-plan-tool-hint">{TOOL_GUIDES[target].name}에서 현재 프로젝트를 열고 올인원 지시문 붙여넣기</p><AxExecutionPackage plan={plans[target]} target={target} taskName={taskName} taskContext={taskContext} prerequisites={prerequisites} diagnosis={diagnosis} /></> : <><p>{TOOL_GUIDES[target].name}용 구현 계획 생성 후 올인원 지시문 확인</p>{generateButton(target)}</> : null}</TabsPanel>)}
+            {(["codex", "claude"] as const).map(target => <TabsPanel key={target} value={target}>{target === activeTool ? plans[target] ? <><p className="ax-plan-tool-hint">{TOOL_GUIDES[target].name}에서 현재 프로젝트를 열고 올인원 지시문 붙여넣기</p><AxExecutionPackage plan={plans[target]} target={target} taskName={taskName} taskContext={taskContext} prerequisites={prerequisites} diagnosis={diagnosis} hitlReviews={reviewProps?.reviews} /></> : <><p>{TOOL_GUIDES[target].name}용 구현 계획 생성 후 올인원 지시문 확인</p>{generateButton(target)}</> : null}</TabsPanel>)}
           </Tabs> : <p className="ax-muted">도구별 구현 계획 생성 후 올인원 지시문 확인</p>}
       </>}
     </section>
