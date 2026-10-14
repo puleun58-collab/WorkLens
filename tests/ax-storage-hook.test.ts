@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { emptyAxState, type AxState } from "@/lib/ax/types";
+import { emptyAxState, type AxStateV2 } from "@/lib/ax/types";
 import { exportAxState } from "@/lib/ax/transfer";
 import type * as AxStore from "@/client/ax-store";
 
@@ -46,7 +46,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   harness.slots = []; harness.cursor = 0; harness.effects = []; harness.channel = undefined; cleanup = undefined; record = undefined;
   harness.load.mockReset().mockImplementation(async () => restoreAxRecord(record));
-  harness.save.mockReset().mockImplementation(async (state: AxState, expected: string | undefined, explicit: boolean) => {
+  harness.save.mockReset().mockImplementation(async (state: AxStateV2, expected: string | undefined, explicit: boolean) => {
     if (!explicit && JSON.stringify(record) !== expected) throw new AxStorageConflictError();
     record = structuredClone(state); return JSON.stringify(record);
   });

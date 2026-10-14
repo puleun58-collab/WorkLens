@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { axes, automationLevel, matrixPosition, priority, monthlyMinutes, bubbleArea, nextAction } from "@/lib/ax/policy";
-import { exportAxState, importAxState, validateAxState } from "@/lib/ax/transfer";
+import { exportAxState, importAxState, validateAxStateV2 } from "@/lib/ax/transfer";
 import { restoreAxRecord } from "@/client/ax-store";
 import { emptyAxState, type AxDiagnosis } from "@/lib/ax/types";
 import { diagnosisFixture, planFixture, taskFixture } from "./fixtures/ax";
@@ -63,7 +63,7 @@ describe("AX local persistence and transfer validation", () => {
     expect(() => exportAxState({ ...state, bytes: [1, 2] } as typeof state)).toThrow();
   });
   it("canonicalizes optional undefined fields for storage/export/import equality", () => {
-    const canonical = validateAxState({ ...state, tasks: [{ ...state.tasks[0], diagnosis: { ...state.tasks[0].diagnosis, planClaude: undefined } }] });
+    const canonical = validateAxStateV2({ ...state, tasks: [{ ...state.tasks[0], diagnosis: { ...state.tasks[0].diagnosis, planClaude: undefined } }] });
     expect(canonical.tasks[0].diagnosis).not.toHaveProperty("planClaude");
     expect(importAxState(exportAxState(canonical))).toEqual(canonical);
   });
@@ -78,10 +78,10 @@ describe("AX local persistence and transfer validation", () => {
   });
   it("rejects JSON, format, version, required fields, unexpected payloads and inconsistent task states", () => {
     const base = JSON.parse(exportAxState(state));
-    const invalid = ["{bad", JSON.stringify({ ...base, format: "other" }), JSON.stringify({ ...base, schemaVersion: 2 }), JSON.stringify({ ...base, data: {} }), JSON.stringify({ ...base, data: { ...state, tasks: [{ ...state.tasks[0], attachmentSummary: "raw" }] } }), JSON.stringify({ ...base, data: { ...state, tasks: [{ ...state.tasks[0], status: "registered" }] } })];
+    const invalid = ["{bad", JSON.stringify({ ...base, format: "other" }), JSON.stringify({ ...base, schemaVersion: 3 }), JSON.stringify({ ...base, data: {} }), JSON.stringify({ ...base, data: { ...state, tasks: [{ ...state.tasks[0], attachmentSummary: "raw" }] } }), JSON.stringify({ ...base, data: { ...state, tasks: [{ ...state.tasks[0], status: "registered" }] } })];
     for (const json of invalid) expect(() => importAxState(json)).toThrow();
-    expect(() => validateAxState({ ...state, tasks: [state.tasks[0], state.tasks[0]] })).toThrow();
-    expect(() => validateAxState({ ...state, step: 5 })).toThrow();
-    expect(() => validateAxState({ ...state, tasks: [{ ...state.tasks[0], diagnosis: { ...diagnosisFixture, factors: Array(6).fill(diagnosisFixture.factors[0]) } }] })).toThrow();
+    expect(() => validateAxStateV2({ ...state, tasks: [state.tasks[0], state.tasks[0]] })).toThrow();
+    expect(() => validateAxStateV2({ ...state, step: 5 })).toThrow();
+    expect(() => validateAxStateV2({ ...state, tasks: [{ ...state.tasks[0], diagnosis: { ...diagnosisFixture, factors: Array(6).fill(diagnosisFixture.factors[0]) } }] })).toThrow();
   });
 });

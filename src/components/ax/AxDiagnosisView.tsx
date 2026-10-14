@@ -17,7 +17,7 @@ import { AX_LIMITS, FACTOR_LABELS, axTaskSchema, confirmedAxDiagnosis } from "@/
 import { axes, automationLevel, bubbleArea, executionGate, executionProfile, GATE_LABELS, gatePrerequisites, planAllowed, priorityHeading, factorEffectiveValue, factorHasAdjustment, factorScale, matrixPosition, monthlyMinutes, nextAction, priority, REGION_LABELS, taskStatus, taskDisplayStatus } from "@/lib/ax/policy";
 import { candidateTask, taskDetails, followUpDescription, legacyDetailValues, validateAttachmentPreflight, isRegistrationUnchanged } from "@/lib/ax/registration";
 import { exportAxState, importAxState } from "@/lib/ax/transfer";
-import { emptyAxState, type AxState, type AxTask, type AxDiagnosis, type AxDetails, type FactorKey } from "@/lib/ax/types";
+import { emptyAxState, type AxStateV2, type AxTask, type AxDiagnosis, type AxDetails, type FactorKey } from "@/lib/ax/types";
 import { AxProcess, AxResultSummary, AxExecutionTimeline, AxPlanSection, AxRadar, AxScoreCards, AxCheckIcon, diagnosisSummarySentences, diagnosisCheckItems, matrixRationaleBullets } from "./AxReport";
 import { AxScoreEvidence } from "./AxScoreEvidence";
 import "./ax.css";
@@ -38,7 +38,7 @@ const DETAILS: { key: keyof AxDetails; label: string; placeholder: string; numer
   { key: "humanSteps", label: "담당자 판단·승인 단계", placeholder: "예: 예외 건 검토, 금액 확인, 최종 승인" },
 ];
 type SessionAttachment = { meta: NonNullable<AxTask["attachmentMeta"]>; summary: string };
-type Confirmation = { kind: "import"; state: AxState } | { kind: "reset" } | { kind: "delete"; id: string };
+type Confirmation = { kind: "import"; state: AxStateV2 } | { kind: "reset" } | { kind: "delete"; id: string };
 type RankedTask = { task: AxTask & { diagnosis: AxDiagnosis }; rank: number };
 
 function diagnosisCounts(tasks: AxTask[]) {

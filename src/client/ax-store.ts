@@ -1,5 +1,5 @@
-import { migrateAxState, validateAxState } from "@/lib/ax/transfer";
-import { emptyAxState, type AxState } from "@/lib/ax/types";
+import { migrateAxState, validateAxStateV2 } from "@/lib/ax/transfer";
+import { emptyAxState, type AxStateV2 } from "@/lib/ax/types";
 export const AX_DB_NAME = "worklens-ax";
 const STORE = "state", KEY = "current";
 function openDb(): Promise<IDBDatabase> {
@@ -29,13 +29,15 @@ export type AxStorageProtection = "loading" | "writable" | "invalid" | "unavaila
 export class AxStorageConflictError extends Error {
   constructor() { super("다른 탭에서 저장된 데이터가 변경되어 자동 저장을 중단했습니다."); }
 }
-export function restoreAxRecord(record: unknown): { state: AxState; protection: "writable" | "invalid"; revision?: string; notice?: string } {
+export function restoreAxRecord(record: unknown): { state: AxStateV2; protection: "writable" | "invalid"; revision?: string; notice?: string } {
   if (record === undefined) return { state: emptyAxState(), protection: "writable" };
+  // v1 기록은 메모리에서만 v2로 변환한다. 저장 원본은 덮어쓰지 않으며,
+  // revision은 원본 기록 기준으로 유지해 저장 충돌 보호가 그대로 동작한다.
   try { return { state: migrateAxState(record), protection: "writable", revision: JSON.stringify(record) }; }
   catch { return { state: emptyAxState(), protection: "invalid", notice: "저장된 AI•AX 데이터가 손상되었거나 지원하지 않는 버전입니다. 원본을 보존하고 자동 저장을 중단했습니다. 화면 작업은 내보내기로 보관하고, 초기화 또는 가져오기를 확인하면 저장을 다시 시작할 수 있습니다." }; }
 }
 export async function loadAxState() { return restoreAxRecord(await transaction("readonly", store => store.get(KEY))); }
-async function writeAxRecord(record: AxState | undefined, expected: string | undefined, explicit: boolean): Promise<string | undefined> {
+async function writeAxRecord(record: AxStateV2 | undefined, expected: string | undefined, explicit: boolean): Promise<string | undefined> {
   const db = await openDb();
   const { promise, resolve, reject } = Promise.withResolvers<string | undefined>();
   let failure: Error | undefined;
@@ -58,8 +60,9 @@ async function writeAxRecord(record: AxState | undefined, expected: string | und
   } catch { db.close(); reject(new Error("브라우저 저장에 실패했습니다.")); }
   return promise;
 }
-export async function saveAxState(state: AxState, expected: string | undefined, explicit = false): Promise<string | undefined> {
-  return writeAxRecord(validateAxState(state), expected, explicit);
+export async function saveAxState(state: AxStateV2, expected: string | undefined, explicit = false): Promise<string | undefined> {
+  // IndexedDB에는 v2 스키마로 검증된 데이터만 저장한다.
+  return writeAxRecord(validateAxStateV2(state), expected, explicit);
 }
 export async function clearAxState(expected: string | undefined, explicit = false): Promise<undefined> {
   await writeAxRecord(undefined, expected, explicit);

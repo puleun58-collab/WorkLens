@@ -1,5 +1,5 @@
 import type { z } from "zod";
-import type { axTaskSchema, axDiagnosisSchema, axPlanSchema, axStateSchema, axDetailsSchema, axDiagnosisRequestSchema, axPlanRequestSchema, FACTOR_KEYS } from "./schema";
+import type { axTaskSchema, axDiagnosisSchema, axPlanSchema, axStateSchema, axDetailsSchema, axDiagnosisRequestSchema, axPlanRequestSchema, FACTOR_KEYS, hitlReviewSchema, hitlReviewCollectionSchema, axTaskV2Schema, axStateV2Schema, HITL_TARGET_TYPES, HITL_ACTIONS, HITL_STATUSES } from "./schema";
 export type AxTask = z.infer<typeof axTaskSchema>;
 export type AxDiagnosis = z.infer<typeof axDiagnosisSchema>;
 export type AxPlan = z.infer<typeof axPlanSchema>;
@@ -8,4 +8,12 @@ export type AxDetails = z.infer<typeof axDetailsSchema>;
 export type AxDiagnosisRequest = z.infer<typeof axDiagnosisRequestSchema>;
 export type AxPlanRequest = z.infer<typeof axPlanRequestSchema>;
 export type FactorKey = typeof FACTOR_KEYS[number];
-export const emptyAxState = (): AxState => ({ schemaVersion: 1, tasks: [], selectedTaskId: null, step: 1 });
+// HITL types
+export type HitlReview = z.infer<typeof hitlReviewSchema>;
+export type HitlReviewCollection = z.infer<typeof hitlReviewCollectionSchema>;
+export type AxTaskV2 = z.infer<typeof axTaskV2Schema>;
+export type AxStateV2 = z.infer<typeof axStateV2Schema>;
+export type HitlTargetType = typeof HITL_TARGET_TYPES[number];
+export type HitlAction = typeof HITL_ACTIONS[number];
+export type HitlStatus = typeof HITL_STATUSES[number];
+export const emptyAxState = (): AxStateV2 => ({ schemaVersion: 2, tasks: [], selectedTaskId: null, step: 1 });
