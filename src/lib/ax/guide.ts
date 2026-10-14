@@ -1123,19 +1123,22 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
   // Level × Gate 정책이 우선하며, 검토는 허용 범위 내에서만 제한·구체화
   let finalClassified = classified;
   let finalScoped = scoped;
+  let hitlActuallyApplied = false;
   const hitlReviews = options.hitlReviews ?? [];
   const hitlTool = options.hitlTool;
   if (hitlReviews.length > 0) {
     const applied = applyHitlToModel(classified, scoped, hitlReviews, hitlTool);
     finalClassified = applied.classified;
     finalScoped = applied.scoped;
+    // 실제 적용 여부: 항목 수가 변경되었거나 보완이 적용된 경우
+    hitlActuallyApplied = applied.appliedCount > 0;
   }
 
   return { profile, level, gate, scopeLevel, steps, methods: methodEvidence.map(item => item.method), methodReasons: methodEvidence.map(item => item.reason),
     methodChains: methodEvidence.map(item => item.chain), methodOrders: methodEvidence.map(item => item.order), conditions, classified: finalClassified,
     ambiguous: finalClassified.filter(item => item.scope === "confirm" && item.role !== "reference"),
     scoped: finalScoped, diagnosis: d, plan: guarded, prerequisites: options.prerequisites ?? [], gaps,
-    hitlApplied: hitlReviews.length > 0 };
+    hitlApplied: hitlActuallyApplied };
 }
 
 /** HITL 3차: 검토 결과를 실행 범위 모델에 반영
@@ -1148,7 +1151,7 @@ function applyHitlToModel(
   scoped: AgentInstructionModel["scoped"],
   reviews: import("./types").HitlReview[],
   tool?: "codex" | "claude",
-): { classified: AgentInstructionItem[]; scoped: AgentInstructionModel["scoped"] } {
+): { classified: AgentInstructionItem[]; scoped: AgentInstructionModel["scoped"]; appliedCount: number } {
   // 도구별 필터: planItem/criterion은 해당 도구의 계획에만 적용
   const relevant = reviews.filter(r => {
     if (r.target.source === "planCodex") return tool === "codex";
@@ -1169,16 +1172,26 @@ function applyHitlToModel(
   }
 
   if (excludeKeys.size === 0 && deferKeys.size === 0 && supplements.size === 0) {
-    return { classified, scoped };
+    return { classified, scoped, appliedCount: 0 };
   }
 
-  // 검토 대상 키와 classified 항목 매칭 (sourceText 기반)
+  // 검토 대상 키와 classified 항목 매칭
+  // 원본 텍스트의 정규화된 전체 일치를 사용 (부분 매칭 금지)
+  const normalizeForMatch = (text: string) => text.trim().replace(/\s+/g, " ").toLowerCase();
   const matchReview = (item: AgentInstructionItem): string | null => {
+    // 항목의 원본 텍스트들 수집 (original, originals, text)
+    const itemTexts = new Set<string>();
+    itemTexts.add(normalizeForMatch(item.text));
+    if (item.original) itemTexts.add(normalizeForMatch(item.original));
+    for (const o of item.originals ?? []) itemTexts.add(normalizeForMatch(o));
+
     for (const r of relevant) {
       if (r.status !== "confirmed") continue;
-      // 원본 텍스트가 항목 텍스트에 포함되거나 일치하는 경우
       const sourceText = r.target.sourceText;
-      if (sourceText && (item.text.includes(sourceText.slice(0, 50)) || sourceText.includes(item.text.slice(0, 50)))) {
+      if (!sourceText) continue;
+      const normalizedSource = normalizeForMatch(sourceText);
+      // 전체 일치만 허용 (부분 매칭 금지)
+      if (itemTexts.has(normalizedSource)) {
         return r.target.key;
       }
     }
@@ -1199,8 +1212,9 @@ function applyHitlToModel(
     outputs: scoped.outputs.filter(item => !isExcluded(item)),
     conditions: scoped.conditions.filter(item => !isExcluded(item)),
   };
+  const appliedCount = classified.length - filteredClassified.length;
 
-  return { classified: filteredClassified, scoped: filteredScoped };
+  return { classified: filteredClassified, scoped: filteredScoped, appliedCount };
 }
 
 /** One coding-agent instruction for any supported tool; the model is computed once. */
