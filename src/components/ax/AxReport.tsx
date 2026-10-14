@@ -279,8 +279,43 @@ export function AxProcess({ diagnosis: d, reviewProps }: { diagnosis: AxDiagnosi
       {d.asIs.systems.length ? <div className="ax-process-systems"><MonitorCog aria-hidden="true" /><div><h4>사용 시스템</h4><AxList items={d.asIs.systems} /></div></div> : null}
     </section>
     <section className="ax-section ax-panel"><h3>단계별 자동화 판단</h3><AxStepTable diagnosis={d} headers={["업무 단계", "판정", "담당", "판단 근거"]} reviewProps={reviewProps} /></section>
+    {reviewProps ? <AxRiskReview diagnosis={d} reviewProps={reviewProps} /> : null}
     <AxToBe diagnosis={d} />
   </>;
+}
+
+/** 위험 사항 검토 섹션 */
+function AxRiskReview({ diagnosis: d, reviewProps }: { diagnosis: AxDiagnosis; reviewProps: AxProcessReviewProps }) {
+  const [openKey, setOpenKey] = useState<string | null>(null);
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const items = extractReviewableItems(d).filter(i => i.type === "risk");
+  if (!items.length) return null;
+
+  return <section className="ax-section ax-panel"><h3>위험 사항 검토</h3>
+    <ul className="ax-hitl-risk-list">
+      {items.map(item => {
+        const review = findReview({ reviews: reviewProps.reviews } as AxTaskV2, item.key);
+        const isOpen = openKey === item.key;
+        return <li key={item.key} className="ax-hitl-risk-item">
+          <div className="ax-hitl-risk-head">
+            <span className="ax-hitl-risk-text">{item.text}</span>
+            {review ? <HitlStatusBadge status={review.status} /> : <span className="ax-muted">검토 전</span>}
+            <Button type="button" variant="ghost" size="sm" onClick={() => setOpenKey(isOpen ? null : item.key)}>
+              {isOpen ? "닫기" : review ? "보기" : "검토"}
+            </Button>
+          </div>
+          {isOpen ? <HitlReviewPanel
+            key={item.key}
+            item={item}
+            review={editingKey === item.key ? { ...review!, status: "editing" as const } : review}
+            onSave={(r) => { reviewProps.onSaveReview(r); setEditingKey(null); }}
+            onCancel={() => { setEditingKey(null); setOpenKey(null); }}
+            onEdit={() => setEditingKey(item.key)}
+          /> : null}
+        </li>;
+      })}
+    </ul>
+  </section>;
 }
 function AxStepTable({ diagnosis: d, headers, reviewProps }: { diagnosis: AxDiagnosis; headers: [string, string, string, string]; reviewProps?: AxProcessReviewProps }) {
   const [openKey, setOpenKey] = useState<string | null>(null);
