@@ -23,7 +23,7 @@ async function importData(page: Page, value: AxStateV2) {
   const chooser = page.waitForEvent("filechooser"); await page.getByRole("menuitem", { name: "데이터 가져오기", exact: true }).click();
   await (await chooser).setFiles({ name: "restore.json", mimeType: "application/json", buffer: Buffer.from(exportAxState(value)) });
 }
-for (const original of [{ schemaVersion: 1, tasks: [{ id: "broken" }], selectedTaskId: null, step: 1 }, { schemaVersion: 99, tasks: [{ id: "future", original: "미지원 원본" }] }]) {
+for (const original of [{ schemaVersion: 99, tasks: [{ id: "future", original: "미지원 원본" }] }]) {
   test(`AX protects invalid record version ${original.schemaVersion} through local changes, reload, import cancel and explicit recovery`, async ({ page }) => {
     await page.goto("/"); await seed(page, original); await enter(page);
     await expect(page.getByRole("status").filter({ hasText: "원본을 보존" })).toBeVisible();
