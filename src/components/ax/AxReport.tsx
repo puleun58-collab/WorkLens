@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Accordion, AccordionItem, AccordionPanel, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
 import { HitlReviewPanel, HitlStatusBadge } from "./HitlReview";
-import { extractReviewableItems, findReview, type ReviewableItem } from "@/lib/ax/hitl";
+import { extractReviewableItems, extractPlanReviewableItems, findReview, type ReviewableItem } from "@/lib/ax/hitl";
 import { Tabs, TabsList, TabsTab, TabsPanel } from "@/components/ui/tabs";
 import { buildAgentInstructionModel, buildAllInOnePrompt, planSummary, scopeItemLabel, setupGuide, stepMethodLabel, TOOL_GUIDES, type AgentInstructionModel, type AxAdditionalCheck, type AxCheckTone, type AxGuideBlock, type AxGuideSection, type AxPlanSummary, type AxToolId } from "@/lib/ax/guide";
 
@@ -648,7 +648,14 @@ export function AxExecutionPackage({ plan, target, taskName, taskContext, prereq
   </div>;
 }
 
-export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenerate }: { diagnosis: AxDiagnosis; taskName: string; taskContext: string; busy: string | null; onGenerate: (target: AxToolId) => void }) {
+export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenerate, reviewProps }: {
+  diagnosis: AxDiagnosis;
+  taskName: string;
+  taskContext: string;
+  busy: string | null;
+  onGenerate: (target: AxToolId) => void;
+  reviewProps?: AxProcessReviewProps;
+}) {
   const profile = executionProfile(diagnosis);
   const gate = profile.gate;
   const prerequisites = gate === "blocked" ? [] : profile.prerequisites;
@@ -701,5 +708,62 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
           </Tabs> : <p className="ax-muted">도구별 구현 계획 생성 후 올인원 지시문 확인</p>}
       </>}
     </section>
+    {reviewProps && (plans.codex || plans.claude) ? <AxPlanReview plans={plans} reviewProps={reviewProps} /> : null}
+  </section>;
+}
+
+/** 구현 계획 검토 섹션 (Codex/Claude Code별) */
+function AxPlanReview({ plans, reviewProps }: { plans: { codex?: AxPlan; claude?: AxPlan }; reviewProps: AxProcessReviewProps }) {
+  const [openKey, setOpenKey] = useState<string | null>(null);
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<"codex" | "claude">(plans.codex ? "codex" : "claude");
+
+  const items = (() => {
+    const result: { tool: "codex" | "claude"; item: ReviewableItem }[] = [];
+    if (plans.codex && (activeTab === "codex" || !plans.claude)) {
+      for (const item of extractPlanReviewableItems(plans.codex, "codex")) {
+        result.push({ tool: "codex", item });
+      }
+    }
+    if (plans.claude && (activeTab === "claude" || !plans.codex)) {
+      for (const item of extractPlanReviewableItems(plans.claude, "claude")) {
+        result.push({ tool: "claude", item });
+      }
+    }
+    return result;
+  })();
+
+  if (!items.length) return null;
+
+  return <section className="ax-section ax-panel" aria-label="구현 계획 검토"><h3>구현 계획 검토</h3>
+    {plans.codex && plans.claude ? <div className="ax-hitl-plan-tabs" role="tablist">
+      <Button type="button" variant={activeTab === "codex" ? "default" : "outline"} size="sm" onClick={() => setActiveTab("codex")}>Codex</Button>
+      <Button type="button" variant={activeTab === "claude" ? "default" : "outline"} size="sm" onClick={() => setActiveTab("claude")}>Claude Code</Button>
+    </div> : null}
+    <ul className="ax-hitl-risk-list">
+      {items.map(({ tool, item }) => {
+        const review = findReview({ reviews: reviewProps.reviews } as AxTaskV2, item.key);
+        const isOpen = openKey === item.key;
+        const typeLabel = item.type === "planItem" ? "구현 항목" : "완료 기준";
+        return <li key={item.key} className="ax-hitl-risk-item">
+          <div className="ax-hitl-risk-head">
+            <span className="ax-hitl-type-badge">{typeLabel}</span>
+            <span className="ax-hitl-risk-text">{item.text}</span>
+            {review ? <HitlStatusBadge status={review.status} /> : <span className="ax-muted">검토 전</span>}
+            <Button type="button" variant="ghost" size="sm" onClick={() => setOpenKey(isOpen ? null : item.key)}>
+              {isOpen ? "닫기" : review ? "보기" : "검토"}
+            </Button>
+          </div>
+          {isOpen ? <HitlReviewPanel
+            key={item.key}
+            item={item}
+            review={editingKey === item.key ? { ...review!, status: "editing" as const } : review}
+            onSave={(r) => { reviewProps.onSaveReview(r); setEditingKey(null); }}
+            onCancel={() => { setEditingKey(null); setOpenKey(null); }}
+            onEdit={() => setEditingKey(item.key)}
+          /> : null}
+        </li>;
+      })}
+    </ul>
   </section>;
 }

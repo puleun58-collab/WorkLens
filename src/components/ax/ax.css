@@ -805,3 +805,5 @@
 .ax-hitl-risk-item { border: 1px solid var(--line-soft); border-radius: 8px; padding: 12px; }
 .ax-hitl-risk-head { display: flex; align-items: center; gap: 8px; }
 .ax-hitl-risk-text { flex: 1; font-size: 14px; }
+.ax-hitl-plan-tabs { display: flex; gap: 8px; margin-bottom: 12px; }
+.ax-hitl-type-badge { font-size: 11px; padding: 2px 8px; border-radius: 4px; background: var(--muted); color: var(--muted-foreground); white-space: nowrap; }
