@@ -811,6 +811,8 @@ export interface AgentInstructionModel {
   plan?: AxPlan;
   prerequisites: string[];
   gaps: string[];
+  /** HITL 3차: 검토 결과가 반영되었는지 여부 */
+  hitlApplied?: boolean;
 }
 /** Strong markers of an explicit execution order; weak connectors need an explicit actor to count. */
 const STRONG_SEQUENCE = /(먼저|다음|그\s*뒤|뒤에|그\s*후|후에|한\s*뒤|→|이후|그다음)/u;
@@ -922,7 +924,16 @@ export function approvalConstraints(model: AgentInstructionModel, keep: (item: A
     .filter(keep);
   return unique(entries.map(item => `${item.original ?? item.text}${item.original ? ` (현재 계획 문구: ${item.text})` : ""}`));
 }
-type PromptOptions = { taskName?: string; prerequisites?: string[]; diagnosis?: AxDiagnosis; context?: string };
+type PromptOptions = {
+  taskName?: string;
+  prerequisites?: string[];
+  diagnosis?: AxDiagnosis;
+  context?: string;
+  /** HITL 3차: 현재 유효한 confirmed 검토 (getValidConfirmedReviews 결과) */
+  hitlReviews?: import("./types").HitlReview[];
+  /** HITL 3차: 현재 선택한 코딩 도구 (계획 출처 구분용) */
+  hitlTool?: "codex" | "claude";
+};
 const PLAN_ROLES: Record<Exclude<keyof AxPlan, "repositoryFirst">, string> = {
   goal: "goal", asIs: "reference", toBe: "reference", inScope: "features", outOfScope: "excluded",
   prerequisites: "conditions", humanInLoop: "human", poc: "reference", implementation: "features",
@@ -1107,10 +1118,89 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
   ];
   const methodEvidence = steps.map((s, index) => stepMethod(s,
     steps.some((other, otherIndex) => otherIndex !== index && normalizedStepText(other.step) === normalizedStepText(s.step)), d));
+
+  // HITL 3차: 유효한 confirmed 검토를 실행 범위에 반영
+  // Level × Gate 정책이 우선하며, 검토는 허용 범위 내에서만 제한·구체화
+  let finalClassified = classified;
+  let finalScoped = scoped;
+  const hitlReviews = options.hitlReviews ?? [];
+  const hitlTool = options.hitlTool;
+  if (hitlReviews.length > 0) {
+    const applied = applyHitlToModel(classified, scoped, hitlReviews, hitlTool);
+    finalClassified = applied.classified;
+    finalScoped = applied.scoped;
+  }
+
   return { profile, level, gate, scopeLevel, steps, methods: methodEvidence.map(item => item.method), methodReasons: methodEvidence.map(item => item.reason),
-    methodChains: methodEvidence.map(item => item.chain), methodOrders: methodEvidence.map(item => item.order), conditions, classified,
-    ambiguous: classified.filter(item => item.scope === "confirm" && item.role !== "reference"),
-    scoped, diagnosis: d, plan: guarded, prerequisites: options.prerequisites ?? [], gaps };
+    methodChains: methodEvidence.map(item => item.chain), methodOrders: methodEvidence.map(item => item.order), conditions, classified: finalClassified,
+    ambiguous: finalClassified.filter(item => item.scope === "confirm" && item.role !== "reference"),
+    scoped: finalScoped, diagnosis: d, plan: guarded, prerequisites: options.prerequisites ?? [], gaps,
+    hitlApplied: hitlReviews.length > 0 };
+}
+
+/** HITL 3차: 검토 결과를 실행 범위 모델에 반영
+ * - exclude/defer: 해당 항목을 구현 범위에서 제외
+ * - supplement: 보완 내용을 관련 항목에 추가 (별도 표시)
+ * - keep: 변경 없음
+ * Level × Gate 정책을 우회하지 않으며, 원본을 수정하지 않음 */
+function applyHitlToModel(
+  classified: AgentInstructionItem[],
+  scoped: AgentInstructionModel["scoped"],
+  reviews: import("./types").HitlReview[],
+  tool?: "codex" | "claude",
+): { classified: AgentInstructionItem[]; scoped: AgentInstructionModel["scoped"] } {
+  // 도구별 필터: planItem/criterion은 해당 도구의 계획에만 적용
+  const relevant = reviews.filter(r => {
+    if (r.target.source === "planCodex") return tool === "codex";
+    if (r.target.source === "planClaude") return tool === "claude";
+    return true; // diagnosis 출처는 공통 적용
+  });
+
+  const excludeKeys = new Set<string>();
+  const deferKeys = new Set<string>();
+  const supplements = new Map<string, string>(); // key -> 보완 내용
+
+  for (const r of relevant) {
+    if (r.status !== "confirmed") continue;
+    const key = r.target.key;
+    if (r.action === "exclude") excludeKeys.add(key);
+    else if (r.action === "defer") deferKeys.add(key);
+    else if (r.action === "supplement" && r.supplement) supplements.set(key, r.supplement);
+  }
+
+  if (excludeKeys.size === 0 && deferKeys.size === 0 && supplements.size === 0) {
+    return { classified, scoped };
+  }
+
+  // 검토 대상 키와 classified 항목 매칭 (sourceText 기반)
+  const matchReview = (item: AgentInstructionItem): string | null => {
+    for (const r of relevant) {
+      if (r.status !== "confirmed") continue;
+      // 원본 텍스트가 항목 텍스트에 포함되거나 일치하는 경우
+      const sourceText = r.target.sourceText;
+      if (sourceText && (item.text.includes(sourceText.slice(0, 50)) || sourceText.includes(item.text.slice(0, 50)))) {
+        return r.target.key;
+      }
+    }
+    return null;
+  };
+
+  const isExcluded = (item: AgentInstructionItem) => {
+    const key = matchReview(item);
+    return key && (excludeKeys.has(key) || deferKeys.has(key));
+  };
+
+  const filteredClassified = classified.filter(item => !isExcluded(item));
+  const filteredScoped = {
+    features: scoped.features.filter(item => !isExcluded(item)),
+    tests: scoped.tests.filter(item => !isExcluded(item)),
+    criteria: scoped.criteria.filter(item => !isExcluded(item)),
+    validationMethods: scoped.validationMethods.filter(item => !isExcluded(item)),
+    outputs: scoped.outputs.filter(item => !isExcluded(item)),
+    conditions: scoped.conditions.filter(item => !isExcluded(item)),
+  };
+
+  return { classified: filteredClassified, scoped: filteredScoped };
 }
 
 /** One coding-agent instruction for any supported tool; the model is computed once. */
