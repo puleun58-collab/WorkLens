@@ -8,6 +8,7 @@ import {
   shouldMarkStale,
   findReview,
   getConfirmedReviews,
+  getValidConfirmedReviews,
   reconcileReviews,
 } from "../src/lib/ax/hitl";
 import type { AxDiagnosis, AxPlan, AxTaskV2, HitlReview } from "../src/lib/ax/types";
@@ -149,5 +150,34 @@ describe("HITL review logic", () => {
     expect(canTransition("stale", "editing")).toBe(true);
     expect(canTransition("stale", "confirmed")).toBe(true);
     expect(canTransition("confirmed", "pending")).toBe(false);
+  });
+
+  it("getValidConfirmedReviews distinguishes current vs outdated", () => {
+    const items = extractReviewableItems(mockDiagnosis);
+    const task = {
+      reviews: [
+        {
+          id: "r1",
+          target: { key: items[0].key, sourceHash: items[0].sourceHash },
+          status: "confirmed",
+        },
+        {
+          id: "r2",
+          target: { key: items[1].key, sourceHash: "outdated-hash" },
+          status: "confirmed",
+        },
+        {
+          id: "r3",
+          target: { key: "nonexistent-key", sourceHash: "abc" },
+          status: "confirmed",
+        },
+      ],
+    } as unknown as AxTaskV2;
+    // getConfirmedReviews는 3개 모두 반환
+    expect(getConfirmedReviews(task)).toHaveLength(3);
+    // getValidConfirmedReviews는 현재 유효한 1개만 반환
+    const valid = getValidConfirmedReviews(task, items);
+    expect(valid).toHaveLength(1);
+    expect(valid[0].id).toBe("r1");
   });
 });

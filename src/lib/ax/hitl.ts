@@ -194,6 +194,21 @@ export function getConfirmedReviews(task: AxTaskV2): HitlReview[] {
   return (task.reviews ?? []).filter(r => r.status === "confirmed");
 }
 
+/** 현재 원본 기준으로 유효한 confirmed 검토만 반환
+ * 저장된 confirmed와 현재 유효한 confirmed를 구분 (HITL 3차 대비)
+ * - 현재 업무에 속함
+ * - 대상이 현재 원본에 존재함
+ * - 검토 당시 해시와 현재 해시가 일치함 */
+export function getValidConfirmedReviews(task: AxTaskV2, currentItems: ReviewableItem[]): HitlReview[] {
+  const itemMap = new Map(currentItems.map(i => [i.key, i]));
+  return (task.reviews ?? []).filter(r => {
+    if (r.status !== "confirmed") return false;
+    const current = itemMap.get(r.target.key);
+    if (!current) return false; // 대상 소멸
+    return current.sourceHash === r.target.sourceHash; // 원본 일치
+  });
+}
+
 /** 액션별 실행 반영 여부 (3차에서 사용, 2차에서는 저장만) */
 export function isReviewActionApplicable(review: HitlReview): boolean {
   return review.status === "confirmed";
