@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useId, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import { MoreHorizontal, Upload, Download, Trash2, Pencil, ClipboardList, CircleCheck, Zap, Clock3, Stethoscope, LayoutGrid, Map as MapIcon, ArrowLeft, ArrowRight, Paperclip, FileText, X, Repeat, CalendarCheck, Database, Plug, UserCheck, AlertTriangle, RotateCcw, ListChecks } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -115,13 +115,15 @@ export function AxDiagnosisView() {
   }
   // 단계 전환 후 새 단계의 최상단으로 스크롤 (이전 화면의 스크롤 위치가 유지되지 않도록)
   // 스크롤 컨테이너는 window가 아닌 #workspace-content 요소임
+  // useLayoutEffect: DOM 반영 직후·페인트 전에 실행해 스크롤 잔상 방지
+  // scrollTop 직접 설정: behavior 옵션보다 확실하게 동작
   const stepRef = useRef(state.step);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (stepRef.current !== state.step) {
       stepRef.current = state.step;
       const container = document.getElementById("workspace-content");
-      if (container) container.scrollTo({ top: 0, behavior: "instant" });
-      else window.scrollTo({ top: 0, behavior: "instant" });
+      if (container) container.scrollTop = 0;
+      else window.scrollTo(0, 0);
     }
   }, [state.step]);
   function scrollToAnswers() {
