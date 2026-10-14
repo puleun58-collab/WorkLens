@@ -13,7 +13,7 @@ import { AlertDialog, AlertDialogPopup, AlertDialogHeader, AlertDialogTitle, Ale
 import { useAxState } from "@/client/use-ax-state";
 import { runInWorker } from "@/client/document-client";
 import { diagnoseAx, planAx, interruptServerAi, aiFailureDetail } from "@/client/server-ai-client";
-import { AX_LIMITS, FACTOR_LABELS, axTaskSchema, confirmedAxDiagnosis } from "@/lib/ax/schema";
+import { AX_LIMITS, FACTOR_LABELS, axTaskSchema, axTaskV2Schema, confirmedAxDiagnosis } from "@/lib/ax/schema";
 import { axes, automationLevel, bubbleArea, executionGate, executionProfile, GATE_LABELS, gatePrerequisites, planAllowed, priorityHeading, factorEffectiveValue, factorHasAdjustment, factorScale, matrixPosition, monthlyMinutes, nextAction, priority, REGION_LABELS, taskStatus, taskDisplayStatus } from "@/lib/ax/policy";
 import { candidateTask, taskDetails, followUpDescription, legacyDetailValues, validateAttachmentPreflight, isRegistrationUnchanged } from "@/lib/ax/registration";
 import { exportAxState, importAxState } from "@/lib/ax/transfer";
@@ -129,9 +129,11 @@ export function AxDiagnosisView() {
         const value = details[key]?.trim(); return value ? [[key, numeric ? Number(value) : value]] : [];
       }));
       const previous = state.tasks.find(t => t.id === editingId);
-      const task = axTaskSchema.parse({ ...candidateTask(description), ...(previous ? legacyDetailValues(previous) : {}), ...inputs, name: name.trim() || description.trim().slice(0, 60),
+      const task = axTaskV2Schema.parse({ ...candidateTask(description), ...(previous ? legacyDetailValues(previous) : {}), ...inputs, name: name.trim() || description.trim().slice(0, 60),
         ...(previous ? { id: previous.id, createdAt: previous.createdAt } : {}),
         ...((draftAttachment?.meta ?? previous?.attachmentMeta) ? { attachmentMeta: draftAttachment?.meta ?? previous?.attachmentMeta } : {}),
+        // HITL: 기존 검토 기록 보존 (v1 스키마 사용 시 reviews 필드 손실 방지)
+        ...(previous && "reviews" in previous && previous.reviews ? { reviews: previous.reviews } : {}),
       });
       if (previous && isRegistrationUnchanged(previous, task)) {
         clearDraft(); setMessage("변경된 내용이 없습니다."); return;

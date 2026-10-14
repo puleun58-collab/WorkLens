@@ -773,3 +773,31 @@
 }
 .ax-diag-next { display: flex; gap: 6px; align-items: baseline; margin: 8px 0 0; font-size: 13px; }
 .ax-diag-next > span { color: var(--primary); font-weight: 600; flex: none; }
+
+/* HITL 검토 UI */
+.ax-hitl-panel { display: flex; flex-direction: column; gap: 12px; padding: 14px; border: 1px solid var(--line-soft); border-radius: 8px; background: var(--surface); }
+.ax-hitl-head { display: flex; align-items: center; gap: 8px; }
+.ax-hitl-time { font-size: 12px; color: var(--muted-foreground); }
+.ax-hitl-label { font-size: 12px; font-weight: 600; color: var(--muted-foreground); display: block; margin-bottom: 4px; }
+.ax-hitl-original { padding: 10px 12px; background: var(--muted); border-radius: 6px; }
+.ax-hitl-original-text { margin: 0; font-size: 14px; line-height: 1.5; }
+.ax-hitl-status { font-size: 12px; }
+.ax-hitl-badge-pending { background: #f3f4f6; color: #6b7280; }
+.ax-hitl-badge-editing { background: #dbeafe; color: #1d4ed8; }
+.ax-hitl-badge-confirmed { background: #dcfce7; color: #15803d; }
+.ax-hitl-badge-stale { background: #ffedd5; color: #c2410c; }
+.ax-hitl-actions { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+@media (max-width: 480px) { .ax-hitl-actions { grid-template-columns: 1fr; } }
+.ax-hitl-action { display: flex; align-items: flex-start; gap: 8px; padding: 10px 12px; border: 1px solid var(--line-soft); border-radius: 6px; cursor: pointer; }
+.ax-hitl-action.is-selected { border-color: var(--primary); background: color-mix(in srgb, var(--primary) 6%, transparent); }
+.ax-hitl-action input { margin-top: 2px; }
+.ax-hitl-action-label { font-weight: 600; font-size: 14px; }
+.ax-hitl-action-desc { font-size: 12px; color: var(--muted-foreground); display: block; }
+.ax-hitl-buttons { display: flex; gap: 8px; margin-top: 4px; }
+.ax-hitl-error { color: #dc2626; font-size: 13px; margin: 0; }
+.ax-hitl-confirmed p { margin: 0; font-size: 14px; }
+.ax-hitl-stale-notice { padding: 12px; background: #fff7ed; border: 1px solid #fdba74; border-radius: 6px; }
+.ax-hitl-stale-title { font-weight: 600; font-size: 14px; margin: 0 0 8px; color: #9a3412; }
+.ax-hitl-stale-compare { display: grid; gap: 8px; }
+.ax-hitl-stale-label { font-size: 12px; font-weight: 600; color: var(--muted-foreground); }
+.ax-hitl-stale-old p, .ax-hitl-stale-new p, .ax-hitl-stale-supplement p { margin: 4px 0 0; font-size: 13px; }
