@@ -198,7 +198,32 @@ export function AxDiagnosisView() {
       const output = await diagnoseAx({ kind: "ax-diagnosis", name: task.name, description: revised, details: taskDetails(task), ...(attachment ? { attachmentSummary: attachment.summary } : {}) });
       if (!alive.current) return;
       const diagnosis: AxDiagnosis = { ...output, sourceNote: attachment ? "첨부 파일 요약 기반 진단 · 첨부 파일이 사용됨 — 재분석 시 재첨부 필요" : "사용자 등록 정보 기반 진단" };
+      // HITL: 재진단 시 기존 검토와 새 진단 비교 → 변경된 항목 stale 처리
+      const prevTask = state.tasks.find(t => t.id === task.id) as import("@/lib/ax/types").AxTaskV2 | undefined;
+      const prevReviews = prevTask?.reviews ?? [];
+      let nextReviews = prevReviews;
+      if (prevReviews.length > 0 && prevTask?.diagnosis) {
+        const { extractReviewableItems, reconcileReviews } = await import("@/lib/ax/hitl");
+        const newItems = extractReviewableItems(diagnosis);
+        const reconciled = reconcileReviews(prevReviews, newItems);
+        const now = new Date().toISOString();
+        nextReviews = prevReviews.map(r => {
+          const rec = reconciled.get(r.id);
+          if (rec?.status === "changed" && r.status === "confirmed") {
+            // 원본 변경 → stale, 기존 검토 내용은 보존
+            return { ...r, status: "stale" as const, updatedAt: now };
+          }
+          return r;
+        });
+      }
       patchTask(task.id, { diagnosis, status: taskStatus(diagnosis) });
+      // 검토 상태 업데이트 (진단과 분리되지 않도록)
+      if (nextReviews !== prevReviews) {
+        update(current => ({
+          ...current,
+          tasks: current.tasks.map(t => t.id === task.id ? { ...t, reviews: nextReviews } as import("@/lib/ax/types").AxTaskV2 : t),
+        }));
+      }
       setAnswers(current => ({ ...current, [task.id]: [] })); setMessage("업무 진단을 완료했습니다. 필요한 경우 점수를 조정하세요.");
     } catch (error) { if (alive.current) setMessage(`진단 실패 · ${aiFailureDetail(error)}`); }
     finally { activeAi.current = false; activeRun.current = false; if (alive.current) setBusy(null); }
@@ -227,7 +252,34 @@ export function AxDiagnosisView() {
       const confirmed = confirmedAxDiagnosis(task.diagnosis);
       const plan = await planAx({ kind: "ax-plan", target, task: { name: task.name, description: task.description, details: taskDetails(task) }, diagnosis: confirmed });
       if (!alive.current) return;
+      // HITL: 계획 재생성 시 기존 계획 검토와 새 계획 비교 → 변경된 항목 stale
+      const prevTask = state.tasks.find(t => t.id === task.id) as import("@/lib/ax/types").AxTaskV2 | undefined;
+      const prevReviews = prevTask?.reviews ?? [];
+      let nextReviews = prevReviews;
+      const planSource = target === "codex" ? "planCodex" : "planClaude";
+      const prevPlanReviews = prevReviews.filter(r => r.target.source === planSource);
+      if (prevPlanReviews.length > 0) {
+        const { extractPlanReviewableItems, reconcileReviews } = await import("@/lib/ax/hitl");
+        const newItems = extractPlanReviewableItems(plan, target);
+        const reconciled = reconcileReviews(prevPlanReviews, newItems);
+        const now = new Date().toISOString();
+        const staleIds = new Set<string>();
+        for (const [id, rec] of reconciled) {
+          if (rec.status === "changed" && rec.review.status === "confirmed") {
+            staleIds.add(id);
+          }
+        }
+        if (staleIds.size > 0) {
+          nextReviews = prevReviews.map(r => staleIds.has(r.id) ? { ...r, status: "stale" as const, updatedAt: now } : r);
+        }
+      }
       patchTask(task.id, { diagnosis: { ...task.diagnosis, [target === "codex" ? "planCodex" : "planClaude"]: plan } });
+      if (nextReviews !== prevReviews) {
+        update(current => ({
+          ...current,
+          tasks: current.tasks.map(t => t.id === task.id ? { ...t, reviews: nextReviews } as import("@/lib/ax/types").AxTaskV2 : t),
+        }));
+      }
       setMessage("구현 계획 생성 완료");
     } catch (error) { if (alive.current) setMessage(`계획 생성 실패 · ${aiFailureDetail(error)}`); }
     finally { activeAi.current = false; activeRun.current = false; if (alive.current) setBusy(null); }
