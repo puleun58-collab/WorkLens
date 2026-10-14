@@ -327,7 +327,7 @@ export function AxDiagnosisView() {
           <section className="ax-surface" aria-label="매트릭스 업무 목록"><h3>업무 목록</h3>{taskRows(false)}</section>
           <div className="ax-step3-main"><section className="ax-surface ax-matrix-surface"><div className="ax-matrix-header"><h2>자동화 매트릭스</h2>{matrixStatus}</div><AxMatrix rows={ranked} selectedId={selected?.id} onSelect={select} step={state.step} /></section>
             <section className="ax-surface"><h3>자동화 우선순위</h3>{priorityRows()}</section>
-            {selected?.diagnosis ? <MatrixDetailCard task={selected} diagnosis={selected.diagnosis} onViewDiagnosis={() => changeStep(2)} /> : null}
+            {selected?.diagnosis ? <MatrixDetailCard task={selected} diagnosis={selected.diagnosis} /> : null}
           </div>
         </div>}
       </TabsPanel>
@@ -419,7 +419,7 @@ function DiagnosisCard({ task, busy, onDiagnose, onEdit, attachment, onAnswer }:
   </section>;
 }
 /** Step 3 selected-task card: name/classification/badges → score cards → rationale/prerequisites → score evidence. */
-function MatrixDetailCard({ task, diagnosis, onViewDiagnosis }: { task: AxTask; diagnosis: AxDiagnosis; onViewDiagnosis: () => void }) {
+function MatrixDetailCard({ task, diagnosis }: { task: AxTask; diagnosis: AxDiagnosis }) {
   const d = diagnosis;
   const lvl = automationLevel(d);
   const gate = executionGate(d);
@@ -436,7 +436,6 @@ function MatrixDetailCard({ task, diagnosis, onViewDiagnosis }: { task: AxTask; 
           <span className="ax-gate-badge" data-gate={gate}>{GATE_LABELS[gate]}</span>
         </div>
       </div>
-      <Button type="button" onClick={onViewDiagnosis}>업무 진단 보기<ArrowRight size={15} aria-hidden="true" /></Button>
     </div>
     <AxScoreCards diagnosis={d} />
     <div className="ax-diag-cols">
