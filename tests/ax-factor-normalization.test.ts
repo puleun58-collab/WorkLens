@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { axes, diagnosisHasAdjustment, factorEffectiveValue, factorHasAdjustment, taskStatus } from "@/lib/ax/policy";
 import { axTaskSchema } from "@/lib/ax/schema";
 import { exportAxState, importAxState, validateAxState } from "@/lib/ax/transfer";
+import { migrateV1ToV2 } from "@/lib/ax/schema";
 import type { AxState, AxTask } from "@/lib/ax/types";
 import { diagnosisFixture, planFixture, taskFixture } from "./fixtures/ax";
 
@@ -48,9 +49,10 @@ describe("AX factor adjustment normalization", () => {
     const normalized = validateAxState(state);
     expect(normalized).toEqual({ ...before, tasks: [{ ...before.tasks[0], status: expected }] });
     expect(state).toEqual(before);
-    expect(importAxState(exportAxState(state))).toEqual(normalized);
+    // v1 입력은 export/import 과정에서 v2로 마이그레이션된다 (reviews 빈 배열 초기화).
+    expect(importAxState(exportAxState(state))).toEqual(migrateV1ToV2(normalized));
     // Import an unnormalized legacy envelope as well as the normalized export.
-    expect(importAxState(JSON.stringify({ format: "worklens-ax", schemaVersion: 1, exportedAt: "2026-10-04T00:00:00.000Z", data: state }))).toEqual(normalized);
+    expect(importAxState(JSON.stringify({ format: "worklens-ax", schemaVersion: 1, exportedAt: "2026-10-04T00:00:00.000Z", data: state }))).toEqual(migrateV1ToV2(normalized));
   });
 
   it("accepts diagnosed equal-value tasks and requires adjusted status for real adjustments", () => {

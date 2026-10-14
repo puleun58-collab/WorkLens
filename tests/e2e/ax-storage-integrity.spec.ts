@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { navigateWorkspace } from "./navigation";
-import { emptyAxState, type AxState } from "../../src/lib/ax/types";
+import { emptyAxState, type AxStateV2 } from "../../src/lib/ax/types";
 import { exportAxState } from "../../src/lib/ax/transfer";
 import { taskFixture } from "../fixtures/ax";
 async function seed(page: Page, value: unknown) {
@@ -18,7 +18,7 @@ async function raw(page: Page): Promise<unknown> {
 }
 async function enter(page: Page) { await navigateWorkspace(page, "업무 자동화 진단"); await expect(page.getByRole("tablist", { name: "진단 단계" })).toBeVisible(); }
 async function register(page: Page, name: string) { await page.getByLabel("업무명", { exact: true }).fill(name); await page.getByLabel("업무 설명", { exact: true }).fill(`${name} 자료 취합과 담당자 승인`); await page.getByRole("button", { name: "업무 등록", exact: true }).click(); }
-async function importData(page: Page, value: AxState) {
+async function importData(page: Page, value: AxStateV2) {
   await page.getByRole("button", { name: "AI•AX 데이터 작업", exact: true }).click();
   const chooser = page.waitForEvent("filechooser"); await page.getByRole("menuitem", { name: "데이터 가져오기", exact: true }).click();
   await (await chooser).setFiles({ name: "restore.json", mimeType: "application/json", buffer: Buffer.from(exportAxState(value)) });
@@ -34,15 +34,15 @@ for (const original of [{ schemaVersion: 1, tasks: [{ id: "broken" }], selectedT
     await page.getByRole("alertdialog").getByRole("button", { name: "취소", exact: true }).click(); expect(await raw(page)).toEqual(original);
     await importData(page, recovered); await page.getByRole("alertdialog").getByRole("button", { name: "덮어쓰기", exact: true }).click();
     await expect.poll(() => raw(page)).toEqual(recovered);
-    await register(page, "복구 후 추가"); await expect.poll(async () => ((await raw(page)) as AxState).tasks.map(t => t.name)).toEqual([task.name, "복구 후 추가"]);
+    await register(page, "복구 후 추가"); await expect.poll(async () => ((await raw(page)) as AxStateV2).tasks.map(t => t.name)).toEqual([task.name, "복구 후 추가"]);
   });
 }
 for (const notifications of [true, false]) test(`AX prevents stale cross-tab writes with BroadcastChannel ${notifications ? "enabled" : "unavailable"}`, async ({ page, context }) => {
   if (!notifications) await context.addInitScript(() => { Object.defineProperty(window, "BroadcastChannel", { value: undefined }); });
   await page.goto("/"); await enter(page); await register(page, "초기 업무");
-  await expect.poll(async () => ((await raw(page)) as AxState | undefined)?.tasks.length).toBe(1);
+  await expect.poll(async () => ((await raw(page)) as AxStateV2 | undefined)?.tasks.length).toBe(1);
   const other = await context.newPage(); await other.goto("/"); await enter(other);
-  await register(page, "A 탭 추가"); await expect.poll(async () => ((await raw(page)) as AxState).tasks.length).toBe(2);
+  await register(page, "A 탭 추가"); await expect.poll(async () => ((await raw(page)) as AxStateV2).tasks.length).toBe(2);
   const winner = await raw(page);
   if (notifications) await expect(other.getByRole("status").filter({ hasText: "다른 탭" })).toBeVisible();
   await register(other, "B 탭 독립 변경");
@@ -56,7 +56,7 @@ for (const notifications of [true, false]) test(`AX prevents stale cross-tab wri
 
 test("AX failed write preserves the prior record and exposes local work for export without claiming save success", async ({ page }) => {
   await page.goto("/"); await enter(page); await register(page, "저장된 원본");
-  await expect.poll(async () => ((await raw(page)) as AxState | undefined)?.tasks.length).toBe(1);
+  await expect.poll(async () => ((await raw(page)) as AxStateV2 | undefined)?.tasks.length).toBe(1);
   const original = await raw(page);
   await page.evaluate(() => {
     const put = IDBObjectStore.prototype.put;

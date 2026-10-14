@@ -82,3 +82,91 @@ export const axPlanRequestSchema = z.object({
 export function confirmedAxDiagnosis(value: z.infer<typeof axDiagnosisSchema>) {
   return axConfirmedDiagnosisSchema.parse(Object.fromEntries(Object.keys(axDiagnosisShape).map(key => [key, value[key as keyof typeof axDiagnosisShape]])));
 }
+
+// HITL (Human-in-the-loop) review schema
+// AI 진단 원본과 사람 검토 데이터를 분리하여 저장
+export const HITL_TARGET_TYPES = ["step", "planItem", "criterion", "risk"] as const;
+export const HITL_ACTIONS = ["keep", "defer", "exclude", "supplement"] as const;
+export const HITL_STATUSES = ["pending", "editing", "confirmed", "stale"] as const;
+
+const hitlTargetType = z.enum(HITL_TARGET_TYPES);
+const hitlAction = z.enum(HITL_ACTIONS);
+const hitlStatus = z.enum(HITL_STATUSES);
+
+// 검토 대상 식별: 안정적인 ID 사용 (배열 인덱스 금지)
+const hitlTargetRef = z.object({
+  type: hitlTargetType,
+  // 대상 식별자: 원본 내용 기반 해시 또는 안정 ID
+  // step: stepAssessments의 step 텍스트 해시
+  // planItem: plan 항목 텍스트 해시 + tool 구분 (codex/claude)
+  // criterion: acceptance/tests 항목 텍스트 해시
+  // risk: risks/technicalChecks 항목 텍스트 해시
+  key: z.string().min(1).max(200),
+  // 원본 출처 구분 (diagnosis vs planCodex vs planClaude)
+  source: z.enum(["diagnosis", "planCodex", "planClaude"]),
+  // 원본 텍스트 (변경 감지용)
+  sourceText: z.string().min(1).max(2000),
+  // 원본 해시 (실질 변경 감지용)
+  sourceHash: z.string().regex(/^[a-f0-9]{64}$/u),
+}).strict();
+
+export const hitlReviewSchema = z.object({
+  id: z.string().min(1).max(120),
+  target: hitlTargetRef,
+  action: hitlAction,
+  status: hitlStatus,
+  // 검토 의견 (keep/defer/exclude용)
+  comment: z.string().trim().max(2000).optional(),
+  // 보완 내용 (supplement용, AI 원본과 분리 저장)
+  supplement: z.string().trim().max(2000).optional(),
+  // 보류/제외 사유
+  reason: z.string().trim().max(2000).optional(),
+  // 재개 조건 (defer용)
+  resumeCondition: z.string().trim().max(2000).optional(),
+  reviewedAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+}).strict().superRefine((review, ctx) => {
+  // supplement 액션은 supplement 필드 필수
+  if (review.action === "supplement" && !review.supplement?.trim()) {
+    ctx.addIssue({ code: "custom", message: "보완 액션에는 보완 내용을 입력해야 합니다." });
+  }
+  // defer/exclude는 reason 필수
+  if ((review.action === "defer" || review.action === "exclude") && !review.reason?.trim()) {
+    ctx.addIssue({ code: "custom", message: "보류/제외 액션에는 사유를 입력해야 합니다." });
+  }
+});
+
+// 업무별 HITL 검토 컬렉션
+export const hitlReviewCollectionSchema = z.object({
+  taskId: z.string().min(1).max(120),
+  reviews: z.array(hitlReviewSchema).max(100),
+  updatedAt: z.iso.datetime(),
+}).strict();
+
+// v2: HITL 검토 데이터 포함
+export const axTaskV2Schema = axTaskSchema.extend({
+  // 사람 검토 데이터 (AI 진단 원본과 분리)
+  reviews: z.array(hitlReviewSchema).max(100).optional(),
+});
+
+export const axStateV2Schema = z.object({
+  schemaVersion: z.literal(2),
+  tasks: z.array(axTaskV2Schema).max(AX_LIMITS.tasks),
+  selectedTaskId: z.string().max(120).nullable(),
+  step: z.number().int().min(1).max(4),
+}).strict().superRefine((state, ctx) => {
+  if (new Set(state.tasks.map(t => t.id)).size !== state.tasks.length || (state.selectedTaskId !== null && !state.tasks.some(t => t.id === state.selectedTaskId))) ctx.addIssue({ code: "custom", message: "업무 식별자가 일치하지 않습니다." });
+});
+
+// v1 → v2 마이그레이션: reviews 필드 추가 (빈 배열로 초기화, 기존 검토 기록 생성 금지)
+export function migrateV1ToV2(v1: z.infer<typeof axStateSchema>): z.infer<typeof axStateV2Schema> {
+  return {
+    schemaVersion: 2,
+    tasks: v1.tasks.map(task => ({
+      ...task,
+      reviews: [], // 기존 데이터에 검토 기록을 임의로 생성하지 않음
+    })),
+    selectedTaskId: v1.selectedTaskId,
+    step: v1.step,
+  };
+}

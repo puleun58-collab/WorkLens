@@ -1,9 +1,9 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { AxStorageConflictError, clearAxState, loadAxState, saveAxState, type AxStorageProtection } from "./ax-store";
-import { emptyAxState, type AxState } from "@/lib/ax/types";
+import { emptyAxState, type AxStateV2 } from "@/lib/ax/types";
 export function useAxState() {
-  const [state, setState] = useState<AxState>(emptyAxState);
+  const [state, setState] = useState<AxStateV2>(emptyAxState);
   const [ready, setReady] = useState(false);
   const [saveStatus, setSaveStatus] = useState("불러오는 중");
   const [loadNotice, setLoadNotice] = useState("");
@@ -16,7 +16,7 @@ export function useAxState() {
   const current = useRef(state), pending = useRef(false), mounted = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const queue = useRef<Promise<void>>(Promise.resolve());
-  function persist(snapshot: AxState, clear = false, explicit = false): Promise<boolean> {
+  function persist(snapshot: AxStateV2, clear = false, explicit = false): Promise<boolean> {
     const channel = broadcast.current;
     const saved = queue.current.then(async () => {
       if (!explicit && protection.current !== "writable") return false;
@@ -85,7 +85,7 @@ export function useAxState() {
     };
     // The queue and current snapshot are refs; setup runs only once per mount.
   }, []);
-  function update(change: AxState | ((value: AxState) => AxState)) {
+  function update(change: AxStateV2 | ((value: AxStateV2) => AxStateV2)) {
     const next = typeof change === "function" ? change(current.current) : change;
     current.current = next; setState(next);
     if (protection.current === "writable") setSaveStatus("저장 중");
@@ -93,7 +93,7 @@ export function useAxState() {
     clearTimeout(timer.current);
     timer.current = setTimeout(() => { pending.current = false; void persist(next); }, 300);
   }
-  async function replace(next: AxState, clear = false) {
+  async function replace(next: AxStateV2, clear = false) {
     clearTimeout(timer.current); pending.current = false;
     current.current = next; setState(next); setSaveStatus("저장 중");
     return persist(next, clear, true);
