@@ -6,7 +6,7 @@
  */
 
 import { sha256Hex } from "@/domain/hash";
-import type { AxDiagnosis, AxPlan, AxTaskV2, HitlReview, HitlTargetType, HitlAction, HitlStatus } from "./types";
+import type { AxDiagnosis, AxPlan, AxTaskV2, HitlReview, HitlTargetType, HitlStatus } from "./types";
 
 /** 원본 텍스트의 SHA-256 해시 (변경 감지용)
  * 브라우저·서버 공용 순수 TS 구현 사용 (Node crypto 불필요)

@@ -5,7 +5,7 @@
  * 4종 액션(keep/defer/exclude/supplement)과 4종 상태(pending/editing/confirmed/stale)를 관리한다.
  */
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -70,7 +70,8 @@ export interface HitlReviewPanelProps {
   onEdit?: () => void;
 }
 
-/** 개별 검토 항목 패널 */
+/** 개별 검토 항목 패널
+ * 주의: 대상 변경 시 부모에서 key={item.key}로 리마운트해야 입력값이 초기화됨 */
 export function HitlReviewPanel({ item, review, onSave, onCancel, onEdit }: HitlReviewPanelProps) {
   const isStale = review?.status === "stale";
   const [action, setAction] = useState<HitlAction>(review?.action ?? "keep");
@@ -79,16 +80,6 @@ export function HitlReviewPanel({ item, review, onSave, onCancel, onEdit }: Hitl
   const [supplement, setSupplement] = useState(review?.supplement ?? "");
   const [resumeCondition, setResumeCondition] = useState(review?.resumeCondition ?? "");
   const [error, setError] = useState("");
-
-  // 대상 변경 시 입력값 초기화 (이전 항목의 값이 남지 않도록)
-  useEffect(() => {
-    setAction(review?.action ?? "keep");
-    setComment(review?.comment ?? "");
-    setReason(review?.reason ?? "");
-    setSupplement(review?.supplement ?? "");
-    setResumeCondition(review?.resumeCondition ?? "");
-    setError("");
-  }, [item.key, review?.id]);
 
   const status: HitlStatus = review?.status ?? "pending";
   const isEditing = status === "pending" || status === "editing" || isStale;

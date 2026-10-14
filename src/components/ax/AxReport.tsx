@@ -315,6 +315,7 @@ function AxStepTable({ diagnosis: d, headers, reviewProps }: { diagnosis: AxDiag
       </tr>
       {isOpen && item && reviewProps ? <tr key={`${i}-review`}><td colSpan={reviewProps ? 5 : 4}>
         <HitlReviewPanel
+          key={item.key}
           item={item}
           review={editingKey === item.key ? { ...review!, status: "editing" as const } : review}
           onSave={(r) => { reviewProps.onSaveReview(r); setEditingKey(null); }}
