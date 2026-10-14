@@ -92,6 +92,27 @@ export function AxDiagnosisView() {
   }
   function select(id: string) { update(current => ({ ...current, selectedTaskId: id })); }
   function changeStep(step: number) { update(current => ({ ...current, step })); setMessage(""); }
+
+  /** HITL 검토 저장: v2 reviews 필드에 저장 (중복 방지, ID 유지) */
+  function saveHitlReview(taskId: string, reviewInput: Omit<import("@/lib/ax/types").HitlReview, "id" | "reviewedAt" | "updatedAt"> & { id?: string }) {
+    const now = new Date().toISOString();
+    update(current => ({
+      ...current,
+      tasks: current.tasks.map(t => {
+        if (t.id !== taskId) return t;
+        const existing = (t as import("@/lib/ax/types").AxTaskV2).reviews?.find(r => r.id === reviewInput.id)
+          ?? (t as import("@/lib/ax/types").AxTaskV2).reviews?.find(r => r.target.key === reviewInput.target.key);
+        const review: import("@/lib/ax/types").HitlReview = {
+          ...reviewInput,
+          id: existing?.id ?? reviewInput.id ?? `hitl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          reviewedAt: existing?.reviewedAt ?? now,
+          updatedAt: now,
+        };
+        const reviews = ((t as import("@/lib/ax/types").AxTaskV2).reviews ?? []).filter(r => r.id !== review.id && r.target.key !== review.target.key);
+        return { ...t, reviews: [...reviews, review], updatedAt: now } as import("@/lib/ax/types").AxTaskV2;
+      }),
+    }));
+  }
   // 단계 전환 후 새 단계의 최상단으로 스크롤 (이전 화면의 스크롤 위치가 유지되지 않도록)
   // 스크롤 컨테이너는 window가 아닌 #workspace-content 요소임
   const stepRef = useRef(state.step);
@@ -319,7 +340,14 @@ export function AxDiagnosisView() {
               </section>
               <section className="ax-surface"><h3>진단 항목 분포</h3><AxRadar diagnosis={selected.diagnosis} /></section>
               {selected.diagnosis.followUpQuestions.length ? <section className="ax-surface ax-questions" id="ax-answer-section" aria-label="추가 질문 답변"><h3>추가 확인 필요</h3>{selected.diagnosis.followUpQuestions.map((q, i) => <label className="ax-field" key={i}>{q}<Textarea rows={2} maxLength={500} disabled={!!busy} value={answers[selected.id]?.[i] ?? ""} onChange={e => setAnswers(current => { const values = [...(current[selected.id] ?? [])]; values[i] = e.target.value; return { ...current, [selected.id]: values }; })} /></label>)}<Button type="button" className="ax-rediagnose" disabled={!!busy} onClick={() => void diagnose(selected, true)}>답변 반영 후 재진단</Button></section> : null}
-              <AxProcess diagnosis={selected.diagnosis} />
+              <AxProcess
+                diagnosis={selected.diagnosis}
+                reviewProps={{
+                  taskId: selected.id,
+                  reviews: (selected as import("@/lib/ax/types").AxTaskV2).reviews ?? [],
+                  onSaveReview: (r) => saveHitlReview(selected.id, r),
+                }}
+              />
             </> : null}
           </> : null}</div>
         </div>}
