@@ -5,7 +5,7 @@
  * 4종 액션(keep/defer/exclude/supplement)과 4종 상태(pending/editing/confirmed/stale)를 관리한다.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -67,10 +67,11 @@ export interface HitlReviewPanelProps {
   review?: HitlReview;
   onSave: (review: Omit<HitlReview, "id" | "reviewedAt" | "updatedAt"> & { id?: string }) => void;
   onCancel?: () => void;
+  onEdit?: () => void;
 }
 
 /** 개별 검토 항목 패널 */
-export function HitlReviewPanel({ item, review, onSave, onCancel }: HitlReviewPanelProps) {
+export function HitlReviewPanel({ item, review, onSave, onCancel, onEdit }: HitlReviewPanelProps) {
   const isStale = review?.status === "stale";
   const [action, setAction] = useState<HitlAction>(review?.action ?? "keep");
   const [comment, setComment] = useState(review?.comment ?? "");
@@ -78,6 +79,16 @@ export function HitlReviewPanel({ item, review, onSave, onCancel }: HitlReviewPa
   const [supplement, setSupplement] = useState(review?.supplement ?? "");
   const [resumeCondition, setResumeCondition] = useState(review?.resumeCondition ?? "");
   const [error, setError] = useState("");
+
+  // 대상 변경 시 입력값 초기화 (이전 항목의 값이 남지 않도록)
+  useEffect(() => {
+    setAction(review?.action ?? "keep");
+    setComment(review?.comment ?? "");
+    setReason(review?.reason ?? "");
+    setSupplement(review?.supplement ?? "");
+    setResumeCondition(review?.resumeCondition ?? "");
+    setError("");
+  }, [item.key, review?.id]);
 
   const status: HitlStatus = review?.status ?? "pending";
   const isEditing = status === "pending" || status === "editing" || isStale;
@@ -228,6 +239,11 @@ export function HitlReviewPanel({ item, review, onSave, onCancel }: HitlReviewPa
             {(review!.action === "defer" || review!.action === "exclude") && review!.reason ? ` — ${review!.reason}` : null}
             {review!.comment ? ` (${review!.comment})` : null}
           </p>
+          {onEdit ? (
+            <div className="ax-hitl-buttons">
+              <Button type="button" variant="outline" onClick={onEdit}>검토 수정</Button>
+            </div>
+          ) : null}
         </div>
       )}
     </div>
