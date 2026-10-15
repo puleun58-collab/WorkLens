@@ -170,6 +170,8 @@ describe("fixed legal_analysis API", () => {
       .mockResolvedValueOnce(new Response(KEY, { status: 403 }))
       .mockResolvedValueOnce(new Response(KEY, { status: 429 }))
       .mockRejectedValueOnce(new TypeError(KEY))
+      .mockRejectedValueOnce(new TypeError(KEY))
+      .mockRejectedValueOnce(new TypeError(KEY))
       .mockResolvedValueOnce(rpc({ error: { code: -32602, message: KEY } }))
       .mockResolvedValueOnce(new Response(`<html>${KEY}</html>`))
       .mockResolvedValueOnce(toolText("x".repeat(512 * 1024 + 1)))

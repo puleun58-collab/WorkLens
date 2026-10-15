@@ -166,6 +166,11 @@ export function reconcileReviews(
 ): Map<string, { review: HitlReview; status: ReviewLinkStatus; currentItem?: ReviewableItem }> {
   const result = new Map<string, { review: HitlReview; status: ReviewLinkStatus; currentItem?: ReviewableItem }>();
   const itemByKey = new Map(currentItems.map(i => [i.key, i]));
+  // 중복 키 감지: 동일 키가 여러 항목에 존재하면 모호함
+  const keyCounts = new Map<string, number>();
+  for (const item of currentItems) {
+    keyCounts.set(item.key, (keyCounts.get(item.key) ?? 0) + 1);
+  }
 
   for (const review of reviews) {
     const current = itemByKey.get(review.target.key);
@@ -173,6 +178,12 @@ export function reconcileReviews(
       // 키로 찾지 못함 → 대상 소멸 또는 식별 불가
       // 기존 기록은 보존하되 현행 판단으로 사용하지 않음
       result.set(review.id, { review, status: "gone" });
+    } else if ((keyCounts.get(review.target.key) ?? 0) > 1) {
+      // 동일 키가 여러 항목에 존재 → 모호한 연결, 자동 적용 금지
+      result.set(review.id, { review, status: "ambiguous", currentItem: current });
+    } else if ((review.target.type && current.type !== review.target.type) || (review.target.source && current.source !== review.target.source)) {
+      // 유형·출처 불일치 → 모호함 (필드가 있을 때만 검증)
+      result.set(review.id, { review, status: "ambiguous", currentItem: current });
     } else if (current.sourceHash === review.target.sourceHash) {
       result.set(review.id, { review, status: "matched", currentItem: current });
     } else {
@@ -201,11 +212,23 @@ export function getConfirmedReviews(task: AxTaskV2): HitlReview[] {
  * - 검토 당시 해시와 현재 해시가 일치함 */
 export function getValidConfirmedReviews(task: AxTaskV2, currentItems: ReviewableItem[]): HitlReview[] {
   const itemMap = new Map(currentItems.map(i => [i.key, i]));
+  // 중복 키 감지: 동일한 키가 여러 항목에 존재하면 모호함
+  const keyCounts = new Map<string, number>();
+  for (const item of currentItems) {
+    keyCounts.set(item.key, (keyCounts.get(item.key) ?? 0) + 1);
+  }
   return (task.reviews ?? []).filter(r => {
     if (r.status !== "confirmed") return false;
     const current = itemMap.get(r.target.key);
-    if (!current) return false; // 대상 소멸
-    return current.sourceHash === r.target.sourceHash; // 원본 일치
+    if (!current) return false; // 대상 소멸 (gone)
+    // 유형·출처 검증 (필드가 있을 때만 검증 - 기존 데이터 호환)
+    if (r.target.type && current.type !== r.target.type) return false;
+    if (r.target.source && current.source !== r.target.source) return false;
+    // 해시 검증 (원본 변경 시 stale)
+    if (current.sourceHash !== r.target.sourceHash) return false;
+    // 중복·모호성 검증: 동일한 키가 여러 항목에 있으면 자동 적용 금지
+    if ((keyCounts.get(r.target.key) ?? 0) > 1) return false;
+    return true;
   });
 }
 
