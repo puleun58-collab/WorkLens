@@ -814,3 +814,34 @@
 .ax-hitl-risk-text { flex: 1; font-size: 14px; min-width: 0; overflow-wrap: anywhere; }
 .ax-hitl-plan-tabs { display: flex; gap: 8px; margin-bottom: 12px; }
 .ax-hitl-type-badge { font-size: 11px; padding: 2px 8px; border-radius: 4px; background: var(--muted-surface, #f1f5f9); color: var(--foreground, #1e293b); white-space: nowrap; flex-shrink: 0; }
+/* HITL 테이블형 UI (레퍼런스 기준) */
+.ax-hitl-table-card { background: var(--card); border: 1px solid var(--line-soft); border-radius: 12px; overflow: hidden; }
+.ax-hitl-table-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--line-soft); }
+.ax-hitl-table-title { display: flex; align-items: center; gap: 12px; }
+.ax-hitl-table-icon { width: 36px; height: 36px; border-radius: 8px; background: color-mix(in srgb, var(--primary) 10%, var(--card)); display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; }
+.ax-hitl-table-title h3 { margin: 0; font-size: 16px; font-weight: 700; }
+.ax-hitl-table-counts { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted-foreground); }
+.ax-hitl-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.ax-hitl-table thead th { background: color-mix(in srgb, var(--primary) 4%, var(--card)); padding: 10px 16px; text-align: left; font-size: 13px; font-weight: 600; color: var(--muted-foreground); border-bottom: 1px solid var(--line-soft); }
+.ax-hitl-table tbody td { padding: 12px 16px; font-size: 14px; border-bottom: 1px solid var(--line-soft); vertical-align: middle; }
+.ax-hitl-table tbody tr:last-child td { border-bottom: none; }
+.ax-hitl-table .col-type { width: 100px; }
+.ax-hitl-table .col-content { width: auto; }
+.ax-hitl-table .col-status { width: 120px; }
+.ax-hitl-table .col-action { width: 100px; text-align: right; }
+.ax-hitl-type-badge-plan { background: var(--muted-surface, #f1f5f9); color: var(--foreground, #1e293b); }
+.ax-hitl-type-badge-criterion { background: color-mix(in srgb, var(--primary) 10%, var(--card)); color: var(--primary); }
+.ax-hitl-status-dot { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+.ax-hitl-status-dot::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--muted-foreground); flex-shrink: 0; }
+.ax-hitl-status-dot[data-status="confirmed"]::before { background: #22c55e; }
+.ax-hitl-status-dot[data-status="pending"]::before { background: #94a3b8; }
+/* 모바일 반응형: 700px 이하에서 테이블을 카드형으로 변환 */
+@media (max-width: 700px) {
+  .ax-hitl-table, .ax-hitl-table thead, .ax-hitl-table tbody, .ax-hitl-table tr, .ax-hitl-table td, .ax-hitl-table th { display: block; width: 100%; }
+  .ax-hitl-table thead { display: none; }
+  .ax-hitl-table tbody tr { border-bottom: 1px solid var(--line-soft); padding: 12px 16px; }
+  .ax-hitl-table tbody tr:last-child { border-bottom: none; }
+  .ax-hitl-table tbody td { border: none; padding: 4px 0; }
+  .ax-hitl-table .col-type, .ax-hitl-table .col-status, .ax-hitl-table .col-action { width: 100%; text-align: left; }
+  .ax-hitl-table .col-action { margin-top: 8px; }
+}
