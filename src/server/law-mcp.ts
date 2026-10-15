@@ -15,6 +15,12 @@ const ANALYSIS_TIMEOUT_MS = 45_000;
 /** MCP chains stop after 45s plus assembly/transfer; document_review has no chain deadline, but remains bounded. */
 const RESEARCH_TIMEOUT_MS = 60_000;
 const MAX_RESPONSE_BYTES = 512 * 1024;
+/** 재시도 가능한 일시적 오류에 대한 최대 추가 시도 횟수 */
+const MAX_RETRY_ATTEMPTS = 2;
+/** 재시도 간 기본 대기 시간 (ms) - 지수 백오프 */
+const RETRY_BASE_DELAY_MS = 500;
+/** 재시도 지터 최대값 (ms) */
+const RETRY_JITTER_MS = 200;
 
 export interface LawSearchEntry {
   name: string;
@@ -139,21 +145,63 @@ export async function callLawTool(
   context.signal?.addEventListener("abort", onClientAbort, { once: true });
   if (context.signal?.aborted) onClientAbort();
   let upstreamStatus: number | undefined;
+  let retryCount = 0;
   try {
     let response: Response;
-    try {
-      response = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream", apikey: key },
-        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: tool, arguments: args } }),
-        signal: controller.signal,
-      });
-    } catch (error) {
-      if (controller.signal.aborted && controller.signal.reason instanceof DOMException && controller.signal.reason.name === "TimeoutError") {
-        throw new ApiError("LAW_UPSTREAM_TIMEOUT", "법령 검색 응답 시간이 초과되었습니다. 다시 시도하세요.", 504);
+    // 재시도 가능한 일시적 오류에 대해 제한적 재시도
+    while (true) {
+      try {
+        response = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream", apikey: key },
+          body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: tool, arguments: args } }),
+          signal: controller.signal,
+        });
+        // 재시도 가능한 상태 코드 확인
+        if (response.status === 429 || response.status >= 500) {
+          const retryAfter = response.headers.get("retry-after");
+          if (retryCount < MAX_RETRY_ATTEMPTS && isRetryableStatus(response.status)) {
+            const delayMs = retryAfter ? parseRetryAfter(retryAfter) : exponentialBackoffDelay(retryCount);
+            // 전체 시간 예산 확인 (타임아웃의 80%를 초과하지 않도록)
+            const elapsed = Date.now() - started;
+            if (elapsed + delayMs < timeoutMs * 0.8) {
+              retryCount++;
+              console.info("[LAW][MCP][RETRY]", { requestId: context.requestId, operation: tool, attempt: retryCount, status: response.status, delayMs });
+              await sleep(delayMs, context.signal);
+              continue;
+            }
+          }
+        }
+        break;
+      } catch (error) {
+        if (controller.signal.aborted && controller.signal.reason instanceof DOMException && controller.signal.reason.name === "TimeoutError") {
+          // Timeout도 재시도 가능 (일시적 오류)
+          if (retryCount < MAX_RETRY_ATTEMPTS) {
+            const elapsed = Date.now() - started;
+            const delayMs = exponentialBackoffDelay(retryCount);
+            if (elapsed + delayMs < timeoutMs * 0.8) {
+              retryCount++;
+              console.info("[LAW][MCP][RETRY]", { requestId: context.requestId, operation: tool, attempt: retryCount, reason: "timeout", delayMs });
+              await sleep(delayMs, context.signal);
+              continue;
+            }
+          }
+          throw new ApiError("LAW_UPSTREAM_TIMEOUT", "법령 검색 응답 시간이 초과되었습니다. 다시 시도하세요.", 504);
+        }
+        if (context.signal?.aborted) throw new ApiError("LAW_REQUEST_ABORTED", "요청이 취소되었습니다.", 499);
+        // 네트워크 연결 실패도 재시도 가능
+        if (retryCount < MAX_RETRY_ATTEMPTS && isNetworkError(error)) {
+          const elapsed = Date.now() - started;
+          const delayMs = exponentialBackoffDelay(retryCount);
+          if (elapsed + delayMs < timeoutMs * 0.8) {
+            retryCount++;
+            console.info("[LAW][MCP][RETRY]", { requestId: context.requestId, operation: tool, attempt: retryCount, reason: "network", delayMs });
+            await sleep(delayMs, context.signal);
+            continue;
+          }
+        }
+        throw new ApiError("LAW_UPSTREAM_UNAVAILABLE", "법령 검색 서비스에 연결할 수 없습니다.", 503, undefined, { cause: error });
       }
-      if (context.signal?.aborted) throw new ApiError("LAW_REQUEST_ABORTED", "요청이 취소되었습니다.", 499);
-      throw new ApiError("LAW_UPSTREAM_UNAVAILABLE", "법령 검색 서비스에 연결할 수 없습니다.", 503, undefined, { cause: error });
     }
     upstreamStatus = response.status;
     if (response.status === 401 || response.status === 403) throw new ApiError("LAW_AUTH_FAILED", "법령 검색 인증에 실패했습니다.", 502);
@@ -181,8 +229,65 @@ export async function callLawTool(
     clearTimeout(timer);
     context.signal?.removeEventListener("abort", onClientAbort);
     // Operational metadata only: no key, headers, query text or response body.
-    console.info("[LAW][MCP]", { requestId: context.requestId, operation: tool, ...("mode" in args ? { mode: args.mode } : {}), ...("task" in args ? { task: args.task } : {}), upstreamStatus, latencyMs: Date.now() - started });
+    console.info("[LAW][MCP]", { requestId: context.requestId, operation: tool, ...("mode" in args ? { mode: args.mode } : {}), ...("task" in args ? { task: args.task } : {}), upstreamStatus, latencyMs: Date.now() - started, retryCount });
   }
+}
+
+/** 재시도 가능한 HTTP 상태 코드인지 확인 (429, 5xx 중 일시적 오류) */
+function isRetryableStatus(status: number): boolean {
+  // 429는 재시도 가능, 5xx 중 500, 502, 503, 504는 재시도 가능
+  // 501 (Not Implemented)은 재시도해도 해결되지 않으므로 제외
+  return status === 429 || status === 500 || status === 502 || status === 503 || status === 504;
+}
+
+/** Retry-After 헤더 값을 밀리초로 파싱 */
+function parseRetryAfter(value: string): number {
+  const seconds = parseInt(value.trim(), 10);
+  if (!isNaN(seconds) && seconds >= 0) {
+    return Math.min(seconds * 1000, 10000); // 최대 10초
+  }
+  // HTTP 날짜 형식인 경우
+  const date = Date.parse(value);
+  if (!isNaN(date)) {
+    const delay = date - Date.now();
+    return Math.max(0, Math.min(delay, 10000));
+  }
+  return RETRY_BASE_DELAY_MS;
+}
+
+/** 지수 백오프 + 지터로 재시도 대기 시간 계산 */
+function exponentialBackoffDelay(attempt: number): number {
+  const exponential = RETRY_BASE_DELAY_MS * Math.pow(2, attempt);
+  const jitter = Math.random() * RETRY_JITTER_MS;
+  return Math.min(exponential + jitter, 5000); // 최대 5초
+}
+
+/** AbortSignal을 지원하는 sleep */
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException("aborted", "AbortError"));
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new DOMException("aborted", "AbortError"));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+/** 네트워크 연결 오류인지 확인 */
+function isNetworkError(error: unknown): boolean {
+  if (error instanceof TypeError) {
+    // fetch 네트워크 오류는 TypeError로 발생
+    return true;
+  }
+  return false;
 }
 
 async function readLimited(response: Response): Promise<string> {
