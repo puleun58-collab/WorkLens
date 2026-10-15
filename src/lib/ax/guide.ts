@@ -1129,14 +1129,16 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
   // Level × Gate 정책이 우선하며, 검토는 허용 범위 내에서만 제한·구체화
   let finalClassified = classified;
   let finalScoped = scoped;
+  let finalSteps = steps;
   let hitlActuallyApplied = false;
   let hitlDetails: AgentInstructionModel["hitlDetails"];
   const hitlReviews = options.hitlReviews ?? [];
   const hitlTool = options.hitlTool;
   if (hitlReviews.length > 0) {
-    const applied = applyHitlToModel(classified, scoped, hitlReviews, hitlTool);
+    const applied = applyHitlToModel(classified, scoped, steps, hitlReviews, hitlTool);
     finalClassified = applied.classified;
     finalScoped = applied.scoped;
+    finalSteps = applied.steps;
     // 실제 적용 여부: 항목이 변경되었거나 검토가 적용된 경우
     hitlActuallyApplied = applied.appliedCount > 0 || applied.appliedReviews.length > 0;
     hitlDetails = {
@@ -1146,7 +1148,7 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
     };
   }
 
-  return { profile, level, gate, scopeLevel, steps, methods: methodEvidence.map(item => item.method), methodReasons: methodEvidence.map(item => item.reason),
+  return { profile, level, gate, scopeLevel, steps: finalSteps, methods: methodEvidence.map(item => item.method), methodReasons: methodEvidence.map(item => item.reason),
     methodChains: methodEvidence.map(item => item.chain), methodOrders: methodEvidence.map(item => item.order), conditions, classified: finalClassified,
     ambiguous: finalClassified.filter(item => item.scope === "confirm" && item.role !== "reference"),
     scoped: finalScoped, diagnosis: d, plan: guarded, prerequisites: options.prerequisites ?? [], gaps,
@@ -1162,11 +1164,13 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
 function applyHitlToModel(
   classified: AgentInstructionItem[],
   scoped: AgentInstructionModel["scoped"],
+  steps: StepScope[],
   reviews: import("./types").HitlReview[],
   tool?: "codex" | "claude",
 ): {
   classified: AgentInstructionItem[];
   scoped: AgentInstructionModel["scoped"];
+  steps: StepScope[];
   appliedCount: number;
   appliedReviews: Array<{ id: string; action: string; targetKey: string }>;
   deferred: Array<{ key: string; reason?: string; resumeCondition?: string }>;
@@ -1204,7 +1208,7 @@ function applyHitlToModel(
   }
 
   if (excludeKeys.size === 0 && deferKeys.size === 0 && supplements.size === 0) {
-    return { classified, scoped, appliedCount: 0, appliedReviews, deferred: [], supplements: [] };
+    return { classified, scoped, steps, appliedCount: 0, appliedReviews, deferred: [], supplements: [] };
   }
 
   // 검토 대상 키와 classified 항목 매칭
@@ -1258,9 +1262,24 @@ function applyHitlToModel(
     deferredList.push({ key, ...details });
   }
 
+  // Steps 필터링: step 타입의 exclude/defer 검토가 있으면 해당 단계 제외
+  // step 검토는 sourceText가 단계명과 일치하는 경우
+  const stepExcludeKeys = new Set<string>();
+  for (const r of relevant) {
+    if (r.status !== "confirmed") continue;
+    if (r.target.type !== "step") continue;
+    if (r.action === "exclude" || r.action === "defer") {
+      stepExcludeKeys.add(normalizeForMatch(r.target.sourceText));
+    }
+  }
+  const filteredSteps = stepExcludeKeys.size > 0
+    ? steps.filter(s => !stepExcludeKeys.has(normalizeForMatch(s.step)))
+    : steps;
+
   return {
     classified: filteredClassified,
     scoped: filteredScoped,
+    steps: filteredSteps,
     appliedCount,
     appliedReviews,
     deferred: deferredList,
