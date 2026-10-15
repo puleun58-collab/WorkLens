@@ -111,8 +111,8 @@ export const ASSISTANT_EVIDENCE: AssistantEvidence[] = [
     id: "assistant-self",
     screen: "렌즈봇",
     title: "도우미 사용 방법",
-    text: "렌즈봇은 WorkLens 기능과 사용 방법만 안내합니다. 도우미는 읽기 전용으로 동작하며 업무 데이터를 수정하거나 실행하지 않습니다.",
-    keywords: /도우미|예시\s*질문/iu,
+    text: "렌즈봇은 WorkLens 기능과 사용 방법만 안내합니다. '렌즈봇 사용법 알려줘'처럼 렌즈봇이나 AI 도우미를 직접 언급한 질문에도 답할 수 있습니다. 렌즈봇은 읽기 전용으로 동작하며 업무 데이터를 수정하거나 실행하지 않습니다.",
+    keywords: /렌즈봇|도우미|예시\s*질문|AI\s*도우미/iu,
     kind: "guide",
   },
   {
@@ -151,7 +151,7 @@ export const ASSISTANT_EVIDENCE: AssistantEvidence[] = [
     id: "doc-supplement",
     screen: "문서 작업 > 보완",
     title: "문서 보완",
-    text: "문서 보완은 문서에서 빠진 핵심 정보와 설명이 필요한 부분을 확인합니다. 보완 실행 후 항목을 펼쳐 확인 이유와 근거 보기를 확인할 수 있습니다.",
+    text: "문서 보완은 문서에서 빠진 핵심 정보와 설명이 필요한 부분을 확인합니다. 보완 실행 후 각 항목에 확인 이유와 근거 보기가 함께 표시됩니다.",
     keywords: /문서\s*보완|보완\s*기능/iu,
     kind: "guide",
   },
@@ -266,24 +266,43 @@ const INVENTED_METRIC = /\d+(?:\.\d+)?\s*(%|퍼센트|배)\s*(단축|절감|향�
 const INVENTED_ABSOLUTE = /(정확도|오류율|일치율|자동화율)\s*\d+/u;
 
 /**
+ * Phrases indicating the number is a calculation from user-provided input,
+ * not a WorkLens-measured performance claim. Such calculations are allowed.
+ */
+const USER_CALCULATION_MARKER = /(입력하신|말씀하신|가정|계산하면|계산\s*결과|단순\s*계산|예를\s*들어)/u;
+
+/**
  * Server-side guard: the model must not invent quantitative performance claims.
  * A metric is grounded only when it appears in the evidence text or the question.
  * User-provided numbers are never treated as verified WorkLens policy/performance.
+ *
+ * Calculations derived from user input (e.g. "10시간→7시간이면 30% 감소") are
+ * allowed when the answer frames them as user-input-based calculations, not as
+ * WorkLens-measured performance.
  */
 export function hasInventedMetric(answer: string, evidence: AssistantEvidence[], question: string): boolean {
   const grounded = `${evidence.map((entry) => entry.text).join("\n")}\n${question}`;
   const normalized = (text: string) => text.replace(/\s+/gu, "");
   const groundedNorm = normalized(grounded);
+  // If the answer explicitly frames metrics as user-input calculations, allow them.
+  const isUserCalculation = USER_CALCULATION_MARKER.test(answer);
   for (const match of answer.matchAll(/\d+(?:\.\d+)?\s*(?:%|퍼센트|배)/gu)) {
     const token = match[0].replace(/\s+/gu, "");
     if (!groundedNorm.includes(token) && !groundedNorm.includes(token.replace("퍼센트", "%"))) {
-      if (INVENTED_METRIC.test(answer.slice(Math.max(0, (match.index ?? 0) - 12), (match.index ?? 0) + match[0].length + 12))) return true;
+      const contextWindow = answer.slice(Math.max(0, (match.index ?? 0) - 12), (match.index ?? 0) + match[0].length + 12);
+      if (!INVENTED_METRIC.test(contextWindow)) continue;
+      // User-input-based calculation: allowed when framed as such.
+      if (isUserCalculation) continue;
+      return true;
     }
   }
   // Absolute claims like "정확도 95" without % marker.
   if (INVENTED_ABSOLUTE.test(answer)) {
     const claim = answer.match(INVENTED_ABSOLUTE)?.[0] ?? "";
-    if (!groundedNorm.includes(normalized(claim))) return true;
+    if (!groundedNorm.includes(normalized(claim))) {
+      if (isUserCalculation) return false;
+      return true;
+    }
   }
   return false;
 }

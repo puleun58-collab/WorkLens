@@ -24,6 +24,7 @@ const ASSISTANT_SYSTEM = `당신은 WorkLens의 AI 도우미입니다. WorkLens�
 - 메뉴 위치를 물을 때는 "관련 화면"으로 안내하고, 정책·진단 근거는 "참고 근거"로 구분하세요.
 - 단순 기능 설명에는 근거 섹션을 붙이지 말고 본문만 간결하게 답하세요.
 - "현재 화면 기준" 정보는 사용자가 제공한 진단 정보입니다. 서버에서 검증된 공식 판정처럼 표현하지 마세요.
+- 사용자가 질문에 포함한 숫자·비율·금액은 사용자가 제공한 정보입니다. 이를 WorkLens가 측정한 공식 성과처럼 표현하지 마세요. 사용자 입력값으로 계산할 때는 "입력하신 값을 기준으로 계산하면"처럼 출처를 명시하세요.
 - 특정 업무의 Level·Gate 이유를 물을 때는 제공된 진단 정보 범위에서만 설명하고, 근거가 부족하면 추측하지 마세요.
 - 답변은 한국어로 간결하게 작성하세요(5문장 이내 권장).
 - citedIds에는 답변에 실제로 사용한 근거의 id만 넣으세요. 단순 안내에는 빈 배열을 사용하세요.
@@ -34,6 +35,7 @@ export function buildAssistantMessages(
   evidence: AssistantEvidence[],
   context?: AssistantContextNote,
   clarify?: ClarifyState,
+  followUpOf?: string,
 ): Array<{ role: "system" | "user"; content: string }> {
   const evidenceBlock = evidence.length
     ? evidence.map((entry) => `[${entry.id}] ${entry.screen} — ${entry.title}\n${entry.text}`).join("\n\n")
@@ -44,11 +46,14 @@ export function buildAssistantMessages(
   const clarifyBlock = clarify
     ? `\n\n이전 확인: 사용자가 "${clarify.originalQuestion}"라고 질문했고, "${clarify.options.join(" / ")}" 중 선택하도록 안내했습니다. 현재 질문은 그에 대한 후속 답변입니다.`
     : "";
+  const followUpBlock = followUpOf
+    ? `\n\n직전 질문: "${followUpOf}" — 현재 질문이 직전 질문의 후속이면(예: "그럼 Level 2는?" 같은 생략형), 직전 질문의 주제를 이어서 답하세요. 의미가 불명확하면 추측하지 말고 짧게 되물으세요.`
+    : "";
   return [
     { role: "system", content: ASSISTANT_SYSTEM },
     {
       role: "user",
-      content: `제공된 근거:\n${evidenceBlock}${contextBlock}${clarifyBlock}\n\n질문: ${question}`,
+      content: `제공된 근거:\n${evidenceBlock}${contextBlock}${clarifyBlock}${followUpBlock}\n\n질문: ${question}`,
     },
   ];
 }
