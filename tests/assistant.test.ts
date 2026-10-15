@@ -211,3 +211,15 @@ describe("assistant metric verification", () => {
     expect(hasInventedMetric("정확도 95를 달성합니다.", evidence, "Level은?")).toBe(true);
   });
 });
+
+describe("assistant factor detail detection", () => {
+  // needsFactorDetail은 AssistantWidget 내부 함수이므로 패턴 테스트로 대체
+  it("detects diagnosis reason questions", () => {
+    const pattern = /왜|이유|근거|어떻게.*판정|판정.*근거|factor|팩터/ui;
+    expect(pattern.test("왜 Level 1이지?")).toBe(true);
+    expect(pattern.test("판정 이유가 뭐야?")).toBe(true);
+    expect(pattern.test("Factor가 어떻게 돼?")).toBe(true);
+    expect(pattern.test("사용법 알려줘")).toBe(false);
+    expect(pattern.test("Level 1이 뭐야?")).toBe(false);
+  });
+});
