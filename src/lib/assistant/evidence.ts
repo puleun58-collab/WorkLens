@@ -260,7 +260,8 @@ export function validCitations(citedIds: string[], provided: AssistantEvidence[]
   return citedIds.every((id) => allowed.has(id));
 }
 
-const INVENTED_METRIC = /\d+(?:\.\d+)?\s*(%|퍼센트|배)\s*(단축|절감|향상|개선|달성|정확도|일치율|자동화율|오류율|처리\s*시간|소요\s*시간)/u;
+// Metric word can precede or follow the number: "정확도가 95%" or "95% 향상"
+const INVENTED_METRIC = /(단축|절감|향상|개선|달성|정확도|일치율|자동화율|오류율|처리\s*시간|소요\s*시간)\s*(이|가|은|는)?\s*\d+(?:\.\d+)?\s*(%|퍼센트|배)|\d+(?:\.\d+)?\s*(%|퍼센트|배)\s*(단축|절감|향상|개선|달성|정확도|일치율|자동화율|오류율|처리\s*시간|소요\s*시간)/u;
 
 /** Additional patterns for invented quantitative claims without %/배 markers. */
 const INVENTED_ABSOLUTE = /(정확도|오류율|일치율|자동화율)\s*\d+/u;
@@ -276,23 +277,26 @@ const USER_CALCULATION_MARKER = /(입력하신|말씀하신|가정|계산하면|
  * A metric is grounded only when it appears in the evidence text or the question.
  * User-provided numbers are never treated as verified WorkLens policy/performance.
  *
- * Calculations derived from user input (e.g. "10시간→7시간이면 30% 감소") are
- * allowed when the answer frames them as user-input-based calculations, not as
- * WorkLens-measured performance.
+ * User-input calculations (e.g. "10시간→7시간이면 30% 감소") are allowed ONLY when:
+ * 1. The answer explicitly frames it as a user-input-based calculation, AND
+ * 2. The calculated value is arithmetically derivable from numbers in the question.
+ * Each metric is verified individually; marker words alone are not sufficient.
  */
 export function hasInventedMetric(answer: string, evidence: AssistantEvidence[], question: string): boolean {
   const grounded = `${evidence.map((entry) => entry.text).join("\n")}\n${question}`;
   const normalized = (text: string) => text.replace(/\s+/gu, "");
   const groundedNorm = normalized(grounded);
-  // If the answer explicitly frames metrics as user-input calculations, allow them.
-  const isUserCalculation = USER_CALCULATION_MARKER.test(answer);
+  // Extract numbers from the question (user-provided input values).
+  const questionNumbers = [...question.matchAll(/\d+(?:\.\d+)?/gu)].map(m => parseFloat(m[0]));
+  const hasCalculationMarker = USER_CALCULATION_MARKER.test(answer);
+
   for (const match of answer.matchAll(/\d+(?:\.\d+)?\s*(?:%|퍼센트|배)/gu)) {
     const token = match[0].replace(/\s+/gu, "");
     if (!groundedNorm.includes(token) && !groundedNorm.includes(token.replace("퍼센트", "%"))) {
       const contextWindow = answer.slice(Math.max(0, (match.index ?? 0) - 12), (match.index ?? 0) + match[0].length + 12);
       if (!INVENTED_METRIC.test(contextWindow)) continue;
-      // User-input-based calculation: allowed when framed as such.
-      if (isUserCalculation) continue;
+      // User calculation: verify the metric is arithmetically derivable from question numbers.
+      if (hasCalculationMarker && isDerivableFromQuestion(parseFloat(match[0]), questionNumbers)) continue;
       return true;
     }
   }
@@ -300,8 +304,35 @@ export function hasInventedMetric(answer: string, evidence: AssistantEvidence[],
   if (INVENTED_ABSOLUTE.test(answer)) {
     const claim = answer.match(INVENTED_ABSOLUTE)?.[0] ?? "";
     if (!groundedNorm.includes(normalized(claim))) {
-      if (isUserCalculation) return false;
+      const claimNumber = parseFloat(claim.match(/\d+(?:\.\d+)?/)?.[0] ?? "NaN");
+      if (hasCalculationMarker && !isNaN(claimNumber) && isDerivableFromQuestion(claimNumber, questionNumbers)) return false;
       return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Check if a metric value can be derived from question numbers via simple arithmetic.
+ * Supports: percentage change ((a-b)/a*100), ratios, differences.
+ */
+function isDerivableFromQuestion(metricValue: number, questionNumbers: number[]): boolean {
+  if (questionNumbers.length < 1) return false;
+  // Direct match: the number appears in the question.
+  if (questionNumbers.some(n => Math.abs(n - metricValue) < 0.01)) return true;
+  // Percentage change: (a-b)/a*100 for any pair
+  for (let i = 0; i < questionNumbers.length; i++) {
+    for (let j = 0; j < questionNumbers.length; j++) {
+      if (i === j) continue;
+      const a = questionNumbers[i], b = questionNumbers[j];
+      if (a !== 0) {
+        const pctChange = Math.abs((a - b) / a * 100);
+        if (Math.abs(pctChange - metricValue) < 0.5) return true;
+      }
+      // Simple ratio
+      if (b !== 0 && Math.abs(a / b - metricValue) < 0.01) return true;
+      // Difference
+      if (Math.abs(Math.abs(a - b) - metricValue) < 0.01) return true;
     }
   }
   return false;
