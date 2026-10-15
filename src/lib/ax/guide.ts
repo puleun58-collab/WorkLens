@@ -1338,6 +1338,20 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
     humanKept.length ? `### 담당자 수행 유지 (자동화로 대체하지 않음)\n\n${bullets(humanKept)}` : "",
     excluded.length || outsideHuman.length ? `### 현재 자동화 제외\n\n${bullets([...excluded, ...outsideHuman])}` : "",
   );
+  // HITL 3차: 사람 검토 반영 내용 (보류·보완)
+  const hitlDetails = model.hitlDetails;
+  if (hitlDetails && (hitlDetails.deferred.length > 0 || hitlDetails.supplements.length > 0)) {
+    const deferredItems = hitlDetails.deferred.map(d =>
+      `- ${d.key}${d.reason ? `\n  - 보류 사유: ${d.reason}` : ""}${d.resumeCondition ? `\n  - 재개 조건: ${d.resumeCondition}` : ""}`
+    ).join("\n");
+    const supplementItems = hitlDetails.supplements.map(s =>
+      `- ${s.key}\n  - 보완 내용: ${s.content}`
+    ).join("\n");
+    section("사람 검토 반영",
+      hitlDetails.deferred.length > 0 ? `### 보류된 작업 (현재 구현하지 않음)\n\n${deferredItems}\n\n위 작업은 현재 구현 범위에서 제외됩니다. 재개 조건이 충족되어도 자동으로 재개하지 말고 담당자에게 확인하세요.` : "",
+      hitlDetails.supplements.length > 0 ? `### 보완 요구사항\n\n${supplementItems}\n\n위 보완 내용은 원본 요구사항에 추가하여 구현하세요. 원본을 대체하지 않습니다.` : "",
+    );
+  }
   section("프로젝트 사전 확인",
     "WorkLens는 진단 시점에 대상 저장소를 보지 않았습니다. 파일 경로·함수명·기술 스택·DB·API·인증·계산식·테스트 명령·배포 환경은 저장소와 실제 자료에서 확인한 내용만 사용하세요.",
     numbered([
