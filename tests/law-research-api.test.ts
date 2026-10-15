@@ -238,6 +238,9 @@ describe("fixed legal_research API", () => {
   it("maps upstream auth/rate/network/RPC/malformed/oversized failures to safe errors", async () => {
     const fetcher = vi.fn().mockResolvedValueOnce(new Response(KEY, { status: 401 }))
       .mockResolvedValueOnce(new Response(KEY, { status: 429 }))
+      // Network error: retried 2 times (3 total attempts), then fails with 503
+      .mockRejectedValueOnce(new TypeError(KEY))
+      .mockRejectedValueOnce(new TypeError(KEY))
       .mockRejectedValueOnce(new TypeError(KEY))
       .mockResolvedValueOnce(rpc({ error: { code: -32602, message: KEY } }))
       .mockResolvedValueOnce(new Response(`<html>${KEY}</html>`))

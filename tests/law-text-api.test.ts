@@ -144,6 +144,8 @@ describe("POST /api/law/text", () => {
       .mockResolvedValueOnce(new Response(KEY, { status: 429 }))
       .mockResolvedValueOnce(new Response("<html>" + KEY + "</html>", { status: 200 }))
       .mockResolvedValueOnce(rpc({ result: { content: "invalid" } }))
+      .mockRejectedValueOnce(new TypeError("network " + KEY))
+      .mockRejectedValueOnce(new TypeError("network " + KEY))
       .mockRejectedValueOnce(new TypeError("network " + KEY));
     vi.stubGlobal("fetch", fetcher);
     for (const [status, code] of [[502, "LAW_AUTH_FAILED"], [429, "LAW_RATE_LIMITED"], [502, "LAW_MCP_ERROR"], [502, "LAW_MCP_ERROR"], [503, "LAW_UPSTREAM_UNAVAILABLE"]] as const) {
