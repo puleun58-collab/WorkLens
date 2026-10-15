@@ -226,6 +226,9 @@ export function AxDiagnosisView() {
     const mySeq = ++requestSeq.current;
     taskRequestSeq.current.set(task.id, mySeq);
     // 요청 시점의 업무 입력 스냅샷 (응답 유효성 검증용) - 전체 입력 기준
+    // withAnswers=true인 경우 revised에는 답변이 포함되므로, 비교 시에도 동일하게 재구성해야 함
+    const requestAnswers = withAnswers ? [...(answers[task.id] ?? [])] : [];
+    const requestQuestions = withAnswers ? [...(task.diagnosis?.followUpQuestions ?? [])] : [];
     const requestInput = JSON.stringify({
       name: task.name,
       description: revised,
@@ -251,9 +254,14 @@ export function AxDiagnosisView() {
           return current;
         }
         // 업무 입력이 변경됨 → 오래된 응답 버림 (전체 입력 기준)
+        // 요청 시점에 답변이 포함된 revised로 스냅샷했으므로, 비교 시에도 요청 시점의
+        // 답변·질문으로 동일하게 재구성해야 함 (저장된 description에는 답변이 없음)
+        const latestRevised = withAnswers
+          ? followUpDescription(latestTask.description, requestQuestions, requestAnswers)
+          : latestTask.description;
         const latestInput = JSON.stringify({
           name: latestTask.name,
-          description: latestTask.description,
+          description: latestRevised,
           details: taskDetails(latestTask),
           attachmentSummary: attachments.current.get(latestTask.id)?.summary ?? null,
         });
