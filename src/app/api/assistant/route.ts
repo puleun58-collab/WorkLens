@@ -44,6 +44,8 @@ const assistantRequestSchema = z.object({
     originalQuestion: z.string().trim().min(1).max(1000),
     options: z.array(z.string().trim().min(1).max(120)).min(1).max(5),
   }).strict().optional(),
+  // Previous question for follow-up understanding ("그럼 Level 2는?" after "Level 1이 뭐야?").
+  followUpOf: z.string().trim().min(1).max(1000).optional(),
 }).strict();
 
 /**
@@ -68,6 +70,7 @@ export async function POST(request: Request) {
     if (!parsed.success) throw new ApiError("INVALID_REQUEST", "질문을 확인해 주세요.", 400);
     const { question } = parsed.data;
     const context = sanitizeContext(parsed.data.context);
+    const followUpOf = parsed.data.followUpOf;
 
     // Resolve a follow-up answer ("첫 번째요") against a pending clarification.
     // The clarify payload is client-generated; validate it matches known options.
@@ -135,7 +138,7 @@ export async function POST(request: Request) {
     if (!evidence.length) return ok({ answer: NO_EVIDENCE_RESPONSE, sources: [], relatedScreens: [], kind: "no-evidence" as const }, 200, requestId);
 
     const result = await runBoundedOperation(() => runGroqAi(
-      { kind: "assistant", question: effectiveQuestion, evidence, ...(context ? { context } : {}), ...(clarifyState ? { clarify: clarifyState } : {}) },
+      { kind: "assistant", question: effectiveQuestion, evidence, ...(context ? { context } : {}), ...(clarifyState ? { clarify: clarifyState } : {}), ...(followUpOf ? { followUpOf } : {}) },
       { requestId },
     ));
     if (result.kind !== "assistant") throw new ApiError("INVALID_PROVIDER_OUTPUT", "AI 응답 형식이 올바르지 않습니다.", 502);
