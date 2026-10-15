@@ -1,7 +1,7 @@
 import type { AxDiagnosis, AxPlan } from "./types";
 import { automationLevel, axes, executionProfile, GATE_LABELS, type ExecutionGate, type ExecutionProfile, type StepScope } from "./policy";
 import { FACTOR_KEYS } from "./schema";
-import { extractReviewableItems } from "./hitl";
+import { extractPlanReviewableItems, extractReviewableItems, getValidConfirmedReviews } from "./hitl";
 
 export type AxToolId = "codex" | "claude";
 
@@ -1138,7 +1138,22 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
   const hitlReviews = options.hitlReviews ?? [];
   const hitlTool = options.hitlTool;
   if (hitlReviews.length > 0) {
-    const applied = applyHitlToModel(classified, scoped, steps, methodEvidence, hitlReviews, hitlTool, d);
+    // 실행 모델 생성 경계에서 현재 원본 기준으로 재검증 (임의 배열 직접 전달 시에도 우회 불가)
+    // 진단 항목 + 양쪽 도구 계획 항목을 모두 현재 원본으로 사용
+    // diagnosis가 없어도 rawPlan이 있으면 계획 항목 추출 (테스트·직접 호출 호환)
+    const currentItems = [
+      ...(d ? extractReviewableItems(d) : []),
+      ...(d?.planCodex ? extractPlanReviewableItems(d.planCodex, "codex") : []),
+      ...(d?.planClaude ? extractPlanReviewableItems(d.planClaude, "claude") : []),
+      // diagnosis에 계획이 없지만 rawPlan이 직접 전달된 경우
+      ...(!d?.planCodex && !d?.planClaude && rawPlan && hitlTool
+        ? extractPlanReviewableItems(rawPlan, hitlTool)
+        : []),
+    ];
+    const validReviews = currentItems.length > 0
+      ? getValidConfirmedReviews({ reviews: hitlReviews } as import("./types").AxTaskV2, currentItems)
+      : [];
+    const applied = applyHitlToModel(classified, scoped, steps, methodEvidence, validReviews, hitlTool, d);
     finalClassified = applied.classified;
     finalScoped = applied.scoped;
     finalSteps = applied.steps;

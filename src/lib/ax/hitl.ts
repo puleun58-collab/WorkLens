@@ -236,3 +236,48 @@ export function getValidConfirmedReviews(task: AxTaskV2, currentItems: Reviewabl
 export function isReviewActionApplicable(review: HitlReview): boolean {
   return review.status === "confirmed";
 }
+
+/** 검토 확정 전 원본 유효성 검증 결과 */
+export interface ReviewValidation {
+  valid: boolean;
+  /** valid=false일 때 사용자에게 안내할 사유 */
+  reason?: string;
+}
+
+/**
+ * confirmed 저장 전 현재 원본 기준으로 검토 대상의 전체 일치 여부를 검증한다.
+ * - 업무/진단/계획 존재, 대상 존재, 키·유형·출처·해시 일치, 중복 없음
+ * - 원본이 없거나 검증에 실패하면 confirmed 저장을 차단해야 한다.
+ */
+export function validateReviewForConfirm(
+  task: AxTaskV2 | undefined,
+  target: HitlReview["target"],
+): ReviewValidation {
+  if (!task) return { valid: false, reason: "업무를 찾을 수 없습니다." };
+  let currentItems: ReviewableItem[];
+  try {
+    if (target.source === "diagnosis") {
+      if (!task.diagnosis) return { valid: false, reason: "진단 결과가 없어 검토를 확정할 수 없습니다." };
+      currentItems = extractReviewableItems(task.diagnosis);
+    } else if (target.source === "planCodex" || target.source === "planClaude") {
+      if (!task.diagnosis) return { valid: false, reason: "진단 결과가 없어 검토를 확정할 수 없습니다." };
+      const tool = target.source === "planCodex" ? "codex" : "claude";
+      const plan = tool === "codex" ? task.diagnosis.planCodex : task.diagnosis.planClaude;
+      if (!plan) return { valid: false, reason: "해당 계획이 없어 검토를 확정할 수 없습니다. 계획을 먼저 생성하세요." };
+      currentItems = extractPlanReviewableItems(plan, tool);
+    } else {
+      return { valid: false, reason: "알 수 없는 검토 출처입니다." };
+    }
+  } catch {
+    return { valid: false, reason: "원본을 확인할 수 없어 검토를 확정할 수 없습니다." };
+  }
+  if (currentItems.length === 0) return { valid: false, reason: "검토 대상이 없어 확정을 진행할 수 없습니다." };
+  const matches = currentItems.filter((item) => item.key === target.key);
+  if (matches.length === 0) return { valid: false, reason: "검토 대상이 현재 원본에 없습니다. 원본이 변경되었을 수 있습니다." };
+  if (matches.length > 1) return { valid: false, reason: "동일한 검토 대상이 여러 개 있어 확정할 수 없습니다. 다시 확인해 주세요." };
+  const current = matches[0];
+  if (target.type && current.type !== target.type) return { valid: false, reason: "검토 대상 유형이 현재 원본과 다릅니다." };
+  if (current.source !== target.source) return { valid: false, reason: "검토 출처가 현재 원본과 다릅니다." };
+  if (current.sourceHash !== target.sourceHash) return { valid: false, reason: "원본이 변경되어 재확인이 필요합니다." };
+  return { valid: true };
+}

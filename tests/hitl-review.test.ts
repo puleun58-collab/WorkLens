@@ -10,6 +10,7 @@ import {
   getConfirmedReviews,
   getValidConfirmedReviews,
   reconcileReviews,
+  validateReviewForConfirm,
 } from "../src/lib/ax/hitl";
 import type { AxDiagnosis, AxPlan, AxTaskV2, HitlReview } from "../src/lib/ax/types";
 
@@ -179,5 +180,63 @@ describe("HITL review logic", () => {
     const valid = getValidConfirmedReviews(task, items);
     expect(valid).toHaveLength(1);
     expect(valid[0].id).toBe("r1");
+  });
+});
+
+describe("validateReviewForConfirm", () => {
+  const mockTask = {
+    id: "task-1",
+    diagnosis: mockDiagnosis,
+    reviews: [],
+  } as unknown as AxTaskV2;
+
+  it("blocks confirmed when task is missing", () => {
+    const result = validateReviewForConfirm(undefined, {
+      key: "step-1", type: "step", source: "diagnosis", sourceHash: "abc",
+    });
+    expect(result.valid).toBe(false);
+    expect(result.reason).toContain("업무");
+  });
+
+  it("blocks confirmed when diagnosis is missing", () => {
+    const taskWithoutDiagnosis = { id: "task-1", reviews: [] } as unknown as AxTaskV2;
+    const result = validateReviewForConfirm(taskWithoutDiagnosis, {
+      key: "step-1", type: "step", source: "diagnosis", sourceHash: "abc",
+    });
+    expect(result.valid).toBe(false);
+  });
+
+  it("blocks confirmed when plan is missing", () => {
+    const result = validateReviewForConfirm(mockTask, {
+      key: "plan-1", type: "planItem", source: "planCodex", sourceHash: "abc",
+    });
+    expect(result.valid).toBe(false);
+    expect(result.reason).toContain("계획");
+  });
+
+  it("blocks confirmed when target key not in current items", () => {
+    const result = validateReviewForConfirm(mockTask, {
+      key: "nonexistent-key", type: "step", source: "diagnosis", sourceHash: "abc",
+    });
+    expect(result.valid).toBe(false);
+  });
+
+  it("blocks confirmed when source hash mismatches", () => {
+    const items = extractReviewableItems(mockDiagnosis);
+    const firstItem = items[0];
+    const result = validateReviewForConfirm(mockTask, {
+      key: firstItem.key, type: firstItem.type, source: "diagnosis", sourceHash: "wrong-hash",
+    });
+    expect(result.valid).toBe(false);
+    expect(result.reason).toContain("변경");
+  });
+
+  it("allows confirmed when all validations pass", () => {
+    const items = extractReviewableItems(mockDiagnosis);
+    const firstItem = items[0];
+    const result = validateReviewForConfirm(mockTask, {
+      key: firstItem.key, type: firstItem.type, source: "diagnosis", sourceHash: firstItem.sourceHash,
+    });
+    expect(result.valid).toBe(true);
   });
 });

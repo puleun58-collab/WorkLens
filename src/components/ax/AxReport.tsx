@@ -250,7 +250,7 @@ export function AxExecutionTimeline({ diagnosis: d }: { diagnosis: AxDiagnosis }
 export interface AxProcessReviewProps {
   taskId: string;
   reviews: HitlReview[];
-  onSaveReview: (review: Omit<HitlReview, "id" | "reviewedAt" | "updatedAt"> & { id?: string }) => void;
+  onSaveReview: (review: Omit<HitlReview, "id" | "reviewedAt" | "updatedAt"> & { id?: string }) => { saved: boolean; reason?: string };
 }
 
 export function AxProcess({ diagnosis: d, reviewProps }: { diagnosis: AxDiagnosis; reviewProps?: AxProcessReviewProps }) {
@@ -346,7 +346,7 @@ function AxRiskReview({ diagnosis: d, reviewProps }: { diagnosis: AxDiagnosis; r
                         key={item.key}
                         item={item}
                         review={editingKey === item.key ? { ...review!, status: "editing" as const } : review}
-                        onSave={(r) => { reviewProps.onSaveReview(r); setEditingKey(null); }}
+                        onSave={(r) => { const result = reviewProps.onSaveReview(r); if (result.saved) setEditingKey(null); }}
                         onCancel={() => { setEditingKey(null); setOpenKey(null); }}
                         onEdit={() => setEditingKey(item.key)}
                       />
@@ -436,7 +436,7 @@ function AxStepTable({ diagnosis: d, headers, reviewProps }: { diagnosis: AxDiag
                           key={item.key}
                           item={item}
                           review={editingKey === item.key ? { ...review!, status: "editing" as const } : review}
-                          onSave={(r) => { reviewProps.onSaveReview(r); setEditingKey(null); }}
+                          onSave={(r) => { const result = reviewProps.onSaveReview(r); if (result.saved) setEditingKey(null); }}
                           onCancel={() => { setEditingKey(null); setOpenKey(null); }}
                           onEdit={() => setEditingKey(item.key)}
                         />
@@ -913,7 +913,7 @@ function AxPlanReview({ plans, reviewProps }: { plans: { codex?: AxPlan; claude?
                         key={item.key}
                         item={item}
                         review={editingKey === item.key ? { ...review!, status: "editing" as const } : review}
-                        onSave={(r) => { reviewProps.onSaveReview(r); setEditingKey(null); }}
+                        onSave={(r) => { const result = reviewProps.onSaveReview(r); if (result.saved) setEditingKey(null); }}
                         onCancel={() => { setEditingKey(null); setOpenKey(null); }}
                         onEdit={() => setEditingKey(item.key)}
                       />
