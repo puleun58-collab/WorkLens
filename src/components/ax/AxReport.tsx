@@ -332,7 +332,7 @@ function AxStepTable({ diagnosis: d, headers, reviewProps }: { diagnosis: AxDiag
   // 간단한 매칭: 순서대로 step 항목과 연결
   const stepItems = items.filter(i => i.type === "step");
 
-  return <div className="ax-table-wrap"><table className="ax-step-table"><thead><tr>{headers.map(header => <th key={header}>{header}</th>)}{reviewProps ? <th>검토</th> : null}</tr></thead><tbody>{d.stepAssessments.length ? d.stepAssessments.map((s, i) => {
+  return <div className="ax-table-wrap"><table className={`ax-step-table${reviewProps ? " ax-step-table--with-review" : ""}`}><thead><tr>{headers.map(header => <th key={header}>{header}</th>)}{reviewProps ? <th>검토</th> : null}</tr></thead><tbody>{d.stepAssessments.length ? d.stepAssessments.map((s, i) => {
     const item = stepItems[i];
     const review = item && reviewProps ? findReview({ reviews: reviewProps.reviews } as AxTaskV2, item.key) : undefined;
     const isOpen = item && openKey === item.key;
