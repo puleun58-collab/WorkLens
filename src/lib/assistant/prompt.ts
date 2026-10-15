@@ -11,6 +11,8 @@ export interface AssistantContextNote {
   approvedForQuestion?: string;
   /** Selected task id at approval time; detects task switches. */
   taskId?: string;
+  /** Factor details for diagnosis reason questions only (data minimization). */
+  factorNote?: string;
 }
 
 const ASSISTANT_SYSTEM = `당신은 WorkLens의 AI 도우미입니다. WorkLens에 실제 구현된 기능과 사용 방법, 진단 정책에 대해서만 안내합니다.
@@ -41,7 +43,7 @@ export function buildAssistantMessages(
     ? evidence.map((entry) => `[${entry.id}] ${entry.screen} — ${entry.title}\n${entry.text}`).join("\n\n")
     : "(제공된 근거 없음: 근거가 없으면 추측하지 말고 안내할 수 없다고 답하세요)";
   const contextBlock = context
-    ? `\n\n현재 화면 기준(사용자가 이번 질문에 한해 제공한 진단 정보, 공식 판정이 아님): 업무명 "${context.taskName}", 자동화 수준 ${context.levelLabel}, 실행 상태 ${context.gateLabel}, 실행 범위: ${context.scopeNote}`
+    ? `\n\n현재 화면 기준(사용자가 이번 질문에 한해 제공한 진단 정보, 공식 판정이 아님): 업무명 "${context.taskName}", 자동화 수준 ${context.levelLabel}, 실행 상태 ${context.gateLabel}, 실행 범위: ${context.scopeNote}${context.factorNote ? `\nFactor 평가: ${context.factorNote}` : ""}`
     : "";
   const clarifyBlock = clarify
     ? `\n\n이전 확인: 사용자가 "${clarify.originalQuestion}"라고 질문했고, "${clarify.options.join(" / ")}" 중 선택하도록 안내했습니다. 현재 질문은 그에 대한 후속 답변입니다.`

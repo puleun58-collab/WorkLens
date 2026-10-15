@@ -37,6 +37,7 @@ const assistantRequestSchema = z.object({
     gateLabel: z.string().trim().min(1).max(40),
     scopeNote: z.string().trim().min(1).max(300),
     taskId: z.string().trim().min(1).max(120).optional(),
+    factorNote: z.string().trim().min(1).max(1000).optional(),
   }).strict().optional(),
   // Follow-up answer to a pending clarification ("첫 번째요").
   clarify: z.object({

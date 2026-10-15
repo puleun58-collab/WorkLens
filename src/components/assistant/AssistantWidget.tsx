@@ -82,9 +82,16 @@ interface ScreenContext {
   levelLabel: string;
   gateLabel: string;
   scopeNote: string;
+  /** 진단 이유 질문 시에만 포함되는 Factor 상세 (데이터 최소화) */
+  factorNote?: string;
 }
 
-async function readScreenContext(): Promise<ScreenContext | null> {
+/** 진단 이유를 묻는 질문인지 판단 (Factor 상세 정보 필요 여부) */
+function needsFactorDetail(question: string): boolean {
+  return /왜|이유|근거|어떻게.*판정|판정.*근거|factor|팩터/ui.test(question);
+}
+
+async function readScreenContext(question?: string): Promise<ScreenContext | null> {
   try {
     const { state } = await loadAxState();
     const task = state.tasks.find((candidate) => candidate.id === state.selectedTaskId) ?? null;
@@ -93,13 +100,25 @@ async function readScreenContext(): Promise<ScreenContext | null> {
     const level = automationLevel(diagnosis);
     const gate = executionGate(diagnosis);
     const summary = planSummary(diagnosis);
-    return {
+    const context: ScreenContext = {
       taskId: task.id,
       taskName: task.name,
       levelLabel: level.label,
       gateLabel: GATE_LABELS[gate],
       scopeNote: `이번 구현 ${summary.include.length}건 · 담당자 수행 유지 ${summary.humanKept.length}건 · 현재 자동화 제외 ${summary.excluded.length}건`,
     };
+    // 진단 이유 질문 시 Factor 6종 평가값과 근거를 최소 범위로 포함
+    if (question && needsFactorDetail(question)) {
+      const { FACTOR_LABELS } = await import("@/lib/ax/schema");
+      const factorDetails = diagnosis.factors.map((f) => {
+        const label = FACTOR_LABELS[f.key as keyof typeof FACTOR_LABELS] ?? f.key;
+        const value = f.finalValue ?? f.aiValue;
+        const rationale = f.rationale ? ` (${f.rationale.slice(0, 80)})` : "";
+        return `${label} ${value}점${rationale}`;
+      }).join(" · ");
+      context.factorNote = factorDetails;
+    }
+    return context;
   } catch {
     return null;
   }
@@ -240,7 +259,7 @@ export function AssistantWidget() {
     // Skip when resolving a clarification (the clarify payload already carries context).
     const followUpOf = pendingClarify ? null : lastQuestionRef.current;
     try {
-      const context = withContext ? await readScreenContext() : null;
+      const context = withContext ? await readScreenContext(question) : null;
       // If the panel was closed/reset while reading context, drop the stale request.
       if (requestId !== requestSeqRef.current) return;
       const { answer, sources, relatedScreens, kind, clarify } = await askAssistant(question, context, pendingClarify, followUpOf, controller.signal);
@@ -267,10 +286,16 @@ export function AssistantWidget() {
           : message));
     } catch (error) {
       if (requestId !== requestSeqRef.current) return;
-      const cancelled = controller.signal.aborted && (error as Error)?.name === "AbortError";
-      const text = cancelled ? "요청이 취소되었습니다." : error instanceof Error ? error.message : "응답할 수 없습니다.";
+      const isAbort = (error as Error)?.name === "AbortError" || controller.signal.aborted;
+      const isTimeout = controller.signal.reason === "timeout";
+      const text = isTimeout
+        ? "응답 시간이 초과되었습니다. 다시 시도해 주세요."
+        : isAbort
+          ? "요청이 취소되었습니다."
+          : error instanceof Error ? error.message : "응답할 수 없습니다.";
+      // 타임아웃은 재시도 가능하므로 error를 유지, 사용자 취소는 재시도 불필요
       setMessages((prev) => prev.map((message) =>
-        message.id === pendingId ? { ...message, pending: false, text, error: cancelled ? undefined : question } : message));
+        message.id === pendingId ? { ...message, pending: false, text, error: isAbort && !isTimeout ? undefined : question } : message));
     } finally {
       clearTimeout(timeout);
       if (requestId === requestSeqRef.current) {
