@@ -18,6 +18,7 @@ import { axes, automationLevel, bubbleArea, executionGate, executionProfile, GAT
 import { candidateTask, taskDetails, followUpDescription, legacyDetailValues, validateAttachmentPreflight, isRegistrationUnchanged } from "@/lib/ax/registration";
 import { exportAxState, importAxState } from "@/lib/ax/transfer";
 import { emptyAxState, type AxStateV2, type AxTask, type AxDiagnosis, type AxDetails, type FactorKey } from "@/lib/ax/types";
+import { extractReviewableItems, extractPlanReviewableItems, reconcileReviews, type ReviewableItem } from "@/lib/ax/hitl";
 import { AxProcess, AxResultSummary, AxExecutionTimeline, AxPlanSection, AxRadar, AxScoreCards, AxCheckIcon, diagnosisSummarySentences, diagnosisCheckItems, matrixRationaleBullets } from "./AxReport";
 import { AxScoreEvidence } from "./AxScoreEvidence";
 import "./ax.css";
@@ -52,6 +53,9 @@ export function AxDiagnosisView() {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const activeRun = useRef(false), activeAi = useRef(false), alive = useRef(true);
+  // 비동기 요청 추적: 오래된 AI 응답이 최신 상태를 덮어쓰지 않도록 보호
+  const requestSeq = useRef(0);
+  const taskRequestSeq = useRef(new Map<string, number>());
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState("");
@@ -93,22 +97,46 @@ export function AxDiagnosisView() {
   function select(id: string) { update(current => ({ ...current, selectedTaskId: id })); }
   function changeStep(step: number) { update(current => ({ ...current, step })); setMessage(""); }
 
-  /** HITL 검토 저장: v2 reviews 필드에 저장 (중복 방지, ID 유지) */
+  /** HITL 검토 저장: v2 reviews 필드에 저장 (중복 방지, ID 유지)
+   * 저장 시 현재 원본 기준으로 대상 유효성을 확인하고,
+   * 유효하지 않은 대상의 confirmed 저장은 차단 (pending으로 저장 또는 거부) */
   function saveHitlReview(taskId: string, reviewInput: Omit<import("@/lib/ax/types").HitlReview, "id" | "reviewedAt" | "updatedAt"> & { id?: string }) {
     const now = new Date().toISOString();
     update(current => ({
       ...current,
       tasks: current.tasks.map(t => {
         if (t.id !== taskId) return t;
-        const existing = (t as import("@/lib/ax/types").AxTaskV2).reviews?.find(r => r.id === reviewInput.id)
-          ?? (t as import("@/lib/ax/types").AxTaskV2).reviews?.find(r => r.target.key === reviewInput.target.key);
+        const taskV2 = t as import("@/lib/ax/types").AxTaskV2;
+        // 현재 원본 기준으로 대상 유효성 확인
+        let validatedInput = reviewInput;
+        if (reviewInput.status === "confirmed") {
+          let currentItems: ReviewableItem[] = [];
+          try {
+            if (reviewInput.target.source === "diagnosis" && taskV2.diagnosis) {
+              currentItems = extractReviewableItems(taskV2.diagnosis);
+            } else if ((reviewInput.target.source === "planCodex" || reviewInput.target.source === "planClaude") && taskV2.diagnosis) {
+              const tool = reviewInput.target.source === "planCodex" ? "codex" : "claude";
+              const plan = tool === "codex" ? taskV2.diagnosis.planCodex : taskV2.diagnosis.planClaude;
+              if (plan) currentItems = extractPlanReviewableItems(plan, tool);
+            }
+          } catch { /* 검증 실패 시 기존 동작 유지 */ }
+          if (currentItems.length > 0) {
+            const current = currentItems.find(i => i.key === reviewInput.target.key);
+            // 대상이 없거나 해시가 다르면 confirmed로 저장하지 않고 pending으로 강등
+            if (!current || current.sourceHash !== reviewInput.target.sourceHash) {
+              validatedInput = { ...reviewInput, status: "pending" as const };
+            }
+          }
+        }
+        const existing = taskV2.reviews?.find(r => r.id === validatedInput.id)
+          ?? taskV2.reviews?.find(r => r.target.key === validatedInput.target.key);
         const review: import("@/lib/ax/types").HitlReview = {
-          ...reviewInput,
-          id: existing?.id ?? reviewInput.id ?? `hitl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          ...validatedInput,
+          id: existing?.id ?? validatedInput.id ?? `hitl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           reviewedAt: existing?.reviewedAt ?? now,
           updatedAt: now,
         };
-        const reviews = ((t as import("@/lib/ax/types").AxTaskV2).reviews ?? []).filter(r => r.id !== review.id && r.target.key !== review.target.key);
+        const reviews = (taskV2.reviews ?? []).filter(r => r.id !== review.id && r.target.key !== review.target.key);
         return { ...t, reviews: [...reviews, review], updatedAt: now } as import("@/lib/ax/types").AxTaskV2;
       }),
     }));
@@ -194,36 +222,56 @@ export function AxDiagnosisView() {
       if (revised.length > AX_LIMITS.description) { setMessage("답변을 포함한 설명은 3,000자 이하여야 합니다. 등록 정보를 수정해 정리하세요."); return; }
     }
     activeRun.current = true; activeAi.current = true; setBusy(task.id); setMessage("");
+    // 요청 식별자 발급: 응답 도착 시 최신 요청인지 확인
+    const mySeq = ++requestSeq.current;
+    taskRequestSeq.current.set(task.id, mySeq);
+    // 요청 시점의 업무 입력 스냅샷 (응답 유효성 검증용)
+    const requestInput = task.description;
     try {
       const output = await diagnoseAx({ kind: "ax-diagnosis", name: task.name, description: revised, details: taskDetails(task), ...(attachment ? { attachmentSummary: attachment.summary } : {}) });
       if (!alive.current) return;
+      // 오래된 응답 보호: 더 새로운 요청이 시작되었으면 이 응답을 버림
+      if (taskRequestSeq.current.get(task.id) !== mySeq) {
+        setMessage("최신 상태가 변경되어 이전 진단 결과를 반영하지 않았습니다.");
+        return;
+      }
       const diagnosis: AxDiagnosis = { ...output, sourceNote: attachment ? "첨부 파일 요약 기반 진단 · 첨부 파일이 사용됨 — 재분석 시 재첨부 필요" : "사용자 등록 정보 기반 진단" };
       // HITL: 재진단 시 기존 검토와 새 진단 비교 → 변경된 항목 stale 처리
-      const prevTask = state.tasks.find(t => t.id === task.id) as import("@/lib/ax/types").AxTaskV2 | undefined;
-      const prevReviews = prevTask?.reviews ?? [];
-      let nextReviews = prevReviews;
-      if (prevReviews.length > 0 && prevTask?.diagnosis) {
-        const { extractReviewableItems, reconcileReviews } = await import("@/lib/ax/hitl");
-        const newItems = extractReviewableItems(diagnosis);
-        const reconciled = reconcileReviews(prevReviews, newItems);
-        const now = new Date().toISOString();
-        nextReviews = prevReviews.map(r => {
-          const rec = reconciled.get(r.id);
-          if (rec?.status === "changed" && r.status === "confirmed") {
-            // 원본 변경 → stale, 기존 검토 내용은 보존
-            return { ...r, status: "stale" as const, updatedAt: now };
-          }
-          return r;
-        });
-      }
-      patchTask(task.id, { diagnosis, status: taskStatus(diagnosis) });
-      // 검토 상태 업데이트 (진단과 분리되지 않도록)
-      if (nextReviews !== prevReviews) {
-        update(current => ({
+      // 원자적 갱신: 진단과 검토 상태를 단일 update()로 처리, 최신 state 기준
+      update(current => {
+        const latestTask = current.tasks.find(t => t.id === task.id) as import("@/lib/ax/types").AxTaskV2 | undefined;
+        // 업무 삭제됨 → 응답 버림 (복원하지 않음)
+        if (!latestTask) {
+          setMessage("업무가 삭제되어 진단 결과를 반영하지 않았습니다.");
+          return current;
+        }
+        // 업무 입력이 변경됨 → 오래된 응답 버림
+        if (latestTask.description !== requestInput) {
+          setMessage("업무 정보가 변경되어 이전 진단 결과를 반영하지 않았습니다.");
+          return current;
+        }
+        const prevReviews = latestTask?.reviews ?? [];
+        let nextReviews = prevReviews;
+        if (prevReviews.length > 0 && latestTask?.diagnosis) {
+          const newItems = extractReviewableItems(diagnosis);
+          const reconciled = reconcileReviews(prevReviews, newItems);
+          const now = new Date().toISOString();
+          nextReviews = prevReviews.map(r => {
+            const rec = reconciled.get(r.id);
+            // changed(stale) 또는 ambiguous → confirmed를 stale로 전환, 기록 보존
+            if ((rec?.status === "changed" || rec?.status === "ambiguous") && r.status === "confirmed") {
+              return { ...r, status: "stale" as const, updatedAt: now };
+            }
+            return r;
+          });
+        }
+        return {
           ...current,
-          tasks: current.tasks.map(t => t.id === task.id ? { ...t, reviews: nextReviews } as import("@/lib/ax/types").AxTaskV2 : t),
-        }));
-      }
+          tasks: current.tasks.map(t => t.id === task.id
+            ? { ...t, diagnosis, status: taskStatus(diagnosis), reviews: nextReviews, updatedAt: new Date().toISOString() }
+            : t),
+        };
+      });
       setAnswers(current => ({ ...current, [task.id]: [] })); setMessage("업무 진단을 완료했습니다. 필요한 경우 점수를 조정하세요.");
     } catch (error) { if (alive.current) setMessage(`진단 실패 · ${aiFailureDetail(error)}`); }
     finally { activeAi.current = false; activeRun.current = false; if (alive.current) setBusy(null); }
@@ -253,33 +301,38 @@ export function AxDiagnosisView() {
       const plan = await planAx({ kind: "ax-plan", target, task: { name: task.name, description: task.description, details: taskDetails(task) }, diagnosis: confirmed });
       if (!alive.current) return;
       // HITL: 계획 재생성 시 기존 계획 검토와 새 계획 비교 → 변경된 항목 stale
-      const prevTask = state.tasks.find(t => t.id === task.id) as import("@/lib/ax/types").AxTaskV2 | undefined;
-      const prevReviews = prevTask?.reviews ?? [];
-      let nextReviews = prevReviews;
-      const planSource = target === "codex" ? "planCodex" : "planClaude";
-      const prevPlanReviews = prevReviews.filter(r => r.target.source === planSource);
-      if (prevPlanReviews.length > 0) {
-        const { extractPlanReviewableItems, reconcileReviews } = await import("@/lib/ax/hitl");
-        const newItems = extractPlanReviewableItems(plan, target);
-        const reconciled = reconcileReviews(prevPlanReviews, newItems);
-        const now = new Date().toISOString();
-        const staleIds = new Set<string>();
-        for (const [id, rec] of reconciled) {
-          if (rec.status === "changed" && rec.review.status === "confirmed") {
-            staleIds.add(id);
+      // 원자적 갱신: 계획과 검토 상태를 단일 update()로 처리, 최신 state 기준
+      // 다른 도구의 계획·검토는 보존
+      update(current => {
+        const latestTask = current.tasks.find(t => t.id === task.id) as import("@/lib/ax/types").AxTaskV2 | undefined;
+        const prevReviews = latestTask?.reviews ?? [];
+        let nextReviews = prevReviews;
+        const planSource = target === "codex" ? "planCodex" : "planClaude";
+        const prevPlanReviews = prevReviews.filter(r => r.target.source === planSource);
+        if (prevPlanReviews.length > 0) {
+          const newItems = extractPlanReviewableItems(plan, target);
+          const reconciled = reconcileReviews(prevPlanReviews, newItems);
+          const now = new Date().toISOString();
+          const staleIds = new Set<string>();
+          for (const [id, rec] of reconciled) {
+            if ((rec.status === "changed" || rec.status === "ambiguous") && rec.review.status === "confirmed") {
+              staleIds.add(id);
+            }
+          }
+          if (staleIds.size > 0) {
+            nextReviews = prevReviews.map(r => staleIds.has(r.id) ? { ...r, status: "stale" as const, updatedAt: now } : r);
           }
         }
-        if (staleIds.size > 0) {
-          nextReviews = prevReviews.map(r => staleIds.has(r.id) ? { ...r, status: "stale" as const, updatedAt: now } : r);
-        }
-      }
-      patchTask(task.id, { diagnosis: { ...task.diagnosis, [target === "codex" ? "planCodex" : "planClaude"]: plan } });
-      if (nextReviews !== prevReviews) {
-        update(current => ({
+        const planKey = target === "codex" ? "planCodex" : "planClaude";
+        // task.diagnosis는 함수 시작 시 확인된 유효한 진단 (최신 상태와 동일해야 함)
+        const baseDiagnosis = (task as import("@/lib/ax/types").AxTaskV2).diagnosis ?? latestTask?.diagnosis;
+        return {
           ...current,
-          tasks: current.tasks.map(t => t.id === task.id ? { ...t, reviews: nextReviews } as import("@/lib/ax/types").AxTaskV2 : t),
-        }));
-      }
+          tasks: current.tasks.map(t => t.id === task.id
+            ? { ...t, diagnosis: { ...baseDiagnosis, [planKey]: plan } as import("@/lib/ax/types").AxDiagnosis, reviews: nextReviews, updatedAt: new Date().toISOString() }
+            : t),
+        };
+      });
       setMessage("구현 계획 생성 완료");
     } catch (error) { if (alive.current) setMessage(`계획 생성 실패 · ${aiFailureDetail(error)}`); }
     finally { activeAi.current = false; activeRun.current = false; if (alive.current) setBusy(null); }
