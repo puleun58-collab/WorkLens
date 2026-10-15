@@ -49,7 +49,7 @@ function diagnosisCounts(tasks: AxTask[]) {
 }
 
 export function AxDiagnosisView() {
-  const { state, update, replace, ready, saveStatus, loadNotice, externalChange, storageProtection } = useAxState();
+  const { state, update, getState, replace, ready, saveStatus, loadNotice, externalChange, storageProtection } = useAxState();
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const activeRun = useRef(false), activeAi = useRef(false), alive = useRef(true);
@@ -103,34 +103,42 @@ export function AxDiagnosisView() {
    * - 기존 검토 이력은 보존 */
   function saveHitlReview(taskId: string, reviewInput: Omit<import("@/lib/ax/types").HitlReview, "id" | "reviewedAt" | "updatedAt"> & { id?: string }): { saved: boolean; reason?: string } {
     const now = new Date().toISOString();
-    // confirmed 확정 전 검증: 원본이 없거나 일치하지 않으면 차단
-    if (reviewInput.status === "confirmed") {
-      const validation = validateReviewForConfirm(
-        state.tasks.find(t => t.id === taskId) as import("@/lib/ax/types").AxTaskV2 | undefined,
-        reviewInput.target,
-      );
-      if (!validation.valid) {
-        setMessage(`검토를 확정할 수 없습니다. ${validation.reason ?? ""}`);
-        return { saved: false, reason: validation.reason };
+    // 검증과 변경을 동일한 최신 상태 경계에서 처리 (원자성 보장)
+    const result: { applied: boolean; reason?: string } = { applied: false };
+    update(current => {
+      // confirmed 확정 전 검증: 최신 상태 기준으로 원본 확인
+      if (reviewInput.status === "confirmed") {
+        const task = current.tasks.find(t => t.id === taskId) as import("@/lib/ax/types").AxTaskV2 | undefined;
+        const validation = validateReviewForConfirm(task, reviewInput.target);
+        if (!validation.valid) {
+          result.reason = validation.reason;
+          return current; // 검증 실패: 변경 없음
+        }
       }
+      result.applied = true;
+      return {
+        ...current,
+        tasks: current.tasks.map(t => {
+          if (t.id !== taskId) return t;
+          const taskV2 = t as import("@/lib/ax/types").AxTaskV2;
+          const existing = taskV2.reviews?.find(r => r.id === reviewInput.id)
+            ?? taskV2.reviews?.find(r => r.target.key === reviewInput.target.key);
+          const review: import("@/lib/ax/types").HitlReview = {
+            ...reviewInput,
+            id: existing?.id ?? reviewInput.id ?? `hitl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            reviewedAt: existing?.reviewedAt ?? now,
+            updatedAt: now,
+          };
+          const reviews = (taskV2.reviews ?? []).filter(r => r.id !== review.id && r.target.key !== review.target.key);
+          return { ...t, reviews: [...reviews, review], updatedAt: now } as import("@/lib/ax/types").AxTaskV2;
+        }),
+      };
+    });
+    if (!result.applied) {
+      if (result.reason) setMessage(`검토를 확정할 수 없습니다. ${result.reason}`);
+      return { saved: false, reason: result.reason };
     }
-    update(current => ({
-      ...current,
-      tasks: current.tasks.map(t => {
-        if (t.id !== taskId) return t;
-        const taskV2 = t as import("@/lib/ax/types").AxTaskV2;
-        const existing = taskV2.reviews?.find(r => r.id === reviewInput.id)
-          ?? taskV2.reviews?.find(r => r.target.key === reviewInput.target.key);
-        const review: import("@/lib/ax/types").HitlReview = {
-          ...reviewInput,
-          id: existing?.id ?? reviewInput.id ?? `hitl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-          reviewedAt: existing?.reviewedAt ?? now,
-          updatedAt: now,
-        };
-        const reviews = (taskV2.reviews ?? []).filter(r => r.id !== review.id && r.target.key !== review.target.key);
-        return { ...t, reviews: [...reviews, review], updatedAt: now } as import("@/lib/ax/types").AxTaskV2;
-      }),
-    }));
+    // applied=true: 로컬 반영 완료 (IndexedDB 영구 저장은 비동기로 진행됨)
     return { saved: true };
   }
   // 단계 전환 후 새 단계의 최상단으로 스크롤 (이전 화면의 스크롤 위치가 유지되지 않도록)
@@ -217,8 +225,16 @@ export function AxDiagnosisView() {
     // 요청 식별자 발급: 응답 도착 시 최신 요청인지 확인
     const mySeq = ++requestSeq.current;
     taskRequestSeq.current.set(task.id, mySeq);
-    // 요청 시점의 업무 입력 스냅샷 (응답 유효성 검증용)
-    const requestInput = task.description;
+    // 요청 시점의 업무 입력 스냅샷 (응답 유효성 검증용) - 전체 입력 기준
+    // withAnswers=true인 경우 revised에는 답변이 포함되므로, 비교 시에도 동일하게 재구성해야 함
+    const requestAnswers = withAnswers ? [...(answers[task.id] ?? [])] : [];
+    const requestQuestions = withAnswers ? [...(task.diagnosis?.followUpQuestions ?? [])] : [];
+    const requestInput = JSON.stringify({
+      name: task.name,
+      description: revised,
+      details: taskDetails(task),
+      attachmentSummary: attachment?.summary ?? null,
+    });
     try {
       const output = await diagnoseAx({ kind: "ax-diagnosis", name: task.name, description: revised, details: taskDetails(task), ...(attachment ? { attachmentSummary: attachment.summary } : {}) });
       if (!alive.current) return;
@@ -237,8 +253,19 @@ export function AxDiagnosisView() {
           setMessage("업무가 삭제되어 진단 결과를 반영하지 않았습니다.");
           return current;
         }
-        // 업무 입력이 변경됨 → 오래된 응답 버림
-        if (latestTask.description !== requestInput) {
+        // 업무 입력이 변경됨 → 오래된 응답 버림 (전체 입력 기준)
+        // 요청 시점에 답변이 포함된 revised로 스냅샷했으므로, 비교 시에도 요청 시점의
+        // 답변·질문으로 동일하게 재구성해야 함 (저장된 description에는 답변이 없음)
+        const latestRevised = withAnswers
+          ? followUpDescription(latestTask.description, requestQuestions, requestAnswers)
+          : latestTask.description;
+        const latestInput = JSON.stringify({
+          name: latestTask.name,
+          description: latestRevised,
+          details: taskDetails(latestTask),
+          attachmentSummary: attachments.current.get(latestTask.id)?.summary ?? null,
+        });
+        if (latestInput !== requestInput) {
           setMessage("업무 정보가 변경되어 이전 진단 결과를 반영하지 않았습니다.");
           return current;
         }
@@ -301,8 +328,8 @@ export function AxDiagnosisView() {
       const confirmed = confirmedAxDiagnosis(task.diagnosis);
       const plan = await planAx({ kind: "ax-plan", target, task: { name: task.name, description: task.description, details: taskDetails(task) }, diagnosis: confirmed });
       if (!alive.current) return;
-      // 응답 도착 시 최신 상태와 기준 상태 비교
-      const latestTask = state.tasks.find(t => t.id === requestBaseline.taskId) as import("@/lib/ax/types").AxTaskV2 | undefined;
+      // 응답 도착 시 최신 상태와 기준 상태 비교 (getState()로 최신 상태 조회 - stale closure 방지)
+      const latestTask = getState().tasks.find(t => t.id === requestBaseline.taskId) as import("@/lib/ax/types").AxTaskV2 | undefined;
       if (!latestTask) { setMessage("업무가 삭제되어 계획 생성을 중단했습니다."); return; }
       const latestDiagnosis = latestTask.diagnosis;
       const baselineMatches = latestDiagnosis

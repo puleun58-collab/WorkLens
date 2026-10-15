@@ -93,10 +93,14 @@ export function useAxState() {
     clearTimeout(timer.current);
     timer.current = setTimeout(() => { pending.current = false; void persist(next); }, 300);
   }
+  /** 최신 상태 읽기 (오래된 React 클로저 상태 방지용) */
+  function getState(): AxStateV2 {
+    return current.current;
+  }
   async function replace(next: AxStateV2, clear = false) {
     clearTimeout(timer.current); pending.current = false;
     current.current = next; setState(next); setSaveStatus("저장 중");
     return persist(next, clear, true);
   }
-  return { state, update, replace, ready, saveStatus: ready ? saveStatus : "불러오는 중", loadNotice, externalChange, storageProtection };
+  return { state, update, getState, replace, ready, saveStatus: ready ? saveStatus : "불러오는 중", loadNotice, externalChange, storageProtection };
 }
