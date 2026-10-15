@@ -813,6 +813,12 @@ export interface AgentInstructionModel {
   gaps: string[];
   /** HITL 3차: 검토 결과가 반영되었는지 여부 */
   hitlApplied?: boolean;
+  /** HITL 3차: 적용된 검토 상세 */
+  hitlDetails?: {
+    appliedReviews: Array<{ id: string; action: string; targetKey: string }>;
+    deferred: Array<{ key: string; reason?: string; resumeCondition?: string }>;
+    supplements: Array<{ key: string; content: string }>;
+  };
 }
 /** Strong markers of an explicit execution order; weak connectors need an explicit actor to count. */
 const STRONG_SEQUENCE = /(먼저|다음|그\s*뒤|뒤에|그\s*후|후에|한\s*뒤|→|이후|그다음)/u;
@@ -1124,25 +1130,32 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
   let finalClassified = classified;
   let finalScoped = scoped;
   let hitlActuallyApplied = false;
+  let hitlDetails: AgentInstructionModel["hitlDetails"];
   const hitlReviews = options.hitlReviews ?? [];
   const hitlTool = options.hitlTool;
   if (hitlReviews.length > 0) {
     const applied = applyHitlToModel(classified, scoped, hitlReviews, hitlTool);
     finalClassified = applied.classified;
     finalScoped = applied.scoped;
-    // 실제 적용 여부: 항목 수가 변경되었거나 보완이 적용된 경우
-    hitlActuallyApplied = applied.appliedCount > 0;
+    // 실제 적용 여부: 항목이 변경되었거나 검토가 적용된 경우
+    hitlActuallyApplied = applied.appliedCount > 0 || applied.appliedReviews.length > 0;
+    hitlDetails = {
+      appliedReviews: applied.appliedReviews,
+      deferred: applied.deferred,
+      supplements: applied.supplements,
+    };
   }
 
   return { profile, level, gate, scopeLevel, steps, methods: methodEvidence.map(item => item.method), methodReasons: methodEvidence.map(item => item.reason),
     methodChains: methodEvidence.map(item => item.chain), methodOrders: methodEvidence.map(item => item.order), conditions, classified: finalClassified,
     ambiguous: finalClassified.filter(item => item.scope === "confirm" && item.role !== "reference"),
     scoped: finalScoped, diagnosis: d, plan: guarded, prerequisites: options.prerequisites ?? [], gaps,
-    hitlApplied: hitlActuallyApplied };
+    hitlApplied: hitlActuallyApplied, hitlDetails };
 }
 
 /** HITL 3차: 검토 결과를 실행 범위 모델에 반영
- * - exclude/defer: 해당 항목을 구현 범위에서 제외
+ * - exclude: 해당 항목을 구현 범위에서 제외
+ * - defer: 해당 항목을 보류 (사유·재개 조건과 함께)
  * - supplement: 보완 내용을 관련 항목에 추가 (별도 표시)
  * - keep: 변경 없음
  * Level × Gate 정책을 우회하지 않으며, 원본을 수정하지 않음 */
@@ -1151,7 +1164,14 @@ function applyHitlToModel(
   scoped: AgentInstructionModel["scoped"],
   reviews: import("./types").HitlReview[],
   tool?: "codex" | "claude",
-): { classified: AgentInstructionItem[]; scoped: AgentInstructionModel["scoped"]; appliedCount: number } {
+): {
+  classified: AgentInstructionItem[];
+  scoped: AgentInstructionModel["scoped"];
+  appliedCount: number;
+  appliedReviews: Array<{ id: string; action: string; targetKey: string }>;
+  deferred: Array<{ key: string; reason?: string; resumeCondition?: string }>;
+  supplements: Array<{ key: string; content: string }>;
+} {
   // 도구별 필터: planItem/criterion은 해당 도구의 계획에만 적용
   const relevant = reviews.filter(r => {
     if (r.target.source === "planCodex") return tool === "codex";
@@ -1162,17 +1182,29 @@ function applyHitlToModel(
   const excludeKeys = new Set<string>();
   const deferKeys = new Set<string>();
   const supplements = new Map<string, string>(); // key -> 보완 내용
+  const deferDetails = new Map<string, { reason?: string; resumeCondition?: string }>();
+  const appliedReviews: Array<{ id: string; action: string; targetKey: string }> = [];
 
   for (const r of relevant) {
     if (r.status !== "confirmed") continue;
     const key = r.target.key;
-    if (r.action === "exclude") excludeKeys.add(key);
-    else if (r.action === "defer") deferKeys.add(key);
-    else if (r.action === "supplement" && r.supplement) supplements.set(key, r.supplement);
+    if (r.action === "exclude") {
+      excludeKeys.add(key);
+      appliedReviews.push({ id: r.id, action: "exclude", targetKey: key });
+    } else if (r.action === "defer") {
+      deferKeys.add(key);
+      deferDetails.set(key, { reason: r.reason, resumeCondition: r.resumeCondition });
+      appliedReviews.push({ id: r.id, action: "defer", targetKey: key });
+    } else if (r.action === "supplement" && r.supplement) {
+      supplements.set(key, r.supplement);
+      appliedReviews.push({ id: r.id, action: "supplement", targetKey: key });
+    } else if (r.action === "keep") {
+      appliedReviews.push({ id: r.id, action: "keep", targetKey: key });
+    }
   }
 
   if (excludeKeys.size === 0 && deferKeys.size === 0 && supplements.size === 0) {
-    return { classified, scoped, appliedCount: 0 };
+    return { classified, scoped, appliedCount: 0, appliedReviews, deferred: [], supplements: [] };
   }
 
   // 검토 대상 키와 classified 항목 매칭
@@ -1214,7 +1246,26 @@ function applyHitlToModel(
   };
   const appliedCount = classified.length - filteredClassified.length;
 
-  return { classified: filteredClassified, scoped: filteredScoped, appliedCount };
+  // Supplement 내용을 해당 항목에 추가 (원본 보존, 보완 구분 표시)
+  const supplementList: Array<{ key: string; content: string }> = [];
+  for (const [key, content] of supplements) {
+    supplementList.push({ key, content });
+  }
+
+  // Defer 상세 정보
+  const deferredList: Array<{ key: string; reason?: string; resumeCondition?: string }> = [];
+  for (const [key, details] of deferDetails) {
+    deferredList.push({ key, ...details });
+  }
+
+  return {
+    classified: filteredClassified,
+    scoped: filteredScoped,
+    appliedCount,
+    appliedReviews,
+    deferred: deferredList,
+    supplements: supplementList,
+  };
 }
 
 /** One coding-agent instruction for any supported tool; the model is computed once. */
