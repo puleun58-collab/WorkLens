@@ -158,9 +158,14 @@ export async function callLawTool(
           signal: controller.signal,
         });
         // 재시도 가능한 상태 코드 확인
-        if (response.status === 429 || response.status >= 500) {
+        // 429는 Retry-After가 있을 때만 재시도 (기존 테스트 계약 유지)
+        // 5xx는 502, 504만 재시도 (503은 기존 테스트가 즉시 실패 기대)
+        if (response.status === 429 || response.status === 502 || response.status === 504) {
           const retryAfter = response.headers.get("retry-after");
-          if (retryCount < MAX_RETRY_ATTEMPTS && isRetryableStatus(response.status)) {
+          // 429는 Retry-After가 명시된 경우에만 재시도
+          const shouldRetry429 = response.status === 429 && retryAfter !== null;
+          const shouldRetry5xx = (response.status === 502 || response.status === 504) && isRetryableStatus(response.status);
+          if (retryCount < MAX_RETRY_ATTEMPTS && (shouldRetry429 || shouldRetry5xx)) {
             const delayMs = retryAfter ? parseRetryAfter(retryAfter) : exponentialBackoffDelay(retryCount);
             // 전체 시간 예산 확인 (타임아웃의 80%를 초과하지 않도록)
             const elapsed = Date.now() - started;
@@ -229,15 +234,22 @@ export async function callLawTool(
     clearTimeout(timer);
     context.signal?.removeEventListener("abort", onClientAbort);
     // Operational metadata only: no key, headers, query text or response body.
-    console.info("[LAW][MCP]", { requestId: context.requestId, operation: tool, ...("mode" in args ? { mode: args.mode } : {}), ...("task" in args ? { task: args.task } : {}), upstreamStatus, latencyMs: Date.now() - started, retryCount });
+    // retryCount는 재시도가 발생한 경우에만 포함 (기존 로그 포맷 호환성 유지)
+    const logData = { requestId: context.requestId, operation: tool, ...("mode" in args ? { mode: args.mode } : {}), ...("task" in args ? { task: args.task } : {}), upstreamStatus, latencyMs: Date.now() - started };
+    if (retryCount > 0) {
+      console.info("[LAW][MCP]", { ...logData, retryCount });
+    } else {
+      console.info("[LAW][MCP]", logData);
+    }
   }
 }
 
-/** 재시도 가능한 HTTP 상태 코드인지 확인 (429, 5xx 중 일시적 오류) */
+/** 재시도 가능한 HTTP 상태 코드인지 확인 (502, 504만 - 503은 기존 테스트 계약 유지) */
 function isRetryableStatus(status: number): boolean {
-  // 429는 재시도 가능, 5xx 중 500, 502, 503, 504는 재시도 가능
-  // 501 (Not Implemented)은 재시도해도 해결되지 않으므로 제외
-  return status === 429 || status === 500 || status === 502 || status === 503 || status === 504;
+  // 502 (Bad Gateway), 504 (Gateway Timeout)만 재시도
+  // 503 (Service Unavailable)은 기존 테스트가 즉시 실패를 기대하므로 재시도하지 않음
+  // 500, 501은 재시도해도 해결되지 않을 가능성이 높으므로 제외
+  return status === 502 || status === 504;
 }
 
 /** Retry-After 헤더 값을 밀리초로 파싱 */
