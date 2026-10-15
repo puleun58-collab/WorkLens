@@ -835,3 +835,13 @@
 .ax-hitl-status-dot::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--muted-foreground); flex-shrink: 0; }
 .ax-hitl-status-dot[data-status="confirmed"]::before { background: #22c55e; }
 .ax-hitl-status-dot[data-status="pending"]::before { background: #94a3b8; }
+/* 모바일 반응형: 700px 이하에서 테이블을 카드형으로 변환 */
+@media (max-width: 700px) {
+  .ax-hitl-table, .ax-hitl-table thead, .ax-hitl-table tbody, .ax-hitl-table tr, .ax-hitl-table td, .ax-hitl-table th { display: block; width: 100%; }
+  .ax-hitl-table thead { display: none; }
+  .ax-hitl-table tbody tr { border-bottom: 1px solid var(--line-soft); padding: 12px 16px; }
+  .ax-hitl-table tbody tr:last-child { border-bottom: none; }
+  .ax-hitl-table tbody td { border: none; padding: 4px 0; }
+  .ax-hitl-table .col-type, .ax-hitl-table .col-status, .ax-hitl-table .col-action { width: 100%; text-align: left; }
+  .ax-hitl-table .col-action { margin-top: 8px; }
+}
