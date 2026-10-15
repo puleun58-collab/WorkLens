@@ -193,6 +193,13 @@
 .ax-step-table td { min-width: 0; overflow-wrap: anywhere; }
 .ax-step-table th:nth-child(2), .ax-step-table td:nth-child(2), .ax-step-table th:nth-child(3), .ax-step-table td:nth-child(3) { width: 14%; }
 .ax-step-table thead { background: color-mix(in srgb, var(--primary) 4%, var(--card)); }
+/* HITL 검토 열이 있는 5열 테이블: 너비 재배분 */
+.ax-step-table--with-review th:first-child, .ax-step-table--with-review td:first-child { width: 22%; }
+.ax-step-table--with-review th:nth-child(2), .ax-step-table--with-review td:nth-child(2),
+.ax-step-table--with-review th:nth-child(3), .ax-step-table--with-review td:nth-child(3) { width: 12%; }
+.ax-step-table--with-review th:nth-child(4), .ax-step-table--with-review td:nth-child(4) { width: 34%; }
+.ax-step-table--with-review th:last-child, .ax-step-table--with-review td:last-child { width: 20%; }
+.ax-table-wrap { overflow-x: auto; }
 .ax-verdict-badge { max-width: 100%; white-space: normal; text-align: center; border-radius: 6px; padding: 2px 8px; }
 .ax-verdict-badge[data-verdict="자동화"] { color: var(--primary); background: color-mix(in srgb, var(--primary) 9%, var(--card)); border-color: transparent; }
 .ax-verdict-badge[data-verdict="AI 보조"] { color: #7c3aed; background: #f2edfc; border-color: transparent; }
@@ -803,7 +810,7 @@
 .ax-hitl-stale-old p, .ax-hitl-stale-new p, .ax-hitl-stale-supplement p { margin: 4px 0 0; font-size: 13px; }
 .ax-hitl-risk-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .ax-hitl-risk-item { border: 1px solid var(--line-soft); border-radius: 8px; padding: 12px; }
-.ax-hitl-risk-head { display: flex; align-items: center; gap: 8px; }
-.ax-hitl-risk-text { flex: 1; font-size: 14px; }
+.ax-hitl-risk-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ax-hitl-risk-text { flex: 1; font-size: 14px; min-width: 0; overflow-wrap: anywhere; }
 .ax-hitl-plan-tabs { display: flex; gap: 8px; margin-bottom: 12px; }
-.ax-hitl-type-badge { font-size: 11px; padding: 2px 8px; border-radius: 4px; background: var(--muted); color: var(--muted-foreground); white-space: nowrap; }
+.ax-hitl-type-badge { font-size: 11px; padding: 2px 8px; border-radius: 4px; background: var(--muted-surface, #f1f5f9); color: var(--foreground, #1e293b); white-space: nowrap; flex-shrink: 0; }
