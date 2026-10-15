@@ -284,37 +284,81 @@ export function AxProcess({ diagnosis: d, reviewProps }: { diagnosis: AxDiagnosi
   </>;
 }
 
-/** 위험 사항 검토 섹션 */
+/** 위험·확인사항 검토 섹션 - 테이블형 UI */
 function AxRiskReview({ diagnosis: d, reviewProps }: { diagnosis: AxDiagnosis; reviewProps: AxProcessReviewProps }) {
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const items = extractReviewableItems(d).filter(i => i.type === "risk");
   if (!items.length) return null;
 
-  return <section className="ax-section ax-panel"><h3>위험 사항 검토</h3>
-    <ul className="ax-hitl-risk-list">
-      {items.map(item => {
-        const review = findReview({ reviews: reviewProps.reviews } as AxTaskV2, item.key);
-        const isOpen = openKey === item.key;
-        return <li key={item.key} className="ax-hitl-risk-item">
-          <div className="ax-hitl-risk-head">
-            <span className="ax-hitl-risk-text">{item.text}</span>
-            {review ? <HitlStatusBadge status={review.status} /> : <span className="ax-muted">검토 전</span>}
-            <Button type="button" variant="ghost" size="sm" onClick={() => setOpenKey(isOpen ? null : item.key)}>
-              {isOpen ? "닫기" : review ? "보기" : "검토"}
-            </Button>
-          </div>
-          {isOpen ? <HitlReviewPanel
-            key={item.key}
-            item={item}
-            review={editingKey === item.key ? { ...review!, status: "editing" as const } : review}
-            onSave={(r) => { reviewProps.onSaveReview(r); setEditingKey(null); }}
-            onCancel={() => { setEditingKey(null); setOpenKey(null); }}
-            onEdit={() => setEditingKey(item.key)}
-          /> : null}
-        </li>;
-      })}
-    </ul>
+  const pendingCount = items.filter(item => {
+    const review = findReview({ reviews: reviewProps.reviews } as AxTaskV2, item.key);
+    return !review || review.status === "pending";
+  }).length;
+
+  return <section className="ax-section" aria-label="위험·확인사항 검토">
+    <div className="ax-hitl-table-card">
+      <div className="ax-hitl-table-header">
+        <div className="ax-hitl-table-title">
+          <span className="ax-hitl-table-icon">⚠️</span>
+          <h3>위험·확인사항 검토</h3>
+        </div>
+        <div className="ax-hitl-table-counts">
+          <span>전체 {items.length}</span>
+          <span>·</span>
+          <span>검토 전 {pendingCount}</span>
+        </div>
+      </div>
+      <div style={{ overflowX: "auto" }}>
+        <table className="ax-hitl-table">
+          <thead>
+            <tr>
+              <th className="col-type">구분</th>
+              <th className="col-content">검토 내용</th>
+              <th className="col-status">상태</th>
+              <th className="col-action">작업</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map(item => {
+              const review = findReview({ reviews: reviewProps.reviews } as AxTaskV2, item.key);
+              const isOpen = openKey === item.key;
+              return <>
+                <tr key={item.key}>
+                  <td className="col-type">
+                    <span className="ax-hitl-type-badge ax-hitl-type-badge-plan">위험</span>
+                  </td>
+                  <td className="col-content">{item.text}</td>
+                  <td className="col-status">
+                    {review ? <span className="ax-hitl-status-dot" data-status={review.status}>{review.status === "confirmed" ? "검토 완료" : review.status === "pending" ? "검토 전" : review.status}</span>
+                      : <span className="ax-hitl-status-dot" data-status="pending">검토 전</span>}
+                  </td>
+                  <td className="col-action">
+                    <Button type="button" variant="outline" size="sm" onClick={() => setOpenKey(isOpen ? null : item.key)}>
+                      {isOpen ? "닫기" : review ? "보기" : "검토"}
+                    </Button>
+                  </td>
+                </tr>
+                {isOpen ? <tr key={`${item.key}-panel`}>
+                  <td colSpan={4} style={{ padding: 0, borderBottom: "1px solid var(--line-soft)" }}>
+                    <div style={{ padding: "16px 20px" }}>
+                      <HitlReviewPanel
+                        key={item.key}
+                        item={item}
+                        review={editingKey === item.key ? { ...review!, status: "editing" as const } : review}
+                        onSave={(r) => { reviewProps.onSaveReview(r); setEditingKey(null); }}
+                        onCancel={() => { setEditingKey(null); setOpenKey(null); }}
+                        onEdit={() => setEditingKey(item.key)}
+                      />
+                    </div>
+                  </td>
+                </tr> : null}
+              </>;
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
   </section>;
 }
 function AxStepTable({ diagnosis: d, headers, reviewProps }: { diagnosis: AxDiagnosis; headers: [string, string, string, string]; reviewProps?: AxProcessReviewProps }) {
@@ -727,7 +771,7 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
   </section>;
 }
 
-/** 구현 계획 검토 섹션 (Codex/Claude Code별) */
+/** 구현 계획 검토 섹션 (Codex/Claude Code별) - 테이블형 UI */
 function AxPlanReview({ plans, reviewProps }: { plans: { codex?: AxPlan; claude?: AxPlan }; reviewProps: AxProcessReviewProps }) {
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [editingKey, setEditingKey] = useState<string | null>(null);
@@ -750,35 +794,79 @@ function AxPlanReview({ plans, reviewProps }: { plans: { codex?: AxPlan; claude?
 
   if (!items.length) return null;
 
-  return <section className="ax-section ax-panel" aria-label="구현 계획 검토"><h3>구현 계획 검토</h3>
-    {plans.codex && plans.claude ? <div className="ax-hitl-plan-tabs" role="tablist">
-      <Button type="button" variant={activeTab === "codex" ? "default" : "outline"} size="sm" onClick={() => setActiveTab("codex")}>Codex</Button>
-      <Button type="button" variant={activeTab === "claude" ? "default" : "outline"} size="sm" onClick={() => setActiveTab("claude")}>Claude Code</Button>
-    </div> : null}
-    <ul className="ax-hitl-risk-list">
-      {items.map(({ tool, item }) => {
-        const review = findReview({ reviews: reviewProps.reviews } as AxTaskV2, item.key);
-        const isOpen = openKey === item.key;
-        const typeLabel = item.type === "planItem" ? "구현 항목" : "완료 기준";
-        return <li key={item.key} className="ax-hitl-risk-item">
-          <div className="ax-hitl-risk-head">
-            <span className="ax-hitl-type-badge">{typeLabel}</span>
-            <span className="ax-hitl-risk-text">{item.text}</span>
-            {review ? <HitlStatusBadge status={review.status} /> : <span className="ax-muted">검토 전</span>}
-            <Button type="button" variant="ghost" size="sm" onClick={() => setOpenKey(isOpen ? null : item.key)}>
-              {isOpen ? "닫기" : review ? "보기" : "검토"}
-            </Button>
-          </div>
-          {isOpen ? <HitlReviewPanel
-            key={item.key}
-            item={item}
-            review={editingKey === item.key ? { ...review!, status: "editing" as const } : review}
-            onSave={(r) => { reviewProps.onSaveReview(r); setEditingKey(null); }}
-            onCancel={() => { setEditingKey(null); setOpenKey(null); }}
-            onEdit={() => setEditingKey(item.key)}
-          /> : null}
-        </li>;
-      })}
-    </ul>
+  const pendingCount = items.filter(({ item }) => {
+    const review = findReview({ reviews: reviewProps.reviews } as AxTaskV2, item.key);
+    return !review || review.status === "pending";
+  }).length;
+
+  return <section className="ax-section" aria-label="구현 계획 검토">
+    <div className="ax-hitl-table-card">
+      <div className="ax-hitl-table-header">
+        <div className="ax-hitl-table-title">
+          <span className="ax-hitl-table-icon">📋</span>
+          <h3>구현 계획 검토</h3>
+        </div>
+        <div className="ax-hitl-table-counts">
+          <span>전체 {items.length}</span>
+          <span>·</span>
+          <span>검토 전 {pendingCount}</span>
+        </div>
+      </div>
+      {plans.codex && plans.claude ? <div className="ax-hitl-plan-tabs" role="tablist" style={{ padding: "12px 20px 0" }}>
+        <Button type="button" variant={activeTab === "codex" ? "default" : "outline"} size="sm" onClick={() => setActiveTab("codex")}>Codex</Button>
+        <Button type="button" variant={activeTab === "claude" ? "default" : "outline"} size="sm" onClick={() => setActiveTab("claude")}>Claude Code</Button>
+      </div> : null}
+      <div style={{ overflowX: "auto" }}>
+        <table className="ax-hitl-table">
+          <thead>
+            <tr>
+              <th className="col-type">구분</th>
+              <th className="col-content">검토 내용</th>
+              <th className="col-status">상태</th>
+              <th className="col-action">작업</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map(({ tool, item }) => {
+              const review = findReview({ reviews: reviewProps.reviews } as AxTaskV2, item.key);
+              const isOpen = openKey === item.key;
+              const typeLabel = item.type === "planItem" ? "구현 항목" : "완료 기준";
+              const badgeClass = item.type === "planItem" ? "ax-hitl-type-badge-plan" : "ax-hitl-type-badge-criterion";
+              return <>
+                <tr key={item.key}>
+                  <td className="col-type">
+                    <span className={`ax-hitl-type-badge ${badgeClass}`}>{typeLabel}</span>
+                  </td>
+                  <td className="col-content">{item.text}</td>
+                  <td className="col-status">
+                    {review ? <span className="ax-hitl-status-dot" data-status={review.status}>{review.status === "confirmed" ? "검토 완료" : review.status === "pending" ? "검토 전" : review.status}</span>
+                      : <span className="ax-hitl-status-dot" data-status="pending">검토 전</span>}
+                  </td>
+                  <td className="col-action">
+                    <Button type="button" variant="outline" size="sm" onClick={() => setOpenKey(isOpen ? null : item.key)}>
+                      {isOpen ? "닫기" : review ? "보기" : "검토"}
+                    </Button>
+                  </td>
+                </tr>
+                {isOpen ? <tr key={`${item.key}-panel`}>
+                  <td colSpan={4} style={{ padding: 0, borderBottom: "1px solid var(--line-soft)" }}>
+                    <div style={{ padding: "16px 20px" }}>
+                      <HitlReviewPanel
+                        key={item.key}
+                        item={item}
+                        review={editingKey === item.key ? { ...review!, status: "editing" as const } : review}
+                        onSave={(r) => { reviewProps.onSaveReview(r); setEditingKey(null); }}
+                        onCancel={() => { setEditingKey(null); setOpenKey(null); }}
+                        onEdit={() => setEditingKey(item.key)}
+                      />
+                    </div>
+                  </td>
+                </tr> : null}
+              </>;
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
   </section>;
 }
