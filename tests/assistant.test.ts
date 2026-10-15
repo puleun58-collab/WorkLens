@@ -172,3 +172,42 @@ describe("assistant evidence", () => {
     expect(menuEvidence.some((e) => e.kind === "menu")).toBe(true);
   });
 });
+
+describe("assistant lensbot name recognition", () => {
+  it("recognizes 렌즈봇 questions", () => {
+    const entries = selectEvidence("렌즈봇 사용법 알려줘");
+    expect(entries.some((entry) => entry.id === "assistant-self")).toBe(true);
+  });
+  it("recognizes 렌즈봇 capability questions", () => {
+    const entries = selectEvidence("렌즈봇은 무엇을 할 수 있어?");
+    expect(entries.some((entry) => entry.id === "assistant-self")).toBe(true);
+  });
+  it("recognizes AI 도우미 as lensbot", () => {
+    const entries = selectEvidence("AI 도우미 사용하는 방법 알려줘");
+    expect(entries.some((entry) => entry.id === "assistant-self")).toBe(true);
+  });
+});
+
+describe("assistant metric verification", () => {
+  it("allows user-input-based calculations framed as such", () => {
+    const evidence = ASSISTANT_EVIDENCE.filter((entry) => entry.id === "ax-level");
+    // User calculation with explicit framing: allowed
+    expect(hasInventedMetric(
+      "입력하신 값을 기준으로 계산하면 3시간(30%) 줄어듭니다.",
+      evidence,
+      "업무 시간이 10시간에서 7시간이 되면 얼마나 줄어들어?",
+    )).toBe(false);
+  });
+  it("still flags invented metrics without user framing", () => {
+    const evidence = ASSISTANT_EVIDENCE.filter((entry) => entry.id === "ax-level");
+    expect(hasInventedMetric(
+      "처리 속도가 30% 향상됩니다.",
+      evidence,
+      "업무 시간이 10시간에서 7시간이 되면 얼마나 줄어들어?",
+    )).toBe(true);
+  });
+  it("flags absolute invented claims", () => {
+    const evidence = ASSISTANT_EVIDENCE.filter((entry) => entry.id === "ax-level");
+    expect(hasInventedMetric("정확도 95를 달성합니다.", evidence, "Level은?")).toBe(true);
+  });
+});

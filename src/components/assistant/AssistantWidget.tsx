@@ -77,6 +77,7 @@ let messageId = 0;
 const nextId = () => { messageId += 1; return messageId; };
 
 interface ScreenContext {
+  taskId: string;
   taskName: string;
   levelLabel: string;
   gateLabel: string;
@@ -93,6 +94,7 @@ async function readScreenContext(): Promise<ScreenContext | null> {
     const gate = executionGate(diagnosis);
     const summary = planSummary(diagnosis);
     return {
+      taskId: task.id,
       taskName: task.name,
       levelLabel: level.label,
       gateLabel: GATE_LABELS[gate],
@@ -115,6 +117,7 @@ async function askAssistant(
   question: string,
   context: ScreenContext | null,
   clarify: { clarifyId: string; originalQuestion: string; options: string[] } | null,
+  followUpOf: string | null,
   signal: AbortSignal,
 ): Promise<AssistantApiResult> {
   const response = await fetch("/api/assistant", {
@@ -126,6 +129,7 @@ async function askAssistant(
       question,
       ...(context ? { context } : {}),
       ...(clarify ? { clarify } : {}),
+      ...(followUpOf ? { followUpOf } : {}),
     }),
     signal,
   });
@@ -170,8 +174,10 @@ export function AssistantWidget() {
   const requestSeqRef = useRef(0);
   /** Pending clarification the next user message may resolve ("첫 번째요"). */
   const clarifyRef = useRef<{ clarifyId: string; originalQuestion: string; options: string[] } | null>(null);
-  /** Task-data consent pending for a specific question. */
-  const consentRef = useRef<{ question: string } | null>(null);
+  /** Last user question for follow-up understanding. Cleared on conversation reset. */
+  const lastQuestionRef = useRef<string | null>(null);
+  /** Task-data consent pending for a specific question. Stores the task id at request time. */
+  const consentRef = useRef<{ question: string; taskId: string | null } | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fabRef = useRef<HTMLButtonElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -230,15 +236,23 @@ export function AssistantWidget() {
     // Capture the pending clarification for this request; a new question clears it afterwards.
     const pendingClarify = clarifyRef.current;
     clarifyRef.current = null;
+    // Follow-up context: pass the previous question so short follow-ups can be understood.
+    // Skip when resolving a clarification (the clarify payload already carries context).
+    const followUpOf = pendingClarify ? null : lastQuestionRef.current;
     try {
       const context = withContext ? await readScreenContext() : null;
       // If the panel was closed/reset while reading context, drop the stale request.
       if (requestId !== requestSeqRef.current) return;
-      const { answer, sources, relatedScreens, kind, clarify } = await askAssistant(question, context, pendingClarify, controller.signal);
+      const { answer, sources, relatedScreens, kind, clarify } = await askAssistant(question, context, pendingClarify, followUpOf, controller.signal);
       if (requestId !== requestSeqRef.current) return;
+      // Remember this question for the next follow-up.
+      lastQuestionRef.current = question;
       if (kind === "clarify" && clarify) clarifyRef.current = clarify;
-      if (kind === "consent") consentRef.current = { question };
-      else consentRef.current = null;
+      // Consent: capture the selected task id at request time so acceptConsent can re-validate.
+      if (kind === "consent") {
+        const consentTaskId = await readScreenContext().then((ctx) => ctx?.taskId ?? null).catch(() => null);
+        consentRef.current = { question, taskId: consentTaskId };
+      } else consentRef.current = null;
       setMessages((prev) => prev.map((message) =>
         message.id === pendingId
           ? {
@@ -266,8 +280,9 @@ export function AssistantWidget() {
     }
   }, [loading]);
 
-  const retry = useCallback((question: string) => {
-    setMessages((prev) => prev.filter((message) => !message.error));
+  const retry = useCallback((messageId: number, question: string) => {
+    // Remove only the specific failed message, not other error messages.
+    setMessages((prev) => prev.filter((message) => message.id !== messageId));
     void send(question);
   }, [send]);
 
@@ -277,14 +292,31 @@ export function AssistantWidget() {
     requestSeqRef.current += 1;
     clarifyRef.current = null;
     consentRef.current = null;
+    lastQuestionRef.current = null;
     setMessages([{ id: nextId(), role: "assistant", text: "안녕하세요! 렌즈봇입니다.\n업무 분석, 자동화 진단, 기능 사용 방법 등\n무엇이든 질문해 주세요.", greeting: true }]);
     setLoading(false);
   }, []);
 
-  const acceptConsent = useCallback(() => {
+  const acceptConsent = useCallback(async () => {
     const pending = consentRef.current;
     consentRef.current = null;
     if (!pending) return;
+    // Re-validate: the selected task must still be the one the consent was requested for.
+    // If the task changed or was deleted, ask again instead of reusing the old consent.
+    try {
+      const current = await readScreenContext();
+      if (!current || current.taskId !== pending.taskId) {
+        setMessages((prev) => [
+          ...prev,
+          { id: nextId(), role: "assistant", text: "선택된 업무가 변경되어 진단 정보 사용을 다시 확인합니다. 이 업무의 진단 정보를 사용해 설명할까요?", consent: { question: pending.question } },
+        ]);
+        // Re-arm consent for the current task.
+        consentRef.current = { question: pending.question, taskId: current?.taskId ?? null };
+        return;
+      }
+    } catch {
+      // If validation fails, fall through and let send() handle the missing context.
+    }
     // Re-send the original question with the selected task's diagnosis data.
     void send(pending.question, true);
   }, [send]);
@@ -367,7 +399,7 @@ export function AssistantWidget() {
                     </div>
                   ) : null}
                   {message.error ? (
-                    <button type="button" className="wl-assistant-retry" onClick={() => retry(message.error as string)}>
+                    <button type="button" className="wl-assistant-retry" onClick={() => retry(message.id, message.error as string)}>
                       <TriangleAlert aria-hidden="true" /> 다시 시도
                     </button>
                   ) : null}
