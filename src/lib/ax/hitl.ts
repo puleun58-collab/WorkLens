@@ -251,7 +251,7 @@ export interface ReviewValidation {
  */
 export function validateReviewForConfirm(
   task: AxTaskV2 | undefined,
-  target: HitlReview["target"],
+  target: Pick<HitlReview["target"], "key" | "type" | "source" | "sourceHash">,
 ): ReviewValidation {
   if (!task) return { valid: false, reason: "업무를 찾을 수 없습니다." };
   let currentItems: ReviewableItem[];
