@@ -631,8 +631,8 @@ test("AX Execution Gate blocks no-go plans and displays ready tasks before highe
   await page.goto("/"); await ax(page);
   await register(page, "차단 업무"); await register(page, "가능 업무");
   await page.getByRole("tab", { name: "업무 진단", exact: true }).click();
-  const tasks = page.getByLabel("등록 업무 목록");
-  await tasks.getByRole("button", { name: "차단 업무", exact: false }).click();
+  const tasks = page.getByLabel("등록 업무 목록").filter({ visible: true });
+  await tasks.getByRole("button", { name: "차단 업무", exact: false }).first().click();
   await page.getByRole("button", { name: "업무 진단 실행", exact: true }).click();
   await expect(page.locator('.ax-diag-card .ax-gate-badge[data-gate="blocked"]')).toHaveText("진행 보류");
   const blockedChecks = page.locator(".ax-diag-card .ax-diag-checks");
@@ -920,6 +920,7 @@ for (const width of [1440, 390]) {
     const section = page.getByRole("region", { name: "자동화 구현 계획", exact: true });
     const guideSection = section.locator(".ax-plan-guide");
     const guide = guideSection.getByRole("button", { name: "설치·시작 가이드", exact: true });
+    await expect(guide).toBeVisible();
     const instructions = section.getByRole("region", { name: "04 올인원 지시문", exact: true });
     const heading = instructions.getByRole("heading", { name: "04 올인원 지시문", exact: true });
     const prompt = instructions.locator(".ax-prompt");
