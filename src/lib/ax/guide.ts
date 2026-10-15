@@ -1,6 +1,7 @@
 import type { AxDiagnosis, AxPlan } from "./types";
 import { automationLevel, axes, executionProfile, GATE_LABELS, type ExecutionGate, type ExecutionProfile, type StepScope } from "./policy";
 import { FACTOR_KEYS } from "./schema";
+import { extractReviewableItems } from "./hitl";
 
 export type AxToolId = "codex" | "claude";
 
@@ -1130,15 +1131,18 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
   let finalClassified = classified;
   let finalScoped = scoped;
   let finalSteps = steps;
+  // 단계와 메타데이터를 함께 묶어 인덱스 어긋남 방지
+  let finalMethodEvidence = methodEvidence;
   let hitlActuallyApplied = false;
   let hitlDetails: AgentInstructionModel["hitlDetails"];
   const hitlReviews = options.hitlReviews ?? [];
   const hitlTool = options.hitlTool;
   if (hitlReviews.length > 0) {
-    const applied = applyHitlToModel(classified, scoped, steps, hitlReviews, hitlTool);
+    const applied = applyHitlToModel(classified, scoped, steps, methodEvidence, hitlReviews, hitlTool, d);
     finalClassified = applied.classified;
     finalScoped = applied.scoped;
     finalSteps = applied.steps;
+    finalMethodEvidence = applied.methodEvidence;
     // 실제 적용 여부: 항목이 변경되었거나 검토가 적용된 경우
     hitlActuallyApplied = applied.appliedCount > 0 || applied.appliedReviews.length > 0;
     hitlDetails = {
@@ -1148,8 +1152,8 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
     };
   }
 
-  return { profile, level, gate, scopeLevel, steps: finalSteps, methods: methodEvidence.map(item => item.method), methodReasons: methodEvidence.map(item => item.reason),
-    methodChains: methodEvidence.map(item => item.chain), methodOrders: methodEvidence.map(item => item.order), conditions, classified: finalClassified,
+  return { profile, level, gate, scopeLevel, steps: finalSteps, methods: finalMethodEvidence.map(item => item.method), methodReasons: finalMethodEvidence.map(item => item.reason),
+    methodChains: finalMethodEvidence.map(item => item.chain), methodOrders: finalMethodEvidence.map(item => item.order), conditions, classified: finalClassified,
     ambiguous: finalClassified.filter(item => item.scope === "confirm" && item.role !== "reference"),
     scoped: finalScoped, diagnosis: d, plan: guarded, prerequisites: options.prerequisites ?? [], gaps,
     hitlApplied: hitlActuallyApplied, hitlDetails };
@@ -1165,12 +1169,15 @@ function applyHitlToModel(
   classified: AgentInstructionItem[],
   scoped: AgentInstructionModel["scoped"],
   steps: StepScope[],
+  methodEvidence: Array<{ method: StepMethod; reason: string; chain?: StepMethod[]; order?: MethodOrder }>,
   reviews: import("./types").HitlReview[],
   tool?: "codex" | "claude",
+  diagnosis?: import("./types").AxDiagnosis,
 ): {
   classified: AgentInstructionItem[];
   scoped: AgentInstructionModel["scoped"];
   steps: StepScope[];
+  methodEvidence: Array<{ method: StepMethod; reason: string; chain?: StepMethod[]; order?: MethodOrder }>;
   appliedCount: number;
   appliedReviews: Array<{ id: string; action: string; targetKey: string }>;
   deferred: Array<{ key: string; reason?: string; resumeCondition?: string }>;
@@ -1208,7 +1215,7 @@ function applyHitlToModel(
   }
 
   if (excludeKeys.size === 0 && deferKeys.size === 0 && supplements.size === 0) {
-    return { classified, scoped, steps, appliedCount: 0, appliedReviews, deferred: [], supplements: [] };
+    return { classified, scoped, steps, methodEvidence, appliedCount: 0, appliedReviews, deferred: [], supplements: [] };
   }
 
   // 검토 대상 키와 classified 항목 매칭
@@ -1263,23 +1270,50 @@ function applyHitlToModel(
   }
 
   // Steps 필터링: step 타입의 exclude/defer 검토가 있으면 해당 단계 제외
-  // step 검토는 sourceText가 단계명과 일치하는 경우
-  const stepExcludeKeys = new Set<string>();
-  for (const r of relevant) {
-    if (r.status !== "confirmed") continue;
-    if (r.target.type !== "step") continue;
-    if (r.action === "exclude" || r.action === "defer") {
-      stepExcludeKeys.add(normalizeForMatch(r.target.sourceText));
+  // 올바른 매칭: extractReviewableItems()로 현재 원본의 검토 대상을 생성하고,
+  // 각 단계와 리뷰 키를 정확히 연결 (문자열 직접 비교 금지)
+  const stepExcludeIndices = new Set<number>();
+  if (diagnosis) {
+    const reviewableItems = extractReviewableItems(diagnosis);
+    // step 타입 항목만 필터링 (순서 유지)
+    const stepItems = reviewableItems.filter(item => item.type === "step");
+
+    // 각 단계와 reviewable item을 순서대로 매칭
+    // (extractReviewableItems는 stepAssessments 순서대로 생성하므로 인덱스로 매칭 가능)
+    const stepAssessments = diagnosis.stepAssessments ?? [];
+    for (let i = 0; i < steps.length && i < stepAssessments.length && i < stepItems.length; i++) {
+      const itemKey = stepItems[i].key;
+      // 해당 키에 대한 exclude/defer 검토가 있는지 확인
+      for (const r of relevant) {
+        if (r.status !== "confirmed") continue;
+        if (r.target.type !== "step") continue;
+        if (r.target.key !== itemKey) continue;
+        if (r.action === "exclude" || r.action === "defer") {
+          stepExcludeIndices.add(i);
+          break;
+        }
+      }
     }
   }
-  const filteredSteps = stepExcludeKeys.size > 0
-    ? steps.filter(s => !stepExcludeKeys.has(normalizeForMatch(s.step)))
-    : steps;
+  // diagnosis가 없을 경우: 안전을 위해 단계 제외하지 않음 (오적용 방지)
+
+  // 단계와 메타데이터를 함께 필터링 (인덱스 어긋남 방지)
+  const filteredSteps: StepScope[] = [];
+  const filteredMethodEvidence: typeof methodEvidence = [];
+  steps.forEach((s, idx) => {
+    if (!stepExcludeIndices.has(idx)) {
+      filteredSteps.push(s);
+      if (idx < methodEvidence.length) {
+        filteredMethodEvidence.push(methodEvidence[idx]);
+      }
+    }
+  });
 
   return {
     classified: filteredClassified,
     scoped: filteredScoped,
     steps: filteredSteps,
+    methodEvidence: filteredMethodEvidence,
     appliedCount,
     appliedReviews,
     deferred: deferredList,
