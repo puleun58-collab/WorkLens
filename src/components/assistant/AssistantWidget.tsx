@@ -348,7 +348,7 @@ export function AssistantWidget() {
   const acceptConsent = useCallback(async () => {
     const pending = consentRef.current;
     consentRef.current = null;
-    if (!pending) return;
+    if (!pending || loading) return;
     // Re-validate: the selected task must still be the one the consent was requested for.
     // If the task changed or was deleted, ask again instead of reusing the old consent.
     try {
@@ -366,16 +366,19 @@ export function AssistantWidget() {
       // If validation fails, fall through and let send() handle the missing context.
     }
     // Re-send the original question with the selected task's diagnosis data.
-    void send(pending.question, true);
-  }, [send]);
+    // skipUserMessage=true: 사용자 질문은 이미 표시되어 있으므로 중복 추가 방지
+    void send(pending.question, true, true);
+  }, [send, loading]);
 
   const declineConsent = useCallback(() => {
+    const pending = consentRef.current;
     consentRef.current = null;
+    if (!pending || loading) return;
     setMessages((prev) => [
       ...prev,
       { id: nextId(), role: "assistant", text: "진단 정보를 사용하지 않고 일반 정책으로 안내해 드리겠습니다. Level·Gate의 일반적인 의미가 궁금하시면 질문해 주세요." },
     ]);
-  }, []);
+  }, [loading]);
 
   if (!mounted) return null;
   return createPortal(
@@ -442,8 +445,8 @@ export function AssistantWidget() {
                   ) : null}
                   {message.consent ? (
                     <div className="wl-assistant-consent" role="group" aria-label="진단 정보 사용 확인">
-                      <button type="button" className="wl-assistant-consent-allow" onClick={acceptConsent}>진단 정보 사용</button>
-                      <button type="button" className="wl-assistant-consent-deny" onClick={declineConsent}>사용하지 않음</button>
+                      <button type="button" className="wl-assistant-consent-allow" onClick={acceptConsent} disabled={loading}>진단 정보 사용</button>
+                      <button type="button" className="wl-assistant-consent-deny" onClick={declineConsent} disabled={loading}>사용하지 않음</button>
                     </div>
                   ) : null}
                   {message.error ? (
