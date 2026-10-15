@@ -2917,8 +2917,8 @@ a:not([data-slot]):focus-visible,
 }
 
 .polish-copy-block.revised {
-  border: 1px solid var(--blue-border);
-  background: var(--blue-soft);
+  border: 1px solid var(--blue-callout-border);
+  background: var(--blue-callout);
 }
 
 .polish-copy-block.revised .polish-label {
