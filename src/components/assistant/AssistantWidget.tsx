@@ -86,6 +86,21 @@ interface ScreenContext {
   factorNote?: string;
 }
 
+/** 화면 상태: 진단 정보가 없는 이유를 구분 */
+type ContextStatus = "available" | "no-task" | "no-diagnosis" | "access-failed";
+
+async function readScreenContextStatus(): Promise<{ status: ContextStatus; taskId: string | null }> {
+  try {
+    const { state } = await loadAxState();
+    const task = state.tasks.find((candidate) => candidate.id === state.selectedTaskId) ?? null;
+    if (!task) return { status: "no-task", taskId: null };
+    if (!task.diagnosis) return { status: "no-diagnosis", taskId: task.id };
+    return { status: "available", taskId: task.id };
+  } catch {
+    return { status: "access-failed", taskId: null };
+  }
+}
+
 /** 진단 이유를 묻는 질문인지 판단 (Factor 상세 정보 필요 여부) */
 function needsFactorDetail(question: string): boolean {
   return /왜|이유|근거|어떻게.*판정|판정.*근거|factor|팩터/ui.test(question);
@@ -137,6 +152,7 @@ async function askAssistant(
   context: ScreenContext | null,
   clarify: { clarifyId: string; originalQuestion: string; options: string[] } | null,
   followUpOf: string | null,
+  contextStatus: ContextStatus | null,
   signal: AbortSignal,
 ): Promise<AssistantApiResult> {
   const response = await fetch("/api/assistant", {
@@ -149,6 +165,7 @@ async function askAssistant(
       ...(context ? { context } : {}),
       ...(clarify ? { clarify } : {}),
       ...(followUpOf ? { followUpOf } : {}),
+      ...(contextStatus && contextStatus !== "available" ? { contextStatus } : {}),
     }),
     signal,
   });
@@ -240,7 +257,7 @@ export function AssistantWidget() {
 
   useEffect(() => { scrollToBottom(); }, [messages, scrollToBottom]);
 
-  const send = useCallback(async (rawQuestion: string, withContext: boolean = false) => {
+  const send = useCallback(async (rawQuestion: string, withContext: boolean = false, skipUserMessage: boolean = false) => {
     const question = rawQuestion.trim();
     if (!question || loading || question.length > MAX_QUESTION_CHARS) return;
     controllerRef.current?.abort();
@@ -249,7 +266,10 @@ export function AssistantWidget() {
     const requestId = (requestSeqRef.current += 1);
     const timeout = setTimeout(() => controller.abort("timeout"), ASSISTANT_TIMEOUT_MS);
     const pendingId = nextId();
-    setMessages((prev) => [...prev, { id: nextId(), role: "user", text: question }, { id: pendingId, role: "assistant", text: "", pending: true }]);
+    // 재시도 시에는 사용자 질문이 이미 있으므로 중복 추가하지 않음
+    setMessages((prev) => skipUserMessage
+      ? [...prev, { id: pendingId, role: "assistant", text: "", pending: true }]
+      : [...prev, { id: nextId(), role: "user", text: question }, { id: pendingId, role: "assistant", text: "", pending: true }]);
     setInput("");
     setLoading(true);
     // Capture the pending clarification for this request; a new question clears it afterwards.
@@ -262,7 +282,9 @@ export function AssistantWidget() {
       const context = withContext ? await readScreenContext(question) : null;
       // If the panel was closed/reset while reading context, drop the stale request.
       if (requestId !== requestSeqRef.current) return;
-      const { answer, sources, relatedScreens, kind, clarify } = await askAssistant(question, context, pendingClarify, followUpOf, controller.signal);
+      // context가 없을 때 이유를 파악하여 서버에 전달 (동의 반복 방지)
+      const contextStatus = !withContext ? null : context ? null : (await readScreenContextStatus().catch(() => ({ status: "access-failed" as const, taskId: null }))).status;
+      const { answer, sources, relatedScreens, kind, clarify } = await askAssistant(question, context, pendingClarify, followUpOf, contextStatus, controller.signal);
       if (requestId !== requestSeqRef.current) return;
       // Remember this question for the next follow-up.
       lastQuestionRef.current = question;
@@ -307,8 +329,9 @@ export function AssistantWidget() {
 
   const retry = useCallback((messageId: number, question: string) => {
     // Remove only the specific failed message, not other error messages.
+    // skipUserMessage=true: 사용자 질문은 이미 있으므로 중복 추가하지 않음
     setMessages((prev) => prev.filter((message) => message.id !== messageId));
-    void send(question);
+    void send(question, false, true);
   }, [send]);
 
   const clearConversation = useCallback(() => {

@@ -47,6 +47,8 @@ const assistantRequestSchema = z.object({
   }).strict().optional(),
   // Previous question for follow-up understanding ("그럼 Level 2는?" after "Level 1이 뭐야?").
   followUpOf: z.string().trim().min(1).max(1000).optional(),
+  // Client-side context status when context is null (prevents consent repetition).
+  contextStatus: z.enum(["no-task", "no-diagnosis", "access-failed"]).optional(),
 }).strict();
 
 /**
@@ -126,7 +128,27 @@ export async function POST(request: Request) {
 
     // Task-specific questions need the selected task's diagnosis data.
     // Without user consent, ask for it instead of answering from general policy.
+    // If there's no task/diagnosis, guide the user instead of asking for consent repeatedly.
     if (isTaskSpecificQuestion(effectiveQuestion) && !context) {
+      const contextStatus = parsed.data.contextStatus;
+      if (contextStatus === "no-task") {
+        return ok({
+          answer: "업무별 진단 설명을 위해 먼저 AI•AX에서 업무를 선택해 주세요. 업무 목록에서 원하는 업무를 클릭하면 됩니다.",
+          sources: [], relatedScreens: [], kind: "guidance" as const,
+        }, 200, requestId);
+      }
+      if (contextStatus === "no-diagnosis") {
+        return ok({
+          answer: "선택한 업무의 진단 결과가 없습니다. 먼저 업무 진단을 실행한 뒤 질문해 주세요.",
+          sources: [], relatedScreens: [], kind: "guidance" as const,
+        }, 200, requestId);
+      }
+      if (contextStatus === "access-failed") {
+        return ok({
+          answer: "업무 데이터에 접근할 수 없습니다. 페이지를 새로고침한 뒤 다시 시도해 주세요.",
+          sources: [], relatedScreens: [], kind: "guidance" as const,
+        }, 200, requestId);
+      }
       return ok({
         answer: "현재 선택된 업무의 진단 정보를 사용해 설명할까요? 답변에 필요한 진단 정보 일부가 AI 처리에 사용됩니다.",
         sources: [],
@@ -135,7 +157,12 @@ export async function POST(request: Request) {
       }, 200, requestId);
     }
 
-    const evidence = selectEvidence(effectiveQuestion);
+    // 후속 질문의 근거 검색: 짧은 후속 질문은 직전 질문의 맥락을 참고
+    // 단, 직전 질문을 근거 자료로 취급하지 않고 검색 키워드 보강에만 사용
+    const evidenceQuery = followUpOf && effectiveQuestion.length <= 15
+      ? `${followUpOf} ${effectiveQuestion}`
+      : effectiveQuestion;
+    const evidence = selectEvidence(evidenceQuery);
     if (!evidence.length) return ok({ answer: NO_EVIDENCE_RESPONSE, sources: [], relatedScreens: [], kind: "no-evidence" as const }, 200, requestId);
 
     const result = await runBoundedOperation(() => runGroqAi(

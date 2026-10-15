@@ -223,3 +223,42 @@ describe("assistant factor detail detection", () => {
     expect(pattern.test("Level 1이 뭐야?")).toBe(false);
   });
 });
+
+describe("assistant metric verification (strict)", () => {
+  const evidence = ASSISTANT_EVIDENCE.filter((entry) => entry.id === "ax-level");
+
+  it("allows correct percentage calculation from user input", () => {
+    // 10시간 → 7시간 = 30% 감소 (정확한 계산)
+    expect(hasInventedMetric(
+      "입력하신 값을 기준으로 계산하면 3시간(30%) 줄어듭니다.",
+      evidence,
+      "업무 시간이 10시간에서 7시간이 되면 얼마나 줄어들어?",
+    )).toBe(false);
+  });
+
+  it("blocks invented metric even with calculation markers", () => {
+    // "가정하면"이 있어도 95%는 10, 7에서 유도 불가
+    expect(hasInventedMetric(
+      "가정하면 정확도가 95%입니다.",
+      evidence,
+      "업무 시간이 10시간에서 7시간이 되면 얼마나 줄어들어?",
+    )).toBe(true);
+  });
+
+  it("blocks mixed valid calculation and invented claim", () => {
+    // 30%는 정상 계산이지만 80% 향상은 근거 없음
+    expect(hasInventedMetric(
+      "입력하신 값으로 계산하면 30% 감소합니다. 업무 효율이 80% 향상됩니다.",
+      evidence,
+      "업무 시간이 10시간에서 7시간이 되면 얼마나 줄어들어?",
+    )).toBe(true);
+  });
+
+  it("allows direct number from question", () => {
+    expect(hasInventedMetric(
+      "입력하신 10시간을 기준으로 설명합니다.",
+      evidence,
+      "업무 시간이 10시간 걸려요.",
+    )).toBe(false);
+  });
+});
