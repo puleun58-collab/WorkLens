@@ -169,3 +169,41 @@ describe("law search text parsing", () => {
       .toEqual([{ name: "근로기준법", status: "현행", lawId: "001872" }]);
   });
 });
+
+describe("law MCP retry behavior", () => {
+  it("retries 503 and succeeds on second attempt", async () => {
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(new Response("busy", { status: 503 }))
+      .mockResolvedValueOnce(toolText(SEARCH_TEXT));
+    vi.stubGlobal("fetch", fetcher);
+    const result = await call({ query: "근로기준법" });
+    expect(result.status).toBe(200);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries 503 twice then fails with 503", async () => {
+    const fetcher = vi.fn().mockResolvedValue(new Response("busy", { status: 503 }));
+    vi.stubGlobal("fetch", fetcher);
+    const result = await call({ query: "근로기준법" });
+    expect([result.status, result.json.error.code]).toEqual([503, "LAW_UPSTREAM_UNAVAILABLE"]);
+    expect(fetcher).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not retry 503 when Retry-After is missing but respects the policy", async () => {
+    // 503 without Retry-After uses exponential backoff
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(new Response("busy", { status: 503 }))
+      .mockResolvedValueOnce(toolText(SEARCH_TEXT));
+    vi.stubGlobal("fetch", fetcher);
+    const result = await call({ query: "근로기준법" });
+    expect(result.status).toBe(200);
+  });
+
+  it("does not retry 401 auth failures", async () => {
+    const fetcher = vi.fn().mockResolvedValue(new Response("denied", { status: 401 }));
+    vi.stubGlobal("fetch", fetcher);
+    const result = await call({ query: "근로기준법" });
+    expect([result.status, result.json.error.code]).toEqual([502, "LAW_AUTH_FAILED"]);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+});
