@@ -138,18 +138,29 @@ export async function callLawTool(
   if (url.protocol !== "https:") throw new ApiError("LAW_NOT_CONFIGURED", "법령 검색 서비스가 구성되지 않았습니다.", 503);
 
   const started = Date.now();
-  const controller = new AbortController();
   const timeoutMs = tool === "legal_analysis" ? ANALYSIS_TIMEOUT_MS : tool === "legal_research" ? RESEARCH_TIMEOUT_MS : REQUEST_TIMEOUT_MS;
-  const timer = setTimeout(() => controller.abort(new DOMException("timeout", "TimeoutError")), timeoutMs);
-  const onClientAbort = () => controller.abort(new DOMException("client aborted", "AbortError"));
-  context.signal?.addEventListener("abort", onClientAbort, { once: true });
-  if (context.signal?.aborted) onClientAbort();
   let upstreamStatus: number | undefined;
   let retryCount = 0;
-  try {
-    let response: Response;
-    // 재시도 가능한 일시적 오류에 대해 제한적 재시도
-    while (true) {
+  let response: Response | undefined;
+
+  // 재시도 가능한 일시적 오류에 대해 제한적 재시도
+  // 각 시도마다 새로운 AbortController를 사용하여 이전 타임아웃의 영향을 받지 않도록 함
+  while (true) {
+    const controller = new AbortController();
+    const elapsed = Date.now() - started;
+    const remainingMs = timeoutMs - elapsed;
+    if (remainingMs <= 0) {
+      throw new ApiError("LAW_UPSTREAM_TIMEOUT", "법령 검색 응답 시간이 초과되었습니다. 다시 시도하세요.", 504);
+    }
+    const timer = setTimeout(() => controller.abort(new DOMException("timeout", "TimeoutError")), remainingMs);
+    const onClientAbort = () => controller.abort(new DOMException("client aborted", "AbortError"));
+    context.signal?.addEventListener("abort", onClientAbort, { once: true });
+    if (context.signal?.aborted) {
+      clearTimeout(timer);
+      context.signal.removeEventListener("abort", onClientAbort);
+      throw new ApiError("LAW_REQUEST_ABORTED", "요청이 취소되었습니다.", 499);
+    }
+    try {
       try {
         response = await fetch(url, {
           method: "POST",
@@ -158,20 +169,20 @@ export async function callLawTool(
           signal: controller.signal,
         });
         // 재시도 가능한 상태 코드 확인
-        // 429는 Retry-After가 있을 때만 재시도 (기존 테스트 계약 유지)
-        // 5xx는 502, 504만 재시도 (503은 기존 테스트가 즉시 실패 기대)
-        if (response.status === 429 || response.status === 502 || response.status === 504) {
+        // 429는 Retry-After가 있을 때만 재시도
+        // 5xx는 502, 503, 504 재시도 (503도 일시적 과부하로 복구 가능)
+        if (response.status === 429 || response.status === 502 || response.status === 503 || response.status === 504) {
           const retryAfter = response.headers.get("retry-after");
-          // 429는 Retry-After가 명시된 경우에만 재시도
           const shouldRetry429 = response.status === 429 && retryAfter !== null;
-          const shouldRetry5xx = (response.status === 502 || response.status === 504) && isRetryableStatus(response.status);
+          const shouldRetry5xx = (response.status === 502 || response.status === 503 || response.status === 504) && isRetryableStatus(response.status);
           if (retryCount < MAX_RETRY_ATTEMPTS && (shouldRetry429 || shouldRetry5xx)) {
             const delayMs = retryAfter ? parseRetryAfter(retryAfter) : exponentialBackoffDelay(retryCount);
-            // 전체 시간 예산 확인 (타임아웃의 80%를 초과하지 않도록)
-            const elapsed = Date.now() - started;
-            if (elapsed + delayMs < timeoutMs * 0.8) {
+            const elapsedAfter = Date.now() - started;
+            if (elapsedAfter + delayMs < timeoutMs * 0.8) {
               retryCount++;
               console.info("[LAW][MCP][RETRY]", { requestId: context.requestId, operation: tool, attempt: retryCount, status: response.status, delayMs });
+              clearTimeout(timer);
+              context.signal?.removeEventListener("abort", onClientAbort);
               await sleep(delayMs, context.signal);
               continue;
             }
@@ -180,13 +191,15 @@ export async function callLawTool(
         break;
       } catch (error) {
         if (controller.signal.aborted && controller.signal.reason instanceof DOMException && controller.signal.reason.name === "TimeoutError") {
-          // Timeout도 재시도 가능 (일시적 오류)
+          // Timeout도 재시도 가능 (일시적 오류) - 새 AbortController로 다음 시도
           if (retryCount < MAX_RETRY_ATTEMPTS) {
-            const elapsed = Date.now() - started;
+            const elapsedAfter = Date.now() - started;
             const delayMs = exponentialBackoffDelay(retryCount);
-            if (elapsed + delayMs < timeoutMs * 0.8) {
+            if (elapsedAfter + delayMs < timeoutMs * 0.8) {
               retryCount++;
               console.info("[LAW][MCP][RETRY]", { requestId: context.requestId, operation: tool, attempt: retryCount, reason: "timeout", delayMs });
+              clearTimeout(timer);
+              context.signal?.removeEventListener("abort", onClientAbort);
               await sleep(delayMs, context.signal);
               continue;
             }
@@ -196,18 +209,41 @@ export async function callLawTool(
         if (context.signal?.aborted) throw new ApiError("LAW_REQUEST_ABORTED", "요청이 취소되었습니다.", 499);
         // 네트워크 연결 실패도 재시도 가능
         if (retryCount < MAX_RETRY_ATTEMPTS && isNetworkError(error)) {
-          const elapsed = Date.now() - started;
+          const elapsedAfter = Date.now() - started;
           const delayMs = exponentialBackoffDelay(retryCount);
-          if (elapsed + delayMs < timeoutMs * 0.8) {
+          if (elapsedAfter + delayMs < timeoutMs * 0.8) {
             retryCount++;
             console.info("[LAW][MCP][RETRY]", { requestId: context.requestId, operation: tool, attempt: retryCount, reason: "network", delayMs });
+            clearTimeout(timer);
+            context.signal?.removeEventListener("abort", onClientAbort);
             await sleep(delayMs, context.signal);
             continue;
           }
         }
         throw new ApiError("LAW_UPSTREAM_UNAVAILABLE", "법령 검색 서비스에 연결할 수 없습니다.", 503, undefined, { cause: error });
       }
+    } finally {
+      clearTimeout(timer);
+      context.signal?.removeEventListener("abort", onClientAbort);
     }
+  }
+
+  if (!response) {
+    throw new ApiError("LAW_UPSTREAM_UNAVAILABLE", "법령 검색 서비스가 일시적으로 응답하지 않습니다.", 503);
+  }
+
+  // 응답 본문 읽기에도 남은 시간 예산 적용
+  const readController = new AbortController();
+  const readElapsed = Date.now() - started;
+  const readRemainingMs = timeoutMs - readElapsed;
+  if (readRemainingMs <= 0) {
+    throw new ApiError("LAW_UPSTREAM_TIMEOUT", "법령 검색 응답 시간이 초과되었습니다. 다시 시도하세요.", 504);
+  }
+  const readTimer = setTimeout(() => readController.abort(new DOMException("timeout", "TimeoutError")), readRemainingMs);
+  const onReadAbort = () => readController.abort(new DOMException("client aborted", "AbortError"));
+  context.signal?.addEventListener("abort", onReadAbort, { once: true });
+
+  try {
     upstreamStatus = response.status;
     if (response.status === 401 || response.status === 403) throw new ApiError("LAW_AUTH_FAILED", "법령 검색 인증에 실패했습니다.", 502);
     if (response.status === 429) throw new ApiError("LAW_RATE_LIMITED", "법령 검색 요청이 많습니다. 잠시 후 다시 시도하세요.", 429);
@@ -216,12 +252,20 @@ export async function callLawTool(
 
     let body: string;
     try {
-      body = await readLimited(response);
+      // 읽기 타임아웃 시 스트림 취소
+      const readPromise = readLimited(response);
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        readController.signal.addEventListener("abort", () => {
+          if (readController.signal.reason instanceof DOMException && readController.signal.reason.name === "TimeoutError") {
+            reject(new ApiError("LAW_UPSTREAM_TIMEOUT", "법령 검색 응답 시간이 초과되었습니다. 다시 시도하세요.", 504));
+          } else {
+            reject(new ApiError("LAW_REQUEST_ABORTED", "요청이 취소되었습니다.", 499));
+          }
+        }, { once: true });
+      });
+      body = await Promise.race([readPromise, timeoutPromise]);
     } catch (error) {
       if (error instanceof ApiError) throw error;
-      if (controller.signal.reason instanceof DOMException && controller.signal.reason.name === "TimeoutError") {
-        throw new ApiError("LAW_UPSTREAM_TIMEOUT", "법령 검색 응답 시간이 초과되었습니다. 다시 시도하세요.", 504);
-      }
       if (context.signal?.aborted) throw new ApiError("LAW_REQUEST_ABORTED", "요청이 취소되었습니다.", 499);
       throw new ApiError("LAW_UPSTREAM_UNAVAILABLE", "법령 검색 서비스에 연결할 수 없습니다.", 503, undefined, { cause: error });
     }
@@ -231,8 +275,8 @@ export async function callLawTool(
     const text = redact(parsed.data.result.content.map((part) => part.type === "text" ? part.text ?? "" : "").join("\n"), key);
     return { text, isError: parsed.data.result.isError === true };
   } finally {
-    clearTimeout(timer);
-    context.signal?.removeEventListener("abort", onClientAbort);
+    clearTimeout(readTimer);
+    context.signal?.removeEventListener("abort", onReadAbort);
     // Operational metadata only: no key, headers, query text or response body.
     // retryCount는 재시도가 발생한 경우에만 포함 (기존 로그 포맷 호환성 유지)
     const logData = { requestId: context.requestId, operation: tool, ...("mode" in args ? { mode: args.mode } : {}), ...("task" in args ? { task: args.task } : {}), upstreamStatus, latencyMs: Date.now() - started };
@@ -244,12 +288,12 @@ export async function callLawTool(
   }
 }
 
-/** 재시도 가능한 HTTP 상태 코드인지 확인 (502, 504만 - 503은 기존 테스트 계약 유지) */
+/** 재시도 가능한 HTTP 상태 코드인지 확인 (502, 503, 504 - 일시적 서버 오류) */
 function isRetryableStatus(status: number): boolean {
-  // 502 (Bad Gateway), 504 (Gateway Timeout)만 재시도
-  // 503 (Service Unavailable)은 기존 테스트가 즉시 실패를 기대하므로 재시도하지 않음
+  // 502 (Bad Gateway), 503 (Service Unavailable), 504 (Gateway Timeout) 재시도
+  // 503은 일시적 과부하로 복구 가능하므로 재시도 대상에 포함
   // 500, 501은 재시도해도 해결되지 않을 가능성이 높으므로 제외
-  return status === 502 || status === 504;
+  return status === 502 || status === 503 || status === 504;
 }
 
 /** Retry-After 헤더 값을 밀리초로 파싱 */
