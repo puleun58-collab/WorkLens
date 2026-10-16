@@ -81,7 +81,7 @@ test("02 시작 전 확인: 상단 카드 3열 + 추가 확인 표 + 중복 제�
   await expect(extra.getByText("파일 시스템 접근 권한", { exact: true })).toBeVisible();
   await expect(extra.getByText("사내 시스템 UI 연동 여부", { exact: true })).toBeVisible();
   await expect(extra.getByText("데이터 구조·검증 규칙 정의", { exact: true })).toBeVisible();
-  await expect(extra.getByText("적용 단계 미확정", { exact: false }).first()).toBeVisible();
+  await expect(extra.getByText("미확정", { exact: false }).first()).toBeVisible();
   // No horizontal overflow from the redesigned section
   const overflow = await block.evaluate(el => el.scrollWidth - el.clientWidth);
   expect(overflow).toBeLessThanOrEqual(1);
