@@ -1474,10 +1474,55 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
   // 단계 연결 근거가 없는 다른 criteria만 "참고 판정"으로 구분한다.
   const isPocCriterion = (item: AgentInstructionItem) =>
     item.sources.some(s => s === "diagnosis.poc.success" || s === "diagnosis.poc.failure");
+  // PART A-5: PoC 기준 안전성 — 제외된 단계나 차단 상태에서 필수 완료 조건으로 승격 금지.
+  // 제외된 단계명 집합 (HITL step-type exclude/defer 리뷰에서 추출)
+  const excludedStepNames = new Set<string>();
+  if (options.hitlReviews?.length && d?.stepAssessments) {
+    const reviewableSteps = extractReviewableItems(d).filter(i => i.type === "step");
+    for (const r of options.hitlReviews) {
+      if (r.status !== "confirmed") continue;
+      if (r.action !== "exclude" && r.action !== "defer") continue;
+      if (r.target.type !== "step") continue;
+      const matched = reviewableSteps.find(i => i.key === r.target.key);
+      if (matched) {
+        // "보고서 업데이트: AI 보조 (AI) - ..." → "보고서 업데이트"
+        const name = matched.text.split(":")[0].trim();
+        if (name) excludedStepNames.add(name);
+      }
+    }
+  }
+  // PoC 기준이 제외된 단계와만 관련되고 활성 작업 단계와는 무관하면 필수 조건에서 제외.
+  const criterionRelatesOnlyToExcluded = (text: string): boolean => {
+    if (excludedStepNames.size === 0) return false;
+    const words = text.replace(/[^\uAC00-\uD7A3A-Za-z0-9]/gu, " ").split(/\s+/u).filter(w => w.length >= 2);
+    const matchesExcluded = [...excludedStepNames].some(name => {
+      const nameWords = name.replace(/[^\uAC00-\uD7A3A-Za-z0-9]/gu, " ").split(/\s+/u).filter(w => w.length >= 2);
+      return words.some(w => nameWords.includes(w)) || nameWords.some(w => words.includes(w));
+    });
+    if (!matchesExcluded) return false;
+    // 활성 작업 단계와도 관련되면 제외하지 않음 (보수적: 제외 단계와만 관련될 때만 demote)
+    const activeStepNames = work.map(s => s.step);
+    const matchesActive = activeStepNames.some(name => {
+      const nameWords = name.replace(/[^\uAC00-\uD7A3A-Za-z0-9]/gu, " ").split(/\s+/u).filter(w => w.length >= 2);
+      return words.some(w => nameWords.includes(w)) || nameWords.some(w => words.includes(w));
+    });
+    return !matchesActive;
+  };
+  // 차단 상태에서는 PoC 기준을 구현 가능한 완료 조건으로 제시하지 않음.
+  const pocCriteriaBlocked = gate === "blocked";
+  const pocCriteriaItems = model.classified.filter(item => item.role === "criteria" && isPocCriterion(item) && !model.scoped.criteria.includes(item));
+  const overallCriteria = unique(pocCriteriaItems
+    .filter(item => !pocCriteriaBlocked && !criterionRelatesOnlyToExcluded(item.text))
+    .map(item => item.text));
+  const demotedPocCriteria = pocCriteriaItems
+    .filter(item => pocCriteriaBlocked || criterionRelatesOnlyToExcluded(item.text))
+    .map(item => `${item.text} — 현재 필수 완료 조건 아님${pocCriteriaBlocked ? " (실행 차단 상태)" : " (관련 단계 제외됨)"}`);
   // 업무 전체 완료 기준은 단계 연결 reason을 표시하지 않음 (전체 기준으로 명시하므로).
-  const overallCriteria = unique(model.classified.filter(item => item.role === "criteria" && isPocCriterion(item) && !model.scoped.criteria.includes(item)).map(item => item.text));
-  const deferredCriteria = model.classified.filter(item => item.role === "criteria" && !isPocCriterion(item) && !model.scoped.criteria.includes(item) && !model.scoped.validationMethods.includes(item))
-    .map(item => `${evidenceLine(item)} — 현재 필수 완료 조건 아님`);
+  const deferredCriteria = [
+    ...model.classified.filter(item => item.role === "criteria" && !isPocCriterion(item) && !model.scoped.criteria.includes(item) && !model.scoped.validationMethods.includes(item))
+      .map(item => `${evidenceLine(item)} — 현재 필수 완료 조건 아님`),
+    ...demotedPocCriteria,
+  ];
   const hitl = model.hitlDetails;
   // 1. 개발 목표: 무엇을·왜·어디까지 만드는가
   section("개발 목표",
