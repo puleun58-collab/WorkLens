@@ -12,7 +12,7 @@ import { ResearchResultSummary, ResearchSummaryNotice, ResearchSummaryNotices } 
 
 const SEVERITY_LABEL = { high: "높음", medium: "보통", low: "낮음" } as const;
 const SEVERITY_ORDER = ["high", "medium", "low"] as const;
-/** Existing Badge tints only: soft red for high, soft amber for medium, neutral for low. */
+/** 문서 검토 개별 쟁점 전용 위험도 배지 색상 (공통 Badge 전역 스타일은 변경하지 않고 legal-analysis.css에서 재정의). */
 const SEVERITY_BADGE = { high: "error", medium: "warning", low: "secondary" } as const;
 
 function SeverityBadge({ severity }: { severity: ReviewedIssue["severity"] }) {
@@ -284,15 +284,12 @@ export function ContractReviewResult({ review, file, expandSources = false, onEx
       <h3>조항별 검토 결과</h3>
       {review.clauses.length === 0 && <p className="law-search-note">검토할 쟁점을 찾지 못했습니다</p>}
       {review.clauses.map((clause, index) => {
-        const top = SEVERITY_ORDER.find((severity) => clause.issues.some((issue) => issue.severity === severity));
-        const several = clause.issues.length > 1;
         return <section key={`${clause.number ?? index}`} className="legal-analysis-section contract-review-clause">
           <div className="contract-review-clause-head">
             <h4>{clause.number ?? clause.title ?? `검토 항목 ${index + 1}`}{clause.number && clause.title ? ` ${clause.title}` : ""}</h4>
-            {top && <SeverityBadge severity={top} />}
           </div>
           {clause.issues.map((issue, issueIndex) => <div key={`${index}-${issueIndex}`} id={`contract-review-issue-${index}-${issueIndex}`} className={`contract-review-issue is-${issue.severity}`}>
-            <div className="contract-review-issue-head"><h5 tabIndex={-1}><span className="research-issue-number">{String(++renderedIssueNumber).padStart(2, "0")}</span>{issue.label}</h5>{several && <SeverityBadge severity={issue.severity} />}</div>
+            <div className="contract-review-issue-head"><h5 tabIndex={-1}><span className="research-issue-number">{String(++renderedIssueNumber).padStart(2, "0")}</span>{issue.label}</h5><SeverityBadge severity={issue.severity} /></div>
             {issueBody(issue, `contract-review-evidence-${index}-${issueIndex}`, clause.segments)}
           </div>)}
         </section>;
