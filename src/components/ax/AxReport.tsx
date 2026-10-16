@@ -677,7 +677,7 @@ function AxPrereqTable({ rows }: { rows: AxAdditionalCheck[] }) {
       <tbody>{rows.map((row, i) => <tr key={i} data-tone={row.tone}>
         <td data-label="확인 항목"><span className="ax-prereq-item">{row.item}</span></td>
         <td data-label="확인 필요 내용">{row.content}</td>
-        <td data-label="적용 단계">{row.stage ?? <span className="ax-muted">적용 단계 미확정</span>}</td>
+        <td data-label="적용 단계">{row.stage ?? <span className="ax-muted">미확정</span>}</td>
         <td data-label="상태"><span className="ax-check-badge">{row.status}</span></td>
       </tr>)}</tbody>
     </table></div>

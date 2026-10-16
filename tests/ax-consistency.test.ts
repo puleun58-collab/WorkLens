@@ -71,7 +71,8 @@ describe("AX shared processing and relational scope", () => {
     const plan = { ...c.plan, tests: [exact, future, fragment, longer, alias] };
     const model = modelFor(c.diagnosis, plan);
     expect(from(model, "plan.tests", exact)).toMatchObject({ step: "컬럼 매핑 및 표준화", scope: "after-check" });
-    expect(from(model, "plan.tests", future)).toMatchObject({ step: "일일 보고서 자동 발행", scope: "future" });
+    // PART B: "일일 보고서 자동 발행" 단계가 사용자 실행형으로 범위에 포함되므로 연결된 테스트도 after-check를 상속한다.
+    expect(from(model, "plan.tests", future)).toMatchObject({ step: "일일 보고서 자동 발행", scope: "after-check" });
     for (const text of [fragment, longer, alias]) {
       const item = from(model, "plan.tests", text);
       expect(item?.step).toBeUndefined();
@@ -83,7 +84,7 @@ describe("AX shared processing and relational scope", () => {
     expect(from(modelFor(reversed, plan), "plan.tests", longer)?.step).toBeUndefined();
   });
 
-  it("distinguishes original unlinked PoC claims from an explicitly related future-step variant", () => {
+  it("distinguishes original unlinked PoC claims from an explicitly related step variant", () => {
     const c = equipmentRuleCase;
     const raw = modelFor(c.diagnosis, c.plan);
     const text = c.diagnosis.poc.success.at(-1)!;
@@ -92,8 +93,10 @@ describe("AX shared processing and relational scope", () => {
     const explicit = "일일 보고서 자동 발행 — 성공";
     const diagnosis = { ...c.diagnosis, poc: { ...c.diagnosis.poc, success: [...c.diagnosis.poc.success.slice(0, -1), explicit] } };
     const model = modelFor(diagnosis, c.plan);
-    expect(from(model, "diagnosis.poc.success", explicit)).toMatchObject({ step: "일일 보고서 자동 발행", scope: "future" });
-    expect(model.scoped.criteria.map(item => item.text)).not.toContain(explicit);
+    // PART B: 명시적 연결 변형은 단계의 정책 범위(after-check)를 상속한다. 연결되지 않은 원본 주장과 달리
+    // 단계에 연결되지만, 단계 범위를 넘어 승격되지는 않는다.
+    expect(from(model, "diagnosis.poc.success", explicit)).toMatchObject({ step: "일일 보고서 자동 발행", scope: "after-check" });
+    expect(model.scoped.criteria.map(item => item.text)).toContain(explicit);
     expect(c.diagnosis.poc.success.at(-1)).toBe(text);
   });
 
@@ -171,13 +174,15 @@ describe("AX shared processing and relational scope", () => {
     expect(constraintFrom("diagnosis.poc.outOfScope")).toBe(true);
   });
 
-  it("does not make future-step conditions required for independent current steps or bypass Gate and Level 1", () => {
+  it("keeps step-linked prerequisites in scope without bypassing Gate and Level 1", () => {
     const c = equipmentRuleCase;
     const future = "일일 보고서 자동 발행 — 배포 권한 확인";
     const plan = { ...c.plan, prerequisites: [future] };
     const model = modelFor(c.diagnosis, plan);
-    expect(from(model, "plan.prerequisites", future)).toMatchObject({ step: "일일 보고서 자동 발행", scope: "future" });
-    expect(model.scoped.conditions.map(item => item.text)).not.toContain(future);
+    // PART B: 단계가 사용자 실행형으로 범위에 포함되므로 선행 조건도 현재 조건이 된다.
+    // Gate(conditional)를 우회하지 않는다 — 여전히 확인 후 진행이다.
+    expect(from(model, "plan.prerequisites", future)).toMatchObject({ step: "일일 보고서 자동 발행", scope: "after-check" });
+    expect(model.scoped.conditions.map(item => item.text)).toContain(future);
     expect(model.steps.find(step => step.step === "보고서 초안 작성")?.scope).toBe("after-check");
     expect(model.gate).toBe("conditional");
     expect(model.scoped.features.map(item => item.text)).not.toContain("일일 보고서 자동 발행");
@@ -185,7 +190,7 @@ describe("AX shared processing and relational scope", () => {
   });
 
 
-  it("derives freight processing from evidence without expanding the Level 1 conditional policy", () => {
+  it("derives freight processing from evidence with Level 1 user-executable scope", () => {
     const c = freightCase;
     const before = structuredClone(c);
     const model = modelFor(c.diagnosis, c.plan);
@@ -194,7 +199,8 @@ describe("AX shared processing and relational scope", () => {
     expect(model.scopeLevel).toBe(1);
     expect(model.methods).toEqual(["composite", "rule", "confirm", "manual"]);
     expect(model.methodChains[0]).toEqual(["script", "manual"]);
-    expect(model.steps.map(step => step.scope)).toEqual(["after-check", "after-check", "future", "human"]);
+    // PART B: "정산표 생성" 단계가 사용자 실행형으로 범위에 포함된다 (무인 자동 실행은 여전히 차단).
+    expect(model.steps.map(step => step.scope)).toEqual(["after-check", "after-check", "after-check", "human"]);
     expect(model.scoped.outputs).toContainEqual(expect.objectContaining({ text: "실적 파일 병합 — 병합 검토 파일", step: "실적 파일 병합", scope: "after-check" }));
     const test = from(model, "plan.tests", "누락·중복 검증 — 샘플 누락·중복 검사");
     expect(test).toMatchObject({ role: "tests", step: "누락·중복 검증", scope: "after-check" });
@@ -213,7 +219,7 @@ describe("AX shared processing and relational scope", () => {
     }
     const explicit = "정산표 생성 — 정산 결과 재열기";
     expect(from(modelFor(c.diagnosis, { ...c.plan, tests: [explicit] }), "plan.tests", explicit))
-      .toMatchObject({ step: "정산표 생성", scope: "future" });
+      .toMatchObject({ step: "정산표 생성", scope: "after-check" });
     expect(c).toEqual(before);
   });
 
@@ -276,7 +282,8 @@ describe("AX shared processing and relational scope", () => {
     expect(linked[0]).toMatchObject({ step: "실적 파일 병합" });
     expect(linked[0].sources).toEqual(expect.arrayContaining(["plan.prerequisites", "diagnosis.technicalChecks", "options.prerequisites"]));
     expect(model.conditions.current).toContainEqual(expect.objectContaining({ text: required, step: "누락·중복 검증", scope: "after-check" }));
-    expect(model.conditions.future).toContainEqual(expect.objectContaining({ text: future, step: "정산표 생성" }));
+    // PART B: "정산표 생성" 단계가 사용자 실행형으로 범위에 포함되므로 연결된 선행 조건도 현재 조건이다.
+    expect(model.conditions.current).toContainEqual(expect.objectContaining({ text: future, step: "정산표 생성" }));
     expect(model.conditions.confirm).toContainEqual(expect.objectContaining({ text: unknown }));
     expect(model.conditions.global).toContainEqual(expect.objectContaining({ text: global, sources: ["plan.security"] }));
     for (const system of ["ERP", "WMS"]) {

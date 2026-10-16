@@ -1247,8 +1247,10 @@ for (const level of [0, 1, 2, 3]) {
       for (const verdict of ["자동화", "AI 보조", "사람 유지"]) {
         await expect(resultSummary.locator(`.ax-result-count[data-verdict="${verdict}"] strong`)).toHaveText("1개");
       }
+      // PR #197 재설계: Level 1의 "자동화" 판정 단계는 담당자 실행 기반 "사용자 실행 결과 생성"으로 구현 범위에 포함된다
+      // (무인 자동 실행·자동 확정은 여전히 금지). 따라서 "future"가 아니라 "implement"/"after-check"를 기대한다.
       const treatments = gate === "blocked" || level === 0 ? ["verify", "verify", "human"]
-        : level === 1 ? ["future", gate === "ready" ? "implement" : "after-check", "human"]
+        : level === 1 ? [gate === "ready" ? "implement" : "after-check", gate === "ready" ? "implement" : "after-check", "human"]
         : [gate === "ready" ? "implement" : "after-check", gate === "ready" ? "implement" : "after-check", "human"];
       const execution = page.getByRole("region", { name: "실행 로드맵", exact: true });
       await expect(execution.locator(".ax-execution-item")).toHaveCount(3);
