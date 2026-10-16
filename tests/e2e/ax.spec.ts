@@ -1191,7 +1191,7 @@ for (const width of [1440, 390]) {
         await expect(scope).not.toContainText(other.humanInLoop[plan.humanInLoop.indexOf(item)]);
       }
       for (const item of plan.outOfScope) await expect(scope).toContainText(item);
-      const permitted = scope.locator(".ax-scope-card").filter({ has: page.getByRole("heading", { name: "조건 해결 후 샘플 범위", exact: true }) });
+      const permitted = scope.locator(".ax-scope-card").filter({ has: page.getByRole("heading", { name: "선행 조건 확인 후 시범 적용", exact: true }) });
       for (const item of [...plan.inScope, ...plan.implementation]) await expect(permitted).not.toContainText(item);
       await expect(section.locator(".ax-plan-view").getByRole("button")).toHaveCount(0);
       const raw = buildAllInOnePrompt(plan, target, { taskName: task.name, prerequisites: ["시스템 접근 — API와 권한 실제 확인", "권한 확인 후 진행"], diagnosis: diagnosisFixture, context: task.description });
