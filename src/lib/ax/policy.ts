@@ -136,11 +136,14 @@ function distinct(items: string[], limit: number): string[] {
 }
 export const ROADMAP_TITLES = ["자동화 준비 로드맵", "AI 보조 도입 로드맵", "부분 자동화 로드맵", "자동화 도입 로드맵"] as const;
 
-/** What the effective Level permits for one diagnosed step; null leaves the step outside the current scope. */
+/** What the effective Level permits for one diagnosed step; null leaves the step outside the current scope.
+ * Level은 운영 자동화의 자율성 기준이며 일반 기능 구현 가능성과 다르다:
+ * Level 1에서도 "자동화" 판정 단계는 담당자 실행 기반의 사용자 실행형 기능으로 구현할 수 있다
+ * (무인 자동 실행·자동 확정은 여전히 금지되며 "운영 자동화 적용"은 범위 밖으로 유지). */
 function stepTreatment(level: number, verdict: Verdict, hasAssisted: boolean): string | null {
   if (verdict === "사람 유지") return null;
   if (level === 0) return "처리 가능성 검증";
-  if (level === 1) return verdict === "AI 보조" || !hasAssisted ? "AI 보조 결과(후보·초안) 생성" : null;
+  if (level === 1) return verdict === "AI 보조" || !hasAssisted ? "AI 보조 결과(후보·초안) 생성" : "사용자 실행 결과 생성";
   if (level === 2) return verdict === "자동화" ? "규칙 기반 처리" : "AI 보조";
   return verdict === "자동화" ? "자동 처리" : "AI 보조";
 }
@@ -261,7 +264,8 @@ export function executionProfile(d: AxDiagnosis): ExecutionProfile {
     .filter(phase => phase.items.length).map((phase, index) => ({ phase: String(index + 1), ...phase }));
   const poc: AxDiagnosis["poc"] = {
     ...d.poc,
-    inScope: distinct([...(gate === "conditional" ? ["선행 확인사항 해결 후 샘플 범위에서 진행"] : []), ...pocScope(d, pocLevel)], 6),
+    // PART B: Level 1의 자동화 판정 단계도 사용자 실행형으로 포함되므로, 잘라내기 제한을 확장 범위에 맞게 상향한다.
+    inScope: distinct([...(gate === "conditional" ? ["선행 확인사항 해결 후 샘플 범위에서 진행"] : []), ...pocScope(d, pocLevel)], 10),
     outOfScope: distinct([...d.poc.outOfScope, ...manualSteps.map(step => `${step} 자동화 (담당자 수행)`), ...(pocLevel < 2 ? ["운영 자동화 적용"] : [])], 8),
   };
   return {
