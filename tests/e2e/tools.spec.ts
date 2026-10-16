@@ -1067,7 +1067,9 @@ test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route wit
   await expect(clause).toContainText("중도해지 제한");
   await expect(clause).toContainText("을은 어떠한 경우에도 계약을 해지할 수 없다.");
   await expect(clause.locator(".contract-review-source")).not.toHaveAttribute("open", "");
-  await expect(clause.locator(".contract-review-clause-head [data-slot=badge]")).toHaveText(/^(높음|보통|낮음)$/u);
+  // 조항 제목에는 위험도 배지가 없고, 개별 쟁점 제목 우측에 항상 표시된다.
+  await expect(clause.locator(".contract-review-clause-head [data-slot=badge]")).toHaveCount(0);
+  await expect(clause.locator(".contract-review-issue-head [data-slot=badge]")).toHaveText(/^(높음|보통|낮음)$/u);
   const lawEvidence = review.locator(".contract-review-refs").first();
   await expect(lawEvidence).not.toHaveAttribute("open", "");
   await lawEvidence.locator("summary").click();
@@ -1737,7 +1739,7 @@ test("document review keeps issue guidance ahead of independent, grouped source 
         await expect(firstIssue.locator(".contract-review-fact"), name).toHaveText(fixture.review.clauses[0].issues[0].fact);
         await firstIssue.locator(".contract-review-source summary").click();
         const severity = fixture.review.clauses[0].issues[0].severity;
-        await expect(review.locator(".contract-review-clause-head [data-slot=badge]").first(), name).toHaveAttribute("data-severity", severity);
+        await expect(review.locator(".contract-review-issue-head [data-slot=badge]").first(), name).toHaveAttribute("data-severity", severity);
       }
       const detail = review.locator(".contract-review-detail").first();
       const disclosures = detail.locator(".law-detail-source");
