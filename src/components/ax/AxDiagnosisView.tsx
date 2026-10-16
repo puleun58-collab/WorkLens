@@ -169,11 +169,20 @@ export function AxDiagnosisView() {
   useLayoutEffect(() => {
     if (stepRef.current !== state.step) {
       stepRef.current = state.step;
-      const container = document.getElementById("workspace-content");
-      if (container && container.scrollHeight > container.clientHeight) container.scrollTop = 0;
-      window.scrollTo(0, 0);
-      document.documentElement.scrollTop = 0;
+      const doScroll = () => {
+        const container = document.getElementById("workspace-content");
+        if (container && container.scrollHeight > container.clientHeight) container.scrollTop = 0;
+        window.scrollTo(0, 0);
+        document.documentElement.scrollTop = 0;
+      };
+      doScroll();
+      // Firefox 등에서 페인트 후 스크롤 위치가 복원되는 경우에 대비해 다음 프레임에서도 적용
+      const raf = requestAnimationFrame(() => {
+        if (window.scrollY !== 0) doScroll();
+      });
+      return () => cancelAnimationFrame(raf);
     }
+    return undefined;
   }, [state.step]);
   function scrollToAnswers() {
     const el = document.getElementById("ax-answer-section");
