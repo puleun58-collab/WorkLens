@@ -666,10 +666,11 @@ function AxPrereqCard({ topic, note, tone, status }: { topic: string; note: stri
 }
 function AxPrereqTable({ rows }: { rows: AxAdditionalCheck[] }) {
   const unstaged = rows.some(row => !row.future && row.stage === null);
+  const unstagedCount = rows.filter(row => !row.future && row.stage === null).length;
   return <div className="ax-prereq-extra">
     <div className="ax-prereq-extra-head">
       <h4><ClipboardList aria-hidden="true" />추가 확인 사항</h4>
-      {unstaged ? <span className="ax-check-badge" data-tone="required">적용 단계 미확정</span> : null}
+      {unstaged ? <span className="ax-check-badge" data-tone="required">미확정 {unstagedCount}건</span> : null}
     </div>
     <div className="ax-prereq-table-wrap"><table className="ax-prereq-table">
       <thead><tr><th scope="col">확인 항목</th><th scope="col">확인 필요 내용</th><th scope="col">적용 단계</th><th scope="col">상태</th></tr></thead>

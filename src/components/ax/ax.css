@@ -622,7 +622,7 @@
 .ax-prereq-extra-head .ax-check-badge { --tone: #e08a00; margin-left: auto; }
 .ax-prereq-table-wrap { overflow-x: auto; }
 .ax-prereq-table { width: 100%; border-collapse: collapse; font-size: 14px; line-height: 1.55; }
-.ax-prereq-table th { padding: 8px 12px; border-bottom: 1px solid var(--border); color: var(--muted-foreground); font-size: 12.5px; font-weight: var(--font-weight-semibold); text-align: left; white-space: nowrap; }
+.ax-prereq-table th { padding: 8px 12px; background: color-mix(in srgb, var(--primary) 4%, var(--card)); color: var(--muted-foreground); font-size: 12.5px; font-weight: var(--font-weight-semibold); text-align: left; white-space: nowrap; border-bottom: 1px solid var(--line-soft); }
 .ax-prereq-table td { padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; overflow-wrap: anywhere; }
 .ax-prereq-table tbody tr:last-child td { border-bottom: 0; }
 .ax-prereq-table tr[data-tone=required] { --tone: #e08a00; }
@@ -630,7 +630,8 @@
 .ax-prereq-table tr[data-tone=done] { --tone: #16a34a; }
 .ax-prereq-table tr[data-tone=blocked] { --tone: #dc2626; }
 .ax-prereq-item { font-weight: var(--font-weight-semibold); }
-.ax-prereq-note { display: flex; gap: 8px; align-items: flex-start; margin: 12px 0 0; color: var(--muted-foreground); font-size: 13px; line-height: 1.55; }
+.ax-prereq-note { display: flex; align-items: center; gap: 10px; margin: 12px 0 0; padding: 10px 16px; border: 1px solid var(--border); border-radius: 8px; background: #f5f7fa; color: var(--muted-foreground); font-size: 13px; line-height: 1.5; }
+.ax-prereq-note svg { width: 16px; height: 16px; flex: none; }
 .ax-prereq-note svg { flex: none; width: 16px; height: 16px; margin-top: 2px; color: var(--primary); }
 @media(max-width: 700px) {
   .ax-prereq-cards { grid-template-columns: minmax(0, 1fr); }
@@ -819,8 +820,8 @@
 /* HITL 테이블형 UI (레퍼런스 기준) */
 .ax-hitl-table-card { background: var(--card); border: 1px solid var(--line-soft); border-radius: 12px; overflow: hidden; }
 .ax-hitl-table-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--line-soft); }
-.ax-hitl-table-title { display: flex; align-items: center; gap: 12px; }
-.ax-hitl-table-icon { width: 36px; height: 36px; border-radius: 8px; background: color-mix(in srgb, var(--primary) 10%, var(--card)); display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; }
+.ax-hitl-table-title { display: flex; align-items: center; gap: 8px; }
+.ax-hitl-table-icon { display: inline-flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; line-height: 1; }
 .ax-hitl-table-title h3 { margin: 0; font-size: 16px; font-weight: 700; }
 .ax-hitl-table-counts { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted-foreground); }
 .ax-hitl-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
@@ -830,7 +831,7 @@
 .ax-hitl-table .col-type { width: 100px; }
 .ax-hitl-table .col-content { width: auto; }
 .ax-hitl-table .col-status { width: 120px; }
-.ax-hitl-table .col-action { width: 100px; text-align: right; }
+.ax-hitl-table .col-action { width: 100px; text-align: left; }
 .ax-hitl-type-badge-plan { background: var(--muted-surface, #f1f5f9); color: var(--foreground, #1e293b); }
 .ax-hitl-type-badge-criterion { background: color-mix(in srgb, var(--primary) 10%, var(--card)); color: var(--primary); }
 .ax-hitl-status-dot { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
