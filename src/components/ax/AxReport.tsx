@@ -697,8 +697,8 @@ function AxPlanOverview({ profile, summary }: { profile: ExecutionProfile; summa
     <section className="ax-plan-block" aria-label="01 구현 범위"><AxPlanHeading no="01" title="구현 범위" description="현재 구현·보조할 작업과 사람에게 남길 작업을 구분합니다." />
       <div className="ax-scope-cards">
         <AxScopeCard tone="include" icon={<FileText />} items={summary.include}
-          title={reviewOnly ? "준비·검증" : profile.gate === "conditional" ? "조건 해결 후 샘플 범위" : "구현·보조 작업"}
-          description={reviewOnly ? "자동화 구현 전 확인이 필요한 항목입니다." : profile.gate === "conditional" ? "선행 확인 후 샘플 범위에서 진행할 항목입니다." : "현재 단계에서 구현·보조할 항목입니다."} />
+          title={reviewOnly ? "준비·검증" : profile.gate === "conditional" ? "선행 조건 확인 후 시범 적용" : "구현·보조 작업"}
+          description={reviewOnly ? "자동화 구현 전 확인이 필요한 항목입니다." : profile.gate === "conditional" ? "필요한 조건을 확인한 뒤 일부 업무에서 시험할 항목입니다." : "현재 단계에서 구현·보조할 항목입니다."} />
         <AxScopeCard tone="human" icon={<UserRound />} title="담당자 수행 유지" description="현재는 담당자 판단이 필요한 작업입니다." items={summary.humanKept} />
         <AxScopeCard tone="excluded" icon={<Ban />} title="현재 자동화 제외" description="현재 단계에서 구현하지 않는 항목입니다." items={summary.excluded} />
       </div>

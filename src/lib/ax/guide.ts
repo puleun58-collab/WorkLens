@@ -800,6 +800,8 @@ export interface AgentInstructionModel {
   /** Index-aligned with `steps`; explicit diagnosis note evidence only, never inferred from policy/verdict. */
   methods: StepMethod[];
   methodReasons: string[];
+  /** Index-aligned with `steps`; user-facing reasons without internal field paths. */
+  methodUserReasons: string[];
   /** Index-aligned with `steps`; the ordered roles of a composite method, or undefined. */
   methodChains: (StepMethod[] | undefined)[];
   /** Index-aligned with `steps`; execution order of a composite method: explicit sequence or parallel. */
@@ -839,9 +841,9 @@ const methodsIn = (text: string): StepMethod[] => {
   push("rule", RULE_NOTE); push("script", SCRIPT_NOTE); push("assist", CANDIDATE_NOTE); push("manual", MANUAL_NOTE);
   return [...new Set(ordered.sort((a, b) => a.at - b.at).map(entry => entry.method))];
 };
-function stepMethod(s: StepScope, duplicate: boolean, diagnosis?: AxDiagnosis): { method: StepMethod; reason: string; chain?: StepMethod[]; order?: MethodOrder } {
-  if (duplicate) return { method: "confirm", reason: "동일 이름의 진단 단계 중복: 적용 단계 확인 필요" };
-  if (s.scope === "human") return { method: "manual", reason: s.note };
+function stepMethod(s: StepScope, duplicate: boolean, diagnosis?: AxDiagnosis): { method: StepMethod; reason: string; userReason: string; chain?: StepMethod[]; order?: MethodOrder } {
+  if (duplicate) return { method: "confirm", reason: "동일 이름의 진단 단계 중복: 적용 단계 확인 필요", userReason: "동일 이름의 진단 단계 중복: 처리 방식·적용 단계 확인 필요" };
+  if (s.scope === "human") return { method: "manual", reason: s.note, userReason: s.note };
   // Owner/verdict describe responsibility and policy, not an implementation-method enum.
   // Only exactly linked descriptions contribute evidence; similar names never establish a relation.
   const evidence = [
@@ -849,7 +851,10 @@ function stepMethod(s: StepScope, duplicate: boolean, diagnosis?: AxDiagnosis): 
     ...(diagnosis?.toBe ?? []).filter(item => normalizedStepText(item.step) === normalizedStepText(s.step))
       .map(item => ({ source: "diagnosis.toBe.description", text: item.description })),
   ];
+  // 내부 추적용 (출처 경로 포함)
   const reason = evidence.map(item => `${item.source}: ${item.text}`).join("; ");
+  // 사용자 표시용 (출처 경로 제거, 실제 근거만)
+  const userReason = evidence.map(item => item.text).join("; ");
   const itemChains = evidence.map(item => ({ item, chain: methodsIn(item.text) }));
   const all = methodsIn(evidence.map(item => item.text).join("\n"));
   const processing = (chain: StepMethod[]) => chain.filter(method => method !== "manual");
@@ -871,12 +876,17 @@ function stepMethod(s: StepScope, duplicate: boolean, diagnosis?: AxDiagnosis): 
   if (sequenced) {
     const chain = sequenced.chain;
     const consistent = itemChains.every(({ chain: other }) => processing(other).every(method => processing(chain).includes(method)));
-    if (consistent) return { method: "composite", reason, chain, order: sequenced.order };
-    return { method: "confirm", reason: ["처리 방식 근거 충돌", reason].filter(Boolean).join("; ") };
+    if (consistent) return { method: "composite", reason, userReason, chain, order: sequenced.order };
+    return { method: "confirm", reason: ["처리 방식 근거 충돌", reason].filter(Boolean).join("; "), userReason: ["처리 방식 근거 충돌", userReason].filter(Boolean).join("; ") };
   }
-  if (all.length > 1 && processing(all).length >= 2) return { method: "confirm", reason: ["처리 방식 근거 충돌", reason].filter(Boolean).join("; ") };
+  if (all.length > 1 && processing(all).length >= 2) return { method: "confirm", reason: ["처리 방식 근거 충돌", reason].filter(Boolean).join("; "), userReason: ["처리 방식 근거 충돌", userReason].filter(Boolean).join("; ") };
   const method = processing(all).length === 1 ? processing(all)[0] : all.length === 1 ? all[0] : "confirm";
-  return { method, reason: [method === "confirm" && !all.length ? "명시적 처리 방식 확인 필요" : "", reason].filter(Boolean).join("; ") };
+  const reasonPrefix = method === "confirm" && !all.length ? "명시적 처리 방식 확인 필요" : "";
+  return {
+    method,
+    reason: [reasonPrefix, reason].filter(Boolean).join("; "),
+    userReason: [reasonPrefix, userReason].filter(Boolean).join("; "),
+  };
 }
 /** Short user-facing name of one processing role inside a composite chain. */
 export function stepMethodShortLabel(method: StepMethod): string {
@@ -904,7 +914,7 @@ export function stepMethodLabel(model: AgentInstructionModel, index: number): st
   if (step.scope === "human") return "담당자 수행 유지 (자동화·판단 대체 금지)";
   if (method === "confirm") return model.steps.filter(s => normalizedStepText(s.step) === normalizedStepText(step.step)).length > 1
     ? "동일 이름의 진단 단계 중복: 처리 방식·적용 단계 확인 필요"
-    : `처리 방식 확인 필요 (확인 전 방식 선택·구현 금지)${model.methodReasons[index] ? ` — ${model.methodReasons[index]}` : ""}`;
+    : `처리 방식 미확정 · 확인 후 진행${model.methodUserReasons?.[index] ? `\n확인 사항: ${model.methodUserReasons[index]}` : ""}`;
   if (method === "assist") return "AI 후보·초안 생성 (담당자 확정 전 운영 반영 금지)";
   if (method === "manual") return "담당자 수동 처리 (시스템 구현 전 역할·범위 확인 필요)";
   if (method === "script") return model.scopeLevel === 1
@@ -1167,7 +1177,7 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
     };
   }
 
-  return { profile, level, gate, scopeLevel, steps: finalSteps, methods: finalMethodEvidence.map(item => item.method), methodReasons: finalMethodEvidence.map(item => item.reason),
+  return { profile, level, gate, scopeLevel, steps: finalSteps, methods: finalMethodEvidence.map(item => item.method), methodReasons: finalMethodEvidence.map(item => item.reason), methodUserReasons: finalMethodEvidence.map(item => item.userReason),
     methodChains: finalMethodEvidence.map(item => item.chain), methodOrders: finalMethodEvidence.map(item => item.order), conditions, classified: finalClassified,
     ambiguous: finalClassified.filter(item => item.scope === "confirm" && item.role !== "reference"),
     scoped: finalScoped, diagnosis: d, plan: guarded, prerequisites: options.prerequisites ?? [], gaps,
@@ -1184,7 +1194,7 @@ function applyHitlToModel(
   classified: AgentInstructionItem[],
   scoped: AgentInstructionModel["scoped"],
   steps: StepScope[],
-  methodEvidence: Array<{ method: StepMethod; reason: string; chain?: StepMethod[]; order?: MethodOrder }>,
+  methodEvidence: Array<{ method: StepMethod; reason: string; userReason: string; chain?: StepMethod[]; order?: MethodOrder }>,
   reviews: import("./types").HitlReview[],
   tool?: "codex" | "claude",
   diagnosis?: import("./types").AxDiagnosis,
@@ -1192,7 +1202,7 @@ function applyHitlToModel(
   classified: AgentInstructionItem[];
   scoped: AgentInstructionModel["scoped"];
   steps: StepScope[];
-  methodEvidence: Array<{ method: StepMethod; reason: string; chain?: StepMethod[]; order?: MethodOrder }>;
+  methodEvidence: Array<{ method: StepMethod; reason: string; userReason: string; chain?: StepMethod[]; order?: MethodOrder }>;
   appliedCount: number;
   appliedReviews: Array<{ id: string; action: string; targetKey: string }>;
   deferred: Array<{ key: string; reason?: string; resumeCondition?: string }>;
