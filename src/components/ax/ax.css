@@ -819,10 +819,14 @@
 .ax-hitl-type-badge { font-size: 11px; padding: 2px 8px; border-radius: 4px; background: var(--muted-surface, #f1f5f9); color: var(--foreground, #1e293b); white-space: nowrap; flex-shrink: 0; }
 /* HITL 테이블형 UI (레퍼런스 기준) */
 .ax-hitl-table-card { background: var(--card); border: 1px solid var(--line-soft); border-radius: 12px; overflow: hidden; }
-.ax-hitl-table-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--line-soft); }
+.ax-hitl-table-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px 16px 16px; border-bottom: 1px solid var(--line-soft); }
 .ax-hitl-table-title { display: flex; align-items: center; gap: 8px; }
-.ax-hitl-table-icon { display: inline-flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; line-height: 1; }
+.ax-hitl-table-icon { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; color: var(--primary); }
+.ax-hitl-table-icon[data-tone="warning"] { color: #d97706; }
+.ax-hitl-table-icon svg { display: block; }
 .ax-hitl-table-title h3 { margin: 0; font-size: 16px; font-weight: 700; }
+/* 테이블 첫 컬럼 헤더와 섹션 헤더 아이콘의 좌측 시작선 통일 */
+.ax-hitl-table thead th:first-child { padding-left: 16px; }
 .ax-hitl-table-counts { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted-foreground); }
 .ax-hitl-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
 .ax-hitl-table thead th { background: color-mix(in srgb, var(--primary) 4%, var(--card)); padding: 10px 16px; text-align: left; font-size: 13px; font-weight: 600; color: var(--muted-foreground); border-bottom: 1px solid var(--line-soft); }
