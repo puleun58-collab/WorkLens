@@ -114,6 +114,36 @@ p.research-meta { margin: 0; }
   margin: 0; color: var(--ink); font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); line-height: 1.55; overflow-wrap: anywhere;
 }
 .contract-review-severity { flex: none; }
+/* 문서 검토 개별 쟁점 위험도 배지 전용 스타일 (공통 Badge 전역 변경 없음).
+   높음=빨강, 보통=주황, 낮음=파랑. 크기·굵기·여백·테두리 두께는 세 단계 동일. */
+.contract-review .contract-review-severity {
+  height: auto;
+  min-height: 0;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.45;
+  padding: 4px 10px;
+  border: 1px solid;
+  white-space: nowrap;
+}
+.contract-review .contract-review-severity[data-severity="high"] {
+  background-color: #FEE4E2;
+  color: #B42318;
+  border-color: #F3A29B;
+}
+.contract-review .contract-review-severity[data-severity="medium"] {
+  background-color: #FEF0C7;
+  color: #92400E;
+  border-color: #E7B348;
+}
+.contract-review .contract-review-severity[data-severity="low"] {
+  background-color: #DBEAFE;
+  color: #1D4ED8;
+  border-color: #93B8F3;
+}
+/* 쟁점 제목 행: 제목은 좌측, 위험도 배지는 우측 끝 정렬, 세로 중앙 정렬. */
+.contract-review-issue-head { justify-content: space-between; }
+.contract-review-issue-head > h5 { flex: 1 1 auto; }
 .contract-review-issue { display: grid; gap: 12px; min-width: 0; box-sizing: border-box; padding-inline: var(--space-4); }
 .contract-review-issue + .contract-review-issue { margin-top: 8px; padding-top: 16px; border-top: 1px dashed var(--line-soft, var(--line)); }
 .contract-review-issue-head > h5 { display: flex; align-items: baseline; min-width: 0; margin: 0; color: var(--ink); font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); line-height: 1.55; overflow-wrap: anywhere; }
