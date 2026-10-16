@@ -881,11 +881,15 @@ function stepMethod(s: StepScope, duplicate: boolean, diagnosis?: AxDiagnosis): 
   }
   if (all.length > 1 && processing(all).length >= 2) return { method: "confirm", reason: ["처리 방식 근거 충돌", reason].filter(Boolean).join("; "), userReason: ["처리 방식 근거 충돌", userReason].filter(Boolean).join("; ") };
   const method = processing(all).length === 1 ? processing(all)[0] : all.length === 1 ? all[0] : "confirm";
+  // PART C: 내부 추적용 reason은 "명시적 처리 방식 확인 필요"를 유지하되,
+  // 사용자 표시용 userReason은 실제 근거가 있으면 근거만, 없으면 구체적 확인 안내로 표시한다.
   const reasonPrefix = method === "confirm" && !all.length ? "명시적 처리 방식 확인 필요" : "";
+  const userReasonPrefix = method === "confirm" && !all.length && !userReason
+    ? "진단에 처리 방식의 구체적 근거가 없음: 실제 처리 규칙·입력 형식을 확인하세요" : "";
   return {
     method,
     reason: [reasonPrefix, reason].filter(Boolean).join("; "),
-    userReason: [reasonPrefix, userReason].filter(Boolean).join("; "),
+    userReason: [userReasonPrefix, userReason].filter(Boolean).join("; "),
   };
 }
 /** Short user-facing name of one processing role inside a composite chain. */
@@ -935,17 +939,18 @@ export function scopeItemLabel(model: AgentInstructionModel, text: string): stri
 }
 /** Per-step INPUT/PROCESS/OUTPUT spec derived from confirmed evidence only.
  * Inputs: plan dataFlow items linked to the step, else the task-level inputs as reference.
- * Process: the step treatment + method chain. Outputs: scoped outputs linked to the step.
+ * Process: the step treatment + method chain. Outputs: scoped outputs linked to the step,
+ * else the task-level PoC outputs as the overall deliverable (never auto-excluded).
  * Missing pieces are reported as "확인 필요", never invented. */
-export interface StepIoSpec { inputs: string[]; process: string[]; outputs: string[]; reviewPoint?: string }
+export interface StepIoSpec { inputs: string[]; process: string[]; outputs: string[]; overallOutputs: string[]; reviewPoint?: string }
 export function stepIoSpec(model: AgentInstructionModel, index: number): StepIoSpec {
   const step = model.steps[index];
-  if (!step) return { inputs: [], process: [], outputs: [] };
+  if (!step) return { inputs: [], process: [], outputs: [], overallOutputs: [] };
   const d = model.diagnosis;
   const flowItems = model.classified.filter(item => item.role === "flow" && item.step === step.step);
   const featureItems = model.scoped.features.filter(item => item.step === step.step);
   const inputs = flowItems.length ? flowItems.map(item => item.text)
-    : (d?.asIs?.inputs?.length ? d.asIs.inputs.map(text => `${text} (업무 입력·참고)`) : []);
+    : (d?.asIs?.inputs?.length ? d.asIs.inputs.map(text => `${text} (업무 전체 입력)`) : []);
   const methodIdx = model.steps.indexOf(step);
   const process = [
     ...(step.treatment ? [`처리 방식: ${step.treatment}`] : []),
@@ -953,9 +958,23 @@ export function stepIoSpec(model: AgentInstructionModel, index: number): StepIoS
     ...featureItems.map(item => `구현: ${item.text}`),
   ];
   const outputs = model.scoped.outputs.filter(item => item.step === step.step).map(item => item.text);
+  // PART B: 단계별 출력이 없어도 업무 전체 최종 산출물(PoC outputs)은 자동 제외하지 않음.
+  // 단계명과 산출물명의 핵심어 겹침으로 관련 산출물을 연결하고, 관련성이 낮으면 업무 전체 산출물로 표시한다.
+  // 단순 부분 문자열이 아닌 2자 이상 핵심어 일치를 요구하며, 정책상 제외된 항목은 승격하지 않는다.
+  const pocOutputs = unique(model.classified
+    .filter(item => item.role === "outputs" && item.sources.some(s => s === "diagnosis.poc.outputs"))
+    .map(item => item.text));
+  const stepKeywords = new Set(step.step.replace(/[^\uAC00-\uD7A3A-Za-z0-9]/gu, " ").split(/\s+/u).filter(w => w.length >= 2));
+  // 2개 이상 핵심어 일치, 또는 3자 이상 핵심어 1개 일치가 필요 ("가격" 같은 일반 명사 1개만으로는 연결하지 않음).
+  const relatedOutputs = !outputs.length ? pocOutputs.filter(out => {
+    const outWords = out.replace(/[^\uAC00-\uD7A3A-Za-z0-9]/gu, " ").split(/\s+/u).filter(w => w.length >= 2);
+    const overlap = outWords.filter(w => stepKeywords.has(w));
+    return overlap.length >= 2 || overlap.some(w => w.length >= 3);
+  }) : [];
+  const overallOutputs = !outputs.length && !relatedOutputs.length ? pocOutputs : [];
   const reviewPoint = step.scope === "after-check" ? "관련 선행 조건 확인 후 진행"
     : model.methods[methodIdx] === "assist" ? "AI 결과는 담당자 확정 전 운영 반영 금지" : undefined;
-  return { inputs, process, outputs, reviewPoint };
+  return { inputs, process, outputs: [...outputs, ...relatedOutputs.map(t => `${t} (관련 산출물)`)], overallOutputs, reviewPoint };
 }
 
 /** Existing human/exclusion fields are restrictive evidence; preserve wording and provenance. */
@@ -1075,7 +1094,7 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
       reason = "생성·검증 대상 단계의 연결 근거 확인 필요: 업무 전체 산출물·PoC 문구만으로 현재 필수 항목으로 승격하지 않음";
     } else if (matches.length !== 1) {
       // PART D/E: 내부 문구("연결된 진단 단계가 확인되지 않았습니다")를 사용자 친화 문구로 교체.
-      reason = matches.length ? "여러 업무 단계에 연결되어 적용 범위를 확인해야 합니다." : source === "diagnosis.technicalChecks" ? "적용 단계 미확인: 전역 Gate 조건은 계속 유효합니다." : "어느 업무 단계에 적용되는지 확인되지 않았습니다.";
+      reason = matches.length ? "여러 업무 단계에 연결되어 적용 범위를 확인해야 합니다." : source === "diagnosis.technicalChecks" ? "어느 단계에 적용되는지 확인이 필요하지만, 전체 실행 조건으로는 유효합니다." : "어느 업무 단계에 적용되는지 확인되지 않았습니다.";
     } else {
       scope = matches[0].scope;
       if (scope === "future") reason = `현재 Level ${scopeLevel} 범위 밖`;
@@ -1396,7 +1415,10 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
   // Only generated proposals are labelled as plan proposals; raw diagnosis PoC scope is superseded by the policy scope above.
   const unlinked = unique(model.ambiguous.filter(item => item.role === "features" && proposal(item)).map(item => `${item.text} — ${item.reason}`));
   const goals = model.classified.filter(item => item.role === "goal");
-  const evidenceLine = (item: AgentInstructionItem) => `${item.text}${item.step ? ` (관련 단계: ${item.step})` : ""}${item.reason ? ` — ${item.reason}` : ""}${item.originals.some(text => normalizedItem(text) !== normalizedItem(item.text)) ? `; 원문: ${item.originals.join(" / ")}` : ""}`;
+  // PART C: goal은 업무 전체 목표이므로 "어느 업무 단계에 적용되는지 확인되지 않았습니다" 같은
+  // 단계 연결 문구를 표시하지 않는다. 내부 추적용 reason은 model에 보존된다.
+  const GOAL_LINK_REASON = "어느 업무 단계에 적용되는지 확인되지 않았습니다.";
+  const evidenceLine = (item: AgentInstructionItem) => `${item.text}${item.step ? ` (관련 단계: ${item.step})` : ""}${item.reason && !(item.role === "goal" && item.reason === GOAL_LINK_REASON) ? ` — ${item.reason}` : ""}${item.originals.some(text => normalizedItem(text) !== normalizedItem(item.text)) ? `; 원문: ${item.originals.join(" / ")}` : ""}`;
   const conditions = model.conditions.current.map(evidenceLine);
   const futureConditions = model.conditions.future.map(evidenceLine);
   const unassignedConditions = model.conditions.confirm.map(evidenceLine);
@@ -1448,7 +1470,13 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
   const fallback = unique([...(d?.operation?.fallback ? [d.operation.fallback] : []), ...model.classified.filter(item => (item.role === "fallback" || item.role === "operation") && ["implement", "after-check", "verify"].includes(item.scope)).map(item => item.text)]);
   const tests = unique(model.scoped.tests.map(item => item.text));
   const criteria = unique(model.scoped.criteria.map(evidenceLine));
-  const deferredCriteria = model.classified.filter(item => item.role === "criteria" && !model.scoped.criteria.includes(item) && !model.scoped.validationMethods.includes(item))
+  // PART B: PoC 성공·실패 기준은 업무 전체의 완료 기준이므로 단계 연결이 없어도 격하하지 않음.
+  // 단계 연결 근거가 없는 다른 criteria만 "참고 판정"으로 구분한다.
+  const isPocCriterion = (item: AgentInstructionItem) =>
+    item.sources.some(s => s === "diagnosis.poc.success" || s === "diagnosis.poc.failure");
+  // 업무 전체 완료 기준은 단계 연결 reason을 표시하지 않음 (전체 기준으로 명시하므로).
+  const overallCriteria = unique(model.classified.filter(item => item.role === "criteria" && isPocCriterion(item) && !model.scoped.criteria.includes(item)).map(item => item.text));
+  const deferredCriteria = model.classified.filter(item => item.role === "criteria" && !isPocCriterion(item) && !model.scoped.criteria.includes(item) && !model.scoped.validationMethods.includes(item))
     .map(item => `${evidenceLine(item)} — 현재 필수 완료 조건 아님`);
   const hitl = model.hitlDetails;
   // 1. 개발 목표: 무엇을·왜·어디까지 만드는가
@@ -1478,7 +1506,9 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
       `목적: ${methodLabel(s)}`,
       spec.inputs.length ? `입력: ${spec.inputs.join("; ")}` : "입력: 확인 필요 — 실제 입력 자료의 형식과 필수 항목을 확인하세요.",
       `처리: ${spec.process.join(" → ")}`,
-      spec.outputs.length ? `출력: ${spec.outputs.join("; ")}` : "출력: 확인 필요 — 이 단계의 결과물 형식을 확인하세요.",
+      spec.outputs.length ? `출력: ${spec.outputs.join("; ")}`
+        : spec.overallOutputs.length ? `출력 (업무 전체 산출물): ${spec.overallOutputs.join("; ")} — 이 단계의 처리 결과와 연결되는 최종 산출물입니다.`
+        : "출력: 확인 필요 — 이 단계의 결과물 형식을 확인하세요.",
       ...(spec.reviewPoint ? [`검토 지점: ${spec.reviewPoint}`] : []),
       `완료 기준: ${doneWhen(s)}`,
     ])}`;
@@ -1558,6 +1588,7 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
       "다음 진단에 필요한 정보가 보고됩니다.",
     ])}` : "",
     criteria.length ? `### 판정 기준\n\n${bullets(criteria)}` : "",
+    overallCriteria.length ? `### 업무 전체 완료 기준\n\n${bullets(overallCriteria)}\n\n위 기준은 업무 전체 산출물에 대한 완료 조건입니다. 단계별 검증과 함께 확인하세요.` : "",
     deferredCriteria.length ? `### 참고 판정 (필수 완료 조건 아님)\n\n${bullets(deferredCriteria)}` : "",
     `### 공통\n\n${bullets([
       "기존 기능과 데이터가 유지됩니다.",
