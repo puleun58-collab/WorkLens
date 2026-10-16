@@ -37,7 +37,9 @@ describe("coding-agent instruction scope", () => {
       expect(model.methodReasons).toHaveLength(model.steps.length);
       const reviewOnly = verdict === "no-go" || level === 0;
       const currentSteps = model.steps.filter(step => ["implement", "after-check", "verify"].includes(step.scope));
-      expect(currentSteps.map(step => step.step)).toEqual(reviewOnly || level >= 2 ? ["자료 수집", "형식 검증"] : ["형식 검증"]);
+      // PART B (기능 구현 vs 운영 자동화 분리): Level 1의 "자동화" 판정 단계도 담당자 실행 기반의
+      // 사용자 실행형 기능으로 구현 범위에 포함된다. 무인 자동 실행은 여전히 "운영 자동화 적용"으로 제외.
+      expect(currentSteps.map(step => step.step)).toEqual(reviewOnly ? ["자료 수집", "형식 검증"] : ["자료 수집", "형식 검증"]);
       expect(currentSteps.every(step => step.scope === (reviewOnly ? "verify" : verdict === "go" ? "implement" : "after-check"))).toBe(true);
       expect(model.scoped.features.every(item => ["implement", "after-check"].includes(item.scope))).toBe(true);
       for (const role of ["tests", "criteria", "outputs", "validationMethods"] as const) {

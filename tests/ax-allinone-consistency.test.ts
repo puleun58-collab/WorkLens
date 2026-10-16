@@ -27,11 +27,13 @@ describe("AX step linking in the shared model", () => {
     expect(byText("누락·중복 확인 — 담당자 메모").step).toBeUndefined();
     expect(byText("중복 검사").scope).toBe("confirm");
     expect(byText("중복 검사").step).toBeUndefined();
-    // Two proposals naming the same single future step both link to it without promoting it.
+    // PART B (기능 구현 vs 운영 자동화 분리): Level 1의 "자동화" 판정 단계도 담당자 실행 기반의
+    // 사용자 실행형으로 구현 범위에 포함되므로, 연결된 제안은 단계의 정책 범위(after-check)를 상속한다.
+    // 두 제안이 하나의 단계에 연결되어도 단계 범위를 넘어 승격되지는 않는다.
     const both = model.classified.filter(item => item.source === "plan.implementation" && item.text.startsWith("정산표 생성 — "));
     expect(both).toHaveLength(2);
-    for (const item of both) expect(item).toMatchObject({ step: "정산표 생성", scope: "future" });
-    expect(model.scoped.features.some(item => item.text.startsWith("정산표 생성 — "))).toBe(false);
+    for (const item of both) expect(item).toMatchObject({ step: "정산표 생성", scope: "after-check" });
+    expect(model.scoped.features.filter(item => item.text.startsWith("정산표 생성 — ")).every(item => item.scope === "after-check")).toBe(true);
   });
   it("keeps human and future linked proposals out of current implementation", () => {
     const c = freightCase;
@@ -40,7 +42,9 @@ describe("AX step linking in the shared model", () => {
     const approval = model.classified.find(item => item.source === "plan.implementation" && item.text.startsWith("정산 승인"));
     const erp = model.classified.find(item => item.source === "plan.implementation" && item.text.startsWith("정산표 생성"));
     expect(approval?.scope).toBe("human");
-    expect(erp?.scope).toBe("future");
+    // PART B: 단계 자체는 사용자 실행형으로 범위에 포함되지만, "ERP 자동 전송" 같은 무인 실행 제안은
+    // Level 1 정책에 따라 확인 대상으로 보류된다 (담당자 요청 없는 무인 실행·자동 확정 금지 유지).
+    expect(erp?.scope).toBe("confirm");
     const prompt = buildAllInOnePrompt(plan, "codex", { diagnosis: c.diagnosis, taskName: c.name });
     // The human-linked proposal is shown as an exclusion, never as an implementation step.
     expect(model.scoped.features.some(item => item.text.startsWith("정산 승인"))).toBe(false);
@@ -91,8 +95,9 @@ describe("AX condition step linking", () => {
     const model = modelFor(freightCase.diagnosis, freightCase.plan);
     const check = model.conditions.current.find(item => item.sources.includes("diagnosis.technicalChecks") && item.text.startsWith("실적 파일 병합"));
     expect(check?.step).toBe("실적 파일 병합");
-    const future = model.conditions.future.find(item => item.text.startsWith("정산표 생성"));
-    expect(future?.step).toBe("정산표 생성");
+    // PART B: "정산표 생성" 단계가 사용자 실행형으로 범위에 포함되므로, 연결된 선행 조건도 현재 조건으로 분류된다.
+    const linked = model.conditions.current.find(item => item.text.startsWith("정산표 생성"));
+    expect(linked?.step).toBe("정산표 생성");
     const erp = model.conditions.confirm.find(item => item.text.startsWith("ERP"));
     expect(erp).toBeDefined();
     expect(erp?.step).toBeUndefined();

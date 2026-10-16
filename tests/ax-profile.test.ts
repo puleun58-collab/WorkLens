@@ -54,7 +54,9 @@ describe("AX execution profile (Level ∩ Gate)", () => {
     const d = build(1, "ready"), profile = executionProfile(d);
     expect(titles(d)).toEqual(["입력·규칙 확인", "AI 보조 기능 검증", "담당자 검토", "제한 적용·결과 평가"]);
     expect(profile.roadmap[2].items).toContain("담당자 승인 담당자 수행 유지");
-    expect(profile.poc.inScope).toEqual(["형식 검증 AI 보조 결과(후보·초안) 생성", "담당자 검토 흐름 확인"]);
+    // PART B (기능 구현 vs 운영 자동화 분리): Level 1의 "자동화" 판정 단계도 담당자 실행 기반의
+    // 사용자 실행형으로 PoC 범위에 포함된다 (무인 자동 실행은 여전히 "운영 자동화 적용" 제외로 차단).
+    expect(profile.poc.inScope).toEqual(["자료 수집 사용자 실행 결과 생성", "형식 검증 AI 보조 결과(후보·초안) 생성", "담당자 검토 흐름 확인"]);
     expect(profile).toMatchObject({ roadmapTitle: "AI 보조 도입 로드맵", executionCandidate: true, nextAction: { label: "AI 보조 사전 검증" } });
   });
 
