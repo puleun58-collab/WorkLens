@@ -79,7 +79,7 @@ for (const width of [1440, 390]) test(`AX two-task ID-linked four-stage flow, in
     const marker = page.locator(".ax-bubble").and(page.getByRole("button", { name: new RegExp(`^${row.name} ·`) }));
     expect(await marker.evaluate(e => ({ x: (e as HTMLElement).style.left, y: (e as HTMLElement).style.bottom }))).toEqual({ x: row.x, y: row.y });
     await marker.click(); await expect.poll(async () => (await stored(page)).selectedTaskId).toBe(row.id);
-    await expect(page.locator(".ax-step3-main > section").last()).toContainText(row.name);
+    await expect(page.locator(".ax-step3-side .ax-matrix-detail")).toContainText(row.name);
   }
   await page.locator(".ax-bubble").and(page.getByRole("button", { name: /^업무 A ·/ })).click();
   await step(page, "결과·로드맵"); await expect(page.locator(".ax-report-intro h2")).toHaveText("업무 A");
