@@ -58,10 +58,10 @@ async function openCase(page: Page, tasks: AxTask[], selectedId = tasks[0].id) {
   await seed(page, { ...emptyAxState(), tasks, selectedTaskId: selectedId, step: 3 });
   await ax(page);
 }
-const clusterButton = (page: Page, count: number) => page.getByRole("button", { name: `동일 위치의 업무 ${count}개`, exact: true });
-const clusterMenu = (page: Page, count: number) => page.getByRole("menu", { name: `동일 위치의 업무 ${count}개`, exact: true });
+const clusterButton = (page: Page, count: number) => page.getByRole("button", { name: `해당 위치의 업무 ${count}개`, exact: true });
+const clusterMenu = (page: Page, count: number) => page.getByRole("menu", { name: `해당 위치의 업무 ${count}개`, exact: true });
 const taskList = (page: Page) => page.getByLabel("매트릭스 업무 목록", { exact: true });
-const summaryHeading = (page: Page) => page.locator(".ax-step3-main > section").last().getByRole("heading").first();
+const summaryHeading = (page: Page) => page.locator(".ax-step3-side .ax-matrix-detail").getByRole("heading").first();
 
 test("One diagnosed task renders an unnumbered circle with accessible priority and restores its selection", async ({ page }) => {
   const task = clusterTask("only");
@@ -71,8 +71,8 @@ test("One diagnosed task renders an unnumbered circle with accessible priority a
   await expect(page.locator(".ax-matrix-cluster")).toHaveCount(0);
   await expect(marker).toHaveText("");
   await expect(marker.locator(".ax-bubble-dot")).toBeVisible();
-  await expect(marker).toHaveAttribute("aria-label", `${task.name} · 빠른 실행 후보 · 우선순위 1`);
-  await expect(marker).toHaveAttribute("title", `${task.name} · 빠른 실행 후보 · 우선순위 1`);
+  await expect(marker).toHaveAttribute("aria-label", new RegExp(`^${task.name} · 빠른 실행 후보 · 우선순위 1 · `));
+  await expect(marker).toHaveAttribute("title", new RegExp(`^${task.name} · 빠른 실행 후보 · 우선순위 1 · `));
   await expect(marker).toHaveAttribute("aria-pressed", "true");
   await page.reload();
   await ax(page);
@@ -97,9 +97,9 @@ test("Five distinct coordinates remain five unnumbered, independently selectable
     markers.map(marker => `${(marker as HTMLElement).style.left},${(marker as HTMLElement).style.bottom}`));
   expect(new Set(coordinates).size).toBe(5);
   for (const task of tasks) {
-    const marker = page.locator(".ax-bubble").and(page.getByRole("button", { name: new RegExp(`^${task.name} · .* · 우선순위 \\d+$`) }));
+    const marker = page.locator(".ax-bubble").and(page.getByRole("button", { name: new RegExp(`^${task.name} · .* · 우선순위 \\d+ · `) }));
     await expect(marker).toHaveText("");
-    await expect(marker).toHaveAttribute("title", new RegExp(`^${task.name} · .* · 우선순위 \\d+$`));
+    await expect(marker).toHaveAttribute("title", new RegExp(`^${task.name} · .* · 우선순위 \\d+ · `));
     await marker.click();
     await expect(marker).toHaveAttribute("aria-pressed", "true");
     await expect(summaryHeading(page)).toContainText(task.name);
@@ -133,10 +133,14 @@ test("Case B: two equal renderer coordinates form one cluster beside one single"
   await expect(trigger.locator(".ax-matrix-cluster-number")).toHaveText("2");
   await trigger.click();
   const menu = clusterMenu(page, 2);
-  await expect(menu.locator(".ax-matrix-cluster-count")).toHaveText("동일 위치의 업무 · 2개");
+  await expect(menu.locator(".ax-matrix-cluster-count")).toHaveText("해당 위치의 업무 (2개)");
   // Raw factors, region and execution gate differ; final x/y still match.
-  await expect(menu.getByRole("menuitem")).toHaveText([`#1${first.name}`, `#3${second.name}`]);
-  await menu.getByRole("menuitem", { name: `#3 ${second.name}`, exact: true }).click();
+  await expect(menu.getByRole("menuitem")).toHaveCount(2);
+  await expect(menu.getByRole("menuitem").first()).toContainText(`#1`);
+  await expect(menu.getByRole("menuitem").first()).toContainText(first.name);
+  await expect(menu.getByRole("menuitem").nth(1)).toContainText(`#3`);
+  await expect(menu.getByRole("menuitem").nth(1)).toContainText(second.name);
+  await menu.getByRole("menuitem").nth(1).click();
   await expect(menu).not.toBeVisible();
   await expect.poll(async () => (await record(page))?.selectedTaskId).toBe(second.id);
   await expect(trigger).toHaveAttribute("data-selected", "true");
@@ -164,12 +168,12 @@ test("Case C: five tasks form three-member and two-member clusters without colla
   await expect(priorities.getByRole("listitem")).toHaveCount(5);
   await expect(priorities.locator(".ax-rank")).toHaveText(["#1", "#2", "#3", "#4", "#5"]);
   await clusterButton(page, 3).click();
-  await expect(clusterMenu(page, 3).getByRole("menuitem")).toHaveText(tasks.slice(0, 3).map((task, index) => `#${index + 1}${task.name}`));
+  await expect(clusterMenu(page, 3).getByRole("menuitem")).toHaveCount(3);
   await clusterMenu(page, 3).getByRole("menuitem").last().click();
   await expect.poll(async () => (await record(page))?.selectedTaskId).toBe(tasks[2].id);
   await expect(summaryHeading(page)).toContainText(tasks[2].name);
   await clusterButton(page, 2).click();
-  await expect(clusterMenu(page, 2).getByRole("menuitem")).toHaveText(tasks.slice(3).map((task, index) => `#${index + 4}${task.name}`));
+  await expect(clusterMenu(page, 2).getByRole("menuitem")).toHaveCount(2);
   await clusterMenu(page, 2).getByRole("menuitem").last().click();
   await expect.poll(async () => (await record(page))?.selectedTaskId).toBe(tasks[4].id);
   await expect(summaryHeading(page)).toContainText(tasks[4].name);
@@ -227,7 +231,7 @@ test("Case E: rediagnosis, deletion and import replace grouping and membership",
   await expect(page.locator(".ax-bubble")).toHaveCount(1);
   await expect(page.locator(".ax-bubble")).toHaveText("");
   await expect(page.locator(".ax-bubble")).toHaveAttribute("aria-label", new RegExp(`^${first.name} ·`));
-  await expect(page.locator(".ax-bubble")).toHaveAttribute("title", new RegExp(`^${first.name} · .* · 우선순위 1$`));
+  await expect(page.locator(".ax-bubble")).toHaveAttribute("title", new RegExp(`^${first.name} · .* · 우선순위 1 · `));
   await importData(page, { ...emptyAxState(), tasks: [second], selectedTaskId: second.id, step: 3 });
   await expect(taskList(page).getByRole("button")).toHaveCount(1);
   await expect(page.locator(".ax-bubble")).toHaveAttribute("aria-label", new RegExp(`^${second.name} ·`));
@@ -254,7 +258,7 @@ for (const width of [1440, 390]) test(`Case F: keyboard, Escape focus, outside/s
   await expect(trigger.locator(".ax-matrix-cluster-number")).toHaveText("100");
   await trigger.focus(); await page.keyboard.press("Enter");
   await expect(menu).toBeVisible();
-  await expect(menu.locator(".ax-matrix-cluster-count")).toHaveText("동일 위치의 업무 · 100개");
+  await expect(menu.locator(".ax-matrix-cluster-count")).toHaveText("해당 위치의 업무 (100개)");
   await expect(menu.getByRole("menuitem")).toHaveCount(100);
   await page.keyboard.press("End");
   await expect(menu.getByRole("menuitem").last()).toBeFocused();

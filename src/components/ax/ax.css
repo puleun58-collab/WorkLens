@@ -891,3 +891,70 @@
 .ax-hitl-v2-notice { display: flex; align-items: flex-start; gap: 8px; padding: 10px 14px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; font-size: 13px; line-height: 1.5; color: #1e40af; }
 .ax-hitl-v2-notice-icon { flex-shrink: 0; font-size: 14px; }
 .ax-hitl-v2-buttons { display: flex; gap: 8px; justify-content: flex-end; align-items: center; }
+
+/* ===== 자동화 매트릭스 3열 레이아웃 (레퍼런스 기준) ===== */
+.ax-step3-grid { grid-template-columns: 300px minmax(0,1fr) 340px; }
+.ax-step3-side { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+/* 좌측 업무 목록 패널 */
+.ax-matrix-task-panel { display: flex; flex-direction: column; min-width: 0; }
+.ax-matrix-list-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ax-matrix-list-head h3 { margin: 0; }
+.ax-matrix-list-tools { display: flex; gap: 8px; margin-top: 12px; }
+.ax-matrix-tool { display: flex; align-items: center; gap: 6px; font-size: var(--font-size-xs); color: var(--muted-foreground); flex: 1; min-width: 0; }
+.ax-matrix-tool select { flex: 1; min-width: 0; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--foreground); font-size: var(--font-size-xs); padding: 6px 8px; }
+.ax-task-rows.ax-matrix-list { margin-top: 12px; max-height: min(560px, 62vh); overflow-y: auto; overscroll-behavior: contain; }
+.ax-matrix-list li { gap: 8px; padding-left: 8px; }
+.ax-matrix-list li.is-checked { background: color-mix(in srgb, var(--primary) 5%, var(--card)); }
+.ax-task-check { flex: none; }
+.ax-matrix-list .ax-task-row-btn { grid-template-columns: 8px minmax(0,1fr) auto; align-items: center; }
+.ax-matrix-list .ax-gate-badge { grid-column: 2 / -1; justify-self: start; }
+/* 중앙 매트릭스 도구 영역 */
+.ax-matrix-tools { display: flex; gap: 8px; margin-left: auto; align-items: center; }
+.ax-matrix-help { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px; margin: 12px 0 4px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 10px; background: color-mix(in srgb, var(--primary) 4%, var(--card)); }
+.ax-matrix-help h4 { margin: 0 0 8px; font-size: 13px; display: flex; align-items: center; gap: 6px; }
+.ax-matrix-help ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; line-height: 1.6; color: var(--muted-foreground); }
+/* 매트릭스 범례 */
+.ax-matrix-legend { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 16px; margin-top: 8px; padding-top: 12px; border-top: 1px solid var(--border); font-size: var(--font-size-xs); color: var(--muted-foreground); }
+.ax-legend-item { display: inline-flex; align-items: center; gap: 6px; }
+.ax-legend-dot, .ax-bubble-gate { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.ax-legend-dot[data-gate=ready], .ax-bubble-gate[data-gate=ready] { background: #16a34a; }
+.ax-legend-dot[data-gate=conditional], .ax-bubble-gate[data-gate=conditional] { background: #d97706; }
+.ax-legend-dot[data-gate=blocked], .ax-bubble-gate[data-gate=blocked] { background: #dc2626; }
+.ax-legend-note { margin-left: auto; }
+.ax-bubble-gate { position: absolute; top: -3px; right: -3px; border: 2px solid var(--card); }
+/* 버블 선택 강조 */
+.ax-bubble.is-dimmed, .ax-matrix-cluster.is-dimmed { opacity: .35; }
+/* 우측 선택 업무 패널 */
+.ax-selected-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ax-selected-head h3 { margin: 0; }
+.ax-selected-list { list-style: none; padding: 0; margin: 12px 0 0; display: flex; flex-direction: column; gap: 8px; }
+.ax-selected-list li { border: 1px solid var(--border); border-radius: 10px; }
+.ax-selected-list li.is-active { border-color: color-mix(in srgb, var(--primary) 40%, var(--border)); background: color-mix(in srgb, var(--primary) 6%, var(--card)); }
+.ax-selected-row { width: 100%; height: auto; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; text-align: left; }
+.ax-selected-row .ax-task-name { min-width: 0; overflow-wrap: anywhere; }
+.ax-selected-empty { margin: 12px 0 0; font-size: 13px; }
+/* 묶음 팝업 개선 */
+.ax-matrix-cluster-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px 8px; }
+.ax-matrix-cluster-close { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border: 0; border-radius: 6px; background: transparent; color: var(--muted-foreground); cursor: pointer; }
+.ax-matrix-cluster-close:hover { background: var(--accent); color: var(--accent-foreground); }
+.ax-matrix-cluster-list { display: flex; flex-direction: column; gap: 4px; }
+.ax-matrix-cluster-item { display: flex; align-items: center; gap: 8px; border: 1px solid transparent; }
+.ax-matrix-cluster-item[data-active=true] { border-color: color-mix(in srgb, var(--primary) 40%, var(--border)); background: color-mix(in srgb, var(--primary) 6%, var(--card)); }
+.ax-matrix-cluster-check { display: inline-flex; flex: none; }
+.ax-matrix-cluster-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ax-matrix-cluster-meta { font-size: var(--font-size-xs); color: var(--muted-foreground); }
+.ax-matrix-cluster-foot { padding: 8px; border-top: 1px solid var(--border); margin-top: 4px; display: flex; justify-content: stretch; }
+.ax-matrix-cluster-foot > button { flex: 1; }
+/* 반응형: 중간 화면은 2열 + 우측 패널 하단 배치 */
+@media(max-width: 1280px) and (min-width: 701px) {
+  .ax-step3-grid { grid-template-columns: 300px minmax(0,1fr); }
+  .ax-step3-side { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1.4fr); align-items: start; }
+}
+/* 반응형: 모바일은 목록 → 매트릭스 → 상세 순서 */
+@media(max-width: 700px) {
+  .ax-step3-grid { display: flex; flex-direction: column; }
+  .ax-matrix-help { grid-template-columns: minmax(0,1fr); }
+  .ax-legend-note { margin-left: 0; width: 100%; }
+  .ax-matrix-tools { margin-left: 0; width: 100%; }
+  .ax-matrix-header { align-items: flex-start; }
+}
