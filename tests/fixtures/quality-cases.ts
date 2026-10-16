@@ -1,6 +1,6 @@
 import type { AxDiagnosis, AxPlan } from "../../src/lib/ax/types";
 import { FACTOR_KEYS, REPOSITORY_FIRST } from "../../src/lib/ax/schema";
-import type { AxAgentCase } from "./fixtures/ax-agent-cases";
+import type { AxAgentCase } from "./ax-agent-cases";
 
 type Factors = [repetition: number, regularity: number, dataStructure: number, systemAccess: number, humanJudgment: number, operationalRisk: number];
 type Step = AxDiagnosis["stepAssessments"][number];
@@ -10,10 +10,10 @@ const newPlan = (patch: Partial<AxPlan>): AxPlan => ({
   repositoryFirst: REPOSITORY_FIRST, goal: [], asIs: [], toBe: [], inScope: [], outOfScope: [], prerequisites: [], humanInLoop: [], poc: [],
   implementation: [], dataFlow: [], integrations: [], exceptions: [], fallback: [], security: [], operation: [], tests: [], acceptance: [], ...patch,
 });
-const base = (patch: Omit<Partial<AxDiagnosis>, "factors">): AxDiagnosis => ({
+const base = (patch: Omit<Partial<AxDiagnosis>, "factors">, factorValues: Factors = [4, 4, 3, 2, 4, 3]): AxDiagnosis => ({
   informationSufficiency: "partial", followUpQuestions: [],
   asIs: { purpose: "", trigger: "", inputs: [], steps: [], outputs: [], exceptions: [], humanDecisions: [], systems: [] },
-  factors: factors([4, 4, 3, 2, 4, 3]),
+  factors: factors(factorValues),
   stepAssessments: [], toBe: [], humanInLoop: [], technicalChecks: [], risks: [],
   poc: { hypothesis: "", inScope: [], outOfScope: [], inputs: [], outputs: [], evaluation: [], success: [], failure: [] },
   decisionGate: { verdict: "conditional", reasons: ["샘플 확인 후 진행"] }, roadmap: [],
@@ -63,7 +63,6 @@ export const reportCase: AxAgentCase = {
   name: "월간 영업 실적 보고서",
   description: "월간 영업 데이터를 집계해 실적 보고서를 생성하고 담당자가 검토합니다.",
   diagnosis: base({
-    factors: factors([5, 4, 4, 4, 3, 2]),
     decisionGate: { verdict: "go", reasons: [] },
     asIs: {
       purpose: "월간 영업 실적을 보고서로 정리", trigger: "매월 초",
@@ -84,7 +83,7 @@ export const reportCase: AxAgentCase = {
     humanInLoop: ["보고서 확정"],
     technicalChecks: [{ topic: "보고서 템플릿", status: "확인됨", note: "템플릿 확보됨" }],
     poc: { hypothesis: "보고서 생성을 자동화할 수 있다", inScope: [], outOfScope: ["보고서 자동 발송"], inputs: ["영업 데이터 샘플"], outputs: ["월간 영업 실적 보고서"], evaluation: ["담당자 수동 보고서와 대조"], success: ["보고서 수치가 수동 집계와 일치"], failure: ["누락 데이터가 정상 집계에 포함"] },
-  }),
+  }, [5, 4, 4, 4, 3, 2]),
   plan: newPlan({
     goal: ["월간 영업 실적 보고서를 생성하는 기능 구현"],
     inScope: ["데이터 집계", "실적 계산", "보고서 생성"],
