@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { AlertTriangle, ArrowRight, Ban, BookOpen, Bot, BrainCircuit, ChartNoAxesColumnIncreasing, Check, CheckCircle2, CircleAlert, CircleCheck, CircleX, Clipboard, ClipboardCheck, ClipboardList, Clock, CloudUpload, Copy, Database, Download, FileCode2, FileOutput, FileSpreadsheet, FileText, Flag, FlaskConical, Folder, GitBranch, Globe, Info, MonitorCog, Play, Plug, Search, Settings2, ShieldCheck, Target, Terminal, TriangleAlert, UserRound } from "lucide-react";
+import { AlertTriangle, ArrowRight, Ban, BookOpen, Bot, BrainCircuit, ChartNoAxesColumnIncreasing, Check, CheckCircle2, CircleAlert, CircleCheck, CircleX, Clipboard, ClipboardCheck, ClipboardList, Clock, CloudUpload, Copy, Database, Download, FileCode2, FileOutput, FileSpreadsheet, FileText, Flag, FlaskConical, Folder, GitBranch, Globe, Info, ListChecks, MonitorCog, Play, Plug, Search, Settings2, ShieldAlert, ShieldCheck, Target, Terminal, TriangleAlert, UserRound } from "lucide-react";
 import type { AxDiagnosis, AxPlan, AxTask, AxTaskV2, HitlReview } from "@/lib/ax/types";
 import { automationLevel, axes, executionGate, executionProfile, factorEffectiveValue, GATE_LABELS, gateBlockReasons, gatePrerequisites, matrixPosition, nextAction, type ExecutionProfile } from "@/lib/ax/policy";
 import { FACTOR_KEYS, FACTOR_LABELS } from "@/lib/ax/schema";
@@ -300,7 +300,7 @@ function AxRiskReview({ diagnosis: d, reviewProps }: { diagnosis: AxDiagnosis; r
     <div className="ax-hitl-table-card">
       <div className="ax-hitl-table-header">
         <div className="ax-hitl-table-title">
-          <span className="ax-hitl-table-icon">⚠️</span>
+          <span className="ax-hitl-table-icon" data-tone="warning"><ShieldAlert size={19} aria-hidden="true" /></span>
           <h3>위험·확인사항 검토</h3>
         </div>
         <div className="ax-hitl-table-counts">
@@ -387,7 +387,7 @@ function AxStepTable({ diagnosis: d, headers, reviewProps }: { diagnosis: AxDiag
       <div className="ax-hitl-table-card">
         <div className="ax-hitl-table-header">
           <div className="ax-hitl-table-title">
-            <span className="ax-hitl-table-icon">📊</span>
+            <span className="ax-hitl-table-icon" data-tone="primary"><ListChecks size={19} aria-hidden="true" /></span>
             <h3>단계별 자동화 판단</h3>
           </div>
           <div className="ax-hitl-table-counts">
@@ -862,7 +862,7 @@ function AxPlanReview({ plans, reviewProps }: { plans: { codex?: AxPlan; claude?
     <div className="ax-hitl-table-card">
       <div className="ax-hitl-table-header">
         <div className="ax-hitl-table-title">
-          <span className="ax-hitl-table-icon">📋</span>
+          <span className="ax-hitl-table-icon" data-tone="primary"><ClipboardCheck size={19} aria-hidden="true" /></span>
           <h3>구현 계획 검토</h3>
         </div>
         <div className="ax-hitl-table-counts">
