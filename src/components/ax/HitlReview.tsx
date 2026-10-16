@@ -255,7 +255,7 @@ export function HitlReviewPanel({ item, review, onSave, onCancel, onEdit }: Hitl
 
           <div className="ax-hitl-v2-buttons">
             <Button type="button" onClick={handleSave} disabled={!action || saving}>
-              {saving ? "저장 중..." : "검토 확정"}
+              {saving ? "저장 중..." : "확정"}
             </Button>
             {onCancel ? <Button type="button" variant="outline" onClick={onCancel} disabled={saving}>취소</Button> : null}
           </div>
