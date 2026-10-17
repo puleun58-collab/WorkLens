@@ -13,7 +13,7 @@ export const TOOL_GUIDES: Record<AxToolId, {
 };
 
 /** Inline text marks commands with backticks; `code` blocks default to PowerShell unless labeled as examples. */
-export type AxGuideBlock = { kind: "text"; text: string } | { kind: "code"; lines: string[]; notes?: string[]; label?: "PowerShell" | ".gitignore" | "예시" } | { kind: "steps"; items: string[] };
+export type AxGuideBlock = { kind: "text"; text: string } | { kind: "code"; lines: string[]; notes?: string[]; label?: "PowerShell" | ".gitignore" | "예시" } | { kind: "steps"; items: string[] } | { kind: "table"; headers: string[]; rows: string[][] };
 export interface AxGuideSection { title: string; when?: string; collapsed?: boolean; listStyle?: "bullets"; brand?: "vercel" | "cloudflare"; blocks: AxGuideBlock[] }
 export interface AxGuideStep { title: string; purpose: string; sections: AxGuideSection[] }
 
@@ -55,12 +55,14 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
       { title: "필요한 프로그램 설치", blocks: [
         text("아래 순서대로 설치하세요. 이미 설치된 프로그램은 건너뜁니다."),
         text("Git (필수) — 코드 변경 이력을 관리하고 GitHub와 프로젝트를 연결합니다. https://git-scm.com/download/win 에서 Windows용 설치 파일을 내려받아 실행하세요."),
-        text("Node.js (Node.js 프로젝트 작업 시 필수) — Node.js 기반 프로젝트 실행에 사용합니다. https://nodejs.org/ 에서 LTS 버전을 내려받아 설치하세요. 프로젝트에 별도의 Node.js 버전 요구사항이 있으면 해당 요구사항을 우선합니다."),
+        text("Node.js (Node.js 프로젝트·npm·npx·Wrangler 사용 시 필수) — Node.js 기반 프로젝트 실행과 npm 패키지(Wrangler 포함) 사용에 필요합니다. Node.js를 사용하지 않는 프로젝트에서는 설치하지 않아도 됩니다. https://nodejs.org/ 에서 LTS 버전을 내려받아 설치하세요. 프로젝트에 별도의 Node.js 버전 요구사항이 있으면 해당 요구사항을 우선합니다."),
         text("GitHub CLI (선택·권장) — GitHub 로그인과 저장소·PR 작업을 터미널에서 관리할 때 사용합니다. https://cli.github.com/ 에서 Windows용 설치 파일을 내려받아 설치하세요. 기존 GitHub 인증 방식이 이미 정상이라면 설치를 강제하지 않습니다."),
         text(`${guide.name} 설치 (필수)`),
         code([guide.installCommand], [
           "Windows PowerShell에서 실행합니다.",
           `설치 후 PowerShell을 새로 열고 \`${guide.versionCommand}\`으로 확인합니다. 문제가 있으면 \`${guide.doctorCommand}\`으로 점검합니다.`,
+          "위 네이티브 설치 방식은 Node.js 없이 동작합니다. npm으로 설치할 때만 Node.js 22 이상이 필요합니다.",
+          "이미 설치·인증된 사용자는 다시 설치하지 않습니다.",
         ]),
       ] },
       { title: "설치 확인", blocks: [
@@ -85,9 +87,14 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
         ]),
       ] },
       { title: "GitHub 로그인 확인", blocks: [
-        code(["gh auth status"], []),
+        text("아래 명령은 GitHub CLI를 설치한 경우에만 실행합니다. 설치하지 않은 사용자는 이 단계를 건너뛰고 기존 Git 인증 또는 GitHub 웹 작업을 그대로 사용하세요. GitHub CLI 미설치를 오류나 필수 절차 미완료로 취급하지 않습니다."),
+        code(["gh auth status"], [
+          "GitHub CLI를 설치한 경우에만 실행합니다.",
+        ]),
         text("로그인되어 있지 않으면 아래 명령어의 안내를 따릅니다. 이미 로그인한 사용자에게 재인증을 요구하지 않습니다."),
-        code(["gh auth login"], []),
+        code(["gh auth login"], [
+          "GitHub CLI를 설치한 경우에만 실행합니다.",
+        ]),
         text("GitHub CLI를 사용하지 않는 환경에서는 기존 인증 방식을 유지합니다. 토큰·비밀번호를 가이드나 소스 코드에 직접 입력하도록 안내하지 않습니다."),
       ] },
       { title: `${guide.name} 로그인`, blocks: [
@@ -137,16 +144,19 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
       { title: "배포 플랫폼 선택", when: "신규 프로젝트이거나 배포 플랫폼을 정하지 않은 경우", collapsed: true, blocks: [
         text("기존 프로젝트는 현재 사용 중인 배포 플랫폼을 먼저 확인하고, 정상 운영 중이면 임의로 변경하지 않습니다."),
         text("신규 프로젝트는 아래 비교로 검토합니다. DB 유무만으로 플랫폼을 단정하지 않습니다."),
-        text("적합한 프로젝트 — Vercel: 개인 포트폴리오·정적 사이트·단순 React/Next.js 앱. Cloudflare: Workers·D1·R2·KV 중심 업무용 앱."),
-        text("프레임워크 호환성 — Vercel: Next.js에 최적화, React·정적 사이트에 강함. Cloudflare: Workers·Pages, 다양한 프레임워크 지원."),
-        text("DB 연결 방식 — Vercel: Neon·Supabase 등 외부 DB 연결. Cloudflare: D1 내장, 외부 DB도 Hyperdrive로 연결 가능."),
-        text("파일 저장 방식 — Vercel: Blob 스토리지. Cloudflare: R2 객체 저장."),
-        text("배포 편의성 — Vercel: Git 연동 자동 배포가 간편. Cloudflare: Git 연동 또는 Wrangler CLI."),
-        text("실행 환경 제약 — Vercel Hobby: Function 실행 시간 최대 5분. Cloudflare Workers Free: 요청당 CPU 10ms. 장시간 실행·무거운 AI 처리는 제약과 비용을 먼저 확인하세요."),
-        text("무료 플랜 이용 조건 — Vercel Hobby: 개인·비상업적 용도로 제한, 회사 업무용은 이용 조건 확인 필요. Cloudflare Workers Free: 일일 요청 한도 내 자유롭게 사용 가능."),
-        text("회사 업무용 주의사항 — Vercel Hobby는 비상업적·개인 용도 제한이 있어 업무용은 Pro 플랜 또는 이용 조건 확인이 필요합니다. Cloudflare는 무료 플랜에서도 업무용 사용이 가능하지만 한도 초과 시 작업이 실패합니다."),
+        { kind: "table", headers: ["비교 항목", "Vercel", "Cloudflare"], rows: [
+          ["적합한 프로젝트", "개인 포트폴리오·정적 사이트·단순 React/Next.js 앱", "Workers·D1·R2·KV 중심 업무용 앱"],
+          ["프레임워크 호환성", "Next.js에 최적화, React·정적 사이트에 강함", "Workers·Pages, 다양한 프레임워크 지원"],
+          ["데이터베이스", "Neon·Supabase 등 외부 DB 연결", "D1 내장, 외부 DB도 Hyperdrive로 연결 가능"],
+          ["파일 저장", "Blob 스토리지", "R2 객체 저장"],
+          ["배포 방식", "Git 연동 자동 배포", "Git 연동 또는 Wrangler CLI"],
+          ["실행 환경 제약", "Hobby: Function 실행 시간 최대 5분", "Workers Free: 요청당 CPU 10ms"],
+          ["무료 플랜 이용 조건", "Hobby: 개인·비상업적 용도 제한", "서비스별 무료 한도 내에서 자유롭게 사용 (STEP 08 참조)"],
+          ["회사 업무용", "Pro 플랜 또는 이용 조건 확인 필요", "무료 플랜에서도 업무용 가능, 한도·비용 확인"],
+        ] },
         text("권장 기준: 개인 정적 사이트·간단한 프론트엔드는 Vercel 우선 검토, Workers·D1·R2·KV 중심 업무용 앱은 Cloudflare 우선 검토, PostgreSQL 등 외부 DB 기반 앱은 기존 DB·프레임워크 호환성으로 결정, 기존 정상 운영 프로젝트는 현재 환경 유지 우선."),
-        text("배포 플랫폼과 저장 서비스는 반드시 같은 공급자일 필요는 없습니다."),
+        text("배포 플랫폼과 저장 서비스는 반드시 같은 공급자일 필요는 없습니다. Vercel과 Cloudflare를 함께 사용할 수도 있습니다."),
+        text("장시간 실행·무거운 AI 처리는 실행 제약과 비용을 먼저 확인하세요."),
         text("공식 문서: https://vercel.com/docs/plans/hobby · https://developers.cloudflare.com/workers/platform/pricing/"),
       ] },
       { title: "데이터 저장 방식 선택", when: "신규 프로젝트이거나 저장 방식을 정하지 않은 경우", collapsed: true, listStyle: "bullets", blocks: [
@@ -175,14 +185,14 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
       { title: "D1·R2·KV 연결 절차", when: "Cloudflare D1·R2·KV 중 하나라도 사용하는 경우", collapsed: true, blocks: [
         text("아래 순서대로 진행합니다. 사용하는 서비스의 항목만 수행하고, 사용하지 않는 서비스는 건너뜁니다."),
         { kind: "steps", items: [
-          "1. 현재 프로젝트의 배포 환경을 확인합니다 (Workers인지 Pages인지, Git 자동 배포인지 Wrangler 방식인지).",
-          "2. 저장 서비스가 실제로 필요한지 결정합니다. 필요 없으면 이 절차 전체를 건너뜁니다.",
-          "3. Cloudflare 계정·리소스 생성 권한을 확인합니다. R2는 대시보드에서 R2를 먼저 활성화해야 합니다.",
-          "4. 기존 리소스가 있으면 재사용합니다. 새로 만들 때만 아래 서비스별 절차를 따릅니다.",
-          "5. wrangler 설정 파일에 Binding·환경변수를 연결합니다. 이름은 실제 프로젝트 설정을 확인합니다.",
-          "6. 개발 환경에서 연결을 테스트합니다.",
-          "7. Production에 연결하고 필요하면 마이그레이션을 적용합니다.",
-          "8. 실제 저장·조회가 되는지 검증합니다 (STEP 09).",
+          "현재 프로젝트의 배포 환경을 확인합니다 (Workers인지 Pages인지, Git 자동 배포인지 Wrangler 방식인지).",
+          "저장 서비스가 실제로 필요한지 결정합니다. 필요 없으면 이 절차 전체를 건너뜁니다.",
+          "Cloudflare 계정·리소스 생성 권한을 확인합니다. R2는 대시보드에서 R2를 먼저 활성화해야 합니다.",
+          "기존 리소스가 있으면 재사용합니다. 새로 만들 때만 아래 서비스별 절차를 따릅니다.",
+          "wrangler 설정 파일에 Binding·환경변수를 연결합니다. 이름은 실제 프로젝트 설정을 확인합니다.",
+          "개발 환경에서 연결을 테스트합니다.",
+          "Production에 연결하고 필요하면 마이그레이션을 적용합니다.",
+          "실제 저장·조회가 되는지 검증합니다 (STEP 09).",
         ] },
         text("D1 연결"),
         { kind: "steps", items: [
@@ -359,6 +369,20 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
         ] },
         text("코딩 에이전트가 수행하는 작업: 기존 DB·프로젝트 구조 확인, 필요한 DB 스키마 설계, 실제 프로젝트에 맞는 연결 설정 작성, 환경변수 및 Binding 구성, 마이그레이션 작성과 비파괴적 검증, DB 저장·조회 및 오류 처리 테스트."),
       ] },
+      { title: "운영 DB 백업·마이그레이션·롤백", when: "운영 DB에 변경이 있는 경우", collapsed: true, blocks: [
+        text("운영 DB를 변경하기 전에 아래를 확인합니다. 사용자 승인 없이 실행하지 않습니다."),
+        { kind: "steps", items: [
+          "□ 현재 연결된 DB가 개발용인지 운영용인지 확인",
+          "□ 계정·프로젝트·DB 식별 정보 확인",
+          "□ 기존 데이터 존재 여부 확인",
+          "□ 스키마 변경 범위 파악",
+          "□ 백업 상태 확인 및 백업의 실제 복구 가능성 확인",
+          "□ 예상되는 서비스 영향·중단 가능성 확인",
+          "□ 사용자 승인 여부 확인",
+        ] },
+        text("마이그레이션은 로컬 또는 별도 검증 환경에서 먼저 적용하고, 기존 데이터를 보존하는 변경 방식을 우선합니다. 적용 전후 스키마를 비교하고, 실패 가능성과 복구 방법을 확인한 뒤 운영 적용 전 승인을 받습니다. 운영 적용 후에는 실제 저장·조회·수정이 되는지 검증합니다."),
+        text("주의: 애플리케이션을 이전 버전으로 되돌리는 것과 DB 데이터를 복원하는 것은 별개의 작업입니다. 배포 롤백만으로 데이터나 DB 스키마가 자동 복구되지 않습니다. 마이그레이션 실패 시 무조건 재실행하지 말고 현재 적용 상태를 먼저 확인하세요. 복구 가능성이 확인되지 않은 상태에서 운영 데이터를 삭제·초기화하지 마세요. 삭제·덮어쓰기·파괴적 스키마 변경은 반드시 사전 승인을 받습니다."),
+      ] },
       { title: "Vercel인 경우", when: "현재 프로젝트가 Vercel에 배포되는 경우에만", brand: "vercel", blocks: [
         { kind: "steps", items: ["프로젝트 방식대로 push 또는 main merge", "Vercel build 결과 확인", "Preview 또는 Production 배포 확인", "배포 상태 확인"] },
         text("Git 연동 자동 배포라면 별도 수동 명령이 필요하지 않을 수 있습니다. 자동 배포에 수동 명령을 중복 실행하지 않습니다."),
@@ -369,6 +393,7 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
         text("Workers인지 Pages인지 먼저 확인합니다. Git 자동 배포인지 Wrangler 등 기존 CLI 방식인지 현재 프로젝트 설정을 확인합니다."),
         { kind: "steps", items: ["Git 자동 배포라면 프로젝트 방식대로 push/merge", "배포 진행 확인", "배포 상태 확인"] },
         text("자동 배포에 수동 명령을 중복 실행하지 않습니다. CLI 방식이면 프로젝트에 실제 있는 배포 명령만 실행합니다. `wrangler deploy`를 모든 프로젝트에 강제하지 않습니다."),
+        text("Wrangler를 사용하기 전에 `npx wrangler --version`으로 설치 여부를 확인하세요. 설치되어 있지 않으면 프로젝트의 패키지 매니저와 lockfile에 맞는 방식으로 설치합니다 (예: `npm i -g wrangler`). Wrangler 실행에는 Node.js가 필요합니다."),
         text("Secret은 코드에 넣지 않고 Cloudflare Variables/Secrets에 설정합니다."),
       ] },
       { title: "Cloudflare D1·R2·KV 무료 한도", when: "Cloudflare D1·R2·KV 사용을 검토하는 경우", collapsed: true, listStyle: "bullets", blocks: [
@@ -410,9 +435,7 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
       { title: "되돌리기(Rollback)", blocks: [
         text("무작정 계속 고치기보다 Vercel·Cloudflare에서 이전 정상 배포로 되돌릴 수 있는지 먼저 확인합니다. 실제 방식은 플랫폼 설정을 확인한 뒤 정합니다. 되돌리기는 자동 실행하지 않습니다."),
       ] },
-      { title: "DB·스토리지 Production 검증", when: "DB·스토리지를 사용하는 프로젝트인 경우", collapsed: true, blocks: [
-        text("사용하는 서비스의 항목만 확인합니다. 사용하지 않는 서비스의 검증 항목은 표시하지 않습니다."),
-        text("DB 사용 시"),
+      { title: "DB Production 검증", when: "DB(D1·외부 DB)를 사용하는 경우 — 사용하지 않으면 건너뜁니다", collapsed: true, blocks: [
         { kind: "steps", items: [
           "□ 데이터 신규 등록",
           "□ 저장 결과 조회",
@@ -422,14 +445,18 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
           "□ 개발 DB와 운영 DB 분리 확인",
           "□ 미승인 사용자의 접근 차단 확인",
         ] },
-        text("R2 사용 시"),
+        text("Production에서 검증하지 못한 항목을 완료로 표시하지 않습니다."),
+      ] },
+      { title: "R2 파일 검증", when: "R2를 사용하는 경우 — 사용하지 않으면 건너뜁니다", collapsed: true, blocks: [
         { kind: "steps", items: [
           "□ 파일 업로드",
           "□ 파일 재다운로드",
           "□ 파일 접근 권한 확인",
           "□ 잘못된 파일 및 파일 크기 제한 처리 확인",
         ] },
-        text("KV 사용 시"),
+        text("Production에서 검증하지 못한 항목을 완료로 표시하지 않습니다."),
+      ] },
+      { title: "KV 검증", when: "KV를 사용하는 경우 — 사용하지 않으면 건너뜁니다", collapsed: true, blocks: [
         { kind: "steps", items: [
           "□ 설정값 또는 캐시 조회",
           "□ 변경 후 일관성 특성에 맞는 동작 확인",

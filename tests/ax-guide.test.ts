@@ -42,7 +42,7 @@ describe("AX execution guides", () => {
       expect(TOOL_GUIDES.claude[key]).toBeTruthy();
       expect(TOOL_GUIDES.codex[key]).not.toBe(TOOL_GUIDES.claude[key]);
     }
-    const sectionText = (section: AxGuideSection) => [section.when ?? "", ...section.blocks.map(block => block.kind === "text" ? block.text : block.kind === "code" ? [...block.lines, ...(block.notes ?? [])].join("\n") : block.items.join("\n"))].join("\n");
+    const sectionText = (section: AxGuideSection) => [section.when ?? "", ...section.blocks.map(block => block.kind === "text" ? block.text : block.kind === "code" ? [...block.lines, ...(block.notes ?? [])].join("\n") : block.kind === "table" ? [...block.headers, ...block.rows.flat()].join("\n") : block.items.join("\n"))].join("\n");
     for (const tool of ["codex", "claude"] as const) {
       const other = tool === "codex" ? "claude" : "codex";
       const guide = setupGuide(tool);
@@ -350,10 +350,11 @@ describe("AX setup guide deployment platform and storage", () => {
   it.each(["codex", "claude"] as const)("includes production DB verification in STEP 09 for %s", tool => {
     const step09 = setupGuide(tool)[9];
     const titles = step09.sections.map(section => section.title);
-    expect(titles).toContain("DB·스토리지 Production 검증");
-    const verify = JSON.stringify(step09.sections.find(section => section.title === "DB·스토리지 Production 검증"));
-    expect(verify).toMatch(/사용하는 서비스[^.]*확인/u);
-    expect(verify).toMatch(/검증하지 못한 항목[^.]*완료로 표시하지/u);
+    expect(titles).toContain("DB Production 검증");
+    for (const title of ["DB Production 검증", "R2 파일 검증", "KV 검증"]) {
+      const verify = JSON.stringify(step09.sections.find(section => section.title === title));
+      expect(verify).toMatch(/검증하지 못한 항목[^.]*완료로 표시하지/u);
+    }
   });
   it.each(["codex", "claude"] as const)("keeps 9 steps and tool-independent steps identical for %s", tool => {
     const guide = setupGuide(tool);
@@ -361,5 +362,62 @@ describe("AX setup guide deployment platform and storage", () => {
     expect(guide).toHaveLength(10);
     expect(guide[2]).toEqual(setupGuide(other)[2]);
     for (const index of [5, 6, 7, 8, 9]) expect(guide[index]).toEqual(setupGuide(other)[index]);
+  });
+  it.each(["codex", "claude"] as const)("does not hardcode step numbers in list items for %s", tool => {
+    const blocks = setupGuide(tool).flatMap(step => step.sections.flatMap(section => section.blocks));
+    for (const block of blocks) {
+      if (block.kind !== "steps") continue;
+      for (const item of block.items) {
+        expect(item).not.toMatch(/^\d+\.\s/u);
+      }
+    }
+  });
+  it.each(["codex", "claude"] as const)("renders the platform comparison as a table for %s", tool => {
+    const section = setupGuide(tool)[2].sections.find(s => s.title === "배포 플랫폼 선택")!;
+    const table = section.blocks.find(block => block.kind === "table");
+    expect(table).toBeDefined();
+    if (table?.kind !== "table") throw new Error("missing table");
+    expect(table.headers).toEqual(["비교 항목", "Vercel", "Cloudflare"]);
+    expect(table.rows).toHaveLength(8);
+    expect(table.rows[0][0]).toBe("적합한 프로젝트");
+    const flat = JSON.stringify(table);
+    expect(flat).toContain("D1");
+    expect(flat).toContain("R2");
+  });
+  it.each(["codex", "claude"] as const)("splits production verification by service in STEP 09 for %s", tool => {
+    const step09 = setupGuide(tool)[9];
+    const titles = step09.sections.map(section => section.title);
+    expect(titles).toContain("DB Production 검증");
+    expect(titles).toContain("R2 파일 검증");
+    expect(titles).toContain("KV 검증");
+    expect(titles).not.toContain("DB·스토리지 Production 검증");
+    for (const title of ["DB Production 검증", "R2 파일 검증", "KV 검증"]) {
+      const section = step09.sections.find(s => s.title === title)!;
+      expect(section.collapsed).toBe(true);
+      expect(section.when).toMatch(/건너뜁니다/u);
+    }
+  });
+  it.each(["codex", "claude"] as const)("guides GitHub CLI as optional in STEP 01 for %s", tool => {
+    const step01 = JSON.stringify(setupGuide(tool)[1]);
+    expect(step01).toMatch(/GitHub CLI.*설치한 경우에만/u);
+    expect(step01).toMatch(/설치하지 않은 사용자.*건너뛰/u);
+    expect(step01).toMatch(/미설치를 오류.*취급하지/u);
+  });
+  it.each(["codex", "claude"] as const)("states Node.js requirements for npm and Wrangler for %s", tool => {
+    const step01 = JSON.stringify(setupGuide(tool)[1]);
+    expect(step01).toMatch(/npm·npx·Wrangler 사용 시 필수/u);
+    expect(step01).toMatch(/네이티브 설치 방식은 Node\.js 없이/u);
+    const step08 = JSON.stringify(setupGuide(tool)[8]);
+    expect(step08).toMatch(/Wrangler.*설치 여부.*확인/u);
+  });
+  it.each(["codex", "claude"] as const)("includes operational DB safety guidance in STEP 08 for %s", tool => {
+    const step08 = setupGuide(tool)[8];
+    const titles = step08.sections.map(section => section.title);
+    expect(titles).toContain("운영 DB 백업·마이그레이션·롤백");
+    const safety = JSON.stringify(step08.sections.find(s => s.title === "운영 DB 백업·마이그레이션·롤백"));
+    expect(safety).toMatch(/백업.*실제 복구 가능성/u);
+    expect(safety).toMatch(/별개의 작업/u);
+    expect(safety).toMatch(/자동 복구되지 않습니다/u);
+    expect(safety).toMatch(/사전 승인/u);
   });
 });
