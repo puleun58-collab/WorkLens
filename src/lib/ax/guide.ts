@@ -141,6 +141,34 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
         code(["Get-Location", "git status"], []),
         text("명령은 실제 프로젝트 폴더에서 실행합니다. 새 프로젝트에 Git 저장소가 아직 없으면 AI 도구와 초기화 필요성을 확인합니다."),
       ] },
+      { title: "배포 플랫폼 선택", when: "신규 프로젝트이거나 배포 플랫폼을 정하지 않은 경우", collapsed: true, listStyle: "bullets", blocks: [
+        text("기존 프로젝트는 현재 사용 중인 배포 플랫폼을 먼저 확인하고, 정상 운영 중이면 임의로 변경하지 않습니다."),
+        text("신규 프로젝트는 아래 기준으로 검토합니다. 플랫폼을 하나로 무조건 고정하지 않습니다."),
+        { kind: "steps", items: [
+          "개인 포트폴리오·정적 사이트 → Vercel 우선 검토",
+          "단순 React·Next.js 앱 → Vercel 우선 검토",
+          "DB 없는 간단한 웹 도구 → Vercel 또는 기존 환경",
+          "업무 등록·수정·조회 앱 → Cloudflare + D1 검토",
+          "PDF·이미지 등 파일 저장 → Cloudflare + R2 검토",
+          "설정값·캐시 저장 → Cloudflare + KV 검토",
+          "기존 PostgreSQL 기반 서비스 → 현재 DB 호환성 기준으로 결정",
+          "복잡한 백엔드·장시간 AI 처리 → 실행 시간·CPU·비용 확인 후 결정",
+        ] },
+        text("DB가 필요하다고 Cloudflare가 무조건 정답은 아닙니다. Vercel에서도 Neon·Supabase 등 외부 DB를 연결할 수 있습니다."),
+        text("Vercel Hobby는 개인·비상업적 용도로 제한됩니다. 회사 업무용으로 사용할 경우 이용 조건을 확인하세요."),
+        text("배포 플랫폼과 저장 서비스는 반드시 같은 공급자일 필요는 없습니다."),
+      ] },
+      { title: "데이터 저장 방식 선택", when: "신규 프로젝트이거나 저장 방식을 정하지 않은 경우", collapsed: true, listStyle: "bullets", blocks: [
+        text("데이터 종류에 따라 저장 위치를 선택합니다. 필요한 서비스만 선택하고, D1·R2·KV를 모두 연결하도록 안내하지 않습니다."),
+        { kind: "steps", items: [
+          "브라우저 저장 (localStorage·IndexedDB): 개인 설정·임시 데이터. 다른 PC·브라우저에서는 자동으로 공유되지 않습니다.",
+          "D1 (Cloudflare 관계형 DB): 업무 데이터·기록·상태 등. SQL로 조회하는 구조화된 데이터에 적합합니다.",
+          "R2 (Cloudflare 객체 저장): PDF·이미지·첨부파일 등 파일 저장에 적합합니다.",
+          "KV (Cloudflare 키-값 저장): 조회 중심 캐시·간단한 설정값에 적합합니다. 최종 일관성 특성상 중요한 실시간 업무 기록의 주 DB로는 권장하지 않습니다.",
+          "외부 DB (Neon·Supabase·기존 PostgreSQL 등): 기존 시스템과 연계하거나 현재 DB를 유지할 때 사용합니다.",
+        ] },
+        text("기존 프로젝트는 현재 DB·스토리지를 먼저 확인하고, 별도 지시 없이 DB 이전이나 신규 스토리지 연결을 제안하지 않습니다."),
+      ] },
     ] },
     { title: `STEP 3 · ${guide.name} 실행`, purpose: `프로젝트 폴더에서 ${guide.name} 실행 후 기존 지침·구현 확인`, sections: [
       { title: "프로젝트 폴더에서 실행", blocks: [
@@ -164,6 +192,17 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
           "실행한 AI 도구에 지시문 붙여넣기",
           "AI가 저장소를 분석하고 구현·검증을 진행합니다. 승인·검토 요청이 있으면 내용을 확인합니다.",
         ] },
+      ] },
+      { title: "DB 연동 프로젝트에서 미리 준비할 정보", when: "DB·스토리지 연동이 필요한 프로젝트인 경우", blocks: [
+        text("올인원 지시문을 실행하기 전에 아래 정보를 AI 도구와 함께 확인합니다. 확인되지 않은 요구사항을 임의로 확정하지 않습니다."),
+        { kind: "steps", items: [
+          "□ 기존 프로젝트인지 신규 프로젝트인지",
+          "□ 선택한 배포 플랫폼 (Vercel·Cloudflare 등)",
+          "□ 사용할 DB·스토리지 유형 (D1·R2·KV·외부 DB 등)",
+          "□ 기존 데이터 보존이 필요한지",
+          "□ 사용자 승인·권한이 필요한 항목 (DB 생성·마이그레이션·Secret 등록 등)",
+        ] },
+        text("위 정보는 해당 프로젝트의 실행 조건으로만 사용하고, 설치 가이드의 일반적인 권장 사항을 모든 업무의 올인원 지시문에 자동 삽입하지 않습니다."),
       ] },
     ] },
     { title: "STEP 5 · AI 작업 결과 검증", purpose: "변경 내용·테스트·빌드·핵심 기능 확인", sections: [
@@ -205,6 +244,17 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
       ] },
       { title: ".env와 .env.example", blocks: [
         text(".env에는 실제 Secret이 들어갈 수 있어 일반적으로 제외합니다. .env.example은 변수 이름을 공유하는 예제일 수 있으므로 무조건 제외하지 않습니다. 기존 프로젝트 정책을 우선합니다."),
+      ] },
+      { title: "DB·환경변수·Secret 관리", when: "DB·스토리지 연동이 필요한 프로젝트인 경우", blocks: [
+        text("DB 연결 정보와 비밀키는 코드에 직접 넣지 않습니다. 실제 Secret 값을 AI 대화에 붙여넣도록 요구하지 않습니다."),
+        { kind: "steps", items: [
+          "□ DB 연결 정보·API Key·Secret은 코드가 아닌 환경변수·플랫폼 Secret 설정에 등록",
+          "□ 개발·Preview·Production 환경변수를 구분하여 설정 (Preview 값을 Production에 그대로 복사하지 않음)",
+          "□ Secret(인증 정보)과 공개 가능한 설정값(리전·버킷명 등)을 구분",
+          "□ .env·DB 백업 파일·개인정보가 GitHub에 올라가지 않는지 확인",
+          "□ 운영 DB의 삭제·초기화·파괴적 마이그레이션은 사전 승인 없이 실행하지 않음",
+        ] },
+        text("이미 노출된 Secret은 .gitignore만으로 보호되지 않습니다. 키를 폐기 → 재발급 → 플랫폼 설정 교체 순서로 대응합니다."),
       ] },
       { title: "이미 추적 중인 파일", blocks: [
         text(".gitignore에 넣어도 계속 보이면 이미 Git이 추적 중일 수 있습니다. 파일을 삭제하지 마세요. AI 도구에 Git 상태를 확인시켜 추적만 제거할지 판단합니다."),
@@ -253,6 +303,36 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
         text("어떤 서비스가 어느 플랫폼에 어느 branch에서 어떤 방식으로 배포되는지 먼저 확인합니다. Vercel·Cloudflare Workers/Pages·GitHub Actions·Wrangler 등 현재 저장소 설정을 기준으로 하며, 배포 구성을 임의로 변경하거나 추가하지 않습니다."),
         text("Preview는 반영 전 확인용이고 Production은 실제 서비스입니다. feature branch·PR → Preview, main/production branch → Production일 수 있지만 예시이며 실제 설정이 우선합니다. 지금 배포할 환경을 먼저 확인합니다. Preview 확인만으로 Production 배포가 완료된 것은 아닙니다."),
       ] },
+      { title: "배포 전 확인 체크리스트", blocks: [
+        text("사용자가 직접 확인하거나 승인해야 하는 항목입니다."),
+        { kind: "steps", items: [
+          "□ GitHub 계정 준비",
+          "□ Vercel 또는 Cloudflare 계정 준비",
+          "□ GitHub 저장소와 배포 플랫폼 연결",
+          "□ GitHub 저장소 접근 권한 승인",
+          "□ 개인·회사 업무용 사용 조건 확인",
+          "□ 무료 플랜과 결제 조건 확인",
+          "□ 배포할 프로젝트·브랜치 확인",
+          "□ Preview / Production 구분 확인",
+          "□ Git 자동 배포 또는 CLI 수동 배포 여부 확인",
+          "□ 환경변수 및 Secret 등록 확인",
+          "□ DB·스토리지 Binding 확인 (사용하는 경우)",
+          "□ 마이그레이션 적용 대상 확인 (사용하는 경우)",
+          "□ 기존 데이터 백업 및 복구 방안 확인 (운영 데이터가 있는 경우)",
+        ] },
+        text("DB·스토리지 연결 전에는 아래 항목도 확인합니다."),
+        { kind: "steps", items: [
+          "□ DB가 실제로 필요한지 확인",
+          "□ D1·R2·KV·외부 DB 중 필요한 서비스만 선택",
+          "□ Cloudflare 계정 및 리소스 생성 권한 확인",
+          "□ R2 이용 시 구독 및 결제 설정 확인",
+          "□ 개발용·운영용 DB 구분",
+          "□ 필요한 API Key·Secret 준비",
+          "□ DB 스키마 변경 또는 마이그레이션 승인",
+          "□ 기존 데이터가 있다면 백업 확인",
+        ] },
+        text("코딩 에이전트가 수행하는 작업: 기존 DB·프로젝트 구조 확인, 필요한 DB 스키마 설계, 실제 프로젝트에 맞는 연결 설정 작성, 환경변수 및 Binding 구성, 마이그레이션 작성과 비파괴적 검증, DB 저장·조회 및 오류 처리 테스트."),
+      ] },
       { title: "Vercel인 경우", when: "현재 프로젝트가 Vercel에 배포되는 경우에만", brand: "vercel", blocks: [
         { kind: "steps", items: ["프로젝트 방식대로 push 또는 main merge", "Vercel build 결과 확인", "Preview 또는 Production 배포 확인", "배포 상태 확인"] },
         text("Git 연동 자동 배포라면 별도 수동 명령이 필요하지 않을 수 있습니다. 자동 배포에 수동 명령을 중복 실행하지 않습니다."),
@@ -264,6 +344,29 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
         { kind: "steps", items: ["Git 자동 배포라면 프로젝트 방식대로 push/merge", "배포 진행 확인", "배포 상태 확인"] },
         text("자동 배포에 수동 명령을 중복 실행하지 않습니다. CLI 방식이면 프로젝트에 실제 있는 배포 명령만 실행합니다. `wrangler deploy`를 모든 프로젝트에 강제하지 않습니다."),
         text("Secret은 코드에 넣지 않고 Cloudflare Variables/Secrets에 설정합니다."),
+      ] },
+      { title: "Cloudflare D1·R2·KV 무료 한도", when: "Cloudflare D1·R2·KV 사용을 검토하는 경우", collapsed: true, listStyle: "bullets", blocks: [
+        text("2026년 10월 공식 문서 기준입니다. 무료 한도는 일일·월간·총 저장 용량을 구분하여 확인하세요."),
+        { kind: "steps", items: [
+          "Workers: 요청 100,000회/일, 요청당 CPU 10ms",
+          "D1: 읽기 500만 행/일, 쓰기 10만 행/일, 총 5GB (DB당 최대 500MB, 계정당 최대 10개 DB)",
+          "R2: Standard 저장 10GB-month/월, Class A 100만 회/월, Class B 1,000만 회/월 (사용 전 구독 활성화 필요)",
+          "KV: 읽기 10만 회/일, 쓰기·삭제·목록 조회 각각 1천 회/일, 저장 1GB",
+        ] },
+        text("무료 플랜의 한도를 초과하면 해당 작업이 실패합니다. 모든 서비스가 한도 초과 시 무조건 자동 과금되는 것은 아닙니다."),
+        text("D1: 읽기 500만 행/일은 쿼리가 스캔한 행 수 기준입니다. 인덱스를 활용하면 읽기량을 줄일 수 있습니다."),
+        text("KV는 최종 일관성 특성상 서로 다른 지역에서 변경 내용이 즉시 반영되지 않을 수 있습니다."),
+        text("공식 문서: https://developers.cloudflare.com/workers/platform/pricing/ · https://developers.cloudflare.com/d1/platform/pricing/ · https://developers.cloudflare.com/r2/pricing/ · https://developers.cloudflare.com/kv/platform/pricing/"),
+      ] },
+      { title: "Vercel Hobby 제한 안내", when: "Vercel Hobby 플랜 사용을 검토하는 경우", collapsed: true, listStyle: "bullets", blocks: [
+        text("2026년 9월 공식 문서 기준입니다."),
+        { kind: "steps", items: [
+          "무료 플랜이며 개인 프로젝트·소규모 앱 대상입니다.",
+          "비상업적·개인 용도로 제한됩니다. 회사 업무용 사용 시 이용 조건을 확인하세요.",
+          "한도 초과 시 대부분 30일이 지나야 해당 기능을 다시 사용할 수 있습니다.",
+          "Function 호출: 월 100만 회, 데이터 전송: 월 100GB 포함",
+        ] },
+        text("공식 문서: https://vercel.com/docs/plans/hobby"),
       ] },
     ] },
     { title: "STEP 9 · Production 최종 확인", purpose: "실제 서비스의 화면·기능 확인과 문제 대응", sections: [
@@ -280,6 +383,33 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
       ] }] },
       { title: "되돌리기(Rollback)", blocks: [
         text("무작정 계속 고치기보다 Vercel·Cloudflare에서 이전 정상 배포로 되돌릴 수 있는지 먼저 확인합니다. 실제 방식은 플랫폼 설정을 확인한 뒤 정합니다. 되돌리기는 자동 실행하지 않습니다."),
+      ] },
+      { title: "DB·스토리지 Production 검증", when: "DB·스토리지를 사용하는 프로젝트인 경우", collapsed: true, blocks: [
+        text("사용하는 서비스의 항목만 확인합니다. 사용하지 않는 서비스의 검증 항목은 표시하지 않습니다."),
+        text("DB 사용 시"),
+        { kind: "steps", items: [
+          "□ 데이터 신규 등록",
+          "□ 저장 결과 조회",
+          "□ 데이터 수정 및 재조회",
+          "□ 새로고침 후 데이터 유지",
+          "□ 다른 브라우저에서 권한에 맞게 조회",
+          "□ 개발 DB와 운영 DB 분리 확인",
+          "□ 미승인 사용자의 접근 차단 확인",
+        ] },
+        text("R2 사용 시"),
+        { kind: "steps", items: [
+          "□ 파일 업로드",
+          "□ 파일 재다운로드",
+          "□ 파일 접근 권한 확인",
+          "□ 잘못된 파일 및 파일 크기 제한 처리 확인",
+        ] },
+        text("KV 사용 시"),
+        { kind: "steps", items: [
+          "□ 설정값 또는 캐시 조회",
+          "□ 변경 후 일관성 특성에 맞는 동작 확인",
+          "□ 한도 및 오류 처리 확인",
+        ] },
+        text("Production에서 검증하지 못한 항목을 완료로 표시하지 않습니다."),
       ] },
     ] },
   ];
