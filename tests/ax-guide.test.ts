@@ -310,10 +310,42 @@ describe("AX setup guide deployment platform and storage", () => {
     expect(limits).toContain("500만 행/일");
     expect(limits).toContain("10GB-month/월");
     expect(limits).toContain("developers.cloudflare.com");
-    expect(limits).toContain("2026년 10월");
+    expect(limits).toContain("기준일");
     const vercel = JSON.stringify(step08.sections.find(section => section.title === "Vercel Hobby 제한 안내"));
     expect(vercel).toMatch(/비상업적·개인/u);
     expect(vercel).toContain("vercel.com/docs/plans/hobby");
+  });
+  it.each(["codex", "claude"] as const)("uses native installers without winget for %s", tool => {
+    expect(TOOL_GUIDES[tool].installCommand).not.toContain("winget");
+    const step01 = JSON.stringify(setupGuide(tool)[1]);
+    expect(step01).not.toContain("winget");
+    expect(step01).toContain("https://git-scm.com/download/win");
+    expect(step01).toContain("https://nodejs.org/");
+    expect(step01).toContain("https://cli.github.com/");
+  });
+  it.each(["codex", "claude"] as const)("removes basic dir and Get-Location guidance in STEP 02 for %s", tool => {
+    const step02 = JSON.stringify(setupGuide(tool)[2]);
+    expect(step02).not.toContain("`dir`");
+    expect(step02).not.toContain("Get-Location");
+    expect(step02).toContain("git status");
+  });
+  it.each(["codex", "claude"] as const)("includes DB pre-connection checklist and storage connection flow in STEP 02 for %s", tool => {
+    const step02 = setupGuide(tool)[2];
+    const titles = step02.sections.map(section => section.title);
+    expect(titles).toContain("DB 연결 전 준비");
+    expect(titles).toContain("D1·R2·KV 연결 절차");
+    const prep = JSON.stringify(step02.sections.find(section => section.title === "DB 연결 전 준비"));
+    for (const term of ["필요한 서비스만 선택", "개발용·운영용", "기존 데이터"]) expect(prep).toContain(term);
+    const flow = JSON.stringify(step02.sections.find(section => section.title === "D1·R2·KV 연결 절차"));
+    for (const term of ["D1 연결", "R2 연결", "KV 연결", "사전 승인 없이 실행하지 않습니다"]) expect(flow).toContain(term);
+  });
+  it.each(["codex", "claude"] as const)("distinguishes overage handling per service in STEP 08 for %s", tool => {
+    const limits = JSON.stringify(setupGuide(tool)[8].sections.find(section => section.title === "Cloudflare D1·R2·KV 무료 한도"));
+    expect(limits).toMatch(/R2.*초과.*요금이 부과/u);
+    expect(limits).toMatch(/실패하고 자동 과금되지 않습니다/u);
+    const vercel = JSON.stringify(setupGuide(tool)[8].sections.find(section => section.title === "Vercel Hobby 제한 안내"));
+    expect(vercel).toContain("2026-09-14");
+    expect(vercel).toMatch(/30일/u);
   });
   it.each(["codex", "claude"] as const)("includes production DB verification in STEP 09 for %s", tool => {
     const step09 = setupGuide(tool)[9];

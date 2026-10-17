@@ -459,6 +459,9 @@
 .ax-guide .ax-guide-panel { padding-bottom: 24px; }
 .ax-guide .ax-tutorial-intro { margin-top: 0; }
 .ax-cmd { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.9em; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--foreground); background: color-mix(in srgb, var(--muted) 18%, var(--card)); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; }
+.ax-guide-link { color: var(--primary); text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; }
+.ax-guide-link:hover { text-decoration-thickness: 2px; }
+.ax-guide-link:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 2px; }
 /* Setup guide: readable body, STEP > section > body > command hierarchy, left aligned. */
 .ax-guide-panel { color: var(--foreground); font-size: var(--font-size-sm); line-height: 1.7; text-align: left; min-width: 0; }
 /* Each STEP is one unit: a stronger divider than the in-step completion line, a fixed number column, and a body that starts under the title. */

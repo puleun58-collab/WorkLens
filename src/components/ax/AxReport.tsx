@@ -523,8 +523,19 @@ export function AxCopyButton({ text, label, iconOnly = false }: { text: string; 
 }
 
 // Guide strings use backticks to mark commands without introducing HTML into data.
+// Bare https:// URLs are rendered as accessible external links.
+const URL_PATTERN = /(https:\/\/[^\s·,)]+)/gu;
 function AxGuideText({ text }: { text: string }) {
-  return <>{text.split(/(`[^`]+`)/g).map((part, i) => part.startsWith("`") ? <code className="ax-cmd" key={i}>{part.slice(1, -1)}</code> : part)}</>;
+  return <>{text.split(/(`[^`]+`)/g).map((part, i) => {
+    if (part.startsWith("`")) return <code className="ax-cmd" key={i}>{part.slice(1, -1)}</code>;
+    const segments = part.split(URL_PATTERN);
+    return segments.map((segment, j) => {
+      URL_PATTERN.lastIndex = 0;
+      return URL_PATTERN.test(segment)
+        ? <a key={`${i}-${j}`} href={segment} target="_blank" rel="noopener noreferrer" className="ax-guide-link">{segment}</a>
+        : <span key={`${i}-${j}`}>{segment}</span>;
+    });
+  })}</>;
 }
 function AxGuideBlockView({ block, listStyle }: { block: AxGuideBlock; listStyle?: "bullets" }) {
   if (block.kind === "code") {
@@ -555,7 +566,7 @@ function AxGuideSectionView({ section, completion = false, warning = false, coll
   return <section className={`ax-guide-section${completion ? " ax-guide-completion" : ""}${warning ? " ax-guide-warning" : ""}`}>
     <h5>{brandLogo}{completion ? <><CheckCircle2 aria-hidden="true" />완료 확인 · </> : warning ? <AlertTriangle aria-hidden="true" /> : null}{section.title}</h5>
     {collapsed ? <Accordion className="ax-guide-terms"><AccordionItem value="terms">
-      <AccordionTrigger className="ax-guide-terms-trigger">{section.collapsed ? "용어 설명 보기" : `${section.title} 자세히 보기`}</AccordionTrigger>
+      <AccordionTrigger className="ax-guide-terms-trigger">{section.title === "용어 알아보기" ? "용어 설명 보기" : `${section.title} 자세히 보기`}</AccordionTrigger>
       <AccordionPanel className="ax-guide-terms-panel">{content}</AccordionPanel>
     </AccordionItem></Accordion> : content}
   </section>;
@@ -569,7 +580,7 @@ const SETUP_COURSES = [
 const SETUP_ICONS = [Download, Folder, Terminal, Clipboard, CheckCircle2, ShieldCheck, GitBranch, CloudUpload, Globe] as const;
 const SETUP_COMPLETIONS = new Set(["GitHub 로그인 확인", "현재 위치 확인", "작업 시작 전 AI가 먼저 확인할 것", "테스트·빌드 확인", "실제 기능 확인", "GitHub에서 확인할 것", "실제 서비스 확인"]);
 const SETUP_WARNINGS = new Set(["기존 .gitignore 확인", ".env와 .env.example", "이미 추적 중인 파일", "올리기 전 체크리스트", "git push가 곧 Production은 아닙니다", "먼저 현재 배포 환경 확인", "오류가 나면", "CI가 실패하면", "문제가 생기면", "되돌리기(Rollback)"]);
-const SETUP_DETAILS: Record<string, true> = { "기본 명령": true };
+const SETUP_DETAILS: Record<string, true> = {};
 
 function AxSetupGuide({ tool, instructionsId, onGoToInstructions }: { tool: AxToolId; instructionsId: string; onGoToInstructions: () => void }) {
   const id = useId();
