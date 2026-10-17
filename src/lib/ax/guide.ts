@@ -254,7 +254,6 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
           "□ .env·DB 백업 파일·개인정보가 GitHub에 올라가지 않는지 확인",
           "□ 운영 DB의 삭제·초기화·파괴적 마이그레이션은 사전 승인 없이 실행하지 않음",
         ] },
-        text("이미 노출된 Secret은 .gitignore만으로 보호되지 않습니다. 키를 폐기 → 재발급 → 플랫폼 설정 교체 순서로 대응합니다."),
       ] },
       { title: "이미 추적 중인 파일", blocks: [
         text(".gitignore에 넣어도 계속 보이면 이미 Git이 추적 중일 수 있습니다. 파일을 삭제하지 마세요. AI 도구에 Git 상태를 확인시켜 추적만 제거할지 판단합니다."),
