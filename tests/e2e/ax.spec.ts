@@ -1414,6 +1414,84 @@ for (const width of [1440, 390]) {
   });
 }
 
+for (const width of [1440, 390]) {
+  test(`AX setup guide final content: platform table, service sections and safety guidance at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+    await page.goto("/");
+    const task = taskFixture("guide-final", { ...diagnosisFixture, planCodex: planFixture, planClaude: planFixture });
+    await seed(page, { ...emptyAxState(), tasks: [task], selectedTaskId: task.id, step: 4 }); await ax(page);
+    const section = page.getByRole("region", { name: "자동화 구현 계획", exact: true });
+    const guide = section.getByRole("button", { name: "설치·시작 가이드", exact: true });
+    await guide.click();
+    await expect(guide).toHaveAttribute("aria-expanded", "true");
+    const panel = section.locator(".ax-guide-panel");
+
+    // STEP 01: GitHub CLI optional guidance and Node.js conditions
+    const step01 = panel.locator('.ax-guide-step[data-setup-step="1"]');
+    await expect(step01).toContainText("GitHub CLI를 설치한 경우에만");
+    await expect(step01).toContainText("미설치를 오류나 필수 절차 미완료로 취급하지 않습니다");
+    await expect(step01).toContainText("npm·npx·Wrangler 사용 시 필수");
+
+    // STEP 02: platform comparison table (3 columns, no text duplication)
+    const step02 = panel.locator('.ax-guide-step[data-setup-step="2"]');
+    await step02.getByRole("button", { name: /배포 플랫폼 선택 자세히 보기/ }).click();
+    const table = step02.locator(".ax-guide-table");
+    await expect(table).toHaveCount(1);
+    await expect(table.locator("thead th")).toHaveCount(3);
+    await expect(table.locator("thead th").nth(0)).toHaveText("비교 항목");
+    await expect(table.locator("thead th").nth(1)).toHaveText("Vercel");
+    await expect(table.locator("thead th").nth(2)).toHaveText("Cloudflare");
+    await expect(table.locator("tbody tr")).toHaveCount(8);
+    await expect(table).toContainText("D1");
+    await expect(table).toContainText("R2");
+    // No page-level horizontal scroll even with the table
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+
+    // STEP 02: D1·R2·KV connection flow expands and has no duplicate numbering
+    const flowTrigger = step02.getByRole("button", { name: /D1·R2·KV 연결 절차 자세히 보기/ });
+    await flowTrigger.click();
+    const flowPanel = step02.locator(".ax-guide-terms-panel", { hasText: "현재 프로젝트의 배포 환경을 확인합니다" });
+    await expect(flowPanel).toBeVisible();
+    const flowItems = await flowPanel.locator("ol.ax-guide-list > li .ax-guide-text").allInnerTexts();
+    expect(flowItems.length).toBeGreaterThanOrEqual(8);
+    for (const item of flowItems) expect(item).not.toMatch(/^\d+\.\s/);
+
+    // STEP 08: operational DB safety section
+    const step08 = panel.locator('.ax-guide-step[data-setup-step="8"]');
+    const safetyTrigger = step08.getByRole("button", { name: /운영 DB 백업·마이그레이션·롤백 자세히 보기/ });
+    await safetyTrigger.click();
+    await expect(step08).toContainText("별개의 작업입니다");
+    await expect(step08).toContainText("자동 복구되지 않습니다");
+
+    // STEP 09: service-specific verification sections are separate
+    const step09 = panel.locator('.ax-guide-step[data-setup-step="9"]');
+    for (const name of ["DB Production 검증", "R2 파일 검증", "KV 검증"]) {
+      const trigger = step09.getByRole("button", { name: new RegExp(`${name} 자세히 보기`) });
+      await expect(trigger).toBeVisible();
+      await trigger.click();
+      await expect(trigger).toHaveAttribute("aria-expanded", "true");
+      await trigger.click();
+    }
+
+    // Official links point to real documentation
+    const links = await panel.locator(".ax-guide-link").evaluateAll(elements => elements.map(a => (a as HTMLAnchorElement).href));
+    expect(links.length).toBeGreaterThan(0);
+    for (const href of links) {
+      expect(href).toMatch(/^https:\/\/(git-scm\.com|nodejs\.org|cli\.github\.com|chatgpt\.com|claude\.ai|vercel\.com|developers\.cloudflare\.com)\//);
+    }
+
+    // Keyboard: table region is focusable for contained scroll
+    const tableWrap = step02.locator(".ax-guide-table-wrap");
+    await expect(tableWrap).toHaveAttribute("tabindex", "0");
+
+    // Tool switch keeps the guide intact
+    await section.getByRole("tab", { name: "Claude Code", exact: true }).click();
+    await expect(guide).toHaveAttribute("aria-expanded", "true");
+    await expect(panel.locator(".ax-guide-table")).toHaveCount(1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  });
+}
+
 function multiTasks(count: number) {
   return Array.from({ length: count }, (_, index) => {
     const diagnosis: AxDiagnosis = { ...diagnosisFixture,

@@ -551,6 +551,14 @@ function AxGuideBlockView({ block, listStyle }: { block: AxGuideBlock; listStyle
     const items = block.items.map((item, i) => <li key={i}><span className="ax-guide-marker" aria-hidden="true">{checklist ? "□" : listStyle === "bullets" ? "•" : String(i + 1).padStart(2, "0")}</span><span className="ax-guide-text"><AxGuideText text={checklist ? item.slice(2) : item} /></span></li>);
     return checklist || listStyle === "bullets" ? <ul className="ax-guide-list" role="list">{items}</ul> : <ol className="ax-guide-list" role="list">{items}</ol>;
   }
+  if (block.kind === "table") {
+    return <div className="ax-guide-table-wrap" role="region" aria-label="비교표" tabIndex={0}>
+      <table className="ax-guide-table">
+        <thead><tr>{block.headers.map((header, i) => <th key={i} scope="col"><AxGuideText text={header} /></th>)}</tr></thead>
+        <tbody>{block.rows.map((row, i) => <tr key={i}>{row.map((cell, j) => j === 0 ? <th key={j} scope="row"><AxGuideText text={cell} /></th> : <td key={j}><AxGuideText text={cell} /></td>)}</tr>)}</tbody>
+      </table>
+    </div>;
+  }
   return <p><AxGuideText text={block.text} /></p>;
 }
 function AxGuideSectionView({ section, completion = false, warning = false, collapsed = section.collapsed }: { section: AxGuideSection; completion?: boolean; warning?: boolean; collapsed?: boolean }) {
