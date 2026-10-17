@@ -804,7 +804,7 @@ function ResearchResult({ data, request, expandSources = false, onExpandSourcesC
       || issue.precedents.some((id) => caseOf.has(id)))
     : selectedArticles.length + selectedCases.length > 0;
   const evidenceStatus = selectedArticles.length + selectedCases.length ? data.evidence?.status : "unverified";
-  const unavailableCount = result.sections.filter((section) => section.status !== "available").length;
+  const unavailableCount = result.sections.filter((section) => section.unavailable).length;
   const visibleSelectedKeys = new Set(selectedArticles.map((article) => `${article.law}\u0000${article.jo}`));
   const visibleSelectedCaseIds = new Set(caseOf.keys());
   const candidatePrimary: ResearchSection[] = full ? primary.flatMap((section) => {
