@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { normalizeAnalysisDate } from "@/lib/law-analysis";
+import { classifyLawError, formatLawLog, type LawOutcomeClass } from "@/lib/law-observability";
 import { LAW_RESEARCH_ARTICLE_PATTERN, LAW_RESEARCH_BODY_MAX_BYTES, LAW_RESEARCH_DOCUMENT_MAX_CHARS,
   LAW_RESEARCH_DOCUMENT_MIN_CHARS, LAW_RESEARCH_MAX_ARTICLES, LAW_RESEARCH_NAME_MAX_CHARS,
   LAW_RESEARCH_QUERY_MAX_CHARS, LAW_REVIEW_FILE_MAX_CHARS, LAW_REVIEW_FILE_MAX_SEGMENTS, LAW_REVIEW_LOCATION_MAX_CHARS,
@@ -64,6 +65,14 @@ const researchRequest = z.discriminatedUnion("task", [
 
 export async function POST(request: Request) {
   const requestId = randomUUID();
+  const startMs = Date.now();
+  // 운영 관측: 메타데이터만 로그 (질문 원문·문서 내용 등 PII 제외).
+  const observe = (outcome: LawOutcomeClass, httpStatus: number, task: string, errorCode?: string) => {
+    console.log(formatLawLog({
+      requestId, task, startMs, endMs: Date.now(), httpStatus, outcome, retries: 0,
+      ...(errorCode ? { errorCode } : {}),
+    }));
+  };
   try {
     requireSameSite(request);
     if (!request.headers.get("content-type")?.toLowerCase().startsWith("application/json")) {
@@ -72,8 +81,15 @@ export async function POST(request: Request) {
     const parsed = researchRequest.safeParse(await readBoundedJson(request, LAW_RESEARCH_BODY_MAX_BYTES));
     if (!parsed.success) throw new ApiError("LAW_INVALID_REQUEST", "리서치 입력을 확인하세요.", 400);
     const result = await runBoundedOperation(() => runLegalResearch(parsed.data, { requestId, signal: request.signal }));
+    const outcome: LawOutcomeClass = result.found === false ? "no_data"
+      : result.evidence?.status === "unverified" ? "insufficient_relevance"
+      : result.evidence?.status === "partial" || result.evidence?.searchFailed ? "partial"
+      : "success";
+    observe(outcome, 200, parsed.data.task);
     return ok(result, 200, requestId);
   } catch (error) {
+    const code = error instanceof ApiError ? error.code : undefined;
+    observe(classifyLawError(code), error instanceof ApiError ? error.status : 500, "unknown", code);
     return apiError(error, requestId);
   }
 }

@@ -8,6 +8,7 @@
  * (success, parseable structure, nothing internal on screen, partial counts,
  * relevance ordering), never case titles or ranks, which change with the data.
  */
+import { mkdir, writeFile } from "node:fs/promises";
 import { lawDisplayText } from "../src/lib/law-display";
 import type { IssueEvidence, LawResearchData } from "../src/lib/law-research";
 import { researchResult } from "../src/lib/law-research-parse";
@@ -150,5 +151,21 @@ for (const outcome of outcomes) console.log(`${outcome.kind.padEnd(10)} ${outcom
 const regressions = outcomes.filter((outcome) => outcome.kind === "regression").length;
 const upstream = outcomes.filter((outcome) => outcome.kind !== "pass" && outcome.kind !== "regression").length;
 console.log(`\n${outcomes.length - regressions - upstream} passed, ${regressions} WorkLens regressions, ${upstream} upstream/no-result`);
+
+// 5단계 구분 기록: 테스트 실행 / 외부 접근 / 자료 조회 / 근거 검증 / 코드 회귀.
+// 외부 장애·자료 없음이 있어도 "전체 성공"으로 둔갑하지 않도록 각 단계를 분리 집계한다.
+const verification = {
+  date: new Date().toISOString(),
+  base: BASE,
+  testExecuted: outcomes.length,
+  upstreamReached: outcomes.filter((o) => o.kind !== "upstream" || !/network|timeout/i.test(o.detail)).length,
+  dataFound: outcomes.filter((o) => o.kind === "pass" || o.kind === "regression").length,
+  evidenceVerified: outcomes.filter((o) => o.kind === "pass").length,
+  codeRegression: regressions,
+  unverified: outcomes.filter((o) => o.kind === "upstream" || o.kind === "no_result").map((o) => `${o.name}: ${o.detail}`),
+};
+await mkdir("artifacts", { recursive: true }).catch(() => undefined);
+await writeFile("artifacts/law-live-smoke.json", JSON.stringify(verification, null, 2)).catch(() => undefined);
+console.log(`검증 단계: 실행 ${verification.testExecuted} / 외부접근 ${verification.upstreamReached} / 자료조회 ${verification.dataFound} / 근거검증 ${verification.evidenceVerified} / 코드회귀 ${verification.codeRegression}`);
 // Upstream trouble is reported but does not fail the run; a WorkLens regression does.
 process.exit(regressions ? 1 : 0);
