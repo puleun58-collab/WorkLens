@@ -989,6 +989,34 @@ for (const width of [1440, 390]) {
   });
 }
 
+for (const width of [1440, 390]) {
+  test(`AX setup guide v2 sections render without winget at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+    await page.goto("/");
+    const tasks = ["guide-v2-task"].map(id => taskFixture(id, {
+      ...diagnosisFixture, planCodex: longPlan("Codex"), planClaude: longPlan("Claude Code"),
+    }));
+    await seed(page, { ...emptyAxState(), tasks, selectedTaskId: tasks[0].id, step: 4 }); await ax(page);
+    const section = page.getByRole("region", { name: "자동화 구현 계획", exact: true });
+    const guideSection = section.locator(".ax-plan-guide");
+    const guide = guideSection.getByRole("button", { name: "설치·시작 가이드", exact: true });
+    await guide.scrollIntoViewIfNeeded();
+    await guide.click();
+    await expect(guide).toHaveAttribute("aria-expanded", "true");
+    const panel = guideSection.locator(".ax-guide-panel");
+    await expect(panel).toBeVisible();
+    // STEP 01에 winget 안내가 없음 (data-setup-step: 1=전체 흐름, 2=STEP 01)
+    const step1 = guideSection.locator('[data-setup-step="2"]');
+    await expect(step1.getByText("winget", { exact: false })).toHaveCount(0);
+    // 새 섹션 제목들이 가이드에 표시됨
+    await expect(guideSection.getByText("DB 연결 전 준비", { exact: false }).first()).toBeVisible();
+    await expect(guideSection.getByText("D1·R2·KV 연결 절차", { exact: false }).first()).toBeVisible();
+    await expect(guideSection.getByText("배포 전 확인 체크리스트", { exact: false }).first()).toBeVisible();
+    // 가로 스크롤 없음
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  });
+}
+
 async function expectActualMarkerGaps(surface: Locator) {
   const rows = await surface.locator(".ax-guide-list li").evaluateAll(elements => elements.flatMap(li => {
     const marker = li.querySelector(".ax-guide-marker");
