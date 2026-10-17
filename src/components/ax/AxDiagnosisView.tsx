@@ -187,15 +187,25 @@ export function AxDiagnosisView() {
       };
       doScroll();
       // Firefox 등에서 페인트 후 스크롤 위치가 복원되는 경우에 대비해 다음 프레임에서도 적용
-      // 이중 RAF로 브라우저의 스크롤 복원 이후 시점까지 보장
+      // 다중 RAF + setTimeout으로 브라우저의 스크롤 복원 이후 시점까지 보장
+      // (이중 RAF만으로는 Firefox CI에서 간헐적 실패 발생)
       let raf2 = 0;
+      let raf3 = 0;
+      let timer = 0;
       const raf = requestAnimationFrame(() => {
         if (window.scrollY !== 0) doScroll();
         raf2 = requestAnimationFrame(() => {
           if (window.scrollY !== 0) doScroll();
+          raf3 = requestAnimationFrame(() => {
+            if (window.scrollY !== 0) doScroll();
+          });
         });
       });
-      return () => { cancelAnimationFrame(raf); cancelAnimationFrame(raf2); };
+      // 최종 안전망: 모든 RAF 이후에도 복원되는 경우 대비
+      timer = window.setTimeout(() => {
+        if (window.scrollY !== 0) doScroll();
+      }, 100);
+      return () => { cancelAnimationFrame(raf); cancelAnimationFrame(raf2); cancelAnimationFrame(raf3); clearTimeout(timer); };
     }
     return undefined;
   }, [state.step]);
