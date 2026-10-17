@@ -87,6 +87,35 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  # 법령 배포 품질 게이트 (9순위): 결정론적 단계만 CI에서 실행.
+  # 4단계 실데이터 검증은 수동(law-live-smoke 워크플로)으로 분리.
+  law-quality-gate:
+    needs: fast
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.1
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-
+      - run: bun install --frozen-lockfile
+      - run: bun run test:law-quality-gate
+      - name: Upload quality gate report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: law-quality-gate-${{ github.run_id }}
+          path: |
+            artifacts/law-quality-gate.json
+            artifacts/law-accuracy.json
+          if-no-files-found: ignore
+          retention-days: 30
+
   # Firefox E2E는 참고용 — 실패해도 머지를 막지 않음 (flaky 방지)
   integration-firefox:
     needs: fast
