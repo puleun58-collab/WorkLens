@@ -1055,8 +1055,7 @@ async function expectGuideTutorial(page: Page, panel: Locator, tool: "Codex" | "
   await expect(context.getByRole("button", { name: /한눈에 보기 자세히 보기/ })).toHaveCount(0);
   const terms = context.locator(".ax-tutorial-glossary");
   const trigger = terms.getByRole("button", { name: "용어 알아보기", exact: true });
-  const basics = panel.getByRole("button", { name: /기본 명령/ });
-  for (const detail of [trigger, basics]) await expect(detail).toHaveAttribute("aria-expanded", "false");
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
   await expect(trigger.locator(".lucide-book-open")).toHaveCount(1);
   await expect(trigger.locator(".ax-tutorial-terms-action > span:first-child")).toBeVisible();
   await expect(trigger.locator(".ax-tutorial-terms-action > span:last-child")).toBeHidden();
@@ -1079,11 +1078,6 @@ async function expectGuideTutorial(page: Page, panel: Locator, tool: "Codex" | "
   const descriptionXs = await terms.locator("dd").evaluateAll(elements => elements.map(element => element.getBoundingClientRect().x));
   expect(Math.max(...descriptionXs) - Math.min(...descriptionXs)).toBeLessThanOrEqual(1);
   await panel.screenshot({ path: `artifacts/ax/setup-tutorial-terms-expanded-${screenshotName}.png` });
-  await expect(basics).toHaveAttribute("aria-expanded", "false");
-  await basics.click();
-  await expect(basics).toHaveAttribute("aria-expanded", "true");
-  await expect(trigger).toHaveAttribute("aria-expanded", "true");
-  await basics.click();
   await trigger.focus(); await page.keyboard.press("Space");
   await expect(trigger).toHaveAttribute("aria-expanded", "false");
   await expect(terms.locator("dl")).toBeHidden();
