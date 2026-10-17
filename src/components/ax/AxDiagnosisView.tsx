@@ -186,12 +186,11 @@ export function AxDiagnosisView() {
         document.documentElement.scrollTop = 0;
       };
       doScroll();
-      // Firefox 등에서 페인트 후 스크롤 위치가 복원되는 경우에 대비
-      // - 다중 RAF: 초기 페인트 시점의 복원 대응
-      // - interval 가드: 비동기 콘텐츠 로딩으로 인한 늦은 레이아웃 시프트 대응 (최대 500ms)
-      // - setTimeout: 최종 안전망
+      // Firefox 등에서 페인트 후 스크롤 위치가 복원되는 경우에 대비해 다음 프레임에서도 적용
+      // 다중 RAF + setTimeout으로 브라우저의 스크롤 복원 이후 시점까지 보장
       let raf2 = 0;
       let raf3 = 0;
+      let raf4 = 0;
       let timer = 0;
       const raf = requestAnimationFrame(() => {
         if (window.scrollY !== 0) doScroll();
@@ -199,21 +198,17 @@ export function AxDiagnosisView() {
           if (window.scrollY !== 0) doScroll();
           raf3 = requestAnimationFrame(() => {
             if (window.scrollY !== 0) doScroll();
+            raf4 = requestAnimationFrame(() => {
+              if (window.scrollY !== 0) doScroll();
+            });
           });
         });
       });
-      // interval 가드: 500ms 동안 50ms 간격으로 스크롤 위치 감시
-      const startTime = Date.now();
-      const guard = window.setInterval(() => {
-        if (window.scrollY !== 0) doScroll();
-        if (Date.now() - startTime > 500) window.clearInterval(guard);
-      }, 50);
-      // 최종 안전망: 모든 가드 이후에도 복원되는 경우 대비
+      // 최종 안전망: RAF 체인 이후에도 복원되는 경우 대비 (한 번만)
       timer = window.setTimeout(() => {
         if (window.scrollY !== 0) doScroll();
-        window.clearInterval(guard);
-      }, 600);
-      return () => { cancelAnimationFrame(raf); cancelAnimationFrame(raf2); cancelAnimationFrame(raf3); clearTimeout(timer); window.clearInterval(guard); };
+      }, 150);
+      return () => { cancelAnimationFrame(raf); cancelAnimationFrame(raf2); cancelAnimationFrame(raf3); cancelAnimationFrame(raf4); clearTimeout(timer); };
     }
     return undefined;
   }, [state.step]);
