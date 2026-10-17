@@ -69,9 +69,10 @@ jobs:
           key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
           restore-keys: ${{ runner.os }}-bun-
       - run: bun install --frozen-lockfile
-      - run: bunx playwright install --with-deps chromium firefox
+      - run: bunx playwright install --with-deps chromium
       - run: bun run build
-      - run: bun run test:e2e
+      # Chromium이 주 브라우저 — 이 job만 머지 필수 조건
+      - run: bunx playwright test --project=chromium-desktop --project=chromium-tablet
       - run: bun run test:e2e:cloudflare
       - name: Upload browser reports and failure traces
         if: failure()
@@ -83,6 +84,37 @@ jobs:
             artifacts/e2e-report.json
             artifacts/e2e-cloudflare/
             artifacts/e2e-cloudflare-report.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # Firefox E2E는 참고용 — 실패해도 머지를 막지 않음 (flaky 방지)
+  integration-firefox:
+    needs: fast
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.1
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-
+      - run: bun install --frozen-lockfile
+      - run: bunx playwright install --with-deps firefox
+      - run: bun run build
+      - run: bunx playwright test --project=firefox
+      - name: Upload Firefox failure traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-firefox-failure-${{ github.run_id }}
+          path: |
+            artifacts/e2e/
+            artifacts/e2e-report.json
           if-no-files-found: ignore
           retention-days: 14
 

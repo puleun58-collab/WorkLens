@@ -284,3 +284,50 @@ describe("AX plan display boundaries", () => {
     }
   });
 });
+
+describe("AX setup guide deployment platform and storage", () => {
+  it.each(["codex", "claude"] as const)("includes platform selection and storage guidance in STEP 02 for %s", tool => {
+    const step02 = setupGuide(tool)[2];
+    const titles = step02.sections.map(section => section.title);
+    expect(titles).toContain("배포 플랫폼 선택");
+    expect(titles).toContain("데이터 저장 방식 선택");
+    const platform = JSON.stringify(step02.sections.find(section => section.title === "배포 플랫폼 선택"));
+    expect(platform).toContain("Vercel");
+    expect(platform).toContain("Cloudflare");
+    expect(platform).toMatch(/Hobby[^.]*개인·비상업적/u);
+    const storage = JSON.stringify(step02.sections.find(section => section.title === "데이터 저장 방식 선택"));
+    for (const term of ["D1", "R2", "KV", "브라우저 저장"]) expect(storage).toContain(term);
+    expect(storage).toMatch(/최종 일관성[^.]*주 DB[^.]*권장하지/u);
+  });
+  it.each(["codex", "claude"] as const)("includes free tier limits with official sources in STEP 08 for %s", tool => {
+    const step08 = setupGuide(tool)[8];
+    const titles = step08.sections.map(section => section.title);
+    expect(titles).toContain("배포 전 확인 체크리스트");
+    expect(titles).toContain("Cloudflare D1·R2·KV 무료 한도");
+    expect(titles).toContain("Vercel Hobby 제한 안내");
+    const limits = JSON.stringify(step08.sections.find(section => section.title === "Cloudflare D1·R2·KV 무료 한도"));
+    expect(limits).toContain("100,000회/일");
+    expect(limits).toContain("500만 행/일");
+    expect(limits).toContain("10GB-month/월");
+    expect(limits).toContain("developers.cloudflare.com");
+    expect(limits).toContain("2026년 10월");
+    const vercel = JSON.stringify(step08.sections.find(section => section.title === "Vercel Hobby 제한 안내"));
+    expect(vercel).toMatch(/비상업적·개인/u);
+    expect(vercel).toContain("vercel.com/docs/plans/hobby");
+  });
+  it.each(["codex", "claude"] as const)("includes production DB verification in STEP 09 for %s", tool => {
+    const step09 = setupGuide(tool)[9];
+    const titles = step09.sections.map(section => section.title);
+    expect(titles).toContain("DB·스토리지 Production 검증");
+    const verify = JSON.stringify(step09.sections.find(section => section.title === "DB·스토리지 Production 검증"));
+    expect(verify).toMatch(/사용하는 서비스[^.]*확인/u);
+    expect(verify).toMatch(/검증하지 못한 항목[^.]*완료로 표시하지/u);
+  });
+  it.each(["codex", "claude"] as const)("keeps 9 steps and tool-independent steps identical for %s", tool => {
+    const guide = setupGuide(tool);
+    const other = tool === "codex" ? "claude" : "codex";
+    expect(guide).toHaveLength(10);
+    expect(guide[2]).toEqual(setupGuide(other)[2]);
+    for (const index of [5, 6, 7, 8, 9]) expect(guide[index]).toEqual(setupGuide(other)[index]);
+  });
+});
