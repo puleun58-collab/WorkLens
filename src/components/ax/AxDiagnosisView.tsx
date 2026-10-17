@@ -166,6 +166,16 @@ export function AxDiagnosisView() {
   // 해당 요소에만 scrollTop을 설정하면 동작하지 않음 (PR #161의 잔여 결함)
   // useLayoutEffect: DOM 반영 직후·페인트 전에 실행해 스크롤 잔상 방지
   const stepRef = useRef(state.step);
+  // Firefox의 자동 스크롤 복원이 React 스크롤 초기화와 경합하는 것을 방지
+  // (history.scrollRestoration='manual'로 브라우저 자동 복원 비활성화)
+  useEffect(() => {
+    if (typeof history !== "undefined" && "scrollRestoration" in history) {
+      const prev = history.scrollRestoration;
+      history.scrollRestoration = "manual";
+      return () => { history.scrollRestoration = prev; };
+    }
+    return undefined;
+  }, []);
   useLayoutEffect(() => {
     if (stepRef.current !== state.step) {
       stepRef.current = state.step;
@@ -177,10 +187,15 @@ export function AxDiagnosisView() {
       };
       doScroll();
       // Firefox 등에서 페인트 후 스크롤 위치가 복원되는 경우에 대비해 다음 프레임에서도 적용
+      // 이중 RAF로 브라우저의 스크롤 복원 이후 시점까지 보장
+      let raf2 = 0;
       const raf = requestAnimationFrame(() => {
         if (window.scrollY !== 0) doScroll();
+        raf2 = requestAnimationFrame(() => {
+          if (window.scrollY !== 0) doScroll();
+        });
       });
-      return () => cancelAnimationFrame(raf);
+      return () => { cancelAnimationFrame(raf); cancelAnimationFrame(raf2); };
     }
     return undefined;
   }, [state.step]);
