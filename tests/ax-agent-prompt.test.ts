@@ -4,7 +4,7 @@ import { executionProfile } from "../src/lib/ax/policy";
 import { exportAxState, importAxState } from "../src/lib/ax/transfer";
 import type { AxDiagnosis, AxPlan } from "../src/lib/ax/types";
 import { diagnosisFixture, planFixture, taskFixture } from "./fixtures/ax";
-import { agentCases, equipmentRuleCase, equipmentCase, freightCase, permitCase, type AxAgentCase } from "./fixtures/ax-agent-cases";
+import { agentCases, equipmentRuleCase, equipmentCase, freightCase, contractCase, permitCase, type AxAgentCase } from "./fixtures/ax-agent-cases";
 
 const withFactors = (values: readonly number[], patch: Partial<AxDiagnosis> = {}): AxDiagnosis => ({
   ...diagnosisFixture, ...patch, factors: diagnosisFixture.factors.map((factor, i) => ({ ...factor, aiValue: values[i] })),
@@ -69,6 +69,31 @@ describe("coding-agent instruction scope", () => {
     expect(buildAgentInstructionModel(c.plan, options)).toEqual(model);
     expect(buildAllInOnePrompt(c.plan, "claude", options)).toBe(buildAllInOnePrompt(c.plan, "codex", options));
     expect(c).toEqual(before);
+  });
+});
+
+describe("first MVP execution and reviewed scope", () => {
+  it("carries the original task into the input-to-output contract without promising a static report", () => {
+    const prompt = buildAllInOnePrompt(contractCase.plan, "codex", optionsFor(contractCase));
+    expect(prompt).toContain(contractCase.description);
+    expect(prompt).toContain("실제 입력 수신→형식 파싱·필수값 검증");
+    expect(prompt).toContain("업무상 필요한 저장·재조회는 기존 방식을 사용");
+    expect(prompt).toContain("입력이 달라도 같은 고정 결과");
+    expect(prompt).toContain("서로 다른 입력으로 다시 실행");
+    expect(prompt).toContain("빈 입력");
+    expect(prompt).toContain("외부 API가 필요한 경우 응답 오류·권한 거부·연결 실패");
+    expect(prompt).toContain("올인원 지시문 생성만으로 첫 MVP가 완료되지는 않습니다");
+    expect(prompt).toContain("배포하지 않았다면 운영 검증 완료로 보고하지 마세요");
+  });
+
+  it("holds only a guarded step-linked API mutation, not its independent diagnosed step", () => {
+    const proposal = "만료 예정 계약 추출 — 사내 API로 자동 등록한다";
+    const plan: AxPlan = { ...contractCase.plan, implementation: [...contractCase.plan.implementation, proposal] };
+    const model = buildAgentInstructionModel(plan, optionsFor(contractCase));
+    const item = classified(model, "plan.implementation", proposal);
+    expect(item).toMatchObject({ scope: "confirm", step: "만료 예정 계약 추출" });
+    expect(model.scoped.features).not.toContain(item);
+    expect(model.steps.some(step => step.step === "만료 예정 계약 추출" && step.scope === "implement")).toBe(true);
   });
 });
 

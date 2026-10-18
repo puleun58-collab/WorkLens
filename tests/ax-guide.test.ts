@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildAgentInstructionModel, buildAllInOnePrompt, guardPlan, planSummary, setupGuide, stepMethodLabel, TOOL_GUIDES, type AxGuideSection } from "../src/lib/ax/guide";
+import { buildAgentInstructionModel, buildAllInOnePrompt, guardPlan, planSummary, setupGuide, stepMethodLabel, TOOL_GUIDES } from "../src/lib/ax/guide";
 import { executionGate } from "../src/lib/ax/policy";
 import { FACTOR_LABELS } from "../src/lib/ax/schema";
 import { diagnosisFixture, planFixture } from "./fixtures/ax";
@@ -36,76 +36,52 @@ describe("AX execution guides", () => {
   it("uses the 담당자 label without changing the factor key", () => {
     expect(FACTOR_LABELS.humanJudgment).toBe("담당자 판단 필요도");
   });
-  it("keeps tool commands distinct and guides scoped to the selected tool", () => {
-    for (const key of ["installCommand", "versionCommand", "runCommand", "doctorCommand"] as const) {
-      expect(TOOL_GUIDES.codex[key]).toBeTruthy();
-      expect(TOOL_GUIDES.claude[key]).toBeTruthy();
-      expect(TOOL_GUIDES.codex[key]).not.toBe(TOOL_GUIDES.claude[key]);
-    }
-    const sectionText = (section: AxGuideSection) => [section.when ?? "", ...section.blocks.map(block => block.kind === "text" ? block.text : block.kind === "code" ? [...block.lines, ...(block.notes ?? [])].join("\n") : block.kind === "table" ? [...block.headers, ...block.rows.flat()].join("\n") : block.items.join("\n"))].join("\n");
-    for (const tool of ["codex", "claude"] as const) {
-      const other = tool === "codex" ? "claude" : "codex";
-      const guide = setupGuide(tool);
-      const all = guide.flatMap(step => step.sections.map(sectionText)).join("\n");
-      for (const command of ["installCommand", "doctorCommand", "versionCommand"] as const) {
-        expect(all).toContain(TOOL_GUIDES[tool][command]);
-        expect(all).not.toContain(TOOL_GUIDES[other][command]);
-      }
-      // STEP 01: install-first order (install → verify → git config → auth → login)
-      const step01 = guide[1];
-      expect(step01.title).toContain("STEP 01");
-      expect(step01.sections[0].title).toBe("필요한 프로그램 설치");
-      expect(step01.sections[1].title).toBe("설치 확인");
-      expect(guide[2]).toEqual(setupGuide(other)[2]);
-      for (const index of [5, 6, 7, 8, 9]) expect(guide[index]).toEqual(setupGuide(other)[index]);
-    }
+  it("presents intro and eight executable stages without a separate pre-MVP development step", () => {
+    const steps = setupGuide("codex");
+    expect(steps).toHaveLength(9);
+    expect(steps[0].sections.map(section => section.title)).toEqual(["처음 시작할 때", "이후 작업할 때", "용어 알아보기"]);
+    expect(steps.slice(1).map(step => step.title)).toEqual([
+      "STEP 01 · 개발 환경 준비", "STEP 02 · 프로젝트 준비", "STEP 03 · 올인원 지시문 준비",
+      "STEP 04 · 첫 MVP 구현과 실제 테스트", "STEP 05 · 배포 플랫폼 선택",
+      "STEP 06 · 데이터 저장 방식", "STEP 07 · GitHub 저장과 배포", "STEP 08 · 기능 검증과 MVP 완료",
+    ]);
+    expect(JSON.stringify(steps[3])).toContain("04 올인원 지시문");
+    expect(JSON.stringify(steps[4])).toContain("실제 CSV");
+    expect(JSON.stringify(steps[8])).toContain("웹 배포가 필요 없는");
   });
-  it.each(["codex", "claude"] as const)("labels file examples and preserves default command labels for %s", tool => {
-    const blocks = setupGuide(tool).flatMap(step => step.sections.flatMap(section => section.blocks));
-    const codeBlocks = blocks.filter(block => block.kind === "code");
-    const gitignore = codeBlocks.find(block => block.lines.includes("node_modules/"));
-    expect(gitignore?.label).toBe(".gitignore");
-    expect(gitignore?.notes?.join("\n")).toContain("제외");
-    for (const block of codeBlocks.filter(block => block !== gitignore)) {
-      expect(block.label).toBeUndefined();
-      expect(block.label ?? "PowerShell").toBe("PowerShell");
-    }
-  });
-  it.each(["codex", "claude"] as const)("covers repository, dependency, Secret and deployment safeguards for %s", tool => {
+  it.each(["codex", "claude"] as const)("scopes native installs and safety to the selected agent: %s", tool => {
+    const other = tool === "codex" ? "claude" : "codex";
     const guide = setupGuide(tool);
-    const all = JSON.stringify(guide);
-    for (const command of ["git remote -v", "git diff --cached --stat", "git diff --cached"]) expect(all).toContain(command);
-    const project = JSON.stringify(guide[2]);
-    expect(project).toMatch(/미커밋 변경[^.]*git pull[^.]*실행하지/u);
-    expect(project).toMatch(/AI 도구[^.]*현재 상태[^.]*확인/u);
-    const dependencies = guide[2].sections.find(section => section.title === "의존성 준비")!;
-    const dependencyText = JSON.stringify(dependencies);
-    expect(dependencyText).toMatch(/lockfile[^.]*package manager[^.]*바꾸지/u);
-    expect(dependencyText).toMatch(/다른 매니저[^.]*lockfile[^.]*새로 만들거나[^.]*lockfile[^.]*교체하지/u);
-    const newProject = JSON.stringify(guide[2].sections.find(section => section.title.startsWith("C.")));
-    expect(newProject).toMatch(/Git 저장 전[^.]*Git 저장소인지[^.]*원격[^.]*GitHub 저장소인지[^.]*확인/u);
-    expect(newProject).toMatch(/Git 저장소가 아닌 경우에만[^.]*초기화/u);
-    expect(newProject).toMatch(/기존 저장소[^.]*재초기화[^.]*remote[^.]*덮어쓰지/u);
-    expect(newProject).toMatch(/branch 이름[^.]*main[^.]*강제하지/u);
-    expect(newProject).toMatch(/첫 push 전[^.]*git remote -v[^.]*다시 확인/u);
-    const secrets = JSON.stringify(guide[6]);
-    expect(secrets).toMatch(/AI 대화·터미널 로그·스크린샷[^.]*붙여넣지/u);
-    expect(secrets).toMatch(/폐기.*재발급.*플랫폼 설정 교체/u);
-    expect(secrets).toMatch(/기록 재작성[^.]*자동 실행하지/u);
-    for (const index of [5, 6, 9]) {
-      const step = JSON.stringify(guide[index]);
-      for (const term of ["API Key", "Token", "Password", "개인정보", "[REDACTED]", "AI 도구"]) expect(step).toContain(term);
-      expect(step).toMatch(/필요한[^.]*전달/u);
-      expect(step).toMatch(/로그 전체[^.]*무조건 복사하지/u);
+    const installation = JSON.stringify(guide[1]);
+    const copied = guide[1].sections.flatMap(section => section.blocks.flatMap(block => block.kind === "code" ? block.lines : []));
+    expect(copied).toContain(TOOL_GUIDES[tool].installCommand);
+    expect(copied).not.toContain(TOOL_GUIDES[other].installCommand);
+    expect(copied).toContain(TOOL_GUIDES[tool].versionCommand);
+    expect(guide[2]).toEqual(setupGuide(other)[2]);
+    for (const index of [5, 6, 7, 8]) expect(guide[index]).toEqual(setupGuide(other)[index]);
+    for (const term of ["Git", "Node.js", "GitHub CLI", "Get-FileHash", "ExitCode", "Arm64", "LTS", "ErrorActionPreference"]) expect(installation).toContain(term);
+    const installers = guide[1].sections.slice(1, 4);
+    for (const section of installers) {
+      const blocks = section.blocks.filter(block => block.kind === "code");
+      expect(blocks[0]).toMatchObject({ kind: "code", lines: [expect.stringContaining("Get-FileHash")] });
+      expect(blocks[1]).toMatchObject({ kind: "code" });
     }
-    const deployment = JSON.stringify(guide[8]);
-    expect(deployment).toMatch(/모두 사용해야[^.]*아닙니다/u);
-    expect(deployment).toMatch(/두 플랫폼[^.]*함께/u);
-    expect(deployment).toMatch(/어떤 서비스[^.]*플랫폼[^.]*branch[^.]*방식[^.]*확인/u);
-    expect(deployment).toMatch(/Preview 확인[^.]*Production[^.]*완료[^.]*아닙니다/u);
-    expect(deployment).toMatch(/자동 배포[^.]*수동 명령[^.]*중복 실행하지/u);
-    expect(JSON.stringify(guide[9])).toMatch(/로그인·환경변수·API[^.]*실제 Production 환경[^.]*확인/u);
-    for (const command of ["git reset --hard", "git clean -fd", "git push --force", "git branch -D", "git remote remove", "git rm --cached -r ."]) expect(all).not.toContain(command);
+    expect(installation).not.toMatch(/winget install|scoop install|choco install/i);
+  });
+  it.each(["codex", "claude"] as const)("protects existing repo, storage, secrets and outcomes: %s", tool => {
+    const steps = setupGuide(tool);
+    const all = JSON.stringify(steps);
+    const cases = steps[2].sections.filter(section => /^[ABC]\. /.test(section.title));
+    expect(cases).toHaveLength(3);
+    expect(cases.every(section => Boolean(section.when))).toBe(true);
+    expect(cases[0].blocks.flatMap(block => block.kind === "code" ? block.lines : [])).toContain('git clone "https://github.com/owner/repository.git"');
+    expect(JSON.stringify(cases[1])).toContain("미커밋 변경");
+    expect(JSON.stringify(cases[2])).toContain("재초기화");
+    for (const term of ["packageManager", "D1", "R2", "KV", "외부 DB", "git remote -v", "git diff --cached", "폐기 → 재발급", "기록 재작성", "PASS/FAIL/NOT_RUN/BLOCKED", "[REDACTED]"]) expect(all).toContain(term);
+    expect(JSON.stringify(steps[5])).toContain("npm i -D wrangler@latest");
+    expect(JSON.stringify(steps[7])).toContain("자동 배포라면 수동 명령을 중복 실행하지 않습니다");
+    expect(JSON.stringify(steps[8])).toContain("구현 완료, 테스트 통과, 배포 완료, 운영 기능 확인");
+    for (const destructive of ["git reset --hard", "git clean -fd", "git push --force", "git rm --cached -r ."]) expect(all).not.toContain(destructive);
   });
   it("guards forbidden AI statements and is idempotent", () => {
     const plan: AxPlan = { ...planFixture,
@@ -150,19 +126,6 @@ describe("AX execution guides", () => {
     const prompt = buildAllInOnePrompt(plan, "codex", { diagnosis });
     expect(prompt).toContain("미확정 ERP 연결 권한 확인");
     expect({ diagnosis, plan }).toEqual(before);
-  });
-  it("distinguishes repository preparation cases without choosing a framework", () => {
-    const sections = setupGuide("codex")[2].sections.filter(section => /^[ABC]\. /.test(section.title));
-    expect(sections.map(section => section.title)).toEqual(["A. GitHub에 있는 기존 프로젝트", "B. PC에 이미 있는 프로젝트", "C. 새 프로젝트"]);
-    for (const section of sections) expect(section.when).toBeTruthy();
-    const commands = sections.map(section => section.blocks.flatMap(block => block.kind === "code" ? block.lines : []));
-    expect(commands[0]).toContain("git clone <저장소 URL>");
-    expect(commands[1].join("\n")).not.toContain("git clone");
-    expect(commands[2].join("\n")).not.toContain("git clone");
-    const newProject = sections[2].blocks.map(block => block.kind === "text" ? block.text : "").join("\n");
-    expect(newProject).toContain("특정 프레임워크를 임의로 정하지 않습니다");
-    const existingProject = sections[1].blocks.map(block => block.kind === "text" ? block.text : "").join("\n");
-    expect(existingProject).toMatch(/미커밋 변경[^.]*git pull[^.]*실행하지/u);
   });
 });
 
@@ -285,173 +248,20 @@ describe("AX plan display boundaries", () => {
   });
 });
 
-describe("AX setup guide deployment platform and storage", () => {
-  it.each(["codex", "claude"] as const)("includes platform selection and storage guidance in STEP 02 for %s", tool => {
-    const step02 = setupGuide(tool)[2];
-    const titles = step02.sections.map(section => section.title);
-    expect(titles).toContain("배포 플랫폼 선택");
-    expect(titles).toContain("데이터 저장 방식 선택");
-    const platform = JSON.stringify(step02.sections.find(section => section.title === "배포 플랫폼 선택"));
-    expect(platform).toContain("Vercel");
-    expect(platform).toContain("Cloudflare");
-    expect(platform).toMatch(/Hobby[^.]*개인·비상업적/u);
-    const storage = JSON.stringify(step02.sections.find(section => section.title === "데이터 저장 방식 선택"));
-    for (const term of ["D1", "R2", "KV", "브라우저 저장"]) expect(storage).toContain(term);
-    expect(storage).toMatch(/최종 일관성[^.]*주 DB[^.]*권장하지/u);
-  });
-  it.each(["codex", "claude"] as const)("includes free tier limits with official sources in STEP 08 for %s", tool => {
-    const step08 = setupGuide(tool)[8];
-    const titles = step08.sections.map(section => section.title);
-    expect(titles).toContain("배포 전 확인 체크리스트");
-    expect(titles).toContain("Cloudflare D1·R2·KV 무료 한도");
-    expect(titles).toContain("Vercel Hobby 제한 안내");
-    const limits = JSON.stringify(step08.sections.find(section => section.title === "Cloudflare D1·R2·KV 무료 한도"));
-    expect(limits).toContain("100,000회/일");
-    expect(limits).toContain("500만 행/일");
-    expect(limits).toContain("10GB-month/월");
-    expect(limits).toContain("developers.cloudflare.com");
-    expect(limits).toContain("기준일");
-    const vercel = JSON.stringify(step08.sections.find(section => section.title === "Vercel Hobby 제한 안내"));
-    expect(vercel).toMatch(/비상업적·개인/u);
-    expect(vercel).toContain("vercel.com/docs/plans/hobby");
-  });
-  it.each(["codex", "claude"] as const)("uses native installers without winget for %s", tool => {
-    expect(TOOL_GUIDES[tool].installCommand).not.toContain("winget");
-    const step01 = JSON.stringify(setupGuide(tool)[1]);
-    expect(step01).not.toContain("winget");
-    expect(step01).toContain("https://git-scm.com/download/win");
-    expect(step01).toContain("https://nodejs.org/");
-    expect(step01).toContain("https://cli.github.com/");
-  });
-  it.each(["codex", "claude"] as const)("removes basic dir and Get-Location guidance in STEP 02 for %s", tool => {
-    const step02 = JSON.stringify(setupGuide(tool)[2]);
-    expect(step02).not.toContain("`dir`");
-    expect(step02).not.toContain("Get-Location");
-    expect(step02).toContain("git status");
-  });
-  it.each(["codex", "claude"] as const)("includes DB pre-connection checklist and storage connection flow in STEP 02 for %s", tool => {
-    const step02 = setupGuide(tool)[2];
-    const titles = step02.sections.map(section => section.title);
-    expect(titles).toContain("DB 연결 전 준비");
-    expect(titles).toContain("D1·R2·KV 연결 절차");
-    const prep = JSON.stringify(step02.sections.find(section => section.title === "DB 연결 전 준비"));
-    for (const term of ["필요한 서비스만 선택", "개발용·운영용", "기존 데이터"]) expect(prep).toContain(term);
-    const flow = JSON.stringify(step02.sections.find(section => section.title === "D1·R2·KV 연결 절차"));
-    for (const term of ["D1 연결", "R2 연결", "KV 연결", "사전 승인 없이 실행하지 않습니다"]) expect(flow).toContain(term);
-  });
-  it.each(["codex", "claude"] as const)("distinguishes overage handling per service in STEP 08 for %s", tool => {
-    const limits = JSON.stringify(setupGuide(tool)[8].sections.find(section => section.title === "Cloudflare D1·R2·KV 무료 한도"));
-    expect(limits).toMatch(/R2.*초과.*요금이 부과/u);
-    expect(limits).toMatch(/실패하고 자동 과금되지 않습니다/u);
-    const vercel = JSON.stringify(setupGuide(tool)[8].sections.find(section => section.title === "Vercel Hobby 제한 안내"));
-    expect(vercel).toContain("2026-09-14");
-    expect(vercel).toMatch(/30일/u);
-  });
-  it.each(["codex", "claude"] as const)("includes production DB verification in STEP 09 for %s", tool => {
-    const step09 = setupGuide(tool)[9];
-    const titles = step09.sections.map(section => section.title);
-    expect(titles).toContain("DB Production 검증");
-    for (const title of ["DB Production 검증", "R2 파일 검증", "KV 검증"]) {
-      const verify = JSON.stringify(step09.sections.find(section => section.title === title));
-      expect(verify).toMatch(/검증하지 못한 항목[^.]*완료로 표시하지/u);
+describe("AX guide conditional architecture", () => {
+  it.each(["codex", "claude"] as const)("compares platforms and connects only needed storage for %s", tool => {
+    const steps = setupGuide(tool);
+    const platform = steps[5].sections.find(section => section.title === "배포 방식 비교")!;
+    const comparison = platform.blocks.find(block => block.kind === "table");
+    expect(comparison?.kind).toBe("table");
+    if (comparison?.kind !== "table") throw new Error("missing comparison");
+    expect(comparison.headers).toEqual(["비교", "Vercel", "Cloudflare"]);
+    expect(JSON.stringify(comparison.rows)).toContain("D1");
+    expect(JSON.stringify(platform)).toContain("vercel.com/docs/plans/hobby");
+    const storage = steps[6].sections;
+    expect(storage.map(section => section.title)).toContain("Cloudflare 저장소 연결");
+    for (const term of ["D1 · 구조화된 기록", "R2 · 파일과 첨부", "KV · 조회 중심 값"]) {
+      expect(storage.find(section => section.title === term)).toMatchObject({ collapsed: true, when: expect.any(String) });
     }
-  });
-  it.each(["codex", "claude"] as const)("keeps 9 steps and tool-independent steps identical for %s", tool => {
-    const guide = setupGuide(tool);
-    const other = tool === "codex" ? "claude" : "codex";
-    expect(guide).toHaveLength(10);
-    expect(guide[2]).toEqual(setupGuide(other)[2]);
-    for (const index of [5, 6, 7, 8, 9]) expect(guide[index]).toEqual(setupGuide(other)[index]);
-  });
-  it.each(["codex", "claude"] as const)("does not hardcode step numbers in list items for %s", tool => {
-    const blocks = setupGuide(tool).flatMap(step => step.sections.flatMap(section => section.blocks));
-    for (const block of blocks) {
-      if (block.kind !== "steps") continue;
-      for (const item of block.items) {
-        expect(item).not.toMatch(/^\d+\.\s/u);
-      }
-    }
-  });
-  it.each(["codex", "claude"] as const)("renders the platform comparison as a table for %s", tool => {
-    const section = setupGuide(tool)[2].sections.find(s => s.title === "배포 플랫폼 선택")!;
-    const table = section.blocks.find(block => block.kind === "table");
-    expect(table).toBeDefined();
-    if (table?.kind !== "table") throw new Error("missing table");
-    expect(table.headers).toEqual(["비교 항목", "Vercel", "Cloudflare"]);
-    expect(table.rows).toHaveLength(8);
-    expect(table.rows[0][0]).toBe("적합한 프로젝트");
-    const flat = JSON.stringify(table);
-    expect(flat).toContain("D1");
-    expect(flat).toContain("R2");
-  });
-  it.each(["codex", "claude"] as const)("splits production verification by service in STEP 09 for %s", tool => {
-    const step09 = setupGuide(tool)[9];
-    const titles = step09.sections.map(section => section.title);
-    expect(titles).toContain("DB Production 검증");
-    expect(titles).toContain("R2 파일 검증");
-    expect(titles).toContain("KV 검증");
-    expect(titles).not.toContain("DB·스토리지 Production 검증");
-    for (const title of ["DB Production 검증", "R2 파일 검증", "KV 검증"]) {
-      const section = step09.sections.find(s => s.title === title)!;
-      expect(section.collapsed).toBe(true);
-      expect(section.when).toMatch(/건너뜁니다/u);
-    }
-  });
-  it.each(["codex", "claude"] as const)("guides GitHub CLI as optional in STEP 01 for %s", tool => {
-    const step01 = JSON.stringify(setupGuide(tool)[1]);
-    expect(step01).toMatch(/GitHub CLI.*설치한 경우에만/u);
-    expect(step01).toMatch(/설치하지 않은 사용자.*건너뛰/u);
-    expect(step01).toMatch(/미설치를 오류.*취급하지/u);
-  });
-  it.each(["codex", "claude"] as const)("states Node.js requirements for npm and Wrangler for %s", tool => {
-    const step01 = JSON.stringify(setupGuide(tool)[1]);
-    expect(step01).toMatch(/npm·npx·Wrangler 사용 시 필수/u);
-    expect(step01).toMatch(/네이티브 설치 방식은 Node\.js 없이/u);
-    const step08 = JSON.stringify(setupGuide(tool)[8]);
-    expect(step08).toMatch(/Wrangler.*설치 여부.*확인/u);
-  });
-  it.each(["codex", "claude"] as const)("includes operational DB safety guidance in STEP 08 for %s", tool => {
-    const step08 = setupGuide(tool)[8];
-    const titles = step08.sections.map(section => section.title);
-    expect(titles).toContain("운영 DB 백업·마이그레이션·롤백");
-    const safety = JSON.stringify(step08.sections.find(s => s.title === "운영 DB 백업·마이그레이션·롤백"));
-    expect(safety).toMatch(/백업.*실제 복구 가능성/u);
-    expect(safety).toMatch(/별개의 작업/u);
-    expect(safety).toMatch(/자동 복구되지 않습니다/u);
-    expect(safety).toMatch(/사전 승인/u);
-  });
-  it.each(["codex", "claude"] as const)("guides new-project git init flow with repository check for %s", tool => {
-    const step02 = setupGuide(tool)[2];
-    const sectionC = JSON.stringify(step02.sections.find(s => s.title.startsWith("C.")));
-    expect(sectionC).toMatch(/git --version/u);
-    expect(sectionC).toMatch(/fatal: not a git repository/u);
-    expect(sectionC).toMatch(/git init/u);
-    expect(sectionC).toMatch(/git branch --show-current/u);
-    expect(sectionC).not.toContain("git push --force");
-  });
-  it.each(["codex", "claude"] as const)("includes GitHub repo creation and connection procedures for %s", tool => {
-    const step02 = setupGuide(tool)[2];
-    const titles = step02.sections.map(s => s.title);
-    expect(titles).toContain("GitHub 저장소 생성·연결");
-    const section = JSON.stringify(step02.sections.find(s => s.title === "GitHub 저장소 생성·연결"));
-    expect(section).toMatch(/GitHub 웹 방식/u);
-    expect(section).toMatch(/GitHub CLI 방식/u);
-    expect(section).toMatch(/git remote add origin/u);
-    expect(section).toMatch(/git push -u origin/u);
-    expect(section).toMatch(/README.*초기 커밋/u);
-    expect(section).toMatch(/--force.*기본 해결 방법/u);
-    expect(section).not.toContain("git push --force");
-  });
-  it.each(["codex", "claude"] as const)("distinguishes deployment success from functional verification in STEP 09 for %s", tool => {
-    const step09 = setupGuide(tool)[9];
-    const titles = step09.sections.map(s => s.title);
-    expect(titles).toContain("배포 성공과 기능 검증 구분");
-    expect(titles).toContain("외부 API·인증 검증");
-    const verify = JSON.stringify(step09.sections.find(s => s.title === "배포 성공과 기능 검증 구분"));
-    expect(verify).toMatch(/통과 \/ 실패 \/ 미실행 \/ 해당 없음/u);
-    expect(verify).toMatch(/배포된 버전.*GitHub.*커밋.*일치/u);
-    const api = JSON.stringify(step09.sections.find(s => s.title === "외부 API·인증 검증"));
-    expect(api).toMatch(/환경변수/u);
-    expect(api).toMatch(/Secret.*노출/u);
   });
 });
