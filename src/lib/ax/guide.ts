@@ -155,7 +155,7 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
           "우측 상단 + 메뉴 → New repository를 선택합니다.",
           "저장소 이름과 공개 범위(Public/Private)를 선택합니다.",
           "README 추가 여자를 결정합니다. README를 포함해 생성하면 원격에 초기 커밋이 생기므로 아래 주의사항을 먼저 확인하세요.",
-          "Create repository를 클릭하고 생성된 저장소 주소를 확인합니다 (https://github.com/사용자명/저장소명.git 형태).",
+          "Create repository를 클릭하고 생성된 저장소 주소를 확인합니다 (사용자명/저장소명.git 형태의 주소).",
           "로컬에서 원격 연결 상태를 다시 확인합니다: `git remote -v`",
           "원격이 없을 때만 연결합니다: `git remote add origin \"실제 GitHub 저장소 URL\"` — 따옴표 안을 실제 주소로 바꾸세요.",
           "현재 브랜치와 커밋 상태를 확인합니다: `git branch --show-current`, `git status`",
