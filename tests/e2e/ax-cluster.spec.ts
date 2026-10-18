@@ -61,7 +61,7 @@ async function openCase(page: Page, tasks: AxTask[], selectedId = tasks[0].id) {
 const clusterButton = (page: Page, count: number) => page.getByRole("button", { name: `해당 위치의 업무 ${count}개`, exact: true });
 const clusterMenu = (page: Page, count: number) => page.getByRole("menu", { name: `해당 위치의 업무 ${count}개`, exact: true });
 const taskList = (page: Page) => page.getByLabel("매트릭스 업무 목록", { exact: true });
-const summaryHeading = (page: Page) => page.locator(".ax-step3-side .ax-matrix-detail").getByRole("heading").first();
+const summaryHeading = (page: Page) => page.locator(".ax-matrix-detail").getByRole("heading").first();
 
 test("One diagnosed task renders an unnumbered circle with accessible priority and restores its selection", async ({ page }) => {
   const task = clusterTask("only");

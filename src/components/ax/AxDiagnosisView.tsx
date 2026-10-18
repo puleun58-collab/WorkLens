@@ -578,65 +578,32 @@ export function AxDiagnosisView() {
         </div>}
       </TabsPanel>
       <TabsPanel value="3">
-        {!ranked.length ? <><div className="ax-matrix-header">{matrixStatus}</div><p className="ax-empty ax-muted">진단 결과 업무 없음</p></> : <div className="ax-step3-grid">
-          <section className="ax-surface ax-matrix-task-panel" aria-label="매트릭스 업무 목록">
-            <div className="ax-matrix-list-head"><h3>업무 목록 ({ranked.length})</h3></div>
-            <div className="ax-matrix-list-tools">
-              <label className="ax-matrix-tool">조회
-                <select value={matrixFilter} onChange={e => setMatrixFilter(e.target.value as typeof matrixFilter)} aria-label="Gate 상태별 조회">
-                  <option value="all">전체 진단 결과</option>
-                  <option value="ready">진행 가능</option>
-                  <option value="conditional">확인 후 진행</option>
-                  <option value="blocked">진행 보류</option>
-                </select>
-              </label>
-              <label className="ax-matrix-tool">정렬
-                <select value={matrixSort} onChange={e => setMatrixSort(e.target.value as typeof matrixSort)} aria-label="업무 목록 정렬">
-                  <option value="priority">우선순위순</option>
-                  <option value="value">자동화 가치순</option>
-                  <option value="feasibility">기술 실현 가능성순</option>
-                </select>
-              </label>
-            </div>
-            {matrixTaskRows()}
-          </section>
-          <div className="ax-step3-main"><section className="ax-surface ax-matrix-surface">
-            <div className="ax-matrix-header"><h2>자동화 매트릭스</h2>{matrixStatus}
-              <div className="ax-matrix-tools">
-                <Menu><MenuTrigger render={<Button type="button" variant="outline" size="sm" />}><SlidersHorizontal size={14} aria-hidden="true" />보기 옵션</MenuTrigger>
-                  <MenuPopup>
-                    <MenuCheckboxItem checked={showScores} onCheckedChange={setShowScores}>점수 표시</MenuCheckboxItem>
-                    <MenuCheckboxItem checked={emphasizeSelected} onCheckedChange={setEmphasizeSelected}>선택 업무 강조</MenuCheckboxItem>
-                  </MenuPopup>
-                </Menu>
-                <Button type="button" variant="outline" size="sm" aria-pressed={showMatrixHelp} onClick={() => setShowMatrixHelp(v => !v)}><CircleHelp size={14} aria-hidden="true" />도움말</Button>
+        {!ranked.length ? <><div className="ax-matrix-header">{matrixStatus}</div><p className="ax-empty ax-muted">진단 결과 업무 없음</p></> : <div className="ax-step3-rows">
+          <div className="ax-step3-grid">
+            <div className="ax-step3-taskcol">
+            <section className="ax-surface ax-matrix-task-panel" aria-label="매트릭스 업무 목록">
+              <div className="ax-matrix-list-head"><h3>업무 목록 ({ranked.length})</h3></div>
+              <div className="ax-matrix-list-tools">
+                <label className="ax-matrix-tool">조회
+                  <select value={matrixFilter} onChange={e => setMatrixFilter(e.target.value as typeof matrixFilter)} aria-label="Gate 상태별 조회">
+                    <option value="all">전체 진단 결과</option>
+                    <option value="ready">진행 가능</option>
+                    <option value="conditional">확인 후 진행</option>
+                    <option value="blocked">진행 보류</option>
+                  </select>
+                </label>
+                <label className="ax-matrix-tool">정렬
+                  <select value={matrixSort} onChange={e => setMatrixSort(e.target.value as typeof matrixSort)} aria-label="업무 목록 정렬">
+                    <option value="priority">우선순위순</option>
+                    <option value="value">자동화 가치순</option>
+                    <option value="feasibility">기술 실현 가능성순</option>
+                  </select>
+                </label>
               </div>
-            </div>
-            {showMatrixHelp ? <div className="ax-matrix-help" role="note" aria-label="매트릭스 도움말">
-              <div><h4>축 점수 기준</h4><ul>
-                <li>자동화 가치: 반복성·규칙성·데이터 구조화 Factor 평균 (1~5점)</li>
-                <li>기술 실현 가능성: 규칙성·데이터 구조화·시스템 접근성 Factor 평균 (1~5점)</li>
-                <li>우선순위: 기존 정책 점수 기준 정렬</li>
-                <li>진행 상태: Level·Gate 판정 기준 (차트 위치와 다를 수 있음)</li>
-              </ul></div>
-              <div><h4>원 크기 기준</h4><ul>
-                <li>원 크기: 월간 업무 투입시간 기준</li>
-                <li>미입력 업무는 기본 크기로 표시합니다.</li>
-              </ul></div>
-            </div> : null}
-            <AxMatrix rows={ranked} selectedId={selected?.id} multiSelected={multiSelected} onToggleSelect={toggleMultiSelect} onSelect={select} step={state.step} emphasizeSelected={emphasizeSelected} />
-            <div className="ax-matrix-legend" aria-label="매트릭스 범례">
-              <span className="ax-legend-item"><span className="ax-legend-dot" data-gate="ready" aria-hidden="true" />진행 가능</span>
-              <span className="ax-legend-item"><span className="ax-legend-dot" data-gate="conditional" aria-hidden="true" />확인 후 진행</span>
-              <span className="ax-legend-item"><span className="ax-legend-dot" data-gate="blocked" aria-hidden="true" />진행 보류</span>
-              <span className="ax-legend-note">원 크기: 월간 업무 투입시간 기준 · 미입력 업무는 기본 크기로 표시</span>
-            </div>
-          </section>
-            <section className="ax-surface"><h3>자동화 우선순위</h3>{priorityRows()}</section>
-          </div>
-          <aside className="ax-step3-side" aria-label="선택 업무 패널">
-            <section className="ax-surface" aria-label="선택한 업무">
-              <div className="ax-selected-head"><h3>선택한 업무 ({multiSelected.length}개)</h3><Button type="button" variant="ghost" size="sm" onClick={clearMultiSelect} disabled={!multiSelected.length}>선택 초기화</Button></div>
+              {matrixTaskRows()}
+            </section>
+            <section className="ax-surface ax-compare-panel" aria-label="비교 선택">
+              <div className="ax-selected-head"><h4>비교 선택 ({multiSelected.length}개)</h4><Button type="button" variant="ghost" size="sm" onClick={clearMultiSelect} disabled={!multiSelected.length}>선택 초기화</Button></div>
               {multiSelected.length ? <ul className="ax-selected-list">{multiSelected.map(id => {
                 const row = ranked.find(r => r.task.id === id);
                 if (!row) return null;
@@ -648,10 +615,44 @@ export function AxDiagnosisView() {
                     <span className="ax-gate-badge" data-gate={gate}>{GATE_LABELS[gate]}</span>
                   </Button>
                 </li>;
-              })}</ul> : <p className="ax-muted ax-selected-empty">비교할 업무를 좌측 목록의 체크박스로 선택하세요.</p>}
+              })}</ul> : <p className="ax-muted ax-selected-empty">비교할 업무를 목록의 체크박스로 선택하세요.</p>}
             </section>
-            {selected?.diagnosis ? <MatrixDetailCard task={selected} diagnosis={selected.diagnosis} /> : null}
-          </aside>
+            </div>
+            <section className="ax-surface ax-matrix-surface" aria-label="자동화 매트릭스">
+              <div className="ax-matrix-header"><h2>자동화 매트릭스</h2>{matrixStatus}
+                <div className="ax-matrix-tools">
+                  <Menu><MenuTrigger render={<Button type="button" variant="outline" size="sm" />}><SlidersHorizontal size={14} aria-hidden="true" />보기 옵션</MenuTrigger>
+                    <MenuPopup>
+                      <MenuCheckboxItem checked={showScores} onCheckedChange={setShowScores}>점수 표시</MenuCheckboxItem>
+                      <MenuCheckboxItem checked={emphasizeSelected} onCheckedChange={setEmphasizeSelected}>선택 업무 강조</MenuCheckboxItem>
+                    </MenuPopup>
+                  </Menu>
+                  <Button type="button" variant="outline" size="sm" aria-pressed={showMatrixHelp} onClick={() => setShowMatrixHelp(v => !v)}><CircleHelp size={14} aria-hidden="true" />도움말</Button>
+                </div>
+              </div>
+              {showMatrixHelp ? <div className="ax-matrix-help" role="note" aria-label="매트릭스 도움말">
+                <div><h4>축 점수 기준</h4><ul>
+                  <li>자동화 가치: 반복성·규칙성·데이터 구조화 Factor 평균 (1~5점)</li>
+                  <li>기술 실현 가능성: 규칙성·데이터 구조화·시스템 접근성 Factor 평균 (1~5점)</li>
+                  <li>우선순위: 기존 정책 점수 기준 정렬</li>
+                  <li>진행 상태: Level·Gate 판정 기준 (차트 위치와 다를 수 있음)</li>
+                </ul></div>
+                <div><h4>원 크기 기준</h4><ul>
+                  <li>원 크기: 월간 업무 투입시간 기준</li>
+                  <li>미입력 업무는 기본 크기로 표시합니다.</li>
+                </ul></div>
+              </div> : null}
+              <AxMatrix rows={ranked} selectedId={selected?.id} multiSelected={multiSelected} onToggleSelect={toggleMultiSelect} onSelect={select} step={state.step} emphasizeSelected={emphasizeSelected} />
+              <div className="ax-matrix-legend" aria-label="매트릭스 범례">
+                <span className="ax-legend-item"><span className="ax-legend-dot" data-gate="ready" aria-hidden="true" />진행 가능</span>
+                <span className="ax-legend-item"><span className="ax-legend-dot" data-gate="conditional" aria-hidden="true" />확인 후 진행</span>
+                <span className="ax-legend-item"><span className="ax-legend-dot" data-gate="blocked" aria-hidden="true" />진행 보류</span>
+                <span className="ax-legend-note">원 크기: 월간 업무 투입시간 기준 · 미입력 업무는 기본 크기로 표시</span>
+              </div>
+            </section>
+          </div>
+          {selected?.diagnosis ? <MatrixDetailCard task={selected} diagnosis={selected.diagnosis} /> : <section className="ax-surface" aria-label="선택 업무 상세"><p className="ax-muted">업무 목록에서 업무를 선택하면 상세 분석이 표시됩니다.</p></section>}
+          <section className="ax-surface" aria-label="자동화 우선순위"><h3>자동화 우선순위</h3>{priorityRows()}</section>
         </div>}
       </TabsPanel>
       <TabsPanel value="4">
@@ -763,6 +764,7 @@ function MatrixDetailCard({ task, diagnosis }: { task: AxTask; diagnosis: AxDiag
   return <section className="ax-surface ax-matrix-detail" aria-label={`${task.name} 매트릭스 상세`}>
     <div className="ax-matrix-detail-head">
       <div className="ax-diag-title">
+        <span className="ax-detail-eyebrow">선택한 업무 · 상세 분석</span>
         <h3>{task.name}</h3>
         <div className="ax-diag-badges">
           <span className="ax-region-chip" data-region={m.region}>{m.label}</span>

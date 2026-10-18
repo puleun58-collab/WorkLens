@@ -1552,9 +1552,9 @@ for (const width of [1440, 390]) for (const count of [1, 3, 5, 10]) {
     }
     await page.getByLabel("매트릭스 업무 목록").getByRole("button", { name: new RegExp(last.name) }).click();
     await expect.poll(async () => (await record(page))?.selectedTaskId).toBe(last.id);
-    await expect(page.locator(".ax-step3-side .ax-matrix-detail").getByRole("heading").first()).toContainText(last.name);
+    await expect(page.locator(".ax-matrix-detail").getByRole("heading").first()).toContainText(last.name);
     const matrixBadge = await badgeStyle(page.locator('.ax-gate-cond[data-gate="conditional"]').first());
-    expect(await badgeStyle(page.locator('.ax-step3-side .ax-matrix-detail .ax-gate-badge[data-gate="conditional"]'))).toEqual(matrixBadge);
+    expect(await badgeStyle(page.locator('.ax-matrix-detail .ax-gate-badge[data-gate="conditional"]'))).toEqual(matrixBadge);
     await page.locator(".ax-matrix-surface").screenshot({ path: `artifacts/ax/multi-matrix-${count}-${width}-${test.info().project.name}.png` });
     await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();
     await expect(page.locator(".ax-report-intro h2")).toHaveText(last.name);
@@ -1586,7 +1586,7 @@ for (const step of [3, 4]) test(`AX restores a diagnosed selection instead of an
   await expect.poll(async () => (await record(page))?.selectedTaskId).toBe(diagnosed.id);
   if (step === 3) {
     await expect(page.locator(".ax-bubble")).toHaveCount(1);
-    await expect(page.locator(".ax-step3-side .ax-matrix-detail").getByRole("heading").first()).toContainText(diagnosed.name);
+    await expect(page.locator(".ax-matrix-detail").getByRole("heading").first()).toContainText(diagnosed.name);
   } else {
     await expect(page.locator(".ax-report-intro h2")).toHaveText(diagnosed.name);
   }
