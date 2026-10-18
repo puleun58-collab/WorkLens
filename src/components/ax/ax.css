@@ -100,7 +100,7 @@
 .ax-radar { display: block; width: 100%; max-width: 320px; margin: 0 auto; overflow: visible; }
 .ax-view .ax-priority-list { list-style: none; padding: 0; margin: 0; }
 .ax-priority-row { width: 100%; height: auto; padding: 12px 8px; gap: 12px; align-items: start; text-align: left; white-space: normal; }
-.ax-rank { flex-shrink: 0; border-radius: 8px; padding: 2px 6px; background: color-mix(in srgb, var(--primary) 10%, transparent); color: var(--primary); }
+.ax-rank { flex-shrink: 0; min-width: 38px; text-align: center; border-radius: 8px; padding: 2px 6px; background: color-mix(in srgb, var(--primary) 10%, transparent); color: var(--primary); font-variant-numeric: tabular-nums; }
 .ax-priority-content { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
 .ax-priority-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .ax-priority-content > small { font-weight: 400; }
@@ -758,7 +758,7 @@
 .ax-diag-source { font-size: 12px; }
 .ax-score-cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 .ax-score-card { background: color-mix(in srgb, var(--primary) 4%, var(--card)); border: 1.5px solid var(--border); border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-.ax-score-card-label { font-size: 12px; color: var(--muted-foreground); font-weight: 500; }
+.ax-score-card-label { font-size: 12px; color: var(--muted-foreground); font-weight: 500; word-break: keep-all; }
 .ax-score-card-value { display: flex; align-items: baseline; gap: 4px; }
 .ax-score-card-value strong { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; }
 .ax-score-card-value > span:not(.sr-only) { font-size: 13px; color: var(--muted-foreground); }
@@ -905,9 +905,10 @@
 .ax-hitl-v2-notice-icon { flex-shrink: 0; font-size: 14px; }
 .ax-hitl-v2-buttons { display: flex; gap: 8px; justify-content: flex-end; align-items: center; }
 
-/* ===== 자동화 매트릭스 3열 레이아웃 (레퍼런스 기준) ===== */
-.ax-step3-grid { grid-template-columns: 300px minmax(0,1fr) 340px; }
-.ax-step3-side { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+/* ===== 자동화 매트릭스 2열 중심 레이아웃 ===== */
+.ax-step3-rows { display: flex; flex-direction: column; gap: 24px; min-width: 0; }
+.ax-step3-grid { grid-template-columns: minmax(280px, 1fr) minmax(0, 2.5fr); }
+.ax-step3-taskcol { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
 /* 좌측 업무 목록 패널 */
 .ax-matrix-task-panel { display: flex; flex-direction: column; min-width: 0; }
 .ax-matrix-list-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -920,7 +921,12 @@
 .ax-matrix-list li.is-checked { background: color-mix(in srgb, var(--primary) 5%, var(--card)); }
 .ax-task-check { flex: none; }
 .ax-matrix-list .ax-task-row-btn { grid-template-columns: 8px minmax(0,1fr) auto; align-items: center; }
+.ax-matrix-list .ax-task-name { word-break: keep-all; }
 .ax-matrix-list .ax-gate-badge { grid-column: 2 / -1; justify-self: start; }
+/* 비교 선택 패널 (업무 목록 하단) */
+.ax-compare-panel .ax-selected-head h4 { margin: 0; font-size: 14px; }
+/* 상세 분석 구분 헤더 */
+.ax-detail-eyebrow { display: block; font-size: 12px; font-weight: 600; color: var(--muted-foreground); margin-bottom: 4px; }
 /* 중앙 매트릭스 도구 영역 */
 .ax-matrix-tools { display: flex; gap: 8px; margin-left: auto; align-items: center; }
 .ax-matrix-help { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px; margin: 12px 0 4px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 10px; background: color-mix(in srgb, var(--primary) 4%, var(--card)); }
@@ -958,12 +964,7 @@
 .ax-matrix-cluster-meta { font-size: var(--font-size-xs); color: var(--muted-foreground); }
 .ax-matrix-cluster-foot { padding: 8px; border-top: 1px solid var(--border); margin-top: 4px; display: flex; justify-content: stretch; }
 .ax-matrix-cluster-foot > button { flex: 1; }
-/* 반응형: 중간 화면은 2열 + 우측 패널 하단 배치 */
-@media(max-width: 1280px) and (min-width: 701px) {
-  .ax-step3-grid { grid-template-columns: 300px minmax(0,1fr); }
-  .ax-step3-side { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1.4fr); align-items: start; }
-}
-/* 반응형: 모바일은 목록 → 매트릭스 → 상세 순서 */
+/* 반응형: 모바일은 목록 → 매트릭스 → 상세 → 우선순위 순서 */
 @media(max-width: 700px) {
   .ax-step3-grid { display: flex; flex-direction: column; }
   .ax-matrix-help { grid-template-columns: minmax(0,1fr); }
