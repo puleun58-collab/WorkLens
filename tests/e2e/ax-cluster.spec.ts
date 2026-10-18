@@ -165,8 +165,8 @@ test("Case C: five tasks form three-member and two-member clusters without colla
   await expect(page.locator(".ax-bubble")).toHaveCount(0);
   await expect(taskList(page).getByRole("button")).toHaveCount(5);
   const priorities = page.getByRole("list", { name: "자동화 우선순위 목록", exact: true });
-  await expect(priorities.getByRole("listitem")).toHaveCount(5);
-  await expect(priorities.locator(".ax-rank")).toHaveText(["#1", "#2", "#3", "#4", "#5"]);
+  await expect(priorities.getByRole("listitem")).toHaveCount(3);
+  await expect(priorities.locator(".ax-rank")).toHaveText(["#1", "#2", "#3"]);
   await clusterButton(page, 3).click();
   await expect(clusterMenu(page, 3).getByRole("menuitem")).toHaveCount(3);
   await clusterMenu(page, 3).getByRole("menuitem").last().click();

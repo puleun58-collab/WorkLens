@@ -8,8 +8,8 @@ export type AxToolId = "codex" | "claude";
 export const TOOL_GUIDES: Record<AxToolId, {
   name: string; versionCommand: string; installCommand: string; runCommand: string; doctorCommand: string; loginNote: string;
 }> = {
-  codex: { name: "Codex", versionCommand: "codex --version", installCommand: "powershell -ExecutionPolicy ByPass -c \"irm https://chatgpt.com/codex/install.ps1 | iex\"", runCommand: "codex", doctorCommand: "codex doctor", loginNote: "첫 실행 시 ChatGPT 계정으로 로그인" },
-  claude: { name: "Claude Code", versionCommand: "claude --version", installCommand: "irm https://claude.ai/install.ps1 | iex", runCommand: "claude", doctorCommand: "claude doctor", loginNote: "첫 실행 시 브라우저에서 로그인" },
+  codex: { name: "Codex", versionCommand: "codex --version", installCommand: 'powershell -ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1 | iex"', runCommand: "codex", doctorCommand: "codex --help", loginNote: "첫 실행 시 ChatGPT 로그인 등 사용 가능한 인증 방식을 선택" },
+  claude: { name: "Claude Code", versionCommand: "claude --version", installCommand: "irm https://claude.ai/install.ps1 | iex", runCommand: "claude", doctorCommand: "claude doctor", loginNote: "첫 실행 시 계정 인증 안내를 따릅니다" },
 };
 
 /** Inline text marks commands with backticks; `code` blocks default to PowerShell unless labeled as examples. */
@@ -20,518 +20,210 @@ export interface AxGuideStep { title: string; purpose: string; sections: AxGuide
 const text = (value: string): AxGuideBlock => ({ kind: "text", text: value });
 const code = (lines: string[], notes: string[], label?: Extract<AxGuideBlock, { kind: "code" }>["label"]): AxGuideBlock => ({ kind: "code", lines, notes, ...(label ? { label } : {}) });
 
+// A single copyable line per installer. Errors must stop before a cached file can run.
+const gitInstall = [
+  '& { $ErrorActionPreference = "Stop"',
+  '$arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString(); if ($arch -notin @("X64","Arm64")) { throw "Unsupported architecture: $arch" }',
+  '$suffix = if ($arch -eq "Arm64") { "arm64" } else { "64-bit" }',
+  '$release = Invoke-RestMethod -Uri "https://api.github.com/repos/git-for-windows/git/releases/latest"',
+  '$assets = @($release.assets | Where-Object { $_.name -match "^Git-[0-9.]+-$suffix\\.exe$" }); if ($assets.Count -ne 1 -or $assets[0].digest -notmatch "^sha256:[0-9a-fA-F]{64}$") { throw "Git asset/hash not unique" }',
+  '$asset = $assets[0]; $path = Join-Path "$env:TEMP" ([guid]::NewGuid().ToString() + "-" + $asset.name)',
+  'Invoke-WebRequest -Uri "$($asset.browser_download_url)" -OutFile "$path" -UseBasicParsing',
+  'if (-not (Test-Path -LiteralPath "$path" -PathType Leaf) -or (Get-Item -LiteralPath "$path").Length -eq 0) { throw "Git download missing" }',
+  'if ((Get-FileHash -LiteralPath "$path" -Algorithm SHA256).Hash -ne $asset.digest.Substring(7)) { throw "Git SHA256 mismatch" }',
+  '$installer = Start-Process -FilePath "$path" -Wait -PassThru; if ($installer.ExitCode -ne 0) { throw "Git exit: $($installer.ExitCode)" } }',
+].join("; ");
+const nodeInstall = [
+  '& { $ErrorActionPreference = "Stop"',
+  '$arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString(); if ($arch -notin @("X64","Arm64")) { throw "Unsupported architecture: $arch" }',
+  '$cpu = if ($arch -eq "Arm64") { "arm64" } else { "x64" }',
+  '$releases = Invoke-RestMethod -Uri "https://nodejs.org/dist/index.json"; $lts = @($releases) | Where-Object { $_.lts -ne $false -and $_.files -contains "win-$cpu-zip" } | Select-Object -First 1',
+  'if (-not $lts -or $lts.version -notmatch "^v[0-9]+\\.[0-9]+\\.[0-9]+$") { throw "No compatible Node LTS" }',
+  '$file = "node-$($lts.version)-$cpu.msi"; $base = "https://nodejs.org/dist/$($lts.version)"',
+  '$hashes = Invoke-RestMethod -Uri "$base/SHASUMS256.txt"; $hashLines = @($hashes -split "[\\r\\n]+" | Where-Object { $_ -match ("^[0-9a-fA-F]{64}\\s+\\*?" + [regex]::Escape($file) + "$") })',
+  'if ($hashLines.Count -ne 1) { throw "Node MSI/hash not unique" }; $expected = ($hashLines[0] -split "\\s+")[0]',
+  '$path = Join-Path "$env:TEMP" ([guid]::NewGuid().ToString() + "-" + $file)',
+  'Invoke-WebRequest -Uri "$base/$file" -OutFile "$path" -UseBasicParsing',
+  'if (-not (Test-Path -LiteralPath "$path" -PathType Leaf) -or (Get-Item -LiteralPath "$path").Length -eq 0) { throw "Node download missing" }',
+  'if ((Get-FileHash -LiteralPath "$path" -Algorithm SHA256).Hash -ne $expected) { throw "Node SHA256 mismatch" }',
+  '$installer = Start-Process -FilePath "msiexec.exe" -ArgumentList @("/i", "`"$path`"") -Wait -PassThru; if ($installer.ExitCode -notin @(0,3010)) { throw "Node exit: $($installer.ExitCode)" } }',
+].join("; ");
+const ghInstall = [
+  '& { $ErrorActionPreference = "Stop"',
+  '$arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString(); if ($arch -notin @("X64","Arm64")) { throw "Unsupported architecture: $arch" }',
+  '$cpu = if ($arch -eq "Arm64") { "arm64" } else { "amd64" }',
+  '$release = Invoke-RestMethod -Uri "https://api.github.com/repos/cli/cli/releases/latest"',
+  '$assets = @($release.assets | Where-Object { $_.name -match ("^gh_[0-9.]+_windows_" + $cpu + "\\.msi$") }); if ($assets.Count -ne 1 -or $assets[0].digest -notmatch "^sha256:[0-9a-fA-F]{64}$") { throw "gh asset/hash not unique" }',
+  '$asset = $assets[0]; $path = Join-Path "$env:TEMP" ([guid]::NewGuid().ToString() + "-" + $asset.name)',
+  'Invoke-WebRequest -Uri "$($asset.browser_download_url)" -OutFile "$path" -UseBasicParsing',
+  'if (-not (Test-Path -LiteralPath "$path" -PathType Leaf) -or (Get-Item -LiteralPath "$path").Length -eq 0) { throw "gh download missing" }',
+  'if ((Get-FileHash -LiteralPath "$path" -Algorithm SHA256).Hash -ne $asset.digest.Substring(7)) { throw "gh SHA256 mismatch" }',
+  '$installer = Start-Process -FilePath "msiexec.exe" -ArgumentList @("/i", "`"$path`"") -Wait -PassThru; if ($installer.ExitCode -notin @(0,3010)) { throw "gh exit: $($installer.ExitCode)" } }',
+].join("; ");
+
 export function setupGuide(tool: AxToolId): AxGuideStep[] {
   const guide = TOOL_GUIDES[tool];
   return [
-    { title: "시작하기 전에 · 전체 흐름", purpose: `준비부터 Production 확인까지 ${guide.name} 작업 흐름`, sections: [
+    { title: "시작하기 전에 · 전체 흐름", purpose: "업무·진단·담당자 검토 → 구현·테스트 → 배포 → 실제 기능 확인", sections: [
       { title: "처음 시작할 때", blocks: [
-        text(`STEP 01에서 필요한 프로그램을 설치하고 Git·GitHub 인증과 ${guide.name} 연결을 확인합니다. 이미 설치된 항목은 건너뜁니다.`),
-        text("Codex와 Claude Code 중 하나만 사용하면 됩니다"),
+        text(`Windows 11 PowerShell 5.1 기준입니다. STEP 01에서 필요한 설치만 확인하세요. 이미 설치된 것은 건너뜁니다. ${guide.name} 하나면 충분하며, 원하면 Codex·Claude Code 둘 다 사용할 수 있습니다.`),
       ] },
       { title: "이후 작업할 때", blocks: [
-        text("이후 작업은 STEP 02부터 시작합니다. 설치 단계는 반복하지 않습니다."),
+        text("STEP 02부터 시작하고 설치를 반복하지 않습니다. 실제 업무와 승인·금지 범위를 확인한 후 구현합니다. 웹 배포가 필요 없는 업무는 실행·납품·운영 확인으로 완료할 수 있습니다."),
       ] },
       { title: "용어 알아보기", collapsed: true, blocks: [{ kind: "steps", items: [
-        "CLI: 명령어를 입력해 프로그램을 실행하고 조작하는 방식",
-        "저장소(Repository): 프로젝트 파일과 변경 기록을 모아 둔 곳",
-        "클론(Clone): GitHub 등의 원격 저장소를 내 PC로 복제하는 작업",
-        "브랜치(Branch): 변경을 나누어 진행하는 작업 갈래",
-        "풀(Pull): 원격 저장소의 변경 사항을 가져와 현재 브랜치에 통합하는 작업",
-        "빌드(Build): 작성한 코드를 실행하거나 배포할 수 있는 형태로 준비하는 과정",
-        ".gitignore: Git에 새로 포함하지 않을 파일·폴더 규칙을 적는 파일",
-        "환경변수(Environment Variable): 서비스 주소·인증 값 등을 코드 밖에 설정하는 변수",
-        "Secret: API Key·비밀번호처럼 공개하면 안 되는 인증 정보",
-        "커밋(Commit): 변경을 설명과 함께 Git에 기록하는 단위",
-        "푸시(Push): PC의 커밋을 GitHub 같은 원격 저장소에 올리는 작업",
-        "풀 리퀘스트(PR): 변경한 코드를 검토하고 대상 브랜치에 반영하도록 요청하는 과정",
-        "CI: 코드를 올리면 테스트·빌드 등을 자동 확인하는 과정",
-        "Preview: 실제 서비스 반영 전 확인하는 배포 환경",
-        "머지(Merge): 서로 다른 브랜치의 변경 사항을 합치는 작업",
-        "Production: 사용자가 실제 이용하는 서비스 환경",
-        "롤백(Rollback): 문제가 발생했을 때 이전 정상 상태로 되돌리는 작업",
+        "저장소/클론: GitHub의 프로젝트 파일·이력 / 로컬 PC로 복제",
+        "브랜치/PR/CI: 변경 갈래 / 검토 요청 / 자동 검사",
+        "Preview/Production: 미리보기 / 사용자가 사용하는 운영 환경",
+        "HITL: AI 제안을 사람이 검토·수정·승인하는 단계",
+        "Secret: Git이나 로그에 공개해서는 안 되는 인증 키·비밀번호",
+        "PASS/FAIL/NOT_RUN/BLOCKED: 통과 / 실패 / 미실행 / 조건 미충족으로 차단",
       ] }] },
     ] },
-    { title: "STEP 01 · 개발 환경 준비", purpose: "필요한 프로그램을 설치하고 정상 설치와 계정 연결을 확인합니다.", sections: [
-      { title: "필요한 프로그램 설치", blocks: [
-        text("아래 순서대로 설치하세요. 이미 설치된 프로그램은 건너뜁니다."),
-        text("Git (필수) — 코드 변경 이력을 관리하고 GitHub와 프로젝트를 연결합니다. https://git-scm.com/download/win 에서 Windows용 설치 파일을 내려받아 실행하세요."),
-        text("Node.js (Node.js 프로젝트·npm·npx·Wrangler 사용 시 필수) — Node.js 기반 프로젝트 실행과 npm 패키지(Wrangler 포함) 사용에 필요합니다. Node.js를 사용하지 않는 프로젝트에서는 설치하지 않아도 됩니다. https://nodejs.org/ 에서 LTS 버전을 내려받아 설치하세요. 프로젝트에 별도의 Node.js 버전 요구사항이 있으면 해당 요구사항을 우선합니다."),
-        text("GitHub CLI (선택·권장) — GitHub 로그인과 저장소·PR 작업을 터미널에서 관리할 때 사용합니다. https://cli.github.com/ 에서 Windows용 설치 파일을 내려받아 설치하세요. 기존 GitHub 인증 방식이 이미 정상이라면 설치를 강제하지 않습니다."),
-        text(`${guide.name} 설치 (필수)`),
-        code([guide.installCommand], [
-          "Windows PowerShell에서 실행합니다.",
-          `설치 후 PowerShell을 새로 열고 \`${guide.versionCommand}\`으로 확인합니다. 문제가 있으면 \`${guide.doctorCommand}\`으로 점검합니다.`,
-          "위 네이티브 설치 방식은 Node.js 없이 동작합니다. npm으로 설치할 때만 Node.js 22 이상이 필요합니다.",
-          "이미 설치·인증된 사용자는 다시 설치하지 않습니다.",
-        ]),
+    { title: "STEP 01 · 개발 환경 준비", purpose: "Git·필요한 Node.js·선택적 gh·선택한 코딩 에이전트 설치와 확인", sections: [
+      { title: "현재 설치 여부", blocks: [
+        text("Git은 코드 이력 관리에 필수, Node.js/npm은 프로젝트의 Node 도구 사용 시 필요, GitHub CLI(gh)는 GitHub 로그인·PR에 편리하지만 선택 사항입니다. 아래에서 사용하는 프로그램만 확인하고 버전이 나오면 해당 설치를 건너뜁니다."),
+        code(["git --version", "node --version", "npm --version", "gh --version", guide.versionCommand], []),
       ] },
-      { title: "설치 확인", blocks: [
-        text("설치 후 PowerShell을 새로 열고 정상 설치 여부를 확인하세요."),
-        code(["git --version", "node --version", "npm --version", "gh --version", guide.versionCommand], [
-          "실제로 필요하거나 설치한 프로그램의 확인 명령어만 실행합니다. 이미 설치된 프로그램의 재설치를 요구하지 않습니다.",
-        ]),
+      { title: "Git 설치", when: "git --version이 실패한 경우에만", blocks: [
+        text("공식 Git for Windows 최신 릴리스의 x64/arm64 설치 파일 하나를 선택하고 API의 SHA-256 digest와 실제 파일 해시를 대조한 뒤 설치합니다. 한 줄 전체를 복사하세요. 설치 창을 끝까지 완료하고 새 PowerShell을 여세요."),
+        code([gitInstall], []),
+        code(["git --version"], ["설치 후 새 PowerShell에서 실행. 실패하면 설치를 성공으로 간주하지 마세요."]),
+        text("출처: https://git-scm.com/downloads/win · https://github.com/git-for-windows/git/releases/latest"),
       ] },
-      { title: "Git 사용자 정보 설정", blocks: [
-        text("커밋에 기록할 이름과 이메일을 확인합니다. 이미 설정되어 있다면 변경할 필요가 없습니다."),
-        code(["git config user.name", "git config user.email"], [
-          "현재 프로젝트에 적용되는 작성자 설정을 확인합니다. 값이 표시되면 변경하지 않습니다.",
-        ]),
-        text("비어 있을 때만 설정합니다."),
-        code(['git config --global user.name "본인 GitHub 사용자명"', 'git config --global user.email "GitHub에 등록된 이메일"'], [
-          "이름은 실제 GitHub 사용자명 또는 원하는 작성자 이름 사용",
-          "이메일은 GitHub에 등록·인증된 이메일 사용 (GitHub 비공개 이메일도 사용 가능)",
-          "예시 문구를 반드시 실제 정보로 바꾼 후 실행",
-          "기존 값은 덮어쓰지 않음",
-          "`--global`은 현재 PC 사용자 환경의 전체 Git 저장소에 적용됩니다.",
-          "이메일 확인 경로: GitHub → Settings → Emails",
-        ]),
+      { title: "Node.js LTS 설치", when: "프로젝트가 Node.js를 요구하고 호환 버전이 없을 때만", blocks: [
+        text("package.json engines, .nvmrc, .node-version의 버전 요구가 일반 LTS보다 우선합니다. 충돌하면 명령을 실행하지 말고 요구 버전을 공식 배포 목록에서 확인하세요. 명시된 요구가 없을 때 공식 목록에서 최신 호환 LTS 하나만 고릅니다. MSI 파일이 해당 릴리스에 없거나 HTTP 오류라면 즉시 멈춥니다."),
+        code([nodeInstall], []),
+        code(["node --version", "npm --version"], ["설치 후 새 PowerShell에서 실행. MSI가 재시작을 요청했다면 먼저 재시작합니다."]),
+        text("출처: https://nodejs.org/en/download · https://nodejs.org/dist/index.json"),
       ] },
-      { title: "GitHub 로그인 확인", blocks: [
-        text("아래 명령은 GitHub CLI를 설치한 경우에만 실행합니다. 설치하지 않은 사용자는 이 단계를 건너뛰고 기존 Git 인증 또는 GitHub 웹 작업을 그대로 사용하세요. GitHub CLI 미설치를 오류나 필수 절차 미완료로 취급하지 않습니다."),
-        code(["gh auth status"], [
-          "GitHub CLI를 설치한 경우에만 실행합니다.",
-        ]),
-        text("로그인되어 있지 않으면 아래 명령어의 안내를 따릅니다. 이미 로그인한 사용자에게 재인증을 요구하지 않습니다."),
-        code(["gh auth login"], [
-          "GitHub CLI를 설치한 경우에만 실행합니다.",
-        ]),
-        text("GitHub CLI를 사용하지 않는 환경에서는 기존 인증 방식을 유지합니다. 토큰·비밀번호를 가이드나 소스 코드에 직접 입력하도록 안내하지 않습니다."),
+      { title: "GitHub CLI 설치", when: "gh를 사용하고 gh --version이 실패할 때만", blocks: [
+        text("GitHub 공식 릴리스에서 x64/arm64 Windows MSI 하나를 고르고 SHA-256을 확인합니다. 기존 Git 인증/웹 작업이 정상이면 설치를 생략하세요."),
+        code([ghInstall], []),
+        code(["gh --version"], ["설치 후 새 PowerShell에서 실행. 재시작을 요청했다면 먼저 재시작합니다."]),
+        text("출처: https://github.com/cli/cli/releases/latest · https://cli.github.com/manual/gh_auth_login"),
       ] },
-      { title: `${guide.name} 로그인`, blocks: [
-        code([guide.runCommand], []),
-        text(guide.loginNote),
-        text("GitHub 인증과 Codex·Claude Code 계정 인증은 별개입니다."),
+      { title: `${guide.name} 설치`, when: `${guide.versionCommand}이 실패할 때만`, blocks: [
+        text(`${guide.name}은 선택한 코딩 에이전트입니다. 공식 네이티브 설치 스크립트의 출처와 내용을 먼저 확인하세요. 다른 에이전트까지 설치할 필요는 없습니다.`),
+        code([guide.installCommand], []),
+        code([guide.versionCommand], ["새 PowerShell에서 버전을 확인하세요."]),
+        ...(tool === "codex" ? [text("Node/npm이 이미 필요해 설치되어 있다면 네이티브 설치 대신 `npm install -g @openai/codex`를 사용할 수 있습니다. 둘을 동시에 설치하지 마세요. 출처: https://learn.chatgpt.com/docs/codex/cli")] : [text("출처: https://code.claude.com/docs/en/setup")]),
+      ] },
+      { title: "Git 정보·로그인", when: "첫 커밋이나 GitHub 인증이 필요할 때만", blocks: [
+        code(["git config user.name", "git config user.email"], ["비어 있을 때만 실제 이름·이메일을 아래 명령으로 설정합니다."]),
+        code(['git config --global user.name "본인 이름"', 'git config --global user.email "me@example.com"'], ["이미 설정된 값은 덮어쓰지 않습니다."]),
+        code(["gh auth status", "gh auth login"], ["gh 설치 시에만 인증 상태를 확인하고 미인증이면 로그인하세요. gh 없이 기존 GitHub 인증 방식을 사용해도 됩니다."]),
+        code([guide.runCommand], [guide.loginNote, "GitHub 로그인과 코딩 에이전트 로그인은 별개입니다."]),
+      ] },
+      { title: "설치 오류 확인", collapsed: true, blocks: [
+        text(`네트워크·권한·아키텍처·SHA-256·종료 코드를 확인하고 파일/버전 확인 실패 시 중단하세요. 기존 임시 파일을 실패한 다운로드의 대안으로 실행하지 않습니다. ${tool === "codex" ? "Codex의 지원 명령은" : "Claude의 설치 진단은"} \`${guide.doctorCommand}\`으로 확인할 수 있습니다. 해당 도구의 공식 설치 문서를 우선합니다.`),
       ] },
     ] },
-    { title: "STEP 2 · 프로젝트 준비", purpose: "프로젝트 폴더·의존성·Git 상태 확인", sections: [
-      { title: "A. GitHub에 있는 기존 프로젝트", when: "GitHub에는 프로젝트가 있지만 이 PC에는 아직 없는 경우", blocks: [
-        code(["mkdir C:\\Work", "cd C:\\Work", "git clone <저장소 URL>", "cd <프로젝트 폴더>", "git status"], [
-          "작업용 폴더 만들기 (이미 있으면 건너뜀)",
-          "<저장소 URL>을 실제 URL로 바꾸어 프로젝트 내려받기",
-          "<프로젝트 폴더>를 내려받은 폴더 이름으로 바꾸어 이동",
-        ]),
+    { title: "STEP 02 · 프로젝트 준비", purpose: "GitHub 클론 / 기존 로컬 프로젝트 / 새 프로젝트 중 하나", sections: [
+      { title: "A. GitHub에 있는 기존 프로젝트", when: "PC에 아직 없는 경우", blocks: [
+        code(['mkdir "C:\\Work"', 'cd "C:\\Work"', 'git clone "https://github.com/owner/repository.git"', 'cd "C:\\Work\\repository"', "git status"], ["URL·폴더명은 실제 값으로 바꾸세요. 이미 폴더가 있으면 mkdir을 건너뛰고 저장소를 중복 클론하지 마세요."]),
       ] },
-      { title: "B. PC에 이미 있는 프로젝트", when: "이 PC에 기존 프로젝트 폴더가 있는 경우", blocks: [
-        code(['cd "C:\\프로젝트\\경로"', "git status", "git branch --show-current", "git remote -v"], [
-          "실제 프로젝트 경로로 바꾸어 이동",
-          "연결된 원격 URL이 작업할 GitHub 저장소인지 확인",
-        ]),
-        text("이미 Git 저장소면 그대로 사용합니다. 미커밋 변경이 있으면 `git pull`을 실행하지 말고 AI 도구에 현재 상태를 먼저 확인시킵니다."),
+      { title: "B. PC에 이미 있는 프로젝트", when: "PC에 프로젝트 폴더가 있는 경우", blocks: [
+        code(['cd "C:\\Work\\repository"', "git status", "git branch --show-current", "git remote -v"], ["실제 경로·브랜치·원격 저장소를 확인하세요."]),
+        text("미커밋 변경이 있으면 git pull을 실행하지 말고 AI 도구에 현재 상태를 먼저 확인시킵니다. 기존 파일·설정·데이터를 보존합니다."),
       ] },
-      { title: "C. 새 프로젝트", when: "새 폴더에서 처음 시작하는 경우", blocks: [
-        text("아래 순서대로 진행합니다. Git 저장소가 이미 있으면 초기화 단계를 건너뜁니다."),
-        code(["git --version"], [
-          "Git이 설치되어 있는지 먼저 확인합니다. 명령을 찾을 수 없다는 오류가 나오면 STEP 01로 돌아가 Git을 설치합니다.",
-        ]),
-        code(["mkdir C:\\Work\\MyProject", "cd C:\\Work\\MyProject"], [
-          "새 프로젝트 폴더 만들기 (경로·이름은 원하는 값으로 변경)",
-          "위 경로는 예시입니다. 실제 사용할 경로로 바꾸어 실행하세요.",
-        ]),
-        code(["git status"], [
-          "현재 폴더가 Git 저장소인지 확인합니다.",
-          "정상 출력이 나오면 이미 Git 저장소이므로 아래 초기화 단계를 건너뜁니다.",
-          "`fatal: not a git repository` 오류가 나올 때만 다음 단계로 진행합니다.",
-        ]),
-        text("Git 저장소가 아닌 경우에만 초기화합니다 (신규 프로젝트 한정)"),
-        code(["git init", "git status"], [
-          "신규 폴더에만 실행합니다. 기존 저장소를 재초기화하거나 기존 remote를 덮어쓰지 않습니다.",
-          "초기화 후 `git status`가 정상 동작하는지 다시 확인합니다.",
-          "브랜치 이름은 Git 설정 기본값을 유지합니다. branch 이름을 main으로 강제하지 않습니다.",
-        ]),
-        code(["git branch --show-current", "git remote -v"], [
-          "현재 브랜치 이름을 확인합니다 (이후 push 안내에서 사용).",
-          "원격 저장소 연결 여부를 확인합니다. 출력이 비어 있으면 아직 연결되지 않은 상태입니다.",
-          "기존 원격 주소가 있으면 덮어쓰지 않습니다.",
-        ]),
-        text("이후 AI 도구가 요구사항을 확인해 프레임워크와 GitHub 연결 필요성을 결정합니다. 특정 프레임워크를 임의로 정하지 않습니다."),
-        text("작업 후 Git 저장 전에 현재 폴더가 Git 저장소인지, 원격이 연결됐는지, 맞는 GitHub 저장소인지 확인합니다."),
-        text("remote가 없으면 아래 'GitHub 저장소 생성·연결' 절차를 따릅니다. 첫 push 전에 `git remote -v`로 대상을 다시 확인합니다."),
+      { title: "C. 새 프로젝트", when: "새 폴더에서 시작하는 경우", blocks: [
+        code(['mkdir "C:\\Work\\MyProject"', 'cd "C:\\Work\\MyProject"', "Get-Location", "git status", "git remote -v"], ["예시 경로를 실제 값으로 바꾸세요. 폴더가 이미 있으면 먼저 내용을 확인하고 mkdir은 건너뜁니다. Git 미초기화 상태면 마지막 두 명령이 실패할 수 있습니다."]),
+        text("특정 프레임워크를 임의로 정하지 않습니다. Git 저장 전 Git 저장소인지, remote가 연결됐는지, 대상 GitHub 저장소가 맞는지 확인합니다. Git 저장소가 아닌 경우에만 초기화하고 기존 저장소를 재초기화하거나 기존 remote를 덮어쓰지 않습니다. branch 이름을 main으로 강제하지 않습니다."),
+        code(["git init", 'git remote add origin "https://github.com/owner/repository.git"', "git remote -v"], ["git init은 저장소가 아닐 때만, remote add는 저장소를 만들고 remote가 없을 때만 실행합니다. 원격에 초기 커밋이 있으면 먼저 이력을 확인하고 충돌 없이 연결합니다. 첫 push 전에 대상 원격을 다시 확인하세요."]),
       ] },
-      { title: "GitHub 저장소 생성·연결", when: "신규 프로젝트에서 GitHub 저장소가 아직 없는 경우", blocks: [
-        text("웹 방식과 CLI 방식 중 하나만 수행합니다. 두 방식을 중복 실행하지 않습니다."),
-        text("A. GitHub 웹 방식"),
-        { kind: "steps", items: [
-          "GitHub에 로그인합니다.",
-          "우측 상단 + 메뉴 → New repository를 선택합니다.",
-          "저장소 이름과 공개 범위(Public/Private)를 선택합니다.",
-          "README 추가 여자를 결정합니다. README를 포함해 생성하면 원격에 초기 커밋이 생기므로 아래 주의사항을 먼저 확인하세요.",
-          "Create repository를 클릭하고 생성된 저장소 주소를 확인합니다 (사용자명/저장소명.git 형태의 주소).",
-          "로컬에서 원격 연결 상태를 다시 확인합니다: `git remote -v`",
-          "원격이 없을 때만 연결합니다: `git remote add origin \"실제 GitHub 저장소 URL\"` — 따옴표 안을 실제 주소로 바꾸세요.",
-          "현재 브랜치와 커밋 상태를 확인합니다: `git branch --show-current`, `git status`",
-          "최초 커밋이 있으면 현재 브랜치 기준으로 푸시합니다: `git push -u origin 현재브랜치명` (예: `git push -u origin main`). 브랜치명을 main으로 가정하지 않습니다.",
-          "GitHub 웹에서 파일이 반영됐는지 확인합니다.",
-        ] },
-        text("B. GitHub CLI 방식 (선택)"),
-        text("GitHub CLI가 설치·인증된 경우에만 사용합니다. 웹 방식과 중복 수행하지 않습니다."),
-        { kind: "steps", items: [
-          "`gh auth status`로 로그인을 확인합니다.",
-          "프로젝트 폴더에서 실행: `gh repo create 저장소명 --public`(또는 `--private`) `--source=. --push`",
-          "저장소명·공개 범위를 실제 값으로 바꾸세요.",
-          "`--push`는 현재 브랜치의 커밋을 함께 올립니다. 커밋이 없으면 먼저 커밋하세요.",
-        ] },
-        text("주의: GitHub에서 README를 포함해 저장소를 만들면 원격에 이미 초기 커밋이 존재합니다. 이 경우 로컬에서 `git init`으로 독립 초기화한 뒤 무조건 push하지 마세요. 원격 이력(`git ls-remote origin`)과 로컬 이력을 확인하고, 충돌 없이 연결하는 방법(원격을 먼저 pull/clone하거나, 빈 저장소로 다시 만들기)을 선택하세요."),
-        text("기존 원격 주소는 임의로 덮어쓰지 않습니다. 변경이 필요하면 `git remote -v`로 현재 설정을 먼저 확인하세요."),
-        text("`--force` 푸시는 기본 해결 방법으로 사용하지 않습니다. 되돌릴 수 없는 데이터 손실 위험이 있습니다."),
-        text("토큰·비밀번호를 명령어에 직접 입력하지 않습니다. GitHub 인증 실패(로그인 문제)와 저장소 접근 권한 부족(권한 문제)은 다른 문제이므로 오류 메시지를 구분해 확인하세요."),
-      ] },
-      { title: "의존성 준비", blocks: [
-        { kind: "steps", items: [
-          "저장소 지침(AGENTS.md·README·packageManager 필드)을 먼저 확인합니다.",
-          "package.json이 있으면 scripts와 의존성을 확인합니다.",
-          "lockfile 단서 확인: package-lock.json → npm, pnpm-lock.yaml → pnpm, yarn.lock → Yarn, bun.lock/bun.lockb → Bun일 가능성",
-          "저장소 지침과 실제 설정에 맞는 기존 방식으로 의존성을 설치합니다.",
-        ] },
-        text("lockfile 단서 하나로 package manager를 바꾸지 않습니다. 기존 lockfile과 package manager를 우선하며, 설치 과정에서 다른 매니저의 lockfile을 새로 만들거나 기존 lockfile을 교체하지 않습니다. migration은 별도 작업입니다."),
-      ] },
-      { title: "현재 위치 확인", blocks: [
-        code(["git status"], []),
-        text("명령은 실제 프로젝트 폴더에서 실행합니다. 올바른 저장소·브랜치에 있는지 확인하세요. 새 프로젝트에 Git 저장소가 아직 없으면 AI 도구와 초기화 필요성을 확인합니다."),
-      ] },
-      { title: "배포 플랫폼 선택", when: "신규 프로젝트이거나 배포 플랫폼을 정하지 않은 경우", collapsed: true, blocks: [
-        text("기존 프로젝트는 현재 사용 중인 배포 플랫폼을 먼저 확인하고, 정상 운영 중이면 임의로 변경하지 않습니다."),
-        text("신규 프로젝트는 아래 비교로 검토합니다. DB 유무만으로 플랫폼을 단정하지 않습니다."),
-        { kind: "table", headers: ["비교 항목", "Vercel", "Cloudflare"], rows: [
-          ["적합한 프로젝트", "개인 포트폴리오·정적 사이트·단순 React/Next.js 앱", "Workers·D1·R2·KV 중심 업무용 앱"],
-          ["프레임워크 호환성", "Next.js에 최적화, React·정적 사이트에 강함", "Workers·Pages, 다양한 프레임워크 지원"],
-          ["데이터베이스", "Neon·Supabase 등 외부 DB 연결", "D1 내장, 외부 DB도 Hyperdrive로 연결 가능"],
-          ["파일 저장", "Blob 스토리지", "R2 객체 저장"],
-          ["배포 방식", "Git 연동 자동 배포", "Git 연동 또는 Wrangler CLI"],
-          ["실행 환경 제약", "Hobby: Function 실행 시간 최대 5분", "Workers Free: 요청당 CPU 10ms"],
-          ["무료 플랜 이용 조건", "Hobby: 개인·비상업적 용도 제한", "서비스별 무료 한도 내에서 자유롭게 사용 (STEP 08 참조)"],
-          ["회사 업무용", "Pro 플랜 또는 이용 조건 확인 필요", "무료 플랜에서도 업무용 가능, 한도·비용 확인"],
-        ] },
-        text("권장 기준: 개인 정적 사이트·간단한 프론트엔드는 Vercel 우선 검토, Workers·D1·R2·KV 중심 업무용 앱은 Cloudflare 우선 검토, PostgreSQL 등 외부 DB 기반 앱은 기존 DB·프레임워크 호환성으로 결정, 기존 정상 운영 프로젝트는 현재 환경 유지 우선."),
-        text("배포 플랫폼과 저장 서비스는 반드시 같은 공급자일 필요는 없습니다. Vercel과 Cloudflare를 함께 사용할 수도 있습니다."),
-        text("장시간 실행·무거운 AI 처리는 실행 제약과 비용을 먼저 확인하세요."),
-        text("공식 문서: https://vercel.com/docs/plans/hobby · https://developers.cloudflare.com/workers/platform/pricing/"),
-      ] },
-      { title: "데이터 저장 방식 선택", when: "신규 프로젝트이거나 저장 방식을 정하지 않은 경우", collapsed: true, listStyle: "bullets", blocks: [
-        text("데이터 종류에 따라 저장 위치를 선택합니다. 필요한 서비스만 선택하고, D1·R2·KV를 모두 연결하도록 안내하지 않습니다."),
-        { kind: "steps", items: [
-          "브라우저 저장 (localStorage·IndexedDB): 개인 설정·임시 데이터. 다른 PC·브라우저에서는 자동으로 공유되지 않습니다.",
-          "D1 (Cloudflare 관계형 DB): 업무 데이터·기록·상태 등. SQL로 조회하는 구조화된 데이터에 적합합니다.",
-          "R2 (Cloudflare 객체 저장): PDF·이미지·첨부파일 등 파일 저장에 적합합니다.",
-          "KV (Cloudflare 키-값 저장): 조회 중심 캐시·간단한 설정값에 적합합니다. 최종 일관성 특성상 중요한 실시간 업무 기록의 주 DB로는 권장하지 않습니다.",
-          "외부 DB (Neon·Supabase·기존 PostgreSQL 등): 기존 시스템과 연계하거나 현재 DB를 유지할 때 사용합니다.",
-        ] },
-        text("기존 프로젝트는 현재 DB·스토리지를 먼저 확인하고, 별도 지시 없이 DB 이전이나 신규 스토리지 연결을 제안하지 않습니다."),
-      ] },
-      { title: "DB 연결 전 준비", when: "DB·스토리지 사용을 검토하는 경우", blocks: [
-        text("리소스를 만들기 전에 아래를 먼저 확인합니다. 해당하는 경우에만 진행하세요."),
-        { kind: "steps", items: [
-          "□ DB·스토리지가 실제로 필요한지 확인",
-          "□ D1·R2·KV·외부 DB 중 필요한 서비스만 선택 (전부 연결하지 않음)",
-          "□ Cloudflare 계정 및 리소스 생성 권한 확인",
-          "□ R2 사용 시 구독·결제 조건 확인",
-          "□ 무료 플랜 한도와 초과 시 처리 방식 확인 (STEP 08 무료 한도 안내 참조)",
-          "□ 개발용·운영용 환경 구분",
-          "□ 기존 데이터가 있으면 보존 방안 확인",
-        ] },
-      ] },
-      { title: "D1·R2·KV 연결 절차", when: "Cloudflare D1·R2·KV 중 하나라도 사용하는 경우", collapsed: true, blocks: [
-        text("아래 순서대로 진행합니다. 사용하는 서비스의 항목만 수행하고, 사용하지 않는 서비스는 건너뜁니다."),
-        { kind: "steps", items: [
-          "현재 프로젝트의 배포 환경을 확인합니다 (Workers인지 Pages인지, Git 자동 배포인지 Wrangler 방식인지).",
-          "저장 서비스가 실제로 필요한지 결정합니다. 필요 없으면 이 절차 전체를 건너뜁니다.",
-          "Cloudflare 계정·리소스 생성 권한을 확인합니다. R2는 대시보드에서 R2를 먼저 활성화해야 합니다.",
-          "기존 리소스가 있으면 재사용합니다. 새로 만들 때만 아래 서비스별 절차를 따릅니다.",
-          "wrangler 설정 파일에 Binding·환경변수를 연결합니다. 이름은 실제 프로젝트 설정을 확인합니다.",
-          "개발 환경에서 연결을 테스트합니다.",
-          "Production에 연결하고 필요하면 마이그레이션을 적용합니다.",
-          "실제 저장·조회가 되는지 검증합니다 (STEP 09).",
-        ] },
-        text("D1 연결"),
-        { kind: "steps", items: [
-          "Cloudflare 대시보드 → Workers & Pages → D1에서 기존 데이터베이스가 있는지 확인합니다.",
-          "없을 때만 새로 만듭니다: `npx wrangler d1 create <DB 이름>` (이미 있으면 만들지 않습니다).",
-          "개발용 DB와 운영용 DB를 구분합니다. 로컬 변경이 운영 DB에 자동 적용되지 않습니다.",
-          "wrangler 설정 파일의 d1 binding 이름을 실제 프로젝트에서 확인합니다.",
-          "스키마 변경은 마이그레이션 파일로 관리합니다: `npx wrangler d1 migrations apply <DB 이름> --local`로 먼저 검증한 뒤 운영에 적용합니다.",
-          "운영 DB의 초기화·삭제·파괴적 마이그레이션은 사전 승인 없이 실행하지 않습니다.",
-        ] },
-        text("R2 연결"),
-        { kind: "steps", items: [
-          "Cloudflare 대시보드에서 R2를 활성화합니다 (결제 수단 등록이 필요할 수 있습니다).",
-          "기존 버킷이 있는지 확인합니다: `npx wrangler r2 bucket list`. 없을 때만 `npx wrangler r2 bucket create <버킷 이름>`으로 만듭니다.",
-          "wrangler 설정 파일의 r2_buckets binding 이름을 실제 프로젝트에서 확인합니다.",
-          "파일 업로드·다운로드가 되는지 테스트합니다.",
-          "공개 파일과 비공개 파일을 구분합니다. 민감한 파일을 임의로 공개 설정하지 않습니다.",
-        ] },
-        text("KV 연결"),
-        { kind: "steps", items: [
-          "기존 네임스페이스가 있는지 확인합니다: `npx wrangler kv namespace list`. 없을 때만 `npx wrangler kv namespace create <이름>`으로 만듭니다.",
-          "wrangler 설정 파일의 kv_namespaces binding 이름을 실제 프로젝트에서 확인합니다.",
-          "간단한 읽기·쓰기로 연결을 검증합니다.",
-          "KV는 최종 일관성이라 변경이 모든 지역에 즉시 반영되지 않을 수 있습니다. 중요한 실시간 업무 데이터의 주 저장소로는 사용하지 않습니다.",
-        ] },
-        text("위 명령의 <DB 이름>·<버킷 이름>·<이름>은 예시입니다. 실제 이름은 프로젝트에서 정합니다. 사용자 승인 없이 운영 리소스를 생성·수정·삭제하지 않습니다."),
+      { title: "기존 도구 규칙", collapsed: true, blocks: [
+        text("AGENTS.md·README·packageManager·engines·scripts·lockfile을 확인합니다. lockfile 단서 하나로 package manager를 바꾸지 않습니다. 기존 매니저·버전·lockfile을 우선하고 다른 매니저 lockfile 생성·교체는 하지 않습니다. 의존성 설치는 실제 저장소 방식대로 AI 도구가 진행합니다."),
       ] },
     ] },
-    { title: `STEP 3 · ${guide.name} 실행`, purpose: `프로젝트 폴더에서 ${guide.name} 실행 후 기존 지침·구현 확인`, sections: [
+    { title: "STEP 03 · 올인원 지시문 준비", purpose: "WorkLens의 업무·진단·HITL 판단을 지시문에 연결", sections: [
+      { title: "WorkLens에서 확인", blocks: [
+        text("업무 선택 → 진단과 판단 근거 확인 → 단계별 자동화 판단의 HITL 검토(유지·보류·제외·보완)와 확인된 기술 조건을 반영합니다. 보류·제외 항목을 AI가 임의로 구현하거나 승인하지 않습니다. 실제 화면의 ‘04 올인원 지시문’에서 Codex 또는 Claude Code를 선택하고 ‘전체 보기’로 확인한 뒤 ‘올인원 지시문 복사’를 누릅니다."),
+        text("별도 지시문 개발 단계가 아닙니다. 플랫폼·저장 방식 등 구현 전 확정이 필요한 조건은 STEP 05/06을 참조해 담당자의 판단을 받은 다음 해당 구현을 진행하세요."),
+      ] },
+    ] },
+    { title: "STEP 04 · 첫 MVP 구현과 실제 테스트", purpose: "선택한 AI 에이전트로 입력·처리·출력 구현 후 검증", sections: [
       { title: "프로젝트 폴더에서 실행", blocks: [
-        text("PowerShell에서 프로젝트 폴더로 이동한 뒤 코딩 에이전트를 실행하세요."),
-        code(['cd "실제 프로젝트 경로"', guide.runCommand], [
-          "실제 프로젝트 경로로 변경한 후 실행합니다.",
-        ]),
-        text(guide.loginNote),
+        code(['cd "C:\\Work\\repository"', "Get-Location", guide.runCommand], ["실제 프로젝트 폴더로 바꾸세요."]),
+        text("STEP 03에서 복사한 올인원 지시문 전체를 에이전트에 붙여넣습니다. 저장소 지침·기존 구현·승인 경계를 먼저 확인하고 파일 변경·실행·승인 요청을 검토하세요."),
       ] },
-      { title: "작업 시작 전 AI가 먼저 확인할 것", blocks: [{ kind: "steps", items: [
-        "저장소 구조 확인",
-        "AGENTS.md 같은 프로젝트 지침 파일이 있으면 우선 확인합니다. 없으면 새로 만들라고 강제하지 않습니다.",
-        "기존 구현·테스트를 확인한 뒤 작업을 시작합니다.",
-      ] }] },
-    ] },
-    { title: "STEP 4 · 올인원 지시문으로 작업", purpose: "올인원 지시문 전달 및 승인·검토 요청 확인", sections: [
-      { title: "올인원 지시문 실행", blocks: [
-        text("아래 올인원 지시문 영역에서 복사"),
-        { kind: "steps", items: [
-          `WorkLens에서 ${guide.name}용 올인원 지시문 전체 복사`,
-          "실행한 AI 도구에 지시문 붙여넣기",
-          "AI가 저장소를 분석하고 구현·검증을 진행합니다. 승인·검토 요청이 있으면 내용을 확인합니다.",
-        ] },
+      { title: "입력 → 처리 → 출력 실동작", blocks: [
+        text("예: 실제 CSV 파일을 선택·읽기 → 행 형식과 누락·중복을 검증하고 확인된 규칙만 계산 → 검토용 결과 파일/화면과 오류 목록으로 출력. 샘플 CSV와 기대 결과를 대조하며 승인되지 않은 삭제·자동 승인·외부 전송은 하지 않습니다. 웹앱이 아닌 CLI·Excel 업무라면 그 실행 환경에서 같은 흐름을 검증하세요."),
+        text("AI가 첫 MVP를 구현한 뒤 저장소에 실제 존재하는 테스트·빌드 명령과 수동 기능 검사를 실행합니다. 단계별 PASS/FAIL/NOT_RUN/BLOCKED와 실행 근거를 기록하세요. 실행하지 않은 명령이나 미확정 기준을 PASS로 기록하지 않습니다."),
+        code(["git status", "git diff", "git diff --cached --stat"], ["관계없는 변경·대량 삭제·Secret은 중단하고 검토하세요."]),
       ] },
-      { title: "DB 연동 프로젝트에서 미리 준비할 정보", when: "DB·스토리지 연동이 필요한 프로젝트인 경우", blocks: [
-        text("올인원 지시문을 실행하기 전에 아래 정보를 AI 도구와 함께 확인합니다. 확인되지 않은 요구사항을 임의로 확정하지 않습니다."),
-        { kind: "steps", items: [
-          "□ 기존 프로젝트인지 신규 프로젝트인지",
-          "□ 선택한 배포 플랫폼 (Vercel·Cloudflare 등)",
-          "□ 사용할 DB·스토리지 유형 (D1·R2·KV·외부 DB 등)",
-          "□ 기존 데이터 보존이 필요한지",
-          "□ 사용자 승인·권한이 필요한 항목 (DB 생성·마이그레이션·Secret 등록 등)",
-        ] },
-        text("위 정보는 해당 프로젝트의 실행 조건으로만 사용하고, 설치 가이드의 일반적인 권장 사항을 모든 업무의 올인원 지시문에 자동 삽입하지 않습니다."),
+      { title: "실패 시", collapsed: true, blocks: [
+        text("API Key·Token·Password·개인정보를 [REDACTED]로 가린 필요한 오류 내용만 AI 도구에 전달합니다. 로그 전체를 무조건 복사하지 않습니다. 수정 후 동일한 검증을 다시 실행합니다."),
       ] },
     ] },
-    { title: "STEP 5 · AI 작업 결과 검증", purpose: "변경 내용·테스트·빌드·핵심 기능 확인", sections: [
-      { title: "변경 파일 확인", blocks: [
-        code(["git status"], []),
-        { kind: "steps", items: [
-          "예상한 파일만 변경됐는지 확인합니다.",
-          "관계없는 파일·.env·불필요한 build/cache/log가 없는지 확인합니다.",
+    { title: "STEP 05 · 배포 플랫폼 선택", purpose: "기존 구성을 유지하거나 새 프로젝트의 실행 조건과 정책으로 선택", sections: [
+      { title: "배포 방식 비교", blocks: [
+        text("기존 서비스의 배포 플랫폼·브랜치·워크플로는 먼저 확인하고 유지합니다. 새 웹 프로젝트는 프레임워크 호환성·실행 시간·요금·인증·데이터 보관·운영 권한으로 결정합니다. DB 유무만으로 플랫폼을 정하지 않습니다. 두 플랫폼을 함께 사용하거나 외부 DB와 결합할 수 있습니다."),
+        { kind: "table", headers: ["비교", "Vercel", "Cloudflare"], rows: [
+          ["주요 강점", "Next.js 및 프론트엔드 Git 연동, Preview", "Workers/Pages와 D1·R2·KV 바인딩, Git 연동 또는 기존 Wrangler 스크립트"],
+          ["실행·데이터", "Functions와 외부 DB·Blob 연결 가능", "Workers와 내장·외부 저장소 연결 가능; DB 사용을 강요하지 않음"],
+          ["무료 조건", "Hobby 개인·비상업적 용도, Function 월 100만 호출 포함", "Workers Free 일 10만 요청·요청당 CPU 10ms; 저장 서비스별 별도 한도·결제"],
+          ["업무용", "플랜 이용 조건을 확인하고 필요하면 Pro 검토", "무료 한도와 해당 서비스 청구 조건을 확인"],
         ] },
+        text("수치는 현재 공식 정책에 근거한 예시이며 가입·배포 전 최신 정책을 확인하세요. https://vercel.com/docs/plans/hobby · https://developers.cloudflare.com/workers/platform/pricing/"),
       ] },
-      { title: "변경 내용 확인", blocks: [
-        code(["git diff"], ["스테이지에 올리지 않은 변경 내용 확인"]),
-        text("입문자는 전부 해석할 필요는 없습니다. 예상 밖 대량 삭제·관계없는 수정·Secret·임시 코드가 있는지 확인합니다."),
+      { title: "Cloudflare의 Wrangler", when: "프로젝트가 Wrangler를 실제 사용하는 경우만", collapsed: true, blocks: [
+        text("기존 packageManager·lockfile·Wrangler 버전·스크립트를 유지합니다. 새 npm Cloudflare 프로젝트에 Wrangler CLI가 필요하고 없을 때에만 다음 명령으로 로컬 devDependency에 설치합니다. 기존 Pages/Git 자동 배포에 CLI를 추가하지 않습니다."),
+        code(["npm i -D wrangler@latest", "npx wrangler --version"], ["새 npm Cloudflare 프로젝트에만 적용; 다른 매니저·기존 프로젝트에는 해당 설정을 우선합니다."]),
+        text("출처: https://developers.cloudflare.com/workers/wrangler/install-and-update/"),
       ] },
-      { title: "테스트·빌드 확인", blocks: [
-        text("package.json·프로젝트 지침에서 실제 존재하는 명령만 확인해 실행합니다. AI가 실행했다고 해도 결과를 직접 확인합니다."),
-      ] },
-      { title: "실제 기능 확인", blocks: [text("가능하면 프로젝트를 직접 실행해 핵심 동작을 확인")] },
-      { title: "오류가 나면", blocks: [{ kind: "steps", items: [
-        "Git 단계로 넘어가지 말고 오류 메시지·로그의 API Key·Token·Password·개인정보를 [REDACTED]로 가린 뒤 필요한 부분만 AI 도구에 전달합니다. 로그 전체를 무조건 복사하지 않습니다.",
-        "AI가 오류를 수정합니다.",
-        "같은 검증을 다시 실행합니다.",
-        "성공한 뒤 다음 단계로 넘어갑니다.",
-      ] }] },
-    ] },
-    { title: "STEP 6 · .gitignore / Secret 확인 후 Git 저장", purpose: "파일·Secret 확인 후 프로젝트 방식대로 커밋·푸시", sections: [
-      { title: "기존 .gitignore 확인", blocks: [
-        text(".gitignore가 있으면 덮어쓰지 않습니다. 기존 규칙을 유지하고 필요한 항목만 추가합니다. 새 프로젝트에 없으면 실제 스택을 확인한 뒤 기본 규칙을 만듭니다. 아래는 .gitignore에 적는 예시이며 PowerShell에서 실행하는 명령이 아닙니다."),
-        code(["node_modules/", ".env", ".env.local", ".env.*.local", "dist/", "build/", ".next/", "*.log"], [
-          "Node.js 의존성 폴더 제외",
-          "실제 인증 정보가 들어갈 수 있는 환경변수 파일 제외",
-          "로컬 환경변수 파일 제외",
-          "환경별 로컬 환경변수 파일 제외",
-          "dist 빌드 결과 제외 (프로젝트가 사용하는 경우)",
-          "build 빌드 결과 제외 (프로젝트가 사용하는 경우)",
-          "Next.js 프로젝트에서만 .next/ 추가",
-          "로그 파일 제외",
-        ], ".gitignore"),
-      ] },
-      { title: ".env와 .env.example", blocks: [
-        text(".env에는 실제 Secret이 들어갈 수 있어 일반적으로 제외합니다. .env.example은 변수 이름을 공유하는 예제일 수 있으므로 무조건 제외하지 않습니다. 기존 프로젝트 정책을 우선합니다."),
-      ] },
-      { title: "DB·환경변수·Secret 관리", when: "DB·스토리지 연동이 필요한 프로젝트인 경우", blocks: [
-        text("DB 연결 정보와 비밀키는 코드에 직접 넣지 않습니다. 실제 Secret 값을 AI 대화에 붙여넣도록 요구하지 않습니다."),
-        { kind: "steps", items: [
-          "□ DB 연결 정보·API Key·Secret은 코드가 아닌 환경변수·플랫폼 Secret 설정에 등록",
-          "□ 개발·Preview·Production 환경변수를 구분하여 설정 (Preview 값을 Production에 그대로 복사하지 않음)",
-          "□ Secret(인증 정보)과 공개 가능한 설정값(리전·버킷명 등)을 구분",
-          "□ .env·DB 백업 파일·개인정보가 GitHub에 올라가지 않는지 확인",
-          "□ 운영 DB의 삭제·초기화·파괴적 마이그레이션은 사전 승인 없이 실행하지 않음",
-        ] },
-      ] },
-      { title: "이미 추적 중인 파일", blocks: [
-        text(".gitignore에 넣어도 계속 보이면 이미 Git이 추적 중일 수 있습니다. 파일을 삭제하지 마세요. AI 도구에 Git 상태를 확인시켜 추적만 제거할지 판단합니다."),
-      ] },
-      { title: "올리기 전 체크리스트", blocks: [
-        { kind: "steps", items: [
-          "□ 변경 파일이 예상 범위인가", "□ .env·API Key·Secret이 없는가", "□ 불필요한 build·cache·log가 제외됐는가",
-          "□ 테스트·빌드가 정상인가", "□ git status에 이상한 파일이 없는가",
-        ] },
-        text("Secret에는 API Key·Token·Password·서비스 계정 키·개인 인증 파일이 포함됩니다."),
-        text("실제 Secret 값을 Git뿐 아니라 AI 대화·터미널 로그·스크린샷에도 붙여넣지 않습니다. 로그를 AI 도구에 전달하기 전에 API Key·Token·Password·개인정보를 [REDACTED]로 가리고 필요한 부분만 전달합니다. 로그 전체를 무조건 복사하지 않습니다."),
-        text("이미 노출된 Secret은 .gitignore만으로 보호되지 않습니다. 키를 폐기 → 재발급 → 플랫폼 설정 교체 순서로 대응하고, 필요하면 기록 정리도 검토합니다. 기록 재작성은 자동 실행하지 않습니다."),
-      ] },
-      { title: "Git 저장 · 스테이지 및 변경 확인", blocks: [
-        code(["git add ."], ["현재 폴더 아래 변경 전체를 스테이지에 올립니다. 필요한 파일만 올려도 됩니다."]),
-        code(["git status"], ["커밋 대상 확인. 이상하면 커밋을 중단합니다."]),
-        code(["git diff --cached --stat"], ["커밋 대상 파일 요약 확인. 파일 수가 과다하거나 대량 삭제·관계없는 파일이 있으면 중단합니다."]),
-        text("필요하면 `git diff --cached`로 스테이지에 올린 변경 내용까지 확인합니다."),
-      ] },
-      { title: "Git 저장 · 브랜치 및 원격 확인", blocks: [
-        code(["git branch --show-current"], ["현재 브랜치 확인. main 직접 push인지 PR 방식인지 프로젝트 방식을 확인합니다."]),
-        code(["git remote -v"], ["push 대상 원격 URL 확인. 잘못된 저장소에 올리지 않도록 다시 확인합니다."]),
-      ] },
-      { title: "Git 저장 · 커밋 및 푸시", blocks: [
-        code(['git commit -m "작업 내용 요약"'], ["요약을 실제 작업 내용으로 바꾸어 커밋"]),
-        code(["git push"], ["프로젝트 방식대로 원격 저장소에 올립니다. push 후에도 배포가 완료된 것은 아닐 수 있습니다."]),
+      { title: "요금·정책 확인", collapsed: true, blocks: [
+        text("Vercel Hobby의 개인·비상업적 용도 및 월별 Function·트래픽 한도를 검토하세요. Cloudflare Workers Free의 일별 요청·CPU 제한과 D1/KV 일별 작업 제한, R2의 저장·작업 무료 제공량 초과 시 결제 조건은 각각 다릅니다. 한도 초과 방식과 리소스 생성 권한을 확인한 뒤 필요한 서비스만 선택하세요."),
+        text("공식 정책: https://vercel.com/docs/plans/hobby · https://developers.cloudflare.com/workers/platform/pricing/ · https://developers.cloudflare.com/r2/pricing/"),
       ] },
     ] },
-    { title: "STEP 7 · GitHub CI / PR 확인", purpose: "커밋·CI·PR과 실제 배포 흐름 확인", sections: [
-      { title: "GitHub에서 확인할 것", blocks: [{ kind: "steps", items: [
-        "방금 올린 커밋이 올바른 브랜치에 있는지 확인합니다.",
-        "GitHub Actions/CI의 테스트·빌드 상태를 확인합니다.",
-        "PR이 필요한 저장소라면 PR·리뷰·merge 상태를 확인합니다.",
-      ] }] },
-      { title: "git push가 곧 Production은 아닙니다", blocks: [
-        text("프로젝트마다 배포 흐름이 다릅니다. feature 브랜치 → Preview/CI → PR → main merge → Production일 수도 있고, main push → 자동 Production일 수도 있습니다. 실제 배포 브랜치·workflow를 먼저 확인합니다."),
+    { title: "STEP 06 · 데이터 저장 방식", purpose: "기존 데이터를 보호하고 꼭 필요한 서비스만 선택·연결", sections: [
+      { title: "필요한 저장만 선택", blocks: [
+        text("저장 없이 동작하는 MVP도 가능합니다. 브라우저 localStorage/IndexedDB는 해당 브라우저에 한정되며 공유·백업이 필요한 업무 데이터의 운영 저장소가 아닙니다. D1은 관계형 기록, R2는 파일/객체, KV는 조회 중심 설정·캐시, 외부 DB는 기존 시스템 연계 등에 맞습니다. KV의 최종 일관성은 실시간 중요 기록에 부적합할 수 있습니다."),
+        text("이미 사용하는 DB/API/스토리지는 재사용합니다. 한 앱에 여러 저장소나 서로 다른 공급자를 함께 쓸 수 있습니다. 새 DB를 강제하거나 다른 저장소로 이전하지 말고 필요한 서비스만 연결하세요."),
       ] },
-      { title: "CI가 실패하면", blocks: [
-        { kind: "steps", items: ["실패 로그 확인", "민감정보를 가리고 필요한 로그만 AI 도구에 전달", "오류 수정", "다시 검증", "다시 push하고 CI 결과 확인"] },
-        text("CI 실패를 둔 채 Production 배포만 계속 진행하지 않습니다."),
+      { title: "Cloudflare 저장소 연결", when: "D1·R2·KV 중 실제로 필요한 서비스가 있을 때만", collapsed: true, blocks: [
+        text("Workers/Pages 환경, 계정 권한, 기존 리소스 ID, 개발/Preview/Production 구분, 기존 wrangler 설정을 먼저 확인합니다. 없을 때 새 리소스 생성 여부는 담당자 승인 후 결정합니다. 연결할 서비스의 binding을 기존 설정 파일의 해당 환경에만 추가하고 실제 저장·조회·권한·오류를 점검합니다."),
+        text("민감 정보는 플랫폼 Secret에 보관하세요. 마이그레이션이나 운영 데이터 삭제·덮어쓰기·초기화는 자동으로 진행하지 않습니다. 백업과 복원 가능성을 확인하고 사용자 승인을 받아야 합니다."),
       ] },
-    ] },
-    { title: "STEP 8 · 배포 (Vercel / Cloudflare)", purpose: "기존 배포 플랫폼·환경·설정에 맞춰 배포 결과 확인", sections: [
-      { title: "먼저 현재 배포 환경 확인", blocks: [
-        text("Vercel과 Cloudflare를 모두 사용해야 하는 것은 아닙니다. 현재 프로젝트의 실제 배포 구성을 확인하고 사용하는 경로만 따르세요. 프론트엔드와 Worker/API를 나누어 두 플랫폼을 함께 쓰는 프로젝트도 있습니다."),
-        text("어떤 서비스가 어느 플랫폼에 어느 branch에서 어떤 방식으로 배포되는지 먼저 확인합니다. Vercel·Cloudflare Workers/Pages·GitHub Actions·Wrangler 등 현재 저장소 설정을 기준으로 하며, 배포 구성을 임의로 변경하거나 추가하지 않습니다."),
-        text("Preview는 반영 전 확인용이고 Production은 실제 서비스입니다. feature branch·PR → Preview, main/production branch → Production일 수 있지만 예시이며 실제 설정이 우선합니다. 지금 배포할 환경을 먼저 확인합니다. Preview 확인만으로 Production 배포가 완료된 것은 아닙니다."),
+      { title: "D1 · 구조화된 기록", when: "D1이 실제로 필요한 경우만", collapsed: true, blocks: [
+        text("Cloudflare D1에서 기존 DB와 스키마·database_id를 확인하세요. 새 DB가 승인되고 꼭 필요할 때만 프로젝트의 기존 매니저로 공식 `wrangler d1 create`를 실행합니다. 기존 wrangler 구성의 d1_databases에 binding·database_name·database_id를 실제 리소스 값으로 설정하고 Worker의 env binding으로 연결합니다. 로컬과 운영 DB는 구분하고 마이그레이션은 별도 승인·백업·검증 후 적용합니다."),
+        text("출처: https://developers.cloudflare.com/d1/get-started/ · https://developers.cloudflare.com/d1/worker-api/"),
       ] },
-      { title: "배포 전 확인 체크리스트", blocks: [
-        text("사용자가 직접 확인하거나 승인해야 하는 항목입니다. DB·스토리지 기초 준비(필요 여부·서비스 선택·계정 권한)는 STEP 02에서 이미 확인한 것으로 간주하고 여기서는 반복하지 않습니다."),
-        { kind: "steps", items: [
-          "□ 배포할 프로젝트·브랜치 확인",
-          "□ Preview / Production 구분 확인",
-          "□ Git 자동 배포 또는 CLI 수동 배포 여부 확인",
-          "□ 환경변수 및 Secret 등록 확인 (Preview·Production 구분)",
-          "□ 사용하는 서비스의 DB·스토리지 Binding 확인",
-          "□ 마이그레이션 적용 대상·순서 확인 (사용하는 경우)",
-          "□ 운영 DB 파괴적 변경(초기화·삭제·대규모 마이그레이션) 승인",
-          "□ 기존 데이터 백업 및 복구 방안 확인 (운영 데이터가 있는 경우)",
-          "□ GitHub 저장소와 배포 플랫폼 연결·접근 권한 확인",
-          "□ 개인·회사 업무용 사용 조건 및 무료 플랜·결제 조건 확인",
-        ] },
-        text("코딩 에이전트가 수행하는 작업: 기존 DB·프로젝트 구조 확인, 필요한 DB 스키마 설계, 실제 프로젝트에 맞는 연결 설정 작성, 환경변수 및 Binding 구성, 마이그레이션 작성과 비파괴적 검증, DB 저장·조회 및 오류 처리 테스트."),
+      { title: "R2 · 파일과 첨부", when: "R2가 실제로 필요한 경우만", collapsed: true, blocks: [
+        text("R2 사용 전 계정 활성화·결제 조건을 확인합니다. 기존 bucket을 재사용하고 새 bucket이 승인되었을 때만 생성합니다. wrangler의 r2_buckets binding·bucket_name을 실제 값으로 설정한 뒤 업로드·조회와 미승인 접근 차단을 검증하세요. 비공개 파일을 임의로 공개하지 않습니다."),
+        text("출처: https://developers.cloudflare.com/r2/api/workers/workers-api-usage/"),
       ] },
-      { title: "운영 DB 백업·마이그레이션·롤백", when: "운영 DB에 변경이 있는 경우", collapsed: true, blocks: [
-        text("운영 DB를 변경하기 전에 아래를 확인합니다. 사용자 승인 없이 실행하지 않습니다."),
-        { kind: "steps", items: [
-          "□ 현재 연결된 DB가 개발용인지 운영용인지 확인",
-          "□ 계정·프로젝트·DB 식별 정보 확인",
-          "□ 기존 데이터 존재 여부 확인",
-          "□ 스키마 변경 범위 파악",
-          "□ 백업 상태 확인 및 백업의 실제 복구 가능성 확인",
-          "□ 예상되는 서비스 영향·중단 가능성 확인",
-          "□ 사용자 승인 여부 확인",
-        ] },
-        text("마이그레이션은 로컬 또는 별도 검증 환경에서 먼저 적용하고, 기존 데이터를 보존하는 변경 방식을 우선합니다. 적용 전후 스키마를 비교하고, 실패 가능성과 복구 방법을 확인한 뒤 운영 적용 전 승인을 받습니다. 운영 적용 후에는 실제 저장·조회·수정이 되는지 검증합니다."),
-        text("주의: 애플리케이션을 이전 버전으로 되돌리는 것과 DB 데이터를 복원하는 것은 별개의 작업입니다. 배포 롤백만으로 데이터나 DB 스키마가 자동 복구되지 않습니다. 마이그레이션 실패 시 무조건 재실행하지 말고 현재 적용 상태를 먼저 확인하세요. 복구 가능성이 확인되지 않은 상태에서 운영 데이터를 삭제·초기화하지 마세요. 삭제·덮어쓰기·파괴적 스키마 변경은 반드시 사전 승인을 받습니다."),
-      ] },
-      { title: "Vercel인 경우", when: "현재 프로젝트가 Vercel에 배포되는 경우에만", brand: "vercel", blocks: [
-        { kind: "steps", items: ["프로젝트 방식대로 push 또는 main merge", "Vercel build 결과 확인", "Preview 또는 Production 배포 확인", "배포 상태 확인"] },
-        text("Git 연동 자동 배포라면 별도 수동 명령이 필요하지 않을 수 있습니다. 자동 배포에 수동 명령을 중복 실행하지 않습니다."),
-        text("로컬 .env를 GitHub에 올리지 않고 Vercel Environment Variables에 설정합니다. 변수 이름은 프로젝트에서 확인합니다. Preview·Production 값을 따로 설정할 수 있습니다."),
-        { kind: "steps", items: ["실패 시 배포 로그 확인", "민감정보를 가리고 필요한 로그만 AI 도구에 전달", "오류 수정", "테스트", "commit/push", "재배포 결과 확인"] },
-      ] },
-      { title: "Cloudflare인 경우", when: "현재 프로젝트가 Cloudflare에 배포되는 경우에만", brand: "cloudflare", blocks: [
-        text("Workers인지 Pages인지 먼저 확인합니다. Git 자동 배포인지 Wrangler 등 기존 CLI 방식인지 현재 프로젝트 설정을 확인합니다."),
-        { kind: "steps", items: ["Git 자동 배포라면 프로젝트 방식대로 push/merge", "배포 진행 확인", "배포 상태 확인"] },
-        text("자동 배포에 수동 명령을 중복 실행하지 않습니다. CLI 방식이면 프로젝트에 실제 있는 배포 명령만 실행합니다. `wrangler deploy`를 모든 프로젝트에 강제하지 않습니다."),
-        text("Wrangler를 사용하기 전에 `npx wrangler --version`으로 설치 여부를 확인하세요. 설치되어 있지 않으면 프로젝트의 패키지 매니저와 lockfile에 맞는 방식으로 설치합니다 (예: `npm i -g wrangler`). Wrangler 실행에는 Node.js가 필요합니다."),
-        text("Secret은 코드에 넣지 않고 Cloudflare Variables/Secrets에 설정합니다."),
-      ] },
-      { title: "Cloudflare D1·R2·KV 무료 한도", when: "Cloudflare D1·R2·KV 사용을 검토하는 경우", collapsed: true, listStyle: "bullets", blocks: [
-        text("아래 수치는 각 공식 문서의 확인 기준일 기준입니다. 무료 한도는 일일·월간·총 저장 용량을 구분하여 확인하세요."),
-        { kind: "steps", items: [
-          "Workers (기준일: 문서 확인일): 요청 100,000회/일, 요청당 CPU 10ms. 일일 한도 초과 시 해당 작업이 실패합니다.",
-          "D1 (기준일: 2026-04-21): 읽기 500만 행/일, 쓰기 10만 행/일, 총 5GB (DB당 최대 500MB, 계정당 최대 10개 DB). 일일 한도 초과 시 쿼리가 오류와 함께 실패합니다.",
-          "R2 (기준일: 2026-10-01): Standard 저장 10GB-month/월, Class A 100만 회/월, Class B 1,000만 회/월. 무료 제공량을 초과하면 초과분에 대해 요금이 부과됩니다 (월간 기준). 사용 전 대시보드에서 R2를 활성화해야 합니다.",
-          "KV (기준일: 2026-04-21): 읽기 10만 회/일, 쓰기·삭제·목록 조회 각각 1천 회/일, 저장 1GB. 한도 초과 시 해당 작업이 오류와 함께 실패합니다.",
-        ] },
-        text("한도 초과 시 처리는 서비스마다 다릅니다. Workers·D1·KV 무료 플랜은 한도 초과 시 작업이 실패하고 자동 과금되지 않습니다. R2는 무료 제공량 초과 시 초과 요금이 부과됩니다. 유료 플랜(Workers Paid 월 $5부터)에서는 포함량을 초과한 사용량에 대해 요금이 부과됩니다."),
-        text("D1: 읽기 500만 행/일은 쿼리가 스캔한 행 수 기준입니다. 인덱스를 활용하면 읽기량을 줄일 수 있습니다."),
-        text("KV는 최종 일관성 특성상 서로 다른 지역에서 변경 내용이 즉시 반영되지 않을 수 있습니다."),
-        text("공식 문서: https://developers.cloudflare.com/workers/platform/pricing/ · https://developers.cloudflare.com/d1/platform/pricing/ · https://developers.cloudflare.com/r2/pricing/ · https://developers.cloudflare.com/kv/platform/pricing/"),
-      ] },
-      { title: "Vercel Hobby 제한 안내", when: "Vercel Hobby 플랜 사용을 검토하는 경우", collapsed: true, listStyle: "bullets", blocks: [
-        text("기준일: 2026-09-14 공식 문서."),
-        { kind: "steps", items: [
-          "무료 플랜이며 개인 프로젝트·소규모 앱 대상입니다.",
-          "비상업적·개인 용도로 제한됩니다. 회사 업무용 사용 시 이용 조건을 확인하세요.",
-          "Function 호출: 월 100만 회, Fast Data Transfer: 월 100GB, Fast Origin Transfer: 월 10GB 포함.",
-          "한도 초과 시 대부분 30일이 지나야 해당 기능을 다시 사용할 수 있습니다 (자동 과금되지 않음).",
-        ] },
-        text("공식 문서: https://vercel.com/docs/plans/hobby"),
+      { title: "KV · 조회 중심 값", when: "KV가 실제로 필요한 경우만", collapsed: true, blocks: [
+        text("기존 namespace ID를 재사용하고 새 namespace가 승인되었을 때만 생성합니다. wrangler의 kv_namespaces binding·id를 연결하고 조회·변경·전파 지연을 검증합니다. 로컬 개발 데이터와 운영 데이터가 섞이지 않도록 확인합니다."),
+        text("출처: https://developers.cloudflare.com/kv/concepts/kv-bindings/"),
       ] },
     ] },
-    { title: "STEP 9 · Production 최종 확인", purpose: "실제 서비스의 화면·기능 확인과 문제 대응", sections: [
-      { title: "배포 성공과 기능 검증 구분", blocks: [
-        text("배포 상태가 '성공'이어도 실제 기능이 동작하는지는 별도로 확인해야 합니다. 아래 검증은 배포 완료 후에 수행합니다."),
-        { kind: "steps", items: [
-          "□ Production URL 접속",
-          "□ 첫 화면 정상 표시",
-          "□ 핵심 버튼·입력·제출 기능 실행",
-          "□ 새로고침 후에도 정상 표시",
-          "□ 직접 URL 입력으로 주요 페이지 접근",
-          "□ Desktop(1440×900)·Mobile(390×844) 표시 확인",
-          "□ 브라우저 개발자 도구 Console 오류 확인",
-          "□ 배포된 버전이 GitHub 최신 커밋과 일치하는지 확인",
-        ] },
-        text("검증 결과 표시: 각 항목을 통과 / 실패 / 미실행 / 해당 없음으로 구분합니다. 실행하지 않은 항목을 통과로 표시하지 않습니다. 검증할 수 없는 항목은 사유와 사용자가 직접 확인할 절차를 기록합니다."),
-        text("로그인·환경변수·API처럼 Production에서만 달라질 수 있는 기능이 있다면 실제 Production 환경에서도 확인합니다."),
+    { title: "STEP 07 · GitHub 저장과 배포", purpose: "Secret 점검 → 정책에 맞는 commit/push → PR·CI → 실제 배포", sections: [
+      { title: "안전하게 Git에 저장", blocks: [
+        text(".gitignore를 덮어쓰지 말고 실제 스택에 필요한 규칙만 추가합니다. .env.example은 값 없이 변수 이름을 공유할 수 있습니다. 이미 추적 중인 Secret은 .gitignore만으로 보호되지 않습니다. AI 대화·터미널 로그·스크린샷에도 Secret을 붙여넣지 않습니다."),
+        text("이미 노출된 키는 폐기 → 재발급 → 플랫폼 설정 교체 순서로 대응하고 기록 재작성은 자동 실행하지 않습니다."),
+        code(["git status", "git diff", "git diff --cached --stat", "git branch --show-current", "git remote -v"], ["현재 브랜치·원격 대상·변경 파일·스테이지 내용을 확인합니다."]),
+        code(['git add -- "src/changed-file.ts"', "git status", "git diff --cached", 'git commit -m "첫 MVP 구현과 검증"', "git push"], ["파일 경로는 실제 파일로 교체하고 예상한 파일만 추가합니다. Secret이나 관계없는 변경이면 커밋을 중단하세요."]),
       ] },
-      { title: "문제가 생기면", blocks: [{ kind: "steps", items: [
-        "로그·브라우저 오류 확인", "API Key·Token·Password·개인정보를 [REDACTED]로 가린 뒤 필요한 오류 내용만 AI 도구에 전달합니다. 로그 전체를 무조건 복사하지 않습니다.", "문제 수정", "다시 검증", "commit/push", "재배포 결과 확인",
-      ] }] },
-      { title: "되돌리기(Rollback)", blocks: [
-        text("무작정 계속 고치기보다 Vercel·Cloudflare에서 이전 정상 배포로 되돌릴 수 있는지 먼저 확인합니다. 실제 방식은 플랫폼 설정을 확인한 뒤 정합니다. 되돌리기는 자동 실행하지 않습니다."),
+      { title: "PR·CI와 배포 경로", blocks: [
+        text("PR·리뷰·CI·merge는 저장소 정책상 필요한 경우에만 진행합니다. CI 실패를 해결하고 Preview/Production 배포 브랜치와 버전을 확인하세요. git push는 곧 Production 배포가 아닙니다."),
+        text("Vercel Git 연동 또는 Cloudflare Workers/Pages Git 자동 배포라면 수동 명령을 중복 실행하지 않습니다. CLI 방식이라면 현재 프로젝트의 실제 스크립트만 사용하고 모든 Cloudflare 앱에 wrangler deploy를 강제하지 않습니다. 플랫폼 Secret·환경변수는 Preview/Production을 구분합니다."),
+        text("실패 로그의 API Key·Token·Password·개인정보를 [REDACTED]로 가린 필요한 부분만 AI 도구에 전달하고 로그 전체를 무조건 복사하지 않습니다."),
       ] },
-      { title: "DB Production 검증", when: "DB(D1·외부 DB)를 사용하는 경우 — 사용하지 않으면 건너뜁니다", collapsed: true, blocks: [
-        { kind: "steps", items: [
-          "□ 데이터 신규 등록",
-          "□ 저장 결과 조회",
-          "□ 데이터 수정 및 재조회",
-          "□ 데이터 삭제 및 반영 확인",
-          "□ 새로고침 후 데이터 유지",
-          "□ 다른 브라우저에서 권한에 맞게 조회",
-          "□ 미승인 사용자의 접근 차단 확인",
-          "□ 개발 DB와 운영 DB 분리 확인 (운영 데이터가 개발 DB에 섞이지 않는지)",
-          "□ DB 연결 실패 시 오류 화면·메시지 확인",
-          "□ 기존 데이터가 보존되는지 확인",
-        ] },
-        text("검증 결과는 통과 / 실패 / 미실행 / 해당 없음으로 구분합니다. Production에서 검증하지 못한 항목을 완료로 표시하지 않습니다."),
+      { title: "운영 데이터 보호", when: "운영 DB/스토리지 변경이 필요한 경우만", collapsed: true, blocks: [
+        text("기존 데이터·스키마·백업과 실제 복구 가능성을 먼저 확인합니다. 파괴적 마이그레이션·삭제·데이터 이전은 사전 승인 없이 실행하지 않습니다. 배포 롤백과 데이터 복원은 다르므로 실패 직후 무작정 반복 실행하지 마세요."),
       ] },
-      { title: "R2 파일 검증", when: "R2를 사용하는 경우 — 사용하지 않으면 건너뜁니다", collapsed: true, blocks: [
-        { kind: "steps", items: [
-          "□ 파일 업로드",
-          "□ 업로드한 파일 조회·다운로드",
-          "□ 허용되지 않은 파일 형식 업로드 시 거부 확인",
-          "□ 파일 크기 제한 초과 시 거부 확인",
-          "□ 파일 접근 권한 확인 (공개·비공개 구분)",
-          "□ 저장 실패 시 오류 안내 확인",
-        ] },
-        text("검증 결과는 통과 / 실패 / 미실행 / 해당 없음으로 구분합니다. Production에서 검증하지 못한 항목을 완료로 표시하지 않습니다."),
+    ] },
+    { title: "STEP 08 · 기능 검증과 MVP 완료", purpose: "웹은 Production 실동작, 비웹은 실행·납품 환경에서 실제 결과 확인", sections: [
+      { title: "배포 후 실제 기능 확인", blocks: [
+        text("웹 배포가 필요한 업무는 실제 Production URL, 버전·브랜치, Desktop/Mobile·첫 화면·직접 URL·Console을 확인하고 핵심 입력 → 처리 → 출력 흐름을 실행합니다. 로그인·API·환경변수·데이터 읽기/쓰기·권한은 사용하는 기능에 한해서만 실제 환경에서 검증합니다."),
+        text("CSV 예: 실제 CSV를 넣어 형식·중복·누락 처리를 거쳐 기대한 검토용 결과가 출력되는지 확인합니다. 브라우저 저장/DB를 썼다면 새로고침 후 필요한 상태의 유지, 권한에 따른 다른 브라우저 동작, 기존 데이터 보존을 확인하세요."),
+        text("웹 배포가 필요 없는 CLI·Excel·로컬 자동화는 Production URL 대신 대상 사용자의 실행 환경·파일 입출력·오류·반복 실행을 검사하고 운영 적용 방법과 결과를 인계합니다."),
       ] },
-      { title: "KV 검증", when: "KV를 사용하는 경우 — 사용하지 않으면 건너뜁니다", collapsed: true, blocks: [
-        { kind: "steps", items: [
-          "□ 설정값 또는 캐시 조회",
-          "□ 변경 후 일관성 특성에 맞는 동작 확인",
-          "□ 한도 및 오류 처리 확인",
-        ] },
-        text("검증 결과는 통과 / 실패 / 미실행 / 해당 없음으로 구분합니다. Production에서 검증하지 못한 항목을 완료로 표시하지 않습니다."),
-      ] },
-      { title: "외부 API·인증 검증", when: "외부 API·로그인·인증을 사용하는 경우 — 사용하지 않으면 건너뜁니다", collapsed: true, blocks: [
-        { kind: "steps", items: [
-          "□ Production 환경변수 등록 확인 (개발·Preview 값과 구분)",
-          "□ API 정상 응답 확인",
-          "□ API 실패(타임아웃·오류 응답) 시 오류 처리 확인",
-          "□ 로그인·권한 검증 (허용된 사용자만 접근)",
-          "□ Secret·API Key가 화면·URL·로그에 노출되지 않는지 확인",
-        ] },
-        text("검증 결과는 통과 / 실패 / 미실행 / 해당 없음으로 구분합니다. Production에서 검증하지 못한 항목을 완료로 표시하지 않습니다."),
+      { title: "완료 판정", blocks: [
+        text("요구사항 → WorkLens 진단/HITL 결정 → 올인원 지시문 → 실제 코드 → 테스트 결과 → 배포/운영 기능이 같은 범위인지 대조합니다. 구현 완료, 테스트 통과, 배포 완료, 운영 기능 확인을 각각 구분하세요. 각 기준에 PASS/FAIL/NOT_RUN/BLOCKED와 실행 환경·증거·실행 시각을 적고, 실행하지 않은 것은 PASS가 아닙니다."),
+        text("FAIL은 수정 후 재검증·재배포하고 BLOCKED는 담당자·해제 조건을 기록합니다. 로그의 API Key·Token·Password·개인정보는 [REDACTED]로 가린 필요한 부분만 AI 도구에 전달하며 로그 전체를 무조건 복사하지 않습니다. 운영 장애는 승인된 롤백 방법과 데이터 영향을 먼저 확인하세요."),
       ] },
     ] },
   ];
@@ -553,7 +245,7 @@ const LEVEL_CONSTRAINTS = [
 /** Gate rules for section 03. A blocked gate never permits implementation, scaffolding or operational connection. */
 const GATE_CONSTRAINTS = {
   ready: "현재 진단상 진행할 수 있습니다. 아래 항목이 있으면 해당 단계를 구현하기 전에 확인하세요.",
-  conditional: "아래 항목을 저장소·실제 자료·담당자 답변으로 확인한 단계만 구현하세요. 확인되지 않은 항목에 의존하는 단계는 구현하지 말고 '확인·승인 대기'로 보고하세요.",
+  conditional: "아래 항목을 저장소·실제 자료·담당자 답변으로 확인한 뒤 해당 조건에 의존하는 단계만 구현하세요. 확인되지 않은 조건에 의존하지 않는 허용 단계는 진행하되 미확인·거부된 보안·권한을 우회하지 마세요.",
   blocked: "차단 사유가 해결되기 전에는 기능 구현·코드 생성·스캐폴딩·운영 연결을 하지 마세요. 저장소 분석과 아래 검토·검증, 해결 방안 정리만 수행하세요.",
 } as const;
 
@@ -1215,11 +907,12 @@ export function stepIoSpec(model: AgentInstructionModel, index: number): StepIoS
     ...featureItems.map(item => `구현: ${item.text}`),
   ];
   const outputs = model.scoped.outputs.filter(item => item.step === step.step).map(item => item.text);
-  // PART B: 단계별 출력이 없어도 업무 전체 최종 산출물(PoC outputs)은 자동 제외하지 않음.
-  // 단계명과 산출물명의 핵심어 겹침으로 관련 산출물을 연결하고, 관련성이 낮으면 업무 전체 산출물로 표시한다.
-  // 단순 부분 문자열이 아닌 2자 이상 핵심어 일치를 요구하며, 정책상 제외된 항목은 승격하지 않는다.
-  const pocOutputs = unique(model.classified
-    .filter(item => item.role === "outputs" && item.sources.some(s => s === "diagnosis.poc.outputs"))
+  // Overall PoC outputs are references, not permission to reintroduce a
+  // future, human or HITL-excluded step into the current feature.
+  const excludedStepNames = model.hitlDetails?.validatedExcludedStepNames ?? [];
+  const pocOutputs = unique(model.classified.filter(item => item.role === "outputs"
+    && item.sources.includes("diagnosis.poc.outputs") && !["future", "human", "excluded"].includes(item.scope)
+    && !excludedStepNames.some(name => normalizedStepText(item.text).startsWith(`${normalizedStepText(name)} `)))
     .map(item => item.text));
   const stepKeywords = new Set(step.step.replace(/[^\uAC00-\uD7A3A-Za-z0-9]/gu, " ").split(/\s+/u).filter(w => w.length >= 2));
   // 2개 이상 핵심어 일치, 또는 3자 이상 핵심어 1개 일치가 필요 ("가격" 같은 일반 명사 1개만으로는 연결하지 않음).
@@ -1351,7 +1044,7 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
       reason = "생성·검증 대상 단계의 연결 근거 확인 필요: 업무 전체 산출물·PoC 문구만으로 현재 필수 항목으로 승격하지 않음";
     } else if (matches.length !== 1) {
       // PART D/E: 내부 문구("연결된 진단 단계가 확인되지 않았습니다")를 사용자 친화 문구로 교체.
-      reason = matches.length ? "여러 업무 단계에 연결되어 적용 범위를 확인해야 합니다." : source === "diagnosis.technicalChecks" ? "어느 단계에 적용되는지 확인이 필요하지만, 전체 실행 조건으로는 유효합니다." : "어느 업무 단계에 적용되는지 확인되지 않았습니다.";
+      reason = matches.length ? "여러 업무 단계에 연결되어 적용 범위를 확인해야 합니다." : source === "diagnosis.technicalChecks" ? "적용 단계를 실제 의존 관계로 확인하세요. 관련 없는 독립 단계는 진행하되 권한·보안 조건을 우회하지 마세요." : "어느 업무 단계에 적용되는지 확인되지 않았습니다.";
     } else {
       scope = matches[0].scope;
       if (scope === "future") reason = `현재 Level ${scopeLevel} 범위 밖`;
@@ -1364,7 +1057,14 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
         reason = "Level 1은 담당자 요청 없는 무인 실행·자동 확정을 허용하지 않습니다. 담당자 요청 기반 후보·초안 방식으로 적용할 수 있는지 확인하세요.";
       }
     }
-    if (["criteria", "tests"].includes(role) && UNSUPPORTED_METRIC.test(clean)) {
+    // A guarded model proposal cannot authorize an unconfirmed mutation, integration,
+    // metric or organization merely because its prefix names a permitted step.
+    if (source.startsWith("plan.") && ["features", "goal"].includes(role) && clean.includes(UNCONFIRMED)
+      && (scope === "implement" || scope === "after-check")) {
+      scope = "confirm";
+      reason = "생성 계획의 미확인 규칙·연동·권한은 확인 전 구현 불가";
+    }
+    if (["criteria", "tests"].includes(role) && UNSUPPORTED_METRIC.test(clean) && !isConfirmedMetric(clean, [options.taskName ?? "", options.context ?? ""].join("\n"))) {
       scope = "confirm";
       reason = "수치 기준 확인 필요: 측정 대상·방법·데이터 범위·비교 기준·판정 근거가 확인되지 않음";
     }
@@ -1522,7 +1222,6 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
     scoped: finalScoped, diagnosis: d, plan: guarded, prerequisites: options.prerequisites ?? [], gaps,
     hitlApplied: hitlActuallyApplied, hitlDetails };
 }
-
 /** HITL 3차: 검토 결과를 실행 범위 모델에 반영
  * - exclude: 해당 항목을 구현 범위에서 제외
  * - defer: 해당 항목을 보류 (사유·재개 조건과 함께)
@@ -1583,36 +1282,16 @@ function applyHitlToModel(
   }
 
   // 검토 대상 키와 classified 항목 매칭
-  // reviewKey가 부여된 항목은 정확한 키 일치를 우선 사용 (동일 문구 중복 항목의 오매칭 방지).
-  // 키가 없는 항목(진단 기반 등)은 기존 정규화 텍스트 전체 일치를 사용 (부분 매칭 금지).
+  // Plan reviews match occurrence-aware keys. A diagnosis risk review can only
+  // affect its own technical-check item, never unrelated plan/security text.
   const normalizeForMatch = (text: string) => text.trim().replace(/\s+/g, " ").toLowerCase();
   const matchReview = (item: AgentInstructionItem): string | null => {
-    // 1) 정확한 키 매칭 (계획 항목)
-    if (item.reviewKey) {
-      for (const r of relevant) {
-        if (r.status !== "confirmed") continue;
-        if (r.target.key === item.reviewKey) return r.target.key;
-      }
-      // 키가 있는데 일치하는 확정 리뷰가 없으면 제외하지 않음
-      // (다른 occurrence의 리뷰가 텍스트 일치로 오적용되는 것을 방지)
-      return null;
-    }
-    // 2) 텍스트 매칭 (키 없는 항목용 폴백)
-    // 항목의 원본 텍스트들 수집 (original, originals, text)
-    const itemTexts = new Set<string>();
-    itemTexts.add(normalizeForMatch(item.text));
-    if (item.original) itemTexts.add(normalizeForMatch(item.original));
-    for (const o of item.originals ?? []) itemTexts.add(normalizeForMatch(o));
-
+    if (item.reviewKey) return relevant.find(r => r.status === "confirmed" && r.target.key === item.reviewKey)?.target.key ?? null;
+    if (item.source !== "diagnosis.technicalChecks") return null;
+    const itemTexts = new Set([item.text, item.original, ...item.originals].filter((text): text is string => !!text).map(normalizeForMatch));
     for (const r of relevant) {
-      if (r.status !== "confirmed") continue;
-      const sourceText = r.target.sourceText;
-      if (!sourceText) continue;
-      const normalizedSource = normalizeForMatch(sourceText);
-      // 전체 일치만 허용 (부분 매칭 금지)
-      if (itemTexts.has(normalizedSource)) {
-        return r.target.key;
-      }
+      if (r.status !== "confirmed" || r.target.source !== "diagnosis" || r.target.type !== "risk") continue;
+      if (itemTexts.has(normalizeForMatch(r.target.sourceText))) return r.target.key;
     }
     return null;
   };
@@ -1622,16 +1301,23 @@ function applyHitlToModel(
     return key && (excludeKeys.has(key) || deferKeys.has(key));
   };
 
-  const filteredClassified = classified.filter(item => !isExcluded(item));
-  const filteredScoped = {
-    features: scoped.features.filter(item => !isExcluded(item)),
-    tests: scoped.tests.filter(item => !isExcluded(item)),
-    criteria: scoped.criteria.filter(item => !isExcluded(item)),
-    validationMethods: scoped.validationMethods.filter(item => !isExcluded(item)),
-    outputs: scoped.outputs.filter(item => !isExcluded(item)),
-    conditions: scoped.conditions.filter(item => !isExcluded(item)),
+  // A review that removes a risk card cannot grant access denied by diagnosis.
+  // Keep denied permission evidence in the generated instructions.
+  const deniedChecks = new Set((diagnosis?.technicalChecks ?? []).filter(check => check.status === "불가")
+    .map(check => normalizeForMatch(`${check.topic}: ${check.status} - ${check.note}`)));
+  const filterReview = (item: AgentInstructionItem) =>
+    item.source === "diagnosis.technicalChecks" && item.originals.some(text => deniedChecks.has(normalizeForMatch(text)))
+      || !isExcluded(item);
+  let filteredClassified = classified.filter(filterReview);
+  let filteredScoped = {
+    features: scoped.features.filter(filterReview),
+    tests: scoped.tests.filter(filterReview),
+    criteria: scoped.criteria.filter(filterReview),
+    validationMethods: scoped.validationMethods.filter(filterReview),
+    outputs: scoped.outputs.filter(filterReview),
+    conditions: scoped.conditions.filter(filterReview),
   };
-  const appliedCount = classified.length - filteredClassified.length;
+  let appliedCount = classified.length - filteredClassified.length;
 
   // Supplement 내용을 해당 항목에 추가 (원본 보존, 보완 구분 표시)
   const supplementList: Array<{ key: string; content: string }> = [];
@@ -1684,6 +1370,25 @@ function applyHitlToModel(
       }
     }
   });
+  // Removing a step must also remove proposals, criteria, outputs and conditions
+  // explicitly linked to that exact diagnosed step; filtering the timeline alone
+  // would quietly reintroduce excluded work in the execution instructions.
+  if (stepExcludeIndices.size) {
+    const removedNames = new Set([...stepExcludeIndices].map(index => steps[index].step));
+    const activeNames = new Set(filteredSteps.map(step => step.step));
+    const removed = (item: AgentInstructionItem) => !!item.step && removedNames.has(item.step)
+      && !activeNames.has(item.step) && item.role !== "human" && item.role !== "excluded";
+    filteredClassified = filteredClassified.filter(item => !removed(item));
+    filteredScoped = {
+      features: filteredScoped.features.filter(item => !removed(item)),
+      tests: filteredScoped.tests.filter(item => !removed(item)),
+      criteria: filteredScoped.criteria.filter(item => !removed(item)),
+      validationMethods: filteredScoped.validationMethods.filter(item => !removed(item)),
+      outputs: filteredScoped.outputs.filter(item => !removed(item)),
+      conditions: filteredScoped.conditions.filter(item => !removed(item)),
+    };
+    appliedCount = classified.length - filteredClassified.length;
+  }
 
   return {
     classified: filteredClassified,
@@ -1756,7 +1461,7 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
     : scopeLevel === 0 ? `${gate === "blocked" ? "진행 보류 상태입니다." : "Level 0 범위입니다."} 운영 기능을 구현하지 말고 아래 검토·검증 결과와 다음 진단에 필요한 정보를 보고하세요.`
     : !work.length ? "현재 실행 범위에 구현할 업무 단계가 없습니다. 아래 확인 작업과 보고만 수행하세요."
     : gate === "ready" ? "'이번 구현' 단계를 실제 입력으로 동작하고 검증된 기능으로 완성하세요."
-    : "선행 확인으로 조건이 확인된 '확인 후 구현' 단계만 실제로 동작하고 검증된 기능으로 완성하세요. 확인되지 않은 단계는 보류 사유와 함께 보고하세요.";
+    : "선행 조건을 각 단계의 실제 의존 관계에 대조해 확인된 '확인 후 구현' 단계부터 실제로 동작하고 검증된 기능으로 완성하세요. 미확인 조건에 의존하는 부분만 보류 사유와 함께 보고하세요.";
   const scopeGroups = (["implement", "after-check", "verify"] as const).map(kind => {
     const items = steps.filter(s => s.scope === kind);
     return items.length ? `### ${SCOPE_TITLES[kind]}\n\n${numbered(items.map(stepLine))}` : "";
@@ -1766,12 +1471,12 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
   const linkedTo = (step: string) => model.scoped.features.filter(item => item.step === step && item.sources.some(source => source.startsWith("plan."))).map(item => item.text);
   const currentOutputs = unique(model.scoped.outputs.map(item => item.text));
   const minimalFlow = work.length ? numbered([
-    `입력: ${d?.asIs?.inputs?.length ? d.asIs.inputs.join(", ") : "입력 자료 확인 필요"} — 실제 샘플로 형식과 필수 항목을 확인${scopeLevel === 1 ? "하고 담당자가 실행을 요청" : ""}`,
+    `입력: ${d?.asIs?.inputs?.length ? d.asIs.inputs.join(", ") : "입력 자료 확인 필요"} — 실제 입력을 받아 형식·필수 항목을 파싱·검증${scopeLevel === 1 ? "하고 담당자가 실행을 요청" : ""}`,
     ...work.map(s => `${s.step}: ${methodLabel(s)}`),
-    "결과 구분: 정상·검토 필요·확인 불가·처리 실패를 분리하고 원본 출처를 유지",
-    `담당자 확인: ${human.length ? human.map(s => s.step).join(", ") : "담당자 확인 지점"} — 승인 전 확정·전송 금지`,
-    `출력: ${currentOutputs.length ? currentOutputs.join(", ") : "구현 단계와 연결된 출력 형식 확인 필요 ('INPUT·PROCESS·OUTPUT'의 업무 입력 참고)"}`,
-    "실행 방법: 저장소에서 확인한 실제 실행 명령·화면으로 위 흐름을 재현할 수 있게 제공",
+    "결과 구분: 확정된 처리와 필요한 담당자 확인 후 정상·검토 필요·확인 불가·처리 실패를 분리하고 원본 출처 유지",
+    `담당자 확인: ${human.length ? human.map(s => s.step).join(", ") : "진단상 담당자 확인이 필요한 지점"} — 승인 전 확정·전송 금지`,
+    `출력: ${currentOutputs.length ? currentOutputs.join(", ") : d?.asIs?.outputs?.length ? `${d.asIs.outputs.join(", ")} 중 허용 단계의 결과물 형식만 확인해 사용` : "구현 단계와 연결된 출력 형식 확인 필요"} — 실제 결과를 생성하고 필요한 경우 기존 저장·재조회 흐름 연결`,
+    "실행 방법: 확인된 실행 명령·화면에서 서로 다른 입력으로 처리 결과를 재현할 수 있게 제공",
   ]) : "";
   const fallback = unique([...(d?.operation?.fallback ? [d.operation.fallback] : []), ...model.classified.filter(item => (item.role === "fallback" || item.role === "operation") && ["implement", "after-check", "verify"].includes(item.scope)).map(item => item.text)]);
   const tests = unique(model.scoped.tests.map(item => item.text));
@@ -1826,6 +1531,7 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
       `실행 상태: ${GATE_LABELS[gate]}`,
     ])}\n\n${LEVEL_CONSTRAINTS[level.level]} 실제 실행 범위는 Level 정책과 실행 상태가 함께 허용한 범위이며, TO-BE·생성 계획·매트릭스 위치는 이 범위를 넓히지 않습니다.` : "",
     `### 이번 작업 목표\n\n${objective}`,
+    options.context?.trim() ? `### 업무 등록 원문\n\n${bullets([...(options.taskName ? [`업무명: ${options.taskName}`] : []), `업무 설명·추가 정보: ${options.context.trim()}`])}\n\n진단과 충돌하는 내용은 임의로 덮어쓰지 말고 해당 부분의 확정 범위를 확인하세요.` : "",
     goals.some(item => item.scope !== "future") ? `### 생성 계획 목표\n\n${bullets(goals.filter(item => item.scope !== "future").map(evidenceLine))}` : "",
     ...scopeGroups,
     profile?.scopeSupport.length ? `### 함께 수행할 확인\n\n${bullets(profile.scopeSupport)}` : "",
@@ -1834,7 +1540,7 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
     future.length || outside.length ? `### 향후 확장 (이번 작업에서 구현하지 않음)\n\n${bullets([...future.map(s => s.step), ...outside])}` : "",
     hitl && (hitl.deferred.length > 0 || hitl.supplements.length > 0) ? `### 사람 검토 반영\n\n${[
       hitl.deferred.length > 0 ? `보류된 작업 (현재 구현하지 않음):\n${hitl.deferred.map(x => `- ${x.key}${x.reason ? `\n  - 보류 사유: ${x.reason}` : ""}${x.resumeCondition ? `\n  - 재개 조건: ${x.resumeCondition}` : ""}`).join("\n")}\n위 작업은 현재 구현 범위에서 제외됩니다. 재개 조건이 충족되어도 자동으로 재개하지 말고 담당자에게 확인하세요.` : "",
-      hitl.supplements.length > 0 ? `보완 요구사항:\n${hitl.supplements.map(x => `- ${x.key}\n  - 보완 내용: ${x.content}`).join("\n")}\n위 보완 내용은 원본 요구사항에 추가하여 구현하세요. 원본을 대체하지 않습니다.\n단, 보완 내용이 위의 자동화 수준(Level)·실행 상태(Gate)·담당자 수행 유지 정책을 위반하면 해당 부분은 구현하지 말고 위반 사유를 보고하세요. 보완으로 제외·보류된 작업을 우회하거나, 확인되지 않은 API·권한·DB를 임의로 추가하지 마세요.` : "",
+      hitl.supplements.length > 0 ? `보완 요구사항·검증 기준:\n${hitl.supplements.map(x => `- ${x.key}\n  - 보완 내용: ${x.content}`).join("\n")}\n위 보완 내용은 원본 범위에 추가하여 관련 구현·검증 기준에 반영하세요. 단, Level·Gate·담당자 유지·제외·보류 범위를 넘어서는 부분은 구현하지 말고 사유를 보고하세요. 확인되지 않은 API·권한·DB를 임의로 추가하지 마세요.` : "",
     ].filter(Boolean).join("\n\n")}` : "",
   );
   // 2. INPUT·PROCESS·OUTPUT: 실제 데이터 흐름 중심
@@ -1854,23 +1560,23 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
   section("INPUT·PROCESS·OUTPUT",
     inputs.length || d?.asIs?.trigger || d?.asIs?.systems?.length ? `### 업무 입력\n\n${bullets([
       ...inputs, ...(d?.asIs?.trigger ? [`업무 발생 주기·시점: ${d.asIs.trigger} (자동 실행 요구사항 아님)`] : []), ...(d?.asIs?.systems?.length ? [`사용 시스템: ${d.asIs.systems.join(", ")}`] : []),
-    ])}\n\n실제 샘플의 형식과 필수 항목을 확인한 뒤 처리하고, 확인 전에는 항목명·경로를 하드코딩하지 마세요.` : "",
+    ])}\n\n실제 입력 자료의 형식과 필수 필드를 확인하고 파싱·검증한 뒤 처리하세요. 확인 전에는 항목명·경로·값을 하드코딩하지 마세요.` : "",
     work.length ? `${ioBlocks}\n\n### 전체 흐름\n\n${minimalFlow}` : "",
-    "### 계산·판정 기준\n\n업무에 계산·판정이 있으면 확인된 계산식·입력·순서·반올림·누락 처리 기준만 사용하세요. 정의되지 않은 기준은 구현하지 말고 '확인 필요'로 보고하세요.",
+    "### 계산·판정 기준\n\n업무에 계산·판정이 있으면 확인된 계산식·입력·순서·반올림·누락 처리 기준만 사용하세요. 정의되지 않은 기준은 해당 처리만 보류하고 '확인 필요'로 보고하세요. 독립적으로 확인된 입력 검증·후보 생성은 계속할 수 있습니다.",
     "### 추적\n\n원본 추적이 필요한 업무라면 결과에서 원본 출처·처리 단계·오류 위치·담당자 확인 결과를 확인할 수 있게 유지하세요. 업무와 관계없는 식별 정보를 강제하지 마세요.",
     `### 실행 방식\n\n${scopeLevel === 1 ? "담당자 요청 기반 실행만 허용합니다. 스케줄러·폴더 감시 등 정기 무인 실행을 구현하지 마세요." : scopeLevel === 0 ? "검토·검증만 허용하며 업무 자동 실행을 추가하지 마세요." : "업무 발생 주기와 시스템 자동 실행은 별개입니다. 실제 자동 실행 요청·근거·정책 허용 여부가 확인되지 않았다면 실행 방식 확인 필요로 보고하세요."}`,
   );
   // 3. 구현 요구사항: 단계별 실제 구현 내용
   section("구현 요구사항",
     work.length ? work.map((s, i) => `### 요구사항 ${i + 1}. ${s.step} — ${methodLabel(s)}\n\n${bullets([
-      `처리 상태: ${s.scope === "implement" ? SCOPE_TITLES.implement : `${SCOPE_TITLES["after-check"]} (관련 확인 항목이 확인되기 전에는 보류)`}`,
+      `처리 상태: ${s.scope === "implement" ? SCOPE_TITLES.implement : `${SCOPE_TITLES["after-check"]} (이 단계가 의존하는 조건 확인 전에는 해당 처리만 보류)`}`,
       ...(s.treatment === "사용자 실행 결과 생성" ? ["실행 조건: 담당자가 실행을 요청할 때만 동작합니다. 무인·정기 자동 실행으로 구현하지 마세요."] : []),
       `담당자 확인: ${method(s) === "assist" ? "AI 결과는 제안값으로 표시하고 담당자가 확정한 값과 구분하세요. 규칙으로 판정할 부분에 별도 AI 호출을 추가하지 마세요." : method(s) === "composite" && methodOrder(s) === "parallel" ? "병행 처리 관계가 확인되었으므로 순차 실행을 가정하지 말고, 실제 실행 순서와 의존성을 담당자에게 먼저 확인하세요." : method(s) === "composite" ? "확인된 복합 처리 순서를 유지하고, 각 역할을 담당자 확인·승인 단계로 승격하거나 무인 실행으로 바꾸지 마세요." : method(s) === "rule" || method(s) === "script" ? "파일 형식·병합 키·계산식·예외 규칙 등 이 단계에 필요한 실제 기준을 확인한 뒤 적용하세요. 규칙 미확인 건은 담당자 확인으로 넘기고 AI 호출을 추가하지 마세요." : method(s) === "manual" ? "담당자 수동 수행을 유지하고 자동화 구현으로 대체하지 마세요." : "AI·규칙·스크립트·수동 처리의 근거와 충돌을 담당자에게 확인하기 전에는 선택·구현하지 마세요."}`,
       ...linkedTo(s.step).map(item => `세부 제안 (생성 계획): ${item}`),
       `완료 기준: ${doneWhen(s)}`,
     ])}`).join("\n\n") : "",
     review.length ? `### 검토·검증 작업\n\n${bullets([...review.map(s => `${s.step} ${methodLabel(s)}`), ...(profile?.scopeSupport ?? [])])}\n\n샘플과 업무 규칙으로 확인한 결과를 보고하는 범위입니다. ${gate === "blocked" ? "운영 기능·자동 실행 코드·스캐폴딩을" : "운영 기능이나 자동 실행 코드를"} 만들지 마세요.` : "",
-    work.length ? "### 실제 동작하는 기본 토대\n\n필요한 자료와 확인이 갖춰진 단계는 실제 입력을 받고, 정의된 처리를 실행하고, 잘못된 입력과 실패를 정상 결과와 구분하고, 필요한 담당자 확인을 유지하고, 실행·검증 방법을 제공해야 완료입니다.\n\n처리 없는 화면, 읽지 못하는 업로드, 더미 데이터 결과, 가짜 API 응답, TODO만 있는 핵심 함수, 실행되지 않는 샘플 코드, 검증하지 않은 계산, 미확인 규칙을 가정한 구현, 승인 없이 확정되는 AI 결과는 완료가 아닙니다.\n\n필수 자료가 없으면 전체 흐름을 억지로 완성하지 말고 허용된 독립 단계만 완성하세요. 허용된 독립 단계가 없으면 코드를 만들지 말고 필요한 선행 확인사항을 보고하세요." : "",
+    work.length ? "### 실제 동작하는 기본 토대\n\n실제 입력 수신→형식 파싱·필수값 검증→확정된 처리·담당자 확인→예외 분리→실제 출력으로 연결하세요. 업무상 필요한 저장·재조회는 기존 방식을 사용하고, 외부 API가 필요하면 권한과 실패 응답을 처리하세요. 독립적으로 허용된 단계는 다른 단계의 미확정 규칙 때문에 일괄 중단하지 마세요.\n\n처리 없는 화면, 읽지 못하는 업로드, 입력이 달라도 같은 고정 결과, 더미 데이터 결과, 가짜 API 응답, TODO만 있는 핵심 함수, 실행되지 않는 샘플 코드, 검증하지 않은 계산, 승인 없이 확정되는 AI 결과는 완료가 아닙니다. 허용된 독립 단계가 없으면 코드를 만들지 말고 선행 확인사항을 보고하세요." : "",
     "기존 구현을 우선 재사용하고 요청 범위 안에서 최소한으로 수정하세요. 요청하지 않은 기능·라이브러리, 하드코딩 값, 실제 로직에 남은 테스트용 임시 데이터, 근거 없는 수치 목표, 확인되지 않은 담당 조직·승인 주체를 만들지 마세요.",
   );
   // 4. 구현 순서: 6단계
@@ -1879,11 +1585,11 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
       "기존 프로젝트 확인: 저장소 지침(AGENTS.md 등)과 현재 branch·미커밋 변경을 확인하고, 프로젝트 구조·실행 환경·패키지 스크립트의 테스트·빌드 명령을 파악하세요. 이 업무가 웹앱인지 CLI·스크립트·Excel 자동화인지 확인하고 해당 환경의 기존 구현을 재사용하세요. 확인한 사실과 추정을 구분해 기록하고, 추정은 '확인 필요'로 남기세요.",
       work.length ? `입력 기능 구현: ${work.map(s => s.step).join(", ")} 단계에 필요한 입력 수집·검증 기능을 먼저 구현하세요. 실제 샘플로 형식을 확인하기 전에는 항목명·경로를 하드코딩하지 마세요.` : "입력 기능 구현: 이번 범위에서 구현할 단계가 없습니다. 입력 자료의 형식 확인과 보고만 수행하세요.",
       work.length ? `핵심 처리 로직 구현: ${work.map(s => `${s.step} (${methodLabel(s)})`).join(" → ")} 순서로 처리 로직을 구현하세요. 확인된 계산식·규칙만 적용하고, 미확정 규칙은 해당 처리만 '확인 필요'로 남기세요. 관련 없는 독립 기능까지 중단하지 마세요.` : "핵심 처리 로직 구현: 해당 없음.",
-      work.length ? `실제 출력 연결: 처리 결과를 ${currentOutputs.length ? currentOutputs.join(", ") : "확인된 출력 형식"}으로 연결하세요. 처리하지 않은 데이터를 정적 UI나 임시 값으로 표시하는 것은 완료가 아닙니다.` : "실제 출력 연결: 해당 없음.",
+      work.length ? `실제 출력 연결: 처리 결과를 ${currentOutputs.length ? currentOutputs.join(", ") : "확인된 출력 형식"}으로 연결하고, 업무에 필요한 저장·재조회가 있으면 기존 저장소·인증 방식으로 동작을 확인하세요. 정적 UI나 임시·고정 값은 완료가 아닙니다.` : "실제 출력 연결: 해당 없음.",
       `예외·검토·승인 처리: ${exceptions.length ? exceptions.slice(0, 5).join("; ") : "업무 예외"} 처리를 구현하고, 담당자 확인·승인 지점을 유지하세요. 실패·미매칭·확인 불가 데이터는 정상 결과와 분리하세요.`,
       "실행 및 검증: 저장소의 실제 테스트·빌드 명령으로 검증하고, '검증·완료 조건' 섹션의 기준을 만족하는지 확인하세요. 실행하지 않은 검증은 완료로 보고하지 마세요.",
     ]),
-    "위 순서를 지키되 의존성이 없는 독립 단계는 병렬로 진행할 수 있습니다. 선행 확인이 필요한 단계는 조건이 확인되기 전에는 구현하지 말고 '확인·승인 대기'로 보고하세요.",
+    "위 순서를 지키되 의존성이 없는 독립 단계는 병렬로 진행할 수 있습니다. 선행 확인이 필요한 단계는 실제 의존 관계를 확인하고 해당 부분만 '확인·승인 대기'로 보고하세요. 미확인 권한·보안 조건을 독립이라고 단정하거나 우회하지 마세요.",
   );
   // 5. 예외·유지 조건
   section("예외·유지 조건",
@@ -1896,7 +1602,7 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
     humanConstraints ? HUMAN_DECISION_CHECK : "",
     constraints.length ? `### 기존 담당자·제외 제약\n\n${bullets(constraints)}` : "",
     unassignedConditions.length ? "미연결 조건의 적용 대상과 의존 관계를 실제 자료로 확인하세요. 무관하다고 임의로 해제하지 말고, 영향 가능성이 있는 작업은 확인·승인 대기로 두세요. 해당 조건과 독립적이라는 근거가 확인된 허용 작업만 계속 진행할 수 있습니다." : "",
-    "확인되지 않은 API·권한·파일 형식·연동 방식·계산식·반올림·중복 기준·승인 주체를 가정해 구현하지 마세요.",
+    "확인되지 않은 API·권한·파일 형식·연동 방식·계산식·반올림·중복 기준·승인 주체를 가정해 구현하지 마세요. 특히 '불가'·거부된 접근 권한은 검토에서 제외해도 허용으로 바뀌지 않습니다.",
     exceptions.length ? `### 예외\n\n${bullets(exceptions)}` : "",
     "실패·미매칭·확인 불가 데이터는 정상 결과와 분리해 원인과 대상을 확인할 수 있게 하세요. 자동 삭제·자동 보정은 업무 규칙에 명시된 경우에만 적용하고, 아니면 대상 건을 표시만 하세요.",
     work.length ? "### 반복 실행\n\n같은 입력 재처리, 같은 이름의 다른 파일, 일부 성공 후 실패, 처리 중단·재시도, 이전 요청의 뒤늦은 완료, 입력 변경 후 기존 결과 재사용 중 이 업무에 해당하는 경우를 확인하세요. 기존 처리 정책을 먼저 따르고, 중복 반영·기존 데이터 삭제·미검증 데이터의 정상 집계가 없게 하되 필요 없는 작업 큐·트랜잭션 구조는 추가하지 마세요." : "",
@@ -1912,12 +1618,12 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
   // 6. 검증·완료 조건
   section("검증·완료 조건",
     "저장소에 실제로 존재하는 검증 명령과 도구를 확인한 뒤 실행하세요. 없는 테스트 framework나 명령을 임의로 설치하지 마세요.",
-    work.length ? `### 정상 케이스\n\n${tests.length ? `${bullets(tests)}\n\n` : ""}기대 결과가 확정된 샘플로 결과를 대조하세요. 기대 결과·허용 오차가 정의되지 않았으면 합격 기준을 만들지 말고 '확인 필요'로 보고하세요.`
+    work.length ? `### 정상 케이스\n\n${tests.length ? `${bullets(tests)}\n\n` : ""}실제 입력으로 처리·출력과 필요한 저장·재조회를 확정된 기대 결과와 대조하세요. 서로 다른 입력으로 다시 실행해 각 입력에 맞게 출력이 달라지는지 확인하고 고정 결과를 배제하세요. 기대 결과·허용 오차가 정의되지 않았다면 '확인 필요'로 보고하세요.`
       : `### 현재 검토·검증\n\n${tests.length ? `${bullets(tests)}\n\n` : ""}확보한 샘플과 기존 자료로 확인할 수 있는 범위만 검증하세요. 검증을 위해 새 기능·자동 생성 코드를 만들지 말고, 비교 자료가 없으면 '검증 불가'와 사유를 기록하세요.`,
     model.scoped.validationMethods.length ? `### 검증 방법·기록 (합격 조건 아님)\n\n${bullets(model.scoped.validationMethods.map(evidenceLine))}` : "",
-    work.length ? "### 경계값\n\n입력 1건, 빈 입력, 같은 기준값이 여러 건인 경우, 선택 항목이 비어 있는 경우처럼 이 업무의 입력에 해당하는 경계 상황을 확인하세요." : "",
-    work.length ? "### 실패·예외 케이스\n\n현재 구현 단계와 연결되고 실제로 재현 가능한 입력·처리 예외만 검증하세요. 해당 단계의 잘못된 형식·필수 항목 누락 같은 실패가 정상 결과로 표시되지 않는지 확인하세요." : "",
-    "### 범위·승인\n\n담당자 확인 전 결과가 확정·전송되지 않는지, '향후 확장'·'제외' 항목이 실행되지 않는지 확인하세요.",
+    work.length ? "### 경계값\n\n입력 1건·빈 입력·같은 기준값 여러 건·선택 항목 누락·확정된 업무 경계값 중 해당하는 상황을 확인하세요." : "",
+    work.length ? "### 실패·예외 케이스\n\n현재 구현 단계의 잘못된 형식·파싱 오류·필수 항목 누락과 외부 API가 필요한 경우 응답 오류·권한 거부·연결 실패가 정상 결과나 성공한 저장으로 표시되지 않는지 확인하세요." : "",
+    "### 범위·승인\n\n담당자 확인 전 결과가 확정·전송되지 않는지, 제외·보류된 단계와 검증 기준이 다시 필수 작업으로 나타나지 않는지, 거부된 권한에 의존하는 처리가 실행되지 않는지 확인하세요.",
     "### 회귀 검증\n\n이 작업과 관련된 기존 기능이 이전과 동일하게 동작하는지 확인하세요. 웹 UI를 포함하면 기존 브라우저/E2E 도구가 있을 때 주요 화면을 Desktop과 Mobile에서 확인하세요.",
     work.length ? `### 단계별 완료 기준\n\n${bullets(work.map(s => s.scope === "implement" ? `${s.step}: ${doneWhen(s)}` : `${s.step}: 확인 항목이 확인되어 구현했다면 ${doneWhen(s)} 확인하지 못했다면 '확인·승인 대기'로 보고합니다.`))}` : "",
     review.length ? `### 검토·검증 완료 기준\n\n${bullets([
@@ -1942,7 +1648,7 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
     ] : [
       "검토 완료: 확인한 자료로 검토를 마침", "검증 완료: 실제 자료로 검증을 마침", "일부 확인: 일부 자료만 확인", "확인 필요: 근거 자료 부족",
       "확인·승인 대기: 필수 정보 또는 승인 부족", "정책상 제외·차단: 현재 실행 대상 아님", "검증 실패: 검증했지만 기준 미충족", "미실행: 수행하지 않음",
-    ])}\n\n${work.length ? "스캐폴딩·TODO·모의 구현만 있는 기능은 완료로 보고하지 마세요." : "수행하지 않은 검토·검증을 완료로 보고하지 마세요."}`,
+    ])}\n\n${work.length ? "올인원 지시문 생성만으로 첫 MVP가 완료되지는 않습니다. 실제 구현·테스트·허가된 GitHub 반영·배포·Production 기능 검증을 수행한 범위에서만 완료로 보고하세요. 스캐폴딩·TODO·모의 구현만 있는 기능은 완료가 아닙니다." : "수행하지 않은 검토·검증을 완료로 보고하지 마세요."}`,
   );
   // 7. Git·배포·완료 보고
   section("Git·배포·완료 보고", bullets([
@@ -1954,7 +1660,7 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
     "로컬 스크립트·CLI·Excel 자동화처럼 웹 배포가 필요 없으면 배포 대신 실행 환경 구성과 운영 적용 방법을 정리하세요.",
     "배포 방식을 확인할 수 없으면 '배포 방식 확인 필요'로 보고하세요.",
     "구현을 마쳤다는 이유만으로 배포하지 마세요. Production 배포는 사용자가 요청했고 권한이 확인된 경우에만 기존 방식으로 실행하세요.",
-    "배포 또는 운영 적용을 수행했다면 실제 환경에서 입력 → 처리 → 결과 흐름과 오류 여부를 확인하세요. 배포하지 않았다면 운영 검증 완료로 보고하지 마세요.",
+    "배포 또는 운영 적용을 수행했다면 실제 환경에서 서로 다른 입력 → 파싱·처리 → 실제 출력·필요한 저장·재조회, 오류와 권한·승인 경계를 확인하세요. 배포하지 않았다면 운영 검증 완료로 보고하지 마세요.",
     ...(gate === "blocked" || !profile ? ["실행 범위가 차단·미확정 상태에서는 배포·운영 적용·연결을 수행하지 마세요. 차단 해제에 필요한 조건만 보고하세요."] : []),
   ]),
   "작업이 끝나면 다음 형식으로 보고하세요.",
@@ -1963,11 +1669,11 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
     "실제로 확인한 실행 방법과 명령", "검증 결과 (실행하지 않은 검증은 미실행)", "담당자 확인이 필요한 항목", "미구현·보류·차단된 기능과 해결 조건",
     "다음 개발 단계", "Git 상태", "배포·운영 적용 상태",
   ]),
-  "확인하지 않은 환경변수·API·파일 경로를 적지 말고, 계획이나 미구현 기능을 실행 가능한 코드와 구분하세요. 실제로 수행하지 않은 작업을 완료했다고 보고하지 마세요.",
+  "올인원 지시문 생성·실제 구현·테스트·GitHub 반영·배포·운영 확인·첫 MVP 완료 여부를 각각 구분하세요. 확인하지 않은 환경변수·API·파일 경로를 적지 말고, 계획이나 미구현 기능을 실행 가능한 코드와 구분하세요. 실제로 수행하지 않은 작업을 완료했다고 보고하지 마세요.",
   );
   return [
     axPromptTitle(options.taskName),
-    "WorkLens 업무 자동화 진단 결과로 만든 실행 지시문입니다. Codex·Claude Code·OMP 등 어떤 코딩 에이전트에서도 같은 실행 범위와 완료 기준을 따르세요. 대상 저장소를 먼저 확인한 뒤 '개발 목표' 안에서만 구현하세요.",
+    "WorkLens 업무 자동화 진단 결과로 만든 올인원 지시문입니다. 이 지시문이나 설치·시작 가이드 자체는 구현·완료의 증거가 아닙니다. Codex·Claude Code·OMP 등 어떤 코딩 에이전트에서도 같은 실행 범위와 완료 기준을 따르세요. 대상 저장소를 먼저 확인한 뒤 '개발 목표' 안에서 첫 MVP를 구현하세요.",
     ...sections.filter(s => s.body).map((s, i) => `## ${i + 1}. ${s.title}\n\n${s.body}`),
   ].join("\n\n");
 }

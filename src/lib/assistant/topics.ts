@@ -41,7 +41,7 @@ const EXECUTION = [
   /업무를?\s*(수정|삭제|변경)\s*해/u, /factor.*(보정|변경|수정)\s*해/iu, /팩터를?\s*(바꿔|수정|변경)\s*해/u,
   /gate를?\s*(변경|바꿔)\s*해/u, /level을?\s*(올려|변경|바꿔)\s*해/u,
   /파일을?\s*(업로드|다운로드|처리|분석)\s*해/u, /문서를?\s*(처리|분석)\s*해/u,
-  /배포\s*해(줘|주세요|주실래)/u, /배포해/u, /git\s*(push|commit|푸시|커밋)/iu,
+  /배포\s*해\s*(줘|주세요|주실래)/u, /git\s*(push|commit|푸시|커밋)\s*해\s*(줘|주세요|주실래)/iu,
   /승인(을|를)?\s*해(줘|주세요)/u, /결재\s*해(줘|주세요)/u,
 ] as const;
 
@@ -85,11 +85,11 @@ const CLEAR_QUESTION_VERB = /(어떻게|어떤|무엇|뭐).*(처리|동작|되�
 const IN_SCOPE = [
   /worklens|워크렌즈/iu, /사용(법|방법|가이드)/u, /기능/u, /화면/u, /메뉴/u,
   /업무\s*(등록|진단|자동화)/u, /factor|팩터/u, /level|레벨/u, /gate|게이트/u,
-  /매트릭스/u, /로드맵/u, /우선순위/u, /올인원\s*지시문/u, /codex|claude/iu,
+  /매트릭스/u, /로드맵/u, /우선순위/u, /올인원\s*(지시문|프롬프트)|코딩\s*에이전트\s*지시문/u, /codex|claude/iu,
   /완료\s*기준/u, /검증\s*방법/u, /통과\s*조건/u, /실패\s*기준/u, /승인/u,
   /진행\s*(가능|보류)/u, /확인\s*후\s*진행/u, /담당자/u,
   /법령|리서치/u, /문서\s*(검토|처리|분석)/u, /파일\s*업로드/u,
-  /진단\s*(결과|정책)/u, /구현\s*(범위|계획)/u, /mvp/iu, /배포\s*(방법|절차|준비)/u,
+  /진단\s*(결과|정책)/u, /구현\s*(범위|계획)/u, /mvp|엠브이피/iu, /깃허브|github|git|배포|production/iu,
   /도우미/u, /오류/u, /에러/u,
   // Colloquial/short forms
   /자연어/u, /말로/u, /문장으로/u,
@@ -233,7 +233,7 @@ export function isTaskSpecificQuestion(question: string): boolean {
 
 export function executionRequestResponse(question: string): string {
   if (/배포/u.test(question)) {
-    return "배포는 도우미가 직접 수행하지 않습니다. 결과·로드맵의 'Git·배포·운영' 안내에 따라 저장소의 기존 배포 방식으로 진행하세요. Production 배포는 사용자 요청과 권한이 확인된 경우에만 수행합니다.";
+    return "배포는 도우미가 직접 수행하지 않습니다. 결과·로드맵의 03 완료 기준을 확인하고, 설치·시작 가이드의 GitHub·배포 안내에 따라 저장소의 기존 방식을 확인하세요. Production 배포는 사용자 요청과 권한이 확인된 경우에만 수행합니다.";
   }
   if (/삭제/u.test(question)) {
     return "삭제는 도우미가 수행하지 않습니다. 업무 목록에서 해당 항목의 삭제 기능을 직접 사용하세요.";
