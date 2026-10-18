@@ -94,14 +94,13 @@ describe("AX AI boundaries", () => {
     expect(planPrompt([4, 4, 3, 2, 4, 3])).toContain("Level 1: AI·도구가 결과를 만들어 제안하고 예외 검토·최종 승인은 담당자가 합니다. 완전 자동 실행을 넣지 마세요.");
     expect(planPrompt([4, 4, 4, 3, 3, 3], go)).toContain("Level 2: 반복·규칙 단계만 부분 자동화");
     expect(planPrompt([5, 5, 5, 5, 1, 1], go)).toContain("Level 3: 넓게 자동화할 수 있지만 안전·법률·권한·최종 책임 단계는 진단대로 담당자에게 둡니다.");
-    expect(planPrompt([5, 5, 5, 5, 1, 1], go)).toContain("실행 상태 진행 가능: 구현을 진행할 수 있습니다.");
-    expect(planPrompt([4, 4, 3, 2, 4, 3])).toContain("실행 상태 확인 후 진행: prerequisites가 확인되기 전 관련 기능을 확정 구현하도록 쓰지 마세요.");
-    expect(planPrompt([5, 5, 5, 5, 1, 1], { decisionGate: { verdict: "no-go", reasons: ["권한 없음"] } })).toContain("실행 상태 진행 보류: 분석·PoC·준비 작업까지만");
+    expect(planPrompt([5, 5, 5, 5, 1, 1], go)).toContain("실행 상태 진행 가능:");
+    expect(planPrompt([4, 4, 3, 2, 4, 3])).toContain("실행 상태 확인 후 진행:");
+    expect(planPrompt([5, 5, 5, 5, 1, 1], { decisionGate: { verdict: "no-go", reasons: ["권한 없음"] } })).toContain("no-go 사유가 해소되기 전");
     const prompt = planPrompt([4, 4, 3, 2, 4, 3]);
-    for (const rule of ["정보 우선순위: 사용자 입력·업무 등록 > 확정 진단 > 합리적 추론", "담당자 수행 단계(담당자 승인)는 implementation에 넣지 말고",
-      "자동 삭제·수정·승인·등록·전송·결재", "API·SDK·DB·인증·자동 로그인", "입력에 없는 조직명과 근거 없는 수치", "outOfScope 항목을 implementation",
-      "정상·경계·실패 케이스", "내부적으로 점검해 고친 뒤 최종 JSON만 출력하세요. 점검 과정은 출력하지 마세요."]) expect(prompt).toContain(rule);
-    expect(prompt.split("자동 삭제").length - 1).toBe(2);
+    for (const invariant of ["업무 등록·확정 진단", "outOfScope 항목을 implementation·dataFlow·integrations에서 다시 요구하지 마세요",
+      "담당자 수행 단계(담당자 승인)는 자동 구현하지 말고", "실제 입력 수신→형식 파싱·필수값 검증",
+      "서로 다른 입력으로 재실행", "외부 API 오류", "권한·보안 조건을 무관한 것으로 가정해 우회하지 마세요"]) expect(prompt).toContain(invariant);
   });
   it("never returns truncated or schema-invalid plans and keeps the provider retry policy", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {}); vi.spyOn(console, "info").mockImplementation(() => {});

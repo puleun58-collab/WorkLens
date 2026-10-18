@@ -397,7 +397,7 @@ function AxStepTable({ diagnosis: d, headers, reviewProps }: { diagnosis: AxDiag
           </div>
         </div>
         <div style={{ overflowX: "auto" }}>
-          <table className="ax-hitl-table">
+          <table className="ax-hitl-table ax-hitl-step-table">
             <thead>
               <tr>
                 <th>업무 단계</th>
@@ -572,20 +572,19 @@ function AxGuideSectionView({ section, completion = false, warning = false, coll
     ? <img src="/brand/cloudflare-logo.svg" alt="" aria-hidden="true" className="ax-guide-brand-logo" />
     : null;
   return <section className={`ax-guide-section${completion ? " ax-guide-completion" : ""}${warning ? " ax-guide-warning" : ""}`}>
-    <h5>{brandLogo}{completion ? <><CheckCircle2 aria-hidden="true" />완료 확인 · </> : warning ? <AlertTriangle aria-hidden="true" /> : null}{section.title}</h5>
     {collapsed ? <Accordion className="ax-guide-terms"><AccordionItem value="terms">
-      <AccordionTrigger className="ax-guide-terms-trigger">{section.title === "용어 알아보기" ? "용어 설명 보기" : `${section.title} 자세히 보기`}</AccordionTrigger>
+      <AccordionTrigger className="ax-guide-terms-trigger"><span className="ax-guide-section-title">{brandLogo}{section.title}</span></AccordionTrigger>
       <AccordionPanel className="ax-guide-terms-panel">{content}</AccordionPanel>
-    </AccordionItem></Accordion> : content}
+    </AccordionItem></Accordion> : <><h5>{brandLogo}{completion ? <><CheckCircle2 aria-hidden="true" />완료 확인 · </> : warning ? <AlertTriangle aria-hidden="true" /> : null}{section.title}</h5>{content}</>}
   </section>;
 }
 
 const SETUP_COURSES = [
   { title: "처음 한 번 준비", description: "필요한 프로그램 설치 후 정상 동작 확인", Icon: Download, first: 1, last: 1 },
-  { title: "프로젝트 작업", description: "프로젝트 열기 → AI 작업 → 실제 결과 확인", Icon: Folder, first: 2, last: 5 },
-  { title: "GitHub·배포", description: "안전하게 저장 → 배포 → 실제 서비스 확인", Icon: CloudUpload, first: 6, last: 9 },
+  { title: "프로젝트 작업", description: "프로젝트 준비 → 지시문 전달 → 1차 MVP 구현·테스트", Icon: Folder, first: 2, last: 4 },
+  { title: "GitHub·배포", description: "플랫폼·저장 조건 확인 → 배포 → 운영 기능 검증", Icon: CloudUpload, first: 5, last: 8 },
 ] as const;
-const SETUP_ICONS = [Download, Folder, Terminal, Clipboard, CheckCircle2, ShieldCheck, GitBranch, CloudUpload, Globe] as const;
+const SETUP_ICONS = [Download, Folder, Clipboard, Terminal, CloudUpload, Database, GitBranch, Globe] as const;
 const SETUP_COMPLETIONS = new Set(["GitHub 로그인 확인", "현재 위치 확인", "작업 시작 전 AI가 먼저 확인할 것", "테스트·빌드 확인", "실제 기능 확인", "GitHub에서 확인할 것", "실제 서비스 확인"]);
 const SETUP_WARNINGS = new Set(["기존 .gitignore 확인", ".env와 .env.example", "이미 추적 중인 파일", "올리기 전 체크리스트", "git push가 곧 Production은 아닙니다", "먼저 현재 배포 환경 확인", "오류가 나면", "CI가 실패하면", "문제가 생기면", "되돌리기(Rollback)"]);
 const SETUP_DETAILS: Record<string, true> = {};
@@ -645,6 +644,11 @@ function AxSetupGuide({ tool, instructionsId, onGoToInstructions }: { tool: AxTo
           <p className="ax-guide-purpose">{step.purpose}</p>
           <p className="ax-tutorial-action-label"><Terminal aria-hidden="true" />실행 방법</p>
           {step.sections.map(section => <AxGuideSectionView key={section.title} section={section} completion={SETUP_COMPLETIONS.has(section.title)} warning={SETUP_WARNINGS.has(section.title)} collapsed={section.collapsed || (section.title in SETUP_DETAILS)} />)}
+          {index === 2 ? <Button type="button" variant="outline" onClick={onGoToInstructions} aria-controls={instructionsId}>04 올인원 지시문으로 이동</Button> : null}
+          <nav className="ax-guide-step-nav" aria-label={`STEP ${String(index + 1).padStart(2, "0")} 이동`}>
+            {index > 0 ? <Button type="button" variant="ghost" size="sm" onClick={() => goToStep(index - 1)}>이전 단계</Button> : null}
+            {index < steps.length - 1 ? <Button type="button" variant="ghost" size="sm" onClick={() => goToStep(index + 1)}>다음 단계</Button> : null}
+          </nav>
         </section>;
       })}
     </section>)}

@@ -66,7 +66,7 @@ for (const scenario of scenarios) {
       await expect(page.locator(".ax-report-intro h2")).toHaveText(excluded.name);
     } else await expect(all).toHaveCount(0);
     await page.getByRole("tab", { name: "자동화 매트릭스", exact: true }).click();
-    await expect(page.getByRole("list", { name: "자동화 우선순위 목록", exact: true }).getByRole("listitem")).toHaveCount(scenario.tasks.length);
+    await expect(page.getByRole("list", { name: "자동화 우선순위 목록", exact: true }).getByRole("listitem")).toHaveCount(Math.min(3, scenario.tasks.length));
   });
 }
 test("AX result count distinguishes needs-info from completed diagnosis with the same matrix definition", async ({ page }) => {
@@ -77,11 +77,11 @@ test("AX result count distinguishes needs-info from completed diagnosis with the
   needsInfo.status = taskStatus(needsInfo.diagnosis);
   expect(needsInfo.status).toBe("needs-info");
   await openState(page, [completed, needsInfo, taskFixture("registered")]);
-  const kpi = page.locator(".ax-kpi").filter({ has: page.locator(".ax-kpi-label", { hasText: "진단 결과" }) });
+  const kpi = page.locator(".ax-kpi").filter({ has: page.locator(".ax-kpi-label", { hasText: "진단 완료" }) });
   await expect(kpi.locator("strong")).toHaveText("2개");
-  await expect(kpi).toContainText("진단 완료 1개 · 추가 확인 필요 1개");
+  await expect(kpi).toContainText("진행 가능 1개 · 확인 후 진행 1개 · 진행 보류 0개 · 추가 질문 필요 1개");
   await page.getByRole("tab", { name: "자동화 매트릭스", exact: true }).click();
-  await expect(page.locator(".ax-matrix-header")).toContainText("등록 3개 · 진단 결과 2개 · 진단 완료 1개 · 추가 확인 필요 1개 · 미진단 1개 제외");
+  await expect(page.locator(".ax-matrix-header")).toContainText("등록 3개 · 진단 완료 2개 · 진행 가능 1개 · 확인 후 진행 1개 · 진행 보류 0개 · 추가 질문 필요 1개 · 미진단 1개 제외");
   await expect(page.getByRole("list", { name: "자동화 우선순위 목록", exact: true }).getByRole("listitem")).toHaveCount(2);
   await page.getByRole("tab", { name: "업무 등록", exact: true }).click();
   await expect(page.locator(".ax-task-rows").getByRole("listitem").filter({ hasText: needsInfo.name })).toContainText("정보 확인 필요");
@@ -95,11 +95,11 @@ test("AX adjusted diagnosis still counts as needing information when core inform
   adjusted.status = taskStatus(adjusted.diagnosis);
   expect(adjusted.status).toBe("adjusted");
   await openState(page, [task("completed", 2, "ready"), adjusted]);
-  const kpi = page.locator(".ax-kpi").filter({ has: page.locator(".ax-kpi-label", { hasText: "진단 결과" }) });
+  const kpi = page.locator(".ax-kpi").filter({ has: page.locator(".ax-kpi-label", { hasText: "진단 완료" }) });
   await expect(kpi.locator("strong")).toHaveText("2개");
-  await expect(kpi).toContainText("진단 완료 1개 · 추가 확인 필요 1개");
+  await expect(kpi).toContainText("진행 가능 1개 · 확인 후 진행 1개 · 진행 보류 0개 · 추가 질문 필요 1개");
   await page.getByRole("tab", { name: "자동화 매트릭스", exact: true }).click();
-  await expect(page.locator(".ax-matrix-header")).toContainText("등록 2개 · 진단 결과 2개 · 진단 완료 1개 · 추가 확인 필요 1개");
+  await expect(page.locator(".ax-matrix-header")).toContainText("등록 2개 · 진단 완료 2개 · 진행 가능 1개 · 확인 후 진행 1개 · 진행 보류 0개 · 추가 질문 필요 1개");
   await page.getByRole("tab", { name: "업무 등록", exact: true }).click();
   await expect(page.locator(".ax-task-rows").getByRole("listitem").filter({ hasText: adjusted.name })).toContainText("사용자 보정 완료");
 });

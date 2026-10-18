@@ -53,7 +53,7 @@ test("scenario A: adjusted + needs-check shows both badges", async ({ page }) =>
   await expect(badges.locator(".ax-status-badge", { hasText: "사용자 보정 완료" })).toBeVisible();
   await expect(badges.locator(".ax-status-badge", { hasText: "정보 확인 필요" })).toBeVisible();
   const row = page.locator(".ax-task-rows .ax-task-meta").first();
-  await expect(row).toContainText("사용자 보정 완료 · 추가 확인 필요");
+  await expect(row).toContainText("사용자 보정 완료 · 추가 질문 필요");
 });
 
 test("scenario B: KPI and TOP labels for ready 1 + conditional 2", async ({ page }) => {
