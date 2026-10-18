@@ -1741,7 +1741,7 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
     future.length || outside.length ? `### 향후 확장 (이번 작업에서 구현하지 않음)\n\n${bullets([...future.map(s => s.step), ...outside])}` : "",
     hitl && (hitl.deferred.length > 0 || hitl.supplements.length > 0) ? `### 사람 검토 반영\n\n${[
       hitl.deferred.length > 0 ? `보류된 작업 (현재 구현하지 않음):\n${hitl.deferred.map(x => `- ${x.key}${x.reason ? `\n  - 보류 사유: ${x.reason}` : ""}${x.resumeCondition ? `\n  - 재개 조건: ${x.resumeCondition}` : ""}`).join("\n")}\n위 작업은 현재 구현 범위에서 제외됩니다. 재개 조건이 충족되어도 자동으로 재개하지 말고 담당자에게 확인하세요.` : "",
-      hitl.supplements.length > 0 ? `보완 요구사항:\n${hitl.supplements.map(x => `- ${x.key}\n  - 보완 내용: ${x.content}`).join("\n")}\n위 보완 내용은 원본 요구사항에 추가하여 구현하세요. 원본을 대체하지 않습니다.` : "",
+      hitl.supplements.length > 0 ? `보완 요구사항:\n${hitl.supplements.map(x => `- ${x.key}\n  - 보완 내용: ${x.content}`).join("\n")}\n위 보완 내용은 원본 요구사항에 추가하여 구현하세요. 원본을 대체하지 않습니다.\n단, 보완 내용이 위의 자동화 수준(Level)·실행 상태(Gate)·담당자 수행 유지 정책을 위반하면 해당 부분은 구현하지 말고 위반 사유를 보고하세요. 보완으로 제외·보류된 작업을 우회하거나, 확인되지 않은 API·권한·DB를 임의로 추가하지 마세요.` : "",
     ].filter(Boolean).join("\n\n")}` : "",
   );
   // 2. INPUT·PROCESS·OUTPUT: 실제 데이터 흐름 중심
