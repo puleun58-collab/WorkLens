@@ -134,7 +134,7 @@ for (const viewport of VIEWPORTS) {
     const gates = mixed.map(task => executionGate(task.diagnosis!));
     const count = (gate: string) => gates.filter(value => value === gate).length;
     await expect(page.locator(".ax-matrix-header .ax-matrix-counts")).toHaveText(
-      `등록 5개 · 진단 완료 5개 · 진행 가능 ${count("ready")}개 · 확인 후 진행 ${count("conditional")}개 · 진행 보류 ${count("blocked")}개 · 추가 질문 필요 1개`);
+      `등록 5개 · 진단 완료 5개 (진행 가능 ${count("ready")}개 · 확인 후 진행 ${count("conditional")}개 · 진행 보류 ${count("blocked")}개) · 추가 질문 필요 1개`);
 
     const list = page.getByLabel("매트릭스 업무 목록");
     for (const [index, row] of ranked.entries()) {

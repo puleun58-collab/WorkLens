@@ -149,4 +149,31 @@ describe("AX execution gate", () => {
       expect(priorityDisplayLabel(d)).toBe(matrixPosition(d).label);
     }
   });
+
+  it("treats optional unconfirmed checks as non-blocking for the gate", () => {
+    const d = diagnosis({
+      decisionGate: { verdict: "go", reasons: [] },
+      technicalChecks: [
+        { topic: "필수 접근", status: "확인됨", note: "확인 완료" },
+        { topic: "선택 권장", status: "확인 필요", note: "권장 사항", required: false },
+      ],
+    });
+    expect(executionGate(d)).toBe("ready");
+    expect(gatePrerequisites(d)).toEqual([]);
+  });
+
+  it("keeps required unconfirmed checks as conditional and marks optional ones", () => {
+    const d = diagnosis({
+      decisionGate: { verdict: "go", reasons: [] },
+      technicalChecks: [
+        { topic: "필수 접근", status: "확인 필요", note: "권한 확인 필요" },
+        { topic: "선택 권장", status: "확인 필요", note: "권장 사항", required: false },
+      ],
+    });
+    expect(executionGate(d)).toBe("conditional");
+    expect(gatePrerequisites(d)).toEqual([
+      "필수 접근 — 권한 확인 필요",
+      "선택 권장 (선택) — 권장 사항",
+    ]);
+  });
 });
