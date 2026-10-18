@@ -301,9 +301,21 @@ describe("HITL 복합 시나리오 (20종)", () => {
     });
 
     // 두 번째 "데이터 처리"는 유지되어야 함 (occurrence 구분)
-    const remaining = model.classified.filter(c => c.text.includes("데이터 처리"));
     // 정확한 동작: 첫 번째만 제거되고 두 번째는 남음
-    expect(remaining.length).toBeGreaterThanOrEqual(0);
+    const remaining = model.classified.filter(c => c.text.includes("데이터 처리"));
+    expect(remaining.length).toBe(1);
+    // 남은 항목이 두 번째 occurrence인지 키로 확인
+    expect(remaining[0].reviewKey).toBe(dupItems[1].key);
+    // 실제 생성된 올인원 지시문에서도 동일 결과 유지
+    const prompt = buildAllInOnePrompt(dupPlan, "codex", {
+      diagnosis: baseDiagnosis,
+      hitlReviews: [review],
+      hitlTool: "codex",
+      taskName: "테스트",
+    });
+    expect(prompt).toContain("데이터 처리");
+    // 제외된 첫 번째 항목의 키가 적용된 검토로 기록됨
+    expect(model.hitlDetails?.appliedReviews.some(r => r.targetKey === dupItems[0].key)).toBe(true);
   });
 
   it("10. 동일 문구가 Codex·Claude 계획에 각각 존재 - 도구별 분리", () => {

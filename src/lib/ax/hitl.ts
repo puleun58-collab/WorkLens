@@ -135,6 +135,29 @@ export function extractPlanReviewableItems(plan: AxPlan, tool: "codex" | "claude
   return items;
 }
 
+/** 계획 항목의 검토 키를 (필드, 인덱스) 기준으로 미리 계산
+ * extractPlanReviewableItems와 동일한 순서·occurrence 규칙을 사용하여,
+ * buildAgentInstructionModel에서 classified 항목에 정확한 reviewKey를 부여한다.
+ * 반환: `${field}:${index}` -> reviewable key (field: implementation|acceptance|tests) */
+export function buildPlanReviewKeyMap(plan: AxPlan, tool: "codex" | "claude"): Map<string, string> {
+  const source = tool === "codex" ? "planCodex" : "planClaude";
+  const counts = new Map<string, number>();
+  const map = new Map<string, string>();
+  const nextKey = (type: HitlTargetType, text: string): string => {
+    const normalized = text.trim().replace(/\s+/g, " ");
+    const hash = hashSource(normalized).slice(0, 16);
+    const base = `${type}:${source}:${hash}`;
+    const occurrence = counts.get(base) ?? 0;
+    counts.set(base, occurrence + 1);
+    return makeTargetKey(type, source, text, occurrence);
+  };
+  // extractPlanReviewableItems와 동일한 순서: implementation[] → acceptance[] → tests[]
+  (plan.implementation ?? []).forEach((item, i) => map.set(`implementation:${i}`, nextKey("planItem", item)));
+  (plan.acceptance ?? []).forEach((item, i) => map.set(`acceptance:${i}`, nextKey("criterion", item)));
+  (plan.tests ?? []).forEach((item, i) => map.set(`tests:${i}`, nextKey("criterion", item)));
+  return map;
+}
+
 /** 검토 상태 전환 가능 여부 */
 export function canTransition(from: HitlStatus, to: HitlStatus): boolean {
   const allowed: Record<HitlStatus, HitlStatus[]> = {

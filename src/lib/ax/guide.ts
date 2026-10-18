@@ -1,7 +1,7 @@
 import type { AxDiagnosis, AxPlan } from "./types";
 import { automationLevel, axes, executionProfile, GATE_LABELS, type ExecutionGate, type ExecutionProfile, type StepScope } from "./policy";
 import { FACTOR_KEYS } from "./schema";
-import { extractPlanReviewableItems, extractReviewableItems, getValidConfirmedReviews } from "./hitl";
+import { extractPlanReviewableItems, extractReviewableItems, getValidConfirmedReviews, buildPlanReviewKeyMap } from "./hitl";
 
 export type AxToolId = "codex" | "claude";
 
@@ -970,6 +970,9 @@ export interface AgentInstructionItem {
   scope: StepScope["scope"] | "confirm" | "excluded";
   step?: string;
   reason?: string;
+  /** HITL reviewable key for exact target matching (occurrence-aware).
+   * 동일 문구 중복 항목의 오매칭 방지를 위해 계획 항목 생성 시 부여. */
+  reviewKey?: string;
 }
 /** Actual processing evidence, independent of the Level/Gate execution restriction. */
 export type StepMethod = "assist" | "rule" | "script" | "manual" | "confirm" | "composite";
@@ -1214,7 +1217,7 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
     ...(profile?.poc.outOfScope ?? []), ...(d?.humanInLoop ?? []), ...(rawPlan?.outOfScope ?? []), ...(rawPlan?.humanInLoop ?? []),
     ...steps.filter(s => s.scope === "human").flatMap(s => [s.step, `${s.step} 자동화`, `담당자 ${s.step}`, `${s.step} (담당자 수행)`]),
   ].map(normalizedItem));
-  const append = (source: string, role: string, text: string, override?: string, original?: string) => {
+  const append = (source: string, role: string, text: string, override?: string, original?: string, reviewKey?: string) => {
     if (!text?.trim()) return;
     // A whole technical-check topic is stable source evidence, not a substring-based step guess.
     if (role === "conditions" && source !== "diagnosis.technicalChecks") {
@@ -1297,21 +1300,30 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
       reason = "수치 기준 확인 필요: 측정 대상·방법·데이터 범위·비교 기준·판정 근거가 확인되지 않음";
     }
     const step = matches.length === 1 ? matches[0].step : undefined;
-    const same = matches.length > 1 ? undefined : classified.find(item => item.role === role && item.scope === scope && item.step === step && normalizedItem(item.text) === normalizedItem(clean));
+    // reviewKey가 부여된 계획 항목은 동일 키끼리만 병합한다.
+    // 동일 문구의 중복 항목이 하나로 합쳐지면 HITL에서 개별 제외·보류가 불가능해지므로,
+    // 키가 다르면(또는 한쪽에만 키가 있으면) 별도 항목으로 유지한다.
+    const same = matches.length > 1 ? undefined : classified.find(item => item.role === role && item.scope === scope && item.step === step && normalizedItem(item.text) === normalizedItem(clean)
+      && (reviewKey ? item.reviewKey === reviewKey : !item.reviewKey));
     if (same) {
       if (!same.sources.includes(source)) same.sources.push(source);
       if (!same.originals.includes(original ?? text)) same.originals.push(original ?? text);
       return;
     }
-    classified.push({ source, sources: [source], originals: [original ?? text], role, text: clean, ...(original && stripEnumerator(original) !== clean ? { original } : {}), scope, ...(step ? { step } : {}), ...(reason ? { reason } : {}) });
+    classified.push({ source, sources: [source], originals: [original ?? text], role, text: clean, ...(original && stripEnumerator(original) !== clean ? { original } : {}), scope, ...(step ? { step } : {}), ...(reason ? { reason } : {}), ...(reviewKey ? { reviewKey } : {}) });
   };
+  // HITL 중복 식별 정확성: 계획 항목에 occurrence 기반 reviewKey를 미리 부여
+  // (extractPlanReviewableItems와 동일한 키 생성 규칙 사용)
+  const planReviewKeyMap = rawPlan && options.hitlTool ? buildPlanReviewKeyMap(rawPlan, options.hitlTool) : new Map<string, string>();
   if (rawPlan) for (const key of Object.keys(PLAN_ROLES) as (keyof typeof PLAN_ROLES)[]) {
     let guardedIndex = 0;
     const planContext = [options.taskName ?? "", options.context ?? ""].join("\n");
+    let fieldIndex = 0;
     for (const item of rawPlan[key] ?? []) {
       const unsupported = hasOnlyUnconfirmedMetrics(item, planContext);
+      const reviewKey = planReviewKeyMap.get(`${key}:${fieldIndex++}`);
       append(`plan.${key}`, PLAN_ROLES[key], unsupported ? item : guarded?.[key]?.[guardedIndex++] ?? item,
-        unsupported ? "근거 없는 성능 수치: 측정 근거와 판정 기준 확인 필요" : undefined, item);
+        unsupported ? "근거 없는 성능 수치: 측정 근거와 판정 기준 확인 필요" : undefined, item, reviewKey);
     }
   }
   if (d) {
@@ -1502,9 +1514,21 @@ function applyHitlToModel(
   }
 
   // 검토 대상 키와 classified 항목 매칭
-  // 원본 텍스트의 정규화된 전체 일치를 사용 (부분 매칭 금지)
+  // reviewKey가 부여된 항목은 정확한 키 일치를 우선 사용 (동일 문구 중복 항목의 오매칭 방지).
+  // 키가 없는 항목(진단 기반 등)은 기존 정규화 텍스트 전체 일치를 사용 (부분 매칭 금지).
   const normalizeForMatch = (text: string) => text.trim().replace(/\s+/g, " ").toLowerCase();
   const matchReview = (item: AgentInstructionItem): string | null => {
+    // 1) 정확한 키 매칭 (계획 항목)
+    if (item.reviewKey) {
+      for (const r of relevant) {
+        if (r.status !== "confirmed") continue;
+        if (r.target.key === item.reviewKey) return r.target.key;
+      }
+      // 키가 있는데 일치하는 확정 리뷰가 없으면 제외하지 않음
+      // (다른 occurrence의 리뷰가 텍스트 일치로 오적용되는 것을 방지)
+      return null;
+    }
+    // 2) 텍스트 매칭 (키 없는 항목용 폴백)
     // 항목의 원본 텍스트들 수집 (original, originals, text)
     const itemTexts = new Set<string>();
     itemTexts.add(normalizeForMatch(item.text));
