@@ -83,4 +83,11 @@ bun run deploy
 
 배포 설정은 [wrangler.jsonc](wrangler.jsonc), 개발 작업 원칙은 [AGENTS.md](AGENTS.md)에서 확인할 수 있습니다.
 
+## 문서 갱신 정책
+
+사용 가이드와 README는 코드 변경과 분리하여 갱신합니다. 다음 경우에만 해당 문서를 확인합니다.
+
+- 주요 버튼명·사용 순서·핵심 사용자 흐름·화면 구조·기능 단계가 바뀐 경우
+- 색상·그림자·테두리·반경·간격만 바뀌고 흐름이 같은 경우는 문서를 수정하지 않습니다.
+
 서드파티 라이선스: [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)

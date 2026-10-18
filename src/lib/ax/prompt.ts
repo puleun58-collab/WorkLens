@@ -49,6 +49,7 @@ export function axMessages(request: AxDiagnosisRequest | AxPlanRequest): { role:
 Factor는 repetition, regularity, dataStructure, systemAccess, humanJudgment, operationalRisk를 각각 한 번 포함하고 1~5점과 근거를 제시하세요. 사람판단과 위험은 높을수록 의존도·위험이 높습니다.
 정보 충분성 sufficient/partial/needs-check, 단계별 자동화/AI 보조/사람 유지 판정, 시스템/AI/사용자 역할, 기술 확인, 위험, 검증 가능한 PoC, go/conditional/no-go 근거, 단계별 로드맵, 운영·Fallback과 다음 행동을 작성하세요.
 기술 확인(technicalChecks)의 status는 사용자가 입력에서 명시적으로 확인한 사실만 "확인됨"으로 표시하세요. 그 경우에도 입력에 없는 구체 기술·방식(인증 방식 종류, 특정 API 기능, 실행 환경 등)을 지어내지 말고, 확인되지 않은 항목은 "확인 필요"로 두세요.
+기술 확인 항목 중 업무 실행에 반드시 필요한 것이 아니라 권장·선택 사항인 경우 required를 false로 표시하세요. required가 없는 항목은 필수로 간주됩니다.
 systemAccess 점수는 자동화·시스템이 접근할 수 있는 정도를 기준으로 매기세요. 입력에서 API 등 시스템 간 자동 연동이 확인되면 담당자의 확인 단계가 있어도 자동화 접근성을 기준으로 평가하고, 담당자가 직접 로그인해 수기로만 조회·입력하는 경우에만 낮게 평가하세요.
 입력에 없는 조직·부서·승인 주체 이름을 만들지 마세요. 승인과 검토 주체는 "담당자"로 표현하세요.
 수행 주기·입력 자료·산출물·담당자 판단 단계 네 가지 핵심 정보 중 세 가지 이상이 없을 때만 informationSufficiency를 needs-check로 하고 결과를 바꿀 수 있는 핵심 질문을 제시하세요. 핵심 정보가 이미 주어졌으면 부족한 세부 사항이 있어도 partial로 분류하세요.

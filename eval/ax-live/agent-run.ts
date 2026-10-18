@@ -164,8 +164,11 @@ for (const s of AGENT_SCENARIOS) {
       const fixtureChanged = Object.entries(s.files).filter(([name, text]) => !existsSync(join(dir, name)) || readFileSync(join(dir, name), "utf8") !== text);
       // An expired or missing CLI login is an environment blocker, not an implementation failure.
       const authBlocked = /token_expired|refresh token was already used|OAuth session expired|Not logged in|Please log out and sign in again|401 Unauthorized/iu.test(`${stdout}\n${stderr}`);
+      // Network connectivity issues are environment blockers, not implementation failures.
+      const networkBlocked = /failed to refresh available models|Transport channel closed|http\/request failed|workspace routing discovery failed|Reconnecting\.\.\.|request timed out|error sending request for url/iu.test(`${stdout}\n${stderr}`);
       if (fixtureChanged.length) { r.outcome = "FAIL"; r.reason = `Agent modified provided independent fixtures: ${fixtureChanged.map(([name]) => name).join(", ")}`; }
       else if (authBlocked && r.exitCode !== 0) { r.outcome = "BLOCKED"; r.reason = `${tool} CLI authentication expired or missing; re-login required before implementation can run`; }
+      else if (networkBlocked && r.exitCode !== 0) { r.outcome = "BLOCKED"; r.reason = `${tool} CLI network connectivity failure; check network/proxy before implementation can run`; }
       else if (timedOut) { r.outcome = "FAIL"; r.reason = "Agent execution timed out at 360s"; }
       else if (r.exitCode !== 0) { r.outcome = "FAIL"; r.reason = `Agent exited ${r.exitCode}; see agent log`; }
       else {

@@ -25,7 +25,7 @@ export const axDiagnosisShape = {
   stepAssessments: z.array(z.object({ step: text, verdict: z.enum(["자동화", "AI 보조", "사람 유지"]), owner, note: text }).strict()).max(10),
   toBe: z.array(z.object({ step: text, owner, description: text }).strict()).max(10),
   humanInLoop: list,
-  technicalChecks: z.array(z.object({ topic: text, status: z.enum(["확인됨", "확인 필요", "불가"]), note: text }).strict()).max(10),
+  technicalChecks: z.array(z.object({ topic: text, status: z.enum(["확인됨", "확인 필요", "불가"]), note: text, required: z.boolean().optional() }).strict()).max(10),
   risks: list,
   poc: z.object({ hypothesis: text, inScope: list, outOfScope: list, inputs: list, outputs: list, evaluation: list, success: list, failure: list }).strict(),
   decisionGate: z.object({ verdict: z.enum(["go", "conditional", "no-go"]), reasons: list }).strict(),

@@ -92,20 +92,24 @@ export const GATE_LABELS: Record<ExecutionGate, string> = {
 };
 
 export function executionGate(d: AxDiagnosis): ExecutionGate {
-  // 1. no-go만 hard blocker다. 개별 기술 항목이 업무 필수 조건인지 스키마로
-  // 식별할 수 없으므로 technicalChecks의 "불가"만으로 전체를 차단하지 않는다.
+  // 1. no-go만 hard blocker다. "불가" 상태의 필수 항목만 전체를 차단한다.
   if (d.decisionGate.verdict === "no-go") return "blocked";
-  // 2. 조건부 판정, 정보 부족, 미확인·불가 기술 항목은 선행 확인이 필요하다.
+  // 2. 조건부 판정, 정보 부족, 미확인 필수 기술 항목은 선행 확인이 필요하다.
+  //    선택(optional) 항목은 Gate 판정에 영향을 주지 않는다.
+  const requiredUnconfirmed = d.technicalChecks.some(c => c.status !== "확인됨" && c.required !== false);
   if (d.decisionGate.verdict === "conditional" || d.informationSufficiency === "needs-check"
-    || d.technicalChecks.some(c => c.status !== "확인됨")) return "conditional";
-  // 3. go이고 남은 확인 항목이 없으면 실행 가능하다. 원본 진단은 변경하지 않는다.
+    || requiredUnconfirmed) return "conditional";
+  // 3. go이고 남은 필수 확인 항목이 없으면 실행 가능하다. 원본 진단은 변경하지 않는다.
   return "ready";
 }
 
 export function gatePrerequisites(d: AxDiagnosis): string[] {
   if (executionGate(d) === "ready") return [];
-  const items = d.technicalChecks.filter(c => c.status !== "확인됨")
+  const required = d.technicalChecks.filter(c => c.status !== "확인됨" && c.required !== false)
     .map(c => c.note ? `${c.topic} — ${c.note}` : c.topic);
+  const optional = d.technicalChecks.filter(c => c.status !== "확인됨" && c.required === false)
+    .map(c => c.note ? `${c.topic} (선택) — ${c.note}` : `${c.topic} (선택)`);
+  const items = [...required, ...optional];
   if (d.informationSufficiency === "needs-check") items.push(...d.followUpQuestions);
   if (d.decisionGate.verdict !== "go") items.push(...d.decisionGate.reasons);
   const unique = [...new Set(items)].slice(0, 10);
