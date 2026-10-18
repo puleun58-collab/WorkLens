@@ -42,7 +42,7 @@ describe("AX execution guides", () => {
       expect(TOOL_GUIDES.claude[key]).toBeTruthy();
       expect(TOOL_GUIDES.codex[key]).not.toBe(TOOL_GUIDES.claude[key]);
     }
-    const sectionText = (section: AxGuideSection) => [section.when ?? "", ...section.blocks.map(block => block.kind === "text" ? block.text : block.kind === "code" ? [...block.lines, ...(block.notes ?? [])].join("\n") : block.kind === "table" ? [...block.headers, ...block.rows.flat()].join("\n") : block.items.join("\n"))].join("\n");
+    const sectionText = (section: AxGuideSection) => [section.when ?? "", ...section.blocks.map(block => block.kind === "text" ? block.text : block.kind === "code" ? [...block.lines, ...(block.notes ?? [])].join("\n") : block.kind === "table" ? [...block.headers, ...block.rows.flat()].join("\n") : block.kind === "screenshot" ? [block.alt, block.caption, block.source ?? ""].join("\n") : block.items.join("\n"))].join("\n");
     for (const tool of ["codex", "claude"] as const) {
       const other = tool === "codex" ? "claude" : "codex";
       const guide = setupGuide(tool);

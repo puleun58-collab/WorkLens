@@ -13,12 +13,13 @@ export const TOOL_GUIDES: Record<AxToolId, {
 };
 
 /** Inline text marks commands with backticks; `code` blocks default to PowerShell unless labeled as examples. */
-export type AxGuideBlock = { kind: "text"; text: string } | { kind: "code"; lines: string[]; notes?: string[]; label?: "PowerShell" | ".gitignore" | "예시" } | { kind: "steps"; items: string[] } | { kind: "table"; headers: string[]; rows: string[][] };
+export type AxGuideBlock = { kind: "text"; text: string } | { kind: "code"; lines: string[]; notes?: string[]; label?: "PowerShell" | ".gitignore" | "예시" } | { kind: "steps"; items: string[] } | { kind: "table"; headers: string[]; rows: string[][] } | { kind: "screenshot"; src: string; alt: string; caption: string; source?: string };
 export interface AxGuideSection { title: string; when?: string; collapsed?: boolean; listStyle?: "bullets"; brand?: "vercel" | "cloudflare"; blocks: AxGuideBlock[] }
 export interface AxGuideStep { title: string; purpose: string; sections: AxGuideSection[] }
 
 const text = (value: string): AxGuideBlock => ({ kind: "text", text: value });
 const code = (lines: string[], notes: string[], label?: Extract<AxGuideBlock, { kind: "code" }>["label"]): AxGuideBlock => ({ kind: "code", lines, notes, ...(label ? { label } : {}) });
+const shot = (src: string, alt: string, caption: string, source?: string): AxGuideBlock => ({ kind: "screenshot", src, alt, caption, ...(source ? { source } : {}) });
 
 export function setupGuide(tool: AxToolId): AxGuideStep[] {
   const guide = TOOL_GUIDES[tool];
@@ -127,6 +128,9 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
         code(["git status", "git remote -v"], []),
         text("Git 저장소가 아닌 경우에만 초기화할 수 있습니다. 기존 저장소를 재초기화하거나 기존 remote를 덮어쓰지 않고, branch 이름을 main으로 강제하지 않습니다."),
         text("remote가 없으면 GitHub CLI 또는 웹 등 현재 방식대로 GitHub 저장소를 만들고 연결합니다. 첫 push 전에 `git remote -v`로 대상을 다시 확인합니다."),
+        shot("/guide/repo-create-global-nav-update.webp", "GitHub 상단 + 메뉴에서 New repository 선택 화면", "GitHub 상단의 + 메뉴에서 'New repository'를 선택하는 화면", "출처: GitHub Docs (CC-BY 4.0) — 화면은 예시이며 UI가 변경될 수 있습니다"),
+        shot("/guide/create-repository-owner.webp", "새 저장소의 소유자 선택 화면", "저장소 소유자를 선택하는 화면", "출처: GitHub Docs (CC-BY 4.0) — 화면은 예시이며 UI가 변경될 수 있습니다"),
+        shot("/guide/create-repository-name.webp", "새 저장소 이름 입력 화면", "저장소 이름을 입력하는 화면", "출처: GitHub Docs (CC-BY 4.0) — 화면은 예시이며 UI가 변경될 수 있습니다"),
       ] },
       { title: "의존성 준비", blocks: [
         { kind: "steps", items: [

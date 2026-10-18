@@ -559,6 +559,20 @@ function AxGuideBlockView({ block, listStyle }: { block: AxGuideBlock; listStyle
       </table>
     </div>;
   }
+  if (block.kind === "screenshot") {
+    return <Accordion className="ax-guide-shot">
+      <AccordionItem value="shot">
+        <AccordionTrigger className="ax-guide-shot-trigger">예시 화면 보기</AccordionTrigger>
+        <AccordionPanel className="ax-guide-shot-panel">
+          <figure className="ax-guide-shot-figure">
+            <img src={block.src} alt={block.alt} loading="lazy" className="ax-guide-shot-img" />
+            <figcaption className="ax-guide-shot-caption">{block.caption}</figcaption>
+            {block.source ? <p className="ax-guide-shot-source">{block.source}</p> : null}
+          </figure>
+        </AccordionPanel>
+      </AccordionItem>
+    </Accordion>;
+  }
   return <p><AxGuideText text={block.text} /></p>;
 }
 function AxGuideSectionView({ section, completion = false, warning = false, collapsed = section.collapsed }: { section: AxGuideSection; completion?: boolean; warning?: boolean; collapsed?: boolean }) {

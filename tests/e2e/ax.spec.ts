@@ -1771,3 +1771,42 @@ for (const [fromStep, toStep, toTab] of [[4, 3, "자동화 매트릭스"], [3, 2
     await expect.poll(async () => (await record(page))?.selectedTaskId).toBe(tasks[0].id);
   });
 }
+
+for (const width of [1440, 390]) {
+  test(`설치 가이드 스크린샷이 접힌 상태로 표시되고 펼쳐서 볼 수 있음 (${width}px)`, async ({ page }) => {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+    await page.goto("/");
+    const tasks = [taskFixture("shot-a", { ...diagnosisFixture, planCodex: planFixture })];
+    await seed(page, { ...emptyAxState(), tasks, selectedTaskId: tasks[0].id, step: 4 });
+    await ax(page);
+    const section = page.getByRole("region", { name: "자동화 구현 계획", exact: true });
+    const guide = section.getByRole("button", { name: "설치·시작 가이드", exact: true });
+    await guide.click();
+    const panel = section.locator(".ax-guide-panel");
+    const step02 = panel.locator('.ax-guide-step[data-setup-step="2"]');
+    // 스크린샷 접이식 항목이 기본 접힘 상태
+    const shotTriggers = step02.getByRole("button", { name: "예시 화면 보기", exact: true });
+    await expect(shotTriggers).toHaveCount(3);
+    for (const trigger of await shotTriggers.all()) {
+      await expect(trigger).toHaveAttribute("aria-expanded", "false");
+    }
+    // 첫 번째 스크린샷 펼치기
+    await shotTriggers.first().click();
+    await expect(shotTriggers.first()).toHaveAttribute("aria-expanded", "true");
+    const firstImg = step02.locator(".ax-guide-shot-img").first();
+    await expect(firstImg).toBeVisible();
+    await expect(firstImg).toHaveAttribute("alt", /GitHub 상단 \+ 메뉴/);
+    await expect(firstImg).toHaveAttribute("loading", "lazy");
+    // 캡션과 출처 표시
+    await expect(step02.locator(".ax-guide-shot-caption").first()).toContainText("New repository");
+    await expect(step02.locator(".ax-guide-shot-source").first()).toContainText("GitHub Docs");
+    // 이미지 로드 확인 (자연 크기 > 0)
+    const naturalWidth = await firstImg.evaluate((img: HTMLImageElement) => img.naturalWidth);
+    expect(naturalWidth).toBeGreaterThan(0);
+    // 모바일 가로 넘침 없음
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+    // 다시 접기
+    await shotTriggers.first().click();
+    await expect(shotTriggers.first()).toHaveAttribute("aria-expanded", "false");
+  });
+}

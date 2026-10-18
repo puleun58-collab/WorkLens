@@ -508,6 +508,14 @@
 .ax-guide-terms > [data-slot=accordion-item] { border: 0; }
 .ax-guide-terms .ax-guide-terms-trigger { justify-content: flex-start; gap: 8px; padding: 8px 0; font-size: var(--font-size-sm); font-weight: var(--font-weight-medium); }
 .ax-guide-terms .ax-guide-terms-panel { padding: 0; }
+.ax-guide-shot { margin: 8px 0; }
+.ax-guide-shot > [data-slot=accordion-item] { border: 0; }
+.ax-guide-shot .ax-guide-shot-trigger { justify-content: flex-start; gap: 8px; padding: 8px 0; font-size: var(--font-size-sm); font-weight: var(--font-weight-medium); color: var(--primary); }
+.ax-guide-shot .ax-guide-shot-panel { padding: 0 0 4px; }
+.ax-guide-shot-figure { margin: 0; max-width: 100%; }
+.ax-guide-shot-img { display: block; max-width: 100%; height: auto; border: 1px solid var(--line-soft); border-radius: 8px; }
+.ax-guide-shot-caption { margin: 8px 0 0; font-size: var(--font-size-sm); color: var(--foreground); }
+.ax-guide-shot-source { margin: 4px 0 0; font-size: var(--font-size-xs); color: var(--muted-foreground); }
 .ax-setup-tutorial { min-width: 0; }
 .ax-setup-tutorial svg { flex: none; width: 18px; height: 18px; stroke-width: 1.75; color: var(--muted-foreground); }
 .ax-tutorial-intro { margin: 24px 0 14px; }
