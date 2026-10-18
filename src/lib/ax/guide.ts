@@ -1004,6 +1004,8 @@ export interface AgentInstructionModel {
     appliedReviews: Array<{ id: string; action: string; targetKey: string }>;
     deferred: Array<{ key: string; reason?: string; resumeCondition?: string }>;
     supplements: Array<{ key: string; content: string }>;
+    /** Priority 5: 유효성 검증된 step-type exclude/defer 검토의 단계명 집합 (PoC 기준 demote용) */
+    validatedExcludedStepNames?: string[];
   };
 }
 /** Strong markers of an explicit execution order; weak connectors need an explicit actor to count. */
@@ -1328,8 +1330,11 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
     ] as const) for (const item of values) append(source, role, item);
     for (const step of steps.filter(s => s.scope === "human")) append("policy.manualSteps", "human", step.step);
     // Confirmed checks are reference facts, not open conditions.
+    // Priority 2: Preserve the reviewable item text format as original for HITL matching
+    // (extractReviewableItems uses `${topic}: ${status} - ${note}` format)
     for (const check of d.technicalChecks ?? []) append("diagnosis.technicalChecks", check.status === "확인됨" ? "reference" : "conditions",
-      `${check.topic}${check.note ? ` — ${check.note}` : ""}`, check.status === "확인됨" ? "이미 확인된 기술 조건 (참고)" : undefined);
+      `${check.topic}${check.note ? ` — ${check.note}` : ""}`, check.status === "확인됨" ? "이미 확인된 기술 조건 (참고)" : undefined,
+      `${check.topic}: ${check.status} - ${check.note}`);
   }
   for (const item of options.prerequisites ?? []) append("options.prerequisites", "conditions", item);
   for (const item of profile?.prerequisites ?? []) {
@@ -1398,15 +1403,40 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
     finalMethodEvidence = applied.methodEvidence;
     // 실제 적용 여부: 항목이 변경되었거나 검토가 적용된 경우
     hitlActuallyApplied = applied.appliedCount > 0 || applied.appliedReviews.length > 0;
+    // Priority 5: 유효성 검증된 step-type exclude/defer 검토의 단계명 집합 계산
+    // (buildAllInOnePrompt에서 동일한 검증 기준으로 재사용 — 중복 검증 방지)
+    const validatedExcludedStepNames: string[] = [];
+    if (d?.stepAssessments) {
+      const reviewableSteps = extractReviewableItems(d).filter(i => i.type === "step");
+      for (const r of validReviews) {
+        if (r.action !== "exclude" && r.action !== "defer") continue;
+        if (r.target.type !== "step") continue;
+        const matched = reviewableSteps.find(i => i.key === r.target.key);
+        if (matched) {
+          const name = matched.text.split(":")[0].trim();
+          if (name && !validatedExcludedStepNames.includes(name)) validatedExcludedStepNames.push(name);
+        }
+      }
+    }
     hitlDetails = {
       appliedReviews: applied.appliedReviews,
       deferred: applied.deferred,
       supplements: applied.supplements,
+      validatedExcludedStepNames,
     };
   }
 
+  // Priority 1: HITL 제외·보류가 conditions에도 일관되게 반영되도록 필터링된 데이터로 재계산
+  // (conditions는 applyHitlToModel 호출 전에 계산되므로 제외된 항목이 남아있는 결함 수정)
+  const finalConditions: AgentInstructionModel["conditions"] = hitlActuallyApplied ? {
+    current: finalScoped.conditions,
+    future: finalClassified.filter(item => item.role === "conditions" && item.scope === "future"),
+    global: finalClassified.filter(item => item.role === "human" || item.role === "security" && item.scope !== "future" && item.scope !== "human"),
+    confirm: finalClassified.filter(item => item.role === "conditions" && !permitted(item) && item.scope !== "future"),
+  } : conditions;
+
   return { profile, level, gate, scopeLevel, steps: finalSteps, methods: finalMethodEvidence.map(item => item.method), methodReasons: finalMethodEvidence.map(item => item.reason), methodUserReasons: finalMethodEvidence.map(item => item.userReason),
-    methodChains: finalMethodEvidence.map(item => item.chain), methodOrders: finalMethodEvidence.map(item => item.order), conditions, classified: finalClassified,
+    methodChains: finalMethodEvidence.map(item => item.chain), methodOrders: finalMethodEvidence.map(item => item.order), conditions: finalConditions, classified: finalClassified,
     ambiguous: finalClassified.filter(item => item.scope === "confirm" && item.role !== "reference"),
     scoped: finalScoped, diagnosis: d, plan: guarded, prerequisites: options.prerequisites ?? [], gaps,
     hitlApplied: hitlActuallyApplied, hitlDetails };
@@ -1658,22 +1688,9 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
   const isPocCriterion = (item: AgentInstructionItem) =>
     item.sources.some(s => s === "diagnosis.poc.success" || s === "diagnosis.poc.failure");
   // PART A-5: PoC 기준 안전성 — 제외된 단계나 차단 상태에서 필수 완료 조건으로 승격 금지.
-  // 제외된 단계명 집합 (HITL step-type exclude/defer 리뷰에서 추출)
-  const excludedStepNames = new Set<string>();
-  if (options.hitlReviews?.length && d?.stepAssessments) {
-    const reviewableSteps = extractReviewableItems(d).filter(i => i.type === "step");
-    for (const r of options.hitlReviews) {
-      if (r.status !== "confirmed") continue;
-      if (r.action !== "exclude" && r.action !== "defer") continue;
-      if (r.target.type !== "step") continue;
-      const matched = reviewableSteps.find(i => i.key === r.target.key);
-      if (matched) {
-        // "보고서 업데이트: AI 보조 (AI) - ..." → "보고서 업데이트"
-        const name = matched.text.split(":")[0].trim();
-        if (name) excludedStepNames.add(name);
-      }
-    }
-  }
+  // Priority 5: 모델에서 유효성 검증된 제외 단계명 집합 사용 (중복 검증 방지, 검증 기준 단일화)
+  // buildAgentInstructionModel에서 getValidConfirmedReviews로 검증된 결과만 사용
+  const excludedStepNames = new Set<string>(model.hitlDetails?.validatedExcludedStepNames ?? []);
   // PoC 기준이 제외된 단계와만 관련되고 활성 작업 단계와는 무관하면 필수 조건에서 제외.
   const criterionRelatesOnlyToExcluded = (text: string): boolean => {
     if (excludedStepNames.size === 0) return false;
@@ -1724,7 +1741,7 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
     future.length || outside.length ? `### 향후 확장 (이번 작업에서 구현하지 않음)\n\n${bullets([...future.map(s => s.step), ...outside])}` : "",
     hitl && (hitl.deferred.length > 0 || hitl.supplements.length > 0) ? `### 사람 검토 반영\n\n${[
       hitl.deferred.length > 0 ? `보류된 작업 (현재 구현하지 않음):\n${hitl.deferred.map(x => `- ${x.key}${x.reason ? `\n  - 보류 사유: ${x.reason}` : ""}${x.resumeCondition ? `\n  - 재개 조건: ${x.resumeCondition}` : ""}`).join("\n")}\n위 작업은 현재 구현 범위에서 제외됩니다. 재개 조건이 충족되어도 자동으로 재개하지 말고 담당자에게 확인하세요.` : "",
-      hitl.supplements.length > 0 ? `보완 요구사항:\n${hitl.supplements.map(x => `- ${x.key}\n  - 보완 내용: ${x.content}`).join("\n")}\n위 보완 내용은 원본 요구사항에 추가하여 구현하세요. 원본을 대체하지 않습니다.` : "",
+      hitl.supplements.length > 0 ? `보완 요구사항:\n${hitl.supplements.map(x => `- ${x.key}\n  - 보완 내용: ${x.content}`).join("\n")}\n위 보완 내용은 원본 요구사항에 추가하여 구현하세요. 원본을 대체하지 않습니다.\n단, 보완 내용이 위의 자동화 수준(Level)·실행 상태(Gate)·담당자 수행 유지 정책을 위반하면 해당 부분은 구현하지 말고 위반 사유를 보고하세요. 보완으로 제외·보류된 작업을 우회하거나, 확인되지 않은 API·권한·DB를 임의로 추가하지 마세요.` : "",
     ].filter(Boolean).join("\n\n")}` : "",
   );
   // 2. INPUT·PROCESS·OUTPUT: 실제 데이터 흐름 중심
