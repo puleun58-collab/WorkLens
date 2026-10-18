@@ -1027,7 +1027,16 @@ async function expectActualMarkerGaps(surface: Locator) {
     const markerRect = range.getBoundingClientRect();
     range.selectNodeContents(body);
     const rects = [...range.getClientRects()].filter(rect => rect.width > 0);
-    const lines = [...new Set(rects.map(rect => rect.y))].map(y => Math.min(...rects.filter(rect => rect.y === y).map(rect => rect.x)));
+    // Group rects by visual line: y values within 3px belong to the same line.
+    // Inline elements (e.g. <code> with different font-size) can shift baseline by 1-2px.
+    const sorted = [...rects].sort((a, b) => a.y - b.y);
+    const lineGroups: typeof rects[] = [];
+    for (const rect of sorted) {
+      const group = lineGroups.find(g => Math.abs(g[0].y - rect.y) <= 3);
+      if (group) group.push(rect);
+      else lineGroups.push([rect]);
+    }
+    const lines = lineGroups.map(group => Math.min(...group.map(rect => rect.x)));
     return lines.length ? [{ gap: lines[0] - markerRect.right, lines }] : [];
   }));
   for (const row of rows) {
@@ -1125,7 +1134,15 @@ async function expectGuideTutorial(page: Page, panel: Locator, tool: "Codex" | "
       const markerRect = range.getBoundingClientRect();
       range.selectNodeContents(body);
       const rects = [...range.getClientRects()].filter(rect => rect.width > 0);
-      const lines = [...new Set(rects.map(rect => rect.y))].map(y => Math.min(...rects.filter(rect => rect.y === y).map(rect => rect.x)));
+      // Group by visual line (3px tolerance for inline element baseline shifts)
+      const sorted = [...rects].sort((a, b) => a.y - b.y);
+      const lineGroups: typeof rects[] = [];
+      for (const rect of sorted) {
+        const group = lineGroups.find(g => Math.abs(g[0].y - rect.y) <= 3);
+        if (group) group.push(rect);
+        else lineGroups.push([rect]);
+      }
+      const lines = lineGroups.map(group => Math.min(...group.map(rect => rect.x)));
       return { preX: pre.getBoundingClientRect().x, markerX: markerRect.x, gap: lines[0] - markerRect.right, lines };
     });
   }));
@@ -1465,13 +1482,29 @@ for (const width of [1440, 390]) {
 
     // STEP 09: service-specific verification sections are separate
     const step09 = panel.locator('.ax-guide-step[data-setup-step="9"]');
-    for (const name of ["DB Production 검증", "R2 파일 검증", "KV 검증"]) {
+    for (const name of ["DB Production 검증", "R2 파일 검증", "KV 검증", "외부 API·인증 검증"]) {
       const trigger = step09.getByRole("button", { name: new RegExp(`${name} 자세히 보기`) });
       await expect(trigger).toBeVisible();
       await trigger.click();
       await expect(trigger).toHaveAttribute("aria-expanded", "true");
       await trigger.click();
     }
+
+    // STEP 09: deployment success vs functional verification distinction
+    await expect(step09).toContainText("배포 성공과 기능 검증 구분");
+    await expect(step09).toContainText("통과 / 실패 / 미실행 / 해당 없음");
+    await expect(step09).toContainText("배포된 버전이 GitHub 최신 커밋과 일치");
+
+    // STEP 02: new project git init flow
+    const newProjectTrigger = step02.getByRole("button", { name: /C\. 새 프로젝트 자세히 보기/ });
+    if (await newProjectTrigger.count() > 0) {
+      await newProjectTrigger.click();
+      await expect(step02).toContainText("fatal: not a git repository");
+      await expect(step02).toContainText("git init");
+    }
+
+    // STEP 02: GitHub repo creation section exists
+    await expect(step02).toContainText("GitHub 저장소 생성·연결");
 
     // Official links point to real documentation
     const links = await panel.locator(".ax-guide-link").evaluateAll(elements => elements.map(a => (a as HTMLAnchorElement).href));
