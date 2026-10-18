@@ -123,14 +123,13 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
         code(["mkdir C:\\Work\\MyProject", "cd C:\\Work\\MyProject"], [
           "새 프로젝트 폴더 만들기 (경로·이름은 원하는 값으로 변경)",
         ]),
+        shot("/guide/worklens_guide_01.webp", "프로젝트 폴더 생성 화면 예시", "PowerShell에서 mkdir 명령으로 새 프로젝트 폴더를 만드는 화면", "교육용 재현 이미지 — 실제 화면과 다를 수 있습니다"),
         text("이후 AI 도구가 요구사항을 확인해 프레임워크, Git 초기화와 GitHub 연결 필요성을 결정합니다. 특정 프레임워크를 임의로 정하지 않습니다."),
         text("작업 후 Git 저장 전에 현재 폴더가 Git 저장소인지, 원격이 연결됐는지, 맞는 GitHub 저장소인지 확인합니다."),
         code(["git status", "git remote -v"], []),
+        shot("/guide/worklens_guide_02.webp", "폴더 이동 및 Git 상태 확인 화면 예시", "cd 명령으로 프로젝트 폴더에 이동하고 git status로 Git 상태를 확인하는 화면", "교육용 재현 이미지 — 실제 화면과 다를 수 있습니다"),
         text("Git 저장소가 아닌 경우에만 초기화할 수 있습니다. 기존 저장소를 재초기화하거나 기존 remote를 덮어쓰지 않고, branch 이름을 main으로 강제하지 않습니다."),
         text("remote가 없으면 GitHub CLI 또는 웹 등 현재 방식대로 GitHub 저장소를 만들고 연결합니다. 첫 push 전에 `git remote -v`로 대상을 다시 확인합니다."),
-        shot("/guide/repo-create-global-nav-update.webp", "GitHub 상단 + 메뉴에서 New repository 선택 화면", "GitHub 상단의 + 메뉴에서 'New repository'를 선택하는 화면", "출처: GitHub Docs (CC-BY 4.0) — 화면은 예시이며 UI가 변경될 수 있습니다"),
-        shot("/guide/create-repository-owner.webp", "새 저장소의 소유자 선택 화면", "저장소 소유자를 선택하는 화면", "출처: GitHub Docs (CC-BY 4.0) — 화면은 예시이며 UI가 변경될 수 있습니다"),
-        shot("/guide/create-repository-name.webp", "새 저장소 이름 입력 화면", "저장소 이름을 입력하는 화면", "출처: GitHub Docs (CC-BY 4.0) — 화면은 예시이며 UI가 변경될 수 있습니다"),
       ] },
       { title: "의존성 준비", blocks: [
         { kind: "steps", items: [
@@ -199,6 +198,7 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
           "실제 저장·조회가 되는지 검증합니다 (STEP 09).",
         ] },
         text("D1 연결"),
+        shot("/guide/worklens_guide_05.webp", "Cloudflare D1 Binding 연결 화면 예시", "Worker 설정의 Variables and bindings에서 D1 데이터베이스 바인딩을 연결하는 화면", "교육용 재현 이미지 — 실제 화면과 다를 수 있습니다"),
         { kind: "steps", items: [
           "Cloudflare 대시보드 → Workers & Pages → D1에서 기존 데이터베이스가 있는지 확인합니다.",
           "없을 때만 새로 만듭니다: `npx wrangler d1 create <DB 이름>` (이미 있으면 만들지 않습니다).",
@@ -389,12 +389,14 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
       ] },
       { title: "Vercel인 경우", when: "현재 프로젝트가 Vercel에 배포되는 경우에만", brand: "vercel", blocks: [
         { kind: "steps", items: ["프로젝트 방식대로 push 또는 main merge", "Vercel build 결과 확인", "Preview 또는 Production 배포 확인", "배포 상태 확인"] },
+        shot("/guide/worklens_guide_03.webp", "Vercel GitHub 저장소 연결 화면 예시", "Vercel에서 배포할 GitHub 저장소를 선택하고 프로젝트 설정을 확인하는 화면", "교육용 재현 이미지 — 실제 화면과 다를 수 있습니다"),
         text("Git 연동 자동 배포라면 별도 수동 명령이 필요하지 않을 수 있습니다. 자동 배포에 수동 명령을 중복 실행하지 않습니다."),
         text("로컬 .env를 GitHub에 올리지 않고 Vercel Environment Variables에 설정합니다. 변수 이름은 프로젝트에서 확인합니다. Preview·Production 값을 따로 설정할 수 있습니다."),
         { kind: "steps", items: ["실패 시 배포 로그 확인", "민감정보를 가리고 필요한 로그만 AI 도구에 전달", "오류 수정", "테스트", "commit/push", "재배포 결과 확인"] },
       ] },
       { title: "Cloudflare인 경우", when: "현재 프로젝트가 Cloudflare에 배포되는 경우에만", brand: "cloudflare", blocks: [
         text("Workers인지 Pages인지 먼저 확인합니다. Git 자동 배포인지 Wrangler 등 기존 CLI 방식인지 현재 프로젝트 설정을 확인합니다."),
+        shot("/guide/worklens_guide_04.webp", "Cloudflare Workers 배포 화면 예시", "Cloudflare 대시보드의 Workers & Pages에서 프로젝트와 배포 상태를 확인하는 화면", "교육용 재현 이미지 — 실제 화면과 다를 수 있습니다"),
         { kind: "steps", items: ["Git 자동 배포라면 프로젝트 방식대로 push/merge", "배포 진행 확인", "배포 상태 확인"] },
         text("자동 배포에 수동 명령을 중복 실행하지 않습니다. CLI 방식이면 프로젝트에 실제 있는 배포 명령만 실행합니다. `wrangler deploy`를 모든 프로젝트에 강제하지 않습니다."),
         text("Wrangler를 사용하기 전에 `npx wrangler --version`으로 설치 여부를 확인하세요. 설치되어 있지 않으면 프로젝트의 패키지 매니저와 lockfile에 맞는 방식으로 설치합니다 (예: `npm i -g wrangler`). Wrangler 실행에는 Node.js가 필요합니다."),

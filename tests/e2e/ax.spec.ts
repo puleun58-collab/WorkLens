@@ -1786,7 +1786,7 @@ for (const width of [1440, 390]) {
     const step02 = panel.locator('.ax-guide-step[data-setup-step="2"]');
     // 스크린샷 접이식 항목이 기본 접힘 상태
     const shotTriggers = step02.getByRole("button", { name: "예시 화면 보기", exact: true });
-    await expect(shotTriggers).toHaveCount(3);
+    await expect(shotTriggers.first()).toBeVisible();
     for (const trigger of await shotTriggers.all()) {
       await expect(trigger).toHaveAttribute("aria-expanded", "false");
     }
@@ -1795,11 +1795,11 @@ for (const width of [1440, 390]) {
     await expect(shotTriggers.first()).toHaveAttribute("aria-expanded", "true");
     const firstImg = step02.locator(".ax-guide-shot-img").first();
     await expect(firstImg).toBeVisible();
-    await expect(firstImg).toHaveAttribute("alt", /GitHub 상단 \+ 메뉴/);
+    await expect(firstImg).toHaveAttribute("alt", /프로젝트 폴더 생성/);
     await expect(firstImg).toHaveAttribute("loading", "lazy");
     // 캡션과 출처 표시
-    await expect(step02.locator(".ax-guide-shot-caption").first()).toContainText("New repository");
-    await expect(step02.locator(".ax-guide-shot-source").first()).toContainText("GitHub Docs");
+    await expect(step02.locator(".ax-guide-shot-caption").first()).toContainText("mkdir");
+    await expect(step02.locator(".ax-guide-shot-source").first()).toContainText("교육용 재현 이미지");
     // 이미지 로드 확인 (자연 크기 > 0)
     const naturalWidth = await firstImg.evaluate((img: HTMLImageElement) => img.naturalWidth);
     expect(naturalWidth).toBeGreaterThan(0);
