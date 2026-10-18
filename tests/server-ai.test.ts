@@ -264,7 +264,7 @@ describe("Groq provider adapter", () => {
       reasoning_effort: effort,
       max_completion_tokens: budget,
       temperature: 0,
-      response_format: { type: "json_schema", json_schema: { strict: true } },
+      response_format: { type: "json_schema", json_schema: { strict: undefined } },
     });
     expect(log).toHaveBeenCalledExactlyOnceWith("[AI][Groq]", {
       kind: request.kind,
@@ -303,7 +303,7 @@ describe("Groq provider adapter", () => {
     expect(rejected).toHaveBeenCalledOnce();
   });
 
-  it("pins the model and strict schema without logging prompt content", async () => {
+  it("pins the model and JSON schema without logging prompt content", async () => {
     const providerFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       choices: [{ message: { content: JSON.stringify({ claims: [{ text: "매출은 10억원입니다.", sources: ["E1"], confidence: "high" }] }) } }],
       usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
@@ -324,7 +324,8 @@ describe("Groq provider adapter", () => {
     expect(body.model).toBe("openai/gpt-oss-120b");
     // Default gpt-oss reasoning exhausted the completion budget on real workbooks.
     expect(body.reasoning_effort).toBe("low");
-    expect(body.response_format).toMatchObject({ type: "json_schema", json_schema: { strict: true } });
+    expect(body.response_format).toMatchObject({ type: "json_schema", json_schema: { strict: undefined } });
+    expect(body.response_format.json_schema).not.toHaveProperty("strict");
     expect(body.response_format.json_schema.schema.additionalProperties).toBe(false);
     expect(new Headers(init.headers).get("Authorization")).toBe("Bearer test-secret");
     expect(JSON.stringify(body)).not.toContain("test-secret");
