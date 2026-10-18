@@ -17,7 +17,7 @@ afterEach(() => {
 });
 
 describe("research query interpretation", () => {
-  it("uses the existing strict Groq transport and preserves the exact user text independently of the model", async () => {
+  it("uses the existing Groq transport and preserves the exact user text independently of the model", async () => {
     process.env.GROQ_API_KEY = "test-provider-key";
     const fetcher = vi.fn().mockResolvedValue(completion(proposal));
     vi.stubGlobal("fetch", fetcher);
@@ -28,7 +28,7 @@ describe("research query interpretation", () => {
     const [url, init] = fetcher.mock.calls[0] as [string, RequestInit];
     expect(url).toContain("api.groq.com/openai/v1/chat/completions");
     const request = JSON.parse(String(init.body));
-    expect(request.response_format.json_schema.strict).toBe(true);
+    expect(request.response_format.json_schema).not.toHaveProperty("strict");
     expect(request).toMatchObject({ reasoning_effort: "medium", max_completion_tokens: 1_000, temperature: 0 });
     expect(request.messages[1].content).toContain(query);
     expect(log).toHaveBeenCalledExactlyOnceWith("[AI][Groq]", {
