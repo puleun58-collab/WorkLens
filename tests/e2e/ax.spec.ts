@@ -1027,7 +1027,16 @@ async function expectActualMarkerGaps(surface: Locator) {
     const markerRect = range.getBoundingClientRect();
     range.selectNodeContents(body);
     const rects = [...range.getClientRects()].filter(rect => rect.width > 0);
-    const lines = [...new Set(rects.map(rect => rect.y))].map(y => Math.min(...rects.filter(rect => rect.y === y).map(rect => rect.x)));
+    // Group rects by visual line: y values within 3px belong to the same line.
+    // Inline elements (e.g. <code> with different font-size) can shift baseline by 1-2px.
+    const sorted = [...rects].sort((a, b) => a.y - b.y);
+    const lineGroups: typeof rects[] = [];
+    for (const rect of sorted) {
+      const group = lineGroups.find(g => Math.abs(g[0].y - rect.y) <= 3);
+      if (group) group.push(rect);
+      else lineGroups.push([rect]);
+    }
+    const lines = lineGroups.map(group => Math.min(...group.map(rect => rect.x)));
     return lines.length ? [{ gap: lines[0] - markerRect.right, lines }] : [];
   }));
   for (const row of rows) {
@@ -1125,7 +1134,15 @@ async function expectGuideTutorial(page: Page, panel: Locator, tool: "Codex" | "
       const markerRect = range.getBoundingClientRect();
       range.selectNodeContents(body);
       const rects = [...range.getClientRects()].filter(rect => rect.width > 0);
-      const lines = [...new Set(rects.map(rect => rect.y))].map(y => Math.min(...rects.filter(rect => rect.y === y).map(rect => rect.x)));
+      // Group by visual line (3px tolerance for inline element baseline shifts)
+      const sorted = [...rects].sort((a, b) => a.y - b.y);
+      const lineGroups: typeof rects[] = [];
+      for (const rect of sorted) {
+        const group = lineGroups.find(g => Math.abs(g[0].y - rect.y) <= 3);
+        if (group) group.push(rect);
+        else lineGroups.push([rect]);
+      }
+      const lines = lineGroups.map(group => Math.min(...group.map(rect => rect.x)));
       return { preX: pre.getBoundingClientRect().x, markerX: markerRect.x, gap: lines[0] - markerRect.right, lines };
     });
   }));
