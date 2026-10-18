@@ -1465,13 +1465,29 @@ for (const width of [1440, 390]) {
 
     // STEP 09: service-specific verification sections are separate
     const step09 = panel.locator('.ax-guide-step[data-setup-step="9"]');
-    for (const name of ["DB Production 검증", "R2 파일 검증", "KV 검증"]) {
+    for (const name of ["DB Production 검증", "R2 파일 검증", "KV 검증", "외부 API·인증 검증"]) {
       const trigger = step09.getByRole("button", { name: new RegExp(`${name} 자세히 보기`) });
       await expect(trigger).toBeVisible();
       await trigger.click();
       await expect(trigger).toHaveAttribute("aria-expanded", "true");
       await trigger.click();
     }
+
+    // STEP 09: deployment success vs functional verification distinction
+    await expect(step09).toContainText("배포 성공과 기능 검증 구분");
+    await expect(step09).toContainText("통과 / 실패 / 미실행 / 해당 없음");
+    await expect(step09).toContainText("배포된 버전이 GitHub 최신 커밋과 일치");
+
+    // STEP 02: new project git init flow
+    const newProjectTrigger = step02.getByRole("button", { name: /C\. 새 프로젝트 자세히 보기/ });
+    if (await newProjectTrigger.count() > 0) {
+      await newProjectTrigger.click();
+      await expect(step02).toContainText("fatal: not a git repository");
+      await expect(step02).toContainText("git init");
+    }
+
+    // STEP 02: GitHub repo creation section exists
+    await expect(step02).toContainText("GitHub 저장소 생성·연결");
 
     // Official links point to real documentation
     const links = await panel.locator(".ax-guide-link").evaluateAll(elements => elements.map(a => (a as HTMLAnchorElement).href));

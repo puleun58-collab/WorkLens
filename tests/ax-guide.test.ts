@@ -420,4 +420,38 @@ describe("AX setup guide deployment platform and storage", () => {
     expect(safety).toMatch(/자동 복구되지 않습니다/u);
     expect(safety).toMatch(/사전 승인/u);
   });
+  it.each(["codex", "claude"] as const)("guides new-project git init flow with repository check for %s", tool => {
+    const step02 = setupGuide(tool)[2];
+    const sectionC = JSON.stringify(step02.sections.find(s => s.title.startsWith("C.")));
+    expect(sectionC).toMatch(/git --version/u);
+    expect(sectionC).toMatch(/fatal: not a git repository/u);
+    expect(sectionC).toMatch(/git init/u);
+    expect(sectionC).toMatch(/git branch --show-current/u);
+    expect(sectionC).not.toContain("git push --force");
+  });
+  it.each(["codex", "claude"] as const)("includes GitHub repo creation and connection procedures for %s", tool => {
+    const step02 = setupGuide(tool)[2];
+    const titles = step02.sections.map(s => s.title);
+    expect(titles).toContain("GitHub 저장소 생성·연결");
+    const section = JSON.stringify(step02.sections.find(s => s.title === "GitHub 저장소 생성·연결"));
+    expect(section).toMatch(/GitHub 웹 방식/u);
+    expect(section).toMatch(/GitHub CLI 방식/u);
+    expect(section).toMatch(/git remote add origin/u);
+    expect(section).toMatch(/git push -u origin/u);
+    expect(section).toMatch(/README.*초기 커밋/u);
+    expect(section).toMatch(/--force.*기본 해결 방법/u);
+    expect(section).not.toContain("git push --force");
+  });
+  it.each(["codex", "claude"] as const)("distinguishes deployment success from functional verification in STEP 09 for %s", tool => {
+    const step09 = setupGuide(tool)[9];
+    const titles = step09.sections.map(s => s.title);
+    expect(titles).toContain("배포 성공과 기능 검증 구분");
+    expect(titles).toContain("외부 API·인증 검증");
+    const verify = JSON.stringify(step09.sections.find(s => s.title === "배포 성공과 기능 검증 구분"));
+    expect(verify).toMatch(/통과 \/ 실패 \/ 미실행 \/ 해당 없음/u);
+    expect(verify).toMatch(/배포된 버전.*GitHub.*커밋.*일치/u);
+    const api = JSON.stringify(step09.sections.find(s => s.title === "외부 API·인증 검증"));
+    expect(api).toMatch(/환경변수/u);
+    expect(api).toMatch(/Secret.*노출/u);
+  });
 });
