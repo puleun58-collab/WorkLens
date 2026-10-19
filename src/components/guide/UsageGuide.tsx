@@ -143,12 +143,12 @@ const GUIDES: Guide[] = [
   {
     id: "law", label: "법령", summary: "현행 법령과 판례·결정례 조회",
     steps: [
-      { title: "법령 검색", text: "법령명을 입력해 검색", mini: <span className="mini-operation"><Field text="근로기준법" /><span className="mini-button">검색</span></span> },
-      { title: "결과 선택", text: "목록에서 법령 선택", mini: <span className="mini-files"><span className="mini-row is-mark"><span className="mini-name">근로기준법</span><b className="mini-role">현행</b></span><span className="mini-row"><span className="mini-name">근로기준법 시행령</span></span></span> },
-      { title: "조문 확인", text: "조문 확인 후 관련 판례·결정례 조회", mini: <Result title="제23조(해고 등의 제한)" status="현행" lines={["① 사용자는 근로자에게 정당한 이유 없이…"]} actions={["관련 판례·결정례"]} /> },
-      { title: "종합 리서치", text: "쟁점별 핵심 검토 결과·근거 상태·추가 확인을 먼저 읽고, ‘쟁점 바로가기’로 이동. 관련 법령·판례는 쟁점별로 펼쳐 봅니다", mini: <Result title="01 퇴직금 · 02 해고" status="근거 확인" lines={["핵심 검토 결과 · 근거 상태 · 추가 확인"]} actions={["관련 법령·판례 상세 보기"]} /> },
+      { title: "법령 검색", text: "법령명을 입력해 검색합니다.", mini: <span className="mini-operation"><Field text="근로기준법" /><span className="mini-button">검색</span></span> },
+      { title: "결과 선택", text: "검색 결과에서 확인할 법령을 선택합니다.", mini: <span className="mini-files"><span className="mini-row is-mark"><span className="mini-name">근로기준법</span><b className="mini-role">현행</b></span><span className="mini-row"><span className="mini-name">근로기준법 시행령</span></span></span> },
+      { title: "조문 확인", text: "조문과 시행 시점을 확인하고 관련 판례·결정례를 조회합니다.", mini: <Result title="제23조(해고 등의 제한)" status="현행" lines={["① 사용자는 근로자에게 정당한 이유 없이…"]} actions={["관련 판례·결정례"]} /> },
+      { title: "종합 리서치", text: "필요하면 쟁점별 검토 결과와 인용 근거를 확인합니다.", mini: <Result title="01 퇴직금 · 02 해고" status="근거 확인" lines={["핵심 검토 결과 · 근거 상태 · 추가 확인"]} actions={["관련 법령·판례 상세 보기"]} /> },
     ],
-    tip: "인용 전 시행 시점과 국가법령정보센터 원문을 대조하세요. 문서 검토는 작업 파일·직접 입력 모두 핵심 결과와 상태 배지, 실제 추가 확인 사항을 먼저 확인합니다. ‘쟁점 바로가기’로 항목을 이동·강조하며, ‘검토한 내용 보기’는 검토한 원문, ‘근거 보기’는 관련 법령·판례를 보여 줍니다. ‘전체 펼치기 / 전체 접기’는 관련 근거만 조작",
+    tip: "법령·판례를 인용하기 전에 적용 시점과 국가법령정보센터 원문·근거 상태를 대조하세요.",
   },
   {
     id: "pdf", label: "PDF 도구", summary: "PDF 페이지 정리 및 원하는 형식으로 내보내기",
@@ -170,12 +170,12 @@ const GUIDES: Guide[] = [
   {
     id: "ax", label: "업무 자동화 진단", summary: "업무 등록 후 자동화 가능성·우선순위·실행 계획 확인",
     steps: [
-      { title: "업무 등록", text: "업무 설명 입력, 필요하면 업무명·자료 추가", mini: <Run label="업무 등록" before={<Field text="자료 취합과 승인 절차" />} /> },
-      { title: "업무 진단", text: "평가값과 근거를 확인하고, AS-IS 핵심 정보·현재 업무 단계·자동화 판단표·TO-BE 목표 흐름을 살펴봅니다", mini: <Result title="업무 진단" status="목표 흐름 확인" lines={["목적 · 시작 조건 · 입력 · 출력", "현재 업무 단계 → 판단표 → TO-BE"]} /> },
-      { title: "자동화 매트릭스", text: "업무별 가치와 실현 가능성을 비교합니다. 점수 보정은 축·Level·순위에 반영되며 Gate는 기술 확인·정보 충분성·진행 판정에 따라 별도로 유지됩니다", mini: <Result title="자동화 매트릭스" status="진단 업무" lines={["빠른 실행 후보 · 전략 과제", "검토 후보 · 수동 유지·보류"]} /> },
-      { title: "결과·로드맵", text: "진단 결과는 완료와 추가 확인 필요를 구분합니다. TOP에는 실행 가능한 후보만 표시하며, 나머지 진단 업무는 전체 업무 보기에서 선택합니다. 후보가 없으면 확인·검토 업무를 안내합니다. Level·Gate 실행 범위와 01 구현 범위·02 시작 전 확인·03 완료 기준을 검토한 뒤 Codex 또는 Claude Code용 올인원 지시문을 생성합니다. 필요하면 설치·시작 가이드를 펼친 뒤 04 올인원 지시문을 복사합니다. 접힌 지시문도 전체 복사 가능", mini: <Result title="결과·로드맵" status="실행 범위 확인" actions={["Codex · Claude Code"]} lines={["진단 요약 → 실행 로드맵 → 01~03 확인", "설치·시작 가이드 → 04 올인원 지시문"]} /> },
+      { title: "업무 등록", text: "업무 내용을 입력하고 필요한 자료를 추가합니다.", mini: <Run label="업무 등록" before={<Field text="자료 취합과 승인 절차" />} /> },
+      { title: "업무 진단", text: "평가 근거와 업무 단계를 확인하고 자동화 판단을 검토합니다.", mini: <Result title="업무 진단" status="목표 흐름 확인" lines={["목적 · 시작 조건 · 입력 · 출력", "현재 업무 단계 → 판단표 → TO-BE"]} /> },
+      { title: "자동화 매트릭스", text: "자동화 가치·실현 가능성·진행 상태를 비교해 우선 검토할 업무를 선택합니다.", mini: <Result title="자동화 매트릭스" status="진단 업무" lines={["빠른 실행 후보 · 전략 과제", "검토 후보 · 수동 유지·보류"]} /> },
+      { title: "결과·로드맵", text: "실행 범위와 선행 조건을 확인한 뒤 올인원 지시문을 복사해 Codex 또는 Claude Code로 1차 MVP를 구현합니다.", mini: <Result title="결과·로드맵" status="실행 범위 확인" actions={["Codex · Claude Code"]} lines={["진단 요약 → 실행 로드맵 → 01~03 확인", "설치·시작 가이드 → 04 올인원 지시문"]} /> },
     ],
-    tip: "TO-BE와 향후 계획은 현재 필수 구현이 아닙니다. 출력·테스트·완료 기준의 단계 연결과 처리 근거를 구분하고, 미연결 조건·담당자 승인·보안·Gate 차단을 유지하세요. 정기 업무 주기는 무인 실행 요청이 아닙니다. 손상·미지원 저장 데이터, 저장 실패 또는 다른 탭 변경 시 원본 보호를 위해 자동 저장을 중단합니다. 현재 화면 작업을 내보내기로 보관한 뒤 최신 기록을 새로고침하거나, 확인한 가져오기·초기화로 저장을 재개하세요. 탭 간 자동 병합은 제공하지 않습니다",
+    tip: "올인원 지시문 실행은 1차 MVP 구현 과정입니다. 실제 기능·배포를 검증하고, 업무 데이터는 내보내기로 백업하세요.",
   },
   {
     id: "dictionary", label: "용어 사전", summary: "맞춤법·용어 오탐을 줄이는 사전",
