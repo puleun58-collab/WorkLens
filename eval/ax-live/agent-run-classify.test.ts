@@ -51,6 +51,17 @@ describe("classifyError: the 10 required isolation cases", () => {
     );
   });
 
+  test("3b. API 연결 실패 (EPROTO) → BLOCKED + network-blocked", () => {
+    const log = "API Error: Unable to connect to API (EPROTO)";
+    expect(NETWORK_BLOCKED_RE.test(log)).toBe(true);
+    expectCase(
+      { stage: "agent-auth-network", networkBlockedLog: true, exitCode: 1 },
+      "BLOCKED",
+      "network-blocked",
+      "agent-auth-network",
+    );
+  });
+
   test("4. WorkLens API 오류 (HTTP 500 응답) → FAIL + worklens-api-error", () => {
     const err = new Error("WorkLens API HTTP 500 AX_PLAN_FAILED: model call failed");
     expectCase({ stage: "plan-generation", error: err }, "FAIL", "worklens-api-error", "plan-generation");

@@ -81,7 +81,7 @@ export const AUTH_BLOCKED_RE =
 
 /** Log evidence that the CLI could not reach the network. */
 export const NETWORK_BLOCKED_RE =
-  /failed to refresh available models|Transport channel closed|http\/request failed|workspace routing discovery failed|Reconnecting\.\.\.|request timed out|error sending request for url/iu;
+  /failed to refresh available models|Transport channel closed|http\/request failed|workspace routing discovery failed|Reconnecting\.\.\.|request timed out|error sending request for url|Unable to connect to API|EPROTO|ECONNREFUSED|ENOTFOUND|ETIMEDOUT/iu;
 
 /** WorkLens API request failures: HTTP responses and request timeouts. */
 export function isWorklensApiError(e: unknown): boolean {
