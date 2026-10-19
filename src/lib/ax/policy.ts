@@ -103,17 +103,47 @@ export function executionGate(d: AxDiagnosis): ExecutionGate {
   return "ready";
 }
 
+function checkLabel(c: AxDiagnosis["technicalChecks"][number]): string {
+  return c.note ? `${c.topic} — ${c.note}` : c.topic;
+}
+function optionalCheckLabel(c: AxDiagnosis["technicalChecks"][number]): string {
+  return c.note ? `${c.topic} (선택) — ${c.note}` : `${c.topic} (선택)`;
+}
 export function gatePrerequisites(d: AxDiagnosis): string[] {
   if (executionGate(d) === "ready") return [];
   const required = d.technicalChecks.filter(c => c.status !== "확인됨" && c.required !== false)
-    .map(c => c.note ? `${c.topic} — ${c.note}` : c.topic);
+    .map(checkLabel);
   const optional = d.technicalChecks.filter(c => c.status !== "확인됨" && c.required === false)
-    .map(c => c.note ? `${c.topic} (선택) — ${c.note}` : `${c.topic} (선택)`);
+    .map(optionalCheckLabel);
   const items = [...required, ...optional];
   if (d.informationSufficiency === "needs-check") items.push(...d.followUpQuestions);
   if (d.decisionGate.verdict !== "go") items.push(...d.decisionGate.reasons);
   const unique = [...new Set(items)].slice(0, 10);
   return unique.length ? unique : ["진단에서 제시된 조건부 진행 사유를 확인하세요."];
+}
+
+/**
+ * Display-only: 미확인 선택(required: false) 기술 확인사항 — "권장 확인사항" 표시에만 사용한다.
+ * Gate 판정·계산에는 영향을 주지 않으며, required 필드가 없는 기존 데이터는 필수로 간주한다 (PR #217 규칙 유지).
+ */
+export function gateRecommendedChecks(d: AxDiagnosis): string[] {
+  const items = d.technicalChecks.filter(c => c.status !== "확인됨" && c.required === false).map(checkLabel);
+  return [...new Set(items)].slice(0, 10);
+}
+
+/**
+ * Display-only: 화면 표시용으로 필수 선행 조건과 권장 확인사항을 분리한다.
+ * `required`는 gatePrerequisites에서 선택 항목을 제외한 목록과 동일하고,
+ * Gate 판정·계산은 절대 변경하지 않는다.
+ */
+export function splitGatePrerequisites(d: AxDiagnosis): { required: string[]; recommended: string[] } {
+  const optionalLabels = new Set(
+    d.technicalChecks.filter(c => c.status !== "확인됨" && c.required === false).map(optionalCheckLabel),
+  );
+  return {
+    required: gatePrerequisites(d).filter(item => !optionalLabels.has(item)),
+    recommended: gateRecommendedChecks(d),
+  };
 }
 
 export function gateBlockReasons(d: AxDiagnosis): string[] {
