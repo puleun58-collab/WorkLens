@@ -28,13 +28,14 @@ describe("AX AI boundaries", () => {
     const enormous = { ...confirmed, asIs: { ...confirmed.asIs, inputs: Array(10).fill("가".repeat(500)), outputs: Array(10).fill("나".repeat(500)), steps: Array(10).fill("다".repeat(500)), exceptions: Array(10).fill("라".repeat(500)), humanDecisions: Array(10).fill("마".repeat(500)) } };
     expect(() => parseAiApiRequest({ kind: "ax-plan", target: "codex", task: { name: "취합", description: "설명", details: {} }, diagnosis: enormous })).toThrow();
   });
-  it("runs diagnosis with strict schema, six validated factors and metadata-only observations", async () => {
+  it("runs diagnosis with JSON schema, six validated factors and metadata-only observations", async () => {
     const fetcher = vi.fn<(url: string | URL | Request, options?: RequestInit) => Promise<Response>>().mockResolvedValue(provider(outputFixture())); vi.stubGlobal("fetch", fetcher);
     const logger = vi.spyOn(console, "info").mockImplementation(() => {});
     const result = await runGroqAi({ ...request, description: "PRIVATE_TASK_CONTENT", attachmentSummary: "PRIVATE_ATTACHMENT_CONTENT" });
     expect(result.kind).toBe("ax-diagnosis");
     const body = JSON.parse(fetcher.mock.calls[0][1]?.body as string);
-    expect(body).toMatchObject({ reasoning_effort: "low", max_completion_tokens: 3000, response_format: { type: "json_schema", json_schema: { strict: true, name: "worklens_ax_diagnosis" } } });
+    expect(body).toMatchObject({ reasoning_effort: "low", max_completion_tokens: 3000, response_format: { type: "json_schema", json_schema: { name: "worklens_ax_diagnosis" } } });
+    expect(body.response_format.json_schema).not.toHaveProperty("strict");
     const schema = body.response_format.json_schema.schema;
     expect(schema.additionalProperties).toBe(false); expect(schema.required).toContain("operation");
     for (const excluded of ["level", "axes", "matrix", "priority"]) expect(schema.properties).not.toHaveProperty(excluded);

@@ -426,7 +426,9 @@ async function complete(
     max_completion_tokens: maxTokens,
     response_format: {
       type: "json_schema",
-      json_schema: { name: schemaName, strict: true, schema },
+      // strict: true removed — Groq rejects strict mode for gpt-oss models (json_validate_failed).
+      // The schema is still validated client-side via zod.
+      json_schema: { name: schemaName, schema },
     },
   });
 
