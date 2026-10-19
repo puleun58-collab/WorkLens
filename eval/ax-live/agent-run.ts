@@ -15,10 +15,11 @@ import type { AxDiagnosis, AxPlan, AxTaskV2, HitlReview } from "../../src/lib/ax
 import { AGENT_SCENARIOS, type AgentScenario } from "./agent-scenarios";
 import { runBrowserChecks } from "./agent-browser-checks";
 import { classifyError, redactSecrets, AUTH_BLOCKED_RE, NETWORK_BLOCKED_RE, type Outcome, type FailureStage, type CauseCode, type ClassifyInput } from "./error-classify";
+import { deriveDimensions, summarizeResults, type EvalDimensions } from "./eval-dimensions";
 
 type Tool = "codex" | "claude";
 interface Check { command: string; pass: boolean; observed: string }
-interface Result { scenario: string; tool: Tool; outcome: Outcome; reason: string; failureStage?: FailureStage; causeCode?: CauseCode; workspace?: string; command?: string[]; exitCode?: number | null; checks: Check[]; generatedFiles: string[]; promptSha256?: string; agentLog?: string; diagnosisFile?: string }
+interface Result { scenario: string; tool: Tool; outcome: Outcome; reason: string; failureStage?: FailureStage; causeCode?: CauseCode; workspace?: string; command?: string[]; exitCode?: number | null; checks: Check[]; generatedFiles: string[]; promptSha256?: string; agentLog?: string; diagnosisFile?: string; dimensions?: EvalDimensions }
 const BASE = process.env.BASE_URL ?? "http://localhost:3000";
 const STAMP = new Date().toISOString().replace(/[:.]/g, "-");
 const OUT = join(import.meta.dir, "results", `agent-${STAMP}`);
@@ -89,7 +90,19 @@ async function functionalChecks(s: AgentScenario, dir: string): Promise<Check[]>
 }
 const tools: Tool[] = ["codex", "claude"];
 const results: Result[] = [];
-const add = (r: Result) => { results.push(r); writeJson(`${r.scenario}-${r.tool}.json`, r); writeJson("agent-verification.json", { baseUrl: BASE, localOnly: true, deployment: "NOT_RUN", results }); console.log(`${r.scenario}/${r.tool}: ${r.outcome} ${r.reason}`); };
+const add = (r: Result) => {
+  // Three independent evaluation dimensions (policy / implementation /
+  // deployment) are derived from the recorded outcome at every recording
+  // point. The overall outcome stays PASS/FAIL/BLOCKED/NOT_RUN compatible;
+  // the dimensions carry the finer distinction (e.g. Level 0 abstention is
+  // policy=pass but implementation=not-applicable, excluded from the MVP
+  // implementation success rate).
+  r.dimensions = deriveDimensions({ outcome: r.outcome, causeCode: r.causeCode, checksPassed: r.checks.filter(c => c.pass).length, checksTotal: r.checks.length });
+  results.push(r);
+  writeJson(`${r.scenario}-${r.tool}.json`, r);
+  writeJson("agent-verification.json", { baseUrl: BASE, localOnly: true, deployment: "NOT_RUN", summary: summarizeResults(results), results });
+  console.log(`${r.scenario}/${r.tool}: ${r.outcome} ${r.reason}`);
+};
 for (const s of AGENT_SCENARIOS) {
   let diagnosis: AxDiagnosis;
   let task: AxTaskV2;
@@ -218,6 +231,10 @@ for (const s of AGENT_SCENARIOS) {
           r.reason = "Level 0: agent correctly abstained from implementation per Gate policy (review-only); implementation NOT_RUN by instruction";
         } else {
           record({ exitCode: 0, functionalFailed: true }, `Level 0 violation: agent implemented ${implFiles.join(", ")} despite review-only instruction`);
+          // Keep the Level 0 violation distinguishable from an ordinary
+          // functional failure: it is a policy-compliance FAIL and must never
+          // count as an implementation success.
+          r.causeCode = "level-zero-abstention";
         }
       } else {
         stage = "functional-test";
