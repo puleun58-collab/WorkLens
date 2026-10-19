@@ -26,7 +26,11 @@ mkdirSync(OUT, { recursive: true });
 const hash = (text: string) => createHash("sha256").update(text).digest("hex");
 const writeJson = (file: string, data: unknown) => writeFileSync(join(OUT, file), JSON.stringify(data, null, 2));
 const safeEnv: Record<string, string> = {};
-for (const key of ["PATH", "Path", "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "SYSTEMROOT", "WINDIR", "COMSPEC", "TEMP", "TMP", "PROGRAMFILES", "PROGRAMFILES(X86)", "PATHEXT"]) {
+for (const key of ["PATH", "Path", "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "SYSTEMROOT", "WINDIR", "COMSPEC", "TEMP", "TMP", "PROGRAMFILES", "PROGRAMFILES(X86)", "PATHEXT",
+  // Network egress: the sandbox VM reaches external APIs through a proxy; without these the agent CLIs cannot connect.
+  "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy", "NO_PROXY", "no_proxy",
+  // TLS trust: custom CA bundle paths required by the proxy chain.
+  "SSL_CERT_FILE", "CURL_CA_BUNDLE", "REQUESTS_CA_BUNDLE", "NODE_EXTRA_CA_CERTS"]) {
   if (process.env[key]) safeEnv[key] = process.env[key]!;
 }
 safeEnv.NO_COLOR = "1";
