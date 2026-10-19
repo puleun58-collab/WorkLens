@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  GATE_LABELS, executionGate, gatePrerequisites, gateBlockReasons,
+  GATE_LABELS, executionGate, gatePrerequisites, gateBlockReasons, gateRecommendedChecks, splitGatePrerequisites,
   matrixPosition, planAllowed, priorityDisplayLabel,
 } from "@/lib/ax/policy";
 import type { AxDiagnosis } from "@/lib/ax/types";
@@ -175,5 +175,99 @@ describe("AX execution gate", () => {
       "필수 접근 — 권한 확인 필요",
       "선택 권장 (선택) — 권장 사항",
     ]);
+  });
+});
+
+describe("AX gate recommended checks display (표시 전용 — Gate 판정 불변)", () => {
+  it("필수·선택 조건이 모두 없으면 prerequisites 빈 목록, 권장 확인사항 표시 없음", () => {
+    const d = diagnosis({ technicalChecks: [] });
+    expect(executionGate(d)).toBe("ready");
+    expect(gatePrerequisites(d)).toEqual([]);
+    expect(gateRecommendedChecks(d)).toEqual([]);
+    expect(splitGatePrerequisites(d)).toEqual({ required: [], recommended: [] });
+  });
+
+  it("선택적 확인사항만 존재하면 Gate=ready 유지, 권장 확인사항으로 표시", () => {
+    const d = diagnosis({
+      technicalChecks: [{ topic: "선택 권장", status: "확인 필요", note: "권장 사항", required: false }],
+    });
+    expect(executionGate(d)).toBe("ready");
+    expect(gatePrerequisites(d)).toEqual([]);
+    expect(gateRecommendedChecks(d)).toEqual(["선택 권장 — 권장 사항"]);
+    expect(splitGatePrerequisites(d)).toEqual({ required: [], recommended: ["선택 권장 — 권장 사항"] });
+  });
+
+  it("필수 조건 미확정이면 Gate=conditional, 필수 조건 표시", () => {
+    const d = diagnosis({
+      technicalChecks: [{ topic: "필수 접근", status: "확인 필요", note: "권한 확인", required: true }],
+    });
+    expect(executionGate(d)).toBe("conditional");
+    const groups = splitGatePrerequisites(d);
+    expect(groups.required).toEqual(["필수 접근 — 권한 확인"]);
+    expect(groups.recommended).toEqual([]);
+  });
+
+  it("필수·선택 조건이 함께 있으면 둘을 구분 표시 (Gate 계산 불변)", () => {
+    const d = diagnosis({
+      technicalChecks: [
+        { topic: "필수 접근", status: "확인 필요", note: "권한 확인", required: true },
+        { topic: "선택 권장", status: "확인 필요", note: "권장 사항", required: false },
+      ],
+    });
+    expect(executionGate(d)).toBe("conditional");
+    expect(splitGatePrerequisites(d)).toEqual({
+      required: ["필수 접근 — 권한 확인"],
+      recommended: ["선택 권장 — 권장 사항"],
+    });
+    // gatePrerequisites 자체의 출력 형태는 기존과 동일하게 유지
+    expect(gatePrerequisites(d)).toEqual(["필수 접근 — 권한 확인", "선택 권장 (선택) — 권장 사항"]);
+  });
+
+  it("명시적 no-go는 blocked, 차단 사유가 권장 확인사항보다 우선 표시", () => {
+    const d = diagnosis({
+      decisionGate: { verdict: "no-go", reasons: ["실행 승인 불가"] },
+      technicalChecks: [
+        { topic: "필수 접근", status: "확인 필요", note: "", required: true },
+        { topic: "선택 권장", status: "확인 필요", note: "", required: false },
+      ],
+    });
+    expect(executionGate(d)).toBe("blocked");
+    const groups = splitGatePrerequisites(d);
+    expect(groups.required).toEqual(["필수 접근", "실행 승인 불가"]);
+    expect(groups.recommended).toEqual(["선택 권장"]);
+  });
+
+  it("required 필드가 없는 기존 데이터는 필수로 간주 (PR #217 규칙 유지)", () => {
+    const d = diagnosis({
+      technicalChecks: [{ topic: "구 데이터", status: "확인 필요", note: "" }],
+    });
+    expect(executionGate(d)).toBe("conditional");
+    expect(gateRecommendedChecks(d)).toEqual([]);
+    expect(splitGatePrerequisites(d)).toEqual({ required: ["구 데이터"], recommended: [] });
+  });
+
+  it("재진단으로 확인 상태가 변경되면 권장 확인사항 표시가 갱신", () => {
+    const before = diagnosis({
+      technicalChecks: [{ topic: "선택 권장", status: "확인 필요", note: "", required: false }],
+    });
+    expect(executionGate(before)).toBe("ready");
+    expect(splitGatePrerequisites(before).recommended).toEqual(["선택 권장"]);
+    const after = diagnosis({
+      technicalChecks: [{ topic: "선택 권장", status: "확인됨", note: "", required: false }],
+    });
+    expect(executionGate(after)).toBe("ready");
+    expect(splitGatePrerequisites(after)).toEqual({ required: [], recommended: [] });
+  });
+
+  it("선택적 확인사항이 있다는 이유만으로 진행 가능 업무가 확인 후 진행으로 변경되지 않음", () => {
+    const d = diagnosis({
+      technicalChecks: [
+        { topic: "선택 1", status: "확인 필요", note: "", required: false },
+        { topic: "선택 2", status: "확인 필요", note: "", required: false },
+      ],
+    });
+    expect(executionGate(d)).toBe("ready");
+    expect(gateRecommendedChecks(d)).toEqual(["선택 1", "선택 2"]);
+    expect(planAllowed(d)).toBe(true);
   });
 });

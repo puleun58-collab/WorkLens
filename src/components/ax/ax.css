@@ -497,7 +497,12 @@
 .ax-setup-tutorial .ax-guide-section > h5 + .ax-guide-when { margin-top: 4px; }
 .ax-setup-tutorial .ax-guide-code { margin: 0; }
 .ax-guide-code { position: relative; min-width: 0; max-width: 100%; margin: 8px 0; padding: 38px 14px 12px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 13px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--foreground); background: color-mix(in srgb, var(--muted) 14%, var(--card)); border: 1px solid var(--border); border-radius: 8px; }
-.ax-guide-code--single-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ax-guide-code--single-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 10px; padding: 8px 44px 8px 14px; }
+/* Single-line commands keep the language label inline so it never inflates the one-line height;
+   the right padding clears the absolutely positioned copy button. Other code blocks are untouched. */
+.ax-guide-code--single-line .ax-guide-code-label { position: static; flex: none; }
+.ax-guide-code--single-line > code { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ax-guide-code-wrap:has(> .ax-guide-code--single-line) > .ax-guide-copy-button { top: 50%; transform: translateY(-50%); }
 .ax-guide-code-label { position: absolute; top: 6px; left: 14px; font-family: var(--font-sans); font-size: 11px; color: var(--muted-foreground); letter-spacing: .04em; }
 .ax-guide-code-wrap { position: relative; }
 .ax-guide-code-wrap > .ax-guide-copy-button { position: absolute; top: 3px; right: 5px; width: 32px; height: 32px; color: var(--muted-foreground); }
@@ -794,6 +799,9 @@
 .ax-matrix-prereqs ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; font-size: 13.5px; line-height: 1.6; }
 .ax-matrix-prereqs li { display: flex; gap: 8px; align-items: flex-start; }
 .ax-matrix-prereqs li::before { content: "•"; color: var(--primary); font-weight: 700; flex: none; }
+/* 권장 확인사항은 필수 선행 조건과 같은 목록에 섞지 않고 별도 그룹으로 구분한다. */
+.ax-matrix-recommended { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--border); }
+.ax-matrix-recommended > h5 { margin: 0 0 8px; font-size: 13px; font-weight: 600; color: var(--muted-foreground); }
 @media (max-width: 1000px) {
   .ax-score-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

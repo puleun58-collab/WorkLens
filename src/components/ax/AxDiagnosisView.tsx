@@ -14,7 +14,7 @@ import { useAxState } from "@/client/use-ax-state";
 import { runInWorker } from "@/client/document-client";
 import { diagnoseAx, planAx, interruptServerAi, aiFailureDetail } from "@/client/server-ai-client";
 import { AX_LIMITS, FACTOR_LABELS, axTaskSchema, axTaskV2Schema, confirmedAxDiagnosis } from "@/lib/ax/schema";
-import { axes, automationLevel, bubbleArea, executionGate, executionProfile, GATE_LABELS, gatePrerequisites, planAllowed, priorityHeading, factorEffectiveValue, factorHasAdjustment, factorScale, matrixPosition, monthlyMinutes, nextAction, priority, REGION_LABELS, taskStatus, taskDisplayStatus } from "@/lib/ax/policy";
+import { axes, automationLevel, bubbleArea, executionGate, executionProfile, GATE_LABELS, planAllowed, priorityHeading, factorEffectiveValue, factorHasAdjustment, factorScale, matrixPosition, monthlyMinutes, nextAction, priority, REGION_LABELS, splitGatePrerequisites, taskStatus, taskDisplayStatus } from "@/lib/ax/policy";
 import { candidateTask, taskDetails, followUpDescription, legacyDetailValues, validateAttachmentPreflight, isRegistrationUnchanged } from "@/lib/ax/registration";
 import { exportAxState, importAxState } from "@/lib/ax/transfer";
 import { emptyAxState, type AxStateV2, type AxTask, type AxDiagnosis, type AxDetails, type FactorKey } from "@/lib/ax/types";
@@ -741,7 +741,7 @@ function MatrixDetailCard({ task, diagnosis }: { task: AxTask; diagnosis: AxDiag
   const lvl = automationLevel(d);
   const gate = executionGate(d);
   const m = matrixPosition(d);
-  const prereqs = gatePrerequisites(d);
+  const gateChecks = splitGatePrerequisites(d);
   const profile = executionProfile(d);
   const next = nextAction(d);
   const openChecks = d.technicalChecks.filter(check => check.status !== "확인됨").length;
@@ -782,10 +782,16 @@ function MatrixDetailCard({ task, diagnosis }: { task: AxTask; diagnosis: AxDiag
           </dl>
         </section> : null}
       </div>
-      <section className="ax-matrix-prereqs" aria-label="선행 확인 조건">
-        <h4><ListChecks size={16} aria-hidden="true" />선행 확인 조건 {prereqs.length}개</h4>
-        {prereqs.length ? <ul>{prereqs.map((p, i) => <li key={i}>{p}</li>)}</ul> : <p className="ax-muted">확인할 선행 조건이 없습니다.</p>}
-      </section>
+      {gateChecks.required.length || gateChecks.recommended.length ? <section className="ax-matrix-prereqs" aria-label={gateChecks.required.length ? "선행 확인 조건" : "권장 확인사항"}>
+        {gateChecks.required.length ? <>
+          <h4><ListChecks size={16} aria-hidden="true" />선행 확인 조건 {gateChecks.required.length}개</h4>
+          <ul>{gateChecks.required.map((p, i) => <li key={i}>{p}</li>)}</ul>
+        </> : null}
+        {gateChecks.recommended.length ? <div className="ax-matrix-recommended">
+          <h5>권장 확인사항 {gateChecks.recommended.length}개</h5>
+          <ul>{gateChecks.recommended.map((p, i) => <li key={i}>{p}</li>)}</ul>
+        </div> : null}
+      </section> : null}
     </div>
     <AxScoreEvidence key={task.id} diagnosis={d} />
   </section>;
