@@ -4,7 +4,32 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { levelMeta } from "@/lib/learn/curriculum";
 import { levelContent } from "@/lib/learn/content";
-import type { LearnLevelNo, LearnProgress } from "@/lib/learn/types";
+import type { LearnLevelNo, LearnProgress, TerminalTaskSpec } from "@/lib/learn/types";
+import { VirtualTerminal } from "./VirtualTerminal";
+
+/** 명령어 복사 버튼 — 클립보드 API 실패 시 폴백 */
+function CopyCommandButton({ command }: { command: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(command);
+    } catch {
+      const ta = document.createElement("textarea");
+      ta.value = command;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+    }
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1500);
+  };
+  return (
+    <Button type="button" variant="outline" size="sm" onClick={copy} aria-label={`${command} 복사`}>
+      {copied ? "복사됨" : "복사"}
+    </Button>
+  );
+}
 
 interface LearnLessonProps {
   level: LearnLevelNo;
@@ -110,11 +135,26 @@ export function LearnLesson({ level, progress, onPersistUnit, onBack, onStartQui
         {unit.practice ? (
           <>
             <h4>실습 — {unit.practice.title}</h4>
+            <p className="learn-muted">
+              <small>실행 환경: Windows PowerShell · 실제 시스템에는 영향을 주지 않는 가상 터미널입니다. 명령어를 가상 터미널에 직접 입력해 연습해 보세요.</small>
+            </p>
             <ol>
               {unit.practice.steps.map((s, i) => (
                 <li key={i}>{s}</li>
               ))}
             </ol>
+            {unit.practice.commands && unit.practice.commands.length > 0 ? (
+              <div className="learn-surface" style={{ marginTop: 8 }}>
+                <p><small className="learn-muted">명령어 예시 (복사해서 가상 터미널에 붙여넣을 수 있습니다)</small></p>
+                {unit.practice.commands.map((cmd, i) => (
+                  <div key={i} className="learn-command-row">
+                    <code>{cmd}</code>
+                    <CopyCommandButton command={cmd} />
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            <PracticeTerminal level={level} practiceTitle={unit.practice.title} />
           </>
         ) : null}
 
@@ -151,6 +191,20 @@ export function LearnLesson({ level, progress, onPersistUnit, onBack, onStartQui
           </Button>
         )}
       </div>
+    </div>
+  );
+}
+
+/** 학습 중 연습용 가상 터미널 — 점수에 반영되지 않는다 */
+function PracticeTerminal({ level, practiceTitle }: { level: LearnLevelNo; practiceTitle: string }) {
+  const scenario: TerminalTaskSpec["scenario"] = level === 5 ? "git-basic" : "folder-nav";
+  const instructions = [
+    `아래 가상 터미널에서 '${practiceTitle}' 단계를 직접 연습해 보세요.`,
+    "실제 시스템에는 영향을 주지 않으며, 연습 결과는 점수에 반영되지 않습니다.",
+  ];
+  return (
+    <div style={{ marginTop: 12 }}>
+      <VirtualTerminal scenario={scenario} instructions={instructions} successChecks={[]} practiceMode />
     </div>
   );
 }

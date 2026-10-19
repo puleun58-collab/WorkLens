@@ -83,6 +83,7 @@ export const CONTENT_L05: LearnContent = {
           "'team-docs' 폴더가 생기고 그 안으로 자동 이동됩니다.",
           "dir 로 파일 목록을, git log 로 가져온 기록을 확인합니다.",
         ],
+        commands: ["git clone https://github.com/example/team-docs.git", "dir", "git log"],
       },
       mistakes: [
         {
@@ -166,6 +167,7 @@ export const CONTENT_L05: LearnContent = {
           "git add report.txt 로 보고서만 스테이징합니다.",
           "git status 를 다시 입력해 report.txt가 '스테이지됨'으로 바뀌었는지 확인합니다.",
         ],
+        commands: ["git status", "git add report.txt"],
       },
       mistakes: [
         {
@@ -245,6 +247,7 @@ export const CONTENT_L05: LearnContent = {
           "git log 로 방금 만든 커밋이 목록에 있는지 확인합니다.",
           "(실패 학습) git commit -m \"빈 커밋\" 을 스테이징 없이 실행해 오류 메시지를 확인합니다.",
         ],
+        commands: ["git add report.txt", "git commit -m \"보고서 수정\"", "git log"],
       },
       mistakes: [
         {
@@ -346,6 +349,7 @@ export const CONTENT_L05: LearnContent = {
           "git pull 을 실행해 원격의 새 변경을 가져옵니다.",
           "git status 로 '최신 상태'인지 확인합니다.",
         ],
+        commands: ["git log", "git status", "git pull"],
       },
       mistakes: [
         {
@@ -444,6 +448,7 @@ export const CONTENT_L05: LearnContent = {
           "저장소 안으로 이동한 뒤 git log 로 기록을 확인합니다.",
           "정리: 오류 → 메시지 읽기 → 위치 확인·저장소 준비 → 다시 시도 순서로 해결했음을 확인합니다.",
         ],
+        commands: ["git status", "git clone https://github.com/example/team-docs.git", "git log"],
       },
       mistakes: [
         {

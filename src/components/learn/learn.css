@@ -81,6 +81,8 @@
 .learn-certificate .learn-cert-name { font-size: 22px; font-weight: 700; margin: 16px 0; }
 
 .learn-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0; }
+.learn-command-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+.learn-command-row code { flex: 1; background: var(--muted); border-radius: 6px; padding: 6px 10px; font-family: ui-monospace, Consolas, monospace; font-size: 13px; overflow-x: auto; white-space: nowrap; }
 .learn-kv { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 16px 0; }
 .learn-kv-item { padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; }
 .learn-kv-item strong { display: block; font-size: 20px; }

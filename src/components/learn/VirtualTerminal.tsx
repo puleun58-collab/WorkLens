@@ -16,12 +16,14 @@ interface VirtualTerminalProps {
   successChecks: TerminalSuccessCheck[];
   hint?: string;
   onResult?: (passed: boolean) => void;
+  /** 연습 모드: 점수에 반영되지 않음을 명시하고 완료 확인 버튼을 숨긴다 */
+  practiceMode?: boolean;
 }
 
 /**
  * 가상 터미널 — 실제 셸을 실행하지 않고 시뮬레이터로 동작한다.
  */
-export function VirtualTerminal({ scenario, instructions, successChecks, hint, onResult }: VirtualTerminalProps) {
+export function VirtualTerminal({ scenario, instructions, successChecks, hint, onResult, practiceMode }: VirtualTerminalProps) {
   const [termState, setTermState] = useState<VirtualTerminalState>(() => initialStateForScenario(scenario));
   const [transcript, setTranscript] = useState<{ cmd: string; out: string[] }[]>(() =>
     initialStateForScenario(scenario).lines.length > 0
@@ -58,6 +60,11 @@ export function VirtualTerminal({ scenario, instructions, successChecks, hint, o
 
   return (
     <div>
+      {practiceMode ? (
+        <p className="learn-muted">
+          <small><strong>연습 모드</strong> — 여기서 연습한 결과는 점수에 반영되지 않습니다.</small>
+        </p>
+      ) : null}
       <ol>
         {instructions.map((step, i) => (
           <li key={i}>{step}</li>
@@ -99,9 +106,11 @@ export function VirtualTerminal({ scenario, instructions, successChecks, hint, o
         <Button type="button" variant="outline" onClick={() => run(input)} disabled={!input.trim()}>
           실행
         </Button>
-        <Button type="button" variant="default" onClick={check}>
-          과제 완료 확인
-        </Button>
+        {practiceMode ? null : (
+          <Button type="button" variant="default" onClick={check}>
+            과제 완료 확인
+          </Button>
+        )}
       </div>
       {checked !== null ? (
         <p role="status" className={checked ? "learn-result-pass" : "learn-result-fail"}>

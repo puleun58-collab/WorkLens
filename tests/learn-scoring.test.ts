@@ -149,3 +149,26 @@ describe("overallProgress / isLearningComplete", () => {
     expect(isLearningComplete(p)).toBe(false);
   });
 });
+
+describe("응시 이력 불변성", () => {
+  const emptyProgress = (): LearnProgress => ({ version: 1, levels: {}, wrongAnswers: [], updatedAt: 0 });
+  const makeAttempt = (attemptId: string, score: number, passed: boolean): QuizAttempt => ({
+    attemptId, level: 1, questionIds: ["l1-q001"],
+    answers: {}, graded: [{ questionId: "l1-q001", correct: passed, points: passed ? 10 : 0 }],
+    score, passed, startedAt: 0, finishedAt: 1,
+  });
+  test("과거 응시의 점수·통과 상태가 그대로 보존된다", () => {
+    let p = applyAttempt(emptyProgress(), makeAttempt("a1", 70, true));
+    const first = p.levels[1]!.attempts[0];
+    expect(first.score).toBe(70);
+    expect(first.passed).toBe(true);
+    // 이후 재응시해도 과거 응시 기록은 변경되지 않음
+    p = applyAttempt(p, makeAttempt("a2", 40, false));
+    expect(p.levels[1]!.attempts[0].score).toBe(70);
+    expect(p.levels[1]!.attempts[0].passed).toBe(true);
+    expect(p.levels[1]!.attempts[1].score).toBe(40);
+    // 최고 점수와 통과 상태는 유지
+    expect(p.levels[1]!.bestScore).toBe(70);
+    expect(p.levels[1]!.passed).toBe(true);
+  });
+});

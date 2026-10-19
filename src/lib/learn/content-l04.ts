@@ -66,6 +66,7 @@ export const CONTENT_L04: LearnContent = {
           "mkdir WorkLens 를 입력하고 Enter를 누릅니다. (성공하면 별다른 메시지가 나오지 않습니다)",
           "dir 을 입력해 목록에 'WorkLens' 폴더가 생겼는지 확인합니다.",
         ],
+        commands: ["mkdir WorkLens", "dir"],
       },
       mistakes: [
         {
@@ -168,6 +169,7 @@ export const CONTENT_L04: LearnContent = {
           "cd .. 로 상위 폴더로 올라간 뒤 pwd 로 'C:\\Users\\학습자'인지 확인합니다.",
           "cd 없는폴더 를 입력해 오류 메시지를 확인합니다. ('경로를 찾을 수 없습니다'라는 안내가 나옵니다)",
         ],
+        commands: ["mkdir WorkLens", "cd WorkLens", "pwd", "cd .."],
       },
       mistakes: [
         {
@@ -332,6 +334,7 @@ export const CONTENT_L04: LearnContent = {
           "cd \"내 문서\" 로 이동한 뒤 pwd 로 현재 경로를 확인합니다.",
           "(실패 학습) cd 내 문서 를 따옴표 없이 입력해 어떤 오류가 나는지 확인합니다.",
         ],
+        commands: ["mkdir \"내 문서\"", "dir", "cd \"내 문서\"", "pwd"],
       },
       mistakes: [
         {
@@ -415,6 +418,7 @@ export const CONTENT_L04: LearnContent = {
           "cd \"내 문서\" 로 이동한 뒤 pwd 로 현재 경로를 확인합니다.",
           "정리: 실패 → 메시지 읽기 → 상태 확인(dir) → 올바른 명령 순서로 해결했음을 확인합니다.",
         ],
+        commands: ["cd 문서보고서", "dir", "mkdir \"내 문서\"", "cd \"내 문서\"", "pwd"],
       },
       mistakes: [
         {
