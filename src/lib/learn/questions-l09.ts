@@ -1,0 +1,473 @@
+import type { LearnQuestion } from "./types";
+
+export const QUESTIONS_L09: LearnQuestion[] = [
+  {
+    id: "l9-q001",
+    level: 9,
+    category: "브랜치 개념",
+    type: "single",
+    difficulty: "concept",
+    prompt: "브랜치에 대한 설명으로 옳은 것은?",
+    choices: [
+      { id: "a", text: "코드의 복사본 작업 공간으로, 다른 작업에 영향을 주지 않고 따로 작업할 수 있다" },
+      { id: "b", text: "코드를 서버에 올려 실제 서비스에 반영하는 과정이다" },
+      { id: "c", text: "코드가 올라올 때마다 자동으로 검사를 수행하는 장치이다" },
+      { id: "d", text: "내 컴퓨터의 변경 내용을 원격 저장소에 올리는 동작이다" },
+    ],
+    correctChoiceIds: ["a"],
+    explanation:
+      "브랜치는 나뭇가지처럼 갈라져 나오는 복사본 작업 공간이다. b는 배포, c는 CI, d는 Push의 설명이다.",
+    wrongExplanations: {
+      b: "이것은 배포(Deploy)의 설명이다.",
+      c: "이것은 CI(지속적 통합)의 설명이다.",
+      d: "이것은 Push의 설명이다.",
+    },
+    verified: true,
+  },
+  {
+    id: "l9-q002",
+    level: 9,
+    category: "배포 성공과 정상 동작",
+    type: "single",
+    difficulty: "concept",
+    prompt: "'배포 성공'과 '정상 동작'의 관계에 대한 설명으로 옳은 것은?",
+    choices: [
+      { id: "a", text: "배포에 성공하면 정상 동작이 보장된다" },
+      { id: "b", text: "배포 성공은 과정의 완료이고, 정상 동작은 별도로 확인해야 하는 결과이다" },
+      { id: "c", text: "정상 동작하면 배포는 생략해도 된다" },
+      { id: "d", text: "배포 성공과 정상 동작은 같은 말이다" },
+    ],
+    correctChoiceIds: ["b"],
+    explanation:
+      "배포 성공은 '파일이 올라갔다'는 과정의 완료일 뿐이다. 기능이 의도대로 작동하는지는 배포한 사람이 직접 확인해야 한다.",
+    wrongExplanations: {
+      a: "'배포 성공 = 끝'은 초보자가 가장 많이 하는 착각이다.",
+      c: "배포 없이 코드가 서비스에 반영될 수는 없다.",
+      d: "둘은 다르다. 배포 성공은 필요조건이지 충분조건이 아니다.",
+    },
+    verified: true,
+  },
+  {
+    id: "l9-q003",
+    level: 9,
+    category: "협업 흐름 순서",
+    type: "multiple",
+    difficulty: "application",
+    prompt: "브랜치 작업부터 배포까지의 흐름에 대한 설명으로 옳은 것을 모두 고르시오.",
+    choices: [
+      { id: "a", text: "Push는 PR 생성보다 먼저 한다" },
+      { id: "b", text: "Merge는 PR 승인과 CI 통과 후에 한다" },
+      { id: "c", text: "Push를 하면 서비스에 바로 반영되므로 배포는 별도로 필요 없다" },
+      { id: "d", text: "CI 검사는 Merge가 끝난 뒤에 처음 실행한다" },
+    ],
+    correctChoiceIds: ["a", "b"],
+    explanation:
+      "순서는 브랜치 작업 → Push → PR → CI → 리뷰 → Merge → 배포이다. Push는 GitHub에 올리기일 뿐 서비스 반영(배포)과 다르고, CI는 PR 단계에서 검사한다.",
+    wrongExplanations: {
+      c: "Push했다고 서비스가 바뀌는 것은 아니다. 배포는 별개의 과정이다.",
+      d: "CI는 PR이 올라오면 Merge 전에 실행되어 합치기 전 실수를 잡는다.",
+    },
+    verified: true,
+  },
+  {
+    id: "l9-q004",
+    level: 9,
+    category: "Pull Request 작성",
+    type: "single",
+    difficulty: "application",
+    prompt: "좋은 PR에 대한 설명으로 옳은 것은?",
+    choices: [
+      { id: "a", text: "설명란은 비워 두고 코드만 올린다" },
+      { id: "b", text: "무엇을·왜 바꿨는지 설명을 적고, 작업 하나당 PR 하나를 만든다" },
+      { id: "c", text: "여러 작업을 하나의 PR에 모아 올린다" },
+      { id: "d", text: "리뷰 요청 없이 스스로 승인하고 바로 Merge한다" },
+    ],
+    correctChoiceIds: ["b"],
+    explanation:
+      "PR 설명이 충실할수록 리뷰가 빠르고 정확해진다. 작업 하나당 PR 하나가 원칙이며, 다른 사람의 리뷰를 받는 것이 안전하다.",
+    wrongExplanations: {
+      a: "설명이 없으면 리뷰자가 맥락 파악에 시간을 쓴다.",
+      c: "여러 작업이 섞이면 리뷰가 어렵고 문제 발생 시 되돌리기도 힘들다.",
+      d: "셀프 승인은 안전망을 없애는 행동이다. 최소 한 명의 다른 사람 리뷰가 원칙이다.",
+    },
+    verified: true,
+  },
+  {
+    id: "l9-q005",
+    level: 9,
+    category: "CI 실패 원인",
+    type: "error-cause",
+    difficulty: "application",
+    prompt:
+      "담당자 컴퓨터에서는 잘 되던 기능이 PR을 올리자 CI에서 실패했다. 담당자 코드는 최근에 바뀐 것이 없다. 가장 유력한 원인은?",
+    choices: [
+      { id: "a", text: "담당자 컴퓨터에만 설치된 프로그램에 코드가 의존하고 있었다" },
+      { id: "b", text: "PR 제목이 너무 길었다" },
+      { id: "c", text: "브랜치 이름에 한글이 들어갔다" },
+      { id: "d", text: "담당자가 점심시간에 PR을 올렸다" },
+    ],
+    correctChoiceIds: ["a"],
+    explanation:
+      "CI는 깨끗한 정해진 환경에서 검사하므로, 내 컴퓨터에만 있는 것에 의존한 코드는 CI에서 실패한다. '내 컴퓨터에서 된다'는 동작 보장이 아니다.",
+    wrongExplanations: {
+      b: "PR 제목 길이는 CI 검사 실패와 무관하다.",
+      c: "브랜치 이름은 CI 검사 결과에 영향을 주지 않는다.",
+      d: "PR을 올린 시간대는 검사 결과와 무관하다.",
+    },
+    verified: true,
+  },
+  {
+    id: "l9-q006",
+    level: 9,
+    category: "배포 후 장애 원인",
+    type: "error-cause",
+    difficulty: "application",
+    prompt:
+      "배포는 성공 메시지와 함께 끝났는데, 고객이 로그인이 안 된다고 한다. 개발 환경에서는 로그인이 잘 되었다. 가장 먼저 확인할 것은?",
+    choices: [
+      { id: "a", text: "운영 서버에 로그인 기능용 설정값(환경변수)이 등록되어 있는지" },
+      { id: "b", text: "고객의 컴퓨터 바탕화면 해상도" },
+      { id: "c", text: "우리 회사 홈페이지의 방문자 수" },
+      { id: "d", text: "개발자 컴퓨터의 운영체제 버전" },
+    ],
+    correctChoiceIds: ["a"],
+    explanation:
+      "배포 성공은 설정값까지 맞다는 뜻이 아니다. 개발 환경에는 있고 운영 환경에는 없는 설정값(환경변수) 누락이 흔한 원인이다.",
+    wrongExplanations: {
+      b: "바탕화면 해상도는 로그인 기능 장애와 무관하다.",
+      c: "방문자 수는 장애 원인이 아니라 결과 지표이다.",
+      d: "개발자 컴퓨터 환경은 이미 배포된 운영 서비스와 무관하다.",
+    },
+    verified: true,
+  },
+  {
+    id: "l9-q007",
+    level: 9,
+    category: "배포 후 확인 항목",
+    type: "multiple",
+    difficulty: "application",
+    prompt: "배포 후 확인 체크리스트에 들어가야 할 항목을 모두 고르시오.",
+    choices: [
+      { id: "a", text: "로그인·결제 같은 핵심 기능을 직접 실행해 본다" },
+      { id: "b", text: "운영 서버의 설정값이 모두 등록되어 있는지 확인한다" },
+      { id: "c", text: "배포 성공 메시지만 보고 확인을 생략한다" },
+      { id: "d", text: "문제 발생 시 이전 버전으로 되돌리는(롤백) 방법을 미리 알아둔다" },
+    ],
+    correctChoiceIds: ["a", "b", "d"],
+    explanation:
+      "배포 후에는 핵심 기능을 직접 확인하고, 운영 환경 설정값을 점검해야 한다. 롤백 방법을 미리 알아두는 것도 대비의 일부이다. c는 초보자의 대표적 함정이다.",
+    wrongExplanations: {
+      c: "'배포 성공 메시지 = 끝'이라는 착각이다. 확인이 끝나야 배포가 끝난 것이다.",
+    },
+    verified: true,
+  },
+  {
+    id: "l9-q008",
+    level: 9,
+    category: "Push와 배포 구분",
+    type: "single",
+    difficulty: "application",
+    prompt: "Push와 배포(Deploy)의 차이에 대한 설명으로 옳은 것은?",
+    choices: [
+      { id: "a", text: "Push는 GitHub에 코드를 올리는 것이고, 배포는 그 코드가 실제 서비스에 반영되는 것이다" },
+      { id: "b", text: "Push와 배포는 같은 말이다" },
+      { id: "c", text: "Push를 하면 자동으로 배포까지 끝난다" },
+      { id: "d", text: "배포를 해야 GitHub에 코드가 올라간다" },
+    ],
+    correctChoiceIds: ["a"],
+    explanation:
+      "Push는 원격 저장소에 코드를 올리는 동작이고, 배포는 서비스에 반영하는 별개의 과정이다. Push했다고 고객 화면이 바뀌는 것은 아니다.",
+    wrongExplanations: {
+      b: "둘은 다른 단계이다. 헷갈리면 '배포했다'는 보고의 의미를 오해한다.",
+      c: "회사 설정에 따라 자동 배포가 있을 수 있지만, 개념적으로 Push와 배포는 다르다.",
+      d: "순서가 반대이다. Push가 먼저이고 배포는 그 다음이다.",
+    },
+    verified: true,
+  },
+  {
+    id: "l9-q009",
+    level: 9,
+    category: "브랜치 미사용 사고",
+    type: "case-judgment",
+    difficulty: "judgment",
+    prompt:
+      "담당자가 홈페이지 오타를 고치려고 main 브랜치에 직접 수정하고 바로 배포했다. 수정 중 다른 줄을 건드린 것을 모른 채 넘어가 홈페이지 일부가 깨진 채 고객에게 노출되었다. 이 사고에서 가장 근본적인 잘못은?",
+    choices: [
+      { id: "a", text: "오타를 고치려 한 것" },
+      { id: "b", text: "main에 직접 작업하고 검토 없이 배포한 것" },
+      { id: "c", text: "홈페이지를 운영한 것" },
+      { id: "d", text: "배포를 평일에 한 것" },
+    ],
+    correctChoiceIds: ["b"],
+    explanation:
+      "main은 운영과 연결된 안정적인 줄기이다. 기능 브랜치에서 작업하고 PR 리뷰·CI를 거쳤다면 막을 수 있던 사고이다.",
+    wrongExplanations: {
+      a: "오타 수정 자체는 정상적인 업무이다. 문제는 절차이다.",
+      c: "홈페이지 운영은 업무의 본질이지 잘못이 아니다.",
+      d: "배포 요일과 이번 사고는 직접 관련이 없다.",
+    },
+    verified: true,
+  },
+  {
+    id: "l9-q010",
+    level: 9,
+    category: "CI 무시 Merge 판단",
+    type: "case-judgment",
+    difficulty: "judgment",
+    prompt:
+      "급하다는 이유로 CI가 실패(빨간불)인 PR을 그대로 Merge했고, 운영 반영 후 같은 오류로 서비스가 중단되었다. 이 상황에 대한 평가로 옳은 것은?",
+    choices: [
+      { id: "a", text: "잘한 결정이다. 급할 때는 CI를 무시해도 된다" },
+      { id: "b", text: "잘못된 결정이다. CI 실패는 합치면 안 된다는 신호이다" },
+      { id: "c", text: "잘한 결정이다. CI는 참고용일 뿐이다" },
+      { id: "d", text: "잘못된 결정이다. PR 자체를 만들지 말았어야 한다" },
+    ],
+    correctChoiceIds: ["b"],
+    explanation:
+      "CI 빨간불을 무시하고 Merge하면 나중에 더 큰 비용으로 돌아온다. 급할수록 안전망을 지키는 것이 결과적으로 빠르다.",
+    wrongExplanations: {
+      a: "급하다는 이유로 안전망을 버리면 장애 수습에 더 많은 시간이 든다.",
+      c: "CI는 합치기 전 실수를 잡는 공식 안전망이지 참고용이 아니다.",
+      d: "PR을 만든 것은 잘한 일이다. 문제는 CI 실패를 무시한 것이다.",
+    },
+    verified: true,
+  },
+  {
+    id: "l9-q011",
+    level: 9,
+    category: "스테이징 활용 판단",
+    type: "case-judgment",
+    difficulty: "judgment",
+    prompt:
+      "쇼핑몰 팀은 새 결제 기능을 운영이 아닌 스테이징 환경에 먼저 배포해 테스트했고, 특정 카드사 결제 오류를 발견해 수정한 뒤 운영에 배포했다. 이 방식에 대한 평가로 옳은 것은?",
+    choices: [
+      { id: "a", text: "비효율적이다. 처음부터 운영에 배포했어야 했다" },
+      { id: "b", text: "적절하다. 스테이징은 운영 배포의 리허설로 사고를 줄인다" },
+      { id: "c", text: "잘못되었다. 스테이징에서는 오류를 발견할 수 없으므로" },
+      { id: "d", text: "무의미하다. 스테이징과 운영은 완전히 동일하므로" },
+    ],
+    correctChoiceIds: ["b"],
+    explanation:
+      "스테이징 배포는 운영 배포의 리허설이다. 리허설에서 문제를 잡는 것이 가장 저렴한 품질 관리이다.",
+    wrongExplanations: {
+      a: "운영에 바로 배포했다면 고객이 결제 오류를 직접 겪었을 것이다.",
+      c: "스테이징은 운영과 비슷하게 만든 테스트 환경이라 오류 발견이 목적이다.",
+      d: "완전히 동일하지는 않지만, 운영 사고를 줄이는 데 충분히 유용하다.",
+    },
+    verified: true,
+  },
+  {
+    id: "l9-q012",
+    level: 9,
+    category: "배포 시점 판단",
+    type: "case-judgment",
+    difficulty: "judgment",
+    prompt:
+      "팀이 금요일 저녁 7시에 신규 기능 배포를 계획했다. 주말에는 대응 인력이 없다. 가장 적절한 판단은?",
+    choices: [
+      { id: "a", text: "계획대로 진행한다. 배포는 언제든 같으므로" },
+      { id: "b", text: "평일 오전 등 대응 가능한 시간대로 옮긴다" },
+      { id: "c", text: "주말에 문제가 생기면 월요일에 대응한다" },
+      { id: "d", text: "배포를 취소하고 기능을 폐기한다" },
+    ],
+    correctChoiceIds: ["b"],
+    explanation:
+      "배포 후 문제가 생기면 대응할 사람이 있어야 한다. 대응 가능한 시간대에 배포하는 것이 원칙이다.",
+    wrongExplanations: {
+      a: "배포 시점은 중요하다. 대응 공백 시간대의 배포는 위험하다.",
+      c: "주말 내내 장애를 방치하면 피해가 커진다.",
+      d: "배포 시점만 조정하면 될 일을 기능을 폐기할 이유는 없다.",
+    },
+    verified: true,
+  },
+  {
+    id: "l9-q013",
+    level: 9,
+    category: "배포 후 미확인 판단",
+    type: "case-judgment",
+    difficulty: "judgment",
+    prompt:
+      "담당자가 배포 성공 메시지를 보고 바로 퇴근했다. 다음 날 아침 고객이 '주문이 안 된다'고 했다. 이 상황에 대한 평가로 옳은 것은?",
+    choices: [
+      { id: "a", text: "담당자는 할 일을 다 했다. 배포 성공이 곧 정상 동작이므로" },
+      { id: "b", text: "담당자의 확인 누락이 문제이다. 배포 후 핵심 기능 확인은 배포의 일부이다" },
+      { id: "c", text: "고객이 잘못 사용한 것이므로 대응할 필요가 없다" },
+      { id: "d", text: "배포 자체를 하지 말았어야 했다" },
+    ],
+    correctChoiceIds: ["b"],
+    explanation:
+      "배포 성공 메시지를 '잘 된다'로 착각한 대표적 함정이다. 배포 후 핵심 기능을 직접 확인하는 습관이 있어야 고객보다 먼저 문제를 발견한다.",
+    wrongExplanations: {
+      a: "배포 성공은 과정의 완료일 뿐 정상 동작을 보장하지 않는다.",
+      c: "고객 탓으로 돌리기 전에 서비스 상태를 먼저 확인해야 한다.",
+      d: "배포 자체가 문제가 아니라 확인을 생략한 것이 문제이다.",
+    },
+    verified: true,
+  },
+  {
+    id: "l9-q014",
+    level: 9,
+    category: "장애 대응 순서",
+    type: "case-judgment",
+    difficulty: "judgment",
+    prompt:
+      "새 기능 배포 후 주문이 안 들어오는 것을 발견했다. 서비스가 멈춘 상태이다. 가장 먼저 해야 할 조치는?",
+    choices: [
+      { id: "a", text: "원인을 완전히 파악한 뒤에 조치한다" },
+      { id: "b", text: "이전 안정 버전으로 롤백해 서비스를 먼저 복구한다" },
+      { id: "c", text: "고객에게 기다려 달라고만 안내하고 둔다" },
+      { id: "d", text: "같은 버전을 다시 배포해 본다" },
+    ],
+    correctChoiceIds: ["b"],
+    explanation:
+      "서비스가 멈춘 상태라면 원인 분석보다 복구가 먼저이다. 롤백으로 피해를 최소화한 뒤 여유를 갖고 원인을 분석한다.",
+    wrongExplanations: {
+      a: "원인 파악에 시간을 쓰는 동안 고객 피해가 계속된다.",
+      c: "안내만 하고 방치하면 피해가 커진다.",
+      d: "문제 있는 버전을 다시 배포하면 같은 장애가 반복된다.",
+    },
+    verified: true,
+  },
+  {
+    id: "l9-q015",
+    level: 9,
+    category: "플랫폼 선택 판단",
+    type: "case-judgment",
+    difficulty: "judgment",
+    prompt:
+      "어떤 회사가 업체의 추천만으로 특정 배포 플랫폼을 선택했다가, 기존 시스템과 맞지 않아 매번 수작업이 필요해졌다. 이 사례가 주는 교훈으로 옳은 것은?",
+    choices: [
+      { id: "a", text: "업체의 추천은 항상 옳으므로 그대로 따르면 된다" },
+      { id: "b", text: "배포 플랫폼은 회사 상황(기존 시스템, 비용, 역량)에 맞게 비교해 골라야 한다" },
+      { id: "c", text: "배포 플랫폼은 한 번 정하면 바꿀 수 없으므로 처음부터 비싼 것을 골라야 한다" },
+      { id: "d", text: "배포 플랫폼 선택은 개발자 개인의 취향대로 하면 된다" },
+    ],
+    correctChoiceIds: ["b"],
+    explanation:
+      "특정 플랫폼이 정답이라는 말은 경계해야 한다. 회사 상황에 맞는 선택지를 비교하는 것이 원칙이다.",
+    wrongExplanations: {
+      a: "업체 추천은 참고 자료일 뿐, 우리 회사 상황을 대신 판단해 주지 않는다.",
+      c: "비싸다고 맞는 것이 아니다. 상황에 맞는 것이 정답이다.",
+      d: "플랫폼 선택은 회사 차원의 판단이지 개인 취향의 영역이 아니다.",
+    },
+    verified: true,
+  },
+  {
+    id: "l9-q016",
+    level: 9,
+    category: "PR 단위 판단",
+    type: "case-judgment",
+    difficulty: "judgment",
+    prompt:
+      "어떤 PR에 결제 기능 수정, 홈페이지 문구 변경, 엑셀 양식 수정이 한꺼번에 들어 있다. 리뷰자가 '뭐부터 봐야 할지 모르겠다'고 한다. 이 PR에 대한 평가로 옳은 것은?",
+    choices: [
+      { id: "a", text: "효율적이다. 한 번에 모아 올리는 것이 좋다" },
+      { id: "b", text: "잘못되었다. 작업 하나당 PR 하나가 원칙이다" },
+      { id: "c", text: "효율적이다. 리뷰자가 알아서 나누어 보면 된다" },
+      { id: "d", text: "잘못되었다. PR은 한 달에 하나만 만들어야 한다" },
+    ],
+    correctChoiceIds: ["b"],
+    explanation:
+      "여러 작업이 섞이면 리뷰가 어렵고 문제 발생 시 되돌리기도 힘들다. PR은 작업 하나당 하나가 원칙이다.",
+    wrongExplanations: {
+      a: "모아 올리면 리뷰 품질이 떨어지고 실수를 놓치기 쉽다.",
+      c: "리뷰자에게 부담을 떠넘기는 것은 협업이 아니다.",
+      d: "PR 개수 제한이 원칙이 아니라, 작업 단위로 나누는 것이 원칙이다.",
+    },
+    verified: true,
+  },
+  {
+    id: "l9-q017",
+    level: 9,
+    category: "셀프 승인 판단",
+    type: "case-judgment",
+    difficulty: "judgment",
+    prompt:
+      "바쁘다는 이유로 PR을 스스로 승인하고 바로 Merge하는 것이 팀의 관행이 되었다. 이 관행에 대한 평가로 옳은 것은?",
+    choices: [
+      { id: "a", text: "문제없다. 빠를수록 좋으므로" },
+      { id: "b", text: "위험하다. 작성자는 자기 실수를 잘 못 보므로 다른 사람의 리뷰가 필요하다" },
+      { id: "c", text: "문제없다. PR을 만드는 것만으로 충분하므로" },
+      { id: "d", text: "위험하다. PR 제도 자체를 없애야 하므로" },
+    ],
+    correctChoiceIds: ["b"],
+    explanation:
+      "셀프 승인은 리뷰라는 안전망을 없애는 것이다. 최소 한 명의 다른 사람 리뷰를 원칙으로 하고, 긴급하면 사후 리뷰라도 남긴다.",
+    wrongExplanations: {
+      a: "빠르다고 안전한 것이 아니다. 장애 수습이 더 오래 걸린다.",
+      c: "PR을 만들고 셀프 승인하면 형식만 남고 실효성이 없다.",
+      d: "없앨 것이 아니라 제대로 운영할 것이 문제이다.",
+    },
+    verified: true,
+  },
+  {
+    id: "l9-q018",
+    level: 9,
+    category: "캐시로 인한 미반영",
+    type: "error-cause",
+    difficulty: "judgment",
+    prompt:
+      "새 디자인을 배포했고 배포도 성공했다. 그런데 고객 화면은 이전 디자인 그대로이다. 담당자 컴퓨터에서는 새 디자인이 보인다. 가장 유력한 원인은?",
+    choices: [
+      { id: "a", text: "중간에 낀 캐시가 옛날 파일을 보여주고 있다" },
+      { id: "b", text: "배포한 코드에 오타가 있다" },
+      { id: "c", text: "고객의 컴퓨터가 고장 났다" },
+      { id: "d", text: "배포 시간이 평일이 아니었다" },
+    ],
+    correctChoiceIds: ["a"],
+    explanation:
+      "배포 성공 후에도 캐시(임시 저장된 옛날 파일)가 새 파일을 가릴 수 있다. 캐시를 비우면 새 화면이 보인다. '배포했는데 안 보여요'의 흔한 원인이다.",
+    wrongExplanations: {
+      b: "코드에 오타가 있으면 담당자 컴퓨터에서도 새 디자인이 안 보여야 한다.",
+      c: "특정 고객 컴퓨터 고장으로 단정하기 전에 캐시 같은 공통 원인을 먼저 의심한다.",
+      d: "배포 요일과 화면 미반영은 관련이 없다.",
+    },
+    verified: true,
+  },
+  {
+    id: "l9-q019",
+    level: 9,
+    category: "잘못된 행동 식별",
+    type: "multiple",
+    difficulty: "judgment",
+    prompt: "다음 중 GitHub 협업·배포 흐름에서 잘못된 행동을 모두 고르시오.",
+    choices: [
+      { id: "a", text: "CI가 실패한 PR을 급하다는 이유로 그대로 Merge했다" },
+      { id: "b", text: "배포 후 로그인·주문 같은 핵심 기능을 직접 확인했다" },
+      { id: "c", text: "대응 인력이 없는 금요일 저녁에 배포했다" },
+      { id: "d", text: "PR에 무엇을·왜 바꿨는지 설명을 적었다" },
+    ],
+    correctChoiceIds: ["a", "c"],
+    explanation:
+      "CI 실패 Merge는 안전망을 버리는 행동이고, 대응 공백 시간대 배포는 위험하다. b와 d는 모범적인 행동이다.",
+    wrongExplanations: {
+      b: "배포 후 핵심 기능 직접 확인은 배포의 일부인 올바른 행동이다.",
+      d: "PR 설명 작성은 리뷰를 빠르고 정확하게 만드는 올바른 행동이다.",
+    },
+    verified: true,
+  },
+  {
+    id: "l9-q020",
+    level: 9,
+    category: "전체 흐름 종합 판단",
+    type: "case-judgment",
+    difficulty: "judgment",
+    prompt:
+      "신입 직원이 '기능을 다 만들었으니 main에 바로 올려서 배포하면 되죠?'라고 물었다. 팀 선임으로서 가장 적절한 답변은?",
+    choices: [
+      { id: "a", text: "'응, 바로 main에 올리고 배포해.'" },
+      { id: "b", text: "'기능 브랜치에 Push하고 PR을 올려. CI와 리뷰를 통과한 뒤 Merge하고 배포하자.'" },
+      { id: "c", text: "'배포부터 하고 PR은 나중에 올려.'" },
+      { id: "d", text: "'CI는 건너뛰고 리뷰만 받자.'" },
+    ],
+    correctChoiceIds: ["b"],
+    explanation:
+      "올바른 흐름은 브랜치 작업 → Push → PR → CI → 리뷰 → Merge → 배포이다. 각 단계의 안전망을 건너뛰면 실수가 운영에 그대로 간다.",
+    wrongExplanations: {
+      a: "main 직접 작업은 실수가 곧바로 운영 장애가 된다.",
+      c: "배포가 PR보다 먼저일 수 없다. 순서가 뒤바뀌면 검토가 무의미해진다.",
+      d: "CI는 자동 검사 문지기로, 건너뛰면 환경 차이 같은 실수를 놓친다.",
+    },
+    verified: true,
+  },
+];
