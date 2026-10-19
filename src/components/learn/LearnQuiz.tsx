@@ -128,13 +128,18 @@ export function LearnQuiz({ level, questions, onSubmit, onCancel }: LearnQuizPro
         ) : null}
 
         {q.type === "terminal-task" && q.terminalTask ? (
-          <VirtualTerminal
-            scenario={q.terminalTask.scenario}
-            instructions={q.terminalTask.instructions}
-            successChecks={q.terminalTask.successChecks}
-            hint={q.terminalTask.hint}
-            onResult={(passed) => setAnswer({ kind: "terminal", passed })}
-          />
+          <>
+            <p className="learn-muted">
+              <small><strong>공식 평가</strong> — 이 실습 과제의 결과는 점수에 반영됩니다.</small>
+            </p>
+            <VirtualTerminal
+              scenario={q.terminalTask.scenario}
+              instructions={q.terminalTask.instructions}
+              successChecks={q.terminalTask.successChecks}
+              hint={q.terminalTask.hint}
+              onResult={(passed) => setAnswer({ kind: "terminal", passed })}
+            />
+          </>
         ) : null}
       </div>
 
