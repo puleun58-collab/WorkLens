@@ -2631,7 +2631,7 @@ test("keeps legal destinations grouped and review options in the review flow", a
 
   await openMenu();
   await expect(navigation.getByRole("heading")).toHaveText(["WORKSPACE", "RESEARCH", "TOOLS", "AI•AX"]);
-  await expect(navigation.getByRole("button")).toHaveCount(15);
+  await expect(navigation.getByRole("button")).toHaveCount(16);
   for (const [accessibleName, visibleLabel] of [["Guide", "사용 가이드"], ["Dictionary", "용어 사전"], ["Settings", "설정"]] as const) {
     const helpItem = navigation.getByRole("button", { name: accessibleName, exact: true });
     await expect(helpItem).toBeVisible();
