@@ -131,7 +131,7 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
         text("미커밋 변경이 있으면 git pull을 실행하지 말고 AI 도구에 현재 상태를 먼저 확인시킵니다. 기존 파일·설정·데이터를 보존합니다."),
       ] },
       { title: "C. 새 프로젝트", when: "새 폴더에서 시작하는 경우", blocks: [
-        code(['mkdir "C:\\Work\\MyProject"', 'cd "C:\\Work\\MyProject"', "Get-Location", "git status", "git remote -v"], ["예시 경로를 실제 값으로 바꾸세요. 폴더가 이미 있으면 먼저 내용을 확인하고 mkdir은 건너뜁니다. Git 미초기화 상태면 마지막 두 명령이 실패할 수 있습니다."]),
+        code(['mkdir "C:\\Work\\MyProject"', 'cd "C:\\Work\\MyProject"'], ["예시 경로를 실제 값으로 바꾸세요. 폴더가 이미 있으면 먼저 내용을 확인하고 mkdir은 건너뜁니다."]),
         text("특정 프레임워크를 임의로 정하지 않습니다. Git 저장 전 Git 저장소인지, remote가 연결됐는지, 대상 GitHub 저장소가 맞는지 확인합니다. Git 저장소가 아닌 경우에만 초기화하고 기존 저장소를 재초기화하거나 기존 remote를 덮어쓰지 않습니다. branch 이름을 main으로 강제하지 않습니다."),
         code(["git init", 'git remote add origin "https://github.com/owner/repository.git"', "git remote -v"], ["git init은 저장소가 아닐 때만, remote add는 저장소를 만들고 remote가 없을 때만 실행합니다. 원격에 초기 커밋이 있으면 먼저 이력을 확인하고 충돌 없이 연결합니다. 첫 push 전에 대상 원격을 다시 확인하세요."]),
       ] },
@@ -144,7 +144,7 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
     ] },
     { title: "STEP 04 · 첫 MVP 구현과 실제 테스트", purpose: "선택한 AI 에이전트로 입력·처리·출력 구현 후 검증", sections: [
       { title: "프로젝트 폴더에서 실행", blocks: [
-        code(['cd "C:\\Work\\repository"', "Get-Location", guide.runCommand], ["실제 프로젝트 폴더로 바꾸세요."]),
+        code(['cd "C:\\Work\\repository"', guide.runCommand], ["실제 프로젝트 폴더로 바꾸세요."]),
         text("STEP 03에서 복사한 올인원 지시문 전체를 에이전트에 붙여넣습니다. 저장소 지침·기존 구현·승인 경계를 먼저 확인하고 파일 변경·실행·승인 요청을 검토하세요."),
       ] },
       { title: "입력 → 처리 → 출력 실동작", blocks: [
