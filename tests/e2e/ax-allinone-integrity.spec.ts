@@ -109,7 +109,7 @@ test("allinone: tool tab switch keeps the same policy scope", async ({ page }) =
   await page.getByRole("button", { name: "Claude Code용 구현 계획 생성", exact: true }).click();
   await expect(page.getByRole("button", { name: "Claude Code용 올인원 지시문 복사", exact: true })).toBeVisible();
   const claudeText = await packageSection.locator(".ax-prompt").textContent();
-  for (const marker of ["AI 보조 · Level 1", "확인 후 진행", "복합 처리 (확인된 순서)", "정산 승인"]) {
+  for (const marker of ["담당자가 요청할 때 후보·초안을 제안", "해당 조건에 의존하는 단계만 구현하세요", "복합 처리 (확인된 순서)", "정산 승인"]) {
     expect(codexText).toContain(marker);
     expect(claudeText).toContain(marker);
   }
