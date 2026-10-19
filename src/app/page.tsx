@@ -177,7 +177,7 @@ const [PdfTool, loadPdfTool] = lazyView(() => import("@/components/tools/PdfTool
 const [ImageTool, loadImageTool] = lazyView(() => import("@/components/tools/ImageTool").then((module) => module.ImageTool), "이미지 도구를 불러오는 중…");
 const [LawSearch, loadLawSearch] = lazyView(() => import("@/components/research/LawSearch").then((module) => module.LawSearch), "법령 검색을 불러오는 중…");
 const [AxDiagnosisView, loadAxDiagnosisView] = lazyView(() => import("@/components/ax/AxDiagnosisView").then((module) => module.AxDiagnosisView), "업무 자동화 진단을 불러오는 중…");
-const [LearnCenterView, loadLearnCenterView] = lazyView(() => import("@/components/learn/LearnCenterView").then((module) => module.LearnCenterView), "AI·AX 학습센터를 불러오는 중…");
+const [LearnCenterView, loadLearnCenterView] = lazyView(() => import("@/components/learn/LearnCenterView").then((module) => module.LearnCenterView), "학습센터를 불러오는 중…");
 const [UsageGuide, loadUsageGuide] = lazyView(() => import("@/components/guide/UsageGuide").then((module) => module.UsageGuide), "사용 가이드를 불러오는 중…");
 
 /** Warm-up order: lighter, more frequently opened views first; the PDF tool is the largest. */
@@ -1599,8 +1599,8 @@ export default function Home() {
     { value: "Law", label: "법령", group: "RESEARCH", Icon: Scale, prefetch: () => prefetchView(loadLawSearch) },
     { value: "PdfTools", label: "PDF 도구", group: "TOOLS", Icon: FileText, prefetch: () => prefetchView(loadPdfTool) },
     { value: "ImageTools", label: "이미지 도구", group: "TOOLS", Icon: ImageIcon, prefetch: () => prefetchView(loadImageTool) },
+    { value: "LearnCenter", label: "학습센터", group: "AI•AX", Icon: GraduationCap, prefetch: () => prefetchView(loadLearnCenterView) },
     { value: "AxDiagnosis", label: "업무 자동화 진단", group: "AI•AX", Icon: Workflow, prefetch: () => prefetchView(loadAxDiagnosisView) },
-    { value: "LearnCenter", label: "AI·AX 학습센터", group: "AI•AX", Icon: GraduationCap, prefetch: () => prefetchView(loadLearnCenterView) },
     { value: "Guide", label: "사용 가이드", ariaLabel: "Guide", group: "HELP", Icon: CircleHelp, prefetch: () => prefetchView(loadUsageGuide) },
     { value: "Dictionary", label: "용어 사전", ariaLabel: "Dictionary", group: "HELP", Icon: BookMarked },
     { value: "Settings", label: "설정", ariaLabel: "Settings", group: "HELP", Icon: SlidersHorizontal },

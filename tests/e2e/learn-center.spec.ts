@@ -2,8 +2,8 @@ import { expect, test } from "@playwright/test";
 import { navigateWorkspace } from "./navigation";
 
 async function learn(page: Parameters<typeof navigateWorkspace>[0]) {
-  await navigateWorkspace(page, "AI·AX 학습센터");
-  await expect(page.getByRole("heading", { name: "AI·AX 학습센터", exact: true })).toBeVisible();
+  await navigateWorkspace(page, "학습센터");
+  await expect(page.getByRole("heading", { name: "학습센터", exact: true })).toBeVisible();
 }
 
 test("학습센터: 대시보드 로드맵 10단계 표시", async ({ page }) => {
@@ -84,4 +84,24 @@ test("학습센터: 가상 터미널 기본 동작", async ({ page }) => {
   // LEVEL 4는 잠겨 있으므로 직접 컴포넌트 검증은 단위 테스트로 대체
   // 여기서는 학습센터 자체가 깨지지 않음을 확인
   await expect(lessonButtons.first()).toBeVisible();
+});
+
+test("학습센터: 신규 사용자에게 처음 학습하기 표시", async ({ page }) => {
+  await page.goto("/");
+  await learn(page);
+  // 응시 이력이 없으면 "처음 학습하기"
+  await expect(page.getByRole("button", { name: /처음 학습하기/, exact: false })).toBeVisible();
+  await expect(page.getByRole("button", { name: /이어서 학습하기/, exact: false })).toHaveCount(0);
+});
+
+test("학습센터: 메뉴 순서 — 학습센터가 업무 자동화 진단 바로 위", async ({ page }) => {
+  await page.goto("/");
+  // AI•AX 그룹 내 메뉴 순서 확인
+  const nav = page.locator("nav").first();
+  const items = await nav.getByRole("button").allTextContents();
+  const learnIdx = items.findIndex((t) => t.trim() === "학습센터");
+  const axIdx = items.findIndex((t) => t.includes("업무 자동화 진단"));
+  expect(learnIdx).toBeGreaterThanOrEqual(0);
+  expect(axIdx).toBeGreaterThanOrEqual(0);
+  expect(axIdx).toBe(learnIdx + 1);
 });

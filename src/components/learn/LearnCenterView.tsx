@@ -223,10 +223,12 @@ function LearnDashboard(props: {
   const complete = isLearningComplete(progress);
   // 이어서 학습하기: 통과하지 못한 첫 번째 해제 단계
   const nextLevel = ALL_LEVELS.find((l) => canUnlockLevel(l, progress) && !progress.levels[l]?.passed);
+  // 신규 사용자: 어떤 단계에도 응시한 적이 없음
+  const isNewLearner = !ALL_LEVELS.some((l) => (progress.levels[l]?.attempts.length ?? 0) > 0);
 
   return (
     <div>
-      <h2>AI·AX 학습센터</h2>
+      <h2>학습센터</h2>
       <p className="learn-muted">
         AI·AX 기초부터 업무 자동화 판단, AI 도구 활용, 개발·배포 실무까지 단계별로 학습합니다.
         각 단계를 통과하면 다음 단계가 해제됩니다.
@@ -243,7 +245,7 @@ function LearnDashboard(props: {
         <div className="learn-actions">
           {nextLevel ? (
             <Button type="button" variant="default" onClick={() => props.onOpenLesson(nextLevel)}>
-              이어서 학습하기 (LEVEL {nextLevel})
+              {isNewLearner ? "처음 학습하기" : "이어서 학습하기"} (LEVEL {nextLevel})
             </Button>
           ) : complete ? (
             <Button type="button" variant="default" onClick={props.onOpenCertificate}>
@@ -312,7 +314,7 @@ function LearnDashboard(props: {
               </div>
               <div className="learn-actions" style={{ margin: 0 }}>
                 <Button type="button" variant="outline" size="sm" disabled={!unlocked} onClick={() => props.onOpenLesson(level)}>
-                  학습하기
+                  {lp?.passed ? "복습하기" : "학습하기"}
                 </Button>
                 <Button type="button" variant="default" size="sm" disabled={!unlocked} onClick={() => props.onStartQuiz(level)}>
                   퀴즈 응시

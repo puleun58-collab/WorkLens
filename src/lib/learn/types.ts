@@ -32,7 +32,12 @@ export interface LearnUnit {
   usageSituations: string[];
   comparisons?: { a: string; b: string; difference: string }[];
   cases: { title: string; situation: string; lesson: string }[];
-  practice?: { title: string; steps: string[] };
+  practice?: {
+    title: string;
+    steps: string[];
+    /** 복사 가능한 명령어 예시 (CLI·Git) */
+    commands?: string[];
+  };
   mistakes: { mistake: string; why: string; fix: string }[];
   summary: string[];
 }
