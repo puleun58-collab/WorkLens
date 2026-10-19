@@ -14,7 +14,7 @@ import { useAxState } from "@/client/use-ax-state";
 import { runInWorker } from "@/client/document-client";
 import { diagnoseAx, planAx, interruptServerAi, aiFailureDetail } from "@/client/server-ai-client";
 import { AX_LIMITS, FACTOR_LABELS, axTaskSchema, axTaskV2Schema, confirmedAxDiagnosis } from "@/lib/ax/schema";
-import { axes, automationLevel, bubbleArea, executionGate, executionProfile, GATE_LABELS, planAllowed, priorityHeading, factorEffectiveValue, factorHasAdjustment, factorScale, matrixPosition, monthlyMinutes, nextAction, priority, REGION_LABELS, splitGatePrerequisites, taskStatus, taskDisplayStatus } from "@/lib/ax/policy";
+import { axes, automationLevel, bubbleArea, executionGate, executionProfile, gateBlockReasons, GATE_LABELS, planAllowed, priorityHeading, factorEffectiveValue, factorHasAdjustment, factorScale, matrixPosition, monthlyMinutes, nextAction, priority, REGION_LABELS, splitGatePrerequisites, taskStatus, taskDisplayStatus } from "@/lib/ax/policy";
 import { candidateTask, taskDetails, followUpDescription, legacyDetailValues, validateAttachmentPreflight, isRegistrationUnchanged } from "@/lib/ax/registration";
 import { exportAxState, importAxState } from "@/lib/ax/transfer";
 import { emptyAxState, type AxStateV2, type AxTask, type AxDiagnosis, type AxDetails, type FactorKey } from "@/lib/ax/types";
@@ -744,11 +744,13 @@ function MatrixDetailCard({ task, diagnosis }: { task: AxTask; diagnosis: AxDiag
   const gateChecks = splitGatePrerequisites(d);
   const profile = executionProfile(d);
   const next = nextAction(d);
-  const openChecks = d.technicalChecks.filter(check => check.status !== "확인됨").length;
-  const basis = gate === "blocked" ? ["Decision Gate 진행 불가(no-go)"] : [
-    ...(d.decisionGate.verdict === "conditional" ? ["Decision Gate 조건부 판정"] : []),
+  const openChecks = d.technicalChecks.filter(check => check.status !== "확인됨" && check.required !== false).length;
+  const decisionReasons = d.decisionGate.reasons ?? [];
+  const basis = gate === "blocked" ? gateBlockReasons(d) : [
+    ...decisionReasons,
+    ...(!decisionReasons.length && d.decisionGate.verdict === "conditional" ? ["Decision Gate 조건부 판정"] : []),
     ...(d.informationSufficiency === "needs-check" ? ["핵심 정보 부족(추가 질문 필요)"] : []),
-    ...(openChecks ? [`미확인 기술 확인사항 ${openChecks}건`] : []),
+    ...(openChecks ? [`미확정 필수 기술 조건 ${openChecks}건`] : []),
   ];
   const sampleScope = profile.poc.inScope.filter(item => !item.startsWith("선행 확인사항")).slice(0, 2);
   const scope = gate === "blocked" ? "분석·검증만 가능 (기능 구현·운영 연결 불가)" : `${sampleScope.length ? sampleScope.join(" · ") : "샘플 데이터 검증"} — 조건에 의존하는 기능은 확인 후 구현`;

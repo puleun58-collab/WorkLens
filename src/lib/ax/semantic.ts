@@ -100,3 +100,56 @@ export function validateAxSemantics(diagnosis: AxDiagnosisOutput, request: AxDia
   }
   return [...violations.values()];
 }
+
+/** Consistency categories between decisionGate.verdict, informationSufficiency and technicalChecks. */
+export type AxGateConsistencyCategory =
+  | "go_with_unconfirmed_required"
+  | "go_with_insufficient_information"
+  | "conditional_without_required_cause"
+  | "conditional_on_approval_only"
+  | "confirmed_but_note_unconfirmed";
+
+export interface AxGateConsistencyIssue {
+  category: AxGateConsistencyCategory;
+  detail: string;
+}
+
+/** A note that reads as still-unconfirmed even though the check is marked 확인됨. */
+const UNCONFIRMED_NOTE = /미확인|미확정|확인 필요|알 수 없|불명확/;
+/** Reasons that only restate the 담당자 approval flow, which belongs to humanInLoop, not the gate. */
+const APPROVAL_ONLY_REASON = /승인|검토|담당자/;
+
+/**
+ * Read-only consistency check for decisionGate.verdict × informationSufficiency × technicalChecks.
+ * Never rewrites the model's verdict or changes Gate policy: it only reports structural conflicts
+ * (required conditions confirmed yet conditional without cause, go despite gaps, confirmed flags
+ * with unconfirmed notes) so reviewers and tests can spot over-conditional diagnoses.
+ */
+export function validateAxGateConsistency(diagnosis: AxDiagnosisOutput): AxGateConsistencyIssue[] {
+  const issues: AxGateConsistencyIssue[] = [];
+  const requiredUnconfirmed = diagnosis.technicalChecks.filter(check => check.status !== "확인됨" && check.required !== false);
+  const { verdict, reasons } = diagnosis.decisionGate;
+
+  if (verdict === "go" && requiredUnconfirmed.length) {
+    issues.push({
+      category: "go_with_unconfirmed_required",
+      detail: `go 판정인데 미확정 필수 조건이 있습니다: ${requiredUnconfirmed.map(check => check.topic).join(", ")}`,
+    });
+  }
+  if (verdict === "go" && diagnosis.informationSufficiency === "needs-check") {
+    issues.push({ category: "go_with_insufficient_information", detail: "핵심 정보가 부족한데 go로 판정되었습니다." });
+  }
+  if (verdict === "conditional" && !requiredUnconfirmed.length && diagnosis.informationSufficiency !== "needs-check") {
+    if (!reasons.length) {
+      issues.push({ category: "conditional_without_required_cause", detail: "미확정 필수 조건·핵심 정보 부족 없이 근거도 없이 conditional로 판정되었습니다." });
+    } else if (reasons.every(reason => APPROVAL_ONLY_REASON.test(reason))) {
+      issues.push({ category: "conditional_on_approval_only", detail: "담당자 승인 단계 사유만으로 무관한 독립 단계까지 조건부로 제한되었습니다." });
+    }
+  }
+  for (const check of diagnosis.technicalChecks) {
+    if (check.status === "확인됨" && UNCONFIRMED_NOTE.test(check.note)) {
+      issues.push({ category: "confirmed_but_note_unconfirmed", detail: `확인 완료 표시인데 note가 미확정을 시사합니다: ${check.topic}` });
+    }
+  }
+  return issues;
+}

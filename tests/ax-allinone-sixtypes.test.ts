@@ -50,10 +50,12 @@ describe("6 business-type generation quality", () => {
         expect(p).not.toContain("연결된 진단 단계가 확인되지 않았습니다");
       });
 
-      it("keeps Level × Gate labels intact", () => {
+      it("emits execution conditions without internal diagnostic grades", () => {
         const p = promptFor(c);
-        expect(p).toMatch(/Level [0-3]/);
-        expect(p).toMatch(/실행 상태/);
+        // 실행 조건 섹션은 업무 목적과 실행 제약 문장만 포함한다 (진단 점수·등급 번호·Gate 상태명 없음).
+        expect(p).toMatch(/### 실행 조건/);
+        expect(p).not.toMatch(/자동화 (수준|가치):|기술 실현 가능성:|담당자 판단 필요도:|운영 위험:/);
+        expect(p).not.toMatch(/Level [0-3]/);
       });
 
       it("does not instruct unattended automation", () => {

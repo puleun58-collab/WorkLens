@@ -60,7 +60,8 @@ describe("AX all-in-one quality: diesel price regression case", () => {
 
   it("preserves Level 1 user-initiated execution and HITL/human constraints", () => {
     const prompt = promptFor();
-    expect(prompt).toContain("Level 1");
+    // Level 번호는 출력하지 않되, 해당 정책의 실행 제한(보조 수준 유지·무인 실행 금지)은 그대로 적용된다.
+    expect(prompt).toContain("자동화 범위를 현재 보조 수준에서 확대하지 마세요");
     expect(prompt).toMatch(/담당자가 실행을 요청하면|담당자 요청 기반/);
     expect(prompt).toMatch(/무인|스케줄러/);
     expect(prompt).toContain("담당자 최종 검토 (담당자 수행)");

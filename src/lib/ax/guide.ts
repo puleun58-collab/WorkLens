@@ -1,5 +1,5 @@
 import type { AxDiagnosis, AxPlan } from "./types";
-import { automationLevel, axes, executionProfile, GATE_LABELS, type ExecutionGate, type ExecutionProfile, type StepScope } from "./policy";
+import { automationLevel, axes, executionProfile, type ExecutionGate, type ExecutionProfile, type StepScope } from "./policy";
 import { FACTOR_KEYS } from "./schema";
 import { extractPlanReviewableItems, extractReviewableItems, getValidConfirmedReviews, buildPlanReviewKeyMap } from "./hitl";
 
@@ -254,6 +254,14 @@ const LEVEL_CONSTRAINTS = [
   "담당자가 요청할 때 후보·초안을 제안하거나 진단 메모에 명시된 확인된 규칙을 보조적으로 처리하세요. 담당자 요청 없이 운영 업무가 무인·정기 자동 실행되거나 담당자 판단·승인을 대체하게 하지 마세요. 예외 검토와 최종 판단·승인은 담당자에게 유지합니다. 자동화 범위를 Level 2~3 수준으로 확대하지 마세요.",
   "반복·규칙 기반 단계는 자동화할 수 있지만 주요 예외와 승인 단계는 담당자에게 유지합니다.",
   "높은 수준의 자동화가 가능하지만 승인·안전·법률·권한과 관련된 단계는 진단 결과대로 유지합니다.",
+] as const;
+
+/** LEVEL_CONSTRAINTS의 출력용 버전: Level 번호 언급을 실행 조건 문장으로 바꾼다. 정책 제한 내용은 동일. */
+const LEVEL_CONSTRAINTS_OUTPUT = [
+  LEVEL_CONSTRAINTS[0],
+  "담당자가 요청할 때 후보·초안을 제안하거나 진단 메모에 명시된 확인된 규칙을 보조적으로 처리하세요. 담당자 요청 없이 운영 업무가 무인·정기 자동 실행되거나 담당자 판단·승인을 대체하게 하지 마세요. 예외 검토와 최종 판단·승인은 담당자에게 유지합니다. 자동화 범위를 현재 보조 수준에서 확대하지 마세요.",
+  LEVEL_CONSTRAINTS[2],
+  LEVEL_CONSTRAINTS[3],
 ] as const;
 
 /** Gate rules for section 03. A blocked gate never permits implementation, scaffolding or operational connection. */
@@ -1472,7 +1480,9 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
   const sections: { title: string; body: string }[] = [];
   const section = (title: string, ...content: string[]) => sections.push({ title, body: content.filter(Boolean).join("\n\n") });
   const objective = !profile ? "진단 결과가 없어 실행 범위를 확정할 수 없습니다. 진단 결과를 확인하기 전에는 아래 제안을 구현하지 말고 확인할 항목을 보고하세요."
-    : scopeLevel === 0 ? `${gate === "blocked" ? "진행 보류 상태입니다." : "Level 0 범위입니다."} 운영 기능을 구현하지 말고 아래 검토·검증 결과와 다음 진단에 필요한 정보를 보고하세요.`
+    : scopeLevel === 0 ? gate === "blocked"
+      ? `${GATE_CONSTRAINTS.blocked} 아래 검토·검증 결과와 다음 진단에 필요한 정보를 보고하세요.`
+      : "검토·검증 범위입니다. 운영 기능을 구현하지 말고 아래 검토·검증 결과와 다음 진단에 필요한 정보를 보고하세요."
     : !work.length ? "현재 실행 범위에 구현할 업무 단계가 없습니다. 아래 확인 작업과 보고만 수행하세요."
     : gate === "ready" ? "'이번 구현' 단계를 실제 입력으로 동작하고 검증된 기능으로 완성하세요."
     : "선행 조건을 각 단계의 실제 의존 관계에 대조해 확인된 '확인 후 구현' 단계부터 실제로 동작하고 검증된 기능으로 완성하세요. 미확인 조건에 의존하는 부분만 보류 사유와 함께 보고하세요.";
@@ -1538,12 +1548,11 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
   const hitl = model.hitlDetails;
   // 1. 개발 목표: 무엇을·왜·어디까지 만드는가
   section("개발 목표",
-    d && level && gate && a ? `### 진단 기준\n\n${bullets([
+    d && level && gate && a ? `### 실행 조건\n\n${bullets([
       ...(d.asIs?.purpose ? [`업무 목적: ${d.asIs.purpose}`] : []),
-      `자동화 수준: ${level.label.replace(/^L\d+ /u, "")} · Level ${level.level}${level.provisional ? " (정보 부족으로 잠정 판정)" : ""}`,
-      `자동화 가치: ${a.value}/5`, `기술 실현 가능성: ${a.feasibility}/5`, `담당자 판단 필요도: ${a.judgment}/5`, `운영 위험: ${a.risk}/5`,
-      `실행 상태: ${GATE_LABELS[gate]}`,
-    ])}\n\n${LEVEL_CONSTRAINTS[level.level]} 실제 실행 범위는 Level 정책과 실행 상태가 함께 허용한 범위이며, TO-BE·생성 계획·매트릭스 위치는 이 범위를 넓히지 않습니다.` : "",
+      LEVEL_CONSTRAINTS_OUTPUT[level.level],
+      GATE_CONSTRAINTS[gate],
+    ])}\n\n실제 실행 범위는 현재 허용 범위를 따르며, TO-BE·생성 계획·매트릭스 위치는 이 범위를 넓히지 않습니다.` : "",
     `### 이번 작업 목표\n\n${objective}`,
     options.context?.trim() ? `### 업무 등록 원문\n\n${bullets([...(options.taskName ? [`업무명: ${options.taskName}`] : []), `업무 설명·추가 정보: ${options.context.trim()}`])}\n\n진단과 충돌하는 내용은 임의로 덮어쓰지 말고 해당 부분의 확정 범위를 확인하세요.` : "",
     goals.some(item => item.scope !== "future") ? `### 생성 계획 목표\n\n${bullets(goals.filter(item => item.scope !== "future").map(evidenceLine))}` : "",
@@ -1554,7 +1563,7 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
     future.length || outside.length ? `### 향후 확장 (이번 작업에서 구현하지 않음)\n\n${bullets([...future.map(s => s.step), ...outside])}` : "",
     hitl && (hitl.deferred.length > 0 || hitl.supplements.length > 0) ? `### 사람 검토 반영\n\n${[
       hitl.deferred.length > 0 ? `보류된 작업 (현재 구현하지 않음):\n${hitl.deferred.map(x => `- ${x.key}${x.reason ? `\n  - 보류 사유: ${x.reason}` : ""}${x.resumeCondition ? `\n  - 재개 조건: ${x.resumeCondition}` : ""}`).join("\n")}\n위 작업은 현재 구현 범위에서 제외됩니다. 재개 조건이 충족되어도 자동으로 재개하지 말고 담당자에게 확인하세요.` : "",
-      hitl.supplements.length > 0 ? `보완 요구사항·검증 기준:\n${hitl.supplements.map(x => `- ${x.key}\n  - 보완 내용: ${x.content}`).join("\n")}\n위 보완 내용은 원본 범위에 추가하여 관련 구현·검증 기준에 반영하세요. 단, Level·Gate·담당자 유지·제외·보류 범위를 넘어서는 부분은 구현하지 말고 사유를 보고하세요. 확인되지 않은 API·권한·DB를 임의로 추가하지 마세요.` : "",
+      hitl.supplements.length > 0 ? `보완 요구사항·검증 기준:\n${hitl.supplements.map(x => `- ${x.key}\n  - 보완 내용: ${x.content}`).join("\n")}\n위 보완 내용은 원본 범위에 추가하여 관련 구현·검증 기준에 반영하세요. 단, 담당자 유지·제외·보류 범위를 넘어서는 부분은 구현하지 말고 사유를 보고하세요. 확인되지 않은 API·권한·DB를 임의로 추가하지 마세요.` : "",
     ].filter(Boolean).join("\n\n")}` : "",
   );
   // 2. INPUT·PROCESS·OUTPUT: 실제 데이터 흐름 중심
@@ -1607,9 +1616,9 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
   );
   // 5. 예외·유지 조건
   section("예외·유지 조건",
-    gate ? `실행 상태는 \`${GATE_LABELS[gate]}\`입니다. ${gate === "conditional" && scopeLevel === 0
-      ? "Level 0 범위는 검토·검증만 허용합니다. 각 검토 작업이 의존하는 항목이 확인되지 않았으면 그 검토만 보류하고 '확인·승인 대기'로 보고하세요. 의존하지 않는 검토(프로젝트 구조·기존 자료 확인 등)는 진행할 수 있습니다."
-      : GATE_CONSTRAINTS[gate]}` : "",
+    gate ? (gate === "conditional" && scopeLevel === 0
+      ? "검토·검증만 허용됩니다. 각 검토 작업이 의존하는 항목이 확인되지 않았으면 그 검토만 보류하고 '확인·승인 대기'로 보고하세요. 의존하지 않는 검토(프로젝트 구조·기존 자료 확인 등)는 진행할 수 있습니다."
+      : GATE_CONSTRAINTS[gate]) : "",
     gate === "blocked" && profile?.blockReasons.length ? `### 차단 사유\n\n${bullets(profile.blockReasons)}` : "",
     conditions.length ? `### 현재 필수 조건\n\n${bullets(conditions)}` : "",
     unassignedConditions.length || gaps.length ? `### 적용 단계 확인 필요\n\n${bullets([...unassignedConditions, ...gaps])}` : "",
@@ -1679,7 +1688,7 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
   ]),
   "작업이 끝나면 다음 형식으로 보고하세요.",
   numbered([
-    "확인한 프로젝트 구조", "현재 Level·실행 상태와 허용 범위", "단계별 완료 상태 (위 완료 상태 구분 사용)", "수정·생성한 파일", "입력·처리·출력 구조",
+    "확인한 프로젝트 구조", "현재 허용 범위", "단계별 완료 상태 (위 완료 상태 구분 사용)", "수정·생성한 파일", "입력·처리·출력 구조",
     "실제로 확인한 실행 방법과 명령", "검증 결과 (실행하지 않은 검증은 미실행)", "담당자 확인이 필요한 항목", "미구현·보류·차단된 기능과 해결 조건",
     "다음 개발 단계", "Git 상태", "배포·운영 적용 상태",
   ]),
