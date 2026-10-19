@@ -1676,3 +1676,33 @@ for (const [fromStep, toStep, toTab] of [[4, 3, "자동화 매트릭스"], [3, 2
     await expect.poll(async () => (await record(page))?.selectedTaskId).toBe(tasks[0].id);
   });
 }
+test("AX coding tool selection syncs plan review, all-in-one instructions and setup guide", async ({ page }) => {
+  const codexPlan = { ...planFixture, implementation: ["Codex 계획 항목"], acceptance: ["Codex 완료 기준"], tests: [] };
+  const claudePlan = { ...planFixture, implementation: ["Claude 계획 항목"], acceptance: ["Claude 완료 기준"], tests: [] };
+  const diagnosis = { ...diagnosisFixture, planCodex: codexPlan, planClaude: claudePlan };
+  const task = taskFixture("tool-sync", diagnosis);
+  await page.goto("/");
+  await seed(page, { ...emptyAxState(), tasks: [task], selectedTaskId: task.id, step: 4 });
+  await ax(page);
+  const planSection = page.getByRole("region", { name: "자동화 구현 계획", exact: true });
+  const review = planSection.getByRole("region", { name: "구현 계획 검토", exact: true });
+  // 최초 진입: 양쪽 계획이 있으면 Codex가 기본 선택 (검토·지시문 모두)
+  await expect(review.getByText("Codex 계획 항목", { exact: true })).toBeVisible();
+  await expect(review.getByText("Claude 계획 항목", { exact: true })).toHaveCount(0);
+  await expect(planSection.getByRole("button", { name: "Codex용 올인원 지시문 복사", exact: true })).toBeVisible();
+  // 04 올인원 지시문에서 Claude Code 선택 → 구현 계획 검토도 동일 도구 선택
+  await planSection.getByRole("tab", { name: "Claude Code", exact: true }).click();
+  await expect(review.getByText("Claude 계획 항목", { exact: true })).toBeVisible();
+  await expect(review.getByText("Codex 계획 항목", { exact: true })).toHaveCount(0);
+  await expect(planSection.getByRole("button", { name: "Claude Code용 올인원 지시문 복사", exact: true })).toBeVisible();
+  // 구현 계획 검토에서 Codex 선택 → 04 올인원 지시문도 동일 도구 선택
+  await review.getByRole("button", { name: "Codex", exact: true }).click();
+  await expect(review.getByText("Codex 계획 항목", { exact: true })).toBeVisible();
+  await expect(review.getByText("Claude 계획 항목", { exact: true })).toHaveCount(0);
+  await expect(planSection.getByRole("button", { name: "Codex용 올인원 지시문 복사", exact: true })).toBeVisible();
+  // 설치·시작 가이드는 현재 선택 도구(Codex)의 명령어를 표시 (레이아웃·클립보드 포함 검증)
+  const guideTrigger = planSection.getByRole("button", { name: "설치·시작 가이드", exact: true });
+  await guideTrigger.click();
+  await expect(guideTrigger).toHaveAttribute("aria-expanded", "true");
+  await expectGuideTutorial(page, planSection.locator(".ax-guide-panel"), "Codex");
+});

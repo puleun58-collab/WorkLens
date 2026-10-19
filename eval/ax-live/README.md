@@ -42,3 +42,30 @@ schema·policy·Level·Gate·Matrix 좌표·plan guard 같은 결정적 동작�
 `eval/ax-live/results/agent-<timestamp>/agent-verification.json`에 PASS/FAIL/BLOCKED/NOT_RUN 10건과 입력·출력 검사 근거가 저장됩니다. 같은 디렉터리의 진단·계획·생성 지시문·에이전트 로그는 민감할 수 있어 gitignore 대상이며 공유 전에 확인해야 합니다. 로컬 통과는 운영 배포·Production 검증 통과를 의미하지 않습니다. 이 실행은 Git push나 배포를 하지 않습니다.
 
 Codex·Claude Code CLI의 로그인 만료·미로그인(토큰 만료, 401 등)은 구현 실패가 아니라 BLOCKED로 기록합니다. 네트워크 연결 실패(모델 갱신 타임아웃, transport channel 종료, workspace routing 실패 등)도 구현 실패가 아닌 BLOCKED로 분류합니다. 실행 전 `codex login status`와 `claude auth status`로 확인하고, 만료되었으면 `codex logout` 후 `codex login`, `claude auth login`으로 다시 로그인합니다.
+
+### 결과 분류: failureStage / causeCode
+
+각 결과에는 선택 필드 `failureStage`(오류 발생 단계)와 `causeCode`(원인 코드)가 추가로 기록됩니다. 기존 필드는 그대로 유지되므로 기존 결과 파일과 호환됩니다. 단계는 `diagnosis-request`(진단 요청) → `plan-generation`(계획 생성) → `prompt-generation`(지시문 생성) → `agent-env-prep`(실행 환경 준비) → `agent-auth-network`(CLI 인증·네트워크) → `agent-exec`(에이전트 실행) → `functional-test`(기능 테스트) → `result-recording`(결과 기록) 순서로 추적되며, 실패가 표면화된 시점의 단계가 기록됩니다.
+
+outcome 판정 기준:
+
+| outcome | 의미 | causeCode 예시 |
+|---|---|---|
+| PASS | 모든 기능 검사가 통과 | (없음) |
+| FAIL | 구현 실패 또는 기능 검증 실패. WorkLens API HTTP 오류도 FAIL(서버 자체가 검증 대상이므로 파이프라인 실패) | `worklens-api-error`, `agent-exec-failed`, `agent-timeout`, `functional-check-failed`, `fixture-modified`, `schema-validation-error` |
+| FAIL (평가기 오류 구분) | 평가기 자체 오류는 구현 실패와 구분해 표시 — outcome은 FAIL을 유지하고 causeCode로 구분 | `evaluator-error` |
+| BLOCKED | 실제 로그 근거가 있는 인증·네트워크·환경 문제로 실행 불가 | `auth-expired`, `network-blocked`, `cli-missing` |
+| NOT_RUN | 검증 미실행 | (없음) |
+
+분류 규칙: 모든 예외를 일괄 BLOCKED로 처리하지 않습니다. 인증 만료·네트워크 차단은 아래 감지 패턴이 에이전트 로그에 실제로 나타났을 때만 BLOCKED이며, 패턴 없이 비정상 종료하면 `agent-exec-failed`(FAIL)입니다. 일부 검사만 통과해도 PASS가 아니며, 검사를 실행하지 않았으면 성공으로 기록하지 않습니다.
+
+BLOCKED 감지 패턴(`error-classify.ts`의 `AUTH_BLOCKED_RE` / `NETWORK_BLOCKED_RE`, 에이전트 stdout·stderr 대상):
+
+- 인증: `token_expired`, `refresh token was already used`, `OAuth session expired`, `Not logged in`, `Please log out and sign in again`, `401 Unauthorized`
+- 네트워크: `failed to refresh available models`, `Transport channel closed`, `http/request failed`, `workspace routing discovery failed`, `Reconnecting...`, `request timed out`, `error sending request for url`
+
+단, WorkLens API 요청 자체가 HTTP 응답 없이 실패한 경우(연결 거부·DNS 등 fetch 레벨 실패)는 위 로그 패턴과 별도로 `network-blocked`(BLOCKED)로, HTTP 오류 응답·요청 타임아웃은 `worklens-api-error`(FAIL)로 분류합니다.
+
+에이전트 로그와 검사 기록을 디스크에 쓸 때는 API 키·토큰 패턴을 `[REDACTED]`로 마스킹합니다(`redactSecrets`). 분류는 마스킹 전 원문 로그로 수행됩니다.
+
+분류 로직은 `eval/ax-live/error-classify.ts`의 `classifyError()`에 모여 있으며, `bun test eval/ax-live/agent-run-classify.test.ts`로 10개 오류 상황을 격리 테스트합니다(실제 에이전트 미실행).

@@ -785,6 +785,13 @@ export function AxExecutionPackage({ plan, target, taskName, taskContext, prereq
   </div>;
 }
 
+/** 구현 계획 검토와 04 올인원 지시문·설치 가이드가 공유하는 코딩 도구 선택.
+ * 명시적 선택이 우선하고, 선택이 없으면 계획이 존재하는 도구(Codex 우선)를 사용한다.
+ * 도구 변경은 생성된 계획과 검토 데이터를 삭제하지 않으며, 각 도구의 검토 확정 상태는
+ * 도구별 검토 키(planCodex:/planClaude:)로 분리 유지된다. */
+export function resolveActiveTool(selectedTool: AxToolId | null, plans: { codex?: AxPlan; claude?: AxPlan }): AxToolId {
+  return selectedTool ?? (plans.codex ? "codex" : "claude");
+}
 export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenerate, reviewProps }: {
   diagnosis: AxDiagnosis;
   taskName: string;
@@ -798,7 +805,7 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
   const prerequisites = gate === "blocked" ? [] : profile.prerequisites;
   const plans = { codex: diagnosis.planCodex, claude: diagnosis.planClaude };
   const [selectedTool, setSelectedTool] = useState<AxToolId | null>(null);
-  const activeTool = selectedTool ?? (plans.codex ? "codex" : "claude");
+  const activeTool = resolveActiveTool(selectedTool, plans);
   const activePlan = plans[activeTool];
   const summary = planSummary(diagnosis, gate !== "blocked" ? activePlan : undefined, [taskName, taskContext].join("\n"));
   const instructionsId = useId();
@@ -822,7 +829,7 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
     </> : <>
       {!plans.codex && !plans.claude ? <div className="ax-actions">{generateButton("codex")}{generateButton("claude")}</div> : null}
     </>}
-    {reviewProps && (plans.codex || plans.claude) ? <AxPlanReview plans={plans} reviewProps={reviewProps} /> : null}
+    {reviewProps && (plans.codex || plans.claude) ? <AxPlanReview plans={plans} reviewProps={reviewProps} activeTool={activeTool} onToolChange={setSelectedTool} /> : null}
     <section ref={instructionsRef} id={`${instructionsId}-section`} className="ax-plan-instructions" aria-labelledby={instructionsId}><AxPlanHeading id={instructionsId} no="04" title="올인원 지시문" />
       {gate === "blocked" ? <p role="status" className="ax-notice">현재 진단에서는 구현 계획 생성 불가</p> : <>
         {plans.codex || plans.claude ?
@@ -849,20 +856,27 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
   </section>;
 }
 
-/** 구현 계획 검토 섹션 (Codex/Claude Code별) - 테이블형 UI */
-function AxPlanReview({ plans, reviewProps }: { plans: { codex?: AxPlan; claude?: AxPlan }; reviewProps: AxProcessReviewProps }) {
+/** 구현 계획 검토 섹션 (Codex/Claude Code별) - 테이블형 UI
+ * 도구 선택은 AxPlanSection의 공통 상태와 공유한다: 04 올인원 지시문·설치 가이드와 양방향 연동된다.
+ * 각 도구의 검토 항목은 도구별 검토 키(planCodex:/planClaude:)로 분리되므로 도구 전환 후에도
+ * 기존 확정 결과가 유지되고, 확정하지 않은 검토 결과가 다른 도구에 임의 반영되지 않는다. */
+function AxPlanReview({ plans, reviewProps, activeTool, onToolChange }: {
+  plans: { codex?: AxPlan; claude?: AxPlan };
+  reviewProps: AxProcessReviewProps;
+  activeTool: AxToolId;
+  onToolChange: (tool: AxToolId) => void;
+}) {
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [editingKey, setEditingKey] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"codex" | "claude">(plans.codex ? "codex" : "claude");
 
   const items = (() => {
     const result: { tool: "codex" | "claude"; item: ReviewableItem }[] = [];
-    if (plans.codex && (activeTab === "codex" || !plans.claude)) {
+    if (plans.codex && (activeTool === "codex" || !plans.claude)) {
       for (const item of extractPlanReviewableItems(plans.codex, "codex")) {
         result.push({ tool: "codex", item });
       }
     }
-    if (plans.claude && (activeTab === "claude" || !plans.codex)) {
+    if (plans.claude && (activeTool === "claude" || !plans.codex)) {
       for (const item of extractPlanReviewableItems(plans.claude, "claude")) {
         result.push({ tool: "claude", item });
       }
@@ -891,8 +905,8 @@ function AxPlanReview({ plans, reviewProps }: { plans: { codex?: AxPlan; claude?
         </div>
       </div>
       {plans.codex && plans.claude ? <div className="ax-hitl-plan-tabs" role="tablist" style={{ padding: "12px 20px 0" }}>
-        <Button type="button" variant={activeTab === "codex" ? "default" : "outline"} size="sm" onClick={() => setActiveTab("codex")}>Codex</Button>
-        <Button type="button" variant={activeTab === "claude" ? "default" : "outline"} size="sm" onClick={() => setActiveTab("claude")}>Claude Code</Button>
+        <Button type="button" variant={activeTool === "codex" ? "default" : "outline"} size="sm" onClick={() => onToolChange("codex")}>Codex</Button>
+        <Button type="button" variant={activeTool === "claude" ? "default" : "outline"} size="sm" onClick={() => onToolChange("claude")}>Claude Code</Button>
       </div> : null}
       <div style={{ overflowX: "auto" }}>
         <table className="ax-hitl-table">
