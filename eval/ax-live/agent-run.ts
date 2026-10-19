@@ -9,7 +9,7 @@ import { pathToFileURL } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import { extractReviewableItems, extractPlanReviewableItems, validateReviewForConfirm, getValidConfirmedReviews } from "../../src/lib/ax/hitl";
 import { buildAllInOnePrompt } from "../../src/lib/ax/guide";
-import { executionProfile, type ExecutionProfile } from "../../src/lib/ax/policy";
+import { executionProfile, automationLevel, type ExecutionProfile } from "../../src/lib/ax/policy";
 import { axDiagnosisOutputSchema, axPlanSchema, axTaskV2Schema, hitlReviewSchema, confirmedAxDiagnosis } from "../../src/lib/ax/schema";
 import type { AxDiagnosis, AxPlan, AxTaskV2, HitlReview } from "../../src/lib/ax/types";
 import { AGENT_SCENARIOS, type AgentScenario } from "./agent-scenarios";
@@ -206,6 +206,19 @@ for (const s of AGENT_SCENARIOS) {
         record({ agentTimedOut: true, exitCode: r.exitCode }, "Agent execution timed out at 360s");
       } else if (r.exitCode !== 0) {
         record({ exitCode: r.exitCode }, `Agent exited ${r.exitCode}; see agent log`);
+      } else if (automationLevel(diagnosis).level === 0) {
+        // Level 0 instructs review-only: the agent must NOT implement. Verify
+        // abstention instead of running functional checks.
+        stage = "functional-test";
+        const implFiles = r.generatedFiles.filter(f => !/\.md$/i.test(f));
+        if (implFiles.length === 0) {
+          r.outcome = "PASS";
+          r.causeCode = "level-zero-abstention";
+          r.failureStage = "functional-test";
+          r.reason = "Level 0: agent correctly abstained from implementation per Gate policy (review-only); implementation NOT_RUN by instruction";
+        } else {
+          record({ exitCode: 0, functionalFailed: true }, `Level 0 violation: agent implemented ${implFiles.join(", ")} despite review-only instruction`);
+        }
       } else {
         stage = "functional-test";
         r.checks = await functionalChecks(s, dir);

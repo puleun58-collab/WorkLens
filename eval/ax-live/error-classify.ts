@@ -42,7 +42,8 @@ export type CauseCode =
   | "evaluator-error"         // evaluator-internal error (distinct from implementation failure)
   | "auth-expired"            // CLI auth expired/missing, proven by log patterns
   | "network-blocked"         // network unreachable, proven by log patterns or fetch failure
-  | "cli-missing";            // CLI executable not installed
+  | "cli-missing"             // CLI executable not installed
+  | "level-zero-abstention";  // Level 0: agent correctly abstained from implementation
 
 export interface ClassifyInput {
   /** Pipeline stage that was active when the failure surfaced. */
