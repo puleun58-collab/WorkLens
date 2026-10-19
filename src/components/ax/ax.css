@@ -1,4 +1,4 @@
-.ax-view { color: var(--foreground); padding: 0 0 40px; font-size: var(--font-size-sm); line-height: 1.7; overflow-anchor: none; }
+.ax-view { color: var(--foreground); padding: 0 0 40px; font-size: var(--font-size-sm); line-height: 1.7; overflow-anchor: none; word-break: keep-all; overflow-wrap: anywhere; }
 /* 단계 전환 시 브라우저 스크롤 앵커링이 스크롤 위치를 복원하는 것을 방지 */
 .ax-view h2 { font-size: 21px; font-weight: 650; margin: 20px 0 12px; }
 .ax-view h3 { font-size: 17px; font-weight: 650; margin: 0 0 12px; }
