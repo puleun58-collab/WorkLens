@@ -785,8 +785,11 @@
 .ax-diag-questions li { display: flex; gap: 10px; align-items: flex-start; font-size: 13.5px; line-height: 1.6; }
 .ax-q-num { flex: none; width: 22px; height: 22px; border-radius: 999px; background: color-mix(in srgb, var(--primary) 10%, transparent); color: var(--primary); font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
 .ax-answer-btn { width: 100%; }
-.ax-matrix-rationale > h4, .ax-matrix-prereqs > h4 { margin: 0 0 10px; font-size: 14px; display: flex; align-items: center; gap: 6px; }
+.ax-matrix-rationale > h4, .ax-matrix-prereqs > h4, .ax-matrix-gate-status > h4 { margin: 0 0 10px; font-size: 14px; display: flex; align-items: center; gap: 6px; }
 .ax-matrix-rationale ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 8px; font-size: 13.5px; line-height: 1.6; }
+.ax-matrix-detail-cols { grid-template-columns: minmax(0, 45fr) minmax(0, 55fr); }
+.ax-matrix-detail-left { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.ax-matrix-gate-status .ax-gate-basis { margin-top: 0; }
 .ax-matrix-prereqs ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; font-size: 13.5px; line-height: 1.6; }
 .ax-matrix-prereqs li { display: flex; gap: 8px; align-items: flex-start; }
 .ax-matrix-prereqs li::before { content: "•"; color: var(--primary); font-weight: 700; flex: none; }
@@ -927,9 +930,6 @@
 .ax-matrix-task-panel { display: flex; flex-direction: column; min-width: 0; }
 .ax-matrix-list-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .ax-matrix-list-head h3 { margin: 0; }
-.ax-matrix-list-tools { display: flex; gap: 8px; margin-top: 12px; }
-.ax-matrix-tool { display: flex; align-items: center; gap: 6px; font-size: var(--font-size-xs); color: var(--muted-foreground); flex: 1; min-width: 0; }
-.ax-matrix-tool select { flex: 1; min-width: 0; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--foreground); font-size: var(--font-size-xs); padding: 6px 8px; }
 .ax-task-rows.ax-matrix-list { margin-top: 12px; max-height: min(560px, 62vh); overflow-y: auto; overscroll-behavior: contain; }
 .ax-matrix-list li { gap: 8px; padding-left: 8px; }
 .ax-matrix-list .ax-task-row-btn { grid-template-columns: 8px minmax(0,1fr) auto; align-items: center; }
