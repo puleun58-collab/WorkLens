@@ -41,4 +41,4 @@ schema·policy·Level·Gate·Matrix 좌표·plan guard 같은 결정적 동작�
 
 `eval/ax-live/results/agent-<timestamp>/agent-verification.json`에 PASS/FAIL/BLOCKED/NOT_RUN 10건과 입력·출력 검사 근거가 저장됩니다. 같은 디렉터리의 진단·계획·생성 지시문·에이전트 로그는 민감할 수 있어 gitignore 대상이며 공유 전에 확인해야 합니다. 로컬 통과는 운영 배포·Production 검증 통과를 의미하지 않습니다. 이 실행은 Git push나 배포를 하지 않습니다.
 
-Codex·Claude Code CLI의 로그인 만료·미로그인(토큰 만료, 401 등)은 구현 실패가 아니라 BLOCKED로 기록합니다. 실행 전 `codex login status`와 `claude auth status`로 확인하고, 만료되었으면 `codex logout` 후 `codex login`, `claude auth login`으로 다시 로그인합니다.
+Codex·Claude Code CLI의 로그인 만료·미로그인(토큰 만료, 401 등)은 구현 실패가 아니라 BLOCKED로 기록합니다. 네트워크 연결 실패(모델 갱신 타임아웃, transport channel 종료, workspace routing 실패 등)도 구현 실패가 아닌 BLOCKED로 분류합니다. 실행 전 `codex login status`와 `claude auth status`로 확인하고, 만료되었으면 `codex logout` 후 `codex login`, `claude auth login`으로 다시 로그인합니다.
