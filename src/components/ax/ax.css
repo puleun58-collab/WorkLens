@@ -497,6 +497,7 @@
 .ax-setup-tutorial .ax-guide-section > h5 + .ax-guide-when { margin-top: 4px; }
 .ax-setup-tutorial .ax-guide-code { margin: 0; }
 .ax-guide-code { position: relative; min-width: 0; max-width: 100%; margin: 8px 0; padding: 38px 14px 12px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 13px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--foreground); background: color-mix(in srgb, var(--muted) 14%, var(--card)); border: 1px solid var(--border); border-radius: 8px; }
+.ax-guide-code--single-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ax-guide-code-label { position: absolute; top: 6px; left: 14px; font-family: var(--font-sans); font-size: 11px; color: var(--muted-foreground); letter-spacing: .04em; }
 .ax-guide-code-wrap { position: relative; }
 .ax-guide-code-wrap > .ax-guide-copy-button { position: absolute; top: 3px; right: 5px; width: 32px; height: 32px; color: var(--muted-foreground); }
