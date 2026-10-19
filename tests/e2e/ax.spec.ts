@@ -1068,38 +1068,30 @@ async function expectGuideTutorial(page: Page, panel: Locator, tool: "Codex" | "
   const terms = panel.locator(".ax-tutorial-glossary");
   const trigger = terms.getByRole("button");
   await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  // Instant pre-scroll: focusing alone would smooth-scroll (CSS scroll-behavior), and an
+  // in-flight smooth scroll is not reliably cancelled by later instant scrolls — it can
+  // resume afterwards and drift the viewport (Chromium quirk, verified 2026-10-19).
+  await trigger.evaluate(element => element.scrollIntoView({ behavior: "instant", block: "nearest" }));
   await trigger.focus(); await page.keyboard.press("Enter");
   await expect(terms.locator("dl")).toBeVisible();
   for (let number = 1; number <= 8; number++) {
     const link = toc.getByRole("button", { name: new RegExp(`STEP\\s*0?${number}\\b`) });
-    // Scroll instantly first: focusing alone would smooth-scroll (CSS scroll-behavior),
-    // which races with goToStep's instant scrollIntoView when Enter follows immediately.
+    // Same instant pre-scroll as above: a focus-triggered smooth scroll would race with
+    // goToStep's instant scrollIntoView and drift the viewport afterwards.
     await link.evaluate(element => element.scrollIntoView({ behavior: "instant", block: "nearest" }));
     await link.focus();
     await page.keyboard.press("Enter");
     const heading = panel.locator(`[data-setup-step="${number}"] > h4`);
     await expect(heading).toBeFocused();
-    try {
-      await expect.poll(() => heading.evaluate(element => {
-        const box = element.getBoundingClientRect();
-        const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
-        return box.top >= 0 && box.bottom <= innerHeight && !!hit && (hit === element || element.contains(hit));
-      })).toBe(true);
-    } catch (e) {
-      const diag = await heading.evaluate((element, stepNo) => {
-        const box = element.getBoundingClientRect();
-        const cx = box.left + box.width / 2, cy = box.top + box.height / 2;
-        const hit = document.elementFromPoint(cx, cy);
-        return { step: stepNo, top: Math.round(box.top), bottom: Math.round(box.bottom), ih: innerHeight,
-          scrollY: Math.round(window.scrollY), cx: Math.round(cx), cy: Math.round(cy),
-          hit: hit ? (hit === element ? 'self' : hit.tagName + '.' + String((hit as HTMLElement).className).slice(0, 50)) : 'null' };
-      }, number);
-      console.log('TOC-DIAG ' + JSON.stringify(diag));
-      throw e;
-    }
+    await expect.poll(() => heading.evaluate(element => {
+      const box = element.getBoundingClientRect();
+      const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+      return box.top >= 0 && box.bottom <= innerHeight && !!hit && (hit === element || element.contains(hit));
+    })).toBe(true);
   }
   // Navigation preserves optional disclosures and the selected agent's commands.
   await expect(terms.locator("dl")).toBeVisible();
+  await trigger.evaluate(element => element.scrollIntoView({ behavior: "instant", block: "nearest" }));
   await trigger.focus(); await page.keyboard.press("Space");
   await expect(terms.locator("dl")).toBeHidden();
   const first = panel.locator('[data-setup-step="1"]');
