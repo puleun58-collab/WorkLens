@@ -13,12 +13,15 @@ export const TOOL_GUIDES: Record<AxToolId, {
 };
 
 /** Inline text marks commands with backticks; `code` blocks default to PowerShell unless labeled as examples. */
-export type AxGuideBlock = { kind: "text"; text: string } | { kind: "code"; lines: string[]; notes?: string[]; label?: "PowerShell" | ".gitignore" | "예시" } | { kind: "steps"; items: string[] } | { kind: "table"; headers: string[]; rows: string[][] };
+export type AxGuideBlock = { kind: "text"; text: string } | { kind: "code"; lines: string[]; notes?: string[]; label?: "PowerShell" | ".gitignore" | "예시"; singleLine?: boolean } | { kind: "steps"; items: string[] } | { kind: "table"; headers: string[]; rows: string[][] };
 export interface AxGuideSection { title: string; when?: string; collapsed?: boolean; listStyle?: "bullets"; brand?: "vercel" | "cloudflare"; blocks: AxGuideBlock[] }
 export interface AxGuideStep { title: string; purpose: string; sections: AxGuideSection[] }
 
 const text = (value: string): AxGuideBlock => ({ kind: "text", text: value });
 const code = (lines: string[], notes: string[], label?: Extract<AxGuideBlock, { kind: "code" }>["label"]): AxGuideBlock => ({ kind: "code", lines, notes, ...(label ? { label } : {}) });
+
+// Long single-line installer: shown on one line with ellipsis; copy keeps the full command.
+const installCode = (lines: string[], notes: string[]): AxGuideBlock => ({ kind: "code", lines, notes, singleLine: true });
 
 // A single copyable line per installer. Errors must stop before a cached file can run.
 const gitInstall = [
@@ -87,25 +90,25 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
       ] },
       { title: "Git 설치", when: "git --version이 실패한 경우에만", blocks: [
         text("공식 Git for Windows 최신 릴리스의 x64/arm64 설치 파일 하나를 선택하고 API의 SHA-256 digest와 실제 파일 해시를 대조한 뒤 설치합니다. 한 줄 전체를 복사하세요. 설치 창을 끝까지 완료하고 새 PowerShell을 여세요."),
-        code([gitInstall], []),
+        installCode([gitInstall], []),
         code(["git --version"], ["설치 후 새 PowerShell에서 실행. 실패하면 설치를 성공으로 간주하지 마세요."]),
         text("출처: https://git-scm.com/downloads/win · https://github.com/git-for-windows/git/releases/latest"),
       ] },
       { title: "Node.js LTS 설치", when: "프로젝트가 Node.js를 요구하고 호환 버전이 없을 때만", blocks: [
         text("package.json engines, .nvmrc, .node-version의 버전 요구가 일반 LTS보다 우선합니다. 충돌하면 명령을 실행하지 말고 요구 버전을 공식 배포 목록에서 확인하세요. 명시된 요구가 없을 때 공식 목록에서 최신 호환 LTS 하나만 고릅니다. MSI 파일이 해당 릴리스에 없거나 HTTP 오류라면 즉시 멈춥니다."),
-        code([nodeInstall], []),
+        installCode([nodeInstall], []),
         code(["node --version", "npm --version"], ["설치 후 새 PowerShell에서 실행. MSI가 재시작을 요청했다면 먼저 재시작합니다."]),
         text("출처: https://nodejs.org/en/download · https://nodejs.org/dist/index.json"),
       ] },
       { title: "GitHub CLI 설치", when: "gh를 사용하고 gh --version이 실패할 때만", blocks: [
         text("GitHub 공식 릴리스에서 x64/arm64 Windows MSI 하나를 고르고 SHA-256을 확인합니다. 기존 Git 인증/웹 작업이 정상이면 설치를 생략하세요."),
-        code([ghInstall], []),
+        installCode([ghInstall], []),
         code(["gh --version"], ["설치 후 새 PowerShell에서 실행. 재시작을 요청했다면 먼저 재시작합니다."]),
         text("출처: https://github.com/cli/cli/releases/latest · https://cli.github.com/manual/gh_auth_login"),
       ] },
       { title: `${guide.name} 설치`, when: `${guide.versionCommand}이 실패할 때만`, blocks: [
         text(`${guide.name}은 선택한 코딩 에이전트입니다. 공식 네이티브 설치 스크립트의 출처와 내용을 먼저 확인하세요. 다른 에이전트까지 설치할 필요는 없습니다.`),
-        code([guide.installCommand], []),
+        installCode([guide.installCommand], []),
         code([guide.versionCommand], ["새 PowerShell에서 버전을 확인하세요."]),
         ...(tool === "codex" ? [text("Node/npm이 이미 필요해 설치되어 있다면 네이티브 설치 대신 `npm install -g @openai/codex`를 사용할 수 있습니다. 둘을 동시에 설치하지 마세요. 출처: https://learn.chatgpt.com/docs/codex/cli")] : [text("출처: https://code.claude.com/docs/en/setup")]),
       ] },
