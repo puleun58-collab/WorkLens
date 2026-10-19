@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
-import { MoreHorizontal, Upload, Download, Trash2, Pencil, ClipboardList, CircleCheck, Zap, Clock3, Stethoscope, LayoutGrid, Map as MapIcon, ArrowLeft, ArrowRight, Paperclip, FileText, X, Repeat, CalendarCheck, Database, Plug, UserCheck, AlertTriangle, RotateCcw, ListChecks, CircleHelp, SlidersHorizontal } from "lucide-react";
+import { MoreHorizontal, Upload, Download, Trash2, Pencil, ClipboardList, CircleCheck, Zap, Clock3, Stethoscope, LayoutGrid, Map as MapIcon, ArrowLeft, ArrowRight, Paperclip, FileText, X, Repeat, CalendarCheck, Database, Plug, UserCheck, AlertTriangle, RotateCcw, ListChecks, CircleHelp, SlidersHorizontal, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -75,19 +75,11 @@ export function AxDiagnosisView() {
   const [answers, setAnswers] = useState<Record<string, string[]>>({});
   const importInput = useRef<HTMLInputElement>(null);
   const nameHelpId = useId();
-  const [matrixFilter, setMatrixFilter] = useState<"all" | "ready" | "conditional" | "blocked">("all");
-  const [matrixSort, setMatrixSort] = useState<"priority" | "value" | "feasibility">("priority");
   const [showScores, setShowScores] = useState(true);
   const [showMatrixHelp, setShowMatrixHelp] = useState(false);
   const ranked = priority(state.tasks).map((row, index) => ({ ...row, rank: index + 1 }));
-  // 매트릭스 목록용 조회·정렬 (표시 전용, 원본 데이터·계산 변경 없음)
-  const matrixListed = ranked
-    .filter(row => matrixFilter === "all" ? true : executionGate(row.task.diagnosis) === matrixFilter)
-    .sort((a, b) => {
-      if (matrixSort === "value") return axes(b.task.diagnosis).value - axes(a.task.diagnosis).value || a.rank - b.rank;
-      if (matrixSort === "feasibility") return axes(b.task.diagnosis).feasibility - axes(a.task.diagnosis).feasibility || a.rank - b.rank;
-      return a.rank - b.rank;
-    });
+  // 매트릭스 목록: 기존 우선순위순 고정 표시 (원본 데이터·계산 변경 없음)
+  const matrixListed = ranked;
   const counts = diagnosisCounts(state.tasks);
   const matrixStatus = <p className="ax-muted ax-matrix-counts">등록 {state.tasks.length}개 · 진단 완료 {counts.results}개 (진행 가능 {counts.ready}개 · 확인 후 진행 {counts.conditional}개 · 진행 보류 {counts.blocked}개) · 추가 질문 필요 {counts.questions}개{state.tasks.length > counts.results ? ` · 미진단 ${state.tasks.length - counts.results}개 제외` : ""}</p>;
   const gateOrder = { ready: 0, conditional: 1, blocked: 2 };
@@ -483,7 +475,7 @@ export function AxDiagnosisView() {
       </span> : null}</li>;
     })}</ul>;
   }
-  /** Step 3 좌측 업무 목록: 단일 선택 + 조회·정렬 (정렬은 표시 순서만 바꾸고 우선순위 번호는 유지) */
+  /** Step 3 좌측 업무 목록: 단일 선택, 기존 우선순위순 고정 */
   function matrixTaskRows() {
     return <ul className="ax-task-rows ax-matrix-list">{matrixListed.map(({ task, rank }) => {
       const a = axes(task.diagnosis);
@@ -606,23 +598,6 @@ export function AxDiagnosisView() {
             <div className="ax-step3-taskcol">
             <section className="ax-surface ax-matrix-task-panel" aria-label="매트릭스 업무 목록">
               <div className="ax-matrix-list-head"><h3>업무 목록 ({ranked.length})</h3></div>
-              <div className="ax-matrix-list-tools">
-                <label className="ax-matrix-tool">조회
-                  <select value={matrixFilter} onChange={e => setMatrixFilter(e.target.value as typeof matrixFilter)} aria-label="Gate 상태별 조회">
-                    <option value="all">전체 진단 결과</option>
-                    <option value="ready">진행 가능</option>
-                    <option value="conditional">확인 후 진행</option>
-                    <option value="blocked">진행 보류</option>
-                  </select>
-                </label>
-                <label className="ax-matrix-tool">정렬
-                  <select value={matrixSort} onChange={e => setMatrixSort(e.target.value as typeof matrixSort)} aria-label="업무 목록 정렬">
-                    <option value="priority">우선순위순</option>
-                    <option value="value">자동화 가치순</option>
-                    <option value="feasibility">기술 실현 가능성순</option>
-                  </select>
-                </label>
-              </div>
               {matrixTaskRows()}
             </section>
             </div>
@@ -638,16 +613,14 @@ export function AxDiagnosisView() {
                 </div>
               </div>
               {showMatrixHelp ? <div className="ax-matrix-help" role="note" aria-label="매트릭스 도움말">
-                <div><h4>축 점수 기준</h4>
+                <div><h4>축 점수·진행 상태·우선순위 기준</h4>
                   <p>자동화 가치: 반복성·규칙성·데이터 구조화 평균 (1~5점)</p>
                   <p>기술 실현 가능성: 규칙성·데이터 구조화·시스템 접근성 평균 (1~5점)</p>
+                  <p>진행 상태: Level·Gate 기준 판정 (매트릭스 위치와 다를 수 있음)</p>
                   <p>우선순위: 종합 정책 점수 기준</p>
-                  <p>진행 상태: Level·Gate 기준 판정 (차트 위치와 다를 수 있음)</p>
-                  <p>정렬: 우선순위순·자동화 가치순·기술 실현 가능성순은 업무 목록 표시 순서만 바꾸며 우선순위 번호는 유지됩니다.</p>
                 </div>
                 <div><h4>원 크기 기준</h4>
                   <p>원 크기: 월간 업무 투입시간 기준</p>
-                  <p>시간 미입력: 기본 크기로 표시</p>
                 </div>
               </div> : null}
               <AxMatrix rows={ranked} selectedId={selected?.id} onSelect={select} step={state.step} />
@@ -793,20 +766,25 @@ function MatrixDetailCard({ task, diagnosis }: { task: AxTask; diagnosis: AxDiag
       </div>
     </div>
     <AxScoreCards diagnosis={d} />
-    <div className="ax-diag-cols">
-      <section className="ax-matrix-rationale" aria-label="핵심 판단 근거">
-        <h4><FileText size={16} aria-hidden="true" />핵심 판단 근거</h4>
-        <ul>{matrixRationaleBullets(d).map((b, i) => <li key={i}>{b}</li>)}</ul>
-      </section>
+    <div className="ax-diag-cols ax-matrix-detail-cols">
+      <div className="ax-matrix-detail-left">
+        <section className="ax-matrix-rationale" aria-label="핵심 판단 근거">
+          <h4><FileText size={16} aria-hidden="true" />핵심 판단 근거</h4>
+          <ul>{matrixRationaleBullets(d).map((b, i) => <li key={i}>{b}</li>)}</ul>
+        </section>
+        {gate !== "ready" ? <section className="ax-matrix-gate-status" aria-label="진행 상태 및 다음 조치">
+          <h4><Info size={16} aria-hidden="true" />진행 상태 및 다음 조치</h4>
+          <dl className="ax-gate-basis">
+            <div><dt>진행 상태</dt><dd><span className="ax-gate-badge" data-gate={gate}>{GATE_LABELS[gate]}</span></dd></div>
+            <div><dt>판정 근거</dt><dd>{basis.join(" · ") || "진단에서 제시된 조건부 진행 사유"}</dd></div>
+            <div><dt>현재 가능 범위</dt><dd>{scope}</dd></div>
+            <div><dt>다음 조치</dt><dd>{next.label} → 해결 후 업무 진단 단계에서 다시 진단해 상태 갱신</dd></div>
+          </dl>
+        </section> : null}
+      </div>
       <section className="ax-matrix-prereqs" aria-label="선행 확인 조건">
         <h4><ListChecks size={16} aria-hidden="true" />선행 확인 조건 {prereqs.length}개</h4>
         {prereqs.length ? <ul>{prereqs.map((p, i) => <li key={i}>{p}</li>)}</ul> : <p className="ax-muted">확인할 선행 조건이 없습니다.</p>}
-        {gate !== "ready" ? <dl className="ax-gate-basis" aria-label="진행 상태 판정 근거">
-          <div><dt>진행 상태</dt><dd><span className="ax-gate-badge" data-gate={gate}>{GATE_LABELS[gate]}</span></dd></div>
-          <div><dt>판정 근거</dt><dd>{basis.join(" · ") || "진단에서 제시된 조건부 진행 사유"}</dd></div>
-          <div><dt>현재 가능 범위</dt><dd>{scope}</dd></div>
-          <div><dt>다음 조치</dt><dd>{next.label} → 해결 후 업무 진단 단계에서 다시 진단해 상태 갱신</dd></div>
-        </dl> : null}
       </section>
     </div>
     <AxScoreEvidence key={task.id} diagnosis={d} />
@@ -841,7 +819,7 @@ function AxKpiCards({ tasks }: { tasks: AxTask[] }) {
   return <div className="ax-kpi-cards">
     <div className="ax-surface ax-kpi"><span className="ax-kpi-label"><ClipboardList size={14} aria-hidden="true" />등록 업무</span><strong>{tasks.length}개</strong></div>
     <div className="ax-surface ax-kpi"><span className="ax-kpi-label"><CircleCheck size={14} aria-hidden="true" />진단 완료</span><strong>{counts.results}개</strong><small className="ax-muted">진행 가능 {counts.ready}개 · 확인 후 진행 {counts.conditional}개 · 진행 보류 {counts.blocked}개 · 추가 질문 필요 {counts.questions}개</small></div>
-    {counts.results ? <div className="ax-surface ax-kpi"><span className="ax-kpi-label"><Zap size={14} aria-hidden="true" />매트릭스 우선 검토</span><strong>{ranked.filter(r => matrixPosition(r.task.diagnosis).region === "quick" && executionGate(r.task.diagnosis) !== "blocked").length}개</strong><small className="ax-muted">빠른 실행 영역 · 진행 보류 제외 · 확인 후 진행 포함</small></div> : null}
+    {counts.results ? <div className="ax-surface ax-kpi"><span className="ax-kpi-label"><Zap size={14} aria-hidden="true" />빠른 실행 후보</span><strong>{ranked.filter(r => matrixPosition(r.task.diagnosis).region === "quick" && executionGate(r.task.diagnosis) !== "blocked").length}개</strong><small className="ax-muted">빠른 실행 영역 · 확인 후 진행 포함 · 진행 보류 제외</small></div> : null}
     {knownMinutes.length ? <div className="ax-surface ax-kpi"><span className="ax-kpi-label"><Clock3 size={14} aria-hidden="true" />월 투입시간 합 · 입력 {knownMinutes.length}개</span><strong>{(knownMinutes.reduce((sum, m) => sum + m, 0) / 60).toLocaleString("ko-KR", { maximumFractionDigits: 1 })}시간</strong></div> : null}
   </div>;
 }

@@ -150,16 +150,9 @@ for (const viewport of VIEWPORTS) {
     await expect(page.getByRole("menuitemcheckbox")).toHaveText(["점수 표시"]);
     await page.keyboard.press("Escape");
 
-    // Sorting reorders the list only; filter and sort combine; rank numbers never change.
-    await list.getByLabel("업무 목록 정렬").selectOption("feasibility");
-    const byFeasibility = await list.locator(".ax-task-name").allTextContents();
-    expect(byFeasibility[0]).toBe(`${ranked.findIndex(row => row.task.id === "ready") + 1}. 업무 ready`);
-    expect(new Set(byFeasibility)).toEqual(new Set(ranked.map((row, index) => `${index + 1}. ${row.task.name}`)));
-    await list.getByLabel("Gate 상태별 조회").selectOption("conditional");
-    const conditionalNames = await list.locator(".ax-task-name").allTextContents();
-    expect(conditionalNames).toHaveLength(count("conditional"));
-    await list.getByLabel("Gate 상태별 조회").selectOption("all");
-    await list.getByLabel("업무 목록 정렬").selectOption("priority");
+    // Task list is fixed in priority order; filter/sort controls were removed.
+    await expect(list.getByLabel("업무 목록 정렬")).toHaveCount(0);
+    await expect(list.getByLabel("Gate 상태별 조회")).toHaveCount(0);
 
     // Help: headings and body share one left edge, no bullets.
     await page.getByRole("button", { name: "도움말" }).click();

@@ -62,10 +62,10 @@ test("scenario B: KPI and TOP labels for ready 1 + conditional 2", async ({ page
     makeTask("c1", "업무 B", makeDiagnosis(3, "conditional", "sufficient")),
   ];
   await seedAndOpen(page, tasks, 4);
-  const kpi = page.locator(".ax-kpi", { hasText: "매트릭스 우선 검토" });
+  const kpi = page.locator(".ax-kpi", { hasText: "빠른 실행 후보" });
   await expect(kpi).toBeVisible();
   await expect(kpi.locator("strong")).toHaveText("2개");
-  await expect(kpi).toContainText("빠른 실행 영역 · 진행 보류 제외 · 확인 후 진행 포함");
+  await expect(kpi).toContainText("빠른 실행 영역 · 확인 후 진행 포함 · 진행 보류 제외");
   await expect(page.getByRole("heading", { name: "자동화 우선순위 TOP 1", exact: true })).toBeVisible();
 });
 
