@@ -939,11 +939,14 @@ for (const width of [1440, 390]) {
       for (const [guideOpen, promptOpen] of [[false, false], [true, false], [false, true], [true, true]]) {
         if ((await guide.getAttribute("aria-expanded") === "true") !== guideOpen) {
           await guide.scrollIntoViewIfNeeded(); await guide.focus();
-          const y = (await guide.boundingBox())!.y;
+          // The guide now sits at the bottom of the page: toggling its tall panel can clamp
+          // the viewport scroll, so compare document-relative positions, not viewport ones.
+          const docY = async () => (await guide.boundingBox())!.y + await page.evaluate(() => window.scrollY);
+          const y = await docY();
           await page.keyboard.press("Enter");
           await expect(guide).toHaveAttribute("aria-expanded", String(guideOpen));
           await expect(guide).toBeFocused();
-          await expect.poll(async () => Math.abs((await guide.boundingBox())!.y - y)).toBeLessThanOrEqual(2);
+          await expect.poll(async () => Math.abs(await docY() - y)).toBeLessThanOrEqual(2);
         }
         const toggle = instructions.getByRole("button", { name: /^전체 (보기|접기)$/ });
         if ((await toggle.getAttribute("aria-expanded") === "true") !== promptOpen) await toggle.click();
@@ -954,13 +957,13 @@ for (const width of [1440, 390]) {
         const order = await section.evaluate(root => {
           const top = (selector: string) => root.querySelector(selector)!.getBoundingClientRect();
           const completion = top('[aria-label="03 완료 기준"]'), guide = top(".ax-plan-guide"), instructions = top(".ax-plan-instructions");
-          return { guideAfterCompletion: guide.top >= completion.bottom - 1, instructionsAfterGuide: instructions.top >= guide.bottom - 1 };
+          return { instructionsAfterCompletion: instructions.top >= completion.bottom - 1, guideAfterInstructions: guide.top >= instructions.bottom - 1 };
         });
-        expect(order).toEqual({ guideAfterCompletion: true, instructionsAfterGuide: true });
+        expect(order).toEqual({ instructionsAfterCompletion: true, guideAfterInstructions: true });
         if (guideOpen) {
           await expect.poll(() => guideSection.locator('[data-setup-step="8"]').evaluate(element => {
             const instructions = element.closest(".ax-surface")!.querySelector(".ax-plan-instructions")!;
-            return instructions.getBoundingClientRect().top >= element.getBoundingClientRect().bottom - 1;
+            return element.getBoundingClientRect().top >= instructions.getBoundingClientRect().bottom - 1;
           })).toBe(true);
           if (browserName === "chromium") await page.evaluate(() => navigator.clipboard.writeText("navigation sentinel"));
           await guideSection.getByRole("button", { name: "올인원 지시문으로 이동", exact: true }).click();
@@ -1065,11 +1068,19 @@ async function expectGuideTutorial(page: Page, panel: Locator, tool: "Codex" | "
   const terms = panel.locator(".ax-tutorial-glossary");
   const trigger = terms.getByRole("button");
   await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  // Instant pre-scroll: focusing alone would smooth-scroll (CSS scroll-behavior), and an
+  // in-flight smooth scroll is not reliably cancelled by later instant scrolls — it can
+  // resume afterwards and drift the viewport (Chromium quirk, verified 2026-10-19).
+  await trigger.evaluate(element => element.scrollIntoView({ behavior: "instant", block: "nearest" }));
   await trigger.focus(); await page.keyboard.press("Enter");
   await expect(terms.locator("dl")).toBeVisible();
   for (let number = 1; number <= 8; number++) {
     const link = toc.getByRole("button", { name: new RegExp(`STEP\\s*0?${number}\\b`) });
-    await link.focus(); await page.keyboard.press("Enter");
+    // Same instant pre-scroll as above: a focus-triggered smooth scroll would race with
+    // goToStep's instant scrollIntoView and drift the viewport afterwards.
+    await link.evaluate(element => element.scrollIntoView({ behavior: "instant", block: "nearest" }));
+    await link.focus();
+    await page.keyboard.press("Enter");
     const heading = panel.locator(`[data-setup-step="${number}"] > h4`);
     await expect(heading).toBeFocused();
     await expect.poll(() => heading.evaluate(element => {
@@ -1080,6 +1091,7 @@ async function expectGuideTutorial(page: Page, panel: Locator, tool: "Codex" | "
   }
   // Navigation preserves optional disclosures and the selected agent's commands.
   await expect(terms.locator("dl")).toBeVisible();
+  await trigger.evaluate(element => element.scrollIntoView({ behavior: "instant", block: "nearest" }));
   await trigger.focus(); await page.keyboard.press("Space");
   await expect(terms.locator("dl")).toBeHidden();
   const first = panel.locator('[data-setup-step="1"]');
@@ -1097,10 +1109,13 @@ async function expectGuideTutorial(page: Page, panel: Locator, tool: "Codex" | "
     }
   }
   const second = panel.locator('[data-setup-step="2"]');
-  await second.getByRole("button", { name: "다음 단계", exact: true }).click();
-  await expect(panel.locator('[data-setup-step="3"] > h4')).toBeFocused();
-  await panel.locator('[data-setup-step="3"]').getByRole("button", { name: "이전 단계", exact: true }).click();
-  await expect(second.locator(":scope > h4")).toBeFocused();
+  // Per-step 이전/다음 navigation was removed; the TOC is the only step navigation.
+  await expect(panel.locator(".ax-guide-step-nav")).toHaveCount(0);
+  for (let number = 1; number <= 8; number++) {
+    const step = panel.locator(`[data-setup-step="${number}"]`);
+    await expect(step.getByRole("button", { name: "이전 단계", exact: true })).toHaveCount(0);
+    await expect(step.getByRole("button", { name: "다음 단계", exact: true })).toHaveCount(0);
+  }
   expect(await panel.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await expectActualMarkerGaps(panel);

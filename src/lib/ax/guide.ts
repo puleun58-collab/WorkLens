@@ -132,14 +132,11 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
         text("특정 프레임워크를 임의로 정하지 않습니다. Git 저장 전 Git 저장소인지, remote가 연결됐는지, 대상 GitHub 저장소가 맞는지 확인합니다. Git 저장소가 아닌 경우에만 초기화하고 기존 저장소를 재초기화하거나 기존 remote를 덮어쓰지 않습니다. branch 이름을 main으로 강제하지 않습니다."),
         code(["git init", 'git remote add origin "https://github.com/owner/repository.git"', "git remote -v"], ["git init은 저장소가 아닐 때만, remote add는 저장소를 만들고 remote가 없을 때만 실행합니다. 원격에 초기 커밋이 있으면 먼저 이력을 확인하고 충돌 없이 연결합니다. 첫 push 전에 대상 원격을 다시 확인하세요."]),
       ] },
-      { title: "기존 도구 규칙", collapsed: true, blocks: [
-        text("AGENTS.md·README·packageManager·engines·scripts·lockfile을 확인합니다. lockfile 단서 하나로 package manager를 바꾸지 않습니다. 기존 매니저·버전·lockfile을 우선하고 다른 매니저 lockfile 생성·교체는 하지 않습니다. 의존성 설치는 실제 저장소 방식대로 AI 도구가 진행합니다."),
-      ] },
     ] },
     { title: "STEP 03 · 올인원 지시문 준비", purpose: "WorkLens의 업무·진단·HITL 판단을 지시문에 연결", sections: [
       { title: "WorkLens에서 확인", blocks: [
+        text("WorkLens에서 올인원 지시문을 복사해 Codex 또는 Claude Code에 전달하세요. 이 지시문을 이용해 실제 프로그램을 만드는 과정이 1차 MVP 구현입니다."),
         text("업무 선택 → 진단과 판단 근거 확인 → 단계별 자동화 판단의 HITL 검토(유지·보류·제외·보완)와 확인된 기술 조건을 반영합니다. 보류·제외 항목을 AI가 임의로 구현하거나 승인하지 않습니다. 실제 화면의 ‘04 올인원 지시문’에서 Codex 또는 Claude Code를 선택하고 ‘전체 보기’로 확인한 뒤 ‘올인원 지시문 복사’를 누릅니다."),
-        text("별도 지시문 개발 단계가 아닙니다. 플랫폼·저장 방식 등 구현 전 확정이 필요한 조건은 STEP 05/06을 참조해 담당자의 판단을 받은 다음 해당 구현을 진행하세요."),
       ] },
     ] },
     { title: "STEP 04 · 첫 MVP 구현과 실제 테스트", purpose: "선택한 AI 에이전트로 입력·처리·출력 구현 후 검증", sections: [
@@ -148,7 +145,7 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
         text("STEP 03에서 복사한 올인원 지시문 전체를 에이전트에 붙여넣습니다. 저장소 지침·기존 구현·승인 경계를 먼저 확인하고 파일 변경·실행·승인 요청을 검토하세요."),
       ] },
       { title: "입력 → 처리 → 출력 실동작", blocks: [
-        text("예: 실제 CSV 파일을 선택·읽기 → 행 형식과 누락·중복을 검증하고 확인된 규칙만 계산 → 검토용 결과 파일/화면과 오류 목록으로 출력. 샘플 CSV와 기대 결과를 대조하며 승인되지 않은 삭제·자동 승인·외부 전송은 하지 않습니다. 웹앱이 아닌 CLI·Excel 업무라면 그 실행 환경에서 같은 흐름을 검증하세요."),
+        text("실제 입력 데이터를 받아 형식과 필수 항목을 검증하고, 확정된 업무 규칙에 따라 처리한 뒤 요구사항에 맞는 결과를 출력합니다. 정상 입력과 오류·예외 상황을 테스트하고 실제 처리 결과를 확인하세요."),
         text("AI가 첫 MVP를 구현한 뒤 저장소에 실제 존재하는 테스트·빌드 명령과 수동 기능 검사를 실행합니다. 단계별 PASS/FAIL/NOT_RUN/BLOCKED와 실행 근거를 기록하세요. 실행하지 않은 명령이나 미확정 기준을 PASS로 기록하지 않습니다."),
         code(["git status", "git diff", "git diff --cached --stat"], ["관계없는 변경·대량 삭제·Secret은 중단하고 검토하세요."]),
       ] },
@@ -158,7 +155,10 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
     ] },
     { title: "STEP 05 · 배포 플랫폼 선택", purpose: "기존 구성을 유지하거나 새 프로젝트의 실행 조건과 정책으로 선택", sections: [
       { title: "배포 방식 비교", blocks: [
-        text("기존 서비스의 배포 플랫폼·브랜치·워크플로는 먼저 확인하고 유지합니다. 새 웹 프로젝트는 프레임워크 호환성·실행 시간·요금·인증·데이터 보관·운영 권한으로 결정합니다. DB 유무만으로 플랫폼을 정하지 않습니다. 두 플랫폼을 함께 사용하거나 외부 DB와 결합할 수 있습니다."),
+        text("Vercel: 웹사이트와 Next.js 프로젝트를 GitHub에 연결해 배포하기 편리한 서비스입니다."),
+        text("Cloudflare: 웹사이트와 서버 기능을 실행할 수 있고, 필요하면 데이터·파일 저장 기능도 연결할 수 있습니다."),
+        text("기존 서비스의 배포 플랫폼·브랜치·워크플로는 먼저 확인하고 유지합니다. DB 유무만으로 플랫폼을 정하지 않습니다."),
+        code(["현재 프로젝트에 Vercel과 Cloudflare 중 어떤 배포 방식이 적합한지 확인해 줘. 기존 배포 환경이 있다면 우선 유지하고, 비용이나 별도 설정이 필요하면 알려줘."], ["코딩 에이전트에게 요청할 때 복사해서 사용하세요."]),
         { kind: "table", headers: ["비교", "Vercel", "Cloudflare"], rows: [
           ["주요 강점", "Next.js 및 프론트엔드 Git 연동, Preview", "Workers/Pages와 D1·R2·KV 바인딩, Git 연동 또는 기존 Wrangler 스크립트"],
           ["실행·데이터", "Functions와 외부 DB·Blob 연결 가능", "Workers와 내장·외부 저장소 연결 가능; DB 사용을 강요하지 않음"],
@@ -179,7 +179,15 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
     ] },
     { title: "STEP 06 · 데이터 저장 방식", purpose: "기존 데이터를 보호하고 꼭 필요한 서비스만 선택·연결", sections: [
       { title: "필요한 저장만 선택", blocks: [
-        text("저장 없이 동작하는 MVP도 가능합니다. 브라우저 localStorage/IndexedDB는 해당 브라우저에 한정되며 공유·백업이 필요한 업무 데이터의 운영 저장소가 아닙니다. D1은 관계형 기록, R2는 파일/객체, KV는 조회 중심 설정·캐시, 외부 DB는 기존 시스템 연계 등에 맞습니다. KV의 최종 일관성은 실시간 중요 기록에 부적합할 수 있습니다."),
+        text("입력한 내용이나 파일을 나중에도 사용해야 한다면 저장 기능이 필요합니다. 보관할 데이터와 사용 방식에 따라 적절한 저장 방법이 달라집니다."),
+        { kind: "table", headers: ["방식", "쉬운 설명", "예시"], rows: [
+          ["저장하지 않음", "실행 결과만 확인", "일회성 계산"],
+          ["브라우저 저장", "현재 브라우저에 내용 보관", "개인 메모"],
+          ["D1", "온라인에 업무 기록 저장", "업무 등록·조회"],
+          ["R2", "온라인에 파일 저장", "PDF·Excel 첨부"],
+          ["KV", "간단한 설정값·캐시 저장", "앱 설정"],
+        ] },
+        code(["현재 프로젝트에 필요한 데이터 저장 방식을 확인해 줘. 기존 저장소가 있다면 우선 사용하고, 없다면 적절한 방법을 추천해 줘. 필요한 코드는 구현하되 계정 연결·비용 발생·기존 데이터 변경은 먼저 내 확인을 받아."], ["코딩 에이전트에게 요청할 때 복사해서 사용하세요."]),
         text("이미 사용하는 DB/API/스토리지는 재사용합니다. 한 앱에 여러 저장소나 서로 다른 공급자를 함께 쓸 수 있습니다. 새 DB를 강제하거나 다른 저장소로 이전하지 말고 필요한 서비스만 연결하세요."),
       ] },
       { title: "Cloudflare 저장소 연결", when: "D1·R2·KV 중 실제로 필요한 서비스가 있을 때만", collapsed: true, blocks: [
@@ -209,6 +217,7 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
       { title: "PR·CI와 배포 경로", blocks: [
         text("PR·리뷰·CI·merge는 저장소 정책상 필요한 경우에만 진행합니다. CI 실패를 해결하고 Preview/Production 배포 브랜치와 버전을 확인하세요. git push는 곧 Production 배포가 아닙니다."),
         text("Vercel Git 연동 또는 Cloudflare Workers/Pages Git 자동 배포라면 수동 명령을 중복 실행하지 않습니다. CLI 방식이라면 현재 프로젝트의 실제 스크립트만 사용하고 모든 Cloudflare 앱에 wrangler deploy를 강제하지 않습니다. 플랫폼 Secret·환경변수는 Preview/Production을 구분합니다."),
+        code(["현재 프로젝트의 변경 사항과 테스트 결과를 확인하고 GitHub 저장 및 배포를 준비해 줘. 기존 브랜치와 배포 방식을 유지하고, 민감 정보나 운영 데이터 변경이 있으면 먼저 알려줘."], ["코딩 에이전트에게 요청할 때 복사해서 사용하세요."]),
         text("실패 로그의 API Key·Token·Password·개인정보를 [REDACTED]로 가린 필요한 부분만 AI 도구에 전달하고 로그 전체를 무조건 복사하지 않습니다."),
       ] },
       { title: "운영 데이터 보호", when: "운영 DB/스토리지 변경이 필요한 경우만", collapsed: true, blocks: [
@@ -217,8 +226,10 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
     ] },
     { title: "STEP 08 · 기능 검증과 MVP 완료", purpose: "웹은 Production 실동작, 비웹은 실행·납품 환경에서 실제 결과 확인", sections: [
       { title: "배포 후 실제 기능 확인", blocks: [
+        text("프로그램을 만들거나 배포한 뒤 실제 데이터를 입력해 원하는 결과가 나오는지 확인합니다. 화면이 보이는 것만으로 기능이 완성된 것은 아닙니다."),
         text("웹 배포가 필요한 업무는 실제 Production URL, 버전·브랜치, Desktop/Mobile·첫 화면·직접 URL·Console을 확인하고 핵심 입력 → 처리 → 출력 흐름을 실행합니다. 로그인·API·환경변수·데이터 읽기/쓰기·권한은 사용하는 기능에 한해서만 실제 환경에서 검증합니다."),
-        text("CSV 예: 실제 CSV를 넣어 형식·중복·누락 처리를 거쳐 기대한 검토용 결과가 출력되는지 확인합니다. 브라우저 저장/DB를 썼다면 새로고침 후 필요한 상태의 유지, 권한에 따른 다른 브라우저 동작, 기존 데이터 보존을 확인하세요."),
+        text("실제 업무 데이터를 입력해 처리 결과가 요구사항과 일치하는지 확인합니다. 잘못된 입력, 처리 실패 및 예외 상황도 검증하고, 데이터 저장 기능이 있다면 새로고침·재조회 후에도 필요한 데이터가 정상적으로 유지되는지 확인하세요."),
+        code(["완성한 프로그램을 실제 사용 상황처럼 테스트해 줘. 정상 입력과 잘못된 입력을 확인하고, 저장 기능이 있다면 새로고침 후에도 데이터가 유지되는지 검증해 줘. 실제 실행한 결과와 미검증 항목을 구분해서 보고해 줘."], ["코딩 에이전트에게 요청할 때 복사해서 사용하세요."]),
         text("웹 배포가 필요 없는 CLI·Excel·로컬 자동화는 Production URL 대신 대상 사용자의 실행 환경·파일 입출력·오류·반복 실행을 검사하고 운영 적용 방법과 결과를 인계합니다."),
       ] },
       { title: "완료 판정", blocks: [

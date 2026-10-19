@@ -46,7 +46,7 @@ describe("AX execution guides", () => {
       "STEP 06 · 데이터 저장 방식", "STEP 07 · GitHub 저장과 배포", "STEP 08 · 기능 검증과 MVP 완료",
     ]);
     expect(JSON.stringify(steps[3])).toContain("04 올인원 지시문");
-    expect(JSON.stringify(steps[4])).toContain("실제 CSV");
+    expect(JSON.stringify(steps[4])).toContain("실제 입력 데이터");
     expect(JSON.stringify(steps[8])).toContain("웹 배포가 필요 없는");
   });
   it.each(["codex", "claude"] as const)("scopes native installs and safety to the selected agent: %s", tool => {
