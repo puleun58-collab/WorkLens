@@ -90,21 +90,27 @@ export function canUnlockLevel(level: LearnLevelNo, progress: LearnProgress): bo
   return progress.levels[(level - 1) as LearnLevelNo]?.passed === true;
 }
 
-/** 응시 기록을 진도에 반영 — 최고 점수 보존, 통과 상태 유지 */
-export function applyAttempt(progress: LearnProgress, attempt: QuizAttempt): LearnProgress {
+/**
+ * 응시 기록을 진도에 반영 — 최고 점수 보존, 통과 상태 유지
+ * @param questions 출제된 문제 목록 (오답 카테고리 연결용, 생략 시 카테고리는 빈 문자열)
+ */
+export function applyAttempt(progress: LearnProgress, attempt: QuizAttempt, questions?: LearnQuestion[]): LearnProgress {
   const prev = progress.levels[attempt.level];
   const bestScore = Math.max(prev?.bestScore ?? 0, attempt.score);
   const passed = (prev?.passed ?? false) || attempt.passed;
   const attempts = [...(prev?.attempts ?? []), attempt].slice(-20); // 최근 20회만 보관
+  const categoryById = new Map((questions ?? []).map((q) => [q.id, q.category]));
   const wrongAnswers = [...progress.wrongAnswers];
   for (const g of attempt.graded) {
     if (!g.correct) {
       const q = attempt.questionIds.includes(g.questionId) ? g.questionId : null;
       if (!q) continue;
+      // 문제은행에 존재하지 않는 ID는 임의 카테고리로 대체하지 않는다
+      const category = categoryById.get(g.questionId) ?? "";
       wrongAnswers.push({
         questionId: g.questionId,
         level: attempt.level,
-        category: "",
+        category,
         attemptId: attempt.attemptId,
         answeredAt: attempt.finishedAt,
         reviewCount: 0,
@@ -130,12 +136,21 @@ export function isLearningComplete(progress: LearnProgress): boolean {
   return ([1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as LearnLevelNo[]).every((l) => progress.levels[l]?.passed === true);
 }
 
-/** 취약 개념 집계 — 오답 노트에서 카테고리별 오답 횟수 */
-export function weakCategories(progress: LearnProgress): { category: string; count: number }[] {
+/**
+ * 취약 개념 집계 — 오답 노트에서 카테고리별 오답 횟수
+ * @param resolveCategory 기존 빈 카테고리 기록의 복원용 조회 함수 (읽기 시 보완, 원본 불변).
+ *                        복원 불가능한 항목은 집계에서 제외한다.
+ */
+export function weakCategories(
+  progress: LearnProgress,
+  resolveCategory?: (questionId: string) => string | undefined,
+): { category: string; count: number }[] {
   const counts = new Map<string, number>();
   for (const w of progress.wrongAnswers) {
-    if (!w.category) continue;
-    counts.set(w.category, (counts.get(w.category) ?? 0) + 1);
+    // 기존 category:"" 기록은 문제 ID로 실제 카테고리 복원 시도
+    const category = w.category || resolveCategory?.(w.questionId) || "";
+    if (!category) continue;
+    counts.set(category, (counts.get(category) ?? 0) + 1);
   }
   return [...counts.entries()].map(([category, count]) => ({ category, count })).sort((a, b) => b.count - a.count);
 }

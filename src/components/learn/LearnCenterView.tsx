@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ALL_LEVELS, DIAGNOSTIC_AREAS, levelMeta } from "@/lib/learn/curriculum";
-import { diagnosticQuestions, questionBank } from "@/lib/learn/questions";
-import { loadLearnProgress, saveLearnProgress, LEARN_STORAGE_NOTICE } from "@/lib/learn/progress-store";
+import { diagnosticQuestions, findQuestion, questionBank } from "@/lib/learn/questions";
+import { loadLearnProgressEx, saveLearnProgress, LEARN_STORAGE_NOTICE } from "@/lib/learn/progress-store";
 import {
   applyAttempt,
   canUnlockLevel,
@@ -41,15 +41,25 @@ export type LearnScreen =
 
 export function LearnCenterView() {
   const [progress, setProgress] = useState<LearnProgress | null>(null);
-  const [revision, setRevision] = useState<string | undefined>(undefined);
+  // revision: 문자열=기존 기록의 충돌 검사용, null=기록 없음(신규 사용자), undefined=미로드
+  const [revision, setRevision] = useState<string | null | undefined>(undefined);
   const [screen, setScreen] = useState<LearnScreen>({ name: "dashboard" });
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    loadLearnProgress()
-      .then((p) => {
-        setProgress(p);
-        setRevision(JSON.stringify(p));
+    loadLearnProgressEx()
+      .then((result) => {
+        if (result.status === "corrupt") {
+          // 손상된 기록은 빈 진도인 것처럼 자동 저장하여 덮어쓰지 않는다
+          setError(result.message ?? "저장된 학습 기록의 형식이 손상되었습니다. 기존 기록을 보호하기 위해 저장을 중단했습니다.");
+          return;
+        }
+        if (result.status === "unavailable") {
+          setError(result.message ?? "학습 진도를 불러오지 못했습니다.");
+          return;
+        }
+        setProgress(result.progress);
+        setRevision(result.revision);
       })
       .catch((e) => setError(e instanceof Error ? e.message : "학습 진도를 불러오지 못했습니다."));
   }, []);
@@ -93,7 +103,7 @@ export function LearnCenterView() {
         startedAt: Date.now(),
         finishedAt: Date.now(),
       };
-      const next = applyAttempt(progress, attempt);
+      const next = applyAttempt(progress, attempt, questions);
       void persist(next);
       setScreen({ name: "result", attempt });
       window.scrollTo({ top: 0 });
@@ -209,7 +219,7 @@ function LearnDashboard(props: {
 }) {
   const { progress } = props;
   const overall = overallProgress(progress);
-  const weak = weakCategories(progress).slice(0, 3);
+  const weak = weakCategories(progress, (id) => findQuestion(id)?.category).slice(0, 3);
   const complete = isLearningComplete(progress);
   // 이어서 학습하기: 통과하지 못한 첫 번째 해제 단계
   const nextLevel = ALL_LEVELS.find((l) => canUnlockLevel(l, progress) && !progress.levels[l]?.passed);

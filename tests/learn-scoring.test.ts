@@ -8,6 +8,7 @@ import {
   overallProgress,
   selectQuizQuestions,
   seededShuffle,
+  weakCategories,
 } from "@/lib/learn/scoring";
 import type { LearnProgress, LearnQuestion, QuizAttempt } from "@/lib/learn/types";
 
@@ -137,6 +138,43 @@ describe("applyAttempt", () => {
     const p = applyAttempt(emptyProgress(), makeAttempt(50, false));
     expect(p.wrongAnswers.length).toBeGreaterThan(0);
     expect(p.wrongAnswers.every((w) => w.level === 1)).toBe(true);
+  });
+  test("오답에 실제 문제 카테고리 저장", () => {
+    const p = applyAttempt(emptyProgress(), makeAttempt(50, false), [singleQ, multiQ]);
+    // l1-q001 오답 → singleQ.category="개념", l1-q002 오답 → multiQ.category="개념"
+    expect(p.wrongAnswers.length).toBe(2);
+    expect(p.wrongAnswers[0].category).toBe("개념");
+    expect(p.wrongAnswers[1].category).toBe("개념");
+  });
+  test("문제은행에 없는 ID는 임의 카테고리로 대체하지 않음", () => {
+    const attempt = makeAttempt(50, false);
+    attempt.graded = [{ questionId: "l1-unknown", correct: false, points: 0 }];
+    attempt.questionIds = ["l1-unknown"];
+    const p = applyAttempt(emptyProgress(), attempt, [singleQ]);
+    expect(p.wrongAnswers[0].category).toBe("");
+  });
+});
+
+describe("weakCategories", () => {
+  const makeWrong = (questionId: string, category: string) => ({
+    questionId, level: 1 as const, category, attemptId: "a1", answeredAt: 1, reviewCount: 0,
+  });
+  test("빈 카테고리 기록은 문제 ID로 복원", () => {
+    const p = emptyProgress();
+    p.wrongAnswers = [makeWrong("l1-q001", ""), makeWrong("l1-q002", "")];
+    const result = weakCategories(p, (id) => (id === "l1-q001" ? "개념A" : id === "l1-q002" ? "개념B" : undefined));
+    expect(result).toEqual([{ category: "개념A", count: 1 }, { category: "개념B", count: 1 }]);
+  });
+  test("복원 불가능한 항목은 집계에서 제외", () => {
+    const p = emptyProgress();
+    p.wrongAnswers = [makeWrong("l1-gone", "")];
+    expect(weakCategories(p, () => undefined)).toEqual([]);
+    expect(weakCategories(p)).toEqual([]);
+  });
+  test("기존 카테고리는 그대로 집계", () => {
+    const p = emptyProgress();
+    p.wrongAnswers = [makeWrong("l1-q001", "개념"), makeWrong("l1-q002", "개념")];
+    expect(weakCategories(p)).toEqual([{ category: "개념", count: 2 }]);
   });
 });
 
