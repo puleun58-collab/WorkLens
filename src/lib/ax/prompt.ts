@@ -47,6 +47,13 @@ export function axMessages(request: AxDiagnosisRequest | AxPlanRequest): { role:
   const instructions = request.kind === "ax-diagnosis"
     ? `정보가 부족해도 사용자가 준 사실로 AS-IS를 정리하고 불명확한 부분을 드러내세요. 결과를 바꾸는 핵심 추가 질문만 최대 3개 제시하세요.
 Factor는 repetition, regularity, dataStructure, systemAccess, humanJudgment, operationalRisk를 각각 한 번 포함하고 1~5점과 근거를 제시하세요. 사람판단과 위험은 높을수록 의존도·위험이 높습니다.
+Factor 점수 기준 (동일한 사실에는 동일한 점수):
+- repetition (반복성): 1=연 1~2회 비정기, 2=분기 1회, 3=월 1~2회, 4=주 1회 이상, 5=매일 반복
+- regularity (규칙성): 1=매번 절차가 다름, 2=대략적 흐름만 있음, 3=주요 단계는 정해져 있으나 예외 잦음, 4=명확한 절차·예외 규칙 있음, 5=완전히 정형화된 절차
+- dataStructure (데이터 구조화): 1=비정형 문서·구두, 2=반정형 (이메일·메모), 3=표 형태이나 형식 불일치, 4=정형 파일·DB (일부 수기 보정), 5=완전 정형·검증된 스키마
+- systemAccess (시스템 접근성): 1=수기·오프라인만, 2=개별 시스템 수동 조회, 3=파일 업로드·다운로드 가능, 4=API·자동 연동 가능 (권한 확인 필요), 5=API·자동 연동 확정
+- humanJudgment (담당자 판단 의존도): 1=판단 불필요, 2=단순 확인, 3=예외 판단 필요, 4=매번 전문 판단 필요, 5=고도 전문 판단·책임
+- operationalRisk (운영 위험): 1=실패 시 영향 없음, 2=재작업 수준, 3=업무 지연·고객 불편, 4=금전·법적 영향 가능, 5=중대 사고·법규 위반 가능
 정보 충분성 sufficient/partial/needs-check, 단계별 자동화/AI 보조/사람 유지 판정, 시스템/AI/사용자 역할, 기술 확인, 위험, 검증 가능한 PoC, go/conditional/no-go 근거, 단계별 로드맵, 운영·Fallback과 다음 행동을 작성하세요.
 기술 확인(technicalChecks)의 status는 사용자가 입력에서 명시적으로 확인한 사실만 "확인됨"으로 표시하세요. 그 경우에도 입력에 없는 구체 기술·방식(인증 방식 종류, 특정 API 기능, 실행 환경 등)을 지어내지 말고, 확인되지 않은 항목은 "확인 필요"로 두세요.
 기술 확인 항목 중 업무 실행에 반드시 필요한 것이 아니라 권장·선택 사항인 경우 required를 false로 표시하세요. required가 없는 항목은 필수로 간주됩니다.
