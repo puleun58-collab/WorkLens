@@ -1503,6 +1503,10 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
     // PART B: Level 1 사용자 실행형 — 담당자 실행 기반이며 무인 자동화가 아니다.
     if (s.treatment === "사용자 실행 결과 생성")
       return "담당자가 실행을 요청하면 실제 입력으로 처리하고 결과를 화면·파일로 제공합니다. 스케줄러·정기 무인 실행은 구현하지 않으며, 담당자 확정 전 결과를 운영에 반영하지 않습니다. 실행할 때마다 입력 검증과 결과 대조 기록이 남습니다.";
+    // method가 confirm인 경우, 단계 표기(stepMethodLabel)와 동일한 확정 판정을 사용한다.
+    // stepMethodLabel이 "확인된 처리 기준에 따라 구현"이라고 하면서 doneWhen이
+    // "구현을 시작하지 마세요"라고 하면 지시문 내부 모순이 되므로 단일 판정원을 유지한다.
+    const confirmIdx = steps.indexOf(s);
     return method(s) === "assist"
     ? "실제 입력으로 후보·초안이 생성되고, 담당자 확정 전에는 운영 결과로 반영되지 않으며, 생성할 수 없는 건은 검토 필요·실패로 표시됩니다."
     : method(s) === "composite" && methodOrder(s) === "parallel"
@@ -1511,6 +1515,10 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
     ? "확인된 처리 순서대로 각 역할이 실제 입력으로 동작하고, AI 결과는 담당자 확정 전 운영 결과로 반영되지 않으며, 규칙·스크립트는 확인된 기준만 적용되고, 담당자 확인이 유지됩니다. 각 단계의 완료는 해당 역할의 완료 기준을 모두 만족할 때 인정됩니다."
     : method(s) === "rule" || method(s) === "script" ? "확인된 형식·키·업무 규칙으로 실제 입력이 처리되고, 담당자가 확정한 기대 결과와 대조한 기록 및 원본 대응 관계가 남습니다. 기대 결과·판정 기준이 없으면 '기준 확인 필요'로 보고하고 합격으로 단정하지 마세요."
     : method(s) === "manual" ? "담당자가 수행할 작업과 시스템이 보조할 범위를 확인하고, 담당자 수행 결과와 미확인 조건만 기록합니다. 수동 업무를 신규 자동화 기능으로 바꾸지 마세요."
+    : isConflictingMethodEvidence(model, confirmIdx)
+    ? "처리 방식 근거가 충돌합니다. 충돌을 해결하기 전에는 처리 방식을 임의로 선택·구현하지 마세요. 충돌 해결 후 재개 조건을 보고하세요."
+    : isConfirmedMethodEvidence(model, confirmIdx)
+    ? "위 '확인된 기준'에 명시된 처리 방식을 실제 입력으로 구현하고, 기준에 없는 처리 방식은 담당자에게 확인하기 전에는 선택·구현하지 않습니다. 각 단계의 완료는 해당 기준의 완료 조건을 모두 만족할 때 인정됩니다."
     : "처리 방식이 확정되지 않았습니다. 처리 방식의 근거·충돌 내용·필수 기준을 먼저 확인하고, 미확정 사항과 재개 조건을 보고하세요. 방식이 확정되기 전에는 구현을 시작하지 마세요.";
   };
   const stepLine = (s: StepScope) => `${s.step} — ${methodLabel(s)}`;
