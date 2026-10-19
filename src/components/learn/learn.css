@@ -1,0 +1,93 @@
+/* AI·AX 학습센터 — WorkLens B2B 디자인 유지, 차분한 학습 화면 */
+.learn-view { color: var(--foreground); padding: 0 0 40px; font-size: var(--font-size-sm); line-height: 1.7; word-break: keep-all; overflow-wrap: anywhere; }
+.learn-view h2 { font-size: 21px; font-weight: 650; margin: 20px 0 12px; }
+.learn-view h3 { font-size: 17px; font-weight: 650; margin: 0 0 12px; }
+.learn-view h4 { font-weight: 600; margin: 12px 0 6px; }
+.learn-view p { overflow-wrap: anywhere; }
+.learn-view ul, .learn-view ol { padding-left: 20px; }
+.learn-view li { margin: 4px 0; }
+.learn-muted { color: var(--muted-foreground); }
+.learn-view small { font-size: var(--font-size-xs); color: var(--muted-foreground); }
+
+.learn-surface { background: var(--card); border: 1.5px solid var(--border); border-radius: 16px; padding: 20px; box-shadow: 0 2px 8px color-mix(in srgb, var(--foreground) 4%, transparent); min-width: 0; }
+.learn-surface h2, .learn-surface h3 { margin-top: 0; }
+
+/* 로드맵 */
+.learn-roadmap { display: flex; flex-direction: column; gap: 12px; margin: 16px 0; }
+.learn-level-row { display: flex; align-items: center; gap: 14px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--card); }
+.learn-level-row.is-current { border-color: var(--primary); }
+.learn-level-no { flex: none; width: 64px; height: 64px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 15px; background: color-mix(in srgb, var(--muted) 40%, transparent); color: var(--muted-foreground); }
+.learn-level-row.is-passed .learn-level-no { background: color-mix(in srgb, var(--primary) 12%, transparent); color: var(--primary); }
+.learn-level-row.is-locked .learn-level-no { opacity: 0.5; }
+.learn-level-body { flex: 1; min-width: 0; }
+.learn-level-title { font-weight: 650; font-size: 15px; }
+.learn-level-topic { color: var(--muted-foreground); font-size: var(--font-size-xs); }
+.learn-level-status { flex: none; font-size: var(--font-size-xs); color: var(--muted-foreground); text-align: right; }
+.learn-level-status strong { display: block; font-size: 14px; color: var(--foreground); }
+.learn-progress-bar { height: 8px; border-radius: 4px; background: color-mix(in srgb, var(--muted) 40%, transparent); overflow: hidden; margin: 8px 0; }
+.learn-progress-bar > div { height: 100%; background: var(--primary); border-radius: 4px; transition: width 0.3s; }
+
+/* 학습 단위 */
+.learn-unit-nav { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 20px; }
+.learn-unit { margin-bottom: 28px; }
+.learn-unit h3 { font-size: 18px; }
+.learn-concept { margin: 8px 0; }
+.learn-concept dt { font-weight: 650; }
+.learn-concept dd { margin: 2px 0 8px; color: var(--foreground); }
+.learn-case { border-left: 3px solid var(--primary); padding: 8px 0 8px 14px; margin: 10px 0; }
+.learn-case strong { display: block; }
+.learn-mistake { background: color-mix(in srgb, var(--destructive) 6%, transparent); border: 1px solid color-mix(in srgb, var(--destructive) 25%, transparent); border-radius: 10px; padding: 12px 14px; margin: 8px 0; }
+.learn-summary { background: color-mix(in srgb, var(--primary) 6%, transparent); border-radius: 10px; padding: 12px 14px; margin: 12px 0; }
+.learn-summary ul { margin: 4px 0; }
+
+/* 퀴즈 */
+.learn-quiz-progress { display: flex; align-items: center; gap: 12px; margin: 12px 0; }
+.learn-choice { display: flex; align-items: flex-start; gap: 10px; width: 100%; text-align: left; padding: 12px 14px; border: 1.5px solid var(--border); border-radius: 10px; background: var(--card); margin: 8px 0; cursor: pointer; font-size: var(--font-size-sm); }
+.learn-choice:hover { border-color: var(--primary); }
+.learn-choice.is-selected { border-color: var(--primary); background: color-mix(in srgb, var(--primary) 7%, transparent); }
+.learn-choice.is-correct { border-color: var(--primary); background: color-mix(in srgb, var(--primary) 10%, transparent); }
+.learn-choice.is-wrong { border-color: var(--destructive); background: color-mix(in srgb, var(--destructive) 7%, transparent); }
+.learn-choice:disabled { cursor: default; }
+.learn-choice-id { flex: none; width: 28px; height: 28px; border-radius: 50%; border: 1.5px solid var(--border); display: flex; align-items: center; justify-content: center; font-weight: 650; font-size: 13px; }
+.learn-choice.is-selected .learn-choice-id { border-color: var(--primary); color: var(--primary); }
+.learn-ox-row { display: flex; gap: 12px; margin: 12px 0; }
+.learn-ox { flex: 1; padding: 16px; font-size: 20px; font-weight: 700; border: 1.5px solid var(--border); border-radius: 12px; background: var(--card); cursor: pointer; }
+.learn-ox.is-selected { border-color: var(--primary); background: color-mix(in srgb, var(--primary) 7%, transparent); }
+.learn-quiz-nav { display: flex; justify-content: space-between; margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--border); }
+.learn-question-dots { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0; }
+.learn-qdot { width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--border); background: var(--card); font-size: 12px; cursor: pointer; }
+.learn-qdot.is-answered { background: color-mix(in srgb, var(--primary) 12%, transparent); border-color: var(--primary); }
+.learn-qdot.is-current { outline: 2px solid var(--primary); outline-offset: 1px; }
+.learn-explanation { border-radius: 10px; padding: 12px 14px; margin: 12px 0; background: color-mix(in srgb, var(--muted) 35%, transparent); }
+
+/* 가상 터미널 */
+.learn-terminal { background: #1e1e1e; color: #d4d4d4; border-radius: 12px; padding: 16px; font-family: ui-monospace, Consolas, monospace; font-size: 13px; line-height: 1.6; }
+.learn-terminal-output { white-space: pre-wrap; word-break: break-all; max-height: 320px; overflow-y: auto; margin-bottom: 8px; }
+.learn-terminal-input-row { display: flex; align-items: center; gap: 8px; }
+.learn-terminal-prompt { color: #4ec9b0; flex: none; }
+.learn-terminal-input { flex: 1; background: transparent; border: 0; color: #d4d4d4; font: inherit; outline: none; min-width: 0; }
+
+/* 결과 */
+.learn-result-score { font-size: 40px; font-weight: 700; }
+.learn-result-pass { color: var(--primary); font-weight: 700; }
+.learn-result-fail { color: var(--destructive); font-weight: 700; }
+.learn-review-item { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; margin: 8px 0; }
+.learn-review-item.is-wrong { border-left: 3px solid var(--destructive); }
+.learn-review-item.is-correct { border-left: 3px solid var(--primary); }
+
+/* 수료증 */
+.learn-certificate { border: 2px solid var(--primary); border-radius: 16px; padding: 40px 32px; text-align: center; background: var(--card); max-width: 640px; margin: 24px auto; }
+.learn-certificate h2 { font-size: 28px; margin-bottom: 8px; }
+.learn-certificate .learn-cert-name { font-size: 22px; font-weight: 700; margin: 16px 0; }
+
+.learn-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0; }
+.learn-kv { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 16px 0; }
+.learn-kv-item { padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; }
+.learn-kv-item strong { display: block; font-size: 20px; }
+.learn-kv-item span { font-size: var(--font-size-xs); color: var(--muted-foreground); }
+
+@media (max-width: 700px) {
+  .learn-level-row { flex-wrap: wrap; }
+  .learn-certificate { padding: 28px 20px; }
+  .learn-terminal { font-size: 12px; }
+}
