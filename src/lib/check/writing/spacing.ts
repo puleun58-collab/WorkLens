@@ -13,6 +13,32 @@ const PREDICATE_ENDINGS = "합니다|됩니다|했습니다|됐습니다|하였�
 const SPLIT_PREDICATE = new RegExp(`(?<![가-힣])(${ACTION_NOUNS})\\s+(${PREDICATE_ENDINGS})`, "gu");
 const SPLIT_AUXILIARY = /(?<![가-힣])([가-힣]{2,4})\s+해\s*(주세요|주십시오|주시기|드립니다|드렸습니다)/gu;
 const ATTACHED_AUXILIARY = /(?<![가-힣])([가-힣]{2,4})해(주세요|주십시오|주시기|드립니다)/gu;
+/**
+ * Business compounds whose standard form is spaced, hand-verified pair by pair:
+ * the attached form is not a dictionary headword and each component keeps its
+ * own spacing under the 국립국어원 norm. The list stays deliberately small —
+ * only forms observed attached in real documents — because generic noun
+ * splitting false-positives on legitimate compounds (e.g. 품질관리) and on
+ * entrenched terms (e.g. 변경관리). A trailing particle or punctuation is
+ * allowed so "평가결과를" is still caught, while a longer compound that merely
+ * contains the form (e.g. 평가결과서) is left alone.
+ */
+const COMPOUND_SPACING: readonly (readonly [attached: string, spaced: string])[] = [
+  ["평가결과", "평가 결과"],
+  ["보안요구사항", "보안 요구사항"],
+  ["정기검토", "정기 검토"],
+  ["패치관리", "패치 관리"],
+  ["중앙수집", "중앙 수집"],
+  ["추가기간", "추가 기간"],
+  ["완료예정일", "완료 예정일"],
+  ["개선목록", "개선 목록"],
+];
+const COMPOUND_PARTICLES = "은|는|이|가|을|를|의|에|에서|와|과|도|만|으로|로|이며|이고|부터|까지|보다|처럼";
+const COMPOUND_PATTERNS = COMPOUND_SPACING.map(([attached, spaced]) => ({
+  attached,
+  spaced,
+  pattern: new RegExp(`(?<![가-힣])${attached}(?=$|[\\s\\p{P}]|${COMPOUND_PARTICLES})`, "gu"),
+}));
 /** Particles never stand alone; a leading space in front of one is a spacing slip. */
 const DETACHED_PARTICLE = /(?<=[가-힣A-Za-z0-9])\s+(에서|에게|에게서|한테|으로|로서|로써|까지|부터|처럼|마다|조차|이라고|라고는)(?![가-힣])/gu;
 const BOUND_NOUN_SU = /([가-힣])수\s*(있|없)/gu;
@@ -92,6 +118,15 @@ function spacingHits(text: string): SpacingHit[] {
     matched: match[0],
     corrected: " 및 ",
   });
+  for (const { attached, spaced, pattern } of COMPOUND_PATTERNS) {
+    for (const match of text.matchAll(pattern)) hits.push({
+      ruleId: "writing/korean/spacing:compound",
+      issue: "복합 명사 띄어쓰기",
+      reason: `'${attached}'은(는) '${spaced}'처럼 구성 단어별로 띄어 쓰는 것이 표준입니다.`,
+      matched: match[0],
+      corrected: spaced,
+    });
+  }
   return hits;
 }
 

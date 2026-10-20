@@ -266,7 +266,7 @@ test("재확인이 근거 없이 설명을 찾았다고 답해도 기존 위치�
   await page.getByRole("button", { name: "보완 실행", exact: true }).click();
   const cause = page.locator(".supplement-item").filter({ hasText: "주요 증가 요인" });
   await expect(cause).toBeVisible();
-  await expect(cause.locator(".supplement-limitation")).toContainText("AI가 제시한 근거에서 필요한 구체 정보를 확인하지 못해 누락 여부를 확정하지 않았습니다.");
+  await expect(cause.locator(".supplement-limitation")).toContainText("제공된 자료만으로는 해당 항목의 충족 여부를 판단하기 어렵습니다.");
   await expect(cause.locator(".check-severity")).toHaveText("확인 필요");
   await cause.getByRole("button", { name: /근거 보기/ }).click();
   const detail = page.getByLabel("근거 상세", { exact: true });
