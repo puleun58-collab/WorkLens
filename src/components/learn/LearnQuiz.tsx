@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { publishLearnScreen } from "@/client/learn-screen";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { levelMeta } from "@/lib/learn/curriculum";
@@ -21,6 +22,11 @@ export function LearnQuiz({ level, questions, onSubmit, onCancel }: LearnQuizPro
   const [answers, setAnswers] = useState<Record<string, LearnerAnswer>>({});
   const [confirming, setConfirming] = useState(false);
   const q = questions[idx];
+
+  // 렌즈봇 화면 인식용 현재 문항 발행 (정답 보호는 서버에서 근거 범위로 제어한다)
+  useEffect(() => {
+    if (q) publishLearnScreen({ questionId: q.id });
+  }, [q]);
 
   const unanswered = useMemo(
     () => questions.filter((item) => !answers[item.id]).map((item) => item.id),

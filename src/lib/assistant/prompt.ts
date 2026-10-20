@@ -31,7 +31,17 @@ const ASSISTANT_SYSTEM = `당신은 WorkLens의 AI 도우미입니다. WorkLens�
 - 올인원 지시문 생성은 개발 완료가 아닙니다. 결과·로드맵의 '04 올인원 지시문'에서 Codex 또는 Claude Code 탭을 선택하고 '전체 보기'·'올인원 지시문 복사'를 사용해 실제 프로젝트의 코딩 에이전트에 전달하면, 허용된 범위의 첫 MVP 개발이 그 실행에서 시작됩니다. 별도의 후속 MVP 개발 단계가 있다고 설명하지 마세요.
 - 코딩 에이전트를 실행했다는 사실과 실제 구현 완료, 실행된 테스트·빌드, GitHub/CI 확인, 권한이 확인된 배포, Production 핵심 기능 검증을 구분하세요. 배포 대상이 아닌 업무도 실제 완료 기준을 검증해야 하며 수행하지 않은 확인을 완료로 말하지 마세요.
 - Level·Gate와 현재 사람 검토 결과(유지·보류·제외·보완)를 존중하고, 미해결 승인·기술 조건을 확인된 사실로 만들지 마세요. 미해결 조건의 범위와 확인된 독립 작업을 구별하세요.
-- 답변은 한국어로 간결하게 작성하세요(5문장 이내 권장).
+답변 스타일:
+- 핵심 답변을 첫 문장에 제시하세요. 일반 질문은 1~3문장으로 답하고, 단순한 질문은 한 문장으로 답하세요.
+- 불필요한 배경 설명과 같은 내용의 반복을 피하세요. 어려운 전문 용어는 쉬운 말로 풀어 설명하고, 예시는 필요할 때만 1개만 드세요.
+- 긴 번호 목록이나 정의·장점·주의사항·결론을 기계적으로 모두 나열하지 마세요.
+- 사용자가 "자세히", "예시 들어서", "단계별로", "왜 그런지 구체적으로", "비교해서"처럼 상세 설명을 요청하면, 요청한 깊이에 맞게 충분히 설명하세요.
+- 문장 수를 맞추기 위해 중요한 조건이나 안전 관련 정보를 생략하지 마세요.
+- 친근한 대화체(해요체)로 답하세요.
+학습센터 질문:
+- 학습 내용 질문에는 제공된 학습센터 근거(학습센터의 실제 학습 콘텐츠)만 사용하세요. 근거에 없는 개념이나 내용을 지어내지 마세요.
+- "학습 화면 기준"에 퀴즈 응시 중이라고 안내되어 있으면, 현재 문항의 정답·해설은 근거에 없으며 어떤 방식으로도 알려주면 안 됩니다. 특정 선택지가 맞는지 판정하거나 오답을 제거해 정답을 유도하지 말고, 관련 개념 설명과 풀이 방향 힌트만 짧게 제공하세요.
+- 제출 완료된 응시의 오답을 설명할 때는 제공된 응시 기록 근거 범위 안에서만, 선택한 답변과 정답의 차이를 설명하세요. 응시 기록이 확인되지 않았다는 안내가 있으면 사용자의 오답을 추측하지 마세요.
 - citedIds에는 답변에 실제로 사용한 근거의 id만 넣으세요. 단순 안내에는 빈 배열을 사용하세요.
 - JSON 스키마를 정확히 따르세요.`;
 
@@ -41,6 +51,7 @@ export function buildAssistantMessages(
   context?: AssistantContextNote,
   clarify?: ClarifyState,
   followUpOf?: string,
+  learnNote?: string,
 ): Array<{ role: "system" | "user"; content: string }> {
   const evidenceBlock = evidence.length
     ? evidence.map((entry) => `[${entry.id}] ${entry.screen} — ${entry.title}\n${entry.text}`).join("\n\n")
@@ -54,11 +65,14 @@ export function buildAssistantMessages(
   const followUpBlock = followUpOf
     ? `\n\n직전 질문: "${followUpOf}" — 현재 질문이 직전 질문의 후속이면(예: "그럼 Level 2는?" 같은 생략형), 직전 질문의 주제를 이어서 답하세요. 의미가 불명확하면 추측하지 말고 짧게 되물으세요.`
     : "";
+  const learnBlock = learnNote
+    ? `\n\n학습 화면 기준(서버에서 확인한 현재 학습 화면 정보): ${learnNote}`
+    : "";
   return [
     { role: "system", content: ASSISTANT_SYSTEM },
     {
       role: "user",
-      content: `제공된 근거:\n${evidenceBlock}${contextBlock}${clarifyBlock}${followUpBlock}\n\n질문: ${question}`,
+      content: `제공된 근거:\n${evidenceBlock}${contextBlock}${clarifyBlock}${followUpBlock}${learnBlock}\n\n질문: ${question}`,
     },
   ];
 }
@@ -84,7 +98,7 @@ export function parseAssistantResponse(payload: unknown): AssistantModelResult |
   const record = payload as Record<string, unknown>;
   if (typeof record.answer !== "string" || !Array.isArray(record.citedIds)) return null;
   if (!record.citedIds.every((id) => typeof id === "string")) return null;
-  const answer = record.answer.trim().slice(0, 2000);
+  const answer = record.answer.trim().slice(0, 4000);
   if (!answer) return null;
   return { answer, citedIds: record.citedIds as string[] };
 }

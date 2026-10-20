@@ -4,8 +4,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Bot, Loader2, Maximize2, Minimize2, RotateCcw, Send, TriangleAlert, X } from "lucide-react";
 import { loadAxState } from "@/client/ax-store";
+import { readLearnScreen, type LearnScreenMode } from "@/client/learn-screen";
 import { automationLevel, executionGate, GATE_LABELS } from "@/lib/ax/policy";
 import { planSummary } from "@/lib/ax/guide";
+import { loadLearnProgress } from "@/lib/learn/progress-store";
+import type { QuizAttempt } from "@/lib/learn/types";
 import "./assistant.css";
 
 const MASCOT_SRC = "/brand/wl-assistant-mascot.png";
@@ -139,6 +142,67 @@ async function readScreenContext(question?: string): Promise<ScreenContext | nul
   }
 }
 
+/** 학습센터 화면 컨텍스트 — 서버가 실제 학습 데이터로 검증해 근거 범위를 정한다. */
+interface LearnContextPayload {
+  mode: LearnScreenMode;
+  level?: number;
+  unitId?: string;
+  questionId?: string;
+  attempt?: QuizAttempt;
+}
+
+function serializeAttempt(attempt: QuizAttempt): QuizAttempt {
+  return {
+    attemptId: attempt.attemptId,
+    level: attempt.level,
+    questionIds: attempt.questionIds,
+    answers: attempt.answers,
+    graded: attempt.graded,
+    score: attempt.score,
+    passed: attempt.passed,
+    ...(attempt.passScore !== undefined ? { passScore: attempt.passScore } : {}),
+    ...(attempt.choiceOrder ? { choiceOrder: attempt.choiceOrder } : {}),
+    startedAt: attempt.startedAt,
+    finishedAt: attempt.finishedAt,
+  };
+}
+
+/**
+ * 현재 학습 화면 정보를 읽는다. 결과·오답 화면에서는 저장된 응시 기록을 함께 보내
+ * 서버가 문제은행 원본으로 재채점 검증한 뒤에만 정답·해설 근거를 쓰게 한다.
+ * 응시 중에는 답변을 보내지 않는다 (문항 식별자만 전달).
+ */
+async function readLearnContext(): Promise<LearnContextPayload | null> {
+  const screen = readLearnScreen();
+  if (!screen) return null;
+  const base: LearnContextPayload = {
+    mode: screen.mode,
+    ...(screen.level ? { level: screen.level } : {}),
+    ...(screen.unitId ? { unitId: screen.unitId } : {}),
+    ...(screen.questionId ? { questionId: screen.questionId } : {}),
+  };
+  try {
+    if (screen.mode === "result" && screen.attemptId) {
+      const progress = await loadLearnProgress();
+      for (const levelProgress of Object.values(progress.levels)) {
+        const attempt = levelProgress?.attempts.find((a) => a.attemptId === screen.attemptId);
+        if (attempt) return { ...base, attempt: serializeAttempt(attempt) };
+      }
+    }
+    if (screen.mode === "wrongnotes") {
+      const progress = await loadLearnProgress();
+      const latest = [...(progress.wrongAnswers ?? [])].sort((a, b) => b.answeredAt - a.answeredAt)[0];
+      if (latest) {
+        const attempt = progress.levels[latest.level]?.attempts.find((a) => a.attemptId === latest.attemptId);
+        if (attempt) return { ...base, questionId: latest.questionId, attempt: serializeAttempt(attempt) };
+      }
+    }
+  } catch {
+    // 저장소 접근 실패 시 화면 정보만으로 진행한다 (서버는 응시 미확인으로 처리).
+  }
+  return base;
+}
+
 interface AssistantApiResult {
   answer: string;
   sources: AssistantSource[];
@@ -153,6 +217,7 @@ async function askAssistant(
   clarify: { clarifyId: string; originalQuestion: string; options: string[] } | null,
   followUpOf: string | null,
   contextStatus: ContextStatus | null,
+  learnContext: LearnContextPayload | null,
   signal: AbortSignal,
 ): Promise<AssistantApiResult> {
   const response = await fetch("/api/assistant", {
@@ -166,6 +231,7 @@ async function askAssistant(
       ...(clarify ? { clarify } : {}),
       ...(followUpOf ? { followUpOf } : {}),
       ...(contextStatus && contextStatus !== "available" ? { contextStatus } : {}),
+      ...(learnContext ? { learnContext } : {}),
     }),
     signal,
   });
@@ -284,7 +350,9 @@ export function AssistantWidget() {
       if (requestId !== requestSeqRef.current) return;
       // context가 없을 때 이유를 파악하여 서버에 전달 (동의 반복 방지)
       const contextStatus = !withContext ? null : context ? null : (await readScreenContextStatus().catch(() => ({ status: "access-failed" as const, taskId: null }))).status;
-      const { answer, sources, relatedScreens, kind, clarify } = await askAssistant(question, context, pendingClarify, followUpOf, contextStatus, controller.signal);
+      const learnContext = await readLearnContext().catch(() => null);
+      if (requestId !== requestSeqRef.current) return;
+      const { answer, sources, relatedScreens, kind, clarify } = await askAssistant(question, context, pendingClarify, followUpOf, contextStatus, learnContext, controller.signal);
       if (requestId !== requestSeqRef.current) return;
       // Remember this question for the next follow-up.
       lastQuestionRef.current = question;

@@ -326,7 +326,7 @@ function requestSpecification(request: AiApiRequest): {
     case "supplement-review":
       return { messages: buildSupplementReviewMessages(request.checks, request.items), schema: SUPPLEMENT_REVIEW_RESPONSE_SCHEMA, schemaName: "worklens_supplement_review", maxTokens: 1_500 };
     case "assistant":
-      return { messages: buildAssistantMessages(request.question, request.evidence, request.context, request.clarify, request.followUpOf), schema: ASSISTANT_RESPONSE_SCHEMA, schemaName: "worklens_assistant", maxTokens: 800 };
+      return { messages: buildAssistantMessages(request.question, request.evidence, request.context, request.clarify, request.followUpOf, request.learnNote), schema: ASSISTANT_RESPONSE_SCHEMA, schemaName: "worklens_assistant", maxTokens: request.detail ? 1600 : 1000 };
   }
 }
 

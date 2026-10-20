@@ -25,6 +25,7 @@ import type {
   LearnerAnswer,
   QuizAttempt,
 } from "@/lib/learn/types";
+import { clearLearnScreen, publishLearnScreen } from "@/client/learn-screen";
 import { LearnLesson } from "./LearnLesson";
 import { LearnQuiz } from "./LearnQuiz";
 import { LearnResult } from "./LearnResult";
@@ -111,6 +112,35 @@ export function LearnCenterView() {
     const updater = pendingSaveRef.current;
     if (updater) void persist(updater);
   }, [persist]);
+
+  // 렌즈봇 화면 인식용 현재 화면 발행 (단위·문항 같은 세부 상태는 하위 화면이 발행한다)
+  useEffect(() => {
+    switch (screen.name) {
+      case "dashboard":
+        publishLearnScreen({ mode: "dashboard", level: undefined, unitId: undefined, questionId: undefined, attemptId: undefined });
+        break;
+      case "lesson":
+        publishLearnScreen({ mode: "lesson", level: screen.level, questionId: undefined, attemptId: undefined });
+        break;
+      case "quiz":
+        publishLearnScreen({ mode: "quiz", level: screen.level, attemptId: screen.attemptId, unitId: undefined });
+        break;
+      case "result":
+        publishLearnScreen({ mode: "result", level: screen.attempt.level, attemptId: screen.attempt.attemptId, questionId: undefined, unitId: undefined });
+        break;
+      case "wrongnotes":
+        publishLearnScreen({ mode: "wrongnotes", level: undefined, unitId: undefined, questionId: undefined, attemptId: undefined });
+        break;
+      case "diagnostic":
+        publishLearnScreen({ mode: "diagnostic", level: undefined, unitId: undefined, questionId: undefined, attemptId: undefined });
+        break;
+      case "certificate":
+        publishLearnScreen({ mode: "certificate", level: undefined, unitId: undefined, questionId: undefined, attemptId: undefined });
+        break;
+    }
+  }, [screen]);
+
+  useEffect(() => () => clearLearnScreen(), []);
 
   const startQuiz = useCallback(
     (level: LearnLevelNo) => {

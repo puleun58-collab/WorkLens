@@ -91,6 +91,8 @@ const IN_SCOPE = [
   /법령|리서치/u, /문서\s*(검토|처리|분석)/u, /파일\s*업로드/u,
   /진단\s*(결과|정책)/u, /구현\s*(범위|계획)/u, /mvp|엠브이피/iu, /깃허브|github|git|배포|production/iu,
   /도우미/u, /오류/u, /에러/u,
+  // 학습센터 (학습 콘텐츠 질문은 일반 코딩 상담과 구분한다)
+  /학습센터|학습하기|퀴즈|오답|통과\s*기준|단원|커리큘럼/u, /터미널|명령어|커밋|브랜치/u,
   // Colloquial/short forms
   /자연어/u, /말로/u, /문장으로/u,
   /어디\s*(있|계시)/u, /어떻게\s*(써|해|해요)/u,
@@ -148,6 +150,13 @@ function isAmbiguous(normalized: string): boolean {
   // "중복" without a clear question structure: short fragment with two plausible intents
   if (DUPLICATE_AMBIGUOUS.test(normalized) && normalized.length <= 30) return true;
   return false;
+}
+
+/** 상세 설명 요청 — 기본 간결 답변 대신 요청한 깊이만큼 설명해야 하는 질문. */
+const DETAIL_REQUEST = /자세히|자세한|예시\s*(들어|로|를)|단계별|왜\s*그런지|구체적으로|비교해서|비교해\s*(줘|주세요)|상세히|예를\s*들/u;
+
+export function isDetailRequest(question: string): boolean {
+  return DETAIL_REQUEST.test(question);
 }
 
 export const OUT_OF_SCOPE_RESPONSE = "이 도우미는 WorkLens에 구현된 기능과 사용 방법만 안내할 수 있습니다.";
