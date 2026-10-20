@@ -9,6 +9,7 @@ export const CONTENT_L06: LearnContent = {
     {
       id: "l6-u1",
       title: "AI 코딩 에이전트란 무엇인가",
+      shortTitle: "AI 코딩 에이전트란",
       estimatedMinutes: 10,
       goal: "AI 코딩 에이전트가 무엇이고 채팅형 AI와 무엇이 다른지 설명할 수 있다.",
       concepts: [
@@ -90,6 +91,7 @@ export const CONTENT_L06: LearnContent = {
     {
       id: "l6-u2",
       title: "일을 잘 시키는 방법: 명확한 지시",
+      shortTitle: "명확한 지시 방법",
       estimatedMinutes: 12,
       goal: "배경·목표·범위·제약·예시를 담은 좋은 작업 지시서를 작성할 수 있다.",
       concepts: [

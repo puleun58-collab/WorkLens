@@ -461,6 +461,7 @@ export const CONTENT_L10: LearnContent = {
     {
       id: "l10-u6",
       title: "종합 사례: 거래처별 운임 정산 자동화",
+      shortTitle: "종합 사례 — 운임 정산 자동화",
       estimatedMinutes: 30,
       goal: "복합 실무 사례에 5단계 분석을 적용해 자동화 기획 수준의 판단 결과를 만들 수 있다.",
       concepts: [

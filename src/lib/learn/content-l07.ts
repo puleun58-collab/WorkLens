@@ -327,6 +327,7 @@ export const CONTENT_L07: LearnContent = {
     {
       id: "l7-u5",
       title: "초보자가 자주 겪는 실패와 해결",
+      shortTitle: "초보자 실패와 해결",
       estimatedMinutes: 10,
       goal: "대표적인 초보자 오류(의존성 미설치, 환경변수 누락, 포트 충돌)의 원인을 파악하고 해결할 수 있다.",
       concepts: [

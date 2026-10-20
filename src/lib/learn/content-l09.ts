@@ -8,6 +8,7 @@ export const CONTENT_L09: LearnContent = {
     {
       id: "l9-u1",
       title: "브랜치: 안전한 작업 공간",
+      shortTitle: "브랜치 — 작업 공간",
       estimatedMinutes: 10,
       goal: "브랜치의 개념을 설명하고, main에 직접 작업하지 않고 브랜치를 쓰는 이유를 설명할 수 있다.",
       concepts: [
@@ -80,6 +81,7 @@ export const CONTENT_L09: LearnContent = {
     {
       id: "l9-u2",
       title: "Pull Request: 합치기 전 검토",
+      shortTitle: "Pull Request — 검토",
       estimatedMinutes: 10,
       goal: "PR의 개념과 필요성을 설명하고, 좋은 PR(설명·리뷰 요청)의 조건을 말할 수 있다.",
       concepts: [
@@ -241,6 +243,7 @@ export const CONTENT_L09: LearnContent = {
     {
       id: "l9-u4",
       title: "Deploy: 서비스를 세상에 내놓기",
+      shortTitle: "Deploy — 서비스 배포",
       estimatedMinutes: 12,
       goal: "배포의 개념과 과정을 설명하고, 특정 플랫폼에 종속되지 않는 배포 판단 기준을 말할 수 있다.",
       concepts: [
@@ -319,6 +322,7 @@ export const CONTENT_L09: LearnContent = {
     {
       id: "l9-u5",
       title: "배포 성공 ≠ 동작 보장: 초보자 함정",
+      shortTitle: "배포 성공 ≠ 동작 보장",
       estimatedMinutes: 12,
       goal: "배포 성공과 정상 동작의 차이를 설명하고, 배포 후 확인해야 할 항목들을 체크리스트로 말할 수 있다.",
       concepts: [
