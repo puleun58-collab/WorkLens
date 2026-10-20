@@ -22,7 +22,13 @@ function dedupe(findings: readonly CheckFinding[]): CheckFinding[] {
   const merged = new Map<string, CheckFinding>();
   for (const finding of findings) {
     const sourceKey = finding.sources.map((source) => `${source.fileId}:${source.nodeId}`).sort().join("|");
-    const textKey = (finding.originalText ?? finding.message).normalize("NFKC").replace(/\s+/gu, " ").toLocaleLowerCase();
+    // Language findings carry the whole unit in originalText but name the
+    // offending token in their message. Keying on the unit text would collapse
+    // every distinct spelling/spacing error in one sentence into a single
+    // finding, so the language family keys on the message instead: the same
+    // issue still merges, different errors in the same sentence survive.
+    const textKey = (familyOf(finding) === "language" ? finding.message : finding.originalText ?? finding.message)
+      .normalize("NFKC").replace(/\s+/gu, " ").toLocaleLowerCase();
     const key = `${familyOf(finding)}\0${textKey}\0${sourceKey}`;
     const previous = merged.get(key);
     if (!previous) {
