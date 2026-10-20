@@ -249,6 +249,179 @@ test("학습센터: 오답 노트에서 관련 단위로 직접 이동", async (
   await expect(page.locator(".learn-lesson-unit-title")).toContainText(unitTitle!);
 });
 
+/** IndexedDB의 진행 중 응시 기록을 읽는다 (없으면 null) */
+async function readInProgressState(page: Parameters<typeof navigateWorkspace>[0]) {
+  return page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const req = indexedDB.open("worklens-learn", 1);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    try {
+      const value: { answers?: Record<string, unknown>; currentIndex?: number } | undefined =
+        await new Promise((resolve) => {
+          const tx = db.transaction("progress", "readonly");
+          const q = tx.objectStore("progress").get("in-progress");
+          q.onsuccess = () => resolve(q.result);
+          q.onerror = () => resolve(undefined);
+        });
+      if (!value) return null;
+      return { answers: Object.keys(value.answers ?? {}).length, currentIndex: value.currentIndex ?? -1 };
+    } finally {
+      db.close();
+    }
+  });
+}
+
+/** 진행 중 응시 기록이 기대 상태로 저장될 때까지 대기 (Node 측 폴링) */
+async function waitInProgressState(
+  page: Parameters<typeof navigateWorkspace>[0],
+  expected: { answers: number; currentIndex: number },
+) {
+  await expect
+    .poll(() => readInProgressState(page), { timeout: 15_000 })
+    .toEqual({ answers: expected.answers, currentIndex: expected.currentIndex });
+}
+
+test("학습센터: 퀴즈 진행 중 새로고침 후 응시 복구", async ({ page }) => {
+  await page.goto("/");
+  await learn(page);
+  const quizButtons = page.getByRole("button", { name: "퀴즈 응시", exact: true });
+  await quizButtons.first().click();
+  await expect(page.getByRole("heading", { name: /LEVEL 1 퀴즈/, exact: false })).toBeVisible();
+  // 답변 가능한(객관식·OX) 문항 2개에 답변 — 출제 구성은 응시마다 달라지므로 적응적으로 찾는다
+  const answeredIdx: number[] = [];
+  let firstPrompt: string | null = null;
+  for (let i = 0; i < 10 && answeredIdx.length < 2; i++) {
+    const answerable = (await page.locator(".learn-choice, .learn-ox").count()) > 0;
+    if (answerable) {
+      if (answeredIdx.length === 0) {
+        firstPrompt = await page.locator(".learn-question-prompt").textContent();
+      }
+      await answerCurrent(page);
+      answeredIdx.push(i);
+    }
+    if (answeredIdx.length < 2) {
+      await page.getByRole("button", { name: "다음", exact: true }).click();
+    }
+  }
+  expect(answeredIdx).toHaveLength(2);
+  // 두 번째로 답변한 문항의 다음 위치에서 중단한 상태로 만든다
+  await page.getByRole("button", { name: "다음", exact: true }).click();
+  const resumeIndex = answeredIdx[1] + 1;
+  await expect(page.locator(".learn-assess-progress-text")).toHaveText(`${resumeIndex + 1} / 10 문항`);
+  // 진행 중 응시가 저장될 때까지 대기한 뒤 새로고침
+  await waitInProgressState(page, { answers: 2, currentIndex: resumeIndex });
+  await page.reload();
+  await learn(page);
+  // 대시보드에 진행 중 퀴즈 안내가 표시된다
+  const resumeCard = page.locator('section[aria-label="진행 중인 퀴즈"]');
+  await expect(resumeCard).toBeVisible();
+  await expect(resumeCard).toContainText("LEVEL 1 · 답변 2 / 10");
+  await resumeCard.getByRole("button", { name: "이어서 응시하기", exact: true }).click();
+  // 문제 위치·답변이 복원된다 (다시 섞이지 않음)
+  await expect(page.locator(".learn-assess-progress-text")).toHaveText(`${resumeIndex + 1} / 10 문항`);
+  const dots = page.getByRole("navigation", { name: "문항 이동" }).getByRole("button");
+  await expect(dots.nth(answeredIdx[0])).toHaveClass(/is-answered/);
+  await expect(dots.nth(answeredIdx[1])).toHaveClass(/is-answered/);
+  await expect(dots.nth(resumeIndex)).not.toHaveClass(/is-answered/);
+  // 처음 답변한 문항으로 이동하면 문제와 선택한 답변이 그대로다
+  await dots.nth(answeredIdx[0]).click();
+  await expect(page.locator(".learn-question-prompt")).toHaveText(firstPrompt ?? "");
+  await expect(page.locator(".learn-choice.is-selected, .learn-ox.is-selected")).toHaveCount(1);
+  // 마지막 문항에서 제출 → 결과 화면 (복구된 응시가 정상 제출된다)
+  await dots.nth(9).click();
+  await page.getByRole("button", { name: "제출하기", exact: true }).click();
+  await page.getByRole("button", { name: "제출하고 채점하기", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "LEVEL 1 평가 결과" })).toBeVisible();
+  // 제출 후에는 진행 중 안내가 사라진다
+  await page.getByRole("button", { name: "학습센터로", exact: true }).click();
+  await expect(page.locator('section[aria-label="진행 중인 퀴즈"]')).toHaveCount(0);
+});
+
+test("학습센터: 제출 저장 실패 시 답변 유지 후 재시도 성공", async ({ page }) => {
+  // 학습 진도 저장(put "current")만 실패시키는 주입 — 진행 중 응시 저장은 영향 없음
+  await page.addInitScript(() => {
+    const originalPut = IDBObjectStore.prototype.put;
+    IDBObjectStore.prototype.put = function (value: unknown, key?: IDBValidKey) {
+      const flag = (window as unknown as { __failLearnProgressSave?: boolean }).__failLearnProgressSave;
+      if (flag && key === "current" && this.name === "progress") {
+        throw new DOMException("injected save failure", "AbortError");
+      }
+      return key === undefined ? originalPut.call(this, value) : originalPut.call(this, value, key);
+    };
+  });
+  await page.goto("/");
+  await learn(page);
+  const quizButtons = page.getByRole("button", { name: "퀴즈 응시", exact: true });
+  await quizButtons.first().click();
+  await expect(page.getByRole("heading", { name: /LEVEL 1 퀴즈/, exact: false })).toBeVisible();
+  // 1번 문항에 답변하고 마지막 문항으로 이동
+  await answerCurrent(page);
+  const dots = page.getByRole("navigation", { name: "문항 이동" }).getByRole("button");
+  await dots.nth(9).click();
+  await page.getByRole("button", { name: "제출하기", exact: true }).click();
+  // 저장 실패 주입 후 제출
+  await page.evaluate(() => {
+    (window as unknown as { __failLearnProgressSave?: boolean }).__failLearnProgressSave = true;
+  });
+  await page.getByRole("button", { name: "제출하고 채점하기", exact: true }).click();
+  // 결과 화면으로 확정 표시되지 않고, 답변 유지 + 재시도 동선이 제공된다
+  await expect(page.getByRole("button", { name: "다시 저장하기", exact: true })).toBeVisible();
+  await expect(page.getByText(/채점 결과를 저장하지 못했습니다/, { exact: false })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "LEVEL 1 평가 결과" })).toHaveCount(0);
+  // 주입 해제 후 재시도 → 저장 확정 → 결과 화면
+  await page.evaluate(() => {
+    (window as unknown as { __failLearnProgressSave?: boolean }).__failLearnProgressSave = false;
+  });
+  await page.getByRole("button", { name: "다시 저장하기", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "LEVEL 1 평가 결과" })).toBeVisible();
+  // 새로고침해도 응시 기록이 남아 있다 (저장된 결과와 화면 일치)
+  await page.reload();
+  await learn(page);
+  const rows = page.locator(".learn-dash-row");
+  await expect(rows.first()).toContainText("응시 1회");
+  await expect(page.locator('section[aria-label="진행 중인 퀴즈"]')).toHaveCount(0);
+});
+
+test("학습센터: 두 탭에서 같은 응시를 조작하면 먼저 저장한 탭이 보호된다", async ({ page, context }) => {
+  await page.goto("/");
+  await learn(page);
+  const quizButtons = page.getByRole("button", { name: "퀴즈 응시", exact: true });
+  await quizButtons.first().click();
+  // 답변 가능한 첫 문항에 답변하고 그 위치를 기록
+  let answeredIndex = -1;
+  for (let i = 0; i < 10 && answeredIndex < 0; i++) {
+    if ((await page.locator(".learn-choice, .learn-ox").count()) > 0) {
+      await answerCurrent(page);
+      answeredIndex = i;
+    } else {
+      await page.getByRole("button", { name: "다음", exact: true }).click();
+    }
+  }
+  expect(answeredIndex).toBeGreaterThanOrEqual(0);
+  await waitInProgressState(page, { answers: 1, currentIndex: answeredIndex });
+
+  // 두 번째 탭: 진행 중 응시를 불러와 이어서 진행 (두 문항 더 이동)
+  const page2 = await context.newPage();
+  await page2.goto("/");
+  await learn(page2);
+  const resumeCard = page2.locator('section[aria-label="진행 중인 퀴즈"]');
+  await expect(resumeCard).toBeVisible();
+  await resumeCard.getByRole("button", { name: "이어서 응시하기", exact: true }).click();
+  await page2.getByRole("button", { name: "다음", exact: true }).click();
+  await page2.getByRole("button", { name: "다음", exact: true }).click();
+  await waitInProgressState(page2, { answers: 1, currentIndex: answeredIndex + 2 });
+  await page2.close();
+
+  // 첫 번째 탭이 오래된 기준으로 저장을 시도하면 충돌 안내가 표시되고 덮어쓰지 않는다
+  await page.getByRole("button", { name: "다음", exact: true }).click();
+  await expect(page.locator(".learn-save-error")).toBeVisible();
+  await expect(page.locator(".learn-save-error")).toContainText("다른 탭에서 같은 퀴즈가 진행 중입니다");
+  // 저장된 기록은 두 번째 탭의 상태 그대로다
+  await waitInProgressState(page, { answers: 1, currentIndex: answeredIndex + 2 });
+});
+
 test("학습센터: 가상 터미널 기본 동작", async ({ page }) => {
   await page.goto("/");
   await learn(page);
