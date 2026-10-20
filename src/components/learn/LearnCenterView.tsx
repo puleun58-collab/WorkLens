@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Link2, Lock, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ALL_LEVELS, DIAGNOSTIC_AREAS, levelMeta } from "@/lib/learn/curriculum";
 import { diagnosticQuestions, findQuestion, questionBank } from "@/lib/learn/questions";
@@ -285,22 +286,24 @@ function LearnDashboard(props: {
   const isNewLearner = !ALL_LEVELS.some((l) => (progress.levels[l]?.attempts.length ?? 0) > 0);
 
   return (
-    <div>
+    <div className="learn-dash">
       <h2>학습센터</h2>
-      <p className="learn-muted">
+      <p className="learn-muted learn-dash-intro">
         AI·AX 기초부터 업무 자동화 판단, AI 도구 활용, 개발·배포 실무까지 단계별로 학습합니다.
         각 단계를 통과하면 다음 단계가 해제됩니다.
       </p>
 
-      <div className="learn-surface" style={{ marginTop: 16 }}>
-        <h3>전체 진행률</h3>
-        <div className="learn-progress-bar" role="progressbar" aria-valuenow={overall.percent} aria-valuemin={0} aria-valuemax={100}>
+      <section className="learn-dash-card" aria-label="전체 진행률">
+        <div className="learn-dash-progress-head">
+          <h3>전체 진행률</h3>
+          <span className="learn-dash-progress-count">
+            {overall.passed} / {overall.total} 단계 ({overall.percent}%)
+          </span>
+        </div>
+        <div className="learn-progress-bar learn-dash-bar" role="progressbar" aria-valuenow={overall.percent} aria-valuemin={0} aria-valuemax={100}>
           <div style={{ width: `${overall.percent}%` }} />
         </div>
-        <p>
-          {overall.passed} / {overall.total} 단계 통과 ({overall.percent}%)
-        </p>
-        <div className="learn-actions">
+        <div className="learn-actions learn-dash-actions">
           {nextLevel ? (
             <Button type="button" variant="default" onClick={() => props.onOpenLesson(nextLevel)}>
               {isNewLearner ? "처음 학습하기" : "이어서 학습하기"} (LEVEL {nextLevel})
@@ -320,7 +323,7 @@ function LearnDashboard(props: {
           ) : null}
         </div>
         {progress.diagnostic && progress.diagnostic.weakAreas.length > 0 ? (
-          <p>
+          <p className="learn-dash-note">
             <small>
               사전 진단 결과 보완 권장:{" "}
               {progress.diagnostic.weakAreas
@@ -330,17 +333,20 @@ function LearnDashboard(props: {
           </p>
         ) : null}
         {weak.length > 0 ? (
-          <p>
+          <p className="learn-dash-note">
             <small>자주 틀리는 개념: {weak.map((w) => `${w.category}(${w.count})`).join(", ")}</small>
           </p>
         ) : null}
-        <p>
+        <p className="learn-dash-note">
           <small>{LEARN_STORAGE_NOTICE}</small>
         </p>
-      </div>
+      </section>
 
-      <h3 style={{ marginTop: 24 }}>학습 로드맵</h3>
-      <div className="learn-roadmap">
+      <div className="learn-dash-roadmap-head">
+        <h3>학습 로드맵</h3>
+        <span className="learn-dash-roadmap-count">총 {ALL_LEVELS.length}개 단계</span>
+      </div>
+      <div className="learn-dash-roadmap">
         {ALL_LEVELS.map((level) => {
           const meta = levelMeta(level);
           const lp = progress.levels[level];
@@ -349,51 +355,64 @@ function LearnDashboard(props: {
           return (
             <div
               key={level}
-              className={`learn-level-row${lp?.passed ? " is-passed" : ""}${isCurrent ? " is-current" : ""}${!unlocked ? " is-locked" : ""}`}
+              className={`learn-dash-row${lp?.passed ? " is-passed" : ""}${isCurrent ? " is-current" : ""}${!unlocked ? " is-locked" : ""}`}
             >
-              <div className="learn-level-no">L{level}</div>
-              <div className="learn-level-body">
-                <div className="learn-level-title">{meta.title}</div>
-                <div className="learn-level-topic">{meta.topic} · 통과 {meta.passScore}점</div>
-                {lp ? (
-                  <div className="learn-level-topic">최고 점수 {lp.bestScore}점 · 응시 {lp.attempts.length}회</div>
-                ) : null}
+              <div className="learn-dash-no" aria-hidden="true">{String(level).padStart(2, "0")}</div>
+              <div className="learn-dash-body">
+                <div className="learn-dash-lv-title">{meta.title}</div>
+                <div className="learn-dash-lv-desc">
+                  {meta.topic} · 통과 {meta.passScore}점
+                  {lp ? (
+                    <> · 최고 {lp.bestScore}점 · 응시 {lp.attempts.length}회</>
+                  ) : null}
+                </div>
               </div>
-              <div className="learn-level-status">
-                {lp?.passed ? (
-                  <strong>통과</strong>
-                ) : !unlocked ? (
-                  <span>잠김</span>
-                ) : isCurrent ? (
-                  <strong>학습 중</strong>
-                ) : (
-                  <span>대기</span>
-                )}
-              </div>
-              <div className="learn-actions" style={{ margin: 0 }}>
-                <Button type="button" variant="outline" size="sm" disabled={!unlocked} onClick={() => props.onOpenLesson(level)}>
-                  {lp?.passed ? "복습하기" : "학습하기"}
-                </Button>
-                <Button type="button" variant="default" size="sm" disabled={!unlocked} onClick={() => props.onStartQuiz(level)}>
-                  퀴즈 응시
-                </Button>
-              </div>
+              {!unlocked ? (
+                <span className="learn-dash-locked">
+                  <Lock aria-hidden="true" />
+                  잠김
+                </span>
+              ) : (
+                <div className="learn-dash-right">
+                  {lp?.passed ? (
+                    <span className="learn-dash-status is-passed">통과</span>
+                  ) : isCurrent ? (
+                    <span className="learn-dash-status is-current">
+                      <Play aria-hidden="true" />
+                      학습 중
+                    </span>
+                  ) : (
+                    <span className="learn-dash-status">대기</span>
+                  )}
+                  <div className="learn-dash-btns">
+                    <Button type="button" variant="outline" size="sm" onClick={() => props.onOpenLesson(level)}>
+                      {lp?.passed ? "복습하기" : isCurrent ? "이어서 학습" : "학습하기"}
+                    </Button>
+                    <Button type="button" variant="default" size="sm" onClick={() => props.onStartQuiz(level)}>
+                      퀴즈 응시
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           );
         })}
       </div>
 
-      <div className="learn-surface" style={{ marginTop: 16 }}>
-        <h3>실무 연결</h3>
-        <p className="learn-muted">
+      <section className="learn-dash-practice" aria-label="실무 연결">
+        <h3 className="learn-dash-practice-title">
+          <Link2 aria-hidden="true" />
+          실무 연결
+        </h3>
+        <p className="learn-dash-practice-intro">
           학습한 내용을 실제 업무에 적용해 보세요. 학습 점수는 자동화 진단에 영향을 주지 않습니다.
         </p>
-        <ul>
+        <ul className="learn-dash-practice-list">
           <li>LEVEL 2 완료 후 — 업무 자동화 진단에서 실제 업무의 자동화 가능성을 판단해 보세요.</li>
           <li>LEVEL 8 완료 후 — 자동화 설계 관점으로 업무를 다시 살펴보세요.</li>
           <li>LEVEL 10 완료 후 — 실제 업무를 등록하고 자동화 판단을 시작해 보세요.</li>
         </ul>
-      </div>
+      </section>
     </div>
   );
 }
