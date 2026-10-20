@@ -46,10 +46,16 @@ export function LearnResult({ attempt, onRetry, onNext, onDashboard, onReviewWro
             <Button type="button" variant="default" onClick={onNext}>
               다음 단계로
             </Button>
+          ) : !attempt.passed ? (
+            <Button type="button" variant="default" onClick={onRetry}>
+              재응시하기
+            </Button>
           ) : null}
-          <Button type="button" variant="outline" onClick={onRetry}>
-            재응시하기
-          </Button>
+          {attempt.passed ? (
+            <Button type="button" variant="outline" onClick={onRetry}>
+              재응시하기
+            </Button>
+          ) : null}
           {wrong > 0 ? (
             <Button type="button" variant="outline" onClick={onReviewWrong}>
               오답 노트 보기
@@ -67,34 +73,46 @@ export function LearnResult({ attempt, onRetry, onNext, onDashboard, onReviewWro
         if (!q) return null;
         const answer = attempt.answers[g.questionId];
         return (
-          <div key={g.questionId} className={`learn-review-item${g.correct ? " is-correct" : " is-wrong"}`}>
-            <p>
+          <section key={g.questionId} className="learn-note-item">
+            <p className="learn-question-meta">
+              {i + 1}번 문항 · {q.category}
+            </p>
+            <p className="learn-note-prompt">
               <strong>
                 {i + 1}번. {g.correct ? "정답" : "오답"}
-              </strong>{" "}
-              <small className="learn-muted">{q.category}</small>
+              </strong>
             </p>
             <p>{q.prompt}</p>
             {q.choices ? (
-              <ul>
+              <ul className="learn-note-choices">
                 {q.choices.map((c) => {
                   const isCorrect = q.correctChoiceIds?.includes(c.id);
                   const isSelected = answer?.kind === "choices" && answer.selectedChoiceIds.includes(c.id);
                   return (
-                    <li key={c.id}>
-                      {c.id.toUpperCase()}. {c.text}
-                      {isCorrect ? " ✓ (정답)" : ""}
-                      {isSelected && !isCorrect ? " ← 선택함" : ""}
+                    <li key={c.id} className={isCorrect ? "is-correct" : isSelected ? "is-mine" : undefined}>
+                      <span className="learn-choice-id">{c.id.toUpperCase()}</span>
+                      <span className="learn-note-choice-text">{c.text}</span>
+                      {isCorrect ? <span className="learn-tag is-correct">정답</span> : null}
+                      {isSelected ? <span className="learn-tag is-mine">내 답</span> : null}
                     </li>
                   );
                 })}
               </ul>
             ) : null}
-            {q.type === "ox" ? <p>정답: {q.oxAnswer ? "O" : "X"}</p> : null}
+            {q.type === "ox" ? (
+              <p>
+                정답: <strong>{q.oxAnswer ? "O" : "X"}</strong>
+                {answer?.kind === "ox" ? (
+                  <>
+                    {" · "}내 답: <strong>{answer.answer ? "O" : "X"}</strong>
+                  </>
+                ) : null}
+              </p>
+            ) : null}
             <div className="learn-explanation">
               <strong>해설:</strong> {q.explanation}
             </div>
-          </div>
+          </section>
         );
       })}
     </div>

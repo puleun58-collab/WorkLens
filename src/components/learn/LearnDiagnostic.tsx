@@ -55,9 +55,12 @@ export function LearnDiagnostic({ questions, onComplete, onSkip }: LearnDiagnost
 
   if (done) {
     return (
-      <div>
+      <div className="learn-diagnostic">
+        <Button type="button" variant="ghost" size="sm" className="learn-back" onClick={() => onComplete(weakAreas)}>
+          <ArrowLeft /> 학습센터로 돌아가기
+        </Button>
         <h2>사전 진단 결과</h2>
-        <div className="learn-surface">
+        <div className="learn-question-card">
           {weakAreas.length === 0 ? (
             <p>모든 영역에서 잘 이해하고 계시네요. LEVEL 1부터 차근차근 시작해 보세요.</p>
           ) : (
@@ -88,17 +91,32 @@ export function LearnDiagnostic({ questions, onComplete, onSkip }: LearnDiagnost
       <Button type="button" variant="ghost" size="sm" className="learn-back" onClick={onSkip}>
         <ArrowLeft /> 학습센터로 돌아가기
       </Button>
-      <h2>사전 진단 (선택)</h2>
+      <div className="learn-assess-head">
+        <h2>사전 진단 (선택)</h2>
+        <div className="learn-assess-progress">
+          <span className="learn-assess-progress-text">
+            {idx + 1} / {questions.length} 문항
+          </span>
+          <div
+            className="learn-progress-bar learn-assess-bar"
+            role="progressbar"
+            aria-valuenow={idx + 1}
+            aria-valuemin={1}
+            aria-valuemax={questions.length}
+            aria-label="진단 진행률"
+          >
+            <div style={{ width: `${((idx + 1) / questions.length) * 100}%` }} />
+          </div>
+        </div>
+      </div>
       <p className="learn-muted learn-diagnostic-intro">
         현재 수준을 파악해 학습 방향을 추천합니다. 건너뛰어도 LEVEL 1부터 정상 학습할 수 있습니다.
       </p>
-      <div className="learn-surface learn-diagnostic-box">
-        <p>
-          <small className="learn-muted">
-            {idx + 1} / {questions.length} · {q.category}
-          </small>
+      <div className="learn-question-card learn-diagnostic-box">
+        <p className="learn-question-meta">
+          {idx + 1} / {questions.length} · {q.category}
         </p>
-        <h3>{q.prompt}</h3>
+        <h3 className="learn-question-prompt">{q.prompt}</h3>
         {q.choices?.map((c) => {
           const cur = answers[q.id];
           const selected = cur?.kind === "choices" && cur.selectedChoiceIds.includes(c.id);

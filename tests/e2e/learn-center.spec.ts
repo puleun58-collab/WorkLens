@@ -142,6 +142,18 @@ test("학습센터: 실제 다른 탭 변경 시 충돌 보호 동작", async ({
   await expect(page.getByRole("heading", { name: "핵심 개념" })).toBeVisible();
 });
 
+test("학습센터: 오답 노트 빈 상태", async ({ page }) => {
+  await page.goto("/");
+  await learn(page);
+  await page.getByRole("button", { name: /오답 노트/, exact: false }).click();
+  await expect(page.getByRole("heading", { name: "오답 노트", exact: true })).toBeVisible();
+  // 빈 상태: 아이콘 + 안내 + 학습센터로 이동 버튼 하나만 강조
+  await expect(page.getByText("아직 복습할 오답이 없습니다", { exact: true })).toBeVisible();
+  await expect(page.getByText(/틀린 문제가 있으면 이곳에 표시됩니다/, { exact: false })).toBeVisible();
+  await page.getByRole("button", { name: "학습센터로 이동", exact: true }).click();
+  await expect(page.locator(".learn-view").getByRole("heading", { name: "학습센터", exact: true })).toBeVisible();
+});
+
 test("학습센터: 사전 진단 — 중복 건너뛰기 제거·복귀 동선", async ({ page }) => {
   await page.goto("/");
   await learn(page);
@@ -154,9 +166,9 @@ test("학습센터: 사전 진단 — 중복 건너뛰기 제거·복귀 동선"
   // 이전·다음 문항 이동 유지
   const nav = page.locator(".learn-quiz-nav");
   await nav.getByRole("button", { name: "다음", exact: true }).click();
-  await expect(page.getByText("2 / 8", { exact: false })).toBeVisible();
+  await expect(page.locator(".learn-question-meta")).toContainText("2 / 8");
   await nav.getByRole("button", { name: "이전", exact: true }).click();
-  await expect(page.getByText("1 / 8", { exact: false })).toBeVisible();
+  await expect(page.locator(".learn-question-meta")).toContainText("1 / 8");
   // 돌아가기
   await page.getByRole("button", { name: "학습센터로 돌아가기", exact: true }).click();
   await expect(page.locator(".learn-view").getByRole("heading", { name: "학습센터", exact: true })).toBeVisible();
@@ -174,7 +186,7 @@ test("학습센터: 퀴즈 응시 → 채점 → 결과", async ({ page }) => {
   for (let i = 0; i < 10; i++) {
     await answerCurrent(page);
     if (i < 9) {
-      await page.getByRole("button", { name: "다음 문항", exact: true }).click();
+      await page.getByRole("button", { name: "다음", exact: true }).click();
     }
   }
   // 제출
@@ -194,7 +206,7 @@ test("학습센터: 미통과 시 다음 단계 잠금 유지", async ({ page })
   await quizButtons.first().click();
   // 아무것도 답하지 않고 제출 → 0점 → 미통과
   for (let i = 0; i < 9; i++) {
-    await page.getByRole("button", { name: "다음 문항", exact: true }).click();
+    await page.getByRole("button", { name: "다음", exact: true }).click();
   }
   await page.getByRole("button", { name: "제출하기", exact: true }).click();
   await expect(page.getByText(/미응답 문항/, { exact: false })).toBeVisible();
