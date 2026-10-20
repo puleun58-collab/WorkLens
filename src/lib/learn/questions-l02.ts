@@ -4,6 +4,7 @@ export const QUESTIONS_L02: LearnQuestion[] = [
   {
     id: "l2-q001",
     level: 2,
+    unitId: "l2-u1",
     category: "반복성과 자동화",
     type: "single",
     difficulty: "concept",
@@ -26,6 +27,7 @@ export const QUESTIONS_L02: LearnQuestion[] = [
   {
     id: "l2-q002",
     level: 2,
+    unitId: "l2-u1",
     category: "일회성 업무와 자동화",
     type: "ox",
     difficulty: "concept",
@@ -37,6 +39,7 @@ export const QUESTIONS_L02: LearnQuestion[] = [
   {
     id: "l2-q003",
     level: 2,
+    unitId: "l2-u2",
     category: "규칙 명확성",
     type: "single",
     difficulty: "concept",
@@ -59,6 +62,7 @@ export const QUESTIONS_L02: LearnQuestion[] = [
   {
     id: "l2-q004",
     level: 2,
+    unitId: "l2-u5",
     category: "자동화에 적합한 업무의 특징",
     type: "multiple",
     difficulty: "concept",
@@ -80,6 +84,7 @@ export const QUESTIONS_L02: LearnQuestion[] = [
   {
     id: "l2-q005",
     level: 2,
+    unitId: "l2-u3",
     category: "정형 데이터",
     type: "single",
     difficulty: "concept",
@@ -102,6 +107,7 @@ export const QUESTIONS_L02: LearnQuestion[] = [
   {
     id: "l2-q006",
     level: 2,
+    unitId: "l2-u3",
     category: "비정형 데이터",
     type: "single",
     difficulty: "concept",
@@ -124,6 +130,7 @@ export const QUESTIONS_L02: LearnQuestion[] = [
   {
     id: "l2-q007",
     level: 2,
+    unitId: "l2-u3",
     category: "입력 자료 표준화",
     type: "ox",
     difficulty: "concept",
@@ -135,6 +142,7 @@ export const QUESTIONS_L02: LearnQuestion[] = [
   {
     id: "l2-q008",
     level: 2,
+    unitId: "l2-u4",
     category: "예외 상황",
     type: "single",
     difficulty: "concept",
@@ -157,6 +165,7 @@ export const QUESTIONS_L02: LearnQuestion[] = [
   {
     id: "l2-q009",
     level: 2,
+    unitId: "l2-u4",
     category: "승인 단계의 의미",
     type: "single",
     difficulty: "concept",
@@ -179,6 +188,7 @@ export const QUESTIONS_L02: LearnQuestion[] = [
   {
     id: "l2-q010",
     level: 2,
+    unitId: "l2-u4",
     category: "자동화와 책임",
     type: "ox",
     difficulty: "concept",
@@ -190,6 +200,7 @@ export const QUESTIONS_L02: LearnQuestion[] = [
   {
     id: "l2-q011",
     level: 2,
+    unitId: "l2-u2",
     category: "판단이 필요한 업무",
     type: "single",
     difficulty: "concept",
@@ -212,6 +223,7 @@ export const QUESTIONS_L02: LearnQuestion[] = [
   {
     id: "l2-q012",
     level: 2,
+    unitId: "l2-u5",
     category: "자동화 판단 기준 종합",
     type: "multiple",
     difficulty: "concept",
@@ -232,6 +244,7 @@ export const QUESTIONS_L02: LearnQuestion[] = [
   {
     id: "l2-q013",
     level: 2,
+    unitId: "l2-u5",
     category: "반복 업무의 자동화 판단",
     type: "case-judgment",
     difficulty: "application",
@@ -254,6 +267,7 @@ export const QUESTIONS_L02: LearnQuestion[] = [
   {
     id: "l2-q014",
     level: 2,
+    unitId: "l2-u5",
     category: "판단이 필요한 업무의 판단",
     type: "case-judgment",
     difficulty: "application",
@@ -276,6 +290,7 @@ export const QUESTIONS_L02: LearnQuestion[] = [
   {
     id: "l2-q015",
     level: 2,
+    unitId: "l2-u3",
     category: "자료 형태에 따른 판단",
     type: "case-judgment",
     difficulty: "application",
@@ -298,6 +313,7 @@ export const QUESTIONS_L02: LearnQuestion[] = [
   {
     id: "l2-q016",
     level: 2,
+    unitId: "l2-u4",
     category: "예외가 잦은 업무의 설계",
     type: "single",
     difficulty: "application",
@@ -320,6 +336,7 @@ export const QUESTIONS_L02: LearnQuestion[] = [
   {
     id: "l2-q017",
     level: 2,
+    unitId: "l2-u4",
     category: "승인과 자동화의 함께 설계",
     type: "case-judgment",
     difficulty: "application",
@@ -342,6 +359,7 @@ export const QUESTIONS_L02: LearnQuestion[] = [
   {
     id: "l2-q018",
     level: 2,
+    unitId: "l2-u5",
     category: "자동화 전 준비 작업",
     type: "multiple",
     difficulty: "application",
@@ -362,6 +380,7 @@ export const QUESTIONS_L02: LearnQuestion[] = [
   {
     id: "l2-q019",
     level: 2,
+    unitId: "l2-u5",
     category: "종합 판단: 구매 요청 처리",
     type: "case-judgment",
     difficulty: "judgment",
@@ -384,6 +403,7 @@ export const QUESTIONS_L02: LearnQuestion[] = [
   {
     id: "l2-q020",
     level: 2,
+    unitId: "l2-u5",
     category: "종합 판단: 자동화 우선순위",
     type: "case-judgment",
     difficulty: "judgment",

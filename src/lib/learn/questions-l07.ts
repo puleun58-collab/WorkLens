@@ -4,6 +4,7 @@ export const QUESTIONS_L07: LearnQuestion[] = [
   {
     id: "l7-q001",
     level: 7,
+    unitId: "l7-u1",
     category: "프로젝트 폴더 구조",
     type: "single",
     difficulty: "concept",
@@ -27,6 +28,7 @@ export const QUESTIONS_L07: LearnQuestion[] = [
   {
     id: "l7-q002",
     level: 7,
+    unitId: "l7-u1",
     category: "프로젝트 폴더 구조",
     type: "single",
     difficulty: "concept",
@@ -50,6 +52,7 @@ export const QUESTIONS_L07: LearnQuestion[] = [
   {
     id: "l7-q003",
     level: 7,
+    unitId: "l7-u1",
     category: "프로젝트 폴더 구조",
     type: "single",
     difficulty: "application",
@@ -76,6 +79,7 @@ export const QUESTIONS_L07: LearnQuestion[] = [
   {
     id: "l7-q004",
     level: 7,
+    unitId: "l7-u4",
     category: "API 키 보안 판단",
     type: "case-judgment",
     difficulty: "judgment",
@@ -101,6 +105,7 @@ export const QUESTIONS_L07: LearnQuestion[] = [
   {
     id: "l7-q005",
     level: 7,
+    unitId: "l7-u2",
     category: "의존성의 개념",
     type: "single",
     difficulty: "concept",
@@ -124,6 +129,7 @@ export const QUESTIONS_L07: LearnQuestion[] = [
   {
     id: "l7-q006",
     level: 7,
+    unitId: "l7-u2",
     category: "패키지 관리자 활용",
     type: "single",
     difficulty: "application",
@@ -149,6 +155,7 @@ export const QUESTIONS_L07: LearnQuestion[] = [
   {
     id: "l7-q007",
     level: 7,
+    unitId: "l7-u3",
     category: "환경변수의 개념",
     type: "single",
     difficulty: "concept",
@@ -172,6 +179,7 @@ export const QUESTIONS_L07: LearnQuestion[] = [
   {
     id: "l7-q008",
     level: 7,
+    unitId: "l7-u3",
     category: "환경변수 오류 해결",
     type: "error-cause",
     difficulty: "application",
@@ -197,6 +205,7 @@ export const QUESTIONS_L07: LearnQuestion[] = [
   {
     id: "l7-q009",
     level: 7,
+    unitId: "l7-u2",
     category: "패키지 관리자의 역할",
     type: "single",
     difficulty: "concept",
@@ -220,6 +229,7 @@ export const QUESTIONS_L07: LearnQuestion[] = [
   {
     id: "l7-q010",
     level: 7,
+    unitId: "l7-u4",
     category: "민감정보 구분",
     type: "multiple",
     difficulty: "application",
@@ -241,6 +251,7 @@ export const QUESTIONS_L07: LearnQuestion[] = [
   {
     id: "l7-q011",
     level: 7,
+    unitId: "l7-u4",
     category: "API 키 관리 방법",
     type: "single",
     difficulty: "application",
@@ -264,6 +275,7 @@ export const QUESTIONS_L07: LearnQuestion[] = [
   {
     id: "l7-q012",
     level: 7,
+    unitId: "l7-u4",
     category: "API 키 유출 대응",
     type: "case-judgment",
     difficulty: "judgment",
@@ -289,6 +301,7 @@ export const QUESTIONS_L07: LearnQuestion[] = [
   {
     id: "l7-q013",
     level: 7,
+    unitId: "l7-u3",
     category: "설정 파일의 역할",
     type: "single",
     difficulty: "concept",
@@ -312,6 +325,7 @@ export const QUESTIONS_L07: LearnQuestion[] = [
   {
     id: "l7-q014",
     level: 7,
+    unitId: "l7-u4",
     category: "환경변수와 Git",
     type: "ox",
     difficulty: "application",
@@ -324,6 +338,7 @@ export const QUESTIONS_L07: LearnQuestion[] = [
   {
     id: "l7-q015",
     level: 7,
+    unitId: "l7-u3",
     category: "설정 파일 변경 판단",
     type: "case-judgment",
     difficulty: "judgment",
@@ -349,6 +364,7 @@ export const QUESTIONS_L07: LearnQuestion[] = [
   {
     id: "l7-q016",
     level: 7,
+    unitId: "l7-u5",
     category: "포트 충돌 해결",
     type: "single",
     difficulty: "application",
@@ -372,6 +388,7 @@ export const QUESTIONS_L07: LearnQuestion[] = [
   {
     id: "l7-q017",
     level: 7,
+    unitId: "l7-u5",
     category: "의존성 오류 해결",
     type: "error-cause",
     difficulty: "judgment",
@@ -397,6 +414,7 @@ export const QUESTIONS_L07: LearnQuestion[] = [
   {
     id: "l7-q018",
     level: 7,
+    unitId: "l7-u2",
     category: "node_modules 취급",
     type: "single",
     difficulty: "application",
@@ -420,6 +438,7 @@ export const QUESTIONS_L07: LearnQuestion[] = [
   {
     id: "l7-q019",
     level: 7,
+    unitId: "l7-u4",
     category: "외부 전달 시 보안 판단",
     type: "case-judgment",
     difficulty: "judgment",
@@ -445,6 +464,7 @@ export const QUESTIONS_L07: LearnQuestion[] = [
   {
     id: "l7-q020",
     level: 7,
+    unitId: "l7-u5",
     category: "오류 대응 태도",
     type: "case-judgment",
     difficulty: "judgment",

@@ -4,6 +4,7 @@ export const QUESTIONS_L08: LearnQuestion[] = [
   {
     id: "l8-q001",
     level: 8,
+    unitId: "l8-u1",
     category: "자동화 방식 선택 기준",
     type: "single",
     difficulty: "concept",
@@ -27,6 +28,7 @@ export const QUESTIONS_L08: LearnQuestion[] = [
   {
     id: "l8-q002",
     level: 8,
+    unitId: "l8-u5",
     category: "HITL 개념",
     type: "single",
     difficulty: "concept",
@@ -50,6 +52,7 @@ export const QUESTIONS_L08: LearnQuestion[] = [
   {
     id: "l8-q003",
     level: 8,
+    unitId: "l8-u2",
     category: "규칙 기반 자동화 적용",
     type: "multiple",
     difficulty: "application",
@@ -72,6 +75,7 @@ export const QUESTIONS_L08: LearnQuestion[] = [
   {
     id: "l8-q004",
     level: 8,
+    unitId: "l8-u2",
     category: "API 연동과 RPA 구분",
     type: "single",
     difficulty: "application",
@@ -96,6 +100,7 @@ export const QUESTIONS_L08: LearnQuestion[] = [
   {
     id: "l8-q005",
     level: 8,
+    unitId: "l8-u3",
     category: "RPA 장애 원인",
     type: "error-cause",
     difficulty: "application",
@@ -120,6 +125,7 @@ export const QUESTIONS_L08: LearnQuestion[] = [
   {
     id: "l8-q006",
     level: 8,
+    unitId: "l8-u4",
     category: "워크플로 개념 적용",
     type: "single",
     difficulty: "application",
@@ -143,6 +149,7 @@ export const QUESTIONS_L08: LearnQuestion[] = [
   {
     id: "l8-q007",
     level: 8,
+    unitId: "l8-u4",
     category: "AI 에이전트 운영 주의점",
     type: "multiple",
     difficulty: "application",
@@ -165,6 +172,7 @@ export const QUESTIONS_L08: LearnQuestion[] = [
   {
     id: "l8-q008",
     level: 8,
+    unitId: "l8-u2",
     category: "API 연동 장애 대응",
     type: "error-cause",
     difficulty: "application",
@@ -189,6 +197,7 @@ export const QUESTIONS_L08: LearnQuestion[] = [
   {
     id: "l8-q009",
     level: 8,
+    unitId: "l8-u3",
     category: "방식 선택: RPA",
     type: "case-judgment",
     difficulty: "judgment",
@@ -213,6 +222,7 @@ export const QUESTIONS_L08: LearnQuestion[] = [
   {
     id: "l8-q010",
     level: 8,
+    unitId: "l8-u2",
     category: "방식 선택: API 연동",
     type: "case-judgment",
     difficulty: "judgment",
@@ -237,6 +247,7 @@ export const QUESTIONS_L08: LearnQuestion[] = [
   {
     id: "l8-q011",
     level: 8,
+    unitId: "l8-u5",
     category: "방식 선택: AI + HITL",
     type: "case-judgment",
     difficulty: "judgment",
@@ -261,6 +272,7 @@ export const QUESTIONS_L08: LearnQuestion[] = [
   {
     id: "l8-q012",
     level: 8,
+    unitId: "l8-u5",
     category: "HITL 설계 판단",
     type: "case-judgment",
     difficulty: "judgment",
@@ -285,6 +297,7 @@ export const QUESTIONS_L08: LearnQuestion[] = [
   {
     id: "l8-q013",
     level: 8,
+    unitId: "l8-u4",
     category: "방식 선택: 워크플로",
     type: "case-judgment",
     difficulty: "judgment",
@@ -309,6 +322,7 @@ export const QUESTIONS_L08: LearnQuestion[] = [
   {
     id: "l8-q014",
     level: 8,
+    unitId: "l8-u3",
     category: "RPA 부적합 판단",
     type: "case-judgment",
     difficulty: "judgment",
@@ -333,6 +347,7 @@ export const QUESTIONS_L08: LearnQuestion[] = [
   {
     id: "l8-q015",
     level: 8,
+    unitId: "l8-u4",
     category: "AI 에이전트 권한 설계",
     type: "case-judgment",
     difficulty: "judgment",
@@ -357,6 +372,7 @@ export const QUESTIONS_L08: LearnQuestion[] = [
   {
     id: "l8-q016",
     level: 8,
+    unitId: "l8-u2",
     category: "방식 선택: 규칙 기반",
     type: "case-judgment",
     difficulty: "judgment",
@@ -381,6 +397,7 @@ export const QUESTIONS_L08: LearnQuestion[] = [
   {
     id: "l8-q017",
     level: 8,
+    unitId: "l8-u5",
     category: "HITL 설계 평가",
     type: "case-judgment",
     difficulty: "judgment",
@@ -405,6 +422,7 @@ export const QUESTIONS_L08: LearnQuestion[] = [
   {
     id: "l8-q018",
     level: 8,
+    unitId: "l8-u3",
     category: "RPA 용량 한계 판단",
     type: "case-judgment",
     difficulty: "judgment",
@@ -429,6 +447,7 @@ export const QUESTIONS_L08: LearnQuestion[] = [
   {
     id: "l8-q019",
     level: 8,
+    unitId: "l8-u2",
     category: "API 키 보안 판단",
     type: "case-judgment",
     difficulty: "judgment",
@@ -453,6 +472,7 @@ export const QUESTIONS_L08: LearnQuestion[] = [
   {
     id: "l8-q020",
     level: 8,
+    unitId: "l8-u1",
     category: "방식 종합 선택",
     type: "case-judgment",
     difficulty: "judgment",

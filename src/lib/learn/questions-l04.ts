@@ -4,6 +4,7 @@ export const QUESTIONS_L04: LearnQuestion[] = [
   {
     id: "l4-q001",
     level: 4,
+    unitId: "l4-u1",
     category: "터미널·PowerShell 개념",
     type: "single",
     difficulty: "concept",
@@ -26,6 +27,7 @@ export const QUESTIONS_L04: LearnQuestion[] = [
   {
     id: "l4-q002",
     level: 4,
+    unitId: "l4-u1",
     category: "mkdir 기본",
     type: "ox",
     difficulty: "concept",
@@ -37,6 +39,7 @@ export const QUESTIONS_L04: LearnQuestion[] = [
   {
     id: "l4-q003",
     level: 4,
+    unitId: "l4-u1",
     category: "mkdir 기본",
     type: "single",
     difficulty: "concept",
@@ -59,6 +62,7 @@ export const QUESTIONS_L04: LearnQuestion[] = [
   {
     id: "l4-q004",
     level: 4,
+    unitId: "l4-u3",
     category: "dir·ls 목록 확인",
     type: "ox",
     difficulty: "concept",
@@ -70,6 +74,7 @@ export const QUESTIONS_L04: LearnQuestion[] = [
   {
     id: "l4-q005",
     level: 4,
+    unitId: "l4-u3",
     category: "pwd·Get-Location 위치 확인",
     type: "single",
     difficulty: "concept",
@@ -92,6 +97,7 @@ export const QUESTIONS_L04: LearnQuestion[] = [
   {
     id: "l4-q006",
     level: 4,
+    unitId: "l4-u2",
     category: "상대경로·절대경로",
     type: "single",
     difficulty: "concept",
@@ -114,6 +120,7 @@ export const QUESTIONS_L04: LearnQuestion[] = [
   {
     id: "l4-q007",
     level: 4,
+    unitId: "l4-u1",
     category: "PowerShell 기본 명령어",
     type: "multiple",
     difficulty: "concept",
@@ -134,6 +141,7 @@ export const QUESTIONS_L04: LearnQuestion[] = [
   {
     id: "l4-q008",
     level: 4,
+    unitId: "l4-u1",
     category: "mkdir 실행 결과",
     type: "command-result",
     difficulty: "application",
@@ -156,6 +164,7 @@ export const QUESTIONS_L04: LearnQuestion[] = [
   {
     id: "l4-q009",
     level: 4,
+    unitId: "l4-u2",
     category: "cd .. 상위 이동",
     type: "command-result",
     difficulty: "application",
@@ -178,6 +187,7 @@ export const QUESTIONS_L04: LearnQuestion[] = [
   {
     id: "l4-q010",
     level: 4,
+    unitId: "l4-u2",
     category: "cd 폴더 이동",
     type: "single",
     difficulty: "application",
@@ -200,6 +210,7 @@ export const QUESTIONS_L04: LearnQuestion[] = [
   {
     id: "l4-q011",
     level: 4,
+    unitId: "l4-u5",
     category: "없는 경로 오류",
     type: "command-result",
     difficulty: "application",
@@ -222,6 +233,7 @@ export const QUESTIONS_L04: LearnQuestion[] = [
   {
     id: "l4-q012",
     level: 4,
+    unitId: "l4-u4",
     category: "공백 포함 경로",
     type: "single",
     difficulty: "application",
@@ -244,6 +256,7 @@ export const QUESTIONS_L04: LearnQuestion[] = [
   {
     id: "l4-q013",
     level: 4,
+    unitId: "l4-u3",
     category: "폴더 생성·이동 순서",
     type: "multiple",
     difficulty: "application",
@@ -264,6 +277,7 @@ export const QUESTIONS_L04: LearnQuestion[] = [
   {
     id: "l4-q014",
     level: 4,
+    unitId: "l4-u2",
     category: "상대경로 이동",
     type: "command-result",
     difficulty: "application",
@@ -286,6 +300,7 @@ export const QUESTIONS_L04: LearnQuestion[] = [
   {
     id: "l4-q015",
     level: 4,
+    unitId: "l4-u1",
     category: "폴더 생성·이동 순서",
     type: "single",
     difficulty: "application",
@@ -308,6 +323,7 @@ export const QUESTIONS_L04: LearnQuestion[] = [
   {
     id: "l4-q016",
     level: 4,
+    unitId: "l4-u1",
     category: "폴더 생성과 이동",
     type: "terminal-task",
     difficulty: "application",
@@ -332,6 +348,7 @@ export const QUESTIONS_L04: LearnQuestion[] = [
   {
     id: "l4-q017",
     level: 4,
+    unitId: "l4-u4",
     category: "오류 대처와 공백 경로",
     type: "terminal-task",
     difficulty: "application",
@@ -356,6 +373,7 @@ export const QUESTIONS_L04: LearnQuestion[] = [
   {
     id: "l4-q018",
     level: 4,
+    unitId: "l4-u5",
     category: "경로 오류 원인·해결",
     type: "error-cause",
     difficulty: "judgment",
@@ -378,6 +396,7 @@ export const QUESTIONS_L04: LearnQuestion[] = [
   {
     id: "l4-q019",
     level: 4,
+    unitId: "l4-u4",
     category: "공백 경로 오류 원인·해결",
     type: "error-cause",
     difficulty: "judgment",
@@ -400,6 +419,7 @@ export const QUESTIONS_L04: LearnQuestion[] = [
   {
     id: "l4-q020",
     level: 4,
+    unitId: "l4-u3",
     category: "PowerShell과 타 환경 구분",
     type: "single",
     difficulty: "judgment",
@@ -422,6 +442,7 @@ export const QUESTIONS_L04: LearnQuestion[] = [
   {
     id: "l4-q021",
     level: 4,
+    unitId: "l4-u5",
     category: "mkdir 중복 오류 원인·해결",
     type: "error-cause",
     difficulty: "judgment",
@@ -444,6 +465,7 @@ export const QUESTIONS_L04: LearnQuestion[] = [
   {
     id: "l4-q022",
     level: 4,
+    unitId: "l4-u2",
     category: "절대경로 활용 판단",
     type: "single",
     difficulty: "judgment",
@@ -466,6 +488,7 @@ export const QUESTIONS_L04: LearnQuestion[] = [
   {
     id: "l4-q023",
     level: 4,
+    unitId: "l4-u5",
     category: "오류 대처 태도",
     type: "ox",
     difficulty: "judgment",
@@ -477,6 +500,7 @@ export const QUESTIONS_L04: LearnQuestion[] = [
   {
     id: "l4-q024",
     level: 4,
+    unitId: "l4-u5",
     category: "cd 실패 시 우선 조치",
     type: "single",
     difficulty: "judgment",

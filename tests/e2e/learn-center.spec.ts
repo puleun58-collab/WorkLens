@@ -31,6 +31,8 @@ test("학습센터: 대시보드 로드맵 10단계 표시", async ({ page }) =>
   const rows = page.locator(".learn-dash-row");
   await expect(rows).toHaveCount(10);
   await expect(rows.first().getByText("AI·AX 기초", { exact: true })).toBeVisible();
+  // 전 단계 통과 기준 80점 통일 표시
+  await expect(page.locator(".learn-dash-row", { hasText: "통과 80점" })).toHaveCount(10);
   // LEVEL 1만 해제, 나머지는 잠김
   await expect(page.getByText("학습 중", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("잠김", { exact: true }).first()).toBeVisible();
@@ -181,6 +183,8 @@ test("학습센터: 퀴즈 응시 → 채점 → 결과", async ({ page }) => {
   const quizButtons = page.getByRole("button", { name: "퀴즈 응시", exact: true });
   await quizButtons.first().click();
   await expect(page.getByRole("heading", { name: /LEVEL 1 퀴즈/, exact: false })).toBeVisible();
+  // 퀴즈 화면에도 통과 기준 80점 표시
+  await expect(page.getByText(/80점 이상 통과/, { exact: false })).toBeVisible();
   // 10문항 도트
   await expect(page.getByRole("navigation", { name: "문항 이동" }).getByRole("button")).toHaveCount(10);
   // 각 문항에 답변 (정답 여부 무관, 흐름 검증)
@@ -217,6 +221,32 @@ test("학습센터: 미통과 시 다음 단계 잠금 유지", async ({ page })
   await page.getByRole("button", { name: "학습센터로", exact: true }).click();
   const rows = page.locator(".learn-dash-row");
   await expect(rows.nth(1).getByText("잠김", { exact: true })).toBeVisible();
+});
+
+test("학습센터: 오답 노트에서 관련 단위로 직접 이동", async ({ page }) => {
+  await page.goto("/");
+  await learn(page);
+  const quizButtons = page.getByRole("button", { name: "퀴즈 응시", exact: true });
+  await quizButtons.first().click();
+  // 무응답 제출 → 전부 오답 → 오답 노트 생성
+  for (let i = 0; i < 9; i++) {
+    await page.getByRole("button", { name: "다음", exact: true }).click();
+  }
+  await page.getByRole("button", { name: "제출하기", exact: true }).click();
+  await page.getByRole("button", { name: "제출하고 채점하기", exact: true }).click();
+  await expect(page.getByText(/미통과 \(기준 80점\)/, { exact: false })).toBeVisible();
+  // 결과 화면의 오답 문항에도 관련 학습 이동 버튼이 있어야 한다
+  await expect(page.getByRole("button", { name: "관련 내용 학습하기", exact: true }).first()).toBeVisible();
+  // 오답 노트로 이동
+  await page.getByRole("button", { name: "오답 노트 보기", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "오답 노트", exact: true })).toBeVisible();
+  const firstNote = page.locator(".learn-note-item").first();
+  const metaText = (await firstNote.locator(".learn-question-meta").textContent()) ?? "";
+  const unitTitle = metaText.split("관련 학습:")[1]?.trim();
+  expect(unitTitle, "오답에 연결된 학습 단위 제목이 표시되어야 한다").toBeTruthy();
+  await firstNote.getByRole("button", { name: "관련 내용 학습하기", exact: true }).click();
+  // 해당 단위가 선택된 학습 화면으로 이동 (단위 제목 heading 확인)
+  await expect(page.locator(".learn-lesson-unit-title")).toContainText(unitTitle!);
 });
 
 test("학습센터: 가상 터미널 기본 동작", async ({ page }) => {

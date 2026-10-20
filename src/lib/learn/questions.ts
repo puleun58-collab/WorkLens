@@ -1,4 +1,5 @@
-import type { LearnLevelNo, LearnQuestion } from "./types";
+import type { LearnLevelNo, LearnQuestion, QuizAttempt } from "./types";
+import { levelContent } from "./content";
 
 // 단계별 문제은행은 questions-l01.ts ~ questions-l10.ts 에서 정의한다.
 import { QUESTIONS_L01 } from "./questions-l01";
@@ -41,4 +42,20 @@ export function findQuestion(id: string): LearnQuestion | undefined {
 /** 사전 진단 문제 */
 export function diagnosticQuestions(): LearnQuestion[] {
   return DIAGNOSTIC_QUESTIONS;
+}
+
+/** 문제에 연결된 학습 단위 — 단위가 변경·제거됐거나 연결이 없으면 undefined */
+export function linkedUnitForQuestion(q: LearnQuestion) {
+  if (!q.unitId) return undefined;
+  return levelContent(q.level).units.find((u) => u.id === q.unitId);
+}
+
+/** 응시 당시 표시 순서대로 선택지를 정렬한다 (기록이 없으면 문제은행 순서) */
+export function orderedChoicesForAttempt(q: LearnQuestion, attempt?: QuizAttempt) {
+  if (!q.choices) return undefined;
+  const order = attempt?.choiceOrder?.[q.id];
+  if (!order) return q.choices;
+  const byId = new Map(q.choices.map((c) => [c.id, c]));
+  const ordered = order.map((id) => byId.get(id)).filter((c) => c !== undefined);
+  return ordered.length === q.choices.length ? ordered : q.choices;
 }

@@ -4,6 +4,7 @@ export const QUESTIONS_L01: LearnQuestion[] = [
   {
     id: "l1-q001",
     level: 1,
+    unitId: "l1-u1",
     category: "AI의 정의",
     type: "single",
     difficulty: "concept",
@@ -26,6 +27,7 @@ export const QUESTIONS_L01: LearnQuestion[] = [
   {
     id: "l1-q002",
     level: 1,
+    unitId: "l1-u1",
     category: "AI의 학습 방식",
     type: "ox",
     difficulty: "concept",
@@ -37,6 +39,7 @@ export const QUESTIONS_L01: LearnQuestion[] = [
   {
     id: "l1-q003",
     level: 1,
+    unitId: "l1-u2",
     category: "생성형 AI의 개념",
     type: "single",
     difficulty: "concept",
@@ -59,6 +62,7 @@ export const QUESTIONS_L01: LearnQuestion[] = [
   {
     id: "l1-q004",
     level: 1,
+    unitId: "l1-u2",
     category: "환각(할루시네이션)",
     type: "single",
     difficulty: "concept",
@@ -81,6 +85,7 @@ export const QUESTIONS_L01: LearnQuestion[] = [
   {
     id: "l1-q005",
     level: 1,
+    unitId: "l1-u2",
     category: "생성형 AI 결과의 신뢰",
     type: "ox",
     difficulty: "concept",
@@ -92,6 +97,7 @@ export const QUESTIONS_L01: LearnQuestion[] = [
   {
     id: "l1-q006",
     level: 1,
+    unitId: "l1-u3",
     category: "업무 자동화의 개념",
     type: "single",
     difficulty: "concept",
@@ -114,6 +120,7 @@ export const QUESTIONS_L01: LearnQuestion[] = [
   {
     id: "l1-q007",
     level: 1,
+    unitId: "l1-u4",
     category: "AX의 의미",
     type: "single",
     difficulty: "concept",
@@ -136,6 +143,7 @@ export const QUESTIONS_L01: LearnQuestion[] = [
   {
     id: "l1-q008",
     level: 1,
+    unitId: "l1-u4",
     category: "AX와 DX의 관계",
     type: "multiple",
     difficulty: "concept",
@@ -156,6 +164,7 @@ export const QUESTIONS_L01: LearnQuestion[] = [
   {
     id: "l1-q009",
     level: 1,
+    unitId: "l1-u1",
     category: "AI와 전통적인 프로그램의 차이",
     type: "single",
     difficulty: "concept",
@@ -178,6 +187,7 @@ export const QUESTIONS_L01: LearnQuestion[] = [
   {
     id: "l1-q010",
     level: 1,
+    unitId: "l1-u5",
     category: "AI 도입과 자동화의 관계",
     type: "ox",
     difficulty: "concept",
@@ -189,6 +199,7 @@ export const QUESTIONS_L01: LearnQuestion[] = [
   {
     id: "l1-q011",
     level: 1,
+    unitId: "l1-u5",
     category: "AI의 한계",
     type: "single",
     difficulty: "concept",
@@ -211,6 +222,7 @@ export const QUESTIONS_L01: LearnQuestion[] = [
   {
     id: "l1-q012",
     level: 1,
+    unitId: "l1-u5",
     category: "AI 시대 사람의 역할",
     type: "single",
     difficulty: "concept",
@@ -233,6 +245,7 @@ export const QUESTIONS_L01: LearnQuestion[] = [
   {
     id: "l1-q013",
     level: 1,
+    unitId: "l1-u2",
     category: "생성형 AI 활용 사례 판단",
     type: "case-judgment",
     difficulty: "application",
@@ -255,6 +268,7 @@ export const QUESTIONS_L01: LearnQuestion[] = [
   {
     id: "l1-q014",
     level: 1,
+    unitId: "l1-u2",
     category: "AI 활용에 적합한 업무 고르기",
     type: "single",
     difficulty: "application",
@@ -277,6 +291,7 @@ export const QUESTIONS_L01: LearnQuestion[] = [
   {
     id: "l1-q015",
     level: 1,
+    unitId: "l1-u3",
     category: "AI·자동화 활용 대상 구분",
     type: "multiple",
     difficulty: "application",
@@ -298,6 +313,7 @@ export const QUESTIONS_L01: LearnQuestion[] = [
   {
     id: "l1-q016",
     level: 1,
+    unitId: "l1-u5",
     category: "잘못된 AI 활용 사례 판단",
     type: "case-judgment",
     difficulty: "application",
@@ -320,6 +336,7 @@ export const QUESTIONS_L01: LearnQuestion[] = [
   {
     id: "l1-q017",
     level: 1,
+    unitId: "l1-u5",
     category: "AI 활용 전 사람의 준비",
     type: "single",
     difficulty: "application",
@@ -342,6 +359,7 @@ export const QUESTIONS_L01: LearnQuestion[] = [
   {
     id: "l1-q018",
     level: 1,
+    unitId: "l1-u4",
     category: "AX의 올바른 이해",
     type: "ox",
     difficulty: "application",
@@ -353,6 +371,7 @@ export const QUESTIONS_L01: LearnQuestion[] = [
   {
     id: "l1-q019",
     level: 1,
+    unitId: "l1-u5",
     category: "AI와 사람의 역할 분담 판단",
     type: "case-judgment",
     difficulty: "judgment",
@@ -375,6 +394,7 @@ export const QUESTIONS_L01: LearnQuestion[] = [
   {
     id: "l1-q020",
     level: 1,
+    unitId: "l1-u4",
     category: "AX와 단순 도구 도입의 구분",
     type: "case-judgment",
     difficulty: "judgment",
