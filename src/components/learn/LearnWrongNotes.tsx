@@ -2,23 +2,23 @@
 
 import { ArrowLeft, ArrowRight, FileCheck2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { findQuestion } from "@/lib/learn/questions";
-import type { LearnLevelNo, LearnProgress, LearnerAnswer } from "@/lib/learn/types";
+import { findQuestion, linkedUnitForQuestion, orderedChoicesForAttempt } from "@/lib/learn/questions";
+import type { LearnLevelNo, LearnProgress, QuizAttempt } from "@/lib/learn/types";
 
 interface LearnWrongNotesProps {
   progress: LearnProgress;
   onMarkReviewed: (questionId: string) => void;
   onBack: () => void;
   onOpenLesson: (level: LearnLevelNo) => void;
+  onOpenLessonUnit: (level: LearnLevelNo, unitId?: string) => void;
 }
 
-function findAttemptAnswer(progress: LearnProgress, w: LearnProgress["wrongAnswers"][number]): LearnerAnswer | undefined {
+function findAttempt(progress: LearnProgress, w: LearnProgress["wrongAnswers"][number]): QuizAttempt | undefined {
   const level = progress.levels[w.level];
-  const attempt = level?.attempts.find((a) => a.attemptId === w.attemptId);
-  return attempt?.answers[w.questionId];
+  return level?.attempts.find((a) => a.attemptId === w.attemptId);
 }
 
-export function LearnWrongNotes({ progress, onMarkReviewed, onBack, onOpenLesson }: LearnWrongNotesProps) {
+export function LearnWrongNotes({ progress, onMarkReviewed, onBack, onOpenLesson, onOpenLessonUnit }: LearnWrongNotesProps) {
   // 최신 오답 순으로 정렬
   const notes = [...progress.wrongAnswers].reverse();
 
@@ -51,25 +51,29 @@ export function LearnWrongNotes({ progress, onMarkReviewed, onBack, onOpenLesson
         notes.map((w, i) => {
           const q = findQuestion(w.questionId);
           if (!q) return null;
-          const answer = findAttemptAnswer(progress, w);
+          const attempt = findAttempt(progress, w);
+          const answer = attempt?.answers[w.questionId];
+          const unit = linkedUnitForQuestion(q);
+          const choices = orderedChoicesForAttempt(q, attempt);
           const myChoices =
             answer?.kind === "choices" ? answer.selectedChoiceIds : [];
           return (
             <section key={`${w.questionId}-${w.attemptId}-${i}`} className="learn-note-item">
               <p className="learn-question-meta">
                 LEVEL {w.level} · {w.category || q.category} · 복습 {w.reviewCount}회
+                {unit ? <> · 관련 학습: {unit.title}</> : null}
               </p>
               <p className="learn-note-prompt">
                 <strong>{q.prompt}</strong>
               </p>
-              {q.choices ? (
+              {choices ? (
                 <ul className="learn-note-choices">
-                  {q.choices.map((c) => {
+                  {choices.map((c, choiceIdx) => {
                     const isCorrect = q.correctChoiceIds?.includes(c.id);
                     const isMine = myChoices.includes(c.id);
                     return (
                       <li key={c.id} className={isCorrect ? "is-correct" : isMine ? "is-mine" : undefined}>
-                        <span className="learn-choice-id">{c.id.toUpperCase()}</span>
+                        <span className="learn-choice-id">{String.fromCharCode(65 + choiceIdx)}</span>
                         <span className="learn-note-choice-text">{c.text}</span>
                         {isCorrect ? <span className="learn-tag is-correct">정답</span> : null}
                         {isMine ? <span className="learn-tag is-mine">내 답</span> : null}
@@ -92,9 +96,15 @@ export function LearnWrongNotes({ progress, onMarkReviewed, onBack, onOpenLesson
                 <strong>해설:</strong> {q.explanation}
               </div>
               <div className="learn-actions">
-                <Button type="button" variant="outline" size="sm" onClick={() => onOpenLesson(q.level)}>
-                  관련 학습 보기 (LEVEL {q.level})
-                </Button>
+                {unit ? (
+                  <Button type="button" variant="outline" size="sm" onClick={() => onOpenLessonUnit(q.level, unit.id)}>
+                    관련 내용 학습하기
+                  </Button>
+                ) : (
+                  <Button type="button" variant="outline" size="sm" onClick={() => onOpenLesson(q.level)}>
+                    관련 학습 보기 (LEVEL {q.level})
+                  </Button>
+                )}
                 <Button type="button" variant="ghost" size="sm" onClick={() => onMarkReviewed(w.questionId)}>
                   복습 완료 표시
                 </Button>

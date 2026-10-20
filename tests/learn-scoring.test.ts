@@ -1,5 +1,9 @@
 import { describe, expect, test } from "vitest";
+import { ALL_LEVELS, LEVEL_METAS, levelMeta } from "@/lib/learn/curriculum";
+import { levelContent } from "@/lib/learn/content";
+import { questionBank } from "@/lib/learn/questions";
 import {
+  allocateUnitQuotas,
   applyAttempt,
   canUnlockLevel,
   gradeQuestion,
@@ -8,6 +12,7 @@ import {
   overallProgress,
   selectQuizQuestions,
   seededShuffle,
+  shuffleQuestionChoices,
   weakCategories,
 } from "@/lib/learn/scoring";
 import type { LearnProgress, LearnQuestion, QuizAttempt } from "@/lib/learn/types";
@@ -51,27 +56,33 @@ describe("gradeQuestion", () => {
 });
 
 describe("gradeQuiz", () => {
-  test("LEVEL 1: 문항당 10점, 70점 통과", () => {
+  test("LEVEL 1: 문항당 10점, 70점은 미통과 (80점 통일 기준)", () => {
     const questions = Array.from({ length: 10 }, (_, i) => ({ ...singleQ, id: `l1-q${i}` }));
     const answers = Object.fromEntries(questions.slice(0, 7).map((q) => [q.id, { kind: "choices", selectedChoiceIds: ["b"] }]));
     const { score, passed } = gradeQuiz(1, questions, answers as never);
     expect(score).toBe(70);
-    expect(passed).toBe(true);
-  });
-  test("기준 점수와 동일하면 통과", () => {
-    const questions = Array.from({ length: 10 }, (_, i) => ({ ...singleQ, id: `l1-q${i}` }));
-    const answers = Object.fromEntries(questions.slice(0, 6).map((q) => [q.id, { kind: "choices", selectedChoiceIds: ["b"] }]));
-    const { score, passed } = gradeQuiz(1, questions, answers as never);
-    expect(score).toBe(60);
     expect(passed).toBe(false);
   });
-  test("LEVEL 10: 문항당 5점, 85점 통과", () => {
+  test("LEVEL 1: 80점이면 통과, 90·100점도 통과", () => {
+    const questions = Array.from({ length: 10 }, (_, i) => ({ ...singleQ, id: `l1-q${i}` }));
+    for (const correctCount of [8, 9, 10]) {
+      const answers = Object.fromEntries(questions.slice(0, correctCount).map((q) => [q.id, { kind: "choices", selectedChoiceIds: ["b"] }]));
+      const { score, passed } = gradeQuiz(1, questions, answers as never);
+      expect(score).toBe(correctCount * 10);
+      expect(passed).toBe(true);
+    }
+  });
+  test("LEVEL 10: 문항당 5점, 75점 미통과·80점 통과", () => {
     const q10 = { ...singleQ, level: 10 as const, id: "l10-q001" };
     const questions = Array.from({ length: 20 }, (_, i) => ({ ...q10, id: `l10-q${i}` }));
-    const answers = Object.fromEntries(questions.slice(0, 17).map((q) => [q.id, { kind: "choices", selectedChoiceIds: ["b"] }]));
-    const { score, passed } = gradeQuiz(10, questions, answers as never);
-    expect(score).toBe(85);
-    expect(passed).toBe(true);
+    const grade = (correctCount: number) => {
+      const answers = Object.fromEntries(questions.slice(0, correctCount).map((q) => [q.id, { kind: "choices", selectedChoiceIds: ["b"] }]));
+      return gradeQuiz(10, questions, answers as never);
+    };
+    expect(grade(15)).toEqual(expect.objectContaining({ score: 75, passed: false }));
+    expect(grade(16)).toEqual(expect.objectContaining({ score: 80, passed: true }));
+    expect(grade(17)).toEqual(expect.objectContaining({ score: 85, passed: true }));
+    expect(grade(20)).toEqual(expect.objectContaining({ score: 100, passed: true }));
   });
 });
 
@@ -208,5 +219,130 @@ describe("응시 이력 불변성", () => {
     // 최고 점수와 통과 상태는 유지
     expect(p.levels[1]!.bestScore).toBe(70);
     expect(p.levels[1]!.passed).toBe(true);
+  });
+});
+
+describe("통과 기준 80점 통일", () => {
+  test("LEVEL 1~10 메타데이터의 통과 기준이 모두 80점", () => {
+    for (const meta of LEVEL_METAS) {
+      expect(meta.passScore, `LEVEL ${meta.level}`).toBe(80);
+    }
+  });
+  test("구 기준(70점)으로 통과한 기록은 해제 상태를 유지한다", () => {
+    // passScore 필드가 없는 과거 기록 — 당시 기준으로 passed=true 판정된 상태
+    const legacy = emptyProgress();
+    legacy.levels[1] = {
+      passed: true,
+      bestScore: 70,
+      attempts: [{
+        attemptId: "legacy-1", level: 1, questionIds: ["l1-q001"], answers: {},
+        graded: [{ questionId: "l1-q001", correct: true, points: 10 }],
+        score: 70, passed: true, startedAt: 0, finishedAt: 1,
+      }],
+    };
+    expect(canUnlockLevel(2, legacy)).toBe(true);
+    // 새 기준으로 미통과 응시를 추가해도 통과·해제는 유지되고 과거 기록은 원본 그대로
+    const next = applyAttempt(legacy, {
+      attemptId: "new-1", level: 1, questionIds: ["l1-q001"], answers: {},
+      graded: [{ questionId: "l1-q001", correct: false, points: 0 }],
+      score: 50, passed: false, passScore: 80, startedAt: 2, finishedAt: 3,
+    });
+    expect(next.levels[1]?.passed).toBe(true);
+    expect(canUnlockLevel(2, next)).toBe(true);
+    expect(next.levels[1]?.attempts[0].score).toBe(70);
+    expect(next.levels[1]?.attempts[0].passScore).toBeUndefined();
+    expect(next.levels[1]?.attempts[1].passScore).toBe(80);
+  });
+});
+
+describe("allocateUnitQuotas", () => {
+  test("균등 배분 + 나머지는 은행이 큰 단위부터", () => {
+    const quotas = allocateUnitQuotas(
+      ["u1", "u2", "u3", "u4", "u5", "u6"],
+      new Map([["u1", 3], ["u2", 16], ["u3", 6], ["u4", 6], ["u5", 6], ["u6", 3]]),
+      20,
+    );
+    expect([...quotas.values()].reduce((a, b) => a + b, 0)).toBe(20);
+    expect(quotas.get("u2")).toBe(4);
+    expect(quotas.get("u3")).toBe(4);
+    expect(quotas.get("u1")).toBe(3);
+    expect(quotas.get("u6")).toBe(3);
+  });
+  test("은행이 부족한 단위는 있는 만큼만, 부족분은 여유 단위로", () => {
+    const quotas = allocateUnitQuotas(
+      ["u1", "u2"],
+      new Map([["u1", 1], ["u2", 10]]),
+      6,
+    );
+    expect(quotas.get("u1")).toBe(1);
+    expect(quotas.get("u2")).toBe(5);
+  });
+});
+
+describe("단위별 균형 출제 (실제 문제은행)", () => {
+  for (const level of ALL_LEVELS) {
+    test(`LEVEL ${level}: 모든 단위에서 출제되고 중복이 없다`, () => {
+      const meta = levelMeta(level);
+      const unitIds = levelContent(level).units.map((u) => u.id);
+      const bank = questionBank(level);
+      const bankSizes = new Map(unitIds.map((id) => [id, bank.filter((q) => q.unitId === id && q.verified).length]));
+      const expected = allocateUnitQuotas(unitIds, bankSizes, meta.questionCount);
+      for (const attemptNo of [1, 2, 3]) {
+        const selected = selectQuizQuestions(level, bank, `attempt-${level}-${attemptNo}`, unitIds);
+        expect(selected).toHaveLength(meta.questionCount);
+        expect(new Set(selected.map((q) => q.id)).size).toBe(meta.questionCount);
+        const counts = new Map<string, number>();
+        for (const q of selected) counts.set(q.unitId!, (counts.get(q.unitId!) ?? 0) + 1);
+        for (const unitId of unitIds) {
+          expect(counts.get(unitId) ?? 0, `LEVEL ${level} ${unitId}`).toBe(expected.get(unitId));
+        }
+      }
+    });
+  }
+  test("재응시에서는 직전 응시와 겹치지 않는 문항을 우선 출제한다", () => {
+    // 단위당 은행 4문항·출제 2문항인 LEVEL 1: 직전 문항을 모두 피할 수 있어야 한다
+    const unitIds = levelContent(1).units.map((u) => u.id);
+    const bank = questionBank(1);
+    const first = selectQuizQuestions(1, bank, "first-attempt", unitIds);
+    const second = selectQuizQuestions(1, bank, "second-attempt", unitIds, first.map((q) => q.id));
+    const overlap = second.filter((q) => first.some((f) => f.id === q.id));
+    // 단위별 은행이 쿼터의 2배 미만인 단위(l1-u3: 2문항)만 겹침 허용
+    const overlapUnits = new Set(overlap.map((q) => q.unitId));
+    expect([...overlapUnits].every((id) => (bank.filter((q) => q.unitId === id).length) < 4)).toBe(true);
+  });
+  test("서로 다른 응시는 문제 구성·순서가 달라진다", () => {
+    const unitIds = levelContent(1).units.map((u) => u.id);
+    const bank = questionBank(1);
+    const a = selectQuizQuestions(1, bank, "seed-a", unitIds).map((q) => q.id);
+    const b = selectQuizQuestions(1, bank, "seed-b", unitIds).map((q) => q.id);
+    expect(a).not.toEqual(b);
+  });
+});
+
+describe("shuffleQuestionChoices", () => {
+  test("선택지 순서가 바뀌어도 채점 결과는 동일하다", () => {
+    const shuffled = shuffleQuestionChoices([singleQ, multiQ], "attempt-x");
+    for (const q of shuffled) {
+      expect([...(q.choices ?? [])].map((c) => c.id).sort()).toEqual([...(q.id === singleQ.id ? singleQ : multiQ).choices!].map((c) => c.id).sort());
+    }
+    expect(gradeQuestion(shuffled[0], { kind: "choices", selectedChoiceIds: ["b"] })).toBe(true);
+    expect(gradeQuestion(shuffled[0], { kind: "choices", selectedChoiceIds: ["a"] })).toBe(false);
+    expect(gradeQuestion(shuffled[1], { kind: "choices", selectedChoiceIds: ["c", "a"] })).toBe(true);
+  });
+  test("여러 응시 중 최소 한 번은 선택지 순서가 원본과 달라진다", () => {
+    const original = (singleQ.choices ?? []).map((c) => c.id).join(",");
+    const orders = new Set(
+      Array.from({ length: 12 }, (_, i) => shuffleQuestionChoices([singleQ], `seed-${i}`)[0].choices!.map((c) => c.id).join(",")),
+    );
+    expect(orders.size).toBeGreaterThan(1);
+    expect([...orders].some((o) => o !== original)).toBe(true);
+  });
+  test("OX 문제는 그대로 둔다", () => {
+    expect(shuffleQuestionChoices([oxQ], "attempt-x")[0]).toBe(oxQ);
+  });
+  test("같은 attemptId는 같은 선택지 순서 (응시 중 고정)", () => {
+    const a = shuffleQuestionChoices([singleQ], "fixed-seed")[0].choices!.map((c) => c.id);
+    const b = shuffleQuestionChoices([singleQ], "fixed-seed")[0].choices!.map((c) => c.id);
+    expect(a).toEqual(b);
   });
 });

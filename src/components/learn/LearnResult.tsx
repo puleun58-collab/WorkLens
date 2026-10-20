@@ -2,7 +2,7 @@
 
 import { Button } from "@/components/ui/button";
 import { levelMeta } from "@/lib/learn/curriculum";
-import { findQuestion } from "@/lib/learn/questions";
+import { findQuestion, linkedUnitForQuestion, orderedChoicesForAttempt } from "@/lib/learn/questions";
 import type { LearnLevelNo, QuizAttempt } from "@/lib/learn/types";
 
 interface LearnResultProps {
@@ -11,10 +11,13 @@ interface LearnResultProps {
   onNext: () => void;
   onDashboard: () => void;
   onReviewWrong: () => void;
+  onOpenLessonUnit: (level: LearnLevelNo, unitId?: string) => void;
 }
 
-export function LearnResult({ attempt, onRetry, onNext, onDashboard, onReviewWrong }: LearnResultProps) {
+export function LearnResult({ attempt, onRetry, onNext, onDashboard, onReviewWrong, onOpenLessonUnit }: LearnResultProps) {
   const meta = levelMeta(attempt.level);
+  // 응시 당시 적용된 통과 기준을 우선 표시한다 (과거 기록은 당시 기준으로 판정됨)
+  const passScore = attempt.passScore ?? meta.passScore;
   const correct = attempt.graded.filter((g) => g.correct).length;
   const wrong = attempt.graded.length - correct;
   const nextLevel = (attempt.level + 1) as LearnLevelNo;
@@ -25,7 +28,7 @@ export function LearnResult({ attempt, onRetry, onNext, onDashboard, onReviewWro
       <div className="learn-surface">
         <div className="learn-result-score">{attempt.score}점</div>
         <p className={attempt.passed ? "learn-result-pass" : "learn-result-fail"}>
-          {attempt.passed ? `통과! (기준 ${meta.passScore}점)` : `미통과 (기준 ${meta.passScore}점)`}
+          {attempt.passed ? `통과! (기준 ${passScore}점)` : `미통과 (기준 ${passScore}점)`}
         </p>
         <div className="learn-kv">
           <div className="learn-kv-item">
@@ -72,10 +75,13 @@ export function LearnResult({ attempt, onRetry, onNext, onDashboard, onReviewWro
         const q = findQuestion(g.questionId);
         if (!q) return null;
         const answer = attempt.answers[g.questionId];
+        const choices = orderedChoicesForAttempt(q, attempt);
+        const unit = g.correct ? undefined : linkedUnitForQuestion(q);
         return (
           <section key={g.questionId} className="learn-note-item">
             <p className="learn-question-meta">
               {i + 1}번 문항 · {q.category}
+              {unit ? <> · 관련 학습: {unit.title}</> : null}
             </p>
             <p className="learn-note-prompt">
               <strong>
@@ -83,14 +89,14 @@ export function LearnResult({ attempt, onRetry, onNext, onDashboard, onReviewWro
               </strong>
             </p>
             <p>{q.prompt}</p>
-            {q.choices ? (
+            {choices ? (
               <ul className="learn-note-choices">
-                {q.choices.map((c) => {
+                {choices.map((c, choiceIdx) => {
                   const isCorrect = q.correctChoiceIds?.includes(c.id);
                   const isSelected = answer?.kind === "choices" && answer.selectedChoiceIds.includes(c.id);
                   return (
                     <li key={c.id} className={isCorrect ? "is-correct" : isSelected ? "is-mine" : undefined}>
-                      <span className="learn-choice-id">{c.id.toUpperCase()}</span>
+                      <span className="learn-choice-id">{String.fromCharCode(65 + choiceIdx)}</span>
                       <span className="learn-note-choice-text">{c.text}</span>
                       {isCorrect ? <span className="learn-tag is-correct">정답</span> : null}
                       {isSelected ? <span className="learn-tag is-mine">내 답</span> : null}
@@ -112,6 +118,13 @@ export function LearnResult({ attempt, onRetry, onNext, onDashboard, onReviewWro
             <div className="learn-explanation">
               <strong>해설:</strong> {q.explanation}
             </div>
+            {unit ? (
+              <div className="learn-actions">
+                <Button type="button" variant="outline" size="sm" onClick={() => onOpenLessonUnit(attempt.level, unit.id)}>
+                  관련 내용 학습하기
+                </Button>
+              </div>
+            ) : null}
           </section>
         );
       })}

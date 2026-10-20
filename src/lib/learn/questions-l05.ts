@@ -4,6 +4,7 @@ export const QUESTIONS_L05: LearnQuestion[] = [
   {
     id: "l5-q001",
     level: 5,
+    unitId: "l5-u1",
     category: "Git 개념",
     type: "single",
     difficulty: "concept",
@@ -26,6 +27,7 @@ export const QUESTIONS_L05: LearnQuestion[] = [
   {
     id: "l5-q002",
     level: 5,
+    unitId: "l5-u1",
     category: "Git과 GitHub 구분",
     type: "ox",
     difficulty: "concept",
@@ -37,6 +39,7 @@ export const QUESTIONS_L05: LearnQuestion[] = [
   {
     id: "l5-q003",
     level: 5,
+    unitId: "l5-u3",
     category: "커밋 개념",
     type: "single",
     difficulty: "concept",
@@ -59,6 +62,7 @@ export const QUESTIONS_L05: LearnQuestion[] = [
   {
     id: "l5-q004",
     level: 5,
+    unitId: "l5-u4",
     category: "원격 저장소 개념",
     type: "single",
     difficulty: "concept",
@@ -81,6 +85,7 @@ export const QUESTIONS_L05: LearnQuestion[] = [
   {
     id: "l5-q005",
     level: 5,
+    unitId: "l5-u1",
     category: "clone 개념",
     type: "ox",
     difficulty: "concept",
@@ -92,6 +97,7 @@ export const QUESTIONS_L05: LearnQuestion[] = [
   {
     id: "l5-q006",
     level: 5,
+    unitId: "l5-u1",
     category: "Git 기본 명령어",
     type: "multiple",
     difficulty: "concept",
@@ -112,6 +118,7 @@ export const QUESTIONS_L05: LearnQuestion[] = [
   {
     id: "l5-q007",
     level: 5,
+    unitId: "l5-u2",
     category: "스테이징 개념",
     type: "single",
     difficulty: "concept",
@@ -134,6 +141,7 @@ export const QUESTIONS_L05: LearnQuestion[] = [
   {
     id: "l5-q008",
     level: 5,
+    unitId: "l5-u2",
     category: "git status 결과 해석",
     type: "command-result",
     difficulty: "application",
@@ -156,6 +164,7 @@ export const QUESTIONS_L05: LearnQuestion[] = [
   {
     id: "l5-q009",
     level: 5,
+    unitId: "l5-u2",
     category: "status 다음 단계",
     type: "single",
     difficulty: "application",
@@ -178,6 +187,7 @@ export const QUESTIONS_L05: LearnQuestion[] = [
   {
     id: "l5-q010",
     level: 5,
+    unitId: "l5-u2",
     category: "git add . 실행 결과",
     type: "command-result",
     difficulty: "application",
@@ -200,6 +210,7 @@ export const QUESTIONS_L05: LearnQuestion[] = [
   {
     id: "l5-q011",
     level: 5,
+    unitId: "l5-u3",
     category: "git commit 실행 결과",
     type: "command-result",
     difficulty: "application",
@@ -222,6 +233,7 @@ export const QUESTIONS_L05: LearnQuestion[] = [
   {
     id: "l5-q012",
     level: 5,
+    unitId: "l5-u3",
     category: "git log 기록 확인",
     type: "single",
     difficulty: "application",
@@ -244,6 +256,7 @@ export const QUESTIONS_L05: LearnQuestion[] = [
   {
     id: "l5-q013",
     level: 5,
+    unitId: "l5-u4",
     category: "add·commit·push 순서",
     type: "single",
     difficulty: "application",
@@ -266,6 +279,7 @@ export const QUESTIONS_L05: LearnQuestion[] = [
   {
     id: "l5-q014",
     level: 5,
+    unitId: "l5-u4",
     category: "git pull 실행 결과",
     type: "command-result",
     difficulty: "application",
@@ -288,6 +302,7 @@ export const QUESTIONS_L05: LearnQuestion[] = [
   {
     id: "l5-q015",
     level: 5,
+    unitId: "l5-u4",
     category: "clone·작업·push 전체 흐름",
     type: "multiple",
     difficulty: "application",
@@ -308,6 +323,7 @@ export const QUESTIONS_L05: LearnQuestion[] = [
   {
     id: "l5-q016",
     level: 5,
+    unitId: "l5-u3",
     category: "Git 기본 작업 실습",
     type: "terminal-task",
     difficulty: "application",
@@ -331,6 +347,7 @@ export const QUESTIONS_L05: LearnQuestion[] = [
   {
     id: "l5-q017",
     level: 5,
+    unitId: "l5-u4",
     category: "원격 저장소 실습",
     type: "terminal-task",
     difficulty: "application",
@@ -354,6 +371,7 @@ export const QUESTIONS_L05: LearnQuestion[] = [
   {
     id: "l5-q018",
     level: 5,
+    unitId: "l5-u5",
     category: "Git 저장소 아님 오류",
     type: "error-cause",
     difficulty: "judgment",
@@ -376,6 +394,7 @@ export const QUESTIONS_L05: LearnQuestion[] = [
   {
     id: "l5-q019",
     level: 5,
+    unitId: "l5-u5",
     category: "빈 커밋·미스테이징 오류",
     type: "error-cause",
     difficulty: "judgment",
@@ -398,6 +417,7 @@ export const QUESTIONS_L05: LearnQuestion[] = [
   {
     id: "l5-q020",
     level: 5,
+    unitId: "l5-u5",
     category: "원격 누락 push 오류",
     type: "error-cause",
     difficulty: "judgment",
@@ -420,6 +440,7 @@ export const QUESTIONS_L05: LearnQuestion[] = [
   {
     id: "l5-q021",
     level: 5,
+    unitId: "l5-u5",
     category: "Push 거부 원인·해결",
     type: "error-cause",
     difficulty: "judgment",
@@ -442,6 +463,7 @@ export const QUESTIONS_L05: LearnQuestion[] = [
   {
     id: "l5-q022",
     level: 5,
+    unitId: "l5-u5",
     category: "Pull 충돌 대처",
     type: "single",
     difficulty: "judgment",
@@ -464,6 +486,7 @@ export const QUESTIONS_L05: LearnQuestion[] = [
   {
     id: "l5-q023",
     level: 5,
+    unitId: "l5-u5",
     category: "commit 없이 push",
     type: "single",
     difficulty: "judgment",
@@ -486,6 +509,7 @@ export const QUESTIONS_L05: LearnQuestion[] = [
   {
     id: "l5-q024",
     level: 5,
+    unitId: "l5-u5",
     category: "미스테이징 후 commit 판단",
     type: "single",
     difficulty: "judgment",
