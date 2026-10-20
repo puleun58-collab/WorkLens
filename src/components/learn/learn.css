@@ -92,69 +92,78 @@
 .learn-save-error { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; background: color-mix(in srgb, var(--destructive) 7%, transparent); border: 1px solid color-mix(in srgb, var(--destructive) 30%, transparent); border-radius: 10px; padding: 10px 14px; margin: 12px 0; font-size: var(--font-size-sm); }
 .learn-save-error-actions { display: flex; gap: 8px; align-items: center; }
 
-/* 학습 상세 — 레퍼런스 레이아웃 */
-.learn-lesson { max-width: 1120px; }
+/* 학습 상세 — 레퍼런스 레이아웃 (메인 너비 전체 활용) */
+.learn-lesson { font-size: 14.5px; line-height: 1.65; }
 .learn-back { margin: 4px 0 8px; padding-left: 0; color: var(--muted-foreground); }
 .learn-back:hover { color: var(--foreground); }
 .learn-lesson-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin: 4px 0 8px; }
 .learn-lesson-title { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.learn-lesson-title h2 { font-size: 21px; font-weight: 700; margin: 0; }
+.learn-lesson-title h2 { font-size: 22px; font-weight: 700; margin: 0; }
 .learn-status-pill { flex: none; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--primary); background: color-mix(in srgb, var(--primary) 10%, transparent); border: 1px solid color-mix(in srgb, var(--primary) 25%, transparent); border-radius: 999px; padding: 3px 10px; }
 .learn-status-pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--primary); }
 .learn-status-pill.is-passed { color: #15803d; background: #dcfce7; border-color: #bbf7d0; }
 .learn-status-pill.is-passed::before { background: #16a34a; }
 .learn-lesson-progress { display: flex; align-items: center; gap: 10px; flex: none; }
 .learn-lesson-progress-text { font-size: 13px; font-weight: 600; white-space: nowrap; }
-.learn-lesson-progress-bar { width: 180px; margin: 0; }
+.learn-lesson-progress-bar { width: 200px; height: 6px; margin: 0; }
 .learn-lesson-intro { margin: 0 0 4px; font-size: var(--font-size-sm); }
 
 /* 학습 단위 선택 버튼 */
 .learn-unit-nav { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 24px; }
-.learn-unit-btn { appearance: none; cursor: pointer; font-size: 13.5px; font-weight: 600; line-height: 1.4; padding: 10px 16px; border-radius: 8px; border: 1px solid var(--border); background: var(--card); color: var(--foreground); transition: background 0.15s, border-color 0.15s, color 0.15s; text-align: left; }
+.learn-unit-btn { appearance: none; cursor: pointer; flex: 1 1 150px; min-width: 0; font-size: 13.5px; font-weight: 600; line-height: 1.4; padding: 10px 16px; border-radius: 8px; border: 1px solid var(--border); background: var(--card); color: var(--foreground); transition: background 0.15s, border-color 0.15s, color 0.15s; text-align: left; }
 .learn-unit-btn:hover { border-color: var(--primary); }
 .learn-unit-btn.is-active { background: var(--primary); border-color: var(--primary); color: var(--primary-foreground); }
 
-.learn-lesson-unit-title { font-size: 19px; font-weight: 700; margin: 0 0 8px; }
+.learn-lesson-unit-title { font-size: 20px; font-weight: 700; margin: 0 0 8px; }
 .learn-lesson-meta { display: flex; flex-wrap: wrap; gap: 8px 20px; color: var(--muted-foreground); font-size: 13px; margin: 0 0 20px; }
 .learn-lesson-meta > span { display: inline-flex; align-items: center; gap: 6px; }
 .learn-lesson-meta svg { width: 15px; height: 15px; }
 
-/* 콘텐츠 카드 */
-.learn-card { border: 1px solid var(--border); border-radius: 10px; background: var(--card); margin: 0 0 16px; overflow: hidden; }
-.learn-card-title { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 700; margin: 0; padding: 11px 16px; background: color-mix(in srgb, var(--muted) 32%, transparent); border-bottom: 1px solid var(--border); }
+/* 콘텐츠 카드 — 레퍼런스: 매우 연한 회색 헤더 + 흰 본문 */
+.learn-card { border: 1px solid var(--border); border-radius: 12px; background: var(--card); margin: 0 0 16px; overflow: hidden; }
+.learn-card-title { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 700; line-height: 1.4; margin: 0; padding: 10px 18px; background: #f4f5f9; border-bottom: 1px solid #e8ebf0; }
 .learn-card-title svg { width: 17px; height: 17px; color: var(--primary); flex: none; }
-.learn-card-body { padding: 16px; }
+.learn-card-title svg.lucide-lightbulb { color: #d99a06; }
+.learn-card-body { padding: 18px 20px; }
 .learn-card-body > :first-child { margin-top: 0; }
 .learn-card-body > :last-child { margin-bottom: 0; }
 .learn-card-body p { margin: 8px 0; }
 .learn-card-body ul, .learn-card-body ol { padding-left: 20px; margin: 8px 0; }
 .learn-card-body li { margin: 6px 0; }
 
+.learn-concept-lead { font-weight: 650; margin: 0 0 10px; }
 .learn-bullet-list { list-style: none; padding-left: 0 !important; margin: 8px 0; }
 .learn-bullet-list li { position: relative; padding-left: 18px; margin: 8px 0; }
 .learn-bullet-list li::before { content: "•"; position: absolute; left: 2px; color: var(--primary); font-weight: 700; }
 
 .learn-check-list { list-style: none; padding-left: 0 !important; margin: 8px 0; }
 .learn-check-list li { display: flex; align-items: flex-start; gap: 10px; margin: 10px 0; }
-.learn-check { flex: none; width: 22px; height: 22px; border-radius: 50%; background: color-mix(in srgb, #16a34a 12%, transparent); color: #16a34a; display: inline-flex; align-items: center; justify-content: center; margin-top: 2px; }
-.learn-check svg { width: 13px; height: 13px; }
+.learn-check { flex: none; width: 19px; height: 19px; border-radius: 50%; background: color-mix(in srgb, #16a34a 12%, transparent); color: #16a34a; display: inline-flex; align-items: center; justify-content: center; margin-top: 2px; }
+.learn-check svg { width: 11px; height: 11px; }
 
-.learn-card-danger { background: #fef2f2; border-color: #fecaca; }
-.learn-card-danger .learn-card-title { background: #fee2e2; border-bottom-color: #fecaca; color: #991b1b; }
+/* 자주 발생하는 실수 — 전체 연한 붉은 배경, 헤더 띠 없이 균일 구성 */
+.learn-card-danger { background: #fdedf0; border-color: #f3d9de; }
+.learn-card-danger .learn-card-title { background: transparent; border-bottom: 0; color: #7f1d1d; padding: 14px 18px 0; }
 .learn-card-danger .learn-card-title svg { color: #dc2626; }
-.learn-mistake-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
-.learn-mistake-card { background: #fff; border: 1px solid #fecaca; border-radius: 8px; padding: 12px 14px; }
-.learn-mistake-card p { margin: 6px 0; font-size: var(--font-size-sm); }
-.learn-mistake-title { font-weight: 700; color: #991b1b; }
+.learn-card-danger .learn-card-body { padding-top: 10px; }
+.learn-mistake-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.learn-mistake-card { background: #fff7f9; border: 1px solid #f3d9de; border-radius: 8px; padding: 13px 15px; }
+.learn-mistake-card p { margin: 6px 0; }
+.learn-mistake-title { font-weight: 700; color: #7f1d1d; }
 
-.learn-card-info { background: #eff6ff; border-color: #bfdbfe; }
-.learn-card-info .learn-card-title { background: #dbeafe; border-bottom-color: #bfdbfe; color: #1e40af; }
+/* 핵심 요약 — 전체 연한 파란 배경, 헤더 띠 없이 하나의 영역 */
+.learn-card-info { background: #eaf2fd; border-color: #d4e3f9; }
+.learn-card-info .learn-card-title { background: transparent; border-bottom: 0; color: #1e3a5f; padding: 14px 18px 0; }
 .learn-card-info .learn-card-title svg { color: #2563eb; }
+.learn-card-info .learn-card-body { padding-top: 10px; }
 
 .learn-case-block { border-left: 3px solid var(--primary); padding: 4px 0 4px 14px; margin: 12px 0; }
 .learn-case-block:first-child { margin-top: 0; }
 .learn-case-title { font-weight: 700; margin: 0 0 4px; }
 .learn-command-box { background: color-mix(in srgb, var(--muted) 30%, transparent); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; margin: 12px 0; }
+
+/* 학습 상세 하단 이동 버튼 — 레퍼런스처럼 카드 아래 여백만 (구분선 없음) */
+.learn-lesson .learn-quiz-nav { border-top: 0; margin-top: 22px; padding-top: 0; }
 
 /* 사전 진단 간격 */
 .learn-diagnostic-intro { margin: 0 0 4px; }

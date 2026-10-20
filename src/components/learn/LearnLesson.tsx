@@ -138,13 +138,20 @@ export function LearnLesson({ level, progress, onPersistUnit, onBack, onStartQui
           <BookOpen /> 핵심 개념
         </h4>
         <div className="learn-card-body">
-          <ul className="learn-bullet-list">
-            {unit.concepts.map((c) => (
-              <li key={c.term}>
-                <strong>{c.term}</strong> — {c.definition}
-              </li>
-            ))}
-          </ul>
+          {unit.concepts.length > 0 ? (
+            <p className="learn-concept-lead">
+              <strong>{unit.concepts[0].term}</strong> — {unit.concepts[0].definition}
+            </p>
+          ) : null}
+          {unit.concepts.length > 1 ? (
+            <ul className="learn-bullet-list">
+              {unit.concepts.slice(1).map((c) => (
+                <li key={c.term}>
+                  <strong>{c.term}</strong> — {c.definition}
+                </li>
+              ))}
+            </ul>
+          ) : null}
         </div>
       </section>
 
