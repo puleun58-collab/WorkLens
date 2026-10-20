@@ -67,6 +67,36 @@ describe("writing checks", () => {
     expect(result.findings.filter((finding) => finding.code === "korean-spacing" && finding.source.nodeId === "paragraph:4")).toEqual([]);
   });
 
+  it("splits hand-verified business compounds while leaving legitimate compounds and longer words alone", () => {
+    const result = checkDocument(paragraphDocument([
+      "첫 평가결과와 추가 보안요구사항을 확인했습니다.",
+      "정기검토와 패치관리 지침, 로그 중앙수집 현황을 점검했습니다.",
+      "추가기간(약 1개월)이 주어졌고 완료예정일은 별도로 정합니다.",
+      "평가결과를 공유하고 개선목록을 정리했습니다.",
+      "품질관리와 변경관리 절차, 평가결과서는 기존 표기를 유지합니다.",
+    ]));
+
+    const compound = result.findings.filter((finding) => finding.ruleId === "writing/korean/spacing:compound");
+    expect(compound.map((finding) => finding.originalText)).toEqual(expect.arrayContaining([
+      expect.stringContaining("평가결과"),
+      expect.stringContaining("보안요구사항"),
+      expect.stringContaining("정기검토"),
+      expect.stringContaining("패치관리"),
+      expect.stringContaining("중앙수집"),
+      expect.stringContaining("추가기간"),
+      expect.stringContaining("완료예정일"),
+      expect.stringContaining("개선목록"),
+    ]));
+    for (const finding of compound) {
+      expect(finding.code).toBe("korean-spacing");
+      expect(finding.severity).toBe("suggestion");
+    }
+    expect(compound.find((finding) => finding.message.includes("보안요구사항"))?.suggestedText).toContain("보안 요구사항");
+    expect(compound.find((finding) => finding.message.includes("추가기간"))?.suggestedText).toContain("추가 기간(약 1개월)");
+    // Legitimate compounds and longer words containing a listed form stay untouched.
+    expect(compound.filter((finding) => finding.source.nodeId === "paragraph:5")).toEqual([]);
+  });
+
   it("flags compatibility jamo left by an interrupted Korean composition", () => {
     const result = checkDocument(paragraphDocument(["향후 전망ㅇ을 검토합니다."]));
 

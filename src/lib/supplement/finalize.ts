@@ -108,7 +108,7 @@ export function finalizeSupplement(
     if (unsupportedFound) {
       finding.status = "unverified";
       finding.severity = finding.severity === "critical" ? "warning" : finding.severity;
-      finding.limitation = [finding.limitation, "AI가 제시한 근거에서 필요한 구체 정보를 확인하지 못해 누락 여부를 확정하지 않았습니다."].filter(Boolean).join(" ");
+      finding.limitation = [finding.limitation, "제공된 자료만으로는 해당 항목의 충족 여부를 판단하기 어렵습니다."].filter(Boolean).join(" ");
     }
     if (reviewed.has(candidate.id) && outcome === undefined) {
       finding.status = "unverified";

@@ -19,7 +19,7 @@ const SEVERITIES: readonly SupplementSeverity[] = ["critical", "warning", "sugge
 /** Display-only titles for the blue explanation box, keyed by finding severity. */
 const SEVERITY_REASON_TITLES: Record<SupplementSeverity, string> = {
   critical: "중요하게 판단한 이유",
-  warning: "확인이 필요한 이유",
+  warning: "확인 필요 사유",
   suggestion: "참고할 내용",
 };
 const CHECK_TITLES: Record<SupplementResult["findings"][number]["check"], string> = {
@@ -190,7 +190,7 @@ export function SupplementResults({ result, fileNames, renderSource }: {
                         {finding.additions.length > 0 ? (
                           <dl className="supplement-fields supplement-additions">
                             <div>
-                              <dt>{finding.scope === "report" ? "확인된 내용" : finding.severity === "suggestion" ? "추가하면 좋은 정보" : "확인할 정보"}</dt>
+                              <dt>{finding.scope === "report" ? "확인된 내용" : finding.severity === "suggestion" ? "추가하면 좋은 정보" : "추가 확인 항목"}</dt>
                               <dd><ul className="supplement-readable-list" role="list">{finding.additions.map((addition) => <li key={addition}><span className="supplement-list-marker" aria-hidden="true">•</span><span>{addition}</span></li>)}</ul></dd>
                             </div>
                           </dl>
