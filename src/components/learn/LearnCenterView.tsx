@@ -1,10 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ALL_LEVELS, DIAGNOSTIC_AREAS, levelMeta } from "@/lib/learn/curriculum";
 import { diagnosticQuestions, findQuestion, questionBank } from "@/lib/learn/questions";
-import { loadLearnProgressEx, saveLearnProgress, LEARN_STORAGE_NOTICE } from "@/lib/learn/progress-store";
+import { loadLearnProgressEx, noteLearnRevision, saveLearnProgress, LEARN_STORAGE_NOTICE } from "@/lib/learn/progress-store";
 import {
   applyAttempt,
   canUnlockLevel,
@@ -41,10 +41,15 @@ export type LearnScreen =
 
 export function LearnCenterView() {
   const [progress, setProgress] = useState<LearnProgress | null>(null);
-  // revision: 문자열=기존 기록의 충돌 검사용, null=기록 없음(신규 사용자), undefined=미로드
-  const [revision, setRevision] = useState<string | null | undefined>(undefined);
+  // progressRef: 저장 기준이 되는 최신 진도 — 렌더 시점과 무관하게 항상 최신 값을 읽는다.
+  // (빠른 연속 이동 시 이전 렌더의 클로저가 오래된 revision으로 저장하는 오판 방지)
+  const progressRef = useRef<LearnProgress | null>(null);
   const [screen, setScreen] = useState<LearnScreen>({ name: "dashboard" });
   const [error, setError] = useState<string | null>(null);
+  // 저장 실패는 화면 전체를 가리지 않는 배너로 표시한다 (학습 화면 유지)
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [canRetrySave, setCanRetrySave] = useState(false);
+  const pendingSaveRef = useRef<((prev: LearnProgress) => LearnProgress) | null>(null);
 
   useEffect(() => {
     loadLearnProgressEx()
@@ -58,24 +63,51 @@ export function LearnCenterView() {
           setError(result.message ?? "학습 진도를 불러오지 못했습니다.");
           return;
         }
+        noteLearnRevision(result.revision);
+        progressRef.current = result.progress;
         setProgress(result.progress);
-        setRevision(result.revision);
       })
       .catch((e) => setError(e instanceof Error ? e.message : "학습 진도를 불러오지 못했습니다."));
   }, []);
 
   const persist = useCallback(
-    async (next: LearnProgress) => {
+    async (updater: (prev: LearnProgress) => LearnProgress) => {
+      const base = progressRef.current;
+      if (!base) return;
+      const next = updater(base);
       try {
-        const rev = await saveLearnProgress(next, revision);
+        await saveLearnProgress(next);
+        progressRef.current = next;
         setProgress(next);
-        setRevision(rev);
+        pendingSaveRef.current = null;
+        setSaveError(null);
+        setCanRetrySave(false);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "학습 진도 저장에 실패했습니다.");
+        const message = e instanceof Error ? e.message : "학습 진도 저장에 실패했습니다.";
+        pendingSaveRef.current = updater;
+        if (message.includes("다른 탭")) {
+          // 실제 충돌 가능성 — 최신 데이터를 다시 읽어 복구 동선을 제공한다
+          const latest = await loadLearnProgressEx();
+          if (latest.status === "ok") {
+            noteLearnRevision(latest.revision);
+            progressRef.current = latest.progress;
+            setProgress(latest.progress);
+            setSaveError("다른 탭에서 학습 데이터가 변경되어 최신 기록을 다시 불러왔습니다. '다시 시도'를 눌러 방금 변경을 저장할 수 있습니다.");
+            setCanRetrySave(true);
+            return;
+          }
+        }
+        setSaveError(message);
+        setCanRetrySave(true);
       }
     },
-    [revision],
+    [],
   );
+
+  const retrySave = useCallback(() => {
+    const updater = pendingSaveRef.current;
+    if (updater) void persist(updater);
+  }, [persist]);
 
   const startQuiz = useCallback(
     (level: LearnLevelNo) => {
@@ -103,8 +135,7 @@ export function LearnCenterView() {
         startedAt: Date.now(),
         finishedAt: Date.now(),
       };
-      const next = applyAttempt(progress, attempt, questions);
-      void persist(next);
+      void persist((prev) => applyAttempt(prev, attempt, questions));
       setScreen({ name: "result", attempt });
       window.scrollTo({ top: 0 });
     },
@@ -128,6 +159,21 @@ export function LearnCenterView() {
 
   return (
     <div className="learn-view">
+      {saveError ? (
+        <div className="learn-save-error" role="alert">
+          <span>{saveError}</span>
+          <span className="learn-save-error-actions">
+            {canRetrySave ? (
+              <Button type="button" variant="outline" size="sm" onClick={retrySave}>
+                다시 시도
+              </Button>
+            ) : null}
+            <Button type="button" variant="ghost" size="sm" onClick={() => { setSaveError(null); setCanRetrySave(false); }}>
+              닫기
+            </Button>
+          </span>
+        </div>
+      ) : null}
       {screen.name === "dashboard" ? (
         <LearnDashboard
           progress={progress}
@@ -142,8 +188,22 @@ export function LearnCenterView() {
           level={screen.level}
           progress={progress}
           onPersistUnit={(unitId) => {
-            const lp = progress.levels[screen.level];
-            void persist({ ...progress, levels: { ...progress.levels, [screen.level]: { passed: lp?.passed ?? false, bestScore: lp?.bestScore ?? 0, attempts: lp?.attempts ?? [], lastStudiedUnitId: unitId } }, updatedAt: Date.now() });
+            void persist((prev) => {
+              const lp = prev.levels[screen.level];
+              return {
+                ...prev,
+                levels: {
+                  ...prev.levels,
+                  [screen.level]: {
+                    passed: lp?.passed ?? false,
+                    bestScore: lp?.bestScore ?? 0,
+                    attempts: lp?.attempts ?? [],
+                    lastStudiedUnitId: unitId,
+                  },
+                },
+                updatedAt: Date.now(),
+              };
+            });
           }}
           onBack={() => { setScreen({ name: "dashboard" }); window.scrollTo({ top: 0 }); }}
           onStartQuiz={() => startQuiz(screen.level)}
@@ -172,14 +232,13 @@ export function LearnCenterView() {
         <LearnWrongNotes
           progress={progress}
           onMarkReviewed={(questionId) => {
-            const next: LearnProgress = {
-              ...progress,
-              wrongAnswers: progress.wrongAnswers.map((w) =>
+            void persist((prev) => ({
+              ...prev,
+              wrongAnswers: prev.wrongAnswers.map((w) =>
                 w.questionId === questionId ? { ...w, reviewCount: w.reviewCount + 1 } : w,
               ),
               updatedAt: Date.now(),
-            };
-            void persist(next);
+            }));
           }}
           onBack={() => { setScreen({ name: "dashboard" }); window.scrollTo({ top: 0 }); }}
           onOpenLesson={(level) => { setScreen({ name: "lesson", level }); window.scrollTo({ top: 0 }); }}
@@ -188,12 +247,11 @@ export function LearnCenterView() {
         <LearnDiagnostic
           questions={diagnosticQuestions()}
           onComplete={(weakAreaIds) => {
-            const next: LearnProgress = {
-              ...progress,
+            void persist((prev) => ({
+              ...prev,
               diagnostic: { answers: {}, completedAt: Date.now(), weakAreas: weakAreaIds },
               updatedAt: Date.now(),
-            };
-            void persist(next);
+            }));
             setScreen({ name: "dashboard" });
             window.scrollTo({ top: 0 });
           }}

@@ -6,18 +6,31 @@ async function learn(page: Parameters<typeof navigateWorkspace>[0]) {
   await expect(page.getByRole("heading", { name: "학습센터", exact: true })).toBeVisible();
 }
 
+/** 현재 문항에 답변 — 객관식/복수선택/사례판단은 첫 선택지, OX는 O 선택 */
+async function answerCurrent(page: Parameters<typeof navigateWorkspace>[0]) {
+  const choice = page.locator(".learn-choice").first();
+  if ((await choice.count()) > 0) {
+    await choice.click();
+    return;
+  }
+  const ox = page.locator(".learn-ox").first();
+  if ((await ox.count()) > 0) {
+    await ox.click();
+  }
+}
+
 test("학습센터: 대시보드 로드맵 10단계 표시", async ({ page }) => {
   await page.goto("/");
   await learn(page);
   // 10단계 로드맵
-  for (const level of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) {
-    await expect(page.getByText(`LEVEL ${level} ·`, { exact: false }).first()).toBeVisible();
-  }
+  const rows = page.locator(".learn-level-row");
+  await expect(rows).toHaveCount(10);
+  await expect(rows.first().getByText("AI·AX 기초", { exact: true })).toBeVisible();
   // LEVEL 1만 해제, 나머지는 잠김
   await expect(page.getByText("학습 중", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("잠김", { exact: true }).first()).toBeVisible();
   // 진행률
-  await expect(page.getByText("0 / 10 단계 통과", { exact: true })).toBeVisible();
+  await expect(page.getByText(/0 \/ 10 단계 통과/, { exact: false })).toBeVisible();
 });
 
 test("학습센터: LEVEL 1 학습 화면", async ({ page }) => {
@@ -25,12 +38,123 @@ test("학습센터: LEVEL 1 학습 화면", async ({ page }) => {
   await learn(page);
   await page.getByRole("button", { name: "학습하기", exact: true }).first().click();
   await expect(page.getByRole("heading", { name: /LEVEL 1 ·/, exact: false })).toBeVisible();
+  // 학습센터로 돌아가기
+  await expect(page.getByRole("button", { name: "학습센터로 돌아가기", exact: true })).toBeVisible();
   // 학습 단위 네비게이션
   await expect(page.getByRole("navigation", { name: "학습 단위" })).toBeVisible();
+  // 단원 진행률 표시
+  await expect(page.getByText("1 / 5 단원", { exact: true })).toBeVisible();
   // 핵심 섹션 존재
   await expect(page.getByRole("heading", { name: "핵심 개념" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "실무 사례" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "핵심 요약" })).toBeVisible();
+  // 이동 버튼 문구 통일
+  const nav = page.locator(".learn-quiz-nav");
+  await expect(nav.getByRole("button", { name: "이전", exact: true })).toBeVisible();
+  await expect(nav.getByRole("button", { name: "다음", exact: true })).toBeVisible();
+});
+
+test("학습센터: 학습 단위 이동 — 이전·다음·직접 선택", async ({ page }) => {
+  await page.goto("/");
+  await learn(page);
+  await page.getByRole("button", { name: "학습하기", exact: true }).first().click();
+  const nav = page.locator(".learn-quiz-nav");
+  // 다음 단위 이동
+  await nav.getByRole("button", { name: "다음", exact: true }).click();
+  await expect(page.getByRole("heading", { name: /^2\. /, exact: false })).toBeVisible();
+  await expect(page.getByText("2 / 5 단원", { exact: true })).toBeVisible();
+  // 이전 단위 이동
+  await nav.getByRole("button", { name: "이전", exact: true }).click();
+  await expect(page.getByRole("heading", { name: /^1\. /, exact: false })).toBeVisible();
+  // 상단 단위 직접 선택
+  await page.getByRole("navigation", { name: "학습 단위" }).getByRole("button", { name: /^3\. / }).click();
+  await expect(page.getByRole("heading", { name: /^3\. /, exact: false })).toBeVisible();
+  await expect(page.getByText("3 / 5 단원", { exact: true })).toBeVisible();
+  // 저장 오류 배너가 없어야 함
+  await expect(page.locator(".learn-save-error")).toHaveCount(0);
+});
+
+test("학습센터: 빠른 연속 이동 시 저장 충돌 오판 없음", async ({ page }) => {
+  await page.goto("/");
+  await learn(page);
+  await page.getByRole("button", { name: "학습하기", exact: true }).first().click();
+  const nav = page.locator(".learn-quiz-nav");
+  // 빠르게 3회 연속 이동 (저장 직렬화 구간)
+  for (let i = 0; i < 3; i++) {
+    await nav.getByRole("button", { name: "다음", exact: true }).click();
+  }
+  await expect(page.getByRole("heading", { name: /^4\. /, exact: false })).toBeVisible();
+  // "다른 탭" 오판 배너가 없어야 함
+  await expect(page.locator(".learn-save-error")).toHaveCount(0);
+  // 새로고침 후에도 4단원 복원 (학습센터로 다시 진입)
+  await page.reload();
+  await learn(page);
+  await page.getByRole("button", { name: "학습하기", exact: true }).first().click();
+  await expect(page.getByRole("heading", { name: /^4\. /, exact: false })).toBeVisible();
+  await expect(page.locator(".learn-save-error")).toHaveCount(0);
+});
+
+test("학습센터: 실제 다른 탭 변경 시 충돌 보호 동작", async ({ page, context }) => {
+  await page.goto("/");
+  await learn(page);
+  await page.getByRole("button", { name: "학습하기", exact: true }).first().click();
+  await expect(page.getByRole("heading", { name: /^1\. /, exact: false })).toBeVisible();
+
+  // 같은 브라우저 컨텍스트의 다른 탭에서 진도 변경 (IndexedDB 공유)
+  const page2 = await context.newPage();
+  await page2.goto("/");
+  await learn(page2);
+  await page2.getByRole("button", { name: "학습하기", exact: true }).first().click();
+  await page2.locator(".learn-quiz-nav").getByRole("button", { name: "다음", exact: true }).click();
+  // 다른 탭의 저장이 IndexedDB에 반영될 때까지 대기
+  await page2.waitForFunction(async () => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const req = indexedDB.open("worklens-learn", 1);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    try {
+      const value: { levels?: Record<string, { lastStudiedUnitId?: string }> } | undefined =
+        await new Promise((resolve) => {
+          const tx = db.transaction("progress", "readonly");
+          const q = tx.objectStore("progress").get("current");
+          q.onsuccess = () => resolve(q.result);
+          q.onerror = () => resolve(undefined);
+        });
+      return value?.levels?.["1"]?.lastStudiedUnitId === "l1-u2";
+    } finally {
+      db.close();
+    }
+  });
+  await page2.close();
+
+  // 원래 탭에서 이동 시도 → 실제 충돌 감지 → 배너 표시 + 최신 데이터(2단원)로 복원
+  await page.locator(".learn-quiz-nav").getByRole("button", { name: "다음", exact: true }).click();
+  await expect(page.locator(".learn-save-error")).toBeVisible();
+  await expect(page.locator(".learn-save-error")).toContainText("다른 탭");
+  await expect(page.getByRole("heading", { name: /^2\. /, exact: false })).toBeVisible();
+  // 학습 화면은 유지되어야 함 (빈 화면 금지)
+  await expect(page.getByRole("heading", { name: "핵심 개념" })).toBeVisible();
+});
+
+test("학습센터: 사전 진단 — 중복 건너뛰기 제거·복귀 동선", async ({ page }) => {
+  await page.goto("/");
+  await learn(page);
+  await page.getByRole("button", { name: "사전 진단 받기 (선택)", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "사전 진단 (선택)", exact: true })).toBeVisible();
+  // 문제 화면 하단의 중복 건너뛰기 버튼 제거됨
+  await expect(page.getByRole("button", { name: "건너뛰기", exact: true })).toHaveCount(0);
+  // 학습센터로 돌아가기 동선 유지
+  await expect(page.getByRole("button", { name: "학습센터로 돌아가기", exact: true })).toBeVisible();
+  // 이전·다음 문항 이동 유지
+  const nav = page.locator(".learn-quiz-nav");
+  await nav.getByRole("button", { name: "다음", exact: true }).click();
+  await expect(page.getByText("2 / 8", { exact: false })).toBeVisible();
+  await nav.getByRole("button", { name: "이전", exact: true }).click();
+  await expect(page.getByText("1 / 8", { exact: false })).toBeVisible();
+  // 돌아가기
+  await page.getByRole("button", { name: "학습센터로 돌아가기", exact: true }).click();
+  await expect(page.locator(".learn-view").getByRole("heading", { name: "학습센터", exact: true })).toBeVisible();
 });
 
 test("학습센터: 퀴즈 응시 → 채점 → 결과", async ({ page }) => {
@@ -41,13 +165,14 @@ test("학습센터: 퀴즈 응시 → 채점 → 결과", async ({ page }) => {
   await expect(page.getByRole("heading", { name: /LEVEL 1 퀴즈/, exact: false })).toBeVisible();
   // 10문항 도트
   await expect(page.getByRole("navigation", { name: "문항 이동" }).getByRole("button")).toHaveCount(10);
-  // 첫 문항에 답변 (첫 번째 선택지 선택 — 정답 여부 무관, 흐름 검증)
-  const firstChoice = page.locator(".learn-choice").first();
-  await firstChoice.click();
-  // 제출
-  for (let i = 0; i < 9; i++) {
-    await page.getByRole("button", { name: "다음 문항", exact: true }).click();
+  // 각 문항에 답변 (정답 여부 무관, 흐름 검증)
+  for (let i = 0; i < 10; i++) {
+    await answerCurrent(page);
+    if (i < 9) {
+      await page.getByRole("button", { name: "다음 문항", exact: true }).click();
+    }
   }
+  // 제출
   await page.getByRole("button", { name: "제출하기", exact: true }).click();
   await page.getByRole("button", { name: "제출하고 채점하기", exact: true }).click();
   // 결과 화면
@@ -69,7 +194,7 @@ test("학습센터: 미통과 시 다음 단계 잠금 유지", async ({ page })
   await page.getByRole("button", { name: "제출하기", exact: true }).click();
   await expect(page.getByText(/미응답 문항/, { exact: false })).toBeVisible();
   await page.getByRole("button", { name: "제출하고 채점하기", exact: true }).click();
-  await expect(page.getByText("미통과", { exact: true })).toBeVisible();
+  await expect(page.getByText(/미통과/, { exact: false })).toBeVisible();
   // 대시보드로 돌아가면 LEVEL 2는 여전히 잠김
   await page.getByRole("button", { name: "학습센터로", exact: true }).click();
   const rows = page.locator(".learn-level-row");
