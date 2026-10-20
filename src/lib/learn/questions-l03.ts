@@ -4,6 +4,7 @@ export const QUESTIONS_L03: LearnQuestion[] = [
   {
     id: "l3-q001",
     level: 3,
+    unitId: "l3-u1",
     category: "대화형 AI 도구의 공통점",
     type: "single",
     difficulty: "concept",
@@ -26,6 +27,7 @@ export const QUESTIONS_L03: LearnQuestion[] = [
   {
     id: "l3-q002",
     level: 3,
+    unitId: "l3-u1",
     category: "AI 도구의 기능 변경",
     type: "ox",
     difficulty: "concept",
@@ -37,6 +39,7 @@ export const QUESTIONS_L03: LearnQuestion[] = [
   {
     id: "l3-q003",
     level: 3,
+    unitId: "l3-u2",
     category: "프롬프트의 정의",
     type: "single",
     difficulty: "concept",
@@ -59,6 +62,7 @@ export const QUESTIONS_L03: LearnQuestion[] = [
   {
     id: "l3-q004",
     level: 3,
+    unitId: "l3-u2",
     category: "좋은 프롬프트의 요소",
     type: "single",
     difficulty: "concept",
@@ -81,6 +85,7 @@ export const QUESTIONS_L03: LearnQuestion[] = [
   {
     id: "l3-q005",
     level: 3,
+    unitId: "l3-u2",
     category: "명확한 프롬프트의 구성 요소",
     type: "multiple",
     difficulty: "concept",
@@ -101,6 +106,7 @@ export const QUESTIONS_L03: LearnQuestion[] = [
   {
     id: "l3-q006",
     level: 3,
+    unitId: "l3-u2",
     category: "프롬프트의 구체성",
     type: "ox",
     difficulty: "concept",
@@ -112,6 +118,7 @@ export const QUESTIONS_L03: LearnQuestion[] = [
   {
     id: "l3-q007",
     level: 3,
+    unitId: "l3-u3",
     category: "결과 검증의 필요성",
     type: "single",
     difficulty: "concept",
@@ -134,6 +141,7 @@ export const QUESTIONS_L03: LearnQuestion[] = [
   {
     id: "l3-q008",
     level: 3,
+    unitId: "l3-u3",
     category: "검증 방법",
     type: "single",
     difficulty: "concept",
@@ -156,6 +164,7 @@ export const QUESTIONS_L03: LearnQuestion[] = [
   {
     id: "l3-q009",
     level: 3,
+    unitId: "l3-u3",
     category: "출처 확인",
     type: "ox",
     difficulty: "concept",
@@ -167,6 +176,7 @@ export const QUESTIONS_L03: LearnQuestion[] = [
   {
     id: "l3-q010",
     level: 3,
+    unitId: "l3-u4",
     category: "민감정보의 종류",
     type: "single",
     difficulty: "concept",
@@ -189,6 +199,7 @@ export const QUESTIONS_L03: LearnQuestion[] = [
   {
     id: "l3-q011",
     level: 3,
+    unitId: "l3-u4",
     category: "입력 시 주의할 정보",
     type: "multiple",
     difficulty: "concept",
@@ -210,6 +221,7 @@ export const QUESTIONS_L03: LearnQuestion[] = [
   {
     id: "l3-q012",
     level: 3,
+    unitId: "l3-u4",
     category: "개인정보 입력 금지",
     type: "ox",
     difficulty: "concept",
@@ -221,6 +233,7 @@ export const QUESTIONS_L03: LearnQuestion[] = [
   {
     id: "l3-q013",
     level: 3,
+    unitId: "l3-u2",
     category: "프롬프트 개선",
     type: "case-judgment",
     difficulty: "application",
@@ -243,6 +256,7 @@ export const QUESTIONS_L03: LearnQuestion[] = [
   {
     id: "l3-q014",
     level: 3,
+    unitId: "l3-u2",
     category: "추가 요청으로 다듬기",
     type: "single",
     difficulty: "application",
@@ -265,6 +279,7 @@ export const QUESTIONS_L03: LearnQuestion[] = [
   {
     id: "l3-q015",
     level: 3,
+    unitId: "l3-u3",
     category: "AI 결과 검증 실천",
     type: "case-judgment",
     difficulty: "application",
@@ -287,6 +302,7 @@ export const QUESTIONS_L03: LearnQuestion[] = [
   {
     id: "l3-q016",
     level: 3,
+    unitId: "l3-u4",
     category: "민감정보 가리기",
     type: "case-judgment",
     difficulty: "application",
@@ -309,6 +325,7 @@ export const QUESTIONS_L03: LearnQuestion[] = [
   {
     id: "l3-q017",
     level: 3,
+    unitId: "l3-u3",
     category: "AI 결과 공유 전 확인",
     type: "multiple",
     difficulty: "application",
@@ -329,6 +346,7 @@ export const QUESTIONS_L03: LearnQuestion[] = [
   {
     id: "l3-q018",
     level: 3,
+    unitId: "l3-u5",
     category: "작은 업무부터 적용",
     type: "single",
     difficulty: "application",
@@ -351,6 +369,7 @@ export const QUESTIONS_L03: LearnQuestion[] = [
   {
     id: "l3-q019",
     level: 3,
+    unitId: "l3-u4",
     category: "민감정보 취급 판단",
     type: "case-judgment",
     difficulty: "judgment",
@@ -373,6 +392,7 @@ export const QUESTIONS_L03: LearnQuestion[] = [
   {
     id: "l3-q020",
     level: 3,
+    unitId: "l3-u5",
     category: "AI 답변과 내부 규정이 다를 때",
     type: "case-judgment",
     difficulty: "judgment",

@@ -74,6 +74,9 @@ export interface TerminalTaskSpec {
 export interface LearnQuestion {
   id: string; // "l1-q001"
   level: LearnLevelNo;
+  /** 연결된 학습 단위 식별자 ("l1-u1") — 단위 제목이 바뀌어도 연결이 유지되는 안정 식별자.
+   *  단계별 문제은행 문항은 필수이며, 사전 진단 문항에는 없다. */
+  unitId?: string;
   category: string; // 학습 목표·개념 분류
   type: QuestionType;
   difficulty: QuestionDifficulty;
@@ -96,7 +99,7 @@ export interface LevelMeta {
   level: LearnLevelNo;
   title: string;
   topic: string;
-  passScore: number; // 70 / 75 / 80 / 85
+  passScore: number; // 전 단계 80점으로 통일
   questionCount: number; // 10 (L1~9), 20 (L10)
   pointsPerQuestion: number; // 10 (L1~9), 5 (L10)
 }
@@ -123,6 +126,11 @@ export interface QuizAttempt {
   graded: GradedItem[];
   score: number;
   passed: boolean;
+  /** 응시 당시 적용된 통과 기준 — 과거 기록의 판정 기준을 구분하기 위해 응시 시점에 고정한다.
+   *  이 필드가 없는 과거 기록은 당시 단계별 기준(70/75/80/85)으로 판정된 것이다. */
+  passScore?: number;
+  /** 문항별 선택지 표시 순서 (선택지 ID 배열) — 응시 당시 화면에 보인 순서 그대로 보존한다 */
+  choiceOrder?: Record<string, string[]>;
   startedAt: number;
   finishedAt: number;
 }

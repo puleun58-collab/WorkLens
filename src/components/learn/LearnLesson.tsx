@@ -48,16 +48,20 @@ function CopyCommandButton({ command }: { command: string }) {
 
 interface LearnLessonProps {
   level: LearnLevelNo;
+  /** 오답 노트 등에서 특정 단위로 바로 이동할 때 지정 — 유효하지 않으면 마지막 학습 단위 사용 */
+  initialUnitId?: string;
   progress: LearnProgress;
   onPersistUnit: (unitId: string) => void;
   onBack: () => void;
   onStartQuiz: () => void;
 }
 
-export function LearnLesson({ level, progress, onPersistUnit, onBack, onStartQuiz }: LearnLessonProps) {
+export function LearnLesson({ level, initialUnitId, progress, onPersistUnit, onBack, onStartQuiz }: LearnLessonProps) {
   const meta = levelMeta(level);
   const content = levelContent(level);
   const [unitIdx, setUnitIdx] = useState(() => {
+    const requested = initialUnitId ? content.units.findIndex((u) => u.id === initialUnitId) : -1;
+    if (requested >= 0) return requested;
     const lastId = progress.levels[level]?.lastStudiedUnitId;
     const idx = content.units.findIndex((u) => u.id === lastId);
     return idx >= 0 ? idx : 0;
@@ -82,6 +86,18 @@ export function LearnLesson({ level, progress, onPersistUnit, onBack, onStartQui
       behavior: "smooth",
     });
   }, [unitIdx]);
+
+  // 특정 단위로 바로 이동해 온 경우, 그 단위를 마지막 학습 위치로 저장한다
+  const initialUnitApplied = useRef(false);
+  useEffect(() => {
+    if (initialUnitApplied.current) return;
+    initialUnitApplied.current = true;
+    if (initialUnitId && content.units.some((u) => u.id === initialUnitId)) {
+      onPersistUnit(initialUnitId);
+    }
+    // 마운트 시 1회만 실행
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (!unit) return null;
 

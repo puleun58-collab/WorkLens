@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link2, Lock, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ALL_LEVELS, DIAGNOSTIC_AREAS, levelMeta } from "@/lib/learn/curriculum";
+import { levelContent } from "@/lib/learn/content";
 import { diagnosticQuestions, findQuestion, questionBank } from "@/lib/learn/questions";
 import { loadLearnProgressEx, noteLearnRevision, saveLearnProgress, LEARN_STORAGE_NOTICE } from "@/lib/learn/progress-store";
 import {
@@ -14,6 +15,7 @@ import {
   newAttemptId,
   overallProgress,
   selectQuizQuestions,
+  shuffleQuestionChoices,
   weakCategories,
 } from "@/lib/learn/scoring";
 import type {
@@ -33,8 +35,8 @@ import "./learn.css";
 
 export type LearnScreen =
   | { name: "dashboard" }
-  | { name: "lesson"; level: LearnLevelNo }
-  | { name: "quiz"; level: LearnLevelNo; attemptId: string; questions: LearnQuestion[] }
+  | { name: "lesson"; level: LearnLevelNo; unitId?: string }
+  | { name: "quiz"; level: LearnLevelNo; attemptId: string; questions: LearnQuestion[]; startedAt: number }
   | { name: "result"; attempt: QuizAttempt }
   | { name: "wrongnotes" }
   | { name: "diagnostic" }
@@ -114,17 +116,27 @@ export function LearnCenterView() {
     (level: LearnLevelNo) => {
       if (!progress || !canUnlockLevel(level, progress)) return;
       const attemptId = newAttemptId();
-      const questions = selectQuizQuestions(level, questionBank(level), attemptId);
-      setScreen({ name: "quiz", level, attemptId, questions });
+      // 응시 시작 시점에만 문제 세트(단위별 균형 출제 + 순서·선택지 무작위)를 구성하고,
+      // 응시가 끝날 때까지 이 구성을 그대로 고정한다.
+      const unitIds = levelContent(level).units.map((u) => u.id);
+      const attempts = progress.levels[level]?.attempts ?? [];
+      const previousQuestionIds = attempts.length > 0 ? attempts[attempts.length - 1].questionIds : [];
+      const selected = selectQuizQuestions(level, questionBank(level), attemptId, unitIds, previousQuestionIds);
+      const questions = shuffleQuestionChoices(selected, attemptId);
+      setScreen({ name: "quiz", level, attemptId, questions, startedAt: Date.now() });
       window.scrollTo({ top: 0 });
     },
     [progress],
   );
 
   const finishQuiz = useCallback(
-    (level: LearnLevelNo, attemptId: string, questions: LearnQuestion[], answers: Record<string, LearnerAnswer>) => {
+    (level: LearnLevelNo, attemptId: string, questions: LearnQuestion[], answers: Record<string, LearnerAnswer>, startedAt: number) => {
       if (!progress) return;
       const { graded, score, passed } = gradeQuiz(level, questions, answers);
+      const choiceOrder: Record<string, string[]> = {};
+      for (const q of questions) {
+        if (q.choices) choiceOrder[q.id] = q.choices.map((c) => c.id);
+      }
       const attempt: QuizAttempt = {
         attemptId,
         level,
@@ -133,7 +145,10 @@ export function LearnCenterView() {
         graded,
         score,
         passed,
-        startedAt: Date.now(),
+        // 응시 당시 통과 기준과 선택지 표시 순서를 기록에 고정한다
+        passScore: levelMeta(level).passScore,
+        choiceOrder,
+        startedAt,
         finishedAt: Date.now(),
       };
       void persist((prev) => applyAttempt(prev, attempt, questions));
@@ -142,6 +157,11 @@ export function LearnCenterView() {
     },
     [progress, persist],
   );
+
+  const openLessonUnit = useCallback((level: LearnLevelNo, unitId?: string) => {
+    setScreen({ name: "lesson", level, unitId });
+    window.scrollTo({ top: 0 });
+  }, []);
 
   if (error) {
     return (
@@ -192,6 +212,7 @@ export function LearnCenterView() {
       ) : screen.name === "lesson" ? (
         <LearnLesson
           level={screen.level}
+          initialUnitId={screen.unitId}
           progress={progress}
           onPersistUnit={(unitId) => {
             void persist((prev) => {
@@ -219,7 +240,7 @@ export function LearnCenterView() {
           level={screen.level}
           attemptId={screen.attemptId}
           questions={screen.questions}
-          onSubmit={(answers) => finishQuiz(screen.level, screen.attemptId, screen.questions, answers)}
+          onSubmit={(answers) => finishQuiz(screen.level, screen.attemptId, screen.questions, answers, screen.startedAt)}
           onCancel={() => { setScreen({ name: "dashboard" }); window.scrollTo({ top: 0 }); }}
         />
       ) : screen.name === "result" ? (
@@ -233,6 +254,7 @@ export function LearnCenterView() {
           }}
           onDashboard={() => { setScreen({ name: "dashboard" }); window.scrollTo({ top: 0 }); }}
           onReviewWrong={() => { setScreen({ name: "wrongnotes" }); window.scrollTo({ top: 0 }); }}
+          onOpenLessonUnit={openLessonUnit}
         />
       ) : screen.name === "wrongnotes" ? (
         <LearnWrongNotes
@@ -248,6 +270,7 @@ export function LearnCenterView() {
           }}
           onBack={() => { setScreen({ name: "dashboard" }); window.scrollTo({ top: 0 }); }}
           onOpenLesson={(level) => { setScreen({ name: "lesson", level }); window.scrollTo({ top: 0 }); }}
+          onOpenLessonUnit={openLessonUnit}
         />
       ) : screen.name === "diagnostic" ? (
         <LearnDiagnostic

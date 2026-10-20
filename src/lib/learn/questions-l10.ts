@@ -5,6 +5,7 @@ export const QUESTIONS_L10: LearnQuestion[] = [
   {
     id: "l10-q001",
     level: 10,
+    unitId: "l10-u1",
     category: "복합 사례 분석 절차",
     type: "single",
     difficulty: "concept",
@@ -29,6 +30,7 @@ export const QUESTIONS_L10: LearnQuestion[] = [
   {
     id: "l10-q002",
     level: 10,
+    unitId: "l10-u2",
     category: "자동화 영역 분류",
     type: "single",
     difficulty: "concept",
@@ -52,6 +54,7 @@ export const QUESTIONS_L10: LearnQuestion[] = [
   {
     id: "l10-q003",
     level: 10,
+    unitId: "l10-u2",
     category: "자동화 영역 분류",
     type: "multiple",
     difficulty: "concept",
@@ -76,6 +79,7 @@ export const QUESTIONS_L10: LearnQuestion[] = [
   {
     id: "l10-q004",
     level: 10,
+    unitId: "l10-u5",
     category: "결과 검증 방법",
     type: "single",
     difficulty: "concept",
@@ -100,6 +104,7 @@ export const QUESTIONS_L10: LearnQuestion[] = [
   {
     id: "l10-q005",
     level: 10,
+    unitId: "l10-u4",
     category: "누락값·이상값 처리",
     type: "error-cause",
     difficulty: "application",
@@ -127,6 +132,7 @@ export const QUESTIONS_L10: LearnQuestion[] = [
   {
     id: "l10-q006",
     level: 10,
+    unitId: "l10-u2",
     category: "자동화 기술 선정",
     type: "error-cause",
     difficulty: "application",
@@ -153,6 +159,7 @@ export const QUESTIONS_L10: LearnQuestion[] = [
   {
     id: "l10-q007",
     level: 10,
+    unitId: "l10-u3",
     category: "입력 데이터 조건",
     type: "error-cause",
     difficulty: "application",
@@ -179,6 +186,7 @@ export const QUESTIONS_L10: LearnQuestion[] = [
   {
     id: "l10-q008",
     level: 10,
+    unitId: "l10-u5",
     category: "결과 검증 방법",
     type: "error-cause",
     difficulty: "application",
@@ -206,6 +214,7 @@ export const QUESTIONS_L10: LearnQuestion[] = [
   {
     id: "l10-q009",
     level: 10,
+    unitId: "l10-u2",
     category: "자동화 기술 선정",
     type: "single",
     difficulty: "application",
@@ -231,6 +240,7 @@ export const QUESTIONS_L10: LearnQuestion[] = [
   {
     id: "l10-q010",
     level: 10,
+    unitId: "l10-u3",
     category: "입력 데이터 조건",
     type: "single",
     difficulty: "application",
@@ -256,6 +266,7 @@ export const QUESTIONS_L10: LearnQuestion[] = [
   {
     id: "l10-q011",
     level: 10,
+    unitId: "l10-u2",
     category: "규칙 기반 처리 판단",
     type: "single",
     difficulty: "application",
@@ -282,6 +293,7 @@ export const QUESTIONS_L10: LearnQuestion[] = [
   {
     id: "l10-q012",
     level: 10,
+    unitId: "l10-u4",
     category: "예외 처리 방식",
     type: "multiple",
     difficulty: "application",
@@ -306,6 +318,7 @@ export const QUESTIONS_L10: LearnQuestion[] = [
   {
     id: "l10-q013",
     level: 10,
+    unitId: "l10-u5",
     category: "결과 검증 방법",
     type: "multiple",
     difficulty: "application",
@@ -329,6 +342,7 @@ export const QUESTIONS_L10: LearnQuestion[] = [
   {
     id: "l10-q014",
     level: 10,
+    unitId: "l10-u2",
     category: "규칙 기반 처리 판단",
     type: "case-judgment",
     difficulty: "application",
@@ -355,6 +369,7 @@ export const QUESTIONS_L10: LearnQuestion[] = [
   {
     id: "l10-q015",
     level: 10,
+    unitId: "l10-u2",
     category: "AI 적용 판단",
     type: "case-judgment",
     difficulty: "application",
@@ -381,6 +396,7 @@ export const QUESTIONS_L10: LearnQuestion[] = [
   {
     id: "l10-q016",
     level: 10,
+    unitId: "l10-u3",
     category: "자동화 영역 분류",
     type: "case-judgment",
     difficulty: "application",
@@ -408,6 +424,7 @@ export const QUESTIONS_L10: LearnQuestion[] = [
   {
     id: "l10-q017",
     level: 10,
+    unitId: "l10-u2",
     category: "사람 검토 지점",
     type: "case-judgment",
     difficulty: "judgment",
@@ -434,6 +451,7 @@ export const QUESTIONS_L10: LearnQuestion[] = [
   {
     id: "l10-q018",
     level: 10,
+    unitId: "l10-u3",
     category: "입력 데이터 조건",
     type: "case-judgment",
     difficulty: "judgment",
@@ -460,6 +478,7 @@ export const QUESTIONS_L10: LearnQuestion[] = [
   {
     id: "l10-q019",
     level: 10,
+    unitId: "l10-u4",
     category: "예외 처리 방식",
     type: "case-judgment",
     difficulty: "judgment",
@@ -486,6 +505,7 @@ export const QUESTIONS_L10: LearnQuestion[] = [
   {
     id: "l10-q020",
     level: 10,
+    unitId: "l10-u2",
     category: "AI 적용 판단",
     type: "case-judgment",
     difficulty: "judgment",
@@ -512,6 +532,7 @@ export const QUESTIONS_L10: LearnQuestion[] = [
   {
     id: "l10-q021",
     level: 10,
+    unitId: "l10-u2",
     category: "규칙 기반 처리 판단",
     type: "case-judgment",
     difficulty: "judgment",
@@ -537,6 +558,7 @@ export const QUESTIONS_L10: LearnQuestion[] = [
   {
     id: "l10-q022",
     level: 10,
+    unitId: "l10-u4",
     category: "예외 처리 방식",
     type: "case-judgment",
     difficulty: "judgment",
@@ -563,6 +585,7 @@ export const QUESTIONS_L10: LearnQuestion[] = [
   {
     id: "l10-q023",
     level: 10,
+    unitId: "l10-u5",
     category: "결과 검증 방법",
     type: "case-judgment",
     difficulty: "judgment",
@@ -589,6 +612,7 @@ export const QUESTIONS_L10: LearnQuestion[] = [
   {
     id: "l10-q024",
     level: 10,
+    unitId: "l10-u2",
     category: "AI 적용 판단",
     type: "case-judgment",
     difficulty: "judgment",
@@ -615,6 +639,7 @@ export const QUESTIONS_L10: LearnQuestion[] = [
   {
     id: "l10-q025",
     level: 10,
+    unitId: "l10-u2",
     category: "사람 검토 지점",
     type: "case-judgment",
     difficulty: "judgment",
@@ -641,6 +666,7 @@ export const QUESTIONS_L10: LearnQuestion[] = [
   {
     id: "l10-q026",
     level: 10,
+    unitId: "l10-u3",
     category: "입력 데이터 조건",
     type: "case-judgment",
     difficulty: "judgment",
@@ -667,6 +693,7 @@ export const QUESTIONS_L10: LearnQuestion[] = [
   {
     id: "l10-q027",
     level: 10,
+    unitId: "l10-u4",
     category: "예외 처리 방식",
     type: "case-judgment",
     difficulty: "judgment",
@@ -693,6 +720,7 @@ export const QUESTIONS_L10: LearnQuestion[] = [
   {
     id: "l10-q028",
     level: 10,
+    unitId: "l10-u2",
     category: "자동화 기술 선정",
     type: "case-judgment",
     difficulty: "judgment",
@@ -719,6 +747,7 @@ export const QUESTIONS_L10: LearnQuestion[] = [
   {
     id: "l10-q029",
     level: 10,
+    unitId: "l10-u5",
     category: "결과 검증 방법",
     type: "case-judgment",
     difficulty: "judgment",
@@ -745,6 +774,7 @@ export const QUESTIONS_L10: LearnQuestion[] = [
   {
     id: "l10-q030",
     level: 10,
+    unitId: "l10-u1",
     category: "종합 판단",
     type: "case-judgment",
     difficulty: "judgment",
@@ -771,6 +801,7 @@ export const QUESTIONS_L10: LearnQuestion[] = [
   {
     id: "l10-q031",
     level: 10,
+    unitId: "l10-u6",
     category: "종합 판단",
     type: "case-judgment",
     difficulty: "judgment",
@@ -797,6 +828,7 @@ export const QUESTIONS_L10: LearnQuestion[] = [
   {
     id: "l10-q032",
     level: 10,
+    unitId: "l10-u1",
     category: "복합 사례 분석 절차",
     type: "single",
     difficulty: "judgment",
@@ -823,6 +855,7 @@ export const QUESTIONS_L10: LearnQuestion[] = [
   {
     id: "l10-q033",
     level: 10,
+    unitId: "l10-u2",
     category: "AI 적용 판단",
     type: "single",
     difficulty: "judgment",
@@ -848,6 +881,7 @@ export const QUESTIONS_L10: LearnQuestion[] = [
   {
     id: "l10-q034",
     level: 10,
+    unitId: "l10-u4",
     category: "예외 처리 방식",
     type: "single",
     difficulty: "judgment",
@@ -872,6 +906,7 @@ export const QUESTIONS_L10: LearnQuestion[] = [
   {
     id: "l10-q035",
     level: 10,
+    unitId: "l10-u6",
     category: "결과 검증 방법",
     type: "single",
     difficulty: "judgment",
@@ -896,6 +931,7 @@ export const QUESTIONS_L10: LearnQuestion[] = [
   {
     id: "l10-q036",
     level: 10,
+    unitId: "l10-u5",
     category: "승인·감사 추적",
     type: "single",
     difficulty: "judgment",
@@ -920,6 +956,7 @@ export const QUESTIONS_L10: LearnQuestion[] = [
   {
     id: "l10-q037",
     level: 10,
+    unitId: "l10-u2",
     category: "사람 검토 지점",
     type: "multiple",
     difficulty: "judgment",
@@ -943,6 +980,7 @@ export const QUESTIONS_L10: LearnQuestion[] = [
   {
     id: "l10-q038",
     level: 10,
+    unitId: "l10-u2",
     category: "자동화 기술 선정",
     type: "multiple",
     difficulty: "judgment",
@@ -967,6 +1005,7 @@ export const QUESTIONS_L10: LearnQuestion[] = [
   {
     id: "l10-q039",
     level: 10,
+    unitId: "l10-u3",
     category: "입력 데이터 조건",
     type: "multiple",
     difficulty: "judgment",
@@ -991,6 +1030,7 @@ export const QUESTIONS_L10: LearnQuestion[] = [
   {
     id: "l10-q040",
     level: 10,
+    unitId: "l10-u6",
     category: "종합 판단",
     type: "multiple",
     difficulty: "judgment",
