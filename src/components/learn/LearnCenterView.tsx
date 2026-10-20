@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link2, Lock, Play } from "lucide-react";
+import { Lock, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ALL_LEVELS, DIAGNOSTIC_AREAS, levelMeta } from "@/lib/learn/curriculum";
 import { diagnosticQuestions, findQuestion, questionBank } from "@/lib/learn/questions";
@@ -403,21 +403,6 @@ function LearnDashboard(props: {
           );
         })}
       </div>
-
-      <section className="learn-dash-practice" aria-label="실무 연결">
-        <h3 className="learn-dash-practice-title">
-          <Link2 aria-hidden="true" />
-          실무 연결
-        </h3>
-        <p className="learn-dash-practice-intro">
-          학습한 내용을 실제 업무에 적용해 보세요. 학습 점수는 자동화 진단에 영향을 주지 않습니다.
-        </p>
-        <ul className="learn-dash-practice-list">
-          <li>LEVEL 2 완료 후 — 업무 자동화 진단에서 실제 업무의 자동화 가능성을 판단해 보세요.</li>
-          <li>LEVEL 8 완료 후 — 자동화 설계 관점으로 업무를 다시 살펴보세요.</li>
-          <li>LEVEL 10 완료 후 — 실제 업무를 등록하고 자동화 판단을 시작해 보세요.</li>
-        </ul>
-      </section>
     </div>
   );
 }
