@@ -25,6 +25,8 @@ export type QuestionDifficulty = "concept" | "application" | "judgment";
 export interface LearnUnit {
   id: string; // "l1-u1"
   title: string;
+  /** 단위 선택 버튼 표시용 축약 문구 — 없으면 title 사용. 본문 제목은 title 유지 */
+  shortTitle?: string;
   estimatedMinutes: number;
   goal: string;
   concepts: { term: string; definition: string }[];

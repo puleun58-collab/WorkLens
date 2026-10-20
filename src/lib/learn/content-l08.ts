@@ -162,6 +162,7 @@ export const CONTENT_L08: LearnContent = {
     {
       id: "l8-u3",
       title: "RPA: 화면을 대신 클릭하는 로봇",
+      shortTitle: "RPA — 클릭 로봇",
       estimatedMinutes: 12,
       goal: "RPA의 개념과 동작 원리를 설명하고, RPA가 적합한 경우와 피해야 하는 경우를 구분할 수 있다.",
       concepts: [
@@ -308,6 +309,7 @@ export const CONTENT_L08: LearnContent = {
     {
       id: "l8-u5",
       title: "HITL: 사람은 어디에 둘 것인가",
+      shortTitle: "HITL — 사람의 위치",
       estimatedMinutes: 10,
       goal: "HITL의 개념을 설명하고, 사람 검토가 필요한 지점과 자동화에 맡겨도 되는 지점을 구분할 수 있다.",
       concepts: [

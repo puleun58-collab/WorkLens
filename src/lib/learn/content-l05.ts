@@ -111,6 +111,7 @@ export const CONTENT_L05: LearnContent = {
     {
       id: "l5-u2",
       title: "변경 확인과 스테이징 — git status, git add",
+      shortTitle: "스테이징 — status, add",
       estimatedMinutes: 12,
       goal: "git status로 변경 상태를 읽고 git add로 커밋할 파일을 스테이징할 수 있다.",
       concepts: [
@@ -196,6 +197,7 @@ export const CONTENT_L05: LearnContent = {
     {
       id: "l5-u3",
       title: "커밋으로 기록 남기기 — git commit, git log",
+      shortTitle: "커밋 — commit, log",
       estimatedMinutes: 12,
       goal: "git commit -m으로 변경을 기록하고 git log로 기록을 확인할 수 있다.",
       concepts: [
@@ -276,6 +278,7 @@ export const CONTENT_L05: LearnContent = {
     {
       id: "l5-u4",
       title: "원격 저장소와 함께 일하기 — clone, push, pull",
+      shortTitle: "원격 저장소 — clone, push, pull",
       estimatedMinutes: 12,
       goal: "clone·push·pull의 관계를 설명하고 원격 저장소와 변경을 주고받을 수 있다.",
       concepts: [

@@ -10,6 +10,7 @@ export const CONTENT_L04: LearnContent = {
     {
       id: "l4-u1",
       title: "터미널 첫걸음 — PowerShell과 mkdir",
+      shortTitle: "터미널 첫걸음 — mkdir",
       estimatedMinutes: 10,
       goal: "PowerShell이 무엇인지 설명하고 mkdir로 새 폴더를 만들 수 있다.",
       concepts: [
@@ -94,6 +95,7 @@ export const CONTENT_L04: LearnContent = {
     {
       id: "l4-u2",
       title: "폴더 사이를 이동하기 — cd와 경로",
+      shortTitle: "폴더 이동 — cd와 경로",
       estimatedMinutes: 12,
       goal: "cd와 cd ..로 폴더를 이동하고, 상대경로와 절대경로를 구분할 수 있다.",
       concepts: [
@@ -198,6 +200,7 @@ export const CONTENT_L04: LearnContent = {
     {
       id: "l4-u3",
       title: "위치와 내용 확인 — pwd, Get-Location, dir, ls",
+      shortTitle: "위치·내용 확인 — pwd, dir, ls",
       estimatedMinutes: 10,
       goal: "pwd(Get-Location)로 현재 경로를 확인하고 dir(ls)로 폴더 내용을 볼 수 있다.",
       concepts: [
@@ -283,6 +286,7 @@ export const CONTENT_L04: LearnContent = {
     {
       id: "l4-u4",
       title: "공백이 있는 이름 다루기 — 따옴표",
+      shortTitle: "공백 있는 이름 다루기",
       estimatedMinutes: 10,
       goal: "공백이 포함된 폴더·파일 이름을 따옴표로 감싸 정확히 다룰 수 있다.",
       concepts: [
