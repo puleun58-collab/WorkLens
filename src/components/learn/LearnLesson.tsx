@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -73,6 +73,16 @@ export function LearnLesson({ level, progress, onPersistUnit, onBack, onStartQui
     window.scrollTo({ top: 0 });
   };
 
+  // 선택된 단위 버튼이 nav 안에 보이도록 (좁은 화면에서 가로 스크롤 시)
+  const navRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    navRef.current?.querySelector(".learn-unit-btn.is-active")?.scrollIntoView({
+      block: "nearest",
+      inline: "center",
+      behavior: "smooth",
+    });
+  }, [unitIdx]);
+
   if (!unit) return null;
 
   return (
@@ -107,7 +117,7 @@ export function LearnLesson({ level, progress, onPersistUnit, onBack, onStartQui
       </div>
       <p className="learn-muted learn-lesson-intro">{content.intro}</p>
 
-      <nav className="learn-unit-nav" aria-label="학습 단위">
+      <nav className="learn-unit-nav" aria-label="학습 단위" ref={navRef}>
         {content.units.map((u, i) => (
           <button
             key={u.id}
@@ -115,8 +125,9 @@ export function LearnLesson({ level, progress, onPersistUnit, onBack, onStartQui
             className={`learn-unit-btn${i === unitIdx ? " is-active" : ""}`}
             onClick={() => goUnit(i)}
             aria-current={i === unitIdx ? "true" : undefined}
+            title={u.title}
           >
-            {i + 1}. {u.title}
+            {i + 1}. {u.shortTitle ?? u.title}
           </button>
         ))}
       </nav>
