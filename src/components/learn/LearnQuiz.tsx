@@ -5,7 +5,8 @@ import { publishLearnScreen } from "@/client/learn-screen";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { levelMeta } from "@/lib/learn/curriculum";
-import type { LearnLevelNo, LearnQuestion, LearnerAnswer } from "@/lib/learn/types";
+import { checkTerminalSuccess, deserializeTerminalState } from "@/lib/learn/terminal";
+import type { LearnLevelNo, LearnQuestion, LearnerAnswer, TerminalStateSnapshot } from "@/lib/learn/types";
 import { VirtualTerminal } from "./VirtualTerminal";
 
 interface LearnQuizProps {
@@ -15,8 +16,14 @@ interface LearnQuizProps {
   /** 복원된 응시의 기존 답변·문항 위치 (새 응시는 빈 값) */
   initialAnswers?: Record<string, LearnerAnswer>;
   initialIndex?: number;
-  /** 답변·문항 위치가 바뀔 때 진행 중 응시 저장용으로 보고한다 */
-  onProgressChange?: (answers: Record<string, LearnerAnswer>, currentIndex: number) => void;
+  /** 복원된 응시의 문항별 가상 터미널 실습 중간 상태 */
+  initialTerminalStates?: Record<string, TerminalStateSnapshot>;
+  /** 답변·문항 위치·터미널 상태가 바뀔 때 진행 중 응시 저장용으로 보고한다 */
+  onProgressChange?: (
+    answers: Record<string, LearnerAnswer>,
+    currentIndex: number,
+    terminalStates: Record<string, TerminalStateSnapshot>,
+  ) => void;
   /** 제출 저장 확정 대기 중 여부 */
   submitting?: boolean;
   /** 제출 저장 실패 안내 — 답변이 유지된 상태에서 재시도할 수 있다 */
@@ -26,11 +33,31 @@ interface LearnQuizProps {
   onCancel: () => void;
 }
 
-export function LearnQuiz({ level, questions, initialAnswers, initialIndex, onProgressChange, submitting, submitError, onRetrySubmit, onSubmit, onCancel }: LearnQuizProps) {
+export function LearnQuiz({ level, questions, initialAnswers, initialIndex, initialTerminalStates, onProgressChange, submitting, submitError, onRetrySubmit, onSubmit, onCancel }: LearnQuizProps) {
   const meta = levelMeta(level);
   const [idx, setIdx] = useState(() => Math.min(Math.max(initialIndex ?? 0, 0), Math.max(questions.length - 1, 0)));
-  const [answers, setAnswers] = useState<Record<string, LearnerAnswer>>(() => initialAnswers ?? {});
+  const [answers, setAnswers] = useState<Record<string, LearnerAnswer>>(() => {
+    const base = { ...(initialAnswers ?? {}) };
+    // 복원된 터미널 실습 상태는 저장된 성공 여부를 그대로 믿지 않고, 복원된 실제
+    // 상태가 현재 문항의 성공 조건을 충족하는지 다시 검증해 답변에 반영한다.
+    if (initialTerminalStates) {
+      for (const item of questions) {
+        if (item.type !== "terminal-task" || !item.terminalTask) continue;
+        const snapshot = initialTerminalStates[item.id];
+        if (!snapshot) continue;
+        const restored = deserializeTerminalState(snapshot);
+        if (!restored) continue;
+        const { passed } = checkTerminalSuccess(restored.state, item.terminalTask.successChecks);
+        base[item.id] = { kind: "terminal", passed };
+      }
+    }
+    return base;
+  });
+  const [terminalStates, setTerminalStates] = useState<Record<string, TerminalStateSnapshot>>(
+    () => initialTerminalStates ?? {},
+  );
   const [confirming, setConfirming] = useState(false);
+  const [exitConfirming, setExitConfirming] = useState(false);
   const q = questions[idx];
 
   // 렌즈봇 화면 인식용 현재 문항 발행 (정답 보호는 서버에서 근거 범위로 제어한다)
@@ -38,10 +65,10 @@ export function LearnQuiz({ level, questions, initialAnswers, initialIndex, onPr
     if (q) publishLearnScreen({ questionId: q.id });
   }, [q]);
 
-  // 진행 중 응시 저장 — 답변·위치가 바뀔 때만 보고한다 (렌더링마다 저장하지 않음)
+  // 진행 중 응시 저장 — 답변·위치·터미널 상태가 바뀔 때만 보고한다 (렌더링마다 저장하지 않음)
   useEffect(() => {
-    onProgressChange?.(answers, idx);
-  }, [answers, idx, onProgressChange]);
+    onProgressChange?.(answers, idx, terminalStates);
+  }, [answers, idx, terminalStates, onProgressChange]);
 
   // 제출 확인 창은 제출 중에도 닫지 않는다 — 저장 실패 시 같은 창에서 오류와 재시도를 보여준다
   const unanswered = useMemo(
@@ -157,10 +184,15 @@ export function LearnQuiz({ level, questions, initialAnswers, initialIndex, onPr
               <small><strong>공식 평가</strong> — 이 실습 과제의 결과는 점수에 반영됩니다.</small>
             </p>
             <VirtualTerminal
+              key={q.id}
               scenario={q.terminalTask.scenario}
               instructions={q.terminalTask.instructions}
               successChecks={q.terminalTask.successChecks}
               hint={q.terminalTask.hint}
+              initialSnapshot={terminalStates[q.id] ?? null}
+              onSnapshotChange={(snapshot) =>
+                setTerminalStates((s) => ({ ...s, [q.id]: snapshot }))
+              }
               onResult={(passed) => setAnswer({ kind: "terminal", passed })}
             />
           </>
@@ -171,19 +203,36 @@ export function LearnQuiz({ level, questions, initialAnswers, initialIndex, onPr
         <Button type="button" variant="outline" disabled={idx === 0} onClick={() => setIdx(idx - 1)}>
           <ArrowLeft /> 이전
         </Button>
-        <Button type="button" variant="ghost" onClick={onCancel}>
-          그만두기
-        </Button>
-        {idx < questions.length - 1 ? (
-          <Button type="button" variant="default" onClick={() => setIdx(idx + 1)}>
-            다음 <ArrowRight />
+        <span className="learn-quiz-nav-right">
+          <Button type="button" variant="outline" onClick={() => setExitConfirming(true)}>
+            종료
           </Button>
-        ) : (
-          <Button type="button" variant="default" onClick={() => setConfirming(true)}>
-            제출하기
-          </Button>
-        )}
+          {idx < questions.length - 1 ? (
+            <Button type="button" variant="default" onClick={() => setIdx(idx + 1)}>
+              다음 <ArrowRight />
+            </Button>
+          ) : (
+            <Button type="button" variant="default" onClick={() => setConfirming(true)}>
+              제출하기
+            </Button>
+          )}
+        </span>
       </div>
+
+      {exitConfirming ? (
+        <div className="learn-question-card" role="alertdialog" aria-label="종료 확인" style={{ marginTop: 16 }}>
+          <h3>퀴즈를 종료할까요?</h3>
+          <p>진행 중인 퀴즈가 종료되며, 제출하지 않은 답변은 채점되지 않습니다.</p>
+          <div className="learn-actions">
+            <Button type="button" variant="default" onClick={() => setExitConfirming(false)}>
+              계속 풀기
+            </Button>
+            <Button type="button" variant="outline" onClick={onCancel}>
+              종료하기
+            </Button>
+          </div>
+        </div>
+      ) : null}
 
       {confirming ? (
         <div className="learn-question-card" role="alertdialog" aria-label="제출 확인" style={{ marginTop: 16 }}>

@@ -8,7 +8,7 @@ import type { LearnLevelNo } from "@/lib/learn/types";
  * 학습 진도 데이터 자체는 포함하지 않는다 (응시 기록은 위젯이 저장소에서 직접 읽는다).
  */
 export type LearnScreenMode =
-  | "dashboard" | "lesson" | "quiz" | "result" | "wrongnotes" | "diagnostic" | "certificate";
+  | "dashboard" | "lesson" | "quiz" | "result" | "wrongnotes" | "diagnostic" | "completion";
 
 export interface LearnScreenState {
   mode: LearnScreenMode;

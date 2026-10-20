@@ -10,14 +10,14 @@ export const QUESTIONS_L09: LearnQuestion[] = [
     difficulty: "concept",
     prompt: "브랜치에 대한 설명으로 옳은 것은?",
     choices: [
-      { id: "a", text: "코드의 복사본 작업 공간으로, 다른 작업에 영향을 주지 않고 따로 작업할 수 있다" },
+      { id: "a", text: "main의 이력에서 갈라져 나온 작업 흐름을 가리키는 이름으로, main에 영향을 주지 않고 따로 작업할 수 있다" },
       { id: "b", text: "코드를 서버에 올려 실제 서비스에 반영하는 과정이다" },
       { id: "c", text: "코드가 올라올 때마다 자동으로 검사를 수행하는 장치이다" },
       { id: "d", text: "내 컴퓨터의 변경 내용을 원격 저장소에 올리는 동작이다" },
     ],
     correctChoiceIds: ["a"],
     explanation:
-      "브랜치는 나뭇가지처럼 갈라져 나오는 복사본 작업 공간이다. b는 배포, c는 CI, d는 Push의 설명이다.",
+      "브랜치는 파일을 복사하는 것이 아니라, 나뭇가지처럼 main의 이력에서 갈라져 나온 작업 흐름을 가리키는 이름이다. b는 배포, c는 CI, d는 Push의 설명이다.",
     wrongExplanations: {
       b: "이것은 배포(Deploy)의 설명이다.",
       c: "이것은 CI(지속적 통합)의 설명이다.",
@@ -423,7 +423,7 @@ export const QUESTIONS_L09: LearnQuestion[] = [
     unitId: "l9-u5",
     category: "캐시로 인한 미반영",
     type: "error-cause",
-    difficulty: "judgment",
+    difficulty: "application",
     prompt:
       "새 디자인을 배포했고 배포도 성공했다. 그런데 고객 화면은 이전 디자인 그대로이다. 담당자 컴퓨터에서는 새 디자인이 보인다. 가장 유력한 원인은?",
     choices: [

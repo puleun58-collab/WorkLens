@@ -80,10 +80,10 @@ export const CONTENT_L05: LearnContent = {
         title: "원격 저장소 가져오기",
         steps: [
           "가상 터미널에서 git clone https://github.com/example/team-docs.git 을 입력합니다.",
-          "'team-docs' 폴더가 생기고 그 안으로 자동 이동됩니다.",
+          "'team-docs' 폴더가 생깁니다. cd team-docs 로 그 안으로 이동합니다. (실제 Git에서 clone은 폴더만 만들 뿐 이동시키지 않습니다. 가상 터미널도 직접 이동해 확인합니다)",
           "dir 로 파일 목록을, git log 로 가져온 기록을 확인합니다.",
         ],
-        commands: ["git clone https://github.com/example/team-docs.git", "dir", "git log"],
+        commands: ["git clone https://github.com/example/team-docs.git", "cd team-docs", "dir", "git log"],
       },
       mistakes: [
         {
@@ -260,7 +260,7 @@ export const CONTENT_L05: LearnContent = {
         {
           mistake: "git commit 뒤에 -m 메시지를 빠뜨림",
           why: "메시지가 선택 사항인 줄 알기 때문입니다.",
-          fix: "'메시지를 입력하세요.'라는 안내가 나오면 -m \"메시지\"를 붙여 다시 실행합니다.",
+          fix: "실제 Git에서는 -m을 빠뜨리면 커밋 메시지를 입력할 편집기가 열립니다. 이 과정에서는 -m \"메시지\"를 붙여 바로 커밋하는 방식을 사용합니다.",
         },
         {
           mistake: "커밋 메시지를 '수정', 'ㅇㅇ'처럼 대충 적음",
@@ -382,7 +382,7 @@ export const CONTENT_L05: LearnContent = {
       id: "l5-u5",
       title: "실패에서 배우는 Git",
       estimatedMinutes: 12,
-      goal: "대표적인 Git 오류 6가지의 원인을 파악하고 올바른 순서로 해결할 수 있다.",
+      goal: "대표적인 Git 오류 7가지의 원인을 파악하고 올바른 순서로 해결할 수 있다.",
       concepts: [
         {
           term: "Git 저장소가 아님 오류",
@@ -407,7 +407,7 @@ export const CONTENT_L05: LearnContent = {
       ],
       whyNeeded:
         "Git 초보자가 가장 많이 막히는 지점은 오류 메시지입니다. " +
-        "여섯 가지 대표 실패(잘못된 경로, 없는 파일, 빈 커밋, 미스테이징, 원격 누락, Push 거부, Pull 충돌)의 패턴을 미리 알면, " +
+        "일곱 가지 대표 실패(잘못된 경로, 없는 파일, 빈 커밋, 미스테이징, 원격 누락, Push 거부, Pull 충돌)의 패턴을 미리 알면, " +
         "실제로 만났을 때 당황하지 않고 '원인 파악 → 순서대로 해결'을 할 수 있습니다.",
       usageSituations: [
         "git 명령이 실패했을 때 메시지를 읽고 원인을 찾을 때",
@@ -446,12 +446,13 @@ export const CONTENT_L05: LearnContent = {
       practice: {
         title: "실습 D — 실패 상황 다루기",
         steps: [
-          "저장소가 아닌 폴더(예: C:\\Users\\학습자)에서 git status 를 실행해 'Git 저장소가 아닙니다.' 오류를 확인합니다.",
+          "cd .. 를 입력해 저장소 밖(상위 폴더)으로 나갑니다.",
+          "저장소가 아닌 폴더에서 git status 를 실행해 'Git 저장소가 아닙니다.' 오류를 확인합니다.",
           "git clone https://github.com/example/team-docs.git 으로 저장소를 가져옵니다.",
-          "저장소 안으로 이동한 뒤 git log 로 기록을 확인합니다.",
+          "cd team-docs 로 저장소 안으로 이동한 뒤 git log 로 기록을 확인합니다.",
           "정리: 오류 → 메시지 읽기 → 위치 확인·저장소 준비 → 다시 시도 순서로 해결했음을 확인합니다.",
         ],
-        commands: ["git status", "git clone https://github.com/example/team-docs.git", "git log"],
+        commands: ["cd ..", "git status", "git clone https://github.com/example/team-docs.git", "cd team-docs", "git log"],
       },
       mistakes: [
         {
@@ -472,7 +473,7 @@ export const CONTENT_L05: LearnContent = {
       ],
       summary: [
         "Git 오류 메시지는 원인과 힌트를 함께 줍니다. 끝까지 읽는 것이 해결의 시작입니다.",
-        "대표 실패 6가지: 잘못된 경로·없는 파일(cd·dir로 확인), 빈 커밋·미스테이징(add 먼저), 원격 누락(원격 연결·clone), Push 거부(pull 먼저), Pull 충돌(파일 직접 정리 후 add).",
+        "대표 실패 7가지: 잘못된 경로·없는 파일(cd·dir로 확인), 빈 커밋·미스테이징(add 먼저), 원격 누락(원격 연결·clone), Push 거부(pull 먼저), Pull 충돌(파일 직접 정리 후 add).",
         "기본 해결 순서: 멈추기 → 메시지 읽기 → status·pwd·dir로 상태 확인 → 올바른 순서로 다시 시도.",
         "같은 명령의 반복은 해결책이 아닙니다.",
       ],

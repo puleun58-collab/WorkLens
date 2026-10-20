@@ -3,21 +3,25 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Lock, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ALL_LEVELS, DIAGNOSTIC_AREAS, levelMeta } from "@/lib/learn/curriculum";
+import { ALL_LEVELS, DIAGNOSTIC_AREAS, DIAGNOSTIC_AREA_TARGETS, levelMeta, type DiagnosticAreaId } from "@/lib/learn/curriculum";
 import { levelContent } from "@/lib/learn/content";
 import { diagnosticQuestions, findQuestion, questionBank, restoreQuizQuestions } from "@/lib/learn/questions";
 import {
   clearInProgressQuiz,
   loadInProgressQuiz,
   loadLearnProgressEx,
+  loadPracticeTerminalStates,
   noteLearnRevision,
   saveInProgressQuiz,
   saveLearnProgress,
+  savePracticeTerminalStates,
   LEARN_STORAGE_NOTICE,
+  type PracticeTerminalStates,
 } from "@/lib/learn/progress-store";
 import {
   applyAttempt,
   canUnlockLevel,
+  deriveFirstCompletionAt,
   gradeQuiz,
   isLearningComplete,
   newAttemptId,
@@ -27,6 +31,13 @@ import {
   shuffleQuestionChoices,
   weakCategories,
 } from "@/lib/learn/scoring";
+import {
+  buildLearnBackup,
+  parseLearnBackup,
+  serializeLearnBackup,
+  LEARN_BACKUP_MAX_BYTES,
+  type LearnBackupParseResult,
+} from "@/lib/learn/backup";
 import type {
   InProgressQuiz,
   LearnLevelNo,
@@ -34,6 +45,7 @@ import type {
   LearnQuestion,
   LearnerAnswer,
   QuizAttempt,
+  TerminalStateSnapshot,
 } from "@/lib/learn/types";
 import { clearLearnScreen, publishLearnScreen } from "@/client/learn-screen";
 import { LearnLesson } from "./LearnLesson";
@@ -41,7 +53,7 @@ import { LearnQuiz } from "./LearnQuiz";
 import { LearnResult } from "./LearnResult";
 import { LearnWrongNotes } from "./LearnWrongNotes";
 import { LearnDiagnostic } from "./LearnDiagnostic";
-import { LearnCertificate } from "./LearnCertificate";
+import { LearnCompletion } from "./LearnCompletion";
 import "./learn.css";
 
 export type LearnScreen =
@@ -55,12 +67,13 @@ export type LearnScreen =
       startedAt: number;
       initialAnswers: Record<string, LearnerAnswer>;
       initialIndex: number;
+      initialTerminalStates: Record<string, TerminalStateSnapshot>;
     }
   | { name: "quiz-resume"; targetLevel: LearnLevelNo; inProgress: InProgressQuiz }
   | { name: "result"; attempt: QuizAttempt }
   | { name: "wrongnotes" }
   | { name: "diagnostic" }
-  | { name: "certificate" };
+  | { name: "completion" };
 
 interface SaveJob {
   updater: (prev: LearnProgress) => LearnProgress;
@@ -94,6 +107,17 @@ export function LearnCenterView() {
   const submittingRef = useRef(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const pendingSubmissionRef = useRef<{ attempt: QuizAttempt; questions: LearnQuestion[] } | null>(null);
+  // 연습용 가상 터미널 상태 (공식 평가와 분리 저장)
+  const [practiceStates, setPracticeStates] = useState<PracticeTerminalStates>({});
+  const practiceStatesRef = useRef<PracticeTerminalStates>({});
+  const practiceSaveTimerRef = useRef<number | null>(null);
+  // 안내 배너 (잠긴 단계 안내 등)
+  const [notice, setNotice] = useState<string | null>(null);
+  // JSON 백업 가져오기 상태
+  const [pendingImport, setPendingImport] = useState<(LearnBackupParseResult & { ok: true }) | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const importFileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     loadLearnProgressEx()
@@ -108,14 +132,33 @@ export function LearnCenterView() {
           return;
         }
         noteLearnRevision(result.revision);
-        progressRef.current = result.progress;
-        setProgress(result.progress);
+        let loaded = result.progress;
+        // 최초 완료일이 없는 과거 전체 통과 기록 — 응시 이력에서 신뢰성 있게
+        // 복원할 수 있을 때만 그 날짜를 기록한다 (복원 불가 시 비워 둔다)
+        if (loaded.completedAt === undefined) {
+          const derived = deriveFirstCompletionAt(loaded);
+          if (derived !== null) {
+            const next = { ...loaded, completedAt: derived };
+            try {
+              await saveLearnProgress(next);
+              loaded = next;
+            } catch {
+              // 저장에 실패해도 표시용 복원값으로 충분하다
+              loaded = next;
+            }
+          }
+        }
+        progressRef.current = loaded;
+        setProgress(loaded);
         // 진행 중이던 퀴즈가 있으면 복구 동선(대시보드 안내)을 위해 함께 불러온다
         const saved = await loadInProgressQuiz();
         if (saved) {
           inProgressRef.current = saved;
           setInProgress(saved);
         }
+        const practice = await loadPracticeTerminalStates();
+        practiceStatesRef.current = practice;
+        setPracticeStates(practice);
       })
       .catch((e) => setError(e instanceof Error ? e.message : "학습 진도를 불러오지 못했습니다."));
   }, []);
@@ -261,14 +304,33 @@ export function LearnCenterView() {
   }, [cancelDraftTimer, saveDraftNow]);
 
   const handleQuizProgress = useCallback(
-    (answers: Record<string, LearnerAnswer>, currentIndex: number) => {
+    (
+      answers: Record<string, LearnerAnswer>,
+      currentIndex: number,
+      terminalStates: Record<string, TerminalStateSnapshot>,
+    ) => {
       const draft = quizDraftRef.current;
       if (!draft) return;
-      quizDraftRef.current = { ...draft, answers, currentIndex };
+      quizDraftRef.current = { ...draft, answers, currentIndex, terminalStates };
       scheduleDraftSave();
     },
     [scheduleDraftSave],
   );
+
+  /* ---------------- 연습용 가상 터미널 상태 ---------------- */
+
+  const handlePracticeStateChange = useCallback((key: string, snapshot: TerminalStateSnapshot) => {
+    const next = { ...practiceStatesRef.current, [key]: snapshot };
+    practiceStatesRef.current = next;
+    setPracticeStates(next);
+    if (practiceSaveTimerRef.current !== null) window.clearTimeout(practiceSaveTimerRef.current);
+    practiceSaveTimerRef.current = window.setTimeout(() => {
+      practiceSaveTimerRef.current = null;
+      void savePracticeTerminalStates(practiceStatesRef.current).catch(() => {
+        // 연습 상태 저장 실패는 학습 흐름을 막지 않는다 (다음 변경 때 다시 저장)
+      });
+    }, 300);
+  }, []);
 
   // 탭이 숨겨지거나 페이지가 닫히기 직전에는 대기 중인 초안 저장을 즉시 실행한다
   useEffect(() => {
@@ -317,6 +379,7 @@ export function LearnCenterView() {
       choiceOrder,
       answers: {},
       currentIndex: 0,
+      terminalStates: {},
       passScore: levelMeta(level).passScore,
       questionChecks,
       savedAt: 0,
@@ -328,7 +391,16 @@ export function LearnCenterView() {
     setInProgress(draft);
     // 진행 중 응시를 먼저 저장해 새로고침해도 같은 응시로 복구할 수 있게 한다
     void saveDraftNow();
-    setScreen({ name: "quiz", level, attemptId, questions, startedAt, initialAnswers: {}, initialIndex: 0 });
+    setScreen({
+      name: "quiz",
+      level,
+      attemptId,
+      questions,
+      startedAt,
+      initialAnswers: {},
+      initialIndex: 0,
+      initialTerminalStates: {},
+    });
     window.scrollTo({ top: 0 });
   }, [saveDraftNow]);
 
@@ -350,6 +422,8 @@ export function LearnCenterView() {
       startedAt: saved.startedAt,
       initialAnswers: saved.answers,
       initialIndex: Math.min(saved.currentIndex, questions.length - 1),
+      // 과거 기록에는 터미널 상태가 없을 수 있다 — 그 경우 빈 상태로 시작한다
+      initialTerminalStates: saved.terminalStates ?? {},
     });
     window.scrollTo({ top: 0 });
   }, []);
@@ -388,8 +462,8 @@ export function LearnCenterView() {
       case "diagnostic":
         publishLearnScreen({ mode: "diagnostic", level: undefined, unitId: undefined, questionId: undefined, attemptId: undefined });
         break;
-      case "certificate":
-        publishLearnScreen({ mode: "certificate", level: undefined, unitId: undefined, questionId: undefined, attemptId: undefined });
+      case "completion":
+        publishLearnScreen({ mode: "completion", level: undefined, unitId: undefined, questionId: undefined, attemptId: undefined });
         break;
     }
   }, [screen]);
@@ -417,7 +491,9 @@ export function LearnCenterView() {
 
   const cancelQuiz = useCallback(
     (attemptId: string) => {
-      // 명시적 종료 — 진행 중 임시 응시를 정리한다 (완료 기록·과거 점수는 유지)
+      // 명시적 종료 — 진행 중 임시 응시만 정리한다 (완료 기록·과거 점수는 유지).
+      // 임시 기록 정리에 실패해도 완료 기록이 유실되지는 않으며, 실패를 배너로
+      // 알린다 (기록이 남아 있으면 다음 접속 시 복구 안내가 표시된다).
       cancelDraftTimer();
       if (quizDraftRef.current?.attemptId === attemptId) quizDraftRef.current = null;
       if (inProgressRef.current?.attemptId === attemptId) {
@@ -426,12 +502,127 @@ export function LearnCenterView() {
       }
       pendingSubmissionRef.current = null;
       setSubmitError(null);
-      void clearInProgressQuiz(attemptId).catch(() => {});
+      void clearInProgressQuiz(attemptId).catch(() => {
+        showSaveError(
+          "progress",
+          "진행 중 응시를 정리하지 못했습니다. 완료된 학습 기록은 그대로 유지되며, 다음 접속 시 복구 안내가 표시될 수 있습니다.",
+          false,
+        );
+      });
       setScreen({ name: "dashboard" });
       window.scrollTo({ top: 0 });
     },
-    [cancelDraftTimer],
+    [cancelDraftTimer, showSaveError],
   );
+
+  /* ---------------- 사전 진단 → 학습하기 이동 ---------------- */
+
+  const openDiagnosticLesson = useCallback((level: LearnLevelNo, unitId: string) => {
+    const base = progressRef.current;
+    if (!base) return;
+    // 연결된 학습 항목이 변경·제거됐으면 잘못된 화면으로 보내지 않는다
+    if (!levelContent(level).units.some((u) => u.id === unitId)) {
+      setNotice("연결된 학습 항목이 변경되어 이동할 수 없습니다. 학습센터에서 해당 단계를 직접 선택해 주세요.");
+      setScreen({ name: "dashboard" });
+      window.scrollTo({ top: 0 });
+      return;
+    }
+    if (canUnlockLevel(level, base)) {
+      setScreen({ name: "lesson", level, unitId });
+      window.scrollTo({ top: 0 });
+      return;
+    }
+    // 잠긴 단계는 해제하지 않는다 — 현재 학습 가능한 단계로 안내한다
+    const current = ALL_LEVELS.find((l) => canUnlockLevel(l, base) && !base.levels[l]?.passed) ?? 1;
+    setNotice(
+      `LEVEL ${level}은(는) 아직 잠겨 있어 바로 학습할 수 없습니다. 현재 학습 가능한 LEVEL ${current}부터 순서대로 학습해 주세요.`,
+    );
+    setScreen({ name: "dashboard" });
+    window.scrollTo({ top: 0 });
+  }, []);
+
+  /* ---------------- 학습 기록 JSON 백업·복원 ---------------- */
+
+  const handleExportBackup = useCallback(async () => {
+    const base = progressRef.current;
+    if (!base) return;
+    const inProg = inProgressRef.current ?? (await loadInProgressQuiz());
+    const backup = buildLearnBackup(base, inProg, practiceStatesRef.current);
+    const blob = new Blob([serializeLearnBackup(backup)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const now = new Date();
+    const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
+    a.href = url;
+    a.download = `worklens-learn-backup-${stamp}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, []);
+
+  const handleImportFile = useCallback(async (file: File) => {
+    setImportError(null);
+    setPendingImport(null);
+    if (file.size > LEARN_BACKUP_MAX_BYTES) {
+      setImportError("파일이 너무 큽니다. 학습 기록 백업 파일인지 확인해 주세요.");
+      return;
+    }
+    let text: string;
+    try {
+      text = await file.text();
+    } catch {
+      setImportError("파일을 읽지 못했습니다.");
+      return;
+    }
+    // 검증이 끝나기 전에는 기존 기록을 어떤 형태로도 건드리지 않는다
+    const result = parseLearnBackup(text);
+    if (!result.ok) {
+      setImportError(result.error);
+      return;
+    }
+    setPendingImport(result);
+  }, []);
+
+  const applyImport = useCallback(async () => {
+    if (!pendingImport || importing) return;
+    setImporting(true);
+    setImportError(null);
+    try {
+      // 1) 진도 교체 — 저장이 확정된 경우에만 다음 단계로 진행한다
+      const saved = await persist(() => pendingImport.progress);
+      if (!saved) {
+        setImportError("학습 기록을 저장하지 못했습니다. 기존 기록은 그대로 유지됩니다.");
+        return;
+      }
+      // 2) 진행 중 퀴즈 교체 — 백업에 없으면 기존 진행 중 응시도 정리한다
+      cancelDraftTimer();
+      quizDraftRef.current = null;
+      draftSaveBlockedRef.current = false;
+      const current = inProgressRef.current;
+      if (current) await clearInProgressQuiz(current.attemptId).catch(() => {});
+      inProgressRef.current = null;
+      setInProgress(null);
+      if (pendingImport.inProgress) {
+        try {
+          const stored = await saveInProgressQuiz(pendingImport.inProgress);
+          inProgressRef.current = stored;
+          setInProgress(stored);
+        } catch {
+          setNotice("학습 기록은 복원했지만 진행 중 퀴즈는 저장하지 못했습니다. 퀴즈는 새로 시작해 주세요.");
+        }
+      }
+      // 3) 연습 터미널 상태 교체
+      practiceStatesRef.current = pendingImport.practiceStates;
+      setPracticeStates(pendingImport.practiceStates);
+      await savePracticeTerminalStates(pendingImport.practiceStates).catch(() => {});
+      setPendingImport(null);
+      setScreen({ name: "dashboard" });
+      window.scrollTo({ top: 0 });
+    } finally {
+      setImporting(false);
+    }
+  }, [pendingImport, importing, persist, cancelDraftTimer]);
 
   /* ---------------- 퀴즈 제출 (저장 확정 후 결과 표시) ---------------- */
 
@@ -541,6 +732,67 @@ export function LearnCenterView() {
           </span>
         </div>
       ) : null}
+      {notice ? (
+        <div className="learn-save-error" role="status">
+          <span>{notice}</span>
+          <span className="learn-save-error-actions">
+            <Button type="button" variant="ghost" size="sm" onClick={() => setNotice(null)}>
+              닫기
+            </Button>
+          </span>
+        </div>
+      ) : null}
+      <input
+        ref={importFileRef}
+        type="file"
+        accept="application/json,.json"
+        style={{ display: "none" }}
+        aria-label="학습 기록 백업 파일 선택"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = "";
+          if (file) void handleImportFile(file);
+        }}
+      />
+      {screen.name === "dashboard" && (pendingImport || importError) ? (
+        <div className="learn-question-card" role={importError ? "alert" : undefined} style={{ marginBottom: 16 }}>
+          {importError ? (
+            <>
+              <h3>학습 기록을 가져올 수 없습니다</h3>
+              <p>{importError}</p>
+              <p className="learn-muted"><small>기존 학습 기록은 그대로 유지됩니다.</small></p>
+              <div className="learn-actions">
+                <Button type="button" variant="outline" onClick={() => setImportError(null)}>
+                  확인
+                </Button>
+              </div>
+            </>
+          ) : pendingImport ? (
+            <>
+              <h3>학습 기록을 가져올까요?</h3>
+              <p>
+                백업 파일의 기록으로 <strong>현재 학습 기록을 교체</strong>합니다. 통과 기록·최고 점수·응시
+                이력·오답 노트·사전 진단 결과·최초 완료일이 백업 시점 상태로 바뀝니다.
+              </p>
+              {pendingImport.warnings.length > 0 ? (
+                <ul>
+                  {pendingImport.warnings.map((w) => (
+                    <li key={w}>{w}</li>
+                  ))}
+                </ul>
+              ) : null}
+              <div className="learn-actions">
+                <Button type="button" variant="default" onClick={() => void applyImport()} disabled={importing}>
+                  {importing ? "가져오는 중…" : "기존 기록을 교체하고 가져오기"}
+                </Button>
+                <Button type="button" variant="outline" onClick={() => setPendingImport(null)} disabled={importing}>
+                  취소
+                </Button>
+              </div>
+            </>
+          ) : null}
+        </div>
+      ) : null}
       {screen.name === "dashboard" ? (
         <LearnDashboard
           progress={progress}
@@ -555,7 +807,10 @@ export function LearnCenterView() {
           onStartQuiz={startQuiz}
           onOpenWrongNotes={() => { setScreen({ name: "wrongnotes" }); window.scrollTo({ top: 0 }); }}
           onOpenDiagnostic={() => { setScreen({ name: "diagnostic" }); window.scrollTo({ top: 0 }); }}
-          onOpenCertificate={() => { setScreen({ name: "certificate" }); window.scrollTo({ top: 0 }); }}
+          onOpenCompletion={() => { setScreen({ name: "completion" }); window.scrollTo({ top: 0 }); }}
+          onOpenDiagnosticLesson={openDiagnosticLesson}
+          onExportBackup={() => void handleExportBackup()}
+          onImportBackup={() => importFileRef.current?.click()}
         />
       ) : screen.name === "quiz-resume" ? (
         <div>
@@ -612,6 +867,8 @@ export function LearnCenterView() {
                     passed: lp?.passed ?? false,
                     bestScore: lp?.bestScore ?? 0,
                     attempts: lp?.attempts ?? [],
+                    // 완료 항목 상태는 위치 이동으로 바꾸지 않는다
+                    completedUnitIds: lp?.completedUnitIds,
                     lastStudiedUnitId: unitId,
                   },
                 },
@@ -619,6 +876,31 @@ export function LearnCenterView() {
               };
             });
           }}
+          onToggleUnitComplete={(unitId, completed) => {
+            void persist((prev) => {
+              const lp = prev.levels[screen.level];
+              const current = lp?.completedUnitIds ?? [];
+              const nextIds = completed
+                ? [...new Set([...current, unitId])]
+                : current.filter((id) => id !== unitId);
+              return {
+                ...prev,
+                levels: {
+                  ...prev.levels,
+                  [screen.level]: {
+                    passed: lp?.passed ?? false,
+                    bestScore: lp?.bestScore ?? 0,
+                    attempts: lp?.attempts ?? [],
+                    lastStudiedUnitId: lp?.lastStudiedUnitId,
+                    completedUnitIds: nextIds,
+                  },
+                },
+                updatedAt: Date.now(),
+              };
+            });
+          }}
+          practiceStates={practiceStates}
+          onPracticeStateChange={handlePracticeStateChange}
           onBack={() => { setScreen({ name: "dashboard" }); window.scrollTo({ top: 0 }); }}
           onStartQuiz={() => startQuiz(screen.level)}
         />
@@ -630,6 +912,7 @@ export function LearnCenterView() {
           questions={screen.questions}
           initialAnswers={screen.initialAnswers}
           initialIndex={screen.initialIndex}
+          initialTerminalStates={screen.initialTerminalStates}
           onProgressChange={handleQuizProgress}
           submitting={submitting}
           submitError={submitError}
@@ -640,6 +923,11 @@ export function LearnCenterView() {
       ) : screen.name === "result" ? (
         <LearnResult
           attempt={screen.attempt}
+          onOpenCompletion={
+            screen.attempt.level === 10 && screen.attempt.passed && isLearningComplete(progress)
+              ? () => { setScreen({ name: "completion" }); window.scrollTo({ top: 0 }); }
+              : undefined
+          }
           onRetry={() => startQuiz(screen.attempt.level)}
           onNext={() => {
             const next = (screen.attempt.level + 1) as LearnLevelNo;
@@ -679,9 +967,10 @@ export function LearnCenterView() {
             window.scrollTo({ top: 0 });
           }}
           onSkip={() => { setScreen({ name: "dashboard" }); window.scrollTo({ top: 0 }); }}
+          onOpenLesson={openDiagnosticLesson}
         />
       ) : (
-        <LearnCertificate
+        <LearnCompletion
           progress={progress}
           onBack={() => { setScreen({ name: "dashboard" }); window.scrollTo({ top: 0 }); }}
         />
@@ -699,7 +988,10 @@ function LearnDashboard(props: {
   onStartQuiz: (level: LearnLevelNo) => void;
   onOpenWrongNotes: () => void;
   onOpenDiagnostic: () => void;
-  onOpenCertificate: () => void;
+  onOpenCompletion: () => void;
+  onOpenDiagnosticLesson: (level: LearnLevelNo, unitId: string) => void;
+  onExportBackup: () => void;
+  onImportBackup: () => void;
 }) {
   const { progress } = props;
   const inProgressRestorable = props.inProgress ? restoreQuizQuestions(props.inProgress) !== null : false;
@@ -735,8 +1027,8 @@ function LearnDashboard(props: {
               {isNewLearner ? "처음 학습하기" : "이어서 학습하기"} (LEVEL {nextLevel})
             </Button>
           ) : complete ? (
-            <Button type="button" variant="default" onClick={props.onOpenCertificate}>
-              수료증 보기
+            <Button type="button" variant="default" onClick={props.onOpenCompletion}>
+              학습 완료 보기
             </Button>
           ) : null}
           <Button type="button" variant="outline" onClick={props.onOpenWrongNotes}>
@@ -749,14 +1041,41 @@ function LearnDashboard(props: {
           ) : null}
         </div>
         {progress.diagnostic && progress.diagnostic.weakAreas.length > 0 ? (
-          <p className="learn-dash-note">
-            <small>
-              사전 진단 결과 보완 권장:{" "}
-              {progress.diagnostic.weakAreas
-                .map((id) => DIAGNOSTIC_AREAS.find((a) => a.id === id)?.label ?? id)
-                .join(", ")}
-            </small>
-          </p>
+          <div className="learn-dash-note">
+            <small>사전 진단 결과 보완 권장:</small>
+            <div className="learn-diagnostic-areas">
+              {progress.diagnostic.weakAreas.map((id) => {
+                const areaId = id as DiagnosticAreaId;
+                const label = DIAGNOSTIC_AREAS.find((a) => a.id === areaId)?.label ?? id;
+                const target = DIAGNOSTIC_AREA_TARGETS[areaId];
+                const unit = target
+                  ? levelContent(target.level).units.find((u) => u.id === target.unitId)
+                  : undefined;
+                return (
+                  <div key={id} className="learn-diagnostic-area">
+                    <div>
+                      <div className="learn-diagnostic-area-label">{label}</div>
+                      {target && unit ? (
+                        <div className="learn-muted">
+                          <small>연결 학습: LEVEL {target.level} · {unit.title}</small>
+                        </div>
+                      ) : null}
+                    </div>
+                    {target && unit ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => props.onOpenDiagnosticLesson(target.level, target.unitId)}
+                      >
+                        학습하기
+                      </Button>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         ) : null}
         {weak.length > 0 ? (
           <p className="learn-dash-note">
@@ -831,6 +1150,11 @@ function LearnDashboard(props: {
                   {lp ? (
                     <> · 최고 {lp.bestScore}점 · 응시 {lp.attempts.length}회</>
                   ) : null}
+                  {unlocked ? (
+                    <>
+                      {" "}· 학습 항목 완료 {lp?.completedUnitIds?.length ?? 0} / {levelContent(level).units.length}
+                    </>
+                  ) : null}
                 </div>
               </div>
               {!unlocked ? (
@@ -864,6 +1188,26 @@ function LearnDashboard(props: {
           );
         })}
       </div>
+
+      <section className="learn-dash-card learn-backup-card" aria-label="학습 기록 백업">
+        <div className="learn-dash-progress-head">
+          <h3>학습 기록 백업</h3>
+        </div>
+        <p className="learn-muted">
+          <small>
+            학습 기록을 파일로 내보내 보관하거나, 다른 브라우저에서 백업 파일을 가져와 복원할 수
+            있습니다. 가져오면 현재 기록이 백업 시점 기록으로 교체됩니다.
+          </small>
+        </p>
+        <div className="learn-actions learn-dash-actions">
+          <Button type="button" variant="outline" onClick={props.onExportBackup}>
+            학습 기록 내보내기
+          </Button>
+          <Button type="button" variant="outline" onClick={props.onImportBackup}>
+            학습 기록 가져오기
+          </Button>
+        </div>
+      </section>
     </div>
   );
 }

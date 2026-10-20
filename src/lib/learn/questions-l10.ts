@@ -165,7 +165,7 @@ export const QUESTIONS_L10: LearnQuestion[] = [
     difficulty: "application",
     prompt:
       "A거래처 파일의 '한빛물류'와 B거래처 파일의 '㈜한빛물류'를 자동화가 서로 다른 거래처로 인식했다. " +
-      "서로 다른 운임 규칙이 적용되어 월간 합계가 두 배로 잡혔다. 원인과 올바른 대응을 고르시오.",
+      "서로 다른 운임 규칙이 적용되어 거래처별 합계가 갈라지고 전체 집계가 틀어졌다. 원인과 올바른 대응을 고르시오.",
     choices: [
       { id: "a", text: "원인: 합계 대조를 하지 않아서 / 해결: 월간 합계를 대조한다" },
       { id: "b", text: "원인: 거래처명 표기를 표준화하지 않아 같은 거래처를 둘로 인식함 / 해결: 표준 목록으로 정규화하고 미등록 표기는 보류 후 담당자가 지정한다" },
@@ -191,7 +191,7 @@ export const QUESTIONS_L10: LearnQuestion[] = [
     type: "error-cause",
     difficulty: "application",
     prompt:
-      "월간 합계가 전월과 비슷해 검증이 통과된 것으로 봤다. 그런데 거래처 문의로 확인해 보니 중량 구간 경계에 있는 건들의 " +
+      "건수·중량 합계 대조만으로 검증을 통과시켰다. 그런데 거래처 문의로 확인해 보니 중량 구간 경계에 있는 건들의 " +
       "요금이 한 구간씩 낮게 적용돼 있었다. 원인과 올바른 검증을 고르시오.",
     choices: [
       { id: "a", text: "원인: 합계 대조만으로 검증해서 행 단위 오류를 놓침 / 해결: 무작위 샘플링 검수와 구간 경계 검증 규칙을 병행한다" },
@@ -201,7 +201,7 @@ export const QUESTIONS_L10: LearnQuestion[] = [
     ],
     correctChoiceIds: ["a"],
     explanation:
-      "경계값 오류처럼 상쇄되는 오류는 합계 대조로 잡히지 않는다. 합계 대조에 샘플링 검수와 " +
+      "합계(건수·중량)가 맞아도 요금표 적용이 틀릴 수 있다. 합계 대조에 샘플링 검수와 " +
       "검증 규칙(구간 경계 재계산 체크)을 함께 쓰는 이중 검증이 필요했다.",
     wrongExplanations: {
       b: "감사 추적은 원인 파악의 근거가 되지만, 행 단위 오류를 잡는 검증 방법이 아니다.",
@@ -219,8 +219,8 @@ export const QUESTIONS_L10: LearnQuestion[] = [
     type: "single",
     difficulty: "application",
     prompt:
-      "정산 시스템과 회계 시스템 사이에 매일 운임 데이터를 주고받아야 한다. 화면 조작 없이 안정적으로 연동하려 한다. " +
-      "가장 적절한 기술은 무엇인가?",
+      "정산 시스템과 회계 시스템 사이에 매일 운임 데이터를 주고받아야 한다. 두 시스템 모두 API를 제공하고 전달 항목이 확정돼 있다. " +
+      "화면 조작 없이 안정적으로 연동하려 한다. 가장 적절한 기술은 무엇인가?",
     choices: [
       { id: "a", text: "RPA로 회계 시스템 화면에 매일 입력한다" },
       { id: "b", text: "API 연동으로 시스템 간 데이터를 교환한다" },
@@ -934,7 +934,7 @@ export const QUESTIONS_L10: LearnQuestion[] = [
     unitId: "l10-u5",
     category: "승인·감사 추적",
     type: "single",
-    difficulty: "judgment",
+    difficulty: "concept",
     prompt: "최종 정산 금액 승인 시 감사 추적으로 남겨야 할 기록으로 가장 적절한 것은 무엇인가?",
     choices: [
       { id: "a", text: "승인자가 누구인지, 언제, 어떤 금액을 승인했는지" },
@@ -1008,7 +1008,7 @@ export const QUESTIONS_L10: LearnQuestion[] = [
     unitId: "l10-u3",
     category: "입력 데이터 조건",
     type: "multiple",
-    difficulty: "judgment",
+    difficulty: "concept",
     prompt: "운임 정산 자동화의 입력 스키마에 명세해야 할 항목을 모두 고르시오.",
     choices: [
       { id: "a", text: "각 열의 이름과 형식(날짜·숫자·문자)" },

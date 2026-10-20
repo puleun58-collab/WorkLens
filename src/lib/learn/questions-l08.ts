@@ -128,7 +128,7 @@ export const QUESTIONS_L08: LearnQuestion[] = [
     unitId: "l8-u4",
     category: "워크플로 개념 적용",
     type: "single",
-    difficulty: "application",
+    difficulty: "concept",
     prompt: "워크플로에 대한 설명으로 옳은 것은?",
     choices: [
       { id: "a", text: "목표를 주면 AI가 스스로 판단해 도구를 골라 쓰는 방식이다" },
@@ -404,14 +404,14 @@ export const QUESTIONS_L08: LearnQuestion[] = [
     prompt:
       "인사팀이 AI로 이력서를 1차로 걸러내고, 최종 면접 대상은 사람이 정하는 방식을 도입했다. 이 설계에 대한 평가로 옳은 것은?",
     choices: [
-      { id: "a", text: "적절한 HITL이다. 효율과 공정성 판단을 함께 잡았다" },
+      { id: "a", text: "적절한 HITL이다. 효율과 최종 판단의 책임 소재를 함께 잡았다" },
       { id: "b", text: "잘못되었다. AI가 1차로 거르는 것 자체가 문제이다" },
       { id: "c", text: "잘못되었다. 최종 결정까지 AI가 해야 효율적이다" },
       { id: "d", text: "잘못되었다. 이력서 검토는 전부 사람이 해야 한다" },
     ],
     correctChoiceIds: ["a"],
     explanation:
-      "대량 1차 선별은 AI가 맡아 효율을 내고, 최종 판단은 사람이 해 책임과 공정성을 지키는 전형적인 HITL이다.",
+      "대량 1차 선별은 AI가 맡아 효율을 내고, 최종 판단은 사람이 해 책임 소재를 분명히 하는 전형적인 HITL이다. 단, 1차 선별 기준에 편향이 없는지는 별도로 점검해야 한다.",
     wrongExplanations: {
       b: "1차 선별을 AI가 돕는 것 자체는 문제없다. 최종 판단을 사람이 하는지가 핵심이다.",
       c: "채용 최종 결정까지 AI에 맡기면 오류 비용(잘못된 채용·탈락)이 크고 책임 소재도 불분명하다.",
@@ -430,7 +430,7 @@ export const QUESTIONS_L08: LearnQuestion[] = [
       "물류팀이 하루 수만 건의 운송장 데이터를 처리해야 한다. 업체가 RPA 도입을 제안했다. 이 제안에 대한 평가로 옳은 것은?",
     choices: [
       { id: "a", text: "적절하다. RPA는 대용량 처리에 가장 빠르므로" },
-      { id: "b", text: "재검토가 필요하다. RPA는 사람 속도로 화면을 조작해 대용량에 느리다" },
+      { id: "b", text: "재검토가 필요하다. RPA는 화면 조작을 거치므로 대용량·고속 처리에 불리하다" },
       { id: "c", text: "적절하다. 건수가 많을수록 RPA 단가가 낮아지므로" },
       { id: "d", text: "재검토가 필요하다. RPA는 소량 데이터에서만 동작하므로" },
     ],
@@ -438,9 +438,9 @@ export const QUESTIONS_L08: LearnQuestion[] = [
     explanation:
       "RPA는 화면 조작 방식이라 대용량·고속 처리에 부적합하다. 수만 건 처리는 API 연동이나 시스템 개선을 검토해야 한다.",
     wrongExplanations: {
-      a: "RPA는 사람 속도로 동작하므로 대용량에 느리다.",
+      a: "RPA는 화면 렌더링과 순차 조작을 거치므로 API·배치 처리보다 처리량이 낮다.",
       c: "단가 문제가 아니라 처리 방식의 한계 문제이다.",
-      d: "RPA가 소량에서만 동작한다는 것은 사실이 아니다. 대용량에 느리다는 것이 핵심이다.",
+      d: "RPA가 소량에서만 동작한다는 것은 사실이 아니다. 대용량·고속 처리에 불리하다는 것이 핵심이다.",
     },
     verified: true,
   },

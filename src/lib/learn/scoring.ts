@@ -52,16 +52,21 @@ export function gradeQuiz(level: LearnLevelNo, questions: LearnQuestion[], answe
   return { graded, score, passed: score >= meta.passScore };
 }
 
-/** 시드 기반 결정적 셔플 (Fisher-Yates + mulberry32) */
-export function seededShuffle<T>(items: T[], seed: number): T[] {
-  const result = [...items];
+/** mulberry32 난수 생성기 (시드 기반, 결정적) */
+function mulberry32(seed: number): () => number {
   let s = seed >>> 0;
-  const rand = () => {
+  return () => {
     s |= 0; s = (s + 0x6d2b79f5) | 0;
     let t = Math.imul(s ^ (s >>> 15), 1 | s);
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
+}
+
+/** 시드 기반 결정적 셔플 (Fisher-Yates + mulberry32) */
+export function seededShuffle<T>(items: T[], seed: number): T[] {
+  const result = [...items];
+  const rand = mulberry32(seed);
   for (let i = result.length - 1; i > 0; i--) {
     const j = Math.floor(rand() * (i + 1));
     [result[i], result[j]] = [result[j], result[i]];
@@ -169,6 +174,13 @@ export function selectQuizQuestions(
   for (const q of linked) byUnit.get(q.unitId!)!.push(q);
   const quotas = allocateUnitQuotas(units, new Map(units.map((id) => [id, byUnit.get(id)!.length])), meta.questionCount);
   const prev = new Set(previousQuestionIds);
+  // 난이도 목표 배분 — 이 LEVEL 문제은행 자체의 난이도 비율을 출제 문항 수에
+  // 비례 배분한 값이다. 모든 LEVEL에 같은 비율을 강제하지 않고, 응시 세트마다
+  // 난이도 구성이 은행 비율에서 크게 벗어나지 않도록 선택 순서를 조정한다.
+  const difficultyTargets = allocateDifficultyTargets(linked, meta.questionCount);
+  const difficultyUsed = new Map<string, number>();
+  const difficultyDeficit = (q: LearnQuestion): number =>
+    (difficultyTargets.get(q.difficulty) ?? 0) - (difficultyUsed.get(q.difficulty) ?? 0);
   const selected: LearnQuestion[] = [];
   units.forEach((unitId, unitIndex) => {
     const pool = byUnit.get(unitId)!;
@@ -177,13 +189,63 @@ export function selectQuizQuestions(
     // 직전 응시에 없던 문제를 먼저 뽑아 세트 반복을 줄인다
     const fresh = pool.filter((q) => !prev.has(q.id));
     const stale = pool.filter((q) => prev.has(q.id));
-    const ordered = [
-      ...seededShuffle(fresh, seed + unitIndex * 101),
-      ...seededShuffle(stale, seed + unitIndex * 101 + 7),
-    ];
-    selected.push(...ordered.slice(0, quota));
+    // 난이도 가중 무작위 선택 — 목표가 남은 난이도일수록 뽑힐 확률을 높이되
+    // 무작위성은 유지해 세트 다양성과 난이도 균형을 함께 확보한다.
+    const rand = mulberry32(seed + unitIndex * 101);
+    const picked: LearnQuestion[] = [];
+    const pickFrom = (candidates: LearnQuestion[]) => {
+      const remaining = [...candidates];
+      while (picked.length < quota && remaining.length > 0) {
+        const weights = remaining.map((q) => 1 + Math.max(0, difficultyDeficit(q)) * 3);
+        const total = weights.reduce((sum, w) => sum + w, 0);
+        let r = rand() * total;
+        let i = 0;
+        while (i < remaining.length - 1 && r >= weights[i]) {
+          r -= weights[i];
+          i++;
+        }
+        const [q] = remaining.splice(i, 1);
+        picked.push(q);
+        difficultyUsed.set(q.difficulty, (difficultyUsed.get(q.difficulty) ?? 0) + 1);
+      }
+    };
+    pickFrom(fresh);
+    if (picked.length < quota) pickFrom(stale);
+    selected.push(...picked);
   });
   return seededShuffle(selected, seed + 9999);
+}
+
+/**
+ * 난이도별 출제 목표 수 — 문제은행의 실제 난이도 분포를 출제 문항 수에
+ * 비례 배분한다 (최대 나머지 방식). LEVEL마다 은행 분포가 다르므로
+ * 목표도 LEVEL별로 달라진다.
+ */
+export function allocateDifficultyTargets(
+  bank: LearnQuestion[],
+  totalCount: number,
+): Map<LearnQuestion["difficulty"], number> {
+  const counts = new Map<LearnQuestion["difficulty"], number>();
+  for (const q of bank) counts.set(q.difficulty, (counts.get(q.difficulty) ?? 0) + 1);
+  const targets = new Map<LearnQuestion["difficulty"], number>();
+  if (bank.length === 0 || totalCount <= 0) return targets;
+  const entries = [...counts.entries()].map(([difficulty, count]) => {
+    const exact = (count / bank.length) * totalCount;
+    return { difficulty, floor: Math.floor(exact), remainder: exact - Math.floor(exact) };
+  });
+  let assigned = 0;
+  for (const e of entries) {
+    targets.set(e.difficulty, e.floor);
+    assigned += e.floor;
+  }
+  // 나머지가 큰 난이도부터 남은 자리를 채운다
+  entries.sort((a, b) => b.remainder - a.remainder);
+  for (const e of entries) {
+    if (assigned >= totalCount) break;
+    targets.set(e.difficulty, (targets.get(e.difficulty) ?? 0) + 1);
+    assigned++;
+  }
+  return targets;
 }
 
 /**
@@ -261,12 +323,52 @@ export function applyAttempt(progress: LearnProgress, attempt: QuizAttempt, ques
       });
     }
   }
-  return {
+  const next: LearnProgress = {
     ...progress,
-    levels: { ...progress.levels, [attempt.level]: { passed, bestScore, attempts, lastStudiedUnitId: prev?.lastStudiedUnitId } },
+    levels: {
+      ...progress.levels,
+      [attempt.level]: {
+        passed,
+        bestScore,
+        attempts,
+        lastStudiedUnitId: prev?.lastStudiedUnitId,
+        completedUnitIds: prev?.completedUnitIds,
+      },
+    },
     wrongAnswers: wrongAnswers.slice(-200), // 최근 200개만 보관
     updatedAt: Date.now(),
   };
+  // 최초 학습 완료일 — 전체 통과가 확정되는 응시의 완료 시각으로 한 번만 기록한다.
+  // 이미 기록된 완료일은 재응시로도 바꾸지 않는다.
+  if (next.completedAt === undefined && isLearningComplete(next)) {
+    next.completedAt = attempt.finishedAt;
+  }
+  return next;
+}
+
+/**
+ * 최초 학습 완료일 복원 — completedAt이 없는 과거 전체 통과 기록에서
+ * 응시 이력만으로 완료 시점을 신뢰성 있게 복원할 수 있을 때 그 시각을 반환한다.
+ *
+ * 복원 조건: 10단계 모두 통과 상태이고, 단계마다 "최초 통과 응시"가 이력에
+ * 남아 있어야 한다. 응시 이력은 단계별 최근 20회만 보관되므로, 이력이
+ * 20회로 가득 찬 단계가 있으면 최초 통과 응시가 정리됐을 가능성을 배제할 수
+ * 없어 복원하지 않는다 (임의 날짜를 만들지 않기 위함).
+ * 전체 완료 시각은 각 단계 최초 통과 시각 중 가장 늦은 값이다.
+ */
+export function deriveFirstCompletionAt(progress: LearnProgress): number | null {
+  if (!isLearningComplete(progress)) return null;
+  let latest = 0;
+  for (const level of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as LearnLevelNo[]) {
+    const attempts = progress.levels[level]?.attempts ?? [];
+    if (attempts.length >= 20) return null; // 보관 한도에 닿아 최초 통과 응시가 없을 수 있음
+    const firstPass = attempts
+      .filter((a) => a.passed)
+      .sort((a, b) => a.finishedAt - b.finishedAt)[0];
+    if (!firstPass) return null;
+    latest = Math.max(latest, firstPass.finishedAt);
+  }
+  return latest > 0 ? latest : null;
 }
 
 /** 오답 스냅샷용 선택지 — 응시 당시 표시 순서(choiceOrder)대로 고정한다 */

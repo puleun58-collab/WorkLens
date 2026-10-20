@@ -148,14 +148,14 @@ export const QUESTIONS_L04: LearnQuestion[] = [
     prompt: "Windows PowerShell에서 현재 위치가 'C:\\Users\\학습자'일 때, 'mkdir WorkLens'를 실행한 뒤 'dir'을 실행하면 어떻게 되는가?",
     choices: [
       { id: "a", text: "mkdir 실행 직후 '폴더를 만들었습니다'라는 완료 메시지가 나온다" },
-      { id: "b", text: "dir 목록에 '<DIR> WorkLens'가 새로 나타난다 (mkdir 자체는 별다른 메시지를 보여주지 않는다)" },
+      { id: "b", text: "dir 목록에 Mode가 'd-----'인 WorkLens 폴더가 새로 나타난다" },
       { id: "c", text: "현재 위치가 자동으로 'C:\\Users\\학습자\\WorkLens'로 바뀐다" },
       { id: "d", text: "dir 목록에서 WorkLens가 사라진다" },
     ],
     correctChoiceIds: ["b"],
-    explanation: "mkdir은 성공해도 별다른 메시지를 보여주지 않으며, dir로 목록을 보면 '<DIR> WorkLens'가 추가된 것을 확인할 수 있다.",
+    explanation: "mkdir이 만든 폴더는 dir 목록에서 Mode 열의 'd-----' 표시로 확인할 수 있다.",
     wrongExplanations: {
-      a: "mkdir은 성공 시 완료 메시지를 출력하지 않는다.",
+      a: "mkdir은 성공해도 '폴더를 만들었습니다' 같은 완료 문구를 출력하지 않는다. 만든 폴더 정보가 표시될 뿐이다.",
       c: "폴더를 만든다고 자동으로 그 안으로 이동하지는 않는다. 이동은 cd의 역할이다.",
       d: "폴더가 생기는 것이지 사라지는 것이 아니다.",
     },
@@ -191,7 +191,7 @@ export const QUESTIONS_L04: LearnQuestion[] = [
     category: "cd 폴더 이동",
     type: "single",
     difficulty: "application",
-    prompt: "Windows PowerShell에서 현재 위치가 'C:\\Users\\학습자\\보고서'일 때, 바로 위 폴더('C:\\Users\\학습자')로 이동하는 명령은?",
+    prompt: "Windows PowerShell에서 현재 위치가 'C:\\Work\\보고서'일 때, 바로 위 폴더('C:\\Work')로 이동하는 명령은?",
     choices: [
       { id: "a", text: "cd .." },
       { id: "b", text: "cd ." },
@@ -203,7 +203,7 @@ export const QUESTIONS_L04: LearnQuestion[] = [
     wrongExplanations: {
       b: "'cd .'는 현재 폴더 그 자리이며 이동하지 않는다.",
       c: "'cd \\'는 드라이브의 루트(C:\\)로 이동한다.",
-      d: "'~'는 이 과정에서 다루지 않는 표현이며 PowerShell 기본 이동 명령이 아니다.",
+      d: "'cd ~'는 홈 디렉터리(C:\\Users\\학습자)로 이동하는 명령이라 이 상황의 상위 폴더(C:\\Work)와 다르다.",
     },
     verified: true,
   },
@@ -245,7 +245,7 @@ export const QUESTIONS_L04: LearnQuestion[] = [
       { id: "d", text: "cd 내문서" },
     ],
     correctChoiceIds: ["b"],
-    explanation: "공백이 있는 이름은 큰따옴표로 감싸 하나의 이름임을 알려줘야 한다. 따옴표 없이 입력하면 '내'와 '문서'를 별개 이름으로 해석해 오류가 난다.",
+    explanation: "공백이 있는 이름은 따옴표(큰따옴표 또는 작은따옴표)로 감싸 하나의 이름임을 알려줘야 한다. 따옴표 없이 입력하면 '내'와 '문서'를 별개 이름으로 해석해 오류가 난다.",
     wrongExplanations: {
       a: "따옴표가 없으면 '내'와 '문서'를 두 개의 이름으로 해석해 오류가 난다.",
       c: "'내_문서'는 밑줄이 든 다른 이름이므로 원하는 폴더가 아니다.",

@@ -61,7 +61,7 @@ const assistantRequestSchema = z.object({
   // 학습센터 현재 화면 정보. 클라이언트 값은 신뢰하지 않으며, 서버에서 실제
   // 학습 데이터·문제은행 원본으로 검증한 범위에서만 근거에 반영한다.
   learnContext: z.object({
-    mode: z.enum(["dashboard", "lesson", "quiz", "result", "wrongnotes", "diagnostic", "certificate"]),
+    mode: z.enum(["dashboard", "lesson", "quiz", "result", "wrongnotes", "diagnostic", "completion"]),
     level: z.number().int().min(1).max(10).optional(),
     unitId: z.string().trim().min(1).max(40).optional(),
     questionId: z.string().trim().min(1).max(40).optional(),

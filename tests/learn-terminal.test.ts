@@ -44,6 +44,30 @@ describe("기본 명령어", () => {
     const r = executeCommand(s, "dir");
     expect(r.output.join("\n")).toContain("WorkLens");
   });
+  test("PowerShell 표기: mkdir은 만든 폴더 정보를, dir은 Mode d-----를 표시한다", () => {
+    let s = createInitialState();
+    const mk = executeCommand(s, "mkdir WorkLens");
+    expect(mk.output.join("\n")).toContain("d-----");
+    expect(mk.output.join("\n")).toContain("WorkLens");
+    s = mk.state;
+    const r = executeCommand(s, "dir");
+    expect(r.output.join("\n")).toContain("d-----  WorkLens");
+    expect(r.output.join("\n")).not.toContain("<DIR>");
+  });
+  test("cd 무인자는 홈 디렉터리로 이동한다 (실제 PowerShell 동작)", () => {
+    let s = createInitialState();
+    s = executeCommand(s, "mkdir a").state;
+    s = executeCommand(s, "cd a").state;
+    const r = executeCommand(s, "cd");
+    expect(r.state.cwd).toBe("C:\\Users\\학습자");
+  });
+  test("cd \\ 는 드라이브 루트로 이동한다", () => {
+    let s = createInitialState();
+    s = executeCommand(s, "mkdir a").state;
+    s = executeCommand(s, "cd a").state;
+    const r = executeCommand(s, "cd \\");
+    expect(r.state.cwd).toBe("C:\\");
+  });
   test("지원하지 않는 명령 안내", () => {
     const s = createInitialState();
     const r = executeCommand(s, "rm -rf /");

@@ -33,7 +33,7 @@ export const QUESTIONS_L01: LearnQuestion[] = [
     difficulty: "concept",
     prompt: "AI는 사람이 규칙을 하나하나 입력해 주지 않아도, 많은 데이터를 보고 스스로 패턴을 찾아낼 수 있다.",
     oxAnswer: true,
-    explanation: "AI(기계학습)는 데이터를 학습 재료로 삼아 스스로 규칙을 찾아냅니다. 이것이 전통적인 프로그램과의 가장 큰 차이입니다.",
+    explanation: "AI의 한 방식인 기계학습은 데이터를 학습 재료로 삼아 스스로 규칙을 찾아냅니다. 이것이 전통적인 프로그램과의 가장 큰 차이입니다.",
     verified: true,
   },
   {
