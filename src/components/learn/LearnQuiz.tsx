@@ -12,14 +12,24 @@ interface LearnQuizProps {
   level: LearnLevelNo;
   attemptId: string;
   questions: LearnQuestion[];
+  /** 복원된 응시의 기존 답변·문항 위치 (새 응시는 빈 값) */
+  initialAnswers?: Record<string, LearnerAnswer>;
+  initialIndex?: number;
+  /** 답변·문항 위치가 바뀔 때 진행 중 응시 저장용으로 보고한다 */
+  onProgressChange?: (answers: Record<string, LearnerAnswer>, currentIndex: number) => void;
+  /** 제출 저장 확정 대기 중 여부 */
+  submitting?: boolean;
+  /** 제출 저장 실패 안내 — 답변이 유지된 상태에서 재시도할 수 있다 */
+  submitError?: string | null;
+  onRetrySubmit?: () => void;
   onSubmit: (answers: Record<string, LearnerAnswer>) => void;
   onCancel: () => void;
 }
 
-export function LearnQuiz({ level, questions, onSubmit, onCancel }: LearnQuizProps) {
+export function LearnQuiz({ level, questions, initialAnswers, initialIndex, onProgressChange, submitting, submitError, onRetrySubmit, onSubmit, onCancel }: LearnQuizProps) {
   const meta = levelMeta(level);
-  const [idx, setIdx] = useState(0);
-  const [answers, setAnswers] = useState<Record<string, LearnerAnswer>>({});
+  const [idx, setIdx] = useState(() => Math.min(Math.max(initialIndex ?? 0, 0), Math.max(questions.length - 1, 0)));
+  const [answers, setAnswers] = useState<Record<string, LearnerAnswer>>(() => initialAnswers ?? {});
   const [confirming, setConfirming] = useState(false);
   const q = questions[idx];
 
@@ -28,6 +38,12 @@ export function LearnQuiz({ level, questions, onSubmit, onCancel }: LearnQuizPro
     if (q) publishLearnScreen({ questionId: q.id });
   }, [q]);
 
+  // 진행 중 응시 저장 — 답변·위치가 바뀔 때만 보고한다 (렌더링마다 저장하지 않음)
+  useEffect(() => {
+    onProgressChange?.(answers, idx);
+  }, [answers, idx, onProgressChange]);
+
+  // 제출 확인 창은 제출 중에도 닫지 않는다 — 저장 실패 시 같은 창에서 오류와 재시도를 보여준다
   const unanswered = useMemo(
     () => questions.filter((item) => !answers[item.id]).map((item) => item.id),
     [questions, answers],
@@ -171,21 +187,37 @@ export function LearnQuiz({ level, questions, onSubmit, onCancel }: LearnQuizPro
 
       {confirming ? (
         <div className="learn-question-card" role="alertdialog" aria-label="제출 확인" style={{ marginTop: 16 }}>
-          {unanswered.length > 0 ? (
-            <p>
-              아직 답변하지 않은 문항이 <strong>{unanswered.length}개</strong> 있습니다. 미응답 문항은 오답 처리됩니다.
-            </p>
+          {submitError ? (
+            <>
+              <p role="alert">{submitError}</p>
+              <div className="learn-actions">
+                <Button type="button" variant="default" onClick={onRetrySubmit} disabled={submitting}>
+                  {submitting ? "저장 중…" : "다시 저장하기"}
+                </Button>
+                <Button type="button" variant="outline" onClick={() => setConfirming(false)} disabled={submitting}>
+                  계속 풀기
+                </Button>
+              </div>
+            </>
           ) : (
-            <p>모든 문항에 답변했습니다. 제출하시겠습니까?</p>
+            <>
+              {unanswered.length > 0 ? (
+                <p>
+                  아직 답변하지 않은 문항이 <strong>{unanswered.length}개</strong> 있습니다. 미응답 문항은 오답 처리됩니다.
+                </p>
+              ) : (
+                <p>모든 문항에 답변했습니다. 제출하시겠습니까?</p>
+              )}
+              <div className="learn-actions">
+                <Button type="button" variant="default" onClick={() => onSubmit(answers)} disabled={submitting}>
+                  {submitting ? "저장 중…" : "제출하고 채점하기"}
+                </Button>
+                <Button type="button" variant="outline" onClick={() => setConfirming(false)} disabled={submitting}>
+                  계속 풀기
+                </Button>
+              </div>
+            </>
           )}
-          <div className="learn-actions">
-            <Button type="button" variant="default" onClick={() => onSubmit(answers)}>
-              제출하고 채점하기
-            </Button>
-            <Button type="button" variant="outline" onClick={() => setConfirming(false)}>
-              계속 풀기
-            </Button>
-          </div>
         </div>
       ) : null}
     </div>

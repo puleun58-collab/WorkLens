@@ -77,6 +77,22 @@ export function seedFromString(text: string): number {
 }
 
 /**
+ * 문항 내용 지문 — 채점에 영향을 주는 내용(유형·질문·선택지·정답·실습 과제)이
+ * 바뀌었는지를 판정한다. 진행 중 응시를 복원할 때 응시 시작 당시 문항과
+ * 현재 문제은행 문항이 같은지 검증하는 용도로만 사용한다.
+ */
+export function questionFingerprint(question: LearnQuestion): number {
+  // 선택지·정답 집합은 표시 순서와 무관하게 같은 지문이 되도록 ID 순으로 정렬한다
+  const choices = question.choices
+    ? [...question.choices].sort((a, b) => (a.id < b.id ? -1 : 1)).map((c) => [c.id, c.text])
+    : null;
+  const correct = question.correctChoiceIds ? [...question.correctChoiceIds].sort() : null;
+  return seedFromString(
+    JSON.stringify([question.type, question.prompt, choices, correct, question.oxAnswer ?? null, question.terminalTask ?? null]),
+  );
+}
+
+/**
  * 단위별 출제 쿼터 배분 — 출제 문항 수를 학습 단위 수로 나눈 몫을 기본으로 하고,
  * 나머지는 문제은행이 큰 단위부터 +1 한다. 은행이 쿼터보다 작은 단위는 있는 만큼만
  * 배정하고 부족분은 여유가 있는 단위에 재배분한다.
@@ -191,21 +207,37 @@ export function canUnlockLevel(level: LearnLevelNo, progress: LearnProgress): bo
 
 /**
  * 응시 기록을 진도에 반영 — 최고 점수 보존, 통과 상태 유지
- * @param questions 출제된 문제 목록 (오답 카테고리 연결용, 생략 시 카테고리는 빈 문자열)
+ *
+ * 멱등성: 같은 attemptId의 응시가 이미 반영되어 있으면 다시 적용하지 않는다.
+ * (제출 버튼 연속 클릭, 저장 실패 후 재시도, 다른 탭에서 같은 응시 제출 시에도
+ * 완료 기록과 오답 데이터가 중복 생성되지 않는다)
+ *
+ * 오답 항목에는 응시 당시 정보(문제·선택지·정답·내 답변)를 스냅샷으로 함께
+ * 저장한다. 응시 이력이 보관 한도를 넘어 정리되어도 오답 노트가 실제 응시를
+ * 참조할 수 있게 하기 위함이며, 스냅샷은 응시 시점 값 그대로 고정된다.
+ *
+ * @param questions 출제된 문제 목록 (오답 카테고리·스냅샷 연결용, 생략 시 카테고리는 빈 문자열)
  */
 export function applyAttempt(progress: LearnProgress, attempt: QuizAttempt, questions?: LearnQuestion[]): LearnProgress {
   const prev = progress.levels[attempt.level];
+  // 동일 응시의 중복 반영 방지 — 이미 기록된 응시면 진도를 그대로 반환한다
+  if (prev?.attempts.some((a) => a.attemptId === attempt.attemptId)) return progress;
   const bestScore = Math.max(prev?.bestScore ?? 0, attempt.score);
   const passed = (prev?.passed ?? false) || attempt.passed;
   const attempts = [...(prev?.attempts ?? []), attempt].slice(-20); // 최근 20회만 보관
-  const categoryById = new Map((questions ?? []).map((q) => [q.id, q.category]));
+  const questionById = new Map((questions ?? []).map((q) => [q.id, q]));
+  const knownWrongKeys = new Set(progress.wrongAnswers.map((w) => `${w.attemptId}:${w.questionId}`));
   const wrongAnswers = [...progress.wrongAnswers];
   for (const g of attempt.graded) {
     if (!g.correct) {
-      const q = attempt.questionIds.includes(g.questionId) ? g.questionId : null;
-      if (!q) continue;
+      if (!attempt.questionIds.includes(g.questionId)) continue;
+      // 같은 응시·같은 문항의 오답은 중복 생성하지 않는다
+      const key = `${attempt.attemptId}:${g.questionId}`;
+      if (knownWrongKeys.has(key)) continue;
+      knownWrongKeys.add(key);
+      const question = questionById.get(g.questionId);
       // 문제은행에 존재하지 않는 ID는 임의 카테고리로 대체하지 않는다
-      const category = categoryById.get(g.questionId) ?? "";
+      const category = question?.category ?? "";
       wrongAnswers.push({
         questionId: g.questionId,
         level: attempt.level,
@@ -213,6 +245,19 @@ export function applyAttempt(progress: LearnProgress, attempt: QuizAttempt, ques
         attemptId: attempt.attemptId,
         answeredAt: attempt.finishedAt,
         reviewCount: 0,
+        // 응시 당시 스냅샷 — 문항 정보가 있을 때만 기록하고, 없으면 조회 기반 복원에 맡긴다
+        ...(question
+          ? {
+              unitId: question.unitId,
+              prompt: question.prompt,
+              questionType: question.type,
+              choices: orderedChoicesSnapshot(question, attempt),
+              correctChoiceIds: question.correctChoiceIds,
+              oxAnswer: question.oxAnswer,
+              explanation: question.explanation,
+              myAnswer: attempt.answers[g.questionId],
+            }
+          : {}),
       });
     }
   }
@@ -222,6 +267,20 @@ export function applyAttempt(progress: LearnProgress, attempt: QuizAttempt, ques
     wrongAnswers: wrongAnswers.slice(-200), // 최근 200개만 보관
     updatedAt: Date.now(),
   };
+}
+
+/** 오답 스냅샷용 선택지 — 응시 당시 표시 순서(choiceOrder)대로 고정한다 */
+function orderedChoicesSnapshot(
+  question: LearnQuestion,
+  attempt: QuizAttempt,
+): { id: string; text: string }[] | undefined {
+  if (!question.choices) return undefined;
+  const snapshot = question.choices.map((c) => ({ id: c.id, text: c.text }));
+  const order = attempt.choiceOrder?.[question.id];
+  if (!order) return snapshot;
+  const byId = new Map(snapshot.map((c) => [c.id, c]));
+  const ordered = order.map((id) => byId.get(id)).filter((c) => c !== undefined);
+  return ordered.length === snapshot.length ? ordered : snapshot;
 }
 
 /** 전체 진행률 (통과한 단계 수 / 10) */
