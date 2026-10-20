@@ -8,7 +8,6 @@ export const CONTENT_L01: LearnContent = {
     {
       id: "l1-u1",
       title: "AI(인공지능)란 무엇인가",
-      shortTitle: "AI란 무엇인가",
       estimatedMinutes: 10,
       goal: "AI가 무엇인지, 전통적인 컴퓨터 프로그램과 무엇이 다른지 설명할 수 있다.",
       concepts: [
@@ -137,7 +136,7 @@ export const CONTENT_L01: LearnContent = {
     {
       id: "l1-u3",
       title: "업무 자동화란 무엇인가",
-      shortTitle: "업무 자동화란",
+      shortTitle: "업무 자동화란?",
       estimatedMinutes: 10,
       goal: "업무 자동화의 의미를 설명하고, 대표적인 자동화 방식을 구분할 수 있다.",
       concepts: [
@@ -211,7 +210,7 @@ export const CONTENT_L01: LearnContent = {
     {
       id: "l1-u4",
       title: "AX란 무엇인가",
-      shortTitle: "AX란",
+      shortTitle: "AX란 무엇인가?",
       estimatedMinutes: 10,
       goal: "AX의 의미를 설명하고, DX·업무 자동화와의 차이를 구분할 수 있다.",
       concepts: [
@@ -278,7 +277,7 @@ export const CONTENT_L01: LearnContent = {
     {
       id: "l1-u5",
       title: "AI를 쓴다고 모든 업무가 자동화되는 것은 아니다",
-      shortTitle: "AI ≠ 모든 업무 자동화",
+      shortTitle: "AI와 자동화의 차이",
       estimatedMinutes: 10,
       goal: "AI의 한계를 설명하고, AI 시대에도 사람이 해야 하는 역할을 말할 수 있다.",
       concepts: [
