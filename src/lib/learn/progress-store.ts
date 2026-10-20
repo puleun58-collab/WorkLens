@@ -97,16 +97,35 @@ function enqueueSave<T>(task: () => Promise<T>): Promise<T> {
 }
 
 /**
+ * 이 탭이 마지막으로 확인한 revision — 동일 탭의 연속 저장이
+ * "다른 탭의 변경"으로 오판되지 않도록 저장 큐 안에서 추적한다.
+ * (모듈 상태는 탭별 JS 컨텍스트에 격리되므로 다른 탭과 공유되지 않는다)
+ */
+let tabRevision: string | null | undefined = undefined;
+
+/** 로드 직후 이 탭의 기준 revision을 등록한다 */
+export function noteLearnRevision(revision: string | null | undefined): void {
+  tabRevision = revision;
+}
+
+/**
  * 학습 진도 저장 — 다른 탭과 충돌 시 에러 (AX 저장소와 동일한 보호)
- * @param expected 충돌 검사용 revision — null이면 "기록이 없을 것"으로 예상 (신규 사용자 첫 저장),
- *                 문자열이면 해당 revision과 일치해야 저장, undefined면 검사 생략
+ * @param expected 충돌 검사용 revision — 생략하면 이 탭이 마지막으로 확인한 revision을
+ *                 저장 큐 실행 시점에 읽어 사용한다. null이면 "기록이 없을 것"으로 예상
+ *                 (신규 사용자 첫 저장), 문자열이면 해당 revision과 일치해야 저장
  * @returns 저장된 기록의 새 revision
  *
  * 저장 성공은 IndexedDB 트랜잭션이 실제로 완료된 후에만 확정된다.
  * put 요청 접수 시점이 아니라 tx.oncomplete에서 resolve한다.
  */
 export async function saveLearnProgress(progress: LearnProgress, expected?: string | null): Promise<string> {
-  return enqueueSave(() => saveLearnProgressInner(progress, expected));
+  return enqueueSave(async () => {
+    // expected는 큐 실행 시점에 확정한다 — 호출 시점에 캡처하면
+    // 직렬화된 이전 저장이 "다른 탭의 변경"으로 오판된다
+    const revision = await saveLearnProgressInner(progress, expected !== undefined ? expected : tabRevision);
+    tabRevision = revision;
+    return revision;
+  });
 }
 
 async function saveLearnProgressInner(progress: LearnProgress, expected?: string | null): Promise<string> {

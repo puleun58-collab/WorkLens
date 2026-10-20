@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { ArrowLeft, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DIAGNOSTIC_AREAS, type DiagnosticAreaId } from "@/lib/learn/curriculum";
 import type { LearnQuestion, LearnerAnswer } from "@/lib/learn/types";
@@ -83,12 +84,15 @@ export function LearnDiagnostic({ questions, onComplete, onSkip }: LearnDiagnost
   }
 
   return (
-    <div>
+    <div className="learn-diagnostic">
+      <Button type="button" variant="ghost" size="sm" className="learn-back" onClick={onSkip}>
+        <ArrowLeft /> 학습센터로 돌아가기
+      </Button>
       <h2>사전 진단 (선택)</h2>
-      <p className="learn-muted">
+      <p className="learn-muted learn-diagnostic-intro">
         현재 수준을 파악해 학습 방향을 추천합니다. 건너뛰어도 LEVEL 1부터 정상 학습할 수 있습니다.
       </p>
-      <div className="learn-surface">
+      <div className="learn-surface learn-diagnostic-box">
         <p>
           <small className="learn-muted">
             {idx + 1} / {questions.length} · {q.category}
@@ -114,14 +118,11 @@ export function LearnDiagnostic({ questions, onComplete, onSkip }: LearnDiagnost
       </div>
       <div className="learn-quiz-nav">
         <Button type="button" variant="outline" disabled={idx === 0} onClick={() => setIdx(idx - 1)}>
-          이전
-        </Button>
-        <Button type="button" variant="ghost" onClick={onSkip}>
-          건너뛰기
+          <ArrowLeft /> 이전
         </Button>
         {idx < questions.length - 1 ? (
           <Button type="button" variant="default" onClick={() => setIdx(idx + 1)}>
-            다음
+            다음 <ArrowRight />
           </Button>
         ) : (
           <Button type="button" variant="default" onClick={finish}>
