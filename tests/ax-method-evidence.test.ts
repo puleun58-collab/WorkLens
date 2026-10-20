@@ -201,7 +201,7 @@ describe("doneWhen·stepMethodLabel 일관성 (지시문 내부 모순 회귀 �
     const prompt = buildCrudPrompt();
     // "계산" 단계는 rule이므로, 해당 요구사항 섹션(다음 ### 제목 전까지)의 완료 기준에
     // "구현을 시작하지 마세요"가 없어야 함
-    const start = prompt.indexOf("### 요구사항 2. 계산");
+    const start = prompt.indexOf("### 기능 2. 계산");
     expect(start).toBeGreaterThanOrEqual(0);
     const nextHeading = prompt.indexOf("\n### ", start + 1);
     const calcSection = nextHeading > 0 ? prompt.slice(start, nextHeading) : prompt.slice(start);
