@@ -868,14 +868,19 @@
 .ax-hitl-table .col-action { width: 100px; text-align: left; }
 .ax-hitl-step-table td { min-width: 0; overflow-wrap: anywhere; }
 @media (min-width: 701px) {
-  /* 업무 단계 컬럼을 넓혀 단계명·번호가 한 줄로 표시되게 하고, 판단 근거가 나머지 공간을 사용한다 */
-  .ax-hitl-step-table th:first-child { width: 34%; }
-  .ax-hitl-step-table td:first-child { white-space: nowrap; }
+  /* 업무 단계 컬럼을 넓혀 단계명·번호가 한 줄로 표시되게 하고, 판단 근거가 나머지 공간을 사용한다.
+     좁은 데스크톱(110% 확대 등)에서는 판단 근거 하한(담당 컬럼의 3배)을 지키기 위해 단계 폭을 완화한다 */
+  .ax-hitl-step-table th:first-child { width: 26%; }
   .ax-hitl-step-table th:nth-child(2), .ax-hitl-step-table td:nth-child(2) { width: 100px; padding-left: 8px; padding-right: 8px; }
   .ax-hitl-step-table th:nth-child(3), .ax-hitl-step-table td:nth-child(3) { width: 60px; padding-left: 6px; padding-right: 6px; }
   .ax-hitl-step-table th:nth-child(4) { width: auto; }
   .ax-hitl-step-table .col-status { width: 100px; padding-left: 10px; padding-right: 10px; }
   .ax-hitl-step-table .col-action { width: 76px; padding-left: 8px; padding-right: 8px; }
+}
+@media (min-width: 1400px) {
+  /* 넓은 데스크톱: 업무 단계 34% + 줄바꿈 금지로 번호·단계명을 항상 한 줄로 표시 */
+  .ax-hitl-step-table th:first-child { width: 34%; }
+  .ax-hitl-step-table td:first-child { white-space: nowrap; }
 }
 .ax-hitl-type-badge-plan { background: var(--muted-surface, #f1f5f9); color: var(--foreground, #1e293b); }
 .ax-hitl-type-badge-criterion { background: color-mix(in srgb, var(--primary) 10%, var(--card)); color: var(--primary); }
