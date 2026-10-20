@@ -465,6 +465,9 @@ const ANSWER_SEEKING = [
   /힌트\s*말고\s*정답/u,
   /정답인지\s*(확인|알려|판정)/u,
   /골라\s*줘/u, /찍어\s*줘/u,
+  // 후속 질문 유도형 — "그럼 답이 뭐야?", "그래서 답이 뭔데?", "답 알려줘"
+  /(그럼|그러면|그래서|결국)?\s*답(이|은|를)?\s*(뭐야|뭔데|뭐예요|뭡니까|알려)/u,
+  /답\s*(알려|말해)\s*(줘|주세요)/u,
 ] as const;
 
 export function detectQuizAnswerSeeking(question: string): boolean {
