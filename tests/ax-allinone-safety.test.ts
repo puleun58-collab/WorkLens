@@ -161,7 +161,7 @@ describe("A-3: HITL exclude/defer bypass prevention", () => {
         hitlReviews: [review], hitlTool: "codex",
       });
       // Non-confirmed must not remove the step from implementation
-      expect(prompt).toMatch(/### 요구사항 \d+\. 보고서 업데이트/);
+      expect(prompt).toMatch(/### 기능 \d+\. 보고서 업데이트/);
     }
   });
 });
