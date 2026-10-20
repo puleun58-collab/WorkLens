@@ -26,7 +26,13 @@ describe("AX shared processing and relational scope", () => {
       for (const [index, step] of model.steps.entries()) {
         if (!["implement", "after-check", "verify"].includes(step.scope)) continue;
         const label = stepMethodLabel(model, index);
-        expect(prompt).toContain(`${step.step} — ${label}`);
+        // 실행형 6개 영역 구조: 단계별 처리 방식은 범위 표(처리 구분·확인 사항)에 한 번만 표시된다.
+        const row = prompt.split("\n").find(line => line.startsWith(`| ${step.step} |`));
+        expect(row).toBeDefined();
+        if (step.scope === "after-check") expect(row).toContain("확인 후 구현");
+        if (step.scope === "implement") expect(row).toContain("| 구현 |");
+        if (step.scope === "verify") expect(row).toContain("검토·검증");
+        if (model.methods[index] === "confirm" && step.scope === "after-check") expect(row).toContain("처리 방식 미확정");
         expect(summary.include).toContain(`${step.step} ${label}`);
         if (model.methods[index] === "rule") expect(label).not.toMatch(/AI 보조 결과|후보·초안/u);
         if (model.methods[index] === "confirm") expect(label).toMatch(/확인/u);

@@ -148,8 +148,8 @@ describe("화면·지시문 교차 정합성", () => {
       for (const row of summary.additionalChecks) {
         expect(prompt).toContain(row.item);
       }
-      // PART D/E (7섹션 재구성): 차단·선행 조건 내용은 "예외·유지 조건" 섹션으로 통합되어 유지된다
-      expect(prompt).toContain("예외·유지 조건");
+      // PART D/E (6개 영역 재구성): 차단·선행 조건 내용은 "예외 및 유지 조건" 섹션으로 통합되어 유지된다
+      expect(prompt).toContain("예외 및 유지 조건");
     }
   });
 

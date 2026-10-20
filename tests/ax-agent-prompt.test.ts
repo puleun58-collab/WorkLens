@@ -82,7 +82,8 @@ describe("first MVP execution and reviewed scope", () => {
     expect(prompt).toContain("서로 다른 입력으로 다시 실행");
     expect(prompt).toContain("빈 입력");
     expect(prompt).toContain("외부 API가 필요한 경우 응답 오류·권한 거부·연결 실패");
-    expect(prompt).toContain("올인원 지시문 생성만으로 첫 MVP가 완료되지는 않습니다");
+    // 지시문 자체는 완료의 증거가 아니라는 원칙은 도입부 한 줄로 유지된다 (반복 안내 문구는 제거)
+    expect(prompt).toContain("완료 여부는 실제 실행·검증 결과로만 판단합니다");
     expect(prompt).toContain("배포하지 않았다면 운영 검증 완료로 보고하지 마세요");
   });
 

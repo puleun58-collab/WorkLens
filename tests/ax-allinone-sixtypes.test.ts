@@ -28,20 +28,29 @@ describe("6 business-type generation quality", () => {
     describe(label, () => {
       it("has clear development goal", () => {
         const p = promptFor(c);
-        expect(p).toContain("## 1. 개발 목표");
+        expect(p).toContain("## 1. 구현 목표");
         expect(p).toContain("업무 목적");
       });
 
       it("has INPUT/PROCESS/OUTPUT sections", () => {
         const p = promptFor(c);
-        expect(p).toContain("## 2. INPUT·PROCESS·OUTPUT");
-        expect(p).toContain("## 3. 구현 요구사항");
-        expect(p).toContain("## 4. 구현 순서");
+        // 실행형 6개 영역: 입력·처리·출력은 기능별 요구사항(공통 입력·출력 + 기능별 입력/처리/출력)으로 제시된다
+        expect(p).toContain("## 3. 기능별 요구사항");
+        expect(p).toContain("### 공통 입력·출력");
+        // 구현 가능한 기능이 있는 경우에만 기능별 입력/처리/출력 줄을 요구한다 (전체 차단 케이스는 기능 블록 없음)
+        if (p.includes("### 기능 1.")) {
+          expect(p).toMatch(/- 입력:/);
+          expect(p).toMatch(/- 처리:/);
+          expect(p).toMatch(/- 출력:/);
+        }
+        expect(p).toContain("## 5. 구현 순서 및 검증");
       });
 
       it("has verifiable completion criteria", () => {
         const p = promptFor(c);
-        expect(p).toContain("## 6. 검증·완료 조건");
+        expect(p).toContain("## 5. 구현 순서 및 검증");
+        // 전체 차단 상태에서는 완료 기준을 필수 조건으로 제시하지 않고 보류 상태로 보고한다
+        expect(p.includes("### 업무 전체 완료 기준") || p.includes("진행 보류 상태")).toBe(true);
       });
 
       it("exposes no internal field paths", () => {

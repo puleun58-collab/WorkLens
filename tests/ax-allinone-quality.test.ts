@@ -64,7 +64,7 @@ describe("AX all-in-one quality: diesel price regression case", () => {
     expect(prompt).toContain("자동화 범위를 현재 보조 수준에서 확대하지 마세요");
     expect(prompt).toMatch(/담당자가 실행을 요청하면|담당자 요청 기반/);
     expect(prompt).toMatch(/무인|스케줄러/);
-    expect(prompt).toContain("담당자 최종 검토 (담당자 수행)");
+    expect(prompt).toContain("| 담당자 최종 검토 | 담당자 수행 |"); // human step stays human-owned in the scope table
     expect(prompt).toContain("가격 자동 수집"); // excluded stays excluded
   });
 });
