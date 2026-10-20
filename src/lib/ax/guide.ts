@@ -868,6 +868,31 @@ export function stepMethodShortLabel(method: StepMethod): string {
   return method === "rule" ? "규칙 기반 처리" : method === "script" ? "일반 시스템·스크립트 처리"
     : method === "assist" ? "AI 후보·초안 생성" : method === "manual" ? "담당자 확인" : "처리 방식 확인 필요";
 }
+/**
+ * 처리 방식이 실제로 확인된 상태인지 판정한다.
+ * - method가 confirm이 아니거나, 동일 이름 중복인 경우는 false
+ * - 근거 충돌("처리 방식 근거 충돌")인 경우는 false — 임의 선택 금지
+ * - 근거 없음("명시적 처리 방식 확인 필요" / "구체적 근거가 없음")인 경우는 false
+ * - 실제 근거 텍스트가 있는 경우에만 true
+ * 설명 텍스트 존재 ≠ 확정. 이 구분 없이 "확인된 처리 기준"이라고 표시하지 않는다.
+ */
+export function isConfirmedMethodEvidence(model: AgentInstructionModel, index: number): boolean {
+  if (model.methods[index] !== "confirm") return false;
+  const step = model.steps[index];
+  if (step && model.steps.filter(s => normalizedStepText(s.step) === normalizedStepText(step.step)).length > 1) return false;
+  const reason = model.methodReasons?.[index] ?? "";
+  if (reason.includes("처리 방식 근거 충돌")) return false;
+  if (reason.includes("명시적 처리 방식 확인 필요")) return false;
+  const userReason = model.methodUserReasons?.[index]?.trim() ?? "";
+  if (!userReason) return false;
+  if (userReason.includes("구체적 근거가 없음")) return false;
+  return true;
+}
+/** 처리 방식 근거가 충돌하는 상태인지 */
+export function isConflictingMethodEvidence(model: AgentInstructionModel, index: number): boolean {
+  if (model.methods[index] !== "confirm") return false;
+  return (model.methodReasons?.[index] ?? "").includes("처리 방식 근거 충돌");
+}
 /** One user-facing processing label shared across timeline, summary and prompt. */
 export function stepMethodLabel(model: AgentInstructionModel, index: number): string {
   const step = model.steps[index];
@@ -890,10 +915,17 @@ export function stepMethodLabel(model: AgentInstructionModel, index: number): st
   if (method === "confirm") {
     if (model.steps.filter(s => normalizedStepText(s.step) === normalizedStepText(step.step)).length > 1)
       return "동일 이름의 진단 단계 중복: 처리 방식·적용 단계 확인 필요";
-    const confirmed = model.methodUserReasons?.[index]?.trim();
-    return confirmed
-      ? `확인된 처리 기준에 따라 구현\n확인된 기준: ${confirmed}\n위 기준에 명시되지 않은 처리 방식은 담당자에게 확인하기 전에는 선택·구현하지 마세요.`
-      : "처리 방식 미확정 · 확인 후 진행\n처리 방식의 구체적 근거가 확인되지 않았습니다. 실제 처리 규칙·입력 형식을 먼저 확인하고, 확인 전에는 해당 처리만 보류하세요. 확인과 무관한 독립 단계는 계속 진행할 수 있습니다.";
+    // 근거 충돌: "확인된 처리 기준"으로 표시하지 않고 충돌 해결을 요구한다
+    if (isConflictingMethodEvidence(model, index)) {
+      const evidence = (model.methodUserReasons?.[index]?.trim() ?? "").replace(/^처리 방식 근거 충돌\s*[;:]\s*/, "");
+      return `처리 방식 근거 충돌 · 확인 후 진행\n충돌된 근거: ${evidence}\n충돌을 해결하기 전에는 처리 방식을 임의로 선택·구현하지 마세요. 확인과 무관한 독립 단계는 계속 진행할 수 있습니다.`;
+    }
+    // 실제 확인된 근거가 있을 때만 "확인된 처리 기준"으로 표시한다
+    if (isConfirmedMethodEvidence(model, index)) {
+      const confirmed = model.methodUserReasons?.[index]?.trim();
+      return `확인된 처리 기준에 따라 구현\n확인된 기준: ${confirmed}\n위 기준에 명시되지 않은 처리 방식은 담당자에게 확인하기 전에는 선택·구현하지 마세요.`;
+    }
+    return "처리 방식 미확정 · 확인 후 진행\n처리 방식의 구체적 근거가 확인되지 않았습니다. 실제 처리 규칙·입력 형식을 먼저 확인하고, 확인 전에는 해당 처리만 보류하세요. 확인과 무관한 독립 단계는 계속 진행할 수 있습니다.";
   }
   if (method === "assist") return "AI 후보·초안 생성 (담당자 확정 전 운영 반영 금지)";
   if (method === "manual") return "담당자 수동 처리 (시스템 구현 전 역할·범위 확인 필요)";
@@ -1471,6 +1503,10 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
     // PART B: Level 1 사용자 실행형 — 담당자 실행 기반이며 무인 자동화가 아니다.
     if (s.treatment === "사용자 실행 결과 생성")
       return "담당자가 실행을 요청하면 실제 입력으로 처리하고 결과를 화면·파일로 제공합니다. 스케줄러·정기 무인 실행은 구현하지 않으며, 담당자 확정 전 결과를 운영에 반영하지 않습니다. 실행할 때마다 입력 검증과 결과 대조 기록이 남습니다.";
+    // method가 confirm인 경우, 단계 표기(stepMethodLabel)와 동일한 확정 판정을 사용한다.
+    // stepMethodLabel이 "확인된 처리 기준에 따라 구현"이라고 하면서 doneWhen이
+    // "구현을 시작하지 마세요"라고 하면 지시문 내부 모순이 되므로 단일 판정원을 유지한다.
+    const confirmIdx = steps.indexOf(s);
     return method(s) === "assist"
     ? "실제 입력으로 후보·초안이 생성되고, 담당자 확정 전에는 운영 결과로 반영되지 않으며, 생성할 수 없는 건은 검토 필요·실패로 표시됩니다."
     : method(s) === "composite" && methodOrder(s) === "parallel"
@@ -1479,6 +1515,10 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
     ? "확인된 처리 순서대로 각 역할이 실제 입력으로 동작하고, AI 결과는 담당자 확정 전 운영 결과로 반영되지 않으며, 규칙·스크립트는 확인된 기준만 적용되고, 담당자 확인이 유지됩니다. 각 단계의 완료는 해당 역할의 완료 기준을 모두 만족할 때 인정됩니다."
     : method(s) === "rule" || method(s) === "script" ? "확인된 형식·키·업무 규칙으로 실제 입력이 처리되고, 담당자가 확정한 기대 결과와 대조한 기록 및 원본 대응 관계가 남습니다. 기대 결과·판정 기준이 없으면 '기준 확인 필요'로 보고하고 합격으로 단정하지 마세요."
     : method(s) === "manual" ? "담당자가 수행할 작업과 시스템이 보조할 범위를 확인하고, 담당자 수행 결과와 미확인 조건만 기록합니다. 수동 업무를 신규 자동화 기능으로 바꾸지 마세요."
+    : isConflictingMethodEvidence(model, confirmIdx)
+    ? "처리 방식 근거가 충돌합니다. 충돌을 해결하기 전에는 처리 방식을 임의로 선택·구현하지 마세요. 충돌 해결 후 재개 조건을 보고하세요."
+    : isConfirmedMethodEvidence(model, confirmIdx)
+    ? "위 '확인된 기준'에 명시된 처리 방식을 실제 입력으로 구현하고, 기준에 없는 처리 방식은 담당자에게 확인하기 전에는 선택·구현하지 않습니다. 각 단계의 완료는 해당 기준의 완료 조건을 모두 만족할 때 인정됩니다."
     : "처리 방식이 확정되지 않았습니다. 처리 방식의 근거·충돌 내용·필수 기준을 먼저 확인하고, 미확정 사항과 재개 조건을 보고하세요. 방식이 확정되기 전에는 구현을 시작하지 마세요.";
   };
   const stepLine = (s: StepScope) => `${s.step} — ${methodLabel(s)}`;
@@ -1599,7 +1639,7 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
     work.length ? work.map((s, i) => `### 요구사항 ${i + 1}. ${s.step} — ${methodLabel(s)}\n\n${bullets([
       `처리 상태: ${s.scope === "implement" ? SCOPE_TITLES.implement : `${SCOPE_TITLES["after-check"]} (이 단계가 의존하는 조건 확인 전에는 해당 처리만 보류)`}`,
       ...(s.treatment === "사용자 실행 결과 생성" ? ["실행 조건: 담당자가 실행을 요청할 때만 동작합니다. 무인·정기 자동 실행으로 구현하지 마세요."] : []),
-      `담당자 확인: ${method(s) === "assist" ? "AI 결과는 제안값으로 표시하고 담당자가 확정한 값과 구분하세요. 규칙으로 판정할 부분에 별도 AI 호출을 추가하지 마세요." : method(s) === "composite" && methodOrder(s) === "parallel" ? "병행 처리 관계가 확인되었으므로 순차 실행을 가정하지 말고, 실제 실행 순서와 의존성을 담당자에게 먼저 확인하세요." : method(s) === "composite" ? "확인된 복합 처리 순서를 유지하고, 각 역할을 담당자 확인·승인 단계로 승격하거나 무인 실행으로 바꾸지 마세요." : method(s) === "rule" || method(s) === "script" ? "파일 형식·병합 키·계산식·예외 규칙 등 이 단계에 필요한 실제 기준을 확인한 뒤 적용하세요. 규칙 미확인 건은 담당자 확인으로 넘기고 AI 호출을 추가하지 마세요." : method(s) === "manual" ? "담당자 수동 수행을 유지하고 자동화 구현으로 대체하지 마세요." : model.methodUserReasons?.[steps.indexOf(s)]?.trim() ? "위 '확인된 기준'에 명시된 처리 방식을 그대로 구현하세요. 기준에 없는 처리 방식은 담당자에게 확인하기 전에는 선택·구현하지 마세요." : "처리 방식의 구체적 근거가 확인되지 않았습니다. 해당 처리만 보류하고, 확인과 무관한 독립 단계는 계속 진행하세요."}`,
+      `담당자 확인: ${method(s) === "assist" ? "AI 결과는 제안값으로 표시하고 담당자가 확정한 값과 구분하세요. 규칙으로 판정할 부분에 별도 AI 호출을 추가하지 마세요." : method(s) === "composite" && methodOrder(s) === "parallel" ? "병행 처리 관계가 확인되었으므로 순차 실행을 가정하지 말고, 실제 실행 순서와 의존성을 담당자에게 먼저 확인하세요." : method(s) === "composite" ? "확인된 복합 처리 순서를 유지하고, 각 역할을 담당자 확인·승인 단계로 승격하거나 무인 실행으로 바꾸지 마세요." : method(s) === "rule" || method(s) === "script" ? "파일 형식·병합 키·계산식·예외 규칙 등 이 단계에 필요한 실제 기준을 확인한 뒤 적용하세요. 규칙 미확인 건은 담당자 확인으로 넘기고 AI 호출을 추가하지 마세요." : method(s) === "manual" ? "담당자 수동 수행을 유지하고 자동화 구현으로 대체하지 마세요." : isConflictingMethodEvidence(model, steps.indexOf(s)) ? "처리 방식 근거가 충돌합니다. 충돌을 해결하기 전에는 처리 방식을 임의로 선택·구현하지 마세요." : isConfirmedMethodEvidence(model, steps.indexOf(s)) ? "위 '확인된 기준'에 명시된 처리 방식을 그대로 구현하세요. 기준에 없는 처리 방식은 담당자에게 확인하기 전에는 선택·구현하지 마세요." : "처리 방식의 구체적 근거가 확인되지 않았습니다. 해당 처리만 보류하고, 확인과 무관한 독립 단계는 계속 진행하세요."}`,
       ...linkedTo(s.step).map(item => `세부 제안 (생성 계획): ${item}`),
       `완료 기준: ${doneWhen(s)}`,
     ])}`).join("\n\n") : "",
