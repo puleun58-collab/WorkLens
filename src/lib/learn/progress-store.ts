@@ -1,8 +1,9 @@
-import type { LearnProgress } from "./types";
+import type { InProgressQuiz, LearnProgress } from "./types";
 
 export const LEARN_DB_NAME = "worklens-learn";
 const STORE = "progress";
 const KEY = "current";
+const IN_PROGRESS_KEY = "in-progress";
 const DB_VERSION = 1;
 
 function emptyProgress(): LearnProgress {
@@ -190,6 +191,156 @@ async function saveLearnProgressInner(progress: LearnProgress, expected?: string
     reject(new Error("브라우저 저장에 실패했습니다."));
   }
   return promise;
+}
+
+/* ------------------------------------------------------------------ */
+/* 진행 중 퀴즈 응시 — 완료 기록과 분리된 임시 저장 (같은 DB·스토어, 별도 키) */
+/* ------------------------------------------------------------------ */
+
+function isValidInProgress(record: unknown): record is InProgressQuiz {
+  if (typeof record !== "object" || record === null) return false;
+  const r = record as Record<string, unknown>;
+  return (
+    r.status === "in-progress" &&
+    typeof r.attemptId === "string" && r.attemptId.length > 0 &&
+    typeof r.level === "number" && r.level >= 1 && r.level <= 10 &&
+    Array.isArray(r.questionIds) && r.questionIds.length > 0 &&
+    typeof r.answers === "object" && r.answers !== null &&
+    typeof r.choiceOrder === "object" && r.choiceOrder !== null &&
+    typeof r.questionChecks === "object" && r.questionChecks !== null &&
+    typeof r.currentIndex === "number" &&
+    typeof r.passScore === "number" &&
+    typeof r.startedAt === "number" &&
+    typeof r.savedAt === "number"
+  );
+}
+
+/**
+ * 이 탭이 마지막으로 확인한 진행 중 응시의 savedAt — 진도 revision과 같은 방식으로
+ * 탭별 모듈 상태로 추적해, 다른 탭이 같은 응시를 변경한 경우 덮어쓰지 않고
+ * 충돌로 감지한다. undefined는 아직 로드하지 않은 상태.
+ */
+let inProgressSavedAt: number | null | undefined = undefined;
+
+/** 진행 중 응시 불러오기 — 없거나 손상되었으면 null (완료 기록에는 영향 없음) */
+export async function loadInProgressQuiz(): Promise<InProgressQuiz | null> {
+  try {
+    const record = await transaction("readonly", (store) => store.get(IN_PROGRESS_KEY));
+    if (record === undefined) {
+      inProgressSavedAt = null;
+      return null;
+    }
+    if (isValidInProgress(record)) {
+      inProgressSavedAt = record.savedAt;
+      return record;
+    }
+    // 손상된 진행 중 기록은 복원 대상으로 취급하지 않는다
+    inProgressSavedAt = undefined;
+    return null;
+  } catch {
+    inProgressSavedAt = undefined;
+    return null;
+  }
+}
+
+/**
+ * 진행 중 응시 저장 — 저장 큐로 직렬화하고, 다른 탭이 먼저 저장한 경우
+ * 마지막 저장이 무조건 이기는 방식이 아니라 충돌 에러로 중단한다.
+ * @returns 실제로 저장된 기록 (savedAt 갱신됨)
+ */
+export async function saveInProgressQuiz(record: InProgressQuiz): Promise<InProgressQuiz> {
+  return enqueueSave(async () => {
+    const stored = await saveInProgressInner(record, inProgressSavedAt);
+    inProgressSavedAt = stored.savedAt;
+    return stored;
+  });
+}
+
+async function saveInProgressInner(record: InProgressQuiz, expectedSavedAt: number | null | undefined): Promise<InProgressQuiz> {
+  const db = await openDb();
+  const { promise, resolve, reject } = Promise.withResolvers<InProgressQuiz>();
+  let failure: Error | undefined;
+  let stored: InProgressQuiz | undefined;
+  try {
+    const tx = db.transaction(STORE, "readwrite");
+    const store = tx.objectStore(STORE);
+    const getRequest = store.get(IN_PROGRESS_KEY);
+    getRequest.onsuccess = () => {
+      try {
+        const current = getRequest.result as unknown;
+        if (expectedSavedAt !== undefined) {
+          if (expectedSavedAt === null) {
+            // 이 탭은 진행 중 응시가 없다고 알고 있는데 이미 존재함 — 다른 탭이 먼저 시작함
+            if (current !== undefined) {
+              throw new Error("다른 탭에서 진행 중인 퀴즈가 변경되어 자동 저장을 중단했습니다.");
+            }
+          } else if (!isValidInProgress(current) || current.savedAt !== expectedSavedAt) {
+            // 이 탭이 아는 저장본과 다름 — 다른 탭이 같은 응시를 변경함
+            throw new Error("다른 탭에서 진행 중인 퀴즈가 변경되어 자동 저장을 중단했습니다.");
+          }
+        }
+        // savedAt은 단조 증가를 보장해 동시 저장 충돌 감지가 어긋나지 않게 한다
+        const savedAt = Math.max(Date.now(), (typeof expectedSavedAt === "number" ? expectedSavedAt : 0) + 1);
+        const next: InProgressQuiz = { ...record, savedAt };
+        const putRequest = store.put(next, IN_PROGRESS_KEY);
+        putRequest.onsuccess = () => {
+          stored = next;
+        };
+        putRequest.onerror = () => {
+          failure = new Error("브라우저 저장에 실패했습니다.");
+          try { tx.abort(); } catch { /* 이미 종료된 트랜잭션 */ }
+        };
+      } catch (error) {
+        failure = error instanceof Error ? error : new Error("브라우저 저장에 실패했습니다.");
+        try { tx.abort(); } catch { /* 이미 종료된 트랜잭션 */ }
+      }
+    };
+    getRequest.onerror = () => {
+      failure = new Error("브라우저 저장에 실패했습니다.");
+      try { tx.abort(); } catch { /* 이미 종료된 트랜잭션 */ }
+    };
+    tx.oncomplete = () => {
+      db.close();
+      if (stored !== undefined) resolve(stored);
+      else reject(failure ?? new Error("브라우저 저장에 실패했습니다."));
+    };
+    tx.onerror = tx.onabort = () => {
+      db.close();
+      reject(failure ?? new Error("브라우저 저장에 실패했습니다."));
+    };
+  } catch {
+    db.close();
+    reject(new Error("브라우저 저장에 실패했습니다."));
+  }
+  return promise;
+}
+
+/**
+ * 진행 중 응시 정리 — 지정한 attemptId의 기록만 삭제한다.
+ * 다른 탭이 이미 새 응시를 시작한 경우 그 기록은 건드리지 않는다.
+ */
+export async function clearInProgressQuiz(attemptId: string): Promise<void> {
+  return enqueueSave(async () => {
+    const db = await openDb();
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction(STORE, "readwrite");
+        const store = tx.objectStore(STORE);
+        const getRequest = store.get(IN_PROGRESS_KEY);
+        getRequest.onsuccess = () => {
+          const current = getRequest.result as unknown;
+          if (isValidInProgress(current) && current.attemptId === attemptId) {
+            store.delete(IN_PROGRESS_KEY);
+          }
+        };
+        tx.oncomplete = () => resolve();
+        tx.onerror = tx.onabort = () => reject(new Error("브라우저 저장에 실패했습니다."));
+      });
+    } finally {
+      db.close();
+    }
+    inProgressSavedAt = null;
+  });
 }
 
 /**

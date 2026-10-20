@@ -143,6 +143,50 @@ export interface WrongAnswerEntry {
   attemptId: string;
   answeredAt: number;
   reviewCount: number;
+  /**
+   * 응시 당시 정보 스냅샷 — 응시 이력이 보관 한도(레벨별 20회)를 넘어 정리되거나
+   * 문제은행에서 문항이 변경·제거되어도 오답 노트가 실제 응시 내용을 그대로
+   * 참조할 수 있도록 응시 시점에 고정한다. 이 필드들이 없는 과거 기록은
+   * 기존 방식(응시 기록·문제은행 조회)으로 복원을 시도하고, 복원할 수 없는
+   * 정보는 임의로 만들지 않는다.
+   */
+  unitId?: string;
+  prompt?: string;
+  questionType?: QuestionType;
+  /** 응시 당시 표시 순서 그대로의 선택지 스냅샷 */
+  choices?: { id: string; text: string }[];
+  correctChoiceIds?: string[];
+  oxAnswer?: boolean;
+  explanation?: string;
+  /** 응시 당시 사용자의 실제 답변 스냅샷 */
+  myAnswer?: LearnerAnswer;
+}
+
+/**
+ * 진행 중 퀴즈 응시 — 완료된 QuizAttempt와 구분되는 임시 저장 모델.
+ * 새로고침·재접속 시 문제 세트·선택지 순서·답변·문항 위치를 그대로 복원한다.
+ * 완료 기록(QuizAttempt)으로 저장되지 않으며, 제출이 확정되면 삭제된다.
+ */
+export interface InProgressQuiz {
+  attemptId: string;
+  level: LearnLevelNo;
+  startedAt: number;
+  /** 출제된 문제 ID와 순서 */
+  questionIds: string[];
+  /** 문항별 선택지 표시 순서 (선택지 ID 배열) */
+  choiceOrder: Record<string, string[]>;
+  answers: Record<string, LearnerAnswer>;
+  currentIndex: number;
+  /** 응시 시작 당시 통과 기준 */
+  passScore: number;
+  /**
+   * 문항별 내용 지문 — 문제은행 문항이 응시 시작 후 변경·제거된 경우
+   * 잘못된 문제·정답으로 복원하지 않기 위한 검증값 (questionFingerprint)
+   */
+  questionChecks: Record<string, number>;
+  /** 마지막 저장 시각 — 다중 탭 충돌 감지 기준 */
+  savedAt: number;
+  status: "in-progress";
 }
 
 /** 단계별 진도 */
