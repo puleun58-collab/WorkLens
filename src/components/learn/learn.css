@@ -45,11 +45,11 @@
 .learn-choice { display: flex; align-items: flex-start; gap: 10px; width: 100%; text-align: left; padding: 12px 14px; border: 1.5px solid var(--border); border-radius: 10px; background: var(--card); margin: 8px 0; cursor: pointer; font-size: var(--font-size-sm); }
 .learn-choice:hover { border-color: var(--primary); }
 .learn-choice.is-selected { border-color: var(--primary); background: color-mix(in srgb, var(--primary) 7%, transparent); }
+.learn-choice.is-selected .learn-choice-id { background: var(--primary); border-color: var(--primary); color: #fff; }
 .learn-choice.is-correct { border-color: var(--primary); background: color-mix(in srgb, var(--primary) 10%, transparent); }
 .learn-choice.is-wrong { border-color: var(--destructive); background: color-mix(in srgb, var(--destructive) 7%, transparent); }
 .learn-choice:disabled { cursor: default; }
-.learn-choice-id { flex: none; width: 28px; height: 28px; border-radius: 50%; border: 1.5px solid var(--border); display: flex; align-items: center; justify-content: center; font-weight: 650; font-size: 13px; }
-.learn-choice.is-selected .learn-choice-id { border-color: var(--primary); color: var(--primary); }
+.learn-choice-id { flex: none; width: 28px; height: 28px; border-radius: 50%; border: 1.5px solid var(--border); display: flex; align-items: center; justify-content: center; font-weight: 650; font-size: 13px; background: var(--card); }
 .learn-ox-row { display: flex; gap: 12px; margin: 12px 0; }
 .learn-ox { flex: 1; padding: 16px; font-size: 20px; font-weight: 700; border: 1.5px solid var(--border); border-radius: 12px; background: var(--card); cursor: pointer; }
 .learn-ox.is-selected { border-color: var(--primary); background: color-mix(in srgb, var(--primary) 7%, transparent); }
@@ -166,6 +166,54 @@
 
 /* 학습 상세 하단 이동 버튼 — 레퍼런스처럼 카드 아래 여백만 (구분선 없음) */
 .learn-lesson .learn-quiz-nav { border-top: 0; margin-top: 18px; padding-top: 0; }
+
+/* 평가·결과·복습 — COSS 공통 평가 UI */
+.learn-assess-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin: 4px 0 8px; }
+.learn-assess-head h2 { margin: 0; }
+.learn-assess-progress { display: flex; align-items: center; gap: 10px; flex: none; }
+.learn-assess-progress-text { font-size: 13px; font-weight: 600; white-space: nowrap; }
+.learn-assess-bar { width: 120px; height: 6px; margin: 0; }
+.learn-question-card { border: 1px solid var(--border); border-radius: 12px; background: var(--card); padding: 20px; margin: 12px 0; overflow: hidden; }
+.learn-question-card > :first-child { margin-top: 0; }
+.learn-question-card > :last-child { margin-bottom: 0; }
+.learn-question-meta { font-size: 13px; font-weight: 600; color: var(--primary); margin: 0 0 8px; }
+.learn-question-prompt { font-size: 17px; font-weight: 700; margin: 0 0 12px; }
+.learn-question-card .learn-choice { margin: 10px 0; }
+
+/* 빈 상태 */
+.learn-empty { text-align: center; padding: 48px 20px; max-width: 480px; margin: 16px auto; }
+.learn-empty-icon { display: inline-flex; align-items: center; justify-content: center; width: 72px; height: 72px; border-radius: 50%; background: #eaf2fd; color: #2563eb; margin-bottom: 16px; }
+.learn-empty-icon svg { width: 32px; height: 32px; }
+.learn-empty-title { font-size: 17px; font-weight: 700; margin: 0 0 8px; }
+.learn-empty .learn-muted { margin: 0 0 20px; }
+
+/* 오답 노트·문항별 해설 행 */
+.learn-note-item { border: 1px solid var(--border); border-radius: 12px; background: var(--card); padding: 16px 18px; margin: 12px 0; overflow: hidden; }
+.learn-note-item > :first-child { margin-top: 0; }
+.learn-note-item > :last-child { margin-bottom: 0; }
+.learn-note-prompt { font-size: 15.5px; margin: 4px 0 10px; }
+.learn-note-choices { list-style: none; padding-left: 0 !important; margin: 8px 0; }
+.learn-note-choices li { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; margin: 8px 0; }
+.learn-note-choices li.is-correct { border-color: var(--primary); background: color-mix(in srgb, var(--primary) 6%, transparent); }
+.learn-note-choice-text { flex: 1; min-width: 0; }
+.learn-tag { flex: none; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; }
+.learn-tag.is-correct { color: #15803d; background: #dcfce7; }
+.learn-tag.is-mine { color: var(--muted-foreground); background: color-mix(in srgb, var(--muted) 40%, transparent); }
+
+/* 공통 상태 화면 */
+.learn-state { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; text-align: center; padding: 64px 20px; }
+
+/* 가상 터미널 실습 주변 */
+.learn-terminal-block ol.learn-terminal-steps { margin: 8px 0 12px; }
+
+@media (max-width: 700px) {
+  .learn-assess-head { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .learn-assess-progress { width: 100%; }
+  .learn-assess-bar { flex: 1; width: auto; }
+  .learn-question-card { padding: 16px; }
+  .learn-note-item { padding: 14px; }
+  .learn-empty { padding: 36px 16px; }
+}
 
 /* 사전 진단 간격 */
 .learn-diagnostic-intro { margin: 0 0 4px; }

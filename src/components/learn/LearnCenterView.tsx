@@ -145,14 +145,19 @@ export function LearnCenterView() {
   if (error) {
     return (
       <div className="learn-view" role="alert">
-        <p>{error}</p>
+        <div className="learn-state">
+          <p className="learn-empty-title">학습 진도를 불러오지 못했습니다</p>
+          <p className="learn-muted">{error}</p>
+        </div>
       </div>
     );
   }
   if (!progress) {
     return (
       <div className="learn-view">
-        <p className="learn-muted">학습 진도를 불러오는 중…</p>
+        <div className="learn-state">
+          <p className="learn-muted">학습 진도를 불러오는 중…</p>
+        </div>
       </div>
     );
   }
