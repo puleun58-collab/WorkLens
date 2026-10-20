@@ -132,6 +132,14 @@ export const ASSISTANT_EVIDENCE: AssistantEvidence[] = [
     kind: "menu",
   },
   {
+    id: "ax-menu",
+    screen: "AI·AX > 업무 자동화 진단",
+    title: "업무 자동화 진단 위치",
+    text: "업무 자동화 진단은 왼쪽 메뉴의 AI·AX 카테고리에서 '업무 자동화 진단'을 선택해 진행할 수 있습니다.",
+    keywords: /자동화\s*진단|업무\s*자동화\s*진단|진단.*어디|어디.*진단/iu,
+    kind: "menu",
+  },
+  {
     id: "assistant-self",
     screen: "렌즈봇",
     title: "도우미 사용 방법",

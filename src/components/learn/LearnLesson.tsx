@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { publishLearnScreen } from "@/client/learn-screen";
 import {
   ArrowLeft,
   ArrowRight,
@@ -76,6 +77,11 @@ export function LearnLesson({ level, initialUnitId, progress, onPersistUnit, onB
     onPersistUnit(content.units[idx].id);
     window.scrollTo({ top: 0 });
   };
+
+  // 렌즈봇 화면 인식용 현재 단위 발행
+  useEffect(() => {
+    publishLearnScreen({ unitId: unit.id });
+  }, [unit.id]);
 
   // 선택된 단위 버튼이 nav 안에 보이도록 (좁은 화면에서 가로 스크롤 시)
   const navRef = useRef<HTMLElement>(null);

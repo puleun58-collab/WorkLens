@@ -1,13 +1,22 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { GATE_LABELS, LEVEL_LABELS } from "@/lib/ax/policy";
-import { hasInventedMetric, selectEvidence, validCitations } from "@/lib/assistant/evidence";
+import { hasInventedMetric, selectEvidence, validCitations, type AssistantEvidence } from "@/lib/assistant/evidence";
+import {
+  buildLearnEvidence,
+  detectQuizAnswerSeeking,
+  isLearnRelated,
+  quizAnswerLeakCheck,
+  quizHintResponse,
+  sanitizeLearnContext,
+} from "@/lib/assistant/learn-evidence";
 import type { AssistantContextNote } from "@/lib/assistant/prompt";
 import {
   clarifyOptions,
   clarifyResponse,
   classifyQuestion,
   executionRequestResponse,
+  isDetailRequest,
   isTaskSpecificQuestion,
   resolveClarifyFollowUp,
   INJECTION_RESPONSE,
@@ -49,7 +58,49 @@ const assistantRequestSchema = z.object({
   followUpOf: z.string().trim().min(1).max(1000).optional(),
   // Client-side context status when context is null (prevents consent repetition).
   contextStatus: z.enum(["no-task", "no-diagnosis", "access-failed"]).optional(),
+  // 학습센터 현재 화면 정보. 클라이언트 값은 신뢰하지 않으며, 서버에서 실제
+  // 학습 데이터·문제은행 원본으로 검증한 범위에서만 근거에 반영한다.
+  learnContext: z.object({
+    mode: z.enum(["dashboard", "lesson", "quiz", "result", "wrongnotes", "diagnostic", "certificate"]),
+    level: z.number().int().min(1).max(10).optional(),
+    unitId: z.string().trim().min(1).max(40).optional(),
+    questionId: z.string().trim().min(1).max(40).optional(),
+    attempt: z.object({
+      attemptId: z.string().trim().min(1).max(120),
+      level: z.number().int().min(1).max(10),
+      questionIds: z.array(z.string().trim().min(1).max(40)).min(1).max(20),
+      answers: z.record(z.string().max(40), z.discriminatedUnion("kind", [
+        z.object({ kind: z.literal("choices"), selectedChoiceIds: z.array(z.string().trim().min(1).max(40)).max(10) }).strict(),
+        z.object({ kind: z.literal("ox"), answer: z.boolean() }).strict(),
+        z.object({ kind: z.literal("terminal"), passed: z.boolean() }).strict(),
+      ])),
+      graded: z.array(z.object({
+        questionId: z.string().trim().min(1).max(40),
+        correct: z.boolean(),
+        points: z.number().min(0).max(100),
+      }).strict()).min(1).max(20),
+      score: z.number().int().min(0).max(100),
+      passed: z.boolean(),
+      passScore: z.number().int().min(0).max(100).optional(),
+      choiceOrder: z.record(z.string().max(40), z.array(z.string().trim().min(1).max(40)).max(10)).optional(),
+      startedAt: z.number(),
+      finishedAt: z.number(),
+    }).strict().optional(),
+  }).strict().optional(),
 }).strict();
+
+/** 학습 근거와 기존 근거를 합친다 — 학습 근거를 우선하고 전체 개수를 제한한다. */
+function mergeEvidence(learn: AssistantEvidence[], stat: AssistantEvidence[]): AssistantEvidence[] {
+  const seen = new Set<string>();
+  const merged: AssistantEvidence[] = [];
+  for (const entry of [...learn, ...stat]) {
+    if (seen.has(entry.id)) continue;
+    seen.add(entry.id);
+    merged.push(entry);
+    if (merged.length >= 4) break;
+  }
+  return merged;
+}
 
 /**
  * Client-provided context is untrusted input: only known policy labels pass through,
@@ -73,6 +124,7 @@ export async function POST(request: Request) {
     if (!parsed.success) throw new ApiError("INVALID_REQUEST", "질문을 확인해 주세요.", 400);
     const { question } = parsed.data;
     const context = sanitizeContext(parsed.data.context);
+    const learnCtx = sanitizeLearnContext(parsed.data.learnContext);
     const followUpOf = parsed.data.followUpOf;
 
     // Resolve a follow-up answer ("첫 번째요") against a pending clarification.
@@ -107,7 +159,8 @@ export async function POST(request: Request) {
 
     const topic = classifyQuestion(effectiveQuestion);
     if (topic === "injection") return ok({ answer: INJECTION_RESPONSE, sources: [], relatedScreens: [], kind: "rejected" as const }, 200, requestId);
-    if (topic === "out-of-scope") return ok({ answer: OUT_OF_SCOPE_RESPONSE, sources: [], relatedScreens: [], kind: "rejected" as const }, 200, requestId);
+    // 학습센터 교육 질문(CLI·Git 개념 등)은 일반 코딩 상담으로 오분류하지 않는다.
+    if (topic === "out-of-scope" && !isLearnRelated(effectiveQuestion, learnCtx)) return ok({ answer: OUT_OF_SCOPE_RESPONSE, sources: [], relatedScreens: [], kind: "rejected" as const }, 200, requestId);
     if (topic === "clarify") {
       const options = clarifyOptions(effectiveQuestion);
       return ok({
@@ -126,10 +179,18 @@ export async function POST(request: Request) {
       return ok({ answer: executionRequestResponse(effectiveQuestion), sources: [], relatedScreens: [], kind: "guidance" as const }, 200, requestId);
     }
 
+    // 퀴즈 응시 중 정답을 직접 요구하면 AI를 거치지 않고 개념 힌트만 제공한다.
+    // (정답·해설은 근거에도 포함되지 않으므로 모델이 알 수 없다.)
+    if (learnCtx?.mode === "quiz" && detectQuizAnswerSeeking(effectiveQuestion)) {
+      const hint = quizHintResponse(learnCtx);
+      return ok({ answer: hint.answer, sources: hint.sources, relatedScreens: [], kind: "answer" as const }, 200, requestId);
+    }
+
     // Task-specific questions need the selected task's diagnosis data.
     // Without user consent, ask for it instead of answering from general policy.
     // If there's no task/diagnosis, guide the user instead of asking for consent repeatedly.
-    if (isTaskSpecificQuestion(effectiveQuestion) && !context) {
+    // 학습 화면에서는 학습 컨텍스트가 우선하므로 업무 진단 동의 흐름을 적용하지 않는다.
+    if (!learnCtx && isTaskSpecificQuestion(effectiveQuestion) && !context) {
       const contextStatus = parsed.data.contextStatus;
       if (contextStatus === "no-task") {
         return ok({
@@ -162,14 +223,28 @@ export async function POST(request: Request) {
     const evidenceQuery = followUpOf && effectiveQuestion.length <= 15
       ? `${followUpOf} ${effectiveQuestion}`
       : effectiveQuestion;
-    const evidence = selectEvidence(evidenceQuery);
+    const learnBuilt = buildLearnEvidence(evidenceQuery, learnCtx);
+    const evidence = mergeEvidence(learnBuilt.evidence, selectEvidence(evidenceQuery));
     if (!evidence.length) return ok({ answer: NO_EVIDENCE_RESPONSE, sources: [], relatedScreens: [], kind: "no-evidence" as const }, 200, requestId);
 
     const result = await runBoundedOperation(() => runGroqAi(
-      { kind: "assistant", question: effectiveQuestion, evidence, ...(context ? { context } : {}), ...(clarifyState ? { clarify: clarifyState } : {}), ...(followUpOf ? { followUpOf } : {}) },
+      {
+        kind: "assistant", question: effectiveQuestion, evidence,
+        ...(context ? { context } : {}),
+        ...(clarifyState ? { clarify: clarifyState } : {}),
+        ...(followUpOf ? { followUpOf } : {}),
+        ...(learnBuilt.note ? { learnNote: learnBuilt.note } : {}),
+        ...(isDetailRequest(effectiveQuestion) ? { detail: true } : {}),
+      },
       { requestId },
     ));
     if (result.kind !== "assistant") throw new ApiError("INVALID_PROVIDER_OUTPUT", "AI 응답 형식이 올바르지 않습니다.", 502);
+
+    // 퀴즈 응시 중 답변이 현재 문항의 정답을 누설했으면 힌트 응답으로 교체한다.
+    if (learnCtx?.mode === "quiz" && learnCtx.quizQuestion && quizAnswerLeakCheck(result.answer, learnCtx.quizQuestion)) {
+      const hint = quizHintResponse(learnCtx);
+      return ok({ answer: hint.answer, sources: hint.sources, relatedScreens: [], kind: "answer" as const }, 200, requestId);
+    }
 
     // Server-side verification: citations must come from the provided evidence,
     // and quantitative claims must be grounded. Otherwise fall back safely.
