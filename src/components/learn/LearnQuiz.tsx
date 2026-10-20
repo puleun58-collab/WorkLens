@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { ArrowLeft, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { levelMeta } from "@/lib/learn/curriculum";
 import type { LearnLevelNo, LearnQuestion, LearnerAnswer } from "@/lib/learn/types";
@@ -47,19 +48,21 @@ export function LearnQuiz({ level, questions, onSubmit, onCancel }: LearnQuizPro
 
   return (
     <div>
-      <h2>
-        LEVEL {level} 퀴즈 ({meta.questionCount}문항 · {meta.passScore}점 이상 통과)
-      </h2>
-      <div className="learn-quiz-progress">
-        <span>
-          {idx + 1} / {questions.length}
+      <div className="learn-assess-head">
+        <h2>LEVEL {level} 퀴즈</h2>
+        <span className="learn-muted">
+          <small>
+            {meta.questionCount}문항 · {meta.passScore}점 이상 통과 · 답변 {questions.length - unanswered.length}/{questions.length}
+          </small>
         </span>
-        <div className="learn-progress-bar" style={{ flex: 1 }} role="progressbar" aria-valuenow={idx + 1} aria-valuemin={1} aria-valuemax={questions.length}>
+      </div>
+      <div className="learn-quiz-progress">
+        <span className="learn-assess-progress-text">
+          {idx + 1} / {questions.length} 문항
+        </span>
+        <div className="learn-progress-bar learn-assess-bar" style={{ flex: 1 }} role="progressbar" aria-valuenow={idx + 1} aria-valuemin={1} aria-valuemax={questions.length} aria-label="퀴즈 진행률">
           <div style={{ width: `${((idx + 1) / questions.length) * 100}%` }} />
         </div>
-        <span className="learn-muted">
-          <small>답변 {questions.length - unanswered.length}/{questions.length}</small>
-        </span>
       </div>
 
       <div className="learn-question-dots" role="navigation" aria-label="문항 이동">
@@ -76,14 +79,12 @@ export function LearnQuiz({ level, questions, onSubmit, onCancel }: LearnQuizPro
         ))}
       </div>
 
-      <div className="learn-surface">
-        <p>
-          <small className="learn-muted">
-            {q.category} ·{" "}
-            {q.difficulty === "concept" ? "개념 이해" : q.difficulty === "application" ? "응용" : "상황 판단"}
-          </small>
+      <div className="learn-question-card">
+        <p className="learn-question-meta">
+          {idx + 1} / {questions.length} · {q.category} ·{" "}
+          {q.difficulty === "concept" ? "개념 이해" : q.difficulty === "application" ? "응용" : "상황 판단"}
         </p>
-        <h3>{q.prompt}</h3>
+        <h3 className="learn-question-prompt">{q.prompt}</h3>
 
         {(q.type === "single" || q.type === "multiple" || q.type === "command-result" || q.type === "error-cause" || q.type === "case-judgment") && q.choices ? (
           <div role="group" aria-label={q.type === "multiple" ? "복수 선택" : "단일 선택"}>
@@ -145,14 +146,14 @@ export function LearnQuiz({ level, questions, onSubmit, onCancel }: LearnQuizPro
 
       <div className="learn-quiz-nav">
         <Button type="button" variant="outline" disabled={idx === 0} onClick={() => setIdx(idx - 1)}>
-          이전 문항
+          <ArrowLeft /> 이전
         </Button>
         <Button type="button" variant="ghost" onClick={onCancel}>
           그만두기
         </Button>
         {idx < questions.length - 1 ? (
           <Button type="button" variant="default" onClick={() => setIdx(idx + 1)}>
-            다음 문항
+            다음 <ArrowRight />
           </Button>
         ) : (
           <Button type="button" variant="default" onClick={() => setConfirming(true)}>
@@ -162,7 +163,7 @@ export function LearnQuiz({ level, questions, onSubmit, onCancel }: LearnQuizPro
       </div>
 
       {confirming ? (
-        <div className="learn-surface" role="alertdialog" aria-label="제출 확인" style={{ marginTop: 16 }}>
+        <div className="learn-question-card" role="alertdialog" aria-label="제출 확인" style={{ marginTop: 16 }}>
           {unanswered.length > 0 ? (
             <p>
               아직 답변하지 않은 문항이 <strong>{unanswered.length}개</strong> 있습니다. 미응답 문항은 오답 처리됩니다.

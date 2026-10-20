@@ -1,5 +1,6 @@
 "use client";
 
+import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ALL_LEVELS, levelMeta } from "@/lib/learn/curriculum";
 import { isLearningComplete } from "@/lib/learn/scoring";
@@ -21,12 +22,12 @@ export function LearnCertificate({ progress, onBack }: LearnCertificateProps) {
 
   if (!complete) {
     return (
-      <div>
-        <Button type="button" variant="ghost" size="sm" onClick={onBack}>
-          ← 학습센터로
+      <div className="learn-certificate-screen">
+        <Button type="button" variant="ghost" size="sm" className="learn-back" onClick={onBack}>
+          <ArrowLeft /> 학습센터로 돌아가기
         </Button>
         <h2>수료증</h2>
-        <div className="learn-surface">
+        <div className="learn-question-card">
           <p>아직 모든 단계를 통과하지 않았습니다. 10단계를 모두 통과하면 수료증이 발급됩니다.</p>
           <p className="learn-muted">
             <small>
@@ -39,9 +40,9 @@ export function LearnCertificate({ progress, onBack }: LearnCertificateProps) {
   }
 
   return (
-    <div>
-      <Button type="button" variant="ghost" size="sm" onClick={onBack}>
-        ← 학습센터로
+    <div className="learn-certificate-screen">
+      <Button type="button" variant="ghost" size="sm" className="learn-back" onClick={onBack}>
+        <ArrowLeft /> 학습센터로 돌아가기
       </Button>
       <div className="learn-certificate">
         <h2>수료증</h2>
