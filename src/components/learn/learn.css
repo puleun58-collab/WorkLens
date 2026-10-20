@@ -57,14 +57,6 @@
 .learn-dash-locked { flex: none; display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted-foreground); }
 .learn-dash-locked svg { width: 15px; height: 15px; }
 .learn-dash-btns { flex: none; display: flex; gap: 8px; }
-.learn-dash-practice { background: #eaf2fd; border: 1px solid #dbe7fa; border-radius: 12px; padding: 18px 20px; margin-top: 20px; }
-.learn-dash-practice-title { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 700; color: #1e3a5f; margin: 0; }
-.learn-dash-practice-title svg { width: 17px; height: 17px; color: #2563eb; flex: none; }
-.learn-dash-practice-intro { margin: 8px 0 10px; }
-.learn-dash-practice-list { list-style: none; padding-left: 0; margin: 0; }
-.learn-dash-practice-list li { position: relative; padding-left: 16px; margin: 6px 0; }
-.learn-dash-practice-list li::before { content: "•"; position: absolute; left: 2px; color: var(--muted-foreground); }
-
 @media (max-width: 700px) {
   .learn-dash-card { padding: 16px; }
   .learn-dash-row { flex-wrap: wrap; row-gap: 10px; }
@@ -72,7 +64,6 @@
   .learn-dash-lv-desc { white-space: normal; }
   .learn-dash-right { width: 100%; padding-left: 50px; flex-wrap: wrap; }
   .learn-dash-locked { margin-left: auto; }
-  .learn-dash-practice { padding: 16px; }
 }
 
 /* 학습 단위 */
