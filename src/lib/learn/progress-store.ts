@@ -1,9 +1,11 @@
-import type { InProgressQuiz, LearnProgress } from "./types";
+import { isValidTerminalSnapshot } from "./terminal";
+import type { InProgressQuiz, LearnProgress, TerminalStateSnapshot } from "./types";
 
 export const LEARN_DB_NAME = "worklens-learn";
 const STORE = "progress";
 const KEY = "current";
 const IN_PROGRESS_KEY = "in-progress";
+const PRACTICE_KEY = "practice-terminal";
 const DB_VERSION = 1;
 
 function emptyProgress(): LearnProgress {
@@ -46,7 +48,7 @@ function transaction<T>(mode: IDBTransactionMode, run: (store: IDBObjectStore) =
   );
 }
 
-function isValidProgress(record: unknown): record is LearnProgress {
+export function isValidProgress(record: unknown): record is LearnProgress {
   if (typeof record !== "object" || record === null) return false;
   const r = record as Record<string, unknown>;
   return r.version === 1 && typeof r.levels === "object" && Array.isArray(r.wrongAnswers);
@@ -197,7 +199,7 @@ async function saveLearnProgressInner(progress: LearnProgress, expected?: string
 /* 진행 중 퀴즈 응시 — 완료 기록과 분리된 임시 저장 (같은 DB·스토어, 별도 키) */
 /* ------------------------------------------------------------------ */
 
-function isValidInProgress(record: unknown): record is InProgressQuiz {
+export function isValidInProgress(record: unknown): record is InProgressQuiz {
   if (typeof record !== "object" || record === null) return false;
   const r = record as Record<string, unknown>;
   return (
@@ -340,6 +342,39 @@ export async function clearInProgressQuiz(attemptId: string): Promise<void> {
       db.close();
     }
     inProgressSavedAt = null;
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* 연습용 가상 터미널 상태 — 공식 평가(진행 중 응시)와 분리된 별도 키.    */
+/* 키는 `${level}:${unitId}`이며 점수·진도에는 영향을 주지 않는다.        */
+/* ------------------------------------------------------------------ */
+
+export type PracticeTerminalStates = Record<string, TerminalStateSnapshot>;
+
+function sanitizePracticeStates(record: unknown): PracticeTerminalStates {
+  if (typeof record !== "object" || record === null) return {};
+  const out: PracticeTerminalStates = {};
+  for (const [key, value] of Object.entries(record as Record<string, unknown>)) {
+    if (/^\d+:.+/.test(key) && isValidTerminalSnapshot(value)) out[key] = value;
+  }
+  return out;
+}
+
+/** 연습 터미널 상태 전체 불러오기 — 없거나 손상되었으면 빈 객체 */
+export async function loadPracticeTerminalStates(): Promise<PracticeTerminalStates> {
+  try {
+    const record = await transaction("readonly", (store) => store.get(PRACTICE_KEY));
+    return sanitizePracticeStates(record);
+  } catch {
+    return {};
+  }
+}
+
+/** 연습 터미널 상태 전체 저장 (진도 저장 큐와 같은 직렬화 큐를 공유한다) */
+export async function savePracticeTerminalStates(states: PracticeTerminalStates): Promise<void> {
+  return enqueueSave(async () => {
+    await transaction("readwrite", (store) => store.put(states, PRACTICE_KEY));
   });
 }
 

@@ -15,7 +15,7 @@ import type { AssistantEvidence } from "./evidence";
  */
 
 export type LearnScreenMode =
-  | "dashboard" | "lesson" | "quiz" | "result" | "wrongnotes" | "diagnostic" | "certificate";
+  | "dashboard" | "lesson" | "quiz" | "result" | "wrongnotes" | "diagnostic" | "completion";
 
 /** 클라이언트가 보낸 제출 완료 응시 주장 (신뢰하지 않음 — 서버에서 재채점으로 검증한다). */
 export interface RawSubmittedAttempt {
@@ -440,9 +440,9 @@ export function buildLearnEvidence(
       for (const hit of searchLearnUnits(question)) push(unitEvidence(hit.level, hit.unit));
       return { evidence: evidence.slice(0, 3), note: "사용자는 학습센터 사전 진단 화면에 있습니다. 진단 문항의 정답은 알려주지 마세요." };
     }
-    case "certificate": {
+    case "completion": {
       push(learnOverviewEvidence());
-      return { evidence, note: "사용자는 학습센터 수료 화면에 있습니다." };
+      return { evidence, note: "사용자는 학습센터 학습 완료 확인 화면에 있습니다." };
     }
   }
 }

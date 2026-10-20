@@ -15,7 +15,7 @@ export const CONTENT_L09: LearnContent = {
         {
           term: "브랜치",
           definition:
-            "코드의 복사본 작업 공간이다. 나뭇가지처럼 본 줄기에서 갈라져 나와, 다른 작업에 영향을 주지 않고 따로 작업할 수 있다.",
+            "main의 이력에서 갈라져 나온 작업 흐름으로, 특정 커밋을 가리키는 이름이다. 파일을 복사하는 것이 아니라, 브랜치를 전환하면 그 시점의 파일 상태로 작업할 수 있어 main에 영향을 주지 않고 따로 작업할 수 있다.",
         },
         {
           term: "main 브랜치",
@@ -73,7 +73,7 @@ export const CONTENT_L09: LearnContent = {
         },
       ],
       summary: [
-        "브랜치는 코드를 건드리지 않고 따로 작업하는 복사본 작업 공간이다.",
+        "브랜치는 main의 이력에서 갈라져 나온 작업 흐름을 가리키는 이름으로, main에 영향을 주지 않고 따로 작업할 수 있게 한다.",
         "main은 운영과 연결된 안정적인 줄기이므로 직접 작업하지 않는다.",
         "작업은 기능 브랜치에서 하고, 끝나면 검토를 거쳐 main에 합친다.",
       ],
@@ -163,7 +163,7 @@ export const CONTENT_L09: LearnContent = {
       id: "l9-u3",
       title: "CI와 Push·Merge의 순서",
       estimatedMinutes: 12,
-      goal: "CI의 개념을 설명하고, 브랜치 작업부터 배포까지의 전체 순서(Push → PR → CI → 리뷰 → Merge)를 말할 수 있다.",
+      goal: "CI의 개념을 설명하고, 브랜치 작업부터 배포까지의 전체 흐름(Push → PR → CI·리뷰 병행 → Merge)을 말할 수 있다.",
       concepts: [
         {
           term: "Push",
@@ -217,7 +217,7 @@ export const CONTENT_L09: LearnContent = {
         title: "전체 흐름 순서 맞추기",
         steps: [
           "다음 단계들을 올바른 순서로 나열해 본다: Merge, PR 생성, CI 통과, 기능 브랜치에서 작업, Push, 코드 리뷰, 배포.",
-          "정답 순서: 기능 브랜치에서 작업 → Push → PR 생성 → CI 통과 → 코드 리뷰 → Merge → 배포.",
+          "정답 순서: 기능 브랜치에서 작업 → Push → PR 생성 → CI 실행과 코드 리뷰(병행 가능) → CI 통과와 리뷰 승인이 모두 충족되면 Merge → 배포.",
           "각 단계에서 '이 단계를 건너뛰면 무슨 일이 생기는가'를 한 줄씩 적어 본다.",
         ],
       },
@@ -234,7 +234,7 @@ export const CONTENT_L09: LearnContent = {
         },
       ],
       summary: [
-        "전체 순서: 브랜치 작업 → Push → PR → CI → 리뷰 → Merge → 배포.",
+        "전체 흐름: 브랜치 작업 → Push → PR → CI 실행과 코드 리뷰(병행) → 둘 다 충족 후 Merge → 배포.",
         "Push는 GitHub에 올리기, 배포는 서비스에 반영하기로 다르다.",
         "CI는 자동 검사 문지기로, 빨간불이면 Merge하지 않는다.",
         "작업 전·PR 전에는 최신 main을 Pull한다.",

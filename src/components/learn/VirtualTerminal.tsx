@@ -4,11 +4,13 @@ import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   checkTerminalSuccess,
+  deserializeTerminalState,
   executeCommand,
   initialStateForScenario,
+  serializeTerminalState,
   type VirtualTerminalState,
 } from "@/lib/learn/terminal";
-import type { TerminalSuccessCheck, TerminalTaskSpec } from "@/lib/learn/types";
+import type { TerminalStateSnapshot, TerminalSuccessCheck, TerminalTaskSpec } from "@/lib/learn/types";
 
 interface VirtualTerminalProps {
   scenario: TerminalTaskSpec["scenario"];
@@ -18,18 +20,31 @@ interface VirtualTerminalProps {
   onResult?: (passed: boolean) => void;
   /** 연습 모드: 점수에 반영되지 않음을 명시하고 완료 확인 버튼을 숨긴다 */
   practiceMode?: boolean;
+  /** 복원할 실습 중간 상태 — 없으면 시나리오 초기 상태로 시작한다 */
+  initialSnapshot?: TerminalStateSnapshot | null;
+  /** 상태가 바뀔 때마다 저장용 스냅샷을 보고한다 */
+  onSnapshotChange?: (snapshot: TerminalStateSnapshot) => void;
 }
 
 /**
  * 가상 터미널 — 실제 셸을 실행하지 않고 시뮬레이터로 동작한다.
  */
-export function VirtualTerminal({ scenario, instructions, successChecks, hint, onResult, practiceMode }: VirtualTerminalProps) {
-  const [termState, setTermState] = useState<VirtualTerminalState>(() => initialStateForScenario(scenario));
-  const [transcript, setTranscript] = useState<{ cmd: string; out: string[] }[]>(() =>
-    initialStateForScenario(scenario).lines.length > 0
-      ? [{ cmd: "", out: initialStateForScenario(scenario).lines }]
-      : [],
-  );
+export function VirtualTerminal({ scenario, instructions, successChecks, hint, onResult, practiceMode, initialSnapshot, onSnapshotChange }: VirtualTerminalProps) {
+  const [termState, setTermState] = useState<VirtualTerminalState>(() => {
+    if (initialSnapshot) {
+      const restored = deserializeTerminalState(initialSnapshot);
+      if (restored) return restored.state;
+    }
+    return initialStateForScenario(scenario);
+  });
+  const [transcript, setTranscript] = useState<{ cmd: string; out: string[] }[]>(() => {
+    if (initialSnapshot) {
+      const restored = deserializeTerminalState(initialSnapshot);
+      if (restored) return restored.transcript;
+    }
+    const initial = initialStateForScenario(scenario);
+    return initial.lines.length > 0 ? [{ cmd: "", out: initial.lines }] : [];
+  });
   const [input, setInput] = useState("");
   const [checked, setChecked] = useState<boolean | null>(null);
   const outputRef = useRef<HTMLDivElement>(null);
@@ -44,10 +59,12 @@ export function VirtualTerminal({ scenario, instructions, successChecks, hint, o
     const cmd = raw.trim();
     if (!cmd) return;
     const { state, output } = executeCommand(termState, cmd);
+    const nextTranscript = [...transcript, { cmd, out: output }];
     setTermState(state);
-    setTranscript((t) => [...t, { cmd, out: output }]);
+    setTranscript(nextTranscript);
     setChecked(null);
     setInput("");
+    onSnapshotChange?.(serializeTerminalState(state, nextTranscript));
     scrollBottom();
   };
 

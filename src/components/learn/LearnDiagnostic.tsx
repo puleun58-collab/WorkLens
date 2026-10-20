@@ -3,23 +3,27 @@
 import { useState } from "react";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { DIAGNOSTIC_AREAS, type DiagnosticAreaId } from "@/lib/learn/curriculum";
-import type { LearnQuestion, LearnerAnswer } from "@/lib/learn/types";
+import { DIAGNOSTIC_AREAS, DIAGNOSTIC_AREA_TARGETS, type DiagnosticAreaId } from "@/lib/learn/curriculum";
+import { levelContent } from "@/lib/learn/content";
+import type { LearnLevelNo, LearnQuestion, LearnerAnswer } from "@/lib/learn/types";
 
 interface LearnDiagnosticProps {
   questions: LearnQuestion[];
   onComplete: (weakAreaIds: string[]) => void;
   onSkip: () => void;
+  /** 진단 영역에 연결된 실제 학습 항목으로 이동 (잠긴 단계 처리는 호출자가 담당) */
+  onOpenLesson: (level: LearnLevelNo, unitId: string) => void;
 }
 
 /**
  * 사전 진단 — 학습 방향 추천용. 점수로 단계를 건너뛰거나 해제하지 않는다.
  */
-export function LearnDiagnostic({ questions, onComplete, onSkip }: LearnDiagnosticProps) {
+export function LearnDiagnostic({ questions, onComplete, onSkip, onOpenLesson }: LearnDiagnosticProps) {
   const [idx, setIdx] = useState(0);
   const [answers, setAnswers] = useState<Record<string, LearnerAnswer>>({});
   const [done, setDone] = useState(false);
   const [weakAreas, setWeakAreas] = useState<string[]>([]);
+  const [hasUnanswered, setHasUnanswered] = useState(false);
   const q = questions[idx];
 
   const areaOf = (question: LearnQuestion): DiagnosticAreaId => {
@@ -33,21 +37,30 @@ export function LearnDiagnostic({ questions, onComplete, onSkip }: LearnDiagnost
   };
 
   const finish = () => {
-    const byArea = new Map<DiagnosticAreaId, { correct: number; total: number }>();
+    const byArea = new Map<DiagnosticAreaId, { correct: number; answered: number }>();
+    let unanswered = false;
     for (const item of questions) {
       const area = areaOf(item);
-      const entry = byArea.get(area) ?? { correct: 0, total: 0 };
-      entry.total += 1;
+      const entry = byArea.get(area) ?? { correct: 0, answered: 0 };
       const a = answers[item.id];
-      const correct =
-        a?.kind === "choices" &&
-        a.selectedChoiceIds.length === (item.correctChoiceIds?.length ?? 0) &&
-        (item.correctChoiceIds ?? []).every((id) => a.selectedChoiceIds.includes(id));
-      if (correct) entry.correct += 1;
+      if (a?.kind === "choices") {
+        entry.answered += 1;
+        const correct =
+          a.selectedChoiceIds.length === (item.correctChoiceIds?.length ?? 0) &&
+          (item.correctChoiceIds ?? []).every((id) => a.selectedChoiceIds.includes(id));
+        if (correct) entry.correct += 1;
+      } else {
+        unanswered = true;
+      }
       byArea.set(area, entry);
     }
-    const weak = [...byArea.entries()].filter(([, v]) => v.correct < v.total).map(([k]) => k);
+    // 답변한 문항이 있는 영역만 판정한다 — 확인되지 않은 개념을 취약하다고
+    // 임의로 판정하지 않으며, 답변한 문항 중 틀린 것이 있을 때만 보완 권장한다.
+    const weak = [...byArea.entries()]
+      .filter(([, v]) => v.answered > 0 && v.correct < v.answered)
+      .map(([k]) => k);
     setWeakAreas(weak);
+    setHasUnanswered(unanswered);
     setDone(true);
   };
 
@@ -66,13 +79,49 @@ export function LearnDiagnostic({ questions, onComplete, onSkip }: LearnDiagnost
           ) : (
             <>
               <p>다음 영역을 중점적으로 학습하는 것을 추천합니다.</p>
-              <ul>
-                {weakAreas.map((id) => (
-                  <li key={id}>{DIAGNOSTIC_AREAS.find((a) => a.id === id)?.label}</li>
-                ))}
-              </ul>
+              <div className="learn-diagnostic-areas">
+                {weakAreas.map((id) => {
+                  const areaId = id as DiagnosticAreaId;
+                  const label = DIAGNOSTIC_AREAS.find((a) => a.id === areaId)?.label ?? id;
+                  const target = DIAGNOSTIC_AREA_TARGETS[areaId];
+                  // 연결된 학습 항목이 현재 커리큘럼에 실제로 있을 때만 이동을 제공한다
+                  const unit = target
+                    ? levelContent(target.level).units.find((u) => u.id === target.unitId)
+                    : undefined;
+                  return (
+                    <div key={id} className="learn-diagnostic-area">
+                      <div>
+                        <div className="learn-diagnostic-area-label">{label}</div>
+                        {target && unit ? (
+                          <div className="learn-muted">
+                            <small>연결 학습: LEVEL {target.level} · {unit.title}</small>
+                          </div>
+                        ) : null}
+                      </div>
+                      {target && unit ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            onComplete(weakAreas);
+                            onOpenLesson(target.level, target.unitId);
+                          }}
+                        >
+                          학습하기
+                        </Button>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
             </>
           )}
+          {hasUnanswered ? (
+            <p className="learn-muted">
+              <small>답변하지 않은 문항이 있어, 답변한 문항을 기준으로 판정했습니다.</small>
+            </p>
+          ) : null}
           <p className="learn-muted">
             <small>사전 진단은 학습 방향 안내용이며, 단계 해제에는 영향을 주지 않습니다.</small>
           </p>

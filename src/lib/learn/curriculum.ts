@@ -31,3 +31,20 @@ export const DIAGNOSTIC_AREAS = [
 ] as const;
 
 export type DiagnosticAreaId = (typeof DIAGNOSTIC_AREAS)[number]["id"];
+
+/**
+ * 사전 진단 영역 → 실제 학습 항목 연결.
+ * 진단 결과에서 보완이 필요한 영역의 '학습하기'로 이동할 때 사용한다.
+ * 대상 단위가 커리큘럼에서 사라지면 연결이 끊긴 것으로 취급해 이동을 막는다
+ * (테스트가 단위 존재를 강제한다).
+ */
+export const DIAGNOSTIC_AREA_TARGETS: Record<DiagnosticAreaId, { level: LearnLevelNo; unitId: string }> = {
+  // diag-q1(생성형 AI)·q2(AX) — 생성형 AI 단위를 대표 연결로 사용
+  concept: { level: 1, unitId: "l1-u2" },
+  // diag-q3·q4(자동화 적합성 판단) — 종합 판단 단위
+  automation: { level: 2, unitId: "l2-u5" },
+  // diag-q5(CLI)·q6(Git 커밋) — CLI 입문 단위부터 시작 (Git은 LEVEL 5)
+  "cli-git": { level: 4, unitId: "l4-u1" },
+  // diag-q7(배포)·q8(CI) — 배포 단위
+  "dev-deploy": { level: 9, unitId: "l9-u4" },
+};

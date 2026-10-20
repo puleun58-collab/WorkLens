@@ -20,7 +20,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { levelMeta } from "@/lib/learn/curriculum";
 import { levelContent } from "@/lib/learn/content";
-import type { LearnLevelNo, LearnProgress, TerminalTaskSpec } from "@/lib/learn/types";
+import type { LearnLevelNo, LearnProgress, TerminalStateSnapshot, TerminalTaskSpec } from "@/lib/learn/types";
 import { VirtualTerminal } from "./VirtualTerminal";
 
 /** 명령어 복사 버튼 — 클립보드 API 실패 시 폴백 */
@@ -53,11 +53,16 @@ interface LearnLessonProps {
   initialUnitId?: string;
   progress: LearnProgress;
   onPersistUnit: (unitId: string) => void;
+  /** 학습 항목 완료 상태 변경 (완료 표시는 사용자가 명시적으로 확인한 경우에만 바뀐다) */
+  onToggleUnitComplete: (unitId: string, completed: boolean) => void;
+  /** 연습용 가상 터미널 상태 (공식 평가와 분리 저장) */
+  practiceStates: Record<string, TerminalStateSnapshot>;
+  onPracticeStateChange: (key: string, snapshot: TerminalStateSnapshot) => void;
   onBack: () => void;
   onStartQuiz: () => void;
 }
 
-export function LearnLesson({ level, initialUnitId, progress, onPersistUnit, onBack, onStartQuiz }: LearnLessonProps) {
+export function LearnLesson({ level, initialUnitId, progress, onPersistUnit, onToggleUnitComplete, practiceStates, onPracticeStateChange, onBack, onStartQuiz }: LearnLessonProps) {
   const meta = levelMeta(level);
   const content = levelContent(level);
   const [unitIdx, setUnitIdx] = useState(() => {
@@ -70,6 +75,10 @@ export function LearnLesson({ level, initialUnitId, progress, onPersistUnit, onB
   const unit = content.units[unitIdx];
   const totalUnits = content.units.length;
   const passed = progress.levels[level]?.passed ?? false;
+  // 학습 항목 완료 상태 — 현재 위치(lastStudiedUnitId)와 독립적으로 관리한다
+  const completedUnitIds = progress.levels[level]?.completedUnitIds ?? [];
+  const completedSet = new Set(completedUnitIds);
+  const currentCompleted = completedSet.has(unit.id);
 
   const goUnit = (idx: number) => {
     if (idx < 0 || idx >= totalUnits) return;
@@ -130,10 +139,13 @@ export function LearnLesson({ level, initialUnitId, progress, onPersistUnit, onB
             aria-valuenow={unitIdx + 1}
             aria-valuemin={1}
             aria-valuemax={totalUnits}
-            aria-label="학습 진행률"
+            aria-label="현재 학습 위치"
           >
             <div style={{ width: `${((unitIdx + 1) / totalUnits) * 100}%` }} />
           </div>
+          <span className="learn-lesson-progress-text">
+            완료한 항목 {completedUnitIds.length} / {totalUnits}
+          </span>
         </div>
       </div>
       <p className="learn-muted learn-lesson-intro">{content.intro}</p>
@@ -143,11 +155,14 @@ export function LearnLesson({ level, initialUnitId, progress, onPersistUnit, onB
           <button
             key={u.id}
             type="button"
-            className={`learn-unit-btn${i === unitIdx ? " is-active" : ""}`}
+            className={`learn-unit-btn${i === unitIdx ? " is-active" : ""}${completedSet.has(u.id) ? " is-completed" : ""}`}
             onClick={() => goUnit(i)}
             aria-current={i === unitIdx ? "true" : undefined}
             title={u.title}
           >
+            {completedSet.has(u.id) ? (
+              <Check className="learn-unit-done-icon" aria-label="학습 완료" />
+            ) : null}
             {i + 1}. {u.shortTitle ?? u.title}
           </button>
         ))}
@@ -281,7 +296,13 @@ export function LearnLesson({ level, initialUnitId, progress, onPersistUnit, onB
                 ))}
               </div>
             ) : null}
-            <PracticeTerminal level={level} practiceTitle={unit.practice.title} />
+            <PracticeTerminal
+              level={level}
+              unitId={unit.id}
+              practiceTitle={unit.practice.title}
+              practiceStates={practiceStates}
+              onPracticeStateChange={onPracticeStateChange}
+            />
           </div>
         </section>
       ) : null}
@@ -318,6 +339,20 @@ export function LearnLesson({ level, initialUnitId, progress, onPersistUnit, onB
         </div>
       </section>
 
+      <div className="learn-unit-complete-row">
+        <span className={currentCompleted ? "learn-unit-complete-status is-done" : "learn-unit-complete-status"}>
+          {currentCompleted ? "이 항목의 학습을 완료했습니다" : "아직 완료로 표시하지 않은 항목입니다"}
+        </span>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => onToggleUnitComplete(unit.id, !currentCompleted)}
+          aria-pressed={currentCompleted}
+        >
+          {currentCompleted ? "완료 취소" : "학습 완료로 표시"}
+        </Button>
+      </div>
+
       <div className="learn-quiz-nav">
         <Button type="button" variant="outline" disabled={unitIdx === 0} onClick={() => goUnit(unitIdx - 1)}>
           <ArrowLeft /> 이전
@@ -336,16 +371,42 @@ export function LearnLesson({ level, initialUnitId, progress, onPersistUnit, onB
   );
 }
 
-/** 학습 중 연습용 가상 터미널 — 점수에 반영되지 않는다 */
-function PracticeTerminal({ level, practiceTitle }: { level: LearnLevelNo; practiceTitle: string }) {
-  const scenario: TerminalTaskSpec["scenario"] = level === 5 ? "git-basic" : "folder-nav";
+/**
+ * 학습 중 연습용 가상 터미널 — 점수에 반영되지 않는다.
+ * 연습 상태는 공식 평가와 분리해 저장하고, 다시 열면 이어서 연습할 수 있다.
+ */
+function PracticeTerminal({
+  level,
+  unitId,
+  practiceTitle,
+  practiceStates,
+  onPracticeStateChange,
+}: {
+  level: LearnLevelNo;
+  unitId: string;
+  practiceTitle: string;
+  practiceStates: Record<string, TerminalStateSnapshot>;
+  onPracticeStateChange: (key: string, snapshot: TerminalStateSnapshot) => void;
+}) {
+  // l5-u4 실습(원격 변경 가져오기)은 원격보다 뒤처진 저장소 상태에서 시작해야 지시대로 수행할 수 있다
+  const scenario: TerminalTaskSpec["scenario"] =
+    level === 5 ? (unitId === "l5-u4" ? "git-remote" : "git-basic") : "folder-nav";
+  const stateKey = `${level}:${unitId}`;
   const instructions = [
     `아래 가상 터미널에서 '${practiceTitle}' 단계를 직접 연습해 보세요.`,
     "실제 시스템에는 영향을 주지 않으며, 연습 결과는 점수에 반영되지 않습니다.",
   ];
   return (
     <div style={{ marginTop: 12 }}>
-      <VirtualTerminal scenario={scenario} instructions={instructions} successChecks={[]} practiceMode />
+      <VirtualTerminal
+        key={stateKey}
+        scenario={scenario}
+        instructions={instructions}
+        successChecks={[]}
+        practiceMode
+        initialSnapshot={practiceStates[stateKey] ?? null}
+        onSnapshotChange={(snapshot) => onPracticeStateChange(stateKey, snapshot)}
+      />
     </div>
   );
 }

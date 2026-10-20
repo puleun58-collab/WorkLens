@@ -12,9 +12,11 @@ interface LearnResultProps {
   onDashboard: () => void;
   onReviewWrong: () => void;
   onOpenLessonUnit: (level: LearnLevelNo, unitId?: string) => void;
+  /** LEVEL 10 통과로 전체 학습이 완료된 경우에만 제공되는 학습 완료 확인 화면 이동 */
+  onOpenCompletion?: () => void;
 }
 
-export function LearnResult({ attempt, onRetry, onNext, onDashboard, onReviewWrong, onOpenLessonUnit }: LearnResultProps) {
+export function LearnResult({ attempt, onRetry, onNext, onDashboard, onReviewWrong, onOpenLessonUnit, onOpenCompletion }: LearnResultProps) {
   const meta = levelMeta(attempt.level);
   // 응시 당시 적용된 통과 기준을 우선 표시한다 (과거 기록은 당시 기준으로 판정됨)
   const passScore = attempt.passScore ?? meta.passScore;
@@ -45,6 +47,11 @@ export function LearnResult({ attempt, onRetry, onNext, onDashboard, onReviewWro
           </div>
         </div>
         <div className="learn-actions">
+          {attempt.passed && onOpenCompletion ? (
+            <Button type="button" variant="default" onClick={onOpenCompletion}>
+              학습 완료 확인하기
+            </Button>
+          ) : null}
           {attempt.passed && nextLevel <= 10 ? (
             <Button type="button" variant="default" onClick={onNext}>
               다음 단계로

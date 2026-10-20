@@ -163,6 +163,33 @@ export interface WrongAnswerEntry {
 }
 
 /**
+ * 가상 터미널 상태 스냅샷 — 실습 중간 상태를 JSON으로 저장·복구하기 위한 직렬화 형태.
+ * VirtualTerminalState의 Set/Map을 배열로 풀어 저장한다 (terminal.ts의
+ * serialize/deserializeTerminalState가 변환을 담당한다).
+ */
+export interface TerminalStateSnapshot {
+  cwd: string;
+  dirs: string[];
+  files: [string, string][];
+  git: {
+    repoRoot: string | null;
+    branch: string;
+    branches: string[];
+    staged: string[];
+    modified: string[];
+    untracked: string[];
+    commits: { id: string; message: string }[];
+    remote: { name: string; url: string } | null;
+    ahead: number;
+    behind: number;
+    conflicted: boolean;
+  };
+  lines: string[];
+  /** 터미널 화면 기록 (입력한 명령과 출력) */
+  transcript: { cmd: string; out: string[] }[];
+}
+
+/**
  * 진행 중 퀴즈 응시 — 완료된 QuizAttempt와 구분되는 임시 저장 모델.
  * 새로고침·재접속 시 문제 세트·선택지 순서·답변·문항 위치를 그대로 복원한다.
  * 완료 기록(QuizAttempt)으로 저장되지 않으며, 제출이 확정되면 삭제된다.
@@ -177,6 +204,12 @@ export interface InProgressQuiz {
   choiceOrder: Record<string, string[]>;
   answers: Record<string, LearnerAnswer>;
   currentIndex: number;
+  /**
+   * 문항별 가상 터미널 실습 중간 상태 — 문항 이동·새로고침·재접속 후에도
+   * 실습 상태를 그대로 복원한다. 이 필드가 없는 과거 기록은 터미널 상태를
+   * 복원하지 않고 기존 답변만 복원한다.
+   */
+  terminalStates?: Record<string, TerminalStateSnapshot>;
   /** 응시 시작 당시 통과 기준 */
   passScore: number;
   /**
@@ -194,7 +227,14 @@ export interface LevelProgress {
   passed: boolean;
   bestScore: number;
   attempts: QuizAttempt[];
+  /** 마지막으로 열람한 학습 항목 — "현재 학습 위치"이며 완료 여부와 무관하다 */
   lastStudiedUnitId?: string;
+  /**
+   * 사용자가 명시적으로 "학습 완료"로 확인한 학습 항목 ID 목록.
+   * 현재 위치 이동만으로는 채워지지 않으며, 이 필드가 없는 과거 기록은
+   * 완료 항목이 없는 것으로 해석한다 (과거 완료 여부를 추측해 부여하지 않는다).
+   */
+  completedUnitIds?: string[];
 }
 
 /** 학습 진도 전체 */
@@ -207,7 +247,14 @@ export interface LearnProgress {
   };
   levels: Partial<Record<LearnLevelNo, LevelProgress>>;
   wrongAnswers: WrongAnswerEntry[];
+  /**
+   * 최초 학습 완료일 (LEVEL 1~10 전체 통과가 확정된 실제 시각).
+   * 전체 통과가 저장 확정되는 시점에 한 번만 기록되고 이후 재응시에도 유지된다.
+   * 과거 기록에 이 값이 없으면 응시 기록에서 신뢰성 있게 복원할 수 있을 때만
+   * 채우고, 복원할 수 없으면 비워 둔다 (임의 날짜를 만들지 않는다).
+   */
   completedAt?: number;
+  /** 과거 수료증 발급 여부 — 호환성 유지를 위해 읽기만 하며 신규 기록에서는 사용하지 않는다 */
   certificateIssued?: boolean;
   updatedAt: number;
 }

@@ -6,7 +6,7 @@
  * - 기본 학습 환경은 Windows PowerShell이다.
  */
 
-import type { TerminalSuccessCheck, TerminalTaskSpec } from "./types";
+import type { TerminalStateSnapshot, TerminalSuccessCheck, TerminalTaskSpec } from "./types";
 
 export interface VirtualGitState {
   repoRoot: string | null;
@@ -37,6 +37,9 @@ function normalizePath(cwd: string, raw: string): string {
   let p = raw.trim().replace(/\//g, "\\");
   if (/^[A-Za-z]:\\/.test(p)) {
     // 절대 경로
+  } else if (p.startsWith("\\")) {
+    // 드라이브 루트 기준 경로 (예: cd \)
+    p = `${cwd.slice(0, 2)}${p}`;
   } else if (p === "..") {
     p = parentDir(cwd);
   } else if (p === "." || p === "") {
@@ -186,19 +189,25 @@ export function executeCommand(prev: VirtualTerminalState, input: string): ExecR
     const target = normalizePath(state.cwd, args[0]);
     if (state.dirs.has(target) || state.files.has(target)) { push(`mkdir: '${args[0]}'이(가) 이미 있습니다.`); return { state, output: out }; }
     state.dirs.add(target);
+    // 실제 PowerShell의 mkdir은 만든 폴더 정보를 표시한다
+    push(`d-----  ${baseName(target)}`);
     return { state, output: out };
   }
   if (lower === "cd") {
-    if (!args[0]) { push(state.cwd); return { state, output: out }; }
+    // 실제 PowerShell의 cd는 경로를 생략하면 홈 디렉터리로 이동한다
+    if (!args[0]) { state.cwd = ROOT; return { state, output: out }; }
     const target = normalizePath(state.cwd, args[0]);
-    if (!state.dirs.has(target)) { push(`cd: '${args[0]}' 경로를 찾을 수 없습니다. dir로 폴더 목록을 확인하세요.`); return { state, output: out }; }
+    // 알려진 폴더의 상위 경로는 실제 파일 시스템처럼 존재하는 것으로 취급한다
+    const prefix = target.endsWith("\\") ? target : `${target}\\`;
+    const exists = state.dirs.has(target) || [...state.dirs].some((d) => d.startsWith(prefix));
+    if (!exists) { push(`cd: '${args[0]}' 경로를 찾을 수 없습니다. dir로 폴더 목록을 확인하세요.`); return { state, output: out }; }
     state.cwd = target;
     return { state, output: out };
   }
   if (lower === "dir" || lower === "ls") {
     const entries: string[] = [];
     for (const d of state.dirs) {
-      if (parentDir(d) === state.cwd && d !== state.cwd) entries.push(`<DIR>  ${baseName(d)}`);
+      if (parentDir(d) === state.cwd && d !== state.cwd) entries.push(`d-----  ${baseName(d)}`);
     }
     for (const [f] of state.files) {
       if (parentDir(f) === state.cwd) entries.push(`       ${baseName(f)}`);
@@ -375,6 +384,87 @@ function evalCheck(state: VirtualTerminalState, check: TerminalSuccessCheck): bo
     case "remote-in-sync":
       return g.remote !== null && g.ahead === 0 && g.behind === 0;
   }
+}
+
+/**
+ * 터미널 상태를 저장 가능한 스냅샷으로 직렬화한다.
+ * Set/Map을 배열로 풀어 JSON 저장이 가능하게 한다.
+ */
+export function serializeTerminalState(
+  state: VirtualTerminalState,
+  transcript: { cmd: string; out: string[] }[],
+): TerminalStateSnapshot {
+  return {
+    cwd: state.cwd,
+    dirs: [...state.dirs],
+    files: [...state.files.entries()],
+    git: {
+      repoRoot: state.git.repoRoot,
+      branch: state.git.branch,
+      branches: [...state.git.branches],
+      staged: [...state.git.staged],
+      modified: [...state.git.modified],
+      untracked: [...state.git.untracked],
+      commits: state.git.commits.map((c) => ({ ...c })),
+      remote: state.git.remote ? { ...state.git.remote } : null,
+      ahead: state.git.ahead,
+      behind: state.git.behind,
+      conflicted: state.git.conflicted,
+    },
+    lines: [...state.lines],
+    transcript: transcript.map((t) => ({ cmd: t.cmd, out: [...t.out] })),
+  };
+}
+
+/** 스냅샷 구조 검증 — 손상된 스냅샷은 복원 대상으로 취급하지 않는다 */
+export function isValidTerminalSnapshot(value: unknown): value is TerminalStateSnapshot {
+  if (typeof value !== "object" || value === null) return false;
+  const s = value as Record<string, unknown>;
+  const git = s.git as Record<string, unknown> | null;
+  return (
+    typeof s.cwd === "string" &&
+    Array.isArray(s.dirs) && s.dirs.every((d) => typeof d === "string") &&
+    Array.isArray(s.files) &&
+    s.files.every((f) => Array.isArray(f) && typeof f[0] === "string" && typeof f[1] === "string") &&
+    typeof git === "object" && git !== null &&
+    (git.repoRoot === null || typeof git.repoRoot === "string") &&
+    typeof git.branch === "string" &&
+    Array.isArray(git.branches) && Array.isArray(git.staged) && Array.isArray(git.modified) &&
+    Array.isArray(git.untracked) && Array.isArray(git.commits) &&
+    typeof git.ahead === "number" && typeof git.behind === "number" &&
+    Array.isArray(s.transcript)
+  );
+}
+
+/** 스냅샷에서 터미널 상태를 복원한다. 구조가 손상되었으면 null을 반환한다. */
+export function deserializeTerminalState(
+  snapshot: TerminalStateSnapshot,
+): { state: VirtualTerminalState; transcript: { cmd: string; out: string[] }[] } | null {
+  if (!isValidTerminalSnapshot(snapshot)) return null;
+  const g = snapshot.git;
+  const state: VirtualTerminalState = {
+    cwd: snapshot.cwd,
+    dirs: new Set(snapshot.dirs),
+    files: new Map(snapshot.files),
+    git: {
+      repoRoot: g.repoRoot,
+      branch: g.branch,
+      branches: [...g.branches],
+      staged: [...g.staged],
+      modified: [...g.modified],
+      untracked: [...g.untracked],
+      commits: g.commits.map((c) => ({ id: String(c.id), message: String(c.message) })),
+      remote: g.remote ? { name: String(g.remote.name), url: String(g.remote.url) } : null,
+      ahead: g.ahead,
+      behind: g.behind,
+      conflicted: g.conflicted === true,
+    },
+    lines: Array.isArray(snapshot.lines) ? snapshot.lines.filter((l) => typeof l === "string") : [],
+  };
+  const transcript = snapshot.transcript
+    .filter((t) => typeof t === "object" && t !== null && typeof t.cmd === "string" && Array.isArray(t.out))
+    .map((t) => ({ cmd: t.cmd, out: t.out.filter((l) => typeof l === "string") }));
+  return { state, transcript };
 }
 
 /** 과제용 초기 상태 생성 */
