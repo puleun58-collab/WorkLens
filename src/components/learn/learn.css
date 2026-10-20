@@ -146,8 +146,8 @@
 .learn-back:hover { color: var(--foreground); }
 .learn-lesson-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin: 4px 0 8px; }
 .learn-lesson-title { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.learn-lesson-title h2 { font-size: 22px; font-weight: 700; margin: 0; }
-.learn-status-pill { flex: none; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--primary); background: color-mix(in srgb, var(--primary) 10%, transparent); border: 1px solid color-mix(in srgb, var(--primary) 25%, transparent); border-radius: 999px; padding: 3px 10px; }
+.learn-lesson-title h2 { font-size: 22px; font-weight: 700; line-height: 1.35; margin: 0; }
+.learn-status-pill { flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 26px; padding: 0 11px; font-size: 12px; font-weight: 600; line-height: 1; color: var(--primary); background: color-mix(in srgb, var(--primary) 10%, transparent); border: 1px solid color-mix(in srgb, var(--primary) 25%, transparent); border-radius: 999px; }
 .learn-status-pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--primary); }
 .learn-status-pill.is-passed { color: #15803d; background: #dcfce7; border-color: #bbf7d0; }
 .learn-status-pill.is-passed::before { background: #16a34a; }
@@ -167,12 +167,11 @@
 .learn-lesson-meta > span { display: inline-flex; align-items: center; gap: 6px; }
 .learn-lesson-meta svg { width: 15px; height: 15px; }
 
-/* 콘텐츠 카드 — 연한 블루그레이 헤더 + 흰 본문 */
-.learn-card { border: 1px solid var(--border); border-radius: 12px; background: var(--card); margin: 0 0 14px; overflow: hidden; }
+/* 콘텐츠 카드 — 선명한 소프트 블루 헤더(#D6E6FF) + 흰 본문, 은은한 그림자는 디자인 토큰 재사용 */
+.learn-card { border: 1px solid var(--border); border-radius: 12px; background: var(--card); margin: 0 0 14px; overflow: hidden; box-shadow: var(--elevation-surface); }
 .learn-card > .learn-card-title { margin: 0; }
-.learn-card-title { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 700; line-height: 1.4; margin: 0; padding: 9px 18px; background: #eef3f8; border-bottom: 1px solid #dde6ef; }
-.learn-card-title svg { width: 17px; height: 17px; color: var(--primary); flex: none; }
-.learn-card-title svg.lucide-lightbulb { color: #d99a06; }
+.learn-card-title { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 700; line-height: 1.4; margin: 0; padding: 9px 18px; background: #d6e6ff; border-bottom: 1px solid #b8d2fa; color: #164b9b; }
+.learn-card-title svg { width: 17px; height: 17px; color: #1d4ed8; flex: none; }
 .learn-card-body { padding: 14px 20px; }
 .learn-card-body > :first-child { margin-top: 0; }
 .learn-card-body > :last-child { margin-bottom: 0; }

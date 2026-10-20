@@ -47,8 +47,9 @@ test("학습센터: LEVEL 1 학습 화면", async ({ page }) => {
   await expect(page.getByRole("button", { name: "학습센터로 돌아가기", exact: true })).toBeVisible();
   // 학습 단위 네비게이션
   await expect(page.getByRole("navigation", { name: "학습 단위" })).toBeVisible();
-  // 단원 진행률 표시
-  await expect(page.getByText("1 / 5 단원", { exact: true })).toBeVisible();
+  // 진행률 표시 (숫자 위치만, "단원" 문구 없음)
+  await expect(page.getByText("1 / 5", { exact: true })).toBeVisible();
+  await expect(page.getByText(/전체 \d+단원/)).toHaveCount(0);
   // 핵심 섹션 존재
   await expect(page.getByRole("heading", { name: "핵심 개념" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "실무 사례" })).toBeVisible();
@@ -67,14 +68,14 @@ test("학습센터: 학습 단위 이동 — 이전·다음·직접 선택", asy
   // 다음 단위 이동
   await nav.getByRole("button", { name: "다음", exact: true }).click();
   await expect(page.getByRole("heading", { name: /^2\. /, exact: false })).toBeVisible();
-  await expect(page.getByText("2 / 5 단원", { exact: true })).toBeVisible();
+  await expect(page.getByText("2 / 5", { exact: true })).toBeVisible();
   // 이전 단위 이동
   await nav.getByRole("button", { name: "이전", exact: true }).click();
   await expect(page.getByRole("heading", { name: /^1\. /, exact: false })).toBeVisible();
   // 상단 단위 직접 선택
   await page.getByRole("navigation", { name: "학습 단위" }).getByRole("button", { name: /^3\. / }).click();
   await expect(page.getByRole("heading", { name: /^3\. /, exact: false })).toBeVisible();
-  await expect(page.getByText("3 / 5 단원", { exact: true })).toBeVisible();
+  await expect(page.getByText("3 / 5", { exact: true })).toBeVisible();
   // 저장 오류 배너가 없어야 함
   await expect(page.locator(".learn-save-error")).toHaveCount(0);
 });

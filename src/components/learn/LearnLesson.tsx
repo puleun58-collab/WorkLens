@@ -100,7 +100,7 @@ export function LearnLesson({ level, progress, onPersistUnit, onBack, onStartQui
         </div>
         <div className="learn-lesson-progress">
           <span className="learn-lesson-progress-text">
-            {unitIdx + 1} / {totalUnits} 단원
+            {unitIdx + 1} / {totalUnits}
           </span>
           <div
             className="learn-progress-bar learn-lesson-progress-bar"
@@ -108,11 +108,10 @@ export function LearnLesson({ level, progress, onPersistUnit, onBack, onStartQui
             aria-valuenow={unitIdx + 1}
             aria-valuemin={1}
             aria-valuemax={totalUnits}
-            aria-label="학습 단원 진행률"
+            aria-label="학습 진행률"
           >
             <div style={{ width: `${((unitIdx + 1) / totalUnits) * 100}%` }} />
           </div>
-          <span className="learn-muted">전체 {totalUnits}단원</span>
         </div>
       </div>
       <p className="learn-muted learn-lesson-intro">{content.intro}</p>
