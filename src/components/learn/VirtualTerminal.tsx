@@ -59,13 +59,13 @@ export function VirtualTerminal({ scenario, instructions, successChecks, hint, o
   };
 
   return (
-    <div>
+    <div className="learn-terminal-block">
       {practiceMode ? (
         <p className="learn-muted">
           <small><strong>연습 모드</strong> — 여기서 연습한 결과는 점수에 반영되지 않습니다.</small>
         </p>
       ) : null}
-      <ol>
+      <ol className="learn-terminal-steps">
         {instructions.map((step, i) => (
           <li key={i}>{step}</li>
         ))}
