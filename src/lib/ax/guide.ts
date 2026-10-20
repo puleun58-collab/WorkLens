@@ -1514,9 +1514,10 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
     const m = model.methods[idx];
     const chain = model.methodChains[idx];
     if (m === "composite" && chain?.length) {
-      return model.methodOrders[idx] === "parallel"
-        ? `복합 처리 (병행: ${chain.map(stepMethodShortLabel).join(" · ")}) — 실행 순서·의존성 확인 필요`
-        : `복합 처리 (확인된 순서: ${chain.map(stepMethodShortLabel).join(" → ")})`;
+      const base = model.methodOrders[idx] === "parallel"
+        ? `복합 처리 (병행): ${chain.map(stepMethodShortLabel).join(" · ")} — 실행 순서·의존성 확인 필요`
+        : `복합 처리 (확인된 순서): ${chain.map(stepMethodShortLabel).join(" → ")}`;
+      return s.scope === "verify" ? `${base} · 검토·검증만 (운영 구현 금지)` : base;
     }
     if (m === "confirm") {
       if (dupName(s)) return "동일 이름 단계 중복 — 처리 방식·적용 단계 확인 필요";
@@ -1645,7 +1646,7 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
     profile?.scopeSupport.length ? `### 함께 수행할 확인\n\n${bullets(profile.scopeSupport)}` : "",
     extraHuman.length ? `### 담당자 수행 (단계 외 항목)\n\n${bullets(extraHuman)}` : "",
     excluded.length || outsideHuman.length ? `### 현재 자동화 제외\n\n${bullets([...excluded, ...outsideHuman])}` : "",
-    outside.length ? `### 향후 확장 제안 (이번 작업에서 구현하지 않음)\n\n${bullets(outside)}` : "",
+    outside.length ? `### 향후 확장 (이번 작업에서 구현하지 않음)\n\n${bullets(outside)}` : "",
     unlinked.length ? `### 적용 단계 확인 필요 제안\n\n${bullets(unlinked)}` : "",
     hitl && (hitl.deferred.length > 0 || hitl.supplements.length > 0) ? `### 사람 검토 반영\n\n${[
       hitl.deferred.length > 0 ? `보류된 작업 (현재 구현하지 않음):\n${hitl.deferred.map(x => `- ${x.key}${x.reason ? `\n  - 보류 사유: ${x.reason}` : ""}${x.resumeCondition ? `\n  - 재개 조건: ${x.resumeCondition}` : ""}`).join("\n")}\n위 작업은 현재 구현 범위에서 제외됩니다. 재개 조건이 충족되어도 자동으로 재개하지 말고 담당자에게 확인하세요.` : "",
