@@ -6,6 +6,11 @@ async function learn(page: Parameters<typeof navigateWorkspace>[0]) {
   await expect(page.getByRole("heading", { name: "학습센터", exact: true })).toBeVisible();
 }
 
+/** LEVEL 1 첫 번째 로드맵 행에서 학습 화면 진입 (현재 단계 행의 "이어서 학습" 버튼) */
+async function openFirstLesson(page: Parameters<typeof navigateWorkspace>[0]) {
+  await page.locator(".learn-dash-row").first().getByRole("button", { name: "이어서 학습", exact: true }).click();
+}
+
 /** 현재 문항에 답변 — 객관식/복수선택/사례판단은 첫 선택지, OX는 O 선택 */
 async function answerCurrent(page: Parameters<typeof navigateWorkspace>[0]) {
   const choice = page.locator(".learn-choice").first();
@@ -23,20 +28,20 @@ test("학습센터: 대시보드 로드맵 10단계 표시", async ({ page }) =>
   await page.goto("/");
   await learn(page);
   // 10단계 로드맵
-  const rows = page.locator(".learn-level-row");
+  const rows = page.locator(".learn-dash-row");
   await expect(rows).toHaveCount(10);
   await expect(rows.first().getByText("AI·AX 기초", { exact: true })).toBeVisible();
   // LEVEL 1만 해제, 나머지는 잠김
   await expect(page.getByText("학습 중", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("잠김", { exact: true }).first()).toBeVisible();
   // 진행률
-  await expect(page.getByText(/0 \/ 10 단계 통과/, { exact: false })).toBeVisible();
+  await expect(page.getByText(/0 \/ 10 단계 \(0%\)/, { exact: false })).toBeVisible();
 });
 
 test("학습센터: LEVEL 1 학습 화면", async ({ page }) => {
   await page.goto("/");
   await learn(page);
-  await page.getByRole("button", { name: "학습하기", exact: true }).first().click();
+  await openFirstLesson(page);
   await expect(page.getByRole("heading", { name: /LEVEL 1 ·/, exact: false })).toBeVisible();
   // 학습센터로 돌아가기
   await expect(page.getByRole("button", { name: "학습센터로 돌아가기", exact: true })).toBeVisible();
@@ -58,7 +63,7 @@ test("학습센터: LEVEL 1 학습 화면", async ({ page }) => {
 test("학습센터: 학습 단위 이동 — 이전·다음·직접 선택", async ({ page }) => {
   await page.goto("/");
   await learn(page);
-  await page.getByRole("button", { name: "학습하기", exact: true }).first().click();
+  await openFirstLesson(page);
   const nav = page.locator(".learn-quiz-nav");
   // 다음 단위 이동
   await nav.getByRole("button", { name: "다음", exact: true }).click();
@@ -78,7 +83,7 @@ test("학습센터: 학습 단위 이동 — 이전·다음·직접 선택", asy
 test("학습센터: 빠른 연속 이동 시 저장 충돌 오판 없음", async ({ page }) => {
   await page.goto("/");
   await learn(page);
-  await page.getByRole("button", { name: "학습하기", exact: true }).first().click();
+  await openFirstLesson(page);
   const nav = page.locator(".learn-quiz-nav");
   // 빠르게 3회 연속 이동 (저장 직렬화 구간)
   for (let i = 0; i < 3; i++) {
@@ -90,7 +95,7 @@ test("학습센터: 빠른 연속 이동 시 저장 충돌 오판 없음", async
   // 새로고침 후에도 4단원 복원 (학습센터로 다시 진입)
   await page.reload();
   await learn(page);
-  await page.getByRole("button", { name: "학습하기", exact: true }).first().click();
+  await openFirstLesson(page);
   await expect(page.getByRole("heading", { name: /^4\. /, exact: false })).toBeVisible();
   await expect(page.locator(".learn-save-error")).toHaveCount(0);
 });
@@ -98,14 +103,14 @@ test("학습센터: 빠른 연속 이동 시 저장 충돌 오판 없음", async
 test("학습센터: 실제 다른 탭 변경 시 충돌 보호 동작", async ({ page, context }) => {
   await page.goto("/");
   await learn(page);
-  await page.getByRole("button", { name: "학습하기", exact: true }).first().click();
+  await openFirstLesson(page);
   await expect(page.getByRole("heading", { name: /^1\. /, exact: false })).toBeVisible();
 
   // 같은 브라우저 컨텍스트의 다른 탭에서 진도 변경 (IndexedDB 공유)
   const page2 = await context.newPage();
   await page2.goto("/");
   await learn(page2);
-  await page2.getByRole("button", { name: "학습하기", exact: true }).first().click();
+  await openFirstLesson(page2);
   await page2.locator(".learn-quiz-nav").getByRole("button", { name: "다음", exact: true }).click();
   // 다른 탭의 저장이 IndexedDB에 반영될 때까지 대기
   await page2.waitForFunction(async () => {
@@ -210,18 +215,18 @@ test("학습센터: 미통과 시 다음 단계 잠금 유지", async ({ page })
   await expect(page.getByText(/미통과/, { exact: false })).toBeVisible();
   // 대시보드로 돌아가면 LEVEL 2는 여전히 잠김
   await page.getByRole("button", { name: "학습센터로", exact: true }).click();
-  const rows = page.locator(".learn-level-row");
+  const rows = page.locator(".learn-dash-row");
   await expect(rows.nth(1).getByText("잠김", { exact: true })).toBeVisible();
 });
 
 test("학습센터: 가상 터미널 기본 동작", async ({ page }) => {
   await page.goto("/");
   await learn(page);
-  // LEVEL 4 학습 화면에서 실습 단위 확인 (터미널은 퀴즈 내 과제로도 검증)
-  const lessonButtons = page.getByRole("button", { name: "학습하기", exact: true });
   // LEVEL 4는 잠겨 있으므로 직접 컴포넌트 검증은 단위 테스트로 대체
-  // 여기서는 학습센터 자체가 깨지지 않음을 확인
-  await expect(lessonButtons.first()).toBeVisible();
+  // 여기서는 학습센터 자체가 깨지지 않음을 확인 — 잠긴 행에는 실행 버튼이 없어야 한다
+  const rows = page.locator(".learn-dash-row");
+  await expect(rows).toHaveCount(10);
+  await expect(rows.nth(3).getByRole("button")).toHaveCount(0);
 });
 
 test("학습센터: 신규 사용자에게 처음 학습하기 표시", async ({ page }) => {
