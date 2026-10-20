@@ -2835,10 +2835,10 @@ a:not([data-slot]):focus-visible,
 
 .polish-results {
   width: min(100%, calc(960px + var(--panel-inset) + var(--panel-inset)));
-  overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-panel);
-  background: #fff;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   box-shadow: none;
 }
 
@@ -2893,13 +2893,17 @@ a:not([data-slot]):focus-visible,
 
 .polish-row {
   margin: 0 var(--panel-inset);
-  padding: 0;
+  padding: 20px;
   display: grid;
   gap: 14px;
+  border: 1px solid var(--border-surface);
+  border-radius: 8px;
+  background: var(--paper);
+  box-shadow: none;
 }
 
 .polish-row.rejected {
-  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--warning) 60%, transparent);
+  border-left: 2px solid color-mix(in srgb, var(--warning) 60%, transparent);
 }
 
 .polish-copy-block {
@@ -5165,13 +5169,14 @@ body {
   overflow: hidden;
 }
 
-/* Polish uses the same white panel treatment for its separate result view. */
+/* Polish results sit directly on the canvas: each result row is its own
+   white box, so the section itself carries no panel treatment. */
 .workspace > .polish-results {
-  border: 1px solid var(--line);
-  border-radius: var(--radius-panel);
-  background: #fff;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   box-shadow: none;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .workspace > .polish-results > .panel-heading {
@@ -7596,10 +7601,10 @@ body {
   }
 }
 
-/* The revision carries the visual emphasis; the row itself adds no card. */
+/* Each result row is a separate white box; boxes keep one 16px rhythm. */
 .polish-row + .polish-row,
 .polish-summary-line + .polish-row {
-  margin-top: 20px;
+  margin-top: 16px;
 }
 
 .polish-results .polish-row:last-of-type {
@@ -7770,8 +7775,6 @@ body {
 .workspace .extract-auto-table,
 .workspace .extract-fields-table,
 .workspace .extract-table-wrap,
-.workspace .polish-results,
-.workspace .polish-text-results,
 .workspace .aggregation-workbook,
 .workspace .aggregation-result-sheets,
 .workspace .aggregation-mappings,
