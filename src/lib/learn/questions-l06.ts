@@ -4,6 +4,7 @@ export const QUESTIONS_L06: LearnQuestion[] = [
   {
     id: "l6-q001",
     level: 6,
+    unitId: "l6-u1",
     category: "AI 코딩 에이전트의 개념",
     type: "single",
     difficulty: "concept",
@@ -27,6 +28,7 @@ export const QUESTIONS_L06: LearnQuestion[] = [
   {
     id: "l6-q002",
     level: 6,
+    unitId: "l6-u1",
     category: "AI 코딩 에이전트의 개념",
     type: "single",
     difficulty: "concept",
@@ -50,6 +52,7 @@ export const QUESTIONS_L06: LearnQuestion[] = [
   {
     id: "l6-q003",
     level: 6,
+    unitId: "l6-u2",
     category: "작업 지시 방법",
     type: "single",
     difficulty: "concept",
@@ -73,6 +76,7 @@ export const QUESTIONS_L06: LearnQuestion[] = [
   {
     id: "l6-q004",
     level: 6,
+    unitId: "l6-u2",
     category: "작업 지시 방법",
     type: "single",
     difficulty: "application",
@@ -97,6 +101,7 @@ export const QUESTIONS_L06: LearnQuestion[] = [
   {
     id: "l6-q005",
     level: 6,
+    unitId: "l6-u3",
     category: "결과물 확인과 검증",
     type: "single",
     difficulty: "application",
@@ -120,6 +125,7 @@ export const QUESTIONS_L06: LearnQuestion[] = [
   {
     id: "l6-q006",
     level: 6,
+    unitId: "l6-u5",
     category: "잘못된 사용 사례 판단",
     type: "case-judgment",
     difficulty: "judgment",
@@ -147,6 +153,7 @@ export const QUESTIONS_L06: LearnQuestion[] = [
   {
     id: "l6-q007",
     level: 6,
+    unitId: "l6-u4",
     category: "오류 원인과 해결",
     type: "error-cause",
     difficulty: "judgment",
@@ -172,6 +179,7 @@ export const QUESTIONS_L06: LearnQuestion[] = [
   {
     id: "l6-q008",
     level: 6,
+    unitId: "l6-u5",
     category: "에이전트의 한계",
     type: "single",
     difficulty: "concept",
@@ -195,6 +203,7 @@ export const QUESTIONS_L06: LearnQuestion[] = [
   {
     id: "l6-q009",
     level: 6,
+    unitId: "l6-u2",
     category: "작업 지시 방법",
     type: "multiple",
     difficulty: "application",
@@ -216,6 +225,7 @@ export const QUESTIONS_L06: LearnQuestion[] = [
   {
     id: "l6-q010",
     level: 6,
+    unitId: "l6-u4",
     category: "오류 수정 요청",
     type: "single",
     difficulty: "application",
@@ -239,6 +249,7 @@ export const QUESTIONS_L06: LearnQuestion[] = [
   {
     id: "l6-q011",
     level: 6,
+    unitId: "l6-u2",
     category: "작업 지시 방법",
     type: "ox",
     difficulty: "application",
@@ -251,6 +262,7 @@ export const QUESTIONS_L06: LearnQuestion[] = [
   {
     id: "l6-q012",
     level: 6,
+    unitId: "l6-u2",
     category: "단계별 지시 판단",
     type: "case-judgment",
     difficulty: "judgment",
@@ -277,6 +289,7 @@ export const QUESTIONS_L06: LearnQuestion[] = [
   {
     id: "l6-q013",
     level: 6,
+    unitId: "l6-u2",
     category: "작업 지시 방법",
     type: "single",
     difficulty: "application",
@@ -300,6 +313,7 @@ export const QUESTIONS_L06: LearnQuestion[] = [
   {
     id: "l6-q014",
     level: 6,
+    unitId: "l6-u2",
     category: "작업 지시 방법",
     type: "single",
     difficulty: "concept",
@@ -323,6 +337,7 @@ export const QUESTIONS_L06: LearnQuestion[] = [
   {
     id: "l6-q015",
     level: 6,
+    unitId: "l6-u3",
     category: "결과물 확인과 검증",
     type: "case-judgment",
     difficulty: "judgment",
@@ -349,6 +364,7 @@ export const QUESTIONS_L06: LearnQuestion[] = [
   {
     id: "l6-q016",
     level: 6,
+    unitId: "l6-u3",
     category: "결과물 확인과 검증",
     type: "multiple",
     difficulty: "application",
@@ -370,6 +386,7 @@ export const QUESTIONS_L06: LearnQuestion[] = [
   {
     id: "l6-q017",
     level: 6,
+    unitId: "l6-u4",
     category: "오류 원인과 해결",
     type: "error-cause",
     difficulty: "judgment",
@@ -395,6 +412,7 @@ export const QUESTIONS_L06: LearnQuestion[] = [
   {
     id: "l6-q018",
     level: 6,
+    unitId: "l6-u2",
     category: "작업 지시 방법",
     type: "ox",
     difficulty: "concept",
@@ -407,6 +425,7 @@ export const QUESTIONS_L06: LearnQuestion[] = [
   {
     id: "l6-q019",
     level: 6,
+    unitId: "l6-u5",
     category: "정보 보안 판단",
     type: "case-judgment",
     difficulty: "judgment",
@@ -432,6 +451,7 @@ export const QUESTIONS_L06: LearnQuestion[] = [
   {
     id: "l6-q020",
     level: 6,
+    unitId: "l6-u3",
     category: "결과물 확인과 검증",
     type: "single",
     difficulty: "application",

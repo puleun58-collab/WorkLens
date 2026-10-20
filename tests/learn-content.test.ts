@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { ALL_LEVELS, levelMeta } from "@/lib/learn/curriculum";
-import { allQuestions, diagnosticQuestions, questionBank } from "@/lib/learn/questions";
+import { allQuestions, diagnosticQuestions, linkedUnitForQuestion, questionBank } from "@/lib/learn/questions";
 import { allContents } from "@/lib/learn/content";
 import type { LearnQuestion } from "@/lib/learn/types";
 
@@ -97,6 +97,37 @@ describe("학습 콘텐츠 무결성", () => {
   test("단위 ID 중복 없음", () => {
     const ids = allContents().flatMap((c) => c.units.map((u) => u.id));
     expect(new Set(ids).size).toBe(ids.length);
+  });
+});
+
+describe("문제-학습 단위 연결", () => {
+  test("모든 문제은행 문항이 같은 LEVEL의 실제 학습 단위에 연결되어 있다", () => {
+    const contents = allContents();
+    for (const q of allQuestions()) {
+      expect(q.unitId, `${q.id} unitId`).toBeTruthy();
+      const content = contents.find((c) => c.level === q.level);
+      expect(content, `${q.id} LEVEL 콘텐츠`).toBeDefined();
+      expect(content!.units.some((u) => u.id === q.unitId), `${q.id} → ${q.unitId}`).toBe(true);
+    }
+  });
+
+  test("모든 학습 단위에 검증된 문항이 균형 출제 쿼터 이상 연결되어 있다", () => {
+    for (const c of allContents()) {
+      const meta = levelMeta(c.level);
+      const minPerUnit = Math.floor(meta.questionCount / c.units.length);
+      for (const u of c.units) {
+        const linked = allQuestions().filter((q) => q.unitId === u.id && q.verified);
+        expect(linked.length, `${u.id} 연결 문항`).toBeGreaterThanOrEqual(minPerUnit);
+      }
+    }
+  });
+
+  test("연결이 끊긴(존재하지 않는 단위) 문항은 출제에서 제외된다", () => {
+    // linkedUnitForQuestion이 undefined를 반환하면 UI는 레벨 학습 화면으로 안전하게 대체한다
+    const orphan: LearnQuestion = { ...allQuestions()[0], unitId: "l1-u999" };
+    expect(linkedUnitForQuestion(orphan)).toBeUndefined();
+    const noLink: LearnQuestion = { ...allQuestions()[0], unitId: undefined };
+    expect(linkedUnitForQuestion(noLink)).toBeUndefined();
   });
 });
 

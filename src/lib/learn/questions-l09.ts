@@ -4,6 +4,7 @@ export const QUESTIONS_L09: LearnQuestion[] = [
   {
     id: "l9-q001",
     level: 9,
+    unitId: "l9-u1",
     category: "브랜치 개념",
     type: "single",
     difficulty: "concept",
@@ -27,6 +28,7 @@ export const QUESTIONS_L09: LearnQuestion[] = [
   {
     id: "l9-q002",
     level: 9,
+    unitId: "l9-u5",
     category: "배포 성공과 정상 동작",
     type: "single",
     difficulty: "concept",
@@ -50,6 +52,7 @@ export const QUESTIONS_L09: LearnQuestion[] = [
   {
     id: "l9-q003",
     level: 9,
+    unitId: "l9-u3",
     category: "협업 흐름 순서",
     type: "multiple",
     difficulty: "application",
@@ -72,6 +75,7 @@ export const QUESTIONS_L09: LearnQuestion[] = [
   {
     id: "l9-q004",
     level: 9,
+    unitId: "l9-u2",
     category: "Pull Request 작성",
     type: "single",
     difficulty: "application",
@@ -95,6 +99,7 @@ export const QUESTIONS_L09: LearnQuestion[] = [
   {
     id: "l9-q005",
     level: 9,
+    unitId: "l9-u3",
     category: "CI 실패 원인",
     type: "error-cause",
     difficulty: "application",
@@ -119,6 +124,7 @@ export const QUESTIONS_L09: LearnQuestion[] = [
   {
     id: "l9-q006",
     level: 9,
+    unitId: "l9-u5",
     category: "배포 후 장애 원인",
     type: "error-cause",
     difficulty: "application",
@@ -143,6 +149,7 @@ export const QUESTIONS_L09: LearnQuestion[] = [
   {
     id: "l9-q007",
     level: 9,
+    unitId: "l9-u5",
     category: "배포 후 확인 항목",
     type: "multiple",
     difficulty: "application",
@@ -164,6 +171,7 @@ export const QUESTIONS_L09: LearnQuestion[] = [
   {
     id: "l9-q008",
     level: 9,
+    unitId: "l9-u3",
     category: "Push와 배포 구분",
     type: "single",
     difficulty: "application",
@@ -187,6 +195,7 @@ export const QUESTIONS_L09: LearnQuestion[] = [
   {
     id: "l9-q009",
     level: 9,
+    unitId: "l9-u1",
     category: "브랜치 미사용 사고",
     type: "case-judgment",
     difficulty: "judgment",
@@ -211,6 +220,7 @@ export const QUESTIONS_L09: LearnQuestion[] = [
   {
     id: "l9-q010",
     level: 9,
+    unitId: "l9-u3",
     category: "CI 무시 Merge 판단",
     type: "case-judgment",
     difficulty: "judgment",
@@ -235,6 +245,7 @@ export const QUESTIONS_L09: LearnQuestion[] = [
   {
     id: "l9-q011",
     level: 9,
+    unitId: "l9-u4",
     category: "스테이징 활용 판단",
     type: "case-judgment",
     difficulty: "judgment",
@@ -259,6 +270,7 @@ export const QUESTIONS_L09: LearnQuestion[] = [
   {
     id: "l9-q012",
     level: 9,
+    unitId: "l9-u4",
     category: "배포 시점 판단",
     type: "case-judgment",
     difficulty: "judgment",
@@ -283,6 +295,7 @@ export const QUESTIONS_L09: LearnQuestion[] = [
   {
     id: "l9-q013",
     level: 9,
+    unitId: "l9-u5",
     category: "배포 후 미확인 판단",
     type: "case-judgment",
     difficulty: "judgment",
@@ -307,6 +320,7 @@ export const QUESTIONS_L09: LearnQuestion[] = [
   {
     id: "l9-q014",
     level: 9,
+    unitId: "l9-u5",
     category: "장애 대응 순서",
     type: "case-judgment",
     difficulty: "judgment",
@@ -331,6 +345,7 @@ export const QUESTIONS_L09: LearnQuestion[] = [
   {
     id: "l9-q015",
     level: 9,
+    unitId: "l9-u4",
     category: "플랫폼 선택 판단",
     type: "case-judgment",
     difficulty: "judgment",
@@ -355,6 +370,7 @@ export const QUESTIONS_L09: LearnQuestion[] = [
   {
     id: "l9-q016",
     level: 9,
+    unitId: "l9-u2",
     category: "PR 단위 판단",
     type: "case-judgment",
     difficulty: "judgment",
@@ -379,6 +395,7 @@ export const QUESTIONS_L09: LearnQuestion[] = [
   {
     id: "l9-q017",
     level: 9,
+    unitId: "l9-u2",
     category: "셀프 승인 판단",
     type: "case-judgment",
     difficulty: "judgment",
@@ -403,6 +420,7 @@ export const QUESTIONS_L09: LearnQuestion[] = [
   {
     id: "l9-q018",
     level: 9,
+    unitId: "l9-u5",
     category: "캐시로 인한 미반영",
     type: "error-cause",
     difficulty: "judgment",
@@ -427,6 +445,7 @@ export const QUESTIONS_L09: LearnQuestion[] = [
   {
     id: "l9-q019",
     level: 9,
+    unitId: "l9-u3",
     category: "잘못된 행동 식별",
     type: "multiple",
     difficulty: "judgment",
@@ -449,6 +468,7 @@ export const QUESTIONS_L09: LearnQuestion[] = [
   {
     id: "l9-q020",
     level: 9,
+    unitId: "l9-u1",
     category: "전체 흐름 종합 판단",
     type: "case-judgment",
     difficulty: "judgment",

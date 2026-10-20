@@ -89,7 +89,7 @@ export function LearnQuiz({ level, questions, onSubmit, onCancel }: LearnQuizPro
         {(q.type === "single" || q.type === "multiple" || q.type === "command-result" || q.type === "error-cause" || q.type === "case-judgment") && q.choices ? (
           <div role="group" aria-label={q.type === "multiple" ? "복수 선택" : "단일 선택"}>
             {q.type === "multiple" ? <p className="learn-muted"><small>정답을 모두 고르세요.</small></p> : null}
-            {q.choices.map((c) => {
+            {q.choices.map((c, choiceIdx) => {
               const cur = answers[q.id];
               const selected = cur?.kind === "choices" && cur.selectedChoiceIds.includes(c.id);
               return (
@@ -100,7 +100,8 @@ export function LearnQuiz({ level, questions, onSubmit, onCancel }: LearnQuizPro
                   onClick={() => toggleChoice(c.id, q.type === "multiple")}
                   aria-pressed={selected}
                 >
-                  <span className="learn-choice-id">{c.id.toUpperCase()}</span>
+                  {/* 표시는 위치 기준 문자(A·B·C·D) — 선택지 순서가 섞여도 채점은 선택지 ID로 판정한다 */}
+                  <span className="learn-choice-id">{String.fromCharCode(65 + choiceIdx)}</span>
                   <span>{c.text}</span>
                 </button>
               );

@@ -78,6 +78,7 @@ export const QUESTIONS_L01: LearnQuestion[] = [
   {
     id: "l1-q001",
     level: 1,
+    unitId: "l1-u1",  // 이 문제가 평가하는 학습 단위의 안정 식별자 (필수 — 단위별 균형 출제·오답 복습 연결의 기준)
     category: "AI와 생성형 AI의 차이",
     type: "single",  // single | multiple | ox | command-result | error-cause | case-judgment | terminal-task
     difficulty: "concept",  // concept | application | judgment
@@ -141,6 +142,7 @@ export const QUESTIONS_L01: LearnQuestion[] = [
 - 복수 선택은 정답 개수를 정확히 (correctChoiceIds에 전부).
 - 모든 선택지가 그럴듯할 것 (명백한 오답 1개로 때우기 금지).
 - 문제 ID는 "l{레벨}-q{001~}" 형식으로 중복 없이.
+- unitId는 해당 개념을 실제로 가르치는 학습 단위의 ID로 정확히 연결한다. 학습 단위를 수정·삭제할 때는 연결된 문항의 정답·해설 유효성을 함께 검증하고, 검증 전 문항은 verified를 false로 둔다.
 - category는 학습 목표·개념 분류명.
 - explanation 필수. wrongExplanations는 권장.
 - 학습 콘텐츠에 없는 내용을 근거 없이 평가 금지.
