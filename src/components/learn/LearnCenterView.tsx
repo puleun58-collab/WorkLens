@@ -13,6 +13,7 @@ import {
   loadLearnProgressEx,
   loadPracticeTerminalStates,
   noteLearnRevision,
+  replaceAllLearnData,
   saveInProgressQuiz,
   saveLearnProgress,
   savePracticeTerminalStates,
@@ -76,10 +77,26 @@ export type LearnScreen =
   | { name: "diagnostic" }
   | { name: "completion" };
 
-interface SaveJob {
-  updater: (prev: LearnProgress) => LearnProgress;
-  settle: (saved: boolean) => void;
-}
+/** 가져오기 작업 결과 — 성공 시 실제로 저장된 진도·진행 중 퀴즈를 돌려준다 */
+type ImportJobResult =
+  | { ok: true; progress: LearnProgress; inProgress: InProgressQuiz | null }
+  | { ok: false };
+
+type SaveJob =
+  | {
+      kind: "update";
+      updater: (prev: LearnProgress) => LearnProgress;
+      settle: (saved: boolean) => void;
+    }
+  | {
+      kind: "import";
+      data: {
+        progress: LearnProgress;
+        inProgress: InProgressQuiz | null;
+        practiceStates: PracticeTerminalStates;
+      };
+      settle: (result: ImportJobResult) => void;
+    };
 
 export function LearnCenterView() {
   const [progress, setProgress] = useState<LearnProgress | null>(null);
@@ -185,7 +202,11 @@ export function LearnCenterView() {
     try {
       // 이전에 실패한 변경을 원래 순서대로 큐 앞에 되돌린다
       if (failedUpdatersRef.current.length > 0) {
-        const restored: SaveJob[] = failedUpdatersRef.current.map((updater) => ({ updater, settle: () => {} }));
+        const restored: SaveJob[] = failedUpdatersRef.current.map((updater) => ({
+          kind: "update" as const,
+          updater,
+          settle: () => {},
+        }));
         failedUpdatersRef.current = [];
         saveQueueRef.current = [...restored, ...saveQueueRef.current];
       }
@@ -194,19 +215,70 @@ export function LearnCenterView() {
         const base = progressRef.current;
         if (!base) {
           saveQueueRef.current.shift();
-          job.settle(false);
+          if (job.kind === "import") job.settle({ ok: false });
+          else job.settle(false);
+          continue;
+        }
+        if (job.kind === "import") {
+          // 가져오기 — 진도·진행 중 퀴즈·연습 상태를 단일 트랜잭션으로 교체한다.
+          // 앞에 대기 중인 변경이 실패하면 이 작업에 도달하지 못하고 중단된다.
+          let replaced: { progress: LearnProgress; inProgress: InProgressQuiz | null };
+          try {
+            replaced = await replaceAllLearnData(job.data.progress, job.data.inProgress, job.data.practiceStates);
+          } catch (e) {
+            // 가져오기 자체는 실패 큐에 넣지 않는다 (pendingImport로 재시도한다).
+            // 대기 중인 일반 변경만 원래 순서 그대로 보존한다.
+            const remaining = saveQueueRef.current.splice(0);
+            for (const j of remaining) {
+              if (j.kind === "import") j.settle({ ok: false });
+              else {
+                j.settle(false);
+                failedUpdatersRef.current.push(j.updater);
+              }
+            }
+            const message = e instanceof Error ? e.message : "학습 기록을 저장하지 못했습니다.";
+            if (message.includes("다른 탭")) {
+              const latest = await loadLearnProgressEx();
+              if (latest.status === "ok") {
+                noteLearnRevision(latest.revision);
+                progressRef.current = latest.progress;
+                setProgress(latest.progress);
+                // 진행 중 퀴즈의 탭 기준값도 최신으로 맞춰 재시도가 같은 충돌을 반복하지 않게 한다
+                const latestInProgress = await loadInProgressQuiz();
+                inProgressRef.current = latestInProgress;
+                setInProgress(latestInProgress);
+                showSaveError(
+                  "progress",
+                  "다른 탭에서 학습 데이터가 변경되어 최신 기록을 다시 불러왔습니다. 가져오기를 다시 시도할 수 있습니다.",
+                  true,
+                );
+                return;
+              }
+            }
+            showSaveError("progress", message, true);
+            return;
+          }
+          progressRef.current = replaced.progress;
+          setProgress(replaced.progress);
+          saveQueueRef.current.shift();
+          job.settle({ ok: true, progress: replaced.progress, inProgress: replaced.inProgress });
           continue;
         }
         const next = job.updater(base);
         try {
           await saveLearnProgress(next);
         } catch (e) {
-          // 실패한 변경 + 대기 중인 변경을 순서 그대로 보존한다
-          const remaining = saveQueueRef.current.splice(0).map((j) => {
-            j.settle(false);
-            return j.updater;
-          });
-          failedUpdatersRef.current.push(...remaining);
+          // 실패한 변경 + 대기 중인 변경을 순서 그대로 보존한다.
+          // 대기 중인 가져오기는 실행하지 않고 중단시키며(pendingImport로 재시도),
+          // 일반 변경만 실패 큐에 보존한다.
+          const remaining = saveQueueRef.current.splice(0);
+          for (const j of remaining) {
+            if (j.kind === "import") j.settle({ ok: false });
+            else {
+              j.settle(false);
+              failedUpdatersRef.current.push(j.updater);
+            }
+          }
           const message = e instanceof Error ? e.message : "학습 진도 저장에 실패했습니다.";
           if (message.includes("다른 탭")) {
             // 실제 충돌 — 최신 데이터를 다시 읽고, 보류된 변경은 재시도 시
@@ -248,7 +320,25 @@ export function LearnCenterView() {
   const persist = useCallback(
     (updater: (prev: LearnProgress) => LearnProgress): Promise<boolean> =>
       new Promise<boolean>((resolve) => {
-        saveQueueRef.current.push({ updater, settle: resolve });
+        saveQueueRef.current.push({ kind: "update", updater, settle: resolve });
+        void flushSaves();
+      }),
+    [flushSaves],
+  );
+
+  /**
+   * 가져오기 저장 요청 — 일반 진도 저장과 같은 큐를 경유하므로 앞에 대기 중인
+   * 변경이 먼저 적용되고, 그 변경이 실패하면 가져오기도 중단된다.
+   * 성공하면 실제로 저장된 진도·진행 중 퀴즈가 반환된다.
+   */
+  const enqueueImport = useCallback(
+    (data: {
+      progress: LearnProgress;
+      inProgress: InProgressQuiz | null;
+      practiceStates: PracticeTerminalStates;
+    }): Promise<ImportJobResult> =>
+      new Promise<ImportJobResult>((resolve) => {
+        saveQueueRef.current.push({ kind: "import", data, settle: resolve });
         void flushSaves();
       }),
     [flushSaves],
@@ -587,43 +677,42 @@ export function LearnCenterView() {
 
   const applyImport = useCallback(async () => {
     if (!pendingImport || importing) return;
+    // 저장 시작 전에 초안·연습 저장을 먼저 멈춘다 — 늦게 실행되는 저장이
+    // 복원된 데이터를 덮지 않도록 하기 위해서다.
+    cancelDraftTimer();
+    quizDraftRef.current = null;
+    if (practiceSaveTimerRef.current !== null) {
+      window.clearTimeout(practiceSaveTimerRef.current);
+      practiceSaveTimerRef.current = null;
+    }
     setImporting(true);
     setImportError(null);
     try {
-      // 1) 진도 교체 — 저장이 확정된 경우에만 다음 단계로 진행한다
-      const saved = await persist(() => pendingImport.progress);
-      if (!saved) {
-        setImportError("학습 기록을 저장하지 못했습니다. 기존 기록은 그대로 유지됩니다.");
+      // 진도·진행 중 퀴즈·연습 상태를 단일 트랜잭션으로 교체한다.
+      // 실패하면 어떤 키도 변경되지 않으며, pendingImport를 유지해
+      // 그대로 다시 시도할 수 있다.
+      const result = await enqueueImport({
+        progress: pendingImport.progress,
+        inProgress: pendingImport.inProgress,
+        practiceStates: pendingImport.practiceStates,
+      });
+      if (!result.ok) {
+        setImportError("학습 기록을 저장하지 못했습니다. 기존 기록은 그대로 유지됩니다. 다시 시도해 주세요.");
         return;
       }
-      // 2) 진행 중 퀴즈 교체 — 백업에 없으면 기존 진행 중 응시도 정리한다
-      cancelDraftTimer();
-      quizDraftRef.current = null;
+      // 저장이 확정된 뒤에만 화면 상태를 가져온 데이터로 맞춘다
       draftSaveBlockedRef.current = false;
-      const current = inProgressRef.current;
-      if (current) await clearInProgressQuiz(current.attemptId).catch(() => {});
-      inProgressRef.current = null;
-      setInProgress(null);
-      if (pendingImport.inProgress) {
-        try {
-          const stored = await saveInProgressQuiz(pendingImport.inProgress);
-          inProgressRef.current = stored;
-          setInProgress(stored);
-        } catch {
-          setNotice("학습 기록은 복원했지만 진행 중 퀴즈는 저장하지 못했습니다. 퀴즈는 새로 시작해 주세요.");
-        }
-      }
-      // 3) 연습 터미널 상태 교체
+      inProgressRef.current = result.inProgress;
+      setInProgress(result.inProgress);
       practiceStatesRef.current = pendingImport.practiceStates;
       setPracticeStates(pendingImport.practiceStates);
-      await savePracticeTerminalStates(pendingImport.practiceStates).catch(() => {});
       setPendingImport(null);
       setScreen({ name: "dashboard" });
       window.scrollTo({ top: 0 });
     } finally {
       setImporting(false);
     }
-  }, [pendingImport, importing, persist, cancelDraftTimer]);
+  }, [pendingImport, importing, enqueueImport, cancelDraftTimer]);
 
   /* ---------------- 퀴즈 제출 (저장 확정 후 결과 표시) ---------------- */
 
