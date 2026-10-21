@@ -28,7 +28,9 @@
 .learn-progress-bar > div { height: 100%; background: var(--primary); border-radius: 4px; transition: width 0.3s; }
 
 /* 학습센터 메인(대시보드) — COSS 레퍼런스: 목록형 로드맵 + 얇은 테두리 카드 */
-.learn-dash-intro { margin: 0 0 4px; }
+.learn-dash-intro-row { display: flex; align-items: center; gap: 12px; margin: 0 0 4px; }
+.learn-dash-intro-row > button { flex: none; }
+.learn-dash-intro { flex: 1; min-width: 0; margin: 0; }
 .learn-dash-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; margin-top: 16px; }
 .learn-dash-progress-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .learn-dash-progress-head h3 { margin: 0; font-size: 16px; }
@@ -141,9 +143,6 @@
 .learn-diagnostic-areas { display: flex; flex-direction: column; gap: 8px; margin: 12px 0; }
 .learn-diagnostic-area { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); }
 .learn-diagnostic-area-label { font-weight: 600; font-size: 14px; }
-
-/* 학습 기록 백업 카드 */
-.learn-backup-card { margin-top: 24px; }
 
 .learn-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0; }
 .learn-command-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
