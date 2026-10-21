@@ -35,7 +35,8 @@ export type LawTextOutcome =
 
 /** Only identifiers accepted by the text endpoint can open a detail. */
 export function lawTextIdentifier(law: LawEntry): { mst: string } | { lawId: string } | null {
-  if (law.mst && /^\d{6}$/.test(law.mst)) return { mst: law.mst };
+  // MST는 일련번호라 구 법령은 6자리 미만일 수 있다 (lawId는 고정 6자리 코드).
+  if (law.mst && /^\d{1,6}$/.test(law.mst)) return { mst: law.mst };
   if (law.lawId && /^\d{6}$/.test(law.lawId)) return { lawId: law.lawId };
   return null;
 }

@@ -39,6 +39,9 @@ describe("law text outcome", () => {
     expect(lawTextIdentifier({ name: "법률", mst: "283457", lawId: "001872" })).toEqual({ mst: "283457" });
     expect(lawTextIdentifier({ name: "시행령", lawId: "003058" })).toEqual({ lawId: "003058" });
     expect(lawTextIdentifier({ name: "식별자 없음", mst: "bad" })).toBeNull();
+    // MST는 일련번호라 구 법령은 6자리 미만일 수 있고, lawId는 고정 6자리 코드다.
+    expect(lawTextIdentifier({ name: "구 법령", mst: "58432" })).toEqual({ mst: "58432" });
+    expect(lawTextIdentifier({ name: "짧은 lawId", lawId: "01872" })).toBeNull();
   });
 
   it("accepts only the agreed Korean article shapes", () => {
