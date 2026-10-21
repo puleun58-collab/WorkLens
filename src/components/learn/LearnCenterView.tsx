@@ -877,29 +877,6 @@ export function LearnCenterView() {
               };
             });
           }}
-          onToggleUnitComplete={(unitId, completed) => {
-            void persist((prev) => {
-              const lp = prev.levels[screen.level];
-              const current = lp?.completedUnitIds ?? [];
-              const nextIds = completed
-                ? [...new Set([...current, unitId])]
-                : current.filter((id) => id !== unitId);
-              return {
-                ...prev,
-                levels: {
-                  ...prev.levels,
-                  [screen.level]: {
-                    passed: lp?.passed ?? false,
-                    bestScore: lp?.bestScore ?? 0,
-                    attempts: lp?.attempts ?? [],
-                    lastStudiedUnitId: lp?.lastStudiedUnitId,
-                    completedUnitIds: nextIds,
-                  },
-                },
-                updatedAt: Date.now(),
-              };
-            });
-          }}
           practiceStates={practiceStates}
           onPracticeStateChange={handlePracticeStateChange}
           onBack={() => { setScreen({ name: "dashboard" }); window.scrollTo({ top: 0 }); }}
@@ -1161,11 +1138,6 @@ function LearnDashboard(props: {
                   {meta.topic} · 통과 {meta.passScore}점
                   {lp ? (
                     <> · 최고 {lp.bestScore}점 · 응시 {lp.attempts.length}회</>
-                  ) : null}
-                  {unlocked ? (
-                    <>
-                      {" "}· 학습 항목 완료 {lp?.completedUnitIds?.length ?? 0} / {levelContent(level).units.length}
-                    </>
                   ) : null}
                 </div>
               </div>

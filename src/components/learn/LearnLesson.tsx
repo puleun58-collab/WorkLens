@@ -53,8 +53,6 @@ interface LearnLessonProps {
   initialUnitId?: string;
   progress: LearnProgress;
   onPersistUnit: (unitId: string) => void;
-  /** 학습 항목 완료 상태 변경 (완료 표시는 사용자가 명시적으로 확인한 경우에만 바뀐다) */
-  onToggleUnitComplete: (unitId: string, completed: boolean) => void;
   /** 연습용 가상 터미널 상태 (공식 평가와 분리 저장) */
   practiceStates: Record<string, TerminalStateSnapshot>;
   onPracticeStateChange: (key: string, snapshot: TerminalStateSnapshot) => void;
@@ -62,7 +60,7 @@ interface LearnLessonProps {
   onStartQuiz: () => void;
 }
 
-export function LearnLesson({ level, initialUnitId, progress, onPersistUnit, onToggleUnitComplete, practiceStates, onPracticeStateChange, onBack, onStartQuiz }: LearnLessonProps) {
+export function LearnLesson({ level, initialUnitId, progress, onPersistUnit, practiceStates, onPracticeStateChange, onBack, onStartQuiz }: LearnLessonProps) {
   const meta = levelMeta(level);
   const content = levelContent(level);
   const [unitIdx, setUnitIdx] = useState(() => {
@@ -75,10 +73,6 @@ export function LearnLesson({ level, initialUnitId, progress, onPersistUnit, onT
   const unit = content.units[unitIdx];
   const totalUnits = content.units.length;
   const passed = progress.levels[level]?.passed ?? false;
-  // 학습 항목 완료 상태 — 현재 위치(lastStudiedUnitId)와 독립적으로 관리한다
-  const completedUnitIds = progress.levels[level]?.completedUnitIds ?? [];
-  const completedSet = new Set(completedUnitIds);
-  const currentCompleted = completedSet.has(unit.id);
 
   const goUnit = (idx: number) => {
     if (idx < 0 || idx >= totalUnits) return;
@@ -143,9 +137,6 @@ export function LearnLesson({ level, initialUnitId, progress, onPersistUnit, onT
           >
             <div style={{ width: `${((unitIdx + 1) / totalUnits) * 100}%` }} />
           </div>
-          <span className="learn-lesson-progress-text">
-            완료한 항목 {completedUnitIds.length} / {totalUnits}
-          </span>
         </div>
       </div>
       <p className="learn-muted learn-lesson-intro">{content.intro}</p>
@@ -155,14 +146,11 @@ export function LearnLesson({ level, initialUnitId, progress, onPersistUnit, onT
           <button
             key={u.id}
             type="button"
-            className={`learn-unit-btn${i === unitIdx ? " is-active" : ""}${completedSet.has(u.id) ? " is-completed" : ""}`}
+            className={`learn-unit-btn${i === unitIdx ? " is-active" : ""}`}
             onClick={() => goUnit(i)}
             aria-current={i === unitIdx ? "true" : undefined}
             title={u.title}
           >
-            {completedSet.has(u.id) ? (
-              <Check className="learn-unit-done-icon" aria-label="학습 완료" />
-            ) : null}
             {i + 1}. {u.shortTitle ?? u.title}
           </button>
         ))}
@@ -338,20 +326,6 @@ export function LearnLesson({ level, initialUnitId, progress, onPersistUnit, onT
           </ul>
         </div>
       </section>
-
-      <div className="learn-unit-complete-row">
-        <span className={currentCompleted ? "learn-unit-complete-status is-done" : "learn-unit-complete-status"}>
-          {currentCompleted ? "이 항목의 학습을 완료했습니다" : "아직 완료로 표시하지 않은 항목입니다"}
-        </span>
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => onToggleUnitComplete(unit.id, !currentCompleted)}
-          aria-pressed={currentCompleted}
-        >
-          {currentCompleted ? "완료 취소" : "학습 완료로 표시"}
-        </Button>
-      </div>
 
       <div className="learn-quiz-nav">
         <Button type="button" variant="outline" disabled={unitIdx === 0} onClick={() => goUnit(unitIdx - 1)}>

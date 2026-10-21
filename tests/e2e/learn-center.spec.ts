@@ -553,30 +553,68 @@ test("학습센터: 퀴즈 종료 버튼 — 확인 취소 시 응시 유지, �
   await expect.poll(() => readInProgressState(page), { timeout: 15_000 }).toBeNull();
 });
 
-test("학습센터: 학습 항목 완료 표시 — 위치 이동과 구분되고 새로고침 후 유지", async ({ page }) => {
+test("학습센터: 수동 완료 UI 제거 — 학습 위치는 유지되고 기존 완료 기록 데이터는 보존된다", async ({ page }) => {
+  // 과거 수동 완료 기록(completedUnitIds)이 포함된 진도를 심는다
   await page.goto("/");
+  await seedLearnRecord(page, "current", {
+    version: 1,
+    levels: {
+      "1": {
+        passed: false,
+        bestScore: 0,
+        attempts: [],
+        lastStudiedUnitId: "l1-u1",
+        completedUnitIds: ["l1-u1", "l1-u2"],
+      },
+    },
+    wrongAnswers: [],
+    updatedAt: Date.now(),
+  });
   await learn(page);
+  // 로드맵에 수동 완료 수치가 표시되지 않는다
+  await expect(page.locator(".learn-dash-row").first()).not.toContainText("학습 항목 완료");
   await openFirstLesson(page);
-  await expect(page.getByText("완료한 항목 0 / 5", { exact: true })).toBeVisible();
-  // 위치만 이동해서는 완료 처리되지 않는다
+  // 현재 학습 위치는 그대로 표시된다
+  await expect(page.locator(".learn-lesson-progress-text").first()).toHaveText("1 / 5");
+  // 수동 완료 UI(버튼·문구·박스·단위 체크)가 없다
+  await expect(page.getByRole("button", { name: "학습 완료로 표시", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "완료 취소", exact: true })).toHaveCount(0);
+  await expect(page.getByText(/완료한 항목/)).toHaveCount(0);
+  await expect(page.getByText("이 항목의 학습을 완료했습니다", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("아직 완료로 표시하지 않은 항목입니다", { exact: true })).toHaveCount(0);
+  await expect(page.locator(".learn-unit-complete-row")).toHaveCount(0);
+  await expect(page.locator(".learn-unit-btn.is-completed")).toHaveCount(0);
+  // 위치를 이동해도 기존 완료 기록 데이터가 저장소에서 삭제되지 않는다
   const nav = page.locator(".learn-quiz-nav");
   await nav.getByRole("button", { name: "다음", exact: true }).click();
-  await expect(page.getByText("완료한 항목 0 / 5", { exact: true })).toBeVisible();
-  await nav.getByRole("button", { name: "이전", exact: true }).click();
-  // 명시적으로 완료 표시
-  await page.getByRole("button", { name: "학습 완료로 표시", exact: true }).click();
-  await expect(page.getByText("이 항목의 학습을 완료했습니다", { exact: true })).toBeVisible();
-  await expect(page.getByText("완료한 항목 1 / 5", { exact: true })).toBeVisible();
-  await expect(page.locator(".learn-unit-btn.is-completed")).toHaveCount(1);
-  // 새로고침 후에도 유지된다
+  await expect(page.locator(".learn-lesson-progress-text").first()).toHaveText("2 / 5");
+  const readCompletedUnitIds = () =>
+    page.evaluate(async () => {
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const req = indexedDB.open("worklens-learn", 1);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+      try {
+        const value = await new Promise<{ levels?: Record<string, { completedUnitIds?: string[] }> } | undefined>(
+          (resolve) => {
+            const tx = db.transaction("progress", "readonly");
+            const q = tx.objectStore("progress").get("current");
+            q.onsuccess = () => resolve(q.result);
+            q.onerror = () => resolve(undefined);
+          },
+        );
+        return value?.levels?.["1"]?.completedUnitIds ?? null;
+      } finally {
+        db.close();
+      }
+    });
+  await expect.poll(readCompletedUnitIds, { timeout: 15_000 }).toEqual(["l1-u1", "l1-u2"]);
+  // 새로고침 후에도 데이터는 보존되고 UI에는 표시되지 않는다
   await page.reload();
   await learn(page);
-  await expect(page.locator(".learn-dash-row").first()).toContainText("학습 항목 완료 1 / 5");
-  await openFirstLesson(page);
-  await expect(page.getByText("완료한 항목 1 / 5", { exact: true })).toBeVisible();
-  // 완료 취소도 가능하다
-  await page.getByRole("button", { name: "완료 취소", exact: true }).click();
-  await expect(page.getByText("완료한 항목 0 / 5", { exact: true })).toBeVisible();
+  await expect(page.locator(".learn-dash-row").first()).not.toContainText("학습 항목 완료");
+  await expect.poll(readCompletedUnitIds, { timeout: 15_000 }).toEqual(["l1-u1", "l1-u2"]);
 });
 
 test("학습센터: 사전 진단 결과에서 관련 학습으로 직접 이동", async ({ page }) => {
@@ -921,5 +959,32 @@ test("학습센터: JSON 백업 내보내기·가져오기와 손상 파일 거�
   await page.getByRole("button", { name: "기존 기록을 교체하고 가져오기", exact: true }).click();
   await expect(page.getByText(/1 \/ 10 단계 \(10%\)/, { exact: false })).toBeVisible();
   await expect(page.getByRole("button", { name: /오답 노트 \(1\)/, exact: false })).toBeVisible();
-  await expect(page.locator(".learn-dash-row").first()).toContainText("학습 항목 완료 1 / 5");
+  // 백업에 포함된 과거 수동 완료 기록은 UI에 표시되지 않지만 데이터로는 복원·보존된다
+  await expect(page.locator(".learn-dash-row").first()).not.toContainText("학습 항목 완료");
+  await expect
+    .poll(
+      () =>
+        page.evaluate(async () => {
+          const db = await new Promise<IDBDatabase>((resolve, reject) => {
+            const req = indexedDB.open("worklens-learn", 1);
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+          });
+          try {
+            const value = await new Promise<{ levels?: Record<string, { completedUnitIds?: string[] }> } | undefined>(
+              (resolve) => {
+                const tx = db.transaction("progress", "readonly");
+                const q = tx.objectStore("progress").get("current");
+                q.onsuccess = () => resolve(q.result);
+                q.onerror = () => resolve(undefined);
+              },
+            );
+            return value?.levels?.["1"]?.completedUnitIds ?? null;
+          } finally {
+            db.close();
+          }
+        }),
+      { timeout: 15_000 },
+    )
+    .toEqual(["l1-u1"]);
 });
