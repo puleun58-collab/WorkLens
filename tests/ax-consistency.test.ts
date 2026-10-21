@@ -203,7 +203,9 @@ describe("AX shared processing and relational scope", () => {
     expect(model.steps).toEqual(executionProfile(c.diagnosis).stepScope);
     expect(model.gate).toBe("conditional");
     expect(model.scopeLevel).toBe(1);
-    expect(model.methods).toEqual(["composite", "rule", "confirm", "manual"]);
+    // "정산표 생성" 노트("확정 운임표에 따라 금액 계산")는 실제 규칙 근거이므로 rule로 판정한다.
+    // 과거에는 근거가 있어도 confirm(처리 방식 미확정)으로 오분류되어 테스트가 이를 고정하고 있었다.
+    expect(model.methods).toEqual(["composite", "rule", "rule", "manual"]);
     expect(model.methodChains[0]).toEqual(["script", "manual"]);
     // PART B: "정산표 생성" 단계가 사용자 실행형으로 범위에 포함된다 (무인 자동 실행은 여전히 차단).
     expect(model.steps.map(step => step.scope)).toEqual(["after-check", "after-check", "after-check", "human"]);

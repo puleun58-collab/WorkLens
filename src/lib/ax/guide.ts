@@ -728,9 +728,9 @@ const TEST_LABEL = /^(?:테스트(?:\s*시나리오)?|(?:정상|경계|경계값
 /** Level 1 never runs unattended; a proposal describing that method needs confirmation, not authorization. */
 const UNATTENDED_METHOD = /(무인|자동\s*(?:생성|작성|실행|전송|발행|승인|확정|수집|계산))/u;
 const REQUESTED = /(담당자 요청|담당자 확인 후|수동 요청|요청 시)/u;
-const RULE_NOTE = /(규칙\s*기반|확정된 규칙|정해진 규칙|알고리즘|계산식(?:을|에 따라))/u;
-const SCRIPT_NOTE = /(?:스크립트|프로그램|시스템).*(?:파일|데이터|자료).*(?:읽|병합|취합|추출)|(?:API|SDK)\s*(?:호출|연동)/iu;
-const CANDIDATE_NOTE = /(?:AI(?:로|가|는|은|을|를|와|과)?(?:\s+\S+){0,3}?\s*(?:후보|초안|생성|모델|처리)|인공지능|언어\s*모델|LLM|(?:후보|초안)(?:\s*·\s*(?:후보|초안))?\s*(?:생성|제안|검토)|후보와 변환 결과)/iu;
+const RULE_NOTE = /(규칙\s*기반|확정된 규칙|정해진 규칙|알고리즘|계산식(?:을|으로|에 따라|대로)|확정\s*(?:계산식|운임표|단가표|요율표|기준)|정해진\s*(?:기간|기준|조건)|(?:증감률|증감액|평균|합계|총합|차액|비율|금액|단가|수량)\s*(?:을|를)?\s*(?:계산|산출))/u;
+const SCRIPT_NOTE = /(?:스크립트|프로그램|시스템|라이브러리).*(?:파일|데이터|자료|텍스트|문서).*(?:읽|병합|취합|추출|집계|변환)|(?:파일|데이터|자료|텍스트|문서).*(?:읽|병합|취합|추출|집계|변환).*(?:라이브러리|스크립트|프로그램)\s*사용|(?:파일|데이터|자료)\s*(?:집계|병합|취합|추출|변환|읽|쓰|저장|로드)|(?:API|SDK)\s*(?:호출|연동)|(?:Excel|엑셀|파일|시스템|화면|양식|템플릿)에\s*(?:\S+\s*){0,2}?(?:입력|등록)(?!\s*(?:후보|초안))/iu;
+const CANDIDATE_NOTE = /(?:AI(?:로|가|는|은|을|를|와|과)?(?:\s+\S+){0,3}?\s*(?:후보|초안|생성|모델|처리)|인공지능|언어\s*모델|LLM|(?:후보|초안)(?:\s*·\s*(?:후보|초안))?\s*(?:생성|제안|검토|분류|작성)|후보와 변환 결과)/iu;
 const MANUAL_NOTE = /(?:담당자|사람)(?:가|이)\s*[^,.;]{0,30}?(?:직접|수동으로)?\s*(?:처리|검토|판단|작성|승인|확인|확정)/u;
 const VALIDATION_METHOD = /대조|비교|기록/u;
 const PASS_CONDITION = /통과|(?<!불)일치|동일|모두|빠짐없이|않(?:아야|음)|없(?:어야|음)|실패|정상.*(?:섞|처리)|분리/u;
@@ -815,9 +815,24 @@ function stepMethod(s: StepScope, duplicate: boolean, diagnosis?: AxDiagnosis): 
   if (s.scope === "human") return { method: "manual", reason: s.note, userReason: s.note };
   // Owner/verdict describe responsibility and policy, not an implementation-method enum.
   // Only exactly linked descriptions contribute evidence; similar names never establish a relation.
+  // TO-BE evidence links by exact name; a strict containment links only when it is
+  // unambiguous (exactly one TO-BE entry and exactly one diagnosed step participate).
+  // Mere similarity never links: "증감률 계산" ⊂ "전주 대비 증감률 계산" links, but
+  // "만료 대상 추출" vs "만료 예정 계약 추출" shares no containment and stays unlinked.
+  const toBeItems = diagnosis?.toBe ?? [];
+  const exactToBe = toBeItems.filter(item => normalizedStepText(item.step) === normalizedStepText(s.step));
+  const containedToBe = exactToBe.length ? [] : toBeItems.filter(item => {
+    const a = normalizedStepText(item.step), b = normalizedStepText(s.step);
+    return a && b && a !== b && (b.includes(a) || a.includes(b));
+  });
+  const unambiguousToBe = containedToBe.length === 1
+    && (diagnosis?.stepAssessments ?? []).filter(other => {
+      const a = normalizedStepText(containedToBe[0].step), b = normalizedStepText(other.step);
+      return a && b && a !== b && (b.includes(a) || a.includes(b));
+    }).length === 1 ? containedToBe : [];
   const evidence = [
     ...(s.note ? [{ source: "diagnosis.stepAssessments.note", text: s.note }] : []),
-    ...(diagnosis?.toBe ?? []).filter(item => normalizedStepText(item.step) === normalizedStepText(s.step))
+    ...[...exactToBe, ...unambiguousToBe]
       .map(item => ({ source: "diagnosis.toBe.description", text: item.description })),
   ];
   // 내부 추적용 (출처 경로 포함)
@@ -949,28 +964,12 @@ export function scopeItemLabel(model: AgentInstructionModel, text: string): stri
  * else the task-level PoC outputs as the overall deliverable (never auto-excluded).
  * Missing pieces are reported as "확인 필요", never invented. */
 export interface StepIoSpec { inputs: string[]; process: string[]; outputs: string[]; overallOutputs: string[]; reviewPoint?: string }
-export function stepIoSpec(model: AgentInstructionModel, index: number): StepIoSpec {
-  const step = model.steps[index];
-  if (!step) return { inputs: [], process: [], outputs: [], overallOutputs: [] };
+/** One step's own direct outputs, split by how they were linked:
+ * scoped outputs linked to the step, keyword-related PoC outputs, and — only for
+ * the last implementable step — the task's final deliverable when it matches. */
+function stepDirectOutputs(model: AgentInstructionModel, step: StepScope, pocOutputs: string[]): { outputs: string[]; relatedOutputs: string[]; producingOutputs: string[] } {
   const d = model.diagnosis;
-  const flowItems = model.classified.filter(item => item.role === "flow" && item.step === step.step);
-  const featureItems = model.scoped.features.filter(item => item.step === step.step);
-  const inputs = flowItems.length ? flowItems.map(item => item.text)
-    : (d?.asIs?.inputs?.length ? d.asIs.inputs.map(text => `${text} (업무 전체 입력)`) : []);
-  const methodIdx = model.steps.indexOf(step);
-  const process = [
-    ...(step.treatment ? [`처리 방식: ${step.treatment}`] : []),
-    `판정: ${stepMethodLabel(model, methodIdx)}`,
-    ...featureItems.map(item => `구현: ${item.text}`),
-  ];
   const outputs = model.scoped.outputs.filter(item => item.step === step.step).map(item => item.text);
-  // Overall PoC outputs are references, not permission to reintroduce a
-  // future, human or HITL-excluded step into the current feature.
-  const excludedStepNames = model.hitlDetails?.validatedExcludedStepNames ?? [];
-  const pocOutputs = unique(model.classified.filter(item => item.role === "outputs"
-    && item.sources.includes("diagnosis.poc.outputs") && !["future", "human", "excluded"].includes(item.scope)
-    && !excludedStepNames.some(name => normalizedStepText(item.text).startsWith(`${normalizedStepText(name)} `)))
-    .map(item => item.text));
   const stepKeywords = new Set(step.step.replace(/[^\uAC00-\uD7A3A-Za-z0-9]/gu, " ").split(/\s+/u).filter(w => w.length >= 2));
   // 2개 이상 핵심어 일치, 또는 3자 이상 핵심어 1개 일치가 필요 ("가격" 같은 일반 명사 1개만으로는 연결하지 않음).
   const relatedOutputs = !outputs.length ? pocOutputs.filter(out => {
@@ -978,10 +977,61 @@ export function stepIoSpec(model: AgentInstructionModel, index: number): StepIoS
     const overlap = outWords.filter(w => stepKeywords.has(w));
     return overlap.length >= 2 || overlap.some(w => w.length >= 3);
   }) : [];
-  const overallOutputs = !outputs.length && !relatedOutputs.length ? pocOutputs : [];
+  // The task's final deliverable is produced by the last implementable step of the
+  // diagnosed flow. When that step has no linked output of its own and a final output
+  // keyword-matches the step, the deliverable is that step's direct output — it is not
+  // repeated on every other step, and unmatched intermediates stay unassigned.
+  const workSteps = model.steps.filter(st => st.scope === "implement" || st.scope === "after-check");
+  const producingOutputs = !outputs.length && !relatedOutputs.length && workSteps[workSteps.length - 1] === step
+    ? (d?.asIs?.outputs ?? []).filter(out => {
+      const outWords = out.replace(/[^\uAC00-\uD7A3A-Za-z0-9]/gu, " ").split(/\s+/u).filter(w => w.length >= 2);
+      const overlap = outWords.filter(w => stepKeywords.has(w));
+      return overlap.length >= 2 || overlap.some(w => w.length >= 3);
+    }) : [];
+  return { outputs, relatedOutputs, producingOutputs };
+}
+export function stepIoSpec(model: AgentInstructionModel, index: number): StepIoSpec {
+  const step = model.steps[index];
+  if (!step) return { inputs: [], process: [], outputs: [], overallOutputs: [] };
+  const d = model.diagnosis;
+  const flowItems = model.classified.filter(item => item.role === "flow" && item.step === step.step);
+  const featureItems = model.scoped.features.filter(item => item.step === step.step);
+  const methodIdx = model.steps.indexOf(step);
+  const process = [
+    ...(step.treatment ? [`처리 방식: ${step.treatment}`] : []),
+    `판정: ${stepMethodLabel(model, methodIdx)}`,
+    ...featureItems.map(item => `구현: ${item.text}`),
+  ];
+  // Overall PoC outputs are references, not permission to reintroduce a
+  // future, human or HITL-excluded step into the current feature.
+  const excludedStepNames = model.hitlDetails?.validatedExcludedStepNames ?? [];
+  const pocOutputs = unique(model.classified.filter(item => item.role === "outputs"
+    && item.sources.includes("diagnosis.poc.outputs") && !["future", "human", "excluded"].includes(item.scope)
+    && !excludedStepNames.some(name => normalizedStepText(item.text).startsWith(`${normalizedStepText(name)} `)))
+    .map(item => item.text));
+  const { outputs, relatedOutputs, producingOutputs } = stepDirectOutputs(model, step, pocOutputs);
+  const workSteps = model.steps.filter(st => st.scope === "implement" || st.scope === "after-check");
+  // Data-flow link: in a sequential diagnosed flow the last implementable step
+  // consumes the preceding implementable steps' direct outputs. Only outputs
+  // already attributed to those steps are listed — never invented fields.
+  // Non-terminal steps keep the task-level inputs unless a flow item links them.
+  const chainInputs = !flowItems.length && workSteps.length > 1 && workSteps[workSteps.length - 1] === step
+    ? unique(model.steps.slice(0, index)
+      .filter(st => st.scope === "implement" || st.scope === "after-check")
+      .flatMap(st => {
+        const direct = stepDirectOutputs(model, st, pocOutputs);
+        return [...direct.outputs, ...direct.relatedOutputs, ...direct.producingOutputs];
+      })).map(text => `${text} (선행 단계 산출물)`)
+    : [];
+  const inputs = flowItems.length ? flowItems.map(item => item.text)
+    : [...chainInputs, ...(d?.asIs?.inputs?.length ? d.asIs.inputs.map(text => `${text} (업무 전체 입력)`) : [])];
+  // PoC outputs not attributed to this step stay overall-deliverable references,
+  // even when the step has direct outputs of its own (including the final
+  // deliverable it produces): attribution is per output item, not all-or-nothing.
+  const overallOutputs = pocOutputs.filter(out => !relatedOutputs.includes(out));
   const reviewPoint = step.scope === "after-check" ? "관련 선행 조건 확인 후 진행"
     : model.methods[methodIdx] === "assist" ? "AI 결과는 담당자 확정 전 운영 반영 금지" : undefined;
-  return { inputs, process, outputs: [...outputs, ...relatedOutputs.map(t => `${t} (관련 산출물)`)], overallOutputs, reviewPoint };
+  return { inputs, process, outputs: [...outputs, ...relatedOutputs.map(t => `${t} (관련 산출물)`), ...producingOutputs], overallOutputs, reviewPoint };
 }
 
 /** Existing human/exclusion fields are restrictive evidence; preserve wording and provenance. */
@@ -1537,14 +1587,13 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
     if (s.scope === "verify") return `${shortMethod(s)} · 검토·검증만 허용`;
     return shortMethod(s);
   };
-  /** 기능별 검증 한 줄. stepMethodLabel과 동일한 확정 판정원을 사용해 표기와 모순되지 않게 한다. */
+  /** 기능별 검증 한 줄. stepMethodLabel과 동일한 확정 판정원을 사용해 표기와 모순되지 않게 한다.
+   * 처리 방식별 검증 기준이 본문이고, Level 1 사용자 실행형의 실행 조건은 짧은 전제로만 앞에 붙인다
+   * (전역 실행 조건은 1·4영역에도 명시되므로 방식별 기준을 덮어쓰지 않는다). */
   const verifyLine = (s: StepScope): string => {
     const idx = steps.indexOf(s);
-    // PART B: Level 1 사용자 실행형 — 담당자 실행 기반이며 무인 자동화가 아니다.
-    if (s.treatment === "사용자 실행 결과 생성")
-      return "담당자가 실행을 요청하면 실제 입력으로 처리하고 결과를 화면·파일로 제공합니다. 담당자 확정 전에는 운영 결과로 반영하지 않으며, 스케줄러·정기 무인 실행은 구현하지 않습니다. 실행할 때마다 입력 검증과 결과 대조 기록이 남습니다.";
     const m = model.methods[idx];
-    return m === "assist"
+    const methodText = m === "assist"
       ? "실제 입력으로 후보·초안이 생성되고, 담당자 확정 전에는 운영 결과로 반영되지 않으며, 생성할 수 없는 건은 검토 필요·실패로 표시됩니다."
       : m === "composite" && model.methodOrders[idx] === "parallel"
       ? "병행 처리가 확인되었으나 실행 순서와 의존성이 확정되지 않았습니다. 실제 실행 전 처리 순서를 담당자에게 확인하고, 각 역할의 완료 기준을 모두 만족할 때 완료로 인정합니다. 확인 전에는 순차 실행을 가정하지 마세요."
@@ -1561,6 +1610,11 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
       : dupName(s)
       ? "동일 이름의 진단 단계가 중복되었습니다. 처리 방식·적용 단계를 확인하기 전에는 해당 처리를 보류하고 확인 사항을 보고하세요."
       : "처리 방식이 확정되지 않았습니다. 처리 방식의 근거·충돌 내용·필수 기준을 먼저 확인하고, 미확정 사항과 재개 조건을 보고하세요. 방식이 확정되기 전에는 구현을 시작하지 마세요.";
+    // PART B: Level 1 사용자 실행형 — 담당자 요청 기반이며 무인 자동화가 아니다.
+    // 실행 조건 자체는 전역으로도 명시되므로 여기서는 짧은 전제로만 덧붙인다.
+    return s.treatment === "사용자 실행 결과 생성"
+      ? `담당자가 실행을 요청할 때만 동작하고 담당자 확정 전에는 운영 결과로 반영되지 않아야 합니다(스케줄러·정기 무인 실행 금지). ${methodText}`
+      : methodText;
   };
   const sections: { title: string; body: string }[] = [];
   const section = (title: string, ...content: string[]) => sections.push({ title, body: content.filter(Boolean).join("\n\n") });
@@ -1658,13 +1712,14 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
   const ioBlocks = work.map((s, i) => {
     const spec = stepIoSpec(model, steps.indexOf(s));
     const ownInputs = spec.inputs.filter(text => !text.endsWith("(업무 전체 입력)"));
+    const hasCommonInputs = spec.inputs.some(text => text.endsWith("(업무 전체 입력)"));
     const processParts = [
       ...(s.treatment ? [s.treatment] : []),
       `방식: ${shortMethod(s)}`,
       ...spec.process.filter(text => text.startsWith("구현:")),
     ];
     return `### 기능 ${i + 1}. ${s.step}\n\n${bullets([
-      `입력: ${ownInputs.length ? ownInputs.join("; ") : "공통 입력 사용 (위 공통 입력·출력 참조)"}`,
+      `입력: ${ownInputs.length ? `${ownInputs.join("; ")}${hasCommonInputs ? " + 공통 입력 (위 공통 입력·출력 참조)" : ""}` : "공통 입력 사용 (위 공통 입력·출력 참조)"}`,
       `처리: ${processParts.join(" → ")}`,
       spec.outputs.length ? `출력: ${spec.outputs.join("; ")}` : "출력: 이 단계의 직접 산출물 없음 — 위 업무 전체 산출물에 기여",
       `검증: ${verifyLine(s)}`,
@@ -1710,7 +1765,7 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
       "실제 입력 및 확정된 업무 기준 확인: 실제 샘플로 입력 형식·필수 항목을 확인하세요. 실제 샘플로 형식을 확인하기 전에는 항목명·경로를 하드코딩하지 마세요.",
       work.length ? `구현 가능한 기능 개발: ${work.map(s => s.step).join(", ")} 단계를 '기능별 요구사항'의 입력·처리·출력대로 구현하세요. 확인된 계산식·규칙만 적용하고, 미확정 규칙은 해당 처리만 '확인 필요'로 남기세요. 관련 없는 독립 기능까지 중단하지 마세요.` : "구현 가능한 기능 개발: 이번 범위에서 구현할 단계가 없습니다. 입력 자료의 형식 확인과 보고만 수행하세요.",
       work.length ? `입력·처리·출력 연결: 처리 결과를 ${finalOutputs.length ? finalOutputs.join(", ") : "확인된 출력 형식"}으로 연결하고, 업무에 필요한 저장·재조회가 있으면 기존 저장소·인증 방식으로 동작을 확인하세요. 저장 기능이 없는 업무에 DB 검증을 강제하거나, 웹앱이 아닌 업무에 브라우저 테스트·웹 배포를 강제하지 마세요.` : "입력·처리·출력 연결: 해당 없음.",
-      `오류·예외·담당자 확인 처리: ${exceptions.length ? exceptions.slice(0, 5).join("; ") : "업무 예외"} 처리를 구현하고, 담당자 확인·승인 지점을 유지하세요. 실패·미매칭·확인 불가 데이터는 정상 결과와 분리하세요.`,
+      "오류·예외·담당자 확인 처리: '예외 및 유지 조건'에 정리된 예외 항목을 처리하고, 담당자 확인·승인 지점을 유지하세요. 실패·미매칭·확인 불가 데이터는 정상 결과와 분리하세요.",
       "실제 기능 테스트 및 완료 조건 검증: 저장소의 실제 테스트·빌드 명령으로 아래 검증 기준을 확인하세요. 실행하지 않은 검증은 완료로 보고하지 마세요.",
     ]),
     "위 순서를 지키되 의존성이 없는 독립 단계는 병렬로 진행할 수 있습니다. 선행 확인이 필요한 단계는 실제 의존 관계를 확인하고 해당 부분만 '확인·승인 대기'로 보고하세요. 미확인 권한·보안 조건을 독립이라고 단정하거나 우회하지 마세요.",
@@ -1719,7 +1774,7 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
     model.scoped.validationMethods.length ? `### 검증 방법·기록 (합격 조건 아님)\n\n${bullets(model.scoped.validationMethods.map(evidenceLine))}` : "",
     work.length ? "### 경계·실패 케이스\n\n입력 1건·빈 입력·같은 기준값 여러 건·선택 항목 누락·확정된 업무 경계값 중 해당하는 상황을 확인하세요. 현재 구현 단계의 잘못된 형식·파싱 오류·필수 항목 누락과 외부 API가 필요한 경우 응답 오류·권한 거부·연결 실패가 정상 결과나 성공한 저장으로 표시되지 않는지 확인하세요." : "",
     "### 범위·승인·회귀 확인\n\n담당자 확인 전 결과가 확정·전송되지 않는지, 제외·보류된 단계와 검증 기준이 다시 필수 작업으로 나타나지 않는지, 거부된 권한에 의존하는 처리가 실행되지 않는지 확인하세요. 이 작업과 관련된 기존 기능이 이전과 동일하게 동작하는지 확인하세요. 웹 UI를 포함하면 기존 브라우저/E2E 도구가 있을 때 주요 화면을 Desktop과 Mobile에서 확인하세요.",
-    work.length ? `### 단계별 완료 기준\n\n${bullets(work.map(s => s.scope === "implement" ? `${s.step}: ${verifyLine(s)}` : `${s.step}: 확인 항목이 확인되어 구현했다면 ${verifyLine(s)} 확인하지 못했다면 '확인·승인 대기'로 보고합니다.`))}` : "",
+    work.length ? `### 단계별 완료 기준\n\n${bullets(work.map(s => s.scope === "implement" ? `${s.step}: '기능별 요구사항'의 해당 기능 검증 기준을 모두 충족하면 완료` : `${s.step}: 확인 항목이 확인되어 '기능별 요구사항'의 해당 기능 검증 기준을 충족하면 완료하고, 확인하지 못했다면 '확인·승인 대기'로 보고`))}` : "",
     review.length ? `### 검토·검증 완료 기준\n\n${bullets([
       "확인한 프로젝트 구조와 재사용 가능한 기존 구현이 정리됩니다.",
       ...review.map(s => `${s.step}: 처리 가능성과 기술적 제약이 근거 자료와 함께 정리됩니다.`),
