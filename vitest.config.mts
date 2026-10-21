@@ -17,6 +17,13 @@ export default defineConfig(({ mode }) => ({
       ? configDefaults.exclude
       : [...configDefaults.exclude, "tests/eval/document-review-holdout.test.ts"],
     testTimeout: 30_000,
+    // Heavy fixture files (aggregation/analysis matrices) hold several full
+    // ExcelJS workbook models at once; the largest case peaks at ~2.4GB of
+    // live heap, above the default V8 heap cap that Node derives from
+    // small-memory machines (~2GB on 8GB hosts), which aborted the worker
+    // with SIGABRT. Raise the cap with headroom over the measured peak,
+    // without inviting lazy collection to bloat RSS on shared hosts.
+    execArgv: ["--max-old-space-size=3072"],
     coverage: {
       include: ["src/**/*.{ts,tsx}"],
       // This interactive research view is exercised in Playwright on desktop, mobile and Firefox;
