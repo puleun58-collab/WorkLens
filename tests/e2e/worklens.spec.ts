@@ -425,7 +425,7 @@ test("usage guide switches feature flows on desktop and mobile", async ({ page }
   await expect(page.getByRole("button", { name: "Guide" })).toHaveAttribute("aria-current", "page");
   await expect(page.getByRole("tab", { name: "분석", exact: true })).toHaveAttribute("aria-selected", "true");
   const tabs = page.getByRole("tablist", { name: "기능 선택" });
-  await expect(tabs.getByRole("tab")).toHaveText(["분석", "질문", "비교", "검수", "보완", "윤문", "추출", "취합", "법령", "PDF 도구", "이미지 도구", "업무 자동화 진단", "용어 사전"]);
+  await expect(tabs.getByRole("tab")).toHaveText(["분석", "질문", "비교", "검수", "보완", "윤문", "추출", "취합", "법령", "PDF 도구", "이미지 도구", "학습센터", "업무 자동화 진단", "용어 사전"]);
   for (const removed of ["종합 리서치", "문서 검토", "설정"]) {
     await expect(tabs.getByRole("tab", { name: removed, exact: true })).toHaveCount(0);
   }
@@ -450,6 +450,10 @@ test("usage guide switches feature flows on desktop and mobile", async ({ page }
   await page.getByRole("tab", { name: "보완", exact: true }).click();
   await expect(page.getByRole("tab", { name: "보완", exact: true })).toHaveAttribute("aria-selected", "true");
   await expect(panel.getByRole("heading", { name: "보완", exact: true })).toBeVisible();
+  await expect(panel.locator(".usage-guide-step")).toHaveCount(4);
+  await page.getByRole("tab", { name: "학습센터", exact: true }).click();
+  await expect(page.getByRole("tab", { name: "학습센터", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(panel.getByRole("heading", { name: "학습센터", exact: true })).toBeVisible();
   await expect(panel.locator(".usage-guide-step")).toHaveCount(4);
   await page.getByRole("tab", { name: "법령", exact: true }).click();
   await page.setViewportSize({ width: 390, height: 844 });
