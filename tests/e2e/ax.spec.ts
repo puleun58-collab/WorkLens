@@ -799,14 +799,18 @@ test("AX Step 1 edit icon reuses the registration edit flow, keeps one selected 
   // KPI 카드 제거로 1단계 문서가 짧아져, 삭제 후에는 브라우저 스크롤 클램프가 위치를 바꿀 수 있다.
   // 비교 기준을 스크롤 최상단으로 통일해 삭제 자체로 인한 상단 레이아웃 이동만 검증한다.
   const tablistTop = () => page.evaluate(() => document.querySelector('[role="tablist"][aria-label="진단 단계"]')!.getBoundingClientRect().y);
-  await page.evaluate(() => window.scrollTo(0, 0));
-  const stepsTop = await tablistTop();
+  // scroll-behavior: smooth 환경에서는 scrollTo 직후 측정이 중간 위치를 잡을 수 있어, 스크롤이 0에 안착한 뒤 측정한다.
+  const tablistTopAtScrollTop = async () => {
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await expect.poll(async () => page.evaluate(() => window.scrollY)).toBe(0);
+    return tablistTop();
+  };
+  const tabTopBefore = await tablistTopAtScrollTop();
   await row(second.name).getByRole("button", { name: "업무 삭제", exact: true }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: "삭제", exact: true }).click();
   await expect(row(second.name)).toHaveCount(0);
   await expect(page.getByText("업무를 삭제했습니다.", { exact: false })).toHaveCount(0);
-  await page.evaluate(() => window.scrollTo(0, 0));
-  expect(await tablistTop()).toBe(stepsTop);
+  expect(await tablistTopAtScrollTop()).toBe(tabTopBefore);
   await expect(page.getByRole("alertdialog")).toHaveCount(0);
   await row("월간 운임 정산 취합 v2").getByRole("button", { name: "업무 삭제", exact: true }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: "삭제", exact: true }).click();
