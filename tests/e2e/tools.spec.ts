@@ -814,7 +814,7 @@ test("applicable law separates decision from legal source across transition and 
   await run.click();
   const output = page.locator(".legal-analysis-output");
   const decision = output.locator(".legal-analysis-section").filter({ hasText: "시행 예정 개정" }).first();
-  await expect(decision).toContainText("도로교통법 [시행 2023.04.04]");
+  await expect(decision).toContainText("도로교통법 · 시행 2023.04.04");
   await expect(output.locator(".legal-analysis-section").filter({ hasText: "기준일 시행 조문" })).not.toContainText("누구든지 술에 취한");
   await expect(output).toContainText("관련 부칙 발췌를 원문에서 확인해 주세요.");
   const raw = output.locator(".law-detail-source");

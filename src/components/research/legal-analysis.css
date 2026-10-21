@@ -14,6 +14,10 @@
 .legal-analysis-section h3 { margin: 0; color: var(--ink); font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); overflow-wrap: anywhere; }
 .legal-analysis-lines, .legal-analysis-raw { box-sizing: border-box; max-width: 100%; min-width: 0; margin: 0; color: var(--ink); font: inherit; font-size: var(--font-size-sm); line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
 .legal-analysis-raw { padding: 16px; border: 1px solid var(--line-soft, var(--line)); border-radius: var(--radius-panel, 8px); background: var(--paper); }
+/* 적용 법령 판단 시 주의: one hyphen column at the left edge, one text column every wrapped line returns to. */
+.legal-analysis-caution { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; color: var(--ink); font-size: var(--font-size-sm); line-height: 1.7; }
+.legal-analysis-caution > li { position: relative; padding-left: 15px; overflow-wrap: anywhere; }
+.legal-analysis-caution > li::before { content: "-"; position: absolute; left: 0; }
 .legal-analysis-output .law-detail-source > :is(.law-search-note, .legal-analysis-raw, .legal-analysis-lines, .legal-analysis-section) { margin-top: 8px; }
 .legal-analysis-evidence { display: grid; gap: 6px; min-width: 0; padding: 10px 0; border-top: 1px solid var(--line-soft, var(--line)); }
 .legal-analysis-evidence:first-of-type { border-top: 0; padding-top: 0; }
