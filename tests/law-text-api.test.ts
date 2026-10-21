@@ -68,6 +68,17 @@ describe("POST /api/law/text", () => {
     expect(JSON.stringify(vi.mocked(console.info).mock.calls)).not.toContain(KEY);
     expect(JSON.stringify(vi.mocked(console.info).mock.calls)).not.toContain("283457");
   });
+  it("accepts historical MSTs shorter than 6 digits (serial numbers of old law versions)", async () => {
+    // 시점별 적용 분석이 반환하는 구 법령 버전 MST (예: 1965년 시행 민법 58432)도
+    // 원문 조회 식별자로 쓸 수 있어야 한다. lawId는 고정 6자리라 별도다.
+    const fetcher = vi.fn().mockResolvedValue(toolText(TOC));
+    vi.stubGlobal("fetch", fetcher);
+    const response = await call({ mst: "58432", jo: "제74조" });
+    expect(response.status).toBe(200);
+    expect(response.json.data?.found).toBe(true);
+    expect(JSON.parse(String((fetcher.mock.calls[0] as [URL, RequestInit])[1].body)).params.arguments).toEqual({ mst: "58432", jo: "제74조" });
+  });
+
   it("does not invent effective dates from malformed metadata and stops the TOC at a footer", async () => {
     const raw = "법령명: 근로기준법\n개정일: 20260505\n공포일: 미확정\n시행일: 2026-04-01\n\n목차 (총 1개 조문)\n제74조 임산부의 보호\n부칙\n제1조 경과조치";
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(toolText(raw)));
@@ -116,8 +127,8 @@ describe("POST /api/law/text", () => {
     const fetcher = vi.fn();
     vi.stubGlobal("fetch", fetcher);
     for (const body of [
-      {}, { mst: "28345" }, { mst: "2834570" }, { mst: 283457 }, { mst: " 283457" },
-      { lawId: "1a1872" }, { mst: "283457", lawId: "001872" },
+      {}, { mst: "2834570" }, { mst: 283457 }, { mst: " 283457" }, { mst: "" },
+      { lawId: "1a1872" }, { lawId: "01872" }, { mst: "283457", lawId: "001872" },
       { mst: "283457", jo: "74" }, { mst: "283457", jo: "제0조" }, { mst: "283457", jo: "제10조의0" }, { mst: "283457", jo: "제74조; delete" }, { mst: "283457", jo: "제12345조" },
       { mst: "283457", tool: "search_law" }, { mst: "283457", url: "https://evil.test" }, { mst: "283457", apikey: KEY },
     ]) {

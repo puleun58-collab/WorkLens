@@ -277,6 +277,18 @@ describe("legal_analysis presentation parsing", () => {
     expect(rule.sections[0].lines[0]).toBe("도로교통법 시행규칙 · 시행 2023.04.04 · 제123호 (일부개정)");
   });
 
+  it("extracts short historical MSTs (serial numbers under 6 digits) and still formats the version line", () => {
+    // 1965년 시행 민법처럼 구 법령 버전의 MST는 6자리 미만일 수 있다
+    // (운영 실측: 민법 @ 1970.01.01 → MST 58432).
+    const presented = applicableLawPresentation(APPLICABLE.replace(
+      "도로교통법 [시행 2023.04.04] [제19158호, 2023.01.03, 일부개정] (MST 247265)",
+      "민법 [시행 1965.01.01] [제1668호, 1964.12.31, 일부개정] (MST 58432)",
+    ));
+    expect(presented.mst).toBe("58432");
+    expect(presented.sections[0].lines[0]).toBe("민법 · 시행 1965.01.01 · 법률 제1668호 (일부개정)");
+    expect(presented.sections[0].lines[0]).not.toContain("MST");
+  });
+
   it("renders the caution section as restated list items without losing a rule or citation", () => {
     const text = [
       "═══ 행위시법 판단: 민법 @ 2020.01.15 ═══",

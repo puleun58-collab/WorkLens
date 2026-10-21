@@ -208,8 +208,8 @@ function analysisStatus(text: string): string {
   return text
     .replace(/\[[A-Z][A-Z_]{2,}\]\s*/gu, "")
     .replace(/API 일시 실패/gu, "자료 조회 일시 실패")
-    .replace(/\(\s*MST \d{6},\s*/gu, "(")
-    .replace(/\s*\(MST \d{6}\)/gu, "");
+    .replace(/\(\s*MST \d+,\s*/gu, "(")
+    .replace(/\s*\(MST \d+\)/gu, "");
 }
 
 function Lines({ lines }: { lines: string[] }) {

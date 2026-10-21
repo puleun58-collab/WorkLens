@@ -1630,7 +1630,18 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
   const finalOutputs = d?.asIs?.outputs?.length ? d.asIs.outputs : currentOutputs;
   const fallback = unique([...(d?.operation?.fallback ? [d.operation.fallback] : []), ...model.classified.filter(item => (item.role === "fallback" || item.role === "operation") && ["implement", "after-check", "verify"].includes(item.scope)).map(item => item.text)]);
   const tests = unique(model.scoped.tests.map(item => item.text));
-  const criteria = unique(model.scoped.criteria.map(evidenceLine));
+  // 판정 기준 구분: 출처(PoC 성공/실패)가 성공·실패 의미를 결정한다.
+  // 단계에 연결됐는지 여부가 의미를 바꾸지 않도록, 단계 연결 기준도
+  // 렌더링 단계에서 출처별로 분리한다. 성공·실패 양쪽 출처에서 온 항목은
+  // 어느 한쪽으로 임의 확정하지 않고 출처 충돌(확인 대상)로 분리한다.
+  const pocKindOf = (item: AgentInstructionItem): "success" | "failure" | "conflict" | "none" => {
+    const success = item.sources.includes("diagnosis.poc.success");
+    const failure = item.sources.includes("diagnosis.poc.failure");
+    return success && failure ? "conflict" : success ? "success" : failure ? "failure" : "none";
+  };
+  const criteria = unique(model.scoped.criteria.filter(item => pocKindOf(item) !== "failure" && pocKindOf(item) !== "conflict").map(evidenceLine));
+  const stepFailureCriteria = unique(model.scoped.criteria.filter(item => pocKindOf(item) === "failure").map(evidenceLine));
+  const scopedConflictingCriteria = model.scoped.criteria.filter(item => pocKindOf(item) === "conflict");
   // PART B: PoC 성공·실패 기준은 업무 전체 판정 기준이므로 단계 연결이 없어도 격하하지 않음.
   // 단 성공 기준만 완료 조건이고 실패 기준은 완료를 부정하는 판정이라 렌더링에서 분리한다.
   // 단계 연결 근거가 없는 다른 criteria만 "참고 판정"으로 구분한다.
@@ -1657,22 +1668,35 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
     return !matchesActive;
   };
   // 차단 상태에서는 PoC 기준을 구현 가능한 완료 조건으로 제시하지 않음.
-  const pocCriteriaBlocked = gate === "blocked";
-  const pocCriteriaItems = model.classified.filter(item => item.role === "criteria" && isPocCriterion(item) && !model.scoped.criteria.includes(item));
+  // Level 0(검토·검증 전용)도 구현이 허용되지 않는 범위이므로 동일하게 취급한다 —
+  // 단계 연결이 없는 PoC 기준을 "업무 전체 완료 조건"으로 승격하지 않는다.
+  // (단계에 연결된 기준은 검토·검증 판정 기준으로 그대로 유지된다.)
+  const pocCriteriaBlocked = gate === "blocked" || scopeLevel === 0;
+  // 모델이 검증 방법으로 분류한 항목은 성공·실패 판정 기준이 아니다 —
+  // '검증 방법·기록 (합격 조건 아님)'에 이미 분리돼 있으므로, 단계 연결된
+  // 검증 방법이 업무 전체 완료/실패 기준으로 중복 승격되지 않게 제외한다
+  // (계획 요약 경로의 criteria()와 동일한 제외 기준).
+  const pocCriteriaItems = model.classified.filter(item => item.role === "criteria" && isPocCriterion(item) && !model.scoped.criteria.includes(item) && !model.scoped.validationMethods.includes(item));
   // 성공 기준과 실패 판정 기준은 의미가 정반대이므로 완료 기준에 합치지 않는다.
   // 실패 항목(예: "중복 ID 허용")은 완료 조건처럼 읽히면 요구사항과 충돌해
   // 에이전트가 전면 기권하는 원인이 된다 — 별도 실패 판정 섹션으로 분리한다.
   const eligiblePocCriteria = pocCriteriaItems
     .filter(item => !pocCriteriaBlocked && !criterionRelatesOnlyToExcluded(item.text));
   const overallCriteria = unique(eligiblePocCriteria
-    .filter(item => item.sources.includes("diagnosis.poc.success"))
+    .filter(item => pocKindOf(item) === "success")
     .map(item => item.text));
   const overallFailureCriteria = unique(eligiblePocCriteria
-    .filter(item => !item.sources.includes("diagnosis.poc.success") && item.sources.includes("diagnosis.poc.failure"))
+    .filter(item => pocKindOf(item) === "failure")
     .map(item => item.text));
+  // 성공·실패 양쪽 출처에서 전달된 항목은 성공 기준으로 조용히 승격하지
+  // 않는다 (과거 동작). 단계 연결 여부와 무관하게 확인 대상으로 분리한다.
+  const conflictingCriteria = unique([
+    ...scopedConflictingCriteria.map(evidenceLine),
+    ...eligiblePocCriteria.filter(item => pocKindOf(item) === "conflict").map(item => item.text),
+  ]);
   const demotedPocCriteria = pocCriteriaItems
     .filter(item => pocCriteriaBlocked || criterionRelatesOnlyToExcluded(item.text))
-    .map(item => `${item.text} — 현재 필수 완료 조건 아님${pocCriteriaBlocked ? " (실행 차단 상태)" : " (관련 단계 제외됨)"}`);
+    .map(item => `${item.text} — 현재 필수 완료 조건 아님${gate === "blocked" ? " (실행 차단 상태)" : scopeLevel === 0 ? " (검토·검증 전용 범위)" : " (관련 단계 제외됨)"}`);
   // 업무 전체 완료 기준은 단계 연결 reason을 표시하지 않음 (전체 기준으로 명시하므로).
   const deferredCriteria = [
     ...model.classified.filter(item => item.role === "criteria" && !isPocCriterion(item) && !model.scoped.criteria.includes(item) && !model.scoped.validationMethods.includes(item))
@@ -1790,8 +1814,10 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
       "다음 진단에 필요한 정보가 보고됩니다.",
     ])}` : "",
     criteria.length ? `### 판정 기준\n\n${bullets(criteria)}` : "",
+    stepFailureCriteria.length ? `### 단계별 실패 판정 기준\n\n${bullets(stepFailureCriteria)}\n\n위 항목은 완료 조건이 아니라 실패 판정 기준입니다. 어느 하나라도 해당하면 해당 단계를 완료로 판정하지 마세요.` : "",
     overallCriteria.length ? `### 업무 전체 완료 기준\n\n${bullets(overallCriteria)}\n\n위 기준은 업무 전체 산출물에 대한 완료 조건입니다. 단계별 검증과 함께 확인하세요.` : "",
     overallFailureCriteria.length ? `### 업무 전체 실패 판정 기준\n\n${bullets(overallFailureCriteria)}\n\n위 항목은 완료 조건이 아니라 실패 판정 기준입니다. 어느 하나라도 해당하면 완료로 판정하지 마세요.` : "",
+    conflictingCriteria.length ? `### 판정 기준 출처 충돌 (확인 필요)\n\n${bullets(conflictingCriteria)}\n\n위 항목은 성공 기준과 실패 판정 기준으로 모두 제시되어 의미가 충돌합니다. 어느 한쪽으로 임의로 해석해 완료·실패를 판정하지 말고, 충돌 내용을 확인 대상으로 보고하세요.` : "",
     deferredCriteria.length ? `### 참고 판정 (필수 완료 조건 아님)\n\n${bullets(deferredCriteria)}` : "",
     gate === "blocked" || !profile ? "운영 구현과 실행은 차단되고 검토·검증 결과와 차단 해제 조건만 기록됩니다. 타입 오류와 빌드 오류가 없어야 합니다."
       : work.length ? "타입 오류와 빌드 오류가 없어야 합니다. 실행하지 않은 검증은 완료로 보고하지 말고 미실행으로 명시하세요."

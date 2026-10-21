@@ -153,8 +153,9 @@ export function applicableLawPresentation(text: string): {
   for (const section of parsed.sections) {
     const heading = section.heading ?? "";
     if (heading.startsWith("기준일에 시행 중이던 버전")) {
-      mst = /\(\s*MST\s+(\d{6})\s*\)/u.exec(section.lines.join("\n"))?.[1];
-      sections.push({ heading, lines: section.lines.map((line) => formatVersionSectionLine(line.replace(/\s*\(\s*MST\s+\d{6}\s*\)/gu, ""))) });
+      // MST는 일련번호라 구 법령 버전은 6자리 미만일 수 있다 (예: 58432).
+      mst = /\(\s*MST\s+(\d+)\s*\)/u.exec(section.lines.join("\n"))?.[1];
+      sections.push({ heading, lines: section.lines.map((line) => formatVersionSectionLine(line.replace(/\s*\(\s*MST\s+\d+\s*\)/gu, ""))) });
     } else if (heading === APPLICABLE_LAW_CAUTION_HEADING) {
       sections.push(applicableLawCaution(section.lines));
     } else if (heading.startsWith("기준일 시점 조문")) {
