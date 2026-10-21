@@ -236,6 +236,17 @@ for (const s of AGENT_SCENARIOS) {
           // count as an implementation success.
           r.causeCode = "level-zero-abstention";
         }
+      } else if (r.generatedFiles.filter(f => !/\.md$/i.test(f)).length === 0) {
+        // The agent exited cleanly but produced no implementation at all
+        // (only notes/status documents). That is an agent abstention, not an
+        // evaluator failure: running the functional checks would only throw
+        // "web app exited before ready" and mask the refusal as
+        // evaluator-error.
+        stage = "functional-test";
+        r.outcome = "FAIL";
+        r.causeCode = "agent-abstained";
+        r.failureStage = "functional-test";
+        r.reason = `Agent produced no implementation files (only ${r.generatedFiles.join(", ") || "no artifacts"}); implementation abstained/deferred — see agent log`;
       } else {
         stage = "functional-test";
         r.checks = await functionalChecks(s, dir);
@@ -251,8 +262,13 @@ for (const s of AGENT_SCENARIOS) {
     } catch (e) {
       if (r.outcome === "NOT_RUN") {
         // Unclassified interruption: separate evaluator-internal errors from
-        // real environment blocks instead of blanket-BLOCKED.
-        const c = classifyError({ error: e, stage });
+        // real environment blocks instead of blanket-BLOCKED. A readiness
+        // failure of the generated app at the functional-test stage is the
+        // implementation failing to come up, not an evaluator malfunction.
+        const appReadinessFailed = stage === "functional-test"
+          && /Web app exited before ready|Web app did not serve HTTP 200/.test(String(e))
+          && r.generatedFiles.some(f => !/\.md$/i.test(f));
+        const c = classifyError({ error: e, stage, appReadinessFailed });
         r.outcome = c.outcome;
         if (c.causeCode) r.causeCode = c.causeCode;
         r.failureStage = c.failureStage;

@@ -54,6 +54,7 @@ outcome 판정 기준:
 | PASS | 모든 기능 검사가 통과 | (없음) |
 | FAIL | 구현 실패 또는 기능 검증 실패. WorkLens API HTTP 오류도 FAIL(서버 자체가 검증 대상이므로 파이프라인 실패) | `worklens-api-error`, `agent-exec-failed`, `agent-timeout`, `functional-check-failed`, `fixture-modified`, `schema-validation-error` |
 | FAIL (평가기 오류 구분) | 평가기 자체 오류는 구현 실패와 구분해 표시 — outcome은 FAIL을 유지하고 causeCode로 구분 | `evaluator-error` |
+| FAIL (에이전트 기권) | 에이전트가 정상 종료했으나 구현 파일을 만들지 않은 기권(상태 문서만 생성). 기능 검사를 실행하면 "web app exited" 평가기 오류로 오분류되므로 검사 전에 구분 | `agent-abstained` |
 | BLOCKED | 실제 로그 근거가 있는 인증·네트워크·환경 문제로 실행 불가 | `auth-expired`, `network-blocked`, `cli-missing` |
 | NOT_RUN | 검증 미실행 | (없음) |
 

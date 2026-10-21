@@ -39,6 +39,7 @@ export type CauseCode =
   | "agent-timeout"           // agent execution exceeded its time budget
   | "functional-check-failed" // functional checks ran but did not all pass
   | "fixture-modified"        // agent modified the evaluator-provided fixtures
+  | "agent-abstained"         // agent exited cleanly but produced no implementation (refusal/deferral)
   | "evaluator-error"         // evaluator-internal error (distinct from implementation failure)
   | "auth-expired"            // CLI auth expired/missing, proven by log patterns
   | "network-blocked"         // network unreachable, proven by log patterns or fetch failure
@@ -67,6 +68,13 @@ export interface ClassifyInput {
   fixtureModified?: boolean;
   /** Functional checks ran but did not all pass (or produced no checks). */
   functionalFailed?: boolean;
+  /**
+   * Functional-test stage: the generated app itself failed the readiness
+   * probe (process exited before serving, or never served HTTP 200). The
+   * evaluator worked — the implementation under test did not come up — so
+   * this is a functional failure, not an evaluator error.
+   */
+  appReadinessFailed?: boolean;
 }
 
 export interface Classification {
@@ -144,6 +152,7 @@ export function classifyError(input: ClassifyInput): Classification {
     if (isFetchNetworkError(e)) return blocked("network-blocked");
     if (isSchemaValidationError(e)) return fail("schema-validation-error");
     if (input.cliMissing) return blocked("cli-missing");
+    if (input.appReadinessFailed) return fail("functional-check-failed");
     return fail("evaluator-error");
   }
 

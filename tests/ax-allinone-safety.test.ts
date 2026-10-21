@@ -215,6 +215,20 @@ describe("A-5: PoC success/failure criteria safety", () => {
     expect(overall).not.toContain("증감률 계산이 담당자 수동 계산과 일치");
   });
 
+  it("failure criteria are rendered as failure judgements, not completion conditions", () => {
+    const prompt = promptFor(dieselCase.plan, dieselCase.diagnosis);
+    const overall = prompt.match(/### 업무 전체 완료 기준[\s\S]*?(?=### |$)/)?.[0] ?? "";
+    const failureSection = prompt.match(/### 업무 전체 실패 판정 기준[\s\S]*?(?=### |$)/)?.[0] ?? "";
+    // Success criteria stay completion conditions.
+    expect(overall).toContain("증감률 계산이 담당자 수동 계산과 일치");
+    // The failure criterion must not be presented as a completion condition:
+    // read as one, "가격 누락 건이 정상 결과에 섞임" would instruct the agent to
+    // mix missing-price rows into normal results, contradicting the task rules.
+    expect(overall).not.toContain("가격 누락 건이 정상 결과에 섞임");
+    expect(failureSection).toContain("가격 누락 건이 정상 결과에 섞임");
+    expect(failureSection).toContain("완료로 판정하지 마세요");
+  });
+
   it("blocked-state PoC criteria are not presented as implementable", () => {
     const blockedDiagnosis = {
       ...dieselCase.diagnosis,
