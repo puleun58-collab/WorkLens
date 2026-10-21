@@ -122,14 +122,15 @@ describe("stepMethodLabel confirm 분기", () => {
 });
 
 describe("4순위: 전체 프롬프트 통합 — 근거 없는 confirm 단계 오판 방지", () => {
-  test("근거 없는 confirm 단계에 '확인된 처리 기준' 표시 없음", () => {
+  test("diesel 단계는 노트 근거로 판정되어 '처리 방식 미확정'으로 일괄 표시되지 않음", () => {
     const prompt = buildAllInOnePrompt(dieselCase.plan, "codex", {
       taskName: dieselCase.name, diagnosis: dieselCase.diagnosis, context: "",
     });
-    // dieselCase의 confirm 단계들은 처리 근거가 없으므로 "확인된 처리 기준"이 나오면 안 됨
+    // dieselCase 단계 노트에는 실제 처리 근거(Excel 입력·증감률/평균 계산·후보 제안)가 있어
+    // 근거 기반 판정 결과를 표시한다. 근거 없는 단계의 미확정 표시는 아래 crudLike 케이스가 고정한다.
     expect(prompt).not.toContain("확인된 처리 기준에 따라 구현");
-    // 대신 미확정으로 표시되어야 함
-    expect(prompt).toContain("처리 방식 미확정");
+    expect(prompt).not.toContain("처리 방식 미확정");
+    expect(prompt).toContain("규칙 기반 처리");
   });
   test("담당자 확인 bullet에서도 오판 없음", () => {
     const prompt = buildAllInOnePrompt(dieselCase.plan, "codex", {
