@@ -185,7 +185,9 @@ for (const entry of typedCases) regressionCase({ id: entry.id, category: "Extrac
   const file = await bookFile(entry.id, (b) => { const s = b.addWorksheet("유형"); s.addRow(["담당부서", "앵커팀"]); const c = s.getCell("B2"); s.getCell("A2").value = "검증값"; c.value = entry.value; if (entry.format) c.numFmt = entry.format; });
   await selectAndRunExtract(page, [file], entry.value === null ? ["담당부서", "검증값"] : []);
   if (entry.id === "XLSX-29") {
-    await expect(fileRow(page, file).locator(".warning")).toHaveAttribute("title", /수식은 계산하지 않고 파일에 저장된 결과만 사용합니다/);
+    // Formula handling is the reader's fixed scope: the file row stays
+    // quiet while the stored result is still what gets extracted.
+    await expect(fileRow(page, file).locator(".warning")).toHaveCount(0);
     classify("Expected");
   }
   if (entry.value === null) {
@@ -217,22 +219,31 @@ for (const entry of [{ id: "XLSX-30", input: "external reference with cached val
   await ready(page);
   const file = await externalFile(entry.id, entry.cached);
   await selectAndRunExtract(page, [file], entry.cached === undefined ? ["담당부서", "연결값"] : []);
-  await expect(fileRow(page, file).locator(".warning")).toHaveAttribute("title", new RegExp(entry.warning));
-  if (entry.cached === undefined) await expect(page.locator(".extract-fields-table .data-row").filter({ hasText: "연결값" })).toContainText("문서에서 찾지 못함");
+  if (entry.cached === undefined) {
+    // A linked value with no stored result is real missing content, so the
+    // file row keeps its 확인 필요 notice for this case only.
+    await expect(fileRow(page, file).locator(".warning")).toHaveAttribute("title", new RegExp(entry.warning));
+    await expect(page.locator(".extract-fields-table .data-row").filter({ hasText: "연결값" })).toContainText("문서에서 찾지 못함");
+  } else {
+    // Using the stored result is the reader's fixed scope: no file-row notice.
+    await expect(fileRow(page, file).locator(".warning")).toHaveCount(0);
+  }
   const actual = await checkExtractExports(page, entry.id, [path.basename(file)], entry.cached === undefined ? ["연결팀"] : ["연결팀", "125000"]);
   classify("Expected");
   note(`${entry.warning}; ${actual}`);
 });
 
-for (const entry of [{ id: "XLSX-32", visibility: "hidden" as const }, { id: "XLSX-33", visibility: "veryHidden" as const }]) regressionCase({ id: entry.id, category: "Extract", input: `${entry.visibility} sheet is omitted`, format: "XLSX", structure: `visible + ${entry.visibility} sheet`, expected: "Visible value exported; hidden value omitted with documented warning" }, async ({ page, note, classify }) => {
+for (const entry of [{ id: "XLSX-32", visibility: "hidden" as const }, { id: "XLSX-33", visibility: "veryHidden" as const }]) regressionCase({ id: entry.id, category: "Extract", input: `${entry.visibility} sheet is omitted`, format: "XLSX", structure: `visible + ${entry.visibility} sheet`, expected: "Visible value exported; hidden value omitted without a file-row notice" }, async ({ page, note, classify }) => {
   await ready(page);
   const file = await bookFile(entry.id, (b) => { b.addWorksheet("공개").addRow(["담당부서", "공개팀"]); const hidden = b.addWorksheet("비공개"); hidden.addRow(["담당부서", "비밀팀"]); hidden.state = entry.visibility; });
   await selectAndRunExtract(page, [file]);
-  await expect(fileRow(page, file).locator(".warning")).toHaveAttribute("title", /숨김 시트는 분석 대상에서 제외했습니다/);
+  // Hidden sheets are the reader's fixed scope: the omission still happens
+  // (비밀팀 never surfaces) but the file row carries no notice for it.
+  await expect(fileRow(page, file).locator(".warning")).toHaveCount(0);
   await expect(page.locator(".extract-results")).not.toContainText("비밀팀");
   const actual = await checkExtractExports(page, entry.id, [path.basename(file)], ["공개팀"]);
   classify("Unsupported");
-  note(`${entry.visibility} excluded with warning; ${actual}`);
+  note(`${entry.visibility} excluded without a file-row notice; ${actual}`);
 });
 
 regressionCase({ id: "XLSX-34", category: "Extract", input: "worksheet image does not erase adjacent data", format: "XLSX", structure: "anchored PNG plus key/value cells", expected: "Text extracted and exported without image bytes as a bogus cell" }, async ({ page, note }) => {
