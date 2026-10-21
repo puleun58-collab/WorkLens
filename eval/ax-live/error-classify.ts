@@ -17,7 +17,8 @@
 //   distinguished via causeCode "evaluator-error", never mixed with BLOCKED).
 // - BLOCKED: only with real evidence — expired/missing CLI auth (auth log
 //   patterns), unreachable network (network log patterns or a fetch-level
-//   failure), or a missing CLI binary.
+//   failure), an account rate/session/usage limit (rate-limit log
+//   patterns), or a missing CLI binary.
 // - NOT_RUN: verification never started (initial state).
 
 export type Outcome = "PASS" | "FAIL" | "BLOCKED" | "NOT_RUN";
@@ -43,6 +44,7 @@ export type CauseCode =
   | "evaluator-error"         // evaluator-internal error (distinct from implementation failure)
   | "auth-expired"            // CLI auth expired/missing, proven by log patterns
   | "network-blocked"         // network unreachable, proven by log patterns or fetch failure
+  | "rate-limited"            // account rate/session/usage limit, proven by log patterns
   | "cli-missing"             // CLI executable not installed
   | "level-zero-abstention";  // Level 0: agent correctly abstained from implementation
 
@@ -60,6 +62,8 @@ export interface ClassifyInput {
   authBlockedLog?: boolean;
   /** Network-failure patterns matched in agent stdout/stderr. */
   networkBlockedLog?: boolean;
+  /** Rate/session/usage-limit patterns matched in agent stdout/stderr. */
+  rateLimitedLog?: boolean;
   /** Agent process exit code (null = killed / unknown). */
   exitCode?: number | null;
   /** Agent execution hit its time budget and was killed. */
@@ -91,6 +95,15 @@ export const AUTH_BLOCKED_RE =
 /** Log evidence that the CLI could not reach the network. */
 export const NETWORK_BLOCKED_RE =
   /failed to refresh available models|Transport channel closed|http\/request failed|workspace routing discovery failed|Reconnecting\.\.\.|request timed out|error sending request for url|Unable to connect to API|EPROTO|ECONNREFUSED|ENOTFOUND|ETIMEDOUT/iu;
+
+/**
+ * Log evidence that the agent account hit a rate/session/usage limit.
+ * An account limit is an environment block (the run never reached the
+ * implementation), never an implementation failure — same treatment as
+ * auth expiry, distinguished by its own cause code.
+ */
+export const RATE_LIMIT_RE =
+  /exceed your account's rate limit|hit your session limit|hit your usage limit|usage limit reached|rate limit exceeded|session limit.{0,30}resets/iu;
 
 /** WorkLens API request failures: HTTP responses and request timeouts. */
 export function isWorklensApiError(e: unknown): boolean {
@@ -160,6 +173,7 @@ export function classifyError(input: ClassifyInput): Classification {
   if (input.fixtureModified) return fail("fixture-modified");
   if (input.authBlockedLog && input.exitCode !== 0) return blocked("auth-expired");
   if (input.networkBlockedLog && input.exitCode !== 0) return blocked("network-blocked");
+  if (input.rateLimitedLog && input.exitCode !== 0) return blocked("rate-limited");
   if (input.agentTimedOut) return fail("agent-timeout");
   if (input.exitCode !== 0) return fail("agent-exec-failed");
   if (input.functionalFailed) return fail("functional-check-failed");
