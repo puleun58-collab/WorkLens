@@ -526,10 +526,14 @@ test("학습센터: 퀴즈 종료 버튼 — 확인 취소 시 응시 유지, �
   await learn(page);
   await page.getByRole("button", { name: "퀴즈 응시", exact: true }).first().click();
   await expect(page.getByRole("heading", { name: /LEVEL 1 퀴즈/, exact: false })).toBeVisible();
-  // 기존 가운데 "그만두기" 버튼은 없고 오른쪽에 "종료" 버튼이 있다
+  // 기존 "그만두기" 버튼은 없고, "종료" 버튼은 문항 번호 줄의 오른쪽 끝에 있다
   await expect(page.getByRole("button", { name: "그만두기", exact: true })).toHaveCount(0);
-  const exitButton = page.getByRole("button", { name: "종료", exact: true });
+  const exitButton = page.locator(".learn-quiz-topnav").getByRole("button", { name: "종료", exact: true });
   await expect(exitButton).toBeVisible();
+  // 하단 이전·다음 내비게이션에는 종료 버튼이 없다
+  await expect(page.locator(".learn-quiz-nav").getByRole("button", { name: "종료", exact: true })).toHaveCount(0);
+  await expect(page.locator(".learn-quiz-nav").getByRole("button", { name: "이전", exact: true })).toBeVisible();
+  await expect(page.locator(".learn-quiz-nav").getByRole("button", { name: "다음", exact: true })).toBeVisible();
   // 1문항 답변 후 종료 확인 → 계속 풀기
   await answerCurrent(page);
   await exitButton.click();
@@ -860,9 +864,12 @@ test("학습센터: JSON 백업 내보내기·가져오기와 손상 파일 거�
   await learn(page);
   await expect(page.getByText(/1 \/ 10 단계 \(10%\)/, { exact: false })).toBeVisible();
 
-  // 내보내기 — 다운로드 파일을 검증한다
+  // 내보내기 — 하단 백업 박스는 없고, 상단 오버플로우 메뉴에서 실행한다
+  await expect(page.getByRole("region", { name: "학습 기록 백업" })).toHaveCount(0);
   const downloadPromise = page.waitForEvent("download");
-  await page.getByRole("button", { name: "학습 기록 내보내기", exact: true }).click();
+  await page.getByRole("button", { name: "학습 기록 작업", exact: true }).click();
+  await expect(page.getByRole("menuitem", { name: "학습 기록 가져오기", exact: true })).toBeVisible();
+  await page.getByRole("menuitem", { name: "학습 기록 내보내기", exact: true }).click();
   const download = await downloadPromise;
   const tmpDir = (await import("node:path")).join(testInfo.project.outputDir, "learn-backup-tmp");
   (await import("node:fs")).mkdirSync(tmpDir, { recursive: true });

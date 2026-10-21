@@ -28,7 +28,9 @@
 .learn-progress-bar > div { height: 100%; background: var(--primary); border-radius: 4px; transition: width 0.3s; }
 
 /* 학습센터 메인(대시보드) — COSS 레퍼런스: 목록형 로드맵 + 얇은 테두리 카드 */
-.learn-dash-intro { margin: 0 0 4px; }
+.learn-dash-intro-row { display: flex; align-items: center; gap: 12px; margin: 0 0 4px; }
+.learn-dash-intro-row > button { flex: none; }
+.learn-dash-intro { flex: 1; min-width: 0; margin: 0; }
 .learn-dash-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; margin-top: 16px; }
 .learn-dash-progress-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .learn-dash-progress-head h3 { margin: 0; font-size: 16px; }
@@ -93,7 +95,11 @@
 .learn-ox { flex: 1; padding: 16px; font-size: 20px; font-weight: 700; border: 1.5px solid var(--border); border-radius: 12px; background: var(--card); cursor: pointer; }
 .learn-ox.is-selected { border-color: var(--primary); background: color-mix(in srgb, var(--primary) 7%, transparent); }
 .learn-quiz-nav { display: flex; justify-content: space-between; margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--border); }
-.learn-question-dots { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0; }
+/* 문항 번호 줄 — 번호는 왼쪽, 종료 버튼은 같은 줄의 오른쪽 끝에 고정한다.
+   번호가 많아 줄바꿈돼도 종료 버튼은 밀리거나 잘리지 않는다. */
+.learn-quiz-topnav { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin: 12px 0; }
+.learn-question-dots { display: flex; flex-wrap: wrap; gap: 6px; flex: 1 1 auto; min-width: 0; }
+.learn-quiz-exit { flex: none; }
 .learn-qdot { width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--border); background: var(--card); font-size: 12px; cursor: pointer; }
 .learn-qdot.is-answered { background: color-mix(in srgb, var(--primary) 12%, transparent); border-color: var(--primary); }
 .learn-qdot.is-current { outline: 2px solid var(--primary); outline-offset: 1px; }
@@ -126,9 +132,6 @@
 .learn-completion-stat strong { font-size: 17px; }
 .learn-completion-note { background: color-mix(in srgb, var(--primary) 7%, transparent); border-radius: 10px; padding: 12px 16px; margin: 0 0 20px; font-size: 14px; }
 
-/* 퀴즈 종료 버튼 그룹 (오른쪽: 종료 + 다음/제출하기) */
-.learn-quiz-nav-right { display: flex; gap: 8px; }
-
 /* 학습 항목 완료 표시 */
 .learn-unit-btn.is-completed { border-color: #bbf7d0; }
 .learn-unit-done-icon { width: 14px; height: 14px; color: #16a34a; vertical-align: -2px; margin-right: 2px; }
@@ -140,9 +143,6 @@
 .learn-diagnostic-areas { display: flex; flex-direction: column; gap: 8px; margin: 12px 0; }
 .learn-diagnostic-area { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); }
 .learn-diagnostic-area-label { font-weight: 600; font-size: 14px; }
-
-/* 학습 기록 백업 카드 */
-.learn-backup-card { margin-top: 24px; }
 
 .learn-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0; }
 .learn-command-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
