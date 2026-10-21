@@ -16,15 +16,41 @@ import { AGENT_SCENARIOS, type AgentScenario } from "./agent-scenarios";
 import { runBrowserChecks } from "./agent-browser-checks";
 import { classifyError, redactSecrets, AUTH_BLOCKED_RE, NETWORK_BLOCKED_RE, type Outcome, type FailureStage, type CauseCode, type ClassifyInput } from "./error-classify";
 import { deriveDimensions, summarizeResults, type EvalDimensions } from "./eval-dimensions";
+import { assessArtifacts, describeArtifactAssessment, type ArtifactAssessment, type ArtifactFileInfo } from "./artifact-assess";
 
 type Tool = "codex" | "claude";
 interface Check { command: string; pass: boolean; observed: string }
-interface Result { scenario: string; tool: Tool; outcome: Outcome; reason: string; failureStage?: FailureStage; causeCode?: CauseCode; workspace?: string; command?: string[]; exitCode?: number | null; checks: Check[]; generatedFiles: string[]; promptSha256?: string; agentLog?: string; diagnosisFile?: string; dimensions?: EvalDimensions }
+interface Result { scenario: string; tool: Tool; outcome: Outcome; reason: string; failureStage?: FailureStage; causeCode?: CauseCode; workspace?: string; command?: string[]; exitCode?: number | null; checks: Check[]; generatedFiles: string[]; generatedFileDetails?: ArtifactFileInfo[]; artifactAssessment?: ArtifactAssessment; promptSha256?: string; agentLog?: string; diagnosisFile?: string; dimensions?: EvalDimensions }
 const BASE = process.env.BASE_URL ?? "http://localhost:3000";
 const STAMP = new Date().toISOString().replace(/[:.]/g, "-");
 const OUT = join(import.meta.dir, "results", `agent-${STAMP}`);
 mkdirSync(OUT, { recursive: true });
 const hash = (text: string) => createHash("sha256").update(text).digest("hex");
+const WHITESPACE_BYTES = new Set([0x20, 0x09, 0x0a, 0x0d, 0x0b, 0x0c]);
+/**
+ * Recursively collects every file in the agent workspace (relative path +
+ * non-whitespace byte count for the pure assessArtifacts() classification).
+ * Previously a shallow readdirSync() listing was used: directory names were
+ * recorded as if they were files and implementations living only in
+ * subdirectories were invisible to the judgement.
+ */
+function collectWorkspaceFiles(root: string): ArtifactFileInfo[] {
+  const files: ArtifactFileInfo[] = [];
+  const walk = (sub: string) => {
+    for (const entry of readdirSync(sub ? join(root, sub) : root, { withFileTypes: true })) {
+      const rel = sub ? `${sub}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) { walk(rel); continue; }
+      if (!entry.isFile()) continue;
+      let nonWhitespaceBytes = 0;
+      try {
+        for (const byte of readFileSync(join(root, rel))) if (!WHITESPACE_BYTES.has(byte)) nonWhitespaceBytes++;
+      } catch { /* an unreadable file counts as empty content */ }
+      files.push({ path: rel, nonWhitespaceBytes });
+    }
+  };
+  walk("");
+  return files.sort((a, b) => a.path.localeCompare(b.path));
+}
 const writeJson = (file: string, data: unknown) => writeFileSync(join(OUT, file), JSON.stringify(data, null, 2));
 const safeEnv: Record<string, string> = {};
 for (const key of ["PATH", "Path", "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "SYSTEMROOT", "WINDIR", "COMSPEC", "TEMP", "TMP", "PROGRAMFILES", "PROGRAMFILES(X86)", "PATHEXT",
@@ -203,7 +229,14 @@ for (const s of AGENT_SCENARIOS) {
       r.agentLog = `${s.id}-${tool}-agent.log`;
       // Mask API keys/tokens before the raw agent output is written to disk.
       writeFileSync(join(OUT, r.agentLog), redactSecrets(`stdout:\n${stdout}\n\nstderr:\n${stderr}`));
-      r.generatedFiles = readdirSync(dir).filter(file => !(file in s.files));
+      // Recursive collection: generatedFiles holds relative paths (including
+      // subdirectories), and the artifact assessment is the pure classification
+      // of those files (assessArtifacts in artifact-assess.ts, unit-tested).
+      const generated = collectWorkspaceFiles(dir).filter(file => !(file.path in s.files));
+      r.generatedFiles = generated.map(file => file.path);
+      r.generatedFileDetails = generated;
+      r.artifactAssessment = assessArtifacts(generated);
+      const assessment = r.artifactAssessment;
       const fixtureChanged = Object.entries(s.files).filter(([name, text]) => !existsSync(join(dir, name)) || readFileSync(join(dir, name), "utf8") !== text);
       // Log evidence decides BLOCKED vs FAIL: an expired/missing CLI login or a
       // network failure is an environment blocker, not an implementation failure.
@@ -223,7 +256,11 @@ for (const s of AGENT_SCENARIOS) {
         // Level 0 instructs review-only: the agent must NOT implement. Verify
         // abstention instead of running functional checks.
         stage = "functional-test";
-        const implFiles = r.generatedFiles.filter(f => !/\.md$/i.test(f));
+        // A Level 0 violation requires a REAL code file (code extension with
+        // non-empty content). Documents/config in subdirectories — previously
+        // recorded as a bare directory name and misjudged as implementation —
+        // are a correct review-only abstention.
+        const implFiles = assessment.realCodeFiles;
         if (implFiles.length === 0) {
           r.outcome = "PASS";
           r.causeCode = "level-zero-abstention";
@@ -236,17 +273,19 @@ for (const s of AGENT_SCENARIOS) {
           // count as an implementation success.
           r.causeCode = "level-zero-abstention";
         }
-      } else if (r.generatedFiles.filter(f => !/\.md$/i.test(f)).length === 0) {
-        // The agent exited cleanly but produced no implementation at all
-        // (only notes/status documents). That is an agent abstention, not an
-        // evaluator failure: running the functional checks would only throw
-        // "web app exited before ready" and mask the refusal as
-        // evaluator-error.
+      } else if (!assessment.hasRealCode) {
+        // The agent exited cleanly but produced no real code file at all:
+        // only documents, only config/data files, only empty files, or no
+        // artifacts. That is an agent abstention, not a functional failure:
+        // running the functional checks would only throw "web app exited
+        // before ready" and mask the refusal as evaluator-error, while
+        // counting config-only or empty-code runs as "implementation present"
+        // misclassifies them as functional-check-failed.
         stage = "functional-test";
         r.outcome = "FAIL";
         r.causeCode = "agent-abstained";
         r.failureStage = "functional-test";
-        r.reason = `Agent produced no implementation files (only ${r.generatedFiles.join(", ") || "no artifacts"}); implementation abstained/deferred — see agent log`;
+        r.reason = `Agent produced no real code files (artifact assessment: ${describeArtifactAssessment(assessment)} [${assessment.category}]; files: ${r.generatedFiles.join(", ") || "no artifacts"}); implementation abstained/deferred — see agent log`;
       } else {
         stage = "functional-test";
         r.checks = await functionalChecks(s, dir);
@@ -267,7 +306,7 @@ for (const s of AGENT_SCENARIOS) {
         // implementation failing to come up, not an evaluator malfunction.
         const appReadinessFailed = stage === "functional-test"
           && /Web app exited before ready|Web app did not serve HTTP 200/.test(String(e))
-          && r.generatedFiles.some(f => !/\.md$/i.test(f));
+          && (r.artifactAssessment ? r.artifactAssessment.hasRealCode : r.generatedFiles.some(f => !/\.md$/i.test(f)));
         const c = classifyError({ error: e, stage, appReadinessFailed });
         r.outcome = c.outcome;
         if (c.causeCode) r.causeCode = c.causeCode;

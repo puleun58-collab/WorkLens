@@ -53,6 +53,17 @@ describe("deriveDimensions: 차원별 독립 판정", () => {
     expect(d.implementation.verdict).toBe("fail");
   });
 
+  test("에이전트 기권(agent-abstained) → policy not-run / implementation fail (위반 미관측을 준수 확정으로 간주하지 않음)", () => {
+    // 수정 전: policy=pass 로 자동 판정 — 근거는 fixture 미수정·금지 동작
+    // 미관측뿐이라, 구현을 수행하지 않은 실행의 정책 준수를 검증한 것이
+    // 아니었다. 수정 후: 검증 근거 부족으로 not-run (준수율 분모 제외).
+    const d = deriveDimensions({ outcome: "FAIL", causeCode: "agent-abstained", checksPassed: 0, checksTotal: 0 });
+    expect(d.policy.verdict).toBe("not-run");
+    expect(d.policy.note).toContain("검증 근거 부족");
+    expect(d.implementation.verdict).toBe("fail");
+    expect(d.deployment.verdict).toBe("not-run");
+  });
+
   test("fixture 수정 → policy fail / implementation fail", () => {
     expect(
       verdicts({ outcome: "FAIL", causeCode: "fixture-modified", checksPassed: 0, checksTotal: 0 }),
@@ -152,6 +163,26 @@ describe("summarizeResults: 정책 준수율과 MVP 구현 성공률의 분리 �
     // 배포 검증: 이 실행에서는 항상 not-run → rate null
     expect(s.deployment.notRun).toBe(10);
     expect(s.deployment.rate).toBeNull();
+  });
+
+  test("기권(agent-abstained)은 정책 준수율 분모에서 제외된다 (not-run 집계, pass로 부풀리지 않음)", () => {
+    const results = [
+      result("PASS", undefined, 5, 5), // 구현 성공: policy pass
+      result("FAIL", "functional-check-failed", 2, 5), // 기능 실패: policy pass (위반 아님)
+      result("FAIL", "agent-abstained"), // 기권: policy not-run (수정 전에는 pass)
+      result("FAIL", "agent-abstained"),
+    ];
+    const s = summarizeResults(results);
+    // 정책: pass 2 / (pass 2 + fail 0) = 1 이지만, 기권 2건은 notRun 으로
+    // 분모에서 빠져 있다 — 수정 전(pass 자동 판정)이라면 pass 4 로 집계됐다.
+    expect(s.policy.pass).toBe(2);
+    expect(s.policy.fail).toBe(0);
+    expect(s.policy.notRun).toBe(2);
+    expect(s.policy.rate).toBe(1);
+    // 구현: pass 1 / (pass 1 + fail 3) = 0.25 — 기권은 기존대로 fail.
+    expect(s.implementation.pass).toBe(1);
+    expect(s.implementation.fail).toBe(3);
+    expect(s.implementation.rate).toBe(0.25);
   });
 
   test("dimensions 가 없는 구 결과 파일도 호환된다", () => {
