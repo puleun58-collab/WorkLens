@@ -109,7 +109,7 @@ const GUIDES: Guide[] = [
     steps: [
       selectFiles("보완할 문서 파일 선택", ["3분기_비용보고.pptx"]),
       { title: "실행", text: "보완 실행 선택 · 진행 상태는 실행 버튼에 표시", mini: <Run /> },
-      { title: "결과 확인", text: "상단 요약에서 자료 유형과 분석 완료 여부를 확인합니다. 카드의 대상과 필요한 정보를 읽고, 항목 제목을 펼쳐 연한 블루의 확인 이유와 ‘근거 보기’를 확인합니다", mini: <Result status="검토 완료" lines={["자료 유형 · 분석 완료 여부", "확인할 대상 → 필요한 정보", "상세 펼침 → 확인 이유 · 근거 보기"]} /> },
+      { title: "결과 확인", text: "카드의 대상과 필요한 정보를 읽고, 연한 블루의 확인 이유와 ‘근거 보기’를 확인합니다. 분석 범위가 제한된 경우에만 상단 요약에 표시됩니다", mini: <Result status="검토 완료" lines={["확인할 대상 → 필요한 정보", "확인 이유 · 근거 보기"]} /> },
       { title: "질문·근거 확인", text: "‘보고 전 확인할 질문’을 펼쳐 질문을 확인합니다. 항목별 ‘근거 보기’에서 현재 자료·인용 원문·위치를 확인하고, 닫으면 해당 버튼으로 돌아옵니다", mini: <Result status="상세 확인" lines={[]} actions={["보고 전 확인할 질문", "근거 보기"]} /> },
     ],
     tip: "다른 페이지의 설명은 누락으로 표시하지 않으며, 읽지 못한 영역은 분석 범위에 표시",
@@ -166,6 +166,16 @@ const GUIDES: Guide[] = [
       { title: "편집", text: "크기·회전 등 편집 적용", mini: <span className="mini-canvas"><ImageIcon className="mini-canvas-icon" /><span className="mini-crop is-mark" /></span> },
       { title: "결과 내보내기", text: "편집 또는 결합한 이미지 내보내기", mini: <Run label="내보내기" before={<Field text="2개 선택됨" mark={false} />} /> },
     ],
+  },
+  {
+    id: "learn", label: "학습센터", summary: "AI·AX 기초부터 개발·배포 실무까지 10단계로 학습",
+    steps: [
+      { title: "학습 시작", text: "사전 진단을 선택적으로 진행하거나 첫 번째 학습 단계부터 시작합니다.", mini: <Result status="학습 로드맵" lines={["LEVEL 1~10 단계별 학습"]} actions={["사전 진단 받기 (선택)", "처음 학습하기"]} /> },
+      { title: "학습 진행", text: "단계별 학습 자료를 확인하고 실습과 학습 항목을 완료합니다.", mini: <Result status="LEVEL 1" lines={["학습 내용 확인", "학습 항목 완료", "가상 터미널 실습"]} /> },
+      { title: "퀴즈 응시", text: "학습 후 퀴즈에 응시하고 80점 이상 획득하면 다음 단계로 진행합니다.", mini: <Result status="통과" lines={["점수 80점 · 통과", "다음 단계 해제"]} actions={["퀴즈 응시"]} /> },
+      { title: "학습 관리", text: "전체 진행률과 오답 노트를 확인하고 학습 기록을 백업합니다.", mini: <Result status="전체 진행률" lines={["오답 노트"]} actions={["학습 기록 내보내기", "학습 기록 가져오기"]} /> },
+    ],
+    tip: "학습 기록은 현재 브라우저에 저장됩니다. 다른 기기에서 이어서 학습하려면 기록을 내보내고 가져오세요. 가져오면 기존 기록이 교체됩니다.",
   },
   {
     id: "ax", label: "업무 자동화 진단", summary: "업무 등록 후 자동화 가능성·우선순위·실행 계획 확인",

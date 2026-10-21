@@ -226,7 +226,7 @@ regressionCase({ id: "DOC-27", category: "Upload", input: "12 slides including e
 regressionCase({ id: "DOC-28", category: "Upload", input: "PPTX image/chart/notes omission", format: "PPTX", structure: "media, chart, speaker note and body", expected: "Three omission warnings visible; analysis completes" }, async ({ page, note, classify }) => {
   const file = await prepared(page, "DOC-pptx-omissions.pptx", createPptxWithOmissions());
   const warning = row(page, path.basename(file)).locator(".warning");
-  await expect(warning).toContainText("주의 3");
+  await expect(warning).toContainText("파일 확인사항 3");
   await expect(warning).toHaveAttribute("title", /이미지 안의 내용은 읽지 않습니다\.[\s\S]*차트 안의 값은 읽지 않습니다\.[\s\S]*발표자 노트는 읽지 않습니다/);
   await selectFiles(page, file);
   await openView(page, "분석");

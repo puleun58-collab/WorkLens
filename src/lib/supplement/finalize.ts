@@ -108,7 +108,10 @@ export function finalizeSupplement(
     if (unsupportedFound) {
       finding.status = "unverified";
       finding.severity = finding.severity === "critical" ? "warning" : finding.severity;
-      finding.limitation = [finding.limitation, "제공된 자료만으로는 해당 항목의 충족 여부를 판단하기 어렵습니다."].filter(Boolean).join(" ");
+      // No generic limitation sentence here: the finding's own message in the
+      // 확인 필요 사유 box already states what could not be confirmed, and a
+      // second general notice only repeated it. Item-specific limitations
+      // (unread areas, an unfinished re-check) are still attached below.
     }
     if (reviewed.has(candidate.id) && outcome === undefined) {
       finding.status = "unverified";

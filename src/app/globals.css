@@ -8530,6 +8530,26 @@ div.status-panel.error > strong { font-size: 14px; line-height: 1.5; }
 .file-meta-line .structure-counts b { font-size: inherit; }
 .file-meta-line .warning { color: var(--warning, #9a6700); }
 
+.file-meta-line .file-warning-toggle {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.file-meta-line .file-warning-toggle:hover,
+.file-meta-line .file-warning-toggle:focus-visible { text-decoration: underline; }
+
+.file-warning-details {
+  margin: 3px 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+  line-height: var(--leading-relaxed);
+}
+
 @media (max-width: 700px) {
 
   .dropzone {

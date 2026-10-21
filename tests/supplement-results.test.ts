@@ -57,3 +57,67 @@ describe("supplement subject titles", () => {
     expect(renderTitles([{ ...finding, scope: "report", title }])).toEqual([title]);
   });
 });
+
+describe("supplement summary meta", () => {
+  function renderSummary(result: SupplementResult) {
+    return renderToStaticMarkup(createElement(SupplementResults, {
+      result, fileNames: new Map<string, string>(), renderSource: () => null,
+    }));
+  }
+  const base: SupplementResult = {
+    files: [{ fileId: "report", fileName: "보고.pptx", docType: "general", role: "report" }],
+    coverage: [{ fileId: "report", fileName: "보고.pptx", kind: "pptx", unit: "슬라이드", total: 2, analyzed: 2, complete: true, notes: [] }],
+    findings: [finding], questions: [], resolvedCount: 0, confirmedCount: 0,
+    withheldCount: 0, semanticReview: "not-needed",
+  };
+
+  it("omits 자료 유형 and the 분석 범위 line when the analysis covered everything", () => {
+    const html = renderSummary(base);
+    expect(html).not.toContain("자료 유형");
+    expect(html).not.toContain("일반 업무자료");
+    expect(html).not.toContain("분석 범위");
+    expect(html).not.toContain("전체 분석 완료");
+  });
+
+  it("keeps the limitation line when part of the document could not be analysed", () => {
+    const html = renderSummary({
+      ...base,
+      coverage: [{ ...base.coverage[0], complete: false, analyzed: 1, notes: ["2슬라이드를 읽지 못했습니다"] }],
+    });
+    expect(html).toContain("일부 분석 제한");
+    expect(html).toContain("2슬라이드를 읽지 못했습니다");
+    expect(html).not.toContain("자료 유형");
+  });
+
+  it("discloses deliberately excluded sheets instead of claiming 전체 분석", () => {
+    const html = renderSummary({
+      ...base,
+      coverage: [{
+        ...base.coverage[0],
+        sheets: [{
+          name: "원본데이터", status: "structure", role: "원본", hidden: false,
+          rows: 120, columns: 6, filledCells: 700, formulas: 0, crossSheetFormulas: 0, merges: 0,
+        }],
+      }],
+    });
+    expect(html).toContain("분석 완료");
+    expect(html).not.toContain("전체 분석 완료");
+    expect(html).toContain("시트별 처리 상태");
+  });
+
+  it("keeps the 핵심 보고자료 미확정 note for multi-file results without a report file", () => {
+    const html = renderSummary({
+      ...base,
+      files: [
+        { fileId: "a", fileName: "자료A.pptx", docType: "general", role: "reference" },
+        { fileId: "b", fileName: "자료B.pptx", docType: "general", role: "data" },
+      ],
+      coverage: [
+        { fileId: "a", fileName: "자료A.pptx", kind: "pptx", unit: "슬라이드", total: 1, analyzed: 1, complete: true, notes: [] },
+        { fileId: "b", fileName: "자료B.pptx", kind: "pptx", unit: "슬라이드", total: 1, analyzed: 1, complete: true, notes: [] },
+      ],
+    });
+    expect(html).toContain("핵심 보고자료를 확정하지 못했습니다");
+    expect(html).not.toContain("자료 유형");
+  });
+});
