@@ -14,7 +14,7 @@ import { axDiagnosisOutputSchema, axPlanSchema, axTaskV2Schema, hitlReviewSchema
 import type { AxDiagnosis, AxPlan, AxTaskV2, HitlReview } from "../../src/lib/ax/types";
 import { AGENT_SCENARIOS, type AgentScenario } from "./agent-scenarios";
 import { runBrowserChecks } from "./agent-browser-checks";
-import { classifyError, redactSecrets, AUTH_BLOCKED_RE, NETWORK_BLOCKED_RE, type Outcome, type FailureStage, type CauseCode, type ClassifyInput } from "./error-classify";
+import { classifyError, redactSecrets, AUTH_BLOCKED_RE, NETWORK_BLOCKED_RE, RATE_LIMIT_RE, type Outcome, type FailureStage, type CauseCode, type ClassifyInput } from "./error-classify";
 import { deriveDimensions, summarizeResults, type EvalDimensions } from "./eval-dimensions";
 import { assessArtifacts, describeArtifactAssessment, type ArtifactAssessment, type ArtifactFileInfo } from "./artifact-assess";
 
@@ -99,6 +99,23 @@ async function functionalChecks(s: AgentScenario, dir: string): Promise<Check[]>
     const server = await startFixture();
     try { return await runBrowserChecks("api", dir, safeEnv, server); }
     finally { server.close(); }
+  } else if (s.id === "report") {
+    // Document/report generation: the produced file's content must match the
+    // actual input data (per-category subtotals, grand total, unconfirmed
+    // rows separated without invented amounts). Line comparison ignores
+    // blank lines and per-line surrounding whitespace only.
+    const file = join(dir, "report.md");
+    const lines = (path: string) => existsSync(path) ? readFileSync(path, "utf8").split("\n").map(l => l.trim()).filter(Boolean) : null;
+    const checkReport = async (input: string, expected: string[]) => {
+      const r = await command(["node", "main.mjs", "report", input, file], dir, 15_000);
+      const observed = lines(file);
+      checks.push({ command: `node main.mjs report ${input} report.md`, pass: r.code === 0 && same(observed, expected), observed: redactSecrets(`exit=${r.code} lines=${JSON.stringify(observed)?.slice(0, 350) ?? "absent"} stderr=${r.stderr.trim().slice(0, 180)}`) });
+    };
+    await checkReport("input-a.json", ["# 업무 보고서", "- 운영: 35", "- 정비: 12", "합계: 47", "## 확인 필요", "- 보험료: 확인 필요"]);
+    await checkReport("input-b.json", ["# 업무 보고서", "- 시설: 123", "합계: 123"]);
+    const before = existsSync(file) ? readFileSync(file, "utf8") : "";
+    await checkError(dir, ["report", "input-bad.json", "report.md"], checks);
+    checks.push({ command: "read report.md after invalid input", pass: !!before && existsSync(file) && readFileSync(file, "utf8") === before, observed: existsSync(file) ? redactSecrets(readFileSync(file, "utf8").slice(0, 200)) : "output absent" });
   } else if (s.id === "pipeline") {
     const file = join(dir, "result.json");
     await checkRun(dir, ["pipeline", "input-a.json", file], { approved: [{ id: "X", total: 12 }], held: [{ id: "Y", total: 14 }] }, checks);
@@ -114,7 +131,13 @@ async function functionalChecks(s: AgentScenario, dir: string): Promise<Check[]>
   }
   return checks;
 }
-const tools: Tool[] = ["codex", "claude"];
+// Optional partial re-runs (e.g. re-executing only environment-blocked
+// cases after a limit resets): EVAL_SCENARIOS=report,hitl EVAL_TOOLS=claude.
+// Unset = the full matrix, unchanged.
+const toolFilter = (process.env.EVAL_TOOLS ?? "").split(",").map(v => v.trim()).filter(Boolean);
+const tools: Tool[] = (["codex", "claude"] as Tool[]).filter(t => !toolFilter.length || toolFilter.includes(t));
+const scenarioFilter = (process.env.EVAL_SCENARIOS ?? "").split(",").map(v => v.trim()).filter(Boolean);
+const scenarios = AGENT_SCENARIOS.filter(s => !scenarioFilter.length || scenarioFilter.includes(s.id));
 const results: Result[] = [];
 const add = (r: Result) => {
   // Three independent evaluation dimensions (policy / implementation /
@@ -129,7 +152,7 @@ const add = (r: Result) => {
   writeJson("agent-verification.json", { baseUrl: BASE, localOnly: true, deployment: "NOT_RUN", summary: summarizeResults(results), results });
   console.log(`${r.scenario}/${r.tool}: ${r.outcome} ${r.reason}`);
 };
-for (const s of AGENT_SCENARIOS) {
+for (const s of scenarios) {
   let diagnosis: AxDiagnosis;
   let task: AxTaskV2;
   let profile: ExecutionProfile;
@@ -242,12 +265,15 @@ for (const s of AGENT_SCENARIOS) {
       // network failure is an environment blocker, not an implementation failure.
       const authBlocked = AUTH_BLOCKED_RE.test(`${stdout}\n${stderr}`);
       const networkBlocked = NETWORK_BLOCKED_RE.test(`${stdout}\n${stderr}`);
+      const rateLimited = RATE_LIMIT_RE.test(`${stdout}\n${stderr}`);
       if (fixtureChanged.length) {
         record({ fixtureModified: true, exitCode: r.exitCode }, `Agent modified provided independent fixtures: ${fixtureChanged.map(([name]) => name).join(", ")}`);
       } else if (authBlocked && r.exitCode !== 0) {
         record({ authBlockedLog: true, exitCode: r.exitCode, stage: "agent-auth-network" }, `${tool} CLI authentication expired or missing; re-login required before implementation can run`);
       } else if (networkBlocked && r.exitCode !== 0) {
         record({ networkBlockedLog: true, exitCode: r.exitCode, stage: "agent-auth-network" }, `${tool} CLI network connectivity failure; check network/proxy before implementation can run`);
+      } else if (rateLimited && r.exitCode !== 0) {
+        record({ rateLimitedLog: true, exitCode: r.exitCode, stage: "agent-auth-network" }, `${tool} account rate/session/usage limit reached; implementation could not run — re-run after the limit resets`);
       } else if (timedOut) {
         record({ agentTimedOut: true, exitCode: r.exitCode }, "Agent execution timed out at 360s");
       } else if (r.exitCode !== 0) {

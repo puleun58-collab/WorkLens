@@ -9,6 +9,7 @@ import { describe, expect, test } from "bun:test";
 import {
   AUTH_BLOCKED_RE,
   NETWORK_BLOCKED_RE,
+  RATE_LIMIT_RE,
   classifyError,
   redactSecrets,
   type CauseCode,
@@ -59,6 +60,48 @@ describe("classifyError: the 10 required isolation cases", () => {
       "BLOCKED",
       "network-blocked",
       "agent-auth-network",
+    );
+  });
+
+  test("3c. 계정 사용량 한도 (usage limit 로그) → BLOCKED + rate-limited", () => {
+    const log = "ERROR: You've hit your usage limit. Upgrade to Pro, or try again later.";
+    expect(RATE_LIMIT_RE.test(log)).toBe(true);
+    expectCase(
+      { stage: "agent-auth-network", rateLimitedLog: true, exitCode: 1 },
+      "BLOCKED",
+      "rate-limited",
+      "agent-auth-network",
+    );
+  });
+
+  test("3d. 세션 한도 (session limit 로그) → BLOCKED + rate-limited", () => {
+    const log = "You've hit your session limit · resets 1:50pm (UTC)";
+    expect(RATE_LIMIT_RE.test(log)).toBe(true);
+    expectCase(
+      { stage: "agent-auth-network", rateLimitedLog: true, exitCode: 1 },
+      "BLOCKED",
+      "rate-limited",
+      "agent-auth-network",
+    );
+  });
+
+  test("3e. API 속도 제한 (rate limit 로그) → BLOCKED + rate-limited", () => {
+    const log = "API Error: This request would exceed your account's rate limit. Please try again later.";
+    expect(RATE_LIMIT_RE.test(log)).toBe(true);
+    expectCase(
+      { stage: "agent-auth-network", rateLimitedLog: true, exitCode: 1 },
+      "BLOCKED",
+      "rate-limited",
+      "agent-auth-network",
+    );
+  });
+
+  test("3f. rate limit 로그가 있어도 exit 0이면 BLOCKED 처리하지 않음", () => {
+    expectCase(
+      { stage: "agent-exec", rateLimitedLog: true, exitCode: 0, functionalFailed: true },
+      "FAIL",
+      "functional-check-failed",
+      "agent-exec",
     );
   });
 
