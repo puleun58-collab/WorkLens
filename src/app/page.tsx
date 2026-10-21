@@ -599,7 +599,7 @@ export default function Home() {
   const [deleteDone, setDeleteDone] = useState(0);
   const deleteOperation = useRef(0);
   const [deleteAllOpen, setDeleteAllOpen] = useState(false);
-  /** File rows whose extraction-warning details are expanded (파일 확인사항). */
+  /** File rows whose extraction-warning details are expanded (유의사항). */
   const [warningDetailIds, setWarningDetailIds] = useState<ReadonlySet<string>>(new Set());
   useEffect(() => {
     if (!deleteDone) return;
@@ -1835,13 +1835,13 @@ export default function Home() {
                             {file.warnings.length ? (
                               <button type="button" className="warning file-warning-toggle" title={warningText(file.warnings)}
                                 aria-expanded={warningDetailIds.has(file.id)}
-                                aria-label={`${file.name} 파일 확인사항 ${file.warnings.length}건 ${warningDetailIds.has(file.id) ? "접기" : "자세히 보기"}`}
+                                aria-label={`${file.name} 유의사항 ${file.warnings.length}건 ${warningDetailIds.has(file.id) ? "접기" : "자세히 보기"}`}
                                 onClick={() => setWarningDetailIds((prev) => {
                                   const next = new Set(prev);
                                   if (next.has(file.id)) next.delete(file.id); else next.add(file.id);
                                   return next;
                                 })}>
-                                파일 확인사항 {file.warnings.length}건
+                                유의사항 {file.warnings.length}건
                               </button>
                             ) : null}
                           </div> : null}

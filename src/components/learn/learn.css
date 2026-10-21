@@ -132,13 +132,6 @@
 .learn-completion-stat strong { font-size: 17px; }
 .learn-completion-note { background: color-mix(in srgb, var(--primary) 7%, transparent); border-radius: 10px; padding: 12px 16px; margin: 0 0 20px; font-size: 14px; }
 
-/* 학습 항목 완료 표시 */
-.learn-unit-btn.is-completed { border-color: #bbf7d0; }
-.learn-unit-done-icon { width: 14px; height: 14px; color: #16a34a; vertical-align: -2px; margin-right: 2px; }
-.learn-unit-complete-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 20px; padding: 12px 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); }
-.learn-unit-complete-status { font-size: 14px; color: var(--muted-foreground); }
-.learn-unit-complete-status.is-done { color: #15803d; font-weight: 600; }
-
 /* 사전 진단 영역별 학습 연결 */
 .learn-diagnostic-areas { display: flex; flex-direction: column; gap: 8px; margin: 12px 0; }
 .learn-diagnostic-area { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); }
