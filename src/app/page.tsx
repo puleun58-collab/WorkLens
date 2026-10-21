@@ -262,8 +262,9 @@ const WARNING_MESSAGES: Record<string, string> = {
   PPTX_SPEAKER_NOTES_OMITTED: "발표자 노트는 읽지 않습니다.",
   PDF_TEXT_LAYER_EMPTY: "스캔된 페이지의 글자는 읽지 않습니다.",
 };
-const warningText = (codes: readonly string[]): string =>
-  [...new Set(codes.map((code) => WARNING_MESSAGES[code] ?? "일부 내용은 분석 대상에서 제외했습니다."))].join("\n");
+const warningMessages = (codes: readonly string[]): string[] =>
+  [...new Set(codes.map((code) => WARNING_MESSAGES[code] ?? "일부 내용은 분석 대상에서 제외했습니다."))];
+const warningText = (codes: readonly string[]): string => warningMessages(codes).join("\n");
 /**
  * A status message belongs to whatever produced it. `workspace` messages
  * concern the tab as a whole — an upload, a workspace-wide failure — and are
@@ -598,6 +599,8 @@ export default function Home() {
   const [deleteDone, setDeleteDone] = useState(0);
   const deleteOperation = useRef(0);
   const [deleteAllOpen, setDeleteAllOpen] = useState(false);
+  /** File rows whose extraction-warning details are expanded (파일 확인사항). */
+  const [warningDetailIds, setWarningDetailIds] = useState<ReadonlySet<string>>(new Set());
   useEffect(() => {
     if (!deleteDone) return;
     const timer = window.setTimeout(() => setDeleteDone(0), 3000);
@@ -1829,8 +1832,24 @@ export default function Home() {
                           {counts.length || file.warnings.length ? <div className="file-meta-line file-structure-line">
                             {counts.length ? <span className="structure-counts">{counts.map((count, index) => <span key={count.label}>{index > 0 ? " · " : ""}{count.label}: <b>{count.value}</b></span>)}</span> : null}
                             {counts.length && file.warnings.length ? <i aria-hidden="true">·</i> : null}
-                            {file.warnings.length ? <span className="warning" title={warningText(file.warnings)}>주의 {file.warnings.length}건</span> : null}
+                            {file.warnings.length ? (
+                              <button type="button" className="warning file-warning-toggle" title={warningText(file.warnings)}
+                                aria-expanded={warningDetailIds.has(file.id)}
+                                aria-label={`${file.name} 파일 확인사항 ${file.warnings.length}건 ${warningDetailIds.has(file.id) ? "접기" : "자세히 보기"}`}
+                                onClick={() => setWarningDetailIds((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(file.id)) next.delete(file.id); else next.add(file.id);
+                                  return next;
+                                })}>
+                                파일 확인사항 {file.warnings.length}건
+                              </button>
+                            ) : null}
                           </div> : null}
+                          {file.warnings.length && warningDetailIds.has(file.id) ? (
+                            <ul className="file-warning-details">
+                              {warningMessages(file.warnings).map((message) => <li key={message}>{message}</li>)}
+                            </ul>
+                          ) : null}
                         </div>
                         <Badge variant="success" className="file-status"><CircleCheck aria-hidden="true" />준비 완료</Badge>
                       </article>
@@ -1974,7 +1993,18 @@ export default function Home() {
                         <SupplementResults
                           result={supplement}
                           fileNames={fileNames}
-                          renderSource={(sources, context, finding) => (
+                          renderSource={(sources, context, finding) => sources.length > 0 ? (
+                            /* Same location + 근거 보기 presentation as 윤문·검수 (ResultSource):
+                               the representative location sits left of the button. */
+                            <ResultSource
+                              sources={sources}
+                              fileNames={fileNames}
+                              context={context}
+                              onSource={(entries, trigger) => openSource(entries, trigger, finding)}
+                            />
+                          ) : (
+                            /* No source refs: the inspector still opens on the finding's
+                               own recorded locations, so the button stays on its own. */
                             <span className="result-source">
                               <Button type="button" variant="outline" size="sm"
                               className="source-action"
