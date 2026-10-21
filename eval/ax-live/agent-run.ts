@@ -99,6 +99,23 @@ async function functionalChecks(s: AgentScenario, dir: string): Promise<Check[]>
     const server = await startFixture();
     try { return await runBrowserChecks("api", dir, safeEnv, server); }
     finally { server.close(); }
+  } else if (s.id === "report") {
+    // Document/report generation: the produced file's content must match the
+    // actual input data (per-category subtotals, grand total, unconfirmed
+    // rows separated without invented amounts). Line comparison ignores
+    // blank lines and per-line surrounding whitespace only.
+    const file = join(dir, "report.md");
+    const lines = (path: string) => existsSync(path) ? readFileSync(path, "utf8").split("\n").map(l => l.trim()).filter(Boolean) : null;
+    const checkReport = async (input: string, expected: string[]) => {
+      const r = await command(["node", "main.mjs", "report", input, file], dir, 15_000);
+      const observed = lines(file);
+      checks.push({ command: `node main.mjs report ${input} report.md`, pass: r.code === 0 && same(observed, expected), observed: redactSecrets(`exit=${r.code} lines=${JSON.stringify(observed)?.slice(0, 350) ?? "absent"} stderr=${r.stderr.trim().slice(0, 180)}`) });
+    };
+    await checkReport("input-a.json", ["# 업무 보고서", "- 운영: 35", "- 정비: 12", "합계: 47", "## 확인 필요", "- 보험료: 확인 필요"]);
+    await checkReport("input-b.json", ["# 업무 보고서", "- 시설: 123", "합계: 123"]);
+    const before = existsSync(file) ? readFileSync(file, "utf8") : "";
+    await checkError(dir, ["report", "input-bad.json", "report.md"], checks);
+    checks.push({ command: "read report.md after invalid input", pass: !!before && existsSync(file) && readFileSync(file, "utf8") === before, observed: existsSync(file) ? redactSecrets(readFileSync(file, "utf8").slice(0, 200)) : "output absent" });
   } else if (s.id === "pipeline") {
     const file = join(dir, "result.json");
     await checkRun(dir, ["pipeline", "input-a.json", file], { approved: [{ id: "X", total: 12 }], held: [{ id: "Y", total: 14 }] }, checks);

@@ -982,7 +982,9 @@ function stepDirectOutputs(model: AgentInstructionModel, step: StepScope, pocOut
   // keyword-matches the step, the deliverable is that step's direct output — it is not
   // repeated on every other step, and unmatched intermediates stay unassigned.
   const workSteps = model.steps.filter(st => st.scope === "implement" || st.scope === "after-check");
-  const producingOutputs = !outputs.length && !relatedOutputs.length && workSteps[workSteps.length - 1] === step
+  // 확정 산출물(허용 단계에 연결된 출력)이 있으면 AS-IS 산출물을 이 단계의 직접
+  // 산출물로 귀속하지 않는다 — AS-IS 결과물은 참고 정보이지 구현 목표가 아니다.
+  const producingOutputs = !outputs.length && !relatedOutputs.length && !model.scoped.outputs.length && workSteps[workSteps.length - 1] === step
     ? (d?.asIs?.outputs ?? []).filter(out => {
       const outWords = out.replace(/[^\uAC00-\uD7A3A-Za-z0-9]/gu, " ").split(/\s+/u).filter(w => w.length >= 2);
       const overlap = outWords.filter(w => stepKeywords.has(w));
@@ -1662,7 +1664,14 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
     : "선행 조건을 각 단계의 실제 의존 관계에 대조해 확인된 '확인 후 구현' 단계부터 실제로 동작하고 검증된 기능으로 완성하세요. 미확인 조건에 의존하는 부분만 보류 사유와 함께 보고하세요.";
   const inputs = d ? unique([...(d.asIs?.inputs ?? []), ...without(d.poc?.inputs ?? [], d.asIs?.inputs ?? []).map(item => `검증용: ${item}`)]) : [];
   const currentOutputs = unique(model.scoped.outputs.map(item => item.text));
-  const finalOutputs = d?.asIs?.outputs?.length ? d.asIs.outputs : currentOutputs;
+  // 최종 산출물은 현재 구현 범위에서 확정된 산출물(허용 단계에 연결된 출력)을
+  // 우선한다. AS-IS 산출물은 확정 산출물이 없을 때만 전체 산출물로 쓰고, 확정
+  // 산출물이 있으면 기존 업무 참고로만 남긴다 — 현재 결과물을 그대로 최종 구현
+  // 목표로 확정하면 TO-BE에서 달라지는 처리·출력이 누락될 수 있다.
+  const finalOutputs = currentOutputs.length ? currentOutputs : unique(d?.asIs?.outputs ?? []);
+  const asIsReferenceOutputs = currentOutputs.length
+    ? unique((d?.asIs?.outputs ?? []).filter(out => !currentOutputs.some(cur => normalizedItem(cur) === normalizedItem(out) || normalizedItem(cur).includes(normalizedItem(out)))))
+    : [];
   const fallback = unique([...(d?.operation?.fallback ? [d.operation.fallback] : []), ...model.classified.filter(item => (item.role === "fallback" || item.role === "operation") && ["implement", "after-check", "verify"].includes(item.scope)).map(item => item.text)]);
   const tests = unique(model.scoped.tests.map(item => item.text));
   // 판정 기준 구분: 출처(PoC 성공/실패)가 성공·실패 의미를 결정한다.
@@ -1801,6 +1810,7 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
       ...(d?.asIs?.trigger ? [`업무 발생 주기·시점: ${d.asIs.trigger} (자동 실행 요구사항 아님)`] : []),
       ...(d?.asIs?.systems?.length ? [`사용 시스템: ${d.asIs.systems.join(", ")}`] : []),
       ...(finalOutputs.length ? [`업무 전체 산출물 (공통 출력): ${finalOutputs.join("; ")}`] : []),
+      ...(asIsReferenceOutputs.length ? [`기존 업무 산출물 (참고 — 최종 구현 목표 아님): ${asIsReferenceOutputs.join("; ")}`] : []),
     ])}\n\n실제 입력 자료의 형식과 필수 필드를 확인하고 파싱·검증한 뒤 처리하세요. 확인 전에는 항목명·경로·값을 하드코딩하지 마세요. 계산·판정이 있으면 확인된 계산식·입력·순서·반올림·누락 처리 기준만 사용하고, 정의되지 않은 기준은 해당 처리만 보류해 '확인 필요'로 보고하세요. 원본 추적이 필요한 업무라면 결과에서 원본 출처·처리 단계·오류 위치·담당자 확인 결과를 확인할 수 있게 유지하세요.` : "",
     verifyGroups.size ? `### 방식별 검증 기준\n\n${bullets([...verifyGroups].map(([text, group]) => `${group.labels.join(" / ")} (${group.stepNames.join(", ")}): ${text}`))}` : "",
     work.length ? ioBlocks : "",
@@ -1809,9 +1819,23 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
   );
   // 포함 관계 중복 제거: 다른 항목에 온전히 포함되는 짧은 항목은 긴 항목이 같은
   // 사실을 이미 전달하므로 한 번만 남긴다 (예: '가격 미공시일' ⊂ '가격 미공시일 분리').
+  // 단, 문자열 포함 관계가 의미적 동일성을 보장하지는 않는다 — 긴 항목이 짧은 항목에
+  // 부정·금지·허용·필수·승인 등 의미를 바꾸는 말을 덧붙인 경우(예: '데이터 누락' ⊂
+  // '데이터 누락 없음')는 같은 사실로 확정할 수 없으므로 양쪽을 모두 유지한다.
+  // 예외 조건이 조용히 삭제되면 담당자 확인·자동 실행 제한이 사라질 수 있다.
+  const MEANING_FLIP = /없|불가|불허|불필요|금지|면제|제외|아님|아닌|않|못하|거부|차단|보류|취소|중단|가능|허용|필수|의무|선택|필요|승인|확정/u;
   const dropContainedDuplicates = (items: string[]): string[] => {
     const norms = items.map(item => collapse(item).replace(/[.。]$/u, ""));
-    return items.filter((_, i) => !norms.some((other, j) => j !== i && other !== norms[i] && norms[i].length >= 2 && other.includes(norms[i])));
+    const seen = new Set<string>();
+    return items.filter((_, i) => {
+      if (seen.has(norms[i])) return false;
+      seen.add(norms[i]);
+      return !norms.some((other, j) => {
+        if (j === i || other === norms[i] || norms[i].length < 2 || !other.includes(norms[i])) return false;
+        // 포함 지점을 제외한 나머지에 의미를 바꾸는 말이 있으면 동일성 미확정 — 유지한다.
+        return !MEANING_FLIP.test(other.replace(norms[i], " "));
+      });
+    });
   };
   const exceptionLines = dropContainedDuplicates(exceptions);
   // 04. 예외 및 유지 조건: 같은 예외·제한은 한 번만 출력한다.
