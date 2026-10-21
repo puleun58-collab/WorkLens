@@ -248,6 +248,57 @@ describe("legal_analysis presentation parsing", () => {
     expect(noAddenda.sections.map((section) => section.heading)).toContain("적용례·경과조치: 관련 부칙을 찾지 못했습니다.");
   });
 
+  it("formats the version line as name · effective date · promulgation number (revision type)", () => {
+    const presented = applicableLawPresentation(APPLICABLE);
+    const version = presented.sections.find((section) => section.heading === "기준일에 시행 중이던 버전");
+    expect(version?.lines[0]).toBe("도로교통법 · 시행 2023.04.04 · 법률 제19158호 (일부개정)");
+    // Following lines lose the raw indent but keep their text, including the 현행 시행일.
+    expect(version?.lines[1]).toBe("↳ 기준일 이후 현재까지 14차례 개정·시행됨 (현행: 시행 2026.07.01)");
+    expect(version?.lines[2]).toBe("⚠️ 시행 예정 개정 1건 존재 — 최근접: 시행 2027.06.03 (제21728호, 일부개정).");
+    expect(presented.mst).toBe("247265");
+
+    const decree = applicableLawPresentation(APPLICABLE.replace(
+      "도로교통법 [시행 2023.04.04] [제19158호, 2023.01.03, 일부개정] (MST 247265)",
+      "소득세법 시행령 [시행 2023.02.28] [제33267호, 2023.02.28, 일부개정] (MST 248191)",
+    ));
+    expect(decree.sections[0].lines[0]).toBe("소득세법 시행령 · 시행 2023.02.28 · 대통령령 제33267호 (일부개정)");
+
+    // No promulgation bracket in the source: no number is invented.
+    const bare = applicableLawPresentation(APPLICABLE.replace(
+      "도로교통법 [시행 2023.04.04] [제19158호, 2023.01.03, 일부개정] (MST 247265)",
+      "근로기준법 [시행 2023.04.04]",
+    ));
+    expect(bare.sections[0].lines[0]).toBe("근로기준법 · 시행 2023.04.04");
+    // Kinds the name cannot fix (시행규칙) get no invented prefix.
+    const rule = applicableLawPresentation(APPLICABLE.replace(
+      "도로교통법 [시행 2023.04.04] [제19158호, 2023.01.03, 일부개정] (MST 247265)",
+      "도로교통법 시행규칙 [시행 2023.04.04] [제123호, 2023.01.03, 일부개정]",
+    ));
+    expect(rule.sections[0].lines[0]).toBe("도로교통법 시행규칙 · 시행 2023.04.04 · 제123호 (일부개정)");
+  });
+
+  it("renders the caution section as restated list items without losing a rule or citation", () => {
+    const text = [
+      "═══ 행위시법 판단: 민법 @ 2020.01.15 ═══",
+      "",
+      "⚖️ 적용 법령 판단 시 주의",
+      "  - 형사처벌: 행위시법 원칙 (형법 제1조제1항). 단, 재판 시 법이 더 가벼우면 신법 적용 (같은 조 제2항)",
+      "  - 제재처분(과징금·영업정지 등): 위반행위 시 법령 적용 (행정기본법 제14조제3항 본문). 단, 제재 기준이 가벼워졌으면 변경된 법령 (같은 항 단서)",
+      "  - 인허가 등 일반 처분: 원칙적으로 처분 시 법령 (행정기본법 제14조제2항)",
+      "  - 위 원칙은 부칙 경과규정이 우선합니다 — 위 발췌를 반드시 확인하세요. 이 도구는 발췌만 제공하며 해석하지 않습니다.",
+      "  - 새로운 주의 문구: 원문 그대로 유지",
+    ].join("\n");
+    const caution = applicableLawPresentation(text).sections.find((section) => section.heading === "적용 법령 판단 시 주의");
+    expect(caution?.list).toBe(true);
+    expect(caution?.lines).toEqual([
+      "형사처벌: 행위시법이 원칙입니다 (형법 제1조제1항). 단, 재판 시 법이 더 가벼우면 신법을 적용합니다 (같은 조 제2항).",
+      "제재처분(과징금·영업정지 등): 위반행위 시 법령을 적용합니다 (행정기본법 제14조제3항 본문). 단, 제재 기준이 가벼워졌으면 변경된 법령을 적용합니다 (같은 항 단서).",
+      "인허가 등 일반 처분: 처분 시 법령 적용이 원칙입니다 (행정기본법 제14조제2항).",
+      "부칙 경과규정 우선: 위 원칙보다 부칙 경과규정이 먼저 적용됩니다. 위 발췌를 반드시 확인하세요. 이 도구는 발췌만 제공하며 해석하지 않습니다.",
+      "새로운 주의 문구: 원문 그대로 유지",
+    ]);
+  });
+
   it("marks a failed impact axis as unknown instead of zero and keeps sampled counts as reported", () => {
     const result = impactMapResult(IMPACT);
     expect(result.axes.map(({ label, value, failed }) => [label, value, failed])).toEqual([

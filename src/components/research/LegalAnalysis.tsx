@@ -219,7 +219,9 @@ function Lines({ lines }: { lines: string[] }) {
 function Sections({ sections }: { sections: AnalysisSection[] }) {
   return <>{sections.map((section, index) => <div key={index} className="legal-analysis-section">
     {section.heading && <h3>{lawDisplayText(analysisStatus(section.heading))}</h3>}
-    <Lines lines={section.lines} />
+    {section.list ? <ul className="legal-analysis-caution">
+      {section.lines.map((line, lineIndex) => <li key={lineIndex}>{lawDisplayText(analysisStatus(line))}</li>)}
+    </ul> : <Lines lines={section.lines} />}
   </div>)}</>;
 }
 

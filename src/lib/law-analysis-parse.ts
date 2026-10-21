@@ -7,6 +7,8 @@
 export interface AnalysisSection {
   heading?: string;
   lines: string[];
+  /** Render as a bullet list with a hanging indent instead of a raw text block. */
+  list?: boolean;
 }
 
 export interface AnalysisDocument {
@@ -70,6 +72,70 @@ export function splitAnalysisText(text: string): AnalysisDocument {
   return document;
 }
 
+/**
+ * The version line the MCP prints, e.g. `민법 [시행 2018.02.01] [제14965호, 2017.10.31, 일부개정]`.
+ * The promulgation number bracket (and the MST serial, stripped by the caller) is optional.
+ */
+const LAW_VERSION_LINE = /^\s*(.+?)\s*\[시행\s*(\d{4}\.\d{2}\.\d{2})\]\s*(?:\[제(\d+)호,\s*\d{4}\.\d{2}\.\d{2},\s*([^\]]+)\]\s*)?$/u;
+
+/**
+ * 공포번호 citation prefix from the law's own name — the only kind data the
+ * applicable-law result carries. Korean statutory naming fixes these cases
+ * (…법 = 법률, …시행령 = 대통령령); anything else (시행규칙·규정·규칙) can be
+ * several kinds, so no prefix is invented for it.
+ */
+function lawKindPrefix(lawName: string): string {
+  if (/헌법$/u.test(lawName)) return "헌법 ";
+  if (/법$/u.test(lawName)) return "법률 ";
+  if (/시행령$/u.test(lawName)) return "대통령령 ";
+  return "";
+}
+
+/**
+ * One display line for the version in force: `민법 · 시행 2018.02.01 · 법률 제14965호 (일부개정)`.
+ * Only the MCP's own fields are used; the promulgation date stays in the
+ * source text (근거 보기) but is not repeated here, where it read as a second
+ * effective date. Non-version lines keep their text, minus the raw indent.
+ */
+function formatVersionSectionLine(line: string): string {
+  const match = LAW_VERSION_LINE.exec(line);
+  if (!match) return line.replace(/^\s+/u, "");
+  const [, name, effective, number, revision] = match;
+  const version = number ? ` · ${lawKindPrefix(name)}제${number}호 (${revision.trim()})` : "";
+  return `${name} · 시행 ${effective}${version}`;
+}
+
+export const APPLICABLE_LAW_CAUTION_HEADING = "적용 법령 판단 시 주의";
+
+/**
+ * Reader wording for the MCP's four caution lines. Every rule, exception and
+ * cited article of the original is kept; only the phrasing is tightened and
+ * the fourth line gains the topic lead the other three already have. A line
+ * the MCP words differently passes through unchanged.
+ */
+const CAUTION_RESTATEMENTS: Readonly<Record<string, string>> = {
+  "형사처벌: 행위시법 원칙 (형법 제1조제1항). 단, 재판 시 법이 더 가벼우면 신법 적용 (같은 조 제2항)":
+    "형사처벌: 행위시법이 원칙입니다 (형법 제1조제1항). 단, 재판 시 법이 더 가벼우면 신법을 적용합니다 (같은 조 제2항).",
+  "제재처분(과징금·영업정지 등): 위반행위 시 법령 적용 (행정기본법 제14조제3항 본문). 단, 제재 기준이 가벼워졌으면 변경된 법령 (같은 항 단서)":
+    "제재처분(과징금·영업정지 등): 위반행위 시 법령을 적용합니다 (행정기본법 제14조제3항 본문). 단, 제재 기준이 가벼워졌으면 변경된 법령을 적용합니다 (같은 항 단서).",
+  "인허가 등 일반 처분: 원칙적으로 처분 시 법령 (행정기본법 제14조제2항)":
+    "인허가 등 일반 처분: 처분 시 법령 적용이 원칙입니다 (행정기본법 제14조제2항).",
+  "위 원칙은 부칙 경과규정이 우선합니다 — 위 발췌를 반드시 확인하세요. 이 도구는 발췌만 제공하며 해석하지 않습니다.":
+    "부칙 경과규정 우선: 위 원칙보다 부칙 경과규정이 먼저 적용됩니다. 위 발췌를 반드시 확인하세요. 이 도구는 발췌만 제공하며 해석하지 않습니다.",
+};
+
+/** The caution section as list items: the `- ` bullet becomes list markup, not text. */
+function applicableLawCaution(lines: string[]): AnalysisSection {
+  return {
+    heading: APPLICABLE_LAW_CAUTION_HEADING,
+    list: true,
+    lines: lines
+      .map((line) => line.replace(/^\s*-\s*/u, "").trim())
+      .filter(Boolean)
+      .map((line) => CAUTION_RESTATEMENTS[line] ?? line),
+  };
+}
+
 /** Separate the MCP's decision text from the statute excerpts it actually returned. */
 export function applicableLawPresentation(text: string): {
   title?: string;
@@ -88,7 +154,9 @@ export function applicableLawPresentation(text: string): {
     const heading = section.heading ?? "";
     if (heading.startsWith("기준일에 시행 중이던 버전")) {
       mst = /\(\s*MST\s+(\d{6})\s*\)/u.exec(section.lines.join("\n"))?.[1];
-      sections.push({ heading, lines: section.lines.map((line) => line.replace(/\s*\(\s*MST\s+\d{6}\s*\)/gu, "")) });
+      sections.push({ heading, lines: section.lines.map((line) => formatVersionSectionLine(line.replace(/\s*\(\s*MST\s+\d{6}\s*\)/gu, ""))) });
+    } else if (heading === APPLICABLE_LAW_CAUTION_HEADING) {
+      sections.push(applicableLawCaution(section.lines));
     } else if (heading.startsWith("기준일 시점 조문")) {
       jo = /(제[1-9]\d{0,3}조(?:의[1-9]\d?)?)/u.exec(heading)?.[1];
       sections.push({ heading: jo ? `기준일 시행 조문: ${jo}` : "기준일 시행 조문", lines: [] });
