@@ -172,19 +172,14 @@ for (const viewport of VIEWPORTS) {
     const legendColours = await page.locator(".ax-legend-dot").evaluateAll(elements => elements.map(element => getComputedStyle(element).backgroundColor));
     expect(new Set(legendColours).size).toBe(3);
 
-    // Priority sits between the matrix and the detail, shows the top three ranks and opens the detail.
-    const priorityRegion = page.getByRole("region", { name: "자동화 우선순위", exact: true });
+    // 매트릭스 하단 TOP 3는 제거됨 — 상세 분석은 좌측 목록(점수 순위 순) 선택으로 연결된다.
     const detail = page.locator(".ax-matrix-detail");
-    const order = await page.evaluate(() => [".ax-matrix-surface", ".ax-matrix-priority", ".ax-matrix-detail"].map(selector => document.querySelector(selector)!.getBoundingClientRect().top + scrollY));
-    expect(order[0]).toBeLessThan(order[1]); expect(order[1]).toBeLessThan(order[2]);
-    await expect(priorityRegion.getByRole("heading", { level: 3 })).toHaveText("자동화 우선순위");
-    const top = priorityRegion.getByRole("list", { name: "자동화 우선순위 목록" });
-    await expect(top.locator(".ax-rank")).toHaveText(["#1", "#2", "#3"]);
-    await expect(top.locator(".ax-task-name")).toHaveText(ranked.slice(0, 3).map(row => row.task.name));
+    await expect(page.locator(".ax-matrix-priority")).toHaveCount(0);
     const third = ranked[2].task;
-    await top.getByRole("button", { name: new RegExp(third.name) }).click();
+    await list.getByRole("button", { name: new RegExp(third.name) }).click();
     await expect.poll(async () => (await stored(page)).selectedTaskId).toBe(third.id);
     await expect(detail.locator("h3").first()).toHaveText(third.name);
+    await detail.evaluate(element => element.scrollIntoView());
     await expect.poll(() => detail.evaluate(element => {
       const box = element.getBoundingClientRect();
       const hit = document.elementFromPoint(box.left + 24, box.top + 24);
@@ -205,14 +200,16 @@ for (const viewport of VIEWPORTS) {
   });
 }
 
-for (const [name, tasks, heading] of [
-  ["conditional only", [make("c1", [4, 4, 4, 4, 2, 2], "conditional"), make("c2", [3, 3, 3, 3, 3, 2], "conditional")], "자동화 우선 검토순위"],
-  ["all blocked", [make("b1", [4, 4, 4, 4, 2, 2], "blocked"), make("b2", [3, 3, 3, 3, 3, 2], "blocked")], "진행 보류 업무 · 점수순"],
+for (const [name, tasks, gate] of [
+  ["conditional only", [make("c1", [4, 4, 4, 4, 2, 2], "conditional"), make("c2", [3, 3, 3, 3, 3, 2], "conditional")], "conditional"],
+  ["all blocked", [make("b1", [4, 4, 4, 4, 2, 2], "blocked"), make("b2", [3, 3, 3, 3, 3, 2], "blocked")], "blocked"],
 ] as const) {
-  test(`AX matrix priority heading reflects gate state: ${name}`, async ({ page }) => {
+  test(`AX matrix list reflects gate state: ${name}`, async ({ page }) => {
     await open(page, [...tasks], 3, VIEWPORTS[0]);
-    const region = page.getByRole("region", { name: "자동화 우선순위", exact: true });
-    await expect(region.getByRole("heading", { level: 3 })).toHaveText(heading);
-    await expect(region.locator(".ax-gate-badge")).toHaveCount(tasks.length);
+    // 매트릭스 하단 TOP 3는 제거됨 — Gate 상태는 좌측 목록의 업무별 배지로 확인한다.
+    await expect(page.getByRole("region", { name: "자동화 우선순위", exact: true })).toHaveCount(0);
+    const badges = page.getByLabel("매트릭스 업무 목록", { exact: true }).locator(".ax-gate-badge");
+    await expect(badges).toHaveCount(tasks.length);
+    for (const badge of await badges.all()) await expect(badge).toHaveAttribute("data-gate", gate);
   });
 }

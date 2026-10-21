@@ -164,9 +164,12 @@ test("Case C: five tasks form three-member and two-member clusters without colla
   await expect(clusterButton(page, 2).locator(".ax-matrix-cluster-number")).toHaveText("2");
   await expect(page.locator(".ax-bubble")).toHaveCount(0);
   await expect(taskList(page).getByRole("button")).toHaveCount(5);
-  const priorities = page.getByRole("list", { name: "자동화 우선순위 목록", exact: true });
-  await expect(priorities.getByRole("listitem")).toHaveCount(3);
-  await expect(priorities.locator(".ax-rank")).toHaveText(["#1", "#2", "#3"]);
+  // 매트릭스 하단 TOP 3는 제거됨 — 좌측 목록이 전체 업무를 점수 순위 순으로 표시한다.
+  const matrixList = page.getByLabel("매트릭스 업무 목록", { exact: true });
+  await expect(matrixList.getByRole("listitem")).toHaveCount(5);
+  await expect(matrixList.locator(".ax-task-name").nth(0)).toHaveText(/^1\. /);
+  await expect(matrixList.locator(".ax-task-name").nth(1)).toHaveText(/^2\. /);
+  await expect(matrixList.locator(".ax-task-name").nth(2)).toHaveText(/^3\. /);
   await clusterButton(page, 3).click();
   await expect(clusterMenu(page, 3).getByRole("menuitem")).toHaveCount(3);
   await clusterMenu(page, 3).getByRole("menuitem").last().click();

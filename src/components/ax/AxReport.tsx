@@ -4,7 +4,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { AlertTriangle, ArrowRight, Ban, BookOpen, Bot, BrainCircuit, ChartNoAxesColumnIncreasing, Check, CheckCircle2, CircleAlert, CircleCheck, CircleX, Clipboard, ClipboardCheck, ClipboardList, Clock, CloudUpload, Copy, Database, Download, FileCode2, FileOutput, FileSpreadsheet, FileText, Flag, FlaskConical, Folder, GitBranch, Globe, Info, ListChecks, MonitorCog, Play, Plug, Search, Settings2, ShieldAlert, ShieldCheck, Target, Terminal, TriangleAlert, UserRound } from "lucide-react";
 import type { AxDiagnosis, AxPlan, AxTask, AxTaskV2, HitlReview } from "@/lib/ax/types";
 import { automationLevel, axes, executionGate, executionProfile, factorEffectiveValue, GATE_LABELS, gateBlockReasons, gatePrerequisites, matrixPosition, nextAction, type ExecutionProfile } from "@/lib/ax/policy";
-import { FACTOR_KEYS, FACTOR_LABELS } from "@/lib/ax/schema";
+import { FACTOR_LABELS } from "@/lib/ax/schema";
 import { Badge } from "@/components/ui/badge";
 import { Accordion, AccordionItem, AccordionPanel, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
@@ -15,11 +15,6 @@ import { buildAgentInstructionModel, buildAllInOnePrompt, planSummary, scopeItem
 
 const VERDICT_LABELS = { 자동화: "자동화", "AI 보조": "AI 보조", "사람 유지": "담당자 수행" } as const;
 const OWNER_LABELS = { 시스템: "시스템", AI: "AI", 사용자: "담당자" } as const;
-/** Long factor names break at a fixed point so every radar label uses the same one- or two-line rhythm. */
-const RADAR_LABEL_LINES: Record<typeof FACTOR_KEYS[number], string[]> = {
-  repetition: ["반복성"], regularity: ["규칙성"], dataStructure: ["데이터", "구조화"], systemAccess: ["시스템", "접근성"], humanJudgment: ["담당자 판단", "필요도"], operationalRisk: ["운영", "위험"],
-};
-
 export function AxList({ items }: { items: string[] }) {
   return items.length ? <ul>{items.map((item, i) => <li key={i}>{item}</li>)}</ul> : <p className="ax-muted">기재된 내용 없음</p>;
 }
@@ -119,13 +114,7 @@ export function AxCheckIcon({ title }: { title: string }) {
 export function AxResultSummary({ task }: { task: AxTask }) {
   const d = task.diagnosis;
   if (!d) return null;
-  const level = automationLevel(d), profile = executionProfile(d), metrics = axes(d);
-  const indicators = [
-    { label: "자동화 가치", value: metrics.value },
-    { label: "기술 실현 가능성", value: metrics.feasibility },
-    { label: "담당자 판단 필요도", value: metrics.judgment },
-    { label: "운영 위험", value: metrics.risk },
-  ];
+  const level = automationLevel(d), profile = executionProfile(d);
   const groups = [
     { verdict: "자동화", label: "자동화 적합 단계", icon: Settings2 },
     { verdict: "AI 보조", label: "AI 보조 단계", icon: BrainCircuit },
@@ -140,9 +129,6 @@ export function AxResultSummary({ task }: { task: AxTask }) {
         {d.sourceNote ? <p>{d.sourceNote}</p> : null}
         <small>아래 단계별 건수는 진단상 목표 적합성으로, 현재 구현·배포 가능 범위가 아닙니다.</small>
       </div>
-      <div className="ax-result-metrics" aria-label="진단 지표 · 1점부터 5점까지">{indicators.map(({ label, value }) => <div className="ax-result-metric" key={label}>
-        <span>{label}</span><strong>{value} / 5</strong><span className="ax-result-meter" aria-hidden="true">{[1, 2, 3, 4, 5].map(n => <i key={n} data-on={n <= value ? "true" : "false"} />)}</span>
-      </div>)}</div>
     </div>
     <div className="ax-result-counts">{groups.map(({ verdict, label, icon: Icon }) => <div className="ax-result-count" data-verdict={verdict} key={verdict}>
       <span className="ax-result-count-icon"><Icon aria-hidden="true" /></span><span>{label}</span>
@@ -236,15 +222,18 @@ export function AxExecutionTimeline({ diagnosis: d }: { diagnosis: AxDiagnosis }
       : profile.level === 0 ? "Level 0 · 현재 단계는 처리 가능성 검토·검증만 진행합니다."
       : profile.gate === "conditional" ? "선행 조건 확인 후 범위를 결정합니다. 아래 항목은 지금 구현 가능한 작업이 아닙니다."
       : "현재 진단에서 허용된 처리 범위와 담당자를 표시합니다."}</p>
-    {profile.stepScope.length ? <ol className="ax-execution-list">{profile.stepScope.map((step, i) => <li className="ax-execution-item" data-scope={step.scope} data-owner={step.owner} key={i}>
-      <span className="ax-execution-node">{i + 1}</span>
-      <div className="ax-execution-content"><strong>{step.step} · {OWNER_LABELS[step.owner]}</strong>
-        {step.note ? <p>{step.note}</p> : null}
-        {step.treatment ? <small>{step.scope === "future" ? "향후 범위: " : "처리 방식: "}{stepMethodLabel(model, i)}</small> : null}
-      </div>
-      <Badge variant="outline" className="ax-scope-badge" data-scope={step.scope}>{SCOPE_LABELS[step.scope]}</Badge>
-    </li>)}</ol> : <p className="ax-muted">진단된 업무 단계 없음</p>}
     {profile.roadmap.length ? <AxRoadmapPhases model={model} profile={profile} /> : null}
+    {profile.stepScope.length ? <Accordion className="ax-execution-steps" keepMounted><AccordionItem value="steps" className="border-b-0">
+      <AccordionTrigger className="ax-execution-steps-trigger"><span className="ax-execution-steps-label">업무 단계 상세<span className="ax-muted">{profile.stepScope.length}단계 · 담당자·처리 방식·구현 범위</span></span></AccordionTrigger>
+      <AccordionPanel><ol className="ax-execution-list">{profile.stepScope.map((step, i) => <li className="ax-execution-item" data-scope={step.scope} data-owner={step.owner} key={i}>
+        <span className="ax-execution-node">{i + 1}</span>
+        <div className="ax-execution-content"><strong>{step.step} · {OWNER_LABELS[step.owner]}</strong>
+          {step.note ? <p>{step.note}</p> : null}
+          {step.treatment ? <small>{step.scope === "future" ? "향후 범위: " : "처리 방식: "}{stepMethodLabel(model, i)}</small> : null}
+        </div>
+        <Badge variant="outline" className="ax-scope-badge" data-scope={step.scope}>{SCOPE_LABELS[step.scope]}</Badge>
+      </li>)}</ol></AccordionPanel>
+    </AccordionItem></Accordion> : <p className="ax-muted">진단된 업무 단계 없음</p>}
   </section>;
 }
 export interface AxProcessReviewProps {
@@ -472,21 +461,6 @@ function AxToBe({ diagnosis: d }: { diagnosis: AxDiagnosis }) {
     </li>; })}</ol> : <p className="ax-muted">기재된 목표 업무 단계 없음</p>}
   </section>;
 }
-export function AxRadar({ diagnosis }: { diagnosis: AxDiagnosis }) {
-  const point = (index: number, radius: number) => {
-    const angle = -Math.PI / 2 + index * Math.PI / 3;
-    return { x: 110 + Math.cos(angle) * radius, y: 100 + Math.sin(angle) * radius };
-  };
-  const factors = FACTOR_KEYS.map(key => diagnosis.factors.find(f => f.key === key)!);
-  const polygon = (radii: number[]) => radii.map((radius, i) => { const p = point(i, radius); return `${p.x},${p.y}`; }).join(" ");
-  return <svg className="ax-radar" viewBox="0 0 220 200" role="img" aria-label="진단 항목 레이더">
-    {[1, 2, 3, 4, 5].map(v => <polygon key={v} points={polygon(FACTOR_KEYS.map(() => v / 5 * 62))} fill="none" stroke="var(--border)" />)}
-    {FACTOR_KEYS.map((key, i) => { const p = point(i, 62); return <line key={key} x1={110} y1={100} x2={p.x} y2={p.y} stroke="var(--border)" />; })}
-    <polygon points={polygon(factors.map(f => factorEffectiveValue(f) / 5 * 62))} fill="color-mix(in srgb, var(--primary) 16%, transparent)" stroke="var(--primary)" strokeWidth={1.5} />
-    {FACTOR_KEYS.map((key, i) => { const p = point(i, 76), lines = RADAR_LABEL_LINES[key]; return <text key={key} x={p.x} y={p.y} dominantBaseline="middle" textAnchor={Math.abs(p.x - 110) < 1 ? "middle" : p.x > 110 ? "start" : "end"} fontSize={9.5} fill="var(--muted-foreground)">{lines.map((line, j) => <tspan key={j} x={p.x} dy={j === 0 ? -(lines.length - 1) * 5.5 : 11}>{line}</tspan>)}</text>; })}
-  </svg>;
-}
-
 export function AxCopyButton({ text, label, iconOnly = false }: { text: string; label: string; iconOnly?: boolean }) {
   const [copied, setCopied] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -703,6 +677,10 @@ function AxPrereqTable({ rows }: { rows: AxAdditionalCheck[] }) {
     {unstaged ? <p className="ax-prereq-note"><Info aria-hidden="true" /><span>실제 구현 단계와의 연결이 아직 확인되지 않은 항목은 임의로 필수 선행 조건으로 지정하지 않습니다.</span></p> : null}
   </div>;
 }
+/** Trigger label for the collapsible 01~03 plan blocks: same number-badge pattern as AxPlanHeading, plus data-driven status badges that stay visible while collapsed. */
+function AxPlanBlockHeading({ no, title, badges }: { no: string; title: string; badges?: ReactNode }) {
+  return <span className="ax-plan-title"><span className="ax-plan-heading"><span className="ax-plan-no">{no}</span> {title}</span>{badges}</span>;
+}
 /** Diagnosis policy is authoritative: the summary shows only the permitted scope, open conditions and completion checks. */
 function AxPlanOverview({ profile, summary }: { profile: ExecutionProfile; summary: AxPlanSummary }) {
   const reviewOnly = profile.level === 0 || profile.gate === "blocked";
@@ -712,8 +690,11 @@ function AxPlanOverview({ profile, summary }: { profile: ExecutionProfile; summa
     { label: "실패 기준", Icon: CircleX, items: summary.failure, notice: summary.criteriaNotice },
     { label: "최종 승인", Icon: ShieldCheck, items: summary.approvals.length ? summary.approvals : summary.humanKept.length ? ["담당자 수행 유지 항목은 담당자 검토·승인 후 확정"] : [] },
   ].filter(row => row.items.length);
-  return <div className="ax-plan-view">
-    <section className="ax-plan-block" aria-label="01 구현 범위"><AxPlanHeading no="01" title="구현 범위" description="현재 구현·보조할 작업과 사람에게 남길 작업을 구분합니다." />
+  const requiredCheckCount = summary.checks.filter(check => check.tone === "required" || check.tone === "blocked").length;
+  return <Accordion multiple keepMounted className="ax-plan-view">
+    <section className="ax-plan-block" aria-label="01 구현 범위"><AccordionItem value="scope" className="ax-plan-item border-b-0">
+      <AccordionTrigger className="ax-plan-trigger"><AxPlanBlockHeading no="01" title="구현 범위" /></AccordionTrigger>
+      <AccordionPanel className="pb-0"><div className="ax-plan-panel-body"><p className="ax-plan-desc">현재 구현·보조할 작업과 사람에게 남길 작업을 구분합니다.</p>
       <div className="ax-scope-cards">
         <AxScopeCard tone="include" icon={<FileText />} items={summary.include}
           title={reviewOnly ? "준비·검증" : profile.gate === "conditional" ? "선행 조건 확인 후 시범 적용" : "구현·보조 작업"}
@@ -721,8 +702,11 @@ function AxPlanOverview({ profile, summary }: { profile: ExecutionProfile; summa
         <AxScopeCard tone="human" icon={<UserRound />} title="담당자 수행 유지" description="현재는 담당자 판단이 필요한 작업입니다." items={summary.humanKept} />
         <AxScopeCard tone="excluded" icon={<Ban />} title="현재 자동화 제외" description="현재 단계에서 구현하지 않는 항목입니다." items={summary.excluded} />
       </div>
-    </section>
-    <section className="ax-plan-block" aria-label="02 시작 전 확인"><AxPlanHeading no="02" title="시작 전 확인" description="구현 전에 필요한 조건과 적용 범위를 확인합니다." />
+      </div></AccordionPanel>
+    </AccordionItem></section>
+    <section className="ax-plan-block" aria-label="02 시작 전 확인"><AccordionItem value="checks" className="ax-plan-item border-b-0">
+      <AccordionTrigger className="ax-plan-trigger"><AxPlanBlockHeading no="02" title="시작 전 확인" badges={<>{summary.blockReasons.length ? <span className="ax-check-badge" data-kind="block">진행 보류</span> : null}{requiredCheckCount ? <span className="ax-check-badge" data-kind="need">확인 필요 {requiredCheckCount}건</span> : null}</>} /></AccordionTrigger>
+      <AccordionPanel className="pb-0"><div className="ax-plan-panel-body"><p className="ax-plan-desc">구현 전에 필요한 조건과 적용 범위를 확인합니다.</p>
       {summary.blockReasons.length ? <div className="ax-prereq-blocked" data-tone="blocked">
         <span className="ax-prereq-icon" aria-hidden="true"><TriangleAlert /></span>
         <div><div className="ax-prereq-card-head"><h5>차단 사유</h5><span className="ax-check-badge">진행 보류</span></div>
@@ -736,8 +720,11 @@ function AxPlanOverview({ profile, summary }: { profile: ExecutionProfile; summa
         <h5>데이터·시스템 정보</h5>
         <dl className="ax-plan-data">{summary.data.map(row => <div key={row.label}><dt>{row.label}</dt><dd>{row.items.join(" · ")}</dd></div>)}</dl>
       </div> : null}
-    </section>
-    <section className="ax-plan-block" aria-label="03 완료 기준"><AxPlanHeading no="03" title="완료 기준" description="기능·예외·검증·담당자 승인 조건을 충족해야 합니다." />
+      </div></AccordionPanel>
+    </AccordionItem></section>
+    <section className="ax-plan-block" aria-label="03 완료 기준"><AccordionItem value="done" className="ax-plan-item border-b-0">
+      <AccordionTrigger className="ax-plan-trigger"><AxPlanBlockHeading no="03" title="완료 기준" badges={summary.approvals.length || summary.humanKept.length ? <span className="ax-check-badge" data-kind="need">담당자 승인 필요</span> : null} /></AccordionTrigger>
+      <AccordionPanel className="pb-0"><div className="ax-plan-panel-body"><p className="ax-plan-desc">기능·예외·검증·담당자 승인 조건을 충족해야 합니다.</p>
       {criteria.length || summary.exceptions.length ? <div className="ax-done-grid" data-split={criteria.length && summary.exceptions.length ? "true" : undefined}>
         {criteria.length ? <dl className="ax-done-criteria">{criteria.map(({ label, Icon, items, notice }) => <div key={label}>
           <dt><Icon aria-hidden="true" />{label}</dt>
@@ -748,8 +735,9 @@ function AxPlanOverview({ profile, summary }: { profile: ExecutionProfile; summa
           <ul role="list">{summary.exceptions.map((item, i) => <li key={i}>{item}</li>)}</ul>
         </div> : null}
       </div> : <p className="ax-muted">진단에 기재된 완료 기준 없음</p>}
-    </section>
-  </div>;
+      </div></AccordionPanel>
+    </AccordionItem></section>
+  </Accordion>;
 }
 function AxPrompt({ prompt, name }: { prompt: string; name: string }) {
   const [expanded, setExpanded] = useState(false);
