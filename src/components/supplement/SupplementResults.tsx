@@ -5,8 +5,6 @@ import { Button } from "@/components/ui/button";
 import { Info } from "lucide-react";
 import type { SourceRef } from "@/domain/document";
 import {
-  SUPPLEMENT_DOC_TYPE_LABELS,
-  SUPPLEMENT_FILE_ROLE_LABELS,
   SUPPLEMENT_SEVERITY_LABELS,
   SUPPLEMENT_SHEET_STATUS_LABELS,
   type SupplementFinding,
@@ -63,7 +61,9 @@ function findingTitle(finding: SupplementFinding): string {
 /**
  * 보완 result body. Findings read top-down by importance; the questions a
  * reader is likely to ask are collected once, and the analysed range is
- * always stated so an empty result is never mistaken for a complete one.
+ * stated whenever it was limited so a partial result is never mistaken
+ * for a complete one. A fully analysed result needs no range line: the
+ * header already says 검토 완료.
  */
 export function SupplementResults({ result, fileNames, renderSource }: {
   result: SupplementResult;
@@ -94,27 +94,15 @@ export function SupplementResults({ result, fileNames, renderSource }: {
             </Button>
           ))}
         </div>
+        {multipleFiles && result.files.every((file) => file.role !== "report") ? (
+          <p className="supplement-report-note">핵심 보고자료를 확정하지 못했습니다. 다른 자료에만 있는 내용은 보고자료 보완으로 분류하지 않았습니다</p>
+        ) : null}
+        {!complete || partialByDesign ? (
         <dl className="supplement-meta">
-          <div>
-            <dt>자료 유형</dt>
-            <dd>{multipleFiles
-              ? (
-                <ul className="supplement-coverage">
-                  {result.files.map((file) => (
-                    <li key={file.fileId}>
-                      <span className="supplement-coverage-count">{fileNames.get(file.fileId) ?? file.fileName}</span>
-                      <small>{[SUPPLEMENT_FILE_ROLE_LABELS[file.role], SUPPLEMENT_DOC_TYPE_LABELS[file.docType], file.period].filter(Boolean).join(" · ")}</small>
-                    </li>
-                  ))}
-                  {result.files.every((file) => file.role !== "report") ? <li><small>핵심 보고자료를 확정하지 못했습니다. 다른 자료에만 있는 내용은 보고자료 보완으로 분류하지 않았습니다</small></li> : null}
-                </ul>
-              )
-              : SUPPLEMENT_DOC_TYPE_LABELS[result.files[0]?.docType ?? "general"]}</dd>
-          </div>
           <div>
             <dt>분석 범위</dt>
             <dd>
-              <span className={complete ? "supplement-coverage-state" : "supplement-coverage-state limited"}>{!complete ? "일부 분석 제한" : partialByDesign ? "분석 완료" : "전체 분석 완료"}</span>
+              <span className={complete ? "supplement-coverage-state" : "supplement-coverage-state limited"}>{!complete ? "일부 분석 제한" : "분석 완료"}</span>
               <ul className="supplement-coverage">
                 {result.coverage.map((entry) => (
                   <li key={entry.fileId}>
@@ -140,6 +128,7 @@ export function SupplementResults({ result, fileNames, renderSource }: {
             </dd>
           </div>
         </dl>
+        ) : null}
       </section>
 
       {result.questions.length > 0 ? (

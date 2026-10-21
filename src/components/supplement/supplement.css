@@ -85,6 +85,27 @@
   font-size: var(--font-size-xs);
 }
 
+.supplement-report-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+  line-height: var(--leading-relaxed);
+}
+
+/* Locator and its action belong on one line, centred on each other —
+   the same presentation as 윤문 (.polish-source .result-source). */
+.supplement-source .result-source {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+}
+
+.supplement-source .source-locator {
+  overflow-wrap: break-word;
+  text-overflow: clip;
+}
+
 .supplement-questions {
   padding-bottom: 16px;
   border-bottom: 1px solid var(--line-soft);

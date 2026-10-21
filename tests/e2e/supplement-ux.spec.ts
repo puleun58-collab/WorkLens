@@ -254,7 +254,7 @@ test("상시 펼침 상태에서 필터·재실행 후에도 다른 업무의 �
   await expect(second.locator(".supplement-message")).toBeVisible();
 });
 
-test("재확인이 근거 없이 설명을 찾았다고 답해도 기존 위치와 확인 제한을 잃지 않는다", async ({ page }) => {
+test("재확인이 근거 없이 설명을 찾았다고 답해도 확인 필요 표시와 근거 위치를 잃지 않는다", async ({ page }) => {
   await page.route("**/api/ai", (route) => {
     const { checks } = route.request().postDataJSON() as { checks: Array<{ id: string }> };
     return route.fulfill({
@@ -266,7 +266,9 @@ test("재확인이 근거 없이 설명을 찾았다고 답해도 기존 위치�
   await page.getByRole("button", { name: "보완 실행", exact: true }).click();
   const cause = page.locator(".supplement-item").filter({ hasText: "주요 증가 요인" });
   await expect(cause).toBeVisible();
-  await expect(cause.locator(".supplement-limitation")).toContainText("제공된 자료만으로는 해당 항목의 충족 여부를 판단하기 어렵습니다.");
+  // 중복되는 일반 안내 문구는 표시하지 않고, 판단 유보 사유는 확인 필요 사유 박스가 설명한다
+  await expect(cause.locator(".supplement-limitation")).toHaveCount(0);
+  await expect(cause.locator(".supplement-explanation")).toContainText("확인하지 못했습니다");
   await expect(cause.locator(".check-severity")).toHaveText("확인 필요");
   await cause.getByRole("button", { name: /근거 보기/ }).click();
   const detail = page.getByLabel("근거 상세", { exact: true });
