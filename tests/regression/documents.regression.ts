@@ -153,7 +153,7 @@ const documentCases: Array<{ body: string; name: string; contains: string; secon
 ];
 documentCases.forEach(({ body, name, contains, second, warn }, index) => regressionCase({
   id: `DOC-${index + 12}`, category: "Extract", input: `${name}.docx`, format: "DOCX", structure: name,
-  expected: warn ? "Image omitted with visible warning and no made-up OCR content" : `Structured extraction retains ${contains}${second ? ` and ${second}` : ""} in download`,
+  expected: warn ? "Image omitted without a file-row notice and no made-up OCR content" : `Structured extraction retains ${contains}${second ? ` and ${second}` : ""} in download`,
 }, async ({ page, note, classify }) => {
   const extra: Record<string, Uint8Array> = name === "image-only" ? { "word/media/picture.png": Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/dV0AAAAASUVORK5CYII=", "base64") }
     : name === "header-footer" ? {
@@ -162,11 +162,13 @@ documentCases.forEach(({ body, name, contains, second, warn }, index) => regress
     } : {};
   const file = await prepared(page, `DOC-${name}.docx`, docx(body, extra));
   if (warn) {
-    await expect(row(page, path.basename(file)).locator(".warning")).toHaveAttribute("title", new RegExp(warn));
+    // Image omission is the reader's fixed scope: the file row stays quiet,
+    // and the omission itself is still proven by the empty extraction.
+    await expect(row(page, path.basename(file)).locator(".warning")).toHaveCount(0);
     const result = await runExtract(page, file);
     await expect(result.getByRole("table")).toHaveCount(0);
     classify("Unsupported");
-    note("READY; image omission warning; no OCR-derived field");
+    note("READY; image omission kept out of the file row; no OCR-derived field");
     return;
   }
   const result = await runExtract(page, file);
@@ -180,15 +182,15 @@ documentCases.forEach(({ body, name, contains, second, warn }, index) => regress
   note(`READY; DOCX text ${contains}${second ? `, ${second}` : ""} present in result, CSV and XLSX`);
 }));
 
-regressionCase({ id: "DOC-21", category: "Upload", input: "DOCX omission fixture", format: "DOCX", structure: "image/chart and malformed header/footer", expected: "Visible image and generic omission warnings; analysis completes" }, async ({ page, note, classify }) => {
+regressionCase({ id: "DOC-21", category: "Upload", input: "DOCX omission fixture", format: "DOCX", structure: "image/chart and malformed header/footer", expected: "Generic omission warnings kept out of the file row; analysis completes" }, async ({ page, note, classify }) => {
   const file = await prepared(page, "DOC-omissions.docx", createDocxWithOmissions());
-  await expect(row(page, path.basename(file)).locator(".warning")).toBeVisible();
+  await expect(row(page, path.basename(file)).locator(".warning")).toHaveCount(0);
   await selectFiles(page, file);
   await openView(page, "분석");
   await page.getByRole("button", { name: "분석 실행" }).click();
   await expect(page.locator(".results-panel .result-status")).toContainText("분석 완료");
   classify("Unsupported");
-  note("Image and generic chart/header/footer omission warnings displayed; analysis completed");
+  note("Image and generic chart/header/footer omissions kept out of the file row; analysis completed");
 });
 
 const slideCases = [
@@ -223,17 +225,18 @@ regressionCase({ id: "DOC-27", category: "Upload", input: "12 slides including e
   expect(csv.some((r) => r.includes("마지막슬라이드"))).toBe(true);
   note("12 slide metadata; slide 12 value remained after empty slide 6 and in downloaded CSV");
 });
-regressionCase({ id: "DOC-28", category: "Upload", input: "PPTX image/chart/notes omission", format: "PPTX", structure: "media, chart, speaker note and body", expected: "Three omission warnings visible; analysis completes" }, async ({ page, note, classify }) => {
+regressionCase({ id: "DOC-28", category: "Upload", input: "PPTX image/chart/notes omission", format: "PPTX", structure: "media, chart, speaker note and body", expected: "Generic omission warnings kept out of the file row; analysis completes" }, async ({ page, note, classify }) => {
   const file = await prepared(page, "DOC-pptx-omissions.pptx", createPptxWithOmissions());
-  const warning = row(page, path.basename(file)).locator(".warning");
-  await expect(warning).toContainText("유의사항 3");
-  await expect(warning).toHaveAttribute("title", /이미지 안의 내용은 읽지 않습니다\.[\s\S]*차트 안의 값은 읽지 않습니다\.[\s\S]*발표자 노트는 읽지 않습니다/);
+  // Image/chart/speaker-note omissions are the reader's fixed scope, so the
+  // file row shows no 유의사항/확인 필요 entry for them at all.
+  await expect(row(page, path.basename(file)).locator(".warning")).toHaveCount(0);
+  await expect(row(page, path.basename(file))).not.toContainText("유의사항");
   await selectFiles(page, file);
   await openView(page, "분석");
   await page.getByRole("button", { name: "분석 실행" }).click();
   await expect(page.locator(".results-panel .result-status")).toContainText("분석 완료");
   classify("Unsupported");
-  note("Image/chart/speaker-note omission warnings visible; analysis completed");
+  note("Image/chart/speaker-note omissions kept out of the file row; analysis completed");
 });
 
 const pdfCases = [

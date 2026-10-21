@@ -266,6 +266,39 @@ const warningMessages = (codes: readonly string[]): string[] =>
   [...new Set(codes.map((code) => WARNING_MESSAGES[code] ?? "일부 내용은 분석 대상에서 제외했습니다."))];
 const warningText = (codes: readonly string[]): string => warningMessages(codes).join("\n");
 /**
+ * Most warning codes describe the reader's fixed scope, not a problem with
+ * this file: images, charts, speaker notes, headers/footers, hidden sheets,
+ * formulas and macros are never read, and the locator codes only record that
+ * a citation anchor lost precision while every word was still extracted.
+ * Repeating that scope on every file row trains readers to ignore the row,
+ * so the row surfaces only codes where content the user supplied was
+ * actually left out — plus any code this build does not know, which is
+ * never hidden on a guess. The full warning list still travels with the
+ * document and drives the result-level coverage notes.
+ */
+const FILE_ROW_QUIET_CODES: ReadonlySet<string> = new Set([
+  // Fixed reading scope: these parts of a file are never read.
+  "XLSX_MACRO_IGNORED",
+  "XLSX_EXTERNAL_REFERENCE_VALUE_ONLY",
+  "XLSX_FORMULA_VALUE_ONLY",
+  "XLSX_HIDDEN_SHEET_OMITTED",
+  "DOCX_IMAGE_OMITTED",
+  "DOCX_CHART_OMITTED",
+  "DOCX_HEADER_FOOTER_OMITTED",
+  "PPTX_IMAGE_OMITTED",
+  "PPTX_CHART_OMITTED",
+  "PPTX_SPEAKER_NOTES_OMITTED",
+  // Citation precision only: the content itself was extracted in full.
+  "MERGED_CELL_ANCHOR_DEGRADED",
+  "CSV_LOCATOR_DEGRADED_TO_FIRST_CELL",
+  "XLSX_LOCATOR_DEGRADED",
+  "SOURCE_QUOTE_DEGRADED_EMPTY",
+  "PDF_LOCATOR_DEGRADED_PAGE_QUOTE",
+]);
+/** Warnings the file row must not hide: supplied content was actually left out. */
+const fileRowWarnings = (codes: readonly string[]): string[] =>
+  codes.filter((code) => !FILE_ROW_QUIET_CODES.has(code));
+/**
  * A status message belongs to whatever produced it. `workspace` messages
  * concern the tab as a whole — an upload, a workspace-wide failure — and are
  * shown everywhere; anything else is owned by the view that raised it and is
@@ -599,7 +632,7 @@ export default function Home() {
   const [deleteDone, setDeleteDone] = useState(0);
   const deleteOperation = useRef(0);
   const [deleteAllOpen, setDeleteAllOpen] = useState(false);
-  /** File rows whose extraction-warning details are expanded (유의사항). */
+  /** File rows whose 확인 필요 warning details are expanded. */
   const [warningDetailIds, setWarningDetailIds] = useState<ReadonlySet<string>>(new Set());
   useEffect(() => {
     if (!deleteDone) return;
@@ -1801,6 +1834,7 @@ export default function Home() {
                   {files.map((file) => {
                     const checked = selected.includes(file.id);
                     const counts = structureCounts(file.metadata);
+                    const rowWarnings = fileRowWarnings(file.warnings);
                     const comparisonSelectionIndex = activeTab === "Compare" && compareMode === "version" && checked
                       ? selected.indexOf(file.id)
                       : -1;
@@ -1829,25 +1863,25 @@ export default function Home() {
                           <div className="file-meta-line">
                             <span>{file.kind.toUpperCase()}</span><i aria-hidden="true">|</i><span>{formatBytes(file.size)}</span>
                           </div>
-                          {counts.length || file.warnings.length ? <div className="file-meta-line file-structure-line">
+                          {counts.length || rowWarnings.length ? <div className="file-meta-line file-structure-line">
                             {counts.length ? <span className="structure-counts">{counts.map((count, index) => <span key={count.label}>{index > 0 ? " · " : ""}{count.label}: <b>{count.value}</b></span>)}</span> : null}
-                            {counts.length && file.warnings.length ? <i aria-hidden="true">·</i> : null}
-                            {file.warnings.length ? (
-                              <button type="button" className="warning file-warning-toggle" title={warningText(file.warnings)}
+                            {counts.length && rowWarnings.length ? <i aria-hidden="true">·</i> : null}
+                            {rowWarnings.length ? (
+                              <button type="button" className="warning file-warning-toggle" title={warningText(rowWarnings)}
                                 aria-expanded={warningDetailIds.has(file.id)}
-                                aria-label={`${file.name} 유의사항 ${file.warnings.length}건 ${warningDetailIds.has(file.id) ? "접기" : "자세히 보기"}`}
+                                aria-label={`${file.name} 확인 필요 ${rowWarnings.length}건 ${warningDetailIds.has(file.id) ? "접기" : "자세히 보기"}`}
                                 onClick={() => setWarningDetailIds((prev) => {
                                   const next = new Set(prev);
                                   if (next.has(file.id)) next.delete(file.id); else next.add(file.id);
                                   return next;
                                 })}>
-                                유의사항 {file.warnings.length}건
+                                확인 필요
                               </button>
                             ) : null}
                           </div> : null}
-                          {file.warnings.length && warningDetailIds.has(file.id) ? (
+                          {rowWarnings.length && warningDetailIds.has(file.id) ? (
                             <ul className="file-warning-details">
-                              {warningMessages(file.warnings).map((message) => <li key={message}>{message}</li>)}
+                              {warningMessages(rowWarnings).map((message) => <li key={message}>{message}</li>)}
                             </ul>
                           ) : null}
                         </div>
