@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Lock, Play } from "lucide-react";
+import { Download, Lock, MoreHorizontal, Play, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "@/components/ui/menu";
 import { ALL_LEVELS, DIAGNOSTIC_AREAS, DIAGNOSTIC_AREA_TARGETS, levelMeta, type DiagnosticAreaId } from "@/lib/learn/curriculum";
 import { levelContent } from "@/lib/learn/content";
 import { diagnosticQuestions, findQuestion, questionBank, restoreQuizQuestions } from "@/lib/learn/questions";
@@ -1006,10 +1007,21 @@ function LearnDashboard(props: {
   return (
     <div className="learn-dash">
       <h2>학습센터</h2>
-      <p className="learn-muted learn-dash-intro">
-        AI·AX 기초부터 업무 자동화 판단, AI 도구 활용, 개발·배포 실무까지 단계별로 학습합니다.
-        각 단계를 통과하면 다음 단계가 해제됩니다.
-      </p>
+      <div className="learn-dash-intro-row">
+        <p className="learn-muted learn-dash-intro">
+          AI·AX 기초부터 업무 자동화 판단, AI 도구 활용, 개발·배포 실무까지 단계별로 학습합니다.
+          각 단계를 통과하면 다음 단계가 해제됩니다.
+        </p>
+        <Menu>
+          <MenuTrigger render={<Button type="button" variant="outline" size="icon" aria-label="학습 기록 작업" />}>
+            <MoreHorizontal aria-hidden="true" />
+          </MenuTrigger>
+          <MenuPopup align="end">
+            <MenuItem onClick={props.onExportBackup}><Upload aria-hidden="true" />학습 기록 내보내기</MenuItem>
+            <MenuItem onClick={props.onImportBackup}><Download aria-hidden="true" />학습 기록 가져오기</MenuItem>
+          </MenuPopup>
+        </Menu>
+      </div>
 
       <section className="learn-dash-card" aria-label="전체 진행률">
         <div className="learn-dash-progress-head">
@@ -1188,26 +1200,6 @@ function LearnDashboard(props: {
           );
         })}
       </div>
-
-      <section className="learn-dash-card learn-backup-card" aria-label="학습 기록 백업">
-        <div className="learn-dash-progress-head">
-          <h3>학습 기록 백업</h3>
-        </div>
-        <p className="learn-muted">
-          <small>
-            학습 기록을 파일로 내보내 보관하거나, 다른 브라우저에서 백업 파일을 가져와 복원할 수
-            있습니다. 가져오면 현재 기록이 백업 시점 기록으로 교체됩니다.
-          </small>
-        </p>
-        <div className="learn-actions learn-dash-actions">
-          <Button type="button" variant="outline" onClick={props.onExportBackup}>
-            학습 기록 내보내기
-          </Button>
-          <Button type="button" variant="outline" onClick={props.onImportBackup}>
-            학습 기록 가져오기
-          </Button>
-        </div>
-      </section>
     </div>
   );
 }
