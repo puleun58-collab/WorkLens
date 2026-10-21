@@ -59,11 +59,17 @@ describe("생성 전 정합성 — 단계 상태와 기능 요구사항 일치",
     expect(prompt).not.toContain("처리 방식이 확정되지 않았습니다");
   });
 
-  it("diesel: 단계별 완료 기준이 기능별 검증 문구를 전문 반복하지 않는다", () => {
+  it("diesel: 방식별 검증 기준은 공통 블록에 한 번만 정의되고 기능·완료 기준은 이를 참조한다", () => {
     const prompt = promptFor(dieselCase);
     const ruleVerify = "확인된 형식·키·업무 규칙으로 실제 입력이 처리되고";
-    // 방식별 검증 기준은 기능별 요구사항에서만 정의되고 완료 기준은 이를 참조한다
-    expect(prompt.split(ruleVerify).length - 1).toBe(3); // 가격 입력(script)·증감률·월평균(rule) 세 기능에서만
+    // 12점 고도화: 동일한 방식별 검증 문구를 기능마다 반복하지 않고 '방식별 검증 기준'
+    // 블록에 한 번만 정의한다. 기능별 검증 줄과 단계별 완료 기준은 이 블록을 참조한다.
+    expect(prompt.split(ruleVerify).length - 1).toBe(1);
+    const verifyBlock = prompt.match(/### 방식별 검증 기준[\s\S]*?(?=### 기능|\n### |$)/)?.[0] ?? "";
+    expect(verifyBlock).toContain(ruleVerify);
+    expect(verifyBlock).toContain("가격 입력");
+    const func2 = prompt.match(/### 기능 2\. 전주 대비 증감률 계산[\s\S]*?(?=### 기능 3)/)?.[0] ?? "";
+    expect(func2).toContain("검증 기준 적용");
     const doneSection = prompt.match(/### 단계별 완료 기준[\s\S]*?(?=### |$)/)?.[0] ?? "";
     expect(doneSection).toContain("가격 입력");
     expect(doneSection).not.toContain(ruleVerify);
