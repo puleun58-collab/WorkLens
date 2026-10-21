@@ -163,6 +163,22 @@ describe("classifyError: boundary rules", () => {
   test("실패 신호가 없으면 NOT_RUN (PASS는 호출자가 판정)", () => {
     expectCase({ stage: "functional-test", exitCode: 0 }, "NOT_RUN", undefined, "functional-test");
   });
+
+  test("생성 앱 readiness 실패는 평가기 오류가 아니라 FAIL + functional-check-failed", () => {
+    expectCase(
+      { stage: "functional-test", error: new Error("Web app did not serve HTTP 200 in 6 seconds"), appReadinessFailed: true },
+      "FAIL",
+      "functional-check-failed",
+      "functional-test",
+    );
+    // 같은 오류라도 readiness 근거가 없으면 기존대로 평가기 오류로 남는다.
+    expectCase(
+      { stage: "functional-test", error: new Error("Web app did not serve HTTP 200 in 6 seconds") },
+      "FAIL",
+      "evaluator-error",
+      "functional-test",
+    );
+  });
 });
 
 describe("redactSecrets", () => {

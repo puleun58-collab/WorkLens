@@ -1631,7 +1631,8 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
   const fallback = unique([...(d?.operation?.fallback ? [d.operation.fallback] : []), ...model.classified.filter(item => (item.role === "fallback" || item.role === "operation") && ["implement", "after-check", "verify"].includes(item.scope)).map(item => item.text)]);
   const tests = unique(model.scoped.tests.map(item => item.text));
   const criteria = unique(model.scoped.criteria.map(evidenceLine));
-  // PART B: PoC 성공·실패 기준은 업무 전체의 완료 기준이므로 단계 연결이 없어도 격하하지 않음.
+  // PART B: PoC 성공·실패 기준은 업무 전체 판정 기준이므로 단계 연결이 없어도 격하하지 않음.
+  // 단 성공 기준만 완료 조건이고 실패 기준은 완료를 부정하는 판정이라 렌더링에서 분리한다.
   // 단계 연결 근거가 없는 다른 criteria만 "참고 판정"으로 구분한다.
   const isPocCriterion = (item: AgentInstructionItem) =>
     item.sources.some(s => s === "diagnosis.poc.success" || s === "diagnosis.poc.failure");
@@ -1658,8 +1659,16 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
   // 차단 상태에서는 PoC 기준을 구현 가능한 완료 조건으로 제시하지 않음.
   const pocCriteriaBlocked = gate === "blocked";
   const pocCriteriaItems = model.classified.filter(item => item.role === "criteria" && isPocCriterion(item) && !model.scoped.criteria.includes(item));
-  const overallCriteria = unique(pocCriteriaItems
-    .filter(item => !pocCriteriaBlocked && !criterionRelatesOnlyToExcluded(item.text))
+  // 성공 기준과 실패 판정 기준은 의미가 정반대이므로 완료 기준에 합치지 않는다.
+  // 실패 항목(예: "중복 ID 허용")은 완료 조건처럼 읽히면 요구사항과 충돌해
+  // 에이전트가 전면 기권하는 원인이 된다 — 별도 실패 판정 섹션으로 분리한다.
+  const eligiblePocCriteria = pocCriteriaItems
+    .filter(item => !pocCriteriaBlocked && !criterionRelatesOnlyToExcluded(item.text));
+  const overallCriteria = unique(eligiblePocCriteria
+    .filter(item => item.sources.includes("diagnosis.poc.success"))
+    .map(item => item.text));
+  const overallFailureCriteria = unique(eligiblePocCriteria
+    .filter(item => !item.sources.includes("diagnosis.poc.success") && item.sources.includes("diagnosis.poc.failure"))
     .map(item => item.text));
   const demotedPocCriteria = pocCriteriaItems
     .filter(item => pocCriteriaBlocked || criterionRelatesOnlyToExcluded(item.text))
@@ -1782,6 +1791,7 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
     ])}` : "",
     criteria.length ? `### 판정 기준\n\n${bullets(criteria)}` : "",
     overallCriteria.length ? `### 업무 전체 완료 기준\n\n${bullets(overallCriteria)}\n\n위 기준은 업무 전체 산출물에 대한 완료 조건입니다. 단계별 검증과 함께 확인하세요.` : "",
+    overallFailureCriteria.length ? `### 업무 전체 실패 판정 기준\n\n${bullets(overallFailureCriteria)}\n\n위 항목은 완료 조건이 아니라 실패 판정 기준입니다. 어느 하나라도 해당하면 완료로 판정하지 마세요.` : "",
     deferredCriteria.length ? `### 참고 판정 (필수 완료 조건 아님)\n\n${bullets(deferredCriteria)}` : "",
     gate === "blocked" || !profile ? "운영 구현과 실행은 차단되고 검토·검증 결과와 차단 해제 조건만 기록됩니다. 타입 오류와 빌드 오류가 없어야 합니다."
       : work.length ? "타입 오류와 빌드 오류가 없어야 합니다. 실행하지 않은 검증은 완료로 보고하지 말고 미실행으로 명시하세요."
