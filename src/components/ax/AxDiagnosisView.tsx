@@ -14,12 +14,12 @@ import { useAxState } from "@/client/use-ax-state";
 import { runInWorker } from "@/client/document-client";
 import { diagnoseAx, planAx, interruptServerAi, aiFailureDetail } from "@/client/server-ai-client";
 import { AX_LIMITS, FACTOR_LABELS, axTaskSchema, axTaskV2Schema, confirmedAxDiagnosis } from "@/lib/ax/schema";
-import { axes, automationLevel, bubbleArea, executionGate, executionProfile, gateBlockReasons, GATE_LABELS, planAllowed, priorityHeading, factorEffectiveValue, factorHasAdjustment, factorScale, matrixPosition, monthlyMinutes, nextAction, priority, REGION_LABELS, splitGatePrerequisites, taskStatus, taskDisplayStatus } from "@/lib/ax/policy";
+import { axes, automationLevel, bubbleArea, executionGate, executionProfile, gateBlockReasons, GATE_LABELS, planAllowed, priorityHeading, factorEffectiveValue, factorHasAdjustment, factorScale, matrixPosition, monthlyMinutes, nextAction, priority, splitGatePrerequisites, taskStatus, taskDisplayStatus } from "@/lib/ax/policy";
 import { candidateTask, taskDetails, followUpDescription, legacyDetailValues, validateAttachmentPreflight, isRegistrationUnchanged } from "@/lib/ax/registration";
 import { exportAxState, importAxState } from "@/lib/ax/transfer";
 import { emptyAxState, type AxStateV2, type AxTask, type AxDiagnosis, type AxDetails, type FactorKey } from "@/lib/ax/types";
 import { extractReviewableItems, extractPlanReviewableItems, reconcileReviews, validateReviewForConfirm, type ReviewableItem } from "@/lib/ax/hitl";
-import { AxProcess, AxResultSummary, AxExecutionTimeline, AxPlanSection, AxRadar, AxScoreCards, AxCheckIcon, diagnosisSummarySentences, diagnosisCheckItems, matrixRationaleBullets } from "./AxReport";
+import { AxProcess, AxResultSummary, AxExecutionTimeline, AxPlanSection, AxScoreCards, AxCheckIcon, diagnosisSummarySentences, diagnosisCheckItems, matrixRationaleBullets } from "./AxReport";
 import { AxScoreEvidence } from "./AxScoreEvidence";
 import "./ax.css";
 
@@ -204,15 +204,6 @@ export function AxDiagnosisView() {
     }
     return undefined;
   }, [state.step]);
-  function scrollToAnswers() {
-    const el = document.getElementById("ax-answer-section");
-    if (!el) return;
-    el.scrollIntoView({ behavior: "smooth", block: "start" });
-    // 포커스가 브라우저 자동 스크롤을 유발하지 않도록 preventScroll 사용
-    // scroll-margin-top CSS가 고정 헤더 여백을 처리함
-    const first = el.querySelector("textarea");
-    if (first instanceof HTMLTextAreaElement) first.focus({ preventScroll: true });
-  }
   function clearDraft() { setName(""); setDescription(""); setDetails({}); setDraftAttachment(null); setEditingId(null); }
   function editTask(task: AxTask) {
     select(task.id);
@@ -491,31 +482,6 @@ export function AxDiagnosisView() {
       </li>;
     })}</ul>;
   }
-  function openDetail(id: string) {
-    select(id);
-    requestAnimationFrame(() => {
-      const target = document.getElementById(MATRIX_DETAIL_ID);
-      target?.scrollIntoView({ behavior: "smooth", block: "start" });
-      target?.focus({ preventScroll: true });
-    });
-  }
-  /** Step 3 우선순위: 점수 상위 3개만. 제목은 표시된 업무의 실제 Gate를 따르며 점수 순위와 진행 상태를 섞지 않는다. */
-  function matrixPriority() {
-    const top = ranked.slice(0, 3);
-    const topProfiles = top.map(row => executionProfile(row.task.diagnosis));
-    const heading = topProfiles.some(profile => profile.readyExecutionCandidate) ? "자동화 우선순위" : topProfiles.some(profile => profile.gate !== "blocked") ? "자동화 우선 검토순위" : "진행 보류 업무 · 점수순";
-    return <section className="ax-surface ax-matrix-priority" aria-label="자동화 우선순위">
-      <div className="ax-matrix-priority-head"><h3>{heading}</h3><p className="ax-muted">종합 정책 점수 상위 {top.length}개 · 번호는 점수 순위이며 진행 상태와 별개입니다.</p></div>
-      <ol className="ax-priority-list ax-priority-top" aria-label="자동화 우선순위 목록">{top.map((row, index) => {
-        const l = automationLevel(row.task.diagnosis), m = matrixPosition(row.task.diagnosis), gate = topProfiles[index].gate;
-        return <li key={row.task.id}><Button type="button" variant="ghost" className="ax-priority-row" aria-pressed={selected?.id === row.task.id} onClick={() => openDetail(row.task.id)} disabled={!!busy}>
-          <strong className="ax-rank">#{row.rank}</strong>
-          <span className="ax-priority-content"><span className="ax-priority-head"><span className="ax-task-name">{row.task.name}</span><span className="ax-region-chip" data-region={m.region}>{m.label}</span><span className="ax-gate-badge" data-gate={gate}>{GATE_LABELS[gate]}</span></span>
-            <small>{l.label.replace(/^L\d+ /, "")} · Level {l.level}{l.provisional ? " · 잠정" : ""} · {row.reason.split(";")[0]}</small></span>
-        </Button></li>;
-      })}</ol>
-    </section>;
-  }
   function priorityRows(top: boolean) {
     return <>{displayed.some((row, index) => row.rank !== index + 1) ? <p className="ax-muted ax-priority-order">번호는 우선순위 점수 기준이며, 실행 상태별로 표시합니다.</p> : null}<ol className="ax-priority-list" aria-label={top ? overviewIsTop ? "자동화 우선순위 TOP 목록" : "우선 확인 업무 목록" : "전체 진단 업무 목록"}>{(top ? overviewRows : displayed).map(r => {
       const l = automationLevel(r.task.diagnosis), m = matrixPosition(r.task.diagnosis), gate = executionGate(r.task.diagnosis);
@@ -561,16 +527,16 @@ export function AxDiagnosisView() {
             </AccordionItem></Accordion>
           </form>
           {state.tasks.length ? <section className="ax-surface ax-area-list" aria-label="등록 업무 목록"><h3>업무 목록</h3>{taskRows(true)}</section> : null}
-          {state.tasks.length ? <aside className="ax-step1-side ax-area-side"><AxKpiCards tasks={state.tasks} /></aside> : null}
         </div>
       </TabsPanel>
       <TabsPanel value="2">
         {!state.tasks.length ? <p className="ax-empty ax-muted">진단할 업무를 먼저 등록하세요</p> : <div className="ax-step2-grid">
           <section className="ax-surface" aria-label="등록 업무 목록"><h3>업무 목록</h3>{taskRows(false)}</section>
           <div className="ax-detail-col">{selected ? <>
-            <DiagnosisCard task={selected} busy={busy} onDiagnose={() => void diagnose(selected)} onEdit={() => editTask(selected)} onAnswer={scrollToAnswers}
+            <DiagnosisCard task={selected} busy={busy} onDiagnose={() => void diagnose(selected)} onEdit={() => editTask(selected)}
               attachment={<TaskAttachment task={selected} busy={busy} inSession={attachmentIds.includes(selected.id)} onDetach={() => detach(selected)} onAttach={file => void attach(file, selected.id)} />} />
             {selected.diagnosis ? <>
+              {selected.diagnosis.followUpQuestions.length ? <section className="ax-surface ax-questions" id="ax-answer-section" aria-label="추가 질문 답변"><h3>추가 질문 {selected.diagnosis.followUpQuestions.length}개</h3>{selected.diagnosis.followUpQuestions.map((q, i) => <label className="ax-field" key={i}>{q}<Textarea rows={2} maxLength={500} disabled={!!busy} value={answers[selected.id]?.[i] ?? ""} onChange={e => setAnswers(current => { const values = [...(current[selected.id] ?? [])]; values[i] = e.target.value; return { ...current, [selected.id]: values }; })} /></label>)}<Button type="button" className="ax-rediagnose" disabled={!!busy} onClick={() => void diagnose(selected, true)}>답변 반영 후 재진단</Button></section> : null}
               <section className="ax-surface"><h3>진단 항목</h3><p className="ax-muted">필요하면 AI 평가값을 조정할 수 있습니다. 변경한 값은 자동화 수준과 우선순위에 바로 반영됩니다.</p>
                 {selected.diagnosis.factors.map(f => { const { icon: Icon, color } = FACTOR_META[f.key], effective = factorEffectiveValue(f), adjusted = factorHasAdjustment(f); const style = { "--ax-factor": color } as CSSProperties; return <div className="ax-factor-row" key={f.key}>
                   <span className="ax-factor-icon" style={style}><Icon size={16} aria-hidden="true" /></span>
@@ -578,8 +544,6 @@ export function AxDiagnosisView() {
                   <div className="ax-factor-control"><div className="ax-segments" role="group" aria-label={`${FACTOR_LABELS[f.key]} 보정`}>{[1, 2, 3, 4, 5].map(v => <button type="button" key={v} className={v <= effective ? "is-on" : ""} style={style} aria-label={`${FACTOR_LABELS[f.key]} ${v}점`} aria-pressed={v === effective} disabled={!!busy} onClick={() => adjust(selected, f.key, String(v))} />)}</div><strong className="ax-factor-value" style={{ color }}>{effective}</strong>{adjusted ? <AiValueReset disabled={!!busy} onReset={() => adjust(selected, f.key, "")} /> : null}</div>
                 </div>; })}
               </section>
-              <section className="ax-surface"><h3>진단 항목 분포</h3><AxRadar diagnosis={selected.diagnosis} /></section>
-              {selected.diagnosis.followUpQuestions.length ? <section className="ax-surface ax-questions" id="ax-answer-section" aria-label="추가 질문 답변"><h3>추가 질문 필요</h3>{selected.diagnosis.followUpQuestions.map((q, i) => <label className="ax-field" key={i}>{q}<Textarea rows={2} maxLength={500} disabled={!!busy} value={answers[selected.id]?.[i] ?? ""} onChange={e => setAnswers(current => { const values = [...(current[selected.id] ?? [])]; values[i] = e.target.value; return { ...current, [selected.id]: values }; })} /></label>)}<Button type="button" className="ax-rediagnose" disabled={!!busy} onClick={() => void diagnose(selected, true)}>답변 반영 후 재진단</Button></section> : null}
               <AxProcess
                 diagnosis={selected.diagnosis}
                 reviewProps={{
@@ -632,7 +596,6 @@ export function AxDiagnosisView() {
               </div>
             </section>
           </div>
-          {matrixPriority()}
           {selected?.diagnosis ? <MatrixDetailCard task={selected} diagnosis={selected.diagnosis} /> : <section className="ax-surface" aria-label="선택 업무 상세"><p className="ax-muted">업무 목록에서 업무를 선택하면 상세 분석이 표시됩니다.</p></section>}
         </div>}
       </TabsPanel>
@@ -642,7 +605,6 @@ export function AxDiagnosisView() {
             <AxKpiCards tasks={state.tasks} />
             <div className="ax-step4-overview-grid">
               <section className="ax-surface"><h3>{overviewHeading}</h3>{priorityRows(true)}{ranked.length > overviewRows.length ? <Accordion className="ax-all-tasks"><AccordionItem value="all-tasks"><AccordionTrigger>전체 업무 보기</AccordionTrigger><AccordionPanel><div className="ax-all-task-list">{priorityRows(false)}</div></AccordionPanel></AccordionItem></Accordion> : null}</section>
-              <section className="ax-surface"><h3>분류 현황</h3><div className="ax-region-tiles">{Object.entries(REGION_LABELS).map(([region, label]) => <div className="ax-region-tile" data-region={region} key={region}><span>{label}</span><strong>{ranked.filter(r => matrixPosition(r.task.diagnosis).region === region).length}개</strong></div>)}</div></section>
             </div>
           </aside>
           {selected?.diagnosis ? <article className="ax-selected-report" aria-label={`${selected.name} 결과·로드맵`}>
@@ -673,16 +635,15 @@ export function AxDiagnosisView() {
     <AlertDialog open={confirmation !== null} onOpenChange={open => { if (!open) setConfirmation(null); }}><AlertDialogPopup><AlertDialogHeader><AlertDialogTitle>{confirmation?.kind === "import" ? "AI•AX 데이터를 덮어쓸까요?" : confirmation?.kind === "delete" ? "업무를 삭제할까요?" : "AI•AX 데이터를 초기화할까요?"}</AlertDialogTitle><AlertDialogDescription>{confirmation?.kind === "import" ? "검증된 가져오기 데이터로 현재 AI•AX 업무·진단·계획을 교체합니다." : confirmation?.kind === "delete" ? "선택한 업무와 진단·계획을 삭제합니다." : "현재 AI•AX 업무·진단·계획만 삭제합니다. 다른 작업 공간은 유지됩니다."}</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogClose render={<Button type="button" variant="ghost" />}>취소</AlertDialogClose><Button type="button" variant="destructive" onClick={() => void confirm()}>{confirmation?.kind === "import" ? "덮어쓰기" : confirmation?.kind === "delete" ? "삭제" : "초기화"}</Button></AlertDialogFooter></AlertDialogPopup></AlertDialog>
   </section>;
 }
-/** Step 2 selected-task card: name/badges → description → diagnosis summary → 4 score cards → checks/questions. */
-function DiagnosisCard({ task, busy, onDiagnose, onEdit, attachment, onAnswer }: {
-  task: AxTask; busy: string | null; onDiagnose: () => void; onEdit: () => void; attachment: ReactNode; onAnswer: () => void;
+/** Step 2 selected-task card: name/badges → description → diagnosis summary → 4 score cards → checks. Follow-up questions render once, in the answer section below this card. */
+function DiagnosisCard({ task, busy, onDiagnose, onEdit, attachment }: {
+  task: AxTask; busy: string | null; onDiagnose: () => void; onEdit: () => void; attachment: ReactNode;
 }) {
   const display = taskDisplayStatus(task);
   const d = task.diagnosis;
   const lvl = d ? automationLevel(d) : null;
   const gate = d ? executionGate(d) : null;
   const checks = d ? diagnosisCheckItems(d) : [];
-  const questions = d?.followUpQuestions ?? [];
   return <section className="ax-surface ax-diag-card" aria-label={`${task.name} 진단`}>
     <div className="ax-diag-head">
       <div className="ax-diag-title">
@@ -715,23 +676,14 @@ function DiagnosisCard({ task, busy, onDiagnose, onEdit, attachment, onAnswer }:
         </div>
       </div>
       <AxScoreCards diagnosis={d} />
-      <div className="ax-diag-cols">
-        <section className="ax-diag-checks" aria-label="확인할 사항">
-          <h3>확인할 사항 {checks.length}개</h3>
-          {checks.length ? <ul>{checks.map((c, i) => <li key={i}>
-            <span className="ax-check-icon"><AxCheckIcon title={c.title} /></span>
-            <span className="ax-check-text"><strong>{c.title}</strong>{c.desc ? <small>{c.desc}</small> : null}</span>
-            <span className="ax-check-badge" data-kind={c.kind}>{c.badge}</span>
-          </li>)}</ul> : <p className="ax-muted">확인할 사항이 없습니다.</p>}
-        </section>
-        <section className="ax-diag-questions" aria-label="추가 질문">
-          <h3>추가 질문 {questions.length}개</h3>
-          {questions.length ? <>
-            <ol>{questions.map((q, i) => <li key={i}><span className="ax-q-num" aria-hidden="true">{i + 1}</span><span>{q}</span></li>)}</ol>
-            <Button type="button" variant="outline" className="ax-answer-btn" onClick={onAnswer}>답변 작성하기<ArrowRight size={15} aria-hidden="true" /></Button>
-          </> : <p className="ax-muted">추가 질문이 없습니다.</p>}
-        </section>
-      </div>
+      <section className="ax-diag-checks" aria-label="확인할 사항">
+        <h3>확인할 사항 {checks.length}개</h3>
+        {checks.length ? <ul>{checks.map((c, i) => <li key={i}>
+          <span className="ax-check-icon"><AxCheckIcon title={c.title} /></span>
+          <span className="ax-check-text"><strong>{c.title}</strong>{c.desc ? <small>{c.desc}</small> : null}</span>
+          <span className="ax-check-badge" data-kind={c.kind}>{c.badge}</span>
+        </li>)}</ul> : <p className="ax-muted">확인할 사항이 없습니다.</p>}
+      </section>
     </> : null}
   </section>;
 }

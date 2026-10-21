@@ -61,6 +61,8 @@ async function openStep4(page: Page) {
 test("02 시작 전 확인: 상단 카드 3열 + 추가 확인 표 + 중복 제거", async ({ page }) => {
   const section = await openStep4(page);
   const block = section.locator("section[aria-label='02 시작 전 확인']");
+  // 01~03은 기본 접힘 — 확인이 필요한 블록을 펼쳐서 검증한다.
+  await block.getByRole("button", { name: /시작 전 확인/ }).click();
   await expect(block.getByText("구현 전에 필요한 조건과 적용 범위를 확인합니다.", { exact: true })).toBeVisible();
   // Top cards: one per technical check, badge shown once, no repeated 안내
   const cards = block.locator(".ax-prereq-card");
@@ -92,6 +94,7 @@ test("02 시작 전 확인: 모바일 390px 세로 배치 + 가로 스크롤 없
   await page.setViewportSize({ width: 390, height: 844 });
   const section = await openStep4(page);
   const block = section.locator("section[aria-label='02 시작 전 확인']");
+  await block.getByRole("button", { name: /시작 전 확인/ }).click();
   const cards = block.locator(".ax-prereq-card");
   await expect(cards).toHaveCount(3);
   // Cards stack vertically

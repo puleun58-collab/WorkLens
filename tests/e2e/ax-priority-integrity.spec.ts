@@ -66,7 +66,10 @@ for (const scenario of scenarios) {
       await expect(page.locator(".ax-report-intro h2")).toHaveText(excluded.name);
     } else await expect(all).toHaveCount(0);
     await page.getByRole("tab", { name: "자동화 매트릭스", exact: true }).click();
-    await expect(page.getByRole("list", { name: "자동화 우선순위 목록", exact: true }).getByRole("listitem")).toHaveCount(Math.min(3, scenario.tasks.length));
+    // 매트릭스 하단 TOP 3는 제거됨 — 좌측 목록 전체가 종합 점수 순위 순으로 표시되는지 확인한다.
+    const matrixList = page.getByLabel("매트릭스 업무 목록", { exact: true });
+    await expect(matrixList.getByRole("listitem")).toHaveCount(scenario.tasks.length);
+    await expect(matrixList.locator(".ax-task-name")).toHaveText(ranked.map((row, index) => `${index + 1}. ${row.task.name}`));
   });
 }
 test("AX result count distinguishes needs-info from completed diagnosis with the same matrix definition", async ({ page }) => {
@@ -82,7 +85,7 @@ test("AX result count distinguishes needs-info from completed diagnosis with the
   await expect(kpi).toContainText("진행 가능 1개 · 확인 후 진행 1개 · 진행 보류 0개 · 추가 질문 필요 1개");
   await page.getByRole("tab", { name: "자동화 매트릭스", exact: true }).click();
   await expect(page.locator(".ax-matrix-header")).toContainText("등록 3개 · 진단 완료 2개 (진행 가능 1개 · 확인 후 진행 1개 · 진행 보류 0개) · 추가 질문 필요 1개 · 미진단 1개 제외");
-  await expect(page.getByRole("list", { name: "자동화 우선순위 목록", exact: true }).getByRole("listitem")).toHaveCount(2);
+  await expect(page.getByLabel("매트릭스 업무 목록", { exact: true }).getByRole("listitem")).toHaveCount(2);
   await page.getByRole("tab", { name: "업무 등록", exact: true }).click();
   await expect(page.locator(".ax-task-rows").getByRole("listitem").filter({ hasText: needsInfo.name })).toContainText("정보 확인 필요");
 });
