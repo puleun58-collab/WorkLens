@@ -208,6 +208,13 @@ describe("doneWhen·stepMethodLabel 일관성 (지시문 내부 모순 회귀 �
     const calcSection = nextHeading > 0 ? prompt.slice(start, nextHeading) : prompt.slice(start);
     expect(calcSection).toContain("규칙 기반 처리");
     expect(calcSection).not.toContain("구현을 시작하지 마세요");
-    expect(calcSection).toContain("확인된 형식·키·업무 규칙으로 실제 입력이 처리되고");
+    // 12점 고도화: 방식별 검증 기준 전문은 '방식별 검증 기준' 공통 블록에 한 번만
+    // 정의하고 기능 섹션은 이를 참조한다 (기능마다 전문 반복 금지). 기준 자체는
+    // 지시문 안에 정확히 한 번 존재해야 한다.
+    expect(calcSection).toContain("검증 기준 적용");
+    expect(prompt.split("확인된 형식·키·업무 규칙으로 실제 입력이 처리되고").length - 1).toBe(1);
+    const verifyBlock = prompt.match(/### 방식별 검증 기준[\s\S]*?(?=### 기능|\n### |$)/)?.[0] ?? "";
+    expect(verifyBlock).toContain("확인된 형식·키·업무 규칙으로 실제 입력이 처리되고");
+    expect(verifyBlock).toContain("계산");
   });
 });

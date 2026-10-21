@@ -264,7 +264,7 @@ const WARNING_MESSAGES: Record<string, string> = {
 };
 const warningMessages = (codes: readonly string[]): string[] =>
   [...new Set(codes.map((code) => WARNING_MESSAGES[code] ?? "일부 내용은 분석 대상에서 제외했습니다."))];
-const warningText = (codes: readonly string[]): string => warningMessages(codes).join("\n");
+
 /**
  * Most warning codes describe the reader's fixed scope, not a problem with
  * this file: images, charts, speaker notes, headers/footers, hidden sheets,
@@ -298,6 +298,27 @@ const FILE_ROW_QUIET_CODES: ReadonlySet<string> = new Set([
 /** Warnings the file row must not hide: supplied content was actually left out. */
 const fileRowWarnings = (codes: readonly string[]): string[] =>
   codes.filter((code) => !FILE_ROW_QUIET_CODES.has(code));
+const NO_CONTENT_MESSAGE = "이 파일에서 분석할 수 있는 텍스트나 데이터를 찾지 못했습니다.";
+const IMAGE_ONLY_MESSAGE = "이미지로만 구성된 파일입니다. 이미지 안의 글자는 읽을 수 없습니다.";
+/**
+ * What the file row's 확인 필요 toggle discloses: the row-visible warning
+ * messages, plus — when the parser extracted nothing readable at all — one
+ * line saying so. Without that line, a file whose only warnings are quiet
+ * scope codes (an image-only document) would show no notice at all and its
+ * 준비 완료 badge would read as "analyzed fine". The total-absence line is
+ * added only when no visible warning already explains the absence (a scanned
+ * PDF's own message does), and the image-only wording is used only when
+ * images are the file's sole recorded omission — never guessed.
+ */
+const fileRowNoticeMessages = (file: WorkspaceFile): string[] => {
+  const messages = warningMessages(fileRowWarnings(file.warnings));
+  if (file.contentEmpty && !file.warnings.includes("PDF_TEXT_LAYER_EMPTY")) {
+    const imageOnly = file.warnings.length > 0
+      && file.warnings.every((code) => code === "DOCX_IMAGE_OMITTED" || code === "PPTX_IMAGE_OMITTED");
+    messages.push(imageOnly ? IMAGE_ONLY_MESSAGE : NO_CONTENT_MESSAGE);
+  }
+  return messages;
+};
 /**
  * A status message belongs to whatever produced it. `workspace` messages
  * concern the tab as a whole — an upload, a workspace-wide failure — and are
@@ -1834,7 +1855,8 @@ export default function Home() {
                   {files.map((file) => {
                     const checked = selected.includes(file.id);
                     const counts = structureCounts(file.metadata);
-                    const rowWarnings = fileRowWarnings(file.warnings);
+                    const noticeMessages = fileRowNoticeMessages(file);
+                    const hasRowNotice = noticeMessages.length > 0;
                     const comparisonSelectionIndex = activeTab === "Compare" && compareMode === "version" && checked
                       ? selected.indexOf(file.id)
                       : -1;
@@ -1863,13 +1885,13 @@ export default function Home() {
                           <div className="file-meta-line">
                             <span>{file.kind.toUpperCase()}</span><i aria-hidden="true">|</i><span>{formatBytes(file.size)}</span>
                           </div>
-                          {counts.length || rowWarnings.length ? <div className="file-meta-line file-structure-line">
+                          {counts.length || hasRowNotice ? <div className="file-meta-line file-structure-line">
                             {counts.length ? <span className="structure-counts">{counts.map((count, index) => <span key={count.label}>{index > 0 ? " · " : ""}{count.label}: <b>{count.value}</b></span>)}</span> : null}
-                            {counts.length && rowWarnings.length ? <i aria-hidden="true">·</i> : null}
-                            {rowWarnings.length ? (
-                              <button type="button" className="warning file-warning-toggle" title={warningText(rowWarnings)}
+                            {counts.length && hasRowNotice ? <i aria-hidden="true">·</i> : null}
+                            {hasRowNotice ? (
+                              <button type="button" className="warning file-warning-toggle" title={noticeMessages.join("\n")}
                                 aria-expanded={warningDetailIds.has(file.id)}
-                                aria-label={`${file.name} 확인 필요 ${rowWarnings.length}건 ${warningDetailIds.has(file.id) ? "접기" : "자세히 보기"}`}
+                                aria-label={`${file.name} 확인 필요 ${noticeMessages.length}건 ${warningDetailIds.has(file.id) ? "접기" : "자세히 보기"}`}
                                 onClick={() => setWarningDetailIds((prev) => {
                                   const next = new Set(prev);
                                   if (next.has(file.id)) next.delete(file.id); else next.add(file.id);
@@ -1879,9 +1901,9 @@ export default function Home() {
                               </button>
                             ) : null}
                           </div> : null}
-                          {rowWarnings.length && warningDetailIds.has(file.id) ? (
+                          {hasRowNotice && warningDetailIds.has(file.id) ? (
                             <ul className="file-warning-details">
-                              {warningMessages(rowWarnings).map((message) => <li key={message}>{message}</li>)}
+                              {noticeMessages.map((message) => <li key={message}>{message}</li>)}
                             </ul>
                           ) : null}
                         </div>

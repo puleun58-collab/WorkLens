@@ -7,7 +7,7 @@ import { buildValueCheck } from "@/domain/value-check";
 import type { NormalizedDocument, SourceRef } from "@/domain/document";
 import { analyzeDocument, checkDocument, extractDocument } from "@/lib/deterministic";
 import { exportDocumentCsv, exportDocumentXlsx } from "@/lib/export";
-import { parseDocument } from "@/lib/parsers";
+import { documentHasExtractableContent, parseDocument } from "@/lib/parsers";
 import { buildEvidenceNodes, groundAiResult } from "@/lib/ai/grounding";
 import { askRelevance, selectEvidence } from "@/lib/ai/retrieval";
 import { evidenceWindow, resolveClaims, type EvidenceWindow } from "@/lib/ai/prompt";
@@ -99,6 +99,7 @@ async function handle(request: WorkerRequest): Promise<unknown> {
         status: "ready",
         metadata: document.metadata,
         warnings: document.warnings,
+        contentEmpty: !documentHasExtractableContent(document),
       };
       documents.set(request.fileId, { file, document });
       return file;

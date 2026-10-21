@@ -19,6 +19,13 @@ export interface WorkspaceFile {
   status: "ready";
   metadata: DocumentMetadata;
   warnings: string[];
+  /**
+   * True only when the parser extracted nothing an analysis can read (an
+   * image-only document, an empty sheet, whitespace alone). Undefined when
+   * the parse predates the signal; the file row then makes no claim either
+   * way instead of guessing that the file is fine.
+   */
+  contentEmpty?: boolean;
 }
 
 export interface AnalyzeEntry { file: { id: string; name: string }; analysis: AnalyzeResult; extraction: FileExtraction; topics: DocumentTopic[] }

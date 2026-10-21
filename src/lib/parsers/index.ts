@@ -1,5 +1,5 @@
 import { sha256Hex } from "@/domain/hash";
-import type { NormalizedDocument, SourceLocator, SourceRef, TableBlock } from "@/domain/document";
+import type { NormalizedDocument, SourceLocator, SourceRef, TableBlock, TableCell } from "@/domain/document";
 
 import { parseCsv } from "./csv";
 import { parseDocx } from "./docx";
@@ -21,6 +21,32 @@ const unsupportedFileError = (): Error =>
     "현재 이 파일 형식은 지원하지 않습니다.",
     "CSV, DOCX, PPTX, XLSX 또는 PDF 형식으로 저장한 뒤 다시 업로드해 주세요.",
   );
+
+/**
+ * Whether the parsed document carries anything an analysis can read: a
+ * paragraph with non-whitespace text, or a table cell with an actual value.
+ * Whitespace-only text is not content, and a value's presence — not its
+ * length or prose shape — decides, because valid data (a number, a boolean,
+ * a date) is not always a sentence. This judges only the extraction result;
+ * it never re-reads the file or changes parsing.
+ */
+export const documentHasExtractableContent = (document: NormalizedDocument): boolean => {
+  const cellHasValue = (cell: TableCell): boolean => {
+    if (cell.valueType === "blank") return false;
+    if (cell.value !== null && cell.value !== "") return true;
+    return typeof cell.display === "string" && cell.display.trim().length > 0;
+  };
+  const tableHasValue = (table: TableBlock): boolean => table.rows.some((row) => row.some(cellHasValue));
+  for (const block of document.blocks) {
+    if (block.type === "paragraph") {
+      if (block.text.trim().length > 0) return true;
+    } else if (tableHasValue(block)) return true;
+  }
+  for (const sheet of document.workbookSheets ?? []) {
+    if (tableHasValue(sheet.table)) return true;
+  }
+  return false;
+};
 
 export const parseDocument = async (input: ParseDocumentInput): Promise<NormalizedDocument> => {
   const extension = input.fileName.slice(input.fileName.lastIndexOf(".")).toLowerCase();

@@ -302,6 +302,38 @@ export function createDocxWithOmissions(): Uint8Array {
   });
 }
 
+/** A DOCX whose body is a single image: nothing extractable, only DOCX_IMAGE_OMITTED. */
+export function createDocxImageOnly(): Uint8Array {
+  return zipSync({
+    "[Content_Types].xml": strToU8(
+      '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>',
+    ),
+    "word/document.xml": strToU8(
+      '<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body><w:p><w:r><w:drawing><a:graphic><a:graphicData><a:blip r:embed="rIdImage1"/></a:graphicData></a:graphic></w:drawing></w:r></w:p></w:body></w:document>',
+    ),
+    "word/media/image1.png": strToU8("fake-png-bytes"),
+  });
+}
+
+/** A PPTX whose only slide holds a picture and no text at all. */
+export function createPptxImageOnly(): Uint8Array {
+  return zipSync({
+    "[Content_Types].xml": strToU8(
+      '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/></Types>',
+    ),
+    "ppt/presentation.xml": strToU8(
+      '<?xml version="1.0"?><p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:sldIdLst><p:sldId id="256" r:id="rId1"/></p:sldIdLst></p:presentation>',
+    ),
+    "ppt/_rels/presentation.xml.rels": strToU8(
+      '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/></Relationships>',
+    ),
+    "ppt/slides/slide1.xml": strToU8(
+      '<?xml version="1.0"?><p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:cSld><p:spTree><p:pic><p:blipFill><a:blip r:embed="rIdImage1"/></p:blipFill></p:pic></p:spTree></p:cSld></p:sld>',
+    ),
+    "ppt/media/image1.png": strToU8("fake-png-bytes"),
+  });
+}
+
 export function createDocxWithNestedTable(): Uint8Array {
   return zipSync({
     "[Content_Types].xml": strToU8(
