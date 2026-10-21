@@ -378,6 +378,141 @@ export async function savePracticeTerminalStates(states: PracticeTerminalStates)
   });
 }
 
+/* ------------------------------------------------------------------ */
+/* 백업 가져오기용 원자적 일괄 교체 — 진도·진행 중 퀴즈·연습 상태를     */
+/* 단일 트랜잭션으로 교체한다. 어느 하나라도 실패하면(다른 탭 충돌·     */
+/* 저장 오류) 트랜잭션이 중단되어 3개 키 모두 기존 값을 유지한다.       */
+/* ------------------------------------------------------------------ */
+
+export interface ReplaceAllLearnDataResult {
+  /** 실제로 저장된 진도 (updatedAt 갱신됨) */
+  progress: LearnProgress;
+  /** 실제로 저장된 진행 중 퀴즈 (savedAt 갱신됨) — 백업에 없으면 null */
+  inProgress: InProgressQuiz | null;
+}
+
+/**
+ * 학습 데이터 전체 교체 — 백업 가져오기 전용.
+ * 기존 저장들과 같은 큐(enqueueSave)로 직렬화되며, 단일 readwrite
+ * 트랜잭션 안에서 현재 진도·진행 중 퀴즈를 이 탭이 마지막으로 확인한
+ * revision·savedAt와 대조한다. 다른 탭이 그 사이 변경했으면 트랜잭션을
+ * 중단하고 충돌 오류를 던져 기존 데이터를 전부 보호한다.
+ * 성공은 tx.oncomplete에서만 확정되고, 그때 탭 기준값도 새 값으로 갱신된다.
+ */
+export async function replaceAllLearnData(
+  progress: LearnProgress,
+  inProgress: InProgressQuiz | null,
+  practiceStates: PracticeTerminalStates,
+): Promise<ReplaceAllLearnDataResult> {
+  return enqueueSave(async () => {
+    const result = await replaceAllLearnDataInner(progress, inProgress, practiceStates, tabRevision, inProgressSavedAt);
+    tabRevision = JSON.stringify(result.progress);
+    inProgressSavedAt = result.inProgress ? result.inProgress.savedAt : null;
+    return result;
+  });
+}
+
+async function replaceAllLearnDataInner(
+  progress: LearnProgress,
+  inProgress: InProgressQuiz | null,
+  practiceStates: PracticeTerminalStates,
+  expectedRevision: string | null | undefined,
+  expectedSavedAt: number | null | undefined,
+): Promise<ReplaceAllLearnDataResult> {
+  const db = await openDb();
+  const { promise, resolve, reject } = Promise.withResolvers<ReplaceAllLearnDataResult>();
+  let failure: Error | undefined;
+  let storedProgress: LearnProgress | undefined;
+  let storedInProgress: InProgressQuiz | null | undefined;
+  try {
+    const tx = db.transaction(STORE, "readwrite");
+    const store = tx.objectStore(STORE);
+    const abortWith = (error: Error) => {
+      failure = error;
+      try { tx.abort(); } catch { /* 이미 종료된 트랜잭션 */ }
+    };
+    const progressGet = store.get(KEY);
+    progressGet.onsuccess = () => {
+      try {
+        const currentProgress = progressGet.result as unknown;
+        // 진도 충돌 검사 — saveLearnProgressInner와 같은 규칙
+        if (expectedRevision !== undefined) {
+          if (currentProgress === undefined) {
+            if (expectedRevision !== null) {
+              throw new Error("다른 탭에서 저장된 데이터가 변경되어 가져오기를 중단했습니다.");
+            }
+          } else {
+            if (expectedRevision === null) {
+              throw new Error("다른 탭에서 저장된 데이터가 변경되어 가져오기를 중단했습니다.");
+            }
+            if (JSON.stringify(currentProgress) !== expectedRevision) {
+              throw new Error("다른 탭에서 저장된 데이터가 변경되어 가져오기를 중단했습니다.");
+            }
+          }
+        }
+        const inProgressGet = store.get(IN_PROGRESS_KEY);
+        inProgressGet.onsuccess = () => {
+          try {
+            const currentInProgress = inProgressGet.result as unknown;
+            // 진행 중 퀴즈 충돌 검사 — saveInProgressInner와 같은 규칙
+            if (expectedSavedAt !== undefined) {
+              if (expectedSavedAt === null) {
+                if (currentInProgress !== undefined) {
+                  throw new Error("다른 탭에서 진행 중인 퀴즈가 변경되어 가져오기를 중단했습니다.");
+                }
+              } else if (!isValidInProgress(currentInProgress) || currentInProgress.savedAt !== expectedSavedAt) {
+                throw new Error("다른 탭에서 진행 중인 퀴즈가 변경되어 가져오기를 중단했습니다.");
+              }
+            }
+            // 검증이 모두 끝난 뒤에만 3개 키를 같은 트랜잭션에 쓴다
+            const nextProgress: LearnProgress = { ...progress, updatedAt: Date.now() };
+            storedProgress = nextProgress;
+            const progressPut = store.put(nextProgress, KEY);
+            progressPut.onerror = () => abortWith(new Error("브라우저 저장에 실패했습니다."));
+            if (inProgress) {
+              // savedAt 단조 증가 규칙은 saveInProgressInner와 동일하게 유지한다
+              const savedAt = Math.max(Date.now(), (typeof expectedSavedAt === "number" ? expectedSavedAt : 0) + 1);
+              const nextInProgress: InProgressQuiz = { ...inProgress, savedAt };
+              storedInProgress = nextInProgress;
+              const inProgressPut = store.put(nextInProgress, IN_PROGRESS_KEY);
+              inProgressPut.onerror = () => abortWith(new Error("브라우저 저장에 실패했습니다."));
+            } else {
+              storedInProgress = null;
+              const inProgressDelete = store.delete(IN_PROGRESS_KEY);
+              inProgressDelete.onerror = () => abortWith(new Error("브라우저 저장에 실패했습니다."));
+            }
+            const practicePut = store.put(practiceStates, PRACTICE_KEY);
+            practicePut.onerror = () => abortWith(new Error("브라우저 저장에 실패했습니다."));
+          } catch (error) {
+            abortWith(error instanceof Error ? error : new Error("브라우저 저장에 실패했습니다."));
+          }
+        };
+        inProgressGet.onerror = () => abortWith(new Error("브라우저 저장에 실패했습니다."));
+      } catch (error) {
+        abortWith(error instanceof Error ? error : new Error("브라우저 저장에 실패했습니다."));
+      }
+    };
+    progressGet.onerror = () => abortWith(new Error("브라우저 저장에 실패했습니다."));
+    // 트랜잭션 실제 완료 후에만 성공 확정 — put 접수 시점이 아님
+    tx.oncomplete = () => {
+      db.close();
+      if (storedProgress !== undefined && storedInProgress !== undefined) {
+        resolve({ progress: storedProgress, inProgress: storedInProgress });
+      } else {
+        reject(failure ?? new Error("브라우저 저장에 실패했습니다."));
+      }
+    };
+    tx.onerror = tx.onabort = () => {
+      db.close();
+      reject(failure ?? new Error("브라우저 저장에 실패했습니다."));
+    };
+  } catch {
+    db.close();
+    reject(new Error("브라우저 저장에 실패했습니다."));
+  }
+  return promise;
+}
+
 /**
  * 저장 정책 안내 문구 — 현재 학습 진도는 이 브라우저에만 저장되며
  * 계정 간 동기화가 아님을 명시한다.
