@@ -114,18 +114,23 @@ export function LearnQuiz({ level, questions, initialAnswers, initialIndex, init
         </div>
       </div>
 
-      <div className="learn-question-dots" role="navigation" aria-label="문항 이동">
-        {questions.map((item, i) => (
-          <button
-            key={item.id}
-            type="button"
-            className={`learn-qdot${answers[item.id] ? " is-answered" : ""}${i === idx ? " is-current" : ""}`}
-            onClick={() => setIdx(i)}
-            aria-label={`${i + 1}번 문항${answers[item.id] ? " (답변 완료)" : ""}`}
-          >
-            {i + 1}
-          </button>
-        ))}
+      <div className="learn-quiz-topnav">
+        <div className="learn-question-dots" role="navigation" aria-label="문항 이동">
+          {questions.map((item, i) => (
+            <button
+              key={item.id}
+              type="button"
+              className={`learn-qdot${answers[item.id] ? " is-answered" : ""}${i === idx ? " is-current" : ""}`}
+              onClick={() => setIdx(i)}
+              aria-label={`${i + 1}번 문항${answers[item.id] ? " (답변 완료)" : ""}`}
+            >
+              {i + 1}
+            </button>
+          ))}
+        </div>
+        <Button type="button" variant="outline" className="learn-quiz-exit" onClick={() => setExitConfirming(true)}>
+          종료
+        </Button>
       </div>
 
       <div className="learn-question-card">
@@ -203,20 +208,15 @@ export function LearnQuiz({ level, questions, initialAnswers, initialIndex, init
         <Button type="button" variant="outline" disabled={idx === 0} onClick={() => setIdx(idx - 1)}>
           <ArrowLeft /> 이전
         </Button>
-        <span className="learn-quiz-nav-right">
-          <Button type="button" variant="outline" onClick={() => setExitConfirming(true)}>
-            종료
+        {idx < questions.length - 1 ? (
+          <Button type="button" variant="default" onClick={() => setIdx(idx + 1)}>
+            다음 <ArrowRight />
           </Button>
-          {idx < questions.length - 1 ? (
-            <Button type="button" variant="default" onClick={() => setIdx(idx + 1)}>
-              다음 <ArrowRight />
-            </Button>
-          ) : (
-            <Button type="button" variant="default" onClick={() => setConfirming(true)}>
-              제출하기
-            </Button>
-          )}
-        </span>
+        ) : (
+          <Button type="button" variant="default" onClick={() => setConfirming(true)}>
+            제출하기
+          </Button>
+        )}
       </div>
 
       {exitConfirming ? (
