@@ -85,34 +85,30 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
     ] },
     { title: "STEP 01 · 개발 환경 준비", purpose: "", sections: [
       { title: "설치 순서 안내", blocks: [
-        text("Git → 필요한 경우 Node.js·GitHub CLI 설치 → 코딩 에이전트 설치 → 정상 작동 확인 순서로 진행하세요. 이미 설치된 도구는 정상 작동을 확인한 후 건너뛸 수 있습니다."),
+        text("Git 설치 → Git 사용자 정보 설정 → 필요한 경우 Node.js 설치 → 선택한 코딩 에이전트 설치 → 최초 실행·로그인 확인 순서로 진행하세요. 이미 설치했거나 설정한 항목은 건너뛸 수 있습니다."),
       ] },
       { title: "Git 설치", when: "Git이 아직 설치되지 않은 경우에만", blocks: [
-        text("Git이 설치되어 있지 않거나 정상 작동하지 않는 경우 실행하세요."),
+        text("GitHub에 코드를 저장하고 변경 이력을 관리합니다."),
         installCode([gitInstall], []),
-        code(["git --version"], ["설치 후 새 PowerShell에서 정상 작동을 확인하세요."]),
+        code(["git --version"], []),
+      ] },
+      { title: "Git 사용자 정보 설정", blocks: [
+        text("최초 한 번만 설정하며, 이미 설정되어 있다면 건너뛰세요."),
+        code(["git config user.name", "git config user.email"], ["먼저 현재 설정된 값을 확인하세요. 이름과 이메일이 모두 표시되면 이미 설정된 것이므로 아래 설정 명령어를 실행하지 마세요."]),
+        code(['git config --global user.name "본인 이름"', 'git config --global user.email "본인@example.com"'], ["\"본인 이름\"과 \"본인@example.com\"은 예시입니다. 그대로 입력하지 말고 실제 본인의 이름과 이메일로 바꿔서 설정하세요.", "이메일은 GitHub 계정에 등록된 이메일이나 GitHub에서 제공하는 비공개 이메일을 사용하세요."]),
       ] },
       { title: "Node.js LTS 설치", when: "선택한 도구·프로젝트가 Node.js를 요구하고 호환 버전이 없을 때만", blocks: [
-        text("프로젝트에서 Node.js가 필요하고, 호환되는 버전이 설치되지 않은 경우 실행하세요."),
+        text("프로젝트 실행 또는 개발 도구에 필요한 경우 설치합니다."),
         installCode([nodeInstall], []),
-        code(["node --version", "npm --version"], ["설치 후 새 PowerShell에서 정상 작동을 확인하세요."]),
-      ] },
-      { title: "GitHub CLI 설치", when: "GitHub 인증·PR 작업에 gh가 필요한 경우에만", blocks: [
-        text("GitHub 인증 또는 PR 작업에 필요한 경우에만 설치하세요."),
-        installCode([ghInstall], []),
-        code(["gh --version"], ["설치 후 새 PowerShell에서 정상 작동을 확인하세요."]),
+        code(["node --version", "npm --version"], []),
       ] },
       { title: `${guide.name} 설치`, when: `선택한 ${guide.name}을(를) 아직 설치하지 않은 경우에만`, blocks: [
-        text("사용할 코딩 에이전트를 선택하여 설치하세요."),
+        text("자연어 지시로 코드를 작성·수정하고 기능을 검증합니다."),
         installCode([guide.installCommand], []),
-        code([guide.versionCommand], ["설치 후 새 PowerShell에서 정상 작동을 확인하세요."]),
+        code([guide.versionCommand], []),
         ...(tool === "codex" ? [text("Node/npm이 이미 필요해 설치되어 있다면 네이티브 설치 대신 `npm install -g @openai/codex`를 사용할 수 있습니다. 둘을 동시에 설치하지 마세요.")] : []),
-      ] },
-      { title: "Git 정보·로그인", when: "첫 커밋이나 GitHub 인증이 필요할 때만", blocks: [
-        code(["git config user.name", "git config user.email"], ["비어 있을 때만 실제 이름·이메일을 아래 명령으로 설정합니다."]),
-        code(['git config --global user.name "본인 이름"', 'git config --global user.email "me@example.com"'], ["이미 설정된 값은 덮어쓰지 않습니다."]),
-        code(["gh auth status", "gh auth login"], ["gh 설치 시에만 인증 상태를 확인하고 미인증이면 로그인하세요. gh 없이 기존 GitHub 인증 방식을 사용해도 됩니다."]),
-        code([guide.runCommand], [guide.loginNote, "GitHub 로그인과 코딩 에이전트 로그인은 별개입니다."]),
+        text("설치 후 아래 명령으로 처음 실행하면 로그인 절차가 시작됩니다."),
+        code([guide.runCommand], [guide.loginNote, "코딩 에이전트 로그인은 GitHub 로그인과 서로 다른 인증 과정입니다. 이미 인증된 상태이면 다시 로그인할 필요가 없습니다."]),
       ] },
       { title: "설치 오류 확인", collapsed: true, blocks: [
         text(`네트워크·권한·아키텍처·SHA-256·종료 코드를 확인하고 파일/버전 확인 실패 시 중단하세요. 기존 임시 파일을 실패한 다운로드의 대안으로 실행하지 않습니다. ${tool === "codex" ? "Codex의 지원 명령은" : "Claude의 설치 진단은"} \`${guide.doctorCommand}\`으로 확인할 수 있습니다. 해당 도구의 공식 설치 문서를 우선합니다.`),
