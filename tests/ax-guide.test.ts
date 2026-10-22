@@ -59,8 +59,22 @@ describe("AX execution guides", () => {
     expect(copied).toContain(TOOL_GUIDES[tool].versionCommand);
     expect(guide[2]).toEqual(setupGuide(other)[2]);
     for (const index of [5, 6, 7, 8]) expect(guide[index]).toEqual(setupGuide(other)[index]);
-    for (const term of ["Git", "Node.js", "GitHub CLI", "Get-FileHash", "ExitCode", "Arm64", "LTS", "ErrorActionPreference"]) expect(installation).toContain(term);
-    const installers = guide[1].sections.slice(1, 4);
+    for (const term of ["Git", "Node.js", "Get-FileHash", "ExitCode", "Arm64", "LTS", "ErrorActionPreference"]) expect(installation).toContain(term);
+    // STEP 01 keeps only the essentials for the selected agent: no GitHub CLI install/auth in the basic guide.
+    expect(guide[1].sections.map(section => section.title)).toEqual([
+      "설치 순서 안내", "Git 설치", "Git 사용자 정보 설정", "Node.js LTS 설치", `${TOOL_GUIDES[tool].name} 설치`, "설치 오류 확인",
+    ]);
+    expect(installation).not.toContain("GitHub CLI");
+    expect(installation).not.toContain("Git 정보·로그인");
+    for (const ghLine of ["gh auth status", "gh auth login", "gh --version"]) expect(copied).not.toContain(ghLine);
+    expect(JSON.stringify(guide[1].sections[0])).toContain("Git 설치 → Git 사용자 정보 설정 → 필요한 경우 Node.js 설치 → 선택한 코딩 에이전트 설치 → 최초 실행·로그인 확인");
+    const gitIdentity = guide[1].sections.find(section => section.title === "Git 사용자 정보 설정");
+    const gitIdentityLines = gitIdentity?.blocks.flatMap(block => block.kind === "code" ? block.lines : []) ?? [];
+    expect(gitIdentityLines).toEqual(["git config user.name", "git config user.email", 'git config --global user.name "본인 이름"', 'git config --global user.email "본인@example.com"']);
+    expect(copied).toContain(TOOL_GUIDES[tool].runCommand);
+    expect(copied).not.toContain(TOOL_GUIDES[other].runCommand);
+    const installers = guide[1].sections.filter(section => ["Git 설치", "Node.js LTS 설치"].includes(section.title));
+    expect(installers).toHaveLength(2);
     for (const section of installers) {
       const blocks = section.blocks.filter(block => block.kind === "code");
       expect(blocks[0]).toMatchObject({ kind: "code", lines: [expect.stringContaining("Get-FileHash")] });
