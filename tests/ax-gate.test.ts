@@ -270,4 +270,42 @@ describe("AX gate recommended checks display (표시 전용 — Gate 판정 불�
     expect(gateRecommendedChecks(d)).toEqual(["선택 1", "선택 2"]);
     expect(planAllowed(d)).toBe(true);
   });
+
+  it("표시 전용 중복 정리: 같은 주제의 확인 조건은 한 번만, 다른 주제는 각각 유지", () => {
+    const d = diagnosis({
+      decisionGate: { verdict: "conditional", reasons: [] },
+      technicalChecks: [
+        { topic: "API 제공 여부", status: "확인 필요", note: "제공 여부 미확인", required: true },
+        { topic: "API 제공 여부", status: "확인 필요", note: "담당 부서 확인 중", required: true },
+        { topic: "API 접근 권한", status: "확인 필요", note: "권한 신청 필요", required: true },
+      ],
+    });
+    expect(executionGate(d)).toBe("conditional");
+    // gatePrerequisites(계산·타 화면 공용) 자체는 변경하지 않는다.
+    expect(gatePrerequisites(d)).toEqual([
+      "API 제공 여부 — 제공 여부 미확인",
+      "API 제공 여부 — 담당 부서 확인 중",
+      "API 접근 권한 — 권한 신청 필요",
+    ]);
+    expect(splitGatePrerequisites(d)).toEqual({
+      required: ["API 제공 여부 — 제공 여부 미확인", "API 접근 권한 — 권한 신청 필요"],
+      recommended: [],
+    });
+  });
+
+  it("표시 전용 중복 정리: 기술 확인과 같은 주제를 묻는 추가 질문은 한 번만 표시", () => {
+    const d = diagnosis({
+      informationSufficiency: "needs-check",
+      followUpQuestions: ["API 제공 여부를 알려주세요.", "예외 건 발생 빈도는 어느 정도인가요?"],
+      technicalChecks: [
+        { topic: "API 제공 여부", status: "확인 필요", note: "", required: true },
+        { topic: "API 접근 권한", status: "확인 필요", note: "", required: true },
+      ],
+    });
+    expect(splitGatePrerequisites(d).required).toEqual([
+      "API 제공 여부",
+      "API 접근 권한",
+      "예외 건 발생 빈도는 어느 정도인가요?",
+    ]);
+  });
 });

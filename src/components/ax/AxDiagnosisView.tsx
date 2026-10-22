@@ -14,7 +14,7 @@ import { useAxState } from "@/client/use-ax-state";
 import { runInWorker } from "@/client/document-client";
 import { diagnoseAx, planAx, interruptServerAi, aiFailureDetail } from "@/client/server-ai-client";
 import { AX_LIMITS, FACTOR_LABELS, axTaskSchema, axTaskV2Schema, confirmedAxDiagnosis } from "@/lib/ax/schema";
-import { axes, automationLevel, bubbleArea, executionGate, executionProfile, gateBlockReasons, GATE_LABELS, planAllowed, priorityHeading, factorEffectiveValue, factorHasAdjustment, factorScale, matrixPosition, monthlyMinutes, nextAction, priority, splitGatePrerequisites, taskStatus, taskDisplayStatus } from "@/lib/ax/policy";
+import { axes, automationLevel, bubbleArea, executionGate, executionProfile, GATE_LABELS, planAllowed, priorityHeading, factorEffectiveValue, factorHasAdjustment, factorScale, matrixPosition, monthlyMinutes, nextAction, priority, splitGatePrerequisites, taskStatus, taskDisplayStatus } from "@/lib/ax/policy";
 import { candidateTask, taskDetails, followUpDescription, legacyDetailValues, validateAttachmentPreflight, isRegistrationUnchanged } from "@/lib/ax/registration";
 import { exportAxState, importAxState } from "@/lib/ax/transfer";
 import { emptyAxState, type AxStateV2, type AxTask, type AxDiagnosis, type AxDetails, type FactorKey } from "@/lib/ax/types";
@@ -695,14 +695,6 @@ function MatrixDetailCard({ task, diagnosis }: { task: AxTask; diagnosis: AxDiag
   const gateChecks = splitGatePrerequisites(d);
   const profile = executionProfile(d);
   const next = nextAction(d);
-  const openChecks = d.technicalChecks.filter(check => check.status !== "확인됨" && check.required !== false).length;
-  const decisionReasons = d.decisionGate.reasons ?? [];
-  const basis = gate === "blocked" ? gateBlockReasons(d) : [
-    ...decisionReasons,
-    ...(!decisionReasons.length && d.decisionGate.verdict === "conditional" ? ["Decision Gate 조건부 판정"] : []),
-    ...(d.informationSufficiency === "needs-check" ? ["핵심 정보 부족(추가 질문 필요)"] : []),
-    ...(openChecks ? [`미확정 필수 기술 조건 ${openChecks}건`] : []),
-  ];
   const sampleScope = profile.poc.inScope.filter(item => !item.startsWith("선행 확인사항")).slice(0, 2);
   const scope = gate === "blocked" ? "분석·검증만 가능 (기능 구현·운영 연결 불가)" : `${sampleScope.length ? sampleScope.join(" · ") : "샘플 데이터 검증"} — 조건에 의존하는 기능은 확인 후 구현`;
   return <section id={MATRIX_DETAIL_ID} tabIndex={-1} className="ax-surface ax-matrix-detail" aria-label={`${task.name} 매트릭스 상세`}>
@@ -725,14 +717,12 @@ function MatrixDetailCard({ task, diagnosis }: { task: AxTask; diagnosis: AxDiag
           <h4><FileText size={16} aria-hidden="true" />핵심 판단 근거</h4>
           <ul>{matrixRationaleBullets(d).map((b, i) => <li key={i}>{b}</li>)}</ul>
         </section>
-        {gate !== "ready" ? <section className="ax-matrix-gate-status" aria-label="진행 상태 및 다음 조치">
-          <h4><Info size={16} aria-hidden="true" />진행 상태 및 다음 조치</h4>
-          <dl className="ax-gate-basis">
-            <div><dt>진행 상태</dt><dd><span className="ax-gate-badge" data-gate={gate}>{GATE_LABELS[gate]}</span></dd></div>
-            <div><dt>판정 근거</dt><dd>{basis.join(" · ") || "진단에서 제시된 조건부 진행 사유"}</dd></div>
-            <div><dt>현재 가능 범위</dt><dd>{scope}</dd></div>
-            <div><dt>다음 조치</dt><dd>{next.label} → 해결 후 업무 진단 단계에서 다시 진단해 상태 갱신</dd></div>
-          </dl>
+        {gate !== "ready" ? <section className="ax-matrix-gate-status" aria-label="현재 가능 범위 및 다음 조치">
+          <h4><Info size={16} aria-hidden="true" />현재 가능 범위 및 다음 조치</h4>
+          <div className="ax-scope-lines">
+            <p><strong>현재 가능 범위</strong><span aria-hidden="true">—</span><span>{scope}</span></p>
+            <p><strong>다음 조치</strong><span aria-hidden="true">—</span><span>{next.label} → 해결 후 업무 진단 단계에서 다시 진단해 상태 갱신</span></p>
+          </div>
         </section> : null}
       </div>
       {gateChecks.required.length || gateChecks.recommended.length ? <section className="ax-matrix-prereqs" aria-label={gateChecks.required.length ? "선행 확인 조건" : "권장 확인사항"}>

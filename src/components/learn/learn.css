@@ -103,7 +103,8 @@
 .learn-qdot { width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--border); background: var(--card); font-size: 12px; cursor: pointer; }
 .learn-qdot.is-answered { background: color-mix(in srgb, var(--primary) 12%, transparent); border-color: var(--primary); }
 .learn-qdot.is-current { outline: 2px solid var(--primary); outline-offset: 1px; }
-.learn-explanation { border-radius: 10px; padding: 12px 14px; margin: 12px 0; background: color-mix(in srgb, var(--muted) 35%, transparent); }
+.learn-explanation { border: 1px solid #F2DFB5; border-radius: 10px; padding: 12px 14px; margin: 12px 0; background: #FFF6E6; color: #493B28; }
+.learn-explanation strong { color: #80591E; }
 
 /* 가상 터미널 */
 .learn-terminal { background: #1e1e1e; color: #d4d4d4; border-radius: 12px; padding: 16px; font-family: ui-monospace, Consolas, monospace; font-size: 13px; line-height: 1.6; }
@@ -254,7 +255,7 @@
 .learn-note-choice-text { flex: 1; min-width: 0; }
 .learn-tag { flex: none; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; }
 .learn-tag.is-correct { color: #15803d; background: #dcfce7; }
-.learn-tag.is-mine { color: var(--muted-foreground); background: color-mix(in srgb, var(--muted) 40%, transparent); }
+.learn-tag.is-mine { color: #2456A6; background: #D5E5FF; }
 
 /* 공통 상태 화면 */
 .learn-state { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; text-align: center; padding: 64px 20px; }
