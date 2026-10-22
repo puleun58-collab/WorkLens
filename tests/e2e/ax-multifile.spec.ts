@@ -118,8 +118,9 @@ test("AX multi-file: diagnosis request carries the combined per-file summary and
   expect(summary).toContain("[첨부 파일 2: 보고서양식.csv]");
   expect(summary.length).toBeLessThanOrEqual(2000);
   expect(calls[0]).not.toHaveProperty("bytes");
+  // 저장은 비동기 큐를 타므로 기록이 실제로 반영될 때까지 기다린다 (Firefox 등 느린 환경 대응)
+  await expect.poll(async () => (await record(page))?.tasks[0].attachmentMetas).toHaveLength(2);
   const stored = await record(page);
-  expect(stored?.tasks[0].attachmentMetas).toHaveLength(2);
   expect(stored?.tasks[0].attachmentMeta?.name).toBe("입력자료.csv");
   expect(JSON.stringify(stored)).not.toContain("attachmentSummary");
   // 진단 화면에서 파일 1개만 해제하면 나머지는 유지되고 진단은 무효화된다
