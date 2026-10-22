@@ -58,32 +58,31 @@ async function openStep4(page: Page) {
   return section;
 }
 
-test("02 시작 전 확인: 상단 카드 3열 + 추가 확인 표 + 중복 제거", async ({ page }) => {
+test("02 시작 전 확인: 확인 카드 통합 + 추가 확인 사항 박스 제거 + 중복 제거", async ({ page }) => {
   const section = await openStep4(page);
   const block = section.locator("section[aria-label='02 시작 전 확인']");
+  // Gate conditional: 전체 진행 보류 배지는 표시되지 않고 확인 필요 건수만 표시된다.
+  const trigger = block.getByRole("button", { name: /시작 전 확인/ });
+  await expect(trigger).not.toContainText("진행 보류");
+  await expect(trigger).toContainText("확인 필요 7건");
   // 01~03은 기본 접힘 — 확인이 필요한 블록을 펼쳐서 검증한다.
-  await block.getByRole("button", { name: /시작 전 확인/ }).click();
+  await trigger.click();
   await expect(block.getByText("구현 전에 필요한 조건과 적용 범위를 확인합니다.", { exact: true })).toBeVisible();
-  // Top cards: one per technical check, badge shown once, no repeated 안내
+  // 추가 확인 사항 박스(제목·표·미확정 배지)는 제거됐다.
+  await expect(block.getByRole("heading", { name: "추가 확인 사항" })).toHaveCount(0);
+  await expect(block.locator(".ax-prereq-extra, .ax-prereq-table")).toHaveCount(0);
+  await expect(block.getByText("미확정", { exact: false })).toHaveCount(0);
+  // Cards: one per technical check + card-duplicate가 아닌 조건도 같은 카드 영역에 유지된다
+  // (3 technical checks + 3 plan integrations + plan prerequisite = 7)
   const cards = block.locator(".ax-prereq-card");
-  await expect(cards).toHaveCount(3);
+  await expect(cards).toHaveCount(7);
   await expect(cards.first()).toContainText("데이터 형식");
   await expect(cards.first().locator(".ax-check-badge")).toHaveText("확인 필요");
   await expect(cards.first()).not.toContainText("적용 단계 확인 필요");
-  // Additional checks table: only non-duplicate conditions, full width
-  const extra = block.locator(".ax-prereq-extra");
-  await expect(extra.getByRole("heading", { name: "추가 확인 사항" })).toBeVisible();
-  for (const header of ["확인 항목", "확인 필요 내용", "적용 단계", "상태"]) {
-    await expect(extra.locator("thead").getByText(header, { exact: true })).toBeVisible();
+  // "시스템 연동" card covers the API check; the independent conditions stay visible as cards
+  for (const text of ["파일 시스템 접근 권한", "사내 시스템 UI 연동 여부", "데이터 구조·검증 규칙 정의"]) {
+    await expect(block.locator(".ax-prereq-card").filter({ hasText: text }).first()).toBeVisible();
   }
-  // "시스템 연동" card covers the API check; the independent conditions stay as rows
-  // (3 plan integrations + the plan's own prerequisite)
-  const rows = extra.locator(".ax-prereq-table tbody tr");
-  await expect(rows).toHaveCount(4);
-  await expect(extra.getByText("파일 시스템 접근 권한", { exact: true })).toBeVisible();
-  await expect(extra.getByText("사내 시스템 UI 연동 여부", { exact: true })).toBeVisible();
-  await expect(extra.getByText("데이터 구조·검증 규칙 정의", { exact: true })).toBeVisible();
-  await expect(extra.getByText("미확정", { exact: false }).first()).toBeVisible();
   // No horizontal overflow from the redesigned section
   const overflow = await block.evaluate(el => el.scrollWidth - el.clientWidth);
   expect(overflow).toBeLessThanOrEqual(1);
@@ -96,20 +95,12 @@ test("02 시작 전 확인: 모바일 390px 세로 배치 + 가로 스크롤 없
   const block = section.locator("section[aria-label='02 시작 전 확인']");
   await block.getByRole("button", { name: /시작 전 확인/ }).click();
   const cards = block.locator(".ax-prereq-card");
-  await expect(cards).toHaveCount(3);
-  // Cards stack vertically
+  await expect(cards).toHaveCount(7);
+  // Cards stack vertically (기술 점검 카드 + 추가 조건 카드 모두)
   const boxes = await cards.evaluateAll(els => els.map(el => el.getBoundingClientRect().top));
-  expect(boxes[1]).toBeGreaterThan(boxes[0]);
-  expect(boxes[2]).toBeGreaterThan(boxes[1]);
-  // Table rows become vertical info blocks; badge and title do not overlap
-  const firstRow = block.locator(".ax-prereq-table tbody tr").first();
-  await expect(firstRow).toBeVisible();
-  const overlap = await firstRow.evaluate(row => {
-    const badge = row.querySelector(".ax-check-badge")!.getBoundingClientRect();
-    const item = row.querySelector(".ax-prereq-item")!.getBoundingClientRect();
-    return badge.left < item.right && badge.right > item.left && badge.top < item.bottom && badge.bottom > item.top;
-  });
-  expect(overlap).toBe(false);
+  for (let i = 1; i < boxes.length; i++) expect(boxes[i]).toBeGreaterThan(boxes[i - 1]);
+  // 추가 확인 사항 표는 모바일에서도 존재하지 않는다
+  await expect(block.locator(".ax-prereq-table")).toHaveCount(0);
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(1);
   await block.screenshot({ path: reviewShotPath("prereq-mobile-390x844.png") });
@@ -122,6 +113,8 @@ test("02 시작 전 확인: 차단 사유 카드는 별도로 유지된다", asy
   await seed(page, { ...emptyAxState(), tasks: [task], selectedTaskId: task.id, step: 4 });
   await ax(page);
   const block = page.locator("section[aria-label='02 시작 전 확인']");
+  // Gate blocked인 경우에만 02 헤더에 전체 진행 보류 배지가 표시된다.
+  await expect(block.getByRole("button", { name: /시작 전 확인/ })).toContainText("진행 보류");
   const blocked = block.locator(".ax-prereq-blocked");
   await expect(blocked).toContainText("차단 사유");
   await expect(blocked).toContainText("승인권자 미지정");

@@ -592,7 +592,6 @@ export function AxDiagnosisView() {
                 <span className="ax-legend-item"><span className="ax-legend-dot" data-gate="ready" aria-hidden="true" />진행 가능</span>
                 <span className="ax-legend-item"><span className="ax-legend-dot" data-gate="conditional" aria-hidden="true" />확인 후 진행</span>
                 <span className="ax-legend-item"><span className="ax-legend-dot" data-gate="blocked" aria-hidden="true" />진행 보류</span>
-                <span className="ax-legend-note">원 크기: 월간 업무 투입시간 기준 · 미입력 업무는 기본 크기로 표시</span>
               </div>
             </section>
           </div>

@@ -252,7 +252,7 @@
 .ax-phases-head p { margin: 4px 0 0; color: var(--muted-foreground); font-size: 14px; }
 .ax-phases-badge { display: inline-flex; flex: none; align-items: center; gap: 6px; padding: 6px 14px; border: 1px solid #d6e4fb; border-radius: 10px; background: #eef4fe; color: var(--primary); font-size: 13px; font-weight: var(--font-weight-semibold); }
 .ax-phases-badge svg, .ax-phases-note svg { width: 16px; height: 16px; flex: none; }
-.ax-view .ax-phase-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px 48px; margin: 18px 0 0; padding: 0; list-style: none; }
+.ax-view .ax-phase-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px 48px; margin: 18px 0 0; padding: 0; list-style: none; align-items: start; }
 .ax-view .ax-execution-phase { --tone-bg: #f4f8fe; --tone-line: #dce7f8; position: relative; display: flex; flex-direction: column; min-width: 0; margin: 0; padding: 20px; border: 1.5px solid var(--tone-line); border-radius: 12px; background: var(--tone-bg); }
 .ax-execution-phase[data-position=middle] { --tone-bg: #fcfaf4; --tone-line: #efe8d8; }
 .ax-execution-phase[data-position=last] { --tone-bg: #f3faf5; --tone-line: #d9eedf; }
@@ -270,8 +270,9 @@
 .ax-phase-status[data-status="조건부 진행"] { background: #e6efff; color: var(--primary); }
 .ax-phase-status[data-status="진행 가능"] { background: #e3f4e9; color: #15803d; }
 .ax-phase-status[data-status="진행 보류"] { background: #fbe9e7; color: #b91c1c; }
-.ax-phase-body { flex: 1; padding-top: 16px; }
+.ax-phase-body { padding-top: 16px; }
 .ax-phase-body h5 { margin: 0 0 8px; font-size: 15px; font-weight: var(--font-weight-bold, 700); }
+.ax-phase-note { margin: 10px 0 0; color: var(--muted-foreground); font-size: 13px; line-height: 1.55; }
 .ax-phase-body ul { margin: 0; padding: 0; list-style: none; font-size: 14px; line-height: 1.55; }
 .ax-phase-body li { position: relative; margin: 0; padding-left: 18px; overflow-wrap: anywhere; }
 .ax-phase-body li + li { margin-top: 6px; }
@@ -598,6 +599,9 @@
 .ax-scope-card > ul { flex: 1; padding: 6px 16px; border-radius: 8px; background: var(--card); font-size: 14px; line-height: 1.55; }
 .ax-scope-card li { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 12px; align-items: start; padding: 5px 0; overflow-wrap: anywhere; }
 .ax-scope-card li + li { border-top: 1px dashed color-mix(in srgb, var(--tone) 18%, var(--border)); }
+.ax-scope-card-notes { padding: 0 6px; }
+.ax-scope-card-notes p { margin: 0; color: var(--muted-foreground); font-size: 13px; line-height: 1.55; }
+.ax-scope-card-notes p + p { margin-top: 4px; }
 .ax-scope-card li > svg { width: 18px; height: 18px; margin-top: 2px; fill: var(--tone); color: var(--card); }
 /* 02: state cards; data-status keeps the raw check status, data-tone the current/future split. */
 .ax-gate-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
@@ -631,34 +635,8 @@
 .ax-prereq-blocked ul { margin: 6px 0 0; font-size: 14px; line-height: 1.6; }
 .ax-prereq-blocked li { position: relative; padding-left: 16px; }
 .ax-prereq-blocked li::before { content: ""; position: absolute; left: 3px; top: 0.7em; width: 4px; height: 4px; border-radius: 999px; background: currentColor; }
-.ax-prereq-extra { margin-top: 14px; border: 1.5px solid var(--border); border-radius: 12px; background: var(--card); padding: 16px; min-width: 0; }
-.ax-prereq-extra-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-.ax-prereq-extra-head h4 { display: inline-flex; align-items: center; gap: 8px; margin: 0; font-size: 15px; font-weight: var(--font-weight-bold, 700); }
-.ax-prereq-extra-head h4 svg { width: 18px; height: 18px; color: var(--primary); }
-.ax-prereq-extra-head .ax-check-badge { --tone: #e08a00; margin-left: auto; }
-.ax-prereq-table-wrap { overflow-x: auto; }
-.ax-prereq-table { width: 100%; border-collapse: collapse; font-size: 14px; line-height: 1.55; }
-.ax-prereq-table th { padding: 8px 12px; background: color-mix(in srgb, var(--primary) 4%, var(--card)); color: var(--muted-foreground); font-size: 12.5px; font-weight: var(--font-weight-semibold); text-align: left; white-space: nowrap; border-bottom: 1px solid var(--line-soft); }
-.ax-prereq-table td { padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; overflow-wrap: anywhere; }
-.ax-prereq-table tbody tr:last-child td { border-bottom: 0; }
-.ax-prereq-table tr[data-tone=required] { --tone: #e08a00; }
-.ax-prereq-table tr[data-tone=future] { --tone: var(--primary); }
-.ax-prereq-table tr[data-tone=done] { --tone: #16a34a; }
-.ax-prereq-table tr[data-tone=blocked] { --tone: #dc2626; }
-.ax-prereq-item { font-weight: var(--font-weight-semibold); }
-.ax-prereq-note { display: flex; align-items: center; gap: 10px; margin: 12px 0 0; padding: 10px 16px; border: 1px solid var(--border); border-radius: 8px; background: #f5f7fa; color: var(--muted-foreground); font-size: 13px; line-height: 1.5; }
-.ax-prereq-note svg { width: 16px; height: 16px; flex: none; }
-.ax-prereq-note svg { flex: none; width: 16px; height: 16px; margin-top: 2px; color: var(--primary); }
 @media(max-width: 700px) {
   .ax-prereq-cards { grid-template-columns: minmax(0, 1fr); }
-  .ax-prereq-table-wrap { overflow-x: visible; }
-  .ax-prereq-table thead { display: none; }
-  .ax-prereq-table, .ax-prereq-table tbody, .ax-prereq-table tr, .ax-prereq-table td { display: block; width: auto; }
-  .ax-prereq-table tr { padding: 10px 0; }
-  .ax-prereq-table tr + tr { border-top: 1px solid var(--border); }
-  .ax-prereq-table tbody tr:last-child td { border-bottom: 0; }
-  .ax-prereq-table td { padding: 3px 0; border-bottom: 0; }
-  .ax-prereq-table td::before { content: attr(data-label); display: block; margin-bottom: 1px; color: var(--muted-foreground); font-size: 12px; font-weight: var(--font-weight-semibold); }
 }
 /* Data facts: neutral label column, white values, row dividers. */
 .ax-plan-data-group { margin-top: 20px; }
@@ -874,6 +852,8 @@
 .ax-hitl-status-dot::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--muted-foreground); flex-shrink: 0; }
 .ax-hitl-status-dot[data-status="confirmed"]::before { background: #22c55e; }
 .ax-hitl-status-dot[data-status="pending"]::before { background: #94a3b8; }
+.ax-hitl-status-dot[data-status="editing"]::before { background: #2563eb; }
+.ax-hitl-status-dot[data-status="stale"]::before { background: #e08a00; }
 /* 모바일 반응형: 700px 이하에서 테이블을 카드형으로 변환 */
 @media (max-width: 700px) {
   .ax-hitl-table, .ax-hitl-table thead, .ax-hitl-table tbody, .ax-hitl-table tr, .ax-hitl-table td, .ax-hitl-table th { display: block; width: 100%; }
@@ -952,7 +932,6 @@
 .ax-legend-dot[data-gate=ready], .ax-bubble-gate[data-gate=ready] { background: var(--ax-gate-ready); }
 .ax-legend-dot[data-gate=conditional], .ax-bubble-gate[data-gate=conditional] { background: var(--ax-gate-conditional); }
 .ax-legend-dot[data-gate=blocked], .ax-bubble-gate[data-gate=blocked] { background: var(--ax-gate-blocked); }
-.ax-legend-note { margin-left: auto; }
 .ax-bubble-gate { position: absolute; top: -3px; right: -3px; width: 12px; height: 12px; border: 2px solid var(--card); }
 /* 상세 분석 카드 */
 .ax-matrix-detail { scroll-margin-top: 96px; }
@@ -975,7 +954,6 @@
 @media(max-width: 700px) {
   .ax-step3-grid { display: flex; flex-direction: column; }
   .ax-matrix-help { grid-template-columns: minmax(0,1fr); }
-  .ax-legend-note { margin-left: 0; width: 100%; }
   .ax-matrix-tools { margin-left: 0; width: 100%; }
   .ax-matrix-header { align-items: flex-start; }
 }
