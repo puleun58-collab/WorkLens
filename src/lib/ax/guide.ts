@@ -1877,7 +1877,7 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
     "### 범위·승인·회귀 확인\n\n담당자 확인 전 결과가 확정·전송되지 않는지, 제외·보류된 단계와 검증 기준이 다시 필수 작업으로 나타나지 않는지, 거부된 권한에 의존하는 처리가 실행되지 않는지 확인하세요. 이 작업과 관련된 기존 기능이 이전과 동일하게 동작하는지 확인하세요. 웹 UI를 포함하면 기존 브라우저/E2E 도구가 있을 때 주요 화면을 Desktop과 Mobile에서 확인하세요.",
     work.length ? `### 단계별 완료 기준\n\n${bullets([
       ...(work.some(s => s.scope === "implement") ? [`구현 단계 (${work.filter(s => s.scope === "implement").map(s => s.step).join(", ")}): '기능별 요구사항'의 해당 기능 검증 기준을 모두 충족하면 완료`] : []),
-      ...(work.some(s => s.scope === "after-check") ? [`확인 후 구현 단계 (${work.filter(s => s.scope === "after-check").map(s => s.step).join(", ")}): 확인 항목이 확인되어 '기능별 요구사항'의 해당 기능 검증 기준을 충족하면 완료하고, 확인하지 못했다면 '확인·승인 대기'로 보고`] : []),
+      ...(work.some(s => s.scope === "after-check") ? [`확인 후 구현 단계 (${work.filter(s => s.scope === "after-check").map(s => s.step).join(", ")}): 각 단계가 실제로 의존하는 확인 항목이 확인되어 '기능별 요구사항'의 해당 기능 검증 기준을 충족하면 완료하고, 의존 항목을 확인하지 못했다면 '확인·승인 대기'로 보고. 이 단계가 의존하지 않는 확인 항목은 완료 판정을 막지 않음`] : []),
     ])}` : "",
     review.length ? `### 검토·검증 완료 기준\n\n${bullets([
       "확인한 프로젝트 구조와 재사용 가능한 기존 구현이 정리됩니다.",
