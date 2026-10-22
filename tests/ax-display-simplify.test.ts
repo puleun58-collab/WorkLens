@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { dedupeHumanItems, foldMethodLabel, foldScopeItems, reviewDisplayState, validConfirmedKeySet } from "../src/components/ax/AxReport";
 import { planSummary } from "../src/lib/ax/guide";
-import { extractPlanReviewableItems, type ReviewableItem } from "../src/lib/ax/hitl";
+import { extractPlanReviewableItems, extractReviewableItems, type ReviewableItem } from "../src/lib/ax/hitl";
 import { executionGate } from "../src/lib/ax/policy";
 import { diagnosisFixture, planFixture } from "./fixtures/ax";
 import { dieselCase } from "./fixtures/diesel-case";
@@ -159,5 +159,50 @@ describe("⑤ 구현 계획 검토 유효 완료 집계", () => {
     const claudeReviews = claudeItems.map(item => reviewFor(item));
     const valid = validConfirmedKeySet(items, claudeReviews);
     expect(valid.size).toBe(0);
+  });
+});
+
+describe("⑤-2 단계별 판단·위험 검토도 같은 유효성 집계를 쓴다", () => {
+  const allItems = extractReviewableItems(diagnosisFixture);
+  const stepItems = allItems.filter(item => item.type === "step");
+  const riskItems = allItems.filter(item => item.type === "risk");
+  const reviewFor = (item: ReviewableItem, patch: Partial<HitlReview> = {}): HitlReview => ({
+    id: `r-${item.key}`,
+    target: { type: item.type, key: item.key, source: item.source, sourceText: item.text, sourceHash: item.sourceHash },
+    action: "keep",
+    status: "confirmed",
+    reviewedAt: "2026-10-22T00:00:00.000Z",
+    updatedAt: "2026-10-22T00:00:00.000Z",
+    ...patch,
+  });
+
+  it("단계 항목: 유효 confirmed만 완료, editing·stale·해시 불일치는 재확인/보완으로 구분된다", () => {
+    const reviews = [
+      reviewFor(stepItems[0]),
+      reviewFor(stepItems[1], { status: "editing" }),
+      reviewFor(stepItems[2], { target: { type: stepItems[2].type, key: stepItems[2].key, source: stepItems[2].source, sourceText: stepItems[2].text, sourceHash: "0".repeat(64) } }),
+    ];
+    const valid = validConfirmedKeySet(stepItems, reviews);
+    expect(valid.size).toBe(1);
+    expect(stepItems.filter(item => valid.has(item.key)).length).toBe(1);
+    expect(reviewDisplayState(stepItems[0], reviews[0], valid)).toEqual({ status: "confirmed", label: "검토 완료" });
+    expect(reviewDisplayState(stepItems[1], reviews[1], valid)).toEqual({ status: "editing", label: "보완 중" });
+    expect(reviewDisplayState(stepItems[2], reviews[2], valid)).toEqual({ status: "stale", label: "재확인 필요" });
+  });
+
+  it("위험 항목: 기록 없음은 검토 전, stale은 재확인 필요이며 완료로 세지 않는다", () => {
+    expect(riskItems.length).toBeGreaterThan(0);
+    const stale = reviewFor(riskItems[0], { status: "stale" });
+    const valid = validConfirmedKeySet(riskItems, [stale]);
+    expect(valid.size).toBe(0);
+    expect(reviewDisplayState(riskItems[0], stale, valid)).toEqual({ status: "stale", label: "재확인 필요" });
+    expect(reviewDisplayState(riskItems[0], undefined, valid)).toEqual({ status: "pending", label: "검토 전" });
+    const pending = reviewFor(riskItems[0], { status: "pending" });
+    expect(reviewDisplayState(riskItems[0], pending, validConfirmedKeySet(riskItems, [pending]))).toEqual({ status: "pending", label: "검토 전" });
+  });
+
+  it("단계 검토 기록이 위험 항목 집계에 섞이지 않는다", () => {
+    const stepReviews = stepItems.map(item => reviewFor(item));
+    expect(validConfirmedKeySet(riskItems, stepReviews).size).toBe(0);
   });
 });

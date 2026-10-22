@@ -90,7 +90,9 @@ for (const viewport of VIEWPORTS) {
     await stepPanel.getByLabel("보완 내용", { exact: false }).fill("누락 행은 삭제하지 않고 별도 검토 결과로 표시");
     await stepPanel.getByRole("button", { name: "확정", exact: true }).click();
     await expect(first.locator(".ax-hitl-status-dot")).toHaveAttribute("data-status", "confirmed");
-    await expect(steps.locator(".ax-hitl-table-counts")).toContainText("검토 전 2");
+    await expect(steps.locator(".ax-hitl-table-counts")).toContainText("전체 3");
+    await expect(steps.locator(".ax-hitl-table-counts")).toContainText("검토 완료 1");
+    await expect(steps.locator(".ax-hitl-table-counts")).toContainText("검토 필요 2");
     await expect.poll(async () => (await stored(page)).tasks[0].reviews?.[0]?.supplement).toBe("누락 행은 삭제하지 않고 별도 검토 결과로 표시");
 
     const risks = page.getByRole("region", { name: "위험·확인사항 검토", exact: true });
