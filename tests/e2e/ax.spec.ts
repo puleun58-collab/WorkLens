@@ -981,7 +981,9 @@ for (const width of [1440, 390]) {
             return element.getBoundingClientRect().top >= instructions.getBoundingClientRect().bottom - 1;
           })).toBe(true);
           if (browserName === "chromium") await page.evaluate(() => navigator.clipboard.writeText("navigation sentinel"));
-          await guideSection.getByRole("button", { name: "올인원 지시문으로 이동", exact: true }).click();
+          await expect(guideSection.locator(".ax-tutorial-toc > button")).toHaveCount(8);
+          await expect(guideSection.getByRole("button", { name: "올인원 지시문으로 이동", exact: true })).toHaveCount(0);
+          await guideSection.getByRole("button", { name: "04 올인원 지시문으로 이동", exact: true }).click();
           await expect(heading).toBeFocused();
           await expect.poll(() => heading.evaluate(element => {
             const r = element.getBoundingClientRect(), hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
