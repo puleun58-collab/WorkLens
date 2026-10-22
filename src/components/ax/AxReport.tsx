@@ -615,7 +615,7 @@ function AxSetupGuide({ tool, instructionsId, onGoToInstructions }: { tool: AxTo
         const Icon = SETUP_ICONS[index];
         return <section className="ax-guide-step" data-setup-step={index + 1} aria-labelledby={`${id}-step-${index + 1}`} key={step.title}>
           <h4 id={`${id}-step-${index + 1}`} tabIndex={-1}><span className="ax-tutorial-step-no">STEP {String(index + 1).padStart(2, "0")}<Icon aria-hidden="true" /></span><span className="ax-guide-step-title"><span>{title(step.title)}</span></span></h4>
-          <p className="ax-guide-purpose">{step.purpose}</p>
+          {step.purpose ? <p className="ax-guide-purpose">{step.purpose}</p> : null}
           <p className="ax-tutorial-action-label"><Terminal aria-hidden="true" />실행 방법</p>
           {step.sections.map(section => <AxGuideSectionView key={section.title} section={section} completion={SETUP_COMPLETIONS.has(section.title)} warning={SETUP_WARNINGS.has(section.title)} collapsed={section.collapsed || (section.title in SETUP_DETAILS)} />)}
           {index === 2 ? <Button type="button" variant="outline" onClick={onGoToInstructions} aria-controls={instructionsId}>04 올인원 지시문으로 이동</Button> : null}

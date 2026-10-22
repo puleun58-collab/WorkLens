@@ -83,33 +83,30 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
         "PASS/FAIL/NOT_RUN/BLOCKED: 통과 / 실패 / 미실행 / 조건 미충족으로 차단",
       ] }] },
     ] },
-    { title: "STEP 01 · 개발 환경 준비", purpose: "Git·필요한 Node.js·선택적 gh·선택한 코딩 에이전트 설치와 확인", sections: [
+    { title: "STEP 01 · 개발 환경 준비", purpose: "", sections: [
       { title: "설치 순서 안내", blocks: [
-        text("처음 설치하는 사용자는 아래 순서대로 진행하세요. 1. Git 설치 → 2. 선택한 도구·프로젝트에 필요한 경우에만 Node.js 설치 → 3. GitHub 인증·PR 작업에 필요한 경우에만 GitHub CLI 설치 → 4. 선택한 코딩 에이전트 설치 → 5. 각 설치 직후 버전 확인으로 정상 동작 확인. 이미 설치된 항목은 건너뜁니다. Node.js와 GitHub CLI는 모든 프로젝트에 필수가 아닙니다."),
+        text("Git → 필요한 경우 Node.js·GitHub CLI 설치 → 코딩 에이전트 설치 → 정상 작동 확인 순서로 진행하세요. 이미 설치된 도구는 정상 작동을 확인한 후 건너뛸 수 있습니다."),
       ] },
       { title: "Git 설치", when: "Git이 아직 설치되지 않은 경우에만", blocks: [
-        text("공식 Git for Windows 최신 릴리스의 x64/arm64 설치 파일 하나를 선택하고 API의 SHA-256 digest와 실제 파일 해시를 대조한 뒤 설치합니다. 한 줄 전체를 복사하세요. 설치 창을 끝까지 완료하고 새 PowerShell을 여세요."),
+        text("Git이 설치되어 있지 않거나 정상 작동하지 않는 경우 실행하세요."),
         installCode([gitInstall], []),
-        code(["git --version"], ["설치 후 새 PowerShell에서 실행. 실패하면 설치를 성공으로 간주하지 마세요."]),
-        text("출처: https://git-scm.com/downloads/win · https://github.com/git-for-windows/git/releases/latest"),
+        code(["git --version"], ["설치 후 새 PowerShell에서 정상 작동을 확인하세요."]),
       ] },
       { title: "Node.js LTS 설치", when: "선택한 도구·프로젝트가 Node.js를 요구하고 호환 버전이 없을 때만", blocks: [
-        text("package.json engines, .nvmrc, .node-version의 버전 요구가 일반 LTS보다 우선합니다. 충돌하면 명령을 실행하지 말고 요구 버전을 공식 배포 목록에서 확인하세요. 명시된 요구가 없을 때 공식 목록에서 최신 호환 LTS 하나만 고릅니다. MSI 파일이 해당 릴리스에 없거나 HTTP 오류라면 즉시 멈춥니다."),
+        text("프로젝트에서 Node.js가 필요하고, 호환되는 버전이 설치되지 않은 경우 실행하세요."),
         installCode([nodeInstall], []),
-        code(["node --version", "npm --version"], ["설치 후 새 PowerShell에서 실행. MSI가 재시작을 요청했다면 먼저 재시작합니다."]),
-        text("출처: https://nodejs.org/en/download · https://nodejs.org/dist/index.json"),
+        code(["node --version", "npm --version"], ["설치 후 새 PowerShell에서 정상 작동을 확인하세요."]),
       ] },
       { title: "GitHub CLI 설치", when: "GitHub 인증·PR 작업에 gh가 필요한 경우에만", blocks: [
-        text("GitHub 공식 릴리스에서 x64/arm64 Windows MSI 하나를 고르고 SHA-256을 확인합니다. 기존 Git 인증/웹 작업이 정상이면 설치를 생략하세요."),
+        text("GitHub 인증 또는 PR 작업에 필요한 경우에만 설치하세요."),
         installCode([ghInstall], []),
-        code(["gh --version"], ["설치 후 새 PowerShell에서 실행. 재시작을 요청했다면 먼저 재시작합니다."]),
-        text("출처: https://github.com/cli/cli/releases/latest · https://cli.github.com/manual/gh_auth_login"),
+        code(["gh --version"], ["설치 후 새 PowerShell에서 정상 작동을 확인하세요."]),
       ] },
       { title: `${guide.name} 설치`, when: `선택한 ${guide.name}을(를) 아직 설치하지 않은 경우에만`, blocks: [
-        text(`${guide.name}은 선택한 코딩 에이전트입니다. 공식 네이티브 설치 스크립트의 출처와 내용을 먼저 확인하세요. 다른 에이전트까지 설치할 필요는 없습니다.`),
+        text("사용할 코딩 에이전트를 선택하여 설치하세요."),
         installCode([guide.installCommand], []),
-        code([guide.versionCommand], ["새 PowerShell에서 버전을 확인하세요."]),
-        ...(tool === "codex" ? [text("Node/npm이 이미 필요해 설치되어 있다면 네이티브 설치 대신 `npm install -g @openai/codex`를 사용할 수 있습니다. 둘을 동시에 설치하지 마세요. 출처: https://learn.chatgpt.com/docs/codex/cli")] : [text("출처: https://code.claude.com/docs/en/setup")]),
+        code([guide.versionCommand], ["설치 후 새 PowerShell에서 정상 작동을 확인하세요."]),
+        ...(tool === "codex" ? [text("Node/npm이 이미 필요해 설치되어 있다면 네이티브 설치 대신 `npm install -g @openai/codex`를 사용할 수 있습니다. 둘을 동시에 설치하지 마세요.")] : []),
       ] },
       { title: "Git 정보·로그인", when: "첫 커밋이나 GitHub 인증이 필요할 때만", blocks: [
         code(["git config user.name", "git config user.email"], ["비어 있을 때만 실제 이름·이메일을 아래 명령으로 설정합니다."]),
