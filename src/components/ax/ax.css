@@ -156,7 +156,7 @@
 .ax-process-head, .ax-result-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
 .ax-process-head h3, .ax-result-head h3 { margin: 0; }
 .ax-process-head small, .ax-result-head small { font-size: var(--font-size-xs); }
-.ax-process-core { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; margin-top: 16px; }
+.ax-process-core { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; margin-top: 16px; align-items: start; }
 .ax-process-field { display: grid; grid-template-columns: 34px minmax(0,1fr); align-content: start; gap: 12px; min-width: 0; padding: 16px; border-radius: 8px; background: color-mix(in srgb, var(--primary) 4%, var(--card)); }
 .ax-process-icon, .ax-tobe-icon { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 8px; background: color-mix(in srgb, var(--primary) 11%, var(--card)); color: var(--primary); }
 .ax-process-icon svg, .ax-tobe-icon svg { width: 18px; height: 18px; }
@@ -172,7 +172,7 @@
 .ax-process-node-number { display: inline-grid; place-items: center; flex: none; width: 32px; height: 32px; border-radius: 50%; background: color-mix(in srgb, var(--primary) 10%, var(--card)); color: var(--primary); font-size: var(--font-size-xs); font-weight: var(--font-weight-semibold); font-variant-numeric: tabular-nums; }
 .ax-step-number { display: inline-grid; place-items: center; min-width: 26px; height: 24px; padding: 0 5px; border-radius: 5px; background: var(--muted-surface); color: var(--muted-foreground); font-size: var(--font-size-xs); font-weight: var(--font-weight-semibold); font-variant-numeric: tabular-nums; }
 .ax-process-arrow, .ax-tobe-arrow { position: absolute; top: 24px; right: -14px; width: 14px; height: 14px; color: color-mix(in srgb, var(--primary) 50%, var(--muted-foreground)); }
-.ax-process-extras { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; margin-top: 12px; }
+.ax-process-extras { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; margin-top: 12px; align-items: start; }
 .ax-process-extra, .ax-process-systems { display: grid; grid-template-columns: 22px minmax(0,1fr); gap: 10px; align-items: start; min-width: 0; padding: 14px; border-radius: 8px; background: color-mix(in srgb, var(--warning) 6%, var(--card)); }
 /* Match the first title line, independent of wrapped titles and the list below. */
 .ax-process-extra > svg, .ax-process-systems > svg { width: 18px; height: 18px; font-size: var(--font-size-sm); line-height: inherit; margin-top: calc((1lh - 18px) / 2); color: var(--warning); }
@@ -389,7 +389,7 @@
 
 .ax-score-evidence { border-top: 1px solid var(--border); margin-top: 16px; }
 .ax-score-content { color: var(--foreground); min-width: 0; }
-.ax-score-content > h3, .ax-score-extra > h3 { margin: 0 0 12px; font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); }
+.ax-score-content > h3 { margin: 0 0 12px; font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); }
 .ax-score-groups { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 1px; overflow: hidden; border: 1px solid var(--border); border-radius: 10px; background: var(--border); }
 .ax-score-group { min-width: 0; padding: 18px; background: color-mix(in srgb, var(--primary) 5%, var(--card)); }
 .ax-score-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
@@ -399,10 +399,6 @@
 .ax-score-result strong { font-size: 32px; line-height: 1; font-weight: var(--font-weight-semibold); }
 .ax-score-result span { color: var(--muted-foreground); font-size: var(--font-size-sm); }
 .ax-score-formula { margin: 12px 0 0; color: var(--muted-foreground); font-size: var(--font-size-xs); line-height: 1.6; overflow-wrap: anywhere; }
-.ax-score-extra { margin-top: 24px; }
-.ax-score-extra-list { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
-.ax-score-extra-list > div { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding-bottom: 10px; border-bottom: 1px solid var(--border); font-size: var(--font-size-sm); }
-.ax-score-extra-list strong { color: var(--foreground); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .ax-score-details { margin-top: 24px; border-top: 1px solid var(--border); }
 .ax-score-details-trigger { min-height: 44px; padding: 10px 14px; align-items: center; color: var(--foreground); font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); }
 .ax-score-details-trigger:hover { background: color-mix(in srgb, var(--primary) 5%, var(--card)); }
@@ -420,7 +416,7 @@
 .ax-score-values > span:first-child { color: var(--foreground); }
 .ax-score-applied { color: var(--primary); font-weight: var(--font-weight-semibold); }
 @media(max-width: 700px) {
-  .ax-score-groups, .ax-score-extra-list { grid-template-columns: minmax(0,1fr); }
+  .ax-score-groups { grid-template-columns: minmax(0,1fr); }
 }
 
 /* Report header: title | task name | Level | gate on one axis, divider below (sections add their own top rule). */

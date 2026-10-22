@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { AlertTriangle, ArrowRight, Ban, BookOpen, Bot, BrainCircuit, ChartNoAxesColumnIncreasing, Check, CheckCircle2, CircleAlert, CircleCheck, CircleX, Clipboard, ClipboardCheck, ClipboardList, Clock, CloudUpload, Copy, Database, Download, FileCode2, FileOutput, FileSpreadsheet, FileText, Flag, FlaskConical, Folder, GitBranch, Globe, Info, ListChecks, MonitorCog, Play, Plug, Search, Settings2, ShieldAlert, ShieldCheck, Target, Terminal, TriangleAlert, UserRound } from "lucide-react";
 import type { AxDiagnosis, AxPlan, AxTask, AxTaskV2, HitlReview } from "@/lib/ax/types";
-import { automationLevel, axes, executionGate, executionProfile, factorEffectiveValue, GATE_LABELS, gateBlockReasons, nextAction, type ExecutionProfile } from "@/lib/ax/policy";
+import { automationLevel, axes, executionGate, executionProfile, factorEffectiveValue, GATE_LABELS, gateBlockReasons, nextAction, prerequisiteTopicKey, type ExecutionProfile } from "@/lib/ax/policy";
 import { FACTOR_LABELS } from "@/lib/ax/schema";
 import { Badge } from "@/components/ui/badge";
 import { Accordion, AccordionItem, AccordionPanel, AccordionTrigger } from "@/components/ui/accordion";
@@ -49,23 +49,32 @@ export function AxScoreCards({ diagnosis }: { diagnosis: AxDiagnosis }) {
     </div>)}
   </div>;
 }
-/** Display-only summary sentences composed from confirmed diagnosis data; no AI call, no invented facts. */
+/** Display-only summary sentences composed from confirmed diagnosis data; no AI call, no invented facts.
+ * 구성은 세 가지로 제한한다: ① 전체 단계의 판정 분포(핵심 판단) ② 담당자 판단·승인이 필요한 단계
+ * ③ 구현 전에 확인해야 할 사항. 단계명·확인 주제의 상세는 아래 영역에서 확인한다.
+ * Level·Gate는 카드 상단 배지가 단일 표시이며 요약 문장에서 반복하지 않는다(진행 보류의 후속 조치만 예외). */
 export function diagnosisSummarySentences(d: AxDiagnosis): string[] {
   const names = (list: string[]) => list.length > 3 ? `${list.slice(0, 3).join("·")} 등 ${list.length}개` : list.join("·");
-  const steps = (verdict: "자동화" | "AI 보조" | "사람 유지") => d.stepAssessments.filter(s => s.verdict === verdict).map(s => s.step);
-  const auto = [...steps("자동화"), ...steps("AI 보조")];
-  const human = steps("사람 유지");
+  const count = (verdict: "자동화" | "AI 보조" | "사람 유지") => d.stepAssessments.filter(s => s.verdict === verdict).length;
   const sentences: string[] = [];
-  if (auto.length && human.length) sentences.push(`${names(auto)} 단계는 자동화 후보지만, ${names(human)} 단계는 담당자 판단이 필요한 단계로 남아 있습니다.`);
-  else if (auto.length) sentences.push(`${names(auto)} 단계가 자동화 후보입니다.`);
-  else if (human.length) sentences.push(`${names(human)} 단계는 담당자 판단이 필요한 단계로 남아 있습니다.`);
-  const pending = d.technicalChecks.filter(c => c.status !== "확인됨").map(c => c.topic);
-  if (pending.length) sentences.push(`${names(pending.slice(0, 3))} 확인 결과에 따라 구현 범위가 달라질 수 있습니다.`);
-  const gate = executionGate(d);
-  const levelName = automationLevel(d).label.replace(/^L\d+ /, "");
-  if (gate === "blocked") sentences.push(`현재 ${levelName}·진행 보류 상태로, 차단 사유 해결 후 재진단이 필요합니다.`);
-  else if (gate === "conditional") sentences.push(`현재 ${levelName}·확인 후 진행 상태로, 선행 조건 확인 후 구현 범위를 확정합니다.`);
-  else sentences.push(`현재 ${levelName}·진행 가능 상태입니다.`);
+  const total = d.stepAssessments.length;
+  if (total) {
+    const parts = [
+      count("자동화") ? `자동화 ${count("자동화")}단계` : "",
+      count("AI 보조") ? `AI 보조 ${count("AI 보조")}단계` : "",
+      count("사람 유지") ? `담당자 수행 ${count("사람 유지")}단계` : "",
+    ].filter(Boolean);
+    sentences.push(`전체 ${total}단계 중 ${parts.join(" · ")}로 ${automationLevel(d).provisional ? "잠정 판정" : "판정"}되었습니다.`);
+  }
+  const humanSteps = d.stepAssessments.filter(s => s.verdict === "사람 유지").map(s => s.step);
+  const approvalPoints = humanSteps.length ? humanSteps : d.humanInLoop;
+  if (approvalPoints.length) sentences.push(`${names(approvalPoints)} 단계는 담당자 판단·승인이 필요합니다.`);
+  if (executionGate(d) === "blocked") sentences.push("현재 진행 보류 상태로, 차단 사유를 해결한 뒤 재진단이 필요합니다.");
+  else {
+    const pendingTopics = new Set(d.technicalChecks.filter(c => c.status !== "확인됨").map(c => c.topic.trim()).filter(Boolean));
+    if (pendingTopics.size) sentences.push(`구현 전에 확인해야 할 사항이 ${pendingTopics.size}건 남아 있습니다.`);
+    else if (d.followUpQuestions.length) sentences.push(`구현 전에 추가 질문 ${d.followUpQuestions.length}건에 대한 답변이 필요합니다.`);
+  }
   return sentences.slice(0, 3);
 }
 export type AxCheckItem = { title: string; desc?: string; badge: string; kind: "need" | "done" | "block" };
@@ -83,6 +92,22 @@ export function diagnosisCheckItems(d: AxDiagnosis): AxCheckItem[] {
     items.push({ title: c.topic, desc: c.note.trim() || undefined, badge: c.status === "확인됨" ? "확인됨" : "확인 필요", kind: c.status === "확인됨" ? "done" : "need" });
   }
   return items;
+}
+/** Display-only: 확인할 사항 중 추가 질문이 같은 주제를 묻고 있는 항목은 질문 영역에서
+ * 확인하므로 목록에서 중복 표시하지 않는다. 주제 판정은 policy의 선행 조건 주제 키와 같은
+ * 기준(주제 키 일치·포함)을 쓰며, 서로 다른 주제(예: API 제공 여부 vs API 접근 권한)는 합치지 않는다.
+ * 보류 사유·확인됨 항목은 질문과 성격이 달라 항상 유지한다. 원본 데이터는 변경하지 않는다. */
+export function visibleDiagnosisCheckItems(d: AxDiagnosis): AxCheckItem[] {
+  const items = diagnosisCheckItems(d);
+  if (!d.followUpQuestions.length) return items;
+  const questionKeys = d.followUpQuestions.map(q => prerequisiteTopicKey(q)).filter(key => key.length >= 3);
+  if (!questionKeys.length) return items;
+  return items.filter(item => {
+    if (item.kind !== "need") return true;
+    const key = prerequisiteTopicKey(item.title);
+    if (key.length < 3) return true;
+    return !questionKeys.some(qk => qk === key || qk.startsWith(key) || key.startsWith(qk));
+  });
 }
 /** Data-only bullets for the matrix "핵심 판단 근거" area: the strongest value driver's rationale and the binding constraint.
  * The axis scores and classification already shown in the score cards and header badges are not repeated here. */
@@ -460,9 +485,23 @@ function AxStepTable({ diagnosis: d, headers, reviewProps }: { diagnosis: AxDiag
 }
 function AxToBe({ diagnosis: d }: { diagnosis: AxDiagnosis }) {
   const icons = { 시스템: Settings2, AI: Bot, 사용자: UserRound } as const;
+  const norm = (t: string) => t.replace(/\s+/g, "");
+  // 단계별 판단 표에서 같은 단계의 판단 근거로 이미 제공된 설명은 TO-BE에서 반복하지 않는다.
+  // 표에 없는 설명은 TO-BE에만 있는 정보이므로 그대로 유지한다 (원본 데이터는 변경하지 않음).
+  const descriptionFor = (s: AxDiagnosis["toBe"][number]): string => {
+    const desc = s.description.trim();
+    if (!desc) return "";
+    const match = d.stepAssessments.find(a => a.step === s.step)
+      ?? d.stepAssessments.find(a => { const an = norm(a.step), sn = norm(s.step); return !!an && !!sn && (an.includes(sn) || sn.includes(an)); });
+    if (match?.note.trim()) {
+      const dn = norm(desc), nn = norm(match.note);
+      if (dn === nn || dn.includes(nn) || nn.includes(dn)) return "";
+    }
+    return desc;
+  };
   return <section className="ax-section ax-panel ax-tobe-card"><header className="ax-process-head"><h3>TO-BE · 역할과 흐름 (목표 프로세스)</h3><small>자동화 도입 후 예상 업무 흐름 · 구현 완료 아님</small></header>
-    {d.toBe.length ? <ol className="ax-tobe-flow">{d.toBe.map((s, i) => { const Icon = icons[s.owner]; return <li className="ax-tobe-item" data-owner={s.owner} key={i}>
-      <span className="ax-tobe-icon"><Icon aria-hidden="true" /></span><strong>{s.step}</strong><span>{OWNER_LABELS[s.owner]}</span><p>{s.description}</p>
+    {d.toBe.length ? <ol className="ax-tobe-flow">{d.toBe.map((s, i) => { const Icon = icons[s.owner]; const desc = descriptionFor(s); return <li className="ax-tobe-item" data-owner={s.owner} key={i}>
+      <span className="ax-tobe-icon"><Icon aria-hidden="true" /></span><strong>{s.step}</strong><span>{OWNER_LABELS[s.owner]}</span>{desc ? <p>{desc}</p> : null}
       {i < d.toBe.length - 1 ? <ArrowRight className="ax-tobe-arrow" aria-hidden="true" /> : null}
     </li>; })}</ol> : <p className="ax-muted">기재된 목표 업무 단계 없음</p>}
   </section>;

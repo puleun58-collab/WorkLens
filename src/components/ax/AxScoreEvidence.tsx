@@ -10,11 +10,6 @@ const MATRIX_AXES = [
   { key: "feasibility", axis: "X축", label: "기술 실현 가능성", factors: ["regularity", "dataStructure", "systemAccess"] },
 ] as const satisfies readonly { key: "value" | "feasibility"; axis: string; label: string; factors: readonly FactorKey[] }[];
 
-const EXTRA_FACTORS = [
-  { key: "humanJudgment", score: "judgment" },
-  { key: "operationalRisk", score: "risk" },
-] as const;
-
 export function AxScoreEvidence({ diagnosis }: { diagnosis: AxDiagnosis }) {
   const scores = axes(diagnosis);
   const factorByKey = Object.fromEntries(diagnosis.factors.map(factor => [factor.key, factor])) as Record<FactorKey, AxDiagnosis["factors"][number]>;
@@ -36,12 +31,6 @@ export function AxScoreEvidence({ diagnosis }: { diagnosis: AxDiagnosis }) {
               </section>;
             })}
           </div>
-          <section className="ax-score-extra" aria-label="추가 판단 요소">
-            <h3>추가 판단 요소</h3>
-            <div className="ax-score-extra-list">
-              {EXTRA_FACTORS.map(({ key, score }) => <div key={key}><span>{FACTOR_LABELS[key]}</span><strong>{scores[score]}점</strong></div>)}
-            </div>
-          </section>
           <Accordion className="ax-score-details">
             <AccordionItem value="factor-evidence">
               <AccordionTrigger className="ax-score-details-trigger">
