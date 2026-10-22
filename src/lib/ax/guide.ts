@@ -74,14 +74,23 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
       { title: "이후 작업할 때", blocks: [
         text("개발 환경이 준비되어 있다면 필요한 단계부터 진행하세요. Codex 또는 Claude Code로 실제 기능을 구현하고 테스트한 뒤 배포합니다. 배포된 결과물은 실제 사용 환경에서 기능이 정상 작동하는지 반드시 검증합니다."),
       ] },
-      { title: "용어 알아보기", collapsed: true, blocks: [{ kind: "steps", items: [
-        "저장소/클론: GitHub의 프로젝트 파일·이력 / 로컬 PC로 복제",
-        "브랜치/PR/CI: 변경 갈래 / 검토 요청 / 자동 검사",
-        "Preview/Production: 미리보기 / 사용자가 사용하는 운영 환경",
-        "HITL: AI 제안을 사람이 검토·수정·승인하는 단계",
-        "Secret: Git이나 로그에 공개해서는 안 되는 인증 키·비밀번호",
-        "PASS/FAIL/NOT_RUN/BLOCKED: 통과 / 실패 / 미실행 / 조건 미충족으로 차단",
-      ] }] },
+      { title: "Git·GitHub 작업 흐름", collapsed: true, blocks: [{ kind: "steps", items: [
+        "Git: 코드 변경 이력을 관리하는 도구",
+        "git init / git clone: 새 저장소 만들기 / 기존 저장소 복제하기",
+        "Branch: 기존 코드와 분리해 작업하는 공간",
+        "git add: 변경 파일을 커밋 대상으로 선택",
+        "git commit: 변경 내용을 이력으로 저장",
+        "git push: 변경 이력을 GitHub에 업로드",
+        "PR: 변경 내용을 검토하고 병합하도록 요청",
+        "CI: 테스트·빌드 등을 자동 검사",
+        "Merge: 변경 사항을 대상 브랜치에 병합",
+        "Deploy: 실제 서비스 환경에 배포",
+        "Production 검증: 배포된 서비스의 정상 작동 확인",
+      ] },
+        text("git init과 git clone은 프로젝트 상태에 따라 선택하며, 기존 저장소를 다시 초기화하지 않습니다."),
+        text("CI는 Push 또는 PR 생성 시 실행될 수 있습니다."),
+        text("Merge와 Deploy는 서로 다른 작업이며, 배포 완료 후 실제 기능 검증이 필요합니다."),
+      ] },
     ] },
     { title: "STEP 01 · 개발 환경 준비", purpose: "", sections: [
       { title: "설치 순서 안내", blocks: [

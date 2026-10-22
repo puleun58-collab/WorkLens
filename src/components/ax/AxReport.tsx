@@ -643,11 +643,11 @@ function AxSetupGuide({ tool, instructionsId, onGoToInstructions }: { tool: AxTo
             <span className="ax-tutorial-terms-action" aria-hidden="true"><span>펼치기</span><span>접기</span></span>
           </AccordionTrigger>
           <AccordionPanel className="ax-tutorial-terms-panel">
-            <dl>{glossary.blocks.map(block => block.kind === "steps" ? block.items.map(term => {
+            {glossary.blocks.map((block, blockIndex) => block.kind === "steps" ? <dl key={blockIndex}>{block.items.map(term => {
               const split = term.indexOf(":");
               const name = term.slice(0, split);
               return <div key={term}><dt>{name === "환경변수(Environment Variable)" ? <><span>환경변수</span><span className="ax-tutorial-term-translation">(Environment Variable)</span></> : name}</dt><dd>{term.slice(split + 2)}</dd></div>;
-            }) : null)}</dl>
+            })}</dl> : block.kind === "text" ? <p key={blockIndex} className="ax-tutorial-terms-note">{block.text}</p> : null)}
           </AccordionPanel>
         </AccordionItem></Accordion>
       </section>
