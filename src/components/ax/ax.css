@@ -540,6 +540,8 @@
 .ax-tutorial-terms-panel dl > div { display: grid; grid-template-columns: minmax(0, 190px) minmax(0, 1fr); gap: 4px 16px; padding: 7px 0; }
 .ax-tutorial-terms-panel dt { font-weight: 700; overflow-wrap: anywhere; }
 .ax-tutorial-terms-panel dd { margin: 0; font-weight: 400; overflow-wrap: anywhere; }
+.ax-tutorial-terms-note { margin: 12px 0 0; color: var(--muted-foreground); font-size: var(--font-size-sm); line-height: 1.6; overflow-wrap: anywhere; }
+.ax-tutorial-terms-note + .ax-tutorial-terms-note { margin-top: 4px; }
 .ax-tutorial-term-translation { display: block; color: var(--muted-foreground); font-size: var(--font-size-xs); font-weight: var(--font-weight-regular, 400); white-space: nowrap; }
 .ax-tutorial-course { margin-top: 24px; }
 /* Course headers (처음 한 번 준비 · 프로젝트 작업 · GitHub·배포) share one light-blue band; the STEP bodies stay white. */

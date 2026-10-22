@@ -39,7 +39,7 @@ describe("AX execution guides", () => {
   it("presents intro and eight executable stages without a separate pre-MVP development step", () => {
     const steps = setupGuide("codex");
     expect(steps).toHaveLength(9);
-    expect(steps[0].sections.map(section => section.title)).toEqual(["처음 시작할 때", "이후 작업할 때", "용어 알아보기"]);
+    expect(steps[0].sections.map(section => section.title)).toEqual(["처음 시작할 때", "이후 작업할 때", "Git·GitHub 작업 흐름"]);
     expect(steps.slice(1).map(step => step.title)).toEqual([
       "STEP 01 · 개발 환경 준비", "STEP 02 · 프로젝트 준비", "STEP 03 · 올인원 지시문 준비",
       "STEP 04 · 첫 MVP 구현과 실제 테스트", "STEP 05 · 배포 플랫폼 선택",
@@ -48,6 +48,33 @@ describe("AX execution guides", () => {
     expect(JSON.stringify(steps[3])).toContain("04 올인원 지시문");
     expect(JSON.stringify(steps[4])).toContain("실제 입력 데이터");
     expect(JSON.stringify(steps[8])).toContain("웹 배포가 필요 없는");
+  });
+  it("presents the intro glossary as the Git·GitHub work flow in execution order", () => {
+    const flow = setupGuide("codex")[0].sections[2];
+    expect(flow.title).toBe("Git·GitHub 작업 흐름");
+    expect(flow.collapsed).toBe(true);
+    const [terms, ...notes] = flow.blocks;
+    expect(terms).toEqual({ kind: "steps", items: [
+      "Git: 코드 변경 이력을 관리하는 도구",
+      "git init / git clone: 새 저장소 만들기 / 기존 저장소 복제하기",
+      "Branch: 기존 코드와 분리해 작업하는 공간",
+      "git add: 변경 파일을 커밋 대상으로 선택",
+      "git commit: 변경 내용을 이력으로 저장",
+      "git push: 변경 이력을 GitHub에 업로드",
+      "PR: 변경 내용을 검토하고 병합하도록 요청",
+      "CI: 테스트·빌드 등을 자동 검사",
+      "Merge: 변경 사항을 대상 브랜치에 병합",
+      "Deploy: 실제 서비스 환경에 배포",
+      "Production 검증: 배포된 서비스의 정상 작동 확인",
+    ] });
+    expect(notes).toEqual([
+      { kind: "text", text: "git init과 git clone은 프로젝트 상태에 따라 선택하며, 기존 저장소를 다시 초기화하지 않습니다." },
+      { kind: "text", text: "CI는 Push 또는 PR 생성 시 실행될 수 있습니다." },
+      { kind: "text", text: "Merge와 Deploy는 서로 다른 작업이며, 배포 완료 후 실제 기능 검증이 필요합니다." },
+    ]);
+    const serialized = JSON.stringify(flow);
+    for (const removed of ["저장소/클론", "브랜치/PR/CI", "Preview/Production", "Secret:", "HITL: AI 제안"]) expect(serialized).not.toContain(removed);
+    expect(setupGuide("claude")[0].sections[2]).toEqual(flow);
   });
   it.each(["codex", "claude"] as const)("scopes native installs and safety to the selected agent: %s", tool => {
     const other = tool === "codex" ? "claude" : "codex";
