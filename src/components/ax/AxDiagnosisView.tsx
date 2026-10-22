@@ -21,7 +21,7 @@ import type { AxAttachmentMeta } from "@/lib/ax/types";
 import { exportAxState, importAxState } from "@/lib/ax/transfer";
 import { emptyAxState, type AxStateV2, type AxTask, type AxDiagnosis, type AxDetails, type FactorKey } from "@/lib/ax/types";
 import { extractReviewableItems, extractPlanReviewableItems, reconcileReviews, validateReviewForConfirm, type ReviewableItem } from "@/lib/ax/hitl";
-import { AxProcess, AxResultSummary, AxExecutionTimeline, AxPlanSection, AxScoreCards, AxCheckIcon, diagnosisSummarySentences, diagnosisCheckItems, matrixRationaleBullets } from "./AxReport";
+import { AxProcess, AxResultSummary, AxExecutionTimeline, AxPlanSection, AxScoreCards, AxCheckIcon, diagnosisSummarySentences, diagnosisCheckItems, visibleDiagnosisCheckItems, matrixRationaleBullets } from "./AxReport";
 import { AxScoreEvidence } from "./AxScoreEvidence";
 import "./ax.css";
 
@@ -745,6 +745,8 @@ function DiagnosisCard({ task, busy, onDiagnose, onEdit, attachment }: {
   const lvl = d ? automationLevel(d) : null;
   const gate = d ? executionGate(d) : null;
   const checks = d ? diagnosisCheckItems(d) : [];
+  // 추가 질문이 같은 주제로 묻고 있는 확인 항목은 질문 영역에서 확인하므로 목록에서 중복 표시하지 않는다.
+  const visibleChecks = d ? visibleDiagnosisCheckItems(d) : [];
   return <section className="ax-surface ax-diag-card" aria-label={`${task.name} 진단`}>
     <div className="ax-diag-head">
       <div className="ax-diag-title">
@@ -777,14 +779,14 @@ function DiagnosisCard({ task, busy, onDiagnose, onEdit, attachment }: {
         </div>
       </div>
       <AxScoreCards diagnosis={d} />
-      <section className="ax-diag-checks" aria-label="확인할 사항">
-        <h3>확인할 사항 {checks.length}개</h3>
-        {checks.length ? <ul>{checks.map((c, i) => <li key={i}>
+      {visibleChecks.length || !checks.length ? <section className="ax-diag-checks" aria-label="확인할 사항">
+        <h3>확인할 사항 {visibleChecks.length}개</h3>
+        {visibleChecks.length ? <ul>{visibleChecks.map((c, i) => <li key={i}>
           <span className="ax-check-icon"><AxCheckIcon title={c.title} /></span>
           <span className="ax-check-text"><strong>{c.title}</strong>{c.desc ? <small>{c.desc}</small> : null}</span>
           <span className="ax-check-badge" data-kind={c.kind}>{c.badge}</span>
         </li>)}</ul> : <p className="ax-muted">확인할 사항이 없습니다.</p>}
-      </section>
+      </section> : null}
     </> : null}
   </section>;
 }

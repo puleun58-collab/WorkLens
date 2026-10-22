@@ -133,7 +133,7 @@ export function gateRecommendedChecks(d: AxDiagnosis): string[] {
 
 /** 표시 전용 주제 키: 확인 항목 라벨("주제 — 비고")의 주제 부분과, 같은 주제를 묻는
  * 추가 질문("API 제공 여부를 알려주세요.")을 하나의 조건으로 식별한다. */
-function prerequisiteTopicKey(text: string): string {
+export function prerequisiteTopicKey(text: string): string {
   const head = text.split(" — ")[0];
   let topic = head.trim().toLowerCase().replace(/\s+/g, "").replace(/[.?。]+$/, "");
   topic = topic.replace(/(을|를)?(알려주세요|알려주십시오|확인해주세요)$/, "");

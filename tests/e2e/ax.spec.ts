@@ -1510,7 +1510,8 @@ for (const width of [1440, 390]) test(`AX score evidence and all ranks update to
   await expect(evidence).toHaveAttribute("aria-expanded", "true"); await expect(evidence).toBeFocused();
   const panel = page.getByRole("region", { name: "점수 근거", exact: true });
   await expect(panel.locator(".ax-score-result strong")).toHaveText(["4", "4"]);
-  await expect(panel.locator(".ax-score-extra-list strong")).toHaveText(["2점", "2점"]);
+  // 판단 필요도·운영 위험의 점수만 반복하던 추가 판단 요소 목록은 제거됨 (근거는 아래 평가 근거 상세가 유지)
+  await expect(panel.locator(".ax-score-extra")).toHaveCount(0);
   const details = panel.locator(".ax-score-details");
   const factorToggle = details.getByRole("button", { name: "평가 근거 자세히 보기", exact: true });
   await expect(factorToggle).toHaveAttribute("aria-expanded", "false");
