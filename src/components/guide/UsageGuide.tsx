@@ -171,7 +171,7 @@ const GUIDES: Guide[] = [
     id: "learn", label: "학습센터", summary: "AI·AX 기초부터 개발·배포 실무까지 10단계로 학습",
     steps: [
       { title: "학습 시작", text: "사전 진단을 선택적으로 진행하거나 첫 번째 학습 단계부터 시작합니다.", mini: <Result status="학습 로드맵" lines={["LEVEL 1~10 단계별 학습"]} actions={["사전 진단 받기 (선택)", "처음 학습하기"]} /> },
-      { title: "학습 진행", text: "단계별 학습 자료를 확인하고 실습과 학습 항목을 완료합니다.", mini: <Result status="LEVEL 1" lines={["학습 내용 확인", "학습 항목 완료", "가상 터미널 실습"]} /> },
+      { title: "학습 진행", text: "단계별 학습 자료를 확인하고 실습한 뒤 퀴즈를 통과합니다.", mini: <Result status="LEVEL 1" lines={["학습 내용 확인", "가상 터미널 실습", "퀴즈 80점 통과"]} /> },
       { title: "퀴즈 응시", text: "학습 후 퀴즈에 응시하고 80점 이상 획득하면 다음 단계로 진행합니다.", mini: <Result status="통과" lines={["점수 80점 · 통과", "다음 단계 해제"]} actions={["퀴즈 응시"]} /> },
       { title: "학습 관리", text: "전체 진행률과 오답 노트를 확인하고 학습 기록을 백업합니다.", mini: <Result status="전체 진행률" lines={["오답 노트"]} actions={["학습 기록 내보내기", "학습 기록 가져오기"]} /> },
     ],
