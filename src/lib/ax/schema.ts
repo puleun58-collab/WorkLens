@@ -2,7 +2,7 @@ import { z } from "zod";
 
 // Shared limits apply at AI, browser storage and transfer boundaries.
 z.config({ jitless: true });
-export const AX_LIMITS = { tasks: 100, name: 120, description: 3000, detail: 500, attachmentSummary: 2000, requestBytes: 60 * 1024, transferBytes: 8 * 1024 * 1024 } as const;
+export const AX_LIMITS = { tasks: 100, name: 120, description: 3000, detail: 500, attachmentSummary: 2000, attachments: 10, requestBytes: 60 * 1024, transferBytes: 8 * 1024 * 1024 } as const;
 export const FACTOR_KEYS = ["repetition", "regularity", "dataStructure", "systemAccess", "humanJudgment", "operationalRisk"] as const;
 export const FACTOR_LABELS: Record<typeof FACTOR_KEYS[number], string> = {
   repetition: "반복성", regularity: "규칙성", dataStructure: "데이터 구조화", systemAccess: "시스템 접근성", humanJudgment: "담당자 판단 필요도", operationalRisk: "운영 위험",
@@ -50,11 +50,15 @@ export const axDiagnosisSchema = z.object({
   ...axConfirmedDiagnosisSchema.shape,
   sourceNote: text, planCodex: axPlanSchema.optional(), planClaude: axPlanSchema.optional(),
 }).strict().refine(uniqueFactors, "6종 Factor가 각각 필요합니다.");
+export const axAttachmentMetaSchema = z.object({ name: z.string().min(1).max(255), type: z.string().max(120), size: z.number().int().min(0), lastModified: z.number().int().min(0), fingerprint: z.string().regex(/^[a-f0-9]{64}$/u) }).strict();
 export const axTaskSchema = z.object({
   ...axDetailsSchema.shape, id: z.string().min(1).max(120), name: z.string().trim().min(1).max(AX_LIMITS.name),
   description: z.string().trim().min(1).max(AX_LIMITS.description),
   status: z.enum(["registered", "needs-info", "diagnosed", "adjusted"]),
-  attachmentMeta: z.object({ name: z.string().min(1).max(255), type: z.string().max(120), size: z.number().int().min(0), lastModified: z.number().int().min(0), fingerprint: z.string().regex(/^[a-f0-9]{64}$/u) }).strict().optional(),
+  // attachmentMeta: 단일 첨부 시절의 대표 메타데이터 (기존 데이터·내보내기 호환용으로 유지)
+  attachmentMeta: axAttachmentMetaSchema.optional(),
+  // attachmentMetas: 다중 첨부 전체 목록. 읽을 때는 taskAttachments() 정규화를 거친다.
+  attachmentMetas: z.array(axAttachmentMetaSchema).min(1).max(AX_LIMITS.attachments).optional(),
   diagnosis: axDiagnosisSchema.optional(),
   createdAt: z.iso.datetime(), updatedAt: z.iso.datetime(),
 }).strict().superRefine((task, ctx) => {

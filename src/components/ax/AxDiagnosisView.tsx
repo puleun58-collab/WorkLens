@@ -16,6 +16,8 @@ import { diagnoseAx, planAx, interruptServerAi, aiFailureDetail } from "@/client
 import { AX_LIMITS, FACTOR_LABELS, axTaskSchema, axTaskV2Schema, confirmedAxDiagnosis } from "@/lib/ax/schema";
 import { axes, automationLevel, bubbleArea, executionGate, executionProfile, GATE_LABELS, planAllowed, priorityHeading, factorEffectiveValue, factorHasAdjustment, factorScale, matrixPosition, monthlyMinutes, nextAction, priority, splitGatePrerequisites, taskStatus, taskDisplayStatus } from "@/lib/ax/policy";
 import { candidateTask, taskDetails, followUpDescription, legacyDetailValues, validateAttachmentPreflight, isRegistrationUnchanged } from "@/lib/ax/registration";
+import { MAX_TASK_ATTACHMENTS, attachmentPatch, buildAttachmentSummary, combineAttachmentSummaries, taskAttachments } from "@/lib/ax/attachments";
+import type { AxAttachmentMeta } from "@/lib/ax/types";
 import { exportAxState, importAxState } from "@/lib/ax/transfer";
 import { emptyAxState, type AxStateV2, type AxTask, type AxDiagnosis, type AxDetails, type FactorKey } from "@/lib/ax/types";
 import { extractReviewableItems, extractPlanReviewableItems, reconcileReviews, validateReviewForConfirm, type ReviewableItem } from "@/lib/ax/hitl";
@@ -38,7 +40,9 @@ const DETAILS: { key: keyof AxDetails; label: string; placeholder: string; numer
   { key: "systems", label: "사용 시스템", placeholder: "예: Excel, ERP, 사내 시스템" }, { key: "inputs", label: "입력 자료", placeholder: "예: 정산 Excel, 청구서, 시스템 조회 데이터" }, { key: "outputs", label: "산출물", placeholder: "예: 월간 정산표, 검토 결과, 보고서" },
   { key: "humanSteps", label: "담당자 판단·승인 단계", placeholder: "예: 예외 건 검토, 금액 확인, 최종 승인" },
 ];
-type SessionAttachment = { meta: NonNullable<AxTask["attachmentMeta"]>; summary: string };
+type SessionAttachment = { meta: AxAttachmentMeta; summary: string };
+/** 등록 폼 초안 항목: 세션 요약이 있으면 준비됨, 메타만 복원된 항목은 summary가 null(재첨부 필요). */
+type DraftAttachment = { meta: AxAttachmentMeta; summary: string | null };
 type Confirmation = { kind: "import"; state: AxStateV2 } | { kind: "reset" } | { kind: "delete"; id: string };
 type RankedTask = { task: AxTask & { diagnosis: AxDiagnosis }; rank: number };
 
@@ -69,9 +73,13 @@ export function AxDiagnosisView() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [details, setDetails] = useState<Partial<Record<keyof AxDetails, string>>>({});
-  const [draftAttachment, setDraftAttachment] = useState<SessionAttachment | null>(null);
-  const attachments = useRef(new Map<string, SessionAttachment>());
-  const [attachmentIds, setAttachmentIds] = useState<string[]>([]);
+  const [draftAttachments, setDraftAttachments] = useState<DraftAttachment[]>([]);
+  const attachments = useRef(new Map<string, SessionAttachment[]>());
+  // 파일별 세션 요약 준비 여부 (렌더용): taskId → 요약이 준비된 파일 지문 목록. 실제 요약 본문은 attachments ref가 보유한다.
+  const [sessionReady, setSessionReady] = useState<Record<string, string[]>>({});
+  function markSessionReady(taskId: string, fingerprints: string[]) {
+    setSessionReady(current => fingerprints.length ? { ...current, [taskId]: fingerprints } : Object.fromEntries(Object.entries(current).filter(([id]) => id !== taskId)));
+  }
   const [answers, setAnswers] = useState<Record<string, string[]>>({});
   const importInput = useRef<HTMLInputElement>(null);
   const nameHelpId = useId();
@@ -204,12 +212,27 @@ export function AxDiagnosisView() {
     }
     return undefined;
   }, [state.step]);
-  function clearDraft() { setName(""); setDescription(""); setDetails({}); setDraftAttachment(null); setEditingId(null); }
+  function clearDraft() { setName(""); setDescription(""); setDetails({}); setDraftAttachments([]); setEditingId(null); }
   function editTask(task: AxTask) {
     select(task.id);
     setEditingId(task.id); setName(task.name); setDescription(task.description);
     setDetails(Object.fromEntries(Object.entries(taskDetails(task)).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)])));
-    setDraftAttachment(attachments.current.get(task.id) ?? null); changeStep(1);
+    // 저장된 메타데이터를 초안으로 복원한다. 세션 요약이 있는 파일은 준비됨으로,
+    // 새로고침 등으로 원본이 없는 파일은 재첨부 필요 상태로 표시한다.
+    const session = attachments.current.get(task.id) ?? [];
+    setDraftAttachments(taskAttachments(task).map(meta => {
+      const found = session.find(entry => entry.meta.fingerprint === meta.fingerprint);
+      return { meta, summary: found ? found.summary : null };
+    }));
+    changeStep(1);
+  }
+  /** 업무의 세션 요약이 모두 준비됐으면 통합 요약을, 하나라도 빠졌으면 undefined를 반환한다. */
+  function sessionSummary(taskId: string, metas: AxAttachmentMeta[]): string | undefined {
+    if (!metas.length) return undefined;
+    const session = attachments.current.get(taskId) ?? [];
+    const byFingerprint = new Map(session.map(entry => [entry.meta.fingerprint, entry]));
+    if (!metas.every(meta => byFingerprint.has(meta.fingerprint))) return undefined;
+    return combineAttachmentSummaries(metas.map(meta => ({ name: meta.name, summary: byFingerprint.get(meta.fingerprint)!.summary })));
   }
   function register(event: FormEvent) {
     event.preventDefault();
@@ -221,42 +244,116 @@ export function AxDiagnosisView() {
       const previous = state.tasks.find(t => t.id === editingId);
       const task = axTaskV2Schema.parse({ ...candidateTask(description), ...(previous ? legacyDetailValues(previous) : {}), ...inputs, name: name.trim() || description.trim().slice(0, 60),
         ...(previous ? { id: previous.id, createdAt: previous.createdAt } : {}),
-        ...((draftAttachment?.meta ?? previous?.attachmentMeta) ? { attachmentMeta: draftAttachment?.meta ?? previous?.attachmentMeta } : {}),
+        ...attachmentPatch(draftAttachments.map(entry => entry.meta)),
         // HITL: 기존 검토 기록 보존 (v1 스키마 사용 시 reviews 필드 손실 방지)
         ...(previous && "reviews" in previous && previous.reviews ? { reviews: previous.reviews } : {}),
       });
+      // 세션 요약 동기화: 초안에서 요약이 준비된 파일만 세션에 남긴다.
+      // 등록 내용이 그대로여도 폼에서 같은 파일을 다시 첨부해 요약이 복원된 경우를 반영한다.
+      const sessionEntries = draftAttachments.filter((entry): entry is SessionAttachment => entry.summary !== null);
+      const syncSession = () => {
+        if (sessionEntries.length) attachments.current.set(task.id, sessionEntries);
+        else attachments.current.delete(task.id);
+        markSessionReady(task.id, sessionEntries.map(entry => entry.meta.fingerprint));
+      };
       if (previous && isRegistrationUnchanged(previous, task)) {
-        clearDraft(); setMessage("변경된 내용이 없습니다."); return;
+        syncSession(); clearDraft(); setMessage("변경된 내용이 없습니다."); return;
       }
-      if (draftAttachment) { attachments.current.set(task.id, draftAttachment); setAttachmentIds(current => [...new Set([...current, task.id])]); }
+      syncSession();
       update(current => ({ ...current, tasks: editingId ? current.tasks.map(t => t.id === editingId ? task : t) : [...current.tasks, task], selectedTaskId: task.id }));
       clearDraft(); setMessage(previous ? "등록 정보를 수정했습니다. 변경된 정보로 다시 진단하세요." : "업무를 등록했습니다.");
     } catch { setMessage("등록 정보를 확인하세요. 설명은 필수이며 입력값의 길이와 숫자 범위를 확인해야 합니다."); }
   }
-  async function attach(file: File, taskId?: string) {
-    if (activeRun.current) return;
-    try { validateAttachmentPreflight(file); } catch (error) { setMessage(error instanceof Error ? error.message : "첨부 파일을 확인하세요."); return; }
-    activeRun.current = true; setBusy("attachment"); setMessage("");
+  /** 파일 1개를 워커로 파싱·분석해 개별 요약을 만든다. 실패하면 예외를 던지고 이미 처리된 다른 파일에는 영향을 주지 않는다. */
+  async function summarizeFile(file: File, bytes: Uint8Array<ArrayBuffer>): Promise<string> {
     const fileId = `ax-${crypto.randomUUID()}`;
     try {
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      const hash = await crypto.subtle.digest("SHA-256", bytes);
       const parsed = await runInWorker({ kind: "parse", fileId, fileName: file.name, bytes }, [bytes.buffer]);
       const [analyzed] = await runInWorker({ kind: "analyze", fileIds: [fileId] });
-      const summary = [`문서 유형: ${parsed.kind}`, `구조: 문단 ${analyzed.analysis.structure.paragraphCount}개, 표 ${analyzed.analysis.structure.tableCount}개`,
-        ...analyzed.topics.slice(0, 8).map(t => `주요 업무 단서: ${t.text.slice(0, 180)}`)].join("\n").slice(0, AX_LIMITS.attachmentSummary);
-      const attachment: SessionAttachment = { meta: { name: file.name, type: file.type, size: file.size, lastModified: file.lastModified, fingerprint: Array.from(new Uint8Array(hash), b => b.toString(16).padStart(2, "0")).join("") }, summary };
+      return buildAttachmentSummary(parsed.kind, analyzed.analysis.structure, analyzed.topics);
+    } finally { await runInWorker({ kind: "forget", fileIds: [fileId] }).catch(() => undefined); }
+  }
+  async function fingerprintOf(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
+    const hash = await crypto.subtle.digest("SHA-256", bytes);
+    return Array.from(new Uint8Array(hash), b => b.toString(16).padStart(2, "0")).join("");
+  }
+  /**
+   * 여러 파일을 한 번에 첨부한다. 파일별로 검증·분석하며 일부가 실패해도 성공한 파일은 유지한다.
+   * - 중복 판정은 파일명이 아니라 내용 지문(fingerprint) 기준이다.
+   * - taskId가 있으면 진단 화면의 재첨부 흐름이다: 지문이 일치하면 세션 요약만 복원하고,
+   *   이름이 같은 미복원 파일은 교체로, 그 외 새 파일은 추가로 반영한다. 메타데이터가 실제로
+   *   바뀐 경우에만 기존 진단을 무효화한다 (동일 파일 재선택만으로 초기화하지 않음).
+   */
+  async function attachFiles(files: File[], taskId?: string) {
+    if (activeRun.current || !files.length) return;
+    activeRun.current = true; setBusy("attachment"); setMessage("");
+    const failures: string[] = [];
+    let added = 0, restored = 0, duplicates = 0;
+    try {
+      const task = taskId ? getState().tasks.find(t => t.id === taskId) : undefined;
+      if (taskId && !task) return;
+      let metas: AxAttachmentMeta[] = task ? taskAttachments(task) : draftAttachments.map(entry => entry.meta);
+      const session = new Map<string, SessionAttachment>((taskId ? attachments.current.get(taskId) ?? [] : draftAttachments.filter((entry): entry is SessionAttachment => entry.summary !== null)).map(entry => [entry.meta.fingerprint, entry]));
+      let metasChanged = false;
+      for (const file of files) {
+        try { validateAttachmentPreflight(file); } catch (error) { failures.push(error instanceof Error ? error.message : "첨부 파일을 확인하세요."); continue; }
+        let fingerprint: string;
+        let bytes: Uint8Array<ArrayBuffer>;
+        try {
+          bytes = new Uint8Array(await file.arrayBuffer());
+          fingerprint = await fingerprintOf(bytes);
+        } catch { failures.push(`'${file.name}' 파일을 읽지 못했습니다.`); continue; }
+        if (session.has(fingerprint)) { duplicates++; continue; }
+        const meta: AxAttachmentMeta = { name: file.name, type: file.type, size: file.size, lastModified: file.lastModified, fingerprint };
+        // 이미 메타데이터가 있는 동일 파일(새로고침 후 재첨부 등)은 목록을 바꾸지 않고 요약만 복원한다.
+        const existingMeta = metas.find(m => m.fingerprint === fingerprint);
+        // 진단 화면 재첨부: 이름이 같은 미복원 메타데이터는 같은 파일의 교체로 본다.
+        const nameSlot = !existingMeta && task ? metas.find(m => m.name === file.name && !session.has(m.fingerprint)) : undefined;
+        if (!existingMeta && !nameSlot && metas.length >= MAX_TASK_ATTACHMENTS) { failures.push(`첨부는 업무당 최대 ${MAX_TASK_ATTACHMENTS}개까지 가능합니다. '${file.name}' 파일은 추가하지 않았습니다.`); continue; }
+        let summary: string;
+        try { summary = await summarizeFile(file, bytes); } catch { failures.push(`'${file.name}' 파일을 읽지 못했습니다. 지원 형식과 파일 상태를 확인하세요.`); continue; }
+        if (!alive.current) return;
+        if (existingMeta) { session.set(fingerprint, { meta: existingMeta, summary }); restored++; }
+        else if (nameSlot) {
+          metas = metas.map(m => m.fingerprint === nameSlot.fingerprint ? meta : m);
+          session.set(fingerprint, { meta, summary }); metasChanged = true; added++;
+        } else {
+          metas = [...metas, meta];
+          session.set(fingerprint, { meta, summary }); metasChanged = true; added++;
+        }
+      }
+      const orderedSession = metas.flatMap(meta => { const entry = session.get(meta.fingerprint); return entry ? [entry] : []; });
+      if (taskId && task) {
+        attachments.current.set(taskId, orderedSession);
+        markSessionReady(taskId, orderedSession.map(entry => entry.meta.fingerprint));
+        if (metasChanged) patchTask(taskId, { ...attachmentPatch(metas), diagnosis: undefined, status: "registered" });
+      } else {
+        setDraftAttachments(metas.map(meta => { const entry = session.get(meta.fingerprint); return { meta, summary: entry ? entry.summary : null }; }));
+      }
       if (!alive.current) return;
-      if (taskId) { attachments.current.set(taskId, attachment); setAttachmentIds(current => [...new Set([...current, taskId])]); patchTask(taskId, { attachmentMeta: attachment.meta, diagnosis: undefined, status: "registered" }); }
-      else setDraftAttachment(attachment);
-      setMessage("첨부 요약을 준비했습니다. 진단 실행 시 요약만 AI에 전송됩니다.");
-    } catch { if (alive.current) setMessage("첨부 파일을 읽지 못했습니다. 지원 형식과 파일 상태를 확인하세요."); }
-    finally { await runInWorker({ kind: "forget", fileIds: [fileId] }).catch(() => undefined); activeRun.current = false; if (alive.current) setBusy(null); }
+      if (added + restored > 0) {
+        const notes = [
+          ...(duplicates ? [`이미 첨부된 동일한 파일 ${duplicates}개는 중복으로 추가하지 않았습니다.`] : []),
+          ...failures,
+        ];
+        setMessage(`첨부 요약을 준비했습니다. 진단 실행 시 요약만 AI에 전송됩니다.${notes.length ? ` ${notes.join(" ")}` : ""}`);
+      } else if (duplicates > 0 && !failures.length) {
+        setMessage(`첨부 요약을 준비했습니다. 진단 실행 시 요약만 AI에 전송됩니다. 이미 첨부된 동일한 파일 ${duplicates}개는 중복으로 추가하지 않았습니다.`);
+      } else if (failures.length === 1 && files.length === 1) {
+        setMessage(failures[0]);
+      } else if (failures.length) {
+        setMessage(failures.join(" "));
+      }
+    } finally { activeRun.current = false; if (alive.current) setBusy(null); }
+  }
+  function removeDraftAttachment(fingerprint: string) {
+    setDraftAttachments(current => current.filter(entry => entry.meta.fingerprint !== fingerprint));
   }
   async function diagnose(task: AxTask, withAnswers = false) {
     if (activeRun.current) return;
-    const attachment = attachments.current.get(task.id);
-    if (task.attachmentMeta && !attachment) { setMessage("첨부 파일이 사용됨 — 재분석 시 재첨부 필요"); return; }
+    const metas = taskAttachments(task);
+    const attachmentSummary = sessionSummary(task.id, metas);
+    if (metas.length && !attachmentSummary) { setMessage("첨부 파일이 사용됨 — 재분석 시 재첨부 필요"); return; }
     const revised = withAnswers ? followUpDescription(task.description, task.diagnosis?.followUpQuestions ?? [], answers[task.id] ?? []) : task.description;
     if (withAnswers) {
       if (revised === task.description) { setMessage("추가 질문에 답변을 입력하세요."); return; }
@@ -274,17 +371,17 @@ export function AxDiagnosisView() {
       name: task.name,
       description: revised,
       details: taskDetails(task),
-      attachmentSummary: attachment?.summary ?? null,
+      attachmentSummary: attachmentSummary ?? null,
     });
     try {
-      const output = await diagnoseAx({ kind: "ax-diagnosis", name: task.name, description: revised, details: taskDetails(task), ...(attachment ? { attachmentSummary: attachment.summary } : {}) });
+      const output = await diagnoseAx({ kind: "ax-diagnosis", name: task.name, description: revised, details: taskDetails(task), ...(attachmentSummary ? { attachmentSummary } : {}) });
       if (!alive.current) return;
       // 오래된 응답 보호: 더 새로운 요청이 시작되었으면 이 응답을 버림
       if (taskRequestSeq.current.get(task.id) !== mySeq) {
         setMessage("최신 상태가 변경되어 이전 진단 결과를 반영하지 않았습니다.");
         return;
       }
-      const diagnosis: AxDiagnosis = { ...output, sourceNote: attachment ? "첨부 파일 요약 기반 진단 · 첨부 파일이 사용됨 — 재분석 시 재첨부 필요" : "사용자 등록 정보 기반 진단" };
+      const diagnosis: AxDiagnosis = { ...output, sourceNote: attachmentSummary ? "첨부 파일 요약 기반 진단 · 첨부 파일이 사용됨 — 재분석 시 재첨부 필요" : "사용자 등록 정보 기반 진단" };
       // HITL: 재진단 시 기존 검토와 새 진단 비교 → 변경된 항목 stale 처리
       // 원자적 갱신: 진단과 검토 상태를 단일 update()로 처리, 최신 state 기준
       update(current => {
@@ -304,7 +401,7 @@ export function AxDiagnosisView() {
           name: latestTask.name,
           description: latestRevised,
           details: taskDetails(latestTask),
-          attachmentSummary: attachments.current.get(latestTask.id)?.summary ?? null,
+          attachmentSummary: sessionSummary(latestTask.id, taskAttachments(latestTask)) ?? null,
         });
         if (latestInput !== requestInput) {
           setMessage("업무 정보가 변경되어 이전 진단 결과를 반영하지 않았습니다.");
@@ -432,19 +529,19 @@ export function AxDiagnosisView() {
       if (file.size > AX_LIMITS.transferBytes) throw new Error("가져오기 파일은 8MB 이하여야 합니다.");
       const imported = importAxState(await file.text());
       if (state.tasks.length || storageProtection !== "writable") setConfirmation({ kind: "import", state: imported });
-      else { const saved = await replace(imported); attachments.current.clear(); setAttachmentIds([]); clearDraft(); setMessage(saved ? "AI•AX 데이터를 가져왔습니다." : "AI•AX 데이터를 가져왔으나 브라우저 저장에 실패했습니다. 내보내기로 보관하세요."); }
+      else { const saved = await replace(imported); attachments.current.clear(); setSessionReady({}); clearDraft(); setMessage(saved ? "AI•AX 데이터를 가져왔습니다." : "AI•AX 데이터를 가져왔으나 브라우저 저장에 실패했습니다. 내보내기로 보관하세요."); }
     } catch (error) { setMessage((error as Error).message); }
   }
   async function confirm() {
     if (!confirmation) return;
     const action = confirmation; setConfirmation(null);
     if (action.kind === "delete") {
-      attachments.current.delete(action.id); setAttachmentIds(current => current.filter(id => id !== action.id));
+      attachments.current.delete(action.id); markSessionReady(action.id, []);
       if (editingId === action.id) clearDraft();
       update(current => { const tasks = current.tasks.filter(t => t.id !== action.id); return { ...current, tasks, selectedTaskId: current.selectedTaskId === action.id ? displayed.find(row => row.task.id !== action.id)?.task.id ?? tasks[0]?.id ?? null : current.selectedTaskId }; });
     } else {
       const saved = await replace(action.kind === "reset" ? emptyAxState() : action.state, action.kind === "reset");
-      attachments.current.clear(); setAttachmentIds([]); clearDraft(); setAnswers({});
+      attachments.current.clear(); setSessionReady({}); clearDraft(); setAnswers({});
       setMessage(saved ? action.kind === "reset" ? "AI•AX 데이터를 초기화했습니다." : "AI•AX 데이터를 가져왔습니다." : "화면 데이터를 변경했으나 브라우저 저장에 실패했습니다. 새로고침 시 이전 데이터가 복원될 수 있습니다.");
     }
   }
@@ -491,10 +588,15 @@ export function AxDiagnosisView() {
       </Button></li>;
     })}</ol></>;
   }
-  function detach(task: AxTask) {
-    attachments.current.delete(task.id); setAttachmentIds(current => current.filter(id => id !== task.id));
-    patchTask(task.id, { attachmentMeta: undefined, diagnosis: undefined, status: "registered" });
-    setMessage("첨부를 해제했습니다. 등록 정보로 다시 진단할 수 있습니다.");
+  /** 첨부 파일 1개만 해제한다. 나머지 파일과 그 요약은 유지되며, 첨부 구성이 바뀌었으므로 기존 진단은 무효화된다. */
+  function detachFile(task: AxTask, fingerprint: string) {
+    const remaining = taskAttachments(task).filter(meta => meta.fingerprint !== fingerprint);
+    const session = (attachments.current.get(task.id) ?? []).filter(entry => entry.meta.fingerprint !== fingerprint);
+    if (session.length) attachments.current.set(task.id, session);
+    else attachments.current.delete(task.id);
+    markSessionReady(task.id, session.map(entry => entry.meta.fingerprint));
+    patchTask(task.id, { ...attachmentPatch(remaining), diagnosis: undefined, status: "registered" });
+    setMessage(remaining.length ? "첨부 파일 1개를 해제했습니다. 변경된 첨부 구성으로 다시 진단하세요." : "첨부를 해제했습니다. 등록 정보로 다시 진단할 수 있습니다.");
   }
   return <section className="ax-view" aria-label="업무 자동화 진단" aria-busy={!!busy}>
     <div className="ax-data-actions">
@@ -518,8 +620,8 @@ export function AxDiagnosisView() {
             <div className="ax-field"><label className="ax-field">업무명<Input type="text" value={name} maxLength={AX_LIMITS.name} onChange={e => setName(e.target.value)} disabled={!!busy} aria-describedby={nameHelpId} /></label><small id={nameHelpId}>비워두면 업무 설명을 기준으로 자동 생성</small></div>
             <label className="ax-field"><span className="ax-required-label">업무 설명</span><Textarea value={description} required maxLength={AX_LIMITS.description} onChange={e => setDescription(e.target.value)} disabled={!!busy} placeholder="반복 업무·입력 자료·결과물 설명" rows={5} /></label>
             <div className="ax-register-files">
-              <AxAttachmentInput disabled={!!busy} onSelect={file => void attach(file)} />
-              {draftAttachment ? <div className="ax-file-row"><FileText className="size-4" aria-hidden="true" /><span className="ax-file-name">{draftAttachment.meta.name}</span><span className="ax-file-status">준비됨</span><Button type="button" variant="ghost" size="icon-xs" aria-label="첨부 취소" onClick={() => setDraftAttachment(null)} disabled={!!busy}><X aria-hidden="true" /></Button></div> : null}
+              <AxAttachmentInput disabled={!!busy} onSelectFiles={files => void attachFiles(files)} />
+              {draftAttachments.map(entry => <div className="ax-file-row" key={entry.meta.fingerprint}><FileText className="size-4" aria-hidden="true" /><span className="ax-file-name">{entry.meta.name}</span><span className="ax-file-status">{entry.summary !== null ? "준비됨" : "재첨부 필요"}</span><Button type="button" variant="ghost" size="icon-xs" aria-label="첨부 취소" onClick={() => removeDraftAttachment(entry.meta.fingerprint)} disabled={!!busy}><X aria-hidden="true" /></Button></div>)}
             </div>
             <Accordion><AccordionItem value="details">
               <div className="ax-register-actions"><AccordionTrigger type="button" className="ax-details-trigger" disabled={!!busy}>추가 정보</AccordionTrigger><div className="ax-register-submit">{editingId ? <Button type="button" variant="ghost" onClick={clearDraft}>수정 취소</Button> : null}<Button type="submit" disabled={!!busy || !description.trim()}>{editingId ? "수정 등록" : "업무 등록"}</Button></div></div>
@@ -534,7 +636,7 @@ export function AxDiagnosisView() {
           <section className="ax-surface" aria-label="등록 업무 목록"><h3>업무 목록</h3>{taskRows(false)}</section>
           <div className="ax-detail-col">{selected ? <>
             <DiagnosisCard task={selected} busy={busy} onDiagnose={() => void diagnose(selected)} onEdit={() => editTask(selected)}
-              attachment={<TaskAttachment task={selected} busy={busy} inSession={attachmentIds.includes(selected.id)} onDetach={() => detach(selected)} onAttach={file => void attach(file, selected.id)} />} />
+              attachment={<TaskAttachment task={selected} busy={busy} ready={new Set(sessionReady[selected.id] ?? [])} onDetachFile={fingerprint => detachFile(selected, fingerprint)} onAttachFiles={files => void attachFiles(files, selected.id)} />} />
             {selected.diagnosis ? <>
               {selected.diagnosis.followUpQuestions.length ? <section className="ax-surface ax-questions" id="ax-answer-section" aria-label="추가 질문 답변"><h3>추가 질문 {selected.diagnosis.followUpQuestions.length}개</h3>{selected.diagnosis.followUpQuestions.map((q, i) => <label className="ax-field" key={i}>{q}<Textarea rows={2} maxLength={500} disabled={!!busy} value={answers[selected.id]?.[i] ?? ""} onChange={e => setAnswers(current => { const values = [...(current[selected.id] ?? [])]; values[i] = e.target.value; return { ...current, [selected.id]: values }; })} /></label>)}<Button type="button" className="ax-rediagnose" disabled={!!busy} onClick={() => void diagnose(selected, true)}>답변 반영 후 재진단</Button></section> : null}
               <section className="ax-surface"><h3>진단 항목</h3><p className="ax-muted">필요하면 AI 평가값을 조정할 수 있습니다. 변경한 값은 자동화 수준과 우선순위에 바로 반영됩니다.</p>
@@ -740,23 +842,27 @@ function MatrixDetailCard({ task, diagnosis }: { task: AxTask; diagnosis: AxDiag
   </section>;
 }
 /** Attachment status as an element (not a render-time function call) so lint ref rules stay quiet. */
-function TaskAttachment({ task, busy, inSession, onDetach, onAttach }: {
-  task: AxTask; busy: string | null; inSession: boolean; onDetach: () => void; onAttach: (file: File) => void;
+function TaskAttachment({ task, busy, ready, onDetachFile, onAttachFiles }: {
+  task: AxTask; busy: string | null; ready: ReadonlySet<string>; onDetachFile: (fingerprint: string) => void; onAttachFiles: (files: File[]) => void;
 }) {
-  if (!task.attachmentMeta) return null;
-  return <div className="ax-attachment"><p>{task.attachmentMeta.name} · {inSession ? "세션 요약 준비됨" : "첨부 파일이 사용됨 — 재분석 시 재첨부 필요"}</p>
-    {inSession ? <Button type="button" variant="ghost" disabled={!!busy} onClick={onDetach}>첨부 해제</Button> : <AxAttachmentInput disabled={!!busy} onSelect={onAttach} />}</div>;
+  const metas = taskAttachments(task);
+  if (!metas.length) return null;
+  const missing = metas.some(meta => !ready.has(meta.fingerprint));
+  return <div className="ax-attachment">
+    {metas.map(meta => <div className="ax-file-row" key={meta.fingerprint}><FileText className="size-4" aria-hidden="true" /><span className="ax-file-name">{meta.name}</span><span className="ax-file-status">{" · "}{ready.has(meta.fingerprint) ? "세션 요약 준비됨" : "첨부 파일이 사용됨 — 재분석 시 재첨부 필요"}</span><Button type="button" variant="ghost" size="icon-xs" aria-label="첨부 해제" disabled={!!busy} onClick={() => onDetachFile(meta.fingerprint)}><X aria-hidden="true" /></Button></div>)}
+    {missing ? <AxAttachmentInput disabled={!!busy} onSelectFiles={onAttachFiles} /> : null}
+  </div>;
 }
 /** Restores finalValue → aiValue; an outlined icon action so it never reads as the factor's own cycle icon. */
 function AiValueReset({ disabled, onReset }: { disabled: boolean; onReset: () => void }) {
   const label = "AI 제안값으로 되돌리기";
   return <Tooltip><TooltipTrigger render={<Button type="button" variant="outline" size="icon-sm" className="ax-factor-reset" aria-label={label} disabled={disabled} onClick={onReset} />}><RotateCcw aria-hidden="true" /></TooltipTrigger><TooltipPopup>{label}</TooltipPopup></Tooltip>;
 }
-function AxAttachmentInput({ disabled, onSelect }: { disabled: boolean; onSelect: (file: File) => void }) {
+function AxAttachmentInput({ disabled, onSelectFiles }: { disabled: boolean; onSelectFiles: (files: File[]) => void }) {
   const input = useRef<HTMLInputElement>(null);
   return <div className="ax-field ax-file-input">
-    <input ref={input} type="file" hidden accept=".xlsx,.csv,.pdf,.docx,.pptx" aria-label="파일 추가" disabled={disabled} onChange={event => {
-      const file = event.target.files?.[0]; event.target.value = ""; if (file) onSelect(file);
+    <input ref={input} type="file" hidden multiple accept=".xlsx,.csv,.pdf,.docx,.pptx" aria-label="파일 추가" disabled={disabled} onChange={event => {
+      const files = Array.from(event.target.files ?? []); event.target.value = ""; if (files.length) onSelectFiles(files);
     }} />
     <Button type="button" variant="outline" disabled={disabled} onClick={() => input.current?.click()}><Paperclip aria-hidden="true" />파일 추가</Button>
   </div>;

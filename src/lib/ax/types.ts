@@ -1,6 +1,7 @@
 import type { z } from "zod";
-import type { axTaskSchema, axDiagnosisSchema, axPlanSchema, axStateSchema, axDetailsSchema, axDiagnosisRequestSchema, axPlanRequestSchema, FACTOR_KEYS, hitlReviewSchema, hitlReviewCollectionSchema, axTaskV2Schema, axStateV2Schema, HITL_TARGET_TYPES, HITL_ACTIONS, HITL_STATUSES } from "./schema";
+import type { axTaskSchema, axDiagnosisSchema, axPlanSchema, axStateSchema, axDetailsSchema, axDiagnosisRequestSchema, axPlanRequestSchema, FACTOR_KEYS, hitlReviewSchema, hitlReviewCollectionSchema, axTaskV2Schema, axStateV2Schema, HITL_TARGET_TYPES, HITL_ACTIONS, HITL_STATUSES, axAttachmentMetaSchema } from "./schema";
 export type AxTask = z.infer<typeof axTaskSchema>;
+export type AxAttachmentMeta = z.infer<typeof axAttachmentMetaSchema>;
 export type AxDiagnosis = z.infer<typeof axDiagnosisSchema>;
 export type AxPlan = z.infer<typeof axPlanSchema>;
 export type AxState = z.infer<typeof axStateSchema>;
