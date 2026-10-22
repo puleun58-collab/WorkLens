@@ -1,4 +1,5 @@
 import { AX_LIMITS, axDetailsSchema } from "./schema";
+import { taskAttachments } from "./attachments";
 import type { AxTask } from "./types";
 import { inputLimitFor } from "@/lib/parsers/policy";
 export function candidateTask(description: string): AxTask {
@@ -24,11 +25,13 @@ export function followUpDescription(description: string, questions: string[], an
 export function registrationSnapshot(task: AxTask): string {
   const details = taskDetails(task);
   const legacy = legacyDetailValues(task);
-  const attachment = task.attachmentMeta ? {
-    name: task.attachmentMeta.name, type: task.attachmentMeta.type, size: task.attachmentMeta.size,
-    lastModified: task.attachmentMeta.lastModified, fingerprint: task.attachmentMeta.fingerprint,
-  } : null;
-  return JSON.stringify({ name: task.name, description: task.description, details, legacy, attachment });
+  // 단일 첨부 시절 표현(attachmentMeta)과 다중 첨부 표현(attachmentMetas)이 달라도
+  // 정규화된 목록이 같으면 동일한 등록 내용으로 본다.
+  const attachments = taskAttachments(task).map(meta => ({
+    name: meta.name, type: meta.type, size: meta.size,
+    lastModified: meta.lastModified, fingerprint: meta.fingerprint,
+  }));
+  return JSON.stringify({ name: task.name, description: task.description, details, legacy, attachments });
 }
 /** True when the parsed edit result holds the same registration content as the stored task. */
 export function isRegistrationUnchanged(previous: AxTask, updated: AxTask): boolean {

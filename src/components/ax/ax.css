@@ -37,10 +37,11 @@
 .ax-register-submit { display: flex; gap: 8px; margin-left: auto; }
 .ax-register-files { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .ax-field.ax-file-input { flex-direction: row; align-items: center; gap: 8px; }
-.ax-file-row { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: color-mix(in srgb, var(--muted) 45%, transparent); border: 1px solid var(--border); border-radius: 8px; font-size: var(--font-size-xs); min-width: 0; }
-.ax-file-row > svg { flex: none; color: var(--muted-foreground); }
-.ax-file-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.ax-file-status { color: var(--muted-foreground); font-size: 11px; white-space: nowrap; }
+.ax-file-row { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: #E3ECFA; border: 1px solid #C7D8F0; border-radius: 8px; font-size: var(--font-size-xs); min-width: 0; }
+.ax-file-row > svg { flex: none; color: #52657F; }
+.ax-file-row > button { flex: none; color: #52657F; }
+.ax-file-name { flex: 1; min-width: 0; overflow-wrap: anywhere; color: #24344A; }
+.ax-file-status { color: #52657F; font-size: 11px; white-space: nowrap; }
 .ax-kpi-cards { display: grid; grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); gap: 20px; }
 .ax-kpi { display: flex; flex-direction: column; gap: 4px; padding: 16px 18px; }
 .ax-kpi-label { display: inline-flex; align-items: center; gap: 6px; color: var(--muted-foreground); font-size: var(--font-size-xs); }
@@ -304,7 +305,8 @@
 .ax-gate-checks { display: flex; flex-wrap: wrap; gap: 4px 8px; margin: 4px 0 8px; color: var(--muted-foreground); }
 .ax-gate-checks > span:first-child { color: var(--foreground); font-weight: 600; }
 .ax-gate-checks > span:first-child::after { content: ":"; }
-.ax-attachment { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-top: 12px; }
+.ax-attachment { display: flex; flex-direction: column; align-items: stretch; gap: 8px; padding-top: 12px; min-width: 0; }
+.ax-attachment .ax-file-status { white-space: normal; overflow-wrap: anywhere; }
 /* Plan generation is a secondary action: white surface, stronger outline/text, pale-blue hover — not a primary fill. */
 .ax-view .ax-plan-generate { background: var(--card); color: var(--foreground); border-color: color-mix(in srgb, var(--foreground) 22%, var(--border)); }
 .ax-view .ax-plan-generate:not(:disabled):hover { background: color-mix(in srgb, var(--primary) 7%, var(--card)); border-color: color-mix(in srgb, var(--primary) 35%, var(--border)); }
