@@ -173,7 +173,11 @@ test("AX registration → diagnosis → correction → matrix → plans → relo
   await expect(page.getByLabel("매트릭스 업무 목록")).toContainText("가치 3 · 실현 4");
   // 매트릭스 하단 TOP 3는 제거됨 — 분류·축 점수는 선택 업무 상세 분석에서 확인한다.
   await expect(page.locator(".ax-matrix-detail .ax-region-chip")).toHaveText("검토 후보");
-  await expect(page.locator(".ax-matrix-detail")).toContainText("자동화 가치 3점 · 기술 실현 가능성 4점");
+  // 축 점수는 점수 카드에서 확인한다. 핵심 판단 근거에는 카드와 중복되는 점수 요약을 반복하지 않고 고유 근거만 남는다.
+  await expect(page.locator(".ax-matrix-detail")).toContainText("자동화 가치 5점 만점에 3점");
+  await expect(page.locator(".ax-matrix-detail")).toContainText("기술 실현 가능성 5점 만점에 4점");
+  await expect(page.locator(".ax-matrix-detail .ax-matrix-rationale")).not.toContainText("자동화 가치 3점 · 기술 실현 가능성 4점");
+  await expect(page.locator(".ax-matrix-detail .ax-matrix-rationale")).toContainText("규칙성 4점 — 등록된 반복 업무와 승인 조건 근거");
   const matrix = await page.evaluate(() => {
     const header = document.querySelector(".ax-matrix-header")!.getBoundingClientRect(), chart = document.querySelector(".ax-matrix")!.getBoundingClientRect();
     const origin = document.querySelector(".ax-x-tick.is-origin")!.getBoundingClientRect();

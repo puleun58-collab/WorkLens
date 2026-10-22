@@ -131,6 +131,38 @@ export function gateRecommendedChecks(d: AxDiagnosis): string[] {
   return [...new Set(items)].slice(0, 10);
 }
 
+/** 표시 전용 주제 키: 확인 항목 라벨("주제 — 비고")의 주제 부분과, 같은 주제를 묻는
+ * 추가 질문("API 제공 여부를 알려주세요.")을 하나의 조건으로 식별한다. */
+function prerequisiteTopicKey(text: string): string {
+  const head = text.split(" — ")[0];
+  let topic = head.trim().toLowerCase().replace(/\s+/g, "").replace(/[.?。]+$/, "");
+  topic = topic.replace(/(을|를)?(알려주세요|알려주십시오|확인해주세요)$/, "");
+  topic = topic.replace(/(인가요|인지요|입니까)$/, "");
+  return topic.replace(/(을|를)$/, "");
+}
+
+/**
+ * Display-only dedupe for prerequisite lines: 같은 확인 조건이 여러 출처(기술 확인·추가 질문 등)에서
+ * 반복되면 첫 항목만 남긴다. 주제가 다른 조건은 합치지 않는다 — 예를 들어 "API 제공 여부"와
+ * "API 접근 권한"은 서로 다른 조건으로 각각 유지한다 (diagnosisCheckItems와 동일한 기준).
+ * 원본 데이터·Gate 판정·계산은 변경하지 않는다.
+ */
+function dedupePrerequisiteLines(items: string[]): string[] {
+  const seenExact = new Set<string>();
+  const seenTopics = new Set<string>();
+  const result: string[] = [];
+  for (const item of items) {
+    const exactKey = item.trim().toLowerCase();
+    if (!exactKey || seenExact.has(exactKey)) continue;
+    const topic = prerequisiteTopicKey(item);
+    if (topic && seenTopics.has(topic)) continue;
+    seenExact.add(exactKey);
+    if (topic) seenTopics.add(topic);
+    result.push(item);
+  }
+  return result;
+}
+
 /**
  * Display-only: 화면 표시용으로 필수 선행 조건과 권장 확인사항을 분리한다.
  * `required`는 gatePrerequisites에서 선택 항목을 제외한 목록과 동일하고,
@@ -141,8 +173,8 @@ export function splitGatePrerequisites(d: AxDiagnosis): { required: string[]; re
     d.technicalChecks.filter(c => c.status !== "확인됨" && c.required === false).map(optionalCheckLabel),
   );
   return {
-    required: gatePrerequisites(d).filter(item => !optionalLabels.has(item)),
-    recommended: gateRecommendedChecks(d),
+    required: dedupePrerequisiteLines(gatePrerequisites(d).filter(item => !optionalLabels.has(item))),
+    recommended: dedupePrerequisiteLines(gateRecommendedChecks(d)),
   };
 }
 

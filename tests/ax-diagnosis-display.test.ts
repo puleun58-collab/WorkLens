@@ -35,11 +35,29 @@ describe("diagnosis display helpers", () => {
     const items = diagnosisCheckItems(d);
     expect(items[0]).toMatchObject({ title: "필수 시스템 접근 불가", badge: "보류 사유", kind: "block" });
   });
-  test("matrix rationale bullets reference real scores and region", () => {
+  test("matrix rationale bullets keep the unique driver rationale without repeating card scores or classification", () => {
     const d = { ...outputFixture(), sourceNote: "test" };
     const bullets = matrixRationaleBullets(d);
     expect(bullets.length).toBeGreaterThan(0);
     expect(bullets.length).toBeLessThanOrEqual(3);
-    expect(bullets[0]).toMatch(/자동화 가치 \d점 · 기술 실현 가능성 \d점 → 「.+」 분류/);
+    // 점수 카드·상단 배지와 중복되는 축 점수 요약과 분류 문구는 표시하지 않는다.
+    for (const b of bullets) {
+      expect(b).not.toMatch(/자동화 가치 \d점 · 기술 실현 가능성 \d점/);
+      expect(b).not.toContain("분류");
+    }
+    // 고유한 판단 근거(최상위 동인 팩터의 평가 근거)는 유지한다.
+    expect(bullets.join(" ")).toContain("등록된 반복 업무와 승인 조건 근거");
+  });
+  test("matrix rationale constraints describe high judgment/risk without repeating their card scores", () => {
+    const d = { ...outputFixture(), sourceNote: "test" };
+    const high = {
+      ...d,
+      factors: d.factors.map(f => f.key === "humanJudgment" || f.key === "operationalRisk" ? { ...f, aiValue: 5 } : f),
+    };
+    const bullets = matrixRationaleBullets(high);
+    expect(bullets.join(" ")).toContain("담당자 판단 필요도가 높아 담당자 수행 유지");
+    expect(bullets.join(" ")).toContain("운영 위험이 높음");
+    expect(bullets.join(" ")).not.toContain("담당자 판단 필요도 5점");
+    expect(bullets.join(" ")).not.toContain("운영 위험 5점");
   });
 });

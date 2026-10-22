@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { AlertTriangle, ArrowRight, Ban, BookOpen, Bot, BrainCircuit, ChartNoAxesColumnIncreasing, Check, CheckCircle2, CircleAlert, CircleCheck, CircleX, Clipboard, ClipboardCheck, ClipboardList, Clock, CloudUpload, Copy, Database, Download, FileCode2, FileOutput, FileSpreadsheet, FileText, Flag, FlaskConical, Folder, GitBranch, Globe, Info, ListChecks, MonitorCog, Play, Plug, Search, Settings2, ShieldAlert, ShieldCheck, Target, Terminal, TriangleAlert, UserRound } from "lucide-react";
 import type { AxDiagnosis, AxPlan, AxTask, AxTaskV2, HitlReview } from "@/lib/ax/types";
-import { automationLevel, axes, executionGate, executionProfile, factorEffectiveValue, GATE_LABELS, gateBlockReasons, gatePrerequisites, matrixPosition, nextAction, type ExecutionProfile } from "@/lib/ax/policy";
+import { automationLevel, axes, executionGate, executionProfile, factorEffectiveValue, GATE_LABELS, gateBlockReasons, nextAction, type ExecutionProfile } from "@/lib/ax/policy";
 import { FACTOR_LABELS } from "@/lib/ax/schema";
 import { Badge } from "@/components/ui/badge";
 import { Accordion, AccordionItem, AccordionPanel, AccordionTrigger } from "@/components/ui/accordion";
@@ -84,10 +84,11 @@ export function diagnosisCheckItems(d: AxDiagnosis): AxCheckItem[] {
   }
   return items;
 }
-/** Data-only bullets for the matrix "핵심 판단 근거" area: classification, strongest value driver, and the binding constraint. */
+/** Data-only bullets for the matrix "핵심 판단 근거" area: the strongest value driver's rationale and the binding constraint.
+ * The axis scores and classification already shown in the score cards and header badges are not repeated here. */
 export function matrixRationaleBullets(d: AxDiagnosis): string[] {
-  const a = axes(d), m = matrixPosition(d), gate = executionGate(d);
-  const bullets = [`자동화 가치 ${a.value}점 · 기술 실현 가능성 ${a.feasibility}점 → 「${m.label}」 분류`];
+  const a = axes(d), gate = executionGate(d);
+  const bullets: string[] = [];
   const driver = (["repetition", "regularity", "dataStructure", "systemAccess"] as const)
     .map(key => d.factors.find(f => f.key === key)!)
     .sort((x, y) => factorEffectiveValue(y) - factorEffectiveValue(x))[0];
@@ -95,9 +96,8 @@ export function matrixRationaleBullets(d: AxDiagnosis): string[] {
   const constraints: string[] = [];
   if (gate === "blocked") { const reason = gateBlockReasons(d)[0]; if (reason) constraints.push(`진행 보류: ${reason}`); }
   else {
-    if (a.judgment >= 4) constraints.push(`담당자 판단 필요도 ${a.judgment}점 — 담당자 수행 유지`);
-    if (a.risk >= 4) constraints.push(`운영 위험 ${a.risk}점`);
-    if (gate === "conditional") constraints.push(`확인 후 진행 — 선행 조건 ${gatePrerequisites(d).length}개`);
+    if (a.judgment >= 4) constraints.push("담당자 판단 필요도가 높아 담당자 수행 유지");
+    if (a.risk >= 4) constraints.push("운영 위험이 높음");
   }
   if (constraints.length) bullets.push(constraints.join(" · "));
   return bullets.slice(0, 3);

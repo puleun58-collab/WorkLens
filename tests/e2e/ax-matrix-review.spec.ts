@@ -190,9 +190,23 @@ for (const viewport of VIEWPORTS) {
     if (await bubble.count()) await expect(bubble).toHaveAttribute("aria-pressed", "true");
     else await expect(page.locator('.ax-matrix-cluster[data-selected="true"]')).toHaveCount(1);
     if (executionGate(third.diagnosis!) !== "ready") {
-      const basis = detail.getByRole("definition").first();
-      await expect(detail.locator(".ax-gate-basis dt")).toHaveText(["진행 상태", "판정 근거", "현재 가능 범위", "다음 조치"]);
-      await expect(basis.locator(".ax-gate-badge")).toHaveAttribute("data-gate", executionGate(third.diagnosis!));
+      // 하단 4행 표는 2줄 텍스트로 간소화됨 — 진행 상태·판정 근거 행은 없고,
+      // 진행 상태 배지는 상세 상단 배지 영역에만 한 번 표시된다.
+      await expect(detail.locator(".ax-gate-basis")).toHaveCount(0);
+      await expect(detail.getByText("진행 상태", { exact: true })).toHaveCount(0);
+      await expect(detail.getByText("판정 근거", { exact: true })).toHaveCount(0);
+      const lines = detail.locator(".ax-scope-lines > p");
+      await expect(lines).toHaveCount(2);
+      await expect(lines.nth(0)).toContainText("현재 가능 범위");
+      await expect(lines.nth(1)).toContainText("다음 조치");
+      await expect(detail.locator(".ax-gate-badge")).toHaveCount(1);
+      await expect(detail.locator(".ax-diag-badges .ax-gate-badge")).toHaveAttribute("data-gate", executionGate(third.diagnosis!));
+      // 두 줄의 본문 시작선이 일치한다.
+      const starts = await lines.evaluateAll(elements => elements.map(element => {
+        const body = element.querySelector("span:last-child")!.getBoundingClientRect();
+        return Math.round(body.left);
+      }));
+      expect(Math.abs(starts[0] - starts[1])).toBeLessThanOrEqual(1);
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     expect(errors).toEqual([]);
