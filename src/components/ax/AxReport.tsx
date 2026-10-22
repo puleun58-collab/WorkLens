@@ -50,7 +50,7 @@ export function AxScoreCards({ diagnosis }: { diagnosis: AxDiagnosis }) {
   </div>;
 }
 /** Display-only summary sentences composed from confirmed diagnosis data; no AI call, no invented facts.
- * 구성은 세 가지로 제한한다: ① 전체 단계의 판정 분포(핵심 판단) ② 담당자 판단·승인이 필요한 단계
+ * 구성은 세 가지로 제한한다: ① 전체 단계의 판정 분포(핵심 판단) ② 담당자 수행 단계와 명시된 검토·승인 지점
  * ③ 구현 전에 확인해야 할 사항. 단계명·확인 주제의 상세는 아래 영역에서 확인한다.
  * Level·Gate는 카드 상단 배지가 단일 표시이며 요약 문장에서 반복하지 않는다(진행 보류의 후속 조치만 예외). */
 export function diagnosisSummarySentences(d: AxDiagnosis): string[] {
@@ -66,9 +66,17 @@ export function diagnosisSummarySentences(d: AxDiagnosis): string[] {
     ].filter(Boolean);
     sentences.push(`전체 ${total}단계 중 ${parts.join(" · ")}로 ${automationLevel(d).provisional ? "잠정 판정" : "판정"}되었습니다.`);
   }
-  const humanSteps = d.stepAssessments.filter(s => s.verdict === "사람 유지").map(s => s.step);
-  const approvalPoints = humanSteps.length ? humanSteps : d.humanInLoop;
-  if (approvalPoints.length) sentences.push(`${names(approvalPoints)} 단계는 담당자 판단·승인이 필요합니다.`);
+  // 담당자 관련 문장은 역할별로 구분한다. 사람 유지 단계는 '수행'으로만 표시하고,
+  // humanInLoop 지점은 지점 자체의 명시 문구(승인 포함 여부)로만 검토·승인을 나눈다.
+  // 수행 판정만으로 승인 요건을 추론하지 않는다.
+  const humanClauses: string[] = [];
+  const performSteps = d.stepAssessments.filter(s => s.verdict === "사람 유지").map(s => s.step);
+  if (performSteps.length) humanClauses.push(`${names(performSteps)} 단계는 담당자가 직접 수행해야 합니다.`);
+  const reviewPoints = d.humanInLoop.filter(point => !point.includes("승인"));
+  const approvalPoints = d.humanInLoop.filter(point => point.includes("승인"));
+  if (reviewPoints.length) humanClauses.push(`${names(reviewPoints)} 지점에서는 담당자 검토가 필요합니다.`);
+  if (approvalPoints.length) humanClauses.push(`${names(approvalPoints)} 지점에서는 담당자 승인이 필요합니다.`);
+  if (humanClauses.length) sentences.push(humanClauses.join(" "));
   if (executionGate(d) === "blocked") sentences.push("현재 진행 보류 상태로, 차단 사유를 해결한 뒤 재진단이 필요합니다.");
   else {
     const pendingTopics = new Set(d.technicalChecks.filter(c => c.status !== "확인됨").map(c => c.topic.trim()).filter(Boolean));
@@ -311,10 +319,10 @@ function AxRiskReview({ diagnosis: d, reviewProps }: { diagnosis: AxDiagnosis; r
   const items = extractReviewableItems(d).filter(i => i.type === "risk");
   if (!items.length) return null;
 
-  const pendingCount = items.filter(item => {
-    const review = findReview({ reviews: reviewProps.reviews } as AxTaskV2, item.key);
-    return !review || review.status === "pending";
-  }).length;
+  // 검토 완료 = confirmed이면서 현재 원본과 유효하게 연결된 기록만 (구현 계획 검토와 동일한
+  // hitl.ts 유효성 검증 재사용). editing·stale·해시 불일치 기록은 검토 필요로 집계한다.
+  const validKeys = validConfirmedKeySet(items, reviewProps.reviews);
+  const completedCount = items.filter(item => validKeys.has(item.key)).length;
 
   return <section className="ax-section" aria-label="위험·확인사항 검토">
     <div className="ax-hitl-table-card">
@@ -326,7 +334,9 @@ function AxRiskReview({ diagnosis: d, reviewProps }: { diagnosis: AxDiagnosis; r
         <div className="ax-hitl-table-counts">
           <span>전체 {items.length}</span>
           <span>·</span>
-          <span>검토 전 {pendingCount}</span>
+          <span>검토 완료 {completedCount}</span>
+          <span>·</span>
+          <span>검토 필요 {items.length - completedCount}</span>
         </div>
       </div>
       <div style={{ overflowX: "auto" }}>
@@ -342,6 +352,7 @@ function AxRiskReview({ diagnosis: d, reviewProps }: { diagnosis: AxDiagnosis; r
           <tbody>
             {items.map(item => {
               const review = findReview({ reviews: reviewProps.reviews } as AxTaskV2, item.key);
+              const displayState = reviewDisplayState(item, review, validKeys);
               const isOpen = openKey === item.key;
               return <>
                 <tr key={item.key}>
@@ -350,8 +361,7 @@ function AxRiskReview({ diagnosis: d, reviewProps }: { diagnosis: AxDiagnosis; r
                   </td>
                   <td className="col-content">{item.text}</td>
                   <td className="col-status">
-                    {review ? <span className="ax-hitl-status-dot" data-status={review.status}>{review.status === "confirmed" ? "검토 완료" : review.status === "pending" ? "검토 전" : review.status}</span>
-                      : <span className="ax-hitl-status-dot" data-status="pending">검토 전</span>}
+                    <span className="ax-hitl-status-dot" data-status={displayState.status}>{displayState.label}</span>
                   </td>
                   <td className="col-action">
                     <Button type="button" variant="outline" size="sm" onClick={() => setOpenKey(isOpen ? null : item.key)}>
@@ -398,10 +408,10 @@ function AxStepTable({ diagnosis: d, headers, reviewProps }: { diagnosis: AxDiag
 
   // 검토가 있는 경우 테이블형 UI 사용
   if (reviewProps) {
-    const pendingCount = stepItems.filter(item => {
-      const review = findReview({ reviews: reviewProps.reviews } as AxTaskV2, item.key);
-      return !review || review.status === "pending";
-    }).length;
+    // 검토 완료 = confirmed이면서 현재 원본과 유효하게 연결된 기록만 (구현 계획 검토와 동일한
+    // hitl.ts 유효성 검증 재사용). editing·stale·해시 불일치 기록은 검토 필요로 집계한다.
+    const validKeys = validConfirmedKeySet(stepItems, reviewProps.reviews);
+    const completedCount = stepItems.filter(item => validKeys.has(item.key)).length;
 
     return <section className="ax-section" aria-label="단계별 자동화 판단">
       <div className="ax-hitl-table-card">
@@ -411,9 +421,11 @@ function AxStepTable({ diagnosis: d, headers, reviewProps }: { diagnosis: AxDiag
             <h3>단계별 자동화 판단</h3>
           </div>
           <div className="ax-hitl-table-counts">
-            <span>전체 {d.stepAssessments.length}</span>
+            <span>전체 {stepItems.length}</span>
             <span>·</span>
-            <span>검토 전 {pendingCount}</span>
+            <span>검토 완료 {completedCount}</span>
+            <span>·</span>
+            <span>검토 필요 {stepItems.length - completedCount}</span>
           </div>
         </div>
         <div style={{ overflowX: "auto" }}>
@@ -432,6 +444,7 @@ function AxStepTable({ diagnosis: d, headers, reviewProps }: { diagnosis: AxDiag
               {d.stepAssessments.length ? d.stepAssessments.map((s, i) => {
                 const item = stepItems[i];
                 const review = item ? findReview({ reviews: reviewProps.reviews } as AxTaskV2, item.key) : undefined;
+                const displayState = item ? reviewDisplayState(item, review, validKeys) : undefined;
                 const isOpen = item && openKey === item.key;
                 return <>
                   <tr key={i}>
@@ -440,7 +453,7 @@ function AxStepTable({ diagnosis: d, headers, reviewProps }: { diagnosis: AxDiag
                     <td>{OWNER_LABELS[s.owner]}</td>
                     <td>{s.note}</td>
                     <td className="col-status">
-                      {review ? <span className="ax-hitl-status-dot" data-status={review.status}>{review.status === "confirmed" ? "검토 완료" : review.status === "pending" ? "검토 전" : review.status}</span>
+                      {displayState ? <span className="ax-hitl-status-dot" data-status={displayState.status}>{displayState.label}</span>
                         : <span className="ax-hitl-status-dot" data-status="pending">검토 전</span>}
                     </td>
                     <td className="col-action">

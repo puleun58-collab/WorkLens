@@ -35,12 +35,37 @@ describe("diagnosis display helpers", () => {
     const sentences = diagnosisSummarySentences(d);
     // 픽스처: 자동화 1 · AI 보조 1 · 사람 유지 1, 미확인 기술 확인 1건
     expect(sentences[0]).toBe("전체 3단계 중 자동화 1단계 · AI 보조 1단계 · 담당자 수행 1단계로 판정되었습니다.");
-    expect(sentences[1]).toContain("담당자 승인");
-    expect(sentences[1]).toContain("담당자 판단·승인이 필요합니다.");
+    // 사람 유지 단계는 수행으로, 명시된 승인 지점(humanInLoop)은 승인으로 구분해 표시한다.
+    expect(sentences[1]).toBe("담당자 승인 단계는 담당자가 직접 수행해야 합니다. 담당자 최종 승인 지점에서는 담당자 승인이 필요합니다.");
+    expect(sentences.join(" ")).not.toContain("판단·승인이 필요합니다");
     expect(sentences[2]).toBe("구현 전에 확인해야 할 사항이 1건 남아 있습니다.");
     // Level·Gate 문장은 배지와 중복되므로 요약에 반복하지 않는다.
     expect(sentences.join(" ")).not.toContain("확인 후 진행 상태로");
     expect(sentences.join(" ")).not.toContain("진행 가능 상태입니다");
+  });
+  test("summary separates perform, review and approval roles without inventing approval duties", () => {
+    const base = { ...outputFixture(), sourceNote: "test" };
+    const step = (name: string, verdict: "자동화" | "AI 보조" | "사람 유지") => ({ step: name, verdict, owner: "사용자" as const, note: "" });
+    // 수행만 존재: 승인·검토 문구를 만들지 않는다.
+    const performOnly = diagnosisSummarySentences({ ...base, stepAssessments: [step("자료 수집", "자동화"), step("현장 확인", "사람 유지")], humanInLoop: [] });
+    expect(performOnly[1]).toBe("현장 확인 단계는 담당자가 직접 수행해야 합니다.");
+    expect(performOnly.join(" ")).not.toContain("승인이 필요합니다");
+    expect(performOnly.join(" ")).not.toContain("검토가 필요합니다");
+    // 검토 지점만 명시: 승인으로 단정하지 않는다.
+    const reviewOnly = diagnosisSummarySentences({ ...base, stepAssessments: [], humanInLoop: ["담당자 최종 검토"] });
+    expect(reviewOnly[0]).toBe("담당자 최종 검토 지점에서는 담당자 검토가 필요합니다.");
+    expect(reviewOnly.join(" ")).not.toContain("승인이 필요합니다");
+    // 승인 지점만 명시.
+    const approvalOnly = diagnosisSummarySentences({ ...base, stepAssessments: [], humanInLoop: ["정산 승인"] });
+    expect(approvalOnly[0]).toBe("정산 승인 지점에서는 담당자 승인이 필요합니다.");
+    // 검토·승인 복합 지점.
+    const mixed = diagnosisSummarySentences({ ...base, stepAssessments: [], humanInLoop: ["안전조치 확인", "허가 승인"] });
+    expect(mixed[0]).toBe("안전조치 확인 지점에서는 담당자 검토가 필요합니다. 허가 승인 지점에서는 담당자 승인이 필요합니다.");
+    // 수행·검토·승인 복합: 세 절이 한 문장 슬롯에 담기고 확인 사항 문장이 밀려나지 않는다.
+    const composite = diagnosisSummarySentences({ ...base, stepAssessments: [step("예외 처리", "사람 유지")], humanInLoop: ["갱신 여부 판단", "담당자 최종 승인"] });
+    expect(composite).toHaveLength(3);
+    expect(composite[1]).toBe("예외 처리 단계는 담당자가 직접 수행해야 합니다. 갱신 여부 판단 지점에서는 담당자 검토가 필요합니다. 담당자 최종 승인 지점에서는 담당자 승인이 필요합니다.");
+    expect(composite[2]).toBe("구현 전에 확인해야 할 사항이 1건 남아 있습니다.");
   });
   test("summary marks needs-check verdicts as provisional and counts questions when no checks pend", () => {
     const base = { ...outputFixture(), sourceNote: "test" };
