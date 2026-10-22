@@ -253,7 +253,8 @@ test("AX registration → diagnosis → correction → matrix → plans → relo
   const completion = packageSection.getByRole("region", { name: "03 완료 기준", exact: true });
   await expect(scope).toContainText("담당자 승인");
   await expect(scope).toContainText("담당자 수행 유지");
-  await expect(before.locator('.ax-prereq-card[data-status="확인 필요"]')).toContainText("API와 권한 실제 확인");
+  // 추가 확인 조건도 같은 카드 영역에 표시되므로 첫 번째(기술 점검) 카드를 특정한다.
+  await expect(before.locator('.ax-prereq-card[data-status="확인 필요"]').first()).toContainText("API와 권한 실제 확인");
   await expect(before).toContainText(planFixture.prerequisites[0]);
   await expect(before).toContainText("샘플 표");
   await expect(before).toContainText("검토용 표");
@@ -1288,7 +1289,7 @@ for (const level of [0, 1, 2, 3]) {
         await expect(section.getByRole("button", { name: /용 올인원 지시문 복사$/ })).toHaveCount(0);
       } else {
         await expect(section.getByRole("button", { name: "Codex용 구현 계획 생성", exact: true })).toBeEnabled();
-        await expect(before.locator(`.ax-prereq-card[data-status="${gate === "ready" ? "확인됨" : "확인 필요"}"]`)).toContainText("시스템 접근");
+        await expect(before.locator(`.ax-prereq-card[data-status="${gate === "ready" ? "확인됨" : "확인 필요"}"]`).first()).toContainText("시스템 접근");
       }
       if (level === 0) {
         await expect(scope).toContainText("준비·검증");
@@ -1315,7 +1316,7 @@ test("AX separates confirmed checks from unresolved prerequisites without duplic
   await seed(page, { ...emptyAxState(), tasks: [task], selectedTaskId: task.id, step: 4 });
   await ax(page);
   const before = page.getByRole("region", { name: "02 시작 전 확인", exact: true });
-  await expect(before.locator('.ax-prereq-card[data-status="확인 필요"]')).toContainText("연동 인증");
+  await expect(before.locator('.ax-prereq-card[data-status="확인 필요"]').first()).toContainText("연동 인증");
   await expect(before.getByText("관리자에게 접근 권한 확인", { exact: true })).toHaveCount(1);
   await expect(before).toContainText("권한 확인 후 진행");
   await expect(before.locator('.ax-prereq-card[data-status="확인됨"]')).toContainText("샘플 파일");
@@ -1372,7 +1373,7 @@ test("AX completion keeps separate evidence, failure and risk meanings", async (
   const plan = page.getByRole("region", { name: "자동화 구현 계획", exact: true });
   const before = plan.getByRole("region", { name: "02 시작 전 확인", exact: true });
   const done = plan.getByRole("region", { name: "03 완료 기준", exact: true });
-  await expect(before.locator('.ax-prereq-card[data-status="확인 필요"]')).toContainText("월말 연동 접근");
+  await expect(before.locator('.ax-prereq-card[data-status="확인 필요"]').first()).toContainText("월말 연동 접근");
   await expect(before.getByText("청구 원본의 읽기 권한을 관리자에게 확인", { exact: true })).toHaveCount(1);
   for (const item of [...diagnosis.asIs.exceptions, ...diagnosis.risks]) await expect(done).toContainText(item);
   const row = (label: string) => done.locator(".ax-done-criteria > div").filter({ has: page.getByText(label, { exact: true }) }).locator("dd");

@@ -9,9 +9,9 @@ import { Badge } from "@/components/ui/badge";
 import { Accordion, AccordionItem, AccordionPanel, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
 import { HitlReviewPanel, HitlStatusBadge } from "./HitlReview";
-import { extractReviewableItems, extractPlanReviewableItems, findReview, type ReviewableItem } from "@/lib/ax/hitl";
+import { extractReviewableItems, extractPlanReviewableItems, findReview, getValidConfirmedReviews, type ReviewableItem } from "@/lib/ax/hitl";
 import { Tabs, TabsList, TabsTab, TabsPanel } from "@/components/ui/tabs";
-import { buildAgentInstructionModel, buildAllInOnePrompt, planSummary, scopeItemLabel, setupGuide, stepMethodLabel, TOOL_GUIDES, type AgentInstructionModel, type AxAdditionalCheck, type AxCheckTone, type AxGuideBlock, type AxGuideSection, type AxPlanSummary, type AxToolId } from "@/lib/ax/guide";
+import { buildAgentInstructionModel, buildAllInOnePrompt, planSummary, scopeItemLabel, setupGuide, stepMethodLabel, TOOL_GUIDES, type AgentInstructionModel, type AxCheckTone, type AxGuideBlock, type AxGuideSection, type AxPlanSummary, type AxToolId } from "@/lib/ax/guide";
 
 const VERDICT_LABELS = { 자동화: "자동화", "AI 보조": "AI 보조", "사람 유지": "담당자 수행" } as const;
 const OWNER_LABELS = { 시스템: "시스템", AI: "AI", 사용자: "담당자" } as const;
@@ -184,13 +184,19 @@ function AxRoadmapPhases({ model, profile }: { model: AgentInstructionModel; pro
         : i === 1 && profile.gate === "conditional" ? "conditional" : "future"];
       const Icon = i === 0 ? FileText : i === last ? ChartNoAxesColumnIncreasing : FlaskConical;
       // Concise card wording: policy step lines drop the parenthetical restriction (kept in the timeline above and the instruction).
+      // The unconfirmed-method boilerplate repeats verbatim per step, so it is folded to its
+      // first line here and shown once per phase as a shared note below the item list.
+      let phaseUnconfirmed = false;
       const items = [...new Set(phase.items.map(item => {
         const label = scopeItemLabel(model, item);
         const short = label === item ? item : label.replace(/\s*\([^()]*\)\s*$/u, "");
+        const folded = foldMethodLabel(short);
+        if (folded.unconfirmed) phaseUnconfirmed = true;
+        const base = copy?.poc ? folded.text.replace(/^샘플 범위: /u, "") : folded.text;
         const linked = model.classified.find(entry => (entry.role === "tests" || entry.role === "conditions") && entry.originals.some(text => text === item));
         const qualifier = linked?.scope === "future" ? linked.role === "tests" ? "향후 검증" : "향후 단계 조건"
           : linked?.scope === "confirm" ? "적용 단계 확인 필요" : "";
-        return `${copy?.poc ? short.replace(/^샘플 범위: /u, "") : short}${qualifier ? ` (${qualifier})` : ""}`;
+        return `${base}${qualifier ? ` (${qualifier})` : ""}`;
       }))];
       const footer = i === last ? { title: "최종 산출물", Icon: FileText, text: outputs.length ? outputs.join(" · ") : "산출물 기준 확인 필요" }
         : { title: "다음 단계 조건", Icon: Flag, text: i === 0 && profile.gate === "conditional" ? "다음 작업이 의존하는 필수 조건과 미연결 조건의 적용 범위를 확인해야 합니다. 독립 작업은 근거 확인 후 진행합니다."
@@ -204,12 +210,12 @@ function AxRoadmapPhases({ model, profile }: { model: AgentInstructionModel; pro
             <strong>{phase.title}</strong>{copy ? <p>{copy.description}</p> : null}
           </div>
         </div>
-        <div className="ax-phase-body"><h5>주요 작업</h5><ul role="list">{items.map((item, j) => <li key={j}>{item}</li>)}</ul></div>
+        <div className="ax-phase-body"><h5>주요 작업</h5><ul role="list">{items.map((item, j) => <li key={j}>{item}</li>)}</ul>{phaseUnconfirmed ? <p className="ax-phase-note">처리 방식과 필수 기준을 확인한 후 허용된 범위에서 진행합니다.</p> : null}</div>
         <div className="ax-phase-footer"><footer.Icon aria-hidden="true" /><div><strong>{footer.title}</strong><p>{footer.text}</p></div></div>
         {i < last ? <span className="ax-phase-arrow" aria-hidden="true"><ArrowRight /></span> : null}
       </li>;
     })}</ol>
-    <p className="ax-phases-note"><Info aria-hidden="true" />단계별 상태와 전환 조건은 실제 진단 결과(Level·Gate)와 업무 특성에 따라 달라질 수 있습니다. ‘향후 단계’는 현재 실행 범위가 아니며, 이 화면의 표시만으로 Level·Gate가 바뀌지 않습니다.</p>
+    <p className="ax-phases-note"><Info aria-hidden="true" />단계별 진행 여부는 확인 조건과 담당자 검토 결과에 따라 결정됩니다. ‘향후 단계’는 현재 실행 범위가 아닙니다.</p>
   </div>;
 }
 
@@ -630,11 +636,12 @@ function AxPlanHeading({ no, title, description, id }: { no: string; title: stri
   return <div className="ax-plan-title"><h4 id={id} tabIndex={id ? -1 : undefined}><span className="ax-plan-no">{no}</span> {title}</h4>{description ? <p className="ax-plan-desc">{description}</p> : null}</div>;
 }
 /** Item markers classify the card; they never mean the work is done. */
-function AxScopeCard({ tone, icon, title, description, items }: { tone: "include" | "human" | "excluded"; icon: ReactNode; title: string; description: string; items: string[] }) {
+function AxScopeCard({ tone, icon, title, description, items, notes }: { tone: "include" | "human" | "excluded"; icon: ReactNode; title: string; description: string; items: string[]; notes?: string[] }) {
   if (!items.length) return null;
   return <div className="ax-scope-card" data-tone={tone}>
     <div className="ax-scope-card-head"><span className="ax-scope-icon" aria-hidden="true">{icon}</span><div><h5>{title}</h5><p>{description}</p></div></div>
     <ul role="list">{items.map((item, i) => <li key={i}><CircleCheck aria-hidden="true" /><span>{item}</span></li>)}</ul>
+    {notes?.length ? <div className="ax-scope-card-notes">{notes.map((note, i) => <p key={i}>{note}</p>)}</div> : null}
   </div>;
 }
 const CHECK_TONES: Record<AxCheckTone, { label: string; Icon: typeof CircleAlert }> = {
@@ -657,25 +664,92 @@ function AxPrereqCard({ topic, note, tone, status }: { topic: string; note: stri
     {note ? <p>{note}</p> : null}
   </div>;
 }
-function AxPrereqTable({ rows }: { rows: AxAdditionalCheck[] }) {
-  const unstaged = rows.some(row => !row.future && row.stage === null);
-  const unstagedCount = rows.filter(row => !row.future && row.stage === null).length;
-  return <div className="ax-prereq-extra">
-    <div className="ax-prereq-extra-head">
-      <h4><ClipboardList aria-hidden="true" />추가 확인 사항</h4>
-      {unstaged ? <span className="ax-check-badge" data-tone="required">미확정 {unstagedCount}건</span> : null}
-    </div>
-    <div className="ax-prereq-table-wrap"><table className="ax-prereq-table">
-      <thead><tr><th scope="col">확인 항목</th><th scope="col">확인 필요 내용</th><th scope="col">적용 단계</th><th scope="col">상태</th></tr></thead>
-      <tbody>{rows.map((row, i) => <tr key={i} data-tone={row.tone}>
-        <td data-label="확인 항목"><span className="ax-prereq-item">{row.item}</span></td>
-        <td data-label="확인 필요 내용">{row.content}</td>
-        <td data-label="적용 단계">{row.stage ?? <span className="ax-muted">미확정</span>}</td>
-        <td data-label="상태"><span className="ax-check-badge">{row.status}</span></td>
-      </tr>)}</tbody>
-    </table></div>
-    {unstaged ? <p className="ax-prereq-note"><Info aria-hidden="true" /><span>실제 구현 단계와의 연결이 아직 확인되지 않은 항목은 임의로 필수 선행 조건으로 지정하지 않습니다.</span></p> : null}
-  </div>;
+/**
+ * Display-only folding of a step method label: the unconfirmed-method boilerplate
+ * (구체적 근거 미확인 · 규칙·형식 확인 필요 · 확인 전 보류 · 독립 단계 진행 가능) repeats
+ * verbatim on every unconfirmed step, so cards keep only the first line and show the
+ * shared guidance once per card/phase. Multi-line labels with step-specific evidence
+ * (근거 충돌·확인된 기준) keep their title and evidence lines. The label source
+ * (guide.ts) and the all-in-one instruction are untouched.
+ */
+export function foldMethodLabel(text: string): { text: string; unconfirmed: boolean } {
+  if (!text.includes("\n")) return { text, unconfirmed: false };
+  const lines = text.split("\n");
+  if (lines[0].includes("처리 방식 미확정")) return { text: lines[0], unconfirmed: true };
+  return { text: lines.slice(0, 2).join(" "), unconfirmed: false };
+}
+/**
+ * Display items for the 01 구현 범위 card: method boilerplate is folded per item, and a
+ * trailing qualifier that repeats identically on several items is shown once as a
+ * shared note instead of after every item. Step-specific conditions stay on their item.
+ */
+export function foldScopeItems(items: string[]): { items: string[]; notes: string[]; unconfirmed: boolean } {
+  let unconfirmed = false;
+  const folded = items.map(item => {
+    const result = foldMethodLabel(item);
+    if (result.unconfirmed) unconfirmed = true;
+    return result.text;
+  });
+  const tailOf = (value: string) => /\(([^()]*)\)\s*$/u.exec(value)?.[1];
+  const counts = new Map<string, number>();
+  for (const item of folded) {
+    const tail = tailOf(item);
+    if (tail) counts.set(tail, (counts.get(tail) ?? 0) + 1);
+  }
+  const shared = [...counts].filter(([, count]) => count >= 2).map(([tail]) => tail);
+  const stripped = shared.length
+    ? folded.map(item => {
+      const tail = tailOf(item);
+      return tail && shared.includes(tail) ? item.replace(/\s*\([^()]*\)\s*$/u, "") : item;
+    })
+    : folded;
+  return { items: [...new Set(stripped)], notes: shared, unconfirmed };
+}
+/**
+ * Display-only dedupe for the 담당자 수행 유지 card: items describing the same act,
+ * condition and owner in different words (예: "담당자가 최종 수치를 검토한다"와 "최종 수치
+ * 검토", "가격 수집 오류 시 수동 보완"과 "가격 데이터 수집 오류 시 수동 보완") are shown once.
+ * Token sets must match exactly, or differ only by the filler word "데이터" — different
+ * requirements (최종 검토 vs 최종 승인, 일반 처리 vs 오류 시 보완) are never merged.
+ * Original data, HITL results and the instruction keep every item.
+ */
+export function dedupeHumanItems(items: string[]): string[] {
+  const tokensOf = (item: string): Set<string> => {
+    const clean = item.replace(/\(담당자 수행\)\s*$/u, "");
+    return new Set(clean.split(/[\s·/]+/u).map(raw => {
+      let token = raw.replace(/^담당자[가는]?/u, "");
+      token = token.replace(/(합니다|한다)$/u, "");
+      if (token.length >= 3) token = token.replace(/(을|를|이|가|은|는|와|과)$/u, "");
+      return token;
+    }).filter(token => token && token !== "담당자"));
+  };
+  const kept: { item: string; tokens: Set<string> }[] = [];
+  for (const item of items) {
+    const tokens = tokensOf(item);
+    const duplicate = kept.some(({ tokens: existing }) => {
+      if (existing.size === tokens.size) return [...tokens].every(token => existing.has(token));
+      const [smaller, larger] = existing.size < tokens.size ? [existing, tokens] : [tokens, existing];
+      if (smaller.size < 3) return false;
+      const diff = [...larger].filter(token => !smaller.has(token));
+      return diff.length === 1 && diff[0] === "데이터" && [...smaller].every(token => larger.has(token));
+    });
+    if (!duplicate) kept.push({ item, tokens });
+  }
+  return kept.map(({ item }) => item);
+}
+/** Keys of reviews that count as 검토 완료: confirmed AND still valid against the current
+ * originals (existing HITL validation in hitl.ts — link, type, source and hash all match). */
+export function validConfirmedKeySet(items: ReviewableItem[], reviews: HitlReview[]): Set<string> {
+  return new Set(getValidConfirmedReviews({ reviews } as AxTaskV2, items).map(review => review.target.key));
+}
+/** Row status for a review table: an invalid confirmed record (원본 변경·연결 불일치) is
+ * 재확인 필요, never 검토 완료. Labels match the HITL status wording in HitlReview. */
+export function reviewDisplayState(item: ReviewableItem, review: HitlReview | undefined, validKeys: Set<string>): { status: "confirmed" | "stale" | "editing" | "pending"; label: string } {
+  if (review && validKeys.has(item.key)) return { status: "confirmed", label: "검토 완료" };
+  if (!review) return { status: "pending", label: "검토 전" };
+  if (review.status === "stale" || review.status === "confirmed") return { status: "stale", label: "재확인 필요" };
+  if (review.status === "editing") return { status: "editing", label: "보완 중" };
+  return { status: "pending", label: "검토 전" };
 }
 /** Trigger label for the collapsible 01~03 plan blocks: same number-badge pattern as AxPlanHeading, plus data-driven status badges that stay visible while collapsed. */
 function AxPlanBlockHeading({ no, title, badges }: { no: string; title: string; badges?: ReactNode }) {
@@ -688,19 +762,25 @@ function AxPlanOverview({ profile, summary }: { profile: ExecutionProfile; summa
     { label: "검증 방법", Icon: Search, items: summary.tests, notice: summary.testsNotice },
     { label: "통과 조건", Icon: ClipboardCheck, items: summary.success, notice: summary.criteriaNotice },
     { label: "실패 기준", Icon: CircleX, items: summary.failure, notice: summary.criteriaNotice },
-    { label: "최종 승인", Icon: ShieldCheck, items: summary.approvals.length ? summary.approvals : summary.humanKept.length ? ["담당자 수행 유지 항목은 담당자 검토·승인 후 확정"] : [] },
+    // 최종 승인 criteria come only from explicit approval constraints in the original
+    // data; a 담당자 수행 유지 item by itself is not an approval requirement.
+    { label: "최종 승인", Icon: ShieldCheck, items: summary.approvals },
   ].filter(row => row.items.length);
-  const requiredCheckCount = summary.checks.filter(check => check.tone === "required" || check.tone === "blocked").length;
+  const includeDisplay = foldScopeItems(summary.include);
+  const humanItems = dedupeHumanItems(summary.humanKept);
+  const requiredCheckCount = summary.checks.filter(check => check.tone === "required" || check.tone === "blocked").length
+    + summary.additionalChecks.filter(check => check.tone === "required" || check.tone === "blocked").length;
   return <Accordion multiple keepMounted className="ax-plan-view">
     <section className="ax-plan-block" aria-label="01 구현 범위"><AccordionItem value="scope" className="ax-plan-item border-b-0">
       <AccordionTrigger className="ax-plan-trigger"><AxPlanBlockHeading no="01" title="구현 범위" /></AccordionTrigger>
       <AccordionPanel className="pb-0"><div className="ax-plan-panel-body"><p className="ax-plan-desc">현재 구현·보조할 작업과 사람에게 남길 작업을 구분합니다.</p>
       <div className="ax-scope-cards">
-        <AxScopeCard tone="include" icon={<FileText />} items={summary.include}
+        <AxScopeCard tone="include" icon={<FileText />} items={includeDisplay.items}
+          notes={[...(includeDisplay.unconfirmed ? ["미확정 처리 방식과 필수 기준은 해당 단계에서 확인이 필요합니다."] : []), ...includeDisplay.notes]}
           title={reviewOnly ? "준비·검증" : profile.gate === "conditional" ? "선행 조건 확인 후 시범 적용" : "구현·보조 작업"}
           description={reviewOnly ? "자동화 구현 전 확인이 필요한 항목입니다." : profile.gate === "conditional" ? "필요한 조건을 확인한 뒤 일부 업무에서 시험할 항목입니다." : "현재 단계에서 구현·보조할 항목입니다."} />
-        <AxScopeCard tone="human" icon={<UserRound />} title="담당자 수행 유지" description="현재는 담당자 판단이 필요한 작업입니다." items={summary.humanKept} />
-        <AxScopeCard tone="excluded" icon={<Ban />} title="현재 자동화 제외" description="현재 단계에서 구현하지 않는 항목입니다." items={summary.excluded} />
+        <AxScopeCard tone="human" icon={<UserRound />} title="담당자 수행 유지" description="현재는 담당자 판단이 필요한 작업입니다." items={humanItems} />
+        <AxScopeCard tone="excluded" icon={<Ban />} title="현재 자동화 제외" description="자동 실행·운영 적용 등 현재 허용되지 않는 항목입니다. 구현·보조 대상의 자동 실행 제외를 포함합니다." items={summary.excluded} />
       </div>
       </div></AccordionPanel>
     </AccordionItem></section>
@@ -712,10 +792,10 @@ function AxPlanOverview({ profile, summary }: { profile: ExecutionProfile; summa
         <div><div className="ax-prereq-card-head"><h5>차단 사유</h5><span className="ax-check-badge">진행 보류</span></div>
           <ul role="list">{summary.blockReasons.map((reason, i) => <li key={i}>{reason}</li>)}</ul></div>
       </div> : null}
-      {summary.checks.length ? <div className="ax-prereq-cards">
-        {summary.checks.map((check, i) => <AxPrereqCard key={i} topic={check.topic} note={check.note} tone={check.tone} status={check.status} />)}
+      {summary.checks.length || summary.additionalChecks.length ? <div className="ax-prereq-cards">
+        {summary.checks.map((check, i) => <AxPrereqCard key={`check-${i}`} topic={check.topic} note={check.note} tone={check.tone} status={check.status} />)}
+        {summary.additionalChecks.map((row, i) => <AxPrereqCard key={`extra-${i}`} topic={row.item} note={row.content !== row.item ? row.content : ""} tone={row.tone} status={row.status} />)}
       </div> : null}
-      {summary.additionalChecks.length ? <AxPrereqTable rows={summary.additionalChecks} /> : null}
       {summary.data.length ? <div className="ax-plan-data-group">
         <h5>데이터·시스템 정보</h5>
         <dl className="ax-plan-data">{summary.data.map(row => <div key={row.label}><dt>{row.label}</dt><dd>{row.items.join(" · ")}</dd></div>)}</dl>
@@ -723,7 +803,7 @@ function AxPlanOverview({ profile, summary }: { profile: ExecutionProfile; summa
       </div></AccordionPanel>
     </AccordionItem></section>
     <section className="ax-plan-block" aria-label="03 완료 기준"><AccordionItem value="done" className="ax-plan-item border-b-0">
-      <AccordionTrigger className="ax-plan-trigger"><AxPlanBlockHeading no="03" title="완료 기준" badges={summary.approvals.length || summary.humanKept.length ? <span className="ax-check-badge" data-kind="need">담당자 승인 필요</span> : null} /></AccordionTrigger>
+      <AccordionTrigger className="ax-plan-trigger"><AxPlanBlockHeading no="03" title="완료 기준" badges={summary.approvals.length ? <span className="ax-check-badge" data-kind="need">담당자 승인 필요</span> : null} /></AccordionTrigger>
       <AccordionPanel className="pb-0"><div className="ax-plan-panel-body"><p className="ax-plan-desc">기능·예외·검증·담당자 승인 조건을 충족해야 합니다.</p>
       {criteria.length || summary.exceptions.length ? <div className="ax-done-grid" data-split={criteria.length && summary.exceptions.length ? "true" : undefined}>
         {criteria.length ? <dl className="ax-done-criteria">{criteria.map(({ label, Icon, items, notice }) => <div key={label}>
@@ -874,10 +954,10 @@ function AxPlanReview({ plans, reviewProps, activeTool, onToolChange }: {
 
   if (!items.length) return null;
 
-  const pendingCount = items.filter(({ item }) => {
-    const review = findReview({ reviews: reviewProps.reviews } as AxTaskV2, item.key);
-    return !review || review.status === "pending";
-  }).length;
+  // 검토 완료 = confirmed이면서 현재 원본과 유효하게 연결된 기록만 (hitl.ts 유효성 검증 재사용).
+  // pending·editing·stale·해시 불일치 기록은 검토 필요로 집계한다.
+  const validKeys = validConfirmedKeySet(items.map(({ item }) => item), reviewProps.reviews);
+  const completedCount = items.filter(({ item }) => validKeys.has(item.key)).length;
 
   return <section className="ax-section" aria-label="구현 계획 검토">
     <div className="ax-hitl-table-card">
@@ -889,7 +969,9 @@ function AxPlanReview({ plans, reviewProps, activeTool, onToolChange }: {
         <div className="ax-hitl-table-counts">
           <span>전체 {items.length}</span>
           <span>·</span>
-          <span>검토 전 {pendingCount}</span>
+          <span>검토 완료 {completedCount}</span>
+          <span>·</span>
+          <span>검토 필요 {items.length - completedCount}</span>
         </div>
       </div>
       {plans.codex && plans.claude ? <div className="ax-hitl-plan-tabs" role="tablist" style={{ padding: "12px 20px 0" }}>
@@ -912,6 +994,7 @@ function AxPlanReview({ plans, reviewProps, activeTool, onToolChange }: {
               const isOpen = openKey === item.key;
               const typeLabel = item.type === "planItem" ? "구현 항목" : "완료 기준";
               const badgeClass = item.type === "planItem" ? "ax-hitl-type-badge-plan" : "ax-hitl-type-badge-criterion";
+              const displayState = reviewDisplayState(item, review, validKeys);
               return <>
                 <tr key={item.key}>
                   <td className="col-type">
@@ -919,8 +1002,7 @@ function AxPlanReview({ plans, reviewProps, activeTool, onToolChange }: {
                   </td>
                   <td className="col-content">{item.text}</td>
                   <td className="col-status">
-                    {review ? <span className="ax-hitl-status-dot" data-status={review.status}>{review.status === "confirmed" ? "검토 완료" : review.status === "pending" ? "검토 전" : review.status}</span>
-                      : <span className="ax-hitl-status-dot" data-status="pending">검토 전</span>}
+                    <span className="ax-hitl-status-dot" data-status={displayState.status}>{displayState.label}</span>
                   </td>
                   <td className="col-action">
                     <Button type="button" variant="outline" size="sm" onClick={() => setOpenKey(isOpen ? null : item.key)}>
