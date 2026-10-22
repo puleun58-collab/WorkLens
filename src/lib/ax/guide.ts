@@ -67,12 +67,12 @@ const ghInstall = [
 export function setupGuide(tool: AxToolId): AxGuideStep[] {
   const guide = TOOL_GUIDES[tool];
   return [
-    { title: "시작하기 전에 · 전체 흐름", purpose: "업무·진단·담당자 검토 → 구현·테스트 → 배포 → 실제 기능 확인", sections: [
+    { title: "시작하기 전에 · 전체 흐름", purpose: "업무 검토 → 구현·테스트 → 배포 → 실제 기능 검증", sections: [
       { title: "처음 시작할 때", blocks: [
-        text(`Windows 11 PowerShell 5.1 기준입니다. STEP 01에서 필요한 설치만 확인하세요. 이미 설치된 것은 건너뜁니다. ${guide.name} 하나면 충분하며, 원하면 Codex·Claude Code 둘 다 사용할 수 있습니다.`),
+        text("Windows 11과 PowerShell 5.1을 기준으로 안내합니다. STEP 01에서 필요한 도구의 설치 여부와 정상 작동을 확인하세요. 코딩 에이전트는 Codex 또는 Claude Code 중 하나를 선택해 사용할 수 있습니다."),
       ] },
       { title: "이후 작업할 때", blocks: [
-        text("STEP 02부터 시작하고 설치를 반복하지 않습니다. 실제 업무와 승인·금지 범위를 확인한 후 구현합니다. 웹 배포가 필요 없는 업무는 실행·납품·운영 확인으로 완료할 수 있습니다."),
+        text("개발 환경이 준비되어 있다면 필요한 단계부터 진행하세요. Codex 또는 Claude Code로 실제 기능을 구현하고 테스트한 뒤 배포합니다. 배포된 결과물은 실제 사용 환경에서 기능이 정상 작동하는지 반드시 검증합니다."),
       ] },
       { title: "용어 알아보기", collapsed: true, blocks: [{ kind: "steps", items: [
         "저장소/클론: GitHub의 프로젝트 파일·이력 / 로컬 PC로 복제",
