@@ -131,7 +131,8 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
     { title: "STEP 03 · 올인원 지시문 준비", purpose: "WorkLens의 업무·진단·HITL 판단을 지시문에 연결", sections: [
       { title: "WorkLens에서 확인", blocks: [
         text("WorkLens에서 올인원 지시문을 복사해 Codex 또는 Claude Code에 전달하세요. 이 지시문을 이용해 실제 프로그램을 만드는 과정이 1차 MVP 구현입니다."),
-        text("업무 선택 → 진단과 판단 근거 확인 → 단계별 자동화 판단의 HITL 검토(유지·보류·제외·보완)와 확인된 기술 조건을 반영합니다. 보류·제외 항목을 AI가 임의로 구현하거나 승인하지 않습니다. 실제 화면의 ‘04 올인원 지시문’에서 Codex 또는 Claude Code를 선택하고 ‘전체 보기’로 확인한 뒤 ‘올인원 지시문 복사’를 누릅니다."),
+        text("업무 선택 → 진단과 판단 근거 확인 → 단계별 자동화 판단의 HITL 검토(유지·보류·제외·보완)와 확인된 기술 조건을 반영합니다. 보류·제외 항목을 AI가 임의로 구현하거나 승인하지 않습니다."),
+        text("실제 화면의 ‘04 올인원 지시문’에서 Codex 또는 Claude Code를 선택하고 ‘전체 보기’로 확인한 뒤 ‘올인원 지시문 복사’를 누릅니다."),
       ] },
     ] },
     { title: "STEP 04 · 첫 MVP 구현과 실제 테스트", purpose: "선택한 AI 에이전트로 입력·처리·출력 구현 후 검증", sections: [
@@ -779,10 +780,17 @@ export interface AgentInstructionModel {
   /** HITL 3차: 적용된 검토 상세 */
   hitlDetails?: {
     appliedReviews: Array<{ id: string; action: string; targetKey: string }>;
-    deferred: Array<{ key: string; reason?: string; resumeCondition?: string }>;
-    supplements: Array<{ key: string; content: string }>;
+    /** 보류 대상: 내부 키는 보조 식별자이며, 표시는 실제 업무 단계명·항목명을 우선한다. */
+    deferred: Array<{ key: string; name: string; reason?: string; resumeCondition?: string }>;
+    /** 제외 대상: 지시문에서 명시적으로 전달하기 위한 확정 제외 목록 (이름 포함). */
+    excluded: Array<{ key: string; name: string }>;
+    supplements: Array<{ key: string; name: string; content: string }>;
     /** Priority 5: 유효성 검증된 step-type exclude/defer 검토의 단계명 집합 (PoC 기준 demote용) */
     validatedExcludedStepNames?: string[];
+    /** 유효성 검증된 step-type defer 검토의 실제 단계명 (보류 산출물·예외 정리용) */
+    deferredStepNames?: string[];
+    /** 유효성 검증된 step-type exclude 검토의 실제 단계명 (제외 산출물·예외 정리용) */
+    excludedStepNames?: string[];
   };
 }
 /** Strong markers of an explicit execution order; weak connectors need an explicit actor to count. */
@@ -1289,6 +1297,8 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
     // Priority 5: 유효성 검증된 step-type exclude/defer 검토의 단계명 집합 계산
     // (buildAllInOnePrompt에서 동일한 검증 기준으로 재사용 — 중복 검증 방지)
     const validatedExcludedStepNames: string[] = [];
+    const deferredStepNames: string[] = [];
+    const excludedStepNames: string[] = [];
     if (d?.stepAssessments) {
       const reviewableSteps = extractReviewableItems(d).filter(i => i.type === "step");
       for (const r of validReviews) {
@@ -1298,14 +1308,33 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
         if (matched) {
           const name = matched.text.split(":")[0].trim();
           if (name && !validatedExcludedStepNames.includes(name)) validatedExcludedStepNames.push(name);
+          const perAction = r.action === "defer" ? deferredStepNames : excludedStepNames;
+          if (name && !perAction.includes(name)) perAction.push(name);
         }
       }
     }
+    // 검토 대상의 표시명: 내부 키가 아니라 원본 항목에서 확인되는 실제 단계명·항목명을 쓴다.
+    // (step 항목의 원본 텍스트는 "단계명: 판정 (담당) - 메모" 형식이므로 단계명만 분리)
+    const currentItemByKey = new Map(currentItems.map(item => [item.key, item]));
+    const targetDisplayName = (key: string): string => {
+      const item = currentItemByKey.get(key);
+      if (!item) return key;
+      return item.type === "step" ? item.text.split(":")[0].trim() || item.text : item.text;
+    };
+    // 제외 명시는 실제 업무 단계에 대한 결정만 대상으로 한다. 단계가 아닌
+    // 조건·기준·계획 항목의 제외는 기존 동작대로 본문에 다시 등장시키지 않는다.
+    const stepDisplayNames = new Set(currentItems.filter(item => item.type === "step").map(item => item.text.split(":")[0].trim()));
     hitlDetails = {
       appliedReviews: applied.appliedReviews,
-      deferred: applied.deferred,
-      supplements: applied.supplements,
+      deferred: applied.deferred.map(entry => ({ ...entry, name: targetDisplayName(entry.key) })),
+      excluded: applied.appliedReviews.filter(r => r.action === "exclude")
+        .map(r => ({ key: r.targetKey, name: targetDisplayName(r.targetKey), targetType: currentItemByKey.get(r.targetKey)?.type }))
+        .filter(entry => entry.targetType === "step" || (entry.targetType === "planItem" && stepDisplayNames.has(entry.name)))
+        .map(({ key, name }) => ({ key, name })),
+      supplements: applied.supplements.map(entry => ({ ...entry, name: targetDisplayName(entry.key) })),
       validatedExcludedStepNames,
+      deferredStepNames,
+      excludedStepNames,
     };
   }
 
@@ -1657,13 +1686,51 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
     : "선행 조건을 각 단계의 실제 의존 관계에 대조해 확인된 '확인 후 구현' 단계부터 실제로 동작하고 검증된 기능으로 완성하세요. 미확인 조건에 의존하는 부분만 보류 사유와 함께 보고하세요.";
   const inputs = d ? unique([...(d.asIs?.inputs ?? []), ...without(d.poc?.inputs ?? [], d.asIs?.inputs ?? []).map(item => `검증용: ${item}`)]) : [];
   const currentOutputs = unique(model.scoped.outputs.map(item => item.text));
+  // HITL로 보류·제외된 단계에 연결된 산출물은 현재 필수 산출물이 아니다.
+  // 단계 연결 판정은 기존 validatedExcludedStepNames(유효성 검증된 step-type
+  // defer/exclude 단계명)를 단일 기준으로 재사용한다. 산출물명과 제거 단계명의
+  // 핵심어가 2개 이상 겹치거나 3자 이상 핵심어 1개가 겹칠 때만 연결된 것으로
+  // 보되(stepDirectOutputs와 같은 보수적 기준), 활성 단계와도 겹치면 공유
+  // 산출물로 보고 유지한다.
+  const removedStepNames = model.hitlDetails?.validatedExcludedStepNames ?? [];
+  const scopeWords = (text: string): string[] => text.replace(/[^\uAC00-\uD7A3A-Za-z0-9]/gu, " ").split(/\s+/u).filter(w => w.length >= 2);
+  const relatesToStepName = (text: string, stepName: string): boolean => {
+    const textWords = scopeWords(text);
+    const nameWords = new Set(scopeWords(stepName));
+    const overlap = textWords.filter(w => nameWords.has(w));
+    return overlap.length >= 2 || overlap.some(w => w.length >= 3);
+  };
+  const relatesOnlyToRemovedSteps = (text: string): boolean => removedStepNames.length > 0
+    && removedStepNames.some(name => relatesToStepName(text, name))
+    && !work.some(s => relatesToStepName(text, s.step));
+  // 산출물 귀속 판정: 단계명의 행위어(생성·반영·검증 등)를 제외한 핵심 토큰이
+  // 모두 산출물명에 포함되면 그 단계의 산출물로 본다. 도메인 공통어(가격 등)를
+  // 공유한다는 이유만으로 활성 단계의 산출물로 보지는 않는다 — 활성 단계 귀속도
+  // 같은 포함 기준으로만 인정해, 보류·제외 단계의 산출물이 공통어 겹침 때문에
+  // 최종 산출물에 남는 일을 막는다.
+  const STEP_ACTION_TOKENS = new Set(["생성", "반영", "작성", "대조", "검증", "계산", "처리", "확인", "수집", "저장", "조회", "기록", "전송", "발송", "등록", "수정", "삭제", "분석", "분류", "추출", "변환", "출력", "제공", "점검", "검토", "승인", "관리"]);
+  const stepCoreTokens = (stepName: string): string[] => {
+    const words = scopeWords(stepName);
+    const core = words.filter(w => !STEP_ACTION_TOKENS.has(w));
+    return core.length ? core : words;
+  };
+  const isStepProduct = (text: string, stepName: string): boolean => {
+    const textWords = new Set(scopeWords(text));
+    const core = stepCoreTokens(stepName);
+    return core.length > 0 && core.every(w => textWords.has(w));
+  };
+  const outputRelatesOnlyToRemovedSteps = (text: string): boolean => removedStepNames.length > 0
+    && removedStepNames.some(name => relatesToStepName(text, name) || isStepProduct(text, name))
+    && !work.some(s => isStepProduct(text, s.step));
   // 최종 산출물은 현재 구현 범위에서 확정된 산출물(허용 단계에 연결된 출력)을
   // 우선한다. AS-IS 산출물은 확정 산출물이 없을 때만 전체 산출물로 쓰고, 확정
   // 산출물이 있으면 기존 업무 참고로만 남긴다 — 현재 결과물을 그대로 최종 구현
   // 목표로 확정하면 TO-BE에서 달라지는 처리·출력이 누락될 수 있다.
-  const finalOutputs = currentOutputs.length ? currentOutputs : unique(d?.asIs?.outputs ?? []);
+  const finalOutputs = (currentOutputs.length ? currentOutputs : unique(d?.asIs?.outputs ?? []))
+    .filter(out => !outputRelatesOnlyToRemovedSteps(out));
   const asIsReferenceOutputs = currentOutputs.length
     ? unique((d?.asIs?.outputs ?? []).filter(out => !currentOutputs.some(cur => normalizedItem(cur) === normalizedItem(out) || normalizedItem(cur).includes(normalizedItem(out)))))
+        .filter(out => !outputRelatesOnlyToRemovedSteps(out))
     : [];
   const fallback = unique([...(d?.operation?.fallback ? [d.operation.fallback] : []), ...model.classified.filter(item => (item.role === "fallback" || item.role === "operation") && ["implement", "after-check", "verify"].includes(item.scope)).map(item => item.text)]);
   const tests = unique(model.scoped.tests.map(item => item.text));
@@ -1772,9 +1839,10 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
     excluded.length || outsideHuman.length ? `### 현재 자동화 제외\n\n${bullets([...excluded, ...outsideHuman])}` : "",
     outside.length ? `### 향후 확장 (이번 작업에서 구현하지 않음)\n\n${bullets(outside)}` : "",
     unlinked.length ? `### 적용 단계 확인 필요 제안\n\n${bullets(unlinked)}` : "",
-    hitl && (hitl.deferred.length > 0 || hitl.supplements.length > 0) ? `### 사람 검토 반영\n\n${[
-      hitl.deferred.length > 0 ? `보류된 작업 (현재 구현하지 않음):\n${hitl.deferred.map(x => `- ${x.key}${x.reason ? `\n  - 보류 사유: ${x.reason}` : ""}${x.resumeCondition ? `\n  - 재개 조건: ${x.resumeCondition}` : ""}`).join("\n")}\n위 작업은 현재 구현 범위에서 제외됩니다. 재개 조건이 충족되어도 자동으로 재개하지 말고 담당자에게 확인하세요.` : "",
-      hitl.supplements.length > 0 ? `보완 요구사항·검증 기준:\n${hitl.supplements.map(x => `- ${x.key}\n  - 보완 내용: ${x.content}`).join("\n")}\n위 보완 내용은 원본 범위에 추가하여 관련 구현·검증 기준에 반영하세요. 단, 담당자 유지·제외·보류 범위를 넘어서는 부분은 구현하지 말고 사유를 보고하세요. 확인되지 않은 API·권한·DB를 임의로 추가하지 마세요.` : "",
+    hitl && (hitl.deferred.length > 0 || hitl.excluded.length > 0 || hitl.supplements.length > 0) ? `### 사람 검토 반영\n\n${[
+      hitl.deferred.length > 0 ? `보류된 작업 (현재 구현하지 않음):\n${unique(hitl.deferred.map(x => `- ${x.name} — 보류${x.reason ? `: ${x.reason}` : ""}${x.resumeCondition ? `\n  - 재개 조건: ${x.resumeCondition}` : ""}`))}\n위 작업은 현재 구현 범위에서 제외됩니다. 재개 조건이 충족되어도 자동으로 재개하지 말고 담당자에게 확인하세요.` : "",
+      hitl.excluded.length > 0 ? `제외된 작업 (현재 구현 범위에서 제외):\n${unique(hitl.excluded.map(x => `- ${x.name} — 현재 구현 범위에서 제외. 관련 기능을 구현하지 않습니다.`))}\n위 작업은 업무 배경 설명에 언급되더라도 구현 목표·필수 기능·필수 산출물·완료 조건이 아닙니다.` : "",
+      hitl.supplements.length > 0 ? `보완 요구사항·검증 기준:\n${unique(hitl.supplements.map(x => `- ${x.name}\n  - 보완 내용: ${x.content}`))}\n위 보완 내용은 원본 범위에 추가하여 관련 구현·검증 기준에 반영하세요. 단, 담당자 유지·제외·보류 범위를 넘어서는 부분은 구현하지 말고 사유를 보고하세요. 확인되지 않은 API·권한·DB를 임의로 추가하지 마세요.` : "",
     ].filter(Boolean).join("\n\n")}` : "",
   );
   // 03. 기능별 요구사항: 공통 입력·출력은 상단에 한 번만 정의하고,
@@ -1830,7 +1898,10 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
       });
     });
   };
-  const exceptionLines = dropContainedDuplicates(exceptions);
+  // 보류·제외 단계 전용 예외는 필수 구현으로 요구하지 않는다. 활성 단계와도
+  // 겹치는 공통 예외는 relatesOnlyToRemovedSteps가 false이므로 그대로 유지된다.
+  const exceptionLines = dropContainedDuplicates(exceptions)
+    .filter(text => !relatesOnlyToRemovedSteps(text));
   // 04. 예외 및 유지 조건: 같은 예외·제한은 한 번만 출력한다.
   section("예외 및 유지 조건",
     gate === "conditional" && scopeLevel === 0

@@ -588,7 +588,6 @@ function AxSetupGuide({ tool, instructionsId, onGoToInstructions }: { tool: AxTo
     </header>
     <nav className="ax-tutorial-toc" aria-label="설치·시작 단계 목차">
       {steps.map((step, index) => <Button key={index} type="button" variant="ghost" size="sm" aria-controls={`${id}-step-${index + 1}`} onClick={() => goToStep(index)}><span>STEP {String(index + 1).padStart(2, "0")}</span><span className="ax-tutorial-toc-title">{title(step.title)}</span></Button>)}
-      <Button type="button" variant="ghost" size="sm" aria-controls={instructionsId} onClick={onGoToInstructions}><span className="ax-tutorial-toc-title">올인원 지시문으로 이동</span></Button>
     </nav>
     <div className="ax-tutorial-context">
       <section className="ax-tutorial-preflight" aria-labelledby={`${id}-preflight`}>
