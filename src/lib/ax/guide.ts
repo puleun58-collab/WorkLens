@@ -106,7 +106,7 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
         code(["git config user.name", "git config user.email"], ["먼저 현재 설정된 값을 확인하세요. 이름과 이메일이 모두 표시되면 이미 설정된 것이므로 아래 설정 명령어를 실행하지 마세요."]),
         code(['git config --global user.name "본인 이름"', 'git config --global user.email "본인@example.com"'], ["\"본인 이름\"과 \"본인@example.com\"은 예시입니다. 그대로 입력하지 말고 실제 본인의 이름과 이메일로 바꿔서 설정하세요.", "이메일은 GitHub 계정에 등록된 이메일이나 GitHub에서 제공하는 비공개 이메일을 사용하세요."]),
       ] },
-      { title: "Node.js LTS 설치", when: "선택한 도구·프로젝트가 Node.js를 요구하고 호환 버전이 없을 때만", blocks: [
+      { title: "Node.js LTS 설치", blocks: [
         text("프로젝트 실행 또는 개발 도구에 필요한 경우 설치합니다."),
         installCode([nodeInstall], []),
         code(["node --version", "npm --version"], []),

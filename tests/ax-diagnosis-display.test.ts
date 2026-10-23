@@ -39,7 +39,7 @@ describe("diagnosis display helpers", () => {
     // 사람 유지 단계는 수행으로, 명시된 승인 지점(humanInLoop)은 승인으로 구분해 표시한다.
     expect(sentences[1]).toBe("담당자 승인 단계는 담당자가 직접 수행해야 합니다. 담당자 최종 승인 지점에서는 담당자 승인이 필요합니다.");
     expect(sentences.join(" ")).not.toContain("판단·승인이 필요합니다");
-    expect(sentences[2]).toBe("구현 전에 확인해야 할 사항이 1건 남아 있습니다.");
+    expect(sentences[2]).toBe("구현 전 확인 1건");
     // Level·Gate 문장은 배지와 중복되므로 요약에 반복하지 않는다.
     expect(sentences.join(" ")).not.toContain("확인 후 진행 상태로");
     expect(sentences.join(" ")).not.toContain("진행 가능 상태입니다");
@@ -66,7 +66,7 @@ describe("diagnosis display helpers", () => {
     const composite = diagnosisSummarySentences({ ...base, stepAssessments: [step("예외 처리", "사람 유지")], humanInLoop: ["갱신 여부 판단", "담당자 최종 승인"] });
     expect(composite).toHaveLength(3);
     expect(composite[1]).toBe("예외 처리 단계는 담당자가 직접 수행해야 합니다. 갱신 여부 판단 지점에서는 담당자 검토가 필요합니다. 담당자 최종 승인 지점에서는 담당자 승인이 필요합니다.");
-    expect(composite[2]).toBe("구현 전에 확인해야 할 사항이 1건 남아 있습니다.");
+    expect(composite[2]).toBe("구현 전 확인 1건");
   });
   test("summary marks needs-check verdicts as provisional and counts questions when no checks pend", () => {
     const base = { ...outputFixture(), sourceNote: "test" };

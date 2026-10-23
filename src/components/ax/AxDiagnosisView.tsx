@@ -41,7 +41,7 @@ const DETAILS: { key: keyof AxDetails; label: string; placeholder: string; numer
   { key: "humanSteps", label: "담당자 판단·승인 단계", placeholder: "예: 예외 건 검토, 금액 확인, 최종 승인" },
 ];
 type SessionAttachment = { meta: AxAttachmentMeta; summary: string };
-/** 등록 폼 초안 항목: 세션 요약이 있으면 준비됨, 메타만 복원된 항목은 summary가 null(재첨부 필요). */
+/** 등록 폼 초안 항목: 세션 요약이 있으면 상태 문구 없이 표시하고, 메타만 복원된 항목은 summary가 null(재첨부 필요로 표시). */
 type DraftAttachment = { meta: AxAttachmentMeta; summary: string | null };
 type Confirmation = { kind: "import"; state: AxStateV2 } | { kind: "reset" } | { kind: "delete"; id: string };
 type RankedTask = { task: AxTask & { diagnosis: AxDiagnosis }; rank: number };
@@ -668,7 +668,7 @@ export function AxDiagnosisView() {
             <label className="ax-field"><span className="ax-required-label">업무 설명</span><Textarea value={description} required maxLength={AX_LIMITS.description} onChange={e => setDescription(e.target.value)} disabled={!!busy} placeholder="반복 업무·입력 자료·결과물 설명" rows={5} /></label>
             <div className="ax-register-files">
               <AxAttachmentInput disabled={!!busy} onSelectFiles={files => void attachFiles(files)} />
-              {draftAttachments.map(entry => <div className="ax-file-row" key={entry.meta.fingerprint}><FileText className="size-4" aria-hidden="true" /><span className="ax-file-name">{entry.meta.name}</span><span className="ax-file-status">{entry.summary !== null ? "준비됨" : "재첨부 필요"}</span><Button type="button" variant="ghost" size="icon-xs" aria-label="첨부 취소" onClick={() => removeDraftAttachment(entry.meta.fingerprint)} disabled={!!busy}><X aria-hidden="true" /></Button></div>)}
+              {draftAttachments.map(entry => <div className="ax-file-row" key={entry.meta.fingerprint}><FileText className="size-4" aria-hidden="true" /><span className="ax-file-name">{entry.meta.name}</span>{entry.summary === null ? <span className="ax-file-status">재첨부 필요</span> : null}<Button type="button" variant="ghost" size="icon-xs" aria-label="첨부 취소" onClick={() => removeDraftAttachment(entry.meta.fingerprint)} disabled={!!busy}><X aria-hidden="true" /></Button></div>)}
             </div>
             <Accordion><AccordionItem value="details">
               <div className="ax-register-actions"><AccordionTrigger type="button" className="ax-details-trigger" disabled={!!busy}>추가 정보</AccordionTrigger><div className="ax-register-submit">{editingId ? <Button type="button" variant="ghost" onClick={clearDraft}>수정 취소</Button> : null}<Button type="submit" disabled={!!busy || !description.trim()}>{editingId ? "수정 등록" : "업무 등록"}</Button></div></div>
@@ -792,6 +792,27 @@ export function AxDiagnosisView() {
     <AlertDialog open={confirmation !== null} onOpenChange={open => { if (!open) setConfirmation(null); }}><AlertDialogPopup><AlertDialogHeader><AlertDialogTitle>{confirmation?.kind === "import" ? "AI•AX 데이터를 덮어쓸까요?" : confirmation?.kind === "delete" ? "업무를 삭제할까요?" : "AI•AX 데이터를 초기화할까요?"}</AlertDialogTitle><AlertDialogDescription>{confirmation?.kind === "import" ? "검증된 가져오기 데이터로 현재 AI•AX 업무·진단·계획을 교체합니다." : confirmation?.kind === "delete" ? "선택한 업무와 진단·계획을 삭제합니다." : "현재 AI•AX 업무·진단·계획만 삭제합니다. 다른 작업 공간은 유지됩니다."}</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogClose render={<Button type="button" variant="ghost" />}>취소</AlertDialogClose><Button type="button" variant="destructive" onClick={() => void confirm()}>{confirmation?.kind === "import" ? "덮어쓰기" : confirmation?.kind === "delete" ? "삭제" : "초기화"}</Button></AlertDialogFooter></AlertDialogPopup></AlertDialog>
   </section>;
 }
+/** 요약 '다음 행동' 표시: nextAction()의 판정 순서·우선순위는 그대로 두고 표시 문구와 이동 대상만 정한다.
+ * 이동 대상이 없는 상태(확인할 사항 없음 등)는 기존 정책 라벨을 링크 없이 표시한다. */
+function summaryNextAction(d: AxDiagnosis, needCount: number): { label: string; target?: "answers" | "checks" } {
+  const gate = executionGate(d);
+  if (gate === "blocked") return { label: "차단 사유 확인", target: "checks" };
+  if (d.informationSufficiency === "needs-check") {
+    if (d.followUpQuestions.length) return { label: "추가 질문 답변", target: "answers" };
+    if (needCount) return { label: "확인할 사항 검토", target: "checks" };
+    return { label: nextAction(d).label };
+  }
+  if (gate === "conditional" && needCount) return { label: `아래 ${needCount}개 항목 확인`, target: "checks" };
+  return { label: nextAction(d).label };
+}
+/** 다음 행동 클릭 시 대상 영역으로 스크롤한다. 대상 요소가 없으면(상태 변경·미렌더) 이동하지 않는다.
+ * 스크롤 방식·여백은 정보 확인 바로가기(#276)와 같은 scrollIntoView + scroll-margin 규칙을 쓴다. */
+function scrollToSummaryTarget(target: "answers" | "checks") {
+  const el = target === "answers"
+    ? document.getElementById("ax-answer-section")
+    : document.querySelector(".ax-diag-checks");
+  el?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
 /** Step 2 selected-task card: name/badges → description → diagnosis summary → 4 score cards → checks. Follow-up questions render once, in the answer section below this card. */
 function DiagnosisCard({ task, busy, onDiagnose, onEdit, attachment }: {
   task: AxTask; busy: string | null; onDiagnose: () => void; onEdit: () => void; attachment: ReactNode;
@@ -804,6 +825,7 @@ function DiagnosisCard({ task, busy, onDiagnose, onEdit, attachment }: {
   const summary = d ? diagnosisSummaryParts(d) : undefined;
   // 추가 질문이 같은 주제로 묻고 있는 확인 항목은 질문 영역에서 확인하므로 목록에서 중복 표시하지 않는다.
   const visibleChecks = d ? visibleDiagnosisCheckItems(d) : [];
+  const action = d ? summaryNextAction(d, visibleChecks.filter(c => c.kind === "need").length) : null;
   return <section className="ax-surface ax-diag-card" aria-label={`${task.name} 진단`}>
     <div className="ax-diag-head">
       <div className="ax-diag-title">
@@ -813,7 +835,6 @@ function DiagnosisCard({ task, busy, onDiagnose, onEdit, attachment }: {
           {display.status === "adjusted" ? <Badge className="ax-status-badge">사용자 보정 완료</Badge> : null}
           {d && lvl && gate ? <>
             <Badge className="ax-level-badge">{lvl.label.replace(/^L\d+ /, "")} · Level {lvl.level}</Badge>
-            {lvl.provisional ? <span className="ax-provisional">잠정</span> : null}
             <span className="ax-gate-badge" data-gate={gate}>{GATE_LABELS[gate]}</span>
           </> : null}
         </div>
@@ -829,14 +850,14 @@ function DiagnosisCard({ task, busy, onDiagnose, onEdit, attachment }: {
       <div className="ax-diag-summary">
         <span className="ax-diag-summary-icon" aria-hidden="true"><FileText size={20} /></span>
         <div className="ax-diag-summary-body">
-          <div className="ax-diag-summary-head"><h3>진단 결과 요약</h3><Badge variant={d.informationSufficiency === "sufficient" ? "success" : "warning"}>{SUFFICIENCY[d.informationSufficiency]}</Badge></div>
+          <div className="ax-diag-summary-head"><h3>진단 결과 요약</h3>{d.informationSufficiency !== "needs-check" ? <Badge variant={d.informationSufficiency === "sufficient" ? "success" : "warning"}>{SUFFICIENCY[d.informationSufficiency]}</Badge> : null}</div>
           <dl className="ax-summary-rows">
             {summary?.verdict || summary?.human ? <div className="ax-summary-row"><dt>핵심 판단</dt><dd>
-              {summary?.verdict ? <span>{summary.verdict}{lvl?.provisional ? " · 잠정 판정" : ""}</span> : null}
+              {summary?.verdict ? <span>{summary.verdict}</span> : null}
               {summary?.human ? <span className="ax-summary-human">{summary.human}</span> : null}
             </dd></div> : null}
             <div className="ax-summary-row"><dt>확인 필요</dt><dd>{summary?.check ?? "없음"}</dd></div>
-            <div className="ax-summary-row"><dt>다음 행동</dt><dd><strong>{nextAction(d).label}</strong></dd></div>
+            <div className="ax-summary-row"><dt>다음 행동</dt><dd>{action?.target ? <button type="button" className="ax-summary-action" onClick={() => scrollToSummaryTarget(action.target!)}>{action.label}</button> : <strong>{action?.label ?? nextAction(d).label}</strong>}</dd></div>
           </dl>
           <p className="ax-muted ax-diag-source">{d.sourceNote}</p>
         </div>
@@ -872,7 +893,6 @@ function MatrixDetailCard({ task, diagnosis }: { task: AxTask; diagnosis: AxDiag
         <div className="ax-diag-badges">
           <span className="ax-region-chip" data-region={m.region}>{m.label}</span>
           <Badge className="ax-level-badge">{lvl.label.replace(/^L\d+ /, "")} · Level {lvl.level}</Badge>
-          {lvl.provisional ? <span className="ax-provisional">잠정</span> : null}
           <span className="ax-gate-badge" data-gate={gate}>{GATE_LABELS[gate]}</span>
         </div>
       </div>
@@ -912,7 +932,7 @@ function TaskAttachment({ task, busy, ready, onDetachFile, onAttachFiles }: {
   if (!metas.length) return null;
   const missing = metas.some(meta => !ready.has(meta.fingerprint));
   return <div className="ax-attachment">
-    {metas.map(meta => <div className="ax-file-row" key={meta.fingerprint}><FileText className="size-4" aria-hidden="true" /><span className="ax-file-name">{meta.name}</span><span className="ax-file-status">{" · "}{ready.has(meta.fingerprint) ? "세션 요약 준비됨" : "첨부 파일이 사용됨 — 재분석 시 재첨부 필요"}</span><Button type="button" variant="ghost" size="icon-xs" aria-label="첨부 해제" disabled={!!busy} onClick={() => onDetachFile(meta.fingerprint)}><X aria-hidden="true" /></Button></div>)}
+    {metas.map(meta => <div className="ax-file-row" key={meta.fingerprint}><FileText className="size-4" aria-hidden="true" /><span className="ax-file-name">{meta.name}</span>{ready.has(meta.fingerprint) ? null : <span className="ax-file-status">{" · "}첨부 파일이 사용됨 — 재분석 시 재첨부 필요</span>}<Button type="button" variant="ghost" size="icon-xs" aria-label="첨부 해제" disabled={!!busy} onClick={() => onDetachFile(meta.fingerprint)}><X aria-hidden="true" /></Button></div>)}
     {missing ? <AxAttachmentInput disabled={!!busy} onSelectFiles={onAttachFiles} /> : null}
   </div>;
 }

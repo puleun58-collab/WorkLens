@@ -108,6 +108,13 @@ describe("AX execution guides", () => {
       expect(blocks[1]).toMatchObject({ kind: "code" });
     }
     expect(installation).not.toMatch(/winget install|scoop install|choco install/i);
+    // Node.js LTS 섹션은 조건 문구(when) 없이 보조 설명 한 줄만 표시하고, 설치·버전 확인 명령은 유지한다.
+    const nodeSection = guide[1].sections.find(section => section.title === "Node.js LTS 설치");
+    expect(nodeSection?.when).toBeUndefined();
+    expect(JSON.stringify(guide)).not.toContain("호환 버전이 없을 때만");
+    expect(nodeSection?.blocks[0]).toEqual({ kind: "text", text: "프로젝트 실행 또는 개발 도구에 필요한 경우 설치합니다." });
+    expect(JSON.stringify(nodeSection)).toContain("node --version");
+    expect(JSON.stringify(nodeSection)).toContain("npm --version");
   });
   it.each(["codex", "claude"] as const)("protects existing repo, storage, secrets and outcomes: %s", tool => {
     const steps = setupGuide(tool);

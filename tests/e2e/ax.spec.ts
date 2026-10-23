@@ -502,7 +502,8 @@ test("AX styled file selection shows filenames and removes draft/session attachm
     await page.getByRole("region", { name: "업무 자동화 진단", exact: true }).getByRole("button", { name: "파일 추가", exact: true }).click();
     await (await chooser).setFiles(file);
     await expect(page.getByText("첨부 요약을 준비했습니다.", { exact: false })).toBeVisible();
-    await expect(page.locator(".ax-file-row").filter({ hasText: /selected\.csv\s*준비됨/ })).toBeVisible();
+    await expect(page.locator(".ax-file-row").filter({ hasText: "selected.csv" })).toBeVisible();
+    await expect(page.locator(".ax-file-row").filter({ hasText: "selected.csv" })).not.toContainText("준비됨");
   };
   await selectFile();
   await page.getByRole("button", { name: "첨부 취소", exact: true }).click();
@@ -512,7 +513,8 @@ test("AX styled file selection shows filenames and removes draft/session attachm
   await page.getByRole("button", { name: "다음 단계" }).click();
   await expect(page.getByRole("region", { name: "업무 자동화 진단", exact: true }).getByLabel("파일 추가", { exact: true })).toHaveCount(0);
   await expect(page.locator(".ax-attachment input[type=file]")).toHaveCount(0);
-  await expect(page.locator(".ax-attachment")).toContainText("selected.csv · 세션 요약 준비됨");
+  await expect(page.locator(".ax-attachment")).toContainText("selected.csv");
+  await expect(page.locator(".ax-attachment")).not.toContainText("세션 요약 준비됨");
   await page.getByRole("button", { name: "첨부 해제", exact: true }).click();
   await expect(page.locator(".ax-attachment")).toHaveCount(0);
   await page.getByRole("button", { name: "등록 정보 수정", exact: true }).click();
@@ -520,13 +522,46 @@ test("AX styled file selection shows filenames and removes draft/session attachm
   await selectFile();
   await page.getByRole("button", { name: "수정 등록", exact: true }).click();
   await page.getByRole("button", { name: "다음 단계", exact: true }).click();
-  await expect(page.locator(".ax-attachment")).toContainText("selected.csv · 세션 요약 준비됨");
+  await expect(page.locator(".ax-attachment")).toContainText("selected.csv");
+  await expect(page.locator(".ax-attachment")).not.toContainText("세션 요약 준비됨");
   await page.getByRole("button", { name: "첨부 해제", exact: true }).click();
   await page.getByRole("button", { name: "업무 진단 실행", exact: true }).click();
   await expect(page.getByText("정보 충분", { exact: true })).toBeVisible();
   expect(calls).toHaveLength(1); expect(calls[0]).not.toHaveProperty("attachmentSummary");
   await expect.poll(() => record(page)).toMatchObject({ step: 2, tasks: [{ status: "diagnosed", diagnosis: { informationSufficiency: "sufficient" } }] });
   expect((await record(page))?.tasks[0].attachmentMeta).toBeUndefined();
+});
+test("AX register form: 추가 정보 trigger keeps a transparent background in every state", async ({ page }) => {
+  await page.goto("/"); await ax(page);
+  const trigger = page.locator(".ax-details-trigger");
+  await expect(trigger).toBeVisible();
+  await expect(trigger).toHaveText("추가 정보");
+  const background = () => trigger.evaluate(el => getComputedStyle(el).backgroundColor);
+  expect(await background()).toBe("rgba(0, 0, 0, 0)");
+  await trigger.hover();
+  expect(await background()).toBe("rgba(0, 0, 0, 0)");
+  // 펼친 상태에서도 배경 음영이 생기지 않고, 입력한 값은 접었다 펴도 유지된다
+  await page.getByLabel("업무명", { exact: true }).fill("음영 확인 업무");
+  await trigger.click();
+  await expect(trigger).toHaveAttribute("aria-expanded", "true");
+  expect(await background()).toBe("rgba(0, 0, 0, 0)");
+  await trigger.click();
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  expect(await background()).toBe("rgba(0, 0, 0, 0)");
+  await expect(page.getByLabel("업무명", { exact: true })).toHaveValue("음영 확인 업무");
+  // 키보드 Tab으로 도달하면 배경은 그대로 두고 포커스 링으로 식별할 수 있다
+  await page.getByLabel("업무명", { exact: true }).click();
+  let focused = false;
+  for (let i = 0; i < 20 && !focused; i++) {
+    await page.keyboard.press("Tab");
+    focused = await trigger.evaluate(el => document.activeElement === el);
+  }
+  expect(focused).toBe(true);
+  expect(await background()).toBe("rgba(0, 0, 0, 0)");
+  const focusShadow = await trigger.evaluate(el => getComputedStyle(el).boxShadow);
+  expect(focusShadow).not.toBe("none");
+  await page.keyboard.press("Enter");
+  await expect(trigger).toHaveAttribute("aria-expanded", "true");
 });
 test("AX attachment summaries stay out of storage/export and reload requires reattachment", async ({ page }) => {
   const calls: Record<string, unknown>[] = []; await mock(page, calls);
@@ -559,8 +594,15 @@ test("AX follows up on missing information and recalculates provisional decision
   const calls: Record<string, unknown>[] = [];
   await page.route("**/api/ai", async route => { calls.push(route.request().postDataJSON()); await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { kind: "ax-diagnosis", diagnosis: calls.length === 1 ? { ...outputFixture(), informationSufficiency: "needs-check", followUpQuestions: ["최종 승인자는 누구인가요?"] } : outputFixture() } }) }); });
   await page.goto("/"); await ax(page); await register(page); await page.getByRole("button", { name: "다음 단계" }).click(); await page.getByRole("button", { name: "업무 진단 실행" }).click();
-  await expect(page.getByText("핵심 확인사항 확인 필요", { exact: true })).toBeVisible();
-  await expect(page.locator(".ax-diag-card")).toContainText("잠정");
+  await expect(page.getByRole("button", { name: "추가 질문 답변", exact: true })).toBeVisible();
+  await expect(page.locator(".ax-diag-card")).not.toContainText("잠정");
+  // 핵심 정보 부족 상태에서는 상단 배지가 정보를 전담하고 요약 제목 옆 배지는 중복 표시하지 않는다
+  await expect(page.locator(".ax-diag-badges")).toContainText("정보 확인 필요");
+  await expect(page.locator(".ax-diag-summary-head")).not.toContainText("핵심 정보 확인 필요");
+  // 다음 행동을 누르면 추가 질문 영역으로 스크롤된다
+  await page.getByRole("button", { name: "추가 질문 답변", exact: true }).click();
+  await expect(page.locator("#ax-answer-section")).toBeVisible();
+  await expect.poll(async () => (await page.locator("#ax-answer-section").boundingBox())?.y ?? 9999).toBeLessThan(200);
   await page.getByLabel("최종 승인자는 누구인가요?", { exact: true }).fill("업무 담당 팀장");
   const rediagnose = page.getByRole("button", { name: "답변 반영 후 재진단", exact: true });
   await expect(rediagnose).toHaveAttribute("data-slot", "button"); await expect(rediagnose).toHaveClass(/bg-primary/);
@@ -574,6 +616,25 @@ test("AX follows up on missing information and recalculates provisional decision
   await expect(page.getByLabel("매트릭스 업무 목록")).toBeVisible(); await expect(page.locator(".ax-matrix-surface")).toBeVisible();
   await expect(page.getByLabel("자동화 매트릭스 산점도")).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+});
+test("AX summary next action links to the checks area when needs-check has checks but no questions", async ({ page }) => {
+  await page.route("**/api/ai", route => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { kind: "ax-diagnosis", diagnosis: { ...outputFixture(), informationSufficiency: "needs-check" } } }) }));
+  await page.goto("/"); await ax(page); await register(page); await page.getByRole("button", { name: "다음 단계" }).click(); await page.locator(".ax-diag-card").getByRole("button", { name: "업무 진단 실행" }).click();
+  await expect(page.locator(".ax-diag-badges")).toContainText("정보 확인 필요");
+  await expect(page.locator(".ax-diag-summary-head")).not.toContainText("핵심 정보 확인 필요");
+  await expect(page.locator(".ax-diag-card")).toContainText("구현 전 확인 1건");
+  await expect(page.locator(".ax-diag-card")).not.toContainText("잠정");
+  await page.getByRole("button", { name: "확인할 사항 검토", exact: true }).click();
+  await expect(page.locator(".ax-diag-checks")).toBeVisible();
+  await expect.poll(async () => (await page.locator(".ax-diag-checks").boundingBox())?.y ?? 9999).toBeLessThan(200);
+});
+test("AX summary next action links to the block reasons for blocked gates", async ({ page }) => {
+  await page.route("**/api/ai", route => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { kind: "ax-diagnosis", diagnosis: { ...outputFixture(), decisionGate: { verdict: "no-go", reasons: ["필수 시스템 접근 불가"] } } } }) }));
+  await page.goto("/"); await ax(page); await register(page); await page.getByRole("button", { name: "다음 단계" }).click(); await page.locator(".ax-diag-card").getByRole("button", { name: "업무 진단 실행" }).click();
+  await expect(page.locator(".ax-diag-card")).toContainText("차단 사유를 해결한 뒤 재진단이 필요합니다.");
+  await page.getByRole("button", { name: "차단 사유 확인", exact: true }).click();
+  await expect(page.locator(".ax-diag-checks")).toContainText("필수 시스템 접근 불가");
+  await expect.poll(async () => (await page.locator(".ax-diag-checks").boundingBox())?.y ?? 9999).toBeLessThan(200);
 });
 test("AX works and exports when IndexedDB is unavailable and rejects failed AI output", async ({ page }) => {
   await page.addInitScript(() => { Object.defineProperty(window, "indexedDB", { get() { throw new Error("storage disabled"); } }); });

@@ -61,7 +61,7 @@ export interface DiagnosisSummaryParts {
   verdictSentence?: string;
   /** 담당자 수행·검토·승인 절 — 역할 구분 문구 그대로. */
   human?: string;
-  /** 확인 필요 문장 — 진행 보류 시 차단·재진단 문장, 그 외 미확인 건수 또는 추가 질문 건수. */
+  /** 확인 필요 문장 — 진행 보류 시 차단·재진단 문장, 그 외 표시 항목 기준 확인 필요 건수 또는 추가 질문 건수. */
   check?: string;
 }
 /** Display-only summary parts composed from confirmed diagnosis data; no AI call, no invented facts.
@@ -94,8 +94,10 @@ export function diagnosisSummaryParts(d: AxDiagnosis): DiagnosisSummaryParts {
   if (humanClauses.length) parts.human = humanClauses.join(" ");
   if (executionGate(d) === "blocked") parts.check = "현재 진행 보류 상태로, 차단 사유를 해결한 뒤 재진단이 필요합니다.";
   else {
-    const pendingTopics = new Set(d.technicalChecks.filter(c => c.status !== "확인됨").map(c => c.topic.trim()).filter(Boolean));
-    if (pendingTopics.size) parts.check = `구현 전에 확인해야 할 사항이 ${pendingTopics.size}건 남아 있습니다.`;
+    // 건수는 확인할 사항 영역에 실제로 표시되는 확인 필요 항목 수와 같은 기준을 쓴다
+    // (추가 질문과 주제가 겹치는 항목은 질문 영역에서 확인하므로 세지 않는다).
+    const needCount = visibleDiagnosisCheckItems(d).filter(item => item.kind === "need").length;
+    if (needCount) parts.check = `구현 전 확인 ${needCount}건`;
     else if (d.followUpQuestions.length) parts.check = `구현 전에 추가 질문 ${d.followUpQuestions.length}건에 대한 답변이 필요합니다.`;
   }
   return parts;
