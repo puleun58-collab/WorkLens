@@ -33,16 +33,17 @@ export function AxSummary({ task, showGate = true }: { task: AxTask; showGate?: 
   </div>;
 }
 /** Shared 4-card factor score display used by the diagnosis and matrix views. Colors follow the reference: blue for value/feasibility, orange for judgment, red for risk. */
-export function AxScoreCards({ diagnosis }: { diagnosis: AxDiagnosis }) {
+export function AxScoreCards({ diagnosis, variant }: { diagnosis: AxDiagnosis; variant?: "matrix" }) {
   const a = axes(diagnosis);
   const cards = [
-    { label: "자동화 가치", value: a.value, color: "var(--primary)" },
-    { label: "기술 실현 가능성", value: a.feasibility, color: "var(--primary)" },
-    { label: "담당자 판단 필요도", value: a.judgment, color: "#ea580c" },
-    { label: "운영 위험", value: a.risk, color: "#dc2626" },
+    { label: "자동화 가치", value: a.value, color: "var(--primary)", Icon: ChartNoAxesColumnIncreasing },
+    { label: "기술 실현 가능성", value: a.feasibility, color: "var(--primary)", Icon: Settings2 },
+    { label: "담당자 판단 필요도", value: a.judgment, color: "#ea580c", Icon: UserRound },
+    { label: "운영 위험", value: a.risk, color: "#dc2626", Icon: ShieldCheck },
   ];
-  return <div className="ax-score-cards" role="list" aria-label="진단 점수">
-    {cards.map(({ label, value, color }) => <div className="ax-score-card" role="listitem" key={label}>
+  return <div className={`ax-score-cards${variant === "matrix" ? " ax-score-cards-matrix" : ""}`} role="list" aria-label="진단 점수">
+    {cards.map(({ label, value, color, Icon }) => <div className="ax-score-card" role="listitem" key={label}>
+      {variant === "matrix" ? <span className="ax-score-card-icon" aria-hidden="true"><Icon size={20} /></span> : null}
       <span className="ax-score-card-label">{label}</span>
       <span className="ax-score-card-value"><strong>{value}</strong><span aria-hidden="true"> / 5</span><span className="sr-only">{label} 5점 만점에 {value}점</span></span>
       <span className="ax-score-card-bar" aria-hidden="true"><span style={{ width: `${value / 5 * 100}%`, background: color }} /></span>

@@ -135,8 +135,10 @@ for (const viewport of VIEWPORTS) {
     const ranked = priority(mixed);
     const gates = mixed.map(task => executionGate(task.diagnosis!));
     const count = (gate: string) => gates.filter(value => value === gate).length;
+    // 간소화된 집계 문구: 진단 완료 N/M + 1건 이상인 상태만 표시 + 추가 질문(1건 이상일 때만).
+    const gatePart = (gate: string, label: string) => count(gate) ? ` · ${label} ${count(gate)}` : "";
     await expect(page.locator(".ax-matrix-header .ax-matrix-counts")).toHaveText(
-      `등록 5개 · 진단 완료 5개 (진행 가능 ${count("ready")}개 · 확인 후 진행 ${count("conditional")}개 · 진행 보류 ${count("blocked")}개) · 추가 질문 필요 1개`);
+      `진단 완료 5/5${gatePart("ready", "진행 가능")}${gatePart("conditional", "확인 후 진행")}${gatePart("blocked", "진행 보류")} · 추가 질문 1`);
 
     const list = page.getByLabel("매트릭스 업무 목록");
     for (const [index, row] of ranked.entries()) {

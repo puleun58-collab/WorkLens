@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
-import { MoreHorizontal, Upload, Download, Trash2, Pencil, ClipboardList, CircleCheck, Zap, Clock3, Stethoscope, LayoutGrid, Map as MapIcon, ArrowLeft, ArrowRight, Paperclip, FileText, X, Repeat, CalendarCheck, Database, Plug, UserCheck, AlertTriangle, RotateCcw, ListChecks, CircleHelp, SlidersHorizontal, Info } from "lucide-react";
+import { MoreHorizontal, Upload, Download, Trash2, Pencil, ClipboardList, CircleCheck, Zap, Clock3, Stethoscope, LayoutGrid, Map as MapIcon, ArrowLeft, ArrowRight, Paperclip, FileText, X, Repeat, CalendarCheck, Database, Plug, UserCheck, AlertTriangle, RotateCcw, ListChecks, CircleHelp, SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -89,7 +89,15 @@ export function AxDiagnosisView() {
   // 매트릭스 목록: 기존 우선순위순 고정 표시 (원본 데이터·계산 변경 없음)
   const matrixListed = ranked;
   const counts = diagnosisCounts(state.tasks);
-  const matrixStatus = <p className="ax-muted ax-matrix-counts">등록 {state.tasks.length}개 · 진단 완료 {counts.results}개 (진행 가능 {counts.ready}개 · 확인 후 진행 {counts.conditional}개 · 진행 보류 {counts.blocked}개) · 추가 질문 필요 {counts.questions}개{state.tasks.length > counts.results ? ` · 미진단 ${state.tasks.length - counts.results}개 제외` : ""}</p>;
+  // 표시 전용 간소화: 집계 자체는 diagnosisCounts를 그대로 쓰고, 0건인 상태는 숨기며 진단 완료는 완료/전체로 표기한다.
+  const matrixStatusParts = [
+    `진단 완료 ${counts.results}/${state.tasks.length}`,
+    ...(counts.ready ? [`${GATE_LABELS.ready} ${counts.ready}`] : []),
+    ...(counts.conditional ? [`${GATE_LABELS.conditional} ${counts.conditional}`] : []),
+    ...(counts.blocked ? [`${GATE_LABELS.blocked} ${counts.blocked}`] : []),
+    ...(counts.questions ? [`추가 질문 ${counts.questions}`] : []),
+  ];
+  const matrixStatus = <p className="ax-muted ax-matrix-counts">{matrixStatusParts.join(" · ")}</p>;
   const gateOrder = { ready: 0, conditional: 1, blocked: 2 };
   const profiles = ranked.map(row => ({ row, profile: executionProfile(row.task.diagnosis) }));
   const displayed = [...profiles].sort((a, b) => gateOrder[a.profile.gate] - gateOrder[b.profile.gate]).map(({ row }) => row);
@@ -814,21 +822,19 @@ function MatrixDetailCard({ task, diagnosis }: { task: AxTask; diagnosis: AxDiag
         </div>
       </div>
     </div>
-    <AxScoreCards diagnosis={d} />
+    <AxScoreCards diagnosis={d} variant="matrix" />
     <div className="ax-diag-cols ax-matrix-detail-cols">
-      <div className="ax-matrix-detail-left">
-        <section className="ax-matrix-rationale" aria-label="핵심 판단 근거">
-          <h4><FileText size={16} aria-hidden="true" />핵심 판단 근거</h4>
-          <ul>{matrixRationaleBullets(d).map((b, i) => <li key={i}>{b}</li>)}</ul>
-        </section>
-        {gate !== "ready" ? <section className="ax-matrix-gate-status" aria-label="현재 가능 범위 및 다음 조치">
-          <h4><Info size={16} aria-hidden="true" />현재 가능 범위 및 다음 조치</h4>
-          <div className="ax-scope-lines">
-            <p><strong>현재 가능 범위</strong><span aria-hidden="true">—</span><span>{scope}</span></p>
-            <p><strong>다음 조치</strong><span aria-hidden="true">—</span><span>{next.label} → 해결 후 업무 진단 단계에서 다시 진단해 상태 갱신</span></p>
-          </div>
-        </section> : null}
-      </div>
+      <section className="ax-matrix-rationale" aria-label="핵심 판단 근거">
+        <h4><FileText size={16} aria-hidden="true" />핵심 판단 근거</h4>
+        <ul>{matrixRationaleBullets(d).map((b, i) => <li key={i}>{b}</li>)}</ul>
+      </section>
+      <section className="ax-matrix-scope" aria-label="현재 가능한 범위">
+        <h4><CircleCheck size={16} aria-hidden="true" />현재 가능한 범위</h4>
+        <div className="ax-scope-lines">
+          <p><strong>현재 가능 범위</strong><span aria-hidden="true">—</span><span>{scope}</span></p>
+          <p><strong>다음 조치</strong><span aria-hidden="true">—</span><span>{gate === "ready" ? next.label : `${next.label} → 해결 후 업무 진단 단계에서 다시 진단해 상태 갱신`}</span></p>
+        </div>
+      </section>
       {gateChecks.required.length || gateChecks.recommended.length ? <section className="ax-matrix-prereqs" aria-label={gateChecks.required.length ? "선행 확인 조건" : "권장 확인사항"}>
         {gateChecks.required.length ? <>
           <h4><ListChecks size={16} aria-hidden="true" />선행 확인 조건 {gateChecks.required.length}개</h4>
@@ -900,7 +906,7 @@ function AxMatrix({ rows, selectedId, onSelect, step }: {
   const gateOf = (task: AxTask & { diagnosis: AxDiagnosis }) => executionGate(task.diagnosis);
   const worstGate = (members: RankedTask[]) => members.some(({ task }) => gateOf(task) === "blocked") ? "blocked" : members.some(({ task }) => gateOf(task) === "conditional") ? "conditional" : "ready";
   return <div className="ax-matrix-desktop"><div className="ax-matrix" aria-label="자동화 매트릭스 산점도">
-    <div className="ax-region ax-region-strategic">전략 과제</div><div className="ax-region ax-region-quick">빠른 실행 후보</div><div className="ax-region ax-region-hold">수동 유지·보류</div><div className="ax-region ax-region-maybe">검토 후보</div>
+    <div className="ax-region ax-region-strategic" data-region="strategic">전략 과제</div><div className="ax-region ax-region-quick" data-region="quick">빠른 실행 후보</div><div className="ax-region ax-region-hold" data-region="hold">수동 유지·보류</div><div className="ax-region ax-region-maybe" data-region="maybe">검토 후보</div>
     {[1, 2, 3, 4, 5].map(v => <span key={v} className="ax-y-tick" style={{ bottom: `${(v - 1) / 4 * 100}%` }}>{v === 1 ? "" : v}</span>)}
     {[1, 2, 3, 4, 5].map(v => <span key={v} className={`ax-x-tick${v === 1 ? " is-origin" : ""}`} style={v === 1 ? undefined : { left: `${(v - 1) / 4 * 100}%` }}>{v}</span>)}
     {[...groups].map(([key, group]) => {
@@ -909,7 +915,7 @@ function AxMatrix({ rows, selectedId, onSelect, step }: {
         const { task, rank } = group.rows[0];
         const diameter = Math.sqrt(bubbleArea(task, max) / Math.PI) * 2;
         const gate = gateOf(task);
-        return <button type="button" key={task.id} className={`ax-bubble${m.region === "hold" ? " is-hold" : ""}`} style={{ left: `${m.x}%`, bottom: `${m.y}%`, width: Math.max(24, diameter), height: Math.max(24, diameter), zIndex: selectedId === task.id ? 3 : 2 }} data-gate={gate} aria-label={`${task.name} · ${m.label} · 우선순위 ${rank} · ${GATE_LABELS[gate]}`} aria-pressed={selectedId === task.id} title={`${task.name} · ${m.label} · 우선순위 ${rank} · ${GATE_LABELS[gate]}`} onClick={() => onSelect(task.id)}><span className="ax-bubble-dot" style={{ width: diameter, height: diameter }} /><span className="ax-bubble-gate" data-gate={gate} aria-hidden="true" /></button>;
+        return <button type="button" key={task.id} className={`ax-bubble${m.region === "hold" ? " is-hold" : ""}`} style={{ left: `${m.x}%`, bottom: `${m.y}%`, width: Math.max(24, diameter), height: Math.max(24, diameter), zIndex: selectedId === task.id ? 3 : 2 }} data-gate={gate} aria-label={`${task.name} · ${m.label} · 우선순위 ${rank} · ${GATE_LABELS[gate]}`} aria-pressed={selectedId === task.id} title={`${task.name} · ${m.label} · 우선순위 ${rank} · ${GATE_LABELS[gate]}`} onClick={() => onSelect(task.id)}><span className="ax-bubble-dot" style={{ width: diameter, height: diameter }} /><span className="ax-bubble-rank" aria-hidden="true">{rank}</span><span className="ax-bubble-gate" data-gate={gate} aria-hidden="true" /></button>;
       }
       const members = [...group.rows].sort((a, b) => a.rank - b.rank);
       const selected = members.some(({ task }) => task.id === selectedId);
