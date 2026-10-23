@@ -662,6 +662,8 @@ test("AX level badge uses the unified label and shows the level description tool
 });
 test.describe("AX level badge touch", () => {
   test.use({ hasTouch: true, isMobile: true });
+  // isMobile 터치 에뮬레이션은 Chromium 전용이라 Firefox에서는 건너뛴다 (데스크톱 호버·포커스 경로는 위 툴팁 테스트가 Firefox 포함 전 프로젝트에서 검증).
+  test.skip(({ browserName }) => browserName !== "chromium", "touch emulation requires Chromium");
   test("tap toggles the level description on touch devices", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     const calls: Record<string, unknown>[] = []; await mock(page, calls);
