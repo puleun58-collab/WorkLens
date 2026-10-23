@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
+import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import { MoreHorizontal, Upload, Download, Trash2, Pencil, ClipboardList, CircleCheck, Zap, Clock3, Stethoscope, LayoutGrid, Map as MapIcon, ArrowLeft, ArrowRight, Paperclip, FileText, X, Repeat, CalendarCheck, Database, Plug, UserCheck, AlertTriangle, RotateCcw, ListChecks, CircleHelp, SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,7 +14,7 @@ import { useAxState } from "@/client/use-ax-state";
 import { runInWorker } from "@/client/document-client";
 import { diagnoseAx, planAx, interruptServerAi, aiFailureDetail } from "@/client/server-ai-client";
 import { AX_LIMITS, FACTOR_LABELS, axTaskSchema, axTaskV2Schema, confirmedAxDiagnosis } from "@/lib/ax/schema";
-import { axes, automationLevel, bubbleArea, executionGate, executionProfile, GATE_LABELS, planAllowed, priorityHeading, factorEffectiveValue, factorHasAdjustment, factorScale, matrixPosition, monthlyMinutes, nextAction, priority, splitGatePrerequisites, taskStatus, taskDisplayStatus } from "@/lib/ax/policy";
+import { axes, automationLevel, bubbleArea, diagnosisCounts, diagnosisStatusItems, executionGate, executionProfile, GATE_LABELS, planAllowed, priorityHeading, factorEffectiveValue, factorHasAdjustment, factorScale, matrixPosition, monthlyMinutes, nextAction, priority, splitGatePrerequisites, taskStatus, taskDisplayStatus } from "@/lib/ax/policy";
 import { candidateTask, taskDetails, followUpDescription, legacyDetailValues, validateAttachmentPreflight, isRegistrationUnchanged } from "@/lib/ax/registration";
 import { MAX_TASK_ATTACHMENTS, attachmentPatch, buildAttachmentSummary, combineAttachmentSummaries, taskAttachments } from "@/lib/ax/attachments";
 import type { AxAttachmentMeta } from "@/lib/ax/types";
@@ -46,18 +46,6 @@ type DraftAttachment = { meta: AxAttachmentMeta; summary: string | null };
 type Confirmation = { kind: "import"; state: AxStateV2 } | { kind: "reset" } | { kind: "delete"; id: string };
 type RankedTask = { task: AxTask & { diagnosis: AxDiagnosis }; rank: number };
 
-/** Header counts use the same executionGate as the badges, so a conditional task is never counted as "ready". */
-function diagnosisCounts(tasks: AxTask[]) {
-  const results = tasks.filter((task): task is AxTask & { diagnosis: AxDiagnosis } => !!task.diagnosis);
-  const gates = results.map(task => executionGate(task.diagnosis));
-  return {
-    results: results.length,
-    ready: gates.filter(gate => gate === "ready").length,
-    conditional: gates.filter(gate => gate === "conditional").length,
-    blocked: gates.filter(gate => gate === "blocked").length,
-    questions: results.filter(task => task.diagnosis.informationSufficiency === "needs-check").length,
-  };
-}
 const MATRIX_DETAIL_ID = "ax-matrix-detail";
 
 /** 매트릭스 상단 집계의 정보 확인 필요 바로가기: 1건이면 즉시 이동하고, 2건 이상이면 대상 업무 선택 목록을 연다. */
@@ -108,14 +96,14 @@ export function AxDiagnosisView() {
   const counts = diagnosisCounts(state.tasks);
   // 정보 확인 필요 업무: 집계 counts.questions과 같은 판정(needs-check) 기준으로 바로가기 대상을 구성한다.
   const needsCheckTasks = state.tasks.filter(task => task.diagnosis?.informationSufficiency === "needs-check");
-  // 표시 전용 간소화: 집계 자체는 diagnosisCounts를 그대로 쓰고, 0건인 상태는 숨기며 진단 완료는 완료/전체로 표기한다.
+  // 상태 문구는 공통 표시 항목(diagnosisStatusItems)을 쓰고, 진단 완료만 완료/전체로 앞에 표기한다.
+  // 결과·로드맵 KPI 보조 설명과 같은 항목·순서·문구를 공유한다.
+  const statusItems = diagnosisStatusItems(counts);
   const matrixStatusParts = [
     `진단 완료 ${counts.results}/${state.tasks.length}`,
-    ...(counts.ready ? [`${GATE_LABELS.ready} ${counts.ready}`] : []),
-    ...(counts.conditional ? [`${GATE_LABELS.conditional} ${counts.conditional}`] : []),
-    ...(counts.blocked ? [`${GATE_LABELS.blocked} ${counts.blocked}`] : []),
+    ...statusItems.filter(item => !item.actionable).map(item => item.text),
   ];
-  const matrixStatus = <p className="ax-muted ax-matrix-counts">{matrixStatusParts.join(" · ")}{counts.questions ? <> · <NeedsCheckLink tasks={needsCheckTasks} disabled={!!busy} onGo={goToCheckTarget} /></> : null}</p>;
+  const matrixStatus = <p className="ax-muted ax-matrix-counts">{matrixStatusParts.join(" · ")}{statusItems.some(item => item.actionable) ? <> · <NeedsCheckLink tasks={needsCheckTasks} disabled={!!busy} onGo={goToCheckTarget} /></> : null}</p>;
   const gateOrder = { ready: 0, conditional: 1, blocked: 2 };
   const profiles = ranked.map(row => ({ row, profile: executionProfile(row.task.diagnosis) }));
   const displayed = [...profiles].sort((a, b) => gateOrder[a.profile.gate] - gateOrder[b.profile.gate]).map(({ row }) => row);
@@ -771,7 +759,7 @@ export function AxDiagnosisView() {
       <TabsPanel value="4">
         {!ranked.length ? <p className="ax-empty ax-muted">완료된 진단 결과 없음</p> : <>
           <aside className="ax-step4-overview" aria-label="전체 업무 현황">
-            <AxKpiCards tasks={state.tasks} />
+            <AxKpiCards tasks={state.tasks} needsCheckTasks={needsCheckTasks} onGoNeedsCheck={goToCheckTarget} needsCheckDisabled={!!busy} />
             <div className="ax-step4-overview-grid">
               <section className="ax-surface"><h3>{overviewHeading}</h3>{priorityRows(true)}{ranked.length > overviewRows.length ? <Accordion className="ax-all-tasks"><AccordionItem value="all-tasks"><AccordionTrigger>전체 업무 보기</AccordionTrigger><AccordionPanel><div className="ax-all-task-list">{priorityRows(false)}</div></AccordionPanel></AccordionItem></Accordion> : null}</section>
             </div>
@@ -942,13 +930,17 @@ function AxAttachmentInput({ disabled, onSelectFiles }: { disabled: boolean; onS
     <Button type="button" variant="outline" disabled={disabled} onClick={() => input.current?.click()}><Paperclip aria-hidden="true" />파일 추가</Button>
   </div>;
 }
-function AxKpiCards({ tasks }: { tasks: AxTask[] }) {
+function AxKpiCards({ tasks, needsCheckTasks, onGoNeedsCheck, needsCheckDisabled }: {
+  tasks: AxTask[]; needsCheckTasks: AxTask[]; onGoNeedsCheck: (id: string) => void; needsCheckDisabled: boolean;
+}) {
   const counts = diagnosisCounts(tasks);
+  // 보조 설명은 매트릭스 상단과 같은 공통 표시 항목을 쓴다 (0건 숨김, 정보 확인 필요는 같은 바로가기 재사용).
+  const statusItems = diagnosisStatusItems(counts);
   const ranked = priority(tasks);
   const knownMinutes = tasks.map(monthlyMinutes).filter((m): m is number => m !== null);
   return <div className="ax-kpi-cards">
     <div className="ax-surface ax-kpi"><span className="ax-kpi-label"><ClipboardList size={14} aria-hidden="true" />등록 업무</span><strong>{tasks.length}개</strong></div>
-    <div className="ax-surface ax-kpi"><span className="ax-kpi-label"><CircleCheck size={14} aria-hidden="true" />진단 완료</span><strong>{counts.results}개</strong><small className="ax-muted">진행 가능 {counts.ready}개 · 확인 후 진행 {counts.conditional}개 · 진행 보류 {counts.blocked}개 · 추가 질문 필요 {counts.questions}개</small></div>
+    <div className="ax-surface ax-kpi"><span className="ax-kpi-label"><CircleCheck size={14} aria-hidden="true" />진단 완료</span><strong>{counts.results}개</strong>{statusItems.length ? <small className="ax-muted">{statusItems.map((item, index) => <Fragment key={item.key}>{index ? " · " : null}{item.actionable ? <NeedsCheckLink tasks={needsCheckTasks} disabled={needsCheckDisabled} onGo={onGoNeedsCheck} /> : item.text}</Fragment>)}</small> : null}</div>
     {counts.results ? <div className="ax-surface ax-kpi"><span className="ax-kpi-label"><Zap size={14} aria-hidden="true" />빠른 실행 후보</span><strong>{ranked.filter(r => matrixPosition(r.task.diagnosis).region === "quick" && executionGate(r.task.diagnosis) !== "blocked").length}개</strong><small className="ax-muted">빠른 실행 영역 · 확인 후 진행 포함 · 진행 보류 제외</small></div> : null}
     {knownMinutes.length ? <div className="ax-surface ax-kpi"><span className="ax-kpi-label"><Clock3 size={14} aria-hidden="true" />월 투입시간 합 · 입력 {knownMinutes.length}개</span><strong>{(knownMinutes.reduce((sum, m) => sum + m, 0) / 60).toLocaleString("ko-KR", { maximumFractionDigits: 1 })}시간</strong></div> : null}
   </div>;
