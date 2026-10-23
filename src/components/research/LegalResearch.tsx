@@ -5,7 +5,7 @@ import {
   AMENDMENT_SCENARIOS, DISPUTE_DOMAINS, EMPTY_RESEARCH_DRAFT, LAW_RESEARCH_DOCUMENT_MAX_CHARS, LAW_RESEARCH_DOCUMENT_MIN_CHARS,
   LAW_RESEARCH_ERROR, LAW_RESEARCH_NAME_MAX_CHARS, LAW_RESEARCH_QUERY_MAX_CHARS, LAW_RESEARCH_TASKS, lawResearchOutcome, lawResearchRequestFor,
   type AmendmentScenario, type DisputeDomain, type LawResearchData, type LawResearchDraft, type LawResearchOutcome,
-  type IssueEvidence, type LawCurrency, type LawResearchRequest, type LawResearchTask, type OrdinanceRegionResult, type ResearchInterpretation,
+  type InterpretationFailure, type IssueEvidence, type LawCurrency, type LawResearchRequest, type LawResearchTask, type OrdinanceRegionResult, type ResearchInterpretation,
 } from "@/lib/law-research";
 import { isSupportingSection, researchResult, type ResearchDecision, type ResearchSection } from "@/lib/law-research-parse";
 import { lawDisplayText } from "@/lib/law-display";
@@ -412,7 +412,7 @@ export function LegalResearch({ workspace, initialTask = "full_research" }: { wo
             {current.request.task === "full_research" && current.outcome.data.interpretation?.original === current.request.query
               && <ResearchUnderstanding interpretation={current.outcome.data.interpretation} />}
             {current.request.task === "full_research" && !current.outcome.data.interpretation
-              && <p className="research-meta research-uninterpreted">{UNINTERPRETED_NOTE}</p>}
+              && <p className="research-meta research-uninterpreted">{UNINTERPRETED_NOTE[current.outcome.data.interpretationFailure ?? "unavailable"]}</p>}
           </ResearchResultSummary>
         </div>
         : current.outcome?.kind === "found" ? current.outcome.data.review
@@ -563,8 +563,12 @@ function SupplementView({ supplement, hasArticles, excluded }: { supplement: Non
   </div>;
 }
 
-/** Shown when the question could not be split into issues this time (e.g. the AI service was busy). */
-const UNINTERPRETED_NOTE = "질문을 쟁점별로 나누지 못해 입력한 문장으로 검색했습니다. 잠시 후 다시 실행하면 쟁점별로 확인할 수 있습니다.";
+/** Shown when the question could not be split into issues this time; the reason is named, since a busy AI is not a missing law. */
+const UNINTERPRETED_NOTE: Record<InterpretationFailure, string> = {
+  "rate-limited": "AI 사용 한도에 도달해 질문을 쟁점별로 나누지 못했습니다. 입력한 문장과 핵심어로 검색했으며, 잠시 후 다시 실행하면 쟁점별로 확인할 수 있습니다.",
+  timeout: "AI 응답 시간이 초과되어 질문을 쟁점별로 나누지 못했습니다. 입력한 문장과 핵심어로 검색했으며, 잠시 후 다시 실행하면 쟁점별로 확인할 수 있습니다.",
+  unavailable: "질문을 쟁점별로 나누지 못해 입력한 문장과 핵심어로 검색했습니다. 잠시 후 다시 실행하면 쟁점별로 확인할 수 있습니다.",
+};
 
 /** Why an issue has no confirmed source: nothing addressed it, or its lookups could not answer. */
 const ISSUE_GAP: Record<IssueEvidence["status"], string> = {
@@ -840,7 +844,7 @@ function ResearchResult({ data, request, expandSources = false, onExpandSourcesC
       cautionClassName="research-caution">
       {request.task !== "document_review" && <p className="research-meta research-summary-meta research-query">입력한 질문: {request.query}</p>}
       {interpretation && <ResearchUnderstanding interpretation={interpretation} evidence={issueEvidence} />}
-      {full && !data.interpretation && <p className="research-meta research-uninterpreted">{UNINTERPRETED_NOTE}</p>}
+      {full && !data.interpretation && <p className="research-meta research-uninterpreted">{UNINTERPRETED_NOTE[data.interpretationFailure ?? "unavailable"]}</p>}
       <ResearchSummaryNotices>
         {notice && <ResearchSummaryNotice tone="warning" title="관련 근거 일부 미확인" className="legal-research-partial">{notice}</ResearchSummaryNotice>}
         {status === "weak" && <ResearchSummaryNotice tone="info" title="직접 관련성 확인 필요">조회된 자료가 질문과 직접 관련되는지 확인되지 않았습니다. 아래 자료는 참고용입니다.</ResearchSummaryNotice>}
@@ -919,7 +923,7 @@ function ResearchResult({ data, request, expandSources = false, onExpandSourcesC
                 ? "조회되지 않은 자료를 원문에서 추가로 확인해야 합니다."
                 : articles.length + cases.length > 0
                   ? "원문 시행 시점과 구체적인 사실관계에 대한 적용 여부를 대조해 주세요."
-                  : "이번 검색에서 직접 관련 근거가 확인되지 않았습니다. 관련 법령이나 판례가 없다는 뜻은 아닙니다."}</dd></div>
+                  : "이 쟁점에 맞는 자료를 찾지 못했습니다. 질문에 사실관계를 더하면 다시 확인할 수 있습니다."}</dd></div>
             </dl>
             {articles.length + cases.length > 0 && <details className="law-detail-source research-issue-refs" onToggle={syncReferences}>
               <SourceToggleSummary label={`관련 법령·판례 상세 보기 · ${articles.length + cases.length}건`} openLabel="관련 법령·판례 상세 접기" />

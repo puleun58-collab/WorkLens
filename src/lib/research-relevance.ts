@@ -47,13 +47,18 @@ export interface ResearchEnrichment {
   interpretations?: { query: string; entries: Array<{ id: string; title?: string; caseNumber?: string; body?: string; date?: string }> };
 }
 
-/** Words that frame a question rather than name its subject. */
+/** Words that frame a question rather than name its subject: question scaffolding, scene nouns and speech acts. */
 const FRAME_WORDS = new Set([
   "판단", "기준", "방법", "절차", "관련", "요건", "근거", "여부", "효력", "내용", "사례", "판례", "처분", "문제", "경우",
   "및", "등", "내", "의", "에서", "대한", "관한", "위한", "대해", "알려줘", "무엇", "어떻게", "가능", "해석", "적용", "범위",
+  "회사", "업무", "궁금", "궁금해", "싶어", "알고",
 ]);
 const PARTICLE = /(?:의|을|를|이|가|은|는|에|에서|으로|로|과|와|도)$/u;
+/** Endings of a spoken or written question (…당했어, …관련해서, …해고됐는데, …인지): they inflect, they do not name a subject. */
+const ENDING = /(?:됐는데|했는데|였는데|인데|해서|하여|했어|됐어|았어|었어|였어|인지|은지|는지|인가|을까|일까)$/u;
 const LAW_NAME = /(?:법|법률|령|규칙|조례)$/u;
+/** `근로기준법상` names the law under a locative suffix; the law name itself is the subject. */
+const LAW_UNDER = /^(.+(?:법|법률|령|규칙|조례))상$/u;
 
 const compact = (text: string) => text.replace(/\s+/gu, "");
 
@@ -61,12 +66,27 @@ const compact = (text: string) => text.replace(/\s+/gu, "");
 export function questionTerms(query: string): string[] {
   const terms: string[] = [];
   for (const raw of query.split(/[\s,.;:·!?()「」『』"'“”‘’/]+/u)) {
-    let word = raw.trim();
+    let word = raw.trim().replace(LAW_UNDER, "$1");
+    // Endings first: a particle strip would break them (무엇인가 → 무엇인).
+    if (word.length > 2) word = word.replace(ENDING, "");
     if (word.length > 2 && !LAW_NAME.test(word)) word = word.replace(PARTICLE, "");
     if (word.length < 2 || FRAME_WORDS.has(word) || /^\d+$/u.test(word)) continue;
     if (!terms.includes(word)) terms.push(word);
   }
   return terms;
+}
+
+/**
+ * Whether verified source text contains a question term. Statute titles and
+ * bodies name the act (모욕), while questions name the offense (모욕죄), so an
+ * offense name also matches through its act noun. A morphological rule only:
+ * no other form is inferred, and shorter names (범죄) are never cut.
+ */
+export function termInText(term: string, compactedText: string): boolean {
+  const needle = compact(term);
+  if (!needle) return false;
+  if (compactedText.includes(needle)) return true;
+  return needle.length >= 3 && needle.endsWith("죄") && compactedText.includes(needle.slice(0, -1));
 }
 
 export const isLawName = (term: string) => LAW_NAME.test(term) && term.length >= 3;
@@ -91,7 +111,7 @@ export function rankPrecedent(
   if (!terms.length || entry.summary === undefined) return { rank: "unknown", matched: [] };
   // A judgment opening repeats the case name (`[id] 사건명`, `=== 사건명 ===`); that is still the title.
   const evidence = compact(entry.excerpt && entry.title ? entry.summary.split(entry.title).join(" ") : entry.summary);
-  const matched = terms.filter((term) => evidence.includes(compact(term)));
+  const matched = terms.filter((term) => termInText(term, evidence));
   const articles = citedArticles.filter((article) => evidence.includes(compact(article)));
   const longest = Math.max(...terms.map((term) => term.length));
   const specific = matched.some((term) => term.length === longest);
@@ -119,7 +139,7 @@ export function orderByRelevance<T extends { id: string }>(entries: readonly T[]
 export function titleMatches(terms: readonly string[], law: string, title: string): string[] {
   const name = compact(law);
   const heading = compact(title);
-  return terms.filter((term) => !isLawName(term) && !name.includes(compact(term)) && heading.includes(compact(term)));
+  return terms.filter((term) => !isLawName(term) && !name.includes(compact(term)) && termInText(term, heading));
 }
 
 /**
@@ -136,7 +156,7 @@ export function researchEvidenceSources(text: string, query: string, enrichment?
   const addressesIssue = (excerpt: string) => {
     if (!excerpt.trim()) return false;
     const normalized = compact(excerpt);
-    const matched = terms.filter((term) => normalized.includes(compact(term)));
+    const matched = terms.filter((term) => termInText(term, normalized));
     return matched.length >= Math.ceil(terms.length / 2) && matched.some((term) => term.length === longest);
   };
   const articles = [

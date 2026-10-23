@@ -101,10 +101,18 @@ async function fullResearch(
   let interpretationFailure: InterpretationFailure | undefined;
   const interpretation = await interpretResearchQuery(query, context).catch((error: unknown) => {
     const failure = error instanceof ApiError ? error : undefined;
-    interpretationFailure = failure?.code === "AI_RATE_LIMITED" ? "rate-limited" : "unavailable";
+    interpretationFailure = failure?.code === "AI_RATE_LIMITED" ? "rate-limited"
+      : failure?.code === "AI_TIMEOUT" ? "timeout" : "unavailable";
     return undefined;
   });
   if (context.signal?.aborted) throw new ApiError("LAW_REQUEST_ABORTED", "요청이 취소되었습니다.", 499);
+  // A reading that found no issue to look into is itself the answer: searching the
+  // raw sentence anyway adopted whatever merely shared a word with it (an unrelated
+  // statute confirmed as "matched" for a question the reading called unidentifiable).
+  // The follow-up question carries the response; no source is confirmed or denied.
+  if (interpretation && !interpretation.issues.length) {
+    return { found: false, task: "full_research", marker: "NOT_FOUND", text: "", interpretation };
+  }
   // Each issue carries its own short search phrase; the question is searched as written only when it could not be read.
   const issues: Array<ResearchIssue | { label?: undefined; query: string }> = interpretation?.issues.length ? interpretation.issues : [{ query }];
   const sources = sharedSources(mcpEnrichmentSources(context));
@@ -124,8 +132,15 @@ async function fullResearch(
   let chain = await search(issues[0].query);
   if (chain.kind === "absent") {
     // One retry for a genuine absence: the next issue's phrase, or the question itself when it is keyword-short.
+    // When the question could not be read it was searched as written; the retry then uses its own
+    // subject terms — words the user wrote, never an invented legal term — because the upstream
+    // search AND-matches a long everyday sentence into nothing. Either way the retry's results
+    // pass through the same source verification; nothing is adopted on the search alone.
+    const refinedTerms = !interpretation ? questionTerms(query) : [];
     const alternative = issues[1]?.query
-      ?? (interpretation && query !== issues[0].query && questionTerms(query).length <= SHORT_QUERY_TERMS ? query : undefined);
+      ?? (interpretation && query !== issues[0].query && questionTerms(query).length <= SHORT_QUERY_TERMS ? query : undefined)
+      ?? (refinedTerms.length >= 1 && refinedTerms.length <= SHORT_QUERY_TERMS && refinedTerms.join(" ") !== issues[0].query
+        ? refinedTerms.join(" ") : undefined);
     if (alternative) {
       const second = await search(alternative);
       if (second.kind === "found") chain = second;
