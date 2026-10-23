@@ -33,7 +33,7 @@
 .ax-register h2 { margin-bottom: 0; }
 .ax-register-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .ax-details-trigger { flex: none; padding: 8px; align-items: center; gap: 8px; border: 1px solid transparent; background: transparent; }
-.ax-details-trigger:hover { background: color-mix(in srgb, var(--muted) 14%, transparent); }
+.ax-details-trigger:hover, .ax-details-trigger:active { background: transparent; }
 .ax-register-submit { display: flex; gap: 8px; margin-left: auto; }
 .ax-register-files { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .ax-field.ax-file-input { flex-direction: row; align-items: center; gap: 8px; }
@@ -733,7 +733,6 @@
 .ax-diag-title h2, .ax-diag-title h3 { margin: 0 0 8px; overflow-wrap: anywhere; }
 .ax-diag-badges { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .ax-diag-actions { display: flex; gap: 8px; flex: none; }
-.ax-provisional { font-size: 11px; font-weight: 500; border-radius: 6px; padding: 2px 8px; background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; white-space: nowrap; }
 .ax-diag-desc { margin: 0; line-height: 1.7; overflow-wrap: anywhere; }
 .ax-diag-summary { display: flex; gap: 12px; background: color-mix(in srgb, var(--primary) 5%, var(--card)); border: 1.5px solid color-mix(in srgb, var(--primary) 14%, var(--border)); border-radius: 12px; padding: 16px; }
 .ax-diag-summary-icon { flex: none; width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; background: var(--card); color: var(--primary); border: 1px solid var(--border); }
@@ -799,6 +798,9 @@
 .ax-summary-row dt { flex: none; width: 58px; font-size: 13px; font-weight: 600; color: var(--primary); }
 .ax-summary-row dd { margin: 0; min-width: 0; line-height: 1.6; }
 .ax-summary-human { display: block; }
+/* 다음 행동이 실제 영역으로 연결될 때의 링크형 버튼 (매트릭스 집계 바로가기와 같은 문법) */
+.ax-summary-action { padding: 0; border: 0; background: transparent; font: inherit; font-weight: 600; color: var(--primary); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.ax-summary-action:hover { text-decoration-thickness: 2px; }
 .ax-diag-summary-body > p.ax-diag-source { margin: 8px 0 0; }
 
 /* HITL 검토 UI */

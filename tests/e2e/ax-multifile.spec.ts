@@ -42,16 +42,17 @@ test("AX multi-file: select several at once, pastel rows, add more, duplicate an
   const rows = page.locator(".ax-register-files .ax-file-row");
   await expect(rows).toHaveCount(3);
   await expect(rows.nth(0)).toContainText("경유가격_원본.csv");
-  await expect(rows.nth(0)).toContainText("준비됨");
+  // 정상 상태에서는 '준비됨' 문구와 상태 요소 자체가 표시되지 않는다
+  await expect(rows.nth(0)).not.toContainText("준비됨");
+  await expect(rows.nth(0).locator(".ax-file-status")).toHaveCount(0);
   // 파스텔 블루 색상 실측 (ComputedStyle)
   const rowStyle = await rows.nth(0).evaluate(el => {
     const cs = getComputedStyle(el);
     const name = getComputedStyle(el.querySelector(".ax-file-name")!);
-    const status = getComputedStyle(el.querySelector(".ax-file-status")!);
     const icon = getComputedStyle(el.querySelector("svg")!);
-    return { background: cs.backgroundColor, border: cs.borderColor, name: name.color, status: status.color, icon: icon.color };
+    return { background: cs.backgroundColor, border: cs.borderColor, name: name.color, icon: icon.color };
   });
-  expect(rowStyle).toEqual({ background: "rgb(227, 236, 250)", border: "rgb(199, 216, 240)", name: "rgb(36, 52, 74)", status: "rgb(82, 101, 127)", icon: "rgb(82, 101, 127)" });
+  expect(rowStyle).toEqual({ background: "rgb(227, 236, 250)", border: "rgb(199, 216, 240)", name: "rgb(36, 52, 74)", icon: "rgb(82, 101, 127)" });
   // 기존 파일을 유지하면서 추가 첨부
   await input.setInputFiles([csv("보고서양식.csv", "항목,값\n합계,100")]);
   await expect(rows).toHaveCount(4);
@@ -136,7 +137,8 @@ test("AX multi-file: diagnosis request carries the combined per-file summary and
   await page.reload(); await ax(page);
   await expect(attachment).toContainText("첨부 파일이 사용됨 — 재분석 시 재첨부 필요");
   await fileInput(page).setInputFiles([csv("입력자료.csv", "품목,수량\n연료,10\n윤활유,3")]);
-  await expect(attachment).toContainText("입력자료.csv · 세션 요약 준비됨");
+  await expect(attachment).toContainText("입력자료.csv");
+  await expect(attachment).not.toContainText("세션 요약 준비됨");
   await page.getByRole("button", { name: "업무 진단 실행" }).click();
   await expect(page.getByText("첨부 파일 요약 기반 진단", { exact: false })).toBeVisible();
   expect(calls).toHaveLength(2);
@@ -157,7 +159,8 @@ test("AX multi-file: reattaching the identical file after reload restores the su
   const attachment = page.locator(".ax-attachment");
   await expect(attachment).toContainText("첨부 파일이 사용됨 — 재분석 시 재첨부 필요");
   await fileInput(page).setInputFiles([csv("monthly.csv", "업무,주기\n표취합,매월")]);
-  await expect(attachment).toContainText("monthly.csv · 세션 요약 준비됨");
+  await expect(attachment).toContainText("monthly.csv");
+  await expect(attachment).not.toContainText("세션 요약 준비됨");
   // 동일 파일 복원만으로는 기존 진단이 초기화되지 않는다
   await expect(page.getByRole("button", { name: "업무 다시 진단" })).toBeVisible();
   const stored = await record(page);
