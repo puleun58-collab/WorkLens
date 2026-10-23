@@ -62,6 +62,16 @@ const LAW_UNDER = /^(.+(?:법|법률|령|규칙|조례))상$/u;
 
 const compact = (text: string) => text.replace(/\s+/gu, "");
 
+/**
+ * Grammar that may close a written token after a word: particles, the copula,
+ * and the endings of the verbs a noun stem forms (하다·되다·당하다·받다 등).
+ * Anything else after a term inside its token is another noun, and then the
+ * term only modifies a different concept: 사용자등록 is a kind of 등록, not of
+ * 사용자, and 금융지주회사 continues past 회사 into a specific institution.
+ */
+const GRAMMATICAL_TAIL = /^(?:[은는이가을를에의와과도만씩뿐로]|에서|에게|한테|으로|으로서|으로써|로써|으로부터|까지|부터|처럼|보다|께|조차|마저|이나|든지|등|등의|적인|적으로|상|중|내|간|별|들|이며|이고|이다|입니다|인|일|이|이란|이라는|이라고|이라|란|라는|라고|한|하는|하여|하면|하고|하며|할|해|했|한다|함|하지|하지는|하지도|하니|하므로|하기|하기로|하도록|하게|하자|합니다|하십시오|하여야|해야|아니|아니한|당한|당하는|당하여|당하면|당하고|당했|당했다|당함|받은|받는|받아|받았|받음|되|된|되는|되어|되면|되고|될|된다|됨|되지|되어야|시킨|시키는|시켜|어야|여야|아서|여서|으면|면|고|며|지|게|기|다|요|니)*$/u;
+const TOKEN_SPLIT = /[\s,.;:·!?()「」『』"'“”‘’/[\]{}<>※—-]+/u;
+
 /** Subject terms of a question, in order; law names are kept (they are subjects too). */
 export function questionTerms(query: string): string[] {
   const terms: string[] = [];
@@ -76,17 +86,54 @@ export function questionTerms(query: string): string[] {
   return terms;
 }
 
-/**
- * Whether verified source text contains a question term. Statute titles and
- * bodies name the act (모욕), while questions name the offense (모욕죄), so an
- * offense name also matches through its act noun. A morphological rule only:
- * no other form is inferred, and shorter names (범죄) are never cut.
- */
-export function termInText(term: string, compactedText: string): boolean {
+/** Any occurrence at all, including inside a longer compound (사용자등록 for 사용자). */
+function termOccurs(term: string, compactedText: string): boolean {
   const needle = compact(term);
   if (!needle) return false;
   if (compactedText.includes(needle)) return true;
   return needle.length >= 3 && needle.endsWith("죄") && compactedText.includes(needle.slice(0, -1));
+}
+
+/**
+ * Whether verified source text uses a question term as a word of its own: the
+ * term completes a written token — itself with its grammar (모욕한, 보증금의),
+ * or the head of a compound (부당해고 for 해고, 제출의무 for 의무). Where a
+ * longer compound merely continues past it, the occurrence belongs to that
+ * other concept: a modifier inside 사용자등록 or 금융지주회사 is not the word.
+ *
+ * Statute titles and bodies name the act (모욕), while questions name the
+ * offense (모욕죄), so an offense name also matches through its act noun,
+ * under the same completion rule. A morphological rule only: no other form
+ * is inferred, and shorter names (범죄) are never cut.
+ */
+export function termInText(term: string, text: string): boolean {
+  const needles = [term];
+  if (term.length >= 3 && term.endsWith("죄")) needles.push(term.slice(0, -1));
+  for (const token of text.split(TOKEN_SPLIT)) {
+    if (!token) continue;
+    for (const needle of needles) {
+      let at = token.indexOf(needle);
+      while (at !== -1) {
+        const tail = token.slice(at + needle.length);
+        if (!tail || GRAMMATICAL_TAIL.test(tail)) return true;
+        at = token.indexOf(needle, at + 1);
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * A term standing behind a relevance decision: used as a word of its own, or
+ * written joined with another of the question's own terms (소유권이전등기 stacks
+ * 소유권·이전·등기 — the question's phrase without spaces). A term that only
+ * modifies an unrelated compound (사용자 inside 사용자등록) never qualifies, so
+ * a compound-internal partial match cannot carry a decision on its own.
+ */
+function termAnchored(term: string, terms: readonly string[], text: string): boolean {
+  if (termInText(term, text)) return true;
+  return text.split(TOKEN_SPLIT).some((token) => token.includes(term)
+    && terms.some((other) => other !== term && token.includes(other)));
 }
 
 export const isLawName = (term: string) => LAW_NAME.test(term) && term.length >= 3;
@@ -110,12 +157,15 @@ export function rankPrecedent(
 ): PrecedentRelevance {
   if (!terms.length || entry.summary === undefined) return { rank: "unknown", matched: [] };
   // A judgment opening repeats the case name (`[id] 사건명`, `=== 사건명 ===`); that is still the title.
-  const evidence = compact(entry.excerpt && entry.title ? entry.summary.split(entry.title).join(" ") : entry.summary);
-  const matched = terms.filter((term) => termInText(term, evidence));
-  const articles = citedArticles.filter((article) => evidence.includes(compact(article)));
+  const evidence = entry.excerpt && entry.title ? entry.summary.split(entry.title).join(" ") : entry.summary;
+  const matched = terms.filter((term) => termOccurs(term, compact(evidence)));
+  const articles = citedArticles.filter((article) => compact(evidence).includes(compact(article)));
   const longest = Math.max(...terms.map((term) => term.length));
   const specific = matched.some((term) => term.length === longest);
-  if (!entry.excerpt && (matched.length === terms.length || articles.length)) return { rank: "direct", matched: [...matched, ...articles] };
+  // Promotion to direct is the step a stray partial match must not carry: the
+  // most specific term has to be there as a word, not only inside a compound.
+  const anchored = matched.some((term) => term.length === longest && termAnchored(term, terms, evidence));
+  if (!entry.excerpt && ((matched.length === terms.length && anchored) || articles.length)) return { rank: "direct", matched: [...matched, ...articles] };
   if ((specific && matched.length >= Math.ceil(terms.length / 2)) || (entry.excerpt && articles.length)) {
     return { rank: "related", matched: [...matched, ...articles] };
   }
@@ -138,8 +188,7 @@ export function orderByRelevance<T extends { id: string }>(entries: readonly T[]
  */
 export function titleMatches(terms: readonly string[], law: string, title: string): string[] {
   const name = compact(law);
-  const heading = compact(title);
-  return terms.filter((term) => !isLawName(term) && !name.includes(compact(term)) && termInText(term, heading));
+  return terms.filter((term) => !isLawName(term) && !name.includes(compact(term)) && termInText(term, title));
 }
 
 /**
@@ -155,17 +204,25 @@ export function researchEvidenceSources(text: string, query: string, enrichment?
   const longest = Math.max(...terms.map((term) => term.length));
   const addressesIssue = (excerpt: string) => {
     if (!excerpt.trim()) return false;
-    const normalized = compact(excerpt);
-    const matched = terms.filter((term) => termInText(term, normalized));
-    return matched.length >= Math.ceil(terms.length / 2) && matched.some((term) => term.length === longest);
+    const matched = terms.filter((term) => termOccurs(term, compact(excerpt)));
+    // Coverage alone is not adoption: the most specific term must be present
+    // as a word of its own, so a compound-internal partial match (사용자 only
+    // inside 사용자등록) cannot adopt a source by itself.
+    return matched.length >= Math.ceil(terms.length / 2)
+      && matched.some((term) => term.length === longest && termAnchored(term, terms, excerpt));
   };
   const articles = [
     ...researchResult(text).sections.filter((section) => section.status === "available").flatMap((section) => section.articles ?? []),
     ...(enrichment?.supplement?.articles ?? []),
   ].filter((article) => addressesIssue(article.excerpt)).map(({ law, jo }) => ({ law, jo }));
   const precedents = Object.entries(enrichment?.precedents ?? {})
-    .filter(([, { rank, matched }]) => (rank === "direct" || rank === "related")
-      && addressesIssue(matched.filter((term) => terms.includes(term)).join(" ")))
+    .filter(([id, { rank, matched }]) => {
+      if (rank !== "direct" && rank !== "related") return false;
+      // Judged on the holding text itself when it was read; the matched-term
+      // list is only the fallback for a ranking whose text is unavailable.
+      const excerpt = enrichment?.precedentExcerpts?.[id];
+      return addressesIssue(excerpt ?? matched.filter((term) => terms.includes(term)).join(" "));
+    })
     .map(([id]) => id);
   return { articles, precedents };
 }
