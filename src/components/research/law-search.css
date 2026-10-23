@@ -35,7 +35,7 @@
 .law-article-list li + li { border-top: 1px solid var(--line-soft, var(--line)); }
 .law-detail-content > nav .law-article-list { margin: 0 0 16px; }
 .law-detail-source { margin-bottom: 12px; }
-.law-detail-source .source-toggle { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 2px; border-bottom: 1px solid var(--line-soft, var(--line)); color: var(--ink); font-size: var(--font-size-sm); font-weight: 600; list-style: none; cursor: pointer; }
+.law-detail-source .source-toggle { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line-soft, var(--line)); color: var(--ink); font-size: var(--font-size-sm); font-weight: 600; list-style: none; cursor: pointer; }
 .law-detail-source .source-toggle::-webkit-details-marker { display: none; }
 .law-detail-source .source-toggle::marker { content: ""; }
 .law-detail-source .source-toggle:hover { color: var(--blue); }
