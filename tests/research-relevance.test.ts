@@ -42,6 +42,18 @@ describe("question terms", () => {
     expect(questionTerms("건축법 이행강제금 부과 근거")).toEqual(["건축법", "이행강제금", "부과"]);
     expect(questionTerms("임대차 보증금의 반환")).toEqual(["임대차", "보증금", "반환"]);
   });
+
+  it("drops scene words and spoken endings from an everyday question, keeping only its subject", () => {
+    // 관련해서·당했어 once survived as terms: the connective became the longest term and no source text could ever match it.
+    expect(questionTerms("회사에서 업무 관련해서 모욕을 당했어")).toEqual(["모욕"]);
+    expect(questionTerms("회사에서 해고됐는데 마지막 달 월급도 받지 못했어")).toEqual(["해고", "마지막", "월급", "받지"]);
+    expect(questionTerms("해고가 부당해고인지 궁금해")).toEqual(["해고", "부당해고"]);
+  });
+
+  it("reads a law named under the locative 상 as the law name, and drops the question tail", () => {
+    expect(questionTerms("근로기준법상 직장 내 괴롭힘 발생 시 사용자의 조치 의무는 무엇인가?"))
+      .toEqual(["근로기준법", "직장", "괴롭힘", "발생", "사용자", "조치", "의무"]);
+  });
 });
 
 describe("request budget across issues", () => {
@@ -185,6 +197,34 @@ describe("evidence versus search candidates", () => {
     expect(researchEvidenceSources(source, "임대차 보증금 반환")).toEqual({
       articles: [{ law: "주택임대차보호법", jo: "제3조의2" }], precedents: [],
     });
+  });
+});
+
+describe("offense names versus statute wording", () => {
+  // 형법 제311조 never contains the word 모욕죄: its title is 모욕 and its body says 모욕한 자.
+  const insult = [
+    "═══ 종합 리서치 ═══", "",
+    "▶ AI 법령검색 결과", "지능형 법령검색 결과 (법령조문, 2건):", "",
+    "형법", "   제0311조 (모욕)", "   제311조(모욕)", " 공연히 사람을 모욕한 자는 1년 이하의 징역이나 금고 또는 200만원 이하의 벌금에 처한다.", "   시행: 2025.01.01 | 법무부", "",
+    "건축법", "   제0080조 (이행강제금)", "   제80조(이행강제금)", " 건축물에 이행강제금을 부과한다.", "   시행: 2025.01.01 | 국토교통부", "",
+  ].join("\n");
+
+  it("adopts the article an offense name points to, through the act noun in its official text", () => {
+    expect(researchEvidenceSources(insult, "모욕죄")).toEqual({ articles: [{ law: "형법", jo: "제311조" }], precedents: [] });
+    expect(hasRelevantResearchEvidence(insult, "모욕죄")).toBe(true);
+    expect(titleMatches(["모욕죄"], "형법", "모욕")).toEqual(["모욕죄"]);
+    expect(rankPrecedent(["모욕죄"], { title: "모욕", summary: "공연히 사람을 모욕한 행위의 위법성" }).rank).toBe("direct");
+  });
+
+  it("adopts the same article for the spoken question once its terms are read", () => {
+    expect(researchEvidenceSources(insult, "회사에서 업무 관련해서 모욕을 당했어"))
+      .toEqual({ articles: [{ law: "형법", jo: "제311조" }], precedents: [] });
+  });
+
+  it("never cuts a two-letter name, and does not let the act noun adopt an unrelated article", () => {
+    expect(titleMatches(["범죄"], "형법", "범칙금")).toEqual([]);
+    expect(researchEvidenceSources(insult, "사기죄")).toEqual({ articles: [], precedents: [] });
+    expect(rankPrecedent(["모욕죄"], { title: "사기", summary: "피고인의 사기 행위가 인정된다" }).rank).toBe("low");
   });
 });
 

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ResearchInterpretation } from "@/lib/law-research";
 import { runLegalResearch } from "@/server/law-research-mcp";
 import { interpretResearchQuery } from "@/server/groq";
+import { ApiError } from "@/server/http";
 
 vi.mock("@/server/groq", () => ({ interpretResearchQuery: vi.fn() }));
 
@@ -141,6 +142,48 @@ describe("full_research issue-by-issue retrieval", () => {
     expect(queries("search_decisions")).toEqual([]);
     expect(result).toMatchObject({ found: true, evidence: { status: "matched", issues: [{ status: "found" }] } });
     expect(result).not.toHaveProperty("interpretation");
+  });
+
+  it("retries a spoken question's absence once with its own subject terms, and verifies what returns the same way", async () => {
+    vi.mocked(interpretResearchQuery).mockRejectedValueOnce(new Error("unavailable"));
+    const insult = `═══ 종합 리서치 ═══\n▶ AI 법령검색 결과\n지능형 법령검색 결과 (법령조문, 1건):\n\n형법\n   제0311조 (모욕)\n공연히 사람을 모욕한 자는 1년 이하의 징역이나 금고 또는 200만원 이하의 벌금에 처한다.\n   시행: 2025.01.01 | 법무부`;
+    let first = true;
+    const queries = upstream({ legal_research: () => (first ? (first = false, "[NOT_FOUND] 없음") : insult) });
+    const spoken = "회사에서 업무 관련해서 모욕을 당했어";
+    const result = await runLegalResearch({ task: "full_research", query: spoken }, ctx);
+    // The sentence as written, then only the words the user actually used — no legal term is invented.
+    expect(queries("legal_research")).toEqual([spoken, "모욕"]);
+    expect(result).toMatchObject({ found: true, evidence: { status: "matched",
+      articles: [{ law: "형법", jo: "제311조" }], issues: [{ status: "found", articles: [{ law: "형법", jo: "제311조" }] }] } });
+  });
+
+  it("does not search at all when the reading found no issue to look into", async () => {
+    // A vague grievance once adopted an unrelated statute (금융지주회사법 제45조의4) because the raw
+    // sentence was searched and a shared word counted as a match. No issue means the follow-up is the answer.
+    vi.mocked(interpretResearchQuery).mockResolvedValueOnce({ ...interpretation, issues: [],
+      followUp: "어떤 부당한 일을 겪었는지 구체적으로 알려주시면 관련 법령을 찾을 수 있습니다." });
+    const queries = upstream({ legal_research: () => harassment });
+    const result = await runLegalResearch({ task: "full_research", query: "회사에서 부당한 일을 당했어." }, ctx);
+    expect(queries("legal_research")).toEqual([]);
+    expect(result).toMatchObject({ found: false, marker: "NOT_FOUND",
+      interpretation: { issues: [], followUp: expect.stringContaining("구체적으로") } });
+    expect(result).not.toHaveProperty("evidence");
+  });
+
+  it("names an interpretation timeout apart from other failures", async () => {
+    vi.mocked(interpretResearchQuery).mockRejectedValueOnce(new ApiError("AI_TIMEOUT", "AI 응답 시간이 초과되었습니다.", 504));
+    upstream({ legal_research: () => "[NOT_FOUND] 없음" });
+    const result = await runLegalResearch({ task: "full_research", query: "직장 내 괴롭힘 판단 기준" }, ctx);
+    expect(result).toMatchObject({ found: false, interpretationFailure: "timeout" });
+  });
+
+  it("never adopts a source the MCP did not return, however the issues are phrased", async () => {
+    vi.mocked(interpretResearchQuery).mockResolvedValueOnce({ ...interpretation,
+      issues: [{ label: "존재하지 않는 법령", query: "우주개발법 모욕" }] });
+    upstream({ legal_research: () => "[NOT_FOUND] 없음" });
+    const result = await runLegalResearch({ task: "full_research", query: longQuery }, ctx);
+    expect(result).toMatchObject({ found: false, marker: "NOT_FOUND" });
+    expect(result).not.toHaveProperty("evidence");
   });
 });
 

@@ -144,8 +144,12 @@ describe("fixed legal_research API", () => {
 
   it("keeps section-level failures and deadline notices as found, but leading absence as NOT_FOUND", async () => {
     const partial = `${samples.full}\n▶ 조문 조회 [NOT_FOUND / FAILED]\n⏱ 45초 내 일부 자료만 확인했습니다.\n[REQUEST_TIMEOUT] 하위 단계 실패`;
+    // Without an interpretation, a leading absence is retried once with the question's subject terms;
+    // each absence case below therefore answers two chain calls with the same absence.
     vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(toolText(partial))
       .mockResolvedValueOnce(toolText(" \n[NOT_FOUND] 법령이 없습니다.", true))
+      .mockResolvedValueOnce(toolText(" \n[NOT_FOUND] 법령이 없습니다.", true))
+      .mockResolvedValueOnce(toolText("[LAW_NOT_FOUND] 법령이 없습니다.", true))
       .mockResolvedValueOnce(toolText("[LAW_NOT_FOUND] 법령이 없습니다.", true)));
     expect((await call(base)).json.data).toEqual({ found: true, task: "full_research", text: partial, interpretationFailure: "unavailable",
       markers: ["REQUEST_TIMEOUT"], evidence: { status: "unverified", articles: [], precedents: [], issues: [{ status: "none", articles: [], precedents: [] }] } });

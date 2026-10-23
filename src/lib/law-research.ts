@@ -152,8 +152,8 @@ export function lawResearchRequestFor(task: LawResearchTask, draft: LawResearchD
   }
 }
 
-/** The AI reading was skipped: the provider quota ("rate-limited") or anything else ("unavailable"). */
-export type InterpretationFailure = "rate-limited" | "unavailable";
+/** The AI reading was skipped: the provider quota ("rate-limited"), a response timeout ("timeout"), or anything else ("unavailable"). */
+export type InterpretationFailure = "rate-limited" | "timeout" | "unavailable";
 
 /** One legal question: a short label to show and a short phrase to search with (never the user's whole sentence). */
 export interface ResearchIssue {
