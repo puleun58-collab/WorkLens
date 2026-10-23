@@ -160,10 +160,10 @@
 .ax-process-field { display: grid; grid-template-columns: 34px minmax(0,1fr); align-content: start; gap: 12px; min-width: 0; padding: 16px; border-radius: 8px; background: color-mix(in srgb, var(--primary) 4%, var(--card)); }
 .ax-process-icon, .ax-tobe-icon { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 8px; background: color-mix(in srgb, var(--primary) 11%, var(--card)); color: var(--primary); }
 .ax-process-icon svg, .ax-tobe-icon svg { width: 18px; height: 18px; }
-.ax-process-field > div, .ax-process-extra > div, .ax-process-systems > div { min-width: 0; }
-.ax-process-field h4, .ax-process-extra h4, .ax-process-systems h4 { margin: 0 0 4px; font-size: var(--font-size-sm); }
-.ax-process-field p, .ax-process-extra p, .ax-process-systems p { margin: 0; }
-.ax-view .ax-process-field ul, .ax-view .ax-process-extra ul, .ax-view .ax-process-systems ul { margin: 0; padding: 0; list-style: none; }
+.ax-process-field > div, .ax-process-extra > div { min-width: 0; }
+.ax-process-field h4, .ax-process-extra h4 { margin: 0 0 4px; font-size: var(--font-size-sm); }
+.ax-process-field p, .ax-process-extra p { margin: 0; }
+.ax-view .ax-process-field ul, .ax-view .ax-process-extra ul { margin: 0; padding: 0; list-style: none; }
 .ax-process-steps { margin-top: 18px; }
 .ax-process-steps > h4 { margin: 0 0 12px; }
 .ax-view .ax-process-flow, .ax-view .ax-tobe-flow { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%, 90px),1fr)); gap: 16px; padding: 12px; margin: 0; list-style: none; border: 1.5px solid var(--border); border-radius: 8px; }
@@ -173,13 +173,16 @@
 .ax-step-number { display: inline-grid; place-items: center; min-width: 26px; height: 24px; padding: 0 5px; border-radius: 5px; background: var(--muted-surface); color: var(--muted-foreground); font-size: var(--font-size-xs); font-weight: var(--font-weight-semibold); font-variant-numeric: tabular-nums; }
 .ax-process-arrow, .ax-tobe-arrow { position: absolute; top: 24px; right: -14px; width: 14px; height: 14px; color: color-mix(in srgb, var(--primary) 50%, var(--muted-foreground)); }
 .ax-process-extras { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; margin-top: 12px; align-items: start; }
-.ax-process-extra, .ax-process-systems { display: grid; grid-template-columns: 22px minmax(0,1fr); gap: 10px; align-items: start; min-width: 0; padding: 14px; border-radius: 8px; background: color-mix(in srgb, var(--warning) 6%, var(--card)); }
+.ax-process-extra { display: grid; grid-template-columns: 22px minmax(0,1fr); gap: 10px; align-items: start; min-width: 0; padding: 14px; border-radius: 8px; background: color-mix(in srgb, var(--warning) 6%, var(--card)); }
 /* Match the first title line, independent of wrapped titles and the list below. */
-.ax-process-extra > svg, .ax-process-systems > svg { width: 18px; height: 18px; font-size: var(--font-size-sm); line-height: inherit; margin-top: calc((1lh - 18px) / 2); color: var(--warning); }
+.ax-process-extra > svg { width: 18px; height: 18px; font-size: var(--font-size-sm); line-height: inherit; margin-top: calc((1lh - 18px) / 2); color: var(--warning); }
 .ax-process-extra[data-kind="human"] { background: var(--muted-surface); }
 .ax-process-extra[data-kind="human"] > svg { color: #d97706; }
-.ax-process-systems { margin-top: 10px; background: color-mix(in srgb, var(--primary) 5%, var(--card)); }
-.ax-process-systems > svg { color: var(--primary); }
+/* 사용 시스템은 정보량에 맞춰 한 줄로 표시한다 (시스템명·구분자는 원본 표시 그대로). */
+.ax-process-systems { display: flex; align-items: center; gap: 8px; min-width: 0; margin-top: 10px; padding: 9px 14px; border-radius: 8px; background: color-mix(in srgb, var(--primary) 5%, var(--card)); font-size: var(--font-size-sm); }
+.ax-process-systems > svg { flex: none; width: 18px; height: 18px; color: var(--primary); }
+.ax-process-systems p { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.ax-process-systems strong { font-weight: 600; }
 .ax-step-table { table-layout: fixed; }
 .ax-step-table th:first-child, .ax-step-table td:first-child { width: 32%; }
 .ax-step-table th:last-child, .ax-step-table td:last-child { width: 40%; }
@@ -201,12 +204,14 @@
 .ax-verdict-badge[data-verdict="AI 보조"] { color: #7c3aed; background: #f2edfc; border-color: transparent; }
 .ax-verdict-badge[data-verdict="사람 유지"] { color: var(--muted-foreground); background: var(--muted-surface); border-color: transparent; }
 .ax-tobe-card { min-width: 0; }
-.ax-tobe-flow { margin-top: 16px !important; }
-.ax-tobe-item { align-items: center; text-align: center; gap: 3px; padding: 8px 4px; }
+.ax-tobe-flow { margin-top: 12px !important; }
+.ax-tobe-item { align-items: center; text-align: center; gap: 3px; padding: 6px 4px; }
 .ax-tobe-icon { width: 36px; height: 36px; border-radius: 50%; }
 .ax-tobe-item strong { margin-top: 5px; font-size: var(--font-size-xs); line-height: 1.5; }
 .ax-tobe-item > span:not(.ax-tobe-icon) { color: var(--muted-foreground); font-size: var(--font-size-xs); }
 .ax-tobe-item p { margin: 4px 0 0; font-size: var(--font-size-xs); color: var(--muted-foreground); }
+/* 미확정 선행 조건과 주제가 직접 연결되는 TO-BE 단계에만 표시한다 (연결 근거인 확인 주제를 함께 표기). */
+.ax-tobe-item > span.ax-tobe-check { display: inline-flex; align-items: center; gap: 4px; margin-top: 3px; color: #b45309; font-weight: 600; overflow-wrap: anywhere; }
 .ax-tobe-item[data-owner="AI"] .ax-tobe-icon { color: #7c3aed; background: #f2edfc; }
 .ax-tobe-item[data-owner="사용자"] .ax-tobe-icon { color: #475569; background: var(--muted-surface); }
 
@@ -298,7 +303,9 @@
   .ax-phase-icon { width: 44px; height: 44px; }
   .ax-phases-note { align-items: flex-start; }
 }
-.ax-questions { display: flex; flex-direction: column; gap: 12px; }
+.ax-questions { display: flex; flex-direction: column; gap: 10px; }
+/* 추가 질문 입력창은 초기 약 2줄 높이로 시작하고, 내용이 길어지면 field-sizing으로 자동 확장된다. */
+.ax-questions [data-slot="textarea"] { min-height: 52px; }
 /* 답변 영역으로 포커스·스크롤 이동 시 고정 헤더에 가려지지 않도록 상단 여백 확보 */
 #ax-answer-section { scroll-margin-top: 88px; }
 .ax-questions > .ax-rediagnose { align-self: flex-end; width: auto; }
@@ -692,9 +699,10 @@
   .ax-view .ax-process-flow, .ax-view .ax-tobe-flow { grid-template-columns: minmax(0,1fr); gap: 12px; }
   .ax-process-node { display: grid; grid-template-columns: 32px minmax(0,1fr); gap: 12px; align-items: start; min-height: 70px; text-align: left; padding: 11px 12px 26px; }
   .ax-tobe-item { display: grid; grid-template-columns: 34px minmax(0,1fr); gap: 1px 12px; align-items: start; text-align: left; padding: 12px 12px 24px; }
-  .ax-tobe-icon { grid-row: span 3; }
+  .ax-tobe-icon { grid-row: span 4; }
   .ax-tobe-item strong { margin: 0; }
   .ax-tobe-item p { grid-column: 2; margin: 2px 0 0; }
+  .ax-tobe-item > span.ax-tobe-check { grid-column: 2; justify-self: start; }
   .ax-process-arrow, .ax-tobe-arrow { top: auto; bottom: 3px; left: 50%; right: auto; transform: translateX(-50%) rotate(90deg); }
   .ax-step-table, .ax-step-table tbody, .ax-step-table tr, .ax-step-table td { display: block; width: 100%; }
   .ax-step-table thead { display: none; }
@@ -785,8 +793,13 @@
   .ax-diag-actions { width: 100%; }
   .ax-diag-actions > * { flex: 1; }
 }
-.ax-diag-next { display: flex; gap: 6px; align-items: baseline; margin: 8px 0 0; font-size: 13px; }
-.ax-diag-next > span { color: var(--primary); font-weight: 600; flex: none; }
+/* 진단 결과 요약: 핵심 판단·확인 필요·다음 행동 라벨 행 */
+.ax-summary-rows { margin: 0; display: flex; flex-direction: column; gap: 5px; }
+.ax-summary-row { display: flex; gap: 10px; align-items: baseline; }
+.ax-summary-row dt { flex: none; width: 58px; font-size: 13px; font-weight: 600; color: var(--primary); }
+.ax-summary-row dd { margin: 0; min-width: 0; line-height: 1.6; }
+.ax-summary-human { display: block; }
+.ax-diag-summary-body > p.ax-diag-source { margin: 8px 0 0; }
 
 /* HITL 검토 UI */
 .ax-hitl-panel { display: flex; flex-direction: column; gap: 12px; padding: 14px; border: 1px solid var(--line-soft); border-radius: 8px; background: var(--surface); }
@@ -823,6 +836,16 @@
 .ax-hitl-type-badge { font-size: 11px; padding: 2px 8px; border-radius: 4px; background: var(--muted-surface, #f1f5f9); color: var(--foreground, #1e293b); white-space: nowrap; flex-shrink: 0; }
 /* HITL 테이블형 UI (레퍼런스 기준) */
 .ax-hitl-table-card { background: var(--card); border: 1.5px solid var(--line-soft); border-radius: 12px; overflow: hidden; }
+/* 검토 테이블 접기 트리거: 기존 테이블 헤더와 같은 모양을 유지하고, 항목 패널이 열려
+   입력 중일 때 비활성화돼도 흐려 보이지 않게 한다. */
+.ax-hitl-table-trigger { font-size: inherit; font-weight: inherit; color: inherit; }
+.ax-hitl-table-trigger .ax-hitl-table-header { flex: 1; min-width: 0; }
+.ax-hitl-table-trigger:disabled { opacity: 1; cursor: default; }
+/* 아코디언 패널의 기본 글자색·크기가 테이블 본문에 번지지 않게 한다. */
+.ax-hitl-table-panel, .ax-factors-panel { color: inherit; font-size: inherit; }
+/* Factor 상세 평가 접기 트리거: 진단 항목 섹션 제목과 같은 위계로 표시한다. */
+.ax-factors-trigger { padding-top: 2px; padding-bottom: 10px; font-size: 15px; font-weight: 700; color: var(--foreground); }
+.ax-factors-title .ax-muted { font-weight: 400; }
 .ax-hitl-table-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px 16px 16px; border-bottom: 1px solid var(--line-soft); }
 .ax-hitl-table-title { display: flex; align-items: center; gap: 8px; }
 .ax-hitl-table-icon { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; color: var(--primary); }

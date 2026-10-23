@@ -61,6 +61,7 @@ for (const width of [1440, 390]) test(`AX two-task ID-linked four-stage flow, in
   expect(aId).not.toBe(bId); expect(registered.selectedTaskId).toBe(bId);
   await step(page, "업무 진단"); await select(page, "업무 A");
   await page.getByRole("button", { name: "업무 진단 실행", exact: true }).click();
+  await page.getByRole("button", { name: /진단 항목 상세/ }).click();
   await expect(page.locator(".ax-factor-row")).toHaveCount(6);
   await page.getByRole("button", { name: "반복성 1점", exact: true }).click();
   await expect.poll(async () => (await stored(page)).tasks.find(t => t.id === aId)?.diagnosis?.factors[0].finalValue).toBe(1);

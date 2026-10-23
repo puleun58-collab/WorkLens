@@ -54,18 +54,32 @@ export function AxScoreCards({ diagnosis, variant }: { diagnosis: AxDiagnosis; v
  * 구성은 세 가지로 제한한다: ① 전체 단계의 판정 분포(핵심 판단) ② 담당자 수행 단계와 명시된 검토·승인 지점
  * ③ 구현 전에 확인해야 할 사항. 단계명·확인 주제의 상세는 아래 영역에서 확인한다.
  * Level·Gate는 카드 상단 배지가 단일 표시이며 요약 문장에서 반복하지 않는다(진행 보류의 후속 조치만 예외). */
-export function diagnosisSummarySentences(d: AxDiagnosis): string[] {
+export interface DiagnosisSummaryParts {
+  /** 핵심 판단의 판정 분포 명사구 (예: "자동화 3단계 · AI 보조 2단계 · 담당자 수행 1단계"). */
+  verdict?: string;
+  /** verdict를 문장으로 푼 기존 요약 문장 (diagnosisSummarySentences와 동일 문구). */
+  verdictSentence?: string;
+  /** 담당자 수행·검토·승인 절 — 역할 구분 문구 그대로. */
+  human?: string;
+  /** 확인 필요 문장 — 진행 보류 시 차단·재진단 문장, 그 외 미확인 건수 또는 추가 질문 건수. */
+  check?: string;
+}
+/** Display-only summary parts composed from confirmed diagnosis data; no AI call, no invented facts.
+ * diagnosisSummarySentences와 같은 데이터·문구를 핵심 판단/담당자 역할/확인 필요로 나눈 것으로,
+ * 진단 결과 요약의 라벨 행 표시가 사용한다. 어느 부분도 새 사실을 만들지 않는다. */
+export function diagnosisSummaryParts(d: AxDiagnosis): DiagnosisSummaryParts {
   const names = (list: string[]) => list.length > 3 ? `${list.slice(0, 3).join("·")} 등 ${list.length}개` : list.join("·");
   const count = (verdict: "자동화" | "AI 보조" | "사람 유지") => d.stepAssessments.filter(s => s.verdict === verdict).length;
-  const sentences: string[] = [];
+  const parts: DiagnosisSummaryParts = {};
   const total = d.stepAssessments.length;
   if (total) {
-    const parts = [
+    const distribution = [
       count("자동화") ? `자동화 ${count("자동화")}단계` : "",
       count("AI 보조") ? `AI 보조 ${count("AI 보조")}단계` : "",
       count("사람 유지") ? `담당자 수행 ${count("사람 유지")}단계` : "",
     ].filter(Boolean);
-    sentences.push(`전체 ${total}단계 중 ${parts.join(" · ")}로 ${automationLevel(d).provisional ? "잠정 판정" : "판정"}되었습니다.`);
+    parts.verdict = distribution.join(" · ");
+    parts.verdictSentence = `전체 ${total}단계 중 ${distribution.join(" · ")}로 ${automationLevel(d).provisional ? "잠정 판정" : "판정"}되었습니다.`;
   }
   // 담당자 관련 문장은 역할별로 구분한다. 사람 유지 단계는 '수행'으로만 표시하고,
   // humanInLoop 지점은 지점 자체의 명시 문구(승인 포함 여부)로만 검토·승인을 나눈다.
@@ -77,14 +91,18 @@ export function diagnosisSummarySentences(d: AxDiagnosis): string[] {
   const approvalPoints = d.humanInLoop.filter(point => point.includes("승인"));
   if (reviewPoints.length) humanClauses.push(`${names(reviewPoints)} 지점에서는 담당자 검토가 필요합니다.`);
   if (approvalPoints.length) humanClauses.push(`${names(approvalPoints)} 지점에서는 담당자 승인이 필요합니다.`);
-  if (humanClauses.length) sentences.push(humanClauses.join(" "));
-  if (executionGate(d) === "blocked") sentences.push("현재 진행 보류 상태로, 차단 사유를 해결한 뒤 재진단이 필요합니다.");
+  if (humanClauses.length) parts.human = humanClauses.join(" ");
+  if (executionGate(d) === "blocked") parts.check = "현재 진행 보류 상태로, 차단 사유를 해결한 뒤 재진단이 필요합니다.";
   else {
     const pendingTopics = new Set(d.technicalChecks.filter(c => c.status !== "확인됨").map(c => c.topic.trim()).filter(Boolean));
-    if (pendingTopics.size) sentences.push(`구현 전에 확인해야 할 사항이 ${pendingTopics.size}건 남아 있습니다.`);
-    else if (d.followUpQuestions.length) sentences.push(`구현 전에 추가 질문 ${d.followUpQuestions.length}건에 대한 답변이 필요합니다.`);
+    if (pendingTopics.size) parts.check = `구현 전에 확인해야 할 사항이 ${pendingTopics.size}건 남아 있습니다.`;
+    else if (d.followUpQuestions.length) parts.check = `구현 전에 추가 질문 ${d.followUpQuestions.length}건에 대한 답변이 필요합니다.`;
   }
-  return sentences.slice(0, 3);
+  return parts;
+}
+export function diagnosisSummarySentences(d: AxDiagnosis): string[] {
+  const parts = diagnosisSummaryParts(d);
+  return [parts.verdictSentence, parts.human, parts.check].filter((s): s is string => !!s).slice(0, 3);
 }
 export type AxCheckItem = { title: string; desc?: string; badge: string; kind: "need" | "done" | "block" };
 /** Deduped display items for the diagnosis "확인할 사항" area. Same topic from multiple sources shows once; independent conditions are kept. */
@@ -305,18 +323,34 @@ export function AxProcess({ diagnosis: d, reviewProps }: { diagnosis: AxDiagnosi
         {d.asIs.exceptions.length ? <div className="ax-process-extra" data-kind="exception"><AlertTriangle aria-hidden="true" /><div><h4>주요 예외 상황</h4><AxList items={d.asIs.exceptions} /></div></div> : null}
         {d.asIs.humanDecisions.length ? <div className="ax-process-extra" data-kind="human"><ClipboardList aria-hidden="true" /><div><h4>담당자 판단 사항</h4><AxList items={d.asIs.humanDecisions} /></div></div> : null}
       </div> : null}
-      {d.asIs.systems.length ? <div className="ax-process-systems"><MonitorCog aria-hidden="true" /><div><h4>사용 시스템</h4><AxList items={d.asIs.systems} /></div></div> : null}
+      {d.asIs.systems.length ? <div className="ax-process-systems"><MonitorCog aria-hidden="true" /><p><strong>사용 시스템</strong><span aria-hidden="true"> · </span>{d.asIs.systems.join(" · ")}</p></div> : null}
     </section>
-    <AxStepTable diagnosis={d} headers={["업무 단계", "판정", "담당", "판단 근거"]} reviewProps={reviewProps} />
-    {reviewProps ? <AxRiskReview diagnosis={d} reviewProps={reviewProps} /> : null}
+    <AxStepTable key={reviewProps?.taskId ?? "static"} diagnosis={d} headers={["업무 단계", "판정", "담당", "판단 근거"]} reviewProps={reviewProps} />
+    {reviewProps ? <AxRiskReview key={reviewProps.taskId} diagnosis={d} reviewProps={reviewProps} /> : null}
     <AxToBe diagnosis={d} />
   </>;
 }
 
-/** 위험·확인사항 검토 섹션 - 테이블형 UI */
+/** 검토 건수 표시: 전체·검토 완료는 항상 보여 접힌 상태에서도 상태를 알 수 있게 하고,
+ * 검토 필요가 0건이면 해당 구간은 숨긴다 (매트릭스 상단 집계와 같은 0건 생략 원칙). */
+function ReviewCounts({ total, completed }: { total: number; completed: number }) {
+  const needs = total - completed;
+  return <div className="ax-hitl-table-counts">
+    <span>전체 {total}</span>
+    <span>·</span>
+    <span>검토 완료 {completed}</span>
+    {needs ? <><span>·</span><span>검토 필요 {needs}</span></> : null}
+  </div>;
+}
+
+/** 위험·확인사항 검토 섹션 - 테이블형 UI.
+ * 접기 기본값: 전부 유효하게 검토 완료됐으면 접힘, 검토 필요 항목이 있으면 펼침.
+ * 사용자가 직접 바꾼 상태는 유지하고, 항목 패널이 열려 있는 동안에는 입력 보호를 위해
+ * 펼침을 강제하고 접기 조작을 막는다. */
 function AxRiskReview({ diagnosis: d, reviewProps }: { diagnosis: AxDiagnosis; reviewProps: AxProcessReviewProps }) {
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [userOpen, setUserOpen] = useState<boolean | null>(null);
   const items = extractReviewableItems(d).filter(i => i.type === "risk");
   if (!items.length) return null;
 
@@ -324,22 +358,23 @@ function AxRiskReview({ diagnosis: d, reviewProps }: { diagnosis: AxDiagnosis; r
   // hitl.ts 유효성 검증 재사용). editing·stale·해시 불일치 기록은 검토 필요로 집계한다.
   const validKeys = validConfirmedKeySet(items, reviewProps.reviews);
   const completedCount = items.filter(item => validKeys.has(item.key)).length;
+  const panelOpen = openKey !== null;
+  const tableOpen = panelOpen ? true : (userOpen ?? items.length - completedCount > 0);
 
   return <section className="ax-section" aria-label="위험·확인사항 검토">
+    <Accordion value={tableOpen ? ["review"] : []} onValueChange={values => { if (!panelOpen) setUserOpen(values.includes("review")); }} keepMounted>
+    <AccordionItem value="review" className="border-b-0">
     <div className="ax-hitl-table-card">
-      <div className="ax-hitl-table-header">
-        <div className="ax-hitl-table-title">
-          <span className="ax-hitl-table-icon" data-tone="warning"><ShieldAlert size={19} aria-hidden="true" /></span>
-          <h3>위험·확인사항 검토</h3>
-        </div>
-        <div className="ax-hitl-table-counts">
-          <span>전체 {items.length}</span>
-          <span>·</span>
-          <span>검토 완료 {completedCount}</span>
-          <span>·</span>
-          <span>검토 필요 {items.length - completedCount}</span>
-        </div>
-      </div>
+      <AccordionTrigger className="ax-hitl-table-trigger py-0 items-center" disabled={panelOpen}>
+        <span className="ax-hitl-table-header">
+          <span className="ax-hitl-table-title">
+            <span className="ax-hitl-table-icon" data-tone="warning"><ShieldAlert size={19} aria-hidden="true" /></span>
+            <h3>위험·확인사항 검토</h3>
+          </span>
+          <ReviewCounts total={items.length} completed={completedCount} />
+        </span>
+      </AccordionTrigger>
+      <AccordionPanel className="ax-hitl-table-panel pb-0">
       <div style={{ overflowX: "auto" }}>
         <table className="ax-hitl-table">
           <thead>
@@ -389,12 +424,16 @@ function AxRiskReview({ diagnosis: d, reviewProps }: { diagnosis: AxDiagnosis; r
           </tbody>
         </table>
       </div>
+      </AccordionPanel>
     </div>
+    </AccordionItem>
+    </Accordion>
   </section>;
 }
 function AxStepTable({ diagnosis: d, headers, reviewProps }: { diagnosis: AxDiagnosis; headers: [string, string, string, string]; reviewProps?: AxProcessReviewProps }) {
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [userOpen, setUserOpen] = useState<boolean | null>(null);
   const items = reviewProps ? extractReviewableItems(d) : [];
   const itemByStep = new Map<string, ReviewableItem>();
   for (const item of items) {
@@ -413,22 +452,25 @@ function AxStepTable({ diagnosis: d, headers, reviewProps }: { diagnosis: AxDiag
     // hitl.ts 유효성 검증 재사용). editing·stale·해시 불일치 기록은 검토 필요로 집계한다.
     const validKeys = validConfirmedKeySet(stepItems, reviewProps.reviews);
     const completedCount = stepItems.filter(item => validKeys.has(item.key)).length;
+    // 접기 기본값은 AxRiskReview와 같은 규칙: 전부 검토 완료면 접힘, 검토 필요가 있으면
+    // 펼침. 항목 패널이 열려 있는 동안에는 입력 보호를 위해 펼침을 강제한다.
+    const panelOpen = openKey !== null;
+    const tableOpen = panelOpen ? true : (userOpen ?? stepItems.length - completedCount > 0);
 
     return <section className="ax-section" aria-label="단계별 자동화 판단">
+      <Accordion value={tableOpen ? ["review"] : []} onValueChange={values => { if (!panelOpen) setUserOpen(values.includes("review")); }} keepMounted>
+      <AccordionItem value="review" className="border-b-0">
       <div className="ax-hitl-table-card">
-        <div className="ax-hitl-table-header">
-          <div className="ax-hitl-table-title">
-            <span className="ax-hitl-table-icon" data-tone="primary"><ListChecks size={19} aria-hidden="true" /></span>
-            <h3>단계별 자동화 판단</h3>
-          </div>
-          <div className="ax-hitl-table-counts">
-            <span>전체 {stepItems.length}</span>
-            <span>·</span>
-            <span>검토 완료 {completedCount}</span>
-            <span>·</span>
-            <span>검토 필요 {stepItems.length - completedCount}</span>
-          </div>
-        </div>
+        <AccordionTrigger className="ax-hitl-table-trigger py-0 items-center" disabled={panelOpen}>
+          <span className="ax-hitl-table-header">
+            <span className="ax-hitl-table-title">
+              <span className="ax-hitl-table-icon" data-tone="primary"><ListChecks size={19} aria-hidden="true" /></span>
+              <h3>단계별 자동화 판단</h3>
+            </span>
+            <ReviewCounts total={stepItems.length} completed={completedCount} />
+          </span>
+        </AccordionTrigger>
+        <AccordionPanel className="ax-hitl-table-panel pb-0">
         <div style={{ overflowX: "auto" }}>
           <table className="ax-hitl-table ax-hitl-step-table">
             <thead>
@@ -482,7 +524,10 @@ function AxStepTable({ diagnosis: d, headers, reviewProps }: { diagnosis: AxDiag
             </tbody>
           </table>
         </div>
+        </AccordionPanel>
       </div>
+      </AccordionItem>
+      </Accordion>
     </section>;
   }
 
@@ -497,14 +542,43 @@ function AxStepTable({ diagnosis: d, headers, reviewProps }: { diagnosis: AxDiag
   }) : <tr><td colSpan={4}>기재된 단계 없음</td></tr>}</tbody></table></div>
   </section>;
 }
+/** Tokens too generic to link a check topic to a single TO-BE step on their own. */
+const TOBE_CHECK_STOPWORDS = new Set(["데이터", "정보", "확인", "여부", "관련", "사항", "방식", "경우", "진행", "필요", "시스템", "자동", "수동", "대상", "업무", "사용", "제공", "처리", "기준", "현재", "적용"]);
+/** Display-only linkage between TO-BE steps and still-unconfirmed technical checks.
+ * A step is linked only when a specific token of an unconfirmed check topic (stopwords
+ * excluded) literally appears in the step name or its original description — both strings
+ * come from the diagnosis itself, so no condition is invented and no step is bulk-marked.
+ * Confirmed checks never mark a step. Returns step index → linked check topics. */
+export function toBeStepCheckTopics(d: AxDiagnosis): Map<number, string[]> {
+  const norm = (t: string) => t.toLowerCase().replace(/\s+/g, "");
+  const linked = new Map<number, string[]>();
+  for (const check of d.technicalChecks) {
+    if (check.status === "확인됨") continue;
+    const topic = check.topic.trim();
+    if (!topic) continue;
+    const tokens = topic.split(/[\s·/()]+/).map(t => t.trim().toLowerCase()).filter(t => t.length >= 2 && !TOBE_CHECK_STOPWORDS.has(t));
+    if (!tokens.length) continue;
+    d.toBe.forEach((s, i) => {
+      const haystack = norm(`${s.step} ${s.description}`);
+      if (tokens.some(token => haystack.includes(token))) {
+        const topics = linked.get(i) ?? [];
+        if (!topics.includes(topic)) topics.push(topic);
+        linked.set(i, topics);
+      }
+    });
+  }
+  return linked;
+}
 function AxToBe({ diagnosis: d }: { diagnosis: AxDiagnosis }) {
   const icons = { 시스템: Settings2, AI: Bot, 사용자: UserRound } as const;
   const norm = (t: string) => t.replace(/\s+/g, "");
   // 단계별 판단 표에서 같은 단계의 판단 근거로 이미 제공된 설명은 TO-BE에서 반복하지 않는다.
   // 표에 없는 설명은 TO-BE에만 있는 정보이므로 그대로 유지한다 (원본 데이터는 변경하지 않음).
+  // 단계명 자체와 같은 설명도 제목의 반복이라 표시하지 않는다.
   const descriptionFor = (s: AxDiagnosis["toBe"][number]): string => {
     const desc = s.description.trim();
     if (!desc) return "";
+    if (norm(desc) === norm(s.step)) return "";
     const match = d.stepAssessments.find(a => a.step === s.step)
       ?? d.stepAssessments.find(a => { const an = norm(a.step), sn = norm(s.step); return !!an && !!sn && (an.includes(sn) || sn.includes(an)); });
     if (match?.note.trim()) {
@@ -513,9 +587,11 @@ function AxToBe({ diagnosis: d }: { diagnosis: AxDiagnosis }) {
     }
     return desc;
   };
+  const checkTopics = toBeStepCheckTopics(d);
   return <section className="ax-section ax-panel ax-tobe-card"><header className="ax-process-head"><h3>TO-BE · 역할과 흐름 (목표 프로세스)</h3><small>자동화 도입 후 예상 업무 흐름 · 구현 완료 아님</small></header>
-    {d.toBe.length ? <ol className="ax-tobe-flow">{d.toBe.map((s, i) => { const Icon = icons[s.owner]; const desc = descriptionFor(s); return <li className="ax-tobe-item" data-owner={s.owner} key={i}>
+    {d.toBe.length ? <ol className="ax-tobe-flow">{d.toBe.map((s, i) => { const Icon = icons[s.owner]; const desc = descriptionFor(s); const topics = checkTopics.get(i); return <li className="ax-tobe-item" data-owner={s.owner} key={i}>
       <span className="ax-tobe-icon"><Icon aria-hidden="true" /></span><strong>{s.step}</strong><span>{OWNER_LABELS[s.owner]}</span>{desc ? <p>{desc}</p> : null}
+      {topics?.length ? <span className="ax-tobe-check"><CircleAlert size={12} aria-hidden="true" />확인 필요: {topics.join(" · ")}</span> : null}
       {i < d.toBe.length - 1 ? <ArrowRight className="ax-tobe-arrow" aria-hidden="true" /> : null}
     </li>; })}</ol> : <p className="ax-muted">기재된 목표 업무 단계 없음</p>}
   </section>;

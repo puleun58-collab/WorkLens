@@ -21,7 +21,7 @@ import type { AxAttachmentMeta } from "@/lib/ax/types";
 import { exportAxState, importAxState } from "@/lib/ax/transfer";
 import { emptyAxState, type AxStateV2, type AxTask, type AxDiagnosis, type AxDetails, type FactorKey } from "@/lib/ax/types";
 import { extractReviewableItems, extractPlanReviewableItems, reconcileReviews, validateReviewForConfirm, type ReviewableItem } from "@/lib/ax/hitl";
-import { AxProcess, AxResultSummary, AxExecutionTimeline, AxPlanSection, AxScoreCards, AxCheckIcon, diagnosisSummarySentences, diagnosisCheckItems, visibleDiagnosisCheckItems, matrixRationaleBullets } from "./AxReport";
+import { AxProcess, AxResultSummary, AxExecutionTimeline, AxPlanSection, AxScoreCards, AxCheckIcon, diagnosisSummaryParts, diagnosisCheckItems, visibleDiagnosisCheckItems, matrixRationaleBullets } from "./AxReport";
 import { AxScoreEvidence } from "./AxScoreEvidence";
 import "./ax.css";
 
@@ -85,6 +85,8 @@ export function AxDiagnosisView() {
   const nameHelpId = useId();
   const [showScores, setShowScores] = useState(true);
   const [showMatrixHelp, setShowMatrixHelp] = useState(false);
+  // Factor 상세 평가 아코디언: 기본 접힘. 사용자가 펼친 상태는 탭·업무 전환에도 유지한다.
+  const [factorsOpen, setFactorsOpen] = useState(false);
   const ranked = priority(state.tasks).map((row, index) => ({ ...row, rank: index + 1 }));
   // 매트릭스 목록: 기존 우선순위순 고정 표시 (원본 데이터·계산 변경 없음)
   const matrixListed = ranked;
@@ -647,14 +649,23 @@ export function AxDiagnosisView() {
               attachment={<TaskAttachment task={selected} busy={busy} ready={new Set(sessionReady[selected.id] ?? [])} onDetachFile={fingerprint => detachFile(selected, fingerprint)} onAttachFiles={files => void attachFiles(files, selected.id)} />} />
             {selected.diagnosis ? <>
               {selected.diagnosis.followUpQuestions.length ? <section className="ax-surface ax-questions" id="ax-answer-section" aria-label="추가 질문 답변"><h3>추가 질문 {selected.diagnosis.followUpQuestions.length}개</h3>{selected.diagnosis.followUpQuestions.map((q, i) => <label className="ax-field" key={i}>{q}<Textarea rows={2} maxLength={500} disabled={!!busy} value={answers[selected.id]?.[i] ?? ""} onChange={e => setAnswers(current => { const values = [...(current[selected.id] ?? [])]; values[i] = e.target.value; return { ...current, [selected.id]: values }; })} /></label>)}<Button type="button" className="ax-rediagnose" disabled={!!busy} onClick={() => void diagnose(selected, true)}>답변 반영 후 재진단</Button></section> : null}
-              <section className="ax-surface"><h3>진단 항목</h3><p className="ax-muted">필요하면 AI 평가값을 조정할 수 있습니다. 변경한 값은 자동화 수준과 우선순위에 바로 반영됩니다.</p>
-                {selected.diagnosis.factors.map(f => { const { icon: Icon, color } = FACTOR_META[f.key], effective = factorEffectiveValue(f), adjusted = factorHasAdjustment(f); const style = { "--ax-factor": color } as CSSProperties; return <div className="ax-factor-row" key={f.key}>
-                  <span className="ax-factor-icon" style={style}><Icon size={16} aria-hidden="true" /></span>
-                  <div className="ax-factor-main"><div className="ax-factor-head"><h4>{FACTOR_LABELS[f.key]}</h4><span className="ax-muted">AI {f.aiValue}점</span>{adjusted ? <span className="ax-factor-corrected">사용자 보정</span> : null}</div><p>{f.rationale}</p><small>{factorScale(f.key)}</small></div>
-                  <div className="ax-factor-control"><div className="ax-segments" role="group" aria-label={`${FACTOR_LABELS[f.key]} 보정`}>{[1, 2, 3, 4, 5].map(v => <button type="button" key={v} className={v <= effective ? "is-on" : ""} style={style} aria-label={`${FACTOR_LABELS[f.key]} ${v}점`} aria-pressed={v === effective} disabled={!!busy} onClick={() => adjust(selected, f.key, String(v))} />)}</div><strong className="ax-factor-value" style={{ color }}>{effective}</strong>{adjusted ? <AiValueReset disabled={!!busy} onReset={() => adjust(selected, f.key, "")} /> : null}</div>
-                </div>; })}
+              <section className="ax-surface ax-factors" aria-label="진단 항목">
+                <Accordion value={factorsOpen ? ["factors"] : []} onValueChange={values => setFactorsOpen(values.includes("factors"))}>
+                  <AccordionItem value="factors" className="border-b-0">
+                    <AccordionTrigger className="ax-factors-trigger"><span className="ax-factors-title">진단 항목 상세<span className="ax-muted"> · {selected.diagnosis.factors.length}개 Factor 평가</span></span></AccordionTrigger>
+                    <AccordionPanel className="ax-factors-panel pb-0">
+                      <p className="ax-muted">필요하면 AI 평가값을 조정할 수 있습니다. 변경한 값은 자동화 수준과 우선순위에 바로 반영됩니다.</p>
+                      {selected.diagnosis.factors.map(f => { const { icon: Icon, color } = FACTOR_META[f.key], effective = factorEffectiveValue(f), adjusted = factorHasAdjustment(f); const style = { "--ax-factor": color } as CSSProperties; return <div className="ax-factor-row" key={f.key}>
+                        <span className="ax-factor-icon" style={style}><Icon size={16} aria-hidden="true" /></span>
+                        <div className="ax-factor-main"><div className="ax-factor-head"><h4>{FACTOR_LABELS[f.key]}</h4><span className="ax-muted">AI {f.aiValue}점</span>{adjusted ? <span className="ax-factor-corrected">사용자 보정</span> : null}</div><p>{f.rationale}</p><small>{factorScale(f.key)}</small></div>
+                        <div className="ax-factor-control"><div className="ax-segments" role="group" aria-label={`${FACTOR_LABELS[f.key]} 보정`}>{[1, 2, 3, 4, 5].map(v => <button type="button" key={v} className={v <= effective ? "is-on" : ""} style={style} aria-label={`${FACTOR_LABELS[f.key]} ${v}점`} aria-pressed={v === effective} disabled={!!busy} onClick={() => adjust(selected, f.key, String(v))} />)}</div><strong className="ax-factor-value" style={{ color }}>{effective}</strong>{adjusted ? <AiValueReset disabled={!!busy} onReset={() => adjust(selected, f.key, "")} /> : null}</div>
+                      </div>; })}
+                    </AccordionPanel>
+                  </AccordionItem>
+                </Accordion>
               </section>
               <AxProcess
+                key={selected.id}
                 diagnosis={selected.diagnosis}
                 reviewProps={{
                   taskId: selected.id,
@@ -753,6 +764,7 @@ function DiagnosisCard({ task, busy, onDiagnose, onEdit, attachment }: {
   const lvl = d ? automationLevel(d) : null;
   const gate = d ? executionGate(d) : null;
   const checks = d ? diagnosisCheckItems(d) : [];
+  const summary = d ? diagnosisSummaryParts(d) : undefined;
   // 추가 질문이 같은 주제로 묻고 있는 확인 항목은 질문 영역에서 확인하므로 목록에서 중복 표시하지 않는다.
   const visibleChecks = d ? visibleDiagnosisCheckItems(d) : [];
   return <section className="ax-surface ax-diag-card" aria-label={`${task.name} 진단`}>
@@ -781,8 +793,14 @@ function DiagnosisCard({ task, busy, onDiagnose, onEdit, attachment }: {
         <span className="ax-diag-summary-icon" aria-hidden="true"><FileText size={20} /></span>
         <div className="ax-diag-summary-body">
           <div className="ax-diag-summary-head"><h3>진단 결과 요약</h3><Badge variant={d.informationSufficiency === "sufficient" ? "success" : "warning"}>{SUFFICIENCY[d.informationSufficiency]}</Badge></div>
-          {diagnosisSummarySentences(d).map((s, i) => <p key={i}>{s}</p>)}
-          <p className="ax-diag-next"><span>다음 권장 행동</span><strong>{nextAction(d).label}</strong></p>
+          <dl className="ax-summary-rows">
+            {summary?.verdict || summary?.human ? <div className="ax-summary-row"><dt>핵심 판단</dt><dd>
+              {summary?.verdict ? <span>{summary.verdict}{lvl?.provisional ? " · 잠정 판정" : ""}</span> : null}
+              {summary?.human ? <span className="ax-summary-human">{summary.human}</span> : null}
+            </dd></div> : null}
+            <div className="ax-summary-row"><dt>확인 필요</dt><dd>{summary?.check ?? "없음"}</dd></div>
+            <div className="ax-summary-row"><dt>다음 행동</dt><dd><strong>{nextAction(d).label}</strong></dd></div>
+          </dl>
           <p className="ax-muted ax-diag-source">{d.sourceNote}</p>
         </div>
       </div>

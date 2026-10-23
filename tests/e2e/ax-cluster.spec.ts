@@ -196,6 +196,7 @@ test("Case D: factor correction splits a cluster and AI reset restores it withou
   await clusterButton(page, 2).click();
   await page.getByRole("tab", { name: "업무 진단", exact: true }).click();
   await expect(clusterMenu(page, 2)).not.toBeVisible();
+  await page.getByRole("button", { name: /진단 항목 상세/ }).click();
   await page.getByRole("button", { name: "반복성 1점", exact: true }).click();
   await page.getByRole("tab", { name: "자동화 매트릭스", exact: true }).click();
   await expect(page.locator(".ax-matrix-cluster")).toHaveCount(0);

@@ -156,6 +156,7 @@ test("AX registration → diagnosis → correction → matrix → plans → relo
   await expect(page.locator(".ax-radar")).toHaveCount(0);
   await expect(page.getByText("진단 항목 분포", { exact: true })).toHaveCount(0);
   await page.screenshot({ path: `artifacts/ax/diagnosis-${test.info().project.name}.png`, fullPage: true });
+  await page.getByRole("button", { name: /진단 항목 상세/ }).click();
   await page.getByRole("button", { name: "반복성 1점", exact: true }).click();
   await expect(page.getByText("사용자 보정 완료", { exact: true }).last()).toBeVisible();
   const reset = page.getByRole("button", { name: "AI 제안값으로 되돌리기", exact: true });
@@ -724,6 +725,7 @@ test("AX factor corrections and re-diagnosis invalidate existing implementation 
   await expect(claude).toBeVisible();
   await expect.poll(() => record(page)).toMatchObject({ tasks: [{ diagnosis: { planCodex: planFixture, planClaude: planFixture } }] });
   await page.getByRole("tab", { name: "업무 진단", exact: true }).click();
+  await page.getByRole("button", { name: /진단 항목 상세/ }).click();
   await page.getByRole("button", { name: "반복성 4점", exact: true }).click();
   await expect(page.getByRole("button", { name: "AI 제안값으로 되돌리기", exact: true })).toHaveCount(0);
   await expect(page.locator(".ax-factor-corrected")).toHaveCount(0);
@@ -1534,6 +1536,7 @@ for (const width of [1440, 390]) test(`AX score evidence and all ranks update to
   expect(axisStyles[0]).toEqual(axisStyles[1]);
   await panel.screenshot({ path: `artifacts/ax/score-evidence-${width}-${test.info().project.name}.png` });
   await page.getByRole("tab", { name: "업무 진단", exact: true }).click();
+  await page.getByRole("button", { name: /진단 항목 상세/ }).click();
   for (const label of ["반복성", "규칙성", "데이터 구조화", "시스템 접근성"]) await page.getByRole("button", { name: `${label} 1점`, exact: true }).click();
   await expect.poll(async () => (await record(page))?.tasks[0].diagnosis?.planCodex).toBeUndefined();
   expect((await record(page))?.tasks[1].diagnosis?.planClaude).toEqual(planFixture);
@@ -1565,6 +1568,7 @@ test("AX partial diagnoses preserve selected task plans, tool prompts, copy and 
   for (const name of ["A", "B", "C"]) {
     await page.getByLabel("등록 업무 목록").getByRole("button", { name: new RegExp(`^${name}`) }).click();
     await page.getByRole("button", { name: "업무 진단 실행", exact: true }).click();
+    if (name === "A") await page.getByRole("button", { name: /진단 항목 상세/ }).click();
     await expect(page.locator(".ax-factor-row")).toHaveCount(6);
   }
   await page.getByLabel("등록 업무 목록").getByRole("button", { name: /^E/ }).click();
