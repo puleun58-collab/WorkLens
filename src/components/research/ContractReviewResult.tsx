@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { ArrowDownRight, ChevronDown } from "lucide-react";
 
 import type { ContractReview, ReviewedIssue } from "@/lib/contract-review";
+import { lawDisplayText } from "@/lib/law-display";
 import type { ReviewCoverage, ReviewFile } from "@/lib/law-review-source";
 import { STATUS_TITLE, type ResearchStatus } from "@/lib/research-status";
 import { SourceToggleSummary } from "./SourceToggleSummary";
@@ -201,7 +202,7 @@ export function ContractReviewResult({ review, file, expandSources = false, onEx
             <strong>{name}</strong>
             {law.effectiveDate && <span className="contract-review-meta">시행 {formatDate(law.effectiveDate)}</span>}
             {law.condition && <p className="contract-review-condition">{law.condition}</p>}
-            {law.excerpt && <pre className="legal-analysis-lines">{law.excerpt}</pre>}
+            {law.excerpt && <pre className="legal-analysis-lines">{lawDisplayText(law.excerpt)}</pre>}
           </li>;
         })}</ul>
       </details>}

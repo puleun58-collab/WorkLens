@@ -95,6 +95,67 @@ describe("lawDisplayText", () => {
     expect(lawDisplayText(prose)).toBe(prose);
   });
 
+  it.each([
+    ["<P>본문</P>", "본문"],
+    ["<p>문단1</p><p>문단2</p>", "문단1\n\n문단2"],
+    ["<DIV>본문</DIV>", "본문"],
+    ["<div class=\"article\">본문</div>", "본문"],
+    ["<p data-x='1'>본문</p>", "본문"],
+    ["<P>① 첫째</P><P>② 둘째</P>", "① 첫째\n\n② 둘째"],
+    ["앞 문장<P>다음 문단</P>", "앞 문장\n다음 문단"],
+    ["<p>문단1</p>\n<p>문단2</p>", "문단1\n\n\n문단2"],
+  ])("turns paragraph tags in %j into paragraph breaks", (input, expected) => {
+    expect(lawDisplayText(input)).toBe(expected);
+  });
+
+  it("strips display tags carrying event attributes; nothing is ever rendered as HTML", () => {
+    expect(lawDisplayText("<p onclick=\"alert(1)\">본문</p>")).toBe("본문");
+    expect(lawDisplayText("<div onmouseover=\"alert(1)\">본문</div>")).toBe("본문");
+  });
+
+  it("leaves non-display markup and prose punctuation untouched", () => {
+    const prose = [
+      "비교하면 3 < 5 이고, 표기 예시는 <pre> 태그이다.",
+      "기간: 2026-10-08 ~ 2026-10-10",
+      "사건번호: 대법원-2023-다-302036",
+      "당사자 -- 이하 \"갑\"이라 한다",
+      "| --- | --- |",
+    ].join("\n");
+    expect(lawDisplayText(prose)).toBe(prose);
+  });
+
+  it.each([
+    ["문단1\n---\n문단2", "문단1\n\n문단2"],
+    ["문단1\n  ---  \n문단2", "문단1\n\n문단2"],
+    ["문단1\n----------\n문단2", "문단1\n\n문단2"],
+    ["---\n본문", "본문"],
+    ["본문\n---", "본문"],
+  ])("drops the structural rule line in %j but keeps the paragraph boundary", (input, expected) => {
+    expect(lawDisplayText(input)).toBe(expected);
+  });
+
+  it("keeps a before/after article comparison in order without its markup or rules", () => {
+    const input = [
+      "제13조(수수료)",
+      "개정 전",
+      "<P>① 수수료는 100분의 5로 한다.</P>",
+      "---",
+      "개정 후",
+      "<P>① 수수료는 100분의 3으로 한다.</P>",
+    ].join("\n");
+    expect(lawDisplayText(input)).toBe([
+      "제13조(수수료)",
+      "개정 전",
+      "",
+      "① 수수료는 100분의 5로 한다.",
+      "",
+      "",
+      "개정 후",
+      "",
+      "① 수수료는 100분의 3으로 한다.",
+    ].join("\n"));
+  });
+
   it("formats a long judgment with paragraph breaks, stays fast and leaves the raw string unchanged", () => {
     const raw = Array.from({ length: 400 }, (_, index) => `【${index + 1}】 판결 이유 문단입니다. 다음과 같이 판단한다.<br/><br/>`).join("")
       + "\n💡 다음: get_precedent_text(id=\"1\") 로 판결문 전문.";
