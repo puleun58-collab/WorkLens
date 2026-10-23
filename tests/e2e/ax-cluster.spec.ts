@@ -58,8 +58,8 @@ async function openCase(page: Page, tasks: AxTask[], selectedId = tasks[0].id) {
   await seed(page, { ...emptyAxState(), tasks, selectedTaskId: selectedId, step: 3 });
   await ax(page);
 }
-const clusterButton = (page: Page, count: number) => page.getByRole("button", { name: `해당 위치의 업무 ${count}개`, exact: true });
-const clusterMenu = (page: Page, count: number) => page.getByRole("menu", { name: `해당 위치의 업무 ${count}개`, exact: true });
+const clusterButton = (page: Page, count: number) => page.getByRole("button", { name: `해당 위치의 업무 ${count}건`, exact: true });
+const clusterMenu = (page: Page, count: number) => page.getByRole("menu", { name: `해당 위치의 업무 ${count}건`, exact: true });
 const taskList = (page: Page) => page.getByLabel("매트릭스 업무 목록", { exact: true });
 const summaryHeading = (page: Page) => page.locator(".ax-matrix-detail").getByRole("heading").first();
 
@@ -132,10 +132,10 @@ test("Case B: two equal renderer coordinates form one cluster beside one single"
   const singleLabel = await page.locator(".ax-bubble").getAttribute("aria-label");
   await expect(page.locator(".ax-bubble")).toHaveText(singleLabel!.match(/우선순위 (\d+)/)![1]);
   const trigger = clusterButton(page, 2);
-  await expect(trigger.locator(".ax-matrix-cluster-number")).toHaveText("2");
+  await expect(trigger.locator(".ax-matrix-cluster-number")).toHaveText("2건");
   await trigger.click();
   const menu = clusterMenu(page, 2);
-  await expect(menu.locator(".ax-matrix-cluster-count")).toHaveText("해당 위치의 업무 (2개)");
+  await expect(menu.locator(".ax-matrix-cluster-count")).toHaveText("해당 위치의 업무 2건");
   // Raw factors, region and execution gate differ; final x/y still match.
   await expect(menu.getByRole("menuitem")).toHaveCount(2);
   await expect(menu.getByRole("menuitem").first()).toContainText(`#1`);
@@ -162,8 +162,8 @@ test("Case C: five tasks form three-member and two-member clusters without colla
   ];
   await openCase(page, tasks);
   await expect(page.locator(".ax-matrix-cluster")).toHaveCount(2);
-  await expect(clusterButton(page, 3).locator(".ax-matrix-cluster-number")).toHaveText("3");
-  await expect(clusterButton(page, 2).locator(".ax-matrix-cluster-number")).toHaveText("2");
+  await expect(clusterButton(page, 3).locator(".ax-matrix-cluster-number")).toHaveText("3건");
+  await expect(clusterButton(page, 2).locator(".ax-matrix-cluster-number")).toHaveText("2건");
   await expect(page.locator(".ax-bubble")).toHaveCount(0);
   await expect(taskList(page).getByRole("button")).toHaveCount(5);
   // 매트릭스 하단 TOP 3는 제거됨 — 좌측 목록이 전체 업무를 점수 순위 순으로 표시한다.
@@ -207,7 +207,7 @@ test("Case D: factor correction splits a cluster and AI reset restores it withou
   await page.getByRole("button", { name: "AI 제안값으로 되돌리기", exact: true }).first().click();
   await page.getByRole("tab", { name: "자동화 매트릭스", exact: true }).click();
   await expect(clusterButton(page, 2)).toBeVisible();
-  await expect(clusterButton(page, 2).locator(".ax-matrix-cluster-number")).toHaveText("2");
+  await expect(clusterButton(page, 2).locator(".ax-matrix-cluster-number")).toHaveText("2건");
   await expect(clusterMenu(page, 2)).not.toBeVisible();
   await expect.poll(async () => (await record(page))?.tasks.find(task => task.id === first.id)?.diagnosis?.factors[0].finalValue).toBeUndefined();
 });
@@ -261,10 +261,10 @@ for (const width of [1440, 390]) test(`Case F: keyboard, Escape focus, outside/s
   expect(Math.abs(geometry.yCenter)).toBeLessThanOrEqual(2); expect(Math.abs(geometry.xCenter)).toBeLessThanOrEqual(2);
   const trigger = clusterButton(page, 100), menu = clusterMenu(page, 100);
   await expect(trigger.locator(".ax-matrix-cluster-circle")).toHaveCount(3);
-  await expect(trigger.locator(".ax-matrix-cluster-number")).toHaveText("100");
+  await expect(trigger.locator(".ax-matrix-cluster-number")).toHaveText("100건");
   await trigger.focus(); await page.keyboard.press("Enter");
   await expect(menu).toBeVisible();
-  await expect(menu.locator(".ax-matrix-cluster-count")).toHaveText("해당 위치의 업무 (100개)");
+  await expect(menu.locator(".ax-matrix-cluster-count")).toHaveText("해당 위치의 업무 100건");
   await expect(menu.getByRole("menuitem")).toHaveCount(100);
   await page.keyboard.press("End");
   await expect(menu.getByRole("menuitem").last()).toBeFocused();
@@ -288,6 +288,49 @@ for (const width of [1440, 390]) test(`Case F: keyboard, Escape focus, outside/s
   await page.getByRole("tab", { name: "자동화 매트릭스", exact: true }).click();
   await expect(menu).not.toBeVisible();
   await expect(summaryHeading(page)).toContainText(tasks[99].name);
+});
+
+test("Cluster popup widens, keeps long names on one line with ellipsis and puts the gate badge on the second row", async ({ page }) => {
+  const longName = "시설 보수 요청 검토 및 업체 선정과 사후 점검 결과 보고까지 포함하는 아주 긴 업무 이름";
+  const first = { ...clusterTask("long-a"), name: longName };
+  const second = clusterTask("long-b");
+  await openCase(page, [first, second]);
+  await clusterButton(page, 2).click();
+  const menu = clusterMenu(page, 2);
+  await expect(menu).toBeVisible();
+  const menuBox = (await menu.boundingBox())!;
+  expect(menuBox.width).toBeGreaterThan(400);
+  expect(menuBox.width).toBeLessThanOrEqual(460);
+  const item = menu.getByRole("menuitem").first();
+  const name = item.locator(".ax-matrix-cluster-name");
+  await expect(name).toHaveText(longName);
+  await expect(name).toHaveAttribute("title", longName);
+  const nameMetrics = await name.evaluate(element => ({ scrollWidth: element.scrollWidth, clientWidth: element.clientWidth, rects: element.getClientRects().length }));
+  expect(nameMetrics.scrollWidth).toBeGreaterThan(nameMetrics.clientWidth);
+  expect(nameMetrics.rects).toBe(1);
+  // 상태 배지는 업무명 아래 두 번째 행에 있고, 업무명 시작선(순위 열 뒤)에 맞춰 정렬된다.
+  const nameBox = (await name.boundingBox())!;
+  const badgeBox = (await item.locator(".ax-gate-badge").boundingBox())!;
+  const metaBox = (await item.locator(".ax-matrix-cluster-meta").boundingBox())!;
+  expect(badgeBox.y).toBeGreaterThanOrEqual(nameBox.y + nameBox.height - 1);
+  expect(Math.abs(metaBox.x - nameBox.x)).toBeLessThanOrEqual(1);
+  // 항목 사이에만 구분선(팝업 테두리와 같은 토큰 색)이 있고 첫 항목 위에는 없다(첫 항목은 선택 강조 틴트).
+  const tops = await menu.locator(".ax-matrix-cluster-item").evaluateAll(items => items.map(element => getComputedStyle(element).borderTopColor));
+  const tokenBorder = await page.evaluate(() => {
+    const probe = document.createElement("div");
+    probe.style.borderTop = "1px solid var(--border)";
+    document.body.appendChild(probe);
+    const color = getComputedStyle(probe).borderTopColor;
+    probe.remove();
+    return color;
+  });
+  expect(tops[1]).toBe(tokenBorder);
+  expect(tops[0]).not.toBe(tokenBorder);
+  // 점수·상태 영역을 클릭해도 같은 업무가 선택된다.
+  await item.locator(".ax-gate-badge").click();
+  await expect(menu).not.toBeVisible();
+  await expect.poll(async () => (await record(page))?.selectedTaskId).toBe(first.id);
+  await expect(summaryHeading(page)).toContainText(longName);
 });
 
 for (const [registered, diagnosed] of [[0, 0], [1, 0], [5, 3], [5, 5]]) test(`Matrix status counts ${registered}/${diagnosed}`, async ({ page }) => {

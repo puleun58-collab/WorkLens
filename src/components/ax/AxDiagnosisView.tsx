@@ -60,6 +60,20 @@ function diagnosisCounts(tasks: AxTask[]) {
 }
 const MATRIX_DETAIL_ID = "ax-matrix-detail";
 
+/** 매트릭스 상단 집계의 정보 확인 필요 바로가기: 1건이면 즉시 이동하고, 2건 이상이면 대상 업무 선택 목록을 연다. */
+function NeedsCheckLink({ tasks, disabled, onGo }: { tasks: AxTask[]; disabled: boolean; onGo: (id: string) => void }) {
+  if (!tasks.length) return null;
+  if (tasks.length === 1) {
+    return <button type="button" className="ax-matrix-counts-link" disabled={disabled} onClick={() => onGo(tasks[0].id)}>정보 확인 필요 {tasks.length}건</button>;
+  }
+  return <Menu modal={false}>
+    <MenuTrigger render={<button type="button" className="ax-matrix-counts-link" disabled={disabled} />}>정보 확인 필요 {tasks.length}건</MenuTrigger>
+    <MenuPopup aria-label="정보 확인 필요 업무 선택">
+      {tasks.map(task => <MenuItem key={task.id} onClick={() => onGo(task.id)}>{task.name}</MenuItem>)}
+    </MenuPopup>
+  </Menu>;
+}
+
 export function AxDiagnosisView() {
   const { state, update, getState, replace, ready, saveStatus, loadNotice, externalChange, storageProtection } = useAxState();
   const [message, setMessage] = useState("");
@@ -87,19 +101,21 @@ export function AxDiagnosisView() {
   const [showMatrixHelp, setShowMatrixHelp] = useState(false);
   // Factor 상세 평가 아코디언: 기본 접힘. 사용자가 펼친 상태는 탭·업무 전환에도 유지한다.
   const [factorsOpen, setFactorsOpen] = useState(false);
+  const [checkScroll, setCheckScroll] = useState<{ taskId: string; nonce: number } | null>(null);
   const ranked = priority(state.tasks).map((row, index) => ({ ...row, rank: index + 1 }));
   // 매트릭스 목록: 기존 우선순위순 고정 표시 (원본 데이터·계산 변경 없음)
   const matrixListed = ranked;
   const counts = diagnosisCounts(state.tasks);
+  // 정보 확인 필요 업무: 집계 counts.questions과 같은 판정(needs-check) 기준으로 바로가기 대상을 구성한다.
+  const needsCheckTasks = state.tasks.filter(task => task.diagnosis?.informationSufficiency === "needs-check");
   // 표시 전용 간소화: 집계 자체는 diagnosisCounts를 그대로 쓰고, 0건인 상태는 숨기며 진단 완료는 완료/전체로 표기한다.
   const matrixStatusParts = [
     `진단 완료 ${counts.results}/${state.tasks.length}`,
     ...(counts.ready ? [`${GATE_LABELS.ready} ${counts.ready}`] : []),
     ...(counts.conditional ? [`${GATE_LABELS.conditional} ${counts.conditional}`] : []),
     ...(counts.blocked ? [`${GATE_LABELS.blocked} ${counts.blocked}`] : []),
-    ...(counts.questions ? [`추가 질문 ${counts.questions}`] : []),
   ];
-  const matrixStatus = <p className="ax-muted ax-matrix-counts">{matrixStatusParts.join(" · ")}</p>;
+  const matrixStatus = <p className="ax-muted ax-matrix-counts">{matrixStatusParts.join(" · ")}{counts.questions ? <> · <NeedsCheckLink tasks={needsCheckTasks} disabled={!!busy} onGo={goToCheckTarget} /></> : null}</p>;
   const gateOrder = { ready: 0, conditional: 1, blocked: 2 };
   const profiles = ranked.map(row => ({ row, profile: executionProfile(row.task.diagnosis) }));
   const displayed = [...profiles].sort((a, b) => gateOrder[a.profile.gate] - gateOrder[b.profile.gate]).map(({ row }) => row);
@@ -116,6 +132,23 @@ export function AxDiagnosisView() {
   useEffect(() => {
     if (ready && state.selectedTaskId !== selectedId) update(current => ({ ...current, selectedTaskId: selectedId }));
   }, [ready, state.selectedTaskId, selectedId, update]);
+  // 정보 확인 필요 바로가기로 이동한 경우, 대상 업무의 추가 질문(없으면 확인할 사항) 영역까지 스크롤한다.
+  // 단계 전환 시 최상단으로 되돌리는 기존 스크롤 초기화(다중 RAF + 150ms 타이머)가 끝난 뒤 시작해야 경합하지 않는다.
+  const selectedRef = useRef(state.selectedTaskId);
+  useEffect(() => { selectedRef.current = state.selectedTaskId; }, [state.selectedTaskId]);
+  useEffect(() => {
+    if (!checkScroll || state.step !== 2 || state.selectedTaskId !== checkScroll.taskId) return;
+    const timer = window.setTimeout(() => {
+      if (selectedRef.current !== checkScroll.taskId) { setCheckScroll(null); return; }
+      requestAnimationFrame(() => {
+        const panel = document.querySelector(".ax-step2-grid");
+        const target = panel?.querySelector("#ax-answer-section") ?? panel?.querySelector(".ax-diag-checks") ?? panel?.querySelector(".ax-diag-card");
+        target?.scrollIntoView({ behavior: "smooth", block: "start" });
+        setCheckScroll(null);
+      });
+    }, 260);
+    return () => clearTimeout(timer);
+  }, [checkScroll, state.step, state.selectedTaskId]);
   useEffect(() => {
     alive.current = true;
     const sessionAttachments = attachments.current;
@@ -126,6 +159,19 @@ export function AxDiagnosisView() {
   }
   function select(id: string) { update(current => ({ ...current, selectedTaskId: id })); }
   function changeStep(step: number) { update(current => ({ ...current, step })); setMessage(""); }
+  /** 정보 확인 필요 바로가기: 클릭 시점의 최신 상태로 대상을 재확인한 뒤 업무 진단 단계의 확인 영역으로 이동한다.
+   * 대상이 삭제됐거나 재진단으로 확인 필요 상태가 해제됐으면 존재하지 않는 영역으로 이동하지 않고 안내만 남긴다. */
+  function goToCheckTarget(taskId: string) {
+    if (busy) return;
+    const task = getState().tasks.find(t => t.id === taskId);
+    if (!task?.diagnosis || task.diagnosis.informationSufficiency !== "needs-check") {
+      setMessage("정보 확인 필요 상태가 변경되어 이동할 업무가 없습니다.");
+      return;
+    }
+    select(taskId);
+    changeStep(2);
+    setCheckScroll({ taskId, nonce: Date.now() });
+  }
 
   /** HITL 검토 저장: v2 reviews 필드에 저장 (중복 방지, ID 유지)
    * - confirmed 저장 전 현재 원본 기준으로 전체 일치 검증 (키·유형·출처·해시·중복)
@@ -584,7 +630,10 @@ export function AxDiagnosisView() {
           <span className={`ax-dot ax-dot-${task.status}`} aria-hidden="true" />
           <span className="ax-task-name">{rank}. {task.name}</span>
           {showScores ? <span className="ax-task-meta">가치 {a.value} · 실현 {a.feasibility}</span> : null}
-          <span className="ax-gate-badge" data-gate={gate}>{GATE_LABELS[gate]}</span>
+          <span className="ax-matrix-list-badges">
+            <span className="ax-gate-badge" data-gate={gate}>{GATE_LABELS[gate]}</span>
+            {task.diagnosis.informationSufficiency === "needs-check" ? <span className="ax-needs-check-badge">정보 확인 필요</span> : null}
+          </span>
         </Button>
       </li>;
     })}</ul>;
@@ -945,15 +994,15 @@ function AxMatrix({ rows, selectedId, onSelect, step }: {
       const groupGate = worstGate(members);
       const closeCluster = () => setOpenCluster(null);
       return <Menu key={key} modal={false} open={open} onOpenChange={nextOpen => setOpenCluster(nextOpen ? { key, selectedId, groupSignature, step } : null)}>
-        <MenuTrigger render={<button type="button" />} className="ax-matrix-cluster" style={{ left: `${m.x}%`, bottom: `${m.y}%`, zIndex: selected ? 3 : 2 }} data-selected={selected} data-gate={groupGate} aria-label={`해당 위치의 업무 ${members.length}개`} title={`해당 위치의 업무 ${members.length}개`}>
+        <MenuTrigger render={<button type="button" />} className="ax-matrix-cluster" style={{ left: `${m.x}%`, bottom: `${m.y}%`, zIndex: selected ? 3 : 2 }} data-selected={selected} data-gate={groupGate} aria-label={`해당 위치의 업무 ${members.length}건`} title={`해당 위치의 업무 ${members.length}건`}>
           <span className="ax-matrix-cluster-circle ax-matrix-cluster-circle-left" aria-hidden="true" />
           <span className="ax-matrix-cluster-circle ax-matrix-cluster-circle-right" aria-hidden="true" />
           <span className="ax-matrix-cluster-circle ax-matrix-cluster-circle-front" aria-hidden="true" />
-          <span className="ax-matrix-cluster-number" aria-hidden="true">{members.length}</span>
+          <span className="ax-matrix-cluster-number" aria-hidden="true">{members.length}건</span>
           <span className="ax-bubble-gate" data-gate={groupGate} aria-hidden="true" />
         </MenuTrigger>
-        <MenuPopup className="ax-matrix-cluster-popup" side={side} align={align} alignOffset={align === "center" ? 0 : align === "start" ? 28 : -28} sideOffset={12} style={{ "--ax-matrix-popup-height": `${plotRoom}px` } as CSSProperties} aria-label={`해당 위치의 업무 ${members.length}개`}>
-          <div className="ax-matrix-cluster-head"><span className="ax-matrix-cluster-count">해당 위치의 업무 ({members.length}개)</span><button type="button" className="ax-matrix-cluster-close" aria-label="닫기" onClick={closeCluster}><X size={14} aria-hidden="true" /></button></div>
+        <MenuPopup className="ax-matrix-cluster-popup" side={side} align={align} alignOffset={align === "center" ? 0 : align === "start" ? 28 : -28} sideOffset={12} style={{ "--ax-matrix-popup-height": `${plotRoom}px` } as CSSProperties} aria-label={`해당 위치의 업무 ${members.length}건`}>
+          <div className="ax-matrix-cluster-head"><span className="ax-matrix-cluster-count">해당 위치의 업무 {members.length}건</span><button type="button" className="ax-matrix-cluster-close" aria-label="닫기" onClick={closeCluster}><X size={14} aria-hidden="true" /></button></div>
           <div className="ax-matrix-cluster-list" role="group" aria-label="해당 위치 업무 목록">
           {members.map(({ task, rank }) => {
             const a = axes(task.diagnosis);
@@ -961,9 +1010,13 @@ function AxMatrix({ rows, selectedId, onSelect, step }: {
             // MenuItem 유지: 키보드 내비게이션(End/Home/방향키·Escape) 보존
             return <MenuItem key={task.id} closeOnClick={false} className="ax-matrix-cluster-item" data-active={task.id === selectedId ? "true" : undefined} aria-current={task.id === selectedId ? "true" : undefined} onClick={() => { onSelect(task.id); closeCluster(); }}>
               <span className="ax-matrix-cluster-rank">#{rank}</span>
-              <span className="ax-matrix-cluster-main"><span className="ax-matrix-cluster-name">{task.name}</span>
-                <span className="ax-matrix-cluster-meta">가치 {a.value} · 실현 {a.feasibility}</span></span>
-              <span className="ax-gate-badge" data-gate={gate}>{GATE_LABELS[gate]}</span>
+              <span className="ax-matrix-cluster-main">
+                <span className="ax-matrix-cluster-name" title={task.name}>{task.name}</span>
+                <span className="ax-matrix-cluster-sub">
+                  <span className="ax-matrix-cluster-meta">가치 {a.value} · 실현 {a.feasibility}</span>
+                  <span className="ax-gate-badge" data-gate={gate}>{GATE_LABELS[gate]}</span>
+                </span>
+              </span>
             </MenuItem>;
           })}
           </div>
