@@ -4,14 +4,29 @@
  * The raw response stays untouched for markers, parsers and caching; only
  * what a `<pre>` shows is cleaned:
  *  - HTML line breaks (`<br>`, `<br/>`, `<BR />`) become real line breaks.
- *    Every other tag stays inert text; nothing is ever rendered as HTML.
+ *  - HTML paragraph tags (`<p>`, `<div>`, with attributes, any case) become
+ *    line breaks at their block boundaries, so a `<p>…</p>` pair leaves the
+ *    blank line a paragraph break needs. Only these display tags are
+ *    converted: every other tag stays inert text; nothing is rendered as HTML.
+ *  - A line holding only a markdown rule (`---`) is a structural separator
+ *    between sections, not content: it becomes the paragraph boundary it
+ *    marked. Hyphens inside a sentence, dates and case numbers stay.
  *  - MCP operator guidance is removed: sentences that tell an agent which
  *    tool to call next (`get_precedent_text(id="…")`, `find_similar_precedents
  *    사용`) or show raw search arguments (`body_search="…"`, `full=true`).
  *    Only sentences naming a known MCP tool or a raw `name=` argument are
  *    touched, so legal prose such as "다음과 같이 판결한다." is never altered.
  */
-const LINE_BREAK_TAG = /<\s*\/?\s*br\s*\/?\s*>/giu;
+const LINE_BREAK_TAG = /<\s*\/?\s*br(?:\s[^>]*)?\s*\/?\s*>/giu;
+/**
+ * Paragraph-level display tags only: `<p>`/`<div>`, opening or closing, any
+ * case, with attributes. The tag name must end at whitespace, `/` or `>`, so
+ * `<pre>`, `<param>` and prose like `a < b` never match; a tag without its
+ * closing `>` stays text.
+ */
+const PARAGRAPH_TAG = /<\s*\/?\s*(?:p|div)(?:\s[^>]*)?\s*\/?\s*>/giu;
+/** A markdown rule alone on its line: layout between sections, never content. */
+const RULE_LINE = /^-{3,}$/u;
 
 /**
  * Tools the Korean Law MCP names in its own output: ASCII snake_case led by a
@@ -90,9 +105,12 @@ export function lawDisplayText(value: string | null | undefined): string {
   if (!value) return "";
   const lines = value
     .replace(/\r\n?/gu, "\n")
+    .replace(PARAGRAPH_TAG, "\n")
     .replace(LINE_BREAK_TAG, "\n")
     .split("\n")
     .flatMap((line) => {
+      // The rule line itself is dropped; the blank line keeps the boundary it marked.
+      if (RULE_LINE.test(line.trim())) return [""];
       const shown = withoutOperatorGuidance(line);
       return shown === undefined ? [] : [shown.replace(/[ \t\u00a0]+$/u, "")];
     });

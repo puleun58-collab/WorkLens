@@ -259,4 +259,40 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     expect(errors).toEqual([]);
     expect(calls).toBe(2);
   });
+
+  test(`개정 비교 원문의 문단 태그·구분자가 화면에 노출되지 않음 ${viewport.width}`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await page.route("**/api/law/research", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: {
+      found: true, task: "full_research", markers: [],
+      text: [
+        "═══ 종합 리서치: 수수료율 개정 비교 ═══", "",
+        "▶ 조문 시점 비교",
+        "제13조(수수료)",
+        "개정 전",
+        "<P>① 수수료는 100분의 5로 한다.</P>",
+        "---",
+        "개정 후",
+        "<P>① 수수료는 100분의 3으로 한다.</P>",
+      ].join("\n"),
+    } }) }));
+    await page.goto("/");
+    await navigateWorkspace(page, "법령");
+    await page.getByRole("tab", { name: "종합 리서치", exact: true }).click();
+    const form = page.getByRole("form", { name: "종합 리서치 입력" });
+    const results = page.locator(".legal-research .legal-analysis-result");
+    await form.getByLabel("질문 또는 검색어").fill("수수료율 개정 비교");
+    await form.getByRole("button", { name: "실행", exact: true }).click();
+    await expect(results).toContainText("① 수수료는 100분의 5로 한다.");
+    await expect(results).toContainText("① 수수료는 100분의 3으로 한다.");
+    await expect(results).not.toContainText(/<\/?P>|<\/?DIV>/u);
+    const source = results.locator("details.research-source");
+    await source.locator("summary").click();
+    const raw = await source.locator(".legal-analysis-raw").textContent();
+    expect(raw).not.toMatch(/<\/?\s*(?:p|div)(?:\s[^>]*)?>/iu);
+    expect(raw?.split("\n").map((line) => line.trim())).not.toContain("---");
+    expect(raw!.indexOf("개정 전")).toBeLessThan(raw!.indexOf("100분의 5"));
+    expect(raw!.indexOf("100분의 5")).toBeLessThan(raw!.indexOf("개정 후"));
+    expect(raw!.indexOf("개정 후")).toBeLessThan(raw!.indexOf("100분의 3"));
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  });
 }
