@@ -63,26 +63,26 @@ const clusterMenu = (page: Page, count: number) => page.getByRole("menu", { name
 const taskList = (page: Page) => page.getByLabel("매트릭스 업무 목록", { exact: true });
 const summaryHeading = (page: Page) => page.locator(".ax-matrix-detail").getByRole("heading").first();
 
-test("One diagnosed task renders an unnumbered circle with accessible priority and restores its selection", async ({ page }) => {
+test("One diagnosed task renders a numbered circle with accessible priority and restores its selection", async ({ page }) => {
   const task = clusterTask("only");
   await openCase(page, [task]);
   const marker = page.locator(".ax-bubble");
   await expect(marker).toHaveCount(1);
   await expect(page.locator(".ax-matrix-cluster")).toHaveCount(0);
-  await expect(marker).toHaveText("");
+  await expect(marker).toHaveText("1");
   await expect(marker.locator(".ax-bubble-dot")).toBeVisible();
   await expect(marker).toHaveAttribute("aria-label", new RegExp(`^${task.name} · 빠른 실행 후보 · 우선순위 1 · `));
   await expect(marker).toHaveAttribute("title", new RegExp(`^${task.name} · 빠른 실행 후보 · 우선순위 1 · `));
   await expect(marker).toHaveAttribute("aria-pressed", "true");
   await page.reload();
   await ax(page);
-  await expect(marker).toHaveText("");
+  await expect(marker).toHaveText("1");
   await expect(marker).toHaveAttribute("aria-pressed", "true");
   await expect(summaryHeading(page)).toContainText(task.name);
   await expect.poll(async () => (await record(page))?.selectedTaskId).toBe(task.id);
 });
 
-test("Five distinct coordinates remain five unnumbered, independently selectable circles", async ({ page }) => {
+test("Five distinct coordinates remain five numbered, independently selectable circles", async ({ page }) => {
   const tasks = [
     clusterTask("five-a"),
     clusterTask("five-b", { systemAccess: 1 }),
@@ -98,7 +98,8 @@ test("Five distinct coordinates remain five unnumbered, independently selectable
   expect(new Set(coordinates).size).toBe(5);
   for (const task of tasks) {
     const marker = page.locator(".ax-bubble").and(page.getByRole("button", { name: new RegExp(`^${task.name} · .* · 우선순위 \\d+ · `) }));
-    await expect(marker).toHaveText("");
+    const label = await marker.getAttribute("aria-label");
+    await expect(marker).toHaveText(label!.match(/우선순위 (\d+)/)![1]);
     await expect(marker).toHaveAttribute("title", new RegExp(`^${task.name} · .* · 우선순위 \\d+ · `));
     await marker.click();
     await expect(marker).toHaveAttribute("aria-pressed", "true");
@@ -112,7 +113,7 @@ test("Case A: three distinct final coordinates remain independently selectable s
   await openCase(page, tasks);
   await expect(page.locator(".ax-matrix-cluster")).toHaveCount(0);
   await expect(page.locator(".ax-bubble")).toHaveCount(3);
-  await expect(page.locator(".ax-bubble")).toHaveText(["", "", ""]);
+  await expect(page.locator(".ax-bubble")).toHaveText(["1", "2", "3"]);
   for (const task of tasks) {
     const marker = page.locator(".ax-bubble").and(page.getByRole("button", { name: new RegExp(`^${task.name} ·`) }));
     await marker.click();
@@ -128,7 +129,8 @@ test("Case B: two equal renderer coordinates form one cluster beside one single"
   await openCase(page, [first, second, single]);
   await expect(page.locator(".ax-matrix-cluster")).toHaveCount(1);
   await expect(page.locator(".ax-bubble")).toHaveCount(1);
-  await expect(page.locator(".ax-bubble")).toHaveText("");
+  const singleLabel = await page.locator(".ax-bubble").getAttribute("aria-label");
+  await expect(page.locator(".ax-bubble")).toHaveText(singleLabel!.match(/우선순위 (\d+)/)![1]);
   const trigger = clusterButton(page, 2);
   await expect(trigger.locator(".ax-matrix-cluster-number")).toHaveText("2");
   await trigger.click();
@@ -198,7 +200,7 @@ test("Case D: factor correction splits a cluster and AI reset restores it withou
   await page.getByRole("tab", { name: "자동화 매트릭스", exact: true }).click();
   await expect(page.locator(".ax-matrix-cluster")).toHaveCount(0);
   await expect(page.locator(".ax-bubble")).toHaveCount(2);
-  await expect(page.locator(".ax-bubble")).toHaveText(["", ""]);
+  await expect(page.locator(".ax-bubble")).toHaveText(["1", "2"]);
   await expect(summaryHeading(page)).toContainText(first.name);
   await page.getByRole("tab", { name: "업무 진단", exact: true }).click();
   await page.getByRole("button", { name: "AI 제안값으로 되돌리기", exact: true }).first().click();
@@ -232,13 +234,13 @@ test("Case E: rediagnosis, deletion and import replace grouping and membership",
   await page.getByRole("tab", { name: "자동화 매트릭스", exact: true }).click();
   await expect(page.locator(".ax-matrix-cluster")).toHaveCount(0);
   await expect(page.locator(".ax-bubble")).toHaveCount(1);
-  await expect(page.locator(".ax-bubble")).toHaveText("");
+  await expect(page.locator(".ax-bubble")).toHaveText("1");
   await expect(page.locator(".ax-bubble")).toHaveAttribute("aria-label", new RegExp(`^${first.name} ·`));
   await expect(page.locator(".ax-bubble")).toHaveAttribute("title", new RegExp(`^${first.name} · .* · 우선순위 1 · `));
   await importData(page, { ...emptyAxState(), tasks: [second], selectedTaskId: second.id, step: 3 });
   await expect(taskList(page).getByRole("button")).toHaveCount(1);
   await expect(page.locator(".ax-bubble")).toHaveAttribute("aria-label", new RegExp(`^${second.name} ·`));
-  await expect(page.locator(".ax-bubble")).toHaveText("");
+  await expect(page.locator(".ax-bubble")).toHaveText("1");
   await expect.poll(async () => (await record(page))?.selectedTaskId).toBe(second.id);
 });
 
@@ -293,7 +295,8 @@ for (const [registered, diagnosed] of [[0, 0], [1, 0], [5, 3], [5, 5]]) test(`Ma
   await seed(page, { ...emptyAxState(), tasks, selectedTaskId: tasks[0]?.id ?? null, step: 3 });
   await ax(page);
   const status = page.locator(".ax-matrix-header p");
-  if (registered > diagnosed) await expect(status).toContainText(`미진단 ${registered - diagnosed}개 제외`);
-  else await expect(status).not.toContainText("미진단");
+  await expect(status).toContainText(`진단 완료 ${diagnosed}/${registered}`);
+  await expect(status).not.toContainText("미진단");
+  await expect(status).not.toContainText("등록 ");
   if (!diagnosed) await expect(page.locator(".ax-empty")).toBeVisible();
 });
