@@ -28,6 +28,18 @@ export function automationLevel(d: AxDiagnosis) {
     : a.value >= 3 && a.feasibility >= 3 && a.judgment <= 3 ? 2 : 1;
   return { level, label: LEVEL_LABELS[level], provisional: d.informationSufficiency === "needs-check" };
 }
+/** Level 배지 툴팁 문구 (표시 전용). guide의 LEVEL_CONSTRAINTS와 prompt의 LEVEL_SCOPE가 정한 Level별 허용 범위를
+ * 한 줄로 축약한 것으로, 판정 로직에는 사용하지 않는다. */
+export const LEVEL_DESCRIPTIONS = [
+  "시스템 자동 실행 없이 업무 정리와 검토·검증만 진행합니다.",
+  "담당자의 요청에 따라 AI가 업무를 보조합니다.",
+  "반복·규칙 기반 단계는 자동화하고 주요 예외와 승인은 담당자가 맡습니다.",
+  "넓게 자동화하되 승인·안전·법률·권한 관련 단계는 담당자가 유지합니다.",
+] as const;
+/** UI 표시 전용 Level 표기 ("AI 보조 (Level 1)"). AI 프롬프트 생성 경로는 자체 표기를 쓰므로 이 함수를 사용하지 않는다. */
+export function levelDisplayLabel(l: { level: number; label: string }): string {
+  return `${l.label.replace(/^L\d+ /, "")} (Level ${l.level})`;
+}
 export function matrixPosition(d: AxDiagnosis) {
   const a = axes(d), p = AX_POLICY;
   const region = a.risk >= p.holdRisk || a.judgment >= p.holdJudgment ? "hold" : a.value >= p.matrixThreshold

@@ -3,9 +3,10 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { AlertTriangle, ArrowRight, Ban, BookOpen, Bot, BrainCircuit, ChartNoAxesColumnIncreasing, Check, CheckCircle2, CircleAlert, CircleCheck, CircleX, Clipboard, ClipboardCheck, ClipboardList, Clock, CloudUpload, Copy, Database, Download, FileCode2, FileOutput, FileSpreadsheet, FileText, Flag, FlaskConical, Folder, GitBranch, Globe, Info, ListChecks, MonitorCog, Play, Plug, Search, Settings2, ShieldAlert, ShieldCheck, Target, Terminal, TriangleAlert, UserRound } from "lucide-react";
 import type { AxDiagnosis, AxPlan, AxTask, AxTaskV2, HitlReview } from "@/lib/ax/types";
-import { automationLevel, axes, executionGate, executionProfile, factorEffectiveValue, GATE_LABELS, gateBlockReasons, nextAction, prerequisiteTopicKey, type ExecutionProfile } from "@/lib/ax/policy";
+import { automationLevel, axes, executionGate, executionProfile, factorEffectiveValue, GATE_LABELS, gateBlockReasons, LEVEL_DESCRIPTIONS, levelDisplayLabel, nextAction, prerequisiteTopicKey, type ExecutionProfile } from "@/lib/ax/policy";
 import { FACTOR_LABELS } from "@/lib/ax/schema";
 import { Badge } from "@/components/ui/badge";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
 import { Accordion, AccordionItem, AccordionPanel, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
 import { HitlReviewPanel, HitlStatusBadge } from "./HitlReview";
@@ -18,6 +19,47 @@ const OWNER_LABELS = { 시스템: "시스템", AI: "AI", 사용자: "담당자" 
 export function AxList({ items }: { items: string[] }) {
   return items.length ? <ul>{items.map((item, i) => <li key={i}>{item}</li>)}</ul> : <p className="ax-muted">기재된 내용 없음</p>;
 }
+/** Level 툴팁 상태: 호버·키보드 포커스는 공통 툴팁의 기본 동작을 그대로 쓰고, 터치 탭은 클릭 토글로 연다.
+ * 탭 직후에는 합성 hover 종료(trigger-hover)가 곧바로 발행돼 방금 연 설명을 닫으므로, 터치 눌림 1초 안에 온
+ * 합성 종료 신호만 무시한다. 마우스·키보드 흐름은 가드 대상이 아니다. */
+function useLevelTooltip() {
+  const [open, setOpen] = useState(false);
+  const lastPointerType = useRef("");
+  const pressedAt = useRef(0);
+  return {
+    open,
+    onOpenChange: (next: boolean, details: { reason?: string }) => {
+      if (!next && lastPointerType.current === "touch" && Date.now() - pressedAt.current < 1_000
+        && (details?.reason === "trigger-hover" || details?.reason === "trigger-focus")) return;
+      setOpen(next);
+    },
+    triggerHandlers: {
+      onPointerDown: (event: React.PointerEvent) => { lastPointerType.current = event.pointerType; },
+      onClick: () => { pressedAt.current = Date.now(); setOpen(prev => !prev); },
+    },
+  };
+}
+/** 구현 계획 헤더의 Level 표기: AxLevelBadge와 같은 표기·툴팁을 기존 span 배지 디자인으로 표시한다. */
+export function AxPlanLevelTag({ level }: { level: ReturnType<typeof automationLevel> }) {
+  const tip = useLevelTooltip();
+  return <Tooltip open={tip.open} onOpenChange={tip.onOpenChange}>
+    <TooltipTrigger render={<span className="ax-status-badge" tabIndex={0} {...tip.triggerHandlers} />}>{`${levelDisplayLabel(level)}${level.provisional ? " (잠정)" : ""}`}</TooltipTrigger>
+    <TooltipPopup>{LEVEL_DESCRIPTIONS[level.level]}</TooltipPopup>
+  </Tooltip>;
+}
+/** Level 배지: 표기는 levelDisplayLabel로 통일하고, 공통 툴팁으로 Level 의미를 한 줄로 안내한다 (호버·터치·포커스). */
+export function AxLevelBadge({ level, className, variant, suffix }: {
+  level: ReturnType<typeof automationLevel>;
+  className?: string;
+  variant?: React.ComponentProps<typeof Badge>["variant"];
+  suffix?: string;
+}) {
+  const tip = useLevelTooltip();
+  return <Tooltip open={tip.open} onOpenChange={tip.onOpenChange}>
+    <TooltipTrigger render={<Badge variant={variant} className={className} tabIndex={0} {...tip.triggerHandlers} />}>{`${levelDisplayLabel(level)}${suffix ?? ""}`}</TooltipTrigger>
+    <TooltipPopup>{LEVEL_DESCRIPTIONS[level.level]}</TooltipPopup>
+  </Tooltip>;
+}
 export function AxSummary({ task, showGate = true }: { task: AxTask; showGate?: boolean }) {
   if (!task.diagnosis) return null;
   const a = axes(task.diagnosis), l = automationLevel(task.diagnosis), action = nextAction(task.diagnosis), gate = executionGate(task.diagnosis);
@@ -25,7 +67,7 @@ export function AxSummary({ task, showGate = true }: { task: AxTask; showGate?: 
   const checks = gate === "conditional" ? task.diagnosis.technicalChecks.filter(c => c.status !== "확인됨").map(c => c.topic) : [];
   const blocker = gate === "blocked" ? task.diagnosis.decisionGate.reasons[0] ?? task.diagnosis.technicalChecks.find(c => c.status === "불가")?.topic : undefined;
   return <div className="ax-summary">
-    <Badge variant="outline" className="ax-level-badge">{l.label.replace(/^L\d+ /, "")} · Level {l.level}{l.provisional ? " · 잠정" : ""}</Badge>
+    <AxLevelBadge level={l} variant="outline" className="ax-level-badge" suffix={l.provisional ? " · 잠정" : ""} />
     {showGate ? <p className="ax-gate-line"><span>실행 상태</span><span className="ax-gate-badge" data-gate={gate}>{GATE_LABELS[gate]}</span></p> : null}
     {showGate && (checks.length || blocker) ? <p className="ax-gate-checks"><span>{checks.length ? "확인 필요" : "보류 사유"}</span>{checks.length ? checks.join(" · ") : blocker}</p> : null}
     <p>자동화 가치 {a.value} · 기술 실현 가능성 {a.feasibility} · 담당자 판단 필요도 {a.judgment} · 운영 위험 {a.risk}</p>
@@ -55,7 +97,7 @@ export function AxScoreCards({ diagnosis, variant }: { diagnosis: AxDiagnosis; v
  * ③ 구현 전에 확인해야 할 사항. 단계명·확인 주제의 상세는 아래 영역에서 확인한다.
  * Level·Gate는 카드 상단 배지가 단일 표시이며 요약 문장에서 반복하지 않는다(진행 보류의 후속 조치만 예외). */
 export interface DiagnosisSummaryParts {
-  /** 핵심 판단의 판정 분포 명사구 (예: "자동화 3단계 · AI 보조 2단계 · 담당자 수행 1단계"). */
+  /** 핵심 판단의 판정 분포 명사구 (예: "전체 6개 업무 단계 중 자동화 적합 3개 · AI 보조 적합 2개 · 담당자 수행 1개"). */
   verdict?: string;
   /** verdict를 문장으로 푼 기존 요약 문장 (diagnosisSummarySentences와 동일 문구). */
   verdictSentence?: string;
@@ -74,12 +116,12 @@ export function diagnosisSummaryParts(d: AxDiagnosis): DiagnosisSummaryParts {
   const total = d.stepAssessments.length;
   if (total) {
     const distribution = [
-      count("자동화") ? `자동화 ${count("자동화")}단계` : "",
-      count("AI 보조") ? `AI 보조 ${count("AI 보조")}단계` : "",
-      count("사람 유지") ? `담당자 수행 ${count("사람 유지")}단계` : "",
+      count("자동화") ? `자동화 적합 ${count("자동화")}개` : "",
+      count("AI 보조") ? `AI 보조 적합 ${count("AI 보조")}개` : "",
+      count("사람 유지") ? `담당자 수행 ${count("사람 유지")}개` : "",
     ].filter(Boolean);
-    parts.verdict = distribution.join(" · ");
-    parts.verdictSentence = `전체 ${total}단계 중 ${distribution.join(" · ")}로 ${automationLevel(d).provisional ? "잠정 판정" : "판정"}되었습니다.`;
+    parts.verdict = `전체 ${total}개 업무 단계 중 ${distribution.join(" · ")}`;
+    parts.verdictSentence = `${parts.verdict}로 ${automationLevel(d).provisional ? "잠정 판정" : "판정"}되었습니다.`;
   }
   // 담당자 관련 문장은 역할별로 구분한다. 사람 유지 단계는 '수행'으로만 표시하고,
   // humanInLoop 지점은 지점 자체의 명시 문구(승인 포함 여부)로만 검토·승인을 나눈다.
@@ -178,7 +220,7 @@ export function AxResultSummary({ task }: { task: AxTask }) {
     <header className="ax-result-head"><h3>진단 요약</h3><small>현재 상태와 핵심 결과</small></header>
     <div className="ax-result-band">
       <div className="ax-result-meta">
-        <Badge variant="info" className="ax-result-level">{level.label.replace(/^L\d+ /u, "")} · Level {level.level}{level.provisional ? " · 잠정" : ""}</Badge>
+        <AxLevelBadge level={level} variant="info" className="ax-result-level" suffix={level.provisional ? " · 잠정" : ""} />
         <span className="ax-gate-badge" data-gate={profile.gate}>{GATE_LABELS[profile.gate]}</span>
         {d.sourceNote ? <p>{d.sourceNote}</p> : null}
         <small>아래 단계별 건수는 진단상 목표 적합성으로, 현재 구현·배포 가능 범위가 아닙니다.</small>
@@ -1018,7 +1060,7 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
   return <section className="ax-surface" aria-label="자동화 구현 계획">
     <div className="ax-plan-head"><h3>자동화 구현 계획</h3>
       <span className="ax-plan-task">{taskName}</span>
-      <span className="ax-status-badge">{`Level ${profile.level} · ${level.label.replace(/^L\d+ /u, "")}${level.provisional ? " (잠정)" : ""}`}</span>
+      <AxPlanLevelTag level={level} />
       <span className="ax-gate-badge" data-gate={gate}>{GATE_LABELS[gate]}</span>
     </div>
     <AxPlanOverview profile={profile} summary={summary} />
