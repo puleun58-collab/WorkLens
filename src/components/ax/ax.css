@@ -347,15 +347,15 @@
 .ax-matrix-cluster-circle-left { top: 5px; left: 1px; }
 .ax-matrix-cluster-circle-right { top: 5px; right: 1px; }
 .ax-matrix-cluster-circle-front { bottom: 1px; left: 7px; background: var(--primary); }
-.ax-matrix-cluster-number { position: absolute; bottom: 7px; left: 7px; width: 27px; text-align: center; font-size: 11px; font-weight: var(--font-weight-semibold); line-height: 1; font-variant-numeric: tabular-nums; }
+.ax-matrix-cluster-number { position: absolute; bottom: 7px; left: 0; width: 100%; text-align: center; font-size: 11px; font-weight: var(--font-weight-semibold); line-height: 1; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .ax-matrix-cluster[data-selected=true] { outline: 2px solid var(--primary); outline-offset: 3px; }
 .ax-matrix-cluster:focus-visible { outline: 3px solid var(--ring); outline-offset: 4px; }
-.ax-matrix-cluster-popup { width: min(20rem,calc(100vw - 24px)); }
+.ax-matrix-cluster-popup { width: min(27.5rem,calc(100vw - 24px)); }
 .ax-matrix-cluster-popup > div { max-height: min(320px,var(--available-height),var(--ax-matrix-popup-height)); }
 .ax-matrix-cluster-count { padding: 6px 8px 8px; color: var(--muted-foreground); font-size: var(--font-size-xs); font-weight: 600; }
 .ax-matrix-cluster-item { align-items: flex-start; gap: 8px; }
 .ax-matrix-cluster-item[aria-current=true] { background: var(--accent); color: var(--accent-foreground); }
-.ax-matrix-cluster-name { min-width: 0; flex: 1; overflow-wrap: anywhere; white-space: normal; }
+.ax-matrix-cluster-name { display: block; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; word-break: keep-all; }
 .ax-matrix-cluster-rank { flex: none; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
 .ax-y-tick { position: absolute; left: -26px; width: 16px; text-align: center; line-height: 1; transform: translateY(50%); color: var(--muted-foreground); }
 .ax-x-tick { position: absolute; bottom: -26px; height: 16px; line-height: 1; transform: translateX(-50%); color: var(--muted-foreground); }
@@ -951,7 +951,15 @@
 .ax-matrix-list li { gap: 8px; padding-left: 8px; }
 .ax-matrix-list .ax-task-row-btn { grid-template-columns: 8px minmax(0,1fr) auto; align-items: center; }
 .ax-matrix-list .ax-task-name { word-break: keep-all; }
-.ax-matrix-list .ax-gate-badge { grid-column: 2 / -1; justify-self: start; }
+.ax-matrix-list .ax-matrix-list-badges { grid-column: 2 / -1; justify-self: start; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+/* 정보 확인 필요: 실행 조건(Gate) 배지와 의미를 구분해 진단 카드의 정보 확인 필요 배지와 같은 브랜드 톤으로 표시한다. */
+.ax-needs-check-badge { display: inline-flex; align-items: center; border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--border)); border-radius: 999px; padding: 2px 8px; font-size: 11px; font-weight: 600; line-height: 1.7; background: color-mix(in srgb, var(--primary) 9%, var(--card)); color: color-mix(in srgb, var(--primary) 78%, var(--foreground)); white-space: nowrap; }
+/* 매트릭스 상단 집계의 정보 확인 필요 바로가기 */
+.ax-matrix-counts-link { padding: 0; border: 0; background: transparent; font: inherit; font-weight: 600; color: var(--primary); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.ax-matrix-counts-link:hover { text-decoration-thickness: 2px; }
+.ax-matrix-counts-link:disabled { color: var(--muted-foreground); text-decoration: none; cursor: default; }
+/* 바로가기 스크롤 착지 지점 여백 */
+#ax-answer-section, .ax-diag-checks { scroll-margin-top: 96px; }
 /* 상세 분석 구분 헤더 */
 .ax-detail-eyebrow { display: block; font-size: 12px; font-weight: 600; color: var(--muted-foreground); margin-bottom: 4px; }
 /* 중앙 매트릭스 도구 영역 */
@@ -976,11 +984,14 @@
 .ax-matrix-cluster-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px 8px; }
 .ax-matrix-cluster-close { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border: 0; border-radius: 6px; background: transparent; color: var(--muted-foreground); cursor: pointer; }
 .ax-matrix-cluster-close:hover { background: var(--accent); color: var(--accent-foreground); }
-.ax-matrix-cluster-list { display: flex; flex-direction: column; gap: 4px; }
-.ax-matrix-cluster-item { display: flex; align-items: center; gap: 8px; border: 1px solid transparent; }
+.ax-matrix-cluster-list { display: flex; flex-direction: column; gap: 0; }
+.ax-matrix-cluster-item { display: flex; align-items: flex-start; gap: 8px; padding: 8px; border: 1px solid transparent; border-radius: 8px; }
+.ax-matrix-cluster-item + .ax-matrix-cluster-item { border-top: 1px solid var(--border); }
 .ax-matrix-cluster-item[data-active=true] { border-color: color-mix(in srgb, var(--primary) 40%, var(--border)); background: color-mix(in srgb, var(--primary) 6%, var(--card)); }
-.ax-matrix-cluster-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.ax-matrix-cluster-meta { font-size: var(--font-size-xs); color: var(--muted-foreground); }
+.ax-matrix-cluster-rank { line-height: 1.5; }
+.ax-matrix-cluster-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.ax-matrix-cluster-sub { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ax-matrix-cluster-meta { font-size: var(--font-size-xs); color: var(--muted-foreground); white-space: nowrap; }
 @media(max-width: 700px) {
   .ax-step3-grid { display: flex; flex-direction: column; }
   .ax-matrix-help { grid-template-columns: minmax(0,1fr); }
