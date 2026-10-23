@@ -48,14 +48,15 @@ type RankedTask = { task: AxTask & { diagnosis: AxDiagnosis }; rank: number };
 
 const MATRIX_DETAIL_ID = "ax-matrix-detail";
 
-/** 매트릭스 상단 집계의 정보 확인 필요 바로가기: 1건이면 즉시 이동하고, 2건 이상이면 대상 업무 선택 목록을 연다. */
-function NeedsCheckLink({ tasks, disabled, onGo }: { tasks: AxTask[]; disabled: boolean; onGo: (id: string) => void }) {
+/** 매트릭스 상단 집계의 정보 확인 필요 바로가기: 1건이면 즉시 이동하고, 2건 이상이면 대상 업무 선택 목록을 연다.
+ * 표시 문구는 공통 표시 항목(diagnosisStatusItems)의 text를 그대로 받아 두 화면이 같은 문구를 공유한다. */
+function NeedsCheckLink({ tasks, label, disabled, onGo }: { tasks: AxTask[]; label: string; disabled: boolean; onGo: (id: string) => void }) {
   if (!tasks.length) return null;
   if (tasks.length === 1) {
-    return <button type="button" className="ax-matrix-counts-link" disabled={disabled} onClick={() => onGo(tasks[0].id)}>정보 확인 필요 {tasks.length}건</button>;
+    return <button type="button" className="ax-matrix-counts-link" disabled={disabled} onClick={() => onGo(tasks[0].id)}>{label}</button>;
   }
   return <Menu modal={false}>
-    <MenuTrigger render={<button type="button" className="ax-matrix-counts-link" disabled={disabled} />}>정보 확인 필요 {tasks.length}건</MenuTrigger>
+    <MenuTrigger render={<button type="button" className="ax-matrix-counts-link" disabled={disabled} />}>{label}</MenuTrigger>
     <MenuPopup aria-label="정보 확인 필요 업무 선택">
       {tasks.map(task => <MenuItem key={task.id} onClick={() => onGo(task.id)}>{task.name}</MenuItem>)}
     </MenuPopup>
@@ -103,7 +104,8 @@ export function AxDiagnosisView() {
     `진단 완료 ${counts.results}/${state.tasks.length}`,
     ...statusItems.filter(item => !item.actionable).map(item => item.text),
   ];
-  const matrixStatus = <p className="ax-muted ax-matrix-counts">{matrixStatusParts.join(" · ")}{statusItems.some(item => item.actionable) ? <> · <NeedsCheckLink tasks={needsCheckTasks} disabled={!!busy} onGo={goToCheckTarget} /></> : null}</p>;
+  const needsCheckItem = statusItems.find(item => item.actionable);
+  const matrixStatus = <p className="ax-muted ax-matrix-counts">{matrixStatusParts.join(" · ")}{needsCheckItem ? <> · <NeedsCheckLink tasks={needsCheckTasks} label={needsCheckItem.text} disabled={!!busy} onGo={goToCheckTarget} /></> : null}</p>;
   const gateOrder = { ready: 0, conditional: 1, blocked: 2 };
   const profiles = ranked.map(row => ({ row, profile: executionProfile(row.task.diagnosis) }));
   const displayed = [...profiles].sort((a, b) => gateOrder[a.profile.gate] - gateOrder[b.profile.gate]).map(({ row }) => row);
@@ -685,7 +687,7 @@ export function AxDiagnosisView() {
             <DiagnosisCard task={selected} busy={busy} onDiagnose={() => void diagnose(selected)} onEdit={() => editTask(selected)}
               attachment={<TaskAttachment task={selected} busy={busy} ready={new Set(sessionReady[selected.id] ?? [])} onDetachFile={fingerprint => detachFile(selected, fingerprint)} onAttachFiles={files => void attachFiles(files, selected.id)} />} />
             {selected.diagnosis ? <>
-              {selected.diagnosis.followUpQuestions.length ? <section className="ax-surface ax-questions" id="ax-answer-section" aria-label="추가 질문 답변"><h3>추가 질문 {selected.diagnosis.followUpQuestions.length}개</h3>{selected.diagnosis.followUpQuestions.map((q, i) => <label className="ax-field" key={i}>{q}<Textarea rows={2} maxLength={500} disabled={!!busy} value={answers[selected.id]?.[i] ?? ""} onChange={e => setAnswers(current => { const values = [...(current[selected.id] ?? [])]; values[i] = e.target.value; return { ...current, [selected.id]: values }; })} /></label>)}<Button type="button" className="ax-rediagnose" disabled={!!busy} onClick={() => void diagnose(selected, true)}>답변 반영 후 재진단</Button></section> : null}
+              {selected.diagnosis.followUpQuestions.length ? <section className="ax-surface ax-questions" id="ax-answer-section" aria-label="답변할 질문"><h3>답변할 질문 {selected.diagnosis.followUpQuestions.length}개</h3>{selected.diagnosis.followUpQuestions.map((q, i) => <label className="ax-field" key={i}>{q}<Textarea rows={2} maxLength={500} disabled={!!busy} value={answers[selected.id]?.[i] ?? ""} onChange={e => setAnswers(current => { const values = [...(current[selected.id] ?? [])]; values[i] = e.target.value; return { ...current, [selected.id]: values }; })} /></label>)}<Button type="button" className="ax-rediagnose" disabled={!!busy} onClick={() => void diagnose(selected, true)}>답변 반영 후 재진단</Button></section> : null}
               <section className="ax-surface ax-factors" aria-label="진단 항목">
                 <Accordion value={factorsOpen ? ["factors"] : []} onValueChange={values => setFactorsOpen(values.includes("factors"))}>
                   <AccordionItem value="factors" className="border-b-0">
@@ -960,7 +962,7 @@ function AxKpiCards({ tasks, needsCheckTasks, onGoNeedsCheck, needsCheckDisabled
   const knownMinutes = tasks.map(monthlyMinutes).filter((m): m is number => m !== null);
   return <div className="ax-kpi-cards">
     <div className="ax-surface ax-kpi"><span className="ax-kpi-label"><ClipboardList size={14} aria-hidden="true" />등록 업무</span><strong>{tasks.length}개</strong></div>
-    <div className="ax-surface ax-kpi"><span className="ax-kpi-label"><CircleCheck size={14} aria-hidden="true" />진단 완료</span><strong>{counts.results}개</strong>{statusItems.length ? <small className="ax-muted">{statusItems.map((item, index) => <Fragment key={item.key}>{index ? " · " : null}{item.actionable ? <NeedsCheckLink tasks={needsCheckTasks} disabled={needsCheckDisabled} onGo={onGoNeedsCheck} /> : item.text}</Fragment>)}</small> : null}</div>
+    <div className="ax-surface ax-kpi"><span className="ax-kpi-label"><CircleCheck size={14} aria-hidden="true" />진단 완료</span><strong>{counts.results}개</strong>{statusItems.length ? <small className="ax-muted">{statusItems.map((item, index) => <Fragment key={item.key}>{index ? " · " : null}{item.actionable ? <NeedsCheckLink tasks={needsCheckTasks} label={item.text} disabled={needsCheckDisabled} onGo={onGoNeedsCheck} /> : item.text}</Fragment>)}</small> : null}</div>
     {counts.results ? <div className="ax-surface ax-kpi"><span className="ax-kpi-label"><Zap size={14} aria-hidden="true" />빠른 실행 후보</span><strong>{ranked.filter(r => matrixPosition(r.task.diagnosis).region === "quick" && executionGate(r.task.diagnosis) !== "blocked").length}개</strong><small className="ax-muted">빠른 실행 영역 · 확인 후 진행 포함 · 진행 보류 제외</small></div> : null}
     {knownMinutes.length ? <div className="ax-surface ax-kpi"><span className="ax-kpi-label"><Clock3 size={14} aria-hidden="true" />월 투입시간 합 · 입력 {knownMinutes.length}개</span><strong>{(knownMinutes.reduce((sum, m) => sum + m, 0) / 60).toLocaleString("ko-KR", { maximumFractionDigits: 1 })}시간</strong></div> : null}
   </div>;

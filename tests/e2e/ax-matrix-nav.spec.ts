@@ -67,18 +67,18 @@ test("정보 확인 필요 0건이면 상단 집계에 바로가기가 표시되
   await expect(matrixList(page).locator(".ax-needs-check-badge")).toHaveCount(0);
 });
 
-test("정보 확인 필요 1건: 목록에 구분 표시되고 클릭하면 추가 질문 영역으로 이동한다", async ({ page }) => {
+test("정보 확인 필요 업무 1개: 목록에 구분 표시되고 클릭하면 추가 질문 영역으로 이동한다", async ({ page }) => {
   const target = needsCheckTask("need-a", "확인 필요한 업무", ["입력 자료 형식을 알려 주세요"]);
   const other = diagnosedTask("ok-a", "일반 업무");
   await openMatrix(page, [other, target]);
-  await expect(counts(page).getByRole("button", { name: "정보 확인 필요 1건", exact: true })).toBeVisible();
+  await expect(counts(page).getByRole("button", { name: "정보 확인 필요 업무 1개", exact: true })).toBeVisible();
   // 좌측 목록: 정보 확인 필요 업무만 별도 배지로 구분되고, Gate 배지는 그대로 유지된다.
   const targetRow = matrixList(page).getByRole("listitem").filter({ hasText: target.name });
   await expect(targetRow.locator(".ax-needs-check-badge")).toHaveText("정보 확인 필요");
   await expect(targetRow.locator(".ax-gate-badge")).toHaveCount(1);
   await expect(matrixList(page).getByRole("listitem").filter({ hasText: other.name }).locator(".ax-needs-check-badge")).toHaveCount(0);
 
-  await counts(page).getByRole("button", { name: "정보 확인 필요 1건", exact: true }).click();
+  await counts(page).getByRole("button", { name: "정보 확인 필요 업무 1개", exact: true }).click();
   await expect(page.getByRole("tab", { name: "업무 진단", exact: true })).toHaveAttribute("data-active", "");
   await expect(page.locator(".ax-diag-card h2")).toHaveText(target.name);
   await expect(page.locator("#ax-answer-section")).toBeVisible();
@@ -87,10 +87,10 @@ test("정보 확인 필요 1건: 목록에 구분 표시되고 클릭하면 추�
   await expect.poll(async () => (await page.locator("#ax-answer-section").boundingBox())?.y ?? 9999).toBeLessThan(200);
 });
 
-test("정보 확인 필요 1건(추가 질문 없음): 확인할 사항 영역으로 이동한다", async ({ page }) => {
+test("정보 확인 필요 업무 1개(추가 질문 없음): 확인할 사항 영역으로 이동한다", async ({ page }) => {
   const target = needsCheckTask("need-b", "확인 사항만 있는 업무", []);
   await openMatrix(page, [target]);
-  await counts(page).getByRole("button", { name: "정보 확인 필요 1건", exact: true }).click();
+  await counts(page).getByRole("button", { name: "정보 확인 필요 업무 1개", exact: true }).click();
   await expect(page.getByRole("tab", { name: "업무 진단", exact: true })).toHaveAttribute("data-active", "");
   await expect(page.locator(".ax-diag-card h2")).toHaveText(target.name);
   await expect(page.locator("#ax-answer-section")).toHaveCount(0);
@@ -100,14 +100,14 @@ test("정보 확인 필요 1건(추가 질문 없음): 확인할 사항 영역�
   await expect.poll(async () => (await checks.boundingBox())?.y ?? 9999).toBeLessThan(200);
 });
 
-test("정보 확인 필요 2건: 선택 목록에서 고른 업무의 확인 영역으로 이동한다", async ({ page }) => {
+test("정보 확인 필요 업무 2개: 선택 목록에서 고른 업무의 확인 영역으로 이동한다", async ({ page }) => {
   const first = needsCheckTask("need-1", "첫 번째 확인 업무", ["질문 1"]);
   const second = needsCheckTask("need-2", "두 번째 확인 업무", ["질문 2"]);
   const other = diagnosedTask("ok-1", "일반 업무");
   await openMatrix(page, [other, first, second]);
-  await counts(page).getByRole("button", { name: "정보 확인 필요 2건", exact: true }).click();
+  await counts(page).getByRole("button", { name: "정보 확인 필요 업무 2개", exact: true }).click();
   // base-ui Menu는 팝업의 접근성 이름을 트리거에서 가져온다(클러스터 팝업과 같은 방식).
-  const menu = page.getByRole("menu", { name: "정보 확인 필요 2건", exact: true });
+  const menu = page.getByRole("menu", { name: "정보 확인 필요 업무 2개", exact: true });
   await expect(menu).toBeVisible();
   await expect(menu.getByRole("menuitem")).toHaveCount(2);
   await expect(menu.getByRole("menuitem").nth(0)).toHaveText(first.name);
@@ -125,7 +125,7 @@ test("재진단으로 확인 필요 상태가 해제되면 상단 바로가기�
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { kind: "ax-diagnosis", diagnosis: outputFixture() } }) });
   });
   await openMatrix(page, [target]);
-  await counts(page).getByRole("button", { name: "정보 확인 필요 1건", exact: true }).click();
+  await counts(page).getByRole("button", { name: "정보 확인 필요 업무 1개", exact: true }).click();
   await expect(page.locator("#ax-answer-section")).toBeVisible();
   await page.locator("#ax-answer-section textarea").first().fill("형식을 확인했습니다");
   await page.getByRole("button", { name: "답변 반영 후 재진단", exact: true }).click();

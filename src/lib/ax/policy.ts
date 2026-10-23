@@ -144,7 +144,7 @@ export interface DiagnosisStatusItem {
   key: "ready" | "conditional" | "blocked" | "needsCheck";
   label: string;
   count: number;
-  /** 표시 문구 (예: "확인 후 진행 5", "정보 확인 필요 1건") */
+  /** 표시 문구 (예: "확인 후 진행 5", "정보 확인 필요 업무 1개") */
   text: string;
   /** 클릭 바로가기로 렌더할 항목인지 여부 (정보 확인 필요만 해당) */
   actionable: boolean;
@@ -164,7 +164,7 @@ export function diagnosisStatusItems(counts: DiagnosisCounts): DiagnosisStatusIt
     if (count) items.push({ key: gate, label: GATE_LABELS[gate], count, text: `${GATE_LABELS[gate]} ${count}`, actionable: false });
   }
   if (counts.questions) {
-    items.push({ key: "needsCheck", label: "정보 확인 필요", count: counts.questions, text: `정보 확인 필요 ${counts.questions}건`, actionable: true });
+    items.push({ key: "needsCheck", label: "정보 확인 필요", count: counts.questions, text: `정보 확인 필요 업무 ${counts.questions}개`, actionable: true });
   }
   return items;
 }

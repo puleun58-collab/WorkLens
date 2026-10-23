@@ -80,11 +80,11 @@ test("혼합 상태: 매트릭스 상단과 결과·로드맵 KPI의 상태 문�
   ];
   await openAt(page, tasks, 3);
   // needs-check 업무는 Gate로는 확인 후 진행이면서 정보 확인 필요 축에도 별도 집계된다.
-  await expect(matrixCounts(page)).toHaveText("진단 완료 4/5 · 진행 가능 1 · 확인 후 진행 2 · 진행 보류 1 · 정보 확인 필요 1건");
+  await expect(matrixCounts(page)).toHaveText("진단 완료 4/5 · 진행 가능 1 · 확인 후 진행 2 · 진행 보류 1 · 정보 확인 필요 업무 1개");
   await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();
   await expect(resultKpi(page).locator("strong")).toHaveText("4개");
   // KPI 보조 설명은 매트릭스에서 "진단 완료 4/5 · " 접두만 제외한 것과 동일해야 한다.
-  await expect(resultKpi(page).locator("small")).toHaveText("진행 가능 1 · 확인 후 진행 2 · 진행 보류 1 · 정보 확인 필요 1건");
+  await expect(resultKpi(page).locator("small")).toHaveText("진행 가능 1 · 확인 후 진행 2 · 진행 보류 1 · 정보 확인 필요 업무 1개");
 });
 
 test("0건인 상태는 두 화면 모두 표시하지 않는다", async ({ page }) => {
@@ -108,7 +108,7 @@ test("진단 완료 0건이면 로드맵은 빈 상태를 표시하고 매트릭
 test("결과·로드맵 KPI 바로가기 1건: 클릭하면 업무 진단 단계의 추가 질문 영역으로 이동한다", async ({ page }) => {
   const target = needsCheckTask("need", "확인 필요한 업무", ["입력 자료 형식을 알려 주세요"]);
   await openAt(page, [readyTask("ok", "일반 업무"), target], 4);
-  await resultKpi(page).locator("small").getByRole("button", { name: "정보 확인 필요 1건", exact: true }).click();
+  await resultKpi(page).locator("small").getByRole("button", { name: "정보 확인 필요 업무 1개", exact: true }).click();
   await expect(page.getByRole("tab", { name: "업무 진단", exact: true })).toHaveAttribute("data-active", "");
   await expect(page.locator(".ax-diag-card h2")).toHaveText(target.name);
   await expect(page.locator("#ax-answer-section")).toBeVisible();
@@ -120,10 +120,10 @@ test("결과·로드맵 KPI 바로가기 다건: 선택 목록에서 고른 업�
   const first = needsCheckTask("need-1", "첫 번째 확인 업무", ["질문 1"]);
   const second = needsCheckTask("need-2", "두 번째 확인 업무", ["질문 2"]);
   await openAt(page, [first, second, readyTask("ok", "일반 업무")], 4);
-  const trigger = resultKpi(page).locator("small").getByRole("button", { name: "정보 확인 필요 2건", exact: true });
+  const trigger = resultKpi(page).locator("small").getByRole("button", { name: "정보 확인 필요 업무 2개", exact: true });
   await trigger.focus();
   await page.keyboard.press("Enter");
-  const menu = page.getByRole("menu", { name: "정보 확인 필요 2건", exact: true });
+  const menu = page.getByRole("menu", { name: "정보 확인 필요 업무 2개", exact: true });
   await expect(menu).toBeVisible();
   await expect(menu.getByRole("menuitem")).toHaveCount(2);
   await page.keyboard.press("ArrowDown");
@@ -137,10 +137,10 @@ test("모바일 390px에서도 두 화면 문구가 일치하고 KPI 바로가�
   await page.setViewportSize({ width: 390, height: 844 });
   const target = needsCheckTask("need", "모바일 확인 업무", ["질문"]);
   await openAt(page, [conditionalTask("cond", "조건부 업무"), target], 3);
-  await expect(matrixCounts(page)).toHaveText("진단 완료 2/2 · 확인 후 진행 2 · 정보 확인 필요 1건");
+  await expect(matrixCounts(page)).toHaveText("진단 완료 2/2 · 확인 후 진행 2 · 정보 확인 필요 업무 1개");
   await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();
-  await expect(resultKpi(page).locator("small")).toHaveText("확인 후 진행 2 · 정보 확인 필요 1건");
-  await resultKpi(page).locator("small").getByRole("button", { name: "정보 확인 필요 1건", exact: true }).click();
+  await expect(resultKpi(page).locator("small")).toHaveText("확인 후 진행 2 · 정보 확인 필요 업무 1개");
+  await resultKpi(page).locator("small").getByRole("button", { name: "정보 확인 필요 업무 1개", exact: true }).click();
   await expect(page.getByRole("tab", { name: "업무 진단", exact: true })).toHaveAttribute("data-active", "");
   await expect(page.locator(".ax-diag-card h2")).toHaveText(target.name);
 });

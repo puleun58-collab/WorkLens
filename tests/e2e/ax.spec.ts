@@ -1764,7 +1764,7 @@ test("AX compares diagnoses regardless of provisional status and preserves other
   await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();
   const resultKpi = page.locator(".ax-kpi").filter({ has: page.locator(".ax-kpi-label", { hasText: "진단 완료" }) });
   await expect(resultKpi.locator("strong")).toHaveText("3개");
-  await expect(resultKpi.locator("small")).toContainText("정보 확인 필요 1건");
+  await expect(resultKpi.locator("small")).toContainText("정보 확인 필요 업무 1개");
 });
 
 for (const width of [1440, 390]) {
