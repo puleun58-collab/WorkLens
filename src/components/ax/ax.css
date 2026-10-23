@@ -957,8 +957,9 @@
 /* 정보 확인 필요: 실행 조건(Gate) 배지와 의미를 구분해 진단 카드의 정보 확인 필요 배지와 같은 브랜드 톤으로 표시한다. */
 .ax-needs-check-badge { display: inline-flex; align-items: center; border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--border)); border-radius: 999px; padding: 2px 8px; font-size: 11px; font-weight: 600; line-height: 1.7; background: color-mix(in srgb, var(--primary) 9%, var(--card)); color: color-mix(in srgb, var(--primary) 78%, var(--foreground)); white-space: nowrap; }
 /* 매트릭스 상단 집계의 정보 확인 필요 바로가기 */
-.ax-matrix-counts-link { padding: 0; border: 0; background: transparent; font: inherit; font-weight: 600; color: var(--primary); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
-.ax-matrix-counts-link:hover { text-decoration-thickness: 2px; }
+.ax-matrix-counts-link { padding: 0; border: 0; background: transparent; font: inherit; color: var(--muted-foreground); text-decoration: none; cursor: pointer; }
+.ax-matrix-counts-link:hover { color: var(--primary); text-decoration: underline; text-underline-offset: 3px; }
+.ax-matrix-counts-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .ax-matrix-counts-link:disabled { color: var(--muted-foreground); text-decoration: none; cursor: default; }
 /* 바로가기 스크롤 착지 지점 여백 */
 #ax-answer-section, .ax-diag-checks { scroll-margin-top: 96px; }

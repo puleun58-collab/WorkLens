@@ -82,15 +82,15 @@ test("AX result count distinguishes needs-info from completed diagnosis with the
   await openState(page, [completed, needsInfo, taskFixture("registered")]);
   const kpi = page.locator(".ax-kpi").filter({ has: page.locator(".ax-kpi-label", { hasText: "진단 완료" }) });
   await expect(kpi.locator("strong")).toHaveText("2개");
-  await expect(kpi).toContainText("진행 가능 1 · 확인 후 진행 1 · 정보 확인 필요 1건");
+  await expect(kpi).toContainText("진행 가능 1 · 확인 후 진행 1 · 정보 확인 필요 업무 1개");
   await page.getByRole("tab", { name: "자동화 매트릭스", exact: true }).click();
-  await expect(page.locator(".ax-matrix-header")).toContainText("진단 완료 2/3 · 진행 가능 1 · 확인 후 진행 1 · 정보 확인 필요 1건");
+  await expect(page.locator(".ax-matrix-header")).toContainText("진단 완료 2/3 · 진행 가능 1 · 확인 후 진행 1 · 정보 확인 필요 업무 1개");
   await expect(page.getByLabel("매트릭스 업무 목록", { exact: true }).getByRole("listitem")).toHaveCount(2);
   // 좌측 매트릭스 목록에서 정보 확인 필요 업무만 구분 표시되고, 상단 바로가기로 업무 진단 단계의 추가 질문 영역까지 이동한다.
   const matrixList = page.getByLabel("매트릭스 업무 목록", { exact: true });
   await expect(matrixList.getByRole("listitem").filter({ hasText: needsInfo.name }).locator(".ax-needs-check-badge")).toHaveText("정보 확인 필요");
   await expect(matrixList.getByRole("listitem").filter({ hasText: completed.name }).locator(".ax-needs-check-badge")).toHaveCount(0);
-  await page.locator(".ax-matrix-counts").getByRole("button", { name: "정보 확인 필요 1건", exact: true }).click();
+  await page.locator(".ax-matrix-counts").getByRole("button", { name: "정보 확인 필요 업무 1개", exact: true }).click();
   await expect(page.getByRole("tab", { name: "업무 진단", exact: true })).toHaveAttribute("data-active", "");
   await expect(page.locator(".ax-diag-card h2")).toHaveText(needsInfo.name);
   await expect(page.locator("#ax-answer-section")).toBeVisible();
@@ -108,9 +108,9 @@ test("AX adjusted diagnosis still counts as needing information when core inform
   await openState(page, [task("completed", 2, "ready"), adjusted]);
   const kpi = page.locator(".ax-kpi").filter({ has: page.locator(".ax-kpi-label", { hasText: "진단 완료" }) });
   await expect(kpi.locator("strong")).toHaveText("2개");
-  await expect(kpi).toContainText("진행 가능 1 · 확인 후 진행 1 · 정보 확인 필요 1건");
+  await expect(kpi).toContainText("진행 가능 1 · 확인 후 진행 1 · 정보 확인 필요 업무 1개");
   await page.getByRole("tab", { name: "자동화 매트릭스", exact: true }).click();
-  await expect(page.locator(".ax-matrix-header")).toContainText("진단 완료 2/2 · 진행 가능 1 · 확인 후 진행 1 · 정보 확인 필요 1건");
+  await expect(page.locator(".ax-matrix-header")).toContainText("진단 완료 2/2 · 진행 가능 1 · 확인 후 진행 1 · 정보 확인 필요 업무 1개");
   await page.getByRole("tab", { name: "업무 등록", exact: true }).click();
   await expect(page.locator(".ax-task-rows").getByRole("listitem").filter({ hasText: adjusted.name })).toContainText("사용자 보정 완료");
 });

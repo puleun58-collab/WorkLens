@@ -59,22 +59,22 @@ describe("diagnosisStatusItems (공통 표시)", () => {
     expect(items.map(item => item.text)).toEqual(["진행 가능 2", "확인 후 진행 2", "진행 보류 1"]);
   });
 
-  it("전부 확인 후 진행 + 정보 확인 필요 1건이면 예시 문구와 동일하다", () => {
+  it("전부 확인 후 진행 + 정보 확인 필요 업무 1개이면 예시 문구와 동일하다", () => {
     const items = diagnosisStatusItems({ results: 5, ready: 0, conditional: 5, blocked: 0, questions: 1 });
-    expect(items.map(item => item.text).join(" · ")).toBe("확인 후 진행 5 · 정보 확인 필요 1건");
+    expect(items.map(item => item.text).join(" · ")).toBe("확인 후 진행 5 · 정보 확인 필요 업무 1개");
   });
 
   it("정보 확인 필요 항목만 클릭 가능(actionable)이고 건수·라벨을 구조화해 반환한다", () => {
     const items = diagnosisStatusItems({ results: 5, ready: 0, conditional: 5, blocked: 0, questions: 1 });
     expect(items.find(item => item.key === "needsCheck")).toEqual({
-      key: "needsCheck", label: "정보 확인 필요", count: 1, text: "정보 확인 필요 1건", actionable: true,
+      key: "needsCheck", label: "정보 확인 필요", count: 1, text: "정보 확인 필요 업무 1개", actionable: true,
     });
     expect(items.filter(item => item.key !== "needsCheck").every(item => !item.actionable)).toBe(true);
   });
 
   it("집계 결과와 연결하면 시나리오별 문구가 두 화면 공통 규칙으로 생성된다", () => {
     const texts = (tasks: AxTask[]) => diagnosisStatusItems(diagnosisCounts(tasks)).map(item => item.text).join(" · ");
-    expect(texts([conditionalTask("a"), conditionalTask("b"), needsCheckTask("c")])).toBe("확인 후 진행 3 · 정보 확인 필요 1건");
+    expect(texts([conditionalTask("a"), conditionalTask("b"), needsCheckTask("c")])).toBe("확인 후 진행 3 · 정보 확인 필요 업무 1개");
     expect(texts([readyTask("a"), blockedTask("b")])).toBe("진행 가능 1 · 진행 보류 1");
     expect(texts([taskFixture("a")])).toBe("");
   });
