@@ -14,12 +14,19 @@
 .legal-analysis-section h3 { margin: 0; color: var(--ink); font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); overflow-wrap: anywhere; }
 .legal-analysis-lines, .legal-analysis-raw { box-sizing: border-box; max-width: 100%; min-width: 0; margin: 0; color: var(--ink); font: inherit; font-size: var(--font-size-sm); line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
 .legal-analysis-raw { padding: 16px; border: 1px solid var(--line-soft, var(--line)); border-radius: var(--radius-panel, 8px); background: var(--paper); }
+/* 근거 항목 단위: one entry per block — entries share the section baseline, a hairline and 8px padding separate entries (the 관련 법령·조문 list rhythm), lines inside an entry stay 5px apart. */
+.legal-analysis-items { display: grid; }
+.legal-analysis-item { display: grid; gap: 5px; min-width: 0; padding: 8px 0; }
+.legal-analysis-item:first-child { padding-top: 0; }
+.legal-analysis-item:last-child { padding-bottom: 0; }
+.legal-analysis-item.is-divided { border-top: 1px solid var(--line-soft, var(--line)); }
+.legal-analysis-line { display: block; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
 /* 적용 법령 판단 시 주의: one hyphen column at the left edge, one text column every wrapped line returns to. */
 .legal-analysis-caution { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; color: var(--ink); font-size: var(--font-size-sm); line-height: 1.7; }
 .legal-analysis-caution > li { position: relative; padding-left: 15px; overflow-wrap: anywhere; }
 .legal-analysis-caution > li::before { content: "-"; position: absolute; left: 0; }
 .legal-analysis-output .law-detail-source > :is(.law-search-note, .legal-analysis-raw, .legal-analysis-lines, .legal-analysis-section) { margin-top: 8px; }
-.legal-analysis-evidence { display: grid; gap: 6px; min-width: 0; padding: 10px 0; border-top: 1px solid var(--line-soft, var(--line)); }
+.legal-analysis-evidence { display: grid; gap: 6px; min-width: 0; padding: 8px 0; border-top: 1px solid var(--line-soft, var(--line)); }
 .legal-analysis-evidence:first-of-type { border-top: 0; padding-top: 0; }
 .legal-analysis-evidence h4 { margin: 0; color: var(--ink); font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); overflow-wrap: anywhere; }
 .legal-analysis-evidence > .law-search-note { margin: 0; }
@@ -28,7 +35,7 @@
 .legal-analysis-evidence-part > strong { font-size: var(--font-size-sm); }
 .legal-analysis-overall { margin: 0; font-weight: 600; }
 .legal-analysis-citations { margin: 0; padding: 0; list-style: none; border: 1px solid var(--line-soft, var(--line)); border-radius: var(--radius-panel, 8px); background: var(--paper); }
-.legal-analysis-citations > li { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 4px 12px; padding: 10px 14px; font-size: var(--font-size-sm); line-height: 1.6; }
+.legal-analysis-citations > li { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 4px 12px; padding: 8px 14px; font-size: var(--font-size-sm); line-height: 1.6; }
 .legal-analysis-citations > li + li { border-top: 1px solid var(--line-soft, var(--line)); }
 .legal-analysis-citation-text { min-width: 0; overflow-wrap: anywhere; }
 .legal-analysis-status, .legal-analysis-axis-label { font-weight: 600; overflow-wrap: anywhere; }
@@ -86,7 +93,7 @@
 .research-meta { color: var(--muted); font-size: var(--font-size-xs, 12px); font-weight: 400; overflow-wrap: anywhere; }
 p.research-meta { margin: 0; }
 .research-hits { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
-.research-hits > li { display: grid; gap: 2px; min-width: 0; padding: 8px 0; border-top: 1px solid var(--line-soft, var(--line)); font-size: var(--font-size-sm); line-height: 1.6; }
+.research-hits > li { display: grid; gap: 4px; min-width: 0; padding: 8px 0; border-top: 1px solid var(--line-soft, var(--line)); font-size: var(--font-size-sm); line-height: 1.6; }
 .research-hits > li:first-child { border-top: 0; }
 .research-hits strong { color: var(--ink); font-weight: var(--font-weight-semibold); overflow-wrap: anywhere; }
 .research-hits .legal-analysis-lines { color: var(--ink-soft, var(--ink)); }
@@ -167,7 +174,7 @@ p.research-meta { margin: 0; }
 .contract-review-source { margin: 0; }
 .contract-review-source .source-toggle { padding: 6px 0; color: var(--ink-soft); font-size: var(--font-size-xs); font-weight: var(--font-weight-medium); }
 /* Per-item evidence rows are secondary controls inside an already-divided section: no second rule. */
-.law-detail-source:is(.contract-review-refs, .research-issue-refs) > .source-toggle { padding: 6px 2px; border-bottom: 0; color: var(--ink-soft); font-size: var(--font-size-xs); font-weight: var(--font-weight-medium); }
+.law-detail-source:is(.contract-review-refs, .research-issue-refs) > .source-toggle { padding: 6px 0; border-bottom: 0; color: var(--ink-soft); font-size: var(--font-size-xs); font-weight: var(--font-weight-medium); }
 .contract-review-refs + .contract-review-refs { margin-top: 2px; }
 .contract-review-source > .contract-review-facts { margin-top: 8px; }
 .contract-review-facts { display: grid; grid-template-columns: minmax(96px, 140px) minmax(0, 1fr); gap: 5px 12px; margin: 0; font-size: var(--font-size-sm); line-height: 1.65; }
@@ -189,7 +196,7 @@ p.research-meta { margin: 0; }
 .contract-review-detail > h4 { margin-bottom: 6px; }
 .contract-review-refs { margin: 0; }
 .contract-review-refs ul { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; font-size: var(--font-size-sm); line-height: 1.65; }
-.contract-review-refs li { min-width: 0; padding: 10px 2px; overflow-wrap: anywhere; }
+.contract-review-refs li { min-width: 0; padding: 8px 0; overflow-wrap: anywhere; }
 .contract-review-refs li + li { border-top: 1px solid var(--line-soft, var(--line)); }
 .contract-review-refs li > strong { display: block; color: var(--ink); font-weight: var(--font-weight-semibold); }
 .contract-review-refs li > .contract-review-meta { display: block; }

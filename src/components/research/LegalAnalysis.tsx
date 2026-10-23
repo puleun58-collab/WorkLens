@@ -216,12 +216,64 @@ function Lines({ lines }: { lines: string[] }) {
   return lines.length ? <LawTextBlock className="legal-analysis-lines" text={lines.map(analysisStatus).join("\n")} /> : null;
 }
 
+const SECTION_ITEM_MARKER = /^(?:[-•]|\d{1,3}[.)])\s/u;
+
+function sectionLineIndent(line: string): number {
+  return /^ */u.exec(line)?.[0].length ?? 0;
+}
+
+interface SectionLineItem {
+  lines: string[];
+  /** A hairline precedes this entry; paragraph breaks inside one source text (blank-line splits) stay undivided. */
+  divided: boolean;
+}
+
+/**
+ * Group a section's lines into evidence entries. A line opens a new entry
+ * when it dedents below the previous line or repeats the entry marker at the
+ * same depth; deeper lines (맥락 등) stay with their entry. Blank lines only
+ * separate paragraphs of one entry, so they split without a divider.
+ */
+function sectionLineItems(lines: string[]): SectionLineItem[] {
+  const items: SectionLineItem[] = [];
+  let current: string[] = [];
+  let divided = true;
+  const flush = () => { if (current.length) items.push({ lines: current, divided }); current = []; };
+  for (const line of lines) {
+    if (!line.trim()) { flush(); divided = false; continue; }
+    const previous = current[current.length - 1];
+    if (previous !== undefined) {
+      const indent = sectionLineIndent(line);
+      if (indent < sectionLineIndent(previous) || (indent === sectionLineIndent(previous) && SECTION_ITEM_MARKER.test(line.slice(indent)))) { flush(); divided = true; }
+    }
+    current.push(line);
+  }
+  flush();
+  return items;
+}
+
+/** Section body as entry blocks: entries share the section's left baseline (common indent dropped, relative depth kept). */
+function SectionLines({ lines }: { lines: string[] }) {
+  const items = sectionLineItems(lines.map(analysisStatus));
+  if (!items.length) return null;
+  return <div className="legal-analysis-lines legal-analysis-items">
+    {items.map((item, itemIndex) => {
+      const base = Math.min(...item.lines.map(sectionLineIndent));
+      const shown = lawDisplayText(item.lines.map((line) => line.slice(base)).join("\n"));
+      if (!shown) return null;
+      return <div key={itemIndex} className={`legal-analysis-item${itemIndex > 0 && item.divided ? " is-divided" : ""}`}>
+        {shown.split("\n").map((line, lineIndex) => <span key={lineIndex} className="legal-analysis-line">{line}</span>)}
+      </div>;
+    })}
+  </div>;
+}
+
 function Sections({ sections }: { sections: AnalysisSection[] }) {
   return <>{sections.map((section, index) => <div key={index} className="legal-analysis-section">
     {section.heading && <h3>{lawDisplayText(analysisStatus(section.heading))}</h3>}
     {section.list ? <ul className="legal-analysis-caution">
       {section.lines.map((line, lineIndex) => <li key={lineIndex}>{lawDisplayText(analysisStatus(line))}</li>)}
-    </ul> : <Lines lines={section.lines} />}
+    </ul> : <SectionLines lines={section.lines} />}
   </div>)}</>;
 }
 
