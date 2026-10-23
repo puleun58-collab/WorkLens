@@ -82,7 +82,7 @@ test("AX result count distinguishes needs-info from completed diagnosis with the
   await openState(page, [completed, needsInfo, taskFixture("registered")]);
   const kpi = page.locator(".ax-kpi").filter({ has: page.locator(".ax-kpi-label", { hasText: "진단 완료" }) });
   await expect(kpi.locator("strong")).toHaveText("2개");
-  await expect(kpi).toContainText("진행 가능 1개 · 확인 후 진행 1개 · 진행 보류 0개 · 추가 질문 필요 1개");
+  await expect(kpi).toContainText("진행 가능 1 · 확인 후 진행 1 · 정보 확인 필요 1건");
   await page.getByRole("tab", { name: "자동화 매트릭스", exact: true }).click();
   await expect(page.locator(".ax-matrix-header")).toContainText("진단 완료 2/3 · 진행 가능 1 · 확인 후 진행 1 · 정보 확인 필요 1건");
   await expect(page.getByLabel("매트릭스 업무 목록", { exact: true }).getByRole("listitem")).toHaveCount(2);
@@ -108,7 +108,7 @@ test("AX adjusted diagnosis still counts as needing information when core inform
   await openState(page, [task("completed", 2, "ready"), adjusted]);
   const kpi = page.locator(".ax-kpi").filter({ has: page.locator(".ax-kpi-label", { hasText: "진단 완료" }) });
   await expect(kpi.locator("strong")).toHaveText("2개");
-  await expect(kpi).toContainText("진행 가능 1개 · 확인 후 진행 1개 · 진행 보류 0개 · 추가 질문 필요 1개");
+  await expect(kpi).toContainText("진행 가능 1 · 확인 후 진행 1 · 정보 확인 필요 1건");
   await page.getByRole("tab", { name: "자동화 매트릭스", exact: true }).click();
   await expect(page.locator(".ax-matrix-header")).toContainText("진단 완료 2/2 · 진행 가능 1 · 확인 후 진행 1 · 정보 확인 필요 1건");
   await page.getByRole("tab", { name: "업무 등록", exact: true }).click();

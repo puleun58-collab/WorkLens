@@ -103,6 +103,60 @@ export function executionGate(d: AxDiagnosis): ExecutionGate {
   return "ready";
 }
 
+export interface DiagnosisCounts {
+  /** 진단 완료 업무 수 */
+  results: number;
+  ready: number;
+  conditional: number;
+  blocked: number;
+  /** 정보 확인 필요(needs-check) 업무 수 — Gate 분포와 별개 축으로 합산하지 않는다. */
+  questions: number;
+}
+
+/** 공통 집계: 매트릭스 상단과 결과·로드맵 KPI가 같은 결과를 공유한다.
+ * Gate 분포는 badges와 같은 executionGate 기준이라 conditional 업무가 ready로 세어지지 않고,
+ * 진단 미완료 업무는 진행 상태 건수에 포함되지 않는다. */
+export function diagnosisCounts(tasks: AxTask[]): DiagnosisCounts {
+  const results = tasks.filter((task): task is AxTask & { diagnosis: AxDiagnosis } => !!task.diagnosis);
+  const gates = results.map(task => executionGate(task.diagnosis));
+  return {
+    results: results.length,
+    ready: gates.filter(gate => gate === "ready").length,
+    conditional: gates.filter(gate => gate === "conditional").length,
+    blocked: gates.filter(gate => gate === "blocked").length,
+    questions: results.filter(task => task.diagnosis.informationSufficiency === "needs-check").length,
+  };
+}
+
+export interface DiagnosisStatusItem {
+  key: "ready" | "conditional" | "blocked" | "needsCheck";
+  label: string;
+  count: number;
+  /** 표시 문구 (예: "확인 후 진행 5", "정보 확인 필요 1건") */
+  text: string;
+  /** 클릭 바로가기로 렌더할 항목인지 여부 (정보 확인 필요만 해당) */
+  actionable: boolean;
+}
+
+/** 공통 표시: 상태별 문구 생성 규칙의 단일 출처.
+ * 순서 진행 가능 → 확인 후 진행 → 진행 보류 → 정보 확인 필요, 0건은 숨긴다.
+ * 매트릭스 상단과 결과·로드맵 KPI 보조 설명이 이 항목들을 그대로 공유한다. */
+export function diagnosisStatusItems(counts: DiagnosisCounts): DiagnosisStatusItem[] {
+  const items: DiagnosisStatusItem[] = [];
+  const gates = [
+    ["ready", counts.ready],
+    ["conditional", counts.conditional],
+    ["blocked", counts.blocked],
+  ] as const;
+  for (const [gate, count] of gates) {
+    if (count) items.push({ key: gate, label: GATE_LABELS[gate], count, text: `${GATE_LABELS[gate]} ${count}`, actionable: false });
+  }
+  if (counts.questions) {
+    items.push({ key: "needsCheck", label: "정보 확인 필요", count: counts.questions, text: `정보 확인 필요 ${counts.questions}건`, actionable: true });
+  }
+  return items;
+}
+
 function checkLabel(c: AxDiagnosis["technicalChecks"][number]): string {
   return c.note ? `${c.topic} — ${c.note}` : c.topic;
 }
