@@ -228,6 +228,49 @@ describe("offense names versus statute wording", () => {
   });
 });
 
+describe("compound-internal partial matches", () => {
+  // 상업등기규칙 제69조의 subject is 사용자등록 (registration of a trade-name user):
+  // for the issue "사용자 의무" its text offers 사용자 only as the modifier of that
+  // compound and 의무 only inside 제출의무. Neither occurrence is the word itself.
+  const registry = [
+    "═══ 종합 리서치 ═══", "",
+    "▶ AI 법령검색 결과", "지능형 법령검색 결과 (법령조문, 1건):", "",
+    "상업등기규칙", "   제0069조 (사용자등록)", "   제69조(사용자등록)", " 사용자등록의 신청은 본점 소재지에서 하며 신청인은 서류 제출의무를 진다.", "   시행: 2025.01.01 | 법무부", "",
+  ].join("\n");
+
+  it("does not adopt an article whose terms appear only inside other compounds", () => {
+    expect(researchEvidenceSources(registry, "사용자 의무")).toEqual({ articles: [], precedents: [] });
+    expect(hasRelevantResearchEvidence(registry, "사용자 의무")).toBe(false);
+    expect(titleMatches(["사용자", "의무"], "상업등기규칙", "사용자등록")).toEqual([]);
+    // Term coverage may be recorded, but the case is neither promoted to direct
+    // nor cited as evidence: its longest term never appears as a word.
+    const relevance = rankPrecedent(["사용자", "의무"], { title: "사용자등록",
+      summary: "사용자등록 절차와 제출의무의 범위를 정한 사건" });
+    expect(relevance.rank).toBe("related");
+    expect(researchEvidenceSources(registry, "사용자 의무", {
+      precedents: { 9: relevance },
+      precedentExcerpts: { 9: "사용자등록 절차와 제출의무의 범위를 정한 사건" },
+    }).precedents).toEqual([]);
+  });
+
+  it("still adopts the same words where they stand as words in the source text", () => {
+    const duties = [
+      "═══ 종합 리서치 ═══", "",
+      "▶ AI 법령검색 결과", "지능형 법령검색 결과 (법령조문, 1건):", "",
+      "근로기준법", "   제0076조의3 (직장 내 괴롭힘 발생 시 조치)", "   제76조의3(직장 내 괴롭힘 발생 시 조치)", " 사용자는 직장 내 괴롭힘 발생 사실을 신고한 근로자에게 불리한 처우를 하여서는 아니 되며 필요한 조치를 하여야 한다.", "   시행: 2025.01.01 | 고용노동부", "",
+    ].join("\n");
+    expect(researchEvidenceSources(duties, "사용자 조치 의무"))
+      .toEqual({ articles: [{ law: "근로기준법", jo: "제76조의3" }], precedents: [] });
+  });
+
+  it("keeps a term that is the head of a compound: the compound is a kind of that term", () => {
+    expect(rankPrecedent(["해고"], { title: "구제신청", summary: "부당해고에 대한 구제 신청의 기간" }).rank).toBe("direct");
+    expect(titleMatches(["보증금"], "민법", "임대차보증금의 반환")).toEqual(["보증금"]);
+    // A modifier occurrence still counts for nothing: 해고 inside 해고예고 is about the notice, and the head 예고 is the subject.
+    expect(titleMatches(["해고"], "근로기준법", "해고예고의 적용 제외")).toEqual([]);
+  });
+});
+
 describe("title-matched article lookup", () => {
   it("ignores terms that are part of the law's own name", () => {
     expect(titleMatches(["임대차", "보증금", "반환"], "주택임대차보호법", "보증금의 회수")).toEqual(["보증금"]);

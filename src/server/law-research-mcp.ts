@@ -87,6 +87,8 @@ async function issueSources(
   return researchEvidenceSources(chain.text, issueQuery, {
     ...chain.enrichment,
     precedents: relevance,
+    // Citation is judged on the summaries actually read for this issue, not on term lists alone.
+    precedentExcerpts: Object.fromEntries(summaries),
     supplement: { status: supplement.length ? "found" : "none", articles: supplement },
   });
 }
