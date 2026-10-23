@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { diagnosisCheckItems, diagnosisSummaryParts, diagnosisSummarySentences, matrixRationaleBullets, toBeStepCheckTopics, visibleDiagnosisCheckItems } from "../src/components/ax/AxReport";
+import { LEVEL_DESCRIPTIONS, LEVEL_LABELS, levelDisplayLabel } from "../src/lib/ax/policy";
 import { outputFixture } from "./fixtures/ax";
 import { dieselCase } from "./fixtures/diesel-case";
 
@@ -35,7 +36,7 @@ describe("diagnosis display helpers", () => {
     const d = { ...outputFixture(), sourceNote: "test" };
     const sentences = diagnosisSummarySentences(d);
     // 픽스처: 자동화 1 · AI 보조 1 · 사람 유지 1, 미확인 기술 확인 1건
-    expect(sentences[0]).toBe("전체 3단계 중 자동화 1단계 · AI 보조 1단계 · 담당자 수행 1단계로 판정되었습니다.");
+    expect(sentences[0]).toBe("전체 3개 업무 단계 중 자동화 적합 1개 · AI 보조 적합 1개 · 담당자 수행 1개로 판정되었습니다.");
     // 사람 유지 단계는 수행으로, 명시된 승인 지점(humanInLoop)은 승인으로 구분해 표시한다.
     expect(sentences[1]).toBe("담당자 승인 단계는 담당자가 직접 수행해야 합니다. 담당자 최종 승인 지점에서는 담당자 승인이 필요합니다.");
     expect(sentences.join(" ")).not.toContain("판단·승인이 필요합니다");
@@ -84,7 +85,7 @@ describe("diagnosis display helpers", () => {
     const d = { ...outputFixture(), sourceNote: "test" };
     const parts = diagnosisSummaryParts(d);
     const sentences = diagnosisSummarySentences(d);
-    expect(parts.verdict).toBe("자동화 1단계 · AI 보조 1단계 · 담당자 수행 1단계");
+    expect(parts.verdict).toBe("전체 3개 업무 단계 중 자동화 적합 1개 · AI 보조 적합 1개 · 담당자 수행 1개");
     expect(parts.verdictSentence).toBe(sentences[0]);
     expect(parts.human).toBe(sentences[1]);
     expect(parts.check).toBe(sentences[2]);
@@ -166,5 +167,33 @@ describe("diagnosis display helpers", () => {
     expect(bullets.join(" ")).toContain("운영 위험이 높음");
     expect(bullets.join(" ")).not.toContain("담당자 판단 필요도 5점");
     expect(bullets.join(" ")).not.toContain("운영 위험 5점");
+  });
+});
+
+describe("level display label and tooltip descriptions", () => {
+  test("label is unified as 명칭 (Level N) for all levels", () => {
+    expect(LEVEL_LABELS.map((label, level) => levelDisplayLabel({ level, label }))).toEqual([
+      "수동 유지 (Level 0)",
+      "AI 보조 (Level 1)",
+      "부분 자동화 (Level 2)",
+      "고도 자동화 (Level 3)",
+    ]);
+  });
+  test("every level has a one-line description and Level 1 matches the policy wording", () => {
+    expect(LEVEL_DESCRIPTIONS).toHaveLength(4);
+    for (const description of LEVEL_DESCRIPTIONS) {
+      expect(description.trim().length).toBeGreaterThan(0);
+      expect(description).not.toContain("\n");
+    }
+    expect(LEVEL_DESCRIPTIONS[1]).toBe("담당자의 요청에 따라 AI가 업무를 보조합니다.");
+  });
+  test("verdict counts always sum to the total step count", () => {
+    const d = { ...outputFixture(), sourceNote: "test" };
+    const parts = diagnosisSummaryParts(d);
+    expect(parts.verdict).toBe("전체 3개 업무 단계 중 자동화 적합 1개 · AI 보조 적합 1개 · 담당자 수행 1개");
+    const single = diagnosisSummaryParts({ ...d, stepAssessments: d.stepAssessments.filter(s => s.verdict === "자동화") });
+    expect(single.verdict).toBe("전체 1개 업무 단계 중 자동화 적합 1개");
+    const empty = diagnosisSummaryParts({ ...d, stepAssessments: [] });
+    expect(empty.verdict).toBeUndefined();
   });
 });

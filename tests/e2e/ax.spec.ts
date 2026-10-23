@@ -226,7 +226,7 @@ test("AX registration → diagnosis → correction → matrix → plans → relo
   await page.screenshot({ path: `artifacts/ax/matrix-${test.info().project.name}.png` });
   await page.getByRole("tab", { name: "결과·로드맵", exact: false }).click();
   const top = page.locator(".ax-step4-overview .ax-priority-list").first();
-  await expect(top).toContainText("부분 자동화 · Level 2");
+  await expect(top).toContainText("부분 자동화 (Level 2)");
   await expect(top).toContainText("점수 7");
   await expect(page.getByRole("region", { name: "진단 요약", exact: true })).toContainText("Level 2");
   await page.screenshot({ path: `artifacts/ax/roadmap-${test.info().project.name}.png`, fullPage: true });
@@ -635,6 +635,51 @@ test("AX summary next action links to the block reasons for blocked gates", asyn
   await page.getByRole("button", { name: "차단 사유 확인", exact: true }).click();
   await expect(page.locator(".ax-diag-checks")).toContainText("필수 시스템 접근 불가");
   await expect.poll(async () => (await page.locator(".ax-diag-checks").boundingBox())?.y ?? 9999).toBeLessThan(200);
+});
+test("AX level badge uses the unified label and shows the level description tooltip", async ({ page }) => {
+  const calls: Record<string, unknown>[] = []; await mock(page, calls);
+  await page.goto("/"); await ax(page); await register(page);
+  await page.getByRole("button", { name: "다음 단계" }).click();
+  await page.locator(".ax-diag-card").getByRole("button", { name: "업무 진단 실행" }).click();
+  // outputFixture: 자동화 1 · AI 보조 1 · 사람 유지 1 단계, Factor 기준 Level 3(고도 자동화)
+  await expect(page.locator(".ax-diag-card")).toContainText("전체 3개 업무 단계 중 자동화 적합 1개 · AI 보조 적합 1개 · 담당자 수행 1개");
+  const badge = page.locator(".ax-diag-card .ax-level-badge");
+  await expect(badge).toHaveText("고도 자동화 (Level 3)");
+  const description = "넓게 자동화하되 승인·안전·법률·권한 관련 단계는 담당자가 유지합니다.";
+  // 호버 직후 레이아웃이 움직이면 마우스가 배지를 벗어날 수 있어, 열린 상태가 될 때까지 호버를 되풀이한다.
+  await expect(async () => {
+    await badge.hover();
+    await expect(page.getByText(description, { exact: true })).toBeVisible({ timeout: 3_000 });
+  }).toPass({ timeout: 20_000 });
+  await page.mouse.move(0, 0);
+  await expect(page.getByText(description, { exact: true })).toBeHidden();
+  // 키보드 이동으로 배지에 포커스가 가면 같은 설명이 열린다 (프로그래매틱 focus()는 focus-visible로
+  // 인정되지 않아 열리지 않으므로 실제 키 입력으로 이동한다).
+  await page.getByRole("button", { name: "업무 다시 진단" }).focus();
+  await page.keyboard.press("Shift+Tab");
+  await expect(badge).toBeFocused();
+  await expect(page.getByText(description, { exact: true })).toBeVisible();
+});
+test.describe("AX level badge touch", () => {
+  test.use({ hasTouch: true, isMobile: true });
+  test("tap toggles the level description on touch devices", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const calls: Record<string, unknown>[] = []; await mock(page, calls);
+    await page.goto("/"); await ax(page); await register(page);
+    await page.getByRole("button", { name: "다음 단계" }).click();
+    await page.locator(".ax-diag-card").getByRole("button", { name: "업무 진단 실행" }).click();
+    const badge = page.locator(".ax-diag-card .ax-level-badge");
+    await expect(badge).toHaveText("고도 자동화 (Level 3)");
+    const description = page.getByText("넓게 자동화하되 승인·안전·법률·권한 관련 단계는 담당자가 유지합니다.", { exact: true });
+    await badge.tap();
+    await expect(description).toBeVisible();
+    const box = (await description.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(391);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+    await badge.tap();
+    await expect(description).toBeHidden();
+  });
 });
 test("AX works and exports when IndexedDB is unavailable and rejects failed AI output", async ({ page }) => {
   await page.addInitScript(() => { Object.defineProperty(window, "indexedDB", { get() { throw new Error("storage disabled"); } }); });

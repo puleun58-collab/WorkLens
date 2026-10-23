@@ -14,14 +14,14 @@ import { useAxState } from "@/client/use-ax-state";
 import { runInWorker } from "@/client/document-client";
 import { diagnoseAx, planAx, interruptServerAi, aiFailureDetail } from "@/client/server-ai-client";
 import { AX_LIMITS, FACTOR_LABELS, axTaskSchema, axTaskV2Schema, confirmedAxDiagnosis } from "@/lib/ax/schema";
-import { axes, automationLevel, bubbleArea, diagnosisCounts, diagnosisStatusItems, executionGate, executionProfile, GATE_LABELS, planAllowed, priorityHeading, factorEffectiveValue, factorHasAdjustment, factorScale, matrixPosition, monthlyMinutes, nextAction, priority, splitGatePrerequisites, taskStatus, taskDisplayStatus } from "@/lib/ax/policy";
+import { axes, automationLevel, bubbleArea, diagnosisCounts, diagnosisStatusItems, executionGate, executionProfile, GATE_LABELS, levelDisplayLabel, planAllowed, priorityHeading, factorEffectiveValue, factorHasAdjustment, factorScale, matrixPosition, monthlyMinutes, nextAction, priority, splitGatePrerequisites, taskStatus, taskDisplayStatus } from "@/lib/ax/policy";
 import { candidateTask, taskDetails, followUpDescription, legacyDetailValues, validateAttachmentPreflight, isRegistrationUnchanged } from "@/lib/ax/registration";
 import { MAX_TASK_ATTACHMENTS, attachmentPatch, buildAttachmentSummary, combineAttachmentSummaries, taskAttachments } from "@/lib/ax/attachments";
 import type { AxAttachmentMeta } from "@/lib/ax/types";
 import { exportAxState, importAxState } from "@/lib/ax/transfer";
 import { emptyAxState, type AxStateV2, type AxTask, type AxDiagnosis, type AxDetails, type FactorKey } from "@/lib/ax/types";
 import { extractReviewableItems, extractPlanReviewableItems, reconcileReviews, validateReviewForConfirm, type ReviewableItem } from "@/lib/ax/hitl";
-import { AxProcess, AxResultSummary, AxExecutionTimeline, AxPlanSection, AxScoreCards, AxCheckIcon, diagnosisSummaryParts, diagnosisCheckItems, visibleDiagnosisCheckItems, matrixRationaleBullets } from "./AxReport";
+import { AxLevelBadge, AxProcess, AxResultSummary, AxExecutionTimeline, AxPlanSection, AxScoreCards, AxCheckIcon, diagnosisSummaryParts, diagnosisCheckItems, visibleDiagnosisCheckItems, matrixRationaleBullets } from "./AxReport";
 import { AxScoreEvidence } from "./AxScoreEvidence";
 import "./ax.css";
 
@@ -598,7 +598,7 @@ export function AxDiagnosisView() {
       const a = task.diagnosis ? axes(task.diagnosis) : null;
       const display = taskDisplayStatus(task);
       const statusText = `${STATUS[display.status]}${display.needsCheck ? " · 추가 질문 필요" : ""}`;
-      const meta = state.step === 3 && a ? `가치 ${a.value} · 실현 ${a.feasibility}` : l ? `${statusText} · ${l.label.replace(/^L\d+ /, "")} · Level ${l.level}` : statusText;
+      const meta = state.step === 3 && a ? `가치 ${a.value} · 실현 ${a.feasibility}` : l ? `${statusText} · ${levelDisplayLabel(l)}` : statusText;
       return <li key={task.id} className={selected?.id === task.id ? "is-selected" : undefined}><Button type="button" variant="ghost" className="ax-task-row-btn" aria-pressed={selected?.id === task.id} onClick={() => select(task.id)} disabled={!!busy}>
         <span className={`ax-dot ax-dot-${task.status}`} aria-hidden="true" /><span className="ax-task-name">{rank ? `${rank}. ` : ""}{task.name}</span><span className="ax-task-meta">{meta}</span>
       </Button>{showActions && state.step === 1 ? <span className="ax-task-actions">
@@ -631,7 +631,7 @@ export function AxDiagnosisView() {
       const l = automationLevel(r.task.diagnosis), m = matrixPosition(r.task.diagnosis), gate = executionGate(r.task.diagnosis);
       return <li key={r.task.id}><Button type="button" variant="ghost" className="ax-priority-row" aria-pressed={selected?.id === r.task.id} onClick={() => select(r.task.id)} disabled={!!busy}>
         <strong className="ax-rank">#{r.rank}</strong><span className="ax-priority-content"><span className="ax-priority-head"><span className="ax-task-name">{r.task.name}</span><span className="ax-region-chip" data-region={m.region}>{m.label}</span>{gate !== "ready" ? <span className="ax-gate-badge" data-gate={gate}>{GATE_LABELS[gate]}</span> : null}</span>
-        <span>{l.label.replace(/^L\d+ /, "")} · Level {l.level}{l.provisional ? " · 잠정" : ""}</span>{top ? <small className="ax-next-action"><span>다음 권장 행동</span>{nextAction(r.task.diagnosis).label}</small> : <small>{r.reason}</small>}{top ? <small>점수 {r.score}</small> : null}</span>
+        <span>{levelDisplayLabel(l)}{l.provisional ? " · 잠정" : ""}</span>{top ? <small className="ax-next-action"><span>다음 권장 행동</span>{nextAction(r.task.diagnosis).label}</small> : <small>{r.reason}</small>}{top ? <small>점수 {r.score}</small> : null}</span>
       </Button></li>;
     })}</ol></>;
   }
@@ -834,7 +834,7 @@ function DiagnosisCard({ task, busy, onDiagnose, onEdit, attachment }: {
           {display.status === "needs-info" || display.needsCheck ? <Badge className="ax-status-badge">정보 확인 필요</Badge> : null}
           {display.status === "adjusted" ? <Badge className="ax-status-badge">사용자 보정 완료</Badge> : null}
           {d && lvl && gate ? <>
-            <Badge className="ax-level-badge">{lvl.label.replace(/^L\d+ /, "")} · Level {lvl.level}</Badge>
+            <AxLevelBadge level={lvl} className="ax-level-badge" />
             <span className="ax-gate-badge" data-gate={gate}>{GATE_LABELS[gate]}</span>
           </> : null}
         </div>
@@ -892,7 +892,7 @@ function MatrixDetailCard({ task, diagnosis }: { task: AxTask; diagnosis: AxDiag
         <h3>{task.name}</h3>
         <div className="ax-diag-badges">
           <span className="ax-region-chip" data-region={m.region}>{m.label}</span>
-          <Badge className="ax-level-badge">{lvl.label.replace(/^L\d+ /, "")} · Level {lvl.level}</Badge>
+          <AxLevelBadge level={lvl} className="ax-level-badge" />
           <span className="ax-gate-badge" data-gate={gate}>{GATE_LABELS[gate]}</span>
         </div>
       </div>
