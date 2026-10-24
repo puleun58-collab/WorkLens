@@ -1,4 +1,5 @@
 import type { EvidenceArticle, InterpretationFailure, IssueEvidence, LawCurrency, LawResearchAbsent, LawResearchData, LawResearchRequest, ResearchIssue } from "@/lib/law-research";
+import type { LawRequestStats } from "@/lib/law-observability";
 import { researchResult, type ResearchDecision } from "@/lib/law-research-parse";
 import {
   questionTerms, rankPrecedent, researchEvidenceSources,
@@ -16,6 +17,9 @@ import {
 import { compareOrdinances, mcpOrdinanceSources } from "@/server/ordinance-compare";
 
 const RESEARCH_FAILURE = "법령 리서치 서비스가 요청을 처리하지 못했습니다.";
+
+/** 요청 단위 관측 누적(실제 MCP 재시도 횟수)을 함께 실어 보내는 요청 context. */
+type ResearchContext = { requestId: string; signal?: AbortSignal; stats?: LawRequestStats };
 const MAX_STATUS_LAWS = 4;
 /** Every issue the combined answer did not cover shares this budget; one it cannot reach is reported, never dropped. */
 const ISSUE_BUDGET_MS = 15_000;
@@ -24,11 +28,16 @@ const SHORT_QUERY_TERMS = 4;
 const EXCERPT_CHARS = 600;
 
 /**
- * Whether each cited article is in force today: the law's 법제처 status (`현행` or not)
- * plus the 시행일 printed on the article text. Nothing is marked current unless both agree.
+ * Whether each cited article is in force today. A law being `현행` does not make
+ * the retrieved article text current: the search can return an older version's
+ * body. So `current` requires the 시행일 printed on the retrieved text to be the
+ * 시행일 of the law's current version, as the 법제처 index states it in the same
+ * search response — no extra lookup. An older retrieved version is officially a
+ * past version (`not_current`); missing or disagreeing version metadata can
+ * confirm nothing (`unconfirmed`), and a failed lookup confirms nothing either.
  */
 async function withCurrency(articles: Array<{ law: string; jo: string }>, text: string, enrichment: ResearchEnrichment | undefined,
-  context: { requestId: string; signal?: AbortSignal }): Promise<EvidenceArticle[]> {
+  context: ResearchContext): Promise<EvidenceArticle[]> {
   if (!articles.length) return [];
   const effective = new Map<string, string>();
   for (const article of researchResult(text).sections.flatMap((section) => section.articles ?? [])) {
@@ -41,17 +50,26 @@ async function withCurrency(articles: Array<{ law: string; jo: string }>, text: 
   const statuses = new Map(await Promise.all(laws.map(async (law) => {
     const found = await searchLaw(law, context).catch(() => undefined);
     const exact = found?.found ? found.laws.find((entry) => entry.name === law) : undefined;
-    return [law, exact?.status] as const;
+    const versionDate = exact?.effectiveDate?.replace(/\D/gu, "");
+    return [law, {
+      status: exact?.status,
+      ...(versionDate && versionDate.length === 8 ? { versionDate } : {}),
+    }] as const;
   })));
   // Today in Korea, the calendar 시행일 are stated in.
   const today = new Date(Date.now() + 9 * 3_600_000).toISOString().slice(0, 10).replaceAll("-", "");
   return articles.map((article) => {
-    const status = statuses.get(article.law);
-    const date = effective.get(`${article.law}\0${article.jo}`);
+    const { status, versionDate } = statuses.get(article.law) ?? {};
+    const raw = effective.get(`${article.law}\0${article.jo}`);
+    const date = raw && raw.length === 8 ? raw : undefined;
     const currency: LawCurrency = status === undefined ? "unconfirmed"
       : status !== "현행" ? "not_current"
-      : date && date.length === 8 && date > today ? "upcoming"
-      : date ? "current" : "unconfirmed";
+      : date === undefined ? "unconfirmed"
+      : date > today ? "upcoming"
+      : versionDate === undefined ? "unconfirmed"
+      : date === versionDate ? "current"
+      : date < versionDate ? "not_current"
+      : "unconfirmed";
     return { ...article, currency };
   });
 }
@@ -95,7 +113,7 @@ async function issueSources(
 
 async function fullResearch(
   query: string,
-  context: { requestId: string; signal?: AbortSignal },
+  context: ResearchContext,
 ): Promise<LawResearchData | LawResearchAbsent> {
   // An interpretation may be unavailable without taking away the original
   // question's existing search path. It never supplies factual evidence.
@@ -233,7 +251,7 @@ async function fullResearch(
 
 export async function runLegalResearch(
   request: LawResearchRequest,
-  context: { requestId: string; signal?: AbortSignal },
+  context: ResearchContext,
 ): Promise<LawResearchData | LawResearchAbsent> {
   // Document review decides the document's type and each clause's issue before
   // any search, then searches only the areas of law that fit (see contract-review).

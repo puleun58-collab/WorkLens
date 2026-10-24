@@ -145,9 +145,11 @@ export const isLawName = (term: string) => LAW_NAME.test(term) && term.length >=
  *
  * `direct`: every subject term, or a statute article the answer cites, appears
  * in the summary. `related`: at least half the terms including one of the most
- * specific (longest). Otherwise `low`: the summary was read and does not
- * address the question, whatever the title says. An `excerpt` can at most
- * make a case `related`; without any summary the case stays `unknown`.
+ * specific (longest) — under the same anchored standard as `direct` and as
+ * citation, so a term that appears only inside another compound (사용자 inside
+ * 사용자등록) carries neither promotion. Otherwise `low`: the summary was read
+ * and does not address the question, whatever the title says. An `excerpt` can
+ * at most make a case `related`; without any summary the case stays `unknown`.
  * `matched` lists the evidence terms only.
  */
 export function rankPrecedent(
@@ -161,12 +163,14 @@ export function rankPrecedent(
   const matched = terms.filter((term) => termOccurs(term, compact(evidence)));
   const articles = citedArticles.filter((article) => compact(evidence).includes(compact(article)));
   const longest = Math.max(...terms.map((term) => term.length));
-  const specific = matched.some((term) => term.length === longest);
-  // Promotion to direct is the step a stray partial match must not carry: the
-  // most specific term has to be there as a word, not only inside a compound.
+  // Promotion is the step a stray partial match must not carry: the most
+  // specific term has to be there as a word, not only inside a compound.
+  // Ranking and citation judge by this one standard, so a case the citation
+  // step would reject on compound-internal evidence alone is not shown as
+  // related either; it stays a `low` candidate, never deleted.
   const anchored = matched.some((term) => term.length === longest && termAnchored(term, terms, evidence));
   if (!entry.excerpt && ((matched.length === terms.length && anchored) || articles.length)) return { rank: "direct", matched: [...matched, ...articles] };
-  if ((specific && matched.length >= Math.ceil(terms.length / 2)) || (entry.excerpt && articles.length)) {
+  if ((anchored && matched.length >= Math.ceil(terms.length / 2)) || (entry.excerpt && articles.length)) {
     return { rank: "related", matched: [...matched, ...articles] };
   }
   return { rank: "low", matched };

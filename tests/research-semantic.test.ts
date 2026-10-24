@@ -188,20 +188,51 @@ describe("full_research issue-by-issue retrieval", () => {
 });
 
 describe("currency of cited articles", () => {
-  const lawList = (status: string) => `검색 결과 (총 1건):\n\n📍 정확매칭 (1건):\n1. 근로기준법 [${status}]\n   - 법령ID: 001872\n   - MST: 283457\n   - 공포일: 20260219 / 시행일: 20260820\n   - 구분: 법률`;
+  const lawList = (status: string, lawDate: string | null = "20260820") => `검색 결과 (총 1건):\n\n📍 정확매칭 (1건):\n1. 근로기준법 [${status}]\n   - 법령ID: 001872\n   - MST: 283457\n   - 공포일: 20260219${lawDate ? ` / 시행일: ${lawDate}` : ""}\n   - 구분: 법률`;
+
+  const run = async (status: string | null, effective: string, lawDate?: string | null) => {
+    vi.mocked(interpretResearchQuery).mockResolvedValueOnce({ ...interpretation, issues: [{ label: "직장 내 괴롭힘", query: "직장 내 괴롭힘" }] });
+    upstream({
+      legal_research: () => harassment.replace("2026.08.20", effective),
+      search_law: () => status !== null ? lawList(status, lawDate) : "[NOT_FOUND] 없음",
+    });
+    return runLegalResearch({ task: "full_research", query: "직장 내 괴롭힘" }, ctx);
+  };
 
   it.each([
-    ["현행", "2020.01.01", "current"],
+    // The retrieved text is the law's current version: its 시행일 is the version's 시행일.
+    ["현행", "2026.08.20", "current"],
+    // A 현행 law name over a past version's body is not current: the index dates the
+    // current version 2026.08.20, the retrieved text is the 2020 version.
+    ["현행", "2020.01.01", "not_current"],
     ["현행", "2999.01.01", "upcoming"],
     ["폐지", "2020.01.01", "not_current"],
     [null, "2020.01.01", "unconfirmed"],
   ] as const)("law listed %s with 시행 %s is %s", async (status, effective, currency) => {
-    vi.mocked(interpretResearchQuery).mockResolvedValueOnce({ ...interpretation, issues: [{ label: "직장 내 괴롭힘", query: "직장 내 괴롭힘" }] });
-    upstream({
-      legal_research: () => harassment.replace("2026.08.20", effective),
-      search_law: () => status !== null ? lawList(status) : "[NOT_FOUND] 없음",
-    });
-    const result = await runLegalResearch({ task: "full_research", query: "직장 내 괴롭힘" }, ctx);
+    const result = await run(status, effective);
     expect(result).toMatchObject({ evidence: { articles: [{ law: "근로기준법", jo: "제76조의2", currency }] } });
+  });
+
+  it("confirms nothing when the index states no current-version 시행일", async () => {
+    const result = await run("현행", "2020.01.01", null);
+    expect(result).toMatchObject({ evidence: { articles: [{ law: "근로기준법", jo: "제76조의2", currency: "unconfirmed" }] } });
+  });
+
+  it("confirms nothing when the retrieved version is newer than the indexed current version", async () => {
+    // Both dates are past, so this is not 시행 예정 either: the metadata disagree.
+    const result = await run("현행", "2026.09.01", "20260820");
+    expect(result).toMatchObject({ evidence: { articles: [{ law: "근로기준법", jo: "제76조의2", currency: "unconfirmed" }] } });
+  });
+
+  it("treats the 시행일 day itself as in force, and the day before as upcoming", async () => {
+    const kstDay = (offset: number) => new Date(Date.now() + 9 * 3_600_000 + offset * 86_400_000).toISOString().slice(0, 10);
+    const dotted = (iso: string) => iso.replaceAll("-", ".");
+    const digits = (iso: string) => iso.replaceAll("-", "");
+    const today = kstDay(0);
+    expect(await run("현행", dotted(today), digits(today)))
+      .toMatchObject({ evidence: { articles: [{ currency: "current" }] } });
+    const tomorrow = kstDay(1);
+    expect(await run("현행", dotted(tomorrow), digits(tomorrow)))
+      .toMatchObject({ evidence: { articles: [{ currency: "upcoming" }] } });
   });
 });
