@@ -220,6 +220,7 @@ export function DecisionSearch({ linkedRequest, onReturnToLaw, onCiteCheck }: De
           {selected.institution && <span>{selected.institution}</span>}
           {selected.date && <span>{formatLawDate(selected.date) ?? selected.date}</span>}
         </p>
+        {selected.typeVerification === "not_provided" && <p className="law-search-note" role="status">자료 유형 확인 필요</p>}
         {detailLoading ? <p className="law-search-note" role="status">원문을 불러오는 중…</p>
           : detail?.kind === "error" ? <div className="decision-feedback" role="alert">
             <p className="law-search-error">{detail.message}</p>
@@ -230,6 +231,12 @@ export function DecisionSearch({ linkedRequest, onReturnToLaw, onCiteCheck }: De
             {text.expandable === true && <Button variant="link" type="button" className="h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" disabled={fullLoading} onClick={() => void loadDetail(selected, true)}>
               {fullLoading ? "전문 불러오는 중…" : "전문 보기"}
             </Button>}
+            {text.fullUnknown === true && <>
+              <p className="law-search-note" role="status">현재 전체 원문을 확인할 수 없어 제공된 내용만 표시합니다.</p>
+              <Button variant="link" type="button" className="h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" disabled={fullLoading} onClick={() => void loadDetail(selected, true)}>
+                {fullLoading ? "전문 불러오는 중…" : "전문 다시 시도"}
+              </Button>
+            </>}
             {text.fullUnavailable === true && <p className="law-search-note" role="status">이 자료 유형은 전문 조회를 지원하지 않습니다. 중략된 요약 원문만 제공됩니다.</p>}
             {fullError && <p className="law-search-error law-operation-error" role="alert">{fullError}</p>}
             <LawTextBlock className="decision-detail-raw" text={text.text} />
@@ -266,6 +273,7 @@ export function DecisionSearch({ linkedRequest, onReturnToLaw, onCiteCheck }: De
       {outcome.kind === "error" ? <p className="law-search-error law-operation-error" role="alert">{outcome.message}</p>
         : outcome.kind === "missing" ? <p className="law-search-note" role="status">검색 결과 없음 · 다른 검색어로 검색해 보세요</p>
         : <>
+          {outcome.data.excludedCount !== undefined && outcome.data.excludedCount > 0 && <p className="law-search-note" role="status">유형이 다른 것으로 확인된 {outcome.data.excludedCount}건은 제외되었습니다.</p>}
           {split ? <>
             {split.exact.length ? <DecisionList entries={split.exact} onOpen={openDetail} /> : <p className="law-search-note" role="status">
               {page > 1 || outcome.data.hasNext ? "이 페이지에서 일치하는 자료를 찾지 못했습니다. 다른 페이지에 있을 수 있습니다" : "일치하는 자료를 찾지 못했습니다"}
@@ -274,7 +282,7 @@ export function DecisionSearch({ linkedRequest, onReturnToLaw, onCiteCheck }: De
               <h3 className="decision-search-subheading">다른 검색 결과<span className="law-section-count"> · {split.others.length}건</span></h3>
               <DecisionList entries={split.others} onOpen={openDetail} />
             </>}
-          </> : outcome.data.entries.length > 0 ? <DecisionList entries={outcome.data.entries} onOpen={openDetail} /> : <LawTextBlock className="decision-detail-raw" text={outcome.data.text} />}
+          </> : outcome.data.entries.length > 0 ? <DecisionList entries={outcome.data.entries} onOpen={openDetail} /> : outcome.data.excludedCount !== undefined && outcome.data.excludedCount > 0 ? null : <LawTextBlock className="decision-detail-raw" text={outcome.data.text} />}
           <div className="decision-pagination">
             {page > 1 && <Button variant="link" type="button" className="h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" onClick={() => void runSearch(searchedQuery, domain, page - 1)}>← 이전</Button>}
             {outcome.data.hasNext === true && <Button variant="link" type="button" className="h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" onClick={() => void runSearch(searchedQuery, domain, page + 1)}>다음 →</Button>}
@@ -289,11 +297,12 @@ function DecisionList({ entries, onOpen }: { entries: readonly DecisionEntry[]; 
     {entries.map((entry, index) => <li key={`${entry.domain}-${entry.id}-${index}`}>
       <Button variant="ghost" type="button" className="decision-search-result rounded-none" onClick={() => onOpen(entry)}>
         <strong>{entry.title || entry.caseNumber || "판례·결정례 원문"}</strong>
-        {(entry.caseNumber || entry.court || entry.institution || entry.date) && <span className="decision-search-meta">
+        {(entry.caseNumber || entry.court || entry.institution || entry.date || entry.typeVerification === "not_provided") && <span className="decision-search-meta">
           {entry.caseNumber && entry.title && <span>{entry.caseNumber}</span>}
           {entry.court && <span>{entry.court}</span>}
           {entry.institution && <span>{entry.institution}</span>}
           {entry.date && <span>{formatLawDate(entry.date) ?? entry.date}</span>}
+          {entry.typeVerification === "not_provided" && <span>확인 필요</span>}
         </span>}
         {entry.summary && <span className="decision-search-summary">{entry.summary}</span>}
       </Button>

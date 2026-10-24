@@ -9,8 +9,19 @@ describe("law search input", () => {
     expect(parseLawArticleQuery("근로기준법 제10조의2")).toEqual({ lawName: "근로기준법", jo: "제10조의2" });
     expect(parseLawArticleQuery("근로기준법 제74조 내용 알려줘")).toEqual({ lawName: "근로기준법", jo: "제74조" });
     expect(parseLawArticleQuery("민법 제750조 보여줘")).toEqual({ lawName: "민법", jo: "제750조" });
-    expect(parseLawArticleQuery("근로기준법 제60조 제6항 제3호")).toEqual({ lawName: "근로기준법", jo: "제60조" });
+    // Spec change (O-1): 항/호 numbers are now captured for the detail-view
+    // move target instead of being dropped; the previous expectation here was
+    // `{ lawName, jo }` only because the parser discarded them.
+    expect(parseLawArticleQuery("근로기준법 제60조 제6항 제3호")).toEqual({ lawName: "근로기준법", jo: "제60조", hang: 6, ho: 3 });
+    expect(parseLawArticleQuery("근로기준법 제60조 제6항")).toEqual({ lawName: "근로기준법", jo: "제60조", hang: 6 });
     expect(parseLawArticleQuery("전자상거래 등에서의 소비자보호에 관한 법률 제17조")).toEqual({ lawName: "전자상거래 등에서의 소비자보호에 관한 법률", jo: "제17조" });
+  });
+
+  it("drops a 호 without its 항 so the move cannot land on another 항's 호", () => {
+    expect(parseLawArticleQuery("근로기준법 제60조 제3호")).toEqual({ lawName: "근로기준법", jo: "제60조" });
+    // 목 has no parser or fixture anywhere: it stays a trailing request, and
+    // the move target is the 호 only. 목 itself is never a target.
+    expect(parseLawArticleQuery("근로기준법 제60조 제6항 제3호 가목")).toEqual({ lawName: "근로기준법", jo: "제60조", hang: 6, ho: 3 });
   });
 
   it("leaves keywords and ambiguous inputs to the ordinary search", () => {

@@ -54,8 +54,8 @@ describe("fixed decision MCP routes", () => {
     const result = await call("search", { domain: "precedent", query: " 임금 지급 " });
     expect(result.status).toBe(200);
     expect(result.json.data).toEqual({ found: true,
-      entries: [{ domain: "precedent", id: "0609561", title: "임금 지급 청구", caseNumber: "2023두12345", court: "대법원", date: "20240614" }],
-      text: SEARCH, page: 1, totalCount: 25, hasNext: true });
+      entries: [{ domain: "precedent", id: "0609561", title: "임금 지급 청구", caseNumber: "2023두12345", court: "대법원", date: "20240614", typeVerification: "matched" }],
+      text: SEARCH, page: 1, totalCount: 25, hasNext: true, excludedCount: 0 });
     const upstream = toolCall(fetcher);
     expect(String(upstream.url)).toBe("https://mcp.example.test/law");
     expect(upstream.headers.get("apikey")).toBe(KEY);
@@ -132,13 +132,40 @@ describe("fixed decision MCP routes", () => {
     expect(toolCall(fetcher, 1).params).toEqual({ name: "get_decision_text", arguments: { domain: "precedent", id: "0609561", full: true } });
   });
 
-  it("marks a truncated interpretation summary as full-unavailable instead of expandable", async () => {
+  it("marks a truncated interpretation summary as full-unknown before any full attempt", async () => {
     const fetcher = vi.fn().mockResolvedValue(toolText(COMPACT));
     vi.stubGlobal("fetch", fetcher);
     const response = await call("text", { domain: "interpretation", id: "0609561" });
     expect(response.status).toBe(200);
-    expect(response.json.data).toMatchObject({ found: true, expandable: false, fullUnavailable: true });
+    expect(response.json.data).toMatchObject({ found: true, expandable: false, fullUnknown: true });
+    expect((response.json.data as unknown as Record<string, unknown>).fullUnavailable).toBeUndefined();
     expect(toolCall(fetcher, 0).params).toEqual({ name: "get_decision_text", arguments: { domain: "interpretation", id: "0609561" } });
+  });
+
+  it("marks a truncated interpretation summary as full-unavailable only after a full attempt still truncates", async () => {
+    const fetcher = vi.fn().mockResolvedValue(toolText(COMPACT));
+    vi.stubGlobal("fetch", fetcher);
+    const response = await call("text", { domain: "interpretation", id: "0609561", full: true });
+    expect(response.status).toBe(200);
+    expect(response.json.data).toMatchObject({ found: true, expandable: false, fullUnavailable: true });
+    expect((response.json.data as unknown as Record<string, unknown>).fullUnknown).toBeUndefined();
+    expect(toolCall(fetcher, 0).params).toEqual({ name: "get_decision_text", arguments: { domain: "interpretation", id: "0609561", full: true } });
+  });
+
+  it("excludes type-mismatched records without failing the search, and keeps an all-excluded first page successful", async () => {
+    const mixed = "판례 검색 결과 (총 2건, 1페이지):\n\n[521703] 위헌소원\n  사건번호: 2022헌마1312\n  종국일: 20240627\n\n[0609561] 임금 지급 청구\n  사건번호: 2023두12345\n  법원: 대법원\n  선고일: 20240614";
+    const fetcher = vi.fn().mockResolvedValue(toolText(mixed));
+    vi.stubGlobal("fetch", fetcher);
+    const result = await call("search", { domain: "precedent", query: "임금" });
+    expect(result.status).toBe(200);
+    expect(result.json.data).toEqual({ found: true,
+      entries: [{ domain: "precedent", id: "0609561", title: "임금 지급 청구", caseNumber: "2023두12345", court: "대법원", date: "20240614", typeVerification: "matched" }],
+      text: mixed, page: 1, totalCount: 2, hasNext: false, excludedCount: 1 });
+    const onlyMixed = "판례 검색 결과 (총 1건, 1페이지):\n\n[521703] 위헌소원\n  사건번호: 2022헌마1312\n  종국일: 20240627";
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(toolText(onlyMixed)));
+    const empty = await call("search", { domain: "precedent", query: "위헌" });
+    expect(empty.status).toBe(200);
+    expect(empty.json.data).toEqual({ found: true, entries: [], text: onlyMixed, page: 1, totalCount: 1, hasNext: false, excludedCount: 1 });
   });
 
   it("keeps explicit NOT_FOUND separate from tool failures and does not classify an incidental mention as missing", async () => {
@@ -251,8 +278,8 @@ describe("fixed decision MCP routes", () => {
     const fetcher = vi.fn().mockResolvedValue(toolText(pageTwo));
     vi.stubGlobal("fetch", fetcher);
     const response = await call("search", { domain: "constitutional", query: "위헌", page: 2 });
-    expect(response.json.data).toEqual({ found: true, entries: [{ domain: "constitutional", id: "34561", title: "위헌확인", caseNumber: "2023헌마31", date: "20240516" }],
-      text: pageTwo, page: 2, totalCount: 21, hasNext: false });
+    expect(response.json.data).toEqual({ found: true, entries: [{ domain: "constitutional", id: "34561", title: "위헌확인", caseNumber: "2023헌마31", date: "20240516", typeVerification: "matched" }],
+      text: pageTwo, page: 2, totalCount: 21, hasNext: false, excludedCount: 0 });
     expect(toolCall(fetcher).params.arguments).toEqual({ domain: "constitutional", query: "위헌", display: 20, page: 2 });
   });
   it("refuses inconsistent pagination or omitted records instead of claiming a successful empty page", async () => {
@@ -268,7 +295,7 @@ describe("fixed decision MCP routes", () => {
     const beyondEnd = await call("search", { domain: "precedent", query: "판결", page: 3 });
     expect(beyondEnd.json.data).toEqual({
       found: true, entries: [], text: "판례 검색 결과 (총 21건, 3페이지):\n\n💡 검색 종료",
-      page: 3, totalCount: 21, hasNext: false,
+      page: 3, totalCount: 21, hasNext: false, excludedCount: 0,
     });
   });
 

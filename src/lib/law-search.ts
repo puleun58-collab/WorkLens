@@ -45,19 +45,37 @@ export function lawTextIdentifier(law: LawEntry): { mst: string } | { lawId: str
  * `민법 제750조`, `근로기준법 제60조 제6항 제3호`, `근로기준법 제74조 내용 알려줘`:
  * the article number is the structural boundary. What precedes it is only a
  * law-name candidate, confirmed later against the real search results; what
- * follows may be a 항/호 (the detail view opens the 조) and a short request
- * without further numbers. Anything else is a plain keyword search.
+ * follows may be a 항/호 (the detail view opens the 조 and moves to the 항/호
+ * within the returned article text) and a short request without further
+ * numbers. Anything else is a plain keyword search.
+ *
+ * A 호 without its 항 is dropped, not returned: searching the whole article
+ * for `N.` could land on another 항's 호. A 항/호 number the existing
+ * article parser cannot find (e.g. 항 31+, which exceeds its ①–㉚ marks)
+ * stays in the result so the detail view shows the fallback notice instead
+ * of silently pretending the move succeeded.
  */
-const LAW_ARTICLE_QUERY = /^(\S(?:.*?\S)?)\s*제\s*([1-9]\d{0,3})\s*조(?:\s*의\s*([1-9]\d?))?(?:\s*제\s*\d+\s*항)?(?:\s*제\s*\d+\s*호)?(?:\s+([^\d]{1,20}))?$/u;
+const LAW_ARTICLE_QUERY = /^(\S(?:.*?\S)?)\s*제\s*([1-9]\d{0,3})\s*조(?:\s*의\s*([1-9]\d?))?(?:\s*제\s*(\d+)\s*항)?(?:\s*제\s*(\d+)\s*호)?(?:\s+([^\d]{1,20}))?$/u;
 
-export function parseLawArticleQuery(query: string): { lawName: string; jo: string } | null {
+export interface LawArticleQuery {
+  lawName: string;
+  jo: string;
+  hang?: number;
+  ho?: number;
+}
+
+export function parseLawArticleQuery(query: string): LawArticleQuery | null {
   const match = LAW_ARTICLE_QUERY.exec(query.trim());
   if (!match) return null;
   const lawName = match[1].trim();
   // A second article reference or a digit in the name means the input is not one law and one article.
   if (/\d|제\s*\d/u.test(lawName)) return null;
   const jo = `제${match[2]}조${match[3] ? `의${match[3]}` : ""}`;
-  return LAW_ARTICLE_PATTERN.test(jo) ? { lawName, jo } : null;
+  if (!LAW_ARTICLE_PATTERN.test(jo)) return null;
+  const hang = match[4] ? Number(match[4]) : undefined;
+  // A 호 moves only inside its 항; without a 항 the 호 is not a target.
+  const ho = hang !== undefined && match[5] ? Number(match[5]) : undefined;
+  return { lawName, jo, ...(hang !== undefined ? { hang } : {}), ...(ho !== undefined ? { ho } : {}) };
 }
 
 /** The one 현행 entry whose name is exactly `lawName` and can open its text; ambiguous or absent → undefined. */

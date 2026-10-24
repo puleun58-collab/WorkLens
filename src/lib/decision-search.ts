@@ -1,5 +1,8 @@
 import { DECISION_DOMAINS, type DecisionDomain } from "@/lib/decision-domain";
 
+/** Mirrors the server's per-record type verification; `mismatched` records never reach the client. */
+export type DecisionTypeVerification = "matched" | "mismatched" | "not_provided";
+
 export interface DecisionEntry {
   domain: DecisionDomain;
   id: string;
@@ -9,6 +12,7 @@ export interface DecisionEntry {
   court?: string;
   date?: string;
   summary?: string;
+  typeVerification?: DecisionTypeVerification;
 }
 
 export interface DecisionSearchData {
@@ -18,6 +22,7 @@ export interface DecisionSearchData {
   page: number;
   totalCount?: number;
   hasNext?: boolean;
+  excludedCount?: number;
 }
 
 export interface DecisionTextData {
@@ -27,6 +32,7 @@ export interface DecisionTextData {
   sections?: { heading: string; text: string }[];
   expandable?: boolean;
   fullUnavailable?: boolean;
+  fullUnknown?: boolean;
 }
 
 export type DecisionSearchOutcome =
@@ -62,6 +68,7 @@ export function decisionSearchOutcome(ok: boolean, body: unknown): DecisionSearc
   if (data?.found !== true || typeof data.text !== "string" || !Array.isArray(data.entries)
     || !Number.isSafeInteger(data.page) || (data.page as number) < 1
     || (data.totalCount !== undefined && (!Number.isSafeInteger(data.totalCount) || (data.totalCount as number) < 0))
+    || (data.excludedCount !== undefined && (!Number.isSafeInteger(data.excludedCount) || (data.excludedCount as number) < 0))
     || (data.hasNext !== undefined && typeof data.hasNext !== "boolean")) {
     return { kind: "error", message: DECISION_SEARCH_ERROR };
   }
@@ -69,7 +76,8 @@ export function decisionSearchOutcome(ok: boolean, body: unknown): DecisionSearc
   if (!data.entries.every((item: unknown) => {
     const entry = record(item);
     return entry && DECISION_DOMAINS.some((domain) => domain.value === entry.domain)
-      && typeof entry.id === "string" && entry.id.length > 0 && optionalStrings(entry, keys);
+      && typeof entry.id === "string" && entry.id.length > 0 && optionalStrings(entry, keys)
+      && (entry.typeVerification === undefined || ["matched", "mismatched", "not_provided"].includes(entry.typeVerification as string));
   })) return { kind: "error", message: DECISION_SEARCH_ERROR };
   return { kind: "found", data: data as unknown as DecisionSearchData };
 }
@@ -82,6 +90,7 @@ export function decisionTextOutcome(ok: boolean, body: unknown): DecisionTextOut
     || !optionalStrings(data, ["title"])
     || (data.expandable !== undefined && typeof data.expandable !== "boolean")
     || (data.fullUnavailable !== undefined && typeof data.fullUnavailable !== "boolean")
+    || (data.fullUnknown !== undefined && typeof data.fullUnknown !== "boolean")
     || (data.sections !== undefined && (!Array.isArray(data.sections)
       || !data.sections.every((section: unknown) => {
         const value = record(section);

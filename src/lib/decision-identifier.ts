@@ -31,8 +31,9 @@ const RULES: Partial<Record<DecisionDomain, IdentifierRule>> = {
   interpretation: { query: /^\d{2}\s*-\s*\d{4}$/u, search: compact, key: compact },
   // 조심2012서3406 and 조심 2018광1070 are both returned; the space is not part of the number.
   tax_tribunal: { query: /^조심\s*\d{4}\s*[가-힣]{1,2}\s*\d+$/u, search: compact, key: compact },
-  // 2011카총0367
-  ftc: { query: /^\d{4}\s*[가-힣]{2,4}\s*\d{4}$/u, search: compact, key: compact },
+  // 2011카총0367 and the parser fixture's 2024심사17: ftc serials are not
+  // always zero-padded to four digits, so the trailing group is 2–4 digits.
+  ftc: { query: /^\d{4}\s*[가-힣]{2,4}\s*\d{2,4}$/u, search: compact, key: compact },
   // Returned as 제2026-109-013호; the search finds it only without 제·호.
   pipc: {
     query: /^(?:제\s*)?\d{4}\s*-\s*\d{3}\s*-\s*\d{3}(?:\s*호)?$/u,
@@ -45,6 +46,19 @@ export interface DecisionIdentifier {
   /** What the search request carries. */
   search: string;
   key: string;
+}
+
+/**
+ * Whether a result's own number fits this domain's observed pattern.
+ * `undefined` when the domain has no stable pattern (관세청·국세청·노동위·
+ * 권익위·소청): such numbers are never pattern-judged. A match is never
+ * approval — precedent and ftc patterns also accept constitutional numbers —
+ * only a mismatch is an exclusion signal.
+ */
+export function decisionNumberMatchesDomain(domain: DecisionDomain, caseNumber: string): boolean | undefined {
+  const rule = RULES[domain];
+  if (!rule) return undefined;
+  return rule.query.test(caseNumber.trim());
 }
 
 export function decisionIdentifier(domain: DecisionDomain, query: string): DecisionIdentifier | null {
