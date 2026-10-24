@@ -1239,7 +1239,11 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
   for (const item of options.prerequisites ?? []) append("options.prerequisites", "conditions", item);
   for (const item of profile?.prerequisites ?? []) {
     // Reuse the technical check's exact evidence instead of creating a second, unlinked condition.
-    const existing = classified.find(entry => entry.role === "conditions" && normalizedItem(entry.text) === normalizedItem(item));
+    // gatePrerequisites labels optional checks as `${topic} (선택) — …`, which is the same check
+    // evidence as the classified `${topic} — …` item: normalize the marker so the prerequisite
+    // merges into the check item and HITL exclude/defer matching (by check source) reaches it.
+    const stripCheckMarker = (value: string) => value.replace(/ \((?:선택|필수)\)( — | \s*$)/u, "$1");
+    const existing = classified.find(entry => entry.role === "conditions" && normalizedItem(stripCheckMarker(entry.text)) === normalizedItem(stripCheckMarker(item)));
     if (existing) {
       if (!existing.sources.includes("policy.prerequisites")) existing.sources.push("policy.prerequisites");
     } else append("policy.prerequisites", "conditions", item);

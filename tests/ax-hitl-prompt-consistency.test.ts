@@ -5,7 +5,7 @@ import { diagnosisFixture, planFixture } from "./fixtures/ax";
 import type { AxDiagnosis, AxPlan, HitlReview } from "../src/lib/ax/types";
 
 /**
- * HITL 보류·제외 결함 수정 정합성 (T1~T14).
+ * HITL 보류·제외 결함 수정 정합성 (T1~T15).
  * 원본 HITL 결정은 바꾸지 않고, 실제 생성 함수가 만드는 지시문 전문에서
  * §1~§5가 하나의 확정 구현 범위를 일관되게 사용하는지 확인한다.
  */
@@ -96,7 +96,7 @@ function section(prompt: string, title: string): string {
   return next < 0 ? rest : rest.slice(0, next + 3);
 }
 
-describe("HITL 지시문 정합성 T1~T14", () => {
+describe("HITL 지시문 정합성 T1~T15", () => {
   it("T1 HITL 결정 없는 일반 업무는 기존 산출물·예외를 유지한다", () => {
     const model = buildAgentInstructionModel(plan, { taskName: "거래 검증", diagnosis });
     const prompt = promptWith([]);
@@ -258,5 +258,29 @@ describe("HITL 지시문 정합성 T1~T14", () => {
     const model = buildAgentInstructionModel(plan, { taskName: "거래 검증", diagnosis, hitlReviews: reviews, hitlTool: "codex" });
     expect(model.hitlDetails?.deferred.map(entry => entry.name)).toContain("Excel 보고서 생성");
     expect(model.hitlDetails?.excluded.map(entry => entry.name)).toContain("납품표 대조");
+  });
+
+  it("T15 선택 기술 확인 항목을 제외하면 (선택) 표지 조건 사본까지 지시문에서 사라진다", () => {
+    const diagWithChecks: AxDiagnosis = {
+      ...diagnosis,
+      decisionGate: { verdict: "conditional", reasons: ["기술 확인 후 진행"] },
+      technicalChecks: [
+        { topic: "파일 파싱 가능 여부", status: "확인 필요", note: "엑셀 구조 파악 필요", required: true },
+        { topic: "이상값 알림 메커니즘", status: "확인 필요", note: "결측 표시와 알림은 선택 기능", required: false },
+      ],
+    };
+    const riskItems = extractReviewableItems(diagWithChecks).filter(item => item.type === "risk");
+    const optionalItem = riskItems.find(item => item.text.startsWith("이상값 알림 메커니즘:"));
+    expect(optionalItem).toBeDefined();
+    // 대조군: 제외하지 않으면 선택 항목이 조건으로 남는다(선행조건 (선택) 표지 사본과 병합된 단일 항목).
+    const keptPrompt = promptWith(riskItems.map(item => makeReview(item, "keep")), "codex", diagWithChecks);
+    expect(keptPrompt).toContain("이상값 알림 메커니즘 — 결측 표시와 알림은 선택 기능");
+    // 제외 확정 시 지시문 어디에도 해당 확인 항목이 남지 않고, 필수 확인 항목은 유지된다.
+    const reviews = riskItems.map(item => item === optionalItem
+      ? makeReview(item, "exclude", { reason: "알림 연동은 이번 범위에서 제외" })
+      : makeReview(item, "keep"));
+    const prompt = promptWith(reviews, "codex", diagWithChecks);
+    expect(prompt).not.toContain("이상값 알림 메커니즘");
+    expect(prompt).toContain("파일 파싱 가능 여부");
   });
 });
