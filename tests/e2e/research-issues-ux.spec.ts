@@ -296,3 +296,24 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   });
 }
+
+test("종합 리서치 비-full 태스크는 채택 검증 없이 관련 근거 확인 배지를 달지 않는다", async ({ page }) => {
+  await page.route("**/api/law/research", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: {
+    found: true, task: "law_system",
+    text: "\n\n▶ 3단 비교 (법률·시행령·시행규칙)\n[법률] 개인정보 보호법 제38조\n[시행령] 제41조\n[시행규칙] 제12조",
+    markers: [],
+  } }) }));
+  await page.goto("/");
+  await navigateWorkspace(page, "법령");
+  await page.getByRole("tab", { name: "종합 리서치", exact: true }).click();
+  const form = page.getByRole("form", { name: "종합 리서치 입력" });
+  await form.getByLabel("질문 또는 검색어").fill("개인정보 보호법과 시행령의 관계");
+  await form.getByLabel("리서치 유형").click();
+  await page.getByRole("option", { name: "법체계 확인", exact: true }).click();
+  await form.getByRole("button", { name: "실행", exact: true }).click();
+  const output = page.locator(".legal-research .legal-analysis-output");
+  await expect(output.locator(".research-overview")).toBeVisible();
+  await expect(output.locator(".research-overview h3")).toHaveText("직접 관련된 근거가 충분하지 않습니다");
+  await expect(output.locator(".research-overview h3")).toHaveAttribute("data-status", "weak");
+  await expect(output).toContainText("조회한 자료는 관련 쟁점을 검토하기 위한 자료이며");
+});

@@ -2866,3 +2866,31 @@ test("mobile navigation row stays the same height before and after long search r
   expect(Math.abs((await row.boundingBox())!.height - emptyHeight)).toBeLessThanOrEqual(1);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
+
+test("RESEARCH direct article entry keeps its status and returns to the overview", async ({ page }) => {
+  const texts: unknown[] = [];
+  await page.route("**/api/law", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { found: true, text: "",
+    laws: [{ name: "민법", status: "현행", lawId: "001234", mst: "58432", kind: "법률" }] } }) }));
+  await page.route("**/api/law/text", (route) => {
+    const body = route.request().postDataJSON() as { jo?: string };
+    texts.push(body);
+    const data = body.jo
+      ? { found: true, mode: "article", name: "민법", text: "법령명: 민법\n\n제750조(불법행위의 내용)\n고의 또는 과실로 인한 위법행위로 타인에게 손해를 가한 자는 그 손해를 배상할 책임이 있다." }
+      : { found: true, mode: "toc", name: "민법", text: "목차", articles: [{ jo: "제750조", title: "불법행위의 내용" }] };
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data }) });
+  });
+  await page.goto("/");
+  await navigateWorkspace(page, "법령");
+  const input = page.getByRole("searchbox");
+  await input.fill("민법 제750조");
+  await input.press("Enter");
+  await expect(page.locator("#law-detail-heading")).toHaveText("민법");
+  await expect(page.locator(".law-detail-content h3")).toHaveText("제750조");
+  await expect(page.locator(".law-detail .law-search-meta").first()).toContainText("현행");
+  const back = page.getByRole("button", { name: "← 법령 원문으로" });
+  await expect(back).toBeVisible();
+  await back.click();
+  await expect(page.locator(".law-detail-content h3")).toHaveText("목차");
+  await expect(page.locator(".law-article-list")).toContainText("제750조 불법행위의 내용");
+  expect(texts).toEqual([{ mst: "58432", jo: "제750조" }, { mst: "58432" }]);
+});

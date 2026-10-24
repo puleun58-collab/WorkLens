@@ -230,6 +230,7 @@ export function DecisionSearch({ linkedRequest, onReturnToLaw, onCiteCheck }: De
             {text.expandable === true && <Button variant="link" type="button" className="h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" disabled={fullLoading} onClick={() => void loadDetail(selected, true)}>
               {fullLoading ? "전문 불러오는 중…" : "전문 보기"}
             </Button>}
+            {text.fullUnavailable === true && <p className="law-search-note" role="status">이 자료 유형은 전문 조회를 지원하지 않습니다. 중략된 요약 원문만 제공됩니다.</p>}
             {fullError && <p className="law-search-error law-operation-error" role="alert">{fullError}</p>}
             <LawTextBlock className="decision-detail-raw" text={text.text} />
           </div> : null}

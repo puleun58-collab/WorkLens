@@ -132,6 +132,15 @@ describe("fixed decision MCP routes", () => {
     expect(toolCall(fetcher, 1).params).toEqual({ name: "get_decision_text", arguments: { domain: "precedent", id: "0609561", full: true } });
   });
 
+  it("marks a truncated interpretation summary as full-unavailable instead of expandable", async () => {
+    const fetcher = vi.fn().mockResolvedValue(toolText(COMPACT));
+    vi.stubGlobal("fetch", fetcher);
+    const response = await call("text", { domain: "interpretation", id: "0609561" });
+    expect(response.status).toBe(200);
+    expect(response.json.data).toMatchObject({ found: true, expandable: false, fullUnavailable: true });
+    expect(toolCall(fetcher, 0).params).toEqual({ name: "get_decision_text", arguments: { domain: "interpretation", id: "0609561" } });
+  });
+
   it("keeps explicit NOT_FOUND separate from tool failures and does not classify an incidental mention as missing", async () => {
     const fetcher = vi.fn()
       .mockResolvedValueOnce(toolText("[NOT_FOUND] 판례 검색 결과가 없습니다.\n\n다른 키워드로 재시도하세요.", true))

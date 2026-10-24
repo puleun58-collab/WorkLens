@@ -84,6 +84,24 @@ describe("ordinance comparison", () => {
     const result = await compareOrdinances("주차장 설치 기준", ["인천광역시", "광진구"], failing);
     expect(result.regions.map((region) => region.status)).toEqual(["failed", "failed"]);
   });
+
+  it("keeps the pool from successful queries when one region search fails", async () => {
+    const base = sources();
+    let failedOnce = false;
+    const flaky = {
+      ...base,
+      async search(query: string) {
+        if (query === "인천광역시 주차장 설치 기준" && !failedOnce) {
+          failedOnce = true;
+          throw new Error("timeout");
+        }
+        return base.search(query);
+      },
+    };
+    const result = await compareOrdinances("주차장 설치 기준", ["인천광역시", "광진구"], flaky, "주차장법");
+    expect(result.regions[0].status).toBe("found");
+    expect(result.regions[0].ordinance?.name).toBe("인천광역시 주차장 설치 및 관리 조례");
+  });
 });
 
 describe("ordinance text parsing", () => {

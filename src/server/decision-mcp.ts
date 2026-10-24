@@ -19,7 +19,7 @@ export type DecisionSearchResult =
   | { found: false; marker: "NOT_FOUND"; text: string };
 
 export type DecisionTextResult =
-  | { found: true; text: string; title?: string; sections?: Array<{ heading: string; text: string }>; expandable?: boolean }
+  | { found: true; text: string; title?: string; sections?: Array<{ heading: string; text: string }>; expandable?: boolean; fullUnavailable?: boolean }
   | { found: false; marker: "NOT_FOUND"; text: string };
 
 const NOT_FOUND_PREFIX = /^[ \t]*\[NOT_FOUND\](?=\s|$)/u;
@@ -126,5 +126,6 @@ export async function getDecisionText(domain: DecisionDomain, id: string, full: 
   const parsed = parseDecisionText(text);
   // Interpretation's upstream handler does not use the full flag, even though
   // other domains may compact their long sections in the unified handler.
-  return { found: true, ...parsed, expandable: domain !== "interpretation" && !full && parsed.expandable };
+  return { found: true, ...parsed, expandable: domain !== "interpretation" && !full && parsed.expandable,
+    ...(domain === "interpretation" && parsed.expandable ? { fullUnavailable: true } : {}) };
 }
