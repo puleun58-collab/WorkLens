@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { POST } from "@/app/api/law/route";
-import { parseLawEntries } from "@/server/law-mcp";
+import { parseLawEntries, searchLaw } from "@/server/law-mcp";
 
 const KEY = "test-law-key-1234";
 const SEARCH_TEXT = [
@@ -171,6 +171,11 @@ describe("law search text parsing", () => {
 });
 
 describe("law MCP retry behavior", () => {
+  /** The request-level observability line the route logs (metadata only). */
+  const requestLog = () => vi.mocked(console.log).mock.calls
+    .map(([line]) => { try { return JSON.parse(String(line)) as Record<string, unknown>; } catch { return undefined; } })
+    .find((entry) => entry?.scope === "law_request");
+
   it("retries 503 and succeeds on second attempt", async () => {
     const fetcher = vi.fn()
       .mockResolvedValueOnce(new Response("busy", { status: 503 }))
@@ -187,6 +192,52 @@ describe("law MCP retry behavior", () => {
     const result = await call({ query: "근로기준법" });
     expect([result.status, result.json.error.code]).toEqual([503, "LAW_UPSTREAM_UNAVAILABLE"]);
     expect(fetcher).toHaveBeenCalledTimes(3);
+  });
+
+  it("records the actual retry count in the request log, on success and on failure", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const recovering = vi.fn()
+      .mockResolvedValueOnce(new Response("busy", { status: 503 }))
+      .mockResolvedValueOnce(toolText(SEARCH_TEXT));
+    vi.stubGlobal("fetch", recovering);
+    expect((await call({ query: "근로기준법" })).status).toBe(200);
+    expect(requestLog()).toMatchObject({ outcome: "success", retries: 1 });
+
+    vi.mocked(console.log).mockClear();
+    const down = vi.fn().mockResolvedValue(new Response("busy", { status: 503 }));
+    vi.stubGlobal("fetch", down);
+    expect((await call({ query: "근로기준법" })).status).toBe(503);
+    // The request failed after both retries; the retries still happened and are counted.
+    expect(requestLog()).toMatchObject({ outcome: "external_failure", retries: 2 });
+  });
+
+  it("counts a network failure's retry as well", async () => {
+    const stats = { retries: 0 };
+    const fetcher = vi.fn()
+      .mockRejectedValueOnce(new TypeError("fetch failed"))
+      .mockResolvedValueOnce(toolText(SEARCH_TEXT));
+    vi.stubGlobal("fetch", fetcher);
+    const result = await searchLaw("근로기준법", { requestId: "req-net", stats });
+    expect(result.found).toBe(true);
+    expect(stats.retries).toBe(1);
+  });
+
+  it("accumulates retries across parallel MCP calls sharing one request", async () => {
+    const stats = { retries: 0 };
+    let calls = 0;
+    const fetcher = vi.fn(() => {
+      calls++;
+      // Both first attempts fail; both retries succeed.
+      return Promise.resolve(calls <= 2 ? new Response("busy", { status: 503 }) : toolText(SEARCH_TEXT));
+    });
+    vi.stubGlobal("fetch", fetcher);
+    const [first, second] = await Promise.all([
+      searchLaw("근로기준법", { requestId: "req-par", stats }),
+      searchLaw("근로기준법 시행령", { requestId: "req-par", stats }),
+    ]);
+    expect(first.found && second.found).toBe(true);
+    expect(calls).toBe(4);
+    expect(stats.retries).toBe(2);
   });
 
   it("does not retry 503 when Retry-After is missing but respects the policy", async () => {

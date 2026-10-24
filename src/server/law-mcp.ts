@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { LawRequestStats } from "@/lib/law-observability";
 import { workerEnv } from "@/server/cf-env";
 import { ApiError } from "@/server/http";
 
@@ -54,7 +55,7 @@ export type LawTextResult =
   }
   | { found: false; marker: "NOT_FOUND"; text: string };
 
-type LawContext = { requestId: string; signal?: AbortSignal };
+type LawContext = { requestId: string; signal?: AbortSignal; stats?: LawRequestStats };
 
 const rpcResponseSchema = z.object({
   jsonrpc: z.literal("2.0").optional(),
@@ -141,6 +142,10 @@ export async function callLawTool(
   const timeoutMs = tool === "legal_analysis" ? ANALYSIS_TIMEOUT_MS : tool === "legal_research" ? RESEARCH_TIMEOUT_MS : REQUEST_TIMEOUT_MS;
   let upstreamStatus: number | undefined;
   let retryCount = 0;
+  // 재시도가 실제로 발생할 때마다 요청 단위 누적에도 반영한다. 성공·실패·시간
+  // 초과 어느 경로로 끝나든, 이미 발생한 재시도는 종료 시점이 아니라 발생
+  // 시점에 기록되므로 누락되지 않는다.
+  const noteRetry = () => { retryCount++; if (context.stats) context.stats.retries++; };
   let response: Response | undefined;
 
   // 재시도 가능한 일시적 오류에 대해 제한적 재시도
@@ -179,7 +184,7 @@ export async function callLawTool(
             const delayMs = retryAfter ? parseRetryAfter(retryAfter) : exponentialBackoffDelay(retryCount);
             const elapsedAfter = Date.now() - started;
             if (elapsedAfter + delayMs < timeoutMs * 0.8) {
-              retryCount++;
+              noteRetry();
               console.info("[LAW][MCP][RETRY]", { requestId: context.requestId, operation: tool, attempt: retryCount, status: response.status, delayMs });
               clearTimeout(timer);
               context.signal?.removeEventListener("abort", onClientAbort);
@@ -196,7 +201,7 @@ export async function callLawTool(
             const elapsedAfter = Date.now() - started;
             const delayMs = exponentialBackoffDelay(retryCount);
             if (elapsedAfter + delayMs < timeoutMs * 0.8) {
-              retryCount++;
+              noteRetry();
               console.info("[LAW][MCP][RETRY]", { requestId: context.requestId, operation: tool, attempt: retryCount, reason: "timeout", delayMs });
               clearTimeout(timer);
               context.signal?.removeEventListener("abort", onClientAbort);
@@ -212,7 +217,7 @@ export async function callLawTool(
           const elapsedAfter = Date.now() - started;
           const delayMs = exponentialBackoffDelay(retryCount);
           if (elapsedAfter + delayMs < timeoutMs * 0.8) {
-            retryCount++;
+            noteRetry();
             console.info("[LAW][MCP][RETRY]", { requestId: context.requestId, operation: tool, attempt: retryCount, reason: "network", delayMs });
             clearTimeout(timer);
             context.signal?.removeEventListener("abort", onClientAbort);
