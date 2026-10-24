@@ -834,11 +834,11 @@ function ResearchResult({ data, request, expandSources = false, onExpandSourcesC
     : comparison
       ? bothSides.length ? comparedRegions.length === 2 ? "matched" : "partial"
         : comparedRegions.some((region) => region.articles.length) ? "partial" : comparedRegions.length ? "weak" : "none"
-      : !available ? "none" : notice || unavailableCount ? "partial" : "matched";
+      : !available ? "none" : notice || unavailableCount ? "partial" : data.task === "document_review" ? "matched" : "weak";
 
   return <div ref={resultRef} className="legal-analysis-output" data-task={data.task}>
     <ResearchResultSummary label={LAW_RESEARCH_TASKS.find((item) => item.value === data.task)?.label} badge={STATUS_BADGE[status]} status={status} title={STATUS_TITLE[status]}
-      caution={status === "matched" || status === "partial"
+      caution={status === "matched" || status === "partial" || (status === "weak" && !full && !comparison)
         ? `※ ${full ? "확인한 근거는" : "조회한 자료는"} 관련 쟁점을 검토하기 위한 자료이며, 구체적인 사건의 법적 결론을 의미하지 않습니다.`
         : status === "none" ? "※ 조회되지 않았다고 관련 법령이나 판례가 없다는 뜻은 아닙니다." : undefined}
       cautionClassName="research-caution">

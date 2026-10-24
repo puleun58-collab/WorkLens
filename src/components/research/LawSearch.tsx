@@ -251,7 +251,8 @@ function LawPane({ onRelated, onAnalysis }: LawPaneProps) {
       <Button variant="link" type="button" className="law-back-link h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" onClick={backToResults}>← 검색 결과로</Button>
       <section aria-labelledby="law-detail-heading" aria-busy={detailLoading}>
         <h2 id="law-detail-heading">{lawDisplayText(data?.name ?? selected.name)}</h2>
-        {(promulgated || effective) && <p className="law-search-meta">
+        {(promulgated || effective || selected.status) && <p className="law-search-meta">
+          {selected.status && <span className={`law-search-status is-${lawStatusTone(selected.status) ?? "muted"}`}>{lawDisplayText(selected.status)}</span>}
           {promulgated && <span>공포일 {promulgated}</span>}
           {effective && <span>시행일 {effective}</span>}
         </p>}
@@ -266,8 +267,8 @@ function LawPane({ onRelated, onAnalysis }: LawPaneProps) {
           </div>
           {articleInputError && <p className="law-search-error" role="alert">조문 번호 형식: 제74조 또는 제10조의2</p>}
         </form>
-        {activeJo && overview && <Button variant="link" type="button" className="law-detail-return h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" onClick={backToOverview}>
-          {overview.mode === "toc" ? "← 목차로" : "← 법령 원문으로"}
+        {activeJo && <Button variant="link" type="button" className="law-detail-return h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" onClick={() => { if (overview) backToOverview(); else void loadText(selected); }}>
+          {overview?.mode === "toc" ? "← 목차로" : "← 법령 원문으로"}
         </Button>}
         {detailLoading ? <p className="law-search-note" role="status">법령 원문을 불러오는 중…</p>
           : detail?.kind === "error" ? <div className="law-detail-feedback" role="alert">

@@ -98,7 +98,14 @@ async function regionResult(region: string, topic: string, words: readonly strin
       ...(longest ? [`${region} ${longest}`, ...(longest.length > 2 ? [`${region} ${longest.slice(0, 2)}`] : [])] : []),
       ...words.map((word) => `${region} ${word}`)])].slice(0, 5);
     const pooled = new Map<string, OrdinanceEntry>();
-    for (const text of await Promise.all(queries.map((query) => sources.search(query)))) {
+    // One failed query must not discard the pool the other queries already found;
+    // only when every query fails is the region itself failed (outer catch).
+    const searched = await Promise.all(queries.map((query) => sources.search(query).then(
+      (text) => ({ ok: true as const, text }),
+      () => ({ ok: false as const, text: "" }),
+    )));
+    if (!searched.some((result) => result.ok)) throw new Error("all ordinance searches failed");
+    for (const { text } of searched) {
       for (const entry of parseOrdinanceSearch(text)) pooled.set(entry.id, entry);
     }
     const key = compact(region);

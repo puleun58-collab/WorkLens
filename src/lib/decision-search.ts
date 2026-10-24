@@ -26,6 +26,7 @@ export interface DecisionTextData {
   title?: string;
   sections?: { heading: string; text: string }[];
   expandable?: boolean;
+  fullUnavailable?: boolean;
 }
 
 export type DecisionSearchOutcome =
@@ -80,6 +81,7 @@ export function decisionTextOutcome(ok: boolean, body: unknown): DecisionTextOut
   if (data?.found !== true || typeof data.text !== "string"
     || !optionalStrings(data, ["title"])
     || (data.expandable !== undefined && typeof data.expandable !== "boolean")
+    || (data.fullUnavailable !== undefined && typeof data.fullUnavailable !== "boolean")
     || (data.sections !== undefined && (!Array.isArray(data.sections)
       || !data.sections.every((section: unknown) => {
         const value = record(section);
