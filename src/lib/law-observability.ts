@@ -37,6 +37,16 @@ export function classifyLawError(code: string | undefined): LawOutcomeClass {
   return CODE_CLASS[code] ?? "internal_error";
 }
 
+/**
+ * 요청 1건에 누적되는 실제 MCP 재시도 횟수. 라우트가 생성해 요청 context로
+ * 전달하고, `callLawTool`이 재시도가 발생할 때마다 증가시킨다. 한 요청 안에서
+ * 병렬로 실행되는 MCP 호출이 같은 객체를 공유해도 증가 연산 자체는 동기라
+ * 요청 단위 합산이 정확하다. 추측이나 고정값으로 대체하지 않는다.
+ */
+export interface LawRequestStats {
+  retries: number;
+}
+
 /** 법령 요청 1건의 관측 메타데이터 (PII 없음). */
 export interface LawRequestLog {
   requestId: string;
@@ -81,6 +91,24 @@ export interface LawMetricsSnapshot {
   retries: number;
   p50Ms: number;
   p95Ms: number;
+  /** 표본 유무. false인 경우 아래 비율 지표는 실제 운영 성공을 뜻하지 않는다. */
+  hasData: boolean;
+  /**
+   * 완전 성공률: success / 판정 대상. 판정 대상은 effectiveSuccessRate와 같은
+   * 분모(전체 − no_data − insufficient_relevance − cancelled)다. 부분 성공을
+   * 포함하지 않으므로 effectiveSuccessRate와 나란히 봐야 한다.
+   */
+  successRate: number;
+  /** 부분 성공률: partial / 판정 대상. */
+  partialRate: number;
+  /** 외부 장애율: external_failure / 판정 대상. */
+  externalFailureRate: number;
+  /** 시간 초과율: timeout / 판정 대상. */
+  timeoutRate: number;
+  /** 재시도가 1회 이상 발생한 요청 수. */
+  requestsWithRetries: number;
+  /** 재시도 발생 요청 비율: requestsWithRetries / 전체 요청. */
+  retriedRequestRate: number;
 }
 
 const OUTCOMES: LawOutcomeClass[] = [
@@ -95,6 +123,10 @@ export function summarizeLawMetrics(logs: LawRequestLog[]): LawMetricsSnapshot {
   const ok = byOutcome.success + byOutcome.partial;
   const durations = logs.map((l) => l.endMs - l.startMs).sort((a, b) => a - b);
   const percentile = (p: number) => durations.length ? durations[Math.min(durations.length - 1, Math.floor(durations.length * p))]! : 0;
+  // 세부 비율의 분모는 effectiveSuccessRate와 동일하게 판정 대상으로 통일한다.
+  // 분모가 0이면 비율은 0이며, hasData가 표본 자체의 유무를 따로 알린다.
+  const rate = (count: number) => billable ? count / billable : 0;
+  const requestsWithRetries = logs.filter((log) => log.retries > 0).length;
   return {
     windowStart: logs.length ? new Date(Math.min(...logs.map((l) => l.startMs))).toISOString() : "",
     windowEnd: logs.length ? new Date(Math.max(...logs.map((l) => l.endMs))).toISOString() : "",
@@ -104,5 +136,12 @@ export function summarizeLawMetrics(logs: LawRequestLog[]): LawMetricsSnapshot {
     retries: logs.reduce((sum, l) => sum + l.retries, 0),
     p50Ms: percentile(0.5),
     p95Ms: percentile(0.95),
+    hasData: logs.length > 0,
+    successRate: rate(byOutcome.success),
+    partialRate: rate(byOutcome.partial),
+    externalFailureRate: rate(byOutcome.external_failure),
+    timeoutRate: rate(byOutcome.timeout),
+    requestsWithRetries,
+    retriedRequestRate: logs.length ? requestsWithRetries / logs.length : 0,
   };
 }

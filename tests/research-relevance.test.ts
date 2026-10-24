@@ -242,11 +242,13 @@ describe("compound-internal partial matches", () => {
     expect(researchEvidenceSources(registry, "사용자 의무")).toEqual({ articles: [], precedents: [] });
     expect(hasRelevantResearchEvidence(registry, "사용자 의무")).toBe(false);
     expect(titleMatches(["사용자", "의무"], "상업등기규칙", "사용자등록")).toEqual([]);
-    // Term coverage may be recorded, but the case is neither promoted to direct
-    // nor cited as evidence: its longest term never appears as a word.
+    // Term coverage may be recorded, but the case is not promoted at all: its
+    // longest term never appears as a word, so ranking applies the same
+    // anchored standard as citation — the case stays a `low` candidate,
+    // consistent with the citation rejection asserted below (it is not deleted).
     const relevance = rankPrecedent(["사용자", "의무"], { title: "사용자등록",
       summary: "사용자등록 절차와 제출의무의 범위를 정한 사건" });
-    expect(relevance.rank).toBe("related");
+    expect(relevance.rank).toBe("low");
     expect(researchEvidenceSources(registry, "사용자 의무", {
       precedents: { 9: relevance },
       precedentExcerpts: { 9: "사용자등록 절차와 제출의무의 범위를 정한 사건" },
@@ -268,6 +270,19 @@ describe("compound-internal partial matches", () => {
     expect(titleMatches(["보증금"], "민법", "임대차보증금의 반환")).toEqual(["보증금"]);
     // A modifier occurrence still counts for nothing: 해고 inside 해고예고 is about the notice, and the head 예고 is the subject.
     expect(titleMatches(["해고"], "근로기준법", "해고예고의 적용 제외")).toEqual([]);
+  });
+
+  it("applies the anchored standard at rank level across the compound pairs", () => {
+    // 의무 is the head of 제출의무, so where it is the deciding term the match stands.
+    expect(rankPrecedent(["의무", "범위"], { title: "제출의무", summary: "서류 제출의무의 범위를 정한 사건" }).rank).toBe("direct");
+    // 보증금 is the head of 임대차보증금: a case about that compound is about 보증금.
+    expect(rankPrecedent(["보증금", "반환"], { title: "보증금반환", summary: "임대차보증금의 반환 시점을 다툰 사건" }).rank).toBe("direct");
+    // 회사 is the head of 금융지주회사: the compound is a kind of 회사, so the occurrence is the word itself.
+    expect(rankPrecedent(["회사", "설립"], { title: "설립인가", summary: "금융지주회사 설립인가의 기준을 정한 사건" }).rank).toBe("direct");
+    // The longest term occurring only as a modifier (사용자대표 inside 사용자대표회의)
+    // promotes nothing, however many shorter terms occur as words of their own.
+    expect(rankPrecedent(["사용자대표", "선출"], { title: "대표회의", summary: "사용자대표회의의 구성과 선출 절차를 정한 사건" }).rank).toBe("low");
+    expect(rankPrecedent(["사용자대표", "회의"], { title: "대표회의", summary: "사용자대표자 회의 소집 사건" }).rank).toBe("low");
   });
 });
 
