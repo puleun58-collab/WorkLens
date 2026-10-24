@@ -13,6 +13,7 @@ import {
 } from "@/lib/law-search";
 import { lawDisplayText } from "@/lib/law-display";
 import { LawTextBlock } from "./LawTextBlock";
+import { LawArticleDetail, type LawArticleTarget } from "./LawArticleDetail";
 import { DecisionSearch, type LinkedDecisionSearch } from "./DecisionSearch";
 import { LegalAnalysis, type LinkedAnalysis, type RelatedSearch } from "./LegalAnalysis";
 import { LegalResearch } from "./LegalResearch";
@@ -125,6 +126,8 @@ function LawPane({ onRelated, onAnalysis }: LawPaneProps) {
   const [detail, setDetail] = useState<LawTextOutcome | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [activeJo, setActiveJo] = useState<string | undefined>();
+  /** 항/호 move target, bound to one (law, 조); cleared on every view transition below. */
+  const [articleTarget, setArticleTarget] = useState<(LawArticleTarget & { key: string }) | null>(null);
   const [articleInput, setArticleInput] = useState("");
   const [articleInputError, setArticleInputError] = useState(false);
   const searchRequest = useRef<AbortController | null>(null);
@@ -160,7 +163,7 @@ function LawPane({ onRelated, onAnalysis }: LawPaneProps) {
       const result = lawOutcome(response.ok, body);
       setOutcome(result);
       const law = article && result.kind === "found" ? exactCurrentLaw(result.laws, article.lawName) : undefined;
-      if (law && article) openLaw(law, article.jo);
+      if (law && article) openLaw(law, article.jo, article.hang !== undefined ? { hang: article.hang, ...(article.ho !== undefined ? { ho: article.ho } : {}) } : null);
     } catch {
       if (!controller.signal.aborted) setOutcome({ kind: "error", message: LAW_FALLBACK_ERROR });
     } finally {
@@ -202,12 +205,13 @@ function LawPane({ onRelated, onAnalysis }: LawPaneProps) {
     }
   }
 
-  function openLaw(law: LawEntry, jo?: string) {
+  function openLaw(law: LawEntry, jo?: string, target?: LawArticleTarget | null) {
     if (!lawTextIdentifier(law)) return;
     setSelected(law);
     setOverview(null);
     setArticleInput(jo ?? "");
     setArticleInputError(false);
+    setArticleTarget(target && jo ? { ...target, key: `${law.mst ?? law.lawId ?? law.name}\0${jo}` } : null);
     void loadText(law, jo);
   }
 
@@ -218,6 +222,7 @@ function LawPane({ onRelated, onAnalysis }: LawPaneProps) {
     setSelected(null);
     setDetail(null);
     setOverview(null);
+    setArticleTarget(null);
     setArticleInputError(false);
   }
 
@@ -227,6 +232,7 @@ function LawPane({ onRelated, onAnalysis }: LawPaneProps) {
     detailRequest.current = null;
     setDetailLoading(false);
     setActiveJo(undefined);
+    setArticleTarget(null);
     setDetail({ kind: "found", data: overview });
     setArticleInputError(false);
   }
@@ -240,11 +246,14 @@ function LawPane({ onRelated, onAnalysis }: LawPaneProps) {
       return;
     }
     setArticleInputError(false);
+    setArticleTarget(null);
     void loadText(selected, jo);
   }
 
   if (selected) {
     const data = detail?.kind === "found" ? detail.data : overview;
+    const targetKey = selected && activeJo ? `${selected.mst ?? selected.lawId ?? selected.name}\0${activeJo}` : null;
+    const articleTargetForDetail = detail?.kind === "found" && detail.data.mode === "article" && articleTarget && targetKey && articleTarget.key === targetKey ? articleTarget : null;
     const promulgated = formatLawDate(data?.promulgationDate ?? selected.promulgationDate);
     const effective = formatLawDate(data?.effectiveDate ?? selected.effectiveDate);
     return <div className="law-search law-detail">
@@ -267,7 +276,7 @@ function LawPane({ onRelated, onAnalysis }: LawPaneProps) {
           </div>
           {articleInputError && <p className="law-search-error" role="alert">조문 번호 형식: 제74조 또는 제10조의2</p>}
         </form>
-        {activeJo && <Button variant="link" type="button" className="law-detail-return h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" onClick={() => { if (overview) backToOverview(); else void loadText(selected); }}>
+        {activeJo && <Button variant="link" type="button" className="law-detail-return h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" onClick={() => { if (overview) backToOverview(); else { setArticleTarget(null); void loadText(selected); } }}>
           {overview?.mode === "toc" ? "← 목차로" : "← 법령 원문으로"}
         </Button>}
         {detailLoading ? <p className="law-search-note" role="status">법령 원문을 불러오는 중…</p>
@@ -285,7 +294,9 @@ function LawPane({ onRelated, onAnalysis }: LawPaneProps) {
               <Button variant="link" id="law-applicable-action" type="button" className="h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" onClick={() => onAnalysis({ mode: "applicable_law", lawName: detail.data.name ?? overview?.name ?? selected.name, jo: activeJo, origin: "law" }, "law-applicable-action")}>시점별 적용 법령</Button>
               <Button variant="link" id="law-impact-action" type="button" className="h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" onClick={() => onAnalysis({ mode: "impact_map", lawName: detail.data.name ?? overview?.name ?? selected.name, jo: activeJo, origin: "law" }, "law-impact-action")}>조문 영향도</Button>
             </div>}
-            {detail.data.mode !== "toc" || !detail.data.articles?.length ? <LawTextBlock className="law-detail-raw" text={detail.data.text} /> : null}
+            {detail.data.mode !== "toc" || !detail.data.articles?.length ? (articleTargetForDetail
+              ? <LawArticleDetail text={detail.data.text} jo={activeJo!} target={articleTargetForDetail} />
+              : <LawTextBlock className="law-detail-raw" text={detail.data.text} />) : null}
             {detail.data.mode === "toc" && detail.data.articles?.length ? <details className="law-detail-source">
               <SourceToggleSummary />
               <LawTextBlock className="law-detail-raw" text={detail.data.text} />
@@ -294,6 +305,7 @@ function LawPane({ onRelated, onAnalysis }: LawPaneProps) {
               <ul className="law-article-list">{detail.data.articles.map((article, index) => <li key={`${article.jo}-${index}`}>
                 <Button variant="ghost" className="h-auto w-full justify-start whitespace-normal rounded-none px-4 py-2.5 text-left" type="button" onClick={() => {
                   setArticleInput(article.jo);
+                  setArticleTarget(null);
                   void loadText(selected, article.jo);
                 }}>{article.jo} {article.title}</Button>
               </li>)}</ul>

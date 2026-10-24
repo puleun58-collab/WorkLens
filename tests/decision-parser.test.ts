@@ -5,22 +5,22 @@ const results = [
   {
     domain: "precedent" as const,
     text: "판례 검색 결과 (총 32건, 1페이지):\n\n[0609561] 부당해고구제재심판정취소\n  사건번호: 2024두12345\n  법원: 대법원\n  선고일: 20250109\n  판결유형: 판결\n\n💡 다음: get_precedent_text(id=\"0609561\")",
-    entry: { domain: "precedent", id: "0609561", title: "부당해고구제재심판정취소", caseNumber: "2024두12345", court: "대법원", date: "20250109" },
+    entry: { domain: "precedent", id: "0609561", title: "부당해고구제재심판정취소", caseNumber: "2024두12345", court: "대법원", date: "20250109", typeVerification: "matched" },
   },
   {
     domain: "constitutional" as const,
     text: "헌재결정례 검색 결과 (총 2건, 1페이지):\n\n[521703] 근로기준법 제○조 위헌소원\n  사건번호: 2020헌바123\n  종국일: 20240627\n  링크: https://www.law.go.kr/...",
-    entry: { domain: "constitutional", id: "521703", title: "근로기준법 제○조 위헌소원", caseNumber: "2020헌바123", date: "20240627" },
+    entry: { domain: "constitutional", id: "521703", title: "근로기준법 제○조 위헌소원", caseNumber: "2020헌바123", date: "20240627", typeVerification: "matched" },
   },
   {
     domain: "admin_appeal" as const,
     text: "행정심판례 검색 결과 (총 5건, 1페이지):\n\n[237753] 부당한 처분 취소청구\n  사건번호: 2023-01987\n  의결일: 20240311\n  재결청: 중앙행정심판위원회\n  재결구분: 인용",
-    entry: { domain: "admin_appeal", id: "237753", title: "부당한 처분 취소청구", caseNumber: "2023-01987", institution: "중앙행정심판위원회", date: "20240311" },
+    entry: { domain: "admin_appeal", id: "237753", title: "부당한 처분 취소청구", caseNumber: "2023-01987", institution: "중앙행정심판위원회", date: "20240311", typeVerification: "matched" },
   },
   {
     domain: "interpretation" as const,
     text: "해석례 검색 결과 (총 11건, 1페이지):\n\n[338575] 근로기준법에 따른 연차휴가 관련 질의\n  해석례번호: 23-0984\n  회신일자: 20240209\n  해석기관: 법제처\n  링크: https://www.law.go.kr/...",
-    entry: { domain: "interpretation", id: "338575", title: "근로기준법에 따른 연차휴가 관련 질의", caseNumber: "23-0984", institution: "법제처", date: "20240209" },
+    entry: { domain: "interpretation", id: "338575", title: "근로기준법에 따른 연차휴가 관련 질의", caseNumber: "23-0984", institution: "법제처", date: "20240209", typeVerification: "matched" },
   },
 ];
 
@@ -31,18 +31,46 @@ describe("decision tool text parsing", () => {
 
   it("keeps zero-padded IDs, ignores invalid records and never promotes notes to a result", () => {
     const text = "[000123] (제목 없음)\n  사건번호: N/A\n  법원: 서울고등법원\n\n[NOT_FOUND] a note, not a record\n[undefined] malformed\n[12/34] unsafe\n다음: [99] quoted in a note";
-    expect(parseDecisionEntries(text, "precedent")).toEqual([{ domain: "precedent", id: "000123", court: "서울고등법원" }]);
+    expect(parseDecisionEntries(text, "precedent")).toEqual([{ domain: "precedent", id: "000123", court: "서울고등법원", typeVerification: "matched" }]);
   });
 
   it("parses shared committee and special-appeal fields without fabricating absent fields", () => {
     expect(parseDecisionEntries("공정거래위원회 결정문 검색 결과 (총 1건, 1페이지):\n\n[921] 부당 공동행위\n  사건번호: 2024심사17\n  결정일: 20250708\n  재결청: 공정거래위원회", "ftc"))
-      .toEqual([{ domain: "ftc", id: "921", title: "부당 공동행위", caseNumber: "2024심사17", date: "20250708", institution: "공정거래위원회" }]);
+      .toEqual([{ domain: "ftc", id: "921", title: "부당 공동행위", caseNumber: "2024심사17", date: "20250708", institution: "공정거래위원회", typeVerification: "matched" }]);
     expect(parseDecisionEntries("[511] 소청심사\n  청구번호: 2023-05\n  의결일: 20240512", "appeal_review"))
-      .toEqual([{ domain: "appeal_review", id: "511", title: "소청심사", caseNumber: "2023-05", date: "20240512" }]);
+      .toEqual([{ domain: "appeal_review", id: "511", title: "소청심사", caseNumber: "2023-05", date: "20240512", typeVerification: "not_provided" }]);
   });
   it("ignores prose embedded between result metadata without inventing new records", () => {
     expect(parseDecisionEntries("[512] 재결 제목\n  사건번호: 2024-55\n원문 제공 여부는 기관에 확인하세요.\n  의결일: 20240512", "admin_appeal"))
-      .toEqual([{ domain: "admin_appeal", id: "512", title: "재결 제목", caseNumber: "2024-55", date: "20240512" }]);
+      .toEqual([{ domain: "admin_appeal", id: "512", title: "재결 제목", caseNumber: "2024-55", date: "20240512", typeVerification: "mismatched" }]);
+  });
+
+  it("keeps a foreign label instead of discarding it, and marks the record mismatched", () => {
+    // A constitutional record mixed into a precedent search: its 종국일
+    // used to be dropped by the per-domain table, leaving only a number
+    // that passes the precedent pattern. Now the label itself excludes it.
+    const mixed = "판례 검색 결과 (총 2건, 1페이지):\n\n[521703] 근로기준법 제○조 위헌소원\n  사건번호: 2022헌마1312\n  종국일: 20240627\n\n[0609561] 임금 지급 청구\n  사건번호: 2024두12345\n  법원: 대법원\n  선고일: 20250109";
+    expect(parseDecisionEntries(mixed, "precedent").map((entry) => [entry.id, entry.typeVerification]))
+      .toEqual([["521703", "mismatched"], ["0609561", "matched"]]);
+    // A committee record mixed into a precedent search, and a precedent
+    // record mixed into a committee search, are excluded the same way.
+    expect(parseDecisionEntries("[921] 부당 공동행위\n  사건번호: 2024심사17\n  결정일: 20250708\n  재결청: 공정거래위원회", "precedent")[0].typeVerification).toBe("mismatched");
+    expect(parseDecisionEntries("[0609561] 임금 지급 청구\n  사건번호: 2024두12345\n  법원: 대법원\n  선고일: 20250109", "ftc")[0].typeVerification).toBe("mismatched");
+  });
+
+  it("never promotes a pattern match or an absent signal to matched", () => {
+    // 헌재·공정위 numbers pass the precedent pattern, but with no
+    // distinguishing label the record is not_provided, not matched.
+    expect(parseDecisionEntries("[521703] 위헌소원\n  사건번호: 2022헌마1312", "precedent")[0].typeVerification).toBe("not_provided");
+    expect(parseDecisionEntries("[921] 부당 공동행위\n  사건번호: 2024심사17", "precedent")[0].typeVerification).toBe("not_provided");
+    // N/A and title-only records carry no signal at all.
+    expect(parseDecisionEntries("[000123] 제목\n  사건번호: N/A\n  선고일: N/A", "precedent")[0].typeVerification).toBe("not_provided");
+    expect(parseDecisionEntries("[000123] 제목만 있는 기록", "precedent")[0].typeVerification).toBe("not_provided");
+    // 관세청 vs 국세청 share every label and have no number: indistinguishable.
+    expect(parseDecisionEntries("[77] 해석 질의\n  해석기관: 관세청\n  해석일자: 20240102", "customs")[0].typeVerification).toBe("not_provided");
+    expect(parseDecisionEntries("[77] 해석 질의\n  해석기관: 관세청\n  해석일자: 20240102", "nts")[0].typeVerification).toBe("not_provided");
+    // But a number label where the domain has none is a contradiction.
+    expect(parseDecisionEntries("[77] 해석 질의\n  사건번호: 2024두12345\n  해석기관: 관세청\n  해석일자: 20240102", "customs")[0].typeVerification).toBe("mismatched");
   });
 
   it("extracts known headings but leaves the source text byte-for-byte intact", () => {

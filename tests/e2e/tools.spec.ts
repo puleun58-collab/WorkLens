@@ -152,6 +152,35 @@ test("RESEARCH law search opens an exact law article and falls back to results; 
   expect(analyses).toEqual([{ mode: "cite_check", caseNumber: "2013다61381" }]);
 });
 
+test("RESEARCH law article query moves to the requested 항·호, clears on return, and falls back for a missing 항", async ({ page }) => {
+  const article60 = "법령명: 근로기준법\n\n제60조 연차 유급휴가\n제60조(연차 유급휴가)\n① 항하나\n⑥ 다음 각 호의 어느 하나에 해당하는 기간은 출근한 것으로 본다.\n1. 호하나\n2. 호둘\n3. 호셋\n⑦ 항일곱";
+  await page.route("**/api/law", (route) => route.fulfill({ status: 200, contentType: "application/json",
+    body: JSON.stringify({ data: { found: true, laws: [{ name: "근로기준법", status: "현행", lawId: "001872", mst: "283457", kind: "법률" }] } }) }));
+  await page.route("**/api/law/text", (route) => {
+    const request = route.request().postDataJSON() as { jo?: string };
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { found: true, mode: "article", name: "근로기준법",
+      text: request.jo ? article60 : "법령명: 근로기준법\n\n목차 (총 132개 조문)" } }) });
+  });
+  await page.goto("/");
+  await navigateWorkspace(page, "법령");
+  const input = page.getByRole("searchbox");
+  await input.fill("근로기준법 제60조 제6항 제3호");
+  await input.press("Enter");
+  await expect(page.locator("#law-detail-heading")).toHaveText("근로기준법");
+  await expect(page.locator("#law-article-target")).toHaveText("⑥ 다음 각 호의 어느 하나에 해당하는 기간은 출근한 것으로 본다.");
+  await expect(page.locator(".law-target-line")).toHaveText(["⑥ 다음 각 호의 어느 하나에 해당하는 기간은 출근한 것으로 본다.", "3. 호셋"]);
+  // Returning to the full text clears the move target: no highlight, no fallback notice.
+  await page.getByRole("button", { name: "← 법령 원문으로" }).click();
+  await expect(page.locator(".law-target-line")).toHaveCount(0);
+  await expect(page.getByText("해당 항목의 위치를 확인할 수 없어 조문 전체를 표시합니다.")).toHaveCount(0);
+  // A missing 항 shows the whole article with the fallback notice instead of a guessed line.
+  await page.getByRole("button", { name: "← 검색 결과로" }).click();
+  await input.fill("근로기준법 제60조 제9항");
+  await input.press("Enter");
+  await expect(page.getByText("해당 항목의 위치를 확인할 수 없어 조문 전체를 표시합니다.")).toBeVisible();
+  await expect(page.locator(".law-detail-raw")).toContainText("⑦ 항일곱");
+});
+
 test("RESEARCH law search sends only the query and separates results, no result and outages", async ({ page }) => {
   const bodies: unknown[] = [];
   const errors: string[] = [];

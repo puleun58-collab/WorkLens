@@ -26,14 +26,17 @@ describe("decision search response boundary", () => {
   it("rejects invalid pagination and result metadata rather than rendering malformed records", () => {
     for (const change of [
       { text: null }, { entries: null }, { page: 0 }, { page: 1.2 }, { page: "1" },
-      { totalCount: -1 }, { totalCount: 1.5 }, { hasNext: "yes" },
+      { totalCount: -1 }, { totalCount: 1.5 }, { hasNext: "yes" }, { excludedCount: -1 }, { excludedCount: 1.5 },
       { entries: [null] }, { entries: [{ ...entry, domain: "private" }] },
       { entries: [{ ...entry, id: null }] }, { entries: [{ ...entry, id: "" }] },
       { entries: [{ ...entry, title: 123 }] }, { entries: [{ ...entry, caseNumber: 123 }] },
       { entries: [{ ...entry, court: 123 }] }, { entries: [{ ...entry, summary: [] }] },
+      { entries: [{ ...entry, typeVerification: "verified" }] },
     ]) {
       expect(decisionSearchOutcome(true, response({ ...search, ...change }))).toEqual({ kind: "error", message: DECISION_SEARCH_ERROR });
     }
+    expect(decisionSearchOutcome(true, response({ ...search, entries: [{ ...entry, typeVerification: "not_provided" }], excludedCount: 2 })))
+      .toEqual({ kind: "found", data: { ...search, entries: [{ ...entry, typeVerification: "not_provided" }], excludedCount: 2 } });
   });
 });
 
@@ -58,8 +61,11 @@ describe("decision detail response boundary", () => {
       { text: null }, { title: 42 }, { expandable: "true" }, { sections: null },
       { sections: [null] }, { sections: [{ heading: 1, text: "raw" }] },
       { sections: [{ heading: "이유", text: null }] },
+      { fullUnknown: "yes" }, { fullUnavailable: 1 },
     ]) {
       expect(decisionTextOutcome(true, response({ ...detail, ...change }))).toEqual({ kind: "error", message: DECISION_TEXT_ERROR });
     }
+    expect(decisionTextOutcome(true, response({ ...detail, fullUnknown: true })))
+      .toEqual({ kind: "found", data: { ...detail, fullUnknown: true } });
   });
 });

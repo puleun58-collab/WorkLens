@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DECISION_DOMAINS, type DecisionDomain } from "@/lib/decision-domain";
-import { decisionIdentifier, decisionSearchQuery, splitExactResults } from "@/lib/decision-identifier";
+import { decisionIdentifier, decisionNumberMatchesDomain, decisionSearchQuery, splitExactResults } from "@/lib/decision-identifier";
 import type { DecisionEntry } from "@/lib/decision-search";
 
 const entry = (domain: DecisionDomain, id: string, caseNumber?: string): DecisionEntry => ({ domain, id, title: `t${id}`, ...(caseNumber ? { caseNumber } : {}) });
@@ -14,6 +14,7 @@ describe("decision identifiers per domain", () => {
     ["interpretation", ["06-0152"], "06-0152"],
     ["tax_tribunal", ["조심2012서3406", "조심 2012서3406"], "조심2012서3406"],
     ["ftc", ["2011카총0367", "2011 카총 0367"], "2011카총0367"],
+    ["ftc", ["2024심사17"], "2024심사17"],
     ["pipc", ["제2026-109-013호", "2026-109-013"], "2026-109-013"],
   ];
 
@@ -36,6 +37,23 @@ describe("decision identifiers per domain", () => {
       expect(decisionIdentifier(domain, "2013다61381")).toBeNull();
     }
     expect(DECISION_DOMAINS).toHaveLength(13);
+  });
+
+  it("judges a result number only by mismatch, and never by a match that overlaps another domain", () => {
+    // Mismatch excludes: a pipc-shaped number is not an admin_appeal number.
+    expect(decisionNumberMatchesDomain("admin_appeal", "2026-109-013")).toBe(false);
+    expect(decisionNumberMatchesDomain("precedent", "2013-01262")).toBe(false);
+    // Overlap: a constitutional number and an ftc number both pass the
+    // precedent pattern, so a pattern match alone is never verification.
+    expect(decisionNumberMatchesDomain("precedent", "2022헌마1312")).toBe(true);
+    expect(decisionNumberMatchesDomain("precedent", "2024심사17")).toBe(true);
+    expect(decisionNumberMatchesDomain("ftc", "2022헌마1312")).toBe(true);
+    // The ftc fixture number itself must pass the ftc pattern: a pattern
+    // that excludes a codebase ftc record cannot be an exclusion signal.
+    expect(decisionNumberMatchesDomain("ftc", "2024심사17")).toBe(true);
+    // No stable pattern: masked or unobserved numbers are never judged.
+    expect(decisionNumberMatchesDomain("nlrc", "2024심사17")).toBeUndefined();
+    expect(decisionNumberMatchesDomain("customs", "2024심사17")).toBeUndefined();
   });
 
   it("puts only exact numbers first, once each, and keeps every other result", () => {

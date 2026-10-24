@@ -42,6 +42,13 @@ describe("citation evidence", () => {
     expect(articleEvidence(lines, 9)).toMatchObject({ kind: "part-missing", part: "항" });
   });
 
+  it("does not read a blank line as 항 1: display text separates paragraphs with blank lines", () => {
+    const lines = ["제60조(연차 유급휴가)", "", "① 항하나", "", "⑥ 다음 각 호의", "", "1. 호하나", "", "2. 호둘"];
+    expect(articleEvidence(lines, 6, 2)).toEqual({ kind: "found", scope: "ho", lines: ["⑥ 다음 각 호의", "2. 호둘"] });
+    // The 항 scope runs to the next 항, so the blank separator line rides along; it is empty, not a claim about content.
+    expect(articleEvidence(lines, 1)).toEqual({ kind: "found", scope: "hang", lines: ["① 항하나", ""] });
+  });
+
   it("recovers the 호 the verifier dropped, in input order and without reusing an exact repeat", () => {
     const labels = ["근로기준법 제60조(연차 유급휴가) 제6항", "민법 제750조(불법행위의 내용)", "근로기준법 제60조(연차 유급휴가) 제6항"].map(lawCitationTarget);
     const input = "근로기준법 제60조 제6항 제3호, 같은 조 제6항 제3호와 민법 제750조, 근로기준법 제60조 제6항 제9호";

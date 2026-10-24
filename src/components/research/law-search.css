@@ -31,6 +31,8 @@
 .law-detail-feedback { display: grid; gap: 8px; justify-items: start; }
 .law-detail-content { min-width: 0; }
 .law-detail-raw { max-width: 100%; margin: 0; padding: 16px; overflow-wrap: anywhere; white-space: pre-wrap; border: 1px solid var(--line-soft, var(--line)); border-radius: var(--radius-panel, 8px); background: var(--paper); color: var(--ink); font: inherit; line-height: 1.7; }
+/* 항/호 move target only: the same panel background family, no layout change. */
+.law-target-line { background: var(--blue-pale, #eef4ff); border-radius: 2px; }
 .law-article-list { display: grid; gap: 0; margin: 16px 0 0; padding: 0; list-style: none; border: 1px solid var(--line-soft, var(--line)); border-radius: var(--radius-panel, 8px); background: var(--paper); }
 .law-article-list li + li { border-top: 1px solid var(--line-soft, var(--line)); }
 .law-detail-content > nav .law-article-list { margin: 0 0 16px; }

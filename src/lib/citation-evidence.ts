@@ -90,7 +90,13 @@ export function articleLines(text: string): string[] {
 
 const HANG_MARKS = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳㉑㉒㉓㉔㉕㉖㉗㉘㉙㉚";
 const hangNumber = (line: string): number | undefined => {
-  const index = HANG_MARKS.indexOf(line.trim()[0] ?? "");
+  // A blank line has no first character: `indexOf("")` is 0, so without
+  // this guard a blank line would read as 항 1 and cut every scope short.
+  // Display text separates <p> paragraphs with blank lines, so this matters
+  // as soon as the parser runs on display text rather than raw text.
+  const first = line.trim()[0];
+  if (first === undefined) return undefined;
+  const index = HANG_MARKS.indexOf(first);
   return index < 0 ? undefined : index + 1;
 };
 const hoNumber = (line: string): number | undefined => {
