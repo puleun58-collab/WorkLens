@@ -1103,7 +1103,12 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
     // A whole technical-check topic is stable source evidence, not a substring-based step guess.
     if (role === "conditions" && source !== "diagnosis.technicalChecks") {
       const checks = (d?.technicalChecks ?? []).filter(check =>
-        [check.topic, `${check.topic} 확인`, `${check.topic}${check.note ? ` — ${check.note}` : ""}`].some(value => normalizedItem(value) === normalizedItem(text)));
+        [check.topic, `${check.topic} 확인`, `${check.topic}${check.note ? ` — ${check.note}` : ""}`,
+          // gatePrerequisites labels: `${topic} (선택) — …` / `${topic} (필수) — …` are the same
+          // check evidence; without them the labeled copy stays a separate unlinked condition
+          // that HITL exclude/defer matching (by check source) cannot reach.
+          `${check.topic} (선택)${check.note ? ` — ${check.note}` : ""}`,
+          `${check.topic} (필수)${check.note ? ` — ${check.note}` : ""}`].some(value => normalizedItem(value) === normalizedItem(text)));
       if (checks.length === 1) {
         const check = checks[0];
         original ??= text;
@@ -1239,11 +1244,7 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
   for (const item of options.prerequisites ?? []) append("options.prerequisites", "conditions", item);
   for (const item of profile?.prerequisites ?? []) {
     // Reuse the technical check's exact evidence instead of creating a second, unlinked condition.
-    // gatePrerequisites labels optional checks as `${topic} (선택) — …`, which is the same check
-    // evidence as the classified `${topic} — …` item: normalize the marker so the prerequisite
-    // merges into the check item and HITL exclude/defer matching (by check source) reaches it.
-    const stripCheckMarker = (value: string) => value.replace(/ \((?:선택|필수)\)( — | \s*$)/u, "$1");
-    const existing = classified.find(entry => entry.role === "conditions" && normalizedItem(stripCheckMarker(entry.text)) === normalizedItem(stripCheckMarker(item)));
+    const existing = classified.find(entry => entry.role === "conditions" && normalizedItem(entry.text) === normalizedItem(item));
     if (existing) {
       if (!existing.sources.includes("policy.prerequisites")) existing.sources.push("policy.prerequisites");
     } else append("policy.prerequisites", "conditions", item);

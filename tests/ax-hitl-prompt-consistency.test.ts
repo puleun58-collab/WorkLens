@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildAgentInstructionModel, buildAllInOnePrompt } from "../src/lib/ax/guide";
 import { extractPlanReviewableItems, extractReviewableItems, type ReviewableItem } from "../src/lib/ax/hitl";
 import { diagnosisFixture, planFixture } from "./fixtures/ax";
+import { gatePrerequisites } from "../src/lib/ax/policy";
 import type { AxDiagnosis, AxPlan, HitlReview } from "../src/lib/ax/types";
 
 /**
@@ -272,14 +273,19 @@ describe("HITL 지시문 정합성 T1~T15", () => {
     const riskItems = extractReviewableItems(diagWithChecks).filter(item => item.type === "risk");
     const optionalItem = riskItems.find(item => item.text.startsWith("이상값 알림 메커니즘:"));
     expect(optionalItem).toBeDefined();
+    // 실제 UI 경로: AxPlanSection이 executionProfile의 선행조건(gatePrerequisites)을 함께 전달한다.
+    const promptUi = (revs: HitlReview[]) => buildAllInOnePrompt(plan, "codex", {
+      taskName: "거래 검증", diagnosis: diagWithChecks, hitlReviews: revs, hitlTool: "codex",
+      prerequisites: gatePrerequisites(diagWithChecks),
+    });
     // 대조군: 제외하지 않으면 선택 항목이 조건으로 남는다(선행조건 (선택) 표지 사본과 병합된 단일 항목).
-    const keptPrompt = promptWith(riskItems.map(item => makeReview(item, "keep")), "codex", diagWithChecks);
+    const keptPrompt = promptUi(riskItems.map(item => makeReview(item, "keep")));
     expect(keptPrompt).toContain("이상값 알림 메커니즘 — 결측 표시와 알림은 선택 기능");
     // 제외 확정 시 지시문 어디에도 해당 확인 항목이 남지 않고, 필수 확인 항목은 유지된다.
     const reviews = riskItems.map(item => item === optionalItem
       ? makeReview(item, "exclude", { reason: "알림 연동은 이번 범위에서 제외" })
       : makeReview(item, "keep"));
-    const prompt = promptWith(reviews, "codex", diagWithChecks);
+    const prompt = promptUi(reviews);
     expect(prompt).not.toContain("이상값 알림 메커니즘");
     expect(prompt).toContain("파일 파싱 가능 여부");
   });
