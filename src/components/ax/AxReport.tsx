@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { HitlReviewPanel, HitlStatusBadge } from "./HitlReview";
 import { extractReviewableItems, extractPlanReviewableItems, findReview, getValidConfirmedReviews, type ReviewableItem } from "@/lib/ax/hitl";
 import { Tabs, TabsList, TabsTab, TabsPanel } from "@/components/ui/tabs";
-import { buildAgentInstructionModel, buildAllInOnePrompt, planSummary, scopeItemLabel, setupGuide, stepMethodLabel, TOOL_GUIDES, type AgentInstructionModel, type AxCheckTone, type AxGuideBlock, type AxGuideSection, type AxPlanSummary, type AxToolId } from "@/lib/ax/guide";
+import { buildAgentInstructionModel, buildAllInOnePrompt, filterRoadmapItems, planSummary, scopeItemLabel, setupGuide, stepDetailEntries, stepMethodLabel, TOOL_GUIDES, type AgentInstructionModel, type AxCheckTone, type AxGuideBlock, type AxGuideSection, type AxPlanSummary, type AxToolId } from "@/lib/ax/guide";
 
 const VERDICT_LABELS = { 자동화: "자동화", "AI 보조": "AI 보조", "사람 유지": "담당자 수행" } as const;
 const OWNER_LABELS = { 시스템: "시스템", AI: "AI", 사용자: "담당자" } as const;
@@ -306,6 +306,10 @@ function AxRoadmapPhases({ model, profile }: { model: AgentInstructionModel; pro
           : linked?.scope === "confirm" ? "적용 단계 확인 필요" : "";
         return `${base}${qualifier ? ` (${qualifier})` : ""}`;
       }))];
+      // 확정 HITL 결정 반영: 제외 항목은 현재 작업에서 빠지고, 보류 항목은
+      // 현재 작업에서 빠진 뒤 보류 상태·사유·재개 조건과 함께 별도 안내한다.
+      const roadmapFiltered = filterRoadmapItems(model, items);
+      const heldItems = roadmapFiltered.held;
       const footer = i === last ? { title: "최종 산출물", Icon: FileText, text: outputs.length ? outputs.join(" · ") : "산출물 기준 확인 필요" }
         : { title: "다음 단계 조건", Icon: Flag, text: i === 0 && profile.gate === "conditional" ? "다음 작업이 의존하는 필수 조건과 미연결 조건의 적용 범위를 확인해야 합니다. 독립 작업은 근거 확인 후 진행합니다."
           : i === 0 && profile.gate === "blocked" ? "차단 사유가 해결되고 재진단에서 진행 보류가 해제되어야 합니다."
@@ -318,7 +322,7 @@ function AxRoadmapPhases({ model, profile }: { model: AgentInstructionModel; pro
             <strong>{phase.title}</strong>{copy ? <p>{copy.description}</p> : null}
           </div>
         </div>
-        <div className="ax-phase-body"><h5>주요 작업</h5><ul role="list">{items.map((item, j) => <li key={j}>{item}</li>)}</ul>{phaseUnconfirmed ? <p className="ax-phase-note">처리 방식과 필수 기준을 확인한 후 허용된 범위에서 진행합니다.</p> : null}</div>
+        <div className="ax-phase-body"><h5>주요 작업</h5><ul role="list">{roadmapFiltered.current.map((item, j) => <li key={j}>{item}</li>)}</ul>{heldItems.length ? <p className="ax-phase-note">보류된 작업: {heldItems.map(entry => `${entry.text}${entry.reason ? ` (보류: ${entry.reason}` : ""}${entry.resumeCondition ? ` · 재개 조건: ${entry.resumeCondition}` : ""}${entry.reason ? ")" : ""}`).join(" · ")}</p> : null}{phaseUnconfirmed ? <p className="ax-phase-note">처리 방식과 필수 기준을 확인한 후 허용된 범위에서 진행합니다.</p> : null}</div>
         <div className="ax-phase-footer"><footer.Icon aria-hidden="true" /><div><strong>{footer.title}</strong><p>{footer.text}</p></div></div>
         {i < last ? <span className="ax-phase-arrow" aria-hidden="true"><ArrowRight /></span> : null}
       </li>;
@@ -327,8 +331,8 @@ function AxRoadmapPhases({ model, profile }: { model: AgentInstructionModel; pro
   </div>;
 }
 
-export function AxExecutionTimeline({ diagnosis: d }: { diagnosis: AxDiagnosis }) {
-  const model = buildAgentInstructionModel(undefined, { diagnosis: d });
+export function AxExecutionTimeline({ diagnosis: d, plan, hitlReviews, hitlTool }: { diagnosis: AxDiagnosis; plan?: AxPlan; hitlReviews?: HitlReview[]; hitlTool?: AxToolId }) {
+  const model = buildAgentInstructionModel(plan, { diagnosis: d, hitlReviews, hitlTool });
   const profile = model.profile ?? executionProfile(d);
   return <section className="ax-section ax-panel ax-execution-timeline" aria-label="실행 로드맵">
     <header className="ax-result-head"><h3>실행 로드맵</h3><small>Level {profile.level} 기준 · {GATE_LABELS[profile.gate]}</small></header>
@@ -339,14 +343,18 @@ export function AxExecutionTimeline({ diagnosis: d }: { diagnosis: AxDiagnosis }
     {profile.roadmap.length ? <AxRoadmapPhases model={model} profile={profile} /> : null}
     {profile.stepScope.length ? <Accordion className="ax-execution-steps" keepMounted><AccordionItem value="steps" className="border-b-0">
       <AccordionTrigger className="ax-execution-steps-trigger"><span className="ax-execution-steps-label">업무 단계 상세<span className="ax-muted">{profile.stepScope.length}단계 · 담당자·처리 방식·구현 범위</span></span></AccordionTrigger>
-      <AccordionPanel><ol className="ax-execution-list">{profile.stepScope.map((step, i) => <li className="ax-execution-item" data-scope={step.scope} data-owner={step.owner} key={i}>
-        <span className="ax-execution-node">{i + 1}</span>
-        <div className="ax-execution-content"><strong>{step.step} · {OWNER_LABELS[step.owner]}</strong>
-          {step.note ? <p>{step.note}</p> : null}
-          {step.treatment ? <small>{step.scope === "future" ? "향후 범위: " : "처리 방식: "}{stepMethodLabel(model, i)}</small> : null}
-        </div>
-        <Badge variant="outline" className="ax-scope-badge" data-scope={step.scope}>{SCOPE_LABELS[step.scope]}</Badge>
-      </li>)}</ol></AccordionPanel>
+      <AccordionPanel><ol className="ax-execution-list">{stepDetailEntries(model, profile).map((entry, i) => {
+        const { step, modelIndex, disposition } = entry;
+        return <li className="ax-execution-item" data-scope={step.scope} data-owner={step.owner} key={i}>
+          <span className="ax-execution-node">{i + 1}</span>
+          <div className="ax-execution-content"><strong>{step.step} · {OWNER_LABELS[step.owner]}</strong>
+            {step.note ? <p>{step.note}</p> : null}
+            {disposition ? <p>{disposition.action === "exclude" ? "HITL 제외" : "HITL 보류"}{disposition.reason ? `: ${disposition.reason}` : ""}{disposition.resumeCondition ? ` · 재개 조건: ${disposition.resumeCondition}` : ""}</p>
+              : step.treatment && modelIndex !== null ? <small>{step.scope === "future" ? "향후 범위: " : "처리 방식: "}{stepMethodLabel(model, modelIndex)}</small> : null}
+          </div>
+          <Badge variant="outline" className="ax-scope-badge" data-scope={step.scope}>{disposition ? disposition.action === "exclude" ? "제외" : "보류" : SCOPE_LABELS[step.scope]}</Badge>
+        </li>;
+      })}</ol></AccordionPanel>
     </AccordionItem></Accordion> : <p className="ax-muted">진단된 업무 단계 없음</p>}
   </section>;
 }
@@ -831,6 +839,7 @@ function AxScopeCard({ tone, icon, title, description, items, notes }: { tone: "
 const CHECK_TONES: Record<AxCheckTone, { label: string; Icon: typeof CircleAlert }> = {
   required: { label: "확인 필요", Icon: CircleAlert }, future: { label: "향후 검토", Icon: Clock },
   done: { label: "확인 완료", Icon: CircleCheck }, blocked: { label: "불가", Icon: TriangleAlert },
+  held: { label: "보류", Icon: Clock },
 };
 /** Topical icon for a prerequisite card; presentation only, never a data claim. */
 function prereqIcon(topic: string) {
@@ -1044,22 +1053,31 @@ export function AxExecutionPackage({ plan, target, taskName, taskContext, prereq
 export function resolveActiveTool(selectedTool: AxToolId | null, plans: { codex?: AxPlan; claude?: AxPlan }): AxToolId {
   return selectedTool ?? (plans.codex ? "codex" : "claude");
 }
-export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenerate, reviewProps }: {
+export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenerate, reviewProps, activeTool: controlledTool, onToolChange }: {
   diagnosis: AxDiagnosis;
   taskName: string;
   taskContext: string;
   busy: string | null;
   onGenerate: (target: AxToolId) => void;
   reviewProps?: AxProcessReviewProps;
+  /** 제어 모드: 부모가 도구 선택을 소유하면 로드맵·01~03·04가 같은 도구의 검토를 따른다.
+   * 미제공 시 기존 내부 상태 동작을 유지한다. */
+  activeTool?: AxToolId;
+  onToolChange?: (tool: AxToolId) => void;
 }) {
   const profile = executionProfile(diagnosis);
   const gate = profile.gate;
   const prerequisites = gate === "blocked" ? [] : profile.prerequisites;
   const plans = { codex: diagnosis.planCodex, claude: diagnosis.planClaude };
-  const [selectedTool, setSelectedTool] = useState<AxToolId | null>(null);
-  const activeTool = resolveActiveTool(selectedTool, plans);
+  const [internalSelected, setInternalSelected] = useState<AxToolId | null>(null);
+  const setSelectedTool = onToolChange ?? setInternalSelected;
+  const activeTool = controlledTool ?? resolveActiveTool(internalSelected, plans);
   const activePlan = plans[activeTool];
-  const summary = planSummary(diagnosis, gate !== "blocked" ? activePlan : undefined, [taskName, taskContext].join("\n"));
+  // 01~03 요약도 04와 같은 확정 검토를 반영한다. Gate blocked에서도 동일하게
+  // 전달해 진단 검토가 요약에 일관되게 적용되고, 계획 검토는 계획이 없을 때
+  // 매칭되지 않으므로 혼합되지 않는다.
+  const summary = planSummary(diagnosis, gate !== "blocked" ? activePlan : undefined, [taskName, taskContext].join("\n"),
+    { hitlReviews: reviewProps?.reviews, hitlTool: activeTool });
   const instructionsId = useId();
   const instructionsRef = useRef<HTMLElement>(null);
   function goToInstructions() {
