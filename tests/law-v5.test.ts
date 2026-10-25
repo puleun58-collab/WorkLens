@@ -204,6 +204,30 @@ describe("V5-F7: per-issue status situations through runLegalResearch", () => {
       evidence: { status: "matched", issues: [{ label: "모욕", status: "found", precedents: ["701"] }] } });
   });
 
+  it("direct article + related precedent together → found/matched with both kept (neither drops the other)", async () => {
+    const question = "회사에서 모욕을 당했어";
+    vi.mocked(interpretResearchQuery).mockResolvedValue({
+      original: question, situation: "", facts: [],
+      issues: [{ label: "모욕", query: "모욕" }],
+      confidence: "medium",
+    });
+    const mixedChain = [
+      chain([INSULT_311]),
+      "▶ 관련 판례", "판례 검색 결과 (총 1건, 1페이지):", "",
+      "[701] 모욕 손해배상", "  사건번호: 2024다701", "  법원: 대법원", "  선고일: 20240501", "",
+    ].join("\n");
+    upstream({
+      legal_research: () => mixedChain,
+      get_decision_text: () => caseText("모욕 손해배상", "공연히 사람을 모욕한 경우 손해배상책임이 인정되는 요건"),
+      search_law: () => "[NOT_FOUND] 없음",
+      search_decisions: () => "[NOT_FOUND] 없음",
+    });
+    const result = await runLegalResearch({ task: "full_research", query: question }, ctx);
+    expect(result).toMatchObject({ found: true,
+      evidence: { status: "matched",
+        issues: [{ label: "모욕", status: "found", articles: [{ law: "형법", jo: "제311조" }], precedents: ["701"] }] } });
+  });
+
   it("irrelevant-only (insult variants) → none, not found: the guard removes a false confirmation", async () => {
     const question = "회사에서 동료에게 모욕을 당했어";
     vi.mocked(interpretResearchQuery).mockResolvedValue({
