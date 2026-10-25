@@ -128,6 +128,16 @@ export async function callLawTool(
     { tool_name: "get_ordinance"; params: { ordinSeq: string; jo?: string } },
   context: LawContext,
 ): Promise<{ text: string; isError: boolean }> {
+  return callLawToolAttempt(tool, args, context, Date.now(), 0);
+}
+
+async function callLawToolAttempt(
+  tool: Parameters<typeof callLawTool>[0],
+  args: Parameters<typeof callLawTool>[1],
+  context: LawContext,
+  started: number,
+  previousRetries: number,
+): Promise<{ text: string; isError: boolean }> {
   const { LAW_OC: key, LAW_MCP_URL: endpoint } = workerEnv();
   if (!key || !endpoint) throw new ApiError("LAW_NOT_CONFIGURED", "법령 검색 서비스가 구성되지 않았습니다.", 503);
   let url: URL;
@@ -138,10 +148,9 @@ export async function callLawTool(
   }
   if (url.protocol !== "https:") throw new ApiError("LAW_NOT_CONFIGURED", "법령 검색 서비스가 구성되지 않았습니다.", 503);
 
-  const started = Date.now();
   const timeoutMs = tool === "legal_analysis" ? ANALYSIS_TIMEOUT_MS : tool === "legal_research" ? RESEARCH_TIMEOUT_MS : REQUEST_TIMEOUT_MS;
   let upstreamStatus: number | undefined;
-  let retryCount = 0;
+  let retryCount = previousRetries;
   // 재시도가 실제로 발생할 때마다 요청 단위 누적에도 반영한다. 성공·실패·시간
   // 초과 어느 경로로 끝나든, 이미 발생한 재시도는 종료 시점이 아니라 발생
   // 시점에 기록되므로 누락되지 않는다.
@@ -247,6 +256,7 @@ export async function callLawTool(
   const readTimer = setTimeout(() => readController.abort(new DOMException("timeout", "TimeoutError")), readRemainingMs);
   const onReadAbort = () => readController.abort(new DOMException("client aborted", "AbortError"));
   context.signal?.addEventListener("abort", onReadAbort, { once: true });
+  let retryToolDelay: number | undefined;
 
   try {
     upstreamStatus = response.status;
@@ -278,19 +288,54 @@ export async function callLawTool(
     if (!parsed.success) throw new ApiError("LAW_MCP_ERROR", "법령 검색 응답 형식이 올바르지 않습니다.", 502);
     if (parsed.data.error || !parsed.data.result) throw new ApiError("LAW_MCP_ERROR", "법령 검색 서비스가 요청을 처리하지 못했습니다.", 502);
     const text = redact(parsed.data.result.content.map((part) => part.type === "text" ? part.text ?? "" : "").join("\n"), key);
-    return { text, isError: parsed.data.result.isError === true };
+    const isError = parsed.data.result.isError === true;
+    // MCP can return HTTP 200 while its own connection to law.go.kr timed out.
+    // Retry only a short, explicit transport error, never NOT_FOUND or partial legal evidence.
+    if (isTransientMcpConnectionFailure(text, isError)) {
+      const delayMs = exponentialBackoffDelay(retryCount);
+      if (retryCount < MAX_RETRY_ATTEMPTS && Date.now() - started + delayMs < timeoutMs * 0.8) {
+        noteRetry();
+        retryToolDelay = delayMs;
+        console.info("[LAW][MCP][RETRY]", { requestId: context.requestId, operation: tool, attempt: retryCount, reason: "mcp_upstream_connection", delayMs });
+      } else {
+        const timedOut = /TIMEOUT|ETIMEDOUT/iu.test(text);
+        throw new ApiError(timedOut ? "LAW_UPSTREAM_TIMEOUT" : "LAW_UPSTREAM_UNAVAILABLE",
+          timedOut ? "법령 검색 응답 시간이 초과되었습니다. 다시 시도하세요." : "법령 검색 서비스에 연결할 수 없습니다.", timedOut ? 504 : 503);
+      }
+    } else {
+      return { text, isError };
+    }
   } finally {
     clearTimeout(readTimer);
     context.signal?.removeEventListener("abort", onReadAbort);
     // Operational metadata only: no key, headers, query text or response body.
     // retryCount는 재시도가 발생한 경우에만 포함 (기존 로그 포맷 호환성 유지)
-    const logData = { requestId: context.requestId, operation: tool, ...("mode" in args ? { mode: args.mode } : {}), ...("task" in args ? { task: args.task } : {}), upstreamStatus, latencyMs: Date.now() - started };
-    if (retryCount > 0) {
-      console.info("[LAW][MCP]", { ...logData, retryCount });
-    } else {
-      console.info("[LAW][MCP]", logData);
+    if (retryToolDelay === undefined) {
+      const logData = { requestId: context.requestId, operation: tool, ...("mode" in args ? { mode: args.mode } : {}), ...("task" in args ? { task: args.task } : {}), upstreamStatus, latencyMs: Date.now() - started };
+      if (retryCount > 0) {
+        console.info("[LAW][MCP]", { ...logData, retryCount });
+      } else {
+        console.info("[LAW][MCP]", logData);
+      }
     }
   }
+  // The original absolute deadline and total retry count survive this new attempt.
+  if (retryToolDelay === undefined) throw new ApiError("LAW_MCP_ERROR", "법령 검색 서비스가 요청을 처리하지 못했습니다.", 502);
+  try {
+    await sleep(retryToolDelay, context.signal);
+  } catch {
+    if (context.signal?.aborted) throw new ApiError("LAW_REQUEST_ABORTED", "요청이 취소되었습니다.", 499);
+    throw new ApiError("LAW_UPSTREAM_UNAVAILABLE", "법령 검색 서비스에 연결할 수 없습니다.", 503);
+  }
+  return callLawToolAttempt(tool, args, context, started, retryCount);
+}
+
+function isTransientMcpConnectionFailure(text: string, isError: boolean): boolean {
+  if (!isError || text.length > 2048) return false;
+  // Preserve a returned absence or partial legal answer, even if it mentions a failed sub-request.
+  if (/^\s*\[(?:NOT_FOUND|LAW_NOT_FOUND)\]/u.test(text) ||
+    /(?:^|\n)\s*(?:검색 결과|법령명:|제\d+조|▶|═══|\d+\.\s+[^\s])/mu.test(text)) return false;
+  return /\b(?:UND_ERR_CONNECT_TIMEOUT|UND_ERR_HEADERS_TIMEOUT|ConnectTimeoutError|ETIMEDOUT|ECONNRESET|EAI_AGAIN)\b/iu.test(text);
 }
 
 /** 재시도 가능한 HTTP 상태 코드인지 확인 (502, 503, 504 - 일시적 서버 오류) */
