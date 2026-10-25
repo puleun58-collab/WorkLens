@@ -653,7 +653,7 @@ export function planSummary(diagnosis: AxDiagnosis, rawPlan?: AxPlan, context = 
   ], [...manualAutomation, ...humanKept]));
   const shownScope = new Set([...humanKept, ...excluded].map(normalizedItem));
   const pocTests = model.classified.filter(item => item.role === "tests");
-  const criteria = (source: string) => unique(model.classified.filter(item => item.sources.includes(source) && !model.scoped.validationMethods.includes(item) && !isExcludedPocCriterion(model, item)).map(item => model.scoped.criteria.includes(item)
+  const criteria = (source: string) => unique(model.classified.filter(item => item.sources.includes(source) && !model.scoped.validationMethods.includes(item) && !isExcludedStepCriterion(model, item)).map(item => model.scoped.criteria.includes(item)
     ? item.text : `${item.scope === "future" ? "향후 판정" : "기준 확인 필요"}: ${item.text}`));
   return {
     include: unique((profile?.poc.inScope ?? []).flatMap(line => {
@@ -1534,17 +1534,20 @@ const normalizeLoanwordToken = (token: string): string => {
 /** 렌더 단계 단어 비교: 구분 기호를 공백으로 바꾸고 2자 이상 단어만 외래어 표준형으로 비교한다.
  * 모듈 층위 단일 정의로, 04 지시문과 03 요약이 같은 단어 비교를 쓴다. */
 const scopeWords = (text: string): string[] => text.replace(/[^\uAC00-\uD7A3A-Za-z0-9]/gu, " ").split(/\s+/u).filter(w => w.length >= 2).map(normalizeLoanwordToken);
-/** 제외 단계 관련 PoC 기준 판정 (03 요약이 적용하는 범위).
- * PoC 성공·실패 기준 중 모델의 scoped criteria·검증 방법에 들지 않은 항목이
- * 유효성 검증된 제외 단계와만 관련되고 활성 작업 단계와는 무관하면 true.
+/** 제외 단계 관련 완료 기준 판정 (03 요약이 적용하는 범위).
+ * 모델의 scoped criteria·검증 방법에 들지 않은 완료 기준 항목이 유효성 검증된
+ * 제외 단계와만 관련되고 활성 작업 단계와는 무관하면 true.
  * 활성 단계와 단어를 공유하면 보수적으로 유지한다 (강등하지 않음).
+ * 출처를 PoC로 한정하지 않는다: 03 통과 조건은 진단 PoC 기준과 계획 acceptance
+ * 기준을 합쳐 표시하므로, 제외된 기능의 문구가 계획 acceptance에 사본으로 남아
+ * 있으면 PoC 항목만 걸러서는 표시가 남는다 (라이브 간극 원인). 04는 범위 밖
+ * 비-PoC 기준을 참고 판정으로 이미 구분하므로, 03에서 같은 항목을 빼는 것은
+ * 04와 일치하는 방향이다. 단계에 연결된 scoped 기준은 여기서 걸러지지 않는다.
  * 차단 상태·Level 0은 03의 진단 기준 표시와 무관하므로 여기서 다루지 않는다:
  * 03 "완료 기준"은 진단 자체의 기준 기록이고, 실행 불가 여부는 게이트 배지가
  * 표시한다 (E2E ax.spec.ts:1356이 전 Level×Gate에서 기준 표시를 고정한다). */
-export function isExcludedPocCriterion(model: AgentInstructionModel, item: AgentInstructionItem): boolean {
+export function isExcludedStepCriterion(model: AgentInstructionModel, item: AgentInstructionItem): boolean {
   if (item.role !== "criteria") return false;
-  const isPoc = item.sources.some(s => s === "diagnosis.poc.success" || s === "diagnosis.poc.failure");
-  if (!isPoc) return false;
   if (model.scoped.criteria.includes(item) || model.scoped.validationMethods.includes(item)) return false;
   const excludedStepNames = model.hitlDetails?.validatedExcludedStepNames ?? [];
   if (excludedStepNames.length === 0) return false;
@@ -1570,11 +1573,19 @@ export function isExcludedPocCriterion(model: AgentInstructionModel, item: Agent
   });
   return !matchesActive;
 }
+/** 제외 단계 관련 PoC 기준 판정 (04 강등 판정의 제외 단계 관련 부분).
+ * isExcludedStepCriterion에 PoC 출처 조건을 더한 것으로, 04의 판정 결과는
+ * 이 래퍼를 써도 달라지지 않는다 (isDemotedPocCriterion이 출처를 먼저 검사한다). */
+export function isExcludedPocCriterion(model: AgentInstructionModel, item: AgentInstructionItem): boolean {
+  const isPoc = item.sources.some(s => s === "diagnosis.poc.success" || s === "diagnosis.poc.failure");
+  if (!isPoc) return false;
+  return isExcludedStepCriterion(model, item);
+}
 /** PoC 기준 강등 판정 (04 지시문이 적용하는 범위).
  * 차단 상태(Level 0·Gate blocked)에서는 PoC 기준을 구현 가능한 완료 조건으로
  * 제시하지 않으며, 그 외에는 제외 단계 관련 판정과 같다. 04는 실행 지시문이므로
  * 실행 불가 기준을 필수 조건에서 빼는 것이고, 03은 진단 기준 표시이므로
- * 차단 분기를 공유하지 않는다 (03은 isExcludedPocCriterion만 쓴다). */
+ * 차단 분기를 공유하지 않는다 (03은 isExcludedStepCriterion을 쓴다). */
 export function isDemotedPocCriterion(model: AgentInstructionModel, item: AgentInstructionItem): boolean {
   if (item.role !== "criteria") return false;
   const isPoc = item.sources.some(s => s === "diagnosis.poc.success" || s === "diagnosis.poc.failure");
@@ -2179,8 +2190,9 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
   const isPocCriterion = (item: AgentInstructionItem) =>
     item.sources.some(s => s === "diagnosis.poc.success" || s === "diagnosis.poc.failure");
   // PART A-5: PoC 기준 안전성 — 제외된 단계나 차단 상태에서 필수 완료 조건으로 승격 금지.
-  // 판정은 isDemotedPocCriterion 단일 기준을 쓴다 (03 요약은 그중 제외 단계 관련
-  // 부분(isExcludedPocCriterion)만 공유한다 — 차단 분기는 04 실행 지시문 전용이다).
+  // 판정은 isDemotedPocCriterion 단일 기준을 쓴다 (03 요약은 제외 단계 관련
+  // 판정(isExcludedStepCriterion)을 모든 완료 기준 출처에 적용한다 — PoC 항목은
+  // 04와 같은 판정, 계획 acceptance 사본까지 걸러진다. 차단 분기는 04 실행 지시문 전용이다).
   // (Priority 5: 모델에서 유효성 검증된 제외 단계명 집합 사용, 검증 기준 단일화).
   // 차단 상태에서는 PoC 기준을 구현 가능한 완료 조건으로 제시하지 않음.
   // Level 0(검토·검증 전용)도 구현이 허용되지 않는 범위이므로 동일하게 취급한다 —
