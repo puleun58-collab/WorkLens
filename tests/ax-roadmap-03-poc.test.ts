@@ -3,6 +3,7 @@ import {
   buildAgentInstructionModel,
   buildAllInOnePrompt,
   isDemotedPocCriterion,
+  isExcludedPocCriterion,
   planSummary,
 } from "../src/lib/ax/guide";
 import { extractPlanReviewableItems } from "../src/lib/ax/hitl";
@@ -144,15 +145,33 @@ describe("AX 03·04 PoC 기준 표시 일치", () => {
     expect(overallCriteriaSection(prompt)).toContain("명세서 발송 생성 확인");
   });
 
-  test("차단 상태: PoC 기준은 03 통과 조건으로 승격되지 않는다 (04 강등과 동일)", () => {
+  test("차단 상태: 제외 관계가 없는 PoC 기준은 03에 유지된다 (기존 E2E 동작)", () => {
+    // 03 "완료 기준"은 진단 자체의 기준 기록이고, 실행 불가 여부는 게이트 배지가
+    // 표시한다 (E2E ax.spec.ts:1356이 전 Level×Gate에서 기준 표시를 고정).
+    // 04만 실행 지시문으로서 차단 시 강등한다 — 차단 분기는 03·04가 공유하지 않는
+    // 의도된 구분이며, 결함인 제외 관계는 차단 상태에서도 03·04 모두에서 걸러진다
+    // (다음 테스트).
+    const blocked = { ...diagnosis(), decisionGate: { verdict: "no-go", reasons: ["차단 사유"] } } as unknown as AxDiagnosis;
+    const p = plan();
+    const r = reviews("codex");
+    const summary = planSummary(blocked, p, "", { hitlReviews: r, hitlTool: "codex" });
+    expect(summary.success.join(" ")).toContain("정산 계산 오류가 없으며 최소 금액 규칙 적용 확인");
+    expect(summary.success.join(" ")).toContain("수수료 3%·최소 1만원 적용");
+    const prompt = buildAllInOnePrompt(p, "codex", { diagnosis: blocked, hitlReviews: r, hitlTool: "codex" });
+    expect(overallCriteriaSection(prompt)).not.toContain("정산 계산 오류가 없으며 최소 금액 규칙 적용 확인");
+    expect(prompt).toContain("정산 계산 오류가 없으며 최소 금액 규칙 적용 확인 — 현재 필수 완료 조건 아님 (실행 차단 상태)");
+  });
+
+  test("차단 상태에서도 제외 관계 PoC 기준은 03·04 모두에서 걸러진다", () => {
     const blocked = { ...diagnosis(), decisionGate: { verdict: "no-go", reasons: ["차단 사유"] } } as unknown as AxDiagnosis;
     const p = plan();
     const r = reviews("codex");
     const summary = planSummary(blocked, p, "", { hitlReviews: r, hitlTool: "codex" });
     expect(summary.success.join(" ")).not.toContain("이메일 발송 성공 로그 기록");
-    expect(summary.success.join(" ")).not.toContain("정산 계산 오류가 없으며 최소 금액 규칙 적용 확인");
-    // 계획 acceptance 기준은 PoC 강등 대상이 아니므로 남는다.
-    expect(summary.success.join(" ")).toContain("수수료 3%·최소 1만원 적용");
+    expect(summary.success.join(" ")).toContain("정산 계산 오류가 없으며 최소 금액 규칙 적용 확인");
+    const prompt = buildAllInOnePrompt(p, "codex", { diagnosis: blocked, hitlReviews: r, hitlTool: "codex" });
+    expect(overallCriteriaSection(prompt)).not.toContain("이메일 발송 성공 로그 기록");
+    expect(prompt).toContain("이메일 발송 성공 로그 기록 — 현재 필수 완료 조건 아님 (실행 차단 상태)");
   });
 
   test("HITL 미적용 시 03·04 동작 불변 (강등 판정 없음)", () => {
@@ -163,17 +182,26 @@ describe("AX 03·04 PoC 기준 표시 일치", () => {
     expect(summary.success.join(" ")).toContain("정산 계산 오류가 없으며 최소 금액 규칙 적용 확인");
   });
 
-  test("isDemotedPocCriterion: 범위·출처 조건을 벗어난 항목은 강등하지 않는다", () => {
+  test("isDemotedPocCriterion / isExcludedPocCriterion: 범위·출처 조건과 차단 분기 구분", () => {
     const d = diagnosis();
     const p = plan();
     const r = reviews("codex");
     const m = buildAgentInstructionModel(p, { diagnosis: d, hitlReviews: r, hitlTool: "codex" });
     const emailItem = m.classified.find(i => i.text === "이메일 발송 성공 로그 기록")!;
     const controlItem = m.classified.find(i => i.text === "정산 계산 오류가 없으며 최소 금액 규칙 적용 확인")!;
+    expect(isExcludedPocCriterion(m, emailItem)).toBe(true);
+    expect(isExcludedPocCriterion(m, controlItem)).toBe(false);
     expect(isDemotedPocCriterion(m, emailItem)).toBe(true);
     expect(isDemotedPocCriterion(m, controlItem)).toBe(false);
-    // acceptance 항목은 PoC 기준이 아니므로 강등 대상이 아니다.
+    // acceptance 항목은 PoC 기준이 아니므로 어느 쪽도 강등 대상이 아니다.
     const feeItem = m.classified.find(i => i.text === "수수료 3%·최소 1만원 적용")!;
+    expect(isExcludedPocCriterion(m, feeItem)).toBe(false);
     expect(isDemotedPocCriterion(m, feeItem)).toBe(false);
+    // 차단 상태에서는 04만 강등하고, 03용 제외 관계 판정은 그대로 false이다.
+    const blocked = { ...d, decisionGate: { verdict: "no-go", reasons: ["차단 사유"] } } as unknown as AxDiagnosis;
+    const mb = buildAgentInstructionModel(p, { diagnosis: blocked, hitlReviews: r, hitlTool: "codex" });
+    const controlBlocked = mb.classified.find(i => i.text === "정산 계산 오류가 없으며 최소 금액 규칙 적용 확인")!;
+    expect(isDemotedPocCriterion(mb, controlBlocked)).toBe(true);
+    expect(isExcludedPocCriterion(mb, controlBlocked)).toBe(false);
   });
 });
