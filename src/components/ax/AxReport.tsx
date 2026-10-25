@@ -21,11 +21,17 @@ export function AxList({ items }: { items: string[] }) {
 }
 /** Level 툴팁 상태: 호버·키보드 포커스는 공통 툴팁의 기본 동작을 그대로 쓰고, 터치 탭은 클릭 토글로 연다.
  * 탭 직후에는 합성 hover 종료(trigger-hover)가 곧바로 발행돼 방금 연 설명을 닫으므로, 터치 눌림 1초 안에 온
- * 합성 종료 신호만 무시한다. 마우스·키보드 흐름은 가드 대상이 아니다. */
+ * 합성 종료 신호만 무시한다. 마우스·키보드 흐름은 가드 대상이 아니다.
+ * 탭 토글은 눌림 시점 상태를 기준으로 한다: 터치 pointerleave로 공통 툴팁이 먼저 닫힌 뒤 클릭이 오면
+ * blind한 !prev 토글은 닫힌 상태를 다시 열어 버린다(닫기 탭 경합). 눌림 시점이 열림이었으면 닫고,
+ * 닫힘이었으면 여는 것이 탭의 의도다. */
 function useLevelTooltip() {
   const [open, setOpen] = useState(false);
   const lastPointerType = useRef("");
   const pressedAt = useRef(0);
+  const openAtPress = useRef<boolean | null>(null);
+  const openRef = useRef(open);
+  openRef.current = open;
   return {
     open,
     onOpenChange: (next: boolean, details: { reason?: string }) => {
@@ -34,8 +40,13 @@ function useLevelTooltip() {
       setOpen(next);
     },
     triggerHandlers: {
-      onPointerDown: (event: React.PointerEvent) => { lastPointerType.current = event.pointerType; },
-      onClick: () => { pressedAt.current = Date.now(); setOpen(prev => !prev); },
+      onPointerDown: (event: React.PointerEvent) => { lastPointerType.current = event.pointerType; openAtPress.current = openRef.current; },
+      onPointerCancel: () => { openAtPress.current = null; },
+      onClick: () => {
+        pressedAt.current = Date.now();
+        if (openAtPress.current !== null) { setOpen(!openAtPress.current); openAtPress.current = null; }
+        else setOpen(prev => !prev);
+      },
     },
   };
 }
