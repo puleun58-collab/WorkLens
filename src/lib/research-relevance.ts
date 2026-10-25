@@ -210,6 +210,19 @@ function titleTokenExplained(token: string, stripTerms: readonly string[]): bool
 }
 
 /**
+ * Whether the title-subject guard vetoes an article. A title joining subjects
+ * with a disjunction (또는/혹은) names each branch separately, so the guard
+ * vetoes only when NO branch is fully explained: 법정 또는 국회회의장모욕 is
+ * kept for a 법정 모욕 issue because its 법정 branch matches, even though
+ * 국회회의장 is unmentioned. A title without a disjunction is a single
+ * branch, so this reduces exactly to the previous all-tokens-explained rule.
+ */
+function titleVetoed(title: string, stripTerms: readonly string[]): boolean {
+  return title.split(/또는|혹은/u).every((branch) =>
+    questionTerms(branch).some((token) => !isLawName(token) && !titleTokenExplained(token, stripTerms)));
+}
+
+/**
  * The case title is a candidate signal only; relevance evidence is the
  * 판시사항/판결요지/참조조문 (or, for lower courts without one, the judgment
  * opening with the title lines removed).
@@ -294,6 +307,8 @@ export function titleMatches(terms: readonly string[], law: string, title: strin
  *   for a harassment-measures issue) and is not direct evidence for this
  *   issue, however its body reads. A title with no issue term (벌칙) is
  *   untouched by the guard. Candidates are unaffected — only adoption.
+ *   A disjunctive title (또는/혹은) is vetoed only when no branch matches:
+ *   법정 또는 국회회의장모욕 is kept for a 법정 모욕 issue via its 법정 branch.
  * - An article with no excerpt text is never adopted: the UI cannot display
  *   it, so adopting it would show "근거 확인" with "표시 근거 없음" underneath.
  */
@@ -326,8 +341,7 @@ export function researchEvidenceSources(text: string, query: string, enrichment?
   ].filter((article) => {
     if (!article.excerpt.trim()) return false;
     const title = article.title;
-    if (title && terms.some((term) => termInText(term, title))
-      && questionTerms(title).some((token) => !isLawName(token) && !titleTokenExplained(token, stripTerms))) return false;
+    if (title && terms.some((term) => termInText(term, title)) && titleVetoed(title, stripTerms)) return false;
     return addresses(article.excerpt) || addressesTitle(title);
   }).map(({ law, jo }) => ({ law, jo }));
   const precedents = Object.entries(enrichment?.precedents ?? {})

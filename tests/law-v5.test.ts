@@ -56,6 +56,25 @@ describe("V5-F3a: title-subject guard (adoption only, candidates untouched)", ()
   });
 });
 
+describe("V5-F3a-disjunction: a disjunctive title is vetoed only when no branch matches", () => {
+  const text = (title: string, body: string) => [
+    "═══ 종합 리서치 ═══", "", "▶ AI 법령검색 결과", "지능형 법령검색 결과 (법령조문, 1건):", "",
+    "형법", `   제138조 (${title})`, `   제138조(${title})`, ` ${body}`, "   시행: 2025.01.01 | 법무부", "",
+  ].join("\n");
+  it("keeps 제138조 for a 법정 모욕 issue even though its title also names 국회회의장", () => {
+    expect(researchEvidenceSources(
+      text("법정 또는 국회회의장모욕", "법정에서 재판 중인 판사를 모욕한 자는 처벌한다."),
+      "법정 모욕", undefined, ["법정", "재판", "판사", "모욕", "공무집행방해"]))
+      .toEqual({ articles: [{ law: "형법", jo: "제138조" }], precedents: [] });
+  });
+  it("still vetoes a disjunctive title when neither branch matches the issue", () => {
+    expect(researchEvidenceSources(
+      text("국기 또는 국장 모욕", "대한민국을 모욕할 목적으로 국기 또는 국장을 손상하거나 모욕한 자는 처벌한다."),
+      "모욕", undefined, ["회사", "동료", "모욕"]))
+      .toEqual({ articles: [], precedents: [] });
+  });
+});
+
 describe("V5-F3b: strict majority", () => {
   it("does not adopt on one of two terms alone (조사 의무 vs 조사 only)", () => {
     const survey = { law: "해양과학조사법 시행령", jo: "제2조", title: "조사", body: "대한민국 영해에서의 조사에 대한 허가절차를 정한다." };
