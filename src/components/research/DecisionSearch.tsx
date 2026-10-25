@@ -237,7 +237,7 @@ export function DecisionSearch({ linkedRequest, onReturnToLaw, onCiteCheck }: De
                 {fullLoading ? "전문 불러오는 중…" : "전문 다시 시도"}
               </Button>
             </>}
-            {text.fullUnavailable === true && <p className="law-search-note" role="status">이 자료 유형은 전문 조회를 지원하지 않습니다. 중략된 요약 원문만 제공됩니다.</p>}
+            {text.fullUnavailable === true && <p className="law-search-note" role="status">이번 조회에서는 전체 원문을 확보하지 못했습니다. 중략된 요약 원문만 표시합니다.</p>}
             {fullError && <p className="law-search-error law-operation-error" role="alert">{fullError}</p>}
             <LawTextBlock className="decision-detail-raw" text={text.text} />
           </div> : null}

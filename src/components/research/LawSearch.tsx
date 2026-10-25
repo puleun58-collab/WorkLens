@@ -128,6 +128,7 @@ function LawPane({ onRelated, onAnalysis }: LawPaneProps) {
   const [activeJo, setActiveJo] = useState<string | undefined>();
   /** 항/호 move target, bound to one (law, 조); cleared on every view transition below. */
   const [articleTarget, setArticleTarget] = useState<(LawArticleTarget & { key: string }) | null>(null);
+  const [droppedHo, setDroppedHo] = useState(false);
   const [articleInput, setArticleInput] = useState("");
   const [articleInputError, setArticleInputError] = useState(false);
   const searchRequest = useRef<AbortController | null>(null);
@@ -163,7 +164,10 @@ function LawPane({ onRelated, onAnalysis }: LawPaneProps) {
       const result = lawOutcome(response.ok, body);
       setOutcome(result);
       const law = article && result.kind === "found" ? exactCurrentLaw(result.laws, article.lawName) : undefined;
-      if (law && article) openLaw(law, article.jo, article.hang !== undefined ? { hang: article.hang, ...(article.ho !== undefined ? { ho: article.ho } : {}) } : null);
+      if (law && article) {
+        setDroppedHo(article.droppedHo === true);
+        openLaw(law, article.jo, article.hang !== undefined ? { hang: article.hang, ...(article.ho !== undefined ? { ho: article.ho } : {}) } : null);
+      }
     } catch {
       if (!controller.signal.aborted) setOutcome({ kind: "error", message: LAW_FALLBACK_ERROR });
     } finally {
@@ -224,6 +228,7 @@ function LawPane({ onRelated, onAnalysis }: LawPaneProps) {
     setOverview(null);
     setArticleTarget(null);
     setArticleInputError(false);
+    setDroppedHo(false);
   }
 
   function backToOverview() {
@@ -247,6 +252,7 @@ function LawPane({ onRelated, onAnalysis }: LawPaneProps) {
     }
     setArticleInputError(false);
     setArticleTarget(null);
+    setDroppedHo(false);
     void loadText(selected, jo);
   }
 
@@ -279,6 +285,7 @@ function LawPane({ onRelated, onAnalysis }: LawPaneProps) {
         {activeJo && <Button variant="link" type="button" className="law-detail-return h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" onClick={() => { if (overview) backToOverview(); else { setArticleTarget(null); void loadText(selected); } }}>
           {overview?.mode === "toc" ? "← 목차로" : "← 법령 원문으로"}
         </Button>}
+        {activeJo && droppedHo && <p className="law-search-note" role="status">항을 지정하지 않은 호는 이동 대상에서 제외되어 조문 전체를 표시합니다.</p>}
         {detailLoading ? <p className="law-search-note" role="status">법령 원문을 불러오는 중…</p>
           : detail?.kind === "error" ? <div className="law-detail-feedback" role="alert">
             <p className="law-search-error">{detail.message}</p>

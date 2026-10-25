@@ -95,14 +95,16 @@ export function verifyDecisionEntry(domain: DecisionDomain, entry: DecisionEntry
     if (["선고일", "종국일", "의결일", "의결일자", "결정일", "회신일자", "해석일자"].includes(label)) return !expected.dates.includes(label);
     return !expected.institutions.includes(label);
   })) return "mismatched";
-  if (entry.caseNumber && decisionNumberMatchesDomain(domain, entry.caseNumber) === false) return "mismatched";
+  const prefix = courtFromCaseNumber(entry.caseNumber);
+  if (prefix) {
+    // A court-prefixed number names its court family, so the digit-led
+    // domain pattern — which a prefixed number can never satisfy — must not
+    // screen it out before the prefix rule is reached.
+    if (domain === "precedent" ? prefix === "헌법재판소" : domain === "constitutional" ? prefix !== "헌법재판소" : true) return "mismatched";
+  } else if (entry.caseNumber && decisionNumberMatchesDomain(domain, entry.caseNumber) === false) return "mismatched";
   if (entry.institution) {
     const observed = OBSERVED_INSTITUTIONS[domain];
     if (observed ? entry.institution !== observed : Object.values(OBSERVED_INSTITUTIONS).includes(entry.institution)) return "mismatched";
-  }
-  const prefix = courtFromCaseNumber(entry.caseNumber);
-  if (prefix) {
-    if (domain === "precedent" ? prefix === "헌법재판소" : domain === "constitutional" ? prefix !== "헌법재판소" : true) return "mismatched";
   }
   if ([...labels].some((label) => UNIQUE_LABELS.has(label))) return "matched";
   const numberLabel = expected.numbers.find((label) => labels.has(label));

@@ -152,6 +152,23 @@ test("RESEARCH law search opens an exact law article and falls back to results; 
   expect(analyses).toEqual([{ mode: "cite_check", caseNumber: "2013다61381" }]);
 });
 
+test("RESEARCH law article query without 항 says the 호 was excluded", async ({ page }) => {
+  // law-accuracy-v3 (C-5): a 호 requested without its 항 is dropped, not
+  // silently moved — the detail view must say so.
+  await page.route("**/api/law", (route) => route.fulfill({ status: 200, contentType: "application/json",
+    body: JSON.stringify({ data: { found: true, laws: [{ name: "근로기준법", status: "현행", lawId: "001872", mst: "283457", kind: "법률" }] } }) }));
+  await page.route("**/api/law/text", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { found: true, mode: "article", name: "근로기준법",
+    text: "법령명: 근로기준법\n\n제74조 임산부의 보호\n제74조(임산부의 보호)\n① 사용자는 임신 중의 여성에게 출산 전과 출산 후를 통하여 90일의 출산전후휴가를 주어야 한다." } }) }));
+  await page.goto("/");
+  await navigateWorkspace(page, "법령");
+  const input = page.getByRole("searchbox");
+  await input.fill("근로기준법 제74조 제3호");
+  await input.press("Enter");
+  await expect(page.locator("#law-detail-heading")).toHaveText("근로기준법");
+  await expect(page.locator(".law-detail-content h3")).toHaveText("제74조");
+  await expect(page.getByText("항을 지정하지 않은 호는 이동 대상에서 제외되어 조문 전체를 표시합니다.")).toBeVisible();
+});
+
 test("RESEARCH law article query moves to the requested 항·호, clears on return, and falls back for a missing 항", async ({ page }) => {
   const article60 = "법령명: 근로기준법\n\n제60조 연차 유급휴가\n제60조(연차 유급휴가)\n① 항하나\n⑥ 다음 각 호의 어느 하나에 해당하는 기간은 출근한 것으로 본다.\n1. 호하나\n2. 호둘\n3. 호셋\n⑦ 항일곱";
   await page.route("**/api/law", (route) => route.fulfill({ status: 200, contentType: "application/json",

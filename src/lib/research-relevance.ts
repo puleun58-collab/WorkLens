@@ -220,12 +220,14 @@ export function researchEvidenceSources(text: string, query: string, enrichment?
     ...(enrichment?.supplement?.articles ?? []),
   ].filter((article) => addressesIssue(article.excerpt)).map(({ law, jo }) => ({ law, jo }));
   const precedents = Object.entries(enrichment?.precedents ?? {})
-    .filter(([id, { rank, matched }]) => {
+    .filter(([id, { rank }]) => {
       if (rank !== "direct" && rank !== "related") return false;
-      // Judged on the holding text itself when it was read; the matched-term
-      // list is only the fallback for a ranking whose text is unavailable.
+      // Judged on the holding text itself when it was read. A ranking whose
+      // text is unavailable cannot be citation-verified: the matched-term
+      // list is the question's own terms, so judging it would only verify
+      // the question against itself. Such a precedent stays a candidate.
       const excerpt = enrichment?.precedentExcerpts?.[id];
-      return addressesIssue(excerpt ?? matched.filter((term) => terms.includes(term)).join(" "));
+      return excerpt !== undefined && addressesIssue(excerpt);
     })
     .map(([id]) => id);
   return { articles, precedents };

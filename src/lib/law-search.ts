@@ -62,6 +62,8 @@ export interface LawArticleQuery {
   jo: string;
   hang?: number;
   ho?: number;
+  /** A 호 was requested without its 항, so the 호 is not a target: the caller should say so instead of moving silently. */
+  droppedHo?: boolean;
 }
 
 export function parseLawArticleQuery(query: string): LawArticleQuery | null {
@@ -75,7 +77,8 @@ export function parseLawArticleQuery(query: string): LawArticleQuery | null {
   const hang = match[4] ? Number(match[4]) : undefined;
   // A 호 moves only inside its 항; without a 항 the 호 is not a target.
   const ho = hang !== undefined && match[5] ? Number(match[5]) : undefined;
-  return { lawName, jo, ...(hang !== undefined ? { hang } : {}), ...(ho !== undefined ? { ho } : {}) };
+  const droppedHo = hang === undefined && match[5] !== undefined;
+  return { lawName, jo, ...(hang !== undefined ? { hang } : {}), ...(ho !== undefined ? { ho } : {}), ...(droppedHo ? { droppedHo: true } : {}) };
 }
 
 /** The one 현행 entry whose name is exactly `lawName` and can open its text; ambiguous or absent → undefined. */
