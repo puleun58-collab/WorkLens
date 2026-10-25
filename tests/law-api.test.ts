@@ -186,6 +186,46 @@ describe("law MCP retry behavior", () => {
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
+  it("retries a real MCP tool-level connection timeout hidden inside HTTP 200", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(toolText("법제처 호출 실패: ConnectTimeoutError UND_ERR_CONNECT_TIMEOUT", true))
+      .mockResolvedValueOnce(toolText(SEARCH_TEXT));
+    vi.stubGlobal("fetch", fetcher);
+    const result = await call({ query: "근로기준법" });
+    expect(result.status).toBe(200);
+    expect(result.json.data.found).toBe(true);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(requestLog()).toMatchObject({ outcome: "success", retries: 1 });
+    expect(JSON.stringify(vi.mocked(console.info).mock.calls)).not.toContain(KEY);
+    expect(JSON.stringify(vi.mocked(console.info).mock.calls)).not.toContain("UND_ERR_CONNECT_TIMEOUT");
+  });
+
+  it("bounds repeated MCP tool-level timeouts and reports a safe 504", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    // Every fetch receives a fresh response stream, as in the real HTTP transport.
+    const fetcher = vi.fn().mockImplementation(async () => toolText("Error: UND_ERR_CONNECT_TIMEOUT", true));
+    vi.stubGlobal("fetch", fetcher);
+    const result = await call({ query: "근로기준법" });
+    expect([result.status, result.json.error.code]).toEqual([504, "LAW_UPSTREAM_TIMEOUT"]);
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(requestLog()).toMatchObject({ outcome: "timeout", retries: 2 });
+    expect(result.text).not.toContain("UND_ERR_CONNECT_TIMEOUT");
+  });
+
+  it("never retries NOT_FOUND, partial legal evidence or unrelated tool errors", async () => {
+    const partial = `${SEARCH_TEXT}\n[UPSTREAM_FAILURE] UND_ERR_CONNECT_TIMEOUT`;
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(toolText("[NOT_FOUND] 없는 법령", true))
+      .mockResolvedValueOnce(toolText(partial, true))
+      .mockResolvedValueOnce(toolText("invalid parameters", true));
+    vi.stubGlobal("fetch", fetcher);
+    expect((await call({ query: "없는 법령" })).json.data.found).toBe(false);
+    expect((await call({ query: "근로기준법" })).status).toBe(502);
+    expect((await call({ query: "근로기준법" })).status).toBe(502);
+    expect(fetcher).toHaveBeenCalledTimes(3);
+  });
+
   it("retries 503 twice then fails with 503", async () => {
     const fetcher = vi.fn().mockResolvedValue(new Response("busy", { status: 503 }));
     vi.stubGlobal("fetch", fetcher);
