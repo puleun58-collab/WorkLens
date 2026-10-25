@@ -354,3 +354,66 @@ describe("title-matched article lookup", () => {
     expect(Object.keys(enrichment.precedents!)).toHaveLength(5);
   });
 });
+
+describe("question scaffolding in an unread everyday question", () => {
+  it("drops conjunctions, question tails and inflected verb forms instead of keeping them as subjects", () => {
+    expect(questionTerms("직장 내 괴롭힘이 신고되면 사용자는 어떤 의무가 있나요? 조사, 피해자 보호, 가해자 조치에 대해 알려주세요."))
+      .toEqual(["직장", "괴롭힘", "신고", "사용자", "의무", "조사", "피해자", "보호", "가해자", "조치"]);
+    expect(questionTerms("법정 또는 국회회의장에서 사람을 모욕하면 어떤 처벌을 받나요? 형법상 법정모욕죄에 대해 알려주세요."))
+      .toEqual(["법정", "국회회의장", "사람", "모욕", "처벌", "형법", "법정모욕죄"]);
+  });
+});
+
+describe("unread-question fallback adoption", () => {
+  const C3_FALLBACK = "직장 내 괴롭힘이 신고되면 사용자는 어떤 의무가 있나요? 조사, 피해자 보호, 가해자 조치에 대해 알려주세요.";
+  const C3_CHAIN = [
+    "═══ 종합 리서치: 직장 내 괴롭힘 조사 ═══", "",
+    "▶ AI 법령검색 결과", "지능형 법령검색 결과 (법령조문, 2건):", "",
+    "근로기준법", "   제0076조의3 (직장 내 괴롭힘 발생 시 조치)", "   제76조의3(직장 내 괴롭힘 발생 시 조치)",
+    " ① 누구든지 직장 내 괴롭힘 발생 사실을 알게 된 경우 그 사실을 사용자에게 신고할 수 있다.",
+    "  ② 사용자는 제1항에 따른 신고를 접수하거나 직장 내 괴롭힘 발생 사실을 인지한 경우에는 지체 없이 당사자 등을 대상으로 그 사실 확인을 위하여 객관적으로 조사를 실시하여야 한다. <개정 2021.4.13>",
+    "  ③...",
+    "   시행: 2026.10.08 | 고용노동부", "",
+    "해양과학조사법", "   제0002조 (정의)", "   제2조(정의)",
+    " 이 법에서 해양과학조사란 해양에서 과학적인 조사를 수행하는 것을 말한다.",
+    "   시행: 2025.01.01 | 해양수산부", "",
+  ].join("\n");
+  const COURT_FALLBACK = "법정 또는 국회회의장에서 사람을 모욕하면 어떤 처벌을 받나요? 형법상 법정모욕죄에 대해 알려주세요.";
+  const COURT_CHAIN = [
+    "═══ 종합 리서치 ═══", "",
+    "▶ AI 법령검색 결과", "지능형 법령검색 결과 (법령조문, 2건):", "",
+    "형법", "   제0138조 (법정 또는 국회회의장모욕)", "   제138조(법정 또는 국회회의장모욕)",
+    " 법원의 재판 또는 국회의 심의를 방해 또는 위협할 목적으로 법정이나 국회회의장 또는 그 부근에서 모욕 또는 소동한 자는 3년 이하의 징역 또는 700만원 이하의 벌금에 처한다.",
+    "   시행: 2026.10.02 | 법무부", "",
+    "형법", "   제0311조 (모욕)", "   제311조(모욕)",
+    " 공연히 사실을 적시하여 사람의 명예를 훼손한 자는 2년 이하의 징역이나 금고 또는 300만원 이하의 벌금에 처한다.",
+    "   시행: 2026.10.02 | 법무부", "",
+  ].join("\n");
+
+  it("adopts the core article from its truncated preview, where the bundled majority rule cannot pass", () => {
+    expect(researchEvidenceSources(C3_CHAIN, C3_FALLBACK, undefined, undefined, { fallback: true }).articles)
+      .toEqual([{ law: "근로기준법", jo: "제76조의3" }]);
+    // The same text under the interpreted-issue rule adopts nothing: five of
+    // ten bundled terms is not a strict majority, and the longest term is gone.
+    expect(researchEvidenceSources(C3_CHAIN, C3_FALLBACK).articles).toEqual([]);
+  });
+
+  it("adopts the courtroom provision for a courtroom question and keeps the general insult provision as reference only", () => {
+    expect(researchEvidenceSources(COURT_CHAIN, COURT_FALLBACK, undefined, undefined, { fallback: true }).articles)
+      .toEqual([{ law: "형법", jo: "제138조" }]);
+  });
+
+  it("adopts nothing for a subject-free question, however many generic words match", () => {
+    expect(researchEvidenceSources(C3_CHAIN, "의무가 어떻게 되나요?", undefined, undefined, { fallback: true }).articles).toEqual([]);
+  });
+
+  it("keeps the one-term fallback working: a single subject term anchored is enough", () => {
+    const insult = "═══ 종합 리서치 ═══\n▶ AI 법령검색 결과\n지능형 법령검색 결과 (법령조문, 1건):\n\n형법\n   제0311조 (모욕)\n공연히 사람을 모욕한 자는 1년 이하의 징역이나 금고 또는 200만원 이하의 벌금에 처한다.\n   시행: 2025.01.01 | 법무부";
+    expect(researchEvidenceSources(insult, "회사에서 업무 관련해서 모욕을 당했어", undefined, undefined, { fallback: true }).articles)
+      .toEqual([{ law: "형법", jo: "제311조" }]);
+    // But one generic term alone still names no regime and adopts nothing,
+    // even when the source text contains that word (the 해양 article below
+    // is about 조사, but the question names no subject for it to belong to).
+    expect(researchEvidenceSources(C3_CHAIN, "조사에 대해 알려주세요", undefined, undefined, { fallback: true }).articles).toEqual([]);
+  });
+});

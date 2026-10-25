@@ -1686,7 +1686,7 @@ test("RESEARCH separates a verified article from search candidates and hides int
   const supporting = await output.locator(".research-supporting details").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-kind")));
   expect(supporting.indexOf("detail")).toBeLessThan(supporting.indexOf("law_toc"));
   const toc = output.locator("details[data-kind='law_toc']");
-  await expect(toc.locator("summary")).toContainText("근로기준법 법령 전체 보기 · 132개 조문");
+  await expect(toc.locator("summary")).toContainText("근로기준법 법령 목차 보기 · 132개 조문");
   await expect(toc).not.toHaveAttribute("open", "");
   await toc.locator("summary").click();
   await expect(toc.locator("pre")).toContainText("제132조 조문 제목 132");

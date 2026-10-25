@@ -58,8 +58,9 @@ export interface ResearchEnrichment {
 /** Words that frame a question rather than name its subject: question scaffolding, scene nouns and speech acts. */
 const FRAME_WORDS = new Set([
   "판단", "기준", "방법", "절차", "관련", "요건", "근거", "여부", "효력", "내용", "사례", "판례", "처분", "문제", "경우",
-  "및", "등", "내", "의", "에서", "대한", "관한", "위한", "대해", "알려줘", "무엇", "어떻게", "가능", "해석", "적용", "범위",
-  "회사", "업무", "궁금", "궁금해", "싶어", "알고",
+  "및", "등", "내", "의", "에서", "대한", "관한", "위한", "대해", "알려줘", "알려주세요", "무엇", "어떻게", "가능", "해석", "적용", "범위",
+  "어떤", "또는", "혹은",
+  "회사", "업무", "궁금", "궁금해", "궁금해요", "싶어", "알고",
   // 규정 carries no discriminating information (every article is a 규정):
   // "해고 규정" names 해고, and keeping 규정 as a term would demand a body
   // word no dismissal article uses.
@@ -67,7 +68,7 @@ const FRAME_WORDS = new Set([
 ]);
 const PARTICLE = /(?:의|을|를|이|가|은|는|에|에서|으로|로|과|와|도)$/u;
 /** Endings of a spoken or written question (…당했어, …관련해서, …해고됐는데, …인지): they inflect, they do not name a subject. */
-const ENDING = /(?:됐는데|했는데|였는데|인데|해서|하여|했어|됐어|았어|었어|였어|인지|은지|는지|인가|을까|일까)$/u;
+const ENDING = /(?:됐는데|했는데|였는데|인데|해서|하여|했어|됐어|았어|었어|였어|인지|은지|는지|인가|을까|일까|나요|되면|하면)$/u;
 const LAW_NAME = /(?:법|법률|령|규칙|조례)$/u;
 /** `근로기준법상` names the law under a locative suffix; the law name itself is the subject. */
 const LAW_UNDER = /^(.+(?:법|법률|령|규칙|조례))상$/u;
@@ -96,6 +97,27 @@ export function questionTerms(query: string): string[] {
     if (!terms.includes(word)) terms.push(word);
   }
   return terms;
+}
+
+/**
+ * A question's own subject words: its terms minus generic procedure/effect
+ * words and actor words. Used for the unread-question fallback: the lookup
+ * query and the adoption subjects come from these, never from an invented
+ * legal term.
+ */
+export function questionSubjectTerms(query: string): string[] {
+  return questionTerms(query).filter((term) => !GENERIC_TERMS.has(term) && !ACTOR_TERMS.has(term));
+}
+
+/**
+ * Whether a phrase names no subject at all: every term is a generic
+ * procedure/effect word or an actor word. Such a phrase cannot name its
+ * regime upstream ("피해자 보호" retrieves every victim-protection law but
+ * the workplace one), so a retry qualifies it with the request's subjects.
+ */
+export function questionTermsSubjectLess(query: string): boolean {
+  const terms = questionTerms(query).filter((term) => !isLawName(term));
+  return terms.length > 0 && terms.every((term) => GENERIC_TERMS.has(term) || ACTOR_TERMS.has(term));
 }
 
 /** Any occurrence at all, including inside a longer compound (사용자등록 for 사용자). */
@@ -314,10 +336,20 @@ export function titleMatches(terms: readonly string[], law: string, title: strin
  *   untouched by the guard. Candidates are unaffected — only adoption.
  *   A disjunctive title (또는/혹은) is vetoed only when no branch matches:
  *   법정 또는 국회회의장모욕 is kept for a 법정 모욕 issue via its 법정 branch.
+ * - (F) An unread question (fallback: no interpreted issue) cannot use (A):
+ *   one issue bundles every aspect the question asked, so a strict majority
+ *   over all its terms is unreachable, and question scaffolding used to
+ *   hijack the longest term. (F) replaces (A) for that issue only: at least
+ *   two of its terms anchored in the source text, including at least one
+ *   subject term of the question itself — or, for a one-term question, that
+ *   single term anchored and itself a subject. A single shared generic word
+ *   (조사 alone) still adopts nothing, and a subject-free question adopts
+ *   nothing. The title guard and the excerpt requirement apply unchanged.
  * - An article with no excerpt text is never adopted: the UI cannot display
  *   it, so adopting it would show "근거 확인" with "표시 근거 없음" underneath.
  */
-export function researchEvidenceSources(text: string, query: string, enrichment?: ResearchEnrichment, requestTerms?: readonly string[]): {
+export function researchEvidenceSources(text: string, query: string, enrichment?: ResearchEnrichment, requestTerms?: readonly string[],
+  options?: { fallback?: boolean }): {
   articles: Array<{ law: string; jo: string }>; precedents: string[];
 } {
   const terms = questionTerms(query).filter((term) => !isLawName(term));
@@ -328,8 +360,16 @@ export function researchEvidenceSources(text: string, query: string, enrichment?
   const useDomainRule = subjectLess && subjectTerms.length > 0;
   const combined = [...new Set([...terms, ...subjectTerms])];
   const longest = Math.max(...terms.map((term) => term.length));
+  // For an unread question the request is the issue itself, so its subjects
+  // come from its own terms rather than from sibling issues.
+  const fallbackSubjects = options?.fallback
+    ? terms.filter((term) => !GENERIC_TERMS.has(term) && !ACTOR_TERMS.has(term)) : [];
   const addresses = (content: string) => {
     if (!content.trim()) return false;
+    if (options?.fallback) {
+      const anchored = terms.filter((term) => termAnchored(term, terms, content));
+      return anchored.length >= Math.min(2, terms.length) && anchored.some((term) => fallbackSubjects.includes(term));
+    }
     if (useDomainRule) {
       return terms.some((term) => termAnchored(term, combined, content))
         && subjectTerms.some((term) => termAnchored(term, combined, content));
@@ -364,7 +404,8 @@ export function researchEvidenceSources(text: string, query: string, enrichment?
 }
 
 /** Whether verified source content addresses an interpreted issue. */
-export function hasRelevantResearchEvidence(text: string, query: string, enrichment?: ResearchEnrichment, requestTerms?: readonly string[]): boolean {
-  const sources = researchEvidenceSources(text, query, enrichment, requestTerms);
+export function hasRelevantResearchEvidence(text: string, query: string, enrichment?: ResearchEnrichment, requestTerms?: readonly string[],
+  options?: { fallback?: boolean }): boolean {
+  const sources = researchEvidenceSources(text, query, enrichment, requestTerms, options);
   return sources.articles.length > 0 || sources.precedents.length > 0;
 }
