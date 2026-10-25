@@ -215,10 +215,24 @@ export function researchEvidenceSources(text: string, query: string, enrichment?
     return matched.length >= Math.ceil(terms.length / 2)
       && matched.some((term) => term.length === longest && termAnchored(term, terms, excerpt));
   };
+  // F1 M1: the parser already holds the official article title (chain) or the
+  // table-of-contents title (supplement), but adoption read only the body.
+  // A body that splits a compound across particles (명예를 훼손한 for 명예훼손)
+  // therefore dropped an article whose own title names the issue. A title
+  // adopts under exactly the same anchored standard as a body — same majority
+  // and same longest-term anchoring — so a partial title (명예훼손 inside
+  // 명예훼손분쟁조정부) still promotes nothing. Titles come only from official
+  // MCP data; nothing is inferred from a title beyond this anchored match.
+  const addressesTitle = (title: string | undefined) => {
+    if (!title?.trim()) return false;
+    const matched = terms.filter((term) => termOccurs(term, compact(title)));
+    return matched.length >= Math.ceil(terms.length / 2)
+      && matched.some((term) => term.length === longest && termAnchored(term, terms, title));
+  };
   const articles = [
     ...researchResult(text).sections.filter((section) => section.status === "available").flatMap((section) => section.articles ?? []),
     ...(enrichment?.supplement?.articles ?? []),
-  ].filter((article) => addressesIssue(article.excerpt)).map(({ law, jo }) => ({ law, jo }));
+  ].filter((article) => addressesIssue(article.excerpt) || addressesTitle(article.title)).map(({ law, jo }) => ({ law, jo }));
   const precedents = Object.entries(enrichment?.precedents ?? {})
     .filter(([id, { rank }]) => {
       if (rank !== "direct" && rank !== "related") return false;

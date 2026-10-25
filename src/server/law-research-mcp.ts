@@ -186,7 +186,11 @@ async function fullResearch(
     let adopted = await issueSources(issue.query, known, undefined, sources, summaries);
     let lookup: IssueLookup | undefined;
     // Only an interpreted issue has a short phrase of its own; a question that could not be read is never sent whole.
-    if (!adopted.articles.length && !adopted.precedents.length && issue.label !== undefined) {
+    // F1 M2: the gate used to require precedents to be empty as well, so an issue covered only by
+    // precedents never reached the supplement lookup — and the question's law-name inheritance (F2)
+    // could not rescue its missing articles. Precedents cover status, not articles, so the gate is
+    // articles==0 alone; the shared issue budget and timeout reporting are unchanged.
+    if (!adopted.articles.length && issue.label !== undefined) {
       lookup = await lookupIssue(issue.query, shownArticles, sources, expired, questionTerms(query).filter(isLawName));
       if (lookup.status === "found") adopted = await issueSources(issue.query, known, lookup, sources, summaries);
     }
@@ -240,7 +244,8 @@ async function fullResearch(
       articles: await withCurrency(articles, text, enrichment, context),
       precedents,
       ...(Object.keys(precedentExcerpts).length ? { precedentExcerpts } : {}),
-      issues: judged.map(({ issue, adopted, status }) => ({ ...(issue.label ? { label: issue.label } : {}), status, ...adopted })),
+      issues: judged.map(({ issue, adopted, status, lookup }) => ({ ...(issue.label ? { label: issue.label } : {}), status, ...adopted,
+        ...(lookup?.partialFailure ? { lookupPartial: true as const } : {}) })),
       ...(Object.keys(precedentEntries).length ? { precedentEntries } : {}),
       ...(chain.kind === "failed" ? { searchFailed: true as const } : {}),
     },

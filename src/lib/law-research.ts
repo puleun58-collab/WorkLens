@@ -185,6 +185,12 @@ export interface IssueEvidence {
   status: "found" | "none" | "failed" | "timeout";
   articles: Array<{ law: string; jo: string }>;
   precedents: string[];
+  /**
+   * The issue's own lookup covered it through one branch while the other branch failed,
+   * so the lookup as a whole was not confirmed. The UI surfaces this through the existing
+   * partial notice (which demotes a server `matched` to UI `partial`); the server status is unchanged.
+   */
+  lookupPartial?: true;
 }
 
 export interface LawResearchData {
