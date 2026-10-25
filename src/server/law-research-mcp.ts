@@ -2,7 +2,7 @@ import type { EvidenceArticle, InterpretationFailure, IssueEvidence, LawCurrency
 import type { LawRequestStats } from "@/lib/law-observability";
 import { researchResult, type ResearchDecision } from "@/lib/law-research-parse";
 import {
-  questionTerms, rankPrecedent, researchEvidenceSources,
+  isLawName, questionTerms, rankPrecedent, researchEvidenceSources,
   type PrecedentRelevance, type ResearchEnrichment, type SupplementArticle,
 } from "@/lib/research-relevance";
 import { classifyLawToolResult } from "@/server/law-analysis-mcp";
@@ -187,7 +187,7 @@ async function fullResearch(
     let lookup: IssueLookup | undefined;
     // Only an interpreted issue has a short phrase of its own; a question that could not be read is never sent whole.
     if (!adopted.articles.length && !adopted.precedents.length && issue.label !== undefined) {
-      lookup = await lookupIssue(issue.query, shownArticles, sources, expired);
+      lookup = await lookupIssue(issue.query, shownArticles, sources, expired, questionTerms(query).filter(isLawName));
       if (lookup.status === "found") adopted = await issueSources(issue.query, known, lookup, sources, summaries);
     }
     const covered = adopted.articles.length > 0 || adopted.precedents.length > 0;

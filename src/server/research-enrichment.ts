@@ -175,7 +175,9 @@ export async function enrichResearch(
       const summary = await sources.summary(id).catch(() => undefined);
       relevance[id] = rankPrecedent(terms, { title: titles.get(id), ...(summary ? { summary: summary.text, excerpt: summary.excerpt } : {}) }, cited);
       if (summary?.text && relevance[id].rank !== "low" && relevance[id].rank !== "unknown") {
-        excerpts[id] = summary.text.slice(0, EXCERPT_CHARS);
+        // Signal truncation like articleExcerpt does: a cut excerpt without
+        // an ellipsis reads as the whole holding.
+        excerpts[id] = summary.text.length > EXCERPT_CHARS ? `${summary.text.slice(0, EXCERPT_CHARS).trimEnd()} …` : summary.text;
       }
     }, expired);
     for (const id of precedentIds) relevance[id] ??= rankPrecedent(terms, { title: titles.get(id) });
@@ -287,6 +289,10 @@ export async function lookupIssue(
   shownArticles: ReadonlyArray<{ law: string; jo: string }>,
   sources: EnrichmentSources,
   expired: () => boolean,
+  // Law names the user's own question named but the issue phrase dropped
+  // (e.g. "근로기준법상 … 사용자의 조치 의무" → issue "사용자 조치 의무"):
+  // without them the title lookup has no law to search under.
+  extraNamed: ReadonlyArray<string> = [],
 ): Promise<IssueLookup> {
   const terms = questionTerms(query);
   const keywords = terms.filter((term) => !isLawName(term));
@@ -295,7 +301,7 @@ export async function lookupIssue(
   let failed = false;
   const [hits, statutes] = await Promise.all([
     sources.precedents(query).catch(() => { failed = true; return []; }),
-    titleArticles(keywords, terms.filter(isLawName), shownArticles, sources, expired, true),
+    titleArticles(keywords, [...new Set([...terms.filter(isLawName), ...extraNamed])], shownArticles, sources, expired, true),
   ]);
   const precedents: IssueLookup["precedents"] = [];
   const read = hits.slice(0, ISSUE_PRECEDENTS);
