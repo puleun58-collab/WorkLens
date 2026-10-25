@@ -767,7 +767,7 @@ function ResearchResult({ data, request, expandSources = false, onExpandSourcesC
   const issueEvidence = full ? data.evidence?.issues ?? [] : [];
   const notice = partialNotice(result.sections)
     ?? (full && data.evidence?.searchFailed ? "종합 검색 결과를 불러오지 못해 쟁점별로 확인한 자료만 표시합니다"
-      : issueEvidence.some((issue) => issue.status === "failed" || issue.status === "timeout")
+      : issueEvidence.some((issue) => issue.status === "failed" || issue.status === "timeout" || issue.lookupPartial)
         ? "일부 쟁점의 자료를 확인하지 못했습니다. 확인된 자료를 기준으로 결과를 표시합니다" : null);
   const interpretation = full && data.interpretation?.original === (request.task === "document_review" ? "" : request.query) ? data.interpretation : undefined;
   const primary = result.sections.filter((section) => !isSupportingSection(section)

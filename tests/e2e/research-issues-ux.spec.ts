@@ -74,6 +74,28 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     await expect(results.locator(".research-source")).toContainText("원문을 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.");
   });
 
+  test(`보완 조회 부분 실패는 서버 matched를 화면 partial로 강등한다 ${viewport.width}`, async ({ page }) => {
+    // F7·F1·F3 (lookupPartial): the server still reports matched (the issue was
+    // covered), but one lookup branch failed, so the existing partial notice
+    // must show and the display status must demote to partial — no new card or wording.
+    await page.setViewportSize(viewport);
+    await page.route("**/api/law/research", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: {
+      found: true, task: "full_research", markers: [],
+      text: `═══ 종합 리서치 ═══\n▶ AI 법령검색 결과\n지능형 법령검색 결과 (법령조문, 1건):\n\n근로기준법\n   제0023조 (해고 등의 제한)\n${longExcerpt}\n   시행: 2025.01.01 | 고용노동부`,
+      evidence: { status: "matched", articles: [article], precedents: [],
+        issues: [{ label: "해고 제한", status: "found", articles: [article], precedents: [], lookupPartial: true }] },
+    } }) }));
+    await page.goto("/");
+    await navigateWorkspace(page, "법령");
+    await page.getByRole("tab", { name: "종합 리서치", exact: true }).click();
+    const form = page.getByRole("form", { name: "종합 리서치 입력" });
+    const results = page.locator(".legal-research .legal-analysis-result");
+    await form.getByLabel("질문 또는 검색어").fill("해고 제한");
+    await form.getByRole("button", { name: "실행", exact: true }).click();
+    await expect(results.locator(".legal-research-partial")).toContainText("일부 쟁점의 자료를 확인하지 못했습니다. 확인된 자료를 기준으로 결과를 표시합니다");
+    await expect(results.locator(".research-overview h3")).toHaveText("관련 근거를 일부 확인했습니다");
+  });
+
   test(`종합 리서치 쟁점 0/1/2/5와 독립 근거·바로가기 ${viewport.width}`, async ({ page }) => {
     await page.setViewportSize(viewport);
     let calls = 0;

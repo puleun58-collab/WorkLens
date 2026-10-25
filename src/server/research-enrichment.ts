@@ -277,6 +277,12 @@ export interface IssueLookup {
   articles: SupplementArticle[];
   /** Cases this issue's own search returned, each with the summary text its relevance was judged on. */
   precedents: Array<ResearchDecision & { summary: string; excerpt: boolean }>;
+  /**
+   * One branch failed while the other covered the issue, so `found` alone would hide the
+   * failure: the uncovered branch was never confirmed. Title-lookup internals that fail
+   * part-way while another article still lands are not counted here (see AUDIT).
+   */
+  partialFailure?: boolean;
 }
 
 /**
@@ -314,5 +320,9 @@ export async function lookupIssue(
   const status = statutes.articles.length || precedents.length ? "found"
     : failed || statutes.status === "failed" ? "failed"
     : expired() ? "timeout" : "none";
-  return { status, articles: statutes.articles, precedents };
+  // A covering branch must not swallow the other branch's failure: when the lookup
+  // still reports `found`, the failure is carried separately for the caller to surface.
+  const partialFailure = status === "found"
+    && ((failed && statutes.articles.length > 0) || (statutes.status === "failed" && precedents.length > 0));
+  return { status, articles: statutes.articles, precedents, ...(partialFailure ? { partialFailure: true as const } : {}) };
 }
