@@ -151,6 +151,10 @@ export async function enrichResearch(
   text: string,
   sources: EnrichmentSources,
   now: () => number = Date.now,
+  // A per-issue retry chain's precedents and interpretations are discarded by
+  // its caller, so skipping their lookups changes nothing it returns except
+  // time. The main chain and action-basis paths never pass these.
+  options: { skipPrecedentSummaries?: boolean; skipInterpretationRetry?: boolean } = {},
 ): Promise<ResearchEnrichment> {
   const started = now();
   const expired = () => now() - started > BUDGET_MS;
@@ -167,7 +171,7 @@ export async function enrichResearch(
     .filter((section) => section.kind === "decision_search" && /판례/u.test(section.heading ?? ""))
     .flatMap((section) => section.decisions?.entries ?? [])
     .map((entry) => entry.id))].slice(0, MAX_PRECEDENTS);
-  if (task === "full_research" && precedentIds.length) {
+  if (task === "full_research" && precedentIds.length && !options.skipPrecedentSummaries) {
     const titles = new Map(document.sections.flatMap((section) => section.decisions?.entries ?? []).map((entry) => [entry.id, entry.title]));
     const excerpts: Record<string, string> = {};
     const relevance: Record<string, PrecedentRelevance> = {};
@@ -189,7 +193,7 @@ export async function enrichResearch(
   // remain search candidates, never proof of a legal interpretation.
   const interpretation = document.sections.find((section) => section.status === "not_found" && /해석례/u.test(section.heading ?? ""));
   const retryQuery = terms.join(" ");
-  if (interpretation && terms.length && retryQuery !== query.trim() && !expired()) {
+  if (interpretation && terms.length && retryQuery !== query.trim() && !expired() && !options.skipInterpretationRetry) {
     const entries = await sources.interpretations(retryQuery).catch(() => []);
     const relevant = task === "full_research"
       ? entries.filter((entry) => terms.some((term) => (entry.title ?? "").replace(/\s+/gu, "").includes(term.replace(/\s+/gu, ""))))

@@ -89,6 +89,7 @@ async function issueSources(
   lookup: IssueLookup | undefined,
   sources: EnrichmentSources,
   summaries: Map<string, string>,
+  requestTerms: readonly string[] = [],
 ): Promise<{ articles: Array<{ law: string; jo: string }>; precedents: string[] }> {
   const terms = questionTerms(issueQuery);
   const relevance: Record<string, PrecedentRelevance> = {};
@@ -108,7 +109,7 @@ async function issueSources(
     // Citation is judged on the summaries actually read for this issue, not on term lists alone.
     precedentExcerpts: Object.fromEntries(summaries),
     supplement: { status: supplement.length ? "found" : "none", articles: supplement },
-  });
+  }, requestTerms);
 }
 
 async function fullResearch(
@@ -138,13 +139,19 @@ async function fullResearch(
   const sources = sharedSources(mcpEnrichmentSources(context));
 
   const searchedQueries = new Set<string>();
-  const search = async (searchQuery: string): Promise<ChainResult> => {
+  // A per-issue retry chain's precedents and interpretations are discarded by
+  // design (only its articles are merged), so a retry skips the precedent
+  // summaries and the interpretation retry that the main chain needs. Its
+  // article paths — chain text and supplement lookup — are unchanged, and
+  // the same adoption rules judge what it returns.
+  const search = async (searchQuery: string, light = false): Promise<ChainResult> => {
     searchedQueries.add(searchQuery);
     try {
       const { text, isError } = await callLawTool("legal_research", { task: "full_research", query: searchQuery }, context);
       const classification = classifyLawToolResult(text, isError, { failureMessage: RESEARCH_FAILURE });
       if (classification.kind === "absent") return { kind: "absent", text };
-      const enrichment = await enrichResearch("full_research", searchQuery, text, sources).catch(() => undefined);
+      const enrichment = await enrichResearch("full_research", searchQuery, text, sources, undefined,
+        light ? { skipPrecedentSummaries: true, skipInterpretationRetry: true } : undefined).catch(() => undefined);
       return { kind: "found", text, markers: classification.markers, ...(enrichment ? { enrichment } : {}) };
     } catch (error) {
       if (context.signal?.aborted) throw error;
@@ -184,8 +191,13 @@ async function fullResearch(
   const summaries = new Map<string, string>();
   const started = Date.now();
   const expired = () => Date.now() - started > ISSUE_BUDGET_MS;
+  // The request's own words, for adoption only: the question plus every
+  // issue's phrase. A subject-less issue (V5-F1b) is judged against these
+  // domain terms; a subject-bearing issue never is, so one issue's evidence
+  // cannot confirm another's.
+  const requestTerms = [...new Set([...questionTerms(query), ...issues.flatMap((issue) => questionTerms(issue.query))])];
   const judged = await Promise.all(issues.map(async (issue) => {
-    let adopted = await issueSources(issue.query, known, undefined, sources, summaries);
+    let adopted = await issueSources(issue.query, known, undefined, sources, summaries, requestTerms);
     let lookup: IssueLookup | undefined;
     // Only an interpreted issue has a short phrase of its own; a question that could not be read is never sent whole.
     // F1 M2: the gate used to require precedents to be empty as well, so an issue covered only by
@@ -194,7 +206,7 @@ async function fullResearch(
     // articles==0 alone; the shared issue budget and timeout reporting are unchanged.
     if (!adopted.articles.length && issue.label !== undefined) {
       lookup = await lookupIssue(issue.query, shownArticles, sources, expired, questionTerms(query).filter(isLawName), questionTerms(query));
-      if (lookup.status === "found") adopted = await issueSources(issue.query, known, lookup, sources, summaries);
+      if (lookup.status === "found") adopted = await issueSources(issue.query, known, lookup, sources, summaries, requestTerms);
     }
     const covered = adopted.articles.length > 0 || adopted.precedents.length > 0;
     // When the combined search failed, "nothing found" by the issue lookup alone is not a confirmed absence.
@@ -225,7 +237,7 @@ async function fullResearch(
   if (found && retryTargets.length) {
     await Promise.all(retryTargets.map(async (item) => {
       if (expired() || searchedQueries.has(item.issue.query)) return;
-      const retry = await search(item.issue.query);
+      const retry = await search(item.issue.query, true);
       if (retry.kind !== "found" || expired()) return;
       const retryDocument = researchResult(retry.text);
       const retryKnown = {
@@ -234,7 +246,7 @@ async function fullResearch(
         listed: new Map(retryDocument.sections.filter((section) => section.status === "available")
           .flatMap((section) => section.decisions?.entries ?? []).map((entry) => [entry.id, entry] as const)),
       };
-      const retryAdopted = await issueSources(item.issue.query, retryKnown, undefined, sources, summaries);
+      const retryAdopted = await issueSources(item.issue.query, retryKnown, undefined, sources, summaries, requestTerms);
       if (!retryAdopted.articles.length) return;
       const retryTextArticles = retryDocument.sections.flatMap((section) => section.articles ?? []);
       const issueTerms = questionTerms(item.issue.query);
@@ -285,9 +297,15 @@ async function fullResearch(
     ...[...lookupArticles.values()].filter((article) => !baseSupplement?.articles.some((item) => item.law === article.law && item.jo === article.jo)),
     ...[...retryArticles.values()].filter((article) => !baseSupplement?.articles.some((item) => item.law === article.law && item.jo === article.jo)
       && ![...lookupArticles.values()].some((item) => item.law === article.law && item.jo === article.jo))];
+  // The merged supplement keeps the main chain's incompleteness: a partial
+  // failure that merging would otherwise silently drop. The UI surfaces it
+  // through the existing partial notice (overall status only — the shared
+  // supplement cannot be attributed to one issue, so no per-issue demotion).
+  const supplementIncomplete = baseSupplement?.partialFailure === true || baseSupplement?.status === "failed";
   const enrichment: ResearchEnrichment | undefined = found?.enrichment || supplementArticles.length ? {
     ...found?.enrichment,
-    ...(supplementArticles.length ? { supplement: { status: "found" as const, articles: supplementArticles } } : {}),
+    ...(supplementArticles.length ? { supplement: { status: "found" as const, articles: supplementArticles,
+      ...(supplementIncomplete ? { partialFailure: true as const } : {}) } } : {}),
   } : undefined;
   const articles = [...new Map(judged.flatMap(({ adopted }) => adopted.articles).map((article) => [`${article.law}\0${article.jo}`, article])).values()];
   const precedents = [...new Set(judged.flatMap(({ adopted }) => adopted.precedents))];
