@@ -1387,10 +1387,25 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
 /** 계획 항목 결정이 전파되는 역할: 구현 요구로 렌더링되는 계획 출처 항목만 대상이다.
  * 사람·제외·보안·참고 역할은 제약·증거이므로 전파로 제거하지 않는다. */
 const PLAN_PROPAGATION_ROLES = new Set(["features", "goal", "criteria", "tests", "conditions", "flow", "outputs"]);
+/** 외래어 표기 정규화: 같은 외부 시스템을 영어 표기와 한글 표기로 각각 적어도
+ * 같은 토큰으로 본다 ("Google Sheets" ↔ "구글 시트"). 특정 업무·특정 항목을
+ * 가리키는 표가 아니라, 시스템 명칭에 흔히 쓰이는 일반 외래어 대응이다.
+ * 한글 표기가 이미 정착된 토큰은 그대로 두고, 영어 토큰만 한글 표준형으로 바꾼다. */
+const LOANWORD_MAP: Record<string, string> = {
+  google: "구글", sheets: "시트", sheet: "시트", spreadsheet: "스프레드시트",
+  email: "이메일", mail: "메일", server: "서버", drive: "드라이브",
+  excel: "엑셀", word: "워드", calendar: "캘린더",
+};
+const LOANWORD_CANONICAL = new Set(Object.values(LOANWORD_MAP));
+/** 외래어 토큰을 한글 표준형으로 바꾼다 (해당 없으면 원형). 라틴 토큰은 대소문자 구분 없이 비교한다. */
+const normalizeLoanwordToken = (token: string): string => {
+  if (/^[A-Za-z]+$/u.test(token)) return LOANWORD_MAP[token.toLowerCase()] ?? token.toLowerCase();
+  return token;
+};
 /** 내용 토큰: 한글 어절과 라틴/숫자 토큰을 분리 추출한다 ("API로" → API + 로). 1자 토큰은 잡음으로 제외한다. */
 const planDecisionTokens = (text: string): string[] => {
   const tokens = [...text.matchAll(/[가-힣]+|[A-Za-z0-9]+/gu)].map(m => m[0]);
-  return [...new Set(tokens.filter(t => t.length >= 2))];
+  return [...new Set(tokens.filter(t => t.length >= 2).map(normalizeLoanwordToken))];
 };
 /** 어간: 조사·어미를 뗀 형태 ("명세서가" → "명세서", "전송됨" → "전송").
  * 어간이 2자 미만으로 줄면 원형을 유지한다. "이"는 어간 말음과 구분이 어려워 떼지 않는다. */
@@ -1404,15 +1419,17 @@ const planDecisionStem = (token: string): string => {
 };
 const planDecisionStems = (tokens: string[]): string[] => [...new Set(tokens.map(planDecisionStem))];
 /** 같은 기능 판정: 한쪽 토큰 집합이 다른 쪽에 온전히 포함되거나, 2개 이상 내용 토큰이
- * 겹치고 그중 3자 이상 특이 토큰이 있을 때 같은 기능으로 본다. "결과 확인" 같은
- * 2자 일반어 쌍만으로는 전파하지 않는다. 원형·어간 어느 쪽으로든 일치하면 같은 기능이다. */
+ * 겹치고 그중 특이 토큰이 있을 때 같은 기능으로 본다. 특이 토큰은 3자 이상 토큰,
+ * 또는 외래어 표준형 토큰이다 (외래어는 특정 시스템을 가리키므로 2자라도 일반어와
+ * 다르다 — 예: "구글 시트" 겹침은 "결과 확인" 같은 2자 일반어 쌍과 다르다).
+ * 원형·어간 어느 쪽으로든 일치하면 같은 기능이다. */
 function planDecisionMatches(itemTokens: string[], decisionTokens: string[]): boolean {
   const matchSets = (a: string[], b: string[]): boolean => {
     const bSet = new Set(b);
     if (a.length > 0 && a.every(t => bSet.has(t))) return true;
     if (b.length > 0 && b.every(t => new Set(a).has(t))) return true;
     const overlap = a.filter(t => bSet.has(t));
-    return overlap.length >= 2 && overlap.some(t => t.length >= 3);
+    return overlap.length >= 2 && overlap.some(t => t.length >= 3 || LOANWORD_CANONICAL.has(t));
   };
   return matchSets(itemTokens, decisionTokens)
     || matchSets(planDecisionStems(itemTokens), planDecisionStems(decisionTokens));
@@ -1569,8 +1586,13 @@ function applyHitlToModel(
     if (item.reviewKey && item.sources.includes("plan.implementation")) return false;
     // 같은 도구 계획의 다른 필드에 남은 동일 기능: 정확 일치 또는 토큰 규칙으로 전파한다.
     // 유지 항목과 겹치면(유지 문구와 동일하거나 부분집합 관계면) 제거하지 않는다.
+    // 선행 조건(conditions)은 예외적으로 출처를 따지지 않는다: 제외·보류된 기능만을
+    // 위한 준비 조건이 진단 기술확인·정책 전제·호출자 전달 중 어느 경로로 왔든
+    // 현재 범위 전제 조건으로 남으면 지시문이 자기모순이 된다. 진단 출처 항목
+    // 일반(기능·산출물 등)은 이 규칙으로 건드리지 않는다 — 진단 검토 채널이 담당한다.
+    // 거부(불가) 증거는 filterReview가 별도로 보존한다.
     if (!PLAN_PROPAGATION_ROLES.has(item.role)) return false;
-    if (!item.sources.some(source => source.startsWith("plan."))) return false;
+    if (item.role !== "conditions" && !item.sources.some(source => source.startsWith("plan."))) return false;
     const itemTexts = [item.text, item.original, ...item.originals].filter((text): text is string => !!text);
     if (itemTexts.some(text => keptTexts.has(normalizedItem(text)))) return false;
     if (itemTexts.some(text => planDecisionExact.has(normalizedItem(text)))) {
@@ -1661,7 +1683,6 @@ function applyHitlToModel(
     if (stepTokens.length < 2) return;
     if (planDecisionProtected(stepTokens, keptTokenSets)) return;
     let matched: (typeof planItemDecisions)[number] | undefined;
-    // TEMP DEBUG
     for (const d of planItemDecisions) {
       if (!planDecisionMatches(stepTokens, d.tokens)) continue;
       if (d.action === "exclude") { matched = d; break; }
@@ -1878,7 +1899,9 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
   // 보되(stepDirectOutputs와 같은 보수적 기준), 활성 단계와도 겹치면 공유
   // 산출물로 보고 유지한다.
   const removedStepNames = model.hitlDetails?.validatedExcludedStepNames ?? [];
-  const scopeWords = (text: string): string[] => text.replace(/[^\uAC00-\uD7A3A-Za-z0-9]/gu, " ").split(/\s+/u).filter(w => w.length >= 2);
+  // 렌더 단계의 단어 비교도 모델 층위와 같은 외래어 표준형을 쓴다
+  // ("Google Sheets" 산출물·기준이 "구글 시트" 단계와 연결되도록).
+  const scopeWords = (text: string): string[] => text.replace(/[^\uAC00-\uD7A3A-Za-z0-9]/gu, " ").split(/\s+/u).filter(w => w.length >= 2).map(normalizeLoanwordToken);
   const relatesToStepName = (text: string, stepName: string): boolean => {
     const textWords = scopeWords(text);
     const nameWords = new Set(scopeWords(stepName));
@@ -1942,16 +1965,16 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
   // PoC 기준이 제외된 단계와만 관련되고 활성 작업 단계와는 무관하면 필수 조건에서 제외.
   const criterionRelatesOnlyToExcluded = (text: string): boolean => {
     if (excludedStepNames.size === 0) return false;
-    const words = text.replace(/[^\uAC00-\uD7A3A-Za-z0-9]/gu, " ").split(/\s+/u).filter(w => w.length >= 2);
+    const words = scopeWords(text);
     const matchesExcluded = [...excludedStepNames].some(name => {
-      const nameWords = name.replace(/[^\uAC00-\uD7A3A-Za-z0-9]/gu, " ").split(/\s+/u).filter(w => w.length >= 2);
+      const nameWords = scopeWords(name);
       return words.some(w => nameWords.includes(w)) || nameWords.some(w => words.includes(w));
     });
     if (!matchesExcluded) return false;
     // 활성 작업 단계와도 관련되면 제외하지 않음 (보수적: 제외 단계와만 관련될 때만 demote)
     const activeStepNames = work.map(s => s.step);
     const matchesActive = activeStepNames.some(name => {
-      const nameWords = name.replace(/[^\uAC00-\uD7A3A-Za-z0-9]/gu, " ").split(/\s+/u).filter(w => w.length >= 2);
+      const nameWords = scopeWords(name);
       return words.some(w => nameWords.includes(w)) || nameWords.some(w => words.includes(w));
     });
     return !matchesActive;
