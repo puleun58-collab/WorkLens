@@ -261,7 +261,11 @@ describe("compound-internal partial matches", () => {
       "▶ AI 법령검색 결과", "지능형 법령검색 결과 (법령조문, 1건):", "",
       "근로기준법", "   제0076조의3 (직장 내 괴롭힘 발생 시 조치)", "   제76조의3(직장 내 괴롭힘 발생 시 조치)", " 사용자는 직장 내 괴롭힘 발생 사실을 신고한 근로자에게 불리한 처우를 하여서는 아니 되며 필요한 조치를 하여야 한다.", "   시행: 2025.01.01 | 고용노동부", "",
     ].join("\n");
-    expect(researchEvidenceSources(duties, "사용자 조치 의무"))
+    // Production always supplies the request's own words (question plus
+    // sibling issues) as context; without them the title's topic words
+    // (직장 내 괴롭힘) are unexplained and the title-subject guard applies.
+    expect(researchEvidenceSources(duties, "사용자 조치 의무", undefined,
+      ["직장", "괴롭힘", "발생", "사용자", "조치", "의무"]))
       .toEqual({ articles: [{ law: "근로기준법", jo: "제76조의3" }], precedents: [] });
   });
 

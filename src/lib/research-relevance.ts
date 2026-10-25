@@ -60,6 +60,10 @@ const FRAME_WORDS = new Set([
   "판단", "기준", "방법", "절차", "관련", "요건", "근거", "여부", "효력", "내용", "사례", "판례", "처분", "문제", "경우",
   "및", "등", "내", "의", "에서", "대한", "관한", "위한", "대해", "알려줘", "무엇", "어떻게", "가능", "해석", "적용", "범위",
   "회사", "업무", "궁금", "궁금해", "싶어", "알고",
+  // 규정 carries no discriminating information (every article is a 규정):
+  // "해고 규정" names 해고, and keeping 규정 as a term would demand a body
+  // word no dismissal article uses.
+  "규정",
 ]);
 const PARTICLE = /(?:의|을|를|이|가|은|는|에|에서|으로|로|과|와|도)$/u;
 /** Endings of a spoken or written question (…당했어, …관련해서, …해고됐는데, …인지): they inflect, they do not name a subject. */
@@ -146,19 +150,78 @@ function termAnchored(term: string, terms: readonly string[], text: string): boo
 
 export const isLawName = (term: string) => LAW_NAME.test(term) && term.length >= 3;
 
+/** A strict majority: half is not a majority (2 terms need 2, 4 terms need 3). */
+const strictMajority = (count: number) => Math.floor(count / 2) + 1;
+
+/**
+ * Words that name a procedure, effect or legal function rather than a subject:
+ * an issue made only of these (plus actor words below) names no subject of its
+ * own, so its terms alone cannot tell one regime's provision from another's
+ * (조정 신청 matches every 조정 제도; 조사 의무 matches every 조사 규정).
+ * These words never count as a subject — neither for the subject-less test nor
+ * for the request-subject set of rule (B) below.
+ */
+const GENERIC_TERMS = new Set([
+  "금지", "벌칙", "처벌", "의무", "조치", "조사", "보호", "절차", "적용", "효력", "위반", "책임",
+  "신고", "구제", "제한", "정지", "취소", "무효", "규정", "준용", "특례", "예외", "사항", "내용",
+  "범위", "대상", "손해배상", "배상", "청구", "고소", "고발", "보상", "지급", "반환", "이행", "준수",
+  "등록", "신청", "심사", "결정", "판정", "심판", "조정", "중재", "소송", "허가", "인가", "처분",
+  "부과", "징수", "감면", "면제", "지원", "관리", "운영", "구성", "변경", "해지", "연장",
+  "대처", "대응", "방지", "예방", "해결", "상담", "문의", "접수", "가능성", "확인", "검토",
+  // Further action words, not subjects: 회수 is the action of recovering a
+  // deposit (보증금의 회수), like 반환 — a title naming only such actions
+  // plus the issue's own terms names no new subject.
+  "회수", "추심", "환급", "환불", "상환", "변제", "납부", "수령", "수취", "인도", "양도",
+  "양수", "승계", "이전", "설정", "해제", "말소", "정산", "제출", "통지", "고지", "통보",
+  "제기", "제소", "소장", "기재", "첨부", "구비",
+  "공고", "게시", "열람", "제공", "작성", "비치", "보존", "예치", "보관", "위임", "위탁",
+  "대행", "중개", "알선", "모집", "승인", "동의", "심의", "의결", "선고", "판결", "확정",
+  "시정", "진행", "시행", "실시", "개시", "완료", "설치", "해산", "합병", "분할", "청산",
+  "육성", "진흥", "보조", "장려",
+]);
+/** Roles, not subjects: 피해자·가해자 name a side of a dispute, not what it is about. */
+const ACTOR_TERMS = new Set([
+  "사용자", "근로자", "사업주", "고용주", "피해자", "가해자", "행위자", "피고", "원고",
+  "신청인", "피신청인", "채무자", "채권자", "임대인", "임차인",
+]);
+
+/**
+ * Whether every content token of a title is explained by the request's own
+ * words, a generic function word, or an actor word. A token is explained when
+ * removing those words (longest first, so 법정모욕 splits into 법정+모욕)
+ * leaves nothing or a one-character particle residue. A token that survives
+ * (국기 in 국기·국장 모욕, 비밀준수 in 비밀준수의무) names a subject the
+ * request never mentioned.
+ */
+function titleTokenExplained(token: string, stripTerms: readonly string[]): boolean {
+  if (stripTerms.includes(token)) return true;
+  // An offense name also explains its act noun: 모욕죄 explains 모욕, as in
+  // the title rule elsewhere (a title of 모욕 is the article 모욕죄 points to).
+  const expanded = [...stripTerms, ...stripTerms.filter((term) => term.length >= 3 && term.endsWith("죄")).map((term) => term.slice(0, -1))];
+  let rest = token;
+  for (const term of [...expanded].sort((a, b) => b.length - a.length)) {
+    if (term && rest.includes(term)) rest = rest.split(term).join("");
+  }
+  if (rest.length <= 1) return true;
+  // An abbreviated compound is explained by the term it abbreviates: 심판 in
+  // 심판청구 is the 심판 of 행정심판, not a new subject. A remainder that is
+  // no request word's part (국기, 비밀준수) still names a new subject.
+  return rest.length >= 2 && expanded.some((term) => term.includes(rest));
+}
+
 /**
  * The case title is a candidate signal only; relevance evidence is the
  * 판시사항/판결요지/참조조문 (or, for lower courts without one, the judgment
  * opening with the title lines removed).
  *
  * `direct`: every subject term, or a statute article the answer cites, appears
- * in the summary. `related`: at least half the terms including one of the most
- * specific (longest) — under the same anchored standard as `direct` and as
- * citation, so a term that appears only inside another compound (사용자 inside
- * 사용자등록) carries neither promotion. Otherwise `low`: the summary was read
- * and does not address the question, whatever the title says. An `excerpt` can
- * at most make a case `related`; without any summary the case stays `unknown`.
- * `matched` lists the evidence terms only.
+ * in the summary. `related`: a strict majority of the terms including one of
+ * the most specific (longest) — under the same anchored standard as `direct`
+ * and as citation, so a term that appears only inside another compound (사용자
+ * inside 사용자등록) carries neither promotion. Otherwise `low`: the summary
+ * was read and does not address the question, whatever the title says. An
+ * `excerpt` can at most make a case `related`; without any summary the case
+ * stays `unknown`. `matched` lists the evidence terms only.
  */
 export function rankPrecedent(
   terms: readonly string[],
@@ -178,7 +241,7 @@ export function rankPrecedent(
   // related either; it stays a `low` candidate, never deleted.
   const anchored = matched.some((term) => term.length === longest && termAnchored(term, terms, evidence));
   if (!entry.excerpt && ((matched.length === terms.length && anchored) || articles.length)) return { rank: "direct", matched: [...matched, ...articles] };
-  if ((anchored && matched.length >= Math.ceil(terms.length / 2)) || (entry.excerpt && articles.length)) {
+  if ((anchored && matched.length >= strictMajority(terms.length)) || (entry.excerpt && articles.length)) {
     return { rank: "related", matched: [...matched, ...articles] };
   }
   return { rank: "low", matched };
@@ -207,40 +270,66 @@ export function titleMatches(terms: readonly string[], law: string, title: strin
  * A search total or decision title is merely a candidate. Only source text
  * reflecting the issue can be cited as a topical match; applicability still
  * depends on the user's facts and the source's effective date.
+ *
+ * Adoption for one issue, in order:
+ * - (A) The issue's own terms, under a strict majority plus longest-term
+ *   anchoring: coverage alone is not adoption, and the most specific term
+ *   must be present as a word of its own, so a compound-internal partial
+ *   match (사용자 only inside 사용자등록) cannot adopt a source by itself.
+ *   A title adopts under exactly the same standard as a body (F1 M1: a body
+ *   that splits a compound across particles — 명예를 훼손한 for 명예훼손 —
+ *   must not drop an article whose own title names the issue; a partial
+ *   title — 명예훼손 inside 명예훼손분쟁조정부 — still promotes nothing).
+ * - (B) When the issue names no subject at all (every term is a generic
+ *   procedure/effect word or an actor word), (A) cannot discriminate regimes
+ *   and is replaced, not supplemented: the same body or title must anchor at
+ *   least one of the issue's own terms AND at least one subject term of the
+ *   whole request (`requestTerms`: the user's question plus the sibling
+ *   issues' terms). Subject terms alone never adopt — the issue term is
+ *   still required — and when the request names no subject, (A) applies.
+ * - Title-subject guard, on articles only: a title that names the issue's
+ *   term but also an unexplained subject (a token neither the issue, the
+ *   request, a generic word, an actor word, nor a law name explains) is about
+ *   a different subject (국기·국장 모욕 for a workplace insult; 비밀준수의무
+ *   for a harassment-measures issue) and is not direct evidence for this
+ *   issue, however its body reads. A title with no issue term (벌칙) is
+ *   untouched by the guard. Candidates are unaffected — only adoption.
+ * - An article with no excerpt text is never adopted: the UI cannot display
+ *   it, so adopting it would show "근거 확인" with "표시 근거 없음" underneath.
  */
-export function researchEvidenceSources(text: string, query: string, enrichment?: ResearchEnrichment): {
+export function researchEvidenceSources(text: string, query: string, enrichment?: ResearchEnrichment, requestTerms?: readonly string[]): {
   articles: Array<{ law: string; jo: string }>; precedents: string[];
 } {
   const terms = questionTerms(query).filter((term) => !isLawName(term));
   if (!terms.length) return { articles: [], precedents: [] };
+  const request = [...new Set((requestTerms ?? []).filter((term) => !isLawName(term)))];
+  const subjectTerms = request.filter((term) => !terms.includes(term) && !GENERIC_TERMS.has(term) && !ACTOR_TERMS.has(term));
+  const subjectLess = terms.every((term) => GENERIC_TERMS.has(term) || ACTOR_TERMS.has(term));
+  const useDomainRule = subjectLess && subjectTerms.length > 0;
+  const combined = [...new Set([...terms, ...subjectTerms])];
   const longest = Math.max(...terms.map((term) => term.length));
-  const addressesIssue = (excerpt: string) => {
-    if (!excerpt.trim()) return false;
-    const matched = terms.filter((term) => termOccurs(term, compact(excerpt)));
-    // Coverage alone is not adoption: the most specific term must be present
-    // as a word of its own, so a compound-internal partial match (사용자 only
-    // inside 사용자등록) cannot adopt a source by itself.
-    return matched.length >= Math.ceil(terms.length / 2)
-      && matched.some((term) => term.length === longest && termAnchored(term, terms, excerpt));
+  const addresses = (content: string) => {
+    if (!content.trim()) return false;
+    if (useDomainRule) {
+      return terms.some((term) => termAnchored(term, combined, content))
+        && subjectTerms.some((term) => termAnchored(term, combined, content));
+    }
+    const matched = terms.filter((term) => termOccurs(term, compact(content)));
+    return matched.length >= strictMajority(terms.length)
+      && matched.some((term) => term.length === longest && termAnchored(term, terms, content));
   };
-  // F1 M1: the parser already holds the official article title (chain) or the
-  // table-of-contents title (supplement), but adoption read only the body.
-  // A body that splits a compound across particles (명예를 훼손한 for 명예훼손)
-  // therefore dropped an article whose own title names the issue. A title
-  // adopts under exactly the same anchored standard as a body — same majority
-  // and same longest-term anchoring — so a partial title (명예훼손 inside
-  // 명예훼손분쟁조정부) still promotes nothing. Titles come only from official
-  // MCP data; nothing is inferred from a title beyond this anchored match.
-  const addressesTitle = (title: string | undefined) => {
-    if (!title?.trim()) return false;
-    const matched = terms.filter((term) => termOccurs(term, compact(title)));
-    return matched.length >= Math.ceil(terms.length / 2)
-      && matched.some((term) => term.length === longest && termAnchored(term, terms, title));
-  };
+  const addressesTitle = (title: string | undefined) => title?.trim() ? addresses(title) : false;
+  const stripTerms = [...new Set([...terms, ...request, ...GENERIC_TERMS, ...ACTOR_TERMS, ...FRAME_WORDS])];
   const articles = [
     ...researchResult(text).sections.filter((section) => section.status === "available").flatMap((section) => section.articles ?? []),
     ...(enrichment?.supplement?.articles ?? []),
-  ].filter((article) => addressesIssue(article.excerpt) || addressesTitle(article.title)).map(({ law, jo }) => ({ law, jo }));
+  ].filter((article) => {
+    if (!article.excerpt.trim()) return false;
+    const title = article.title;
+    if (title && terms.some((term) => termInText(term, title))
+      && questionTerms(title).some((token) => !isLawName(token) && !titleTokenExplained(token, stripTerms))) return false;
+    return addresses(article.excerpt) || addressesTitle(title);
+  }).map(({ law, jo }) => ({ law, jo }));
   const precedents = Object.entries(enrichment?.precedents ?? {})
     .filter(([id, { rank }]) => {
       if (rank !== "direct" && rank !== "related") return false;
@@ -249,14 +338,14 @@ export function researchEvidenceSources(text: string, query: string, enrichment?
       // list is the question's own terms, so judging it would only verify
       // the question against itself. Such a precedent stays a candidate.
       const excerpt = enrichment?.precedentExcerpts?.[id];
-      return excerpt !== undefined && addressesIssue(excerpt);
+      return excerpt !== undefined && addresses(excerpt);
     })
     .map(([id]) => id);
   return { articles, precedents };
 }
 
 /** Whether verified source content addresses an interpreted issue. */
-export function hasRelevantResearchEvidence(text: string, query: string, enrichment?: ResearchEnrichment): boolean {
-  const sources = researchEvidenceSources(text, query, enrichment);
+export function hasRelevantResearchEvidence(text: string, query: string, enrichment?: ResearchEnrichment, requestTerms?: readonly string[]): boolean {
+  const sources = researchEvidenceSources(text, query, enrichment, requestTerms);
   return sources.articles.length > 0 || sources.precedents.length > 0;
 }
