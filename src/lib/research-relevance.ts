@@ -162,6 +162,11 @@ const strictMajority = (count: number) => Math.floor(count / 2) + 1;
  * for the request-subject set of rule (B) below.
  */
 const GENERIC_TERMS = new Set([
+  // 발생 is an event word, not a subject: "직장 내 괴롭힘 발생 시 조치" is
+  // about 직장 내 괴롭힘 조치 whether or not the request says 발생. Without
+  // it the title-subject guard vetoes the core article for a request that
+  // never uses the word (live probe: 조사·보호·조치 의무 issues).
+  "발생",
   "금지", "벌칙", "처벌", "의무", "조치", "조사", "보호", "절차", "적용", "효력", "위반", "책임",
   "신고", "구제", "제한", "정지", "취소", "무효", "규정", "준용", "특례", "예외", "사항", "내용",
   "범위", "대상", "손해배상", "배상", "청구", "고소", "고발", "보상", "지급", "반환", "이행", "준수",
