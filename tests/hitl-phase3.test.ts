@@ -163,7 +163,16 @@ describe("HITL 3차 - 지시문 연동", () => {
 
     // 지시문에 제외된 항목이 구현 대상으로 나타나지 않음
     // (단순 문자열 검사가 아닌, 구현 섹션에서의 등장 여부)
-    const lines = prompt.split("\n");
+    // 계획 항목 제외는 사람 검토 구간에 명시적으로 나열되므로(§8 결함 수정),
+    // 사람 검토 반영 블록은 구현 섹션이 아니어서 계수에서 제외한다.
+    const withoutReviewBlock = (prompt: string): string => {
+      const start = prompt.indexOf("### 사람 검토 반영");
+      if (start < 0) return prompt;
+      const rest = prompt.slice(start);
+      const next = rest.search(/\n## \d+\. /u);
+      return next < 0 ? prompt.slice(0, start) : prompt.slice(0, start) + rest.slice(next);
+    };
+    const lines = withoutReviewBlock(prompt).split("\n");
     const implSection = lines.filter(line =>
       line.includes("구현") || line.includes("작업")
     ).join(" ");
