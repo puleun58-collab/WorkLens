@@ -918,7 +918,7 @@ function ResearchResult({ data, request, expandSources = false, onExpandSourcesC
               <div><dt>핵심 검토 결과</dt><dd>{articles.length + cases.length > 0
                 ? `이 쟁점과 내용이 맞는 법령 ${articles.length}건·판례 ${cases.length}건을 확인했습니다. 구체적인 사건의 법적 결론은 아닙니다.`
                 : ISSUE_GAP[group.status]}</dd></div>
-              <div><dt>근거 상태</dt><dd className="research-issue-status" data-status={group.status}>{ISSUE_STATUS_LABEL[group.status]}</dd></div>
+              <div><dt>근거 상태</dt><dd className="research-issue-status" data-status={group.status}>{group.status === "found" && articles.length + cases.length === 0 ? "표시 근거 없음" : ISSUE_STATUS_LABEL[group.status]}</dd></div>
               <div><dt>추가 확인</dt><dd>{group.status === "failed" || group.status === "timeout"
                 ? "조회되지 않은 자료를 원문에서 추가로 확인해야 합니다."
                 : articles.length + cases.length > 0
@@ -988,8 +988,10 @@ function ResearchResult({ data, request, expandSources = false, onExpandSourcesC
     </section>}
     <details className="law-detail-source research-source" open={full ? undefined : expandSources}>
       <SourceToggleSummary label="출처 원문 전체 보기" openLabel="출처 원문 접기" />
-      <p className="research-meta">법제처에서 받은 원문 그대로입니다. 인용 전에 시행 시점을 대조해 주세요</p>
-      <LawTextBlock className="legal-analysis-raw" text={readerText(data.text)} />
+      {readerText(data.text).trim() ? <>
+        <p className="research-meta">법제처에서 받은 원문 그대로입니다. 인용 전에 시행 시점을 대조해 주세요</p>
+        <LawTextBlock className="legal-analysis-raw" text={readerText(data.text)} />
+      </> : <p className="research-meta">원문을 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.</p>}
     </details>
     <p className="legal-analysis-note">조회 경로: {result.sources.map((source) => source.replace(" OPEN API", "")).join(" · ")}. {RESULT_NOTE}</p>
   </div>;

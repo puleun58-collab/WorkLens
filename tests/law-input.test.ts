@@ -18,7 +18,9 @@ describe("law search input", () => {
   });
 
   it("drops a 호 without its 항 so the move cannot land on another 항's 호", () => {
-    expect(parseLawArticleQuery("근로기준법 제60조 제3호")).toEqual({ lawName: "근로기준법", jo: "제60조" });
+    // law-accuracy-v3: the drop is now flagged so the detail view can say
+    // the 호 was excluded instead of moving silently.
+    expect(parseLawArticleQuery("근로기준법 제60조 제3호")).toEqual({ lawName: "근로기준법", jo: "제60조", droppedHo: true });
     // 목 has no parser or fixture anywhere: it stays a trailing request, and
     // the move target is the 호 only. 목 itself is never a target.
     expect(parseLawArticleQuery("근로기준법 제60조 제6항 제3호 가목")).toEqual({ lawName: "근로기준법", jo: "제60조", hang: 6, ho: 3 });

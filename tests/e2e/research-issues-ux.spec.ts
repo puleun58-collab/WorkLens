@@ -50,6 +50,30 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     expect(calls).toBe(2);
   });
 
+  test(`채택됐으나 표시 근거가 없는 쟁점과 빈 원문은 구분 표시한다 ${viewport.width}`, async ({ page }) => {
+    // law-accuracy-v3 (C-1, F6): the issue is server-found but no excerpt
+    // survived to display, and the raw source text is empty. The status
+    // must not read "근거 확인" and the source block must not render empty.
+    await page.setViewportSize(viewport);
+    await page.route("**/api/law/research", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: {
+      found: true, task: "full_research", markers: [], text: "",
+      evidence: { status: "partial", articles: [article], precedents: [],
+        issues: [{ label: "해고 제한", status: "found", articles: [article], precedents: [] }] },
+    } }) }));
+    await page.goto("/");
+    await navigateWorkspace(page, "법령");
+    await page.getByRole("tab", { name: "종합 리서치", exact: true }).click();
+    const form = page.getByRole("form", { name: "종합 리서치 입력" });
+    const results = page.locator(".legal-research .legal-analysis-result");
+    await form.getByLabel("질문 또는 검색어").fill("해고 제한");
+    await form.getByRole("button", { name: "실행", exact: true }).click();
+    const issue = results.locator(".research-issue-evidence[data-status='found']");
+    await expect(issue).toHaveCount(1);
+    await expect(issue.locator(".research-issue-status")).toHaveText("표시 근거 없음");
+    await expect(issue).toContainText("표시할 수 있는 근거 원문이 없습니다.");
+    await expect(results.locator(".research-source")).toContainText("원문을 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+  });
+
   test(`종합 리서치 쟁점 0/1/2/5와 독립 근거·바로가기 ${viewport.width}`, async ({ page }) => {
     await page.setViewportSize(viewport);
     let calls = 0;
