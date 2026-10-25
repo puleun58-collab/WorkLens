@@ -1,5 +1,5 @@
 import type { AxDiagnosis, AxPlan } from "./types";
-import { automationLevel, axes, executionProfile, type ExecutionGate, type ExecutionProfile, type StepScope } from "./policy";
+import { automationLevel, axes, executionProfile, prerequisiteTopicKey, type ExecutionGate, type ExecutionProfile, type StepScope } from "./policy";
 import { FACTOR_KEYS } from "./schema";
 import { extractPlanReviewableItems, extractReviewableItems, getValidConfirmedReviews, buildPlanReviewKeyMap } from "./hitl";
 
@@ -1109,7 +1109,13 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
           // that HITL exclude/defer matching (by check source) cannot reach.
           `${check.topic} (선택)${check.note ? ` — ${check.note}` : ""}`,
           `${check.topic} (필수)${check.note ? ` — ${check.note}` : ""}`].some(value => normalizedItem(value) === normalizedItem(text)));
-      if (checks.length === 1) {
+      // 잔여 검증 R6: 동일 토픽·비고의 확인 항목이 2개(필수+선택)면 매칭 후보가 2개가
+      // 되어 라벨 사본이 표준 문구로 바뀌지 않고 HITL 제외를 비껴갔다. 후보들의
+      // 표준 문구와 상태가 모두 동일할 때만(의미상 같은 확인 항목) 병합한다.
+      // 토픽만 같고 비고·상태가 다르면 기존대로 별도 항목으로 유지한다.
+      const canonicalTexts = new Set(checks.map(check => normalizedItem(`${check.topic}${check.note ? ` — ${check.note}` : ""}`)));
+      const checkStatuses = new Set(checks.map(check => check.status));
+      if (checks.length >= 1 && canonicalTexts.size === 1 && checkStatuses.size === 1) {
         const check = checks[0];
         original ??= text;
         text = `${check.topic}${check.note ? ` — ${check.note}` : ""}`;
@@ -1430,14 +1436,38 @@ function applyHitlToModel(
   // Plan reviews match occurrence-aware keys. A diagnosis risk review can only
   // affect its own technical-check item, never unrelated plan/security text.
   const normalizeForMatch = (text: string) => text.trim().replace(/\s+/g, " ").toLowerCase();
+  // 잔여 검증 R7/R8/R9/R11: 같은 확인 항목의 사본은 원본 출처·범위와 무관하게
+  // 하나의 조건이다. 계획 항목이 먼저 append되면 병합 항목의 source가
+  // plan.*이 되고(Level 0에서는 범위까지 달라져 병합 자체가 안 된다),
+  // 기존의 source === "diagnosis.technicalChecks" 가드는 HITL 제외를 비껴갔다.
+  // 따라서 conditions 역할 항목은 표준 문구·주제 키로도 확인 항목과 매칭한다.
+  // features/criteria 등 다른 역할은 기존 가드를 유지해 과도한 제거를 막는다.
+  const checkEvidence = (diagnosis?.technicalChecks ?? []).map(check => ({
+    canonical: normalizeForMatch(`${check.topic}${check.note ? ` — ${check.note}` : ""}`),
+    sourceText: normalizeForMatch(`${check.topic}: ${check.status} - ${check.note}`),
+    topicKey: prerequisiteTopicKey(`${check.topic}${check.note ? ` — ${check.note}` : ""}`),
+  }));
   const matchReview = (item: AgentInstructionItem): string | null => {
     if (item.reviewKey) return relevant.find(r => r.status === "confirmed" && r.target.key === item.reviewKey)?.target.key ?? null;
-    if (item.source !== "diagnosis.technicalChecks") return null;
+    // conditions 외 역할은 기존 가드를 그대로 유지한다 (원본 진단 항목만 매칭).
+    if (item.role !== "conditions" && item.source !== "diagnosis.technicalChecks") return null;
     const itemTexts = new Set([item.text, item.original, ...item.originals].filter((text): text is string => !!text).map(normalizeForMatch));
     for (const r of relevant) {
       if (r.status !== "confirmed" || r.target.source !== "diagnosis" || r.target.type !== "risk") continue;
       if (itemTexts.has(normalizeForMatch(r.target.sourceText))) return r.target.key;
     }
+    if (item.role === "conditions") {
+      const itemTopicKey = prerequisiteTopicKey(item.text);
+      for (const evidence of checkEvidence) {
+        const review = relevant.find(r => r.status === "confirmed" && r.target.source === "diagnosis" && r.target.type === "risk"
+          && normalizeForMatch(r.target.sourceText) === evidence.sourceText);
+        if (!review) continue;
+        if (itemTexts.has(evidence.canonical)
+          || (itemTopicKey.length >= 3 && evidence.topicKey.length >= 3 && itemTopicKey === evidence.topicKey)) return review.target.key;
+      }
+      return null;
+    }
+    if (item.source !== "diagnosis.technicalChecks") return null;
     return null;
   };
 
@@ -1448,11 +1478,16 @@ function applyHitlToModel(
 
   // A review that removes a risk card cannot grant access denied by diagnosis.
   // Keep denied permission evidence in the generated instructions.
-  const deniedChecks = new Set((diagnosis?.technicalChecks ?? []).filter(check => check.status === "불가")
-    .map(check => normalizeForMatch(`${check.topic}: ${check.status} - ${check.note}`)));
-  const filterReview = (item: AgentInstructionItem) =>
-    item.source === "diagnosis.technicalChecks" && item.originals.some(text => deniedChecks.has(normalizeForMatch(text)))
-      || !isExcluded(item);
+  // 사본 경로(plan/options/profile)에서도 거부 증거가 유지되도록 표준 문구까지 포함한다.
+  const deniedTexts = new Set((diagnosis?.technicalChecks ?? []).filter(check => check.status === "불가")
+    .flatMap(check => [
+      normalizeForMatch(`${check.topic}${check.note ? ` — ${check.note}` : ""}`),
+      normalizeForMatch(`${check.topic}: ${check.status} - ${check.note}`),
+    ]));
+  const filterReview = (item: AgentInstructionItem) => {
+    const itemTexts = [item.text, item.original, ...item.originals].filter((text): text is string => !!text).map(normalizeForMatch);
+    return itemTexts.some(text => deniedTexts.has(text)) || !isExcluded(item);
+  };
   let filteredClassified = classified.filter(filterReview);
   let filteredScoped = {
     features: scoped.features.filter(filterReview),
