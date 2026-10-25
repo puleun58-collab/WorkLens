@@ -2,7 +2,7 @@ import type { EvidenceArticle, InterpretationFailure, IssueEvidence, LawCurrency
 import type { LawRequestStats } from "@/lib/law-observability";
 import { researchResult, type ResearchDecision } from "@/lib/law-research-parse";
 import {
-  isLawName, questionTerms, rankPrecedent, researchEvidenceSources,
+  isLawName, questionTerms, rankPrecedent, researchEvidenceSources, titleMatches,
   type PrecedentRelevance, type ResearchEnrichment, type SupplementArticle,
 } from "@/lib/research-relevance";
 import { classifyLawToolResult } from "@/server/law-analysis-mcp";
@@ -137,7 +137,9 @@ async function fullResearch(
   const issues: Array<ResearchIssue | { label?: undefined; query: string }> = interpretation?.issues.length ? interpretation.issues : [{ query }];
   const sources = sharedSources(mcpEnrichmentSources(context));
 
+  const searchedQueries = new Set<string>();
   const search = async (searchQuery: string): Promise<ChainResult> => {
+    searchedQueries.add(searchQuery);
     try {
       const { text, isError } = await callLawTool("legal_research", { task: "full_research", query: searchQuery }, context);
       const classification = classifyLawToolResult(text, isError, { failureMessage: RESEARCH_FAILURE });
@@ -191,7 +193,7 @@ async function fullResearch(
     // could not rescue its missing articles. Precedents cover status, not articles, so the gate is
     // articles==0 alone; the shared issue budget and timeout reporting are unchanged.
     if (!adopted.articles.length && issue.label !== undefined) {
-      lookup = await lookupIssue(issue.query, shownArticles, sources, expired, questionTerms(query).filter(isLawName));
+      lookup = await lookupIssue(issue.query, shownArticles, sources, expired, questionTerms(query).filter(isLawName), questionTerms(query));
       if (lookup.status === "found") adopted = await issueSources(issue.query, known, lookup, sources, summaries);
     }
     const covered = adopted.articles.length > 0 || adopted.precedents.length > 0;
@@ -201,6 +203,62 @@ async function fullResearch(
       : chain.kind === "failed" ? "failed" : "none";
     return { issue, lookup, adopted, status };
   }));
+
+  // V4 M3-lite: an issue that still has no article after the main chain and its own
+  // lookup has no article source left except a chain search of its own. Precedents
+  // never supply articles (the M2 principle), so the gate is articles==0 alone.
+  // Bounded: at most two retries per request, only while the main chain
+  // succeeded (a failed main chain already reports searchFailed — retrying it
+  // per issue would multiply upstream failures) and the shared budget has not
+  // expired. A phrase this request already chain-searched (the first issue's
+  // phrase, or the absent-retry's alternative) is never searched again — the
+  // retry exists for issues whose phrase no chain search has ever used.
+  // Retry precedents are ignored — the per-issue lookup already
+  // searched precedents — and only articles are merged, into the supplement,
+  // so the displayed text stays the main chain's and the UI can show them
+  // through the existing supplement path. A retry that finds nothing, or
+  // fails, leaves the issue's status as the lookup left it (the same silence
+  // as the main chain's absent-retry). Adoption still uses the same
+  // relevance rules; nothing is adopted on the search alone.
+  const retryArticles = new Map<string, SupplementArticle>();
+  const retryTargets = judged.filter((item) => !item.adopted.articles.length && item.issue.label !== undefined).slice(0, 2);
+  if (found && retryTargets.length) {
+    await Promise.all(retryTargets.map(async (item) => {
+      if (expired() || searchedQueries.has(item.issue.query)) return;
+      const retry = await search(item.issue.query);
+      if (retry.kind !== "found" || expired()) return;
+      const retryDocument = researchResult(retry.text);
+      const retryKnown = {
+        text: retry.text,
+        ...(retry.enrichment ? { enrichment: retry.enrichment } : {}),
+        listed: new Map(retryDocument.sections.filter((section) => section.status === "available")
+          .flatMap((section) => section.decisions?.entries ?? []).map((entry) => [entry.id, entry] as const)),
+      };
+      const retryAdopted = await issueSources(item.issue.query, retryKnown, undefined, sources, summaries);
+      if (!retryAdopted.articles.length) return;
+      const retryTextArticles = retryDocument.sections.flatMap((section) => section.articles ?? []);
+      const issueTerms = questionTerms(item.issue.query);
+      const merged = [...item.adopted.articles];
+      for (const article of retryAdopted.articles) {
+        const key = `${article.law}\0${article.jo}`;
+        if (merged.some((a) => a.law === article.law && a.jo === article.jo)) continue;
+        merged.push(article);
+        if (retryArticles.has(key)) continue;
+        const supplement = retry.enrichment?.supplement?.articles.find((a) => a.law === article.law && a.jo === article.jo);
+        const textArticle = retryTextArticles.find((a) => a.law === article.law && a.jo === article.jo);
+        if (supplement) retryArticles.set(key, supplement);
+        else if (textArticle) retryArticles.set(key, {
+          law: article.law, jo: article.jo, title: textArticle.title ?? "",
+          excerpt: textArticle.excerpt ?? "", matched: titleMatches(issueTerms, article.law, textArticle.title ?? ""),
+          ...(textArticle.effective?.replace(/\D/gu, "").length === 8 ? { effectiveDate: textArticle.effective.replace(/\D/gu, "") } : {}),
+        });
+      }
+      if (merged.length > item.adopted.articles.length) {
+        item.adopted = { articles: merged, precedents: item.adopted.precedents };
+        item.status = "found";
+      }
+    }));
+  }
 
   const coveredCount = judged.filter((item) => item.status === "found").length;
   if (!found && !coveredCount) {
@@ -224,7 +282,9 @@ async function fullResearch(
   }
   const baseSupplement = found?.enrichment?.supplement;
   const supplementArticles = [...(baseSupplement?.articles ?? []),
-    ...[...lookupArticles.values()].filter((article) => !baseSupplement?.articles.some((item) => item.law === article.law && item.jo === article.jo))];
+    ...[...lookupArticles.values()].filter((article) => !baseSupplement?.articles.some((item) => item.law === article.law && item.jo === article.jo)),
+    ...[...retryArticles.values()].filter((article) => !baseSupplement?.articles.some((item) => item.law === article.law && item.jo === article.jo)
+      && ![...lookupArticles.values()].some((item) => item.law === article.law && item.jo === article.jo))];
   const enrichment: ResearchEnrichment | undefined = found?.enrichment || supplementArticles.length ? {
     ...found?.enrichment,
     ...(supplementArticles.length ? { supplement: { status: "found" as const, articles: supplementArticles } } : {}),

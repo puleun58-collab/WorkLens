@@ -265,7 +265,12 @@ async function titleArticles(
       ...(found?.effectiveDate ? { effectiveDate: found.effectiveDate } : {}) });
   }, expired);
   articles.sort((a, b) => chosen.findIndex((c) => c.law === a.law && c.jo === a.jo) - chosen.findIndex((c) => c.law === b.law && c.jo === b.jo));
-  return { status: articles.length ? "found" : failures && failures === lookups ? "failed" : "none", articles };
+  return { status: articles.length ? "found" : failures && failures === lookups ? "failed" : "none", articles,
+    // A landed article does not erase a failed sibling lookup: the supplement
+    // is partial, and a per-issue caller surfaces that instead of reporting a
+    // complete confirmation. Timeouts that merely stop the search are not
+    // counted here — only lookups that actually threw.
+    ...(failures > 0 && articles.length > 0 ? { partialFailure: true as const } : {}) };
 }
 
 /** Cases read per issue search: the first hits, in the MCP's own order. */
@@ -279,8 +284,11 @@ export interface IssueLookup {
   precedents: Array<ResearchDecision & { summary: string; excerpt: boolean }>;
   /**
    * One branch failed while the other covered the issue, so `found` alone would hide the
-   * failure: the uncovered branch was never confirmed. Title-lookup internals that fail
-   * part-way while another article still lands are not counted here (see AUDIT).
+   * failure: the uncovered branch was never confirmed. This now also covers
+   * failures inside a branch: a title lookup that landed one article while
+   * another law's lookup threw, and a precedent summary that could not be
+   * read while another branch covered the issue. A summary that simply does
+   * not exist (no text returned) is not a failure — only a thrown lookup is.
    */
   partialFailure?: boolean;
 }
@@ -299,20 +307,30 @@ export async function lookupIssue(
   // (e.g. "근로기준법상 … 사용자의 조치 의무" → issue "사용자 조치 의무"):
   // without them the title lookup has no law to search under.
   extraNamed: ReadonlyArray<string> = [],
+  // Subject terms the user's own question carried but the issue phrase dropped
+  // (e.g. "… 사용자의 조치 의무" → issue "사용자 의무" loses 조치·괴롭힘):
+  // the official TOC title of the core article ("직장 내 괴롭힘 발생 시 조치")
+  // contains neither surviving issue term, so title candidates are generated
+  // from the union while adoption itself is still judged by the issue's own
+  // terms in the caller. Only the user's own words are inherited — nothing
+  // is invented — and law names stay in extraNamed, not here.
+  extraTerms: ReadonlyArray<string> = [],
 ): Promise<IssueLookup> {
   const terms = questionTerms(query);
   const keywords = terms.filter((term) => !isLawName(term));
   if (!keywords.length) return { status: "none", articles: [], precedents: [] };
   if (expired()) return { status: "timeout", articles: [], precedents: [] };
+  const titleKeywords = [...new Set([...keywords, ...extraTerms.filter((term) => !isLawName(term))])];
   let failed = false;
   const [hits, statutes] = await Promise.all([
     sources.precedents(query).catch(() => { failed = true; return []; }),
-    titleArticles(keywords, [...new Set([...terms.filter(isLawName), ...extraNamed])], shownArticles, sources, expired, true),
+    titleArticles(titleKeywords, [...new Set([...terms.filter(isLawName), ...extraNamed])], shownArticles, sources, expired, true),
   ]);
   const precedents: IssueLookup["precedents"] = [];
+  let summaryFailed = false;
   const read = hits.slice(0, ISSUE_PRECEDENTS);
   await pool(read, async (hit) => {
-    const summary = await sources.summary(hit.id).catch(() => undefined);
+    const summary = await sources.summary(hit.id).catch(() => { summaryFailed = true; return undefined; });
     if (summary?.text) precedents.push({ ...hit, summary: summary.text, excerpt: summary.excerpt });
   }, expired);
   precedents.sort((a, b) => read.findIndex((hit) => hit.id === a.id) - read.findIndex((hit) => hit.id === b.id));
@@ -322,7 +340,12 @@ export async function lookupIssue(
     : expired() ? "timeout" : "none";
   // A covering branch must not swallow the other branch's failure: when the lookup
   // still reports `found`, the failure is carried separately for the caller to surface.
+  // That now includes failures inside a branch (a title lookup that landed one
+  // article while another law threw, or a precedent summary that threw while
+  // articles or other precedents covered the issue).
   const partialFailure = status === "found"
-    && ((failed && statutes.articles.length > 0) || (statutes.status === "failed" && precedents.length > 0));
+    && ((failed && statutes.articles.length > 0) || (statutes.status === "failed" && precedents.length > 0)
+      || statutes.partialFailure === true
+      || (summaryFailed && (statutes.articles.length > 0 || precedents.length > 0)));
   return { status, articles: statutes.articles, precedents, ...(partialFailure ? { partialFailure: true as const } : {}) };
 }
