@@ -38,7 +38,15 @@ export interface ResearchEnrichment {
   /** Bounded official holding/opening text used to verify each precedent's topical match. */
   precedentExcerpts?: Record<string, string>;
   /** `none`: looked up and nothing matched; `failed`: lookups failed; `not_searched`: no usable term. */
-  supplement?: { status: "found" | "none" | "failed" | "not_searched"; articles: SupplementArticle[] };
+  supplement?: { status: "found" | "none" | "failed" | "not_searched"; articles: SupplementArticle[];
+    /**
+     * Some title lookups failed while another article still landed, so the
+     * supplement is incomplete even though its status is `found`. The caller
+     * decides whether that incompleteness is attributable to one issue
+     * (lookupIssue surfaces it as `partialFailure`); the shared chain
+     * supplement carries the flag without a UI demotion of its own.
+     */
+    partialFailure?: boolean };
   /**
    * The MCP searches 법령해석례 with the whole question, which AND-matches framing
    * words and often returns nothing. When that section is empty, one retry with

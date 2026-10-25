@@ -65,8 +65,11 @@ describe("full_research issue-by-issue retrieval", () => {
       get_decision_text: ({ id }) => id === "501" ? caseText("임금", "사용자가 임금을 체불한 경우 체불 임금의 지급 의무") : "[NOT_FOUND] 없음",
     });
     const result = await runLegalResearch({ task: "full_research", query: longQuery }, ctx);
-    // The combined search runs once, with the first issue's phrase; the user's sentence is never a search query.
-    expect(queries("legal_research")).toEqual(["부당해고"]);
+    // The combined search runs with the first issue's phrase; each still
+    // article-less issue then gets one chain search of its own phrase
+    // (V4 M3-lite, capped) — the dismissal text adopts nothing for either,
+    // so the evidence below is unchanged. The user's sentence is never a search query.
+    expect(queries("legal_research")).toEqual(["부당해고", "임금 체불", "퇴직금 지급"]);
     expect(queries("search_decisions").sort()).toEqual(["임금 체불", "퇴직금 지급"]);
     expect([...queries("legal_research"), ...queries("search_decisions"), ...queries("search_law")]).not.toContain(longQuery);
     expect(result).toMatchObject({
