@@ -30,8 +30,9 @@ function useLevelTooltip() {
   const lastPointerType = useRef("");
   const pressedAt = useRef(0);
   const openAtPress = useRef<boolean | null>(null);
-  const openRef = useRef(open);
-  openRef.current = open;
+  // 눌림 시점 상태는 렌더 시점 클로저의 open으로 캡처한다. triggerHandlers는
+  // 매 렌더마다 DOM에 재부착되므로 핸들러 클로저는 항상 최신 렌더의 값이다.
+  // 렌더 중 ref 쓰기(react-hooks/refs 위반)와 effect 동기화의 경합을 모두 피한다.
   return {
     open,
     onOpenChange: (next: boolean, details: { reason?: string }) => {
@@ -40,7 +41,7 @@ function useLevelTooltip() {
       setOpen(next);
     },
     triggerHandlers: {
-      onPointerDown: (event: React.PointerEvent) => { lastPointerType.current = event.pointerType; openAtPress.current = openRef.current; },
+      onPointerDown: (event: React.PointerEvent) => { lastPointerType.current = event.pointerType; openAtPress.current = open; },
       onPointerCancel: () => { openAtPress.current = null; },
       onClick: () => {
         pressedAt.current = Date.now();
