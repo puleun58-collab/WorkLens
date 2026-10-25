@@ -564,8 +564,9 @@ const explicitStep = (value: string, step: StepScope) => {
   return !!step.treatment && clean === normalizedStepText(`${step.step} ${step.treatment}`);
 };
 const HUMAN_DECISION_CHECK = "담당자 유지 항목의 확정·시스템 반영·외부 전송 조건을 해당 단계에서 확인하세요. 확인 전 최종 처리는 대기하지만, 허용된 독립 후보·초안·규칙 검토는 각 단계의 선행 조건 안에서 진행할 수 있습니다.";
-/** Card tone for one technical check; `future` only when the check is explicitly linked to a step outside the current Level scope. */
-export type AxCheckTone = "required" | "future" | "done" | "blocked";
+/** Card tone for one technical check; `future` only when the check is explicitly linked to a step outside the current Level scope.
+ * `held` marks a HITL-deferred check: not a current required task, shown with its hold reason and resume condition. */
+export type AxCheckTone = "required" | "future" | "done" | "blocked" | "held";
 /** One row of the "추가 확인 사항" table: a condition not already shown as a top check card. */
 export interface AxAdditionalCheck {
   /** Short label for the 확인 항목 column. */
@@ -602,8 +603,8 @@ export interface AxPlanSummary {
   criteriaNotice?: string;
 }
 
-export function planSummary(diagnosis: AxDiagnosis, rawPlan?: AxPlan, context = ""): AxPlanSummary {
-  const model = buildAgentInstructionModel(rawPlan, { diagnosis, context });
+export function planSummary(diagnosis: AxDiagnosis, rawPlan?: AxPlan, context = "", options: { hitlReviews?: import("./types").HitlReview[]; hitlTool?: "codex" | "claude" } = {}): AxPlanSummary {
+  const model = buildAgentInstructionModel(rawPlan, { diagnosis, context, hitlReviews: options.hitlReviews, hitlTool: options.hitlTool });
   const profile = model.profile;
   const humanKept = mergeDistinct((profile?.manualSteps ?? []).map(step => `${step} (담당자 수행)`),
     model.classified.filter(item => item.role === "human").map(item => item.original ?? item.text));
@@ -627,16 +628,28 @@ export function planSummary(diagnosis: AxDiagnosis, rawPlan?: AxPlan, context = 
     ...(check.status === "불가" ? [check.note ? `${check.topic} 불가 — ${check.note}` : `${check.topic} 불가`] : []),
   ]).map(normalizedItem));
   const openConditions = conditionEntries.filter(entry => !checkTexts.has(normalizedItem(entry.text.replace(/ \(적용 단계 확인 필요\)$/u, ""))));
-  const checks = technicalChecks.map(check => {
+  const checks = technicalChecks.flatMap(check => {
     const text = `${check.topic}${check.note ? ` — ${check.note}` : ""}`;
+    const disp = hitlDispositionForText(model, text);
+    // HITL 제외된 확인 항목은 현재 확인 작업에서 빠진다 (거부(불가) 증거는 모델이
+    // 이미 보존하므로 removed에 없어 그대로 유지된다). 보류 항목은 확인 필요
+    // 작업으로 승격하지 않고 보류 상태·사유·재개 조건과 함께 구분해 안내한다.
+    if (disp?.action === "exclude") return [];
     const linked = model.classified.find(item => item.sources.includes("diagnosis.technicalChecks") && item.text === text);
-    const tone: AxCheckTone = check.status === "확인됨" ? "done" : check.status === "불가" ? "blocked" : linked?.scope === "future" ? "future" : "required";
-    return { topic: check.topic, status: check.status, note: check.note, tone };
+    const tone: AxCheckTone = disp?.action === "defer" ? "held" : check.status === "확인됨" ? "done" : check.status === "불가" ? "blocked" : linked?.scope === "future" ? "future" : "required";
+    const note = disp?.action === "defer"
+      ? [check.note, `보류: ${disp.reason ?? "보류 중"}`, ...(disp.resumeCondition ? [`재개 조건: ${disp.resumeCondition}`] : [])].filter(Boolean).join(" · ")
+      : check.note;
+    return [{ topic: check.topic, status: check.status, note, tone }];
   });
   const additionalChecks = buildAdditionalChecks(model, technicalChecks, checkTexts,
     new Set((model.gate === "blocked" ? profile?.blockReasons ?? [] : []).map(normalizedItem)));
   const excluded = mergeDistinct(restricted, without([
     ...(profile?.poc.outOfScope ?? []), ...model.classified.filter(item => item.role === "excluded").map(item => item.original ?? item.text),
+    // HITL 확정 제외(계획 항목·단계)는 01의 제외 카드에도 동일하게 표시해
+    // 구현 범위와 확정 결정이 어긋나지 않게 한다. 보류 항목은 제외가 아니므로
+    // 여기에 넣지 않는다 (보류 안내는 02 보류 카드·로드맵 보류 안내·04 검토 구간이 담당).
+    ...(model.hitlDetails?.excluded.map(entry => entry.name) ?? []),
   ], [...manualAutomation, ...humanKept]));
   const shownScope = new Set([...humanKept, ...excluded].map(normalizedItem));
   const pocTests = model.classified.filter(item => item.role === "tests");
@@ -644,6 +657,9 @@ export function planSummary(diagnosis: AxDiagnosis, rawPlan?: AxPlan, context = 
     ? item.text : `${item.scope === "future" ? "향후 판정" : "기준 확인 필요"}: ${item.text}`));
   return {
     include: unique((profile?.poc.inScope ?? []).flatMap(line => {
+      // HITL로 빠진 단계(제외·보류)는 현재 구현 범위에서 빠진다. 보류 단계는
+      // 01의 포함 목록에 올리지 않으며, 보류 안내는 02·로드맵·04 검토 구간이 담당한다.
+      if (hitlDispositionForStepLine(model, line)) return [];
       const matches = model.steps.map((step, index) => ({ step, index }))
         .filter(({ step }) => step.treatment && normalizedStepText(`${step.step} ${step.treatment}`) === normalizedStepText(line));
       return matches.length > 1
@@ -800,7 +816,31 @@ export interface AgentInstructionModel {
     deferredStepNames?: string[];
     /** 유효성 검증된 step-type exclude 검토 + 계획 항목 제외로 전파된 단계명 (제외 산출물·예외 정리용) */
     excludedStepNames?: string[];
+    /** HITL로 현재 실행 범위에서 빠진 표시 항목 (로드맵·01~03 공통 표시 모델용). */
+    removed?: HitlRemovedItem[];
+    /** HITL로 현재 실행 범위에서 빠진 진단 단계 (로드맵 단계 상세 공통 표시 모델용). */
+    removedSteps?: HitlRemovedStep[];
   };
+}
+/** HITL로 현재 실행 범위에서 빠진 표시 항목 1건: 로드맵·01~03이 04와 같은
+ * 확정 범위를 표시하기 위해, 매칭 규칙을 복사하지 않고 모델이 직접 제공한다.
+ * action이 exclude면 현재 작업에서 제거하고, defer면 보류 상태·사유·재개 조건과
+ * 함께 구분해 안내한다. 거부(불가) 증거는 여기에 포함되지 않는다. */
+export interface HitlRemovedItem {
+  text: string;
+  originals: string[];
+  role: string;
+  step?: string;
+  action: "exclude" | "defer";
+  reason?: string;
+  resumeCondition?: string;
+}
+/** HITL로 현재 실행 범위에서 빠진 진단 단계 1건 (단계 검토 또는 계획 결정 전파). */
+export interface HitlRemovedStep {
+  step: string;
+  action: "exclude" | "defer";
+  reason?: string;
+  resumeCondition?: string;
 }
 /** Strong markers of an explicit execution order; weak connectors need an explicit actor to count. */
 const STRONG_SEQUENCE = /(먼저|다음|그\s*뒤|뒤에|그\s*후|후에|한\s*뒤|→|이후|그다음)/u;
@@ -1366,6 +1406,8 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
       validatedExcludedStepNames,
       deferredStepNames,
       excludedStepNames,
+      removed: applied.removed,
+      removedSteps: applied.removedSteps,
     };
   }
 
@@ -1383,6 +1425,93 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
     ambiguous: finalClassified.filter(item => item.scope === "confirm" && item.role !== "reference"),
     scoped: finalScoped, diagnosis: d, plan: guarded, prerequisites: options.prerequisites ?? [], gaps,
     hitlApplied: hitlActuallyApplied, hitlDetails };
+}
+
+/** 로드맵·01~03 공통 표시 모델 조회: HITL이 없거나 해당 항목이 아니면 undefined.
+ * 조건 문구는 (선택)/(필수) 표기와 "적용 단계 확인 필요" 접미사를 뗀 뒤 비교한다
+ * (게이트 라벨·요약 접미사 등 표시 변형이 달라도 같은 조건으로 식별한다). */
+export type HitlDisposition = { action: "exclude" | "defer"; reason?: string; resumeCondition?: string };
+const stripConditionMarkers = (text: string) => text
+  .replace(/\s*\((선택|필수)\)\s*/gu, " ")
+  .replace(/\s*\(적용 단계 확인 필요\)\s*$/u, "")
+  .replace(/\s*\(향후 단계 조건\)\s*$/u, "")
+  .trim();
+export function hitlDispositionForText(model: AgentInstructionModel, text: string): HitlDisposition | undefined {
+  const removed = model.hitlDetails?.removed;
+  if (!removed) return undefined;
+  const query = normalizedItem(stripConditionMarkers(text));
+  if (!query) return undefined;
+  const hit = removed.find(r => normalizedItem(stripConditionMarkers(r.text)) === query
+    || r.originals.some(o => normalizedItem(stripConditionMarkers(o)) === query));
+  return hit ? { action: hit.action, reason: hit.reason, resumeCondition: hit.resumeCondition } : undefined;
+}
+/** 진단 단계명 기준 조회 (정규화된 단계명 완전 일치). */
+export function hitlDispositionForStep(model: AgentInstructionModel, stepName: string): HitlDisposition | undefined {
+  const removed = model.hitlDetails?.removedSteps;
+  if (!removed) return undefined;
+  const query = normalizedStepText(stepName);
+  const hit = removed.find(r => normalizedStepText(r.step) === query);
+  return hit ? { action: hit.action, reason: hit.reason, resumeCondition: hit.resumeCondition } : undefined;
+}
+/** "단계명 + 처리 방식" 형태의 로드맵·요약 행에서 단계명 접두사로 판정을 찾는다.
+ * 긴 단계명을 먼저 시도해 접두사 충돌(부분 이름)을 피한다. */
+export function hitlDispositionForStepLine(model: AgentInstructionModel, line: string): HitlDisposition | undefined {
+  const removed = model.hitlDetails?.removedSteps;
+  if (!removed) return undefined;
+  const text = normalizedStepText(line.startsWith("샘플 범위: ") ? line.slice("샘플 범위: ".length) : line);
+  const hit = [...removed].sort((a, b) => b.step.length - a.step.length)
+    .find(r => { const name = normalizedStepText(r.step); return text === name || text.startsWith(`${name} `); });
+  return hit ? { action: hit.action, reason: hit.reason, resumeCondition: hit.resumeCondition } : undefined;
+}
+/** 로드맵 Phase 항목을 확정 HITL 범위로 나눈다. 제외 항목은 현재 작업에서 빠지고,
+ * 보류 항목은 현재 작업에서 빠진 뒤 보류 상태·사유·재개 조건과 함께 별도 안내한다.
+ * 조건 문구 완전 일치 → 단계명 접두사 순으로 판정하며, 어느 쪽에도 해당하지 않으면
+ * 현재 작업으로 유지한다 (원본 참고 정보·독립 안전조건·평가 문구는 건드리지 않는다).
+ * 차단 게이트의 "조건 해결" 항목(`${주제} 해결 방안 확인`)은 조건 문구와 달라 유지된다:
+ * 차단 해제 작업이지 구현 범위가 아니며, 거부(불가) 증거는 모델이 이미 보존한다. */
+export interface RoadmapPhaseFilter {
+  current: string[];
+  held: Array<{ text: string; reason?: string; resumeCondition?: string }>;
+}
+export function filterRoadmapItems(model: AgentInstructionModel, items: string[]): RoadmapPhaseFilter {
+  const current: string[] = [];
+  const held: RoadmapPhaseFilter["held"] = [];
+  for (const raw of items) {
+    const line = raw.startsWith("샘플 범위: ") ? raw.slice("샘플 범위: ".length) : raw;
+    const cond = hitlDispositionForText(model, line);
+    if (cond) {
+      if (cond.action === "exclude") continue;
+      held.push({ text: raw, reason: cond.reason, resumeCondition: cond.resumeCondition });
+      continue;
+    }
+    const step = hitlDispositionForStepLine(model, raw);
+    if (step) {
+      if (step.action === "exclude") continue;
+      held.push({ text: raw, reason: step.reason, resumeCondition: step.resumeCondition });
+      continue;
+    }
+    current.push(raw);
+  }
+  return { current, held };
+}
+/** 정책 단계 순서대로 단계 상세 행을 만든다. HITL 모델의 단계 목록은 정책 단계의
+ * 부분집합이므로, 동일 단계명의 회차를 순서대로 대응시켜 인덱스를 맞춘다.
+ * 모델에 없는 단계는 HITL 판정(없으면 판정 없음)과 함께 반환해 표시층이 구분한다. */
+export interface StepDetailEntry {
+  step: StepScope;
+  modelIndex: number | null;
+  disposition?: HitlDisposition;
+}
+export function stepDetailEntries(model: AgentInstructionModel, profile: ExecutionProfile): StepDetailEntry[] {
+  const counts = new Map<string, number>();
+  return profile.stepScope.map(step => {
+    const key = normalizedStepText(step.step);
+    const occurrence = counts.get(key) ?? 0;
+    counts.set(key, occurrence + 1);
+    const matches = model.steps.map((s, i) => ({ s, i })).filter(({ s }) => normalizedStepText(s.step) === key);
+    if (occurrence < matches.length) return { step, modelIndex: matches[occurrence].i };
+    return { step, modelIndex: null, disposition: hitlDispositionForStep(model, step.step) };
+  });
 }
 /** 계획 항목 결정이 전파되는 역할: 구현 요구로 렌더링되는 계획 출처 항목만 대상이다.
  * 사람·제외·보안·참고 역할은 제약·증거이므로 전파로 제거하지 않는다. */
@@ -1473,6 +1602,8 @@ function applyHitlToModel(
   supplements: Array<{ key: string; content: string }>;
   planExcludedStepNames: string[];
   planDeferredStepNames: string[];
+  removed: HitlRemovedItem[];
+  removedSteps: HitlRemovedStep[];
 } {
   // 도구별 필터: planItem/criterion은 해당 도구의 계획에만 적용
   const relevant = reviews.filter(r => {
@@ -1506,7 +1637,7 @@ function applyHitlToModel(
   }
 
   if (excludeKeys.size === 0 && deferKeys.size === 0 && supplements.size === 0) {
-    return { classified, scoped, steps, methodEvidence, appliedCount: 0, appliedReviews, deferred: [], supplements: [], planExcludedStepNames: [], planDeferredStepNames: [] };
+    return { classified, scoped, steps, methodEvidence, appliedCount: 0, appliedReviews, deferred: [], supplements: [], planExcludedStepNames: [], planDeferredStepNames: [], removed: [], removedSteps: [] };
   }
 
   // 계획 항목 층위 전파: 같은 도구 계획에서 제외·보류된 기능은 구현 항목 필드만의
@@ -1514,7 +1645,7 @@ function applyHitlToModel(
   // dataFlow 등)에 같은 기능으로 다시 등장해도 구현 요구가 아니다. 진단 출처 항목은
   // 이 규칙으로 건드리지 않는다 (진단 항목은 진단 검토 채널이 담당한다).
   // 유지(keep) 결정은 전파보다 우선한다: 유지 항목과 겹치는 항목은 제거하지 않는다.
-  const planDecisions: Array<{ action: "exclude" | "defer"; type: string; text: string; tokens: string[] }> = [];
+  const planDecisions: Array<{ action: "exclude" | "defer"; type: string; text: string; tokens: string[]; reason?: string; resumeCondition?: string }> = [];
   const keptTexts = new Set<string>();
   // 유지 보호의 토큰 부분집합 판정은 계획 항목(기능) 유지 결정에만 적용한다.
   // 완료 기준 유지("…결과 확인")는 그 기준 문구의 유지를 뜻할 뿐, 같은 기능을
@@ -1530,10 +1661,9 @@ function applyHitlToModel(
       keptTexts.add(normalizedItem(text));
       if (r.target.type === "planItem") keptTokenSets.push(planDecisionTokens(text));
     } else if (r.action === "exclude" || r.action === "defer") {
-      planDecisions.push({ action: r.action, type: r.target.type, text, tokens: planDecisionTokens(text) });
+      planDecisions.push({ action: r.action, type: r.target.type, text, tokens: planDecisionTokens(text), reason: r.reason, resumeCondition: r.resumeCondition });
     }
   }
-  const planDecisionExact = new Set(planDecisions.map(d => normalizedItem(d.text)));
   const planItemDecisions = planDecisions.filter(d => d.type === "planItem");
 
   // 검토 대상 키와 classified 항목 매칭
@@ -1575,15 +1705,29 @@ function applyHitlToModel(
     return null;
   };
 
-  const isExcluded = (item: AgentInstructionItem) => {
+  /** HITL 제거 판정: 기존 제외 여부와 동일한 가드·순서로, 제거 사유까지 함께 반환한다.
+   * 로드맵·01~03이 매칭 규칙을 복사하지 않고 모델의 판정을 재사용하기 위한 공통 표시 모델이다.
+   * 동일 문구에 제외·보류 결정이 모두 연결되면(별개 회차) 강한 쪽인 제외를 우선한다. */
+  const pickDecision = (candidates: Array<{ action: "exclude" | "defer"; reason?: string; resumeCondition?: string }>): HitlDisposition | null => {
+    const hit = candidates.find(d => d.action === "exclude") ?? candidates[0];
+    return hit ? { action: hit.action, reason: hit.reason, resumeCondition: hit.resumeCondition } : null;
+  };
+  const dispositionOf = (item: AgentInstructionItem): HitlDisposition | null => {
     const key = matchReview(item);
-    if (key && (excludeKeys.has(key) || deferKeys.has(key))) return true;
+    if (key) {
+      if (excludeKeys.has(key)) return { action: "exclude" };
+      if (deferKeys.has(key)) {
+        const details = deferDetails.get(key);
+        return { action: "defer", reason: details?.reason, resumeCondition: details?.resumeCondition };
+      }
+      return null;
+    }
     // occurrence 보호: 구현 항목 필드의 개별 회차는 각각 검토 가능한 별개 항목이다.
     // 같은 문구의 다른 회차(다른 reviewKey)는 전파로 제거하지 않는다 — 전파는
     // 검토 키가 없는 필드 사본(inScope·integrations·dataFlow 등)과, 구현 항목이
     // 아닌 검토 항목(완료 기준·테스트)처럼 같은 요구를 다른 자리에서 반복하는
     // 경우에만 적용한다.
-    if (item.reviewKey && item.sources.includes("plan.implementation")) return false;
+    if (item.reviewKey && item.sources.includes("plan.implementation")) return null;
     // 같은 도구 계획의 다른 필드에 남은 동일 기능: 정확 일치 또는 토큰 규칙으로 전파한다.
     // 유지 항목과 겹치면(유지 문구와 동일하거나 부분집합 관계면) 제거하지 않는다.
     // 선행 조건(conditions)은 예외적으로 출처를 따지지 않는다: 제외·보류된 기능만을
@@ -1591,19 +1735,19 @@ function applyHitlToModel(
     // 현재 범위 전제 조건으로 남으면 지시문이 자기모순이 된다. 진단 출처 항목
     // 일반(기능·산출물 등)은 이 규칙으로 건드리지 않는다 — 진단 검토 채널이 담당한다.
     // 거부(불가) 증거는 filterReview가 별도로 보존한다.
-    if (!PLAN_PROPAGATION_ROLES.has(item.role)) return false;
-    if (item.role !== "conditions" && !item.sources.some(source => source.startsWith("plan."))) return false;
+    if (!PLAN_PROPAGATION_ROLES.has(item.role)) return null;
+    if (item.role !== "conditions" && !item.sources.some(source => source.startsWith("plan."))) return null;
     const itemTexts = [item.text, item.original, ...item.originals].filter((text): text is string => !!text);
-    if (itemTexts.some(text => keptTexts.has(normalizedItem(text)))) return false;
-    if (itemTexts.some(text => planDecisionExact.has(normalizedItem(text)))) {
+    if (itemTexts.some(text => keptTexts.has(normalizedItem(text)))) return null;
+    const exactMatches = planDecisions.filter(d => itemTexts.some(text => normalizedItem(d.text) === normalizedItem(text)));
+    if (exactMatches.length) {
       const itemTokens = planDecisionTokens(item.text);
-      return !planDecisionProtected(itemTokens, keptTokenSets);
+      return planDecisionProtected(itemTokens, keptTokenSets) ? null : pickDecision(exactMatches);
     }
     const itemTokens = planDecisionTokens(item.text);
-    if (!itemTokens.length || planDecisionProtected(itemTokens, keptTokenSets)) return false;
-    return planDecisions.some(d => planDecisionMatches(itemTokens, d.tokens));
+    if (!itemTokens.length || planDecisionProtected(itemTokens, keptTokenSets)) return null;
+    return pickDecision(planDecisions.filter(d => planDecisionMatches(itemTokens, d.tokens)));
   };
-
   // A review that removes a risk card cannot grant access denied by diagnosis.
   // Keep denied permission evidence in the generated instructions.
   // 사본 경로(plan/options/profile)에서도 거부 증거가 유지되도록 표준 문구까지 포함한다.
@@ -1612,9 +1756,19 @@ function applyHitlToModel(
       normalizeForMatch(`${check.topic}${check.note ? ` — ${check.note}` : ""}`),
       normalizeForMatch(`${check.topic}: ${check.status} - ${check.note}`),
     ]));
+  /** HITL로 빠진 표시 항목 기록: 동일 객체는 여러 목록에 나타나므로 객체 기준으로 1회만 기록한다.
+   * 직접 판정이 먼저 기록되고, 단계 연결 제거는 그 뒤에 이미 기록된 항목을 덮지 않는다. */
+  const removedByItem = new Map<AgentInstructionItem, HitlRemovedItem>();
+  const recordRemoved = (item: AgentInstructionItem, disp: HitlDisposition) => {
+    if (removedByItem.has(item)) return;
+    removedByItem.set(item, { text: item.text, originals: item.originals, role: item.role, ...(item.step ? { step: item.step } : {}), ...disp });
+  };
   const filterReview = (item: AgentInstructionItem) => {
     const itemTexts = [item.text, item.original, ...item.originals].filter((text): text is string => !!text).map(normalizeForMatch);
-    return itemTexts.some(text => deniedTexts.has(text)) || !isExcluded(item);
+    if (itemTexts.some(text => deniedTexts.has(text))) return true;
+    const disp = dispositionOf(item);
+    if (disp) { recordRemoved(item, disp); return false; }
+    return true;
   };
   let filteredClassified = classified.filter(filterReview);
   let filteredScoped = {
@@ -1642,6 +1796,7 @@ function applyHitlToModel(
   // Steps 필터링: step 타입의 exclude/defer 검토가 있으면 해당 단계 제외
   // 올바른 매칭: extractReviewableItems()로 현재 원본의 검토 대상을 생성하고,
   // 각 단계와 리뷰 키를 정확히 연결 (문자열 직접 비교 금지)
+  const removedSteps: HitlRemovedStep[] = [];
   const stepExcludeIndices = new Set<number>();
   if (diagnosis) {
     const reviewableItems = extractReviewableItems(diagnosis);
@@ -1660,6 +1815,7 @@ function applyHitlToModel(
         if (r.target.key !== itemKey) continue;
         if (r.action === "exclude" || r.action === "defer") {
           stepExcludeIndices.add(i);
+          removedSteps.push({ step: steps[i].step, action: r.action, reason: r.reason, resumeCondition: r.resumeCondition });
           break;
         }
       }
@@ -1690,6 +1846,7 @@ function applyHitlToModel(
     }
     if (!matched) return;
     stepExcludeIndices.add(idx);
+    removedSteps.push({ step: s.step, action: matched.action, reason: matched.reason, resumeCondition: matched.resumeCondition });
     if (matched.action === "exclude") planExcludedStepNames.push(s.step);
     else planDeferredStepNames.push(s.step);
   });
@@ -1713,14 +1870,22 @@ function applyHitlToModel(
     const activeNames = new Set(filteredSteps.map(step => step.step));
     const removed = (item: AgentInstructionItem) => !!item.step && removedNames.has(item.step)
       && !activeNames.has(item.step) && item.role !== "human" && item.role !== "excluded";
-    filteredClassified = filteredClassified.filter(item => !removed(item));
+    // 단계 연결 제거 항목도 단계 판정으로 기록한다 (직접 판정이 먼저 기록된 항목은 덮지 않음).
+    const stepDispByName = new Map(removedSteps.map(d => [d.step, d]));
+    const removedByStep = (item: AgentInstructionItem) => {
+      if (!removed(item)) return false;
+      const disp = item.step ? stepDispByName.get(item.step) : undefined;
+      if (disp) recordRemoved(item, disp);
+      return true;
+    };
+    filteredClassified = filteredClassified.filter(item => !removedByStep(item));
     filteredScoped = {
-      features: filteredScoped.features.filter(item => !removed(item)),
-      tests: filteredScoped.tests.filter(item => !removed(item)),
-      criteria: filteredScoped.criteria.filter(item => !removed(item)),
-      validationMethods: filteredScoped.validationMethods.filter(item => !removed(item)),
-      outputs: filteredScoped.outputs.filter(item => !removed(item)),
-      conditions: filteredScoped.conditions.filter(item => !removed(item)),
+      features: filteredScoped.features.filter(item => !removedByStep(item)),
+      tests: filteredScoped.tests.filter(item => !removedByStep(item)),
+      criteria: filteredScoped.criteria.filter(item => !removedByStep(item)),
+      validationMethods: filteredScoped.validationMethods.filter(item => !removedByStep(item)),
+      outputs: filteredScoped.outputs.filter(item => !removedByStep(item)),
+      conditions: filteredScoped.conditions.filter(item => !removedByStep(item)),
     };
     appliedCount = classified.length - filteredClassified.length;
   }
@@ -1736,6 +1901,8 @@ function applyHitlToModel(
     supplements: supplementList,
     planExcludedStepNames,
     planDeferredStepNames,
+    removed: [...removedByItem.values()],
+    removedSteps,
   };
 }
 

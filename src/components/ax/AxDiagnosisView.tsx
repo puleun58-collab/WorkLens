@@ -18,10 +18,11 @@ import { axes, automationLevel, bubbleArea, diagnosisCounts, diagnosisStatusItem
 import { candidateTask, taskDetails, followUpDescription, legacyDetailValues, validateAttachmentPreflight, isRegistrationUnchanged } from "@/lib/ax/registration";
 import { MAX_TASK_ATTACHMENTS, attachmentPatch, buildAttachmentSummary, combineAttachmentSummaries, taskAttachments } from "@/lib/ax/attachments";
 import type { AxAttachmentMeta } from "@/lib/ax/types";
+import type { AxToolId } from "@/lib/ax/guide";
 import { exportAxState, importAxState } from "@/lib/ax/transfer";
 import { emptyAxState, type AxStateV2, type AxTask, type AxDiagnosis, type AxDetails, type FactorKey } from "@/lib/ax/types";
 import { extractReviewableItems, extractPlanReviewableItems, reconcileReviews, validateReviewForConfirm, type ReviewableItem } from "@/lib/ax/hitl";
-import { AxLevelBadge, AxProcess, AxResultSummary, AxExecutionTimeline, AxPlanSection, AxScoreCards, AxCheckIcon, diagnosisSummaryParts, diagnosisCheckItems, visibleDiagnosisCheckItems, matrixRationaleBullets } from "./AxReport";
+import { AxLevelBadge, AxProcess, AxResultSummary, AxExecutionTimeline, AxPlanSection, AxScoreCards, AxCheckIcon, diagnosisSummaryParts, diagnosisCheckItems, visibleDiagnosisCheckItems, matrixRationaleBullets, resolveActiveTool } from "./AxReport";
 import { AxScoreEvidence } from "./AxScoreEvidence";
 import "./ax.css";
 
@@ -61,6 +62,37 @@ function NeedsCheckLink({ tasks, label, disabled, onGo }: { tasks: AxTask[]; lab
       {tasks.map(task => <MenuItem key={task.id} onClick={() => onGo(task.id)}>{task.name}</MenuItem>)}
     </MenuPopup>
   </Menu>;
+}
+
+/** 선택 업무의 결과·로드맵 래퍼: 도구 선택 상태를 소유해 로드맵·01~03·04가
+ * 같은 도구의 확정 검토를 따르게 한다. key로 업무 전환 시 remount돼 상태가
+ * 초기화되는 점은 기존 AxPlanSection key 동작과 동일하다. */
+function AxSelectedReport({ task, busy, onGenerate, onSaveReview }: {
+  task: AxTask;
+  busy: string | null;
+  onGenerate: (target: AxToolId) => void;
+  onSaveReview: (r: Omit<import("@/lib/ax/types").HitlReview, "id" | "reviewedAt" | "updatedAt"> & { id?: string }) => { saved: boolean; reason?: string };
+}) {
+  // 호출 지점은 selected.diagnosis가 있는 경우에만 이 래퍼를 렌더링한다.
+  const diagnosis = task.diagnosis as AxDiagnosis;
+  const plans = { codex: diagnosis.planCodex, claude: diagnosis.planClaude };
+  const [selectedTool, setSelectedTool] = useState<AxToolId | null>(null);
+  const activeTool = resolveActiveTool(selectedTool, plans);
+  const reviews = (task as import("@/lib/ax/types").AxTaskV2).reviews ?? [];
+  const reviewProps = { taskId: task.id, reviews, onSaveReview };
+  return <>
+    <AxExecutionTimeline diagnosis={diagnosis} plan={plans[activeTool]} hitlReviews={reviews} hitlTool={activeTool} />
+    <AxPlanSection
+      diagnosis={diagnosis}
+      taskName={task.name}
+      taskContext={[task.description, ...Object.entries(taskDetails(task)).filter(([, value]) => value !== undefined).map(([key, value]) => `${key}: ${value}`)].join("\n")}
+      busy={busy}
+      onGenerate={onGenerate}
+      reviewProps={reviewProps}
+      activeTool={activeTool}
+      onToolChange={setSelectedTool}
+    />
+  </>;
 }
 
 export function AxDiagnosisView() {
@@ -769,20 +801,7 @@ export function AxDiagnosisView() {
           {selected?.diagnosis ? <article className="ax-selected-report" aria-label={`${selected.name} 결과·로드맵`}>
             <header className="ax-report-intro"><div><span className="ax-report-eyebrow">선택한 업무 · 결과·로드맵</span><div className="ax-title-group"><h2>{selected.name}</h2><Badge className="ax-status-badge">{STATUS[taskDisplayStatus(selected).status]}</Badge>{taskDisplayStatus(selected).needsCheck ? <span className="ax-status-note">추가 질문 필요</span> : null}</div><p>{selected.description}</p></div></header>
             <AxResultSummary task={selected} />
-            <AxExecutionTimeline diagnosis={selected.diagnosis} />
-            <AxPlanSection
-              key={selected.id}
-              diagnosis={selected.diagnosis}
-              taskName={selected.name}
-              taskContext={[selected.description, ...Object.entries(taskDetails(selected)).filter(([, value]) => value !== undefined).map(([key, value]) => `${key}: ${value}`)].join("\n")}
-              busy={busy}
-              onGenerate={target => void generatePlan(selected, target)}
-              reviewProps={{
-                taskId: selected.id,
-                reviews: (selected as import("@/lib/ax/types").AxTaskV2).reviews ?? [],
-                onSaveReview: (r) => saveHitlReview(selected.id, r),
-              }}
-            />
+            <AxSelectedReport key={selected.id} task={selected} busy={busy} onGenerate={target => void generatePlan(selected, target)} onSaveReview={r => saveHitlReview(selected.id, r)} />
           </article> : <p className="ax-muted">우선순위에서 업무 선택 후 상세 결과 확인</p>}
         </>}
       </TabsPanel>
