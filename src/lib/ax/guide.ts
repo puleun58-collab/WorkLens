@@ -653,7 +653,7 @@ export function planSummary(diagnosis: AxDiagnosis, rawPlan?: AxPlan, context = 
   ], [...manualAutomation, ...humanKept]));
   const shownScope = new Set([...humanKept, ...excluded].map(normalizedItem));
   const pocTests = model.classified.filter(item => item.role === "tests");
-  const criteria = (source: string) => unique(model.classified.filter(item => item.sources.includes(source) && !model.scoped.validationMethods.includes(item)).map(item => model.scoped.criteria.includes(item)
+  const criteria = (source: string) => unique(model.classified.filter(item => item.sources.includes(source) && !model.scoped.validationMethods.includes(item) && !isExcludedPocCriterion(model, item)).map(item => model.scoped.criteria.includes(item)
     ? item.text : `${item.scope === "future" ? "향후 판정" : "기준 확인 필요"}: ${item.text}`));
   return {
     include: unique((profile?.poc.inScope ?? []).flatMap(line => {
@@ -1531,6 +1531,59 @@ const normalizeLoanwordToken = (token: string): string => {
   if (/^[A-Za-z]+$/u.test(token)) return LOANWORD_MAP[token.toLowerCase()] ?? token.toLowerCase();
   return token;
 };
+/** 렌더 단계 단어 비교: 구분 기호를 공백으로 바꾸고 2자 이상 단어만 외래어 표준형으로 비교한다.
+ * 모듈 층위 단일 정의로, 04 지시문과 03 요약이 같은 단어 비교를 쓴다. */
+const scopeWords = (text: string): string[] => text.replace(/[^\uAC00-\uD7A3A-Za-z0-9]/gu, " ").split(/\s+/u).filter(w => w.length >= 2).map(normalizeLoanwordToken);
+/** 제외 단계 관련 PoC 기준 판정 (03 요약이 적용하는 범위).
+ * PoC 성공·실패 기준 중 모델의 scoped criteria·검증 방법에 들지 않은 항목이
+ * 유효성 검증된 제외 단계와만 관련되고 활성 작업 단계와는 무관하면 true.
+ * 활성 단계와 단어를 공유하면 보수적으로 유지한다 (강등하지 않음).
+ * 차단 상태·Level 0은 03의 진단 기준 표시와 무관하므로 여기서 다루지 않는다:
+ * 03 "완료 기준"은 진단 자체의 기준 기록이고, 실행 불가 여부는 게이트 배지가
+ * 표시한다 (E2E ax.spec.ts:1356이 전 Level×Gate에서 기준 표시를 고정한다). */
+export function isExcludedPocCriterion(model: AgentInstructionModel, item: AgentInstructionItem): boolean {
+  if (item.role !== "criteria") return false;
+  const isPoc = item.sources.some(s => s === "diagnosis.poc.success" || s === "diagnosis.poc.failure");
+  if (!isPoc) return false;
+  if (model.scoped.criteria.includes(item) || model.scoped.validationMethods.includes(item)) return false;
+  const excludedStepNames = model.hitlDetails?.validatedExcludedStepNames ?? [];
+  if (excludedStepNames.length === 0) return false;
+  const words = scopeWords(item.text);
+  const matchesExcluded = excludedStepNames.some(name => {
+    const nameWords = scopeWords(name);
+    return words.some(w => nameWords.includes(w)) || nameWords.some(w => words.includes(w));
+  });
+  if (!matchesExcluded) return false;
+  // 활성 작업 단계와도 관련되면 제외하지 않음 (보수적: 제외 단계와만 관련될 때만 demote).
+  // 구현 범위 단계가 없을 때(차단·Level 0)는 검증 범위 단계가 비교 기준이 된다:
+  // 그렇지 않으면 비교 대상 자체가 없어 제외 단계와 단어를 공유하는 모든 기준이
+  // "제외 단계와만 관련"으로 잡혀 일반어(예: "정산")까지 과도하게 제거된다.
+  // 제외 단계가 단계 목록에 남아 있다면 비교 대상에서 뺀다.
+  let activeStepNames = model.steps.filter(s => s.scope === "implement" || s.scope === "after-check").map(s => s.step);
+  if (activeStepNames.length === 0) {
+    const excluded = new Set(excludedStepNames);
+    activeStepNames = model.steps.filter(s => s.scope === "verify" && !excluded.has(s.step)).map(s => s.step);
+  }
+  const matchesActive = activeStepNames.some(name => {
+    const nameWords = scopeWords(name);
+    return words.some(w => nameWords.includes(w)) || nameWords.some(w => words.includes(w));
+  });
+  return !matchesActive;
+}
+/** PoC 기준 강등 판정 (04 지시문이 적용하는 범위).
+ * 차단 상태(Level 0·Gate blocked)에서는 PoC 기준을 구현 가능한 완료 조건으로
+ * 제시하지 않으며, 그 외에는 제외 단계 관련 판정과 같다. 04는 실행 지시문이므로
+ * 실행 불가 기준을 필수 조건에서 빼는 것이고, 03은 진단 기준 표시이므로
+ * 차단 분기를 공유하지 않는다 (03은 isExcludedPocCriterion만 쓴다). */
+export function isDemotedPocCriterion(model: AgentInstructionModel, item: AgentInstructionItem): boolean {
+  if (item.role !== "criteria") return false;
+  const isPoc = item.sources.some(s => s === "diagnosis.poc.success" || s === "diagnosis.poc.failure");
+  if (!isPoc) return false;
+  if (model.scoped.criteria.includes(item) || model.scoped.validationMethods.includes(item)) return false;
+  // 차단 상태에서는 PoC 기준을 구현 가능한 완료 조건으로 제시하지 않음.
+  if (model.gate === "blocked" || model.scopeLevel === 0) return true;
+  return isExcludedPocCriterion(model, item);
+}
 /** 내용 토큰: 한글 어절과 라틴/숫자 토큰을 분리 추출한다 ("API로" → API + 로). 1자 토큰은 잡음으로 제외한다. */
 const planDecisionTokens = (text: string): string[] => {
   const tokens = [...text.matchAll(/[가-힣]+|[A-Za-z0-9]+/gu)].map(m => m[0]);
@@ -2068,7 +2121,6 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
   const removedStepNames = model.hitlDetails?.validatedExcludedStepNames ?? [];
   // 렌더 단계의 단어 비교도 모델 층위와 같은 외래어 표준형을 쓴다
   // ("Google Sheets" 산출물·기준이 "구글 시트" 단계와 연결되도록).
-  const scopeWords = (text: string): string[] => text.replace(/[^\uAC00-\uD7A3A-Za-z0-9]/gu, " ").split(/\s+/u).filter(w => w.length >= 2).map(normalizeLoanwordToken);
   const relatesToStepName = (text: string, stepName: string): boolean => {
     const textWords = scopeWords(text);
     const nameWords = new Set(scopeWords(stepName));
@@ -2127,30 +2179,13 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
   const isPocCriterion = (item: AgentInstructionItem) =>
     item.sources.some(s => s === "diagnosis.poc.success" || s === "diagnosis.poc.failure");
   // PART A-5: PoC 기준 안전성 — 제외된 단계나 차단 상태에서 필수 완료 조건으로 승격 금지.
-  // Priority 5: 모델에서 유효성 검증된 제외 단계명 집합 사용 (중복 검증 방지, 검증 기준 단일화)
-  const excludedStepNames = new Set<string>(model.hitlDetails?.validatedExcludedStepNames ?? []);
-  // PoC 기준이 제외된 단계와만 관련되고 활성 작업 단계와는 무관하면 필수 조건에서 제외.
-  const criterionRelatesOnlyToExcluded = (text: string): boolean => {
-    if (excludedStepNames.size === 0) return false;
-    const words = scopeWords(text);
-    const matchesExcluded = [...excludedStepNames].some(name => {
-      const nameWords = scopeWords(name);
-      return words.some(w => nameWords.includes(w)) || nameWords.some(w => words.includes(w));
-    });
-    if (!matchesExcluded) return false;
-    // 활성 작업 단계와도 관련되면 제외하지 않음 (보수적: 제외 단계와만 관련될 때만 demote)
-    const activeStepNames = work.map(s => s.step);
-    const matchesActive = activeStepNames.some(name => {
-      const nameWords = scopeWords(name);
-      return words.some(w => nameWords.includes(w)) || nameWords.some(w => words.includes(w));
-    });
-    return !matchesActive;
-  };
+  // 판정은 isDemotedPocCriterion 단일 기준을 쓴다 (03 요약은 그중 제외 단계 관련
+  // 부분(isExcludedPocCriterion)만 공유한다 — 차단 분기는 04 실행 지시문 전용이다).
+  // (Priority 5: 모델에서 유효성 검증된 제외 단계명 집합 사용, 검증 기준 단일화).
   // 차단 상태에서는 PoC 기준을 구현 가능한 완료 조건으로 제시하지 않음.
   // Level 0(검토·검증 전용)도 구현이 허용되지 않는 범위이므로 동일하게 취급한다 —
   // 단계 연결이 없는 PoC 기준을 "업무 전체 완료 조건"으로 승격하지 않는다.
   // (단계에 연결된 기준은 검토·검증 판정 기준으로 그대로 유지된다.)
-  const pocCriteriaBlocked = gate === "blocked" || scopeLevel === 0;
   // 모델이 검증 방법으로 분류한 항목은 성공·실패 판정 기준이 아니다 —
   // '검증 방법·기록 (합격 조건 아님)'에 이미 분리돼 있으므로, 단계 연결된
   // 검증 방법이 업무 전체 완료/실패 기준으로 중복 승격되지 않게 제외한다
@@ -2160,7 +2195,7 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
   // 실패 항목(예: "중복 ID 허용")은 완료 조건처럼 읽히면 요구사항과 충돌해
   // 에이전트가 전면 기권하는 원인이 된다 — 별도 실패 판정 섹션으로 분리한다.
   const eligiblePocCriteria = pocCriteriaItems
-    .filter(item => !pocCriteriaBlocked && !criterionRelatesOnlyToExcluded(item.text));
+    .filter(item => !isDemotedPocCriterion(model, item));
   const overallCriteria = unique(eligiblePocCriteria
     .filter(item => pocKindOf(item) === "success")
     .map(item => item.text));
@@ -2174,7 +2209,7 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
     ...eligiblePocCriteria.filter(item => pocKindOf(item) === "conflict").map(item => item.text),
   ]);
   const demotedPocCriteria = pocCriteriaItems
-    .filter(item => pocCriteriaBlocked || criterionRelatesOnlyToExcluded(item.text))
+    .filter(item => isDemotedPocCriterion(model, item))
     .map(item => `${item.text} — 현재 필수 완료 조건 아님${gate === "blocked" ? " (실행 차단 상태)" : scopeLevel === 0 ? " (검토·검증 전용 범위)" : " (관련 단계 제외됨)"}`);
   // 업무 전체 완료 기준은 단계 연결 reason을 표시하지 않음 (전체 기준으로 명시하므로).
   const deferredCriteria = [
