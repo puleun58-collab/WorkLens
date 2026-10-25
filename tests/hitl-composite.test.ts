@@ -500,7 +500,17 @@ describe("HITL 복합 시나리오 (20종)", () => {
 
     // 반복 생성 시 동일한 결과 (안정성)
     expect(prompt1).toBe(prompt2);
-    expect(prompt1).not.toContain("데이터 검증 로직");
+    // 계획 항목 제외는 사람 검토 구간에 명시적으로 나열되므로(§8 결함 수정),
+    // 전수 부재가 아니라 "사람 검토 반영 블록 외에는 등장하지 않음"으로 판정한다.
+    const withoutReviewBlock = (prompt: string): string => {
+      const start = prompt.indexOf("### 사람 검토 반영");
+      if (start < 0) return prompt;
+      const rest = prompt.slice(start);
+      const next = rest.search(/\n## \d+\. /u);
+      return next < 0 ? prompt.slice(0, start) : prompt.slice(0, start) + rest.slice(next);
+    };
+    expect(withoutReviewBlock(prompt1)).not.toContain("데이터 검증 로직");
+    expect(prompt1).toContain("- 데이터 검증 로직 — 현재 구현 범위에서 제외");
   });
 
   it("19. 검토 항목 재정렬 - 순서 변경 시에도 정확한 매칭", () => {

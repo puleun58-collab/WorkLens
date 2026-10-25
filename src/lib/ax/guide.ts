@@ -794,11 +794,11 @@ export interface AgentInstructionModel {
     /** 제외 대상: 지시문에서 명시적으로 전달하기 위한 확정 제외 목록 (이름 포함). */
     excluded: Array<{ key: string; name: string }>;
     supplements: Array<{ key: string; name: string; content: string }>;
-    /** Priority 5: 유효성 검증된 step-type exclude/defer 검토의 단계명 집합 (PoC 기준 demote용) */
+    /** Priority 5: 유효성 검증된 step-type exclude/defer 검토 + 계획 항목 결정으로 전파된 단계명 집합 (PoC 기준 demote용) */
     validatedExcludedStepNames?: string[];
-    /** 유효성 검증된 step-type defer 검토의 실제 단계명 (보류 산출물·예외 정리용) */
+    /** 유효성 검증된 step-type defer 검토 + 계획 항목 보류로 전파된 단계명 (보류 산출물·예외 정리용) */
     deferredStepNames?: string[];
-    /** 유효성 검증된 step-type exclude 검토의 실제 단계명 (제외 산출물·예외 정리용) */
+    /** 유효성 검증된 step-type exclude 검토 + 계획 항목 제외로 전파된 단계명 (제외 산출물·예외 정리용) */
     excludedStepNames?: string[];
   };
 }
@@ -1341,15 +1341,26 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
       if (!item) return key;
       return item.type === "step" ? item.text.split(":")[0].trim() || item.text : item.text;
     };
-    // 제외 명시는 실제 업무 단계에 대한 결정만 대상으로 한다. 단계가 아닌
-    // 조건·기준·계획 항목의 제외는 기존 동작대로 본문에 다시 등장시키지 않는다.
-    const stepDisplayNames = new Set(currentItems.filter(item => item.type === "step").map(item => item.text.split(":")[0].trim()));
+    // 제외 명시는 확정된 작업 항목(단계·계획 항목·완료 기준)의 제외를 대상으로 한다.
+    // 기존에는 단계명과 같은 계획 항목만 나열해, 단계명이 아닌 계획 항목의 제외가
+    // 사람 검토 구간에서 누락되는 결함이 있었다 (보류는 전건 나열과 비대칭).
+    // 진단 위험(기술 확인) 제외는 제외한다: 위험 제외는 "해당 조건이 적용되지 않음"을
+    // 뜻해 작업 제외 목록에 올리는 것이 아니라 지시문에서 전수 부재여야 한다는
+    // 기존 R1·R2·T15 동작을 유지한다.
+    for (const name of applied.planExcludedStepNames) {
+      if (name && !validatedExcludedStepNames.includes(name)) validatedExcludedStepNames.push(name);
+      if (name && !excludedStepNames.includes(name)) excludedStepNames.push(name);
+    }
+    for (const name of applied.planDeferredStepNames) {
+      if (name && !validatedExcludedStepNames.includes(name)) validatedExcludedStepNames.push(name);
+      if (name && !deferredStepNames.includes(name)) deferredStepNames.push(name);
+    }
     hitlDetails = {
       appliedReviews: applied.appliedReviews,
       deferred: applied.deferred.map(entry => ({ ...entry, name: targetDisplayName(entry.key) })),
       excluded: applied.appliedReviews.filter(r => r.action === "exclude")
         .map(r => ({ key: r.targetKey, name: targetDisplayName(r.targetKey), targetType: currentItemByKey.get(r.targetKey)?.type }))
-        .filter(entry => entry.targetType === "step" || (entry.targetType === "planItem" && stepDisplayNames.has(entry.name)))
+        .filter(entry => entry.targetType !== "risk")
         .map(({ key, name }) => ({ key, name })),
       supplements: applied.supplements.map(entry => ({ ...entry, name: targetDisplayName(entry.key) })),
       validatedExcludedStepNames,
@@ -1373,6 +1384,53 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
     scoped: finalScoped, diagnosis: d, plan: guarded, prerequisites: options.prerequisites ?? [], gaps,
     hitlApplied: hitlActuallyApplied, hitlDetails };
 }
+/** 계획 항목 결정이 전파되는 역할: 구현 요구로 렌더링되는 계획 출처 항목만 대상이다.
+ * 사람·제외·보안·참고 역할은 제약·증거이므로 전파로 제거하지 않는다. */
+const PLAN_PROPAGATION_ROLES = new Set(["features", "goal", "criteria", "tests", "conditions", "flow", "outputs"]);
+/** 내용 토큰: 한글 어절과 라틴/숫자 토큰을 분리 추출한다 ("API로" → API + 로). 1자 토큰은 잡음으로 제외한다. */
+const planDecisionTokens = (text: string): string[] => {
+  const tokens = [...text.matchAll(/[가-힣]+|[A-Za-z0-9]+/gu)].map(m => m[0]);
+  return [...new Set(tokens.filter(t => t.length >= 2))];
+};
+/** 어간: 조사·어미를 뗀 형태 ("명세서가" → "명세서", "전송됨" → "전송").
+ * 어간이 2자 미만으로 줄면 원형을 유지한다. "이"는 어간 말음과 구분이 어려워 떼지 않는다. */
+const PLAN_TOKEN_SUFFIXES = ["에서", "에게", "으로", "로서", "로부터", "까지", "보다", "처럼", "에", "로", "를", "을", "가", "은", "는", "의", "와", "과", "도", "만", "됨"];
+const planDecisionStem = (token: string): string => {
+  if (!/[가-힣]/u.test(token)) return token;
+  for (const suffix of PLAN_TOKEN_SUFFIXES) {
+    if (token.length > suffix.length + 1 && token.endsWith(suffix)) return token.slice(0, -suffix.length);
+  }
+  return token;
+};
+const planDecisionStems = (tokens: string[]): string[] => [...new Set(tokens.map(planDecisionStem))];
+/** 같은 기능 판정: 한쪽 토큰 집합이 다른 쪽에 온전히 포함되거나, 2개 이상 내용 토큰이
+ * 겹치고 그중 3자 이상 특이 토큰이 있을 때 같은 기능으로 본다. "결과 확인" 같은
+ * 2자 일반어 쌍만으로는 전파하지 않는다. 원형·어간 어느 쪽으로든 일치하면 같은 기능이다. */
+function planDecisionMatches(itemTokens: string[], decisionTokens: string[]): boolean {
+  const matchSets = (a: string[], b: string[]): boolean => {
+    const bSet = new Set(b);
+    if (a.length > 0 && a.every(t => bSet.has(t))) return true;
+    if (b.length > 0 && b.every(t => new Set(a).has(t))) return true;
+    const overlap = a.filter(t => bSet.has(t));
+    return overlap.length >= 2 && overlap.some(t => t.length >= 3);
+  };
+  return matchSets(itemTokens, decisionTokens)
+    || matchSets(planDecisionStems(itemTokens), planDecisionStems(decisionTokens));
+}
+/** 유지(keep) 보호: 유지 항목과 동일 기능일 때만 보호한다 (토큰 집합 동일, 원형·어간 기준).
+ * 부분집합 관계(좁은 기능·넓은 기능)는 다른 기능이므로 보호하지 않는다 — 예를 들어
+ * "데이터 검증 후처리" 유지는 "데이터 검증" 제외를 막지 않고, 그 역도 마찬가지이다. */
+function planDecisionProtected(itemTokens: string[], keptTokenSets: string[][]): boolean {
+  const sameSet = (a: Set<string>, b: Set<string>): boolean => a.size === b.size && [...a].every(t => b.has(t));
+  const item = new Set(itemTokens);
+  const itemStems = new Set(planDecisionStems(itemTokens));
+  return keptTokenSets.some(kept => {
+    const keptSet = new Set(kept);
+    const keptStems = new Set(planDecisionStems(kept));
+    return sameSet(item, keptSet) || sameSet(itemStems, keptStems);
+  });
+}
+
 /** HITL 3차: 검토 결과를 실행 범위 모델에 반영
  * - exclude: 해당 항목을 구현 범위에서 제외
  * - defer: 해당 항목을 보류 (사유·재개 조건과 함께)
@@ -1396,6 +1454,8 @@ function applyHitlToModel(
   appliedReviews: Array<{ id: string; action: string; targetKey: string }>;
   deferred: Array<{ key: string; reason?: string; resumeCondition?: string }>;
   supplements: Array<{ key: string; content: string }>;
+  planExcludedStepNames: string[];
+  planDeferredStepNames: string[];
 } {
   // 도구별 필터: planItem/criterion은 해당 도구의 계획에만 적용
   const relevant = reviews.filter(r => {
@@ -1429,8 +1489,35 @@ function applyHitlToModel(
   }
 
   if (excludeKeys.size === 0 && deferKeys.size === 0 && supplements.size === 0) {
-    return { classified, scoped, steps, methodEvidence, appliedCount: 0, appliedReviews, deferred: [], supplements: [] };
+    return { classified, scoped, steps, methodEvidence, appliedCount: 0, appliedReviews, deferred: [], supplements: [], planExcludedStepNames: [], planDeferredStepNames: [] };
   }
+
+  // 계획 항목 층위 전파: 같은 도구 계획에서 제외·보류된 기능은 구현 항목 필드만의
+  // 문구가 아니라, 같은 계획의 다른 필드(inScope·integrations·acceptance·tests·
+  // dataFlow 등)에 같은 기능으로 다시 등장해도 구현 요구가 아니다. 진단 출처 항목은
+  // 이 규칙으로 건드리지 않는다 (진단 항목은 진단 검토 채널이 담당한다).
+  // 유지(keep) 결정은 전파보다 우선한다: 유지 항목과 겹치는 항목은 제거하지 않는다.
+  const planDecisions: Array<{ action: "exclude" | "defer"; type: string; text: string; tokens: string[] }> = [];
+  const keptTexts = new Set<string>();
+  // 유지 보호의 토큰 부분집합 판정은 계획 항목(기능) 유지 결정에만 적용한다.
+  // 완료 기준 유지("…결과 확인")는 그 기준 문구의 유지를 뜻할 뿐, 같은 기능을
+  // 수행하는 단계·항목까지 유지하는 결정이 아니므로 토큰 보호에 쓰지 않는다.
+  const keptTokenSets: string[][] = [];
+  for (const r of relevant) {
+    if (r.status !== "confirmed") continue;
+    if (r.target.type !== "planItem" && r.target.type !== "criterion") continue;
+    if (r.target.source !== "planCodex" && r.target.source !== "planClaude") continue;
+    const text = (r.target.sourceText ?? "").trim();
+    if (!text) continue;
+    if (r.action === "keep") {
+      keptTexts.add(normalizedItem(text));
+      if (r.target.type === "planItem") keptTokenSets.push(planDecisionTokens(text));
+    } else if (r.action === "exclude" || r.action === "defer") {
+      planDecisions.push({ action: r.action, type: r.target.type, text, tokens: planDecisionTokens(text) });
+    }
+  }
+  const planDecisionExact = new Set(planDecisions.map(d => normalizedItem(d.text)));
+  const planItemDecisions = planDecisions.filter(d => d.type === "planItem");
 
   // 검토 대상 키와 classified 항목 매칭
   // Plan reviews match occurrence-aware keys. A diagnosis risk review can only
@@ -1473,7 +1560,26 @@ function applyHitlToModel(
 
   const isExcluded = (item: AgentInstructionItem) => {
     const key = matchReview(item);
-    return key && (excludeKeys.has(key) || deferKeys.has(key));
+    if (key && (excludeKeys.has(key) || deferKeys.has(key))) return true;
+    // occurrence 보호: 구현 항목 필드의 개별 회차는 각각 검토 가능한 별개 항목이다.
+    // 같은 문구의 다른 회차(다른 reviewKey)는 전파로 제거하지 않는다 — 전파는
+    // 검토 키가 없는 필드 사본(inScope·integrations·dataFlow 등)과, 구현 항목이
+    // 아닌 검토 항목(완료 기준·테스트)처럼 같은 요구를 다른 자리에서 반복하는
+    // 경우에만 적용한다.
+    if (item.reviewKey && item.sources.includes("plan.implementation")) return false;
+    // 같은 도구 계획의 다른 필드에 남은 동일 기능: 정확 일치 또는 토큰 규칙으로 전파한다.
+    // 유지 항목과 겹치면(유지 문구와 동일하거나 부분집합 관계면) 제거하지 않는다.
+    if (!PLAN_PROPAGATION_ROLES.has(item.role)) return false;
+    if (!item.sources.some(source => source.startsWith("plan."))) return false;
+    const itemTexts = [item.text, item.original, ...item.originals].filter((text): text is string => !!text);
+    if (itemTexts.some(text => keptTexts.has(normalizedItem(text)))) return false;
+    if (itemTexts.some(text => planDecisionExact.has(normalizedItem(text)))) {
+      const itemTokens = planDecisionTokens(item.text);
+      return !planDecisionProtected(itemTokens, keptTokenSets);
+    }
+    const itemTokens = planDecisionTokens(item.text);
+    if (!itemTokens.length || planDecisionProtected(itemTokens, keptTokenSets)) return false;
+    return planDecisions.some(d => planDecisionMatches(itemTokens, d.tokens));
   };
 
   // A review that removes a risk card cannot grant access denied by diagnosis.
@@ -1539,6 +1645,34 @@ function applyHitlToModel(
   }
   // diagnosis가 없을 경우: 안전을 위해 단계 제외하지 않음 (오적용 방지)
 
+  // 계획 항목 결정 → 진단 단계 전파: 계획 항목만 검토한 경우에도 같은 기능의
+  // 진단 단계가 범위 표·기능 목록에 구현 대상으로 남으면 지시문이 자기모순이 된다.
+  // 단계명은 진단의 권위 있는 명칭이므로, 단계 토큰이 결정 문구에 온전히 포함되거나
+  // 2개 이상 내용 토큰이 겹치고 특이 토큰을 공유할 때만 해당 단계를 제거한다.
+  // 1토큰 단계명·유사 명칭(단계 토큰의 일부만 겹침)은 전파하지 않는다.
+  // 유지 항목과 동일 기능(토큰 집합 동일)이면 전파하지 않는다. 부분집합 관계의
+  // 좁은·넓은 기능은 다른 기능이므로 보호하지 않는다.
+  // 완료 기준(criterion) 결정은 단계 전파에 쓰지 않는다 (판정 문구는 기능 자체가 아니다).
+  const planExcludedStepNames: string[] = [];
+  const planDeferredStepNames: string[] = [];
+  steps.forEach((s, idx) => {
+    if (stepExcludeIndices.has(idx)) return;
+    const stepTokens = planDecisionTokens(s.step);
+    if (stepTokens.length < 2) return;
+    if (planDecisionProtected(stepTokens, keptTokenSets)) return;
+    let matched: (typeof planItemDecisions)[number] | undefined;
+    // TEMP DEBUG
+    for (const d of planItemDecisions) {
+      if (!planDecisionMatches(stepTokens, d.tokens)) continue;
+      if (d.action === "exclude") { matched = d; break; }
+      matched ??= d;
+    }
+    if (!matched) return;
+    stepExcludeIndices.add(idx);
+    if (matched.action === "exclude") planExcludedStepNames.push(s.step);
+    else planDeferredStepNames.push(s.step);
+  });
+
   // 단계와 메타데이터를 함께 필터링 (인덱스 어긋남 방지)
   const filteredSteps: StepScope[] = [];
   const filteredMethodEvidence: typeof methodEvidence = [];
@@ -1579,6 +1713,8 @@ function applyHitlToModel(
     appliedReviews,
     deferred: deferredList,
     supplements: supplementList,
+    planExcludedStepNames,
+    planDeferredStepNames,
   };
 }
 
