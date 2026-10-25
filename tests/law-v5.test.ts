@@ -75,6 +75,19 @@ describe("V5-F3a-disjunction: a disjunctive title is vetoed only when no branch 
   });
 });
 
+describe("V5-F3a-generic: generic event words in a title do not veto a core article", () => {
+  const text = (title: string, body: string) => [
+    "═══ 종합 리서치 ═══", "", "▶ AI 법령검색 결과", "지능형 법령검색 결과 (법령조문, 1건):", "",
+    "근로기준법", `   제76조의3 (${title})`, `   제76조의3(${title})`, ` ${body}`, "   시행: 2025.01.01 | 고용노동부", "",
+  ].join("\n");
+  it("keeps 제76조의3 for a 직장 내 괴롭힘 조치 issue even when the request never says 발생", () => {
+    expect(researchEvidenceSources(
+      text("직장 내 괴롭힘 발생 시 조치", "사용자는 직장 내 괴롭힘 발생 사실을 신고한 근로자에게 불리한 처우를 하여서는 아니 되며, 신고 내용에 대하여 조사를 실시하고 필요한 조치를 하여야 한다."),
+      "직장 내 괴롭힘 조치", undefined, ["직장", "괴롭힘", "회사", "조사", "피해자", "보호", "가해자", "조치"]))
+      .toEqual({ articles: [{ law: "근로기준법", jo: "제76조의3" }], precedents: [] });
+  });
+});
+
 describe("V5-F3b: strict majority", () => {
   it("does not adopt on one of two terms alone (조사 의무 vs 조사 only)", () => {
     const survey = { law: "해양과학조사법 시행령", jo: "제2조", title: "조사", body: "대한민국 영해에서의 조사에 대한 허가절차를 정한다." };
