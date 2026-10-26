@@ -266,11 +266,13 @@ async function titleArticles(
     const toc = await sources.toc(mst).catch(() => { failures++; return []; });
     for (const article of toc) {
       const matched = titleMatches(keywords, law, article.title);
-      // In the displayed supplement, a single generic word in a title is not
-      // relatedness: "비밀준수의무" matched only 의무 for a
-      // workplace-harassment question. A displayed candidate needs a subject
-      // term, or at least two matched terms.
-      if (matched.length && (!strictCandidates || matched.some(isSubjectTerm) || matched.length >= 2)
+      // In the displayed supplement, generic words alone are not
+      // relatedness, however many match: "조사 의무" matched two generic
+      // words for a 식품위생법 영업정지 question and still named no
+      // subject. A displayed candidate needs a subject term; the looser
+      // rule stays available to per-issue lookup (strictCandidates off),
+      // where the issue's own adoption check still applies.
+      if (matched.length && (!strictCandidates || matched.some(isSubjectTerm))
         && !shownArticles.some((shown) => shown.law === law && shown.jo === article.jo)) {
         candidates.push({ law, mst, jo: article.jo, title: article.title, matched });
       }

@@ -10,9 +10,56 @@
  * fetched from 법제처, with an explicit "unverified" outcome whenever the
  * text cannot settle it — never a guess dressed as verification.
  */
-import { questionTerms, termInText } from "@/lib/research-relevance";
+import { isSubjectTerm, questionTerms, termInText } from "@/lib/research-relevance";
 
 export type ClaimVerdict = "supported" | "mismatch" | "unverified";
+
+/**
+ * Legal-effect words whose presence in a claim must itself be confirmed by
+ * the article. "처벌" is deliberately absent: its verb forms (처하다 /
+ * 처벌하다 / 처벌된다) do not anchor under the noun-stem rule, so including
+ * it would demote every legitimate punishment claim (e.g. 형법 제311조
+ * "공연히 사람을 모욕하면 처벌된다"). Subject coverage governs those claims.
+ */
+const EFFECT_WORDS = [
+  "손해배상", "배상", "청구", "책임", "해제", "지급", "반환", "보상",
+  "무효", "취소", "정지", "벌금", "징역", "금고", "과징금",
+];
+
+/** Final-predicate negation markers: the claim's effect is asserted as absent. */
+const NEGATED_PREDICATE = /(없다|없습니다|아니다|아닙니다|않는다|않습니다|못한다|못했습니다|할 수 없다|할 수 없습니다|불가능하다|불가능합니다)$/;
+
+/**
+ * Whether a claim term is covered by the article text, allowing the
+ * article's own split forms: a compound such as 손해배상책임 is covered
+ * when its parts (손해배상 → 손해 + 배상, 책임) are all covered, even
+ * though the compound itself never appears verbatim. Single words still
+ * need a whole-token anchor, so unrelated compounds are not rescued.
+ */
+function termCovered(term: string, corpus: string, seen: Set<string> = new Set()): boolean {
+  if (termAnchoredCompound(term, corpus)) return true;
+  if (seen.has(term)) return false;
+  seen.add(term);
+  for (let split = 2; split <= term.length - 2; split++) {
+    const left = term.slice(0, split);
+    const right = term.slice(split);
+    if (left.length >= 2 && right.length >= 2 && termCovered(left, corpus, seen) && termCovered(right, corpus, seen)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * True when the input's final sentence ends in a negated predicate. Only
+ * the final predicate is checked: a contrast inside the sentence ("고의가
+ * 아닌 과실") must not demote a claim whose own predicate is positive.
+ */
+function hasNegatedPredicate(input: string): boolean {
+  const sentences = input.split(/[.!?。\n]+/).map((part) => part.trim()).filter(Boolean);
+  const last = sentences.at(-1) ?? "";
+  return NEGATED_PREDICATE.test(last);
+}
 
 export interface ClaimAssessment {
   verdict: ClaimVerdict;
@@ -32,6 +79,9 @@ const CLAIM_STOP = new Set([
   "따른", "따라", "각각", "확인해", "확인", "알려줘", "알려주세요", "궁금해", "궁금해요",
   "수", "것", "경우", "때", "의하여", "의해", "의거", "근거로", "대해", "하면",
   "있다", "없다", "이다", "입니다", "한다", "된다", "되어", "되면", "되고",
+  // Contrast particles ("고의가 아닌 과실") are grammar, not assertion
+  // content; sentence-final negation is still caught by the predicate check.
+  "아닌", "아니라", "아니",
 ]);
 
 /** Verb endings stripped so a claim stem matches the article's own forms (청구할 → 청구). */
@@ -127,8 +177,34 @@ export function assessClaimSupport(
     return { verdict: "unverified", reason: "입력 문장에서 검증할 법적 주장을 특정하지 못했습니다." };
   }
   const corpus = `${title}\n${content}`;
-  const anchored = claimTerms.filter((term) => termAnchoredCompound(term, corpus));
-  if (anchored.length) return { verdict: "supported", reason: "" };
+  const anchored = claimTerms.filter((term) => termCovered(term, corpus));
+  // One anchored term alone used to confirm a claim. That over-promotes
+  // three shapes: a claim whose final predicate negates the effect, a
+  // claim whose core (subject/basis) term never anchors while a common
+  // effect word does, and a claim whose asserted legal effect is absent
+  // from the article. Each check below only demotes a would-be supported
+  // verdict to unverified; mismatch and unverified paths are untouched,
+  // and no verdict is ever raised.
+  if (anchored.length) {
+    if (hasNegatedPredicate(input)) {
+      return { verdict: "unverified", reason: "부정 표현으로 제시된 법적 효과는 조문만으로 확정하지 않았습니다." };
+    }
+    if (claimTerms.length === 1 && !isSubjectTerm(claimTerms[0])) {
+      return { verdict: "unverified", reason: "입력한 주장만으로는 법적 주장을 확정할 수 없습니다." };
+    }
+    if (claimTerms.some((term) => isSubjectTerm(term) && !termCovered(term, corpus))) {
+      return { verdict: "unverified", reason: "입력한 주장의 핵심 내용이 조문에서 확인되지 않아 확정하지 않았습니다." };
+    }
+    const effectPresent = EFFECT_WORDS.filter((effect) =>
+      claimTerms.some((term) => term === effect || term.includes(effect)));
+    const effectAnchored = effectPresent.some((effect) =>
+      termCovered(effect, corpus) ||
+      claimTerms.some((term) => term.includes(effect) && termCovered(term, corpus)));
+    if (effectPresent.length && !effectAnchored) {
+      return { verdict: "unverified", reason: "입력한 주장의 법적 효과가 조문에서 확인되지 않아 확정하지 않았습니다." };
+    }
+    return { verdict: "supported", reason: "" };
+  }
   const titleTerms = questionTerms(title);
   const overlapsTitle = claimTerms.some((term) => looseIncludes(term, title))
     || titleTerms.some((term) => looseIncludes(term, input));
