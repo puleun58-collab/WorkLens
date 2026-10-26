@@ -43,11 +43,11 @@ describe("AX execution guides", () => {
     expect(steps.slice(1).map(step => step.title)).toEqual([
       "STEP 01 · 개발 환경 준비", "STEP 02 · 프로젝트 준비", "STEP 03 · 올인원 지시문 준비",
       "STEP 04 · 첫 MVP 구현과 실제 테스트", "STEP 05 · 배포 플랫폼 선택",
-      "STEP 06 · 데이터 저장 방식", "STEP 07 · GitHub 저장과 배포", "STEP 08 · 기능 검증과 MVP 완료",
+      "STEP 06 · 데이터 저장 방식", "STEP 07 · GitHub 저장과 배포", "STEP 08 · 실제 기능 확인 및 완료",
     ]);
     expect(JSON.stringify(steps[3])).toContain("04 올인원 지시문");
     expect(JSON.stringify(steps[4])).toContain("실제 입력 데이터");
-    expect(JSON.stringify(steps[8])).toContain("웹 배포가 필요 없는");
+    expect(JSON.stringify(steps[8])).toContain("로컬 자동화 프로그램이라면");
   });
   it.each(["codex", "claude"] as const)("starts the Wrangler no-CLI-addition sentence as its own paragraph: %s", tool => {
     const step05 = setupGuide(tool)[5];
@@ -173,7 +173,7 @@ describe("AX execution guides", () => {
     for (const term of ["packageManager", "D1", "R2", "KV", "외부 DB", "git remote -v", "git diff --cached", "폐기 → 재발급", "기록 재작성", "PASS/FAIL/NOT_RUN/BLOCKED", "[REDACTED]"]) expect(all).toContain(term);
     expect(JSON.stringify(steps[5])).toContain("npm i -D wrangler@latest");
     expect(JSON.stringify(steps[7])).toContain("자동 배포라면 수동 명령을 중복 실행하지 않습니다");
-    expect(JSON.stringify(steps[8])).toContain("구현 완료, 테스트 통과, 배포 완료, 운영 기능 확인");
+    expect(JSON.stringify(steps[8])).toContain("실패했거나 확인하지 못한 항목은 별도로 기록하고 수정한 뒤 다시 검증하세요.");
     for (const destructive of ["git reset --hard", "git clean -fd", "git push --force", "git rm --cached -r ."]) expect(all).not.toContain(destructive);
   });
   it("guards forbidden AI statements and is idempotent", () => {
@@ -342,7 +342,7 @@ describe("AX plan display boundaries", () => {
 });
 
 describe("AX guide conditional architecture", () => {
-  it.each(["codex", "claude"] as const)("compares platforms and connects only needed storage for %s", tool => {
+  it.each(["codex", "claude"] as const)("compares platforms and keeps only the storage-choice section for %s", tool => {
     const steps = setupGuide(tool);
     const platform = steps[5].sections.find(section => section.title === "배포 방식 비교")!;
     const comparison = platform.blocks.find(block => block.kind === "table");
@@ -352,9 +352,79 @@ describe("AX guide conditional architecture", () => {
     expect(JSON.stringify(comparison.rows)).toContain("D1");
     expect(JSON.stringify(platform)).toContain("vercel.com/docs/plans/hobby");
     const storage = steps[6].sections;
-    expect(storage.map(section => section.title)).toContain("Cloudflare 저장소 연결");
-    for (const term of ["D1 · 구조화된 기록", "R2 · 파일과 첨부", "KV · 조회 중심 값"]) {
-      expect(storage.find(section => section.title === term)).toMatchObject({ collapsed: true, when: expect.any(String) });
+    expect(storage.map(section => section.title)).toEqual(["필요한 저장만 선택"]);
+    for (const term of ["Cloudflare 저장소 연결", "D1 · 구조화된 기록", "R2 · 파일과 첨부", "KV · 조회 중심 값"]) {
+      expect(storage.find(section => section.title === term)).toBeUndefined();
     }
+    expect(JSON.stringify(steps)).not.toContain("wrangler d1 create");
+    expect(JSON.stringify(steps)).not.toContain("r2_buckets");
+    expect(JSON.stringify(steps)).not.toContain("kv_namespaces");
+  });
+});
+
+describe("AX guide dev-prep integration", () => {
+  const gitignorePrompt = "현재 프로젝트의 언어, 프레임워크, 실행 환경과 파일 구조를 확인하고 적절한 .gitignore를 구성해 줘. 기존 .gitignore가 있으면 필요한 규칙만 보완하고, 없으면 새로 만들어 줘. 의존성 폴더, 빌드 결과물, 캐시, 임시파일, 로컬 설정, 인증정보 등 GitHub에 올리면 안 되는 파일을 제외해 줘. 반대로 실제 개발에 필요한 소스코드, 설정 템플릿, 잠금 파일 등은 임의로 제외하지 마. 이미 Git이 추적하는 민감 파일이 있는지도 확인해 줘. 발견하면 파일을 삭제하거나 Git 기록을 변경하지 말고 처리 방법과 위험을 먼저 알려 줘. 완료 후 적용한 제외 규칙과 추가 확인이 필요한 사항을 간단히 보고해 줘.";
+  const deployPrompt = "현재 프로젝트의 GitHub 브랜치, PR·CI 사용 여부와 실제 배포 구성을 확인해 줘. 기존 설정을 유지하면서 필요한 검증 절차를 진행하고, 코드 업로드·CI 통과·배포 완료를 각각 구분해 보고해 줘. 실제 운영 환경에 반영되었는지 확인하지 못했다면 배포 완료로 표시하지 마. 설정 변경이나 운영 데이터에 영향을 줄 수 있는 작업은 실행 전에 영향 범위와 승인 필요 여부를 알려 줘.";
+  const verifyPrompt = "완성한 프로그램을 실제 사용 상황처럼 테스트해 줘. 주요 기능에 정상적인 입력과 잘못된 입력을 각각 사용하고, 처리 결과가 요구사항과 일치하는지 확인해 줘. 데이터 저장 기능이 있다면 저장 후 다시 실행하거나 새로고침해도 데이터가 올바르게 유지되는지 검증해 줘. 웹서비스라면 실제 배포된 환경의 주요 기능을 확인하고, 로컬 자동화 프로그램이라면 해당 실행 환경에서 테스트해 줘. 실제로 실행한 테스트와 실행하지 못한 테스트를 구분하고, 실패한 항목의 원인 및 필요한 수정 사항을 보고해 줘. 검증하지 못한 기능은 완료로 표시하지 마.";
+
+  it.each(["codex", "claude"] as const)("offers the .gitignore natural-language request in STEP 02 before STEP 07 git add: %s", tool => {
+    const steps = setupGuide(tool);
+    const gitignore = steps[2].sections.find(section => section.title === "Git 업로드 제외 파일 자동 설정");
+    expect(gitignore).toBeDefined();
+    const codeBlock = gitignore?.blocks.find(block => block.kind === "code");
+    expect(codeBlock).toEqual({ kind: "code", lines: [gitignorePrompt], notes: ["코딩 에이전트에게 요청할 때 복사해서 사용하세요.", "STEP 07에서 git add .을 실행하기 전에 완료하세요."] });
+    expect(JSON.stringify(gitignore)).toContain("PowerShell에서 Codex 또는 Claude Code를 실행한 후 아래 요청문을 입력하세요.");
+    expect(JSON.stringify(gitignore)).toContain("이미 Git이 추적 중인 파일은 .gitignore만으로 제외되지 않습니다.");
+    expect(JSON.stringify(steps[7])).toContain("git add . 전에 STEP 02의 Git 업로드 제외 파일 자동 설정을 먼저 완료하세요.");
+  });
+
+  it.each(["codex", "claude"] as const)("limits the STEP 07 basic Git list to five commands: %s", tool => {
+    const step07 = setupGuide(tool)[7];
+    expect(step07.sections.map(section => section.title)).toEqual(["안전하게 Git에 저장", "PR·CI 및 배포 확인"]);
+    const save = step07.sections.find(section => section.title === "안전하게 Git에 저장")!;
+    const lines = save.blocks.flatMap(block => block.kind === "code" ? block.lines : []);
+    expect(lines).toEqual(["git status", "git add .", "git diff --cached", 'git commit -m "변경 사항 반영"', "git push"]);
+    expect(save.blocks.find(block => block.kind === "steps")).toEqual({ kind: "steps", items: [
+      "git status: 변경된 파일 확인",
+      "git add .: 변경 사항 추가",
+      "git diff --cached: 저장할 내용 확인",
+      'git commit -m "변경 사항 반영": 변경 사항 기록',
+      "git push: GitHub에 업로드",
+    ] });
+    expect(lines).not.toContain("git diff");
+    const serialized = JSON.stringify(save);
+    for (const removed of ["git diff --cached --stat", "git branch --show-current", "git remote -v", "git add --"]) expect(serialized).not.toContain(removed);
+    expect(serialized).toContain("API 키·비밀번호·토큰 등 민감정보가 포함된 경우 커밋을 진행하지 마세요.");
+    expect(serialized).toContain("최초 git push에서 업스트림 설정이 필요하면 해당 상황에서 추가 명령어를 안내합니다.");
+  });
+
+  it.each(["codex", "claude"] as const)("keeps the STEP 07 PR·CI·deploy guidance conditional: %s", tool => {
+    const step07 = setupGuide(tool)[7];
+    const pr = step07.sections.find(section => section.title === "PR·CI 및 배포 확인")!;
+    expect(JSON.stringify(pr)).toContain("GitHub에 변경 사항을 업로드한 후 프로젝트에서 PR과 CI를 사용한다면 해당 절차를 진행하세요. 배포는 기존 설정에 따라 이루어지므로 실제 운영 환경에 변경 사항이 반영되었는지 확인해야 합니다.");
+    const prCode = pr.blocks.find(block => block.kind === "code");
+    expect(prCode).toEqual({ kind: "code", lines: [deployPrompt], notes: ["코딩 에이전트에게 요청할 때 복사해서 사용하세요."] });
+    const serialized = JSON.stringify(pr);
+    for (const condition of ["CI가 없으면 통과한 것으로 표시하지 않습니다", "Preview와 Production 배포는 구분해서 확인하세요", "git push만으로 운영 배포가 완료된 것은 아닙니다", "배포가 필요 없는 로컬 자동화 프로그램에는 웹 배포를 요구하지 않습니다"]) expect(serialized).toContain(condition);
+  });
+
+  it.each(["codex", "claude"] as const)("keeps STEP 08 to four checks, the agent flow and a plain completion note: %s", tool => {
+    const step08 = setupGuide(tool)[8];
+    expect(step08.title).toBe("STEP 08 · 실제 기능 확인 및 완료");
+    expect(step08.purpose).toBe("구현한 프로그램을 직접 실행해 주요 기능이 정상 작동하는지 확인합니다.");
+    const checks = step08.sections.find(section => section.title === "확인할 내용")!;
+    expect(checks.blocks.find(block => block.kind === "steps")).toEqual({ kind: "steps", items: [
+      "주요 기능이 요구사항대로 작동하는가?",
+      "정상 입력과 잘못된 입력을 올바르게 처리하는가?",
+      "데이터 저장 기능이 있다면 저장한 내용이 유지되는가?",
+      "실제 사용 환경에서 오류 없이 실행되는가?",
+    ] });
+    const request = step08.sections.find(section => section.title === "AI 코딩 에이전트에게 기능 검증 요청")!;
+    expect(JSON.stringify(request)).toContain("PowerShell에서 Codex 또는 Claude Code를 실행한 후 아래 내용을 입력하세요.");
+    const requestCode = request.blocks.find(block => block.kind === "code");
+    expect(requestCode).toEqual({ kind: "code", lines: [verifyPrompt], notes: ["코딩 에이전트에게 요청할 때 복사해서 사용하세요."] });
+    const completion = step08.sections.find(section => section.title === "완료 판정")!;
+    expect(JSON.stringify(completion)).toContain("주요 기능이 요구사항대로 작동하고 필요한 검증을 통과했다면 완료로 판단할 수 있습니다. 실패했거나 확인하지 못한 항목은 별도로 기록하고 수정한 뒤 다시 검증하세요.");
+    for (const term of ["PASS", "FAIL", "NOT_RUN", "BLOCKED", "실행 증거", "실행 시각", "환경 식별자"]) expect(JSON.stringify(step08)).not.toContain(term);
   });
 });
