@@ -303,10 +303,10 @@ export function LearnLesson({ level, initialUnitId, progress, onPersistUnit, pra
           <div className="learn-mistake-grid">
             {unit.mistakes.map((m, i) => (
               <div className="learn-mistake-card" key={i}>
-                <p className="learn-mistake-title">실수: {m.mistake}</p>
+                <p className="learn-mistake-title">{m.mistake}</p>
                 <p>{m.why}</p>
                 <p>
-                  <strong>올바른 방법:</strong> {m.fix}
+                  <strong>이렇게 이해하세요:</strong> {m.fix}
                 </p>
               </div>
             ))}

@@ -119,9 +119,6 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
         text("설치 후 아래 명령으로 처음 실행하면 로그인 절차가 시작됩니다."),
         code([guide.runCommand], [guide.loginNote, "코딩 에이전트 로그인은 GitHub 로그인과 서로 다른 인증 과정입니다. 이미 인증된 상태이면 다시 로그인할 필요가 없습니다."]),
       ] },
-      { title: "설치 오류 확인", collapsed: true, blocks: [
-        text(`네트워크·권한·아키텍처·SHA-256·종료 코드를 확인하고 파일/버전 확인 실패 시 중단하세요. 기존 임시 파일을 실패한 다운로드의 대안으로 실행하지 않습니다. ${tool === "codex" ? "Codex의 지원 명령은" : "Claude의 설치 진단은"} \`${guide.doctorCommand}\`으로 확인할 수 있습니다. 해당 도구의 공식 설치 문서를 우선합니다.`),
-      ] },
     ] },
     { title: "STEP 02 · 프로젝트 준비", purpose: "GitHub 클론 / 기존 로컬 프로젝트 / 다른 PC 작업 이어가기 / 새 프로젝트 중 하나", sections: [
       { title: "A. GitHub에 있고 PC에는 없는 프로젝트", when: "GitHub 저장소를 현재 PC에 처음 가져오는 경우", blocks: [
@@ -199,8 +196,8 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
         text("공식 정책: https://vercel.com/docs/plans/hobby · https://developers.cloudflare.com/workers/platform/pricing/ · https://developers.cloudflare.com/r2/pricing/"),
       ] },
     ] },
-    { title: "STEP 06 · 데이터 저장 방식", purpose: "기존 데이터를 보호하고 꼭 필요한 서비스만 선택·연결", sections: [
-      { title: "필요한 저장만 선택", blocks: [
+    { title: "STEP 06 · 데이터 저장 방식", purpose: "기존 데이터는 유지하고, 필요한 저장 방식만 선택해 연결하세요.", sections: [
+      { title: "필요한 저장 방식만 선택하세요", blocks: [
         text("입력한 내용이나 파일을 나중에도 사용해야 한다면 저장 기능이 필요합니다. 보관할 데이터와 사용 방식에 따라 적절한 저장 방법이 달라집니다."),
         { kind: "table", headers: ["방식", "쉬운 설명", "예시"], rows: [
           ["저장하지 않음", "실행 결과만 확인", "일회성 계산"],
