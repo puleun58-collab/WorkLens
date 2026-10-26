@@ -35,13 +35,26 @@ async function openGuide(page: Page) {
   return plan.locator(".ax-guide-panel");
 }
 
-/** Visible vertical gap between two elements, in whole CSS pixels. */
+/** Visible vertical gap between two elements, in whole CSS pixels.
+ *
+ * Read both boxes in a single evaluate call: the guide panel opens with a
+ * 200ms height transition, and two separate boundingBox() round-trips can
+ * straddle a layout shift, reporting a phantom gap (CI showed 75-216px for
+ * a settled 16px gap). One synchronous read keeps the pair consistent.
+ */
 async function gap(upper: Locator, lower: Locator) {
-  const upperBox = await upper.boundingBox();
-  const lowerBox = await lower.boundingBox();
-  expect(upperBox).not.toBeNull();
-  expect(lowerBox).not.toBeNull();
-  return Math.round(lowerBox!.y - (upperBox!.y + upperBox!.height));
+  const lowerHandle = await lower.elementHandle();
+  expect(lowerHandle).not.toBeNull();
+  return upper.evaluate((upperEl, lowerEl) => {
+    const upperRect = upperEl.getBoundingClientRect();
+    const lowerRect = lowerEl.getBoundingClientRect();
+    return Math.round(lowerRect.y - (upperRect.y + upperRect.height));
+  }, lowerHandle);
+}
+
+/** Assert a gap once the layout has settled (e.g. after the panel transition). */
+async function expectGap(upper: Locator, lower: Locator, expected: number) {
+  await expect.poll(() => gap(upper, lower)).toBe(expected);
 }
 
 async function primaryColors(page: Page) {
@@ -77,22 +90,22 @@ test("C section gaps and STEP 03 move button follow the spacing spec", async ({ 
   const caution2 = paragraphs.nth(3);
   await expect(caution1).toContainText("다른 PC의 작업이 GitHub에 푸시되어 있어야 합니다.");
   await expect(caution2).toContainText("로컬 변경사항이 있을 때는 무조건 브랜치를 전환하거나 가져오지 말고");
-  expect(await gap(codeWrap, stepsList)).toBe(16);
-  for (let i = 0; i < 3; i++) expect(await gap(items.nth(i), items.nth(i + 1))).toBe(8);
-  expect(await gap(stepsList, caution1)).toBe(20);
-  expect(await gap(caution1, caution2)).toBe(12);
+  await expectGap(codeWrap, stepsList, 16);
+  for (let i = 0; i < 3; i++) await expectGap(items.nth(i), items.nth(i + 1), 8);
+  await expectGap(stepsList, caution1, 20);
+  await expectGap(caution1, caution2, 12);
   const nextSection = tutorial.locator(".ax-guide-section--cautions + .ax-guide-section");
   await expect(nextSection.locator("h5")).toHaveText("D. 새 프로젝트");
-  expect(await gap(caution2, nextSection)).toBe(28);
+  await expectGap(caution2, nextSection, 28);
 
   // STEP 03 move button
   const step3 = tutorial.locator('.ax-guide-step[data-setup-step="3"]');
   const cta = step3.locator(".ax-guide-step-cta");
   await expect(cta).toHaveText("04 올인원 지시문으로 이동");
   const lastGuidance = step3.locator(".ax-guide-section > p").last();
-  expect(await gap(lastGuidance, cta)).toBe(20);
+  await expectGap(lastGuidance, cta, 20);
   const step4 = tutorial.locator('.ax-guide-step[data-setup-step="4"]');
-  expect(await gap(cta, step4)).toBe(28);
+  await expectGap(cta, step4, 28);
   const { bg, fg } = await primaryColors(page);
   const ctaStyle = await cta.evaluate(element => {
     const style = getComputedStyle(element);
@@ -124,11 +137,11 @@ test("spacing holds on a narrow viewport without overflow", async ({ page }) => 
   const sectionC = tutorial.locator(".ax-guide-section--cautions");
   const codeWrap = sectionC.locator(".ax-guide-code-wrap");
   const stepsList = sectionC.locator("ol.ax-guide-list");
-  expect(await gap(codeWrap, stepsList)).toBe(16);
+  await expectGap(codeWrap, stepsList, 16);
   const step3 = tutorial.locator('.ax-guide-step[data-setup-step="3"]');
   const cta = step3.locator(".ax-guide-step-cta");
   const lastGuidance = step3.locator(".ax-guide-section > p").last();
-  expect(await gap(lastGuidance, cta)).toBe(20);
+  await expectGap(lastGuidance, cta, 20);
   const overflow = await cta.evaluate(element => element.scrollWidth <= element.clientWidth + 1);
   expect(overflow).toBe(true);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
