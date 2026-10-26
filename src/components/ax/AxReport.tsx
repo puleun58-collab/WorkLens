@@ -744,7 +744,7 @@ function AxGuideSectionView({ section, completion = false, warning = false, coll
     : section.brand === "cloudflare"
     ? <img src="/brand/cloudflare-logo.svg" alt="" aria-hidden="true" className="ax-guide-brand-logo" />
     : null;
-  return <section className={`ax-guide-section${completion ? " ax-guide-completion" : ""}${warning ? " ax-guide-warning" : ""}`}>
+  return <section className={`ax-guide-section${completion ? " ax-guide-completion" : ""}${warning ? " ax-guide-warning" : ""}${section.className ? ` ${section.className}` : ""}`}>
     {collapsed ? <Accordion className="ax-guide-terms"><AccordionItem value="terms">
       <AccordionTrigger className="ax-guide-terms-trigger"><span className="ax-guide-section-title">{brandLogo}{section.title}</span></AccordionTrigger>
       <AccordionPanel className="ax-guide-terms-panel">{content}</AccordionPanel>
@@ -816,7 +816,7 @@ function AxSetupGuide({ tool, instructionsId, onGoToInstructions }: { tool: AxTo
           {step.purpose ? <p className="ax-guide-purpose">{step.purpose}</p> : null}
           <p className="ax-tutorial-action-label"><Terminal aria-hidden="true" />실행 방법</p>
           {step.sections.map(section => <AxGuideSectionView key={section.title} section={section} completion={SETUP_COMPLETIONS.has(section.title)} warning={SETUP_WARNINGS.has(section.title)} collapsed={section.collapsed || (section.title in SETUP_DETAILS)} />)}
-          {index === 2 ? <Button type="button" variant="outline" onClick={onGoToInstructions} aria-controls={instructionsId}>04 올인원 지시문으로 이동</Button> : null}
+          {index === 2 ? <Button type="button" variant="default" className="ax-guide-step-cta" onClick={onGoToInstructions} aria-controls={instructionsId}>04 올인원 지시문으로 이동</Button> : null}
         </section>;
       })}
     </section>)}

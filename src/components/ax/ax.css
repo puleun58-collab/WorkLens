@@ -511,6 +511,22 @@
 .ax-guide-terms .ax-guide-terms-trigger > [data-slot="accordion-indicator"] { translate: none; }
 .ax-guide-terms .ax-guide-terms-panel { padding: 0; }
 .ax-setup-tutorial { min-width: 0; }
+/* Setup tutorial vertical rhythm: visible gaps, not declarations alone.
+   Code box -> following explanation 16px; list items 8px apart;
+   list -> following paragraph 20px; paragraph -> paragraph 12px. */
+.ax-setup-tutorial .ax-guide-section > .ax-guide-code-wrap + .ax-guide-list:not(.ax-guide-code-notes),
+.ax-setup-tutorial .ax-guide-section > .ax-guide-code-wrap + p,
+.ax-setup-tutorial .ax-guide-section > .ax-guide-code-wrap + .ax-guide-table-wrap { margin-top: 16px; }
+.ax-setup-tutorial .ax-guide-list li { margin-bottom: 8px; }
+.ax-setup-tutorial .ax-guide-section > .ax-guide-list + p { margin-top: 20px; }
+.ax-setup-tutorial .ax-guide-section > p + p { margin-top: 12px; }
+/* C section ("다른 PC에서 작업 이어가기"): last caution -> next section 28px. */
+.ax-setup-tutorial .ax-guide-section--cautions + .ax-guide-section { margin-top: 28px; }
+/* STEP 03 move button: 20px below the last guidance text, 28px above the
+   next step divider (via the step's bottom padding). Variant "default"
+   reuses the brand primary button; size and left alignment unchanged. */
+.ax-setup-tutorial .ax-guide-step-cta { margin-top: 20px; }
+.ax-setup-tutorial .ax-guide-step[data-setup-step="3"] { padding-bottom: 28px; }
 .ax-setup-tutorial svg { flex: none; width: 18px; height: 18px; stroke-width: 1.75; color: var(--muted-foreground); }
 .ax-tutorial-intro { margin: 24px 0 14px; }
 .ax-tutorial-intro > h3 { margin: 0 0 6px; font-size: var(--font-size-lg); font-weight: var(--font-weight-semibold); }
