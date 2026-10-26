@@ -49,12 +49,21 @@ async function hintButtonGap(page: Page, tab: "Codex" | "Claude Code") {
   const button = section.locator(".ax-plan-generate");
   await expect(hint).toBeVisible();
   await expect(button).toBeVisible();
-  const hintBox = await hint.boundingBox();
-  const buttonBox = await button.boundingBox();
-  expect(hintBox).not.toBeNull();
-  expect(buttonBox).not.toBeNull();
+  // 두 박스를 한 번의 evaluate 안에서 읽는다. html에 scroll-behavior: smooth가
+  // 있어 탭 클릭 후 스크롤 애니메이션이 진행 중일 때, boundingBox를 두 번
+  // 나누어 호출하면 스크롤 위치가 달라져 간격이 왜곡된다(CI Firefox에서
+  // 219~229px로 측정된 것이 이 경합이다). 한 프레임 안에서는 일관된다.
+  const gap = await section.evaluate(root => {
+    const upper = root.querySelector(".ax-plan-generate-hint");
+    const lower = root.querySelector(".ax-plan-generate");
+    if (!upper || !lower) return null;
+    const u = upper.getBoundingClientRect();
+    const l = lower.getBoundingClientRect();
+    return Math.round(l.top - (u.top + u.height));
+  });
+  expect(gap).not.toBeNull();
   // 렌더링 기준 간격: 버튼 상단 - 안내 문구 하단
-  return Math.round(buttonBox!.y - (hintBox!.y + hintBox!.height));
+  return gap!;
 }
 
 test("02 구현 전 확인사항: 제목·보조 설명 변경 + 기존 확인사항 유지", async ({ page }) => {
@@ -67,12 +76,18 @@ test("02 구현 전 확인사항: 제목·보조 설명 변경 + 기존 확인�
   // 기존 확인사항 유지: 기술 점검 카드와 확인 필요 배지
   await expect(block.locator(".ax-prereq-card").filter({ hasText: "시스템 접근" }).first()).toBeVisible();
   await expect(block.locator(".ax-prereq-card").first().locator(".ax-check-badge")).toHaveText("확인 필요");
-  // 제목·설명·카드 사이 간격이 자연스럽다(설명 하단 여백 존재, 겹침 없음)
-  const descBox = await block.locator(".ax-plan-desc").boundingBox();
-  const cardsBox = await block.locator(".ax-prereq-cards").boundingBox();
-  expect(descBox).not.toBeNull();
-  expect(cardsBox).not.toBeNull();
-  expect(Math.round(cardsBox!.y - (descBox!.y + descBox!.height))).toBeGreaterThanOrEqual(12);
+  // 제목·설명·카드 사이 간격이 자연스럽다(설명 하단 여백 존재, 겹침 없음).
+  // 위쪽·아래쪽 박스를 한 번의 evaluate 안에서 읽는다(스크롤 경합 방지).
+  const descCardsGap = await block.evaluate(root => {
+    const upper = root.querySelector(".ax-plan-desc");
+    const lower = root.querySelector(".ax-prereq-cards");
+    if (!upper || !lower) return null;
+    const u = upper.getBoundingClientRect();
+    const l = lower.getBoundingClientRect();
+    return Math.round(l.top - (u.top + u.height));
+  });
+  expect(descCardsGap).not.toBeNull();
+  expect(descCardsGap!).toBeGreaterThanOrEqual(12);
 });
 
 test("04 올인원 지시문: 안내 문구와 생성 버튼 간격 12~16px (Codex·Claude 동일)", async ({ page }) => {
@@ -91,10 +106,17 @@ test("04 올인원 지시문: 안내 문구와 생성 버튼 간격 12~16px (Cod
   expect(Math.abs(codexGap - claudeGap)).toBeLessThanOrEqual(1);
   await expect(section.locator(".ax-plan-generate-hint")).toHaveText("Claude Code용 구현 계획 생성 후 올인원 지시문 확인");
   await expect(section.locator(".ax-plan-generate")).toHaveText(/Claude Code용 구현 계획 생성/);
-  // 탭 전환 후 레이아웃 겹침 없음
-  const hintBox = await section.locator(".ax-plan-generate-hint").boundingBox();
-  const buttonBox = await section.locator(".ax-plan-generate").boundingBox();
-  expect(buttonBox!.y).toBeGreaterThan(hintBox!.y + hintBox!.height);
+  // 탭 전환 후 레이아웃 겹침 없음(한 번의 evaluate로 원자 측정)
+  const overlapGap = await section.evaluate(root => {
+    const upper = root.querySelector(".ax-plan-generate-hint");
+    const lower = root.querySelector(".ax-plan-generate");
+    if (!upper || !lower) return null;
+    const u = upper.getBoundingClientRect();
+    const l = lower.getBoundingClientRect();
+    return Math.round(l.top - (u.top + u.height));
+  });
+  expect(overlapGap).not.toBeNull();
+  expect(overlapGap!).toBeGreaterThan(0);
 });
 
 test("04 올인원 지시문: 모바일 390px 간격·줄바꿈·가로 스크롤 없음", async ({ page }) => {
