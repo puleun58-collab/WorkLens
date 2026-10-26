@@ -4,6 +4,7 @@ import {
   clarifyResponse,
   classifyEvidenceIntent,
   classifyQuestion,
+  resolveEvidenceIntent,
 } from "../src/lib/assistant/topics";
 import {
   ASSISTANT_EVIDENCE,
@@ -149,6 +150,43 @@ describe("assistant bare hallucination clarification", () => {
     expect(classifyQuestion("환각은 어떻게 처리해? (WorkLens 법령 기능의 근거 검증에 대해 질문)")).toBe("in-scope");
     expect(classifyEvidenceIntent("환각은 어떻게 처리해? (일반적인 AI 환각에 대해 질문)")).toBe("general");
     expect(classifyEvidenceIntent("환각은 어떻게 처리해? (WorkLens 법령 기능의 근거 검증에 대해 질문)")).toBe("law");
+  });
+});
+
+describe("assistant follow-up evidence intent", () => {
+  it("lets a law question win over a previous learning question (live FAIL case)", () => {
+    // Widget sends followUpOf for every question; the FAIL question is exactly
+    // 15 chars, so the route concatenates the previous learning question.
+    // The concatenated query alone would classify as learn and filter out all
+    // law evidence; the current question's own law marker must win.
+    const previous = "학습센터에서 환각을 설명해 줘";
+    const question = "법령 근거는 어디서 확인해?";
+    expect([...question].length).toBe(15);
+    expect(classifyEvidenceIntent(`${previous} ${question}`)).toBe("learn");
+    expect(resolveEvidenceIntent(question, `${previous} ${question}`)).toBe("law");
+  });
+  it("lets a learning question win over a previous law question", () => {
+    const previous = "법령 MCP 연동돼?";
+    const question = "학습센터에서 환각이 무슨 뜻이야?";
+    expect(resolveEvidenceIntent(question, `${previous} ${question}`)).toBe("learn");
+  });
+  it("keeps the previous topic only for marker-less short follow-ups", () => {
+    expect(resolveEvidenceIntent("그럼 Level 2는?", "법령 MCP 연동돼? 그럼 Level 2는?")).toBe("law");
+    expect(resolveEvidenceIntent("그럼 Level 2는?", "학습센터 퀴즈는 어떻게 풀어? 그럼 Level 2는?")).toBe("learn");
+    expect(resolveEvidenceIntent("법령 근거는 어디서 확인해?", "법령 근거는 어디서 확인해?")).toBe("law");
+  });
+  it("feeds law evidence (not learn evidence) for the topic-switch question", () => {
+    const previous = "학습센터에서 환각을 설명해 줘";
+    const question = "법령 근거는 어디서 확인해?";
+    const evidenceQuery = `${previous} ${question}`;
+    const merged = filterEvidenceByIntent(
+      [learnEntry("learn-unit-l1-u2")],
+      selectEvidence(evidenceQuery),
+      resolveEvidenceIntent(question, evidenceQuery),
+    );
+    expect(merged.some((item) => item.id.startsWith("learn-"))).toBe(false);
+    expect(merged.length).toBeGreaterThan(0);
+    expect(LAW_EVIDENCE_IDS.has(merged[0].id)).toBe(true);
   });
 });
 
