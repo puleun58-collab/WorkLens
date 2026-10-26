@@ -303,7 +303,7 @@ export const ASSISTANT_EVIDENCE: AssistantEvidence[] = [
     id: "guide-dictionary",
     screen: "검수",
     title: "용어 사전",
-    text: "용어 사전은 맞춤법·용어 오탐을 줄이는 사전입니다. 왼쪽 메뉴에서 '검수' 하위 메뉴를 펼쳐 '용어 사전'을 선택해 확인할 수 있습니다.",
+    text: "용어 사전은 맞춤법·용어 오탐을 줄이는 사전입니다. 검수 화면 상단의 '용어 사전' 버튼을 선택해 확인할 수 있습니다.",
     keywords: /용어\s*사전|사전/iu,
     kind: "menu",
   },

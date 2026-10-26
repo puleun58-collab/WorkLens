@@ -160,7 +160,7 @@ export function classifyEvidenceIntent(question: string): EvidenceIntent {
 const BARE_HALLUCINATION_ACTION =
   /환각.*(처리|방지|대응|없애|줄이|막)|(처리|방지|대응).*환각/u;
 const HALLUCINATION_TARGET =
-  /법령|학습센터|생성형|mcp|판례|조문|레벨|level|퀴즈|단원|코딩\s*에이전트/iu;
+  /법령|학습센터|생성형|일반|mcp|판례|조문|레벨|level|퀴즈|단원|코딩\s*에이전트/iu;
 
 /**
  * True when the question is WorkLens-related but its intent is genuinely unclear.
