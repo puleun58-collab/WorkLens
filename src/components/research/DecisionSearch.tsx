@@ -282,7 +282,7 @@ export function DecisionSearch({ linkedRequest, onReturnToLaw, onCiteCheck }: De
               <h3 className="decision-search-subheading">다른 검색 결과<span className="law-section-count"> · {split.others.length}건</span></h3>
               <DecisionList entries={split.others} onOpen={openDetail} />
             </>}
-          </> : outcome.data.entries.length > 0 ? <DecisionList entries={outcome.data.entries} onOpen={openDetail} /> : outcome.data.excludedCount !== undefined && outcome.data.excludedCount > 0 ? null : <LawTextBlock className="decision-detail-raw" text={outcome.data.text} />}
+          </> : outcome.data.entries.length > 0 ? <DecisionList entries={outcome.data.entries} onOpen={openDetail} /> : outcome.data.excludedCount !== undefined && outcome.data.excludedCount > 0 ? <p className="law-search-note" role="status">이 페이지의 검색 결과가 모두 다른 유형으로 확인되어 제외되었습니다.</p> : <LawTextBlock className="decision-detail-raw" text={outcome.data.text} />}
           <div className="decision-pagination">
             {page > 1 && <Button variant="link" type="button" className="h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" onClick={() => void runSearch(searchedQuery, domain, page - 1)}>← 이전</Button>}
             {outcome.data.hasNext === true && <Button variant="link" type="button" className="h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" onClick={() => void runSearch(searchedQuery, domain, page + 1)}>다음 →</Button>}

@@ -61,6 +61,26 @@ export function decisionNumberMatchesDomain(domain: DecisionDomain, caseNumber: 
   return rule.query.test(caseNumber.trim());
 }
 
+/**
+ * Whether a result's number is acceptable to the type check. This is the
+ * identifier pattern for most domains, but admin_appeal's real numbers vary
+ * by deciding commission — the central zero-padded form, short serial
+ * groups, and regional 행심 forms (경기행심·경행심·제특행심·행심 제…호) —
+ * while a query must still be canonical to count as an identifier (a loose
+ * number stays a keyword search, never an identifier lookup). A number
+ * outside every accepted shape is still a mismatch signal, and a masked
+ * number carrying the 행심 marker and a year is never harshly judged.
+ */
+export function decisionNumberAcceptableForVerification(domain: DecisionDomain, caseNumber: string): boolean | undefined {
+  if (domain === "admin_appeal") {
+    const value = caseNumber.trim();
+    if (/^\d{4}\s*-\s*\d{4,5}$/u.test(value)) return true;
+    if (/행심/u.test(value) && /\d{4}/u.test(value)) return true;
+    return false;
+  }
+  return decisionNumberMatchesDomain(domain, caseNumber);
+}
+
 export function decisionIdentifier(domain: DecisionDomain, query: string): DecisionIdentifier | null {
   const rule = RULES[domain];
   const trimmed = query.trim();
