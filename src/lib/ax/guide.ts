@@ -185,16 +185,6 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
         ] },
         text("수치는 현재 공식 정책에 근거한 예시이며 가입·배포 전 최신 정책을 확인하세요. https://vercel.com/docs/plans/hobby · https://developers.cloudflare.com/workers/platform/pricing/"),
       ] },
-      { title: "Cloudflare의 Wrangler", when: "프로젝트가 Wrangler를 실제 사용하는 경우만", collapsed: true, blocks: [
-        text("기존 packageManager·lockfile·Wrangler 버전·스크립트를 유지합니다. 새 npm Cloudflare 프로젝트에 Wrangler CLI가 필요하고 없을 때에만 다음 명령으로 로컬 devDependency에 설치합니다."),
-        text("기존 Pages/Git 자동 배포에 CLI를 추가하지 않습니다."),
-        code(["npm i -D wrangler@latest", "npx wrangler --version"], ["새 npm Cloudflare 프로젝트에만 적용; 다른 매니저·기존 프로젝트에는 해당 설정을 우선합니다."]),
-        text("출처: https://developers.cloudflare.com/workers/wrangler/install-and-update/"),
-      ] },
-      { title: "요금·정책 확인", collapsed: true, blocks: [
-        text("Vercel Hobby의 개인·비상업적 용도 및 월별 Function·트래픽 한도를 검토하세요. Cloudflare Workers Free의 일별 요청·CPU 제한과 D1/KV 일별 작업 제한, R2의 저장·작업 무료 제공량 초과 시 결제 조건은 각각 다릅니다. 한도 초과 방식과 리소스 생성 권한을 확인한 뒤 필요한 서비스만 선택하세요."),
-        text("공식 정책: https://vercel.com/docs/plans/hobby · https://developers.cloudflare.com/workers/platform/pricing/ · https://developers.cloudflare.com/r2/pricing/"),
-      ] },
     ] },
     { title: "STEP 06 · 데이터 저장 방식", purpose: "기존 데이터는 유지하고, 필요한 저장 방식만 선택해 연결하세요.", sections: [
       { title: "필요한 저장 방식만 선택하세요", blocks: [
@@ -230,7 +220,8 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
         text("GitHub에 변경 사항을 업로드한 후 프로젝트에서 PR과 CI를 사용한다면 해당 절차를 진행하세요. 배포는 기존 설정에 따라 이루어지므로 실제 운영 환경에 변경 사항이 반영되었는지 확인해야 합니다."),
         text("CI가 구성된 프로젝트에서는 실제 검사 결과를 확인하고, CI가 없으면 통과한 것으로 표시하지 않습니다. Preview와 Production 배포는 구분해서 확인하세요. git push만으로 운영 배포가 완료된 것은 아닙니다. 배포가 필요 없는 로컬 자동화 프로그램에는 웹 배포를 요구하지 않습니다."),
         text("Vercel Git 연동 또는 Cloudflare Workers/Pages Git 자동 배포라면 수동 명령을 중복 실행하지 않습니다. CLI 방식이라면 현재 프로젝트의 실제 스크립트만 사용하고 모든 Cloudflare 앱에 wrangler deploy를 강제하지 않습니다."),
-        code(["현재 프로젝트의 GitHub 브랜치, PR·CI 사용 여부와 실제 배포 구성을 확인해 줘. 기존 설정을 유지하면서 필요한 검증 절차를 진행하고, 코드 업로드·CI 통과·배포 완료를 각각 구분해 보고해 줘. 실제 운영 환경에 반영되었는지 확인하지 못했다면 배포 완료로 표시하지 마. 설정 변경이나 운영 데이터에 영향을 줄 수 있는 작업은 실행 전에 영향 범위와 승인 필요 여부를 알려 줘."], ["코딩 에이전트에게 요청할 때 복사해서 사용하세요."]),
+        text("PowerShell에서 Codex 또는 Claude Code를 실행한 후 아래 요청문을 입력하세요. 이 요청문은 PowerShell에서 직접 실행하는 명령이 아니라 실행 중인 코딩 에이전트에 붙여넣는 내용입니다."),
+        code(["현재 프로젝트의 구조, GitHub 연결 상태, 배포 서비스 및 기존 배포 설정을 먼저 확인해 줘.", "", "Vercel 또는 Cloudflare 중 이미 구성된 배포 환경이 있다면 해당 환경을 우선 유지해 줘.", "", "GitHub 연동 자동 배포가 설정되어 있다면 기존 브랜치·CI·배포 흐름을 확인하고, 변경 사항이 실제 배포 환경에 반영되는지 검증해 줘.", "", "CLI 직접 배포가 필요한 경우에는 프로젝트의 기존 배포 스크립트와 설정을 우선 사용해 줘. Cloudflare 프로젝트라면 필요한 경우 Wrangler를 사용하고, 불필요한 도구 설치나 설정 변경은 하지 마.", "", "배포 전 필요한 빌드와 테스트를 실행하고, 실제 운영 환경에 영향을 줄 수 있는 변경 사항이 있다면 실행 전에 알려 줘. 인증이나 추가 승인이 필요하다면 사용자에게 요청해 줘.", "", "기존 데이터와 서비스 설정을 보존하면서 승인된 범위에서 배포를 진행해 줘.", "", "완료 후 실제 배포 환경, URL, 적용된 코드 버전, 테스트 및 배포 결과를 구분해 보고해 줘.", "", "배포가 실행되지 않았거나 실제 반영 여부를 확인하지 못했다면 완료로 표시하지 마."], ["코딩 에이전트에게 요청할 때 복사해서 사용하세요."]),
         text("실패 로그의 API Key·Token·Password·개인정보를 [REDACTED]로 가린 필요한 부분만 AI 도구에 전달하고 로그 전체를 무조건 복사하지 않습니다."),
       ] },
     ] },
