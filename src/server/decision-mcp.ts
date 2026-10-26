@@ -2,7 +2,7 @@ import type { DecisionDomain } from "@/lib/decision-domain";
 import { ApiError } from "@/server/http";
 import { callLawTool } from "@/server/law-mcp";
 import { courtFromCaseNumber } from "@/lib/law-display";
-import { decisionNumberMatchesDomain } from "@/lib/decision-identifier";
+import { decisionNumberAcceptableForVerification } from "@/lib/decision-identifier";
 
 /** Type verification, computed server-side from the record's own metadata. Never a "verified" badge: only exclusion and "확인 필요" use it. */
 export type DecisionTypeVerification = "matched" | "mismatched" | "not_provided";
@@ -63,9 +63,12 @@ const DOMAIN_LABELS: Record<DecisionDomain, { numbers: string[]; dates: string[]
 };
 /** Labels no other group uses: their presence alone identifies the group. */
 const UNIQUE_LABELS = new Set(["선고일", "법원", "종국일", "회신일자", "해석례번호", "의결일자"]);
-/** Institution strings actually observed in code fixtures. Unobserved domains are never judged by institution. */
+/** Institution strings actually observed in code fixtures. Unobserved domains are never judged by institution.
+ * Admin appeals are deliberately absent: their deciding bodies vary by region (regional commissions and
+ * 국민권익위원회), so no single observed string can judge them — requiring 중앙행정심판위원회 excluded every
+ * real regional record. Labels and number shapes still discriminate, and another domain's observed institution
+ * still mismatches. */
 const OBSERVED_INSTITUTIONS: Partial<Record<DecisionDomain, string>> = {
-  admin_appeal: "중앙행정심판위원회",
   interpretation: "법제처",
   ftc: "공정거래위원회",
 };
@@ -101,7 +104,7 @@ export function verifyDecisionEntry(domain: DecisionDomain, entry: DecisionEntry
     // domain pattern — which a prefixed number can never satisfy — must not
     // screen it out before the prefix rule is reached.
     if (domain === "precedent" ? prefix === "헌법재판소" : domain === "constitutional" ? prefix !== "헌법재판소" : true) return "mismatched";
-  } else if (entry.caseNumber && decisionNumberMatchesDomain(domain, entry.caseNumber) === false) return "mismatched";
+  } else if (entry.caseNumber && decisionNumberAcceptableForVerification(domain, entry.caseNumber) === false) return "mismatched";
   if (entry.institution) {
     const observed = OBSERVED_INSTITUTIONS[domain];
     if (observed ? entry.institution !== observed : Object.values(OBSERVED_INSTITUTIONS).includes(entry.institution)) return "mismatched";
