@@ -21,72 +21,112 @@ async function seedAx(page: Page, value: unknown) {
   }, value);
 }
 
-test("review accordion moves dictionary under review and keeps parent navigation separate", async ({ page }) => {
+test("review menu is a single item and the header glossary button shows only on review screens", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/");
   const nav = page.getByRole("navigation", { name: "작업 공간 메뉴", exact: true });
-  const toggle = nav.locator(".workspace-nav-toggle");
-  const dictionary = nav.getByRole("button", { name: "Dictionary", exact: true });
-  const documentReview = nav.getByRole("button", { name: "문서 검수", exact: true });
+  const reviewButton = nav.getByRole("button", { name: "검수", exact: true });
+  const headerGlossary = page.getByRole("button", { name: "용어 사전", exact: true });
 
-  // HELP 하단에는 용어 사전 최상위 행이 없고, 검수는 접힌 상태로 시작한다.
-  await expect(toggle).toHaveAttribute("aria-expanded", "false");
-  await expect(dictionary).toHaveCount(0);
-  await expect(documentReview).toHaveCount(0);
+  // 좌측 메뉴: 검수는 단일 메뉴이고, 접기·펼치기 화살표와 하위 메뉴가 없다.
+  await expect(reviewButton).toBeVisible();
+  await expect(nav.locator(".workspace-nav-toggle")).toHaveCount(0);
+  await expect(nav.locator(".workspace-nav-children")).toHaveCount(0);
+  await expect(nav.getByRole("button", { name: "문서 검수", exact: true })).toHaveCount(0);
+  await expect(nav.getByRole("button", { name: "용어 사전", exact: true })).toHaveCount(0);
+  // HELP 하단에는 사용 가이드·설정만 있고, 용어 사전은 HELP로 돌아가지 않는다.
+  // (HELP 항목의 접근 이름은 ariaLabel인 Guide/Settings이다.)
+  await expect(nav.getByRole("button", { name: "Guide", exact: true })).toBeVisible();
+  await expect(nav.getByRole("button", { name: "Settings", exact: true })).toBeVisible();
+  // 검수 메뉴는 다른 단일 메뉴와 같은 크기이다.
+  const reviewBox = await reviewButton.boundingBox();
+  const analyzeBox = await nav.getByRole("button", { name: "분석", exact: true }).boundingBox();
+  expect(reviewBox!.height).toBe(analyzeBox!.height);
 
-  // 셰브론 클릭은 화면 이동 없이 하위 메뉴만 펼친다.
-  await toggle.click();
-  await expect(toggle).toHaveAttribute("aria-expanded", "true");
-  await expect(toggle).toHaveAttribute("aria-label", "검수 하위 메뉴 접기");
-  await expect(dictionary).toBeVisible();
-  await expect(documentReview).toBeVisible();
-  await expect(page.locator(".context-bar h1")).not.toHaveText("검수");
+  // 다른 카테고리에서는 상단 용어 사전 버튼이 표시되지 않는다.
+  await expect(headerGlossary).toHaveCount(0);
 
-  // 하위 메뉴는 부모보다 한 단계 들여쓰기한다.
-  const parentBox = await nav.getByRole("button", { name: "검수", exact: true }).boundingBox();
-  const childBox = await dictionary.boundingBox();
-  expect(childBox!.x).toBeGreaterThan(parentBox!.x);
+  // 검수 클릭 시 기존 검수 화면으로 이동하고, 헤더에 용어 사전 버튼이 나타난다.
+  await reviewButton.click();
+  await expect(reviewButton).toHaveAttribute("aria-current", "page");
+  await expect(headerGlossary).toBeVisible();
+  await expect(headerGlossary).not.toHaveAttribute("aria-current", "page");
+  // 버튼은 검색창 바로 왼쪽에 있고, 콘텐츠 영역에 중복 버튼이 없다.
+  const searchInput = page.getByRole("combobox", { name: "메뉴·기능 검색" });
+  await expect(searchInput).toBeVisible();
+  const [glossaryBox, searchBox] = await Promise.all([headerGlossary.boundingBox(), searchInput.boundingBox()]);
+  expect(glossaryBox!.x + glossaryBox!.width).toBeLessThanOrEqual(searchBox!.x);
+  expect(searchBox!.x - (glossaryBox!.x + glossaryBox!.width)).toBeLessThanOrEqual(40);
+  await expect(page.getByRole("button", { name: "용어 사전", exact: true })).toHaveCount(1);
 
-  // 검수 본문 클릭은 기존 검수 화면으로 이동하고, 하위 메뉴는 펼쳐진 채 유지된다.
-  await nav.getByRole("button", { name: "검수", exact: true }).click();
-  await expect(nav.getByRole("button", { name: "검수", exact: true })).toHaveAttribute("aria-current", "page");
-  await expect(toggle).toHaveAttribute("aria-expanded", "true");
-
-  // 사용자가 직접 접으면 같은 화면에 머무르는 동안 접힌 상태가 유지된다.
-  await toggle.click();
-  await expect(toggle).toHaveAttribute("aria-expanded", "false");
-  await expect(dictionary).toHaveCount(0);
-  await expect(nav.getByRole("button", { name: "검수", exact: true })).toHaveAttribute("aria-current", "page");
-
-  // 다른 카테고리로 나갔다가 검수 화면으로 돌아오면 하위 메뉴가 자동으로 펼쳐진다.
-  await navigateWorkspace(page, "분석");
-  await navigateWorkspace(page, "검수");
-  await expect(toggle).toHaveAttribute("aria-expanded", "true");
-  await expect(dictionary).toBeVisible();
-
-  // 용어 사전 하위 메뉴 클릭은 기존 용어 사전 화면으로 이동한다.
-  await dictionary.click();
+  // 헤더 버튼 클릭 시 기존 용어 사전 화면으로 이동하고, 검수 메뉴가 활성 표시된다.
+  await headerGlossary.click();
   await expect(page.locator('.settings-surface[aria-label="Dictionary"] .dictionary-section').first()).toBeVisible();
-  await expect(dictionary).toHaveAttribute("aria-current", "page");
-  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await expect(reviewButton).toHaveAttribute("aria-current", "page");
+  await expect(headerGlossary).toHaveAttribute("aria-current", "page");
+  expect(await headerGlossary.evaluate((element) => element.classList.contains("active"))).toBe(true);
 
-  // 다른 카테고리로 이동해도 펼침 상태는 유지된다. 검색 전 직접 접어 둔다.
+  // 용어 사전 화면에서 동일 버튼을 다시 클릭해도 화면이 바뀌거나 초기화되지 않는다.
+  await headerGlossary.click();
+  await expect(page.locator('.settings-surface[aria-label="Dictionary"] .dictionary-section').first()).toBeVisible();
+  await expect(headerGlossary).toHaveAttribute("aria-current", "page");
+
+  // 좌측 검수 메뉴 클릭 시 문서 검수 화면으로 돌아간다.
+  await reviewButton.click();
+  await expect(headerGlossary).toBeVisible();
+  await expect(headerGlossary).not.toHaveAttribute("aria-current", "page");
+
+  // 다른 카테고리로 이동하면 버튼이 사라지고, 검수로 돌아오면 다시 나타난다.
   await navigateWorkspace(page, "분석");
-  await expect(toggle).toHaveAttribute("aria-expanded", "true");
-  await toggle.click();
-  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(headerGlossary).toHaveCount(0);
+  await expect(searchInput).toBeVisible();
+  await navigateWorkspace(page, "검수");
+  await expect(headerGlossary).toBeVisible();
 
-  // 메뉴 검색에서 용어 사전은 검수 소속으로 표시되고, 선택 시 아코디언이 펼쳐진다.
+  // 메뉴 검색에서 용어 사전은 검수 소속으로 표시되고, 선택 시 용어 사전 화면으로 이동한다.
   await page.keyboard.press("Control+K");
-  const search = page.getByRole("combobox", { name: "메뉴·기능 검색" });
-  await search.fill("용어 사전");
+  await searchInput.fill("용어 사전");
   const option = page.getByRole("option", { name: "용어 사전", exact: true });
   await expect(option).toBeVisible();
   await expect(page.locator(".workspace-search-results")).toContainText("검수");
   await option.click();
   await expect(page.locator('.settings-surface[aria-label="Dictionary"] .dictionary-section').first()).toBeVisible();
-  await expect(toggle).toHaveAttribute("aria-expanded", "true");
-  await expect(dictionary).toHaveAttribute("aria-current", "page");
+  await expect(reviewButton).toHaveAttribute("aria-current", "page");
+  await expect(headerGlossary).toBeVisible();
+  await expect(headerGlossary).toHaveAttribute("aria-current", "page");
+});
+
+test("header glossary button works on mobile without horizontal scroll", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  const headerGlossary = page.getByRole("button", { name: "용어 사전", exact: true });
+  const searchTrigger = page.getByRole("button", { name: "메뉴·기능 검색", exact: true });
+
+  await navigateWorkspace(page, "검수");
+  await expect(headerGlossary).toBeVisible();
+  // 버튼과 검색 트리거가 겹치지 않고, 가로 스크롤이 없다.
+  const [glossaryBox, triggerBox] = await Promise.all([headerGlossary.boundingBox(), searchTrigger.boundingBox()]);
+  expect(glossaryBox!.x + glossaryBox!.width).toBeLessThanOrEqual(triggerBox!.x);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+
+  await headerGlossary.click();
+  await expect(page.locator('.settings-surface[aria-label="Dictionary"] .dictionary-section').first()).toBeVisible();
+  await expect(headerGlossary).toHaveAttribute("aria-current", "page");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+
+  // 모바일에서 펼친 검색창과 버튼이 함께 있어도 가로 스크롤이 없다.
+  await searchTrigger.click();
+  const searchInput = page.getByRole("combobox", { name: "메뉴·기능 검색" });
+  await expect(searchInput).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.keyboard.press("Escape");
+
+  await navigateWorkspace(page, "분석");
+  await expect(headerGlossary).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await navigateWorkspace(page, "검수");
+  await expect(headerGlossary).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
 test("ax hitl accordion chevrons align with the review button right edge", async ({ page }) => {
