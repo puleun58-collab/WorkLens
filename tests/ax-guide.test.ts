@@ -49,6 +49,20 @@ describe("AX execution guides", () => {
     expect(JSON.stringify(steps[4])).toContain("실제 입력 데이터");
     expect(JSON.stringify(steps[8])).toContain("웹 배포가 필요 없는");
   });
+  it.each(["codex", "claude"] as const)("starts the Wrangler no-CLI-addition sentence as its own paragraph: %s", tool => {
+    const step05 = setupGuide(tool)[5];
+    expect(step05.title).toBe("STEP 05 · 배포 플랫폼 선택");
+    const wrangler = step05.sections.find(section => section.title === "Cloudflare의 Wrangler");
+    expect(wrangler).toBeDefined();
+    const texts = (wrangler?.blocks ?? []).filter(block => block.kind === "text").map(block => block.text);
+    expect(texts).toContain("기존 Pages/Git 자동 배포에 CLI를 추가하지 않습니다.");
+    // The sentence must be a standalone paragraph, not the tail of a longer paragraph,
+    // so it always starts on a new line instead of dangling across a line break.
+    expect(texts.filter(text => text.includes("기존 Pages/Git 자동 배포에 CLI를 추가하지 않습니다."))).toEqual([
+      "기존 Pages/Git 자동 배포에 CLI를 추가하지 않습니다.",
+    ]);
+    expect(texts).toContain("기존 packageManager·lockfile·Wrangler 버전·스크립트를 유지합니다. 새 npm Cloudflare 프로젝트에 Wrangler CLI가 필요하고 없을 때에만 다음 명령으로 로컬 devDependency에 설치합니다.");
+  });
   it("presents the intro glossary as the Git·GitHub work flow in execution order", () => {
     const flow = setupGuide("codex")[0].sections[2];
     expect(flow.title).toBe("Git·GitHub 작업 흐름");

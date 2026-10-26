@@ -1,4 +1,4 @@
-.legal-analysis { display: grid; gap: 20px; width: 100%; min-width: 0; }
+.legal-analysis { display: grid; gap: 20px; width: 100%; min-width: 0; word-break: keep-all; text-wrap: pretty; }
 .legal-analysis-form { display: grid; gap: 8px; min-width: 0; }
 .legal-analysis-form > label, .legal-analysis-fields label { color: var(--ink-soft); font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); }
 .legal-analysis-fields { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr); gap: 8px 12px; }
@@ -12,7 +12,7 @@
 .legal-analysis-title { margin: 0; color: var(--ink); font-size: var(--font-size-md); font-weight: var(--font-weight-semibold); overflow-wrap: anywhere; }
 .legal-analysis-section { display: grid; gap: 6px; min-width: 0; }
 .legal-analysis-section h3 { margin: 0; color: var(--ink); font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); overflow-wrap: anywhere; }
-.legal-analysis-lines, .legal-analysis-raw { box-sizing: border-box; max-width: 100%; min-width: 0; margin: 0; color: var(--ink); font: inherit; font-size: var(--font-size-sm); line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
+.legal-analysis-lines, .legal-analysis-raw { box-sizing: border-box; max-width: 100%; min-width: 0; margin: 0; color: var(--ink); font: inherit; font-size: var(--font-size-sm); line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; word-break: keep-all; }
 .legal-analysis-raw { padding: 16px; border: 1px solid var(--line-soft, var(--line)); border-radius: var(--radius-panel, 8px); background: var(--paper); }
 /* 근거 항목 단위: one entry per block — entries share the section baseline, a hairline and 8px padding separate entries (the 관련 법령·조문 list rhythm), lines inside an entry stay 5px apart. */
 .legal-analysis-items { display: grid; }
@@ -20,7 +20,7 @@
 .legal-analysis-item:first-child { padding-top: 0; }
 .legal-analysis-item:last-child { padding-bottom: 0; }
 .legal-analysis-item.is-divided { border-top: 1px solid var(--line-soft, var(--line)); }
-.legal-analysis-line { display: block; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
+.legal-analysis-line { display: block; white-space: pre-wrap; overflow-wrap: anywhere; word-break: keep-all; }
 /* 적용 법령 판단 시 주의: one hyphen column at the left edge, one text column every wrapped line returns to. */
 .legal-analysis-caution { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; color: var(--ink); font-size: var(--font-size-sm); line-height: 1.7; }
 .legal-analysis-caution > li { position: relative; padding-left: 15px; overflow-wrap: anywhere; }
