@@ -127,7 +127,7 @@ async function pool<T>(items: readonly T[], worker: (item: T) => Promise<void>, 
   }));
 }
 
-function articleExcerpt(text: string, jo: string): string {
+export function articleExcerpt(text: string, jo: string): string {
   const lines = text.split(/\r?\n/u).map((line) => line.trim());
   const heading = new RegExp(`^${jo}(?:\\s|\\(|$)`, "u");
   // Upstream prints a `제80조 이행강제금` label, then `제80조(이행강제금) ① …`; the body starts after the last heading line.
@@ -352,4 +352,42 @@ export async function lookupIssue(
       || statutes.partialFailure === true
       || (summaryFailed && (statutes.articles.length > 0 || precedents.length > 0)));
   return { status, articles: statutes.articles, precedents, ...(partialFailure ? { partialFailure: true as const } : {}) };
+}
+
+/**
+ * A chain article an issue could not adopt from its preview: the MCP preview
+ * can stop mid-article (a `③...` cut), hiding the clause the issue asks
+ * about. Re-read the full text of the few chain articles whose titles match
+ * the issue's or the request's terms, and return them as supplement
+ * candidates — adoption itself still judges the excerpt by the issue's own
+ * terms in the caller, so a title match alone never confirms anything.
+ * Bounded (at most two articles) and budget-checked; a fetch that fails or
+ * times out simply yields no candidate, never a guessed one.
+ */
+export async function rereadShownArticles(
+  shown: ReadonlyArray<{ law: string; jo: string; title?: string }>,
+  candidateTerms: readonly string[],
+  sources: EnrichmentSources,
+  expired: () => boolean,
+  limit = 2,
+): Promise<SupplementArticle[]> {
+  const candidates = shown
+    .map((article) => ({ article, matched: article.title ? titleMatches(candidateTerms, article.law, article.title) : [] }))
+    .filter((entry) => entry.matched.length > 0)
+    .sort((a, b) => b.matched.length - a.matched.length)
+    .slice(0, limit);
+  const articles: SupplementArticle[] = [];
+  for (const { article, matched } of candidates) {
+    if (expired()) break;
+    const found = await sources.laws(article.law).catch(() => []);
+    const exact = found.find((law) => law.name === article.law);
+    if (!exact) continue;
+    if (expired()) break;
+    const fetched = await sources.article(exact.mst, article.jo).catch(() => undefined);
+    if (!fetched) continue;
+    const excerpt = articleExcerpt(fetched.text, article.jo);
+    if (excerpt) articles.push({ law: article.law, jo: article.jo, title: article.title ?? "", excerpt, matched,
+      ...(fetched.effectiveDate ? { effectiveDate: fetched.effectiveDate } : {}) });
+  }
+  return articles;
 }

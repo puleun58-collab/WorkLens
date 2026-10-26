@@ -2,7 +2,7 @@ import type { EvidenceArticle, InterpretationFailure, IssueEvidence, LawCurrency
 import type { LawRequestStats } from "@/lib/law-observability";
 import { researchResult, type ResearchDecision } from "@/lib/law-research-parse";
 import {
-  isLawName, questionTerms, rankPrecedent, researchEvidenceSources, titleMatches,
+  isLawName, questionSubjectTerms, questionTerms, questionTermsSubjectLess, rankPrecedent, researchEvidenceSources, titleMatches,
   type PrecedentRelevance, type ResearchEnrichment, type SupplementArticle,
 } from "@/lib/research-relevance";
 import { classifyLawToolResult } from "@/server/law-analysis-mcp";
@@ -11,7 +11,7 @@ import { mcpReviewSources, reviewContract } from "@/server/contract-review";
 import { interpretResearchQuery } from "@/server/groq";
 import { ApiError } from "@/server/http";
 import {
-  enrichResearch, lookupIssue, mcpEnrichmentSources, sharedSources,
+  enrichResearch, lookupIssue, mcpEnrichmentSources, rereadShownArticles, sharedSources,
   type EnrichmentSources, type IssueLookup,
 } from "@/server/research-enrichment";
 import { compareOrdinances, mcpOrdinanceSources } from "@/server/ordinance-compare";
@@ -90,6 +90,7 @@ async function issueSources(
   sources: EnrichmentSources,
   summaries: Map<string, string>,
   requestTerms: readonly string[] = [],
+  fallback = false,
 ): Promise<{ articles: Array<{ law: string; jo: string }>; precedents: string[] }> {
   const terms = questionTerms(issueQuery);
   const relevance: Record<string, PrecedentRelevance> = {};
@@ -109,7 +110,7 @@ async function issueSources(
     // Citation is judged on the summaries actually read for this issue, not on term lists alone.
     precedentExcerpts: Object.fromEntries(summaries),
     supplement: { status: supplement.length ? "found" : "none", articles: supplement },
-  }, requestTerms);
+  }, requestTerms, { fallback });
 }
 
 async function fullResearch(
@@ -197,16 +198,42 @@ async function fullResearch(
   // cannot confirm another's.
   const requestTerms = [...new Set([...questionTerms(query), ...issues.flatMap((issue) => questionTerms(issue.query))])];
   const judged = await Promise.all(issues.map(async (issue) => {
-    let adopted = await issueSources(issue.query, known, undefined, sources, summaries, requestTerms);
+    // An issue without a label is the unread question itself: it is judged by
+    // the fallback rule (F), not by the interpreted-issue majority rule.
+    const fallback = issue.label === undefined;
+    let adopted = await issueSources(issue.query, known, undefined, sources, summaries, requestTerms, fallback);
     let lookup: IssueLookup | undefined;
-    // Only an interpreted issue has a short phrase of its own; a question that could not be read is never sent whole.
     // F1 M2: the gate used to require precedents to be empty as well, so an issue covered only by
     // precedents never reached the supplement lookup — and the question's law-name inheritance (F2)
     // could not rescue its missing articles. Precedents cover status, not articles, so the gate is
     // articles==0 alone; the shared issue budget and timeout reporting are unchanged.
-    if (!adopted.articles.length && issue.label !== undefined) {
-      lookup = await lookupIssue(issue.query, shownArticles, sources, expired, questionTerms(query).filter(isLawName), questionTerms(query));
-      if (lookup.status === "found") adopted = await issueSources(issue.query, known, lookup, sources, summaries, requestTerms);
+    // An unread question has no short phrase of its own, so its lookup query is
+    // its subject words only — the whole everyday sentence is never sent.
+    if (!adopted.articles.length) {
+      const lookupQuery = fallback ? questionSubjectTerms(query).join(" ") : issue.query;
+      if (lookupQuery) {
+        // A lookup failure degrades to "no lookup", never to a failed request:
+        // the chain's own adoption still stands, and the issue status below
+        // falls back to the chain outcome.
+        lookup = await lookupIssue(lookupQuery, shownArticles, sources, expired, questionTerms(query).filter(isLawName), questionTerms(query))
+          .catch(() => undefined);
+        if (lookup?.status === "found") adopted = await issueSources(issue.query, known, lookup, sources, summaries, requestTerms, fallback);
+      }
+    }
+    // A chain article the issue could not adopt from its truncated preview
+    // may still carry the issue in its full text (a victim-protection clause
+    // past the MCP's ③ cut). Re-read the title-matched shown articles and
+    // judge them by the same rules; a title match alone never confirms.
+    if (!adopted.articles.length && !expired()) {
+      const candidateTerms = [...new Set([...questionTerms(issue.query), ...questionTerms(query)])];
+      // A re-read failure degrades to "no candidate", never to a failed request.
+      const reread = await rereadShownArticles(shownArticles, candidateTerms, sources, expired).catch(() => []);
+      const fresh = reread.filter((article) => !(lookup?.articles ?? [])
+        .some((shown) => shown.law === article.law && shown.jo === article.jo));
+      if (fresh.length) {
+        adopted = await issueSources(issue.query, known, { status: "found", articles: fresh, precedents: [] },
+          sources, summaries, requestTerms, fallback);
+      }
     }
     const covered = adopted.articles.length > 0 || adopted.precedents.length > 0;
     // When the combined search failed, "nothing found" by the issue lookup alone is not a confirmed absence.
@@ -219,25 +246,39 @@ async function fullResearch(
   // V4 M3-lite: an issue that still has no article after the main chain and its own
   // lookup has no article source left except a chain search of its own. Precedents
   // never supply articles (the M2 principle), so the gate is articles==0 alone.
-  // Bounded: at most two retries per request, only while the main chain
-  // succeeded (a failed main chain already reports searchFailed — retrying it
-  // per issue would multiply upstream failures) and the shared budget has not
-  // expired. A phrase this request already chain-searched (the first issue's
-  // phrase, or the absent-retry's alternative) is never searched again — the
-  // retry exists for issues whose phrase no chain search has ever used.
-  // Retry precedents are ignored — the per-issue lookup already
-  // searched precedents — and only articles are merged, into the supplement,
-  // so the displayed text stays the main chain's and the UI can show them
-  // through the existing supplement path. A retry that finds nothing, or
-  // fails, leaves the issue's status as the lookup left it (the same silence
-  // as the main chain's absent-retry). Adoption still uses the same
-  // relevance rules; nothing is adopted on the search alone.
+  // Bounded: at most one retry search per empty issue, at most three per
+  // request, only while the main chain succeeded (a failed main chain already
+  // reports searchFailed — retrying it per issue would multiply upstream
+  // failures) and the shared budget has not expired. A phrase this request
+  // already chain-searched (the first issue's phrase, or the absent-retry's
+  // alternative) is never searched again — the plan below drops such issues
+  // before capping, so a searched phrase cannot waste another issue's slot.
+  // A subject-less issue ("피해자 보호") cannot name its regime upstream,
+  // so its retry is qualified with the request's own subject words
+  // ("직장 괴롭힘 피해자 보호") — user words only, nothing invented.
+  // Retry previews truncate the same way the main chain's do, so a retry
+  // that adopts nothing re-reads its title-matched articles before giving
+  // up on the issue. Retry precedents are ignored — the per-issue lookup
+  // already searched precedents — and only articles are merged, into the
+  // supplement, so the displayed text stays the main chain's and the UI can
+  // show them through the existing supplement path. A retry that finds
+  // nothing, or fails, leaves the issue's status as the lookup left it (the
+  // same silence as the main chain's absent-retry). Adoption still uses the
+  // same relevance rules; nothing is adopted on the search alone.
   const retryArticles = new Map<string, SupplementArticle>();
-  const retryTargets = judged.filter((item) => !item.adopted.articles.length && item.issue.label !== undefined).slice(0, 2);
-  if (found && retryTargets.length) {
-    await Promise.all(retryTargets.map(async (item) => {
-      if (expired() || searchedQueries.has(item.issue.query)) return;
-      const retry = await search(item.issue.query, true);
+  const retryPlan = judged
+    .filter((item) => !item.adopted.articles.length && item.issue.label !== undefined)
+    .map((item) => {
+      const qualified = [...questionSubjectTerms(query), item.issue.query].join(" ").trim();
+      const phrase = questionTermsSubjectLess(item.issue.query) && qualified !== item.issue.query ? qualified : item.issue.query;
+      return { item, phrase };
+    })
+    .filter(({ phrase }) => !searchedQueries.has(phrase))
+    .slice(0, 3);
+  if (found && retryPlan.length) {
+    await Promise.all(retryPlan.map(async ({ item, phrase }) => {
+      if (expired()) return;
+      const retry = await search(phrase, true);
       if (retry.kind !== "found" || expired()) return;
       const retryDocument = researchResult(retry.text);
       const retryKnown = {
@@ -246,9 +287,17 @@ async function fullResearch(
         listed: new Map(retryDocument.sections.filter((section) => section.status === "available")
           .flatMap((section) => section.decisions?.entries ?? []).map((entry) => [entry.id, entry] as const)),
       };
-      const retryAdopted = await issueSources(item.issue.query, retryKnown, undefined, sources, summaries, requestTerms);
-      if (!retryAdopted.articles.length) return;
       const retryTextArticles = retryDocument.sections.flatMap((section) => section.articles ?? []);
+      let retryAdopted = await issueSources(item.issue.query, retryKnown, undefined, sources, summaries, requestTerms);
+      if (!retryAdopted.articles.length && !expired()) {
+        const candidateTerms = [...new Set([...questionTerms(item.issue.query), ...questionTerms(query)])];
+        const reread = await rereadShownArticles(retryTextArticles, candidateTerms, sources, expired).catch(() => []);
+        if (reread.length) {
+          retryAdopted = await issueSources(item.issue.query, retryKnown, { status: "found", articles: reread, precedents: [] },
+            sources, summaries, requestTerms);
+        }
+      }
+      if (!retryAdopted.articles.length) return;
       const issueTerms = questionTerms(item.issue.query);
       const merged = [...item.adopted.articles];
       for (const article of retryAdopted.articles) {

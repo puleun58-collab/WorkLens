@@ -453,6 +453,14 @@ function sectionHeading(section: ResearchSection): string {
 }
 
 /** Source excerpts remain legible; agent-facing diagnostics do not become reader-facing claims. */
+/**
+ * The MCP itself truncates a long article preview mid-article (a `③...`
+ * cut). The server and the UI cut with a single `…`, so a trailing `...`
+ * marks a received excerpt that is not the whole article: it must not read
+ * as if the full text had been shown.
+ */
+const mcpTruncated = (excerpt: string): boolean => /\.\.\.\s*$/u.test(excerpt.trim());
+
 function readerText(text: string): string {
   return lawDisplayText(text.split(/\r?\n/u).filter((line) =>
     !/^\s*(?:(?:STEP\s*\d+|(?:OPEN\s+)?API\b)[\s:.)-]|\[(?:EXTERNAL_API_ERROR|REQUEST_TIMEOUT)\]|HTTP\s+\d{3}\b|검색\s*보정(?:\s*시도)?\s*[:：]|재시도(?:\s*제안)?\s*[:：]|힌트\s*[:：]|💡\s*다음\s*[:：]|사유\s*[:：]\s*\[(?:FAILED|NOT_FOUND)|⚠️\s*이 섹션은 조회 실패|특정\s*조문\s*조회\s*:\s*get_|.*법제처\s*API는\s*공백)/iu.test(line),
@@ -557,6 +565,7 @@ function SupplementView({ supplement, hasArticles, excluded }: { supplement: Non
       return <li key={`${article.law}-${article.jo}`}>
         <strong>{article.law} {article.jo} {article.title}</strong>
         <LawTextBlock className="legal-analysis-lines" text={article.excerpt} />
+        {mcpTruncated(article.excerpt) && <p className="research-meta">중략된 발췌입니다. 조문 전문은 법령 검색에서 확인하세요.</p>}
         {effective && <span className="research-meta">출처 시행일 {effective}</span>}
       </li>;
     })}</ul>
@@ -623,6 +632,7 @@ function ResearchSectionView({ section, task, relevance, retried }: {
       return <li key={`${article.law}-${article.jo}-${from + index}`}>
         <strong>{article.law} {article.jo}{article.title ? ` ${article.title}` : ""}</strong>
         {excerpt && <LawTextBlock className="legal-analysis-lines" text={excerpt.length > 600 ? `${excerpt.slice(0, 600)}…` : excerpt} />}
+        {mcpTruncated(excerpt) && <p className="research-meta">중략된 발췌입니다. 조문 전문은 법령 검색에서 확인하세요.</p>}
         {excerpt.length > 600 && <details className="law-detail-source research-more"><SourceToggleSummary label="조문 발췌 전체 보기" openLabel="조문 발췌 접기" /><LawTextBlock className="legal-analysis-raw" text={excerpt} /></details>}
         {(effective || article.ministry) && <span className="research-meta">{[effective && `출처 시행일 ${effective}`, article.ministry].filter(Boolean).join(" · ")}</span>}
       </li>;
@@ -886,6 +896,7 @@ function ResearchResult({ data, request, expandSources = false, onExpandSourcesC
           return <li key={`${article.law}-${article.jo}`}>
             <strong>{article.law} {article.jo}{article.title ? ` ${article.title}` : ""}</strong>
             <LawTextBlock className="legal-analysis-lines" text={excerpt} />
+            {mcpTruncated(excerpt) && <p className="research-meta">중략된 발췌입니다. 조문 전문은 법령 검색에서 확인하세요.</p>}
             {(effective || currency) && <span className="research-meta" data-currency={currency}>
               {[currency && CURRENCY_LABEL[currency], effective && `시행 ${effective}`].filter(Boolean).join(" · ")}
             </span>}
@@ -983,10 +994,11 @@ function ResearchResult({ data, request, expandSources = false, onExpandSourcesC
       {[...supporting].sort((a, b) => Number(a.kind === "law_toc") - Number(b.kind === "law_toc")).map((section, index) => {
         const heading = sectionHeading(section) || "상세 자료";
         const label = section.kind === "law_toc" && section.toc
-          ? `${section.toc.law ? `${lawDisplayText(section.toc.law)} ` : ""}법령 전체 보기 · ${section.toc.count.toLocaleString("ko-KR")}개 조문`
+          ? `${section.toc.law ? `${lawDisplayText(section.toc.law)} ` : ""}법령 목차 보기 · ${section.toc.count.toLocaleString("ko-KR")}개 조문`
           : heading;
         return <details key={index} className="law-detail-source" data-kind={section.kind}>
           <SourceToggleSummary label={label} openLabel={`${label} 접기`} />
+          {section.kind === "law_toc" && <p className="research-meta">목차입니다. 조문 본문은 법령 검색에서 확인하세요.</p>}
           <LawTextBlock className="legal-analysis-raw" text={readerText(section.lines.join("\n"))} />
         </details>;
       })}

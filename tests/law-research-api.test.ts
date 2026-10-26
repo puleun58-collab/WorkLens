@@ -10,6 +10,7 @@ vi.mock("@/server/research-enrichment", () => ({
   sharedSources: (sources: unknown) => sources,
   enrichResearch: () => Promise.reject(new Error("enrichment disabled in route tests")),
   lookupIssue: () => Promise.reject(new Error("issue lookups disabled in route tests")),
+  rereadShownArticles: () => Promise.resolve([]),
 }));
 // Route tests cover forwarding; per-region ordinance lookups have their own offline tests.
 vi.mock("@/server/ordinance-compare", () => ({
