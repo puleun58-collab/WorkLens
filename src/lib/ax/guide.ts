@@ -147,6 +147,11 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
         text("특정 프레임워크를 임의로 정하지 않습니다. Git 저장 전 Git 저장소인지, remote가 연결됐는지, 대상 GitHub 저장소가 맞는지 확인합니다. Git 저장소가 아닌 경우에만 초기화하고 기존 저장소를 재초기화하거나 기존 remote를 덮어쓰지 않습니다. branch 이름을 main으로 강제하지 않습니다."),
         code(["git init", 'git remote add origin "https://github.com/owner/repository.git"', "git remote -v"], ["git init은 저장소가 아닐 때만, remote add는 저장소를 만들고 remote가 없을 때만 실행합니다. 원격에 초기 커밋이 있으면 먼저 이력을 확인하고 충돌 없이 연결합니다. 첫 push 전에 대상 원격을 다시 확인하세요."]),
       ] },
+      { title: "Git 업로드 제외 파일 자동 설정", blocks: [
+        text("PowerShell에서 Codex 또는 Claude Code를 실행한 후 아래 요청문을 입력하세요."),
+        code(["현재 프로젝트의 언어, 프레임워크, 실행 환경과 파일 구조를 확인하고 적절한 .gitignore를 구성해 줘. 기존 .gitignore가 있으면 필요한 규칙만 보완하고, 없으면 새로 만들어 줘. 의존성 폴더, 빌드 결과물, 캐시, 임시파일, 로컬 설정, 인증정보 등 GitHub에 올리면 안 되는 파일을 제외해 줘. 반대로 실제 개발에 필요한 소스코드, 설정 템플릿, 잠금 파일 등은 임의로 제외하지 마. 이미 Git이 추적하는 민감 파일이 있는지도 확인해 줘. 발견하면 파일을 삭제하거나 Git 기록을 변경하지 말고 처리 방법과 위험을 먼저 알려 줘. 완료 후 적용한 제외 규칙과 추가 확인이 필요한 사항을 간단히 보고해 줘."], ["코딩 에이전트에게 요청할 때 복사해서 사용하세요.", "STEP 07에서 git add .을 실행하기 전에 완료하세요."]),
+        text("이미 Git이 추적 중인 파일은 .gitignore만으로 제외되지 않습니다. .gitignore 작성 완료가 GitHub 업로드 안전성 확인과 같은 뜻은 아닙니다."),
+      ] },
     ] },
     { title: "STEP 03 · 올인원 지시문 준비", purpose: "WorkLens의 업무·진단·HITL 판단을 지시문에 연결", sections: [
       { title: "WorkLens에서 확인", blocks: [
@@ -207,51 +212,55 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
         code(["현재 프로젝트에 필요한 데이터 저장 방식을 확인해 줘. 기존 저장소가 있다면 우선 사용하고, 없다면 적절한 방법을 추천해 줘. 필요한 코드는 구현하되 계정 연결·비용 발생·기존 데이터 변경은 먼저 내 확인을 받아."], ["코딩 에이전트에게 요청할 때 복사해서 사용하세요."]),
         text("이미 사용하는 DB/API/스토리지는 재사용합니다. 한 앱에 여러 저장소나 서로 다른 공급자를 함께 쓸 수 있습니다. 새 DB를 강제하거나 다른 저장소로 이전하지 말고 필요한 서비스만 연결하세요."),
       ] },
-      { title: "Cloudflare 저장소 연결", when: "D1·R2·KV 중 실제로 필요한 서비스가 있을 때만", collapsed: true, blocks: [
-        text("Workers/Pages 환경, 계정 권한, 기존 리소스 ID, 개발/Preview/Production 구분, 기존 wrangler 설정을 먼저 확인합니다. 없을 때 새 리소스 생성 여부는 담당자 승인 후 결정합니다. 연결할 서비스의 binding을 기존 설정 파일의 해당 환경에만 추가하고 실제 저장·조회·권한·오류를 점검합니다."),
-        text("민감 정보는 플랫폼 Secret에 보관하세요. 마이그레이션이나 운영 데이터 삭제·덮어쓰기·초기화는 자동으로 진행하지 않습니다. 백업과 복원 가능성을 확인하고 사용자 승인을 받아야 합니다."),
-      ] },
-      { title: "D1 · 구조화된 기록", when: "D1이 실제로 필요한 경우만", collapsed: true, blocks: [
-        text("Cloudflare D1에서 기존 DB와 스키마·database_id를 확인하세요. 새 DB가 승인되고 꼭 필요할 때만 프로젝트의 기존 매니저로 공식 `wrangler d1 create`를 실행합니다. 기존 wrangler 구성의 d1_databases에 binding·database_name·database_id를 실제 리소스 값으로 설정하고 Worker의 env binding으로 연결합니다. 로컬과 운영 DB는 구분하고 마이그레이션은 별도 승인·백업·검증 후 적용합니다."),
-        text("출처: https://developers.cloudflare.com/d1/get-started/ · https://developers.cloudflare.com/d1/worker-api/"),
-      ] },
-      { title: "R2 · 파일과 첨부", when: "R2가 실제로 필요한 경우만", collapsed: true, blocks: [
-        text("R2 사용 전 계정 활성화·결제 조건을 확인합니다. 기존 bucket을 재사용하고 새 bucket이 승인되었을 때만 생성합니다. wrangler의 r2_buckets binding·bucket_name을 실제 값으로 설정한 뒤 업로드·조회와 미승인 접근 차단을 검증하세요. 비공개 파일을 임의로 공개하지 않습니다."),
-        text("출처: https://developers.cloudflare.com/r2/api/workers/workers-api-usage/"),
-      ] },
-      { title: "KV · 조회 중심 값", when: "KV가 실제로 필요한 경우만", collapsed: true, blocks: [
-        text("기존 namespace ID를 재사용하고 새 namespace가 승인되었을 때만 생성합니다. wrangler의 kv_namespaces binding·id를 연결하고 조회·변경·전파 지연을 검증합니다. 로컬 개발 데이터와 운영 데이터가 섞이지 않도록 확인합니다."),
-        text("출처: https://developers.cloudflare.com/kv/concepts/kv-bindings/"),
-      ] },
     ] },
     { title: "STEP 07 · GitHub 저장과 배포", purpose: "Secret 점검 → 정책에 맞는 commit/push → PR·CI → 실제 배포", sections: [
       { title: "안전하게 Git에 저장", blocks: [
         text(".gitignore를 덮어쓰지 말고 실제 스택에 필요한 규칙만 추가합니다. .env.example은 값 없이 변수 이름을 공유할 수 있습니다. 이미 추적 중인 Secret은 .gitignore만으로 보호되지 않습니다. AI 대화·터미널 로그·스크린샷에도 Secret을 붙여넣지 않습니다."),
         text("이미 노출된 키는 폐기 → 재발급 → 플랫폼 설정 교체 순서로 대응하고 기록 재작성은 자동 실행하지 않습니다."),
-        code(["git status", "git diff", "git diff --cached --stat", "git branch --show-current", "git remote -v"], ["현재 브랜치·원격 대상·변경 파일·스테이지 내용을 확인합니다."]),
-        code(['git add -- "src/changed-file.ts"', "git status", "git diff --cached", 'git commit -m "첫 MVP 구현과 검증"', "git push"], ["파일 경로는 실제 파일로 교체하고 예상한 파일만 추가합니다. Secret이나 관계없는 변경이면 커밋을 중단하세요."]),
+        text("git add . 전에 STEP 02의 Git 업로드 제외 파일 자동 설정을 먼저 완료하세요."),
+        { kind: "steps", items: [
+          "git status: 변경된 파일 확인",
+          "git add .: 변경 사항 추가",
+          "git diff --cached: 저장할 내용 확인",
+          'git commit -m "변경 사항 반영": 변경 사항 기록',
+          "git push: GitHub에 업로드",
+        ] },
+        code(["git status", "git add .", "git diff --cached", 'git commit -m "변경 사항 반영"', "git push"], ["프로젝트 폴더에서 실행하세요. 현재 폴더와 하위 폴더의 변경 사항이 추가됩니다.", "git diff --cached로 실제 커밋할 내용을 확인하세요.", "API 키·비밀번호·토큰 등 민감정보가 포함된 경우 커밋을 진행하지 마세요."]),
+        text("Git 저장소 초기화와 원격 연결은 STEP 02의 해당 상황에 따라 안내합니다. 최초 커밋 전에 Git 사용자 이름·이메일 설정이 필요하면 STEP 01의 안내를 따르세요."),
+        text("최초 git push에서 업스트림 설정이 필요하면 해당 상황에서 추가 명령어를 안내합니다."),
       ] },
-      { title: "PR·CI와 배포 경로", blocks: [
-        text("PR·리뷰·CI·merge는 저장소 정책상 필요한 경우에만 진행합니다. CI 실패를 해결하고 Preview/Production 배포 브랜치와 버전을 확인하세요. git push는 곧 Production 배포가 아닙니다."),
-        text("Vercel Git 연동 또는 Cloudflare Workers/Pages Git 자동 배포라면 수동 명령을 중복 실행하지 않습니다. CLI 방식이라면 현재 프로젝트의 실제 스크립트만 사용하고 모든 Cloudflare 앱에 wrangler deploy를 강제하지 않습니다. 플랫폼 Secret·환경변수는 Preview/Production을 구분합니다."),
-        code(["현재 프로젝트의 변경 사항과 테스트 결과를 확인하고 GitHub 저장 및 배포를 준비해 줘. 기존 브랜치와 배포 방식을 유지하고, 민감 정보나 운영 데이터 변경이 있으면 먼저 알려줘."], ["코딩 에이전트에게 요청할 때 복사해서 사용하세요."]),
+      { title: "PR·CI 및 배포 확인", blocks: [
+        text("GitHub에 변경 사항을 업로드한 후 프로젝트에서 PR과 CI를 사용한다면 해당 절차를 진행하세요. 배포는 기존 설정에 따라 이루어지므로 실제 운영 환경에 변경 사항이 반영되었는지 확인해야 합니다."),
+        text("CI가 구성된 프로젝트에서는 실제 검사 결과를 확인하고, CI가 없으면 통과한 것으로 표시하지 않습니다. Preview와 Production 배포는 구분해서 확인하세요. git push만으로 운영 배포가 완료된 것은 아닙니다. 배포가 필요 없는 로컬 자동화 프로그램에는 웹 배포를 요구하지 않습니다."),
+        text("Vercel Git 연동 또는 Cloudflare Workers/Pages Git 자동 배포라면 수동 명령을 중복 실행하지 않습니다. CLI 방식이라면 현재 프로젝트의 실제 스크립트만 사용하고 모든 Cloudflare 앱에 wrangler deploy를 강제하지 않습니다."),
+        code(["현재 프로젝트의 GitHub 브랜치, PR·CI 사용 여부와 실제 배포 구성을 확인해 줘. 기존 설정을 유지하면서 필요한 검증 절차를 진행하고, 코드 업로드·CI 통과·배포 완료를 각각 구분해 보고해 줘. 실제 운영 환경에 반영되었는지 확인하지 못했다면 배포 완료로 표시하지 마. 설정 변경이나 운영 데이터에 영향을 줄 수 있는 작업은 실행 전에 영향 범위와 승인 필요 여부를 알려 줘."], ["코딩 에이전트에게 요청할 때 복사해서 사용하세요."]),
         text("실패 로그의 API Key·Token·Password·개인정보를 [REDACTED]로 가린 필요한 부분만 AI 도구에 전달하고 로그 전체를 무조건 복사하지 않습니다."),
       ] },
-      { title: "운영 데이터 보호", when: "운영 DB/스토리지 변경이 필요한 경우만", collapsed: true, blocks: [
-        text("기존 데이터·스키마·백업과 실제 복구 가능성을 먼저 확인합니다. 파괴적 마이그레이션·삭제·데이터 이전은 사전 승인 없이 실행하지 않습니다. 배포 롤백과 데이터 복원은 다르므로 실패 직후 무작정 반복 실행하지 마세요."),
-      ] },
     ] },
-    { title: "STEP 08 · 기능 검증과 MVP 완료", purpose: "웹은 Production 실동작, 비웹은 실행·납품 환경에서 실제 결과 확인", sections: [
-      { title: "배포 후 실제 기능 확인", blocks: [
-        text("프로그램을 만들거나 배포한 뒤 실제 데이터를 입력해 원하는 결과가 나오는지 확인합니다. 화면이 보이는 것만으로 기능이 완성된 것은 아닙니다."),
-        text("웹 배포가 필요한 업무는 실제 Production URL, 버전·브랜치, Desktop/Mobile·첫 화면·직접 URL·Console을 확인하고 핵심 입력 → 처리 → 출력 흐름을 실행합니다. 로그인·API·환경변수·데이터 읽기/쓰기·권한은 사용하는 기능에 한해서만 실제 환경에서 검증합니다."),
-        text("실제 업무 데이터를 입력해 처리 결과가 요구사항과 일치하는지 확인합니다. 잘못된 입력, 처리 실패 및 예외 상황도 검증하고, 데이터 저장 기능이 있다면 새로고침·재조회 후에도 필요한 데이터가 정상적으로 유지되는지 확인하세요."),
-        code(["완성한 프로그램을 실제 사용 상황처럼 테스트해 줘. 정상 입력과 잘못된 입력을 확인하고, 저장 기능이 있다면 새로고침 후에도 데이터가 유지되는지 검증해 줘. 실제 실행한 결과와 미검증 항목을 구분해서 보고해 줘."], ["코딩 에이전트에게 요청할 때 복사해서 사용하세요."]),
-        text("웹 배포가 필요 없는 CLI·Excel·로컬 자동화는 Production URL 대신 대상 사용자의 실행 환경·파일 입출력·오류·반복 실행을 검사하고 운영 적용 방법과 결과를 인계합니다."),
+    { title: "STEP 08 · 실제 기능 확인 및 완료", purpose: "구현한 프로그램을 직접 실행해 주요 기능이 정상 작동하는지 확인합니다.", sections: [
+      { title: "확인할 내용", blocks: [
+        { kind: "steps", items: [
+          "주요 기능이 요구사항대로 작동하는가?",
+          "정상 입력과 잘못된 입력을 올바르게 처리하는가?",
+          "데이터 저장 기능이 있다면 저장한 내용이 유지되는가?",
+          "실제 사용 환경에서 오류 없이 실행되는가?",
+        ] },
+        text("해당 기능이 존재하지 않는 프로젝트에서는 관련 없는 확인 항목을 필수 조건으로 취급하지 않습니다."),
+      ] },
+      { title: "AI 코딩 에이전트에게 기능 검증 요청", blocks: [
+        text("PowerShell에서 Codex 또는 Claude Code를 실행한 후 아래 내용을 입력하세요."),
+        { kind: "steps", items: [
+          "PowerShell을 실행합니다.",
+          "Codex 또는 Claude Code를 실행합니다.",
+          "실행된 코딩 에이전트에 자연어 지시문을 입력합니다.",
+          "에이전트가 프로그램을 실행하고 검증합니다.",
+          "검증 결과를 확인합니다.",
+        ] },
+        code(["완성한 프로그램을 실제 사용 상황처럼 테스트해 줘. 주요 기능에 정상적인 입력과 잘못된 입력을 각각 사용하고, 처리 결과가 요구사항과 일치하는지 확인해 줘. 데이터 저장 기능이 있다면 저장 후 다시 실행하거나 새로고침해도 데이터가 올바르게 유지되는지 검증해 줘. 웹서비스라면 실제 배포된 환경의 주요 기능을 확인하고, 로컬 자동화 프로그램이라면 해당 실행 환경에서 테스트해 줘. 실제로 실행한 테스트와 실행하지 못한 테스트를 구분하고, 실패한 항목의 원인 및 필요한 수정 사항을 보고해 줘. 검증하지 못한 기능은 완료로 표시하지 마."], ["코딩 에이전트에게 요청할 때 복사해서 사용하세요."]),
       ] },
       { title: "완료 판정", blocks: [
-        text("요구사항 → WorkLens 진단/HITL 결정 → 올인원 지시문 → 실제 코드 → 테스트 결과 → 배포/운영 기능이 같은 범위인지 대조합니다. 구현 완료, 테스트 통과, 배포 완료, 운영 기능 확인을 각각 구분하세요. 각 기준에 PASS/FAIL/NOT_RUN/BLOCKED와 실행 환경·증거·실행 시각을 적고, 실행하지 않은 것은 PASS가 아닙니다."),
-        text("FAIL은 수정 후 재검증·재배포하고 BLOCKED는 담당자·해제 조건을 기록합니다. 로그의 API Key·Token·Password·개인정보는 [REDACTED]로 가린 필요한 부분만 AI 도구에 전달하며 로그 전체를 무조건 복사하지 않습니다. 운영 장애는 승인된 롤백 방법과 데이터 영향을 먼저 확인하세요."),
+        text("주요 기능이 요구사항대로 작동하고 필요한 검증을 통과했다면 완료로 판단할 수 있습니다. 실패했거나 확인하지 못한 항목은 별도로 기록하고 수정한 뒤 다시 검증하세요."),
+        text("로그의 API Key·Token·Password·개인정보는 [REDACTED]로 가린 필요한 부분만 AI 도구에 전달하며 로그 전체를 무조건 복사하지 않습니다."),
       ] },
     ] },
   ];
