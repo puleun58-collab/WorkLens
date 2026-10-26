@@ -878,7 +878,7 @@ function DiagnosisCard({ task, busy, onDiagnose, onEdit, attachment }: {
               {summary?.human ? <span className="ax-summary-human">{summary.human}</span> : null}
             </dd></div> : null}
             <div className="ax-summary-row"><dt>확인 필요</dt><dd>{summary?.check ?? "없음"}</dd></div>
-            <div className="ax-summary-row"><dt>다음 행동</dt><dd>{action?.target ? <button type="button" className="ax-summary-action" onClick={() => scrollToSummaryTarget(action.target!)}>{action.label}</button> : <strong>{action?.label ?? nextAction(d).label}</strong>}</dd></div>
+            <div className="ax-summary-row"><dt>다음 행동</dt><dd>{action?.target ? <Button type="button" variant="outline" size="sm" onClick={() => scrollToSummaryTarget(action.target!)}>{action.label}</Button> : <strong>{action?.label ?? nextAction(d).label}</strong>}</dd></div>
           </dl>
           <p className="ax-muted ax-diag-source">{d.sourceNote}</p>
         </div>

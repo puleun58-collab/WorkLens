@@ -103,7 +103,7 @@ describe("AX execution guides", () => {
     for (const term of ["Git", "Node.js", "Get-FileHash", "ExitCode", "Arm64", "LTS", "ErrorActionPreference"]) expect(installation).toContain(term);
     // STEP 01 keeps only the essentials for the selected agent: no GitHub CLI install/auth in the basic guide.
     expect(guide[1].sections.map(section => section.title)).toEqual([
-      "설치 순서 안내", "Git 설치", "Git 사용자 정보 설정", "Node.js LTS 설치", `${TOOL_GUIDES[tool].name} 설치`, "설치 오류 확인",
+      "설치 순서 안내", "Git 설치", "Git 사용자 정보 설정", "Node.js LTS 설치", `${TOOL_GUIDES[tool].name} 설치`,
     ]);
     expect(installation).not.toContain("GitHub CLI");
     expect(installation).not.toContain("Git 정보·로그인");
@@ -352,7 +352,7 @@ describe("AX guide conditional architecture", () => {
     expect(JSON.stringify(comparison.rows)).toContain("D1");
     expect(JSON.stringify(platform)).toContain("vercel.com/docs/plans/hobby");
     const storage = steps[6].sections;
-    expect(storage.map(section => section.title)).toEqual(["필요한 저장만 선택"]);
+    expect(storage.map(section => section.title)).toEqual(["필요한 저장 방식만 선택하세요"]);
     for (const term of ["Cloudflare 저장소 연결", "D1 · 구조화된 기록", "R2 · 파일과 첨부", "KV · 조회 중심 값"]) {
       expect(storage.find(section => section.title === term)).toBeUndefined();
     }
