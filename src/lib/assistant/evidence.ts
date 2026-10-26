@@ -157,11 +157,43 @@ export const ASSISTANT_EVIDENCE: AssistantEvidence[] = [
   },
   {
     id: "law-research",
-    screen: "종합 리서치 > 법령 리서치",
-    title: "법령 리서치 위치",
-    text: "법령 리서치는 종합 리서치 메뉴에서 접근할 수 있습니다. 법령·판례·결정례를 검색하고 조문을 확인할 수 있습니다. 도우미는 법률 해석이나 판례 검색을 직접 수행하지 않으며, 기능 사용 방법만 안내합니다.",
+    screen: "법령",
+    title: "종합 리서치",
+    text: "법령 조회는 왼쪽 메뉴 RESEARCH의 '법령'에서 할 수 있습니다. 법령 검색·종합 리서치 탭에서 법령·판례·결정례를 검색하고 조문을 확인할 수 있습니다. 도우미는 법률 해석이나 판례 검색을 직접 수행하지 않으며, 기능 사용 방법만 안내합니다.",
     keywords: /법령|리서치|판례|조문/iu,
     kind: "menu",
+  },
+  {
+    id: "law-mcp-design",
+    screen: "법령 > 종합 리서치",
+    title: "법령 MCP 연동과 근거 확인 방식",
+    text: "종합 리서치의 법령·판례 조회는 법령 MCP를 통해 실제 자료를 조회합니다. AI가 법령이나 판례를 기억만으로 새로 만들어 확정 근거로 제시하지 않습니다. 결과 상태는 채택된 근거를 기준으로 정해집니다: 관련 근거를 확인했습니다, 관련 근거를 일부 확인했습니다, 직접 관련된 근거가 충분하지 않습니다, 관련 근거를 확인하지 못했습니다. 확인된 근거와 참고 목록·미확인 항목은 구분해 표시합니다. 다만 법령 MCP를 사용해도 질문과 관계없는 실제 조문 선택, 조문 존재를 근거 확인으로 오판, 적용 시점 혼동, 검색 가능한 자료 누락, 복수 쟁점의 일부만 확인, 확보된 근거의 의미 오해 같은 오류 가능성은 남으므로 확정 보장은 하지 않습니다.",
+    keywords: /법령|mcp|판례|조문|법령.*환각|환각.*법령/iu,
+    kind: "policy",
+  },
+  {
+    id: "law-lensbot-role",
+    screen: "렌즈봇",
+    title: "렌즈봇과 법령 기능의 역할",
+    text: "렌즈봇은 WorkLens 기능과 사용 방법을 안내하는 읽기 전용 도우미입니다. 법령 MCP를 직접 조회하지 않으며, 법령·판례 자료 조회는 왼쪽 메뉴 RESEARCH의 '법령'에서 별도의 법령 MCP 연동 경로로 수행합니다. 렌즈봇이 실시간 법령 원문을 조회한 것처럼 설명하지 않으며, 법령 MCP의 실시간 정상 여부를 확인하지 않았으면 현재 연결이 정상이라고 단정하지 않습니다.",
+    keywords: /렌즈봇.*(법령|mcp|판례|조문|조회)|법령.*(렌즈봇|도우미)|mcp.*(렌즈봇|도우미|조회)/iu,
+    kind: "policy",
+  },
+  {
+    id: "law-accuracy-limits",
+    screen: "법령 > 종합 리서치",
+    title: "법령 결과의 정확성 한계",
+    text: "WorkLens 법령 기능의 정확도를 나타내는 검증된 수치는 제공된 근거에 없습니다. 따라서 '정확도 100%', '환각 0%' 같은 수치는 안내할 수 없으며, 구현된 근거 확인 장치(실제 자료 조회·쟁점별 관련성 확인·확인/미확인 구분)와 남은 오류 가능성을 구분해 설명해야 합니다.",
+    keywords: /법령.*(정확도|보장)|정확도.*법령|법령.*100%/iu,
+    kind: "policy",
+  },
+  {
+    id: "law-evidence-check",
+    screen: "법령 > 종합 리서치",
+    title: "근거 확인 경로",
+    text: "확인된 근거는 종합 리서치 결과의 상세 근거에서 확인합니다. 참고 목록은 확인 근거와 구분해 표시하며, 발췌는 전문이 아니므로 조문 전문은 법령 검색에서 확인합니다.",
+    keywords: /법령.*근거|근거.*법령/iu,
+    kind: "policy",
   },
   {
     id: "ax-menu",
@@ -269,9 +301,9 @@ export const ASSISTANT_EVIDENCE: AssistantEvidence[] = [
   },
   {
     id: "guide-dictionary",
-    screen: "용어 사전",
+    screen: "검수",
     title: "용어 사전",
-    text: "용어 사전은 맞춤법·용어 오탐을 줄이는 사전입니다. 왼쪽 메뉴의 HELP에서 용어 사전을 선택해 확인할 수 있습니다.",
+    text: "용어 사전은 맞춤법·용어 오탐을 줄이는 사전입니다. 왼쪽 메뉴에서 '검수' 하위 메뉴를 펼쳐 '용어 사전'을 선택해 확인할 수 있습니다.",
     keywords: /용어\s*사전|사전/iu,
     kind: "menu",
   },
@@ -299,6 +331,66 @@ export function selectEvidence(question: string): AssistantEvidence[] {
     .filter(({ score }) => score > 0)
     .sort((a, b) => b.score - a.score);
   return scored.slice(0, MAX_EVIDENCE).map(({ entry }) => entry);
+}
+
+/** Evidence entries that describe the law category (menu, policy, or guide). */
+export const LAW_EVIDENCE_IDS: ReadonlySet<string> = new Set([
+  "law-research",
+  "law-mcp-design",
+  "law-lensbot-role",
+  "law-accuracy-limits",
+  "law-evidence-check",
+  "research-general",
+]);
+
+/**
+ * Merge learn and stat evidence for one question intent.
+ * - law: drop learn-unit evidence (a law-function question must not cite general
+ *   AI-hallucination lessons as its basis) and order law evidence first.
+ * - learn: drop law-category stat evidence so a curriculum question is not
+ *   answered with law-function guidance.
+ * - general: keep the previous merge (learn first, stat after, cap 4).
+ */
+export function filterEvidenceByIntent(
+  learn: AssistantEvidence[],
+  stat: AssistantEvidence[],
+  intent: "law" | "learn" | "general",
+): AssistantEvidence[] {
+  const learnPart = intent === "law" ? [] : learn;
+  let statPart = stat;
+  if (intent === "learn") {
+    statPart = stat.filter((entry) => !LAW_EVIDENCE_IDS.has(entry.id));
+  } else if (intent === "law") {
+    const lawFirst = stat.filter((entry) => LAW_EVIDENCE_IDS.has(entry.id));
+    const rest = stat.filter((entry) => !LAW_EVIDENCE_IDS.has(entry.id));
+    statPart = [...lawFirst, ...rest];
+  }
+  const merged: AssistantEvidence[] = [];
+  for (const entry of [...learnPart, ...statPart]) {
+    if (!merged.some((existing) => existing.id === entry.id)) merged.push(entry);
+  }
+  return merged.slice(0, 4);
+}
+
+/**
+ * Deterministic post-processing: remove internal evidence identifiers from the
+ * answer body while keeping citedIds and the sources/relatedScreens mapping
+ * intact. The model is instructed not to write ids, but the server must not
+ * rely on that alone.
+ */
+export function stripInternalEvidenceIds(answer: string, evidence: AssistantEvidence[]): string {
+  let out = answer;
+  for (const entry of evidence) {
+    out = out.split(`[${entry.id}]`).join("");
+  }
+  out = out.replace(/\[learn-(?:unit|question)-[^\]\s]+\]/gu, "");
+  out = out.replace(/\[learn-overview\]/gu, "");
+  out = out.replace(/\(\s*참고\s*:[·,\s]*\)/gu, "");
+  out = out.replace(/\(\s*\)/gu, "");
+  out = out.replace(/(\s[·,])+\s*([.,!?])/gu, "$2");
+  out = out.replace(/\s{2,}/gu, " ");
+  out = out.replace(/\s+([.,)])/gu, "$1");
+  return out.trim();
 }
 
 /** Simple relevance score: count distinct keyword alternatives that match, weighted by length. */
