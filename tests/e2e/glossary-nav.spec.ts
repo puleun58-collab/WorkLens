@@ -26,7 +26,7 @@ test("review menu is a single item and the header glossary button shows only on 
   await page.goto("/");
   const nav = page.getByRole("navigation", { name: "작업 공간 메뉴", exact: true });
   const reviewButton = nav.getByRole("button", { name: "검수", exact: true });
-  const headerGlossary = page.getByRole("button", { name: "용어 사전", exact: true });
+  const headerGlossary = page.locator(".workspace-header-actions").getByRole("button", { name: "용어 사전", exact: true });
 
   // 좌측 메뉴: 검수는 단일 메뉴이고, 접기·펼치기 화살표와 하위 메뉴가 없다.
   await expect(reviewButton).toBeVisible();
@@ -52,12 +52,13 @@ test("review menu is a single item and the header glossary button shows only on 
   await expect(headerGlossary).toBeVisible();
   await expect(headerGlossary).not.toHaveAttribute("aria-current", "page");
   // 버튼은 검색창 바로 왼쪽에 있고, 콘텐츠 영역에 중복 버튼이 없다.
+  // (검수 결과 영역의 용어 사전 팝오버 트리거는 결과가 있을 때만 나타나며, 이 화면에는 없다.)
   const searchInput = page.getByRole("combobox", { name: "메뉴·기능 검색" });
   await expect(searchInput).toBeVisible();
   const [glossaryBox, searchBox] = await Promise.all([headerGlossary.boundingBox(), searchInput.boundingBox()]);
   expect(glossaryBox!.x + glossaryBox!.width).toBeLessThanOrEqual(searchBox!.x);
   expect(searchBox!.x - (glossaryBox!.x + glossaryBox!.width)).toBeLessThanOrEqual(40);
-  await expect(page.getByRole("button", { name: "용어 사전", exact: true })).toHaveCount(1);
+  await expect(page.locator(".dictionary-trigger")).toHaveCount(0);
 
   // 헤더 버튼 클릭 시 기존 용어 사전 화면으로 이동하고, 검수 메뉴가 활성 표시된다.
   await headerGlossary.click();
@@ -99,7 +100,7 @@ test("review menu is a single item and the header glossary button shows only on 
 test("header glossary button works on mobile without horizontal scroll", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
-  const headerGlossary = page.getByRole("button", { name: "용어 사전", exact: true });
+  const headerGlossary = page.locator(".workspace-header-actions").getByRole("button", { name: "용어 사전", exact: true });
   const searchTrigger = page.getByRole("button", { name: "메뉴·기능 검색", exact: true });
 
   await navigateWorkspace(page, "검수");

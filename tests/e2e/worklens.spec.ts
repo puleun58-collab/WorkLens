@@ -2305,7 +2305,7 @@ test("reviews PPTX writing, consistency and data findings with filters and exact
   await navigateWorkspace(page, "검수");
   await page.getByRole("button", { name: "검수 실행" }).click();
 
-  await expect(page.getByRole("button", { name: "용어 사전" })).toBeVisible();
+  await expect(page.locator(".check-toolbar-actions").getByRole("button", { name: "용어 사전" })).toBeVisible();
 
   const typo = page.locator(".check-issue").filter({ hasText: "한글 맞춤법 오류 가능성" });
   await expect(typo).toContainText("문장");
@@ -2404,9 +2404,9 @@ test("keeps the personal dictionary and ignore actions inside this browser", asy
   expect(JSON.parse(storage["worklens:user-dictionary:v1"])).toContain("전먕");
   expect(JSON.stringify(storage)).not.toContain("향후 13주");
 
-  await page.getByRole("button", { name: "용어 사전" }).click();
+  await page.locator(".check-toolbar-actions").getByRole("button", { name: "용어 사전" }).click();
   await expect(page.locator(".dictionary-panel")).toContainText("WorkLens");
-  await page.getByRole("button", { name: "용어 사전" }).click();
+  await page.locator(".check-toolbar-actions").getByRole("button", { name: "용어 사전" }).click();
 
   // Ignoring a rule removes the whole family from the current result.
   const remaining = page.locator(".check-issue").first();
@@ -2461,7 +2461,7 @@ test("uses the loaded company dictionary in both the page and review popup acros
     await navigateWorkspace(page, "검수");
     await page.getByRole("button", { name: "검수 실행" }).click();
     await expect(page.locator(".check-issue").first()).toBeVisible();
-    await page.getByRole("button", { name: "용어 사전" }).click();
+    await page.locator(".check-toolbar-actions").getByRole("button", { name: "용어 사전" }).click();
     const popup = page.getByRole("dialog", { name: "용어 사전" });
     const company = popup.locator(".dictionary-section").first();
     await expect(company.locator("h4")).toContainText(`회사 용어 ${expected.length}`);
@@ -2646,7 +2646,7 @@ test("keeps legal destinations grouped and review options in the review flow", a
   await expect(navigation.getByRole("button", { name: "용어 사전", exact: true })).toHaveCount(0);
   await closeSheet();
   await navigateWorkspace(page, "검수");
-  await expect(page.getByRole("button", { name: "용어 사전", exact: true })).toBeVisible();
+  await expect(page.locator(".workspace-header-actions").getByRole("button", { name: "용어 사전", exact: true })).toBeVisible();
   await navigateWorkspace(page, "분석");
   for (const hidden of ["판례·결정례", "종합 리서치", "문서 검토", "검토 설정"]) {
     await expect(navigation.getByRole("button", { name: hidden, exact: true })).toHaveCount(0);

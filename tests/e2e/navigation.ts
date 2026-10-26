@@ -15,8 +15,9 @@ export async function navigateWorkspace(page: Page, name: string) {
   const mobile = await menu.isVisible();
   if (name === "Dictionary") {
     // 용어 사전은 좌측 메뉴에 없고, 검수 화면 상단의 헤더 버튼으로만 이동한다.
+    // (검수 결과 영역의 용어 사전 팝오버 트리거와 이름이 같으므로 헤더로 한정한다.)
     await navigateWorkspace(page, "검수");
-    await page.getByRole("button", { name: "용어 사전", exact: true }).click();
+    await page.locator(".workspace-header-actions").getByRole("button", { name: "용어 사전", exact: true }).click();
     return;
   }
   if (mobile) await menu.click();
