@@ -2,7 +2,6 @@
 
 import { Fragment, useEffect, useMemo, useRef } from "react";
 import { resolveLawArticleTarget, type LawArticleTarget } from "@/lib/law-article-target";
-import { LawTextBlock } from "./LawTextBlock";
 
 export type { LawArticleTarget };
 
@@ -25,9 +24,10 @@ export function LawArticleDetail({ text, jo, target }: { text: string; jo: strin
   }, [computed, text, jo, target]);
 
   if (computed.fallback) {
+    const body = computed.shownLines.join("\n");
     return <>
       <p className="law-search-note" role="status">해당 항목의 위치를 확인할 수 없어 조문 전체를 표시합니다.</p>
-      <LawTextBlock className="law-detail-raw" text={text} />
+      {body.trim() ? <pre className="law-detail-raw">{body}</pre> : null}
     </>;
   }
   return <pre className="law-detail-raw">{computed.shownLines.map((line, index) => {
