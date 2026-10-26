@@ -2636,11 +2636,16 @@ test("keeps legal destinations grouped and review options in the review flow", a
   await openMenu();
   await expect(navigation.getByRole("heading")).toHaveText(["WORKSPACE", "RESEARCH", "TOOLS", "AI•AX"]);
   await expect(navigation.getByRole("button")).toHaveCount(16);
-  for (const [accessibleName, visibleLabel] of [["Guide", "사용 가이드"], ["Dictionary", "용어 사전"], ["Settings", "설정"]] as const) {
+  for (const [accessibleName, visibleLabel] of [["Guide", "사용 가이드"], ["Settings", "설정"]] as const) {
     const helpItem = navigation.getByRole("button", { name: accessibleName, exact: true });
     await expect(helpItem).toBeVisible();
     await expect(helpItem).toHaveText(visibleLabel);
   }
+  // 용어 사전은 검수 아코디언 하위에 있어 펼친 뒤에야 보인다.
+  await navigation.getByRole("button", { name: "검수 하위 메뉴 펼치기", exact: true }).click();
+  const dictionaryItem = navigation.getByRole("button", { name: "Dictionary", exact: true });
+  await expect(dictionaryItem).toBeVisible();
+  await expect(dictionaryItem).toHaveText("용어 사전");
   for (const hidden of ["판례·결정례", "종합 리서치", "문서 검토", "검토 설정"]) {
     await expect(navigation.getByRole("button", { name: hidden, exact: true })).toHaveCount(0);
   }

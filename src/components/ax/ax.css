@@ -840,7 +840,16 @@
 .ax-hitl-table-card { background: var(--card); border: 1.5px solid var(--line-soft); border-radius: 12px; overflow: hidden; }
 /* 검토 테이블 접기 트리거: 기존 테이블 헤더와 같은 모양을 유지하고, 항목 패널이 열려
    입력 중일 때 비활성화돼도 흐려 보이지 않게 한다. */
-.ax-hitl-table-trigger { font-size: inherit; font-weight: inherit; color: inherit; }
+/* 제목줄 셰브론의 오른쪽 끝을 하단 표 검토 버튼의 오른쪽 테두리선에 맞춘다.
+   검토 버튼의 오른쪽 여백 = 작업 열 너비 76px − 셀 오른쪽 여백 8px − 버튼 너비 46px
+   = 22px. 버튼 너비 근거: sm outline 버튼의 글자 크기 var(--text-sm)은 프로젝트
+   110% 읽기 스케일로 15.4px이고, 실제 렌더링 글꼴(Pretendard Variable)로 실측한
+   2자 라벨("검토") 너비는 26px이다. 여기에 좌우 여백 18px과 테두리 2px을 더하면
+   46px이다. 라벨 검토/보기/닫기가 모두 2자라 행마다 너비가 동일하다.
+   트리거 자체에는 좌우 여백이 없어 셰브론이 카드 테두리에 붙어 있었으므로,
+   이 여백을 트리거 오른쪽에 둔다. 모바일(700px 이하)에서는 표가 카드형으로
+   바뀌므로 이 값은 정확한 버튼 정렬이 아니라 적절한 오른쪽 여백으로 기능한다. */
+.ax-hitl-table-trigger { font-size: inherit; font-weight: inherit; color: inherit; padding-right: 22px; }
 .ax-hitl-table-trigger .ax-hitl-table-header { flex: 1; min-width: 0; }
 .ax-hitl-table-trigger:disabled { opacity: 1; cursor: default; }
 /* 아코디언 패널의 기본 글자색·크기가 테이블 본문에 번지지 않게 한다. */

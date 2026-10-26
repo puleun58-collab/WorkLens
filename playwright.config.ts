@@ -4,7 +4,7 @@ const PORT = 3311;
 
 export default defineConfig({
   testDir: "tests/e2e",
-  testMatch: ["ax*.spec.ts", "assistant.spec.ts", "supplement-ux.spec.ts", "research-issues-ux.spec.ts", "review-provenance.spec.ts", "worklens.spec.ts", "tools.spec.ts", "image-batch.spec.ts", "aggregation.spec.ts", "analysis.spec.ts", "analysis-matrix.spec.ts"],
+  testMatch: ["ax*.spec.ts", "assistant.spec.ts", "supplement-ux.spec.ts", "research-issues-ux.spec.ts", "review-provenance.spec.ts", "worklens.spec.ts", "tools.spec.ts", "image-batch.spec.ts", "aggregation.spec.ts", "analysis.spec.ts", "analysis-matrix.spec.ts", "glossary-nav.spec.ts"],
   timeout: 90_000,
   expect: { timeout: 15_000 },
   // CI에서만 flaky 테스트 자동 재시도 (로컬에서는 0으로 유지해 진짜 버그 즉시 발견)
