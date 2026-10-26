@@ -381,7 +381,7 @@ describe("V5: chain supplement partial failure survives the merge", () => {
     const question = "근로기준법상 직장 내 괴롭힘 발생 시 사용자의 조치 의무는 무엇인가?";
     vi.mocked(interpretResearchQuery).mockResolvedValue({
       original: question, situation: "", facts: [],
-      issues: [{ label: "직장 내 괴롭힘 조치 의무", query: "사용자 조치 의무" }],
+      issues: [{ label: "직장 내 괴롭힘 조치 의무", query: "직장 괴롭힘 사용자 조치 의무" }],
       confidence: "medium",
     });
     const precedentChain = [
@@ -391,19 +391,21 @@ describe("V5: chain supplement partial failure survives the merge", () => {
     upstream({
       legal_research: () => precedentChain,
       get_decision_text: () => "=== 직장 내 괴롭힘 손해배상 ===\n판시사항:\n사용자가 직장 내 괴롭힘에 대해 필요한 조치를 하지 않은 경우 손해배상책임이 인정되는 요건\n",
-      // The main chain is enriched for the first issue's phrase ("사용자 조치 의무"),
-      // so the law lookups that matter are the issue-term ones: one law lands an
-      // article, the other law's table of contents throws.
+      // The main chain is enriched for the first issue's phrase, so the law
+      // lookups that matter are the issue-term ones: one law lands an
+      // article, the other law's table of contents throws. The displayed
+      // supplement only discovers laws from subject terms, so the lookup
+      // goes through the subject term (괴롭힘), not the actor/generic words.
       search_law: (args) => {
         const query = (args as { query?: string }).query ?? "";
-        if (query === "사용자") return "검색 결과 (총 2건):\n\n📍 정확매칭 (2건):\n1. 사용자보호법 [현행]\n   - 법령ID: 001872\n   - MST: M1\n   - 공포일: 20260219 / 시행일: 20260820\n   - 구분: 법률\n2. 사용자법 [현행]\n   - 법령ID: 009999\n   - MST: X1\n   - 공포일: 20200101 / 시행일: 20200101\n   - 구분: 법률";
+        if (query === "괴롭힘") return "검색 결과 (총 2건):\n\n📍 정확매칭 (2건):\n1. 괴롭힘보호법 [현행]\n   - 법령ID: 001872\n   - MST: M1\n   - 공포일: 20260219 / 시행일: 20260820\n   - 구분: 법률\n2. 괴롭힘법 [현행]\n   - 법령ID: 009999\n   - MST: X1\n   - 공포일: 20200101 / 시행일: 20200101\n   - 구분: 법률";
         return "[NOT_FOUND] 없음";
       },
       get_law_text: (args) => {
         const { mst, jo } = args as { mst?: string; jo?: string };
         if (mst === "X1") return new Error("down");
-        if (mst === "M1" && !jo) return "법령명: 사용자보호법\n\n목차 (총 1개 조문)\n제76조의3 직장 내 괴롭힘 발생 시 조치";
-        if (mst === "M1" && jo) return "법령명: 사용자보호법\n\n제76조의3(직장 내 괴롭힘 발생 시 조치)\n 사용자는 직장 내 괴롭힘 발생 사실을 신고한 근로자에게 불리한 처우를 하여서는 아니 되며 필요한 조치를 하여야 한다.";
+        if (mst === "M1" && !jo) return "법령명: 괴롭힘보호법\n\n목차 (총 1개 조문)\n제76조의3 직장 내 괴롭힘 발생 시 조치";
+        if (mst === "M1" && jo) return "법령명: 괴롭힘보호법\n\n제76조의3(직장 내 괴롭힘 발생 시 조치)\n 사용자는 직장 내 괴롭힘 발생 사실을 신고한 근로자에게 불리한 처우를 하여서는 아니 되며 필요한 조치를 하여야 한다.";
         return "[NOT_FOUND] 없음";
       },
       search_decisions: () => "[NOT_FOUND] 없음",

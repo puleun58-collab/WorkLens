@@ -30,6 +30,12 @@ export interface SupplementArticle {
   effectiveDate?: string;
   /** Question terms found in the article title. */
   matched: string[];
+  /**
+   * Fetched directly because the user's question or issue named this exact
+   * law + article (not because a search term matched its title): adoption
+   * for its issue is by identity, never by a guessed number.
+   */
+  explicit?: true;
 }
 
 export interface ResearchEnrichment {
@@ -193,6 +199,20 @@ const GENERIC_TERMS = new Set([
   "금지", "벌칙", "처벌", "의무", "조치", "조사", "보호", "절차", "적용", "효력", "위반", "책임",
   "신고", "구제", "제한", "정지", "취소", "무효", "규정", "준용", "특례", "예외", "사항", "내용",
   "범위", "대상", "손해배상", "배상", "청구", "고소", "고발", "보상", "지급", "반환", "이행", "준수",
+  // 관계 names a link between two things, not a subject of its own: an issue
+  // "법령·시행령 관계" must not adopt any article that merely mentions 관계
+  // (a purpose clause's "관계 규정" adopted 회계관계직원법 제1조 for a
+  // 개인정보보호법 question). With it generic, such an issue falls under
+  // rule (B) and needs a request subject anchored in the text as well.
+  "관계",
+  // 기간 is a dimension, not a topic: a title matching only 기간 ("인증
+  // 유효기간" for an 영업정지 question) says nothing about the question's
+  // subject, so it must not discover laws or carry a supplement candidate.
+  "기간",
+  // 법령/법률 are two characters, so the shared law-name rule (length ≥ 3,
+  // which keeps 방법 from becoming a law) never treats them as law names;
+  // as terms they are generic nouns ("laws in general"), not subjects.
+  "법령", "법률",
   "등록", "신청", "심사", "결정", "판정", "심판", "조정", "중재", "소송", "허가", "인가", "처분",
   "부과", "징수", "감면", "면제", "지원", "관리", "운영", "구성", "변경", "해지", "연장",
   "대처", "대응", "방지", "예방", "해결", "상담", "문의", "접수", "가능성", "확인", "검토",
@@ -219,7 +239,7 @@ const SUBJECT_STOP = new Set([
   "대해", "관해", "관련", "기준", "경우", "때",
 ]);
 
-function isSubjectTerm(term: string): boolean {
+export function isSubjectTerm(term: string): boolean {
   return !GENERIC_TERMS.has(term) && !ACTOR_TERMS.has(term) && !SUBJECT_STOP.has(term);
 }
 
@@ -365,6 +385,26 @@ export function researchEvidenceSources(text: string, query: string, enrichment?
 } {
   const terms = questionTerms(query).filter((term) => !isLawName(term));
   if (!terms.length) return { articles: [], precedents: [] };
+  /**
+   * Laws the request itself named (the question plus every issue phrase).
+   * When the user named a regime, an article of an unrelated regime is not
+   * confirmation for their issue, however its body reads: a 식품위생법
+   * 영업정지 question adopted 미술진흥법 제19조 on the single shared word
+   * 영업정지. A named law's own subordinate laws (식품위생법 시행령·
+   * 시행규칙) and a parent law of a named subordinate law share the compact
+   * name as a prefix, so they stay admissible; spacing differences in the
+   * official name (개인정보보호법 vs 개인정보 보호법) are compacted away.
+   * No named law means no restriction, as before.
+   */
+  const namedLaws = [...new Set([...questionTerms(query).filter(isLawName), ...(requestTerms ?? []).filter(isLawName)])];
+  const lawAllowed = (law: string) => {
+    if (!namedLaws.length) return true;
+    const mine = compact(law);
+    return namedLaws.some((named) => {
+      const other = compact(named);
+      return mine === other || mine.startsWith(other) || other.startsWith(mine);
+    });
+  };
   const request = [...new Set((requestTerms ?? []).filter((term) => !isLawName(term)))];
   const subjectTerms = request.filter((term) => !terms.includes(term) && isSubjectTerm(term));
   const subjectLess = terms.every((term) => GENERIC_TERMS.has(term) || ACTOR_TERMS.has(term));
@@ -396,6 +436,15 @@ export function researchEvidenceSources(text: string, query: string, enrichment?
     ...(enrichment?.supplement?.articles ?? []),
   ].filter((article) => {
     if (!article.excerpt.trim()) return false;
+    if (!lawAllowed(article.law)) return false;
+    // An article fetched because the request named exactly this law + number
+    // is adopted by identity: its fetched text exists, so term matching
+    // (which the article's own number never appears in) and the title guard
+    // must not veto the very source the user asked about. The caller only
+    // marks articles explicit for issues that named the pair or, for a
+    // subject-less issue, whose text carries the delegation the issue asks
+    // about — the flag never reaches an unrelated issue.
+    if ((article as SupplementArticle).explicit) return true;
     const title = article.title;
     if (title && terms.some((term) => termInText(term, title)) && titleVetoed(title, stripTerms)) return false;
     return addresses(article.excerpt) || addressesTitle(title);
