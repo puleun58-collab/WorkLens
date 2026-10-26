@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,6 +12,7 @@ import {
   type LawEntry, type LawOutcome, type LawText, type LawTextOutcome,
 } from "@/lib/law-search";
 import { lawDisplayText } from "@/lib/law-display";
+import { articleTitleDisplay } from "@/lib/law-article-target";
 import { LawTextBlock } from "./LawTextBlock";
 import { LawArticleDetail, type LawArticleTarget } from "./LawArticleDetail";
 import { DecisionSearch, type LinkedDecisionSearch } from "./DecisionSearch";
@@ -133,6 +134,19 @@ function LawPane({ onRelated, onAnalysis }: LawPaneProps) {
   const [articleInputError, setArticleInputError] = useState(false);
   const searchRequest = useRef<AbortController | null>(null);
   const detailRequest = useRef<AbortController | null>(null);
+
+  /**
+   * The article detail heading: one unified title for the open 조
+   * (`제25조(우선 재고용 등)`), falling back to the bare 조 when the text
+   * carries no resolvable title. The body then shows content only — the
+   * heading lines are removed there (LawArticleDetail / LawTextBlock) —
+   * so the title is never shown twice. Applies to article mode only;
+   * the TOC and full-text views keep their raw headings.
+   */
+  const articleTitle = useMemo(() => {
+    if (!activeJo || detail?.kind !== "found" || detail.data.mode !== "article") return activeJo;
+    return articleTitleDisplay(detail.data.text, activeJo).title;
+  }, [activeJo, detail]);
 
   useEffect(() => () => {
     searchRequest.current?.abort();
@@ -295,7 +309,7 @@ function LawPane({ onRelated, onAnalysis }: LawPaneProps) {
             <p className="law-search-note">요청한 {activeJo ? "조문" : "법령 원문"}을 찾을 수 없습니다</p>
           </div>
           : detail?.kind === "found" ? <div className="law-detail-content">
-            <h3 className={activeJo ? undefined : "law-detail-section-heading"}>{activeJo ?? (detail.data.mode === "toc" ? "목차" : "법령 원문")}</h3>
+            <h3 className={activeJo ? undefined : "law-detail-section-heading"}>{articleTitle ?? (detail.data.mode === "toc" ? "목차" : "법령 원문")}</h3>
             {activeJo && <div className="law-related-actions">
               <Button variant="link" id="related-decisions" type="button" className="h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" onClick={() => onRelated(selected, activeJo)}>관련 판례·결정례</Button>
               <Button variant="link" id="law-applicable-action" type="button" className="h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" onClick={() => onAnalysis({ mode: "applicable_law", lawName: detail.data.name ?? overview?.name ?? selected.name, jo: activeJo, origin: "law" }, "law-applicable-action")}>시점별 적용 법령</Button>
@@ -303,7 +317,7 @@ function LawPane({ onRelated, onAnalysis }: LawPaneProps) {
             </div>}
             {detail.data.mode !== "toc" || !detail.data.articles?.length ? (articleTargetForDetail
               ? <LawArticleDetail text={detail.data.text} jo={activeJo!} target={articleTargetForDetail} />
-              : <LawTextBlock className="law-detail-raw" text={detail.data.text} />) : null}
+              : <LawTextBlock className="law-detail-raw" text={detail.data.text} articleJo={activeJo} />) : null}
             {detail.data.mode === "toc" && detail.data.articles?.length ? <details className="law-detail-source">
               <SourceToggleSummary />
               <LawTextBlock className="law-detail-raw" text={detail.data.text} />

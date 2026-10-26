@@ -129,7 +129,7 @@ test("RESEARCH law search opens an exact law article and falls back to results; 
   await input.fill("근로기준법 제74조 내용 알려줘");
   await input.press("Enter");
   await expect(page.locator("#law-detail-heading")).toHaveText("근로기준법");
-  await expect(page.locator(".law-detail-content h3")).toHaveText("제74조");
+  await expect(page.locator(".law-detail-content h3")).toHaveText("제74조(임산부의 보호)");
   await expect(page.locator(".law-detail-content")).toContainText("90일의 출산전후휴가");
   await expect(page.locator("#law-article-number")).toHaveValue("제74조");
   expect(searches).toEqual(["근로기준법"]);
@@ -165,7 +165,7 @@ test("RESEARCH law article query without 항 says the 호 was excluded", async (
   await input.fill("근로기준법 제74조 제3호");
   await input.press("Enter");
   await expect(page.locator("#law-detail-heading")).toHaveText("근로기준법");
-  await expect(page.locator(".law-detail-content h3")).toHaveText("제74조");
+  await expect(page.locator(".law-detail-content h3")).toHaveText("제74조(임산부의 보호)");
   await expect(page.getByText("항을 지정하지 않은 호는 이동 대상에서 제외되어 조문 전체를 표시합니다.")).toBeVisible();
 });
 
@@ -317,7 +317,8 @@ test("RESEARCH law detail browses raw TOC and articles, recovers, and preserves 
   await expect(page.getByText("공포일 2026.02.19")).toBeVisible();
   expect(requests).toEqual([{ mst: "283457" }]);
   await page.getByRole("navigation", { name: "조문 목차" }).getByRole("button", { name: "제74조 임산부의 보호" }).click();
-  await expect(page.locator(".law-detail-raw")).toHaveText("제74조 임산부의 보호\n제74조(임산부의 보호)\n① 원문 그대로");
+  await expect(page.locator(".law-detail-content h3")).toHaveText("제74조(임산부의 보호)");
+  await expect(page.locator(".law-detail-raw")).toHaveText("① 원문 그대로");
   await page.getByRole("button", { name: "← 목차로" }).click();
   await expect(page.locator(".law-detail-raw")).toContainText("목차 (총 132개 조문)");
   expect(requests).toEqual([{ mst: "283457" }, { mst: "283457", jo: "제74조" }]);
@@ -334,7 +335,8 @@ test("RESEARCH law detail browses raw TOC and articles, recovers, and preserves 
   await page.getByRole("button", { name: "조문 보기" }).click();
   await expect(page.locator(".law-detail-feedback[role=alert]")).toContainText("원문 서비스 오류");
   await page.getByRole("button", { name: "다시 시도" }).click();
-  await expect(page.locator(".law-detail-raw")).toContainText("제10조의2(임산부의 보호)");
+  await expect(page.locator(".law-detail-content h3")).toHaveText("제10조의2(임산부의 보호)");
+  await expect(page.locator(".law-detail-raw")).toContainText("① 원문 그대로");
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "← 목차로" }).click();
@@ -2959,7 +2961,7 @@ test("RESEARCH direct article entry keeps its status and returns to the overview
   await input.fill("민법 제750조");
   await input.press("Enter");
   await expect(page.locator("#law-detail-heading")).toHaveText("민법");
-  await expect(page.locator(".law-detail-content h3")).toHaveText("제750조");
+  await expect(page.locator(".law-detail-content h3")).toHaveText("제750조(불법행위의 내용)");
   await expect(page.locator(".law-detail .law-search-meta").first()).toContainText("현행");
   const back = page.getByRole("button", { name: "← 법령 원문으로" });
   await expect(back).toBeVisible();
