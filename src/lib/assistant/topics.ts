@@ -156,6 +156,22 @@ export function classifyEvidenceIntent(question: string): EvidenceIntent {
   return "general";
 }
 
+/**
+ * Evidence intent for a question asked after another question. The current
+ * question's own markers win over the follow-up query: a topic switch (e.g. a
+ * law question asked right after a learning question) must not inherit the
+ * previous question's evidence family through the follow-up concatenation —
+ * otherwise the current question's own evidence is filtered out entirely and
+ * the model is left with mismatched evidence. Only a marker-less short
+ * follow-up ("그럼 Level 2는?") falls back to the concatenated query's
+ * intent, which is the previous-topic continuation the follow-up exists for.
+ */
+export function resolveEvidenceIntent(question: string, evidenceQuery: string): EvidenceIntent {
+  const current = classifyEvidenceIntent(question);
+  if (current !== "general") return current;
+  return classifyEvidenceIntent(evidenceQuery);
+}
+
 /** A hallucination-action question with no target ("환각은 어떻게 처리해?"). */
 const BARE_HALLUCINATION_ACTION =
   /환각.*(처리|방지|대응|없애|줄이|막)|(처리|방지|대응).*환각/u;

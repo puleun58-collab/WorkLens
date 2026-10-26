@@ -14,8 +14,8 @@ import type { AssistantContextNote } from "@/lib/assistant/prompt";
 import {
   clarifyOptions,
   clarifyResponse,
-  classifyEvidenceIntent,
   classifyQuestion,
+  resolveEvidenceIntent,
   executionRequestResponse,
   isDetailRequest,
   isTaskSpecificQuestion,
@@ -212,7 +212,11 @@ export async function POST(request: Request) {
       ? `${followUpOf} ${effectiveQuestion}`
       : effectiveQuestion;
     const learnBuilt = buildLearnEvidence(evidenceQuery, learnCtx);
-    const evidenceIntent = classifyEvidenceIntent(evidenceQuery);
+    // Intent comes from the current question when it carries its own markers;
+    // the concatenated query only supplies intent for marker-less short
+    // follow-ups (see resolveEvidenceIntent). Using the concatenated query
+    // directly would let a previous topic's markers override a topic switch.
+    const evidenceIntent = resolveEvidenceIntent(effectiveQuestion, evidenceQuery);
     const evidence = filterEvidenceByIntent(learnBuilt.evidence, selectEvidence(evidenceQuery), evidenceIntent);
     if (!evidence.length) return ok({ answer: NO_EVIDENCE_RESPONSE, sources: [], relatedScreens: [], kind: "no-evidence" as const }, 200, requestId);
 
