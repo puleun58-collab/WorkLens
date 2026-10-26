@@ -1652,14 +1652,21 @@ export default function Home() {
   const isUtilityView = shellView === "Guide" || shellView === "Dictionary" || shellView === "Settings";
   const isDocumentWorkspaceView = !isUtilityView && !isToolView;
   const navigationItems: WorkspaceNavigationItem[] = [
-    ...tabs.map((tab) => ({ value: tab, label: tabMeta[tab].label, group: "WORKSPACE", Icon: tabIcons[tab] })),
+    ...tabs.map((tab) => ({ value: tab, label: tabMeta[tab].label, group: "WORKSPACE", Icon: tabIcons[tab],
+      // 검수 하위 메뉴: 문서 검수(기존 검수 화면)와 용어 사전. 용어 사전은 HELP에서
+      // 검수 하위로 이동했으며, 하위 항목으로만 노출한다 (아래 hiddenFromNav 항목 참조).
+      ...(tab === "Check" ? { children: [
+        { value: "Check", label: "문서 검수", Icon: tabIcons.Check },
+        { value: "Dictionary", label: "용어 사전", ariaLabel: "Dictionary", Icon: BookMarked },
+      ] } : {}) })),
     { value: "Law", label: "법령", group: "RESEARCH", Icon: Scale, prefetch: () => prefetchView(loadLawSearch) },
     { value: "PdfTools", label: "PDF 도구", group: "TOOLS", Icon: FileText, prefetch: () => prefetchView(loadPdfTool) },
     { value: "ImageTools", label: "이미지 도구", group: "TOOLS", Icon: ImageIcon, prefetch: () => prefetchView(loadImageTool) },
     { value: "LearnCenter", label: "학습센터", group: "AI•AX", Icon: GraduationCap, prefetch: () => prefetchView(loadLearnCenterView) },
     { value: "AxDiagnosis", label: "업무 자동화 진단", group: "AI•AX", Icon: Workflow, prefetch: () => prefetchView(loadAxDiagnosisView) },
     { value: "Guide", label: "사용 가이드", ariaLabel: "Guide", group: "HELP", Icon: CircleHelp, prefetch: () => prefetchView(loadUsageGuide) },
-    { value: "Dictionary", label: "용어 사전", ariaLabel: "Dictionary", group: "HELP", Icon: BookMarked },
+    // 검색·활성 상태 조회용으로만 유지하고 사이드바 최상위 행으로는 렌더링하지 않는다.
+    { value: "Dictionary", label: "용어 사전", ariaLabel: "Dictionary", group: "검수", Icon: BookMarked, hiddenFromNav: true },
     { value: "Settings", label: "설정", ariaLabel: "Settings", group: "HELP", Icon: SlidersHorizontal },
   ];
   const viewMetadata = shellView in internalViewMetadata

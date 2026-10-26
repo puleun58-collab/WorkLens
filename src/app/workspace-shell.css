@@ -13,6 +13,20 @@
 .workspace-nav-item.active { color: var(--primary); background: #dbeafe; font-weight: 600; }
 .workspace-nav-item.active::before { inset: 6px auto 6px 0; width: 3px; border-radius: 999px; background: var(--primary); }
 .workspace-sidebar .workspace-nav-item:focus-visible, .workspace-mobile-sheet .workspace-nav-item:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+/* 검수 아코디언: 부모 행은 본문 이동 버튼과 셰브론 토글을 분리한다. 토글 클릭은
+   화면 이동 없이 하위 메뉴만 펼치거나 접는다. */
+.workspace-nav-parent-row { display: flex; align-items: center; gap: 4px; }
+.workspace-nav-parent-row > .workspace-nav-item { flex: 1; min-width: 0; }
+.workspace-nav-toggle { flex-shrink: 0; }
+.workspace-sidebar .workspace-nav-toggle:focus-visible, .workspace-mobile-sheet .workspace-nav-toggle:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+/* 하위 메뉴는 부모보다 한 단계 들여쓰고, 짧은 높이 전환으로만 펼친다.
+   접힌 상태에서는 visibility로 키보드 포커스가 닿지 않게 한다. */
+.workspace-nav-children { display: grid; grid-template-rows: 0fr; visibility: hidden; transition: grid-template-rows 160ms ease, visibility 0s linear 160ms; }
+.workspace-nav-children[data-open] { grid-template-rows: 1fr; visibility: visible; transition: grid-template-rows 160ms ease; }
+.workspace-nav-children > ul { overflow: hidden; min-height: 0; padding-left: 12px; }
+@media (prefers-reduced-motion: reduce) {
+  .workspace-nav-children, .workspace-nav-children[data-open] { transition: none; }
+}
 .workspace-mobile-bar { display: none; }
 .app-shell { background: var(--background); }
 .shell-main { min-width: 0; }
