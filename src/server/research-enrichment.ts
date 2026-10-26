@@ -1,7 +1,7 @@
 import { lawDisplayText } from "@/lib/law-display";
 import { researchResult } from "@/lib/law-research-parse";
 import {
-  isLawName, questionTerms, rankPrecedent, titleMatches,
+  isLawName, isSubjectTerm, questionTerms, questionTermsSubjectLess, rankPrecedent, titleMatches,
   type PrecedentRelevance, type ResearchEnrichment, type SupplementArticle,
 } from "@/lib/research-relevance";
 import type { ResearchDecision } from "@/lib/law-research-parse";
@@ -208,13 +208,19 @@ export async function enrichResearch(
   }
   // Laws named in the question or the answer's title, then laws whose names contain a question term.
   const named = [...terms.filter(isLawName), ...(document.title?.split(":").slice(1).map((part) => part.trim()).filter(isLawName) ?? [])];
-  enrichment.supplement = await titleArticles(keywords, named, shownArticles, sources, expired, task === "full_research");
+  enrichment.supplement = await titleArticles(keywords, named, shownArticles, sources, expired, task === "full_research", true);
   return enrichment;
 }
 
 /**
  * Articles whose titles carry a subject term, from laws the terms name exactly or whose
  * names contain a term. `strictName` drops an article whose text names a different law.
+ * `strictCandidates` is only for the displayed supplement (the main chain's
+ * related-articles list): there a single generic title word is pollution, so
+ * law discovery and candidates need a subject term. An issue's own lookup
+ * keeps the looser rule — its candidates are never displayed, only judged
+ * for adoption by the caller, and the looser rule is what lets a title like
+ * "직장 내 괴롭힘 발생 시 조치" be found for "사용자 조치 의무" (V4).
  */
 async function titleArticles(
   keywords: readonly string[],
@@ -223,7 +229,9 @@ async function titleArticles(
   sources: EnrichmentSources,
   expired: () => boolean,
   strictName: boolean,
+  strictCandidates = false,
 ): Promise<NonNullable<ResearchEnrichment["supplement"]>> {
+  const compactName = (value: string) => value.replace(/\s+/gu, "");
   const laws = new Map<string, string>();
   let failures = 0;
   let lookups = 0;
@@ -231,10 +239,19 @@ async function titleArticles(
     if (laws.size >= MAX_LAWS || expired()) break;
     lookups++;
     const found = await sources.laws(name).catch(() => { failures++; return []; });
-    const exact = found.find((law) => law.name === name);
+    // The official name may space a compound the question wrote joined
+    // (개인정보보호법 → 개인정보 보호법): compare compacted, never guess a
+    // different law — a spaced name that only differs by spaces is the same law.
+    const exact = found.find((law) => compactName(law.name) === compactName(name));
     if (exact) laws.set(exact.name, exact.mst);
   }
   for (const term of keywords) {
+    // In the displayed supplement, a generic word must not discover laws by
+    // itself: searching "조사" or "의무" returned whole unrelated regimes
+    // (대일항쟁기 특별법, 이태원 특별법…) whose titles merely share that
+    // word, and those filled the related-articles list. Law discovery uses
+    // subject terms only there; named laws above are unaffected.
+    if (strictCandidates && !isSubjectTerm(term)) continue;
     if (laws.size >= MAX_LAWS || expired()) break;
     lookups++;
     const found = await sources.laws(term).catch(() => { failures++; return []; });
@@ -249,7 +266,12 @@ async function titleArticles(
     const toc = await sources.toc(mst).catch(() => { failures++; return []; });
     for (const article of toc) {
       const matched = titleMatches(keywords, law, article.title);
-      if (matched.length && !shownArticles.some((shown) => shown.law === law && shown.jo === article.jo)) {
+      // In the displayed supplement, a single generic word in a title is not
+      // relatedness: "비밀준수의무" matched only 의무 for a
+      // workplace-harassment question. A displayed candidate needs a subject
+      // term, or at least two matched terms.
+      if (matched.length && (!strictCandidates || matched.some(isSubjectTerm) || matched.length >= 2)
+        && !shownArticles.some((shown) => shown.law === law && shown.jo === article.jo)) {
         candidates.push({ law, mst, jo: article.jo, title: article.title, matched });
       }
     }
@@ -297,10 +319,74 @@ export interface IssueLookup {
   partialFailure?: boolean;
 }
 
+const JO_TERM = /^제[1-9]\d{0,3}조(?:의[1-9]\d?)?$/u;
+/** A bare subordinate-law noun ("그 시행령") names no law of its own: it refers to the preceding law, so it must not replace it as the law a following 조 belongs to. */
+const BARE_SUBORDINATE = new Set(["시행령", "시행규칙", "법령"]);
+
+/**
+ * (law, article) pairs a term list names, in order: each 조 belongs to the
+ * most recent law name before it ("개인정보보호법 제38조 … 제39조" pairs
+ * both 조 with 개인정보보호법; "근로기준법 제76조의3과 개인정보보호법
+ * 제38조" pairs each with its own law). No number is invented and no pair
+ * is guessed: a 조 with no preceding law name yields no pair here, and
+ * two-character law names are not law names under the shared isLawName
+ * rule (which keeps 방법 from becoming a law), so they pair nothing.
+ */
+export function explicitArticlePairs(terms: readonly string[]): Array<{ law: string; jo: string }> {
+  const pairs: Array<{ law: string; jo: string }> = [];
+  let lastLaw: string | undefined;
+  for (const term of terms) {
+    if (isLawName(term) && !BARE_SUBORDINATE.has(term)) lastLaw = term;
+    else if (JO_TERM.test(term) && lastLaw && !pairs.some((pair) => pair.law === lastLaw && pair.jo === term)) {
+      pairs.push({ law: lastLaw, jo: term });
+    }
+  }
+  return pairs;
+}
+
+/** A law article delegating its detail to a subordinate law ("대통령령으로 정하는 …"): the text itself states the law↔시행령 link. */
+const DELEGATION = /(?:대통령령|총리령|부령|시행령)으로 정/u;
+
+/**
+ * Fetch exactly the articles a pair names, through the official lookup, and
+ * mark them explicit so the caller adopts them by identity for a qualifying
+ * issue. A pair that resolves to no current law, to more than one law by
+ * suffix, or to no article text is skipped, never guessed. Failures degrade
+ * to "no explicit article", never to a failed lookup.
+ */
+async function fetchExplicitArticles(
+  pairs: ReadonlyArray<{ law: string; jo: string }>,
+  sources: EnrichmentSources,
+  expired: () => boolean,
+): Promise<SupplementArticle[]> {
+  const compactName = (value: string) => value.replace(/\s+/gu, "");
+  const articles: SupplementArticle[] = [];
+  for (const pair of pairs.slice(0, 6)) {
+    if (expired()) break;
+    const found = await sources.laws(pair.law).catch(() => []);
+    const exact = found.find((law) => compactName(law.name) === compactName(pair.law));
+    const suffix = exact ? [] : found.filter((law) => compactName(law.name).endsWith(compactName(pair.law)));
+    const law = exact ?? (suffix.length === 1 ? suffix[0] : undefined);
+    if (!law) continue;
+    const fetched = await sources.article(law.mst, pair.jo).catch(() => undefined);
+    if (!fetched) continue;
+    if (fetched.name && fetched.name !== law.name) continue; // Stale/misdirected MST.
+    const excerpt = articleExcerpt(fetched.text, pair.jo);
+    if (!excerpt) continue;
+    const title = /제[1-9]\d{0,3}조(?:의[1-9]\d?)?\(([^)]+)\)/u.exec(fetched.text)?.[1]?.trim() ?? "";
+    articles.push({ law: law.name, jo: pair.jo, title, excerpt, matched: [], explicit: true,
+      ...(fetched.effectiveDate ? { effectiveDate: fetched.effectiveDate } : {}) });
+  }
+  return articles;
+}
+
 /**
  * A search for one issue that the combined research answer did not cover: its short
  * phrase goes to 판례 search and to the statute-title lookup, never the user's sentence.
  * Relevance is still judged by the caller from the source text returned here.
+ * Additionally, articles the question or the issue itself named by law + number
+ * are fetched directly (see fetchExplicitArticles): a title lookup can never
+ * find 제38조, because no table-of-contents title contains its own number.
  */
 export async function lookupIssue(
   query: string,
@@ -326,10 +412,37 @@ export async function lookupIssue(
   if (expired()) return { status: "timeout", articles: [], precedents: [] };
   const titleKeywords = [...new Set([...keywords, ...extraTerms.filter((term) => !isLawName(term))])];
   let failed = false;
-  const [hits, statutes] = await Promise.all([
+  const [hits, statutes, explicit] = await Promise.all([
     sources.precedents(query).catch(() => { failed = true; return []; }),
     titleArticles(titleKeywords, [...new Set([...terms.filter(isLawName), ...extraNamed])], shownArticles, sources, expired, true),
+    (async () => {
+      // Articles the issue itself named are fetched for this issue.
+      const own = await fetchExplicitArticles(explicitArticlePairs(terms), sources, expired);
+      // Articles the question named qualify for this issue only when the
+      // issue itself names their number (with no law of its own — the law
+      // then comes from the question, and only when the number belongs to
+      // exactly one question law), or when the issue names no subject at
+      // all and the article's own text states the delegation the issue
+      // asks about (a "법령·시행령 관계" issue and 제38조's 대통령령 위임).
+      // Anything else would let one issue confirm another's article.
+      const questionPairs = explicitArticlePairs(extraTerms);
+      if (!questionPairs.length) return own;
+      const subjectLess = questionTermsSubjectLess(query);
+      const issueJoTerms = terms.filter((term) => JO_TERM.test(term));
+      const issueHasLaw = terms.some(isLawName);
+      const fetched = await fetchExplicitArticles(questionPairs, sources, expired);
+      const qualified = fetched.filter((article) => {
+        if (subjectLess && DELEGATION.test(article.excerpt)) return true;
+        if (!issueHasLaw && issueJoTerms.includes(article.jo)
+          && questionPairs.filter((pair) => pair.jo === article.jo).length === 1) return true;
+        return false;
+      });
+      const seen = new Set(own.map((article) => `${article.law}\0${article.jo}`));
+      return [...own, ...qualified.filter((article) => !seen.has(`${article.law}\0${article.jo}`))];
+    })(),
   ]);
+  const mergedArticles = [...explicit,
+    ...statutes.articles.filter((article) => !explicit.some((item) => item.law === article.law && item.jo === article.jo))];
   const precedents: IssueLookup["precedents"] = [];
   let summaryFailed = false;
   const read = hits.slice(0, ISSUE_PRECEDENTS);
@@ -339,7 +452,7 @@ export async function lookupIssue(
   }, expired);
   precedents.sort((a, b) => read.findIndex((hit) => hit.id === a.id) - read.findIndex((hit) => hit.id === b.id));
   // Absence is only reported when both searches actually answered; otherwise it is unknown.
-  const status = statutes.articles.length || precedents.length ? "found"
+  const status = mergedArticles.length || precedents.length ? "found"
     : failed || statutes.status === "failed" ? "failed"
     : expired() ? "timeout" : "none";
   // A covering branch must not swallow the other branch's failure: when the lookup
@@ -348,10 +461,10 @@ export async function lookupIssue(
   // article while another law threw, or a precedent summary that threw while
   // articles or other precedents covered the issue).
   const partialFailure = status === "found"
-    && ((failed && statutes.articles.length > 0) || (statutes.status === "failed" && precedents.length > 0)
+    && ((failed && mergedArticles.length > 0) || (statutes.status === "failed" && precedents.length > 0)
       || statutes.partialFailure === true
-      || (summaryFailed && (statutes.articles.length > 0 || precedents.length > 0)));
-  return { status, articles: statutes.articles, precedents, ...(partialFailure ? { partialFailure: true as const } : {}) };
+      || (summaryFailed && (mergedArticles.length > 0 || precedents.length > 0)));
+  return { status, articles: mergedArticles, precedents, ...(partialFailure ? { partialFailure: true as const } : {}) };
 }
 
 /**
