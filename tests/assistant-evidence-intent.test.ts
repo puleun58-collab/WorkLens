@@ -115,10 +115,12 @@ describe("assistant law evidence entries", () => {
 });
 
 describe("assistant dictionary navigation", () => {
-  it("points to the review submenu, not HELP, after the nav change", () => {
+  it("points to the review header button, not HELP or the old submenu", () => {
     const found = entry("guide-dictionary");
     expect(found.screen).toBe("검수");
-    expect(found.text).toContain("검수");
+    expect(found.text).toContain("상단");
+    expect(found.text).toContain("버튼");
+    expect(found.text).not.toContain("하위 메뉴");
     expect(found.text).not.toContain("HELP");
     const stat = selectEvidence("검수 용어 사전은 어디 있어?");
     expect(stat.some((item) => item.id === "guide-dictionary")).toBe(true);
@@ -140,6 +142,13 @@ describe("assistant bare hallucination clarification", () => {
     expect(classifyQuestion("법령 환각은 어떻게 처리해?")).toBe("in-scope");
     expect(classifyQuestion("생성형 AI 환각은 어떻게 방지해?")).toBe("in-scope");
     expect(classifyQuestion("생성형 AI 환각이 뭐야?")).toBe("in-scope");
+  });
+  it("does not re-clarify after a clarification option is selected", () => {
+    // Route builds "<original> (<option>에 대해 질문)" after resolveClarifyFollowUp.
+    expect(classifyQuestion("환각은 어떻게 처리해? (일반적인 AI 환각에 대해 질문)")).toBe("in-scope");
+    expect(classifyQuestion("환각은 어떻게 처리해? (WorkLens 법령 기능의 근거 검증에 대해 질문)")).toBe("in-scope");
+    expect(classifyEvidenceIntent("환각은 어떻게 처리해? (일반적인 AI 환각에 대해 질문)")).toBe("general");
+    expect(classifyEvidenceIntent("환각은 어떻게 처리해? (WorkLens 법령 기능의 근거 검증에 대해 질문)")).toBe("law");
   });
 });
 
