@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { GATE_LABELS, LEVEL_LABELS } from "@/lib/ax/policy";
-import { hasInventedMetric, selectEvidence, validCitations, type AssistantEvidence } from "@/lib/assistant/evidence";
+import { filterEvidenceByIntent, hasInventedMetric, selectEvidence, stripInternalEvidenceIds, validCitations } from "@/lib/assistant/evidence";
 import {
   buildLearnEvidence,
   detectQuizAnswerSeeking,
@@ -14,6 +14,7 @@ import type { AssistantContextNote } from "@/lib/assistant/prompt";
 import {
   clarifyOptions,
   clarifyResponse,
+  classifyEvidenceIntent,
   classifyQuestion,
   executionRequestResponse,
   isDetailRequest,
@@ -88,19 +89,6 @@ const assistantRequestSchema = z.object({
     }).strict().optional(),
   }).strict().optional(),
 }).strict();
-
-/** 학습 근거와 기존 근거를 합친다 — 학습 근거를 우선하고 전체 개수를 제한한다. */
-function mergeEvidence(learn: AssistantEvidence[], stat: AssistantEvidence[]): AssistantEvidence[] {
-  const seen = new Set<string>();
-  const merged: AssistantEvidence[] = [];
-  for (const entry of [...learn, ...stat]) {
-    if (seen.has(entry.id)) continue;
-    seen.add(entry.id);
-    merged.push(entry);
-    if (merged.length >= 4) break;
-  }
-  return merged;
-}
 
 /**
  * Client-provided context is untrusted input: only known policy labels pass through,
@@ -224,7 +212,8 @@ export async function POST(request: Request) {
       ? `${followUpOf} ${effectiveQuestion}`
       : effectiveQuestion;
     const learnBuilt = buildLearnEvidence(evidenceQuery, learnCtx);
-    const evidence = mergeEvidence(learnBuilt.evidence, selectEvidence(evidenceQuery));
+    const evidenceIntent = classifyEvidenceIntent(evidenceQuery);
+    const evidence = filterEvidenceByIntent(learnBuilt.evidence, selectEvidence(evidenceQuery), evidenceIntent);
     if (!evidence.length) return ok({ answer: NO_EVIDENCE_RESPONSE, sources: [], relatedScreens: [], kind: "no-evidence" as const }, 200, requestId);
 
     const result = await runBoundedOperation(() => runGroqAi(
@@ -240,15 +229,19 @@ export async function POST(request: Request) {
     ));
     if (result.kind !== "assistant") throw new ApiError("INVALID_PROVIDER_OUTPUT", "AI 응답 형식이 올바르지 않습니다.", 502);
 
+    // Deterministic post-processing: internal evidence ids must never reach the
+    // user-visible answer body, even if the model copies them from the prompt.
+    const answer = stripInternalEvidenceIds(result.answer, evidence);
+
     // 퀴즈 응시 중 답변이 현재 문항의 정답을 누설했으면 힌트 응답으로 교체한다.
-    if (learnCtx?.mode === "quiz" && learnCtx.quizQuestion && quizAnswerLeakCheck(result.answer, learnCtx.quizQuestion)) {
+    if (learnCtx?.mode === "quiz" && learnCtx.quizQuestion && quizAnswerLeakCheck(answer, learnCtx.quizQuestion)) {
       const hint = quizHintResponse(learnCtx);
       return ok({ answer: hint.answer, sources: hint.sources, relatedScreens: [], kind: "answer" as const }, 200, requestId);
     }
 
     // Server-side verification: citations must come from the provided evidence,
     // and quantitative claims must be grounded. Otherwise fall back safely.
-    if (!validCitations(result.citedIds, evidence) || hasInventedMetric(result.answer, evidence, effectiveQuestion)) {
+    if (!validCitations(result.citedIds, evidence) || hasInventedMetric(answer, evidence, effectiveQuestion)) {
       return ok({ answer: NO_EVIDENCE_RESPONSE, sources: [], relatedScreens: [], kind: "no-evidence" as const }, 200, requestId);
     }
     // Separate evidence by kind: policy/diagnosis → "참고 근거", menu → "관련 화면", guide → hidden
@@ -262,7 +255,7 @@ export async function POST(request: Request) {
       .filter((entry) => entry.kind === "menu")
       .map((entry) => ({ screen: entry.screen, title: entry.title }));
     // guide kind: shown in answer body only, no separate UI section
-    return ok({ answer: result.answer, sources, relatedScreens, kind: "answer" as const }, 200, requestId);
+    return ok({ answer, sources, relatedScreens, kind: "answer" as const }, 200, requestId);
   } catch (error) {
     return apiError(error, requestId);
   }

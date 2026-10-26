@@ -137,12 +137,46 @@ export function classifyQuestion(question: string): AssistantTopic {
   return "in-scope";
 }
 
+/** Question intent for evidence selection: which evidence family the question is about. */
+export type EvidenceIntent = "law" | "learn" | "general";
+
+const LEARN_INTENT = /학습센터|학습하기|퀴즈|단원|커리큘럼|오답/u;
+const LAW_INTENT = /법령|mcp|판례|조문|결정례/iu;
+
+/**
+ * Classify which evidence family a question belongs to. Learn markers win over
+ * law markers (a curriculum question mentioning law content is still about the
+ * curriculum); law markers win over the general default so a law-function
+ * question never falls back to general AI lessons.
+ */
+export function classifyEvidenceIntent(question: string): EvidenceIntent {
+  const normalized = question.toLowerCase();
+  if (LEARN_INTENT.test(normalized)) return "learn";
+  if (LAW_INTENT.test(normalized)) return "law";
+  return "general";
+}
+
+/** A hallucination-action question with no target ("환각은 어떻게 처리해?"). */
+const BARE_HALLUCINATION_ACTION =
+  /환각.*(처리|방지|대응|없애|줄이|막)|(처리|방지|대응).*환각/u;
+const HALLUCINATION_TARGET =
+  /법령|학습센터|생성형|mcp|판례|조문|레벨|level|퀴즈|단원|코딩\s*에이전트/iu;
+
 /**
  * True when the question is WorkLens-related but its intent is genuinely unclear.
  * Clear questions with a concrete verb structure are never ambiguous, even when
  * they contain keywords like "중복".
  */
 function isAmbiguous(normalized: string): boolean {
+  // Bare hallucination-action questions: the target (general AI concept vs
+  // WorkLens law evidence handling) is not stated, so clarify instead of
+  // guessing an evidence family.
+  if (
+    BARE_HALLUCINATION_ACTION.test(normalized) &&
+    !HALLUCINATION_TARGET.test(normalized)
+  ) {
+    return true;
+  }
   const inScope = matches(IN_SCOPE, normalized);
   if (!inScope) return false;
   // Clear verb structure → not ambiguous, even with "중복"
@@ -179,6 +213,9 @@ export function clarifyResponse(question: string): string {
   if (/자동으로/u.test(question)) {
     return "어떤 작업을 자동으로 하고 싶으신가요? (예: 문서 분석, 업무 진단, 리서치 검색)";
   }
+  if (/환각/u.test(question)) {
+    return "일반적인 AI 환각을 말씀하시나요, 아니면 WorkLens 법령 기능의 근거 검증을 말씀하시나요?";
+  }
   return CLARIFY_RESPONSE;
 }
 
@@ -192,6 +229,9 @@ export function clarifyOptions(question: string): string[] {
   }
   if (/자동으로/u.test(question)) {
     return ["문서 분석", "업무 진단", "리서치 검색"];
+  }
+  if (/환각/u.test(question)) {
+    return ["일반적인 AI 환각", "WorkLens 법령 기능의 근거 검증"];
   }
   return [];
 }
