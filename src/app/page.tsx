@@ -1652,13 +1652,10 @@ export default function Home() {
   const isUtilityView = shellView === "Guide" || shellView === "Dictionary" || shellView === "Settings";
   const isDocumentWorkspaceView = !isUtilityView && !isToolView;
   const navigationItems: WorkspaceNavigationItem[] = [
-    ...tabs.map((tab) => ({ value: tab, label: tabMeta[tab].label, group: "WORKSPACE", Icon: tabIcons[tab],
-      // 검수 하위 메뉴: 문서 검수(기존 검수 화면)와 용어 사전. 용어 사전은 HELP에서
-      // 검수 하위로 이동했으며, 하위 항목으로만 노출한다 (아래 hiddenFromNav 항목 참조).
-      ...(tab === "Check" ? { children: [
-        { value: "Check", label: "문서 검수", Icon: tabIcons.Check },
-        { value: "Dictionary", label: "용어 사전", ariaLabel: "Dictionary", Icon: BookMarked },
-      ] } : {}) })),
+    // 검수는 다른 카테고리와 동일한 단일 메뉴이다. 용어 사전은 좌측 메뉴에
+    // 두지 않고, 검수·용어 사전 화면의 상단 헤더 버튼으로만 이동한다
+    // (아래 hiddenFromNav 항목은 검색·화면 제목 조회용으로 유지한다).
+    ...tabs.map((tab) => ({ value: tab, label: tabMeta[tab].label, group: "WORKSPACE", Icon: tabIcons[tab] })),
     { value: "Law", label: "법령", group: "RESEARCH", Icon: Scale, prefetch: () => prefetchView(loadLawSearch) },
     { value: "PdfTools", label: "PDF 도구", group: "TOOLS", Icon: FileText, prefetch: () => prefetchView(loadPdfTool) },
     { value: "ImageTools", label: "이미지 도구", group: "TOOLS", Icon: ImageIcon, prefetch: () => prefetchView(loadImageTool) },
@@ -1672,7 +1669,9 @@ export default function Home() {
   const viewMetadata = shellView in internalViewMetadata
     ? internalViewMetadata[shellView as keyof typeof internalViewMetadata]
     : { title: navigationItems.find((entry) => entry.value === shellView)?.label ?? "WorkLens",
-      description: shellView === "Law" ? "법령명·조문으로 직접 검색" : "", activeNavigation: shellView };
+      description: shellView === "Law" ? "법령명·조문으로 직접 검색" : "",
+      // 용어 사전은 좌측에 행이 없으므로, 해당 화면에서도 검수 메뉴를 활성 표시한다.
+      activeNavigation: shellView === "Dictionary" ? "Check" : shellView };
   const commandItems = [
     ...navigationItems.map((item) => ({ value: item.value, label: item.label, group: item.group })),
     ...Object.entries(internalViewMetadata).map(([value, metadata]) => ({ value, label: metadata.commandLabel ?? metadata.title, group: "RESEARCH" })),
@@ -1724,6 +1723,11 @@ export default function Home() {
               {isDocumentWorkspaceView && <span className="workspace-delete-status" role="status" aria-live="polite" aria-atomic="true">
                 {deleteDone > 0 && <span key={deleteDone}><Check aria-hidden="true" />삭제 완료</span>}
               </span>}
+              {(shellView === "Check" || shellView === "Dictionary") && (
+                <Button type="button" variant="outline" className={`workspace-glossary-button${shellView === "Dictionary" ? " active" : ""}`} aria-label="용어 사전" aria-current={shellView === "Dictionary" ? "page" : undefined} onClick={() => { if (shellView !== "Dictionary") navigateWorkspace("Dictionary"); }}>
+                  <BookMarked aria-hidden="true" />용어 사전
+                </Button>
+              )}
               <WorkspaceCommand items={commandItems} onNavigate={navigateWorkspace} />
             </div>
           </header>

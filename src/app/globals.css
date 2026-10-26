@@ -8610,6 +8610,10 @@ div.status-panel.error > strong { font-size: 14px; line-height: 1.5; }
 .context-bar.utility-bar { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; column-gap: 12px; }
 .context-bar.utility-bar .context-names { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
 .workspace-header-actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
+/* 용어 사전 헤더 버튼: 검수·용어 사전 화면에서만 검색창 왼쪽에 표시한다.
+   선택 상태는 좌측 메뉴의 활성 표시와 같은 색감으로, 과도한 강조는 하지 않는다. */
+.workspace-glossary-button { flex-shrink: 0; }
+.workspace-glossary-button.active { color: var(--primary); background: #dbeafe; }
 .workspace-search { width: 360px; max-width: 100%; min-width: 0; }
 .workspace-search-trigger, .workspace-search-close { display: none; }
 .workspace-search-field { position: relative; min-width: 0; }
@@ -8639,6 +8643,8 @@ div.status-panel.error > strong { font-size: 14px; line-height: 1.5; }
   .utility-bar:has(.workspace-search[data-expanded="true"]) > .context-names { display: none; }
   .utility-bar:has(.workspace-search[data-expanded="true"]) .workspace-header-actions { grid-column: 1; width: 100%; }
   .workspace-search[data-expanded="true"] { width: 100%; }
+  /* 헤더 버튼이 함께 있을 때도 펼친 검색창이 남은 너비를 차지한다. */
+  .utility-bar:has(.workspace-search[data-expanded="true"]) .workspace-search[data-expanded="true"] { width: auto; flex: 1; min-width: 0; }
   .workspace-search[data-expanded="true"] > .workspace-search-trigger { display: none; }
   .workspace-search[data-expanded="true"] .workspace-search-field { display: flex; gap: 6px; align-items: center; }
   .workspace-search-field > [data-slot="autocomplete-input-group"] { flex: 1; min-width: 0; }
