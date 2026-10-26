@@ -877,7 +877,8 @@ function ResearchResult({ data, request, expandSources = false, onExpandSourcesC
     </nav>}
     {full && (issueEvidence.length > 0 || selectedArticles.length > 0 || selectedCases.length > 0) && <section className="research-group research-selected" aria-label="확인한 근거">
       <div className="research-evidence-heading">
-        <h3>{issueEvidence.length ? <>확인된 쟁점 <span className="research-meta">{issueEvidence.length}건</span></> : "확인한 근거"}</h3>
+        {/* The count is confirmed issues only: the old total counted unconfirmed issues too, so a fully unconfirmed section still read as "확인된 쟁점 N건". */}
+        <h3>{(() => { const confirmed = issueEvidence.filter((issue) => issue.status === "found").length; return confirmed ? <>확인된 쟁점 <span className="research-meta">{confirmed}건</span></> : "확인한 근거"; })()}</h3>
       </div>
       <p className="research-meta">질문 쟁점과 내용이 맞는 법제처 자료입니다. 법령의 적용 여부나 판결의 결론까지 확인했다는 뜻은 아닙니다</p>
       {hasIssueReferences && <div className="research-evidence-heading">

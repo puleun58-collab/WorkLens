@@ -245,3 +245,62 @@ describe("fixed legal_analysis API", () => {
     expect(result.raw).not.toContain(KEY);
   });
 });
+
+describe("verify_citations claim-support assessment", () => {
+  const verifyText = "[VERIFIED] == 인용 검증 결과 ==\n법령 인용 1건 | ✓ 1 실존\n▶ 법령 인용\n✓ 민법 제75조(총회의 결의방법) 실존";
+  const searchText = "1. 민법 [현행]\n   - MST: 284415\n   - 법령ID: 001706\n";
+  const art75 = "제75조(총회의 결의방법) ① 총회의 결의는 법령 또는 정관에 다른 정함이 없으면 출석한 사원의 과반수로써 한다.";
+  const art750 = "제750조(불법행위의 내용) 고의 또는 과실로 인한 위법행위로 타인에게 손해를 가한 자는 그 손해를 배상할 책임이 있다.";
+
+  async function callWithClaims(body: unknown, fetchTexts: string[]) {
+    const fetcher = vi.fn();
+    for (const text of fetchTexts) fetcher.mockResolvedValueOnce(toolText(text));
+    vi.stubGlobal("fetch", fetcher);
+    const response = await POST(request(body));
+    const json = JSON.parse(await response.text()) as { data?: { claimSupport?: { index: number; verdict: string; reason: string }[] } };
+    return { status: response.status, claimSupport: json.data?.claimSupport, fetcher };
+  }
+
+  it("downgrades an existing article that does not support the sentence's claim to mismatch", async () => {
+    const { status, claimSupport, fetcher } = await callWithClaims(
+      { mode: "verify_citations", text: "민법 제75조에 따라 손해배상을 청구할 수 있다." },
+      [verifyText, searchText, art75],
+    );
+    expect(status).toBe(200);
+    expect(claimSupport).toEqual([{
+      index: 0, verdict: "mismatch",
+      reason: "조문은 존재하지만, 입력한 법적 주장과 조문 내용(총회의 결의방법)이 맞지 않습니다.",
+    }]);
+    expect(toolCall(fetcher, 1).params).toEqual({ name: "search_law", arguments: { query: "민법" } });
+    expect(toolCall(fetcher, 2).params).toEqual({ name: "get_law_text", arguments: { mst: "284415", jo: "제75조" } });
+  });
+
+  it("keeps a supported claim supported", async () => {
+    const verify750 = verifyText.replace("제75조(총회의 결의방법)", "제750조(불법행위의 내용)");
+    const { claimSupport } = await callWithClaims(
+      { mode: "verify_citations", text: "민법 제750조에 따라 고의 또는 과실로 인한 위법행위로 타인에게 손해를 가한 자는 손해배상책임이 있다." },
+      [verify750, searchText, art750],
+    );
+    expect(claimSupport).toEqual([{ index: 0, verdict: "supported", reason: "" }]);
+  });
+
+  it("reports unverified, never a verdict, when the article text cannot be fetched", async () => {
+    const { claimSupport } = await callWithClaims(
+      { mode: "verify_citations", text: "민법 제75조에 따라 손해배상을 청구할 수 있다." },
+      [verifyText, searchText, "[NOT_FOUND] 조문 없음"],
+    );
+    expect(claimSupport).toEqual([{
+      index: 0, verdict: "unverified", reason: "조문 원문 조회 실패로 근거 적합성을 확인하지 못했습니다.",
+    }]);
+  });
+
+  it("leaves non-verify modes untouched", async () => {
+    const fetcher = vi.fn().mockResolvedValueOnce(toolText(samples.cite.text));
+    vi.stubGlobal("fetch", fetcher);
+    const response = await POST(request(cite));
+    const json = JSON.parse(await response.text()) as { data?: { claimSupport?: unknown } };
+    expect(response.status).toBe(200);
+    expect(json.data?.claimSupport).toBeUndefined();
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+});

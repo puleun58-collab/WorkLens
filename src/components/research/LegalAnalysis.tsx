@@ -364,6 +364,7 @@ function AnalysisResult({ data, request, completedAt, onRelatedSearch }: { data:
       notes={<Sections sections={result.notes} />}
       input={request.mode === "verify_citations" ? request.text : ""}
       verifiedAt={completedAt}
+      claimSupport={data.claimSupport}
     />;
   } else if (data.mode === "cite_check") {
     const result = citeCheckResult(data.text);

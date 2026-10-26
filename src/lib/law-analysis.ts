@@ -1,4 +1,5 @@
 import { LAW_ARTICLE_PATTERN } from "@/lib/law-search";
+import type { ClaimSupportEntry } from "@/lib/citation-claim";
 
 /**
  * Shared contract for `POST /api/law/analysis`, the fixed-tool bridge to the
@@ -103,6 +104,12 @@ export interface LawAnalysisData {
   mode: LawAnalysisMode;
   text: string;
   markers: string[];
+  /**
+   * Local claim-support assessments for verify_citations, one per verified
+   * law citation by index. Absent when the check was skipped or failed as a
+   * whole — absence means "not assessed", never "supported".
+   */
+  claimSupport?: ClaimSupportEntry[];
 }
 
 /** The MCP explicitly reported absent data; never an outage or an invalid argument. */
