@@ -28,17 +28,17 @@
 .learn-progress-bar > div { height: 100%; background: var(--primary); border-radius: 4px; transition: width 0.3s; }
 
 /* 학습센터 메인(대시보드) — COSS 레퍼런스: 목록형 로드맵 + 얇은 테두리 카드 */
-.learn-dash-intro-row { display: flex; align-items: center; gap: 12px; margin: 0 0 4px; }
-.learn-dash-intro-row > button { flex: none; }
-.learn-dash-intro { flex: 1; min-width: 0; margin: 0; }
 .learn-dash-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; margin-top: 16px; }
 .learn-dash-progress-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.learn-dash-progress-side { display: flex; align-items: center; gap: 8px; flex: none; }
+.learn-dash-progress-side > button { flex: none; }
 .learn-dash-progress-head h3 { margin: 0; font-size: 16px; }
 .learn-dash-progress-count { font-size: 13px; font-weight: 600; white-space: nowrap; }
 .learn-dash-bar { height: 6px; border-radius: 3px; margin: 12px 0 16px; }
 .learn-dash-bar > div { border-radius: 3px; }
 .learn-dash-actions { margin: 0; }
 .learn-dash-note { margin: 10px 0 0; }
+.learn-dash-unlock-note { margin: 0 0 12px; }
 .learn-dash-roadmap-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 28px 0 10px; }
 .learn-dash-roadmap-head h3 { margin: 0; font-size: 16px; }
 .learn-dash-roadmap-count { font-size: 13px; color: var(--muted-foreground); white-space: nowrap; }

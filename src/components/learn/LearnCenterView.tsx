@@ -1072,33 +1072,30 @@ function LearnDashboard(props: {
 
   return (
     <div className="learn-dash">
-      <h2>학습센터</h2>
-      <div className="learn-dash-intro-row">
-        <p className="learn-muted learn-dash-intro">
-          AI·AX 기초부터 업무 자동화 판단, AI 도구 활용, 개발·배포 실무까지 단계별로 학습합니다.
-          각 단계를 통과하면 다음 단계가 해제됩니다.
-        </p>
-        <Menu>
-          <MenuTrigger render={<Button type="button" variant="outline" size="icon" aria-label="학습 기록 작업" />}>
-            <MoreHorizontal aria-hidden="true" />
-          </MenuTrigger>
-          <MenuPopup align="end">
-            <MenuItem onClick={props.onExportBackup}><Upload aria-hidden="true" />학습 기록 내보내기</MenuItem>
-            <MenuItem onClick={props.onImportBackup}><Download aria-hidden="true" />학습 기록 가져오기</MenuItem>
-          </MenuPopup>
-        </Menu>
-      </div>
-
       <section className="learn-dash-card" aria-label="전체 진행률">
         <div className="learn-dash-progress-head">
           <h3>전체 진행률</h3>
-          <span className="learn-dash-progress-count">
-            {overall.passed} / {overall.total} 단계 ({overall.percent}%)
-          </span>
+          <div className="learn-dash-progress-side">
+            <span className="learn-dash-progress-count">
+              {overall.passed} / {overall.total} 단계 ({overall.percent}%)
+            </span>
+            <Menu>
+              <MenuTrigger render={<Button type="button" variant="outline" size="icon" aria-label="학습 기록 작업" />}>
+                <MoreHorizontal aria-hidden="true" />
+              </MenuTrigger>
+              <MenuPopup align="end">
+                <MenuItem onClick={props.onExportBackup}><Upload aria-hidden="true" />학습 기록 내보내기</MenuItem>
+                <MenuItem onClick={props.onImportBackup}><Download aria-hidden="true" />학습 기록 가져오기</MenuItem>
+              </MenuPopup>
+            </Menu>
+          </div>
         </div>
         <div className="learn-progress-bar learn-dash-bar" role="progressbar" aria-valuenow={overall.percent} aria-valuemin={0} aria-valuemax={100}>
           <div style={{ width: `${overall.percent}%` }} />
         </div>
+        <p className="learn-dash-note learn-dash-unlock-note">
+          <small>각 단계를 통과하면 다음 단계가 해제됩니다.</small>
+        </p>
         <div className="learn-actions learn-dash-actions">
           {nextLevel ? (
             <Button type="button" variant="default" onClick={() => props.onOpenLesson(nextLevel)}>

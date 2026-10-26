@@ -12,8 +12,9 @@ import {
 
 async function learn(page: Parameters<typeof navigateWorkspace>[0]) {
   await navigateWorkspace(page, "학습센터");
-  // 모바일 셸의 h1과 겹치지 않게 학습 뷰 내부 제목으로 범위 지정
-  await expect(page.locator(".learn-view").getByRole("heading", { name: "학습센터", exact: true })).toBeVisible();
+  // 상단 헤더 제목은 유지되고 본문 중복 제목은 제거됨 — 대시보드 진입은 진행률 카드로 확인
+  await expect(page.locator(".learn-dash-card").first()).toBeVisible();
+  await expect(page.locator(".learn-view").getByRole("heading", { name: "학습센터", exact: true })).toHaveCount(0);
 }
 
 /** LEVEL 1 첫 번째 로드맵 행에서 학습 화면 진입 (현재 단계 행의 "이어서 학습" 버튼) */
@@ -48,6 +49,29 @@ test("학습센터: 대시보드 로드맵 10단계 표시", async ({ page }) =>
   await expect(page.getByText("잠김", { exact: true }).first()).toBeVisible();
   // 진행률
   await expect(page.getByText(/0 \/ 10 단계 \(0%\)/, { exact: false })).toBeVisible();
+});
+
+test("학습센터: 본문 중복 제목·설명 제거 및 진행률 카드 정리", async ({ page }) => {
+  await page.goto("/");
+  await learn(page);
+  // 상단 헤더 제목·보조 설명 유지
+  await expect(page.locator(".context-bar").getByRole("heading", { name: "학습센터", exact: true })).toBeVisible();
+  await expect(page.locator(".context-bar")).toContainText("AI·AX 기초부터 실무 자동화까지 단계별 학습");
+  // 본문 중복 제목·설명 제거
+  await expect(page.locator(".learn-view").getByRole("heading", { name: "학습센터", exact: true })).toHaveCount(0);
+  await expect(page.getByText("AI·AX 기초부터 업무 자동화 판단", { exact: false })).toHaveCount(0);
+  // 전체 진행률 카드가 바로 배치되고, 단계 해제 안내가 카드 안에 있음
+  const card = page.locator(".learn-dash-card").first();
+  await expect(card).toContainText("전체 진행률");
+  await expect(card).toContainText("각 단계를 통과하면 다음 단계가 해제됩니다.");
+  await expect(card).toContainText("학습 진도는 이 브라우저에만 저장됩니다.");
+  // ⋯ 버튼이 진행률 카드 안에 있고 기존 메뉴를 유지 (실제 내보내기·가져오기는 실행하지 않음)
+  await card.getByRole("button", { name: "학습 기록 작업", exact: true }).click();
+  await expect(page.getByRole("menuitem", { name: "학습 기록 내보내기", exact: true })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "학습 기록 가져오기", exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
+  // 기존 시작 버튼 유지
+  await expect(page.getByRole("button", { name: /처음 학습하기|이어서 학습하기/, exact: false })).toBeVisible();
 });
 
 test("학습센터: LEVEL 1 학습 화면", async ({ page }) => {
@@ -164,7 +188,7 @@ test("학습센터: 오답 노트 빈 상태", async ({ page }) => {
   await expect(page.getByText("아직 복습할 오답이 없습니다", { exact: true })).toBeVisible();
   await expect(page.getByText(/틀린 문제가 있으면 이곳에 표시됩니다/, { exact: false })).toBeVisible();
   await page.getByRole("button", { name: "학습센터로 이동", exact: true }).click();
-  await expect(page.locator(".learn-view").getByRole("heading", { name: "학습센터", exact: true })).toBeVisible();
+  await expect(page.locator(".learn-dash-card").first()).toBeVisible();
 });
 
 test("학습센터: 사전 진단 — 중복 건너뛰기 제거·복귀 동선", async ({ page }) => {
@@ -184,7 +208,7 @@ test("학습센터: 사전 진단 — 중복 건너뛰기 제거·복귀 동선"
   await expect(page.locator(".learn-question-meta")).toContainText("1 / 8");
   // 돌아가기
   await page.getByRole("button", { name: "학습센터로 돌아가기", exact: true }).click();
-  await expect(page.locator(".learn-view").getByRole("heading", { name: "학습센터", exact: true })).toBeVisible();
+  await expect(page.locator(".learn-dash-card").first()).toBeVisible();
 });
 
 test("학습센터: 퀴즈 응시 → 채점 → 결과", async ({ page }) => {
@@ -546,7 +570,7 @@ test("학습센터: 퀴즈 종료 버튼 — 확인 취소 시 응시 유지, �
   // 다시 종료 → 종료하기 확정
   await exitButton.click();
   await page.getByRole("button", { name: "종료하기", exact: true }).click();
-  await expect(page.locator(".learn-view").getByRole("heading", { name: "학습센터", exact: true })).toBeVisible();
+  await expect(page.locator(".learn-dash-card").first()).toBeVisible();
   // 진행 중 응시는 정리되고, 완료 응시는 생성되지 않았다
   await expect(page.locator('section[aria-label="진행 중인 퀴즈"]')).toHaveCount(0);
   await expect(page.locator(".learn-dash-row").first()).not.toContainText("응시 1회");
@@ -639,7 +663,7 @@ test("학습센터: 사전 진단 결과에서 관련 학습으로 직접 이동
   // 잠긴 영역(LEVEL 4)은 안내 배너와 함께 대시보드로 돌아간다
   const cliArea = page.locator(".learn-diagnostic-area", { hasText: "CLI·Git 기본 지식" });
   await cliArea.getByRole("button", { name: "학습하기", exact: true }).click();
-  await expect(page.locator(".learn-view").getByRole("heading", { name: "학습센터", exact: true })).toBeVisible();
+  await expect(page.locator(".learn-dash-card").first()).toBeVisible();
   await expect(page.locator(".learn-save-error")).toContainText("아직 잠겨 있어");
   // 진단 기록은 대시보드에 보존되고, 거기서도 해제된 영역으로 이동할 수 있다
   const dashConcept = page.locator(".learn-diagnostic-area", { hasText: "AI·AX 개념 이해" });
