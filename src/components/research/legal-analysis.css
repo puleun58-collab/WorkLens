@@ -38,6 +38,8 @@
 .legal-analysis-citations > li { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 4px 12px; padding: 8px 14px; font-size: var(--font-size-sm); line-height: 1.6; }
 .legal-analysis-citations > li + li { border-top: 1px solid var(--line-soft, var(--line)); }
 .legal-analysis-citation-text { min-width: 0; overflow-wrap: anywhere; }
+/* Claim-support reason: the li grid is 96px + 1fr, so an unplaced third child would land in the narrow 96px status column and wrap vertically. Place it under the citation text instead, using the full remaining width. */
+.legal-analysis-citations > li > .law-search-note { grid-column: 2; min-width: 0; overflow-wrap: anywhere; }
 .legal-analysis-status, .legal-analysis-axis-label { font-weight: 600; overflow-wrap: anywhere; }
 .legal-analysis-axis-label { min-width: 0; white-space: pre-wrap; }
 .legal-analysis-axis-suffix { display: inline-block; max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -210,6 +212,8 @@ p.research-meta { margin: 0; }
   .legal-research-options, .legal-research-dates { grid-template-columns: minmax(0, 1fr); }
   .legal-analysis-fields { grid-template-columns: minmax(0, 1fr); }
   .legal-analysis-citations > li, .legal-analysis-verdict, .contract-review-facts { grid-template-columns: minmax(0, 1fr); }
+  /* Single-column stack: the claim-support reason uses the one column, so it wraps naturally within the card width. */
+  .legal-analysis-citations > li > .law-search-note { grid-column: 1; }
   /* 인용 현황 rows stack: 자료 유형 and 검색 결과 on one line, 확인 내용 below; the column header is read by screen readers only. */
   .impact-citations-table, .impact-citations-table tbody { display: block; }
   .impact-citations-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
