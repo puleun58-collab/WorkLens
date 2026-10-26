@@ -977,9 +977,9 @@ function AxPlanOverview({ profile, summary }: { profile: ExecutionProfile; summa
       </div>
       </div></AccordionPanel>
     </AccordionItem></section>
-    <section className="ax-plan-block" aria-label="02 시작 전 확인"><AccordionItem value="checks" className="ax-plan-item border-b-0">
-      <AccordionTrigger className="ax-plan-trigger"><AxPlanBlockHeading no="02" title="시작 전 확인" badges={<>{summary.blockReasons.length ? <span className="ax-check-badge" data-kind="block">진행 보류</span> : null}{requiredCheckCount ? <span className="ax-check-badge" data-kind="need">확인 필요 {requiredCheckCount}건</span> : null}</>} /></AccordionTrigger>
-      <AccordionPanel className="pb-0"><div className="ax-plan-panel-body"><p className="ax-plan-desc">구현 전에 필요한 조건과 적용 범위를 확인합니다.</p>
+    <section className="ax-plan-block" aria-label="02 구현 전 확인사항"><AccordionItem value="checks" className="ax-plan-item border-b-0">
+      <AccordionTrigger className="ax-plan-trigger"><AxPlanBlockHeading no="02" title="구현 전 확인사항" badges={<>{summary.blockReasons.length ? <span className="ax-check-badge" data-kind="block">진행 보류</span> : null}{requiredCheckCount ? <span className="ax-check-badge" data-kind="need">확인 필요 {requiredCheckCount}건</span> : null}</>} /></AccordionTrigger>
+      <AccordionPanel className="pb-0"><div className="ax-plan-panel-body"><p className="ax-plan-desc">아래 항목은 자동화 구현 전에 확인해야 할 조건입니다. 실제 업무 환경과 자료를 기준으로 확인해 주세요.</p>
       {summary.blockReasons.length ? <div className="ax-prereq-blocked" data-tone="blocked">
         <span className="ax-prereq-icon" aria-hidden="true"><TriangleAlert /></span>
         <div><div className="ax-prereq-card-head"><h5>차단 사유</h5><span className="ax-check-badge">진행 보류</span></div>
@@ -1107,7 +1107,7 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
             <div className="ax-plan-toolbar">
               <TabsList aria-label="AI 코딩 도구 선택"><TabsTab value="codex">Codex</TabsTab><TabsTab value="claude">Claude Code</TabsTab></TabsList>
             </div>
-            {(["codex", "claude"] as const).map(target => <TabsPanel key={target} value={target}>{target === activeTool ? plans[target] ? <><p className="ax-plan-tool-hint">{TOOL_GUIDES[target].name}에서 현재 프로젝트를 열고 올인원 지시문 붙여넣기</p><AxExecutionPackage plan={plans[target]} target={target} taskName={taskName} taskContext={taskContext} prerequisites={prerequisites} diagnosis={diagnosis} hitlReviews={reviewProps?.reviews} /></> : <><p>{TOOL_GUIDES[target].name}용 구현 계획 생성 후 올인원 지시문 확인</p>{generateButton(target)}</> : null}</TabsPanel>)}
+            {(["codex", "claude"] as const).map(target => <TabsPanel key={target} value={target}>{target === activeTool ? plans[target] ? <><p className="ax-plan-tool-hint">{TOOL_GUIDES[target].name}에서 현재 프로젝트를 열고 올인원 지시문 붙여넣기</p><AxExecutionPackage plan={plans[target]} target={target} taskName={taskName} taskContext={taskContext} prerequisites={prerequisites} diagnosis={diagnosis} hitlReviews={reviewProps?.reviews} /></> : <><p className="ax-plan-generate-hint">{TOOL_GUIDES[target].name}용 구현 계획 생성 후 올인원 지시문 확인</p>{generateButton(target)}</> : null}</TabsPanel>)}
           </Tabs> : <p className="ax-muted">도구별 구현 계획 생성 후 올인원 지시문 확인</p>}
       </>}
     </section>

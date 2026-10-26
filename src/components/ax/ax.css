@@ -435,6 +435,8 @@
 .ax-plan-head .ax-status-badge, .ax-plan-head .ax-gate-badge { padding: 3px 12px; border-radius: 8px; font-size: 13px; font-weight: var(--font-weight-medium); line-height: 1.5; }
 .ax-tool-tabs { gap: 16px; min-width: 0; }
 .ax-tool-tabs [data-slot=tabs-content], .ax-package { min-width: 0; }
+/* 04 올인원 지시문: 계획 미생성 탭의 안내 문구와 생성 버튼 사이 간격 (12~16px 범위). */
+.ax-plan-generate-hint { margin: 0 0 14px; }
 .ax-prompt { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 13px; line-height: 1.65; text-align: left; color: var(--foreground); white-space: pre-wrap; word-break: break-word; max-width: 100%; background: color-mix(in srgb, var(--muted) 9%, var(--card)); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin: 12px 0; }
 .ax-prompt-actions { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .ax-prompt-actions .ax-prompt-toggle { margin-right: auto; color: var(--foreground); background: var(--card); border-color: var(--border); border-radius: 6px; }
