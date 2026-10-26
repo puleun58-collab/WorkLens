@@ -115,3 +115,55 @@ describe("rule (B) subject hygiene for subject-less issues", () => {
     expect(adopted).toEqual([{ law: "근로기준법", jo: "제76조의3" }]);
   });
 });
+
+describe("claim-support false-positive counterexamples (law-accuracy-refine)", () => {
+  it("A3: a common effect word alone does not carry a claim whose core term is unconfirmed", () => {
+    // 책임 anchors in 제750조, but the claim's core (계약) does not: the
+    // article is about tort liability, not contractual liability.
+    expect(assessClaimSupport(
+      "민법 제750조에 따라 계약에 대한 책임이 있다.", "민법", "불법행위의 내용", ART_750,
+    ).verdict).toBe("unverified");
+    // A single generic term on its own is not a confirmable legal claim.
+    expect(assessClaimSupport(
+      "민법 제750조에 따라 책임이 있다.", "민법", "불법행위의 내용", ART_750,
+    ).verdict).toBe("unverified");
+  });
+  it("A4: a predicate-negated effect is never supported, even when every term anchors", () => {
+    expect(assessClaimSupport(
+      "민법 제750조에 따라 고의 위법행위는 손해배상책임이 없다.", "민법", "불법행위의 내용", ART_750,
+    ).verdict).toBe("unverified");
+  });
+  it("A5: a subject or basis term that does not anchor blocks confirmation", () => {
+    // 손해배상책임 anchors via its split parts, but the asserted basis
+    // (계약상) is absent from the article.
+    expect(assessClaimSupport(
+      "민법 제750조에 따라 계약상 손해배상책임이 있다.", "민법", "불법행위의 내용", ART_750,
+    ).verdict).toBe("unverified");
+  });
+  it("A5-effect: subject terms anchoring does not confirm an unanchored legal effect", () => {
+    // 사람·모욕 anchor in 제311조, but the asserted effect (손해배상 청구)
+    // is a civil remedy the criminal article does not provide.
+    expect(assessClaimSupport(
+      "형법 제311조에 따라 사람을 모욕하면 손해배상을 청구할 수 있다.", "형법", "모욕", ART_311,
+    ).verdict).toBe("unverified");
+  });
+  it("A6: mixed citations keep individual verdicts (supported + mismatch)", () => {
+    const good = assessClaimSupport(
+      "민법 제750조에 따라 고의 또는 과실로 인한 위법행위로 타인에게 손해를 가한 자는 손해배상책임이 있다.",
+      "민법", "불법행위의 내용", ART_750,
+    ).verdict;
+    const bad = assessClaimSupport(
+      "민법 제75조에 따라 손해배상을 청구할 수 있다.", "민법", "총회의 결의방법", ART_75,
+    ).verdict;
+    expect(good).toBe("supported");
+    expect(bad).toBe("mismatch");
+  });
+  it("negation in a subordinate contrast does not demote a positive predicate", () => {
+    // "고의가 아닌 과실" still ends in a positive predicate (책임이 있다),
+    // and 과실 is covered by 제750조: the claim stays supported.
+    expect(assessClaimSupport(
+      "민법 제750조에 따라 고의가 아닌 과실로 인한 위법행위로 타인에게 손해를 가한 자는 손해배상책임이 있다.",
+      "민법", "불법행위의 내용", ART_750,
+    ).verdict).toBe("supported");
+  });
+});

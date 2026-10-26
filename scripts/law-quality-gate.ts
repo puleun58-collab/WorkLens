@@ -5,7 +5,7 @@
  * CI 승인/차단 판정과 운영 라이브 검증 상태를 구분해 기록한다.
  *
  * 1단계: 코드 품질 (타입 검사·린트·빌드) — 결정론적
- * 2단계: 법령 회귀 (법령 단위 테스트 전체) — 결정론적
+ * 2단계: 법령 회귀 (법령 단위 테스트 전체 — tests/에서 패턴으로 발견) — 결정론적
  * 3단계: 법률 정확도 평가 (7순위 고정 평가셋, 결정론적) — 결정론적
  * 4단계: 실데이터 검증 (law-live-smoke — 수동 실행이므로 이 스크립트에서는 미실행으로 기록)
  *
@@ -20,6 +20,7 @@
  * 결과는 artifacts/law-quality-gate.json에 기록된다.
  */
 import { mkdir, writeFile } from "node:fs/promises";
+import { readdirSync } from "node:fs";
 import { execSync } from "node:child_process";
 
 type StageStatus = "PASS" | "FAIL" | "NOT_RUN";
@@ -42,23 +43,35 @@ function run(command: string, name: string): StageResult {
   }
 }
 
-const LAW_TESTS = [
-  "tests/law-api.test.ts",
-  "tests/law-search.test.ts",
-  "tests/law-research-api.test.ts",
-  "tests/law-research-parse.test.ts",
-  "tests/law-analysis-api.test.ts",
-  "tests/law-analysis-parse.test.ts",
-  "tests/law-display.test.ts",
-  "tests/law-input.test.ts",
-  "tests/law-review-source.test.ts",
-  "tests/law-text-api.test.ts",
-  "tests/citation-evidence.test.ts",
-  "tests/research-interpretation.test.ts",
-  "tests/research-relevance.test.ts",
-  "tests/research-semantic.test.ts",
-  "tests/law-observability.test.ts",
+/**
+ * Law-domain unit tests are discovered from tests/, not listed by hand:
+ * a fixed list silently dropped every law test added after the list was
+ * written (citation-claim, law-reliability-final, law-title-dedup,
+ * decision-followup-trace, citation-linebreak, law-v6, ...). The patterns
+ * cover the law domain's file naming only — ax-*, learn-*, guide-* and
+ * other suites stay in their own CI jobs and are never pulled in here.
+ * E2E (tests/e2e) likewise stays in the integration job, not this gate.
+ */
+export const LAW_TEST_PATTERNS = [
+  /^law-.*\.test\.ts$/,
+  /^citation-.*\.test\.ts$/,
+  /^research-.*\.test\.ts$/,
+  /^decision-.*\.test\.ts$/,
+  /^ordinance-.*\.test\.ts$/,
 ];
+
+export function discoverLawTests(testsDir = "tests"): string[] {
+  let entries: string[] = [];
+  try {
+    entries = readdirSync(testsDir);
+  } catch {
+    return [];
+  }
+  return entries
+    .filter((entry) => LAW_TEST_PATTERNS.some((pattern) => pattern.test(entry)))
+    .sort()
+    .map((entry) => `${testsDir}/${entry}`);
+}
 
 /** `--live-result=pass|fail|hold` 파싱. 미지정 시 라이브 검증은 미실행(PENDING). */
 function parseLiveResult(argv: string[]): LiveVerification {
@@ -73,7 +86,12 @@ function parseLiveResult(argv: string[]): LiveVerification {
 }
 
 async function main(): Promise<void> {
-  const liveVerification = parseLiveResult(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  if (argv.includes("--list-tests")) {
+    for (const file of discoverLawTests()) console.log(file);
+    return;
+  }
+  const liveVerification = parseLiveResult(argv);
   const stages: StageResult[] = [];
   console.log("=== 1단계: 코드 품질 ===");
   stages.push(run("bun x tsc --noEmit", "typecheck"));
@@ -81,7 +99,12 @@ async function main(): Promise<void> {
   stages.push(run("bun run build", "build"));
 
   console.log("=== 2단계: 법령 회귀 (단위) ===");
-  stages.push(run(`bun x vitest run ${LAW_TESTS.join(" ")}`, "law unit tests"));
+  const lawTests = discoverLawTests();
+  if (!lawTests.length) {
+    stages.push({ name: "law unit tests", status: "FAIL", kind: "deterministic", detail: "no law tests discovered in tests/", ms: 0 });
+  } else {
+    stages.push(run(`bun x vitest run ${lawTests.join(" ")}`, "law unit tests"));
+  }
 
   console.log("=== 3단계: 법률 정확도 평가 ===");
   stages.push(run("bun scripts/law-accuracy/evaluate.ts", "accuracy evaluation"));
@@ -136,7 +159,9 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(2);
-});
+if (import.meta.main) {
+  main().catch((error) => {
+    console.error(error);
+    process.exit(2);
+  });
+}
