@@ -123,15 +123,26 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
         text(`네트워크·권한·아키텍처·SHA-256·종료 코드를 확인하고 파일/버전 확인 실패 시 중단하세요. 기존 임시 파일을 실패한 다운로드의 대안으로 실행하지 않습니다. ${tool === "codex" ? "Codex의 지원 명령은" : "Claude의 설치 진단은"} \`${guide.doctorCommand}\`으로 확인할 수 있습니다. 해당 도구의 공식 설치 문서를 우선합니다.`),
       ] },
     ] },
-    { title: "STEP 02 · 프로젝트 준비", purpose: "GitHub 클론 / 기존 로컬 프로젝트 / 새 프로젝트 중 하나", sections: [
-      { title: "A. GitHub에 있는 기존 프로젝트", when: "PC에 아직 없는 경우", blocks: [
-        code(['mkdir "C:\\Work"', 'cd "C:\\Work"', 'git clone "https://github.com/owner/repository.git"', 'cd "C:\\Work\\repository"', "git status"], ["URL·폴더명은 실제 값으로 바꾸세요. 이미 폴더가 있으면 mkdir을 건너뛰고 저장소를 중복 클론하지 마세요."]),
+    { title: "STEP 02 · 프로젝트 준비", purpose: "GitHub 클론 / 기존 로컬 프로젝트 / 다른 PC 작업 이어가기 / 새 프로젝트 중 하나", sections: [
+      { title: "A. GitHub에 있고 PC에는 없는 프로젝트", when: "GitHub 저장소를 현재 PC에 처음 가져오는 경우", blocks: [
+        code(['git clone "https://github.com/owner/repository.git"', 'cd "repository"', "git status"], ["URL과 폴더명은 실제 프로젝트 정보로 바꾸세요.", "현재 PowerShell 위치에 저장소 이름으로 폴더가 생성됩니다. 원하는 저장 위치가 있다면 먼저 해당 위치에서 PowerShell을 실행하세요."]),
       ] },
       { title: "B. PC에 이미 있는 프로젝트", when: "PC에 프로젝트 폴더가 있는 경우", blocks: [
-        code(['cd "C:\\Work\\repository"', "git status", "git branch --show-current", "git remote -v"], ["실제 경로·브랜치·원격 저장소를 확인하세요."]),
-        text("미커밋 변경이 있으면 git pull을 실행하지 말고 AI 도구에 현재 상태를 먼저 확인시킵니다. 기존 파일·설정·데이터를 보존합니다."),
+        code(['cd "C:\\Work\\repository"', "git status"], ["실제 프로젝트 폴더 경로로 변경하세요. 기존 파일과 변경사항을 확인한 후 작업을 시작하세요."]),
       ] },
-      { title: "C. 새 프로젝트", when: "새 폴더에서 시작하는 경우", blocks: [
+      { title: "C. 다른 PC에서 작업 이어가기", when: "다른 PC에서 GitHub에 반영한 최신 작업을 가져오는 경우", blocks: [
+        text("이미 프로젝트를 클론한 PC에서 진행합니다. PC에 프로젝트가 없다면 C가 아닌 A를 사용하세요."),
+        code(['cd "C:\\Work\\repository"', "git status", "git fetch origin", "git checkout main", "git pull --ff-only origin main"], []),
+        { kind: "steps", items: [
+          "git status: 현재 브랜치와 로컬 변경사항 확인",
+          "git fetch origin: GitHub의 최신 원격 정보 가져오기",
+          "git checkout main: main 브랜치로 전환",
+          "git pull --ff-only origin main: 불필요한 병합 커밋 없이 최신 코드 반영",
+        ] },
+        text("다른 PC의 작업이 GitHub에 푸시되어 있어야 합니다. 로컬 변경사항이 있다면 먼저 확인하고, 원격 기본 브랜치가 main이 아닌 경우 실제 브랜치명을 사용하세요."),
+        text("로컬 변경사항이 있을 때는 무조건 브랜치를 전환하거나 가져오지 말고 현재 상태를 먼저 확인하세요. 로컬에 main 브랜치가 없으면 해당 상태를 먼저 확인하세요. 충돌이 발생하면 데이터를 삭제하거나 강제로 덮어쓰는 방식으로 해결하지 마세요."),
+      ] },
+      { title: "D. 새 프로젝트", when: "새 폴더에서 시작하는 경우", blocks: [
         code(['mkdir "C:\\Work\\MyProject"', 'cd "C:\\Work\\MyProject"'], ["예시 경로를 실제 값으로 바꾸세요. 폴더가 이미 있으면 먼저 내용을 확인하고 mkdir은 건너뜁니다."]),
         text("특정 프레임워크를 임의로 정하지 않습니다. Git 저장 전 Git 저장소인지, remote가 연결됐는지, 대상 GitHub 저장소가 맞는지 확인합니다. Git 저장소가 아닌 경우에만 초기화하고 기존 저장소를 재초기화하거나 기존 remote를 덮어쓰지 않습니다. branch 이름을 main으로 강제하지 않습니다."),
         code(["git init", 'git remote add origin "https://github.com/owner/repository.git"', "git remote -v"], ["git init은 저장소가 아닐 때만, remote add는 저장소를 만들고 remote가 없을 때만 실행합니다. 원격에 초기 커밋이 있으면 먼저 이력을 확인하고 충돌 없이 연결합니다. 첫 push 전에 대상 원격을 다시 확인하세요."]),

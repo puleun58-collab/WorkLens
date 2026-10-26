@@ -133,12 +133,43 @@ describe("AX execution guides", () => {
   it.each(["codex", "claude"] as const)("protects existing repo, storage, secrets and outcomes: %s", tool => {
     const steps = setupGuide(tool);
     const all = JSON.stringify(steps);
-    const cases = steps[2].sections.filter(section => /^[ABC]\. /.test(section.title));
-    expect(cases).toHaveLength(3);
-    expect(cases.every(section => Boolean(section.when))).toBe(true);
-    expect(cases[0].blocks.flatMap(block => block.kind === "code" ? block.lines : [])).toContain('git clone "https://github.com/owner/repository.git"');
-    expect(JSON.stringify(cases[1])).toContain("미커밋 변경");
-    expect(JSON.stringify(cases[2])).toContain("재초기화");
+    const cases = steps[2].sections.filter(section => /^[ABCD]\. /.test(section.title));
+    expect(cases.map(section => section.title)).toEqual([
+      "A. GitHub에 있고 PC에는 없는 프로젝트",
+      "B. PC에 이미 있는 프로젝트",
+      "C. 다른 PC에서 작업 이어가기",
+      "D. 새 프로젝트",
+    ]);
+    expect(cases.map(section => section.when)).toEqual([
+      "GitHub 저장소를 현재 PC에 처음 가져오는 경우",
+      "PC에 프로젝트 폴더가 있는 경우",
+      "다른 PC에서 GitHub에 반영한 최신 작업을 가져오는 경우",
+      "새 폴더에서 시작하는 경우",
+    ]);
+    const codeLines = (section: (typeof cases)[number]) => section.blocks.flatMap(block => block.kind === "code" ? block.lines : []);
+    // A: 최초 클론은 clone → cd → status만, mkdir·fetch·pull 없음.
+    expect(codeLines(cases[0])).toEqual(['git clone "https://github.com/owner/repository.git"', 'cd "repository"', "git status"]);
+    expect(JSON.stringify(cases[0])).not.toContain("mkdir");
+    expect(JSON.stringify(cases[0])).not.toContain("git fetch");
+    expect(JSON.stringify(cases[0])).not.toContain("git pull");
+    expect(JSON.stringify(cases[0])).toContain("현재 PowerShell 위치에 저장소 이름으로 폴더가 생성됩니다.");
+    // B: cd와 status만, 원격 확인·동기화 명령 없음.
+    expect(codeLines(cases[1])).toEqual(['cd "C:\\Work\\repository"', "git status"]);
+    expect(JSON.stringify(cases[1])).not.toContain("git branch --show-current");
+    expect(JSON.stringify(cases[1])).not.toContain("git remote -v");
+    expect(JSON.stringify(cases[1])).toContain("실제 프로젝트 폴더 경로로 변경하세요. 기존 파일과 변경사항을 확인한 후 작업을 시작하세요.");
+    // C: 다른 PC 이어가기 — status → fetch → checkout main → pull --ff-only 순서와 주의 안내.
+    expect(codeLines(cases[2])).toEqual(['cd "C:\\Work\\repository"', "git status", "git fetch origin", "git checkout main", "git pull --ff-only origin main"]);
+    expect(JSON.stringify(cases[2])).toContain("PC에 프로젝트가 없다면 C가 아닌 A를 사용하세요.");
+    expect(JSON.stringify(cases[2])).toContain("git status: 현재 브랜치와 로컬 변경사항 확인");
+    expect(JSON.stringify(cases[2])).toContain("git fetch origin: GitHub의 최신 원격 정보 가져오기");
+    expect(JSON.stringify(cases[2])).toContain("git checkout main: main 브랜치로 전환");
+    expect(JSON.stringify(cases[2])).toContain("git pull --ff-only origin main: 불필요한 병합 커밋 없이 최신 코드 반영");
+    expect(JSON.stringify(cases[2])).toContain("다른 PC의 작업이 GitHub에 푸시되어 있어야 합니다. 로컬 변경사항이 있다면 먼저 확인하고, 원격 기본 브랜치가 main이 아닌 경우 실제 브랜치명을 사용하세요.");
+    expect(JSON.stringify(cases[2])).toContain("로컬 변경사항이 있을 때는 무조건 브랜치를 전환하거나 가져오지 말고 현재 상태를 먼저 확인하세요.");
+    expect(JSON.stringify(cases[2])).toContain("로컬에 main 브랜치가 없으면 해당 상태를 먼저 확인하세요.");
+    // D: 기존 새 프로젝트 안내가 그대로 이동.
+    expect(JSON.stringify(cases[3])).toContain("재초기화");
     for (const term of ["packageManager", "D1", "R2", "KV", "외부 DB", "git remote -v", "git diff --cached", "폐기 → 재발급", "기록 재작성", "PASS/FAIL/NOT_RUN/BLOCKED", "[REDACTED]"]) expect(all).toContain(term);
     expect(JSON.stringify(steps[5])).toContain("npm i -D wrangler@latest");
     expect(JSON.stringify(steps[7])).toContain("자동 배포라면 수동 명령을 중복 실행하지 않습니다");
