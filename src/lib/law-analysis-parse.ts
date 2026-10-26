@@ -235,7 +235,7 @@ function citationPhrase(text: string): string {
   return CITATION_PHRASES.reduce((value, [pattern, replacement]) => value.replace(pattern, replacement), text).trim();
 }
 
-const STATUS_ORDER = ["확인됨", "찾을 수 없음", "내용 불일치", "확인할 수 없음", "확인되지 않음", "폐지 법령", "확인 필요", "호 확인 중", "호 확인 필요", "조회 실패", "검증하지 않음"];
+const STATUS_ORDER = ["확인됨", "찾을 수 없음", "내용 불일치", "직접 근거 미확인", "확인할 수 없음", "확인되지 않음", "폐지 법령", "확인 필요", "호 확인 중", "호 확인 필요", "조회 실패", "검증하지 않음"];
 
 function citationStatus(symbol: CitationItem["symbol"], text: string, group: CitationItem["group"]): Pick<CitationItem, "label" | "tone"> {
   if (symbol === "✓") return { label: "확인됨", tone: "verified" };

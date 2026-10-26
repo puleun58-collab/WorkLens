@@ -826,6 +826,34 @@ test("citation evidence checks a cited 호, recovers a failed lookup and shows p
   expect(textCalls).toBe(3);
 });
 
+test("citation claim support separates existence from claim support in mixed input", async ({ page }) => {
+  // The verifier confirmed both articles exist; the local claim check keeps
+  // the supported one confirmed and demotes the mismatched one, and the
+  // overall banner must not claim full confirmation.
+  await page.route("**/api/law/analysis", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: {
+    found: true, mode: "verify_citations", markers: ["VERIFIED"],
+    text: "[VERIFIED] == 인용 검증 결과 ==\n법령 인용 2건 | ✓ 2 실존\n\n▶ 법령 인용\n✓ 민법 제750조(불법행위의 내용) 실존\n✓ 민법 제75조(총회의 결의방법) 실존",
+    claimSupport: [
+      { index: 0, verdict: "supported", reason: "" },
+      { index: 1, verdict: "mismatch", reason: "조문은 존재하지만, 입력한 법적 주장과 조문 내용(총회의 결의방법)이 맞지 않습니다." },
+    ],
+  } }) }));
+  await page.goto("/");
+  await navigateWorkspace(page, "법령");
+  await page.getByRole("tab", { name: "검증·분석", exact: true }).click();
+  await page.getByLabel("검증할 문장을 입력하세요.").fill("민법 제750조에 따라 고의 또는 과실로 인한 위법행위로 타인에게 손해를 가한 자는 손해배상책임이 있고, 민법 제75조에 따라 손해배상을 청구할 수 있다.");
+  await page.locator(".legal-analysis-form").getByRole("button", { name: "실행" }).click();
+
+  const output = page.locator(".legal-analysis-output");
+  await expect(output.locator(".legal-analysis-overall")).toHaveText("법제처 자료에서 확인되지 않거나 인용 내용이 실제와 다른 항목이 있습니다.");
+  await expect(output.locator(".legal-analysis-lines")).toContainText("법령 인용 2건 · 확인 1건 · 내용 불일치 1건");
+  const items = output.locator(".legal-analysis-citations li");
+  await expect(items.nth(0).locator(".legal-analysis-status")).toHaveText("확인됨");
+  await expect(items.nth(1).locator(".legal-analysis-status")).toHaveText("내용 불일치");
+  await expect(items.nth(1)).toContainText("조문은 존재하지만, 입력한 법적 주장과 조문 내용(총회의 결의방법)이 맞지 않습니다.");
+  await expect(output.locator(".legal-analysis-overall")).not.toHaveText("추출된 인용이 모두 확인되었습니다.");
+});
+
 test("applicable law separates decision from legal source across transition and lookup states", async ({ page }) => {
   const title = "═══ 행위시법 판단: 도로교통법 @ 2023.05.10 ═══";
   const version = "▶ 기준일에 시행 중이던 버전\n  도로교통법 [시행 2023.04.04] (MST 247265)\n  ⚠️ 시행 예정 개정 1건 존재 — 시행 2027.06.03";

@@ -8,6 +8,7 @@ import {
 } from "@/lib/citation-evidence";
 import { decisionSearchOutcome, decisionTextOutcome, type DecisionEntry } from "@/lib/decision-search";
 import { citationCounts, citationGroupLine, citationOverallLabel, type CitationGroupSummary, type CitationItem } from "@/lib/law-analysis-parse";
+import type { ClaimSupportEntry } from "@/lib/citation-claim";
 import { lawDisplayText } from "@/lib/law-display";
 import { exactCurrentLaw, formatLawDate, lawOutcome, lawTextOutcome, type LawEntry } from "@/lib/law-search";
 import { LawTextBlock } from "./LawTextBlock";
@@ -130,13 +131,48 @@ function citationLabel(target: EvidenceTarget): string {
   return target.law?.ho ? `${target.item.citation} 제${target.law.ho}호` : target.item.citation;
 }
 
-export function CitationResult({ items, groups, overallMarker, notes, input, verifiedAt }: {
+/**
+ * Claim-support override, applied after the 호 check. The server indexes
+ * assessments by position among law citations only, so the client re-derives
+ * that same position here. A 호-level existence failure (critical) stands —
+ * the claim verdict is about the 조 text and cannot rescue a missing 호 —
+ * but a pending 호 (unknown) does not block a mismatch verdict. Supported
+ * leaves the item alone; absence of an entry leaves it alone too, so older
+ * responses without claimSupport render exactly as before.
+ */
+function applyClaimSupport(
+  shown: CitationItem[],
+  targets: readonly EvidenceTarget[],
+  claimSupport: readonly ClaimSupportEntry[] | undefined,
+): { items: CitationItem[]; reasons: Map<string, string> } {
+  const reasons = new Map<string, string>();
+  if (!claimSupport?.length) return { items: shown, reasons };
+  const byIndex = new Map(claimSupport.map((entry) => [entry.index, entry]));
+  let lawPosition = -1;
+  const items = shown.map((item, index) => {
+    if (targets[index].item.group !== "law") return item;
+    lawPosition += 1;
+    const entry = byIndex.get(lawPosition);
+    if (!entry || entry.verdict === "supported") return item;
+    if (item.tone === "critical" && item !== targets[index].item) return item;
+    if (entry.verdict === "mismatch") {
+      reasons.set(targets[index].key, entry.reason);
+      return { ...item, label: "내용 불일치", tone: "critical" as const };
+    }
+    reasons.set(targets[index].key, entry.reason);
+    return { ...item, label: "직접 근거 미확인", tone: "unknown" as const };
+  });
+  return { items, reasons };
+}
+
+export function CitationResult({ items, groups, overallMarker, notes, input, verifiedAt, claimSupport }: {
   items: readonly CitationItem[];
   groups: readonly CitationGroupSummary[];
   overallMarker?: string;
   notes: ReactNode;
   input: string;
   verifiedAt: number;
+  claimSupport?: readonly ClaimSupportEntry[];
 }) {
   const targets = useMemo(() => evidenceTargets(items, input), [items, input]);
   const [states, setStates] = useState<Record<string, EvidenceState>>({});
@@ -161,11 +197,14 @@ export function CitationResult({ items, groups, overallMarker, notes, input, ver
     load(targets.filter((target) => target.law?.ho));
   }, [load, targets]);
 
-  const shown = targets.map((target) => effectiveItem(target, states[target.key]));
-  const hoPending = shown.some((item, index) => item !== targets[index].item && item.tone === "unknown");
-  const hoMissing = shown.some((item, index) => item !== targets[index].item && item.tone === "critical");
-  const marker = hoMissing ? "HALLUCINATION_DETECTED"
-    : hoPending && (overallMarker === "VERIFIED" || overallMarker === "REPEALED_REFERENCE") ? "PARTIAL_VERIFIED"
+  const hoShown = targets.map((target) => effectiveItem(target, states[target.key]));
+  const { items: shown, reasons: claimReasons } = applyClaimSupport(hoShown, targets, claimSupport);
+  const hoPending = hoShown.some((item, index) => item !== targets[index].item && item.tone === "unknown");
+  const hoMissing = hoShown.some((item, index) => item !== targets[index].item && item.tone === "critical");
+  const claimMissing = shown.some((item, index) => item.tone === "critical" && hoShown[index].tone !== "critical");
+  const claimPending = shown.some((item) => item.label === "직접 근거 미확인");
+  const marker = claimMissing || hoMissing ? "HALLUCINATION_DETECTED"
+    : (hoPending || claimPending) && (overallMarker === "VERIFIED" || overallMarker === "REPEALED_REFERENCE") ? "PARTIAL_VERIFIED"
       : overallMarker;
   const shownGroups = groups.map((group) => ({ ...group, counts: citationCounts(shown.filter((item) => item.group === group.group)) }));
   const byGroup = (["law", "case"] as const).map((group) => ({ group, entries: targets.flatMap((target, index) => target.item.group === group ? [{ target, item: shown[index] }] : []) }));
@@ -180,6 +219,7 @@ export function CitationResult({ items, groups, overallMarker, notes, input, ver
         {entries.map(({ target, item }) => <li key={target.key} className={`is-${item.tone}`} data-markers={item.markers.join(" ")}>
           <span className="legal-analysis-status">{item.label}</span>
           <span className="legal-analysis-citation-text">{lawDisplayText(citationLabel(target))}</span>
+          {claimReasons.get(target.key) && <span className="law-search-note">{claimReasons.get(target.key)}</span>}
         </li>)}
       </ul>
     </div> : null)}

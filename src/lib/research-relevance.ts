@@ -106,18 +106,19 @@ export function questionTerms(query: string): string[] {
  * legal term.
  */
 export function questionSubjectTerms(query: string): string[] {
-  return questionTerms(query).filter((term) => !GENERIC_TERMS.has(term) && !ACTOR_TERMS.has(term));
+  return questionTerms(query).filter(isSubjectTerm);
 }
 
 /**
  * Whether a phrase names no subject at all: every term is a generic
- * procedure/effect word or an actor word. Such a phrase cannot name its
- * regime upstream ("피해자 보호" retrieves every victim-protection law but
- * the workplace one), so a retry qualifies it with the request's subjects.
+ * procedure/effect word, an actor word, or sentence scaffolding (따른, 각각).
+ * Such a phrase cannot name its regime upstream ("피해자 보호" retrieves
+ * every victim-protection law but the workplace one), so a retry qualifies
+ * it with the request's subjects.
  */
 export function questionTermsSubjectLess(query: string): boolean {
   const terms = questionTerms(query).filter((term) => !isLawName(term));
-  return terms.length > 0 && terms.every((term) => GENERIC_TERMS.has(term) || ACTOR_TERMS.has(term));
+  return terms.length > 0 && terms.every((term) => GENERIC_TERMS.has(term) || ACTOR_TERMS.has(term) || SUBJECT_STOP.has(term));
 }
 
 /** Any occurrence at all, including inside a longer compound (사용자등록 for 사용자). */
@@ -211,6 +212,16 @@ const ACTOR_TERMS = new Set([
   "사용자", "근로자", "사업주", "고용주", "피해자", "가해자", "행위자", "피고", "원고",
   "신청인", "피신청인", "채무자", "채권자", "임대인", "임차인",
 ]);
+
+/** Sentence scaffolding that names no subject: it survives questionTerms (에 따른, 각각, 확인해 줘) yet anchors in almost any article ("제X조에 따른 …"), so it must never count as a request subject for rule (B). Without this, a subject-less issue (조사 의무, 피해자 보호) adopts any regime's provision that happens to contain its generic term plus 따른. */
+const SUBJECT_STOP = new Set([
+  "따른", "따라", "각각", "확인해", "확인", "알려줘", "알려주세요", "궁금해", "궁금해요",
+  "대해", "관해", "관련", "기준", "경우", "때",
+]);
+
+function isSubjectTerm(term: string): boolean {
+  return !GENERIC_TERMS.has(term) && !ACTOR_TERMS.has(term) && !SUBJECT_STOP.has(term);
+}
 
 /**
  * Whether every content token of a title is explained by the request's own
@@ -355,7 +366,7 @@ export function researchEvidenceSources(text: string, query: string, enrichment?
   const terms = questionTerms(query).filter((term) => !isLawName(term));
   if (!terms.length) return { articles: [], precedents: [] };
   const request = [...new Set((requestTerms ?? []).filter((term) => !isLawName(term)))];
-  const subjectTerms = request.filter((term) => !terms.includes(term) && !GENERIC_TERMS.has(term) && !ACTOR_TERMS.has(term));
+  const subjectTerms = request.filter((term) => !terms.includes(term) && isSubjectTerm(term));
   const subjectLess = terms.every((term) => GENERIC_TERMS.has(term) || ACTOR_TERMS.has(term));
   const useDomainRule = subjectLess && subjectTerms.length > 0;
   const combined = [...new Set([...terms, ...subjectTerms])];
@@ -363,7 +374,7 @@ export function researchEvidenceSources(text: string, query: string, enrichment?
   // For an unread question the request is the issue itself, so its subjects
   // come from its own terms rather than from sibling issues.
   const fallbackSubjects = options?.fallback
-    ? terms.filter((term) => !GENERIC_TERMS.has(term) && !ACTOR_TERMS.has(term)) : [];
+    ? terms.filter(isSubjectTerm) : [];
   const addresses = (content: string) => {
     if (!content.trim()) return false;
     if (options?.fallback) {
