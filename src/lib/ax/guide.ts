@@ -173,7 +173,8 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
         text("수치는 현재 공식 정책에 근거한 예시이며 가입·배포 전 최신 정책을 확인하세요. https://vercel.com/docs/plans/hobby · https://developers.cloudflare.com/workers/platform/pricing/"),
       ] },
       { title: "Cloudflare의 Wrangler", when: "프로젝트가 Wrangler를 실제 사용하는 경우만", collapsed: true, blocks: [
-        text("기존 packageManager·lockfile·Wrangler 버전·스크립트를 유지합니다. 새 npm Cloudflare 프로젝트에 Wrangler CLI가 필요하고 없을 때에만 다음 명령으로 로컬 devDependency에 설치합니다. 기존 Pages/Git 자동 배포에 CLI를 추가하지 않습니다."),
+        text("기존 packageManager·lockfile·Wrangler 버전·스크립트를 유지합니다. 새 npm Cloudflare 프로젝트에 Wrangler CLI가 필요하고 없을 때에만 다음 명령으로 로컬 devDependency에 설치합니다."),
+        text("기존 Pages/Git 자동 배포에 CLI를 추가하지 않습니다."),
         code(["npm i -D wrangler@latest", "npx wrangler --version"], ["새 npm Cloudflare 프로젝트에만 적용; 다른 매니저·기존 프로젝트에는 해당 설정을 우선합니다."]),
         text("출처: https://developers.cloudflare.com/workers/wrangler/install-and-update/"),
       ] },

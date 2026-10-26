@@ -1,5 +1,5 @@
 /* AI·AX 학습센터 — WorkLens B2B 디자인 유지, 차분한 학습 화면 */
-.learn-view { color: var(--foreground); padding: 0 0 40px; font-size: var(--font-size-sm); line-height: 1.7; word-break: keep-all; overflow-wrap: anywhere; }
+.learn-view { color: var(--foreground); padding: 0 0 40px; font-size: var(--font-size-sm); line-height: 1.7; word-break: keep-all; overflow-wrap: anywhere; text-wrap: pretty; }
 .learn-view h2 { font-size: 21px; font-weight: 650; margin: 20px 0 12px; }
 .learn-view h3 { font-size: 17px; font-weight: 650; margin: 0 0 12px; }
 .learn-view h4 { font-weight: 600; margin: 12px 0 6px; }

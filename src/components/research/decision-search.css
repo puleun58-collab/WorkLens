@@ -1,4 +1,4 @@
-.decision-search { display: grid; gap: 24px; width: 100%; min-width: 0; }
+.decision-search { display: grid; gap: 24px; width: 100%; min-width: 0; word-break: keep-all; text-wrap: pretty; }
 .decision-search-form { min-width: 0; }
 .decision-search-fields { display: grid; grid-template-columns: minmax(150px, 220px) minmax(0, 1fr) auto; align-items: end; gap: 8px; }
 .decision-search-fields label { display: grid; min-width: 0; gap: 8px; color: var(--ink-soft); font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); }
@@ -18,7 +18,7 @@
 .decision-detail h2 { margin: 0 0 8px; overflow-wrap: anywhere; }
 .decision-detail-actions { display: flex; flex-wrap: wrap; gap: 8px 24px; }
 .decision-detail-content { display: grid; justify-items: start; gap: 12px; }
-.decision-detail-raw { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; margin: 0; padding: 16px; border: 1px solid var(--line-soft, var(--line)); border-radius: var(--radius-panel, 8px); background: var(--paper); color: var(--ink); font: inherit; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
+.decision-detail-raw { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; margin: 0; padding: 16px; border: 1px solid var(--line-soft, var(--line)); border-radius: var(--radius-panel, 8px); background: var(--paper); color: var(--ink); font: inherit; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; word-break: keep-all; }
 .decision-feedback { display: grid; gap: 8px; justify-items: start; }
 @media (max-width: 640px) {
   .decision-search-fields { grid-template-columns: minmax(0, 1fr); }
