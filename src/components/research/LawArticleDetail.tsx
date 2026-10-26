@@ -20,7 +20,10 @@ export function LawArticleDetail({ text, jo, target }: { text: string; jo: strin
   }, [text, jo, target]);
 
   useEffect(() => {
-    if (!computed.fallback) firstTargetRef.current?.scrollIntoView({ block: "start" });
+    // Instant, not the document's smooth scroll: the arrival screenshot and
+    // the first paint must already show the target. Sibling move-to-target
+    // scrolling (ContractReviewResult, LegalResearch) uses "instant" too.
+    if (!computed.fallback) firstTargetRef.current?.scrollIntoView({ behavior: "instant", block: "start" });
   }, [computed, text, jo, target]);
 
   if (computed.fallback) {

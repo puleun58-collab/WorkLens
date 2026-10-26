@@ -186,6 +186,16 @@ test("RESEARCH law article query moves to the requested 항·호, clears on retu
   await expect(page.locator("#law-detail-heading")).toHaveText("근로기준법");
   await expect(page.locator("#law-article-target")).toHaveText("⑥ 다음 각 호의 어느 하나에 해당하는 기간은 출근한 것으로 본다.");
   await expect(page.locator(".law-target-line")).toHaveText(["⑥ 다음 각 호의 어느 하나에 해당하는 기간은 출근한 것으로 본다.", "3. 호셋"]);
+  // The highlight must be visually distinguishable, not just present in the DOM:
+  // the previous --blue-pale fill (#f5f9ff on #ffffff paper) was ~1.06:1
+  // contrast and invisible in screenshots. The focus pattern keeps a visible
+  // background plus an inset border.
+  const targetStyle = await page.locator("#law-article-target").evaluate((el) => {
+    const style = getComputedStyle(el);
+    return { bg: style.backgroundColor, shadow: style.boxShadow };
+  });
+  expect(targetStyle.bg).not.toBe("rgb(255, 255, 255)");
+  expect(targetStyle.shadow).not.toBe("none");
   // Returning to the full text clears the move target: no highlight, no fallback notice.
   await page.getByRole("button", { name: "← 법령 원문으로" }).click();
   await expect(page.locator(".law-target-line")).toHaveCount(0);
@@ -196,6 +206,59 @@ test("RESEARCH law article query moves to the requested 항·호, clears on retu
   await input.press("Enter");
   await expect(page.getByText("해당 항목의 위치를 확인할 수 없어 조문 전체를 표시합니다.")).toBeVisible();
   await expect(page.locator(".law-detail-raw")).toContainText("⑦ 항일곱");
+});
+
+test("RESEARCH law article query scrolls to the target immediately on a long article", async ({ page }) => {
+  // The live miss: with the document's smooth scroll, an arrival screenshot
+  // showed the pre-scroll state, and the pale highlight was invisible even
+  // after scrolling. Instant scrolling + the visible focus pattern must put
+  // the target row in the viewport as soon as the detail renders.
+  const filler = (from: number, count: number) =>
+    Array.from({ length: count }, (_, i) => `보충 설명 문장 ${from + i}. `.repeat(6)).join("\n");
+  const long60 = [
+    "법령명: 근로기준법",
+    "",
+    "제60조 연차 유급휴가",
+    "제60조(연차 유급휴가)",
+    "① 사용자는 그 사업장에서 1년간 80퍼센트 이상 출근한 근로자에게 15일의 유급휴가를 주어야 한다.",
+    filler(1, 25),
+    "② 사용자는 계속하여 근로한 기간이 1년 미만인 근로자에게 1개월 개근 시 1일의 유급휴가를 주어야 한다.",
+    filler(26, 15),
+    "③ 사용자는 근로자의 최초 1년간의 근로에 대하여 유급휴가를 주는 경우에는 제2항에 따른 휴가를 포함하여 15일로 한다.",
+    "④ 사용자는 3년 이상 계속하여 근로한 근로자에게는 제1항에 따른 휴가에 최초 1년을 초과하는 계속 근로 연수 매 2년에 대하여 1일을 가산한 유급휴가를 주어야 한다.",
+    "⑤ 사용자는 제1항부터 제4항까지의 규정에 따른 휴가를 근로자가 청구한 시기에 주어야 한다.",
+    "⑥ 다음 각 호의 어느 하나에 해당하는 기간은 출근한 것으로 본다.",
+    "1. 근로자가 업무상의 부상 또는 질병으로 휴업한 기간",
+    "2. 임신 중의 여성이 제74조제1항부터 제3항까지의 규정에 따른 휴가로 휴업한 기간",
+    "3. 「남녀고용평등과 일·가정 양립 지원에 관한 법률」 제19조에 따른 육아휴직으로 휴업한 기간",
+    "⑦ 제6항 각 호의 기간에 대하여는 출근한 것으로 본다.",
+  ].join("\n");
+  await page.route("**/api/law", (route) => route.fulfill({ status: 200, contentType: "application/json",
+    body: JSON.stringify({ data: { found: true, laws: [{ name: "근로기준법", status: "현행", lawId: "001872", mst: "283457", kind: "법률" }] } }) }));
+  await page.route("**/api/law/text", (route) => route.fulfill({ status: 200, contentType: "application/json",
+    body: JSON.stringify({ data: { found: true, mode: "article", name: "근로기준법", text: long60 } }) }));
+  await page.goto("/");
+  await navigateWorkspace(page, "법령");
+  const input = page.getByRole("searchbox");
+  await input.fill("근로기준법 제60조 제6항 제3호");
+  await input.press("Enter");
+  await expect(page.locator("#law-article-target")).toBeVisible();
+  await expect(page.locator(".law-target-line")).toHaveText([
+    "⑥ 다음 각 호의 어느 하나에 해당하는 기간은 출근한 것으로 본다.",
+    "3. 「남녀고용평등과 일·가정 양립 지원에 관한 법률」 제19조에 따른 육아휴직으로 휴업한 기간",
+  ]);
+  const viewportHeight = page.viewportSize()?.height ?? 900;
+  const inViewport = await page.locator("#law-article-target").evaluate((el, height) => {
+    const rect = el.getBoundingClientRect();
+    return rect.top >= 0 && rect.bottom <= height;
+  }, viewportHeight);
+  expect(inViewport).toBe(true);
+  const targetStyle = await page.locator("#law-article-target").evaluate((el) => {
+    const style = getComputedStyle(el);
+    return { bg: style.backgroundColor, shadow: style.boxShadow };
+  });
+  expect(targetStyle.bg).not.toBe("rgb(255, 255, 255)");
+  expect(targetStyle.shadow).not.toBe("none");
 });
 
 test("RESEARCH law search sends only the query and separates results, no result and outages", async ({ page }) => {
