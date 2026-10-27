@@ -60,6 +60,12 @@ const assistantRequestSchema = z.object({
   }).strict().optional(),
   // Previous question for follow-up understanding ("그럼 Level 2는?" after "Level 1이 뭐야?").
   followUpOf: z.string().trim().min(1).max(1000).optional(),
+  // Topic anchor: the last law/learn-bearing question in this conversation.
+  // A marker-less follow-up chain loses its topic after one hop when only the
+  // immediately previous question is sent, so the widget also sends the anchor
+  // for intent and evidence selection (never as evidence, never as the
+  // "previous question" shown to the model). Absent for old clients.
+  topicAnchor: z.string().trim().min(1).max(1000).optional(),
   // Previous assistant answer (bounded): the widget sends back the model's own
   // prior answer so a follow-up can build on it instead of repeating it.
   // It is context only, never evidence, and is truncated again server-side.
@@ -121,6 +127,9 @@ export async function POST(request: Request) {
     const context = sanitizeContext(parsed.data.context);
     const learnCtx = sanitizeLearnContext(parsed.data.learnContext);
     const followUpOf = parsed.data.followUpOf;
+    // Topic source for intent/evidence: the conversation anchor when the
+    // widget sends one, otherwise the immediately previous question (legacy).
+    const topicSource = parsed.data.topicAnchor ?? followUpOf;
 
     // Resolve a follow-up answer ("첫 번째요") against a pending clarification.
     // The clarify payload is client-generated; validate it matches known options.
@@ -224,18 +233,19 @@ export async function POST(request: Request) {
     // of falling back to no-evidence. A question carrying its own markers
     // selects with the existing query only, so a topic switch is not
     // polluted by the previous topic's keywords.
-    const selectionQuery = followUpOf && classifyEvidenceIntent(effectiveQuestion) === "general"
-      ? `${followUpOf} ${effectiveQuestion}`
+    const selectionQuery = topicSource && classifyEvidenceIntent(effectiveQuestion) === "general"
+      ? `${topicSource} ${effectiveQuestion}`
       : evidenceQuery;
     const learnBuilt = buildLearnEvidence(selectionQuery, learnCtx);
     // Intent comes from the current question when it carries its own markers.
-    // For a marker-less follow-up, inherit the previous question's intent no
-    // matter how long the follow-up is: it is a continuation of the previous
-    // topic by definition (a long law follow-up must not drift to learn
-    // evidence just because it exceeds the short-follow-up concatenation
-    // heuristic). The concatenated query still supplies keyword selection.
-    const evidenceIntent = followUpOf
-      ? resolveFollowUpIntent(effectiveQuestion, followUpOf)
+    // For a marker-less follow-up, inherit the conversation topic (anchor when
+    // sent, else the previous question) no matter how long the follow-up is:
+    // it is a continuation of the previous topic by definition (a long law
+    // follow-up must not drift to learn evidence just because it exceeds the
+    // short-follow-up concatenation heuristic). The concatenated query still
+    // supplies keyword selection.
+    const evidenceIntent = topicSource
+      ? resolveFollowUpIntent(effectiveQuestion, topicSource)
       : resolveEvidenceIntent(effectiveQuestion, evidenceQuery);
     const evidence = filterEvidenceByIntent(learnBuilt.evidence, selectEvidence(selectionQuery), evidenceIntent);
     if (!evidence.length) {

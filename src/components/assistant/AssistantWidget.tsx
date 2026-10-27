@@ -8,6 +8,7 @@ import { readLearnScreen, type LearnScreenMode } from "@/client/learn-screen";
 import { automationLevel, executionGate, GATE_LABELS } from "@/lib/ax/policy";
 import { planSummary } from "@/lib/ax/guide";
 import { loadLearnProgress } from "@/lib/learn/progress-store";
+import { topicAnchorForRequest, updateTopicAnchor } from "@/lib/assistant/topics";
 import type { QuizAttempt } from "@/lib/learn/types";
 import "./assistant.css";
 
@@ -218,6 +219,7 @@ async function askAssistant(
   context: ScreenContext | null,
   clarify: { clarifyId: string; originalQuestion: string; options: string[] } | null,
   followUpOf: string | null,
+  topicAnchor: string | null,
   contextStatus: ContextStatus | null,
   learnContext: LearnContextPayload | null,
   signal: AbortSignal,
@@ -233,6 +235,7 @@ async function askAssistant(
       ...(context ? { context } : {}),
       ...(clarify ? { clarify } : {}),
       ...(followUpOf ? { followUpOf } : {}),
+      ...(topicAnchor ? { topicAnchor } : {}),
       ...(previousAnswer ? { previousAnswer } : {}),
       ...(contextStatus && contextStatus !== "available" ? { contextStatus } : {}),
       ...(learnContext ? { learnContext } : {}),
@@ -283,6 +286,10 @@ export function AssistantWidget() {
   const clarifyRef = useRef<{ clarifyId: string; originalQuestion: string; options: string[] } | null>(null);
   /** Last user question for follow-up understanding. Cleared on conversation reset. */
   const lastQuestionRef = useRef<string | null>(null);
+  /** Last law/learn-bearing question: the topic anchor for marker-less
+   * follow-up chains (a chain loses its topic after one hop on the immediate
+   * previous question alone). Cleared on conversation reset. */
+  const topicAnchorRef = useRef<string | null>(null);
   /** Last assistant answer (bounded) for follow-up understanding: the model
    * builds on it instead of repeating it. Cleared on conversation reset. */
   const lastAssistantAnswerRef = useRef<string | null>(null);
@@ -352,6 +359,9 @@ export function AssistantWidget() {
     // Follow-up context: pass the previous question so short follow-ups can be understood.
     // Skip when resolving a clarification (the clarify payload already carries context).
     const followUpOf = pendingClarify ? null : lastQuestionRef.current;
+    // Topic anchor for marker-less follow-ups; skipped when resolving a
+    // clarification (the clarify payload already carries context).
+    const topicAnchor = pendingClarify ? null : topicAnchorForRequest(question, topicAnchorRef.current);
     // Previous answer (bounded) so a follow-up builds on it instead of repeating it.
     const previousAnswer = followUpOf && lastAssistantAnswerRef.current
       ? lastAssistantAnswerRef.current.slice(0, 600)
@@ -364,11 +374,12 @@ export function AssistantWidget() {
       const contextStatus = !withContext ? null : context ? null : (await readScreenContextStatus().catch(() => ({ status: "access-failed" as const, taskId: null }))).status;
       const learnContext = await readLearnContext().catch(() => null);
       if (requestId !== requestSeqRef.current) return;
-      const { answer, sources, relatedInfo, relatedScreens, kind, clarify } = await askAssistant(question, context, pendingClarify, followUpOf, contextStatus, learnContext, controller.signal, previousAnswer);
+      const { answer, sources, relatedInfo, relatedScreens, kind, clarify } = await askAssistant(question, context, pendingClarify, followUpOf, topicAnchor, contextStatus, learnContext, controller.signal, previousAnswer);
       if (requestId !== requestSeqRef.current) return;
       // Remember this question and answer for the next follow-up.
       lastQuestionRef.current = question;
       lastAssistantAnswerRef.current = answer;
+      if (!pendingClarify) topicAnchorRef.current = updateTopicAnchor(question, topicAnchorRef.current);
       if (kind === "clarify" && clarify) clarifyRef.current = clarify;
       // Consent: capture the selected task id at request time so acceptConsent can re-validate.
       if (kind === "consent") {
@@ -423,6 +434,7 @@ export function AssistantWidget() {
     clarifyRef.current = null;
     consentRef.current = null;
     lastQuestionRef.current = null;
+    topicAnchorRef.current = null;
     lastAssistantAnswerRef.current = null;
     setMessages([{ id: nextId(), role: "assistant", text: "안녕하세요! 렌즈봇입니다.\n업무 분석, 자동화 진단, 기능 사용 방법 등\n무엇이든 질문해 주세요.", greeting: true }]);
     setLoading(false);

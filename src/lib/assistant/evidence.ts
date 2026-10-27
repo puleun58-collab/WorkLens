@@ -173,6 +173,25 @@ export const ASSISTANT_EVIDENCE: AssistantEvidence[] = [
     kind: "policy",
   },
   {
+    id: "law-error-types",
+    screen: "법령 > 종합 리서치",
+    title: "법령 오류 유형 구분",
+    text: "법령 오류는 한 가지 '환각'으로 뭉뚱그릴 수 없습니다. 생성 환각은 존재하지 않는 법령·조문·판례를 만들어내는 오류로, 법령 MCP의 실제 자료 조회·확인으로 억제되지만 MCP 사용만으로 완전히 사라졌다고 단정하지는 않습니다. 원문에 없는 내용을 AI 설명에 덧붙인 경우 그 설명 자체의 오류 가능성도 인정합니다. 근거 매칭 오류는 실제 존재하지만 질문·쟁점과 직접 관련되지 않은 근거를 선택하는 오류입니다. 해석 오류는 실제 조문의 의미·요건·예외를 잘못 설명하는 오류입니다. 적용 시점 오류는 개정 전후 법령이나 시행일을 잘못 적용하는 오류로, 법제처 자료의 공포일·시행일·현행 여부를 확인하는 대상입니다. 근거 누락은 실제 관련 자료가 존재하지만 검색·채택되지 않은 오류입니다. 원문 조회 실패는 MCP 장애·응답 누락·시간 초과로 자료를 확보하지 못한 상태로, 검색 결과 없음과는 다릅니다. 검증은 네 단계로 구분합니다: 원문이 실제 존재하는지, 질문·쟁점과 관련 있는지, 원문을 정확하게 해석했는지, 실제 사건에 적용할 수 있는지. '직접 관련된 근거가 충분하지 않다'는 법령 자체가 없다는 뜻이 아니며, '자료 조회를 완료하지 못했다'는 자료가 없다는 뜻이 아닙니다.",
+    // NOTE: relevanceScore splits keywords on "|", so no (|) groups here:
+    // each alternative must be a standalone pattern.
+    keywords: /법령.*환각|환각.*법령|mcp.*환각|환각.*mcp|근거\s*매칭|매칭\s*오류|해석\s*오류|적용\s*시점|시행일|근거\s*누락|조회\s*실패|오류\s*유형|법령.*틀|법령.*잘못|법령.*오류|근거\s*부족|자료\s*없음/iu,
+    kind: "policy",
+  },
+  {
+    id: "law-mcp-value",
+    screen: "법령 > 종합 리서치",
+    title: "법령 MCP 연동의 가치",
+    text: "법령 MCP 연동의 차이는 공식 자료 기반 조회에 있습니다. 법제처 MCP를 통해 실제 법령·판례 자료를 조회하므로 AI가 기억만으로 법령을 제시하는 방식과 달리 실제 원문의 존재를 확인할 수 있습니다. WorkLens 검증 방식은 쟁점별로 근거가 해당 쟁점을 다루는지 확인하고, 채택된 근거를 기준으로 관련 근거 확인, 일부 확인, 직접 관련 충분하지 않음, 확인 못함, 조회 완료 못함 상태를 구분하며, 확인된 근거와 참고 목록·미확인 항목을 구분해 표시하는 것입니다. 확인 경로는 종합 리서치 결과의 상세 근거이며, 발췌는 전문이 아니므로 조문 전문은 법령 검색에서 확인합니다. 렌즈봇은 이 기능을 설명할 뿐 법령 MCP를 직접 조회하지 않습니다. 남은 오류는 근거 매칭·해석·적용 시점 오류와 근거 누락·조회 실패이며, 완전히 제거됐다고 보장하지 않습니다. 검증된 정확도·오류 감소 수치는 근거에 없습니다.",
+    // NOTE: relevanceScore splits keywords on "|", so no (|) groups here.
+    keywords: /법령.*mcp|mcp.*법령|mcp.*의미|mcp.*연동|mcp.*연결|mcp.*가치|mcp.*왜|mcp.*뭐|법령.*의미|법령.*가치|법령.*믿|법령.*신뢰|신뢰.*법령|일반\s*ai.*다른|일반\s*ai.*달라|일반\s*ai.*차이|일반.*다른|일반.*달라|일반.*차이/iu,
+    kind: "policy",
+  },
+  {
     id: "law-lensbot-role",
     screen: "렌즈봇",
     title: "렌즈봇과 법령 기능의 역할",
@@ -346,6 +365,8 @@ export function selectEvidence(question: string): AssistantEvidence[] {
 export const LAW_EVIDENCE_IDS: ReadonlySet<string> = new Set([
   "law-research",
   "law-mcp-design",
+  "law-error-types",
+  "law-mcp-value",
   "law-lensbot-role",
   "law-accuracy-limits",
   "law-evidence-check",
@@ -353,10 +374,17 @@ export const LAW_EVIDENCE_IDS: ReadonlySet<string> = new Set([
   "doc-review",
 ]);
 
+/** Coding-agent execution entries: unrelated to a law-function question. */
+const CODING_AGENT_EVIDENCE_IDS: ReadonlySet<string> = new Set([
+  "ax-prompt",
+  "ax-mvp",
+]);
+
 /**
  * Merge learn and stat evidence for one question intent.
  * - law: drop learn-unit evidence (a law-function question must not cite general
- *   AI-hallucination lessons as its basis) and order law evidence first.
+ *   AI-hallucination lessons as its basis) and coding-agent execution entries,
+ *   and order law evidence first.
  * - learn: drop law-category stat evidence so a curriculum question is not
  *   answered with law-function guidance.
  * - general: keep the previous merge (learn first, stat after, cap 4).
@@ -371,8 +399,12 @@ export function filterEvidenceByIntent(
   if (intent === "learn") {
     statPart = stat.filter((entry) => !LAW_EVIDENCE_IDS.has(entry.id));
   } else if (intent === "law") {
-    const lawFirst = stat.filter((entry) => LAW_EVIDENCE_IDS.has(entry.id));
-    const rest = stat.filter((entry) => !LAW_EVIDENCE_IDS.has(entry.id));
+    // A law-function question must not drift into coding-agent execution
+    // guidance (or learn lessons, dropped above): only law evidence first,
+    // then other non-coding stat evidence the question actually matched.
+    const nonCoding = stat.filter((entry) => !CODING_AGENT_EVIDENCE_IDS.has(entry.id));
+    const lawFirst = nonCoding.filter((entry) => LAW_EVIDENCE_IDS.has(entry.id));
+    const rest = nonCoding.filter((entry) => !LAW_EVIDENCE_IDS.has(entry.id));
     statPart = [...lawFirst, ...rest];
   }
   const merged: AssistantEvidence[] = [];
