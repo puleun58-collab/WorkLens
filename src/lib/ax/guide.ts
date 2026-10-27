@@ -634,10 +634,83 @@ export interface AxPlanSummary {
   approvals: string[];
   data: { label: string; items: string[] }[];
   tests: string[]; success: string[]; failure: string[]; exceptions: string[];
+  /** 03에서 보류·제외 기능과 연결돼 필수 완료 조건에서 빠진 기준. 삭제하지 않고
+   * 04의 강등 표기("현재 필수 완료 조건 아님")와 같은 문구로 분리 표시한다. */
+  demotedCriteria: string[];
+  /** 03에서 보류·제외 기능과 연결돼 필수 완료 조건에서 빠진 예외·위험 문구. */
+  demotedExceptions: string[];
   /** Common notice when all tests share the same unconfirmed scope; individual prefixes are stripped. */
   testsNotice?: string;
   /** Common notice when all criteria share the same unconfirmed status; individual prefixes are stripped. */
   criteriaNotice?: string;
+}
+
+/** 03 강등 표기 접미사 (04의 demotedPocCriteria·deferredCriteria와 같은 취지). */
+type AxDemotionAction = "exclude" | "defer";
+const demotedLabel = (text: string, action: AxDemotionAction): string =>
+  `${text} — 현재 필수 완료 조건 아님 (${action === "defer" ? "관련 단계 보류됨" : "관련 단계 제외됨"})`;
+
+/** 활성 단계와 단어를 공유하면 강등하지 않는다 (isExcludedStepCriterion과 같은 보수 기준:
+ * 구현·확인 후 구현 단계가 없으면 검증 단계 중 제외 단계명을 뺀 나머지가 비교 기준). */
+function sharesActiveStepWords(model: AgentInstructionModel, text: string): boolean {
+  const words = scopeWords(text);
+  let activeStepNames = model.steps.filter(s => s.scope === "implement" || s.scope === "after-check").map(s => s.step);
+  if (activeStepNames.length === 0) {
+    const excluded = new Set(model.hitlDetails?.validatedExcludedStepNames ?? []);
+    activeStepNames = model.steps.filter(s => s.scope === "verify" && !excluded.has(s.step)).map(s => s.step);
+  }
+  return activeStepNames.some(name => {
+    const nameWords = scopeWords(name);
+    return words.some(w => nameWords.includes(w)) || nameWords.some(w => words.includes(w));
+  });
+}
+
+/** 전파 결과 직접 참조: HITL로 빠진 항목(removed)과의 연결.
+ * 정확 일치(hitlDispositionForText) 또는 전파 규칙 그대로(2개 이상 내용 토큰 겹침 +
+ * 특이 토큰, planDecisionMatches)를 쓴다. 전파 규칙을 완화하지 않으며, 전파 대상이
+ * 아닌 진단 출처 항목도 removed 항목과 같은 기능이면 여기서 강등한다 — 전파 자체는
+ * 계획 출처 항목에만 적용되므로 진단 PoC 기준·예외 문구는 이 경로가 아니면 03에 남는다.
+ * removed에 없는 항목은 이 함수가 잡지 않는다 (단계명 경로는 아래 별도). */
+function removedDemotionForText(model: AgentInstructionModel, text: string): AxDemotionAction | undefined {
+  const removed = model.hitlDetails?.removed ?? [];
+  if (removed.length === 0) return undefined;
+  const disp = hitlDispositionForText(model, text);
+  if (disp) return disp.action;
+  const tokens = planDecisionTokens(text);
+  if (tokens.length === 0) return undefined;
+  const hit = removed.find(entry => planDecisionMatches(tokens, planDecisionTokens(entry.text)));
+  return hit?.action;
+}
+
+/** 03 완료 기준 강등 판정: 현재 범위(scoped) 항목은 강등하지 않는다.
+ * removed 연결이 있으면 그 판정을 우선하고, 없으면 기존 단계명 판정(isExcludedStepCriterion)을 쓴다. */
+function demotionForCriterion(model: AgentInstructionModel, item: AgentInstructionItem): AxDemotionAction | undefined {
+  if (item.role !== "criteria") return undefined;
+  if (model.scoped.criteria.includes(item) || model.scoped.validationMethods.includes(item)) return undefined;
+  const viaRemoved = removedDemotionForText(model, item.text);
+  if (viaRemoved) return sharesActiveStepWords(model, item.text) ? undefined : viaRemoved;
+  if (isExcludedStepCriterion(model, item)) return "exclude";
+  return undefined;
+}
+
+/** 04 예외 정리와 같은 단어 겹침 기준 (2개 이상 단어 겹침, 또는 3자 이상 단어 1개 겹침). */
+function relatesToStepName(text: string, stepName: string): boolean {
+  const textWords = scopeWords(text);
+  const nameWords = new Set(scopeWords(stepName));
+  const overlap = textWords.filter(w => nameWords.has(w));
+  return overlap.length >= 2 || overlap.some(w => w.length >= 3);
+}
+
+/** 03 예외·위험 강등 판정: removed 연결(전파 규칙) 또는 04와 같은 제외 단계명 단어 겹침.
+ * 활성 단계(구현·확인 후 구현)와도 겹치는 공통 예외는 유지한다. */
+function demotionForException(model: AgentInstructionModel, text: string): AxDemotionAction | undefined {
+  const work = model.steps.filter(s => s.scope === "implement" || s.scope === "after-check");
+  const viaRemoved = removedDemotionForText(model, text);
+  if (viaRemoved) return work.some(s => relatesToStepName(text, s.step)) ? undefined : viaRemoved;
+  const names = model.hitlDetails?.validatedExcludedStepNames ?? [];
+  if (names.length > 0 && names.some(name => relatesToStepName(text, name))
+    && !work.some(s => relatesToStepName(text, s.step))) return "exclude";
+  return undefined;
 }
 
 export function planSummary(diagnosis: AxDiagnosis, rawPlan?: AxPlan, context = "", options: { hitlReviews?: import("./types").HitlReview[]; hitlTool?: "codex" | "claude" } = {}): AxPlanSummary {
@@ -690,8 +763,17 @@ export function planSummary(diagnosis: AxDiagnosis, rawPlan?: AxPlan, context = 
   ], [...manualAutomation, ...humanKept]));
   const shownScope = new Set([...humanKept, ...excluded].map(normalizedItem));
   const pocTests = model.classified.filter(item => item.role === "tests");
-  const criteria = (source: string) => unique(model.classified.filter(item => item.sources.includes(source) && !model.scoped.validationMethods.includes(item) && !isExcludedStepCriterion(model, item)).map(item => model.scoped.criteria.includes(item)
+  const criteria = (source: string) => unique(model.classified.filter(item => item.sources.includes(source) && !model.scoped.validationMethods.includes(item) && !demotionForCriterion(model, item)).map(item => model.scoped.criteria.includes(item)
     ? item.text : `${item.scope === "future" ? "향후 판정" : "기준 확인 필요"}: ${item.text}`));
+  // 강등 기준은 통과·실패 목록에서 빼는 대신 별도 목록으로 분리 표시한다 (삭제 아님).
+  // 강등 항목은 scoped가 아니므로 criteria()와 같은 미확인 접두어를 붙인 뒤 강등 접미사를 단다.
+  const demotedCriteria = unique(model.classified.filter(item => item.role === "criteria"
+    && (item.sources.includes("diagnosis.poc.success") || item.sources.includes("diagnosis.poc.failure") || item.sources.includes("plan.acceptance")))
+    .flatMap(item => {
+      const action = demotionForCriterion(model, item);
+      if (!action) return [];
+      return [demotedLabel(`${item.scope === "future" ? "향후 판정" : "기준 확인 필요"}: ${item.text}`, action)];
+    }));
   return {
     include: unique((profile?.poc.inScope ?? []).flatMap(line => {
       // HITL로 빠진 단계(제외·보류)는 현재 구현 범위에서 빠진다. 보류 단계는
@@ -729,7 +811,7 @@ export function planSummary(diagnosis: AxDiagnosis, rawPlan?: AxPlan, context = 
       { label: "검증용 입력", items: without(diagnosis.poc?.inputs ?? [], diagnosis.asIs?.inputs ?? []) },
       { label: "검증용 출력", items: unique(model.classified.filter(item => item.sources.includes("diagnosis.poc.outputs")).map(item => `${item.text}${model.scoped.outputs.includes(item) ? item.scope === "after-check" ? " (현재 조건부 출력)" : " (현재 출력)" : item.scope === "future" ? " (향후 출력)" : " (연결 근거 확인 필요)"}`)) },
     ].filter(row => row.items.length),
-    ...completionCriteria(model, pocTests, criteria, diagnosis),
+    ...completionCriteria(model, pocTests, criteria, diagnosis, demotedCriteria),
   };
 }
 
@@ -744,7 +826,8 @@ function completionCriteria(
   pocTests: AgentInstructionItem[],
   criteria: (source: string) => string[],
   diagnosis: AxDiagnosis,
-): Pick<AxPlanSummary, "tests" | "success" | "failure" | "exceptions" | "testsNotice" | "criteriaNotice"> {
+  demotedCriteria: string[],
+): Pick<AxPlanSummary, "tests" | "success" | "failure" | "exceptions" | "demotedCriteria" | "demotedExceptions" | "testsNotice" | "criteriaNotice"> {
   const rawTests = unique([...pocTests.map(item => model.scoped.tests.includes(item) ? item.text
     : `${item.scope === "future" ? "향후 검증" : "적용 범위 확인 필요"}: ${item.text}`), ...model.scoped.validationMethods.map(item => item.text)]);
   const rawSuccess = mergeDistinct(criteria("diagnosis.poc.success"), criteria("plan.acceptance"));
@@ -773,11 +856,25 @@ function completionCriteria(
     failure = failure.map(item => item.replace(CRITERION_PREFIX, ""));
     criteriaNotice = "정확한 실패 판정 기준은 실제 업무 규칙 확인 후 확정합니다.";
   }
+  // 예외·위험도 기준과 같은 방식으로 강등 표기한다: 기존에는 어떤 HITL 필터도
+  // 거치지 않아 보류·제외 기능의 실패 처리 문구가 일반 예외로 남았다. tests 목록은
+  // 건드리지 않는다 — 계획 출처 테스트는 전파 규칙이 이미 제거하고, scoped 테스트는
+  // 현재 범위이며, 진단 PoC 테스트에는 04의 강등 대응 표시가 없어 새로 만들지 않는다.
+  const rawExceptions = unique([...(diagnosis.asIs?.exceptions ?? []), ...(diagnosis.risks ?? []), ...model.classified.filter(item => item.role === "exception").map(item => item.text)]);
+  const exceptions: string[] = [];
+  const demotedExceptions: string[] = [];
+  for (const text of rawExceptions) {
+    const action = demotionForException(model, text);
+    if (action) demotedExceptions.push(demotedLabel(text, action));
+    else exceptions.push(text);
+  }
   return {
     tests: dedupCriteria(tests),
     success: dedupCriteria(success),
     failure: dedupCriteria(failure),
-    exceptions: dedupCriteria(unique([...(diagnosis.asIs?.exceptions ?? []), ...(diagnosis.risks ?? []), ...model.classified.filter(item => item.role === "exception").map(item => item.text)])),
+    exceptions: dedupCriteria(exceptions),
+    demotedCriteria,
+    demotedExceptions: dedupCriteria(demotedExceptions),
     ...(testsNotice ? { testsNotice } : {}),
     ...(criteriaNotice ? { criteriaNotice } : {}),
   };

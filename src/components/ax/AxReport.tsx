@@ -1008,6 +1008,11 @@ function AxPlanOverview({ profile, summary }: { profile: ExecutionProfile; summa
           <ul role="list">{summary.exceptions.map((item, i) => <li key={i}>{item}</li>)}</ul>
         </div> : null}
       </div> : <p className="ax-muted">진단에 기재된 완료 기준 없음</p>}
+      {summary.demotedCriteria.length || summary.demotedExceptions.length ? <div className="ax-risk-panel">
+        <h5>현재 필수 완료 조건 아님</h5>
+        <p className="ax-muted">보류·제외된 기능과 연결된 기준·예외로, 필수 완료 조건에서 빠집니다. 참고용으로만 표시합니다.</p>
+        <ul role="list">{[...summary.demotedCriteria, ...summary.demotedExceptions].map((item, i) => <li key={i}>{item}</li>)}</ul>
+      </div> : null}
       </div></AccordionPanel>
     </AccordionItem></section>
   </Accordion>;
