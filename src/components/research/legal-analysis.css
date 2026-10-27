@@ -102,7 +102,7 @@ p.research-meta { margin: 0; }
 .research-more { margin-bottom: 0; }
 .research-more .source-toggle { font-weight: 500; }
 .research-supporting { gap: 0; }
-.research-supporting > h3 { margin-bottom: 4px; }
+.research-supporting > h3 { margin-bottom: 4px; font-size: var(--font-size-md); font-weight: var(--font-weight-semibold); letter-spacing: -.015em; }
 .research-supporting .law-detail-source { margin-bottom: 0; }
 .research-supporting .legal-analysis-raw { margin: 8px 0 12px; }
 .legal-research .contract-review { gap: 22px; }
@@ -344,6 +344,15 @@ p.research-meta { margin: 0; }
 .legal-research .research-issue-status[data-status="found"] { color: var(--ink); }
 .legal-research .research-issue-status[data-status="failed"],
 .legal-research .research-issue-status[data-status="timeout"] { color: var(--warning); }
+/* The top issue list doubles as the jump control: a plain-text button that
+   keeps the list's numbered rhythm (no card, no extra chrome). The status
+   stays outside the button, so the accessible name is number + label only. */
+.legal-research .research-issue-jump { display: flex; align-items: baseline; min-width: 0; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; overflow-wrap: anywhere; }
+.legal-research .research-issue-jump:hover { color: var(--blue-active); text-decoration: underline; text-underline-offset: 2px; }
+.legal-research .research-issue-jump:focus-visible { outline-offset: 2px; }
+/* A detail line under an assessed entry (PR #327's "확인한 항목" detail)
+   drops to its own row instead of flowing after the status. */
+.legal-research .research-issues.is-assessed li > .research-meta { flex: 1 1 100%; }
 
 /* Full research keeps the existing source/status model, with independently readable issue sections. */
 .legal-research .research-issue-nav { display: grid; gap: 8px; min-width: 0; }

@@ -96,7 +96,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     await expect(results.locator(".research-overview h3")).toHaveText("관련 근거를 일부 확인했습니다");
   });
 
-  test(`종합 리서치 쟁점 0/1/2/5와 독립 근거·바로가기 ${viewport.width}`, async ({ page }) => {
+  test(`종합 리서치 쟁점 0/1/2/5와 독립 근거·상단 목록 이동 ${viewport.width}`, async ({ page }) => {
     await page.setViewportSize(viewport);
     let calls = 0;
     await page.route("**/api/law/research", (route) => {
@@ -126,7 +126,10 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       await form.getByRole("button", { name: "실행", exact: true }).click();
       const sections = output.locator(".research-issue-evidence");
       await expect(sections).toHaveCount(count);
-      await expect(output.getByRole("navigation", { name: "쟁점 바로가기" })).toHaveCount(count > 1 ? 1 : 0);
+      // The top issue list carries the jump buttons now; a separate nav
+      // exists only for uninterpreted results (no top list there).
+      await expect(output.getByRole("navigation", { name: "쟁점 바로가기" })).toHaveCount(0);
+      await expect(output.locator(".research-issues .research-issue-jump")).toHaveCount(count > 1 ? count : 0);
       if (!count) {
         await expect(output.locator(".research-overview h3")).toHaveText("관련 근거를 확인하지 못했습니다");
         continue;
@@ -151,8 +154,8 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       await expect(sections.first().locator(".research-hits")).toContainText("퇴직금 근거 원문 마지막 문장");
       if (count > 1) {
         await expect(sections.nth(1).locator(".research-issue-refs")).not.toHaveAttribute("open", "");
-        await expect(output.getByRole("navigation").getByRole("button").nth(1)).toHaveAttribute("aria-controls", "research-issue-2");
-        await output.getByRole("navigation").getByRole("button").nth(1).click();
+        await expect(output.locator(".research-issues .research-issue-jump").nth(1)).toHaveAttribute("aria-controls", "research-issue-2");
+        await output.locator(".research-issues .research-issue-jump").nth(1).click();
         await expect(sections.nth(1)).toHaveClass(/is-focused/);
         await expect(sections.nth(1).locator("h3")).toBeFocused();
         await expect(sections.nth(1)).toBeInViewport();
@@ -243,7 +246,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   });
 
-  test(`중복 쟁점 바로가기의 고유 대상·일시 강조·무근거 버튼 ${viewport.width}`, async ({ page }) => {
+  test(`중복 쟁점 상단 목록 버튼의 고유 대상·일시 강조·무근거 버튼 ${viewport.width}`, async ({ page }) => {
     await page.setViewportSize(viewport);
     await page.emulateMedia({ reducedMotion: "reduce" });
     const now = new Date("2026-10-08T00:00:00Z");
@@ -276,7 +279,8 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     await page.clock.pauseAt(new Date(now.getTime() + 60_000));
     await expect(sections.first()).toHaveAttribute("id", "research-issue-1");
     await expect(sections.last()).toHaveAttribute("id", "research-issue-2");
-    const links = output.getByRole("navigation", { name: "쟁점 바로가기" }).getByRole("button");
+    await expect(output.getByRole("navigation", { name: "쟁점 바로가기" })).toHaveCount(0);
+    const links = output.locator(".research-issues .research-issue-jump");
     await links.first().focus();
     await links.first().press("Enter");
     await expect(sections.first().locator("h3")).toBeFocused();
@@ -304,6 +308,39 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     expect(errors).toEqual([]);
     expect(calls).toBe(2);
+  });
+
+  test(`종합 리서치 미해석 결과는 별도 바로가기로 이동을 유지한다 ${viewport.width}`, async ({ page }) => {
+    // No interpretation → no top issue list to reuse, so the separate nav
+    // stays as the only jump control (the duplication removal must not
+    // delete the jump function for uninterpreted results).
+    await page.setViewportSize(viewport);
+    await page.route("**/api/law/research", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: {
+      found: true, task: "full_research", markers: [],
+      text: `═══ 종합 리서치 ═══\n▶ AI 법령검색 결과\n지능형 법령검색 결과 (법령조문, 1건):\n\n근로기준법\n   제0023조 (해고 등의 제한)\n① 원문 법령 근거\n   시행: 2025.01.01 | 고용노동부`,
+      interpretationFailure: "unavailable",
+      evidence: { status: "partial", articles: [article], precedents: [],
+        issues: [{ label: "해고 제한", status: "found", articles: [article], precedents: [] },
+          { label: "통지 방법", status: "none", articles: [], precedents: [] }] },
+    } }) }));
+    await page.goto("/");
+    await navigateWorkspace(page, "법령");
+    await page.getByRole("tab", { name: "종합 리서치", exact: true }).click();
+    const form = page.getByRole("form", { name: "종합 리서치 입력" });
+    await form.getByLabel("질문 또는 검색어").fill("해고 제한과 통지 방법");
+    await form.getByRole("button", { name: "실행", exact: true }).click();
+    const output = page.locator(".legal-research .legal-analysis-output");
+    await expect(output.locator(".research-issues")).toHaveCount(0);
+    await expect(output.locator(".research-uninterpreted")).toBeVisible();
+    const nav = output.getByRole("navigation", { name: "쟁점 바로가기" }).getByRole("button");
+    await expect(nav).toHaveCount(2);
+    await expect(nav.nth(1)).toHaveAttribute("aria-controls", "research-issue-2");
+    await nav.nth(1).click();
+    const sections = output.locator(".research-issue-evidence");
+    await expect(sections.nth(1)).toHaveClass(/is-focused/);
+    await expect(sections.nth(1).locator("h3")).toBeFocused();
+    await expect(sections.nth(1)).toBeInViewport();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   });
 
   test(`개정 비교 원문의 문단 태그·구분자가 화면에 노출되지 않음 ${viewport.width}`, async ({ page }) => {
