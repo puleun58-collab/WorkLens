@@ -146,6 +146,14 @@ describe("assistant law reliability questions (task A)", () => {
     expect(text).toContain("검증된 정확도·오류 감소 수치는 근거에 없습니다");
     expect(text).not.toMatch(/\d+\s*%/);
   });
+  it("states the confirmed/unconfirmed distinction as a separate sentence", () => {
+    const text = entry("law-mcp-value").text;
+    expect(text).toContain("상태를 구분하는 것입니다. 확인된 근거와 참고 목록·미확인 항목은 구분해 표시합니다.");
+    const sentences = text.split(/(?<=[.])\s+/);
+    const distinction = sentences.filter((s) => s.includes("구분해 표시"));
+    expect(distinction).toHaveLength(1);
+    expect(distinction[0]).not.toContain("검증 방식은");
+  });
 });
 
 describe("assistant law evidence filtering", () => {
@@ -167,6 +175,9 @@ describe("assistant law evidence filtering", () => {
     expect(system).toContain("근거 매칭 오류");
     expect(system).toContain("공식 자료 조회가 제공하는 차이");
     expect(system).toContain("확인된 자료와 미확인 자료의 구분");
+    expect(system).toContain("별도 항목으로 드러내세요");
+    expect(system).toContain("미확인·참고 항목");
+    expect(system).toContain("실시간으로 조회한 결과처럼 표현하지 마세요");
     expect(system).toContain("해당 주제로 답을 옮기지 마세요");
     expect(classifyEvidenceIntent("법령 MCP 붙였는데 환각이 생겨?")).toBe("law");
   });
