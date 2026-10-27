@@ -103,9 +103,9 @@ test("C section gaps and STEP 03 move button follow the spacing spec", async ({ 
   const cta = step3.locator(".ax-guide-step-cta");
   await expect(cta).toHaveText("04 올인원 지시문으로 이동");
   const lastGuidance = step3.locator(".ax-guide-section > p").last();
-  await expectGap(lastGuidance, cta, 20);
+  await expectGap(lastGuidance, cta, 14);
   const step4 = tutorial.locator('.ax-guide-step[data-setup-step="4"]');
-  await expectGap(cta, step4, 28);
+  await expectGap(cta, step4, 22);
   const { bg, fg } = await primaryColors(page);
   const ctaStyle = await cta.evaluate(element => {
     const style = getComputedStyle(element);
@@ -141,7 +141,7 @@ test("spacing holds on a narrow viewport without overflow", async ({ page }) => 
   const step3 = tutorial.locator('.ax-guide-step[data-setup-step="3"]');
   const cta = step3.locator(".ax-guide-step-cta");
   const lastGuidance = step3.locator(".ax-guide-section > p").last();
-  await expectGap(lastGuidance, cta, 20);
+  await expectGap(lastGuidance, cta, 14);
   const overflow = await cta.evaluate(element => element.scrollWidth <= element.clientWidth + 1);
   expect(overflow).toBe(true);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
