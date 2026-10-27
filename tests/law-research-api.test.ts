@@ -99,7 +99,11 @@ describe("fixed legal_research API", () => {
       expect(result.json.data).toEqual({ found: true, task: input.task, text: `${text}\n[NOT_FOUND] 일부 결과\n[NOT_FOUND] 다른 항목`, markers: ["NOT_FOUND"],
         // No AI is configured here, so the question was searched as written and the reason is kept.
         ...(input.task === "full_research" ? { interpretationFailure: "unavailable", evidence: { status: "unverified", articles: [], precedents: [],
-          issues: [{ status: "none", articles: [], precedents: [] }] } } : {}) });
+          issues: [{ status: "none", articles: [], precedents: [] }] } } : {}),
+        // 절차·서식 only: the server's per-requirement verdict. This sample
+        // carries no article or annex, so the single general requirement is none.
+        ...(input.task === "procedure_detail" ? { procedure: { requirements: [{ label: query, kind: "general", status: "none", articles: [], annexCount: 0 }],
+          overall: "none", incomplete: false, annexTruncated: false, failedSections: 0 } } : {}) });
       const upstream = toolCall(fetcher, i);
       expect(String(upstream.url)).toBe(ENDPOINT);
       expect(upstream.headers.get("apikey")).toBe(KEY);

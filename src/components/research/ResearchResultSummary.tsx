@@ -12,6 +12,8 @@ export const STATUS_BADGE: Record<ResearchStatus, { tone: SummaryTone; label: st
   partial: { tone: "warning", label: "추가 확인 필요" },
   weak: { tone: "neutral", label: "근거 부족" },
   none: { tone: "neutral", label: "확인 근거 없음" },
+  viewed: { tone: "neutral", label: "관련 자료 조회" },
+  failed: { tone: "error", label: "조회 미완료" },
 };
 
 const BADGE_VARIANT = { success: "success", warning: "warning", error: "error", info: "info", neutral: "secondary" } as const;
