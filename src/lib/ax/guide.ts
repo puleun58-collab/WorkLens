@@ -2373,9 +2373,18 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
     const unmetLine = s.scope === "after-check" && linkedConditions.length
       ? "미충족 시: 연결된 확인 항목이 확인되지 않으면 해당 부분만 보류하고 보류 사유·확인 대상·재개 조건을 보고하세요. 독립적인 다른 기능은 계속 진행하세요."
       : "";
+    // 단계 메모 전달 누락 수정: 진단 단계 메모는 지금까지 방식 분류 신호로만
+    // 소비되고 기능 블록에서는 사라졌다. 원문 그대로(신설·추측 없음) 전달한다.
+    // 메모가 '미확인·미확정'을 적으면 그 자체가 미확정 표시이며, 확정 규칙으로
+    // 승격되지 않는다. 처리 줄과 완전히 같은 문구일 때만 중복을 피한다.
+    const stepNote = (s.note ?? "").trim();
+    const stepNoteLine = stepNote && !processParts.some(part => collapse(part) === collapse(stepNote))
+      ? `진단 단계 메모: ${collapse(stepNote)}`
+      : "";
     return `### 기능 ${i + 1}. ${s.step}\n\n${bullets([
       `입력: ${ownInputs.length ? `${ownInputs.join("; ")}${hasCommonInputs ? " + 공통 입력 (위 공통 입력·출력 참조)" : ""}` : inputs.length ? "공통 입력 사용 (위 공통 입력·출력 참조)" : "입력 자료 미확정 — 진단에 입력 정보가 없음 (§4 '적용 단계 확인 필요' 참조)"}`,
       `처리: ${processParts.join(" → ")}`,
+      ...(stepNoteLine ? [stepNoteLine] : []),
       spec.outputs.length ? `출력: ${spec.outputs.join("; ")}` : isLastWork ? "출력: 이 단계의 직접 산출물 없음 — 위 업무 전체 산출물에 기여" : "출력: 이 단계의 직접 산출물 없음 — 처리 결과는 후속 단계의 입력으로 이어짐",
       ...(spec.reviewPoint ? [`담당자 검토·승인 지점: ${spec.reviewPoint}`] : []),
       ...(startCondition ? [startCondition] : []),
@@ -2394,7 +2403,7 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
     ])}\n\n실제 입력 자료의 형식과 필수 필드를 확인하고 파싱·검증한 뒤 처리하세요. 확인 전에는 항목명·경로·값을 하드코딩하지 마세요. 계산·판정이 있으면 확인된 계산식·입력·순서·반올림·누락 처리 기준만 사용하고, 정의되지 않은 기준은 해당 처리만 보류해 '확인 필요'로 보고하세요. 원본 추적이 필요한 업무라면 결과에서 원본 출처·처리 단계·오류 위치·담당자 확인 결과를 확인할 수 있게 유지하세요.` : "",
     verifyGroups.size ? `### 방식별 검증 기준\n\n${bullets([...verifyGroups].map(([text, group]) => `${group.labels.join(" / ")} (${group.stepNames.join(", ")}): ${text}`))}` : "",
     work.length ? ioBlocks : "",
-    review.length ? `### 검토·검증 작업\n\n${bullets(review.map(s => `${s.step} — ${shortMethod(s)}`))}\n\n샘플과 업무 규칙으로 확인한 결과를 보고하는 범위입니다. ${gate === "blocked" ? "운영 기능·자동 실행 코드·스캐폴딩을" : "운영 기능이나 자동 실행 코드를"} 만들지 마세요.` : "",
+    review.length ? `### 검토·검증 작업\n\n${bullets(review.map(s => `${s.step} — ${shortMethod(s)}${(s.note ?? "").trim() ? ` (진단 메모: ${collapse(s.note)})` : ""}`))}\n\n샘플과 업무 규칙으로 확인한 결과를 보고하는 범위입니다. ${gate === "blocked" ? "운영 기능·자동 실행 코드·스캐폴딩을" : "운영 기능이나 자동 실행 코드를"} 만들지 마세요.` : "",
     work.length ? "실제 입력 수신→형식 파싱·필수값 검증→확정된 처리·담당자 확인→예외 분리→실제 출력으로 연결하세요. 업무상 필요한 저장·재조회는 기존 방식을 사용하고, 외부 API가 필요하면 권한과 실패 응답을 처리하세요. 독립적으로 허용된 단계는 다른 단계의 미확정 규칙 때문에 일괄 중단하지 마세요. 처리 없는 화면, 읽지 못하는 업로드, 입력이 달라도 같은 고정 결과, 더미 데이터 결과, 가짜 API 응답, TODO만 있는 핵심 함수, 승인 없이 확정되는 AI 결과는 완료가 아닙니다. 기존 구현을 우선 재사용하고 요청 범위 안에서 최소한으로 수정하세요. 요청하지 않은 기능·라이브러리, 하드코딩 값, 실제 로직에 남은 테스트용 임시 데이터, 근거 없는 수치 목표, 확인되지 않은 담당 조직·승인 주체를 만들지 마세요. 허용된 독립 단계가 없으면 코드를 만들지 말고 선행 확인사항을 보고하세요." : "",
   );
   // 포함 관계 중복 제거: 다른 항목에 온전히 포함되는 짧은 항목은 긴 항목이 같은
