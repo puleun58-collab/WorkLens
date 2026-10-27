@@ -524,6 +524,14 @@ const PROCEDURE_FORM_NATURE_LABEL: Record<NonNullable<ProcedureArticleRef["natur
   unconfirmed: "의무 미확인",
 };
 
+/** Server per-kind evidence labels for law_system / action_basis / dispute_prep / amendment_track. */
+const TASK_EVIDENCE_LABEL: Record<"found" | "viewed" | "none" | "failed", string> = {
+  found: "근거 확인",
+  viewed: "자료 조회",
+  none: "미확인",
+  failed: "조회 미완료",
+};
+
 /** 입력한 질문 → 이렇게 이해했어요 → 살펴볼 쟁점: sibling blocks, each opened by the same rule; empty ones are not rendered. */
 function ResearchUnderstanding({ interpretation, evidence = [] }: { interpretation: ResearchInterpretation; evidence?: readonly IssueEvidence[] }) {
   // The model often restates the question verbatim; showing it twice adds nothing.
@@ -863,6 +871,16 @@ function ResearchResult({ data, request, expandSources = false, onExpandSourcesC
   // Primary sections that returned source content for this request.
   const available = primary.some((section) => section.status === "available" && readerText(section.lines.join("\n")))
     || Boolean(data.enrichment?.supplement?.articles.length);
+  // Server per-kind evidence for the four tasks that used to fall back to a
+  // blanket weak result. When the server sent one, it is shown as-is (the
+  // server already caps matched → partial on partial failures); responses
+  // without it — older or mocked answers — keep the previous fallback, and
+  // full_research / ordinance_compare / procedure_detail keep their own
+  // verdicts untouched (procedure_detail keeps its merged PR #326 verdict).
+  const taskEvidence = data.task === "law_system" ? data.lawSystem
+    : data.task === "action_basis" ? data.actionBasis
+    : data.task === "dispute_prep" ? data.dispute
+    : data.task === "amendment_track" ? data.amendment : undefined;
   // One status vocabulary for every task, decided by what was actually adopted, never by hit counts.
   const status: ResearchStatus = full
     ? evidenceStatus === "matched" ? notice ? "partial" : "matched" : evidenceStatus === "partial" ? "partial" : hasCandidates ? "weak" : "none"
@@ -870,11 +888,12 @@ function ResearchResult({ data, request, expandSources = false, onExpandSourcesC
     : comparison
       ? bothSides.length ? comparedRegions.length === 2 ? "matched" : "partial"
         : comparedRegions.some((region) => region.articles.length) ? "partial" : comparedRegions.length ? "weak" : "none"
+      : taskEvidence ? taskEvidence.status
       : !available ? "none" : notice || unavailableCount ? "partial" : data.task === "document_review" ? "matched" : "weak";
 
   return <div ref={resultRef} className="legal-analysis-output" data-task={data.task}>
     <ResearchResultSummary label={LAW_RESEARCH_TASKS.find((item) => item.value === data.task)?.label} badge={STATUS_BADGE[status]} status={status} title={STATUS_TITLE[status]}
-      caution={status === "matched" || status === "partial" || (status === "weak" && !full && !comparison) || (status === "viewed" && procedure)
+      caution={status === "matched" || status === "partial" || status === "viewed" || (status === "weak" && !full && !comparison)
         ? `※ ${full ? "확인한 근거는" : "조회한 자료는"} 관련 쟁점을 검토하기 위한 자료이며, 구체적인 사건의 법적 결론을 의미하지 않습니다.`
         : status === "none" ? "※ 조회되지 않았다고 관련 법령이나 판례가 없다는 뜻은 아닙니다." : undefined}
       cautionClassName="research-caution">
@@ -898,9 +917,17 @@ function ResearchResult({ data, request, expandSources = false, onExpandSourcesC
       </div>}
       <ResearchSummaryNotices>
         {notice && <ResearchSummaryNotice tone="warning" title="관련 근거 일부 미확인" className="legal-research-partial">{notice}</ResearchSummaryNotice>}
-        {status === "weak" && <ResearchSummaryNotice tone="info" title="직접 관련성 확인 필요">조회된 자료가 질문과 직접 관련되는지 확인되지 않았습니다. 아래 자료는 참고용입니다.</ResearchSummaryNotice>}
+        {(status === "weak" || status === "viewed") && <ResearchSummaryNotice tone="info" title="직접 관련성 확인 필요">조회된 자료가 질문과 직접 관련되는지 확인되지 않았습니다. 아래 자료는 참고용입니다.</ResearchSummaryNotice>}
         {procedure?.annexTruncated && <ResearchSummaryNotice tone="info" title="별표·서식 원문 미확보">별표/서식 목록 일부만 확인했습니다. 목록만으로는 제출 의무를 단정하지 않으며, 서식 원문은 법령 검색에서 확인하세요.</ResearchSummaryNotice>}
       </ResearchSummaryNotices>
+      {taskEvidence && taskEvidence.items.length > 0 && <div className="research-original research-issues is-assessed" data-task-evidence>
+        <span>확인한 항목</span>
+        <ul>{taskEvidence.items.map((item, index) => <li key={`${item.label}-${index}`}>
+          <span className="research-issue-label"><span className="research-issue-number">{String(index + 1).padStart(2, "0")}</span>{item.label}</span>
+          <span className="research-issue-status" data-status={item.status}>{TASK_EVIDENCE_LABEL[item.status]}</span>
+          {item.detail && <span className="research-meta">{item.detail}</span>}
+        </li>)}</ul>
+      </div>}
     </ResearchResultSummary>
     {full && issueEvidence.length > 1 && <nav className="research-issue-nav" aria-label="쟁점 바로가기">
       <span>쟁점 바로가기</span>
