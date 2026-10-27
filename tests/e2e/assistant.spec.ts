@@ -17,7 +17,9 @@ async function mockAssistant(page: Page) {
       body: JSON.stringify({
         data: {
           answer: `모의 답변: ${question.slice(0, 40)}`,
-          sources: [{ screen: "업무 자동화 진단 > Level 기준", title: "자동화 Level 결정" }],
+          // Policy guidance renders as "관련 안내", not as verified evidence.
+          sources: [],
+          relatedInfo: [{ screen: "업무 자동화 진단 > Level 기준", title: "자동화 Level 결정" }],
           kind: "answer",
         },
       }),
@@ -56,12 +58,12 @@ test("assistant: panel opens with reference layout elements", async ({ page }) =
   await expect(panel.locator("img.wl-assistant-mascot").first()).toBeVisible();
 });
 
-test("assistant: example question sends and shows answer with sources", async ({ page }) => {
+test("assistant: example question sends and shows answer with related info", async ({ page }) => {
   await openAssistant(page);
   const panel = page.getByRole("dialog", { name: "렌즈봇" });
   await panel.getByRole("button", { name: "자동화 Level은 어떻게 결정되나요?" }).click();
   await expect(panel.getByText("모의 답변: 자동화 Level은 어떻게 결정되나요?")).toBeVisible();
-  await expect(panel.getByText("참고 근거")).toBeVisible();
+  await expect(panel.getByText("관련 안내")).toBeVisible();
   await expect(panel.getByText("업무 자동화 진단 > Level 기준 > 자동화 Level 결정")).toBeVisible();
 });
 
@@ -194,8 +196,9 @@ test("assistant: related screens shown separately from evidence", async ({ page 
   await input.press("Enter");
   await expect(panel.getByText("관련 화면")).toBeVisible();
   await expect(panel.getByText("종합 리서치 > 법령 리서치 > 법령 리서치 위치")).toBeVisible();
-  // No "참고 근거" for menu-only answers
-  await expect(panel.getByText("참고 근거")).toHaveCount(0);
+  // No evidence or guidance sections for menu-only answers
+  await expect(panel.getByText("확인한 근거")).toHaveCount(0);
+  await expect(panel.getByText("관련 안내")).toHaveCount(0);
 });
 
 test("assistant: mobile layout fits 390x844", async ({ page }) => {

@@ -167,6 +167,14 @@
 }
 .wl-assistant-sources strong { display: block; margin-bottom: 4px; color: #374151; }
 .wl-assistant-sources ul { margin: 0; padding-left: 16px; color: #4b5563; }
+.wl-assistant-related-info {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  font-size: 12px;
+}
+.wl-assistant-related-info strong { display: block; margin-bottom: 4px; color: #374151; }
+.wl-assistant-related-info ul { margin: 0; padding-left: 16px; color: #4b5563; }
 .wl-assistant-related {
   margin-top: 8px;
   padding-top: 8px;

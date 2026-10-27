@@ -172,6 +172,35 @@ export function resolveEvidenceIntent(question: string, evidenceQuery: string): 
   return classifyEvidenceIntent(evidenceQuery);
 }
 
+/**
+ * Evidence intent for a follow-up turn. Unlike resolveEvidenceIntent, this does
+ * not depend on the 15-char concatenation heuristic: a marker-less follow-up
+ * ("그럼 WorkLens는 무엇을 검증하는데?") is a continuation of the previous
+ * topic by definition, so it inherits the previous question's intent no
+ * matter how long it is. A question carrying its own markers still wins, so
+ * a genuine topic switch is never overridden (the #317 live FAIL case).
+ */
+export function resolveFollowUpIntent(question: string, followUpOf?: string): EvidenceIntent {
+  const current = classifyEvidenceIntent(question);
+  if (current !== "general") return current;
+  if (followUpOf) return classifyEvidenceIntent(followUpOf);
+  return "general";
+}
+
+/**
+ * True when the question cites a specific statute article (e.g. "민법 제750조",
+ * "근로기준법 제76조의3"). Used only for the no-evidence fallback: such a
+ * question asks for article content the assistant never looks up live, so the
+ * route guides the user to the law search feature instead of a generic
+ * no-evidence reply. The pattern requires a Korean statute name plus an
+ * article number, so generic law-function questions do not match.
+ */
+const LAW_ARTICLE_CITATION = /[가-힣]+법\s*제\d+조/u;
+
+export function matchesLawArticleCitation(question: string): boolean {
+  return LAW_ARTICLE_CITATION.test(question);
+}
+
 /** A hallucination-action question with no target ("환각은 어떻게 처리해?"). */
 const BARE_HALLUCINATION_ACTION =
   /환각.*(처리|방지|대응|없애|줄이|막)|(처리|방지|대응).*환각/u;

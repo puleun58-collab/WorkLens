@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { GATE_LABELS, LEVEL_LABELS } from "@/lib/ax/policy";
-import { filterEvidenceByIntent, hasInventedMetric, selectEvidence, stripInternalEvidenceIds, validCitations } from "@/lib/assistant/evidence";
+import { filterEvidenceByIntent, hasInventedMetric, selectEvidence, splitCitedByKind, stripInternalEvidenceIds, validCitations } from "@/lib/assistant/evidence";
 import {
   buildLearnEvidence,
   detectQuizAnswerSeeking,
@@ -14,8 +14,11 @@ import type { AssistantContextNote } from "@/lib/assistant/prompt";
 import {
   clarifyOptions,
   clarifyResponse,
+  classifyEvidenceIntent,
   classifyQuestion,
+  matchesLawArticleCitation,
   resolveEvidenceIntent,
+  resolveFollowUpIntent,
   executionRequestResponse,
   isDetailRequest,
   isTaskSpecificQuestion,
@@ -57,6 +60,10 @@ const assistantRequestSchema = z.object({
   }).strict().optional(),
   // Previous question for follow-up understanding ("그럼 Level 2는?" after "Level 1이 뭐야?").
   followUpOf: z.string().trim().min(1).max(1000).optional(),
+  // Previous assistant answer (bounded): the widget sends back the model's own
+  // prior answer so a follow-up can build on it instead of repeating it.
+  // It is context only, never evidence, and is truncated again server-side.
+  previousAnswer: z.string().trim().min(1).max(1000).optional(),
   // Client-side context status when context is null (prevents consent repetition).
   contextStatus: z.enum(["no-task", "no-diagnosis", "access-failed"]).optional(),
   // 학습센터 현재 화면 정보. 클라이언트 값은 신뢰하지 않으며, 서버에서 실제
@@ -211,14 +218,42 @@ export async function POST(request: Request) {
     const evidenceQuery = followUpOf && effectiveQuestion.length <= 15
       ? `${followUpOf} ${effectiveQuestion}`
       : effectiveQuestion;
-    const learnBuilt = buildLearnEvidence(evidenceQuery, learnCtx);
-    // Intent comes from the current question when it carries its own markers;
-    // the concatenated query only supplies intent for marker-less short
-    // follow-ups (see resolveEvidenceIntent). Using the concatenated query
-    // directly would let a previous topic's markers override a topic switch.
-    const evidenceIntent = resolveEvidenceIntent(effectiveQuestion, evidenceQuery);
-    const evidence = filterEvidenceByIntent(learnBuilt.evidence, selectEvidence(evidenceQuery), evidenceIntent);
-    if (!evidence.length) return ok({ answer: NO_EVIDENCE_RESPONSE, sources: [], relatedScreens: [], kind: "no-evidence" as const }, 200, requestId);
+    // Evidence selection follows the same rule as intent inheritance: a
+    // marker-less follow-up selects with the concatenated query no matter how
+    // long it is, so a long law follow-up still finds law evidence instead
+    // of falling back to no-evidence. A question carrying its own markers
+    // selects with the existing query only, so a topic switch is not
+    // polluted by the previous topic's keywords.
+    const selectionQuery = followUpOf && classifyEvidenceIntent(effectiveQuestion) === "general"
+      ? `${followUpOf} ${effectiveQuestion}`
+      : evidenceQuery;
+    const learnBuilt = buildLearnEvidence(selectionQuery, learnCtx);
+    // Intent comes from the current question when it carries its own markers.
+    // For a marker-less follow-up, inherit the previous question's intent no
+    // matter how long the follow-up is: it is a continuation of the previous
+    // topic by definition (a long law follow-up must not drift to learn
+    // evidence just because it exceeds the short-follow-up concatenation
+    // heuristic). The concatenated query still supplies keyword selection.
+    const evidenceIntent = followUpOf
+      ? resolveFollowUpIntent(effectiveQuestion, followUpOf)
+      : resolveEvidenceIntent(effectiveQuestion, evidenceQuery);
+    const evidence = filterEvidenceByIntent(learnBuilt.evidence, selectEvidence(selectionQuery), evidenceIntent);
+    if (!evidence.length) {
+      // A question citing a specific statute article asks for article content
+      // the assistant never looks up live. Guide to the law search feature
+      // instead of a generic no-evidence reply, and never present the article
+      // as verified evidence.
+      if (matchesLawArticleCitation(effectiveQuestion)) {
+        return ok({
+          answer: "특정 조문의 내용은 렌즈봇이 실시간으로 조회하지 않습니다. 왼쪽 메뉴 RESEARCH의 '법령'에서 법령 검색으로 해당 조문을 직접 확인하세요.",
+          sources: [],
+          relatedInfo: [],
+          relatedScreens: [{ screen: "법령", title: "법령 검색" }],
+          kind: "guidance" as const,
+        }, 200, requestId);
+      }
+      return ok({ answer: NO_EVIDENCE_RESPONSE, sources: [], relatedInfo: [], relatedScreens: [], kind: "no-evidence" as const }, 200, requestId);
+    }
 
     const result = await runBoundedOperation(() => runGroqAi(
       {
@@ -226,6 +261,7 @@ export async function POST(request: Request) {
         ...(context ? { context } : {}),
         ...(clarifyState ? { clarify: clarifyState } : {}),
         ...(followUpOf ? { followUpOf } : {}),
+        ...(parsed.data.previousAnswer ? { previousAnswer: parsed.data.previousAnswer } : {}),
         ...(learnBuilt.note ? { learnNote: learnBuilt.note } : {}),
         ...(isDetailRequest(effectiveQuestion) ? { detail: true } : {}),
       },
@@ -246,20 +282,18 @@ export async function POST(request: Request) {
     // Server-side verification: citations must come from the provided evidence,
     // and quantitative claims must be grounded. Otherwise fall back safely.
     if (!validCitations(result.citedIds, evidence) || hasInventedMetric(answer, evidence, effectiveQuestion)) {
-      return ok({ answer: NO_EVIDENCE_RESPONSE, sources: [], relatedScreens: [], kind: "no-evidence" as const }, 200, requestId);
+      return ok({ answer: NO_EVIDENCE_RESPONSE, sources: [], relatedInfo: [], relatedScreens: [], kind: "no-evidence" as const }, 200, requestId);
     }
-    // Separate evidence by kind: policy/diagnosis → "참고 근거", menu → "관련 화면", guide → hidden
+    // Separate evidence by kind: diagnosis (real data) → "확인한 근거",
+    // policy (system guidance) → "관련 안내", menu → "관련 화면",
+    // guide → hidden (answer body only). Policy guidance must never render
+    // as verified lookup evidence.
     const cited = result.citedIds
       .map((id) => evidence.find((entry) => entry.id === id))
       .filter((entry) => entry !== undefined);
-    const sources = cited
-      .filter((entry) => entry.kind === "policy" || entry.kind === "diagnosis")
-      .map((entry) => ({ screen: entry.screen, title: entry.title }));
-    const relatedScreens = cited
-      .filter((entry) => entry.kind === "menu")
-      .map((entry) => ({ screen: entry.screen, title: entry.title }));
-    // guide kind: shown in answer body only, no separate UI section
-    return ok({ answer, sources, relatedScreens, kind: "answer" as const }, 200, requestId);
+    const split = splitCitedByKind(cited);
+    const toDisplay = (entries: typeof cited) => entries.map((entry) => ({ screen: entry.screen, title: entry.title }));
+    return ok({ answer, sources: toDisplay(split.confirmed), relatedInfo: toDisplay(split.relatedInfo), relatedScreens: toDisplay(split.relatedScreens), kind: "answer" as const }, 200, requestId);
   } catch (error) {
     return apiError(error, requestId);
   }

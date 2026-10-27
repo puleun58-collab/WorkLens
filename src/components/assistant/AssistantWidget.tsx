@@ -19,6 +19,7 @@ interface AssistantMessage {
   role: "user" | "assistant";
   text: string;
   sources?: AssistantSource[];
+  relatedInfo?: AssistantSource[];
   relatedScreens?: AssistantSource[];
   error?: string;
   pending?: boolean;
@@ -206,6 +207,7 @@ async function readLearnContext(): Promise<LearnContextPayload | null> {
 interface AssistantApiResult {
   answer: string;
   sources: AssistantSource[];
+  relatedInfo: AssistantSource[];
   relatedScreens: AssistantSource[];
   kind: string;
   clarify?: { clarifyId: string; originalQuestion: string; options: string[] };
@@ -219,6 +221,7 @@ async function askAssistant(
   contextStatus: ContextStatus | null,
   learnContext: LearnContextPayload | null,
   signal: AbortSignal,
+  previousAnswer: string | null,
 ): Promise<AssistantApiResult> {
   const response = await fetch("/api/assistant", {
     method: "POST",
@@ -230,6 +233,7 @@ async function askAssistant(
       ...(context ? { context } : {}),
       ...(clarify ? { clarify } : {}),
       ...(followUpOf ? { followUpOf } : {}),
+      ...(previousAnswer ? { previousAnswer } : {}),
       ...(contextStatus && contextStatus !== "available" ? { contextStatus } : {}),
       ...(learnContext ? { learnContext } : {}),
     }),
@@ -241,7 +245,7 @@ async function askAssistant(
     if (code === "AI_RATE_LIMITED") throw new Error("요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.");
     throw new Error("지금은 응답할 수 없습니다. 네트워크 상태를 확인한 뒤 다시 시도해 주세요.");
   }
-  const data = (payload as { data?: { answer?: unknown; sources?: unknown; relatedScreens?: unknown; kind?: unknown; clarify?: unknown } } | null)?.data;
+  const data = (payload as { data?: { answer?: unknown; sources?: unknown; relatedInfo?: unknown; relatedScreens?: unknown; kind?: unknown; clarify?: unknown } } | null)?.data;
   if (!data || typeof data.answer !== "string") throw new Error("응답 형식이 올바르지 않습니다. 다시 시도해 주세요.");
   const toSources = (value: unknown): AssistantSource[] => Array.isArray(value)
     ? value.filter((source): source is AssistantSource =>
@@ -256,6 +260,7 @@ async function askAssistant(
   return {
     answer: data.answer,
     sources: toSources(data.sources),
+    relatedInfo: toSources(data.relatedInfo),
     relatedScreens: toSources(data.relatedScreens),
     kind: typeof data.kind === "string" ? data.kind : "answer",
     clarify: toClarify(data.clarify),
@@ -278,6 +283,9 @@ export function AssistantWidget() {
   const clarifyRef = useRef<{ clarifyId: string; originalQuestion: string; options: string[] } | null>(null);
   /** Last user question for follow-up understanding. Cleared on conversation reset. */
   const lastQuestionRef = useRef<string | null>(null);
+  /** Last assistant answer (bounded) for follow-up understanding: the model
+   * builds on it instead of repeating it. Cleared on conversation reset. */
+  const lastAssistantAnswerRef = useRef<string | null>(null);
   /** Task-data consent pending for a specific question. Stores the task id at request time. */
   const consentRef = useRef<{ question: string; taskId: string | null } | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -344,6 +352,10 @@ export function AssistantWidget() {
     // Follow-up context: pass the previous question so short follow-ups can be understood.
     // Skip when resolving a clarification (the clarify payload already carries context).
     const followUpOf = pendingClarify ? null : lastQuestionRef.current;
+    // Previous answer (bounded) so a follow-up builds on it instead of repeating it.
+    const previousAnswer = followUpOf && lastAssistantAnswerRef.current
+      ? lastAssistantAnswerRef.current.slice(0, 600)
+      : null;
     try {
       const context = withContext ? await readScreenContext(question) : null;
       // If the panel was closed/reset while reading context, drop the stale request.
@@ -352,10 +364,11 @@ export function AssistantWidget() {
       const contextStatus = !withContext ? null : context ? null : (await readScreenContextStatus().catch(() => ({ status: "access-failed" as const, taskId: null }))).status;
       const learnContext = await readLearnContext().catch(() => null);
       if (requestId !== requestSeqRef.current) return;
-      const { answer, sources, relatedScreens, kind, clarify } = await askAssistant(question, context, pendingClarify, followUpOf, contextStatus, learnContext, controller.signal);
+      const { answer, sources, relatedInfo, relatedScreens, kind, clarify } = await askAssistant(question, context, pendingClarify, followUpOf, contextStatus, learnContext, controller.signal, previousAnswer);
       if (requestId !== requestSeqRef.current) return;
-      // Remember this question for the next follow-up.
+      // Remember this question and answer for the next follow-up.
       lastQuestionRef.current = question;
+      lastAssistantAnswerRef.current = answer;
       if (kind === "clarify" && clarify) clarifyRef.current = clarify;
       // Consent: capture the selected task id at request time so acceptConsent can re-validate.
       if (kind === "consent") {
@@ -369,6 +382,7 @@ export function AssistantWidget() {
               pending: false,
               text: answer,
               sources,
+              relatedInfo,
               relatedScreens,
               ...(kind === "clarify" && clarify ? { clarify } : {}),
               ...(kind === "consent" ? { consent: { question } } : {}),
@@ -409,6 +423,7 @@ export function AssistantWidget() {
     clarifyRef.current = null;
     consentRef.current = null;
     lastQuestionRef.current = null;
+    lastAssistantAnswerRef.current = null;
     setMessages([{ id: nextId(), role: "assistant", text: "안녕하세요! 렌즈봇입니다.\n업무 분석, 자동화 진단, 기능 사용 방법 등\n무엇이든 질문해 주세요.", greeting: true }]);
     setLoading(false);
   }, []);
@@ -507,8 +522,14 @@ export function AssistantWidget() {
                   ) : null}
                   {message.sources && message.sources.length ? (
                     <div className="wl-assistant-sources">
-                      <strong>참고 근거</strong>
+                      <strong>확인한 근거</strong>
                       <ul>{message.sources.map((source) => <li key={`${source.screen}${source.title}`}>{dedupeScreenPath(source.screen, source.title)}</li>)}</ul>
+                    </div>
+                  ) : null}
+                  {message.relatedInfo && message.relatedInfo.length ? (
+                    <div className="wl-assistant-related-info">
+                      <strong>관련 안내</strong>
+                      <ul>{message.relatedInfo.map((source) => <li key={`${source.screen}${source.title}`}>{dedupeScreenPath(source.screen, source.title)}</li>)}</ul>
                     </div>
                   ) : null}
                   {message.consent ? (

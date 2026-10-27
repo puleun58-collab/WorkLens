@@ -8,17 +8,18 @@ import { GATE_LABELS, LEVEL_LABELS } from "@/lib/ax/policy";
  */
 export interface AssistantEvidence {
   id: string;
-  /** Display path shown under "참고 근거" or "관련 화면". */
+  /** Display path shown under "확인한 근거", "관련 안내", or "관련 화면". */
   screen: string;
   title: string;
   text: string;
   keywords: RegExp;
   /**
    * Evidence kind for conditional display:
-   * - "policy": Level/Gate/policy explanations → show as "참고 근거"
+   * - "policy": Level/Gate/policy explanations → show as "관련 안내"
+   *   (system guidance, never as verified lookup evidence)
    * - "guide": general usage guides → hide sources (answer body only)
    * - "menu": menu location info → show as "관련 화면" (not as evidence)
-   * - "diagnosis": task-specific diagnosis → show as "참고 근거" with actual data
+   * - "diagnosis": task-specific diagnosis → show as "확인한 근거" with actual data
    */
   kind: "policy" | "guide" | "menu" | "diagnosis";
 }
@@ -168,7 +169,7 @@ export const ASSISTANT_EVIDENCE: AssistantEvidence[] = [
     screen: "법령 > 종합 리서치",
     title: "법령 MCP 연동과 근거 확인 방식",
     text: "종합 리서치의 법령·판례 조회는 법령 MCP를 통해 실제 자료를 조회합니다. AI가 법령이나 판례를 기억만으로 새로 만들어 확정 근거로 제시하지 않습니다. 결과 상태는 채택된 근거를 기준으로 정해집니다: 관련 근거를 확인했습니다, 관련 근거를 일부 확인했습니다, 직접 관련된 근거가 충분하지 않습니다, 관련 근거를 확인하지 못했습니다. 확인된 근거와 참고 목록·미확인 항목은 구분해 표시합니다. 다만 법령 MCP를 사용해도 질문과 관계없는 실제 조문 선택, 조문 존재를 근거 확인으로 오판, 적용 시점 혼동, 검색 가능한 자료 누락, 복수 쟁점의 일부만 확인, 확보된 근거의 의미 오해 같은 오류 가능성은 남으므로 확정 보장은 하지 않습니다.",
-    keywords: /법령|mcp|판례|조문|법령.*환각|환각.*법령/iu,
+    keywords: /법령|mcp|판례|조문|법령.*환각|환각.*법령|인용|내용\s*불일치/iu,
     kind: "policy",
   },
   {
@@ -191,8 +192,8 @@ export const ASSISTANT_EVIDENCE: AssistantEvidence[] = [
     id: "law-evidence-check",
     screen: "법령 > 종합 리서치",
     title: "근거 확인 경로",
-    text: "확인된 근거는 종합 리서치 결과의 상세 근거에서 확인합니다. 참고 목록은 확인 근거와 구분해 표시하며, 발췌는 전문이 아니므로 조문 전문은 법령 검색에서 확인합니다.",
-    keywords: /법령.*근거|근거.*법령/iu,
+    text: "확인된 근거는 종합 리서치 결과의 상세 근거에서 확인합니다. 참고 목록은 확인 근거와 구분해 표시하며, 발췌는 전문이 아니므로 조문 전문은 법령 검색에서 확인합니다. 인용 검증의 내용 불일치는 조문 자체는 존재하지만 입력한 주장과 조문 내용이 맞지 않는 경우입니다. 조문 존재 여부와 내용 적합성은 구분합니다.",
+    keywords: /법령.*근거|근거.*법령|인용|내용\s*불일치|불일치/iu,
     kind: "policy",
   },
   {
@@ -240,7 +241,15 @@ export const ASSISTANT_EVIDENCE: AssistantEvidence[] = [
     screen: "문서 작업 > 검수",
     title: "문서 검수",
     text: "문서 검수는 문장·일관성·데이터·개인정보·보안정보를 검수합니다. 검수 탭에서 실행하면 문제와 수정 제안을 카드로 보여주고, 근거 보기에서 원문 위치를 확인할 수 있습니다.",
-    keywords: /문서\s*검수|검수\s*기능/iu,
+    keywords: /문서\s*검수|검수\s*기능|검토.*검수/iu,
+    kind: "guide",
+  },
+  {
+    id: "doc-review",
+    screen: "법령 > 문서 검토",
+    title: "문서 검토",
+    text: "문서 검토는 법령 카테고리에서 작업 문서의 조항과 확인된 근거를 검토합니다. 조항별로 확인된 근거와 근거 미확인 상태를 구분해 표시하고, 근거 보기에서 원문 위치를 확인할 수 있습니다. 문서 검수와는 다릅니다. 문서 검수는 문장·일관성·데이터·개인정보·보안정보를 검수하는 기능입니다.",
+    keywords: /문서\s*검토/iu,
     kind: "guide",
   },
   {
@@ -341,6 +350,7 @@ export const LAW_EVIDENCE_IDS: ReadonlySet<string> = new Set([
   "law-accuracy-limits",
   "law-evidence-check",
   "research-general",
+  "doc-review",
 ]);
 
 /**
@@ -414,6 +424,25 @@ function relevanceScore(entry: AssistantEvidence, lowered: string): number {
 export function validCitations(citedIds: string[], provided: AssistantEvidence[]): boolean {
   const allowed = new Set(provided.map((entry) => entry.id));
   return citedIds.every((id) => allowed.has(id));
+}
+
+/**
+ * Split cited evidence into display buckets. Only "diagnosis" entries (real
+ * user data provided for this question) may render as verified evidence
+ * ("확인한 근거"). "policy" entries are system guidance and render as
+ * "관련 안내", never as lookup evidence; "menu" entries render as "관련 화면".
+ * "guide" entries stay in the answer body only.
+ */
+export function splitCitedByKind(cited: AssistantEvidence[]): {
+  confirmed: AssistantEvidence[];
+  relatedInfo: AssistantEvidence[];
+  relatedScreens: AssistantEvidence[];
+} {
+  return {
+    confirmed: cited.filter((entry) => entry.kind === "diagnosis"),
+    relatedInfo: cited.filter((entry) => entry.kind === "policy"),
+    relatedScreens: cited.filter((entry) => entry.kind === "menu"),
+  };
 }
 
 // Metric word can precede or follow the number: "정확도가 95%" or "95% 향상"
