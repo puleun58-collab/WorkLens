@@ -5,6 +5,7 @@ import {
   isLawName, questionSubjectTerms, questionTerms, questionTermsSubjectLess, rankPrecedent, researchEvidenceSources, titleMatches,
   type PrecedentRelevance, type ResearchEnrichment, type SupplementArticle,
 } from "@/lib/research-relevance";
+import { assessProcedureEvidence } from "@/lib/procedure-evidence";
 import { classifyLawToolResult } from "@/server/law-analysis-mcp";
 import { callLawTool, searchLaw } from "@/server/law-mcp";
 import { mcpReviewSources, reviewContract } from "@/server/contract-review";
@@ -436,6 +437,12 @@ export async function runLegalResearch(
       return { found: true, task: request.task, text, markers: ["NOT_FOUND"], comparison };
     }
     return { found: false, task: request.task, marker: "NOT_FOUND", text };
+  }
+  // 절차·서식: the server judges the returned text requirement by requirement;
+  // the UI displays this verdict. Other tasks keep their previous responses.
+  if (request.task === "procedure_detail") {
+    return { found: true, task: request.task, text, markers: classification.markers,
+      procedure: assessProcedureEvidence(request.query, researchResult(text), text) };
   }
   // Action-basis enrichment keeps its previous behavior; full research is handled above.
   if (request.task === "action_basis") {

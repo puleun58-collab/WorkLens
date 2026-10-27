@@ -2,6 +2,7 @@ import type { FileKind } from "@/domain/document";
 import { LAW_ARTICLE_PATTERN } from "@/lib/law-search";
 import { normalizeAnalysisDate, normalizeAnalysisJo } from "@/lib/law-analysis";
 import type { ContractReview } from "@/lib/contract-review";
+import type { ProcedureEvidence } from "@/lib/procedure-evidence";
 import type { ResearchEnrichment } from "@/lib/research-relevance";
 
 /**
@@ -221,6 +222,8 @@ export interface LawResearchData {
   };
   /** 조례 비교 only: each region's ordinance and the topic articles fetched from 법제처. */
   comparison?: OrdinanceComparison;
+  /** 절차·서식 only: server-computed per-requirement evidence; the UI displays it, never recomputes it. */
+  procedure?: ProcedureEvidence;
 }
 
 /**

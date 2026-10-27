@@ -1716,7 +1716,7 @@ test("RESEARCH every task applies the same result rules while keeping its own st
       await expect(output.locator(".research-overview")).toBeVisible();
       // The first box reads as a result: no "· 조회 결과" label, no "…살펴보세요" instruction, one question label.
       await expect(output.locator(".research-overview .research-eyebrow").first(), task).toHaveText(labels[task]);
-      await expect(output.locator(".research-overview h3"), task).toHaveText(/^관련 근거를 (?:확인했습니다|일부 확인했습니다|확인하지 못했습니다)$|^직접 관련된 근거가 충분하지 않습니다$/u);
+      await expect(output.locator(".research-overview h3"), task).toHaveText(/^관련 근거를 (?:확인했습니다|일부 확인했습니다|확인하지 못했습니다)$|^관련 자료를 조회했습니다$|^자료 조회를 완료하지 못했습니다$|^직접 관련된 근거가 충분하지 않습니다$/u);
       statuses.add(`${task}:${await output.locator(".research-overview h3").getAttribute("data-status")}`);
       await expect(output.locator(".research-query"), task).toHaveText(/^입력한 질문: \S/u);
       // Search-engine vocabulary stays out of what the reader sees.
@@ -1745,6 +1745,50 @@ test("RESEARCH every task applies the same result rules while keeping its own st
   await expect(page.getByRole("region", { name: "조례 대조" })).toBeVisible();
   await chooseOption(page, form.getByLabel("리서치 유형"), researchTaskLabels.procedure_detail);
   await expect(page.locator("[data-kind='annex']")).toContainText("행정심판 청구서");
+});
+
+test("RESEARCH procedure_detail shows the server's per-requirement verdict instead of a blanket weak result", async ({ page }) => {
+  // A mocked API answer shaped exactly like the server's procedure_detail
+  // response: article bodies confirm both requirements, the annex list is cut.
+  const text = "═══ 절차/비용 안내: 행정심판 청구절차와 제출서류 ═══\n법령: 행정심판법 (법률) | MST: 249041\n\n"
+    + "▶ AI 검색 보완 정보\n지능형 법령검색 결과 (법령조문, 2건):\n\n행정심판법\n    제23조 (심판청구서의 제출)\n    제23조(심판청구서의 제출)\n"
+    + "  ① 행정심판을 청구하려는 자는 제28조에 따라 심판청구서를 작성하여 피청구인이나 위원회에 제출하여야 한다.\n    시행: 2023.03.21 | 국민권익위원회\n\n행정심판법\n    제28조 (심판청구의 방식)\n    제28조(심판청구의 방식)\n"
+    + "  ① 심판청구는 서면으로 하여야 한다.\n    시행: 2023.03.21 | 국민권익위원회\n\n"
+    + "▶ 행정심판법 별표/서식\n법령명: 행정심판법\n별표/서식 목록 (총 55건):\n\n1. [별지 제1호서식] 심판청구서\n  관련법령: 행정심판법 시행규칙\n\n2. [별지 제2호서식] 심판청구 보정서\n  관련법령: 행정심판법 시행규칙\n";
+  await page.route("**/api/law/research", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: {
+    found: true, task: "procedure_detail", text, markers: [],
+    procedure: { requirements: [
+      { label: "행정심판 청구절차", kind: "procedure", status: "found",
+        articles: [{ law: "행정심판법", jo: "제23조", title: "심판청구서의 제출" }, { law: "행정심판법", jo: "제28조", title: "심판청구의 방식" }], annexCount: 0 },
+      { label: "행정심판 제출서류", kind: "forms", status: "found",
+        articles: [{ law: "행정심판법", jo: "제23조", title: "심판청구서의 제출", nature: "required" },
+          { law: "행정심판법", jo: "제28조", title: "심판청구의 방식", nature: "required" }], annexCount: 2, annexTotal: 55 },
+    ], overall: "matched", incomplete: false, annexTruncated: true, failedSections: 0 },
+  } }) }));
+  await page.goto("/");
+  await navigateWorkspace(page, "법령");
+  await page.getByRole("tab", { name: "종합 리서치", exact: true }).click();
+  const form = page.getByRole("form", { name: /^(종합 리서치|문서 검토) 입력$/ });
+  await form.getByLabel("질문 또는 검색어").fill("행정심판 청구절차와 제출서류");
+  await chooseOption(page, form.getByLabel("리서치 유형"), researchTaskLabels.procedure_detail);
+  await form.getByRole("button", { name: "실행" }).click();
+  const output = page.locator(".legal-research .legal-analysis-output");
+  const overview = output.locator(".research-overview");
+  await expect(overview.locator("h3")).toHaveText("관련 근거를 확인했습니다");
+  await expect(overview.locator("h3")).toHaveAttribute("data-status", "matched");
+  await expect(overview).toContainText("관련 근거 확인");
+  await expect(overview).not.toContainText("근거 부족");
+  const requirements = overview.locator("[data-procedure-requirements]");
+  await expect(requirements).toContainText("행정심판 청구절차");
+  await expect(requirements).toContainText("행정심판 제출서류");
+  await expect(requirements.locator(".research-issue-status")).toHaveText(["근거 확인", "근거 확인"]);
+  await expect(requirements).toContainText("행정심판법 제23조(필수)");
+  await expect(requirements).toContainText("별표/서식 목록 2건 (전체 55건 중)");
+  await expect(overview).toContainText("별표·서식 원문 미확보");
+  await expect(output.locator(".research-group[data-group='forms']")).toContainText("심판청구서");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(overview.locator("h3")).toHaveText("관련 근거를 확인했습니다");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
 test("RESEARCH separates a verified article from search candidates and hides internal guidance", async ({ page }) => {

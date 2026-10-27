@@ -11,6 +11,7 @@ import { isSupportingSection, researchResult, type ResearchDecision, type Resear
 import { lawDisplayText } from "@/lib/law-display";
 import { orderByRelevance, type ResearchEnrichment } from "@/lib/research-relevance";
 import { STATUS_TITLE, type ResearchStatus } from "@/lib/research-status";
+import type { ProcedureArticleRef, ProcedureRequirementStatus } from "@/lib/procedure-evidence";
 import { LawTextBlock } from "./LawTextBlock";
 import { ContractReviewResult, FileReviewExcluded } from "./ContractReviewResult";
 import { SourceToggleSummary } from "./SourceToggleSummary";
@@ -507,6 +508,22 @@ const ISSUE_STATUS_LABEL: Record<IssueEvidence["status"], string> = {
   timeout: "조회 미완료",
 };
 
+/** Per-requirement outcome for 절차·서식, from the server's evidence verdict. */
+const PROCEDURE_REQUIREMENT_LABEL: Record<ProcedureRequirementStatus, string> = {
+  found: "근거 확인",
+  viewed: "관련 자료 조회",
+  none: "직접 관련 근거 미확인",
+  failed: "자료 확인 실패",
+};
+
+/** Forms only: what the cited article body itself says about the filing duty. */
+const PROCEDURE_FORM_NATURE_LABEL: Record<NonNullable<ProcedureArticleRef["nature"]>, string> = {
+  required: "필수",
+  conditional: "조건부",
+  optional: "첨부 가능",
+  unconfirmed: "의무 미확인",
+};
+
 /** 입력한 질문 → 이렇게 이해했어요 → 살펴볼 쟁점: sibling blocks, each opened by the same rule; empty ones are not rendered. */
 function ResearchUnderstanding({ interpretation, evidence = [] }: { interpretation: ResearchInterpretation; evidence?: readonly IssueEvidence[] }) {
   // The model often restates the question verbatim; showing it twice adds nothing.
@@ -774,6 +791,9 @@ function ResearchResult({ data, request, expandSources = false, onExpandSourcesC
   }
   const result = researchResult(data.text);
   const full = data.task === "full_research";
+  // 절차·서식 only: the server's per-requirement verdict. Without it (an older
+  // or mocked response) the previous candidate-based rule below still applies.
+  const procedure = data.task === "procedure_detail" ? data.procedure : undefined;
   const issueEvidence = full ? data.evidence?.issues ?? [] : [];
   // The shared chain supplement cannot be attributed to one issue, so its
   // incompleteness demotes only the overall status (matched → partial) through
@@ -846,6 +866,7 @@ function ResearchResult({ data, request, expandSources = false, onExpandSourcesC
   // One status vocabulary for every task, decided by what was actually adopted, never by hit counts.
   const status: ResearchStatus = full
     ? evidenceStatus === "matched" ? notice ? "partial" : "matched" : evidenceStatus === "partial" ? "partial" : hasCandidates ? "weak" : "none"
+    : procedure ? procedure.overall
     : comparison
       ? bothSides.length ? comparedRegions.length === 2 ? "matched" : "partial"
         : comparedRegions.some((region) => region.articles.length) ? "partial" : comparedRegions.length ? "weak" : "none"
@@ -853,16 +874,32 @@ function ResearchResult({ data, request, expandSources = false, onExpandSourcesC
 
   return <div ref={resultRef} className="legal-analysis-output" data-task={data.task}>
     <ResearchResultSummary label={LAW_RESEARCH_TASKS.find((item) => item.value === data.task)?.label} badge={STATUS_BADGE[status]} status={status} title={STATUS_TITLE[status]}
-      caution={status === "matched" || status === "partial" || (status === "weak" && !full && !comparison)
+      caution={status === "matched" || status === "partial" || (status === "weak" && !full && !comparison) || (status === "viewed" && procedure)
         ? `※ ${full ? "확인한 근거는" : "조회한 자료는"} 관련 쟁점을 검토하기 위한 자료이며, 구체적인 사건의 법적 결론을 의미하지 않습니다.`
         : status === "none" ? "※ 조회되지 않았다고 관련 법령이나 판례가 없다는 뜻은 아닙니다." : undefined}
       cautionClassName="research-caution">
       {request.task !== "document_review" && <p className="research-meta research-summary-meta research-query">입력한 질문: {request.query}</p>}
       {interpretation && <ResearchUnderstanding interpretation={interpretation} evidence={issueEvidence} />}
       {full && !data.interpretation && <p className="research-meta research-uninterpreted">{UNINTERPRETED_NOTE[data.interpretationFailure ?? "unavailable"]}</p>}
+      {procedure && <div className="research-original research-issues is-assessed" data-procedure-requirements="true">
+        <span>확인한 요구사항</span>
+        <ul>{procedure.requirements.map((requirement, index) => <li key={index}>
+          <span className="research-issue-label"><span className="research-issue-number">{String(index + 1).padStart(2, "0")}</span>{requirement.label}</span>
+          <span className="research-issue-status" data-status={requirement.status}>{PROCEDURE_REQUIREMENT_LABEL[requirement.status]}</span>
+        </li>)}</ul>
+        {procedure.requirements.map((requirement, index) => {
+          const refs = requirement.articles.map((article) => `${article.law} ${article.jo}${article.nature ? `(${PROCEDURE_FORM_NATURE_LABEL[article.nature]})` : ""}`).join(" · ");
+          const annex = requirement.annexCount
+            ? `별표/서식 목록 ${requirement.annexCount}건${requirement.annexTotal && requirement.annexTotal > requirement.annexCount ? ` (전체 ${requirement.annexTotal}건 중)` : ""}`
+            : "";
+          if (!refs && !annex) return null;
+          return <p key={index} className="research-meta">{requirement.label}: {[refs, annex].filter(Boolean).join(" · ")}</p>;
+        })}
+      </div>}
       <ResearchSummaryNotices>
         {notice && <ResearchSummaryNotice tone="warning" title="관련 근거 일부 미확인" className="legal-research-partial">{notice}</ResearchSummaryNotice>}
         {status === "weak" && <ResearchSummaryNotice tone="info" title="직접 관련성 확인 필요">조회된 자료가 질문과 직접 관련되는지 확인되지 않았습니다. 아래 자료는 참고용입니다.</ResearchSummaryNotice>}
+        {procedure?.annexTruncated && <ResearchSummaryNotice tone="info" title="별표·서식 원문 미확보">별표/서식 목록 일부만 확인했습니다. 목록만으로는 제출 의무를 단정하지 않으며, 서식 원문은 법령 검색에서 확인하세요.</ResearchSummaryNotice>}
       </ResearchSummaryNotices>
     </ResearchResultSummary>
     {full && issueEvidence.length > 1 && <nav className="research-issue-nav" aria-label="쟁점 바로가기">
