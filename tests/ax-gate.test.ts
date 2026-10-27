@@ -287,8 +287,10 @@ describe("AX gate recommended checks display (표시 전용 — Gate 판정 불�
       "API 제공 여부 — 담당 부서 확인 중",
       "API 접근 권한 — 권한 신청 필요",
     ]);
+    // 작업 13 P1: 주제만 같은 조건은 합치지 않는다 — 비고가 다른 "API 제공 여부"
+    // 확인 항목은 각각 유지한다 (기존 주제 기준 병합 동작을 대체한다).
     expect(splitGatePrerequisites(d)).toEqual({
-      required: ["API 제공 여부 — 제공 여부 미확인", "API 접근 권한 — 권한 신청 필요"],
+      required: ["API 제공 여부 — 제공 여부 미확인", "API 제공 여부 — 담당 부서 확인 중", "API 접근 권한 — 권한 신청 필요"],
       recommended: [],
     });
   });

@@ -554,6 +554,7 @@ function buildAdditionalChecks(
       status: future ? "향후 검토" : "확인 필요",
       tone: future ? "future" : "required",
       future,
+      relation: conditionRelation(model, item, future),
     };
   };
   const rows: AxAdditionalCheck[] = [];
@@ -584,6 +585,25 @@ const HUMAN_DECISION_CHECK = "담당자 유지 항목의 확정·시스템 반�
 /** Card tone for one technical check; `future` only when the check is explicitly linked to a step outside the current Level scope.
  * `held` marks a HITL-deferred check: not a current required task, shown with its hold reason and resume condition. */
 export type AxCheckTone = "required" | "future" | "done" | "blocked" | "held";
+/** How a condition relates to diagnosed steps, for display only (never a policy decision):
+ * - "연결 확인": the condition carries an explicit step link in the model.
+ * - "관련 후보": the condition text mentions a diagnosed step name, but no explicit
+ *   step link exists — it stays "확인 필요" and is never promoted to a required
+ *   dependency of that step.
+ * - "적용 단계 미확인": no step link and no step mention.
+ * - "공통 조건": the same condition text arrived from two or more distinct sources
+ *   without a single-step link, i.e. task-wide evidence, not a confirmed multi-step link.
+ * - "향후 조건": explicitly a future-stage condition. */
+export type AxConditionRelation = "연결 확인" | "관련 후보" | "적용 단계 미확인" | "공통 조건" | "향후 조건";
+export function conditionRelation(model: AgentInstructionModel, item: AgentInstructionItem | null, future: boolean): AxConditionRelation {
+  if (future) return "향후 조건";
+  if (item?.step) return "연결 확인";
+  if (!item) return "적용 단계 미확인";
+  const text = normalizedStepText(item.text);
+  if (model.steps.some(s => { const name = normalizedStepText(s.step); return name.length >= 2 && text.includes(name); })) return "관련 후보";
+  if (new Set(item.sources).size >= 2) return "공통 조건";
+  return "적용 단계 미확인";
+}
 /** One row of the "추가 확인 사항" table: a condition not already shown as a top check card. */
 export interface AxAdditionalCheck {
   /** Short label for the 확인 항목 column. */
@@ -595,6 +615,8 @@ export interface AxAdditionalCheck {
   status: "확인 필요" | "확인됨" | "향후 검토" | "불가";
   tone: AxCheckTone;
   future: boolean;
+  /** Display-only step relation (see AxConditionRelation); never a confirmed dependency. */
+  relation: AxConditionRelation;
 }
 /** Read-only Step 4 summary; tentative PoC claims are visible but never promoted to required checks. */
 export interface AxPlanSummary {
@@ -606,6 +628,10 @@ export interface AxPlanSummary {
   blockReasons: string[];
   /** Conditions not already shown as a check card, with stage linkage kept explicit. */
   additionalChecks: AxAdditionalCheck[];
+  /** Internal traceability for each displayed prerequisite: the model sources that
+   * carried the same condition text (merged display keeps every source; a merged
+   * row never silently drops an origin). Not rendered by the 01~03 cards. */
+  prerequisiteSources: { text: string; sources: string[] }[];
   /** Prerequisites not already shown as a check card; blocked gates list block reasons as `current`. */
   conditions: { current: string[]; future: string[] };
   /** Existing structured human/exclusion fields, with their source retained. */
@@ -689,6 +715,13 @@ export function planSummary(diagnosis: AxDiagnosis, rawPlan?: AxPlan, context = 
     checks,
     blockReasons: model.gate === "blocked" ? [...(profile?.blockReasons ?? [])] : [],
     additionalChecks,
+    prerequisiteSources: prerequisites.map(text => {
+      const key = normalizedItem(text.replace(/ \(적용 단계 확인 필요\)$/u, "").replace(/ \(향후 단계 조건\)$/u, ""));
+      const sources = [...new Set(model.classified.filter(item => item.role === "conditions"
+        && (normalizedItem(item.text) === key || normalizedItem(`${item.text} (적용 단계 확인 필요)`) === key))
+        .flatMap(item => item.sources))];
+      return { text, sources };
+    }),
     conditions: {
       current: unique(openConditions.filter(entry => !entry.future).map(entry => entry.text)),
       future: unique(openConditions.filter(entry => entry.future).map(entry => entry.text)),
@@ -973,6 +1006,30 @@ export function isConflictingMethodEvidence(model: AgentInstructionModel, index:
   if (model.methods[index] !== "confirm") return false;
   return (model.methodReasons?.[index] ?? "").includes("처리 방식 근거 충돌");
 }
+/**
+ * Display-only reason for an undetermined processing method (method "confirm" without
+ * confirmed evidence or a conflict). The category is derived only from evidence text
+ * actually recorded in the diagnosis (step note / TO-BE description); with no such
+ * evidence it returns undefined and the generic "처리 방식 미확정" wording stays.
+ * It never changes the method, the Level × Gate scope, or any policy decision.
+ */
+export function methodUndeterminedCategory(model: AgentInstructionModel, index: number): string | undefined {
+  if (model.methods[index] !== "confirm") return undefined;
+  if (isConflictingMethodEvidence(model, index) || isConfirmedMethodEvidence(model, index)) return undefined;
+  const step = model.steps[index];
+  if (step && model.steps.filter(s => normalizedStepText(s.step) === normalizedStepText(step.step)).length > 1) return undefined;
+  const evidence = (model.methodUserReasons?.[index] ?? "").replace(/^진단에 처리 방식의 구체적 근거가 없음[^:]*:\s*/u, "").trim();
+  if (!evidence || evidence.startsWith("명시적 처리 방식 확인 필요")) return undefined;
+  if (/(승인\s*(?:주체|자|조건|절차)|판단\s*주체|결재\s*(?:주체|자|조건)|승인자)/u.test(evidence)) return "승인 주체·조건 미확인";
+  if (/(확정|정해진|기존)\s*(규칙|계산식)/u.test(evidence) && /(원본|실제\s*자료|샘플)/u.test(evidence) && /(미확인|확인\s*필요|없음|부족)/u.test(evidence)) return "계산 규칙 존재하나 원본 자료 미확인";
+  if (/(API|연동|권한|인증|접근\s*권한|로그인)/u.test(evidence)) return "외부 연동·접근 권한 미확인";
+  if (/(입력\s*형식|파일\s*형식|데이터\s*형식|필드|컬럼|포맷)/u.test(evidence)) return "입력 형식 미확정";
+  if (/(계산식|계산\s*규칙|계산\s*기준|산출\s*기준|요율|단가\s*기준)/u.test(evidence)) return "확정 계산식 없음";
+  if (/(출력\s*양식|보고\s*양식|매핑|출력\s*형식)/u.test(evidence)) return "출력 양식·매핑 기준 미확정";
+  if (/(Python|파이썬|Excel|엑셀|스크립트|매크로|RPA|시스템|프로그램|도구)/u.test(evidence)) return "기술 제안됐으나 실제 사용 가능 여부 미확정";
+  if (/(기술|방식|방법)/u.test(evidence)) return "처리 기술·방법 미확정";
+  return undefined;
+}
 /** One user-facing processing label shared across timeline, summary and prompt. */
 export function stepMethodLabel(model: AgentInstructionModel, index: number): string {
   const step = model.steps[index];
@@ -1005,7 +1062,10 @@ export function stepMethodLabel(model: AgentInstructionModel, index: number): st
       const confirmed = model.methodUserReasons?.[index]?.trim();
       return `확인된 처리 기준에 따라 구현\n확인된 기준: ${confirmed}\n위 기준에 명시되지 않은 처리 방식은 담당자에게 확인하기 전에는 선택·구현하지 마세요.`;
     }
-    return "처리 방식 미확정 · 확인 후 진행\n처리 방식의 구체적 근거가 확인되지 않았습니다. 실제 처리 규칙·입력 형식을 먼저 확인하고, 확인 전에는 해당 처리만 보류하세요. 확인과 무관한 독립 단계는 계속 진행할 수 있습니다.";
+    const category = methodUndeterminedCategory(model, index);
+    return category
+      ? `처리 방식 미확정 · 확인 후 진행\n미확정 사유: ${category} — 실제 근거: ${(model.methodUserReasons?.[index] ?? "").trim()}\n해당 사유가 확인되기 전에는 해당 처리만 보류하세요. 확인과 무관한 독립 단계는 계속 진행할 수 있습니다.`
+      : "처리 방식 미확정 · 확인 후 진행\n처리 방식의 구체적 근거가 확인되지 않았습니다. 실제 처리 규칙·입력 형식을 먼저 확인하고, 확인 전에는 해당 처리만 보류하세요. 확인과 무관한 독립 단계는 계속 진행할 수 있습니다.";
   }
   if (method === "assist") return "AI 후보·초안 생성 (담당자 확정 전 운영 반영 금지)";
   if (method === "manual") return "담당자 수동 처리 (시스템 구현 전 역할·범위 확인 필요)";
@@ -2019,7 +2079,6 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
   // 실행 지시문에는 내부 출처 경로·원문 비교 설명을 싣지 않는다 (원본 근거는 내부 데이터에 보존).
   const evidenceLine = (item: AgentInstructionItem) => `${item.text}${item.step ? ` (관련 단계: ${item.step})` : ""}${item.reason && !(item.role === "goal" && item.reason === GOAL_LINK_REASON) ? ` — ${item.reason}` : ""}`;
   const conditions = model.conditions.current.map(evidenceLine);
-  const unassignedConditions = model.conditions.confirm.map(evidenceLine);
   // 미연결 조건의 표준 안내 문구는 항목마다 반복하지 않는다 — 아래 섹션의 안내
   // 단락이 한 번 설명하므로, 항목에서는 조건 자체와 고유 사유만 남긴다.
   const UNLINKED_GUIDANCE = "적용 단계를 실제 의존 관계로 확인하세요. 관련 없는 독립 단계는 진행하되 권한·보안 조건을 우회하지 마세요.";
@@ -2028,6 +2087,11 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
     const reason = item.reason.replace(` — ${UNLINKED_GUIDANCE}`, "").replace(UNLINKED_GUIDANCE, "").trim();
     return `${item.text}${item.step ? ` (관련 단계: ${item.step})` : ""}${reason ? ` — ${reason}` : ""}`;
   });
+  // Display-only split of unassigned conditions: "관련 후보" names a diagnosed step
+  // in its text but has no explicit step link, so it stays "확인 필요" and is never
+  // presented as a required dependency of that step; the rest stay "적용 단계 미확인".
+  const relatedCandidateLines = unassignedConditionLines.filter((_, i) => conditionRelation(model, model.conditions.confirm[i], false) === "관련 후보");
+  const unassignedRestLines = unassignedConditionLines.filter((_, i) => conditionRelation(model, model.conditions.confirm[i], false) !== "관련 후보");
   const exceptions = unique([...model.classified.filter(item => item.role === "exception").map(item => item.text), ...(d?.asIs?.exceptions ?? []), ...(d?.risks ?? [])]);
   const humanConstraints = model.classified.some(item => item.role === "human"
     && item.sources.some(source => source === "diagnosis.humanInLoop" || source === "plan.humanInLoop" || source === "policy.manualSteps"));
@@ -2059,7 +2123,8 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
       if (dupName(s)) return "동일 이름 단계 중복 — 처리 방식·적용 단계 확인 필요";
       if (isConflictingMethodEvidence(model, idx)) return "처리 방식 근거 충돌 — 해결 전 임의 선택·구현 금지";
       if (isConfirmedMethodEvidence(model, idx)) return `확인된 처리 기준: ${collapse(model.methodUserReasons?.[idx] ?? "")}`;
-      return "처리 방식 미확정 — 근거·필수 기준 확인 후 진행";
+      const category = methodUndeterminedCategory(model, idx);
+      return category ? `처리 방식 미확정 (미확정 사유: ${category}) — 근거·필수 기준 확인 후 진행` : "처리 방식 미확정 — 근거·필수 기준 확인 후 진행";
     }
     if (m === "assist") return "AI 후보·초안 생성 (담당자 확정 전 운영 반영 금지)";
     if (m === "manual") return "담당자 수동 처리";
@@ -2301,13 +2366,14 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
       `입력: ${ownInputs.length ? `${ownInputs.join("; ")}${hasCommonInputs ? " + 공통 입력 (위 공통 입력·출력 참조)" : ""}` : "공통 입력 사용 (위 공통 입력·출력 참조)"}`,
       `처리: ${processParts.join(" → ")}`,
       spec.outputs.length ? `출력: ${spec.outputs.join("; ")}` : isLastWork ? "출력: 이 단계의 직접 산출물 없음 — 위 업무 전체 산출물에 기여" : "출력: 이 단계의 직접 산출물 없음 — 처리 결과는 후속 단계의 입력으로 이어짐",
+      ...(spec.reviewPoint ? [`담당자 검토·승인 지점: ${spec.reviewPoint}`] : []),
       `검증: '${verifyGroupLabel(s)}' 검증 기준 적용 (위 '방식별 검증 기준' 참조)`,
     ])}`;
   }).join("\n\n");
   section("기능별 요구사항",
     work.length || inputs.length ? `### 공통 입력·출력\n\n${bullets([
       ...(inputs.length ? [`공통 입력: ${inputs.join("; ")}`] : []),
-      ...(d?.asIs?.trigger ? [`업무 발생 주기·시점: ${d.asIs.trigger} (자동 실행 요구사항 아님)`] : []),
+      ...(d?.asIs?.trigger ? [`업무 발생 주기·시점: ${d.asIs.trigger} ${/(자동|스케줄|무인|정기\s*실행)/u.test(d.asIs.trigger) ? "(원본에 자동 실행 표현이 있어 실제 실행 방식·정책 허용 여부를 확인 대상으로 표시 — 자동 실행 허용으로 확정하지 않음)" : "(자동 실행 요구사항 아님)"}`] : []),
       ...(d?.asIs?.systems?.length ? [`사용 시스템: ${d.asIs.systems.join(", ")}`] : []),
       ...(finalOutputs.length ? [`업무 전체 산출물 (공통 출력): ${finalOutputs.join("; ")}`] : []),
       ...(asIsReferenceOutputs.length ? [`기존 업무 산출물 (참고 — 최종 구현 목표 아님): ${asIsReferenceOutputs.join("; ")}`] : []),
@@ -2348,12 +2414,13 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
       : "",
     gate === "blocked" && profile?.blockReasons.length ? `### 차단 사유\n\n${bullets(profile.blockReasons)}` : "",
     conditions.length ? `### 현재 필수 조건\n\n${bullets(conditions)}` : "",
-    unassignedConditions.length || gaps.length ? `### 적용 단계 확인 필요\n\n${bullets([...unassignedConditionLines, ...gaps])}\n\n미연결 조건의 적용 대상과 의존 관계를 실제 자료로 확인하세요. 무관하다고 임의로 해제하지 말고, 영향 가능성이 있는 작업은 확인·승인 대기로 두세요. 해당 조건과 독립적이라는 근거가 확인된 허용 작업만 계속 진행할 수 있습니다.` : "",
+    relatedCandidateLines.length ? `### 관련 후보 (필수 조건으로 확정하지 않음)\n\n${bullets(relatedCandidateLines)}\n\n위 조건은 업무 단계명을 언급하지만 명시적 단계 연결 근거가 없어 관련 가능성만 표시합니다. 해당 단계의 필수 의존 조건으로 확정하지 말고, 실제 의존 관계를 확인한 뒤에만 현재 조건으로 승격하세요. 확인 전에는 확인 필요 상태를 유지합니다.` : "",
+    unassignedRestLines.length || gaps.length ? `### 적용 단계 확인 필요\n\n${bullets([...unassignedRestLines, ...gaps])}\n\n미연결 조건의 적용 대상과 의존 관계를 실제 자료로 확인하세요. 무관하다고 임의로 해제하지 말고, 영향 가능성이 있는 작업은 확인·승인 대기로 두세요. 해당 조건과 독립적이라는 근거가 확인된 허용 작업만 계속 진행할 수 있습니다.` : "",
     extraConstraints.length ? `### 담당자·제외 제약 (추가)\n\n${bullets(extraConstraints)}` : "",
     humanConstraints || humanKept.length ? `### 담당자 확인·승인\n\n${HUMAN_DECISION_CHECK} 담당자 판단·확정이 필요한 결과를 확인되지 않은 승인으로 확정·시스템 반영·외부 전송하거나 담당자 판단을 대체하지 마세요. 승인 주체·권한이 확인되지 않았으면 지정하지 마세요.` : "",
     "확인되지 않은 API·권한·파일 형식·연동 방식·계산식·반올림·중복 기준·승인 주체를 가정해 구현하지 마세요. 특히 '불가'·거부된 접근 권한은 검토에서 제외해도 허용으로 바뀌지 않습니다.",
     exceptionLines.length ? `### 예외\n\n${bullets(exceptionLines)}\n\n실패·미매칭·확인 불가 데이터는 정상 결과와 분리해 원인과 대상을 확인할 수 있게 하세요. 자동 삭제·자동 보정은 업무 규칙에 명시된 경우에만 적용하고, 아니면 대상 건을 표시만 하세요.` : "",
-    `### 실행 방식\n\n${scopeLevel === 1 ? "담당자 요청 기반 실행만 허용합니다. 스케줄러·폴더 감시 등 정기 무인 실행을 구현하지 마세요." : scopeLevel === 0 ? "검토·검증만 허용하며 업무 자동 실행을 추가하지 마세요." : "업무 발생 주기와 시스템 자동 실행은 별개입니다. 실제 자동 실행 요청·근거·정책 허용 여부가 확인되지 않았다면 실행 방식 확인 필요로 보고하세요."}`,
+    `### 실행 방식\n\n${scopeLevel === 1 ? "담당자 요청 기반 실행만 허용합니다. 스케줄러·폴더 감시 등 정기 무인 실행을 구현하지 마세요." : scopeLevel === 0 ? "검토·검증만 허용하며 업무 자동 실행을 추가하지 마세요." : "업무 발생 주기와 시스템 자동 실행은 별개입니다. 실제 자동 실행 요청·근거·정책 허용 여부가 확인되지 않았다면 실행 방식 확인 필요로 보고하세요."}${d?.asIs?.trigger && /(자동|스케줄|무인|정기\s*실행)/u.test(d.asIs.trigger) ? " 원본 주기 표현에 자동 실행 언급이 있어도 정책 허용 범위와 담당자 확인 없이는 자동 실행으로 확정하지 않고, 실제 실행 방식은 확인 대상으로 보고하세요." : ""}`,
     `### 보안\n\n${bullets([
       ...model.conditions.global.filter(item => item.role === "security").map(evidenceLine),
       "secret은 코드에 하드코딩하지 말고 저장소의 기존 secret 관리 방식을 사용하세요. 기존 인증·권한 구조와 최소 권한 원칙을 유지하고, 민감한 데이터를 불필요하게 로그에 남기지 마세요.",
@@ -2361,16 +2428,23 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
     ])}`,
     `### 수동 전환\n\n${fallback.length ? `${bullets(fallback)}\n\n` : ""}자동화가 실패해도 기존 수동 업무를 계속할 수 있게 유지하세요. 실제 수동 절차와 운영 담당이 확인되지 않았으면 새로 정하지 마세요.`,
   );
-  // 05. 구현 순서 및 검증: 순서는 실제 개발 작업만 간결하게 쓰고,
-  // 기능별 요구사항을 다시 반복하지 않는다. 검증은 정상·경계·실패 사례 중심.
+  // 05. 구현 순서 및 검증: 코딩 에이전트 실행 순서 10단계. 순서는 실제 개발 작업만
+  // 간결하게 쓰고, 기능별 요구사항·예외 및 유지 조건의 전문을 다시 반복하지 않는다.
+  // 이 확인 순서는 Level·Gate·HITL 판정을 변경하거나 새 구현 권한을 부여하지 않는다.
+  // "확인 후 구현"은 확인되면 허용 범위에서 구현하고, 미확정이면 그 부분만 보류한다는
+  // 뜻이며, 무조건 즉시 구현으로 바꾸지 않는다.
   section("구현 순서 및 검증",
     numbered([
-      "기존 프로젝트·데이터 구조 확인: 저장소 지침(AGENTS.md 등)과 현재 branch·미커밋 변경을 확인하고, 프로젝트 구조·실행 환경·테스트·빌드 명령을 파악하세요. 이 업무가 웹앱인지 CLI·스크립트·파일 자동화인지 확인하고 해당 환경의 기존 구현을 재사용하세요. 확인한 사실과 추정을 구분해 기록하고, 추정은 '확인 필요'로 남기세요.",
-      "실제 입력 및 확정된 업무 기준 확인: 실제 샘플로 입력 형식·필수 항목을 확인하세요. 실제 샘플로 형식을 확인하기 전에는 항목명·경로를 하드코딩하지 마세요.",
-      work.length ? "구현 가능한 기능 개발: '기능별 요구사항'의 각 기능을 입력·처리·출력 명세대로 구현하세요." : "구현 가능한 기능 개발: 이번 범위에서 구현할 단계가 없습니다. 입력 자료의 형식 확인과 보고만 수행하세요.",
-      work.length ? `입력·처리·출력 연결: 처리 결과를 ${finalOutputs.length ? finalOutputs.join(", ") : "확인된 출력 형식"}으로 연결하고, 업무에 필요한 저장·재조회가 있으면 기존 저장소·인증 방식으로 동작을 확인하세요. 저장 기능이 없는 업무에 DB 검증을, 웹앱이 아닌 업무에 브라우저 테스트·웹 배포를 강제하지 마세요.` : "입력·처리·출력 연결: 해당 없음.",
-      "오류·예외·담당자 확인 처리: '예외 및 유지 조건'에 정리된 예외 항목을 처리하고, 담당자 확인·승인 지점을 유지하세요. 실패·미매칭·확인 불가 데이터는 정상 결과와 분리하세요.",
-      "실제 기능 테스트 및 완료 조건 검증: 저장소의 실제 테스트·빌드 명령으로 아래 검증 기준을 확인하세요. 실행하지 않은 검증은 완료로 보고하지 마세요.",
+      "대상 저장소·기존 구현 확인: 저장소 지침(AGENTS.md 등)과 현재 branch·미커밋 변경을 확인하고, 프로젝트 구조·실행 환경·테스트·빌드 명령을 파악하세요. 이 업무가 웹앱인지 CLI·스크립트·파일 자동화인지 확인하고 해당 환경의 기존 구현을 재사용하세요. 확인한 사실과 추정을 구분해 기록하고, 추정은 '확인 필요'로 남기세요.",
+      "실제 입력 파일·자료·설정 확인: 실제 샘플로 입력 형식·필수 항목을 확인하세요. 실제 샘플로 형식을 확인하기 전에는 항목명·경로·값을 하드코딩하지 마세요.",
+      "확정된 업무 규칙 확인: '기능별 요구사항'의 처리 기준 중 확정된 업무 규칙만 사용하세요. 정의되지 않은 계산식·판정 기준·외부 연동 방식은 추측해 구현하지 말고 해당 처리만 '확인 필요'로 보고하세요.",
+      "접근 권한·보안·승인 조건 확인: '예외 및 유지 조건'의 필수 조건·보안·담당자 확인 항목을 실제 권한·승인 주체와 대조하세요. '불가'·거부된 접근 권한은 우회하지 말고, 승인 주체·조건이 확인되지 않았으면 지정하지 마세요.",
+      "단계별 실제 의존 관계 확인: 각 단계가 실제로 의존하는 선행 조건을 '구현 범위'와 '예외 및 유지 조건'에서 대조하세요. 관련 후보는 필수 의존으로 확정하지 않고, 적용 단계가 미확인인 조건은 확인 필요로 유지하세요.",
+      "기존 정책에서 허용된 실행 범위 확인: '구현 범위'의 처리 구분(구현·확인 후 구현·검토·검증·담당자 수행·향후 확장)을 그대로 따르세요. 허용 범위를 넓히거나, 보류·제외 단계를 독립 기능으로 재분류하거나, Level·Gate를 초과해 처리하지 마세요.",
+      work.length ? "조건 충족 독립 단계부터 구현: '기능별 요구사항'의 각 기능을 입력·처리·출력 명세대로 구현하세요. 다른 단계의 미확정 규칙 때문에 독립 단계까지 일괄 중단하지 마세요." : "조건 충족 독립 단계부터 구현: 이번 범위에서 구현할 단계가 없습니다. 입력 자료의 형식 확인과 보고만 수행하세요.",
+      "미확정 조건 의존 부분만 보류: 미확정 조건에 실제로 의존하는 작업만 보류하고, 보류 사유와 재개 조건을 보고하세요. 재개 조건이 충족되어도 담당자 재확인·승인 없이 자동으로 재개하지 마세요.",
+      work.length ? `실제 데이터로 검증: 처리 결과를 ${finalOutputs.length ? finalOutputs.join(", ") : "확인된 출력 형식"}으로 연결하고, 업무에 필요한 저장·재조회가 있으면 기존 저장소·인증 방식으로 동작을 확인하세요. '예외 및 유지 조건'의 예외 항목을 처리하고 실패·미매칭·확인 불가 데이터를 정상 결과와 분리하세요. 저장소의 실제 테스트·빌드 명령으로 아래 검증 기준을 확인하고, 실행하지 않은 검증은 완료로 보고하지 마세요. 저장 기능이 없는 업무에 DB 검증을, 웹앱이 아닌 업무에 브라우저 테스트·웹 배포를 강제하지 마세요.` : "실제 데이터로 검증: 해당 없음 — 확보한 샘플과 기존 자료로 확인할 수 있는 범위만 검증하고, 비교 자료가 없으면 '검증 불가'와 사유를 기록하세요.",
+      "담당자 확인·승인 경계 유지: 담당자 확인 전 결과가 확정·전송되지 않는지, 제외·보류된 단계가 다시 필수 작업으로 나타나지 않는지 확인하세요. 담당자 판단을 자동 승인으로 대체하지 말고, 완료 여부는 실제 실행·검증 결과로만 판단해 '결과 보고'의 4개 항목으로 보고하세요.",
     ]),
     "위 순서를 지키되 의존성이 없는 독립 단계는 병렬로 진행할 수 있습니다. 선행 확인이 필요한 단계는 실제 의존 관계를 확인하고 해당 부분만 '확인·승인 대기'로 보고하세요. 미확인 권한·보안 조건을 독립이라고 단정하거나 우회하지 마세요.",
     work.length ? `### 정상 케이스\n\n${tests.length ? `${bullets(tests)}\n\n` : ""}실제 입력으로 처리·출력과 필요한 저장·재조회를 확정된 기대 결과와 대조하세요. 서로 다른 입력으로 다시 실행해 각 입력에 맞게 출력이 달라지는지 확인하고 고정 결과를 배제하세요. 기대 결과·허용 오차가 정의되지 않았다면 '확인 필요'로 보고하세요.`

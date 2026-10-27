@@ -209,21 +209,29 @@ export function prerequisiteTopicKey(text: string): string {
 
 /**
  * Display-only dedupe for prerequisite lines: 같은 확인 조건이 여러 출처(기술 확인·추가 질문 등)에서
- * 반복되면 첫 항목만 남긴다. 주제가 다른 조건은 합치지 않는다 — 예를 들어 "API 제공 여부"와
- * "API 접근 권한"은 서로 다른 조건으로 각각 유지한다 (diagnosisCheckItems와 동일한 기준).
- * 원본 데이터·Gate 판정·계산은 변경하지 않는다.
+ * 반복되면 첫 항목만 남긴다. 병합은 전체 문구가 실질적으로 동일할 때만 허용한다 — 주제만 같은
+ * 조건은 합치지 않는다. 예를 들어 "ERP — 읽기 권한 확인"과 "ERP — 쓰기 권한 확인"은 조회·수정
+ * 권한이 다르므로 각각 유지하고, "API 제공 여부"와 "API 접근 권한"도 서로 다른 조건으로 유지한다.
+ * 질문형 문구("API 제공 여부를 알려주세요.")는 확인 조건("API 제공 여부")과 동일 문구로 취급해
+ * 한 번만 표시한다. 원본 데이터·Gate 판정·계산은 변경하지 않는다.
  */
+function dedupePrerequisiteKey(item: string): string {
+  // 공백을 먼저 접어야 "여부를 알려주세요"의 조사+질문 접미사가 붙은 형태로 잡힌다.
+  const squashed = item.trim().toLowerCase()
+    .replace(/\s*\((선택|필수)\)\s*/gu, "")
+    .replace(/\s+/gu, "");
+  return squashed
+    .replace(/(을|를)?(알려주세요|알려주십시오|확인해주세요|확인해 주세요)[.?。]*$/u, "")
+    .replace(/(인가요|인지요|입니까)[.?。]*$/u, "")
+    .replace(/[·・,，.。、；;:\-—–/()（）"“”'?？!]+/gu, "");
+}
 function dedupePrerequisiteLines(items: string[]): string[] {
-  const seenExact = new Set<string>();
-  const seenTopics = new Set<string>();
+  const seen = new Set<string>();
   const result: string[] = [];
   for (const item of items) {
-    const exactKey = item.trim().toLowerCase();
-    if (!exactKey || seenExact.has(exactKey)) continue;
-    const topic = prerequisiteTopicKey(item);
-    if (topic && seenTopics.has(topic)) continue;
-    seenExact.add(exactKey);
-    if (topic) seenTopics.add(topic);
+    const key = dedupePrerequisiteKey(item);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
     result.push(item);
   }
   return result;
