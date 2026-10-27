@@ -14,7 +14,7 @@ export const TOOL_GUIDES: Record<AxToolId, {
 
 /** Inline text marks commands with backticks; `code` blocks default to PowerShell unless labeled as examples. */
 export type AxGuideBlock = { kind: "text"; text: string } | { kind: "code"; lines: string[]; notes?: string[]; label?: "PowerShell" | ".gitignore" | "예시"; singleLine?: boolean } | { kind: "steps"; items: string[] } | { kind: "table"; headers: string[]; rows: string[][] };
-export interface AxGuideSection { title: string; when?: string; collapsed?: boolean; listStyle?: "bullets"; brand?: "vercel" | "cloudflare"; blocks: AxGuideBlock[] }
+export interface AxGuideSection { title: string; when?: string; collapsed?: boolean; listStyle?: "bullets"; brand?: "vercel" | "cloudflare"; className?: string; blocks: AxGuideBlock[] }
 export interface AxGuideStep { title: string; purpose: string; sections: AxGuideSection[] }
 
 const text = (value: string): AxGuideBlock => ({ kind: "text", text: value });
@@ -127,7 +127,7 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
       { title: "B. PC에 이미 있는 프로젝트", when: "PC에 프로젝트 폴더가 있는 경우", blocks: [
         code(['cd "C:\\Work\\repository"', "git status"], ["실제 프로젝트 폴더 경로로 변경하세요. 기존 파일과 변경사항을 확인한 후 작업을 시작하세요."]),
       ] },
-      { title: "C. 다른 PC에서 작업 이어가기", when: "다른 PC에서 GitHub에 반영한 최신 작업을 가져오는 경우", blocks: [
+      { title: "C. 다른 PC에서 작업 이어가기", when: "다른 PC에서 GitHub에 반영한 최신 작업을 가져오는 경우", className: "ax-guide-section--cautions", blocks: [
         text("이미 프로젝트를 클론한 PC에서 진행합니다. PC에 프로젝트가 없다면 C가 아닌 A를 사용하세요."),
         code(['cd "C:\\Work\\repository"', "git status", "git fetch origin", "git checkout main", "git pull --ff-only origin main"], []),
         { kind: "steps", items: [

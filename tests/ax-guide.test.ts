@@ -49,6 +49,16 @@ describe("AX execution guides", () => {
     expect(JSON.stringify(steps[4])).toContain("실제 입력 데이터");
     expect(JSON.stringify(steps[8])).toContain("로컬 자동화 프로그램이라면");
   });
+  it.each(["codex", "claude"] as const)("marks the C section for the widened after-gap without changing its wording: %s", tool => {
+    const step02 = setupGuide(tool)[2];
+    expect(step02.title).toBe("STEP 02 · 프로젝트 준비");
+    const sectionC = step02.sections.find(section => section.title === "C. 다른 PC에서 작업 이어가기");
+    expect(sectionC?.className).toBe("ax-guide-section--cautions");
+    const texts = (sectionC?.blocks ?? []).filter(block => block.kind === "text").map(block => block.text);
+    expect(texts).toContain("다른 PC의 작업이 GitHub에 푸시되어 있어야 합니다. 로컬 변경사항이 있다면 먼저 확인하고, 원격 기본 브랜치가 main이 아닌 경우 실제 브랜치명을 사용하세요.");
+    expect(texts).toContain("로컬 변경사항이 있을 때는 무조건 브랜치를 전환하거나 가져오지 말고 현재 상태를 먼저 확인하세요. 로컬에 main 브랜치가 없으면 해당 상태를 먼저 확인하세요. 충돌이 발생하면 데이터를 삭제하거나 강제로 덮어쓰는 방식으로 해결하지 마세요.");
+    expect(setupGuide(tool === "codex" ? "claude" : "codex")[2].sections.find(section => section.title === "C. 다른 PC에서 작업 이어가기")).toEqual(sectionC);
+  });
   it.each(["codex", "claude"] as const)("starts the Wrangler no-CLI-addition sentence as its own paragraph: %s", tool => {
     const step05 = setupGuide(tool)[5];
     expect(step05.title).toBe("STEP 05 · 배포 플랫폼 선택");
