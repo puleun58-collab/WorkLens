@@ -680,21 +680,22 @@ export function AxDiagnosisView() {
     setMessage(remaining.length ? "첨부 파일 1개를 해제했습니다. 변경된 첨부 구성으로 다시 진단하세요." : "첨부를 해제했습니다. 등록 정보로 다시 진단할 수 있습니다.");
   }
   return <section className="ax-view" aria-label="업무 자동화 진단" aria-busy={!!busy}>
-    <div className="ax-data-actions">
-      {message ? <p role="status" className="ax-utility-message">{message}</p> : null}
-      <Menu><MenuTrigger render={<Button type="button" variant="outline" size="icon" aria-label="AI•AX 데이터 작업" disabled={!ready || !!busy} />}><MoreHorizontal aria-hidden="true" /></MenuTrigger><MenuPopup align="end">
-        <MenuItem onClick={download}><Upload aria-hidden="true" />데이터 내보내기</MenuItem>
-        <MenuItem onClick={() => importInput.current?.click()}><Download aria-hidden="true" />데이터 가져오기</MenuItem>
-        <MenuSeparator />
-        <MenuItem variant="destructive" onClick={() => setConfirmation({ kind: "reset" })}><Trash2 aria-hidden="true" />데이터 초기화</MenuItem>
-      </MenuPopup></Menu>
-      <input ref={importInput} type="file" hidden accept=".json,application/json" aria-label="AI•AX 데이터 가져오기 파일" onChange={e => { const file = e.target.files?.[0]; e.target.value = ""; if (file) void acceptImport(file); }} />
-    </div>
+    {message ? <div className="ax-data-actions"><p role="status" className="ax-utility-message">{message}</p></div> : null}
+    <input ref={importInput} type="file" hidden accept=".json,application/json" aria-label="AI•AX 데이터 가져오기 파일" onChange={e => { const file = e.target.files?.[0]; e.target.value = ""; if (file) void acceptImport(file); }} />
     {saveStatus === "저장 실패" ? <p role="status" className="ax-notice">자동 저장에 실패했습니다. 필요하면 AI•AX 데이터를 내보내 백업해주세요.</p> : null}
     {loadNotice ? <p role="status" className="ax-notice">{loadNotice}</p> : null}
     {externalChange ? <p role="status" className="ax-notice">다른 탭에서 AI•AX 데이터가 변경되어 원본 보호를 위해 자동 저장을 중단했습니다. 현재 화면의 변경은 먼저 내보내기로 보관하세요. 새로고침하면 다른 탭의 최신 데이터를 불러옵니다. <Button type="button" variant="outline" size="sm" onClick={() => window.location.reload()}>새로고침</Button></p> : null}
     {!ready ? <p role="status">AI•AX 데이터를 불러오는 중…</p> : <Tabs value={String(state.step)} onValueChange={value => changeStep(Number(value))}>
-      <TabsList className="ax-steps" aria-label="진단 단계">{STEPS.map((s, i) => { const Icon = STEP_ICONS[i]; return <TabsTab key={s} value={String(i + 1)} disabled={!!busy}><Icon size={15} aria-hidden="true" /><span>{s}</span></TabsTab>; })}</TabsList>
+      <TabsList className="ax-steps" aria-label="진단 단계">{STEPS.map((s, i) => { const Icon = STEP_ICONS[i]; return <TabsTab key={s} value={String(i + 1)} disabled={!!busy}><Icon size={15} aria-hidden="true" /><span>{s}</span></TabsTab>; })}
+        {/* 관리 메뉴는 학습센터와 같은 공통 Menu·outline icon 버튼을 재사용한다. 단계 박스
+          내부 우측 끝에 두며, 펼침 메뉴는 Portal로 렌더링돼 박스 overflow에 가려지지 않는다. */}
+        <Menu><MenuTrigger render={<Button type="button" variant="outline" size="icon" aria-label="AI•AX 데이터 작업" disabled={!ready || !!busy} />}><MoreHorizontal aria-hidden="true" /></MenuTrigger><MenuPopup align="end">
+          <MenuItem onClick={download}><Upload aria-hidden="true" />데이터 내보내기</MenuItem>
+          <MenuItem onClick={() => importInput.current?.click()}><Download aria-hidden="true" />데이터 가져오기</MenuItem>
+          <MenuSeparator />
+          <MenuItem variant="destructive" onClick={() => setConfirmation({ kind: "reset" })}><Trash2 aria-hidden="true" />데이터 초기화</MenuItem>
+        </MenuPopup></Menu>
+      </TabsList>
       <TabsPanel value="1">
         <div className="ax-step1-grid">
           <form className="ax-surface ax-register ax-area-form" onSubmit={register}><h2>{editingId ? "등록 정보 수정" : "업무 등록"}</h2>

@@ -24,6 +24,10 @@
 .ax-steps [role=tab][data-disabled] { background: transparent; }
 .ax-steps [role=tab]:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 .ax-steps [role=tab] svg { width: 15px; height: 15px; flex-shrink: 0; }
+/* 단계 박스 내부 우측 끝의 관리(···) 버튼: 단계 버튼이 남은 너비를 채우므로 별도
+  간격 없이 마지막 탭 바로 뒤에 붙는다. 학습센터와 같은 공통 Menu·outline icon 버튼을
+  그대로 쓰므로 크기·테두리·배경·hover/focus는 공통 버튼 스타일을 따른다. */
+.ax-steps [aria-label="AI•AX 데이터 작업"] { flex: 0 0 auto; align-self: center; margin-left: 2px; }
 .ax-step-nav { display: flex; justify-content: space-between; margin-top: 28px; padding-top: 20px; border-top: 1px solid var(--border); }
 .ax-step1-grid { display: grid; grid-template-columns: minmax(0,1fr); grid-template-areas: "form" "list"; gap: 24px; align-items: start; }
 .ax-area-form { grid-area: form; }
@@ -210,8 +214,6 @@
 .ax-tobe-item strong { margin-top: 5px; font-size: var(--font-size-xs); line-height: 1.5; }
 .ax-tobe-item > span:not(.ax-tobe-icon) { color: var(--muted-foreground); font-size: var(--font-size-xs); }
 .ax-tobe-item p { margin: 4px 0 0; font-size: var(--font-size-xs); color: var(--muted-foreground); }
-/* 미확정 선행 조건과 주제가 직접 연결되는 TO-BE 단계에만 표시한다 (연결 근거인 확인 주제를 함께 표기). */
-.ax-tobe-item > span.ax-tobe-check { display: inline-flex; align-items: center; gap: 4px; margin-top: 3px; color: #b45309; font-weight: 600; overflow-wrap: anywhere; }
 .ax-tobe-item[data-owner="AI"] .ax-tobe-icon { color: #7c3aed; background: #f2edfc; }
 .ax-tobe-item[data-owner="사용자"] .ax-tobe-icon { color: #475569; background: var(--muted-surface); }
 
@@ -376,6 +378,9 @@
   .ax-steps { justify-content: flex-start; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
   .ax-steps::-webkit-scrollbar { display: none; }
   .ax-steps [role=tab] { flex: 0 0 auto; padding-left: 14px; padding-right: 14px; white-space: nowrap; }
+  /* 가로 스크롤 내비게이션에서도 관리 버튼이 박스 우측 끝에 붙어 보이도록 고정한다.
+    탭이 버튼 아래로 스크롤돼도 버튼 배경이 탭을 가리지 않도록 카드 배경을 깐다. */
+  .ax-steps [aria-label="AI•AX 데이터 작업"] { position: sticky; right: 5px; z-index: 1; background: var(--card); }
   .ax-step1-grid, .ax-step2-grid, .ax-step2-sub-grid, .ax-step3-grid, .ax-form-grid { grid-template-columns: minmax(0,1fr); }
   .ax-step1-grid { grid-template-areas: "form" "list"; }
   .ax-kpi-cards { grid-template-columns: repeat(2,minmax(0,1fr)); }
@@ -719,10 +724,9 @@
   .ax-view .ax-process-flow, .ax-view .ax-tobe-flow { grid-template-columns: minmax(0,1fr); gap: 12px; }
   .ax-process-node { display: grid; grid-template-columns: 32px minmax(0,1fr); gap: 12px; align-items: start; min-height: 70px; text-align: left; padding: 11px 12px 26px; }
   .ax-tobe-item { display: grid; grid-template-columns: 34px minmax(0,1fr); gap: 1px 12px; align-items: start; text-align: left; padding: 12px 12px 24px; }
-  .ax-tobe-icon { grid-row: span 4; }
+  .ax-tobe-icon { grid-row: 1 / -1; }
   .ax-tobe-item strong { margin: 0; }
   .ax-tobe-item p { grid-column: 2; margin: 2px 0 0; }
-  .ax-tobe-item > span.ax-tobe-check { grid-column: 2; justify-self: start; }
   .ax-process-arrow, .ax-tobe-arrow { top: auto; bottom: 3px; left: 50%; right: auto; transform: translateX(-50%) rotate(90deg); }
   .ax-step-table, .ax-step-table tbody, .ax-step-table tr, .ax-step-table td { display: block; width: 100%; }
   .ax-step-table thead { display: none; }
