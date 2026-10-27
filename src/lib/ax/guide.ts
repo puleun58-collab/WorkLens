@@ -2154,7 +2154,7 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
       ? "확인된 처리 기준을 그대로 구현하고, 기준에 없는 처리 방식은 담당자에게 확인하기 전에는 선택·구현하지 않습니다."
       : dupName(s)
       ? "동일 이름의 진단 단계가 중복되었습니다. 처리 방식·적용 단계를 확인하기 전에는 해당 처리를 보류하고 확인 사항을 보고하세요."
-      : "처리 방식이 확정되지 않았습니다. 처리 방식의 근거·충돌 내용·필수 기준을 먼저 확인하고, 미확정 사항과 재개 조건을 보고하세요. 방식이 확정되기 전에는 구현을 시작하지 마세요.";
+      : "처리 방식이 확정되지 않았습니다. 해당 기능의 실제 구현은 처리 방식과 선행조건이 확인될 때까지 보류합니다. 다만 기존 정책과 권한에서 허용하는 저장소 조사·실제 자료 확인·조건 검증은 수행하세요. 다른 기능 중 독립성과 필수 조건이 확인된 작업은 허용 범위에서 구현하고 실제 데이터로 검증하세요. 처리 방식의 근거·충돌 내용·필수 기준을 먼저 확인하고, 미확정 사항과 재개 조건을 보고하세요.";
     // PART B: Level 1 사용자 실행형 — 담당자 요청 기반이며 무인 자동화가 아니다.
     // 실행 조건 자체는 전역으로도 명시되므로 여기서는 짧은 전제로만 덧붙인다.
     return s.treatment === "사용자 실행 결과 생성"
@@ -2356,11 +2356,31 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
       ...spec.process.filter(text => text.startsWith("구현:") && normalizedStepText(text.slice(3)) !== normalizedStepText(s.step)),
     ];
     const isLastWork = work[work.length - 1] === s;
+    // 단계별 착수 증거: 이 단계에 명시적으로 연결된 조건만 이 단계의 착수 조건이다.
+    // 연결되지 않은 조건은 §4 전역에서만 다루며, 이 단계를 일괄 보류하는 근거가 되지 않는다.
+    // 관련 후보는 단계명을 언급하지만 명시적 연결 근거가 없어 필수 조건으로 확정하지 않는다.
+    // 어떤 조건도 새로 만들지 않고, 기존 분류 결과(current/confirm)에 있는 항목만 사용한다.
+    const linkedConditions = unique([...model.conditions.current, ...model.conditions.confirm]
+      .filter(item => item.step === s.step).map(evidenceLine));
+    const relatedCandidates = unique(model.conditions.confirm
+      .filter(item => conditionRelation(model, item, false) === "관련 후보"
+        && normalizedStepText(item.text).includes(normalizedStepText(s.step)))
+      .map(item => item.text));
+    const startCondition = s.scope === "after-check"
+      ? linkedConditions.length ? `착수 조건: ${linkedConditions.join("; ")}`
+        : "착수 조건: 이 단계에 직접 연결된 필수 조건 없음 — §4의 필수 조건·보안·담당자 확인 항목 중 이 단계에 실제로 적용되는 것만 대조하세요. 적용되는 조건이 없으면 이 단계를 독립 단계로 진행할 수 있습니다."
+      : linkedConditions.length ? `연결된 조건: ${linkedConditions.join("; ")}` : "";
+    const unmetLine = s.scope === "after-check" && linkedConditions.length
+      ? "미충족 시: 연결된 확인 항목이 확인되지 않으면 해당 부분만 보류하고 보류 사유·확인 대상·재개 조건을 보고하세요. 독립적인 다른 기능은 계속 진행하세요."
+      : "";
     return `### 기능 ${i + 1}. ${s.step}\n\n${bullets([
-      `입력: ${ownInputs.length ? `${ownInputs.join("; ")}${hasCommonInputs ? " + 공통 입력 (위 공통 입력·출력 참조)" : ""}` : "공통 입력 사용 (위 공통 입력·출력 참조)"}`,
+      `입력: ${ownInputs.length ? `${ownInputs.join("; ")}${hasCommonInputs ? " + 공통 입력 (위 공통 입력·출력 참조)" : ""}` : inputs.length ? "공통 입력 사용 (위 공통 입력·출력 참조)" : "입력 자료 미확정 — 진단에 입력 정보가 없음 (§4 '적용 단계 확인 필요' 참조)"}`,
       `처리: ${processParts.join(" → ")}`,
       spec.outputs.length ? `출력: ${spec.outputs.join("; ")}` : isLastWork ? "출력: 이 단계의 직접 산출물 없음 — 위 업무 전체 산출물에 기여" : "출력: 이 단계의 직접 산출물 없음 — 처리 결과는 후속 단계의 입력으로 이어짐",
       ...(spec.reviewPoint ? [`담당자 검토·승인 지점: ${spec.reviewPoint}`] : []),
+      ...(startCondition ? [startCondition] : []),
+      ...(relatedCandidates.length ? [`관련 후보 (필수 조건 아님): ${relatedCandidates.join("; ")} — 실제 의존 관계를 확인한 뒤에만 현재 조건으로 승격하세요.`] : []),
+      ...(unmetLine ? [unmetLine] : []),
       `검증: '${verifyGroupLabel(s)}' 검증 기준 적용 (위 '방식별 검증 기준' 참조)`,
     ])}`;
   }).join("\n\n");
@@ -2428,6 +2448,7 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
   // "확인 후 구현"은 확인되면 허용 범위에서 구현하고, 미확정이면 그 부분만 보류한다는
   // 뜻이며, 무조건 즉시 구현으로 바꾸지 않는다.
   section("구현 순서 및 검증",
+    "구분 — A. 구현 전 확인 작업: 기존 정책과 실제 접근 권한에서 허용되는 읽기·분석·검증 작업(저장소 구조·기존 코드 확인, 실제 입력 자료·파일 형식 확인, 확정된 계산식·업무 규칙 확인, 기존 API·인증 설정의 존재 여부 확인, 출력 템플릿·매핑 규칙 확인, 업무 단계별 실제 의존관계 확인, 기존 테스트·설정·실행 환경 확인)은 확인 후 구현 상태에서도 수행할 수 있습니다. 권한이 없는 데이터·외부 시스템에 접근하거나 인증을 우회해서는 안 됩니다. B. 조건 충족 후 구현 작업: 기존 Level·Gate가 해당 구현을 허용하고, HITL 제외·보류 대상이 아니며, 필수 입력 자료·규칙·권한과 처리 방식에 필요한 확정 근거, 실제 의존조건, 필요한 담당자 확인·승인 조건이 모두 확인된 경우에만 실제 기능을 구현합니다. C. 구현 보류 작업: 필수 조건 미확인, HITL 보류, Gate 차단, 권한 거부 등의 사유로 구현할 수 없는 작업은 구현하지 않고 보류 사유·확인 대상·재개 조건을 보고합니다. 해당 기능의 실제 구현은 필수 처리 방식과 선행조건이 확인될 때까지 보류합니다. 다만 확인 작업 허용은 구현 권한 부여가 아닙니다. 실제 자료가 부족하면 임의 값을 만들어 구현 완료로 처리하지 말고 부족 사항을 구체적으로 보고하세요. 정책상 구현이 금지된 작업은 자료가 충분해도 그대로 보류합니다.",
     numbered([
       "대상 저장소·기존 구현 확인: 저장소 지침(AGENTS.md 등)과 현재 branch·미커밋 변경을 확인하고, 프로젝트 구조·실행 환경·테스트·빌드 명령을 파악하세요. 이 업무가 웹앱인지 CLI·스크립트·파일 자동화인지 확인하고 해당 환경의 기존 구현을 재사용하세요. 확인한 사실과 추정을 구분해 기록하고, 추정은 '확인 필요'로 남기세요.",
       "실제 입력 파일·자료·설정 확인: 실제 샘플로 입력 형식·필수 항목을 확인하세요. 실제 샘플로 형식을 확인하기 전에는 항목명·경로·값을 하드코딩하지 마세요.",
