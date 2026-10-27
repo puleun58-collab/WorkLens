@@ -150,8 +150,9 @@ test("AX registration → diagnosis → correction → matrix → plans → relo
   await expect(diagChecks.getByText("확인 필요", { exact: true })).toBeVisible();
   await expect(page.getByText("먼저 확인", { exact: false })).toHaveCount(0);
   await expect(page.locator(".ax-data-actions .ax-utility-message")).toHaveText("업무 진단을 완료했습니다. 필요한 경우 점수를 조정하세요.");
-  const utility = await page.evaluate(() => { const message = document.querySelector(".ax-utility-message")!.getBoundingClientRect(), menu = document.querySelector('[aria-label="AI•AX 데이터 작업"]')!.getBoundingClientRect(), steps = document.querySelector(".ax-steps")!.getBoundingClientRect(); return { overlap: message.top < menu.bottom && message.bottom > menu.top, above: message.bottom <= steps.top && menu.bottom <= steps.top }; });
-  expect(utility).toEqual({ overlap: true, above: true });
+  // 유틸리티 메시지는 단계 박스 위에 있고, 관리 메뉴는 단계 박스 내부 우측 끝에 있다.
+  const utility = await page.evaluate(() => { const message = document.querySelector(".ax-utility-message")!.getBoundingClientRect(), menu = document.querySelector('[aria-label="AI•AX 데이터 작업"]')!.getBoundingClientRect(), steps = document.querySelector(".ax-steps")!.getBoundingClientRect(); return { messageAboveSteps: message.bottom <= steps.top, menuInsideSteps: menu.top >= steps.top && menu.bottom <= steps.bottom && menu.left >= steps.left && menu.right <= steps.right, menuAtRightEnd: steps.right - menu.right <= 8 }; });
+  expect(utility).toEqual({ messageAboveSteps: true, menuInsideSteps: true, menuAtRightEnd: true });
   // 레이더 차트는 제거됨 — Factor 점수는 진단 항목·점수 카드에서만 확인한다.
   await expect(page.locator(".ax-radar")).toHaveCount(0);
   await expect(page.getByText("진단 항목 분포", { exact: true })).toHaveCount(0);

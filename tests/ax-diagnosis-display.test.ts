@@ -1,8 +1,7 @@
 import { describe, expect, test } from "vitest";
-import { diagnosisCheckItems, diagnosisSummaryParts, diagnosisSummarySentences, matrixRationaleBullets, toBeStepCheckTopics, visibleDiagnosisCheckItems } from "../src/components/ax/AxReport";
+import { diagnosisCheckItems, diagnosisSummaryParts, diagnosisSummarySentences, matrixRationaleBullets, visibleDiagnosisCheckItems } from "../src/components/ax/AxReport";
 import { LEVEL_DESCRIPTIONS, LEVEL_LABELS, levelDisplayLabel } from "../src/lib/ax/policy";
 import { outputFixture } from "./fixtures/ax";
-import { dieselCase } from "./fixtures/diesel-case";
 
 describe("diagnosis display helpers", () => {
   test("summary sentences use only real data, max 3", () => {
@@ -96,26 +95,9 @@ describe("diagnosis display helpers", () => {
     const clear = diagnosisSummaryParts({ ...d, technicalChecks: [{ topic: "시스템 접근", status: "확인됨" as const, note: "" }], followUpQuestions: [] });
     expect(clear.check).toBeUndefined();
   });
-  test("toBe step check topics link only unconfirmed checks with a specific shared token", () => {
-    const d = dieselCase.diagnosis;
-    const linked = toBeStepCheckTopics(d);
-    // 보고서 양식(미확인) → 보고서 업데이트·담당자 최종 검토(설명에 보고서 포함)
-    expect(linked.get(3)).toEqual(["보고서 양식"]);
-    expect(linked.get(4)).toEqual(["보고서 양식"]);
-    // 전주 가격 데이터(미확인) → 가격 입력·증감률 계산·월평균 계산
-    expect(linked.get(0)).toEqual(["전주 가격 데이터"]);
-    expect(linked.get(1)).toEqual(["전주 가격 데이터"]);
-    expect(linked.get(2)).toEqual(["전주 가격 데이터"]);
-    // 확인됨 상태의 확인 항목은 어떤 단계도 표시하지 않는다.
-    const confirmed = { ...d, technicalChecks: d.technicalChecks.map(c => ({ ...c, status: "확인됨" as const })) };
-    expect(toBeStepCheckTopics(confirmed).size).toBe(0);
-    // 무관한 주제는 연결되지 않는다.
-    const unrelated = { ...d, technicalChecks: [{ topic: "서버 보안 인증서", status: "확인 필요" as const, note: "" }] };
-    expect(toBeStepCheckTopics(unrelated).size).toBe(0);
-    // 일반 토큰(데이터·확인 등)만으로 이뤄진 주제는 연결 근거가 없어 표시하지 않는다.
-    const generic = { ...d, technicalChecks: [{ topic: "데이터 확인", status: "확인 필요" as const, note: "" }] };
-    expect(toBeStepCheckTopics(generic).size).toBe(0);
-  });
+  // TO-BE 단계의 미확정 확인 안내는 렌더링 경로 자체가 제거됐다. 해당 연결
+  // 로직(toBeStepCheckTopics)은 삭제됐으며, 구조 단언은 tests/ax-tobe-menu.test.ts에서
+  // 소스·CSS·렌더링 결과로 함께 검증한다. 확인 데이터 자체는 아래 불변성 테스트에서 다룬다.
   test("visible check items hide only question-covered topics and keep independent, done and distinct topics", () => {
     const base = { ...outputFixture(), sourceNote: "test", decisionGate: { verdict: "go" as const, reasons: [] as string[] } };
     const d = {

@@ -606,33 +606,6 @@ function AxStepTable({ diagnosis: d, headers, reviewProps }: { diagnosis: AxDiag
   }) : <tr><td colSpan={4}>기재된 단계 없음</td></tr>}</tbody></table></div>
   </section>;
 }
-/** Tokens too generic to link a check topic to a single TO-BE step on their own. */
-const TOBE_CHECK_STOPWORDS = new Set(["데이터", "정보", "확인", "여부", "관련", "사항", "방식", "경우", "진행", "필요", "시스템", "자동", "수동", "대상", "업무", "사용", "제공", "처리", "기준", "현재", "적용"]);
-/** Display-only linkage between TO-BE steps and still-unconfirmed technical checks.
- * A step is linked only when a specific token of an unconfirmed check topic (stopwords
- * excluded) literally appears in the step name or its original description — both strings
- * come from the diagnosis itself, so no condition is invented and no step is bulk-marked.
- * Confirmed checks never mark a step. Returns step index → linked check topics. */
-export function toBeStepCheckTopics(d: AxDiagnosis): Map<number, string[]> {
-  const norm = (t: string) => t.toLowerCase().replace(/\s+/g, "");
-  const linked = new Map<number, string[]>();
-  for (const check of d.technicalChecks) {
-    if (check.status === "확인됨") continue;
-    const topic = check.topic.trim();
-    if (!topic) continue;
-    const tokens = topic.split(/[\s·/()]+/).map(t => t.trim().toLowerCase()).filter(t => t.length >= 2 && !TOBE_CHECK_STOPWORDS.has(t));
-    if (!tokens.length) continue;
-    d.toBe.forEach((s, i) => {
-      const haystack = norm(`${s.step} ${s.description}`);
-      if (tokens.some(token => haystack.includes(token))) {
-        const topics = linked.get(i) ?? [];
-        if (!topics.includes(topic)) topics.push(topic);
-        linked.set(i, topics);
-      }
-    });
-  }
-  return linked;
-}
 function AxToBe({ diagnosis: d }: { diagnosis: AxDiagnosis }) {
   const icons = { 시스템: Settings2, AI: Bot, 사용자: UserRound } as const;
   const norm = (t: string) => t.replace(/\s+/g, "");
@@ -651,11 +624,12 @@ function AxToBe({ diagnosis: d }: { diagnosis: AxDiagnosis }) {
     }
     return desc;
   };
-  const checkTopics = toBeStepCheckTopics(d);
+  // TO-BE 단계에는 미확정 기술 확인 안내를 표시하지 않는다. 확인 사항 자체는
+  // 진단 카드·02 구현 전 확인사항·실행 로드맵에서 그대로 확인할 수 있으며, 원본
+  // 진단 데이터(technicalChecks·toBe)는 이 컴포넌트에서 변경하지 않는다.
   return <section className="ax-section ax-panel ax-tobe-card"><header className="ax-process-head"><h3>TO-BE · 역할과 흐름 (목표 프로세스)</h3><small>자동화 도입 후 예상 업무 흐름 · 구현 완료 아님</small></header>
-    {d.toBe.length ? <ol className="ax-tobe-flow">{d.toBe.map((s, i) => { const Icon = icons[s.owner]; const desc = descriptionFor(s); const topics = checkTopics.get(i); return <li className="ax-tobe-item" data-owner={s.owner} key={i}>
+    {d.toBe.length ? <ol className="ax-tobe-flow">{d.toBe.map((s, i) => { const Icon = icons[s.owner]; const desc = descriptionFor(s); return <li className="ax-tobe-item" data-owner={s.owner} key={i}>
       <span className="ax-tobe-icon"><Icon aria-hidden="true" /></span><strong>{s.step}</strong><span>{OWNER_LABELS[s.owner]}</span>{desc ? <p>{desc}</p> : null}
-      {topics?.length ? <span className="ax-tobe-check"><CircleAlert size={12} aria-hidden="true" />확인 필요: {topics.join(" · ")}</span> : null}
       {i < d.toBe.length - 1 ? <ArrowRight className="ax-tobe-arrow" aria-hidden="true" /> : null}
     </li>; })}</ol> : <p className="ax-muted">기재된 목표 업무 단계 없음</p>}
   </section>;
