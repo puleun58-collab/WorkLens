@@ -17,6 +17,14 @@ export type AxGuideBlock = { kind: "text"; text: string } | { kind: "code"; line
 export interface AxGuideSection { title: string; when?: string; collapsed?: boolean; listStyle?: "bullets"; brand?: "vercel" | "cloudflare"; className?: string; blocks: AxGuideBlock[] }
 export interface AxGuideStep { title: string; purpose: string; sections: AxGuideSection[] }
 
+/** Display text for a guide code block: repeated blank lines collapse to a single
+ * line break so paragraph-separated request text renders at the same density as
+ * single-paragraph request text. The copied text keeps the original lines
+ * (including blank separators) — only the displayed text is collapsed. */
+export function guideCodeDisplayText(lines: string[]): string {
+  return lines.join("\n").replace(/\n{2,}/gu, "\n");
+}
+
 const text = (value: string): AxGuideBlock => ({ kind: "text", text: value });
 const code = (lines: string[], notes: string[], label?: Extract<AxGuideBlock, { kind: "code" }>["label"]): AxGuideBlock => ({ kind: "code", lines, notes, ...(label ? { label } : {}) });
 
