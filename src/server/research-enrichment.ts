@@ -154,7 +154,15 @@ export async function enrichResearch(
   // A per-issue retry chain's precedents and interpretations are discarded by
   // its caller, so skipping their lookups changes nothing it returns except
   // time. The main chain and action-basis paths never pass these.
-  options: { skipPrecedentSummaries?: boolean; skipInterpretationRetry?: boolean } = {},
+  options: {
+    skipPrecedentSummaries?: boolean; skipInterpretationRetry?: boolean;
+    // Law names the user's own question named but an interpreted issue phrase dropped
+    // (e.g. "식품위생법 영업정지 조사 의무" → issue "영업정지 조사 의무"):
+    // without them the chain supplement's title lookup has no law to search under.
+    // Mirrors lookupIssue's extraNamed; adoption rules are untouched — this only
+    // names laws whose title-matching articles may be shown as references.
+    extraNamed?: readonly string[];
+  } = {},
 ): Promise<ResearchEnrichment> {
   const started = now();
   const expired = () => now() - started > BUDGET_MS;
@@ -206,8 +214,10 @@ export async function enrichResearch(
     enrichment.supplement = { status: "not_searched", articles: [] };
     return enrichment;
   }
-  // Laws named in the question or the answer's title, then laws whose names contain a question term.
-  const named = [...terms.filter(isLawName), ...(document.title?.split(":").slice(1).map((part) => part.trim()).filter(isLawName) ?? [])];
+  // Laws named in the question, inherited from the original question when an
+  // interpreted issue phrase dropped them, or in the answer's title — then
+  // laws whose names contain a question term.
+  const named = [...terms.filter(isLawName), ...(options.extraNamed ?? []), ...(document.title?.split(":").slice(1).map((part) => part.trim()).filter(isLawName) ?? [])];
   enrichment.supplement = await titleArticles(keywords, named, shownArticles, sources, expired, task === "full_research", true);
   return enrichment;
 }
