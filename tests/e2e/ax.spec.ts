@@ -254,7 +254,7 @@ test("AX registration → diagnosis → correction → matrix → plans → relo
   await expect(head).toContainText("월간 취합");
   await expect(head).toContainText("확인 후 진행");
   const scope = packageSection.getByRole("region", { name: "01 구현 범위", exact: true });
-  const before = packageSection.getByRole("region", { name: "02 시작 전 확인", exact: true });
+  const before = packageSection.getByRole("region", { name: "02 구현 전 확인사항", exact: true });
   const completion = packageSection.getByRole("region", { name: "03 완료 기준", exact: true });
   await expect(scope).toContainText("담당자 승인");
   await expect(scope).toContainText("담당자 수행 유지");
@@ -776,8 +776,8 @@ test("AX Execution Gate blocks no-go plans and displays ready tasks before highe
   await expect(page.getByRole("button", { name: "Claude Code용 구현 계획 생성", exact: true })).toBeDisabled();
   const plans = page.locator("section.ax-surface").filter({ has: page.getByRole("heading", { name: "자동화 구현 계획", exact: true }) });
   // 접힌 02 블록에서도 진행 보류 상태가 트리거 배지로 인지 가능해야 한다.
-  await expect(plans.getByRole("button", { name: /02 시작 전 확인/ })).toContainText("진행 보류");
-  await plans.getByRole("button", { name: /02 시작 전 확인/ }).click();
+  await expect(plans.getByRole("button", { name: /02 구현 전 확인사항/ })).toContainText("진행 보류");
+  await plans.getByRole("button", { name: /02 구현 전 확인사항/ }).click();
   await expect(plans.getByText("필수 시스템 접근 불가", { exact: true })).toBeVisible();
   await expect(plans.locator(".ax-prompt")).toHaveCount(0);
   await expect(plans.locator(".ax-plan-tool-hint")).toHaveCount(0);
@@ -1307,10 +1307,10 @@ for (const width of [1440, 390]) {
     const section = page.getByRole("region", { name: "자동화 구현 계획", exact: true });
     // 펼친 아코디언 패널도 region이라 이름 쿼리가 중복 매칭되므로 섹션 요소로 직접 지정한다.
     const scope = section.locator("section[aria-label='01 구현 범위']");
-    const before = section.locator("section[aria-label='02 시작 전 확인']");
+    const before = section.locator("section[aria-label='02 구현 전 확인사항']");
     const done = section.locator("section[aria-label='03 완료 기준']");
     // 01~03은 기본 접힘 — 내용을 검증하기 전에 모두 펼친다.
-    for (const name of [/01 구현 범위/, /02 시작 전 확인/, /03 완료 기준/]) await section.getByRole("button", { name }).click();
+    for (const name of [/01 구현 범위/, /02 구현 전 확인사항/, /03 완료 기준/]) await section.getByRole("button", { name }).click();
     await expect(section.locator(".ax-plan-head")).toContainText(task.name);
     await expect(scope).toContainText("담당자 승인");
     await expect(before).toContainText("샘플 표");
@@ -1373,7 +1373,7 @@ for (const level of [0, 1, 2, 3]) {
       await ax(page);
       const section = page.getByRole("region", { name: "자동화 구현 계획", exact: true });
       const scope = section.getByRole("region", { name: "01 구현 범위", exact: true });
-      const before = section.getByRole("region", { name: "02 시작 전 확인", exact: true });
+      const before = section.getByRole("region", { name: "02 구현 전 확인사항", exact: true });
       const done = section.getByRole("region", { name: "03 완료 기준", exact: true });
       await expect(section.locator(".ax-plan-head")).toContainText(`Level ${level}`);
       await expect(section.locator(".ax-plan-head")).toContainText(gate === "ready" ? "진행 가능" : gate === "blocked" ? "진행 보류" : "확인 후 진행");
@@ -1433,7 +1433,7 @@ test("AX separates confirmed checks from unresolved prerequisites without duplic
   const task = taskFixture("mixed-checks", diagnosis);
   await seed(page, { ...emptyAxState(), tasks: [task], selectedTaskId: task.id, step: 4 });
   await ax(page);
-  const before = page.getByRole("region", { name: "02 시작 전 확인", exact: true });
+  const before = page.getByRole("region", { name: "02 구현 전 확인사항", exact: true });
   await expect(before.locator('.ax-prereq-card[data-status="확인 필요"]').first()).toContainText("연동 인증");
   await expect(before.getByText("관리자에게 접근 권한 확인", { exact: true })).toHaveCount(1);
   await expect(before).toContainText("권한 확인 후 진행");
@@ -1489,7 +1489,7 @@ test("AX completion keeps separate evidence, failure and risk meanings", async (
   await seed(page, { ...emptyAxState(), tasks: [task], selectedTaskId: task.id, step: 4 });
   await ax(page);
   const plan = page.getByRole("region", { name: "자동화 구현 계획", exact: true });
-  const before = plan.getByRole("region", { name: "02 시작 전 확인", exact: true });
+  const before = plan.getByRole("region", { name: "02 구현 전 확인사항", exact: true });
   const done = plan.getByRole("region", { name: "03 완료 기준", exact: true });
   await expect(before.locator('.ax-prereq-card[data-status="확인 필요"]').first()).toContainText("월말 연동 접근");
   await expect(before.getByText("청구 원본의 읽기 권한을 관리자에게 확인", { exact: true })).toHaveCount(1);

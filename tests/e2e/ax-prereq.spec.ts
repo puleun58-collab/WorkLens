@@ -54,20 +54,20 @@ async function openStep4(page: Page) {
   await seed(page, { ...emptyAxState(), tasks: [task], selectedTaskId: task.id, step: 4 });
   await ax(page);
   const section = page.getByRole("region", { name: "자동화 구현 계획", exact: true });
-  await expect(section.getByRole("heading", { name: "02 시작 전 확인" })).toBeVisible();
+  await expect(section.getByRole("heading", { name: "02 구현 전 확인사항" })).toBeVisible();
   return section;
 }
 
-test("02 시작 전 확인: 확인 카드 통합 + 추가 확인 사항 박스 제거 + 중복 제거", async ({ page }) => {
+test("02 구현 전 확인사항: 확인 카드 통합 + 추가 확인 사항 박스 제거 + 중복 제거", async ({ page }) => {
   const section = await openStep4(page);
-  const block = section.locator("section[aria-label='02 시작 전 확인']");
+  const block = section.locator("section[aria-label='02 구현 전 확인사항']");
   // Gate conditional: 전체 진행 보류 배지는 표시되지 않고 확인 필요 건수만 표시된다.
-  const trigger = block.getByRole("button", { name: /시작 전 확인/ });
+  const trigger = block.getByRole("button", { name: /구현 전 확인사항/ });
   await expect(trigger).not.toContainText("진행 보류");
   await expect(trigger).toContainText("확인 필요 7건");
   // 01~03은 기본 접힘 — 확인이 필요한 블록을 펼쳐서 검증한다.
   await trigger.click();
-  await expect(block.getByText("구현 전에 필요한 조건과 적용 범위를 확인합니다.", { exact: true })).toBeVisible();
+  await expect(block.getByText("아래 항목은 자동화 구현 전에 확인해야 할 조건입니다. 실제 업무 환경과 자료를 기준으로 확인해 주세요.", { exact: true })).toBeVisible();
   // 추가 확인 사항 박스(제목·표·미확정 배지)는 제거됐다.
   await expect(block.getByRole("heading", { name: "추가 확인 사항" })).toHaveCount(0);
   await expect(block.locator(".ax-prereq-extra, .ax-prereq-table")).toHaveCount(0);
@@ -89,11 +89,11 @@ test("02 시작 전 확인: 확인 카드 통합 + 추가 확인 사항 박스 �
   await block.screenshot({ path: reviewShotPath("prereq-desktop-1440x900.png") });
 });
 
-test("02 시작 전 확인: 모바일 390px 세로 배치 + 가로 스크롤 없음", async ({ page }) => {
+test("02 구현 전 확인사항: 모바일 390px 세로 배치 + 가로 스크롤 없음", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const section = await openStep4(page);
-  const block = section.locator("section[aria-label='02 시작 전 확인']");
-  await block.getByRole("button", { name: /시작 전 확인/ }).click();
+  const block = section.locator("section[aria-label='02 구현 전 확인사항']");
+  await block.getByRole("button", { name: /구현 전 확인사항/ }).click();
   const cards = block.locator(".ax-prereq-card");
   await expect(cards).toHaveCount(7);
   // Cards stack vertically (기술 점검 카드 + 추가 조건 카드 모두)
@@ -106,15 +106,15 @@ test("02 시작 전 확인: 모바일 390px 세로 배치 + 가로 스크롤 없
   await block.screenshot({ path: reviewShotPath("prereq-mobile-390x844.png") });
 });
 
-test("02 시작 전 확인: 차단 사유 카드는 별도로 유지된다", async ({ page }) => {
+test("02 구현 전 확인사항: 차단 사유 카드는 별도로 유지된다", async ({ page }) => {
   const diagnosis: AxDiagnosis = { ...diagnosisFixture, decisionGate: { verdict: "no-go", reasons: ["승인권자 미지정"] } };
   const task = taskFixture("prereq-blocked", { ...diagnosis, planCodex: planFixture });
   await page.goto("/");
   await seed(page, { ...emptyAxState(), tasks: [task], selectedTaskId: task.id, step: 4 });
   await ax(page);
-  const block = page.locator("section[aria-label='02 시작 전 확인']");
+  const block = page.locator("section[aria-label='02 구현 전 확인사항']");
   // Gate blocked인 경우에만 02 헤더에 전체 진행 보류 배지가 표시된다.
-  await expect(block.getByRole("button", { name: /시작 전 확인/ })).toContainText("진행 보류");
+  await expect(block.getByRole("button", { name: /구현 전 확인사항/ })).toContainText("진행 보류");
   const blocked = block.locator(".ax-prereq-blocked");
   await expect(blocked).toContainText("차단 사유");
   await expect(blocked).toContainText("승인권자 미지정");

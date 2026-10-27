@@ -12,7 +12,7 @@ const withChecks = (checks: AxDiagnosis["technicalChecks"]): AxDiagnosis => ({
 const CONTENTS = (diagnosis: AxDiagnosis, plan?: Parameters<typeof planSummary>[1]) =>
   planSummary(diagnosis, plan).additionalChecks;
 
-describe("02 시작 전 확인 중복 제거", () => {
+describe("02 구현 전 확인사항 중복 제거", () => {
   it("기술 점검 카드와 동일한 문구의 조건은 추가 목록에 반복하지 않는다", () => {
     const diagnosis = withChecks([{ topic: "데이터 포맷 정의", status: "확인 필요", note: "컬럼명·형식 미확정" }]);
     const plan = { ...planFixture, integrations: ["데이터 포맷 정의 — 컬럼명·형식 미확정"] };
