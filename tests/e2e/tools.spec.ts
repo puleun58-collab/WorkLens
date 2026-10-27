@@ -1727,6 +1727,11 @@ test("RESEARCH every task applies the same result rules while keeping its own st
       await expect(output.locator("p[data-status='not_found']"), task).toHaveText("법령 해석례 · 자료 없음");
       const supporting = await output.locator(".research-supporting details").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-kind")));
       expect(supporting.indexOf("detail"), task).toBeLessThan(supporting.indexOf("law_toc"));
+      // Group headings and the supporting "상세 근거" heading share one size.
+      const headingSizes = await output.locator(":scope > .research-group > h3, :scope > .research-supporting > h3")
+        .evaluateAll((nodes) => nodes.map((node) => getComputedStyle(node).fontSize));
+      expect(headingSizes.length, task).toBeGreaterThan(0);
+      expect(new Set(headingSizes).size, task).toBe(1);
       await expect(output.locator("details summary").filter({ hasText: /나머지 조문 \d+건 보기/u }), task).toHaveCount(1);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), task).toBe(true);
     }
@@ -1810,8 +1815,7 @@ test("RESEARCH shows the server's per-kind verdict for law_system and dispute_pr
       : { found: true, task: "dispute_prep", text: disputeText, markers: [],
         dispute: { status: "viewed", items: [
           { label: "판례·결정례·재결례", status: "viewed", detail: "검색 1건" }] } } }) });
-  });
-  await page.goto("/");
+  });  await page.goto("/");
   await navigateWorkspace(page, "법령");
   await page.getByRole("tab", { name: "종합 리서치", exact: true }).click();
   const form = page.getByRole("form", { name: /^(종합 리서치|문서 검토) 입력$/ });
@@ -1837,8 +1841,55 @@ test("RESEARCH shows the server's per-kind verdict for law_system and dispute_pr
   await expect(overview).toContainText("관련 자료 조회");
   await expect(overview).not.toContainText("근거 부족");
   await expect(items.locator(".research-issue-status")).toHaveText(["자료 조회"]);
+  // The detail line under a "확인한 항목" entry sits on its own row, not
+  // flowing after the status (shared research-issues rhythm).
+  const detailTops = await items.locator("li > .research-meta").evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().top));
+  const labelTops = await items.locator(".research-issue-label").evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().top));
+  expect(detailTops).toHaveLength(1);
+  expect(detailTops[0]).toBeGreaterThan(labelTops[0]);
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(overview.locator("h3")).toHaveText("관련 자료를 조회했습니다");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test("RESEARCH procedure_detail summary shows the first 3 requirement refs plus the rest count", async ({ page }) => {
+  // Summary-only shortening: a requirement with 5 articles shows the first
+  // 3 + "외 2건" in the summary, while the full article bodies stay in the
+  // group sections below. The requirement verdict itself is unchanged.
+  const articles = (jo: string, title: string) => `행정심판법\n    ${jo} (${title})\n    ${jo}(${title})\n  ① ${title} 본문 한 줄.\n    시행: 2023.03.21 | 국민권익위원회`;
+  const text = "═══ 절차/비용 안내: 행정심판 청구절차와 제출서류 ═══\n법령: 행정심판법 (법률) | MST: 249041\n\n"
+    + "▶ AI 검색 보완 정보\n지능형 법령검색 결과 (법령조문, 5건):\n\n"
+    + [["제23조", "심판청구서의 제출"], ["제28조", "심판청구의 방식"], ["제29조", "심판청구의 기간"], ["제30조", "심판청구의 보정"], ["제31조", "재결의 효력"]]
+      .map(([jo, title]) => articles(jo, title)).join("\n\n");
+  await page.route("**/api/law/research", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: {
+    found: true, task: "procedure_detail", text, markers: [],
+    procedure: { requirements: [
+      { label: "행정심판 청구절차", kind: "procedure", status: "found",
+        articles: [
+          { law: "행정심판법", jo: "제23조", title: "심판청구서의 제출" },
+          { law: "행정심판법", jo: "제28조", title: "심판청구의 방식" },
+          { law: "행정심판법", jo: "제29조", title: "심판청구의 기간" },
+          { law: "행정심판법", jo: "제30조", title: "심판청구의 보정" },
+          { law: "행정심판법", jo: "제31조", title: "재결의 효력" },
+        ], annexCount: 0 },
+    ], overall: "matched", incomplete: false, annexTruncated: false, failedSections: 0 },
+  } }) }));
+  await page.goto("/");
+  await navigateWorkspace(page, "법령");
+  await page.getByRole("tab", { name: "종합 리서치", exact: true }).click();
+  const form = page.getByRole("form", { name: /^(종합 리서치|문서 검토) 입력$/ });
+  await form.getByLabel("질문 또는 검색어").fill("행정심판 청구절차와 제출서류");
+  await chooseOption(page, form.getByLabel("리서치 유형"), researchTaskLabels.procedure_detail);
+  await form.getByRole("button", { name: "실행" }).click();
+  const output = page.locator(".legal-research .legal-analysis-output");
+  const requirements = output.locator("[data-procedure-requirements]");
+  await expect(requirements.locator(".research-issue-status")).toHaveText(["근거 확인"]);
+  await expect(requirements).toContainText("행정심판법 제23조 · 행정심판법 제28조 · 행정심판법 제29조 · 외 2건");
+  await expect(requirements).not.toContainText("제30조");
+  await expect(requirements).not.toContainText("제31조");
+  await expect(output.locator(".research-group[data-group='statutes']")).toContainText("제31조");
+  await expect(output.locator(".research-group[data-group='statutes']")).toContainText("재결의 효력");
+  await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 

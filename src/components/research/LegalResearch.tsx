@@ -532,8 +532,12 @@ const TASK_EVIDENCE_LABEL: Record<"found" | "viewed" | "none" | "failed", string
   failed: "조회 미완료",
 };
 
-/** 입력한 질문 → 이렇게 이해했어요 → 살펴볼 쟁점: sibling blocks, each opened by the same rule; empty ones are not rendered. */
-function ResearchUnderstanding({ interpretation, evidence = [] }: { interpretation: ResearchInterpretation; evidence?: readonly IssueEvidence[] }) {
+/** 입력한 질문 → 이렇게 이해했어요 → 살펴볼 쟁점: sibling blocks, each opened by the same rule; empty ones are not rendered.
+ * With onIssueSelect, each top-list item is itself the jump button to its
+ * detail section (replacing the separate 쟁점 바로가기 nav); without it the
+ * list stays plain text. The button keeps the old nav's aria-controls and
+ * showIssue behavior, so focus/scroll handling is unchanged. */
+function ResearchUnderstanding({ interpretation, evidence = [], onIssueSelect }: { interpretation: ResearchInterpretation; evidence?: readonly IssueEvidence[]; onIssueSelect?: (index: number) => void }) {
   // The model often restates the question verbatim; showing it twice adds nothing.
   const situation = interpretation.situation.replace(/\s+/gu, "") !== interpretation.original.replace(/\s+/gu, "") ? interpretation.situation : "";
   const issues = interpretation.issues.map((issue) => issue.label.trim()).filter(Boolean);
@@ -554,8 +558,11 @@ function ResearchUnderstanding({ interpretation, evidence = [] }: { interpretati
       <span>{assessed ? "확인한 쟁점" : "살펴볼 쟁점"}</span>
       <ul>{issues.map((issue, index) => {
         const entry = statusOf(issue);
+        const label = <span className="research-issue-label"><span className="research-issue-number">{String(index + 1).padStart(2, "0")}</span>{issue}</span>;
         return <li key={index}>
-          <span className="research-issue-label"><span className="research-issue-number">{String(index + 1).padStart(2, "0")}</span>{issue}</span>
+          {onIssueSelect
+            ? <button type="button" className="research-issue-jump" aria-controls={`research-issue-${index + 1}`} onClick={() => onIssueSelect(index)}>{label}</button>
+            : label}
           {entry && <span className="research-issue-status" data-status={entry.status}>{ISSUE_STATUS_LABEL[entry.status]}</span>}
         </li>;
       })}</ul>
@@ -898,7 +905,8 @@ function ResearchResult({ data, request, expandSources = false, onExpandSourcesC
         : status === "none" ? "※ 조회되지 않았다고 관련 법령이나 판례가 없다는 뜻은 아닙니다." : undefined}
       cautionClassName="research-caution">
       {request.task !== "document_review" && <p className="research-meta research-summary-meta research-query">입력한 질문: {request.query}</p>}
-      {interpretation && <ResearchUnderstanding interpretation={interpretation} evidence={issueEvidence} />}
+      {interpretation && <ResearchUnderstanding interpretation={interpretation} evidence={issueEvidence}
+        onIssueSelect={full && issueEvidence.length > 1 ? showIssue : undefined} />}
       {full && !data.interpretation && <p className="research-meta research-uninterpreted">{UNINTERPRETED_NOTE[data.interpretationFailure ?? "unavailable"]}</p>}
       {procedure && <div className="research-original research-issues is-assessed" data-procedure-requirements="true">
         <span>확인한 요구사항</span>
@@ -907,7 +915,13 @@ function ResearchResult({ data, request, expandSources = false, onExpandSourcesC
           <span className="research-issue-status" data-status={requirement.status}>{PROCEDURE_REQUIREMENT_LABEL[requirement.status]}</span>
         </li>)}</ul>
         {procedure.requirements.map((requirement, index) => {
-          const refs = requirement.articles.map((article) => `${article.law} ${article.jo}${article.nature ? `(${PROCEDURE_FORM_NATURE_LABEL[article.nature]})` : ""}`).join(" · ");
+          // Summary only: the first 3 refs, the rest as "외 N건". The full
+          // list stays in the group sections below (절차의 법령 근거); the
+          // requirement verdict above is untouched.
+          const shownRefs = requirement.articles.slice(0, 3)
+            .map((article) => `${article.law} ${article.jo}${article.nature ? `(${PROCEDURE_FORM_NATURE_LABEL[article.nature]})` : ""}`);
+          const hiddenRefCount = requirement.articles.length - shownRefs.length;
+          const refs = [...shownRefs, ...(hiddenRefCount > 0 ? [`외 ${hiddenRefCount}건`] : [])].join(" · ");
           const annex = requirement.annexCount
             ? `별표/서식 목록 ${requirement.annexCount}건${requirement.annexTotal && requirement.annexTotal > requirement.annexCount ? ` (전체 ${requirement.annexTotal}건 중)` : ""}`
             : "";
@@ -929,7 +943,9 @@ function ResearchResult({ data, request, expandSources = false, onExpandSourcesC
         </li>)}</ul>
       </div>}
     </ResearchResultSummary>
-    {full && issueEvidence.length > 1 && <nav className="research-issue-nav" aria-label="쟁점 바로가기">
+    {/* Only when there is no top issue list to reuse (uninterpreted result):
+        with an interpretation, the list above already carries the jump buttons. */}
+    {full && !interpretation && issueEvidence.length > 1 && <nav className="research-issue-nav" aria-label="쟁점 바로가기">
       <span>쟁점 바로가기</span>
       <ol>{issueEvidence.map((issue, index) => <li key={`${issue.label ?? ""}-${index}`}>
         <Button type="button" variant="outline" size="sm" aria-controls={`research-issue-${index + 1}`} onClick={() => showIssue(index)}>
