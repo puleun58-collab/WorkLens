@@ -133,3 +133,85 @@ test("prompt boxes do not overflow at mobile width", async ({ page }) => {
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(0);
 });
+
+// --- STEP 07 PR·CI continuous display (box-wrap) ---
+
+const STEP07_SENTENCE_BOUNDARIES = [
+  "먼저 확인해 줘. Vercel 또는",
+  "우선 유지해 줘. GitHub 연동",
+  "검증해 줘. CLI 직접",
+  "하지 마. 배포 전",
+  "요청해 줘. 기존 데이터와",
+  "진행해 줘. 완료 후",
+  "보고해 줘. 배포가 실행되지",
+];
+
+async function measureStyle(box: Locator) {
+  await box.scrollIntoViewIfNeeded();
+  return box.evaluate(el => {
+    const style = getComputedStyle(el);
+    return {
+      height: Math.round(el.getBoundingClientRect().height),
+      fontSize: Number.parseFloat(style.fontSize),
+      lineHeight: Number.parseFloat(style.lineHeight),
+      paddingTop: Number.parseFloat(style.paddingTop),
+      paddingBottom: Number.parseFloat(style.paddingBottom),
+    };
+  });
+}
+
+test("STEP 07 PR·CI box displays sentences continuously without forced line breaks", async ({ page }) => {
+  const panel = await openGuide(page);
+  const box = sectionCode(panel, 7, "PR·CI 및 배포 확인");
+  await expect(box).toBeVisible();
+  const metrics = await measure(box);
+  expect(metrics.text).not.toContain("\n");
+  for (const boundary of STEP07_SENTENCE_BOUNDARIES) expect(metrics.text).toContain(boundary);
+});
+
+test("STEP 07 PR·CI box is shorter than its #329 forced-line-break height", async ({ page }) => {
+  // The 229px baseline is a 1440px-viewport figure (8 forced lines); pin the
+  // viewport so this assertion is identical across Playwright projects.
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const panel = await openGuide(page);
+  const box = sectionCode(panel, 7, "PR·CI 및 배포 확인");
+  await expect(box).toBeVisible();
+  const metrics = await measure(box);
+  expect(metrics.height).toBeLessThan(229);
+});
+
+test("STEP 07 and STEP 08 boxes share font size, line-height and padding", async ({ page }) => {
+  const panel = await openGuide(page);
+  const [m07, m08] = [
+    await measureStyle(sectionCode(panel, 7, "PR·CI 및 배포 확인")),
+    await measureStyle(sectionCode(panel, 8, "AI 코딩 에이전트에게 기능 검증 요청")),
+  ];
+  expect(m07.fontSize).toBe(m08.fontSize);
+  expect(m07.lineHeight).toBe(m08.lineHeight);
+  expect(m07.paddingTop).toBe(m08.paddingTop);
+  expect(m07.paddingBottom).toBe(m08.paddingBottom);
+});
+
+test("STEP 07 command box keeps its line breaks and STEP 08 box is unchanged", async ({ page }) => {
+  const panel = await openGuide(page);
+  const commands = sectionCode(panel, 7, "안전하게 Git에 저장");
+  await expect(commands).toBeVisible();
+  const commandMetrics = await measure(commands);
+  expect(commandMetrics.text).toBe(
+    ["git status", "git add .", "git diff --cached", 'git commit -m "변경 사항 반영"', "git push"].join("\n"),
+  );
+  const box08 = sectionCode(panel, 8, "AI 코딩 에이전트에게 기능 검증 요청");
+  await expect(box08).toBeVisible();
+  const metrics08 = await measure(box08);
+  expect(metrics08.text).not.toContain("\n");
+  expect(metrics08.text).toContain(STEP08_REQUEST_START);
+});
+
+test("STEP 07 PR·CI box does not overflow horizontally at mobile width", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const panel = await openGuide(page);
+  const box = sectionCode(panel, 7, "PR·CI 및 배포 확인");
+  await expect(box).toBeVisible();
+  const overflow = await box.evaluate(el => el.scrollWidth - el.clientWidth);
+  expect(overflow).toBeLessThanOrEqual(0);
+});

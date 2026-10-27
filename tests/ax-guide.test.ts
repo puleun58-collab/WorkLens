@@ -418,7 +418,7 @@ describe("AX guide dev-prep integration", () => {
     expect(JSON.stringify(pr)).toContain("GitHub에 변경 사항을 업로드한 후 PR·CI를 사용하는 프로젝트에서는 해당 결과를 확인합니다. 배포는 프로젝트에 실제 설정된 Git 연동 또는 CLI 방식에 따라 진행하고, 실제 운영 환경에 반영되었는지 확인합니다.");
     expect(JSON.stringify(pr)).toContain("코드 업로드, CI 통과, 실제 운영 배포는 서로 다른 단계이므로 각각 확인합니다.");
     const prCode = pr.blocks.find(block => block.kind === "code");
-    expect(prCode).toEqual({ kind: "code", lines: deployPromptLines, notes: ["코딩 에이전트에게 요청할 때 복사해서 사용하세요."] });
+    expect(prCode).toEqual({ kind: "code", lines: deployPromptLines, notes: ["코딩 에이전트에게 요청할 때 복사해서 사용하세요."], prose: true });
     // Exactly one deploy-execution copy block, and its input target is the running agent, not PowerShell itself.
     expect(pr.blocks.filter(block => block.kind === "code")).toHaveLength(1);
     expect(JSON.stringify(pr)).toContain("PowerShell에서 Codex 또는 Claude Code를 실행한 후 아래 요청문을 입력하세요.");

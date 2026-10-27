@@ -13,7 +13,7 @@ export const TOOL_GUIDES: Record<AxToolId, {
 };
 
 /** Inline text marks commands with backticks; `code` blocks default to PowerShell unless labeled as examples. */
-export type AxGuideBlock = { kind: "text"; text: string } | { kind: "code"; lines: string[]; notes?: string[]; label?: "PowerShell" | ".gitignore" | "예시"; singleLine?: boolean } | { kind: "steps"; items: string[] } | { kind: "table"; headers: string[]; rows: string[][] };
+export type AxGuideBlock = { kind: "text"; text: string } | { kind: "code"; lines: string[]; notes?: string[]; label?: "PowerShell" | ".gitignore" | "예시"; singleLine?: boolean; prose?: boolean } | { kind: "steps"; items: string[] } | { kind: "table"; headers: string[]; rows: string[][] };
 export interface AxGuideSection { title: string; when?: string; collapsed?: boolean; listStyle?: "bullets"; brand?: "vercel" | "cloudflare"; className?: string; blocks: AxGuideBlock[] }
 export interface AxGuideStep { title: string; purpose: string; sections: AxGuideSection[] }
 
@@ -25,8 +25,20 @@ export function guideCodeDisplayText(lines: string[]): string {
   return lines.join("\n").replace(/\n{2,}/gu, "\n");
 }
 
+/** Display text for a prose code block: blank separators are dropped and the
+ * sentences are joined with a single space, so the box wraps only at its own
+ * width like a single-paragraph request. This is ONLY for blocks explicitly
+ * marked `prose` (natural-language request text); executable command blocks
+ * must keep their line breaks via guideCodeDisplayText, and the copied text
+ * always keeps the original lines. */
+export function guideProseDisplayText(lines: string[]): string {
+  return lines.map(line => line.trim()).filter(line => line !== "").join(" ").replace(/\s+/gu, " ");
+}
+
 const text = (value: string): AxGuideBlock => ({ kind: "text", text: value });
 const code = (lines: string[], notes: string[], label?: Extract<AxGuideBlock, { kind: "code" }>["label"]): AxGuideBlock => ({ kind: "code", lines, notes, ...(label ? { label } : {}) });
+/** A natural-language request block, not executable commands: rendered as continuous prose. */
+const proseCode = (lines: string[], notes: string[]): AxGuideBlock => ({ kind: "code", lines, notes, prose: true });
 
 // Long single-line installer: shown on one line with ellipsis; copy keeps the full command.
 const installCode = (lines: string[], notes: string[]): AxGuideBlock => ({ kind: "code", lines, notes, singleLine: true });
@@ -221,7 +233,7 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
         text("GitHub에 변경 사항을 업로드한 후 PR·CI를 사용하는 프로젝트에서는 해당 결과를 확인합니다. 배포는 프로젝트에 실제 설정된 Git 연동 또는 CLI 방식에 따라 진행하고, 실제 운영 환경에 반영되었는지 확인합니다."),
         text("코드 업로드, CI 통과, 실제 운영 배포는 서로 다른 단계이므로 각각 확인합니다. CI가 없으면 통과한 것으로 표시하지 않고, Preview와 Production 배포를 구분합니다. git push만으로 운영 배포가 완료된 것은 아니며, Git 자동 배포와 CLI 배포를 중복 실행하지 않습니다. 배포가 필요 없는 로컬 자동화 프로그램에는 웹 배포를 요구하지 않고, 특정 플랫폼의 배포 명령을 모든 프로젝트에 일괄 적용하지 않습니다."),
         text("PowerShell에서 Codex 또는 Claude Code를 실행한 후 아래 요청문을 입력하세요. 이 요청문은 PowerShell에서 직접 실행하는 명령이 아니라 실행 중인 코딩 에이전트에 붙여넣는 내용입니다."),
-        code(["현재 프로젝트의 구조, GitHub 연결 상태, 배포 서비스 및 기존 배포 설정을 먼저 확인해 줘.", "", "Vercel 또는 Cloudflare 중 이미 구성된 배포 환경이 있다면 해당 환경을 우선 유지해 줘.", "", "GitHub 연동 자동 배포가 설정되어 있다면 기존 브랜치·CI·배포 흐름을 확인하고, 변경 사항이 실제 배포 환경에 반영되는지 검증해 줘.", "", "CLI 직접 배포가 필요한 경우에는 프로젝트의 기존 배포 스크립트와 설정을 우선 사용해 줘. Cloudflare 프로젝트라면 필요한 경우 Wrangler를 사용하고, 불필요한 도구 설치나 설정 변경은 하지 마.", "", "배포 전 필요한 빌드와 테스트를 실행하고, 실제 운영 환경에 영향을 줄 수 있는 변경 사항이 있다면 실행 전에 알려 줘. 인증이나 추가 승인이 필요하다면 사용자에게 요청해 줘.", "", "기존 데이터와 서비스 설정을 보존하면서 승인된 범위에서 배포를 진행해 줘.", "", "완료 후 실제 배포 환경, URL, 적용된 코드 버전, 테스트 및 배포 결과를 구분해 보고해 줘.", "", "배포가 실행되지 않았거나 실제 반영 여부를 확인하지 못했다면 완료로 표시하지 마."], ["코딩 에이전트에게 요청할 때 복사해서 사용하세요."]),
+        proseCode(["현재 프로젝트의 구조, GitHub 연결 상태, 배포 서비스 및 기존 배포 설정을 먼저 확인해 줘.", "", "Vercel 또는 Cloudflare 중 이미 구성된 배포 환경이 있다면 해당 환경을 우선 유지해 줘.", "", "GitHub 연동 자동 배포가 설정되어 있다면 기존 브랜치·CI·배포 흐름을 확인하고, 변경 사항이 실제 배포 환경에 반영되는지 검증해 줘.", "", "CLI 직접 배포가 필요한 경우에는 프로젝트의 기존 배포 스크립트와 설정을 우선 사용해 줘. Cloudflare 프로젝트라면 필요한 경우 Wrangler를 사용하고, 불필요한 도구 설치나 설정 변경은 하지 마.", "", "배포 전 필요한 빌드와 테스트를 실행하고, 실제 운영 환경에 영향을 줄 수 있는 변경 사항이 있다면 실행 전에 알려 줘. 인증이나 추가 승인이 필요하다면 사용자에게 요청해 줘.", "", "기존 데이터와 서비스 설정을 보존하면서 승인된 범위에서 배포를 진행해 줘.", "", "완료 후 실제 배포 환경, URL, 적용된 코드 버전, 테스트 및 배포 결과를 구분해 보고해 줘.", "", "배포가 실행되지 않았거나 실제 반영 여부를 확인하지 못했다면 완료로 표시하지 마."], ["코딩 에이전트에게 요청할 때 복사해서 사용하세요."]),
       ] },
     ] },
     { title: "STEP 08 · 실제 기능 확인 및 완료", purpose: "구현한 프로그램을 직접 실행해 주요 기능이 정상 작동하는지 확인합니다.", sections: [

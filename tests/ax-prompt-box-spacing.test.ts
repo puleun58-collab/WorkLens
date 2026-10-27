@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { guideCodeDisplayText, setupGuide, type AxGuideBlock } from "../src/lib/ax/guide";
+import { guideCodeDisplayText, guideProseDisplayText, setupGuide, type AxGuideBlock } from "../src/lib/ax/guide";
 
 function codeBlocks(stepIndex: number, sectionTitle: string): Extract<AxGuideBlock, { kind: "code" }>[] {
   const step = setupGuide("codex")[stepIndex];
@@ -21,13 +21,14 @@ describe("guide code display text", () => {
     expect(guideCodeDisplayText([])).toBe("");
   });
 
-  it("keeps the STEP 07 PR·CI request lines unchanged for copy while display has no blank lines", () => {
+  it("keeps the STEP 07 PR·CI request lines unchanged for copy while display is continuous prose", () => {
     const [block] = codeBlocks(7, "PR·CI 및 배포 확인");
     expect(block.lines).toHaveLength(15);
     expect(block.lines.filter(line => line === "")).toHaveLength(7);
-    const display = guideCodeDisplayText(block.lines);
-    expect(display).not.toContain("\n\n");
-    expect(display.split("\n")).toHaveLength(8);
+    expect(block.prose).toBe(true);
+    const display = guideProseDisplayText(block.lines);
+    expect(display).not.toContain("\n");
+    expect(display).toBe(block.lines.filter(line => line.trim() !== "").join(" "));
     expect(display).toContain("현재 프로젝트의 구조, GitHub 연결 상태, 배포 서비스 및 기존 배포 설정을 먼저 확인해 줘.");
     expect(display).toContain("배포가 실행되지 않았거나 실제 반영 여부를 확인하지 못했다면 완료로 표시하지 마.");
     // Copy text is the original join, blank separators included.
