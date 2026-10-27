@@ -96,3 +96,28 @@ describe("displayed supplement relevance (law-accuracy-refine)", () => {
     expect(adopted).toEqual([]);
   });
 });
+
+describe("chain supplement law-name inheritance (law-supplement-trace)", () => {
+  const traceSources = () => foodLawSources(
+    [
+      { jo: "제82조", title: "영업정지 등의 처분에 갈음하여 부과하는 과징금 처분" },
+      { jo: "제90조", title: "조사 의무" },
+    ],
+    (jo) => {
+      if (jo === "제82조") return { text: "제82조(영업정지 등의 처분에 갈음하여 부과하는 과징금 처분)\n영업정지 처분을 갈음하여 과징금을 부과할 수 있다.", effectiveDate: "20261008" };
+      if (jo === "제90조") return { text: "제90조(조사 의무)\n조사 의무를 진다.", effectiveDate: "20261008" };
+      return undefined;
+    },
+  );
+
+  it("B2-trace: without inherited law names, an issue phrase that dropped the question's law finds no law to search under", async () => {
+    const enrichment = await enrichResearch("full_research", "영업정지 조사 의무", "", traceSources());
+    expect(enrichment.supplement?.status).toBe("none");
+    expect(enrichment.supplement?.articles).toEqual([]);
+  });
+
+  it("B2-trace: inheriting the question's law names lets the chain supplement find that law's title-matching article", async () => {
+    const enrichment = await enrichResearch("full_research", "영업정지 조사 의무", "", traceSources(), undefined, { extraNamed: ["식품위생법"] });
+    expect(enrichment.supplement?.articles.map((article) => `${article.law} ${article.jo}`)).toEqual(["식품위생법 제82조"]);
+  });
+});

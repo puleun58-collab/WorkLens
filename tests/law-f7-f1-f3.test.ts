@@ -189,10 +189,18 @@ describe("F1 M2: the supplement gate is articles==0, regardless of precedents", 
       search_decisions: () => "[NOT_FOUND] 없음",
     });
     const result = await runLegalResearch({ task: "full_research", query: question }, ctx);
-    expect(queries("get_law_text")).toEqual([]);
+    // The chain supplement is not an issue lookup: with the question's law name
+    // inherited (law-supplement-trace), its toc + article lookups still run for
+    // the display-only reference even when the chain already adopted an article.
+    // What must not run is the issue lookup itself: no precedent search.
+    // The supplement article is then judged by the unchanged adoption logic:
+    // 제76조의3's title and excerpt genuinely carry the issue's subject terms
+    // (직장 내 괴롭힘), so it is adopted as evidence — unlike B4, where a
+    // generic-only supplement article is not promoted.
     expect(queries("search_decisions")).toEqual([]);
     expect(result).toMatchObject({
-      evidence: { articles: [{ law: "근로기준법", jo: "제76조의2" }] },
+      evidence: { articles: [{ law: "근로기준법", jo: "제76조의2" }, { law: "근로기준법", jo: "제76조의3" }] },
+      enrichment: { supplement: { articles: [{ law: "근로기준법", jo: "제76조의3" }] } },
     });
   });
 });

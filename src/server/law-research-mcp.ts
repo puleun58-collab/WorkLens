@@ -152,7 +152,8 @@ async function fullResearch(
       const classification = classifyLawToolResult(text, isError, { failureMessage: RESEARCH_FAILURE });
       if (classification.kind === "absent") return { kind: "absent", text };
       const enrichment = await enrichResearch("full_research", searchQuery, text, sources, undefined,
-        light ? { skipPrecedentSummaries: true, skipInterpretationRetry: true } : undefined).catch(() => undefined);
+        { ...(light ? { skipPrecedentSummaries: true, skipInterpretationRetry: true } : {}),
+          extraNamed: questionTerms(query).filter(isLawName) }).catch(() => undefined);
       return { kind: "found", text, markers: classification.markers, ...(enrichment ? { enrichment } : {}) };
     } catch (error) {
       if (context.signal?.aborted) throw error;
