@@ -183,7 +183,7 @@ describe("AX execution guides", () => {
     for (const term of ["D1", "R2", "KV", "외부 DB", "git remote -v", "git diff --cached", "폐기 → 재발급", "기록 재작성", "PASS/FAIL/NOT_RUN/BLOCKED", "[REDACTED]"]) expect(all).toContain(term);
     expect(JSON.stringify(steps[5])).not.toContain("npm i -D wrangler@latest");
     expect(JSON.stringify(steps[5])).not.toContain("npx wrangler --version");
-    expect(JSON.stringify(steps[7])).toContain("자동 배포라면 수동 명령을 중복 실행하지 않습니다");
+    expect(JSON.stringify(steps[7])).toContain("Git 자동 배포와 CLI 배포를 중복 실행하지 않습니다");
     expect(JSON.stringify(steps[8])).toContain("실패했거나 확인하지 못한 항목은 별도로 기록하고 수정한 뒤 다시 검증하세요.");
     for (const destructive of ["git reset --hard", "git clean -fd", "git push --force", "git rm --cached -r ."]) expect(all).not.toContain(destructive);
   });
@@ -386,33 +386,37 @@ describe("AX guide dev-prep integration", () => {
     expect(codeBlock).toEqual({ kind: "code", lines: [gitignorePrompt], notes: ["코딩 에이전트에게 요청할 때 복사해서 사용하세요.", "STEP 07에서 git add .을 실행하기 전에 완료하세요."] });
     expect(JSON.stringify(gitignore)).toContain("PowerShell에서 Codex 또는 Claude Code를 실행한 후 아래 요청문을 입력하세요.");
     expect(JSON.stringify(gitignore)).toContain("이미 Git이 추적 중인 파일은 .gitignore만으로 제외되지 않습니다.");
-    expect(JSON.stringify(steps[7])).toContain("git add . 전에 STEP 02의 Git 업로드 제외 파일 자동 설정을 먼저 완료하세요.");
+    expect(JSON.stringify(steps[7])).toContain("`git add .` 실행 전 STEP 02의 `.gitignore` 설정과 변경 파일을 확인하세요.");
   });
 
-  it.each(["codex", "claude"] as const)("limits the STEP 07 basic Git list to five commands: %s", tool => {
+  it.each(["codex", "claude"] as const)("keeps only the STEP 07 PowerShell box for the five Git commands: %s", tool => {
     const step07 = setupGuide(tool)[7];
     expect(step07.sections.map(section => section.title)).toEqual(["안전하게 Git에 저장", "PR·CI 및 배포 확인"]);
     const save = step07.sections.find(section => section.title === "안전하게 Git에 저장")!;
     const lines = save.blocks.flatMap(block => block.kind === "code" ? block.lines : []);
     expect(lines).toEqual(["git status", "git add .", "git diff --cached", 'git commit -m "변경 사항 반영"', "git push"]);
-    expect(save.blocks.find(block => block.kind === "steps")).toEqual({ kind: "steps", items: [
-      "git status: 변경된 파일 확인",
-      "git add .: 변경 사항 추가",
-      "git diff --cached: 저장할 내용 확인",
-      'git commit -m "변경 사항 반영": 변경 사항 기록',
-      "git push: GitHub에 업로드",
-    ] });
+    // The numbered per-command list was removed: the PowerShell box is now the only command list.
+    expect(save.blocks.find(block => block.kind === "steps")).toBeUndefined();
     expect(lines).not.toContain("git diff");
     const serialized = JSON.stringify(save);
     for (const removed of ["git diff --cached --stat", "git branch --show-current", "git remote -v", "git add --"]) expect(serialized).not.toContain(removed);
-    expect(serialized).toContain("API 키·비밀번호·토큰 등 민감정보가 포함된 경우 커밋을 진행하지 마세요.");
+    // Repeats formerly shown below the box are gone; the intro line above the box replaces them.
+    expect(serialized).toContain("프로젝트 폴더에서 변경사항을 확인하고 GitHub에 업로드합니다.");
+    for (const removed of ["프로젝트 폴더에서 실행하세요", "git diff --cached로 실제 커밋할 내용을 확인하세요", "API 키·비밀번호·토큰 등 민감정보가 포함된 경우 커밋을 진행하지 마세요."]) expect(serialized).not.toContain(removed);
+    // Core safety cautions are kept, condensed: STEP 02 link, no secrets in Git, tracked-file caveat, exposed-key handling.
+    expect(serialized).toContain("API 키·비밀번호 등 민감정보는 Git에 저장하지 마세요.");
+    expect(serialized).toContain("이미 추적 중인 파일은 .gitignore만으로 보호되지 않습니다.");
+    expect(serialized).toContain("이미 노출된 키는 폐기 → 재발급 → 플랫폼 설정 교체 순서로 대응하고, 기록 재작성은 자동 실행하지 않습니다.");
+    // First-time setup link is kept: init/remote/user info only when needed.
+    expect(serialized).toContain("Git 저장소 초기화와 원격 연결은 STEP 02의 해당 상황에 따라 안내합니다. 최초 커밋 전에 Git 사용자 이름·이메일 설정이 필요하면 STEP 01의 안내를 따르세요.");
     expect(serialized).toContain("최초 git push에서 업스트림 설정이 필요하면 해당 상황에서 추가 명령어를 안내합니다.");
   });
 
   it.each(["codex", "claude"] as const)("keeps the STEP 07 PR·CI·deploy guidance conditional: %s", tool => {
     const step07 = setupGuide(tool)[7];
     const pr = step07.sections.find(section => section.title === "PR·CI 및 배포 확인")!;
-    expect(JSON.stringify(pr)).toContain("GitHub에 변경 사항을 업로드한 후 프로젝트에서 PR과 CI를 사용한다면 해당 절차를 진행하세요. 배포는 기존 설정에 따라 이루어지므로 실제 운영 환경에 변경 사항이 반영되었는지 확인해야 합니다.");
+    expect(JSON.stringify(pr)).toContain("GitHub에 변경 사항을 업로드한 후 PR·CI를 사용하는 프로젝트에서는 해당 결과를 확인합니다. 배포는 프로젝트에 실제 설정된 Git 연동 또는 CLI 방식에 따라 진행하고, 실제 운영 환경에 반영되었는지 확인합니다.");
+    expect(JSON.stringify(pr)).toContain("코드 업로드, CI 통과, 실제 운영 배포는 서로 다른 단계이므로 각각 확인합니다.");
     const prCode = pr.blocks.find(block => block.kind === "code");
     expect(prCode).toEqual({ kind: "code", lines: deployPromptLines, notes: ["코딩 에이전트에게 요청할 때 복사해서 사용하세요."] });
     // Exactly one deploy-execution copy block, and its input target is the running agent, not PowerShell itself.
@@ -421,10 +425,11 @@ describe("AX guide dev-prep integration", () => {
     expect(JSON.stringify(pr)).toContain("PowerShell에서 직접 실행하는 명령이 아니라 실행 중인 코딩 에이전트에 붙여넣는 내용입니다.");
     for (const clause of ["이미 구성된 배포 환경이 있다면 해당 환경을 우선 유지해 줘", "GitHub 연동 자동 배포가 설정되어 있다면", "CLI 직접 배포가 필요한 경우에는 프로젝트의 기존 배포 스크립트와 설정을 우선 사용해 줘", "필요한 경우 Wrangler를 사용하고", "배포가 실행되지 않았거나 실제 반영 여부를 확인하지 못했다면 완료로 표시하지 마"]) expect(deployPromptLines.join("\n")).toContain(clause);
     const serialized = JSON.stringify(pr);
-    for (const condition of ["CI가 없으면 통과한 것으로 표시하지 않습니다", "Preview와 Production 배포는 구분해서 확인하세요", "git push만으로 운영 배포가 완료된 것은 아닙니다", "배포가 필요 없는 로컬 자동화 프로그램에는 웹 배포를 요구하지 않습니다"]) expect(serialized).toContain(condition);
+    for (const condition of ["CI가 없으면 통과한 것으로 표시하지 않고", "Preview와 Production 배포를 구분합니다", "git push만으로 운영 배포가 완료된 것은 아니며", "Git 자동 배포와 CLI 배포를 중복 실행하지 않습니다", "배포가 필요 없는 로컬 자동화 프로그램에는 웹 배포를 요구하지 않고", "특정 플랫폼의 배포 명령을 모든 프로젝트에 일괄 적용하지 않습니다"]) expect(serialized).toContain(condition);
+    expect(serialized).not.toContain("실패 로그의 API Key·Token·Password·개인정보를 [REDACTED]로 가린 필요한 부분만 AI 도구에 전달하고 로그 전체를 무조건 복사하지 않습니다.");
   });
 
-  it.each(["codex", "claude"] as const)("keeps STEP 08 to four checks, the agent flow and a plain completion note: %s", tool => {
+  it.each(["codex", "claude"] as const)("keeps STEP 08 to four checks, the verify prompt and a plain completion note: %s", tool => {
     const step08 = setupGuide(tool)[8];
     expect(step08.title).toBe("STEP 08 · 실제 기능 확인 및 완료");
     expect(step08.purpose).toBe("구현한 프로그램을 직접 실행해 주요 기능이 정상 작동하는지 확인합니다.");
@@ -436,11 +441,16 @@ describe("AX guide dev-prep integration", () => {
       "실제 사용 환경에서 오류 없이 실행되는가?",
     ] });
     const request = step08.sections.find(section => section.title === "AI 코딩 에이전트에게 기능 검증 요청")!;
-    expect(JSON.stringify(request)).toContain("PowerShell에서 Codex 또는 Claude Code를 실행한 후 아래 내용을 입력하세요.");
+    // The repeated PowerShell intro and the 1-5 agent-run steps are removed; only the prompt box remains.
+    expect(request.blocks.find(block => block.kind === "steps")).toBeUndefined();
+    expect(JSON.stringify(request)).not.toContain("PowerShell에서 Codex 또는 Claude Code를 실행한 후 아래 내용을 입력하세요.");
     const requestCode = request.blocks.find(block => block.kind === "code");
-    expect(requestCode).toEqual({ kind: "code", lines: [verifyPrompt], notes: ["코딩 에이전트에게 요청할 때 복사해서 사용하세요."] });
+    expect(requestCode).toEqual({ kind: "code", lines: [verifyPrompt], notes: [] });
+    // Displayed text and the copy-button string are both lines.join("\n") in AxGuideBlockView, so this pins them equal.
+    expect(requestCode?.kind === "code" ? requestCode.lines.join("\n") : "").toBe(verifyPrompt);
     const completion = step08.sections.find(section => section.title === "완료 판정")!;
     expect(JSON.stringify(completion)).toContain("주요 기능이 요구사항대로 작동하고 필요한 검증을 통과했다면 완료로 판단할 수 있습니다. 실패했거나 확인하지 못한 항목은 별도로 기록하고 수정한 뒤 다시 검증하세요.");
+    expect(JSON.stringify(completion)).not.toContain("로그의 API Key·Token·Password·개인정보는 [REDACTED]로 가린 필요한 부분만 AI 도구에 전달하며 로그 전체를 무조건 복사하지 않습니다.");
     for (const term of ["PASS", "FAIL", "NOT_RUN", "BLOCKED", "실행 증거", "실행 시각", "환경 식별자"]) expect(JSON.stringify(step08)).not.toContain(term);
   });
 });
