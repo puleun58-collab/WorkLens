@@ -849,11 +849,11 @@ function prereqIcon(topic: string) {
     : ClipboardList;
   return <Icon aria-hidden="true" />;
 }
-function AxPrereqCard({ topic, note, tone, status }: { topic: string; note: string; tone: AxCheckTone; status: string }) {
+function AxPrereqCard({ topic, note, tone, status, relation }: { topic: string; note: string; tone: AxCheckTone; status: string; relation?: string }) {
   const { label } = CHECK_TONES[tone];
   return <div className="ax-prereq-card" data-tone={tone} data-status={status}>
     <span className="ax-prereq-icon" aria-hidden="true">{prereqIcon(topic)}</span>
-    <div className="ax-prereq-card-head"><h5>{topic}</h5><span className="ax-check-badge">{label}</span></div>
+    <div className="ax-prereq-card-head"><h5>{topic}</h5><span className="ax-check-badge">{label}</span>{relation ? <span className="ax-check-badge">{relation}</span> : null}</div>
     {note ? <p>{note}</p> : null}
   </div>;
 }
@@ -987,7 +987,7 @@ function AxPlanOverview({ profile, summary }: { profile: ExecutionProfile; summa
       </div> : null}
       {summary.checks.length || summary.additionalChecks.length ? <div className="ax-prereq-cards">
         {summary.checks.map((check, i) => <AxPrereqCard key={`check-${i}`} topic={check.topic} note={check.note} tone={check.tone} status={check.status} />)}
-        {summary.additionalChecks.map((row, i) => <AxPrereqCard key={`extra-${i}`} topic={row.item} note={row.content !== row.item ? row.content : ""} tone={row.tone} status={row.status} />)}
+        {summary.additionalChecks.map((row, i) => <AxPrereqCard key={`extra-${i}`} topic={row.item} note={row.content !== row.item ? row.content : ""} tone={row.tone} status={row.status} relation={row.relation} />)}
       </div> : null}
       {summary.data.length ? <div className="ax-plan-data-group">
         <h5>데이터·시스템 정보</h5>
