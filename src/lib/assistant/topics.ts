@@ -173,6 +173,48 @@ export function resolveEvidenceIntent(question: string, evidenceQuery: string): 
 }
 
 /**
+ * Explicit AX-topic markers (Level/Gate/Factor) that end a law/learn topic
+ * anchor: a question naming one of these is a new topic, not a continuation
+ * of the previous law/learn conversation, even when it starts with "그럼".
+ * Other general questions keep the anchor (the previous follow-up definition);
+ * this list is deliberately narrow so task CASE 1~3 continuations
+ * ("그럼 사용하는 의미가 없잖아.", "그럼 통과 기준은?") still inherit.
+ */
+const AX_TOPIC_MARKER = /level|레벨|gate|게이트|factor|팩터/iu;
+
+export function hasExplicitAxTopic(question: string): boolean {
+  return AX_TOPIC_MARKER.test(question);
+}
+
+/**
+ * Topic anchor to send with a question. The widget keeps the last
+ * law/learn-bearing question as the anchor so a marker-less follow-up chain
+ * ("법령 MCP..." → "그럼 왜 잘못됐어?" → "그럼 사용하는 의미가 없잖아.")
+ * does not lose its topic after the first hop, when the immediately previous
+ * question itself carries no topic markers. A question with its own markers
+ * speaks for itself, and an explicit AX-topic question starts a new topic,
+ * so neither sends an anchor. Returns null when no anchor applies.
+ */
+export function topicAnchorForRequest(question: string, currentAnchor: string | null): string | null {
+  if (classifyEvidenceIntent(question) !== "general") return null;
+  if (hasExplicitAxTopic(question)) return null;
+  return currentAnchor;
+}
+
+/**
+ * Next topic anchor after a question is asked. A law/learn-bearing question
+ * becomes the anchor; an explicit AX-topic question clears it; any other
+ * question keeps the existing anchor. The anchor is a topic hint only: the
+ * previous answer is still context, never evidence, and a reset clears it.
+ */
+export function updateTopicAnchor(question: string, currentAnchor: string | null): string | null {
+  const intent = classifyEvidenceIntent(question);
+  if (intent !== "general") return question;
+  if (hasExplicitAxTopic(question)) return null;
+  return currentAnchor;
+}
+
+/**
  * Evidence intent for a follow-up turn. Unlike resolveEvidenceIntent, this does
  * not depend on the 15-char concatenation heuristic: a marker-less follow-up
  * ("그럼 WorkLens는 무엇을 검증하는데?") is a continuation of the previous
