@@ -59,19 +59,17 @@ describe("AX execution guides", () => {
     expect(texts).toContain("로컬 변경사항이 있을 때는 무조건 브랜치를 전환하거나 가져오지 말고 현재 상태를 먼저 확인하세요. 로컬에 main 브랜치가 없으면 해당 상태를 먼저 확인하세요. 충돌이 발생하면 데이터를 삭제하거나 강제로 덮어쓰는 방식으로 해결하지 마세요.");
     expect(setupGuide(tool === "codex" ? "claude" : "codex")[2].sections.find(section => section.title === "C. 다른 PC에서 작업 이어가기")).toEqual(sectionC);
   });
-  it.each(["codex", "claude"] as const)("starts the Wrangler no-CLI-addition sentence as its own paragraph: %s", tool => {
+  it.each(["codex", "claude"] as const)("keeps only the comparison section in STEP 05 without manual Wrangler or duplicate pricing sections: %s", tool => {
     const step05 = setupGuide(tool)[5];
     expect(step05.title).toBe("STEP 05 · 배포 플랫폼 선택");
-    const wrangler = step05.sections.find(section => section.title === "Cloudflare의 Wrangler");
-    expect(wrangler).toBeDefined();
-    const texts = (wrangler?.blocks ?? []).filter(block => block.kind === "text").map(block => block.text);
-    expect(texts).toContain("기존 Pages/Git 자동 배포에 CLI를 추가하지 않습니다.");
-    // The sentence must be a standalone paragraph, not the tail of a longer paragraph,
-    // so it always starts on a new line instead of dangling across a line break.
-    expect(texts.filter(text => text.includes("기존 Pages/Git 자동 배포에 CLI를 추가하지 않습니다."))).toEqual([
-      "기존 Pages/Git 자동 배포에 CLI를 추가하지 않습니다.",
-    ]);
-    expect(texts).toContain("기존 packageManager·lockfile·Wrangler 버전·스크립트를 유지합니다. 새 npm Cloudflare 프로젝트에 Wrangler CLI가 필요하고 없을 때에만 다음 명령으로 로컬 devDependency에 설치합니다.");
+    expect(step05.sections.map(section => section.title)).toEqual(["배포 방식 비교"]);
+    const serialized = JSON.stringify(step05);
+    for (const removed of ["Cloudflare의 Wrangler", "요금·정책 확인", "npm i -D wrangler@latest", "npx wrangler --version"]) expect(serialized).not.toContain(removed);
+    // The platform-selection request is a different purpose from the STEP 07 deploy-execution
+    // request, so it stays; only the deploy-execution request is the single integrated one.
+    expect(serialized).toContain("어떤 배포 방식이 적합한지 확인해 줘");
+    expect(serialized).toContain("vercel.com/docs/plans/hobby");
+    expect(serialized).toContain("developers.cloudflare.com/workers/platform/pricing/");
   });
   it("presents the intro glossary as the Git·GitHub work flow in execution order", () => {
     const flow = setupGuide("codex")[0].sections[2];
@@ -180,8 +178,11 @@ describe("AX execution guides", () => {
     expect(JSON.stringify(cases[2])).toContain("로컬에 main 브랜치가 없으면 해당 상태를 먼저 확인하세요.");
     // D: 기존 새 프로젝트 안내가 그대로 이동.
     expect(JSON.stringify(cases[3])).toContain("재초기화");
-    for (const term of ["packageManager", "D1", "R2", "KV", "외부 DB", "git remote -v", "git diff --cached", "폐기 → 재발급", "기록 재작성", "PASS/FAIL/NOT_RUN/BLOCKED", "[REDACTED]"]) expect(all).toContain(term);
-    expect(JSON.stringify(steps[5])).toContain("npm i -D wrangler@latest");
+    // "packageManager" was only present in the removed Wrangler section, so it is no longer
+    // an expected term; the remaining terms still guard repo, storage, secrets and outcomes.
+    for (const term of ["D1", "R2", "KV", "외부 DB", "git remote -v", "git diff --cached", "폐기 → 재발급", "기록 재작성", "PASS/FAIL/NOT_RUN/BLOCKED", "[REDACTED]"]) expect(all).toContain(term);
+    expect(JSON.stringify(steps[5])).not.toContain("npm i -D wrangler@latest");
+    expect(JSON.stringify(steps[5])).not.toContain("npx wrangler --version");
     expect(JSON.stringify(steps[7])).toContain("자동 배포라면 수동 명령을 중복 실행하지 않습니다");
     expect(JSON.stringify(steps[8])).toContain("실패했거나 확인하지 못한 항목은 별도로 기록하고 수정한 뒤 다시 검증하세요.");
     for (const destructive of ["git reset --hard", "git clean -fd", "git push --force", "git rm --cached -r ."]) expect(all).not.toContain(destructive);
@@ -374,7 +375,7 @@ describe("AX guide conditional architecture", () => {
 
 describe("AX guide dev-prep integration", () => {
   const gitignorePrompt = "현재 프로젝트의 언어, 프레임워크, 실행 환경과 파일 구조를 확인하고 적절한 .gitignore를 구성해 줘. 기존 .gitignore가 있으면 필요한 규칙만 보완하고, 없으면 새로 만들어 줘. 의존성 폴더, 빌드 결과물, 캐시, 임시파일, 로컬 설정, 인증정보 등 GitHub에 올리면 안 되는 파일을 제외해 줘. 반대로 실제 개발에 필요한 소스코드, 설정 템플릿, 잠금 파일 등은 임의로 제외하지 마. 이미 Git이 추적하는 민감 파일이 있는지도 확인해 줘. 발견하면 파일을 삭제하거나 Git 기록을 변경하지 말고 처리 방법과 위험을 먼저 알려 줘. 완료 후 적용한 제외 규칙과 추가 확인이 필요한 사항을 간단히 보고해 줘.";
-  const deployPrompt = "현재 프로젝트의 GitHub 브랜치, PR·CI 사용 여부와 실제 배포 구성을 확인해 줘. 기존 설정을 유지하면서 필요한 검증 절차를 진행하고, 코드 업로드·CI 통과·배포 완료를 각각 구분해 보고해 줘. 실제 운영 환경에 반영되었는지 확인하지 못했다면 배포 완료로 표시하지 마. 설정 변경이나 운영 데이터에 영향을 줄 수 있는 작업은 실행 전에 영향 범위와 승인 필요 여부를 알려 줘.";
+  const deployPromptLines = ["현재 프로젝트의 구조, GitHub 연결 상태, 배포 서비스 및 기존 배포 설정을 먼저 확인해 줘.", "", "Vercel 또는 Cloudflare 중 이미 구성된 배포 환경이 있다면 해당 환경을 우선 유지해 줘.", "", "GitHub 연동 자동 배포가 설정되어 있다면 기존 브랜치·CI·배포 흐름을 확인하고, 변경 사항이 실제 배포 환경에 반영되는지 검증해 줘.", "", "CLI 직접 배포가 필요한 경우에는 프로젝트의 기존 배포 스크립트와 설정을 우선 사용해 줘. Cloudflare 프로젝트라면 필요한 경우 Wrangler를 사용하고, 불필요한 도구 설치나 설정 변경은 하지 마.", "", "배포 전 필요한 빌드와 테스트를 실행하고, 실제 운영 환경에 영향을 줄 수 있는 변경 사항이 있다면 실행 전에 알려 줘. 인증이나 추가 승인이 필요하다면 사용자에게 요청해 줘.", "", "기존 데이터와 서비스 설정을 보존하면서 승인된 범위에서 배포를 진행해 줘.", "", "완료 후 실제 배포 환경, URL, 적용된 코드 버전, 테스트 및 배포 결과를 구분해 보고해 줘.", "", "배포가 실행되지 않았거나 실제 반영 여부를 확인하지 못했다면 완료로 표시하지 마."];
   const verifyPrompt = "완성한 프로그램을 실제 사용 상황처럼 테스트해 줘. 주요 기능에 정상적인 입력과 잘못된 입력을 각각 사용하고, 처리 결과가 요구사항과 일치하는지 확인해 줘. 데이터 저장 기능이 있다면 저장 후 다시 실행하거나 새로고침해도 데이터가 올바르게 유지되는지 검증해 줘. 웹서비스라면 실제 배포된 환경의 주요 기능을 확인하고, 로컬 자동화 프로그램이라면 해당 실행 환경에서 테스트해 줘. 실제로 실행한 테스트와 실행하지 못한 테스트를 구분하고, 실패한 항목의 원인 및 필요한 수정 사항을 보고해 줘. 검증하지 못한 기능은 완료로 표시하지 마.";
 
   it.each(["codex", "claude"] as const)("offers the .gitignore natural-language request in STEP 02 before STEP 07 git add: %s", tool => {
@@ -413,7 +414,12 @@ describe("AX guide dev-prep integration", () => {
     const pr = step07.sections.find(section => section.title === "PR·CI 및 배포 확인")!;
     expect(JSON.stringify(pr)).toContain("GitHub에 변경 사항을 업로드한 후 프로젝트에서 PR과 CI를 사용한다면 해당 절차를 진행하세요. 배포는 기존 설정에 따라 이루어지므로 실제 운영 환경에 변경 사항이 반영되었는지 확인해야 합니다.");
     const prCode = pr.blocks.find(block => block.kind === "code");
-    expect(prCode).toEqual({ kind: "code", lines: [deployPrompt], notes: ["코딩 에이전트에게 요청할 때 복사해서 사용하세요."] });
+    expect(prCode).toEqual({ kind: "code", lines: deployPromptLines, notes: ["코딩 에이전트에게 요청할 때 복사해서 사용하세요."] });
+    // Exactly one deploy-execution copy block, and its input target is the running agent, not PowerShell itself.
+    expect(pr.blocks.filter(block => block.kind === "code")).toHaveLength(1);
+    expect(JSON.stringify(pr)).toContain("PowerShell에서 Codex 또는 Claude Code를 실행한 후 아래 요청문을 입력하세요.");
+    expect(JSON.stringify(pr)).toContain("PowerShell에서 직접 실행하는 명령이 아니라 실행 중인 코딩 에이전트에 붙여넣는 내용입니다.");
+    for (const clause of ["이미 구성된 배포 환경이 있다면 해당 환경을 우선 유지해 줘", "GitHub 연동 자동 배포가 설정되어 있다면", "CLI 직접 배포가 필요한 경우에는 프로젝트의 기존 배포 스크립트와 설정을 우선 사용해 줘", "필요한 경우 Wrangler를 사용하고", "배포가 실행되지 않았거나 실제 반영 여부를 확인하지 못했다면 완료로 표시하지 마"]) expect(deployPromptLines.join("\n")).toContain(clause);
     const serialized = JSON.stringify(pr);
     for (const condition of ["CI가 없으면 통과한 것으로 표시하지 않습니다", "Preview와 Production 배포는 구분해서 확인하세요", "git push만으로 운영 배포가 완료된 것은 아닙니다", "배포가 필요 없는 로컬 자동화 프로그램에는 웹 배포를 요구하지 않습니다"]) expect(serialized).toContain(condition);
   });

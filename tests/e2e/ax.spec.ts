@@ -1141,10 +1141,12 @@ for (const width of [1440, 390]) {
     await expect(panel).not.toContainText(/winget|scoop install|choco install/i);
     await expect(panel.getByText("자세히 보기")).toHaveCount(0);
     // An optional section is one clickable title with a centred arrow; opening it never repeats the title.
-    const storage = panel.locator('[data-setup-step="5"]');
-    const trigger = storage.getByRole("button", { name: "Cloudflare의 Wrangler", exact: true });
+    // (Previously Cloudflare의 Wrangler; that STEP 05 section was removed by the deploy-guide dedup,
+    // so the disclosure behavior is now covered by the STEP 04 collapsed section instead.)
+    const storage = panel.locator('[data-setup-step="4"]');
+    const trigger = storage.getByRole("button", { name: "실패 시", exact: true });
     await expect(trigger).toHaveAttribute("aria-expanded", "false");
-    await expect(storage.getByText("Cloudflare의 Wrangler", { exact: true })).toHaveCount(1);
+    await expect(storage.getByText("실패 시", { exact: true })).toHaveCount(1);
     expect(await trigger.evaluate(element => {
       const title = element.querySelector(".ax-guide-section-title")!.getBoundingClientRect();
       const arrow = element.querySelector('[data-slot="accordion-indicator"]')!.getBoundingClientRect();
@@ -1152,7 +1154,7 @@ for (const width of [1440, 390]) {
     })).toBeLessThanOrEqual(1.5);
     await trigger.click();
     await expect(trigger).toHaveAttribute("aria-expanded", "true");
-    await expect(storage.getByText("Cloudflare의 Wrangler", { exact: true })).toHaveCount(1);
+    await expect(storage.getByText("실패 시", { exact: true })).toHaveCount(1);
     // Every path or URL argument in the project commands is double-quoted, as copied.
     const lines = (await panel.locator('[data-setup-step="2"] code').allTextContents()).flatMap(text => text.split("\n"));
     const pathCommands = lines.filter(line => /^(mkdir|cd|git clone|git remote add)\b/.test(line));
