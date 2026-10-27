@@ -1791,6 +1791,57 @@ test("RESEARCH procedure_detail shows the server's per-requirement verdict inste
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
+test("RESEARCH shows the server's per-kind verdict for law_system and dispute_prep instead of a blanket weak result", async ({ page }) => {
+  // Mocked API answers shaped exactly like the server's responses: a
+  // law_system answer with both sub-law tiers delegation-anchored, and a
+  // dispute_prep answer whose decisions were only listed, never verified.
+  await page.route("**/api/law/research", (route) => {
+    const body = route.request().postDataJSON() as { task: string };
+    const lawText = "═══ 법체계 확인: 근로기준법 ═══\n\n▶ 3단 비교 (법률·시행령·시행규칙)\n법령명: 근로기준법\n\n"
+      + "[시행령] 근로기준법 시행령 제7조 (적용범위)\n법 제11조제2항에 따라 적용하는 법 규정은 별표 1과 같다.\n\n"
+      + "[시행규칙] 근로기준법 시행규칙 제4조 (해고 예고의 예외)\n법 제26조제3호에서 고용노동부령으로 정하는 사유란 별표 1과 같다.\n";
+    const disputeText = "▶ 대법원 판례\n판례 검색 결과 (총 1건):\n\n[1] 부당해고구제재심판정취소\n  사건번호: 2019두12345\n  법원: 대법원\n  선고일: 20240101\n";
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: body.task === "law_system"
+      ? { found: true, task: "law_system", text: lawText, markers: [],
+        lawSystem: { status: "matched", items: [
+          { label: "법률", status: "found", detail: "근로기준법" },
+          { label: "시행령", status: "found", detail: "시행령 1건 · 위임 연결 1건" },
+          { label: "시행규칙", status: "found", detail: "시행규칙 1건 · 위임 연결 1건" }] } }
+      : { found: true, task: "dispute_prep", text: disputeText, markers: [],
+        dispute: { status: "viewed", items: [
+          { label: "판례·결정례·재결례", status: "viewed", detail: "검색 1건" }] } } }) });
+  });
+  await page.goto("/");
+  await navigateWorkspace(page, "법령");
+  await page.getByRole("tab", { name: "종합 리서치", exact: true }).click();
+  const form = page.getByRole("form", { name: /^(종합 리서치|문서 검토) 입력$/ });
+  const output = page.locator(".legal-research .legal-analysis-output");
+  await form.getByLabel("질문 또는 검색어").fill("근로기준법의 법체계와 하위법령 관계");
+  await chooseOption(page, form.getByLabel("리서치 유형"), researchTaskLabels.law_system);
+  await form.getByRole("button", { name: "실행" }).click();
+  const overview = output.locator(".research-overview");
+  await expect(overview.locator("h3")).toHaveText("관련 근거를 확인했습니다");
+  await expect(overview.locator("h3")).toHaveAttribute("data-status", "matched");
+  await expect(overview).toContainText("관련 근거 확인");
+  await expect(overview).not.toContainText("근거 부족");
+  const items = overview.locator("[data-task-evidence]");
+  await expect(items).toContainText("법률");
+  await expect(items).toContainText("시행령");
+  await expect(items).toContainText("시행규칙");
+  await expect(items.locator(".research-issue-status")).toHaveText(["근거 확인", "근거 확인", "근거 확인"]);
+  await form.getByLabel("질문 또는 검색어").fill("부당해고 구제신청과 행정소송 판례");
+  await chooseOption(page, form.getByLabel("리서치 유형"), researchTaskLabels.dispute_prep);
+  await form.getByRole("button", { name: "실행" }).click();
+  await expect(overview.locator("h3")).toHaveText("관련 자료를 조회했습니다");
+  await expect(overview.locator("h3")).toHaveAttribute("data-status", "viewed");
+  await expect(overview).toContainText("관련 자료 조회");
+  await expect(overview).not.toContainText("근거 부족");
+  await expect(items.locator(".research-issue-status")).toHaveText(["자료 조회"]);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(overview.locator("h3")).toHaveText("관련 자료를 조회했습니다");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
 test("RESEARCH separates a verified article from search candidates and hides internal guidance", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("worklens:review-preferences:v1", JSON.stringify({
     version: 1, preferences: { documentSource: "text", expandSources: true },

@@ -103,7 +103,17 @@ describe("fixed legal_research API", () => {
         // 절차·서식 only: the server's per-requirement verdict. This sample
         // carries no article or annex, so the single general requirement is none.
         ...(input.task === "procedure_detail" ? { procedure: { requirements: [{ label: query, kind: "general", status: "none", articles: [], annexCount: 0 }],
-          overall: "none", incomplete: false, annexTruncated: false, failedSections: 0 } } : {}) });
+          overall: "none", incomplete: false, annexTruncated: false, failedSections: 0 } } : {}),
+        // Server per-kind evidence is additive; these samples carry no
+        // confirmable body, so each lands on viewed (retrieved, unconfirmed).
+        ...(input.task === "law_system" ? { lawSystem: { status: "viewed", items: [
+          { label: "법률", status: "found", detail: "개인정보 보호법" }, { label: "시행령", status: "none" }, { label: "시행규칙", status: "none" }] } } : {}),
+        ...(input.task === "action_basis" ? { actionBasis: { status: "viewed", items: [
+          { label: "처분·허가 근거", status: "none" }, { label: "적용 요건", status: "none" }] } } : {}),
+        ...(input.task === "dispute_prep" ? { dispute: { status: "viewed", items: [
+          { label: "관련 법령", status: "none" }, { label: "판례·결정례·재결례", status: "none" }] } } : {}),
+        ...(input.task === "amendment_track" ? { amendment: { status: "viewed", items: [
+          { label: "개정 전후 조문 비교", status: "viewed" }, { label: "시행일·공포일", status: "none" }] } } : {}) });
       const upstream = toolCall(fetcher, i);
       expect(String(upstream.url)).toBe(ENDPOINT);
       expect(upstream.headers.get("apikey")).toBe(KEY);
@@ -129,7 +139,9 @@ describe("fixed legal_research API", () => {
         args: { task: "amendment_track", query, scenario: "time_travel", fromDate: "20220101", toDate: "20260101", mst: "284415", lawId: "011357", includeHistory: true } },
     ];
     for (let i = 0; i < cases.length; i++) {
-      expect((await call(cases[i].input)).json.data).toEqual({ found: true, task: "amendment_track", text: samples.amend, markers: [] });
+      expect((await call(cases[i].input)).json.data).toEqual({ found: true, task: "amendment_track", text: samples.amend, markers: [],
+        amendment: { status: "viewed", items: [
+          { label: "개정 전후 조문 비교", status: "viewed" }, { label: "시행일·공포일", status: "none" }] } });
       expect(toolCall(fetcher, i).envelope.params).toEqual({ name: "legal_research", arguments: cases[i].args });
     }
   });

@@ -16,6 +16,10 @@ import {
   type EnrichmentSources, type IssueLookup,
 } from "@/server/research-enrichment";
 import { compareOrdinances, mcpOrdinanceSources } from "@/server/ordinance-compare";
+import { assessActionBasis } from "@/lib/action-basis-evidence";
+import { assessAmendment } from "@/lib/amendment-evidence";
+import { assessDispute } from "@/lib/dispute-evidence";
+import { assessLawSystem } from "@/lib/law-system-evidence";
 
 const RESEARCH_FAILURE = "법령 리서치 서비스가 요청을 처리하지 못했습니다.";
 
@@ -445,9 +449,23 @@ export async function runLegalResearch(
       procedure: assessProcedureEvidence(request.query, researchResult(text), text) };
   }
   // Action-basis enrichment keeps its previous behavior; full research is handled above.
+  // Each of these four tasks additionally carries its own server-side
+  // per-kind evidence, so the UI no longer has to guess `weak` from mere
+  // retrieval. full_research (evidence), ordinance_compare (comparison)
+  // and procedure_detail (merged PR #326) keep their own verdicts untouched.
   if (request.task === "action_basis") {
     const enrichment = await enrichResearch(request.task, request.query, text, mcpEnrichmentSources(context)).catch(() => undefined);
-    if (enrichment) return { found: true, task: request.task, text, markers: classification.markers, enrichment };
+    return { found: true, task: request.task, text, markers: classification.markers,
+      ...(enrichment ? { enrichment } : {}), actionBasis: assessActionBasis(request.query, text, enrichment) };
+  }
+  if (request.task === "law_system") {
+    return { found: true, task: request.task, text, markers: classification.markers, lawSystem: assessLawSystem(text) };
+  }
+  if (request.task === "dispute_prep") {
+    return { found: true, task: request.task, text, markers: classification.markers, dispute: assessDispute(request.query, text) };
+  }
+  if (request.task === "amendment_track") {
+    return { found: true, task: request.task, text, markers: classification.markers, amendment: assessAmendment(text) };
   }
   return { found: true, task: request.task, text, markers: classification.markers, ...(comparison ? { comparison } : {}) };
 }

@@ -4,6 +4,7 @@ import { normalizeAnalysisDate, normalizeAnalysisJo } from "@/lib/law-analysis";
 import type { ContractReview } from "@/lib/contract-review";
 import type { ProcedureEvidence } from "@/lib/procedure-evidence";
 import type { ResearchEnrichment } from "@/lib/research-relevance";
+import type { TaskEvidence } from "@/lib/task-evidence";
 
 /**
  * Shared contract for `POST /api/law/research`, the fixed-tool bridge to the
@@ -224,6 +225,18 @@ export interface LawResearchData {
   comparison?: OrdinanceComparison;
   /** 절차·서식 only: server-computed per-requirement evidence; the UI displays it, never recomputes it. */
   procedure?: ProcedureEvidence;
+  /**
+   * Server-side per-kind evidence for the tasks that used to fall back to a
+   * blanket weak result (law_system, action_basis, dispute_prep,
+   * amendment_track). Additive: older or mocked responses without these
+   * fields keep the previous UI fallback. full_research keeps `evidence`,
+   * ordinance_compare keeps `comparison`, procedure_detail keeps
+   * `procedure` from PR #326 and is intentionally not duplicated here.
+   */
+  lawSystem?: TaskEvidence;
+  actionBasis?: TaskEvidence;
+  dispute?: TaskEvidence;
+  amendment?: TaskEvidence;
 }
 
 /**
