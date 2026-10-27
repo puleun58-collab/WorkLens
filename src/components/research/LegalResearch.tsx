@@ -267,20 +267,20 @@ export function LegalResearch({ workspace, initialTask = "full_research" }: { wo
         <Field><FieldLabel htmlFor="research-task">리서치 유형</FieldLabel>
           <Select items={LAW_RESEARCH_TASKS} value={task} onValueChange={(value) => { if (value) changeTask(value as LawResearchTask); }}>
             <SelectTrigger id="research-task"><SelectValue /></SelectTrigger>
-            <SelectPopup>{LAW_RESEARCH_TASKS.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectPopup>
+            <SelectPopup alignItemWithTrigger={false}>{LAW_RESEARCH_TASKS.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectPopup>
           </Select>
         </Field>
         {isDocument && settingsError && <p className="law-search-error" role="alert">{settingsError}</p>}
         {task === "dispute_prep" && <Field><FieldLabel htmlFor="research-domain">분야</FieldLabel>
           <Select items={DISPUTE_DOMAINS} value={draft.domain} onValueChange={(value) => update("domain", (value ?? "") as DisputeDomain | "")}>
             <SelectTrigger id="research-domain"><SelectValue /></SelectTrigger>
-            <SelectPopup>{DISPUTE_DOMAINS.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectPopup>
+            <SelectPopup alignItemWithTrigger={false}>{DISPUTE_DOMAINS.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectPopup>
           </Select>
         </Field>}
         {task === "amendment_track" && <Field><FieldLabel htmlFor="research-scenario">추적 방식</FieldLabel>
           <Select items={[{ value: "", label: "자동" }, ...AMENDMENT_SCENARIOS]} value={draft.scenario} onValueChange={(value) => update("scenario", (value ?? "") as AmendmentScenario | "")}>
             <SelectTrigger id="research-scenario"><SelectValue /></SelectTrigger>
-            <SelectPopup><SelectItem value="">자동</SelectItem>{AMENDMENT_SCENARIOS.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectPopup>
+            <SelectPopup alignItemWithTrigger={false}><SelectItem value="">자동</SelectItem>{AMENDMENT_SCENARIOS.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectPopup>
           </Select>
         </Field>}
       </div>

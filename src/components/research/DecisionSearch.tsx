@@ -256,7 +256,7 @@ export function DecisionSearch({ linkedRequest, onReturnToLaw, onCiteCheck }: De
           <Label htmlFor="decision-domain">자료 유형</Label>
           <Select items={DECISION_DOMAINS} value={domain} onValueChange={(value) => { if (value) changeDomain(value); }}>
             <SelectTrigger id="decision-domain"><SelectValue /></SelectTrigger>
-            <SelectPopup>{DECISION_DOMAINS.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectPopup>
+            <SelectPopup alignItemWithTrigger={false}>{DECISION_DOMAINS.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectPopup>
           </Select>
         </div>
         <div className="flex min-w-0 flex-col gap-2">
