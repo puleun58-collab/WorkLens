@@ -982,6 +982,16 @@ function AxPlanOverview({ profile, summary }: { profile: ExecutionProfile; summa
           <ul role="list">{summary.exceptions.map((item, i) => <li key={i}>{item}</li>)}</ul>
         </div> : null}
       </div> : <p className="ax-muted">진단에 기재된 완료 기준 없음</p>}
+      {summary.conflictingCriteria?.length ? <div className="ax-risk-panel">
+        <h5>판정 기준 출처 충돌 (확인 필요)</h5>
+        <p className="ax-muted">성공 기준과 실패 판정 기준으로 모두 제시된 항목입니다. 어느 한쪽으로 임의로 해석해 완료·실패를 판정하지 말고, 충돌 내용을 확인 대상으로 보고하세요.</p>
+        <ul role="list">{summary.conflictingCriteria.map((item, i) => <li key={i}>{item}</li>)}</ul>
+      </div> : null}
+      {summary.numericConflictCriteria?.length ? <div className="ax-risk-panel">
+        <h5>수치 기준 충돌 (확인 필요)</h5>
+        <p className="ax-muted">동일 비교 대상에 대해 양립할 수 없는 수치·허용 기준으로 제시된 항목입니다. 우선순위를 정하지 않으며, 실제 업무 규칙이 확정될 때까지 어느 쪽도 합격 조건으로 쓰지 않습니다.</p>
+        <ul role="list">{summary.numericConflictCriteria.map((item, i) => <li key={i}>{item}</li>)}</ul>
+      </div> : null}
       {summary.demotedCriteria.length || summary.demotedExceptions.length ? <div className="ax-risk-panel">
         <h5>현재 필수 완료 조건 아님</h5>
         <p className="ax-muted">보류·제외된 기능과 연결된 기준·예외로, 필수 완료 조건에서 빠집니다. 참고용으로만 표시합니다.</p>

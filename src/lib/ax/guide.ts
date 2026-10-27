@@ -496,6 +496,76 @@ const dedupCriteria = (items: string[]): string[] => {
   }
   return result;
 };
+/** 03↔04 완료 기준 일치 (결함 A-1·A-2) 공유 규칙.
+ * 03의 criteria() 접두어와 04의 전체 완료 기준이 같은 한정자를 쓰도록 하고,
+ * 출처 충돌·수치 충돌은 어느 쪽에서도 합격 조건으로 남기지 않고 확인 대상 섹션으로 분리한다.
+ * 특정 수치·문구·업무명·기술명·법령명을 하드코딩하지 않으며, Level·Gate·HITL·scoped 판정은 건드리지 않는다. */
+/** 미연결(비 scoped) 기준의 03식 한정자: 04 전체 완료 기준도 같은 문구로 표시한다. */
+const unlinkedCriterionText = (item: { scope: string; text: string }): string =>
+  item.scope === "future" ? `향후 판정: ${item.text}` : `기준 확인 필요: ${item.text}`;
+/** 표시된 기준에서 한정자 접두어를 뗀 원문. */
+const bareCriterionText = (text: string): string =>
+  text.replace(CRITERION_PREFIX, "").replace(FUTURE_CRITERION_PREFIX, "").trim();
+/** 통과 조건과 실패 기준 양쪽에 나타나는 동일 기준을 양쪽에서 빼서 충돌 목록으로 분리한다. */
+const splitSourceConflicts = (success: string[], failure: string[]): { success: string[]; failure: string[]; conflict: string[] } => {
+  const successKeys = new Set(success.map(item => normalizedItem(bareCriterionText(item))));
+  const failureKeys = new Set(failure.map(item => normalizedItem(bareCriterionText(item))));
+  const inBoth = (item: string): boolean => {
+    const key = normalizedItem(bareCriterionText(item));
+    return successKeys.has(key) && failureKeys.has(key);
+  };
+  const conflict: string[] = [];
+  const seen = new Set<string>();
+  for (const item of [...success, ...failure]) {
+    const key = normalizedItem(bareCriterionText(item));
+    if (inBoth(item) && !seen.has(key)) { seen.add(key); conflict.push(bareCriterionText(item)); }
+  }
+  return { success: success.filter(item => !inBoth(item)), failure: failure.filter(item => !inBoth(item)), conflict };
+};
+/** 표시 목록에서 원문이 주어진 집합에 속하는 항목을 뺀다 (한정자 접두어 무시). */
+const withoutBareTexts = (items: string[], bare: string[]): string[] => {
+  const keys = new Set(bare.map(normalizedItem));
+  return items.filter(item => !keys.has(normalizedItem(bareCriterionText(item))));
+};
+/** 합의 판정 문구: 한 결과를 다른 결과와 견주어 합격·실패를 가리는 기준. */
+const AGREEMENT_WORD = /(일치|대조|비교|동일)/u;
+const EXPLICIT_PERCENT = /(\d+(?:\.\d+)?)\s*(?:%|퍼센트)/u;
+/** 0이 아닌 편차를 허용하는 표현. 엄격 표현보다 먼저 본다: "없거나 사소한 오류만" 같은
+ * 선언은 편차가 있어도 통과시키므로 허용 수준은 허용 쪽이다. */
+const TOLERANT_WORD = /(사소한|일부|소수|경미한|대부분|약간)[^,.;]{0,8}(오류|불일치|차이|누락)|(?:오류|불일치|차이|누락)[^,.;]{0,8}허용/u;
+/** 편차를 허용하지 않는 표현 (전수·모두 일치, 오류·불일치 없음 등). */
+const STRICT_WORD = /(전수|모두|완전)[^,.;]{0,8}(일치|대조|비교|동일)|(?:오류|불일치|차이|누락)[^,.;]{0,4}없/u;
+/** 합의 기준의 허용 수준. 명시 %가 있으면 그 값(100이면 엄격), 없으면 허용/엄격 표현으로
+ * 가늠하고, 둘 다 없으면 판정 불가(undefined)로 충돌 대상에서 제외한다. */
+const agreementTolerance = (text: string): string | undefined => {
+  if (!AGREEMENT_WORD.test(text)) return undefined;
+  const pct = EXPLICIT_PERCENT.exec(text)?.[1];
+  if (pct !== undefined) return Number(pct) >= 100 ? "strict" : `pct:${pct}`;
+  if (TOLERANT_WORD.test(text)) return "tolerant";
+  if (STRICT_WORD.test(text)) return "strict";
+  return undefined;
+};
+/** 동일 비교 대상(연결 단계가 있으면 그 단계, 미연결이면 업무 전체) 안에서 허용 수준이
+ * 다른 합의 기준 항목. 수준이 하나뿐이거나 판정 불가인 항목은 충돌이 아니다. */
+const numericConflictItems = <T extends { text: string; step?: string }>(items: T[]): T[] => {
+  const groups = new Map<string, { item: T; tolerance: string }[]>();
+  for (const item of items) {
+    const tolerance = agreementTolerance(item.text);
+    if (tolerance === undefined) continue;
+    const key = item.step ?? "__overall__";
+    const group = groups.get(key) ?? [];
+    group.push({ item, tolerance });
+    groups.set(key, group);
+  }
+  const out: T[] = [];
+  for (const group of groups.values()) {
+    if (new Set(group.map(entry => entry.tolerance)).size > 1) out.push(...group.map(entry => entry.item));
+  }
+  return out;
+};
+/** 수치 충돌 항목의 표시 문구 (연결 단계가 있으면 단계 표기 유지). */
+const numericConflictText = (item: { text: string; step?: string }): string =>
+  item.step ? `${item.text} (관련 단계: ${item.step})` : item.text;
 /** Presentation-only suffixes; the stage column and card badges already carry this meaning. */
 const CONDITION_SUFFIX = /\s*\((?:적용 단계 확인 필요|향후 단계 조건)\)\s*$/u;
 /** Words that only describe the confirmation act, never the condition itself. */
@@ -639,6 +709,12 @@ export interface AxPlanSummary {
   demotedCriteria: string[];
   /** 03에서 보류·제외 기능과 연결돼 필수 완료 조건에서 빠진 예외·위험 문구. */
   demotedExceptions: string[];
+  /** 03·04 공통: 성공·실패 양쪽 출처에서 온 동일 기준. 어느 쪽으로도 확정하지 않고
+   * 04의 "판정 기준 출처 충돌 (확인 필요)"와 같은 의미로 분리 표시한다. */
+  conflictingCriteria: string[];
+  /** 03·04 공통: 동일 비교 대상의 상충 수치·허용 기준. 우선순위를 정하지 않으며
+   * 어느 쪽도 합격 조건으로 쓰지 않고 확인 대상 섹션으로 분리 표시한다. */
+  numericConflictCriteria: string[];
   /** Common notice when all tests share the same unconfirmed scope; individual prefixes are stripped. */
   testsNotice?: string;
   /** Common notice when all criteria share the same unconfirmed status; individual prefixes are stripped. */
@@ -827,7 +903,7 @@ function completionCriteria(
   criteria: (source: string) => string[],
   diagnosis: AxDiagnosis,
   demotedCriteria: string[],
-): Pick<AxPlanSummary, "tests" | "success" | "failure" | "exceptions" | "demotedCriteria" | "demotedExceptions" | "testsNotice" | "criteriaNotice"> {
+): Pick<AxPlanSummary, "tests" | "success" | "failure" | "exceptions" | "demotedCriteria" | "demotedExceptions" | "conflictingCriteria" | "numericConflictCriteria" | "testsNotice" | "criteriaNotice"> {
   const rawTests = unique([...pocTests.map(item => model.scoped.tests.includes(item) ? item.text
     : `${item.scope === "future" ? "향후 검증" : "적용 범위 확인 필요"}: ${item.text}`), ...model.scoped.validationMethods.map(item => item.text)]);
   const rawSuccess = mergeDistinct(criteria("diagnosis.poc.success"), criteria("plan.acceptance"));
@@ -856,6 +932,19 @@ function completionCriteria(
     failure = failure.map(item => item.replace(CRITERION_PREFIX, ""));
     criteriaNotice = "정확한 실패 판정 기준은 실제 업무 규칙 확인 후 확정합니다.";
   }
+  // A-1(c): 성공·실패 양쪽에 나타나는 동일 기준은 어느 쪽으로도 확정하지 않고
+  // 04의 출처 충돌 분리 방식과 같은 의미로 분리 표시한다 (03 렌더링의 별도 행).
+  const sourceSplit = splitSourceConflicts(dedupCriteria(success), dedupCriteria(failure));
+  // A-2: 통과 조건 항목(PoC 성공 + 계획 acceptance, 강등·검증 방법 제외)에서
+  // 동일 비교 대상의 상충 수치·허용 기준을 검출해 합격 조건에서 뺀다. 출처 충돌
+  // 항목은 이미 분리됐으므로 수치 충돌 판정에서 제외한다.
+  const passItems = model.classified.filter(item => item.role === "criteria"
+    && (item.sources.includes("diagnosis.poc.success") || item.sources.includes("plan.acceptance"))
+    && !model.scoped.validationMethods.includes(item) && !demotionForCriterion(model, item)
+    && !(item.sources.includes("diagnosis.poc.success") && item.sources.includes("diagnosis.poc.failure"))
+    && !sourceSplit.conflict.some(text => normalizedItem(text) === normalizedItem(item.text)));
+  const numericItems = numericConflictItems(passItems);
+  const numericTexts = unique(numericItems.map(item => numericConflictText(item)));
   // 예외·위험도 기준과 같은 방식으로 강등 표기한다: 기존에는 어떤 HITL 필터도
   // 거치지 않아 보류·제외 기능의 실패 처리 문구가 일반 예외로 남았다. tests 목록은
   // 건드리지 않는다 — 계획 출처 테스트는 전파 규칙이 이미 제거하고, scoped 테스트는
@@ -870,11 +959,13 @@ function completionCriteria(
   }
   return {
     tests: dedupCriteria(tests),
-    success: dedupCriteria(success),
-    failure: dedupCriteria(failure),
+    success: withoutBareTexts(sourceSplit.success, numericItems.map(item => item.text)),
+    failure: sourceSplit.failure,
     exceptions: dedupCriteria(exceptions),
     demotedCriteria,
     demotedExceptions: dedupCriteria(demotedExceptions),
+    conflictingCriteria: sourceSplit.conflict,
+    numericConflictCriteria: numericTexts,
     ...(testsNotice ? { testsNotice } : {}),
     ...(criteriaNotice ? { criteriaNotice } : {}),
   };
@@ -2345,21 +2436,23 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
     : [];
   const fallback = unique([...(d?.operation?.fallback ? [d.operation.fallback] : []), ...model.classified.filter(item => (item.role === "fallback" || item.role === "operation") && ["implement", "after-check", "verify"].includes(item.scope)).map(item => item.text)]);
   const tests = unique(model.scoped.tests.map(item => item.text));
-  // 판정 기준 구분: 출처(PoC 성공/실패)가 성공·실패 의미를 결정한다.
-  // 단계에 연결됐는지 여부가 의미를 바꾸지 않도록, 단계 연결 기준도
-  // 렌더링 단계에서 출처별로 분리한다. 성공·실패 양쪽 출처에서 온 항목은
-  // 어느 한쪽으로 임의 확정하지 않고 출처 충돌(확인 대상)로 분리한다.
+  // 판정 기준 구분: 출처가 성공·실패 의미를 결정한다 (PoC 성공과 계획
+  // acceptance는 모두 성공 의미, PoC 실패는 실패 의미). 단계에 연결됐는지
+  // 여부가 의미를 바꾸지 않도록, 단계 연결 기준도 렌더링 단계에서 출처별로
+  // 분리한다. 성공·실패 양쪽 출처에서 온 항목은 어느 한쪽으로 임의 확정하지
+  // 않고 출처 충돌(확인 대상)로 분리한다.
   const pocKindOf = (item: AgentInstructionItem): "success" | "failure" | "conflict" | "none" => {
-    const success = item.sources.includes("diagnosis.poc.success");
+    const success = item.sources.includes("diagnosis.poc.success") || item.sources.includes("plan.acceptance");
     const failure = item.sources.includes("diagnosis.poc.failure");
     return success && failure ? "conflict" : success ? "success" : failure ? "failure" : "none";
   };
-  const criteria = unique(model.scoped.criteria.filter(item => pocKindOf(item) !== "failure" && pocKindOf(item) !== "conflict").map(evidenceLine));
+  const scopedCriteriaItems = model.scoped.criteria.filter(item => pocKindOf(item) !== "failure" && pocKindOf(item) !== "conflict");
   const stepFailureCriteria = unique(model.scoped.criteria.filter(item => pocKindOf(item) === "failure").map(evidenceLine));
   const scopedConflictingCriteria = model.scoped.criteria.filter(item => pocKindOf(item) === "conflict");
   // PART B: PoC 성공·실패 기준은 업무 전체 판정 기준이므로 단계 연결이 없어도 격하하지 않음.
   // 단 성공 기준만 완료 조건이고 실패 기준은 완료를 부정하는 판정이라 렌더링에서 분리한다.
-  // 단계 연결 근거가 없는 다른 criteria만 "참고 판정"으로 구분한다.
+  // 단계 연결 근거가 없는 다른 criteria는 P1에 따라 강등·차단·Level 0이 아니면
+  // 참고 판정이 아니라 한정자付き 전체 완료 기준으로 둔다 (아래 movedNonPocItems).
   const isPocCriterion = (item: AgentInstructionItem) =>
     item.sources.some(s => s === "diagnosis.poc.success" || s === "diagnosis.poc.failure");
   // PART A-5: PoC 기준 안전성 — 제외된 단계나 차단 상태에서 필수 완료 조건으로 승격 금지.
@@ -2381,24 +2474,49 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
   // 에이전트가 전면 기권하는 원인이 된다 — 별도 실패 판정 섹션으로 분리한다.
   const eligiblePocCriteria = pocCriteriaItems
     .filter(item => !isDemotedPocCriterion(model, item));
-  const overallCriteria = unique(eligiblePocCriteria
-    .filter(item => pocKindOf(item) === "success")
+  // P1 (결함 A-1): 미연결 비-PoC 기준(계획 acceptance 등)은 03의 통과 조건과
+  // 달리 참고 판정으로 갈리지 않는다. 강등(보류·제외 연결)되거나 차단·Level 0
+  // 상태가 아니고 단계 연결 근거가 없는 확인 대기 항목은, 미연결 PoC 기준과
+  // 함께 한정자付き 전체 완료 기준으로 둔다. 양쪽 모두 "확인 대기 중인 완료 기준"이다.
+  const movedNonPocItems = model.classified.filter(item => item.role === "criteria" && !isPocCriterion(item)
+    && !model.scoped.criteria.includes(item) && !model.scoped.validationMethods.includes(item)
+    && (item.scope === "confirm" || item.scope === "future") && scopeLevel !== 0 && !demotionForCriterion(model, item));
+  let overallSuccessItems = [
+    ...eligiblePocCriteria.filter(item => pocKindOf(item) === "success"),
+    ...movedNonPocItems,
+  ];
+  let overallFailureItems = eligiblePocCriteria.filter(item => pocKindOf(item) === "failure");
+  // A-1(c) 텍스트 수준 출처 충돌: 별개 항목이지만 동일 문장이 성공·실패 양쪽에
+  // 있으면 03의 분리 표시와 같은 의미로 충돌 섹션으로 옮긴다 (항목 수준 충돌은 아래 기존 처리).
+  const overallSuccessKeys = new Set(overallSuccessItems.map(item => normalizedItem(item.text)));
+  const overallFailureKeys = new Set(overallFailureItems.map(item => normalizedItem(item.text)));
+  const textConflictTexts = unique([...overallSuccessItems, ...overallFailureItems]
+    .filter(item => overallSuccessKeys.has(normalizedItem(item.text)) && overallFailureKeys.has(normalizedItem(item.text)))
     .map(item => item.text));
-  const overallFailureCriteria = unique(eligiblePocCriteria
-    .filter(item => pocKindOf(item) === "failure")
-    .map(item => item.text));
+  const textConflictKeys = new Set(textConflictTexts.map(normalizedItem));
+  overallSuccessItems = overallSuccessItems.filter(item => !textConflictKeys.has(normalizedItem(item.text)));
+  overallFailureItems = overallFailureItems.filter(item => !textConflictKeys.has(normalizedItem(item.text)));
+  // A-2: 단계 연결 판정 기준과 미연결 전체 완료 기준에서 동일 비교 대상의
+  // 상충 수치·허용 기준을 검출해 어느 쪽도 합격 조건으로 남기지 않는다.
+  const numericItems04 = numericConflictItems([...scopedCriteriaItems, ...overallSuccessItems]);
+  const numericConflictCriteria = unique(numericItems04.map(item => numericConflictText(item)));
+  const criteria = unique(scopedCriteriaItems.filter(item => !numericItems04.includes(item)).map(evidenceLine));
+  const overallCriteria = unique(overallSuccessItems.filter(item => !numericItems04.includes(item)).map(unlinkedCriterionText));
+  const overallFailureCriteria = unique(overallFailureItems.map(unlinkedCriterionText));
   // 성공·실패 양쪽 출처에서 전달된 항목은 성공 기준으로 조용히 승격하지
   // 않는다 (과거 동작). 단계 연결 여부와 무관하게 확인 대상으로 분리한다.
   const conflictingCriteria = unique([
     ...scopedConflictingCriteria.map(evidenceLine),
     ...eligiblePocCriteria.filter(item => pocKindOf(item) === "conflict").map(item => item.text),
+    ...textConflictTexts,
   ]);
   const demotedPocCriteria = pocCriteriaItems
     .filter(item => isDemotedPocCriterion(model, item))
     .map(item => `${item.text} — 현재 필수 완료 조건 아님${gate === "blocked" ? " (실행 차단 상태)" : scopeLevel === 0 ? " (검토·검증 전용 범위)" : " (관련 단계 제외됨)"}`);
   // 업무 전체 완료 기준은 단계 연결 reason을 표시하지 않음 (전체 기준으로 명시하므로).
+  // 전체 완료 기준으로 옮긴 미연결 비-PoC 항목은 참고 판정에 중복 표시하지 않는다.
   const deferredCriteria = [
-    ...model.classified.filter(item => item.role === "criteria" && !isPocCriterion(item) && !model.scoped.criteria.includes(item) && !model.scoped.validationMethods.includes(item))
+    ...model.classified.filter(item => item.role === "criteria" && !isPocCriterion(item) && !model.scoped.criteria.includes(item) && !model.scoped.validationMethods.includes(item) && !movedNonPocItems.includes(item))
       .map(item => `${evidenceLine(item)} — 현재 필수 완료 조건 아님`),
     ...demotedPocCriteria,
   ];
@@ -2584,9 +2702,10 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
     ])}` : "",
     criteria.length ? `### 판정 기준\n\n${bullets(criteria)}` : "",
     stepFailureCriteria.length ? `### 단계별 실패 판정 기준\n\n${bullets(stepFailureCriteria)}\n\n위 항목은 완료 조건이 아니라 실패 판정 기준입니다. 어느 하나라도 해당하면 해당 단계를 완료로 판정하지 마세요.` : "",
-    overallCriteria.length ? `### 업무 전체 완료 기준\n\n${bullets(overallCriteria)}\n\n위 기준은 업무 전체 산출물에 대한 완료 조건입니다. 단계별 검증과 함께 확인하세요.` : "",
-    overallFailureCriteria.length ? `### 업무 전체 실패 판정 기준\n\n${bullets(overallFailureCriteria)}\n\n위 항목은 완료 조건이 아니라 실패 판정 기준입니다. 어느 하나라도 해당하면 완료로 판정하지 마세요.` : "",
+    overallCriteria.length ? `### 업무 전체 완료 기준\n\n${bullets(overallCriteria)}\n\n위 기준은 업무 전체 산출물에 대한 완료 조건입니다. 단계별 검증과 함께 확인하세요. '기준 확인 필요'로 표시된 기준은 확인 대기 중인 완료 기준이며, 실제 업무 규칙 확인 후 확정합니다.` : "",
+    overallFailureCriteria.length ? `### 업무 전체 실패 판정 기준\n\n${bullets(overallFailureCriteria)}\n\n위 항목은 완료 조건이 아니라 실패 판정 기준입니다. 어느 하나라도 해당하면 완료로 판정하지 마세요. '기준 확인 필요'로 표시된 기준은 확인될 때까지 실패 판정으로 확정하지 않습니다.` : "",
     conflictingCriteria.length ? `### 판정 기준 출처 충돌 (확인 필요)\n\n${bullets(conflictingCriteria)}\n\n위 항목은 성공 기준과 실패 판정 기준으로 모두 제시되어 의미가 충돌합니다. 어느 한쪽으로 임의로 해석해 완료·실패를 판정하지 말고, 충돌 내용을 확인 대상으로 보고하세요.` : "",
+    numericConflictCriteria.length ? `### 수치 기준 충돌 (확인 필요)\n\n${bullets(numericConflictCriteria)}\n\n위 항목은 동일 비교 대상에 대해 양립할 수 없는 수치·허용 기준으로 제시되어 있습니다. 우선순위를 정하지 않으며, 실제 업무 규칙이 확정될 때까지 어느 쪽도 합격 조건으로 쓰지 말고, 충돌 내용을 확인 대상으로 보고하세요.` : "",
     deferredCriteria.length ? `### 참고 판정 (필수 완료 조건 아님)\n\n${bullets(deferredCriteria)}` : "",
     gate === "blocked" || !profile ? "운영 구현과 실행은 차단되고 검토·검증 결과와 차단 해제 조건만 기록됩니다. 타입 오류와 빌드 오류가 없어야 합니다."
       : work.length ? "타입 오류와 빌드 오류가 없어야 합니다. 실행하지 않은 검증은 완료로 보고하지 말고 미실행으로 명시하세요."

@@ -123,15 +123,29 @@ describe("AX 03 라이브 간극: 계획 acceptance 사본까지 03·04 일치",
     const r = reviews(p);
     const summary = planSummary(d, p, "", { hitlReviews: r, hitlTool: "codex" });
     expect(summary.success.join(" ")).not.toContain(EMAIL);
-    // 라이브 정상 기준 4개 + 유지 acceptance는 그대로 남는다.
-    expect(summary.success.join(" ")).toContain(ITEM1);
-    expect(summary.success.join(" ")).toContain("자동 파싱 결과가 수동 결과와 100% 일치");
+    // 라이브 정상 기준 중 유지 acceptance는 그대로 남는다.
+    // P2 (결함 A-2, 사용자 확정 정책): ITEM1("사소한 오류만")과 100% 일치 기준은
+    // 동일 비교 대상의 상충 수치 기준이므로, 결함 동작이던 "둘 다 통과 조건 유지"에서
+    // 03·04 양쪽 확인 대상 분리 표시로 바뀐다. EMAIL 강등 단언 아래는 그대로 유지한다.
+    expect(summary.success.join(" ")).not.toContain(ITEM1);
+    expect(summary.success.join(" ")).not.toContain("자동 파싱 결과가 수동 결과와 100% 일치");
+    expect(summary.numericConflictCriteria.join(" ")).toContain(ITEM1);
+    expect(summary.numericConflictCriteria.join(" ")).toContain("자동 파싱 결과가 수동 결과와 100% 일치");
     expect(summary.success.join(" ")).toContain("정산 계산 로직 오류 없음");
     expect(summary.success.join(" ")).toContain("명세서 파일 형식·내용이 템플릿 기준 충족");
     expect(summary.success.join(" ")).toContain("수수료 3%·최소 1만원 적용");
-    // 04는 변경 없음: 전체 완료 기준은 불일치 문구 1개, 참고 판정에 강등 표시 유지.
+    // 04도 동일하게 분리 표시한다. 참고 판정에 강등 표시 유지.
     const prompt = buildAllInOnePrompt(p, "codex", { diagnosis: d, hitlReviews: r, hitlTool: "codex" });
-    expect(overallSection(prompt)).toContain(ITEM1);
+    expect(overallSection(prompt)).not.toContain(ITEM1);
+    expect(overallSection(prompt)).not.toContain("자동 파싱 결과가 수동 결과와 100% 일치");
+    const numericSection = (() => {
+      const start = prompt.indexOf("### 수치 기준 충돌 (확인 필요)");
+      if (start < 0) return "";
+      const end = prompt.indexOf("### ", start + 10);
+      return end < 0 ? prompt.slice(start) : prompt.slice(start, end);
+    })();
+    expect(numericSection).toContain(ITEM1);
+    expect(numericSection).toContain("자동 파싱 결과가 수동 결과와 100% 일치");
     expect(overallSection(prompt)).not.toContain(EMAIL);
     expect(refSection(prompt)).toContain(`${EMAIL} — 현재 필수 완료 조건 아님 (관련 단계 제외됨)`);
     expect(refSection(prompt)).toContain(`${EMAIL} — 생성·검증 대상 단계의 연결 근거 확인 필요: 업무 전체 산출물·PoC 문구만으로 현재 필수 항목으로 승격하지 않음 — 현재 필수 완료 조건 아님`);
