@@ -78,11 +78,9 @@ function formatDate(value?: string): string | undefined {
   return value && /^\d{8}$/u.test(value) ? `${value.slice(0, 4)}.${value.slice(4, 6)}.${value.slice(6)}` : value;
 }
 
-/** Whole-block focus: a brighter tint on arrival, a settled tint, then a fade back to the default look. */
+/** Whole-block focus: a brighter tint on arrival, then a settled highlight that persists until focus leaves the block's heading. */
 const FOCUS_CLASSES = ["is-focused", "is-focus-fresh", "is-focus-leaving"];
 const FOCUS_FRESH_MS = 450;
-const FOCUS_SETTLED_MS = 1750;
-const FOCUS_FADE_MS = 350;
 
 export function ContractReviewResult({ review, file, expandSources = false, onExpandSourcesChange }: { review: ContractReview; file?: ReviewFile; expandSources?: boolean; onExpandSourcesChange: (expanded: boolean) => void }) {
   const resultRef = useRef<HTMLDivElement>(null);
@@ -117,25 +115,25 @@ export function ContractReviewResult({ review, file, expandSources = false, onEx
     const target = resultRef.current?.querySelector<HTMLElement>(`#${anchor}`);
     if (!target) return;
     if (openReferences) target.querySelectorAll<HTMLDetailsElement>(".contract-review-refs").forEach((detail) => { detail.open = true; });
-    target.querySelector<HTMLElement>(heading)?.focus({ preventScroll: true });
+    const headingEl = target.querySelector<HTMLElement>(heading);
+    headingEl?.focus({ preventScroll: true });
     window.clearTimeout(focusTimer.current);
     activeDetail.current?.classList.remove(...FOCUS_CLASSES);
     target.classList.remove(...FOCUS_CLASSES);
     // A repeat click restarts from the fresh tint instead of continuing the running fade.
     void target.offsetWidth;
+    // As in the research jump: the fresh flash fades, but the focused
+    // highlight persists until focus actually leaves the heading, so the
+    // landed block stays visibly marked while it is being read.
     target.classList.add("is-focused", "is-focus-fresh");
     activeDetail.current = target;
+    headingEl?.addEventListener("blur", () => {
+      target.classList.remove(...FOCUS_CLASSES);
+      if (activeDetail.current === target) activeDetail.current = null;
+    }, { once: true });
     target.scrollIntoView({ behavior: "instant", block: "start" });
     focusTimer.current = window.setTimeout(() => {
       target.classList.remove("is-focus-fresh");
-      focusTimer.current = window.setTimeout(() => {
-        target.classList.add("is-focus-leaving");
-        focusTimer.current = window.setTimeout(() => {
-          target.classList.remove(...FOCUS_CLASSES);
-          activeDetail.current = null;
-          focusTimer.current = undefined;
-        }, FOCUS_FADE_MS);
-      }, FOCUS_SETTLED_MS);
     }, FOCUS_FRESH_MS);
   }
   const { document, risk } = review;
@@ -145,15 +143,18 @@ export function ContractReviewResult({ review, file, expandSources = false, onEx
   })));
   const grounded = issues.filter((issue) =>
     issue.laws.some((key) => review.laws[key]) || issue.precedents.some((key) => review.precedents[key])).length;
+  const lookupIncomplete = issues.some((issue) => issue.lawStatus === "failed" || issue.lawStatus === "partial"
+    || issue.precedentStatus === "failed" || issue.precedentStatus === "partial");
+  const lookupFailed = issues.some((issue) => issue.lawStatus === "failed" || issue.precedentStatus === "failed");
+  // A fully grounded issue list is still only partial when some lookup did
+  // not complete: the badge and the notice already said "추가 확인 필요",
+  // and the status must not say "matched" at the same time.
   const status: ResearchStatus = !issues.length ? "none"
-    : grounded === issues.length ? "matched"
+    : grounded === issues.length ? (lookupIncomplete ? "partial" : "matched")
     : grounded ? "partial"
     : review.stats.excludedPrecedents > 0 ? "weak" : "none";
   const lawCount = new Set(issues.flatMap((issue) => issue.laws.filter((key) => review.laws[key]))).size;
   const precedentCount = new Set(issues.flatMap((issue) => issue.precedents.filter((key) => review.precedents[key]))).size;
-  const lookupIncomplete = issues.some((issue) => issue.lawStatus === "failed" || issue.lawStatus === "partial"
-    || issue.precedentStatus === "failed" || issue.precedentStatus === "partial");
-  const lookupFailed = issues.some((issue) => issue.lawStatus === "failed" || issue.precedentStatus === "failed");
 
   const issueBody = (issue: ReviewedIssue, anchor: string, clauseSegments?: readonly number[]) => {
     const laws = [...new Set(issue.laws)].map((key) => review.laws[key]).filter(Boolean);
@@ -171,6 +172,12 @@ export function ContractReviewResult({ review, file, expandSources = false, onEx
     const parts: string[] = [];
     if (laws.length) parts.push(`법령 ${laws.length}건`);
     if (precedents.length) parts.push(`판례 ${precedents.length}건`);
+    // Refs present but a lookup incomplete: the counts stay, and the gap is
+    // named next to them instead of presenting the issue as fully confirmed.
+    if (laws.length + precedents.length > 0) {
+      if (issue.lawStatus === "failed" || issue.precedentStatus === "failed") parts.push("근거 조회 실패");
+      else if (issue.lawStatus === "partial" || issue.precedentStatus === "partial") parts.push("근거 일부 확인");
+    }
     return <>
       <dl className="contract-review-issue-facts">
         <div className="contract-review-point"><dt>검토 결과</dt><dd>{issue.point}</dd></div>

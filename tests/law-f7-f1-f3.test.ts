@@ -153,7 +153,7 @@ describe("F1 M2: the supplement gate is articles==0, regardless of precedents", 
     });
   });
 
-  it("surfaces a lookup partial failure on the issue while the server status stays matched", async () => {
+  it("skipped lookup surfaces no lookupPartial while the server status stays matched", async () => {
     const queries = upstream({
       legal_research: () => chain,
       get_decision_text: () => caseText("직장 내 괴롭힘 손해배상", "사용자가 직장 내 괴롭힘에 대해 필요한 조치를 하지 않은 경우 손해배상책임이 인정되는 요건"),
@@ -162,11 +162,47 @@ describe("F1 M2: the supplement gate is articles==0, regardless of precedents", 
       search_decisions: () => new Error("down"),
     });
     const result = await runLegalResearch({ task: "full_research", query: question }, ctx);
+    // Policy (2026-10-28): the chain supplement already adopted 제76조의3,
+    // so the issue lookup never ran — a search that never ran cannot have
+    // partially failed. The throwing precedent search is never reached, so
+    // there is no lookupPartial to surface and the server status stays
+    // matched on the adopted article.
+    expect(queries("search_decisions")).toEqual([]);
+    expect(result).toMatchObject({
+      evidence: {
+        status: "matched",
+        issues: [{ status: "found", articles: [{ law: "근로기준법", jo: "제76조의3" }] }],
+      },
+    });
+    expect((result as { evidence: { issues: Array<{ lookupPartial?: boolean }> } }).evidence.issues[0].lookupPartial).toBeUndefined();
+  });
+
+  it("a lookup that actually runs surfaces its partial failure and the server status demotes to partial", async () => {
+    const queries = upstream({
+      legal_research: () => chain,
+      get_decision_text: () => caseText("직장 내 괴롭힘 손해배상", "사용자가 직장 내 괴롭힘에 대해 필요한 조치를 하지 않은 경우 손해배상책임이 인정되는 요건"),
+      search_law: () => lawList(),
+      // The table of contents titles 제76조의3 with words from the issue
+      // label only (직장 내 괴롭힘 발생 시 대응): the chain supplement
+      // judges titles by the issue query's terms (사용자 조치 의무), so
+      // it adopts nothing (without failing) and the issue lookup runs;
+      // the lookup also weighs the label's terms, so it reaches the same
+      // article and adopts it on its fetched text. Only the lookup's
+      // precedent branch fails, so the server demotion below is
+      // attributable to the lookup alone, not to a supplement failure.
+      get_law_text: (args) => (args as { jo?: string }).jo ? articleText()
+        : "법령명: 근로기준법\n\n목차 (총 1개 조문)\n제76조의3 직장 내 괴롭힘 발생 시 대응",
+      search_decisions: () => new Error("down"),
+    });
+    const result = await runLegalResearch({ task: "full_research", query: question }, ctx);
     expect(queries("get_law_text").length).toBeGreaterThan(0);
     expect(result).toMatchObject({
       evidence: {
-        // The server status is unchanged: only the UI notice (lookupPartial) demotes the display to partial.
-        status: "matched",
+        // A real partial failure is never reported as a success: the
+        // lookup's precedent branch failed while its article branch
+        // covered the issue, so the display is partial and the server
+        // status demotes with it.
+        status: "partial",
         issues: [{ lookupPartial: true, status: "found", articles: [{ law: "근로기준법", jo: "제76조의3" }] }],
       },
     });

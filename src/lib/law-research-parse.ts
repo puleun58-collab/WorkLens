@@ -225,6 +225,30 @@ export function researchResult(text: string): ResearchDocument {
   return { title: document.title, sections, sources };
 }
 
+/**
+ * Annex sections that add no entry: the upstream can return the same
+ * annex list under two section headings (e.g. 행정심판법 and its
+ * 시행규칙, with identical internal codes and titles in the same order).
+ * The server already aggregates them as one list, so the UI must not
+ * render the same list twice. A later annex section is dropped only when
+ * every one of its entries (by internal code when present, else title +
+ * law) already appeared in an earlier annex section — a section with any
+ * new entry is kept whole, never partially merged, so no entry's
+ * attribution is lost.
+ */
+export function mergeDuplicateAnnexSections(sections: readonly ResearchSection[]): ResearchSection[] {
+  const seen = new Set<string>();
+  const kept: ResearchSection[] = [];
+  for (const section of sections) {
+    if (section.kind !== "annex" || !section.annex) { kept.push(section); continue; }
+    const keys = section.annex.entries.map((entry) => entry.code ? `code\0${entry.code}` : `title\0${entry.title}\0${entry.law ?? ""}`);
+    if (keys.length && keys.every((key) => seen.has(key))) continue;
+    for (const key of keys) seen.add(key);
+    kept.push(section);
+  }
+  return kept;
+}
+
 /** Large reference material: shown collapsed under "상세 근거", after the primary results. */
 export function isSupportingSection(section: ResearchSection): boolean {
   return section.kind === "law_toc" || section.kind === "detail";

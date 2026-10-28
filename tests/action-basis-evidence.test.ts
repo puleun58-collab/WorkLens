@@ -56,4 +56,39 @@ describe("assessActionBasis", () => {
   it("reports an empty search as none", () => {
     expect(assessActionBasis(QUERY, "")).toEqual({ status: "none", items: [] });
   });
+
+  it("links a found basis to its articles instead of a bare body count", () => {
+    const result = assessActionBasis(QUERY, BODY, { supplement: SUPPLEMENT });
+    const basis = result.items.find((item) => item.label === "처분·허가 근거")!;
+    expect(basis.status).toBe("found");
+    expect(basis.detail).toContain("제5조");
+    expect(basis.detail).toContain("조문 본문 2건");
+    const requirement = result.items.find((item) => item.label === "적용 요건")!;
+    expect(requirement.status).toBe("found");
+    expect(requirement.detail).toBeDefined();
+  });
+
+  it("counts annex entries only of the question's named law", () => {
+    const mixed = `${BODY}\n▶ 별표 (행정처분 기준표)\n별표/서식 목록 (총 2건):\n\n1. [별표 1] 영업정지 기준\n   관련법령: 개인정보보호법\n\n2. [별표 9] 다른 법령 기준\n   관련법령: 식품위생법\n`;
+    // Spaced official name: the token fragment ("보호법") still admits the
+    // question's own law via the question-supplied prefix, but not the
+    // other law.
+    const named = assessActionBasis("개인정보 보호법 영업정지 처분의 근거와 별표 기준", mixed);
+    const annex = named.items.find((item) => item.label === "세부 기준(별표)")!;
+    expect(annex.status).toBe("found");
+    expect(annex.detail).toBe("개인정보보호법 별표 항목 1건");
+    const otherOnly = assessActionBasis("식품위생법 영업정지 처분의 근거와 별표 기준", `${BODY}\n▶ 별표 (행정처분 기준표)\n별표/서식 목록 (총 1건):\n\n1. [별표 1] 영업정지 기준\n   관련법령: 개인정보보호법\n`);
+    expect(otherOnly.items.find((item) => item.label === "세부 기준(별표)")?.status).toBe("none");
+  });
+
+  it("demotes an otherwise complete result when no verified annex original matches the list", () => {
+    const withAnnex = `${BODY}\n▶ 별표 (행정처분 기준표)\n별표/서식 목록 (총 1건):\n\n1. [별표 1] 영업정지 기준\n   관련법령: 건강기능식품에 관한 법률\n`;
+    const query = "음식점 영업정지 처분의 근거와 요건과 별표 기준";
+    expect(assessActionBasis(query, withAnnex).status).toBe("matched");
+    expect(assessActionBasis(query, withAnnex, undefined, []).status).toBe("partial");
+    const verified = [{ law: "건강기능식품에 관한 법률", label: "별표 1", sourceArticle: "제32조", citation: "별표 1", status: "verified" as const }];
+    expect(assessActionBasis(query, withAnnex, undefined, verified).status).toBe("matched");
+    const foreign = [{ ...verified[0], law: "식품위생법" }];
+    expect(assessActionBasis(query, withAnnex, undefined, foreign).status).toBe("partial");
+  });
 });

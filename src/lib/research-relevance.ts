@@ -1,3 +1,4 @@
+import { compactLaw, sameLawFamily } from "@/lib/research-scope";
 import { researchResult } from "@/lib/law-research-parse";
 
 /**
@@ -242,6 +243,15 @@ const ACTOR_TERMS = new Set([
   "신청인", "피신청인", "채무자", "채권자", "임대인", "임차인",
 ]);
 
+/** Relation words that name a link between laws, not a subject of their own (위계, 체계, 구조): like 관계, they never count as a subject term. */
+const RELATION_TERMS = new Set(["위계", "체계", "구조", "연계"]);
+
+/** Whether a phrase names no subject at all once relation words are also set aside: a "법령 위계" issue is about the link the question's own law + article names, not about 위계 as a topic. */
+export function questionTermsRelationLess(query: string): boolean {
+  const terms = questionTerms(query).filter((term) => !isLawName(term));
+  return terms.length > 0 && terms.every((term) => GENERIC_TERMS.has(term) || ACTOR_TERMS.has(term) || SUBJECT_STOP.has(term) || RELATION_TERMS.has(term));
+}
+
 /** Sentence scaffolding that names no subject: it survives questionTerms (에 따른, 각각, 확인해 줘) yet anchors in almost any article ("제X조에 따른 …"), so it must never count as a request subject for rule (B). Without this, a subject-less issue (조사 의무, 피해자 보호) adopts any regime's provision that happens to contain its generic term plus 따른. */
 const SUBJECT_STOP = new Set([
   "따른", "따라", "각각", "확인해", "확인", "알려줘", "알려주세요", "궁금해", "궁금해요",
@@ -250,6 +260,37 @@ const SUBJECT_STOP = new Set([
 
 export function isSubjectTerm(term: string): boolean {
   return !GENERIC_TERMS.has(term) && !ACTOR_TERMS.has(term) && !SUBJECT_STOP.has(term);
+}
+
+/**
+ * Law names a text identifiably cites, from its compacted form: maximal
+ * Korean runs ending in a law suffix. Generic two-character nouns (법령,
+ * 법률) and method words (방법, 기법, 수법, 요법) are not law names, and a
+ * two-character run counts only when it is immediately followed by an
+ * article citation (민법제750조) — bare 방법 in "판단하는 방법" must never
+ * read as a cited regime. A run is returned compacted, so a spaced official
+ * name (개인정보 보호법) matches the question's joined spelling.
+ */
+export function lawNameRunsInText(text: string): string[] {
+  const compacted = compact(text);
+  const runs: string[] = [];
+  const pattern = /[가-힣]{2,}(?:법률|시행규칙|시행령|법|령|규칙|조례)/gu;
+  for (const match of compacted.matchAll(pattern)) {
+    const run = match[0];
+    // Bare subordinate-law type nouns (시행령, 대통령령…) and generic
+    // compounds ending in 법령 (관계법령, 관련법령) name no regime of
+    // their own: only a law-prefixed run (식품위생법시행령) identifies one.
+    if (["시행령", "시행규칙", "대통령령", "총리령", "부령"].includes(run) || run.endsWith("법령")) continue;
+    if (run.length < 3) {
+      // Two-character law names (형법, 민법) are real, but so are 방법-style
+      // nouns: only an immediately following article citation identifies one.
+      const after = compacted.slice(match.index + run.length);
+      if (!/^제[1-9]\d{0,3}조/u.test(after)) continue;
+    }
+    if (/(?:방법|기법|수법|요법|처법)$/u.test(run)) continue;
+    if (!runs.includes(run)) runs.push(run);
+  }
+  return runs;
 }
 
 /**
@@ -406,14 +447,21 @@ export function researchEvidenceSources(text: string, query: string, enrichment?
    * No named law means no restriction, as before.
    */
   const namedLaws = [...new Set([...questionTerms(query).filter(isLawName), ...(requestTerms ?? []).filter(isLawName)])];
-  const lawAllowed = (law: string) => {
-    if (!namedLaws.length) return true;
-    const mine = compact(law);
-    return namedLaws.some((named) => {
-      const other = compact(named);
-      return mine === other || mine.startsWith(other) || other.startsWith(mine);
-    });
+  // The question's own words, for reconstructing a spaced official name:
+  // "개인정보 보호법" tokenizes to "보호법", which must not reject the
+  // question's own law ("개인정보보호법") — nor admit a different
+  // "보호법" regime by suffix alone. A candidate law matches a named
+  // token by family, or by suffix when the question itself supplies the
+  // missing prefix ("개인정보").
+  const questionWords = compact([query, ...(requestTerms ?? [])].join(" "));
+  const lawMatches = (law: string, named: string) => {
+    if (sameLawFamily(law, named)) return true;
+    const cl = compactLaw(law), cn = compactLaw(named);
+    if (!cl.endsWith(cn) || cl === cn) return false;
+    const prefix = cl.slice(0, cl.length - cn.length);
+    return prefix.length > 0 && questionWords.includes(prefix);
   };
+  const lawAllowed = (law: string) => !namedLaws.length || namedLaws.some((named) => lawMatches(law, named));
   const request = [...new Set((requestTerms ?? []).filter((term) => !isLawName(term)))];
   const subjectTerms = request.filter((term) => !terms.includes(term) && isSubjectTerm(term));
   // A single generic word ("정지" alone) names no subject and no regime:
@@ -451,7 +499,13 @@ export function researchEvidenceSources(text: string, query: string, enrichment?
   ].filter((article) => {
     if (!article.excerpt.trim()) return false;
     if (!lawAllowed(article.law)) return false;
-    if (singleGeneric && !(article as SupplementArticle).explicit) return false;
+    // A single generic word alone names no subject — but when the domain
+    // rule already applies, adoption needs TWO anchored signals (the issue
+    // term plus a request subject term), which is exactly the second
+    // signal this veto demands. The veto then only blocks the lone-word
+    // case (V5-F1b: a holding that confirms both 손해배상 and 명예훼손
+    // must not be vetoed for the generic word alone).
+    if (singleGeneric && !namedLaws.length && !useDomainRule && !(article as SupplementArticle).explicit) return false;
     // An article fetched because the request named exactly this law + number
     // is adopted by identity: its fetched text exists, so term matching
     // (which the article's own number never appears in) and the title guard
@@ -461,7 +515,11 @@ export function researchEvidenceSources(text: string, query: string, enrichment?
     // about — the flag never reaches an unrelated issue.
     if ((article as SupplementArticle).explicit) return true;
     const title = article.title;
-    if (title && terms.some((term) => termInText(term, title)) && titleVetoed(title, stripTerms)) return false;
+    if (title && terms.some((term) => termInText(term, title)) && titleVetoed(title, stripTerms)) {
+      // A replacement/implementation clause can introduce a new title noun.
+      // Require both topical body text and an operative citation, not a token whitelist.
+      if (!addresses(article.excerpt) || !/제\d+조[^.\n]{0,100}(?:따라|해당|갈음|정하는)/u.test(article.excerpt)) return false;
+    }
     // A definition title never adopts on its title alone: the body itself
     // must address the issue, or the definition would stand in for the
     // substantive provision (e.g. a 정의 article for a 정지-요건 question).
@@ -476,7 +534,24 @@ export function researchEvidenceSources(text: string, query: string, enrichment?
       // list is the question's own terms, so judging it would only verify
       // the question against itself. Such a precedent stays a candidate.
       const excerpt = enrichment?.precedentExcerpts?.[id];
-      return excerpt !== undefined && addresses(excerpt);
+      if (excerpt === undefined || !addresses(excerpt)) return false;
+      if (singleGeneric && !namedLaws.length && !useDomainRule) return false;
+      // A named regime needs positive evidence in the holding itself —
+      // but absence of a statute mention is not evidence of another
+      // regime. A holding anchored in a different statute (an
+      // e-commerce-act holding cited for a food-hygiene question) is
+      // not direct evidence for the named regime; a holding that names
+      // no statute at all stays adopted, and a holding that names the
+      // named regime stays adopted as before. Constitutional mentions
+      // alone do not anchor a holding to a regime, so 헌법 is ignored
+      // when collecting anchors. Ranking.matched is derived data and
+      // cannot prove a citation.
+      if (!namedLaws.length) return true;
+      const anchors = lawNameRunsInText(excerpt)
+        .map((run) => run.replace(/^구/u, ""))
+        .filter((run) => run !== "" && run !== "헌법");
+      if (!anchors.length) return true;
+      return anchors.some((cited) => namedLaws.some((named) => lawMatches(cited, named)));
     })
     .map(([id]) => id);
   return { articles, precedents };

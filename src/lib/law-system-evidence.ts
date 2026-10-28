@@ -1,4 +1,7 @@
-import { capForFailure, detailArticles, hasAvailableContent, hasFailedSection, hasNoUsableSection, type TaskEvidence } from "@/lib/task-evidence";
+import { citesParent } from "@/lib/research-citations";
+import { sameLawFamily } from "@/lib/research-scope";
+import { isLawName, questionTerms } from "@/lib/research-relevance";
+import { capForFailure, detailArticles, hasAvailableContent, hasFailedSection, hasNoUsableSection, type DetailArticle, type TaskEvidence } from "@/lib/task-evidence";
 
 /**
  * 법체계 확인: only delegation links the MCP text itself shows count.
@@ -45,23 +48,58 @@ export function askedArticles(question: string | undefined, articles: readonly s
   return found;
 }
 
+/** Subordinate-law detail articles whose own body cites one of the asked articles as its delegation source. */
+export function delegatingArticles(text: string, asked: readonly string[]): Array<{ tier: "decree" | "rule"; law: string; jo: string; title: string; body: string }> {
+  return detailArticles(text)
+    .filter((article): article is DetailArticle & { tier: "decree" | "rule" } => article.tier === "decree" || article.tier === "rule")
+    .flatMap((article) => {
+      const match = DELEGATION_ANCHOR.exec(article.body);
+      if (!match) return [];
+      const cited = `제${match[1]}조${match[2] ? `의${match[2]}` : ""}`;
+      return asked.includes(cited) ? [{ tier: article.tier, law: article.law, jo: article.jo, title: article.title, body: article.body }] : [];
+    });
+}
+
+/** How many asked articles have a directly delegating subordinate article in this text. */
+export function directDelegationCount(text: string, asked: readonly string[]): number {
+  return new Set(delegatingArticles(text, asked).map((article) => article.jo)).size;
+}
+
+/**
+ * Reconstructed detail lines for delegating articles found in `text` that
+ * `existingText` does not already contain (same law + article): appending
+ * these lines to the original chain text lets assessLawSystem judge a
+ * targeted second chain without double-counting articles the first chain
+ * already listed. Returns "" when nothing new qualifies.
+ */
+export function delegatingDetailBlocks(text: string, asked: readonly string[], existingText: string): string {
+  const existing = new Set(detailArticles(existingText).map((article) => `${article.law}\0${article.jo}`));
+  const blocks = delegatingArticles(text, asked)
+    .filter((article) => !existing.has(`${article.law}\0${article.jo}`))
+    .map((article) => `[${article.tier === "decree" ? "시행령" : "시행규칙"}] ${article.law} ${article.jo} (${article.title})\n${article.body}`);
+  return blocks.length ? `\n▶ 위임 대조 추가 조회\n${blocks.join("\n")}\n` : "";
+}
+
 export function assessLawSystem(text: string, question?: string, articles?: string[]): TaskEvidence {
   if (hasNoUsableSection(text)) {
     return { status: hasFailedSection(text) ? "failed" : "none", items: [] };
   }
-  const details = detailArticles(text);
+  const named = questionTerms(question ?? "").filter(isLawName).filter((law) => !["시행령", "시행규칙", "법령"].includes(law));
+  const details = detailArticles(text).filter((a) => !a.law || !named.length || named.some((law) => sameLawFamily(law, a.law)));
   const lawTitle = /^═══\s*법체계 확인:\s*(.+?)\s*═══/mu.exec(text)?.[1]?.trim();
   const coreBody = /▶\s*핵심 조문\n([\s\S]*?)(?:\n▶|\n═══|$)/u.exec(text)?.[1]?.trim() ?? "";
-  const lawFound = Boolean(lawTitle) || coreBody.length > 0;
+  const lawFound = Boolean(lawTitle) || coreBody.length > 0 || details.some((a) => a.tier === "law" && a.body);
   const asked = askedArticles(question, articles);
   // Parent-law side text only: law-tier detail articles plus the core body.
   // Sub-law bodies are excluded so an anchor cannot confirm itself.
-  const parentText = [...details.filter((article) => article.tier === "law").map((article) => article.body), coreBody].join("\n");
   const parentDelegates = (jo: string) => {
-    const parsed = /^제(\d+)조(?:의(\d+))?$/.exec(jo);
-    if (!parsed) return false;
-    const pattern = `제\\s*${parsed[1]}\\s*조${parsed[2] ? `(?:의\\s*${parsed[2]})?` : ""}[^\\n]{0,80}(대통령령|시행령|시행규칙|으로\\s*정|위임)`;
-    return new RegExp(pattern, "u").test(parentText);
+    if (details.some((a) => a.tier === "law" && a.jo === jo && UNPREFIXED_DELEGATION.test(a.body))) return true;
+    const head = new RegExp(`^${jo}(?:\\s|\\()`, "mu");
+    const start = coreBody.search(head);
+    if (start < 0) return false;
+    const block = coreBody.slice(start).split(/\n(?=제\d+조(?:의\d+)?(?:\s|\())/u)
+      .filter((part, i) => i === 0 || head.test(part)).join("\n");
+    return UNPREFIXED_DELEGATION.test(block);
   };
   const tiers = (["decree", "rule"] as const).map((tier) => {
     const found = details.filter((article) => article.tier === tier);
@@ -69,8 +107,9 @@ export function assessLawSystem(text: string, question?: string, articles?: stri
       const match = DELEGATION_ANCHOR.exec(article.body);
       return match ? { article, cited: `제${match[1]}조${match[2] ? `의${match[2]}` : ""}` } : undefined;
     }).filter((item): item is { article: (typeof found)[number]; cited: string } => Boolean(item));
-    const direct = asked.length ? anchored.filter(({ cited }) => asked.includes(cited)) : anchored;
-    const anchorOnly = asked.length ? anchored.filter(({ cited }) => !asked.includes(cited)) : [];
+    const direct = asked.length ? found.filter((a) => asked.some((jo) => citesParent(a.body, jo)))
+      .map((article) => ({ article, cited: asked.find((jo) => citesParent(article.body, jo))! })) : anchored;
+    const anchorOnly = asked.length ? anchored.filter(({ article }) => !direct.some((d) => d.article === article)) : [];
     const unprefixed = found.filter((article) => !DELEGATION_ANCHOR.test(article.body) && UNPREFIXED_DELEGATION.test(article.body));
     const twoWay = direct.some(({ cited }) => parentDelegates(cited));
     return { tier, found, anchored, direct, anchorOnly, unprefixed, twoWay };

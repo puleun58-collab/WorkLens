@@ -7,11 +7,12 @@ import {
   type AmendmentScenario, type DisputeDomain, type LawResearchData, type LawResearchDraft, type LawResearchOutcome,
   type InterpretationFailure, type IssueEvidence, type LawCurrency, type LawResearchRequest, type LawResearchTask, type OrdinanceRegionResult, type ResearchInterpretation,
 } from "@/lib/law-research";
-import { isSupportingSection, researchResult, type ResearchDecision, type ResearchSection } from "@/lib/law-research-parse";
+import { isSupportingSection, mergeDuplicateAnnexSections, researchResult, type ResearchDecision, type ResearchSection } from "@/lib/law-research-parse";
 import { articleHeadingText, dedupeArticleHeadingLine, dedupeArticleHeadings } from "@/lib/law-article-target";
 import { lawDisplayText } from "@/lib/law-display";
 import { orderByRelevance, type ResearchEnrichment } from "@/lib/research-relevance";
 import { STATUS_TITLE, type ResearchStatus } from "@/lib/research-status";
+import { lawSourceUrl } from "@/lib/research-scope";
 import type { ProcedureArticleRef, ProcedureRequirementStatus } from "@/lib/procedure-evidence";
 import { LawTextBlock } from "./LawTextBlock";
 import { ContractReviewResult, FileReviewExcluded } from "./ContractReviewResult";
@@ -600,6 +601,8 @@ function SupplementView({ supplement, hasArticles, excluded }: { supplement: Non
         <LawTextBlock className="legal-analysis-lines" text={article.excerpt} />
         {mcpTruncated(article.excerpt) && <p className="research-meta">중략된 발췌입니다. 조문 전문은 법령 검색에서 확인하세요.</p>}
         {effective && <span className="research-meta">출처 시행일 {effective}</span>}
+        {(() => { const url = lawSourceUrl(article.law, article.jo);
+          return url ? <span className="research-meta"><a href={url} target="_blank" rel="noreferrer">법제처 원문 보기</a></span> : null; })()}
       </li>;
     })}</ul>
   </div>;
@@ -790,19 +793,23 @@ function ResearchResult({ data, request, expandSources = false, onExpandSourcesC
     activeIssue.current?.classList.remove("is-focused", "is-focus-fresh", "is-focus-leaving");
     target.classList.remove("is-focused", "is-focus-fresh", "is-focus-leaving");
     void target.offsetWidth;
+    // The highlight used to fade out on a timer (~3s) whether or not the
+    // reader had finished with the section, so a keyboard or mouse jump
+    // could look unfocused a moment later. The fresh flash still fades,
+    // but the focused highlight now persists until focus actually leaves
+    // the section heading (or another jump replaces it), so the landed
+    // section stays visibly marked while it is being read.
     target.classList.add("is-focused", "is-focus-fresh");
     activeIssue.current = target;
-    target.querySelector<HTMLElement>("h3")?.focus({ preventScroll: true });
+    const heading = target.querySelector<HTMLElement>("h3");
+    heading?.focus({ preventScroll: true });
+    heading?.addEventListener("blur", () => {
+      target.classList.remove("is-focused", "is-focus-fresh", "is-focus-leaving");
+      if (activeIssue.current === target) activeIssue.current = null;
+    }, { once: true });
     target.scrollIntoView({ behavior: "instant", block: "start" });
     focusTimer.current = window.setTimeout(() => {
       target.classList.remove("is-focus-fresh");
-      focusTimer.current = window.setTimeout(() => {
-        target.classList.add("is-focus-leaving");
-        focusTimer.current = window.setTimeout(() => {
-          target.classList.remove("is-focused", "is-focus-leaving");
-          activeIssue.current = null;
-        }, 350);
-      }, 1800);
     }, 800);
   }
   const result = researchResult(data.text);
@@ -885,10 +892,17 @@ function ResearchResult({ data, request, expandSources = false, onExpandSourcesC
   // without it — older or mocked answers — keep the previous fallback, and
   // full_research / ordinance_compare / procedure_detail keep their own
   // verdicts untouched (procedure_detail keeps its merged PR #326 verdict).
-  const taskEvidence = data.task === "law_system" ? data.lawSystem
+  // A full_research answer can also carry a law-system followup verdict:
+  // it is shown as its own assessed block, never merged into the issue
+  // verdict, so the delegation assessment is visible instead of computed
+  // and discarded.
+  const taskEvidence = data.task === "law_system" || (full && data.lawSystem) ? data.lawSystem
     : data.task === "action_basis" ? data.actionBasis
     : data.task === "dispute_prep" ? data.dispute
     : data.task === "amendment_track" ? data.amendment : undefined;
+  // Verified annex originals only: a list entry is never shown here, and a
+  // merely identified (truncated) original is not presented as verified.
+  const verifiedAnnexes = (data.annexes ?? []).filter((annex) => annex.status === "verified");
   // One status vocabulary for every task, decided by what was actually adopted, never by hit counts.
   const status: ResearchStatus = full
     ? evidenceStatus === "matched" ? notice ? "partial" : "matched" : evidenceStatus === "partial" ? "partial" : hasCandidates ? "weak" : "none"
@@ -940,6 +954,12 @@ function ResearchResult({ data, request, expandSources = false, onExpandSourcesC
         {procedure && procedure.requirements.some((requirement) => requirement.annexCount > 0)
           && (procedure.annexOriginStage ?? "list-only") === "list-only"
           && <ResearchSummaryNotice tone="info" title="별표·서식 원문 미확보">별표/서식 원문은 확보하지 못했습니다. 현재 단계는 목록 확인까지만이며, 목록이 전부 수집돼도 원문 내용을 확보한 것이 아닙니다{procedure.annexTruncated ? " — 목록도 일부만 수집됐습니다" : ""}. 목록만으로는 제출 의무를 단정하지 않으며, 서식 원문은 법령 검색에서 확인하세요.</ResearchSummaryNotice>}
+        {data.followup && (data.followup.failed > 0 || data.followup.missing > 0 || data.followup.limited)
+          && <ResearchSummaryNotice tone="warning" title="추가 조회 일부 미완료">추가 조회가 일부 완료되지 않았습니다{[
+            ...(data.followup.failed > 0 ? [`실패 ${data.followup.failed}건`] : []),
+            ...(data.followup.missing > 0 ? [`미확보 ${data.followup.missing}건`] : []),
+            ...(data.followup.limited ? ["조회 제한"] : []),
+          ].join(" · ")}. 확인된 자료를 기준으로 결과를 표시합니다.</ResearchSummaryNotice>}
       </ResearchSummaryNotices>
       {taskEvidence && taskEvidence.items.length > 0 && <div className="research-original research-issues is-assessed" data-task-evidence>
         <span>확인한 항목</span>
@@ -947,6 +967,13 @@ function ResearchResult({ data, request, expandSources = false, onExpandSourcesC
           <span className="research-issue-label"><span className="research-issue-number">{String(index + 1).padStart(2, "0")}</span>{item.label}</span>
           <span className="research-issue-status" data-status={item.status}>{TASK_EVIDENCE_LABEL[item.status]}</span>
           {item.detail && <span className="research-meta">{item.detail}</span>}
+        </li>)}</ul>
+      </div>}
+      {verifiedAnnexes.length > 0 && <div className="research-original research-issues is-assessed" data-annexes-verified>
+        <span>확인한 별표·서식 원문</span>
+        <ul>{verifiedAnnexes.map((annex, index) => <li key={`${annex.law}-${annex.label}-${index}`}>
+          <span className="research-issue-label">{annex.law} {annex.label}{annex.title ? ` (${annex.title})` : ""}</span>
+          {annex.url && <span className="research-meta"><a href={annex.url} target="_blank" rel="noreferrer">법제처 원문 보기</a></span>}
         </li>)}</ul>
       </div>}
     </ResearchResultSummary>
@@ -988,6 +1015,8 @@ function ResearchResult({ data, request, expandSources = false, onExpandSourcesC
             {(effective || currency) && <span className="research-meta" data-currency={currency}>
               {[currency && CURRENCY_LABEL[currency], effective && `시행 ${effective}`].filter(Boolean).join(" · ")}
             </span>}
+            {(() => { const url = lawSourceUrl(article.law, article.jo);
+              return url ? <span className="research-meta"><a href={url} target="_blank" rel="noreferrer">법제처 원문 보기</a></span> : null; })()}
           </li>;
         };
         const caseName = (entry: (typeof selectedCases)[number]) => lawDisplayText(entry.title ?? entry.caseNumber ?? `판례 ${entry.id}`);
@@ -1064,7 +1093,10 @@ function ResearchResult({ data, request, expandSources = false, onExpandSourcesC
       <p className="research-meta">조문은 법제처 자치법규 원문에서 조회했습니다. 나란히 놓인 원문은 차이의 법적 의미를 판단한 결과가 아닙니다</p>
     </section>}
     {taskGroups.map((group) => {
-      const sections = candidatePrimary.filter((section) => groupOf(section, data.task) === group);
+      // A duplicated annex list (same entries under two headings) renders
+      // once: the server aggregate already counts it once, and the screen
+      // must not show it as two lists.
+      const sections = mergeDuplicateAnnexSections(candidatePrimary).filter((section) => groupOf(section, data.task) === group);
       const supplement = group === "statutes" && data.enrichment?.supplement
         && (data.enrichment.supplement.articles.some((article) => !visibleSelectedKeys.has(`${article.law}\u0000${article.jo}`)) || !data.enrichment.supplement.articles.length)
         ? data.enrichment.supplement : undefined;

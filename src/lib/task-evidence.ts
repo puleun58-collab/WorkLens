@@ -64,7 +64,7 @@ export interface DetailArticle {
   body: string;
 }
 
-const DETAIL_HEAD = /^\[(시행령|시행규칙)\]\s*(.+?)\s*제(\d+조(?:의\d+)?)\s*\((.+)\)\s*$/u;
+const DETAIL_HEAD = /^\[(시행령|시행규칙|법률)\]\s*(.+?)\s*제(\d+조(?:의\d+)?)\s*\((.+)\)\s*$/u;
 const LAW_HEAD = /^제(\d+조(?:의\d+)?)\s+제\1\((.+)\)\s*$/u;
 
 /**
@@ -81,7 +81,7 @@ export function detailArticles(text: string): DetailArticle[] {
     if (/^▶/u.test(line) || line.startsWith("═══")) { current = undefined; continue; }
     const detail = DETAIL_HEAD.exec(line.trim());
     if (detail) {
-      current = { tier: detail[1] === "시행령" ? "decree" : "rule", law: detail[2].trim(),
+      current = { tier: detail[1] === "시행령" ? "decree" : detail[1] === "시행규칙" ? "rule" : "law", law: detail[2].trim(),
         jo: `제${detail[3]}`, title: detail[4].trim(), body: "" };
       articles.push(current);
       continue;

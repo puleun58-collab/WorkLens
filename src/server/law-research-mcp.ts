@@ -1,8 +1,12 @@
+import { asksLawSystem, sameLawFamily } from "@/lib/research-scope";
+import { citesParent } from "@/lib/research-citations";
+import { followupDetailText, retrieveResearchFollowup } from "@/server/research-followup";
+import { mcpAnnexReader, retrieveAnnexes } from "@/server/research-annex";
 import type { EvidenceArticle, InterpretationFailure, IssueEvidence, LawCurrency, LawResearchAbsent, LawResearchData, LawResearchRequest, ResearchIssue } from "@/lib/law-research";
 import type { LawRequestStats } from "@/lib/law-observability";
 import { researchResult, type ResearchDecision } from "@/lib/law-research-parse";
 import {
-  isLawName, questionSubjectTerms, questionTerms, questionTermsSubjectLess, rankPrecedent, researchEvidenceSources, titleMatches,
+  isLawName, questionTermsRelationLess, questionSubjectTerms, questionTerms, questionTermsSubjectLess, rankPrecedent, researchEvidenceSources, titleMatches,
   type PrecedentRelevance, type ResearchEnrichment, type SupplementArticle,
 } from "@/lib/research-relevance";
 import { assessProcedureEvidence } from "@/lib/procedure-evidence";
@@ -12,7 +16,7 @@ import { mcpReviewSources, reviewContract } from "@/server/contract-review";
 import { interpretResearchQuery } from "@/server/groq";
 import { ApiError } from "@/server/http";
 import {
-  enrichResearch, lookupIssue, mcpEnrichmentSources, rereadShownArticles, sharedSources,
+  enrichResearch, explicitArticlePairs, lookupIssue, mcpEnrichmentSources, rereadShownArticles, sharedSources,
   type EnrichmentSources, type IssueLookup,
 } from "@/server/research-enrichment";
 import { compareOrdinances, mcpOrdinanceSources } from "@/server/ordinance-compare";
@@ -20,6 +24,7 @@ import { assessActionBasis } from "@/lib/action-basis-evidence";
 import { assessAmendment } from "@/lib/amendment-evidence";
 import { assessDispute } from "@/lib/dispute-evidence";
 import { assessLawSystem } from "@/lib/law-system-evidence";
+import { integratedEvidenceStatus } from "@/lib/research-status";
 
 const RESEARCH_FAILURE = "법령 리서치 서비스가 요청을 처리하지 못했습니다.";
 
@@ -150,12 +155,25 @@ async function fullResearch(
   const sources = sharedSources(mcpEnrichmentSources(context));
 
   const searchedQueries = new Set<string>();
+  // The question's own law names (and, for a single issue or a
+  // relation-less phrase, its explicit law+article pairs) are inherited
+  // into every chain search. The retry plan must compare against the
+  // inherited form: comparing a bare phrase against post-inheritance
+  // entries would re-search a phrase this request already searched.
+  const inheritSearchQuery = (input: string) => {
+    const originalNames = questionTerms(query).filter(isLawName).filter((law) => !["시행령", "시행규칙", "법령"].includes(law));
+    const originalPairs = explicitArticlePairs(questionTerms(query));
+    const inherited = [...originalNames, ...(issues.length === 1 || questionTermsRelationLess(input)
+      ? originalPairs.map((pair) => `${pair.law} ${pair.jo}`) : [])];
+    return [...new Set([...inherited, input])].join(" ").trim();
+  };
   // A per-issue retry chain's precedents and interpretations are discarded by
   // design (only its articles are merged), so a retry skips the precedent
   // summaries and the interpretation retry that the main chain needs. Its
   // article paths — chain text and supplement lookup — are unchanged, and
   // the same adoption rules judge what it returns.
   const search = async (searchQuery: string, light = false): Promise<ChainResult> => {
+    searchQuery = inheritSearchQuery(searchQuery);
     searchedQueries.add(searchQuery);
     try {
       const { text, isError } = await callLawTool("legal_research", { task: "full_research", query: searchQuery }, context);
@@ -192,6 +210,23 @@ async function fullResearch(
   if (!interpretation && chain.kind === "absent") return { found: false, task: "full_research", marker: "NOT_FOUND", text: chain.text, ...(interpretationFailure ? { interpretationFailure } : {}) };
 
   const found = chain.kind === "found" ? chain : undefined;
+  // "인가" as a question ending ("무엇인가?") is not a licensing intent:
+  // strip a trailing 인가-ending before testing, so an everyday question
+  // does not open an action-basis followup whose missing/failed report
+  // would then demote the status.
+  const followupQuery = query.replace(/(인가요|인가)[?？\s]*$/u, "");
+  const followupMode = asksLawSystem(query) ? "law_system" as const
+    : /정지|처분|허가|인가/u.test(followupQuery) ? "action_basis" as const : undefined;
+  const followup = followupMode ? await retrieveResearchFollowup(followupMode, query, found?.text ?? "", found?.enrichment, sources) : undefined;
+  const annexes = followup ? await retrieveAnnexes(query, followup.articles, mcpAnnexReader(context)) : [];
+  if (found && followup?.articles.length) {
+    found.text += followupDetailText(followup.articles);
+    const base = found.enrichment?.supplement?.articles ?? [];
+    found.enrichment = { ...found.enrichment, supplement: { status: "found", articles: [...base,
+      ...followup.articles.filter((a) => !base.some((b) => b.law === a.law && b.jo === a.jo))],
+      ...(found.enrichment?.supplement?.partialFailure || followup.report.failed ? { partialFailure: true } : {}) } };
+  }
+  const lawSystem = followupMode === "law_system" ? assessLawSystem(found?.text ?? followupDetailText(followup?.articles ?? []), query) : undefined;
   const document = researchResult(found?.text ?? "");
   const known = {
     text: found?.text ?? "",
@@ -246,6 +281,15 @@ async function fullResearch(
           sources, summaries, requestTerms, fallback);
       }
     }
+    // Only the relation issue receives the verified pair and its citing counterpart.
+    // A sibling substantive issue must pass normal topical adoption.
+    if (followupMode === "law_system" && followup && (issues.length === 1 || asksLawSystem(issue.query) || questionTermsRelationLess(issue.query))) {
+      const pairs = explicitArticlePairs(questionTerms(query));
+      const linked = followup.articles.filter((article) => pairs.some((p) => sameLawFamily(p.law, article.law)
+        && (article.jo === p.jo && !/시행령|시행규칙/u.test(article.law) || citesParent(article.body, p.jo))));
+      adopted.articles = [...new Map([...adopted.articles, ...linked.map(({ law, jo }) => ({ law, jo }))]
+        .map((a) => [`${a.law}\0${a.jo}`, a])).values()];
+    }
     const covered = adopted.articles.length > 0 || adopted.precedents.length > 0;
     // When the combined search failed, "nothing found" by the issue lookup alone is not a confirmed absence.
     const status: IssueEvidence["status"] = covered ? "found"
@@ -284,7 +328,7 @@ async function fullResearch(
       const phrase = questionTermsSubjectLess(item.issue.query) && qualified !== item.issue.query ? qualified : item.issue.query;
       return { item, phrase };
     })
-    .filter(({ phrase }) => !searchedQueries.has(phrase))
+    .filter(({ phrase }) => !searchedQueries.has(inheritSearchQuery(phrase)))
     .slice(0, 3);
   if (found && retryPlan.length) {
     await Promise.all(retryPlan.map(async ({ item, phrase }) => {
@@ -374,11 +418,25 @@ async function fullResearch(
     return text ? [[id, text.slice(0, EXCERPT_CHARS)]] : [];
   }));
   const text = found?.text ?? "";
+  // Policy decision (2026-10-28 integrated directive): a question that
+  // names no law is precedent-seeking — a directly-adopted precedent is
+  // its adopted evidence, so precedent coverage admits matched. A
+  // law-seeking question still needs an adopted statute article, and a
+  // precedent-covered issue caps it.
+  const lawSeeking = questionTerms(query).filter(isLawName).length > 0;
+  const relationCapped = Boolean(lawSystem && lawSystem.status !== "matched")
+    || Boolean(followup && (followup.report.failed || followup.report.limited || followup.report.missing))
+    || annexes.some((a) => a.status !== "verified")
+    || judged.some((item) => item.status === "found" && !item.adopted.articles.length && lawSeeking)
+    || supplementIncomplete || judged.some((item) => item.lookup?.partialFailure);
   return {
     found: true, task: "full_research", text, markers: found?.markers ?? [],
+    ...(lawSystem ? { lawSystem } : {}),
+    ...(followup ? { followup: followup.report } : {}),
+    ...(annexes.length ? { annexes } : {}),
     ...(enrichment ? { enrichment } : {}),
     evidence: {
-      status: coveredCount === issues.length ? "matched" : coveredCount ? "partial" : "unverified",
+      status: integratedEvidenceStatus(coveredCount, issues.length, articles.length > 0, relationCapped, !lawSeeking && precedents.length > 0),
       articles: await withCurrency(articles, text, enrichment, context),
       precedents,
       ...(Object.keys(precedentExcerpts).length ? { precedentExcerpts } : {}),
@@ -449,23 +507,39 @@ export async function runLegalResearch(
   }
   // 절차·서식: the server judges the returned text requirement by requirement;
   // the UI displays this verdict. Other tasks keep their previous responses.
-  if (request.task === "procedure_detail") {
-    return { found: true, task: request.task, text, markers: classification.markers,
-      procedure: assessProcedureEvidence(request.query, researchResult(text), text) };
-  }
-  // Action-basis enrichment keeps its previous behavior; full research is handled above.
-  // Each of these four tasks additionally carries its own server-side
-  // per-kind evidence, so the UI no longer has to guess `weak` from mere
-  // retrieval. full_research (evidence), ordinance_compare (comparison)
-  // and procedure_detail (merged PR #326) keep their own verdicts untouched.
-  if (request.task === "action_basis") {
-    const enrichment = await enrichResearch(request.task, request.query, text, mcpEnrichmentSources(context)).catch(() => undefined);
-    return { found: true, task: request.task, text, markers: classification.markers,
-      ...(enrichment ? { enrichment } : {}), actionBasis: assessActionBasis(request.query, text, enrichment) };
-  }
-  if (request.task === "law_system") {
-    return { found: true, task: request.task, text, markers: classification.markers,
-      lawSystem: assessLawSystem(text, request.query, request.articles) };
+  if (request.task === "procedure_detail" || request.task === "law_system" || request.task === "action_basis") {
+    const sources = sharedSources(mcpEnrichmentSources(context));
+    let enrichment = request.task === "action_basis"
+      ? await enrichResearch(request.task, request.query, text, sources).catch(() => undefined) : undefined;
+    const followup = await retrieveResearchFollowup(request.task, request.query, text, enrichment, sources,
+      request.task === "law_system" ? request.articles : undefined);
+    const annexes = await retrieveAnnexes(request.query, followup.articles, mcpAnnexReader(context));
+    const combinedText = text + followupDetailText(followup.articles);
+    if (followup.articles.length) {
+      const existing = enrichment?.supplement?.articles ?? [];
+      enrichment = { ...enrichment, supplement: { status: "found", articles: [...existing,
+        ...followup.articles.filter((a) => !existing.some((b) => b.law === a.law && b.jo === a.jo))],
+        ...(followup.report.failed || enrichment?.supplement?.partialFailure ? { partialFailure: true } : {}) } };
+    }
+    const incomplete = followup.report.failed > 0 || followup.report.limited || followup.report.missing > 0 || annexes.some((a) => a.status !== "verified");
+    const common = { found: true as const, task: request.task, text: combinedText, markers: classification.markers,
+      followup: followup.report, ...(annexes.length ? { annexes } : {}), ...(enrichment ? { enrichment } : {}) };
+    if (request.task === "law_system") {
+      const lawSystem = assessLawSystem(combinedText, request.query, request.articles);
+      if (incomplete && lawSystem.status === "matched") lawSystem.status = "partial";
+      return { ...common, lawSystem };
+    }
+    if (request.task === "procedure_detail") {
+      const procedure = assessProcedureEvidence(request.query, researchResult(combinedText), combinedText, annexes);
+      if (incomplete || procedure.requirements.some((r) => r.kind === "forms") && (!annexes.length || annexes.some((a) => a.status !== "verified"))) {
+        procedure.incomplete = true;
+        if (procedure.overall === "matched") procedure.overall = "partial";
+      }
+      return { ...common, procedure };
+    }
+    const actionBasis = assessActionBasis(request.query, combinedText, enrichment, annexes);
+    if (incomplete && actionBasis.status === "matched") actionBasis.status = "partial";
+    return { ...common, actionBasis };
   }
   if (request.task === "dispute_prep") {
     return { found: true, task: request.task, text, markers: classification.markers, dispute: assessDispute(request.query, text) };

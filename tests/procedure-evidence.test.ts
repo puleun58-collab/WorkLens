@@ -114,3 +114,96 @@ describe("procedure_detail evidence assessment (live-text fixture)", () => {
     expect(empty.overall).toBe("none");
   });
 });
+
+describe("procedure_detail requirement identification (verb-tail subjects)", () => {
+  it("never takes a verb ending left after a kind stem as the subject", () => {
+    expect(identifyProcedureRequirements("행정심판 청구 절차와 제출해야 할 청구서 서식을 알려줘")).toEqual([
+      { label: "행정심판 청구 절차", kind: "procedure" },
+      { label: "행정심판 청구서", kind: "procedure" },
+      { label: "행정심판 청구서 서식", kind: "forms" },
+    ]);
+  });
+});
+
+describe("procedure_detail evidence assessment (Batch E)", () => {
+  it("prefers a full detail body over a truncated search preview of the same article", () => {
+    const previewOnly = [
+      "═══ 절차/비용 안내: 행정심판 청구절차 ═══",
+      "",
+      "▶ AI 검색 보완 정보",
+      "지능형 법령검색 결과 (법령조문, 1건):",
+      "",
+      "행정심판법",
+      "    제23조 (심판청구서의 제출)",
+      "    제23조(심판청구서의 제출)",
+      " ① 청구인은 심판청구서를...",
+      "   시행: 2023.03.21 | 국민권익위원회",
+      "",
+    ].join("\n");
+    // The preview alone is too short to confirm the procedure step.
+    expect(assess("행정심판 청구절차", previewOnly).requirements[0].status).toBe("viewed");
+    const withDetail = `${previewOnly}\n▶ 법령 체계 (절차 근거)\n[법률] 행정심판법 제23조 (심판청구서의 제출)\n① 청구인은 심판청구서를 서면으로 제출하여야 하며 위원회는 접수 후 결정하여야 한다.\n`;
+    const evidence = assess("행정심판 청구절차", withDetail);
+    expect(evidence.requirements[0].status).toBe("found");
+    expect(evidence.requirements[0].articles.map((article) => `${article.law} ${article.jo}`)).toContain("행정심판법 제23조");
+  });
+
+  it("counts one form once when the same 별지 label appears under two list titles", () => {
+    const text = [
+      "═══ 절차/비용 안내: 행정심판 제출서류 ═══",
+      "",
+      "▶ 행정심판법 별표/서식",
+      "법령명: 행정심판법",
+      "별표/서식 목록 (총 3건):",
+      "",
+      "1. [별지 제30호서식] 행정심판 청구서",
+      "   관련법령: 행정심판법 시행규칙",
+      "",
+      "2. [별지 제30호서식] 청구서",
+      "   관련법령: 행정심판법 시행규칙",
+      "",
+      "3. [별지 제31호서식] 보정서",
+      "   관련법령: 행정심판법 시행규칙",
+      "",
+    ].join("\n");
+    const evidence = assess("행정심판 제출서류", text);
+    expect(evidence.requirements[0].annexCount).toBe(2);
+    // A list alone still never confirms the filing duty.
+    expect(evidence.requirements[0].status).toBe("viewed");
+  });
+
+  it("raises the origin stage only for a retrieved annex of the requirement's own law and form", () => {
+    const text = [
+      "═══ 절차/비용 안내: 행정심판 제출서류 ═══",
+      "",
+      "▶ 행정심판법 별표/서식",
+      "법령명: 행정심판법",
+      "별표/서식 목록 (총 2건):",
+      "",
+      "1. [별지 제30호서식] 심판청구서",
+      "   관련법령: 행정심판법 시행규칙",
+      "",
+      "2. [별지 제31호서식] 심판청구 보정서",
+      "   관련법령: 행정심판법 시행규칙",
+      "",
+    ].join("\n");
+    const verified = [{ law: "행정심판법 시행규칙", label: "별지 제30호서식", sourceArticle: "제23조", citation: "별지 제30호서식", status: "verified" as const }];
+    const evidence = assess("행정심판 제출서류", text);
+    expect(evidence.requirements[0].annexOriginStage).toBe("list-only");
+    expect(assessProcedureEvidence("행정심판 제출서류", researchResult(text), text, verified).requirements[0].annexOriginStage).toBe("verified");
+    expect(assessProcedureEvidence("행정심판 제출서류", researchResult(text), text, verified).annexOriginStage).toBe("verified");
+    // Same form number, another law's original: no stage rise.
+    const foreign = [{ ...verified[0], law: "근로기준법" }];
+    expect(assessProcedureEvidence("행정심판 제출서류", researchResult(text), text, foreign).requirements[0].annexOriginStage).toBe("list-only");
+    // Same law, another counted form's original: the requirement counts both
+    // entries, so a verified original of either one raises its stage.
+    const otherForm = [{ ...verified[0], label: "별지 제31호서식" }];
+    expect(assessProcedureEvidence("행정심판 제출서류", researchResult(text), text, otherForm).requirements[0].annexOriginStage).toBe("verified");
+    // Same law, but a form the list does not carry at all: no stage rise.
+    const unlistedForm = [{ ...verified[0], label: "별지 제99호서식" }];
+    expect(assessProcedureEvidence("행정심판 제출서류", researchResult(text), text, unlistedForm).requirements[0].annexOriginStage).toBe("list-only");
+    // A fetched-but-truncated original identifies without verifying.
+    const identified = [{ ...verified[0], status: "identified" as const }];
+    expect(assessProcedureEvidence("행정심판 제출서류", researchResult(text), text, identified).requirements[0].annexOriginStage).toBe("identified");
+  });
+});

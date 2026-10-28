@@ -5,13 +5,18 @@ import type { ContractReview } from "@/lib/contract-review";
 
 // The MCP result is verbatim; full_research may add a source-relevance status,
 // while enrichment failures leave the original answer and markers intact.
-vi.mock("@/server/research-enrichment", () => ({
-  mcpEnrichmentSources: () => ({}),
-  sharedSources: (sources: unknown) => sources,
-  enrichResearch: () => Promise.reject(new Error("enrichment disabled in route tests")),
-  lookupIssue: () => Promise.reject(new Error("issue lookups disabled in route tests")),
-  rereadShownArticles: () => Promise.resolve([]),
-}));
+vi.mock("@/server/research-enrichment", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/server/research-enrichment")>();
+  return {
+    mcpEnrichmentSources: () => ({}),
+    sharedSources: (sources: unknown) => sources,
+    enrichResearch: () => Promise.reject(new Error("enrichment disabled in route tests")),
+    lookupIssue: () => Promise.reject(new Error("issue lookups disabled in route tests")),
+    rereadShownArticles: () => Promise.resolve([]),
+    // Pure term→pair mapping used by the follow-up path; everything else stays mocked.
+    explicitArticlePairs: original.explicitArticlePairs,
+  };
+});
 // Route tests cover forwarding; per-region ordinance lookups have their own offline tests.
 vi.mock("@/server/ordinance-compare", () => ({
   mcpOrdinanceSources: () => ({}),
@@ -109,6 +114,10 @@ describe("fixed legal_research API", () => {
         // confirmable body, so each lands on viewed (retrieved, unconfirmed).
         ...(input.task === "law_system" ? { lawSystem: { status: "viewed", items: [
           { label: "법률", status: "found", detail: "개인정보 보호법" }, { label: "시행령", status: "none" }, { label: "시행규칙", status: "none" }] } } : {}),
+        // 미조회 followup 보고서 포함은 의도된 동작(사용자 정책 결정, 2026-10-28): 시도 0건이면 not-searched로 둔다.
+        // 운영 코드는 law_system·action_basis·procedure_detail 세 유형에만 followup 보고서를 붙인다(law-research-mcp.ts).
+        ...(input.task === "law_system" || input.task === "action_basis" || input.task === "procedure_detail"
+          ? { followup: { attempted: 0, failed: 0, limited: false, missing: 0, status: "not-searched" } } : {}),
         ...(input.task === "action_basis" ? { actionBasis: { status: "viewed", items: [
           { label: "처분·허가 근거", status: "none" }, { label: "적용 요건", status: "none" }] } } : {}),
         ...(input.task === "dispute_prep" ? { dispute: { status: "viewed", items: [
