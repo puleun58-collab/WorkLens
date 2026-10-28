@@ -6,6 +6,7 @@ import { emptyAxState, type AxState, type AxDiagnosis, type AxPlan } from "../..
 import { buildAllInOnePrompt, TOOL_GUIDES } from "../../src/lib/ax/guide";
 import { exportAxState } from "../../src/lib/ax/transfer";
 import { equipmentRuleCase } from "../fixtures/ax-agent-cases";
+import { waitForFactorControlReady } from "./ax-ready-state";
 async function ax(page: Page) {
   await navigateWorkspace(page, "업무 자동화 진단");
   await expect(page.getByRole("heading", { name: "업무 자동화 진단", exact: true })).toBeVisible();
@@ -158,13 +159,18 @@ test("AX registration → diagnosis → correction → matrix → plans → relo
   await expect(page.getByText("진단 항목 분포", { exact: true })).toHaveCount(0);
   await page.screenshot({ path: `artifacts/ax/diagnosis-${test.info().project.name}.png`, fullPage: true });
   await page.getByRole("button", { name: /진단 항목 상세/ }).click();
+  // 펼침 높이 전환(200ms) 중 보정 클릭·hover를 하면 패널 내부 스크롤·복원과
+  // 부드러운 페이지 스크롤이 겹쳐 툴팁이 관측되지 않는 CI 실패 계열이 있다.
+  // 펼침 완료·패널 스크롤 정착·위치 준비를 관측 가능한 조건으로 확인한 뒤
+  // 보정한다. 임의 sleep·timeout 확대·reducedMotion은 쓰지 않는다.
+  // L167 hover+툴팁 단언은 ax-tooltip-ready.spec.ts로 분리됐다.
+  await waitForFactorControlReady(page.getByRole("button", { name: "반복성 1점", exact: true }));
   await page.getByRole("button", { name: "반복성 1점", exact: true }).click();
   await expect(page.getByText("사용자 보정 완료", { exact: true }).last()).toBeVisible();
   const reset = page.getByRole("button", { name: "AI 제안값으로 되돌리기", exact: true });
   await expect(page.getByRole("button", { name: "AI 값으로", exact: true })).toHaveCount(0);
   await expect(reset).toHaveCount(1); await expect(reset).toBeEnabled();
   await expect(reset.locator("svg.lucide-rotate-ccw")).toHaveCount(1);
-  await reset.hover(); await expect(page.getByRole("tooltip").or(page.locator('[data-slot="tooltip-popup"]')).first()).toContainText("AI 제안값으로 되돌리기");
   await page.locator(".ax-factor-row").first().screenshot({ path: `artifacts/ax/factor-reset-${test.info().project.name}.png` });
   await reset.click(); await expect(reset).toHaveCount(0);
   // A correction equal to the AI suggestion leaves nothing to restore.
