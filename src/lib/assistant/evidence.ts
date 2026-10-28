@@ -435,7 +435,19 @@ export function stripInternalEvidenceIds(answer: string, evidence: AssistantEvid
   out = out.replace(/\[learn-(?:unit|question)-[^\]\s]+\]/gu, "");
   out = out.replace(/\[learn-overview\]/gu, "");
   out = out.replace(/\(\s*참고\s*:[·,\s]*\)/gu, "");
+  // Id removal can orphan parentheses: "내용([id1], [id2])" becomes
+  // "내용(,)", "([id1], [id2], [id3])" becomes "(,,)", and a leading or
+  // trailing separator can survive around real content ("(, 내용)",
+  // "(내용,)"). Remove separator-only parens outright and trim orphan
+  // separators at paren edges; real parenthetical content and non-id
+  // brackets ("[주간 정산]", "(예: A, B)") are untouched. The plain
+  // empty-paren rule below also covers parens holding only invisible
+  // characters, which render as "()" on screen.
+  out = out.replace(/\(\s*(?:[·,]\s*)+\)/gu, "");
+  out = out.replace(/\(\s*[·,]+\s*/gu, "(");
+  out = out.replace(/[·,]+\s*\)/gu, ")");
   out = out.replace(/\(\s*\)/gu, "");
+  out = out.replace(/\(\s*(?:[\u200b-\u200d\ufeff]\s*)*\)/gu, "");
   out = out.replace(/(\s[·,])+\s*([.,!?])/gu, "$2");
   out = out.replace(/\s{2,}/gu, " ");
   out = out.replace(/\s+([.,)])/gu, "$1");
