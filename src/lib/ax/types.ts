@@ -1,5 +1,5 @@
 import type { z } from "zod";
-import type { axTaskSchema, axDiagnosisSchema, axPlanSchema, axStateSchema, axDetailsSchema, axDiagnosisRequestSchema, axPlanRequestSchema, FACTOR_KEYS, hitlReviewSchema, hitlReviewCollectionSchema, axTaskV2Schema, axStateV2Schema, HITL_TARGET_TYPES, HITL_ACTIONS, HITL_STATUSES, axAttachmentMetaSchema } from "./schema";
+import type { axTaskSchema, axDiagnosisSchema, axPlanSchema, axStateSchema, axDetailsSchema, axDiagnosisRequestSchema, axPlanRequestSchema, FACTOR_KEYS, hitlReviewSchema, hitlReviewCollectionSchema, axTaskV2Schema, axStateV2Schema, HITL_TARGET_TYPES, HITL_ACTIONS, HITL_STATUSES, axAttachmentMetaSchema, decisionPointSchema, exampleResultSchema, DECISION_POINT_IDS, DECISION_POINT_STATUSES } from "./schema";
 export type AxTask = z.infer<typeof axTaskSchema>;
 export type AxAttachmentMeta = z.infer<typeof axAttachmentMetaSchema>;
 export type AxDiagnosis = z.infer<typeof axDiagnosisSchema>;
@@ -14,6 +14,10 @@ export type HitlReview = z.infer<typeof hitlReviewSchema>;
 export type HitlReviewCollection = z.infer<typeof hitlReviewCollectionSchema>;
 export type AxTaskV2 = z.infer<typeof axTaskV2Schema>;
 export type AxStateV2 = z.infer<typeof axStateV2Schema>;
+export type DecisionPoint = z.infer<typeof decisionPointSchema>;
+export type DecisionPointId = typeof DECISION_POINT_IDS[number];
+export type DecisionPointStatus = typeof DECISION_POINT_STATUSES[number];
+export type ExampleResult = z.infer<typeof exampleResultSchema>;
 export type HitlTargetType = typeof HITL_TARGET_TYPES[number];
 export type HitlAction = typeof HITL_ACTIONS[number];
 export type HitlStatus = typeof HITL_STATUSES[number];

@@ -1053,7 +1053,7 @@ function AxPrompt({ prompt, name }: { prompt: string; name: string }) {
     </div>
   </>;
 }
-export function AxExecutionPackage({ plan, target, taskName, taskContext, prerequisites, diagnosis, hitlReviews }: {
+export function AxExecutionPackage({ plan, target, taskName, taskContext, prerequisites, diagnosis, hitlReviews, exampleResults }: {
   plan: AxPlan;
   target: AxToolId;
   taskName: string;
@@ -1061,6 +1061,7 @@ export function AxExecutionPackage({ plan, target, taskName, taskContext, prereq
   prerequisites: string[];
   diagnosis: AxDiagnosis;
   hitlReviews?: import("@/lib/ax/types").HitlReview[];
+  exampleResults?: import("@/lib/ax/types").ExampleResult[];
 }) {
   const name = TOOL_GUIDES[target].name;
   const prompt = buildAllInOnePrompt(plan, target, {
@@ -1070,6 +1071,7 @@ export function AxExecutionPackage({ plan, target, taskName, taskContext, prereq
     context: taskContext,
     hitlReviews,
     hitlTool: target === "codex" ? "codex" : "claude",
+    exampleResults,
   });
   return <div className="ax-package">
     <AxPrompt key={prompt} prompt={prompt} name={name} />
@@ -1083,13 +1085,14 @@ export function AxExecutionPackage({ plan, target, taskName, taskContext, prereq
 export function resolveActiveTool(selectedTool: AxToolId | null, plans: { codex?: AxPlan; claude?: AxPlan }): AxToolId {
   return selectedTool ?? (plans.codex ? "codex" : "claude");
 }
-export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenerate, reviewProps, activeTool: controlledTool, onToolChange }: {
+export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenerate, reviewProps, exampleResults, activeTool: controlledTool, onToolChange }: {
   diagnosis: AxDiagnosis;
   taskName: string;
   taskContext: string;
   busy: string | null;
   onGenerate: (target: AxToolId) => void;
   reviewProps?: AxProcessReviewProps;
+  exampleResults?: import("@/lib/ax/types").ExampleResult[];
   /** 제어 모드: 부모가 도구 선택을 소유하면 로드맵·01~03·04가 같은 도구의 검토를 따른다.
    * 미제공 시 기존 내부 상태 동작을 유지한다. */
   activeTool?: AxToolId;
@@ -1107,7 +1110,7 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
   // 전달해 진단 검토가 요약에 일관되게 적용되고, 계획 검토는 계획이 없을 때
   // 매칭되지 않으므로 혼합되지 않는다.
   const summary = planSummary(diagnosis, gate !== "blocked" ? activePlan : undefined, [taskName, taskContext].join("\n"),
-    { hitlReviews: reviewProps?.reviews, hitlTool: activeTool });
+    { hitlReviews: reviewProps?.reviews, hitlTool: activeTool, exampleResults });
   const instructionsId = useId();
   const instructionsRef = useRef<HTMLElement>(null);
   function goToInstructions() {
@@ -1137,7 +1140,7 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
             <div className="ax-plan-toolbar">
               <TabsList aria-label="AI 코딩 도구 선택"><TabsTab value="codex">Codex</TabsTab><TabsTab value="claude">Claude Code</TabsTab></TabsList>
             </div>
-            {(["codex", "claude"] as const).map(target => <TabsPanel key={target} value={target}>{target === activeTool ? plans[target] ? <><p className="ax-plan-tool-hint">{TOOL_GUIDES[target].name}에서 현재 프로젝트를 열고 올인원 지시문 붙여넣기</p><AxExecutionPackage plan={plans[target]} target={target} taskName={taskName} taskContext={taskContext} prerequisites={prerequisites} diagnosis={diagnosis} hitlReviews={reviewProps?.reviews} /></> : <><p className="ax-plan-generate-hint">{TOOL_GUIDES[target].name}용 구현 계획 생성 후 올인원 지시문 확인</p>{generateButton(target)}</> : null}</TabsPanel>)}
+            {(["codex", "claude"] as const).map(target => <TabsPanel key={target} value={target}>{target === activeTool ? plans[target] ? <><p className="ax-plan-tool-hint">{TOOL_GUIDES[target].name}에서 현재 프로젝트를 열고 올인원 지시문 붙여넣기</p><AxExecutionPackage plan={plans[target]} target={target} taskName={taskName} taskContext={taskContext} prerequisites={prerequisites} diagnosis={diagnosis} hitlReviews={reviewProps?.reviews} exampleResults={exampleResults} /></> : <><p className="ax-plan-generate-hint">{TOOL_GUIDES[target].name}용 구현 계획 생성 후 올인원 지시문 확인</p>{generateButton(target)}</> : null}</TabsPanel>)}
           </Tabs> : <p className="ax-muted">도구별 구현 계획 생성 후 올인원 지시문 확인</p>}
       </>}
     </section>
