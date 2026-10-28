@@ -90,7 +90,7 @@ function AxSelectedReport({ task, busy, onGenerate, onSaveReview }: {
       busy={busy}
       onGenerate={onGenerate}
       reviewProps={reviewProps}
-      exampleResults={(task as import("@/lib/ax/types").AxTaskV2).exampleResults}
+      exampleResults={(task as import("@/lib/ax/types").AxTaskV2).exampleResults ?? []}
       activeTool={activeTool}
       onToolChange={setSelectedTool}
     />
@@ -485,9 +485,10 @@ export function AxDiagnosisView() {
       }
       // 1차 MVP 개선: D1~D7은 사용자가 직접 확인하는 항목이므로 AI 응답에
       // decisionPoints가 들어 있어도 저장하지 않는다 (UI 저장 경로로만 들어간다).
-      const diagnosis: AxDiagnosis = { ...output, decisionPoints: undefined, sourceNote: attachmentSummary ? "첨부 파일 요약 기반 진단 · 첨부 파일이 사용됨 — 재분석 시 재첨부 필요" : "사용자 등록 정보 기반 진단" };
+      const aiDiagnosis: AxDiagnosis = { ...output, decisionPoints: undefined, sourceNote: attachmentSummary ? "첨부 파일 요약 기반 진단 · 첨부 파일이 사용됨 — 재분석 시 재첨부 필요" : "사용자 등록 정보 기반 진단" };
       // HITL: 재진단 시 기존 검토와 새 진단 비교 → 변경된 항목 stale 처리
       // 원자적 갱신: 진단과 검토 상태를 단일 update()로 처리, 최신 state 기준
+      let keptDecisionPoints = false;
       update(current => {
         const latestTask = current.tasks.find(t => t.id === task.id) as import("@/lib/ax/types").AxTaskV2 | undefined;
         // 업무 삭제됨 → 응답 버림 (복원하지 않음)
@@ -511,6 +512,11 @@ export function AxDiagnosisView() {
           setMessage("업무 정보가 변경되어 이전 진단 결과를 반영하지 않았습니다.");
           return current;
         }
+        // 1차 MVP 개선: 사용자가 저장한 D1~D7은 AI 진단 항목이 아니라 업무 규칙 기록이므로
+        // 재진단으로 지우지 않고 보존한다 (검토 기록 보존과 같은 원칙). 보존 사실은 완료 메시지로 안내한다.
+        const savedPoints = latestTask.diagnosis?.decisionPoints;
+        keptDecisionPoints = !!savedPoints?.length;
+        const diagnosis: AxDiagnosis = keptDecisionPoints ? { ...aiDiagnosis, decisionPoints: savedPoints } : aiDiagnosis;
         const prevReviews = latestTask?.reviews ?? [];
         let nextReviews = prevReviews;
         if (prevReviews.length > 0 && latestTask?.diagnosis) {
@@ -533,7 +539,8 @@ export function AxDiagnosisView() {
             : t),
         };
       });
-      setAnswers(current => ({ ...current, [task.id]: [] })); setMessage("업무 진단을 완료했습니다. 필요한 경우 점수를 조정하세요.");
+      setAnswers(current => ({ ...current, [task.id]: [] }));
+      setMessage(`업무 진단을 완료했습니다. 필요한 경우 점수를 조정하세요.${keptDecisionPoints ? " 이전에 저장한 결정 지점(D1~D7)은 그대로 유지했습니다. 새 진단과 맞는지 다시 확인하세요." : ""}`);
     } catch (error) { if (alive.current) setMessage(`진단 실패 · ${aiFailureDetail(error)}`); }
     finally { activeAi.current = false; activeRun.current = false; if (alive.current) setBusy(null); }
   }
@@ -781,6 +788,7 @@ export function AxDiagnosisView() {
               <ExampleResultsSection
                 key={`examples-${selected.id}`}
                 examples={(selected as import("@/lib/ax/types").AxTaskV2).exampleResults}
+                diagnosis={selected.diagnosis}
                 disabled={!!busy}
                 onSave={examples => saveExampleResults(selected.id, examples)}
               />

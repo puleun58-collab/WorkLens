@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { buildAllInOnePrompt, planSummary } from "@/lib/ax/guide";
 import { executionGate, executionGateWithExamples, gateBlockReasons, gatePrerequisites, gatePrerequisitesWithExamples } from "@/lib/ax/policy";
-import { confirmedStateNames, resolveDecisionPoints } from "@/lib/ax/decision-points";
-import { exampleHoldReasons } from "@/lib/ax/example-results";
+import { confirmedStateNames, parseStateNames, resolveDecisionPoints } from "@/lib/ax/decision-points";
+import { exampleHoldReasons, exampleResultRow, partitionExamples } from "@/lib/ax/example-results";
+import { AX_DIAGNOSIS_RESPONSE_SCHEMA } from "@/lib/ax/prompt";
+import { axDiagnosisOutputSchema, confirmedAxDiagnosis } from "@/lib/ax/schema";
 import { validateAxStateV2 } from "@/lib/ax/transfer";
 import type { AxDiagnosis, DecisionPoint, ExampleResult } from "@/lib/ax/types";
 import { diagnosisFixture, planFixture, taskFixture } from "./fixtures/ax";
@@ -17,8 +19,8 @@ const readyDiagnosis = (overrides: Partial<AxDiagnosis> = {}): AxDiagnosis => ({
 const examples = (count: number): ExampleResult[] =>
   Array.from({ length: count }, (_, i) => ({ input: `입력 행 ${i + 1}`, expectedState: "정상", memo: `예시 ${i + 1}` }));
 
-const promptFor = (diagnosis: AxDiagnosis, opts: { exampleResults?: ExampleResult[] } = {}) =>
-  buildAllInOnePrompt(planFixture, "codex", { diagnosis, taskName: "테스트 업무", context: "", exampleResults: opts.exampleResults });
+const promptFor = (diagnosis: AxDiagnosis, opts: { exampleResults?: ExampleResult[]; context?: string } = {}) =>
+  buildAllInOnePrompt(planFixture, "codex", { diagnosis, taskName: "테스트 업무", context: opts.context ?? "", exampleResults: opts.exampleResults });
 
 describe("AX 1차 MVP 개선 — 고정 결정 지점 D1~D7", () => {
   it("진단 결과에 D1~D7이 항상 포함되고 기본값이 미확정이다", () => {
@@ -166,10 +168,17 @@ describe("AX 1차 MVP 개선 — 생성 지시문", () => {
       ],
     });
     expect(confirmedStateNames(resolveDecisionPoints(diagnosis))).toEqual(["정상", "오류(확정)", "확인 필요"]);
-    const prompt = promptFor(diagnosis, { exampleResults: examples(3) });
+    const prompt = promptFor(diagnosis, { exampleResults: examples(3), context: "운송장 데이터를 정상과 오류로 분류한다." });
     expect(prompt).not.toContain("정상·오류");
     expect(prompt).toContain("결과 상태 목록: 정상 · 오류(확정) · 확인 필요");
     expect(prompt).toContain("정상 · 오류(확정) · 확인 필요 데이터를 분류");
+    // D4에 '정상'이 있어도 D4 목록과 다른 상태 이름을 쓰는 고정 문구가 남지 않는다.
+    expect(prompt).not.toMatch(/실패·미매칭·확인 불가/u);
+    expect(prompt).not.toContain("정상 결과");
+    expect(prompt).not.toMatch(/정상(?:과|와) 오류/u);
+    expect(prompt).toContain("결과 상태 목록(정상 · 오류(확정) · 확인 필요) 중 해당 상태로 분리");
+    // D4 정의 행은 한 번만, 정리된 목록으로 나온다.
+    expect(prompt).toContain("D4 결과 상태 — 확정: 정상 · 오류(확정) · 확인 필요\n");
     // 저장된 진단 원문은 생성 출력에 의해 바뀌지 않는다.
     expect(diagnosis.asIs.purpose).toContain("정상·오류 데이터를 분류");
     expect(diagnosis.stepAssessments[0].step).toBe("정상·오류 데이터 분류");
@@ -185,6 +194,72 @@ describe("AX 1차 MVP 개선 — 생성 지시문", () => {
     const prompt = promptFor(diagnosis, { exampleResults: examples(3) });
     expect(prompt).not.toContain("### 정상 케이스");
     expect(prompt).toContain("### 예시 케이스");
-    expect(prompt).toContain("확정된 결과 상태와 분리");
+    // 고정 예외 문구도 D4 목록 기반으로 생성된다 (D4에 없는 '정상'·'실패·미매칭·확인 불가'가 남지 않는다).
+    expect(prompt).toContain("결과 상태 목록(발송 · 검토) 중 해당 상태로 분리");
+    expect(prompt).not.toContain("정상 결과");
+    expect(prompt).not.toMatch(/실패·미매칭·확인 불가/u);
+  });
+});
+
+describe("AX 1차 MVP 개선 — 검증 결함 보완 (D-1~D-7)", () => {
+  it("D-2: D4를 가운뎃점·점·쉼표로 입력해도 중복 없이 정리된 목록으로 출력된다", () => {
+    expect(parseStateNames("정상·오류·확인 필요")).toEqual(["정상", "오류", "확인 필요"]);
+    expect(parseStateNames("정상. 오류. 확인 필요")).toEqual(["정상", "오류", "확인 필요"]);
+    expect(parseStateNames("정상, 정상, 오류ㆍ확인 필요")).toEqual(["정상", "오류", "확인 필요"]);
+    expect(parseStateNames("1.5 이상, 1.5 미만")).toEqual(["1.5 이상", "1.5 미만"]);
+    const diagnosis = readyDiagnosis({
+      decisionPoints: [
+        { id: "D4", status: "확정", detail: "정상·오류·확인 필요" },
+        { id: "D5", status: "확정", detail: "확인 필요" },
+      ],
+    });
+    const prompt = promptFor(diagnosis, { exampleResults: examples(3) });
+    expect(prompt).toContain("D4 결과 상태 — 확정: 정상 · 오류 · 확인 필요\n");
+    expect(prompt).toContain("결과 상태 목록: 정상 · 오류 · 확인 필요 —");
+    expect(prompt).not.toContain("확인 필요·확인 필요");
+    expect(prompt).not.toContain("확인 필요 · 확인 필요");
+  });
+
+  it("D-3: 예시를 저장한 적 없는 업무(빈 목록)도 02 요약에 '예시 결과 미확정'이 붙는다", () => {
+    const summary = planSummary(readyDiagnosis(), planFixture, "", { exampleResults: [] });
+    expect(summary.checks.find(check => check.topic === "예시 결과 미확정")?.note).toContain("확정 예시가 0건");
+    expect(promptFor(readyDiagnosis())).toContain("확정된 예시가 없습니다. '예시 결과 미확정' 보류 사유로 처리한다.");
+    // Gate 판정 자체는 바뀌지 않는다 (후속 범위).
+    expect(executionGate(readyDiagnosis())).toBe("ready");
+  });
+
+  it("D-4: D4가 확정되면 기대 결과가 D4 목록에 없는 예시는 확정 예시로 세지 않고, 미확정이면 검증하지 않는다", () => {
+    const mixed: ExampleResult[] = [...examples(2), { input: "입력 행 X", expectedState: "실패" }];
+    expect(partitionExamples(mixed, null).valid).toHaveLength(3);
+    const split = partitionExamples(mixed, ["정상", "오류"]);
+    expect(split.valid).toHaveLength(2);
+    expect(split.invalid.map(example => example.expectedState)).toEqual(["실패"]);
+    const d4Confirmed = readyDiagnosis({ decisionPoints: [{ id: "D4", status: "확정", detail: "정상, 오류" }] });
+    const prompt = promptFor(d4Confirmed, { exampleResults: mixed });
+    const exampleSection = prompt.split("### 확정 예시")[1].split("### ")[0];
+    expect(exampleSection).not.toContain("입력 행 X");
+    expect(exampleSection).toContain("확정 예시가 2건으로 3건 미만");
+    expect(exampleSection).toContain("기대 결과가 결과 상태 목록에 없는 예시 1건은 확정 예시에서 제외했다");
+    const summary = planSummary(d4Confirmed, planFixture, "", { exampleResults: mixed });
+    expect(summary.checks.find(check => check.topic === "예시 결과 미확정")?.note).toContain("D4 결과 상태 목록에 없는 예시 1건은 제외");
+    expect(executionGateWithExamples(d4Confirmed, mixed)).toBe("conditional");
+    // D4 미확정이면 과도하게 막지 않는다: 3건 모두 확정 예시로 센다.
+    const undecided = promptFor(readyDiagnosis(), { exampleResults: mixed });
+    expect(undecided.split("### 확정 예시")[1].split("### ")[0]).toContain("입력 행 X");
+    expect(executionGateWithExamples(readyDiagnosis(), mixed)).toBe("ready");
+  });
+
+  it("D-6: 예시 표의 '|'와 줄바꿈이 표 열을 깨지 않는다", () => {
+    const row = exampleResultRow({ input: "A|B\n둘째 줄", expectedState: "정상", memo: "메모|끝" });
+    expect(row).toBe("| A\\|B 둘째 줄 | 정상 | 메모\\|끝 |");
+    expect(row.split(/(?<!\\)\|/u)).toHaveLength(5);
+  });
+
+  it("D-7: AI 응답 스키마에 decisionPoints가 없고, 저장·계획 요청 경계에서는 사용자 값이 유지된다", () => {
+    expect((AX_DIAGNOSIS_RESPONSE_SCHEMA.properties as Record<string, unknown>)).not.toHaveProperty("decisionPoints");
+    const points: DecisionPoint[] = [{ id: "D4", status: "확정", detail: "정상, 오류" }];
+    expect(confirmedAxDiagnosis({ ...diagnosisFixture, decisionPoints: points }).decisionPoints).toEqual(points);
+    expect(confirmedAxDiagnosis(diagnosisFixture)).not.toHaveProperty("decisionPoints");
+    expect(axDiagnosisOutputSchema.safeParse(confirmedAxDiagnosis(diagnosisFixture)).success).toBe(true);
   });
 });

@@ -1,5 +1,6 @@
 import type { AxDiagnosis, AxTask, ExampleResult, FactorKey } from "./types";
 import { exampleHoldReasons } from "./example-results";
+import { confirmedStateNames, resolveDecisionPoints } from "./decision-points";
 import { FACTOR_LABELS } from "./schema";
 // All coefficients and thresholds are public policy; no additional weights.
 export const AX_POLICY = { priority: { value: 2, feasibility: 1.5, judgment: -1, risk: -1.5, needsCheck: -1, partial: -0.5 }, matrixThreshold: 3.5, holdRisk: 4, holdJudgment: 4.5 } as const;
@@ -273,12 +274,12 @@ export function planAllowed(d: AxDiagnosis): boolean {
 export function executionGateWithExamples(d: AxDiagnosis, examples?: ExampleResult[] | null): ExecutionGate {
   const gate = executionGate(d);
   if (gate === "blocked") return "blocked";
-  return exampleHoldReasons(examples).length ? "conditional" : gate;
+  return exampleHoldReasons(examples, confirmedStateNames(resolveDecisionPoints(d))).length ? "conditional" : gate;
 }
 
 /** gatePrerequisites()에 "예시 결과 미확정"을 추가한 버전 (ready면 해당 사유만). */
 export function gatePrerequisitesWithExamples(d: AxDiagnosis, examples?: ExampleResult[] | null): string[] {
-  const reasons = exampleHoldReasons(examples);
+  const reasons = exampleHoldReasons(examples, confirmedStateNames(resolveDecisionPoints(d)));
   if (!reasons.length) return gatePrerequisites(d);
   const base = executionGate(d) === "ready" ? [] : gatePrerequisites(d);
   return [...new Set([...base, ...reasons])].slice(0, 10);

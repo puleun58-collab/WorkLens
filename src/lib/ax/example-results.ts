@@ -12,17 +12,36 @@ import type { ExampleResult } from "./types";
 export const EXAMPLE_CONFIRMED_MINIMUM = 3;
 export const EXAMPLE_HOLD_REASON = "예시 결과 미확정";
 
-export function confirmedExampleCount(examples?: ExampleResult[] | null): number {
-  return examples?.length ?? 0;
+/**
+ * D4 결과 상태가 확정된 경우 기대 결과가 D4 목록에 있는 예시만 확정 예시로 센다.
+ * D4가 미확정(stateNames 없음)이면 검증을 적용하지 않고 저장된 예시를 그대로 쓴다.
+ */
+export function partitionExamples(examples?: ExampleResult[] | null, stateNames?: string[] | null): { valid: ExampleResult[]; invalid: ExampleResult[] } {
+  const list = examples ?? [];
+  if (!stateNames?.length) return { valid: list, invalid: [] };
+  const allowed = new Set(stateNames);
+  return {
+    valid: list.filter(example => allowed.has(example.expectedState.trim())),
+    invalid: list.filter(example => !allowed.has(example.expectedState.trim())),
+  };
+}
+
+export function confirmedExampleCount(examples?: ExampleResult[] | null, stateNames?: string[] | null): number {
+  return partitionExamples(examples, stateNames).valid.length;
 }
 
 /** 확정 예시가 3건 미만일 때만 보류 사유를 반환한다 (그 외는 빈 배열). */
-export function exampleHoldReasons(examples?: ExampleResult[] | null): string[] {
-  return confirmedExampleCount(examples) < EXAMPLE_CONFIRMED_MINIMUM ? [EXAMPLE_HOLD_REASON] : [];
+export function exampleHoldReasons(examples?: ExampleResult[] | null, stateNames?: string[] | null): string[] {
+  return confirmedExampleCount(examples, stateNames) < EXAMPLE_CONFIRMED_MINIMUM ? [EXAMPLE_HOLD_REASON] : [];
+}
+
+/** 표 셀 안의 `|`·줄바꿈이 Markdown 표 열을 깨지 않도록 정리한다. */
+function tableCell(value: string): string {
+  return value.replace(/\|/gu, "\\|").replace(/\s*\r?\n\s*/gu, " ");
 }
 
 /** 예시 표 한 행: 입력 값 / 기대 결과(상태 + 선택 기대 값) / 메모. */
 export function exampleResultRow(example: ExampleResult): string {
   const expected = example.expectedValue ? `${example.expectedState} (${example.expectedValue})` : example.expectedState;
-  return `| ${example.input} | ${expected} | ${example.memo ?? ""} |`;
+  return `| ${tableCell(example.input)} | ${tableCell(expected)} | ${tableCell(example.memo ?? "")} |`;
 }

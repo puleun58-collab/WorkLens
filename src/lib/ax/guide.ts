@@ -2,7 +2,7 @@ import type { AxDiagnosis, AxPlan, ExampleResult } from "./types";
 import { automationLevel, axes, executionProfile, prerequisiteTopicKey, type ExecutionGate, type ExecutionProfile, type StepScope } from "./policy";
 import { FACTOR_KEYS } from "./schema";
 import { applyStateDefinition, confirmedStateNames, confirmedUndecidableState, resolveDecisionPoints, undecidedDecisionIds, type ResolvedDecisionPoint } from "./decision-points";
-import { EXAMPLE_CONFIRMED_MINIMUM, exampleHoldReasons, exampleResultRow } from "./example-results";
+import { EXAMPLE_CONFIRMED_MINIMUM, exampleHoldReasons, exampleResultRow, partitionExamples } from "./example-results";
 import { extractPlanReviewableItems, extractReviewableItems, getValidConfirmedReviews, buildPlanReviewKeyMap } from "./hitl";
 
 export type AxToolId = "codex" | "claude";
@@ -839,9 +839,13 @@ export function planSummary(diagnosis: AxDiagnosis, rawPlan?: AxPlan, context = 
     return [{ topic: check.topic, status: check.status, note, tone }];
   });
   // 1차 MVP 개선 — 기존 보류 체계에 추가되는 사유 (기존 항목을 바꾸지 않고 덧붙인다).
-  // 예시 목록이 전달된 경우에만 적용한다 (미전달 시 기존 요약 동작 유지).
-  if (options.exampleResults !== undefined && exampleHoldReasons(options.exampleResults).length) {
-    checks.push({ topic: "예시 결과 미확정", status: "확인 필요", note: `확정 예시가 ${options.exampleResults.length}건으로 ${EXAMPLE_CONFIRMED_MINIMUM}건 미만입니다. 예시 결과 확인에서 ${EXAMPLE_CONFIRMED_MINIMUM}건 이상 확정하세요.`, tone: "required" });
+  // 예시 목록이 전달된 경우에만 적용한다 (미전달 시 기존 요약 동작 유지). 화면은 저장 전
+  // 기본 상태도 빈 목록으로 전달하므로 예시 0건도 3건 미만으로 처리된다.
+  // D4가 확정되면 기대 결과가 D4 목록에 없는 예시는 확정 예시로 세지 않는다 (04 지시문과 같은 기준).
+  const summaryStateNames = confirmedStateNames(model.decisionPoints ?? []);
+  if (options.exampleResults !== undefined && exampleHoldReasons(options.exampleResults, summaryStateNames).length) {
+    const { valid, invalid } = partitionExamples(options.exampleResults, summaryStateNames);
+    checks.push({ topic: "예시 결과 미확정", status: "확인 필요", note: `확정 예시가 ${valid.length}건으로 ${EXAMPLE_CONFIRMED_MINIMUM}건 미만입니다.${invalid.length ? ` 기대 결과가 D4 결과 상태 목록에 없는 예시 ${invalid.length}건은 제외했습니다.` : ""} 예시 결과 확인에서 ${EXAMPLE_CONFIRMED_MINIMUM}건 이상 확정하세요.`, tone: "required" });
   }
   // D4/D5 미확정은 summary.checks(기술 점검 카드 전용)에는 넣지 않는다.
   // 02 카드의 출처·개수를 바꾸면 기존 중복 제거 계약이 깨진다. 대신 지시문
@@ -2552,12 +2556,19 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
   const stateNames = confirmedStateNames(decisionPoints);
   const undecidedIds = undecidedDecisionIds(decisionPoints);
   const d5State = confirmedUndecidableState(decisionPoints);
-  const examples = model.exampleResults ?? [];
+  // D4가 확정되면 기대 결과가 D4 목록에 없는 예시는 확정 예시에서 제외한다 (D4 단일 정의 유지).
+  const { valid: examples, invalid: excludedExamples } = partitionExamples(model.exampleResults, stateNames);
   const exampleHold = exampleHoldReasons(examples);
-  const decisionBlock = decisionPoints.length ? `### 결정 지점 (D1~D7)\n\n${bullets(decisionPoints.map(point => point.status === "미확정"
+  // 사용자가 직접 입력한 블록은 D4 치환(applyStateDefinition) 대상에서 제외한다.
+  // 치환하면 "정상·오류·확인 필요" 같은 D4 정의 행 자체가 다시 바뀌어 상태가 중복된다.
+  const userBlocks: string[] = [];
+  const protectUserBlock = (text: string) => { userBlocks.push(text); return `\u0000${userBlocks.length - 1}\u0000`; };
+  const stateList = stateNames?.join(" · ");
+  const decisionBlock = decisionPoints.length ? protectUserBlock(`### 결정 지점 (D1~D7)\n\n${bullets(decisionPoints.map(point => point.status === "미확정"
     ? `${point.id} ${point.title} — 미확정 (임의로 정하지 않음)`
+    : point.id === "D4" && stateList ? `${point.id} ${point.title} — ${point.status}: ${stateList}`
     : point.detail ? `${point.id} ${point.title} — ${point.status}: ${point.detail}` : `${point.id} ${point.title} — ${point.status}`))}
-${stateNames ? `\n결과 상태 목록: ${stateNames.join(" · ")} — 지시문 전체에서 결과 상태를 언급할 때는 이 목록의 이름과 개수만 사용한다.` : ""}` : "";
+${stateList ? `\n결과 상태 목록: ${stateList} — 지시문 전체에서 결과 상태를 언급할 때는 이 목록의 이름과 개수만 사용한다.` : ""}`) : "";
   // 01. 구현 목표: 업무명·목적·핵심 기능·최종 산출물을 한 번만 제시한다.
   // 업무 등록 원문과 생성 계획 목표가 중복되면 하나의 구현 목표로 통합한다.
   const goalTexts = goals.filter(item => item.scope !== "future").map(item => item.text);
@@ -2695,7 +2706,7 @@ ${stateNames ? `\n결과 상태 목록: ${stateNames.join(" · ")} — 지시문
     extraConstraints.length ? `### 담당자·제외 제약 (추가)\n\n${bullets(extraConstraints)}` : "",
     humanConstraints || humanKept.length ? `### 담당자 확인·승인\n\n${HUMAN_DECISION_CHECK} 담당자 판단·확정이 필요한 결과를 확인되지 않은 승인으로 확정·시스템 반영·외부 전송하거나 담당자 판단을 대체하지 마세요. 승인 주체·권한이 확인되지 않았으면 지정하지 마세요.` : "",
     "확인되지 않은 API·권한·파일 형식·연동 방식·계산식·반올림·중복 기준·승인 주체를 가정해 구현하지 마세요. 특히 '불가'·거부된 접근 권한은 검토에서 제외해도 허용으로 바뀌지 않습니다.",
-    exceptionLines.length ? `### 예외\n\n${bullets(exceptionLines)}\n\n실패·미매칭·확인 불가 데이터는 정상 결과와 분리해 원인과 대상을 확인할 수 있게 하세요. 자동 삭제·자동 보정은 업무 규칙에 명시된 경우에만 적용하고, 아니면 대상 건을 표시만 하세요.` : "",
+    exceptionLines.length ? `### 예외\n\n${bullets(exceptionLines)}\n\n${stateList ? `확정 규칙으로 처리하지 못한 데이터는 결과 상태 목록(${stateList}) 중 해당 상태로 분리해 원인과 대상을 확인할 수 있게 하세요.` : "실패·미매칭·확인 불가 데이터는 정상 결과와 분리해 원인과 대상을 확인할 수 있게 하세요."} 자동 삭제·자동 보정은 업무 규칙에 명시된 경우에만 적용하고, 아니면 대상 건을 표시만 하세요.` : "",
     `### 실행 방식\n\n${scopeLevel === 1 ? "담당자 요청 기반 실행만 허용합니다. 스케줄러·폴더 감시 등 정기 무인 실행을 구현하지 마세요." : scopeLevel === 0 ? "검토·검증만 허용하며 업무 자동 실행을 추가하지 마세요." : "업무 발생 주기와 시스템 자동 실행은 별개입니다. 실제 자동 실행 요청·근거·정책 허용 여부가 확인되지 않았다면 실행 방식 확인 필요로 보고하세요."}${d?.asIs?.trigger && /(자동|스케줄|무인|정기\s*실행)/u.test(d.asIs.trigger) ? " 원본 주기 표현에 자동 실행 언급이 있어도 정책 허용 범위와 담당자 확인 없이는 자동 실행으로 확정하지 않고, 실제 실행 방식은 확인 대상으로 보고하세요." : ""}`,
     `### 보안\n\n${bullets([
       ...model.conditions.global.filter(item => item.role === "security").map(evidenceLine),
@@ -2720,7 +2731,7 @@ ${stateNames ? `\n결과 상태 목록: ${stateNames.join(" · ")} — 지시문
       "기존 정책에서 허용된 실행 범위 확인: '구현 범위'의 처리 구분(구현·확인 후 구현·검토·검증·담당자 수행·향후 확장)을 그대로 따르세요. 허용 범위를 넓히거나, 보류·제외 단계를 독립 기능으로 재분류하거나, Level·Gate를 초과해 처리하지 마세요.",
       work.length ? "조건 충족 독립 단계부터 구현: '기능별 요구사항'의 각 기능을 입력·처리·출력 명세대로 구현하세요. 다른 단계의 미확정 규칙 때문에 독립 단계까지 일괄 중단하지 마세요." : "조건 충족 독립 단계부터 구현: 이번 범위에서 구현할 단계가 없습니다. 입력 자료의 형식 확인과 보고만 수행하세요.",
       "미확정 조건 의존 부분만 보류: 미확정 조건에 실제로 의존하는 작업만 보류하고, 보류 사유와 재개 조건을 보고하세요. 재개 조건이 충족되어도 담당자 재확인·승인 없이 자동으로 재개하지 마세요.",
-      work.length ? `실제 데이터로 검증: 처리 결과를 ${finalOutputs.length ? finalOutputs.join(", ") : "확인된 출력 형식"}으로 연결하고, 업무에 필요한 저장·재조회가 있으면 기존 저장소·인증 방식으로 동작을 확인하세요. '예외 및 유지 조건'의 예외 항목을 처리하고 실패·미매칭·확인 불가 데이터를 정상 결과와 분리하세요. 저장소의 실제 테스트·빌드 명령으로 아래 검증 기준을 확인하고, 실행하지 않은 검증은 완료로 보고하지 마세요. 저장 기능이 없는 업무에 DB 검증을, 웹앱이 아닌 업무에 브라우저 테스트·웹 배포를 강제하지 마세요.` : "실제 데이터로 검증: 해당 없음 — 확보한 샘플과 기존 자료로 확인할 수 있는 범위만 검증하고, 비교 자료가 없으면 '검증 불가'와 사유를 기록하세요.",
+      work.length ? `실제 데이터로 검증: 처리 결과를 ${finalOutputs.length ? finalOutputs.join(", ") : "확인된 출력 형식"}으로 연결하고, 업무에 필요한 저장·재조회가 있으면 기존 저장소·인증 방식으로 동작을 확인하세요. '예외 및 유지 조건'의 예외 항목을 처리하고 ${stateList ? `확정 규칙으로 처리하지 못한 데이터를 결과 상태 목록(${stateList}) 중 해당 상태로 분리하세요` : "실패·미매칭·확인 불가 데이터를 정상 결과와 분리하세요"}. 저장소의 실제 테스트·빌드 명령으로 아래 검증 기준을 확인하고, 실행하지 않은 검증은 완료로 보고하지 마세요. 저장 기능이 없는 업무에 DB 검증을, 웹앱이 아닌 업무에 브라우저 테스트·웹 배포를 강제하지 마세요.` : "실제 데이터로 검증: 해당 없음 — 확보한 샘플과 기존 자료로 확인할 수 있는 범위만 검증하고, 비교 자료가 없으면 '검증 불가'와 사유를 기록하세요.",
       "담당자 확인·승인 경계 유지: 담당자 확인 전 결과가 확정·전송되지 않는지, 제외·보류된 단계가 다시 필수 작업으로 나타나지 않는지 확인하세요. 담당자 판단을 자동 승인으로 대체하지 말고, 완료 여부는 실제 실행·검증 결과로만 판단해 '결과 보고'의 4개 항목으로 보고하세요.",
     ]),
     "위 순서를 지키되 의존성이 없는 독립 단계는 병렬로 진행할 수 있습니다. 선행 확인이 필요한 단계는 실제 의존 관계를 확인하고 해당 부분만 '확인·승인 대기'로 보고하세요. 미확인 권한·보안 조건을 독립이라고 단정하거나 우회하지 마세요.",
@@ -2740,12 +2751,12 @@ ${stateNames ? `\n결과 상태 목록: ${stateNames.join(" · ")} — 지시문
       ...(undecidedIds.includes("D4") || undecidedIds.includes("D5") ? ["D4 또는 D5가 미확정이므로 기존 조건부 보류 체계로 처리한다."] : []),
     ].join("\n\n")}` : "",
     decisionPoints.length ? `### 확정 예시\n\n${examples.length
-      ? `| 입력 값 | 기대 결과 | 메모 |\n| --- | --- | --- |\n${examples.map(exampleResultRow).join("\n")}${exampleHold.length ? `\n\n확정 예시가 ${examples.length}건으로 ${EXAMPLE_CONFIRMED_MINIMUM}건 미만이므로 '예시 결과 미확정' 보류 사유가 적용된다.` : ""}`
-      : "확정된 예시가 없습니다. '예시 결과 미확정' 보류 사유로 처리한다."}` : "",
+      ? `${protectUserBlock(`| 입력 값 | 기대 결과 | 메모 |\n| --- | --- | --- |\n${examples.map(exampleResultRow).join("\n")}`)}${exampleHold.length ? `\n\n확정 예시가 ${examples.length}건으로 ${EXAMPLE_CONFIRMED_MINIMUM}건 미만이므로 '예시 결과 미확정' 보류 사유가 적용된다.` : ""}`
+      : "확정된 예시가 없습니다. '예시 결과 미확정' 보류 사유로 처리한다."}${excludedExamples.length ? `\n\n기대 결과가 결과 상태 목록에 없는 예시 ${excludedExamples.length}건은 확정 예시에서 제외했다. 제외한 예시로 테스트를 만들지 않는다.` : ""}` : "",
     work.length ? `### 정상 케이스\n\n${tests.length ? `${bullets(tests)}\n\n` : ""}실제 입력으로 처리·출력과 필요한 저장·재조회를 확정된 기대 결과와 대조하세요. 서로 다른 입력으로 다시 실행해 각 입력에 맞게 출력이 달라지는지 확인하고 고정 결과를 배제하세요. 기대 결과·허용 오차가 정의되지 않았다면 '확인 필요'로 보고하세요.`
       : `### 현재 검토·검증\n\n${tests.length ? `${bullets(tests)}\n\n` : ""}확보한 샘플과 기존 자료로 확인할 수 있는 범위만 검증하세요. 검증을 위해 새 기능·자동 생성 코드를 만들지 말고, 비교 자료가 없으면 '검증 불가'와 사유를 기록하세요.`,
     model.scoped.validationMethods.length ? `### 검증 방법·기록 (합격 조건 아님)\n\n${bullets(model.scoped.validationMethods.map(evidenceLine))}` : "",
-    work.length ? "### 경계·실패 케이스\n\n입력 1건·빈 입력·같은 기준값 여러 건·선택 항목 누락·확정된 업무 경계값 중 해당하는 상황을 확인하세요. 현재 구현 단계의 잘못된 형식·파싱 오류·필수 항목 누락과 외부 API가 필요한 경우 응답 오류·권한 거부·연결 실패가 정상 결과나 성공한 저장으로 표시되지 않는지 확인하세요." : "",
+    work.length ? `### 경계·실패 케이스\n\n입력 1건·빈 입력·같은 기준값 여러 건·선택 항목 누락·확정된 업무 경계값 중 해당하는 상황을 확인하세요. 현재 구현 단계의 잘못된 형식·파싱 오류·필수 항목 누락과 외부 API가 필요한 경우 응답 오류·권한 거부·연결 실패가 ${stateList ? "근거 없이 확정 규칙의 판정 결과" : "정상 결과"}나 성공한 저장으로 표시되지 않는지 확인하세요.` : "",
     "### 범위·승인·회귀 확인\n\n담당자 확인 전 결과가 확정·전송되지 않는지, 제외·보류된 단계와 검증 기준이 다시 필수 작업으로 나타나지 않는지, 거부된 권한에 의존하는 처리가 실행되지 않는지 확인하세요. 이 작업과 관련된 기존 기능이 이전과 동일하게 동작하는지 확인하세요. 웹 UI를 포함하면 기존 브라우저/E2E 도구가 있을 때 주요 화면을 Desktop과 Mobile에서 확인하세요.",
     work.length ? `### 단계별 완료 기준\n\n${bullets([
       ...(work.some(s => s.scope === "implement") ? [`구현 단계 (${work.filter(s => s.scope === "implement").map(s => s.step).join(", ")}): '기능별 요구사항'의 해당 기능 검증 기준을 모두 충족하면 완료`] : []),
@@ -2792,5 +2803,6 @@ ${stateNames ? `\n결과 상태 목록: ${stateNames.join(" · ")} — 지시문
     ...sections.filter(s => s.body).map((s, i) => `## ${i + 1}. ${s.title}\n\n${s.body}`),
   ].join("\n\n");
   // D4 단일 정의는 생성 출력에만 적용한다 (저장된 진단 원문은 고치지 않는다).
-  return applyStateDefinition(prompt, stateNames);
+  // 보호한 사용자 입력 블록은 치환 후 원래 내용으로 되돌린다.
+  return applyStateDefinition(prompt, stateNames).replace(/\u0000(\d+)\u0000/gu, (_, index: string) => userBlocks[Number(index)]);
 }

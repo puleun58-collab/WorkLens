@@ -57,11 +57,17 @@ export function undecidedDecisionIds(points: ResolvedDecisionPoint[]): DecisionP
   return points.filter(point => point.status === "미확정").map(point => point.id);
 }
 
+/** D4 상세 입력을 상태 이름 목록으로 정리한다. 쉼표·가운뎃점·점·줄바꿈 구분을 모두 받고 중복은 하나로 합친다.
+ * 숫자 사이의 점(예: 1.5)은 구분자로 보지 않는다. */
+export function parseStateNames(detail: string): string[] {
+  return [...new Set(detail.split(/[,，·ㆍ・•、。;\n]|(?<!\d)\.(?!\d)/u).map(name => name.trim()).filter(Boolean))].slice(0, 10);
+}
+
 /** D4가 확정이고 상태 목록이 적혀 있을 때만 상태 이름 목록을 반환한다. */
 export function confirmedStateNames(points: ResolvedDecisionPoint[]): string[] | null {
   const d4 = points.find(point => point.id === "D4");
   if (!d4 || d4.status !== "확정" || !d4.detail) return null;
-  const names = [...new Set(d4.detail.split(/[,，·、\n]/u).map(name => name.trim()).filter(Boolean))].slice(0, 10);
+  const names = parseStateNames(d4.detail);
   return names.length ? names : null;
 }
 
@@ -75,7 +81,9 @@ export function confirmedUndecidableState(points: ResolvedDecisionPoint[]): stri
 /**
  * 지시문 생성 출력에만 적용하는 D4 단일 정의 강제 (저장 원문은 건드리지 않는다).
  * - "정상·오류" / "정상/오류" 같은 2분법 표현을 D4 목록으로 바꾼다.
- * - "정상 데이터와 오류 데이터" 같은 2분법 분리 표현을 D4 목록으로 바꾼다.
+ * - "정상 데이터와 오류 데이터", "정상과 오류" 같은 2분법 분리 표현을 D4 목록으로 바꾼다.
+ * - 사용자가 직접 입력한 블록(결정 지점·확정 예시)은 호출 측에서 보호한 뒤 호출한다
+ *   (D4 정의 행 자체가 다시 치환되어 상태가 중복되는 것을 막는다).
  * - D4 목록에 "정상"이 없을 때만 고정 문구 "정상 케이스"/"정상 결과"를
  *   상태명을 하드코딩하지 않는 중립 문구로 바꾼다 ("정상"이 D4 이름이면 그대로 둔다).
  */
@@ -85,7 +93,8 @@ export function applyStateDefinition(prompt: string, stateNames: string[] | null
   let out = prompt
     .replace(/정상·오류/gu, joined)
     .replace(/정상\/오류/gu, joined)
-    .replace(/정상 데이터와 오류 데이터/gu, `${joined} 데이터`);
+    .replace(/정상 데이터와 오류 데이터/gu, `${joined} 데이터`)
+    .replace(/정상(?:과|와) 오류/gu, joined);
   if (!stateNames.includes("정상")) {
     out = out.replace(/정상 케이스/gu, "예시 케이스").replace(/정상 결과/gu, "확정된 결과 상태");
   }

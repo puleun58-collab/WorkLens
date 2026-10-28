@@ -40,6 +40,13 @@ test("AX 1차 MVP 개선: 업무 등록 → 결정 지점 답변 → 예시 3건
     await page.getByLabel(`예시 ${i + 1} 입력 값`).fill(example.input);
     await page.getByLabel(`예시 ${i + 1} 기대 결과 상태`).fill(example.state);
   }
+  // D4가 확정된 뒤에는 D4 목록에 없는 기대 결과의 저장을 막는다.
+  const exampleSection = page.locator('section[aria-label="예시 결과 확인"]');
+  await page.getByLabel("예시 1 기대 결과 상태").fill("실패");
+  await page.getByRole("button", { name: "예시 결과 저장", exact: true }).click();
+  await expect(exampleSection.getByRole("alert")).toContainText("예시 1의 기대 결과가 D4 결과 상태 목록(정상 · 오류(확정) · 확인 필요)에 없습니다.");
+  await expect(exampleSection.getByText("예시 결과를 저장했습니다.", { exact: true })).toHaveCount(0);
+  await page.getByLabel("예시 1 기대 결과 상태").fill(examples[0].state);
   await page.getByRole("button", { name: "예시 결과 저장", exact: true }).click();
   await expect(page.locator('section[aria-label="예시 결과 확인"]').getByText("예시 결과를 저장했습니다.", { exact: true })).toBeVisible();
 

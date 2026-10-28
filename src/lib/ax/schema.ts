@@ -51,7 +51,6 @@ export const axDiagnosisShape = {
   risks: list,
   poc: z.object({ hypothesis: text, inScope: list, outOfScope: list, inputs: list, outputs: list, evaluation: list, success: list, failure: list }).strict(),
   decisionGate: z.object({ verdict: z.enum(["go", "conditional", "no-go"]), reasons: list }).strict(),
-  decisionPoints: z.array(decisionPointSchema).max(7).optional(),
   roadmap: z.array(z.object({ phase: text, title: text, items: list }).strict()).max(5),
   operation: z.object({ owner: text, failureOwner: text, maintenanceBurden: z.enum(["low", "medium", "high"]), fallback: text, notes: list }).strict(),
   nextAction: z.object({ label: text.min(1), detail: text }).strict(),
@@ -66,8 +65,11 @@ export const axPlanJsonSchema = z.object({
   security: list, operation: list, tests: list, acceptance: list,
 }).strict();
 export const axPlanSchema = axPlanJsonSchema.extend({ repositoryFirst: z.literal(REPOSITORY_FIRST) });
+/** 사용자가 저장하는 결정 지점은 AI 응답 스키마(axDiagnosisShape)에 넣지 않는다.
+ * AI 응답 형식에 노출하면 형식이 틀린 decisionPoints 하나로 진단 전체 파싱이 실패할 수 있다. */
+const userDiagnosisShape = { decisionPoints: z.array(decisionPointSchema).max(7).optional() };
 export const axConfirmedDiagnosisSchema = z.object({
-  ...axDiagnosisShape, factors: z.array(factorSchema.extend({ finalValue: rating.optional() }).strict()).length(6),
+  ...axDiagnosisShape, ...userDiagnosisShape, factors: z.array(factorSchema.extend({ finalValue: rating.optional() }).strict()).length(6),
 }).strict().refine(uniqueFactors, "6종 Factor가 각각 필요합니다.");
 export const axDiagnosisSchema = z.object({
   ...axConfirmedDiagnosisSchema.shape,
@@ -107,7 +109,9 @@ export const axPlanRequestSchema = z.object({
 
 /** Only confirmed diagnosis fields cross the plan boundary; no stored plans or source text. */
 export function confirmedAxDiagnosis(value: z.infer<typeof axDiagnosisSchema>) {
-  return axConfirmedDiagnosisSchema.parse(Object.fromEntries(Object.keys(axDiagnosisShape).map(key => [key, value[key as keyof typeof axDiagnosisShape]])));
+  // 결정 지점이 없는 진단은 키 자체를 넣지 않는다 (AI 응답 스키마와 같은 모양 유지).
+  const keys = [...Object.keys(axDiagnosisShape), ...Object.keys(userDiagnosisShape)] as (keyof typeof value)[];
+  return axConfirmedDiagnosisSchema.parse(Object.fromEntries(keys.filter(key => value[key] !== undefined).map(key => [key, value[key]])));
 }
 
 // HITL (Human-in-the-loop) review schema

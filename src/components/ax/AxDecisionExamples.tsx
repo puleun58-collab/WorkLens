@@ -4,8 +4,8 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { DECISION_POINT_DEFS, resolveDecisionPoints, type ResolvedDecisionPoint } from "@/lib/ax/decision-points";
-import { EXAMPLE_CONFIRMED_MINIMUM } from "@/lib/ax/example-results";
+import { DECISION_POINT_DEFS, confirmedStateNames, resolveDecisionPoints, type ResolvedDecisionPoint } from "@/lib/ax/decision-points";
+import { EXAMPLE_CONFIRMED_MINIMUM, partitionExamples } from "@/lib/ax/example-results";
 import type { AxDiagnosis, DecisionPoint, ExampleResult } from "@/lib/ax/types";
 
 /**
@@ -66,8 +66,10 @@ export function DecisionPointsSection({ diagnosis, taskDescription, disabled, on
 
 interface ExampleDraft { input: string; expectedState: string; expectedValue: string; memo: string }
 
-export function ExampleResultsSection({ examples, disabled, onSave }: {
+export function ExampleResultsSection({ examples, diagnosis, disabled, onSave }: {
   examples?: ExampleResult[];
+  /** D4 결과 상태 확인용. D4가 확정된 경우에만 기대 결과를 D4 목록과 대조한다. */
+  diagnosis?: Pick<AxDiagnosis, "decisionPoints">;
   disabled?: boolean;
   onSave: (examples: ExampleResult[]) => void;
 }) {
@@ -83,9 +85,24 @@ export function ExampleResultsSection({ examples, disabled, onSave }: {
     setDrafts(toDrafts(examples));
   }
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState("");
+  // D4가 미확정이면 검증하지 않는다. 확정 후에는 D4 목록에 없는 기대 결과의 저장을 막는다.
+  const stateNames = confirmedStateNames(resolveDecisionPoints(diagnosis));
+  const { valid: countedExamples, invalid: invalidExamples } = partitionExamples(examples, stateNames);
   const update = (index: number, patch: Partial<ExampleDraft>) =>
     setDrafts(current => current.map((row, i) => i === index ? { ...row, ...patch } : row));
   const save = () => {
+    if (stateNames) {
+      const invalidRows = drafts
+        .map((row, i) => ({ row, i }))
+        .filter(({ row }) => row.input.trim() && row.expectedState.trim() && !stateNames.includes(row.expectedState.trim()));
+      if (invalidRows.length) {
+        setError(`${invalidRows.map(({ i }) => `예시 ${i + 1}`).join(", ")}의 기대 결과가 D4 결과 상태 목록(${stateNames.join(" · ")})에 없습니다. D4 상태 중 하나로 입력한 뒤 저장하세요.`);
+        setSaved(false);
+        return;
+      }
+    }
+    setError("");
     // 입력 값과 기대 결과가 모두 있는 행만 확정 예시로 저장한다 (빈 행은 버린다).
     const confirmed: ExampleResult[] = drafts
       .filter(row => row.input.trim() && row.expectedState.trim())
@@ -101,7 +118,11 @@ export function ExampleResultsSection({ examples, disabled, onSave }: {
     <h3>예시 결과 확인 (HITL)</h3>
     <p className="ax-muted">정상 사례와 예외 사례를 각각 1건 이상 넣어 주세요. (안내이며, 강제 조건은 확정 {EXAMPLE_CONFIRMED_MINIMUM}건입니다.) 확정 예시가 {EXAMPLE_CONFIRMED_MINIMUM}건 미만이면 &lsquo;예시 결과 미확정&rsquo; 보류 사유가 붙습니다.</p>
     <p className="ax-muted">실제 개인정보·거래처 정보 대신 가명이나 예시 값을 입력하세요.</p>
-    <p className="ax-muted">확정 예시 {examples?.length ?? 0}건</p>
+    <p className="ax-muted">{stateNames
+      ? <>기대 결과는 D4 결과 상태 중 하나로 입력하세요: {stateNames.join(" · ")}</>
+      : "D4 결과 상태가 아직 확정되지 않아 기대 결과를 검증하지 않습니다. D4를 확정하면 기대 결과가 D4 상태 목록에 있는지 확인합니다."}</p>
+    <p className="ax-muted">확정 예시 {countedExamples.length}건</p>
+    {invalidExamples.length ? <p className="ax-muted" role="status">저장된 예시 중 {invalidExamples.length}건은 기대 결과가 D4 결과 상태 목록에 없어 확정 예시로 세지 않습니다. 기대 결과를 D4 상태 중 하나로 고쳐 다시 저장하세요.</p> : null}
     {drafts.map((row, i) => <div className="ax-field" key={i}>
       <label className="ax-field">예시 {i + 1} 입력 값
         <Textarea rows={2} maxLength={2000} aria-label={`예시 ${i + 1} 입력 값`} disabled={disabled}
@@ -127,6 +148,7 @@ export function ExampleResultsSection({ examples, disabled, onSave }: {
         onClick={() => { setDrafts(current => [...current, { input: "", expectedState: "", expectedValue: "", memo: "" }]); setSaved(false); }}>예시 추가</Button>
       <Button type="button" disabled={disabled} onClick={save}>예시 결과 저장</Button>
     </div>
+    {error ? <p className="ax-muted" role="alert">{error}</p> : null}
     {saved ? <p className="ax-muted">예시 결과를 저장했습니다.</p> : null}
   </section>;
 }
