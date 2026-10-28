@@ -11,6 +11,8 @@ import {
   sanitizeLearnContext,
 } from "@/lib/assistant/learn-evidence";
 import type { AssistantContextNote } from "@/lib/assistant/prompt";
+import { hasLawDistinctionSection } from "@/lib/assistant/prompt";
+import type { AiApiRequest } from "@/lib/ai/api";
 import {
   clarifyOptions,
   clarifyResponse,
@@ -20,6 +22,7 @@ import {
   LAW_FUNCTION_GUIDANCE_RESPONSE,
   matchesLawArticleCitation,
   matchesLawFunctionQuestion,
+  matchesLawReliabilityValueQuestion,
   resolveEvidenceIntent,
   resolveFollowUpIntent,
   executionRequestResponse,
@@ -285,24 +288,23 @@ export async function POST(request: Request) {
     // question ("환각이 없는 거 아니야?") uses the same endings but rebuts
     // nothing, so without followUpOf it must not be flagged as a rebuttal.
     const isRebuttalTurn = !!followUpOf && isRebuttalQuestion(effectiveQuestion);
-    const result = await runBoundedOperation(() => runGroqAi(
-      {
-        kind: "assistant", question: effectiveQuestion, evidence,
-        ...(context ? { context } : {}),
-        ...(clarifyState ? { clarify: clarifyState } : {}),
-        ...(followUpOf ? { followUpOf } : {}),
-        ...(parsed.data.previousAnswer ? { previousAnswer: parsed.data.previousAnswer } : {}),
-        ...(isRebuttalTurn ? { rebuttal: true } : {}),
-        ...(learnBuilt.note ? { learnNote: learnBuilt.note } : {}),
-        ...(isDetailRequest(effectiveQuestion) ? { detail: true } : {}),
-      },
-      { requestId },
-    ));
+    const assistantRequest: Extract<AiApiRequest, { kind: "assistant" }> = {
+      kind: "assistant", question: effectiveQuestion, evidence,
+      ...(context ? { context } : {}),
+      ...(clarifyState ? { clarify: clarifyState } : {}),
+      ...(followUpOf ? { followUpOf } : {}),
+      ...(parsed.data.previousAnswer ? { previousAnswer: parsed.data.previousAnswer } : {}),
+      ...(isRebuttalTurn ? { rebuttal: true } : {}),
+      ...(learnBuilt.note ? { learnNote: learnBuilt.note } : {}),
+      ...(isDetailRequest(effectiveQuestion) ? { detail: true } : {}),
+    };
+    const result = await runBoundedOperation(() => runGroqAi(assistantRequest, { requestId }));
     if (result.kind !== "assistant") throw new ApiError("INVALID_PROVIDER_OUTPUT", "AI 응답 형식이 올바르지 않습니다.", 502);
 
     // Deterministic post-processing: internal evidence ids must never reach the
     // user-visible answer body, even if the model copies them from the prompt.
-    const answer = stripInternalEvidenceIds(result.answer, evidence);
+    let accepted = result;
+    let answer = stripInternalEvidenceIds(result.answer, evidence);
 
     // 퀴즈 응시 중 답변이 현재 문항의 정답을 누설했으면 힌트 응답으로 교체한다.
     if (learnCtx?.mode === "quiz" && learnCtx.quizQuestion && quizAnswerLeakCheck(answer, learnCtx.quizQuestion)) {
@@ -315,11 +317,49 @@ export async function POST(request: Request) {
     if (!validCitations(result.citedIds, evidence) || hasInventedMetric(answer, evidence, effectiveQuestion)) {
       return ok({ answer: NO_EVIDENCE_RESPONSE, sources: [], relatedInfo: [], relatedScreens: [], kind: "no-evidence" as const }, 200, requestId);
     }
+
+    // Format enforcement for law reliability/value/rebuttal answers: the
+    // prompt alone did not produce the fixed distinction section live
+    // (2026-10-28: 0/14 answers), so a missing section triggers exactly one
+    // revision retry that keeps the checked first answer's content and adds
+    // only the section. The retry is accepted only when it carries the
+    // section and passes every check the original passed; any failure keeps
+    // the original. A missing section never replaces an otherwise
+    // substantive answer with a no-evidence reply, and a retry failure never
+    // fails the request. Scope is law intent only, and only reliability/value
+    // questions (own markers, rebuttal turns, or a reliability topic source
+    // for marker-less follow-ups). Law-function guidance answers keep their
+    // intended "관련 안내" form without a forced section.
+    const needsDistinction = evidenceIntent === "law"
+      && (isRebuttalTurn
+        || matchesLawReliabilityValueQuestion(effectiveQuestion)
+        || (topicSource !== undefined && matchesLawReliabilityValueQuestion(topicSource)));
+    if (needsDistinction && !hasLawDistinctionSection(answer)) {
+      try {
+        const retry = await runBoundedOperation(() => runGroqAi(
+          { ...assistantRequest, distinctionRetryAnswer: answer },
+          { requestId },
+        ));
+        if (retry.kind === "assistant") {
+          const retryAnswer = stripInternalEvidenceIds(retry.answer, evidence);
+          const retryQuizOk = !(learnCtx?.mode === "quiz" && learnCtx.quizQuestion && quizAnswerLeakCheck(retryAnswer, learnCtx.quizQuestion));
+          if (retryQuizOk
+            && hasLawDistinctionSection(retryAnswer)
+            && validCitations(retry.citedIds, evidence)
+            && !hasInventedMetric(retryAnswer, evidence, effectiveQuestion)) {
+            accepted = retry;
+            answer = retryAnswer;
+          }
+        }
+      } catch {
+        // A retry failure never degrades the checked original answer.
+      }
+    }
     // Separate evidence by kind: diagnosis (real data) → "확인한 근거",
     // policy (system guidance) → "관련 안내", menu → "관련 화면",
     // guide → hidden (answer body only). Policy guidance must never render
     // as verified lookup evidence.
-    const cited = result.citedIds
+    const cited = accepted.citedIds
       .map((id) => evidence.find((entry) => entry.id === id))
       .filter((entry) => entry !== undefined);
     const split = splitCitedByKind(cited);

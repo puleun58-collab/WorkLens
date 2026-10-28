@@ -23,7 +23,7 @@ export type AiApiRequest =
   | { kind: "polish-batch"; mode: PolishMode; items: Array<{ id: string; text: string }> }
   | { kind: "extract"; field: string; items: EvidenceItem[] }
   | { kind: "supplement-review"; checks: SupplementReviewCheck[]; items: EvidenceItem[] }
-  | { kind: "assistant"; question: string; evidence: AssistantEvidence[]; context?: AssistantContextNote; clarify?: ClarifyState; followUpOf?: string; learnNote?: string; detail?: boolean; previousAnswer?: string; rebuttal?: boolean };
+  | { kind: "assistant"; question: string; evidence: AssistantEvidence[]; context?: AssistantContextNote; clarify?: ClarifyState; followUpOf?: string; learnNote?: string; detail?: boolean; previousAnswer?: string; rebuttal?: boolean; distinctionRetryAnswer?: string };
 
 export type AiApiResult =
   | { kind: "ax-diagnosis"; diagnosis: Omit<AxDiagnosis, "sourceNote" | "planCodex" | "planClaude"> }
