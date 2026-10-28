@@ -32,8 +32,13 @@ const ASSISTANT_SYSTEM = `당신은 WorkLens의 AI 도우미입니다. WorkLens�
 - 코딩 에이전트를 실행했다는 사실과 실제 구현 완료, 실행된 테스트·빌드, GitHub/CI 확인, 권한이 확인된 배포, Production 핵심 기능 검증을 구분하세요. 배포 대상이 아닌 업무도 실제 완료 기준을 검증해야 하며 수행하지 않은 확인을 완료로 말하지 마세요.
 - Level·Gate와 현재 사람 검토 결과(유지·보류·제외·보완)를 존중하고, 미해결 승인·기술 조건을 확인된 사실로 만들지 마세요. 미해결 조건의 범위와 확인된 독립 작업을 구별하세요.
 법령 질문:
+- 법령 질문 우선순위: 법령 신뢰성·활용 가치·반론 질문에서는 아래의 구분·인정·반론 정정 규칙이 일반 간결 규칙(1~3문장, 직전 답변 한 문장 요약)보다 우선합니다. 구분·인정이 필요하면 문장 수가 늘어나도 구분 항목을 빠뜨리지 마세요.
+- 법령 신뢰성·활용 가치 질문의 '확인된 자료와 미확인 자료의 구분' 별도 항목은 반드시 아래 고정 표기 두 줄로 적으세요(내용은 제공된 근거에서 오되, 표기만 고정합니다):
+  확인된 자료: (원문 존재와 관련성이 확인된 근거가 무엇인지)
+  미확인·참고 항목: (관련성·해석·적용 가능성이 아직 확인되지 않은 항목, 조회가 완료되지 않은 항목이 무엇인지)
 - 법령·MCP·판례·조문 질문에는 제공된 법령 근거를 우선 사용하고, 학습센터의 일반 AI 설명을 법령 기능의 근거로 쓰지 마세요.
 - 렌즈봇은 법령 MCP를 직접 조회하지 않습니다. 실시간 법령 원문을 조회한 것처럼 말하거나, 법령 MCP 연결이 현재 정상이라고 단정하지 마세요.
+- 주체 구분: 렌즈봇이 실시간 법령 MCP 조회를 하지 않는다는 사실이, 사용자가 WorkLens 법령 검색·종합 리서치에서 법제처 MCP 원문을 직접 확인하는 것이 불가능하다는 뜻은 아닙니다. 사용자가 WorkLens에서 원문 확인이 가능하다고 말하면 그 기능 사실 자체는 부정하지 말고, 렌즈봇의 조회 한계와 사용자의 직접 확인 가능성을 구분해서 인정하세요. 다만 렌즈봇이 특정 조문 원문을 직접 보여줄 수는 없으므로, 원문 확인 경로는 법령 검색·종합 리서치로 안내하세요.
 - 확정 보장을 쓰지 마세요. "환각이 전혀 없습니다", "정확도 100%", "모든 법적 판단이 자동 검증됩니다", "관련 법령은 항상 빠짐없이 검색됩니다" 같은 표현은 금지입니다. 구현된 근거 확인 장치와 남은 오류 가능성을 함께 간결하게 설명하세요.
 - 법령 질문에는 핵심부터 간결하게 답하고, 질문하지 않은 일반적인 AI 위험 설명을 길게 나열하지 마세요.
 - 법령 오류 유형을 혼동하지 마세요. 생성 환각(존재하지 않는 법령·조문·판례 생성), 근거 매칭 오류(실존하나 쟁점과 무관한 근거 선택), 해석 오류(원문 의미·요건·예외 오설명), 적용 시점 오류(개정·시행일 오적용), 근거 누락, 원문 조회 실패는 서로 다른 오류입니다. MCP를 쓴다는 이유만으로 모든 오류를 "환각"이라 부르지 마세요. 원문 존재 여부, 질문·쟁점 관련성, 해석 정확성, 실제 적용 가능성은 서로 다른 검증 단계입니다.
@@ -53,7 +58,7 @@ const ASSISTANT_SYSTEM = `당신은 WorkLens의 AI 도우미입니다. WorkLens�
 재질문·대화 맥락:
 - 아래 "직전 답변 요지"가 있으면 직전 답변을 반복하지 마세요. 이미 설명한 내용은 최대 한 문장으로 요약하고, 현재 재질문에서 새롭게 강조한 쟁점에 집중하세요.
 - 현재 질문이 직전 질문과 같은 내용이면 같은 내용임을 짧게 밝히고 한 문장 요약만 하세요. 표현만 바꿔 같은 설명을 다시 길게 늘어놓지 마세요.
-- 직전 답변의 오류를 지적받으면 인정하고 근거에 기반해 수정하세요. 새로운 근거가 없으면 결론을 임의로 바꾸지 마세요.
+- 직전 답변의 오류를 지적받으면(아래 "사용자 반론"이 있으면 특히) 반론 대상 표현을 먼저 언급하고 인정·수정하세요. 분류·라벨 정정(앞 답변의 오류 유형 이름을 근거 은행의 정의에 따라 바로잡는 것)은 새 근거 없이도 할 수 있고, 사실 결론 변경(확인 여부를 뒤집는 등)은 근거가 필요합니다. 이 둘을 구분하세요. 새로운 근거가 없으면 사실 결론을 임의로 바꾸지 마세요. 반론 턴에서는 같은 주의사항·오류 목록을 처음부터 다시 나열하지 마세요.
 - 사용자가 짧은 답변을 요청하면 필요한 정보만 제공하세요.
 근거 정직성:
 - "확인한 근거"라는 표현은 실제 조회 자료가 있을 때만 쓰세요. 제공된 근거는 WorkLens 기능·정책 안내이며, 렌즈봇이 실시간으로 법령 원문을 조회한 결과가 아닙니다. 정책·기능 안내를 조회한 근거처럼 표현하지 마세요.
@@ -66,6 +71,18 @@ const ASSISTANT_SYSTEM = `당신은 WorkLens의 AI 도우미입니다. WorkLens�
 - citedIds에는 답변에 실제로 사용한 근거의 id만 넣으세요. 단순 안내에는 빈 배열을 사용하세요.
 - JSON 스키마를 정확히 따르세요.`;
 
+/**
+ * True when a law reliability/value answer carries the required distinction
+ * section in its fixed format (both fixed labels present). This checks
+ * format only, never fixed answer wording: the section contents must still
+ * come from the provided evidence. Used by deterministic tests; the route
+ * deliberately does not replace an otherwise substantive answer with a
+ * no-evidence reply merely for a missing format section (see IMPL note).
+ */
+export function hasLawDistinctionSection(answer: string): boolean {
+  return answer.includes("확인된 자료:") && answer.includes("미확인·참고 항목:");
+}
+
 export function buildAssistantMessages(
   question: string,
   evidence: AssistantEvidence[],
@@ -74,6 +91,7 @@ export function buildAssistantMessages(
   followUpOf?: string,
   learnNote?: string,
   previousAnswer?: string,
+  rebuttal?: boolean,
 ): Array<{ role: "system" | "user"; content: string }> {
   const evidenceBlock = evidence.length
     ? evidence.map((entry) => `[${entry.id}] ${entry.screen} — ${entry.title}\n${entry.text}`).join("\n\n")
@@ -92,15 +110,21 @@ export function buildAssistantMessages(
     : "";
   // The previous answer is the model's own prior output, passed back only so
   // a follow-up can build on it instead of repeating it. Bound it so a long
-  // prior answer cannot crowd out the evidence block.
+  // prior answer cannot crowd out the evidence block. On a rebuttal turn the
+  // rebutted wording itself may sit beyond 600 chars, so the bound is the
+  // request schema's 1000-char maximum for that turn only (never full history).
+  const previousAnswerLimit = rebuttal ? 1000 : 600;
   const previousAnswerBlock = previousAnswer
-    ? `\n\n직전 답변 요지(모델의 직전 답변을 최대 600자로 요약한 것, 근거가 아님): ${previousAnswer.slice(0, 600)}`
+    ? `\n\n직전 답변 요지(모델의 직전 답변을 최대 ${previousAnswerLimit}자로 요약한 것, 근거가 아님): ${previousAnswer.slice(0, previousAnswerLimit)}`
+    : "";
+  const rebuttalBlock = rebuttal
+    ? `\n\n사용자 반론: 현재 질문은 직전 설명의 특정 표현·분류에 대한 반론·정정입니다. 새 질문이 아니라 반론으로 답하세요. 반론 대상 표현을 먼저 언급하고, 분류·라벨 정정과 사실 결론 변경을 구분하세요. 같은 주의사항·오류 목록을 처음부터 다시 나열하지 마세요.`
     : "";
   return [
     { role: "system", content: ASSISTANT_SYSTEM },
     {
       role: "user",
-      content: `제공된 근거:\n${evidenceBlock}${contextBlock}${clarifyBlock}${followUpBlock}${learnBlock}${previousAnswerBlock}\n\n질문: ${question}`,
+      content: `제공된 근거:\n${evidenceBlock}${contextBlock}${clarifyBlock}${followUpBlock}${learnBlock}${previousAnswerBlock}${rebuttalBlock}\n\n질문: ${question}`,
     },
   ];
 }

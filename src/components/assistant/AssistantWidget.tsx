@@ -8,7 +8,7 @@ import { readLearnScreen, type LearnScreenMode } from "@/client/learn-screen";
 import { automationLevel, executionGate, GATE_LABELS } from "@/lib/ax/policy";
 import { planSummary } from "@/lib/ax/guide";
 import { loadLearnProgress } from "@/lib/learn/progress-store";
-import { topicAnchorForRequest, updateTopicAnchor } from "@/lib/assistant/topics";
+import { isRebuttalQuestion, topicAnchorForRequest, updateTopicAnchor } from "@/lib/assistant/topics";
 import type { QuizAttempt } from "@/lib/learn/types";
 import "./assistant.css";
 
@@ -363,8 +363,12 @@ export function AssistantWidget() {
     // clarification (the clarify payload already carries context).
     const topicAnchor = pendingClarify ? null : topicAnchorForRequest(question, topicAnchorRef.current);
     // Previous answer (bounded) so a follow-up builds on it instead of repeating it.
+    // On a rebuttal turn the rebutted wording may sit beyond 600 chars, so the
+    // bound is the request schema's 1000-char maximum for that turn only.
+    // (followUpOf is required here, so a first-turn rhetorical question is
+    // never treated as a rebuttal.)
     const previousAnswer = followUpOf && lastAssistantAnswerRef.current
-      ? lastAssistantAnswerRef.current.slice(0, 600)
+      ? lastAssistantAnswerRef.current.slice(0, isRebuttalQuestion(question) ? 1000 : 600)
       : null;
     try {
       const context = withContext ? await readScreenContext(question) : null;
