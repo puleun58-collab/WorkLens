@@ -793,23 +793,19 @@ function ResearchResult({ data, request, expandSources = false, onExpandSourcesC
     activeIssue.current?.classList.remove("is-focused", "is-focus-fresh", "is-focus-leaving");
     target.classList.remove("is-focused", "is-focus-fresh", "is-focus-leaving");
     void target.offsetWidth;
-    // The highlight used to fade out on a timer (~3s) whether or not the
-    // reader had finished with the section, so a keyboard or mouse jump
-    // could look unfocused a moment later. The fresh flash still fades,
-    // but the focused highlight now persists until focus actually leaves
-    // the section heading (or another jump replaces it), so the landed
-    // section stays visibly marked while it is being read.
     target.classList.add("is-focused", "is-focus-fresh");
     activeIssue.current = target;
-    const heading = target.querySelector<HTMLElement>("h3");
-    heading?.focus({ preventScroll: true });
-    heading?.addEventListener("blur", () => {
-      target.classList.remove("is-focused", "is-focus-fresh", "is-focus-leaving");
-      if (activeIssue.current === target) activeIssue.current = null;
-    }, { once: true });
+    target.querySelector<HTMLElement>("h3")?.focus({ preventScroll: true });
     target.scrollIntoView({ behavior: "instant", block: "start" });
     focusTimer.current = window.setTimeout(() => {
       target.classList.remove("is-focus-fresh");
+      focusTimer.current = window.setTimeout(() => {
+        target.classList.add("is-focus-leaving");
+        focusTimer.current = window.setTimeout(() => {
+          target.classList.remove("is-focused", "is-focus-leaving");
+          activeIssue.current = null;
+        }, 350);
+      }, 1800);
     }, 800);
   }
   const result = researchResult(data.text);
