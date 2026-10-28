@@ -37,18 +37,18 @@ test("AX 1차 MVP 개선: 업무 등록 → 결정 지점 답변 → 예시 3건
   ];
   for (let k = 0; k < examples.length; k++) await page.getByRole("button", { name: "예시 추가", exact: true }).click();
   for (const [i, example] of examples.entries()) {
-    await page.getByLabel(`예시 ${i + 1} 입력 값`).fill(example.input);
+    await page.getByLabel(`예시 ${i + 1} 입력값`).fill(example.input);
     await page.getByLabel(`예시 ${i + 1} 기대 결과 상태`).fill(example.state);
   }
   // D4가 확정된 뒤에는 D4 목록에 없는 기대 결과의 저장을 막는다.
-  const exampleSection = page.locator('section[aria-label="예시 결과 확인"]');
+  const exampleSection = page.locator('section[aria-label="업무 처리 예시"]');
   await page.getByLabel("예시 1 기대 결과 상태").fill("실패");
-  await page.getByRole("button", { name: "예시 결과 저장", exact: true }).click();
+  await page.getByRole("button", { name: "업무 처리 예시 저장", exact: true }).click();
   await expect(exampleSection.getByRole("alert")).toContainText("예시 1의 기대 결과가 D4 결과 상태 목록(정상 · 오류(확정) · 확인 필요)에 없습니다.");
   await expect(exampleSection.getByText("예시 결과를 저장했습니다.", { exact: true })).toHaveCount(0);
   await page.getByLabel("예시 1 기대 결과 상태").fill(examples[0].state);
-  await page.getByRole("button", { name: "예시 결과 저장", exact: true }).click();
-  await expect(page.locator('section[aria-label="예시 결과 확인"]').getByText("예시 결과를 저장했습니다.", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "업무 처리 예시 저장", exact: true }).click();
+  await expect(page.locator('section[aria-label="업무 처리 예시"]').getByText("업무 처리 예시를 저장했습니다.", { exact: true })).toBeVisible();
 
   // 저장 확인: IndexedDB 레코드에 결정 지점·예시 결과가 들어간다.
   // useAxState 저장은 디바운스되므로 플러시될 때까지 poll한다.

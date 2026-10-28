@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { DECISION_POINT_DEFS, confirmedStateNames, resolveDecisionPoints, type ResolvedDecisionPoint } from "@/lib/ax/decision-points";
-import { EXAMPLE_CONFIRMED_MINIMUM, partitionExamples } from "@/lib/ax/example-results";
+import { EXAMPLE_CONFIRMED_MINIMUM, exampleRequirement, partitionExamples } from "@/lib/ax/example-results";
 import type { AxDiagnosis, DecisionPoint, ExampleResult } from "@/lib/ax/types";
 
 /**
@@ -88,6 +88,9 @@ export function ExampleResultsSection({ examples, diagnosis, disabled, onSave }:
   const [error, setError] = useState("");
   // D4가 미확정이면 검증하지 않는다. 확정 후에는 D4 목록에 없는 기대 결과의 저장을 막는다.
   const stateNames = confirmedStateNames(resolveDecisionPoints(diagnosis));
+  // 보완 6항 1·5번: 최소 3건 안내·확정 건수는 필수 대상에만 표시한다.
+  // 진단 정보가 없으면 필수 여부를 확인할 수 없으므로 확인 필요로 처리한다 (자동 면제 없음).
+  const requirement = diagnosis ? exampleRequirement(resolveDecisionPoints(diagnosis)) : "needs-confirmation";
   const { valid: countedExamples, invalid: invalidExamples } = partitionExamples(examples, stateNames);
   const update = (index: number, patch: Partial<ExampleDraft>) =>
     setDrafts(current => current.map((row, i) => i === index ? { ...row, ...patch } : row));
@@ -114,18 +117,22 @@ export function ExampleResultsSection({ examples, diagnosis, disabled, onSave }:
     onSave(confirmed.slice(0, 20));
     setSaved(true);
   };
-  return <section className="ax-surface" aria-label="예시 결과 확인">
-    <h3>예시 결과 확인 (HITL)</h3>
-    <p className="ax-muted">정상 사례와 예외 사례를 각각 1건 이상 넣어 주세요. (안내이며, 강제 조건은 확정 {EXAMPLE_CONFIRMED_MINIMUM}건입니다.) 확정 예시가 {EXAMPLE_CONFIRMED_MINIMUM}건 미만이면 &lsquo;예시 결과 미확정&rsquo; 보류 사유가 붙습니다.</p>
+  return <section className="ax-surface" aria-label="업무 처리 예시">
+    <h3>업무 처리 예시</h3>
+    {requirement === "required"
+      ? <p className="ax-muted">정상 사례와 예외 사례를 각각 1건 이상 넣어 주세요. (안내이며, 필수 조건은 확정 {EXAMPLE_CONFIRMED_MINIMUM}건입니다.) 확정 예시가 {EXAMPLE_CONFIRMED_MINIMUM}건 미만이면 &lsquo;업무 처리 예시 미확정&rsquo; 보류 사유가 붙습니다.</p>
+      : requirement === "recommended"
+        ? <p className="ax-muted">예시는 권장 사항입니다. 정상 사례와 예외 사례를 각각 1건 이상 넣어 주면 구현 확인에 도움이 됩니다. 필수 조건이 아니므로 예시가 없어도 보류 사유가 붙지 않습니다.</p>
+        : <p className="ax-muted">업무 처리 예시 필수 여부가 확인되지 않았습니다. 결정 지점 D1·D2·D3·D7을 확정하거나 해당 없음으로 확인하면 필수 여부가 정해집니다. 필수 대상인 경우에만 확정 {EXAMPLE_CONFIRMED_MINIMUM}건이 필요합니다.</p>}
     <p className="ax-muted">실제 개인정보·거래처 정보 대신 가명이나 예시 값을 입력하세요.</p>
     <p className="ax-muted">{stateNames
       ? <>기대 결과는 D4 결과 상태 중 하나로 입력하세요: {stateNames.join(" · ")}</>
       : "D4 결과 상태가 아직 확정되지 않아 기대 결과를 검증하지 않습니다. D4를 확정하면 기대 결과가 D4 상태 목록에 있는지 확인합니다."}</p>
-    <p className="ax-muted">확정 예시 {countedExamples.length}건</p>
+    {requirement === "required" ? <p className="ax-muted">확정 예시 {countedExamples.length}건</p> : null}
     {invalidExamples.length ? <p className="ax-muted" role="status">저장된 예시 중 {invalidExamples.length}건은 기대 결과가 D4 결과 상태 목록에 없어 확정 예시로 세지 않습니다. 기대 결과를 D4 상태 중 하나로 고쳐 다시 저장하세요.</p> : null}
     {drafts.map((row, i) => <div className="ax-field" key={i}>
-      <label className="ax-field">예시 {i + 1} 입력 값
-        <Textarea rows={2} maxLength={2000} aria-label={`예시 ${i + 1} 입력 값`} disabled={disabled}
+      <label className="ax-field">예시 {i + 1} 입력값
+        <Textarea rows={2} maxLength={2000} aria-label={`예시 ${i + 1} 입력값`} disabled={disabled}
           value={row.input} onChange={e => { update(i, { input: e.target.value }); setSaved(false); }} />
       </label>
       <label className="ax-field">예시 {i + 1} 기대 결과 (D4 상태 중 하나)
@@ -146,9 +153,9 @@ export function ExampleResultsSection({ examples, diagnosis, disabled, onSave }:
     <div style={{ display: "flex", gap: 8 }}>
       <Button type="button" variant="outline" disabled={disabled}
         onClick={() => { setDrafts(current => [...current, { input: "", expectedState: "", expectedValue: "", memo: "" }]); setSaved(false); }}>예시 추가</Button>
-      <Button type="button" disabled={disabled} onClick={save}>예시 결과 저장</Button>
+      <Button type="button" disabled={disabled} onClick={save}>업무 처리 예시 저장</Button>
     </div>
     {error ? <p className="ax-muted" role="alert">{error}</p> : null}
-    {saved ? <p className="ax-muted">예시 결과를 저장했습니다.</p> : null}
+    {saved ? <p className="ax-muted">업무 처리 예시를 저장했습니다.</p> : null}
   </section>;
 }

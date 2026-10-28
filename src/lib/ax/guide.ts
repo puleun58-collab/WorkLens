@@ -2,7 +2,7 @@ import type { AxDiagnosis, AxPlan, ExampleResult } from "./types";
 import { automationLevel, axes, executionProfile, prerequisiteTopicKey, type ExecutionGate, type ExecutionProfile, type StepScope } from "./policy";
 import { FACTOR_KEYS } from "./schema";
 import { applyStateDefinition, confirmedStateNames, confirmedUndecidableState, resolveDecisionPoints, undecidedDecisionIds, type ResolvedDecisionPoint } from "./decision-points";
-import { EXAMPLE_CONFIRMED_MINIMUM, exampleHoldReasons, exampleResultRow, partitionExamples } from "./example-results";
+import { EXAMPLE_CONFIRM_REASON, EXAMPLE_CONFIRMED_MINIMUM, EXAMPLE_HOLD_REASON, exampleHoldReasons, exampleRequirement, exampleResultRow, partitionExamples } from "./example-results";
 import { extractPlanReviewableItems, extractReviewableItems, getValidConfirmedReviews, buildPlanReviewKeyMap } from "./hitl";
 
 export type AxToolId = "codex" | "claude";
@@ -840,17 +840,24 @@ export function planSummary(diagnosis: AxDiagnosis, rawPlan?: AxPlan, context = 
   });
   // 1차 MVP 개선 — 기존 보류 체계에 추가되는 사유 (기존 항목을 바꾸지 않고 덧붙인다).
   // 예시 목록이 전달된 경우에만 적용한다 (미전달 시 기존 요약 동작 유지). 화면은 저장 전
-  // 기본 상태도 빈 목록으로 전달하므로 예시 0건도 3건 미만으로 처리된다.
+  // 기본 상태도 빈 목록으로 전달하므로 예시 0건도 02 요약에 표시된다.
   // D4가 확정되면 기대 결과가 D4 목록에 없는 예시는 확정 예시로 세지 않는다 (04 지시문과 같은 기준).
+  // 보완 6항 1번: 필수 대상만 미확정 사유 카드, 확인 필요 대상은 확인 필요 카드,
+  // 권장 대상은 카드를 붙이지 않는다 (일괄 3건 강제 아님).
   const summaryStateNames = confirmedStateNames(model.decisionPoints ?? []);
-  if (options.exampleResults !== undefined && exampleHoldReasons(options.exampleResults, summaryStateNames).length) {
+  const summaryRequirement = exampleRequirement(model.decisionPoints ?? []);
+  if (options.exampleResults !== undefined) {
+    const summaryReasons = exampleHoldReasons(options.exampleResults, summaryStateNames, summaryRequirement);
     const { valid, invalid } = partitionExamples(options.exampleResults, summaryStateNames);
-    checks.push({ topic: "예시 결과 미확정", status: "확인 필요", note: `확정 예시가 ${valid.length}건으로 ${EXAMPLE_CONFIRMED_MINIMUM}건 미만입니다.${invalid.length ? ` 기대 결과가 D4 결과 상태 목록에 없는 예시 ${invalid.length}건은 제외했습니다.` : ""} 예시 결과 확인에서 ${EXAMPLE_CONFIRMED_MINIMUM}건 이상 확정하세요.`, tone: "required" });
+    if (summaryReasons.includes(EXAMPLE_HOLD_REASON)) {
+      checks.push({ topic: "업무 처리 예시 미확정", status: "확인 필요", note: `확정 예시가 ${valid.length}건으로 ${EXAMPLE_CONFIRMED_MINIMUM}건 미만입니다.${invalid.length ? ` 기대 결과가 D4 결과 상태 목록에 없는 예시 ${invalid.length}건은 제외했습니다.` : ""} 업무 처리 예시 확인에서 ${EXAMPLE_CONFIRMED_MINIMUM}건 이상 확정하세요.`, tone: "required" });
+    } else if (summaryReasons.includes(EXAMPLE_CONFIRM_REASON)) {
+      checks.push({ topic: "업무 처리 예시 확인 필요", status: "확인 필요", note: `업무 처리 예시 필수 여부가 미확정입니다. 확정 예시는 ${valid.length}건입니다. 결정 지점 D1·D2·D3·D7을 확정하거나 해당 없음으로 확인하면 필수 여부가 정해집니다.`, tone: "required" });
+    }
   }
   // D4/D5 미확정은 summary.checks(기술 점검 카드 전용)에는 넣지 않는다.
   // 02 카드의 출처·개수를 바꾸면 기존 중복 제거 계약이 깨진다. 대신 지시문
-  // §1 결정 지점 블록과 §5 미확정 항목 처리에서 조건부 보류 체계로 다룬다
-  // ("D4 또는 D5가 미확정이므로 기존 조건부 보류 체계로 처리한다").
+  // §1 결정 지점 블록과 §5 미확정 항목 처리의 범위별 보류 문장으로 다룬다.
   const additionalChecks = buildAdditionalChecks(model, technicalChecks, checkTexts,
     new Set((model.gate === "blocked" ? profile?.blockReasons ?? [] : []).map(normalizedItem)));
   const excluded = mergeDistinct(restricted, without([
@@ -2556,9 +2563,10 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
   const stateNames = confirmedStateNames(decisionPoints);
   const undecidedIds = undecidedDecisionIds(decisionPoints);
   const d5State = confirmedUndecidableState(decisionPoints);
+  const requirement = exampleRequirement(decisionPoints);
   // D4가 확정되면 기대 결과가 D4 목록에 없는 예시는 확정 예시에서 제외한다 (D4 단일 정의 유지).
   const { valid: examples, invalid: excludedExamples } = partitionExamples(model.exampleResults, stateNames);
-  const exampleHold = exampleHoldReasons(examples);
+  const exampleHold = exampleHoldReasons(examples, null, requirement);
   // 사용자가 직접 입력한 블록은 D4 치환(applyStateDefinition) 대상에서 제외한다.
   // 치환하면 "정상·오류·확인 필요" 같은 D4 정의 행 자체가 다시 바뀌어 상태가 중복된다.
   const userBlocks: string[] = [];
@@ -2738,7 +2746,7 @@ ${stateList ? `\n결과 상태 목록: ${stateList} — 지시문 전체에서 �
     decisionPoints.length ? `### 결정 지점·예시 기반 구현 순서\n\n${bullets([
       `1. 코딩 전에 결과 상태 정의와 미확정 항목(${undecidedIds.length ? undecidedIds.join(", ") : "없음"})을 한 번 정리해 출력한다. 미확정 항목의 규칙을 임의로 정하지 않는다.`,
       "2. 핵심 처리 로직을 화면과 분리된 함수로 먼저 구현한다.",
-      examples.length ? "3. 아래 확정 예시를 자동 테스트로 작성해 실행한다. 모든 예시가 기대 결과와 일치해야 다음 단계로 간다. 기대 결과를 수정하지 않는다. 일치시키지 못하면 이유를 보고하고 멈춘다." : "3. 확정 예시가 없어 확정 예시 기준의 자동 테스트를 작성할 수 없다. '예시 결과 미확정' 보류 사유를 보고하고, 예시가 확정될 때까지 해당 검증을 미실행으로 둔다.",
+      examples.length ? "3. 아래 확정 예시를 자동 테스트로 작성해 실행한다. 모든 예시가 기대 결과와 일치해야 다음 단계로 간다. 기대 결과를 수정하지 않는다. 일치시키지 못하면 이유를 보고하고 멈춘다." : requirement === "recommended" ? "3. 업무 처리 예시는 권장 사항이므로 확정 예시 기준의 자동 테스트는 필수가 아니다. 예시가 있으면 자동 테스트에 포함하고, 없으면 다른 검증 기준으로 진행한다." : requirement === "needs-confirmation" ? "3. 확정 예시가 없고 업무 처리 예시 필수 여부도 확인되지 않았다. '업무 처리 예시 확인 필요'로 보고하고, 필수 여부가 확인될 때까지 해당 검증을 미실행으로 둔다." : "3. 확정 예시가 없어 확정 예시 기준의 자동 테스트를 작성할 수 없다. '업무 처리 예시 미확정' 보류 사유를 보고하고, 예시가 확정될 때까지 해당 검증을 미실행으로 둔다.",
       "4. 다음 두 조건을 테스트에 포함한다: 하나의 항목은 결과 목록 하나에만 들어간다 / 모든 입력 행은 하나의 결과에 반영되거나, 정해진 제외 사유와 함께 표시된다.",
       "5. 화면을 연결한 뒤 같은 예시를 화면에서 처리해 결과가 같은지 확인한다.",
       "6. 배포한 경우 배포된 주소에서 같은 예시로 다시 확인한다.",
@@ -2746,13 +2754,16 @@ ${stateList ? `\n결과 상태 목록: ${stateList} — 지시문 전체에서 �
     decisionPoints.length ? `### 미확정 항목 처리\n\n${[
       d5State
         ? `미확정 규칙에 해당하는 행만 '${d5State}'로 보내고 사유에 해당 D번호를 표시한다. 나머지 행은 확정된 규칙대로 처리한다. 확정 규칙으로 판정할 수 있는 행까지 '${d5State}'로 보내는 구현은 완료가 아니다.`
-        : "D5가 미확정이므로 판정 불가 행을 보낼 상태명을 임의로 만들지 않는다. 해당 행은 기존 조건부 보류 체계에 따라 처리되며, 사유에 D번호를 표시한다.",
+        : "D5가 미확정이므로 판정 불가 행을 보낼 상태명을 임의로 만들지 않는다. 판정 불가 행만 보류하고 확정 규칙으로 판정 가능한 행은 정상 처리한다. 해당 행은 기존 조건부 보류 체계에 따라 처리되며, 사유에 D번호를 표시한다.",
       `미확정 항목: ${undecidedIds.length ? undecidedIds.join(", ") : "없음"} — 위 항목의 규칙을 임의로 정하지 않는다.`,
-      ...(undecidedIds.includes("D4") || undecidedIds.includes("D5") ? ["D4 또는 D5가 미확정이므로 기존 조건부 보류 체계로 처리한다."] : []),
+      ...(undecidedIds.includes("D4") ? ["D4가 미확정이므로 결과 상태 정의가 필요한 범위(결과 상태 판정·예시 기대 결과 검증)만 보류하고, D4 정의 없이 판단 가능한 처리는 확정된 규칙대로 진행한다. D4 미확정을 이유로 전체를 일괄 보류하지 않는다."] : []),
+      ...(!undecidedIds.includes("D4") && !undecidedIds.includes("D5") && undecidedIds.length ? ["D4·D5가 확정되고 다른 결정 지점이 미확정이므로, 확정 규칙으로 판단 가능한 데이터는 정상 처리하고, 미확정 규칙이 필요한 데이터만 해당 D번호와 함께 보류한다. 다른 지점 미확정을 이유로 확정 가능 데이터까지 일괄 보류하지 않는다."] : []),
     ].join("\n\n")}` : "",
     decisionPoints.length ? `### 확정 예시\n\n${examples.length
-      ? `${protectUserBlock(`| 입력 값 | 기대 결과 | 메모 |\n| --- | --- | --- |\n${examples.map(exampleResultRow).join("\n")}`)}${exampleHold.length ? `\n\n확정 예시가 ${examples.length}건으로 ${EXAMPLE_CONFIRMED_MINIMUM}건 미만이므로 '예시 결과 미확정' 보류 사유가 적용된다.` : ""}`
-      : "확정된 예시가 없습니다. '예시 결과 미확정' 보류 사유로 처리한다."}${excludedExamples.length ? `\n\n기대 결과가 결과 상태 목록에 없는 예시 ${excludedExamples.length}건은 확정 예시에서 제외했다. 제외한 예시로 테스트를 만들지 않는다.` : ""}` : "",
+      ? `${protectUserBlock(`| 입력 값 | 기대 결과 | 메모 |\n| --- | --- | --- |\n${examples.map(exampleResultRow).join("\n")}`)}${exampleHold.includes(EXAMPLE_HOLD_REASON) ? `\n\n확정 예시가 ${examples.length}건으로 ${EXAMPLE_CONFIRMED_MINIMUM}건 미만이므로 '업무 처리 예시 미확정' 보류 사유가 적용된다.` : ""}${exampleHold.includes(EXAMPLE_CONFIRM_REASON) ? `\n\n업무 처리 예시 필수 여부가 미확정입니다. 필수 여부가 확인될 때까지 예시 필수 조건은 보류한다.` : ""}`
+      : requirement === "recommended" ? "확정된 예시가 없습니다. 업무 처리 예시는 권장 사항이므로 필수 조건이 아니다."
+      : requirement === "needs-confirmation" ? "확정된 예시가 없습니다. 업무 처리 예시 필수 여부가 확인되지 않았으므로 확인 필요로 처리한다."
+      : "확정된 예시가 없습니다. '업무 처리 예시 미확정' 보류 사유로 처리한다."}${excludedExamples.length ? `\n\n기대 결과가 결과 상태 목록에 없는 예시 ${excludedExamples.length}건은 확정 예시에서 제외했다. 제외한 예시로 테스트를 만들지 않는다.` : ""}\n\n독립 평가 데이터는 이 지시문에 포함하지 않으며, 구현 에이전트에 정답을 사전 노출하지 않는다.` : "",
     work.length ? `### 정상 케이스\n\n${tests.length ? `${bullets(tests)}\n\n` : ""}실제 입력으로 처리·출력과 필요한 저장·재조회를 확정된 기대 결과와 대조하세요. 서로 다른 입력으로 다시 실행해 각 입력에 맞게 출력이 달라지는지 확인하고 고정 결과를 배제하세요. 기대 결과·허용 오차가 정의되지 않았다면 '확인 필요'로 보고하세요.`
       : `### 현재 검토·검증\n\n${tests.length ? `${bullets(tests)}\n\n` : ""}확보한 샘플과 기존 자료로 확인할 수 있는 범위만 검증하세요. 검증을 위해 새 기능·자동 생성 코드를 만들지 말고, 비교 자료가 없으면 '검증 불가'와 사유를 기록하세요.`,
     model.scoped.validationMethods.length ? `### 검증 방법·기록 (합격 조건 아님)\n\n${bullets(model.scoped.validationMethods.map(evidenceLine))}` : "",
@@ -2789,7 +2800,7 @@ ${stateList ? `\n결과 상태 목록: ${stateList} — 지시문 전체에서 �
       "배포 또는 운영 적용을 수행했다면 실제 환경에서 서로 다른 입력 → 파싱·처리 → 실제 출력·필요한 저장·재조회, 오류와 권한·승인 경계를 확인하세요. 배포하지 않았다면 운영 검증 완료로 보고하지 마세요.",
       ...(gate === "blocked" || !profile ? ["실행 범위가 차단·미확정 상태에서는 배포·운영 적용·연결을 수행하지 마세요. 차단 해제에 필요한 조건만 보고하세요."] : []),
     ])}`,
-    `작업이 끝나면 다음 4개 항목으로 보고하세요. 각 항목의 완료 여부는 실제 실행 근거를 기준으로 판단하고, 실행하지 않은 테스트나 배포를 완료로 표시하지 마세요. 배포가 필요하지 않은 프로그램은 실제 실행 검증 결과로 보고하세요. 확인하지 않은 환경변수·API·파일 경로를 적지 말고, 계획이나 미구현 기능을 실행 가능한 코드와 구분하세요. 완료 보고에는 예시별 기대 결과, 실제 결과, 일치 여부를 실제 실행 결과로 보고한다. 실행하지 못한 검증은 실행하지 못했다고 쓴다.${exampleHold.length ? " 확정 예시가 3건 미만이므로 '예시 결과 미확정' 보류 사유를 함께 보고한다." : ""}`,
+    `작업이 끝나면 다음 4개 항목으로 보고하세요. 각 항목의 완료 여부는 실제 실행 근거를 기준으로 판단하고, 실행하지 않은 테스트나 배포를 완료로 표시하지 마세요. 배포가 필요하지 않은 프로그램은 실제 실행 검증 결과로 보고하세요. 확인하지 않은 환경변수·API·파일 경로를 적지 말고, 계획이나 미구현 기능을 실행 가능한 코드와 구분하세요. 완료 보고에는 예시별 기대 결과, 실제 결과, 일치 여부를 실제 실행 결과로 보고한다. 실행하지 못한 검증은 실행하지 못했다고 쓴다.${exampleHold.includes(EXAMPLE_HOLD_REASON) ? " 확정 예시가 3건 미만이므로 '업무 처리 예시 미확정' 보류 사유를 함께 보고한다." : ""}${exampleHold.includes(EXAMPLE_CONFIRM_REASON) ? " 업무 처리 예시 필수 여부가 확인되지 않았으므로 확인 필요로 함께 보고한다." : ""} HITL 확정 예시는 구현 과정의 필수 확인 기준이며, 예시 통과만으로 구현 완료·정확성 PASS를 판단하지 않는다. 실제 정확성 검증은 별도 독립 평가 데이터로 수행하고, 수행하지 못한 검증은 NOT_VERIFIED로 보고한다. 배포 후 검증 보고에는 실제 배포 주소(URL), 입력, 실제 결과, 독립 정답 대조 결과를 포함한다.`,
     numbered([
       "구현한 기능 및 변경 파일",
       "실제 실행·테스트 결과 (실행하지 않은 검증은 미실행으로 명시)",

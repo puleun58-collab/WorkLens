@@ -261,7 +261,7 @@ export function AxDiagnosisView() {
       tasks: current.tasks.map(t => t.id === taskId
         ? { ...t, exampleResults: examples, updatedAt: now } as import("@/lib/ax/types").AxTaskV2 : t),
     }));
-    setMessage("예시 결과를 저장했습니다.");
+    setMessage("업무 처리 예시를 저장했습니다.");
   }
   // 단계 전환 후 새 단계의 최상단으로 스크롤 (이전 화면의 스크롤 위치가 유지되지 않도록)
   // 실제 스크롤 주체는 document(window) — #workspace-content(.workspace)는 스크롤 컨테이너가 아니므로
