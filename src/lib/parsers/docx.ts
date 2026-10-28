@@ -102,6 +102,11 @@ export const parseDocx = async (input: {
     const warnings = new Set<string>();
     for (const name of files.keys()) {
       if (name.startsWith("word/charts/")) warnings.add("DOCX_CHART_OMITTED");
+      // Footnotes, comments and embedded objects are not read into the
+      // review text; their presence is a coverage reason, not silence.
+      if (name === "word/footnotes.xml") warnings.add("DOCX_FOOTNOTE_OMITTED");
+      if (name === "word/comments.xml") warnings.add("DOCX_COMMENT_OMITTED");
+      if (name.startsWith("word/embeddings/")) warnings.add("DOCX_OBJECT_OMITTED");
     }
     const partContent = (bytes: Uint8Array, root: "document" | "hdr" | "ftr"): string => {
       const content = new TextDecoder("utf-8", { fatal: true }).decode(bytes);

@@ -1,7 +1,7 @@
 import { lawDisplayText } from "@/lib/law-display";
 import { researchResult } from "@/lib/law-research-parse";
 import {
-  isLawName, isSubjectTerm, questionTerms, questionTermsSubjectLess, rankPrecedent, titleMatches,
+  isDefinitionTitle, isLawName, isSubjectTerm, questionTerms, questionTermsSubjectLess, rankPrecedent, titleMatches,
   type PrecedentRelevance, type ResearchEnrichment, type SupplementArticle,
 } from "@/lib/research-relevance";
 import type { ResearchDecision } from "@/lib/law-research-parse";
@@ -271,6 +271,7 @@ async function titleArticles(
   }
 
   const candidates: Array<{ law: string; mst: string; jo: string; title: string; matched: string[] }> = [];
+  const subjectMatched = (matched: readonly string[]) => matched.filter(isSubjectTerm).length;
   await pool([...laws], async ([law, mst]) => {
     lookups++;
     const toc = await sources.toc(mst).catch(() => { failures++; return []; });
@@ -288,10 +289,14 @@ async function titleArticles(
       }
     }
   }, expired);
-  // More matched terms first; laws in lookup order, then article order, as tie-breakers.
+  // Subject-term coverage first, then a substantive article before a
+  // definition article, then matched-term count; laws in lookup order, then
+  // article order, as tie-breakers. The 3-article cap is unchanged.
   const order = [...laws.keys()];
   const chosen = candidates
-    .sort((a, b) => b.matched.length - a.matched.length || order.indexOf(a.law) - order.indexOf(b.law))
+    .sort((a, b) => subjectMatched(b.matched) - subjectMatched(a.matched)
+      || Number(isDefinitionTitle(a.title)) - Number(isDefinitionTitle(b.title))
+      || b.matched.length - a.matched.length || order.indexOf(a.law) - order.indexOf(b.law))
     .slice(0, MAX_ARTICLES);
 
   const articles: SupplementArticle[] = [];
@@ -300,6 +305,7 @@ async function titleArticles(
     if (strictName && found?.name && found.name !== candidate.law) return; // Stale/misdirected MST.
     const excerpt = found ? articleExcerpt(found.text, candidate.jo) : "";
     if (excerpt) articles.push({ law: candidate.law, jo: candidate.jo, title: candidate.title, excerpt, matched: candidate.matched,
+      role: isDefinitionTitle(candidate.title) ? "definition" : "other", stage: "supplement",
       ...(found?.effectiveDate ? { effectiveDate: found.effectiveDate } : {}) });
   }, expired);
   articles.sort((a, b) => chosen.findIndex((c) => c.law === a.law && c.jo === a.jo) - chosen.findIndex((c) => c.law === b.law && c.jo === b.jo));
@@ -386,7 +392,8 @@ async function fetchExplicitArticles(
     const excerpt = articleExcerpt(fetched.text, pair.jo);
     if (!excerpt) continue;
     const title = /제[1-9]\d{0,3}조(?:의[1-9]\d?)?\(([^)]+)\)/u.exec(fetched.text)?.[1]?.trim() ?? "";
-    articles.push({ law: law.name, jo: pair.jo, title, excerpt, matched: [], explicit: true,
+    articles.push({ law: law.name, jo: pair.jo, title, excerpt, matched: [], explicit: true, stage: "issue",
+      role: isDefinitionTitle(title) ? "definition" : "other",
       ...(fetched.effectiveDate ? { effectiveDate: fetched.effectiveDate } : {}) });
   }
   return articles;
@@ -512,6 +519,7 @@ export async function rereadShownArticles(
     if (!fetched) continue;
     const excerpt = articleExcerpt(fetched.text, article.jo);
     if (excerpt) articles.push({ law: article.law, jo: article.jo, title: article.title ?? "", excerpt, matched,
+      role: isDefinitionTitle(article.title) ? "definition" : "other", stage: "reread",
       ...(fetched.effectiveDate ? { effectiveDate: fetched.effectiveDate } : {}) });
   }
   return articles;

@@ -95,6 +95,20 @@ export function articleTitleDisplayLines(lines: readonly string[], jo: string): 
   return drop(1, jo);
 }
 
+/**
+ * One heading for a rendered article: when the upstream title itself starts
+ * with the article number (`제2조(정의)`), rendering `{law} {jo} {title}`
+ * would print the number twice (`제2조 제2조(정의)`). The title already
+ * carries the number, so it stands alone after the law name. Compound
+ * numbers (`제4조의2`) match exactly; a title that merely mentions another
+ * number is left untouched.
+ */
+export function articleHeadingText(law: string, jo: string, title?: string): string {
+  const trimmed = title?.trim() ?? "";
+  if (trimmed === jo || trimmed.startsWith(`${jo}(`) || trimmed.startsWith(`${jo} `)) return `${law} ${trimmed}`;
+  return `${law} ${jo}${trimmed ? ` ${trimmed}` : ""}`;
+}
+
 /** Text form of articleTitleDisplayLines: the display text with heading lines removed. */
 export function articleTitleDisplay(text: string, jo: string): { title: string; body: string; deduped: boolean; mismatch?: string } {
   const display = articleTitleDisplayLines(lawDisplayText(text).split("\n"), jo);

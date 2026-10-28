@@ -51,6 +51,10 @@ async function withCurrency(articles: Array<{ law: string; jo: string }>, text: 
   for (const article of enrichment?.supplement?.articles ?? []) {
     if (article.effectiveDate) effective.set(`${article.law}\0${article.jo}`, article.effectiveDate);
   }
+  const chainKeys = new Set(researchResult(text).sections.flatMap((section) => section.articles ?? [])
+    .map((article) => `${article.law}\0${article.jo}`));
+  const supplementStage = new Map<string, "supplement" | "issue" | "reread" | "retry">((enrichment?.supplement?.articles ?? [])
+    .map((article) => [`${article.law}\0${article.jo}`, article.stage ?? "supplement"] as const));
   const laws = [...new Set(articles.map((article) => article.law))].slice(0, MAX_STATUS_LAWS);
   const statuses = new Map(await Promise.all(laws.map(async (law) => {
     const found = await searchLaw(law, context).catch(() => undefined);
@@ -75,7 +79,8 @@ async function withCurrency(articles: Array<{ law: string; jo: string }>, text: 
       : date === versionDate ? "current"
       : date < versionDate ? "not_current"
       : "unconfirmed";
-    return { ...article, currency };
+    const key = `${article.law}\0${article.jo}`;
+    return { ...article, currency, stage: chainKeys.has(key) ? "chain" as const : supplementStage.get(key) ?? "supplement" as const };
   });
 }
 
@@ -316,7 +321,7 @@ async function fullResearch(
         if (supplement) retryArticles.set(key, supplement);
         else if (textArticle) retryArticles.set(key, {
           law: article.law, jo: article.jo, title: textArticle.title ?? "",
-          excerpt: textArticle.excerpt ?? "", matched: titleMatches(issueTerms, article.law, textArticle.title ?? ""),
+          excerpt: textArticle.excerpt ?? "", matched: titleMatches(issueTerms, article.law, textArticle.title ?? ""), stage: "retry",
           ...(textArticle.effective?.replace(/\D/gu, "").length === 8 ? { effectiveDate: textArticle.effective.replace(/\D/gu, "") } : {}),
         });
       }
@@ -459,7 +464,8 @@ export async function runLegalResearch(
       ...(enrichment ? { enrichment } : {}), actionBasis: assessActionBasis(request.query, text, enrichment) };
   }
   if (request.task === "law_system") {
-    return { found: true, task: request.task, text, markers: classification.markers, lawSystem: assessLawSystem(text) };
+    return { found: true, task: request.task, text, markers: classification.markers,
+      lawSystem: assessLawSystem(text, request.query, request.articles) };
   }
   if (request.task === "dispute_prep") {
     return { found: true, task: request.task, text, markers: classification.markers, dispute: assessDispute(request.query, text) };

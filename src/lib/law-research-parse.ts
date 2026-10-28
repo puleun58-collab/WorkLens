@@ -34,6 +34,10 @@ export interface ResearchDecision {
 export interface ResearchAnnexItem {
   title: string;
   law?: string;
+  /** Upstream internal code (`[001602]`), kept apart from the form label: it is an index key, not a 별지 number. */
+  code?: string;
+  /** Upstream 별지 label (`별지 제1호서식`) when the entry carries one; absent for code-only entries. */
+  formLabel?: string;
 }
 
 export interface ResearchSection extends AnalysisSection {
@@ -138,8 +142,17 @@ function parseDecisions(lines: readonly string[]): ResearchDecision[] {
 function parseAnnex(lines: readonly string[]): ResearchAnnexItem[] {
   const items: ResearchAnnexItem[] = [];
   for (const line of lines) {
-    const item = /^\s*\d+\.\s*(?:\[[^\]]+\]\s*)?(.+?)\s*$/u.exec(line);
-    if (item && /^\s*\d+\./u.test(line)) { items.push({ title: item[1] }); continue; }
+    const item = /^\s*\d+\.\s*(?:\[([^\]]+)\]\s*)?(.+?)\s*$/u.exec(line);
+    if (item && /^\s*\d+\./u.test(line)) {
+      const bracket = item[1];
+      const entry: ResearchAnnexItem = { title: item[2] };
+      if (bracket) {
+        if (/^\d{4,}$/u.test(bracket)) entry.code = bracket;
+        else if (/별지/u.test(bracket)) entry.formLabel = bracket;
+      }
+      items.push(entry);
+      continue;
+    }
     const law = /^\s+관련법령:\s*(.+?)\s*$/u.exec(line);
     if (law && items.length) items.at(-1)!.law = law[1];
   }

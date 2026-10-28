@@ -51,8 +51,13 @@ const LEFTOVER_LABEL = /^[\s\p{Extended_Pictographic}\uFE0F]*(?:[^\s:：][^:：]
 
 function withoutOperatorGuidance(raw: string): string | undefined {
   if (AGENT_LINE.test(raw)) return undefined;
-  // `법령ID: 011357 | MST: 283839 | 구분: 법률`: MST is the API's version serial, not something a reader uses.
-  const line = raw.replace(/\s*\|\s*MST:?\s*\d+(?=\s*(?:\||$))/gu, "").replace(/^(\s*)MST:?\s*\d+\s*\|\s*/u, "$1");
+  // `법령ID: 011357 | MST: 283839 | 구분: 법률`: MST is the API's version serial and 법령ID is an
+  // internal identifier — neither is something a default-screen reader uses. Both stay available
+  // internally (search, identification, link generation) and in detailed evidence views; only the
+  // default `<pre>` display drops them, so a law name already shown is never duplicated by an ID.
+  const line = raw.replace(/\s*\|\s*MST:?\s*\d+(?=\s*(?:\||$))/gu, "").replace(/^(\s*)MST:?\s*\d+\s*\|\s*/u, "$1")
+    .replace(/\s*\|\s*법령ID:?\s*[\w-]+(?=\s*(?:\||$))/gu, "").replace(/^(\s*)법령ID:?\s*[\w-]+\s*\|\s*/u, "$1")
+    .replace(/^(\s*)법령ID:?\s*[\w-]+\s*$/u, "");
   if (!OPERATOR_TEXT.test(line)) return line;
   // The MCP fell back to full-text search: a body hit is not a relevance judgement, so the note says only how the list was found.
   if (SEARCH_ADJUSTMENT.test(line)) return "본문 검색으로 찾은 결과입니다. 쟁점과의 관련성은 판시사항에서 확인하세요.";

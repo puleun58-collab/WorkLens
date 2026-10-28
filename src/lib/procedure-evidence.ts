@@ -33,6 +33,12 @@ export interface ProcedureArticleRef {
   nature?: ProcedureFormNature;
 }
 
+/** How far annex originals got: this codebase has no annex-origin step, so
+ *  every annex entry is `list-only` — a title in a list, never a retrieved
+ *  form body or link. A complete list is still list-only; truncation and
+ *  origin stage are separate facts and must not be conflated. */
+export type AnnexOriginStage = "list-only" | "identified" | "linked" | "verified";
+
 export interface ProcedureRequirementEvidence {
   label: string;
   kind: ProcedureRequirementKind;
@@ -44,6 +50,12 @@ export interface ProcedureRequirementEvidence {
   /** Distinct matching annex entries (titles only — never direct evidence). */
   annexCount: number;
   annexTotal?: number;
+  /** Origin stage of the annex entries above; never beyond list-only here. */
+  annexOriginStage: AnnexOriginStage;
+  /** Title-correspondence candidates for this requirement (additive display
+   *  only): annex titles whose wording matches the requirement's subject.
+   *  Separate from `annexCount` (law-name match) and never direct evidence. */
+  annexRelatedCandidates: string[];
   /** No parsed article matched, but section text mentions the requirement. */
   unparsed?: true;
 }
@@ -55,6 +67,8 @@ export interface ProcedureEvidence {
   incomplete: boolean;
   /** An annex list was cut (entries < the stated total): originals not held. */
   annexTruncated: boolean;
+  /** Overall annex origin stage; `list-only` until an origin step exists. */
+  annexOriginStage: AnnexOriginStage;
   failedSections: number;
 }
 
@@ -246,13 +260,14 @@ export function assessProcedureEvidence(query: string, document: ResearchDocumen
   for (const article of detail) {
     if (!candidates.some((item) => item.law === article.law && item.jo === article.jo)) candidates.push(article);
   }
-  const annexEntries = new Map<string, { title: string; law: string }>();
+  const annexEntries = new Map<string, { title: string; law: string; formLabel?: string }>();
   let annexTotal: number | undefined;
   let annexTruncated = false;
   for (const section of document.sections.filter((section) => section.status === "available" && section.kind === "annex" && section.annex)) {
     annexTotal = Math.max(annexTotal ?? 0, section.annex!.total ?? 0);
     for (const entry of section.annex!.entries) {
-      annexEntries.set(`${entry.title}\0${entry.law ?? ""}`, { title: entry.title, law: entry.law ?? "" });
+      annexEntries.set(`${entry.title}\0${entry.law ?? ""}`, { title: entry.title, law: entry.law ?? "",
+        ...(entry.formLabel ? { formLabel: entry.formLabel } : {}) });
     }
   }
   if (annexTotal !== undefined && annexEntries.size < annexTotal) annexTruncated = true;
@@ -303,12 +318,32 @@ export function assessProcedureEvidence(query: string, document: ResearchDocumen
       }
     }
     let annexCount = 0;
+    const annexRelatedCandidates: string[] = [];
     if (requirement.kind === "forms" || requirement.kind === "general") {
       for (const entry of annexEntries.values()) {
         const entrySubjects = subjects.length ? subjects : chains.map(chainRoot);
         const lawHit = entrySubjects.some((subject) => compact(entry.law).includes(compact(subject)))
           || chains.some((chain) => compact(entry.law).includes(chainRoot(chain)));
         if (lawHit) annexCount++;
+        // Title correspondence is a separate, additive signal. For a forms
+        // requirement it is a form-named entry of the matching law (a 청구서
+        // title for a 청구 filing); for a general requirement the entry's
+        // own wording must name the subject. It never promotes the entry
+        // to direct evidence.
+        const titleText = compact(`${entry.formLabel ?? ""} ${entry.title}`);
+        // Filing-form titles only (청구서/신청서/보정서/취하서): a bare
+        // "(서식)" suffix would admit every listed form, including 집행문.
+        const FORM_CANDIDATES = ["청구서", "신청서", "보정서", "취하서"];
+        const titleHit = requirement.kind === "forms"
+          ? lawHit && FORM_CANDIDATES.some((noun) => compact(entry.title).includes(noun))
+          : subjects.some((subject) => {
+            const needle = compact(subject);
+            return needle.length >= 2 && titleText.includes(needle);
+          });
+        if (titleHit && annexRelatedCandidates.length < 5) {
+          const shown = entry.formLabel ? `${entry.formLabel} ${entry.title}` : entry.title;
+          if (!annexRelatedCandidates.includes(shown)) annexRelatedCandidates.push(shown);
+        }
       }
     }
     let status: ProcedureRequirementStatus;
@@ -336,6 +371,7 @@ export function assessProcedureEvidence(query: string, document: ResearchDocumen
       label: requirement.label, kind: requirement.kind, status, articles,
       ...(related.length ? { related } : {}),
       annexCount, ...(annexTotal !== undefined ? { annexTotal } : {}),
+      annexOriginStage: "list-only" as const, annexRelatedCandidates,
       ...(unparsed ? { unparsed } : {}),
     };
   });
@@ -349,5 +385,7 @@ export function assessProcedureEvidence(query: string, document: ResearchDocumen
     : viewedCount > 0 ? "viewed"
     : failedCount > 0 ? "failed" : "none";
   if (overall === "matched" && incomplete) overall = "partial";
-  return { requirements: assessed, overall, incomplete, annexTruncated, failedSections };
+  // `overall` and requirement statuses are unchanged by the origin stage:
+  // the stage is additive information, never a demotion or promotion.
+  return { requirements: assessed, overall, incomplete, annexTruncated, annexOriginStage: "list-only", failedSections };
 }
