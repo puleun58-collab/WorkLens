@@ -199,15 +199,15 @@
 .learn-check { flex: none; width: 19px; height: 19px; border-radius: 50%; background: color-mix(in srgb, #16a34a 12%, transparent); color: #16a34a; display: inline-flex; align-items: center; justify-content: center; margin-top: 2px; }
 .learn-check svg { width: 11px; height: 11px; }
 
-/* 자주 발생하는 실수 — 전체 연한 붉은 배경, 헤더 띠 없이 균일 구성 */
-.learn-card-danger { background: #fdedf0; border-color: #f3d9de; }
-.learn-card-danger .learn-card-title { background: transparent; border-bottom: 0; color: #7f1d1d; padding: 12px 18px 0; }
-.learn-card-danger .learn-card-title svg { color: #dc2626; }
+/* 자주 발생하는 실수 — 차분한 앰버 배경, 헤더 띠 없이 균일 구성 (상하 블루 섹션과 명도·채도 조화) */
+.learn-card-danger { background: #fff0d9; border-color: #e8cfab; }
+.learn-card-danger .learn-card-title { background: transparent; border-bottom: 0; color: #78350f; padding: 12px 18px 0; }
+.learn-card-danger .learn-card-title svg { color: #b45309; }
 .learn-card-danger .learn-card-body { padding-top: 10px; }
 .learn-mistake-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.learn-mistake-card { background: #ffffff; border: 1px solid #f3d9de; border-radius: 8px; padding: 13px 15px; }
+.learn-mistake-card { background: #ffffff; border: 1px solid #e8cfab; border-radius: 8px; padding: 13px 15px; }
 .learn-mistake-card p { margin: 6px 0; }
-.learn-mistake-title { font-weight: 700; color: #7f1d1d; }
+.learn-mistake-title { font-weight: 700; color: #78350f; }
 
 /* 핵심 요약 — 전체 연한 파란 배경, 헤더 띠 없이 하나의 영역 */
 .learn-card-info { background: #eaf2fd; border-color: #d4e3f9; }

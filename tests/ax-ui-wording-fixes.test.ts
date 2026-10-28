@@ -37,6 +37,17 @@ describe("UI wording fixes", () => {
     expect(src).toContain("learn-mistake-grid");
   });
 
+  it("learn mistakes section uses calm amber tones, not the old light red", () => {
+    const css = read("../src/components/learn/learn.css");
+    expect(css).toContain(".learn-card-danger { background: #fff0d9; border-color: #e8cfab; }");
+    expect(css).toContain(".learn-card-danger .learn-card-title svg { color: #b45309; }");
+    expect(css).toContain(".learn-mistake-title { font-weight: 700; color: #78350f; }");
+    expect(css).not.toContain("#fdedf0");
+    expect(css).not.toContain("#f3d9de");
+    expect(css).not.toContain("#7f1d1d");
+    expect(css).not.toContain("#dc2626");
+  });
+
   it("diagnosis next action is a COSS outline button, not an underlined link", () => {
     const view = read("../src/components/ax/AxDiagnosisView.tsx");
     const css = read("../src/components/ax/ax.css");
