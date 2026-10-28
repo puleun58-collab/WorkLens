@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { navigateWorkspace } from "./navigation";
@@ -58,6 +58,29 @@ async function openStep4(page: Page) {
   return section;
 }
 
+// Wait for the 02 accordion transition (200ms) to finish before measuring
+// horizontal overflow. While the chevron is still rotating, its transient
+// bounding box grows from 16px to 22.63px and exceeds the section's right edge
+// by up to 3.31px, which would be misread as steady-state overflow. The
+// transition is considered finished only when the chevron width (2 decimals)
+// and the block overflow stay identical for 3 consecutive observations spaced
+// 50ms apart; the spacing rules out three accidental ties inside a single
+// animation frame. This follows the observation-based stable-wait pattern of
+// ax-ready-state.ts (no arbitrary sleep, no timeout inflation). The threshold
+// (≤ 1) and the assertion itself are unchanged.
+async function waitForPrereqAccordionSettled(trigger: Locator, block: Locator): Promise<void> {
+  const snapshots: string[] = [];
+  await expect.poll(async () => {
+    const chevronWidth = await trigger.locator('[data-slot="accordion-indicator"]').evaluate(el => Math.round(el.getBoundingClientRect().width * 100) / 100);
+    const overflow = await block.evaluate(el => el.scrollWidth - el.clientWidth);
+    snapshots.push(`${chevronWidth}|${overflow}`);
+    if (snapshots.length > 3) snapshots.shift();
+    if (snapshots.length < 3) return false;
+    const [a, b, c] = snapshots;
+    return a === b && b === c;
+  }, { intervals: [50] }).toBe(true);
+}
+
 test("02 구현 전 확인사항: 확인 카드 통합 + 추가 확인 사항 박스 제거 + 중복 제거", async ({ page }) => {
   const section = await openStep4(page);
   const block = section.locator("section[aria-label='02 구현 전 확인사항']");
@@ -83,7 +106,9 @@ test("02 구현 전 확인사항: 확인 카드 통합 + 추가 확인 사항 �
   for (const text of ["파일 시스템 접근 권한", "사내 시스템 UI 연동 여부", "데이터 구조·검증 규칙 정의"]) {
     await expect(block.locator(".ax-prereq-card").filter({ hasText: text }).first()).toBeVisible();
   }
-  // No horizontal overflow from the redesigned section
+  // No horizontal overflow from the redesigned section. Measure only after
+  // the accordion transition ends (see waitForPrereqAccordionSettled).
+  await waitForPrereqAccordionSettled(trigger, block);
   const overflow = await block.evaluate(el => el.scrollWidth - el.clientWidth);
   expect(overflow).toBeLessThanOrEqual(1);
   await block.screenshot({ path: reviewShotPath("prereq-desktop-1440x900.png") });
