@@ -110,7 +110,8 @@ p.research-meta { margin: 0; }
 .contract-review .contract-review-details-heading > h3 {
   margin: 0; color: var(--blue-active); font-size: var(--font-size-md); font-weight: var(--font-weight-semibold); letter-spacing: -.015em;
 }
-.contract-review-overview, .contract-review-summary { gap: 10px; }
+/* Overview/summary use the common section rhythm (6px), not their own 10px. */
+.contract-review-overview, .contract-review-summary { gap: 6px; }
 .contract-review-summary { padding-top: 18px; border-top: 1px solid var(--line-soft, var(--line)); }
 .contract-review-summary p { margin: 0; }
 /* Severity counts lead the summary; coverage of sources is the secondary line below. */

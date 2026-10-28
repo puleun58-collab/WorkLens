@@ -53,7 +53,7 @@ function FileCoverage({ file }: { file: ReviewFile }) {
     <dd>
       <strong>{COVERAGE_LABEL[coverage.status]}</strong> · {coverage.total.toLocaleString("ko-KR")}개 {coverage.unit} 중 {coverage.reviewed.toLocaleString("ko-KR")}개 {coverage.status === "partial" ? "상세 검토" : "검토"}
       {coverage.unreviewed > 0 && ` · ${coverage.status === "partial" ? "상세 미검토" : "미검토"} ${coverage.unreviewed.toLocaleString("ko-KR")}개`}
-      {items.length > 2 ? <details className="contract-review-coverage-detail"><summary>검토 범위 상세</summary>{details}</details> : details}
+      {items.length > 2 ? <details className="contract-review-coverage-detail law-detail-source"><SourceToggleSummary label="검토 범위 상세" openLabel="검토 범위 접기" />{details}</details> : details}
     </dd>
   </>;
 }
@@ -163,6 +163,11 @@ export function ContractReviewResult({ review, file, expandSources = false, onEx
     const related = placesOf(file, clauseSegments, issue.segments);
     const unverified = issue.lawStatus === "failed" || issue.lawStatus === "partial" || issue.lawStatus === "not_searched"
       || issue.precedentStatus === "failed" || issue.precedentStatus === "partial" || issue.precedentStatus === "not_searched";
+    // `none` / `not_searched` / `failed` were one badge: name the actual reason.
+    const unverifiedReason = issue.lawStatus === "failed" || issue.precedentStatus === "failed" ? "근거 조회 실패"
+      : issue.lawStatus === "partial" || issue.precedentStatus === "partial" ? "근거 일부 확인"
+      : issue.lawStatus === "not_searched" && issue.precedentStatus === "not_searched" ? "해당 근거 미조회"
+      : "조회했으나 관련 근거 없음";
     const parts: string[] = [];
     if (laws.length) parts.push(`법령 ${laws.length}건`);
     if (precedents.length) parts.push(`판례 ${precedents.length}건`);
@@ -176,7 +181,7 @@ export function ContractReviewResult({ review, file, expandSources = false, onEx
           ? <><Button variant="outline" size="sm" type="button" className="contract-review-evidence-button" aria-controls={anchor} onClick={() => focusBlock(anchor, "h4", true)}>근거 보기</Button>
             <span className="contract-review-meta">{parts.join(" · ")}</span></>
           : unverified
-            ? <><Badge variant="warning" className="contract-review-unverified">근거 미확인</Badge><span className="contract-review-meta">직접 근거 확인 미완료</span></>
+            ? <><Badge variant="warning" className="contract-review-unverified">근거 미확인</Badge><span className="contract-review-meta">{unverifiedReason}</span></>
             : <span className="contract-review-meta">확인된 직접 근거 없음</span>}
       </div>
       <details className="law-detail-source contract-review-source">
@@ -197,7 +202,11 @@ export function ContractReviewResult({ review, file, expandSources = false, onEx
       {laws.length > 0 && <details className="law-detail-source contract-review-refs" onToggle={syncReferences}>
         <SourceToggleSummary label={`관련 법령 ${laws.length}건 보기`} openLabel="관련 법령 접기" />
         <ul>{laws.map((law) => {
-          const name = `${law.law} ${law.jo}${law.title ? ` (${law.title})` : ""}`;
+          const title = law.title?.trim() ?? "";
+          // A title that already carries the article number stands alone after the law name.
+          const name = title === law.jo || title.startsWith(`${law.jo}(`) || title.startsWith(`${law.jo} `)
+            ? `${law.law} ${title}`
+            : `${law.law} ${law.jo}${title ? ` (${title})` : ""}`;
           return <li key={law.key}>
             <strong>{name}</strong>
             {law.effectiveDate && <span className="contract-review-meta">시행 {formatDate(law.effectiveDate)}</span>}
@@ -268,8 +277,9 @@ export function ContractReviewResult({ review, file, expandSources = false, onEx
       <h3>{partial ? "검토한 범위 요약" : "전체 검토 요약"}</h3>
       <p className="contract-review-counts">{SEVERITY_ORDER.map((severity) => <span key={severity} className="contract-review-count" data-severity={severity}>
         {SEVERITY_LABEL[severity]} <strong>{risk[severity]}</strong>건</span>)}</p>
-      <p className="contract-review-meta">검토 조항 {review.clauses.length}개 · 관련 근거 확인 {grounded}/{issues.length}건
-        {lawCount + precedentCount > 0 && ` (법령 ${lawCount}건 · 판례 ${precedentCount}건)`}</p>
+      <p className="contract-review-meta">검토 조항 {review.clauses.length}개(쟁점이 있는 조항) · 쟁점 {issues.length}건 · 관련 근거 확인 {grounded}/{issues.length}건(쟁점 기준)
+        {lawCount + precedentCount > 0 && ` (서로 다른 법령 ${lawCount}건 · 판례 ${precedentCount}건)`}
+        {file && ` · 전송 단위 ${file.coverage.total}개 ${file.coverage.unit} 중 ${file.coverage.reviewed}개 전송`}</p>
     </section>
     {issueEntries.length > 1 && <nav className="research-issue-nav" aria-label="쟁점 바로가기">
       <span>쟁점 바로가기</span>

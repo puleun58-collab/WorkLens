@@ -21,6 +21,11 @@ export interface PrecedentRelevance {
   matched: string[];
 }
 
+/** A title that names a definition (용어 정의) rather than a substantive duty, sanction or procedure. */
+export function isDefinitionTitle(title: string | undefined): boolean {
+  return title ? /정의/u.test(title) : false;
+}
+
 /** An article WorkLens looked up because a question term is in its title. */
 export interface SupplementArticle {
   law: string;
@@ -30,6 +35,10 @@ export interface SupplementArticle {
   effectiveDate?: string;
   /** Question terms found in the article title. */
   matched: string[];
+  /** Role signal: a definition article is a candidate, never core evidence on its title alone. */
+  role?: "definition" | "other";
+  /** Where this article came from, so an adopted article's provenance is recorded, not guessed. */
+  stage?: "supplement" | "issue" | "reread" | "retry";
   /**
    * Fetched directly because the user's question or issue named this exact
    * law + article (not because a search term matched its title): adoption
@@ -407,6 +416,11 @@ export function researchEvidenceSources(text: string, query: string, enrichment?
   };
   const request = [...new Set((requestTerms ?? []).filter((term) => !isLawName(term)))];
   const subjectTerms = request.filter((term) => !terms.includes(term) && isSubjectTerm(term));
+  // A single generic word ("정지" alone) names no subject and no regime:
+  // one occurrence of it in an article must not adopt that article. Such an
+  // issue stays unverified until a subject term or a second signal arrives.
+  // Explicitly named law + article pairs are exempt: the user asked for them.
+  const singleGeneric = terms.length === 1 && !isSubjectTerm(terms[0]);
   const subjectLess = terms.every((term) => GENERIC_TERMS.has(term) || ACTOR_TERMS.has(term));
   const useDomainRule = subjectLess && subjectTerms.length > 0;
   const combined = [...new Set([...terms, ...subjectTerms])];
@@ -437,6 +451,7 @@ export function researchEvidenceSources(text: string, query: string, enrichment?
   ].filter((article) => {
     if (!article.excerpt.trim()) return false;
     if (!lawAllowed(article.law)) return false;
+    if (singleGeneric && !(article as SupplementArticle).explicit) return false;
     // An article fetched because the request named exactly this law + number
     // is adopted by identity: its fetched text exists, so term matching
     // (which the article's own number never appears in) and the title guard
@@ -447,6 +462,10 @@ export function researchEvidenceSources(text: string, query: string, enrichment?
     if ((article as SupplementArticle).explicit) return true;
     const title = article.title;
     if (title && terms.some((term) => termInText(term, title)) && titleVetoed(title, stripTerms)) return false;
+    // A definition title never adopts on its title alone: the body itself
+    // must address the issue, or the definition would stand in for the
+    // substantive provision (e.g. a 정의 article for a 정지-요건 question).
+    if (isDefinitionTitle(title)) return addresses(article.excerpt);
     return addresses(article.excerpt) || addressesTitle(title);
   }).map(({ law, jo }) => ({ law, jo }));
   const precedents = Object.entries(enrichment?.precedents ?? {})

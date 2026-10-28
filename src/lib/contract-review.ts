@@ -217,6 +217,13 @@ export function splitClauses(input: string | readonly string[]): Clause[] {
   const from = (segment: number): Pick<Clause, "sources"> => tracked ? { sources: [{ segment, at: 0 }] } : {};
   const clauses: Clause[] = [];
   for (const { text: line, segment } of lines) {
+    // An annex heading ("별지 1. …") starts its own unit instead of being
+    // absorbed into the preceding article: annex text is not that article's.
+    const annex = /^별지\s*(\d+)\s*[.．]\s*(\S.{0,30})$/u.exec(line);
+    if (annex && !/[다요]\s*$/u.test(line)) {
+      clauses.push({ number: `별지 ${annex[1]}`, ...(annex[2] ? { title: annex[2].trim() } : {}), text: "", ...from(segment) });
+      continue;
+    }
     const head = CLAUSE_HEAD.exec(line);
     if (head) {
       const rest = line.slice(head[0].length).trim();
@@ -255,7 +262,12 @@ export function splitClauses(input: string | readonly string[]): Clause[] {
     if (heading) units.push({ text: heading.text, ...(heading.sources ? { sources: heading.sources } : {}) });
     return units;
   }
-  return clauses.filter((clause) => clause.number);
+  // File reviews only (segment arrays): table rows and preamble units
+  // before the first article are not dropped wholesale — a substantive unit
+  // (not a bare heading line) stays its own review unit, so a table's period
+  // or amount is not lost with the filter. Pasted text keeps the previous
+  // preamble-drop behaviour, which existing tests pin down.
+  return clauses.filter((clause) => clause.number || (tracked && clause.text.length >= 10 && !isBareHeading(clause.text)));
 }
 
 /** Segments a span of a clause's text came from; a heading-only segment counts only when nothing else does. */
@@ -309,7 +321,7 @@ export const ISSUES: IssueDefinition[] = [
     id: "service_suspension", label: "통지 없는 서비스 변경·중단", severity: "high",
     point: "사전 통지 없이 서비스를 변경·중단할 수 있게 하고 그 책임을 배제한 부분의 범위가 과도하지 않은지 검토가 필요합니다.",
     suggestion: "서비스 변경·중단의 사유와 범위, 사전 통지 및 긴급 중단의 예외, 이용자 구제·정산 절차를 구분해 명시하는 방안을 검토하세요.",
-    detect: /(?:사전\s*)?통지\s*없이[^.]{0,60}(?:변경|중단|중지)|서비스[^.]{0,40}(?:중단|중지)할\s*수\s*있/u,
+    detect: /(?:사전\s*)?통지\s*없이[^.]{0,60}(?:변경|중단|중지|정지)|서비스[^.]{0,40}(?:중단|중지|정지)할\s*수\s*있/u,
     laws: [{ law: TERMS_ACT, jo: "제10조", domain: "terms", condition: TERMS_CONDITION }],
     queries: ["{doc} 서비스 중단 면책 약관", "약관 서비스 일방적 중단", "일방적 급부 중단 약관 무효"],
     holdingTerms: /서비스[^.]{0,20}(?:중단|중지)|급부[^.]{0,10}(?:중지|중단|변경)|일방적[^.]{0,20}중단/u,
@@ -318,7 +330,7 @@ export const ISSUES: IssueDefinition[] = [
     id: "exemption", label: "광범위한 면책", severity: "high",
     point: "어떠한 경우에도 책임을 지지 않는다는 취지의 면책은 고의·중과실까지 포함하는지에 따라 효력이 제한될 수 있어 범위 확인이 필요합니다.",
     suggestion: "면책 사유를 구체적으로 한정하고 고의·중과실 및 책임을 배제하기 어려운 경우의 취급을 별도로 명시하는 방안을 검토하세요.",
-    detect: /(?:어떠한|일체의|모든)?[^.]{0,20}책임(?:도|을)?\s*지지\s*않|면책/u,
+    detect: /(?:어떠한|일체의|모든)?[^.]{0,20}책임(?:도|을)?\s*(?:지지\s*않|부담하지\s*않)|면책/u,
     laws: [
       { law: TERMS_ACT, jo: "제7조", domain: "terms", condition: TERMS_CONDITION },
       { law: "민법", jo: "제103조", domain: "civil" },
@@ -375,7 +387,7 @@ export const ISSUES: IssueDefinition[] = [
     point: "제공 대상이 개인정보인지 업무 데이터인지, 제3자 제공인지 처리위탁인지, 법적 근거나 동의 예외가 있는지 문서만으로는 확인되지 않아 추가 확인이 필요합니다.",
     suggestion: "제공 대상 정보·수령인·목적을 특정하고 제3자 제공과 처리위탁을 구별해 각 경우의 근거·고지·동의 절차를 확인하여 조항에 반영하세요.",
     // Named recipients (관계 회사, 고객사, 위탁업체 …) are recipients too; 제공 vs 위탁 is left to the reader.
-    detect: /(?:개인정보|업무\s*데이터|이용자\s*정보|정보)[^.]{0,80}(?:제3자|관계\s*회사|계열사|고객사|협력\s*업체|외부\s*업체|위탁\s*업체|수탁자)[^.]{0,20}(?:에게|에)[^.]{0,20}제공|제3자에게[^.]{0,40}(?:개인정보|정보)/u,
+    detect: /(?:개인정보|업무\s*데이터|이용자\s*정보|정보)[^.]{0,80}(?:제3자|관계\s*회사|계열사|고객사|협력\s*업체|외부\s*업체|위탁\s*업체|수탁자|제휴사|제휴\s*업체)[^.]{0,20}(?:에게|에)[^.]{0,20}제공|제3자에게[^.]{0,40}(?:개인정보|정보)/u,
     laws: [
       { law: "개인정보 보호법", jo: "제17조", domain: "privacy" },
       { law: "개인정보 보호법", jo: "제26조", domain: "privacy" },
@@ -396,7 +408,7 @@ export const ISSUES: IssueDefinition[] = [
     id: "policy_delegation", label: "운영정책 포괄 위임", severity: "medium",
     point: "계약에 정하지 않은 사항을 한쪽이 수시로 바꿀 수 있는 운영정책에 맡긴 부분은 실질적으로 계약 내용을 일방적으로 정하게 되는지 확인이 필요합니다.",
     suggestion: "운영정책에 맡기는 사항의 범위와 계약과의 우선순위를 명시하고 중요한 변경에는 사전 고지·동의 또는 이의 절차를 두는 방안을 검토하세요.",
-    detect: /운영\s*정책|별도로\s*정하는[^.]{0,20}(?:정책|기준|규정)에\s*따르/u,
+    detect: /(?:운영\s*정책[^.]{0,40}(?:에\s*따르|에\s*맡|우선|정하는|따라|적용)|별도로\s*정하는[^.]{0,20}(?:정책|기준|규정)에\s*따르)/u,
     laws: [{ law: TERMS_ACT, jo: "제6조", domain: "terms", condition: TERMS_CONDITION }],
   },
   {
@@ -476,10 +488,23 @@ export const ISSUES: IssueDefinition[] = [
     point: "CCTV를 근무상황 확인에 쓰거나 음성을 녹음할 수 있게 한 부분의 설치 목적·장소, 녹음 여부, 보관기간과 열람 권한이 적절한지 확인이 필요합니다.",
     suggestion: "CCTV 설치 목적과 촬영 범위·보관기간·열람 권한을 특정하고 근무 감시나 음성녹음은 필요성과 허용 요건을 별도로 확인하세요.",
     // CCTV alone is not a point: only when it watches work or records sound.
-    detect: /(?:근무\s*(?:상황|태도)|근태)[^.]{0,60}(?:CCTV|영상정보처리기기)|(?:CCTV|영상정보처리기기)[^.]{0,60}(?:근무\s*(?:상황|태도)|근태)|음성[^.]{0,10}녹음/u,
+    detect: /(?:근무\s*(?:상황|태도)|근태)[^.]{0,60}(?:CCTV|영상정보처리기기)|(?:CCTV|영상정보처리기기)[^.]{0,60}(?:근무\s*(?:상황|태도)|근태)|음성[^.]{0,10}(?:녹음|기록)/u,
     laws: [{ law: "개인정보 보호법", jo: "제25조", domain: "privacy" }],
     queries: ["사업장 CCTV 근로자 감시 개인정보", "영상정보처리기기 녹음 기능"],
     holdingTerms: /영상정보처리기기|CCTV|(?:대화|음성)[^.]{0,10}녹음/u,
+  },
+  {
+    // B2B/B2C service counterpart of the employment-only monitoring issues:
+    // watching service users (activity logs, voice records) is a different
+    // policy question from watching staff, so it is a separate issue gated
+    // to service-type documents rather than a widening of the employment filter.
+    id: "service_monitoring", label: "서비스 이용 모니터링·음성 기록", severity: "medium", only: ["b2b_service", "b2c_terms", "outsourcing"],
+    point: "이용자의 활동·접속 기록이나 음성을 수집·기록할 수 있게 한 부분의 목적·범위·고지와 처리 근거, 보관기간이 적절한지 확인이 필요합니다.",
+    suggestion: "수집 항목·목적·보관기간·접근권한을 필요한 범위로 한정하고 음성 기록의 고지와 처리 근거를 따로 확인하세요.",
+    detect: /(?:이용자|고객)[^.]{0,40}(?:활동|접속\s*기록|화면|음성)[^.]{0,40}(?:수집|기록|모니터링)|음성[^.]{0,10}기록|(?:통화|상담)[^.]{0,20}(?:녹음|기록)/u,
+    laws: [{ law: "개인정보 보호법", jo: "제15조", domain: "privacy" }],
+    queries: ["서비스 이용자 모니터링 개인정보 수집", "상담 통화 녹음 개인정보 고지"],
+    holdingTerms: /모니터링|음성[^.]{0,10}(?:녹음|기록)|이용자[^.]{0,20}수집/u,
   },
   {
     id: "overseas_storage", label: "개인정보 국외 저장·이전", severity: "medium",
@@ -679,7 +704,11 @@ const FACT_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
   { label: "계약기간", pattern: /\d{4}\s*년\s*\d{1,2}\s*월\s*\d{1,2}\s*일\s*부터\s*\d{4}\s*년\s*\d{1,2}\s*월\s*\d{1,2}\s*일\s*까지/gu },
   { label: "금액", pattern: /(?:(?:연간|월|월\s*기본급은?|월\s*차임은?|임대차보증금은?)\s*)?(?:[가-힣]+\s+)?(?:금\s*)?\d{1,3}(?:,\d{3})+\s*원(?:\s*\([^)]{1,20}\))?/gu },
   { label: "위약금·비율", pattern: /[가-힣]+(?:\s[가-힣]+){0,4}의\s*\d+(?:\.\d+)?\s*%/gu },
-  { label: "통지 기한", pattern: /[가-힣]+(?:\s[가-힣]+){0,2}\s*\d+\s*일\s*전까지/gu },
+  // Table-form period ("2026.10.01. ~ 2027.09.30"): the same span a prose
+  // "부터 … 까지" states, carried by a table row instead of a sentence.
+  { label: "계약기간", pattern: /\d{4}\s*[.\-/]\s*\d{1,2}\s*[.\-/]\s*\d{1,2}\s*[.]?\s*~\s*\d{4}\s*[.\-/]\s*\d{1,2}\s*[.\-/]\s*\d{1,2}\s*[.]?/gu },
+  // "30일 전에" states the same deadline as "30일 전까지"; "3일 전 통지" too.
+  { label: "통지 기한", pattern: /[가-힣]+(?:\s[가-힣]+){0,2}\s*\d+\s*일\s*전(?:까지|에)?/gu },
 ];
 
 export function extractKeyFacts(clauses: readonly Clause[]): KeyFact[] {

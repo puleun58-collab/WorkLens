@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import {
   AMENDMENT_SCENARIOS, DISPUTE_DOMAINS, EMPTY_RESEARCH_DRAFT, LAW_RESEARCH_DOCUMENT_MAX_CHARS, LAW_RESEARCH_DOCUMENT_MIN_CHARS,
   LAW_RESEARCH_ERROR, LAW_RESEARCH_NAME_MAX_CHARS, LAW_RESEARCH_QUERY_MAX_CHARS, LAW_RESEARCH_TASKS, lawResearchOutcome, lawResearchRequestFor,
@@ -8,6 +8,7 @@ import {
   type InterpretationFailure, type IssueEvidence, type LawCurrency, type LawResearchRequest, type LawResearchTask, type OrdinanceRegionResult, type ResearchInterpretation,
 } from "@/lib/law-research";
 import { isSupportingSection, researchResult, type ResearchDecision, type ResearchSection } from "@/lib/law-research-parse";
+import { articleHeadingText } from "@/lib/law-article-target";
 import { lawDisplayText } from "@/lib/law-display";
 import { orderByRelevance, type ResearchEnrichment } from "@/lib/research-relevance";
 import { STATUS_TITLE, type ResearchStatus } from "@/lib/research-status";
@@ -595,7 +596,7 @@ function SupplementView({ supplement, hasArticles, excluded }: { supplement: Non
     <ul className="research-hits">{articles.map((article) => {
       const effective = formatDate(article.effectiveDate);
       return <li key={`${article.law}-${article.jo}`}>
-        <strong>{article.law} {article.jo} {article.title}</strong>
+        <strong>{articleHeadingText(article.law, article.jo, article.title)}</strong>
         <LawTextBlock className="legal-analysis-lines" text={article.excerpt} />
         {mcpTruncated(article.excerpt) && <p className="research-meta">중략된 발췌입니다. 조문 전문은 법령 검색에서 확인하세요.</p>}
         {effective && <span className="research-meta">출처 시행일 {effective}</span>}
@@ -662,7 +663,7 @@ function ResearchSectionView({ section, task, relevance, retried }: {
       const excerpt = readerText(article.excerpt);
       const effective = formatDate(article.effective);
       return <li key={`${article.law}-${article.jo}-${from + index}`}>
-        <strong>{article.law} {article.jo}{article.title ? ` ${article.title}` : ""}</strong>
+        <strong>{articleHeadingText(article.law, article.jo, article.title)}</strong>
         {excerpt && <LawTextBlock className="legal-analysis-lines" text={excerpt.length > 600 ? `${excerpt.slice(0, 600)}…` : excerpt} />}
         {mcpTruncated(excerpt) && <p className="research-meta">중략된 발췌입니다. 조문 전문은 법령 검색에서 확인하세요.</p>}
         {excerpt.length > 600 && <details className="law-detail-source research-more"><SourceToggleSummary label="조문 발췌 전체 보기" openLabel="조문 발췌 접기" /><LawTextBlock className="legal-analysis-raw" text={excerpt} /></details>}
@@ -705,7 +706,7 @@ function ResearchSectionView({ section, task, relevance, retried }: {
     // For 절차·서식 the forms are the answer; elsewhere they are reference material.
     const preview = task === "procedure_detail" ? 10 : ANNEX_PREVIEW;
     const list = (items: typeof entries) => <ul className="research-hits">{items.map((item, index) => <li key={`${item.title}-${index}`}>
-      <strong>{item.title}</strong>{item.law && <span className="research-meta">{item.law}</span>}
+      <strong>{item.formLabel ? `${item.formLabel} ` : ""}{item.title}</strong>{item.law && <span className="research-meta">{item.law}</span>}
     </li>)}</ul>;
     return <div className={className} data-kind={section.kind}>
       <h3>{heading} <span className="research-meta">{total !== undefined && total > entries.length ? `전체 ${total.toLocaleString("ko-KR")}건 중 ${entries.length}건` : `${entries.length}건`}</span></h3>
@@ -925,14 +926,20 @@ function ResearchResult({ data, request, expandSources = false, onExpandSourcesC
           const annex = requirement.annexCount
             ? `별표/서식 목록 ${requirement.annexCount}건${requirement.annexTotal && requirement.annexTotal > requirement.annexCount ? ` (전체 ${requirement.annexTotal}건 중)` : ""}`
             : "";
-          if (!refs && !annex) return null;
-          return <p key={index} className="research-meta">{requirement.label}: {[refs, annex].filter(Boolean).join(" · ")}</p>;
+          const candidates = requirement.annexRelatedCandidates ?? [];
+          if (!refs && !annex && !candidates.length) return null;
+          return <Fragment key={index}>
+            {(refs || annex) && <p className="research-meta">{requirement.label}: {[refs, annex].filter(Boolean).join(" · ")}</p>}
+            {candidates.length > 0 && <p className="research-meta">{requirement.label} 관련 후보(제목 대응, 직접 근거 아님): {candidates.join(" · ")}</p>}
+          </Fragment>;
         })}
       </div>}
       <ResearchSummaryNotices>
         {notice && <ResearchSummaryNotice tone="warning" title="관련 근거 일부 미확인" className="legal-research-partial">{notice}</ResearchSummaryNotice>}
         {(status === "weak" || status === "viewed") && <ResearchSummaryNotice tone="info" title="직접 관련성 확인 필요">조회된 자료가 질문과 직접 관련되는지 확인되지 않았습니다. 아래 자료는 참고용입니다.</ResearchSummaryNotice>}
-        {procedure?.annexTruncated && <ResearchSummaryNotice tone="info" title="별표·서식 원문 미확보">별표/서식 목록 일부만 확인했습니다. 목록만으로는 제출 의무를 단정하지 않으며, 서식 원문은 법령 검색에서 확인하세요.</ResearchSummaryNotice>}
+        {procedure && procedure.requirements.some((requirement) => requirement.annexCount > 0)
+          && (procedure.annexOriginStage ?? "list-only") === "list-only"
+          && <ResearchSummaryNotice tone="info" title="별표·서식 원문 미확보">별표/서식 원문은 확보하지 못했습니다. 현재 단계는 목록 확인까지만이며, 목록이 전부 수집돼도 원문 내용을 확보한 것이 아닙니다{procedure.annexTruncated ? " — 목록도 일부만 수집됐습니다" : ""}. 목록만으로는 제출 의무를 단정하지 않으며, 서식 원문은 법령 검색에서 확인하세요.</ResearchSummaryNotice>}
       </ResearchSummaryNotices>
       {taskEvidence && taskEvidence.items.length > 0 && <div className="research-original research-issues is-assessed" data-task-evidence>
         <span>확인한 항목</span>
@@ -975,7 +982,7 @@ function ResearchResult({ data, request, expandSources = false, onExpandSourcesC
           const effective = formatDate(article.effective);
           const currency = data.evidence?.articles?.find((item) => item.law === article.law && item.jo === article.jo)?.currency;
           return <li key={`${article.law}-${article.jo}`}>
-            <strong>{article.law} {article.jo}{article.title ? ` ${article.title}` : ""}</strong>
+            <strong>{articleHeadingText(article.law, article.jo, article.title)}</strong>
             <LawTextBlock className="legal-analysis-lines" text={excerpt} />
             {mcpTruncated(excerpt) && <p className="research-meta">중략된 발췌입니다. 조문 전문은 법령 검색에서 확인하세요.</p>}
             {(effective || currency) && <span className="research-meta" data-currency={currency}>

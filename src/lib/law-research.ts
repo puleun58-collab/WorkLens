@@ -244,7 +244,9 @@ export interface LawResearchData {
  * `not_current`: 법제처 lists the law as not in force; `unconfirmed`: the status lookup gave no answer.
  */
 export type LawCurrency = "current" | "upcoming" | "not_current" | "unconfirmed";
-export interface EvidenceArticle { law: string; jo: string; currency?: LawCurrency }
+export interface EvidenceArticle { law: string; jo: string; currency?: LawCurrency;
+  /** Internal provenance of the adopted article: chain text, supplement lookup, issue lookup, re-read, or retry search. */
+  stage?: "chain" | "supplement" | "issue" | "reread" | "retry"; }
 
 export interface OrdinanceRegionResult {
   region: string;

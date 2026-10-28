@@ -413,8 +413,14 @@ function distribute(reviewable: readonly Reviewable[], selected: Set<number>, ch
 
 const READ_LIMITS: Record<string, string> = {
   DOCX_HEADER_FOOTER_OMITTED: "머리글·바닥글 일부를 읽지 못했습니다.",
+  DOCX_CHART_OMITTED: "차트 안의 글자는 검토하지 않았습니다.",
+  DOCX_NESTED_TABLE_OMITTED: "중첩 표 안의 글자는 검토하지 않았습니다.",
+  DOCX_FOOTNOTE_OMITTED: "각주 내용은 검토하지 않았습니다.",
+  DOCX_COMMENT_OMITTED: "주석 내용은 검토하지 않았습니다.",
+  DOCX_OBJECT_OMITTED: "임베디드 객체 내용은 검토하지 않았습니다.",
   XLSX_HIDDEN_SHEET_OMITTED: "숨김 시트는 검토하지 않았습니다.",
   PPTX_SPEAKER_NOTES_OMITTED: "발표자 노트는 검토하지 않았습니다.",
+  PPTX_CHART_OMITTED: "차트 안의 글자는 검토하지 않았습니다.",
 };
 
 export function reviewFileFor(document: NormalizedDocument, fileName: string, options: ReviewFileOptions = {}): ReviewFile {

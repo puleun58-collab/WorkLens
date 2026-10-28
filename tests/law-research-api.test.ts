@@ -102,8 +102,9 @@ describe("fixed legal_research API", () => {
           issues: [{ status: "none", articles: [], precedents: [] }] } } : {}),
         // 절차·서식 only: the server's per-requirement verdict. This sample
         // carries no article or annex, so the single general requirement is none.
-        ...(input.task === "procedure_detail" ? { procedure: { requirements: [{ label: query, kind: "general", status: "none", articles: [], annexCount: 0 }],
-          overall: "none", incomplete: false, annexTruncated: false, failedSections: 0 } } : {}),
+        ...(input.task === "procedure_detail" ? { procedure: { requirements: [{ label: query, kind: "general", status: "none", articles: [], annexCount: 0,
+          annexOriginStage: "list-only", annexRelatedCandidates: [] }],
+          overall: "none", incomplete: false, annexTruncated: false, annexOriginStage: "list-only", failedSections: 0 } } : {}),
         // Server per-kind evidence is additive; these samples carry no
         // confirmable body, so each lands on viewed (retrieved, unconfirmed).
         ...(input.task === "law_system" ? { lawSystem: { status: "viewed", items: [
