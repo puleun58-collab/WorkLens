@@ -8,7 +8,7 @@ import {
   type InterpretationFailure, type IssueEvidence, type LawCurrency, type LawResearchRequest, type LawResearchTask, type OrdinanceRegionResult, type ResearchInterpretation,
 } from "@/lib/law-research";
 import { isSupportingSection, researchResult, type ResearchDecision, type ResearchSection } from "@/lib/law-research-parse";
-import { articleHeadingText } from "@/lib/law-article-target";
+import { articleHeadingText, dedupeArticleHeadingLine, dedupeArticleHeadings } from "@/lib/law-article-target";
 import { lawDisplayText } from "@/lib/law-display";
 import { orderByRelevance, type ResearchEnrichment } from "@/lib/research-relevance";
 import { STATUS_TITLE, type ResearchStatus } from "@/lib/research-status";
@@ -445,8 +445,8 @@ function formatDate(value?: string): string | undefined {
 
 /** Heading without the MCP's bracketed status markers, which the partial notice already reports. */
 function sectionHeading(section: ResearchSection): string {
-  const heading = lawDisplayText(section.heading?.replace(/\s*\[[^\]]*\]/gu, "")
-    .replace(/^\s*(?:(?:STEP|단계)\s*\d+|(?:OPEN\s+)?API\s*(?:응답|오류|조회)?)\s*[:.)-]?\s*/iu, "").trim());
+  const heading = dedupeArticleHeadingLine(lawDisplayText(section.heading?.replace(/\s*\[[^\]]*\]/gu, "")
+    .replace(/^\s*(?:(?:STEP|단계)\s*\d+|(?:OPEN\s+)?API\s*(?:응답|오류|조회)?)\s*[:.)-]?\s*/iu, "").trim()));
   const dates = /^Time Travel\s*[—–-]\s*(.+?)\s*\((\d{8})\s*↔\s*(\d{8})\)$/u.exec(heading);
   if (!dates) return heading;
   const from = formatDate(dates[2]);
@@ -464,9 +464,9 @@ function sectionHeading(section: ResearchSection): string {
 const mcpTruncated = (excerpt: string): boolean => /\.\.\.\s*$/u.test(excerpt.trim());
 
 function readerText(text: string): string {
-  return lawDisplayText(text.split(/\r?\n/u).filter((line) =>
+  return dedupeArticleHeadings(lawDisplayText(text.split(/\r?\n/u).filter((line) =>
     !/^\s*(?:(?:STEP\s*\d+|(?:OPEN\s+)?API\b)[\s:.)-]|\[(?:EXTERNAL_API_ERROR|REQUEST_TIMEOUT)\]|HTTP\s+\d{3}\b|검색\s*보정(?:\s*시도)?\s*[:：]|재시도(?:\s*제안)?\s*[:：]|힌트\s*[:：]|💡\s*다음\s*[:：]|사유\s*[:：]\s*\[(?:FAILED|NOT_FOUND)|⚠️\s*이 섹션은 조회 실패|특정\s*조문\s*조회\s*:\s*get_|.*법제처\s*API는\s*공백)/iu.test(line),
-  ).join("\n"));
+  ).join("\n")));
 }
 
 type ResearchGroup = "statutes" | "decisions" | "change" | "regional" | "forms" | "other";

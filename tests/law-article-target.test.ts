@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveLawArticleTarget } from "@/lib/law-article-target";
+import { dedupeArticleHeadingLine, dedupeArticleHeadings, resolveLawArticleTarget } from "@/lib/law-article-target";
 
 const ARTICLE_60 = [
   "법령명: 근로기준법",
@@ -63,5 +63,18 @@ describe("law article target resolution", () => {
   it("falls back when a second 조 title appears inside the range", () => {
     const text = `${ARTICLE_60}\n제61조 연차 유급휴가의 사용 촉진\n① 사용자는 제60조에 따른 휴가를 사용하도록 촉진하여야 한다.`;
     expect(resolveLawArticleTarget(text, "제60조", { hang: 6 }).fallback).toBe(true);
+  });
+});
+
+describe("dedupeArticleHeadingLine (upstream 3단 비교 headings)", () => {
+  it("collapses a repeated number, keeps the title, and leaves a different number untouched", () => {
+    expect(dedupeArticleHeadingLine("제2조 제2조(정의)")).toBe("제2조(정의)");
+    expect(dedupeArticleHeadingLine("제7조의6 제7조의6(겸직금지 등)")).toBe("제7조의6(겸직금지 등)");
+    expect(dedupeArticleHeadingLine("제2조 제3조(다른 조문)")).toBe("제2조 제3조(다른 조문)");
+    expect(dedupeArticleHeadingLine("제2조")).toBe("제2조");
+  });
+
+  it("dedupes only heading lines inside multi-line display text", () => {
+    expect(dedupeArticleHeadings("---\n제2조 제2조(정의)\n---\n본문 제2조에 따른 내용")).toBe("---\n제2조(정의)\n---\n본문 제2조에 따른 내용");
   });
 });

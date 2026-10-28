@@ -109,6 +109,23 @@ export function articleHeadingText(law: string, jo: string, title?: string): str
   return `${law} ${jo}${trimmed ? ` ${trimmed}` : ""}`;
 }
 
+/**
+ * One upstream-text heading line with its number printed twice
+ * (`제2조 제2조(정의)`): the MCP's own 3단 비교 section headings carry the
+ * number both as the section's 조 and inside its title. A line whose second
+ * number differs from the first names another article and is left untouched;
+ * compound numbers (`제4조의2`) match exactly. Only the repeated number is
+ * dropped — the title text itself is never edited.
+ */
+export function dedupeArticleHeadingLine(line: string): string {
+  return line.replace(/^제(\d+조(?:의\d+)?)\s+제\1(?=\s|\(|$)/u, "제$1");
+}
+
+/** Line-wise form of dedupeArticleHeadingLine for multi-line display text. */
+export function dedupeArticleHeadings(text: string): string {
+  return text.split("\n").map(dedupeArticleHeadingLine).join("\n");
+}
+
 /** Text form of articleTitleDisplayLines: the display text with heading lines removed. */
 export function articleTitleDisplay(text: string, jo: string): { title: string; body: string; deduped: boolean; mismatch?: string } {
   const display = articleTitleDisplayLines(lawDisplayText(text).split("\n"), jo);
