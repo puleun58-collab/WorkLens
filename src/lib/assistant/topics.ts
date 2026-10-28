@@ -141,7 +141,15 @@ export function classifyQuestion(question: string): AssistantTopic {
 export type EvidenceIntent = "law" | "learn" | "general";
 
 const LEARN_INTENT = /학습센터|학습하기|퀴즈|단원|커리큘럼|오답/u;
-const LAW_INTENT = /법령|mcp|판례|조문|결정례/iu;
+/**
+ * Law-function markers. "원문" and "근거 매칭" are general intent markers,
+ * not question-specific hardcoding: without them a standalone "원문도
+ * WorkLens에서 확인 가능하잖아?" or "근거 매칭 오류 아니야?" falls to the
+ * general intent and loses all law evidence (or drops to no-evidence).
+ * Learn markers still win above, and a document-review question keeps its
+ * doc-review evidence because that entry is itself a law-category entry.
+ */
+const LAW_INTENT = /법령|mcp|판례|조문|결정례|원문|근거\s*매칭/iu;
 
 /**
  * Classify which evidence family a question belongs to. Learn markers win over
@@ -242,6 +250,46 @@ const LAW_ARTICLE_CITATION = /[가-힣]+법\s*제\d+조/u;
 export function matchesLawArticleCitation(question: string): boolean {
   return LAW_ARTICLE_CITATION.test(question);
 }
+
+/**
+ * Rebuttal / correction phrasing: the user is pushing back on a previous
+ * explanation's wording or classification, not asking a fresh question.
+ * These are general Korean rebuttal forms (negation / correction endings),
+ * not fixed answers: the route only treats a match as a rebuttal when a
+ * previous question exists (followUpOf), so a first-turn rhetorical
+ * question such as "환각이 없는 거 아니야?" is not misread as a rebuttal.
+ */
+const REBUTTAL_PATTERNS = [
+  /잖/u,
+  /아니잖/u,
+  /아니야/u,
+  /틀렸/u,
+  /잘못됐/u,
+  /정정/u,
+  /그건\s+\S+.*아니/u,
+  /가능하잖/u,
+  /없잖/u,
+  /의미가\s+없/u,
+] as const;
+
+export function isRebuttalQuestion(question: string): boolean {
+  return REBUTTAL_PATTERNS.some((pattern) => pattern.test(question));
+}
+
+/**
+ * A question about the law feature itself (its original-text check, the law
+ * category, law search) rather than a specific article's content. Used only
+ * for the no-evidence fallback: such a question must get law-feature guidance
+ * (where the user can check the original text themselves) instead of a
+ * generic "no evidence" reply. This never claims the assistant looked anything
+ * up live.
+ */
+export function matchesLawFunctionQuestion(question: string): boolean {
+  return LAW_INTENT.test(question) || /법령\s*(카테고리|검색|메뉴)/u.test(question);
+}
+
+export const LAW_FUNCTION_GUIDANCE_RESPONSE =
+  "렌즈봇은 법령 MCP를 실시간으로 조회하지 않습니다. 원문 확인은 왼쪽 메뉴 RESEARCH의 '법령'에서 법령 검색·종합 리서치로 직접 확인하세요.";
 
 /** A hallucination-action question with no target ("환각은 어떻게 처리해?"). */
 const BARE_HALLUCINATION_ACTION =

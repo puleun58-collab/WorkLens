@@ -16,7 +16,10 @@ import {
   clarifyResponse,
   classifyEvidenceIntent,
   classifyQuestion,
+  isRebuttalQuestion,
+  LAW_FUNCTION_GUIDANCE_RESPONSE,
   matchesLawArticleCitation,
+  matchesLawFunctionQuestion,
   resolveEvidenceIntent,
   resolveFollowUpIntent,
   executionRequestResponse,
@@ -262,9 +265,26 @@ export async function POST(request: Request) {
           kind: "guidance" as const,
         }, 200, requestId);
       }
+      // A law-feature question (original-text check, law category, law search)
+      // that still matched no evidence gets law-feature guidance — where the
+      // user can check the original text themselves — instead of a generic
+      // no-evidence reply. This never claims the assistant looked anything up.
+      if (matchesLawFunctionQuestion(effectiveQuestion)) {
+        return ok({
+          answer: LAW_FUNCTION_GUIDANCE_RESPONSE,
+          sources: [],
+          relatedInfo: [],
+          relatedScreens: [{ screen: "법령", title: "법령 검색" }],
+          kind: "guidance" as const,
+        }, 200, requestId);
+      }
       return ok({ answer: NO_EVIDENCE_RESPONSE, sources: [], relatedInfo: [], relatedScreens: [], kind: "no-evidence" as const }, 200, requestId);
     }
 
+    // A rebuttal flag only counts on a follow-up turn: a first-turn rhetorical
+    // question ("환각이 없는 거 아니야?") uses the same endings but rebuts
+    // nothing, so without followUpOf it must not be flagged as a rebuttal.
+    const isRebuttalTurn = !!followUpOf && isRebuttalQuestion(effectiveQuestion);
     const result = await runBoundedOperation(() => runGroqAi(
       {
         kind: "assistant", question: effectiveQuestion, evidence,
@@ -272,6 +292,7 @@ export async function POST(request: Request) {
         ...(clarifyState ? { clarify: clarifyState } : {}),
         ...(followUpOf ? { followUpOf } : {}),
         ...(parsed.data.previousAnswer ? { previousAnswer: parsed.data.previousAnswer } : {}),
+        ...(isRebuttalTurn ? { rebuttal: true } : {}),
         ...(learnBuilt.note ? { learnNote: learnBuilt.note } : {}),
         ...(isDetailRequest(effectiveQuestion) ? { detail: true } : {}),
       },

@@ -90,7 +90,12 @@ describe("assistant law topic switching (CASE 2 and CASE 3)", () => {
     expect(anchor).toBe(learnQ);
     anchor = updateTopicAnchor(lawQ, anchor);
     expect(anchor).toBe(lawQ);
-    expect(topicAnchorForRequest(follow, anchor)).toBe(lawQ);
+    // Policy change (P1 marker extension): "근거 매칭" is now itself a law
+    // marker, so this follow-up speaks for itself and needs no anchor
+    // passthrough (topicAnchorForRequest returns null for own-marker
+    // questions by design). The substantive assertions below — law intent
+    // kept, error-types evidence, no learn evidence — are unchanged.
+    expect(topicAnchorForRequest(follow, anchor)).toBeNull();
     expect(resolveFollowUpIntent(follow, lawQ)).toBe("law");
     const merged = mergedForFollowUp(lawQ, follow);
     expect(merged.some((item) => item.id === "law-error-types")).toBe(true);
