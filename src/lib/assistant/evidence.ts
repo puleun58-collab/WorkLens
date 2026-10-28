@@ -418,12 +418,19 @@ export function filterEvidenceByIntent(
  * Deterministic post-processing: remove internal evidence identifiers from the
  * answer body while keeping citedIds and the sources/relatedScreens mapping
  * intact. The model is instructed not to write ids, but the server must not
- * rely on that alone.
+ * rely on that alone. Strip every bank id, not just this turn's selection:
+ * the model can echo an id from a previous answer (sent back as context) or
+ * guess a plausible bank id from the bracket-id convention itself, and a
+ * selection-scoped strip lets exactly those cases through (live 2026-10-28:
+ * [law-error-types] survived a turn whose selection did not include it).
  */
 export function stripInternalEvidenceIds(answer: string, evidence: AssistantEvidence[]): string {
+  const ids = new Set<string>();
+  for (const entry of ASSISTANT_EVIDENCE) ids.add(entry.id);
+  for (const entry of evidence) ids.add(entry.id);
   let out = answer;
-  for (const entry of evidence) {
-    out = out.split(`[${entry.id}]`).join("");
+  for (const id of ids) {
+    out = out.split(`[${id}]`).join("");
   }
   out = out.replace(/\[learn-(?:unit|question)-[^\]\s]+\]/gu, "");
   out = out.replace(/\[learn-overview\]/gu, "");

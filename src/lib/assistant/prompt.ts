@@ -43,7 +43,7 @@ const ASSISTANT_SYSTEM = `당신은 WorkLens의 AI 도우미입니다. WorkLens�
 - 법령 질문에는 핵심부터 간결하게 답하고, 질문하지 않은 일반적인 AI 위험 설명을 길게 나열하지 마세요.
 - 법령 오류 유형을 혼동하지 마세요. 생성 환각(존재하지 않는 법령·조문·판례 생성), 근거 매칭 오류(실존하나 쟁점과 무관한 근거 선택), 해석 오류(원문 의미·요건·예외 오설명), 적용 시점 오류(개정·시행일 오적용), 근거 누락, 원문 조회 실패는 서로 다른 오류입니다. MCP를 쓴다는 이유만으로 모든 오류를 "환각"이라 부르지 마세요. 원문 존재 여부, 질문·쟁점 관련성, 해석 정확성, 실제 적용 가능성은 서로 다른 검증 단계입니다.
 - 법령 기능의 신뢰성·활용 가치 질문에는 다음 순서로 답하세요: 공식 자료 조회가 제공하는 차이 → WorkLens의 실제 검증 방식 → 확인된 자료와 미확인 자료의 구분 → 남은 오류 유형. '확인된 자료와 미확인 자료의 구분'은 서술 속에 녹이지 말고 답변 본문의 별도 항목으로 드러내세요. 확인된 자료(원문 존재와 관련성이 확인된 근거)와 미확인·참고 항목(관련성·해석·적용 가능성이 아직 확인되지 않은 항목, 조회가 완료되지 않은 항목)을 각각 무엇인지 구체적으로 적으세요. 이 구분은 WorkLens 검증 방식의 분류를 설명하는 것이며, 렌즈봇이 실시간으로 조회한 결과처럼 표현하지 마세요. 일반적인 AI 환각 위험 설명이나 면책 문구를 답변의 중심으로 삼지 마세요. 법령 질문에 학습센터·코딩 에이전트 근거가 제공되지 않았다면 해당 주제로 답을 옮기지 마세요.
-- 답변 본문에는 [learn-unit-...] 같은 근거 식별자를 적지 마세요. 근거 인용은 citedIds 배열로만 표시하세요.
+- 답변 본문에는 대괄호 형태의 근거 식별자([learn-unit-...], [law-...] 등)를 적지 마세요. 근거 인용은 citedIds 배열로만 표시하세요.
 답변 스타일:
 - 핵심 답변을 첫 문장에 제시하세요. 일반 질문은 1~3문장으로 답하고, 단순한 질문은 한 문장으로 답하세요.
 - 불필요한 배경 설명과 같은 내용의 반복을 피하세요. 어려운 전문 용어는 쉬운 말로 풀어 설명하고, 예시는 필요할 때만 1개만 드세요.
@@ -92,6 +92,13 @@ export function buildAssistantMessages(
   learnNote?: string,
   previousAnswer?: string,
   rebuttal?: boolean,
+  /**
+   * Distinction retry: the checked first answer, to be revised (not
+   * regenerated from scratch) so its content is preserved and only the
+   * missing fixed distinction section is added. Set only by the route's
+   * one-shot format enforcement; never a user-supplied value.
+   */
+  distinctionRetryAnswer?: string,
 ): Array<{ role: "system" | "user"; content: string }> {
   const evidenceBlock = evidence.length
     ? evidence.map((entry) => `[${entry.id}] ${entry.screen} — ${entry.title}\n${entry.text}`).join("\n\n")
@@ -120,11 +127,18 @@ export function buildAssistantMessages(
   const rebuttalBlock = rebuttal
     ? `\n\n사용자 반론: 현재 질문은 직전 설명의 특정 표현·분류에 대한 반론·정정입니다. 새 질문이 아니라 반론으로 답하세요. 반론 대상 표현을 먼저 언급하고, 분류·라벨 정정과 사실 결론 변경을 구분하세요. 같은 주의사항·오류 목록을 처음부터 다시 나열하지 마세요.`
     : "";
+  // One-shot format enforcement: revise the checked first answer, keeping its
+  // content and adding only the missing fixed distinction section. The
+  // instruction names the two fixed labels; the section contents must still
+  // come from the provided evidence, never invented.
+  const distinctionRetryBlock = distinctionRetryAnswer
+    ? `\n\n형식 보완 요청: 아래 이전 답변의 내용을 유지하되, 답변 본문에 '확인된 자료:'와 '미확인·참고 항목:' 별도 항목을 반드시 포함해 다시 답하세요. 새로운 사실·수치를 만들지 말고, 제공된 근거 범위에서 두 항목의 내용을 채우세요.\n이전 답변: ${distinctionRetryAnswer.slice(0, 1000)}`
+    : "";
   return [
     { role: "system", content: ASSISTANT_SYSTEM },
     {
       role: "user",
-      content: `제공된 근거:\n${evidenceBlock}${contextBlock}${clarifyBlock}${followUpBlock}${learnBlock}${previousAnswerBlock}${rebuttalBlock}\n\n질문: ${question}`,
+      content: `제공된 근거:\n${evidenceBlock}${contextBlock}${clarifyBlock}${followUpBlock}${learnBlock}${previousAnswerBlock}${rebuttalBlock}${distinctionRetryBlock}\n\n질문: ${question}`,
     },
   ];
 }

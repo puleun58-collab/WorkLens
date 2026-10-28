@@ -288,6 +288,22 @@ export function matchesLawFunctionQuestion(question: string): boolean {
   return LAW_INTENT.test(question) || /법령\s*(카테고리|검색|메뉴)/u.test(question);
 }
 
+/**
+ * A law reliability/value question: the prompt requires the fixed distinction
+ * section ("확인된 자료:" / "미확인·참고 항목:") for this class, not for every
+ * law question. Markers are the prompt's own reliability/value vocabulary
+ * (trust, value, meaning, hallucination, accuracy, guarantee, verification,
+ * error, limit): a law-function question ("원문 확인 기능이 있어?",
+ * "법령 검색은 어디서 해?") carries none of them and keeps the intended
+ * "관련 안내" form without a forced section. A marker-less follow-up inherits
+ * the topic source's class at the route (a reliability chain stays enforced).
+ */
+const LAW_RELIABILITY_VALUE = /신뢰|가치|의미|환각|정확도|보장|검증|오류|한계|믿/u;
+
+export function matchesLawReliabilityValueQuestion(question: string): boolean {
+  return LAW_RELIABILITY_VALUE.test(question);
+}
+
 export const LAW_FUNCTION_GUIDANCE_RESPONSE =
   "렌즈봇은 법령 MCP를 실시간으로 조회하지 않습니다. 원문 확인은 왼쪽 메뉴 RESEARCH의 '법령'에서 법령 검색·종합 리서치로 직접 확인하세요.";
 
