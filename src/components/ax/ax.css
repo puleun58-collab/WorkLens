@@ -116,7 +116,10 @@
 .ax-view [data-region=strategic] { --ax-region-color: #1d4ed8; }
 .ax-view [data-region=maybe] { --ax-region-color: #b45309; }
 .ax-view [data-region=hold] { --ax-region-color: #64748b; }
-.ax-step4-overview { display: grid; gap: 20px; margin: 24px 0 32px; }
+/* Step 4 only: the nav-to-summary gap is the steps box bottom margin (24px)
+   plus the Tabs flex gap (8px) plus this top margin, so 0 here makes 32px.
+   The 32px bottom margin (summary -> selected report) is unchanged. */
+.ax-step4-overview { display: grid; gap: 20px; margin: 0 0 32px; }
 .ax-step4-overview-grid { display: grid; grid-template-columns: minmax(0,1fr); gap: 20px; align-items: start; }
 .ax-selected-report { display: grid; gap: 20px; min-width: 0; }
 .ax-selected-report > .ax-panel, .ax-selected-report > .ax-surface { box-shadow: none; }

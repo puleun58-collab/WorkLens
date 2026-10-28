@@ -384,7 +384,7 @@ describe("AX guide dev-prep integration", () => {
     expect(gitignore).toBeDefined();
     const codeBlock = gitignore?.blocks.find(block => block.kind === "code");
     expect(codeBlock).toEqual({ kind: "code", lines: [gitignorePrompt], notes: ["코딩 에이전트에게 요청할 때 복사해서 사용하세요.", "STEP 07에서 git add .을 실행하기 전에 완료하세요."] });
-    expect(JSON.stringify(gitignore)).toContain("PowerShell에서 Codex 또는 Claude Code를 실행한 후 아래 요청문을 입력하세요.");
+    expect(JSON.stringify(gitignore)).not.toContain("PowerShell에서 Codex 또는 Claude Code를 실행한 후 아래 요청문을 입력하세요.");
     expect(JSON.stringify(gitignore)).toContain("이미 Git이 추적 중인 파일은 .gitignore만으로 제외되지 않습니다.");
     expect(JSON.stringify(steps[7])).toContain("`git add .` 실행 전 STEP 02의 `.gitignore` 설정과 변경 파일을 확인하세요.");
   });
@@ -419,14 +419,25 @@ describe("AX guide dev-prep integration", () => {
     expect(JSON.stringify(pr)).toContain("코드 업로드, CI 통과, 실제 운영 배포는 서로 다른 단계이므로 각각 확인합니다.");
     const prCode = pr.blocks.find(block => block.kind === "code");
     expect(prCode).toEqual({ kind: "code", lines: deployPromptLines, notes: ["코딩 에이전트에게 요청할 때 복사해서 사용하세요."], prose: true });
-    // Exactly one deploy-execution copy block, and its input target is the running agent, not PowerShell itself.
+    // Exactly one deploy-execution copy block. The duplicated intro lines above it are
+    // removed; the copy note below the box still identifies the agent as the target.
     expect(pr.blocks.filter(block => block.kind === "code")).toHaveLength(1);
-    expect(JSON.stringify(pr)).toContain("PowerShell에서 Codex 또는 Claude Code를 실행한 후 아래 요청문을 입력하세요.");
-    expect(JSON.stringify(pr)).toContain("PowerShell에서 직접 실행하는 명령이 아니라 실행 중인 코딩 에이전트에 붙여넣는 내용입니다.");
+    expect(JSON.stringify(pr)).not.toContain("PowerShell에서 Codex 또는 Claude Code를 실행한 후 아래 요청문을 입력하세요.");
+    expect(JSON.stringify(pr)).not.toContain("PowerShell에서 직접 실행하는 명령이 아니라 실행 중인 코딩 에이전트에 붙여넣는 내용입니다.");
     for (const clause of ["이미 구성된 배포 환경이 있다면 해당 환경을 우선 유지해 줘", "GitHub 연동 자동 배포가 설정되어 있다면", "CLI 직접 배포가 필요한 경우에는 프로젝트의 기존 배포 스크립트와 설정을 우선 사용해 줘", "필요한 경우 Wrangler를 사용하고", "배포가 실행되지 않았거나 실제 반영 여부를 확인하지 못했다면 완료로 표시하지 마"]) expect(deployPromptLines.join("\n")).toContain(clause);
     const serialized = JSON.stringify(pr);
     for (const condition of ["CI가 없으면 통과한 것으로 표시하지 않고", "Preview와 Production 배포를 구분합니다", "git push만으로 운영 배포가 완료된 것은 아니며", "Git 자동 배포와 CLI 배포를 중복 실행하지 않습니다", "배포가 필요 없는 로컬 자동화 프로그램에는 웹 배포를 요구하지 않고", "특정 플랫폼의 배포 명령을 모든 프로젝트에 일괄 적용하지 않습니다"]) expect(serialized).toContain(condition);
     expect(serialized).not.toContain("실패 로그의 API Key·Token·Password·개인정보를 [REDACTED]로 가린 필요한 부분만 AI 도구에 전달하고 로그 전체를 무조건 복사하지 않습니다.");
+  });
+
+  it.each(["codex", "claude"] as const)("removes the duplicated agent-request intro from every guide section: %s", tool => {
+    const serialized = JSON.stringify(setupGuide(tool));
+    expect(serialized).not.toContain("PowerShell에서 Codex 또는 Claude Code를 실행한 후 아래 요청문을 입력하세요.");
+    expect(serialized).not.toContain("이 요청문은 PowerShell에서 직접 실행하는 명령이 아니라 실행 중인 코딩 에이전트에 붙여넣는 내용입니다.");
+    // The copy note below the request boxes stays, as do the request texts themselves.
+    expect(serialized).toContain("코딩 에이전트에게 요청할 때 복사해서 사용하세요.");
+    expect(serialized).toContain("현재 프로젝트의 언어, 프레임워크, 실행 환경과 파일 구조를 확인하고 적절한 .gitignore를 구성해 줘.");
+    expect(serialized).toContain("현재 프로젝트의 구조, GitHub 연결 상태, 배포 서비스 및 기존 배포 설정을 먼저 확인해 줘.");
   });
 
   it.each(["codex", "claude"] as const)("keeps STEP 08 to four checks, the verify prompt and a plain completion note: %s", tool => {
