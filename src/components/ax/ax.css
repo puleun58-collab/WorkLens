@@ -575,12 +575,12 @@
 .ax-tutorial-terms-logo { width: 20px; height: 20px; flex-shrink: 0; }
 /* Git·GitHub work-flow diagram: 10 ordered cards, 5 group boxes, one notes box. Tone colors are sampled from the reference image; each card uses a full thin border in its tone, never a left bar only. */
 .ax-git-flow { margin-top: 2px; min-width: 0; }
-.ax-git-flow-head { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; }
-.ax-git-flow-logo { width: 28px; height: 28px; flex-shrink: 0; }
+.ax-git-flow-head { margin: 0 0 14px; }
 .ax-git-flow-head h5 { margin: 0; font-size: 20px; font-weight: 800; letter-spacing: -0.01em; line-height: 1.25; }
 .ax-git-flow-head p { margin: 2px 0 0; color: var(--muted-foreground); font-size: var(--font-size-sm); line-height: 1.5; }
-.ax-git-flow-track { display: flex; align-items: stretch; gap: 6px; margin: 0; padding: 2px; min-width: 0; }
-.ax-git-flow-card { --gf: #2273f5; --gf-border: #b9d2fc; --gf-soft: #f2f7fe; --gf-icon: #e3eefe; position: relative; flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 26px 8px 10px; border: 1px solid var(--gf-border); border-radius: 10px; background: var(--gf-soft); box-shadow: 0 1px 2px color-mix(in srgb, var(--foreground) 5%, transparent); text-align: center; }
+/* Shared 19-column grid: 10 flexible card columns + 9 fixed 28px arrow slots (16px arrow + 6px breathing room each side, matching the previous 6px flex gaps). The track and the groups use the identical template so each group box spans exactly two cards plus the arrow slot between them. */
+.ax-git-flow-track { display: grid; grid-template-columns: repeat(9, minmax(0, 1fr) 28px) minmax(0, 1fr); gap: 0; align-items: stretch; margin: 0; padding: 0; min-width: 0; }
+.ax-git-flow-card { --gf: #2273f5; --gf-border: #b9d2fc; --gf-soft: #f2f7fe; --gf-icon: #e3eefe; position: relative; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 26px 8px 10px; border: 1px solid var(--gf-border); border-radius: 10px; background: var(--gf-soft); box-shadow: 0 1px 2px color-mix(in srgb, var(--foreground) 5%, transparent); text-align: center; }
 .ax-git-flow-card[data-tone="green"] { --gf: #29a68b; --gf-border: #b7e2d6; --gf-soft: #f0faf7; --gf-icon: #dcf3ec; }
 .ax-git-flow-card[data-tone="purple"] { --gf: #864aed; --gf-border: #d3c2fa; --gf-soft: #f7f3fe; --gf-icon: #eadffc; }
 .ax-git-flow-card[data-tone="orange"] { --gf: #f37f1d; --gf-border: #fad9b8; --gf-soft: #fff7f0; --gf-icon: #fdeedd; }
@@ -590,8 +590,15 @@
 .ax-git-flow-card h6 { margin: 0; font-size: 13px; font-weight: 700; line-height: 1.4; overflow-wrap: anywhere; }
 .ax-git-flow-card p { margin: 0; color: var(--muted-foreground); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
 .ax-git-flow-cmd { margin-top: auto; display: flex; flex-direction: column; gap: 1px; width: 100%; padding: 6px 4px; border-radius: 6px; background: #f3f5f7; color: #374151; font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
-.ax-git-flow-arrow { flex-shrink: 0; align-self: center; width: 16px; height: 16px; color: #9ca3af; }
-.ax-git-flow-groups { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin: 12px 0 0; padding: 0; list-style: none; }
+.ax-git-flow-arrow { justify-self: center; align-self: center; width: 16px; height: 16px; color: #9ca3af; }
+.ax-git-flow-groups { display: grid; grid-template-columns: repeat(9, minmax(0, 1fr) 28px) minmax(0, 1fr); gap: 0; margin: 12px 0 0; padding: 0; list-style: none; }
+/* Beats the global .ax-view ul indent (0,1,1) so the shared grid starts at the container edge. */
+.ax-view .ax-git-flow-groups { padding-left: 0; }
+.ax-git-flow-group:nth-child(1) { grid-column: 1 / 4; }
+.ax-git-flow-group:nth-child(2) { grid-column: 5 / 8; }
+.ax-git-flow-group:nth-child(3) { grid-column: 9 / 12; }
+.ax-git-flow-group:nth-child(4) { grid-column: 13 / 16; }
+.ax-git-flow-group:nth-child(5) { grid-column: 17 / 20; }
 .ax-git-flow-group { --gf: #2273f5; --gf-border: #b9d2fc; padding: 12px 12px 10px; border: 1px solid var(--gf-border); border-radius: 10px; background: #fff; box-shadow: 0 1px 2px color-mix(in srgb, var(--foreground) 5%, transparent); min-width: 0; }
 .ax-git-flow-group[data-tone="green"] { --gf: #29a68b; --gf-border: #b7e2d6; }
 .ax-git-flow-group[data-tone="purple"] { --gf: #864aed; --gf-border: #d3c2fa; }
@@ -612,11 +619,10 @@
 .ax-git-flow-notes li + li { margin-top: 2px; }
 @media (max-width: 700px) {
   /* Narrow screens keep the 10-card order readable: the track alone scrolls sideways, never the page. */
-  .ax-git-flow-track { overflow-x: auto; padding-bottom: 8px; }
-  .ax-git-flow-card { flex: 0 0 128px; }
+  .ax-git-flow-track { grid-template-columns: repeat(9, 128px 28px) 128px; overflow-x: auto; padding-bottom: 8px; }
   .ax-git-flow-groups { grid-template-columns: minmax(0, 1fr); }
+  .ax-git-flow-group { grid-column: auto; }
   .ax-git-flow-head h5 { font-size: 17px; }
-  .ax-git-flow-logo { width: 24px; height: 24px; }
 }
 .ax-tutorial-course { margin-top: 24px; }
 /* Course headers (처음 한 번 준비 · 프로젝트 작업 · GitHub·배포) share one light-blue band; the STEP bodies stay white. */

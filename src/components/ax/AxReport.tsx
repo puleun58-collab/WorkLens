@@ -664,7 +664,6 @@ const GIT_FLOW_GROUP_ICONS = [FileText, FileCode2, CloudUpload, Settings2, Rocke
 function AxGitFlowView({ block }: { block: AxGitFlowBlock }) {
   return <div className="ax-git-flow">
     <div className="ax-git-flow-head">
-      <img src="/brand/github-mark.svg" alt="" aria-hidden="true" className="ax-git-flow-logo" />
       <div><p>{block.subtitle}</p></div>
     </div>
     <div className="ax-git-flow-track" role="list" aria-label="Git·GitHub 작업 순서">
