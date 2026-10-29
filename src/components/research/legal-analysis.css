@@ -277,8 +277,11 @@ p.research-meta { margin: 0; }
 .research-summary [data-tone="error"] { --summary-icon: #d7192d; }
 .research-summary .research-status-icon { display: block; flex-shrink: 0; color: var(--summary-icon); opacity: 1; }
 .research-summary-status > .research-status-icon { width: 14px; height: 14px; }
-.research-summary-notice:not([data-tone="info"]) { grid-template-columns: 20px minmax(0, 1fr); column-gap: 12px; padding: 14px 16px; }
-.research-summary .research-summary-notice > .research-status-icon { grid-column: 1; grid-row: 1 / span 2; align-self: center; width: 20px; height: 20px; color: var(--summary-icon); }
+/* One notice geometry for every tone, matching the blue reference box: a
+ * 16px icon column on the title row, 8px gap, 12px vertical / 14px horizontal
+ * padding. Tone changes only the border, background and icon/title color. */
+.research-summary-notice { grid-template-columns: 16px minmax(0, 1fr); column-gap: 8px; padding: 12px 14px; }
+.research-summary .research-summary-notice > svg { grid-column: 1; grid-row: 1; align-self: center; width: 16px; height: 16px; }
 .research-summary-notice [data-slot="alert-title"] { min-width: 0; overflow-wrap: anywhere; }
 /* Document review only: center every notice icon on the title row, not the title-plus-description block. */
 .contract-review .research-summary .research-summary-notice > svg { grid-row: 1; align-self: center; }

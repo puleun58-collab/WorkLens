@@ -67,6 +67,13 @@ export interface ProcedureRequirementEvidence {
   annexRelatedCandidates: string[];
   /** No parsed article matched, but section text mentions the requirement. */
   unparsed?: true;
+  /** Forms only: duty + original classification of the counted list entries
+   *  plus duty-confirmed forms named by articles but absent from the list. */
+  classifiedForms?: ClassifiedForm[];
+  /** Forms only: counted entries whose original was retrieved and verified. */
+  annexVerifiedCount?: number;
+  /** Forms only: a form the query names directly whose full original is not held. */
+  directFormOriginalMissing?: boolean;
 }
 
 export interface ProcedureEvidence {
@@ -81,6 +88,53 @@ export interface ProcedureEvidence {
    *  counted requirement has a retrieved original, else `list-only`. */
   annexOriginStage: AnnexOriginStage;
   failedSections: number;
+  /**
+   * Deterministic procedure steps for the procedure requirements: phases in
+   * canonical order, each with its body-supported articles and a body
+   * excerpt. A phase with no supporting article is `missing` (shown as
+   * "확인 필요", never invented). Empty when no procedure requirement has a
+   * body-supported article at all.
+   */
+  steps: ProcedureStep[];
+}
+
+export type ProcedureStepPhase = "scope" | "period" | "filing" | "intake" | "review" | "decision";
+
+export interface ProcedureStepArticle {
+  law: string;
+  jo: string;
+  title?: string;
+  /** First body sentence carrying the phase keyword, else the first sentence (≤140자). */
+  excerpt?: string;
+}
+
+export interface ProcedureStep {
+  phase: ProcedureStepPhase;
+  label: string;
+  articles: ProcedureStepArticle[];
+  missing: boolean;
+}
+
+export type ClassifiedFormDuty = "required" | "conditional" | "reference";
+export type ClassifiedFormOriginal = "verified" | "identified" | "missing";
+
+export interface ClassifiedForm {
+  /** Form name as named by a duty article, or the list entry title. */
+  title: string;
+  law?: string;
+  formLabel?: string;
+  /**
+   * Duty from an article body that names the form: `required`/`conditional`
+   * only when a required/conditional article names it. A list entry alone
+   * never confers a duty (`reference`).
+   */
+  duty: ClassifiedFormDuty;
+  /** Whether a retrieved annex original matches this form (title or 별지 label). */
+  original: ClassifiedFormOriginal;
+  /** Duty-confirming articles; empty for reference entries. */
+  articles: ProcedureArticleRef[];
+  /** The query itself names this form (청구서/신청서/보정서/취하서). */
+  direct: boolean;
 }
 
 export interface ProcedureRequirement {
@@ -274,6 +328,195 @@ function formNature(body: string): ProcedureFormNature {
   return "unconfirmed";
 }
 
+/** Phase order for display; classification priority is the reverse of the
+ * fallback: a title carrying two phase signals lands in the earlier phase
+ * below (intake before period, period before filing, …). The grouping is a
+ * reading aid — every step still shows its own article titles — never a
+ * verdict about the procedure's legal order. */
+const PROCEDURE_PHASES: Array<{ phase: ProcedureStepPhase; label: string; titleTerms: string[] }> = [
+  { phase: "intake", label: "접수·보정", titleTerms: ["보정", "보완", "접수"] },
+  { phase: "period", label: "기간", titleTerms: ["기간", "기한"] },
+  { phase: "filing", label: "서류 작성·제출", titleTerms: ["청구서", "신청서", "제출", "작성", "기재"] },
+  { phase: "review", label: "심리", titleTerms: ["심리", "조사", "심문", "증거"] },
+  { phase: "decision", label: "결정·통지", titleTerms: ["재결", "결정", "통지", "송달"] },
+  { phase: "scope", label: "대상·요건", titleTerms: ["청구", "신청", "대상", "요건"] },
+];
+const PROCEDURE_PHASE_ORDER: ProcedureStepPhase[] = ["scope", "period", "filing", "intake", "review", "decision"];
+
+function classifyPhase(title: string): ProcedureStepPhase | null {
+  for (const { phase, titleTerms } of PROCEDURE_PHASES) {
+    if (titleTerms.some((term) => title.includes(term))) return phase;
+  }
+  // A title with no phase signal (e.g. "위원회 운영") is not step material:
+  // it stays in the requirement's article list and the 근거 sections, but it
+  // must not be forced into "대상·요건" and read as a step to follow.
+  return null;
+}
+
+/** First body sentence after the title/header duplication, capped. The first
+ * sentence carries the operative rule (e.g. the 90-day period); picking a
+ * later keyword sentence would surface an exception paragraph instead. */
+function procedureExcerpt(body: string): string | undefined {
+  // Detail bodies repeat the title and article header before the first
+  // paragraph marker ("심판청구의 기간 제27조(…) ① …"): drop everything up
+  // to the first ① so the excerpt starts with the operative sentence.
+  const withoutHeader = body.replace(/^[^①]*①\s*/u, "").trim() || body.replace(/^제\d+조(?:의\d+)?\([^)]*\)\s*/u, "").trim();
+  if (!withoutHeader) return undefined;
+  const first = withoutHeader.split(/(?<=[.!?。])\s+/u).map((sentence) => sentence.trim()).filter(Boolean)[0];
+  if (!first) return undefined;
+  return first.length > 140 ? `${first.slice(0, 140)}…` : first;
+}
+
+function buildProcedureSteps(requirements: readonly ProcedureRequirementEvidence[], candidates: readonly ArticleCandidate[]): ProcedureStep[] {
+  const seen = new Set<string>();
+  const byPhase = new Map<ProcedureStepPhase, ProcedureStepArticle[]>();
+  for (const requirement of requirements.filter((item) => item.kind === "procedure")) {
+    for (const ref of requirement.articles) {
+      const key = `${ref.law}\0${ref.jo}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const candidate = candidates.find((item) => item.law === ref.law && item.jo === ref.jo);
+      const title = candidate?.title ?? ref.title ?? "";
+      const phase = classifyPhase(title);
+      if (!phase) continue;
+      const excerpt = candidate ? procedureExcerpt(candidate.body) : undefined;
+      const list = byPhase.get(phase) ?? [];
+      list.push({ law: ref.law, jo: ref.jo, ...(title ? { title } : {}), ...(excerpt ? { excerpt } : {}) });
+      byPhase.set(phase, list);
+    }
+  }
+  const anyArticle = [...byPhase.values()].some((articles) => articles.length > 0);
+  if (!anyArticle) return [];
+  return PROCEDURE_PHASE_ORDER.map((phase) => {
+    const label = PROCEDURE_PHASES.find((item) => item.phase === phase)!.label;
+    const articles = byPhase.get(phase) ?? [];
+    return { phase, label, articles, missing: articles.length === 0 };
+  });
+}
+
+/** A word that cannot start a form name: particles, verb tails, and frame words. */
+const INVALID_FORM_PREFIX_END = /(은|는|이|가|을|를|의|에|에서|에게|으로|로|도|만|부터|까지|와|과|만큼|따라|경우|때|한|할|된|될|하는|되는|한다|된다|이다|있다|없다|해야|하여야)$/u;
+const stripFormSuffix = (title: string) => title.replace(/\s*\(서식\)\s*$/u, "").trim();
+
+/** Two form titles name the same form: equal, or one carries a subject prefix the other lacks. */
+function sameFormTitle(a: string, b: string): boolean {
+  const left = compact(a);
+  const right = compact(b);
+  if (left === right) return true;
+  // A bare noun ("청구서") must not match every longer form ("이행신청서" is
+  // not "신청서"): a suffix match counts only when the shorter side still
+  // carries a subject prefix.
+  const shorter = left.length <= right.length ? left : right;
+  const longer = left.length <= right.length ? right : left;
+  return shorter.length > 3 && longer.endsWith(shorter);
+}
+
+/**
+ * Filing forms a duty article's body names: a filing noun (청구서/신청서/
+ * 보정서/취하서) plus at most one preceding noun word. The preceding word
+ * must not end with a particle or verb tail, so "따라 심판청구서",
+ * "수만큼 심판청구서", "경우에는 심판청구서" collapse to "심판청구서"
+ * instead of inventing a form name. No 별지 label is attached here on
+ * purpose: a label near a noun in a long article (e.g. a 접수증 label
+ * near a 청구서 mention) is not proof that the label belongs to that form,
+ * and a wrong label would misconnect the form to another original. Label
+ * connections come only from list entries (parser-provided) and from
+ * title matching against retrieved originals. A bare 별지 label never
+ * confers a filing duty on its own. "보정요구서" is not "보정서" and never
+ * matches.
+ */
+function namedFilingForms(body: string): Array<{ title: string }> {
+  const found: Array<{ title: string }> = [];
+  for (const match of body.matchAll(/[가-힣]*?(?:청구서|신청서|보정서|취하서)/gu)) {
+    let title = match[0];
+    const before = body.slice(0, match.index ?? 0);
+    const prev = /([가-힣]{2,})\s$/u.exec(before)?.[1];
+    if (prev && !INVALID_FORM_PREFIX_END.test(prev)) title = `${prev} ${title}`;
+    const existing = found.find((item) => sameFormTitle(item.title, title));
+    if (existing) {
+      if (compact(existing.title).length < compact(title).length) existing.title = title;
+      continue;
+    }
+    found.push({ title });
+  }
+  return found;
+}
+
+/** Per-entry original: a retrieved annex matches by title or 별지 label within the same law family. */
+function entryOriginal(entry: { title: string; law: string; formLabel?: string }, annexes: readonly AnnexEvidence[] | undefined): ClassifiedFormOriginal {
+  if (!annexes) return "missing";
+  const match = (status: AnnexOriginStage) => annexes.some((annex) => annex.status === status
+    && sameLawFamily(annex.law, entry.law)
+    && (sameFormTitle(stripFormSuffix(annex.title ?? ""), stripFormSuffix(entry.title))
+      || (entry.formLabel ? compact(annex.label) === compact(entry.formLabel) : false)));
+  if (match("verified")) return "verified";
+  if (match("identified")) return "identified";
+  return "missing";
+}
+
+interface CountedAnnexEntry { title: string; law: string; formLabel?: string }
+
+function buildClassifiedForms(
+  articles: readonly ProcedureArticleRef[],
+  candidates: readonly ArticleCandidate[],
+  countedEntries: readonly CountedAnnexEntry[],
+  annexes: readonly AnnexEvidence[] | undefined,
+  /** Full form phrases the query itself names (e.g. "행정심판 청구서"), not bare nouns. */
+  queryFormPhrases: readonly string[],
+): { classifiedForms: ClassifiedForm[]; annexVerifiedCount: number; directFormOriginalMissing: boolean } {
+  // Direct means the form is the one the query names: its title contains the
+  // query phrase, or carries the same form under a subject prefix
+  // ("심판청구서" for "행정심판 청구서"). A bare noun alone ("신청서") is
+  // not used: it would mark every unrelated 신청서 direct.
+  const directOf = (title: string) => queryFormPhrases.some((phrase) =>
+    compact(title).includes(compact(phrase)) || sameFormTitle(title, phrase));
+  const named: Array<{ title: string; duty: "required" | "conditional"; articles: ProcedureArticleRef[] }> = [];
+  for (const ref of articles) {
+    if (ref.nature !== "required" && ref.nature !== "conditional") continue;
+    const candidate = candidates.find((item) => item.law === ref.law && item.jo === ref.jo);
+    if (!candidate) continue;
+    for (const form of namedFilingForms(candidate.body)) {
+      const existing = named.find((item) => sameFormTitle(item.title, form.title));
+      if (existing) {
+        if (compact(existing.title).length < compact(form.title).length) existing.title = form.title;
+        if (ref.nature === "required") existing.duty = "required";
+        if (!existing.articles.some((item) => item.law === ref.law && item.jo === ref.jo)) existing.articles.push(ref);
+        continue;
+      }
+      named.push({ ...form, duty: ref.nature, articles: [ref] });
+    }
+  }
+  const merged: ClassifiedForm[] = [];
+  const usedNamed = new Set<(typeof named)[number]>();
+  for (const entry of countedEntries) {
+    const entryTitle = stripFormSuffix(entry.title);
+    const match = named.find((item) => !usedNamed.has(item) && sameFormTitle(item.title, entryTitle));
+    if (match) {
+      usedNamed.add(match);
+      merged.push({ title: entryTitle, law: entry.law, ...(entry.formLabel ? { formLabel: entry.formLabel } : {}),
+        duty: match.duty, original: entryOriginal(entry, annexes), articles: match.articles,
+        direct: directOf(entryTitle) || directOf(match.title) });
+      continue;
+    }
+    merged.push({ title: entryTitle, law: entry.law, ...(entry.formLabel ? { formLabel: entry.formLabel } : {}),
+      duty: "reference", original: entryOriginal(entry, annexes), articles: [], direct: directOf(entryTitle) });
+  }
+  for (const item of named) {
+    if (usedNamed.has(item)) continue;
+    // No law for a list-absent form: the article refs below carry the
+    // grounding law; claiming the form's own law from the article would be
+    // a guess (the form itself usually lives in the enforcement rule).
+    merged.push({ title: item.title,
+      duty: item.duty, original: entryOriginal({ title: item.title, law: item.articles[0]?.law ?? "" }, annexes),
+      articles: item.articles, direct: directOf(item.title) });
+  }
+  const rank = (form: ClassifiedForm) => form.duty === "required" ? 0 : form.duty === "conditional" ? 1 : 2;
+  const classifiedForms = [...merged].sort((a, b) => rank(a) - rank(b) || Number(b.direct) - Number(a.direct));
+  const annexVerifiedCount = countedEntries.filter((entry) => entryOriginal(entry, annexes) === "verified").length;
+  const directFormOriginalMissing = classifiedForms.some((form) => form.direct && form.original !== "verified");
+  return { classifiedForms, annexVerifiedCount, directFormOriginalMissing };
+}
+
 export function assessProcedureEvidence(query: string, document: ResearchDocument, text: string, annexes?: readonly AnnexEvidence[]): ProcedureEvidence {
   const requirements = identifyProcedureRequirements(query);
   const chains = chainLaws(text);
@@ -311,6 +554,11 @@ export function assessProcedureEvidence(query: string, document: ResearchDocumen
   }
   if (annexTotal !== undefined && annexEntries.size < annexTotal) annexTruncated = true;
   const failedSections = document.sections.filter((section) => section.unavailable).length;
+
+  // Full form phrases the query names, extracted with the same rule as
+  // article bodies (prefix-validated), so a generic noun alone does not
+  // mark every same-noun form direct.
+  const queryFormPhrases = namedFilingForms(query).map((form) => form.title);
 
   const assessed: ProcedureRequirementEvidence[] = requirements.map((requirement) => {
     const subjects = requirement.kind === "general"
@@ -420,12 +668,18 @@ export function assessProcedureEvidence(query: string, document: ResearchDocumen
     const annexOriginStage: AnnexOriginStage = annexes?.some((annex) => annex.status === "verified" && annexMatches(annex)) ? "verified"
       : annexes?.some((annex) => annex.status === "identified" && annexMatches(annex)) ? "identified"
       : "list-only";
+    const classification = requirement.kind === "forms"
+      ? buildClassifiedForms(articles, candidates, countedEntries, annexes, queryFormPhrases)
+      : undefined;
     return {
       label: requirement.label, kind: requirement.kind, status, articles,
       ...(related.length ? { related } : {}),
       annexCount, ...(annexTotal !== undefined ? { annexTotal } : {}),
       annexOriginStage, annexRelatedCandidates,
       ...(unparsed ? { unparsed } : {}),
+      ...(classification ? { classifiedForms: classification.classifiedForms,
+        annexVerifiedCount: classification.annexVerifiedCount,
+        directFormOriginalMissing: classification.directFormOriginalMissing } : {}),
     };
   });
 
@@ -449,5 +703,6 @@ export function assessProcedureEvidence(query: string, document: ResearchDocumen
   const annexOriginStage: AnnexOriginStage = counted.length && counted.every((item) => item.annexOriginStage === "verified") ? "verified"
     : counted.some((item) => item.annexOriginStage === "verified" || item.annexOriginStage === "identified") ? "identified"
     : "list-only";
-  return { requirements: assessed, overall, incomplete, annexTruncated, annexOriginStage, failedSections };
+  return { requirements: assessed, overall, incomplete, annexTruncated, annexOriginStage, failedSections,
+    steps: buildProcedureSteps(assessed, candidates) };
 }
