@@ -87,18 +87,26 @@ test("02 구현 전 확인사항: 확인 카드 통합 + 추가 확인 사항 �
   // Gate conditional: 전체 진행 보류 배지는 표시되지 않고 확인 필요 건수만 표시된다.
   const trigger = block.getByRole("button", { name: /구현 전 확인사항/ });
   await expect(trigger).not.toContainText("진행 보류");
-  await expect(trigger).toContainText("확인 필요 7건");
+  // 8건 = 기존 7건 + '업무 처리 예시 확인 필요' 1건 (픽스처는 예시 0건·결정 지점 미확정 → 확인 필요, 보완 6항 1번)
+  await expect(trigger).toContainText("확인 필요 8건");
   // 01~03은 기본 접힘 — 확인이 필요한 블록을 펼쳐서 검증한다.
   await trigger.click();
   await expect(block.getByText("아래 항목은 자동화 구현 전에 확인해야 할 조건입니다. 실제 업무 환경과 자료를 기준으로 확인해 주세요.", { exact: true })).toBeVisible();
   // 추가 확인 사항 박스(제목·표·미확정 배지)는 제거됐다.
   await expect(block.getByRole("heading", { name: "추가 확인 사항" })).toHaveCount(0);
   await expect(block.locator(".ax-prereq-extra, .ax-prereq-table")).toHaveCount(0);
-  await expect(block.getByText("미확정", { exact: false })).toHaveCount(0);
+  // 제거된 박스의 '미확정' 배지는 없어야 한다. 남는 '미확정' 문구는 예시 0건 픽스처의
+  // '업무 처리 예시 확인 필요' 카드(보완 6항 1번) 노트 1건뿐이다.
+  await expect(block.getByText("미확정", { exact: true })).toHaveCount(0);
+  await expect(block.getByText("미확정", { exact: false })).toHaveCount(1);
+  await expect(block.locator(".ax-prereq-card").filter({ hasText: "업무 처리 예시 확인 필요" }).getByText("미확정", { exact: false })).toHaveCount(1);
   // Cards: one per technical check + card-duplicate가 아닌 조건도 같은 카드 영역에 유지된다
-  // (3 technical checks + 3 plan integrations + plan prerequisite = 7)
+  // (3 technical checks + 3 plan integrations + plan prerequisite + 업무 처리 예시 확인 필요 = 8)
+  // 업무 처리 예시 확인 필요는 예시 0건·결정 지점 미확정 픽스처에 붙는 확인 필요 카드이며,
+  // 결정 지점 D1~D7은 02 카드에 들어가지 않는다. 중복 카드가 아님을 아래에서 1건으로 확인한다.
   const cards = block.locator(".ax-prereq-card");
-  await expect(cards).toHaveCount(7);
+  await expect(cards).toHaveCount(8);
+  await expect(cards.filter({ hasText: "업무 처리 예시 확인 필요" })).toHaveCount(1);
   await expect(cards.first()).toContainText("데이터 형식");
   await expect(cards.first().locator(".ax-check-badge")).toHaveText("확인 필요");
   await expect(cards.first()).not.toContainText("적용 단계 확인 필요");
@@ -120,7 +128,8 @@ test("02 구현 전 확인사항: 모바일 390px 세로 배치 + 가로 스크�
   const block = section.locator("section[aria-label='02 구현 전 확인사항']");
   await block.getByRole("button", { name: /구현 전 확인사항/ }).click();
   const cards = block.locator(".ax-prereq-card");
-  await expect(cards).toHaveCount(7);
+  // 데스크톱과 같은 8건 (기존 7건 + 예시 0건·결정 지점 미확정 픽스처의 '업무 처리 예시 확인 필요' 1건)
+  await expect(cards).toHaveCount(8);
   // Cards stack vertically (기술 점검 카드 + 추가 조건 카드 모두)
   const boxes = await cards.evaluateAll(els => els.map(el => el.getBoundingClientRect().top));
   for (let i = 1; i < boxes.length; i++) expect(boxes[i]).toBeGreaterThan(boxes[i - 1]);

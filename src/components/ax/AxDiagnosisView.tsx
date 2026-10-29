@@ -23,6 +23,7 @@ import { exportAxState, importAxState } from "@/lib/ax/transfer";
 import { emptyAxState, type AxStateV2, type AxTask, type AxDiagnosis, type AxDetails, type FactorKey } from "@/lib/ax/types";
 import { extractReviewableItems, extractPlanReviewableItems, reconcileReviews, validateReviewForConfirm, type ReviewableItem } from "@/lib/ax/hitl";
 import { AxLevelBadge, AxProcess, AxResultSummary, AxExecutionTimeline, AxPlanSection, AxScoreCards, AxCheckIcon, diagnosisSummaryParts, diagnosisCheckItems, visibleDiagnosisCheckItems, matrixRationaleBullets, resolveActiveTool } from "./AxReport";
+import { DecisionPointsSection, ExampleResultsSection } from "./AxDecisionExamples";
 import { AxScoreEvidence } from "./AxScoreEvidence";
 import "./ax.css";
 
@@ -89,6 +90,7 @@ function AxSelectedReport({ task, busy, onGenerate, onSaveReview }: {
       busy={busy}
       onGenerate={onGenerate}
       reviewProps={reviewProps}
+      exampleResults={(task as import("@/lib/ax/types").AxTaskV2).exampleResults ?? []}
       activeTool={activeTool}
       onToolChange={setSelectedTool}
     />
@@ -238,6 +240,28 @@ export function AxDiagnosisView() {
     }
     // applied=true: 로컬 반영 완료 (IndexedDB 영구 저장은 비동기로 진행됨)
     return { saved: true };
+  }
+  /** 1차 MVP 개선 — 결정 지점 저장: 진단 원문은 그대로 두고 decisionPoints만 갱신한다.
+   * 계획은 지시문 렌더링과 무관하게 유지된다 (결정 지점은 지시문 출력에만 반영). */
+  function saveDecisionPoints(taskId: string, points: import("@/lib/ax/types").DecisionPoint[]) {
+    const now = new Date().toISOString();
+    update(current => ({
+      ...current,
+      tasks: current.tasks.map(t => t.id === taskId && t.diagnosis
+        ? { ...t, diagnosis: { ...t.diagnosis, decisionPoints: points }, updatedAt: now } : t),
+    }));
+    setMessage("결정 지점을 저장했습니다.");
+  }
+  /** 1차 MVP 개선 — 예시 결과 저장: reviews와 같은 IndexedDB 레코드·저장 경로로,
+   * 업무 단위 exampleResults 필드에 사용자가 확정한 값만 저장한다. */
+  function saveExampleResults(taskId: string, examples: import("@/lib/ax/types").ExampleResult[]) {
+    const now = new Date().toISOString();
+    update(current => ({
+      ...current,
+      tasks: current.tasks.map(t => t.id === taskId
+        ? { ...t, exampleResults: examples, updatedAt: now } as import("@/lib/ax/types").AxTaskV2 : t),
+    }));
+    setMessage("업무 처리 예시를 저장했습니다.");
   }
   // 단계 전환 후 새 단계의 최상단으로 스크롤 (이전 화면의 스크롤 위치가 유지되지 않도록)
   // 실제 스크롤 주체는 document(window) — #workspace-content(.workspace)는 스크롤 컨테이너가 아니므로
@@ -459,9 +483,12 @@ export function AxDiagnosisView() {
         setMessage("최신 상태가 변경되어 이전 진단 결과를 반영하지 않았습니다.");
         return;
       }
-      const diagnosis: AxDiagnosis = { ...output, sourceNote: attachmentSummary ? "첨부 파일 요약 기반 진단 · 첨부 파일이 사용됨 — 재분석 시 재첨부 필요" : "사용자 등록 정보 기반 진단" };
+      // 1차 MVP 개선: D1~D7은 사용자가 직접 확인하는 항목이므로 AI 응답에
+      // decisionPoints가 들어 있어도 저장하지 않는다 (UI 저장 경로로만 들어간다).
+      const aiDiagnosis: AxDiagnosis = { ...output, decisionPoints: undefined, sourceNote: attachmentSummary ? "첨부 파일 요약 기반 진단 · 첨부 파일이 사용됨 — 재분석 시 재첨부 필요" : "사용자 등록 정보 기반 진단" };
       // HITL: 재진단 시 기존 검토와 새 진단 비교 → 변경된 항목 stale 처리
       // 원자적 갱신: 진단과 검토 상태를 단일 update()로 처리, 최신 state 기준
+      let keptDecisionPoints = false;
       update(current => {
         const latestTask = current.tasks.find(t => t.id === task.id) as import("@/lib/ax/types").AxTaskV2 | undefined;
         // 업무 삭제됨 → 응답 버림 (복원하지 않음)
@@ -485,6 +512,11 @@ export function AxDiagnosisView() {
           setMessage("업무 정보가 변경되어 이전 진단 결과를 반영하지 않았습니다.");
           return current;
         }
+        // 1차 MVP 개선: 사용자가 저장한 D1~D7은 AI 진단 항목이 아니라 업무 규칙 기록이므로
+        // 재진단으로 지우지 않고 보존한다 (검토 기록 보존과 같은 원칙). 보존 사실은 완료 메시지로 안내한다.
+        const savedPoints = latestTask.diagnosis?.decisionPoints;
+        keptDecisionPoints = !!savedPoints?.length;
+        const diagnosis: AxDiagnosis = keptDecisionPoints ? { ...aiDiagnosis, decisionPoints: savedPoints } : aiDiagnosis;
         const prevReviews = latestTask?.reviews ?? [];
         let nextReviews = prevReviews;
         if (prevReviews.length > 0 && latestTask?.diagnosis) {
@@ -507,7 +539,8 @@ export function AxDiagnosisView() {
             : t),
         };
       });
-      setAnswers(current => ({ ...current, [task.id]: [] })); setMessage("업무 진단을 완료했습니다. 필요한 경우 점수를 조정하세요.");
+      setAnswers(current => ({ ...current, [task.id]: [] }));
+      setMessage(`업무 진단을 완료했습니다. 필요한 경우 점수를 조정하세요.${keptDecisionPoints ? " 이전에 저장한 결정 지점(D1~D7)은 그대로 유지했습니다. 새 진단과 맞는지 다시 확인하세요." : ""}`);
     } catch (error) { if (alive.current) setMessage(`진단 실패 · ${aiFailureDetail(error)}`); }
     finally { activeAi.current = false; activeRun.current = false; if (alive.current) setBusy(null); }
   }
@@ -744,6 +777,20 @@ export function AxDiagnosisView() {
                   reviews: (selected as import("@/lib/ax/types").AxTaskV2).reviews ?? [],
                   onSaveReview: (r) => saveHitlReview(selected.id, r),
                 }}
+              />
+              <DecisionPointsSection
+                key={`decision-${selected.id}`}
+                diagnosis={selected.diagnosis}
+                taskDescription={selected.description}
+                disabled={!!busy}
+                onSave={points => saveDecisionPoints(selected.id, points)}
+              />
+              <ExampleResultsSection
+                key={`examples-${selected.id}`}
+                examples={(selected as import("@/lib/ax/types").AxTaskV2).exampleResults}
+                diagnosis={selected.diagnosis}
+                disabled={!!busy}
+                onSave={examples => saveExampleResults(selected.id, examples)}
               />
             </> : null}
           </> : null}</div>

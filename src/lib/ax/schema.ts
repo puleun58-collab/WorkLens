@@ -17,6 +17,28 @@ export const axDetailsSchema = z.object({
   systems: text.optional(), inputs: text.optional(), outputs: text.optional(), humanSteps: text.optional(), painPoints: text.optional(), goal: text.optional(),
 }).strict();
 const factorSchema = z.object({ key: z.enum(FACTOR_KEYS), aiValue: rating, rationale: text });
+/** 고정 결정 지점 D1~D7 (1차 MVP 개선): 진단 스키마의 optional 필드로 저장한다.
+ * required로 두면 구버전 저장 데이터가 strict 검증에 실패해 저장 자체가 중단되므로 금지한다.
+ * 상태 기본값은 "미확정"이며, "확정"/"해당 없음"은 사용자가 직접 선택·입력한 경우에만 저장한다.
+ * AI가 채운 값은 진단 수신 시 제거하고 UI 저장 경로로만 들어간다 (AxDiagnosisView diagnose 참조). */
+export const DECISION_POINT_IDS = ["D1", "D2", "D3", "D4", "D5", "D6", "D7"] as const;
+export const DECISION_POINT_STATUSES = ["확정", "해당 없음", "미확정"] as const;
+export const decisionPointSchema = z.object({
+  id: z.enum(DECISION_POINT_IDS),
+  status: z.enum(DECISION_POINT_STATUSES),
+  /** 확정 내용. D4는 결과 상태 목록(쉼표·점 구분), D5는 판정 불가 행을 보낼 상태명이다. */
+  detail: z.string().trim().max(2000).optional(),
+}).strict();
+/** HITL 예시 결과 1건: 입력 값 + 기대 결과(D4 상태 중 하나) + 선택 메모.
+ * supplement(자유 텍스트 보완)와 필드명을 구분한다. 상한은 레코드 폭증 방지용이다
+ * (항목 20건, 입력 2000자, 기대 상태 100자, 기대 값 500자, 메모 1000자).
+ * 초안은 컴포넌트 상태에만 두고, 사용자가 확정한 값만 이 필드로 저장한다. */
+export const exampleResultSchema = z.object({
+  input: z.string().trim().min(1).max(2000),
+  expectedState: z.string().trim().min(1).max(100),
+  expectedValue: z.string().trim().max(500).optional(),
+  memo: z.string().trim().max(1000).optional(),
+}).strict();
 export const axDiagnosisShape = {
   informationSufficiency: z.enum(["sufficient", "partial", "needs-check"]),
   followUpQuestions: z.array(text.min(1)).max(3),
@@ -43,8 +65,11 @@ export const axPlanJsonSchema = z.object({
   security: list, operation: list, tests: list, acceptance: list,
 }).strict();
 export const axPlanSchema = axPlanJsonSchema.extend({ repositoryFirst: z.literal(REPOSITORY_FIRST) });
+/** 사용자가 저장하는 결정 지점은 AI 응답 스키마(axDiagnosisShape)에 넣지 않는다.
+ * AI 응답 형식에 노출하면 형식이 틀린 decisionPoints 하나로 진단 전체 파싱이 실패할 수 있다. */
+const userDiagnosisShape = { decisionPoints: z.array(decisionPointSchema).max(7).optional() };
 export const axConfirmedDiagnosisSchema = z.object({
-  ...axDiagnosisShape, factors: z.array(factorSchema.extend({ finalValue: rating.optional() }).strict()).length(6),
+  ...axDiagnosisShape, ...userDiagnosisShape, factors: z.array(factorSchema.extend({ finalValue: rating.optional() }).strict()).length(6),
 }).strict().refine(uniqueFactors, "6종 Factor가 각각 필요합니다.");
 export const axDiagnosisSchema = z.object({
   ...axConfirmedDiagnosisSchema.shape,
@@ -84,7 +109,9 @@ export const axPlanRequestSchema = z.object({
 
 /** Only confirmed diagnosis fields cross the plan boundary; no stored plans or source text. */
 export function confirmedAxDiagnosis(value: z.infer<typeof axDiagnosisSchema>) {
-  return axConfirmedDiagnosisSchema.parse(Object.fromEntries(Object.keys(axDiagnosisShape).map(key => [key, value[key as keyof typeof axDiagnosisShape]])));
+  // 결정 지점이 없는 진단은 키 자체를 넣지 않는다 (AI 응답 스키마와 같은 모양 유지).
+  const keys = [...Object.keys(axDiagnosisShape), ...Object.keys(userDiagnosisShape)] as (keyof typeof value)[];
+  return axConfirmedDiagnosisSchema.parse(Object.fromEntries(keys.filter(key => value[key] !== undefined).map(key => [key, value[key]])));
 }
 
 // HITL (Human-in-the-loop) review schema
@@ -151,6 +178,11 @@ export const hitlReviewCollectionSchema = z.object({
 export const axTaskV2Schema = axTaskSchema.extend({
   // 사람 검토 데이터 (AI 진단 원본과 분리)
   reviews: z.array(hitlReviewSchema).max(100).optional(),
+  // HITL 예시 결과 확인 기록: 업무 단위 목록으로, reviews와 같은 IndexedDB
+  // AxStateV2 레코드·같은 저장 경로로 저장한다 (새 서버 저장소 없음).
+  // 검토 항목별 필드가 아니라 업무 단위인 이유: 확정 예시 3건 기준은 업무
+  // 단위 개수이며, 항목별로 나누면 기준 집계와 지시문 예시 표가 분산된다.
+  exampleResults: z.array(exampleResultSchema).max(20).optional(),
 });
 
 export const axStateV2Schema = z.object({

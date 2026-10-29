@@ -341,6 +341,13 @@ function parseResult(request: AiApiRequest, content: string): AiApiResult {
   }
   switch (request.kind) {
     case "ax-diagnosis": {
+      // decisionPoints(D1~D7)는 사용자만 저장하는 필드라 AI 응답 형식에 없다. AI가 이 필드를
+      // 보내도 저장하지 않으므로, 형식과 무관하게 버린 뒤 검증해 진단 전체가 실패하지 않게 한다.
+      if (payload && typeof payload === "object" && !Array.isArray(payload) && "decisionPoints" in payload) {
+        const rest: Record<string, unknown> = { ...(payload as Record<string, unknown>) };
+        delete rest.decisionPoints;
+        payload = rest;
+      }
       const parsed = axDiagnosisOutputSchema.safeParse(payload);
       if (!parsed.success || copiesAttachment(parsed.data, request.attachmentSummary)) throw new ApiError("INVALID_PROVIDER_OUTPUT", "AI 응답 형식이 올바르지 않습니다.", 502);
       return { kind: "ax-diagnosis", diagnosis: parsed.data };

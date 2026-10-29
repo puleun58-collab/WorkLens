@@ -1,6 +1,8 @@
-import type { AxDiagnosis, AxPlan } from "./types";
+import type { AxDiagnosis, AxPlan, ExampleResult } from "./types";
 import { automationLevel, axes, executionProfile, prerequisiteTopicKey, type ExecutionGate, type ExecutionProfile, type StepScope } from "./policy";
 import { FACTOR_KEYS } from "./schema";
+import { applyStateDefinition, confirmedStateNames, confirmedUndecidableState, resolveDecisionPoints, undecidedDecisionIds, type ResolvedDecisionPoint } from "./decision-points";
+import { EXAMPLE_CONFIRM_REASON, EXAMPLE_CONFIRMED_MINIMUM, EXAMPLE_HOLD_REASON, exampleHoldReasons, exampleRequirement, exampleResultRow, partitionExamples } from "./example-results";
 import { extractPlanReviewableItems, extractReviewableItems, getValidConfirmedReviews, buildPlanReviewKeyMap } from "./hitl";
 
 export type AxToolId = "codex" | "claude";
@@ -797,8 +799,8 @@ function demotionForException(model: AgentInstructionModel, text: string): AxDem
   return undefined;
 }
 
-export function planSummary(diagnosis: AxDiagnosis, rawPlan?: AxPlan, context = "", options: { hitlReviews?: import("./types").HitlReview[]; hitlTool?: "codex" | "claude" } = {}): AxPlanSummary {
-  const model = buildAgentInstructionModel(rawPlan, { diagnosis, context, hitlReviews: options.hitlReviews, hitlTool: options.hitlTool });
+export function planSummary(diagnosis: AxDiagnosis, rawPlan?: AxPlan, context = "", options: { hitlReviews?: import("./types").HitlReview[]; hitlTool?: "codex" | "claude"; exampleResults?: ExampleResult[] } = {}): AxPlanSummary {
+  const model = buildAgentInstructionModel(rawPlan, { diagnosis, context, hitlReviews: options.hitlReviews, hitlTool: options.hitlTool, exampleResults: options.exampleResults });
   const profile = model.profile;
   const humanKept = mergeDistinct((profile?.manualSteps ?? []).map(step => `${step} (담당자 수행)`),
     model.classified.filter(item => item.role === "human").map(item => item.original ?? item.text));
@@ -836,6 +838,26 @@ export function planSummary(diagnosis: AxDiagnosis, rawPlan?: AxPlan, context = 
       : check.note;
     return [{ topic: check.topic, status: check.status, note, tone }];
   });
+  // 1차 MVP 개선 — 기존 보류 체계에 추가되는 사유 (기존 항목을 바꾸지 않고 덧붙인다).
+  // 예시 목록이 전달된 경우에만 적용한다 (미전달 시 기존 요약 동작 유지). 화면은 저장 전
+  // 기본 상태도 빈 목록으로 전달하므로 예시 0건도 02 요약에 표시된다.
+  // D4가 확정되면 기대 결과가 D4 목록에 없는 예시는 확정 예시로 세지 않는다 (04 지시문과 같은 기준).
+  // 보완 6항 1번: 필수 대상만 미확정 사유 카드, 확인 필요 대상은 확인 필요 카드,
+  // 권장 대상은 카드를 붙이지 않는다 (일괄 3건 강제 아님).
+  const summaryStateNames = confirmedStateNames(model.decisionPoints ?? []);
+  const summaryRequirement = exampleRequirement(model.decisionPoints ?? []);
+  if (options.exampleResults !== undefined) {
+    const summaryReasons = exampleHoldReasons(options.exampleResults, summaryStateNames, summaryRequirement);
+    const { valid, invalid } = partitionExamples(options.exampleResults, summaryStateNames);
+    if (summaryReasons.includes(EXAMPLE_HOLD_REASON)) {
+      checks.push({ topic: "업무 처리 예시 미확정", status: "확인 필요", note: `확정 예시가 ${valid.length}건으로 ${EXAMPLE_CONFIRMED_MINIMUM}건 미만입니다.${invalid.length ? ` 기대 결과가 D4 결과 상태 목록에 없는 예시 ${invalid.length}건은 제외했습니다.` : ""} 업무 처리 예시 확인에서 ${EXAMPLE_CONFIRMED_MINIMUM}건 이상 확정하세요.`, tone: "required" });
+    } else if (summaryReasons.includes(EXAMPLE_CONFIRM_REASON)) {
+      checks.push({ topic: "업무 처리 예시 확인 필요", status: "확인 필요", note: `업무 처리 예시 필수 여부가 미확정입니다. 확정 예시는 ${valid.length}건입니다. 결정 지점 D1·D2·D3·D7을 확정하거나 해당 없음으로 확인하면 필수 여부가 정해집니다.`, tone: "required" });
+    }
+  }
+  // D4/D5 미확정은 summary.checks(기술 점검 카드 전용)에는 넣지 않는다.
+  // 02 카드의 출처·개수를 바꾸면 기존 중복 제거 계약이 깨진다. 대신 지시문
+  // §1 결정 지점 블록과 §5 미확정 항목 처리의 범위별 보류 문장으로 다룬다.
   const additionalChecks = buildAdditionalChecks(model, technicalChecks, checkTexts,
     new Set((model.gate === "blocked" ? profile?.blockReasons ?? [] : []).map(normalizedItem)));
   const excluded = mergeDistinct(restricted, without([
@@ -1042,6 +1064,10 @@ export interface AgentInstructionModel {
   gaps: string[];
   /** HITL 3차: 검토 결과가 반영되었는지 여부 */
   hitlApplied?: boolean;
+  /** 1차 MVP 개선: 항상 7개인 고정 결정 지점 (기본값 미확정). */
+  decisionPoints?: ResolvedDecisionPoint[];
+  /** 1차 MVP 개선: 확정 예시 결과 목록 (없으면 빈 배열). */
+  exampleResults?: ExampleResult[];
   /** HITL 3차: 적용된 검토 상세 */
   hitlDetails?: {
     appliedReviews: Array<{ id: string; action: string; targetKey: string }>;
@@ -1370,6 +1396,8 @@ type PromptOptions = {
   hitlReviews?: import("./types").HitlReview[];
   /** HITL 3차: 현재 선택한 코딩 도구 (계획 출처 구분용) */
   hitlTool?: "codex" | "claude";
+  /** 1차 MVP 개선: 업무 단위 확정 예시 결과 목록 (없으면 0건으로 취급). */
+  exampleResults?: ExampleResult[];
 };
 const PLAN_ROLES: Record<Exclude<keyof AxPlan, "repositoryFirst">, string> = {
   goal: "goal", asIs: "reference", toBe: "reference", inScope: "features", outOfScope: "excluded",
@@ -1691,6 +1719,7 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
     methodChains: finalMethodEvidence.map(item => item.chain), methodOrders: finalMethodEvidence.map(item => item.order), conditions: finalConditions, classified: finalClassified,
     ambiguous: finalClassified.filter(item => item.scope === "confirm" && item.role !== "reference"),
     scoped: finalScoped, diagnosis: d, plan: guarded, prerequisites: options.prerequisites ?? [], gaps,
+    decisionPoints: d ? resolveDecisionPoints(d) : undefined, exampleResults: options.exampleResults ?? [],
     hitlApplied: hitlActuallyApplied, hitlDetails };
 }
 
@@ -2529,6 +2558,25 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
     ...demotedPocCriteria,
   ];
   const hitl = model.hitlDetails;
+  // 1차 MVP 개선 — 고정 결정 지점·확정 예시 (지시문 생성 시점의 출력용; 저장 원문은 고치지 않는다).
+  const decisionPoints = model.decisionPoints ?? [];
+  const stateNames = confirmedStateNames(decisionPoints);
+  const undecidedIds = undecidedDecisionIds(decisionPoints);
+  const d5State = confirmedUndecidableState(decisionPoints);
+  const requirement = exampleRequirement(decisionPoints);
+  // D4가 확정되면 기대 결과가 D4 목록에 없는 예시는 확정 예시에서 제외한다 (D4 단일 정의 유지).
+  const { valid: examples, invalid: excludedExamples } = partitionExamples(model.exampleResults, stateNames);
+  const exampleHold = exampleHoldReasons(examples, null, requirement);
+  // 사용자가 직접 입력한 블록은 D4 치환(applyStateDefinition) 대상에서 제외한다.
+  // 치환하면 "정상·오류·확인 필요" 같은 D4 정의 행 자체가 다시 바뀌어 상태가 중복된다.
+  const userBlocks: string[] = [];
+  const protectUserBlock = (text: string) => { userBlocks.push(text); return `\u0000${userBlocks.length - 1}\u0000`; };
+  const stateList = stateNames?.join(" · ");
+  const decisionBlock = decisionPoints.length ? protectUserBlock(`### 결정 지점 (D1~D7)\n\n${bullets(decisionPoints.map(point => point.status === "미확정"
+    ? `${point.id} ${point.title} — 미확정 (임의로 정하지 않음)`
+    : point.id === "D4" && stateList ? `${point.id} ${point.title} — ${point.status}: ${stateList}`
+    : point.detail ? `${point.id} ${point.title} — ${point.status}: ${point.detail}` : `${point.id} ${point.title} — ${point.status}`))}
+${stateList ? `\n결과 상태 목록: ${stateList} — 지시문 전체에서 결과 상태를 언급할 때는 이 목록의 이름과 개수만 사용한다.` : ""}`) : "";
   // 01. 구현 목표: 업무명·목적·핵심 기능·최종 산출물을 한 번만 제시한다.
   // 업무 등록 원문과 생성 계획 목표가 중복되면 하나의 구현 목표로 통합한다.
   const goalTexts = goals.filter(item => item.scope !== "future").map(item => item.text);
@@ -2550,6 +2598,7 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
     ])}\n\n실제 실행 범위는 현재 허용 범위를 따르며, TO-BE·생성 계획·매트릭스 위치는 이 범위를 넓히지 않습니다.` : "",
     `### 이번 작업 목표\n\n${objective}`,
     options.context?.trim() ? `### 업무 설명 (등록 내용)\n\n${options.context.trim()}\n\n등록 내용과 진단이 충돌하면 임의로 하나를 선택하지 말고, 실제 구현에 영향을 주는 충돌 사항만 확인 대상으로 남기세요.` : "",
+    decisionBlock,
   );
   // 02. 구현 범위: 각 단계의 상태·사유는 이 표에서 한 번만 표시한다.
   const extraHuman = humanKept.filter(item => !human.some(s => normalizedItem(item) === normalizedItem(`${s.step} (담당자 수행)`) || normalizedItem(item) === normalizedItem(s.step)));
@@ -2665,7 +2714,7 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
     extraConstraints.length ? `### 담당자·제외 제약 (추가)\n\n${bullets(extraConstraints)}` : "",
     humanConstraints || humanKept.length ? `### 담당자 확인·승인\n\n${HUMAN_DECISION_CHECK} 담당자 판단·확정이 필요한 결과를 확인되지 않은 승인으로 확정·시스템 반영·외부 전송하거나 담당자 판단을 대체하지 마세요. 승인 주체·권한이 확인되지 않았으면 지정하지 마세요.` : "",
     "확인되지 않은 API·권한·파일 형식·연동 방식·계산식·반올림·중복 기준·승인 주체를 가정해 구현하지 마세요. 특히 '불가'·거부된 접근 권한은 검토에서 제외해도 허용으로 바뀌지 않습니다.",
-    exceptionLines.length ? `### 예외\n\n${bullets(exceptionLines)}\n\n실패·미매칭·확인 불가 데이터는 정상 결과와 분리해 원인과 대상을 확인할 수 있게 하세요. 자동 삭제·자동 보정은 업무 규칙에 명시된 경우에만 적용하고, 아니면 대상 건을 표시만 하세요.` : "",
+    exceptionLines.length ? `### 예외\n\n${bullets(exceptionLines)}\n\n${stateList ? `확정 규칙으로 처리하지 못한 데이터는 결과 상태 목록(${stateList}) 중 해당 상태로 분리해 원인과 대상을 확인할 수 있게 하세요.` : "실패·미매칭·확인 불가 데이터는 정상 결과와 분리해 원인과 대상을 확인할 수 있게 하세요."} 자동 삭제·자동 보정은 업무 규칙에 명시된 경우에만 적용하고, 아니면 대상 건을 표시만 하세요.` : "",
     `### 실행 방식\n\n${scopeLevel === 1 ? "담당자 요청 기반 실행만 허용합니다. 스케줄러·폴더 감시 등 정기 무인 실행을 구현하지 마세요." : scopeLevel === 0 ? "검토·검증만 허용하며 업무 자동 실행을 추가하지 마세요." : "업무 발생 주기와 시스템 자동 실행은 별개입니다. 실제 자동 실행 요청·근거·정책 허용 여부가 확인되지 않았다면 실행 방식 확인 필요로 보고하세요."}${d?.asIs?.trigger && /(자동|스케줄|무인|정기\s*실행)/u.test(d.asIs.trigger) ? " 원본 주기 표현에 자동 실행 언급이 있어도 정책 허용 범위와 담당자 확인 없이는 자동 실행으로 확정하지 않고, 실제 실행 방식은 확인 대상으로 보고하세요." : ""}`,
     `### 보안\n\n${bullets([
       ...model.conditions.global.filter(item => item.role === "security").map(evidenceLine),
@@ -2690,14 +2739,35 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
       "기존 정책에서 허용된 실행 범위 확인: '구현 범위'의 처리 구분(구현·확인 후 구현·검토·검증·담당자 수행·향후 확장)을 그대로 따르세요. 허용 범위를 넓히거나, 보류·제외 단계를 독립 기능으로 재분류하거나, Level·Gate를 초과해 처리하지 마세요.",
       work.length ? "조건 충족 독립 단계부터 구현: '기능별 요구사항'의 각 기능을 입력·처리·출력 명세대로 구현하세요. 다른 단계의 미확정 규칙 때문에 독립 단계까지 일괄 중단하지 마세요." : "조건 충족 독립 단계부터 구현: 이번 범위에서 구현할 단계가 없습니다. 입력 자료의 형식 확인과 보고만 수행하세요.",
       "미확정 조건 의존 부분만 보류: 미확정 조건에 실제로 의존하는 작업만 보류하고, 보류 사유와 재개 조건을 보고하세요. 재개 조건이 충족되어도 담당자 재확인·승인 없이 자동으로 재개하지 마세요.",
-      work.length ? `실제 데이터로 검증: 처리 결과를 ${finalOutputs.length ? finalOutputs.join(", ") : "확인된 출력 형식"}으로 연결하고, 업무에 필요한 저장·재조회가 있으면 기존 저장소·인증 방식으로 동작을 확인하세요. '예외 및 유지 조건'의 예외 항목을 처리하고 실패·미매칭·확인 불가 데이터를 정상 결과와 분리하세요. 저장소의 실제 테스트·빌드 명령으로 아래 검증 기준을 확인하고, 실행하지 않은 검증은 완료로 보고하지 마세요. 저장 기능이 없는 업무에 DB 검증을, 웹앱이 아닌 업무에 브라우저 테스트·웹 배포를 강제하지 마세요.` : "실제 데이터로 검증: 해당 없음 — 확보한 샘플과 기존 자료로 확인할 수 있는 범위만 검증하고, 비교 자료가 없으면 '검증 불가'와 사유를 기록하세요.",
+      work.length ? `실제 데이터로 검증: 처리 결과를 ${finalOutputs.length ? finalOutputs.join(", ") : "확인된 출력 형식"}으로 연결하고, 업무에 필요한 저장·재조회가 있으면 기존 저장소·인증 방식으로 동작을 확인하세요. '예외 및 유지 조건'의 예외 항목을 처리하고 ${stateList ? `확정 규칙으로 처리하지 못한 데이터를 결과 상태 목록(${stateList}) 중 해당 상태로 분리하세요` : "실패·미매칭·확인 불가 데이터를 정상 결과와 분리하세요"}. 저장소의 실제 테스트·빌드 명령으로 아래 검증 기준을 확인하고, 실행하지 않은 검증은 완료로 보고하지 마세요. 저장 기능이 없는 업무에 DB 검증을, 웹앱이 아닌 업무에 브라우저 테스트·웹 배포를 강제하지 마세요.` : "실제 데이터로 검증: 해당 없음 — 확보한 샘플과 기존 자료로 확인할 수 있는 범위만 검증하고, 비교 자료가 없으면 '검증 불가'와 사유를 기록하세요.",
       "담당자 확인·승인 경계 유지: 담당자 확인 전 결과가 확정·전송되지 않는지, 제외·보류된 단계가 다시 필수 작업으로 나타나지 않는지 확인하세요. 담당자 판단을 자동 승인으로 대체하지 말고, 완료 여부는 실제 실행·검증 결과로만 판단해 '결과 보고'의 4개 항목으로 보고하세요.",
     ]),
     "위 순서를 지키되 의존성이 없는 독립 단계는 병렬로 진행할 수 있습니다. 선행 확인이 필요한 단계는 실제 의존 관계를 확인하고 해당 부분만 '확인·승인 대기'로 보고하세요. 미확인 권한·보안 조건을 독립이라고 단정하거나 우회하지 마세요.",
+    decisionPoints.length ? `### 결정 지점·예시 기반 구현 순서\n\n${bullets([
+      `1. 코딩 전에 결과 상태 정의와 미확정 항목(${undecidedIds.length ? undecidedIds.join(", ") : "없음"})을 한 번 정리해 출력한다. 미확정 항목의 규칙을 임의로 정하지 않는다.`,
+      "2. 핵심 처리 로직을 화면과 분리된 함수로 먼저 구현한다.",
+      examples.length ? "3. 아래 확정 예시를 자동 테스트로 작성해 실행한다. 모든 예시가 기대 결과와 일치해야 다음 단계로 간다. 기대 결과를 수정하지 않는다. 일치시키지 못하면 이유를 보고하고 멈춘다." : requirement === "recommended" ? "3. 업무 처리 예시는 권장 사항이므로 확정 예시 기준의 자동 테스트는 필수가 아니다. 예시가 있으면 자동 테스트에 포함하고, 없으면 다른 검증 기준으로 진행한다." : requirement === "needs-confirmation" ? "3. 확정 예시가 없고 업무 처리 예시 필수 여부도 확인되지 않았다. '업무 처리 예시 확인 필요'로 보고하고, 필수 여부가 확인될 때까지 해당 검증을 미실행으로 둔다." : "3. 확정 예시가 없어 확정 예시 기준의 자동 테스트를 작성할 수 없다. '업무 처리 예시 미확정' 보류 사유를 보고하고, 예시가 확정될 때까지 해당 검증을 미실행으로 둔다.",
+      "4. 다음 두 조건을 테스트에 포함한다: 하나의 항목은 결과 목록 하나에만 들어간다 / 모든 입력 행은 하나의 결과에 반영되거나, 정해진 제외 사유와 함께 표시된다.",
+      "5. 화면을 연결한 뒤 같은 예시를 화면에서 처리해 결과가 같은지 확인한다.",
+      "6. 배포한 경우 배포된 주소에서 같은 예시로 다시 확인한다.",
+    ])}` : "",
+    decisionPoints.length ? `### 미확정 항목 처리\n\n${[
+      d5State
+        ? `미확정 규칙에 해당하는 행만 '${d5State}'로 보내고 사유에 해당 D번호를 표시한다. 나머지 행은 확정된 규칙대로 처리한다. 확정 규칙으로 판정할 수 있는 행까지 '${d5State}'로 보내는 구현은 완료가 아니다.`
+        : "D5가 미확정이므로 판정 불가 행을 보낼 상태명을 임의로 만들지 않는다. 판정 불가 행만 보류하고 확정 규칙으로 판정 가능한 행은 정상 처리한다. 해당 행은 기존 조건부 보류 체계에 따라 처리되며, 사유에 D번호를 표시한다.",
+      `미확정 항목: ${undecidedIds.length ? undecidedIds.join(", ") : "없음"} — 위 항목의 규칙을 임의로 정하지 않는다.`,
+      ...(undecidedIds.includes("D4") ? ["D4가 미확정이므로 결과 상태 정의가 필요한 범위(결과 상태 판정·예시 기대 결과 검증)만 보류하고, D4 정의 없이 판단 가능한 처리는 확정된 규칙대로 진행한다. D4 미확정을 이유로 전체를 일괄 보류하지 않는다."] : []),
+      ...(!undecidedIds.includes("D4") && !undecidedIds.includes("D5") && undecidedIds.length ? ["D4·D5가 확정되고 다른 결정 지점이 미확정이므로, 확정 규칙으로 판단 가능한 데이터는 정상 처리하고, 미확정 규칙이 필요한 데이터만 해당 D번호와 함께 보류한다. 다른 지점 미확정을 이유로 확정 가능 데이터까지 일괄 보류하지 않는다."] : []),
+    ].join("\n\n")}` : "",
+    decisionPoints.length ? `### 확정 예시\n\n${examples.length
+      ? `${protectUserBlock(`| 입력 값 | 기대 결과 | 메모 |\n| --- | --- | --- |\n${examples.map(exampleResultRow).join("\n")}`)}${exampleHold.includes(EXAMPLE_HOLD_REASON) ? `\n\n확정 예시가 ${examples.length}건으로 ${EXAMPLE_CONFIRMED_MINIMUM}건 미만이므로 '업무 처리 예시 미확정' 보류 사유가 적용된다.` : ""}${exampleHold.includes(EXAMPLE_CONFIRM_REASON) ? `\n\n업무 처리 예시 필수 여부가 미확정입니다. 필수 여부가 확인될 때까지 예시 필수 조건은 보류한다.` : ""}`
+      : requirement === "recommended" ? "확정된 예시가 없습니다. 업무 처리 예시는 권장 사항이므로 필수 조건이 아니다."
+      : requirement === "needs-confirmation" ? "확정된 예시가 없습니다. 업무 처리 예시 필수 여부가 확인되지 않았으므로 확인 필요로 처리한다."
+      : "확정된 예시가 없습니다. '업무 처리 예시 미확정' 보류 사유로 처리한다."}${excludedExamples.length ? `\n\n기대 결과가 결과 상태 목록에 없는 예시 ${excludedExamples.length}건은 확정 예시에서 제외했다. 제외한 예시로 테스트를 만들지 않는다.` : ""}\n\n독립 평가 데이터는 이 지시문에 포함하지 않으며, 구현 에이전트에 정답을 사전 노출하지 않는다.` : "",
     work.length ? `### 정상 케이스\n\n${tests.length ? `${bullets(tests)}\n\n` : ""}실제 입력으로 처리·출력과 필요한 저장·재조회를 확정된 기대 결과와 대조하세요. 서로 다른 입력으로 다시 실행해 각 입력에 맞게 출력이 달라지는지 확인하고 고정 결과를 배제하세요. 기대 결과·허용 오차가 정의되지 않았다면 '확인 필요'로 보고하세요.`
       : `### 현재 검토·검증\n\n${tests.length ? `${bullets(tests)}\n\n` : ""}확보한 샘플과 기존 자료로 확인할 수 있는 범위만 검증하세요. 검증을 위해 새 기능·자동 생성 코드를 만들지 말고, 비교 자료가 없으면 '검증 불가'와 사유를 기록하세요.`,
     model.scoped.validationMethods.length ? `### 검증 방법·기록 (합격 조건 아님)\n\n${bullets(model.scoped.validationMethods.map(evidenceLine))}` : "",
-    work.length ? "### 경계·실패 케이스\n\n입력 1건·빈 입력·같은 기준값 여러 건·선택 항목 누락·확정된 업무 경계값 중 해당하는 상황을 확인하세요. 현재 구현 단계의 잘못된 형식·파싱 오류·필수 항목 누락과 외부 API가 필요한 경우 응답 오류·권한 거부·연결 실패가 정상 결과나 성공한 저장으로 표시되지 않는지 확인하세요." : "",
+    work.length ? `### 경계·실패 케이스\n\n입력 1건·빈 입력·같은 기준값 여러 건·선택 항목 누락·확정된 업무 경계값 중 해당하는 상황을 확인하세요. 현재 구현 단계의 잘못된 형식·파싱 오류·필수 항목 누락과 외부 API가 필요한 경우 응답 오류·권한 거부·연결 실패가 ${stateList ? "근거 없이 확정 규칙의 판정 결과" : "정상 결과"}나 성공한 저장으로 표시되지 않는지 확인하세요.` : "",
     "### 범위·승인·회귀 확인\n\n담당자 확인 전 결과가 확정·전송되지 않는지, 제외·보류된 단계와 검증 기준이 다시 필수 작업으로 나타나지 않는지, 거부된 권한에 의존하는 처리가 실행되지 않는지 확인하세요. 이 작업과 관련된 기존 기능이 이전과 동일하게 동작하는지 확인하세요. 웹 UI를 포함하면 기존 브라우저/E2E 도구가 있을 때 주요 화면을 Desktop과 Mobile에서 확인하세요.",
     work.length ? `### 단계별 완료 기준\n\n${bullets([
       ...(work.some(s => s.scope === "implement") ? [`구현 단계 (${work.filter(s => s.scope === "implement").map(s => s.step).join(", ")}): '기능별 요구사항'의 해당 기능 검증 기준을 모두 충족하면 완료`] : []),
@@ -2730,7 +2800,7 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
       "배포 또는 운영 적용을 수행했다면 실제 환경에서 서로 다른 입력 → 파싱·처리 → 실제 출력·필요한 저장·재조회, 오류와 권한·승인 경계를 확인하세요. 배포하지 않았다면 운영 검증 완료로 보고하지 마세요.",
       ...(gate === "blocked" || !profile ? ["실행 범위가 차단·미확정 상태에서는 배포·운영 적용·연결을 수행하지 마세요. 차단 해제에 필요한 조건만 보고하세요."] : []),
     ])}`,
-    "작업이 끝나면 다음 4개 항목으로 보고하세요. 각 항목의 완료 여부는 실제 실행 근거를 기준으로 판단하고, 실행하지 않은 테스트나 배포를 완료로 표시하지 마세요. 배포가 필요하지 않은 프로그램은 실제 실행 검증 결과로 보고하세요. 확인하지 않은 환경변수·API·파일 경로를 적지 말고, 계획이나 미구현 기능을 실행 가능한 코드와 구분하세요.",
+    `작업이 끝나면 다음 4개 항목으로 보고하세요. 각 항목의 완료 여부는 실제 실행 근거를 기준으로 판단하고, 실행하지 않은 테스트나 배포를 완료로 표시하지 마세요. 배포가 필요하지 않은 프로그램은 실제 실행 검증 결과로 보고하세요. 확인하지 않은 환경변수·API·파일 경로를 적지 말고, 계획이나 미구현 기능을 실행 가능한 코드와 구분하세요. 완료 보고에는 예시별 기대 결과, 실제 결과, 일치 여부를 실제 실행 결과로 보고한다. 실행하지 못한 검증은 실행하지 못했다고 쓴다.${exampleHold.includes(EXAMPLE_HOLD_REASON) ? " 확정 예시가 3건 미만이므로 '업무 처리 예시 미확정' 보류 사유를 함께 보고한다." : ""}${exampleHold.includes(EXAMPLE_CONFIRM_REASON) ? " 업무 처리 예시 필수 여부가 확인되지 않았으므로 확인 필요로 함께 보고한다." : ""} HITL 확정 예시는 구현 과정의 필수 확인 기준이며, 예시 통과만으로 구현 완료·정확성 PASS를 판단하지 않는다. 실제 정확성 검증은 별도 독립 평가 데이터로 수행하고, 수행하지 못한 검증은 NOT_VERIFIED로 보고한다. 배포 후 검증 보고에는 실제 배포 주소(URL), 입력, 실제 결과, 독립 정답 대조 결과를 포함한다.`,
     numbered([
       "구현한 기능 및 변경 파일",
       "실제 실행·테스트 결과 (실행하지 않은 검증은 미실행으로 명시)",
@@ -2738,9 +2808,12 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
       "Git·배포·운영 적용 상태",
     ]),
   );
-  return [
+  const prompt = [
     axPromptTitle(options.taskName),
     "대상 저장소를 먼저 확인한 뒤, 아래 '구현 범위' 안에서 첫 MVP를 구현하세요. 완료 여부는 실제 실행·검증 결과로만 판단합니다.",
     ...sections.filter(s => s.body).map((s, i) => `## ${i + 1}. ${s.title}\n\n${s.body}`),
   ].join("\n\n");
+  // D4 단일 정의는 생성 출력에만 적용한다 (저장된 진단 원문은 고치지 않는다).
+  // 보호한 사용자 입력 블록은 치환 후 원래 내용으로 되돌린다.
+  return applyStateDefinition(prompt, stateNames).replace(/\u0000(\d+)\u0000/gu, (_, index: string) => userBlocks[Number(index)]);
 }

@@ -1,4 +1,6 @@
-import type { AxDiagnosis, AxTask, FactorKey } from "./types";
+import type { AxDiagnosis, AxTask, ExampleResult, FactorKey } from "./types";
+import { exampleHoldReasons, exampleRequirement } from "./example-results";
+import { confirmedStateNames, resolveDecisionPoints } from "./decision-points";
 import { FACTOR_LABELS } from "./schema";
 // All coefficients and thresholds are public policy; no additional weights.
 export const AX_POLICY = { priority: { value: 2, feasibility: 1.5, judgment: -1, risk: -1.5, needsCheck: -1, partial: -0.5 }, matrixThreshold: 3.5, holdRisk: 4, holdJudgment: 4.5 } as const;
@@ -260,6 +262,32 @@ export function gateBlockReasons(d: AxDiagnosis): string[] {
 
 export function planAllowed(d: AxDiagnosis): boolean {
   return executionGate(d) !== "blocked";
+}
+
+/**
+ * 1차 MVP 개선 — 업무 처리 예시 보류 사유의 조건부 보류 체계 편입.
+ * executionGate() 자체는 바꾸지 않는다: 예시 필드가 없는 기존 저장 진단은
+ * 기존 판정을 그대로 유지한다 (회귀 방지). 예시 목록이 주어진 경우에만
+ * 아래 opt-in 판정을 쓴다. blocked는 그대로 blocked이며, 기존 보류 사유를
+ * 제거·약화하지 않고 필수 여부에 따른 사유를 추가하는 형태이다.
+ * - 필수 대상 3건 미만: "업무 처리 예시 미확정" (conditional)
+ * - 확인 필요 대상: "업무 처리 예시 확인 필요" (conditional, 자동 면제 없음)
+ * - 권장 대상: 사유 없음 (기존 판정 유지)
+ */
+export function executionGateWithExamples(d: AxDiagnosis, examples?: ExampleResult[] | null): ExecutionGate {
+  const gate = executionGate(d);
+  if (gate === "blocked") return "blocked";
+  const points = resolveDecisionPoints(d);
+  return exampleHoldReasons(examples, confirmedStateNames(points), exampleRequirement(points)).length ? "conditional" : gate;
+}
+
+/** gatePrerequisites()에 업무 처리 예시 사유를 추가한 버전 (ready면 해당 사유만). */
+export function gatePrerequisitesWithExamples(d: AxDiagnosis, examples?: ExampleResult[] | null): string[] {
+  const points = resolveDecisionPoints(d);
+  const reasons = exampleHoldReasons(examples, confirmedStateNames(points), exampleRequirement(points));
+  if (!reasons.length) return gatePrerequisites(d);
+  const base = executionGate(d) === "ready" ? [] : gatePrerequisites(d);
+  return [...new Set([...base, ...reasons])].slice(0, 10);
 }
 
 export function priorityDisplayLabel(d: AxDiagnosis): string {

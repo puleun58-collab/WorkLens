@@ -9,6 +9,13 @@ beforeEach(() => { process.env.GROQ_API_KEY = "test-ax-secret"; });
 afterEach(() => { delete process.env.GROQ_API_KEY; vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 function provider(payload: unknown) { return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(payload) }, finish_reason: "stop" }], usage: { prompt_tokens: 100, completion_tokens: 500, total_tokens: 600 } }), { status: 200 }); }
 describe("AX AI boundaries", () => {
+  it("drops AI-sent decisionPoints (any shape) instead of failing the whole diagnosis", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => provider({ ...outputFixture(), decisionPoints: [{ id: "D4", status: "pending", detail: "AI 임의 값" }] })));
+    const result = await runGroqAi(request);
+    expect(result.kind).toBe("ax-diagnosis");
+    if (result.kind === "ax-diagnosis") expect(result.diagnosis).not.toHaveProperty("decisionPoints");
+  });
   it("accepts both kinds with bounded confirmed data and keeps default low", () => {
     expect(parseAiApiRequest(request)).toEqual(request);
     expect(parseAiApiRequest({ kind: "ax-plan", target: "codex", task: { name: "취합", description: "입력 표 취합", details: {} }, diagnosis: confirmedAxDiagnosis(diagnosisFixture) }).kind).toBe("ax-plan");
