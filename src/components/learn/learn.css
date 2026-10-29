@@ -205,7 +205,7 @@
 .learn-card-danger .learn-card-title svg { color: #b45309; }
 .learn-card-danger .learn-card-body { padding-top: 10px; }
 .learn-mistake-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.learn-mistake-card { background: #ffffff; border: 1px solid #e8cfab; border-radius: 8px; padding: 13px 15px; }
+.learn-mistake-card { background: #ffffff; border: 1px solid var(--border); border-radius: 8px; padding: 13px 15px; }
 .learn-mistake-card p { margin: 6px 0; }
 .learn-mistake-title { font-weight: 700; color: #78350f; }
 
