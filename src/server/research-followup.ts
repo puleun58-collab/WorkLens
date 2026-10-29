@@ -194,11 +194,31 @@ export async function retrieveResearchFollowup(
         return { ...entry, score };
       }).filter((a) => a.score > 0).sort((a, b) => b.score - a.score);
       let readCount = 0;
-      for (const candidate of candidates.slice(0, 6)) {
-        const article = await read(lower, candidate.jo);
-        readCount++;
-        if (!article) continue;
-        if (mode === "procedure_detail" || parents.some((p) => citesParent(article.body, p.jo))) add(article);
+      // law_system only: read a tier's candidates in adjacent score-order
+      // pairs. The two read() calls of a pair run their admission prefix
+      // (expired + readKeys 18 checks, key reservation, attempted count)
+      // synchronously in order before either awaits, so a pair never
+      // reserves more than the budget allows; results are applied in
+      // candidate order, not completion order. Other modes keep the
+      // sequential loop unchanged.
+      if (mode === "law_system") {
+        const firstPass = candidates.slice(0, 6);
+        for (let i = 0; i < firstPass.length; i += 2) {
+          const chunk = firstPass.slice(i, i + 2);
+          const results = await Promise.all(chunk.map((c) => read(lower, c.jo)));
+          for (const article of results) {
+            readCount++;
+            if (!article) continue;
+            if (parents.some((p) => citesParent(article.body, p.jo))) add(article);
+          }
+        }
+      } else {
+        for (const candidate of candidates.slice(0, 6)) {
+          const article = await read(lower, candidate.jo);
+          readCount++;
+          if (!article) continue;
+          if (mode === "procedure_detail" || parents.some((p) => citesParent(article.body, p.jo))) add(article);
+        }
       }
       tierPlans.push({ lower, candidates, read: readCount });
     }
@@ -212,12 +232,16 @@ export async function retrieveResearchFollowup(
     // reads, so an unread remainder is already reported via `limited`.
     if (mode === "law_system") {
       for (const plan of tierPlans) {
-        for (const candidate of plan.candidates.slice(plan.read)) {
+        const rest = plan.candidates.slice(plan.read);
+        for (let i = 0; i < rest.length; i += 2) {
           if (expired() || readKeys.size >= 18) break;
-          const article = await read(plan.lower, candidate.jo);
-          plan.read++;
-          if (!article) continue;
-          if (parents.some((p) => citesParent(article.body, p.jo))) add(article);
+          const chunk = rest.slice(i, i + 2);
+          const results = await Promise.all(chunk.map((c) => read(plan.lower, c.jo)));
+          for (const article of results) {
+            plan.read++;
+            if (!article) continue;
+            if (parents.some((p) => citesParent(article.body, p.jo))) add(article);
+          }
         }
       }
     }
