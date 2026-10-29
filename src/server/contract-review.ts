@@ -8,6 +8,7 @@ import { getDecisionText, searchDecisions, type DecisionEntry } from "@/server/d
 import { ApiError } from "@/server/http";
 import { getLawText, searchLaw } from "@/server/law-mcp";
 import { lawDisplayText } from "@/lib/law-display";
+import { compactLaw } from "@/lib/research-scope";
 
 type Context = { requestId: string; signal?: AbortSignal };
 
@@ -56,6 +57,13 @@ function articleReference(target: LawTarget, text: string, effectiveDate?: strin
   const lines = text.split(/\r?\n/u);
   const head = lines.findIndex((line) => new RegExp(`^${target.jo}(?:\\s|\\(|$)`, "u").test(line.trim()));
   if (head < 0) return undefined;
+  // Identification, not just location: a stale or misdirected MST can
+  // return another law's article under the requested number. When the
+  // response names its law, it must be the target's law; a response
+  // without a law header keeps the previous behaviour (findLaw already
+  // exact-matched the name before this fetch).
+  const declared = lines.slice(0, head).map((line) => /^법령명:\s*(.+?)\s*$/u.exec(line.trim())?.[1]).find(Boolean);
+  if (declared && compactLaw(declared) !== compactLaw(target.law)) return undefined;
   const title = lines[head].trim().slice(target.jo.length).replace(/^\s*\(?|\)?\s*$/gu, "").trim();
   const content = lines.slice(head + 1).map((line) => line.trim()).filter(Boolean);
   if (content[0]?.startsWith(target.jo)

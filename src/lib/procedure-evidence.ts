@@ -1,4 +1,6 @@
 import type { ResearchDocument } from "@/lib/law-research-parse";
+import type { AnnexEvidence } from "@/lib/research-annex";
+import { sameLawFamily } from "@/lib/research-scope";
 
 /**
  * Server-side, deterministic evidence assessment for the 절차·서식
@@ -33,10 +35,16 @@ export interface ProcedureArticleRef {
   nature?: ProcedureFormNature;
 }
 
-/** How far annex originals got: this codebase has no annex-origin step, so
- *  every annex entry is `list-only` — a title in a list, never a retrieved
- *  form body or link. A complete list is still list-only; truncation and
- *  origin stage are separate facts and must not be conflated. */
+/** How far annex originals got. Without retrieved annexes every entry is
+ *  `list-only` — a title in a list, never a retrieved form body or link.
+ *  A complete list is still list-only; truncation and origin stage are
+ *  separate facts and must not be conflated. When the caller passes the
+ *  annexes the server retrieved, a requirement's stage rises to `identified`
+ *  (an original was fetched but cut) or `verified` (a complete original was
+ *  fetched) only for an annex of the requirement's own law — and, when the
+ *  counted entries carry 별지 labels, only for the same-numbered form.
+ *  List codes are internal index keys, never form numbers, so entries
+ *  without a 별지 label match by law alone. */
 export type AnnexOriginStage = "list-only" | "identified" | "linked" | "verified";
 
 export interface ProcedureRequirementEvidence {
@@ -50,7 +58,8 @@ export interface ProcedureRequirementEvidence {
   /** Distinct matching annex entries (titles only — never direct evidence). */
   annexCount: number;
   annexTotal?: number;
-  /** Origin stage of the annex entries above; never beyond list-only here. */
+  /** Origin stage of the annex entries above; `list-only` unless the caller
+   *  passes retrieved annexes that verify one of them (see AnnexOriginStage). */
   annexOriginStage: AnnexOriginStage;
   /** Title-correspondence candidates for this requirement (additive display
    *  only): annex titles whose wording matches the requirement's subject.
@@ -67,7 +76,9 @@ export interface ProcedureEvidence {
   incomplete: boolean;
   /** An annex list was cut (entries < the stated total): originals not held. */
   annexTruncated: boolean;
-  /** Overall annex origin stage; `list-only` until an origin step exists. */
+  /** Overall annex origin stage: `verified` only when every requirement
+   *  with counted entries is verified, `identified` when at least one
+   *  counted requirement has a retrieved original, else `list-only`. */
   annexOriginStage: AnnexOriginStage;
   failedSections: number;
 }
@@ -83,6 +94,11 @@ const COST_STEMS = ["비용", "수수료", "부담금", "송달료"];
 const KIND_STEMS = [...PROCEDURE_STEMS, ...FORMS_STEMS, ...COST_STEMS, "신청", "청구", "제출", "안내", "확인"];
 const FRAME_WORDS = new Set(["알려줘", "알려주세요", "궁금해", "궁금해요", "대해", "대한", "관해", "관련", "기준", "경우", "때", "확인해", "줘", "주세요"]);
 const PARTICLE = /(?:와|과|은|는|이|가|을|를|의|에|로|도|만)$/u;
+/** Verb-tail fragments left after a kind stem is stripped ("제출해야" →
+ * "해야"): they are predicate endings, never subjects. Without this, a
+ * segment like "제출해야 할 청구서 서식" yields the nonsense subject
+ * "해야" and labels such as "해야 청구서". */
+const VERB_TAIL = new Set(["해야", "해야할", "하는", "된다", "되어", "되는", "한다", "할수", "있다", "없다", "이다", "입니다"]);
 
 const compact = (value: string) => value.replace(/\s+/gu, "");
 
@@ -90,9 +106,19 @@ const compact = (value: string) => value.replace(/\s+/gu, "");
 function subjectStems(text: string): string[] {
   const stems: string[] = [];
   for (const raw of text.split(/[\s,·]+/u)) {
-    if (!raw || FRAME_WORDS.has(raw)) continue;
-    let token = raw.replace(PARTICLE, "");
+    // A trailing sentence mark belongs to the sentence, not to the word:
+    // without this, "알려줘." misses the "알려줘" frame word and becomes a
+    // subject of its own.
+    const word = raw.replace(/[.?!。？]+$/u, "");
+    if (!word || FRAME_WORDS.has(word)) continue;
+    let token = word.replace(PARTICLE, "");
     for (const stem of KIND_STEMS) token = token.split(stem).join("");
+    if (VERB_TAIL.has(token)) continue;
+    // A predicate or modifier ending (…한/할/된/될) never names the subject:
+    // "필요한" in "필요한 서식" is a modifier, not what the form is about.
+    // Two-letter nouns that happen to end in 한 (기한, 권한, 제한) are
+    // protected by the length rule below.
+    if (token.length >= 3 && /(?:한|할|된|될)$/u.test(token)) continue;
     token = token.replace(/^(?:법령|법률)$/u, "");
     if (token.length >= 2 && !stems.includes(token)) stems.push(token);
   }
@@ -105,7 +131,7 @@ function tokensWith(text: string, stems: readonly string[]): string[] {
 
 /** Split a question on 와/과/및/그리고/콤마; a segment without a subject inherits the first segment's. */
 export function identifyProcedureRequirements(query: string): ProcedureRequirement[] {
-  const cleaned = query.trim().replace(/[?\uFF1F\u3002\s]+$/u, "");
+  const cleaned = query.trim().replace(/[?.!\uFF1F\u3002\s]+$/u, "");
   const tokens = cleaned.split(/\s+/u).flatMap((token) => token.split(/(?<=,)/u)).filter(Boolean);
   const segments: string[] = [];
   let current: string[] = [];
@@ -145,7 +171,9 @@ export function identifyProcedureRequirements(query: string): ProcedureRequireme
     for (const kind of kinds) {
       const stems = kind === "procedure" ? [...PROCEDURE_STEMS, "신청", "청구"]
         : kind === "forms" ? FORMS_STEMS : COST_STEMS;
-      const phrase = tokensWith(segment, stems).join(" ");
+      // Phrase tokens keep their particles in the raw segment ("서식을");
+      // a label must not ("행정심판 청구서 서식을" → "행정심판 청구서 서식").
+      const phrase = tokensWith(segment, stems).map((token) => token.replace(PARTICLE, "")).filter(Boolean).join(" ");
       const subject = subjects.length ? subjects.join(" ") : firstSubjects.join(" ");
       const finalLabel = kinds.length > 1
         ? `${subject ? `${subject} ` : ""}${phrase || segment}`.trim()
@@ -246,7 +274,7 @@ function formNature(body: string): ProcedureFormNature {
   return "unconfirmed";
 }
 
-export function assessProcedureEvidence(query: string, document: ResearchDocument, text: string): ProcedureEvidence {
+export function assessProcedureEvidence(query: string, document: ResearchDocument, text: string, annexes?: readonly AnnexEvidence[]): ProcedureEvidence {
   const requirements = identifyProcedureRequirements(query);
   const chains = chainLaws(text);
   const parsed: ArticleCandidate[] = document.sections
@@ -258,7 +286,16 @@ export function assessProcedureEvidence(query: string, document: ResearchDocumen
   const detail = extractDetailArticles(text);
   const candidates = [...parsed];
   for (const article of detail) {
-    if (!candidates.some((item) => item.law === article.law && item.jo === article.jo)) candidates.push(article);
+    const existing = candidates.find((item) => item.law === article.law && item.jo === article.jo);
+    if (!existing) { candidates.push(article); continue; }
+    // A truncated search preview must not hide the full body the detail
+    // format carries for the same article: the evidence judges the body,
+    // so a longer detail body replaces the preview (law, jo and title
+    // stay the parsed article's).
+    if (existing.truncated && article.body.length > existing.body.length) {
+      existing.body = article.body;
+      existing.truncated = article.truncated;
+    }
   }
   const annexEntries = new Map<string, { title: string; law: string; formLabel?: string }>();
   let annexTotal: number | undefined;
@@ -266,7 +303,9 @@ export function assessProcedureEvidence(query: string, document: ResearchDocumen
   for (const section of document.sections.filter((section) => section.status === "available" && section.kind === "annex" && section.annex)) {
     annexTotal = Math.max(annexTotal ?? 0, section.annex!.total ?? 0);
     for (const entry of section.annex!.entries) {
-      annexEntries.set(`${entry.title}\0${entry.law ?? ""}`, { title: entry.title, law: entry.law ?? "",
+      // The same form under two list titles ("행정심판 청구서" vs "청구서")
+      // is one form: key on its 별지 label when it has one, else its title.
+      annexEntries.set(`${entry.formLabel ?? entry.title}\0${entry.law ?? ""}`, { title: entry.title, law: entry.law ?? "",
         ...(entry.formLabel ? { formLabel: entry.formLabel } : {}) });
     }
   }
@@ -319,12 +358,13 @@ export function assessProcedureEvidence(query: string, document: ResearchDocumen
     }
     let annexCount = 0;
     const annexRelatedCandidates: string[] = [];
+    const countedEntries: Array<{ title: string; law: string; formLabel?: string }> = [];
     if (requirement.kind === "forms" || requirement.kind === "general") {
       for (const entry of annexEntries.values()) {
         const entrySubjects = subjects.length ? subjects : chains.map(chainRoot);
         const lawHit = entrySubjects.some((subject) => compact(entry.law).includes(compact(subject)))
           || chains.some((chain) => compact(entry.law).includes(chainRoot(chain)));
-        if (lawHit) annexCount++;
+        if (lawHit) { annexCount++; countedEntries.push(entry); }
         // Title correspondence is a separate, additive signal. For a forms
         // requirement it is a form-named entry of the matching law (a 청구서
         // title for a 청구 filing); for a general requirement the entry's
@@ -367,11 +407,24 @@ export function assessProcedureEvidence(query: string, document: ResearchDocumen
       if (prose) { status = "viewed"; unparsed = true; }
       else status = failedSections > 0 ? "failed" : "none";
     }
+    // Origin stage for the counted entries only: a retrieved annex verifies
+    // a requirement when it is of the same law family and, when the counted
+    // entries carry 별지 labels, the same-numbered form. Entries without a
+    // 별지 label (internal codes, bare titles) match by law alone, since no
+    // finer identifier bridges the list and the retrieved original.
+    const entryLaws = [...new Set(countedEntries.map((entry) => entry.law).filter(Boolean))];
+    const entryLabels = countedEntries.map((entry) => entry.formLabel).filter((label): label is string => Boolean(label));
+    const annexMatches = (annex: AnnexEvidence) =>
+      entryLaws.some((law) => sameLawFamily(annex.law, law))
+      && (entryLabels.length === 0 || entryLabels.some((label) => compact(label) === compact(annex.label)));
+    const annexOriginStage: AnnexOriginStage = annexes?.some((annex) => annex.status === "verified" && annexMatches(annex)) ? "verified"
+      : annexes?.some((annex) => annex.status === "identified" && annexMatches(annex)) ? "identified"
+      : "list-only";
     return {
       label: requirement.label, kind: requirement.kind, status, articles,
       ...(related.length ? { related } : {}),
       annexCount, ...(annexTotal !== undefined ? { annexTotal } : {}),
-      annexOriginStage: "list-only" as const, annexRelatedCandidates,
+      annexOriginStage, annexRelatedCandidates,
       ...(unparsed ? { unparsed } : {}),
     };
   });
@@ -386,6 +439,15 @@ export function assessProcedureEvidence(query: string, document: ResearchDocumen
     : failedCount > 0 ? "failed" : "none";
   if (overall === "matched" && incomplete) overall = "partial";
   // `overall` and requirement statuses are unchanged by the origin stage:
-  // the stage is additive information, never a demotion or promotion.
-  return { requirements: assessed, overall, incomplete, annexTruncated, annexOriginStage: "list-only", failedSections };
+  // the stage is additive information, never a demotion or promotion. The
+  // overall stage is `verified` only when every requirement with counted
+  // entries is verified; a single verified requirement among list-only ones
+  // still leaves the overall at `identified`, so the list-only notice
+  // (which reads only the overall) never claims an unverified entry holds
+  // an original — and never hides that some original was retrieved.
+  const counted = assessed.filter((item) => item.annexCount > 0);
+  const annexOriginStage: AnnexOriginStage = counted.length && counted.every((item) => item.annexOriginStage === "verified") ? "verified"
+    : counted.some((item) => item.annexOriginStage === "verified" || item.annexOriginStage === "identified") ? "identified"
+    : "list-only";
+  return { requirements: assessed, overall, incomplete, annexTruncated, annexOriginStage, failedSections };
 }

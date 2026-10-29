@@ -26,6 +26,20 @@ export interface TaskEvidenceItem {
   status: TaskEvidenceItemStatus;
   /** Counts or citations behind the item, e.g. "시행령 4건 · 위임 연결 2건". */
   detail?: string;
+  /** Provisions behind the item, in detail order: the aggregate's own
+   * membership, so the screen can show each provision with its relation
+   * and expression instead of re-deriving the counts from a string. */
+  articles?: TaskEvidenceArticle[];
+}
+
+/** One provision behind a task-evidence item, with its judged relation. */
+export interface TaskEvidenceArticle {
+  law: string;
+  jo: string;
+  title: string;
+  relation: "direct" | "twoWay" | "other" | "unidentified" | "related";
+  /** The actual citing or delegation wording, when one was matched. */
+  expression?: string;
 }
 
 export interface TaskEvidence {
@@ -64,7 +78,7 @@ export interface DetailArticle {
   body: string;
 }
 
-const DETAIL_HEAD = /^\[(시행령|시행규칙)\]\s*(.+?)\s*제(\d+조(?:의\d+)?)\s*\((.+)\)\s*$/u;
+const DETAIL_HEAD = /^\[(시행령|시행규칙|법률)\]\s*(.+?)\s*제(\d+조(?:의\d+)?)\s*\((.+)\)\s*$/u;
 const LAW_HEAD = /^제(\d+조(?:의\d+)?)\s+제\1\((.+)\)\s*$/u;
 
 /**
@@ -81,7 +95,7 @@ export function detailArticles(text: string): DetailArticle[] {
     if (/^▶/u.test(line) || line.startsWith("═══")) { current = undefined; continue; }
     const detail = DETAIL_HEAD.exec(line.trim());
     if (detail) {
-      current = { tier: detail[1] === "시행령" ? "decree" : "rule", law: detail[2].trim(),
+      current = { tier: detail[1] === "시행령" ? "decree" : detail[1] === "시행규칙" ? "rule" : "law", law: detail[2].trim(),
         jo: `제${detail[3]}`, title: detail[4].trim(), body: "" };
       articles.push(current);
       continue;

@@ -1,3 +1,4 @@
+import type { AnnexEvidence } from "@/lib/research-annex";
 import type { FileKind } from "@/domain/document";
 import { LAW_ARTICLE_PATTERN } from "@/lib/law-search";
 import { normalizeAnalysisDate, normalizeAnalysisJo } from "@/lib/law-analysis";
@@ -233,6 +234,8 @@ export interface LawResearchData {
    * ordinance_compare keeps `comparison`, procedure_detail keeps
    * `procedure` from PR #326 and is intentionally not duplicated here.
    */
+  followup?: { status: "complete" | "partial" | "failed" | "not-searched"; attempted: number; failed: number; missing: number; limited: boolean };
+  annexes?: AnnexEvidence[];
   lawSystem?: TaskEvidence;
   actionBasis?: TaskEvidence;
   dispute?: TaskEvidence;

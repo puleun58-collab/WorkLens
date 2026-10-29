@@ -111,8 +111,8 @@ export async function getLawText(
 
 /** Tool names and arguments are fixed by server entry points, never supplied by the caller. */
 export async function callLawTool(
-  tool: "search_law" | "get_law_text" | "search_decisions" | "get_decision_text" | "legal_analysis" | "legal_research" | "execute_tool",
-  args: { query: string } | { mst: string; jo?: string } | { lawId: string; jo?: string } |
+  tool: "get_annexes" | "search_law" | "get_law_text" | "search_decisions" | "get_decision_text" | "legal_analysis" | "legal_research" | "execute_tool",
+  args: { lawName: string; annexNo: string; knd: "1" | "2" } | { query: string } | { mst: string; jo?: string } | { lawId: string; jo?: string } |
     { domain: string; query: string; display: 20; page: number } | { domain: string; id: string; full?: true } |
     { mode: "verify_citations"; text: string; maxCitations: 15 } |
     { mode: "cite_check"; caseNumber: string; display: 20; deepScan: true } |

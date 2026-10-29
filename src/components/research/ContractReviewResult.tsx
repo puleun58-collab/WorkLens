@@ -145,15 +145,18 @@ export function ContractReviewResult({ review, file, expandSources = false, onEx
   })));
   const grounded = issues.filter((issue) =>
     issue.laws.some((key) => review.laws[key]) || issue.precedents.some((key) => review.precedents[key])).length;
+  const lookupIncomplete = issues.some((issue) => issue.lawStatus === "failed" || issue.lawStatus === "partial"
+    || issue.precedentStatus === "failed" || issue.precedentStatus === "partial");
+  const lookupFailed = issues.some((issue) => issue.lawStatus === "failed" || issue.precedentStatus === "failed");
+  // A fully grounded issue list is still only partial when some lookup did
+  // not complete: the badge and the notice already said "추가 확인 필요",
+  // and the status must not say "matched" at the same time.
   const status: ResearchStatus = !issues.length ? "none"
-    : grounded === issues.length ? "matched"
+    : grounded === issues.length ? (lookupIncomplete ? "partial" : "matched")
     : grounded ? "partial"
     : review.stats.excludedPrecedents > 0 ? "weak" : "none";
   const lawCount = new Set(issues.flatMap((issue) => issue.laws.filter((key) => review.laws[key]))).size;
   const precedentCount = new Set(issues.flatMap((issue) => issue.precedents.filter((key) => review.precedents[key]))).size;
-  const lookupIncomplete = issues.some((issue) => issue.lawStatus === "failed" || issue.lawStatus === "partial"
-    || issue.precedentStatus === "failed" || issue.precedentStatus === "partial");
-  const lookupFailed = issues.some((issue) => issue.lawStatus === "failed" || issue.precedentStatus === "failed");
 
   const issueBody = (issue: ReviewedIssue, anchor: string, clauseSegments?: readonly number[]) => {
     const laws = [...new Set(issue.laws)].map((key) => review.laws[key]).filter(Boolean);
@@ -171,6 +174,12 @@ export function ContractReviewResult({ review, file, expandSources = false, onEx
     const parts: string[] = [];
     if (laws.length) parts.push(`법령 ${laws.length}건`);
     if (precedents.length) parts.push(`판례 ${precedents.length}건`);
+    // Refs present but a lookup incomplete: the counts stay, and the gap is
+    // named next to them instead of presenting the issue as fully confirmed.
+    if (laws.length + precedents.length > 0) {
+      if (issue.lawStatus === "failed" || issue.precedentStatus === "failed") parts.push("근거 조회 실패");
+      else if (issue.lawStatus === "partial" || issue.precedentStatus === "partial") parts.push("근거 일부 확인");
+    }
     return <>
       <dl className="contract-review-issue-facts">
         <div className="contract-review-point"><dt>검토 결과</dt><dd>{issue.point}</dd></div>

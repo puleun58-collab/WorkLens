@@ -292,7 +292,10 @@ function fakeSources(overrides: Partial<ReviewSources> = {}): ReviewSources & { 
     async findLaw(name) { calls.findLaw.push(name); return { mst: `mst-${name}` }; },
     async article(mst, jo) {
       calls.article.push(`${mst}:${jo}`);
-      return `법령명: 테스트\n시행일: 20240807\n\n${jo} 조문 제목\n${jo}의 본문입니다.\n`;
+      // Real MCP article text names its own law; the mock derives it from
+      // the MST findLaw returned, so the law-identity check in the
+      // pipeline sees the same shape as production.
+      return `법령명: ${mst.replace(/^mst-/, "")}\n시행일: 20240807\n\n${jo} 조문 제목\n${jo}의 본문입니다.\n`;
     },
     async searchPrecedents(query) {
       calls.searchPrecedents.push(query);
@@ -339,13 +342,31 @@ describe("reviewContract pipeline", () => {
     ].join("\n");
     const review = await reviewContract(text, fakeSources({
       async article(_mst, jo) {
-        return `법령명: 테스트\n시행일: 20240807\n\n${jo}(배상액의 예정)\n${jo}(배상액의 예정)\n① 손해배상의 예정액이 부당히 과다한 경우 법원은 감액할 수 있다.`;
+        return `법령명: 민법\n시행일: 20240807\n\n${jo}(배상액의 예정)\n${jo}(배상액의 예정)\n① 손해배상의 예정액이 부당히 과다한 경우 법원은 감액할 수 있다.`;
       },
     }));
     const issue = review.clauses.flatMap((clause) => clause.issues).find((item) => item.id === "penalty")!;
     const law = review.laws[issue.laws[0]];
     expect(law.title).toBe("배상액의 예정");
     expect(law.excerpt).toBe("① 손해배상의 예정액이 부당히 과다한 경우 법원은 감액할 수 있다.");
+  });
+
+  it("rejects an article whose response names a different law than the target", async () => {
+    const text = [
+      "서비스 이용계약서",
+      "제1조(위약금) 이용자는 잔여기간 이용요금의 200%를 위약금으로 지급한다.",
+    ].join("\n");
+    // The MST resolves, but the returned text belongs to another law: the
+    // article must not attach to the issue under the target's name.
+    const review = await reviewContract(text, fakeSources({
+      async article(_mst, jo) {
+        return `법령명: 다른법\n시행일: 20240807\n\n${jo}(배상액의 예정)\n① 손해배상의 예정액이 부당히 과다한 경우 법원은 감액할 수 있다.`;
+      },
+    }));
+    const issue = review.clauses.flatMap((clause) => clause.issues).find((item) => item.id === "penalty")!;
+    expect(issue.laws).toEqual([]);
+    expect(issue.lawStatus).toBe("none");
+    expect(Object.values(review.laws).some((law) => law.law === "민법")).toBe(false);
   });
 
   it("never searches or opens anything twice", async () => {

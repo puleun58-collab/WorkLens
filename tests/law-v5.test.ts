@@ -411,8 +411,15 @@ describe("V5: chain supplement partial failure survives the merge", () => {
       search_decisions: () => "[NOT_FOUND] 없음",
     });
     const result = await runLegalResearch({ task: "full_research", query: question }, ctx);
+    // Policy (2026-10-28): the old matched came from a precedent-only
+    // issue plus a supplement article from a synthetic cross-law
+    // (괴롭힘보호법) that is not the question's law (근로기준법). A
+    // law-seeking question is matched only on an adopted article of its
+    // own named law, so the server status is partial here — while the
+    // merge behaviour under test, the flag and the article surviving,
+    // is unchanged.
     expect(result).toMatchObject({ found: true,
-      evidence: { status: "matched", issues: [{ label: "직장 내 괴롭힘 조치 의무", status: "found" }] } });
+      evidence: { status: "partial", issues: [{ label: "직장 내 괴롭힘 조치 의무", status: "found" }] } });
     const data = result as { enrichment?: { supplement?: { partialFailure?: boolean; articles?: Array<{ jo: string }> } } };
     expect(data.enrichment?.supplement?.partialFailure).toBe(true);
     expect(data.enrichment?.supplement?.articles?.map((article) => article.jo)).toContain("제76조의3");
