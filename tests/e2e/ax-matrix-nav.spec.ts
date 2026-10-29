@@ -134,3 +134,52 @@ test("재진단으로 확인 필요 상태가 해제되면 상단 바로가기�
   await expect(counts(page)).not.toContainText("정보 확인 필요");
   await expect(counts(page).getByRole("button")).toHaveCount(0);
 });
+
+test("매트릭스 상세의 업무 진단으로 이동 버튼: 확인할 사항 영역으로 이동한다", async ({ page }) => {
+  const target = diagnosedTask("detail-a", "상세 확인 업무");
+  await openMatrix(page, [target]);
+  const detail = page.locator(".ax-matrix-detail");
+  await expect(detail).toBeVisible();
+  await detail.getByRole("button", { name: "업무 진단으로 이동", exact: true }).click();
+  await expect(page.getByRole("tab", { name: "업무 진단", exact: true })).toHaveAttribute("data-active", "");
+  await expect(page.locator(".ax-diag-card h2")).toHaveText(target.name);
+  const checks = page.locator(".ax-diag-checks");
+  await expect(checks).toBeVisible();
+  await expect(checks).toContainText("확인할 사항");
+  await expect.poll(async () => (await checks.boundingBox())?.y ?? 9999).toBeLessThan(200);
+});
+
+test("진행 보류 업무의 매트릭스 이동 버튼: 추가 질문이 있어도 확인할 사항 영역을 우선한다", async ({ page }) => {
+  const diagnosis = structuredClone(diagnosisFixture);
+  diagnosis.decisionGate = { verdict: "no-go", reasons: ["접근 권한 없음"] };
+  diagnosis.followUpQuestions = ["입력 자료 형식을 알려 주세요"];
+  const target = { ...taskFixture("blocked-a", diagnosis), name: "보류 업무", status: taskStatus(diagnosis) };
+  await openMatrix(page, [target]);
+  await page.locator(".ax-matrix-detail").getByRole("button", { name: "업무 진단으로 이동", exact: true }).click();
+  await expect(page.getByRole("tab", { name: "업무 진단", exact: true })).toHaveAttribute("data-active", "");
+  const checks = page.locator(".ax-diag-checks");
+  await expect(checks).toBeVisible();
+  await expect(checks).toContainText("접근 권한 없음");
+  await expect.poll(async () => (await checks.boundingBox())?.y ?? 9999).toBeLessThan(200);
+});
+
+test("결과·로드맵 헤더의 업무 진단으로 이동 버튼: 업무 진단 단계로 이동한다", async ({ page }) => {
+  const target = diagnosedTask("report-a", "로드맵 확인 업무");
+  await page.goto("/");
+  await seed(page, { ...emptyAxState(), tasks: [target], selectedTaskId: target.id, step: 4 });
+  await ax(page);
+  await page.locator(".ax-selected-report").getByRole("button", { name: "업무 진단으로 이동", exact: true }).click();
+  await expect(page.getByRole("tab", { name: "업무 진단", exact: true })).toHaveAttribute("data-active", "");
+  await expect(page.locator(".ax-diag-card h2")).toHaveText(target.name);
+});
+
+test("모바일 390×844에서도 매트릭스 상세 이동 버튼이 표시되고 가로 넘침이 없다", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const target = diagnosedTask("detail-m", "모바일 상세 업무");
+  await openMatrix(page, [target]);
+  const button = page.locator(".ax-matrix-detail").getByRole("button", { name: "업무 진단으로 이동", exact: true });
+  await expect(button).toBeVisible();
+  await button.scrollIntoViewIfNeeded();
+  await expect(button).toBeInViewport();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
