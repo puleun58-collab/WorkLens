@@ -44,6 +44,8 @@ test("AX 진단 간소화: D1~D7 아코디언 단일 펼침·진행률·저장·
   await expect(decision.getByText("결정 지점을 저장했습니다.", { exact: true })).toBeVisible();
   await expect(decision.getByText("1 / 7 확인 완료", { exact: true })).toBeVisible();
   await page.reload();
+  // 새로고침하면 셸 뷰가 기본값(문서 분석)으로 돌아가므로 AX 화면으로 다시 이동한다 (기존 reload 패턴과 동일).
+  await navigateWorkspace(page, "업무 자동화 진단");
   await expect(page.getByRole("heading", { name: "결정 지점 확인 (D1~D7)" })).toBeVisible();
   await page.getByRole("button", { name: /D1 대조 기준/ }).click();
   await expect(page.getByLabel("D1 상태")).toHaveValue("확정");
@@ -69,6 +71,8 @@ test("AX 진단 간소화: 업무 처리 예시 탭 전환 시 초안 유지·�
   await page.getByRole("button", { name: "업무 처리 예시 저장", exact: true }).click();
   await expect(examples.getByText("업무 처리 예시를 저장했습니다.", { exact: true })).toBeVisible();
   await page.reload();
+  // 새로고침하면 셸 뷰가 기본값(문서 분석)으로 돌아가므로 AX 화면으로 다시 이동한다 (기존 reload 패턴과 동일).
+  await navigateWorkspace(page, "업무 자동화 진단");
   await expect(page.getByRole("heading", { name: "결정 지점 확인 (D1~D7)" })).toBeVisible();
   await expect(page.getByLabel("예시 1 입력값")).toHaveValue("입력 B");
 });
