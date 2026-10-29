@@ -25,7 +25,7 @@ export const DECISION_POINT_DEFS: readonly DecisionPointDef[] = [
   { id: "D2", title: "중복", question: "중복(같은 키 여러 번 처리)", detailHint: "같은 키가 여러 번 나타날 때 처리 방식을 적으세요." },
   { id: "D3", title: "특이값", question: "특이값(음수, 0, 빈칸, 형식 불일치 처리)", detailHint: "음수·0·빈칸·형식 불일치의 처리 방식을 적으세요." },
   { id: "D4", title: "결과 상태", question: "결과 상태(상태 이름 목록과 각 상태 판정 조건)", detailHint: "결과 상태 이름을 쉼표·점·빗금(/)으로 구분해 적으세요. '상태 정확히 N개(...)' 형태도 정리됩니다. (예: 정상, 오류(확정), 확인 필요)" },
-  { id: "D5", title: "판단 불가", question: "판단 불가(확정 규칙으로 판정 불가한 행을 보낼 상태와 사유 표시 방법)", detailHint: "판정 불가 행을 보낼 상태명(D4 목록 중 하나)을 적으세요." },
+  { id: "D5", title: "판단 불가", question: "판단 불가(확정 규칙으로 판정 불가한 행을 보낼 상태와 사유 표시 방법)", detailHint: "판정 불가 행을 보낼 상태명(결과 상태 (D4) 중 하나)을 적으세요." },
   { id: "D6", title: "빈 입력", question: "빈 입력(데이터 행 없는 파일·헤더만 있는 파일·빈 파일 처리)", detailHint: "데이터 행 없는 파일·헤더만 있는 파일·빈 파일의 처리 방식을 적으세요." },
   { id: "D7", title: "계산 기준", question: "계산 기준(합계·반올림·단위 기준)", detailHint: "합계·반올림·단위 기준을 적으세요." },
 ] as const;

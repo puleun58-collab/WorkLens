@@ -24,20 +24,20 @@ test("AX 진단 간소화: D1~D7 아코디언 단일 펼침·진행률·저장·
 
   // D1은 첫 미확정 항목이라 기본 펼침 상태다. 입력 후 D2를 펼치면 D1이 접히고,
   // 다시 D1을 펼쳐도 미저장 입력이 유지된다.
-  await page.getByLabel("D1 상태").selectOption("확정");
-  await page.getByLabel("D1 상세").fill("판매내역.xlsx / Sheet1, 주문번호, 누락·초과 판단");
+  await page.getByLabel("대조 기준 (D1) 상태").selectOption("확정");
+  await page.getByLabel("대조 기준 (D1) 상세").fill("판매내역.xlsx / Sheet1, 주문번호, 누락·초과 판단");
   await page.getByRole("button", { name: /D2 중복 처리/ }).click();
-  await expect(page.getByLabel("D1 상세")).toBeHidden();
-  await expect(page.getByLabel("D2 상태")).toBeVisible();
+  await expect(page.getByLabel("대조 기준 (D1) 상세")).toBeHidden();
+  await expect(page.getByLabel("중복 처리 (D2) 상태")).toBeVisible();
   await page.getByRole("button", { name: /D1 대조 기준/ }).click();
-  await expect(page.getByLabel("D1 상세")).toHaveValue("판매내역.xlsx / Sheet1, 주문번호, 누락·초과 판단");
+  await expect(page.getByLabel("대조 기준 (D1) 상세")).toHaveValue("판매내역.xlsx / Sheet1, 주문번호, 누락·초과 판단");
 
   // 해당 없음이면 상세 입력이 숨겨지고, 되돌리면 다시 보인다.
   await page.getByRole("button", { name: /D3 예외값 처리/ }).click();
-  await page.getByLabel("D3 상태").selectOption("해당 없음");
-  await expect(page.getByLabel("D3 상세")).toHaveCount(0);
-  await page.getByLabel("D3 상태").selectOption("미확정");
-  await expect(page.getByLabel("D3 상세")).toBeVisible();
+  await page.getByLabel("예외값 처리 (D3) 상태").selectOption("해당 없음");
+  await expect(page.getByLabel("예외값 처리 (D3) 상세")).toHaveCount(0);
+  await page.getByLabel("예외값 처리 (D3) 상태").selectOption("미확정");
+  await expect(page.getByLabel("예외값 처리 (D3) 상세")).toBeVisible();
 
   // 저장 후 진행률 갱신 + 저장 플러시 확인 후 새로고침 후 재조회.
   await page.getByRole("button", { name: "변경사항 저장", exact: true }).click();
@@ -60,8 +60,8 @@ test("AX 진단 간소화: D1~D7 아코디언 단일 펼침·진행률·저장·
   await navigateWorkspace(page, "업무 자동화 진단");
   await expect(page.getByRole("heading", { name: "결정 지점 확인 (D1~D7)" })).toBeVisible();
   await page.getByRole("button", { name: /D1 대조 기준/ }).click();
-  await expect(page.getByLabel("D1 상태")).toHaveValue("확정");
-  await expect(page.getByLabel("D1 상세")).toHaveValue("판매내역.xlsx / Sheet1, 주문번호, 누락·초과 판단");
+  await expect(page.getByLabel("대조 기준 (D1) 상태")).toHaveValue("확정");
+  await expect(page.getByLabel("대조 기준 (D1) 상세")).toHaveValue("판매내역.xlsx / Sheet1, 주문번호, 누락·초과 판단");
 });
 
 test("AX 진단 간소화: 업무 처리 예시 탭 전환 시 초안 유지·삭제·저장", async ({ page }) => {
@@ -79,7 +79,7 @@ test("AX 진단 간소화: 업무 처리 예시 탭 전환 시 초안 유지·�
   await page.getByRole("button", { name: "예시 1 삭제", exact: true }).click();
   await expect(examples.getByRole("tab", { name: "예시 2", exact: true })).toHaveCount(0);
   await expect(page.getByLabel("예시 1 입력값")).toHaveValue("입력 B");
-  await page.getByLabel("예시 1 기대 결과 상태").fill("정상");
+  await page.getByLabel("예시 1 예상 결과 상태").fill("정상");
   await page.getByRole("button", { name: "업무 처리 예시 저장", exact: true }).click();
   await expect(examples.getByText("업무 처리 예시를 저장했습니다.", { exact: true })).toBeVisible();
   // useAxState 저장은 디바운스되므로 플러시될 때까지 poll한 뒤 새로고침한다 (즉시 새로고침하면 저장 전 상태로 복원된다).

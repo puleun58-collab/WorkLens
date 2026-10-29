@@ -15,8 +15,8 @@ import type { AxDiagnosis, DecisionPoint, ExampleResult } from "@/lib/ax/types";
  * AI가 채운 값은 저장 경로에 들어가지 않는다 (진단 수신 시 제거됨).
  */
 
-/** 레퍼런스 표시용 D1~D7 제목·설명. 식별자·규칙 의미는 기존 DEFS와 동일하다. */
-const DECISION_DISPLAY: Record<string, { title: string; question: string }> = {
+/** 표시 전용 D1~D7 제목·설명. 지시문 생성은 기존 DEFS 제목을 쓰므로 여기를 바꿔도 지시문은 바뀌지 않는다. */
+export const DECISION_DISPLAY: Record<string, { title: string; question: string }> = {
   D1: { title: "대조 기준", question: "어떤 자료와 항목을 기준으로 비교하나요?" },
   D2: { title: "중복 처리", question: "동일한 항목이 여러 번 나타나면 어떻게 처리하나요?" },
   D3: { title: "예외값 처리", question: "빈칸·음수·0 등은 어떻게 처리하나요?" },
@@ -25,6 +25,13 @@ const DECISION_DISPLAY: Record<string, { title: string; question: string }> = {
   D6: { title: "빈 파일 처리", question: "데이터가 없을 때 어떻게 처리하나요?" },
   D7: { title: "계산 기준", question: "합계·반올림·단위의 기준은 무엇인가요?" },
 };
+
+/** 표시 전용 패널 라벨: 항목명 + (D번호) 형태. 지시문 생성과 무관하다. */
+export function decisionPanelLabel(id: string, kind: "상태" | "상세", d4Note = false): string {
+  const display = DECISION_DISPLAY[id];
+  const base = display ? `${display.title} (${id})` : id;
+  return kind === "상세" && d4Note ? `${base} 상세 (결과 상태 (D4) 중 하나)` : `${base} ${kind}`;
+}
 
 const DECISION_BADGE: Record<ResolvedDecisionPoint["status"], string> = {
   "확정": "확정됨",
@@ -89,8 +96,8 @@ export function DecisionPointsSection({ diagnosis, disabled, onSave }: {
           <ChevronDown size={18} aria-hidden="true" className={isOpen ? "is-open" : ""} />
         </button>
         {isOpen ? <div className="ax-decision-panel">
-          <label className="ax-field">{point.id} 상태
-            <select aria-label={`${point.id} 상태`} value={point.status} disabled={disabled}
+          <label className="ax-field">{decisionPanelLabel(point.id, "상태")}
+            <select aria-label={decisionPanelLabel(point.id, "상태")} value={point.status} disabled={disabled}
               onChange={e => { update(point.id, { status: e.target.value as ResolvedDecisionPoint["status"] }); setSaved(false); }}>
               <option value="미확정">미확정</option>
               <option value="확정">확정</option>
@@ -98,17 +105,17 @@ export function DecisionPointsSection({ diagnosis, disabled, onSave }: {
             </select>
           </label>
           {point.status === "해당 없음" ? null : point.id === "D5" && d4States ? <>
-            <label className="ax-field">{point.id} 상세 (D4 결과 상태 중 하나)
-              <select aria-label={`${point.id} 상세`} value={point.detail ?? ""} disabled={disabled}
+            <label className="ax-field">{decisionPanelLabel(point.id, "상세", true)}
+              <select aria-label={decisionPanelLabel(point.id, "상세")} value={point.detail ?? ""} disabled={disabled}
                 onChange={e => { update(point.id, { detail: e.target.value }); setSaved(false); }}>
                 <option value="">선택하세요</option>
-                {d5Mismatch ? <option value={point.detail}>{point.detail} (D4 목록 외 값)</option> : null}
+                {d5Mismatch ? <option value={point.detail}>{point.detail} (결과 상태 (D4) 목록 외 값)</option> : null}
                 {d4States.map(name => <option key={name} value={name}>{name}</option>)}
               </select>
             </label>
-            {d5Mismatch ? <p className="ax-muted" role="status">현재 값이 D4 결과 상태 목록에 없습니다. D4 목록 중 하나로 수정하세요. 수정 전까지 기존값이 유지됩니다.</p> : null}
-          </> : <label className="ax-field">{point.id} 상세
-            <Textarea rows={2} maxLength={2000} aria-label={`${point.id} 상세`} placeholder={def.detailHint} disabled={disabled}
+            {d5Mismatch ? <p className="ax-muted" role="status">현재 값이 결과 상태 (D4) 목록에 없습니다. 결과 상태 (D4) 중 하나로 수정하세요. 수정 전까지 기존값이 유지됩니다.</p> : null}
+          </> : <label className="ax-field">{decisionPanelLabel(point.id, "상세")}
+            <Textarea rows={2} maxLength={2000} aria-label={decisionPanelLabel(point.id, "상세")} placeholder={def.detailHint} disabled={disabled}
               value={point.detail ?? ""} onChange={e => { update(point.id, { detail: e.target.value }); setSaved(false); }} />
           </label>}
         </div> : null}
@@ -171,7 +178,7 @@ export function ExampleResultsSection({ examples, diagnosis, disabled, onSave }:
         .map((row, i) => ({ row, i }))
         .filter(({ row }) => row.input.trim() && row.expectedState.trim() && !stateNames.includes(row.expectedState.trim()));
       if (invalidRows.length) {
-        setError(`${invalidRows.map(({ i }) => `예시 ${i + 1}`).join(", ")}의 기대 결과가 D4 결과 상태 목록(${stateNames.join(" · ")})에 없습니다. D4 상태 중 하나로 입력한 뒤 저장하세요.`);
+        setError(`${invalidRows.map(({ i }) => `예시 ${i + 1}`).join(", ")}의 예상 결과가 결과 상태 (D4) 목록(${stateNames.join(" · ")})에 없습니다. 결과 상태 (D4) 중 하나로 입력한 뒤 저장하세요.`);
         setSaved(false);
         return;
       }
@@ -197,7 +204,7 @@ export function ExampleResultsSection({ examples, diagnosis, disabled, onSave }:
       </div>
       <div className="ax-examples-meta">
         <span>{requirement === "required" ? `예시 ${savedCount} / ${EXAMPLE_CONFIRMED_MINIMUM}건` : `예시 ${savedCount}건`}</span>
-        <span>{requirement === "required" ? "필수" : requirement === "recommended" ? "권장" : "확인 필요"}</span>
+        <span>{requirement === "required" ? "필수" : requirement === "recommended" ? "권장" : "업무 규칙 확인 필요"}</span>
         <Button type="button" variant="outline" disabled={disabled} onClick={addExample}>+ 예시 추가</Button>
       </div>
     </div>
@@ -205,9 +212,9 @@ export function ExampleResultsSection({ examples, diagnosis, disabled, onSave }:
       ? <p className="ax-muted">정상 사례와 예외 사례를 각각 1건 이상 넣어 주세요. (안내이며, 필수 조건은 확정 {EXAMPLE_CONFIRMED_MINIMUM}건입니다.) 확정 예시가 {EXAMPLE_CONFIRMED_MINIMUM}건 미만이면 &lsquo;업무 처리 예시 미확정&rsquo; 보류 사유가 붙습니다.</p>
       : requirement === "recommended"
         ? <p className="ax-muted">예시는 권장 사항입니다. 정상 사례와 예외 사례를 각각 1건 이상 넣어 주면 구현 확인에 도움이 됩니다. 필수 조건이 아니므로 예시가 없어도 보류 사유가 붙지 않습니다.</p>
-        : <p className="ax-muted">업무 처리 예시 필수 여부가 확인되지 않았습니다. 결정 지점 D1·D2·D3·D7을 확정하거나 해당 없음으로 확인하면 필수 여부가 정해집니다. 필수 대상인 경우에만 확정 {EXAMPLE_CONFIRMED_MINIMUM}건이 필요합니다.</p>}
+        : <p className="ax-muted">업무 처리 예시 필수 여부가 확인되지 않았습니다. 대조 기준 (D1)·중복 처리 (D2)·예외값 처리 (D3)·계산 기준 (D7)을 확정하거나 해당 없음으로 확인하면 필수 여부가 정해집니다. 필수 대상인 경우에만 확정 {EXAMPLE_CONFIRMED_MINIMUM}건이 필요합니다.</p>}
     {requirement === "required" ? <p className="ax-muted">확정 예시 {countedExamples.length}건</p> : null}
-    {invalidExamples.length ? <p className="ax-muted" role="status">저장된 예시 중 {invalidExamples.length}건은 기대 결과가 D4 결과 상태 목록에 없어 확정 예시로 세지 않습니다. 기대 결과를 D4 상태 중 하나로 고쳐 다시 저장하세요.</p> : null}
+    {invalidExamples.length ? <p className="ax-muted" role="status">저장된 예시 중 {invalidExamples.length}건은 예상 결과가 결과 상태 (D4) 목록에 없어 확정 예시로 세지 않습니다. 예상 결과를 결과 상태 (D4) 중 하나로 고쳐 다시 저장하세요.</p> : null}
     <div className="ax-example-tabs" role="tablist" aria-label="업무 처리 예시 목록">
       {drafts.map((_, i) => <button type="button" key={i} role="tab" aria-selected={i === safeIndex} disabled={disabled}
         className={i === safeIndex ? "is-selected" : ""} onClick={() => setSelectedIndex(i)}>예시 {i + 1}</button>)}
@@ -226,22 +233,22 @@ export function ExampleResultsSection({ examples, diagnosis, disabled, onSave }:
         <div className="ax-example-col">
           <h4>예상 처리 결과</h4>
           {stateNames ? <>
-            <label className="ax-field">예시 {safeIndex + 1} 기대 결과 (D4 상태 중 하나)
-              <select aria-label={`예시 ${safeIndex + 1} 기대 결과 상태`} value={selected.expectedState} disabled={disabled}
+            <label className="ax-field">예시 {safeIndex + 1} 예상 결과 상태
+              <select aria-label={`예시 ${safeIndex + 1} 예상 결과 상태`} value={selected.expectedState} disabled={disabled}
                 onChange={e => { update(safeIndex, { expectedState: e.target.value }); setSaved(false); }}>
                 <option value="">선택하세요</option>
                 {selected.expectedState.trim() && !stateNames.includes(selected.expectedState.trim())
-                  ? <option value={selected.expectedState}>{selected.expectedState} (D4 목록 외 값)</option> : null}
+                  ? <option value={selected.expectedState}>{selected.expectedState} (결과 상태 (D4) 목록 외 값)</option> : null}
                 {stateNames.map(name => <option key={name} value={name}>{name}</option>)}
               </select>
             </label>
-            <p className="ax-muted">기대 결과는 D4 결과 상태 중 하나로 입력하세요: {stateNames.join(" · ")}</p>
+            <p className="ax-muted">예상 결과는 결과 상태 (D4) 중 하나로 입력하세요: {stateNames.join(" · ")}</p>
           </> : <>
-            <label className="ax-field">예시 {safeIndex + 1} 기대 결과 (D4 상태 중 하나)
-              <Input type="text" maxLength={100} aria-label={`예시 ${safeIndex + 1} 기대 결과 상태`} disabled={disabled}
+            <label className="ax-field">예시 {safeIndex + 1} 예상 결과 상태
+              <Input type="text" maxLength={100} aria-label={`예시 ${safeIndex + 1} 예상 결과 상태`} disabled={disabled}
                 value={selected.expectedState} onChange={e => { update(safeIndex, { expectedState: e.target.value }); setSaved(false); }} />
             </label>
-            <p className="ax-muted">D4 결과 상태가 아직 확정되지 않아 기대 결과를 검증하지 않습니다. D4를 확정하면 기대 결과가 D4 상태 목록에 있는지 확인합니다.</p>
+            <p className="ax-muted">결과 상태 (D4)가 아직 확정되지 않아 예상 결과를 검증하지 않습니다. 결과 상태 (D4)를 확정하면 예상 결과가 결과 상태 목록에 있는지 확인합니다.</p>
           </>}
           <label className="ax-field">예시 {safeIndex + 1} 기대 값 (금액·수량 등, 선택)
             <Input type="text" maxLength={500} aria-label={`예시 ${safeIndex + 1} 기대 값`} disabled={disabled}
