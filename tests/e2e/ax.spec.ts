@@ -1213,7 +1213,7 @@ async function expectGuideTutorial(page: Page, panel: Locator, tool: "Codex" | "
   // resume afterwards and drift the viewport (Chromium quirk, verified 2026-10-19).
   await trigger.evaluate(element => element.scrollIntoView({ behavior: "instant", block: "nearest" }));
   await trigger.focus(); await page.keyboard.press("Enter");
-  await expect(terms.locator("dl")).toBeVisible();
+  await expect(terms.locator(".ax-git-flow")).toBeVisible();
   for (let number = 1; number <= 8; number++) {
     const link = toc.getByRole("button", { name: new RegExp(`STEP\\s*0?${number}\\b`) });
     // Same instant pre-scroll as above: a focus-triggered smooth scroll would race with
@@ -1230,10 +1230,10 @@ async function expectGuideTutorial(page: Page, panel: Locator, tool: "Codex" | "
     })).toBe(true);
   }
   // Navigation preserves optional disclosures and the selected agent's commands.
-  await expect(terms.locator("dl")).toBeVisible();
+  await expect(terms.locator(".ax-git-flow")).toBeVisible();
   await trigger.evaluate(element => element.scrollIntoView({ behavior: "instant", block: "nearest" }));
   await trigger.focus(); await page.keyboard.press("Space");
-  await expect(terms.locator("dl")).toBeHidden();
+  await expect(terms.locator(".ax-git-flow")).toBeHidden();
   const first = panel.locator('[data-setup-step="1"]');
   const install = first.locator(".ax-guide-code-wrap").filter({ hasText: TOOL_GUIDES[tool === "Codex" ? "codex" : "claude"].installCommand });
   await expect(install).toHaveCount(1);

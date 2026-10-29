@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { AlertTriangle, ArrowRight, Ban, BookOpen, Bot, BrainCircuit, ChartNoAxesColumnIncreasing, Check, CheckCircle2, CircleAlert, CircleCheck, CircleX, Clipboard, ClipboardCheck, ClipboardList, Clock, CloudUpload, Copy, Database, Download, FileCode2, FileOutput, FileSpreadsheet, FileText, Flag, FlaskConical, Folder, GitBranch, Globe, Info, ListChecks, MonitorCog, Play, Plug, Search, Settings2, ShieldAlert, ShieldCheck, Target, Terminal, TriangleAlert, UserRound } from "lucide-react";
+import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { AlertTriangle, ArrowRight, Ban, Bot, BrainCircuit, ChartNoAxesColumnIncreasing, Check, CheckCircle2, CircleAlert, CircleCheck, CircleX, Clipboard, ClipboardCheck, ClipboardList, Clock, CloudUpload, Copy, Database, Download, FileCode2, FileOutput, FilePlus2, FileSpreadsheet, FileText, Flag, FlaskConical, Folder, GitBranch, GitMerge, GitPullRequest, Globe, Info, ListChecks, Monitor, MonitorCog, Play, Plug, Rocket, Search, Settings2, ShieldAlert, ShieldCheck, Target, Terminal, TriangleAlert, UserRound } from "lucide-react";
 import type { AxDiagnosis, AxPlan, AxTask, AxTaskV2, HitlReview } from "@/lib/ax/types";
 import { automationLevel, axes, executionGate, executionProfile, factorEffectiveValue, GATE_LABELS, gateBlockReasons, LEVEL_DESCRIPTIONS, levelDisplayLabel, nextAction, prerequisiteTopicKey, type ExecutionProfile } from "@/lib/ax/policy";
 import { FACTOR_LABELS } from "@/lib/ax/schema";
@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { HitlReviewPanel, HitlStatusBadge } from "./HitlReview";
 import { extractReviewableItems, extractPlanReviewableItems, findReview, getValidConfirmedReviews, type ReviewableItem } from "@/lib/ax/hitl";
 import { Tabs, TabsList, TabsTab, TabsPanel } from "@/components/ui/tabs";
-import { buildAgentInstructionModel, buildAllInOnePrompt, filterRoadmapItems, guideCodeDisplayText, guideProseDisplayText, planSummary, scopeItemLabel, setupGuide, stepDetailEntries, stepMethodLabel, TOOL_GUIDES, type AgentInstructionModel, type AxCheckTone, type AxGuideBlock, type AxGuideSection, type AxPlanSummary, type AxToolId } from "@/lib/ax/guide";
+import { buildAgentInstructionModel, buildAllInOnePrompt, filterRoadmapItems, guideCodeDisplayText, guideProseDisplayText, planSummary, scopeItemLabel, setupGuide, stepDetailEntries, stepMethodLabel, TOOL_GUIDES, type AgentInstructionModel, type AxCheckTone, type AxGitFlowBlock, type AxGuideBlock, type AxGuideSection, type AxPlanSummary, type AxToolId } from "@/lib/ax/guide";
 
 const VERDICT_LABELS = { 자동화: "자동화", "AI 보조": "AI 보조", "사람 유지": "담당자 수행" } as const;
 const OWNER_LABELS = { 시스템: "시스템", AI: "AI", 사용자: "담당자" } as const;
@@ -706,6 +706,7 @@ function AxGuideBlockView({ block, listStyle }: { block: AxGuideBlock; listStyle
       </table>
     </div>;
   }
+  if (block.kind === "git-flow") return <AxGitFlowView block={block} />;
   return <p><AxGuideText text={block.text} /></p>;
 }
 function AxGuideSectionView({ section, completion = false, warning = false, collapsed = section.collapsed }: { section: AxGuideSection; completion?: boolean; warning?: boolean; collapsed?: boolean }) {
@@ -724,6 +725,46 @@ function AxGuideSectionView({ section, completion = false, warning = false, coll
       <AccordionPanel className="ax-guide-terms-panel">{content}</AccordionPanel>
     </AccordionItem></Accordion> : <><h5>{brandLogo}{completion ? <><CheckCircle2 aria-hidden="true" />완료 확인 · </> : warning ? <AlertTriangle aria-hidden="true" /> : null}{section.title}</h5>{content}</>}
   </section>;
+}
+
+const GIT_FLOW_STEP_ICONS = [Folder, GitBranch, FilePlus2, ClipboardList, CloudUpload, GitPullRequest, CircleCheck, GitMerge, Rocket, Monitor] as const;
+const GIT_FLOW_GROUP_ICONS = [FileText, FileCode2, CloudUpload, Settings2, Rocket] as const;
+/** Reference-faithful Git·GitHub work-flow diagram: 10 ordered cards, 5 group boxes, one notes box. Presentation only; guide data and logic are unchanged. */
+function AxGitFlowView({ block }: { block: AxGitFlowBlock }) {
+  return <div className="ax-git-flow">
+    <div className="ax-git-flow-head">
+      <img src="/brand/github-mark.svg" alt="" aria-hidden="true" className="ax-git-flow-logo" />
+      <div><p>{block.subtitle}</p></div>
+    </div>
+    <div className="ax-git-flow-track" role="list" aria-label="Git·GitHub 작업 순서">
+      {block.steps.map((step, i) => {
+        const Icon = GIT_FLOW_STEP_ICONS[i] ?? Folder;
+        return <Fragment key={step.no}>
+          <article className="ax-git-flow-card" data-tone={step.tone} role="listitem" aria-label={`${step.no} ${step.title}`}>
+            <span className="ax-git-flow-no" aria-hidden="true">{step.no}</span>
+            <span className="ax-git-flow-icon" aria-hidden="true"><Icon /></span>
+            <h6>{step.title}</h6>
+            <p>{step.description}</p>
+            <span className="ax-git-flow-cmd">{step.command.map((line, j) => <span key={j}>{line}</span>)}</span>
+          </article>
+          {i < block.steps.length - 1 ? <ArrowRight aria-hidden="true" className="ax-git-flow-arrow" /> : null}
+        </Fragment>;
+      })}
+    </div>
+    <ul className="ax-git-flow-groups" role="list">
+      {block.groups.map((group, i) => {
+        const Icon = GIT_FLOW_GROUP_ICONS[i] ?? FileText;
+        return <li key={group.range} className="ax-git-flow-group" data-tone={group.tone}>
+          <div className="ax-git-flow-group-head"><Icon aria-hidden="true" /><h6>{group.range} {group.title}</h6></div>
+          <ul role="list">{group.points.map((point, j) => <li key={j}>{point}</li>)}</ul>
+        </li>;
+      })}
+    </ul>
+    <div className="ax-git-flow-notes">
+      <h6><Info aria-hidden="true" />추가 안내</h6>
+      <ul role="list">{block.notes.map((note, i) => <li key={i}>{note}</li>)}</ul>
+    </div>
+  </div>;
 }
 
 const SETUP_COURSES = [
@@ -767,11 +808,11 @@ function AxSetupGuide({ tool, instructionsId, onGoToInstructions }: { tool: AxTo
       <section className="ax-tutorial-glossary" aria-label={glossary.title}>
         <Accordion className="ax-guide-terms"><AccordionItem value="terms">
           <AccordionTrigger className="ax-tutorial-terms-trigger" aria-label={glossary.title}>
-            <span className="ax-tutorial-terms-title"><BookOpen aria-hidden="true" />{glossary.title}</span>
+            <span className="ax-tutorial-terms-title"><img src="/brand/github-mark.svg" alt="" aria-hidden="true" className="ax-tutorial-terms-logo" />{glossary.title}</span>
             <span className="ax-tutorial-terms-action" aria-hidden="true"><span>펼치기</span><span>접기</span></span>
           </AccordionTrigger>
           <AccordionPanel className="ax-tutorial-terms-panel">
-            {glossary.blocks.map((block, blockIndex) => block.kind === "steps" ? <dl key={blockIndex}>{block.items.map(term => {
+            {glossary.blocks.map((block, blockIndex) => block.kind === "git-flow" ? <AxGitFlowView key={blockIndex} block={block} /> : block.kind === "steps" ? <dl key={blockIndex}>{block.items.map(term => {
               const split = term.indexOf(":");
               const name = term.slice(0, split);
               return <div key={term}><dt>{name === "환경변수(Environment Variable)" ? <><span>환경변수</span><span className="ax-tutorial-term-translation">(Environment Variable)</span></> : name}</dt><dd>{term.slice(split + 2)}</dd></div>;

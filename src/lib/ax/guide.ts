@@ -13,7 +13,12 @@ export const TOOL_GUIDES: Record<AxToolId, {
 };
 
 /** Inline text marks commands with backticks; `code` blocks default to PowerShell unless labeled as examples. */
-export type AxGuideBlock = { kind: "text"; text: string } | { kind: "code"; lines: string[]; notes?: string[]; label?: "PowerShell" | ".gitignore" | "예시"; singleLine?: boolean; prose?: boolean } | { kind: "steps"; items: string[] } | { kind: "table"; headers: string[]; rows: string[][] };
+export type AxGuideBlock = { kind: "text"; text: string } | { kind: "code"; lines: string[]; notes?: string[]; label?: "PowerShell" | ".gitignore" | "예시"; singleLine?: boolean; prose?: boolean } | { kind: "steps"; items: string[] } | { kind: "table"; headers: string[]; rows: string[][] } | AxGitFlowBlock;
+/** Tone of one Git·GitHub work-flow card or group box: the whole card border uses it. */
+export type AxGitFlowTone = "blue" | "green" | "purple" | "orange";
+export interface AxGitFlowStep { no: string; title: string; description: string; command: string[]; tone: AxGitFlowTone }
+export interface AxGitFlowGroup { range: string; title: string; tone: AxGitFlowTone; points: string[] }
+export interface AxGitFlowBlock { kind: "git-flow"; subtitle: string; steps: AxGitFlowStep[]; groups: AxGitFlowGroup[]; notes: string[] }
 export interface AxGuideSection { title: string; when?: string; collapsed?: boolean; listStyle?: "bullets"; brand?: "vercel" | "cloudflare"; className?: string; blocks: AxGuideBlock[] }
 export interface AxGuideStep { title: string; purpose: string; sections: AxGuideSection[] }
 
@@ -94,23 +99,28 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
       { title: "이후 작업할 때", blocks: [
         text("개발 환경이 준비되어 있다면 필요한 단계부터 진행하세요. Codex 또는 Claude Code로 실제 기능을 구현하고 테스트한 뒤 배포합니다. 배포된 결과물은 실제 사용 환경에서 기능이 정상 작동하는지 반드시 검증합니다."),
       ] },
-      { title: "Git·GitHub 작업 흐름", collapsed: true, blocks: [{ kind: "steps", items: [
-        "Git: 코드 변경 이력을 관리하는 도구",
-        "git init / git clone: 새 저장소 만들기 / 기존 저장소 복제하기",
-        "Branch: 기존 코드와 분리해 작업하는 공간",
-        "git add: 변경 파일을 커밋 대상으로 선택",
-        "git commit: 변경 내용을 이력으로 저장",
-        "git push: 변경 이력을 GitHub에 업로드",
-        "PR: 변경 내용을 검토하고 병합하도록 요청",
-        "CI: 테스트·빌드 등을 자동 검사",
-        "Merge: 변경 사항을 대상 브랜치에 병합",
-        "Deploy: 실제 서비스 환경에 배포",
-        "Production 검증: 배포된 서비스의 정상 작동 확인",
-      ] },
-        text("git init과 git clone은 프로젝트 상태에 따라 선택하며, 기존 저장소를 다시 초기화하지 않습니다."),
-        text("CI는 Push 또는 PR 생성 시 실행될 수 있습니다."),
-        text("Merge와 Deploy는 서로 다른 작업이며, 배포 완료 후 실제 기능 검증이 필요합니다."),
-      ] },
+      { title: "Git·GitHub 작업 흐름", collapsed: true, blocks: [{ kind: "git-flow", subtitle: "코드 변경부터 배포까지의 전체 과정을 순서대로 확인하세요.", steps: [
+        { no: "01", title: "저장소 준비", description: "새 저장소 만들기 또는 기존 저장소 확보하기", command: ["git init", "git clone"], tone: "blue" },
+        { no: "02", title: "브랜치 생성", description: "기존 코드와 분리해 작업할 브랜치 생성", command: ["git switch -c", "브랜치명"], tone: "blue" },
+        { no: "03", title: "변경 파일 추가", description: "변경할 파일을 커밋 대상으로 선택", command: ["git add ."], tone: "green" },
+        { no: "04", title: "변경 내용 저장", description: "변경 내용을 이력으로 저장", command: ["git commit -m", "\"변경 내용\""], tone: "green" },
+        { no: "05", title: "원격 저장소 업로드", description: "변경 내역을 GitHub에 업로드", command: ["git push"], tone: "purple" },
+        { no: "06", title: "PR 생성", description: "변경 내용을 검토하고 병합하도록 요청", command: ["Pull Request", "생성"], tone: "purple" },
+        { no: "07", title: "CI 실행", description: "테스트·빌드 등을 자동으로 검사", command: ["자동 실행", "(결과 확인)"], tone: "orange" },
+        { no: "08", title: "PR 병합", description: "검토 완료 후 메인 브랜치에 병합", command: ["Merge", "(브랜치 병합)"], tone: "orange" },
+        { no: "09", title: "배포", description: "실제 서비스 환경에 배포", command: ["Deploy", "(배포 실행)"], tone: "blue" },
+        { no: "10", title: "배포 검증", description: "배포된 서비스가 정상 작동하는지 확인", command: ["서비스 확인", "(운영 환경)"], tone: "blue" },
+      ], groups: [
+        { range: "01~02", title: "저장소 준비·브랜치", tone: "blue", points: ["프로젝트 상태에 따라 git init 또는 git clone 선택", "기존 저장소를 다시 초기화하지 않음"] },
+        { range: "03~04", title: "변경 추가·커밋", tone: "green", points: ["변경된 파일만 git add", "커밋 메시지는 변경 내용을 명확히 작성"] },
+        { range: "05~06", title: "업로드·PR", tone: "purple", points: ["git push 후 Pull Request 생성", "변경 내용을 검토하고 병합 요청"] },
+        { range: "07~08", title: "CI·Merge", tone: "orange", points: ["CI에서 테스트·빌드·자동 검사", "검토 완료 후 메인 브랜치에 병합"] },
+        { range: "09~10", title: "배포·검증", tone: "blue", points: ["실제 서비스 환경에 배포", "배포 완료 후 정상 작동 확인"] },
+      ], notes: [
+        "git init과 git clone은 프로젝트 상태에 따라 선택하며, 기존 저장소를 다시 초기화하지 않습니다.",
+        "CI는 Push 또는 PR 생성 시 실행될 수 있으며, 실제 실행 조건은 프로젝트 설정에 따릅니다.",
+        "Merge와 Deploy는 서로 다른 작업이며, 배포 완료 후 실제 기능 검증이 필요합니다.",
+      ] }] },
     ] },
     { title: "STEP 01 · 개발 환경 준비", purpose: "", sections: [
       { title: "설치 순서 안내", blocks: [
