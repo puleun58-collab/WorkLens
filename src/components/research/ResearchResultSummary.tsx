@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Info } from "lucide-react";
+import { CircleAlert, CircleCheck, Info, TriangleAlert } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import type { ResearchStatus } from "@/lib/research-status";
@@ -17,6 +17,7 @@ export const STATUS_BADGE: Record<ResearchStatus, { tone: SummaryTone; label: st
 };
 
 const BADGE_VARIANT = { success: "success", warning: "warning", error: "error", info: "info", neutral: "secondary" } as const;
+/** Badge glyphs only: the filled symbols stay at 14px inside status badges. */
 function ToneIcon({ tone }: { tone: SummaryTone }) {
   if (tone === "neutral") return null;
   if (tone === "info") return <Info aria-hidden="true" />;
@@ -26,6 +27,18 @@ function ToneIcon({ tone }: { tone: SummaryTone }) {
       ? <path d="m6.5 12 3.5 3.5 7.5-7.5" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
       : <><path d="M12 6.5v6.5" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" /><circle cx="12" cy="17" r="1.2" fill="#fff" /></>}
   </svg>;
+}
+
+/**
+ * Notice glyphs: one outline family at one size for every tone, so the blue
+ * reference box and the yellow/red boxes share icon shape, size and title-row
+ * alignment (the geometry lives in legal-analysis.css, not in the glyph).
+ */
+function NoticeIcon({ tone }: { tone: Exclude<SummaryTone, "neutral"> }) {
+  if (tone === "info") return <Info aria-hidden="true" />;
+  if (tone === "warning") return <TriangleAlert aria-hidden="true" />;
+  if (tone === "error") return <CircleAlert aria-hidden="true" />;
+  return <CircleCheck aria-hidden="true" />;
 }
 
 /**
@@ -55,7 +68,7 @@ export function ResearchSummaryNotices({ children }: { children?: ReactNode }) {
 
 export function ResearchSummaryNotice({ tone, title, className, children }: { tone: Exclude<SummaryTone, "neutral">; title: ReactNode; className?: string; children: ReactNode }) {
   return <Alert variant={tone} className={`research-summary-notice${className ? ` ${className}` : ""}`} data-tone={tone}>
-    <ToneIcon tone={tone} />
+    <NoticeIcon tone={tone} />
     <AlertTitle>{title}</AlertTitle>
     <AlertDescription>{children}</AlertDescription>
   </Alert>;
