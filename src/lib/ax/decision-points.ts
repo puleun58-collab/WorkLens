@@ -24,7 +24,7 @@ export const DECISION_POINT_DEFS: readonly DecisionPointDef[] = [
   { id: "D1", title: "기준과 매칭", question: "기준과 매칭(기준 파일·시트, 대조 키, 누락·초과 판단 방향)", detailHint: "기준 파일·시트, 대조 키, 누락·초과 판단 방향을 적으세요." },
   { id: "D2", title: "중복", question: "중복(같은 키 여러 번 처리)", detailHint: "같은 키가 여러 번 나타날 때 처리 방식을 적으세요." },
   { id: "D3", title: "특이값", question: "특이값(음수, 0, 빈칸, 형식 불일치 처리)", detailHint: "음수·0·빈칸·형식 불일치의 처리 방식을 적으세요." },
-  { id: "D4", title: "결과 상태", question: "결과 상태(상태 이름 목록과 각 상태 판정 조건)", detailHint: "결과 상태 이름을 쉼표나 점으로 구분해 적으세요. (예: 정상, 오류(확정), 확인 필요)" },
+  { id: "D4", title: "결과 상태", question: "결과 상태(상태 이름 목록과 각 상태 판정 조건)", detailHint: "결과 상태 이름을 쉼표·점·빗금(/)으로 구분해 적으세요. '상태 정확히 N개(...)' 형태도 정리됩니다. (예: 정상, 오류(확정), 확인 필요)" },
   { id: "D5", title: "판단 불가", question: "판단 불가(확정 규칙으로 판정 불가한 행을 보낼 상태와 사유 표시 방법)", detailHint: "판정 불가 행을 보낼 상태명(D4 목록 중 하나)을 적으세요." },
   { id: "D6", title: "빈 입력", question: "빈 입력(데이터 행 없는 파일·헤더만 있는 파일·빈 파일 처리)", detailHint: "데이터 행 없는 파일·헤더만 있는 파일·빈 파일의 처리 방식을 적으세요." },
   { id: "D7", title: "계산 기준", question: "계산 기준(합계·반올림·단위 기준)", detailHint: "합계·반올림·단위 기준을 적으세요." },
@@ -57,10 +57,29 @@ export function undecidedDecisionIds(points: ResolvedDecisionPoint[]): DecisionP
   return points.filter(point => point.status === "미확정").map(point => point.id);
 }
 
-/** D4 상세 입력을 상태 이름 목록으로 정리한다. 쉼표·가운뎃점·점·줄바꿈 구분을 모두 받고 중복은 하나로 합친다.
- * 숫자 사이의 점(예: 1.5)은 구분자로 보지 않는다. */
+/** D4 상세 입력을 상태 이름 목록으로 정리한다. 쉼표·가운뎃점·점·빗금(/)·줄바꿈 구분을 모두 받고 중복은 하나로 합친다.
+ * 숫자 사이의 점(예: 1.5)은 구분자로 보지 않는다.
+ * "상태 정확히 N개(...)" 래퍼와 "만 사용한다" 접미사는 목록이 아니므로 제거하고 괄호 안 내용만 파싱한다.
+ * 빈 토큰과 개수만 남은 토큰(예: "3개")은 상태명이 아니므로 버리고, 앞의 번호 매김(예: "1. ")은 떼어낸다. */
 export function parseStateNames(detail: string): string[] {
-  return [...new Set(detail.split(/[,，·ㆍ・•、。;\n]|(?<!\d)\.(?!\d)/u).map(name => name.trim()).filter(Boolean))].slice(0, 10);
+  let text = detail.trim();
+  const wrapped = /상태\s*정확히\s*\d+\s*개\s*[（(]([^）)]*)[）)]/u.exec(text);
+  if (wrapped) text = wrapped[1];
+  else {
+    const whole = /^\s*[（(]([^）)]*)[）)]\s*$/u.exec(text);
+    if (whole) text = whole[1];
+  }
+  text = text.replace(/^상태\s*정확히\s*\d+\s*개\s*[:：]?\s*/u, "");
+  text = text.replace(/\s*만\s*사용한다\s*[.。]?\s*$/u, "");
+  return [...new Set(text.split(/[,，·ㆍ・•、。;\n\/／]|(?<!\d)\.(?!\d)/u)
+    .map(name => name.trim().replace(/^(?:\d+[.)]|[①-⑳])\s+/u, "").replace(/^상태\s*정확히\s*\d+\s*개\s*/u, "").trim())
+    .filter(name => Boolean(name) && !/^\d+\s*개?$/u.test(name)))].slice(0, 10);
+}
+
+/** "상태 정확히 N개(...)" 표기에 적힌 N. 래퍼가 없으면 null이다. */
+export function declaredStateCount(detail: string): number | null {
+  const match = /상태\s*정확히\s*(\d+)\s*개/u.exec(detail);
+  return match ? Number(match[1]) : null;
 }
 
 /** D4가 확정이고 상태 목록이 적혀 있을 때만 상태 이름 목록을 반환한다. */
@@ -76,6 +95,28 @@ export function confirmedUndecidableState(points: ResolvedDecisionPoint[]): stri
   const d5 = points.find(point => point.id === "D5");
   if (!d5 || d5.status !== "확정" || !d5.detail) return null;
   return d5.detail.trim();
+}
+
+/**
+ * D4 목록으로 검증된 D5 상태명. D4가 확정되지 않았으면 기존 동작대로 D5 detail을
+ * 그대로 인용한다(검증할 목록이 없음). D4가 확정됐는데 D5 detail이 D4 목록에 속한
+ * 단일 상태명이 아니면 null을 반환한다 — 덩어리·복수 상태·목록 외 상태명은 인용하지 않는다.
+ */
+export function validatedUndecidableState(points: ResolvedDecisionPoint[]): string | null {
+  const d5 = points.find(point => point.id === "D5");
+  if (!d5 || d5.status !== "확정" || !d5.detail) return null;
+  const states = confirmedStateNames(points);
+  if (!states) return d5.detail.trim();
+  const parsed = parseStateNames(d5.detail);
+  return parsed.length === 1 && states.includes(parsed[0]) ? parsed[0] : null;
+}
+
+/** D4가 확정됐는데 D5 상태명이 D4 목록에 속한 단일 상태명이 아닌 경우 true. */
+export function isUndecidableStateInvalid(points: ResolvedDecisionPoint[]): boolean {
+  const d5 = points.find(point => point.id === "D5");
+  if (!d5 || d5.status !== "확정" || !d5.detail) return false;
+  if (!confirmedStateNames(points)) return false;
+  return validatedUndecidableState(points) === null;
 }
 
 /**

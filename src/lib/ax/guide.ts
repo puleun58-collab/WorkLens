@@ -1,7 +1,7 @@
 import type { AxDiagnosis, AxPlan, ExampleResult } from "./types";
 import { automationLevel, axes, executionProfile, prerequisiteTopicKey, type ExecutionGate, type ExecutionProfile, type StepScope } from "./policy";
 import { FACTOR_KEYS } from "./schema";
-import { applyStateDefinition, confirmedStateNames, confirmedUndecidableState, resolveDecisionPoints, undecidedDecisionIds, type ResolvedDecisionPoint } from "./decision-points";
+import { applyStateDefinition, confirmedStateNames, declaredStateCount, isUndecidableStateInvalid, resolveDecisionPoints, undecidedDecisionIds, validatedUndecidableState, type ResolvedDecisionPoint } from "./decision-points";
 import { EXAMPLE_CONFIRM_REASON, EXAMPLE_CONFIRMED_MINIMUM, EXAMPLE_HOLD_REASON, exampleHoldReasons, exampleRequirement, exampleResultRow, partitionExamples } from "./example-results";
 import { extractPlanReviewableItems, extractReviewableItems, getValidConfirmedReviews, buildPlanReviewKeyMap } from "./hitl";
 
@@ -510,9 +510,125 @@ const dedupCriteria = (items: string[]): string[] => {
  * 03의 criteria() 접두어와 04의 전체 완료 기준이 같은 한정자를 쓰도록 하고,
  * 출처 충돌·수치 충돌은 어느 쪽에서도 합격 조건으로 남기지 않고 확인 대상 섹션으로 분리한다.
  * 특정 수치·문구·업무명·기술명·법령명을 하드코딩하지 않으며, Level·Gate·HITL·scoped 판정은 건드리지 않는다. */
-/** 미연결(비 scoped) 기준의 03식 한정자: 04 전체 완료 기준도 같은 문구로 표시한다. */
-const unlinkedCriterionText = (item: { scope: string; text: string }): string =>
-  item.scope === "future" ? `향후 판정: ${item.text}` : `기준 확인 필요: ${item.text}`;
+/** 미연결 기준의 출처 라벨. 출처를 알 수 없으면 붙이지 않는다. */
+const criterionSourceLabel = (item: { sources?: string[] }): string | null => {
+  const sources = item.sources ?? [];
+  if (sources.includes("plan.acceptance")) return "계획 acceptance";
+  if (sources.some(source => source.startsWith("plan."))) return "생성 계획";
+  if (sources.some(source => source.startsWith("diagnosis."))) return "진단";
+  if (sources.some(source => source.startsWith("policy."))) return "정책";
+  return null;
+};
+/** 미연결(비 scoped) 기준의 03식 한정자: 04 전체 완료 기준도 같은 문구로 표시한다.
+ * 출처가 확인되면 함께 표시해, 미연결 기준이 확정 규칙으로 오독되지 않게 한다. */
+const unlinkedCriterionText = (item: { scope: string; text: string; sources?: string[] }): string => {
+  const label = criterionSourceLabel(item);
+  const prefix = item.scope === "future" ? "향후 판정" : "기준 확인 필요";
+  return label ? `${prefix}: [출처: ${label}] ${item.text}` : `${prefix}: ${item.text}`;
+};
+/** 알림·전송·승인 요청 등 외부 행위를 요구하는 표현. 미확정 기준이 이런 행위를
+ * 요구하면 전체 완료 기준으로 승격하지 않고 "확인 필요(외부 행위)"로 분리한다. */
+const EXTERNAL_ACTION_WORD = /(알림|전송|발송|통보|승인\s*요청|외부\s*승인)/u;
+const isExternalActionCriterion = (item: { text: string }): boolean => EXTERNAL_ACTION_WORD.test(item.text);
+/** 파일형 산출물 문장에서 컬럼·열 목록을 파싱한다. "열:/컬럼:" 라벨이 있거나,
+ * 괄호 안에 쉼표로 구분된 공백 없는 토큰이 2개 이상 있으면 목록으로 본다.
+ * "(원본 행 수와 동일한 행 수, ...)"처럼 공백을 포함한 설명 문장은 목록이 아니다. */
+export function parseOutputColumns(text: string): string[] | null {
+  const labeled = /(?:열|컬럼|columns?)\s*[:：]\s*([^()\n;；]+)/iu.exec(text);
+  if (labeled) {
+    const cols = labeled[1].split(/[,，、·]/u).map(col => col.trim()).filter(Boolean);
+    if (cols.length >= 1 && cols.every(col => /^[^\s()]{1,40}$/u.test(col))) return cols;
+  }
+  for (const segment of [...text.matchAll(/[（(]([^）)]*)[）)]/gu)].map(match => match[1])) {
+    const cols = segment.split(/[,，、]/u).map(col => col.trim()).filter(Boolean);
+    if (cols.length >= 2 && cols.every(col => /^[^\s()]{1,40}$/u.test(col))) return cols;
+  }
+  return null;
+}
+/** 컬럼·열 목록이 파싱되지 않는 파일형 산출물의 파일명 목록. 컬럼을 만들지 않고
+ * 미확정으로만 표시하기 위한 판정이다. */
+export function detectUndeterminedOutputs(outputs: string[]): string[] {
+  const out: string[] = [];
+  for (const text of outputs) {
+    const file = /([\w가-힣][\w가-힣.-]*\.(?:csv|xlsx|xls|json|txt))/u.exec(text)?.[1]
+      ?? (/(?:CSV|파일)/u.test(text) ? "파일형 산출물" : null);
+    if (!file) continue;
+    if (!parseOutputColumns(text)) out.push(file);
+  }
+  return [...new Set(out)];
+}
+/** 조사(은/는/이/가/을/를/에/의/로/과/와/도/만 등)를 떼어 핵심어를 만든다. */
+const stripParticle = (word: string): string => {
+  let out = word;
+  for (;;) {
+    const next = out.replace(/(에서|에게|한테|부터|까지|으로|로|은|는|이|가|을|를|에|의|과|와|도|만)$/u, "");
+    if (next === out || next.length < 2) break;
+    out = next;
+  }
+  return out;
+};
+const CONFIRM_FILLER = new Set(["확인", "필요", "미확정", "미확인", "여부", "검토", "처리", "해당", "경우", "대상", "행", "결과", "상태",
+  // 일반 동사·범용어는 대상 공유 근거가 되지 않는다 (예: D2 "합산 제외"와 판매자 예외의 "제외" 공유는 충돌이 아님).
+  "제외", "합산", "분리", "표시", "적용", "입력", "출력", "파일", "기준", "규칙", "값", "건"]);
+const contentWordsOf = (text: string, stateNames: string[]): string[] => text
+  .split(/[\s·・,，.。、；;:\-—–/()（）"“”'→]+/u)
+  .map(word => stripParticle(word.trim()))
+  .filter(word => word.length >= 2 && !stateNames.includes(word) && !CONFIRM_FILLER.has(word));
+/** 두 문장이 같은 대상을 다루는지: 한쪽 핵심어가 다른 쪽 핵심어의 부분 문자열이면 공유로 본다
+ * (예: "판매자" ⊂ "판매자마스터"). */
+const sharesTargetWord = (a: string, b: string, stateNames: string[]): boolean => {
+  const wordsA = contentWordsOf(a, stateNames);
+  const wordsB = contentWordsOf(b, stateNames);
+  return wordsA.some(wordA => wordsB.some(wordB => wordB.includes(wordA) || wordA.includes(wordB)));
+};
+const SPECIAL_VALUE_WORDS = ["음수", "비숫자", "빈칸", "누락", "중복"];
+const specialValuesOf = (text: string): string[] => {
+  const tokens = text.split(/[\s·・,，.。、；;:\-—–/()（）"“”'→]+/u).map(token => token.trim()).filter(Boolean);
+  const found = SPECIAL_VALUE_WORDS.filter(word => tokens.some(token => stripParticle(token) === word));
+  if (tokens.includes("0")) found.push("0");
+  return [...new Set(found)];
+};
+export interface DecisionExceptionConflict { line: string; exception: string; }
+/**
+ * 확정 결정 지점(D1~D3)과 §4 예외 문장 간 충돌·누락 검출 (P0-2, 저장 계약 변경 없음).
+ * - 상태 충돌: 양쪽이 서로 겹치지 않는 D4 상태명을 지정하고 같은 대상을 다루면 충돌.
+ * - 범위 누락: D3 특이값 목록 중 일부만 예외에 있고 일부가 빠졌으며 같은 상태·대상을 다루면 충돌.
+ * 어느 경우도 예외 문장을 단정적 요구로 남기지 않기 위해 충돌한 예외 문장을 반환한다.
+ */
+export function detectDecisionExceptionConflicts(
+  points: ResolvedDecisionPoint[],
+  exceptionLines: string[],
+  stateNames: string[],
+): DecisionExceptionConflict[] {
+  const out: DecisionExceptionConflict[] = [];
+  const rulePoints = points.filter(point => ["D1", "D2", "D3"].includes(point.id) && point.status === "확정" && point.detail);
+  for (const point of rulePoints) {
+    const detail = point.detail as string;
+    const dStates = stateNames.filter(state => detail.includes(state));
+    const dSpecials = specialValuesOf(detail);
+    for (const exception of exceptionLines) {
+      const eStates = stateNames.filter(state => exception.includes(state));
+      if (!sharesTargetWord(detail, exception, stateNames)) continue;
+      if (dStates.length && eStates.length && !dStates.some(state => eStates.includes(state))) {
+        out.push({
+          exception,
+          line: `${point.id} 확정 규칙 "${detail}"과(와) 예외 "${exception}"가 같은 대상에 서로 다른 결과 상태(${dStates.join("/")} / ${eStates.join("/")})를 지정합니다. 어느 쪽도 단정적 요구로 쓰지 말고 확인 대상으로 보고하세요.`,
+        });
+        continue;
+      }
+      const eSpecials = specialValuesOf(exception);
+      const omitted = dSpecials.filter(value => !eSpecials.includes(value));
+      const sharedState = dStates.some(state => eStates.includes(state));
+      if (dSpecials.length && eSpecials.some(value => dSpecials.includes(value)) && omitted.length && sharedState) {
+        out.push({
+          exception,
+          line: `${point.id} 확정 규칙 "${detail}"에 있는 특이값(${omitted.join("·")}) 처리가 예외 "${exception}"에 없습니다. 어느 쪽도 단정적 요구로 쓰지 말고 확인 대상으로 보고하세요.`,
+        });
+      }
+    }
+  }
+  return out;
+}
 /** 표시된 기준에서 한정자 접두어를 뗀 원문. */
 const bareCriterionText = (text: string): string =>
   text.replace(CRITERION_PREFIX, "").replace(FUTURE_CRITERION_PREFIX, "").trim();
@@ -854,6 +970,15 @@ export function planSummary(diagnosis: AxDiagnosis, rawPlan?: AxPlan, context = 
     } else if (summaryReasons.includes(EXAMPLE_CONFIRM_REASON)) {
       checks.push({ topic: "업무 처리 예시 확인 필요", status: "확인 필요", note: `업무 처리 예시 필수 여부가 미확정입니다. 확정 예시는 ${valid.length}건입니다. 결정 지점 D1·D2·D3·D7을 확정하거나 해당 없음으로 확인하면 필수 여부가 정해집니다.`, tone: "required" });
     }
+  }
+  // P0-4: 파일형 산출물의 컬럼·열 목록이 파싱되지 않으면 확인 카드로 표시한다
+  // (컬럼을 임의로 만들지 않는다). 04 최종 산출물과 같은 판정 기준을 쓴다.
+  const summaryOutputs = model.scoped.outputs.length
+    ? model.scoped.outputs.map(item => item.text)
+    : (diagnosis.asIs?.outputs ?? []);
+  const summaryUndeterminedOutputs = detectUndeterminedOutputs(summaryOutputs);
+  if (summaryUndeterminedOutputs.length) {
+    checks.push({ topic: "출력 컬럼 미확정", status: "확인 필요", note: `출력 컬럼이 확정되지 않은 산출물: ${summaryUndeterminedOutputs.join(", ")}. 컬럼명·순서·타입을 확정하기 전에는 해당 출력의 형식을 단정하지 않는다.`, tone: "required" });
   }
   // D4/D5 미확정은 summary.checks(기술 점검 카드 전용)에는 넣지 않는다.
   // 02 카드의 출처·개수를 바꾸면 기존 중복 제거 계약이 깨진다. 대신 지시문
@@ -2467,6 +2592,8 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
   // 목표로 확정하면 TO-BE에서 달라지는 처리·출력이 누락될 수 있다.
   const finalOutputs = (currentOutputs.length ? currentOutputs : unique(d?.asIs?.outputs ?? []))
     .filter(out => !outputRelatesOnlyToRemovedSteps(out));
+  // P0-4: 파일형 산출물의 컬럼·열 목록이 파싱되지 않으면 컬럼을 만들지 않고 미확정으로 표시한다.
+  const undeterminedOutputs = detectUndeterminedOutputs(finalOutputs);
   const asIsReferenceOutputs = currentOutputs.length
     ? unique((d?.asIs?.outputs ?? []).filter(out => !currentOutputs.some(cur => normalizedItem(cur) === normalizedItem(out) || normalizedItem(cur).includes(normalizedItem(out)))))
         .filter(out => !outputRelatesOnlyToRemovedSteps(out))
@@ -2518,9 +2645,13 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
   const movedNonPocItems = model.classified.filter(item => item.role === "criteria" && !isPocCriterion(item)
     && !model.scoped.criteria.includes(item) && !model.scoped.validationMethods.includes(item)
     && (item.scope === "confirm" || item.scope === "future") && scopeLevel !== 0 && !demotionForCriterion(model, item));
+  // P0-3: 알림·전송 등 외부 행위를 요구하는 미연결 기준은 전체 완료 기준으로 승격하지 않고
+  // "확인 필요(외부 행위)" 섹션으로 분리한다 (deferred 판정은 원래 movedNonPocItems 기준 유지).
+  const movedExternalItems = movedNonPocItems.filter(isExternalActionCriterion);
+  const movedExternalCriteria = movedExternalItems.map(unlinkedCriterionText);
   let overallSuccessItems = [
     ...eligiblePocCriteria.filter(item => pocKindOf(item) === "success"),
-    ...movedNonPocItems,
+    ...movedNonPocItems.filter(item => !movedExternalItems.includes(item)),
   ];
   let overallFailureItems = eligiblePocCriteria.filter(item => pocKindOf(item) === "failure");
   // A-1(c) 텍스트 수준 출처 충돌: 별개 항목이지만 동일 문장이 성공·실패 양쪽에
@@ -2562,7 +2693,10 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
   const decisionPoints = model.decisionPoints ?? [];
   const stateNames = confirmedStateNames(decisionPoints);
   const undecidedIds = undecidedDecisionIds(decisionPoints);
-  const d5State = confirmedUndecidableState(decisionPoints);
+  // D5는 D4 목록으로 검증된 상태명만 인용한다. D4 확정 시 목록에 없는 덩어리·복수
+  // 상태·목록 외 상태명은 "D5 상태명 미확정"으로 표시한다 (D4 미확정 시에는 기존대로 인용).
+  const d5State = validatedUndecidableState(decisionPoints);
+  const d5StateInvalid = isUndecidableStateInvalid(decisionPoints);
   const requirement = exampleRequirement(decisionPoints);
   // D4가 확정되면 기대 결과가 D4 목록에 없는 예시는 확정 예시에서 제외한다 (D4 단일 정의 유지).
   const { valid: examples, invalid: excludedExamples } = partitionExamples(model.exampleResults, stateNames);
@@ -2574,6 +2708,8 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
   const stateList = stateNames?.join(" · ");
   const decisionBlock = decisionPoints.length ? protectUserBlock(`### 결정 지점 (D1~D7)\n\n${bullets(decisionPoints.map(point => point.status === "미확정"
     ? `${point.id} ${point.title} — 미확정 (임의로 정하지 않음)`
+    : point.id === "D5" && d5StateInvalid
+      ? "D5 판단 불가 — 확정: D5 상태명 미확정 (D4 결과 상태 목록에 없는 상태명이므로 판정 불가 행을 보낼 상태를 임의로 정하지 않는다)"
     : point.id === "D4" && stateList ? `${point.id} ${point.title} — ${point.status}: ${stateList}`
     : point.detail ? `${point.id} ${point.title} — ${point.status}: ${point.detail}` : `${point.id} ${point.title} — ${point.status}`))}
 ${stateList ? `\n결과 상태 목록: ${stateList} — 지시문 전체에서 결과 상태를 언급할 때는 이 목록의 이름과 개수만 사용한다.` : ""}`) : "";
@@ -2591,6 +2727,7 @@ ${stateList ? `\n결과 상태 목록: ${stateList} — 지시문 전체에서 �
       ...(d.asIs?.purpose ? [`업무 목적: ${d.asIs.purpose}`] : []),
       ...(coreFeatures.length ? [`핵심 기능: ${coreFeatures.join("; ")}`] : work.length ? [`핵심 기능: ${work.map(s => s.step).join(", ")}`] : []),
       ...(finalOutputs.length ? [`최종 산출물: ${finalOutputs.join(", ")}`] : []),
+      ...(undeterminedOutputs.length ? [`출력 컬럼 미확정: ${undeterminedOutputs.join(", ")} — 컬럼명·순서·타입을 확정하기 전에는 해당 출력의 형식을 단정하지 않는다. 컬럼명을 임의로 만들지 않는다.`] : []),
     ]) : "",
     d && level && gate ? `### 실행 조건\n\n${bullets([
       LEVEL_CONSTRAINTS_OUTPUT[level.level],
@@ -2702,6 +2839,13 @@ ${stateList ? `\n결과 상태 목록: ${stateList} — 지시문 전체에서 �
   // 겹치는 공통 예외는 relatesOnlyToRemovedSteps가 false이므로 그대로 유지된다.
   const exceptionLines = dropContainedDuplicates(exceptions)
     .filter(text => !relatesOnlyToRemovedSteps(text));
+  // P0-2: 확정 결정 지점과 예외가 같은 대상에 서로 다른 판정을 내리면, 충돌한 예외
+  // 문장을 §4 예외에서 빼고 충돌 섹션으로 분리한다. D 블록(protectUserBlock)은 그대로 둔다.
+  const decisionExceptionConflicts = stateNames
+    ? detectDecisionExceptionConflicts(decisionPoints, exceptionLines, stateNames)
+    : [];
+  const conflictExceptionTexts = new Set(decisionExceptionConflicts.map(conflict => conflict.exception));
+  const shownExceptionLines = exceptionLines.filter(text => !conflictExceptionTexts.has(text));
   // 04. 예외 및 유지 조건: 같은 예외·제한은 한 번만 출력한다.
   section("예외 및 유지 조건",
     gate === "conditional" && scopeLevel === 0
@@ -2714,7 +2858,8 @@ ${stateList ? `\n결과 상태 목록: ${stateList} — 지시문 전체에서 �
     extraConstraints.length ? `### 담당자·제외 제약 (추가)\n\n${bullets(extraConstraints)}` : "",
     humanConstraints || humanKept.length ? `### 담당자 확인·승인\n\n${HUMAN_DECISION_CHECK} 담당자 판단·확정이 필요한 결과를 확인되지 않은 승인으로 확정·시스템 반영·외부 전송하거나 담당자 판단을 대체하지 마세요. 승인 주체·권한이 확인되지 않았으면 지정하지 마세요.` : "",
     "확인되지 않은 API·권한·파일 형식·연동 방식·계산식·반올림·중복 기준·승인 주체를 가정해 구현하지 마세요. 특히 '불가'·거부된 접근 권한은 검토에서 제외해도 허용으로 바뀌지 않습니다.",
-    exceptionLines.length ? `### 예외\n\n${bullets(exceptionLines)}\n\n${stateList ? `확정 규칙으로 처리하지 못한 데이터는 결과 상태 목록(${stateList}) 중 해당 상태로 분리해 원인과 대상을 확인할 수 있게 하세요.` : "실패·미매칭·확인 불가 데이터는 정상 결과와 분리해 원인과 대상을 확인할 수 있게 하세요."} 자동 삭제·자동 보정은 업무 규칙에 명시된 경우에만 적용하고, 아니면 대상 건을 표시만 하세요.` : "",
+    exceptionLines.length ? `### 예외\n\n${bullets(shownExceptionLines.length ? shownExceptionLines : ["(결정 지점과 충돌하는 예외 문장은 아래 '결정 지점·예외 충돌 (확인 필요)'로 분리했다.)"])}\n\n${stateList ? `확정 규칙으로 처리하지 못한 데이터는 결과 상태 목록(${stateList}) 중 해당 상태로 분리해 원인과 대상을 확인할 수 있게 하세요.` : "실패·미매칭·확인 불가 데이터는 정상 결과와 분리해 원인과 대상을 확인할 수 있게 하세요."} 자동 삭제·자동 보정은 업무 규칙에 명시된 경우에만 적용하고, 아니면 대상 건을 표시만 하세요.` : "",
+    decisionExceptionConflicts.length ? `### 결정 지점·예외 충돌 (확인 필요)\n\n${bullets(decisionExceptionConflicts.map(conflict => conflict.line))}\n\n위 항목은 확정 결정 지점과 예외 문장이 같은 대상에 서로 다른 판정·범위를 제시하므로, 어느 쪽도 단정적 요구로 쓰지 말고 충돌 내용을 확인 대상으로 보고하세요.` : "",
     `### 실행 방식\n\n${scopeLevel === 1 ? "담당자 요청 기반 실행만 허용합니다. 스케줄러·폴더 감시 등 정기 무인 실행을 구현하지 마세요." : scopeLevel === 0 ? "검토·검증만 허용하며 업무 자동 실행을 추가하지 마세요." : "업무 발생 주기와 시스템 자동 실행은 별개입니다. 실제 자동 실행 요청·근거·정책 허용 여부가 확인되지 않았다면 실행 방식 확인 필요로 보고하세요."}${d?.asIs?.trigger && /(자동|스케줄|무인|정기\s*실행)/u.test(d.asIs.trigger) ? " 원본 주기 표현에 자동 실행 언급이 있어도 정책 허용 범위와 담당자 확인 없이는 자동 실행으로 확정하지 않고, 실제 실행 방식은 확인 대상으로 보고하세요." : ""}`,
     `### 보안\n\n${bullets([
       ...model.conditions.global.filter(item => item.role === "security").map(evidenceLine),
@@ -2723,6 +2868,16 @@ ${stateList ? `\n결과 상태 목록: ${stateList} — 지시문 전체에서 �
     ])}`,
     `### 수동 전환\n\n${fallback.length ? `${bullets(fallback)}\n\n` : ""}자동화가 실패해도 기존 수동 업무를 계속할 수 있게 유지하세요. 실제 수동 절차와 운영 담당이 확인되지 않았으면 새로 정하지 마세요.`,
   );
+  // P0-5: 상태 플래그 미확정과 구분되는 내용 미확정. D4 파싱 실패·D5∉D4·출력 컬럼
+  // 부재·D-예외 충돌이 있으면 "미확정 항목: 없음"으로 가려지지 않게 §5에 별도 표시한다.
+  const d4Point = decisionPoints.find(point => point.id === "D4");
+  const declaredCount = d4Point?.status === "확정" && d4Point.detail ? declaredStateCount(d4Point.detail) : null;
+  const contentUndetermined: string[] = [];
+  if (stateNames && declaredCount !== null && declaredCount !== stateNames.length) contentUndetermined.push(`D4 상태 개수 불일치 (표기 ${declaredCount}개와 파싱 결과 ${stateNames.length}개가 다름)`);
+  if (d4Point?.status === "확정" && d4Point.detail && !stateNames) contentUndetermined.push("D4 상태 파싱 실패");
+  if (d5StateInvalid) contentUndetermined.push("D5 상태명 미확정 (D5가 D4 결과 상태 목록에 없음)");
+  if (undeterminedOutputs.length) contentUndetermined.push(`출력 컬럼 미확정 (${undeterminedOutputs.join(", ")})`);
+  if (decisionExceptionConflicts.length) contentUndetermined.push(`결정 지점·예외 충돌 ${decisionExceptionConflicts.length}건 (확인 필요)`);
   // 05. 구현 순서 및 검증: 코딩 에이전트 실행 순서 10단계. 순서는 실제 개발 작업만
   // 간결하게 쓰고, 기능별 요구사항·예외 및 유지 조건의 전문을 다시 반복하지 않는다.
   // 이 확인 순서는 Level·Gate·HITL 판정을 변경하거나 새 구현 권한을 부여하지 않는다.
@@ -2739,7 +2894,7 @@ ${stateList ? `\n결과 상태 목록: ${stateList} — 지시문 전체에서 �
       "기존 정책에서 허용된 실행 범위 확인: '구현 범위'의 처리 구분(구현·확인 후 구현·검토·검증·담당자 수행·향후 확장)을 그대로 따르세요. 허용 범위를 넓히거나, 보류·제외 단계를 독립 기능으로 재분류하거나, Level·Gate를 초과해 처리하지 마세요.",
       work.length ? "조건 충족 독립 단계부터 구현: '기능별 요구사항'의 각 기능을 입력·처리·출력 명세대로 구현하세요. 다른 단계의 미확정 규칙 때문에 독립 단계까지 일괄 중단하지 마세요." : "조건 충족 독립 단계부터 구현: 이번 범위에서 구현할 단계가 없습니다. 입력 자료의 형식 확인과 보고만 수행하세요.",
       "미확정 조건 의존 부분만 보류: 미확정 조건에 실제로 의존하는 작업만 보류하고, 보류 사유와 재개 조건을 보고하세요. 재개 조건이 충족되어도 담당자 재확인·승인 없이 자동으로 재개하지 마세요.",
-      work.length ? `실제 데이터로 검증: 처리 결과를 ${finalOutputs.length ? finalOutputs.join(", ") : "확인된 출력 형식"}으로 연결하고, 업무에 필요한 저장·재조회가 있으면 기존 저장소·인증 방식으로 동작을 확인하세요. '예외 및 유지 조건'의 예외 항목을 처리하고 ${stateList ? `확정 규칙으로 처리하지 못한 데이터를 결과 상태 목록(${stateList}) 중 해당 상태로 분리하세요` : "실패·미매칭·확인 불가 데이터를 정상 결과와 분리하세요"}. 저장소의 실제 테스트·빌드 명령으로 아래 검증 기준을 확인하고, 실행하지 않은 검증은 완료로 보고하지 마세요. 저장 기능이 없는 업무에 DB 검증을, 웹앱이 아닌 업무에 브라우저 테스트·웹 배포를 강제하지 마세요.` : "실제 데이터로 검증: 해당 없음 — 확보한 샘플과 기존 자료로 확인할 수 있는 범위만 검증하고, 비교 자료가 없으면 '검증 불가'와 사유를 기록하세요.",
+      work.length ? `실제 데이터로 검증: 처리 결과를 ${finalOutputs.length ? finalOutputs.join(", ") : "확인된 출력 형식"}으로 연결하고, 업무에 필요한 저장·재조회가 있으면 기존 저장소·인증 방식으로 동작을 확인하세요. '예외 및 유지 조건'의 예외 항목을 처리하고 ${stateList ? `확정 규칙으로 처리하지 못한 데이터를 결과 상태 목록(${stateList}) 중 해당 상태로 분리하세요` : "실패·미매칭·확인 불가 데이터를 정상 결과와 분리하세요"}. 저장소의 실제 테스트·빌드 명령으로 아래 검증 기준을 확인하고, 실행하지 않은 검증은 완료로 보고하지 마세요. 저장 기능이 없는 업무에 DB 검증을, 웹앱이 아닌 업무에 브라우저 테스트·웹 배포를 강제하지 마세요.${undeterminedOutputs.length ? ` 출력 컬럼이 미확정인 산출물(${undeterminedOutputs.join(", ")})은 컬럼명·순서·타입이 확정될 때까지 형식을 단정하지 않는다.` : ""}` : "실제 데이터로 검증: 해당 없음 — 확보한 샘플과 기존 자료로 확인할 수 있는 범위만 검증하고, 비교 자료가 없으면 '검증 불가'와 사유를 기록하세요.",
       "담당자 확인·승인 경계 유지: 담당자 확인 전 결과가 확정·전송되지 않는지, 제외·보류된 단계가 다시 필수 작업으로 나타나지 않는지 확인하세요. 담당자 판단을 자동 승인으로 대체하지 말고, 완료 여부는 실제 실행·검증 결과로만 판단해 '결과 보고'의 4개 항목으로 보고하세요.",
     ]),
     "위 순서를 지키되 의존성이 없는 독립 단계는 병렬로 진행할 수 있습니다. 선행 확인이 필요한 단계는 실제 의존 관계를 확인하고 해당 부분만 '확인·승인 대기'로 보고하세요. 미확인 권한·보안 조건을 독립이라고 단정하거나 우회하지 마세요.",
@@ -2754,8 +2909,10 @@ ${stateList ? `\n결과 상태 목록: ${stateList} — 지시문 전체에서 �
     decisionPoints.length ? `### 미확정 항목 처리\n\n${[
       d5State
         ? `미확정 규칙에 해당하는 행만 '${d5State}'로 보내고 사유에 해당 D번호를 표시한다. 나머지 행은 확정된 규칙대로 처리한다. 확정 규칙으로 판정할 수 있는 행까지 '${d5State}'로 보내는 구현은 완료가 아니다.`
-        : "D5가 미확정이므로 판정 불가 행을 보낼 상태명을 임의로 만들지 않는다. 판정 불가 행만 보류하고 확정 규칙으로 판정 가능한 행은 정상 처리한다. 해당 행은 기존 조건부 보류 체계에 따라 처리되며, 사유에 D번호를 표시한다.",
-      `미확정 항목: ${undecidedIds.length ? undecidedIds.join(", ") : "없음"} — 위 항목의 규칙을 임의로 정하지 않는다.`,
+        : d5StateInvalid
+          ? "D5 상태명 미확정 — D5에 적힌 상태명이 D4 결과 상태 목록에 없으므로 판정 불가 행을 보낼 상태를 임의로 정하지 않는다. 판정 불가 행만 보류하고 사유에 해당 D번호를 표시한다."
+          : "D5가 미확정이므로 판정 불가 행을 보낼 상태명을 임의로 만들지 않는다. 판정 불가 행만 보류하고 확정 규칙으로 판정 가능한 행은 정상 처리한다. 해당 행은 기존 조건부 보류 체계에 따라 처리되며, 사유에 D번호를 표시한다.",
+      `미확정 항목: ${undecidedIds.length ? undecidedIds.join(", ") : contentUndetermined.length ? "상태 미확정 없음" : "없음"}${contentUndetermined.length ? ` — 내용 미확정: ${contentUndetermined.join("; ")}` : ""} — 위 항목의 규칙을 임의로 정하지 않는다.`,
       ...(undecidedIds.includes("D4") ? ["D4가 미확정이므로 결과 상태 정의가 필요한 범위(결과 상태 판정·예시 기대 결과 검증)만 보류하고, D4 정의 없이 판단 가능한 처리는 확정된 규칙대로 진행한다. D4 미확정을 이유로 전체를 일괄 보류하지 않는다."] : []),
       ...(!undecidedIds.includes("D4") && !undecidedIds.includes("D5") && undecidedIds.length ? ["D4·D5가 확정되고 다른 결정 지점이 미확정이므로, 확정 규칙으로 판단 가능한 데이터는 정상 처리하고, 미확정 규칙이 필요한 데이터만 해당 D번호와 함께 보류한다. 다른 지점 미확정을 이유로 확정 가능 데이터까지 일괄 보류하지 않는다."] : []),
     ].join("\n\n")}` : "",
@@ -2782,6 +2939,7 @@ ${stateList ? `\n결과 상태 목록: ${stateList} — 지시문 전체에서 �
     stepFailureCriteria.length ? `### 단계별 실패 판정 기준\n\n${bullets(stepFailureCriteria)}\n\n위 항목은 완료 조건이 아니라 실패 판정 기준입니다. 어느 하나라도 해당하면 해당 단계를 완료로 판정하지 마세요.` : "",
     overallCriteria.length ? `### 업무 전체 완료 기준\n\n${bullets(overallCriteria)}\n\n위 기준은 업무 전체 산출물에 대한 완료 조건입니다. 단계별 검증과 함께 확인하세요. '기준 확인 필요'로 표시된 기준은 확인 대기 중인 완료 기준이며, 실제 업무 규칙 확인 후 확정합니다.` : "",
     overallFailureCriteria.length ? `### 업무 전체 실패 판정 기준\n\n${bullets(overallFailureCriteria)}\n\n위 항목은 완료 조건이 아니라 실패 판정 기준입니다. 어느 하나라도 해당하면 완료로 판정하지 마세요. '기준 확인 필요'로 표시된 기준은 확인될 때까지 실패 판정으로 확정하지 않습니다.` : "",
+    movedExternalCriteria.length ? `### 확인 필요(외부 행위)\n\n${bullets(movedExternalCriteria)}\n\n위 항목은 알림·전송·승인 등 외부 행위를 요구하는 미확정 기준이므로 업무 전체 완료 기준으로 확정하지 않습니다. 외부 행위의 대상·채널·필수 여부를 확인 대상으로 보고하세요.` : "",
     conflictingCriteria.length ? `### 판정 기준 출처 충돌 (확인 필요)\n\n${bullets(conflictingCriteria)}\n\n위 항목은 성공 기준과 실패 판정 기준으로 모두 제시되어 의미가 충돌합니다. 어느 한쪽으로 임의로 해석해 완료·실패를 판정하지 말고, 충돌 내용을 확인 대상으로 보고하세요.` : "",
     numericConflictCriteria.length ? `### 수치 기준 충돌 (확인 필요)\n\n${bullets(numericConflictCriteria)}\n\n위 항목은 동일 비교 대상에 대해 양립할 수 없는 수치·허용 기준으로 제시되어 있습니다. 우선순위를 정하지 않으며, 실제 업무 규칙이 확정될 때까지 어느 쪽도 합격 조건으로 쓰지 말고, 충돌 내용을 확인 대상으로 보고하세요.` : "",
     deferredCriteria.length ? `### 참고 판정 (필수 완료 조건 아님)\n\n${bullets(deferredCriteria)}` : "",
