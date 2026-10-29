@@ -534,6 +534,15 @@ const TASK_EVIDENCE_LABEL: Record<"found" | "viewed" | "none" | "failed", string
   failed: "조회 미완료",
 };
 
+/** Per-provision relation labels for law-system aggregate items. */
+const LAW_SYSTEM_RELATION_LABEL: Record<"direct" | "twoWay" | "other" | "unidentified" | "related", string> = {
+  twoWay: "법률에서 위임한 사항 확인",
+  direct: "질문한 조항 인용 확인",
+  other: "다른 조항 참조",
+  unidentified: "위임 대상 조항 확인 필요",
+  related: "조회된 조항",
+};
+
 /** 입력한 질문 → 이렇게 이해했어요 → 살펴볼 쟁점: sibling blocks, each opened by the same rule; empty ones are not rendered.
  * With onIssueSelect, each top-list item is itself the jump button to its
  * detail section (replacing the separate 쟁점 바로가기 nav); without it the
@@ -896,6 +905,7 @@ function ResearchResult({ data, request, expandSources = false, onExpandSourcesC
     : data.task === "action_basis" ? data.actionBasis
     : data.task === "dispute_prep" ? data.dispute
     : data.task === "amendment_track" ? data.amendment : undefined;
+  const isLawSystem = data.task === "law_system" || (full && Boolean(data.lawSystem));
   // Verified annex originals only: a list entry is never shown here, and a
   // merely identified (truncated) original is not presented as verified.
   const verifiedAnnexes = (data.annexes ?? []).filter((annex) => annex.status === "verified");
@@ -959,10 +969,13 @@ function ResearchResult({ data, request, expandSources = false, onExpandSourcesC
       </ResearchSummaryNotices>
       {taskEvidence && taskEvidence.items.length > 0 && <div className="research-original research-issues is-assessed" data-task-evidence>
         <span>확인한 항목</span>
+        {isLawSystem && <p className="research-meta">위임: 법률이 세부 사항을 시행령·시행규칙 등에서 정하도록 맡기는 것</p>}
         <ul>{taskEvidence.items.map((item, index) => <li key={`${item.label}-${index}`}>
           <span className="research-issue-label"><span className="research-issue-number">{String(index + 1).padStart(2, "0")}</span>{item.label}</span>
           <span className="research-issue-status" data-status={item.status}>{TASK_EVIDENCE_LABEL[item.status]}</span>
           {item.detail && <span className="research-meta">{item.detail}</span>}
+          {item.articles && item.articles.length > 0 && <span className="research-meta">{item.articles.map((article) =>
+            `${article.law} ${article.jo}${article.title ? ` (${article.title})` : ""} — ${LAW_SYSTEM_RELATION_LABEL[article.relation]}${article.expression ? ` · ${article.expression}` : ""}`).join(" · ")}</span>}
         </li>)}</ul>
       </div>}
       {verifiedAnnexes.length > 0 && <div className="research-original research-issues is-assessed" data-annexes-verified>

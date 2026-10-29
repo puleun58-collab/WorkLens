@@ -588,8 +588,11 @@ export async function lookupIssue(
   }, expired);
   precedents.sort((a, b) => read.findIndex((hit) => hit.id === a.id) - read.findIndex((hit) => hit.id === b.id));
   // Absence is only reported when both searches actually answered; otherwise it is unknown.
+  // A precedent-summary failure with no covering article or precedent is a
+  // lookup failure, not a confirmed absence: without this, the failure is
+  // silently reported as "none" and the issue looks merely unconfirmed.
   const status = mergedArticles.length || precedents.length ? "found"
-    : failed || statutes.status === "failed" ? "failed"
+    : failed || statutes.status === "failed" || summaryFailed ? "failed"
     : expired() ? "timeout" : "none";
   // A covering branch must not swallow the other branch's failure: when the lookup
   // still reports `found`, the failure is carried separately for the caller to surface.

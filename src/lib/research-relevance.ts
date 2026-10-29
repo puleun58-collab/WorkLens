@@ -211,15 +211,57 @@ const ACT_NEGATION = /(아니|않|면제)/u;
  * Halves scattered across sentences, a negated act, a mention without
  * authority wording, or a quoted citation alone never match.
  */
+/** Split into sentence spans: a `.` inside parentheses does not end a
+ * sentence (a qualifier such as "(…신고한 영업만 해당한다. 이하 … 같다)"
+ * must not cut the operative grant from its act), while newlines and
+ * ①–⑩ markers always do and reset the parenthesis tracking, so an
+ * excerpt cut mid-parenthesis cannot merge the sentences that follow.
+ * Only the sentence split changes; the act, distance, negation and
+ * quotation guards below are untouched. */
+function splitSentences(content: string): string[] {
+  const sentences: string[] = [];
+  let current = "";
+  let depth = 0;
+  for (const char of content) {
+    if (char === "(" || char === "（") depth++;
+    else if (char === ")" || char === "）") { if (depth > 0) depth--; }
+    if ((char === "." && depth === 0) || char === "\n" || /[①②③④⑤⑥⑦⑧⑨⑩]/u.test(char)) {
+      sentences.push(current);
+      current = "";
+      depth = 0;
+    } else {
+      current += char;
+    }
+  }
+  if (current) sentences.push(current);
+  return sentences;
+}
+
+/** Authority wording outside parentheses: a grant mentioned only inside a
+ * qualifier ("(명할 수 있다. …)") is not the sentence's own operative
+ * authority, so it must not join an act to a permission it never grants.
+ * Parenthesis characters themselves are dropped, so an authority phrase
+ * merely interrupted by a qualifier still counts. */
+function hasOperativeAuthority(compacted: string): boolean {
+  let depth = 0;
+  let outside = "";
+  for (const char of compacted) {
+    if (char === "(" || char === "（") { depth++; continue; }
+    if (char === ")" || char === "）") { if (depth > 0) depth--; continue; }
+    if (depth === 0) outside += char;
+  }
+  return AUTHORITY_WORDING.test(outside);
+}
+
 export function splitActionMatches(term: string, content: string): boolean {
   if (term.length < 4) return false;
   for (let i = 2; i <= term.length - 2; i++) {
     const head = term.slice(0, i);
     const tail = term.slice(i);
     if (!ACTION_TAILS.has(tail)) continue;
-    for (const sentence of content.split(/[.\n①②③④⑤⑥⑦⑧⑨⑩]/u)) {
+    for (const sentence of splitSentences(content)) {
       const compacted = sentence.replace(/\s+/gu, "");
-      if (!AUTHORITY_WORDING.test(compacted)) continue;
+      if (!hasOperativeAuthority(compacted)) continue;
       let at = compacted.indexOf(head);
       while (at !== -1) {
         // A quoted span cites another provision; it is not this text's act.
@@ -576,10 +618,21 @@ export function researchEvidenceSources(text: string, query: string, enrichment?
       return terms.some((term) => anchoredOrSplit(term, combined))
         && subjectTerms.some((term) => anchoredOrSplit(term, combined));
     }
-    const matched = terms.filter((term) => termOccurs(term, compact(content)));
+    const compacted = compact(content);
+    const matched = terms.filter((term) => termOccurs(term, compacted));
     const splitMatched = terms.filter((term) => !matched.includes(term) && splitActionMatches(term, content));
-    const allMatched = [...matched, ...splitMatched];
-    return allMatched.length >= strictMajority(terms.length)
+    // A user's situation word ("미지급": the payment did not happen) names
+    // the same provision as its stem ("지급"): statutes state the duty,
+    // not the user's breach state. The stem counts toward the majority so
+    // a non-payment issue can adopt its payment provisions, but it never
+    // satisfies the longest-term anchor on its own, and at least one term
+    // must match in full or as a split act — a bare stem alone adopts
+    // nothing. No question-specific word list: any 미-prefixed term whose
+    // stem (2+ characters) occurs in the text qualifies.
+    const stemMatched = terms.filter((term) => !matched.includes(term) && !splitMatched.includes(term)
+      && term.startsWith("미") && term.length >= 3 && termOccurs(term.slice(1), compacted));
+    const allMatched = [...matched, ...splitMatched, ...stemMatched];
+    return (matched.length + splitMatched.length) >= 1 && allMatched.length >= strictMajority(terms.length)
       && allMatched.some((term) => term.length === longest && (termAnchored(term, terms, content) || splitMatched.includes(term)));
   };
   const addressesTitle = (title: string | undefined) => title?.trim() ? addresses(title) : false;

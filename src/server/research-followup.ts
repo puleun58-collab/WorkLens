@@ -161,25 +161,57 @@ export async function retrieveResearchFollowup(
       // 시행규칙 lookup, not leave it closed because the word is neither
       // 부령 nor 시행규칙.
       : ["시행규칙", "시행령"].filter((tier) => tier === "시행규칙" ? /부령|총리령|시행규칙/u.test(parentText) : /대통령령|시행령/u.test(parentText));
+    // Tier reads keep their original order (resolve, then read) so the
+    // first-pass timing is unchanged; plans are only retained so a
+    // law-system second pass can continue below. A title term that merely
+    // repeats the law's own name does not discriminate between that law's
+    // articles, so it carries no score: without this, every title
+    // containing the regime word outranks a title carrying only the
+    // parent's distinctive term, and the article that actually
+    // cites the asked parent can sit below the read cut.
+    const lawNameCompact = compactLaw(exact.name);
+    const tierPlans: Array<{ lower: { name: string; mst: string }; candidates: Array<{ jo: string; title: string; score: number }>; read: number }> = [];
     for (const tier of tiers) {
       const targetName = `${exact.name} ${tier}`;
       const lower = (await safe(() => sources.laws(targetName)))?.find((law) => compactLaw(law.name) === compactLaw(targetName));
       if (!lower) { report.missing++; continue; }
       const toc = await safe(() => sources.toc(lower.mst));
       const candidates = (toc ?? []).map((entry) => {
-        const words = questionTerms(entry.title).filter((t) => !isLawName(t) && isSubjectTerm(t));
+        const words = questionTerms(entry.title).filter((t) => !isLawName(t) && isSubjectTerm(t) && !lawNameCompact.includes(compactLaw(t)));
         const score = words.reduce((n, t) => n + (compactLaw(parentText).includes(compactLaw(t)) ? Math.min(t.length, 6) : 0), 0)
           + (/처분/u.test(entry.title) && /처분/u.test(parentText) ? 4 : 0)
           + (mode === "procedure_detail" && /서식|서류/u.test(entry.title) ? 12 : 0);
         return { ...entry, score };
       }).filter((a) => a.score > 0).sort((a, b) => b.score - a.score);
-      report.limited ||= candidates.length > 6;
+      let readCount = 0;
       for (const candidate of candidates.slice(0, 6)) {
         const article = await read(lower, candidate.jo);
+        readCount++;
         if (!article) continue;
         if (mode === "procedure_detail" || parents.some((p) => citesParent(article.body, p.jo))) add(article);
       }
+      tierPlans.push({ lower, candidates, read: readCount });
     }
+    // Phase 2 (law_system only): a tier read exists to discover direct
+    // links, not to sample six titles. When scored candidates remain
+    // unread, keep reading them in score order — whether or not an
+    // earlier candidate already cited the parent, so a genuine link
+    // ranked below another citer is not left hidden. The existing
+    // guards (readKeys 18, 15 s budget) still bind; no cap is raised.
+    // Other modes keep phase 1 only: their tier adds every article it
+    // reads, so an unread remainder is already reported via `limited`.
+    if (mode === "law_system") {
+      for (const plan of tierPlans) {
+        for (const candidate of plan.candidates.slice(plan.read)) {
+          if (expired() || readKeys.size >= 18) break;
+          const article = await read(plan.lower, candidate.jo);
+          plan.read++;
+          if (!article) continue;
+          if (parents.some((p) => citesParent(article.body, p.jo))) add(article);
+        }
+      }
+    }
+    for (const plan of tierPlans) report.limited ||= plan.read < plan.candidates.length;
   }
   report.status = !report.attempted ? "not-searched" : report.failed === report.attempted ? "failed"
     : report.failed || report.limited || report.missing ? "partial" : "complete";

@@ -284,8 +284,11 @@ async function fullResearch(
       const reread = await rereadShownArticles(shownArticles, candidateTerms, sources, expired).catch(() => []);
       const fresh = reread.filter((article) => !(lookup?.articles ?? [])
         .some((shown) => shown.law === article.law && shown.jo === article.jo));
+      // A lookup that found precedents but no adoptable article must not
+      // lose those precedents when a re-read lands articles: the re-read
+      // replaces the adoption, so the lookup's precedents ride along.
       if (fresh.length) {
-        adopted = await issueSources(issue.query, known, { status: "found", articles: fresh, precedents: [] },
+        adopted = await issueSources(issue.query, known, { status: "found", articles: fresh, precedents: lookup?.precedents ?? [] },
           sources, summaries, requestTerms, fallback);
       }
     }

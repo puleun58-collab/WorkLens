@@ -43,7 +43,13 @@ export async function retrieveAnnexes(query: string, articles: readonly Followup
       const label = compactLaw(candidate.label);
       if (!identity || compactLaw(identity[1]) !== compactLaw(candidate.law)
         || !compactLaw(result.text).includes(`[${label}]`) || !/파일 형식/u.test(result.text)) return candidate;
-      const text = result.text.slice(0, 12_000);
+      const text = result.text.slice(0, 200_000);
+      // The preservation cap must cover a complete annex table, not cut
+      // it: a 44,000-character table the upstream returned whole (identity
+      // checked, no omission marker) is a verified original, not a
+      // truncated one. The cap stays as a bound — anything longer, or
+      // carrying an omission marker, still reports identified, never
+      // verified on a partial text.
       const truncated = result.text.length > text.length || /생략|일부만 표시|추출 실패/u.test(result.text);
       const url = lawAnnexUrl(candidate.law, form ? "서식" : "별표", number);
       return { ...candidate, status: truncated ? "identified" : "verified", title: identity[2], text,

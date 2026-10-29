@@ -32,10 +32,10 @@ describe("assessLawSystem with the asked article", () => {
     const decree = result.items.find((item) => item.label === "시행령")!;
     const rule = result.items.find((item) => item.label === "시행규칙")!;
     expect(decree.status).toBe("found");
-    expect(decree.detail).toContain("직접 위임 1건");
+    expect(decree.detail).toContain("법률에서 위임한 사항 확인 1건");
     expect(rule.status).toBe("viewed");
-    expect(rule.detail).toContain("위임 문구 포함 1건");
-    expect(rule.detail).toContain("직접 위임 아님");
+    expect(rule.detail).toContain("위임 관련 표현 발견 1건");
+    expect(rule.detail).toContain("질문한 조항과 참조 조항이 다름");
     // One direct tier only: partial, never matched from a mismatched anchor.
     expect(result.status).toBe("partial");
   });
@@ -64,7 +64,7 @@ describe("assessLawSystem with the asked article", () => {
 `;
     const result = assessLawSystem(text, "개인정보보호법 제38조와 시행령의 관계");
     expect(result.items.find((item) => item.label === "시행령")?.status).toBe("viewed");
-    expect(result.items.find((item) => item.label === "시행령")?.detail).toContain("접두사 없는 위임 문언 1건");
+    expect(result.items.find((item) => item.label === "시행령")?.detail).toContain("위임 대상 조항 확인 필요 1건");
     expect(result.status).toBe("viewed");
   });
 });
