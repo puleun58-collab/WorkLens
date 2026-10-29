@@ -1,4 +1,5 @@
 import { citesParent } from "@/lib/research-citations";
+import { lawNamesInQuery } from "@/lib/law-identity";
 import { sameLawFamily } from "@/lib/research-scope";
 import { isLawName, questionTerms } from "@/lib/research-relevance";
 import { capForFailure, detailArticles, hasAvailableContent, hasFailedSection, hasNoUsableSection, type DetailArticle, type TaskEvidence } from "@/lib/task-evidence";
@@ -84,7 +85,13 @@ export function assessLawSystem(text: string, question?: string, articles?: stri
   if (hasNoUsableSection(text)) {
     return { status: hasFailedSection(text) ? "failed" : "none", items: [] };
   }
-  const named = questionTerms(question ?? "").filter(isLawName).filter((law) => !["시행령", "시행규칙", "법령"].includes(law));
+  // The question's law identity, parsed once from its raw text (so a
+  // spaced official name is one identity, not the fragment "보호법"),
+  // merged with the token-derived names as a fallback. A detail article
+  // of another regime sharing only a suffix never passes sameLawFamily
+  // against the joined name, so the join cannot admit a wrong law.
+  const named = [...new Set([...lawNamesInQuery(question ?? ""),
+    ...questionTerms(question ?? "").filter(isLawName).filter((law) => !["시행령", "시행규칙", "법령"].includes(law))])];
   const details = detailArticles(text).filter((a) => !a.law || !named.length || named.some((law) => sameLawFamily(law, a.law)));
   const lawTitle = /^═══\s*법체계 확인:\s*(.+?)\s*═══/mu.exec(text)?.[1]?.trim();
   const coreBody = /▶\s*핵심 조문\n([\s\S]*?)(?:\n▶|\n═══|$)/u.exec(text)?.[1]?.trim() ?? "";

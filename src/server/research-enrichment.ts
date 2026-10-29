@@ -4,6 +4,7 @@ import {
   isDefinitionTitle, isLawName, isSubjectTerm, questionTerms, questionTermsRelationLess, questionTermsSubjectLess, rankPrecedent, titleMatches, termInText,
   type PrecedentRelevance, type ResearchEnrichment, type SupplementArticle,
 } from "@/lib/research-relevance";
+import { parseExplicitIdentities, type ExplicitIdentity } from "@/lib/law-identity";
 import type { ResearchDecision } from "@/lib/law-research-parse";
 import { getDecisionText, searchDecisions } from "@/server/decision-mcp";
 import { getLawText, searchLaw } from "@/server/law-mcp";
@@ -425,8 +426,8 @@ export interface IssueLookup {
 }
 
 const JO_TERM = /^제[1-9]\d{0,3}조(?:의[1-9]\d?)?$/u;
-/** A bare subordinate-law noun ("그 시행령") names no law of its own: it refers to the preceding law, so it must not replace it as the law a following 조 belongs to. */
-const BARE_SUBORDINATE = new Set(["시행령", "시행규칙", "법령"]);
+/** A bare subordinate-law noun ("그 시행령") names no law of its own: it refers to the preceding law, so it must not replace it as the law a following 조 belongs to, and it must not block a unique parent pair from qualifying (see lookupIssue). */
+const BARE_SUBORDINATE = new Set(["시행령", "시행규칙", "법령", "대통령령", "총리령", "부령"]);
 
 /**
  * (law, article) pairs a term list names, in order: each 조 belongs to the
@@ -456,28 +457,41 @@ const DELEGATION = /(?:대통령령|총리령|부령|시행령)으로 정/u;
  * Fetch exactly the articles a pair names, through the official lookup, and
  * mark them explicit so the caller adopts them by identity for a qualifying
  * issue. A pair that resolves to no current law, to more than one law by
- * suffix, or to no article text is skipped, never guessed. Failures degrade
- * to "no explicit article", never to a failed lookup.
+ * suffix, or to no article text is skipped, never guessed. A joined spaced
+ * law name falls back to its fragment key when the joined key resolves to
+ * nothing, so a wrong join cannot lose a real law either. An empty or
+ * deleted body is not an article: it is skipped, never adopted.
+ * Failures degrade to "no explicit article", never to a failed lookup.
  */
 async function fetchExplicitArticles(
-  pairs: ReadonlyArray<{ law: string; jo: string }>,
+  pairs: ReadonlyArray<{ law: string; jo: string; lawAlt?: string }>,
   sources: EnrichmentSources,
   expired: () => boolean,
 ): Promise<SupplementArticle[]> {
   const compactName = (value: string) => value.replace(/\s+/gu, "");
+  const resolve = (found: Array<{ name: string; mst: string }>, name: string) => {
+    const exact = found.find((law) => compactName(law.name) === compactName(name));
+    if (exact) return exact;
+    const suffix = found.filter((law) => compactName(law.name).endsWith(compactName(name)));
+    return suffix.length === 1 ? suffix[0] : undefined;
+  };
   const articles: SupplementArticle[] = [];
   for (const pair of pairs.slice(0, 6)) {
     if (expired()) break;
     const found = await sources.laws(pair.law).catch(() => []);
-    const exact = found.find((law) => compactName(law.name) === compactName(pair.law));
-    const suffix = exact ? [] : found.filter((law) => compactName(law.name).endsWith(compactName(pair.law)));
-    const law = exact ?? (suffix.length === 1 ? suffix[0] : undefined);
+    let law = resolve(found, pair.law);
+    if (!law && pair.lawAlt) {
+      const altFound = await sources.laws(pair.lawAlt).catch(() => []);
+      law = resolve(altFound, pair.lawAlt);
+    }
     if (!law) continue;
     const fetched = await sources.article(law.mst, pair.jo).catch(() => undefined);
     if (!fetched) continue;
     if (fetched.name && fetched.name !== law.name) continue; // Stale/misdirected MST.
     const excerpt = articleExcerpt(fetched.text, pair.jo);
-    if (!excerpt) continue;
+    // \b is an ASCII word boundary and never fires after a Hangul
+    // syllable, so a deleted body ("삭제…") must be caught by prefix.
+    if (!excerpt || /^삭제/u.test(excerpt)) continue;
     const title = /제[1-9]\d{0,3}조(?:의[1-9]\d?)?\(([^)]+)\)/u.exec(fetched.text)?.[1]?.trim() ?? "";
     articles.push({ law: law.name, jo: pair.jo, title, excerpt, matched: [], explicit: true, stage: "issue",
       role: isDefinitionTitle(title) ? "definition" : "other",
@@ -511,6 +525,12 @@ export async function lookupIssue(
   // terms in the caller. Only the user's own words are inherited — nothing
   // is invented — and law names stay in extraNamed, not here.
   extraTerms: ReadonlyArray<string> = [],
+  // Structured identities parsed once from the user's own question
+  // (see law-identity): when supplied, they replace the token-derived
+  // question pairs below, so a spaced official name keeps one identity
+  // across the chain search, this lookup, the followup and the law-system
+  // assessment instead of fragmenting into "보호법" in each of them.
+  questionIdentities: ReadonlyArray<ExplicitIdentity> = [],
 ): Promise<IssueLookup> {
   const terms = questionTerms(query);
   const keywords = terms.filter((term) => !isLawName(term));
@@ -522,8 +542,11 @@ export async function lookupIssue(
     sources.precedents(query).catch(() => { failed = true; return []; }),
     titleArticles(titleKeywords, [...new Set([...terms.filter(isLawName), ...extraNamed])], shownArticles, sources, expired, true),
     (async () => {
-      // Articles the issue itself named are fetched for this issue.
-      const own = await fetchExplicitArticles(explicitArticlePairs(terms), sources, expired);
+      // Articles the issue itself named are fetched for this issue. The
+      // issue phrase is parsed from its raw text, not from its tokens,
+      // so a spaced law name in the issue itself keeps one identity too.
+      const ownIdentities = parseExplicitIdentities(query);
+      const own = await fetchExplicitArticles(ownIdentities.length ? ownIdentities : explicitArticlePairs(terms), sources, expired);
       // Articles the question named qualify for this issue only when the
       // issue itself names their number (with no law of its own — the law
       // then comes from the question, and only when the number belongs to
@@ -535,11 +558,14 @@ export async function lookupIssue(
       // the same delegation condition; without the delegation wording in
       // the article's own text it still does not qualify. Anything else
       // would let one issue confirm another's article.
-      const questionPairs = explicitArticlePairs(extraTerms);
+      const questionPairs = questionIdentities.length ? [...questionIdentities] : explicitArticlePairs(extraTerms);
       if (!questionPairs.length) return own;
       const subjectLess = questionTermsSubjectLess(query) || questionTermsRelationLess(query);
       const issueJoTerms = terms.filter((term) => JO_TERM.test(term));
-      const issueHasLaw = terms.some(isLawName);
+      // A bare subordinate noun ("제38조 시행령") is not a law of the
+      // issue's own: it must not block the question's unique parent pair
+      // from qualifying, the way a real named law would.
+      const issueHasLaw = terms.some((term) => isLawName(term) && !BARE_SUBORDINATE.has(term));
       const fetched = await fetchExplicitArticles(questionPairs, sources, expired);
       const qualified = fetched.filter((article) => {
         if (subjectLess && DELEGATION.test(article.excerpt)) return true;

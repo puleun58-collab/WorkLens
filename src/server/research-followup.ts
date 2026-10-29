@@ -1,5 +1,6 @@
 import { citesParent } from "@/lib/research-citations";
 import { researchResult } from "@/lib/law-research-parse";
+import { lawNameCandidates, parseExplicitIdentities } from "@/lib/law-identity";
 import { compactLaw, lawRoot, sameLawFamily } from "@/lib/research-scope";
 import { isLawName, isSubjectTerm, questionTerms, researchEvidenceSources, type ResearchEnrichment, type SupplementArticle } from "@/lib/research-relevance";
 import { articleExcerpt, explicitArticlePairs, type EnrichmentSources } from "@/server/research-enrichment";
@@ -52,13 +53,24 @@ export async function retrieveResearchFollowup(
     // Remove only the header prefix (number + optional parenthesized title), not the whole first line: when the body starts on the header line itself, dropping the line loses the first sentence, including the citation the delegation check looks for.
     const body = fetched.text.slice(fetched.text.search(head)).replace(new RegExp(`^${jo}\\s*(?:\\([^)]*\\)\\s*)?`, "u"), "").trim();
     const excerpt = articleExcerpt(fetched.text, jo);
-    if (!excerpt || /^삭제\b/u.test(excerpt)) { report.missing++; return undefined; }
+    // \b never fires after a Hangul syllable, so catch a deleted body by prefix.
+    if (!excerpt || /^삭제/u.test(excerpt)) { report.missing++; return undefined; }
     return { law: law.name, jo, title, body, excerpt, matched: [], stage: "supplement", ...(fetched.effectiveDate ? { effectiveDate: fetched.effectiveDate } : {}) };
   };
   const add = (article: FollowupArticle) => articles.set(`${compactLaw(article.law)}\0${article.jo}`, article);
   const terms = questionTerms(query);
   const bare = new Set(["시행령", "시행규칙", "법령", "대통령령", "부령", "총리령"]);
-  let names = terms.filter((term) => isLawName(term) && !bare.has(term));
+  // Law names come from the raw question first (one structured identity,
+  // so a spaced official name is not fragmented into "보호법"), with the
+  // token-derived names kept behind them as a fallback. A joined name
+  // keeps its fragment as an exact-match fallback per logical law.
+  const candidates = lawNameCandidates(query);
+  const fallbackByName = new Map(candidates.filter((c) => c.fallback).map((c) => [compactLaw(c.name), c.fallback!]));
+  // A fragment a joined candidate already covers is not a second law to
+  // look up: looking it up can only add a spurious missing count.
+  const coveredFragments = new Set(candidates.filter((c) => c.fallback).map((c) => c.fallback!));
+  let names = [...new Set([...candidates.map((c) => c.name),
+    ...terms.filter((term) => isLawName(term) && !bare.has(term) && !coveredFragments.has(term))])];
   // A law-less procedure question can use an upstream identity only when its
   // name contains the question's own subject. A chain title alone is insufficient.
   if (!names.length && mode === "procedure_detail") {
@@ -66,7 +78,8 @@ export async function retrieveResearchFollowup(
       .filter((name) => terms.some((term) => isSubjectTerm(term) && compactLaw(name).includes(compactLaw(term))));
   }
   names = [...new Set(names.map(lawRoot))].slice(0, 2);
-  const pairs = explicitArticlePairs(terms);
+  const parsedPairs = parseExplicitIdentities(query);
+  const pairs = parsedPairs.length ? parsedPairs : explicitArticlePairs(terms);
   if (!pairs.length && names.length === 1) for (const jo of asked) pairs.push({ law: names[0], jo });
   const adopted = researchEvidenceSources(text, query, enrichment).articles;
   const seeds = [...(enrichment?.supplement?.articles ?? []),
@@ -74,7 +87,14 @@ export async function retrieveResearchFollowup(
     .filter((a) => adopted.some((b) => b.law === a.law && b.jo === a.jo));
   for (const name of names) {
     const laws = await safe(() => sources.laws(name));
-    const exact = laws?.find((law) => compactLaw(law.name) === compactLaw(name));
+    let exact = laws?.find((law) => compactLaw(law.name) === compactLaw(name));
+    // A joined spaced name that resolves to nothing falls back to its
+    // fragment key, so a wrong join cannot lose a real law. One missing
+    // per logical law, not per key tried.
+    if (!exact && fallbackByName.has(compactLaw(name))) {
+      const alt = await safe(() => sources.laws(fallbackByName.get(compactLaw(name))!));
+      exact = alt?.find((law) => compactLaw(law.name) === compactLaw(fallbackByName.get(compactLaw(name))!));
+    }
     if (!exact) { report.missing++; continue; }
     const parents: FollowupArticle[] = [];
     const parentJo = [...new Set([...pairs.filter((p) => sameLawFamily(p.law, name)).map((p) => p.jo),
@@ -94,12 +114,53 @@ export async function retrieveResearchFollowup(
         if (article) { parents.push(article); add(article); }
       }
     }
+    // Limited chain-candidate expansion (not adoption), run before the
+    // tier reads so a candidate the tier path reads but discards is not
+    // lost to the read cache: a chain or supplement article of this law
+    // family that the whole-question adoption missed can still become a
+    // followup target when its own preview already shows both halves of
+    // the link — a citation of a verified same-family parent article and
+    // an annex reference. The candidate is then fetched in full and both
+    // halves are verified again on its body before it joins, so expansion
+    // never confirms anything by itself: the annex reader still has to
+    // verify the annex from the official response, and issue adoption
+    // still judges the article by the issue's own terms. Bounded to two
+    // candidates, and never used for procedure_detail, whose TOC path
+    // already covers it.
+    if (mode !== "procedure_detail") {
+      const chainCandidates: Array<{ law: string; jo: string; excerpt: string }> = [
+        ...researchResult(text).sections.flatMap((s) => s.articles ?? []).map((a) => ({ law: a.law, jo: a.jo, excerpt: a.excerpt ?? "" })),
+        ...(enrichment?.supplement?.articles ?? []).map((a) => ({ law: a.law, jo: a.jo, excerpt: a.excerpt })),
+      ];
+      const parentJos = new Set(chainCandidates
+        .filter((a) => sameLawFamily(a.law, name) && !/시행령|시행규칙$/u.test(compactLaw(a.law)))
+        .map((a) => a.jo));
+      for (const pair of pairs) if (sameLawFamily(pair.law, name)) parentJos.add(pair.jo);
+      const expandable = chainCandidates.filter((a) => !articles.has(`${compactLaw(a.law)}\0${a.jo}`)
+        && sameLawFamily(a.law, name) && /별표\s*\d+/u.test(a.excerpt)
+        && [...parentJos].some((jo) => citesParent(a.excerpt, jo)));
+      for (const candidate of expandable.slice(0, 2)) {
+        if (expired()) { report.limited = true; break; }
+        const found = await safe(() => sources.laws(candidate.law));
+        const lawObj = found?.find((law) => compactLaw(law.name) === compactLaw(candidate.law));
+        if (!lawObj) continue;
+        const fetched = await read(lawObj, candidate.jo);
+        if (!fetched) continue;
+        if (![...parentJos].some((jo) => citesParent(fetched.body, jo))) continue;
+        if (!/별표\s*\d+/u.test(fetched.body)) continue;
+        add(fetched);
+      }
+    }
     if (!parents.length && mode !== "procedure_detail") continue;
     const parentText = parents.map((a) => `${a.title}\n${a.body}`).join("\n");
     const tiers = mode === "law_system"
       ? ([...new Set(query.match(/시행령|시행규칙/gu) ?? ["시행령", "시행규칙"])])
       : mode === "procedure_detail" ? ["시행규칙", "시행령"]
-      : ["시행규칙", "시행령"].filter((tier) => tier === "시행규칙" ? /부령|시행규칙/u.test(parentText) : /대통령령|시행령/u.test(parentText));
+      // A 총리령 delegation is a 시행규칙-tier delegation, like 부령: the
+      // parent law's own wording ("총리령으로 정하는 경우") must open the
+      // 시행규칙 lookup, not leave it closed because the word is neither
+      // 부령 nor 시행규칙.
+      : ["시행규칙", "시행령"].filter((tier) => tier === "시행규칙" ? /부령|총리령|시행규칙/u.test(parentText) : /대통령령|시행령/u.test(parentText));
     for (const tier of tiers) {
       const targetName = `${exact.name} ${tier}`;
       const lower = (await safe(() => sources.laws(targetName)))?.find((law) => compactLaw(law.name) === compactLaw(targetName));

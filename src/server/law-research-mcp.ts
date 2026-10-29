@@ -1,4 +1,5 @@
 import { asksLawSystem, sameLawFamily } from "@/lib/research-scope";
+import { lawNamesInQuery, parseExplicitIdentities } from "@/lib/law-identity";
 import { citesParent } from "@/lib/research-citations";
 import { followupDetailText, retrieveResearchFollowup } from "@/server/research-followup";
 import { mcpAnnexReader, retrieveAnnexes } from "@/server/research-annex";
@@ -23,7 +24,7 @@ import { compareOrdinances, mcpOrdinanceSources } from "@/server/ordinance-compa
 import { assessActionBasis } from "@/lib/action-basis-evidence";
 import { assessAmendment } from "@/lib/amendment-evidence";
 import { assessDispute } from "@/lib/dispute-evidence";
-import { assessLawSystem } from "@/lib/law-system-evidence";
+import { assessLawSystem, delegatingDetailBlocks, askedArticles } from "@/lib/law-system-evidence";
 import { integratedEvidenceStatus } from "@/lib/research-status";
 
 const RESEARCH_FAILURE = "법령 리서치 서비스가 요청을 처리하지 못했습니다.";
@@ -162,7 +163,11 @@ async function fullResearch(
   // entries would re-search a phrase this request already searched.
   const inheritSearchQuery = (input: string) => {
     const originalNames = questionTerms(query).filter(isLawName).filter((law) => !["시행령", "시행규칙", "법령"].includes(law));
-    const originalPairs = explicitArticlePairs(questionTerms(query));
+    // One structured identity for the question's own pairs (a spaced
+    // official name stays joined); the token-derived pairs remain the
+    // fallback when the raw parse finds nothing.
+    const parsedPairs = parseExplicitIdentities(query);
+    const originalPairs = parsedPairs.length ? parsedPairs : explicitArticlePairs(questionTerms(query));
     const inherited = [...originalNames, ...(issues.length === 1 || questionTermsRelationLess(input)
       ? originalPairs.map((pair) => `${pair.law} ${pair.jo}`) : [])];
     return [...new Set([...inherited, input])].join(" ").trim();
@@ -181,7 +186,7 @@ async function fullResearch(
       if (classification.kind === "absent") return { kind: "absent", text };
       const enrichment = await enrichResearch("full_research", searchQuery, text, sources, undefined,
         { ...(light ? { skipPrecedentSummaries: true, skipInterpretationRetry: true } : {}),
-          extraNamed: questionTerms(query).filter(isLawName) }).catch(() => undefined);
+          extraNamed: [...new Set([...lawNamesInQuery(query), ...questionTerms(query).filter(isLawName)])] }).catch(() => undefined);
       return { kind: "found", text, markers: classification.markers, ...(enrichment ? { enrichment } : {}) };
     } catch (error) {
       if (context.signal?.aborted) throw error;
@@ -226,7 +231,7 @@ async function fullResearch(
       ...followup.articles.filter((a) => !base.some((b) => b.law === a.law && b.jo === a.jo))],
       ...(found.enrichment?.supplement?.partialFailure || followup.report.failed ? { partialFailure: true } : {}) } };
   }
-  const lawSystem = followupMode === "law_system" ? assessLawSystem(found?.text ?? followupDetailText(followup?.articles ?? []), query) : undefined;
+  let lawSystem = followupMode === "law_system" ? assessLawSystem(found?.text ?? followupDetailText(followup?.articles ?? []), query) : undefined;
   const document = researchResult(found?.text ?? "");
   const known = {
     text: found?.text ?? "",
@@ -261,7 +266,10 @@ async function fullResearch(
         // A lookup failure degrades to "no lookup", never to a failed request:
         // the chain's own adoption still stands, and the issue status below
         // falls back to the chain outcome.
-        lookup = await lookupIssue(lookupQuery, shownArticles, sources, expired, questionTerms(query).filter(isLawName), questionTerms(query))
+        const questionIdentities = parseExplicitIdentities(query);
+        lookup = await lookupIssue(lookupQuery, shownArticles, sources, expired,
+          [...new Set([...lawNamesInQuery(query), ...questionTerms(query).filter(isLawName)])], questionTerms(query),
+          questionIdentities.length ? questionIdentities : undefined)
           .catch(() => undefined);
         if (lookup?.status === "found") adopted = await issueSources(issue.query, known, lookup, sources, summaries, requestTerms, fallback);
       }
@@ -284,7 +292,8 @@ async function fullResearch(
     // Only the relation issue receives the verified pair and its citing counterpart.
     // A sibling substantive issue must pass normal topical adoption.
     if (followupMode === "law_system" && followup && (issues.length === 1 || asksLawSystem(issue.query) || questionTermsRelationLess(issue.query))) {
-      const pairs = explicitArticlePairs(questionTerms(query));
+      const parsedPairs = parseExplicitIdentities(query);
+      const pairs = parsedPairs.length ? parsedPairs : explicitArticlePairs(questionTerms(query));
       const linked = followup.articles.filter((article) => pairs.some((p) => sameLawFamily(p.law, article.law)
         && (article.jo === p.jo && !/시행령|시행규칙/u.test(article.law) || citesParent(article.body, p.jo))));
       adopted.articles = [...new Map([...adopted.articles, ...linked.map(({ law, jo }) => ({ law, jo }))]
@@ -374,6 +383,22 @@ async function fullResearch(
         item.status = "found";
       }
     }));
+  }
+
+  // A retry that lands a delegating subordinate article after the
+  // law-system assessment must not leave a stale verdict behind: only a
+  // retry article that itself cites an asked parent article, in detail
+  // format, can add a delegating block, and the assessment then re-runs
+  // on the same final evidence set. An unrelated retry article cannot
+  // lift the verdict — assessLawSystem still filters by law family and
+  // still requires the direct citation.
+  if (followupMode === "law_system" && lawSystem && found && retryArticles.size) {
+    const retryText = [...retryArticles.values()]
+      .filter((article) => /시행령|시행규칙$/u.test(article.law))
+      .map((article) => `[${/시행규칙$/u.test(article.law) ? "시행규칙" : "시행령"}] ${article.law} ${article.jo} (${article.title || "제목 미제공"})\n${article.excerpt}`)
+      .join("\n");
+    const blocks = retryText ? delegatingDetailBlocks(retryText, askedArticles(query, undefined), found.text) : "";
+    if (blocks) lawSystem = assessLawSystem(found.text + blocks, query);
   }
 
   const coveredCount = judged.filter((item) => item.status === "found").length;
