@@ -706,7 +706,7 @@ function AxGuideBlockView({ block, listStyle }: { block: AxGuideBlock; listStyle
       </table>
     </div>;
   }
-  if (block.kind === "git-flow") return <AxGitFlowView block={block} title="Git·GitHub 작업 흐름" />;
+  if (block.kind === "git-flow") return <AxGitFlowView block={block} />;
   return <p><AxGuideText text={block.text} /></p>;
 }
 function AxGuideSectionView({ section, completion = false, warning = false, collapsed = section.collapsed }: { section: AxGuideSection; completion?: boolean; warning?: boolean; collapsed?: boolean }) {
@@ -730,11 +730,11 @@ function AxGuideSectionView({ section, completion = false, warning = false, coll
 const GIT_FLOW_STEP_ICONS = [Folder, GitBranch, FilePlus2, ClipboardList, CloudUpload, GitPullRequest, CircleCheck, GitMerge, Rocket, Monitor] as const;
 const GIT_FLOW_GROUP_ICONS = [FileText, FileCode2, CloudUpload, Settings2, Rocket] as const;
 /** Reference-faithful Git·GitHub work-flow diagram: 10 ordered cards, 5 group boxes, one notes box. Presentation only; guide data and logic are unchanged. */
-function AxGitFlowView({ block, title }: { block: AxGitFlowBlock; title: string }) {
+function AxGitFlowView({ block }: { block: AxGitFlowBlock }) {
   return <div className="ax-git-flow">
     <div className="ax-git-flow-head">
       <img src="/brand/github-mark.svg" alt="" aria-hidden="true" className="ax-git-flow-logo" />
-      <div><h5>{title}</h5><p>{block.subtitle}</p></div>
+      <div><p>{block.subtitle}</p></div>
     </div>
     <div className="ax-git-flow-track" role="list" aria-label="Git·GitHub 작업 순서">
       {block.steps.map((step, i) => {
@@ -812,7 +812,7 @@ function AxSetupGuide({ tool, instructionsId, onGoToInstructions }: { tool: AxTo
             <span className="ax-tutorial-terms-action" aria-hidden="true"><span>펼치기</span><span>접기</span></span>
           </AccordionTrigger>
           <AccordionPanel className="ax-tutorial-terms-panel">
-            {glossary.blocks.map((block, blockIndex) => block.kind === "git-flow" ? <AxGitFlowView key={blockIndex} block={block} title={glossary.title} /> : block.kind === "steps" ? <dl key={blockIndex}>{block.items.map(term => {
+            {glossary.blocks.map((block, blockIndex) => block.kind === "git-flow" ? <AxGitFlowView key={blockIndex} block={block} /> : block.kind === "steps" ? <dl key={blockIndex}>{block.items.map(term => {
               const split = term.indexOf(":");
               const name = term.slice(0, split);
               return <div key={term}><dt>{name === "환경변수(Environment Variable)" ? <><span>환경변수</span><span className="ax-tutorial-term-translation">(Environment Variable)</span></> : name}</dt><dd>{term.slice(split + 2)}</dd></div>;
