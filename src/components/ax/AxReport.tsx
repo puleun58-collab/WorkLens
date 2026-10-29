@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { AlertTriangle, ArrowRight, Ban, Bot, BrainCircuit, ChartNoAxesColumnIncreasing, Check, CheckCircle2, CircleAlert, CircleCheck, CircleX, Clipboard, ClipboardCheck, ClipboardList, Clock, CloudUpload, Copy, Database, Download, FileCode2, FileOutput, FilePlus2, FileSpreadsheet, FileText, Flag, FlaskConical, Folder, GitBranch, GitMerge, GitPullRequest, Globe, Info, ListChecks, Monitor, MonitorCog, Play, Plug, Rocket, Search, Settings2, ShieldAlert, ShieldCheck, Target, Terminal, TriangleAlert, UserRound } from "lucide-react";
 import type { AxDiagnosis, AxPlan, AxTask, AxTaskV2, HitlReview } from "@/lib/ax/types";
-import { automationLevel, axes, executionGate, executionProfile, factorEffectiveValue, GATE_LABELS, gateBlockReasons, LEVEL_DESCRIPTIONS, levelDisplayLabel, nextAction, prerequisiteTopicKey, type ExecutionProfile } from "@/lib/ax/policy";
+import { automationLevel, axes, executionGate, executionProfile, factorEffectiveValue, GATE_LABELS, gateBlockReasons, LEVEL_DESCRIPTIONS, levelDisplayLabel, nextAction, prerequisiteTopicKey, splitGatePrerequisites, type ExecutionProfile } from "@/lib/ax/policy";
 import { FACTOR_LABELS } from "@/lib/ax/schema";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
@@ -191,6 +191,47 @@ export function visibleDiagnosisCheckItems(d: AxDiagnosis): AxCheckItem[] {
     if (key.length < 3) return true;
     return !questionKeys.some(qk => qk === key || qk.startsWith(key) || key.startsWith(qk));
   });
+}
+/** Display-only: 다음 행동을 실제 확인 항목으로 구체화한다. 정책 판정·nextAction() 출력은
+ * 바꾸지 않고, 단독 라벨만 노출되는 위치(TOP 목록·매트릭스 상세)에서 렌더층이 첫 항목을
+ * 덧붙인다. 원본에 없는 확인 대상·결정 사항은 만들지 않는다: 모든 문구는 진단 데이터
+ * (차단 사유·추가 질문·선행 필수 조건·기존 nextAction)에서 가져온다. */
+export interface ConcreteNextAction { label: string; detail?: string }
+/** 표시 후보에서 공백뿐인 항목을 건너뛴다. 원본 데이터의 빈 문자열을 안내 문구로 노출하지 않는다. */
+function firstNonBlank(items: string[]): string | undefined {
+  return items.find(item => item.trim().length > 0);
+}
+export function concreteNextAction(d: AxDiagnosis): ConcreteNextAction {
+  const gate = executionGate(d);
+  if (gate === "blocked") {
+    const reason = firstNonBlank(gateBlockReasons(d));
+    return reason ? { label: "차단 사유 해결", detail: reason } : { label: nextAction(d).label };
+  }
+  if (d.informationSufficiency === "needs-check") {
+    if (d.followUpQuestions.length) return { label: "추가 질문 답변", detail: d.followUpQuestions[0] };
+    // 질문이 없으면 선택 항목만으로 된 확인 목록을 필수 조치처럼 안내하지 않는다.
+    // 필수 선행 조건이 있을 때만 그 첫 항목을 쓰고, 없으면 정책 라벨로 돌아간다.
+    // (원본 근거가 전혀 없으면 정책 대체 안내가 목록에 들어갈 수 있으므로, 원본 유무를 먼저 확인한다.)
+    const hasPrimary = d.technicalChecks.some(c => c.status !== "확인됨" && c.required !== false)
+      || d.decisionGate.reasons.some(r => r.trim().length > 0);
+    if (!hasPrimary) return { label: nextAction(d).label };
+    const required = firstNonBlank(splitGatePrerequisites(d).required);
+    return required ? { label: "확인할 사항 검토", detail: required } : { label: nextAction(d).label };
+  }
+  if (gate === "conditional") {
+    const hasPrimary = d.technicalChecks.some(c => c.status !== "확인됨" && c.required !== false)
+      || d.decisionGate.reasons.some(r => r.trim().length > 0);
+    if (!hasPrimary) return { label: nextAction(d).label };
+    const required = splitGatePrerequisites(d).required;
+    const first = firstNonBlank(required);
+    if (first) {
+      // "외 N건"은 이 표시 목록(필수 선행 조건)의 잔여 행 수이며, 전체 미해결 조건 총수가 아니다.
+      const rest = required.filter(item => item.trim().length > 0).length - 1;
+      return { label: "먼저 확인", detail: rest > 0 ? `${first} 외 ${rest}건` : first };
+    }
+    return { label: nextAction(d).label };
+  }
+  return { label: nextAction(d).label };
 }
 /** Data-only bullets for the matrix "핵심 판단 근거" area: the strongest value driver's rationale and the binding constraint.
  * The axis scores and classification already shown in the score cards and header badges are not repeated here. */

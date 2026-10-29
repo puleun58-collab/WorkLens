@@ -22,7 +22,7 @@ import type { AxToolId } from "@/lib/ax/guide";
 import { exportAxState, importAxState } from "@/lib/ax/transfer";
 import { emptyAxState, type AxStateV2, type AxTask, type AxDiagnosis, type AxDetails, type FactorKey } from "@/lib/ax/types";
 import { extractReviewableItems, extractPlanReviewableItems, reconcileReviews, validateReviewForConfirm, type ReviewableItem } from "@/lib/ax/hitl";
-import { AxLevelBadge, AxProcess, AxResultSummary, AxExecutionTimeline, AxPlanSection, AxScoreCards, AxCheckIcon, diagnosisSummaryParts, diagnosisCheckItems, visibleDiagnosisCheckItems, matrixRationaleBullets, resolveActiveTool } from "./AxReport";
+import { AxLevelBadge, AxProcess, AxResultSummary, AxExecutionTimeline, AxPlanSection, AxScoreCards, AxCheckIcon, diagnosisSummaryParts, diagnosisCheckItems, visibleDiagnosisCheckItems, matrixRationaleBullets, resolveActiveTool, concreteNextAction } from "./AxReport";
 import { DecisionPointsSection, ExampleResultsSection } from "./AxDecisionExamples";
 import { AxScoreEvidence } from "./AxScoreEvidence";
 import "./ax.css";
@@ -124,7 +124,7 @@ export function AxDiagnosisView() {
   const [showMatrixHelp, setShowMatrixHelp] = useState(false);
   // Factor 상세 평가 아코디언: 기본 접힘. 사용자가 펼친 상태는 탭·업무 전환에도 유지한다.
   const [factorsOpen, setFactorsOpen] = useState(false);
-  const [checkScroll, setCheckScroll] = useState<{ taskId: string; nonce: number } | null>(null);
+  const [checkScroll, setCheckScroll] = useState<{ taskId: string; nonce: number; target?: "answers" | "checks" } | null>(null);
   const ranked = priority(state.tasks).map((row, index) => ({ ...row, rank: index + 1 }));
   // 매트릭스 목록: 기존 우선순위순 고정 표시 (원본 데이터·계산 변경 없음)
   const matrixListed = ranked;
@@ -166,7 +166,11 @@ export function AxDiagnosisView() {
       if (selectedRef.current !== checkScroll.taskId) { setCheckScroll(null); return; }
       requestAnimationFrame(() => {
         const panel = document.querySelector(".ax-step2-grid");
-        const target = panel?.querySelector("#ax-answer-section") ?? panel?.querySelector(".ax-diag-checks") ?? panel?.querySelector(".ax-diag-card");
+        // target이 checks면 차단 사유 등이 있는 확인할 사항 영역을 우선하고,
+        // 그 외에는 추가 질문 영역이 있으면 그곳, 없으면 확인할 사항 영역으로 이동한다.
+        const target = checkScroll.target === "checks"
+          ? panel?.querySelector(".ax-diag-checks") ?? panel?.querySelector(".ax-diag-card")
+          : panel?.querySelector("#ax-answer-section") ?? panel?.querySelector(".ax-diag-checks") ?? panel?.querySelector(".ax-diag-card");
         target?.scrollIntoView({ behavior: "smooth", block: "start" });
         setCheckScroll(null);
       });
@@ -195,6 +199,20 @@ export function AxDiagnosisView() {
     select(taskId);
     changeStep(2);
     setCheckScroll({ taskId, nonce: Date.now() });
+  }
+  /** 업무 진단 단계로 이동: 차단 사유가 있는 업무는 확인할 사항 영역을, 그 외는
+   * 추가 질문이 있으면 질문 영역을 우선 목적지로 삼는다. 매트릭스 인라인 조건과
+   * 진단 확인 목록은 같은 집합이 아니므로, 버튼은 화면 이동만을 뜻한다. */
+  function goToDiagnosis(taskId: string) {
+    if (busy) return;
+    const task = getState().tasks.find(t => t.id === taskId);
+    if (!task?.diagnosis) {
+      setMessage("진단 결과가 없어 이동할 업무가 없습니다.");
+      return;
+    }
+    select(taskId);
+    changeStep(2);
+    setCheckScroll({ taskId, nonce: Date.now(), target: executionGate(task.diagnosis) === "blocked" ? "checks" : undefined });
   }
 
   /** HITL 검토 저장: v2 reviews 필드에 저장 (중복 방지, ID 유지)
@@ -698,7 +716,7 @@ export function AxDiagnosisView() {
       const l = automationLevel(r.task.diagnosis), m = matrixPosition(r.task.diagnosis), gate = executionGate(r.task.diagnosis);
       return <li key={r.task.id}><Button type="button" variant="ghost" className="ax-priority-row" aria-pressed={selected?.id === r.task.id} onClick={() => select(r.task.id)} disabled={!!busy}>
         <strong className="ax-rank">#{r.rank}</strong><span className="ax-priority-content"><span className="ax-priority-head"><span className="ax-task-name">{r.task.name}</span><span className="ax-region-chip" data-region={m.region}>{m.label}</span>{gate !== "ready" ? <span className="ax-gate-badge" data-gate={gate}>{GATE_LABELS[gate]}</span> : null}</span>
-        <span>{levelDisplayLabel(l)}{l.provisional ? " · 잠정" : ""}</span>{top ? <small className="ax-next-action"><span>다음 권장 행동</span>{nextAction(r.task.diagnosis).label}</small> : <small>{r.reason}</small>}{top ? <small>점수 {r.score}</small> : null}</span>
+        <span>{levelDisplayLabel(l)}{l.provisional ? " · 잠정" : ""}</span>{top ? <small className="ax-next-action"><span>다음 권장 행동</span>{(() => { const concrete = concreteNextAction(r.task.diagnosis); return concrete.detail ? `${concrete.label} — ${concrete.detail}` : concrete.label; })()}</small> : <small>{r.reason}</small>}{top ? <small>점수 {r.score}</small> : null}</span>
       </Button></li>;
     })}</ol></>;
   }
@@ -835,7 +853,7 @@ export function AxDiagnosisView() {
               </div>
             </section>
           </div>
-          {selected?.diagnosis ? <MatrixDetailCard task={selected} diagnosis={selected.diagnosis} /> : <section className="ax-surface" aria-label="선택 업무 상세"><p className="ax-muted">업무 목록에서 업무를 선택하면 상세 분석이 표시됩니다.</p></section>}
+          {selected?.diagnosis ? <MatrixDetailCard task={selected} diagnosis={selected.diagnosis} onGoToDiagnosis={() => goToDiagnosis(selected.id)} /> : <section className="ax-surface" aria-label="선택 업무 상세"><p className="ax-muted">업무 목록에서 업무를 선택하면 상세 분석이 표시됩니다.</p></section>}
         </div>}
       </TabsPanel>
       <TabsPanel value="4">
@@ -847,7 +865,7 @@ export function AxDiagnosisView() {
             </div>
           </aside>
           {selected?.diagnosis ? <article className="ax-selected-report" aria-label={`${selected.name} 결과·로드맵`}>
-            <header className="ax-report-intro"><div><span className="ax-report-eyebrow">선택한 업무 · 결과·로드맵</span><div className="ax-title-group"><h2>{selected.name}</h2><Badge className="ax-status-badge">{STATUS[taskDisplayStatus(selected).status]}</Badge>{taskDisplayStatus(selected).needsCheck ? <span className="ax-status-note">추가 질문 필요</span> : null}</div><p>{selected.description}</p></div></header>
+            <header className="ax-report-intro"><div><span className="ax-report-eyebrow">선택한 업무 · 결과·로드맵</span><div className="ax-title-group"><h2>{selected.name}</h2><Badge className="ax-status-badge">{STATUS[taskDisplayStatus(selected).status]}</Badge>{taskDisplayStatus(selected).needsCheck ? <span className="ax-status-note">추가 질문 필요</span> : null}</div><p>{selected.description}</p></div><Button type="button" variant="outline" size="sm" onClick={() => goToDiagnosis(selected.id)}>업무 진단으로 이동</Button></header>
             <AxResultSummary task={selected} />
             <AxSelectedReport key={selected.id} task={selected} busy={busy} onGenerate={target => void generatePlan(selected, target)} onSaveReview={r => saveHitlReview(selected.id, r)} />
           </article> : <p className="ax-muted">우선순위에서 업무 선택 후 상세 결과 확인</p>}
@@ -933,7 +951,7 @@ function DiagnosisCard({ task, busy, onDiagnose, onEdit, attachment }: {
       </div>
       <AxScoreCards diagnosis={d} />
       {visibleChecks.length || !checks.length ? <section className="ax-diag-checks" aria-label="확인할 사항">
-        <h3>확인할 사항 {visibleChecks.length}개</h3>
+        <h3>확인할 사항 {visibleChecks.length}개{(() => { const needCount = visibleChecks.filter(c => c.kind === "need").length; return needCount && needCount !== visibleChecks.length ? ` · 그중 확인 필요 ${needCount}개` : ""; })()}</h3>
         {visibleChecks.length ? <ul>{visibleChecks.map((c, i) => <li key={i}>
           <span className="ax-check-icon"><AxCheckIcon title={c.title} /></span>
           <span className="ax-check-text"><strong>{c.title}</strong>{c.desc ? <small>{c.desc}</small> : null}</span>
@@ -943,17 +961,25 @@ function DiagnosisCard({ task, busy, onDiagnose, onEdit, attachment }: {
     </> : null}
   </section>;
 }
-/** Step 3 selected-task card: name/classification/badges → score cards → rationale/prerequisites → score evidence. */
-function MatrixDetailCard({ task, diagnosis }: { task: AxTask; diagnosis: AxDiagnosis }) {
+/** Step 3 selected-task card: name/classification/badges → score cards → rationale/prerequisites → score evidence.
+ * "다음 조치"는 단독 라벨 대신 실제 첫 확인 항목을 표시한다(표시층 구체화, 판정 변경 없음).
+ * 선행 조건 목록은 중요한 제한 조건이므로 유지하고, 상세 확인은 업무 진단 단계로 이동하는
+ * 버튼을 함께 제공한다. */
+function MatrixDetailCard({ task, diagnosis, onGoToDiagnosis }: { task: AxTask; diagnosis: AxDiagnosis; onGoToDiagnosis: () => void }) {
   const d = diagnosis;
   const lvl = automationLevel(d);
   const gate = executionGate(d);
   const m = matrixPosition(d);
   const gateChecks = splitGatePrerequisites(d);
   const profile = executionProfile(d);
-  const next = nextAction(d);
+  const concrete = concreteNextAction(d);
   const sampleScope = profile.poc.inScope.filter(item => !item.startsWith("선행 확인사항")).slice(0, 2);
-  const scope = gate === "blocked" ? "분석·검증만 가능 (기능 구현·운영 연결 불가)" : `${sampleScope.length ? sampleScope.join(" · ") : "샘플 데이터 검증"} — 조건에 의존하는 기능은 확인 후 구현`;
+  // 조건부에서는 이 항목들이 지금 구현 가능한 작업이 아니라 확인 후 샘플 검증 범위다
+  // (로드맵의 "지금 구현 가능한 작업이 아닙니다"와 시점을 맞춘다). 행 라벨 "현재 가능 범위"는
+  // 기존 E2E 계약을 유지하고, 값 문구로 시점을 구분한다.
+  const scope = gate === "blocked" ? "분석·검증만 가능 (기능 구현·운영 연결 불가)"
+    : gate === "conditional" ? `조건 확인 후 샘플 범위에서 검증: ${sampleScope.length ? sampleScope.join(" · ") : "샘플 데이터 검증"}`
+    : `${sampleScope.length ? sampleScope.join(" · ") : "샘플 데이터 검증"} — 조건에 의존하는 기능은 확인 후 구현`;
   return <section id={MATRIX_DETAIL_ID} tabIndex={-1} className="ax-surface ax-matrix-detail" aria-label={`${task.name} 매트릭스 상세`}>
     <div className="ax-matrix-detail-head">
       <div className="ax-diag-title">
@@ -964,6 +990,9 @@ function MatrixDetailCard({ task, diagnosis }: { task: AxTask; diagnosis: AxDiag
           <AxLevelBadge level={lvl} className="ax-level-badge" />
           <span className="ax-gate-badge" data-gate={gate}>{GATE_LABELS[gate]}</span>
         </div>
+      </div>
+      <div className="ax-diag-actions">
+        <Button type="button" variant="outline" size="sm" onClick={onGoToDiagnosis}>업무 진단으로 이동</Button>
       </div>
     </div>
     <AxScoreCards diagnosis={d} variant="matrix" />
@@ -976,7 +1005,7 @@ function MatrixDetailCard({ task, diagnosis }: { task: AxTask; diagnosis: AxDiag
         <h4><CircleCheck size={16} aria-hidden="true" />현재 가능한 범위</h4>
         <div className="ax-scope-lines">
           <p><strong>현재 가능 범위</strong><span aria-hidden="true">—</span><span>{scope}</span></p>
-          <p><strong>다음 조치</strong><span aria-hidden="true">—</span><span>{gate === "ready" ? next.label : `${next.label} → 해결 후 업무 진단 단계에서 다시 진단해 상태 갱신`}</span></p>
+          <p><strong>다음 조치</strong><span aria-hidden="true">—</span><span>{gate === "ready" ? concrete.label : `${concrete.label}${concrete.detail ? ` — ${concrete.detail}` : ""} → 해결 후 업무 진단 단계에서 다시 진단해 상태 갱신`}</span></p>
         </div>
       </section>
       {gateChecks.required.length || gateChecks.recommended.length ? <section className="ax-matrix-prereqs" aria-label={gateChecks.required.length ? "선행 확인 조건" : "권장 확인사항"}>
