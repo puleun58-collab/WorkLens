@@ -64,8 +64,10 @@ describe("AX 03·04 기준 일치 (결함 A-1·A-2)", () => {
     expect(summary.success.some(s => s.startsWith("기준 확인 필요:")) || summary.criteriaNotice !== undefined).toBe(true);
     const prompt = buildAllInOnePrompt(p, "codex", { diagnosis: d });
     // 04: 참고 판정이 아니라 한정자付き 전체 완료 기준이다.
-    expect(section(prompt, "업무 전체 완료 기준")).toContain("기준 확인 필요: 명세서 파일 형식·내용이 템플릿 기준 충족");
-    expect(section(prompt, "업무 전체 완료 기준")).toContain("기준 확인 필요: 처리 결과 누락 없음");
+    // P0-3(명세 전달 정확성): 미연결 기준에 출처 라벨이 추가됐다. 한정자
+    // "기준 확인 필요:" 자체는 그대로이며, 출처만 "[출처: ...]"로 표시된다.
+    expect(section(prompt, "업무 전체 완료 기준")).toContain("기준 확인 필요: [출처: 계획 acceptance] 명세서 파일 형식·내용이 템플릿 기준 충족");
+    expect(section(prompt, "업무 전체 완료 기준")).toContain("기준 확인 필요: [출처: 진단] 처리 결과 누락 없음");
     expect(section(prompt, "참고 판정 (필수 완료 조건 아님)")).not.toContain("명세서 파일 형식·내용이 템플릿 기준 충족");
   });
 
@@ -76,10 +78,11 @@ describe("AX 03·04 기준 일치 (결함 A-1·A-2)", () => {
     expect(summary.success.join(" ")).toContain("처리 결과 누락 없음");
     expect(summary.failure.join(" ")).toContain("처리 결과 누락 발생");
     const prompt = buildAllInOnePrompt(p, "codex", { diagnosis: d });
-    expect(section(prompt, "업무 전체 완료 기준")).toContain("기준 확인 필요: 처리 결과 누락 없음");
+    // P0-3 출처 라벨: 한정자 "기준 확인 필요:"는 그대로, 출처만 추가 표시된다.
+    expect(section(prompt, "업무 전체 완료 기준")).toContain("기준 확인 필요: [출처: 진단] 처리 결과 누락 없음");
     // bare 전체 완료/실패 기준으로는 제시되지 않는다.
     expect(section(prompt, "업무 전체 완료 기준")).not.toMatch(/^- 처리 결과 누락 없음$/m);
-    expect(section(prompt, "업무 전체 실패 판정 기준")).toContain("기준 확인 필요: 처리 결과 누락 발생");
+    expect(section(prompt, "업무 전체 실패 판정 기준")).toContain("기준 확인 필요: [출처: 진단] 처리 결과 누락 발생");
     expect(section(prompt, "업무 전체 실패 판정 기준")).not.toMatch(/^- 처리 결과 누락 발생$/m);
   });
 
