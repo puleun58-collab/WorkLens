@@ -88,7 +88,9 @@ for (const width of [1440, 390]) test(`AX two-task ID-linked four-stage flow, in
   for (const row of expected) {
     const top = page.locator(".ax-step4-overview .ax-priority-list").first();
     const item = top.getByRole("listitem").filter({ has: page.locator(".ax-task-name", { hasText: row.name }) });
-    await expect(item).toContainText(`점수 ${row.score}`); await item.getByRole("button").click();
+    // 통합 목록 행에는 점수가 표시되지 않는다 (업무명·Level·진행 상태·다음 행동만).
+    // 순위는 rank 배지로 확인하고, 점수 계산 자체는 위 매트릭스 버블 위치로 검증된다.
+    await expect(item.locator(".ax-rank")).toHaveText(`#${expected.indexOf(row) + 1}`); await item.getByRole("button").click();
     await expect(page.locator(".ax-report-intro h2")).toHaveText(row.name);
     await page.getByRole("button", { name: "Codex용 구현 계획 생성", exact: true }).click();
     await expect.poll(async () => (await stored(page)).tasks.find(t => t.id === row.id)?.diagnosis?.planCodex?.goal).toEqual([`${row.name} 계획`]);

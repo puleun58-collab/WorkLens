@@ -56,17 +56,19 @@ test("scenario A: adjusted + needs-check shows both badges", async ({ page }) =>
   await expect(row).toContainText("사용자 보정 완료 · 추가 질문 필요");
 });
 
-test("scenario B: KPI and TOP labels for ready 1 + conditional 2", async ({ page }) => {
+test("scenario B: KPI and unified list for ready 1 + conditional 2", async ({ page }) => {
   const tasks = [
     makeTask("r1", "업무 A", makeDiagnosis(3, "ready", "sufficient")),
     makeTask("c1", "업무 B", makeDiagnosis(3, "conditional", "sufficient")),
   ];
   await seedAndOpen(page, tasks, 4);
-  const kpi = page.locator(".ax-kpi", { hasText: "빠른 실행 후보" });
-  await expect(kpi).toBeVisible();
-  await expect(kpi.locator("strong")).toHaveText("2개");
-  await expect(kpi).toContainText("빠른 실행 영역 · 확인 후 진행 포함 · 진행 보류 제외");
-  await expect(page.getByRole("heading", { name: "자동화 우선순위 TOP 1", exact: true })).toBeVisible();
+  // 상단 통계는 등록 업무·진단 완료 2개만 표시한다.
+  await expect(page.locator(".ax-kpi")).toHaveCount(2);
+  await expect(page.locator(".ax-kpi", { hasText: "등록 업무" }).locator("strong")).toHaveText("2개");
+  await expect(page.locator(".ax-kpi", { hasText: "진단 완료" }).locator("strong")).toHaveText("2개");
+  await expect(page.getByRole("heading", { name: "업무 목록 (2)", exact: true })).toBeVisible();
+  const list = page.getByRole("list", { name: "업무 목록", exact: true });
+  await expect(list.locator(".ax-task-name")).toHaveText(["업무 A", "업무 B"]);
 });
 
 test("scenario C: no-change registration edit preserves diagnosis", async ({ page }) => {
@@ -93,8 +95,7 @@ test("scenario E: long task names keep badge alignment without overflow", async 
   const long = "월간 정산 업무를 위한 엑셀 데이터 정리 및 보고서 작성 자동화 절차 검토";
   const noSpace = "월간정산업무를위한엑셀데이터정리및보고서작성자동화절차검토";
   await seedAndOpen(page, [makeTask("t1", long, makeDiagnosis(3, "conditional", "needs-check", true)), makeTask("t2", noSpace, makeDiagnosis(2, "ready", "sufficient", true))], 4);
-  await page.getByRole("button", { name: "전체 업무 보기", exact: true }).click();
-  const full = page.getByRole("list", { name: "전체 진단 업무 목록", exact: true });
+  const full = page.getByRole("list", { name: "업무 목록", exact: true });
   for (const prefix of [long.slice(0, 6), noSpace.slice(0, 6)]) {
     await full.locator(".ax-task-name", { hasText: prefix }).click();
     const title = page.locator(".ax-report-intro .ax-title-group h2");
