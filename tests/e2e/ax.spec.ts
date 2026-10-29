@@ -1631,27 +1631,18 @@ for (const width of [1440, 390]) test(`AX score evidence and all ranks update to
   await expect(panel.locator(".ax-score-result strong")).toHaveText(["4", "4"]);
   // 판단 필요도·운영 위험의 점수만 반복하던 추가 판단 요소 목록은 제거됨 (근거는 아래 평가 근거 상세가 유지)
   await expect(panel.locator(".ax-score-extra")).toHaveCount(0);
-  const details = panel.locator(".ax-score-details");
-  const factorToggle = details.getByRole("button", { name: "평가 근거 자세히 보기", exact: true });
-  await expect(factorToggle).toHaveAttribute("aria-expanded", "false");
-  await factorToggle.focus(); await factorToggle.press("Enter");
-  const factorCollapse = details.getByRole("button", { name: "평가 근거 접기", exact: true });
-  await expect(factorCollapse).toHaveAttribute("aria-expanded", "true");
-  const factorPanelId = await factorCollapse.getAttribute("aria-controls");
-  await expect(details.locator(`[id="${factorPanelId}"]`)).toBeVisible();
-  await factorCollapse.press("Space");
-  await expect(factorToggle).toHaveAttribute("aria-expanded", "false");
-  await factorToggle.locator("svg").click();
-  await expect(factorCollapse).toHaveAttribute("aria-expanded", "true");
-  await expect(details.locator(".ax-score-factor")).toHaveCount(6);
-  await expect(details.locator(".ax-score-factor").filter({ hasText: "반복성" })).toContainText("최종 적용 5점");
-  await expect(details).toContainText("AI 제안 4점"); await expect(details).toContainText("확인 필요");
+  // 중첩 펼침 제거: 점수 근거 확인 한 번으로 6개 Factor 근거가 모두 표시된다.
+  await expect(panel.locator(".ax-score-factor")).toHaveCount(6);
+  await expect(panel.locator(".ax-score-factor").filter({ hasText: "반복성" })).toContainText("최종 적용 5점");
+  await expect(panel).toContainText("AI 제안 4점"); await expect(panel).toContainText("확인 필요");
   await expect(panel).not.toContainText("TO-BE");
   const axisStyles = await page.locator(".ax-x-label, .ax-y-label").evaluateAll(elements => elements.map(element => {
     const style = getComputedStyle(element); return [style.padding, style.font, style.border, style.borderRadius, style.boxShadow, style.backgroundColor];
   }));
   expect(axisStyles[0]).toEqual(axisStyles[1]);
   await panel.screenshot({ path: `artifacts/ax/score-evidence-${width}-${test.info().project.name}.png` });
+  await evidence.focus(); await page.keyboard.press("Enter");
+  await expect(evidence).toHaveAttribute("aria-expanded", "false");
   await page.getByRole("tab", { name: "업무 진단", exact: true }).click();
   await page.getByRole("button", { name: /진단 항목 상세/ }).click();
   for (const label of ["반복성", "규칙성", "데이터 구조화", "시스템 접근성"]) await page.getByRole("button", { name: `${label} 1점`, exact: true }).click();

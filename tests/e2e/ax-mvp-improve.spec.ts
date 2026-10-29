@@ -21,32 +21,44 @@ test("AX 1차 MVP 개선: 업무 등록 → 결정 지점 답변 → 예시 3건
   await expect(page.getByRole("heading", { name: "결정 지점 확인 (D1~D7)" })).toBeVisible();
 
   // 2. 결정 지점 답변: D4·D5 확정 (나머지는 미확정 기본값 유지)
+  // 아코디언 행을 펼쳐야 내부 입력이 보인다.
+  await page.getByRole("button", { name: /D4 결과 상태/ }).click();
   await page.getByLabel("D4 상태").selectOption("확정");
   await page.getByLabel("D4 상세").fill("정상, 오류(확정), 확인 필요");
+  await page.getByRole("button", { name: /D5 판단 불가 처리/ }).click();
   await page.getByLabel("D5 상태").selectOption("확정");
-  await page.getByLabel("D5 상세").fill("확인 필요");
-  await page.getByRole("button", { name: "결정 지점 저장", exact: true }).click();
+  // D4 확정 후 D5 상세는 D4 목록 선택형으로 표시된다.
+  await page.getByLabel("D5 상세").selectOption("확인 필요");
+  await page.getByRole("button", { name: "변경사항 저장", exact: true }).click();
   // 저장 확인 문구는 상단 메시지와 섹션 내 문구 2곳에 나타나므로 섹션으로 한정한다.
   await expect(page.locator('section[aria-label="결정 지점 확인"]').getByText("결정 지점을 저장했습니다.", { exact: true })).toBeVisible();
+  await expect(page.locator('section[aria-label="결정 지점 확인"]').getByText("2 / 7 확인 완료", { exact: true })).toBeVisible();
 
-  // 3. 예시 3건 입력 (정상·예외 사례 포함)
+  // 3. 예시 3건 입력 (정상·예외 사례 포함, 탭형 UI: 추가하면 새 탭이 선택된다)
   const examples = [
     { input: "운송장 WB-001, 중량 10kg", state: "정상", value: "" },
     { input: "운송장 WB-002, 운송장번호 중복 2건", state: "오류(확정)", value: "" },
     { input: "운송장 WB-003, 도착지 빈칸", state: "확인 필요", value: "" },
   ];
-  for (let k = 0; k < examples.length; k++) await page.getByRole("button", { name: "예시 추가", exact: true }).click();
-  for (const [i, example] of examples.entries()) {
-    await page.getByLabel(`예시 ${i + 1} 입력값`).fill(example.input);
-    await page.getByLabel(`예시 ${i + 1} 기대 결과 상태`).fill(example.state);
-  }
-  // D4가 확정된 뒤에는 D4 목록에 없는 기대 결과의 저장을 막는다.
   const exampleSection = page.locator('section[aria-label="업무 처리 예시"]');
-  await page.getByLabel("예시 1 기대 결과 상태").fill("실패");
+  for (const [i, example] of examples.entries()) {
+    await page.getByRole("button", { name: "+ 새 예시", exact: true }).click();
+    await page.getByLabel(`예시 ${i + 1} 입력값`).fill(example.input);
+    await page.getByLabel(`예시 ${i + 1} 기대 결과 상태`).selectOption(example.state);
+  }
   await page.getByRole("button", { name: "업무 처리 예시 저장", exact: true }).click();
-  await expect(exampleSection.getByRole("alert")).toContainText("예시 1의 기대 결과가 D4 결과 상태 목록(정상 · 오류(확정) · 확인 필요)에 없습니다.");
-  await expect(exampleSection.getByText("예시 결과를 저장했습니다.", { exact: true })).toHaveCount(0);
-  await page.getByLabel("예시 1 기대 결과 상태").fill(examples[0].state);
+  await expect(page.locator('section[aria-label="업무 처리 예시"]').getByText("업무 처리 예시를 저장했습니다.", { exact: true })).toBeVisible();
+
+  // D4 변경 후 기존 예시 불일치: D4 목록에서 오류(확정)를 빼면 예시 2가
+  // 확정 예시에서 제외되고, 저장 시 D4 목록 외 값 오류가 안내된다.
+  await page.getByRole("button", { name: /D4 결과 상태/ }).click();
+  await page.getByLabel("D4 상세").fill("정상, 확인 필요");
+  await page.getByRole("button", { name: "변경사항 저장", exact: true }).click();
+  await expect(exampleSection.getByText("저장된 예시 중 1건은 기대 결과가 D4 결과 상태 목록에 없어 확정 예시로 세지 않습니다.")).toBeVisible();
+  await page.getByRole("button", { name: "업무 처리 예시 저장", exact: true }).click();
+  await expect(exampleSection.getByRole("alert")).toContainText("예시 2의 기대 결과가 D4 결과 상태 목록(정상 · 확인 필요)에 없습니다.");
+  await page.getByRole("tab", { name: "예시 2", exact: true }).click();
+  await page.getByLabel("예시 2 기대 결과 상태").selectOption("확인 필요");
   await page.getByRole("button", { name: "업무 처리 예시 저장", exact: true }).click();
   await expect(page.locator('section[aria-label="업무 처리 예시"]').getByText("업무 처리 예시를 저장했습니다.", { exact: true })).toBeVisible();
 
@@ -62,22 +74,25 @@ test("AX 1차 MVP 개선: 업무 등록 → 결정 지점 답변 → 예시 3건
     const value = await readRecord();
     const task = (value?.tasks as Array<Record<string, unknown>> | undefined)?.[0];
     const points = (task?.diagnosis as Record<string, unknown> | undefined)?.decisionPoints as Array<Record<string, unknown>> | undefined;
-    return (task?.exampleResults as unknown[] | undefined)?.length === 3
-      && points?.find(point => point.id === "D4")?.detail === "정상, 오류(확정), 확인 필요";
+    const results = task?.exampleResults as Array<Record<string, unknown>> | undefined;
+    return results?.length === 3
+      && points?.find(point => point.id === "D4")?.detail === "정상, 확인 필요"
+      && results?.[1]?.expectedState === "확인 필요";
   }, { timeout: 10_000 }).toBe(true);
   const record = await readRecord();
   const tasks = record?.tasks as Array<Record<string, unknown>> | undefined;
   expect(tasks?.[0]?.exampleResults).toHaveLength(3);
   const points = tasks?.[0]?.diagnosis as Record<string, unknown> | undefined;
   const decisionPoints = points?.decisionPoints as Array<Record<string, unknown>> | undefined;
-  expect(decisionPoints?.find(point => point.id === "D4")).toMatchObject({ status: "확정", detail: "정상, 오류(확정), 확인 필요" });
+  expect(decisionPoints?.find(point => point.id === "D4")).toMatchObject({ status: "확정", detail: "정상, 확인 필요" });
+  expect((tasks?.[0]?.exampleResults as Array<Record<string, unknown>>)?.[1]).toMatchObject({ expectedState: "확인 필요" });
 
   // 4. 지시문 생성: Codex 계획 생성 후 올인원 지시문에 결정 지점·예시가 반영된다.
   await page.getByRole("tab", { name: "결과·로드맵" }).click();
   await page.getByRole("button", { name: "Codex용 구현 계획 생성", exact: true }).click();
   await expect(page.getByRole("button", { name: "Codex용 올인원 지시문 복사", exact: true })).toBeVisible();
   const prompt = await page.locator(".ax-prompt").textContent();
-  expect(prompt).toContain("결과 상태 목록: 정상 · 오류(확정) · 확인 필요");
+  expect(prompt).toContain("결과 상태 목록: 정상 · 확인 필요");
   expect(prompt).toContain("### 결정 지점·예시 기반 구현 순서");
   expect(prompt).toContain("### 미확정 항목 처리");
   expect(prompt).toContain("미확정 규칙에 해당하는 행만 '확인 필요'로 보내고");
