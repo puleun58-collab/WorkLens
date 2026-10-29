@@ -1110,3 +1110,29 @@
   .ax-decision-panel { padding-left: 14px; }
   .ax-decision-progress { min-width: 0; text-align: left; }
 }
+
+/* 결과·로드맵 간소화: ① 구현 전 확인 · ② 구현 범위·완료 기준 (요약 목록, 카드 없음) */
+.ax-precheck, .ax-scope-summary { padding: 20px 0; border-top: 1px solid var(--border); text-align: left; }
+.ax-precheck-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ax-precheck-head h3, .ax-scope-summary h3 { margin: 0; font-size: 18px; font-weight: var(--font-weight-bold, 700); }
+.ax-precheck > .ax-muted { margin: 12px 0 0; }
+.ax-precheck-blocked { margin-top: 14px; }
+.ax-precheck-blocked h4 { margin: 0 0 8px; font-size: 14px; }
+.ax-precheck-blocked ul, .ax-precheck-list, .ax-scope-summary ul { margin: 0; padding: 0; list-style: none; }
+.ax-precheck-blocked li { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--border); }
+.ax-precheck-blocked li:first-child { border-top: 0; }
+.ax-precheck-list { display: grid; gap: 0; margin-top: 6px; }
+.ax-precheck-item { padding: 12px 0; border-top: 1px solid var(--border); }
+.ax-precheck-item-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ax-precheck-item-head strong { font-size: 14px; }
+.ax-precheck-item p { margin: 6px 0 10px; color: var(--muted-foreground); font-size: 13px; line-height: 1.6; }
+.ax-scope-summary-groups { display: grid; gap: 18px; margin-top: 14px; }
+.ax-scope-summary-group h4 { margin: 0 0 8px; font-size: 14px; }
+.ax-scope-summary-group ul { display: grid; gap: 6px; }
+.ax-scope-summary-group li { font-size: 14px; line-height: 1.6; }
+.ax-scope-summary-notes p { margin: 8px 0 0; color: var(--muted-foreground); font-size: 13px; }
+.ax-scope-summary-criteria { display: grid; gap: 10px; margin: 0; }
+.ax-scope-summary-criteria > div { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 12px; }
+.ax-scope-summary-criteria dt { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: var(--font-weight-medium); }
+.ax-scope-summary-criteria dd { margin: 0; font-size: 14px; line-height: 1.6; }
+.ax-scope-summary-criteria dd ul { display: grid; gap: 4px; }

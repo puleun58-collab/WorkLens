@@ -25,7 +25,7 @@ async function openStep4NoPlan(page: Page) {
   await seed(page, { ...emptyAxState(), tasks: [task], selectedTaskId: task.id, step: 4 });
   await ax(page);
   const section = page.getByRole("region", { name: "자동화 구현 계획", exact: true });
-  await expect(section.getByRole("heading", { name: "02 구현 전 확인사항" })).toBeVisible();
+  await expect(section.getByRole("heading", { name: "구현 전 확인", exact: true })).toBeVisible();
   return section;
 }
 // 한쪽 도구에 계획이 있을 때만 반대쪽 탭에 안내 문구 + 생성 버튼이 표시된다.
@@ -39,7 +39,7 @@ async function openStep4WithPlan(page: Page, existing: "codex" | "claude") {
   await seed(page, { ...emptyAxState(), tasks: [task], selectedTaskId: task.id, step: 4 });
   await ax(page);
   const section = page.getByRole("region", { name: "자동화 구현 계획", exact: true });
-  await expect(section.getByRole("heading", { name: "02 구현 전 확인사항" })).toBeVisible();
+  await expect(section.getByRole("heading", { name: "구현 전 확인", exact: true })).toBeVisible();
   return section;
 }
 async function hintButtonGap(page: Page, tab: "Codex" | "Claude Code") {
@@ -66,28 +66,25 @@ async function hintButtonGap(page: Page, tab: "Codex" | "Claude Code") {
   return gap!;
 }
 
-test("02 구현 전 확인사항: 제목·보조 설명 변경 + 기존 확인사항 유지", async ({ page }) => {
+test("① 구현 전 확인: 제목 + 기존 확인사항 유지 + 겹침 없음", async ({ page }) => {
   const section = await openStep4NoPlan(page);
-  const block = section.locator("section[aria-label='02 구현 전 확인사항']");
+  const block = section.locator("section[aria-label='구현 전 확인']");
   await expect(section.getByRole("heading", { name: "02 시작 전 확인" })).toHaveCount(0);
-  await block.getByRole("button", { name: /구현 전 확인사항/ }).click();
-  await expect(block.getByText("아래 항목은 자동화 구현 전에 확인해야 할 조건입니다. 실제 업무 환경과 자료를 기준으로 확인해 주세요.", { exact: true })).toBeVisible();
-  await expect(block.getByText("구현 전에 필요한 조건과 적용 범위를 확인합니다.", { exact: true })).toHaveCount(0);
-  // 기존 확인사항 유지: 기술 점검 카드와 확인 필요 배지
-  await expect(block.locator(".ax-prereq-card").filter({ hasText: "시스템 접근" }).first()).toBeVisible();
-  await expect(block.locator(".ax-prereq-card").first().locator(".ax-check-badge")).toHaveText("확인 필요");
-  // 제목·설명·카드 사이 간격이 자연스럽다(설명 하단 여백 존재, 겹침 없음).
+  // 기존 확인사항 유지: 미완료 항목 목록과 확인 필요 배지 (접힘 아코디언 없음).
+  await expect(block.locator(".ax-precheck-item").filter({ hasText: "시스템 접근" }).first()).toBeVisible();
+  await expect(block.locator(".ax-precheck-item").first().locator(".ax-check-badge").first()).toHaveText("확인 필요");
+  // 제목·목록 사이 간격이 자연스럽다(겹침 없음).
   // 위쪽·아래쪽 박스를 한 번의 evaluate 안에서 읽는다(스크롤 경합 방지).
-  const descCardsGap = await block.evaluate(root => {
-    const upper = root.querySelector(".ax-plan-desc");
-    const lower = root.querySelector(".ax-prereq-cards");
+  const headItemGap = await block.evaluate(root => {
+    const upper = root.querySelector(".ax-precheck-head");
+    const lower = root.querySelector(".ax-precheck-item, .ax-precheck-blocked li");
     if (!upper || !lower) return null;
     const u = upper.getBoundingClientRect();
     const l = lower.getBoundingClientRect();
     return Math.round(l.top - (u.top + u.height));
   });
-  expect(descCardsGap).not.toBeNull();
-  expect(descCardsGap!).toBeGreaterThanOrEqual(12);
+  expect(headItemGap).not.toBeNull();
+  expect(headItemGap!).toBeGreaterThanOrEqual(0);
 });
 
 test("04 올인원 지시문: 안내 문구와 생성 버튼 간격 12~16px (Codex·Claude 동일)", async ({ page }) => {

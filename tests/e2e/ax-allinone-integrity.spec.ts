@@ -94,9 +94,9 @@ test("allinone: linked plan renders composite processing and step-linked scope",
   await expect(prompt).toContainText("실적 파일 병합 — Excel 샘플의 컬럼 구조 확인");
   await expect(prompt).toContainText("계약서상 정산 오차율 0.5% 이내 확인");
   await expect(prompt).toContainText("현재 자동화 제외");
-  const scope = packageSection.getByRole("region", { name: "01 구현 범위", exact: true });
+  const scope = packageSection.getByRole("region", { name: "구현 범위·완료 기준", exact: true });
   await expect(scope).not.toContainText("정산 승인 — 자동 승인 로직");
-  await expect(packageSection.getByRole("region", { name: "01 구현 범위", exact: true })).toContainText("복합 처리 (확인된 순서)");
+  await expect(packageSection.getByRole("region", { name: "구현 범위·완료 기준", exact: true })).toContainText("복합 처리 (확인된 순서)");
   const noOverflow = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
   expect(noOverflow).toBe(true);
   await page.screenshot({ path: `artifacts/ax/allinone-${process.env.MOBILE_EMU === "1" ? "mobile" : test.info().project.name}.png`, fullPage: true });

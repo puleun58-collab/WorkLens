@@ -22,7 +22,7 @@ import type { AxToolId } from "@/lib/ax/guide";
 import { exportAxState, importAxState } from "@/lib/ax/transfer";
 import { emptyAxState, type AxStateV2, type AxTask, type AxDiagnosis, type AxDetails, type FactorKey } from "@/lib/ax/types";
 import { extractReviewableItems, extractPlanReviewableItems, reconcileReviews, validateReviewForConfirm, type ReviewableItem } from "@/lib/ax/hitl";
-import { AxLevelBadge, AxProcess, AxResultSummary, AxExecutionTimeline, AxPlanSection, AxScoreCards, AxCheckIcon, diagnosisSummaryParts, diagnosisCheckItems, visibleDiagnosisCheckItems, resolveActiveTool, concreteNextAction } from "./AxReport";
+import { AxLevelBadge, AxProcess, AxPlanSection, AxScoreCards, AxCheckIcon, diagnosisSummaryParts, diagnosisCheckItems, visibleDiagnosisCheckItems, resolveActiveTool, concreteNextAction } from "./AxReport";
 import { DecisionPointsSection, ExampleResultsSection } from "./AxDecisionExamples";
 import { AxScoreEvidence } from "./AxScoreEvidence";
 import "./ax.css";
@@ -68,11 +68,12 @@ function NeedsCheckLink({ tasks, label, disabled, onGo }: { tasks: AxTask[]; lab
 /** 선택 업무의 결과·로드맵 래퍼: 도구 선택 상태를 소유해 로드맵·01~03·04가
  * 같은 도구의 확정 검토를 따르게 한다. key로 업무 전환 시 remount돼 상태가
  * 초기화되는 점은 기존 AxPlanSection key 동작과 동일하다. */
-function AxSelectedReport({ task, busy, onGenerate, onSaveReview }: {
+function AxSelectedReport({ task, busy, onGenerate, onSaveReview, onGoToCheck }: {
   task: AxTask;
   busy: string | null;
   onGenerate: (target: AxToolId) => void;
   onSaveReview: (r: Omit<import("@/lib/ax/types").HitlReview, "id" | "reviewedAt" | "updatedAt"> & { id?: string }) => { saved: boolean; reason?: string };
+  onGoToCheck: () => void;
 }) {
   // 호출 지점은 selected.diagnosis가 있는 경우에만 이 래퍼를 렌더링한다.
   const diagnosis = task.diagnosis as AxDiagnosis;
@@ -82,7 +83,6 @@ function AxSelectedReport({ task, busy, onGenerate, onSaveReview }: {
   const reviews = (task as import("@/lib/ax/types").AxTaskV2).reviews ?? [];
   const reviewProps = { taskId: task.id, reviews, onSaveReview };
   return <>
-    <AxExecutionTimeline diagnosis={diagnosis} plan={plans[activeTool]} hitlReviews={reviews} hitlTool={activeTool} />
     <AxPlanSection
       diagnosis={diagnosis}
       taskName={task.name}
@@ -93,6 +93,7 @@ function AxSelectedReport({ task, busy, onGenerate, onSaveReview }: {
       exampleResults={(task as import("@/lib/ax/types").AxTaskV2).exampleResults ?? []}
       activeTool={activeTool}
       onToolChange={setSelectedTool}
+      onGoToCheck={onGoToCheck}
     />
   </>;
 }
@@ -143,13 +144,6 @@ export function AxDiagnosisView() {
   const gateOrder = { ready: 0, conditional: 1, blocked: 2 };
   const profiles = ranked.map(row => ({ row, profile: executionProfile(row.task.diagnosis) }));
   const displayed = [...profiles].sort((a, b) => gateOrder[a.profile.gate] - gateOrder[b.profile.gate]).map(({ row }) => row);
-  const readyCandidates = profiles.filter(({ profile }) => profile.readyExecutionCandidate);
-  const conditional = profiles.filter(({ profile }) => profile.gate === "conditional");
-  const review = profiles.filter(({ profile }) => profile.gate !== "blocked");
-  const overviewProfiles = (readyCandidates.length ? readyCandidates : conditional.length ? conditional : review.length ? review : profiles).slice(0, 3);
-  const overviewRows = overviewProfiles.map(({ row }) => row);
-  const overviewHeading = priorityHeading(overviewProfiles.map(({ profile }) => profile));
-  const overviewIsTop = readyCandidates.length > 0;
   const currentSelection = state.tasks.find(task => task.id === state.selectedTaskId);
   const selected = state.step >= 3 ? currentSelection?.diagnosis ? currentSelection : displayed[0]?.task : currentSelection ?? state.tasks[0];
   const selectedId = selected?.id ?? null;
@@ -711,12 +705,15 @@ export function AxDiagnosisView() {
       </li>;
     })}</ul>;
   }
-  function priorityRows(top: boolean) {
-    return <>{displayed.some((row, index) => row.rank !== index + 1) ? <p className="ax-muted ax-priority-order">번호는 우선순위 점수 기준이며, 실행 상태별로 표시합니다.</p> : null}<ol className="ax-priority-list" aria-label={top ? overviewIsTop ? "자동화 우선순위 TOP 목록" : "우선 확인 업무 목록" : "전체 진단 업무 목록"}>{(top ? overviewRows : displayed).map(r => {
-      const l = automationLevel(r.task.diagnosis), m = matrixPosition(r.task.diagnosis), gate = executionGate(r.task.diagnosis);
+  /** 결과·로드맵 업무 목록: '확인 후 진행 업무'와 '전체 업무 보기'를 하나의 목록으로 통합한다.
+   * 실행 상태별 정렬(displayed)과 우선순위 번호(rank)는 기존 그대로 유지하고, 각 행은
+   * 업무명·Level·진행 상태·다음 행동만 표시한다. 동일 업무가 두 목록에 중복 등장하지 않는다. */
+  function unifiedTaskRows() {
+    return <>{displayed.some((row, index) => row.rank !== index + 1) ? <p className="ax-muted ax-priority-order">번호는 우선순위 점수 기준이며, 실행 상태별로 표시합니다.</p> : null}<ol className="ax-priority-list" aria-label="업무 목록">{displayed.map(r => {
+      const l = automationLevel(r.task.diagnosis), gate = executionGate(r.task.diagnosis);
       return <li key={r.task.id}><Button type="button" variant="ghost" className="ax-priority-row" aria-pressed={selected?.id === r.task.id} onClick={() => select(r.task.id)} disabled={!!busy}>
-        <strong className="ax-rank">#{r.rank}</strong><span className="ax-priority-content"><span className="ax-priority-head"><span className="ax-task-name">{r.task.name}</span><span className="ax-region-chip" data-region={m.region}>{m.label}</span>{gate !== "ready" ? <span className="ax-gate-badge" data-gate={gate}>{GATE_LABELS[gate]}</span> : null}</span>
-        <span>{levelDisplayLabel(l)}{l.provisional ? " · 잠정" : ""}</span>{top ? <small className="ax-next-action"><span>다음 권장 행동</span>{(() => { const concrete = concreteNextAction(r.task.diagnosis); return concrete.detail ? `${concrete.label} — ${concrete.detail}` : concrete.label; })()}</small> : <small>{r.reason}</small>}{top ? <small>점수 {r.score}</small> : null}</span>
+        <strong className="ax-rank">#{r.rank}</strong><span className="ax-priority-content"><span className="ax-priority-head"><span className="ax-task-name">{r.task.name}</span>{gate !== "ready" ? <span className="ax-gate-badge" data-gate={gate}>{GATE_LABELS[gate]}</span> : null}</span>
+        <span>{levelDisplayLabel(l)}{l.provisional ? " · 잠정" : ""}</span><small className="ax-next-action"><span>다음 행동</span>{(() => { const concrete = concreteNextAction(r.task.diagnosis); return concrete.detail ? `${concrete.label} — ${concrete.detail}` : concrete.label; })()}</small></span>
       </Button></li>;
     })}</ol></>;
   }
@@ -860,13 +857,12 @@ export function AxDiagnosisView() {
           <aside className="ax-step4-overview" aria-label="전체 업무 현황">
             <AxKpiCards tasks={state.tasks} needsCheckTasks={needsCheckTasks} onGoNeedsCheck={goToCheckTarget} needsCheckDisabled={!!busy} />
             <div className="ax-step4-overview-grid">
-              <section className="ax-surface"><h3>{overviewHeading}</h3>{priorityRows(true)}{ranked.length > overviewRows.length ? <Accordion className="ax-all-tasks"><AccordionItem value="all-tasks"><AccordionTrigger>전체 업무 보기</AccordionTrigger><AccordionPanel><div className="ax-all-task-list">{priorityRows(false)}</div></AccordionPanel></AccordionItem></Accordion> : null}</section>
+              <section className="ax-surface"><h3>업무 목록 ({ranked.length})</h3>{unifiedTaskRows()}</section>
             </div>
           </aside>
           {selected?.diagnosis ? <article className="ax-selected-report" aria-label={`${selected.name} 결과·로드맵`}>
-            <header className="ax-report-intro"><div><span className="ax-report-eyebrow">선택한 업무 · 결과·로드맵</span><div className="ax-title-group"><h2>{selected.name}</h2><Badge className="ax-status-badge">{STATUS[taskDisplayStatus(selected).status]}</Badge>{taskDisplayStatus(selected).needsCheck ? <span className="ax-status-note">추가 질문 필요</span> : null}</div><p>{selected.description}</p></div><Button type="button" variant="outline" size="sm" onClick={() => goToDiagnosis(selected.id)}>업무 진단으로 이동</Button></header>
-            <AxResultSummary task={selected} />
-            <AxSelectedReport key={selected.id} task={selected} busy={busy} onGenerate={target => void generatePlan(selected, target)} onSaveReview={r => saveHitlReview(selected.id, r)} />
+            <header className="ax-report-intro"><div><span className="ax-report-eyebrow">선택한 업무 · 결과·로드맵</span><div className="ax-title-group"><h2>{selected.name}</h2><AxLevelBadge level={automationLevel(selected.diagnosis)} className="ax-level-badge" /><Badge className="ax-status-badge">{STATUS[taskDisplayStatus(selected).status]}</Badge>{taskDisplayStatus(selected).needsCheck ? <span className="ax-status-note">추가 질문 필요</span> : null}</div></div><Button type="button" variant="outline" size="sm" onClick={() => goToDiagnosis(selected.id)}>업무 진단으로 이동</Button></header>
+            <AxSelectedReport key={selected.id} task={selected} busy={busy} onGenerate={target => void generatePlan(selected, target)} onSaveReview={r => saveHitlReview(selected.id, r)} onGoToCheck={() => goToDiagnosis(selected.id)} />
           </article> : <p className="ax-muted">우선순위에서 업무 선택 후 상세 결과 확인</p>}
         </>}
       </TabsPanel>
@@ -1026,13 +1022,9 @@ function AxKpiCards({ tasks, needsCheckTasks, onGoNeedsCheck, needsCheckDisabled
   const counts = diagnosisCounts(tasks);
   // 보조 설명은 매트릭스 상단과 같은 공통 표시 항목을 쓴다 (0건 숨김, 정보 확인 필요는 같은 바로가기 재사용).
   const statusItems = diagnosisStatusItems(counts);
-  const ranked = priority(tasks);
-  const knownMinutes = tasks.map(monthlyMinutes).filter((m): m is number => m !== null);
   return <div className="ax-kpi-cards">
     <div className="ax-surface ax-kpi"><span className="ax-kpi-label"><ClipboardList size={14} aria-hidden="true" />등록 업무</span><strong>{tasks.length}개</strong></div>
     <div className="ax-surface ax-kpi"><span className="ax-kpi-label"><CircleCheck size={14} aria-hidden="true" />진단 완료</span><strong>{counts.results}개</strong>{statusItems.length ? <small className="ax-muted">{statusItems.map((item, index) => <Fragment key={item.key}>{index ? " · " : null}{item.actionable ? <NeedsCheckLink tasks={needsCheckTasks} label={item.text} disabled={needsCheckDisabled} onGo={onGoNeedsCheck} /> : item.text}</Fragment>)}</small> : null}</div>
-    {counts.results ? <div className="ax-surface ax-kpi"><span className="ax-kpi-label"><Zap size={14} aria-hidden="true" />빠른 실행 후보</span><strong>{ranked.filter(r => matrixPosition(r.task.diagnosis).region === "quick" && executionGate(r.task.diagnosis) !== "blocked").length}개</strong><small className="ax-muted">빠른 실행 영역 · 확인 후 진행 포함 · 진행 보류 제외</small></div> : null}
-    {knownMinutes.length ? <div className="ax-surface ax-kpi"><span className="ax-kpi-label"><Clock3 size={14} aria-hidden="true" />월 투입시간 합 · 입력 {knownMinutes.length}개</span><strong>{(knownMinutes.reduce((sum, m) => sum + m, 0) / 60).toLocaleString("ko-KR", { maximumFractionDigits: 1 })}시간</strong></div> : null}
   </div>;
 }
 function AxMatrix({ rows, selectedId, onSelect, step }: {

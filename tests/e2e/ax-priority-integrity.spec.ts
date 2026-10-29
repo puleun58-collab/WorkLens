@@ -38,33 +38,30 @@ async function openState(page: Page, tasks: AxTask[]) {
   await expect(page.getByRole("tab", { name: "결과·로드맵", exact: true })).toHaveAttribute("data-active", "");
 }
 const scenarios = [
-  { name: "one ready excludes two conditional even with only three total", tasks: [task("conditional-a", 3, "conditional"), task("ready", 2, "ready"), task("conditional-b", 3, "conditional")], ids: ["ready"], heading: "자동화 우선순위 TOP 1", top: true },
-  { name: "two ready exclude three blocked", tasks: [task("blocked-a", 3, "blocked"), task("ready-a", 2, "ready"), task("blocked-b", 3, "blocked"), task("ready-b", 2, "ready"), task("blocked-c", 3, "blocked")], ids: ["ready-a", "ready-b"], heading: "자동화 우선순위 TOP 2", top: true },
-  { name: "conditional review excludes blocked and level zero", tasks: [task("blocked", 3, "blocked"), task("conditional", 2, "conditional"), task("manual", 0, "ready")], ids: ["conditional"], heading: "확인 후 진행 업무", top: false },
-  { name: "all blocked remain neutral review", tasks: [task("blocked-a", 3, "blocked"), task("blocked-b", 3, "blocked")], ids: ["blocked-a", "blocked-b"], heading: "현재 검토 업무", top: false },
-  { name: "level zero is review rather than execution", tasks: [task("manual", 0, "ready")], ids: ["manual"], heading: "업무 진단 결과", top: false },
-  { name: "equal ready scores preserve original rank and cap at three", tasks: [task("first", 2, "ready"), task("second", 2, "ready"), task("third", 2, "ready"), task("fourth", 2, "ready")], ids: ["first", "second", "third"], heading: "자동화 우선순위 TOP 3", top: true },
+  { name: "one ready excludes two conditional even with only three total", tasks: [task("conditional-a", 3, "conditional"), task("ready", 2, "ready"), task("conditional-b", 3, "conditional")] },
+  { name: "two ready exclude three blocked", tasks: [task("blocked-a", 3, "blocked"), task("ready-a", 2, "ready"), task("blocked-b", 3, "blocked"), task("ready-b", 2, "ready"), task("blocked-c", 3, "blocked")] },
+  { name: "conditional review excludes blocked and level zero", tasks: [task("blocked", 3, "blocked"), task("conditional", 2, "conditional"), task("manual", 0, "ready")] },
+  { name: "all blocked remain neutral review", tasks: [task("blocked-a", 3, "blocked"), task("blocked-b", 3, "blocked")] },
+  { name: "level zero is review rather than execution", tasks: [task("manual", 0, "ready")] },
+  { name: "equal ready scores preserve original rank and cap at three", tasks: [task("first", 2, "ready"), task("second", 2, "ready"), task("third", 2, "ready"), task("fourth", 2, "ready")] },
 ];
 for (const scenario of scenarios) {
   test(`AX overview ${scenario.name}`, async ({ page }) => {
     await openState(page, scenario.tasks);
-    await expect(page.getByRole("heading", { name: scenario.heading, exact: true })).toBeVisible();
-    const overview = page.getByRole("list", { name: scenario.top ? "자동화 우선순위 TOP 목록" : "우선 확인 업무 목록", exact: true });
-    await expect(overview.locator(".ax-task-name")).toHaveText(scenario.ids.map(id => `업무 ${id}`));
+    // 통합 목록에는 전체 업무가 한 번씩 표시되고, 우선순위 번호가 유지된다.
+    await expect(page.getByRole("heading", { name: `업무 목록 (${scenario.tasks.length})`, exact: true })).toBeVisible();
+    const list = page.getByRole("list", { name: "업무 목록", exact: true });
+    await expect(list.getByRole("listitem")).toHaveCount(scenario.tasks.length);
     const ranked = priority(scenario.tasks);
-    await expect(overview.locator(".ax-rank")).toHaveText(scenario.ids.map(id => `#${ranked.findIndex(row => row.task.id === id) + 1}`));
-    if (!scenario.top) await expect(page.getByRole("list", { name: "자동화 우선순위 TOP 목록", exact: true })).toHaveCount(0);
-    const all = page.getByRole("button", { name: "전체 업무 보기", exact: true });
-    if (scenario.tasks.length > scenario.ids.length) {
-      await expect(all).toBeVisible();
-      await all.click();
-      const full = page.getByRole("list", { name: "전체 진단 업무 목록", exact: true });
-      await expect(full.getByRole("listitem")).toHaveCount(scenario.tasks.length);
-      for (const row of ranked) await expect(full.locator(".ax-task-name").filter({ hasText: new RegExp(`^${row.task.name}$`) })).toHaveCount(1);
-      const excluded = scenario.tasks.find(task => !scenario.ids.includes(task.id))!;
-      await full.getByRole("listitem").filter({ has: page.locator(".ax-task-name", { hasText: new RegExp(`^${excluded.name}$`) }) }).getByRole("button").click();
-      await expect(page.locator(".ax-report-intro h2")).toHaveText(excluded.name);
-    } else await expect(all).toHaveCount(0);
+    for (const row of ranked) {
+      const item = list.getByRole("listitem").filter({ has: page.locator(".ax-task-name", { hasText: new RegExp(`^${row.task.name}$`) }) });
+      await expect(item).toHaveCount(1);
+      await expect(item.locator(".ax-rank")).toHaveText(`#${ranked.findIndex(entry => entry.task.id === row.task.id) + 1}`);
+    }
+    await expect(page.getByRole("button", { name: "전체 업무 보기", exact: true })).toHaveCount(0);
+    const target = ranked[ranked.length - 1];
+    await list.getByRole("listitem").filter({ has: page.locator(".ax-task-name", { hasText: new RegExp(`^${target.task.name}$`) }) }).getByRole("button").click();
+    await expect(page.locator(".ax-report-intro h2")).toHaveText(target.task.name);
     await page.getByRole("tab", { name: "자동화 매트릭스", exact: true }).click();
     // 매트릭스 하단 TOP 3는 제거됨 — 좌측 목록 전체가 종합 점수 순위 순으로 표시되는지 확인한다.
     const matrixList = page.getByLabel("매트릭스 업무 목록", { exact: true });
