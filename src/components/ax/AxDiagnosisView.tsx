@@ -1,6 +1,6 @@
 "use client";
 import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
-import { MoreHorizontal, Upload, Download, Trash2, Pencil, ClipboardList, CircleCheck, Zap, Clock3, Stethoscope, LayoutGrid, Map as MapIcon, ArrowLeft, ArrowRight, Paperclip, FileText, X, Repeat, CalendarCheck, Database, Plug, UserCheck, AlertTriangle, RotateCcw, ListChecks, CircleHelp, SlidersHorizontal } from "lucide-react";
+import { MoreHorizontal, Upload, Download, Trash2, Pencil, ClipboardList, CircleCheck, Zap, Clock3, Stethoscope, LayoutGrid, Map as MapIcon, ArrowLeft, ArrowRight, Paperclip, FileText, X, Repeat, CalendarCheck, Database, Plug, UserCheck, AlertTriangle, RotateCcw, CircleHelp, SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -14,7 +14,7 @@ import { useAxState } from "@/client/use-ax-state";
 import { runInWorker } from "@/client/document-client";
 import { diagnoseAx, planAx, interruptServerAi, aiFailureDetail } from "@/client/server-ai-client";
 import { AX_LIMITS, FACTOR_LABELS, axTaskSchema, axTaskV2Schema, confirmedAxDiagnosis } from "@/lib/ax/schema";
-import { axes, automationLevel, bubbleArea, diagnosisCounts, diagnosisStatusItems, executionGate, executionProfile, GATE_LABELS, levelDisplayLabel, planAllowed, priorityHeading, factorEffectiveValue, factorHasAdjustment, factorScale, matrixPosition, monthlyMinutes, nextAction, priority, splitGatePrerequisites, taskStatus, taskDisplayStatus } from "@/lib/ax/policy";
+import { axes, automationLevel, bubbleArea, diagnosisCounts, diagnosisStatusItems, executionGate, executionProfile, GATE_LABELS, levelDisplayLabel, planAllowed, priorityHeading, factorEffectiveValue, factorHasAdjustment, factorScale, matrixPosition, monthlyMinutes, nextAction, priority, taskStatus, taskDisplayStatus } from "@/lib/ax/policy";
 import { candidateTask, taskDetails, followUpDescription, legacyDetailValues, validateAttachmentPreflight, isRegistrationUnchanged } from "@/lib/ax/registration";
 import { MAX_TASK_ATTACHMENTS, attachmentPatch, buildAttachmentSummary, combineAttachmentSummaries, taskAttachments } from "@/lib/ax/attachments";
 import type { AxAttachmentMeta } from "@/lib/ax/types";
@@ -22,7 +22,7 @@ import type { AxToolId } from "@/lib/ax/guide";
 import { exportAxState, importAxState } from "@/lib/ax/transfer";
 import { emptyAxState, type AxStateV2, type AxTask, type AxDiagnosis, type AxDetails, type FactorKey } from "@/lib/ax/types";
 import { extractReviewableItems, extractPlanReviewableItems, reconcileReviews, validateReviewForConfirm, type ReviewableItem } from "@/lib/ax/hitl";
-import { AxLevelBadge, AxProcess, AxResultSummary, AxExecutionTimeline, AxPlanSection, AxScoreCards, AxCheckIcon, diagnosisSummaryParts, diagnosisCheckItems, visibleDiagnosisCheckItems, matrixRationaleBullets, resolveActiveTool, concreteNextAction } from "./AxReport";
+import { AxLevelBadge, AxProcess, AxResultSummary, AxExecutionTimeline, AxPlanSection, AxScoreCards, AxCheckIcon, diagnosisSummaryParts, diagnosisCheckItems, visibleDiagnosisCheckItems, resolveActiveTool, concreteNextAction } from "./AxReport";
 import { DecisionPointsSection, ExampleResultsSection } from "./AxDecisionExamples";
 import { AxScoreEvidence } from "./AxScoreEvidence";
 import "./ax.css";
@@ -799,7 +799,6 @@ export function AxDiagnosisView() {
               <DecisionPointsSection
                 key={`decision-${selected.id}`}
                 diagnosis={selected.diagnosis}
-                taskDescription={selected.description}
                 disabled={!!busy}
                 onSave={points => saveDecisionPoints(selected.id, points)}
               />
@@ -934,6 +933,11 @@ function DiagnosisCard({ task, busy, onDiagnose, onEdit, attachment }: {
     <p className="ax-diag-desc">{task.description}</p>
     {attachment}
     {d ? <>
+      {d.asIs.inputs.length || d.asIs.outputs.length || d.asIs.systems.length ? <dl className="ax-diag-overview">
+        {d.asIs.inputs.length ? <div className="ax-diag-overview-row"><dt>입력 데이터</dt><dd>{d.asIs.inputs.join(" · ")}</dd></div> : null}
+        {d.asIs.outputs.length ? <div className="ax-diag-overview-row"><dt>출력 결과</dt><dd>{d.asIs.outputs.join(" · ")}</dd></div> : null}
+        {d.asIs.systems.length ? <div className="ax-diag-overview-row"><dt>사용 시스템</dt><dd>{d.asIs.systems.join(" · ")}</dd></div> : null}
+      </dl> : null}
       <div className="ax-diag-summary">
         <span className="ax-diag-summary-icon" aria-hidden="true"><FileText size={20} /></span>
         <div className="ax-diag-summary-body">
@@ -961,25 +965,16 @@ function DiagnosisCard({ task, busy, onDiagnose, onEdit, attachment }: {
     </> : null}
   </section>;
 }
-/** Step 3 selected-task card: name/classification/badges → score cards → rationale/prerequisites → score evidence.
- * "다음 조치"는 단독 라벨 대신 실제 첫 확인 항목을 표시한다(표시층 구체화, 판정 변경 없음).
- * 선행 조건 목록은 중요한 제한 조건이므로 유지하고, 상세 확인은 업무 진단 단계로 이동하는
- * 버튼을 함께 제공한다. */
+/** Step 3 selected-task card: name/badges → 4 score cards → single score-evidence toggle.
+ * The former detail sections (핵심 판단 근거 / 현재 가능한 범위 / 선행 확인 조건) are
+ * removed from the screen only: their source data, gate logic and the diagnosis·roadmap
+ * links stay untouched. Score evidence is a single toggle with no nested toggles.
+ * The header keeps the '업무 진단으로 이동' button (from the guidance work). */
 function MatrixDetailCard({ task, diagnosis, onGoToDiagnosis }: { task: AxTask; diagnosis: AxDiagnosis; onGoToDiagnosis: () => void }) {
   const d = diagnosis;
   const lvl = automationLevel(d);
   const gate = executionGate(d);
   const m = matrixPosition(d);
-  const gateChecks = splitGatePrerequisites(d);
-  const profile = executionProfile(d);
-  const concrete = concreteNextAction(d);
-  const sampleScope = profile.poc.inScope.filter(item => !item.startsWith("선행 확인사항")).slice(0, 2);
-  // 조건부에서는 이 항목들이 지금 구현 가능한 작업이 아니라 확인 후 샘플 검증 범위다
-  // (로드맵의 "지금 구현 가능한 작업이 아닙니다"와 시점을 맞춘다). 행 라벨 "현재 가능 범위"는
-  // 기존 E2E 계약을 유지하고, 값 문구로 시점을 구분한다.
-  const scope = gate === "blocked" ? "분석·검증만 가능 (기능 구현·운영 연결 불가)"
-    : gate === "conditional" ? `조건 확인 후 샘플 범위에서 검증: ${sampleScope.length ? sampleScope.join(" · ") : "샘플 데이터 검증"}`
-    : `${sampleScope.length ? sampleScope.join(" · ") : "샘플 데이터 검증"} — 조건에 의존하는 기능은 확인 후 구현`;
   return <section id={MATRIX_DETAIL_ID} tabIndex={-1} className="ax-surface ax-matrix-detail" aria-label={`${task.name} 매트릭스 상세`}>
     <div className="ax-matrix-detail-head">
       <div className="ax-diag-title">
@@ -996,29 +991,6 @@ function MatrixDetailCard({ task, diagnosis, onGoToDiagnosis }: { task: AxTask; 
       </div>
     </div>
     <AxScoreCards diagnosis={d} variant="matrix" />
-    <div className="ax-diag-cols ax-matrix-detail-cols">
-      <section className="ax-matrix-rationale" aria-label="핵심 판단 근거">
-        <h4><FileText size={16} aria-hidden="true" />핵심 판단 근거</h4>
-        <ul>{matrixRationaleBullets(d).map((b, i) => <li key={i}>{b}</li>)}</ul>
-      </section>
-      <section className="ax-matrix-scope" aria-label="현재 가능한 범위">
-        <h4><CircleCheck size={16} aria-hidden="true" />현재 가능한 범위</h4>
-        <div className="ax-scope-lines">
-          <p><strong>현재 가능 범위</strong><span aria-hidden="true">—</span><span>{scope}</span></p>
-          <p><strong>다음 조치</strong><span aria-hidden="true">—</span><span>{gate === "ready" ? concrete.label : `${concrete.label}${concrete.detail ? ` — ${concrete.detail}` : ""} → 해결 후 업무 진단 단계에서 다시 진단해 상태 갱신`}</span></p>
-        </div>
-      </section>
-      {gateChecks.required.length || gateChecks.recommended.length ? <section className="ax-matrix-prereqs" aria-label={gateChecks.required.length ? "선행 확인 조건" : "권장 확인사항"}>
-        {gateChecks.required.length ? <>
-          <h4><ListChecks size={16} aria-hidden="true" />선행 확인 조건 {gateChecks.required.length}개</h4>
-          <ul>{gateChecks.required.map((p, i) => <li key={i}>{p}</li>)}</ul>
-        </> : null}
-        {gateChecks.recommended.length ? <div className="ax-matrix-recommended">
-          <h5>권장 확인사항 {gateChecks.recommended.length}개</h5>
-          <ul>{gateChecks.recommended.map((p, i) => <li key={i}>{p}</li>)}</ul>
-        </div> : null}
-      </section> : null}
-    </div>
     <AxScoreEvidence key={task.id} diagnosis={d} />
   </section>;
 }

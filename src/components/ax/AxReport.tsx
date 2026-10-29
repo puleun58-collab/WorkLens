@@ -418,12 +418,6 @@ export function AxProcess({ diagnosis: d, reviewProps }: { diagnosis: AxDiagnosi
       <div className="ax-process-core">{core.map(({ label, icon: Icon, value }) => <div className="ax-process-field" key={label}>
         <span className="ax-process-icon"><Icon aria-hidden="true" /></span><div><h4>{label}</h4>{typeof value === "string" ? <p>{value}</p> : value}</div>
       </div>)}</div>
-      <div className="ax-process-steps"><h4>현재 업무 단계 ({d.asIs.steps.length}단계)</h4>
-        {d.asIs.steps.length ? <ol className="ax-process-flow">{d.asIs.steps.map((step, i) => <li className="ax-process-node" key={i}>
-          <span className="ax-process-node-number">{String(i + 1).padStart(2, "0")}</span><span>{step}</span>
-          {i < d.asIs.steps.length - 1 ? <ArrowRight className="ax-process-arrow" aria-hidden="true" /> : null}
-        </li>)}</ol> : <p className="ax-muted">기재된 내용 없음</p>}
-      </div>
       {d.asIs.exceptions.length || d.asIs.humanDecisions.length ? <div className="ax-process-extras">
         {d.asIs.exceptions.length ? <div className="ax-process-extra" data-kind="exception"><AlertTriangle aria-hidden="true" /><div><h4>주요 예외 상황</h4><AxList items={d.asIs.exceptions} /></div></div> : null}
         {d.asIs.humanDecisions.length ? <div className="ax-process-extra" data-kind="human"><ClipboardList aria-hidden="true" /><div><h4>담당자 판단 사항</h4><AxList items={d.asIs.humanDecisions} /></div></div> : null}
@@ -539,6 +533,13 @@ function AxStepTable({ diagnosis: d, headers, reviewProps }: { diagnosis: AxDiag
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [userOpen, setUserOpen] = useState<boolean | null>(null);
+  // AS-IS 도식 제거에 따른 가시성 보존: 판단 표에 없는 AS-IS 단계는
+  // 표 아래 muted 문구로 표시한다 (원본 데이터 변경 없음).
+  const normStep = (t: string) => t.replace(/\s+/g, "");
+  const unmatchedAsIs = d.asIs.steps.filter(step => {
+    const sn = normStep(step);
+    return !!sn && !d.stepAssessments.some(a => { const an = normStep(a.step); return !!an && (an === sn || an.includes(sn) || sn.includes(an)); });
+  });
   const items = reviewProps ? extractReviewableItems(d) : [];
   const itemByStep = new Map<string, ReviewableItem>();
   for (const item of items) {
@@ -629,6 +630,7 @@ function AxStepTable({ diagnosis: d, headers, reviewProps }: { diagnosis: AxDiag
             </tbody>
           </table>
         </div>
+        {unmatchedAsIs.length ? <p className="ax-muted">판단 표에 없는 AS-IS 단계: {unmatchedAsIs.join(" · ")}</p> : null}
         </AccordionPanel>
       </div>
       </AccordionItem>
@@ -645,6 +647,7 @@ function AxStepTable({ diagnosis: d, headers, reviewProps }: { diagnosis: AxDiag
       <td>{OWNER_LABELS[s.owner]}</td><td>{s.note}</td>
     </tr>;
   }) : <tr><td colSpan={4}>기재된 단계 없음</td></tr>}</tbody></table></div>
+  {unmatchedAsIs.length ? <p className="ax-muted">판단 표에 없는 AS-IS 단계: {unmatchedAsIs.join(" · ")}</p> : null}
   </section>;
 }
 function AxToBe({ diagnosis: d }: { diagnosis: AxDiagnosis }) {

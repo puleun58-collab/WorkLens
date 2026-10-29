@@ -199,18 +199,14 @@ for (const viewport of VIEWPORTS) {
       await expect(detail.locator(".ax-gate-basis")).toHaveCount(0);
       await expect(detail.getByText("진행 상태", { exact: true })).toHaveCount(0);
       await expect(detail.getByText("판정 근거", { exact: true })).toHaveCount(0);
-      const lines = detail.locator(".ax-scope-lines > p");
-      await expect(lines).toHaveCount(2);
-      await expect(lines.nth(0)).toContainText("현재 가능 범위");
-      await expect(lines.nth(1)).toContainText("다음 조치");
+      // 간소화: 핵심 판단 근거·현재 가능한 범위·선행 확인 조건 3개 영역은 상세 카드에서 제거됨.
+      // 점수 근거는 단일 '점수 근거 확인' 펼침에서 확인한다.
+      await expect(detail.locator(".ax-matrix-rationale")).toHaveCount(0);
+      await expect(detail.locator(".ax-scope-lines")).toHaveCount(0);
+      await expect(detail.locator(".ax-matrix-prereqs")).toHaveCount(0);
+      await expect(detail.getByRole("button", { name: "점수 근거 확인", exact: true })).toBeVisible();
       await expect(detail.locator(".ax-gate-badge")).toHaveCount(1);
       await expect(detail.locator(".ax-diag-badges .ax-gate-badge")).toHaveAttribute("data-gate", executionGate(third.diagnosis!));
-      // 두 줄의 본문 시작선이 일치한다.
-      const starts = await lines.evaluateAll(elements => elements.map(element => {
-        const body = element.querySelector("span:last-child")!.getBoundingClientRect();
-        return Math.round(body.left);
-      }));
-      expect(Math.abs(starts[0] - starts[1])).toBeLessThanOrEqual(1);
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     expect(errors).toEqual([]);
