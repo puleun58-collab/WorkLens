@@ -39,10 +39,22 @@ test("AX 진단 간소화: D1~D7 아코디언 단일 펼침·진행률·저장·
   await page.getByLabel("D3 상태").selectOption("미확정");
   await expect(page.getByLabel("D3 상세")).toBeVisible();
 
-  // 저장 후 진행률 갱신 + 새로고침 후 재조회.
+  // 저장 후 진행률 갱신 + 저장 플러시 확인 후 새로고침 후 재조회.
   await page.getByRole("button", { name: "변경사항 저장", exact: true }).click();
   await expect(decision.getByText("결정 지점을 저장했습니다.", { exact: true })).toBeVisible();
   await expect(decision.getByText("1 / 7 확인 완료", { exact: true })).toBeVisible();
+  // useAxState 저장은 디바운스되므로 플러시될 때까지 poll한 뒤 새로고침한다 (즉시 새로고침하면 저장 전 상태로 복원된다).
+  await expect.poll(async () => {
+    const value = await page.evaluate(async () => {
+      const db = await new Promise<IDBDatabase>(resolve => { const req = indexedDB.open("worklens-ax", 1); req.onsuccess = () => resolve(req.result); });
+      const record = await new Promise<Record<string, unknown> | undefined>(resolve => { const req = db.transaction("state", "readonly").objectStore("state").get("current"); req.onsuccess = () => resolve(req.result); });
+      db.close();
+      return record;
+    });
+    const task = (value?.tasks as Array<Record<string, unknown>> | undefined)?.[0];
+    const points = (task?.diagnosis as Record<string, unknown> | undefined)?.decisionPoints as Array<Record<string, unknown>> | undefined;
+    return points?.find(point => point.id === "D1")?.status === "확정";
+  }, { timeout: 10_000 }).toBe(true);
   await page.reload();
   // 새로고침하면 셸 뷰가 기본값(문서 분석)으로 돌아가므로 AX 화면으로 다시 이동한다 (기존 reload 패턴과 동일).
   await navigateWorkspace(page, "업무 자동화 진단");
@@ -70,6 +82,18 @@ test("AX 진단 간소화: 업무 처리 예시 탭 전환 시 초안 유지·�
   await page.getByLabel("예시 1 기대 결과 상태").fill("정상");
   await page.getByRole("button", { name: "업무 처리 예시 저장", exact: true }).click();
   await expect(examples.getByText("업무 처리 예시를 저장했습니다.", { exact: true })).toBeVisible();
+  // useAxState 저장은 디바운스되므로 플러시될 때까지 poll한 뒤 새로고침한다 (즉시 새로고침하면 저장 전 상태로 복원된다).
+  await expect.poll(async () => {
+    const value = await page.evaluate(async () => {
+      const db = await new Promise<IDBDatabase>(resolve => { const req = indexedDB.open("worklens-ax", 1); req.onsuccess = () => resolve(req.result); });
+      const record = await new Promise<Record<string, unknown> | undefined>(resolve => { const req = db.transaction("state", "readonly").objectStore("state").get("current"); req.onsuccess = () => resolve(req.result); });
+      db.close();
+      return record;
+    });
+    const task = (value?.tasks as Array<Record<string, unknown>> | undefined)?.[0];
+    const results = task?.exampleResults as Array<Record<string, unknown>> | undefined;
+    return results?.length === 1 && results?.[0]?.input === "입력 B";
+  }, { timeout: 10_000 }).toBe(true);
   await page.reload();
   // 새로고침하면 셸 뷰가 기본값(문서 분석)으로 돌아가므로 AX 화면으로 다시 이동한다 (기존 reload 패턴과 동일).
   await navigateWorkspace(page, "업무 자동화 진단");
