@@ -75,24 +75,26 @@ describe("AX execution guides", () => {
     const flow = setupGuide("codex")[0].sections[2];
     expect(flow.title).toBe("Git·GitHub 작업 흐름");
     expect(flow.collapsed).toBe(true);
-    const [terms, ...notes] = flow.blocks;
-    expect(terms).toEqual({ kind: "steps", items: [
-      "Git: 코드 변경 이력을 관리하는 도구",
-      "git init / git clone: 새 저장소 만들기 / 기존 저장소 복제하기",
-      "Branch: 기존 코드와 분리해 작업하는 공간",
-      "git add: 변경 파일을 커밋 대상으로 선택",
-      "git commit: 변경 내용을 이력으로 저장",
-      "git push: 변경 이력을 GitHub에 업로드",
-      "PR: 변경 내용을 검토하고 병합하도록 요청",
-      "CI: 테스트·빌드 등을 자동 검사",
-      "Merge: 변경 사항을 대상 브랜치에 병합",
-      "Deploy: 실제 서비스 환경에 배포",
-      "Production 검증: 배포된 서비스의 정상 작동 확인",
-    ] });
-    expect(notes).toEqual([
-      { kind: "text", text: "git init과 git clone은 프로젝트 상태에 따라 선택하며, 기존 저장소를 다시 초기화하지 않습니다." },
-      { kind: "text", text: "CI는 Push 또는 PR 생성 시 실행될 수 있습니다." },
-      { kind: "text", text: "Merge와 Deploy는 서로 다른 작업이며, 배포 완료 후 실제 기능 검증이 필요합니다." },
+    expect(flow.blocks).toHaveLength(1);
+    const diagram = flow.blocks[0];
+    expect(diagram?.kind).toBe("git-flow");
+    if (diagram?.kind !== "git-flow") throw new Error("expected git-flow block");
+    expect(diagram.subtitle).toBe("코드 변경부터 배포까지의 전체 과정을 순서대로 확인하세요.");
+    expect(diagram.steps.map(step => `${step.no} ${step.title}`)).toEqual([
+      "01 저장소 준비", "02 브랜치 생성", "03 변경 파일 추가", "04 변경 내용 저장", "05 원격 저장소 업로드",
+      "06 PR 생성", "07 CI 실행", "08 PR 병합", "09 배포", "10 배포 검증",
+    ]);
+    expect(diagram.steps.map(step => step.tone)).toEqual(["blue", "blue", "green", "green", "purple", "purple", "orange", "orange", "blue", "blue"]);
+    expect(diagram.steps[0]?.command).toEqual(["git init", "git clone"]);
+    expect(diagram.steps[3]?.command).toEqual(["git commit -m", "\"변경 내용\""]);
+    expect(diagram.groups.map(group => `${group.range} ${group.title}`)).toEqual([
+      "01~02 저장소 준비·브랜치", "03~04 변경 추가·커밋", "05~06 업로드·PR", "07~08 CI·Merge", "09~10 배포·검증",
+    ]);
+    expect(diagram.groups.map(group => group.tone)).toEqual(["blue", "green", "purple", "orange", "blue"]);
+    expect(diagram.notes).toEqual([
+      "git init과 git clone은 프로젝트 상태에 따라 선택하며, 기존 저장소를 다시 초기화하지 않습니다.",
+      "CI는 Push 또는 PR 생성 시 실행될 수 있으며, 실제 실행 조건은 프로젝트 설정에 따릅니다.",
+      "Merge와 Deploy는 서로 다른 작업이며, 배포 완료 후 실제 기능 검증이 필요합니다.",
     ]);
     const serialized = JSON.stringify(flow);
     for (const removed of ["저장소/클론", "브랜치/PR/CI", "Preview/Production", "Secret:", "HITL: AI 제안"]) expect(serialized).not.toContain(removed);
