@@ -106,10 +106,19 @@ const compact = (value: string) => value.replace(/\s+/gu, "");
 function subjectStems(text: string): string[] {
   const stems: string[] = [];
   for (const raw of text.split(/[\s,·]+/u)) {
-    if (!raw || FRAME_WORDS.has(raw)) continue;
-    let token = raw.replace(PARTICLE, "");
+    // A trailing sentence mark belongs to the sentence, not to the word:
+    // without this, "알려줘." misses the "알려줘" frame word and becomes a
+    // subject of its own.
+    const word = raw.replace(/[.?!。？]+$/u, "");
+    if (!word || FRAME_WORDS.has(word)) continue;
+    let token = word.replace(PARTICLE, "");
     for (const stem of KIND_STEMS) token = token.split(stem).join("");
     if (VERB_TAIL.has(token)) continue;
+    // A predicate or modifier ending (…한/할/된/될) never names the subject:
+    // "필요한" in "필요한 서식" is a modifier, not what the form is about.
+    // Two-letter nouns that happen to end in 한 (기한, 권한, 제한) are
+    // protected by the length rule below.
+    if (token.length >= 3 && /(?:한|할|된|될)$/u.test(token)) continue;
     token = token.replace(/^(?:법령|법률)$/u, "");
     if (token.length >= 2 && !stems.includes(token)) stems.push(token);
   }
@@ -122,7 +131,7 @@ function tokensWith(text: string, stems: readonly string[]): string[] {
 
 /** Split a question on 와/과/및/그리고/콤마; a segment without a subject inherits the first segment's. */
 export function identifyProcedureRequirements(query: string): ProcedureRequirement[] {
-  const cleaned = query.trim().replace(/[?\uFF1F\u3002\s]+$/u, "");
+  const cleaned = query.trim().replace(/[?.!\uFF1F\u3002\s]+$/u, "");
   const tokens = cleaned.split(/\s+/u).flatMap((token) => token.split(/(?<=,)/u)).filter(Boolean);
   const segments: string[] = [];
   let current: string[] = [];

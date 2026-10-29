@@ -97,8 +97,18 @@ export async function retrieveResearchFollowup(
     }
     if (!exact) { report.missing++; continue; }
     const parents: FollowupArticle[] = [];
-    const parentJo = [...new Set([...pairs.filter((p) => sameLawFamily(p.law, name)).map((p) => p.jo),
-      ...seeds.filter((a) => compactLaw(a.law) === compactLaw(exact.name)).map((a) => a.jo)])];
+    // A law-system followup that names a law-article pair keeps that pair's
+    // own article as the parent set: chain-adopted seeds of the same law
+    // must not widen it. Extra parents change the tier title scores and
+    // spend the shared read budget, so the same question can lose a citing
+    // article it found on another run. A law with no named pair, and every
+    // other mode, keep the seed path unchanged.
+    const namedJo = mode === "law_system"
+      ? pairs.filter((p) => sameLawFamily(p.law, name)).map((p) => p.jo)
+      : [];
+    const parentJo = [...new Set(namedJo.length ? namedJo
+      : [...pairs.filter((p) => sameLawFamily(p.law, name)).map((p) => p.jo),
+        ...seeds.filter((a) => compactLaw(a.law) === compactLaw(exact.name)).map((a) => a.jo)])];
     for (const jo of parentJo.slice(0, 4)) {
       const article = await read(exact, jo);
       if (article) { parents.push(article); add(article); }
