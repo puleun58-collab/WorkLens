@@ -59,7 +59,8 @@ async function openCase(page: Page, tasks: AxTask[], selectedId = tasks[0].id) {
   await ax(page);
 }
 const clusterButton = (page: Page, count: number) => page.getByRole("button", { name: `해당 위치의 업무 ${count}건`, exact: true });
-const groupPanel = (page: Page, count: number) => page.getByRole("region", { name: `선택 좌표의 업무 ${count}건`, exact: true });
+// 하단 그룹 표는 §3으로 제거됨: 그룹 식별은 우측 목록의 is-group 행(data-same-coord)으로 한다.
+const groupRows = (page: Page) => taskList(page).locator("li[data-same-coord]");
 const taskList = (page: Page) => page.getByLabel("매트릭스 업무 목록", { exact: true });
 // 매트릭스 상세 카드는 §9로 제거됨 — 선택 확인은 우측 목록 행의 aria-pressed로 한다.
 const selectedListRow = (page: Page, name: string) => taskList(page).getByRole("button", { name: new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")) });
@@ -133,36 +134,37 @@ test("Case B: two equal renderer coordinates form one cluster beside one single"
   await expect(trigger.locator(".ax-matrix-cluster-number")).toHaveText("2건");
   // 그룹 마커에는 단일 Gate 색상을 쓰지 않는다(혼합 그룹 오인 방지).
   await expect(trigger).not.toHaveAttribute("data-gate", /./);
+  // 하단 표는 나타나지 않는다. 그룹 마커 클릭은 첫 업무를 선택하고,
+  // 같은 좌표의 나머지 업무는 우측 목록에서 is-group으로 식별한다.
   await trigger.click();
-  const panel = groupPanel(page, 2);
-  await expect(panel.getByRole("heading")).toHaveText("선택 좌표의 업무 2건");
-  await expect(panel.locator("p")).toContainText("가치 4 · 실현 4");
+  await expect(page.locator(".ax-matrix-group-panel")).toHaveCount(0);
+  await expect.poll(async () => (await record(page))?.selectedTaskId).toBe(first.id);
+  await expect(selectedListRow(page, first.name)).toHaveAttribute("aria-pressed", "true");
+  await expect(trigger).toHaveAttribute("data-selected", "true");
+  await expect(groupRows(page)).toHaveCount(1);
+  await expect(groupRows(page).locator(".ax-task-name")).toHaveText(second.name);
   // Raw factors, region and execution gate differ; final x/y still match.
-  await expect(panel.locator("tbody tr")).toHaveCount(2);
-  const firstRow = panel.locator("tbody tr").nth(0), secondRow = panel.locator("tbody tr").nth(1);
-  await expect(firstRow.locator("td").nth(0)).toHaveText("1");
-  await expect(firstRow.locator("td").nth(1)).toContainText(first.name);
-  await expect(firstRow.locator("td").nth(2)).toContainText("고도 자동화 (Level 3)");
-  await expect(secondRow.locator("td").nth(0)).toHaveText("3");
-  await expect(secondRow.locator("td").nth(1)).toContainText(second.name);
-  await expect(secondRow.locator("td").nth(2)).toContainText("부분 자동화 (Level 2)");
+  // 우측 목록에서 각 업무의 Level·Gate 점은 개별 판정 그대로 표시된다.
+  const firstRow = taskList(page).getByRole("listitem").filter({ hasText: first.name });
+  const secondRow = taskList(page).getByRole("listitem").filter({ hasText: second.name });
+  await expect(firstRow).toContainText("고도 자동화 (Level 3)");
+  await expect(secondRow).toContainText("부분 자동화 (Level 2)");
   for (const row of [firstRow, secondRow]) {
-    await expect(row.locator("td").nth(3)).toContainText("확인 후 진행");
     await expect(row.locator(".ax-gate-dot")).toHaveAttribute("data-gate", "conditional");
   }
-  // 표 행 클릭은 업무를 선택하되 표는 유지한다(팝업과 다름).
-  await secondRow.getByRole("button", { name: second.name, exact: true }).click();
-  await expect(panel).toBeVisible();
+  // 목록 행 클릭으로 업무를 전환하면 이전 강조이 해제되고 새 그룹 강조이 따라간다.
+  await selectedListRow(page, second.name).click();
   await expect.poll(async () => (await record(page))?.selectedTaskId).toBe(second.id);
   await expect(trigger).toHaveAttribute("data-selected", "true");
   await expect(selectedListRow(page, second.name)).toHaveAttribute("aria-pressed", "true");
-  // 같은 마커 재클릭 시 표가 닫힌다.
+  await expect(groupRows(page)).toHaveCount(1);
+  await expect(groupRows(page).locator(".ax-task-name")).toHaveText(first.name);
+  // 같은 마커 재클릭은 첫 업무를 다시 선택한다 (표 토글이 아니다).
   await trigger.click();
-  await expect(panel).not.toBeVisible();
-  await trigger.click();
-  await expect(panel).toBeVisible();
+  await expect.poll(async () => (await record(page))?.selectedTaskId).toBe(first.id);
+  await expect(page.locator(".ax-matrix-group-panel")).toHaveCount(0);
   await taskList(page).getByRole("button", { name: new RegExp(single.name) }).click();
-  await expect(panel).not.toBeVisible();
+  await expect(groupRows(page)).toHaveCount(0);
   await expect(trigger).toHaveAttribute("data-selected", "false");
   await expect.poll(async () => (await record(page))?.selectedTaskId).toBe(single.id);
   await expect(selectedListRow(page, single.name)).toHaveAttribute("aria-pressed", "true");
@@ -186,14 +188,17 @@ test("Case C: five tasks form three-member and two-member clusters without colla
   await expect(matrixList.locator(".ax-matrix-rank").nth(2)).toHaveText("3");
   await expect(matrixList.locator(".ax-task-name").nth(0)).toHaveText(tasks[0].name);
   await clusterButton(page, 3).click();
-  await expect(groupPanel(page, 3).locator("tbody tr")).toHaveCount(3);
-  await groupPanel(page, 3).locator("tbody tr").last().getByRole("button", { name: tasks[2].name, exact: true }).click();
-  await expect(groupPanel(page, 3)).toBeVisible();
+  await expect(page.locator(".ax-matrix-group-panel")).toHaveCount(0);
+  await expect.poll(async () => (await record(page))?.selectedTaskId).toBe(tasks[0].id);
+  await expect(groupRows(page)).toHaveCount(2);
+  await selectedListRow(page, tasks[2].name).click();
   await expect.poll(async () => (await record(page))?.selectedTaskId).toBe(tasks[2].id);
+  await expect(groupRows(page)).toHaveCount(2);
   await clusterButton(page, 2).click();
-  await expect(groupPanel(page, 2).locator("tbody tr")).toHaveCount(2);
-  await expect(groupPanel(page, 3)).toHaveCount(0);
-  await groupPanel(page, 2).locator("tbody tr").last().getByRole("button", { name: tasks[4].name, exact: true }).click();
+  await expect.poll(async () => (await record(page))?.selectedTaskId).toBe(tasks[3].id);
+  await expect(groupRows(page)).toHaveCount(1);
+  await expect(groupRows(page).locator(".ax-task-name")).toHaveText(tasks[4].name);
+  await selectedListRow(page, tasks[4].name).click();
   await expect.poll(async () => (await record(page))?.selectedTaskId).toBe(tasks[4].id);
   await expect(clusterButton(page, 3)).toHaveAttribute("data-selected", "false");
   await expect(clusterButton(page, 2)).toHaveAttribute("data-selected", "true");
@@ -207,9 +212,10 @@ test("Case D: factor correction splits a cluster and AI reset restores it withou
   const first = clusterTask("factor-a"), second = clusterTask("factor-b");
   await openCase(page, [first, second]);
   await clusterButton(page, 2).click();
-  await expect(groupPanel(page, 2)).toBeVisible();
+  await expect(page.locator(".ax-matrix-group-panel")).toHaveCount(0);
+  await expect(groupRows(page)).toHaveCount(1);
   await page.getByRole("tab", { name: "업무 진단", exact: true }).click();
-  await expect(groupPanel(page, 2)).toHaveCount(0);
+  await expect(page.locator(".ax-matrix-group-panel")).toHaveCount(0);
   await page.getByRole("button", { name: /진단 항목 상세/ }).click();
   await page.getByRole("button", { name: "반복성 1점", exact: true }).click();
   await page.getByRole("tab", { name: "자동화 매트릭스", exact: true }).click();
@@ -221,7 +227,8 @@ test("Case D: factor correction splits a cluster and AI reset restores it withou
   await page.getByRole("tab", { name: "자동화 매트릭스", exact: true }).click();
   await expect(clusterButton(page, 2)).toBeVisible();
   await expect(clusterButton(page, 2).locator(".ax-matrix-cluster-number")).toHaveText("2건");
-  await expect(groupPanel(page, 2)).toHaveCount(0);
+  await expect(page.locator(".ax-matrix-group-panel")).toHaveCount(0);
+  await expect(groupRows(page)).toHaveCount(1);
   await expect.poll(async () => (await record(page))?.tasks.find(task => task.id === first.id)?.diagnosis?.factors[0].finalValue).toBeUndefined();
 });
 
@@ -242,9 +249,10 @@ test("Case E: rediagnosis, deletion and import replace grouping and membership",
   await importData(page, { ...emptyAxState(), tasks: [first, second], selectedTaskId: first.id, step: 3 });
   await expect(clusterButton(page, 2)).toBeVisible();
   await clusterButton(page, 2).click();
-  await expect(groupPanel(page, 2)).toBeVisible();
+  await expect(page.locator(".ax-matrix-group-panel")).toHaveCount(0);
+  await expect(groupRows(page)).toHaveCount(1);
   await page.getByRole("tab", { name: "업무 등록", exact: true }).click();
-  await expect(groupPanel(page, 2)).toHaveCount(0);
+  await expect(page.locator(".ax-matrix-group-panel")).toHaveCount(0);
   await page.getByLabel("등록 업무 목록", { exact: true }).locator("li").filter({ hasText: second.name }).getByRole("button", { name: "업무 삭제", exact: true }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: "삭제", exact: true }).click();
   await page.getByRole("tab", { name: "자동화 매트릭스", exact: true }).click();
@@ -258,7 +266,7 @@ test("Case E: rediagnosis, deletion and import replace grouping and membership",
   await expect.poll(async () => (await record(page))?.selectedTaskId).toBe(second.id);
 });
 
-for (const width of [1440, 390]) test(`Case F: keyboard, Escape focus, outside/step close and full-width panel at ${width}px`, async ({ page }) => {
+for (const width of [1440, 390]) test(`Case F: keyboard selection, no group panel, and no overflow at ${width}px`, async ({ page }) => {
   await page.setViewportSize({ width, height: 844 });
   const tasks = Array.from({ length: 100 }, (_, index) => clusterTask(`max-${index + 1}`));
   await openCase(page, tasks);
@@ -272,60 +280,59 @@ for (const width of [1440, 390]) test(`Case F: keyboard, Escape focus, outside/s
   });
   for (const gap of [geometry.yGap, geometry.xGap]) { expect(gap).toBeGreaterThanOrEqual(12); expect(gap).toBeLessThanOrEqual(16); }
   expect(Math.abs(geometry.yCenter)).toBeLessThanOrEqual(2); expect(Math.abs(geometry.xCenter)).toBeLessThanOrEqual(2);
-  const trigger = clusterButton(page, 100), panel = groupPanel(page, 100);
+  const trigger = clusterButton(page, 100);
   await expect(trigger.locator(".ax-matrix-cluster-number")).toHaveText("100건");
+  // 키보드 활성화는 첫 업무를 선택하고 하단 표를 만들지 않는다.
   await trigger.focus(); await page.keyboard.press("Enter");
-  await expect(panel).toBeVisible();
-  await expect(panel.getByRole("heading")).toHaveText("선택 좌표의 업무 100건");
-  await expect(panel.locator("tbody tr")).toHaveCount(100);
+  await expect(page.locator(".ax-matrix-group-panel")).toHaveCount(0);
+  await expect.poll(async () => (await record(page))?.selectedTaskId).toBe(tasks[0].id);
+  await expect(groupRows(page)).toHaveCount(99);
+  await expect(trigger).toHaveAttribute("data-selected", "true");
   await page.keyboard.press("Escape");
-  await expect(panel).not.toBeVisible(); await expect(trigger).toBeFocused();
-  await page.keyboard.press("Space"); await expect(panel).toBeVisible();
-  const panelBox = (await panel.boundingBox())!;
-  expect(panelBox.x).toBeGreaterThanOrEqual(0);
-  expect(panelBox.x + panelBox.width).toBeLessThanOrEqual(width);
+  await expect(trigger).toBeFocused();
+  // "Cluster max-1"은 max-10~19·max-100과 부분 일치하므로 이름 정규식이 아니라
+  // 유일한 pressed 행으로 선택을 확인한다.
+  await expect(taskList(page).locator('button[aria-pressed="true"]')).toHaveCount(1);
+  await expect(taskList(page).locator('button[aria-pressed="true"]')).toContainText(tasks[0].name);
+  await page.keyboard.press("Space");
+  await expect.poll(async () => (await record(page))?.selectedTaskId).toBe(tasks[0].id);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: `artifacts/ax/cluster-100-${width}-${test.info().project.name}.png` });
   await page.getByRole("heading", { name: "자동화 매트릭스", exact: true }).click();
-  await expect(panel).not.toBeVisible();
-  await trigger.click();
-  await panel.locator("tbody tr").last().getByRole("button", { name: tasks[99].name, exact: true }).click();
+  await expect(page.locator(".ax-matrix-group-panel")).toHaveCount(0);
+  await selectedListRow(page, tasks[99].name).click();
   await expect.poll(async () => (await record(page))?.selectedTaskId).toBe(tasks[99].id);
-  // 표 행 클릭은 표를 유지한다.
-  await expect(panel).toBeVisible();
-  await trigger.click();
-  await expect(panel).not.toBeVisible();
+  await expect(groupRows(page)).toHaveCount(99);
+  await expect(page.locator(".ax-matrix-group-panel")).toHaveCount(0);
   await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();
-  await expect(panel).toHaveCount(0);
+  await expect(page.locator(".ax-matrix-group-panel")).toHaveCount(0);
   await page.getByRole("tab", { name: "자동화 매트릭스", exact: true }).click();
-  await expect(panel).toHaveCount(0);
+  await expect(page.locator(".ax-matrix-group-panel")).toHaveCount(0);
   await expect(selectedListRow(page, tasks[99].name)).toHaveAttribute("aria-pressed", "true");
   await expect(trigger).toHaveAttribute("data-selected", "true");
 });
 
-test("Cluster panel keeps long names on one line with ellipsis and selects on row click", async ({ page }) => {
+test("Cluster list keeps long names on one line with ellipsis and selects on row click", async ({ page }) => {
   const longName = "시설 보수 요청 검토 및 업체 선정과 사후 점검 결과 보고까지 포함하는 아주 긴 업무 이름";
   const first = { ...clusterTask("long-a"), name: longName };
   const second = clusterTask("long-b");
   await openCase(page, [first, second]);
   await clusterButton(page, 2).click();
-  const panel = groupPanel(page, 2);
-  await expect(panel).toBeVisible();
-  const name = panel.locator("tbody tr").first().getByRole("button", { name: longName, exact: true });
+  await expect(page.locator(".ax-matrix-group-panel")).toHaveCount(0);
+  await expect.poll(async () => (await record(page))?.selectedTaskId).toBe(first.id);
+  const name = taskList(page).getByRole("listitem").filter({ hasText: longName }).locator(".ax-task-name");
   await expect(name).toHaveText(longName);
   await expect(name).toHaveAttribute("title", longName);
   const nameMetrics = await name.evaluate(element => ({ scrollWidth: element.scrollWidth, clientWidth: element.clientWidth, rects: element.getClientRects().length }));
   expect(nameMetrics.scrollWidth).toBeGreaterThan(nameMetrics.clientWidth);
   expect(nameMetrics.rects).toBe(1);
-  const firstRow = panel.locator("tbody tr").first();
-  await expect(firstRow.locator("td").nth(3)).toContainText("확인 후 진행");
+  const firstRow = taskList(page).getByRole("listitem").filter({ hasText: longName });
   await expect(firstRow.locator(".ax-gate-dot")).toHaveAttribute("data-gate", "conditional");
-  await expect(firstRow.locator("td").nth(4)).not.toBeEmpty();
-  // 표 행 클릭은 같은 업무를 선택하고 표를 유지한다.
-  await name.click();
-  await expect(panel).toBeVisible();
-  await expect.poll(async () => (await record(page))?.selectedTaskId).toBe(first.id);
-  await expect(selectedListRow(page, longName)).toHaveAttribute("aria-pressed", "true");
+  // 목록 행 클릭으로 같은 좌표의 다른 업무를 선택하면 강조이 따라간다.
+  await selectedListRow(page, second.name).click();
+  await expect.poll(async () => (await record(page))?.selectedTaskId).toBe(second.id);
+  await expect(groupRows(page)).toHaveCount(1);
+  await expect(groupRows(page).locator(".ax-task-name")).toHaveText(longName);
 });
 
 for (const [registered, diagnosed] of [[0, 0], [1, 0], [5, 3], [5, 5]]) test(`Matrix status counts ${registered}/${diagnosed}`, async ({ page }) => {
