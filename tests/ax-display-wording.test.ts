@@ -42,12 +42,11 @@ describe("AX 표시 문구 개선 — 표시 전용 라벨", () => {
     ]);
   });
 
-  it("패널 라벨은 항목명 + (D번호) + 항목명을 쓴다", () => {
-    expect(decisionPanelLabel("D1", "상태")).toBe("대조 기준 (D1) 상태");
-    expect(decisionPanelLabel("D1", "상세")).toBe("대조 기준 (D1) 상세");
-    expect(decisionPanelLabel("D4", "상세")).toBe("결과 상태 (D4) 상세");
-    expect(decisionPanelLabel("D5", "상세", true)).toBe("판단 불가 처리 (D5) 상세 (결과 상태 (D4) 중 하나)");
-    expect(decisionPanelLabel("D5", "상세")).toBe("판단 불가 처리 (D5) 상세");
+  it("패널 라벨은 레퍼런스 형태 D번호 + 상태/상세를 쓴다", () => {
+    expect(decisionPanelLabel("D1", "상태")).toBe("D1 상태");
+    expect(decisionPanelLabel("D1", "상세")).toBe("D1 상세");
+    expect(decisionPanelLabel("D4", "상세")).toBe("D4 상세");
+    expect(decisionPanelLabel("D5", "상세")).toBe("D5 상세");
   });
 
   it("지시문 생성용 DEFS 제목은 표시 변경과 무관하게 기존 값을 유지한다", () => {
@@ -73,7 +72,7 @@ describe("AX 표시 문구 개선 — 01~04 지시문 불변성", () => {
     expect(prompt).toContain("D1 기준과 매칭 — 확정");
     expect(prompt).toContain("D4 결과 상태 — 확정: 정상 · 오류(확정) · 확인 필요");
     expect(prompt).toContain("D5 판단 불가 — 확정: 확인 필요");
-    for (const leaked of ["대조 기준 (D1)", "예상 결과 상태", "업무 규칙 확인 필요", "결과 상태 (D4) 목록에 없습니다"]) {
+    for (const leaked of ["대조 기준 (D1)", "예상 결과 상태", "업무 규칙 확인 필요", "결과 상태 (D4) 목록에 없습니다", "D1 상태", "D1 상세"]) {
       expect(prompt).not.toContain(leaked);
     }
   });

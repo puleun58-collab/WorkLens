@@ -20,30 +20,31 @@ test("AX 진단 간소화: D1~D7 아코디언 단일 펼침·진행률·저장·
   await page.setViewportSize({ width: 1440, height: 900 });
   await registerAndDiagnose(page, "운송장 검증", "운송장 데이터를 입력받아 누락·중복을 검사하고 검증 결과를 출력한다.");
   const decision = page.locator('section[aria-label="결정 지점 확인"]');
-  await expect(decision.getByText("0/7 완료", { exact: true })).toBeVisible();
+  await expect(decision.getByText("0/7 확인 완료", { exact: true })).toBeVisible();
 
   // 기본은 모두 접힘이므로 D1 행을 펼쳐 입력한다. D2를 펼치면 D1이 접히고,
   // 다시 D1을 펼쳐도 미저장 입력이 유지된다.
   await page.getByRole("button", { name: /D1 대조 기준/ }).click();
-  await page.getByLabel("대조 기준 (D1) 상태").selectOption("확정");
-  await page.getByLabel("대조 기준 (D1) 상세").fill("판매내역.xlsx / Sheet1, 주문번호, 누락·초과 판단");
+  await page.getByLabel("D1 상태").selectOption("확정");
+  await page.getByLabel("D1 상세").fill("판매내역.xlsx / Sheet1, 주문번호, 누락·초과 판단");
+  await expect(decision.locator(".ax-decision-counter")).toContainText("/ 2000");
   await page.getByRole("button", { name: /D2 중복 처리/ }).click();
-  await expect(page.getByLabel("대조 기준 (D1) 상세")).toBeHidden();
-  await expect(page.getByLabel("중복 처리 (D2) 상태")).toBeVisible();
+  await expect(page.getByLabel("D1 상세")).toBeHidden();
+  await expect(page.getByLabel("D2 상태")).toBeVisible();
   await page.getByRole("button", { name: /D1 대조 기준/ }).click();
-  await expect(page.getByLabel("대조 기준 (D1) 상세")).toHaveValue("판매내역.xlsx / Sheet1, 주문번호, 누락·초과 판단");
+  await expect(page.getByLabel("D1 상세")).toHaveValue("판매내역.xlsx / Sheet1, 주문번호, 누락·초과 판단");
 
   // 해당 없음이면 상세 입력이 숨겨지고, 되돌리면 다시 보인다.
   await page.getByRole("button", { name: /D3 예외값 처리/ }).click();
-  await page.getByLabel("예외값 처리 (D3) 상태").selectOption("해당 없음");
-  await expect(page.getByLabel("예외값 처리 (D3) 상세")).toHaveCount(0);
-  await page.getByLabel("예외값 처리 (D3) 상태").selectOption("미확정");
-  await expect(page.getByLabel("예외값 처리 (D3) 상세")).toBeVisible();
+  await page.getByLabel("D3 상태").selectOption("해당 없음");
+  await expect(page.getByLabel("D3 상세")).toHaveCount(0);
+  await page.getByLabel("D3 상태").selectOption("미확정");
+  await expect(page.getByLabel("D3 상세")).toBeVisible();
 
   // 저장 후 진행률 갱신 + 저장 플러시 확인 후 새로고침 후 재조회.
   await decision.getByRole("button", { name: "저장", exact: true }).click();
   await expect(decision.getByText("결정 지점을 저장했습니다.", { exact: true })).toBeVisible();
-  await expect(decision.getByText("1/7 완료", { exact: true })).toBeVisible();
+  await expect(decision.getByText("1/7 확인 완료", { exact: true })).toBeVisible();
   // useAxState 저장은 디바운스되므로 플러시될 때까지 poll한 뒤 새로고침한다 (즉시 새로고침하면 저장 전 상태로 복원된다).
   await expect.poll(async () => {
     const value = await page.evaluate(async () => {
@@ -61,15 +62,17 @@ test("AX 진단 간소화: D1~D7 아코디언 단일 펼침·진행률·저장·
   await navigateWorkspace(page, "업무 자동화 진단");
   await expect(page.getByRole("heading", { name: "결정 지점 확인 (D1~D7)" })).toBeVisible();
   await page.getByRole("button", { name: /D1 대조 기준/ }).click();
-  await expect(page.getByLabel("대조 기준 (D1) 상태")).toHaveValue("확정");
-  await expect(page.getByLabel("대조 기준 (D1) 상세")).toHaveValue("판매내역.xlsx / Sheet1, 주문번호, 누락·초과 판단");
+  await expect(page.getByLabel("D1 상태")).toHaveValue("확정");
+  await expect(page.getByLabel("D1 상세")).toHaveValue("판매내역.xlsx / Sheet1, 주문번호, 누락·초과 판단");
 });
 
 test("AX 진단 간소화: 업무 처리 예시 탭 전환 시 초안 유지·삭제·저장", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await registerAndDiagnose(page, "운송장 검증", "운송장 데이터를 입력받아 누락·중복을 검사하고 검증 결과를 출력한다.");
   const examples = page.locator('section[aria-label="업무 처리 예시"]');
-  await page.getByRole("button", { name: "+ 새 예시", exact: true }).click();
+  await expect(examples.getByText("등록된 예시가 없습니다.")).toBeVisible();
+  await expect(examples.getByText("실제 업무 데이터를 바탕으로 예시를 추가하여 처리 규칙을 검증해보세요.")).toBeVisible();
+  await page.getByRole("button", { name: "+ 예시 추가", exact: true }).click();
   await page.getByLabel("예시 1 입력값").fill("입력 A");
   await page.getByRole("button", { name: "+ 새 예시", exact: true }).click();
   await page.getByLabel("예시 2 입력값").fill("입력 B");
@@ -142,7 +145,7 @@ test("AX 진단 간소화: 매트릭스 상세 중복 제거·단일 점수 근�
 test("AX 진단 간소화: 모바일 390에서 예시 2열이 1열로 전환되고 가로 넘침이 없다", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await registerAndDiagnose(page, "운송장 검증", "운송장 데이터를 입력받아 누락·중복을 검사하고 검증 결과를 출력한다.");
-  await page.getByRole("button", { name: "+ 새 예시", exact: true }).click();
+  await page.getByRole("button", { name: "+ 예시 추가", exact: true }).click();
   const cols = page.locator(".ax-example-col");
   await expect(cols).toHaveCount(2);
   const boxes = await cols.evaluateAll(elements => elements.map(element => element.getBoundingClientRect().top));

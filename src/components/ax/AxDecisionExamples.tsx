@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, Trash2 } from "lucide-react";
+import { ChevronDown, FileText, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -26,12 +26,13 @@ export const DECISION_DISPLAY: Record<string, { title: string; question: string 
   D7: { title: "계산 기준", question: "합계·반올림·단위의 기준은 무엇인가요?" },
 };
 
-/** 표시 전용 패널 라벨: 항목명 + (D번호) 형태. 지시문 생성과 무관하다. */
-export function decisionPanelLabel(id: string, kind: "상태" | "상세", d4Note = false): string {
-  const display = DECISION_DISPLAY[id];
-  const base = display ? `${display.title} (${id})` : id;
-  return kind === "상세" && d4Note ? `${base} 상세 (결과 상태 (D4) 중 하나)` : `${base} ${kind}`;
+/** 표시 전용 패널 라벨: 레퍼런스 형태 D번호 + 상태/상세. 지시문 생성과 무관하다. */
+export function decisionPanelLabel(id: string, kind: "상태" | "상세"): string {
+  return `${id} ${kind}`;
 }
+
+/** 결정 지점 상세 입력 제한. 카운터 표시 기준이며 저장 의미를 바꾸지 않는다. */
+const DECISION_DETAIL_MAX_LENGTH = 2000;
 
 const DECISION_BADGE: Record<ResolvedDecisionPoint["status"], string> = {
   "확정": "확정됨",
@@ -76,7 +77,7 @@ export function DecisionPointsSection({ diagnosis, disabled, onSave }: {
         <p className="ax-muted">자동화에 필요한 업무 규칙을 확인합니다. 확정된 내용은 올인원 지시문에 반영됩니다.</p>
       </div>
       <div className="ax-decision-progress">
-        <strong>{confirmedCount}/7 완료</strong>
+        <strong>{confirmedCount}/7 확인 완료</strong>
         <span className="ax-decision-bar" aria-hidden="true"><span style={{ width: `${confirmedCount / 7 * 100}%` }} /></span>
       </div>
     </div>
@@ -105,7 +106,7 @@ export function DecisionPointsSection({ diagnosis, disabled, onSave }: {
             </select>
           </label>
           {point.status === "해당 없음" ? null : point.id === "D5" && d4States ? <>
-            <label className="ax-field">{decisionPanelLabel(point.id, "상세", true)}
+            <label className="ax-field">{decisionPanelLabel(point.id, "상세")}
               <select aria-label={decisionPanelLabel(point.id, "상세")} value={point.detail ?? ""} disabled={disabled}
                 onChange={e => { update(point.id, { detail: e.target.value }); setSaved(false); }}>
                 <option value="">선택하세요</option>
@@ -115,8 +116,9 @@ export function DecisionPointsSection({ diagnosis, disabled, onSave }: {
             </label>
             {d5Mismatch ? <p className="ax-muted" role="status">현재 값이 결과 상태 (D4) 목록에 없습니다. 결과 상태 (D4) 중 하나로 수정하세요. 수정 전까지 기존값이 유지됩니다.</p> : null}
           </> : <label className="ax-field">{decisionPanelLabel(point.id, "상세")}
-            <Textarea rows={4} maxLength={2000} aria-label={decisionPanelLabel(point.id, "상세")} placeholder={def.detailHint} disabled={disabled}
+            <Textarea rows={4} maxLength={DECISION_DETAIL_MAX_LENGTH} aria-label={decisionPanelLabel(point.id, "상세")} placeholder={def.detailHint} disabled={disabled}
               value={point.detail ?? ""} onChange={e => { update(point.id, { detail: e.target.value }); setSaved(false); }} />
+            <span className="ax-decision-counter">{(point.detail ?? "").length} / {DECISION_DETAIL_MAX_LENGTH}</span>
           </label>}
         </div> : null}
       </div>;
@@ -204,7 +206,7 @@ export function ExampleResultsSection({ examples, diagnosis, disabled, onSave }:
       </div>
       <div className="ax-examples-meta">
         <span>{requirement === "required" ? `예시 ${savedCount} / ${EXAMPLE_CONFIRMED_MINIMUM}건` : `예시 ${savedCount}건`}</span>
-        <span>{requirement === "required" ? "필수" : requirement === "recommended" ? "권장" : "업무 규칙 확인 필요"}</span>
+        <span>{requirement === "required" ? "필수" : requirement === "recommended" ? "권장" : "확인 필요"}</span>
         <Button type="button" variant="outline" disabled={disabled} onClick={addExample}>+ 예시 추가</Button>
       </div>
     </div>
@@ -212,14 +214,14 @@ export function ExampleResultsSection({ examples, diagnosis, disabled, onSave }:
       ? <p className="ax-muted">정상·예외 사례를 각각 1건 이상 넣어 주세요. 확정 {EXAMPLE_CONFIRMED_MINIMUM}건 미만이면 &lsquo;업무 처리 예시 미확정&rsquo; 보류 사유가 붙습니다.</p>
       : requirement === "recommended"
         ? <p className="ax-muted">예시는 권장 사항이며, 없어도 보류 사유가 붙지 않습니다. 정상·예외 사례를 각각 1건 이상 넣으면 구현 확인에 도움이 됩니다.</p>
-        : <p className="ax-muted">예시 필수 여부가 아직 정해지지 않았습니다. 대조 기준 (D1)·중복 처리 (D2)·예외값 처리 (D3)·계산 기준 (D7)을 확정하거나 해당 없음으로 확인하면 정해지며, 필수 대상인 경우 확정 {EXAMPLE_CONFIRMED_MINIMUM}건이 필요합니다.</p>}
+        : null}
     {requirement === "required" ? <p className="ax-muted">확정 예시 {countedExamples.length}건</p> : null}
     {invalidExamples.length ? <p className="ax-muted" role="status">저장된 예시 중 {invalidExamples.length}건은 예상 결과가 결과 상태 (D4) 목록에 없어 확정 예시로 세지 않습니다. 예상 결과를 결과 상태 (D4) 중 하나로 고쳐 다시 저장하세요.</p> : null}
-    <div className="ax-example-tabs" role="tablist" aria-label="업무 처리 예시 목록">
+    {drafts.length ? <div className="ax-example-tabs" role="tablist" aria-label="업무 처리 예시 목록">
       {drafts.map((_, i) => <button type="button" key={i} role="tab" aria-selected={i === safeIndex} disabled={disabled}
         className={i === safeIndex ? "is-selected" : ""} onClick={() => setSelectedIndex(i)}>예시 {i + 1}</button>)}
       <button type="button" disabled={disabled} onClick={addExample}>+ 새 예시</button>
-    </div>
+    </div> : null}
     {selected ? <div className="ax-example-detail">
       <div className="ax-example-cols">
         <div className="ax-example-col">
@@ -260,9 +262,13 @@ export function ExampleResultsSection({ examples, diagnosis, disabled, onSave }:
         <Textarea rows={2} maxLength={1000} aria-label={`예시 ${safeIndex + 1} 메모`} disabled={disabled}
           value={selected.memo} onChange={e => { update(safeIndex, { memo: e.target.value }); setSaved(false); }} />
       </label>
-    </div> : <p className="ax-muted ax-example-empty">예시가 없습니다. 새 예시를 추가하세요.</p>}
+    </div> : <div className="ax-example-empty">
+      <span className="ax-example-empty-icon" aria-hidden="true"><FileText size={24} /></span>
+      <strong>등록된 예시가 없습니다.</strong>
+      <p>실제 업무 데이터를 바탕으로 예시를 추가하여 처리 규칙을 검증해보세요.</p>
+    </div>}
     <div className="ax-example-actions">
-      <Button type="button" variant="ghost" disabled={disabled || !selected} aria-label={`예시 ${safeIndex + 1} 삭제`} onClick={removeSelected}><Trash2 size={15} aria-hidden="true" />예시 삭제</Button>
+      {selected ? <Button type="button" variant="ghost" disabled={disabled} aria-label={`예시 ${safeIndex + 1} 삭제`} onClick={removeSelected}><Trash2 size={15} aria-hidden="true" />예시 삭제</Button> : <span aria-hidden="true" />}
       <Button type="button" disabled={disabled} onClick={save}>저장</Button>
     </div>
     {error ? <p className="ax-muted" role="alert">{error}</p> : null}
