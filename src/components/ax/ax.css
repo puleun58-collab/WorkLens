@@ -1068,7 +1068,7 @@
 }
 
 /* 결정 지점 확인 (D1~D7) — 레퍼런스 가로형 아코디언 */
-.ax-decision { border-left: 4px solid var(--primary); }
+.ax-decision, .ax-examples { border-left: 1.5px solid var(--border); box-shadow: none; }
 .ax-decision-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
 .ax-decision-head h3 { margin: 0 0 4px; }
 .ax-decision-head p { margin: 0; }
@@ -1078,6 +1078,7 @@
 .ax-decision-bar > span { display: block; height: 100%; background: var(--primary); border-radius: 999px; }
 .ax-decision-row { border: 1px solid var(--border); border-radius: 10px; margin-top: 8px; overflow: hidden; background: var(--card); }
 .ax-decision-row[data-status="확정"] { background: color-mix(in srgb, #16a34a 4%, var(--card)); }
+.ax-decision-row.is-open { background: color-mix(in srgb, var(--primary) 4%, var(--card)); border-color: color-mix(in srgb, var(--primary) 30%, var(--border)); }
 .ax-decision-row-head { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 56px; padding: 10px 14px; background: transparent; border: 0; cursor: pointer; text-align: left; color: var(--foreground); }
 .ax-decision-row-head:disabled { cursor: default; }
 .ax-decision-row-head:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
@@ -1091,9 +1092,10 @@
 .ax-decision-badge[data-status="해당 없음"] { background: #edf1f6; color: #43536b; border-color: #d5dce6; }
 .ax-decision-row-head > svg { flex: none; color: var(--muted-foreground); transition: transform 150ms ease; }
 .ax-decision-row-head > svg.is-open { transform: rotate(180deg); }
-.ax-decision-panel { display: flex; flex-direction: column; gap: 12px; padding: 4px 14px 16px 62px; border-top: 1px solid var(--border); }
-.ax-decision-save { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 16px; }
-.ax-decision-save p { margin: 0; }
+.ax-decision-panel { display: flex; flex-direction: column; gap: 12px; padding: 12px 14px 16px 62px; border-top: 1px solid var(--border); }
+.ax-decision-panel textarea { min-height: 96px; padding: 10px 12px; }
+.ax-decision-save { display: flex; align-items: center; justify-content: flex-end; gap: 12px; flex-wrap: wrap; margin-top: 16px; }
+.ax-decision-save p { margin: 0; margin-right: auto; }
 
 /* 업무 처리 예시 — 탭형 UI + 입력/예상 결과 2열 */
 .ax-examples-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }
@@ -1111,6 +1113,7 @@
 .ax-example-col { min-width: 0; display: flex; flex-direction: column; gap: 10px; }
 .ax-example-col h4 { margin: 0; font-size: var(--font-size-sm); }
 .ax-example-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 16px; }
+.ax-example-empty { text-align: center; padding: 28px 16px; margin: 0; }
 @media (max-width: 700px) {
   .ax-example-cols { grid-template-columns: minmax(0, 1fr); }
   .ax-decision-panel { padding-left: 14px; }
