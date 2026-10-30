@@ -261,8 +261,9 @@ test("AX registration → diagnosis → correction → matrix → plans → relo
   await expect(page.getByRole("button", { name: "Codex용 올인원 지시문 복사", exact: true })).toBeVisible();
   const head = packageSection.locator(".ax-plan-head");
   await expect(head.getByRole("heading", { name: "자동화 구현 계획", exact: true })).toBeVisible();
-  await expect(head).toContainText("월간 취합");
-  await expect(head).toContainText("확인 후 진행");
+  // 계획 헤더 통합(§2.4): 업무명은 선택 업무 헤더에, Gate 배지는 통합 목록 행에 표시된다.
+  await expect(page.locator(".ax-selected-report .ax-report-intro")).toContainText("월간 취합");
+  await expect(list.getByRole("listitem").filter({ has: page.locator(".ax-task-name", { hasText: "월간 취합" }) })).toContainText("확인 후 진행");
   const summary = packageSection.getByRole("region", { name: "구현 범위·완료 기준", exact: true });
   const precheck = packageSection.getByRole("region", { name: "구현 전 확인", exact: true });
   await expect(summary).toContainText("담당자 승인");
@@ -1319,7 +1320,8 @@ for (const width of [1440, 390]) {
     const section = page.getByRole("region", { name: "자동화 구현 계획", exact: true });
     const summary = section.locator("section[aria-label='구현 범위·완료 기준']");
     const precheck = section.locator("section[aria-label='구현 전 확인']");
-    await expect(section.locator(".ax-plan-head")).toContainText(task.name);
+    // 계획 헤더 통합(§2.4): 업무명은 선택 업무 헤더에 표시된다.
+    await expect(page.locator(".ax-report-intro")).toContainText(task.name);
     await expect(summary).toContainText("담당자 승인");
     await expect(summary).toContainText("누락 발생");
     for (const [tool, target, plan, other] of [["Codex", "codex", codex, claude], ["Claude Code", "claude", claude, codex]] as const) {
@@ -1337,7 +1339,7 @@ for (const width of [1440, 390]) {
       for (const item of plan.outOfScope) await expect(summary).toContainText(item);
       const permitted = summary.locator('[data-scope-group="include"]');
       for (const item of [...plan.inScope, ...plan.implementation]) await expect(permitted).not.toContainText(item);
-      // 요약 목록에는 동작 버튼이 없다 (①의 '업무 진단에서 확인' 이동 버튼은 별도 영역).
+      // 요약 목록에는 동작 버튼이 없다 (①의 동작별 이동 버튼은 별도 영역).
       await expect(summary.getByRole("button")).toHaveCount(0);
       const raw = buildAllInOnePrompt(plan, target, { taskName: task.name, prerequisites: ["시스템 접근 — API와 권한 실제 확인", "권한 확인 후 진행"], diagnosis: diagnosisFixture, context: task.description });
       await expect(section.locator(".ax-prompt")).toHaveText(raw);
@@ -1381,9 +1383,12 @@ for (const level of [0, 1, 2, 3]) {
       const section = page.getByRole("region", { name: "자동화 구현 계획", exact: true });
       const summary = section.getByRole("region", { name: "구현 범위·완료 기준", exact: true });
       const precheck = section.getByRole("region", { name: "구현 전 확인", exact: true });
-      await expect(section.locator(".ax-plan-head")).toContainText(`Level ${level}`);
-      await expect(section.locator(".ax-plan-head")).toContainText(gate === "ready" ? "진행 가능" : gate === "blocked" ? "진행 보류" : "확인 후 진행");
-      await expect(section.locator(".ax-plan-head")).toContainText(task.name);
+      // 계획 헤더 통합(§2.4): 업무명·Level은 선택 업무 헤더에 표시된다.
+      // Gate 문구는 ① 확인 배지·항목과 생성 버튼 상태로 구분한다(아래 단언 참조).
+      const intro = page.locator(".ax-report-intro");
+      await expect(intro).toContainText(`Level ${level}`);
+      await expect(intro).toContainText(task.name);
+      if (gate === "blocked") await expect(precheck).toContainText("진행 보류");
       await expect(summary).toContainText("담당자 승인");
       await expect(summary).toContainText("누락 발생");
       // 실행 로드맵·Phase 카드·진단 요약 카드는 간소화로 제거됐다. 단계별 처리 범위
@@ -1455,7 +1460,8 @@ test("AX Level 0 keeps generated implementation suggestions subordinate to diagn
   await ax(page);
   const section = page.getByRole("region", { name: "자동화 구현 계획", exact: true });
   const summary = section.locator("section[aria-label='구현 범위·완료 기준']");
-  await expect(section.locator(".ax-plan-head")).toContainText("Level 0");
+  // 계획 헤더 통합(§2.4): Level은 선택 업무 헤더에 표시된다.
+  await expect(page.locator(".ax-report-intro")).toContainText("Level 0");
   const permitted = summary.locator('[data-scope-group="include"]');
   await expect(permitted).toContainText("샘플 데이터 형식·필수 항목 확인");
   await expect(summary).not.toContainText(planFixture.inScope[0]);
@@ -1680,7 +1686,8 @@ test("AX partial diagnoses preserve selected task plans, tool prompts, copy and 
   const plans = page.getByRole("region", { name: "자동화 구현 계획", exact: true });
   for (const name of ["A", "B"]) {
     await top.getByRole("listitem").filter({ has: page.locator(".ax-task-name", { hasText: new RegExp(`^${name}$`) }) }).getByRole("button").click();
-    await expect(plans.locator(".ax-plan-head")).toContainText(name);
+    // 계획 헤더 통합(§2.4): 업무명은 선택 업무 헤더에 표시된다.
+    await expect(page.locator(".ax-report-intro h2")).toHaveText(name);
     const scope = plans.getByRole("region", { name: "구현 범위·완료 기준", exact: true });
     await expect(scope).not.toContainText(`${name === "A" ? "B" : "A"}-codex-독립 구현`);
     for (const tool of ["Codex", "Claude Code"]) {
@@ -1694,7 +1701,8 @@ test("AX partial diagnoses preserve selected task plans, tool prompts, copy and 
     await plans.getByRole("button", { name: "전체 보기", exact: true }).click();
   }
   await top.getByRole("listitem").filter({ has: page.locator(".ax-task-name", { hasText: /^C$/ }) }).getByRole("button").click();
-  await expect(plans.locator(".ax-plan-head")).toContainText("C");
+  // 계획 헤더 통합(§2.4): 업무명은 선택 업무 헤더에 표시된다.
+  await expect(page.locator(".ax-report-intro h2")).toHaveText("C");
   await expect(plans.getByRole("region", { name: "구현 범위·완료 기준", exact: true })).not.toContainText("B-claude-독립 구현");
   await expect(plans.locator(".ax-prompt")).toHaveCount(0);
   await expect(plans.getByRole("button", { name: "전체 보기", exact: true })).toHaveCount(0);
@@ -1711,7 +1719,8 @@ test("AX partial diagnoses preserve selected task plans, tool prompts, copy and 
     await plans.getByRole("tab", { name: tool, exact: true }).click();
     await expect(plans.locator(".ax-prompt")).toContainText(`${name}-${target}-독립 구현`);
     await expect(plans.locator(".ax-prompt")).not.toContainText("C-codex-독립 구현");
-    await expect(plans.locator(".ax-plan-head")).toContainText(name);
+    // 계획 헤더 통합(§2.4): 업무명은 선택 업무 헤더에 표시된다.
+    await expect(page.locator(".ax-report-intro h2")).toHaveText(name);
     await expect(plans.getByRole("region", { name: "구현 범위·완료 기준", exact: true })).not.toContainText("독립 구현");
     await expect(plans.getByRole("button", { name: "전체 보기", exact: true })).toHaveAttribute("aria-expanded", "false");
     await expect(plans.getByRole("button", { name: `${tool}용 올인원 지시문 복사`, exact: true })).not.toHaveAttribute("data-copied", "true");

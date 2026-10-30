@@ -89,8 +89,11 @@ test("① 구현 전 확인: 미완료 항목 목록 + 중복 제거", async ({ 
   for (const text of ["파일 시스템 접근 권한", "사내 시스템 UI 연동 여부", "데이터 구조·검증 규칙 정의"]) {
     await expect(block.locator(".ax-precheck-item").filter({ hasText: text }).first()).toBeVisible();
   }
-  // 각 항목에는 업무 진단으로 이동하는 버튼이 있다.
-  await expect(block.getByRole("button", { name: "업무 진단에서 확인", exact: true })).toHaveCount(8);
+  // 각 항목에는 실제 확인·수정 위치로 이동하는 버튼이 있다.
+  // 반복 문구 "업무 진단에서 확인"은 쓰지 않는다 (7건은 확인 사항, 1건은 규칙 확인).
+  await expect(block.getByRole("button", { name: "업무 진단에서 확인", exact: true })).toHaveCount(0);
+  await expect(block.getByRole("button", { name: "확인 사항 보기", exact: true })).toHaveCount(7);
+  await expect(block.getByRole("button", { name: "규칙 확인", exact: true })).toHaveCount(1);
   const overflow = await block.evaluate(el => el.scrollWidth - el.clientWidth);
   expect(overflow).toBeLessThanOrEqual(1);
   await block.screenshot({ path: reviewShotPath("prereq-desktop-1440x900.png") });

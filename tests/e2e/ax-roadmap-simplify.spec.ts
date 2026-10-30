@@ -57,7 +57,8 @@ test("AX roadmap simplify: KPI 2개 · 통합 목록 · 제거 영역 부재 · 
   // ① 미완료 항목만 표시되고, ② 범위·기준 요약이 보인다.
   const pre = plan.getByRole("region", { name: "구현 전 확인", exact: true });
   await expect(pre).toBeVisible();
-  await expect(pre.getByRole("button", { name: "업무 진단에서 확인", exact: true }).first()).toBeVisible();
+  // 이동 버튼 문구는 동작별로 표시된다(§2.6): ① 영역의 첫 이동 버튼이 보인다.
+  await expect(pre.getByRole("button").first()).toBeVisible();
   const summary = plan.getByRole("region", { name: "구현 범위·완료 기준", exact: true });
   await expect(summary).toBeVisible();
   await expect(summary.locator('[data-scope-group="criteria"]')).toBeVisible();
@@ -112,7 +113,8 @@ test("AX roadmap simplify: ① 이동 버튼은 업무 진단으로 이동하고
   await expect(pre).toContainText("B 전용 확인");
   await expect(pre).not.toContainText("A 전용 확인");
   // 이동 버튼은 업무 진단 탭으로 이동한다.
-  await pre.getByRole("button", { name: "업무 진단에서 확인", exact: true }).first().click();
+  // B 전용 확인 항목의 이동 버튼(확인 사항 보기)이 업무 진단 탭으로 이동한다.
+  await pre.locator("li", { hasText: "B 전용 확인" }).getByRole("button").first().click();
   await expect(page.getByRole("tab", { name: "업무 진단", exact: true })).toHaveAttribute("aria-selected", "true");
 });
 

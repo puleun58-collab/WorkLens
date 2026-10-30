@@ -84,7 +84,9 @@ for (const width of [1440, 390]) test(`AX two-task ID-linked four-stage flow, in
   }
   await page.locator(".ax-bubble").and(page.getByRole("button", { name: /^업무 A ·/ })).click();
   await step(page, "결과·로드맵"); await expect(page.locator(".ax-report-intro h2")).toHaveText("업무 A");
-  await expect(page.locator(".ax-plan-head")).toContainText("Level 2"); await expect(page.locator(".ax-plan-head")).toContainText("확인 후 진행");
+  // 계획 헤더 통합(§2.4): Level은 선택 업무 헤더에, Gate 배지는 통합 목록 행에 표시된다.
+  await expect(page.locator(".ax-report-intro")).toContainText("Level 2");
+  await expect(page.locator(".ax-step4-overview .ax-priority-list").first().getByRole("listitem").filter({ has: page.locator(".ax-task-name", { hasText: "업무 A" }) })).toContainText("확인 후 진행");
   for (const row of expected) {
     const top = page.locator(".ax-step4-overview .ax-priority-list").first();
     const item = top.getByRole("listitem").filter({ has: page.locator(".ax-task-name", { hasText: row.name }) });
