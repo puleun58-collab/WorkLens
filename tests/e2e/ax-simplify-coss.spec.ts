@@ -1,0 +1,123 @@
+import { expect, test, type Page } from "@playwright/test";
+import { navigateWorkspace } from "./navigation";
+import { outputFixture, planFixture } from "../fixtures/ax";
+
+async function registerAndDiagnose(page: Page) {
+  const diagnosis = outputFixture();
+  diagnosis.asIs.steps = [...diagnosis.asIs.steps, "별도 수동 매칭"];
+  diagnosis.technicalChecks = [
+    { topic: "시스템 접근", status: "확인 필요", note: "API와 권한 실제 확인" },
+    { topic: "D4 결과 상태", status: "확인 필요", note: "결과 상태 목록 미확정" },
+    { topic: "외부 전송 조건", status: "확인 필요", note: "HITL 검토 필요: 외부 전송 전 확인" },
+    { topic: "구현 계획 검토", status: "확인 필요", note: "계획 항목 검토" },
+    { topic: "업무 정보 누락", status: "확인 필요", note: "업무 설명 보완 필요" },
+  ];
+  await page.route("**/api/ai", async route => {
+    const req = route.request().postDataJSON();
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: req.kind === "ax-plan" ? { kind: "ax-plan", plan: planFixture } : { kind: "ax-diagnosis", diagnosis } }) });
+  });
+  await page.goto("/");
+  await navigateWorkspace(page, "업무 자동화 진단");
+  await expect(page.getByRole("heading", { name: "업무 자동화 진단", exact: true })).toBeVisible();
+  await page.getByLabel("업무명", { exact: true }).fill("운송장 검증");
+  await page.getByLabel("업무 설명", { exact: true }).fill("운송장 데이터를 입력받아 누락·중복을 검사하고 검증 결과를 출력한다.");
+  await page.getByRole("button", { name: "업무 등록", exact: true }).click();
+  await page.getByRole("button", { name: "다음 단계" }).click();
+  await page.getByRole("button", { name: "업무 진단 실행", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "결정 지점 확인 (D1~D7)" })).toBeVisible();
+}
+
+async function confirmDecision(page: Page, rowPattern: RegExp, statusLabel: string) {
+  // 기본은 모두 접힘이므로, 이미 펼쳐진 행은 다시 클릭하지 않는다(접힘 방지).
+  const head = page.getByRole("button", { name: rowPattern });
+  if ((await head.getAttribute("aria-expanded")) !== "true") await head.click();
+  await page.getByLabel(statusLabel).selectOption("확정");
+}
+
+test("AX 간소화·COSS 통일: 판단 하단 문구 제거·매트릭스 버튼 제거·다음 행동 형식·로드맵 헤더·확인사항 이동", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await registerAndDiagnose(page);
+
+  // A. 판단 표에 없는 AS-IS 단계 문구가 표시되지 않는다.
+  await expect(page.getByText(/판단 표에 없는 AS-IS 단계/)).toHaveCount(0);
+
+  // D1·D2·D3·D7 확정 → 예시 필수 여부가 정해져 step 4에 예시 미확정 항목이 생긴다.
+  await confirmDecision(page, /D1 대조 기준/, "대조 기준 (D1) 상태");
+  await confirmDecision(page, /D2 중복 처리/, "중복 처리 (D2) 상태");
+  await confirmDecision(page, /D3 예외값 처리/, "예외값 처리 (D3) 상태");
+  await confirmDecision(page, /D7 계산 기준/, "계산 기준 (D7) 상태");
+  await page.locator('section[aria-label="결정 지점 확인"]').getByRole("button", { name: "저장", exact: true }).click();
+  await expect(page.locator('section[aria-label="결정 지점 확인"]').getByText("4/7 완료", { exact: true })).toBeVisible();
+
+  // B. 매트릭스 상세에는 업무 진단으로 이동 버튼이 없다.
+  await page.getByRole("button", { name: "다음 단계" }).click();
+  await expect(page.locator('section[aria-label$="매트릭스 상세"]')).toBeVisible();
+  await expect(page.locator('section[aria-label$="매트릭스 상세"]').getByRole("button", { name: "업무 진단으로 이동" })).toHaveCount(0);
+
+  // C·D. 결과·로드맵: 다음 행동 형식, 로드맵 헤더 버튼 유지, 계획 헤더 중복 제거.
+  await page.getByRole("button", { name: "다음 단계" }).click();
+  const nextAction = page.locator(".ax-next-action").first();
+  await expect(nextAction).toBeVisible();
+  await expect(nextAction).not.toContainText("먼저 확인");
+  await expect(nextAction).not.toContainText("—");
+  await expect(nextAction).toContainText("다음 행동");
+  await expect(page.locator(".ax-report-intro").getByRole("button", { name: "업무 진단으로 이동" })).toBeVisible();
+  await expect(page.locator("#ax-plan-section .ax-plan-head")).not.toContainText("운송장 검증");
+
+  const precheck = page.locator('section[aria-label="구현 전 확인"]');
+  await expect(precheck).toBeVisible();
+  // 반복 문구 제거: 기존 "업무 진단에서 확인" 버튼은 precheck에 남아 있지 않다.
+  await expect(precheck.getByRole("button", { name: "업무 진단에서 확인" })).toHaveCount(0);
+  await expect(precheck.getByText("업무 처리 예시 미확정")).toBeVisible();
+
+  // 계획 생성 후 계획 검토 표가 생기면, 계획 검토 버튼이 해당 표로 이동한다.
+  await page.getByRole("button", { name: "Codex용 구현 계획 생성" }).click();
+  await expect(page.getByRole("heading", { name: "구현 계획 검토" })).toBeVisible();
+  await expect(page.locator('section[aria-label="구현 계획 검토"]')).toContainText("검토 필요");
+  await expect(precheck.getByRole("button", { name: "계획 검토" })).toBeVisible();
+  await precheck.getByRole("button", { name: "계획 검토" }).click();
+  await expect(page.locator("#ax-plan-review")).toBeInViewport();
+
+  // E. HITL 검토 버튼은 단계별 HITL 검토 표로 이동한다.
+  await precheck.getByRole("button", { name: "HITL 검토" }).click();
+  await expect(page.locator("#ax-step-review")).toBeInViewport();
+
+  // E. 규칙 확인 버튼은 D4 결정 지점 행으로 이동하고 해당 행이 펼쳐진다.
+  await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();
+  await expect(precheck).toBeVisible();
+  await precheck.getByRole("button", { name: "규칙 확인" }).click();
+  await expect(page.locator("#ax-decision-D4")).toBeInViewport();
+  await expect(page.locator("#ax-decision-D4 .ax-decision-row-head")).toHaveAttribute("aria-expanded", "true");
+
+  // E. 예시 확인 버튼은 업무 처리 예시 영역으로 이동한다.
+  await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();
+  await precheck.getByRole("button", { name: "예시 확인" }).click();
+  await expect(page.locator("#ax-example-results")).toBeInViewport();
+
+  // E. 저장 후 결과·로드맵 복귀: 예시를 저장하고 로드맵으로 돌아가면 같은 업무가 유지된다.
+  await page.getByRole("button", { name: "+ 새 예시", exact: true }).click();
+  await page.getByLabel("예시 1 입력값").fill("운송장 WB-001, 중량 10kg");
+  await page.getByLabel("예시 1 예상 결과 상태").fill("정상");
+  await page.locator('section[aria-label="업무 처리 예시"]').getByRole("button", { name: "저장", exact: true }).click();
+  await expect(page.locator('section[aria-label="업무 처리 예시"]').getByText("업무 처리 예시를 저장했습니다.", { exact: true })).toBeVisible();
+  await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();
+  await expect(page.locator(".ax-report-intro h2")).toContainText("운송장 검증");
+  await expect(precheck).toBeVisible();
+
+  // E. 업무 정보 수정 버튼은 등록·수정 폼으로 이동한다.
+  await precheck.getByRole("button", { name: "업무 정보 수정" }).click();
+  await expect(page.getByRole("heading", { name: "등록 정보 수정" })).toBeVisible();
+  await expect(page.getByLabel("업무명", { exact: true })).toHaveValue("운송장 검증");
+});
+
+test("AX 간소화·COSS 통일: 모바일 390에서 목록·다음 행동이 넘치지 않는다", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await registerAndDiagnose(page);
+  await page.getByRole("button", { name: "다음 단계" }).click();
+  await page.getByRole("button", { name: "다음 단계" }).click();
+  const nextAction = page.locator(".ax-next-action").first();
+  await expect(nextAction).toBeVisible();
+  await expect(nextAction).not.toContainText("먼저 확인");
+  const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
+  expect(scrollWidth).toBeLessThanOrEqual(391);
+});

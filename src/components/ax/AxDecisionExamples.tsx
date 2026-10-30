@@ -70,7 +70,7 @@ export function DecisionPointsSection({ diagnosis, disabled, onSave }: {
   };
   // D5 선택형 UI용 D4 확정 상태 목록. D4 미확정 시에는 기존 자유 입력 유지한다.
   const d4States = confirmedStateNames(drafts);
-  return <section className="ax-surface ax-decision" aria-label="결정 지점 확인">
+  return <section className="ax-surface ax-decision" id="ax-decision-points" aria-label="결정 지점 확인">
     <div className="ax-decision-head">
       <div>
         <h3>결정 지점 확인 (D1~D7)</h3>
@@ -88,7 +88,7 @@ export function DecisionPointsSection({ diagnosis, disabled, onSave }: {
       // D5: D4 확정 목록이 있으면 선택형으로 표시한다. 목록 외 기존값은
       // 그대로 보여주고 불일치를 안내하며, 저장 시까지 기존값을 유지한다.
       const d5Mismatch = point.id === "D5" && d4States && point.detail?.trim() ? !d4States.includes(point.detail.trim()) : false;
-      return <div className={`ax-decision-row${isOpen ? " is-open" : ""}`} key={point.id} data-status={point.status}>
+      return <div className={`ax-decision-row${isOpen ? " is-open" : ""}`} id={`ax-decision-${point.id}`} key={point.id} data-status={point.status}>
         <button type="button" className="ax-decision-row-head" aria-expanded={isOpen} disabled={disabled}
           onClick={() => setOpenId(isOpen ? null : point.id)}>
           <span className="ax-decision-no">{point.id}</span>
@@ -198,7 +198,7 @@ export function ExampleResultsSection({ examples, diagnosis, disabled, onSave }:
     setSaved(true);
   };
   const savedCount = examples?.length ?? 0;
-  return <section className="ax-surface ax-examples" aria-label="업무 처리 예시">
+  return <section className="ax-surface ax-examples" id="ax-example-results" aria-label="업무 처리 예시">
     <div className="ax-examples-head">
       <div>
         <h3>업무 처리 예시</h3>

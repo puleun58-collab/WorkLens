@@ -234,6 +234,69 @@ export function concreteNextAction(d: AxDiagnosis): ConcreteNextAction {
   }
   return { label: nextAction(d).label };
 }
+/** Display-only: 통합 업무 목록의 다음 행동 표기. concreteNextAction()의 판정·우선순위·
+ * 원본 문구는 바꾸지 않고 렌더층에서만 정리한다: "먼저 확인" 중간 문구와 " — " 하이픈
+ * 구분자를 제거하고, 최우선 항목 1건 + 나머지 실제 건수("외 N건") 형태로 표시한다.
+ * 0건이면 정책 라벨 그대로, 1건이면 외 N건을 붙이지 않는다. */
+export function formatUnifiedNextAction(concrete: ConcreteNextAction): string {
+  const detail = concrete.detail ?? "";
+  const countMatch = / 외 (\d+)건$/u.exec(detail);
+  const countSuffix = countMatch ? ` 외 ${countMatch[1]}건` : "";
+  const coreRaw = countMatch ? detail.slice(0, countMatch.index) : detail;
+  if (concrete.label === "먼저 확인") {
+    // 최우선 항목의 첫 단락만 쓴다. "확인 필요" 같은 반복 접미사를 정리하고,
+    // 명사형 항목이면 실제 필요한 행동이 보이도록 "확인"을 붙인다.
+    const first = coreRaw.split(/ — | - /u)[0]?.trim() ?? "";
+    const stripped = first.replace(/ 확인 필요$/u, "").replace(/ 필요$/u, "").trim();
+    if (!stripped) return concrete.label;
+    const verbEnd = /(확인|답변|검토|입력|선택|연결|제공|작성|등록|수집|전송|업로드|적용|설정|구성|점검|승인|요청|전달|공유|비교|분석|정리|준비|수정|보완|삭제|이동|실행)$/u;
+    return verbEnd.test(stripped) ? `${stripped}${countSuffix}` : `${stripped} 확인${countSuffix}`;
+  }
+  const joined = detail ? `${concrete.label} ${coreRaw}` : concrete.label;
+  return `${joined.replace(/ — /gu, " ")}${countSuffix}`;
+}
+/** Display-only: 구현 전 확인 항목의 실제 확인·수정 위치. 정책 판정·원본 데이터는
+ * 바꾸지 않고, 항목 주제·비고·출처만으로 이동 대상을 정한다. 전용 편집 UI가 없는
+ * 항목(출력 컬럼 미확정 등)은 이동 버튼을 만들지 않고 안내만 남긴다. */
+export type PrecheckTarget =
+  | { kind: "decision"; id?: string }
+  | { kind: "examples" }
+  | { kind: "hitl" }
+  | { kind: "plan" }
+  | { kind: "register" }
+  | { kind: "checks" }
+  | { kind: "none"; guidance: string };
+export function resolvePrecheckTarget(item: { topic: string; note?: string; tone?: AxCheckTone; origin?: "check" | "extra" | "conflict" | "block" }): PrecheckTarget {
+  const text = `${item.topic} ${item.note ?? ""}`;
+  if (/출력 컬럼/u.test(text)) return { kind: "none", guidance: "전용 편집 화면이 없습니다. 출력 컬럼을 확정하려면 업무 등록 정보를 수정한 뒤 다시 진단하세요." };
+  // D번호가 하나만 언급되면 해당 결정 지점 행으로, 여러 개면(예: 예시 필수 여부
+  // 판정에 필요한 D1·D2·D3·D7) 섹션 전체로 연결한다.
+  const dMatches = [...new Set([...item.topic.matchAll(/\bD([1-7])\b/gu), ...(item.note ?? "").matchAll(/\bD([1-7])\b/gu)].map(m => m[1]))];
+  if (dMatches.length === 1) return { kind: "decision", id: `D${dMatches[0]}` };
+  if (dMatches.length > 1) return { kind: "decision" };
+  // 기준 충돌(결정 지점·예외 충돌, 수치 충돌)은 전용 편집기가 없으므로, 규칙을
+  // 확인·수정할 수 있는 결정 지점 영역으로 연결한다. 무관한 질문·AS-IS 영역으로는 이동하지 않는다.
+  if (item.origin === "conflict") return { kind: "decision" };
+  if (/예시/u.test(text)) return { kind: "examples" };
+  if (/HITL/u.test(text)) return { kind: "hitl" };
+  // HITL 보류 항목은 단계별 HITL 검토 표에서 확인한다.
+  if (item.tone === "held") return { kind: "hitl" };
+  if (/구현 계획/u.test(text)) return { kind: "plan" };
+  if (/업무 (정보|등록|설명)/u.test(text)) return { kind: "register" };
+  return { kind: "checks" };
+}
+/** Display-only: 이동 대상별 버튼 문구. "업무 진단에서 확인" 반복을 쓰지 않는다. */
+export function precheckTargetLabel(target: PrecheckTarget): string {
+  switch (target.kind) {
+    case "decision": return "규칙 확인";
+    case "examples": return "예시 확인";
+    case "hitl": return "HITL 검토";
+    case "plan": return "계획 검토";
+    case "register": return "업무 정보 수정";
+    case "checks": return "확인 사항 보기";
+    case "none": return "";
+  }
+}
 /** Data-only bullets for the matrix "핵심 판단 근거" area: the strongest value driver's rationale and the binding constraint.
  * The axis scores and classification already shown in the score cards and header badges are not repeated here. */
 export function matrixRationaleBullets(d: AxDiagnosis): string[] {
@@ -421,13 +484,8 @@ function AxStepTable({ diagnosis: d, headers, reviewProps }: { diagnosis: AxDiag
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [userOpen, setUserOpen] = useState<boolean | null>(null);
-  // AS-IS 도식 제거에 따른 가시성 보존: 판단 표에 없는 AS-IS 단계는
-  // 표 아래 muted 문구로 표시한다 (원본 데이터 변경 없음).
-  const normStep = (t: string) => t.replace(/\s+/g, "");
-  const unmatchedAsIs = d.asIs.steps.filter(step => {
-    const sn = normStep(step);
-    return !!sn && !d.stepAssessments.some(a => { const an = normStep(a.step); return !!an && (an === sn || an.includes(sn) || sn.includes(an)); });
-  });
+  // 판단 표에 없는 AS-IS 단계는 표시하지 않는다 (원본 데이터 변경 없음).
+  // AS-IS 원본 단계는 진단 카드·01~04 지시문에 그대로 유지된다.
   const items = reviewProps ? extractReviewableItems(d) : [];
   const itemByStep = new Map<string, ReviewableItem>();
   for (const item of items) {
@@ -451,7 +509,7 @@ function AxStepTable({ diagnosis: d, headers, reviewProps }: { diagnosis: AxDiag
     const panelOpen = openKey !== null;
     const tableOpen = panelOpen ? true : (userOpen ?? stepItems.length - completedCount > 0);
 
-    return <section className="ax-section" aria-label="단계별 자동화 판단">
+    return <section className="ax-section" id="ax-step-review" aria-label="단계별 자동화 판단">
       <Accordion value={tableOpen ? ["review"] : []} onValueChange={values => { if (!panelOpen) setUserOpen(values.includes("review")); }} keepMounted>
       <AccordionItem value="review" className="border-b-0">
       <div className="ax-hitl-table-card">
@@ -518,7 +576,6 @@ function AxStepTable({ diagnosis: d, headers, reviewProps }: { diagnosis: AxDiag
             </tbody>
           </table>
         </div>
-        {unmatchedAsIs.length ? <p className="ax-muted">판단 표에 없는 AS-IS 단계: {unmatchedAsIs.join(" · ")}</p> : null}
         </AccordionPanel>
       </div>
       </AccordionItem>
@@ -535,7 +592,6 @@ function AxStepTable({ diagnosis: d, headers, reviewProps }: { diagnosis: AxDiag
       <td>{OWNER_LABELS[s.owner]}</td><td>{s.note}</td>
     </tr>;
   }) : <tr><td colSpan={4}>기재된 단계 없음</td></tr>}</tbody></table></div>
-  {unmatchedAsIs.length ? <p className="ax-muted">판단 표에 없는 AS-IS 단계: {unmatchedAsIs.join(" · ")}</p> : null}
   </section>;
 }
 function AxToBe({ diagnosis: d }: { diagnosis: AxDiagnosis }) {
@@ -780,26 +836,43 @@ const CHECK_TONES: Record<AxCheckTone, { label: string; Icon: typeof CircleAlert
 };
 /** ① 구현 전 확인: 현재 실제로 해결해야 하는 항목만 표시한다. 확인됨(done)과 향후 단계
  * 조건(future)은 기본 화면에서 제외한다. checks와 additionalChecks는 planSummary 구성상
- * 서로 겹치지 않으며, 기준 충돌은 기준 차원의 별도 항목이다. 각 항목의 확인·수정 위치는
- * 업무 진단(2단계)으로 이동한다. 일부 작업만 보류된 경우 전체 업무가 차단된 것처럼
- * 표시하지 않는다 — 차단 사유는 해당 사유만 표시한다. */
-function AxPrecheckSection({ summary, onGoToCheck }: { summary: AxPlanSummary; onGoToCheck: () => void }) {
+ * 서로 겹치지 않으며, 기준 충돌은 기준 차원의 별도 항목이다. 각 항목의 버튼은 실제
+ * 확인·수정 위치로 이동한다 (표시 전용 분류: resolvePrecheckTarget). 전용 편집 UI가
+ * 없는 항목(출력 컬럼 미확정 등)은 이동 버튼을 표시하지 않고 안내만 남긴다.
+ * 일부 작업만 보류된 경우 전체 업무가 차단된 것처럼 표시하지 않는다 — 차단 사유는
+ * 해당 사유만 표시한다. */
+function AxPrecheckSection({ summary, onGoToCheck, onGoToCheckItem }: { summary: AxPlanSummary; onGoToCheck: () => void; onGoToCheckItem?: (target: PrecheckTarget) => void }) {
   const pending = <T extends { tone: AxCheckTone }>(items: T[]) => items.filter(item => item.tone === "required" || item.tone === "blocked" || item.tone === "held");
-  const checks = pending(summary.checks.map(check => ({ topic: check.topic, note: check.note, tone: check.tone, status: check.status, relation: undefined as string | undefined })));
-  const extras = pending(summary.additionalChecks.map(row => ({ topic: row.item, note: row.content !== row.item ? row.content : "", tone: row.tone, status: row.status, relation: row.relation })));
+  const checks = pending(summary.checks.map(check => ({ topic: check.topic, note: check.note, tone: check.tone, status: check.status, origin: "check" as const })));
+  const extras = pending(summary.additionalChecks.map(row => ({ topic: row.item, note: row.content !== row.item ? row.content : "", tone: row.tone, status: row.status, origin: "extra" as const })));
   const conflicts = [
-    ...(summary.conflictingCriteria ?? []).map(topic => ({ topic, note: "어느 한쪽으로 임의로 해석해 완료·실패를 판정하지 말고, 충돌 내용을 확인 대상으로 보고하세요.", tone: "required" as AxCheckTone, status: "확인 필요", relation: undefined as string | undefined })),
-    ...(summary.numericConflictCriteria ?? []).map(topic => ({ topic, note: "우선순위를 정하지 않으며, 실제 업무 규칙이 확정될 때까지 어느 쪽도 합격 조건으로 쓰지 않습니다.", tone: "required" as AxCheckTone, status: "확인 필요", relation: undefined as string | undefined })),
+    ...(summary.conflictingCriteria ?? []).map(topic => ({ topic, note: "어느 한쪽으로 임의로 해석해 완료·실패를 판정하지 말고, 충돌 내용을 확인 대상으로 보고하세요.", tone: "required" as AxCheckTone, status: "확인 필요", origin: "conflict" as const })),
+    ...(summary.numericConflictCriteria ?? []).map(topic => ({ topic, note: "우선순위를 정하지 않으며, 실제 업무 규칙이 확정될 때까지 어느 쪽도 합격 조건으로 쓰지 않습니다.", tone: "required" as AxCheckTone, status: "확인 필요", origin: "conflict" as const })),
   ];
   const items = [...checks, ...extras, ...conflicts];
   const count = summary.blockReasons.length + items.length;
+  // 제목·설명 중복 제거: 비고가 제목과 같거나 제목으로 시작하면 반복 부분만 뺀다.
+  const displayNote = (topic: string, note: string): string => {
+    if (!note || note === topic) return "";
+    if (note.startsWith(topic)) return note.slice(topic.length).replace(/^[—–\-:·\s]+/u, "").trim();
+    return note;
+  };
+  const actionButton = (target: PrecheckTarget) => {
+    if (target.kind === "none") return null;
+    return <Button type="button" variant="outline" size="sm" className="ax-precheck-action" onClick={() => { if (onGoToCheckItem) onGoToCheckItem(target); else onGoToCheck(); }}>{precheckTargetLabel(target)}</Button>;
+  };
   return <section className="ax-precheck" aria-label="구현 전 확인">
     <div className="ax-precheck-head"><h3>구현 전 확인</h3>{summary.blockReasons.length ? <span className="ax-check-badge" data-kind="block">진행 보류</span> : null}{count ? <span className="ax-check-badge" data-kind="need">확인 필요 {count}건</span> : null}</div>
     {count === 0 ? <p className="ax-muted">현재 필수 확인 사항 없음</p> : <>
-      {summary.blockReasons.length ? <div className="ax-precheck-blocked"><h4>차단 사유</h4><ul role="list">{summary.blockReasons.map((reason, i) => <li key={i}><span>{reason}</span><Button type="button" variant="outline" size="sm" onClick={onGoToCheck}>업무 진단에서 확인</Button></li>)}</ul></div> : null}
+      {summary.blockReasons.length ? <div className="ax-precheck-blocked"><h4>차단 사유</h4><ul role="list">{summary.blockReasons.map((reason, i) => {
+        const target = resolvePrecheckTarget({ topic: reason, origin: "block" });
+        return <li key={i}><span>{reason}</span>{target.kind === "none" ? <span className="ax-muted ax-precheck-guidance">{target.guidance}</span> : actionButton(target)}</li>;
+      })}</ul></div> : null}
       {items.length ? <ul className="ax-precheck-list" role="list">{items.map((item, i) => {
         const { label } = CHECK_TONES[item.tone];
-        return <li key={i} className="ax-precheck-item"><div className="ax-precheck-item-head"><strong>{item.topic}</strong><span className="ax-check-badge">{label}</span>{item.relation ? <span className="ax-check-badge">{item.relation}</span> : null}</div>{item.note ? <p>{item.note}</p> : null}<Button type="button" variant="outline" size="sm" onClick={onGoToCheck}>업무 진단에서 확인</Button></li>;
+        const target = resolvePrecheckTarget({ topic: item.topic, note: item.note, tone: item.tone, origin: item.origin });
+        const note = displayNote(item.topic, item.note);
+        return <li key={i} className="ax-precheck-item"><div className="ax-precheck-item-head"><strong>{item.topic}</strong><span className="ax-check-badge">{label}</span>{actionButton(target)}</div>{note ? <p>{note}</p> : null}{target.kind === "none" ? <p className="ax-muted ax-precheck-guidance">{target.guidance}</p> : null}</li>;
       })}</ul> : null}
     </>}
   </section>;
@@ -1084,7 +1157,8 @@ function AxFixPromptSection({ diagnosis, plan, taskName, taskContext, prerequisi
   </section>;
 }
 
-export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenerate, reviewProps, exampleResults, activeTool: controlledTool, onToolChange, onGoToCheck, verificationResults, onSaveVerificationResults }: {
+export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenerate, reviewProps, exampleResults, activeTool: controlledTool, onToolChange, onGoToCheck, verificationResults, onSaveVerificationResults, onGoToCheckItem }: {
+
   diagnosis: AxDiagnosis;
   taskName: string;
   taskContext: string;
@@ -1102,6 +1176,8 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
   verificationResults?: VerificationResult[];
   /** 검증 라운드 저장 핸들러 (없으면 저장 버튼이 안내만 표시). */
   onSaveVerificationResults?: (round: VerificationResult) => void;
+  /** ① 항목별 실제 확인·수정 위치로 이동한다 (미제공 시 onGoToCheck으로 이동). */
+  onGoToCheckItem?: (target: PrecheckTarget) => void;
 }) {
   const profile = executionProfile(diagnosis);
   const gate = profile.gate;
@@ -1124,14 +1200,9 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
     heading?.focus({ preventScroll: true });
   }
   const generateButton = (target: AxToolId) => <Button key={target} type="button" variant="outline" className="ax-plan-generate" disabled={!!busy || gate === "blocked"} onClick={() => onGenerate(target)}><FileCode2 aria-hidden="true" />{busy === target ? target === "codex" ? "Codex 계획 생성 중…" : "Claude 계획 생성 중…" : `${TOOL_GUIDES[target].name}용 구현 계획 생성`}</Button>;
-  const level = automationLevel(diagnosis);
-  return <section className="ax-surface" aria-label="자동화 구현 계획">
-    <div className="ax-plan-head"><h3>자동화 구현 계획</h3>
-      <span className="ax-plan-task">{taskName}</span>
-      <AxPlanLevelTag level={level} />
-      <span className="ax-gate-badge" data-gate={gate}>{GATE_LABELS[gate]}</span>
-    </div>
-    <AxPrecheckSection summary={summary} onGoToCheck={onGoToCheck} />
+  return <section className="ax-surface" id="ax-plan-section" aria-label="자동화 구현 계획">
+    <div className="ax-plan-head"><h3>자동화 구현 계획</h3></div>
+    <AxPrecheckSection summary={summary} onGoToCheck={onGoToCheck} onGoToCheckItem={onGoToCheckItem} />
     <AxScopeSummary profile={profile} summary={summary} />
     {gate === "blocked" ? <>
       <div className="ax-actions">{generateButton("codex")}{generateButton("claude")}</div>
@@ -1170,6 +1241,14 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
  * 도구 선택은 AxPlanSection의 공통 상태와 공유한다: 04 올인원 지시문·설치 가이드와 양방향 연동된다.
  * 각 도구의 검토 항목은 도구별 검토 키(planCodex:/planClaude:)로 분리되므로 도구 전환 후에도
  * 기존 확정 결과가 유지되고, 확정하지 않은 검토 결과가 다른 도구에 임의 반영되지 않는다. */
+/** Display-only: 검토 표 행을 미완료 우선으로 나눈다. 완료 판정(validKeys)은
+ * 기존 HITL 유효성 검증을 그대로 쓴다. */
+export function partitionReviewItems<T>(items: T[], validKeys: ReadonlySet<string>, keyOf: (item: T) => string): { pending: T[]; completed: T[] } {
+  return {
+    pending: items.filter(item => !validKeys.has(keyOf(item))),
+    completed: items.filter(item => validKeys.has(keyOf(item))),
+  };
+}
 function AxPlanReview({ plans, reviewProps, activeTool, onToolChange }: {
   plans: { codex?: AxPlan; claude?: AxPlan };
   reviewProps: AxProcessReviewProps;
@@ -1178,6 +1257,9 @@ function AxPlanReview({ plans, reviewProps, activeTool, onToolChange }: {
 }) {
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [editingKey, setEditingKey] = useState<string | null>(null);
+  // 기본 화면에는 미완료 항목만 나열한다. 검토 완료 항목은 접어두고
+  // 토글로 다시 펼칠 수 있다 (검토 기능·데이터는 그대로 유지된다).
+  const [showCompleted, setShowCompleted] = useState(false);
 
   const items = (() => {
     const result: { tool: "codex" | "claude"; item: ReviewableItem }[] = [];
@@ -1200,8 +1282,46 @@ function AxPlanReview({ plans, reviewProps, activeTool, onToolChange }: {
   // pending·editing·stale·해시 불일치 기록은 검토 필요로 집계한다.
   const validKeys = validConfirmedKeySet(items.map(({ item }) => item), reviewProps.reviews);
   const completedCount = items.filter(({ item }) => validKeys.has(item.key)).length;
+  const { pending: pendingItems, completed: completedItems } = partitionReviewItems(items, validKeys, ({ item }) => item.key);
+  const renderRow = ({ item }: { item: ReviewableItem }) => {
+    const review = findReview({ reviews: reviewProps.reviews } as AxTaskV2, item.key);
+    const isOpen = openKey === item.key;
+    const typeLabel = item.type === "planItem" ? "구현 항목" : "완료 기준";
+    const badgeClass = item.type === "planItem" ? "ax-hitl-type-badge-plan" : "ax-hitl-type-badge-criterion";
+    const displayState = reviewDisplayState(item, review, validKeys);
+    return <Fragment key={item.key}>
+      <tr key={item.key}>
+        <td className="col-type">
+          <span className={`ax-hitl-type-badge ${badgeClass}`}>{typeLabel}</span>
+        </td>
+        <td className="col-content">{item.text}</td>
+        <td className="col-status">
+          <span className="ax-hitl-status-dot" data-status={displayState.status}>{displayState.label}</span>
+        </td>
+        <td className="col-action">
+          <Button type="button" variant="outline" size="sm" onClick={() => setOpenKey(isOpen ? null : item.key)}>
+            {isOpen ? "닫기" : review ? "보기" : "검토"}
+          </Button>
+        </td>
+      </tr>
+      {isOpen ? <tr key={`${item.key}-panel`}>
+        <td colSpan={4} style={{ padding: 0, borderBottom: "1px solid var(--line-soft)" }}>
+          <div style={{ padding: "16px 20px" }}>
+            <HitlReviewPanel
+              key={item.key}
+              item={item}
+              review={editingKey === item.key ? { ...review!, status: "editing" as const } : review}
+              onSave={(r) => { const result = reviewProps.onSaveReview(r); if (result.saved) setEditingKey(null); }}
+              onCancel={() => { setEditingKey(null); setOpenKey(null); }}
+              onEdit={() => setEditingKey(item.key)}
+            />
+          </div>
+        </td>
+      </tr> : null}
+    </Fragment>;
+  };
 
-  return <section className="ax-section" aria-label="구현 계획 검토">
+  return <section className="ax-section" id="ax-plan-review" aria-label="구현 계획 검토">
     <div className="ax-hitl-table-card">
       <div className="ax-hitl-table-header">
         <div className="ax-hitl-table-title">
@@ -1231,43 +1351,13 @@ function AxPlanReview({ plans, reviewProps, activeTool, onToolChange }: {
             </tr>
           </thead>
           <tbody>
-            {items.map(({ tool, item }) => {
-              const review = findReview({ reviews: reviewProps.reviews } as AxTaskV2, item.key);
-              const isOpen = openKey === item.key;
-              const typeLabel = item.type === "planItem" ? "구현 항목" : "완료 기준";
-              const badgeClass = item.type === "planItem" ? "ax-hitl-type-badge-plan" : "ax-hitl-type-badge-criterion";
-              const displayState = reviewDisplayState(item, review, validKeys);
-              return <>
-                <tr key={item.key}>
-                  <td className="col-type">
-                    <span className={`ax-hitl-type-badge ${badgeClass}`}>{typeLabel}</span>
-                  </td>
-                  <td className="col-content">{item.text}</td>
-                  <td className="col-status">
-                    <span className="ax-hitl-status-dot" data-status={displayState.status}>{displayState.label}</span>
-                  </td>
-                  <td className="col-action">
-                    <Button type="button" variant="outline" size="sm" onClick={() => setOpenKey(isOpen ? null : item.key)}>
-                      {isOpen ? "닫기" : review ? "보기" : "검토"}
-                    </Button>
-                  </td>
-                </tr>
-                {isOpen ? <tr key={`${item.key}-panel`}>
-                  <td colSpan={4} style={{ padding: 0, borderBottom: "1px solid var(--line-soft)" }}>
-                    <div style={{ padding: "16px 20px" }}>
-                      <HitlReviewPanel
-                        key={item.key}
-                        item={item}
-                        review={editingKey === item.key ? { ...review!, status: "editing" as const } : review}
-                        onSave={(r) => { const result = reviewProps.onSaveReview(r); if (result.saved) setEditingKey(null); }}
-                        onCancel={() => { setEditingKey(null); setOpenKey(null); }}
-                        onEdit={() => setEditingKey(item.key)}
-                      />
-                    </div>
-                  </td>
-                </tr> : null}
-              </>;
-            })}
+            {pendingItems.map(renderRow)}
+            {completedItems.length ? <tr key="ax-plan-review-completed-toggle"><td colSpan={4}>
+              <Button type="button" variant="ghost" size="sm" aria-expanded={showCompleted} onClick={() => setShowCompleted(value => !value)}>
+                {showCompleted ? "검토 완료 항목 접기" : `검토 완료 ${completedItems.length}건 보기`}
+              </Button>
+            </td></tr> : null}
+            {showCompleted ? completedItems.map(renderRow) : null}
           </tbody>
         </table>
       </div>
