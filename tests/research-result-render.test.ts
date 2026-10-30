@@ -32,7 +32,9 @@ describe("research result source structure", () => {
     expect(html).toContain('data-status="partial"');
     expect(html).toMatch(/research-summary-status[^>]*data-tone="warning"[^>]*>.*?적용 요건 확인 필요/u);
     expect(html).toContain("적용 요건 추가 확인 필요");
-    expect(html).toContain('aria-controls="research-task-evidence-2"');
+    // Top shows label + status only: no repeated article list, no jump
+    // button into the detail section below (that section is the single home).
+    expect(html).not.toContain('aria-controls="research-task-evidence-');
     const lower = html.slice(html.indexOf('aria-label="항목별 법적 근거"'));
     expect(lower).toContain('id="research-task-evidence-1"');
     expect(lower).toContain('id="research-task-evidence-2"');
@@ -190,21 +192,27 @@ describe("research result source structure", () => {
     expect(html.slice(lower)).toContain("고유 검증 설명");
     expect(html).not.toContain("상세 근거 ·");
     expect(html).toContain("고유 조문 1건 · 직접 위임 확인됨");
-    expect(html).toContain('aria-controls="research-task-evidence-1"');
-    expect(html).not.toContain('aria-controls="research-task-evidence-2"');
+    // The top summary keeps the count line but no longer repeats the
+    // article list or its jump button; the detail section below is the
+    // single home for the provision and its delegation wording.
+    expect(html).not.toContain('aria-controls="research-task-evidence-');
   });
 
-  it("keeps step excerpts below the summary and all requirement refs available", () => {
+  it("moves step excerpts into the summary steps and drops the repeated procedure-evidence section", () => {
     const html = render({ ...base, task: "procedure_detail", procedure: {
       overall: "partial", incomplete: false, annexTruncated: false, annexOriginStage: "list-only", failedSections: 0,
       requirements: [{ kind: "procedure", label: "청구 절차", status: "found", articles: [{ law: article.law, jo: article.jo, title: article.title }], annexCount: 0, annexOriginStage: "list-only", annexRelatedCandidates: [] }],
       steps: [{ phase: "filing", label: "청구", articles: [{ law: article.law, jo: article.jo, title: article.title, excerpt: "고유 단계 발췌 원문" }], missing: false }],
     } });
-    const lower = html.indexOf('aria-label="절차 항목별 근거"');
-    expect(html.slice(0, lower)).not.toContain("고유 단계 발췌 원문");
-    expect(html.slice(lower)).toContain("고유 단계 발췌 원문");
-    expect(html).toContain('aria-controls="research-procedure-step-1"');
-    expect(html).toContain('aria-controls="research-procedure-requirement-1"');
+    expect(html).not.toContain('aria-label="절차 항목별 근거"');
+    expect(html).not.toContain('data-procedure-requirements');
+    expect(html).not.toContain('aria-controls="research-procedure-step-');
+    expect(html).not.toContain('aria-controls="research-procedure-requirement-');
+    const steps = html.slice(html.indexOf('data-procedure-steps="true"'));
+    expect(steps).toContain("고유 단계 발췌 원문");
+    expect(steps).toContain("상세 근거에서 원문 보기");
+    // The requirement article itself stays reachable in the group sections.
+    expect(html).toContain("해고 등의 제한");
   });
 
   it("hides top issue buttons without a matching result and maps reordered labels exactly", () => {

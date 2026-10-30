@@ -15,7 +15,7 @@ import { STATUS_TITLE, type ResearchStatus } from "@/lib/research-status";
 import { researchConfirmationGap } from "@/lib/research-result-status";
 import { taskEvidenceReferences } from "@/lib/task-evidence";
 import { lawSourceUrl, sameLawFamily } from "@/lib/research-scope";
-import type { ProcedureArticleRef, ProcedureRequirementStatus } from "@/lib/procedure-evidence";
+import type { ProcedureRequirementStatus } from "@/lib/procedure-evidence";
 import { LawTextBlock } from "./LawTextBlock";
 import { articleDisplayKey, hasQuestionTermInTitle } from "./research-result-display";
 import { ContractReviewResult, FileReviewExcluded } from "./ContractReviewResult";
@@ -519,14 +519,6 @@ const PROCEDURE_REQUIREMENT_LABEL: Record<ProcedureRequirementStatus, string> = 
   viewed: "관련 자료 조회",
   none: "직접 관련 근거 미확인",
   failed: "자료 확인 실패",
-};
-
-/** Forms only: what the cited article body itself says about the filing duty. */
-const PROCEDURE_FORM_NATURE_LABEL: Record<NonNullable<ProcedureArticleRef["nature"]>, string> = {
-  required: "필수",
-  conditional: "조건부",
-  optional: "첨부 가능",
-  unconfirmed: "의무 미확인",
 };
 
 /** Server per-kind evidence labels for law_system / action_basis / dispute_prep / amendment_track. */
@@ -1055,6 +1047,18 @@ export function ResearchResult({ data, request, expandSources = false, onExpandS
       if (!sourceTargets.has(key)) sourceTargets.set(key, primaryTarget(sectionIndex, articleIndex));
     });
   });
+  // Step/form refs carry law + article only (no excerpt), so they cannot
+  // match an articleDisplayKey; resolve them by law + article to the same
+  // detailed-evidence anchor the group sections render. A ref with no such
+  // anchor gets no jump button (never a button to a missing target).
+  const lawJoTargets = new Map<string, string>();
+  for (const [key, id] of sourceTargets) {
+    try {
+      const parsed = JSON.parse(key) as [string, string, string, string];
+      const lawJo = `${parsed[0]}\u0000${parsed[1]}`;
+      if (!lawJoTargets.has(lawJo)) lawJoTargets.set(lawJo, id);
+    } catch { /* a non-JSON key is never a step/form target */ }
+  }
   const supplement = data.enrichment?.supplement;
   const showSupplement = supplement && (supplement.articles.length > 0 || (!articleCount && supplement.status !== "not_searched"));
   const sourceJump = (id: string, label = "근거 보기") => <Button type="button" variant="link" size="xs"
@@ -1073,16 +1077,22 @@ export function ResearchResult({ data, request, expandSources = false, onExpandS
       {full && !data.interpretation && <p className="research-meta research-uninterpreted">{UNINTERPRETED_NOTE[data.interpretationFailure ?? "unavailable"]}</p>}
       {procedure && procedure.steps && procedure.steps.length > 0 && <div className="research-original research-issues is-assessed" data-procedure-steps="true">
         <span>01 {procedure.requirements.find((requirement) => requirement.kind === "procedure")?.label ?? "청구 절차"}</span>
+        {(() => { const requirement = procedure.requirements.find((item) => item.kind === "procedure");
+          return requirement ? <span className="research-issue-status" data-status={requirement.status}>{PROCEDURE_REQUIREMENT_LABEL[requirement.status]}</span> : null; })()}
         <ul>{procedure.steps.map((step, index) => <li key={step.phase}>
           <span className="research-issue-label"><span className="research-issue-number">{String(index + 1).padStart(2, "0")}</span>{step.label}</span>
           {step.missing
             ? <span className="research-issue-status" data-status="none">확인 필요</span>
             : <span className="research-issue-status" data-status="found">근거 확인</span>}
-          {step.articles.map((article, articleIndex) => <span className="research-meta" key={`${article.law}-${article.jo}-${articleIndex}`}>
-            {article.law} {article.jo}{article.title ? ` (${article.title})` : ""}
-            {(() => { const url = lawSourceUrl(article.law, article.jo); return url ? <span> · <a href={url} target="_blank" rel="noreferrer">법제처 원문 보기</a></span> : null; })()}
-          </span>)}
-          {step.articles.length > 0 && sourceJump(`research-procedure-step-${index + 1}`)}
+          {step.articles.map((article, articleIndex) => <Fragment key={`${article.law}-${article.jo}-${articleIndex}`}>
+            <span className="research-meta">
+              {article.law} {article.jo}{article.title ? ` (${article.title})` : ""}
+              {(() => { const url = lawSourceUrl(article.law, article.jo); return url ? <span> · <a href={url} target="_blank" rel="noreferrer">법제처 원문 보기</a></span> : null; })()}
+            </span>
+            {article.excerpt && <span className="research-meta">{article.excerpt}</span>}
+            {(() => { const target = lawJoTargets.get(`${article.law}\u0000${article.jo}`);
+              return target ? sourceJump(target, "상세 근거에서 원문 보기") : null; })()}
+          </Fragment>)}
           {step.missing && <span className="research-meta">이 단계의 근거 조문을 확인하지 못했습니다.</span>}
         </li>)}</ul>
         <p className="research-meta">단서·예외·적용 제외는 아래 근거 원문에서 확인하세요.</p>
@@ -1098,41 +1108,24 @@ export function ResearchResult({ data, request, expandSources = false, onExpandS
             <span className="research-issue-label">{form.title}{form.formLabel ? ` (${form.formLabel})` : ""}{form.law ? <span className="research-meta"> · {form.law}</span> : null}</span>
             <span className="research-issue-status" data-status={form.original === "verified" ? "found" : "none"}>{form.original === "verified" ? "원문 확인됨" : form.original === "identified" ? "원문 일부 확인됨" : "원문 미확보"}</span>
             {form.articles.length > 0 && <span className="research-meta">근거: {form.articles.map((article) => `${article.law} ${article.jo}`).join(" · ")}</span>}
+            {(() => { const target = form.articles.map((article) => lawJoTargets.get(`${article.law}\u0000${article.jo}`)).find(Boolean);
+              return target ? sourceJump(target, "상세 근거에서 원문 보기") : null; })()}
           </li>);
         return <div className="research-original research-issues is-assessed" data-procedure-forms="true">
           <span>02 {formsReq.label}</span>
-          {required.length > 0 && <><p className="research-meta">확인된 제출서류</p><ul>{required.map(formRow)}</ul></>}
+          <span className="research-issue-status" data-status={formsReq.status}>{PROCEDURE_REQUIREMENT_LABEL[formsReq.status]}</span>
+          {required.length > 0 && <><p className="research-meta">필수 제출서류</p><ul>{required.map(formRow)}</ul></>}
           {conditional.length > 0 && <><p className="research-meta">조건부 제출서류</p><ul>{conditional.map(formRow)}</ul></>}
           <p className="research-meta">관련 법령 서식 목록은 아래에서 확인하세요. 의무의 적용 대상·조건과 서식 외 첨부서류는 근거 조문에서 확인하세요.</p>
           {formsReq.related && formsReq.related.length > 0 && <p className="research-meta">관련 조문(직접 근거 아님): {formsReq.related.map((article) => `${article.law} ${article.jo}`).join(" · ")}</p>}
         </div>;
       })()}
-      {procedure && <div className="research-original research-issues is-assessed" data-procedure-requirements="true">
-        <span>확인한 요구사항</span>
-        <ul>{procedure.requirements.map((requirement, index) => <li key={index}>
-          <span className="research-issue-label"><span className="research-issue-number">{String(index + 1).padStart(2, "0")}</span>{requirement.label}</span>
-          {requirement.articles.length > 0 && sourceJump(`research-procedure-requirement-${index + 1}`)}
-          <span className="research-issue-status" data-status={requirement.status}>{PROCEDURE_REQUIREMENT_LABEL[requirement.status]}</span>
-        </li>)}</ul>
-        {procedure.requirements.map((requirement, index) => {
-          // Summary only: the first 3 refs, the rest as "외 N건". The full
-          // list stays in the group sections below (절차의 법령 근거); the
-          // requirement verdict above is untouched.
-          const shownRefs = requirement.articles.slice(0, 3)
-            .map((article) => `${article.law} ${article.jo}${article.nature ? `(${PROCEDURE_FORM_NATURE_LABEL[article.nature]})` : ""}`);
-          const hiddenRefCount = requirement.articles.length - shownRefs.length;
-          const refs = [...shownRefs, ...(hiddenRefCount > 0 ? [`외 ${hiddenRefCount}건`] : [])].join(" · ");
-          const annex = requirement.annexCount
-            ? `별표/서식 목록 ${requirement.annexCount}건${requirement.annexTotal && requirement.annexTotal > requirement.annexCount ? ` (전체 ${requirement.annexTotal}건 중)` : ""}${requirement.annexVerifiedCount !== undefined ? (requirement.annexVerifiedCount > 0 ? ` · 원문 확인 ${requirement.annexVerifiedCount}건` : " · 원문 미확보") : ""}`
-            : "";
-          const candidates = requirement.annexRelatedCandidates ?? [];
-          if (!refs && !annex && !candidates.length) return null;
-          return <Fragment key={index}>
-            {(refs || annex) && <p className="research-meta">{requirement.label}: {[refs, annex].filter(Boolean).join(" · ")}</p>}
-            {candidates.length > 0 && <p className="research-meta">{requirement.label} 관련 후보(제목 대응, 직접 근거 아님): {candidates.join(" · ")}</p>}
-          </Fragment>;
-        })}
-      </div>}
+      {/* "확인한 요구사항" top block removed: its procedure verdict now
+        rides on the 01 steps header, its forms verdict on the 02 header,
+        and its article/annex lists live once in the group sections below.
+        procedure.requirements data itself is untouched (verdicts, notices
+        and counts above still read it). Cost/general requirements lose
+        their top row; their articles stay in the group sections. */}
       <ResearchSummaryNotices>
         {notice && <ResearchSummaryNotice tone="error" title="일부 자료 조회 미완료" className="legal-research-partial">{notice}</ResearchSummaryNotice>}
         {confirmationGap && <ResearchSummaryNotice tone="warning" title={confirmationGap.title}>{confirmationGap.text}</ResearchSummaryNotice>}
@@ -1161,26 +1154,26 @@ export function ResearchResult({ data, request, expandSources = false, onExpandS
             const summary = articles.length > 0
               ? [`고유 조문 ${articles.length}건`, ...(direct ? ["직접 위임 확인됨"] : []), ...(needsMore ? ["추가 확인 필요"] : [])].join(" · ")
               : undefined;
+            // Top shows label + status + the concise summary only. The
+            // article-name list and its jump button duplicated the
+            // 항목별 법적 근거 section below, which stays the single home
+            // for the provisions, their relations and their excerpts.
             return <li key={`${item.label}-${index}`}>
               <span className="research-issue-label"><span className="research-issue-number">{String(index + 1).padStart(2, "0")}</span>{item.label}</span>
               <span className="research-issue-status" data-status={item.status}>{TASK_EVIDENCE_LABEL[item.status]}</span>
               {item.label === "법률" && !articles.length && item.detail && <span className="research-meta">{item.detail}</span>}
               {summary && <span className="research-meta">{summary}</span>}
               {!summary && item.label !== "법률" && item.detail && <span className="research-meta">{item.detail}</span>}
-              {articles.length > 0 && <>
-                <span className="research-meta">{articles.slice(0, 3).map((article) => articleHeadingText(article.law, article.jo, article.title)).join(" · ")}{articles.length > 3 ? ` 외 ${articles.length - 3}건` : ""}</span>
-                {sourceJump(`research-task-evidence-${index + 1}`)}
-              </>}
             </li>;
           }
+          // Same rule for the other tasks: label + status at the top, and
+          // the detail text only when the item has no provisions to show
+          // below (a bare count/list detail is itself a repeat, so it is
+          // not shown next to a provision list that lives below).
           return <li key={`${item.label}-${index}`}>
             <span className="research-issue-label"><span className="research-issue-number">{String(index + 1).padStart(2, "0")}</span>{item.label}</span>
             <span className="research-issue-status" data-status={item.status}>{TASK_EVIDENCE_LABEL[item.status]}</span>
-            {item.references?.length
-              ? <span className="research-meta">{item.references.slice(0, 3).map((article) => articleHeadingText(article.law, article.jo, article.title)).join(" · ")}{item.references.length > 3 ? ` 외 ${item.references.length - 3}건` : ""}</span>
-              : item.detail && <span className="research-meta">{item.detail}</span>}
-            {data.task === "action_basis" && item.references.length > 0 && <span className="research-meta">고유 근거 조문 {new Set(item.references.map((ref) => JSON.stringify([ref.law, ref.jo]))).size}건 · 원문 발췌 {item.references.length}건</span>}
-            {hasTaskDetail(item) && sourceJump(`research-task-evidence-${index + 1}`)}
+            {!item.references?.length && item.detail && <span className="research-meta">{item.detail}</span>}
           </li>;
         })}</ul>
       </div>}
@@ -1330,10 +1323,9 @@ export function ResearchResult({ data, request, expandSources = false, onExpandS
       {taskItems.map((item, index) => hasTaskDetail(item) && <div key={index}
         id={`research-task-evidence-${index + 1}`} className="legal-analysis-section research-source-target" tabIndex={-1}>
         <h3 tabIndex={-1}>{item.label} <span className="research-issue-status" data-status={item.status}>{TASK_EVIDENCE_LABEL[item.status]}</span></h3>
-        <ul className="research-hits">{item.references.map((article, articleIndex) => <li key={articleIndex}>
-          <strong>{articleHeadingText(article.law, article.jo, article.title)}</strong>
-          <span className="research-meta">{"relation" in article ? LAW_SYSTEM_RELATION_LABEL[article.relation] : "조회 원문에서 이 항목의 근거 문언 확인"}</span>
-        </li>)}</ul>
+        {/* The visible list above duplicated the list inside this toggle
+          (same headings, same relation); the toggle's list is the single
+          one, since it also carries the citing expression / excerpt. */}
         <details className="law-detail-source research-more">
           <SourceToggleSummary label="상세 검증 내용 보기" openLabel="상세 검증 내용 접기" />
           {item.detail && <p className="research-meta">{item.detail}</p>}
@@ -1349,29 +1341,14 @@ export function ResearchResult({ data, request, expandSources = false, onExpandS
         </details>
       </div>)}
     </section>}
-    {procedure && (procedure.steps?.some((step) => step.articles.length) || procedure.requirements.some((requirement) => requirement.articles.length)) && <section className="research-group research-procedure-details" aria-label="절차 항목별 근거">
-      <h3>절차 항목별 근거</h3>
-      {procedure.steps?.map((step, index) => step.articles.length > 0 && <div key={step.phase}
-        id={`research-procedure-step-${index + 1}`} className="legal-analysis-section research-source-target" tabIndex={-1}>
-        <h3 tabIndex={-1}>{step.label}</h3>
-        <details className="law-detail-source research-more">
-          <SourceToggleSummary label="단계별 조문 발췌 보기" openLabel="단계별 조문 발췌 접기" />
-          <ul className="research-hits">{step.articles.map((article, articleIndex) => <li key={articleIndex}>
-            <strong>{articleHeadingText(article.law, article.jo, article.title)}</strong>
-            {article.excerpt && <LawTextBlock className="legal-analysis-lines" text={article.excerpt} />}
-          </li>)}</ul>
-          <p className="research-meta">발췌는 각 조문의 첫 문장이며, 단서·예외·적용 제외는 원문에서 확인하세요.</p>
-        </details>
-      </div>)}
-      {procedure.requirements.map((requirement, index) => requirement.articles.length > 0 && <div key={index}
-        id={`research-procedure-requirement-${index + 1}`} className="legal-analysis-section research-source-target" tabIndex={-1}>
-        <h3 tabIndex={-1}>{requirement.label} <span className="research-issue-status" data-status={requirement.status}>{PROCEDURE_REQUIREMENT_LABEL[requirement.status]}</span></h3>
-        <ul className="research-hits">{requirement.articles.map((article, articleIndex) => <li key={articleIndex}>
-          <strong>{articleHeadingText(article.law, article.jo, article.title)}</strong>
-          {article.nature && <span className="research-meta">{PROCEDURE_FORM_NATURE_LABEL[article.nature]}</span>}
-        </li>)}</ul>
-      </div>)}
-    </section>}
+    {/* "절차 항목별 근거" section removed: step excerpts moved into the
+      01 steps block above, step/form refs now jump straight to the
+      detailed-evidence article in the group sections below, and
+      requirement articles stay in those group sections. The
+      procedure.requirements data itself is untouched. Note: a
+      requirement article's nature label (필수/조건부/…) no longer has a
+      dedicated row here; the 02 forms block carries the same duty
+      classification per form. */}
     {taskGroups.map((group) => {
       // A duplicated annex list (same entries under two headings) renders
       // once: the server aggregate already counts it once, and the screen
