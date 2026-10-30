@@ -8,6 +8,7 @@ import { fullResearchFixture } from "../fixtures/research";
 import { classifyDocument, documentRisk, extractKeyFacts, reviewClauses, segmentsOf, splitClauses, type ContractReview } from "../../src/lib/contract-review";
 import { B2B_SERVICE_CONTRACT, EMPLOYMENT_CONTRACT, SUPPLY_CONTRACT, NDA_CONTRACT } from "../fixtures/contracts";
 import { CLEAN_WORK_RULES } from "../fixtures/review-scenarios";
+import { reviewResultFixture } from "../fixtures/contract-review-result";
 import { navigateWorkspace } from "./navigation";
 
 const researchTaskLabels: Record<string, string> = {
@@ -20,6 +21,80 @@ async function chooseOption(page: Page, trigger: Locator, label: string) {
   await trigger.click();
   await page.getByRole("option", { name: label, exact: true }).click();
 }
+
+test("document review summary and clause boxes keep 15 issues readable with long titles and working navigation", async ({ page }) => {
+  const review = reviewResultFixture();
+  const original = review.clauses[0].issues[0];
+  review.clauses[0].title = "계약 조건과 적용 범위를 확인하는 긴 조항 제목 ".repeat(8);
+  review.clauses[0].issues[0].label = "긴쟁점이름".repeat(30);
+  for (let index = 0; index < 5; index++) {
+    review.clauses.push({ number: `제${index + 5}조`, title: "추가 검토 조건", text: "추가 조항 원문", issues: [0, 1].map((offset) => ({
+      ...original, id: `extra-${index}-${offset}`, label: `추가 검토 쟁점 ${index * 2 + offset + 1}`,
+      laws: [], precedents: [], lawStatus: "not_searched" as const, precedentStatus: "not_searched" as const,
+    })) });
+  }
+  review.risk = documentRisk(review.clauses);
+  await page.route("**/api/law/research", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+    data: { found: true, task: "document_review", text: "", markers: [], review },
+  }) }));
+  await page.goto("/");
+  await navigateWorkspace(page, "법령");
+  await page.getByRole("tab", { name: "종합 리서치", exact: true }).click();
+  const form = page.getByRole("form", { name: /^(종합 리서치|문서 검토) 입력$/ });
+  await chooseOption(page, form.getByLabel("리서치 유형"), researchTaskLabels.document_review);
+  await form.getByRole("radio", { name: "직접 입력" }).check();
+  await form.getByLabel("검토할 문서 내용").fill("서비스 이용계약 제1조 계약 조건과 제2조 손해배상 조건을 정한다.");
+  await form.getByRole("button", { name: "실행", exact: true }).click();
+  const result = page.locator(".contract-review");
+  await expect(result.locator(".contract-review-metrics > div")).toHaveText([
+    "쟁점 발견 조항8개", "검토 쟁점15건", "관련 근거 확인2/15건",
+  ]);
+  await expect(result.locator(".contract-review-materials")).toHaveText("관련 자료 · 법령 조문 2건 · 판례 판시사항 2건");
+  await expect(result.locator(".contract-review-summary-description")).toHaveText("15건의 쟁점 중 2건에서 관련 근거를 확인했습니다. 나머지 13건은 근거 확인이 완료되지 않았습니다.");
+  await expect(result.locator(".contract-review-issue")).toHaveCount(15);
+  const nav = result.getByRole("navigation", { name: "쟁점 바로가기" });
+  await expect(nav.getByRole("button")).toHaveCount(15);
+  await expect(nav.locator("[data-severity]")).toHaveCount(0);
+  for (const width of [1440, 768, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    const firstClause = result.locator(".contract-review-clause").first();
+    await expect(firstClause).toHaveCSS("border-top-width", "1px");
+    await expect(firstClause).toHaveCSS("border-top-style", "solid");
+    await expect(firstClause).toHaveCSS("box-shadow", "none");
+    const padding = await firstClause.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return [style.paddingTop, style.paddingBottom, style.paddingLeft, style.paddingRight];
+    });
+    expect(padding[0]).toBe(padding[1]);
+    expect(padding[2]).toBe(padding[3]);
+    const bounds = await result.locator(".contract-review-issue-head").first().evaluate((element) => {
+      const head = element.getBoundingClientRect();
+      const badge = element.querySelector(".contract-review-severity")!.getBoundingClientRect();
+      const title = element.querySelector("h5")!.getBoundingClientRect();
+      return { rightGap: head.right - badge.right, overlap: title.right - badge.left };
+    });
+    expect(Math.abs(bounds.rightGap)).toBeLessThanOrEqual(1);
+    expect(bounds.overlap).toBeLessThanOrEqual(0);
+    await nav.getByRole("button").last().click();
+    const lastIssue = result.locator(".contract-review-issue").last();
+    await expect(lastIssue).toHaveClass(/is-focused/);
+    await expect(lastIssue.locator("h5")).toBeFocused();
+    await expect(lastIssue).toBeInViewport();
+    await lastIssue.locator("summary").click();
+    await expect(lastIssue.locator(".contract-review-fact")).toBeVisible();
+    await lastIssue.locator("summary").click();
+    await expect(result.locator(".contract-review-refs[open]")).toHaveCount(0);
+    await result.getByRole("button", { name: "근거 보기", exact: true }).first().click();
+    await expect(result.locator(".contract-review-detail").first().locator("h4")).toBeFocused();
+    await expect(result.locator(".contract-review-refs[open]")).toHaveCount(2);
+    await result.getByRole("button", { name: "전체 펼치기", exact: true }).click();
+    await expect(result.locator(".contract-review-refs[open]")).toHaveCount(4);
+    await result.getByRole("button", { name: "전체 접기", exact: true }).click();
+    await expect(result.locator(".contract-review-refs[open]")).toHaveCount(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${width}px`).toBe(true);
+    if (width === 1440 || width === 390) await result.screenshot({ path: `artifacts/review-15-issues-${width}-${test.info().project.name}.png` });
+  }
+});
 
 test("usage guide keeps automation steps aligned and tabs horizontally browsable", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -1345,7 +1420,7 @@ test("document review resolves repeated issue labels to distinct evidence withou
     };
   });
   const beforeSelection = await issueLayout();
-  expect(beforeSelection.contentOffsets).toEqual([16, 16, 16, 16, 16]);
+  expect(beforeSelection.contentOffsets).toEqual([0, 0, 0, 0, 0]);
   await nav.nth(1).click();
   await expect(issues.nth(1).locator("h5")).toBeFocused();
   await expect(issues.nth(0).locator("h5")).not.toBeFocused();
@@ -1443,7 +1518,10 @@ test("RESEARCH 문서 검토 reviews one workspace file in place and shows where
   await expect(page.locator('[data-review-stale="true"]')).toHaveCount(0);
   await form.getByRole("button", { name: "실행", exact: true }).click();
   await expect(review.locator(".contract-review-file")).toHaveText("검토 문서: 근로계약서.pdf");
-  await expect(review).toContainText("2개 페이지 중 2개 검토");
+  await expect(review).toHaveAttribute("data-coverage", "complete");
+  await expect(review.locator(".contract-review-overview")).toContainText("전체 검토");
+  await expect(review).not.toContainText("2개 페이지 중 2개 검토");
+  await expect(review).not.toContainText("전송 단위");
   await expect(review.locator(".contract-review-issue").filter({ hasText: "경고·예고 없는 징계·해고" }).locator(".contract-review-place")).toHaveText("2페이지");
 
   // Raw data is not a contract: nothing is sent and nothing is called "no risk".
@@ -2008,7 +2086,12 @@ test("document review keeps issue guidance ahead of independent, grouped source 
       const counts = review.locator(".contract-review-summary .contract-review-count");
       await expect(counts.first(), name).toHaveText(`높음 ${fixture.high}건`);
       await expect(counts, name).toHaveText([`높음 ${fixture.review.risk.high}건`, `보통 ${fixture.review.risk.medium}건`, `낮음 ${fixture.review.risk.low}건`]);
-      await expect(review.locator(".contract-review-summary .contract-review-meta"), name).toContainText(`검토 조항 ${fixture.clauses}개`);
+      await expect(review.locator(".contract-review-metrics > div"), name).toHaveText([
+        `쟁점 발견 조항${fixture.clauses}개`,
+        `검토 쟁점${fixture.review.clauses.flatMap((clause) => clause.issues).length}건`,
+        `관련 근거 확인${fixture.law + fixture.precedent > 0 ? 1 : 0}/${fixture.review.clauses.flatMap((clause) => clause.issues).length}건`,
+      ]);
+      await expect(review.locator(".contract-review-materials"), name).toHaveText(`관련 자료 · 법령 조문 ${fixture.law}건 · 판례 판시사항 ${fixture.precedent}건`);
       await expect(review.locator(".contract-review-file, .contract-review-preview-note"), name).toHaveCount(0);
       if (name === "both" || name === "partial") await review.screenshot({ path: `artifacts/review-${name}-${viewport.width}-${test.info().project.name}.png` });
       const firstIssue = review.locator(".contract-review-issue").first();

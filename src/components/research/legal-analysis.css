@@ -114,15 +114,20 @@ p.research-meta { margin: 0; }
 .contract-review-overview, .contract-review-summary { gap: 6px; }
 .contract-review-summary { padding-top: 18px; border-top: 1px solid var(--line-soft, var(--line)); }
 .contract-review-summary p { margin: 0; }
-/* Severity counts lead the summary; coverage of sources is the secondary line below. */
+.contract-review-metrics { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-5); min-width: 0; margin: 0; }
+.contract-review-metrics > div { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; min-width: 0; }
+.contract-review-metrics dt { color: var(--ink-soft); font-size: var(--font-size-sm); overflow-wrap: anywhere; }
+.contract-review-metrics dd { margin: 0; color: var(--ink); font-size: var(--font-size-lg); font-weight: var(--font-weight-bold); font-variant-numeric: tabular-nums; }
+.contract-review-summary-description { color: var(--ink-soft); font-size: var(--font-size-sm); line-height: 1.65; overflow-wrap: anywhere; }
+/* Severity counts remain secondary to the clause, issue and evidence metrics. */
 .contract-review-counts { display: flex; flex-wrap: wrap; gap: 4px 20px; color: var(--ink-soft); font-size: var(--font-size-sm); }
-.contract-review-count strong { margin: 0 2px 0 4px; color: var(--ink); font-size: var(--font-size-lg); font-weight: var(--font-weight-bold); font-variant-numeric: tabular-nums; }
+.contract-review-count strong { margin: 0 2px 0 4px; color: var(--ink); font-weight: var(--font-weight-semibold); font-variant-numeric: tabular-nums; }
 .contract-review-count[data-severity="high"] strong { color: var(--critical); }
 .contract-review-results, .contract-review-details { gap: 12px; padding-top: 20px; border-top: 1px solid var(--line-soft, var(--line)); }
 .contract-review-details-heading { display: flex; align-items: center; justify-content: space-between; gap: 6px 12px; min-width: 0; }
-.contract-review-clause { gap: 14px; padding: 20px 0 8px; border-top: 1px solid var(--line-soft, var(--line)); }
+.contract-review-clause { gap: var(--space-3); padding: var(--space-4) var(--space-5); border: 1px solid var(--input); border-radius: var(--radius-panel); background: var(--paper); box-shadow: none; }
 .contract-review-clause-head, .contract-review-issue-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0; }
-.contract-review-clause-head { justify-content: space-between; padding-inline: var(--space-4); }
+.contract-review-clause-head { justify-content: space-between; }
 .contract-review-clause-head > h4 { flex: 1 1 14rem; min-width: 0; margin: 0; color: var(--ink); font-size: var(--font-size-md); font-weight: var(--font-weight-bold); line-height: 1.5; overflow-wrap: anywhere; }
 .contract-review-detail > h4 {
   margin: 0; color: var(--ink); font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); line-height: 1.55; overflow-wrap: anywhere;
@@ -155,18 +160,18 @@ p.research-meta { margin: 0; }
   color: #1D4ED8;
   border-color: #93B8F3;
 }
-/* 쟁점 제목 행: 제목은 좌측, 위험도 배지는 우측 끝 정렬, 세로 중앙 정렬. */
-.contract-review-issue-head { justify-content: space-between; }
+/* 쟁점 제목은 줄바꿈하고 위험도 배지는 우측에 유지한다. */
+.contract-review-issue-head { flex-wrap: nowrap; align-items: flex-start; justify-content: space-between; }
 .contract-review-issue-head > h5 { flex: 1 1 auto; }
-.contract-review-issue { display: grid; gap: 12px; min-width: 0; box-sizing: border-box; padding-inline: var(--space-4); }
-.contract-review-issue + .contract-review-issue { margin-top: 8px; padding-top: 16px; border-top: 1px dashed var(--line-soft, var(--line)); }
+.contract-review-issue { display: grid; gap: var(--space-2); min-width: 0; box-sizing: border-box; }
+.contract-review-issue + .contract-review-issue { padding-top: var(--space-3); border-top: 1px solid var(--line-soft, var(--line)); }
 .contract-review-issue-head > h5 { display: flex; align-items: baseline; min-width: 0; margin: 0; color: var(--ink); font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); line-height: 1.55; overflow-wrap: anywhere; }
 .contract-review-issue { scroll-margin-top: calc(64px + var(--space-4)); transition: background-color .35s ease, box-shadow .35s ease; }
 .contract-review-issue.is-focused { background: var(--blue-soft); box-shadow: inset 2px 0 var(--blue-border); }
 .contract-review-issue.is-focus-fresh { background: color-mix(in srgb, var(--blue) 11%, var(--paper)); }
 .contract-review-issue.is-focus-leaving { background: transparent; box-shadow: inset 2px 0 transparent; }
 /* 검토 결과 → 수정 제안: semibold labels above plain body text, the suggestion label in the action blue. */
-.contract-review-issue-facts { display: grid; gap: 14px; margin: 0; }
+.contract-review-issue-facts { display: grid; gap: var(--space-2); margin: 0; }
 .contract-review-issue-facts > div { display: grid; gap: 3px; min-width: 0; }
 .contract-review-issue-facts dt { color: var(--muted); font-size: var(--font-size-xs); font-weight: var(--font-weight-semibold); }
 .contract-review-issue-facts dd { margin: 0; color: var(--ink); font-size: var(--font-size-sm); line-height: 1.7; overflow-wrap: anywhere; white-space: pre-wrap; }
@@ -369,6 +374,8 @@ p.research-meta { margin: 0; }
 .legal-research .research-issue-nav .research-issue-number { margin-right: 0; }
 .legal-research .research-issue-nav-label { min-width: 0; overflow-wrap: anywhere; }
 .legal-research .research-issue-nav svg { width: 14px; height: 14px; }
+.legal-research .contract-review .research-issue-nav li { display: flex; }
+.legal-research .contract-review .research-issue-nav button { flex: 1; min-height: 32px; line-height: 1.5; }
 .legal-research .research-issue-number { flex-shrink: 0; margin-right: 10px; color: var(--blue); font-weight: var(--font-weight-semibold); font-variant-numeric: tabular-nums; }
 .legal-research .research-evidence-heading { display: flex; align-items: center; justify-content: space-between; gap: 6px 12px; min-width: 0; }
 .legal-research .research-evidence-heading > h3 { margin: 0; font-size: var(--font-size-md); font-weight: var(--font-weight-semibold); letter-spacing: -.015em; }

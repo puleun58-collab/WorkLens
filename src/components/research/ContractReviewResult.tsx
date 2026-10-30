@@ -51,7 +51,8 @@ function FileCoverage({ file }: { file: ReviewFile }) {
   return <>
     <dt>검토 범위</dt>
     <dd>
-      <strong>{COVERAGE_LABEL[coverage.status]}</strong> · {coverage.total.toLocaleString("ko-KR")}개 {coverage.unit} 중 {coverage.reviewed.toLocaleString("ko-KR")}개 {coverage.status === "partial" ? "상세 검토" : "검토"}
+      <strong>{COVERAGE_LABEL[coverage.status]}</strong>
+      {coverage.status !== "complete" && ` · ${coverage.total.toLocaleString("ko-KR")}개 ${coverage.unit} 중 ${coverage.reviewed.toLocaleString("ko-KR")}개 ${coverage.status === "partial" ? "상세 검토" : "검토"}`}
       {coverage.unreviewed > 0 && ` · ${coverage.status === "partial" ? "상세 미검토" : "미검토"} ${coverage.unreviewed.toLocaleString("ko-KR")}개`}
       {items.length > 2 ? <details className="contract-review-coverage-detail law-detail-source"><SourceToggleSummary label="검토 범위 상세" openLabel="검토 범위 접기" />{details}</details> : details}
     </dd>
@@ -157,6 +158,16 @@ export function ContractReviewResult({ review, file, expandSources = false, onEx
     : review.stats.excludedPrecedents > 0 ? "weak" : "none";
   const lawCount = new Set(issues.flatMap((issue) => issue.laws.filter((key) => review.laws[key]))).size;
   const precedentCount = new Set(issues.flatMap((issue) => issue.precedents.filter((key) => review.precedents[key]))).size;
+  const issueClauseCount = review.clauses.filter((clause) => clause.issues.length > 0).length;
+  // Explain only issues without a displayed reference; existing grounding and status rules stay above.
+  const remaining = issues.filter((issue) => !issue.laws.some((key) => review.laws[key]) && !issue.precedents.some((key) => review.precedents[key]));
+  const remainingReasons = new Set(remaining.map((issue) => {
+    if (issue.lawStatus === "failed" || issue.precedentStatus === "failed") return "근거 조회에 실패했습니다.";
+    if (issue.lawStatus === "partial" || issue.precedentStatus === "partial") return "근거가 일부만 확인되어 추가 확인이 필요합니다.";
+    if (issue.lawStatus === "not_searched" && issue.precedentStatus === "not_searched") return "해당 근거를 조회하지 않았습니다.";
+    return "근거 확인이 완료되지 않았습니다.";
+  }));
+  const remainingExplanation = remainingReasons.size === 1 ? [...remainingReasons][0] : "근거 확인이 완료되지 않았습니다.";
 
   const issueBody = (issue: ReviewedIssue, anchor: string, clauseSegments?: readonly number[]) => {
     const laws = [...new Set(issue.laws)].map((key) => review.laws[key]).filter(Boolean);
@@ -284,11 +295,16 @@ export function ContractReviewResult({ review, file, expandSources = false, onEx
     </section>
     <section className="legal-analysis-section contract-review-summary">
       <h3>{partial ? "검토한 범위 요약" : "전체 검토 요약"}</h3>
+      <dl className="contract-review-metrics">
+        <div><dt>쟁점 발견 조항</dt><dd>{issueClauseCount}개</dd></div>
+        <div><dt>검토 쟁점</dt><dd>{issues.length}건</dd></div>
+        <div><dt>관련 근거 확인</dt><dd>{grounded}/{issues.length}건</dd></div>
+      </dl>
+      {issues.length > 0 && <p className="contract-review-summary-description">{issues.length}건의 쟁점 중 {grounded}건에서 관련 근거를 확인했습니다.{remaining.length > 0 && ` 나머지 ${remaining.length}건은 ${remainingExplanation}`}</p>}
       <p className="contract-review-counts">{SEVERITY_ORDER.map((severity) => <span key={severity} className="contract-review-count" data-severity={severity}>
         {SEVERITY_LABEL[severity]} <strong>{risk[severity]}</strong>건</span>)}</p>
-      <p className="contract-review-meta">검토 조항 {review.clauses.length}개(쟁점이 있는 조항) · 쟁점 {issues.length}건 · 관련 근거 확인 {grounded}/{issues.length}건(쟁점 기준)
-        {lawCount + precedentCount > 0 && ` (서로 다른 법령 ${lawCount}건 · 판례 ${precedentCount}건)`}
-        {file && ` · 전송 단위 ${file.coverage.total}개 ${file.coverage.unit} 중 ${file.coverage.reviewed}개 전송`}</p>
+      {lawCount + precedentCount > 0 && <p className="contract-review-meta contract-review-materials">관련 자료 · 법령 조문 {lawCount}건 · 판례 판시사항 {precedentCount}건</p>}
+      {precedentCount > 0 && <p className="contract-review-meta">중복 참조 제외 · 같은 판례의 서로 다른 판시사항은 각각 집계합니다.</p>}
     </section>
     {issueEntries.length > 1 && <nav className="research-issue-nav" aria-label="쟁점 바로가기">
       <span>쟁점 바로가기</span>
