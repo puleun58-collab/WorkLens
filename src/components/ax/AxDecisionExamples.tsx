@@ -54,8 +54,8 @@ export function DecisionPointsSection({ diagnosis, disabled, onSave }: {
   }
   const [saved, setSaved] = useState(false);
   // 펼침 상태는 초안과 별개로 유지한다: 접었다 펴도 미저장 입력값이 사라지지 않는다.
-  // 기본값은 첫 미확정 항목(확인할 것이 없을 때는 모두 접힘).
-  const [openId, setOpenId] = useState<string | null>(() => resolveDecisionPoints(diagnosis).find(point => point.status === "미확정")?.id ?? null);
+  // 기본값은 모두 접힘(한 번에 한 항목만 펼침).
+  const [openId, setOpenId] = useState<string | null>(null);
   const confirmedCount = drafts.filter(point => point.status === "확정" || point.status === "해당 없음").length;
   const update = (id: string, patch: Partial<ResolvedDecisionPoint>) =>
     setDrafts(current => current.map(point => point.id === id ? { ...point, ...patch } : point));
@@ -76,7 +76,7 @@ export function DecisionPointsSection({ diagnosis, disabled, onSave }: {
         <p className="ax-muted">자동화에 필요한 업무 규칙을 확인합니다. 확정된 내용은 올인원 지시문에 반영됩니다.</p>
       </div>
       <div className="ax-decision-progress">
-        <strong>{confirmedCount} / 7 확인 완료</strong>
+        <strong>{confirmedCount}/7 완료</strong>
         <span className="ax-decision-bar" aria-hidden="true"><span style={{ width: `${confirmedCount / 7 * 100}%` }} /></span>
       </div>
     </div>
@@ -87,7 +87,7 @@ export function DecisionPointsSection({ diagnosis, disabled, onSave }: {
       // D5: D4 확정 목록이 있으면 선택형으로 표시한다. 목록 외 기존값은
       // 그대로 보여주고 불일치를 안내하며, 저장 시까지 기존값을 유지한다.
       const d5Mismatch = point.id === "D5" && d4States && point.detail?.trim() ? !d4States.includes(point.detail.trim()) : false;
-      return <div className="ax-decision-row" key={point.id} data-status={point.status}>
+      return <div className={`ax-decision-row${isOpen ? " is-open" : ""}`} key={point.id} data-status={point.status}>
         <button type="button" className="ax-decision-row-head" aria-expanded={isOpen} disabled={disabled}
           onClick={() => setOpenId(isOpen ? null : point.id)}>
           <span className="ax-decision-no">{point.id}</span>
@@ -115,14 +115,14 @@ export function DecisionPointsSection({ diagnosis, disabled, onSave }: {
             </label>
             {d5Mismatch ? <p className="ax-muted" role="status">현재 값이 결과 상태 (D4) 목록에 없습니다. 결과 상태 (D4) 중 하나로 수정하세요. 수정 전까지 기존값이 유지됩니다.</p> : null}
           </> : <label className="ax-field">{decisionPanelLabel(point.id, "상세")}
-            <Textarea rows={2} maxLength={2000} aria-label={decisionPanelLabel(point.id, "상세")} placeholder={def.detailHint} disabled={disabled}
+            <Textarea rows={4} maxLength={2000} aria-label={decisionPanelLabel(point.id, "상세")} placeholder={def.detailHint} disabled={disabled}
               value={point.detail ?? ""} onChange={e => { update(point.id, { detail: e.target.value }); setSaved(false); }} />
           </label>}
         </div> : null}
       </div>;
     })}
     <div className="ax-decision-save">
-      <Button type="button" disabled={disabled} onClick={save}>변경사항 저장</Button>
+      <Button type="button" disabled={disabled} onClick={save}>저장</Button>
       {saved ? <p className="ax-muted">결정 지점을 저장했습니다.</p> : null}
     </div>
   </section>;
@@ -209,10 +209,10 @@ export function ExampleResultsSection({ examples, diagnosis, disabled, onSave }:
       </div>
     </div>
     {requirement === "required"
-      ? <p className="ax-muted">정상 사례와 예외 사례를 각각 1건 이상 넣어 주세요. (안내이며, 필수 조건은 확정 {EXAMPLE_CONFIRMED_MINIMUM}건입니다.) 확정 예시가 {EXAMPLE_CONFIRMED_MINIMUM}건 미만이면 &lsquo;업무 처리 예시 미확정&rsquo; 보류 사유가 붙습니다.</p>
+      ? <p className="ax-muted">정상·예외 사례를 각각 1건 이상 넣어 주세요. 확정 {EXAMPLE_CONFIRMED_MINIMUM}건 미만이면 &lsquo;업무 처리 예시 미확정&rsquo; 보류 사유가 붙습니다.</p>
       : requirement === "recommended"
-        ? <p className="ax-muted">예시는 권장 사항입니다. 정상 사례와 예외 사례를 각각 1건 이상 넣어 주면 구현 확인에 도움이 됩니다. 필수 조건이 아니므로 예시가 없어도 보류 사유가 붙지 않습니다.</p>
-        : <p className="ax-muted">업무 처리 예시 필수 여부가 확인되지 않았습니다. 대조 기준 (D1)·중복 처리 (D2)·예외값 처리 (D3)·계산 기준 (D7)을 확정하거나 해당 없음으로 확인하면 필수 여부가 정해집니다. 필수 대상인 경우에만 확정 {EXAMPLE_CONFIRMED_MINIMUM}건이 필요합니다.</p>}
+        ? <p className="ax-muted">예시는 권장 사항이며, 없어도 보류 사유가 붙지 않습니다. 정상·예외 사례를 각각 1건 이상 넣으면 구현 확인에 도움이 됩니다.</p>
+        : <p className="ax-muted">예시 필수 여부가 아직 정해지지 않았습니다. 대조 기준 (D1)·중복 처리 (D2)·예외값 처리 (D3)·계산 기준 (D7)을 확정하거나 해당 없음으로 확인하면 정해지며, 필수 대상인 경우 확정 {EXAMPLE_CONFIRMED_MINIMUM}건이 필요합니다.</p>}
     {requirement === "required" ? <p className="ax-muted">확정 예시 {countedExamples.length}건</p> : null}
     {invalidExamples.length ? <p className="ax-muted" role="status">저장된 예시 중 {invalidExamples.length}건은 예상 결과가 결과 상태 (D4) 목록에 없어 확정 예시로 세지 않습니다. 예상 결과를 결과 상태 (D4) 중 하나로 고쳐 다시 저장하세요.</p> : null}
     <div className="ax-example-tabs" role="tablist" aria-label="업무 처리 예시 목록">
@@ -260,10 +260,10 @@ export function ExampleResultsSection({ examples, diagnosis, disabled, onSave }:
         <Textarea rows={2} maxLength={1000} aria-label={`예시 ${safeIndex + 1} 메모`} disabled={disabled}
           value={selected.memo} onChange={e => { update(safeIndex, { memo: e.target.value }); setSaved(false); }} />
       </label>
-    </div> : <p className="ax-muted">예시가 없습니다. 새 예시를 추가하세요.</p>}
+    </div> : <p className="ax-muted ax-example-empty">예시가 없습니다. 새 예시를 추가하세요.</p>}
     <div className="ax-example-actions">
       <Button type="button" variant="ghost" disabled={disabled || !selected} aria-label={`예시 ${safeIndex + 1} 삭제`} onClick={removeSelected}><Trash2 size={15} aria-hidden="true" />예시 삭제</Button>
-      <Button type="button" disabled={disabled} onClick={save}>업무 처리 예시 저장</Button>
+      <Button type="button" disabled={disabled} onClick={save}>저장</Button>
     </div>
     {error ? <p className="ax-muted" role="alert">{error}</p> : null}
     {saved ? <p className="ax-muted">업무 처리 예시를 저장했습니다.</p> : null}
