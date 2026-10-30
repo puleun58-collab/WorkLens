@@ -121,7 +121,7 @@ describe("fixed legal_research API", () => {
         ...(input.task === "law_system" || input.task === "action_basis" || input.task === "procedure_detail"
           ? { followup: { attempted: 0, failed: 0, limited: false, missing: 0, status: "not-searched" } } : {}),
         ...(input.task === "action_basis" ? { actionBasis: { status: "viewed", items: [
-          { label: "처분·허가 근거", status: "none" }, { label: "적용 요건", status: "none" }] } } : {}),
+          { label: "처분·허가 근거", status: "none", basisRefs: [] }, { label: "적용 요건", status: "none", requirementRefs: [] }] } } : {}),
         ...(input.task === "dispute_prep" ? { dispute: { status: "viewed", items: [
           { label: "관련 법령", status: "none" }, { label: "판례·결정례·재결례", status: "none" }] } } : {}),
         ...(input.task === "amendment_track" ? { amendment: { status: "viewed", items: [

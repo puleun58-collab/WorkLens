@@ -92,3 +92,26 @@ describe("assessActionBasis", () => {
     expect(assessActionBasis(query, withAnnex, undefined, foreign).status).toBe("partial");
   });
 });
+
+it("returns independent structured basis and requirement references without changing detail", () => {
+  const result = assessActionBasis(QUERY, BODY, { supplement: SUPPLEMENT });
+  const [basis, requirement] = result.items;
+  expect(basis.basisRefs).toHaveLength(2);
+  expect(requirement.requirementRefs).toHaveLength(2);
+  expect(basis.detail).toContain("조문 본문 2건");
+  expect(basis.basisRefs?.[0]).toMatchObject({ law: "건강기능식품에 관한 법률 시행령", jo: "제5조", title: "영업정지 처분", excerpt: expect.stringContaining("법 제32조") });
+  const basisOnly = BODY.replace("영업자가 기준을 위반하면 영업정지 처분을 할 수 있다. 처분의 요건과 기준은 해당 조문에 따른다.", "영업자가 위반하면 영업정지 처분을 할 수 있다.");
+  const independent = assessActionBasis(QUERY, basisOnly);
+  expect(independent.items[0].basisRefs).toHaveLength(1);
+  expect(independent.items[1].requirementRefs).toEqual([]);
+  expect(independent.items[1].status).toBe("viewed");
+});
+
+it("keeps all structured sources beyond the three-reference legacy summary and deduplicates only identical excerpts", () => {
+  const articles = Array.from({ length: 5 }, (_, i) => ({ ...SUPPLEMENT.articles[0], jo: `제${i + 1}조` }));
+  const result = assessActionBasis(QUERY, BODY, { supplement: { status: "found", articles: [...articles, articles[0], { ...articles[0], excerpt: `${articles[0].excerpt} 별도의 원문 발췌` }] } });
+  expect(result.items[0].basisRefs).toHaveLength(7);
+  expect(result.items[0].detail).toContain("외 3건");
+  expect(new Set(result.items[0].basisRefs?.map((ref) => `${ref.law}:${ref.jo}`)).size).toBe(6);
+  expect(result.items[0].basisRefs?.some((ref) => ref.excerpt.includes("별도의 원문 발췌"))).toBe(true);
+});

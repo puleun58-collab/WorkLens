@@ -554,7 +554,10 @@ export async function runLegalResearch(
       followup: followup.report, ...(annexes.length ? { annexes } : {}), ...(enrichment ? { enrichment } : {}) };
     if (request.task === "law_system") {
       const lawSystem = assessLawSystem(combinedText, request.query, request.articles);
-      if (incomplete && lawSystem.status === "matched") lawSystem.status = "partial";
+      // The assessor already checks both required delegation tiers and section
+      // failures. Extra candidate reads cannot invalidate those confirmed links.
+      // Unverified annex originals retain the existing conservative cap.
+      if (annexes.some((a) => a.status !== "verified") && lawSystem.status === "matched") lawSystem.status = "partial";
       return { ...common, lawSystem };
     }
     if (request.task === "procedure_detail") {
@@ -566,7 +569,10 @@ export async function runLegalResearch(
       return { ...common, procedure };
     }
     const actionBasis = assessActionBasis(request.query, combinedText, enrichment, annexes);
-    if (incomplete && actionBasis.status === "matched") actionBasis.status = "partial";
+    // Basis, requested requirements, annex originals and appeal sources are
+    // assessed independently above. Only additional reads may remain optional
+    // after all those checks pass; never promote an assessor's partial result.
+    if (annexes.some((a) => a.status !== "verified") && actionBasis.status === "matched") actionBasis.status = "partial";
     return { ...common, actionBasis };
   }
   if (request.task === "dispute_prep") {

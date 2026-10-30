@@ -30,6 +30,21 @@ export interface TaskEvidenceItem {
    * membership, so the screen can show each provision with its relation
    * and expression instead of re-deriving the counts from a string. */
   articles?: TaskEvidenceArticle[];
+  /** Action basis only: independently body-confirmed sources. Existing detail is retained. */
+  basisRefs?: TaskEvidenceBodyRef[];
+  requirementRefs?: TaskEvidenceBodyRef[];
+}
+
+export interface TaskEvidenceBodyRef {
+  law: string;
+  jo: string;
+  title: string;
+  /** Retrieved source text; never an inferred condition or a case-fact verdict. */
+  excerpt: string;
+}
+
+export function taskEvidenceReferences(item: TaskEvidenceItem): (TaskEvidenceArticle | TaskEvidenceBodyRef)[] {
+  return item.articles ?? item.basisRefs ?? item.requirementRefs ?? [];
 }
 
 /** One provision behind a task-evidence item, with its judged relation. */
