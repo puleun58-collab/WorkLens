@@ -79,7 +79,8 @@ async function measure(box: Locator): Promise<BoxMetrics> {
 }
 
 const STEP07_REQUEST_START = "현재 프로젝트의 구조, GitHub 연결 상태, 배포 서비스 및 기존 배포 설정을 먼저 확인해 줘.";
-const STEP08_REQUEST_START = "완성한 프로그램을 실제 사용 상황처럼 테스트해 줘.";
+// STEP 08 검증 요청 문구는 MVP 검증→수정 흐름 개선에서 9개 필수 확인 항목으로 정밀화됐다 (의도된 변경).
+const STEP08_REQUEST_START = "완성한 프로그램을 실제 사용 상황처럼 직접 실행해 테스트해 줘.";
 
 test("STEP 07 PR·CI box shows no repeated blank lines", async ({ page }) => {
   const panel = await openGuide(page);

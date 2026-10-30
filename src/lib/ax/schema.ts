@@ -174,6 +174,28 @@ export const hitlReviewCollectionSchema = z.object({
   updatedAt: z.iso.datetime(),
 }).strict();
 
+// 검증 결과 1건(실패 항목): 사용자 제공 내용만 저장한다. WorkLens가 코드·
+// 로그에 접근하지 않으므로, 기대·실제·오류·재현은 모두 사용자가 입력한 값이다.
+// strict + 선택 필드라 기존 데이터 검증에 영향을 주지 않는다.
+/** 검증 실패 항목 1건: 기능명만 필수, 나머지는 제공된 경우에만 저장한다. */
+export const verificationFailureSchema = z.object({
+  feature: z.string().trim().min(1).max(500),
+  expected: z.string().trim().max(2000).optional(),
+  actual: z.string().trim().max(2000).optional(),
+  error: z.string().trim().max(2000).optional(),
+  reproduction: z.string().trim().max(2000).optional(),
+}).strict();
+/** 검증 라운드 1건: 보고 일시가 라운드 구분자이며, 코드 이력은 Git에 위임한다. */
+export const verificationResultSchema = z.object({
+  reportedAt: z.iso.datetime(),
+  failures: z.array(verificationFailureSchema).max(50),
+  keptFeatures: z.array(z.string().trim().max(500)).max(50).optional(),
+  implementationNote: z.string().trim().max(2000).optional(),
+  rulesNote: z.string().trim().max(2000).optional(),
+  unconfirmedRules: z.array(z.string().trim().max(500)).max(20).optional(),
+  testRunFailure: z.string().trim().max(2000).optional(),
+}).strict();
+
 // v2: HITL 검토 데이터 포함
 export const axTaskV2Schema = axTaskSchema.extend({
   // 사람 검토 데이터 (AI 진단 원본과 분리)
@@ -183,6 +205,11 @@ export const axTaskV2Schema = axTaskSchema.extend({
   // 검토 항목별 필드가 아니라 업무 단위인 이유: 확정 예시 3건 기준은 업무
   // 단위 개수이며, 항목별로 나누면 기준 집계와 지시문 예시 표가 분산된다.
   exampleResults: z.array(exampleResultSchema).max(20).optional(),
+  // MVP 검증 결과 라운드 기록: reviews·exampleResults와 같은 저장 경로로,
+  // 업무 단위 목록으로 저장한다. 선택 필드라 필드가 없는 기존 데이터도
+  // 그대로 검증·마이그레이션되며, 내보내기/가져오기는 스키마를 그대로
+  // 통과하므로 별도 화이트리스트·버전 상향이 필요 없다.
+  verificationResults: z.array(verificationResultSchema).max(50).optional(),
 });
 
 export const axStateV2Schema = z.object({
