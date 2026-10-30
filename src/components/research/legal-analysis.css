@@ -139,14 +139,15 @@ p.research-meta { margin: 0; }
 }
 .contract-review-severity { flex: none; }
 /* 문서 검토 개별 쟁점 위험도 배지 전용 스타일 (공통 Badge 전역 변경 없음).
-   높음=빨강, 보통=주황, 낮음=파랑. 크기·굵기·여백·테두리 두께는 세 단계 동일. */
+   높음=빨강, 보통=주황, 낮음=파랑. 크기·굵기·여백·테두리 두께는 세 단계 동일.
+   글자 크기는 13px로 1px 키우고, 내부 여백을 5px 11px로 조정해 균형을 맞춘다. 세로 중앙 정렬은 Badge의 inline-flex 기본값을 유지한다. */
 .contract-review .contract-review-severity {
   height: auto;
   min-height: 0;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   line-height: 1.45;
-  padding: 4px 10px;
+  padding: 5px 11px;
   border: 1px solid;
   white-space: nowrap;
 }
@@ -164,6 +165,12 @@ p.research-meta { margin: 0; }
   background-color: #DBEAFE;
   color: #1D4ED8;
   border-color: #93B8F3;
+}
+/* 근거 미확인 배지: 글자 크기만 약 1px 줄인다. 배경·테두리·배지 크기·정렬은 Badge 기본값을 유지한다.
+   Badge 기본 글자는 14px(기본)/12px(sm 이상)이므로, 각 구간에서 1px씩 줄인다(sm = Tailwind 기본 40rem). */
+.contract-review .contract-review-unverified { font-size: 13px; }
+@media (min-width: 40rem) {
+  .contract-review .contract-review-unverified { font-size: 11px; }
 }
 /* 쟁점 제목은 줄바꿈하고 위험도 배지는 우측에 유지한다. */
 .contract-review-issue-head { flex-wrap: nowrap; align-items: flex-start; justify-content: space-between; }
@@ -202,9 +209,12 @@ p.research-meta { margin: 0; }
 .contract-review-issue-facts dt { color: var(--muted); font-size: var(--font-size-xs); font-weight: var(--font-weight-semibold); }
 .contract-review-issue-facts dd { margin: 0; color: var(--ink); font-size: var(--font-size-sm); line-height: 1.7; overflow-wrap: anywhere; white-space: pre-wrap; }
 .contract-review-issue-facts .contract-review-suggestion dt { color: var(--blue-active); }
+/* 수정 제안만 윤문 수정안 박스와 동일한 하늘색 토큰을 쓴다. 배경·테두리 색상만 바꾸고, 박스 기하(여백·모서리·테두리 두께)와 제목·본문 글자 크기는 #366 박스와 동일하게 유지한다. */
+.contract-review-issue-facts .contract-review-suggestion { border-color: var(--blue-callout-border); background: var(--blue-callout); }
 .contract-review-evidence { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; min-width: 0; margin-top: 2px; }
 .contract-review-evidence .contract-review-meta { min-width: 0; overflow-wrap: anywhere; }
-.contract-review-evidence-button { color: var(--blue-active); }
+/* 근거 보기 버튼 글자색은 검정색으로 한다. 배경·테두리·크기·모서리·기능은 Button 기본값을 유지한다. */
+.contract-review-evidence-button { color: var(--ink); }
 .contract-review-source { margin: 0; }
 .contract-review-source .source-toggle { padding: 6px 0; color: var(--ink-soft); font-size: var(--font-size-xs); font-weight: var(--font-weight-medium); }
 /* Per-item evidence rows are secondary controls inside an already-divided section: no second rule. */

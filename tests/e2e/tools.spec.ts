@@ -52,6 +52,12 @@ test("document review summary and clause boxes keep 15 issues readable with long
   await expect(result.locator(".contract-review-materials")).toHaveText("관련 자료 · 법령 조문 2건 · 판례 판시사항 2건");
   await expect(result.locator(".contract-review-summary-description")).toHaveText("15건의 쟁점 중 2건에서 관련 근거를 확인했습니다. 나머지 13건은 근거 확인이 완료되지 않았습니다.");
   await expect(result.locator(".contract-review-issue")).toHaveCount(15);
+  // 수정 제안 박스는 윤문 하늘색 토큰을 쓴다(검토 결과 박스는 연한 회색 그대로).
+  const suggestionStyle = await result.locator(".contract-review-suggestion").first().evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { borderTopWidth: style.borderTopWidth, backgroundColor: style.backgroundColor, paddingTop: style.paddingTop, paddingLeft: style.paddingLeft };
+  });
+  expect(suggestionStyle).toEqual({ borderTopWidth: "1px", backgroundColor: "rgb(234, 242, 255)", paddingTop: "12px", paddingLeft: "16px" });
   const nav = result.getByRole("navigation", { name: "쟁점 바로가기" });
   await expect(nav.getByRole("button")).toHaveCount(15);
   await expect(nav.locator("[data-severity]")).toHaveCount(0);
