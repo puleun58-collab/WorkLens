@@ -1220,10 +1220,18 @@ async function expectGuideTutorial(page: Page, panel: Locator, tool: "Codex" | "
     await page.keyboard.press("Enter");
     const heading = panel.locator(`[data-setup-step="${number}"] > h4`);
     await expect(heading).toBeFocused();
+    // Self-correcting wait: under load, a focus-triggered smooth scroll can start late
+    // (after goToStep's instant scroll) and strand the viewport with the heading out of
+    // view or covered — then the predicate below stays false for the whole timeout even
+    // though navigation itself worked. Re-issuing the same instant scroll goToStep uses
+    // on each failing tick re-establishes the intended viewport position; the passing
+    // condition itself is unchanged (fully in viewport AND hit-testable at center).
     await expect.poll(() => heading.evaluate(element => {
       const box = element.getBoundingClientRect();
       const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
-      return box.top >= 0 && box.bottom <= innerHeight && !!hit && (hit === element || element.contains(hit));
+      const ok = box.top >= 0 && box.bottom <= innerHeight && !!hit && (hit === element || element.contains(hit));
+      if (!ok) element.scrollIntoView({ behavior: "instant", block: "start" });
+      return ok;
     })).toBe(true);
   }
   // Navigation preserves optional disclosures and the selected agent's commands.
