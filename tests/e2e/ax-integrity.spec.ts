@@ -80,17 +80,22 @@ for (const width of [1440, 390]) test(`AX two-task ID-linked four-stage flow, in
     const marker = page.locator(".ax-bubble").and(page.getByRole("button", { name: new RegExp(`^${row.name} ·`) }));
     expect(await marker.evaluate(e => ({ x: (e as HTMLElement).style.left, y: (e as HTMLElement).style.bottom }))).toEqual({ x: row.x, y: row.y });
     await marker.click(); await expect.poll(async () => (await stored(page)).selectedTaskId).toBe(row.id);
-    await expect(page.locator(".ax-matrix-detail")).toContainText(row.name);
+    // 매트릭스 상세 카드는 §9로 제거됨 — 선택은 우측 목록 행으로 확인한다.
+    await expect(page.locator(".ax-matrix-detail")).toHaveCount(0);
+    await expect(page.getByLabel("매트릭스 업무 목록").getByRole("listitem").filter({ hasText: row.name }).getByRole("button")).toHaveAttribute("aria-pressed", "true");
   }
   await page.locator(".ax-bubble").and(page.getByRole("button", { name: /^업무 A ·/ })).click();
   await step(page, "결과·로드맵"); await expect(page.locator(".ax-report-intro h2")).toHaveText("업무 A");
-  // 계획 헤더 통합(§2.4): Level은 선택 업무 헤더에, Gate 배지는 통합 목록 행에 표시된다.
+  // 계획 헤더 통합(§2.4): Level은 선택 업무 헤더에 표시되고, 통합 목록 행의 반복 Gate 배지는 §10으로 제거됐다.
   await expect(page.locator(".ax-report-intro")).toContainText("Level 2");
-  await expect(page.locator(".ax-step4-overview .ax-priority-list").first().getByRole("listitem").filter({ has: page.locator(".ax-task-name", { hasText: "업무 A" }) })).toContainText("확인 후 진행");
+  const overviewRowA = page.locator(".ax-step4-overview .ax-priority-list").first().getByRole("listitem").filter({ has: page.locator(".ax-task-name", { hasText: "업무 A" }) });
+  await expect(overviewRowA).not.toContainText("확인 후 진행");
+  await expect(overviewRowA.locator(".ax-gate-badge")).toHaveCount(0);
+  await expect(overviewRowA).toContainText("Level 2");
   for (const row of expected) {
     const top = page.locator(".ax-step4-overview .ax-priority-list").first();
     const item = top.getByRole("listitem").filter({ has: page.locator(".ax-task-name", { hasText: row.name }) });
-    // 통합 목록 행에는 점수가 표시되지 않는다 (업무명·Level·진행 상태·다음 행동만).
+    // 통합 목록 행에는 점수가 표시되지 않는다 (업무명·Level·다음 행동만, Gate 배지 없음).
     // 순위는 rank 배지로 확인하고, 점수 계산 자체는 위 매트릭스 버블 위치로 검증된다.
     await expect(item.locator(".ax-rank")).toHaveText(`#${expected.indexOf(row) + 1}`); await item.getByRole("button").click();
     await expect(page.locator(".ax-report-intro h2")).toHaveText(row.name);

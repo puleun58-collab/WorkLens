@@ -49,10 +49,12 @@ test("AX 간소화·COSS 통일: 판단 하단 문구 제거·매트릭스 버�
   await page.locator('section[aria-label="결정 지점 확인"]').getByRole("button", { name: "저장", exact: true }).click();
   await expect(page.locator('section[aria-label="결정 지점 확인"]').getByText("4/7 확인 완료", { exact: true })).toBeVisible();
 
-  // B. 매트릭스 상세에는 업무 진단으로 이동 버튼이 없다.
+  // B. 매트릭스 상세 카드 자체가 §9로 제거됐다 (이동 버튼 제거를 넘어 카드 자체가 없음).
+  // 이동은 상단 단계 내비게이션으로 한다.
   await page.getByRole("button", { name: "다음 단계" }).click();
-  await expect(page.locator('section[aria-label$="매트릭스 상세"]')).toBeVisible();
-  await expect(page.locator('section[aria-label$="매트릭스 상세"]').getByRole("button", { name: "업무 진단으로 이동" })).toHaveCount(0);
+  await expect(page.locator(".ax-matrix-surface")).toBeVisible();
+  await expect(page.locator('section[aria-label$="매트릭스 상세"]')).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "업무 진단으로 이동" })).toHaveCount(0);
 
   // C·D. 결과·로드맵: 다음 행동 형식, 로드맵 헤더 버튼 유지, 계획 헤더 중복 제거.
   await page.getByRole("button", { name: "다음 단계" }).click();

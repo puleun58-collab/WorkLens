@@ -72,10 +72,13 @@ test("정보 확인 필요 업무 1개: 목록에 구분 표시되고 클릭하�
   const other = diagnosedTask("ok-a", "일반 업무");
   await openMatrix(page, [other, target]);
   await expect(counts(page).getByRole("button", { name: "정보 확인 필요 업무 1개", exact: true })).toBeVisible();
-  // 좌측 목록: 정보 확인 필요 업무만 별도 배지로 구분되고, Gate 배지는 그대로 유지된다.
+  // 우측 목록(§6): 반복 Gate 배지·정보 확인 필요 배지를 표시하지 않고 작은 Gate 점으로만 구분한다.
+  // 정보 확인 필요 여부는 상단 집계 바로가기와 업무 진단 단계에서 확인한다.
   const targetRow = matrixList(page).getByRole("listitem").filter({ hasText: target.name });
-  await expect(targetRow.locator(".ax-needs-check-badge")).toHaveText("정보 확인 필요");
-  await expect(targetRow.locator(".ax-gate-badge")).toHaveCount(1);
+  await expect(targetRow.locator(".ax-needs-check-badge")).toHaveCount(0);
+  await expect(targetRow.locator(".ax-gate-badge")).toHaveCount(0);
+  await expect(targetRow.locator(".ax-gate-dot")).toHaveAttribute("data-gate", "conditional");
+  await expect(targetRow.locator(".ax-gate-dot")).toHaveAttribute("aria-label", "확인 후 진행");
   await expect(matrixList(page).getByRole("listitem").filter({ hasText: other.name }).locator(".ax-needs-check-badge")).toHaveCount(0);
 
   await counts(page).getByRole("button", { name: "정보 확인 필요 업무 1개", exact: true }).click();
@@ -135,13 +138,12 @@ test("재진단으로 확인 필요 상태가 해제되면 상단 바로가기�
   await expect(counts(page).getByRole("button")).toHaveCount(0);
 });
 
-test("매트릭스 상세의 중복 이동 버튼 제거: 단계 내비게이션으로 업무 진단에 이동한다", async ({ page }) => {
+test("매트릭스에는 상세 카드가 없다: 단계 내비게이션으로 업무 진단에 이동한다", async ({ page }) => {
   const target = diagnosedTask("detail-a", "상세 확인 업무");
   await openMatrix(page, [target]);
-  const detail = page.locator(".ax-matrix-detail");
-  await expect(detail).toBeVisible();
-  // 매트릭스 상세의 중복 이동 버튼은 제거됐다 (상단 단계 내비게이션에 업무 진단이 있다).
-  await expect(detail.getByRole("button", { name: "업무 진단으로 이동", exact: true })).toHaveCount(0);
+  // 매트릭스 상세 카드 자체가 §9로 제거됐다. 이동은 상단 단계 내비게이션으로 한다.
+  await expect(page.locator(".ax-matrix-detail")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "업무 진단으로 이동", exact: true })).toHaveCount(0);
   await page.getByRole("tab", { name: "업무 진단", exact: true }).click();
   await expect(page.getByRole("tab", { name: "업무 진단", exact: true })).toHaveAttribute("data-active", "");
   await expect(page.locator(".ax-diag-card h2")).toHaveText(target.name);
@@ -150,13 +152,14 @@ test("매트릭스 상세의 중복 이동 버튼 제거: 단계 내비게이션
   await expect(checks).toContainText("확인할 사항");
 });
 
-test("진행 보류 업무의 매트릭스 상세: 중복 이동 버튼이 없고 단계 내비게이션으로 이동한다", async ({ page }) => {
+test("진행 보류 업무의 매트릭스: 상세 카드가 없고 단계 내비게이션으로 이동한다", async ({ page }) => {
   const diagnosis = structuredClone(diagnosisFixture);
   diagnosis.decisionGate = { verdict: "no-go", reasons: ["접근 권한 없음"] };
   diagnosis.followUpQuestions = ["입력 자료 형식을 알려 주세요"];
   const target = { ...taskFixture("blocked-a", diagnosis), name: "보류 업무", status: taskStatus(diagnosis) };
   await openMatrix(page, [target]);
-  await expect(page.locator(".ax-matrix-detail").getByRole("button", { name: "업무 진단으로 이동", exact: true })).toHaveCount(0);
+  await expect(page.locator(".ax-matrix-detail")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "업무 진단으로 이동", exact: true })).toHaveCount(0);
   await page.getByRole("tab", { name: "업무 진단", exact: true }).click();
   await expect(page.getByRole("tab", { name: "업무 진단", exact: true })).toHaveAttribute("data-active", "");
   const checks = page.locator(".ax-diag-checks");
@@ -174,12 +177,13 @@ test("결과·로드맵 헤더의 업무 진단으로 이동 버튼: 업무 진�
   await expect(page.locator(".ax-diag-card h2")).toHaveText(target.name);
 });
 
-test("모바일 390×844에서도 매트릭스 상세에 중복 이동 버튼이 없고 가로 넘침이 없다", async ({ page }) => {
+test("모바일 390×844에서도 매트릭스 상세 카드가 없고 가로 넘침이 없다", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const target = diagnosedTask("detail-m", "모바일 상세 업무");
   await openMatrix(page, [target]);
-  await expect(page.locator(".ax-matrix-detail").getByRole("button", { name: "업무 진단으로 이동", exact: true })).toHaveCount(0);
-  await page.locator(".ax-matrix-detail").scrollIntoViewIfNeeded();
-  await expect(page.locator(".ax-matrix-detail")).toBeInViewport();
+  await expect(page.locator(".ax-matrix-detail")).toHaveCount(0);
+  await page.locator(".ax-matrix-surface").scrollIntoViewIfNeeded();
+  await expect(page.locator(".ax-matrix-surface")).toBeInViewport();
+  await expect(matrixList(page)).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });

@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useId, useRef, useState } from "react";
-import { AlertTriangle, ArrowRight, Bot, BrainCircuit, ChartNoAxesColumnIncreasing, Check, CheckCircle2, CircleAlert, CircleCheck, CircleX, Clipboard, ClipboardCheck, ClipboardList, Clock, CloudUpload, Copy, Database, Download, FileCode2, FileOutput, FilePlus2, FileSpreadsheet, FileText, Folder, GitBranch, GitMerge, GitPullRequest, Globe, Info, ListChecks, Monitor, MonitorCog, Play, Plug, Rocket, Search, Settings2, ShieldAlert, ShieldCheck, Target, Terminal, TriangleAlert, UserRound } from "lucide-react";
+import { AlertTriangle, ArrowRight, Bot, BrainCircuit, Check, CheckCircle2, CircleAlert, CircleCheck, CircleX, Clipboard, ClipboardCheck, ClipboardList, Clock, CloudUpload, Copy, Database, Download, FileCode2, FileOutput, FilePlus2, FileSpreadsheet, FileText, Folder, GitBranch, GitMerge, GitPullRequest, Globe, Info, ListChecks, Monitor, MonitorCog, Play, Plug, Rocket, Search, Settings2, ShieldAlert, ShieldCheck, Target, Terminal, TriangleAlert, UserRound } from "lucide-react";
 import type { AxDiagnosis, AxPlan, AxTask, AxTaskV2, HitlReview, VerificationResult } from "@/lib/ax/types";
 import { automationLevel, axes, executionGate, executionProfile, factorEffectiveValue, GATE_LABELS, gateBlockReasons, LEVEL_DESCRIPTIONS, levelDisplayLabel, nextAction, prerequisiteTopicKey, splitGatePrerequisites, type ExecutionProfile } from "@/lib/ax/policy";
 import { FACTOR_LABELS } from "@/lib/ax/schema";
@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
 import { Accordion, AccordionItem, AccordionPanel, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
-import { HitlReviewPanel, HitlStatusBadge } from "./HitlReview";
+import { HitlReviewPanel } from "./HitlReview";
 import { extractReviewableItems, extractPlanReviewableItems, findReview, getValidConfirmedReviews, type ReviewableItem } from "@/lib/ax/hitl";
 import { Tabs, TabsList, TabsTab, TabsPanel } from "@/components/ui/tabs";
 import { buildAllInOnePrompt, buildFixPrompt, guideCodeDisplayText, guideProseDisplayText, planSummary, setupGuide, TOOL_GUIDES, type AxCheckTone, type AxGitFlowBlock, type AxGuideBlock, type AxGuideSection, type AxPlanSummary, type AxToolId } from "@/lib/ax/guide";
@@ -87,18 +87,17 @@ export function AxSummary({ task, showGate = true }: { task: AxTask; showGate?: 
     {showGate ? <p><strong>{action.label}</strong> — {action.detail}</p> : null}
   </div>;
 }
-/** Shared 4-card factor score display used by the diagnosis and matrix views. Colors follow the reference: blue for value/feasibility, orange for judgment, red for risk. */
-export function AxScoreCards({ diagnosis, variant }: { diagnosis: AxDiagnosis; variant?: "matrix" }) {
+/** Shared 4-card factor score display used by the diagnosis view. Colors follow the reference: blue for value/feasibility, orange for judgment, red for risk. */
+export function AxScoreCards({ diagnosis }: { diagnosis: AxDiagnosis }) {
   const a = axes(diagnosis);
   const cards = [
-    { label: "자동화 가치", value: a.value, color: "var(--primary)", Icon: ChartNoAxesColumnIncreasing },
-    { label: "기술 실현 가능성", value: a.feasibility, color: "var(--primary)", Icon: Settings2 },
-    { label: "담당자 판단 필요도", value: a.judgment, color: "#ea580c", Icon: UserRound },
-    { label: "운영 위험", value: a.risk, color: "#dc2626", Icon: ShieldCheck },
+    { label: "자동화 가치", value: a.value, color: "var(--primary)" },
+    { label: "기술 실현 가능성", value: a.feasibility, color: "var(--primary)" },
+    { label: "담당자 판단 필요도", value: a.judgment, color: "#ea580c" },
+    { label: "운영 위험", value: a.risk, color: "#dc2626" },
   ];
-  return <div className={`ax-score-cards${variant === "matrix" ? " ax-score-cards-matrix" : ""}`} role="list" aria-label="진단 점수">
-    {cards.map(({ label, value, color, Icon }) => <div className="ax-score-card" role="listitem" key={label}>
-      {variant === "matrix" ? <span className="ax-score-card-icon" aria-hidden="true"><Icon size={20} /></span> : null}
+  return <div className="ax-score-cards" role="list" aria-label="진단 점수">
+    {cards.map(({ label, value, color }) => <div className="ax-score-card" role="listitem" key={label}>
       <span className="ax-score-card-label">{label}</span>
       <span className="ax-score-card-value"><strong>{value}</strong><span aria-hidden="true"> / 5</span><span className="sr-only">{label} 5점 만점에 {value}점</span></span>
       <span className="ax-score-card-bar" aria-hidden="true"><span style={{ width: `${value / 5 * 100}%`, background: color }} /></span>

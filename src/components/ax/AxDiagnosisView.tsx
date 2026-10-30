@@ -1,6 +1,6 @@
 "use client";
 import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
-import { MoreHorizontal, Upload, Download, Trash2, Pencil, ClipboardList, CircleCheck, Zap, Clock3, Stethoscope, LayoutGrid, Map as MapIcon, ArrowLeft, ArrowRight, Paperclip, FileText, X, Repeat, CalendarCheck, Database, Plug, UserCheck, AlertTriangle, RotateCcw, CircleHelp, SlidersHorizontal } from "lucide-react";
+import { MoreHorizontal, Upload, Download, Trash2, Pencil, ClipboardList, CircleCheck, Stethoscope, LayoutGrid, Map as MapIcon, ArrowLeft, ArrowRight, Paperclip, FileText, X, Repeat, CalendarCheck, Database, Plug, UserCheck, AlertTriangle, RotateCcw, CircleHelp, SlidersHorizontal, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -13,18 +13,17 @@ import { AlertDialog, AlertDialogPopup, AlertDialogHeader, AlertDialogTitle, Ale
 import { useAxState } from "@/client/use-ax-state";
 import { runInWorker } from "@/client/document-client";
 import { diagnoseAx, planAx, interruptServerAi, aiFailureDetail } from "@/client/server-ai-client";
-import { AX_LIMITS, FACTOR_LABELS, axTaskSchema, axTaskV2Schema, confirmedAxDiagnosis } from "@/lib/ax/schema";
-import { axes, automationLevel, bubbleArea, diagnosisCounts, diagnosisStatusItems, executionGate, executionProfile, GATE_LABELS, levelDisplayLabel, planAllowed, priorityHeading, factorEffectiveValue, factorHasAdjustment, factorScale, matrixPosition, monthlyMinutes, nextAction, priority, taskStatus, taskDisplayStatus } from "@/lib/ax/policy";
+import { AX_LIMITS, FACTOR_LABELS, axTaskV2Schema, confirmedAxDiagnosis } from "@/lib/ax/schema";
+import { axes, automationLevel, diagnosisCounts, diagnosisStatusItems, executionGate, executionProfile, GATE_LABELS, levelDisplayLabel, planAllowed, factorEffectiveValue, factorHasAdjustment, factorScale, matrixPosition, nextAction, priority, taskStatus, taskDisplayStatus } from "@/lib/ax/policy";
 import { candidateTask, taskDetails, followUpDescription, legacyDetailValues, validateAttachmentPreflight, isRegistrationUnchanged } from "@/lib/ax/registration";
 import { MAX_TASK_ATTACHMENTS, attachmentPatch, buildAttachmentSummary, combineAttachmentSummaries, taskAttachments } from "@/lib/ax/attachments";
 import type { AxAttachmentMeta } from "@/lib/ax/types";
 import type { AxToolId } from "@/lib/ax/guide";
 import { exportAxState, importAxState } from "@/lib/ax/transfer";
 import { emptyAxState, type AxStateV2, type AxTask, type AxDiagnosis, type AxDetails, type FactorKey } from "@/lib/ax/types";
-import { extractReviewableItems, extractPlanReviewableItems, reconcileReviews, validateReviewForConfirm, type ReviewableItem } from "@/lib/ax/hitl";
+import { extractReviewableItems, extractPlanReviewableItems, reconcileReviews, validateReviewForConfirm } from "@/lib/ax/hitl";
 import { AxLevelBadge, AxProcess, AxPlanSection, AxScoreCards, AxCheckIcon, diagnosisSummaryParts, diagnosisCheckItems, visibleDiagnosisCheckItems, resolveActiveTool, concreteNextAction, formatUnifiedNextAction, type PrecheckTarget } from "./AxReport";
 import { DecisionPointsSection, ExampleResultsSection } from "./AxDecisionExamples";
-import { AxScoreEvidence } from "./AxScoreEvidence";
 import "./ax.css";
 
 const STEPS = ["업무 등록", "업무 진단", "자동화 매트릭스", "결과·로드맵"];
@@ -48,8 +47,20 @@ type DraftAttachment = { meta: AxAttachmentMeta; summary: string | null };
 type Confirmation = { kind: "import"; state: AxStateV2 } | { kind: "reset" } | { kind: "delete"; id: string };
 type RankedTask = { task: AxTask & { diagnosis: AxDiagnosis }; rank: number };
 
-const MATRIX_DETAIL_ID = "ax-matrix-detail";
-
+/** 동일 좌표 그룹화(표시 전용): matrixPosition의 최종 좌표를 그대로 직렬화해 그룹 키로 쓴다.
+ * 반올림·좌표 보정·재계산·레코드 병합을 하지 않으며, 마커와 하단 그룹 표가 같은 그룹을 공유한다. */
+export type MatrixGroup = { key: string; position: ReturnType<typeof matrixPosition>; rows: RankedTask[] };
+export function groupMatrixRows(rows: RankedTask[]): MatrixGroup[] {
+  const groups = new Map<string, MatrixGroup>();
+  for (const row of rows) {
+    const position = matrixPosition(row.task.diagnosis);
+    const key = JSON.stringify([position.x, position.y]);
+    const group = groups.get(key);
+    if (group) group.rows.push(row);
+    else groups.set(key, { key, position, rows: [row] });
+  }
+  return [...groups.values()];
+}
 /** 매트릭스 상단 집계의 정보 확인 필요 바로가기: 1건이면 즉시 이동하고, 2건 이상이면 대상 업무 선택 목록을 연다.
  * 표시 문구는 공통 표시 항목(diagnosisStatusItems)의 text를 그대로 받아 두 화면이 같은 문구를 공유한다. */
 function NeedsCheckLink({ tasks, label, disabled, onGo }: { tasks: AxTask[]; label: string; disabled: boolean; onGo: (id: string) => void }) {
@@ -164,6 +175,43 @@ export function AxDiagnosisView() {
   // 단계 전환 시 최상단으로 되돌리는 기존 스크롤 초기화(다중 RAF + 150ms 타이머)가 끝난 뒤 시작해야 경합하지 않는다.
   const selectedRef = useRef(state.selectedTaskId);
   useEffect(() => { selectedRef.current = state.selectedTaskId; }, [state.selectedTaskId]);
+  // 동일 좌표 그룹 표 열림 상태: 좌표 키(JSON 직렬화)만 저장하고, 행은 현재 ranked에서 매번 다시 구한다.
+  const [openGroupKey, setOpenGroupKey] = useState<string | null>(null);
+  const groupPanelRef = useRef<HTMLElement | null>(null);
+  // 표를 연 시점의 선택 업무: 선택이 바뀌었을 때만 그룹 밖 선택 여부를 판단한다.
+  // 렌더 단계 조정에서 읽어야 하므로 ref가 아닌 state로 둔다.
+  const [groupPanelSelectionId, setGroupPanelSelectionId] = useState<string | null>(null);
+  function toggleMatrixGroup(key: string) {
+    if (openGroupKey === key) { setOpenGroupKey(null); return; }
+    setGroupPanelSelectionId(selected?.id ?? null);
+    setOpenGroupKey(key);
+  }
+  // 그룹 밖 선택 시 표 닫힘: 렌더 단계에서 조정한다 (effect 내 동기 setState는
+  // react-hooks/set-state-in-effect lint error). 마커 클릭만으로는 선택이 바뀌지 않으므로
+  // 표를 연 시점의 선택과 같으면 유지하고, 그룹 자체가 사라지면 키도 정리한다.
+  if (openGroupKey) {
+    const group = groupMatrixRows(ranked).find(g => g.key === openGroupKey);
+    if (!group) setOpenGroupKey(null);
+    else if (selected && selected.id !== groupPanelSelectionId && !group.rows.some(({ task }) => task.id === selected.id)) setOpenGroupKey(null);
+  }
+  useEffect(() => {
+    if (!openGroupKey) return;
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target) return;
+      if (groupPanelRef.current?.contains(target)) return;
+      if (target.closest(".ax-matrix-cluster")) return; // 마커 토글은 토글 핸들러가 담당
+      setOpenGroupKey(null);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || !openGroupKey) return;
+      setOpenGroupKey(null);
+      document.querySelector<HTMLElement>(`.ax-matrix-cluster[data-group-key="${CSS.escape(openGroupKey)}"]`)?.focus();
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => { document.removeEventListener("mousedown", onPointerDown); document.removeEventListener("keydown", onKeyDown); };
+  }, [openGroupKey]);
   useEffect(() => {
     if (!checkScroll || state.step !== 2 || state.selectedTaskId !== checkScroll.taskId) return;
     const timer = window.setTimeout(() => {
@@ -221,7 +269,7 @@ export function AxDiagnosisView() {
     update(current => ({ ...current, tasks: current.tasks.map(t => t.id === id ? { ...t, ...patch, updatedAt: new Date().toISOString() } : t) }));
   }
   function select(id: string) { update(current => ({ ...current, selectedTaskId: id })); }
-  function changeStep(step: number) { update(current => ({ ...current, step })); setMessage(""); }
+  function changeStep(step: number) { update(current => ({ ...current, step })); setMessage(""); setOpenGroupKey(null); }
   /** 정보 확인 필요 바로가기: 클릭 시점의 최신 상태로 대상을 재확인한 뒤 업무 진단 단계의 확인 영역으로 이동한다.
    * 대상이 삭제됐거나 재진단으로 확인 필요 상태가 해제됐으면 존재하지 않는 영역으로 이동하지 않고 안내만 남긴다. */
   function goToCheckTarget(taskId: string) {
@@ -743,7 +791,7 @@ export function AxDiagnosisView() {
   const nextStepDisabled = state.step === 1 ? state.tasks.length === 0 : diagnosedCount === 0;
   function taskRows(showActions: boolean) {
     const rows = state.step === 3 ? ranked : state.tasks.map(task => ({ task, rank: undefined }));
-    return <ul className={`ax-task-rows${state.step === 3 ? " ax-matrix-list" : ""}`}>{rows.map(({ task, rank }) => {
+    return <ul className={`ax-task-rows${state.step === 3 ? " ax-matrix-list" : ""}${state.step === 2 ? " ax-task-cards" : ""}`}>{rows.map(({ task, rank }) => {
       const l = task.diagnosis ? automationLevel(task.diagnosis) : null;
       const a = task.diagnosis ? axes(task.diagnosis) : null;
       const display = taskDisplayStatus(task);
@@ -757,36 +805,62 @@ export function AxDiagnosisView() {
       </span> : null}</li>;
     })}</ul>;
   }
-  /** Step 3 좌측 업무 목록: 단일 선택, 기존 우선순위순 고정 */
+  /** Step 3 우측 업무 목록(레퍼런스 규격): 순번·업무명·가치/실현 점수·Level·작은 Gate 상태 점·꺾쇠.
+   * 반복 Gate 배지·정보 확인 필요 배지·긴 근거는 표시하지 않는다. Gate 문구는 점의
+   * aria-label로, 정보 확인 필요 여부는 상단 집계 바로가기와 업무 진단 단계에서 확인한다. */
   function matrixTaskRows() {
     return <ul className="ax-task-rows ax-matrix-list">{matrixListed.map(({ task, rank }) => {
       const a = axes(task.diagnosis);
       const gate = executionGate(task.diagnosis);
+      const level = automationLevel(task.diagnosis);
       const active = selected?.id === task.id;
       return <li key={task.id} className={active ? "is-selected" : undefined}>
-        <Button type="button" variant="ghost" className="ax-task-row-btn" aria-pressed={active} onClick={() => select(task.id)} disabled={!!busy}>
-          <span className={`ax-dot ax-dot-${task.status}`} aria-hidden="true" />
-          <span className="ax-task-name">{rank}. {task.name}</span>
-          {showScores ? <span className="ax-task-meta">가치 {a.value} · 실현 {a.feasibility}</span> : null}
-          <span className="ax-matrix-list-badges">
-            <span className="ax-gate-badge" data-gate={gate}>{GATE_LABELS[gate]}</span>
-            {task.diagnosis.informationSufficiency === "needs-check" ? <span className="ax-needs-check-badge">정보 확인 필요</span> : null}
-          </span>
+        <Button type="button" variant="ghost" className="ax-task-row-btn ax-matrix-row-btn" aria-pressed={active} onClick={() => select(task.id)} disabled={!!busy}>
+          <span className="ax-matrix-rank">{rank}</span>
+          <span className="ax-matrix-row-main"><span className="ax-task-name" title={task.name}>{task.name}</span><span className="ax-task-meta">{showScores ? `가치 ${a.value} · 실현 ${a.feasibility} · ` : ""}{levelDisplayLabel(level)}{level.provisional ? " · 잠정" : ""}</span></span>
+          <span className="ax-gate-dot" data-gate={gate} role="img" aria-label={GATE_LABELS[gate]} />
+          <ChevronRight size={16} aria-hidden="true" className="ax-matrix-row-chevron" />
         </Button>
       </li>;
     })}</ul>;
   }
   /** 결과·로드맵 업무 목록: '확인 후 진행 업무'와 '전체 업무 보기'를 하나의 목록으로 통합한다.
    * 실행 상태별 정렬(displayed)과 우선순위 번호(rank)는 기존 그대로 유지하고, 각 행은
-   * 업무명·Level·진행 상태·다음 행동만 표시한다. 동일 업무가 두 목록에 중복 등장하지 않는다. */
+   * 업무명·Level·다음 행동만 표시한다. 반복 Gate 배지는 제거하고, Gate는 선택 업무 상세에서
+   * 1회만 표시한다. 동일 업무가 두 목록에 중복 등장하지 않는다. */
   function unifiedTaskRows() {
     return <>{displayed.some((row, index) => row.rank !== index + 1) ? <p className="ax-muted ax-priority-order">번호는 우선순위 점수 기준이며, 실행 상태별로 표시합니다.</p> : null}<ol className="ax-priority-list" aria-label="업무 목록">{displayed.map(r => {
-      const l = automationLevel(r.task.diagnosis), gate = executionGate(r.task.diagnosis);
+      const l = automationLevel(r.task.diagnosis);
       return <li key={r.task.id}><Button type="button" variant="ghost" className="ax-priority-row" aria-pressed={selected?.id === r.task.id} onClick={() => select(r.task.id)} disabled={!!busy}>
-        <strong className="ax-rank">#{r.rank}</strong><span className="ax-priority-content"><span className="ax-priority-head"><span className="ax-task-name">{r.task.name}</span>{gate !== "ready" ? <span className="ax-gate-badge" data-gate={gate}>{GATE_LABELS[gate]}</span> : null}</span>
+        <strong className="ax-rank">#{r.rank}</strong><span className="ax-priority-content"><span className="ax-priority-head"><span className="ax-task-name">{r.task.name}</span></span>
         <span>{levelDisplayLabel(l)}{l.provisional ? " · 잠정" : ""}</span><small className="ax-next-action"><span>다음 행동</span>{formatUnifiedNextAction(concreteNextAction(r.task.diagnosis))}</small></span>
       </Button></li>;
     })}</ol></>;
+  }
+  /** 동일 좌표 그룹 표: 그룹 행 클릭은 업무를 선택하되 표는 유지하고, 그룹 밖 업무를
+   * 선택하면 표가 닫힌다. 같은 마커 재클릭·X·Escape·단계 변경 시에도 닫힌다. */
+  function matrixGroupPanel() {
+    const groups = groupMatrixRows(ranked);
+    const group = openGroupKey ? groups.find(g => g.key === openGroupKey) : undefined;
+    if (!group || group.rows.length < 2) return null;
+    const a = axes(group.rows[0].task.diagnosis);
+    const close = () => setOpenGroupKey(null);
+    return <section ref={groupPanelRef} className="ax-surface ax-matrix-group-panel" aria-label={`선택 좌표의 업무 ${group.rows.length}건`}>
+      <div className="ax-matrix-group-head"><div><h3>선택 좌표의 업무 {group.rows.length}건</h3><p className="ax-muted">가치 {a.value} · 실현 {a.feasibility} · 같은 좌표에 있는 업무를 선택하여 확인할 수 있습니다.</p></div>
+        <Button type="button" variant="ghost" size="icon-sm" aria-label="선택 좌표 업무 목록 닫기" onClick={close}><X size={16} aria-hidden="true" /></Button></div>
+      <div className="ax-table-wrap"><table className="ax-matrix-group-table"><colgroup><col style={{ width: 44 }} /><col /><col style={{ width: 140 }} /><col style={{ width: 120 }} /><col /><col style={{ width: 32 }} /></colgroup><thead><tr><th scope="col">#</th><th scope="col">업무명</th><th scope="col">Level</th><th scope="col">상태</th><th scope="col">다음 행동</th><th scope="col" aria-label="선택"><span aria-hidden="true" /></th></tr></thead>
+        <tbody>{group.rows.map(({ task, rank }) => {
+          const gate = executionGate(task.diagnosis);
+          const level = automationLevel(task.diagnosis);
+          const active = selected?.id === task.id;
+          return <tr key={task.id} className={active ? "is-selected" : undefined}><td>{rank}</td>
+            <td><Button type="button" variant="ghost" className="ax-matrix-group-name" aria-pressed={active} title={task.name} onClick={() => select(task.id)} disabled={!!busy}>{task.name}</Button></td>
+            <td>{levelDisplayLabel(level)}{level.provisional ? " · 잠정" : ""}</td>
+            <td><span className="ax-gate-dot" data-gate={gate} role="img" aria-label={GATE_LABELS[gate]} />{GATE_LABELS[gate]}</td>
+            <td>{formatUnifiedNextAction(concreteNextAction(task.diagnosis))}</td>
+            <td aria-hidden="true"><ChevronRight size={16} /></td></tr>;
+        })}</tbody></table></div>
+    </section>;
   }
   /** 첨부 파일 1개만 해제한다. 나머지 파일과 그 요약은 유지되며, 첨부 구성이 바뀌었으므로 기존 진단은 무효화된다. */
   function detachFile(task: AxTask, fingerprint: string) {
@@ -884,14 +958,14 @@ export function AxDiagnosisView() {
       <TabsPanel value="3">
         {!ranked.length ? <><div className="ax-matrix-header">{matrixStatus}</div><p className="ax-empty ax-muted">진단 결과 업무 없음</p></> : <div className="ax-step3-rows">
           <div className="ax-step3-grid">
-            <div className="ax-step3-taskcol">
-            <section className="ax-surface ax-matrix-task-panel" aria-label="매트릭스 업무 목록">
-              <div className="ax-matrix-list-head"><h3>업무 목록 ({ranked.length})</h3></div>
-              {matrixTaskRows()}
-            </section>
-            </div>
             <section className="ax-surface ax-matrix-surface" aria-label="자동화 매트릭스">
-              <div className="ax-matrix-header"><h2>자동화 매트릭스</h2>{matrixStatus}
+              <div className="ax-matrix-header">
+                <div className="ax-matrix-title"><h2>자동화 매트릭스</h2><p className="ax-matrix-desc">업무별 자동화 가치와 기술 실현 가능성을 한눈에 비교할 수 있습니다.</p></div>
+                <div className="ax-matrix-legend" aria-label="매트릭스 범례">
+                  <span className="ax-legend-item"><span className="ax-legend-dot" data-gate="ready" aria-hidden="true" />진행 가능</span>
+                  <span className="ax-legend-item"><span className="ax-legend-dot" data-gate="conditional" aria-hidden="true" />확인 후 진행</span>
+                  <span className="ax-legend-item"><span className="ax-legend-dot" data-gate="blocked" aria-hidden="true" />진행 보류</span>
+                </div>
                 <div className="ax-matrix-tools">
                   <Menu><MenuTrigger render={<Button type="button" variant="outline" size="sm" />}><SlidersHorizontal size={14} aria-hidden="true" />보기 옵션</MenuTrigger>
                     <MenuPopup>
@@ -900,6 +974,7 @@ export function AxDiagnosisView() {
                   </Menu>
                   <Button type="button" variant="outline" size="sm" aria-pressed={showMatrixHelp} onClick={() => setShowMatrixHelp(v => !v)}><CircleHelp size={14} aria-hidden="true" />도움말</Button>
                 </div>
+                {matrixStatus}
               </div>
               {showMatrixHelp ? <div className="ax-matrix-help" role="note" aria-label="매트릭스 도움말">
                 <div><h4>축 점수·진행 상태·우선순위 기준</h4>
@@ -908,19 +983,21 @@ export function AxDiagnosisView() {
                   <p>진행 상태: Level·Gate 기준 판정 (매트릭스 위치와 다를 수 있음)</p>
                   <p>우선순위: 종합 정책 점수 기준</p>
                 </div>
-                <div><h4>원 크기 기준</h4>
-                  <p>원 크기: 월간 업무 투입시간 기준</p>
+                <div><h4>마커 기준</h4>
+                  <p>마커: 작은 원형 점, 색상은 진행 상태(Gate) 기준</p>
+                  <p>같은 좌표 업무는 건수 마커로 묶어 표시</p>
                 </div>
               </div> : null}
-              <AxMatrix rows={ranked} selectedId={selected?.id} onSelect={select} step={state.step} />
-              <div className="ax-matrix-legend" aria-label="매트릭스 범례">
-                <span className="ax-legend-item"><span className="ax-legend-dot" data-gate="ready" aria-hidden="true" />진행 가능</span>
-                <span className="ax-legend-item"><span className="ax-legend-dot" data-gate="conditional" aria-hidden="true" />확인 후 진행</span>
-                <span className="ax-legend-item"><span className="ax-legend-dot" data-gate="blocked" aria-hidden="true" />진행 보류</span>
-              </div>
+              <AxMatrix rows={ranked} selectedId={selected?.id} openGroupKey={openGroupKey} onSelect={id => { setOpenGroupKey(null); select(id); }} onGroupToggle={toggleMatrixGroup} />
             </section>
+            <div className="ax-step3-taskcol">
+            <section className="ax-surface ax-matrix-task-panel" aria-label="매트릭스 업무 목록">
+              <div className="ax-matrix-list-head"><h3>업무 목록 ({ranked.length})</h3></div>
+              {matrixTaskRows()}
+            </section>
+            </div>
           </div>
-          {selected?.diagnosis ? <MatrixDetailCard task={selected} diagnosis={selected.diagnosis} /> : <section className="ax-surface" aria-label="선택 업무 상세"><p className="ax-muted">업무 목록에서 업무를 선택하면 상세 분석이 표시됩니다.</p></section>}
+          {matrixGroupPanel()}
         </div>}
       </TabsPanel>
       <TabsPanel value="4">
@@ -1032,32 +1109,6 @@ function DiagnosisCard({ task, busy, onDiagnose, onEdit, attachment }: {
     </> : null}
   </section>;
 }
-/** Step 3 selected-task card: name/badges → 4 score cards → single score-evidence toggle.
- * The former detail sections (핵심 판단 근거 / 현재 가능한 범위 / 선행 확인 조건) are
- * removed from the screen only: their source data, gate logic and the diagnosis·roadmap
- * links stay untouched. Score evidence is a single toggle with no nested toggles.
- * 매트릭스 상세의 중복 이동 버튼은 제거됐다: 상단 단계 내비게이션에 업무 진단이 있다. */
-function MatrixDetailCard({ task, diagnosis }: { task: AxTask; diagnosis: AxDiagnosis }) {
-  const d = diagnosis;
-  const lvl = automationLevel(d);
-  const gate = executionGate(d);
-  const m = matrixPosition(d);
-  return <section id={MATRIX_DETAIL_ID} tabIndex={-1} className="ax-surface ax-matrix-detail" aria-label={`${task.name} 매트릭스 상세`}>
-    <div className="ax-matrix-detail-head">
-      <div className="ax-diag-title">
-        <span className="ax-detail-eyebrow">선택한 업무 · 상세 분석</span>
-        <h3>{task.name}</h3>
-        <div className="ax-diag-badges">
-          <span className="ax-region-chip" data-region={m.region}>{m.label}</span>
-          <AxLevelBadge level={lvl} className="ax-level-badge" />
-          <span className="ax-gate-badge" data-gate={gate}>{GATE_LABELS[gate]}</span>
-        </div>
-      </div>
-    </div>
-    <AxScoreCards diagnosis={d} variant="matrix" />
-    <AxScoreEvidence key={task.id} diagnosis={d} />
-  </section>;
-}
 /** Attachment status as an element (not a render-time function call) so lint ref rules stay quiet. */
 function TaskAttachment({ task, busy, ready, onDetachFile, onAttachFiles }: {
   task: AxTask; busy: string | null; ready: ReadonlySet<string>; onDetachFile: (fingerprint: string) => void; onAttachFiles: (files: File[]) => void;
@@ -1095,75 +1146,30 @@ function AxKpiCards({ tasks, needsCheckTasks, onGoNeedsCheck, needsCheckDisabled
     <div className="ax-surface ax-kpi"><span className="ax-kpi-label"><CircleCheck size={14} aria-hidden="true" />진단 완료</span><strong>{counts.results}개</strong>{statusItems.length ? <small className="ax-muted">{statusItems.map((item, index) => <Fragment key={item.key}>{index ? " · " : null}{item.actionable ? <NeedsCheckLink tasks={needsCheckTasks} label={item.text} disabled={needsCheckDisabled} onGo={onGoNeedsCheck} /> : item.text}</Fragment>)}</small> : null}</div>
   </div>;
 }
-function AxMatrix({ rows, selectedId, onSelect, step }: {
-  rows: RankedTask[]; selectedId?: string; onSelect: (id: string) => void; step: number;
+/** 매트릭스 산점도(레퍼런스 규격): 단일 업무는 균일한 작은 Gate 색상 점, 동일 좌표
+ * 업무는 중립 단일 원 + 건수 마커로 표시한다. 그룹 마커 클릭 시 그래프 아래 전폭
+ * 하단 표(부모의 matrixGroupPanel)가 열리고, 단일 마커 클릭 시 표가 닫힌다.
+ * 좌표·지역·Gate 판정은 정책 함수 그대로이며, 표시만 바꾼다. */
+function AxMatrix({ rows, selectedId, openGroupKey, onSelect, onGroupToggle }: {
+  rows: RankedTask[]; selectedId?: string; openGroupKey: string | null; onSelect: (id: string) => void; onGroupToggle: (key: string) => void;
 }) {
-  const max = Math.max(0, ...rows.map(({ task }) => monthlyMinutes(task) ?? 0));
-  const groups = new Map<string, { position: { x: number; y: number; region: string; label: string }; rows: RankedTask[] }>();
-  for (const row of rows) {
-    const position = matrixPosition(row.task.diagnosis);
-    // Serialize the renderer's final coordinates exactly: no rounding or policy recomputation.
-    const key = JSON.stringify([position.x, position.y]);
-    const group = groups.get(key);
-    if (group) group.rows.push(row);
-    else groups.set(key, { position, rows: [row] });
-  }
-  const groupSignature = JSON.stringify([...groups].map(([key, group]) => [key, group.rows.map(row => row.task.id).sort()]));
-  const [openCluster, setOpenCluster] = useState<{ key: string; selectedId?: string; groupSignature: string; step: number } | null>(null);
-  if (openCluster && (openCluster.selectedId !== selectedId || openCluster.groupSignature !== groupSignature || openCluster.step !== step)) setOpenCluster(null);
-  // Gate 상태: 차트 위치와 실제 진행 가능 상태를 구분 (blocked > conditional > ready 순으로 대표값)
-  const gateOf = (task: AxTask & { diagnosis: AxDiagnosis }) => executionGate(task.diagnosis);
-  const worstGate = (members: RankedTask[]) => members.some(({ task }) => gateOf(task) === "blocked") ? "blocked" : members.some(({ task }) => gateOf(task) === "conditional") ? "conditional" : "ready";
+  const groups = groupMatrixRows(rows);
   return <div className="ax-matrix-desktop"><div className="ax-matrix" aria-label="자동화 매트릭스 산점도">
-    <div className="ax-region ax-region-strategic" data-region="strategic">전략 과제</div><div className="ax-region ax-region-quick" data-region="quick">빠른 실행 후보</div><div className="ax-region ax-region-hold" data-region="hold">수동 유지·보류</div><div className="ax-region ax-region-maybe" data-region="maybe">검토 후보</div>
+    <div className="ax-region ax-region-strategic" data-region="strategic">전략 과제<span className="ax-region-sub">가치 높음 · 실현 낮음</span><span className="ax-region-sub">(검토 후 추진)</span></div><div className="ax-region ax-region-quick" data-region="quick">빠른 실행 후보<span className="ax-region-sub">가치 높음 · 실현 높음</span><span className="ax-region-sub">(우선 추진)</span></div><div className="ax-region ax-region-hold" data-region="hold">수동 유지·보류<span className="ax-region-sub">가치 낮음 · 실현 낮음</span><span className="ax-region-sub">(보류 또는 제외)</span></div><div className="ax-region ax-region-maybe" data-region="maybe">검토 후보<span className="ax-region-sub">가치 낮음 · 실현 높음</span><span className="ax-region-sub">(부분 자동화 검토)</span></div>
     {[1, 2, 3, 4, 5].map(v => <span key={v} className="ax-y-tick" style={{ bottom: `${(v - 1) / 4 * 100}%` }}>{v === 1 ? "" : v}</span>)}
     {[1, 2, 3, 4, 5].map(v => <span key={v} className={`ax-x-tick${v === 1 ? " is-origin" : ""}`} style={v === 1 ? undefined : { left: `${(v - 1) / 4 * 100}%` }}>{v}</span>)}
-    {[...groups].map(([key, group]) => {
+    {groups.map(group => {
       const m = group.position;
       if (group.rows.length === 1) {
         const { task, rank } = group.rows[0];
-        const diameter = Math.sqrt(bubbleArea(task, max) / Math.PI) * 2;
-        const gate = gateOf(task);
-        return <button type="button" key={task.id} className={`ax-bubble${m.region === "hold" ? " is-hold" : ""}`} style={{ left: `${m.x}%`, bottom: `${m.y}%`, width: Math.max(24, diameter), height: Math.max(24, diameter), zIndex: selectedId === task.id ? 3 : 2 }} data-gate={gate} aria-label={`${task.name} · ${m.label} · 우선순위 ${rank} · ${GATE_LABELS[gate]}`} aria-pressed={selectedId === task.id} title={`${task.name} · ${m.label} · 우선순위 ${rank} · ${GATE_LABELS[gate]}`} onClick={() => onSelect(task.id)}><span className="ax-bubble-dot" style={{ width: diameter, height: diameter }} /><span className="ax-bubble-rank" aria-hidden="true">{rank}</span><span className="ax-bubble-gate" data-gate={gate} aria-hidden="true" /></button>;
+        const gate = executionGate(task.diagnosis);
+        return <button type="button" key={task.id} className="ax-bubble" style={{ left: `${m.x}%`, bottom: `${m.y}%`, zIndex: selectedId === task.id ? 3 : 2 }} data-gate={gate} aria-label={`${task.name} · ${m.label} · 우선순위 ${rank} · ${GATE_LABELS[gate]}`} aria-pressed={selectedId === task.id} title={`${task.name} · ${m.label} · 우선순위 ${rank} · ${GATE_LABELS[gate]}`} onClick={() => onSelect(task.id)}><span className="ax-bubble-dot" data-gate={gate} aria-hidden="true" /></button>;
       }
       const members = [...group.rows].sort((a, b) => a.rank - b.rank);
       const selected = members.some(({ task }) => task.id === selectedId);
-      const open = step === 3 && openCluster?.key === key && openCluster.selectedId === selectedId && openCluster.groupSignature === groupSignature && openCluster.step === step;
-      // Keep the list on the roomy side of the point, inside the plot rather than over its axes.
-      const side = m.y < 50 ? "top" : "bottom";
-      const align = m.x < 25 ? "start" : m.x > 75 ? "end" : "center";
-      const plotRoom = Math.max(80, Math.floor((side === "top" ? 100 - m.y : m.y) * 3.7 - 44));
-      const groupGate = worstGate(members);
-      const closeCluster = () => setOpenCluster(null);
-      return <Menu key={key} modal={false} open={open} onOpenChange={nextOpen => setOpenCluster(nextOpen ? { key, selectedId, groupSignature, step } : null)}>
-        <MenuTrigger render={<button type="button" />} className="ax-matrix-cluster" style={{ left: `${m.x}%`, bottom: `${m.y}%`, zIndex: selected ? 3 : 2 }} data-selected={selected} data-gate={groupGate} aria-label={`해당 위치의 업무 ${members.length}건`} title={`해당 위치의 업무 ${members.length}건`}>
-          <span className="ax-matrix-cluster-circle ax-matrix-cluster-circle-left" aria-hidden="true" />
-          <span className="ax-matrix-cluster-circle ax-matrix-cluster-circle-right" aria-hidden="true" />
-          <span className="ax-matrix-cluster-circle ax-matrix-cluster-circle-front" aria-hidden="true" />
-          <span className="ax-matrix-cluster-number" aria-hidden="true">{members.length}건</span>
-          <span className="ax-bubble-gate" data-gate={groupGate} aria-hidden="true" />
-        </MenuTrigger>
-        <MenuPopup className="ax-matrix-cluster-popup" side={side} align={align} alignOffset={align === "center" ? 0 : align === "start" ? 28 : -28} sideOffset={12} style={{ "--ax-matrix-popup-height": `${plotRoom}px` } as CSSProperties} aria-label={`해당 위치의 업무 ${members.length}건`}>
-          <div className="ax-matrix-cluster-head"><span className="ax-matrix-cluster-count">해당 위치의 업무 {members.length}건</span><button type="button" className="ax-matrix-cluster-close" aria-label="닫기" onClick={closeCluster}><X size={14} aria-hidden="true" /></button></div>
-          <div className="ax-matrix-cluster-list" role="group" aria-label="해당 위치 업무 목록">
-          {members.map(({ task, rank }) => {
-            const a = axes(task.diagnosis);
-            const gate = gateOf(task);
-            // MenuItem 유지: 키보드 내비게이션(End/Home/방향키·Escape) 보존
-            return <MenuItem key={task.id} closeOnClick={false} className="ax-matrix-cluster-item" data-active={task.id === selectedId ? "true" : undefined} aria-current={task.id === selectedId ? "true" : undefined} onClick={() => { onSelect(task.id); closeCluster(); }}>
-              <span className="ax-matrix-cluster-rank">#{rank}</span>
-              <span className="ax-matrix-cluster-main">
-                <span className="ax-matrix-cluster-name" title={task.name}>{task.name}</span>
-                <span className="ax-matrix-cluster-sub">
-                  <span className="ax-matrix-cluster-meta">가치 {a.value} · 실현 {a.feasibility}</span>
-                  <span className="ax-gate-badge" data-gate={gate}>{GATE_LABELS[gate]}</span>
-                </span>
-              </span>
-            </MenuItem>;
-          })}
-          </div>
-        </MenuPopup>
-      </Menu>;
+      return <button type="button" key={group.key} className="ax-matrix-cluster" style={{ left: `${m.x}%`, bottom: `${m.y}%`, zIndex: selected ? 3 : 2 }} data-selected={selected} data-group-key={group.key} aria-label={`해당 위치의 업무 ${members.length}건`} aria-pressed={openGroupKey === group.key} title={`해당 위치의 업무 ${members.length}건`} onClick={() => onGroupToggle(group.key)}>
+        <span className="ax-matrix-cluster-number" aria-hidden="true">{members.length}건</span>
+      </button>;
     })}
     <span className="ax-y-label"><span className="ax-y-arrow" aria-hidden="true">↑</span><span className="ax-y-text">자동화 가치</span></span><span className="ax-x-label">기술 실현 가능성 →</span>
   </div></div>;
