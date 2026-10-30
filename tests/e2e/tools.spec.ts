@@ -1883,12 +1883,12 @@ test("RESEARCH procedure_detail shows the server's per-requirement verdict inste
   await expect(overview.locator("h3")).toHaveAttribute("data-status", "matched");
   await expect(overview).toContainText("관련 근거 확인");
   await expect(overview).not.toContainText("근거 부족");
-  const requirements = overview.locator("[data-procedure-requirements]");
-  await expect(requirements).toContainText("행정심판 청구절차");
-  await expect(requirements).toContainText("행정심판 제출서류");
-  await expect(requirements.locator(".research-issue-status")).toHaveText(["근거 확인", "근거 확인"]);
-  await expect(requirements).toContainText("행정심판법 제23조(필수)");
-  await expect(requirements).toContainText("별표/서식 목록 2건 (전체 55건 중)");
+  // The duplicated "확인한 요구사항" block is gone: its verdicts ride on
+  // the 01/02 headers when steps/forms exist, and the articles stay once
+  // in the group sections below (this fixture has neither, so the top
+  // shows the verdict badge and the annex notice only).
+  await expect(overview.locator("[data-procedure-requirements]")).toHaveCount(0);
+  await expect(output.locator(".research-group[data-group='statutes']")).toContainText("제23조");
   await expect(overview).toContainText("별표·서식 원문 미확보");
   await expect(output.locator(".research-group[data-group='forms']")).toContainText("심판청구서");
   await page.setViewportSize({ width: 390, height: 844 });
@@ -1952,10 +1952,10 @@ test("RESEARCH shows the server's per-kind verdict for law_system and dispute_pr
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
-test("RESEARCH procedure_detail summary shows the first 3 requirement refs plus the rest count", async ({ page }) => {
-  // Summary-only shortening: a requirement with 5 articles shows the first
-  // 3 + "외 2건" in the summary, while the full article bodies stay in the
-  // group sections below. The requirement verdict itself is unchanged.
+test("RESEARCH procedure_detail summary no longer repeats requirement refs", async ({ page }) => {
+  // The top summary no longer repeats article names ("외 N건" lists are
+  // gone): the full articles live once in the group sections below, and
+  // the requirement verdict itself is unchanged.
   const articles = (jo: string, title: string) => `행정심판법\n    ${jo} (${title})\n    ${jo}(${title})\n  ① ${title} 본문 한 줄.\n    시행: 2023.03.21 | 국민권익위원회`;
   const text = "═══ 절차/비용 안내: 행정심판 청구절차와 제출서류 ═══\n법령: 행정심판법 (법률) | MST: 249041\n\n"
     + "▶ AI 검색 보완 정보\n지능형 법령검색 결과 (법령조문, 5건):\n\n"
@@ -1982,11 +1982,8 @@ test("RESEARCH procedure_detail summary shows the first 3 requirement refs plus 
   await chooseOption(page, form.getByLabel("리서치 유형"), researchTaskLabels.procedure_detail);
   await form.getByRole("button", { name: "실행" }).click();
   const output = page.locator(".legal-research .legal-analysis-output");
-  const requirements = output.locator("[data-procedure-requirements]");
-  await expect(requirements.locator(".research-issue-status")).toHaveText(["근거 확인"]);
-  await expect(requirements).toContainText("행정심판법 제23조 · 행정심판법 제28조 · 행정심판법 제29조 · 외 2건");
-  await expect(requirements).not.toContainText("제30조");
-  await expect(requirements).not.toContainText("제31조");
+  await expect(output.locator("[data-procedure-requirements]")).toHaveCount(0);
+  await expect(output.locator(".research-overview")).not.toContainText("외 2건");
   await expect(output.locator(".research-group[data-group='statutes']")).toContainText("제31조");
   await expect(output.locator(".research-group[data-group='statutes']")).toContainText("재결의 효력");
   await page.setViewportSize({ width: 390, height: 844 });

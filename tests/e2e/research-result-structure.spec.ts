@@ -75,15 +75,14 @@ for (const width of [1440, 390]) {
     const top = output.locator(".research-overview");
     await expect(top.locator("details")).toHaveCount(0);
     await expect(top).not.toContainText(expression);
-    await expect(top.getByRole("button", { name: "근거 보기", exact: true })).toHaveCount(1);
+    // The top summary keeps the count line but no longer repeats the
+    // article list or its jump button; the detail section below is the
+    // single home for the provision and its delegation wording.
+    await expect(top.getByRole("button", { name: "근거 보기", exact: true })).toHaveCount(0);
     await expect(top).toContainText("고유 조문 1건 · 직접 위임 확인됨");
     const details = output.getByRole("region", { name: "항목별 법적 근거" });
-    await expect(details).toContainText(expression);
     await expect(details.locator("details[open]")).toHaveCount(0);
-    const jump = top.getByRole("button", { name: "근거 보기", exact: true });
-    await jump.focus();
-    await jump.press("Enter");
-    await expect(details.locator("h3[tabindex='-1']")).toBeFocused();
+    await details.locator("details summary").first().click();
     await expect(details.getByText(expression, { exact: false })).toBeVisible();
     expect((await details.locator("#research-task-evidence-1").boundingBox())!.y).toBeGreaterThanOrEqual(64);
     await expect(output.locator(".research-hierarchy")).toContainText("근로기준법 시행령 제7조");
