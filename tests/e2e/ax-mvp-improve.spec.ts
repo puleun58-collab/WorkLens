@@ -23,16 +23,16 @@ test("AX 1차 MVP 개선: 업무 등록 → 결정 지점 답변 → 예시 3건
   // 2. 결정 지점 답변: D4·D5 확정 (나머지는 미확정 기본값 유지)
   // 아코디언 행을 펼쳐야 내부 입력이 보인다.
   await page.getByRole("button", { name: /D4 결과 상태/ }).click();
-  await page.getByLabel("결과 상태 (D4) 상태").selectOption("확정");
-  await page.getByLabel("결과 상태 (D4) 상세").fill("정상, 오류(확정), 확인 필요");
+  await page.getByLabel("D4 상태").selectOption("확정");
+  await page.getByLabel("D4 상세").fill("정상, 오류(확정), 확인 필요");
   await page.getByRole("button", { name: /D5 판단 불가 처리/ }).click();
-  await page.getByLabel("판단 불가 처리 (D5) 상태").selectOption("확정");
+  await page.getByLabel("D5 상태").selectOption("확정");
   // D4 확정 후 D5 상세는 D4 목록 선택형으로 표시된다.
-  await page.getByLabel("판단 불가 처리 (D5) 상세").selectOption("확인 필요");
+  await page.getByLabel("D5 상세").selectOption("확인 필요");
   await page.locator('section[aria-label="결정 지점 확인"]').getByRole("button", { name: "저장", exact: true }).click();
   // 저장 확인 문구는 상단 메시지와 섹션 내 문구 2곳에 나타나므로 섹션으로 한정한다.
   await expect(page.locator('section[aria-label="결정 지점 확인"]').getByText("결정 지점을 저장했습니다.", { exact: true })).toBeVisible();
-  await expect(page.locator('section[aria-label="결정 지점 확인"]').getByText("2/7 완료", { exact: true })).toBeVisible();
+  await expect(page.locator('section[aria-label="결정 지점 확인"]').getByText("2/7 확인 완료", { exact: true })).toBeVisible();
 
   // 3. 예시 3건 입력 (정상·예외 사례 포함, 탭형 UI: 추가하면 새 탭이 선택된다)
   const examples = [
@@ -42,7 +42,7 @@ test("AX 1차 MVP 개선: 업무 등록 → 결정 지점 답변 → 예시 3건
   ];
   const exampleSection = page.locator('section[aria-label="업무 처리 예시"]');
   for (const [i, example] of examples.entries()) {
-    await page.getByRole("button", { name: "+ 새 예시", exact: true }).click();
+    await page.getByRole("button", { name: i === 0 ? "+ 예시 추가" : "+ 새 예시", exact: true }).click();
     await page.getByLabel(`예시 ${i + 1} 입력값`).fill(example.input);
     await page.getByLabel(`예시 ${i + 1} 예상 결과 상태`).selectOption(example.state);
   }
@@ -52,7 +52,7 @@ test("AX 1차 MVP 개선: 업무 등록 → 결정 지점 답변 → 예시 3건
   // D4 변경 후 기존 예시 불일치: D4 목록에서 오류(확정)를 빼면 예시 2가
   // 확정 예시에서 제외되고, 저장 시 D4 목록 외 값 오류가 안내된다.
   await page.getByRole("button", { name: /D4 결과 상태/ }).click();
-  await page.getByLabel("결과 상태 (D4) 상세").fill("정상, 확인 필요");
+  await page.getByLabel("D4 상세").fill("정상, 확인 필요");
   await page.locator('section[aria-label="결정 지점 확인"]').getByRole("button", { name: "저장", exact: true }).click();
   await expect(exampleSection.getByText("저장된 예시 중 1건은 예상 결과가 결과 상태 (D4) 목록에 없어 확정 예시로 세지 않습니다.")).toBeVisible();
   await exampleSection.getByRole("button", { name: "저장", exact: true }).click();

@@ -31,10 +31,10 @@ const examples = (): ExampleResult[] => [
 ];
 
 describe("AX 레퍼런스 동일화 — 결정 지점·예시 표시", () => {
-  it("진행률 문구는 공백 없는 'N/7 완료' 형식이다", () => {
-    expect(component()).toContain("{confirmedCount}/7 완료");
+  it("진행률 문구는 공백 없는 'N/7 확인 완료' 형식이다", () => {
+    expect(component()).toContain("{confirmedCount}/7 확인 완료");
+    expect(component()).not.toContain("{confirmedCount}/7 완료</strong>");
     expect(component()).not.toContain(" / 7 확인 완료");
-    expect(component()).not.toContain("확인 완료</strong>");
   });
 
   it("저장 버튼은 두 섹션 모두 우측 하단 단일 '저장'이다", () => {
@@ -48,39 +48,49 @@ describe("AX 레퍼런스 동일화 — 결정 지점·예시 표시", () => {
     expect(css()).toContain(".ax-decision, .ax-examples { border-left: 1.5px solid var(--border); box-shadow: none; }");
   });
 
-  it("아코디언은 기본 모두 접힘이고 한 번에 한 항목만 펼치며 펼친 행이 은은하게 강조된다", () => {
+  it("아코디언은 기본 모두 접힘이고 한 번에 한 항목만 펼치며 펼친 행은 레퍼런스 톤(중립 테두리)으로 표시된다", () => {
     expect(component()).toContain("const [openId, setOpenId] = useState<string | null>(null);");
     expect(component()).toContain("onClick={() => setOpenId(isOpen ? null : point.id)}");
     expect(component()).toContain('className={`ax-decision-row${isOpen ? " is-open" : ""}`}');
-    expect(css()).toContain(".ax-decision-row.is-open");
+    expect(css()).toContain(".ax-decision-row.is-open { background: var(--card); border-color: var(--border); }");
   });
 
-  it("결정 지점 저장 영역은 버튼을 우측으로 보내고 펼침 상세 입력창은 레퍼런스 톤 높이·패딩을 쓴다", () => {
+  it("결정 지점 저장 영역은 버튼을 우측으로 보내고 펼침 상세 입력창은 레퍼런스 톤 높이·패딩·카운터를 쓴다", () => {
     expect(css()).toContain(".ax-decision-save { display: flex; align-items: center; justify-content: flex-end;");
     expect(css()).toContain(".ax-decision-panel textarea { min-height: 96px; padding: 10px 12px; }");
-    expect(component()).toContain("<Textarea rows={4} maxLength={2000}");
+    expect(component()).toContain("DECISION_DETAIL_MAX_LENGTH = 2000");
+    expect(component()).toContain("maxLength={DECISION_DETAIL_MAX_LENGTH}");
+    expect(component()).toContain("ax-decision-counter");
+    expect(css()).toContain(".ax-decision-counter { margin-left: auto;");
   });
 
-  it("예시 빈 상태는 간결하고 가운데 정렬되며 헤더·추가 버튼 문구는 유지된다", () => {
-    expect(component()).toContain("예시가 없습니다. 새 예시를 추가하세요.");
+  it("예시 빈 상태는 레퍼런스 그대로 가운데 문서 아이콘 + 두 줄 문구이며 헤더·추가 버튼 문구는 유지된다", () => {
+    expect(component()).toContain("등록된 예시가 없습니다.");
+    expect(component()).toContain("실제 업무 데이터를 바탕으로 예시를 추가하여 처리 규칙을 검증해보세요.");
+    expect(component()).toContain("ax-example-empty-icon");
     expect(component()).toContain("ax-example-empty");
     expect(css()).toContain(".ax-example-empty { text-align: center; padding: 28px 16px;");
     expect(component()).toContain("+ 예시 추가");
     expect(component()).toContain("+ 새 예시");
+    expect(component()).not.toContain("예시가 없습니다. 새 예시를 추가하세요.");
   });
 
-  it("필수 여부 미확정 안내는 3가지 정보를 모두 남긴다", () => {
+  it("필수 여부 미확정 안내 문단은 레퍼런스에 따라 제거됐다 (번복 가능 기록)", () => {
     const src = component();
-    // ① 필수 여부 미확정 ② 결정 지점 확정 결과에 따라 달라짐 ③ 필수 시 3건 필요
-    expect(src).toContain("예시 필수 여부가 아직 정해지지 않았습니다.");
-    expect(src).toContain("대조 기준 (D1)·중복 처리 (D2)·예외값 처리 (D3)·계산 기준 (D7)을 확정하거나 해당 없음으로 확인하면 정해지며");
-    expect(src).toContain("필수 대상인 경우 확정 {EXAMPLE_CONFIRMED_MINIMUM}건이 필요합니다.");
+    expect(src).not.toContain("예시 필수 여부가 아직 정해지지 않았습니다.");
+    expect(src).not.toContain("대조 기준 (D1)·중복 처리 (D2)·예외값 처리 (D3)·계산 기준 (D7)을 확정하거나 해당 없음으로 확인하면 정해지며");
+    expect(src).not.toContain("필수 대상인 경우 확정 {EXAMPLE_CONFIRMED_MINIMUM}건이 필요합니다.");
   });
 
-  it("#359 기준선 문구는 되돌려지지 않는다", () => {
-    expect(decisionPanelLabel("D1", "상태")).toBe("대조 기준 (D1) 상태");
-    expect(decisionPanelLabel("D1", "상세")).toBe("대조 기준 (D1) 상세");
-    expect(component()).toContain("업무 규칙 확인 필요");
+  it("예시 탭은 중립 스타일이고 빈 상태에서는 탭 행이 표시되지 않는다", () => {
+    expect(css()).toContain('.ax-example-tabs [role="tab"].is-selected { background: var(--card); border-color: var(--border); color: var(--foreground); font-weight: 600; }');
+    expect(component()).toContain("{drafts.length ? <div className=\"ax-example-tabs\"");
+  });
+
+  it("레퍼런스 교정으로 #359의 펼침 라벨·예시 헤더 문구는 대체되고 예시 필드 문구는 유지된다", () => {
+    expect(decisionPanelLabel("D1", "상태")).toBe("D1 상태");
+    expect(decisionPanelLabel("D1", "상세")).toBe("D1 상세");
+    expect(component()).not.toContain("업무 규칙 확인 필요");
     expect(component()).toContain("예상 결과 상태");
   });
 

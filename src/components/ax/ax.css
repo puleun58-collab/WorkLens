@@ -1078,7 +1078,7 @@
 .ax-decision-bar > span { display: block; height: 100%; background: var(--primary); border-radius: 999px; }
 .ax-decision-row { border: 1px solid var(--border); border-radius: 10px; margin-top: 8px; overflow: hidden; background: var(--card); }
 .ax-decision-row[data-status="확정"] { background: color-mix(in srgb, #16a34a 4%, var(--card)); }
-.ax-decision-row.is-open { background: color-mix(in srgb, var(--primary) 4%, var(--card)); border-color: color-mix(in srgb, var(--primary) 30%, var(--border)); }
+.ax-decision-row.is-open { background: var(--card); border-color: var(--border); }
 .ax-decision-row-head { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 56px; padding: 10px 14px; background: transparent; border: 0; cursor: pointer; text-align: left; color: var(--foreground); }
 .ax-decision-row-head:disabled { cursor: default; }
 .ax-decision-row-head:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
@@ -1094,6 +1094,7 @@
 .ax-decision-row-head > svg.is-open { transform: rotate(180deg); }
 .ax-decision-panel { display: flex; flex-direction: column; gap: 12px; padding: 12px 14px 16px 62px; border-top: 1px solid var(--border); }
 .ax-decision-panel textarea { min-height: 96px; padding: 10px 12px; }
+.ax-decision-counter { margin-left: auto; font-size: var(--font-size-xs); color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
 .ax-decision-save { display: flex; align-items: center; justify-content: flex-end; gap: 12px; flex-wrap: wrap; margin-top: 16px; }
 .ax-decision-save p { margin: 0; margin-right: auto; }
 
@@ -1105,7 +1106,7 @@
 .ax-examples-meta > span { font-size: var(--font-size-xs); color: var(--muted-foreground); white-space: nowrap; }
 .ax-example-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0; }
 .ax-example-tabs [role="tab"] { padding: 8px 16px; border-radius: 8px; border: 1px solid var(--border); background: var(--card); color: var(--foreground); font-size: var(--font-size-sm); cursor: pointer; }
-.ax-example-tabs [role="tab"].is-selected { background: color-mix(in srgb, var(--primary) 10%, var(--card)); border-color: color-mix(in srgb, var(--primary) 40%, var(--border)); color: var(--primary); font-weight: 600; }
+.ax-example-tabs [role="tab"].is-selected { background: var(--card); border-color: var(--border); color: var(--foreground); font-weight: 600; }
 .ax-example-tabs [role="tab"]:disabled { cursor: default; opacity: 0.6; }
 .ax-example-tabs > button:last-child { border-style: dashed; color: var(--muted-foreground); }
 .ax-example-detail { border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
@@ -1113,7 +1114,10 @@
 .ax-example-col { min-width: 0; display: flex; flex-direction: column; gap: 10px; }
 .ax-example-col h4 { margin: 0; font-size: var(--font-size-sm); }
 .ax-example-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 16px; }
-.ax-example-empty { text-align: center; padding: 28px 16px; margin: 0; }
+.ax-example-empty { text-align: center; padding: 28px 16px; margin: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.ax-example-empty-icon { display: inline-grid; place-items: center; width: 48px; height: 48px; border-radius: 999px; background: color-mix(in srgb, var(--primary) 10%, var(--card)); color: var(--primary); }
+.ax-example-empty strong { font-size: var(--font-size-sm); }
+.ax-example-empty p { margin: 0; font-size: var(--font-size-sm); color: var(--muted-foreground); }
 @media (max-width: 700px) {
   .ax-example-cols { grid-template-columns: minmax(0, 1fr); }
   .ax-decision-panel { padding-left: 14px; }
