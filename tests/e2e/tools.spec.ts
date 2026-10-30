@@ -1415,18 +1415,32 @@ test("document review resolves repeated issue labels to distinct evidence withou
     const box = item.getBoundingClientRect();
     return {
       width: box.width, height: box.height,
-      contentOffsets: ["h5", ".contract-review-point dt", ".contract-review-point dd", ".contract-review-evidence", ".contract-review-source summary"]
+      // Baseline elements are the boxes themselves now: the point/suggestion boxes
+      // carry their own padding, so their inner text sits 17px in by design.
+      contentOffsets: ["h5", ".contract-review-point", ".contract-review-evidence", ".contract-review-source summary"]
         .map((selector) => item.querySelector(selector)!.getBoundingClientRect().left - box.left),
     };
   });
   const beforeSelection = await issueLayout();
-  expect(beforeSelection.contentOffsets).toEqual([0, 0, 0, 0, 0]);
+  expect(beforeSelection.contentOffsets).toEqual([0, 0, 0, 0]);
+  // The point/suggestion boxes keep the 검수 card language: 1px light border,
+  // very light fill, 12px vertical / 16px horizontal padding.
+  const pointStyle = await issues.nth(1).locator(".contract-review-point").evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { borderTopWidth: style.borderTopWidth, backgroundColor: style.backgroundColor, paddingTop: style.paddingTop, paddingLeft: style.paddingLeft };
+  });
+  expect(pointStyle).toEqual({ borderTopWidth: "1px", backgroundColor: "rgb(244, 244, 244)", paddingTop: "12px", paddingLeft: "16px" });
   await nav.nth(1).click();
   await expect(issues.nth(1).locator("h5")).toBeFocused();
   await expect(issues.nth(0).locator("h5")).not.toBeFocused();
   await expect(issues.nth(1)).toBeInViewport();
   await expect(details.locator(".contract-review-refs[open]")).toHaveCount(0);
   expect(await issueLayout()).toEqual(beforeSelection);
+  // The focused blue bar sits 12px left of the text without moving any content:
+  // re-click to restart the fresh tint, then read the bar's position.
+  await nav.nth(1).click();
+  const barLeft = await issues.nth(1).evaluate((item) => getComputedStyle(item, "::before").left);
+  expect(barLeft).toBe("-12px");
   const jumps = issues.getByRole("button", { name: "근거 보기", exact: true });
   await expect(jumps.nth(0)).toHaveAttribute("aria-controls", "contract-review-evidence-0-0");
   await expect(jumps.nth(1)).toHaveAttribute("aria-controls", "contract-review-evidence-0-1");
@@ -2119,7 +2133,7 @@ test("document review keeps issue guidance ahead of independent, grouped source 
       const disclosures = detail.locator(".law-detail-source");
       if (fixture.law + fixture.precedent === 0) {
         await expect(review.locator(".contract-review-details")).toHaveCount(0);
-        if (name !== "clean") await expect(firstIssue.locator(".contract-review-evidence")).toContainText("확인된 직접 근거 없음");
+        if (name !== "clean") await expect(firstIssue.locator(".contract-review-evidence")).toContainText("관련 근거 미확인");
       } else {
         await expect(review.locator(".contract-review-details")).toBeVisible();
         await expect(disclosures).toHaveCount(Number(fixture.law > 0) + Number(fixture.precedent > 0));

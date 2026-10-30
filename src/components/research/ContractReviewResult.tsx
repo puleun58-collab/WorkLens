@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ArrowDownRight, ChevronDown } from "lucide-react";
 
-import type { ContractReview, ReviewedIssue } from "@/lib/contract-review";
+import type { ContractReview, ReviewedIssue, SourceStatus } from "@/lib/contract-review";
 import { lawDisplayText } from "@/lib/law-display";
 import type { ReviewCoverage, ReviewFile } from "@/lib/law-review-source";
 import { STATUS_TITLE, type ResearchStatus } from "@/lib/research-status";
@@ -175,34 +175,41 @@ export function ContractReviewResult({ review, file, expandSources = false, onEx
     const place = placesOf(file, issue.segments);
     // The rest of the clause (a heading, the next paragraph or page) stays visible as related places.
     const related = placesOf(file, clauseSegments, issue.segments);
-    const unverified = issue.lawStatus === "failed" || issue.lawStatus === "partial" || issue.lawStatus === "not_searched"
-      || issue.precedentStatus === "failed" || issue.precedentStatus === "partial" || issue.precedentStatus === "not_searched";
-    // `none` / `not_searched` / `failed` were one badge: name the actual reason.
-    const unverifiedReason = issue.lawStatus === "failed" || issue.precedentStatus === "failed" ? "근거 조회 실패"
-      : issue.lawStatus === "partial" || issue.precedentStatus === "partial" ? "근거 일부 확인"
-      : issue.lawStatus === "not_searched" && issue.precedentStatus === "not_searched" ? "해당 근거 미조회"
-      : "조회했으나 관련 근거 없음";
-    const parts: string[] = [];
-    if (laws.length) parts.push(`법령 ${laws.length}건`);
-    if (precedents.length) parts.push(`판례 ${precedents.length}건`);
-    // Refs present but a lookup incomplete: the counts stay, and the gap is
-    // named next to them instead of presenting the issue as fully confirmed.
-    if (laws.length + precedents.length > 0) {
-      if (issue.lawStatus === "failed" || issue.precedentStatus === "failed") parts.push("근거 조회 실패");
-      else if (issue.lawStatus === "partial" || issue.precedentStatus === "partial") parts.push("근거 일부 확인");
-    }
+    // Per-type lookup gaps, named only when the data actually says so: a secured
+    // reference is never hidden by the other type's gap, and gaps are never merged
+    // into one vague label. Same-kind gaps on both types share one phrase.
+    const gapKind = (status: SourceStatus): "failed" | "partial" | "not_searched" | undefined =>
+      status === "failed" || status === "partial" || status === "not_searched" ? status : undefined;
+    const gapPhrase = (kind: "failed" | "partial" | "not_searched"): string =>
+      kind === "failed" ? "조회 실패" : kind === "partial" ? "일부 미확인" : "미조회";
+    const gapParts = (["failed", "partial", "not_searched"] as const).flatMap((kind) => {
+      const types = [
+        gapKind(issue.lawStatus) === kind ? "법령" : null,
+        gapKind(issue.precedentStatus) === kind ? "판례" : null,
+      ].filter((type): type is string => Boolean(type));
+      if (types.length === 2) return [`법령·판례 ${gapPhrase(kind)}`];
+      return types.map((type) => `${type} ${gapPhrase(kind)}`);
+    });
+    const hasRefs = laws.length + precedents.length > 0;
+    const countParts: string[] = [];
+    if (laws.length) countParts.push(`법령 ${laws.length}건`);
+    if (precedents.length) countParts.push(`판례 ${precedents.length}건`);
+    // Both lookups skipped is its own state ("근거 미조회"), not "근거 미확인".
+    const neverSearched = gapParts.length === 1 && gapParts[0] === "법령·판례 미조회";
     return <>
       <dl className="contract-review-issue-facts">
         <div className="contract-review-point"><dt>검토 결과</dt><dd>{issue.point}</dd></div>
         {issue.suggestion && <div className="contract-review-suggestion"><dt>수정 제안</dt><dd>{issue.suggestion}</dd></div>}
       </dl>
       <div className="contract-review-evidence">
-        {laws.length + precedents.length > 0
+        {hasRefs
           ? <><Button variant="outline" size="sm" type="button" className="contract-review-evidence-button" aria-controls={anchor} onClick={() => focusBlock(anchor, "h4", true)}>근거 보기</Button>
-            <span className="contract-review-meta">{parts.join(" · ")}</span></>
-          : unverified
-            ? <><Badge variant="warning" className="contract-review-unverified">근거 미확인</Badge><span className="contract-review-meta">{unverifiedReason}</span></>
-            : <span className="contract-review-meta">확인된 직접 근거 없음</span>}
+            <span className="contract-review-meta">{[...countParts, ...gapParts].join(" · ")}</span></>
+          : gapParts.length > 0
+            ? neverSearched
+              ? <span className="contract-review-meta">근거 미조회</span>
+              : <><Badge variant="warning" className="contract-review-unverified">근거 미확인</Badge><span className="contract-review-meta">{gapParts.join(" · ")}</span></>
+            : <span className="contract-review-meta">관련 근거 미확인</span>}
       </div>
       <details className="law-detail-source contract-review-source">
         <SourceToggleSummary label="검토한 내용 보기" openLabel="검토한 내용 접기" />
