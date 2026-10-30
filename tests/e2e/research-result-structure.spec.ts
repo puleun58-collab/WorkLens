@@ -115,6 +115,10 @@ for (const width of [1440, 390]) {
     await expect(supplement).toContainText("추가로 조회한 조문 1건");
     await expect(supplement.getByRole("button", { name: "상세 근거에서 원문 보기" })).toHaveCount(1);
     await expect(supplement.locator(".legal-analysis-lines")).toHaveCount(4);
+    // Additional-source excerpts fold by default (§8): titles stay visible, excerpts open on demand.
+    await expect(supplement.locator("details:not([open])")).toHaveCount(4);
+    await supplement.locator("details summary").first().click();
+    await expect(supplement.locator(".legal-analysis-lines").first()).toBeVisible();
     await expect(output.locator(".research-overview h3")).toHaveAttribute("data-status", "viewed");
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   });
