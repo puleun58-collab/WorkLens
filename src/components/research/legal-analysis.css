@@ -172,12 +172,33 @@ p.research-meta { margin: 0; }
 .contract-review-issue + .contract-review-issue { padding-top: var(--space-3); border-top: 1px solid var(--line-soft, var(--line)); }
 .contract-review-issue-head > h5 { display: flex; align-items: baseline; min-width: 0; margin: 0; color: var(--ink); font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); line-height: 1.55; overflow-wrap: anywhere; }
 .contract-review-issue { scroll-margin-top: calc(64px + var(--space-4)); transition: background-color .35s ease, box-shadow .35s ease; }
-.contract-review-issue.is-focused { background: var(--blue-soft); box-shadow: inset 2px 0 var(--blue-border); }
+/* Focus keeps the issue box geometry untouched (an existing E2E contract measures it):
+   the blue region extends 12px past the box on both sides via outset shadows, and the
+   bar is drawn 12px left of the text with a positioned pseudo-element. Text never moves,
+   the box never widens, and shadows never affect scroll width. */
+.contract-review-issue.is-focused {
+  position: relative;
+  background: var(--blue-soft);
+  box-shadow: calc(-1 * var(--space-3)) 0 0 var(--blue-soft), var(--space-3) 0 0 var(--blue-soft);
+}
+.contract-review-issue.is-focused::before {
+  content: "";
+  position: absolute;
+  left: calc(-1 * var(--space-3));
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--blue-border);
+  transition: background-color .35s ease;
+}
 .contract-review-issue.is-focus-fresh { background: color-mix(in srgb, var(--blue) 11%, var(--paper)); }
-.contract-review-issue.is-focus-leaving { background: transparent; box-shadow: inset 2px 0 transparent; }
-/* 검토 결과 → 수정 제안: semibold labels above plain body text, the suggestion label in the action blue. */
+.contract-review-issue.is-focus-leaving { background: transparent; box-shadow: calc(-1 * var(--space-3)) 0 0 transparent, var(--space-3) 0 0 transparent; }
+.contract-review-issue.is-focus-leaving::before { background: transparent; }
+/* 검토 결과 → 수정 제안: semibold labels above plain body text, the suggestion label in the action blue.
+   Each is a light summary box inside the white clause card (검수 card tokens, very light fill):
+   the box, not a heavier card, carries the hierarchy. No shadow, gradient or animation. */
 .contract-review-issue-facts { display: grid; gap: var(--space-2); margin: 0; }
-.contract-review-issue-facts > div { display: grid; gap: 3px; min-width: 0; }
+.contract-review-issue-facts > div { display: grid; gap: 3px; min-width: 0; padding: var(--space-3) var(--space-4); border: 1px solid var(--line-soft, var(--line)); border-radius: var(--radius-panel, 8px); background: var(--layer, #f4f4f4); }
 .contract-review-issue-facts dt { color: var(--muted); font-size: var(--font-size-xs); font-weight: var(--font-weight-semibold); }
 .contract-review-issue-facts dd { margin: 0; color: var(--ink); font-size: var(--font-size-sm); line-height: 1.7; overflow-wrap: anywhere; white-space: pre-wrap; }
 .contract-review-issue-facts .contract-review-suggestion dt { color: var(--blue-active); }
@@ -404,7 +425,7 @@ p.research-meta { margin: 0; }
 .legal-research .research-issue-evidence.is-focus-fresh { background: color-mix(in srgb, var(--blue) 11%, var(--paper)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--blue) 40%, var(--blue-border)); }
 .legal-research .research-issue-evidence.is-focus-leaving { background: transparent; box-shadow: inset 0 0 0 1px transparent; }
 @media (prefers-reduced-motion: reduce) {
-  .legal-research .research-issue-evidence, .contract-review-issue { transition: none; }
+  .legal-research .research-issue-evidence, .contract-review-issue, .contract-review-issue.is-focused::before { transition: none; }
 }
 @media (max-width: 640px) {
   .legal-research .research-issue-findings > div { grid-template-columns: minmax(0, 1fr); gap: 3px; }
