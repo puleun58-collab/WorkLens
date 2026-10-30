@@ -23,7 +23,8 @@ import { exportAxState, importAxState } from "@/lib/ax/transfer";
 import { emptyAxState, type AxStateV2, type AxTask, type AxDiagnosis, type AxDetails, type FactorKey } from "@/lib/ax/types";
 import { extractReviewableItems, extractPlanReviewableItems, reconcileReviews, validateReviewForConfirm } from "@/lib/ax/hitl";
 import { AxLevelBadge, AxProcess, AxPlanSection, AxScoreCards, AxCheckIcon, diagnosisSummaryParts, diagnosisCheckItems, visibleDiagnosisCheckItems, resolveActiveTool, concreteNextAction, formatUnifiedNextAction, type PrecheckTarget } from "./AxReport";
-import { DecisionPointsSection, ExampleResultsSection } from "./AxDecisionExamples";
+import { DecisionPointsSection } from "./AxDecisionExamples";
+import { GenericRulesSection } from "./AxGenericRules";
 import "./ax.css";
 
 const STEPS = ["업무 등록", "업무 진단", "자동화 매트릭스", "결과·로드맵"];
@@ -103,7 +104,7 @@ function AxSelectedReport({ task, busy, onGenerate, onSaveReview, onGoToCheck, o
       busy={busy}
       onGenerate={onGenerate}
       reviewProps={reviewProps}
-      exampleResults={(task as import("@/lib/ax/types").AxTaskV2).exampleResults ?? []}
+      genericRules={(task as import("@/lib/ax/types").AxTaskV2).genericRules ?? []}
       activeTool={activeTool}
       onToolChange={setSelectedTool}
       onGoToCheck={onGoToCheck}
@@ -242,8 +243,7 @@ export function AxDiagnosisView() {
           el = dest.id ? document.getElementById(`ax-decision-${dest.id}`) : document.getElementById("ax-decision-points");
           const head = el?.querySelector<HTMLButtonElement>(".ax-decision-row-head");
           if (head && head.getAttribute("aria-expanded") !== "true") head.click();
-        } else if (dest.kind === "examples") el = document.getElementById("ax-example-results");
-        else if (dest.kind === "hitl") el = document.getElementById("ax-step-review") ?? document.querySelector(".ax-diag-checks");
+        } else if (dest.kind === "hitl") el = document.getElementById("ax-step-review") ?? document.querySelector(".ax-diag-checks");
         else if (dest.kind === "checks") el = document.querySelector(".ax-diag-checks") ?? document.querySelector(".ax-diag-card");
         else if (dest.kind === "plan") el = document.getElementById("ax-plan-review") ?? document.getElementById("ax-plan-section");
         else if (dest.kind === "register") el = document.querySelector(".ax-register");
@@ -371,18 +371,18 @@ export function AxDiagnosisView() {
     }));
     setMessage("결정 지점을 저장했습니다.");
   }
-  /** 1차 MVP 개선 — 예시 결과 저장: reviews와 같은 IndexedDB 레코드·저장 경로로,
-   * 업무 단위 exampleResults 필드에 사용자가 확정한 값만 저장한다. */
-  function saveExampleResults(taskId: string, examples: import("@/lib/ax/types").ExampleResult[]) {
+  /** 범용 업무 규칙 저장: reviews와 같은 IndexedDB 레코드·저장 경로로,
+   * 업무 단위 genericRules 필드에 사용자가 확정한 값만 저장한다. */
+  function saveGenericRules(taskId: string, rules: import("@/lib/ax/types").GenericRule[]) {
     const now = new Date().toISOString();
     update(current => ({
       ...current,
       tasks: current.tasks.map(t => t.id === taskId
-        ? { ...t, exampleResults: examples, updatedAt: now } as import("@/lib/ax/types").AxTaskV2 : t),
+        ? { ...t, genericRules: rules, updatedAt: now } as import("@/lib/ax/types").AxTaskV2 : t),
     }));
-    setMessage("업무 처리 예시를 저장했습니다.");
+    setMessage("범용 업무 규칙을 저장했습니다.");
   }
-  /** MVP 검증 → 수정·보완 — 검증 라운드 저장: exampleResults와 같은 저장 경로로,
+  /** MVP 검증 → 수정·보완 — 검증 라운드 저장: genericRules와 같은 저장 경로로,
    * 업무 단위 verificationResults 필드에 사용자가 입력한 라운드만 추가한다.
    * 보고 일시가 라운드 구분자이며, 기존 라운드는 삭제·수정하지 않는다. */
   function saveVerificationResults(taskId: string, round: import("@/lib/ax/types").VerificationResult) {
@@ -941,15 +941,15 @@ export function AxDiagnosisView() {
               <DecisionPointsSection
                 key={`decision-${selected.id}`}
                 diagnosis={selected.diagnosis}
+                genericRules={(selected as import("@/lib/ax/types").AxTaskV2).genericRules}
                 disabled={!!busy}
                 onSave={points => saveDecisionPoints(selected.id, points)}
               />
-              <ExampleResultsSection
-                key={`examples-${selected.id}`}
-                examples={(selected as import("@/lib/ax/types").AxTaskV2).exampleResults}
-                diagnosis={selected.diagnosis}
+              <GenericRulesSection
+                key={`generic-rules-${selected.id}`}
+                rules={(selected as import("@/lib/ax/types").AxTaskV2).genericRules}
                 disabled={!!busy}
-                onSave={examples => saveExampleResults(selected.id, examples)}
+                onSave={rules => saveGenericRules(selected.id, rules)}
               />
             </> : null}
           </> : null}</div>

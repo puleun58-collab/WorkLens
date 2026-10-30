@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildAllInOnePrompt, detectUndeterminedOutputs, parseOutputColumns, planSummary } from "@/lib/ax/guide";
 import { confirmedStateNames, declaredStateCount, isUndecidableStateInvalid, parseStateNames, resolveDecisionPoints, validatedUndecidableState } from "@/lib/ax/decision-points";
-import type { AxDiagnosis, AxPlan, DecisionPoint, ExampleResult } from "@/lib/ax/types";
+import type { AxDiagnosis, AxPlan, DecisionPoint, GenericRule } from "@/lib/ax/types";
 import { diagnosisFixture, planFixture } from "./fixtures/ax";
 
 const dp = (id: DecisionPoint["id"], status: DecisionPoint["status"], detail?: string): DecisionPoint =>
@@ -20,8 +20,8 @@ const withAsIs = (diagnosis: AxDiagnosis, asIs: Partial<NonNullable<AxDiagnosis[
   risks: [],
 });
 
-const promptFor = (diagnosis: AxDiagnosis, plan: AxPlan = planFixture, exampleResults: ExampleResult[] = []) =>
-  buildAllInOnePrompt(plan, "codex", { diagnosis, taskName: "테스트 업무", context: "", exampleResults });
+const promptFor = (diagnosis: AxDiagnosis, plan: AxPlan = planFixture, genericRules: GenericRule[] = []) =>
+  buildAllInOnePrompt(plan, "codex", { diagnosis, taskName: "테스트 업무", context: "", genericRules });
 
 const sectionOf = (prompt: string, title: string): string => {
   const part = prompt.split(`### ${title}`)[1];
@@ -109,12 +109,12 @@ describe("AX 명세 전달 정확성 P0 — D4 파싱·D5 검증", () => {
 describe("AX 명세 전달 정확성 P0 — 충돌·외부 행위·출력 미확정", () => {
   it("(c) D1 vs §4 예외 상태 충돌 시 충돌 섹션으로 분리되고 단정적 잔존이 없다", () => {
     const prompt = promptFor(c01Diagnosis());
-    expect(prompt).toContain("### 결정 지점·예외 충돌 (확인 필요)");
-    expect(sectionOf(prompt, "결정 지점·예외 충돌 (확인 필요)")).toContain("검토 필요 / 정산 제외");
+    expect(prompt).toContain("### 결정 지점·업무 규칙·예외 충돌 (확인 필요)");
+    expect(sectionOf(prompt, "결정 지점·업무 규칙·예외 충돌 (확인 필요)")).toContain("검토 필요 / 정산 제외");
     expect(sectionOf(prompt, "예외")).not.toContain("판매자마스터에 누락된 판매자ID");
     // D 블록 보호 유지: 결정 지점 블록 자체는 그대로 둔다.
     expect(decisionBlockOf(prompt)).toContain("D1 기준과 매칭 — 확정: 미등록 판매자는 검토 필요");
-    expect(sectionOf(prompt, "미확정 항목 처리")).toContain("결정 지점·예외 충돌 1건 (확인 필요)");
+    expect(sectionOf(prompt, "미확정 항목 처리")).toContain("결정 지점·업무 규칙·예외 충돌 1건 (확인 필요)");
     expect(prompt).not.toContain("미확정 항목: 없음");
   });
 
@@ -133,8 +133,8 @@ describe("AX 명세 전달 정확성 P0 — 충돌·외부 행위·출력 미확
       exceptions: ["가격 값이 비숫자·음수·빈칸 → 확인 필요"],
     });
     const prompt = promptFor(diagnosis, { ...planFixture, exceptions: [] });
-    expect(prompt).toContain("### 결정 지점·예외 충돌 (확인 필요)");
-    expect(sectionOf(prompt, "결정 지점·예외 충돌 (확인 필요)")).toContain("특이값(0)");
+    expect(prompt).toContain("### 결정 지점·업무 규칙·예외 충돌 (확인 필요)");
+    expect(sectionOf(prompt, "결정 지점·업무 규칙·예외 충돌 (확인 필요)")).toContain("특이값(0)");
     expect(sectionOf(prompt, "예외")).not.toContain("가격 값이 비숫자");
     expect(prompt).not.toContain("미확정 항목: 없음");
   });
@@ -222,13 +222,13 @@ describe("AX 명세 전달 정확성 P0 — 내용 미확정·도구 대칭·전
     const diagnosis = c01Diagnosis();
     const codexPlan: AxPlan = { ...planFixture, exceptions: [], acceptance: ["예외 발생 시 담당자 알림이 정상 전송되어야 함"] };
     const claudePlan: AxPlan = { ...planFixture, exceptions: [], acceptance: ["모든 결과가 검증 파일과 대조된다"] };
-    const opts = { diagnosis, taskName: "테스트 업무", context: "", exampleResults: [] as ExampleResult[] };
+    const opts = { diagnosis, taskName: "테스트 업무", context: "", genericRules: [] as GenericRule[] };
     const codex = buildAllInOnePrompt(codexPlan, "codex", opts);
     const claude = buildAllInOnePrompt(claudePlan, "claude", opts);
     expect(decisionBlockOf(codex)).toBe(decisionBlockOf(claude));
     expect(sectionOf(codex, "확인 필요(외부 행위)")).toContain("담당자 알림");
     expect(claude).not.toContain("담당자 알림");
-    expect(sectionOf(codex, "결정 지점·예외 충돌 (확인 필요)")).toBe(sectionOf(claude, "결정 지점·예외 충돌 (확인 필요)"));
+    expect(sectionOf(codex, "결정 지점·업무 규칙·예외 충돌 (확인 필요)")).toBe(sectionOf(claude, "결정 지점·업무 규칙·예외 충돌 (확인 필요)"));
   });
 
   it("(h) D4 표기 변형 세트에 대해 결정 지점 블록·미확정 처리 섹션이 동일하다 (의도된 정규화만 존재)", () => {

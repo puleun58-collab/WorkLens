@@ -259,7 +259,6 @@ export function formatUnifiedNextAction(concrete: ConcreteNextAction): string {
  * 항목(출력 컬럼 미확정 등)은 이동 버튼을 만들지 않고 안내만 남긴다. */
 export type PrecheckTarget =
   | { kind: "decision"; id?: string }
-  | { kind: "examples" }
   | { kind: "hitl" }
   | { kind: "plan" }
   | { kind: "register" }
@@ -268,15 +267,13 @@ export type PrecheckTarget =
 export function resolvePrecheckTarget(item: { topic: string; note?: string; tone?: AxCheckTone; origin?: "check" | "extra" | "conflict" | "block" }): PrecheckTarget {
   const text = `${item.topic} ${item.note ?? ""}`;
   if (/출력 컬럼/u.test(text)) return { kind: "none", guidance: "전용 편집 화면이 없습니다. 출력 컬럼을 확정하려면 업무 등록 정보를 수정한 뒤 다시 진단하세요." };
-  // D번호가 하나만 언급되면 해당 결정 지점 행으로, 여러 개면(예: 예시 필수 여부
-  // 판정에 필요한 D1·D2·D3·D7) 섹션 전체로 연결한다.
+  // D번호가 하나만 언급되면 해당 결정 지점 행으로, 여러 개면(예: D1·D2·D3·D7이 함께 언급된 경우) 섹션 전체로 연결한다.
   const dMatches = [...new Set([...item.topic.matchAll(/\bD([1-7])\b/gu), ...(item.note ?? "").matchAll(/\bD([1-7])\b/gu)].map(m => m[1]))];
   if (dMatches.length === 1) return { kind: "decision", id: `D${dMatches[0]}` };
   if (dMatches.length > 1) return { kind: "decision" };
   // 기준 충돌(결정 지점·예외 충돌, 수치 충돌)은 전용 편집기가 없으므로, 규칙을
   // 확인·수정할 수 있는 결정 지점 영역으로 연결한다. 무관한 질문·AS-IS 영역으로는 이동하지 않는다.
   if (item.origin === "conflict") return { kind: "decision" };
-  if (/예시/u.test(text)) return { kind: "examples" };
   if (/HITL/u.test(text)) return { kind: "hitl" };
   // HITL 보류 항목은 단계별 HITL 검토 표에서 확인한다.
   if (item.tone === "held") return { kind: "hitl" };
@@ -288,7 +285,6 @@ export function resolvePrecheckTarget(item: { topic: string; note?: string; tone
 export function precheckTargetLabel(target: PrecheckTarget): string {
   switch (target.kind) {
     case "decision": return "규칙 확인";
-    case "examples": return "예시 확인";
     case "hitl": return "HITL 검토";
     case "plan": return "계획 검토";
     case "register": return "업무 정보 수정";
@@ -1016,7 +1012,7 @@ function AxPrompt({ prompt, name, copySuffix = "올인원 지시문" }: { prompt
     </div>
   </>;
 }
-export function AxExecutionPackage({ plan, target, taskName, taskContext, prerequisites, diagnosis, hitlReviews, exampleResults }: {
+export function AxExecutionPackage({ plan, target, taskName, taskContext, prerequisites, diagnosis, hitlReviews, genericRules }: {
   plan: AxPlan;
   target: AxToolId;
   taskName: string;
@@ -1024,7 +1020,7 @@ export function AxExecutionPackage({ plan, target, taskName, taskContext, prereq
   prerequisites: string[];
   diagnosis: AxDiagnosis;
   hitlReviews?: import("@/lib/ax/types").HitlReview[];
-  exampleResults?: import("@/lib/ax/types").ExampleResult[];
+  genericRules?: import("@/lib/ax/types").GenericRule[];
 }) {
   const name = TOOL_GUIDES[target].name;
   const prompt = buildAllInOnePrompt(plan, target, {
@@ -1034,7 +1030,7 @@ export function AxExecutionPackage({ plan, target, taskName, taskContext, prereq
     context: taskContext,
     hitlReviews,
     hitlTool: target === "codex" ? "codex" : "claude",
-    exampleResults,
+    genericRules,
   });
   return <div className="ax-package">
     <AxPrompt key={prompt} prompt={prompt} name={name} />
@@ -1064,7 +1060,7 @@ const emptyAxFixDraftFailure = (): AxFixDraftFailure => ({ feature: "", expected
  * 입력 초안은 로컬 상태이며, "검증 결과 저장"을 눌렀을 때만 보고 일시와 함께
  * 업무의 verificationResults로 저장돼 다음 라운드 구분의 근거가 된다.
  * Gate blocked면 04와 동일하게 생성하지 않고 차단 안내만 표시한다. */
-function AxFixPromptSection({ diagnosis, plan, taskName, taskContext, prerequisites, hitlReviews, hitlTool, exampleResults, gate, verificationResults, onSaveVerificationResults }: {
+function AxFixPromptSection({ diagnosis, plan, taskName, taskContext, prerequisites, hitlReviews, hitlTool, genericRules, gate, verificationResults, onSaveVerificationResults }: {
   diagnosis: AxDiagnosis;
   plan: AxPlan | undefined;
   taskName: string;
@@ -1072,7 +1068,7 @@ function AxFixPromptSection({ diagnosis, plan, taskName, taskContext, prerequisi
   prerequisites: string[];
   hitlReviews?: HitlReview[];
   hitlTool: AxToolId;
-  exampleResults?: import("@/lib/ax/types").ExampleResult[];
+  genericRules?: import("@/lib/ax/types").GenericRule[];
   gate: "ready" | "conditional" | "blocked";
   verificationResults?: VerificationResult[];
   onSaveVerificationResults?: (round: VerificationResult) => void;
@@ -1097,7 +1093,7 @@ function AxFixPromptSection({ diagnosis, plan, taskName, taskContext, prerequisi
   })).filter(failure => failure.feature);
   const previousFailureNames = [...new Set((verificationResults ?? []).flatMap(round => round.failures.map(failure => failure.feature)))];
   const preview = gate === "blocked" || !validFailures.length ? "" : buildFixPrompt(plan, {
-    taskName, prerequisites, diagnosis, context: taskContext, hitlReviews, hitlTool, exampleResults,
+    taskName, prerequisites, diagnosis, context: taskContext, hitlReviews, hitlTool, genericRules,
   }, {
     failures: validFailures,
     keptFeatures: splitLines(keptText),
@@ -1159,7 +1155,7 @@ function AxFixPromptSection({ diagnosis, plan, taskName, taskContext, prerequisi
   </section>;
 }
 
-export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenerate, reviewProps, exampleResults, activeTool: controlledTool, onToolChange, onGoToCheck, verificationResults, onSaveVerificationResults, onGoToCheckItem }: {
+export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenerate, reviewProps, genericRules, activeTool: controlledTool, onToolChange, onGoToCheck, verificationResults, onSaveVerificationResults, onGoToCheckItem }: {
 
   diagnosis: AxDiagnosis;
   taskName: string;
@@ -1167,7 +1163,7 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
   busy: string | null;
   onGenerate: (target: AxToolId) => void;
   reviewProps?: AxProcessReviewProps;
-  exampleResults?: import("@/lib/ax/types").ExampleResult[];
+  genericRules?: import("@/lib/ax/types").GenericRule[];
   /** 제어 모드: 부모가 도구 선택을 소유하면 ①·②·04가 같은 도구의 검토를 따른다.
    * 미제공 시 기존 내부 상태 동작을 유지한다. */
   activeTool?: AxToolId;
@@ -1193,7 +1189,7 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
   // 전달해 진단 검토가 요약에 일관되게 적용되고, 계획 검토는 계획이 없을 때
   // 매칭되지 않으므로 혼합되지 않는다.
   const summary = planSummary(diagnosis, gate !== "blocked" ? activePlan : undefined, [taskName, taskContext].join("\n"),
-    { hitlReviews: reviewProps?.reviews, hitlTool: activeTool, exampleResults });
+    { hitlReviews: reviewProps?.reviews, hitlTool: activeTool });
   const instructionsId = useId();
   const instructionsRef = useRef<HTMLElement>(null);
   function goToInstructions() {
@@ -1219,11 +1215,11 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
             <div className="ax-plan-toolbar">
               <TabsList aria-label="AI 코딩 도구 선택"><TabsTab value="codex">Codex</TabsTab><TabsTab value="claude">Claude Code</TabsTab></TabsList>
             </div>
-            {(["codex", "claude"] as const).map(target => <TabsPanel key={target} value={target}>{target === activeTool ? plans[target] ? <><p className="ax-plan-tool-hint">{TOOL_GUIDES[target].name}에서 현재 프로젝트를 열고 올인원 지시문 붙여넣기</p><AxExecutionPackage plan={plans[target]} target={target} taskName={taskName} taskContext={taskContext} prerequisites={prerequisites} diagnosis={diagnosis} hitlReviews={reviewProps?.reviews} exampleResults={exampleResults} /></> : <><p className="ax-plan-generate-hint">{TOOL_GUIDES[target].name}용 구현 계획 생성 후 올인원 지시문 확인</p>{generateButton(target)}</> : null}</TabsPanel>)}
+            {(["codex", "claude"] as const).map(target => <TabsPanel key={target} value={target}>{target === activeTool ? plans[target] ? <><p className="ax-plan-tool-hint">{TOOL_GUIDES[target].name}에서 현재 프로젝트를 열고 올인원 지시문 붙여넣기</p><AxExecutionPackage plan={plans[target]} target={target} taskName={taskName} taskContext={taskContext} prerequisites={prerequisites} diagnosis={diagnosis} hitlReviews={reviewProps?.reviews} genericRules={genericRules} /></> : <><p className="ax-plan-generate-hint">{TOOL_GUIDES[target].name}용 구현 계획 생성 후 올인원 지시문 확인</p>{generateButton(target)}</> : null}</TabsPanel>)}
           </Tabs> : <p className="ax-muted">도구별 구현 계획 생성 후 올인원 지시문 확인</p>}
       </>}
     </section>
-    <AxFixPromptSection diagnosis={diagnosis} plan={activePlan} taskName={taskName} taskContext={taskContext} prerequisites={prerequisites} hitlReviews={reviewProps?.reviews} hitlTool={activeTool} exampleResults={exampleResults} gate={gate} verificationResults={verificationResults} onSaveVerificationResults={onSaveVerificationResults} />
+    <AxFixPromptSection diagnosis={diagnosis} plan={activePlan} taskName={taskName} taskContext={taskContext} prerequisites={prerequisites} hitlReviews={reviewProps?.reviews} hitlTool={activeTool} genericRules={genericRules} gate={gate} verificationResults={verificationResults} onSaveVerificationResults={onSaveVerificationResults} />
     {gate !== "blocked" && (plans.codex || plans.claude) ? <section className="ax-plan-guide" aria-label="설치·시작 가이드">
       <Accordion className="ax-guide">
         <AccordionItem value="setup" className="ax-guide-item">

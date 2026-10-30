@@ -29,10 +29,32 @@ export const decisionPointSchema = z.object({
   /** 확정 내용. D4는 결과 상태 목록(쉼표·점 구분), D5는 판정 불가 행을 보낼 상태명이다. */
   detail: z.string().trim().max(2000).optional(),
 }).strict();
-/** HITL 예시 결과 1건: 입력 값 + 기대 결과(D4 상태 중 하나) + 선택 메모.
- * supplement(자유 텍스트 보완)와 필드명을 구분한다. 상한은 레코드 폭증 방지용이다
- * (항목 20건, 입력 2000자, 기대 상태 100자, 기대 값 500자, 메모 1000자).
- * 초안은 컴포넌트 상태에만 두고, 사용자가 확정한 값만 이 필드로 저장한다. */
+/** 범용 업무 규칙 분류 (§5.2). 모든 업무에 다섯 항목을 하나씩 강제 생성하지 않는다. */
+export const GENERIC_RULE_CATEGORIES = ["입력·수집 기준", "처리·판단 기준", "예외·확인 기준", "출력·완료 기준", "권한·검토 기준"] as const;
+/** 범용 업무 규칙 적용 여부 차원. 확정 여부(status)와 별개로 관리한다. */
+export const GENERIC_RULE_APPLICABILITY = ["적용", "적용 여부 미확정", "해당 없음"] as const;
+export const GENERIC_RULE_STATUSES = ["확정", "미확정"] as const;
+/** 범용 업무 규칙 1건: 사용자가 근거와 함께 직접 추가·확정한 규칙만 저장한다.
+ * AI가 자동 생성·확정하지 않으며, id는 D1~D7과 충돌하지 않는 고유 체계(R + 숫자)를 쓴다.
+ * reviews와 같은 업무 단위 저장 경로를 쓰며, 선택 필드라 기존 데이터도 그대로 검증된다. */
+export const genericRuleSchema = z.object({
+  id: z.string().min(1).max(120),
+  name: z.string().trim().min(1).max(120),
+  category: z.enum(GENERIC_RULE_CATEGORIES),
+  detail: z.string().trim().max(2000).optional(),
+  /** 근거 자료·출처 (업무 설명·입력 자료·진단 항목 등). */
+  source: z.string().trim().max(500).optional(),
+  /** 관련 업무 단계 또는 적용 대상. */
+  step: z.string().trim().max(500).optional(),
+  applicability: z.enum(GENERIC_RULE_APPLICABILITY),
+  status: z.enum(GENERIC_RULE_STATUSES),
+  /** 기존 D규칙과의 연계. 의미와 적용 범위가 확인된 경우에만 저장한다. */
+  linkedDecisionId: z.enum(DECISION_POINT_IDS).optional(),
+}).strict();
+/** 레거시 예시 결과 1건 스키마 (입력 값 + 기대 결과 + 선택 메모).
+ * 예시 정책·UI는 제거됐으나 기존 저장 레코드의 파싱·조회를 위해 필드와 스키마는
+ * 유지한다 (마이그레이션 삭제 없음). 신규 저장은 하지 않으며 01~04의 확정 규칙·
+ * 필수 조건으로 사용하지 않는다. 상한은 레코드 폭증 방지용이다. */
 export const exampleResultSchema = z.object({
   input: z.string().trim().min(1).max(2000),
   expectedState: z.string().trim().min(1).max(100),
@@ -200,12 +222,14 @@ export const verificationResultSchema = z.object({
 export const axTaskV2Schema = axTaskSchema.extend({
   // 사람 검토 데이터 (AI 진단 원본과 분리)
   reviews: z.array(hitlReviewSchema).max(100).optional(),
-  // HITL 예시 결과 확인 기록: 업무 단위 목록으로, reviews와 같은 IndexedDB
-  // AxStateV2 레코드·같은 저장 경로로 저장한다 (새 서버 저장소 없음).
-  // 검토 항목별 필드가 아니라 업무 단위인 이유: 확정 예시 3건 기준은 업무
-  // 단위 개수이며, 항목별로 나누면 기준 집계와 지시문 예시 표가 분산된다.
+  // 레거시 예시 결과 확인 기록 (예시 정책·UI 제거 후 신규 저장 없음).
+  // 기존 저장 레코드의 파싱·조회를 위해 필드는 유지한다 (마이그레이션 삭제 없음).
   exampleResults: z.array(exampleResultSchema).max(20).optional(),
-  // MVP 검증 결과 라운드 기록: reviews·exampleResults와 같은 저장 경로로,
+  // 범용 업무 규칙: 사용자가 근거와 함께 직접 추가·확정한 규칙 목록 (D1~D7과 별개 체계).
+  // 선택 필드라 필드가 없는 기존 데이터도 그대로 검증·마이그레이션된다.
+  // 확정 규칙은 01~04 지시문에 전달된다.
+  genericRules: z.array(genericRuleSchema).max(50).optional(),
+  // MVP 검증 결과 라운드 기록: reviews·genericRules와 같은 저장 경로로,
   // 업무 단위 목록으로 저장한다. 선택 필드라 필드가 없는 기존 데이터도
   // 그대로 검증·마이그레이션되며, 내보내기/가져오기는 스키마를 그대로
   // 통과하므로 별도 화이트리스트·버전 상향이 필요 없다.

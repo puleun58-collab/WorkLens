@@ -1,16 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, FileText, Trash2 } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { DECISION_POINT_DEFS, confirmedStateNames, resolveDecisionPoints, type ResolvedDecisionPoint } from "@/lib/ax/decision-points";
-import { EXAMPLE_CONFIRMED_MINIMUM, exampleRequirement, partitionExamples } from "@/lib/ax/example-results";
-import type { AxDiagnosis, DecisionPoint, ExampleResult } from "@/lib/ax/types";
+import { resolveGenericRules, ruleProgress } from "@/lib/ax/generic-rules";
+import type { AxDiagnosis, DecisionPoint, GenericRule } from "@/lib/ax/types";
 
 /**
- * 1차 MVP 개선 — 결정 지점 확인 + 예시 결과 확인 편집 화면.
+ * 업무 규칙 확인 편집 화면 (D1~D7 + 범용 규칙 진행 현황).
  * 초안은 컴포넌트 상태에만 두고, 저장 버튼을 눌러 사용자가 확정한 값만 저장한다.
  * AI가 채운 값은 저장 경로에 들어가지 않는다 (진단 수신 시 제거됨).
  */
@@ -26,9 +25,10 @@ export const DECISION_DISPLAY: Record<string, { title: string; question: string 
   D7: { title: "계산 기준", question: "합계·반올림·단위의 기준은 무엇인가요?" },
 };
 
-/** 표시 전용 패널 라벨: 레퍼런스 형태 D번호 + 상태/상세. 지시문 생성과 무관하다. */
-export function decisionPanelLabel(id: string, kind: "상태" | "상세"): string {
-  return `${id} ${kind}`;
+/** 표시 전용 패널 라벨: 지시문 §10.5에 따라 D번호 없이 간결한 라벨을 쓴다 (지시문 생성과 무관).
+ * #365 레퍼런스 교정 문구("D1 상태"/"D1 상세")를 의도적으로 대체한다. */
+export function decisionPanelLabel(_id: string, kind: "상태" | "상세"): string {
+  return kind === "상세" ? "대조 기준" : kind;
 }
 
 /** 결정 지점 상세 입력 제한. 카운터 표시 기준이며 저장 의미를 바꾸지 않는다. */
@@ -40,8 +40,10 @@ const DECISION_BADGE: Record<ResolvedDecisionPoint["status"], string> = {
   "해당 없음": "해당 없음",
 };
 
-export function DecisionPointsSection({ diagnosis, disabled, onSave }: {
+export function DecisionPointsSection({ diagnosis, genericRules, disabled, onSave }: {
   diagnosis: AxDiagnosis;
+  /** 범용 규칙 (저장된 값 기준). 진행 현황 분모·적용 여부 건수 계산에만 쓴다. */
+  genericRules?: GenericRule[];
   disabled?: boolean;
   onSave: (points: DecisionPoint[]) => void;
 }) {
@@ -57,7 +59,9 @@ export function DecisionPointsSection({ diagnosis, disabled, onSave }: {
   // 펼침 상태는 초안과 별개로 유지한다: 접었다 펴도 미저장 입력값이 사라지지 않는다.
   // 기본값은 모두 접힘(한 번에 한 항목만 펼침).
   const [openId, setOpenId] = useState<string | null>(null);
-  const confirmedCount = drafts.filter(point => point.status === "확정" || point.status === "해당 없음").length;
+  // 진행 현황: D 초안(편집 중 값) + 저장된 범용 규칙 기준. 분모는 실제로 적용되는
+  // 확인 대상 규칙 수이며, 해당 없음은 분모에서 빠진다. 적용 여부 미확정은 별도 건수다.
+  const progress = ruleProgress(drafts, resolveGenericRules(genericRules));
   const update = (id: string, patch: Partial<ResolvedDecisionPoint>) =>
     setDrafts(current => current.map(point => point.id === id ? { ...point, ...patch } : point));
   const save = () => {
@@ -70,15 +74,15 @@ export function DecisionPointsSection({ diagnosis, disabled, onSave }: {
   };
   // D5 선택형 UI용 D4 확정 상태 목록. D4 미확정 시에는 기존 자유 입력 유지한다.
   const d4States = confirmedStateNames(drafts);
-  return <section className="ax-surface ax-decision" id="ax-decision-points" aria-label="결정 지점 확인">
+  return <section className="ax-surface ax-decision" id="ax-decision-points" aria-label="업무 규칙 확인">
     <div className="ax-decision-head">
       <div>
-        <h3>결정 지점 확인 (D1~D7)</h3>
+        <h3>업무 규칙 확인</h3>
         <p className="ax-muted">자동화에 필요한 업무 규칙을 확인합니다. 확정된 내용은 올인원 지시문에 반영됩니다.</p>
       </div>
       <div className="ax-decision-progress">
-        <strong>{confirmedCount}/7 확인 완료</strong>
-        <span className="ax-decision-bar" aria-hidden="true"><span style={{ width: `${confirmedCount / 7 * 100}%` }} /></span>
+        <strong>{progress.done}/{progress.total} 확인 완료{progress.applicabilityPending ? ` · 적용 여부 확인 ${progress.applicabilityPending}건` : ""}</strong>
+        <span className="ax-decision-bar" aria-hidden="true"><span style={{ width: `${progress.total ? progress.done / progress.total * 100 : 0}%` }} /></span>
       </div>
     </div>
     {drafts.map(point => {
@@ -127,151 +131,5 @@ export function DecisionPointsSection({ diagnosis, disabled, onSave }: {
       <Button type="button" disabled={disabled} onClick={save}>저장</Button>
       {saved ? <p className="ax-muted">결정 지점을 저장했습니다.</p> : null}
     </div>
-  </section>;
-}
-
-interface ExampleDraft { input: string; expectedState: string; expectedValue: string; memo: string }
-
-export function ExampleResultsSection({ examples, diagnosis, disabled, onSave }: {
-  examples?: ExampleResult[];
-  /** D4 결과 상태 확인용. D4가 확정된 경우에만 기대 결과를 D4 목록과 대조한다. */
-  diagnosis?: Pick<AxDiagnosis, "decisionPoints">;
-  disabled?: boolean;
-  onSave: (examples: ExampleResult[]) => void;
-}) {
-  const toDrafts = (values?: ExampleResult[]): ExampleDraft[] => (values ?? []).map(item => ({
-    input: item.input, expectedState: item.expectedState, expectedValue: item.expectedValue ?? "", memo: item.memo ?? "",
-  }));
-  // 저장 후 부모가 새 목록을 내려주면 초안을 동기화한다 (effect가 아닌 렌더 중 조정 패턴).
-  const examplesKey = JSON.stringify(examples ?? []);
-  const [drafts, setDrafts] = useState<ExampleDraft[]>(() => toDrafts(examples));
-  const [prevExamplesKey, setPrevExamplesKey] = useState(examplesKey);
-  if (prevExamplesKey !== examplesKey) {
-    setPrevExamplesKey(examplesKey);
-    setDrafts(toDrafts(examples));
-  }
-  const [saved, setSaved] = useState(false);
-  const [error, setError] = useState("");
-  // 탭 선택은 초안과 별개로 유지한다: 탭을 바꿔도 작성 중인 입력값이 사라지지 않는다.
-  const [selectedIndex, setSelectedIndex] = useState(0);
-  const safeIndex = drafts.length ? Math.min(selectedIndex, drafts.length - 1) : 0;
-  const selected = drafts[safeIndex];
-  // D4가 미확정이면 검증하지 않는다. 확정 후에는 D4 목록에 없는 기대 결과의 저장을 막는다.
-  const stateNames = confirmedStateNames(resolveDecisionPoints(diagnosis));
-  // 보완 6항 1·5번: 최소 3건 안내·확정 건수는 필수 대상에만 표시한다.
-  // 진단 정보가 없으면 필수 여부를 확인할 수 없으므로 확인 필요로 처리한다 (자동 면제 없음).
-  const requirement = diagnosis ? exampleRequirement(resolveDecisionPoints(diagnosis)) : "needs-confirmation";
-  const { valid: countedExamples, invalid: invalidExamples } = partitionExamples(examples, stateNames);
-  const update = (index: number, patch: Partial<ExampleDraft>) =>
-    setDrafts(current => current.map((row, i) => i === index ? { ...row, ...patch } : row));
-  const addExample = () => {
-    setDrafts(current => [...current, { input: "", expectedState: "", expectedValue: "", memo: "" }]);
-    setSelectedIndex(drafts.length);
-    setSaved(false);
-  };
-  const removeSelected = () => {
-    setDrafts(current => current.filter((_, j) => j !== safeIndex));
-    setSelectedIndex(current => Math.max(0, Math.min(current, drafts.length - 2)));
-    setSaved(false);
-  };
-  const save = () => {
-    if (stateNames) {
-      const invalidRows = drafts
-        .map((row, i) => ({ row, i }))
-        .filter(({ row }) => row.input.trim() && row.expectedState.trim() && !stateNames.includes(row.expectedState.trim()));
-      if (invalidRows.length) {
-        setError(`${invalidRows.map(({ i }) => `예시 ${i + 1}`).join(", ")}의 예상 결과가 결과 상태 (D4) 목록(${stateNames.join(" · ")})에 없습니다. 결과 상태 (D4) 중 하나로 입력한 뒤 저장하세요.`);
-        setSaved(false);
-        return;
-      }
-    }
-    setError("");
-    // 입력 값과 기대 결과가 모두 있는 행만 확정 예시로 저장한다 (빈 행은 버린다).
-    const confirmed: ExampleResult[] = drafts
-      .filter(row => row.input.trim() && row.expectedState.trim())
-      .map(row => ({
-        input: row.input.trim(), expectedState: row.expectedState.trim(),
-        ...(row.expectedValue.trim() ? { expectedValue: row.expectedValue.trim() } : {}),
-        ...(row.memo.trim() ? { memo: row.memo.trim() } : {}),
-      }));
-    onSave(confirmed.slice(0, 20));
-    setSaved(true);
-  };
-  const savedCount = examples?.length ?? 0;
-  return <section className="ax-surface ax-examples" id="ax-example-results" aria-label="업무 처리 예시">
-    <div className="ax-examples-head">
-      <div>
-        <h3>업무 처리 예시</h3>
-        <p className="ax-muted">입력과 예상 결과를 작성해 처리 규칙을 검증합니다.</p>
-      </div>
-      <div className="ax-examples-meta">
-        <span>{requirement === "required" ? `예시 ${savedCount} / ${EXAMPLE_CONFIRMED_MINIMUM}건` : `예시 ${savedCount}건`}</span>
-        <span>{requirement === "required" ? "필수" : requirement === "recommended" ? "권장" : "확인 필요"}</span>
-        <Button type="button" variant="outline" disabled={disabled} onClick={addExample}>+ 예시 추가</Button>
-      </div>
-    </div>
-    {requirement === "required"
-      ? <p className="ax-muted">정상·예외 사례를 각각 1건 이상 넣어 주세요. 확정 {EXAMPLE_CONFIRMED_MINIMUM}건 미만이면 &lsquo;업무 처리 예시 미확정&rsquo; 보류 사유가 붙습니다.</p>
-      : requirement === "recommended"
-        ? <p className="ax-muted">예시는 권장 사항이며, 없어도 보류 사유가 붙지 않습니다. 정상·예외 사례를 각각 1건 이상 넣으면 구현 확인에 도움이 됩니다.</p>
-        : null}
-    {requirement === "required" ? <p className="ax-muted">확정 예시 {countedExamples.length}건</p> : null}
-    {invalidExamples.length ? <p className="ax-muted" role="status">저장된 예시 중 {invalidExamples.length}건은 예상 결과가 결과 상태 (D4) 목록에 없어 확정 예시로 세지 않습니다. 예상 결과를 결과 상태 (D4) 중 하나로 고쳐 다시 저장하세요.</p> : null}
-    {drafts.length ? <div className="ax-example-tabs" role="tablist" aria-label="업무 처리 예시 목록">
-      {drafts.map((_, i) => <button type="button" key={i} role="tab" aria-selected={i === safeIndex} disabled={disabled}
-        className={i === safeIndex ? "is-selected" : ""} onClick={() => setSelectedIndex(i)}>예시 {i + 1}</button>)}
-      <button type="button" disabled={disabled} onClick={addExample}>+ 새 예시</button>
-    </div> : null}
-    {selected ? <div className="ax-example-detail">
-      <div className="ax-example-cols">
-        <div className="ax-example-col">
-          <h4>입력 데이터</h4>
-          <label className="ax-field">예시 {safeIndex + 1} 입력값
-            <Textarea rows={4} maxLength={2000} aria-label={`예시 ${safeIndex + 1} 입력값`} disabled={disabled}
-              value={selected.input} onChange={e => { update(safeIndex, { input: e.target.value }); setSaved(false); }} />
-          </label>
-          <p className="ax-muted">실제 개인정보·거래처 정보 대신 가명이나 예시 값을 입력하세요.</p>
-        </div>
-        <div className="ax-example-col">
-          <h4>예상 처리 결과</h4>
-          {stateNames ? <>
-            <label className="ax-field">예시 {safeIndex + 1} 예상 결과 상태
-              <select aria-label={`예시 ${safeIndex + 1} 예상 결과 상태`} value={selected.expectedState} disabled={disabled}
-                onChange={e => { update(safeIndex, { expectedState: e.target.value }); setSaved(false); }}>
-                <option value="">선택하세요</option>
-                {selected.expectedState.trim() && !stateNames.includes(selected.expectedState.trim())
-                  ? <option value={selected.expectedState}>{selected.expectedState} (결과 상태 (D4) 목록 외 값)</option> : null}
-                {stateNames.map(name => <option key={name} value={name}>{name}</option>)}
-              </select>
-            </label>
-            <p className="ax-muted">예상 결과는 결과 상태 (D4) 중 하나로 입력하세요: {stateNames.join(" · ")}</p>
-          </> : <>
-            <label className="ax-field">예시 {safeIndex + 1} 예상 결과 상태
-              <Input type="text" maxLength={100} aria-label={`예시 ${safeIndex + 1} 예상 결과 상태`} disabled={disabled}
-                value={selected.expectedState} onChange={e => { update(safeIndex, { expectedState: e.target.value }); setSaved(false); }} />
-            </label>
-            <p className="ax-muted">결과 상태 (D4)가 아직 확정되지 않아 예상 결과를 검증하지 않습니다. 결과 상태 (D4)를 확정하면 예상 결과가 결과 상태 목록에 있는지 확인합니다.</p>
-          </>}
-          <label className="ax-field">예시 {safeIndex + 1} 기대 값 (금액·수량 등, 선택)
-            <Input type="text" maxLength={500} aria-label={`예시 ${safeIndex + 1} 기대 값`} disabled={disabled}
-              value={selected.expectedValue} onChange={e => { update(safeIndex, { expectedValue: e.target.value }); setSaved(false); }} />
-          </label>
-        </div>
-      </div>
-      <label className="ax-field">예시 {safeIndex + 1} 메모 (선택)
-        <Textarea rows={2} maxLength={1000} aria-label={`예시 ${safeIndex + 1} 메모`} disabled={disabled}
-          value={selected.memo} onChange={e => { update(safeIndex, { memo: e.target.value }); setSaved(false); }} />
-      </label>
-    </div> : <div className="ax-example-empty">
-      <span className="ax-example-empty-icon" aria-hidden="true"><FileText size={24} /></span>
-      <strong>등록된 예시가 없습니다.</strong>
-      <p>실제 업무 데이터를 바탕으로 예시를 추가하여 처리 규칙을 검증해보세요.</p>
-    </div>}
-    <div className="ax-example-actions">
-      {selected ? <Button type="button" variant="ghost" disabled={disabled} aria-label={`예시 ${safeIndex + 1} 삭제`} onClick={removeSelected}><Trash2 size={15} aria-hidden="true" />예시 삭제</Button> : <span aria-hidden="true" />}
-      <Button type="button" disabled={disabled} onClick={save}>저장</Button>
-    </div>
-    {error ? <p className="ax-muted" role="alert">{error}</p> : null}
-    {saved ? <p className="ax-muted">업무 처리 예시를 저장했습니다.</p> : null}
   </section>;
 }
