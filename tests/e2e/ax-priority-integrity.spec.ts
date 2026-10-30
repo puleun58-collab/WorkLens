@@ -66,7 +66,9 @@ for (const scenario of scenarios) {
     // 매트릭스 하단 TOP 3는 제거됨 — 좌측 목록 전체가 종합 점수 순위 순으로 표시되는지 확인한다.
     const matrixList = page.getByLabel("매트릭스 업무 목록", { exact: true });
     await expect(matrixList.getByRole("listitem")).toHaveCount(scenario.tasks.length);
-    await expect(matrixList.locator(".ax-task-name")).toHaveText(ranked.map((row, index) => `${index + 1}. ${row.task.name}`));
+    // §6 우측 목록: 순번은 별도 열, 업무명은 순번 없이 표시한다.
+    await expect(matrixList.locator(".ax-matrix-rank")).toHaveText(ranked.map((_, index) => `${index + 1}`));
+    await expect(matrixList.locator(".ax-task-name")).toHaveText(ranked.map(row => row.task.name));
   });
 }
 test("AX result count distinguishes needs-info from completed diagnosis with the same matrix definition", async ({ page }) => {
@@ -83,9 +85,13 @@ test("AX result count distinguishes needs-info from completed diagnosis with the
   await page.getByRole("tab", { name: "자동화 매트릭스", exact: true }).click();
   await expect(page.locator(".ax-matrix-header")).toContainText("진단 완료 2/3 · 진행 가능 1 · 확인 후 진행 1 · 정보 확인 필요 업무 1개");
   await expect(page.getByLabel("매트릭스 업무 목록", { exact: true }).getByRole("listitem")).toHaveCount(2);
-  // 좌측 매트릭스 목록에서 정보 확인 필요 업무만 구분 표시되고, 상단 바로가기로 업무 진단 단계의 추가 질문 영역까지 이동한다.
+  // 우측 매트릭스 목록에서는 정보 확인 필요 배지를 표시하지 않고(§6), 상단 바로가기로
+  // 업무 진단 단계의 추가 질문 영역까지 이동한다. 정보 확인 필요 여부는 상단 집계에서 확인한다.
   const matrixList = page.getByLabel("매트릭스 업무 목록", { exact: true });
-  await expect(matrixList.getByRole("listitem").filter({ hasText: needsInfo.name }).locator(".ax-needs-check-badge")).toHaveText("정보 확인 필요");
+  const needsRow = matrixList.getByRole("listitem").filter({ hasText: needsInfo.name });
+  await expect(needsRow.locator(".ax-needs-check-badge")).toHaveCount(0);
+  await expect(needsRow.locator(".ax-gate-badge")).toHaveCount(0);
+  await expect(needsRow.locator(".ax-gate-dot")).toHaveAttribute("data-gate", "conditional");
   await expect(matrixList.getByRole("listitem").filter({ hasText: completed.name }).locator(".ax-needs-check-badge")).toHaveCount(0);
   await page.locator(".ax-matrix-counts").getByRole("button", { name: "정보 확인 필요 업무 1개", exact: true }).click();
   await expect(page.getByRole("tab", { name: "업무 진단", exact: true })).toHaveAttribute("data-active", "");

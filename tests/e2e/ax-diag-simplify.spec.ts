@@ -105,7 +105,7 @@ test("AX 진단 간소화: 업무 처리 예시 탭 전환 시 초안 유지·�
   await expect(page.getByLabel("예시 1 입력값")).toHaveValue("입력 B");
 });
 
-test("AX 진단 간소화: 매트릭스 상세 중복 제거·단일 점수 근거·업무 전환 갱신", async ({ page }) => {
+test("AX 진단 간소화: 매트릭스 상세 카드 제거·Factor 근거는 업무 진단 단계에서 확인·업무 전환 갱신", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await registerAndDiagnose(page, "업무 A", "업무 A 설명: 반복 입력 자료를 취합해 결과를 출력한다.");
   await page.getByRole("tab", { name: "업무 등록", exact: true }).click();
@@ -116,28 +116,23 @@ test("AX 진단 간소화: 매트릭스 상세 중복 제거·단일 점수 근�
   await page.getByRole("button", { name: "업무 진단 실행", exact: true }).click();
   await page.getByRole("tab", { name: "자동화 매트릭스", exact: true }).click();
 
-  const detail = page.locator(".ax-matrix-detail");
-  await expect(detail.getByRole("heading").first()).toContainText("업무 B");
-  // 제거된 3개 영역이 상세 카드에 없다 (데이터·판정 로직은 유지).
-  await expect(detail.getByText("핵심 판단 근거")).toHaveCount(0);
-  await expect(detail.getByText("현재 가능한 범위")).toHaveCount(0);
-  await expect(detail.getByText("선행 확인 조건")).toHaveCount(0);
-  // 점수 근거 확인 한 번으로 6개 Factor 근거가 모두 보이고, 중첩 토글이 없다.
-  const evidence = detail.getByRole("button", { name: "점수 근거 확인", exact: true });
-  await evidence.click();
-  await expect(detail.locator(".ax-score-factor")).toHaveCount(6);
-  await expect(page.getByRole("button", { name: "평가 근거 자세히 보기", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "평가 근거 접기", exact: true })).toHaveCount(0);
-  await evidence.click();
-  await expect(evidence).toHaveAttribute("aria-expanded", "false");
-  // 다른 업무 선택 시 상세와 점수가 해당 업무로 갱신된다.
-  await page.getByLabel("매트릭스 업무 목록").getByRole("button", { name: /업무 A/ }).click();
-  await expect(detail.getByRole("heading").first()).toContainText("업무 A");
-  await detail.getByRole("button", { name: "점수 근거 확인", exact: true }).click();
-  await expect(detail.locator(".ax-score-factor")).toHaveCount(6);
+  // 매트릭스 상세 카드 자체가 §9로 제거됐다: 점수 카드·점수 근거 펼침이 매트릭스 단계에 없다.
+  await expect(page.locator(".ax-matrix-detail")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "점수 근거 확인", exact: true })).toHaveCount(0);
+  await expect(page.locator(".ax-score-factor")).toHaveCount(0);
+  // 다른 업무 선택 시 목록 행 선택과 클러스터 선택 표시가 해당 업무로 갱신된다.
+  // 두 업무는 동일 좌표라 하나의 그룹 마커를 공유한다.
+  const list = page.getByLabel("매트릭스 업무 목록", { exact: true });
+  await list.getByRole("button", { name: /업무 A/ }).click();
+  await expect(list.getByRole("listitem").filter({ hasText: "업무 A" }).getByRole("button")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator('.ax-matrix-cluster[data-selected="true"]')).toHaveCount(1);
+
+  // Factor 근거는 업무 진단 단계의 진단 항목 상세에서 확인한다(6개 Factor).
+  await page.getByRole("tab", { name: "업무 진단", exact: true }).click();
+  await page.getByRole("button", { name: /진단 항목 상세/ }).click();
+  await expect(page.locator(".ax-factor-row")).toHaveCount(6);
 
   // 진단 단계: AS-IS 도식 제거, 단계별 판단 표가 단일 목록이다.
-  await page.getByRole("tab", { name: "업무 진단", exact: true }).click();
   await expect(page.locator(".ax-process-flow")).toHaveCount(0);
   await expect(page.getByRole("region", { name: "단계별 자동화 판단", exact: true })).toBeVisible();
 });

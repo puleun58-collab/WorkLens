@@ -143,8 +143,12 @@ for (const viewport of VIEWPORTS) {
     const list = page.getByLabel("매트릭스 업무 목록");
     for (const [index, row] of ranked.entries()) {
       const item = list.getByRole("listitem").filter({ hasText: row.task.name });
-      await expect(item.locator(".ax-task-name")).toHaveText(`${index + 1}. ${row.task.name}`);
-      await expect(item.locator(".ax-gate-badge")).toHaveAttribute("data-gate", executionGate(row.task.diagnosis));
+      // §6 우측 목록: 순번은 별도 열, 업무명은 순번 없이 표시, Gate는 작은 점으로 표시한다.
+      await expect(item.locator(".ax-matrix-rank")).toHaveText(`${index + 1}`);
+      await expect(item.locator(".ax-task-name")).toHaveText(row.task.name);
+      await expect(item.locator(".ax-gate-badge")).toHaveCount(0);
+      await expect(item.locator(".ax-gate-dot")).toHaveAttribute("data-gate", executionGate(row.task.diagnosis));
+      await expect(item.locator(".ax-gate-dot")).toHaveAttribute("aria-label", row.task.diagnosis ? { ready: "진행 가능", conditional: "확인 후 진행", blocked: "진행 보류" }[executionGate(row.task.diagnosis)] : "");
     }
     // Comparison selection is gone; single selection remains.
     const step3 = page.locator(".ax-step3-rows");
@@ -167,47 +171,31 @@ for (const viewport of VIEWPORTS) {
       for (const left of lefts) expect(Math.abs(left - lefts[0])).toBeLessThanOrEqual(1);
     }
 
-    // One colour per gate across legend, bubble status dot and badges.
+    // One colour per gate across legend and list dot (기존 Gate 매핑 유지).
+    // 이 픽스처의 conditional/blocked 업무는 클러스터 소속이라 단일 마커 점이 없다:
+    // 단일 마커 점 색상은 ax-matrix-unify 스펙에서 Gate별 단일 마커로 대조한다.
     for (const gate of ["ready", "conditional", "blocked"] as const) {
       const legend = await page.locator(`.ax-legend-dot[data-gate=${gate}]`).evaluate(element => getComputedStyle(element).backgroundColor);
-      expect(await page.locator(`.ax-bubble-gate[data-gate=${gate}]`).first().evaluate(element => getComputedStyle(element).backgroundColor)).toBe(legend);
-      expect(await list.locator(`.ax-gate-badge[data-gate=${gate}]`).first().evaluate(element => getComputedStyle(element).color)).toBe(legend);
+      expect(await list.locator(`.ax-gate-dot[data-gate=${gate}]`).first().evaluate(element => getComputedStyle(element).backgroundColor)).toBe(legend);
     }
     const legendColours = await page.locator(".ax-legend-dot").evaluateAll(elements => elements.map(element => getComputedStyle(element).backgroundColor));
     expect(new Set(legendColours).size).toBe(3);
 
-    // 매트릭스 하단 TOP 3는 제거됨 — 상세 분석은 좌측 목록(점수 순위 순) 선택으로 연결된다.
-    const detail = page.locator(".ax-matrix-detail");
+    // 매트릭스 하단 TOP 3는 제거됨 — 상세 카드는 §9로 제거됐고, 선택은 우측 목록 행으로 확인한다.
     await expect(page.locator(".ax-matrix-priority")).toHaveCount(0);
+    await expect(page.locator(".ax-matrix-detail")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "점수 근거 확인", exact: true })).toHaveCount(0);
     const third = ranked[2].task;
     await list.getByRole("button", { name: new RegExp(third.name) }).click();
     await expect.poll(async () => (await stored(page)).selectedTaskId).toBe(third.id);
-    await expect(detail.locator("h3").first()).toHaveText(third.name);
-    await detail.evaluate(element => element.scrollIntoView());
-    await expect.poll(() => detail.evaluate(element => {
-      const box = element.getBoundingClientRect();
-      const hit = document.elementFromPoint(box.left + 24, box.top + 24);
-      return box.top >= 0 && box.top < innerHeight && !!hit && element.contains(hit);
-    })).toBe(true);
+    await expect(list.getByRole("listitem").filter({ hasText: third.name }).getByRole("button")).toHaveAttribute("aria-pressed", "true");
     // The selected task is either its own bubble or a member of an overlapping cluster.
     const bubble = page.locator(`.ax-bubble[aria-label^="${third.name} ·"]`);
     if (await bubble.count()) await expect(bubble).toHaveAttribute("aria-pressed", "true");
     else await expect(page.locator('.ax-matrix-cluster[data-selected="true"]')).toHaveCount(1);
-    if (executionGate(third.diagnosis!) !== "ready") {
-      // 하단 4행 표는 2줄 텍스트로 간소화됨 — 진행 상태·판정 근거 행은 없고,
-      // 진행 상태 배지는 상세 상단 배지 영역에만 한 번 표시된다.
-      await expect(detail.locator(".ax-gate-basis")).toHaveCount(0);
-      await expect(detail.getByText("진행 상태", { exact: true })).toHaveCount(0);
-      await expect(detail.getByText("판정 근거", { exact: true })).toHaveCount(0);
-      // 간소화: 핵심 판단 근거·현재 가능한 범위·선행 확인 조건 3개 영역은 상세 카드에서 제거됨.
-      // 점수 근거는 단일 '점수 근거 확인' 펼침에서 확인한다.
-      await expect(detail.locator(".ax-matrix-rationale")).toHaveCount(0);
-      await expect(detail.locator(".ax-scope-lines")).toHaveCount(0);
-      await expect(detail.locator(".ax-matrix-prereqs")).toHaveCount(0);
-      await expect(detail.getByRole("button", { name: "점수 근거 확인", exact: true })).toBeVisible();
-      await expect(detail.locator(".ax-gate-badge")).toHaveCount(1);
-      await expect(detail.locator(".ax-diag-badges .ax-gate-badge")).toHaveAttribute("data-gate", executionGate(third.diagnosis!));
-    }
+    // Gate는 목록 점으로만 표시되고, Gate 배지·점수 근거 펼침은 매트릭스 단계에 없다.
+    await expect(list.locator(".ax-gate-badge")).toHaveCount(0);
+    await expect(page.locator(".ax-score-evidence")).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     expect(errors).toEqual([]);
     await page.screenshot({ path: `artifacts/ax/matrix-priority-${viewport.width}.png`, fullPage: true });
@@ -220,10 +208,10 @@ for (const [name, tasks, gate] of [
 ] as const) {
   test(`AX matrix list reflects gate state: ${name}`, async ({ page }) => {
     await open(page, [...tasks], 3, VIEWPORTS[0]);
-    // 매트릭스 하단 TOP 3는 제거됨 — Gate 상태는 좌측 목록의 업무별 배지로 확인한다.
+    // 매트릭스 하단 TOP 3는 제거됨 — Gate 상태는 우측 목록의 업무별 상태 점으로 확인한다.
     await expect(page.getByRole("region", { name: "자동화 우선순위", exact: true })).toHaveCount(0);
-    const badges = page.getByLabel("매트릭스 업무 목록", { exact: true }).locator(".ax-gate-badge");
-    await expect(badges).toHaveCount(tasks.length);
-    for (const badge of await badges.all()) await expect(badge).toHaveAttribute("data-gate", gate);
+    const dots = page.getByLabel("매트릭스 업무 목록", { exact: true }).locator(".ax-gate-dot");
+    await expect(dots).toHaveCount(tasks.length);
+    for (const dot of await dots.all()) await expect(dot).toHaveAttribute("data-gate", gate);
   });
 }
