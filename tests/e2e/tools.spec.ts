@@ -2091,7 +2091,11 @@ test("document review keeps issue guidance ahead of independent, grouped source 
         `검토 쟁점${fixture.review.clauses.flatMap((clause) => clause.issues).length}건`,
         `관련 근거 확인${fixture.law + fixture.precedent > 0 ? 1 : 0}/${fixture.review.clauses.flatMap((clause) => clause.issues).length}건`,
       ]);
-      await expect(review.locator(".contract-review-materials"), name).toHaveText(`관련 자료 · 법령 조문 ${fixture.law}건 · 판례 판시사항 ${fixture.precedent}건`);
+      if (fixture.law + fixture.precedent > 0) {
+        await expect(review.locator(".contract-review-materials"), name).toHaveText(`관련 자료 · 법령 조문 ${fixture.law}건 · 판례 판시사항 ${fixture.precedent}건`);
+      } else {
+        await expect(review.locator(".contract-review-materials"), name).toHaveCount(0);
+      }
       await expect(review.locator(".contract-review-file, .contract-review-preview-note"), name).toHaveCount(0);
       if (name === "both" || name === "partial") await review.screenshot({ path: `artifacts/review-${name}-${viewport.width}-${test.info().project.name}.png` });
       const firstIssue = review.locator(".contract-review-issue").first();
