@@ -42,12 +42,12 @@ test("AX 간소화·COSS 통일: 판단 하단 문구 제거·매트릭스 버�
   await expect(page.getByText(/판단 표에 없는 AS-IS 단계/)).toHaveCount(0);
 
   // D1·D2·D3·D7 확정 → 예시 필수 여부가 정해져 step 4에 예시 미확정 항목이 생긴다.
-  await confirmDecision(page, /D1 대조 기준/, "대조 기준 (D1) 상태");
-  await confirmDecision(page, /D2 중복 처리/, "중복 처리 (D2) 상태");
-  await confirmDecision(page, /D3 예외값 처리/, "예외값 처리 (D3) 상태");
-  await confirmDecision(page, /D7 계산 기준/, "계산 기준 (D7) 상태");
+  await confirmDecision(page, /D1 대조 기준/, "D1 상태");
+  await confirmDecision(page, /D2 중복 처리/, "D2 상태");
+  await confirmDecision(page, /D3 예외값 처리/, "D3 상태");
+  await confirmDecision(page, /D7 계산 기준/, "D7 상태");
   await page.locator('section[aria-label="결정 지점 확인"]').getByRole("button", { name: "저장", exact: true }).click();
-  await expect(page.locator('section[aria-label="결정 지점 확인"]').getByText("4/7 완료", { exact: true })).toBeVisible();
+  await expect(page.locator('section[aria-label="결정 지점 확인"]').getByText("4/7 확인 완료", { exact: true })).toBeVisible();
 
   // B. 매트릭스 상세에는 업무 진단으로 이동 버튼이 없다.
   await page.getByRole("button", { name: "다음 단계" }).click();
@@ -95,7 +95,7 @@ test("AX 간소화·COSS 통일: 판단 하단 문구 제거·매트릭스 버�
   await expect(page.locator("#ax-example-results")).toBeInViewport();
 
   // E. 저장 후 결과·로드맵 복귀: 예시를 저장하고 로드맵으로 돌아가면 같은 업무가 유지된다.
-  await page.getByRole("button", { name: "+ 새 예시", exact: true }).click();
+  await page.getByRole("button", { name: "+ 예시 추가", exact: true }).click();
   await page.getByLabel("예시 1 입력값").fill("운송장 WB-001, 중량 10kg");
   await page.getByLabel("예시 1 예상 결과 상태").fill("정상");
   await page.locator('section[aria-label="업무 처리 예시"]').getByRole("button", { name: "저장", exact: true }).click();
